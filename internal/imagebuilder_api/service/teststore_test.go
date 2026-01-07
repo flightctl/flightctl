@@ -8,6 +8,7 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1beta1/imagebuilder"
 	"github.com/flightctl/flightctl/internal/flterrors"
+	"github.com/flightctl/flightctl/internal/imagebuilder_api/store"
 	flightctlstore "github.com/flightctl/flightctl/internal/store"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
@@ -257,4 +258,56 @@ func deepCopy(src, dst interface{}) {
 	if err = json.Unmarshal(data, dst); err != nil {
 		panic(fmt.Sprintf("deepCopy failed in test: %v", err))
 	}
+}
+
+// DummyImagePipelineStore is a mock implementation of store.ImagePipelineStore
+type DummyImagePipelineStore struct{}
+
+func NewDummyImagePipelineStore() *DummyImagePipelineStore {
+	return &DummyImagePipelineStore{}
+}
+
+// Transaction executes fn within a simulated transaction for unit tests
+// For the dummy store, this just executes the callback immediately
+func (s *DummyImagePipelineStore) Transaction(ctx context.Context, fn func(ctx context.Context) error) error {
+	return fn(ctx)
+}
+
+// DummyStore is a mock implementation of store.Store for unit testing
+type DummyStore struct {
+	imageBuildStore    *DummyImageBuildStore
+	imageExportStore   *DummyImageExportStore
+	imagePipelineStore *DummyImagePipelineStore
+}
+
+func NewDummyStore() *DummyStore {
+	return &DummyStore{
+		imageBuildStore:    NewDummyImageBuildStore(),
+		imageExportStore:   NewDummyImageExportStore(),
+		imagePipelineStore: NewDummyImagePipelineStore(),
+	}
+}
+
+func (s *DummyStore) ImageBuild() store.ImageBuildStore {
+	return s.imageBuildStore
+}
+
+func (s *DummyStore) ImageExport() store.ImageExportStore {
+	return s.imageExportStore
+}
+
+func (s *DummyStore) ImagePipeline() store.ImagePipelineStore {
+	return s.imagePipelineStore
+}
+
+func (s *DummyStore) RunMigrations(ctx context.Context) error {
+	return nil
+}
+
+func (s *DummyStore) Ping() error {
+	return nil
+}
+
+func (s *DummyStore) Close() error {
+	return nil
 }

@@ -19,6 +19,8 @@ tags:
     description: Operations on ImageBuild resources.
   - name: imageexport
     description: Operations on ImageExport resources.
+  - name: imagepipeline
+    description: Operations on ImagePipeline (atomic ImageBuild + ImageExport creation).
 # Note: Security is handled by Chi middleware (auth.CreateAuthNMiddleware), not OpenAPI validation
 # The securitySchemes are defined in components for documentation purposes
 paths:
@@ -224,6 +226,61 @@ paths:
                 $ref: '../openapi.yaml#/components/schemas/Status'
         "404":
           description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+  /api/v1/imagepipelines:
+    post:
+      tags:
+        - imagepipeline
+      description: Create an ImagePipeline consisting of an ImageBuild and optionally an ImageExport atomically in a single transaction.
+      operationId: createImagePipeline
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ImagePipelineRequest'
+        required: true
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImagePipelineResponse'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "409":
+          description: Conflict
           content:
             application/json:
               schema:
@@ -880,3 +937,25 @@ components:
         - ImageExportFormatPhasePushing
         - ImageExportFormatPhaseComplete
         - ImageExportFormatPhaseFailed
+    # ImagePipeline schemas
+    ImagePipelineRequest:
+      type: object
+      description: Request to create an ImagePipeline consisting of an ImageBuild and optionally an ImageExport atomically. If imageExport is provided, the server will override its source to reference the created ImageBuild.
+      properties:
+        imageBuild:
+          $ref: '#/components/schemas/ImageBuild'
+        imageExport:
+          $ref: '#/components/schemas/ImageExport'
+      required:
+        - imageBuild
+
+    ImagePipelineResponse:
+      type: object
+      description: Response containing the created ImagePipeline resources (ImageBuild and optionally ImageExport).
+      properties:
+        imageBuild:
+          $ref: '#/components/schemas/ImageBuild'
+        imageExport:
+          $ref: '#/components/schemas/ImageExport'
+      required:
+        - imageBuild

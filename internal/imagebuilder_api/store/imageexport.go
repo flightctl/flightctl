@@ -46,6 +46,7 @@ func (s *imageExportStore) InitialMigration(ctx context.Context) error {
 }
 
 // Create creates a new ImageExport resource
+// If a transaction exists in the context (via WithTx), it will be used automatically
 func (s *imageExportStore) Create(ctx context.Context, orgId uuid.UUID, imageExport *api.ImageExport) (*api.ImageExport, error) {
 	if imageExport == nil || imageExport.Metadata.Name == nil {
 		return nil, flterrors.ErrResourceNameIsNil
@@ -57,7 +58,8 @@ func (s *imageExportStore) Create(ctx context.Context, orgId uuid.UUID, imageExp
 	}
 	m.OrgID = orgId
 
-	result := s.db.WithContext(ctx).Create(m)
+	db := getDB(ctx, s.db)
+	result := db.WithContext(ctx).Create(m)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrDuplicatedKey) {
 			return nil, flterrors.ErrDuplicateName

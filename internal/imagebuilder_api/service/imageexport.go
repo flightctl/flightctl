@@ -8,6 +8,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1beta1"
 	api "github.com/flightctl/flightctl/api/v1beta1/imagebuilder"
+	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/google/uuid"
@@ -48,7 +49,9 @@ func (s *imageExportService) Create(ctx context.Context, orgId uuid.UUID, imageE
 	NilOutManagedObjectMetaProperties(&imageExport.Metadata)
 
 	// Validate input
-	if errs := s.validate(ctx, orgId, &imageExport); len(errs) > 0 {
+	if errs, internalErr := s.validate(ctx, orgId, &imageExport); internalErr != nil {
+		return nil, StatusInternalServerError(internalErr.Error())
+	} else if len(errs) > 0 {
 		return nil, StatusBadRequest(errors.Join(errs...).Error())
 	}
 
@@ -97,7 +100,8 @@ func (s *imageExportService) UpdateLastSeen(ctx context.Context, orgId uuid.UUID
 }
 
 // validate performs validation on an ImageExport resource
-func (s *imageExportService) validate(ctx context.Context, orgId uuid.UUID, imageExport *api.ImageExport) []error {
+// Returns validation errors (4xx) and internal errors (5xx) separately
+func (s *imageExportService) validate(ctx context.Context, orgId uuid.UUID, imageExport *api.ImageExport) ([]error, error) {
 	var errs []error
 
 	if lo.FromPtr(imageExport.Metadata.Name) == "" {
@@ -119,8 +123,10 @@ func (s *imageExportService) validate(ctx context.Context, orgId uuid.UUID, imag
 			} else {
 				// Check that the referenced ImageBuild exists
 				_, err = s.imageBuildStore.Get(ctx, orgId, source.ImageBuildRef)
-				if err != nil {
+				if errors.Is(err, flterrors.ErrResourceNotFound) {
 					errs = append(errs, fmt.Errorf("spec.source.imageBuildRef: ImageBuild %q not found", source.ImageBuildRef))
+				} else if err != nil {
+					return nil, fmt.Errorf("failed to get ImageBuild %q: %w", source.ImageBuildRef, err)
 				}
 			}
 		case string(api.ImageExportSourceTypeImageReference):
@@ -159,5 +165,5 @@ func (s *imageExportService) validate(ctx context.Context, orgId uuid.UUID, imag
 		errs = append(errs, errors.New("spec.format is required"))
 	}
 
-	return errs
+	return errs, nil
 }

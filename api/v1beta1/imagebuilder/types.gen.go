@@ -347,6 +347,24 @@ type ImageExportStatus struct {
 	ManifestDigest *string `json:"manifestDigest,omitempty"`
 }
 
+// ImagePipelineRequest Request to create an ImagePipeline consisting of an ImageBuild and optionally an ImageExport atomically. If imageExport is provided, the server will override its source to reference the created ImageBuild.
+type ImagePipelineRequest struct {
+	// ImageBuild ImageBuild represents a build request for a container image.
+	ImageBuild ImageBuild `json:"imageBuild"`
+
+	// ImageExport ImageExport represents an export request to convert and push images to different formats.
+	ImageExport *ImageExport `json:"imageExport,omitempty"`
+}
+
+// ImagePipelineResponse Response containing the created ImagePipeline resources (ImageBuild and optionally ImageExport).
+type ImagePipelineResponse struct {
+	// ImageBuild ImageBuild represents a build request for a container image.
+	ImageBuild ImageBuild `json:"imageBuild"`
+
+	// ImageExport ImageExport represents an export request to convert and push images to different formats.
+	ImageExport *ImageExport `json:"imageExport,omitempty"`
+}
+
 // ImageReferenceSource ImageReferenceSource specifies a source image from a repository.
 type ImageReferenceSource struct {
 	// ImageName The name of the source image.
@@ -409,6 +427,9 @@ type CreateImageBuildJSONRequestBody = ImageBuild
 
 // CreateImageExportJSONRequestBody defines body for CreateImageExport for application/json ContentType.
 type CreateImageExportJSONRequestBody = ImageExport
+
+// CreateImagePipelineJSONRequestBody defines body for CreateImagePipeline for application/json ContentType.
+type CreateImagePipelineJSONRequestBody = ImagePipelineRequest
 
 // AsEarlyBinding returns the union data inside the ImageBuildBinding as a EarlyBinding
 func (t ImageBuildBinding) AsEarlyBinding() (EarlyBinding, error) {

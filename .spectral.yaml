@@ -514,6 +514,7 @@ overrides:
       - "**#/paths/~1api~1v1~1events"
       - "**#/paths/~1api~1v1~1enrollmentconfig"
       - "**#/paths/~1api~1v1~1organizations"
+      - "**#/paths/~1api~1v1~1imagepipelines"
     rules:
       collection-verbs-required: off
   # OIDC spec endpoints must follow OIDC specification standards

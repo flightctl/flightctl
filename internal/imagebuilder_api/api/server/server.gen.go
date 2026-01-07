@@ -38,6 +38,9 @@ type ServerInterface interface {
 
 	// (GET /api/v1/imageexports/{name})
 	GetImageExport(w http.ResponseWriter, r *http.Request, name string)
+
+	// (POST /api/v1/imagepipelines)
+	CreateImagePipeline(w http.ResponseWriter, r *http.Request)
 }
 
 // Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
@@ -81,6 +84,11 @@ func (_ Unimplemented) DeleteImageExport(w http.ResponseWriter, r *http.Request,
 
 // (GET /api/v1/imageexports/{name})
 func (_ Unimplemented) GetImageExport(w http.ResponseWriter, r *http.Request, name string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (POST /api/v1/imagepipelines)
+func (_ Unimplemented) CreateImagePipeline(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -331,6 +339,21 @@ func (siw *ServerInterfaceWrapper) GetImageExport(w http.ResponseWriter, r *http
 	handler.ServeHTTP(w, r.WithContext(ctx))
 }
 
+// CreateImagePipeline operation middleware
+func (siw *ServerInterfaceWrapper) CreateImagePipeline(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateImagePipeline(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
 type UnescapedCookieParamError struct {
 	ParamName string
 	Err       error
@@ -467,6 +490,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/imageexports/{name}", wrapper.GetImageExport)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/imagepipelines", wrapper.CreateImagePipeline)
 	})
 
 	return r
