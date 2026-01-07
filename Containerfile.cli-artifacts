@@ -3,6 +3,14 @@ WORKDIR /app
 
 # Switch to root for build operations
 USER 0
+# Use BuildKit cache mounts for dnf package caching
+RUN --mount=type=cache,target=/var/cache/dnf \
+    --mount=type=cache,target=/var/lib/dnf \
+    dnf install --nodocs -y jq
+
+# Install runtime nginx into a separate root for the final image
+RUN mkdir -p /runtime-root && \
+    dnf install -y --installroot=/runtime-root --setopt=install_weak_deps=False --nodocs nginx
 
 # Copy dependencies first (most stable)
 COPY go.* ./
@@ -26,11 +34,6 @@ COPY ./test ./test
 COPY ./packaging/containers/cli-artifacts/nginx.conf ./packaging/containers/cli-artifacts/nginx.conf
 COPY ./packaging/containers/cli-artifacts/entrypoint.sh ./packaging/containers/cli-artifacts/entrypoint.sh
 
-# Use BuildKit cache mounts for dnf package caching
-RUN --mount=type=cache,target=/var/cache/dnf \
-    --mount=type=cache,target=/var/lib/dnf \
-    dnf install --nodocs -y jq
-
 # Define version info ARGs right before build
 ARG SOURCE_GIT_TAG
 ARG SOURCE_GIT_TREE_STATE
@@ -47,11 +50,11 @@ RUN --mount=type=cache,target=/opt/app-root/src/.cache/go-build \
     make build-multiarch-clis
 
 FROM registry.access.redhat.com/ubi9/ubi-minimal:9.7-1763362218
+
+COPY --from=builder /runtime-root/ /
+
 # Use BuildKit cache mounts for dnf package caching
-RUN --mount=type=cache,target=/var/cache/dnf \
-    --mount=type=cache,target=/var/lib/dnf \
-    microdnf install --nodocs --setopt install_weak_deps=0 -y nginx && \
-    rm -f /etc/nginx/nginx.conf /etc/nginx/conf.d/default.conf
+RUN rm -f /etc/nginx/nginx.conf /etc/nginx/conf.d/default.conf
 
 ENV USER_UID=1001 \
     USER_NAME=server \
