@@ -1,9 +1,10 @@
 name: "Helm upgrade test"
 description: |
-  Tests Helm upgrade path from main branch to PR changes.
-  Builds images/charts for both main (baseline) and PR branch in parallel,
+  Tests Helm upgrade path from target branch to PR changes.
+  Builds images/charts for both target branch (baseline) and PR branch in parallel,
   deploys baseline to kind cluster, runs smoke tests, then upgrades to PR version
-  and verifies resources are preserved. 
+  and verifies resources are preserved. For PRs targeting release branches,
+  uses that release branch as baseline instead of main. 
 
 on:
   workflow_dispatch:
@@ -66,7 +67,7 @@ jobs:
     uses: ./.github/workflows/build-images-and-charts.yaml
     with:
       repository: flightctl/flightctl
-      ref: main
+      ref: ${{ github.base_ref || 'main' }}
 
   build-pr:
     needs: [check-override, check-changes]
@@ -114,7 +115,7 @@ jobs:
           echo "Helm plugins after installation:"
           helm plugin list
 
-      # ========== DEPLOY BASELINE (main branch) ==========
+      # ========== DEPLOY BASELINE (target branch) ==========
       - name: Get base domain
         id: get-ip
         run: |
