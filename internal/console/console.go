@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 
 	api "github.com/flightctl/flightctl/api/v1beta1"
@@ -53,7 +52,7 @@ func NewConsoleSessionManager(serviceHandler service.Service, log logrus.FieldLo
 	}
 }
 
-func (m *ConsoleSessionManager) modifyAnnotations(ctx context.Context, orgId uuid.UUID, deviceName string, updater func(value string) (string, error)) error {
+func (m *ConsoleSessionManager) modifyAnnotations(ctx context.Context, orgId uuid.UUID, deviceName string, updater func(value string) (string, error)) api.Status {
 	var (
 		err                 error
 		newValue            string
@@ -62,31 +61,31 @@ func (m *ConsoleSessionManager) modifyAnnotations(ctx context.Context, orgId uui
 	for i := 0; i != 10; i++ {
 		device, status := m.serviceHandler.GetDevice(ctx, orgId, deviceName)
 		if status.Code != http.StatusOK {
-			return service.ApiStatusToErr(status)
+			return status
 		}
 		device.Metadata.Annotations = lo.ToPtr(util.EnsureMap(lo.FromPtr(device.Metadata.Annotations)))
 
 		// Check if device is in waiting, paused, or decommissioned state - prevent console updates
 		annotations := lo.FromPtr(device.Metadata.Annotations)
 		if waitingValue, exists := annotations[api.DeviceAnnotationAwaitingReconnect]; exists && waitingValue == "true" {
-			return fmt.Errorf("cannot update console for device %s: %w", deviceName, flterrors.ErrDeviceAwaitingReconnect)
+			return api.StatusConflict("Device is awaiting reconnection after restore")
 		}
 		if pausedValue, exists := annotations[api.DeviceAnnotationConflictPaused]; exists && pausedValue == "true" {
-			return fmt.Errorf("cannot update console for device %s: %w", deviceName, flterrors.ErrDeviceConflictPaused)
+			return api.StatusConflict("Device is paused due to conflicts")
 		}
 		if device.Spec != nil && device.Spec.Decommissioning != nil {
-			return fmt.Errorf("cannot update console for device %s: %w", deviceName, flterrors.ErrDecommission)
+			return api.StatusConflict("Device is decommissioned")
 		}
 
 		value, _ := util.GetFromMap(annotations, api.DeviceAnnotationConsole)
 		newValue, err = updater(value)
 		if err != nil {
-			return err
+			return api.StatusInternalServerError(err.Error())
 		}
 		(*device.Metadata.Annotations)[api.DeviceAnnotationConsole] = newValue
 		nextRenderedVersion, err = api.GetNextDeviceRenderedVersion(*device.Metadata.Annotations, device.Status)
 		if err != nil {
-			return err
+			return api.StatusInternalServerError(err.Error())
 		}
 		(*device.Metadata.Annotations)[api.DeviceAnnotationRenderedVersion] = nextRenderedVersion
 		m.log.Infof("About to save annotations %+v", *device.Metadata.Annotations)
@@ -98,7 +97,10 @@ func (m *ConsoleSessionManager) modifyAnnotations(ctx context.Context, orgId uui
 	if err == nil {
 		err = rendered.Bus.Instance().StoreAndNotify(ctx, orgId, deviceName, nextRenderedVersion)
 	}
-	return err
+	if err != nil {
+		return api.StatusInternalServerError(err.Error())
+	}
+	return api.StatusOK()
 }
 
 func addSession(sessionID string, sessionMetadata string) func(string) (string, error) {
@@ -144,10 +146,10 @@ func removeSession(sessionID string) func(string) (string, error) {
 	}
 }
 
-func (m *ConsoleSessionManager) StartSession(ctx context.Context, orgId uuid.UUID, deviceName, sessionMetadata string) (*ConsoleSession, error) {
+func (m *ConsoleSessionManager) StartSession(ctx context.Context, orgId uuid.UUID, deviceName, sessionMetadata string) (*ConsoleSession, api.Status) {
 	if sessionMetadata == "" {
 		m.log.Error("incompatible client: missing session metadata")
-		return nil, errors.New("incompatible client: missing session metadata")
+		return nil, api.StatusBadRequest("incompatible client: missing session metadata")
 	}
 	m.log.Infof("Start session. Metadata %s", sessionMetadata)
 	session := &ConsoleSession{
@@ -160,33 +162,36 @@ func (m *ConsoleSessionManager) StartSession(ctx context.Context, orgId uuid.UUI
 	}
 	// we should move this to a separate table in the database
 	if _, status := m.serviceHandler.GetDevice(ctx, orgId, deviceName); status.Code != http.StatusOK {
-		return nil, service.ApiStatusToErr(status)
+		return nil, status
 	}
 
-	if err := m.modifyAnnotations(ctx, orgId, deviceName, addSession(session.UUID, sessionMetadata)); err != nil {
-		return nil, err
+	if status := m.modifyAnnotations(ctx, orgId, deviceName, addSession(session.UUID, sessionMetadata)); status.Code != http.StatusOK {
+		return nil, status
 	}
 	// tell the gRPC service, or the message queue (in the future) that there is a session waiting, and provide
 	// the channels to read and write to the websocket session
 	if err := m.sessionRegistration.StartSession(session); err != nil {
 		m.log.Errorf("Failed to start session %s for device %s: %v, rolling back device annotation", session.UUID, deviceName, err)
 		// if we fail to register the session we should remove the annotation (best effort)
-		if annErr := m.modifyAnnotations(ctx, orgId, deviceName, removeSession(session.UUID)); annErr != nil {
-			m.log.Errorf("Failed to remove annotation from device %s: %v", deviceName, annErr)
+		if annStatus := m.modifyAnnotations(ctx, orgId, deviceName, removeSession(session.UUID)); annStatus.Code != http.StatusOK {
+			m.log.Errorf("Failed to remove annotation from device %s: %v", deviceName, annStatus)
 		}
-		return nil, err
+		return nil, api.StatusInternalServerError(err.Error())
 	}
-	return session, nil
+	return session, api.StatusOK()
 }
 
-func (m *ConsoleSessionManager) CloseSession(ctx context.Context, session *ConsoleSession) error {
+func (m *ConsoleSessionManager) CloseSession(ctx context.Context, session *ConsoleSession) api.Status {
 	closeSessionErr := m.sessionRegistration.CloseSession(session)
 	// make sure the device exists
 
-	if err := m.modifyAnnotations(ctx, session.OrgId, session.DeviceName, removeSession(session.UUID)); err != nil {
-		return fmt.Errorf("failed to remove annotation from device %s: %w", session.DeviceName, err)
+	if status := m.modifyAnnotations(ctx, session.OrgId, session.DeviceName, removeSession(session.UUID)); status.Code != http.StatusOK {
+		return status
 	}
 
 	// we still want to signal if there was an error closing the session
-	return closeSessionErr
+	if closeSessionErr != nil {
+		return api.StatusInternalServerError(closeSessionErr.Error())
+	}
+	return api.StatusOK()
 }
