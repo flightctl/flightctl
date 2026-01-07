@@ -452,7 +452,7 @@ func mergeConfigs(base, override *Config) {
 	// Always override pruning config from dropins when present.
 	// Since dropins are meant to override base config, we always apply the value.
 	// Note: This means a dropin without a pruning section won't change the base value,
-	// but a dropin with pruning.enabled: false will override to false.
+	// but a dropin with image-pruning.enabled: false will override to false.
 	overrideIfNotEmpty(&base.ImagePruning.Enabled, override.ImagePruning.Enabled)
 
 	for k, v := range override.DefaultLabels {
