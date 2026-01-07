@@ -13,3 +13,4 @@ dev:
     telemetryGatewayProm: 9464
     gitserver: 3222
     registry: 5000
+    imagebuilderApi: 8445
