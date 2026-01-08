@@ -258,6 +258,11 @@ func isStopped(stopped, total int) bool {
 }
 
 func isCompleted(total, completed int) bool {
+	// A multi-container application is assumed to be a service, so if all
+	// containers have exited, it's considered an error rather than a completion.
+	if total > 1 {
+		return false
+	}
 	return total > 0 && completed == total
 }
 

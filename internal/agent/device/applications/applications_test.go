@@ -193,8 +193,8 @@ func TestApplicationStatus(t *testing.T) {
 				},
 			},
 			expectedReady:         "0/2",
-			expectedStatus:        v1beta1.ApplicationStatusCompleted,
-			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusHealthy,
+			expectedStatus:        v1beta1.ApplicationStatusError,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusError,
 		},
 		{
 			name: "app has one workloads exited",
