@@ -6481,7 +6481,7 @@ components:
           description: UID of the user that created the CSR, populated by the API server on creation and immutable.
           type: string
         usages:
-          description: Usages specifies a set of key usages requested in the issued certificate.
+          description: Usages specifies a set of key usages requested in the issued certificate. Usages "clientAuth" and "CA:false" are mandatory and must be included for all requests.
           items:
             type: string
           type: array
