@@ -176,6 +176,7 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 	restarts := 0
 	exited := 0
 	stopped := 0
+
 	for _, workload := range a.workloads {
 		restarts += workload.Restarts
 		switch workload.Status {
