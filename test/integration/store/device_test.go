@@ -8,7 +8,7 @@ import (
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1beta1"
-	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/config/common"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
@@ -43,7 +43,7 @@ var _ = Describe("DeviceStore create", func() {
 		orgId      uuid.UUID
 		storeInst  store.Store
 		devStore   store.Device
-		cfg        *config.Config
+		cfg        *common.DatabaseConfig
 		db         *gorm.DB
 		dbName     string
 		numDevices int

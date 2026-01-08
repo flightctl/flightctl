@@ -6,7 +6,7 @@ import (
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1beta1"
-	"github.com/flightctl/flightctl/internal/config"
+	apiconfig "github.com/flightctl/flightctl/internal/config/api"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
@@ -208,9 +208,9 @@ func TestDeviceCollectorWithGroupByFleet(t *testing.T) {
 	defer cancel()
 
 	// Create collector with 1ms interval for fast testing
-	config := config.NewDefault()
-	config.Metrics.DeviceCollector.GroupByFleet = true
-	collector := NewDeviceCollector(ctx, mockStore, log, config)
+	cfg := apiconfig.NewDefault()
+	cfg.Metrics.DeviceCollector.GroupByFleet = true
+	collector := NewDeviceCollector(ctx, mockStore, log, cfg)
 
 	// Wait a bit for the collector to start and collect metrics
 	time.Sleep(10 * time.Millisecond)
@@ -256,9 +256,9 @@ func TestDeviceCollectorWithoutGroupByFleet(t *testing.T) {
 	defer cancel()
 
 	// Create collector with 1ms interval for fast testing
-	config := config.NewDefault()
-	config.Metrics.DeviceCollector.GroupByFleet = false
-	collector := NewDeviceCollector(ctx, mockStore, log, config)
+	cfg := apiconfig.NewDefault()
+	cfg.Metrics.DeviceCollector.GroupByFleet = false
+	collector := NewDeviceCollector(ctx, mockStore, log, cfg)
 
 	// Wait a bit for the collector to start and collect metrics
 	time.Sleep(10 * time.Millisecond)
@@ -327,9 +327,9 @@ func TestDeviceCollectorWithEmptyResults(t *testing.T) {
 	defer cancel()
 
 	// Create collector
-	config := config.NewDefault()
-	config.Metrics.DeviceCollector.GroupByFleet = true
-	collector := NewDeviceCollector(ctx, mockStore, log, config)
+	cfg := apiconfig.NewDefault()
+	cfg.Metrics.DeviceCollector.GroupByFleet = true
+	collector := NewDeviceCollector(ctx, mockStore, log, cfg)
 
 	// Wait a bit for the collector to start and collect metrics
 	time.Sleep(10 * time.Millisecond)
@@ -365,9 +365,9 @@ func TestDeviceCollectorUpdateDeviceMetricsWithEmptyResults(t *testing.T) {
 	defer cancel()
 
 	// Create collector
-	config := config.NewDefault()
-	config.Metrics.DeviceCollector.GroupByFleet = true
-	collector := NewDeviceCollector(ctx, mockStore, log, config)
+	cfg := apiconfig.NewDefault()
+	cfg.Metrics.DeviceCollector.GroupByFleet = true
+	collector := NewDeviceCollector(ctx, mockStore, log, cfg)
 
 	// Call updateDeviceMetrics directly
 	collector.updateDeviceMetrics()

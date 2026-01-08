@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 
-	"github.com/flightctl/flightctl/internal/config"
+	periodiccfg "github.com/flightctl/flightctl/internal/config/periodic"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	periodic "github.com/flightctl/flightctl/internal/periodic_checker"
 	"github.com/flightctl/flightctl/internal/store"
@@ -13,16 +13,16 @@ import (
 func main() {
 	ctx := context.Background()
 
-	cfg, err := config.LoadOrGenerate(config.ConfigFile())
+	cfg, err := periodiccfg.LoadOrGenerate(periodiccfg.ConfigFile())
 	if err != nil {
 		log.InitLogs().Fatalf("reading configuration: %v", err)
 	}
 
-	log := log.InitLogs(cfg.Service.LogLevel)
+	log := log.InitLogs(cfg.LogLevel())
 	log.Println("Starting periodic")
 	log.Printf("Using config: %s", cfg)
 
-	tracerShutdown := tracing.InitTracer(log, cfg, "flightctl-periodic")
+	tracerShutdown := tracing.InitTracer(log, cfg.Tracing, "flightctl-periodic")
 	defer func() {
 		if err := tracerShutdown(ctx); err != nil {
 			log.Fatalf("failed to shut down tracer: %v", err)
@@ -30,7 +30,7 @@ func main() {
 	}()
 
 	log.Println("Initializing data store")
-	db, err := store.InitDB(cfg, log)
+	db, err := store.InitDB(cfg.Database, cfg.Tracing, log)
 	if err != nil {
 		log.Fatalf("initializing data store: %v", err)
 	}

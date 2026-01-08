@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/config/common"
 	"github.com/sirupsen/logrus"
 )
 
@@ -49,7 +49,7 @@ func (e *HTTPError) Error() string {
 	return fmt.Sprintf("HTTP %d %s", e.StatusCode, e.Status)
 }
 
-func NewAlertmanagerClient(hostname string, port uint, log logrus.FieldLogger, cfg *config.Config) *AlertmanagerClient {
+func NewAlertmanagerClient(hostname string, port uint, log logrus.FieldLogger, cfg *common.AlertmanagerConfig) *AlertmanagerClient {
 	client := &AlertmanagerClient{
 		hostname:       hostname,
 		port:           port,
@@ -61,28 +61,28 @@ func NewAlertmanagerClient(hostname string, port uint, log logrus.FieldLogger, c
 	}
 
 	// Apply configuration if provided
-	if cfg != nil && cfg.Alertmanager != nil {
-		if cfg.Alertmanager.MaxRetries > 0 && cfg.Alertmanager.MaxRetries <= 10 {
-			client.maxRetries = cfg.Alertmanager.MaxRetries
+	if cfg != nil {
+		if cfg.MaxRetries > 0 && cfg.MaxRetries <= 10 {
+			client.maxRetries = cfg.MaxRetries
 		}
 
-		if cfg.Alertmanager.BaseDelay != "" {
-			if baseDelay, err := time.ParseDuration(cfg.Alertmanager.BaseDelay); err == nil && baseDelay > 0 {
+		if cfg.BaseDelay != "" {
+			if baseDelay, err := time.ParseDuration(cfg.BaseDelay); err == nil && baseDelay > 0 {
 				client.baseDelay = baseDelay
 			} else {
 				log.WithFields(logrus.Fields{
-					"configured_base_delay": cfg.Alertmanager.BaseDelay,
+					"configured_base_delay": cfg.BaseDelay,
 					"error":                 err,
 				}).Warn("Invalid base delay configuration, using default 500ms")
 			}
 		}
 
-		if cfg.Alertmanager.MaxDelay != "" {
-			if maxDelay, err := time.ParseDuration(cfg.Alertmanager.MaxDelay); err == nil && maxDelay > client.baseDelay {
+		if cfg.MaxDelay != "" {
+			if maxDelay, err := time.ParseDuration(cfg.MaxDelay); err == nil && maxDelay > client.baseDelay {
 				client.maxDelay = maxDelay
 			} else {
 				log.WithFields(logrus.Fields{
-					"configured_max_delay": cfg.Alertmanager.MaxDelay,
+					"configured_max_delay": cfg.MaxDelay,
 					"error":                err,
 				}).Warn("Invalid max delay configuration, using default 10s")
 			}

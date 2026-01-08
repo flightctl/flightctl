@@ -4,7 +4,7 @@ import (
 	"context"
 
 	api "github.com/flightctl/flightctl/api/v1beta1"
-	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/config/common"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
@@ -26,7 +26,7 @@ var _ = Describe("ResourceSyncStore create", func() {
 		ctx              context.Context
 		orgId            uuid.UUID
 		storeInst        store.Store
-		cfg              *config.Config
+		cfg              *common.DatabaseConfig
 		dbName           string
 		numResourceSyncs int
 	)

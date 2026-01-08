@@ -9,7 +9,7 @@ import (
 	"syscall"
 
 	"github.com/flightctl/flightctl/internal/api_server/middleware"
-	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/config/pamissuer"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/pam_issuer_server"
@@ -19,18 +19,18 @@ import (
 func main() {
 	ctx := context.Background()
 
-	cfg, err := config.LoadOrGenerate(config.ConfigFile())
+	cfg, err := pamissuer.LoadOrGenerate(pamissuer.ConfigFile())
 	if err != nil {
 		log.InitLogs().Fatalf("reading configuration: %v", err)
 	}
 
-	log := log.InitLogs(cfg.Service.LogLevel)
+	log := log.InitLogs(cfg.LogLevel())
 	log.Println("Starting PAM issuer service")
 	defer log.Println("PAM issuer service stopped")
 	log.Printf("Using config: %s", cfg)
 
 	// Check if PAM OIDC issuer is configured
-	if cfg.Auth == nil || cfg.Auth.PAMOIDCIssuer == nil {
+	if cfg.PAMOIDCIssuer == nil {
 		log.Fatalf("PAM OIDC issuer not configured")
 	}
 
@@ -40,13 +40,13 @@ func main() {
 	}
 	caClient := crypto.NewCAClient(cfg.CA, ca)
 
-	serverCerts, err := config.LoadServerCertificates(cfg, log)
+	serverCerts, err := pamissuer.LoadServerCertificates(cfg, log)
 	if err != nil {
 		log.Fatalf("loading server certificates: %v", err)
 	}
 
 	// Use separate configuration for PAM issuer service
-	pamIssuerAddress := cfg.Auth.PAMOIDCIssuer.Address
+	pamIssuerAddress := cfg.PAMOIDCIssuer.Address
 	if pamIssuerAddress == "" {
 		pamIssuerAddress = ":8444" // Default port for PAM issuer
 	}
@@ -56,7 +56,7 @@ func main() {
 		log.Fatalf("failed creating TLS config: %v", err)
 	}
 
-	tracerShutdown := tracing.InitTracer(log, cfg, "flightctl-pam-issuer")
+	tracerShutdown := tracing.InitTracer(log, cfg.TracingConfig(), "flightctl-pam-issuer")
 	defer func() {
 		if err := tracerShutdown(ctx); err != nil {
 			log.Fatalf("failed to shut down tracer: %v", err)

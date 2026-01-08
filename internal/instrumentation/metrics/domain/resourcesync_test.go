@@ -6,7 +6,7 @@ import (
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1beta1"
-	"github.com/flightctl/flightctl/internal/config"
+	apiconfig "github.com/flightctl/flightctl/internal/config/api"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
@@ -86,7 +86,7 @@ func TestResourceSyncCollectorGroupByOrgAndStatus(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	config := config.NewDefault()
+	config := apiconfig.NewDefault()
 	if config.Metrics == nil || config.Metrics.ResourceSyncCollector == nil {
 		t.Fatal("expected default ResourceSyncCollector config to be initialized")
 	}
@@ -128,7 +128,7 @@ func TestResourceSyncCollectorWithEmptyResults(t *testing.T) {
 	defer cancel()
 
 	// Create collector
-	config := config.NewDefault()
+	config := apiconfig.NewDefault()
 	if config.Metrics == nil || config.Metrics.ResourceSyncCollector == nil {
 		t.Fatal("expected default ResourceSyncCollector config to be initialized")
 	}
@@ -169,7 +169,7 @@ func TestResourceSyncCollectorUpdateResourceSyncMetricsWithEmptyResults(t *testi
 	defer cancel()
 
 	// Create collector
-	config := config.NewDefault()
+	config := apiconfig.NewDefault()
 	if config.Metrics == nil || config.Metrics.ResourceSyncCollector == nil {
 		t.Fatal("expected default ResourceSyncCollector config to be initialized")
 	}

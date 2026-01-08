@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/flightctl/flightctl/internal/config"
+	apiconfig "github.com/flightctl/flightctl/internal/config/api"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
@@ -27,11 +27,11 @@ type DeviceCollector struct {
 	mu             sync.RWMutex
 	ctx            context.Context
 	tickerInterval time.Duration
-	cfg            *config.Config
+	cfg            *apiconfig.Config
 }
 
 // NewDeviceCollector creates a DeviceCollector.
-func NewDeviceCollector(ctx context.Context, store store.Store, log logrus.FieldLogger, cfg *config.Config) *DeviceCollector {
+func NewDeviceCollector(ctx context.Context, store store.Store, log logrus.FieldLogger, cfg *apiconfig.Config) *DeviceCollector {
 	interval := cfg.Metrics.DeviceCollector.TickerInterval
 
 	collector := &DeviceCollector{

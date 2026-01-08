@@ -1,6 +1,5 @@
 service:
   baseUrl: https://{{.global.baseDomain}}:3443/
-  baseAgentEndpointUrl: https://{{.global.baseDomain}}:7443/
   baseUIUrl: https://{{.global.baseDomain}}:443
   rateLimit:
     enabled: {{.service.rateLimit.enabled}}
@@ -12,39 +11,37 @@ service:
       - {{.}}
 {{- end}}
     {{end}}
-auth:
-  pamOidcIssuer:
-    address: ":8444"
-    issuer: {{if .global.auth.pamOidcIssuer.issuer}}{{.global.auth.pamOidcIssuer.issuer}}{{else}}https://{{.global.baseDomain}}:8444/api/v1/auth{{end}}
-    clientId: {{if .global.auth.pamOidcIssuer.clientId}}{{.global.auth.pamOidcIssuer.clientId}}{{else}}flightctl-client{{end}}
+pamOidcIssuer:
+  address: ":8444"
+  issuer: {{if .global.auth.pamOidcIssuer.issuer}}{{.global.auth.pamOidcIssuer.issuer}}{{else}}https://{{.global.baseDomain}}:8444/api/v1/auth{{end}}
+  clientId: {{if .global.auth.pamOidcIssuer.clientId}}{{.global.auth.pamOidcIssuer.clientId}}{{else}}flightctl-client{{end}}
 {{- if .global.auth.pamOidcIssuer.clientSecret}}
-    clientSecret: {{.global.auth.pamOidcIssuer.clientSecret}}
+  clientSecret: {{.global.auth.pamOidcIssuer.clientSecret}}
 {{- end}}
-    scopes:
+  scopes:
 {{- if .global.auth.pamOidcIssuer.scopes}}
 {{- range .global.auth.pamOidcIssuer.scopes}}
-      - {{.}}
+    - {{.}}
 {{- end}}
 {{- else}}
-      - openid
-      - profile
-      - email
-      - roles
-      - offline_access
+    - openid
+    - profile
+    - email
+    - roles
+    - offline_access
 {{- end}}
-    redirectUris:
+  redirectUris:
 {{- if .global.auth.pamOidcIssuer.redirectUris}}
 {{- range .global.auth.pamOidcIssuer.redirectUris}}
-      - {{.}}
+    - {{.}}
 {{- end}}
 {{- else}}
-      - https://{{.global.baseDomain}}:443/callback
-      - http://localhost:8080/callback
+    - https://{{.global.baseDomain}}:443/callback
+    - http://localhost:8080/callback
 {{- end}}
-    pamService: {{if .global.auth.pamOidcIssuer.pamService}}{{.global.auth.pamOidcIssuer.pamService}}{{else}}flightctl{{end}}
-    allowPublicClientWithoutPKCE: {{if .global.auth.pamOidcIssuer.allowPublicClientWithoutPKCE}}{{.global.auth.pamOidcIssuer.allowPublicClientWithoutPKCE}}{{else}}false{{end}}
-    accessTokenExpiration: {{if .global.auth.pamOidcIssuer.accessTokenExpiration}}{{.global.auth.pamOidcIssuer.accessTokenExpiration}}{{else}}1h{{end}}
-    refreshTokenExpiration: {{if .global.auth.pamOidcIssuer.refreshTokenExpiration}}{{.global.auth.pamOidcIssuer.refreshTokenExpiration}}{{else}}168h{{end}}
-    pendingSessionCookieMaxAge: {{if .global.auth.pamOidcIssuer.pendingSessionCookieMaxAge}}{{.global.auth.pamOidcIssuer.pendingSessionCookieMaxAge}}{{else}}10m{{end}}
-    authenticatedSessionCookieMaxAge: {{if .global.auth.pamOidcIssuer.authenticatedSessionCookieMaxAge}}{{.global.auth.pamOidcIssuer.authenticatedSessionCookieMaxAge}}{{else}}30m{{end}}
-    cookieHttpOnly: {{if .global.auth.pamOidcIssuer.cookieHttpOnly}}{{.global.auth.pamOidcIssuer.cookieHttpOnly}}{{else}}true{{end}}
+  pamService: {{if .global.auth.pamOidcIssuer.pamService}}{{.global.auth.pamOidcIssuer.pamService}}{{else}}flightctl{{end}}
+  allowPublicClientWithoutPKCE: {{if .global.auth.pamOidcIssuer.allowPublicClientWithoutPKCE}}{{.global.auth.pamOidcIssuer.allowPublicClientWithoutPKCE}}{{else}}false{{end}}
+  accessTokenExpiration: {{if .global.auth.pamOidcIssuer.accessTokenExpiration}}{{.global.auth.pamOidcIssuer.accessTokenExpiration}}{{else}}1h{{end}}
+  refreshTokenExpiration: {{if .global.auth.pamOidcIssuer.refreshTokenExpiration}}{{.global.auth.pamOidcIssuer.refreshTokenExpiration}}{{else}}168h{{end}}
+  pendingSessionCookieMaxAge: {{if .global.auth.pamOidcIssuer.pendingSessionCookieMaxAge}}{{.global.auth.pamOidcIssuer.pendingSessionCookieMaxAge}}{{else}}10m{{end}}
+  authenticatedSessionCookieMaxAge: {{if .global.auth.pamOidcIssuer.authenticatedSessionCookieMaxAge}}{{.global.auth.pamOidcIssuer.authenticatedSessionCookieMaxAge}}{{else}}30m{{end}}

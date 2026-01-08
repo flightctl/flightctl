@@ -7,7 +7,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/flightctl/flightctl/internal/config"
+	workercfg "github.com/flightctl/flightctl/internal/config/worker"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics/worker"
@@ -25,17 +25,17 @@ import (
 func main() {
 	ctx := context.Background()
 
-	cfg, err := config.LoadOrGenerate(config.ConfigFile())
+	cfg, err := workercfg.LoadOrGenerate(workercfg.ConfigFile())
 	if err != nil {
 		log.InitLogs().Fatalf("reading configuration: %v", err)
 	}
 
-	log := log.InitLogs(cfg.Service.LogLevel)
+	log := log.InitLogs(cfg.LogLevel())
 	log.Println("Starting worker service")
 	defer log.Println("Worker service stopped")
 	log.Printf("Using config: %s", cfg)
 
-	tracerShutdown := tracing.InitTracer(log, cfg, "flightctl-worker")
+	tracerShutdown := tracing.InitTracer(log, cfg.Tracing, "flightctl-worker")
 	defer func() {
 		if err := tracerShutdown(ctx); err != nil {
 			log.Fatalf("failed to shut down tracer: %v", err)
@@ -43,7 +43,7 @@ func main() {
 	}()
 
 	log.Println("Initializing data store")
-	db, err := store.InitDB(cfg, log)
+	db, err := store.InitDB(cfg.Database, cfg.Tracing, log)
 	if err != nil {
 		log.Fatalf("initializing data store: %v", err)
 	}
@@ -73,12 +73,12 @@ func main() {
 	if cfg.Metrics != nil && cfg.Metrics.Enabled {
 		var collectors []prometheus.Collector
 		if cfg.Metrics.WorkerCollector != nil && cfg.Metrics.WorkerCollector.Enabled {
-			workerCollector = worker.NewWorkerCollector(ctx, log, cfg, provider)
+			workerCollector = worker.NewWorkerCollector(ctx, log, provider)
 			collectors = append(collectors, workerCollector)
 		}
 
 		if cfg.Metrics.SystemCollector != nil && cfg.Metrics.SystemCollector.Enabled {
-			if systemMetricsCollector := metrics.NewSystemCollector(ctx, cfg); systemMetricsCollector != nil {
+			if systemMetricsCollector := metrics.NewSystemCollector(ctx, cfg.Metrics); systemMetricsCollector != nil {
 				collectors = append(collectors, systemMetricsCollector)
 			}
 		}

@@ -7,7 +7,7 @@ import (
 	"os/user"
 
 	"github.com/flightctl/flightctl/internal/auth/authn"
-	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/config/pamissuer"
 	"github.com/sirupsen/logrus"
 )
 
@@ -17,7 +17,7 @@ type Logger = *logrus.Logger
 // PAMOIDCProvider represents a PAM-based OIDC issuer
 type PAMOIDCProvider struct {
 	jwtGenerator      *authn.JWTGenerator
-	config            *config.PAMOIDCIssuer
+	config            *pamissuer.PAMOIDCIssuer
 	pamAuthenticator  Authenticator
 	codeStore         *AuthorizationCodeStore
 	log               Logger

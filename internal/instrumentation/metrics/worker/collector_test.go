@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -77,24 +76,21 @@ func (m *MockQueuesProvider) SetCheckpointTimestamp(ctx context.Context, timesta
 func TestWorkerCollector_NewWorkerCollector(t *testing.T) {
 	ctx := context.Background()
 	log := logrus.New()
-	cfg := &config.Config{}
 	mockProvider := &MockQueuesProvider{}
 
-	collector := NewWorkerCollector(ctx, log, cfg, mockProvider)
+	collector := NewWorkerCollector(ctx, log, mockProvider)
 
 	assert.NotNil(t, collector)
 	assert.Equal(t, log, collector.log)
-	assert.Equal(t, cfg, collector.cfg)
 	assert.Equal(t, mockProvider, collector.queuesProvider)
 }
 
 func TestWorkerCollector_MetricsInterface(t *testing.T) {
 	ctx := context.Background()
 	log := logrus.New()
-	cfg := &config.Config{}
 	mockProvider := &MockQueuesProvider{}
 
-	collector := NewWorkerCollector(ctx, log, cfg, mockProvider)
+	collector := NewWorkerCollector(ctx, log, mockProvider)
 
 	// Test message processing metrics
 	collector.IncMessagesInProgress()
@@ -154,10 +150,9 @@ func TestWorkerCollector_MetricsInterface(t *testing.T) {
 func TestWorkerCollector_CounterValues(t *testing.T) {
 	ctx := context.Background()
 	log := logrus.New()
-	cfg := &config.Config{}
 	mockProvider := &MockQueuesProvider{}
 
-	collector := NewWorkerCollector(ctx, log, cfg, mockProvider)
+	collector := NewWorkerCollector(ctx, log, mockProvider)
 
 	// Increment counters multiple times
 	collector.IncMessagesProcessed("success")
@@ -207,10 +202,9 @@ func TestWorkerCollector_CounterValues(t *testing.T) {
 func TestWorkerCollector_GaugeValues(t *testing.T) {
 	ctx := context.Background()
 	log := logrus.New()
-	cfg := &config.Config{}
 	mockProvider := &MockQueuesProvider{}
 
-	collector := NewWorkerCollector(ctx, log, cfg, mockProvider)
+	collector := NewWorkerCollector(ctx, log, mockProvider)
 
 	// Set gauge values
 	collector.SetQueueDepth("task_queue", 10.0)
@@ -250,10 +244,9 @@ func TestWorkerCollector_GaugeValues(t *testing.T) {
 func TestWorkerCollector_HistogramValues(t *testing.T) {
 	ctx := context.Background()
 	log := logrus.New()
-	cfg := &config.Config{}
 	mockProvider := &MockQueuesProvider{}
 
-	collector := NewWorkerCollector(ctx, log, cfg, mockProvider)
+	collector := NewWorkerCollector(ctx, log, mockProvider)
 
 	// Record histogram observations
 	collector.ObserveProcessingDuration(100 * time.Millisecond)
@@ -288,10 +281,9 @@ func TestWorkerCollector_HistogramValues(t *testing.T) {
 func TestWorkerCollector_RedisConnectionStatus(t *testing.T) {
 	ctx := context.Background()
 	log := logrus.New()
-	cfg := &config.Config{}
 	mockProvider := &MockQueuesProvider{}
 
-	collector := NewWorkerCollector(ctx, log, cfg, mockProvider)
+	collector := NewWorkerCollector(ctx, log, mockProvider)
 
 	// Test connected status
 	collector.SetRedisConnectionStatus(true)
@@ -347,11 +339,10 @@ func TestWorkerCollector_HTTPMetricsEndpoint(t *testing.T) {
 	log.SetLevel(logrus.ErrorLevel) // Reduce noise in test output
 
 	// Create minimal config
-	cfg := &config.Config{}
 
 	// Create worker collector with mock provider
 	mockProvider := &MockQueuesProvider{}
-	workerCollector := NewWorkerCollector(ctx, log, cfg, mockProvider)
+	workerCollector := NewWorkerCollector(ctx, log, mockProvider)
 
 	// Record some test metrics
 	workerCollector.IncMessagesInProgress()

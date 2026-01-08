@@ -3,7 +3,7 @@ package tracing
 import (
 	"context"
 
-	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/config/common"
 	"github.com/sirupsen/logrus"
 	"github.com/stoewer/go-strcase"
 	"go.opentelemetry.io/otel"
@@ -21,8 +21,8 @@ import (
 // If tracing is disabled or misconfigured, a no-op tracer provider is used instead.
 //
 // The returned shutdown function should be called on application exit to ensure all spans are flushed.
-func InitTracer(log logrus.FieldLogger, cfg *config.Config, serviceName string) func(context.Context) error {
-	if cfg.Tracing == nil || !cfg.Tracing.Enabled {
+func InitTracer(log logrus.FieldLogger, cfg *common.TracingConfig, serviceName string) func(context.Context) error {
+	if cfg == nil || !cfg.Enabled {
 		log.Info("Tracing is disabled")
 		otel.SetTracerProvider(noop.NewTracerProvider())
 		return func(ctx context.Context) error { return nil }
@@ -30,11 +30,11 @@ func InitTracer(log logrus.FieldLogger, cfg *config.Config, serviceName string) 
 
 	opts := []otlptracehttp.Option{}
 
-	if cfg.Tracing.Endpoint != "" {
-		opts = append(opts, otlptracehttp.WithEndpoint(cfg.Tracing.Endpoint))
+	if cfg.Endpoint != "" {
+		opts = append(opts, otlptracehttp.WithEndpoint(cfg.Endpoint))
 	}
 
-	if cfg.Tracing.Insecure {
+	if cfg.Insecure {
 		opts = append(opts, otlptracehttp.WithInsecure())
 	}
 

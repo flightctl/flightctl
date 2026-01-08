@@ -9,7 +9,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/flightctl/flightctl/internal/config"
+	periodiccfg "github.com/flightctl/flightctl/internal/config/periodic"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/org/cache"
@@ -25,14 +25,14 @@ import (
 )
 
 type Server struct {
-	cfg   *config.Config
+	cfg   *periodiccfg.Config
 	log   logrus.FieldLogger
 	store store.Store
 }
 
 // New returns a new instance of a flightctl server.
 func New(
-	cfg *config.Config,
+	cfg *periodiccfg.Config,
 	log logrus.FieldLogger,
 	store store.Store,
 ) *Server {
@@ -94,7 +94,7 @@ func (s *Server) Run(ctx context.Context) error {
 	channelManagerConfig := ChannelManagerConfig{
 		Log: s.log,
 	}
-	if s.cfg.Periodic != nil {
+	if s.cfg.Periodic != nil && s.cfg.Periodic.Consumers > 0 {
 		channelManagerConfig.ChannelBufferSize = s.cfg.Periodic.Consumers * 2
 	}
 	channelManager, err := NewChannelManager(channelManagerConfig)
@@ -109,7 +109,7 @@ func (s *Server) Run(ctx context.Context) error {
 		Log:            s.log,
 		Executors:      periodicTaskExecutors,
 	}
-	if s.cfg.Periodic != nil {
+	if s.cfg.Periodic != nil && s.cfg.Periodic.Consumers > 0 {
 		consumerConfig.ConsumerCount = s.cfg.Periodic.Consumers
 	}
 	periodicTaskConsumer, err := NewPeriodicTaskConsumer(consumerConfig)

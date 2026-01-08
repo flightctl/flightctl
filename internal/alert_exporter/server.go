@@ -11,21 +11,21 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/flightctl/flightctl/internal/config"
+	alertexportercfg "github.com/flightctl/flightctl/internal/config/alertexporter"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 )
 
 type Server struct {
-	cfg       *config.Config
+	cfg       *alertexportercfg.Config
 	log       *logrus.Logger
 	startTime time.Time
 }
 
 // New returns a new instance of a flightctl server.
 func New(
-	cfg *config.Config,
+	cfg *alertexportercfg.Config,
 	log *logrus.Logger,
 ) *Server {
 	return &Server{

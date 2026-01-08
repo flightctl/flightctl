@@ -12,7 +12,7 @@ import (
 	apiserver "github.com/flightctl/flightctl/internal/api_server"
 	"github.com/flightctl/flightctl/internal/api_server/agentserver"
 	"github.com/flightctl/flightctl/internal/api_server/middleware"
-	"github.com/flightctl/flightctl/internal/config"
+	apiconfig "github.com/flightctl/flightctl/internal/config/api"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics/domain"
@@ -31,28 +31,28 @@ import (
 func main() {
 	ctx := context.Background()
 
-	cfg, err := config.LoadOrGenerate(config.ConfigFile())
+	cfg, err := apiconfig.LoadOrGenerate(apiconfig.ConfigFile())
 	if err != nil {
 		log.InitLogs().Fatalf("reading configuration: %v", err)
 	}
 
-	log := log.InitLogs(cfg.Service.LogLevel)
+	log := log.InitLogs(cfg.LogLevel())
 	log.Println("Starting API service")
 	defer log.Println("API service stopped")
 	log.Printf("Using config: %s", cfg)
 
-	ca, err := crypto.LoadInternalCA(cfg.CA)
+	ca, err := crypto.LoadInternalCA(cfg.CAConfig())
 	if err != nil {
 		log.Fatalf("loading client-signer certificates: %v", err)
 	}
-	caClient := crypto.NewCAClient(cfg.CA, ca)
+	caClient := crypto.NewCAClient(cfg.CAConfig(), ca)
 
-	serverCerts, err := config.LoadServerCertificates(cfg, log)
+	serverCerts, err := apiconfig.LoadServerCertificates(cfg, log)
 	if err != nil {
 		log.Fatalf("loading server certificates: %v", err)
 	}
 
-	tracerShutdown := tracing.InitTracer(log, cfg, "flightctl-api")
+	tracerShutdown := tracing.InitTracer(log, cfg.TracingConfig(), "flightctl-api")
 	defer func() {
 		if err := tracerShutdown(ctx); err != nil {
 			log.Fatalf("failed to shut down tracer: %v", err)
@@ -60,7 +60,7 @@ func main() {
 	}()
 
 	log.Println("Initializing data store")
-	db, err := store.InitDB(cfg, log)
+	db, err := store.InitDB(cfg.DatabaseConfig(), cfg.TracingConfig(), log)
 	if err != nil {
 		log.Fatalf("initializing data store: %v", err)
 	}
@@ -138,7 +138,7 @@ func main() {
 			collectors = append(collectors, domain.NewResourceSyncCollector(ctx, store, log, cfg))
 		}
 		if cfg.Metrics.SystemCollector != nil && cfg.Metrics.SystemCollector.Enabled {
-			if systemMetricsCollector := metrics.NewSystemCollector(ctx, cfg); systemMetricsCollector != nil {
+			if systemMetricsCollector := metrics.NewSystemCollector(ctx, cfg.MetricsConfig()); systemMetricsCollector != nil {
 				collectors = append(collectors, systemMetricsCollector)
 				defer func() {
 					if err := systemMetricsCollector.Shutdown(); err != nil {

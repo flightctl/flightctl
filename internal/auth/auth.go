@@ -12,7 +12,7 @@ import (
 	"github.com/flightctl/flightctl/internal/auth/authn"
 	"github.com/flightctl/flightctl/internal/auth/authz"
 	"github.com/flightctl/flightctl/internal/auth/common"
-	"github.com/flightctl/flightctl/internal/config"
+	configcommon "github.com/flightctl/flightctl/internal/config/common"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/sirupsen/logrus"
@@ -50,19 +50,19 @@ type AuthZMiddleware interface {
 	GetUserPermissions(ctx context.Context) (*api.PermissionList, error)
 }
 
-func getTlsConfig(cfg *config.Config) *tls.Config {
+func getTlsConfig(authCfg *configcommon.AuthConfig) *tls.Config {
 	tlsConfig := &tls.Config{
-		InsecureSkipVerify: cfg.Auth.InsecureSkipTlsVerify, //nolint:gosec
+		InsecureSkipVerify: authCfg.InsecureSkipTlsVerify, //nolint:gosec
 	}
-	if cfg.Auth.CACert != "" {
+	if authCfg.CACert != "" {
 		caCertPool := x509.NewCertPool()
-		caCertPool.AppendCertsFromPEM([]byte(cfg.Auth.CACert))
+		caCertPool.AppendCertsFromPEM([]byte(authCfg.CACert))
 		tlsConfig.RootCAs = caCertPool
 	}
 	return tlsConfig
 }
 
-func initOAuth2Auth(cfg *config.Config, log logrus.FieldLogger) (common.AuthNMiddleware, error) {
+func initOAuth2Auth(authCfg *configcommon.AuthConfig, log logrus.FieldLogger) (common.AuthNMiddleware, error) {
 	providerName := "oauth2"
 	metadata := api.ObjectMeta{
 		Name: &providerName,
@@ -71,14 +71,14 @@ func initOAuth2Auth(cfg *config.Config, log logrus.FieldLogger) (common.AuthNMid
 		},
 	}
 
-	authNProvider, err := authn.NewOAuth2Auth(metadata, *cfg.Auth.OAuth2, getTlsConfig(cfg), log)
+	authNProvider, err := authn.NewOAuth2Auth(metadata, *authCfg.OAuth2, getTlsConfig(authCfg), log)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OAuth2 AuthN: %w", err)
 	}
 	return authNProvider, nil
 }
-func initOIDCAuth(cfg *config.Config, log logrus.FieldLogger) (common.AuthNMiddleware, error) {
-	oidcUrl := strings.TrimSuffix(cfg.Auth.OIDC.Issuer, "/")
+func initOIDCAuth(authCfg *configcommon.AuthConfig, log logrus.FieldLogger) (common.AuthNMiddleware, error) {
+	oidcUrl := strings.TrimSuffix(authCfg.OIDC.Issuer, "/")
 	log.Infof("OIDC auth enabled: %s", oidcUrl)
 
 	providerName := "oidc"
@@ -89,15 +89,15 @@ func initOIDCAuth(cfg *config.Config, log logrus.FieldLogger) (common.AuthNMiddl
 		},
 	}
 
-	authNProvider, err := authn.NewOIDCAuth(metadata, *cfg.Auth.OIDC, getTlsConfig(cfg), log)
+	authNProvider, err := authn.NewOIDCAuth(metadata, *authCfg.OIDC, getTlsConfig(authCfg), log)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OIDC AuthN: %w", err)
 	}
 	return authNProvider, nil
 }
 
-func initAAPAuth(cfg *config.Config, log logrus.FieldLogger) (common.AuthNMiddleware, error) {
-	gatewayUrl := strings.TrimSuffix(cfg.Auth.AAP.ApiUrl, "/")
+func initAAPAuth(authCfg *configcommon.AuthConfig, log logrus.FieldLogger) (common.AuthNMiddleware, error) {
+	gatewayUrl := strings.TrimSuffix(authCfg.AAP.ApiUrl, "/")
 	log.Infof("AAP Gateway auth enabled: %s", gatewayUrl)
 
 	providerName := "aap"
@@ -105,15 +105,15 @@ func initAAPAuth(cfg *config.Config, log logrus.FieldLogger) (common.AuthNMiddle
 		Name: &providerName,
 	}
 
-	authNProvider, err := authn.NewAapGatewayAuth(metadata, *cfg.Auth.AAP, getTlsConfig(cfg))
+	authNProvider, err := authn.NewAapGatewayAuth(metadata, *authCfg.AAP, getTlsConfig(authCfg))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create AAP Gateway AuthN: %w", err)
 	}
 	return authNProvider, nil
 }
 
-func initK8sAuth(cfg *config.Config, log logrus.FieldLogger) (common.AuthNMiddleware, error) {
-	apiUrl := strings.TrimSuffix(cfg.Auth.K8s.ApiUrl, "/")
+func initK8sAuth(authCfg *configcommon.AuthConfig, log logrus.FieldLogger) (common.AuthNMiddleware, error) {
+	apiUrl := strings.TrimSuffix(authCfg.K8s.ApiUrl, "/")
 	log.Infof("k8s auth enabled: %s", apiUrl)
 
 	var k8sClient k8sclient.K8SClient
@@ -121,7 +121,7 @@ func initK8sAuth(cfg *config.Config, log logrus.FieldLogger) (common.AuthNMiddle
 	if apiUrl == k8sApiService {
 		k8sClient, err = k8sclient.NewK8SClient()
 	} else {
-		k8sClient, err = k8sclient.NewK8SExternalClient(apiUrl, cfg.Auth.InsecureSkipTlsVerify, cfg.Auth.CACert)
+		k8sClient, err = k8sclient.NewK8SExternalClient(apiUrl, authCfg.InsecureSkipTlsVerify, authCfg.CACert)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to create k8s client: %w", err)
@@ -132,25 +132,25 @@ func initK8sAuth(cfg *config.Config, log logrus.FieldLogger) (common.AuthNMiddle
 		Name: &providerName,
 	}
 
-	authNProvider, err := authn.NewK8sAuthN(metadata, *cfg.Auth.K8s, k8sClient)
+	authNProvider, err := authn.NewK8sAuthN(metadata, *authCfg.K8s, k8sClient)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create k8s AuthN: %w", err)
 	}
 	return authNProvider, nil
 }
 
-func initOpenShiftAuth(cfg *config.Config, log logrus.FieldLogger) (common.AuthNMiddleware, error) {
-	if cfg.Auth.OpenShift == nil {
+func initOpenShiftAuth(authCfg *configcommon.AuthConfig, log logrus.FieldLogger) (common.AuthNMiddleware, error) {
+	if authCfg.OpenShift == nil {
 		return nil, errors.New("OpenShift auth configuration is nil")
 	}
-	if cfg.Auth.OpenShift.ClusterControlPlaneUrl == nil {
+	if authCfg.OpenShift.ClusterControlPlaneUrl == nil {
 		return nil, errors.New("OpenShift ClusterControlPlaneUrl is required but not configured")
 	}
-	if *cfg.Auth.OpenShift.ClusterControlPlaneUrl == "" {
+	if *authCfg.OpenShift.ClusterControlPlaneUrl == "" {
 		return nil, errors.New("OpenShift ClusterControlPlaneUrl cannot be empty")
 	}
 
-	apiUrl := strings.TrimSuffix(*cfg.Auth.OpenShift.ClusterControlPlaneUrl, "/")
+	apiUrl := strings.TrimSuffix(*authCfg.OpenShift.ClusterControlPlaneUrl, "/")
 	log.Infof("OpenShift auth enabled: %s", apiUrl)
 
 	var k8sClient k8sclient.K8SClient
@@ -158,7 +158,7 @@ func initOpenShiftAuth(cfg *config.Config, log logrus.FieldLogger) (common.AuthN
 	if apiUrl == k8sApiService {
 		k8sClient, err = k8sclient.NewK8SClient()
 	} else {
-		k8sClient, err = k8sclient.NewK8SExternalClient(apiUrl, cfg.Auth.InsecureSkipTlsVerify, cfg.Auth.CACert)
+		k8sClient, err = k8sclient.NewK8SExternalClient(apiUrl, authCfg.InsecureSkipTlsVerify, authCfg.CACert)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to create k8s client: %w", err)
@@ -169,7 +169,7 @@ func initOpenShiftAuth(cfg *config.Config, log logrus.FieldLogger) (common.AuthN
 		Name: &providerName,
 	}
 
-	authNProvider, err := authn.NewOpenShiftAuth(metadata, *cfg.Auth.OpenShift, k8sClient, getTlsConfig(cfg), log)
+	authNProvider, err := authn.NewOpenShiftAuth(metadata, *authCfg.OpenShift, k8sClient, getTlsConfig(authCfg), log)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OpenShift AuthN: %w", err)
 	}
@@ -177,23 +177,23 @@ func initOpenShiftAuth(cfg *config.Config, log logrus.FieldLogger) (common.AuthN
 }
 
 // InitMultiAuth initializes authentication with support for multiple methods
-func InitMultiAuth(cfg *config.Config, log logrus.FieldLogger,
+func InitMultiAuth(authCfg *configcommon.AuthConfig, log logrus.FieldLogger,
 	authProviderService authn.AuthProviderService) (*authn.MultiAuth, error) {
 
 	// Create TLS config for OIDC provider connections (nil if no config)
 	var tlsConfig *tls.Config
-	if cfg != nil {
-		tlsConfig = getTlsConfig(cfg)
+	if authCfg != nil {
+		tlsConfig = getTlsConfig(authCfg)
 	}
 
 	// Always create MultiAuth instance - dynamic providers can come from DB
 	multiAuth := authn.NewMultiAuth(authProviderService, tlsConfig, log)
 
 	// Initialize static authentication methods if configuration is provided
-	if cfg != nil && cfg.Auth != nil {
-		if cfg.Auth.K8s != nil {
-			log.Infof("K8s auth enabled: %s", cfg.Auth.K8s.ApiUrl)
-			k8sAuthN, err := initK8sAuth(cfg, log)
+	if authCfg != nil {
+		if authCfg.K8s != nil {
+			log.Infof("K8s auth enabled: %s", authCfg.K8s.ApiUrl)
+			k8sAuthN, err := initK8sAuth(authCfg, log)
 			if err != nil {
 				return nil, fmt.Errorf("failed to initialize K8s auth: %w", err)
 			}
@@ -203,61 +203,61 @@ func InitMultiAuth(cfg *config.Config, log logrus.FieldLogger,
 			configuredAuthType = AuthTypeK8s
 		}
 
-		if cfg.Auth.OpenShift != nil {
-			if cfg.Auth.OpenShift.ClusterControlPlaneUrl == nil || *cfg.Auth.OpenShift.ClusterControlPlaneUrl == "" {
+		if authCfg.OpenShift != nil {
+			if authCfg.OpenShift.ClusterControlPlaneUrl == nil || *authCfg.OpenShift.ClusterControlPlaneUrl == "" {
 				return nil, errors.New("OpenShift ClusterControlPlaneUrl is required but not configured")
 			}
-			if cfg.Auth.OpenShift.AuthorizationUrl == nil || *cfg.Auth.OpenShift.AuthorizationUrl == "" {
+			if authCfg.OpenShift.AuthorizationUrl == nil || *authCfg.OpenShift.AuthorizationUrl == "" {
 				return nil, errors.New("OpenShift AuthorizationUrl is required but not configured")
 			}
-			if cfg.Auth.OpenShift.ClientId == nil || *cfg.Auth.OpenShift.ClientId == "" {
+			if authCfg.OpenShift.ClientId == nil || *authCfg.OpenShift.ClientId == "" {
 				return nil, errors.New("OpenShift ClientId is required but not configured")
 			}
 
-			apiUrl := *cfg.Auth.OpenShift.ClusterControlPlaneUrl
+			apiUrl := *authCfg.OpenShift.ClusterControlPlaneUrl
 			log.Infof("OpenShift auth enabled: %s", apiUrl)
 
-			openshiftAuthN, err := initOpenShiftAuth(cfg, log)
+			openshiftAuthN, err := initOpenShiftAuth(authCfg, log)
 			if err != nil {
 				return nil, fmt.Errorf("failed to initialize OpenShift auth: %w", err)
 			}
 
 			// Add OpenShift auth with issuer:clientId key
-			openshiftIssuer := strings.TrimSuffix(*cfg.Auth.OpenShift.AuthorizationUrl, "/")
-			openshiftKey := fmt.Sprintf("%s:%s", openshiftIssuer, *cfg.Auth.OpenShift.ClientId)
+			openshiftIssuer := strings.TrimSuffix(*authCfg.OpenShift.AuthorizationUrl, "/")
+			openshiftKey := fmt.Sprintf("%s:%s", openshiftIssuer, *authCfg.OpenShift.ClientId)
 			multiAuth.AddStaticProvider(openshiftKey, openshiftAuthN)
 			configuredAuthType = AuthTypeOpenShift
 		}
 
-		if cfg.Auth.OIDC != nil {
-			log.Infof("OIDC auth enabled: %s", cfg.Auth.OIDC.Issuer)
-			oidcAuthN, err := initOIDCAuth(cfg, log)
+		if authCfg.OIDC != nil {
+			log.Infof("OIDC auth enabled: %s", authCfg.OIDC.Issuer)
+			oidcAuthN, err := initOIDCAuth(authCfg, log)
 			if err != nil {
 				return nil, fmt.Errorf("failed to initialize OIDC auth: %w", err)
 			}
 
 			// Add OIDC auth with issuer:clientId key (required for OIDC token validation)
-			oidcIssuer := strings.TrimSuffix(cfg.Auth.OIDC.Issuer, "/")
-			oidcKey := fmt.Sprintf("%s:%s", oidcIssuer, cfg.Auth.OIDC.ClientId)
+			oidcIssuer := strings.TrimSuffix(authCfg.OIDC.Issuer, "/")
+			oidcKey := fmt.Sprintf("%s:%s", oidcIssuer, authCfg.OIDC.ClientId)
 			multiAuth.AddStaticProvider(oidcKey, oidcAuthN)
 			configuredAuthType = AuthTypeOIDC
 		}
 
-		if cfg.Auth.OAuth2 != nil {
-			log.Infof("OAuth2 auth enabled: %s", cfg.Auth.OAuth2.AuthorizationUrl)
-			oauth2AuthN, err := initOAuth2Auth(cfg, log)
+		if authCfg.OAuth2 != nil {
+			log.Infof("OAuth2 auth enabled: %s", authCfg.OAuth2.AuthorizationUrl)
+			oauth2AuthN, err := initOAuth2Auth(authCfg, log)
 			if err != nil {
 				return nil, fmt.Errorf("failed to initialize OAuth2 auth: %w", err)
 			}
-			oauth2Issuer := strings.TrimSuffix(cfg.Auth.OAuth2.AuthorizationUrl, "/")
-			oauth2Key := fmt.Sprintf("%s:%s", oauth2Issuer, cfg.Auth.OAuth2.ClientId)
+			oauth2Issuer := strings.TrimSuffix(authCfg.OAuth2.AuthorizationUrl, "/")
+			oauth2Key := fmt.Sprintf("%s:%s", oauth2Issuer, authCfg.OAuth2.ClientId)
 			multiAuth.AddStaticProvider(oauth2Key, oauth2AuthN)
 			configuredAuthType = AuthTypeOauth2
 		}
 
-		if cfg.Auth.AAP != nil {
-			log.Infof("AAP Gateway auth enabled: %s", cfg.Auth.AAP.ApiUrl)
-			aapAuthN, err := initAAPAuth(cfg, log)
+		if authCfg.AAP != nil {
+			log.Infof("AAP Gateway auth enabled: %s", authCfg.AAP.ApiUrl)
+			aapAuthN, err := initAAPAuth(authCfg, log)
 			if err != nil {
 				return nil, fmt.Errorf("failed to initialize AAP auth: %w", err)
 			}

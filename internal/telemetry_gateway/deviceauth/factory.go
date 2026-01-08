@@ -3,12 +3,12 @@ package deviceauth
 import (
 	"context"
 
-	"github.com/flightctl/flightctl/internal/config"
+	tgconfig "github.com/flightctl/flightctl/internal/config/telemetrygateway"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/extension"
 )
 
-func NewFactory(cfg *config.Config) extension.Factory {
+func NewFactory(cfg *tgconfig.Config) extension.Factory {
 	return extension.NewFactory(
 		component.MustNewType("deviceauth"),
 		func() component.Config {

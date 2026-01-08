@@ -3,7 +3,7 @@ package store_test
 import (
 	"context"
 
-	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/config/common"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
@@ -21,7 +21,7 @@ var _ = Describe("TemplateVersion", func() {
 		orgId     uuid.UUID
 		storeInst store.Store
 		tvStore   store.TemplateVersion
-		cfg       *config.Config
+		cfg       *common.DatabaseConfig
 		dbName    string
 	)
 

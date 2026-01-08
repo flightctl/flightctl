@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/flightctl/flightctl/internal/alert_exporter"
-	"github.com/flightctl/flightctl/internal/config"
+	alertexportercfg "github.com/flightctl/flightctl/internal/config/alertexporter"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/kvstore"
@@ -22,16 +22,16 @@ import (
 func main() {
 	ctx := context.Background()
 
-	cfg, err := config.LoadOrGenerate(config.ConfigFile())
+	cfg, err := alertexportercfg.LoadOrGenerate(alertexportercfg.ConfigFile())
 	if err != nil {
 		log.InitLogs().Fatalf("reading configuration: %v", err)
 	}
 
-	log := log.InitLogs(cfg.Service.LogLevel)
+	log := log.InitLogs(cfg.LogLevel())
 	log.Println("Starting alert exporter")
 	log.Printf("Using config: %s", cfg)
 
-	tracerShutdown := tracing.InitTracer(log, cfg, "flightctl-alert-exporter")
+	tracerShutdown := tracing.InitTracer(log, cfg.TracingConfig(), "flightctl-alert-exporter")
 	defer func() {
 		if err := tracerShutdown(ctx); err != nil {
 			log.Fatalf("failed to shut down tracer: %v", err)
@@ -43,7 +43,7 @@ func main() {
 	ctx = context.WithValue(ctx, consts.InternalRequestCtxKey, true)
 
 	log.Println("Initializing data store")
-	db, err := store.InitDB(cfg, log)
+	db, err := store.InitDB(cfg.DatabaseConfig(), cfg.TracingConfig(), log)
 	if err != nil {
 		log.Fatalf("initializing data store: %v", err)
 	}
@@ -51,8 +51,9 @@ func main() {
 	store := store.NewStore(db, log.WithField("pkg", "store"))
 	defer store.Close()
 
+	kvCfg := cfg.KVConfig()
 	processID := fmt.Sprintf("alert-exporter-%s-%s", util.GetHostname(), uuid.New().String())
-	queuesProvider, err := queues.NewRedisProvider(ctx, log, processID, cfg.KV.Hostname, cfg.KV.Port, cfg.KV.Password, queues.DefaultRetryConfig())
+	queuesProvider, err := queues.NewRedisProvider(ctx, log, processID, kvCfg.Hostname, kvCfg.Port, kvCfg.Password, queues.DefaultRetryConfig())
 	if err != nil {
 		log.Fatalf("initializing queue provider: %v", err)
 	}
@@ -61,7 +62,7 @@ func main() {
 		queuesProvider.Wait()
 	}()
 
-	kvStore, err := kvstore.NewKVStore(ctx, log, cfg.KV.Hostname, cfg.KV.Port, cfg.KV.Password)
+	kvStore, err := kvstore.NewKVStore(ctx, log, kvCfg.Hostname, kvCfg.Port, kvCfg.Password)
 	if err != nil {
 		log.Fatalf("initializing kv store: %v", err)
 	}

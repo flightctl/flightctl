@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/config/common"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/org"
 	"github.com/flightctl/flightctl/internal/store/selector"
@@ -134,12 +134,12 @@ func (s *DataStore) CheckHealth(ctx context.Context) error {
 	return nil
 }
 
-func (s *DataStore) RunMigrationWithMigrationUser(ctx context.Context, cfg *config.Config, log *logrus.Logger) error {
+func (s *DataStore) RunMigrationWithMigrationUser(ctx context.Context, dbCfg *common.DatabaseConfig, tracingCfg *common.TracingConfig, log *logrus.Logger) error {
 	ctx, span := tracing.StartSpan(ctx, "flightctl/store", "RunMigrationWithMigrationUser")
 	defer span.End()
 
 	// Create migration database connection
-	migrationDB, err := InitMigrationDB(cfg, log)
+	migrationDB, err := InitMigrationDB(dbCfg, tracingCfg, log)
 	if err != nil {
 		return fmt.Errorf("failed to create migration database connection: %w", err)
 	}

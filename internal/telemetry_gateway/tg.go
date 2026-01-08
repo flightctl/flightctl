@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/flightctl/flightctl/internal/config"
+	tgconfig "github.com/flightctl/flightctl/internal/config/telemetrygateway"
 	"github.com/flightctl/flightctl/internal/telemetry_gateway/deviceattrs"
 	"github.com/flightctl/flightctl/internal/telemetry_gateway/deviceauth"
 	"github.com/flightctl/flightctl/pkg/version"
@@ -80,7 +80,7 @@ func WithOTelConfigMutator(m OTelConfigMutator) Option {
 	return func(ro *runOptions) { ro.cfgMutators = append(ro.cfgMutators, m) }
 }
 
-func Run(ctx context.Context, cfg *config.Config, opts ...Option) error {
+func Run(ctx context.Context, cfg *tgconfig.Config, opts ...Option) error {
 	// collect options
 	ro := &runOptions{}
 	for _, opt := range opts {
@@ -164,7 +164,7 @@ func Run(ctx context.Context, cfg *config.Config, opts ...Option) error {
 }
 
 // buildOTelConfigMap builds the OTEL collector config.
-func buildOTelConfigMap(cfg *config.Config) (map[string]any, error) {
+func buildOTelConfigMap(cfg *tgconfig.Config) (map[string]any, error) {
 	exporterNames := []string{}
 	exporters := map[string]any{}
 

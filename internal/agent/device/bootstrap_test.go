@@ -15,7 +15,6 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/systeminfo"
 	"github.com/flightctl/flightctl/internal/agent/identity"
 	baseclient "github.com/flightctl/flightctl/internal/client"
-	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/test/util"
@@ -25,9 +24,6 @@ import (
 
 func TestInitialization(t *testing.T) {
 	require := require.New(t)
-	tmpDir := t.TempDir()
-	config := config.NewDefault()
-	config.Service.CertStore = tmpDir
 
 	testCases := []struct {
 		name       string

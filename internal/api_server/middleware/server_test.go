@@ -12,7 +12,7 @@ import (
 	"testing"
 
 	"github.com/flightctl/flightctl/internal/api_server/middleware"
-	"github.com/flightctl/flightctl/internal/config"
+	apiconfig "github.com/flightctl/flightctl/internal/config/api"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/crypto"
 	fccrypto "github.com/flightctl/flightctl/pkg/crypto"
@@ -51,13 +51,13 @@ var _ = Describe("Low level server behavior", func() {
 		var err error
 		tempDir := GinkgoT().TempDir()
 		serverLog := log.InitLogs()
-		config := config.NewDefault()
-		config.Service.CertStore = tempDir
-		config.CA.InternalConfig.CertStore = tempDir
+		cfg := apiconfig.NewDefault()
+		cfg.Service.CertStore = tempDir
+		cfg.CA.InternalConfig.CertStore = tempDir
 
 		var serverCerts *crypto.TLSCertificateConfig
 
-		ca, serverCerts, enrollmentCert, err = testutil.NewTestCerts(config)
+		ca, serverCerts, enrollmentCert, err = testutil.NewTestCerts(cfg)
 		Expect(err).ToNot(HaveOccurred())
 
 		noSubjectCert, err = makeNoSubjectClientCertificate(ctx, ca, 365)
@@ -74,7 +74,7 @@ var _ = Describe("Low level server behavior", func() {
 			otelhttp.NewHandler(testTLSCNServer{}, "test-tlscn-server"),
 			serverLog,
 			listener.Addr().String(),
-			config,
+			cfg,
 		)
 
 		// capture the spec‑scoped context to avoid races when the outer

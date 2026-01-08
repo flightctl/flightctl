@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	api "github.com/flightctl/flightctl/api/v1beta1"
-	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/config/common"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
@@ -25,7 +25,7 @@ var _ = Describe("AuthProviderStore", func() {
 		orgId     uuid.UUID
 		storeInst store.Store
 		authStore store.AuthProvider
-		cfg       *config.Config
+		cfg       *common.DatabaseConfig
 		dbName    string
 		called    bool
 		callback  store.EventCallback

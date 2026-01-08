@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/flightctl/flightctl/internal/config"
+	tgconfig "github.com/flightctl/flightctl/internal/config/telemetrygateway"
 	"github.com/flightctl/flightctl/internal/crypto/signer"
 	"github.com/google/uuid"
 	"go.opentelemetry.io/collector/component"
@@ -37,7 +37,7 @@ func (c CertInfo) String() string {
 }
 
 type deviceAuthConfig struct {
-	AppCfg *config.Config `mapstructure:"-"`
+	AppCfg *tgconfig.Config `mapstructure:"-"`
 }
 
 type deviceAuth struct {
@@ -54,7 +54,7 @@ func newDeviceAuth(_ context.Context, set extension.Settings, cfg *deviceAuthCon
 
 func (d *deviceAuth) Start(ctx context.Context, host component.Host) error {
 	expectedSigner := ""
-	if d.cfg != nil && d.cfg.AppCfg != nil {
+	if d.cfg != nil && d.cfg.AppCfg != nil && d.cfg.AppCfg.CA != nil {
 		expectedSigner = d.cfg.AppCfg.CA.DeviceSvcClientSignerName
 	}
 	d.logger.Info("device authenticator started",

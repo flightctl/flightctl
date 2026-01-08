@@ -3,7 +3,7 @@ package metrics
 import (
 	"context"
 
-	"github.com/flightctl/flightctl/internal/config"
+	apiconfig "github.com/flightctl/flightctl/internal/config/api"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel"
@@ -28,7 +28,7 @@ type HTTPMetricsCollector struct {
 // NewHTTPMetricsCollector creates a new HTTPMetricsCollector that integrates OpenTelemetry
 // HTTP metrics with Prometheus. It initializes the OpenTelemetry meter provider and
 // creates a Prometheus exporter for metrics collection.
-func NewHTTPMetricsCollector(ctx context.Context, _ *config.Config, serviceName string, log logrus.FieldLogger) *HTTPMetricsCollector {
+func NewHTTPMetricsCollector(ctx context.Context, _ *apiconfig.Config, serviceName string, log logrus.FieldLogger) *HTTPMetricsCollector {
 	c, cancel := context.WithCancel(ctx)
 
 	// Create a dedicated registry for OpenTelemetry metrics

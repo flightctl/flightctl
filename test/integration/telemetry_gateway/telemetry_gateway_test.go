@@ -16,8 +16,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/config/ca"
+	tgconfig "github.com/flightctl/flightctl/internal/config/telemetrygateway"
 	icrypto "github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/crypto/signer"
 	telemetrygateway "github.com/flightctl/flightctl/internal/telemetry_gateway"
@@ -63,8 +63,8 @@ var _ = Describe("Telemetry Gateway", func() {
 		caClient *icrypto.CAClient
 
 		// config plumbing
-		baseCfg     *config.Config
-		cfgMutators []func(*config.Config)
+		baseCfg     *tgconfig.Config
+		cfgMutators []func(*tgconfig.Config)
 		testDirPath string
 		runOpts     []telemetrygateway.Option
 	)
@@ -162,7 +162,7 @@ var _ = Describe("Telemetry Gateway", func() {
 			// change prom listen addr in this context only
 			newProm := localAddr()
 			promAddr = newProm
-			cfgMutators = append(cfgMutators, func(c *config.Config) {
+			cfgMutators = append(cfgMutators, func(c *tgconfig.Config) {
 				// assuming your config struct has TelemetryGateway.Export.Prometheus (string)
 				snippet := fmt.Appendf(nil, "telemetrygateway:\n  export:\n    prometheus: %q\n", newProm)
 				_ = yaml.Unmarshal(snippet, c)
@@ -244,7 +244,7 @@ var _ = Describe("Telemetry Gateway", func() {
 			Expect(os.WriteFile(forwardKey, keyPEM, 0o600)).To(Succeed())
 
 			// Mutate gateway config: set forward (no export)
-			cfgMutators = append(cfgMutators, func(c *config.Config) {
+			cfgMutators = append(cfgMutators, func(c *tgconfig.Config) {
 				snippet := fmt.Appendf(nil,
 					"telemetrygateway:\n  export: null\n  forward:\n    endpoint: %q\n    tls:\n      certFile: %q\n      keyFile: %q\n      caFile: %q\n",
 					endpoint, forwardCrt, forwardKey, caPath,
@@ -348,7 +348,7 @@ var _ = Describe("Telemetry Gateway", func() {
 			promAddr = localAddr()
 			// Ensure exporter exists in base config (so build map doesn’t error);
 			// overlay will *also* set exporters and add otlp.
-			cfgMutators = append(cfgMutators, func(c *config.Config) {
+			cfgMutators = append(cfgMutators, func(c *tgconfig.Config) {
 				snippet := fmt.Appendf(nil, "telemetrygateway:\n  export:\n    prometheus: %q\n", promAddr)
 				_ = yaml.Unmarshal(snippet, c)
 			})
@@ -438,14 +438,14 @@ var _ = Describe("Telemetry Gateway", func() {
 	})
 })
 
-func createConfig(serverCrt string, serverKey string, caPath string, otlpAddr string) *config.Config {
-	config := config.NewDefault()
-	config.TelemetryGateway.LogLevel = "debug"
-	config.TelemetryGateway.TLS.CertFile = serverCrt
-	config.TelemetryGateway.TLS.KeyFile = serverKey
-	config.TelemetryGateway.TLS.CACert = caPath
-	config.TelemetryGateway.Listen.Device = otlpAddr
-	return config
+func createConfig(serverCrt string, serverKey string, caPath string, otlpAddr string) *tgconfig.Config {
+	cfg := tgconfig.NewDefault()
+	cfg.TelemetryGateway.LogLevel = "debug"
+	cfg.TelemetryGateway.TLS.CertFile = serverCrt
+	cfg.TelemetryGateway.TLS.KeyFile = serverKey
+	cfg.TelemetryGateway.TLS.CACert = caPath
+	cfg.TelemetryGateway.Listen.Device = otlpAddr
+	return cfg
 }
 
 func makeKeyPairAndCSR(ctx context.Context, ca *icrypto.CAClient, signerName string, subjectName string, expiryDays int) (crypto.PrivateKey, *x509.Certificate, error) {

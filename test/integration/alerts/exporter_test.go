@@ -12,7 +12,7 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/alert_exporter"
-	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/config/common"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service"
@@ -49,7 +49,8 @@ var _ = Describe("Alert Exporter", func() {
 		ctx               context.Context
 		storeInst         store.Store
 		serviceHandler    service.Service
-		cfg               *config.Config
+		dbCfg             *common.DatabaseConfig
+		alertmanagerCfg   *common.AlertmanagerConfig
 		db                *gorm.DB
 		dbName            string
 		workerClient      worker_client.WorkerClient
@@ -64,7 +65,8 @@ var _ = Describe("Alert Exporter", func() {
 		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
 		ctx = context.WithValue(ctx, consts.InternalRequestCtxKey, true)
 		log = flightlog.InitLogs()
-		storeInst, cfg, dbName, db = store.PrepareDBForUnitTests(ctx, log)
+		storeInst, dbCfg, dbName, db = store.PrepareDBForUnitTests(ctx, log)
+		alertmanagerCfg = common.NewDefaultAlertmanager()
 		ctrl = gomock.NewController(GinkgoT())
 		mockProducer = queues.NewMockQueueProducer(ctrl)
 		workerClient = worker_client.NewWorkerClient(mockProducer, log)
@@ -74,7 +76,7 @@ var _ = Describe("Alert Exporter", func() {
 		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStore, nil, log, "", "", []string{})
 		checkpointManager = alert_exporter.NewCheckpointManager(log, serviceHandler)
 		eventProcessor = alert_exporter.NewEventProcessor(log, serviceHandler)
-		alertSender = alert_exporter.NewAlertSender(log, cfg.Alertmanager.Hostname, cfg.Alertmanager.Port, cfg)
+		alertSender = alert_exporter.NewAlertSender(log, alertmanagerCfg)
 
 		err = db.WithContext(ctx).Exec(`
 				DELETE FROM checkpoints
@@ -85,7 +87,7 @@ var _ = Describe("Alert Exporter", func() {
 	})
 
 	AfterEach(func() {
-		store.DeleteTestDB(ctx, log, cfg, storeInst, dbName)
+		store.DeleteTestDB(ctx, log, dbCfg, storeInst, dbName)
 		ctrl.Finish()
 	})
 
@@ -105,7 +107,7 @@ var _ = Describe("Alert Exporter", func() {
 			err = alertSender.SendAlerts(checkpoint)
 			Expect(err).ToNot(HaveOccurred())
 
-			alerts, err := getAlerts(cfg, prefix)
+			alerts, err := getAlerts(alertmanagerCfg, prefix)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(alerts).To(HaveLen(1))
 			Expect(alerts[0].Labels).To(HaveKeyWithValue("resource", fmt.Sprintf("%s-dev1", prefix)))
@@ -126,7 +128,7 @@ var _ = Describe("Alert Exporter", func() {
 			err = alertSender.SendAlerts(checkpoint)
 			Expect(err).ToNot(HaveOccurred())
 
-			alerts, err := getAlerts(cfg, prefix)
+			alerts, err := getAlerts(alertmanagerCfg, prefix)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(alerts).To(HaveLen(1))
 			Expect(alerts[0].Labels).To(HaveKeyWithValue("resource", fmt.Sprintf("%s-dev1", prefix)))
@@ -141,7 +143,7 @@ var _ = Describe("Alert Exporter", func() {
 			err = alertSender.SendAlerts(checkpoint)
 			Expect(err).ToNot(HaveOccurred())
 
-			alerts, err = getAlerts(cfg, prefix)
+			alerts, err = getAlerts(alertmanagerCfg, prefix)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(alerts).To(HaveLen(0))
 		})
@@ -163,7 +165,7 @@ var _ = Describe("Alert Exporter", func() {
 			err = alertSender.SendAlerts(checkpoint)
 			Expect(err).ToNot(HaveOccurred())
 
-			alerts, err := getAlerts(cfg, prefix)
+			alerts, err := getAlerts(alertmanagerCfg, prefix)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(alerts).To(HaveLen(5))
 			// Check that the 5 alerts have the correct labels
@@ -231,7 +233,7 @@ var _ = Describe("Alert Exporter", func() {
 			err = alertSender.SendAlerts(checkpoint)
 			Expect(err).ToNot(HaveOccurred())
 
-			alerts, err = getAlerts(cfg, prefix)
+			alerts, err = getAlerts(alertmanagerCfg, prefix)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(alerts).To(HaveLen(0))
 		})
@@ -283,7 +285,7 @@ var _ = Describe("Alert Exporter", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Create AlertSender with invalid hostname to simulate unreachable Alertmanager
-			badAlertSender := alert_exporter.NewAlertSender(log, "invalid-hostname", 9999, cfg)
+			badAlertSender := alert_exporter.NewAlertSender(log, &common.AlertmanagerConfig{Hostname: "invalid-hostname", Port: 9999})
 
 			// This should fail but not crash
 			err = badAlertSender.SendAlerts(checkpoint)
@@ -302,7 +304,7 @@ var _ = Describe("Alert Exporter", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Mock Alertmanager with wrong port (should return connection refused)
-			badAlertSender := alert_exporter.NewAlertSender(log, "localhost", 9999, cfg)
+			badAlertSender := alert_exporter.NewAlertSender(log, &common.AlertmanagerConfig{Hostname: "localhost", Port: 9999})
 
 			err = badAlertSender.SendAlerts(checkpoint)
 			Expect(err).To(HaveOccurred())
@@ -329,7 +331,7 @@ var _ = Describe("Alert Exporter", func() {
 			Expect(len(checkpoint.Alerts)).To(BeNumerically(">", 0))
 
 			// Even if alert sending fails, the checkpoint should contain the alerts
-			badAlertSender := alert_exporter.NewAlertSender(log, "invalid-hostname", 9999, cfg)
+			badAlertSender := alert_exporter.NewAlertSender(log, &common.AlertmanagerConfig{Hostname: "invalid-hostname", Port: 9999})
 			err = badAlertSender.SendAlerts(checkpoint)
 			Expect(err).To(HaveOccurred())
 
@@ -493,7 +495,7 @@ var _ = Describe("Alert Exporter", func() {
 			err = alertSender.SendAlerts(checkpoint)
 			Expect(err).ToNot(HaveOccurred())
 
-			alerts, err := getAlerts(cfg, prefix)
+			alerts, err := getAlerts(alertmanagerCfg, prefix)
 			Expect(err).ToNot(HaveOccurred())
 			// Should have only 1 active alert despite multiple duplicate events
 			Expect(alerts).To(HaveLen(1))
@@ -519,7 +521,7 @@ var _ = Describe("Alert Exporter", func() {
 			err = alertSender.SendAlerts(checkpoint)
 			Expect(err).ToNot(HaveOccurred())
 
-			alerts, err := getAlerts(cfg, prefix)
+			alerts, err := getAlerts(alertmanagerCfg, prefix)
 			Expect(err).ToNot(HaveOccurred())
 			// Should end up with only the final Warning alert
 			Expect(alerts).To(HaveLen(1))
@@ -545,7 +547,7 @@ var _ = Describe("Alert Exporter", func() {
 			err = alertSender.SendAlerts(checkpoint)
 			Expect(err).ToNot(HaveOccurred())
 
-			alerts, err := getAlerts(cfg, prefix)
+			alerts, err := getAlerts(alertmanagerCfg, prefix)
 			Expect(err).ToNot(HaveOccurred())
 			// Should have only 1 alert from the CPU warning, not from the non-alertable events
 			Expect(alerts).To(HaveLen(1))
@@ -574,8 +576,8 @@ type AlertmanagerAlert struct {
 	} `json:"status"`
 }
 
-func getAlerts(cfg *config.Config, prefix string) ([]AlertmanagerAlert, error) {
-	alertmanagerURL := fmt.Sprintf("http://%s:%d/api/v2/alerts", cfg.Alertmanager.Hostname, cfg.Alertmanager.Port)
+func getAlerts(cfg *common.AlertmanagerConfig, prefix string) ([]AlertmanagerAlert, error) {
+	alertmanagerURL := fmt.Sprintf("http://%s:%d/api/v2/alerts", cfg.Hostname, cfg.Port)
 
 	client := &http.Client{
 		Timeout: 10 * time.Second,

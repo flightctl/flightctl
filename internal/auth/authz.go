@@ -10,7 +10,7 @@ import (
 	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/auth/authz"
 	"github.com/flightctl/flightctl/internal/auth/common"
-	"github.com/flightctl/flightctl/internal/config"
+	configcommon "github.com/flightctl/flightctl/internal/config/common"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/identity"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
@@ -403,19 +403,19 @@ func (m *MultiAuthZ) getUserPermissionsK8s(ctx context.Context, ident common.Ide
 }
 
 // InitMultiAuthZ initializes authorization with support for multiple methods
-func InitMultiAuthZ(cfg *config.Config, log logrus.FieldLogger) (AuthZMiddleware, error) {
-	if cfg.Auth == nil {
+func InitMultiAuthZ(authCfg *configcommon.AuthConfig, log logrus.FieldLogger) (AuthZMiddleware, error) {
+	if authCfg == nil {
 		return nil, errors.New("no auth configuration provided")
 	}
 
 	multiAuthZ := &MultiAuthZ{
 		log:                   log,
-		insecureSkipTlsVerify: cfg.Auth.InsecureSkipTlsVerify,
-		caCert:                cfg.Auth.CACert,
+		insecureSkipTlsVerify: authCfg.InsecureSkipTlsVerify,
+		caCert:                authCfg.CACert,
 	}
 
 	// Configure K8s authZ if K8s auth is configured
-	if cfg.Auth.K8s != nil {
+	if authCfg.K8s != nil {
 		// Initialize k8s authZ cache with 5 minute TTL
 		multiAuthZ.k8sAuthZCache = ttlcache.New(ttlcache.WithTTL[string, *authz.K8sAuthZ](5 * time.Minute))
 
@@ -423,7 +423,7 @@ func InitMultiAuthZ(cfg *config.Config, log logrus.FieldLogger) (AuthZMiddleware
 	}
 
 	// Configure OpenShift authZ if OpenShift auth is configured
-	if cfg.Auth.OpenShift != nil {
+	if authCfg.OpenShift != nil {
 		// Initialize OpenShift authZ cache with 5 minute TTL
 		multiAuthZ.openshiftAuthZCache = ttlcache.New(ttlcache.WithTTL[string, *authz.OpenShiftAuthZ](5 * time.Minute))
 

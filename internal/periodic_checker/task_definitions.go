@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/flightctl/flightctl/internal/config"
+	periodiccfg "github.com/flightctl/flightctl/internal/config/periodic"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics/worker"
 	"github.com/flightctl/flightctl/internal/rollout/device_selection"
@@ -159,7 +159,17 @@ func (e *QueueMaintenanceExecutor) Execute(ctx context.Context, log logrus.Field
 	}
 }
 
-func InitializeTaskExecutors(log logrus.FieldLogger, serviceHandler service.Service, cfg *config.Config, queuesProvider queues.Provider, workerClient worker_client.WorkerClient, workerMetrics *worker.WorkerCollector) map[PeriodicTaskType]PeriodicTaskExecutor {
+func InitializeTaskExecutors(log logrus.FieldLogger, serviceHandler service.Service, cfg *periodiccfg.Config, queuesProvider queues.Provider, workerClient worker_client.WorkerClient, workerMetrics *worker.WorkerCollector) map[PeriodicTaskType]PeriodicTaskExecutor {
+	var ignoreResourceUpdates []string
+	if cfg.GitOps != nil {
+		ignoreResourceUpdates = cfg.GitOps.IgnoreResourceUpdates
+	}
+
+	var eventRetentionPeriod util.Duration
+	if cfg.Service != nil {
+		eventRetentionPeriod = cfg.Service.EventRetentionPeriod
+	}
+
 	return map[PeriodicTaskType]PeriodicTaskExecutor{
 		PeriodicTaskTypeRepositoryTester: &RepositoryTesterExecutor{
 			log:            log.WithField("pkg", "repository-tester"),
@@ -168,7 +178,7 @@ func InitializeTaskExecutors(log logrus.FieldLogger, serviceHandler service.Serv
 		PeriodicTaskTypeResourceSync: &ResourceSyncExecutor{
 			serviceHandler:        serviceHandler,
 			log:                   log.WithField("pkg", "resource-sync"),
-			ignoreResourceUpdates: cfg.GitOps.IgnoreResourceUpdates,
+			ignoreResourceUpdates: ignoreResourceUpdates,
 		},
 		PeriodicTaskTypeDeviceDisconnected: &DeviceDisconnectedExecutor{
 			log:            log.WithField("pkg", "device-disconnected"),
@@ -185,7 +195,7 @@ func InitializeTaskExecutors(log logrus.FieldLogger, serviceHandler service.Serv
 		PeriodicTaskTypeEventCleanup: &EventCleanupExecutor{
 			log:                  log.WithField("pkg", "event-cleanup"),
 			serviceHandler:       serviceHandler,
-			eventRetentionPeriod: cfg.Service.EventRetentionPeriod,
+			eventRetentionPeriod: eventRetentionPeriod,
 		},
 		PeriodicTaskTypeQueueMaintenance: &QueueMaintenanceExecutor{
 			log:            log.WithField("pkg", "queue-maintenance"),

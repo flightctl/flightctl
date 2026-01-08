@@ -26,7 +26,7 @@ import (
 
 	pamapi "github.com/flightctl/flightctl/api/v1beta1/pam-issuer"
 	"github.com/flightctl/flightctl/internal/auth/authn"
-	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/config/pamissuer"
 	fccrypto "github.com/flightctl/flightctl/internal/crypto"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -287,12 +287,12 @@ func (s *PAMOIDCProvider) DecryptSessionData(encrypted string) (*EncryptedAuthDa
 // PAMOIDCProvider handles OIDC-compliant authentication flows using PAM/NSS
 
 // NewPAMOIDCProvider creates a new PAM-based OIDC provider
-func NewPAMOIDCProvider(caClient *fccrypto.CAClient, config *config.PAMOIDCIssuer) (*PAMOIDCProvider, error) {
+func NewPAMOIDCProvider(caClient *fccrypto.CAClient, config *pamissuer.PAMOIDCIssuer) (*PAMOIDCProvider, error) {
 	return NewPAMOIDCProviderWithAuthenticator(caClient, config, nil)
 }
 
 // NewPAMOIDCProviderWithAuthenticator creates a new PAM-based OIDC provider with a custom authenticator
-func NewPAMOIDCProviderWithAuthenticator(caClient *fccrypto.CAClient, config *config.PAMOIDCIssuer, pamAuth Authenticator) (*PAMOIDCProvider, error) {
+func NewPAMOIDCProviderWithAuthenticator(caClient *fccrypto.CAClient, config *pamissuer.PAMOIDCIssuer, pamAuth Authenticator) (*PAMOIDCProvider, error) {
 	jwtGen, err := authn.NewJWTGenerator(caClient)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create JWT generator: %w", err)
