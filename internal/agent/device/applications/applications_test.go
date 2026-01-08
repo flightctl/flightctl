@@ -83,6 +83,41 @@ func TestApplicationStatus(t *testing.T) {
 			expectedStatus: v1beta1.ApplicationStatusUnknown,
 			expectedSummary: v1beta1.ApplicationsSummaryStatusUnknown,
 		},
+		{
+			name: "single container stopped",
+			workloads: []Workload{
+				{Name: "c1", Status: StatusStop},
+			},
+			expectedStatus:  v1beta1.ApplicationStatusDegraded,
+			expectedSummary: v1beta1.ApplicationsSummaryStatusDegraded,
+		},
+		{
+			name: "multi container one stopped",
+			workloads: []Workload{
+				{Name: "c1", Status: StatusRunning},
+				{Name: "c2", Status: StatusStop},
+			},
+			expectedStatus:  v1beta1.ApplicationStatusDegraded,
+			expectedSummary: v1beta1.ApplicationsSummaryStatusDegraded,
+		},
+		{
+			name: "multi container all stopped",
+			workloads: []Workload{
+				{Name: "c1", Status: StatusStop},
+				{Name: "c2", Status: StatusStop},
+			},
+			expectedStatus:  v1beta1.ApplicationStatusDegraded,
+			expectedSummary: v1beta1.ApplicationsSummaryStatusDegraded,
+		},
+		{
+			name: "multi container one stopped one exited",
+			workloads: []Workload{
+				{Name: "c1", Status: StatusStop},
+				{Name: "c2", Status: StatusExited},
+			},
+			expectedStatus:  v1beta1.ApplicationStatusDegraded,
+			expectedSummary: v1beta1.ApplicationsSummaryStatusDegraded,
+		},
 	}
 
 	for _, tc := range testCases {
