@@ -33,7 +33,7 @@ func newTestImageExport(name string) *api.ImageExport {
 
 	return &api.ImageExport{
 		ApiVersion: api.ImageExportAPIVersion,
-		Kind:       api.ImageExportKind,
+		Kind:       string(api.ResourceKindImageExport),
 		Metadata: v1beta1.ObjectMeta{
 			Name: lo.ToPtr(name),
 		},
@@ -203,7 +203,7 @@ var _ = Describe("ImageExportStore", func() {
 			_, err := storeInst.ImageExport().Create(ctx, orgId, imageExport)
 			Expect(err).ToNot(HaveOccurred())
 
-			err = storeInst.ImageExport().Delete(ctx, orgId, "delete-test")
+			_, err = storeInst.ImageExport().Delete(ctx, orgId, "delete-test")
 			Expect(err).ToNot(HaveOccurred())
 
 			_, err = storeInst.ImageExport().Get(ctx, orgId, "delete-test")
@@ -211,7 +211,7 @@ var _ = Describe("ImageExportStore", func() {
 		})
 
 		It("should return not found when deleting non-existent ImageExport", func() {
-			err := storeInst.ImageExport().Delete(ctx, orgId, "nonexistent")
+			_, err := storeInst.ImageExport().Delete(ctx, orgId, "nonexistent")
 			Expect(err).To(HaveOccurred())
 			Expect(err).To(MatchError(flterrors.ErrResourceNotFound))
 		})

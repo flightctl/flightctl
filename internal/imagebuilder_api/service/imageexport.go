@@ -21,7 +21,7 @@ type ImageExportService interface {
 	Create(ctx context.Context, orgId uuid.UUID, imageExport api.ImageExport) (*api.ImageExport, v1beta1.Status)
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*api.ImageExport, v1beta1.Status)
 	List(ctx context.Context, orgId uuid.UUID, params api.ListImageExportsParams) (*api.ImageExportList, v1beta1.Status)
-	Delete(ctx context.Context, orgId uuid.UUID, name string) v1beta1.Status
+	Delete(ctx context.Context, orgId uuid.UUID, name string) (*api.ImageExport, v1beta1.Status)
 	// Internal methods (not exposed via API)
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, imageExport *api.ImageExport) (*api.ImageExport, error)
 	UpdateLastSeen(ctx context.Context, orgId uuid.UUID, name string, timestamp time.Time) error
@@ -56,12 +56,12 @@ func (s *imageExportService) Create(ctx context.Context, orgId uuid.UUID, imageE
 	}
 
 	result, err := s.imageExportStore.Create(ctx, orgId, &imageExport)
-	return result, StoreErrorToApiStatus(err, true, api.ImageExportKind, imageExport.Metadata.Name)
+	return result, StoreErrorToApiStatus(err, true, string(api.ResourceKindImageExport), imageExport.Metadata.Name)
 }
 
 func (s *imageExportService) Get(ctx context.Context, orgId uuid.UUID, name string) (*api.ImageExport, v1beta1.Status) {
 	result, err := s.imageExportStore.Get(ctx, orgId, name)
-	return result, StoreErrorToApiStatus(err, false, api.ImageExportKind, &name)
+	return result, StoreErrorToApiStatus(err, false, string(api.ResourceKindImageExport), &name)
 }
 
 func (s *imageExportService) List(ctx context.Context, orgId uuid.UUID, params api.ListImageExportsParams) (*api.ImageExportList, v1beta1.Status) {
@@ -84,9 +84,12 @@ func (s *imageExportService) List(ctx context.Context, orgId uuid.UUID, params a
 	}
 }
 
-func (s *imageExportService) Delete(ctx context.Context, orgId uuid.UUID, name string) v1beta1.Status {
-	err := s.imageExportStore.Delete(ctx, orgId, name)
-	return StoreErrorToApiStatus(err, false, api.ImageExportKind, &name)
+func (s *imageExportService) Delete(ctx context.Context, orgId uuid.UUID, name string) (*api.ImageExport, v1beta1.Status) {
+	result, err := s.imageExportStore.Delete(ctx, orgId, name)
+	if err != nil {
+		return nil, StoreErrorToApiStatus(err, false, string(api.ResourceKindImageExport), &name)
+	}
+	return result, StatusOK()
 }
 
 // Internal methods (not exposed via API)

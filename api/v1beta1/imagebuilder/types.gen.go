@@ -88,6 +88,12 @@ const (
 	Late LateBindingType = "late"
 )
 
+// Defines values for ResourceKind.
+const (
+	ResourceKindImageBuild  ResourceKind = "ImageBuild"
+	ResourceKindImageExport ResourceKind = "ImageExport"
+)
+
 // BindingType The type of binding for the image build.
 type BindingType string
 
@@ -347,22 +353,37 @@ type ImageExportStatus struct {
 	ManifestDigest *string `json:"manifestDigest,omitempty"`
 }
 
-// ImagePipelineRequest Request to create an ImagePipeline consisting of an ImageBuild and optionally an ImageExport atomically. If imageExport is provided, the server will override its source to reference the created ImageBuild.
+// ImagePipelineList ImagePipelineList is a list of ImagePipeline resources.
+type ImagePipelineList struct {
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
+	ApiVersion string `json:"apiVersion"`
+
+	// Items List of ImagePipeline resources.
+	Items []ImagePipelineResponse `json:"items"`
+
+	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.
+	Kind string `json:"kind"`
+
+	// Metadata ListMeta describes metadata that synthetic resources must have, including lists and various status objects. A resource may have only one of {ObjectMeta, ListMeta}.
+	Metadata externalRef0.ListMeta `json:"metadata"`
+}
+
+// ImagePipelineRequest Request to create an ImagePipeline consisting of an ImageBuild and optionally a list of ImageExports atomically. If imageExports are provided, the server will override their source to reference the created ImageBuild.
 type ImagePipelineRequest struct {
 	// ImageBuild ImageBuild represents a build request for a container image.
 	ImageBuild ImageBuild `json:"imageBuild"`
 
-	// ImageExport ImageExport represents an export request to convert and push images to different formats.
-	ImageExport *ImageExport `json:"imageExport,omitempty"`
+	// ImageExports List of ImageExport resources to create.
+	ImageExports *[]ImageExport `json:"imageExports,omitempty"`
 }
 
-// ImagePipelineResponse Response containing the created ImagePipeline resources (ImageBuild and optionally ImageExport).
+// ImagePipelineResponse Response containing the created ImagePipeline resources (ImageBuild and optionally a list of ImageExports).
 type ImagePipelineResponse struct {
 	// ImageBuild ImageBuild represents a build request for a container image.
 	ImageBuild ImageBuild `json:"imageBuild"`
 
-	// ImageExport ImageExport represents an export request to convert and push images to different formats.
-	ImageExport *ImageExport `json:"imageExport,omitempty"`
+	// ImageExports List of created ImageExport resources.
+	ImageExports *[]ImageExport `json:"imageExports,omitempty"`
 }
 
 // ImageReferenceSource ImageReferenceSource specifies a source image from a repository.
@@ -392,6 +413,9 @@ type LateBinding struct {
 // LateBindingType The type of binding.
 type LateBindingType string
 
+// ResourceKind Resource types exposed via the ImageBuilder API.
+type ResourceKind string
+
 // ListImageBuildsParams defines parameters for ListImageBuilds.
 type ListImageBuildsParams struct {
 	// LabelSelector A selector to restrict the list of returned objects by their labels.
@@ -409,6 +433,21 @@ type ListImageBuildsParams struct {
 
 // ListImageExportsParams defines parameters for ListImageExports.
 type ListImageExportsParams struct {
+	// LabelSelector A selector to restrict the list of returned objects by their labels.
+	LabelSelector *string `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
+
+	// FieldSelector A selector to restrict the list of returned objects by their fields.
+	FieldSelector *string `form:"fieldSelector,omitempty" json:"fieldSelector,omitempty"`
+
+	// Limit The maximum number of results returned in the list response.
+	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Continue An optional parameter to query more results from the server.
+	Continue *string `form:"continue,omitempty" json:"continue,omitempty"`
+}
+
+// ListImagePipelinesParams defines parameters for ListImagePipelines.
+type ListImagePipelinesParams struct {
 	// LabelSelector A selector to restrict the list of returned objects by their labels.
 	LabelSelector *string `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
 

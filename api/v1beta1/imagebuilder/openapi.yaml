@@ -243,10 +243,74 @@ paths:
               schema:
                 $ref: '../openapi.yaml#/components/schemas/Status'
   /api/v1/imagepipelines:
+    get:
+      tags:
+        - imagepipeline
+      description: List ImagePipeline resources. Returns ImageBuilds with their associated ImageExports.
+      operationId: listImagePipelines
+      parameters:
+        - name: labelSelector
+          in: query
+          description: A selector to restrict the list of returned objects by their labels.
+          schema:
+            type: string
+        - name: fieldSelector
+          in: query
+          description: A selector to restrict the list of returned objects by their fields.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          description: The maximum number of results returned in the list response.
+          schema:
+            type: integer
+            format: int32
+        - name: continue
+          in: query
+          description: An optional parameter to query more results from the server.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImagePipelineList'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
     post:
       tags:
         - imagepipeline
-      description: Create an ImagePipeline consisting of an ImageBuild and optionally an ImageExport atomically in a single transaction.
+      description: Create an ImagePipeline consisting of an ImageBuild and optionally a list of ImageExports atomically in a single transaction.
       operationId: createImagePipeline
       requestBody:
         content:
@@ -281,6 +345,105 @@ paths:
                 $ref: '../openapi.yaml#/components/schemas/Status'
         "409":
           description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+  /api/v1/imagepipelines/{name}:
+    get:
+      tags:
+        - imagepipeline
+      description: Get an ImagePipeline by ImageBuild name. Returns the ImageBuild and all ImageExports that reference it.
+      operationId: getImagePipeline
+      parameters:
+        - name: name
+          in: path
+          description: The name of the ImageBuild resource.
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImagePipelineResponse'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+    delete:
+      tags:
+        - imagepipeline
+      description: Delete an ImagePipeline by ImageBuild name. Deletes all associated ImageExports and then the ImageBuild in a single transaction.
+      operationId: deleteImagePipeline
+      parameters:
+        - name: name
+          in: path
+          description: The name of the ImageBuild resource.
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImagePipelineResponse'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "404":
+          description: Not Found
           content:
             application/json:
               schema:
@@ -522,6 +685,10 @@ components:
     orgId:
       $ref: '../openapi.yaml#/components/securitySchemes/orgId'
   schemas:
+    ResourceKind:
+      type: string
+      enum: [ImageBuild, ImageExport]
+      description: Resource types exposed via the ImageBuilder API.
     ImageBuild:
       type: object
       description: ImageBuild represents a build request for a container image.
@@ -940,22 +1107,51 @@ components:
     # ImagePipeline schemas
     ImagePipelineRequest:
       type: object
-      description: Request to create an ImagePipeline consisting of an ImageBuild and optionally an ImageExport atomically. If imageExport is provided, the server will override its source to reference the created ImageBuild.
+      description: Request to create an ImagePipeline consisting of an ImageBuild and optionally a list of ImageExports atomically. If imageExports are provided, the server will override their source to reference the created ImageBuild.
       properties:
         imageBuild:
           $ref: '#/components/schemas/ImageBuild'
-        imageExport:
-          $ref: '#/components/schemas/ImageExport'
+        imageExports:
+          type: array
+          description: List of ImageExport resources to create.
+          items:
+            $ref: '#/components/schemas/ImageExport'
       required:
         - imageBuild
 
     ImagePipelineResponse:
       type: object
-      description: Response containing the created ImagePipeline resources (ImageBuild and optionally ImageExport).
+      description: Response containing the created ImagePipeline resources (ImageBuild and optionally a list of ImageExports).
       properties:
         imageBuild:
           $ref: '#/components/schemas/ImageBuild'
-        imageExport:
-          $ref: '#/components/schemas/ImageExport'
+        imageExports:
+          type: array
+          description: List of created ImageExport resources.
+          items:
+            $ref: '#/components/schemas/ImageExport'
       required:
         - imageBuild
+
+    ImagePipelineList:
+      type: object
+      description: ImagePipelineList is a list of ImagePipeline resources.
+      properties:
+        apiVersion:
+          type: string
+          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
+        kind:
+          type: string
+          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
+        metadata:
+          $ref: '../openapi.yaml#/components/schemas/ListMeta'
+        items:
+          type: array
+          description: 'List of ImagePipeline resources.'
+          items:
+            $ref: '#/components/schemas/ImagePipelineResponse'
+      required:
+        - apiVersion
+        - kind
+        - metadata
+        - items

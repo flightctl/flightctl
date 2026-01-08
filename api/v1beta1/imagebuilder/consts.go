@@ -4,10 +4,12 @@ const (
 	APIGroup = "flightctl.io"
 
 	ImageBuildAPIVersion = "v1beta1"
-	ImageBuildKind       = "ImageBuild"
 	ImageBuildListKind   = "ImageBuildList"
 
 	ImageExportAPIVersion = "v1beta1"
-	ImageExportKind       = "ImageExport"
 	ImageExportListKind   = "ImageExportList"
 )
+
+// Use generated ResourceKind enum constants instead:
+// - ResourceKindImageBuild (from types.gen.go)
+// - ResourceKindImageExport (from types.gen.go)

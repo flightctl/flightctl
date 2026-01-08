@@ -27,7 +27,7 @@ func newTestImageBuildService() (ImageBuildService, *DummyImageBuildStore) {
 func newValidImageBuild(name string) api.ImageBuild {
 	return api.ImageBuild{
 		ApiVersion: api.ImageBuildAPIVersion,
-		Kind:       api.ImageBuildKind,
+		Kind:       string(api.ResourceKindImageBuild),
 		Metadata: v1beta1.ObjectMeta{
 			Name: lo.ToPtr(name),
 		},
@@ -184,8 +184,10 @@ func TestDeleteImageBuild(t *testing.T) {
 	require.Equal(int32(http.StatusCreated), statusCode(status))
 
 	// Delete it
-	status = svc.Delete(ctx, orgId, "delete-test")
+	result, status := svc.Delete(ctx, orgId, "delete-test")
 	require.Equal(int32(http.StatusOK), statusCode(status))
+	require.NotNil(result)
+	require.Equal("delete-test", lo.FromPtr(result.Metadata.Name))
 
 	// Verify it's gone
 	_, status = svc.Get(ctx, orgId, "delete-test")
@@ -198,7 +200,7 @@ func TestDeleteImageBuildNotFound(t *testing.T) {
 	ctx := context.Background()
 	orgId := uuid.New()
 
-	status := svc.Delete(ctx, orgId, "nonexistent")
+	_, status := svc.Delete(ctx, orgId, "nonexistent")
 	require.Equal(int32(http.StatusNotFound), statusCode(status))
 }
 
