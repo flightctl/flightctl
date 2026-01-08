@@ -175,6 +175,7 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 	initializing := 0
 	restarts := 0
 	exited := 0
+	stopped := 0
 	for _, workload := range a.workloads {
 		restarts += workload.Restarts
 		switch workload.Status {
@@ -182,6 +183,8 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 			initializing++
 		case StatusRunning:
 			healthy++
+		case StatusStop:
+			stopped++
 		case StatusExited:
 			exited++
 		}
@@ -198,12 +201,18 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 	case isUnknown(total, healthy, initializing):
 		newStatus = v1beta1.ApplicationStatusUnknown
 		summary.Status = v1beta1.ApplicationsSummaryStatusUnknown
+	case isErrored(total, healthy, initializing):
+		newStatus = v1beta1.ApplicationStatusError
+		summary.Status = v1beta1.ApplicationsSummaryStatusError
 	case isStarting(total, healthy, initializing):
 		newStatus = v1beta1.ApplicationStatusStarting
 		summary.Status = v1beta1.ApplicationsSummaryStatusDegraded
 	case isPreparing(total, healthy, initializing):
 		newStatus = v1beta1.ApplicationStatusPreparing
 		summary.Status = v1beta1.ApplicationsSummaryStatusUnknown
+	case isStopped(stopped, total):
+		newStatus = v1beta1.ApplicationStatusDegraded
+		summary.Status = v1beta1.ApplicationsSummaryStatusDegraded
 	case isCompleted(total, exited):
 		newStatus = v1beta1.ApplicationStatusCompleted
 		summary.Status = v1beta1.ApplicationsSummaryStatusHealthy
@@ -213,9 +222,6 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 	case isRunningDegraded(total, healthy, initializing):
 		newStatus = v1beta1.ApplicationStatusRunning
 		summary.Status = v1beta1.ApplicationsSummaryStatusDegraded
-	case isErrored(total, healthy, initializing):
-		newStatus = v1beta1.ApplicationStatusError
-		summary.Status = v1beta1.ApplicationsSummaryStatusError
 	default:
 		summary.Status = v1beta1.ApplicationsSummaryStatusUnknown
 		return nil, summary, fmt.Errorf("unknown application status: %d/%d/%d", total, healthy, initializing)
@@ -243,6 +249,10 @@ func isStarting(total, healthy, initializing int) bool {
 
 func isUnknown(total, healthy, initializing int) bool {
 	return total == 0 && healthy == 0 && initializing == 0
+}
+
+func isStopped(stopped, total int) bool {
+	return total > 0 && stopped > 0
 }
 
 func isCompleted(total, completed int) bool {
