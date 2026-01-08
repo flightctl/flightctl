@@ -179,6 +179,7 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 
 	for _, workload := range a.workloads {
 		restarts += workload.Restarts
+
 		switch workload.Status {
 		case StatusInit, StatusCreated:
 			initializing++
