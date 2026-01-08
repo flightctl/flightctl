@@ -983,3 +983,62 @@ func TestBuildAppSummaryInfo(t *testing.T) {
 		})
 	}
 }
+
+func TestUpdateApplicationStatus(t *testing.T) {
+	require := require.New(t)
+	log := log.NewPrefixLogger("test")
+	log.SetLevel(logrus.DebugLevel)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	podmanMonitor := NewPodmanMonitor(log, nil, nil, "", nil)
+	testApp := createTestApplication(require, "test-app", v1beta1.ApplicationStatusRunning)
+	podmanMonitor.apps[testApp.ID()] = testApp
+
+	containerName := "test-container"
+	workload := &Workload{Name: containerName, Status: StatusStop}
+	testApp.AddWorkload(workload)
+
+	t.Run("stopped container with exit code 0 should remain stopped", func(t *testing.T) {
+		// Given
+		event := mockPodmanEventSuccess(testApp.Name(), containerName, "died")
+		event.ContainerExitCode = 0
+
+		// When
+		podmanMonitor.updateApplicationStatus(testApp, &event, StatusDied, 0)
+
+		// Then
+		container, exists := testApp.Workload(containerName)
+		require.True(exists)
+		require.Equal(StatusStop, container.Status)
+	})
+
+	t.Run("stopped container with non-zero exit code should update status", func(t *testing.T) {
+		// Given
+		workload.Status = StatusStop // Reset status
+		event := mockPodmanEventError(testApp.Name(), containerName, "died", 1)
+
+		// When
+		podmanMonitor.updateApplicationStatus(testApp, &event, StatusDie, 0)
+
+		// Then
+		container, exists := testApp.Workload(containerName)
+		require.True(exists)
+		require.Equal(StatusDie, container.Status)
+	})
+
+	t.Run("running container with exit code 0 should update status", func(t *testing.T) {
+		// Given
+		workload.Status = StatusRunning // Set initial status to running
+		event := mockPodmanEventSuccess(testApp.Name(), containerName, "died")
+		event.ContainerExitCode = 0
+
+		// When
+		podmanMonitor.updateApplicationStatus(testApp, &event, StatusDied, 0)
+
+		// Then
+		container, exists := testApp.Workload(containerName)
+		require.True(exists)
+		require.Equal(StatusDied, container.Status)
+	})
+}
