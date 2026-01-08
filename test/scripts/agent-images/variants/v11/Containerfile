@@ -1,0 +1,24 @@
+# quay.io/flightctl/flightctl-device:v11
+#
+# BROKEN bootc image for testing greenboot rollback.
+# Uses a systemd drop-in to override the agent's ExecStart command.
+#
+# When the device boots into this image:
+# 1. flightctl-agent.service starts
+# 2. Systemd reads the drop-in and runs /bin/false instead of the real agent
+# 3. /bin/false exits immediately with code 1
+# 4. No READY=1 is sent to systemd
+# 5. Service fails to start
+# 6. Greenboot health check detects the failure
+# 7. After retries, greenboot triggers OS rollback
+# 8. Device reboots back to previous deployment
+
+ARG BASE_IMAGE=quay.io/flightctl/flightctl-device:base
+
+FROM ${BASE_IMAGE}
+
+# Create drop-in directory for flightctl-agent.service
+RUN mkdir -p /etc/systemd/system/flightctl-agent.service.d
+
+# Copy the drop-in that overrides ExecStart to /bin/false
+COPY --from=variant-context 99-break-agent.conf /etc/systemd/system/flightctl-agent.service.d/
