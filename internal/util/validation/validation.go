@@ -320,7 +320,10 @@ func ValidateCSRUsages(u *[]string) []error {
 		"clientAuth": {},
 		"CA:false":   {},
 	}
-	notAllowed := map[string]struct{}{}
+	notAllowed := map[string]struct{}{
+		"serverAuth": {},
+		"CA:true":    {},
+	}
 
 	for _, usage := range usages {
 		if _, exists := notAllowed[usage]; exists {
