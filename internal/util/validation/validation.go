@@ -352,7 +352,7 @@ func ValidateSignerName(s string) []error {
 
 	validSigners := map[string]struct{}{
 		"flightctl.io/enrollment":        {},
-		"flightctl.io/device-enrollment": {},
+		"flightctl.io/device-management": {},
 		"flightctl.io/device-svc-client": {},
 		"flightctl.io/server-svc":        {},
 	}
