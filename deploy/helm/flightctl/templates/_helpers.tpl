@@ -625,7 +625,7 @@ Usage: {{- include "flightctl.authConfig" . | nindent 4 }}
 {{- if not (eq $effectiveAuthType "none") }}
 auth:
     insecureSkipTlsVerify: {{ .Values.global.auth.insecureSkipTlsVerify }}
-    caCert: {{ ((.Values.global).auth).caCert | quote }}
+    caCert: {{ include "flightctl.getAuthCaCrt" . | quote }}
     {{- if eq $effectiveAuthType "k8s" }}
     k8s:
         apiUrl: {{ .Values.global.auth.k8s.apiUrl }}
@@ -665,4 +665,24 @@ auth:
         {{- end }}
     {{- end }}
 {{- end }}
+{{- end }}
+
+{{- define "flightctl.getAuthCaCrt" }}
+  {{- $caCrt := "" }}
+  {{- if .Values.global.auth.caCert }}
+    {{- $caCrt = .Values.global.auth.caCert }}
+  {{- else }}
+    {{- $isOpenShift := (include "flightctl.enableOpenShiftExtensions" . )}}
+    {{- if eq $isOpenShift "true"}}
+      {{- /* For OpenShift deployments, try to lookup the ingress CA cert */}}
+      {{- $authType := include "flightctl.getEffectiveAuthType" . }}
+      {{- if eq $authType "openshift" }}
+        {{- $ingressCM := (lookup "v1" "ConfigMap" "openshift-config-managed" "default-ingress-cert") }}
+        {{- if and $ingressCM (index $ingressCM.data "ca-bundle.crt") }}
+          {{- $caCrt = index $ingressCM.data "ca-bundle.crt" }}
+        {{- end }}
+      {{- end }}
+    {{- end }}
+  {{- end }}
+  {{- $caCrt }}
 {{- end }}
