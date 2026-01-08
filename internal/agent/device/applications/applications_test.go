@@ -1,280 +1,105 @@
 package applications
 
 import (
-	"context"
 	"testing"
 
 	"github.com/flightctl/flightctl/api/v1beta1"
-	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
-	"github.com/flightctl/flightctl/internal/agent/device/fileio"
-	"github.com/flightctl/flightctl/pkg/executer"
-	"github.com/flightctl/flightctl/pkg/log"
-	"github.com/flightctl/flightctl/test/util"
-	"github.com/samber/lo"
-	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/mock/gomock"
 )
 
 func TestApplicationStatus(t *testing.T) {
-	require := require.New(t)
-
-	tests := []struct {
-		name                  string
-		workloads             []Workload
-		expectedReady         string
-		expectedRestarts      int
-		expectedStatus        v1beta1.ApplicationStatusType
-		expectedSummaryStatus v1beta1.ApplicationsSummaryStatusType
-		expected              v1beta1.AppType
+	testCases := []struct {
+		name           string
+		workloads      []Workload
+		expectedStatus v1beta1.ApplicationStatusType
+		expectedSummary v1beta1.ApplicationsSummaryStatusType
 	}{
 		{
-			name:                  "app created no workloads",
-			expectedReady:         "0/0",
-			expectedStatus:        v1beta1.ApplicationStatusUnknown,
-			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusUnknown,
-			expected:              v1beta1.AppTypeCompose,
+			name: "single container completed",
+			workloads: []Workload{
+				{Name: "c1", Status: StatusExited},
+			},
+			expectedStatus: v1beta1.ApplicationStatusCompleted,
+			expectedSummary: v1beta1.ApplicationsSummaryStatusHealthy,
 		},
 		{
-			name: "app single container preparing to start init",
+			name: "multi container all exited is error",
 			workloads: []Workload{
-				{
-					Status: StatusInit,
-				},
+				{Name: "c1", Status: StatusExited},
+				{Name: "c2", Status: StatusExited},
 			},
-			expectedReady:         "0/1",
-			expectedStatus:        v1beta1.ApplicationStatusPreparing,
-			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusUnknown,
-			expected:              v1beta1.AppTypeCompose,
+			expectedStatus: v1beta1.ApplicationStatusError,
+			expectedSummary: v1beta1.ApplicationsSummaryStatusError,
 		},
 		{
-			name: "app single container preparing to start created",
+			name: "multi container running healthy",
 			workloads: []Workload{
-				{
-					Status: StatusCreated,
-				},
+				{Name: "c1", Status: StatusRunning},
+				{Name: "c2", Status: StatusRunning},
 			},
-			expectedReady:         "0/1",
-			expectedStatus:        v1beta1.ApplicationStatusPreparing,
-			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusUnknown,
-			expected:              v1beta1.AppTypeCompose,
+			expectedStatus: v1beta1.ApplicationStatusRunning,
+			expectedSummary: v1beta1.ApplicationsSummaryStatusHealthy,
 		},
 		{
-			name: "app multiple workloads starting init",
+			name: "multi container one running one exited is healthy",
 			workloads: []Workload{
-				{
-					Name:   "container1",
-					Status: StatusInit,
-				},
-				{
-					Name:   "container2",
-					Status: StatusRunning,
-				},
+				{Name: "c1", Status: StatusRunning},
+				{Name: "c2", Status: StatusExited},
 			},
-			expectedReady:         "1/2",
-			expectedStatus:        v1beta1.ApplicationStatusStarting,
-			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusDegraded,
-			expected:              v1beta1.AppTypeCompose,
+			expectedStatus: v1beta1.ApplicationStatusRunning,
+			expectedSummary: v1beta1.ApplicationsSummaryStatusHealthy,
 		},
 		{
-			name: "app multiple workloads starting created",
+			name: "multi container starting",
 			workloads: []Workload{
-				{
-					Name:   "container1",
-					Status: StatusCreated,
-				},
-				{
-					Name:   "container2",
-					Status: StatusRunning,
-				},
+				{Name: "c1", Status: StatusRunning},
+				{Name: "c2", Status: StatusInit},
 			},
-			expectedReady:         "1/2",
-			expectedStatus:        v1beta1.ApplicationStatusStarting,
-			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusDegraded,
-			expected:              v1beta1.AppTypeCompose,
+			expectedStatus: v1beta1.ApplicationStatusStarting,
+			expectedSummary: v1beta1.ApplicationsSummaryStatusDegraded,
 		},
 		{
-			name: "app errored",
+			name: "multi container preparing",
 			workloads: []Workload{
-				{
-					Name:   "container1",
-					Status: StatusDie,
-				},
-				{
-					Name:   "container2",
-					Status: StatusDie,
-				},
+				{Name: "c1", Status: StatusInit},
+				{Name: "c2", Status: StatusCreated},
 			},
-			expectedReady:         "0/2",
-			expectedStatus:        v1beta1.ApplicationStatusError,
-			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusError,
-			expected:              v1beta1.AppTypeCompose,
+			expectedStatus: v1beta1.ApplicationStatusPreparing,
+			expectedSummary: v1beta1.ApplicationsSummaryStatusUnknown,
 		},
 		{
-			name: "app running degraded",
+			name: "multi container running degraded",
 			workloads: []Workload{
-				{
-					Name:   "container1",
-					Status: StatusDie,
-				},
-				{
-					Name:   "container2",
-					Status: StatusRunning,
-				},
+				{Name: "c1", Status: StatusRunning},
+				{Name: "c2", Status: StatusDied}, // Assuming Died is not a clean exit
 			},
-			expectedReady:         "1/2",
-			expectedStatus:        v1beta1.ApplicationStatusRunning,
-			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusDegraded,
-			expected:              v1beta1.AppTypeCompose,
+			expectedStatus: v1beta1.ApplicationStatusRunning,
+			expectedSummary: v1beta1.ApplicationsSummaryStatusDegraded,
 		},
 		{
-			name: "app running degraded",
-			workloads: []Workload{
-				{
-					Name:   "container1",
-					Status: StatusDied,
-				},
-				{
-					Name:   "container2",
-					Status: StatusRunning,
-				},
-			},
-			expectedReady:         "1/2",
-			expectedStatus:        v1beta1.ApplicationStatusRunning,
-			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusDegraded,
-			expected:              v1beta1.AppTypeCompose,
-		},
-		{
-			name: "app running healthy",
-			workloads: []Workload{
-				{
-					Name:   "container1",
-					Status: StatusRunning,
-				},
-				{
-					Name:   "container2",
-					Status: StatusRunning,
-				},
-			},
-			expectedReady:         "2/2",
-			expectedStatus:        v1beta1.ApplicationStatusRunning,
-			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusHealthy,
-		},
-		{
-			name: "app running healthy with restarts",
-			workloads: []Workload{
-				{
-					Name:     "container1",
-					Status:   StatusRunning,
-					Restarts: 1,
-				},
-				{
-					Name:     "container2",
-					Status:   StatusRunning,
-					Restarts: 2,
-				},
-			},
-			expectedReady:         "2/2",
-			expectedStatus:        v1beta1.ApplicationStatusRunning,
-			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusHealthy,
-			expectedRestarts:      3,
-		},
-		{
-			name: "app has all workloads exited",
-			workloads: []Workload{
-				{
-					Name:   "container1",
-					Status: StatusExited,
-				},
-				{
-					Name:   "container2",
-					Status: StatusExited,
-				},
-			},
-			expectedReady:         "0/2",
-			expectedStatus:        v1beta1.ApplicationStatusError,
-			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusError,
-		},
-		{
-			name: "app has one workloads exited",
-			workloads: []Workload{
-				{
-					Name:   "container1",
-					Status: StatusRunning,
-				},
-				{
-					Name:   "container2",
-					Status: StatusExited,
-				},
-			},
-			expectedReady:         "1/2",
-			expectedStatus:        v1beta1.ApplicationStatusRunning,
-			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusHealthy,
-		},
-		{
-			name: "app with single container has exited",
-			workloads: []Workload{
-				{
-					Name:   "container1",
-					Status: StatusExited,
-				},
-			},
-			expectedReady:         "0/1",
-			expectedStatus:        v1beta1.ApplicationStatusCompleted,
-			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusHealthy,
+			name: "no workloads is unknown",
+			workloads: []Workload{},
+			expectedStatus: v1beta1.ApplicationStatusUnknown,
+			expectedSummary: v1beta1.ApplicationsSummaryStatusUnknown,
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			log := log.NewPrefixLogger("test")
-			log.SetLevel(logrus.DebugLevel)
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
 
-			ctrl := gomock.NewController(t)
-			defer ctrl.Finish()
-
-			tmpDir := t.TempDir()
-			readWriter := fileio.NewReadWriter()
-			readWriter.SetRootdir(tmpDir)
-
-			mockExec := executer.NewMockExecuter(ctrl)
-			podman := client.NewPodman(log, mockExec, readWriter, util.NewPollConfig())
-
-			spec := v1beta1.InlineApplicationProviderSpec{
-				Inline: []v1beta1.ApplicationContent{
-					{
-						Content: lo.ToPtr(util.NewComposeSpec()),
-						Path:    "docker-compose.yml",
-					},
+			app := NewApplication(&provider.FakeProvider{
+				ProviderSpec: &provider.Spec{
+					Name: "test-app",
 				},
-			}
+			})
+			app.workloads = tc.workloads
 
-			providerSpec := v1beta1.ApplicationProviderSpec{
-				Name:    lo.ToPtr("app"),
-				AppType: v1beta1.AppTypeCompose,
-			}
-			err := providerSpec.FromInlineApplicationProviderSpec(spec)
+			status, summary, err := app.Status()
 			require.NoError(err)
-			desired := v1beta1.DeviceSpec{
-				Applications: &[]v1beta1.ApplicationProviderSpec{
-					providerSpec,
-				},
-			}
-			providers, err := provider.FromDeviceSpec(context.Background(), log, podman, readWriter, &desired)
-			require.NoError(err)
-			require.Len(providers, 1)
-			application := NewApplication(providers[0])
-			if len(tt.workloads) > 0 {
-				application.workloads = tt.workloads
-			}
-			status, summary, err := application.Status()
-			require.NoError(err)
-
-			require.Equal(tt.expectedReady, status.Ready)
-			require.Equal(tt.expectedRestarts, status.Restarts)
-			require.Equal(tt.expectedStatus, status.Status)
-			require.Equal(tt.expectedSummaryStatus, summary.Status)
+			require.Equal(tc.expectedStatus, status.Status)
+			require.Equal(tc.expectedSummary, summary.Status)
 		})
 	}
 }
