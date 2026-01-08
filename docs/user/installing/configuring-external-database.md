@@ -297,7 +297,7 @@ After RPM installation, configure and deploy Flight Control with external databa
 ```bash
 # 1. Configure external database connection
 sudo vi /etc/flightctl/service-config.yaml
-# Set: type: "external" and configure the external: block with your database details
+# Set: db.type: "external" and your database connection details
 
 # 2. Disable internal database services (they conflict with external database)
 sudo systemctl mask flightctl-db.service flightctl-db-users-init.service
