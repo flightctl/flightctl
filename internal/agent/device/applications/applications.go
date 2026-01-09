@@ -204,6 +204,13 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 	case isPreparing(total, healthy, initializing):
 		newStatus = v1beta1.ApplicationStatusPreparing
 		summary.Status = v1beta1.ApplicationsSummaryStatusUnknown
+	case isStopped(total, healthy, exited):
+		newStatus = v1beta1.ApplicationStatusError
+		summary.Status = v1beta1.ApplicationsSummaryStatusError
+		if a.status.Info == nil {
+			a.status.Info = make(map[string]string)
+		}
+		a.status.Info["Reason"] = "All workloads have exited"
 	case isCompleted(total, exited):
 		newStatus = v1beta1.ApplicationStatusCompleted
 		summary.Status = v1beta1.ApplicationsSummaryStatusHealthy
@@ -241,6 +248,10 @@ func isStarting(total, healthy, initializing int) bool {
 	return total > 0 && initializing > 0 && healthy > 0
 }
 
+func isStopped(total, healthy, exited int) bool {
+	return total > 0 && healthy == 0 && exited == total
+}
+
 func isUnknown(total, healthy, initializing int) bool {
 	return total == 0 && healthy == 0 && initializing == 0
 }
@@ -258,6 +269,10 @@ func isRunningDegraded(total, healthy, initializing int) bool {
 }
 
 func isRunningHealthy(total, healthy, initializing, exited int) bool {
+	// an application with no running containers is not healthy
+	if total > 0 && healthy == 0 && exited > 0 {
+		return false
+	}
 	return total > 0 && (healthy == total || healthy+exited == total) && initializing == 0
 }
 

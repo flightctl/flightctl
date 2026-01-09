@@ -661,6 +661,21 @@ func (m *PodmanMonitor) updateApplicationStatus(app Application, event *client.P
 	})
 }
 
+func (m *PodmanMonitor) getContainerStatusFromInspect(ctx context.Context, event *client.PodmanEvent) (StatusType, []client.PodmanInspect) {
+	inspectData, err := m.inspectContainer(ctx, event.ID)
+	if err != nil {
+		if errors.Is(err, errors.ErrNotFound) {
+			m.log.Debugf("Container %s not found; likely removed during app restart", event.ID)
+		} else {
+			m.log.Errorf("Failed to inspect container: %v", err)
+		}
+		// If inspect fails, we can't resolve status based on exit code, so return the status from the event.
+		return StatusType(event.Status), nil
+	}
+
+	return m.resolveStatus(event.Status, inspectData), inspectData
+}
+
 func (m *PodmanMonitor) updateQuadletContainerStatus(ctx context.Context, app Application, event *client.PodmanEvent) {
 	systemdUnit, ok := event.Attributes[quadletSystemdLabel]
 	if !ok {
@@ -691,16 +706,7 @@ func (m *PodmanMonitor) updateQuadletContainerStatus(ctx context.Context, app Ap
 		m.log.Errorf("Could not parse systemd unit restarts: %v", err)
 	}
 
-	inspectData, err := m.inspectContainer(ctx, event.ID)
-	if err != nil {
-		if errors.Is(err, errors.ErrNotFound) {
-			m.log.Debugf("Container %s not found; likely removed during app restart", event.ID)
-		} else {
-			m.log.Errorf("Failed to inspect container: %v", err)
-		}
-	}
-
-	status := m.resolveStatus(event.Status, inspectData)
+	status, _ := m.getContainerStatusFromInspect(ctx, event)
 	if status == StatusRemove {
 		m.mu.Lock()
 		defer m.mu.Unlock()
@@ -715,21 +721,13 @@ func (m *PodmanMonitor) updateQuadletContainerStatus(ctx context.Context, app Ap
 }
 
 func (m *PodmanMonitor) updateComposeContainerStatus(ctx context.Context, app Application, event *client.PodmanEvent) {
-	inspectData, err := m.inspectContainer(ctx, event.ID)
-	if err != nil {
-		if errors.Is(err, errors.ErrNotFound) {
-			m.log.Debugf("Container %s not found; likely removed during app restart", event.ID)
-		} else {
-			m.log.Errorf("Failed to inspect container: %v", err)
-		}
-	}
+	status, inspectData := m.getContainerStatusFromInspect(ctx, event)
 
 	restarts, err := m.getContainerRestarts(inspectData)
 	if err != nil {
 		m.log.Errorf("Failed to get container restarts: %v", err)
 	}
 
-	status := m.resolveStatus(event.Status, inspectData)
 	if status == StatusRemove {
 		m.mu.Lock()
 		defer m.mu.Unlock()
