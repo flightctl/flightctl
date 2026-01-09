@@ -39,6 +39,7 @@ func newImageHandler(appType v1beta1.AppType, name string, rw fileio.ReadWriter,
 			rw:          rw,
 			log:         l,
 			specVolumes: lo.FromPtr(provider.Volumes),
+			podman:      podman,
 		}
 		qb.volumeProvider = func() ([]*Volume, error) {
 			return extractQuadletVolumesFromDir(qb.ID(), rw, qb.AppPath())

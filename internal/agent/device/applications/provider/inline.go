@@ -21,7 +21,7 @@ type inlineProvider struct {
 	handler    appTypeHandler
 }
 
-func newInlineHandler(appType v1beta1.AppType, name string, rw fileio.ReadWriter, spec *v1beta1.InlineApplicationProviderSpec, l *log.PrefixLogger, vm VolumeManager) (appTypeHandler, error) {
+func newInlineHandler(appType v1beta1.AppType, name string, rw fileio.ReadWriter, spec *v1beta1.InlineApplicationProviderSpec, l *log.PrefixLogger, vm VolumeManager, podman *client.Podman) (appTypeHandler, error) {
 	switch appType {
 	case v1beta1.AppTypeQuadlet:
 		qb := &quadletHandler{
@@ -29,6 +29,7 @@ func newInlineHandler(appType v1beta1.AppType, name string, rw fileio.ReadWriter
 			rw:          rw,
 			log:         l,
 			specVolumes: lo.FromPtr(spec.Volumes),
+			podman:      podman,
 		}
 		qb.volumeProvider = func() ([]*Volume, error) {
 			return extractQuadletVolumesFromSpec(qb.ID(), spec.Inline)
@@ -59,7 +60,7 @@ func newInline(log *log.PrefixLogger, podman *client.Podman, spec *v1beta1.Appli
 		return nil, err
 	}
 
-	handler, err := newInlineHandler(appType, appName, readWriter, &provider, log, volumeManager)
+	handler, err := newInlineHandler(appType, appName, readWriter, &provider, log, volumeManager, podman)
 	if err != nil {
 		return nil, fmt.Errorf("constructing inline app handler: %w", err)
 	}

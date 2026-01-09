@@ -33,12 +33,24 @@ type embeddedQuadletBehavior struct {
 	name      string
 	rw        fileio.ReadWriter
 	log       *log.PrefixLogger
+	podman    *client.Podman
 	bootTime  string
 	installed bool
 }
 
 func (e *embeddedQuadletBehavior) Verify(ctx context.Context) error {
-	return ensureQuadlet(e.rw, e.embeddedPath())
+	if err := ensureQuadlet(e.rw, e.embeddedPath()); err != nil {
+		return err
+	}
+
+	version, err := e.podman.Version(ctx)
+	if err != nil {
+		return fmt.Errorf("podman version: %w", err)
+	}
+	if err := ensureMinQuadletPodmanVersion(version); err != nil {
+		return fmt.Errorf("quadlet app type: %w", err)
+	}
+	return nil
 }
 
 func (e *embeddedQuadletBehavior) Install(ctx context.Context) error {

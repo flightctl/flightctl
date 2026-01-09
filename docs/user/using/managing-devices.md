@@ -636,6 +636,9 @@ The following table shows the application runtimes and formats supported by Flig
 > Compose applications require `podman-compose` to be installed on the device.
 
 > [!NOTE]
+> `quadlet` and `container` applications require podman version 5.0 or above.
+
+> [!NOTE]
 > Image downloads adhere to the `pull-timeout` [configuration](../installing/installing-agent.md#agent-configuration).
 
 > [!TIP]
