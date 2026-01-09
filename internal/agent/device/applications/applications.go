@@ -28,6 +28,7 @@ const (
 	StatusDied    StatusType = "died"
 	StatusRemove  StatusType = "remove"
 	StatusExited  StatusType = "exited"
+	StatusStopped StatusType = "stopped"
 )
 
 func (c StatusType) String() string {
@@ -96,6 +97,7 @@ type Workload struct {
 	Name     string
 	Status   StatusType
 	Restarts int
+	ExitCode int
 }
 
 type application struct {
@@ -176,19 +178,17 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 	restarts := 0
 	exited := 0
 	stopped := 0
-
 	for _, workload := range a.workloads {
 		restarts += workload.Restarts
-
 		switch workload.Status {
 		case StatusInit, StatusCreated:
 			initializing++
 		case StatusRunning:
 			healthy++
-		case StatusStop:
-			stopped++
 		case StatusExited:
 			exited++
+		case StatusStopped:
+			stopped++
 		}
 	}
 
@@ -203,27 +203,27 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 	case isUnknown(total, healthy, initializing):
 		newStatus = v1beta1.ApplicationStatusUnknown
 		summary.Status = v1beta1.ApplicationsSummaryStatusUnknown
-	case isErrored(total, healthy, initializing):
-		newStatus = v1beta1.ApplicationStatusError
-		summary.Status = v1beta1.ApplicationsSummaryStatusError
 	case isStarting(total, healthy, initializing):
 		newStatus = v1beta1.ApplicationStatusStarting
 		summary.Status = v1beta1.ApplicationsSummaryStatusDegraded
 	case isPreparing(total, healthy, initializing):
 		newStatus = v1beta1.ApplicationStatusPreparing
 		summary.Status = v1beta1.ApplicationsSummaryStatusUnknown
-	case isStopped(stopped, total):
-		newStatus = v1beta1.ApplicationStatusDegraded
-		summary.Status = v1beta1.ApplicationsSummaryStatusDegraded
 	case isCompleted(total, exited):
 		newStatus = v1beta1.ApplicationStatusCompleted
 		summary.Status = v1beta1.ApplicationsSummaryStatusHealthy
+	case isStopped(total, stopped):
+		newStatus = v1beta1.ApplicationStatusStopped
+		summary.Status = v1beta1.ApplicationsSummaryStatusDegraded
 	case isRunningHealthy(total, healthy, initializing, exited):
 		newStatus = v1beta1.ApplicationStatusRunning
 		summary.Status = v1beta1.ApplicationsSummaryStatusHealthy
 	case isRunningDegraded(total, healthy, initializing):
 		newStatus = v1beta1.ApplicationStatusRunning
 		summary.Status = v1beta1.ApplicationsSummaryStatusDegraded
+	case isErrored(total, healthy, initializing, stopped):
+		newStatus = v1beta1.ApplicationStatusError
+		summary.Status = v1beta1.ApplicationsSummaryStatusError
 	default:
 		summary.Status = v1beta1.ApplicationsSummaryStatusUnknown
 		return nil, summary, fmt.Errorf("unknown application status: %d/%d/%d", total, healthy, initializing)
@@ -253,17 +253,12 @@ func isUnknown(total, healthy, initializing int) bool {
 	return total == 0 && healthy == 0 && initializing == 0
 }
 
-func isStopped(stopped, total int) bool {
-	return total > 0 && stopped > 0
+func isCompleted(total, completed int) bool {
+	return total > 0 && completed == total
 }
 
-func isCompleted(total, completed int) bool {
-	// A multi-container application is assumed to be a service, so if all
-	// containers have exited, it's considered an error rather than a completion.
-	if total > 1 {
-		return false
-	}
-	return total > 0 && completed == total
+func isStopped(total, stopped int) bool {
+	return total > 0 && stopped == total
 }
 
 func isPreparing(total, healthy, initializing int) bool {
@@ -278,6 +273,6 @@ func isRunningHealthy(total, healthy, initializing, exited int) bool {
 	return total > 0 && (healthy == total || healthy+exited == total) && initializing == 0
 }
 
-func isErrored(total, healthy, initializing int) bool {
-	return total > 0 && healthy == 0 && initializing == 0
+func isErrored(total, healthy, initializing, stopped int) bool {
+	return total > 0 && healthy == 0 && initializing == 0 && stopped == 0
 }

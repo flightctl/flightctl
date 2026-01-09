@@ -5343,6 +5343,7 @@ components:
         - "Preparing"
         - "Starting"
         - "Running"
+        - "Stopped"
         - "Error"
         - "Unknown"
         - "Completed"
