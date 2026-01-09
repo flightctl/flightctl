@@ -848,3 +848,12 @@ func generateQuadlet(ctx context.Context, podman *client.Podman, rw fileio.ReadW
 	}
 	return nil
 }
+
+func ensureMinQuadletPodmanVersion(version *client.PodmanVersion) error {
+	// quadlet install utilizes dropins to add labels and environment files to the generated quadlets
+	// dropin support wasn't added until v5.0.0
+	if !version.GreaterOrEqual(5, 0) {
+		return fmt.Errorf("podman version 5.0 or higher required, got %d.%d", version.Major, version.Minor)
+	}
+	return nil
+}

@@ -26,6 +26,7 @@ func TestInlineProvider(t *testing.T) {
 		image         string
 		spec          *v1beta1.ApplicationProviderSpec
 		content       []v1beta1.ApplicationContent
+		setupMocks    func(*executer.MockExecuter)
 		wantVerifyErr error
 	}{
 		{
@@ -97,6 +98,45 @@ func TestInlineProvider(t *testing.T) {
 				},
 			},
 		},
+		{
+			name:  "quadlet with valid podman version",
+			image: appImage,
+			spec: &v1beta1.ApplicationProviderSpec{
+				Name:    lo.ToPtr("quadlet-app"),
+				AppType: v1beta1.AppTypeQuadlet,
+			},
+			content: []v1beta1.ApplicationContent{
+				{
+					Content: lo.ToPtr("[Container]\nImage=quay.io/flightctl-tests/nginx:latest\n"),
+					Path:    "web.container",
+				},
+			},
+			setupMocks: func(mockExec *executer.MockExecuter) {
+				mockExec.EXPECT().
+					ExecuteWithContext(gomock.Any(), "podman", "--version").
+					Return("podman version 5.4.2", "", 0)
+			},
+		},
+		{
+			name:  "quadlet with podman version below minimum",
+			image: appImage,
+			spec: &v1beta1.ApplicationProviderSpec{
+				Name:    lo.ToPtr("quadlet-app"),
+				AppType: v1beta1.AppTypeQuadlet,
+			},
+			content: []v1beta1.ApplicationContent{
+				{
+					Content: lo.ToPtr("[Container]\nImage=quay.io/flightctl-tests/nginx:latest\n"),
+					Path:    "web.container",
+				},
+			},
+			setupMocks: func(mockExec *executer.MockExecuter) {
+				mockExec.EXPECT().
+					ExecuteWithContext(gomock.Any(), "podman", "--version").
+					Return("podman version 4.9.0", "", 0)
+			},
+			wantVerifyErr: errors.ErrNoRetry,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -110,6 +150,10 @@ func TestInlineProvider(t *testing.T) {
 			rw := fileio.NewReadWriter()
 			rw.SetRootdir(tmpDir)
 			podman := client.NewPodman(log, mockExec, rw, util.NewPollConfig())
+
+			if tt.setupMocks != nil {
+				tt.setupMocks(mockExec)
+			}
 
 			spec := v1beta1.InlineApplicationProviderSpec{
 				Inline: tt.content,
