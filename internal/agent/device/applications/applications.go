@@ -96,6 +96,7 @@ type Workload struct {
 	Name     string
 	Status   StatusType
 	Restarts int
+	ExitCode int
 }
 
 type application struct {
@@ -175,6 +176,7 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 	initializing := 0
 	restarts := 0
 	exited := 0
+	exitedNonZero := 0
 	for _, workload := range a.workloads {
 		restarts += workload.Restarts
 		switch workload.Status {
@@ -182,8 +184,11 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 			initializing++
 		case StatusRunning:
 			healthy++
-		case StatusExited:
+		case StatusExited, StatusDie, StatusDied:
 			exited++
+			if workload.ExitCode != 0 {
+				exitedNonZero++
+			}
 		}
 	}
 
@@ -205,18 +210,25 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 		newStatus = v1beta1.ApplicationStatusPreparing
 		summary.Status = v1beta1.ApplicationsSummaryStatusUnknown
 	case isStopped(total, healthy, exited):
-		newStatus = v1beta1.ApplicationStatusError
-		summary.Status = v1beta1.ApplicationsSummaryStatusError
-		if a.status.Info == nil {
-			a.status.Info = make(map[string]string)
+		if exitedNonZero > 0 {
+			newStatus = v1beta1.ApplicationStatusError
+			summary.Status = v1beta1.ApplicationsSummaryStatusError
+			if a.status.Info == nil {
+				a.status.Info = make(map[string]string)
+			}
+			a.status.Info["Reason"] = "All workloads have exited, at least one with a non-zero status"
+		} else {
+			newStatus = v1beta1.ApplicationStatusCompleted
+			summary.Status = v1beta1.ApplicationsSummaryStatusHealthy
 		}
-		a.status.Info["Reason"] = "All workloads have exited"
-	case isCompleted(total, exited):
-		newStatus = v1beta1.ApplicationStatusCompleted
-		summary.Status = v1beta1.ApplicationsSummaryStatusHealthy
 	case isRunningHealthy(total, healthy, initializing, exited):
-		newStatus = v1beta1.ApplicationStatusRunning
-		summary.Status = v1beta1.ApplicationsSummaryStatusHealthy
+		if exitedNonZero > 0 {
+			newStatus = v1beta1.ApplicationStatusRunning
+			summary.Status = v1beta1.ApplicationsSummaryStatusDegraded
+		} else {
+			newStatus = v1beta1.ApplicationStatusRunning
+			summary.Status = v1beta1.ApplicationsSummaryStatusHealthy
+		}
 	case isRunningDegraded(total, healthy, initializing):
 		newStatus = v1beta1.ApplicationStatusRunning
 		summary.Status = v1beta1.ApplicationsSummaryStatusDegraded

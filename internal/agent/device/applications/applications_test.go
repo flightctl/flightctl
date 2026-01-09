@@ -98,12 +98,14 @@ func TestApplicationStatus(t *testing.T) {
 			name: "app errored",
 			workloads: []Workload{
 				{
-					Name:   "container1",
-					Status: StatusDie,
+					Name:     "container1",
+					Status:   StatusDie,
+					ExitCode: 1,
 				},
 				{
-					Name:   "container2",
-					Status: StatusDie,
+					Name:     "container2",
+					Status:   StatusDie,
+					ExitCode: 1,
 				},
 			},
 			expectedReady:         "0/2",
@@ -115,8 +117,9 @@ func TestApplicationStatus(t *testing.T) {
 			name: "app running degraded",
 			workloads: []Workload{
 				{
-					Name:   "container1",
-					Status: StatusDie,
+					Name:     "container1",
+					Status:   StatusDie,
+					ExitCode: 1,
 				},
 				{
 					Name:   "container2",
@@ -132,8 +135,9 @@ func TestApplicationStatus(t *testing.T) {
 			name: "app running degraded",
 			workloads: []Workload{
 				{
-					Name:   "container1",
-					Status: StatusDied,
+					Name:     "container1",
+					Status:   StatusDied,
+					ExitCode: 1,
 				},
 				{
 					Name:   "container2",
@@ -184,12 +188,14 @@ func TestApplicationStatus(t *testing.T) {
 			name: "app has all workloads exited",
 			workloads: []Workload{
 				{
-					Name:   "container1",
-					Status: StatusExited,
+					Name:     "container1",
+					Status:   StatusExited,
+					ExitCode: 1,
 				},
 				{
-					Name:   "container2",
-					Status: StatusExited,
+					Name:     "container2",
+					Status:   StatusExited,
+					ExitCode: 1,
 				},
 			},
 			expectedReady:         "0/2",
@@ -204,8 +210,9 @@ func TestApplicationStatus(t *testing.T) {
 					Status: StatusRunning,
 				},
 				{
-					Name:   "container2",
-					Status: StatusExited,
+					Name:     "container2",
+					Status:   StatusExited,
+					ExitCode: 0,
 				},
 			},
 			expectedReady:         "1/2",
@@ -216,13 +223,84 @@ func TestApplicationStatus(t *testing.T) {
 			name: "app with single container has exited",
 			workloads: []Workload{
 				{
-					Name:   "container1",
-					Status: StatusExited,
+					Name:     "container1",
+					Status:   StatusExited,
+					ExitCode: 1,
 				},
 			},
 			expectedReady:         "0/1",
 			expectedStatus:        v1beta1.ApplicationStatusError,
 			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusError,
+		},
+		{
+			name: "app has all workloads exited with code 0",
+			workloads: []Workload{
+				{
+					Name:     "container1",
+					Status:   StatusExited,
+					ExitCode: 0,
+				},
+				{
+					Name:     "container2",
+					Status:   StatusExited,
+					ExitCode: 0,
+				},
+			},
+			expectedReady:         "0/2",
+			expectedStatus:        v1beta1.ApplicationStatusCompleted,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusHealthy,
+		},
+		{
+			name: "app has all workloads exited with one non-zero",
+			workloads: []Workload{
+				{
+					Name:     "container1",
+					Status:   StatusExited,
+					ExitCode: 0,
+				},
+				{
+					Name:     "container2",
+					Status:   StatusExited,
+					ExitCode: 1,
+				},
+			},
+			expectedReady:         "0/2",
+			expectedStatus:        v1beta1.ApplicationStatusError,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusError,
+		},
+		{
+			name: "app has one workload running and one exited with code 0",
+			workloads: []Workload{
+				{
+					Name:   "container1",
+					Status: StatusRunning,
+				},
+				{
+					Name:     "container2",
+					Status:   StatusExited,
+					ExitCode: 0,
+				},
+			},
+			expectedReady:         "1/2",
+			expectedStatus:        v1beta1.ApplicationStatusRunning,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusHealthy,
+		},
+		{
+			name: "app has one workload running and one exited with non-zero",
+			workloads: []Workload{
+				{
+					Name:   "container1",
+					Status: StatusRunning,
+				},
+				{
+					Name:     "container2",
+					Status:   StatusExited,
+					ExitCode: 1,
+				},
+			},
+			expectedReady:         "1/2",
+			expectedStatus:        v1beta1.ApplicationStatusRunning,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusDegraded,
 		},
 	}
 
