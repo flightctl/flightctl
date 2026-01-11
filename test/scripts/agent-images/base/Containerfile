@@ -36,9 +36,16 @@ RUN --mount=type=cache,target=/var/cache/dnf \
     dnf install -y python-dotenv
 
 # Base services and tooling that don't depend on our RPMs
+# NOTE: Pin to greenboot 0.15.x (shell greenboot) to avoid greenboot-rs (0.16.x) issues.
+# greenboot-rs has known problems:
+#   - Doesn't capture successful script output to journal (only failures)
+#   - Missing redboot-task-runner.service for pre-rollback diagnostics
+#   - Container compatibility issues (fedora-iot/greenboot-rs#132)
+# See: https://github.com/microshift-io/microshift/pull/176
+# See: https://github.com/fedora-iot/greenboot-rs/issues/141
 RUN --mount=type=cache,target=/var/cache/dnf \
     --mount=type=cache,target=/var/lib/dnf \
-    dnf install -y greenboot greenboot-default-health-checks podman-compose && \
+    dnf install -y 'greenboot-0.15.*' 'greenboot-default-health-checks-0.15.*' podman-compose && \
     dnf install -y firewalld && \
     systemctl enable firewalld.service && \
     systemctl enable podman.service
