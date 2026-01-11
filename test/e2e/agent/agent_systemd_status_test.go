@@ -319,10 +319,9 @@ var _ = Describe("VM Agent systemd status", func() {
 			}, TIMEOUT)
 
 			By("Verifying boot ID changed (confirming reboot occurred)")
-			dev, err = harness.GetDevice(deviceId)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(dev.Status.SystemInfo.BootID).NotTo(Equal(initialBootID),
-				"Boot ID should have changed, indicating device rebooted")
+			harness.WaitForDeviceContents(deviceId, "boot ID should have changed after reboot", func(device *v1beta1.Device) bool {
+				return device.Status.SystemInfo.BootID != initialBootID
+			}, TIMEOUT)
 
 			GinkgoWriter.Printf("Device rolled back from v11 to %s\n", initialStatusImage)
 		})
