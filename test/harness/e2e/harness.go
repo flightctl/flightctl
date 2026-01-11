@@ -57,6 +57,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -84,6 +85,8 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	"sigs.k8s.io/yaml"
 )
+
+const fiveSecondTimeout = 5 * time.Second
 
 const POLLING = "250ms"
 const POLLINGLONG = "1s"
@@ -1009,6 +1012,61 @@ func (h *Harness) CheckRunningContainers() (string, error) {
 		return "", err
 	}
 	return out.String(), nil
+}
+
+// StartPortForward starts a kubectl port-forward for a service or pod.
+func (h *Harness) StartPortForward(ctx context.Context, namespace, target string, localPort, remotePort int) (*exec.Cmd, <-chan error, error) {
+	// #nosec G204 -- command args are fixed and controlled in test.
+	cmd := exec.CommandContext(ctx, "kubectl", "port-forward",
+		"-n", namespace,
+		target,
+		fmt.Sprintf("%d:%d", localPort, remotePort),
+		"--address", "127.0.0.1",
+	)
+	cmd.Stdout = GinkgoWriter
+	cmd.Stderr = GinkgoWriter
+
+	if err := cmd.Start(); err != nil {
+		return nil, nil, err
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- cmd.Wait()
+	}()
+
+	return cmd, done, nil
+}
+
+// GetFreeLocalPort returns an available local TCP port.
+func (h *Harness) GetFreeLocalPort() (int, error) {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return 0, err
+	}
+	defer l.Close()
+	return l.Addr().(*net.TCPAddr).Port, nil
+}
+
+// FetchMetrics fetches a Prometheus text metrics endpoint.
+func (h *Harness) FetchMetrics(url string) (string, error) {
+	client := &http.Client{Timeout: fiveSecondTimeout}
+	resp, err := client.Get(url)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return "", fmt.Errorf("unexpected status: %s", resp.Status)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+
+	return string(body), nil
 }
 
 func (h *Harness) CheckApplicationDirectoryExist(applicationName string) error {
