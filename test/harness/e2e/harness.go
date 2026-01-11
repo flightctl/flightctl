@@ -85,6 +85,8 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
+const fiveSecondTimeout = 5 * time.Second
+
 const POLLING = "250ms"
 const POLLINGLONG = "1s"
 const TIMEOUT = "5m"
@@ -1039,6 +1041,56 @@ func (h *Harness) CheckRunningContainers() (string, error) {
 		return "", err
 	}
 	return out.String(), nil
+}
+
+// StartPortForward starts a kubectl port-forward for a service or pod.
+func (h *Harness) StartPortForward(ctx context.Context, namespace, target string, localPort, remotePort int) (*exec.Cmd, <-chan error, error) {
+	// #nosec G204 -- command args are fixed and controlled in test.
+	cmd := exec.CommandContext(ctx, "kubectl", "port-forward",
+		"-n", namespace,
+		target,
+		fmt.Sprintf("%d:%d", localPort, remotePort),
+		"--address", "127.0.0.1",
+	)
+	cmd.Stdout = GinkgoWriter
+	cmd.Stderr = GinkgoWriter
+
+	if err := cmd.Start(); err != nil {
+		return nil, nil, err
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- cmd.Wait()
+	}()
+
+	return cmd, done, nil
+}
+
+// GetFreeLocalPort returns an available local TCP port.
+func (h *Harness) GetFreeLocalPort() (int, error) {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return 0, err
+	}
+	defer l.Close()
+	return l.Addr().(*net.TCPAddr).Port, nil
+}
+
+// GetOrganizationID returns the first organization ID from the API.
+func (h *Harness) GetOrganizationID() (string, error) {
+	resp, err := h.Client.ListOrganizationsWithResponse(h.Context, nil)
+	if err != nil {
+		return "", err
+	}
+	if resp.JSON200 == nil || len(resp.JSON200.Items) == 0 {
+		return "", fmt.Errorf("no organizations returned")
+	}
+	name := resp.JSON200.Items[0].Metadata.Name
+	if name == nil || *name == "" {
+		return "", fmt.Errorf("organization name is empty")
+	}
+	return *name, nil
 }
 
 func (h *Harness) CheckApplicationDirectoryExist(applicationName string) error {

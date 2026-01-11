@@ -1,4 +1,4 @@
-package agent_test
+package observability_test
 
 import (
 	"testing"
@@ -17,25 +17,9 @@ const TENMINTIMEOUT = 10 * time.Minute
 const TENSECTIMEOUT = 10 * time.Second
 const FIVESECTIMEOUT = 5 * time.Second
 
-// Define a type for messages.
-type Message string
-
-const (
-	UpdateRenderedVersionSuccess      Message = "Updated to desired renderedVersion: 2"
-	ComposeFile                       string  = "podman-compose.yaml"
-	ExpectedNumSleepAppV1Containers   string  = "3"
-	ExpectedNumSleepAppV2V3Containers int     = 1
-	ZeroContainers                    string  = "0"
-)
-
-// String returns the string representation of a message.
-func (m Message) String() string {
-	return string(m)
-}
-
-func TestAgent(t *testing.T) {
+func TestObservability(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "Agent E2E Suite")
+	RunSpecs(t, "Observability E2E Suite")
 }
 
 var _ = BeforeSuite(func() {
@@ -72,9 +56,6 @@ var _ = AfterEach(func() {
 	// Get the harness and context directly - no shared variables needed
 	harness := e2e.GetWorkerHarness()
 	suiteCtx := e2e.GetWorkerContext()
-
-	// Print agent logs if test failed (logs from all boots via journalctl)
-	harness.PrintAgentLogsIfFailed()
 
 	// Clean up test resources BEFORE switching back to suite context
 	// This ensures we use the correct test ID for resource cleanup
