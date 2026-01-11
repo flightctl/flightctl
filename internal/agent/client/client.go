@@ -51,8 +51,8 @@ func NewFromConfig(config *baseclient.Config, log *log.PrefixLogger, opts ...HTT
 		}
 		return nil
 	})
-	// Append /api/v1 to server URL for client requests since OpenAPI spec uses servers.url
-	serverURL := strings.TrimSuffix(config.Service.Server, "/") + "/api/v1"
+	// Agent API OpenAPI paths already include the /api/v1 prefix.
+	serverURL := strings.TrimSuffix(config.Service.Server, "/")
 	return client.NewClientWithResponses(serverURL, client.WithHTTPClient(httpClient), ref)
 }
 

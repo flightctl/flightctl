@@ -24,11 +24,12 @@ func CreateV1Router(handler v1server.ServerInterface, opts *OapiOptions) (chi.Ro
 	if err != nil {
 		return nil, err
 	}
-	swagger.Servers = nil
 
 	router := chi.NewRouter()
 
-	oapiOpts := oapimiddleware.Options{}
+	oapiOpts := oapimiddleware.Options{
+		SilenceServersWarning: true, // Disable Host header validation for servers.url
+	}
 	if opts != nil {
 		if opts.ErrorHandler != nil {
 			oapiOpts.ErrorHandler = opts.ErrorHandler
@@ -51,11 +52,12 @@ func CreateV1Beta1Router(handler server.ServerInterface, opts *OapiOptions) (chi
 	if err != nil {
 		return nil, err
 	}
-	swagger.Servers = nil
 
 	router := chi.NewRouter()
 
-	oapiOpts := oapimiddleware.Options{}
+	oapiOpts := oapimiddleware.Options{
+		SilenceServersWarning: true, // Disable Host header validation for servers.url
+	}
 	if opts != nil {
 		if opts.ErrorHandler != nil {
 			oapiOpts.ErrorHandler = opts.ErrorHandler

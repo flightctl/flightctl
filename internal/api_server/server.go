@@ -158,12 +158,13 @@ func (s *Server) Run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed loading swagger spec: %w", err)
 	}
-	// Skip server name validation
-	swagger.Servers = nil
+	// Keep swagger.Servers intact. It may carry a base path (e.g. /api/v1) used by the
+	// request validator for operation matching.
 
 	oapiOpts := oapimiddleware.Options{
-		ErrorHandler:      oapiErrorHandler,
-		MultiErrorHandler: oapiMultiErrorHandler,
+		ErrorHandler:          oapiErrorHandler,
+		MultiErrorHandler:     oapiMultiErrorHandler,
+		SilenceServersWarning: true,
 	}
 
 	// Create service handler and wrap with tracing
@@ -289,6 +290,45 @@ func (s *Server) Run(ctx context.Context) error {
 		// Version middleware parses header and stores version in context
 		r.Use(versioning.WithAPIVersion(versioning.NewDefaultRegistry()))
 
+		// Register auth validate endpoint with stricter rate limiting under /api/v1.
+		// Note: with /api/v1 mounted as a subrouter, the path seen here is "/auth/validate".
+		r.Group(func(r chi.Router) {
+			// Add conditional middleware
+			r.Use(oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapiOpts))
+			r.Use(authMiddewares...)
+			r.Use(identityMappingMiddleware.MapIdentityToDB) // Map identity to DB objects AFTER authentication
+
+			// Add auth-specific rate limiting (only if configured and enabled)
+			if s.cfg.Service.RateLimit != nil && s.cfg.Service.RateLimit.Enabled {
+				trustedProxies := s.cfg.Service.RateLimit.TrustedProxies
+				authRequests := 20      // Default auth requests limit
+				authWindow := time.Hour // Default auth window
+				if s.cfg.Service.RateLimit.AuthRequests > 0 {
+					authRequests = s.cfg.Service.RateLimit.AuthRequests
+				}
+				if s.cfg.Service.RateLimit.AuthWindow > 0 {
+					authWindow = time.Duration(s.cfg.Service.RateLimit.AuthWindow)
+				}
+				fcmiddleware.InstallRateLimiter(r, fcmiddleware.RateLimitOptions{
+					Requests:       authRequests,
+					Window:         authWindow,
+					Message:        "Login rate limit exceeded, please try again later",
+					TrustedProxies: trustedProxies,
+				})
+			}
+
+			h := transport.NewTransportHandler(serviceHandler, s.authN, authTokenProxy, authUserInfoProxy, s.authZ)
+			// Use the wrapper to handle the AuthValidate method signature
+			wrapper := &server.ServerInterfaceWrapper{
+				Handler:            h,
+				HandlerMiddlewares: nil,
+				ErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
+					oapiErrorHandler(w, err.Error(), http.StatusBadRequest)
+				},
+			}
+			r.Get("/auth/validate", wrapper.AuthValidate)
+		})
+
 		// Dispatcher routes to appropriate version-specific router
 		// Each inner router has its own OpenAPI validation
 		r.Mount("/", versioning.VersionDispatcher{
@@ -305,45 +345,6 @@ func (s *Server) Run(ctx context.Context) error {
 				ReadyzHandler(time.Duration(hc.ReadinessTimeout), s.store, s.queuesProvider))
 			r.Method(http.MethodGet, hc.LivenessPath, HealthzHandler())
 		}
-	})
-
-	// Register auth validate endpoint with stricter rate limiting (outside main API group)
-	// This ensures it gets all the necessary middleware with stricter rate limiting
-	router.Group(func(r chi.Router) {
-		// Add conditional middleware
-		r.Use(oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapiOpts))
-		r.Use(authMiddewares...)
-		r.Use(identityMappingMiddleware.MapIdentityToDB) // Map identity to DB objects AFTER authentication
-
-		// Add auth-specific rate limiting (only if configured and enabled)
-		if s.cfg.Service.RateLimit != nil && s.cfg.Service.RateLimit.Enabled {
-			trustedProxies := s.cfg.Service.RateLimit.TrustedProxies
-			authRequests := 20      // Default auth requests limit
-			authWindow := time.Hour // Default auth window
-			if s.cfg.Service.RateLimit.AuthRequests > 0 {
-				authRequests = s.cfg.Service.RateLimit.AuthRequests
-			}
-			if s.cfg.Service.RateLimit.AuthWindow > 0 {
-				authWindow = time.Duration(s.cfg.Service.RateLimit.AuthWindow)
-			}
-			fcmiddleware.InstallRateLimiter(r, fcmiddleware.RateLimitOptions{
-				Requests:       authRequests,
-				Window:         authWindow,
-				Message:        "Login rate limit exceeded, please try again later",
-				TrustedProxies: trustedProxies,
-			})
-		}
-
-		h := transport.NewTransportHandler(serviceHandler, s.authN, authTokenProxy, authUserInfoProxy, s.authZ)
-		// Use the wrapper to handle the AuthValidate method signature
-		wrapper := &server.ServerInterfaceWrapper{
-			Handler:            h,
-			HandlerMiddlewares: nil,
-			ErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
-				oapiErrorHandler(w, err.Error(), http.StatusBadRequest)
-			},
-		}
-		r.Get("/api/v1/auth/validate", wrapper.AuthValidate)
 	})
 
 	// ws handling
