@@ -209,7 +209,7 @@ func TestApplicationStatus(t *testing.T) {
 			},
 			expectedReady:         "1/2",
 			expectedStatus:        v1beta1.ApplicationStatusRunning,
-			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusHealthy,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusDegraded,
 		},
 		{
 			name: "app with single container has exited",
@@ -295,7 +295,7 @@ func TestApplicationStatus(t *testing.T) {
 			},
 			expectedReady:         "1/2",
 			expectedStatus:        v1beta1.ApplicationStatusRunning,
-			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusHealthy,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusDegraded,
 		},
 		{
 			name: "app has one workload running and one exited with non-zero",
