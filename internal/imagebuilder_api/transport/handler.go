@@ -116,7 +116,7 @@ func (h *TransportHandler) CreateImageExport(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	body, status := h.service.ImageExport().Create(r.Context(), OrgIDFromContext(r.Context()), imageExport, false)
+	body, status := h.service.ImageExport().Create(r.Context(), OrgIDFromContext(r.Context()), imageExport)
 	SetResponse(w, body, status)
 }
 

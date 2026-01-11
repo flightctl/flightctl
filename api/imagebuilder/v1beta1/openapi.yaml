@@ -634,16 +634,12 @@ components:
       description: Early binding configuration - embeds certificate in the image.
       required:
         - type
-        - certName
       properties:
         type:
           type: string
           enum: [early]
           description: The type of binding.
-        certName:
-          type: string
-          description: Name of the enrollment certificate resource to embed in the image for device binding.
-
+   
     LateBinding:
       type: object
       description: Late binding configuration - device binds at first boot.

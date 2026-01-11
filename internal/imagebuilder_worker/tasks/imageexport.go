@@ -9,33 +9,27 @@ import (
 	api "github.com/flightctl/flightctl/api/imagebuilder/v1beta1"
 	imagebuilderstore "github.com/flightctl/flightctl/internal/imagebuilder_api/store"
 	"github.com/flightctl/flightctl/internal/kvstore"
+	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 )
 
-// processImageExport processes an imageExport job by loading the ImageExport resource
-// and converting/pushing the image to the target format
-func processImageExport(
-	ctx context.Context,
-	store imagebuilderstore.Store,
-	kvStore kvstore.KVStore,
-	job Job,
-	log logrus.FieldLogger,
-) error {
-	log = log.WithField("job", job.Name).WithField("orgId", job.OrgID)
-	log.Info("Processing imageExport job")
+// processImageExport processes an imageExport event by loading the ImageExport resource
+// and converting/pushing the image to the target format.
+// This method is part of the Consumer type defined in consumer.go.
+func (c *Consumer) processImageExport(ctx context.Context, eventWithOrgId worker_client.EventWithOrgId, log logrus.FieldLogger) error {
+	event := eventWithOrgId.Event
+	orgID := eventWithOrgId.OrgId
+	imageExportName := event.InvolvedObject.Name
 
-	// Parse org ID
-	orgID, err := uuid.Parse(job.OrgID)
-	if err != nil {
-		return fmt.Errorf("invalid org ID %q: %w", job.OrgID, err)
-	}
+	log = log.WithField("imageExport", imageExportName).WithField("orgId", orgID)
+	log.Info("Processing imageExport event")
 
 	// Load the ImageExport resource from the database
-	imageExport, err := store.ImageExport().Get(ctx, orgID, job.Name)
+	imageExport, err := c.store.ImageExport().Get(ctx, orgID, imageExportName)
 	if err != nil {
-		return fmt.Errorf("failed to load ImageExport %q: %w", job.Name, err)
+		return fmt.Errorf("failed to load ImageExport %q: %w", imageExportName, err)
 	}
 
 	log.WithField("spec", imageExport.Spec).Debug("Loaded ImageExport resource")
@@ -51,7 +45,7 @@ func processImageExport(
 		for _, cond := range *imageExport.Status.Conditions {
 			if cond.Type == api.ImageExportConditionTypeReady {
 				if cond.Reason == string(api.ImageExportConditionReasonCompleted) || cond.Reason == string(api.ImageExportConditionReasonFailed) {
-					log.Infof("ImageExport %q already in terminal state %q, skipping", job.Name, cond.Reason)
+					log.Infof("ImageExport %q already in terminal state %q, skipping", imageExportName, cond.Reason)
 					return nil
 				}
 			}
@@ -63,7 +57,7 @@ func processImageExport(
 	setImageExportCondition(imageExport, api.ImageExportConditionTypeReady, v1beta1.ConditionStatusFalse, api.ImageExportConditionReasonConverting, "Export conversion in progress", now)
 	imageExport.Status.LastSeen = lo.ToPtr(now)
 
-	_, err = store.ImageExport().UpdateStatus(ctx, orgID, imageExport)
+	_, err = c.store.ImageExport().UpdateStatus(ctx, orgID, imageExport)
 	if err != nil {
 		return fmt.Errorf("failed to update ImageExport status to Converting: %w", err)
 	}
@@ -80,12 +74,12 @@ func processImageExport(
 	// 5. Update the ImageExport status with the result
 
 	// Placeholder: Execute the export
-	if err := executeExport(ctx, store, kvStore, imageExport, orgID, log); err != nil {
+	if err := executeExport(ctx, c.store, c.kvStore, imageExport, orgID, log); err != nil {
 		// Update status to Failed
 		failedTime := time.Now().UTC()
 		setImageExportCondition(imageExport, api.ImageExportConditionTypeReady, v1beta1.ConditionStatusFalse, api.ImageExportConditionReasonFailed, err.Error(), failedTime)
 
-		if _, updateErr := store.ImageExport().UpdateStatus(ctx, orgID, imageExport); updateErr != nil {
+		if _, updateErr := c.store.ImageExport().UpdateStatus(ctx, orgID, imageExport); updateErr != nil {
 			log.WithError(updateErr).Error("failed to update ImageExport status to Failed")
 		}
 		return err

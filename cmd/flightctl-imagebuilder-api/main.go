@@ -67,7 +67,10 @@ func main() {
 		log.Fatalf("creating kvstore: %v", err)
 	}
 
-	server := imagebuilderapi.New(log, cfg, imageBuilderStore, mainStore, kvStore, provider)
+	server, err := imagebuilderapi.New(log, cfg, imageBuilderStore, mainStore, kvStore, provider)
+	if err != nil {
+		log.Fatalf("Error creating server: %s", err)
+	}
 	if err := server.Run(ctx); err != nil {
 		log.Fatalf("Error running server: %s", err)
 	}

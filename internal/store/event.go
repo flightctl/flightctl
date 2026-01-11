@@ -6,6 +6,7 @@ import (
 	"time"
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -41,6 +42,13 @@ func NewEvent(db *gorm.DB, log logrus.FieldLogger) Event {
 }
 
 func (s *EventStore) getDB(ctx context.Context) *gorm.DB {
+	// Check if context contains a GORM transaction DB
+	// This allows EventStore to participate in transactions started by other stores
+	// that share the same underlying *gorm.DB instance
+	// The imagebuilder store sets this key when starting a transaction
+	if tx, ok := ctx.Value(consts.GormTxKey{}).(*gorm.DB); ok {
+		return tx
+	}
 	return s.dbHandler.WithContext(ctx)
 }
 

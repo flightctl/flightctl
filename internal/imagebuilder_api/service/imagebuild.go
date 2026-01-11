@@ -2,13 +2,19 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	api "github.com/flightctl/flightctl/api/imagebuilder/v1beta1"
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/store"
+	internalservice "github.com/flightctl/flightctl/internal/service"
+	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store/selector"
+	"github.com/flightctl/flightctl/internal/worker_client"
+	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -27,15 +33,19 @@ type ImageBuildService interface {
 
 // imageBuildService is the concrete implementation of ImageBuildService
 type imageBuildService struct {
-	store store.ImageBuildStore
-	log   logrus.FieldLogger
+	store         store.ImageBuildStore
+	eventHandler  *internalservice.EventHandler
+	queueProducer queues.QueueProducer
+	log           logrus.FieldLogger
 }
 
 // NewImageBuildService creates a new ImageBuildService
-func NewImageBuildService(s store.ImageBuildStore, log logrus.FieldLogger) ImageBuildService {
+func NewImageBuildService(s store.ImageBuildStore, eventHandler *internalservice.EventHandler, queueProducer queues.QueueProducer, log logrus.FieldLogger) ImageBuildService {
 	return &imageBuildService{
-		store: s,
-		log:   log,
+		store:         s,
+		eventHandler:  eventHandler,
+		queueProducer: queueProducer,
+		log:           log,
 	}
 }
 
@@ -49,8 +59,53 @@ func (s *imageBuildService) Create(ctx context.Context, orgId uuid.UUID, imageBu
 		return nil, StatusBadRequest(errors.Join(errs...).Error())
 	}
 
-	result, err := s.store.Create(ctx, orgId, &imageBuild)
-	return result, StoreErrorToApiStatus(err, true, ImageBuildKind, imageBuild.Metadata.Name)
+	var result *api.ImageBuild
+	var event *v1beta1.Event
+
+	// Execute in a transaction - create ImageBuild and Event atomically
+	err := s.store.Transaction(ctx, func(txCtx context.Context) error {
+		var createErr error
+		result, createErr = s.store.Create(txCtx, orgId, &imageBuild)
+		if createErr != nil {
+			return createErr
+		}
+
+		// Create event for ImageBuild creation
+		event = common.GetResourceCreatedOrUpdatedSuccessEvent(txCtx, true, v1beta1.ResourceKind(api.ImageBuildKind), lo.FromPtr(result.Metadata.Name), nil, s.log, nil)
+		if event != nil {
+			// Persist event in database using EventHandler (for audit/logging)
+			// Note: workerClient is nil, so it won't push to TaskQueue
+			// The transaction context is passed so the event is created in the same transaction
+			if s.eventHandler != nil {
+				s.eventHandler.CreateEvent(txCtx, orgId, event)
+			}
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		// Check if the error is a statusError (from transaction rollback)
+		// This allows us to return the proper status instead of converting to a generic error
+		var statusErr *statusError
+		if errors.As(err, &statusErr) {
+			return result, statusErr.status
+		}
+		// Otherwise convert the store error to an API status
+		return result, StoreErrorToApiStatus(err, true, ImageBuildKind, imageBuild.Metadata.Name)
+	}
+
+	// Enqueue event to imagebuild-queue for worker processing (outside transaction)
+	// This is done after the transaction commits to ensure the event is persisted first
+	// Reuse the same event that was created and persisted in the transaction
+	if result != nil && event != nil && s.queueProducer != nil {
+		if err := s.enqueueImageBuildEvent(ctx, orgId, event); err != nil {
+			s.log.WithError(err).WithField("orgId", orgId).WithField("name", lo.FromPtr(result.Metadata.Name)).Error("failed to enqueue imageBuild event")
+			// Don't fail the creation if enqueue fails - the event can be retried later
+		}
+	}
+
+	return result, StoreErrorToApiStatus(nil, true, ImageBuildKind, imageBuild.Metadata.Name)
 }
 
 func (s *imageBuildService) Get(ctx context.Context, orgId uuid.UUID, name string) (*api.ImageBuild, v1beta1.Status) {
@@ -126,4 +181,37 @@ func (s *imageBuildService) validate(imageBuild *api.ImageBuild) []error {
 	// - LateBinding has no additional required fields
 
 	return errs
+}
+
+// enqueueImageBuildEvent enqueues an event to the imagebuild-queue
+func (s *imageBuildService) enqueueImageBuildEvent(ctx context.Context, orgId uuid.UUID, event *v1beta1.Event) error {
+	if event == nil {
+		return errors.New("event is nil")
+	}
+
+	// Create EventWithOrgId structure for the queue
+	eventWithOrgId := worker_client.EventWithOrgId{
+		OrgId: orgId,
+		Event: *event,
+	}
+
+	payload, err := json.Marshal(eventWithOrgId)
+	if err != nil {
+		return fmt.Errorf("failed to marshal event: %w", err)
+	}
+
+	// Use creation timestamp if available, otherwise use current time
+	var timestamp int64
+	if event.Metadata.CreationTimestamp != nil {
+		timestamp = event.Metadata.CreationTimestamp.UnixMicro()
+	} else {
+		timestamp = time.Now().UnixMicro()
+	}
+
+	if err := s.queueProducer.Enqueue(ctx, payload, timestamp); err != nil {
+		return fmt.Errorf("failed to enqueue event: %w", err)
+	}
+
+	s.log.WithField("orgId", orgId).WithField("name", event.InvolvedObject.Name).Info("enqueued imageBuild event")
+	return nil
 }

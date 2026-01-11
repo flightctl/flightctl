@@ -93,9 +93,6 @@ type BindingType string
 
 // EarlyBinding Early binding configuration - embeds certificate in the image.
 type EarlyBinding struct {
-	// CertName Name of the enrollment certificate resource to embed in the image for device binding.
-	CertName string `json:"certName"`
-
 	// Type The type of binding.
 	Type EarlyBindingType `json:"type"`
 }

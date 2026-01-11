@@ -56,13 +56,10 @@ LABEL \
   name="flightctl-imagebuilder-worker" \
   summary="Flight Control ImageBuilder Worker for processing image build jobs"
 
-# Configure podman storage
+# Configure podman storage to use native overlay (requires Kernel 5.11+)
 RUN mkdir -p /etc/containers && \
     echo "[storage]" > /etc/containers/storage.conf && \
-    echo 'driver = "overlay"' >> /etc/containers/storage.conf && \
-    echo "[storage.options]" >> /etc/containers/storage.conf && \
-    echo 'mount_program = "/usr/bin/fuse-overlayfs"' >> /etc/containers/storage.conf
-
+    echo 'driver = "overlay"' >> /etc/containers/storage.conf
 # Copy the worker binary
 COPY --from=build /app/bin/flightctl-imagebuilder-worker .
 

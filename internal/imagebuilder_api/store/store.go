@@ -3,21 +3,21 @@ package store
 import (
 	"context"
 
+	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
 
-// txKey is the context key for storing database transactions
-type txKey struct{}
-
 // WithTx returns a new context with the given transaction attached
+// It sets the transaction using a shared key so that other stores (like main store's EventStore)
+// can also use the transaction
 func WithTx(ctx context.Context, tx *gorm.DB) context.Context {
-	return context.WithValue(ctx, txKey{}, tx)
+	return context.WithValue(ctx, consts.GormTxKey{}, tx)
 }
 
 // TxFromContext retrieves a transaction from context, or nil if none exists
 func TxFromContext(ctx context.Context) *gorm.DB {
-	if tx, ok := ctx.Value(txKey{}).(*gorm.DB); ok {
+	if tx, ok := ctx.Value(consts.GormTxKey{}).(*gorm.DB); ok {
 		return tx
 	}
 	return nil

@@ -55,18 +55,55 @@ spec:
               name: flightctl-imagebuilder-worker-config
               subPath: config.yaml
               readOnly: true
+            - mountPath: /root/.flightctl/certs/client-signer.crt
+              name: flightctl-client-signer
+              subPath: tls.crt
+              readOnly: true
+            - mountPath: /root/.flightctl/certs/client-signer.key
+              name: flightctl-client-signer
+              subPath: tls.key
+              readOnly: true
+            - mountPath: /root/.flightctl/certs/ca-bundle.crt
+              name: flightctl-ca-bundle
+              subPath: ca-bundle.crt
+              readOnly: true
+            - mountPath: /var/tmp/flightctl-builds
+              name: flightctl-builds
+              readOnly: false
+            - mountPath: /var/lib/containers
+              name: worker-storage
+              readOnly: false
             {{- include "flightctl.dbSslVolumeMounts" . | nindent 12 }}
           {{- with .Values.imageBuilderWorker.resources }}
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
           securityContext:
-            # Required for container-in-container builds
+            # Required for container-in-container builds (matches quadlet: SecurityLabelDisable=true, AddCapability=SYS_ADMIN)
+            # Additional capabilities required for rootful Podman per documentation
             privileged: {{ default false .Values.imageBuilderWorker.privileged }}
+            capabilities:
+              add:
+                - SYS_ADMIN
+                - MKNOD
+                - SYS_CHROOT
+                - SETFCAP
       restartPolicy: Always
       volumes:
         - name: flightctl-imagebuilder-worker-config
           configMap:
             name: flightctl-imagebuilder-worker-config
+        - name: flightctl-client-signer
+          secret:
+            secretName: flightctl-client-signer-ca
+        - name: flightctl-ca-bundle
+          secret:
+            secretName: flightctl-ca-bundle
+        - name: flightctl-builds
+          hostPath:
+            path: /var/tmp/flightctl-builds
+            type: DirectoryOrCreate
+        - name: worker-storage
+          emptyDir: {}
         {{- include "flightctl.dbSslVolumes" . | nindent 8 }}
 {{- end }}

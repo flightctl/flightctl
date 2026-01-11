@@ -16,7 +16,7 @@ import (
 func newTestImagePipelineService() (ImagePipelineService, *DummyStore, ImageBuildService, ImageExportService) {
 	dummyStore := NewDummyStore()
 
-	imageBuildSvc := NewImageBuildService(dummyStore.imageBuildStore, log.InitLogs())
+	imageBuildSvc := NewImageBuildService(dummyStore.imageBuildStore, nil, nil, log.InitLogs())
 	imageExportSvc := NewImageExportService(dummyStore.imageExportStore, dummyStore.imageBuildStore, log.InitLogs())
 
 	svc := NewImagePipelineService(dummyStore.ImagePipeline(), imageBuildSvc, imageExportSvc, log.InitLogs())
