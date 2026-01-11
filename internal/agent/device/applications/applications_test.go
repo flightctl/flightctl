@@ -324,7 +324,7 @@ func TestApplicationStatus(t *testing.T) {
 			},
 			expectedReady:         "0/1",
 			expectedStatus:        v1beta1.ApplicationStatusError,
-			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusError,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusDegraded,
 		},
 	}
 
