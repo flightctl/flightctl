@@ -635,7 +635,7 @@ func isFinishedStatus(status StatusType) bool {
 	return ok
 }
 
-func (m *PodmanMonitor) updateApplicationStatus(app Application, event *client.PodmanEvent, status StatusType, restarts int, exitCode int) {
+func (m *PodmanMonitor) updateApplicationStatus(app Application, event *client.PodmanEvent, status StatusType, restarts int, exitCode *int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -709,9 +709,9 @@ func (m *PodmanMonitor) updateQuadletContainerStatus(ctx context.Context, app Ap
 	}
 
 	status, inspectData := m.getContainerStatusFromInspect(ctx, event)
-	var exitCode int
+	var exitCode *int
 	if len(inspectData) > 0 {
-		exitCode = inspectData[0].State.ExitCode
+		exitCode = &inspectData[0].State.ExitCode
 	}
 
 	if status == StatusRemove {
@@ -735,9 +735,9 @@ func (m *PodmanMonitor) updateComposeContainerStatus(ctx context.Context, app Ap
 		m.log.Errorf("Failed to get container restarts: %v", err)
 	}
 
-	var exitCode int
+	var exitCode *int
 	if len(inspectData) > 0 {
-		exitCode = inspectData[0].State.ExitCode
+		exitCode = &inspectData[0].State.ExitCode
 	}
 
 	if status == StatusRemove {
@@ -787,7 +787,7 @@ func (m *PodmanMonitor) resolveStatus(status string, inspectData []client.Podman
 				if inspectData[0].State.ExitSignal == int(syscall.SIGTERM) {
 					return StatusStopped
 				}
-				return StatusDied
+				return StatusExited
 			}
 		}
 	}

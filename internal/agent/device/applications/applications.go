@@ -97,23 +97,33 @@ type Workload struct {
 	Name     string
 	Status   StatusType
 	Restarts int
-	ExitCode int
+	ExitCode *int
 }
 
 type application struct {
-	id        string
-	path      string
-	workloads []Workload
-	volume    provider.VolumeManager
-	status    *v1beta1.DeviceApplicationStatus
+	id              string
+	path            string
+	runToCompletion bool
+	workloads       []Workload
+	volume          provider.VolumeManager
+	status          *v1beta1.DeviceApplicationStatus
 }
 
 // NewApplication creates a new application from an application provider.
 func NewApplication(provider provider.Provider) *application {
 	spec := provider.Spec()
+
+	// run-to-completion workloads are expected to exit, all others are long-running services.
+	runToCompletion := true
+	switch spec.AppType {
+	case v1beta1.AppTypeCompose, v1beta1.AppTypeQuadlet:
+		runToCompletion = false
+	}
+
 	return &application{
-		id:   spec.ID,
-		path: spec.Path,
+		id:              spec.ID,
+		path:            spec.Path,
+		runToCompletion: runToCompletion,
 		status: &v1beta1.DeviceApplicationStatus{
 			Name:     spec.Name,
 			Status:   v1beta1.ApplicationStatusUnknown,
@@ -188,7 +198,7 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 			healthy++
 		case StatusExited, StatusDie, StatusDied:
 			exited++
-			if workload.ExitCode != 0 {
+			if workload.ExitCode != nil && *workload.ExitCode != 0 {
 				exitedNonZero++
 			}
 		case StatusStopped:
@@ -229,8 +239,19 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 			}
 			a.status.Info["Reason"] = "Application was stopped."
 		} else {
-			newStatus = v1beta1.ApplicationStatusCompleted
-			summary.Status = v1beta1.ApplicationsSummaryStatusHealthy
+			// Without an explicit “run-to-completion” signal, treat “no running workloads” as Error
+			// for long-running app types (addresses EDM-2747 manual stop -> Completed).
+			if !a.runToCompletion {
+				newStatus = v1beta1.ApplicationStatusError
+				summary.Status = v1beta1.ApplicationsSummaryStatusError
+				if a.status.Info == nil {
+					a.status.Info = make(map[string]string)
+				}
+				a.status.Info["Reason"] = "All workloads have exited (exit code 0); application is no longer running"
+			} else {
+				newStatus = v1beta1.ApplicationStatusCompleted
+				summary.Status = v1beta1.ApplicationsSummaryStatusHealthy
+			}
 		}
 	case isRunningHealthy(total, healthy, initializing, exited):
 		if exitedNonZero > 0 {
@@ -253,6 +274,9 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 
 	if a.status.Status != newStatus {
 		a.status.Status = newStatus
+	}
+	if newStatus != v1beta1.ApplicationStatusError {
+		delete(a.status.Info, "Reason")
 	}
 	if a.status.Ready != readyStatus {
 		a.status.Ready = readyStatus
