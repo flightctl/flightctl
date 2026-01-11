@@ -779,11 +779,16 @@ func (m *PodmanMonitor) resolveStatus(status string, inspectData []client.Podman
 	initialStatus := StatusType(status)
 	// podman events don't properly event exited in the case where the container exits 0.
 	if initialStatus == StatusDie || initialStatus == StatusDied {
-		if len(inspectData) > 0 && inspectData[0].State.ExitCode == 0 && inspectData[0].State.FinishedAt != "" {
-			// TODO: a container that has an exit code of 0 could be a run to completion
-			// application. We should look at adding a field to the CR to indicate that
-			// this is the case. For now, we will treat all exit 0 as died.
-			return StatusDied
+		if len(inspectData) > 0 && inspectData[0].State.FinishedAt != "" {
+			if inspectData[0].State.ExitCode == 0 {
+				// TODO: a container that has an exit code of 0 could be a run to completion
+				// application. We should look at adding a field to the CR to indicate that
+				// this is the case. For now, we will treat all exit 0 as died.
+				if inspectData[0].State.ExitSignal == int(syscall.SIGTERM) {
+					return StatusStopped
+				}
+				return StatusDied
+			}
 		}
 	}
 	return initialStatus

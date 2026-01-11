@@ -28,6 +28,7 @@ const (
 	StatusDied    StatusType = "died"
 	StatusRemove  StatusType = "remove"
 	StatusExited  StatusType = "exited"
+	StatusStopped StatusType = "stopped"
 )
 
 func (c StatusType) String() string {
@@ -176,6 +177,7 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 	initializing := 0
 	restarts := 0
 	exited := 0
+	stopped := 0
 	exitedNonZero := 0
 	for _, workload := range a.workloads {
 		restarts += workload.Restarts
@@ -189,6 +191,8 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 			if workload.ExitCode != 0 {
 				exitedNonZero++
 			}
+		case StatusStopped:
+			stopped++
 		}
 	}
 
@@ -209,7 +213,7 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 	case isPreparing(total, healthy, initializing):
 		newStatus = v1beta1.ApplicationStatusPreparing
 		summary.Status = v1beta1.ApplicationsSummaryStatusUnknown
-	case isStopped(total, healthy, exited):
+	case isStopped(total, healthy, exited, stopped):
 		if exitedNonZero > 0 {
 			newStatus = v1beta1.ApplicationStatusError
 			summary.Status = v1beta1.ApplicationsSummaryStatusError
@@ -217,6 +221,13 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 				a.status.Info = make(map[string]string)
 			}
 			a.status.Info["Reason"] = "All workloads have exited, at least one with a non-zero status"
+		} else if stopped > 0 && healthy == 0 && exited == 0 {
+			newStatus = v1beta1.ApplicationStatusError
+			summary.Status = v1beta1.ApplicationsSummaryStatusDegraded
+			if a.status.Info == nil {
+				a.status.Info = make(map[string]string)
+			}
+			a.status.Info["Reason"] = "Application was stopped."
 		} else {
 			newStatus = v1beta1.ApplicationStatusCompleted
 			summary.Status = v1beta1.ApplicationsSummaryStatusHealthy
@@ -260,8 +271,8 @@ func isStarting(total, healthy, initializing int) bool {
 	return total > 0 && initializing > 0 && healthy > 0
 }
 
-func isStopped(total, healthy, exited int) bool {
-	return total > 0 && healthy == 0 && exited == total
+func isStopped(total, healthy, exited, stopped int) bool {
+	return total > 0 && healthy == 0 && (exited+stopped) == total
 }
 
 func isUnknown(total, healthy, initializing int) bool {
