@@ -12,7 +12,7 @@ info:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0.html
 servers:
-  - url: /
+  - url: /api/v1
 tags:
   - name: authentication
     description: Operations for authentication.
@@ -41,7 +41,7 @@ tags:
   - name: version
     description: Operations for receiving service version.
 paths:
-  /api/version:
+  /version:
     get:
       tags:
         - version
@@ -72,7 +72,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
-  /api/v1/auth/config:
+  /auth/config:
     get:
       tags:
         - authentication
@@ -97,7 +97,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
-  /api/v1/auth/validate:
+  /auth/validate:
     get:
       tags:
         - authentication
@@ -146,7 +146,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
-  /api/v1/auth/permissions:
+  /auth/permissions:
     get:
       tags:
         - authentication
@@ -183,7 +183,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
-  /api/v1/auth/{providername}/token:
+  /auth/{providername}/token:
     post:
       tags:
         - authentication
@@ -218,7 +218,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/TokenResponse'
-  /api/v1/auth/userinfo:
+  /auth/userinfo:
     get:
       tags:
         - authentication
@@ -255,7 +255,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
-  /api/v1/resourcesyncs:
+  /resourcesyncs:
     get:
       tags:
         - resourcesync
@@ -376,7 +376,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
-  /api/v1/resourcesyncs/{name}:
+  /resourcesyncs/{name}:
     get:
       tags:
         - resourcesync
@@ -615,7 +615,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
-  /api/v1/repositories:
+  /repositories:
     get:
       tags:
         - repository
@@ -736,7 +736,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
-  /api/v1/repositories/{name}:
+  /repositories/{name}:
     get:
       tags:
         - repository
@@ -975,7 +975,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
-  /api/v1/devices:
+  /devices:
     get:
       tags:
         - device
@@ -1102,7 +1102,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
-  /api/v1/devices/{name}:
+  /devices/{name}:
     get:
       tags:
         - device
@@ -1341,7 +1341,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
-  /api/v1/devices/{name}/status:
+  /devices/{name}/status:
     get:
       tags:
         - device
@@ -1519,7 +1519,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
-  /api/v1/devices/{name}/decommission:
+  /devices/{name}/decommission:
     put:
       tags:
         - device
@@ -1581,7 +1581,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
-  /api/v1/devices/{name}/rendered:
+  /devices/{name}/rendered:
     get:
       tags:
         - device
@@ -1646,7 +1646,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
-  /api/v1/devices/{name}/lastseen:
+  /devices/{name}/lastseen:
     get:
       tags:
         - device
@@ -1699,7 +1699,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
-  /api/v1/deviceactions/resume:
+  /deviceactions/resume:
     post:
       tags:
         - deviceactions
@@ -1751,7 +1751,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
-  /api/v1/enrollmentconfig:
+  /enrollmentconfig:
     get:
       tags:
         - enrollmentrequest
@@ -1808,7 +1808,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Status'
 
-  /api/v1/enrollmentrequests:
+  /enrollmentrequests:
     get:
       tags:
         - enrollmentrequest
@@ -1929,7 +1929,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
-  /api/v1/enrollmentrequests/{name}:
+  /enrollmentrequests/{name}:
     get:
       tags:
         - enrollmentrequest
@@ -2174,7 +2174,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
-  /api/v1/enrollmentrequests/{name}/status:
+  /enrollmentrequests/{name}/status:
     get:
       tags:
         - enrollmentrequest
@@ -2346,7 +2346,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
-  /api/v1/enrollmentrequests/{name}/approval:
+  /enrollmentrequests/{name}/approval:
     put:
       tags:
         - enrollmentrequest
@@ -2408,7 +2408,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
-  /api/v1/certificatesigningrequests:
+  /certificatesigningrequests:
     get:
       tags:
         - certificatesigningrequest
@@ -2529,7 +2529,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
-  /api/v1/certificatesigningrequests/{name}:
+  /certificatesigningrequests/{name}:
     patch:
       tags:
         - certificatesigningrequest
@@ -2769,7 +2769,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
-  /api/v1/certificatesigningrequests/{name}/approval:
+  /certificatesigningrequests/{name}/approval:
     put:
       tags:
         - certificatesigningrequest
@@ -2837,7 +2837,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
-  /api/v1/fleets:
+  /fleets:
     get:
       tags:
         - fleet
@@ -2964,7 +2964,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
-  /api/v1/fleets/{name}:
+  /fleets/{name}:
     get:
       tags:
         - fleet
@@ -3209,7 +3209,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
-  /api/v1/fleets/{name}/status:
+  /fleets/{name}/status:
     get:
       tags:
         - fleet
@@ -3375,7 +3375,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
-  /api/v1/fleets/{fleet}/templateversions:
+  /fleets/{fleet}/templateversions:
     get:
       tags:
         - fleet
@@ -3448,7 +3448,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
-  /api/v1/fleets/{fleet}/templateversions/{name}:
+  /fleets/{fleet}/templateversions/{name}:
     get:
       tags:
         - fleet
@@ -3559,7 +3559,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
-  /api/v1/labels:
+  /labels:
     get:
       tags:
         - label
@@ -3636,7 +3636,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
-  /api/v1/events:
+  /events:
     get:
       tags:
         - event
@@ -3706,7 +3706,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
-  /api/v1/organizations:
+  /organizations:
     get:
       tags:
         - organization
@@ -3756,7 +3756,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
-  /api/v1/authproviders:
+  /authproviders:
     get:
       tags:
         - authprovider
@@ -3877,7 +3877,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
-  /api/v1/authproviders/{name}:
+  /authproviders/{name}:
     get:
       tags:
         - authprovider

@@ -32,6 +32,7 @@ type GlobalOptions struct {
 	Context        string
 	Organization   string
 	RequestTimeout int
+	APIVersion     string
 }
 
 func DefaultGlobalOptions() GlobalOptions {
@@ -48,6 +49,7 @@ func (o *GlobalOptions) Bind(fs *pflag.FlagSet) {
 	fs.StringVarP(&o.Context, "context", "c", o.Context, "Read client config from 'client_<context>.yaml' instead of 'client.yaml'.")
 	fs.StringVarP(&o.ConfigDir, "config-dir", "", o.ConfigDir, "Specify the directory for client configuration files.")
 	fs.IntVar(&o.RequestTimeout, "request-timeout", o.RequestTimeout, "Request Timeout in seconds (0 - use default OS timeout)")
+	fs.StringVar(&o.APIVersion, "api-ver", o.APIVersion, "API version to use (e.g., 'v1' or 'v1beta1'). Sets the Flightctl-API-Version header.")
 }
 
 func (o *GlobalOptions) Complete(cmd *cobra.Command, args []string) error {
@@ -98,7 +100,11 @@ func (o *GlobalOptions) ValidateCmd(args []string) error {
 // from the global options (config file path, organization override, etc.).
 func (o *GlobalOptions) BuildClient() (*apiclient.ClientWithResponses, error) {
 	organization := o.GetEffectiveOrganization()
-	return client.NewFromConfigFile(o.ConfigFilePath, client.WithOrganization(organization), client.WithUserAgentHeader("flightctl-cli"))
+	return client.NewFromConfigFile(o.ConfigFilePath,
+		client.WithOrganization(organization),
+		client.WithUserAgentHeader("flightctl-cli"),
+		client.WithHeader("Flightctl-API-Version", o.APIVersion),
+	)
 }
 
 // BuildImageBuilderClient constructs an ImageBuilder API client using configuration

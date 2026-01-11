@@ -346,9 +346,11 @@ func NewFromConfig(config *Config, configFilePath string, opts ...client.ClientO
 		}
 		return nil
 	})
+	// Append /api/v1 to server URL for client requests since OpenAPI spec uses servers.url
+	serverURL := strings.TrimSuffix(config.Service.Server, "/") + "/api/v1"
 	defaultOpts := []client.ClientOption{client.WithHTTPClient(httpClient), ref, WithOrganization(config.Organization)}
 	defaultOpts = append(defaultOpts, opts...)
-	return client.NewClientWithResponses(config.Service.Server, defaultOpts...)
+	return client.NewClientWithResponses(serverURL, defaultOpts...)
 }
 
 // NewFromConfigFile returns a new Flight Control API client using the config

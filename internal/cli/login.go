@@ -425,8 +425,10 @@ func (o *LoginOptions) validateTokenWithServer(ctx context.Context, token string
 		return nil
 	})
 	// Create API client with just the HTTP client and organization, no auto-token injection
+	// Append /api/v1 to server URL for client requests since OpenAPI spec uses servers.url
+	serverURL := strings.TrimSuffix(o.clientConfig.Service.Server, "/") + "/api/v1"
 	c, err := apiClient.NewClientWithResponses(
-		o.clientConfig.Service.Server,
+		serverURL,
 		apiClient.WithHTTPClient(httpClient),
 		client.WithOrganization(o.clientConfig.Organization),
 		tokenEditor,
@@ -603,7 +605,9 @@ func (o *LoginOptions) getAuthConfig(ctx context.Context) (*v1beta1.AuthConfig, 
 			return nil, fmt.Errorf("failed to create http client:\n%s", friendlyErr)
 		}
 	}
-	c, err := apiClient.NewClientWithResponses(o.clientConfig.Service.Server, apiClient.WithHTTPClient(httpClient))
+	// Append /api/v1 to server URL for client requests since OpenAPI spec uses servers.url
+	serverURL := strings.TrimSuffix(o.clientConfig.Service.Server, "/") + "/api/v1"
+	c, err := apiClient.NewClientWithResponses(serverURL, apiClient.WithHTTPClient(httpClient))
 	if err != nil {
 		return nil, fmt.Errorf("creating client: %w", err)
 	}
@@ -639,7 +643,9 @@ func (o *LoginOptions) getAuthConfig(ctx context.Context) (*v1beta1.AuthConfig, 
 				// retry once
 				httpClient, herr := client.NewHTTPClientFromConfig(o.clientConfig)
 				if herr == nil {
-					c, herr = apiClient.NewClientWithResponses(o.clientConfig.Service.Server, apiClient.WithHTTPClient(httpClient))
+					// Append /api/v1 to server URL for client requests since OpenAPI spec uses servers.url
+					serverURL := strings.TrimSuffix(o.clientConfig.Service.Server, "/") + "/api/v1"
+					c, herr = apiClient.NewClientWithResponses(serverURL, apiClient.WithHTTPClient(httpClient))
 					if herr == nil {
 						resp, err = c.AuthConfigWithResponse(ctx)
 					}

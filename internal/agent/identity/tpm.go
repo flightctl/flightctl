@@ -415,7 +415,9 @@ func (t *tpmProvider) CreateManagementClient(config *base_client.Config, metrics
 		}
 	}
 
-	clientWithResponses, err := agent_client.NewClientWithResponses(configCopy.Service.Server, agent_client.WithHTTPClient(httpClient))
+	// Append /api/v1 to server URL for client requests since OpenAPI spec uses servers.url
+	serverURL := strings.TrimSuffix(configCopy.Service.Server, "/") + "/api/v1"
+	clientWithResponses, err := agent_client.NewClientWithResponses(serverURL, agent_client.WithHTTPClient(httpClient))
 	if err != nil {
 		return nil, fmt.Errorf("creating client: %w", err)
 	}

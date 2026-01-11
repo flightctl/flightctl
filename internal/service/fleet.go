@@ -111,7 +111,7 @@ func (h *ServiceHandler) PatchFleet(ctx context.Context, orgId uuid.UUID, name s
 	}
 
 	newObj := &api.Fleet{}
-	err = ApplyJSONPatch(ctx, currentObj, newObj, patch, "/api/v1/fleets/"+name)
+	err = ApplyJSONPatch(ctx, currentObj, newObj, patch, "/fleets/"+name)
 	if err != nil {
 		return nil, api.StatusBadRequest(err.Error())
 	}

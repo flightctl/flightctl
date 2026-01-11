@@ -51,7 +51,9 @@ func NewFromConfig(config *baseclient.Config, log *log.PrefixLogger, opts ...HTT
 		}
 		return nil
 	})
-	return client.NewClientWithResponses(config.Service.Server, client.WithHTTPClient(httpClient), ref)
+	// Append /api/v1 to server URL for client requests since OpenAPI spec uses servers.url
+	serverURL := strings.TrimSuffix(config.Service.Server, "/") + "/api/v1"
+	return client.NewClientWithResponses(serverURL, client.WithHTTPClient(httpClient), ref)
 }
 
 // Management is the client interface for managing devices.

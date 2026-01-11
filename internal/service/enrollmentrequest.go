@@ -378,7 +378,7 @@ func (h *ServiceHandler) PatchEnrollmentRequest(ctx context.Context, orgId uuid.
 	}
 
 	newObj := &api.EnrollmentRequest{}
-	err = ApplyJSONPatch(ctx, currentObj, newObj, patch, "/api/v1/enrollmentrequests/"+name)
+	err = ApplyJSONPatch(ctx, currentObj, newObj, patch, "/enrollmentrequests/"+name)
 	if err != nil {
 		return nil, api.StatusBadRequest(err.Error())
 	}

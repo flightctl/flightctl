@@ -258,12 +258,12 @@ func (s *Server) Run(ctx context.Context) error {
 		return fmt.Errorf("failed to create v1beta1 router: %w", err)
 	}
 
-	// Main API group with version-aware routing.
+	// Backward-compatible /api/version endpoint (redirects to same handler as /api/v1/version)
+	router.Get("/api/version", v1beta1Handler.GetVersion)
+
+	// Versioned API endpoints mounted at /api/v1.
 	// Requests with "Flightctl-API-Version: v1" header use v1 API, others use v1beta1 (default).
-	//
-	// NOTE: This group must remain limited to API endpoints (e.g. /api/*). Mounting at "/" here
-	// is intentional so inner routers keep seeing "/api/..." paths matching their OpenAPI specs.
-	router.Group(func(r chi.Router) {
+	router.Route("/api/v1", func(r chi.Router) {
 		// Add general rate limiting (only if configured and enabled)
 		if s.cfg.Service.RateLimit != nil && s.cfg.Service.RateLimit.Enabled {
 			trustedProxies := s.cfg.Service.RateLimit.TrustedProxies
