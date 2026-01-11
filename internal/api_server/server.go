@@ -13,6 +13,7 @@ import (
 	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/api/server"
 	fcmiddleware "github.com/flightctl/flightctl/internal/api_server/middleware"
+	"github.com/flightctl/flightctl/internal/api_server/versioning"
 	"github.com/flightctl/flightctl/internal/auth"
 	"github.com/flightctl/flightctl/internal/auth/authn"
 	"github.com/flightctl/flightctl/internal/config"
@@ -22,6 +23,7 @@ import (
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/transport"
+	v1transport "github.com/flightctl/flightctl/internal/transport/v1"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/getkin/kin-openapi/openapi3"
@@ -234,13 +236,34 @@ func (s *Server) Run(ctx context.Context) error {
 		userAgentMiddleware,
 	)
 
-	// a group is a new mux copy, with its own copy of the middleware stack
-	// this one handles the OpenAPI handling of the service (excluding auth validate endpoint)
+	// Create transport handlers for each API version
+	v1beta1Handler := &customTransportHandler{
+		transport.NewTransportHandler(serviceHandler, s.authN, authTokenProxy, authUserInfoProxy, s.authZ),
+	}
+	v1Handler := v1transport.NewTransportHandler(serviceHandler)
+
+	// Create version-specific routers with OpenAPI validation
+	oapiVersionOpts := &versioning.OapiOptions{
+		ErrorHandler:      oapiErrorHandler,
+		MultiErrorHandler: oapiMultiErrorHandler,
+	}
+
+	rV1, err := versioning.CreateV1Router(v1Handler, oapiVersionOpts)
+	if err != nil {
+		return fmt.Errorf("failed to create v1 router: %w", err)
+	}
+
+	rV1Beta1, err := versioning.CreateV1Beta1Router(v1beta1Handler, oapiVersionOpts)
+	if err != nil {
+		return fmt.Errorf("failed to create v1beta1 router: %w", err)
+	}
+
+	// Main API group with version-aware routing.
+	// Requests with "Flightctl-API-Version: v1" header use v1 API, others use v1beta1 (default).
+	//
+	// NOTE: This group must remain limited to API endpoints (e.g. /api/*). Mounting at "/" here
+	// is intentional so inner routers keep seeing "/api/..." paths matching their OpenAPI specs.
 	router.Group(func(r chi.Router) {
-		//NOTE(majopela): keeping metrics middleware separate from the rest of the middleware stack
-		// to avoid issues with websocket connections
-		r.Use(oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapiOpts))
-		r.Use(authMiddewares...)
 		// Add general rate limiting (only if configured and enabled)
 		if s.cfg.Service.RateLimit != nil && s.cfg.Service.RateLimit.Enabled {
 			trustedProxies := s.cfg.Service.RateLimit.TrustedProxies
@@ -260,12 +283,18 @@ func (s *Server) Run(ctx context.Context) error {
 			})
 		}
 
-		h := transport.NewTransportHandler(serviceHandler, s.authN, authTokenProxy, authUserInfoProxy, s.authZ)
+		// Auth middlewares applied at outer level (shared by both versions)
+		r.Use(authMiddewares...)
 
-		// Register all other endpoints with general rate limiting (already applied at router level)
-		// Create a custom handler that excludes the auth validate endpoint
-		customHandler := &customTransportHandler{h}
-		server.HandlerFromMux(customHandler, r)
+		// Version middleware parses header and stores version in context
+		r.Use(versioning.WithAPIVersion(versioning.NewDefaultRegistry()))
+
+		// Dispatcher routes to appropriate version-specific router
+		// Each inner router has its own OpenAPI validation
+		r.Mount("/", versioning.VersionDispatcher{
+			V1:      rV1,
+			V1Beta1: rV1Beta1,
+		})
 	})
 
 	// health endpoints: bypass OpenAPI + auth, but keep global safety middlewares

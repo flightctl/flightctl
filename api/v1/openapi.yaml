@@ -1,0 +1,667 @@
+openapi: 3.0.1
+info:
+  title: Flight Control API
+  version: v1
+  description: |
+    [Flight Control](https://flightctl.io) is a service for declarative management of fleets of edge devices and their workloads.
+    This is the v1 API version.
+  contact:
+    name: The Flight Control Team
+    url: https://flightctl.io
+    email: team@flightctl.io
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0.html
+servers:
+  - url: /
+tags:
+  - name: device
+    description: Operations on Device resources.
+paths:
+  /api/v1/devices:
+    get:
+      tags:
+        - device
+      description: List Device resources.
+      operationId: listDevices
+      parameters:
+        - name: continue
+          in: query
+          description: An optional parameter to query more results from the server. The value of the parameter must match the value of the 'continue' field in the previous list response.
+          required: false
+          schema:
+            type: string
+        - name: labelSelector
+          in: query
+          description: A selector to restrict the list of returned objects by their labels. Defaults to everything.
+          schema:
+            type: string
+        - name: fieldSelector
+          in: query
+          description: A selector to restrict the list of returned objects by their fields, supporting operators like '=', '==', and '!=' (e.g., "key1=value1,key2!=value2").
+          schema:
+            type: string
+        - name: limit
+          in: query
+          description: The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
+          required: false
+          schema:
+            type: integer
+            format: int32
+        - name: summaryOnly
+          in: query
+          description: A boolean flag to include only a summary of the devices. When set to true, the response will contain only the summary information.
+          required: false
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceList'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+    post:
+      tags:
+        - device
+      description: Create a Device resource.
+      operationId: createDevice
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Device'
+        required: true
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Device'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+  /api/v1/devices/{name}:
+    get:
+      tags:
+        - device
+      description: Get a Device resource.
+      operationId: getDevice
+      parameters:
+        - name: name
+          in: path
+          description: The name of the Device resource to get.
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Device'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+    put:
+      tags:
+        - device
+      description: Update a Device resource.
+      operationId: replaceDevice
+      parameters:
+        - name: name
+          in: path
+          description: The name of the Device resource to update.
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Device'
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Device'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+components:
+  schemas:
+    Status:
+      type: object
+      properties:
+        apiVersion:
+          type: string
+          description: 'APIVersion defines the versioned schema of this representation of an object.'
+        kind:
+          type: string
+          description: 'Kind is a string value representing the REST resource this object represents.'
+        code:
+          type: integer
+          format: int32
+          description: Suggested HTTP return code for this status, 0 if not set.
+        message:
+          type: string
+          description: A human-readable description of the status of this operation.
+        reason:
+          type: string
+          description: A machine-readable description of why this operation is in the "Failure" status.
+      description: Status is a return value for calls that do not return other objects.
+
+    ObjectMeta:
+      type: object
+      properties:
+        creationTimestamp:
+          type: string
+          description: The time the object was created.
+          format: date-time
+        deletionTimestamp:
+          type: string
+          description: The time the object will be deleted.
+          format: date-time
+        name:
+          type: string
+          description: The name of the object.
+        labels:
+          type: object
+          description: Map of string keys and values that can be used to organize and categorize (scope and select) objects.
+          additionalProperties:
+            type: string
+        generation:
+          type: integer
+          description: A sequence number representing a specific generation of the desired state.
+          format: int64
+        owner:
+          type: string
+          description: A resource that owns this resource, in "kind/name" format.
+        annotations:
+          type: object
+          additionalProperties:
+            type: string
+          description: Properties set by the service.
+        resourceVersion:
+          type: string
+          description: An opaque string that identifies the server's internal version of an object.
+      description: ObjectMeta is metadata that all persisted resources must have.
+
+    ListMeta:
+      type: object
+      properties:
+        continue:
+          type: string
+          description: An opaque value used for pagination.
+        remainingItemCount:
+          type: integer
+          format: int64
+          description: The number of items remaining in the list.
+      description: ListMeta is metadata for list responses.
+
+    Device:
+      type: object
+      properties:
+        apiVersion:
+          type: string
+          description: 'APIVersion defines the versioned schema of this representation of an object.'
+        kind:
+          type: string
+          description: 'Kind is a string value representing the REST resource this object represents.'
+        metadata:
+          $ref: '#/components/schemas/ObjectMeta'
+        spec:
+          $ref: '#/components/schemas/DeviceSpec'
+        status:
+          $ref: '#/components/schemas/DeviceStatus'
+      required:
+        - apiVersion
+        - kind
+        - metadata
+      description: Device represents a physical device.
+
+    DeviceList:
+      type: object
+      properties:
+        apiVersion:
+          type: string
+          description: 'APIVersion defines the versioned schema of this representation of an object.'
+        kind:
+          type: string
+          description: 'Kind is a string value representing the REST resource this object represents.'
+        metadata:
+          $ref: '#/components/schemas/ListMeta'
+        items:
+          type: array
+          description: 'List of Devices.'
+          items:
+            $ref: '#/components/schemas/Device'
+        summary:
+          $ref: '#/components/schemas/DevicesSummary'
+      description: DeviceList is a list of Devices.
+      required:
+        - apiVersion
+        - kind
+        - metadata
+        - items
+
+    DeviceSpec:
+      type: object
+      description: DeviceSpec describes a device.
+      properties:
+        updatePolicy:
+          $ref: '#/components/schemas/DeviceUpdatePolicySpec'
+        os:
+          $ref: '#/components/schemas/DeviceOsSpec'
+        config:
+          type: array
+          description: List of config providers.
+          items:
+            $ref: '#/components/schemas/ConfigProviderSpec'
+        applications:
+          type: array
+          description: List of application providers.
+          items:
+            $ref: '#/components/schemas/ApplicationProviderSpec'
+        systemd:
+          type: object
+          description: The systemd services to monitor.
+          properties:
+            matchPatterns:
+              type: array
+              description: A list of match patterns.
+              items:
+                type: string
+        resources:
+          type: array
+          description: 'Array of resource monitor configurations.'
+          items:
+            $ref: '#/components/schemas/ResourceMonitor'
+        consoles:
+          type: array
+          description: The list of active console sessions.
+          items:
+            $ref: '#/components/schemas/DeviceConsole'
+        decommissioning:
+          $ref: '#/components/schemas/DeviceDecommission'
+
+    DeviceStatus:
+      type: object
+      description: DeviceStatus represents information about the status of a device.
+      properties:
+        conditions:
+          type: array
+          description: Conditions represent the observations of a the current state of a device.
+          items:
+            $ref: '#/components/schemas/Condition'
+        systemInfo:
+          $ref: "#/components/schemas/DeviceSystemInfo"
+        systemd:
+          type: array
+          description: List of systemd unit statuses.
+          items:
+            $ref: "#/components/schemas/SystemdUnitStatus"
+        applications:
+          type: array
+          description: List of device application statuses.
+          items:
+            $ref: "#/components/schemas/DeviceApplicationStatus"
+        applicationsSummary:
+          $ref: "#/components/schemas/DeviceApplicationsSummaryStatus"
+        resources:
+          $ref: "#/components/schemas/DeviceResourceStatus"
+        integrity:
+          $ref: "#/components/schemas/DeviceIntegrityStatus"
+        config:
+          $ref: "#/components/schemas/DeviceConfigStatus"
+        os:
+          $ref: "#/components/schemas/DeviceOsStatus"
+        updated:
+          $ref: "#/components/schemas/DeviceUpdatedStatus"
+        summary:
+          $ref: "#/components/schemas/DeviceSummaryStatus"
+        lastSeen:
+          type: string
+          format: date-time
+          x-go-json-ignore: true
+        lifecycle:
+          $ref: '#/components/schemas/DeviceLifecycleStatus'
+
+    DeviceUpdatePolicySpec:
+      type: object
+      description: DeviceUpdatePolicySpec describes the update policy for a device.
+      properties:
+        downloadSchedule:
+          type: string
+        updateSchedule:
+          type: string
+
+    DeviceOsSpec:
+      type: object
+      description: DeviceOsSpec describes the target OS for the device.
+      properties:
+        image:
+          type: string
+          description: The target OS image name or URL.
+      required:
+        - image
+
+    ConfigProviderSpec:
+      type: object
+      description: Config provider specification.
+      properties:
+        name:
+          type: string
+        configType:
+          type: string
+      additionalProperties: true
+
+    ApplicationProviderSpec:
+      type: object
+      description: Application provider specification.
+      properties:
+        name:
+          type: string
+        image:
+          type: string
+        envVars:
+          type: object
+          additionalProperties:
+            type: string
+      additionalProperties: true
+
+    ResourceMonitor:
+      type: object
+      description: Resource monitor configuration.
+      properties:
+        monitorType:
+          type: string
+        alertRules:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+
+    DeviceConsole:
+      type: object
+      description: DeviceConsole represents the console connection information.
+      properties:
+        sessionMetadata:
+          type: string
+        sessionID:
+          type: string
+      required:
+        - sessionMetadata
+        - sessionID
+
+    DeviceDecommission:
+      type: object
+      description: Device decommission configuration.
+      properties:
+        scheduledAt:
+          type: string
+          format: date-time
+        state:
+          type: string
+
+    Condition:
+      type: object
+      description: Condition contains details for one aspect of the current state.
+      properties:
+        type:
+          type: string
+        status:
+          type: string
+        reason:
+          type: string
+        message:
+          type: string
+        lastTransitionTime:
+          type: string
+          format: date-time
+
+    DeviceSystemInfo:
+      type: object
+      description: System information collected from the device.
+      properties:
+        architecture:
+          type: string
+        bootID:
+          type: string
+        operatingSystem:
+          type: string
+        agentVersion:
+          type: string
+        customInfo:
+          type: object
+          additionalProperties:
+            type: string
+
+    SystemdUnitStatus:
+      type: object
+      properties:
+        unit:
+          type: string
+        description:
+          type: string
+        enableState:
+          type: string
+        loadState:
+          type: string
+        activeState:
+          type: string
+        subState:
+          type: string
+
+    DeviceApplicationStatus:
+      type: object
+      properties:
+        name:
+          type: string
+        status:
+          type: string
+        ready:
+          type: string
+        restarts:
+          type: integer
+
+    DeviceApplicationsSummaryStatus:
+      type: object
+      properties:
+        status:
+          type: string
+        info:
+          type: string
+
+    DeviceResourceStatus:
+      type: object
+      properties:
+        cpu:
+          $ref: '#/components/schemas/ResourceAlertStatus'
+        memory:
+          $ref: '#/components/schemas/ResourceAlertStatus'
+        disk:
+          $ref: '#/components/schemas/ResourceAlertStatus'
+
+    ResourceAlertStatus:
+      type: object
+      properties:
+        status:
+          type: string
+        info:
+          type: string
+
+    DeviceIntegrityStatus:
+      type: object
+      properties:
+        status:
+          type: string
+        info:
+          type: string
+
+    DeviceConfigStatus:
+      type: object
+      properties:
+        status:
+          type: string
+        info:
+          type: string
+
+    DeviceOsStatus:
+      type: object
+      properties:
+        status:
+          type: string
+        info:
+          type: string
+        image:
+          type: string
+        imageDigest:
+          type: string
+        bootedImage:
+          type: string
+        bootedImageDigest:
+          type: string
+        rollback:
+          $ref: '#/components/schemas/DeviceOsRollback'
+
+    DeviceOsRollback:
+      type: object
+      properties:
+        image:
+          type: string
+        imageDigest:
+          type: string
+
+    DeviceUpdatedStatus:
+      type: object
+      properties:
+        status:
+          type: string
+        info:
+          type: string
+
+    DeviceSummaryStatus:
+      type: object
+      properties:
+        status:
+          type: string
+        info:
+          type: string
+
+    DeviceLifecycleStatus:
+      type: object
+      properties:
+        status:
+          type: string
+        info:
+          type: string
+
+    DevicesSummary:
+      type: object
+      description: A summary of the devices.
+      properties:
+        total:
+          type: integer
+          format: int64
+        applicationStatus:
+          type: object
+          additionalProperties:
+            type: integer
+            format: int64
+        summaryStatus:
+          type: object
+          additionalProperties:
+            type: integer
+            format: int64
+        updateStatus:
+          type: object
+          additionalProperties:
+            type: integer
+            format: int64
