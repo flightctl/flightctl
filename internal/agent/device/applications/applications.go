@@ -231,7 +231,7 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 				a.status.Info = make(map[string]string)
 			}
 			a.status.Info["Reason"] = "All workloads have exited, at least one with a non-zero status"
-		} else if stopped > 0 && healthy == 0 && exited == 0 {
+		} else if stopped > 0 && healthy == 0 {
 			newStatus = v1beta1.ApplicationStatusError
 			summary.Status = v1beta1.ApplicationsSummaryStatusDegraded
 			if a.status.Info == nil {
