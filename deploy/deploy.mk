@@ -43,6 +43,9 @@ redeploy-alertmanager-proxy: flightctl-alertmanager-proxy-container
 redeploy-telemetry-gateway: flightctl-telemetry-gateway-container
 	test/scripts/redeploy.sh telemetry-gateway
 
+redeploy-imagebuilder-worker: flightctl-imagebuilder-worker-container
+	test/scripts/redeploy.sh imagebuilder-worker
+
 ifndef SKIP_BUILD
 deploy-helm: flightctl-api-container flightctl-db-setup-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-alertmanager-proxy-container flightctl-imagebuilder-api-container flightctl-imagebuilder-worker-container flightctl-multiarch-cli-container flightctl-telemetry-gateway-container
 endif

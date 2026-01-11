@@ -2,12 +2,13 @@ package imagebuilder_worker_test
 
 import (
 	"context"
+	"net/url"
 	"os"
 	"strings"
 	"testing"
 
-	"github.com/flightctl/flightctl/api/v1beta1"
-	api "github.com/flightctl/flightctl/api/v1beta1/imagebuilder"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
+	api "github.com/flightctl/flightctl/api/imagebuilder/v1beta1"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/config/ca"
 	icrypto "github.com/flightctl/flightctl/internal/crypto"
@@ -24,6 +25,7 @@ import (
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
+	"sigs.k8s.io/yaml"
 )
 
 var (
@@ -63,8 +65,7 @@ func newTestImageBuild(name string, bindingType string) api.ImageBuild {
 	if bindingType == "early" {
 		binding := api.ImageBuildBinding{}
 		_ = binding.FromEarlyBinding(api.EarlyBinding{
-			Type:     api.Early,
-			CertName: "test-cert",
+			Type: api.Early,
 		})
 		imageBuild.Spec.Binding = binding
 	} else {
@@ -144,11 +145,6 @@ var _ = Describe("Containerfile Generation", func() {
 
 		// Create service handler for enrollment credential generation
 		serviceHandler = service.NewServiceHandler(mainStoreInst, nil, nil, caClient, log, "https://api.example.com", "https://ui.example.com", []string{})
-
-		// Create test organization (required for foreign key constraint)
-		orgId = uuid.New()
-		err = testutilpkg.CreateTestOrganization(ctx, mainStoreInst, orgId)
-		Expect(err).ToNot(HaveOccurred())
 	})
 
 	AfterEach(func() {
@@ -184,6 +180,7 @@ var _ = Describe("Containerfile Generation", func() {
 			Expect(containerfile).To(ContainSubstring("flightctl-agent"))
 			Expect(containerfile).To(ContainSubstring("systemctl enable flightctl-agent.service"))
 			Expect(containerfile).To(ContainSubstring("ignition"))
+			Expect(containerfile).To(ContainSubstring("cloud-init"))
 			Expect(containerfile).ToNot(ContainSubstring("FLIGHTCTL_CONFIG"), "Late binding should not include agent config")
 		})
 	})
@@ -214,13 +211,14 @@ var _ = Describe("Containerfile Generation", func() {
 
 			// Verify Containerfile content
 			containerfile := result.Containerfile
-			Expect(containerfile).To(ContainSubstring("FROM https://registry.example.com/test-image:v1.0.0"))
+			Expect(containerfile).To(ContainSubstring("FROM registry.example.com/test-image:v1.0.0"))
 			Expect(containerfile).To(ContainSubstring("flightctl-agent"))
 			Expect(containerfile).To(ContainSubstring("systemctl enable flightctl-agent.service"))
 			Expect(containerfile).To(ContainSubstring("/etc/flightctl/config.yaml"))
 			Expect(containerfile).To(ContainSubstring("chmod 600"))
 			Expect(containerfile).To(ContainSubstring("FLIGHTCTL_CONFIG"), "Early binding should include agent config")
 			Expect(containerfile).ToNot(ContainSubstring("ignition"), "Early binding should not include ignition")
+			Expect(containerfile).ToNot(ContainSubstring("cloud-init"), "Early binding should not include cloud-init")
 
 			// Verify agent config content
 			agentConfig := string(result.AgentConfig)
@@ -228,6 +226,35 @@ var _ = Describe("Containerfile Generation", func() {
 			Expect(agentConfig).To(ContainSubstring("client-certificate-data:"))
 			Expect(agentConfig).To(ContainSubstring("client-key-data:"))
 			Expect(agentConfig).To(ContainSubstring("certificate-authority-data:"))
+
+			// Parse and validate agent config YAML structure
+			var configMap map[string]interface{}
+			err = yaml.Unmarshal(result.AgentConfig, &configMap)
+			Expect(err).ToNot(HaveOccurred(), "Agent config should be valid YAML")
+
+			// Validate enrollment-service structure
+			enrollmentService, ok := configMap["enrollment-service"].(map[string]interface{})
+			Expect(ok).To(BeTrue(), "enrollment-service should be a map")
+
+			// Validate service.server field exists and is a valid URL
+			serviceMap, ok := enrollmentService["service"].(map[string]interface{})
+			Expect(ok).To(BeTrue(), "service should be a map")
+			serverURL, ok := serviceMap["server"].(string)
+			Expect(ok).To(BeTrue(), "server should be a string")
+			Expect(serverURL).ToNot(BeEmpty(), "server URL should not be empty")
+			Expect(serverURL).ToNot(ContainSubstring("https://:"), "server URL should not be malformed (https://:port)")
+
+			// Validate server URL is a valid URL
+			parsedURL, err := url.Parse(serverURL)
+			Expect(err).ToNot(HaveOccurred(), "server URL should be a valid URL")
+			Expect(parsedURL.Scheme).To(Equal("https"), "server URL should use https scheme")
+			Expect(parsedURL.Host).ToNot(BeEmpty(), "server URL should have a host")
+
+			// Validate enrollment-ui-endpoint
+			uiEndpoint, ok := enrollmentService["enrollment-ui-endpoint"].(string)
+			Expect(ok).To(BeTrue(), "enrollment-ui-endpoint should be a string")
+			Expect(uiEndpoint).ToNot(BeEmpty(), "enrollment-ui-endpoint should not be empty")
+
 		})
 	})
 
@@ -265,7 +292,7 @@ var _ = Describe("Containerfile Generation", func() {
 			result, err := tasks.GenerateContainerfile(ctx, mainStoreInst, serviceHandler, orgId, loadedBuild, log)
 
 			Expect(err).ToNot(HaveOccurred())
-			Expect(result.Containerfile).To(ContainSubstring("FROM https://registry.example.com/test-image:v1.0.0"))
+			Expect(result.Containerfile).To(ContainSubstring("FROM registry.example.com/test-image:v1.0.0"))
 		})
 
 		It("should handle repository with http scheme", func() {
@@ -283,7 +310,7 @@ var _ = Describe("Containerfile Generation", func() {
 			result, err := tasks.GenerateContainerfile(ctx, mainStoreInst, serviceHandler, orgId, loadedBuild, log)
 
 			Expect(err).ToNot(HaveOccurred())
-			Expect(result.Containerfile).To(ContainSubstring("FROM http://localhost:5000/test-image:v1.0.0"))
+			Expect(result.Containerfile).To(ContainSubstring("FROM localhost:5000/test-image:v1.0.0"))
 		})
 	})
 

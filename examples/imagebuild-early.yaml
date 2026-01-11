@@ -1,7 +1,7 @@
 apiVersion: flightctl.io/v1beta1
 kind: ImageBuild
 metadata:
-  name: centos-bootc-stream9-build
+  name: centos-bootc-stream9-build-early
   labels:
     environment: production
     team: edge-platform
@@ -17,8 +17,8 @@ spec:
   destination:
     repository: my-registry
     imageName: my-user/centos-bootc-custom
-    tag: v1.0.0
+    tag: v1.0.0-early
   # Binding configuration for device enrollment
-  # Use 'early' with certName to embed certificate in image, or 'late' for first-boot binding
+  # Use 'early' to embed certificate in image, or 'late' for first-boot binding
   binding:
-    type: late
+    type: early

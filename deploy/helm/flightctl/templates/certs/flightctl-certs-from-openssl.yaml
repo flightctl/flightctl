@@ -79,6 +79,10 @@ spec:
         {{- end }}
         - --namespace
         - {{ .Release.Namespace }}
+        {{- if and .Values.global.internalNamespace (ne .Values.global.internalNamespace .Release.Namespace) }}
+        - --internal-namespace
+        - {{ .Values.global.internalNamespace }}
+        {{- end }}
         - --create-k8s-secrets
         volumeMounts:
         - name: scripts

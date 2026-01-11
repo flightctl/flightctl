@@ -24,6 +24,8 @@ type ImageBuildStore interface {
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, imageBuild *api.ImageBuild) (*api.ImageBuild, error)
 	UpdateLastSeen(ctx context.Context, orgId uuid.UUID, name string, timestamp time.Time) error
 	InitialMigration(ctx context.Context) error
+	// Transaction executes fn within a database transaction, passing the transaction via context
+	Transaction(ctx context.Context, fn func(ctx context.Context) error) error
 }
 
 // imageBuildStore is the concrete implementation of ImageBuildStore
@@ -199,4 +201,19 @@ func (s *imageBuildStore) UpdateLastSeen(ctx context.Context, orgId uuid.UUID, n
 		return flterrors.ErrResourceNotFound
 	}
 	return nil
+}
+
+// Transaction executes fn within a database transaction, passing the transaction via context
+// If a transaction already exists in the context, it will be reused instead of creating a new one
+func (s *imageBuildStore) Transaction(ctx context.Context, fn func(ctx context.Context) error) error {
+	// Check if a transaction already exists in the context
+	if tx := TxFromContext(ctx); tx != nil {
+		// Transaction already exists - use it directly
+		return fn(ctx)
+	}
+	// No transaction exists - create a new one
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		txCtx := WithTx(ctx, tx)
+		return fn(txCtx)
+	})
 }

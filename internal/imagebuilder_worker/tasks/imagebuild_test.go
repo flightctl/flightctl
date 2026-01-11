@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/flightctl/flightctl/api/v1beta1"
-	api "github.com/flightctl/flightctl/api/v1beta1/imagebuilder"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
+	api "github.com/flightctl/flightctl/api/imagebuilder/v1beta1"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
@@ -143,8 +143,7 @@ func newTestImageBuild(name string, bindingType string) *api.ImageBuild {
 	if bindingType == "early" {
 		binding := api.ImageBuildBinding{}
 		_ = binding.FromEarlyBinding(api.EarlyBinding{
-			Type:     api.Early,
-			CertName: "test-cert",
+			Type: api.Early,
 		})
 		imageBuild.Spec.Binding = binding
 	} else {
@@ -186,7 +185,7 @@ func TestRenderContainerfileTemplate(t *testing.T) {
 		{
 			name: "late binding template",
 			data: containerfileData{
-				RegistryURL:         "quay.io",
+				RegistryHostname:    "quay.io",
 				ImageName:           "test-image",
 				ImageTag:            "v1.0.0",
 				EarlyBinding:        false,
@@ -203,7 +202,7 @@ func TestRenderContainerfileTemplate(t *testing.T) {
 		{
 			name: "early binding template",
 			data: containerfileData{
-				RegistryURL:         "registry.example.com",
+				RegistryHostname:    "registry.example.com",
 				ImageName:           "base-image",
 				ImageTag:            "latest",
 				EarlyBinding:        true,
@@ -371,7 +370,7 @@ func TestGenerateContainerfile_EarlyBinding(t *testing.T) {
 	require.NotEmpty(t, result.AgentConfig)
 
 	// Verify Containerfile content
-	require.Contains(t, result.Containerfile, "FROM https://registry.example.com/test-image:v1.0.0")
+	require.Contains(t, result.Containerfile, "FROM registry.example.com/test-image:v1.0.0")
 	require.Contains(t, result.Containerfile, "flightctl-agent")
 	require.Contains(t, result.Containerfile, "/etc/flightctl/config.yaml")
 	require.Contains(t, result.Containerfile, "chmod 600")

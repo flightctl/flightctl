@@ -107,7 +107,7 @@ var _ = Describe("ImagePipelineService", func() {
 		}
 
 		// Create services
-		imageBuildSvc := service.NewImageBuildService(storeInst.ImageBuild(), log)
+		imageBuildSvc := service.NewImageBuildService(storeInst.ImageBuild(), nil, nil, log)
 		imageExportSvc := service.NewImageExportService(storeInst.ImageExport(), storeInst.ImageBuild(), log)
 		svc = service.NewImagePipelineService(storeInst.ImagePipeline(), imageBuildSvc, imageExportSvc, log)
 

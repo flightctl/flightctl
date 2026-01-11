@@ -2,7 +2,6 @@ package imagebuilder_worker
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
@@ -41,9 +40,7 @@ func New(
 	ca *crypto.CAClient,
 ) *Worker {
 	// Create service handler for internal operations (enrollment credential generation)
-	agentEndpoint := fmt.Sprintf("https://%s", cfg.Service.AgentEndpointAddress)
-	uiUrl := cfg.Service.BaseUIUrl
-	serviceHandler := service.NewServiceHandler(mainStore, nil, kvStore, ca, log.WithField("component", "service"), agentEndpoint, uiUrl, nil)
+	serviceHandler := service.NewServiceHandler(mainStore, nil, kvStore, ca, log.WithField("component", "service"), cfg.Service.BaseAgentEndpointUrl, cfg.Service.BaseUIUrl, nil)
 
 	return &Worker{
 		cfg:            cfg,

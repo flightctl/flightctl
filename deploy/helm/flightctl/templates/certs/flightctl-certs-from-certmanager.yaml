@@ -304,7 +304,47 @@ spec:
             ca-bundle.crt: $CA_BUNDLE_DATA
           EOF
 
-          echo "CA bundle Secret created successfully"
+          echo "CA bundle Secret created successfully in $NAMESPACE"
+
+          # Copy CA secrets to internal namespace if different from release namespace
+          {{- if and .Values.global.internalNamespace (ne .Values.global.internalNamespace .Release.Namespace) }}
+          INTERNAL_NAMESPACE="{{ .Values.global.internalNamespace }}"
+          echo "Copying CA secrets to internal namespace: $INTERNAL_NAMESPACE"
+
+          # Copy client-signer-ca secret
+          echo "Copying flightctl-client-signer-ca secret..."
+          CLIENT_SIGNER_CERT=$($K8S_CLI get secret -n "$NAMESPACE" flightctl-client-signer-ca -o jsonpath='{.data.tls\.crt}')
+          CLIENT_SIGNER_KEY=$($K8S_CLI get secret -n "$NAMESPACE" flightctl-client-signer-ca -o jsonpath='{.data.tls\.key}')
+          cat <<EOF | $K8S_CLI apply -f -
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: flightctl-client-signer-ca
+            namespace: $INTERNAL_NAMESPACE
+            labels:
+              {{- include "flightctl.standardLabels" . | nindent 14 }}
+          type: kubernetes.io/tls
+          data:
+            tls.crt: $CLIENT_SIGNER_CERT
+            tls.key: $CLIENT_SIGNER_KEY
+          EOF
+
+          # Copy CA bundle secret
+          echo "Copying flightctl-ca-bundle secret..."
+          cat <<EOF | $K8S_CLI apply -f -
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: flightctl-ca-bundle
+            namespace: $INTERNAL_NAMESPACE
+            labels:
+              {{- include "flightctl.standardLabels" . | nindent 14 }}
+          data:
+            ca-bundle.crt: $CA_BUNDLE_DATA
+          EOF
+
+          echo "CA secrets copied successfully to $INTERNAL_NAMESPACE"
+          {{- end }}
       {{- if .Values.global.imagePullSecretName }}
       imagePullSecrets:
       - name: {{ .Values.global.imagePullSecretName }}

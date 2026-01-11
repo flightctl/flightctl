@@ -31,3 +31,6 @@ const (
 	IdentityCtxKey             ctxKey = "identity"
 	MappedIdentityCtxKey       ctxKey = "mapped-identity"
 )
+
+// GormTxKey is the context key type for sharing database transactions across packages
+type GormTxKey struct{}

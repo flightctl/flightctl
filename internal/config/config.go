@@ -120,21 +120,25 @@ type imageBuilderServiceConfig struct {
 }
 
 type imageBuilderWorkerConfig struct {
-	LogLevel            string        `json:"logLevel,omitempty"`
-	MaxConcurrentBuilds int           `json:"maxConcurrentBuilds,omitempty"`
-	BuildTimeout        util.Duration `json:"buildTimeout,omitempty"`
-	LogRetention        util.Duration `json:"logRetention,omitempty"`
-	DefaultTTL          util.Duration `json:"defaultTTL,omitempty"`
+	LogLevel               string        `json:"logLevel,omitempty"`
+	MaxConcurrentBuilds    int           `json:"maxConcurrentBuilds,omitempty"`
+	BuildTimeout           util.Duration `json:"buildTimeout,omitempty"`
+	LogRetention           util.Duration `json:"logRetention,omitempty"`
+	DefaultTTL             util.Duration `json:"defaultTTL,omitempty"`
+	PodmanImage            string        `json:"podmanImage,omitempty"`
+	LastSeenUpdateInterval util.Duration `json:"lastSeenUpdateInterval,omitempty"`
 }
 
 // NewDefaultImageBuilderWorkerConfig returns a default ImageBuilder worker configuration
 func NewDefaultImageBuilderWorkerConfig() *imageBuilderWorkerConfig {
 	return &imageBuilderWorkerConfig{
-		LogLevel:            "info",
-		MaxConcurrentBuilds: 2,
-		BuildTimeout:        util.Duration(30 * time.Minute),
-		LogRetention:        util.Duration(7 * 24 * time.Hour),
-		DefaultTTL:          util.Duration(7 * 24 * time.Hour),
+		LogLevel:               "info",
+		MaxConcurrentBuilds:    2,
+		BuildTimeout:           util.Duration(30 * time.Minute),
+		LogRetention:           util.Duration(7 * 24 * time.Hour),
+		DefaultTTL:             util.Duration(7 * 24 * time.Hour),
+		PodmanImage:            "quay.io/podman/stable:v5.7.1",
+		LastSeenUpdateInterval: util.Duration(30 * time.Second),
 	}
 }
 

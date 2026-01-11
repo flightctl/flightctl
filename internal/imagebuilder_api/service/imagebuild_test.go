@@ -20,7 +20,7 @@ func statusCode(status v1beta1.Status) int32 {
 
 func newTestImageBuildService() (ImageBuildService, *DummyImageBuildStore) {
 	imageBuildStore := NewDummyImageBuildStore()
-	svc := NewImageBuildService(imageBuildStore, log.InitLogs())
+	svc := NewImageBuildService(imageBuildStore, nil, nil, log.InitLogs())
 	return svc, imageBuildStore
 }
 
