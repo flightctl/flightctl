@@ -19,7 +19,7 @@ type ImageBuildService interface {
 	Create(ctx context.Context, orgId uuid.UUID, imageBuild api.ImageBuild) (*api.ImageBuild, v1beta1.Status)
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*api.ImageBuild, v1beta1.Status)
 	List(ctx context.Context, orgId uuid.UUID, params api.ListImageBuildsParams) (*api.ImageBuildList, v1beta1.Status)
-	Delete(ctx context.Context, orgId uuid.UUID, name string) v1beta1.Status
+	Delete(ctx context.Context, orgId uuid.UUID, name string) (*api.ImageBuild, v1beta1.Status)
 	// Internal methods (not exposed via API)
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, imageBuild *api.ImageBuild) (*api.ImageBuild, error)
 	UpdateLastSeen(ctx context.Context, orgId uuid.UUID, name string, timestamp time.Time) error
@@ -78,9 +78,12 @@ func (s *imageBuildService) List(ctx context.Context, orgId uuid.UUID, params ap
 	}
 }
 
-func (s *imageBuildService) Delete(ctx context.Context, orgId uuid.UUID, name string) v1beta1.Status {
-	err := s.store.Delete(ctx, orgId, name)
-	return StoreErrorToApiStatus(err, false, ImageBuildKind, &name)
+func (s *imageBuildService) Delete(ctx context.Context, orgId uuid.UUID, name string) (*api.ImageBuild, v1beta1.Status) {
+	result, err := s.store.Delete(ctx, orgId, name)
+	if err != nil {
+		return nil, StoreErrorToApiStatus(err, false, ImageBuildKind, &name)
+	}
+	return result, StatusOK()
 }
 
 // Internal methods (not exposed via API)

@@ -86,8 +86,14 @@ func (h *TransportHandler) ReplaceImageBuild(w http.ResponseWriter, r *http.Requ
 
 // DeleteImageBuild handles DELETE /api/v1/imagebuilds/{name}
 func (h *TransportHandler) DeleteImageBuild(w http.ResponseWriter, r *http.Request, name string) {
-	status := h.service.ImageBuild().Delete(r.Context(), OrgIDFromContext(r.Context()), name)
-	SetResponse(w, nil, status)
+	body, status := h.service.ImageBuild().Delete(r.Context(), OrgIDFromContext(r.Context()), name)
+	SetResponse(w, body, status)
+}
+
+// ListImagePipelines handles GET /api/v1/imagepipelines
+func (h *TransportHandler) ListImagePipelines(w http.ResponseWriter, r *http.Request, params api.ListImagePipelinesParams) {
+	body, status := h.service.ImagePipeline().List(r.Context(), OrgIDFromContext(r.Context()), params)
+	SetResponse(w, body, status)
 }
 
 // CreateImagePipeline handles POST /api/v1/imagepipelines
@@ -99,6 +105,18 @@ func (h *TransportHandler) CreateImagePipeline(w http.ResponseWriter, r *http.Re
 	}
 
 	body, status := h.service.ImagePipeline().Create(r.Context(), OrgIDFromContext(r.Context()), req)
+	SetResponse(w, body, status)
+}
+
+// GetImagePipeline handles GET /api/v1/imagepipelines/{name}
+func (h *TransportHandler) GetImagePipeline(w http.ResponseWriter, r *http.Request, name string) {
+	body, status := h.service.ImagePipeline().Get(r.Context(), OrgIDFromContext(r.Context()), name)
+	SetResponse(w, body, status)
+}
+
+// DeleteImagePipeline handles DELETE /api/v1/imagepipelines/{name}
+func (h *TransportHandler) DeleteImagePipeline(w http.ResponseWriter, r *http.Request, name string) {
+	body, status := h.service.ImagePipeline().Delete(r.Context(), OrgIDFromContext(r.Context()), name)
 	SetResponse(w, body, status)
 }
 
@@ -128,8 +146,8 @@ func (h *TransportHandler) GetImageExport(w http.ResponseWriter, r *http.Request
 
 // DeleteImageExport handles DELETE /api/v1/imageexports/{name}
 func (h *TransportHandler) DeleteImageExport(w http.ResponseWriter, r *http.Request, name string) {
-	status := h.service.ImageExport().Delete(r.Context(), OrgIDFromContext(r.Context()), name)
-	SetResponse(w, nil, status)
+	body, status := h.service.ImageExport().Delete(r.Context(), OrgIDFromContext(r.Context()), name)
+	SetResponse(w, body, status)
 }
 
 // SetResponse writes the response body and status to the response writer

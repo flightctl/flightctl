@@ -10,6 +10,7 @@ import (
 	flightctlstore "github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/google/uuid"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -20,7 +21,7 @@ type ImageBuildStore interface {
 	Create(ctx context.Context, orgId uuid.UUID, imageBuild *api.ImageBuild) (*api.ImageBuild, error)
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*api.ImageBuild, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams flightctlstore.ListParams) (*api.ImageBuildList, error)
-	Delete(ctx context.Context, orgId uuid.UUID, name string) error
+	Delete(ctx context.Context, orgId uuid.UUID, name string) (*api.ImageBuild, error)
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, imageBuild *api.ImageBuild) (*api.ImageBuild, error)
 	UpdateLastSeen(ctx context.Context, orgId uuid.UUID, name string, timestamp time.Time) error
 	InitialMigration(ctx context.Context) error
@@ -57,6 +58,10 @@ func (s *imageBuildStore) Create(ctx context.Context, orgId uuid.UUID, imageBuil
 		return nil, err
 	}
 	m.OrgID = orgId
+
+	// Set initial Generation and ResourceVersion on create (matching GenericStore pattern)
+	m.Generation = lo.ToPtr(int64(1))
+	m.ResourceVersion = lo.ToPtr(int64(1))
 
 	db := getDB(ctx, s.db)
 	result := db.WithContext(ctx).Create(m)
@@ -151,15 +156,32 @@ func (s *imageBuildStore) calculateContinue(ctx context.Context, orgId uuid.UUID
 }
 
 // Delete removes an ImageBuild resource by name
-func (s *imageBuildStore) Delete(ctx context.Context, orgId uuid.UUID, name string) error {
-	result := s.db.WithContext(ctx).Unscoped().Where("org_id = ? AND name = ?", orgId, name).Delete(&ImageBuild{})
+// Returns the deleted resource before deletion, or an error if not found
+func (s *imageBuildStore) Delete(ctx context.Context, orgId uuid.UUID, name string) (*api.ImageBuild, error) {
+	// Get the resource first to return it
+	m := &ImageBuild{}
+	db := getDB(ctx, s.db)
+	result := db.WithContext(ctx).Where("org_id = ? AND name = ?", orgId, name).First(m)
 	if result.Error != nil {
-		return flightctlstore.ErrorFromGormError(result.Error)
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, flterrors.ErrResourceNotFound
+		}
+		return nil, flightctlstore.ErrorFromGormError(result.Error)
 	}
-	if result.RowsAffected == 0 {
-		return flterrors.ErrResourceNotFound
+
+	// Convert to API resource before deleting
+	apiResource, err := m.ToApiResource()
+	if err != nil {
+		return nil, err
 	}
-	return nil
+
+	// Delete the resource
+	result = db.WithContext(ctx).Unscoped().Where("org_id = ? AND name = ?", orgId, name).Delete(&ImageBuild{})
+	if result.Error != nil {
+		return nil, flightctlstore.ErrorFromGormError(result.Error)
+	}
+
+	return apiResource, nil
 }
 
 // UpdateStatus updates the status of an ImageBuild resource

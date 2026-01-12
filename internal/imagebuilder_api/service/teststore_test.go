@@ -70,14 +70,16 @@ func (s *DummyImageBuildStore) List(ctx context.Context, orgId uuid.UUID, listPa
 	}, nil
 }
 
-func (s *DummyImageBuildStore) Delete(ctx context.Context, orgId uuid.UUID, name string) error {
+func (s *DummyImageBuildStore) Delete(ctx context.Context, orgId uuid.UUID, name string) (*api.ImageBuild, error) {
 	for i, ib := range *s.imageBuilds {
 		if lo.FromPtr(ib.Metadata.Name) == name {
+			var deleted api.ImageBuild
+			deepCopy(ib, &deleted)
 			*s.imageBuilds = append((*s.imageBuilds)[:i], (*s.imageBuilds)[i+1:]...)
-			return nil
+			return &deleted, nil
 		}
 	}
-	return flterrors.ErrResourceNotFound
+	return nil, flterrors.ErrResourceNotFound
 }
 
 func (s *DummyImageBuildStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, imageBuild *api.ImageBuild) (*api.ImageBuild, error) {
@@ -167,14 +169,16 @@ func (s *DummyImageExportStore) List(ctx context.Context, orgId uuid.UUID, listP
 	}, nil
 }
 
-func (s *DummyImageExportStore) Delete(ctx context.Context, orgId uuid.UUID, name string) error {
+func (s *DummyImageExportStore) Delete(ctx context.Context, orgId uuid.UUID, name string) (*api.ImageExport, error) {
 	for i, ie := range *s.imageExports {
 		if lo.FromPtr(ie.Metadata.Name) == name {
+			var deleted api.ImageExport
+			deepCopy(ie, &deleted)
 			*s.imageExports = append((*s.imageExports)[:i], (*s.imageExports)[i+1:]...)
-			return nil
+			return &deleted, nil
 		}
 	}
-	return flterrors.ErrResourceNotFound
+	return nil, flterrors.ErrResourceNotFound
 }
 
 func (s *DummyImageExportStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, imageExport *api.ImageExport) (*api.ImageExport, error) {
@@ -261,16 +265,100 @@ func deepCopy(src, dst interface{}) {
 }
 
 // DummyImagePipelineStore is a mock implementation of store.ImagePipelineStore
-type DummyImagePipelineStore struct{}
+type DummyImagePipelineStore struct {
+	imageBuildStore  *DummyImageBuildStore
+	imageExportStore *DummyImageExportStore
+}
 
-func NewDummyImagePipelineStore() *DummyImagePipelineStore {
-	return &DummyImagePipelineStore{}
+func NewDummyImagePipelineStore(imageBuildStore *DummyImageBuildStore, imageExportStore *DummyImageExportStore) *DummyImagePipelineStore {
+	return &DummyImagePipelineStore{
+		imageBuildStore:  imageBuildStore,
+		imageExportStore: imageExportStore,
+	}
 }
 
 // Transaction executes fn within a simulated transaction for unit tests
 // For the dummy store, this just executes the callback immediately
 func (s *DummyImagePipelineStore) Transaction(ctx context.Context, fn func(ctx context.Context) error) error {
 	return fn(ctx)
+}
+
+// Get retrieves an ImageBuild with all associated ImageExports
+func (s *DummyImagePipelineStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*api.ImageBuild, []api.ImageExport, error) {
+	build, err := s.imageBuildStore.Get(ctx, orgId, name)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Find all ImageExports that reference this ImageBuild
+	exportList, err := s.imageExportStore.List(ctx, orgId, flightctlstore.ListParams{})
+	if err != nil {
+		return nil, nil, err
+	}
+
+	var matchingExports []api.ImageExport
+	for i := range exportList.Items {
+		sourceType, err := exportList.Items[i].Spec.Source.Discriminator()
+		if err != nil {
+			continue
+		}
+		if sourceType == string(api.ImageExportSourceTypeImageBuild) {
+			source, err := exportList.Items[i].Spec.Source.AsImageBuildRefSource()
+			if err != nil {
+				continue
+			}
+			if source.ImageBuildRef == name {
+				matchingExports = append(matchingExports, exportList.Items[i])
+			}
+		}
+	}
+
+	return build, matchingExports, nil
+}
+
+// List retrieves ImageBuilds with their associated ImageExports
+func (s *DummyImagePipelineStore) List(ctx context.Context, orgId uuid.UUID, listParams flightctlstore.ListParams) ([]store.ImageBuildWithExports, *string, *int64, error) {
+	buildList, err := s.imageBuildStore.List(ctx, orgId, listParams)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	exportList, err := s.imageExportStore.List(ctx, orgId, flightctlstore.ListParams{})
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	// Build map of exports by ImageBuild name
+	exportsByBuild := make(map[string][]api.ImageExport)
+	for i := range exportList.Items {
+		sourceType, err := exportList.Items[i].Spec.Source.Discriminator()
+		if err != nil {
+			continue
+		}
+		if sourceType == string(api.ImageExportSourceTypeImageBuild) {
+			source, err := exportList.Items[i].Spec.Source.AsImageBuildRefSource()
+			if err != nil {
+				continue
+			}
+			exportsByBuild[source.ImageBuildRef] = append(exportsByBuild[source.ImageBuildRef], exportList.Items[i])
+		}
+	}
+
+	// Build result
+	result := make([]store.ImageBuildWithExports, 0, len(buildList.Items))
+	for i := range buildList.Items {
+		buildName := lo.FromPtr(buildList.Items[i].Metadata.Name)
+		exports := exportsByBuild[buildName]
+		if exports == nil {
+			exports = []api.ImageExport{}
+		}
+		result = append(result, store.ImageBuildWithExports{
+			ImageBuild:   &buildList.Items[i],
+			ImageExports: exports,
+		})
+	}
+
+	return result, buildList.Metadata.Continue, buildList.Metadata.RemainingItemCount, nil
 }
 
 // DummyStore is a mock implementation of store.Store for unit testing
@@ -281,10 +369,12 @@ type DummyStore struct {
 }
 
 func NewDummyStore() *DummyStore {
+	imageBuildStore := NewDummyImageBuildStore()
+	imageExportStore := NewDummyImageExportStore()
 	return &DummyStore{
-		imageBuildStore:    NewDummyImageBuildStore(),
-		imageExportStore:   NewDummyImageExportStore(),
-		imagePipelineStore: NewDummyImagePipelineStore(),
+		imageBuildStore:    imageBuildStore,
+		imageExportStore:   imageExportStore,
+		imagePipelineStore: NewDummyImagePipelineStore(imageBuildStore, imageExportStore),
 	}
 }
 

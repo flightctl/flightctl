@@ -39,7 +39,7 @@ var _ = BeforeSuite(func() {
 func newTestImageBuild(name string) *api.ImageBuild {
 	return &api.ImageBuild{
 		ApiVersion: api.ImageBuildAPIVersion,
-		Kind:       api.ImageBuildKind,
+		Kind:       string(api.ResourceKindImageBuild),
 		Metadata: v1beta1.ObjectMeta{
 			Name: lo.ToPtr(name),
 		},
@@ -212,7 +212,7 @@ var _ = Describe("ImageBuildStore", func() {
 			_, err := storeInst.ImageBuild().Create(ctx, orgId, imageBuild)
 			Expect(err).ToNot(HaveOccurred())
 
-			err = storeInst.ImageBuild().Delete(ctx, orgId, "delete-test")
+			_, err = storeInst.ImageBuild().Delete(ctx, orgId, "delete-test")
 			Expect(err).ToNot(HaveOccurred())
 
 			_, err = storeInst.ImageBuild().Get(ctx, orgId, "delete-test")
@@ -220,7 +220,7 @@ var _ = Describe("ImageBuildStore", func() {
 		})
 
 		It("should return not found when deleting non-existent ImageBuild", func() {
-			err := storeInst.ImageBuild().Delete(ctx, orgId, "nonexistent")
+			_, err := storeInst.ImageBuild().Delete(ctx, orgId, "nonexistent")
 			Expect(err).To(HaveOccurred())
 			Expect(err).To(MatchError(flterrors.ErrResourceNotFound))
 		})

@@ -27,7 +27,7 @@ func NewService(s store.Store, log logrus.FieldLogger) Service {
 	return &service{
 		imageBuild:    imageBuildSvc,
 		imageExport:   imageExportSvc,
-		imagePipeline: NewImagePipelineService(s.ImagePipeline(), imageBuildSvc, imageExportSvc, log),
+		imagePipeline: NewImagePipelineService(s.ImagePipeline(), imageBuildSvc, imageExportSvc, s.ImageBuild(), s.ImageExport(), log),
 	}
 }
 

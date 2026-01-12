@@ -119,10 +119,19 @@ type ClientInterface interface {
 	// GetImageExport request
 	GetImageExport(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// ListImagePipelines request
+	ListImagePipelines(ctx context.Context, params *ListImagePipelinesParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// CreateImagePipelineWithBody request with any body
 	CreateImagePipelineWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	CreateImagePipeline(ctx context.Context, body CreateImagePipelineJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DeleteImagePipeline request
+	DeleteImagePipeline(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetImagePipeline request
+	GetImagePipeline(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
 }
 
 func (c *Client) ListImageBuilds(ctx context.Context, params *ListImageBuildsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -245,6 +254,18 @@ func (c *Client) GetImageExport(ctx context.Context, name string, reqEditors ...
 	return c.Client.Do(req)
 }
 
+func (c *Client) ListImagePipelines(ctx context.Context, params *ListImagePipelinesParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListImagePipelinesRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 func (c *Client) CreateImagePipelineWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewCreateImagePipelineRequestWithBody(c.Server, contentType, body)
 	if err != nil {
@@ -259,6 +280,30 @@ func (c *Client) CreateImagePipelineWithBody(ctx context.Context, contentType st
 
 func (c *Client) CreateImagePipeline(ctx context.Context, body CreateImagePipelineJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewCreateImagePipelineRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) DeleteImagePipeline(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteImagePipelineRequest(c.Server, name)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetImagePipeline(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetImagePipelineRequest(c.Server, name)
 	if err != nil {
 		return nil, err
 	}
@@ -679,6 +724,103 @@ func NewGetImageExportRequest(server string, name string) (*http.Request, error)
 	return req, nil
 }
 
+// NewListImagePipelinesRequest generates requests for ListImagePipelines
+func NewListImagePipelinesRequest(server string, params *ListImagePipelinesParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/imagepipelines")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		queryValues := queryURL.Query()
+
+		if params.LabelSelector != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "labelSelector", runtime.ParamLocationQuery, *params.LabelSelector); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		if params.FieldSelector != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "fieldSelector", runtime.ParamLocationQuery, *params.FieldSelector); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "limit", runtime.ParamLocationQuery, *params.Limit); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		if params.Continue != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "continue", runtime.ParamLocationQuery, *params.Continue); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		queryURL.RawQuery = queryValues.Encode()
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewCreateImagePipelineRequest calls the generic CreateImagePipeline builder with application/json body
 func NewCreateImagePipelineRequest(server string, body CreateImagePipelineJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -715,6 +857,74 @@ func NewCreateImagePipelineRequestWithBody(server string, contentType string, bo
 	}
 
 	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewDeleteImagePipelineRequest generates requests for DeleteImagePipeline
+func NewDeleteImagePipelineRequest(server string, name string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "name", runtime.ParamLocationPath, name)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/imagepipelines/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("DELETE", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetImagePipelineRequest generates requests for GetImagePipeline
+func NewGetImagePipelineRequest(server string, name string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "name", runtime.ParamLocationPath, name)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/imagepipelines/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
 
 	return req, nil
 }
@@ -790,10 +1000,19 @@ type ClientWithResponsesInterface interface {
 	// GetImageExportWithResponse request
 	GetImageExportWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*GetImageExportResponse, error)
 
+	// ListImagePipelinesWithResponse request
+	ListImagePipelinesWithResponse(ctx context.Context, params *ListImagePipelinesParams, reqEditors ...RequestEditorFn) (*ListImagePipelinesResponse, error)
+
 	// CreateImagePipelineWithBodyWithResponse request with any body
 	CreateImagePipelineWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateImagePipelineResponse, error)
 
 	CreateImagePipelineWithResponse(ctx context.Context, body CreateImagePipelineJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateImagePipelineResponse, error)
+
+	// DeleteImagePipelineWithResponse request
+	DeleteImagePipelineWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*DeleteImagePipelineResponse, error)
+
+	// GetImagePipelineWithResponse request
+	GetImagePipelineWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*GetImagePipelineResponse, error)
 }
 
 type ListImageBuildsResponse struct {
@@ -1014,6 +1233,33 @@ func (r GetImageExportResponse) StatusCode() int {
 	return 0
 }
 
+type ListImagePipelinesResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *ImagePipelineList
+	JSON400      *externalRef0.Status
+	JSON401      *externalRef0.Status
+	JSON403      *externalRef0.Status
+	JSON429      *externalRef0.Status
+	JSON503      *externalRef0.Status
+}
+
+// Status returns HTTPResponse.Status
+func (r ListImagePipelinesResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListImagePipelinesResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
 type CreateImagePipelineResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -1036,6 +1282,60 @@ func (r CreateImagePipelineResponse) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r CreateImagePipelineResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type DeleteImagePipelineResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *ImagePipelineResponse
+	JSON401      *externalRef0.Status
+	JSON403      *externalRef0.Status
+	JSON404      *externalRef0.Status
+	JSON429      *externalRef0.Status
+	JSON503      *externalRef0.Status
+}
+
+// Status returns HTTPResponse.Status
+func (r DeleteImagePipelineResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DeleteImagePipelineResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type GetImagePipelineResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *ImagePipelineResponse
+	JSON401      *externalRef0.Status
+	JSON403      *externalRef0.Status
+	JSON404      *externalRef0.Status
+	JSON429      *externalRef0.Status
+	JSON503      *externalRef0.Status
+}
+
+// Status returns HTTPResponse.Status
+func (r GetImagePipelineResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetImagePipelineResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -1130,6 +1430,15 @@ func (c *ClientWithResponses) GetImageExportWithResponse(ctx context.Context, na
 	return ParseGetImageExportResponse(rsp)
 }
 
+// ListImagePipelinesWithResponse request returning *ListImagePipelinesResponse
+func (c *ClientWithResponses) ListImagePipelinesWithResponse(ctx context.Context, params *ListImagePipelinesParams, reqEditors ...RequestEditorFn) (*ListImagePipelinesResponse, error) {
+	rsp, err := c.ListImagePipelines(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListImagePipelinesResponse(rsp)
+}
+
 // CreateImagePipelineWithBodyWithResponse request with arbitrary body returning *CreateImagePipelineResponse
 func (c *ClientWithResponses) CreateImagePipelineWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateImagePipelineResponse, error) {
 	rsp, err := c.CreateImagePipelineWithBody(ctx, contentType, body, reqEditors...)
@@ -1145,6 +1454,24 @@ func (c *ClientWithResponses) CreateImagePipelineWithResponse(ctx context.Contex
 		return nil, err
 	}
 	return ParseCreateImagePipelineResponse(rsp)
+}
+
+// DeleteImagePipelineWithResponse request returning *DeleteImagePipelineResponse
+func (c *ClientWithResponses) DeleteImagePipelineWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*DeleteImagePipelineResponse, error) {
+	rsp, err := c.DeleteImagePipeline(ctx, name, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDeleteImagePipelineResponse(rsp)
+}
+
+// GetImagePipelineWithResponse request returning *GetImagePipelineResponse
+func (c *ClientWithResponses) GetImagePipelineWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*GetImagePipelineResponse, error) {
+	rsp, err := c.GetImagePipeline(ctx, name, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetImagePipelineResponse(rsp)
 }
 
 // ParseListImageBuildsResponse parses an HTTP response from a ListImageBuildsWithResponse call
@@ -1649,6 +1976,67 @@ func ParseGetImageExportResponse(rsp *http.Response) (*GetImageExportResponse, e
 	return response, nil
 }
 
+// ParseListImagePipelinesResponse parses an HTTP response from a ListImagePipelinesWithResponse call
+func ParseListImagePipelinesResponse(rsp *http.Response) (*ListImagePipelinesResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListImagePipelinesResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ImagePipelineList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseCreateImagePipelineResponse parses an HTTP response from a CreateImagePipelineWithResponse call
 func ParseCreateImagePipelineResponse(rsp *http.Response) (*CreateImagePipelineResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -1697,6 +2085,128 @@ func ParseCreateImagePipelineResponse(rsp *http.Response) (*CreateImagePipelineR
 			return nil, err
 		}
 		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDeleteImagePipelineResponse parses an HTTP response from a DeleteImagePipelineWithResponse call
+func ParseDeleteImagePipelineResponse(rsp *http.Response) (*DeleteImagePipelineResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DeleteImagePipelineResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ImagePipelineResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetImagePipelineResponse parses an HTTP response from a GetImagePipelineWithResponse call
+func ParseGetImagePipelineResponse(rsp *http.Response) (*GetImagePipelineResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetImagePipelineResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ImagePipelineResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
 		var dest externalRef0.Status
