@@ -78,3 +78,28 @@ func StatusAuthNotConfigured(message string) Status {
 func StatusTooManyRequests(message string) Status {
 	return NewFailureStatus(http.StatusTooManyRequests, http.StatusText(http.StatusTooManyRequests), message)
 }
+
+func StatusNotFound(message string) Status {
+	return NewFailureStatus(http.StatusNotFound, http.StatusText(http.StatusNotFound), message)
+}
+
+func StatusServiceUnavailable(message string) Status {
+	return NewFailureStatus(http.StatusServiceUnavailable, http.StatusText(http.StatusServiceUnavailable), message)
+}
+
+func StatusMethodNotAllowed(message string) Status {
+	return NewFailureStatus(http.StatusMethodNotAllowed, http.StatusText(http.StatusMethodNotAllowed), message)
+}
+
+func StatusRequestURITooLong(message string) Status {
+	return NewFailureStatus(http.StatusRequestURITooLong, http.StatusText(http.StatusRequestURITooLong), message)
+}
+
+func StatusRequestHeaderFieldsTooLarge(message string) Status {
+	return NewFailureStatus(http.StatusRequestHeaderFieldsTooLarge, http.StatusText(http.StatusRequestHeaderFieldsTooLarge), message)
+}
+
+// StatusForCode creates a failure status for any HTTP status code.
+func StatusForCode(code int, message string) Status {
+	return NewFailureStatus(int32(code), http.StatusText(code), message) // #nosec G115 -- HTTP status codes (100-599) fit in int32
+}
