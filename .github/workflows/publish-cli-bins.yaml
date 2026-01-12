@@ -111,19 +111,19 @@ jobs:
           fi
 
       - name: Save zip
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: flightctl-${{ matrix.os }}-${{ matrix.arch}}${{ matrix.zip }}
           path: flightctl-${{ matrix.os }}-${{ matrix.arch}}${{ matrix.zip }}
 
       - name: Save binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: flightctl-${{ matrix.os }}-${{ matrix.arch}}${{ matrix.ext }}
           path: flightctl-${{ matrix.os }}-${{ matrix.arch}}${{ matrix.ext }}
 
       - name: Save checksum
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           path: flightctl-${{ matrix.os }}-${{ matrix.arch}}-sha256.txt
           name: flightctl-${{ matrix.os }}-${{ matrix.arch}}-sha256.txt
