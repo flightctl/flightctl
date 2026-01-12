@@ -39,7 +39,7 @@ jobs:
             ${{ runner.os }}-bootc-cache-e2e-
             
       - name: Download RPM artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: rpms-${{ inputs.rpm_suffix }}
           path: bin/rpm
