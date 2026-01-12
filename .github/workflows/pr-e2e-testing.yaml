@@ -166,7 +166,7 @@ jobs:
           fi
 
       - name: Upload discovery artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: e2e-discovery-${{ steps.compute-hash.outputs.hash }}-${{ needs.compute-tag.outputs.tag }}
           path: discovery.json

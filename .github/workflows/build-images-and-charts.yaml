@@ -115,7 +115,7 @@ jobs:
           echo "count=$(echo "$IMAGES" | wc -l)" >> "$GITHUB_OUTPUT"
 
       - name: Upload images bundle
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: flightctl-images-bundle-${{ steps.compute-tag.outputs.git_tag }}
           path: ${{ steps.bundle-images.outputs.bundle_file }}
@@ -190,7 +190,7 @@ jobs:
           echo "chart_file=$CHART_FILE" >> "$GITHUB_OUTPUT"
 
       - name: Upload helm chart artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: helm-chart-${{ steps.compute-tag.outputs.git_tag }}
           path: ${{ steps.build-charts.outputs.chart_file }}
@@ -234,7 +234,7 @@ jobs:
           echo "::endgroup::"
 
       - name: Upload CLI binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: flightctl-linux-amd64-${{ steps.compute-tag.outputs.git_tag }}
           path: flightctl-linux-amd64
@@ -285,7 +285,7 @@ jobs:
           echo "::endgroup::"
 
       - name: Upload simulator binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: devicesimulator-${{ steps.compute-tag.outputs.git_tag }}
           path: bin/devicesimulator
