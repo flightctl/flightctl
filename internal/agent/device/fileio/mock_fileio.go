@@ -13,7 +13,7 @@ import (
 	fs "io/fs"
 	reflect "reflect"
 
-	v1beta1 "github.com/flightctl/flightctl/api/v1beta1"
+	v1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
 	gomock "go.uber.org/mock/gomock"
 )
 

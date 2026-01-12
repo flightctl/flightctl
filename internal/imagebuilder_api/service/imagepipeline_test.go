@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/flightctl/flightctl/api/v1beta1"
-	api "github.com/flightctl/flightctl/api/v1beta1/imagebuilder"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
+	api "github.com/flightctl/flightctl/api/imagebuilder/v1beta1"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/google/uuid"
 	"github.com/samber/lo"

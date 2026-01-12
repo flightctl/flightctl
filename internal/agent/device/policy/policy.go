@@ -3,7 +3,7 @@ package policy
 import (
 	"context"
 
-	"github.com/flightctl/flightctl/api/v1beta1"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 )
 
 type Type string

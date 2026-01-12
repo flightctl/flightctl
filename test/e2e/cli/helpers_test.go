@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	api "github.com/flightctl/flightctl/api/v1beta1"
+	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	fcrypto "github.com/flightctl/flightctl/pkg/crypto"
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo"

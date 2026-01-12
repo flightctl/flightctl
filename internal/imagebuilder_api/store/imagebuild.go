@@ -5,7 +5,7 @@ import (
 	"errors"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/v1beta1/imagebuilder"
+	api "github.com/flightctl/flightctl/api/imagebuilder/v1beta1"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	flightctlstore "github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"

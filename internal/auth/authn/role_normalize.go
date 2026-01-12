@@ -3,7 +3,7 @@ package authn
 import (
 	"strings"
 
-	api "github.com/flightctl/flightctl/api/v1beta1"
+	api "github.com/flightctl/flightctl/api/core/v1beta1"
 )
 
 // normalizeRoleName strips the role suffix from a role name if present.

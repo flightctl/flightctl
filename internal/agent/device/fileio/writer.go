@@ -17,7 +17,7 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/flightctl/flightctl/api/v1beta1"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/google/renameio"
 	"github.com/samber/lo"
 )

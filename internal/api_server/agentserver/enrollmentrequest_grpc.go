@@ -9,7 +9,7 @@ import (
 	"net/http"
 
 	pb "github.com/flightctl/flightctl/api/grpc/v1"
-	api "github.com/flightctl/flightctl/api/v1beta1"
+	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/tpm"
 	"github.com/flightctl/flightctl/internal/util"

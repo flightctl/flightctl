@@ -3,7 +3,7 @@ package transport
 import (
 	"net/http"
 
-	api "github.com/flightctl/flightctl/api/v1beta1"
+	api "github.com/flightctl/flightctl/api/core/v1beta1"
 )
 
 // AuthUserInfo handles UserInfo requests

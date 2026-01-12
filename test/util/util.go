@@ -15,7 +15,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/flightctl/flightctl/api/v1beta1"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/api/client"
 	agentclient "github.com/flightctl/flightctl/internal/api/client/agent"
 	apiserver "github.com/flightctl/flightctl/internal/api_server"

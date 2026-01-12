@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	v1beta1 "github.com/flightctl/flightctl/api/v1beta1"
-	api "github.com/flightctl/flightctl/api/v1beta1/imagebuilder"
+	v1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
+	api "github.com/flightctl/flightctl/api/imagebuilder/v1beta1"
 	imagebuilderstore "github.com/flightctl/flightctl/internal/imagebuilder_api/store"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/google/uuid"

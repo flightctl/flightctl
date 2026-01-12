@@ -12,7 +12,7 @@ import (
 	"path"
 	"strings"
 
-	externalRef0 "github.com/flightctl/flightctl/api/v1beta1"
+	externalRef0 "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/getkin/kin-openapi/openapi3"
 )
 
@@ -214,7 +214,7 @@ func PathToRawSpec(pathToFile string) map[string]func() ([]byte, error) {
 
 	pathPrefix := path.Dir(pathToFile)
 
-	for rawPath, rawFunc := range externalRef0.PathToRawSpec(path.Join(pathPrefix, "../openapi.yaml")) {
+	for rawPath, rawFunc := range externalRef0.PathToRawSpec(path.Join(pathPrefix, "../../core/v1beta1/openapi.yaml")) {
 		if _, ok := res[rawPath]; ok {
 			// it is not possible to compare functions in golang, so always overwrite the old value
 		}

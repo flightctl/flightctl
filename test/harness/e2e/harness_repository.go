@@ -3,7 +3,7 @@ package e2e
 import (
 	"fmt"
 
-	"github.com/flightctl/flightctl/api/v1beta1"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 )
 
 func (h *Harness) GetRepository(repositoryName string) (*v1beta1.Repository, error) {

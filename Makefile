@@ -458,12 +458,12 @@ rpmlint-ci:
 check-rpmlint:
 	@command -v rpmlint > /dev/null || (echo "rpmlint not found. Install with: sudo apt-get install rpmlint (Ubuntu/Debian) or sudo dnf install rpmlint (Fedora/RHEL)" && exit 1)
 
-.output/stamps/lint-openapi: api/v1beta1/openapi.yaml  api/v1beta1/imagebuilder/openapi.yaml .spectral.yaml
+.output/stamps/lint-openapi: api/core/v1beta1/openapi.yaml  api/imagebuilder/v1beta1/openapi.yaml .spectral.yaml
 	@mkdir -p .output/stamps
 	@echo "Linting OpenAPI specs"
 	podman run --rm -it -v $(shell pwd):/workdir:Z docker.io/stoplight/spectral:6.14.2 lint --ruleset=/workdir/.spectral.yaml --fail-severity=warn \
-		/workdir/api/v1beta1/openapi.yaml \
-		/workdir/api/v1beta1/imagebuilder/openapi.yaml
+		/workdir/api/core/v1beta1/openapi.yaml \
+		/workdir/api/imagebuilder/v1beta1/openapi.yaml
 	@touch .output/stamps/lint-openapi
 
 .PHONY: lint-openapi
