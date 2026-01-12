@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/flightctl/flightctl/api/v1beta1"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	client "github.com/flightctl/flightctl/internal/api/client/agent"
 )
 

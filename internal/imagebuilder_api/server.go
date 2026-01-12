@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/v1beta1/imagebuilder"
+	api "github.com/flightctl/flightctl/api/imagebuilder/v1beta1"
 	fcmiddleware "github.com/flightctl/flightctl/internal/api_server/middleware"
 	"github.com/flightctl/flightctl/internal/auth"
 	"github.com/flightctl/flightctl/internal/auth/authn"

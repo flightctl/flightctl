@@ -4,7 +4,7 @@
 package v1beta1
 
 import (
-	externalRef0 "github.com/flightctl/flightctl/api/v1beta1"
+	externalRef0 "github.com/flightctl/flightctl/api/core/v1beta1"
 )
 
 // GetRenderedDeviceParams defines parameters for GetRenderedDevice.

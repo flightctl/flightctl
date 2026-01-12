@@ -36,7 +36,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '../openapi.yaml#/components/schemas/Device'
+              $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Device'
         required: true
       responses:
         "200":
@@ -44,31 +44,31 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/Device'
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Device'
         "400":
           description: Bad Request
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/Status'
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/Status'
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
         "404":
           description: Not Found
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/Status'
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
         "429":
           description: Too Many Requests
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/Status'
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
     patch:
       tags:
         - device
@@ -85,7 +85,7 @@ paths:
         content:
           application/json-patch+json:
             schema:
-              $ref: '../openapi.yaml#/components/schemas/PatchRequest'
+              $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/PatchRequest'
         required: true
       responses:
         "200":
@@ -93,45 +93,45 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/Device'
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Device'
         "400":
           description: Bad Request
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/Status'
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/Status'
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/Status'
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
         "404":
           description: Not Found
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/Status'
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
         "429":
           description: Too Many Requests
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/Status'
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
         "503":
           description: Service Unavailable
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/Status'
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
   /api/v1/devices/{name}/rendered:
-    #$ref: '../openapi.yaml#/paths/~1api~1v1~1devices~1{name}~1rendered'
+    #$ref: '../../core/v1beta1/openapi.yaml#/paths/~1api~1v1~1devices~1{name}~1rendered'
     # this is buggy and generates invalid references, see:
     # https://github.com/oapi-codegen/oapi-codegen/issues/1452#issuecomment-2176032513
     get:
@@ -158,7 +158,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/Device'
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Device'
         "204":
           description: No Content
           content: {}
@@ -167,27 +167,27 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/Status'
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
         "404":
           description: Not Found
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/Status'
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
         "409":
           description: Conflict
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/Status'
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
         "429":
           description: Too Many Requests
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/Status'
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
   /api/v1/enrollmentrequests/{name}:
-    # $ref: '../openapi.yaml#/paths/~1api~1v1~1enrollmentrequests~1{name}' (same oapi-codegen bug as above)
+    # $ref: '../../core/v1beta1/openapi.yaml#/paths/~1api~1v1~1enrollmentrequests~1{name}' (same oapi-codegen bug as above)
     get:
       tags:
         - enrollmentrequest
@@ -206,37 +206,37 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/EnrollmentRequest'
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/EnrollmentRequest'
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/Status'
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/Status'
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
         "404":
           description: Not Found
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/Status'
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
         "429":
           description: Too Many Requests
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/Status'
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
         "503":
           description: Service Unavailable
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/Status'
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
   /api/v1/enrollmentrequests:
     post:
       tags:
@@ -247,7 +247,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '../openapi.yaml#/components/schemas/EnrollmentRequest'
+              $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/EnrollmentRequest'
         required: true
       responses:
         "201":
@@ -255,43 +255,43 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/EnrollmentRequest'
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/EnrollmentRequest'
         "400":
           description: Bad Request
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/Status'
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/Status'
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/Status'
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
         "409":
           description: Conflict
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/Status'
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
         "429":
           description: Too Many Requests
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/Status'
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
         "503":
           description: Service Unavailable
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/Status'
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
   /api/v1/certificatesigningrequests:
     post:
       tags:
@@ -302,7 +302,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '../openapi.yaml#/components/schemas/CertificateSigningRequest'
+              $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/CertificateSigningRequest'
         required: true
       responses:
         "201":
@@ -310,43 +310,43 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/CertificateSigningRequest'
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/CertificateSigningRequest'
         "400":
           description: Bad Request
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/Status'
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/Status'
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/Status'
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
         "409":
           description: StatusConflict
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/Status'
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
         "429":
           description: Too Many Requests
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/Status'
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/Status'
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
 
   /api/v1/certificatesigningrequests/{name}:
     get:
@@ -368,36 +368,36 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/CertificateSigningRequest'
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/CertificateSigningRequest'
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/Status'
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/Status'
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
         "404":
           description: NotFound
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/Status'
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
         "429":
           description: Too Many Requests
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/Status'
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
         "503":
           description: ServiceUnavailable
           content:
             application/json:
               schema:
-                $ref: '../openapi.yaml#/components/schemas/Status'
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
 
 

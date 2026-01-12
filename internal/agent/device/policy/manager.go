@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/flightctl/flightctl/api/v1beta1"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/robfig/cron/v3"
 	"github.com/samber/lo"

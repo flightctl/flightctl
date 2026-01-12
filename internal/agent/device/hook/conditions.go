@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/flightctl/flightctl/api/v1beta1"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 )
 
 func checkCondition(cond *v1beta1.HookCondition, actionContext *actionContext) (bool, error) {

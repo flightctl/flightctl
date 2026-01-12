@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"time"
 
-	pamapi "github.com/flightctl/flightctl/api/v1beta1/pam-issuer"
+	pamapi "github.com/flightctl/flightctl/api/pam-issuer/v1beta1"
 	fcmiddleware "github.com/flightctl/flightctl/internal/api_server/middleware"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"

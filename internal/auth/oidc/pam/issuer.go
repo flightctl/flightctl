@@ -3,7 +3,7 @@ package pam
 import (
 	"context"
 
-	pamapi "github.com/flightctl/flightctl/api/v1beta1/pam-issuer"
+	pamapi "github.com/flightctl/flightctl/api/pam-issuer/v1beta1"
 )
 
 // AuthorizeResponseType indicates the type of response from the authorize endpoint

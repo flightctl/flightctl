@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
-	api "github.com/flightctl/flightctl/api/v1beta1"
+	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/tpm"
 	"github.com/google/uuid"

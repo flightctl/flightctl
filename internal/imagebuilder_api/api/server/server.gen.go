@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"net/http"
 
-	. "github.com/flightctl/flightctl/api/v1beta1/imagebuilder"
+	. "github.com/flightctl/flightctl/api/imagebuilder/v1beta1"
 	"github.com/go-chi/chi/v5"
 	"github.com/oapi-codegen/runtime"
 )

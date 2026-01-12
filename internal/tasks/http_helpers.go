@@ -8,7 +8,7 @@ import (
 	"io"
 	"net/http"
 
-	api "github.com/flightctl/flightctl/api/v1beta1"
+	api "github.com/flightctl/flightctl/api/core/v1beta1"
 )
 
 func sendHTTPrequest(repoSpec api.RepositorySpec, repoURL string) ([]byte, error) {

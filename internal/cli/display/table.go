@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/dustin/go-humanize"
-	api "github.com/flightctl/flightctl/api/v1beta1"
-	imagebuilderapi "github.com/flightctl/flightctl/api/v1beta1/imagebuilder"
+	api "github.com/flightctl/flightctl/api/core/v1beta1"
+	imagebuilderapi "github.com/flightctl/flightctl/api/imagebuilder/v1beta1"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	imagebuilderclient "github.com/flightctl/flightctl/internal/api/imagebuilder/client"
 	"github.com/flightctl/flightctl/internal/util"

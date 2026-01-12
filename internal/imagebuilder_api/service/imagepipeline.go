@@ -3,8 +3,8 @@ package service
 import (
 	"context"
 
-	"github.com/flightctl/flightctl/api/v1beta1"
-	api "github.com/flightctl/flightctl/api/v1beta1/imagebuilder"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
+	api "github.com/flightctl/flightctl/api/imagebuilder/v1beta1"
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/store"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
