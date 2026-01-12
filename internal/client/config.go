@@ -331,6 +331,27 @@ func WithUserAgentHeader(component string) client.ClientOption {
 	return WithHeader("User-Agent", userAgent)
 }
 
+// apiV1BaseURL returns the base URL for the main HTTP API client.
+// The OpenAPI spec uses servers.url = /api/v1, so callers may provide either:
+//   - https://host:port
+//   - https://host:port/api/v1
+//
+// This helper ensures we only add /api/v1 once.
+// APIBaseURL returns the base URL for the main HTTP API client.
+//
+// The OpenAPI spec uses servers.url = /api/v1, so callers may provide either:
+//   - https://host:port
+//   - https://host:port/api/v1
+//
+// This helper ensures we only add /api/v1 once.
+func APIBaseURL(server string) string {
+	base := strings.TrimSuffix(server, "/")
+	if strings.HasSuffix(base, "/api/v1") {
+		return base
+	}
+	return base + "/api/v1"
+}
+
 // NewFromConfig returns a new Flight Control API client from the given config.
 func NewFromConfig(config *Config, configFilePath string, opts ...client.ClientOption) (*client.ClientWithResponses, error) {
 
@@ -346,9 +367,10 @@ func NewFromConfig(config *Config, configFilePath string, opts ...client.ClientO
 		}
 		return nil
 	})
+	serverURL := APIBaseURL(config.Service.Server)
 	defaultOpts := []client.ClientOption{client.WithHTTPClient(httpClient), ref, WithOrganization(config.Organization)}
 	defaultOpts = append(defaultOpts, opts...)
-	return client.NewClientWithResponses(config.Service.Server, defaultOpts...)
+	return client.NewClientWithResponses(serverURL, defaultOpts...)
 }
 
 // NewFromConfigFile returns a new Flight Control API client using the config

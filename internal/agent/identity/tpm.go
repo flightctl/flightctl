@@ -415,7 +415,9 @@ func (t *tpmProvider) CreateManagementClient(config *base_client.Config, metrics
 		}
 	}
 
-	clientWithResponses, err := agent_client.NewClientWithResponses(configCopy.Service.Server, agent_client.WithHTTPClient(httpClient))
+	// Agent API OpenAPI paths already include the /api/v1 prefix.
+	serverURL := strings.TrimSuffix(configCopy.Service.Server, "/")
+	clientWithResponses, err := agent_client.NewClientWithResponses(serverURL, agent_client.WithHTTPClient(httpClient))
 	if err != nil {
 		return nil, fmt.Errorf("creating client: %w", err)
 	}

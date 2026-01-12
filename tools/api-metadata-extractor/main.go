@@ -14,7 +14,14 @@ import (
 
 // OpenAPISpec represents the OpenAPI specification structure
 type OpenAPISpec struct {
-	Paths map[string]map[string]Operation `yaml:"paths"`
+	Paths   map[string]map[string]Operation `yaml:"paths"`
+	Servers []Server                        `yaml:"servers"`
+}
+
+// Server represents a server entry in OpenAPI spec
+type Server struct {
+	URL         string `yaml:"url"`
+	Description string `yaml:"description"`
 }
 
 // Operation represents an OpenAPI operation as a raw map to capture all fields
@@ -139,6 +146,12 @@ func main() {
 		log.Fatalf("Failed to parse OpenAPI spec: %v", err)
 	}
 
+	// Extract server URL prefix (use first server if available)
+	var serverURLPrefix string
+	if len(spec.Servers) > 0 {
+		serverURLPrefix = spec.Servers[0].URL
+	}
+
 	// Extract endpoint metadata
 	var endpoints []EndpointMetadata
 
@@ -165,8 +178,11 @@ func main() {
 				continue
 			}
 
-			// Keep the original OpenAPI path pattern (no conversion needed)
+			// Combine server URL prefix with path pattern for full URL pattern
 			urlPattern := path
+			if serverURLPrefix != "" {
+				urlPattern = serverURLPrefix + path
+			}
 
 			// Extract x-rbac metadata
 			resource, action := operation.GetXRbac()

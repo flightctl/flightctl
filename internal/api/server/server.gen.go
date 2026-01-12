@@ -15,214 +15,214 @@ import (
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
 
-	// (GET /api/v1/auth/config)
+	// (GET /auth/config)
 	AuthConfig(w http.ResponseWriter, r *http.Request)
 
-	// (GET /api/v1/auth/permissions)
+	// (GET /auth/permissions)
 	AuthGetPermissions(w http.ResponseWriter, r *http.Request)
 
-	// (GET /api/v1/auth/userinfo)
+	// (GET /auth/userinfo)
 	AuthUserInfo(w http.ResponseWriter, r *http.Request)
 
-	// (GET /api/v1/auth/validate)
+	// (GET /auth/validate)
 	AuthValidate(w http.ResponseWriter, r *http.Request, params AuthValidateParams)
 
-	// (POST /api/v1/auth/{providername}/token)
+	// (POST /auth/{providername}/token)
 	AuthToken(w http.ResponseWriter, r *http.Request, providername string)
 
-	// (GET /api/v1/authproviders)
+	// (GET /authproviders)
 	ListAuthProviders(w http.ResponseWriter, r *http.Request, params ListAuthProvidersParams)
 
-	// (POST /api/v1/authproviders)
+	// (POST /authproviders)
 	CreateAuthProvider(w http.ResponseWriter, r *http.Request)
 
-	// (DELETE /api/v1/authproviders/{name})
+	// (DELETE /authproviders/{name})
 	DeleteAuthProvider(w http.ResponseWriter, r *http.Request, name string)
 
-	// (GET /api/v1/authproviders/{name})
+	// (GET /authproviders/{name})
 	GetAuthProvider(w http.ResponseWriter, r *http.Request, name string)
 
-	// (PATCH /api/v1/authproviders/{name})
+	// (PATCH /authproviders/{name})
 	PatchAuthProvider(w http.ResponseWriter, r *http.Request, name string)
 
-	// (PUT /api/v1/authproviders/{name})
+	// (PUT /authproviders/{name})
 	ReplaceAuthProvider(w http.ResponseWriter, r *http.Request, name string)
 
-	// (GET /api/v1/certificatesigningrequests)
+	// (GET /certificatesigningrequests)
 	ListCertificateSigningRequests(w http.ResponseWriter, r *http.Request, params ListCertificateSigningRequestsParams)
 
-	// (POST /api/v1/certificatesigningrequests)
+	// (POST /certificatesigningrequests)
 	CreateCertificateSigningRequest(w http.ResponseWriter, r *http.Request)
 
-	// (DELETE /api/v1/certificatesigningrequests/{name})
+	// (DELETE /certificatesigningrequests/{name})
 	DeleteCertificateSigningRequest(w http.ResponseWriter, r *http.Request, name string)
 
-	// (GET /api/v1/certificatesigningrequests/{name})
+	// (GET /certificatesigningrequests/{name})
 	GetCertificateSigningRequest(w http.ResponseWriter, r *http.Request, name string)
 
-	// (PATCH /api/v1/certificatesigningrequests/{name})
+	// (PATCH /certificatesigningrequests/{name})
 	PatchCertificateSigningRequest(w http.ResponseWriter, r *http.Request, name string)
 
-	// (PUT /api/v1/certificatesigningrequests/{name})
+	// (PUT /certificatesigningrequests/{name})
 	ReplaceCertificateSigningRequest(w http.ResponseWriter, r *http.Request, name string)
 
-	// (PUT /api/v1/certificatesigningrequests/{name}/approval)
+	// (PUT /certificatesigningrequests/{name}/approval)
 	UpdateCertificateSigningRequestApproval(w http.ResponseWriter, r *http.Request, name string)
 
-	// (POST /api/v1/deviceactions/resume)
+	// (POST /deviceactions/resume)
 	ResumeDevices(w http.ResponseWriter, r *http.Request)
 
-	// (GET /api/v1/devices)
+	// (GET /devices)
 	ListDevices(w http.ResponseWriter, r *http.Request, params ListDevicesParams)
 
-	// (POST /api/v1/devices)
+	// (POST /devices)
 	CreateDevice(w http.ResponseWriter, r *http.Request)
 
-	// (DELETE /api/v1/devices/{name})
+	// (DELETE /devices/{name})
 	DeleteDevice(w http.ResponseWriter, r *http.Request, name string)
 
-	// (GET /api/v1/devices/{name})
+	// (GET /devices/{name})
 	GetDevice(w http.ResponseWriter, r *http.Request, name string)
 
-	// (PATCH /api/v1/devices/{name})
+	// (PATCH /devices/{name})
 	PatchDevice(w http.ResponseWriter, r *http.Request, name string)
 
-	// (PUT /api/v1/devices/{name})
+	// (PUT /devices/{name})
 	ReplaceDevice(w http.ResponseWriter, r *http.Request, name string)
 
-	// (PUT /api/v1/devices/{name}/decommission)
+	// (PUT /devices/{name}/decommission)
 	DecommissionDevice(w http.ResponseWriter, r *http.Request, name string)
 
-	// (GET /api/v1/devices/{name}/lastseen)
+	// (GET /devices/{name}/lastseen)
 	GetDeviceLastSeen(w http.ResponseWriter, r *http.Request, name string)
 
-	// (GET /api/v1/devices/{name}/rendered)
+	// (GET /devices/{name}/rendered)
 	GetRenderedDevice(w http.ResponseWriter, r *http.Request, name string, params GetRenderedDeviceParams)
 
-	// (GET /api/v1/devices/{name}/status)
+	// (GET /devices/{name}/status)
 	GetDeviceStatus(w http.ResponseWriter, r *http.Request, name string)
 
-	// (PATCH /api/v1/devices/{name}/status)
+	// (PATCH /devices/{name}/status)
 	PatchDeviceStatus(w http.ResponseWriter, r *http.Request, name string)
 
-	// (PUT /api/v1/devices/{name}/status)
+	// (PUT /devices/{name}/status)
 	ReplaceDeviceStatus(w http.ResponseWriter, r *http.Request, name string)
 
-	// (GET /api/v1/enrollmentconfig)
+	// (GET /enrollmentconfig)
 	GetEnrollmentConfig(w http.ResponseWriter, r *http.Request, params GetEnrollmentConfigParams)
 
-	// (GET /api/v1/enrollmentrequests)
+	// (GET /enrollmentrequests)
 	ListEnrollmentRequests(w http.ResponseWriter, r *http.Request, params ListEnrollmentRequestsParams)
 
-	// (POST /api/v1/enrollmentrequests)
+	// (POST /enrollmentrequests)
 	CreateEnrollmentRequest(w http.ResponseWriter, r *http.Request)
 
-	// (DELETE /api/v1/enrollmentrequests/{name})
+	// (DELETE /enrollmentrequests/{name})
 	DeleteEnrollmentRequest(w http.ResponseWriter, r *http.Request, name string)
 
-	// (GET /api/v1/enrollmentrequests/{name})
+	// (GET /enrollmentrequests/{name})
 	GetEnrollmentRequest(w http.ResponseWriter, r *http.Request, name string)
 
-	// (PATCH /api/v1/enrollmentrequests/{name})
+	// (PATCH /enrollmentrequests/{name})
 	PatchEnrollmentRequest(w http.ResponseWriter, r *http.Request, name string)
 
-	// (PUT /api/v1/enrollmentrequests/{name})
+	// (PUT /enrollmentrequests/{name})
 	ReplaceEnrollmentRequest(w http.ResponseWriter, r *http.Request, name string)
 
-	// (PUT /api/v1/enrollmentrequests/{name}/approval)
+	// (PUT /enrollmentrequests/{name}/approval)
 	ApproveEnrollmentRequest(w http.ResponseWriter, r *http.Request, name string)
 
-	// (GET /api/v1/enrollmentrequests/{name}/status)
+	// (GET /enrollmentrequests/{name}/status)
 	GetEnrollmentRequestStatus(w http.ResponseWriter, r *http.Request, name string)
 
-	// (PATCH /api/v1/enrollmentrequests/{name}/status)
+	// (PATCH /enrollmentrequests/{name}/status)
 	PatchEnrollmentRequestStatus(w http.ResponseWriter, r *http.Request, name string)
 
-	// (PUT /api/v1/enrollmentrequests/{name}/status)
+	// (PUT /enrollmentrequests/{name}/status)
 	ReplaceEnrollmentRequestStatus(w http.ResponseWriter, r *http.Request, name string)
 
-	// (GET /api/v1/events)
+	// (GET /events)
 	ListEvents(w http.ResponseWriter, r *http.Request, params ListEventsParams)
 
-	// (GET /api/v1/fleets)
+	// (GET /fleets)
 	ListFleets(w http.ResponseWriter, r *http.Request, params ListFleetsParams)
 
-	// (POST /api/v1/fleets)
+	// (POST /fleets)
 	CreateFleet(w http.ResponseWriter, r *http.Request)
 
-	// (GET /api/v1/fleets/{fleet}/templateversions)
+	// (GET /fleets/{fleet}/templateversions)
 	ListTemplateVersions(w http.ResponseWriter, r *http.Request, fleet string, params ListTemplateVersionsParams)
 
-	// (DELETE /api/v1/fleets/{fleet}/templateversions/{name})
+	// (DELETE /fleets/{fleet}/templateversions/{name})
 	DeleteTemplateVersion(w http.ResponseWriter, r *http.Request, fleet string, name string)
 
-	// (GET /api/v1/fleets/{fleet}/templateversions/{name})
+	// (GET /fleets/{fleet}/templateversions/{name})
 	GetTemplateVersion(w http.ResponseWriter, r *http.Request, fleet string, name string)
 
-	// (DELETE /api/v1/fleets/{name})
+	// (DELETE /fleets/{name})
 	DeleteFleet(w http.ResponseWriter, r *http.Request, name string)
 
-	// (GET /api/v1/fleets/{name})
+	// (GET /fleets/{name})
 	GetFleet(w http.ResponseWriter, r *http.Request, name string, params GetFleetParams)
 
-	// (PATCH /api/v1/fleets/{name})
+	// (PATCH /fleets/{name})
 	PatchFleet(w http.ResponseWriter, r *http.Request, name string)
 
-	// (PUT /api/v1/fleets/{name})
+	// (PUT /fleets/{name})
 	ReplaceFleet(w http.ResponseWriter, r *http.Request, name string)
 
-	// (GET /api/v1/fleets/{name}/status)
+	// (GET /fleets/{name}/status)
 	GetFleetStatus(w http.ResponseWriter, r *http.Request, name string)
 
-	// (PATCH /api/v1/fleets/{name}/status)
+	// (PATCH /fleets/{name}/status)
 	PatchFleetStatus(w http.ResponseWriter, r *http.Request, name string)
 
-	// (PUT /api/v1/fleets/{name}/status)
+	// (PUT /fleets/{name}/status)
 	ReplaceFleetStatus(w http.ResponseWriter, r *http.Request, name string)
 
-	// (GET /api/v1/labels)
+	// (GET /labels)
 	ListLabels(w http.ResponseWriter, r *http.Request, params ListLabelsParams)
 	// List organizations
-	// (GET /api/v1/organizations)
+	// (GET /organizations)
 	ListOrganizations(w http.ResponseWriter, r *http.Request, params ListOrganizationsParams)
 
-	// (GET /api/v1/repositories)
+	// (GET /repositories)
 	ListRepositories(w http.ResponseWriter, r *http.Request, params ListRepositoriesParams)
 
-	// (POST /api/v1/repositories)
+	// (POST /repositories)
 	CreateRepository(w http.ResponseWriter, r *http.Request)
 
-	// (DELETE /api/v1/repositories/{name})
+	// (DELETE /repositories/{name})
 	DeleteRepository(w http.ResponseWriter, r *http.Request, name string)
 
-	// (GET /api/v1/repositories/{name})
+	// (GET /repositories/{name})
 	GetRepository(w http.ResponseWriter, r *http.Request, name string)
 
-	// (PATCH /api/v1/repositories/{name})
+	// (PATCH /repositories/{name})
 	PatchRepository(w http.ResponseWriter, r *http.Request, name string)
 
-	// (PUT /api/v1/repositories/{name})
+	// (PUT /repositories/{name})
 	ReplaceRepository(w http.ResponseWriter, r *http.Request, name string)
 
-	// (GET /api/v1/resourcesyncs)
+	// (GET /resourcesyncs)
 	ListResourceSyncs(w http.ResponseWriter, r *http.Request, params ListResourceSyncsParams)
 
-	// (POST /api/v1/resourcesyncs)
+	// (POST /resourcesyncs)
 	CreateResourceSync(w http.ResponseWriter, r *http.Request)
 
-	// (DELETE /api/v1/resourcesyncs/{name})
+	// (DELETE /resourcesyncs/{name})
 	DeleteResourceSync(w http.ResponseWriter, r *http.Request, name string)
 
-	// (GET /api/v1/resourcesyncs/{name})
+	// (GET /resourcesyncs/{name})
 	GetResourceSync(w http.ResponseWriter, r *http.Request, name string)
 
-	// (PATCH /api/v1/resourcesyncs/{name})
+	// (PATCH /resourcesyncs/{name})
 	PatchResourceSync(w http.ResponseWriter, r *http.Request, name string)
 
-	// (PUT /api/v1/resourcesyncs/{name})
+	// (PUT /resourcesyncs/{name})
 	ReplaceResourceSync(w http.ResponseWriter, r *http.Request, name string)
 
-	// (GET /api/version)
+	// (GET /version)
 	GetVersion(w http.ResponseWriter, r *http.Request)
 }
 
@@ -230,353 +230,353 @@ type ServerInterface interface {
 
 type Unimplemented struct{}
 
-// (GET /api/v1/auth/config)
+// (GET /auth/config)
 func (_ Unimplemented) AuthConfig(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (GET /api/v1/auth/permissions)
+// (GET /auth/permissions)
 func (_ Unimplemented) AuthGetPermissions(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (GET /api/v1/auth/userinfo)
+// (GET /auth/userinfo)
 func (_ Unimplemented) AuthUserInfo(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (GET /api/v1/auth/validate)
+// (GET /auth/validate)
 func (_ Unimplemented) AuthValidate(w http.ResponseWriter, r *http.Request, params AuthValidateParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (POST /api/v1/auth/{providername}/token)
+// (POST /auth/{providername}/token)
 func (_ Unimplemented) AuthToken(w http.ResponseWriter, r *http.Request, providername string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (GET /api/v1/authproviders)
+// (GET /authproviders)
 func (_ Unimplemented) ListAuthProviders(w http.ResponseWriter, r *http.Request, params ListAuthProvidersParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (POST /api/v1/authproviders)
+// (POST /authproviders)
 func (_ Unimplemented) CreateAuthProvider(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (DELETE /api/v1/authproviders/{name})
+// (DELETE /authproviders/{name})
 func (_ Unimplemented) DeleteAuthProvider(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (GET /api/v1/authproviders/{name})
+// (GET /authproviders/{name})
 func (_ Unimplemented) GetAuthProvider(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (PATCH /api/v1/authproviders/{name})
+// (PATCH /authproviders/{name})
 func (_ Unimplemented) PatchAuthProvider(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (PUT /api/v1/authproviders/{name})
+// (PUT /authproviders/{name})
 func (_ Unimplemented) ReplaceAuthProvider(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (GET /api/v1/certificatesigningrequests)
+// (GET /certificatesigningrequests)
 func (_ Unimplemented) ListCertificateSigningRequests(w http.ResponseWriter, r *http.Request, params ListCertificateSigningRequestsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (POST /api/v1/certificatesigningrequests)
+// (POST /certificatesigningrequests)
 func (_ Unimplemented) CreateCertificateSigningRequest(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (DELETE /api/v1/certificatesigningrequests/{name})
+// (DELETE /certificatesigningrequests/{name})
 func (_ Unimplemented) DeleteCertificateSigningRequest(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (GET /api/v1/certificatesigningrequests/{name})
+// (GET /certificatesigningrequests/{name})
 func (_ Unimplemented) GetCertificateSigningRequest(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (PATCH /api/v1/certificatesigningrequests/{name})
+// (PATCH /certificatesigningrequests/{name})
 func (_ Unimplemented) PatchCertificateSigningRequest(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (PUT /api/v1/certificatesigningrequests/{name})
+// (PUT /certificatesigningrequests/{name})
 func (_ Unimplemented) ReplaceCertificateSigningRequest(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (PUT /api/v1/certificatesigningrequests/{name}/approval)
+// (PUT /certificatesigningrequests/{name}/approval)
 func (_ Unimplemented) UpdateCertificateSigningRequestApproval(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (POST /api/v1/deviceactions/resume)
+// (POST /deviceactions/resume)
 func (_ Unimplemented) ResumeDevices(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (GET /api/v1/devices)
+// (GET /devices)
 func (_ Unimplemented) ListDevices(w http.ResponseWriter, r *http.Request, params ListDevicesParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (POST /api/v1/devices)
+// (POST /devices)
 func (_ Unimplemented) CreateDevice(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (DELETE /api/v1/devices/{name})
+// (DELETE /devices/{name})
 func (_ Unimplemented) DeleteDevice(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (GET /api/v1/devices/{name})
+// (GET /devices/{name})
 func (_ Unimplemented) GetDevice(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (PATCH /api/v1/devices/{name})
+// (PATCH /devices/{name})
 func (_ Unimplemented) PatchDevice(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (PUT /api/v1/devices/{name})
+// (PUT /devices/{name})
 func (_ Unimplemented) ReplaceDevice(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (PUT /api/v1/devices/{name}/decommission)
+// (PUT /devices/{name}/decommission)
 func (_ Unimplemented) DecommissionDevice(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (GET /api/v1/devices/{name}/lastseen)
+// (GET /devices/{name}/lastseen)
 func (_ Unimplemented) GetDeviceLastSeen(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (GET /api/v1/devices/{name}/rendered)
+// (GET /devices/{name}/rendered)
 func (_ Unimplemented) GetRenderedDevice(w http.ResponseWriter, r *http.Request, name string, params GetRenderedDeviceParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (GET /api/v1/devices/{name}/status)
+// (GET /devices/{name}/status)
 func (_ Unimplemented) GetDeviceStatus(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (PATCH /api/v1/devices/{name}/status)
+// (PATCH /devices/{name}/status)
 func (_ Unimplemented) PatchDeviceStatus(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (PUT /api/v1/devices/{name}/status)
+// (PUT /devices/{name}/status)
 func (_ Unimplemented) ReplaceDeviceStatus(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (GET /api/v1/enrollmentconfig)
+// (GET /enrollmentconfig)
 func (_ Unimplemented) GetEnrollmentConfig(w http.ResponseWriter, r *http.Request, params GetEnrollmentConfigParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (GET /api/v1/enrollmentrequests)
+// (GET /enrollmentrequests)
 func (_ Unimplemented) ListEnrollmentRequests(w http.ResponseWriter, r *http.Request, params ListEnrollmentRequestsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (POST /api/v1/enrollmentrequests)
+// (POST /enrollmentrequests)
 func (_ Unimplemented) CreateEnrollmentRequest(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (DELETE /api/v1/enrollmentrequests/{name})
+// (DELETE /enrollmentrequests/{name})
 func (_ Unimplemented) DeleteEnrollmentRequest(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (GET /api/v1/enrollmentrequests/{name})
+// (GET /enrollmentrequests/{name})
 func (_ Unimplemented) GetEnrollmentRequest(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (PATCH /api/v1/enrollmentrequests/{name})
+// (PATCH /enrollmentrequests/{name})
 func (_ Unimplemented) PatchEnrollmentRequest(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (PUT /api/v1/enrollmentrequests/{name})
+// (PUT /enrollmentrequests/{name})
 func (_ Unimplemented) ReplaceEnrollmentRequest(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (PUT /api/v1/enrollmentrequests/{name}/approval)
+// (PUT /enrollmentrequests/{name}/approval)
 func (_ Unimplemented) ApproveEnrollmentRequest(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (GET /api/v1/enrollmentrequests/{name}/status)
+// (GET /enrollmentrequests/{name}/status)
 func (_ Unimplemented) GetEnrollmentRequestStatus(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (PATCH /api/v1/enrollmentrequests/{name}/status)
+// (PATCH /enrollmentrequests/{name}/status)
 func (_ Unimplemented) PatchEnrollmentRequestStatus(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (PUT /api/v1/enrollmentrequests/{name}/status)
+// (PUT /enrollmentrequests/{name}/status)
 func (_ Unimplemented) ReplaceEnrollmentRequestStatus(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (GET /api/v1/events)
+// (GET /events)
 func (_ Unimplemented) ListEvents(w http.ResponseWriter, r *http.Request, params ListEventsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (GET /api/v1/fleets)
+// (GET /fleets)
 func (_ Unimplemented) ListFleets(w http.ResponseWriter, r *http.Request, params ListFleetsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (POST /api/v1/fleets)
+// (POST /fleets)
 func (_ Unimplemented) CreateFleet(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (GET /api/v1/fleets/{fleet}/templateversions)
+// (GET /fleets/{fleet}/templateversions)
 func (_ Unimplemented) ListTemplateVersions(w http.ResponseWriter, r *http.Request, fleet string, params ListTemplateVersionsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (DELETE /api/v1/fleets/{fleet}/templateversions/{name})
+// (DELETE /fleets/{fleet}/templateversions/{name})
 func (_ Unimplemented) DeleteTemplateVersion(w http.ResponseWriter, r *http.Request, fleet string, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (GET /api/v1/fleets/{fleet}/templateversions/{name})
+// (GET /fleets/{fleet}/templateversions/{name})
 func (_ Unimplemented) GetTemplateVersion(w http.ResponseWriter, r *http.Request, fleet string, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (DELETE /api/v1/fleets/{name})
+// (DELETE /fleets/{name})
 func (_ Unimplemented) DeleteFleet(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (GET /api/v1/fleets/{name})
+// (GET /fleets/{name})
 func (_ Unimplemented) GetFleet(w http.ResponseWriter, r *http.Request, name string, params GetFleetParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (PATCH /api/v1/fleets/{name})
+// (PATCH /fleets/{name})
 func (_ Unimplemented) PatchFleet(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (PUT /api/v1/fleets/{name})
+// (PUT /fleets/{name})
 func (_ Unimplemented) ReplaceFleet(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (GET /api/v1/fleets/{name}/status)
+// (GET /fleets/{name}/status)
 func (_ Unimplemented) GetFleetStatus(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (PATCH /api/v1/fleets/{name}/status)
+// (PATCH /fleets/{name}/status)
 func (_ Unimplemented) PatchFleetStatus(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (PUT /api/v1/fleets/{name}/status)
+// (PUT /fleets/{name}/status)
 func (_ Unimplemented) ReplaceFleetStatus(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (GET /api/v1/labels)
+// (GET /labels)
 func (_ Unimplemented) ListLabels(w http.ResponseWriter, r *http.Request, params ListLabelsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // List organizations
-// (GET /api/v1/organizations)
+// (GET /organizations)
 func (_ Unimplemented) ListOrganizations(w http.ResponseWriter, r *http.Request, params ListOrganizationsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (GET /api/v1/repositories)
+// (GET /repositories)
 func (_ Unimplemented) ListRepositories(w http.ResponseWriter, r *http.Request, params ListRepositoriesParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (POST /api/v1/repositories)
+// (POST /repositories)
 func (_ Unimplemented) CreateRepository(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (DELETE /api/v1/repositories/{name})
+// (DELETE /repositories/{name})
 func (_ Unimplemented) DeleteRepository(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (GET /api/v1/repositories/{name})
+// (GET /repositories/{name})
 func (_ Unimplemented) GetRepository(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (PATCH /api/v1/repositories/{name})
+// (PATCH /repositories/{name})
 func (_ Unimplemented) PatchRepository(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (PUT /api/v1/repositories/{name})
+// (PUT /repositories/{name})
 func (_ Unimplemented) ReplaceRepository(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (GET /api/v1/resourcesyncs)
+// (GET /resourcesyncs)
 func (_ Unimplemented) ListResourceSyncs(w http.ResponseWriter, r *http.Request, params ListResourceSyncsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (POST /api/v1/resourcesyncs)
+// (POST /resourcesyncs)
 func (_ Unimplemented) CreateResourceSync(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (DELETE /api/v1/resourcesyncs/{name})
+// (DELETE /resourcesyncs/{name})
 func (_ Unimplemented) DeleteResourceSync(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (GET /api/v1/resourcesyncs/{name})
+// (GET /resourcesyncs/{name})
 func (_ Unimplemented) GetResourceSync(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (PATCH /api/v1/resourcesyncs/{name})
+// (PATCH /resourcesyncs/{name})
 func (_ Unimplemented) PatchResourceSync(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (PUT /api/v1/resourcesyncs/{name})
+// (PUT /resourcesyncs/{name})
 func (_ Unimplemented) ReplaceResourceSync(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (GET /api/version)
+// (GET /version)
 func (_ Unimplemented) GetVersion(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
@@ -2743,214 +2743,214 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	}
 
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/auth/config", wrapper.AuthConfig)
+		r.Get(options.BaseURL+"/auth/config", wrapper.AuthConfig)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/auth/permissions", wrapper.AuthGetPermissions)
+		r.Get(options.BaseURL+"/auth/permissions", wrapper.AuthGetPermissions)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/auth/userinfo", wrapper.AuthUserInfo)
+		r.Get(options.BaseURL+"/auth/userinfo", wrapper.AuthUserInfo)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/auth/validate", wrapper.AuthValidate)
+		r.Get(options.BaseURL+"/auth/validate", wrapper.AuthValidate)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/api/v1/auth/{providername}/token", wrapper.AuthToken)
+		r.Post(options.BaseURL+"/auth/{providername}/token", wrapper.AuthToken)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/authproviders", wrapper.ListAuthProviders)
+		r.Get(options.BaseURL+"/authproviders", wrapper.ListAuthProviders)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/api/v1/authproviders", wrapper.CreateAuthProvider)
+		r.Post(options.BaseURL+"/authproviders", wrapper.CreateAuthProvider)
 	})
 	r.Group(func(r chi.Router) {
-		r.Delete(options.BaseURL+"/api/v1/authproviders/{name}", wrapper.DeleteAuthProvider)
+		r.Delete(options.BaseURL+"/authproviders/{name}", wrapper.DeleteAuthProvider)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/authproviders/{name}", wrapper.GetAuthProvider)
+		r.Get(options.BaseURL+"/authproviders/{name}", wrapper.GetAuthProvider)
 	})
 	r.Group(func(r chi.Router) {
-		r.Patch(options.BaseURL+"/api/v1/authproviders/{name}", wrapper.PatchAuthProvider)
+		r.Patch(options.BaseURL+"/authproviders/{name}", wrapper.PatchAuthProvider)
 	})
 	r.Group(func(r chi.Router) {
-		r.Put(options.BaseURL+"/api/v1/authproviders/{name}", wrapper.ReplaceAuthProvider)
+		r.Put(options.BaseURL+"/authproviders/{name}", wrapper.ReplaceAuthProvider)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/certificatesigningrequests", wrapper.ListCertificateSigningRequests)
+		r.Get(options.BaseURL+"/certificatesigningrequests", wrapper.ListCertificateSigningRequests)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/api/v1/certificatesigningrequests", wrapper.CreateCertificateSigningRequest)
+		r.Post(options.BaseURL+"/certificatesigningrequests", wrapper.CreateCertificateSigningRequest)
 	})
 	r.Group(func(r chi.Router) {
-		r.Delete(options.BaseURL+"/api/v1/certificatesigningrequests/{name}", wrapper.DeleteCertificateSigningRequest)
+		r.Delete(options.BaseURL+"/certificatesigningrequests/{name}", wrapper.DeleteCertificateSigningRequest)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/certificatesigningrequests/{name}", wrapper.GetCertificateSigningRequest)
+		r.Get(options.BaseURL+"/certificatesigningrequests/{name}", wrapper.GetCertificateSigningRequest)
 	})
 	r.Group(func(r chi.Router) {
-		r.Patch(options.BaseURL+"/api/v1/certificatesigningrequests/{name}", wrapper.PatchCertificateSigningRequest)
+		r.Patch(options.BaseURL+"/certificatesigningrequests/{name}", wrapper.PatchCertificateSigningRequest)
 	})
 	r.Group(func(r chi.Router) {
-		r.Put(options.BaseURL+"/api/v1/certificatesigningrequests/{name}", wrapper.ReplaceCertificateSigningRequest)
+		r.Put(options.BaseURL+"/certificatesigningrequests/{name}", wrapper.ReplaceCertificateSigningRequest)
 	})
 	r.Group(func(r chi.Router) {
-		r.Put(options.BaseURL+"/api/v1/certificatesigningrequests/{name}/approval", wrapper.UpdateCertificateSigningRequestApproval)
+		r.Put(options.BaseURL+"/certificatesigningrequests/{name}/approval", wrapper.UpdateCertificateSigningRequestApproval)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/api/v1/deviceactions/resume", wrapper.ResumeDevices)
+		r.Post(options.BaseURL+"/deviceactions/resume", wrapper.ResumeDevices)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/devices", wrapper.ListDevices)
+		r.Get(options.BaseURL+"/devices", wrapper.ListDevices)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/api/v1/devices", wrapper.CreateDevice)
+		r.Post(options.BaseURL+"/devices", wrapper.CreateDevice)
 	})
 	r.Group(func(r chi.Router) {
-		r.Delete(options.BaseURL+"/api/v1/devices/{name}", wrapper.DeleteDevice)
+		r.Delete(options.BaseURL+"/devices/{name}", wrapper.DeleteDevice)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/devices/{name}", wrapper.GetDevice)
+		r.Get(options.BaseURL+"/devices/{name}", wrapper.GetDevice)
 	})
 	r.Group(func(r chi.Router) {
-		r.Patch(options.BaseURL+"/api/v1/devices/{name}", wrapper.PatchDevice)
+		r.Patch(options.BaseURL+"/devices/{name}", wrapper.PatchDevice)
 	})
 	r.Group(func(r chi.Router) {
-		r.Put(options.BaseURL+"/api/v1/devices/{name}", wrapper.ReplaceDevice)
+		r.Put(options.BaseURL+"/devices/{name}", wrapper.ReplaceDevice)
 	})
 	r.Group(func(r chi.Router) {
-		r.Put(options.BaseURL+"/api/v1/devices/{name}/decommission", wrapper.DecommissionDevice)
+		r.Put(options.BaseURL+"/devices/{name}/decommission", wrapper.DecommissionDevice)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/devices/{name}/lastseen", wrapper.GetDeviceLastSeen)
+		r.Get(options.BaseURL+"/devices/{name}/lastseen", wrapper.GetDeviceLastSeen)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/devices/{name}/rendered", wrapper.GetRenderedDevice)
+		r.Get(options.BaseURL+"/devices/{name}/rendered", wrapper.GetRenderedDevice)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/devices/{name}/status", wrapper.GetDeviceStatus)
+		r.Get(options.BaseURL+"/devices/{name}/status", wrapper.GetDeviceStatus)
 	})
 	r.Group(func(r chi.Router) {
-		r.Patch(options.BaseURL+"/api/v1/devices/{name}/status", wrapper.PatchDeviceStatus)
+		r.Patch(options.BaseURL+"/devices/{name}/status", wrapper.PatchDeviceStatus)
 	})
 	r.Group(func(r chi.Router) {
-		r.Put(options.BaseURL+"/api/v1/devices/{name}/status", wrapper.ReplaceDeviceStatus)
+		r.Put(options.BaseURL+"/devices/{name}/status", wrapper.ReplaceDeviceStatus)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/enrollmentconfig", wrapper.GetEnrollmentConfig)
+		r.Get(options.BaseURL+"/enrollmentconfig", wrapper.GetEnrollmentConfig)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/enrollmentrequests", wrapper.ListEnrollmentRequests)
+		r.Get(options.BaseURL+"/enrollmentrequests", wrapper.ListEnrollmentRequests)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/api/v1/enrollmentrequests", wrapper.CreateEnrollmentRequest)
+		r.Post(options.BaseURL+"/enrollmentrequests", wrapper.CreateEnrollmentRequest)
 	})
 	r.Group(func(r chi.Router) {
-		r.Delete(options.BaseURL+"/api/v1/enrollmentrequests/{name}", wrapper.DeleteEnrollmentRequest)
+		r.Delete(options.BaseURL+"/enrollmentrequests/{name}", wrapper.DeleteEnrollmentRequest)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/enrollmentrequests/{name}", wrapper.GetEnrollmentRequest)
+		r.Get(options.BaseURL+"/enrollmentrequests/{name}", wrapper.GetEnrollmentRequest)
 	})
 	r.Group(func(r chi.Router) {
-		r.Patch(options.BaseURL+"/api/v1/enrollmentrequests/{name}", wrapper.PatchEnrollmentRequest)
+		r.Patch(options.BaseURL+"/enrollmentrequests/{name}", wrapper.PatchEnrollmentRequest)
 	})
 	r.Group(func(r chi.Router) {
-		r.Put(options.BaseURL+"/api/v1/enrollmentrequests/{name}", wrapper.ReplaceEnrollmentRequest)
+		r.Put(options.BaseURL+"/enrollmentrequests/{name}", wrapper.ReplaceEnrollmentRequest)
 	})
 	r.Group(func(r chi.Router) {
-		r.Put(options.BaseURL+"/api/v1/enrollmentrequests/{name}/approval", wrapper.ApproveEnrollmentRequest)
+		r.Put(options.BaseURL+"/enrollmentrequests/{name}/approval", wrapper.ApproveEnrollmentRequest)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/enrollmentrequests/{name}/status", wrapper.GetEnrollmentRequestStatus)
+		r.Get(options.BaseURL+"/enrollmentrequests/{name}/status", wrapper.GetEnrollmentRequestStatus)
 	})
 	r.Group(func(r chi.Router) {
-		r.Patch(options.BaseURL+"/api/v1/enrollmentrequests/{name}/status", wrapper.PatchEnrollmentRequestStatus)
+		r.Patch(options.BaseURL+"/enrollmentrequests/{name}/status", wrapper.PatchEnrollmentRequestStatus)
 	})
 	r.Group(func(r chi.Router) {
-		r.Put(options.BaseURL+"/api/v1/enrollmentrequests/{name}/status", wrapper.ReplaceEnrollmentRequestStatus)
+		r.Put(options.BaseURL+"/enrollmentrequests/{name}/status", wrapper.ReplaceEnrollmentRequestStatus)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/events", wrapper.ListEvents)
+		r.Get(options.BaseURL+"/events", wrapper.ListEvents)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/fleets", wrapper.ListFleets)
+		r.Get(options.BaseURL+"/fleets", wrapper.ListFleets)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/api/v1/fleets", wrapper.CreateFleet)
+		r.Post(options.BaseURL+"/fleets", wrapper.CreateFleet)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/fleets/{fleet}/templateversions", wrapper.ListTemplateVersions)
+		r.Get(options.BaseURL+"/fleets/{fleet}/templateversions", wrapper.ListTemplateVersions)
 	})
 	r.Group(func(r chi.Router) {
-		r.Delete(options.BaseURL+"/api/v1/fleets/{fleet}/templateversions/{name}", wrapper.DeleteTemplateVersion)
+		r.Delete(options.BaseURL+"/fleets/{fleet}/templateversions/{name}", wrapper.DeleteTemplateVersion)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/fleets/{fleet}/templateversions/{name}", wrapper.GetTemplateVersion)
+		r.Get(options.BaseURL+"/fleets/{fleet}/templateversions/{name}", wrapper.GetTemplateVersion)
 	})
 	r.Group(func(r chi.Router) {
-		r.Delete(options.BaseURL+"/api/v1/fleets/{name}", wrapper.DeleteFleet)
+		r.Delete(options.BaseURL+"/fleets/{name}", wrapper.DeleteFleet)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/fleets/{name}", wrapper.GetFleet)
+		r.Get(options.BaseURL+"/fleets/{name}", wrapper.GetFleet)
 	})
 	r.Group(func(r chi.Router) {
-		r.Patch(options.BaseURL+"/api/v1/fleets/{name}", wrapper.PatchFleet)
+		r.Patch(options.BaseURL+"/fleets/{name}", wrapper.PatchFleet)
 	})
 	r.Group(func(r chi.Router) {
-		r.Put(options.BaseURL+"/api/v1/fleets/{name}", wrapper.ReplaceFleet)
+		r.Put(options.BaseURL+"/fleets/{name}", wrapper.ReplaceFleet)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/fleets/{name}/status", wrapper.GetFleetStatus)
+		r.Get(options.BaseURL+"/fleets/{name}/status", wrapper.GetFleetStatus)
 	})
 	r.Group(func(r chi.Router) {
-		r.Patch(options.BaseURL+"/api/v1/fleets/{name}/status", wrapper.PatchFleetStatus)
+		r.Patch(options.BaseURL+"/fleets/{name}/status", wrapper.PatchFleetStatus)
 	})
 	r.Group(func(r chi.Router) {
-		r.Put(options.BaseURL+"/api/v1/fleets/{name}/status", wrapper.ReplaceFleetStatus)
+		r.Put(options.BaseURL+"/fleets/{name}/status", wrapper.ReplaceFleetStatus)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/labels", wrapper.ListLabels)
+		r.Get(options.BaseURL+"/labels", wrapper.ListLabels)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/organizations", wrapper.ListOrganizations)
+		r.Get(options.BaseURL+"/organizations", wrapper.ListOrganizations)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/repositories", wrapper.ListRepositories)
+		r.Get(options.BaseURL+"/repositories", wrapper.ListRepositories)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/api/v1/repositories", wrapper.CreateRepository)
+		r.Post(options.BaseURL+"/repositories", wrapper.CreateRepository)
 	})
 	r.Group(func(r chi.Router) {
-		r.Delete(options.BaseURL+"/api/v1/repositories/{name}", wrapper.DeleteRepository)
+		r.Delete(options.BaseURL+"/repositories/{name}", wrapper.DeleteRepository)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/repositories/{name}", wrapper.GetRepository)
+		r.Get(options.BaseURL+"/repositories/{name}", wrapper.GetRepository)
 	})
 	r.Group(func(r chi.Router) {
-		r.Patch(options.BaseURL+"/api/v1/repositories/{name}", wrapper.PatchRepository)
+		r.Patch(options.BaseURL+"/repositories/{name}", wrapper.PatchRepository)
 	})
 	r.Group(func(r chi.Router) {
-		r.Put(options.BaseURL+"/api/v1/repositories/{name}", wrapper.ReplaceRepository)
+		r.Put(options.BaseURL+"/repositories/{name}", wrapper.ReplaceRepository)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/resourcesyncs", wrapper.ListResourceSyncs)
+		r.Get(options.BaseURL+"/resourcesyncs", wrapper.ListResourceSyncs)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/api/v1/resourcesyncs", wrapper.CreateResourceSync)
+		r.Post(options.BaseURL+"/resourcesyncs", wrapper.CreateResourceSync)
 	})
 	r.Group(func(r chi.Router) {
-		r.Delete(options.BaseURL+"/api/v1/resourcesyncs/{name}", wrapper.DeleteResourceSync)
+		r.Delete(options.BaseURL+"/resourcesyncs/{name}", wrapper.DeleteResourceSync)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/resourcesyncs/{name}", wrapper.GetResourceSync)
+		r.Get(options.BaseURL+"/resourcesyncs/{name}", wrapper.GetResourceSync)
 	})
 	r.Group(func(r chi.Router) {
-		r.Patch(options.BaseURL+"/api/v1/resourcesyncs/{name}", wrapper.PatchResourceSync)
+		r.Patch(options.BaseURL+"/resourcesyncs/{name}", wrapper.PatchResourceSync)
 	})
 	r.Group(func(r chi.Router) {
-		r.Put(options.BaseURL+"/api/v1/resourcesyncs/{name}", wrapper.ReplaceResourceSync)
+		r.Put(options.BaseURL+"/resourcesyncs/{name}", wrapper.ReplaceResourceSync)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/version", wrapper.GetVersion)
+		r.Get(options.BaseURL+"/version", wrapper.GetVersion)
 	})
 
 	return r

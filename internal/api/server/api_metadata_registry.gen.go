@@ -363,7 +363,7 @@ var APIMetadataMap = map[string]EndpointMetadata{
 		Resource:    "",
 		Action:      "",
 	},
-	"GET:/api/version": {
+	"GET:/api/v1/version": {
 		OperationID: "getVersion",
 		Resource:    "",
 		Action:      "",

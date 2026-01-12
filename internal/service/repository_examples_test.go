@@ -84,7 +84,7 @@ func validateRepositoryAgainstOpenAPI(ctx context.Context, repo *api.Repository)
 	if repo.Metadata.Name != nil {
 		repoName = *repo.Metadata.Name
 	}
-	reqURL, err := url.Parse(fmt.Sprintf("/api/v1/repositories/%s", repoName))
+	reqURL, err := url.Parse(fmt.Sprintf("/repositories/%s", repoName))
 	if err != nil {
 		return fmt.Errorf("failed to parse URL: %w", err)
 	}
