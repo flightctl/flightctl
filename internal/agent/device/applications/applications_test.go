@@ -27,14 +27,13 @@ func TestApplicationStatus(t *testing.T) {
 		expectedRestarts      int
 		expectedStatus        v1beta1.ApplicationStatusType
 		expectedSummaryStatus v1beta1.ApplicationsSummaryStatusType
-		expected              v1beta1.AppType
+		appType               v1beta1.AppType
 	}{
 		{
 			name:                  "app created no workloads",
 			expectedReady:         "0/0",
 			expectedStatus:        v1beta1.ApplicationStatusUnknown,
 			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusUnknown,
-			expected:              v1beta1.AppTypeCompose,
 		},
 		{
 			name: "app single container preparing to start init",
@@ -46,7 +45,6 @@ func TestApplicationStatus(t *testing.T) {
 			expectedReady:         "0/1",
 			expectedStatus:        v1beta1.ApplicationStatusPreparing,
 			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusUnknown,
-			expected:              v1beta1.AppTypeCompose,
 		},
 		{
 			name: "app single container preparing to start created",
@@ -58,7 +56,6 @@ func TestApplicationStatus(t *testing.T) {
 			expectedReady:         "0/1",
 			expectedStatus:        v1beta1.ApplicationStatusPreparing,
 			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusUnknown,
-			expected:              v1beta1.AppTypeCompose,
 		},
 		{
 			name: "app multiple workloads starting init",
@@ -75,7 +72,6 @@ func TestApplicationStatus(t *testing.T) {
 			expectedReady:         "1/2",
 			expectedStatus:        v1beta1.ApplicationStatusStarting,
 			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusDegraded,
-			expected:              v1beta1.AppTypeCompose,
 		},
 		{
 			name: "app multiple workloads starting created",
@@ -92,31 +88,32 @@ func TestApplicationStatus(t *testing.T) {
 			expectedReady:         "1/2",
 			expectedStatus:        v1beta1.ApplicationStatusStarting,
 			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusDegraded,
-			expected:              v1beta1.AppTypeCompose,
 		},
 		{
 			name: "app errored",
 			workloads: []Workload{
 				{
-					Name:   "container1",
-					Status: StatusDie,
+					Name:     "container1",
+					Status:   StatusDie,
+					ExitCode: lo.ToPtr(1),
 				},
 				{
-					Name:   "container2",
-					Status: StatusDie,
+					Name:     "container2",
+					Status:   StatusDie,
+					ExitCode: lo.ToPtr(1),
 				},
 			},
 			expectedReady:         "0/2",
 			expectedStatus:        v1beta1.ApplicationStatusError,
 			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusError,
-			expected:              v1beta1.AppTypeCompose,
 		},
 		{
 			name: "app running degraded",
 			workloads: []Workload{
 				{
-					Name:   "container1",
-					Status: StatusDie,
+					Name:     "container1",
+					Status:   StatusDie,
+					ExitCode: lo.ToPtr(1),
 				},
 				{
 					Name:   "container2",
@@ -126,14 +123,14 @@ func TestApplicationStatus(t *testing.T) {
 			expectedReady:         "1/2",
 			expectedStatus:        v1beta1.ApplicationStatusRunning,
 			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusDegraded,
-			expected:              v1beta1.AppTypeCompose,
 		},
 		{
-			name: "app running degraded",
+			name: "app running degraded after exit",
 			workloads: []Workload{
 				{
-					Name:   "container1",
-					Status: StatusDied,
+					Name:     "container1",
+					Status:   StatusDied,
+					ExitCode: lo.ToPtr(1),
 				},
 				{
 					Name:   "container2",
@@ -143,7 +140,6 @@ func TestApplicationStatus(t *testing.T) {
 			expectedReady:         "1/2",
 			expectedStatus:        v1beta1.ApplicationStatusRunning,
 			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusDegraded,
-			expected:              v1beta1.AppTypeCompose,
 		},
 		{
 			name: "app running healthy",
@@ -184,17 +180,19 @@ func TestApplicationStatus(t *testing.T) {
 			name: "app has all workloads exited",
 			workloads: []Workload{
 				{
-					Name:   "container1",
-					Status: StatusExited,
+					Name:     "container1",
+					Status:   StatusExited,
+					ExitCode: lo.ToPtr(1),
 				},
 				{
-					Name:   "container2",
-					Status: StatusExited,
+					Name:     "container2",
+					Status:   StatusExited,
+					ExitCode: lo.ToPtr(1),
 				},
 			},
 			expectedReady:         "0/2",
-			expectedStatus:        v1beta1.ApplicationStatusCompleted,
-			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusHealthy,
+			expectedStatus:        v1beta1.ApplicationStatusError,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusError,
 		},
 		{
 			name: "app has one workloads exited",
@@ -204,25 +202,129 @@ func TestApplicationStatus(t *testing.T) {
 					Status: StatusRunning,
 				},
 				{
-					Name:   "container2",
-					Status: StatusExited,
+					Name:     "container2",
+					Status:   StatusExited,
+					ExitCode: lo.ToPtr(0),
 				},
 			},
 			expectedReady:         "1/2",
 			expectedStatus:        v1beta1.ApplicationStatusRunning,
-			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusHealthy,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusDegraded,
 		},
 		{
 			name: "app with single container has exited",
 			workloads: []Workload{
 				{
-					Name:   "container1",
-					Status: StatusExited,
+					Name:     "container1",
+					Status:   StatusExited,
+					ExitCode: lo.ToPtr(1),
 				},
 			},
 			expectedReady:         "0/1",
+			expectedStatus:        v1beta1.ApplicationStatusError,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusError,
+		},
+		{
+			name: "app has all workloads exited with code 0",
+			workloads: []Workload{
+				{
+					Name:     "container1",
+					Status:   StatusExited,
+					ExitCode: lo.ToPtr(0),
+				},
+				{
+					Name:     "container2",
+					Status:   StatusExited,
+					ExitCode: lo.ToPtr(0),
+				},
+			},
+			expectedReady:         "0/2",
+			expectedStatus:        v1beta1.ApplicationStatusError,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusError,
+			appType:               v1beta1.AppTypeCompose,
+		},
+		{
+			name: "run-to-completion app has all workloads exited with code 0",
+			workloads: []Workload{
+				{
+					Name:     "container1",
+					Status:   StatusExited,
+					ExitCode: lo.ToPtr(0),
+				},
+				{
+					Name:     "container2",
+					Status:   StatusExited,
+					ExitCode: lo.ToPtr(0),
+				},
+			},
+			expectedReady:         "0/2",
 			expectedStatus:        v1beta1.ApplicationStatusCompleted,
 			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusHealthy,
+			appType:               "another-app-type",
+		},
+		{
+			name: "app has all workloads exited with one non-zero",
+			workloads: []Workload{
+				{
+					Name:     "container1",
+					Status:   StatusExited,
+					ExitCode: lo.ToPtr(0),
+				},
+				{
+					Name:     "container2",
+					Status:   StatusExited,
+					ExitCode: lo.ToPtr(1),
+				},
+			},
+			expectedReady:         "0/2",
+			expectedStatus:        v1beta1.ApplicationStatusError,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusError,
+		},
+		{
+			name: "app has one workload running and one exited with code 0",
+			workloads: []Workload{
+				{
+					Name:   "container1",
+					Status: StatusRunning,
+				},
+				{
+					Name:     "container2",
+					Status:   StatusExited,
+					ExitCode: lo.ToPtr(0),
+				},
+			},
+			expectedReady:         "1/2",
+			expectedStatus:        v1beta1.ApplicationStatusRunning,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusDegraded,
+		},
+		{
+			name: "app has one workload running and one exited with non-zero",
+			workloads: []Workload{
+				{
+					Name:   "container1",
+					Status: StatusRunning,
+				},
+				{
+					Name:     "container2",
+					Status:   StatusExited,
+					ExitCode: lo.ToPtr(1),
+				},
+			},
+			expectedReady:         "1/2",
+			expectedStatus:        v1beta1.ApplicationStatusRunning,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusDegraded,
+		},
+		{
+			name: "app has one workload stopped",
+			workloads: []Workload{
+				{
+					Name:   "container1",
+					Status: StatusStopped,
+				},
+			},
+			expectedReady:         "0/1",
+			expectedStatus:        v1beta1.ApplicationStatusError,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusDegraded,
 		},
 	}
 
@@ -250,9 +352,14 @@ func TestApplicationStatus(t *testing.T) {
 				},
 			}
 
+			appType := tt.appType
+			if appType == "" {
+				appType = v1beta1.AppTypeCompose
+			}
+
 			providerSpec := v1beta1.ApplicationProviderSpec{
 				Name:    lo.ToPtr("app"),
-				AppType: v1beta1.AppTypeCompose,
+				AppType: appType,
 			}
 			err := providerSpec.FromInlineApplicationProviderSpec(spec)
 			require.NoError(err)
@@ -277,4 +384,71 @@ func TestApplicationStatus(t *testing.T) {
 			require.Equal(tt.expectedSummaryStatus, summary.Status)
 		})
 	}
+}
+
+func TestApplicationStatusReasonStaysClean(t *testing.T) {
+	require := require.New(t)
+
+	log := log.NewPrefixLogger("test")
+	log.SetLevel(logrus.DebugLevel)
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	tmpDir := t.TempDir()
+	readWriter := fileio.NewReadWriter()
+	readWriter.SetRootdir(tmpDir)
+
+	mockExec := executer.NewMockExecuter(ctrl)
+	podman := client.NewPodman(log, mockExec, readWriter, util.NewPollConfig())
+
+	spec := v1beta1.InlineApplicationProviderSpec{
+		Inline: []v1beta1.ApplicationContent{
+			{
+				Content: lo.ToPtr(util.NewComposeSpec()),
+				Path:    "docker-compose.yml",
+			},
+		},
+	}
+
+	providerSpec := v1beta1.ApplicationProviderSpec{
+		Name:    lo.ToPtr("app"),
+		AppType: v1beta1.AppTypeCompose,
+	}
+	err := providerSpec.FromInlineApplicationProviderSpec(spec)
+	require.NoError(err)
+	desired := v1beta1.DeviceSpec{
+		Applications: &[]v1beta1.ApplicationProviderSpec{
+			providerSpec,
+		},
+	}
+	providers, err := provider.FromDeviceSpec(context.Background(), log, podman, readWriter, &desired)
+	require.NoError(err)
+	require.Len(providers, 1)
+	application := NewApplication(providers[0])
+
+	// Start with an error state
+	application.workloads = []Workload{
+		{
+			Name:     "container1",
+			Status:   StatusExited,
+			ExitCode: lo.ToPtr(1),
+		},
+	}
+	status, _, err := application.Status()
+	require.NoError(err)
+	require.Equal(v1beta1.ApplicationStatusError, status.Status)
+	require.Contains(status.Info, "Reason", "Reason should be set in error state")
+
+	// Transition to a healthy state
+	application.workloads = []Workload{
+		{
+			Name:   "container1",
+			Status: StatusRunning,
+		},
+	}
+	status, _, err = application.Status()
+	require.NoError(err)
+	require.Equal(v1beta1.ApplicationStatusRunning, status.Status)
+	require.NotContains(status.Info, "Reason", "Reason should be cleared in healthy state")
 }

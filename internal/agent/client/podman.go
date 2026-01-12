@@ -48,6 +48,7 @@ type PodmanContainerState struct {
 	Dead        bool   `json:"Dead"`
 	Pid         int    `json:"Pid"`
 	ExitCode    int    `json:"ExitCode"`
+	ExitSignal  int    `json:"ExitSignal"`
 	Error       string `json:"Error"`
 	StartedAt   string `json:"StartedAt"`
 	FinishedAt  string `json:"FinishedAt"`

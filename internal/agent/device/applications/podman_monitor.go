@@ -635,7 +635,7 @@ func isFinishedStatus(status StatusType) bool {
 	return ok
 }
 
-func (m *PodmanMonitor) updateApplicationStatus(app Application, event *client.PodmanEvent, status StatusType, restarts int) {
+func (m *PodmanMonitor) updateApplicationStatus(app Application, event *client.PodmanEvent, status StatusType, restarts int, exitCode *int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -643,6 +643,7 @@ func (m *PodmanMonitor) updateApplicationStatus(app Application, event *client.P
 	if exists {
 		// update existing container
 		container.Status = status
+		container.ExitCode = exitCode
 		// restarts can only increase
 		if restarts > container.Restarts {
 			container.Restarts = restarts
@@ -658,7 +659,23 @@ func (m *PodmanMonitor) updateApplicationStatus(app Application, event *client.P
 		Name:     event.Name,
 		Status:   status,
 		Restarts: restarts,
+		ExitCode: exitCode,
 	})
+}
+
+func (m *PodmanMonitor) getContainerStatusFromInspect(ctx context.Context, event *client.PodmanEvent) (StatusType, []client.PodmanInspect) {
+	inspectData, err := m.inspectContainer(ctx, event.ID)
+	if err != nil {
+		if errors.Is(err, errors.ErrNotFound) {
+			m.log.Debugf("Container %s not found; likely removed during app restart", event.ID)
+		} else {
+			m.log.Errorf("Failed to inspect container: %v", err)
+		}
+		// If inspect fails, we can't resolve status based on exit code, so return the status from the event.
+		return StatusType(event.Status), nil
+	}
+
+	return m.resolveStatus(event.Status, inspectData), inspectData
 }
 
 func (m *PodmanMonitor) updateQuadletContainerStatus(ctx context.Context, app Application, event *client.PodmanEvent) {
@@ -691,29 +708,12 @@ func (m *PodmanMonitor) updateQuadletContainerStatus(ctx context.Context, app Ap
 		m.log.Errorf("Could not parse systemd unit restarts: %v", err)
 	}
 
-	status := StatusType(event.Status)
-	if isFinishedStatus(status) && event.ContainerExitCode == 0 {
-		status = StatusExited
-	}
-	m.updateApplicationStatus(app, event, status, restartCount)
-}
-
-func (m *PodmanMonitor) updateComposeContainerStatus(ctx context.Context, app Application, event *client.PodmanEvent) {
-	inspectData, err := m.inspectContainer(ctx, event.ID)
-	if err != nil {
-		if errors.Is(err, errors.ErrNotFound) {
-			m.log.Debugf("Container %s not found; likely removed during app restart", event.ID)
-		} else {
-			m.log.Errorf("Failed to inspect container: %v", err)
-		}
+	status, inspectData := m.getContainerStatusFromInspect(ctx, event)
+	var exitCode *int
+	if len(inspectData) > 0 {
+		exitCode = &inspectData[0].State.ExitCode
 	}
 
-	restarts, err := m.getContainerRestarts(inspectData)
-	if err != nil {
-		m.log.Errorf("Failed to get container restarts: %v", err)
-	}
-
-	status := m.resolveStatus(event.Status, inspectData)
 	if status == StatusRemove {
 		m.mu.Lock()
 		defer m.mu.Unlock()
@@ -724,7 +724,33 @@ func (m *PodmanMonitor) updateComposeContainerStatus(ctx context.Context, app Ap
 		return
 	}
 
-	m.updateApplicationStatus(app, event, status, restarts)
+	m.updateApplicationStatus(app, event, status, restartCount, exitCode)
+}
+
+func (m *PodmanMonitor) updateComposeContainerStatus(ctx context.Context, app Application, event *client.PodmanEvent) {
+	status, inspectData := m.getContainerStatusFromInspect(ctx, event)
+
+	restarts, err := m.getContainerRestarts(inspectData)
+	if err != nil {
+		m.log.Errorf("Failed to get container restarts: %v", err)
+	}
+
+	var exitCode *int
+	if len(inspectData) > 0 {
+		exitCode = &inspectData[0].State.ExitCode
+	}
+
+	if status == StatusRemove {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		// remove existing container
+		if removed := app.RemoveWorkload(event.Name); removed {
+			m.log.Debugf("Removed container: %s", event.Name)
+		}
+		return
+	}
+
+	m.updateApplicationStatus(app, event, status, restarts, exitCode)
 }
 
 func (m *PodmanMonitor) getContainerRestarts(inspectData []client.PodmanInspect) (int, error) {
@@ -753,8 +779,16 @@ func (m *PodmanMonitor) resolveStatus(status string, inspectData []client.Podman
 	initialStatus := StatusType(status)
 	// podman events don't properly event exited in the case where the container exits 0.
 	if initialStatus == StatusDie || initialStatus == StatusDied {
-		if len(inspectData) > 0 && inspectData[0].State.ExitCode == 0 && inspectData[0].State.FinishedAt != "" {
-			return StatusExited
+		if len(inspectData) > 0 && inspectData[0].State.FinishedAt != "" {
+			if inspectData[0].State.ExitCode == 0 {
+				// TODO: a container that has an exit code of 0 could be a run to completion
+				// application. We should look at adding a field to the CR to indicate that
+				// this is the case. For now, we will treat all exit 0 as died.
+				if inspectData[0].State.ExitSignal == int(syscall.SIGTERM) {
+					return StatusStopped
+				}
+				return StatusExited
+			}
 		}
 	}
 	return initialStatus
