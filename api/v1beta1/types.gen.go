@@ -845,7 +845,7 @@ type CertificateSigningRequestSpec struct {
 	// Uid UID of the user that created the CSR, populated by the API server on creation and immutable.
 	Uid *string `json:"uid,omitempty"`
 
-	// Usages Usages specifies a set of key usages requested in the issued certificate.
+	// Usages Usages specifies a set of key usages requested in the issued certificate. Usages "clientAuth" and "CA:false" are mandatory and must be included for all requests.
 	Usages *[]string `json:"usages,omitempty"`
 
 	// Username Name of the user that created the CSR, populated by the API server on creation and immutable.

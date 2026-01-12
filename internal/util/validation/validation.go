@@ -316,7 +316,10 @@ func ValidateCSRUsages(u *[]string) []error {
 		"clientAuth": {},
 		"CA:false":   {},
 	}
-	notAllowed := map[string]struct{}{}
+	notAllowed := map[string]struct{}{
+		"serverAuth": {},
+		"CA:true":    {},
+	}
 
 	for _, usage := range *u {
 		if _, exists := notAllowed[usage]; exists {
@@ -349,7 +352,7 @@ func ValidateSignerName(s string) []error {
 
 	validSigners := map[string]struct{}{
 		"flightctl.io/enrollment":        {},
-		"flightctl.io/device-enrollment": {},
+		"flightctl.io/device-management": {},
 		"flightctl.io/device-svc-client": {},
 		"flightctl.io/server-svc":        {},
 	}
