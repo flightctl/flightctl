@@ -6,20 +6,20 @@ import (
 	"fmt"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 )
 
 type WorkerClient interface {
-	EmitEvent(ctx context.Context, orgId uuid.UUID, event *api.Event)
+	EmitEvent(ctx context.Context, orgId uuid.UUID, event *domain.Event)
 }
 
 type EventWithOrgId struct {
-	OrgId uuid.UUID `json:"orgId"`
-	Event api.Event `json:"event"`
+	OrgId uuid.UUID    `json:"orgId"`
+	Event domain.Event `json:"event"`
 }
 
 type workerClient struct {
@@ -42,7 +42,7 @@ func NewWorkerClient(publisher queues.QueueProducer, log logrus.FieldLogger) Wor
 	}
 }
 
-func (t *workerClient) EmitEvent(ctx context.Context, orgId uuid.UUID, event *api.Event) {
+func (t *workerClient) EmitEvent(ctx context.Context, orgId uuid.UUID, event *domain.Event) {
 	if event == nil {
 		return
 	}
@@ -72,19 +72,19 @@ func (t *workerClient) EmitEvent(ctx context.Context, orgId uuid.UUID, event *ap
 }
 
 // eventReasons contains all event reasons that should be sent to the workers
-var eventReasons = map[api.EventReason]struct{}{
-	api.EventReasonResourceCreated:             {},
-	api.EventReasonResourceUpdated:             {},
-	api.EventReasonResourceDeleted:             {},
-	api.EventReasonFleetRolloutStarted:         {},
-	api.EventReasonReferencedRepositoryUpdated: {},
-	api.EventReasonFleetRolloutDeviceSelected:  {},
-	api.EventReasonFleetRolloutBatchDispatched: {},
-	api.EventReasonDeviceConflictResolved:      {},
-	api.EventReasonDeviceDecommissioned:        {},
+var eventReasons = map[domain.EventReason]struct{}{
+	domain.EventReasonResourceCreated:             {},
+	domain.EventReasonResourceUpdated:             {},
+	domain.EventReasonResourceDeleted:             {},
+	domain.EventReasonFleetRolloutStarted:         {},
+	domain.EventReasonReferencedRepositoryUpdated: {},
+	domain.EventReasonFleetRolloutDeviceSelected:  {},
+	domain.EventReasonFleetRolloutBatchDispatched: {},
+	domain.EventReasonDeviceConflictResolved:      {},
+	domain.EventReasonDeviceDecommissioned:        {},
 }
 
-func shouldEmitEvent(reason api.EventReason) bool {
+func shouldEmitEvent(reason domain.EventReason) bool {
 	_, contains := eventReasons[reason]
 	return contains
 }

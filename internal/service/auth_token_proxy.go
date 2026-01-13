@@ -14,8 +14,8 @@ import (
 	"sync"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/auth/authn"
+	"github.com/flightctl/flightctl/internal/domain"
 )
 
 // cacheEntry holds a cached token endpoint with its expiration time
@@ -76,9 +76,9 @@ func NewAuthTokenProxy(authN *authn.MultiAuth) *AuthTokenProxy {
 
 // ProxyTokenRequest handles OAuth2 token exchange requests
 // Returns TokenResponse and HTTP status code (200 for success, 400 for errors per OAuth2 spec)
-func (p *AuthTokenProxy) ProxyTokenRequest(ctx context.Context, providerName string, tokenReq *api.TokenRequest) (*api.TokenResponse, int) {
+func (p *AuthTokenProxy) ProxyTokenRequest(ctx context.Context, providerName string, tokenReq *domain.TokenRequest) (*domain.TokenResponse, int) {
 	// Validate grant type
-	if tokenReq.GrantType != api.AuthorizationCode && tokenReq.GrantType != api.RefreshToken {
+	if tokenReq.GrantType != domain.AuthorizationCode && tokenReq.GrantType != domain.RefreshToken {
 		return createErrorTokenResponse("unsupported_grant_type", "Only authorization_code and refresh_token grant types are supported"), http.StatusBadRequest
 	}
 
@@ -89,7 +89,7 @@ func (p *AuthTokenProxy) ProxyTokenRequest(ctx context.Context, providerName str
 
 	// Find the provider configuration
 	providerConfig, clientId, clientSecret, status := p.findProviderForToken(ctx, providerName)
-	if status != api.StatusOK() {
+	if status != domain.StatusOK() {
 		return createErrorTokenResponse("invalid_client", "Provider not found or not configured"), http.StatusBadRequest
 	}
 
@@ -118,22 +118,24 @@ func (p *AuthTokenProxy) ProxyTokenRequest(ctx context.Context, providerName str
 }
 
 // findProviderForToken finds the authentication provider configuration for a token request by provider name
-func (p *AuthTokenProxy) findProviderForToken(ctx context.Context, providerName string) (*ProviderConfig, string, string, api.Status) {
+func (p *AuthTokenProxy) findProviderForToken(ctx context.Context, providerName string) (*ProviderConfig, string, string, domain.Status) {
 	// Get the provider middleware directly to access internal spec (not through JSON marshaling)
 	providerMiddleware, status := p.authN.GetProviderMiddleware(providerName)
-	if status != api.StatusOK() || providerMiddleware == nil {
+	if status != domain.StatusOK() || providerMiddleware == nil {
 		return nil, "", "", status
 	}
 
 	// Use type switch to handle different provider types - directly access internal spec to preserve client secret
 	switch provider := providerMiddleware.(type) {
-	case interface{ GetOIDCSpec() api.OIDCProviderSpec }:
+	case interface {
+		GetOIDCSpec() domain.OIDCProviderSpec
+	}:
 		oidcSpec := provider.GetOIDCSpec()
 
 		tokenEndpoint, discoveryErr := p.discoverTokenEndpoint(oidcSpec.Issuer)
 		if discoveryErr != nil {
 			p.authN.GetLogger().Errorf("Failed to discover token endpoint for issuer %s: %v", oidcSpec.Issuer, discoveryErr)
-			return nil, "", "", api.StatusInternalServerError("Failed to discover token endpoint")
+			return nil, "", "", domain.StatusInternalServerError("Failed to discover token endpoint")
 		}
 
 		clientSecret := ""
@@ -145,9 +147,11 @@ func (p *AuthTokenProxy) findProviderForToken(ctx context.Context, providerName 
 			Issuer:        oidcSpec.Issuer,
 			TokenEndpoint: tokenEndpoint,
 			ClientId:      oidcSpec.ClientId,
-		}, oidcSpec.ClientId, clientSecret, api.StatusOK()
+		}, oidcSpec.ClientId, clientSecret, domain.StatusOK()
 
-	case interface{ GetOAuth2Spec() api.OAuth2ProviderSpec }:
+	case interface {
+		GetOAuth2Spec() domain.OAuth2ProviderSpec
+	}:
 		oauth2Spec := provider.GetOAuth2Spec()
 
 		clientSecret := ""
@@ -164,10 +168,10 @@ func (p *AuthTokenProxy) findProviderForToken(ctx context.Context, providerName 
 			Issuer:        issuer,
 			TokenEndpoint: oauth2Spec.TokenUrl,
 			ClientId:      oauth2Spec.ClientId,
-		}, oauth2Spec.ClientId, clientSecret, api.StatusOK()
+		}, oauth2Spec.ClientId, clientSecret, domain.StatusOK()
 
 	case interface {
-		GetOpenShiftSpec() api.OpenShiftProviderSpec
+		GetOpenShiftSpec() domain.OpenShiftProviderSpec
 	}:
 		openshiftSpec := provider.GetOpenShiftSpec()
 
@@ -195,8 +199,8 @@ func (p *AuthTokenProxy) findProviderForToken(ctx context.Context, providerName 
 			Issuer:        issuer,
 			TokenEndpoint: tokenEndpoint,
 			ClientId:      clientId,
-		}, clientId, clientSecret, api.StatusOK()
-	case interface{ GetAapSpec() api.AapProviderSpec }:
+		}, clientId, clientSecret, domain.StatusOK()
+	case interface{ GetAapSpec() domain.AapProviderSpec }:
 		aapSpec := provider.GetAapSpec()
 		clientSecret := ""
 		if aapSpec.ClientSecret != nil {
@@ -212,10 +216,10 @@ func (p *AuthTokenProxy) findProviderForToken(ctx context.Context, providerName 
 			TokenEndpoint: tokenUrl,
 			ClientId:      aapSpec.ClientId,
 			UseBasicAuth:  aapSpec.ClientSecret != nil && *aapSpec.ClientSecret != "", // AAP requires Basic Auth for client credentials
-		}, aapSpec.ClientId, clientSecret, api.StatusOK()
+		}, aapSpec.ClientId, clientSecret, domain.StatusOK()
 
 	default:
-		return nil, "", "", api.StatusBadRequest("Provider type not supported")
+		return nil, "", "", domain.StatusBadRequest("Provider type not supported")
 	}
 }
 
@@ -229,7 +233,7 @@ type ProviderConfig struct {
 
 // ProxyResult holds the result of proxying a token request, including the upstream HTTP status
 type ProxyResult struct {
-	TokenResponse *api.TokenResponse
+	TokenResponse *domain.TokenResponse
 	StatusCode    int
 }
 
@@ -286,7 +290,7 @@ func (p *AuthTokenProxy) discoverTokenEndpoint(issuer string) (string, error) {
 }
 
 // proxyTokenRequest makes an HTTP request to the provider's token endpoint
-func (p *AuthTokenProxy) proxyTokenRequest(ctx context.Context, providerConfig *ProviderConfig, clientId string, clientSecret string, tokenReq *api.TokenRequest) (*ProxyResult, error) {
+func (p *AuthTokenProxy) proxyTokenRequest(ctx context.Context, providerConfig *ProviderConfig, clientId string, clientSecret string, tokenReq *domain.TokenRequest) (*ProxyResult, error) {
 	// Prepare form data
 	formData := url.Values{}
 	formData.Set("grant_type", string(tokenReq.GrantType))
@@ -361,7 +365,7 @@ func (p *AuthTokenProxy) proxyTokenRequest(ctx context.Context, providerConfig *
 	p.authN.GetLogger().Debugf("Token proxy: response body: [REDACTED] (length: %d bytes)", len(bodyBytes))
 
 	// Parse response based on Content-Type
-	var tokenResp api.TokenResponse
+	var tokenResp domain.TokenResponse
 	contentType := resp.Header.Get("Content-Type")
 
 	if strings.Contains(contentType, "application/x-www-form-urlencoded") {
@@ -377,7 +381,7 @@ func (p *AuthTokenProxy) proxyTokenRequest(ctx context.Context, providerConfig *
 			tokenResp.AccessToken = &accessToken
 		}
 		if tokenType := values.Get("token_type"); tokenType != "" {
-			tt := api.TokenResponseTokenType(tokenType)
+			tt := domain.TokenResponseTokenType(tokenType)
 			tokenResp.TokenType = &tt
 		}
 		if refreshToken := values.Get("refresh_token"); refreshToken != "" {
@@ -415,8 +419,8 @@ func (p *AuthTokenProxy) proxyTokenRequest(ctx context.Context, providerConfig *
 }
 
 // createErrorTokenResponse creates an OAuth2 error response
-func createErrorTokenResponse(errorCode, errorDescription string) *api.TokenResponse {
-	return &api.TokenResponse{
+func createErrorTokenResponse(errorCode, errorDescription string) *domain.TokenResponse {
+	return &domain.TokenResponse{
 		Error:            &errorCode,
 		ErrorDescription: &errorDescription,
 	}

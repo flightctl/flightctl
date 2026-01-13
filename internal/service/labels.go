@@ -4,41 +4,41 @@ import (
 	"context"
 	"fmt"
 
-	api "github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/google/uuid"
 )
 
 // (GET /api/v1/labels)
-func (h *ServiceHandler) ListLabels(ctx context.Context, orgId uuid.UUID, params api.ListLabelsParams) (*api.LabelList, api.Status) {
+func (h *ServiceHandler) ListLabels(ctx context.Context, orgId uuid.UUID, params domain.ListLabelsParams) (*domain.LabelList, domain.Status) {
 	var err error
 
 	kind := params.Kind
 
 	listParams, status := prepareListParams(nil, params.LabelSelector, params.FieldSelector, params.Limit)
-	if status != api.StatusOK() {
+	if status != domain.StatusOK() {
 		return nil, status
 	}
 
 	// Retrieve labels based on the resource kind
-	var result api.LabelList
+	var result domain.LabelList
 	switch kind {
-	case api.DeviceKind:
+	case domain.DeviceKind:
 		result, err = h.store.Device().Labels(ctx, orgId, *listParams)
 	default:
-		return nil, api.StatusBadRequest(fmt.Sprintf("unsupported kind: %s", kind))
+		return nil, domain.StatusBadRequest(fmt.Sprintf("unsupported kind: %s", kind))
 	}
 
 	if err == nil {
-		return &result, api.StatusOK()
+		return &result, domain.StatusOK()
 	}
 
 	var se *selector.SelectorError
 
 	switch {
 	case selector.AsSelectorError(err, &se):
-		return nil, api.StatusBadRequest(se.Error())
+		return nil, domain.StatusBadRequest(se.Error())
 	default:
-		return nil, api.StatusInternalServerError(err.Error())
+		return nil, domain.StatusInternalServerError(err.Error())
 	}
 }

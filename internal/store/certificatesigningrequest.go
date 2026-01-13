@@ -4,7 +4,7 @@ import (
 	"context"
 	"strings"
 
-	api "github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/google/uuid"
@@ -16,21 +16,21 @@ import (
 type CertificateSigningRequest interface {
 	InitialMigration(ctx context.Context) error
 
-	Create(ctx context.Context, orgId uuid.UUID, req *api.CertificateSigningRequest, eventCallback EventCallback) (*api.CertificateSigningRequest, error)
-	Update(ctx context.Context, orgId uuid.UUID, req *api.CertificateSigningRequest, eventCallback EventCallback) (*api.CertificateSigningRequest, error)
-	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, certificatesigningrequest *api.CertificateSigningRequest, eventCallback EventCallback) (*api.CertificateSigningRequest, bool, error)
-	Get(ctx context.Context, orgId uuid.UUID, name string) (*api.CertificateSigningRequest, error)
-	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.CertificateSigningRequestList, error)
+	Create(ctx context.Context, orgId uuid.UUID, req *domain.CertificateSigningRequest, eventCallback EventCallback) (*domain.CertificateSigningRequest, error)
+	Update(ctx context.Context, orgId uuid.UUID, req *domain.CertificateSigningRequest, eventCallback EventCallback) (*domain.CertificateSigningRequest, error)
+	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, certificatesigningrequest *domain.CertificateSigningRequest, eventCallback EventCallback) (*domain.CertificateSigningRequest, bool, error)
+	Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.CertificateSigningRequest, error)
+	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*domain.CertificateSigningRequestList, error)
 	Delete(ctx context.Context, orgId uuid.UUID, name string, eventCallback EventCallback) error
-	UpdateStatus(ctx context.Context, orgId uuid.UUID, certificatesigningrequest *api.CertificateSigningRequest) (*api.CertificateSigningRequest, error)
+	UpdateStatus(ctx context.Context, orgId uuid.UUID, certificatesigningrequest *domain.CertificateSigningRequest) (*domain.CertificateSigningRequest, error)
 
-	UpdateConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition) error
+	UpdateConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition) error
 }
 
 type CertificateSigningRequestStore struct {
 	dbHandler           *gorm.DB
 	log                 logrus.FieldLogger
-	genericStore        *GenericStore[*model.CertificateSigningRequest, model.CertificateSigningRequest, api.CertificateSigningRequest, api.CertificateSigningRequestList]
+	genericStore        *GenericStore[*model.CertificateSigningRequest, model.CertificateSigningRequest, domain.CertificateSigningRequest, domain.CertificateSigningRequestList]
 	eventCallbackCaller EventCallbackCaller
 }
 
@@ -38,14 +38,14 @@ type CertificateSigningRequestStore struct {
 var _ CertificateSigningRequest = (*CertificateSigningRequestStore)(nil)
 
 func NewCertificateSigningRequest(db *gorm.DB, log logrus.FieldLogger) CertificateSigningRequest {
-	genericStore := NewGenericStore[*model.CertificateSigningRequest, model.CertificateSigningRequest, api.CertificateSigningRequest, api.CertificateSigningRequestList](
+	genericStore := NewGenericStore[*model.CertificateSigningRequest, model.CertificateSigningRequest, domain.CertificateSigningRequest, domain.CertificateSigningRequestList](
 		db,
 		log,
 		model.NewCertificateSigningRequestFromApiResource,
 		(*model.CertificateSigningRequest).ToApiResource,
 		model.CertificateSigningRequestsToApiResource,
 	)
-	return &CertificateSigningRequestStore{dbHandler: db, log: log, genericStore: genericStore, eventCallbackCaller: CallEventCallback(api.CertificateSigningRequestKind, log)}
+	return &CertificateSigningRequestStore{dbHandler: db, log: log, genericStore: genericStore, eventCallbackCaller: CallEventCallback(domain.CertificateSigningRequestKind, log)}
 }
 
 func (s *CertificateSigningRequestStore) getDB(ctx context.Context) *gorm.DB {
@@ -89,30 +89,30 @@ func (s *CertificateSigningRequestStore) InitialMigration(ctx context.Context) e
 }
 
 // Warning: this is a user-facing function and will set the Status to nil
-func (s *CertificateSigningRequestStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.CertificateSigningRequest, eventCallback EventCallback) (*api.CertificateSigningRequest, error) {
+func (s *CertificateSigningRequestStore) Create(ctx context.Context, orgId uuid.UUID, resource *domain.CertificateSigningRequest, eventCallback EventCallback) (*domain.CertificateSigningRequest, error) {
 	csr, err := s.genericStore.Create(ctx, orgId, resource)
 	s.eventCallbackCaller(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), nil, csr, true, err)
 	return csr, err
 }
 
 // Warning: this is a user-facing function and will set the Status to nil
-func (s *CertificateSigningRequestStore) Update(ctx context.Context, orgId uuid.UUID, resource *api.CertificateSigningRequest, eventCallback EventCallback) (*api.CertificateSigningRequest, error) {
+func (s *CertificateSigningRequestStore) Update(ctx context.Context, orgId uuid.UUID, resource *domain.CertificateSigningRequest, eventCallback EventCallback) (*domain.CertificateSigningRequest, error) {
 	newCsr, oldCsr, err := s.genericStore.Update(ctx, orgId, resource, nil, true, nil)
 	s.eventCallbackCaller(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), oldCsr, newCsr, false, err)
 	return newCsr, err
 }
 
-func (s *CertificateSigningRequestStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.CertificateSigningRequest, eventCallback EventCallback) (*api.CertificateSigningRequest, bool, error) {
+func (s *CertificateSigningRequestStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *domain.CertificateSigningRequest, eventCallback EventCallback) (*domain.CertificateSigningRequest, bool, error) {
 	newCsr, oldCsr, created, err := s.genericStore.CreateOrUpdate(ctx, orgId, resource, nil, true, nil)
 	s.eventCallbackCaller(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), oldCsr, newCsr, created, err)
 	return newCsr, created, err
 }
 
-func (s *CertificateSigningRequestStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*api.CertificateSigningRequest, error) {
+func (s *CertificateSigningRequestStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.CertificateSigningRequest, error) {
 	return s.genericStore.Get(ctx, orgId, name)
 }
 
-func (s *CertificateSigningRequestStore) List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.CertificateSigningRequestList, error) {
+func (s *CertificateSigningRequestStore) List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*domain.CertificateSigningRequestList, error) {
 	return s.genericStore.List(ctx, orgId, listParams)
 }
 
@@ -124,11 +124,11 @@ func (s *CertificateSigningRequestStore) Delete(ctx context.Context, orgId uuid.
 	return err
 }
 
-func (s *CertificateSigningRequestStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.CertificateSigningRequest) (*api.CertificateSigningRequest, error) {
+func (s *CertificateSigningRequestStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.CertificateSigningRequest) (*domain.CertificateSigningRequest, error) {
 	return s.genericStore.UpdateStatus(ctx, orgId, resource)
 }
 
-func (s *CertificateSigningRequestStore) updateConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition) (bool, error) {
+func (s *CertificateSigningRequestStore) updateConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition) (bool, error) {
 	existingRecord := model.CertificateSigningRequest{Resource: model.Resource{OrgID: orgId, Name: name}}
 	result := s.getDB(ctx).Take(&existingRecord)
 	if result.Error != nil {
@@ -136,14 +136,14 @@ func (s *CertificateSigningRequestStore) updateConditions(ctx context.Context, o
 	}
 
 	if existingRecord.Status == nil {
-		existingRecord.Status = model.MakeJSONField(api.CertificateSigningRequestStatus{})
+		existingRecord.Status = model.MakeJSONField(domain.CertificateSigningRequestStatus{})
 	}
 	if existingRecord.Status.Data.Conditions == nil {
-		existingRecord.Status.Data.Conditions = []api.Condition{}
+		existingRecord.Status.Data.Conditions = []domain.Condition{}
 	}
 	changed := false
 	for _, condition := range conditions {
-		changed = api.SetStatusCondition(&existingRecord.Status.Data.Conditions, condition)
+		changed = domain.SetStatusCondition(&existingRecord.Status.Data.Conditions, condition)
 	}
 	if !changed {
 		return false, nil
@@ -163,7 +163,7 @@ func (s *CertificateSigningRequestStore) updateConditions(ctx context.Context, o
 	return false, nil
 }
 
-func (s *CertificateSigningRequestStore) UpdateConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition) error {
+func (s *CertificateSigningRequestStore) UpdateConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition) error {
 	return retryUpdate(func() (bool, error) {
 		return s.updateConditions(ctx, orgId, name, conditions)
 	})

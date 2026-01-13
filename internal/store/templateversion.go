@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	api "github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
@@ -17,19 +17,19 @@ import (
 type TemplateVersion interface {
 	InitialMigration(ctx context.Context) error
 
-	Create(ctx context.Context, orgId uuid.UUID, templateVersion *api.TemplateVersion, eventCallback EventCallback) (*api.TemplateVersion, error)
-	Get(ctx context.Context, orgId uuid.UUID, fleet string, name string) (*api.TemplateVersion, error)
-	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.TemplateVersionList, error)
+	Create(ctx context.Context, orgId uuid.UUID, templateVersion *domain.TemplateVersion, eventCallback EventCallback) (*domain.TemplateVersion, error)
+	Get(ctx context.Context, orgId uuid.UUID, fleet string, name string) (*domain.TemplateVersion, error)
+	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*domain.TemplateVersionList, error)
 	Delete(ctx context.Context, orgId uuid.UUID, fleet string, name string, eventCallback EventCallback) (bool, error)
 
-	GetLatest(ctx context.Context, orgId uuid.UUID, fleet string) (*api.TemplateVersion, error)
-	UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.TemplateVersion, valid *bool) error
+	GetLatest(ctx context.Context, orgId uuid.UUID, fleet string) (*domain.TemplateVersion, error)
+	UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.TemplateVersion, valid *bool) error
 }
 
 type TemplateVersionStore struct {
 	dbHandler           *gorm.DB
 	log                 logrus.FieldLogger
-	genericStore        *GenericStore[*model.TemplateVersion, model.TemplateVersion, api.TemplateVersion, api.TemplateVersionList]
+	genericStore        *GenericStore[*model.TemplateVersion, model.TemplateVersion, domain.TemplateVersion, domain.TemplateVersionList]
 	eventCallbackCaller EventCallbackCaller
 }
 
@@ -37,14 +37,14 @@ type TemplateVersionStore struct {
 var _ TemplateVersion = (*TemplateVersionStore)(nil)
 
 func NewTemplateVersion(db *gorm.DB, log logrus.FieldLogger) TemplateVersion {
-	genericStore := NewGenericStore[*model.TemplateVersion, model.TemplateVersion, api.TemplateVersion, api.TemplateVersionList](
+	genericStore := NewGenericStore[*model.TemplateVersion, model.TemplateVersion, domain.TemplateVersion, domain.TemplateVersionList](
 		db,
 		log,
 		model.NewTemplateVersionFromApiResource,
 		(*model.TemplateVersion).ToApiResource,
 		model.TemplateVersionsToApiResource,
 	)
-	return &TemplateVersionStore{dbHandler: db, log: log, genericStore: genericStore, eventCallbackCaller: CallEventCallback(api.TemplateVersionKind, log)}
+	return &TemplateVersionStore{dbHandler: db, log: log, genericStore: genericStore, eventCallbackCaller: CallEventCallback(domain.TemplateVersionKind, log)}
 }
 
 func (s *TemplateVersionStore) getDB(ctx context.Context) *gorm.DB {
@@ -87,14 +87,14 @@ func (s *TemplateVersionStore) InitialMigration(ctx context.Context) error {
 	return nil
 }
 
-func (s *TemplateVersionStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.TemplateVersion, eventCallback EventCallback) (*api.TemplateVersion, error) {
+func (s *TemplateVersionStore) Create(ctx context.Context, orgId uuid.UUID, resource *domain.TemplateVersion, eventCallback EventCallback) (*domain.TemplateVersion, error) {
 	tv, err := s.genericStore.Create(ctx, orgId, resource)
 	name := fmt.Sprintf("%s/%s", lo.FromPtr(resource.Metadata.Owner), lo.FromPtr(resource.Metadata.Name))
 	s.eventCallbackCaller(ctx, eventCallback, orgId, name, nil, tv, true, err)
 	return tv, err
 }
 
-func (s *TemplateVersionStore) Get(ctx context.Context, orgId uuid.UUID, fleet string, name string) (*api.TemplateVersion, error) {
+func (s *TemplateVersionStore) Get(ctx context.Context, orgId uuid.UUID, fleet string, name string) (*domain.TemplateVersion, error) {
 	templateVersion := model.TemplateVersion{
 		OrgID:     orgId,
 		FleetName: fleet,
@@ -108,11 +108,11 @@ func (s *TemplateVersionStore) Get(ctx context.Context, orgId uuid.UUID, fleet s
 	return apiTemplateVersion, nil
 }
 
-func (s *TemplateVersionStore) List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.TemplateVersionList, error) {
+func (s *TemplateVersionStore) List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*domain.TemplateVersionList, error) {
 	return s.genericStore.List(ctx, orgId, listParams)
 }
 
-func (s *TemplateVersionStore) GetLatest(ctx context.Context, orgId uuid.UUID, fleet string) (*api.TemplateVersion, error) {
+func (s *TemplateVersionStore) GetLatest(ctx context.Context, orgId uuid.UUID, fleet string) (*domain.TemplateVersion, error) {
 	var templateVersion model.TemplateVersion
 	result := s.getDB(ctx).Model(&templateVersion).Where("org_id = ? AND fleet_name = ?", orgId, fleet).Order("created_at DESC").First(&templateVersion)
 	if result.Error != nil {
@@ -130,7 +130,7 @@ func (s *TemplateVersionStore) Delete(ctx context.Context, orgId uuid.UUID, flee
 	return deleted, err
 }
 
-func (s *TemplateVersionStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.TemplateVersion, valid *bool) error {
+func (s *TemplateVersionStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.TemplateVersion, valid *bool) error {
 	if resource == nil {
 		return flterrors.ErrResourceIsNil
 	}

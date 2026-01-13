@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/config/ca"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/org"
 	"github.com/flightctl/flightctl/internal/util"
 	"sigs.k8s.io/yaml"
@@ -49,15 +49,15 @@ type RateLimitConfig struct {
 }
 
 type dbConfig struct {
-	Type     string           `json:"type,omitempty"`
-	Hostname string           `json:"hostname,omitempty"`
-	Port     uint             `json:"port,omitempty"`
-	Name     string           `json:"name,omitempty"`
-	User     string           `json:"user,omitempty"`
-	Password api.SecureString `json:"password,omitempty"`
+	Type     string              `json:"type,omitempty"`
+	Hostname string              `json:"hostname,omitempty"`
+	Port     uint                `json:"port,omitempty"`
+	Name     string              `json:"name,omitempty"`
+	User     string              `json:"user,omitempty"`
+	Password domain.SecureString `json:"password,omitempty"`
 	// Migration user configuration for schema changes
-	MigrationUser     string           `json:"migrationUser,omitempty"`
-	MigrationPassword api.SecureString `json:"migrationPassword,omitempty"`
+	MigrationUser     string              `json:"migrationUser,omitempty"`
+	MigrationPassword domain.SecureString `json:"migrationPassword,omitempty"`
 	// SSL configuration
 	SSLMode     string `json:"sslmode,omitempty"`
 	SSLCert     string `json:"sslcert,omitempty"`
@@ -160,9 +160,9 @@ func NewDefaultImageBuilderServiceConfig() *imageBuilderServiceConfig {
 }
 
 type kvConfig struct {
-	Hostname string           `json:"hostname,omitempty"`
-	Port     uint             `json:"port,omitempty"`
-	Password api.SecureString `json:"password,omitempty"`
+	Hostname string              `json:"hostname,omitempty"`
+	Port     uint                `json:"port,omitempty"`
+	Password domain.SecureString `json:"password,omitempty"`
 }
 
 type alertmanagerConfig struct {
@@ -174,15 +174,15 @@ type alertmanagerConfig struct {
 }
 
 type authConfig struct {
-	K8s                     *api.K8sProviderSpec       `json:"k8s,omitempty"`
-	OpenShift               *api.OpenShiftProviderSpec `json:"openshift,omitempty"`
-	OIDC                    *api.OIDCProviderSpec      `json:"oidc,omitempty"`
-	OAuth2                  *api.OAuth2ProviderSpec    `json:"oauth2,omitempty"`
-	AAP                     *api.AapProviderSpec       `json:"aap,omitempty"`
-	CACert                  string                     `json:"caCert,omitempty"`
-	InsecureSkipTlsVerify   bool                       `json:"insecureSkipTlsVerify,omitempty"`
-	PAMOIDCIssuer           *PAMOIDCIssuer             `json:"pamOidcIssuer,omitempty"`           // this is the issuer implementation configuration
-	DynamicProviderCacheTTL util.Duration              `json:"dynamicProviderCacheTTL,omitempty"` // TTL for dynamic auth provider cache (default: 5s)
+	K8s                     *domain.K8sProviderSpec       `json:"k8s,omitempty"`
+	OpenShift               *domain.OpenShiftProviderSpec `json:"openshift,omitempty"`
+	OIDC                    *domain.OIDCProviderSpec      `json:"oidc,omitempty"`
+	OAuth2                  *domain.OAuth2ProviderSpec    `json:"oauth2,omitempty"`
+	AAP                     *domain.AapProviderSpec       `json:"aap,omitempty"`
+	CACert                  string                        `json:"caCert,omitempty"`
+	InsecureSkipTlsVerify   bool                          `json:"insecureSkipTlsVerify,omitempty"`
+	PAMOIDCIssuer           *PAMOIDCIssuer                `json:"pamOidcIssuer,omitempty"`           // this is the issuer implementation configuration
+	DynamicProviderCacheTTL util.Duration                 `json:"dynamicProviderCacheTTL,omitempty"` // TTL for dynamic auth provider cache (default: 5s)
 }
 
 // PAMOIDCIssuer represents an OIDC issuer that uses Linux PAM for authentication
@@ -339,11 +339,11 @@ func WithOIDCAuth(issuer, clientId string, enabled bool) ConfigOption {
 				DynamicProviderCacheTTL: util.Duration(5 * time.Second),
 			}
 		}
-		c.Auth.OIDC = &api.OIDCProviderSpec{
+		c.Auth.OIDC = &domain.OIDCProviderSpec{
 			Issuer:       issuer,
 			ClientId:     clientId,
 			Enabled:      &enabled,
-			ProviderType: api.Oidc,
+			ProviderType: domain.Oidc,
 		}
 	}
 }
@@ -356,14 +356,14 @@ func WithOAuth2Auth(authorizationUrl, tokenUrl, userinfoUrl, issuer, clientId st
 				DynamicProviderCacheTTL: util.Duration(5 * time.Second),
 			}
 		}
-		c.Auth.OAuth2 = &api.OAuth2ProviderSpec{
+		c.Auth.OAuth2 = &domain.OAuth2ProviderSpec{
 			AuthorizationUrl: authorizationUrl,
 			TokenUrl:         tokenUrl,
 			UserinfoUrl:      userinfoUrl,
 			Issuer:           &issuer,
 			ClientId:         clientId,
 			Enabled:          &enabled,
-			ProviderType:     api.Oauth2,
+			ProviderType:     domain.Oauth2,
 		}
 	}
 }
@@ -376,10 +376,10 @@ func WithK8sAuth(apiUrl, rbacNs string) ConfigOption {
 			}
 		}
 		enabled := true
-		c.Auth.K8s = &api.K8sProviderSpec{
+		c.Auth.K8s = &domain.K8sProviderSpec{
 			ApiUrl:       apiUrl,
 			RbacNs:       &rbacNs,
-			ProviderType: api.K8s,
+			ProviderType: domain.K8s,
 			Enabled:      &enabled,
 		}
 	}
@@ -393,9 +393,9 @@ func WithAAPAuth(apiUrl, externalApiUrl string) ConfigOption {
 			}
 		}
 		enabled := true
-		c.Auth.AAP = &api.AapProviderSpec{
+		c.Auth.AAP = &domain.AapProviderSpec{
 			ApiUrl:       apiUrl,
-			ProviderType: api.Aap,
+			ProviderType: domain.Aap,
 			Enabled:      &enabled,
 		}
 	}
@@ -600,19 +600,19 @@ func Load(cfgFile string) (*Config, error) {
 
 func applyEnvVarOverrides(c *Config) {
 	if kvPass := os.Getenv("KV_PASSWORD"); kvPass != "" {
-		c.KV.Password = api.SecureString(kvPass)
+		c.KV.Password = domain.SecureString(kvPass)
 	}
 	if dbUser := os.Getenv("DB_USER"); dbUser != "" {
 		c.Database.User = dbUser
 	}
 	if dbPass := os.Getenv("DB_PASSWORD"); dbPass != "" {
-		c.Database.Password = api.SecureString(dbPass)
+		c.Database.Password = domain.SecureString(dbPass)
 	}
 	if dbMigrationUser := os.Getenv("DB_MIGRATION_USER"); dbMigrationUser != "" {
 		c.Database.MigrationUser = dbMigrationUser
 	}
 	if dbMigrationPass := os.Getenv("DB_MIGRATION_PASSWORD"); dbMigrationPass != "" {
-		c.Database.MigrationPassword = api.SecureString(dbMigrationPass)
+		c.Database.MigrationPassword = domain.SecureString(dbMigrationPass)
 	}
 }
 
@@ -717,21 +717,21 @@ func applyOIDCClientDefaults(c *Config) {
 	applyOIDCOrganizationAssignmentDefaults(c.Auth.OIDC)
 }
 
-func applyOIDCRoleAssignmentDefaults(oidc *api.OIDCProviderSpec) {
+func applyOIDCRoleAssignmentDefaults(oidc *domain.OIDCProviderSpec) {
 	if _, err := oidc.RoleAssignment.Discriminator(); err != nil {
-		dynamicRoleAssignment := api.AuthDynamicRoleAssignment{
-			Type:      api.AuthDynamicRoleAssignmentTypeDynamic,
+		dynamicRoleAssignment := domain.AuthDynamicRoleAssignment{
+			Type:      domain.AuthDynamicRoleAssignmentTypeDynamic,
 			ClaimPath: []string{"groups"},
 		}
 		_ = oidc.RoleAssignment.FromAuthDynamicRoleAssignment(dynamicRoleAssignment)
 	}
 }
 
-func applyOIDCOrganizationAssignmentDefaults(oidc *api.OIDCProviderSpec) {
+func applyOIDCOrganizationAssignmentDefaults(oidc *domain.OIDCProviderSpec) {
 	if _, err := oidc.OrganizationAssignment.Discriminator(); err != nil {
-		staticAssignment := api.AuthStaticOrganizationAssignment{
+		staticAssignment := domain.AuthStaticOrganizationAssignment{
 			OrganizationName: org.DefaultExternalID,
-			Type:             api.AuthStaticOrganizationAssignmentTypeStatic,
+			Type:             domain.AuthStaticOrganizationAssignmentTypeStatic,
 		}
 		_ = oidc.OrganizationAssignment.FromAuthStaticOrganizationAssignment(staticAssignment)
 	}
@@ -757,7 +757,7 @@ func applyOAuth2Defaults(c *Config) error {
 
 	// Infer introspection configuration if not provided
 	if c.Auth.OAuth2.Introspection == nil {
-		introspection, err := api.InferOAuth2IntrospectionConfig(*c.Auth.OAuth2)
+		introspection, err := domain.InferOAuth2IntrospectionConfig(*c.Auth.OAuth2)
 		if err != nil {
 			return fmt.Errorf("failed to infer OAuth2 introspection configuration: %w", err)
 		}
@@ -837,12 +837,12 @@ func Validate(cfg *Config) error {
 	// Validate OIDC and OAuth2 provider role assignments
 	if cfg.Auth != nil {
 		if cfg.Auth.OIDC != nil {
-			if err := validateAuthProviderRoleAssignment(cfg.Auth.OIDC.RoleAssignment, string(api.Oidc)); err != nil {
+			if err := validateAuthProviderRoleAssignment(cfg.Auth.OIDC.RoleAssignment, string(domain.Oidc)); err != nil {
 				return err
 			}
 		}
 		if cfg.Auth.OAuth2 != nil {
-			if err := validateAuthProviderRoleAssignment(cfg.Auth.OAuth2.RoleAssignment, string(api.Oauth2)); err != nil {
+			if err := validateAuthProviderRoleAssignment(cfg.Auth.OAuth2.RoleAssignment, string(domain.Oauth2)); err != nil {
 				return err
 			}
 		}
@@ -851,14 +851,14 @@ func Validate(cfg *Config) error {
 	return nil
 }
 
-func validateAuthProviderRoleAssignment(roleAssignment api.AuthRoleAssignment, providerType string) error {
+func validateAuthProviderRoleAssignment(roleAssignment domain.AuthRoleAssignment, providerType string) error {
 	discriminator, err := roleAssignment.Discriminator()
 	if err != nil {
 		// No role assignment configured, which is valid
 		return nil
 	}
 
-	if discriminator != string(api.AuthStaticRoleAssignmentTypeStatic) {
+	if discriminator != string(domain.AuthStaticRoleAssignmentTypeStatic) {
 		// Only validate static role assignments
 		return nil
 	}
@@ -873,8 +873,8 @@ func validateAuthProviderRoleAssignment(roleAssignment api.AuthRoleAssignment, p
 		if role == "" {
 			return fmt.Errorf("%s provider: role at index %d cannot be empty", providerType, i)
 		}
-		if !slices.Contains(api.KnownExternalRoles, role) {
-			return fmt.Errorf("%s provider: role at index %d is not a valid role: %s (must be one of: %v)", providerType, i, role, api.KnownExternalRoles)
+		if !slices.Contains(domain.KnownExternalRoles, role) {
+			return fmt.Errorf("%s provider: role at index %d is not a valid role: %s (must be one of: %v)", providerType, i, role, domain.KnownExternalRoles)
 		}
 	}
 

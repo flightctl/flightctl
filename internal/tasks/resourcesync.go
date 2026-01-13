@@ -9,8 +9,8 @@ import (
 	"net/http"
 	"strings"
 
-	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/util"
@@ -33,7 +33,7 @@ type ResourceSync struct {
 type GenericResourceMap map[string]interface{}
 
 var validFileExtensions = []string{"json", "yaml", "yml"}
-var supportedResources = []string{api.FleetKind}
+var supportedResources = []string{domain.FleetKind}
 
 func NewResourceSync(serviceHandler service.Service, log logrus.FieldLogger, ignoreResourceUpdates []string) *ResourceSync {
 	return &ResourceSync{
@@ -52,7 +52,7 @@ func (r *ResourceSync) Poll(ctx context.Context, orgId uuid.UUID) {
 	continueToken := (*string)(nil)
 
 	for {
-		resourcesyncs, status := r.serviceHandler.ListResourceSyncs(ctx, orgId, api.ListResourceSyncsParams{
+		resourcesyncs, status := r.serviceHandler.ListResourceSyncs(ctx, orgId, domain.ListResourceSyncsParams{
 			Limit:    &limit,
 			Continue: continueToken,
 		})
@@ -76,7 +76,7 @@ func (r *ResourceSync) Poll(ctx context.Context, orgId uuid.UUID) {
 	}
 }
 
-func (r *ResourceSync) run(ctx context.Context, log logrus.FieldLogger, orgId uuid.UUID, rs *api.ResourceSync) error {
+func (r *ResourceSync) run(ctx context.Context, log logrus.FieldLogger, orgId uuid.UUID, rs *domain.ResourceSync) error {
 	resourceName := lo.FromPtr(rs.Metadata.Name)
 	defer r.updateResourceSyncStatus(ctx, orgId, rs)
 
@@ -101,7 +101,7 @@ func (r *ResourceSync) run(ctx context.Context, log logrus.FieldLogger, orgId uu
 	fleets, err := r.ParseFleetsFromResources(resources, resourceName)
 
 	// Set the ResourceParsed condition based on the result
-	api.SetStatusConditionByError(&rs.Status.Conditions, api.ConditionTypeResourceSyncResourceParsed, "success", "fail", err)
+	domain.SetStatusConditionByError(&rs.Status.Conditions, domain.ConditionTypeResourceSyncResourceParsed, "success", "fail", err)
 
 	if err != nil {
 		log.Errorf("%v", err)
@@ -113,7 +113,7 @@ func (r *ResourceSync) run(ctx context.Context, log logrus.FieldLogger, orgId uu
 }
 
 // GetRepositoryAndValidateAccess gets the repository and validates it's accessible
-func (r *ResourceSync) GetRepositoryAndValidateAccess(ctx context.Context, orgId uuid.UUID, rs *api.ResourceSync) (*api.Repository, error) {
+func (r *ResourceSync) GetRepositoryAndValidateAccess(ctx context.Context, orgId uuid.UUID, rs *domain.ResourceSync) (*domain.Repository, error) {
 	if rs == nil {
 		return nil, fmt.Errorf("ResourceSync is nil")
 	}
@@ -124,13 +124,13 @@ func (r *ResourceSync) GetRepositoryAndValidateAccess(ctx context.Context, orgId
 
 	// Ensure Status and Conditions are initialized
 	if rs.Status == nil {
-		rs.Status = &api.ResourceSyncStatus{}
+		rs.Status = &domain.ResourceSyncStatus{}
 	}
 	if rs.Status.Conditions == nil {
-		rs.Status.Conditions = []api.Condition{}
+		rs.Status.Conditions = []domain.Condition{}
 	}
 
-	api.SetStatusConditionByError(&rs.Status.Conditions, api.ConditionTypeResourceSyncAccessible, "accessible", "repository resource not found", err)
+	domain.SetStatusConditionByError(&rs.Status.Conditions, domain.ConditionTypeResourceSyncAccessible, "accessible", "repository resource not found", err)
 	if err != nil {
 		return nil, err
 	}
@@ -138,7 +138,7 @@ func (r *ResourceSync) GetRepositoryAndValidateAccess(ctx context.Context, orgId
 }
 
 // ParseFleetsFromResources parses fleets from generic resources
-func (r *ResourceSync) ParseFleetsFromResources(resources []GenericResourceMap, resourceName string) ([]*api.Fleet, error) {
+func (r *ResourceSync) ParseFleetsFromResources(resources []GenericResourceMap, resourceName string) ([]*domain.Fleet, error) {
 	fleets, err := r.parseFleets(resources)
 	// Note: We can't set conditions here since we don't have access to rs
 	// The conditions will be set in the calling method
@@ -150,44 +150,44 @@ func (r *ResourceSync) ParseFleetsFromResources(resources []GenericResourceMap, 
 }
 
 // SyncFleets syncs the fleets to the service
-func (r *ResourceSync) SyncFleets(ctx context.Context, log logrus.FieldLogger, orgId uuid.UUID, rs *api.ResourceSync, fleets []*api.Fleet, resourceName string) error {
+func (r *ResourceSync) SyncFleets(ctx context.Context, log logrus.FieldLogger, orgId uuid.UUID, rs *domain.ResourceSync, fleets []*domain.Fleet, resourceName string) error {
 	if rs == nil {
 		return fmt.Errorf("ResourceSync is nil")
 	}
 
 	// Ensure Status and Conditions are initialized
 	if rs.Status == nil {
-		rs.Status = &api.ResourceSyncStatus{}
+		rs.Status = &domain.ResourceSyncStatus{}
 	}
 	if rs.Status.Conditions == nil {
-		rs.Status.Conditions = []api.Condition{}
+		rs.Status.Conditions = []domain.Condition{}
 	}
 
-	owner := util.SetResourceOwner(api.ResourceSyncKind, resourceName)
+	owner := util.SetResourceOwner(domain.ResourceSyncKind, resourceName)
 
 	// Validate that no fleet names conflict with fleets owned by other ResourceSyncs
 	err := r.validateFleetNameConflicts(ctx, orgId, fleets, *owner)
 	if err != nil {
 		err = fmt.Errorf("resource %s: error: %w", resourceName, err)
 		log.Errorf("%v", err)
-		api.SetStatusConditionByError(&rs.Status.Conditions, api.ConditionTypeResourceSyncSynced, "success", "fail", err)
+		domain.SetStatusConditionByError(&rs.Status.Conditions, domain.ConditionTypeResourceSyncSynced, "success", "fail", err)
 		return err
 	}
 
-	fleetsPreOwned := make([]api.Fleet, 0)
+	fleetsPreOwned := make([]domain.Fleet, 0)
 
-	listParams := api.ListFleetsParams{
+	listParams := domain.ListFleetsParams{
 		Limit:         lo.ToPtr(int32(100)),
 		FieldSelector: lo.ToPtr(fmt.Sprintf("metadata.owner=%s", *owner)),
 	}
 	for {
-		var listRes *api.FleetList
-		var status api.Status
+		var listRes *domain.FleetList
+		var status domain.Status
 		listRes, status = r.serviceHandler.ListFleets(ctx, orgId, listParams)
 		if status.Code != http.StatusOK {
 			err = fmt.Errorf("resource %s: failed to list owned fleets. error: %s", resourceName, status.Message)
 			log.Errorf("%v", err)
-			api.SetStatusConditionByError(&rs.Status.Conditions, api.ConditionTypeResourceSyncSynced, "success", "fail", err)
+			domain.SetStatusConditionByError(&rs.Status.Conditions, domain.ConditionTypeResourceSyncSynced, "success", "fail", err)
 			return err
 		}
 		fleetsPreOwned = append(fleetsPreOwned, listRes.Items...)
@@ -211,12 +211,12 @@ func (r *ResourceSync) SyncFleets(ctx context.Context, log logrus.FieldLogger, o
 			if status.Code != http.StatusOK {
 				err := fmt.Errorf("resource %s: failed to remove old fleet %s. error: %s", resourceName, fleetToRemove, status.Message)
 				log.Errorf("%v", err)
-				api.SetStatusConditionByError(&rs.Status.Conditions, api.ConditionTypeResourceSyncSynced, "success", "fail", err)
+				domain.SetStatusConditionByError(&rs.Status.Conditions, domain.ConditionTypeResourceSyncSynced, "success", "fail", err)
 				return service.ApiStatusToErr(status)
 			}
 		}
 	}
-	api.SetStatusConditionByError(&rs.Status.Conditions, api.ConditionTypeResourceSyncSynced, "success", "fail", createUpdateErr)
+	domain.SetStatusConditionByError(&rs.Status.Conditions, domain.ConditionTypeResourceSyncSynced, "success", "fail", createUpdateErr)
 	if createUpdateErr != nil {
 		log.Errorf("Resource %s: failed to apply resource. error: %s", resourceName, createUpdateErr.Error())
 		return createUpdateErr
@@ -226,7 +226,7 @@ func (r *ResourceSync) SyncFleets(ctx context.Context, log logrus.FieldLogger, o
 	return createUpdateErr
 }
 
-func (r *ResourceSync) createOrUpdateMultiple(ctx context.Context, orgId uuid.UUID, owner *string, resources ...*api.Fleet) error {
+func (r *ResourceSync) createOrUpdateMultiple(ctx context.Context, orgId uuid.UUID, owner *string, resources ...*domain.Fleet) error {
 	var errs []error
 	for _, resource := range resources {
 		// Create a context where InternalRequestCtxKey is false so that ReplaceFleet
@@ -259,7 +259,7 @@ func (r *ResourceSync) createOrUpdateMultiple(ctx context.Context, orgId uuid.UU
 }
 
 // Returns a list of names that are no longer present
-func fleetsDelta(owned []api.Fleet, newOwned []*api.Fleet) []string {
+func fleetsDelta(owned []domain.Fleet, newOwned []*domain.Fleet) []string {
 	dfleets := make([]string, 0)
 	for _, ownedFleet := range owned {
 		found := false
@@ -279,12 +279,12 @@ func fleetsDelta(owned []api.Fleet, newOwned []*api.Fleet) []string {
 }
 
 // NeedsSyncToHash returns true if the resource needs to be synced to the given hash.
-func NeedsSyncToHash(rs *api.ResourceSync, hash string) bool {
+func NeedsSyncToHash(rs *domain.ResourceSync, hash string) bool {
 	if rs.Status == nil || rs.Status.Conditions == nil {
 		return true
 	}
 
-	if api.IsStatusConditionFalse(rs.Status.Conditions, api.ConditionTypeResourceSyncSynced) {
+	if domain.IsStatusConditionFalse(rs.Status.Conditions, domain.ConditionTypeResourceSyncSynced) {
 		return true
 	}
 
@@ -296,11 +296,11 @@ func NeedsSyncToHash(rs *api.ResourceSync, hash string) bool {
 	return hash != prevHash || observedGen != *rs.Metadata.Generation
 }
 
-func (r *ResourceSync) parseAndValidateResources(rs *api.ResourceSync, repo *api.Repository, gitCloneRepo cloneGitRepoFunc) ([]GenericResourceMap, error) {
+func (r *ResourceSync) parseAndValidateResources(rs *domain.ResourceSync, repo *domain.Repository, gitCloneRepo cloneGitRepoFunc) ([]GenericResourceMap, error) {
 	path := rs.Spec.Path
 	revision := rs.Spec.TargetRevision
 	mfs, hash, err := gitCloneRepo(repo, &revision, lo.ToPtr(1))
-	api.SetStatusConditionByError(&rs.Status.Conditions, api.ConditionTypeResourceSyncAccessible, "accessible", "failed to clone repository", err)
+	domain.SetStatusConditionByError(&rs.Status.Conditions, domain.ConditionTypeResourceSyncAccessible, "accessible", "failed to clone repository", err)
 	if err != nil {
 		return nil, err
 	}
@@ -313,13 +313,13 @@ func (r *ResourceSync) parseAndValidateResources(rs *api.ResourceSync, repo *api
 
 	// Set Synced condition to False with reason indicating new hash detected
 	// This is not a failure, just indicates we're out of sync and need to sync
-	api.SetStatusConditionByError(&rs.Status.Conditions, api.ConditionTypeResourceSyncSynced, "success", api.ResourceSyncNewHashDetectedReason, fmt.Errorf("detected new hash %s", hash))
+	domain.SetStatusConditionByError(&rs.Status.Conditions, domain.ConditionTypeResourceSyncSynced, "success", domain.ResourceSyncNewHashDetectedReason, fmt.Errorf("detected new hash %s", hash))
 
 	rs.Status.ObservedCommit = lo.ToPtr(hash)
 
 	// Open files
 	fileInfo, err := mfs.Stat(path)
-	api.SetStatusConditionByError(&rs.Status.Conditions, api.ConditionTypeResourceSyncAccessible, "accessible", "path not found in repository", err)
+	domain.SetStatusConditionByError(&rs.Status.Conditions, domain.ConditionTypeResourceSyncAccessible, "accessible", "path not found in repository", err)
 	if err != nil {
 		return nil, err
 	}
@@ -329,7 +329,7 @@ func (r *ResourceSync) parseAndValidateResources(rs *api.ResourceSync, repo *api
 	} else {
 		resources, err = r.extractResourcesFromFile(mfs, path)
 	}
-	api.SetStatusConditionByError(&rs.Status.Conditions, api.ConditionTypeResourceSyncResourceParsed, "success", "fail", err)
+	domain.SetStatusConditionByError(&rs.Status.Conditions, domain.ConditionTypeResourceSyncResourceParsed, "success", "fail", err)
 	if err != nil {
 		return nil, err
 
@@ -431,8 +431,8 @@ func removeFieldFromMap(m map[string]interface{}, parts []string) {
 	}
 }
 
-func (r ResourceSync) parseFleets(resources []GenericResourceMap) ([]*api.Fleet, error) {
-	fleets := make([]*api.Fleet, 0)
+func (r ResourceSync) parseFleets(resources []GenericResourceMap) ([]*domain.Fleet, error) {
+	fleets := make([]*domain.Fleet, 0)
 	names := make(map[string]string)
 	for _, resource := range resources {
 		kind, ok := resource["kind"].(string)
@@ -445,8 +445,8 @@ func (r ResourceSync) parseFleets(resources []GenericResourceMap) ([]*api.Fleet,
 		}
 
 		switch kind {
-		case api.FleetKind:
-			var fleet api.Fleet
+		case domain.FleetKind:
+			var fleet domain.Fleet
 			err := yamlutil.Unmarshal(buf, &fleet)
 			if err != nil {
 				return nil, fmt.Errorf("decoding Fleet resource: %w", err)
@@ -471,7 +471,7 @@ func (r ResourceSync) parseFleets(resources []GenericResourceMap) ([]*api.Fleet,
 	return fleets, nil
 }
 
-func (r *ResourceSync) updateResourceSyncStatus(ctx context.Context, orgId uuid.UUID, rs *api.ResourceSync) {
+func (r *ResourceSync) updateResourceSyncStatus(ctx context.Context, orgId uuid.UUID, rs *domain.ResourceSync) {
 	_, status := r.serviceHandler.ReplaceResourceSyncStatus(ctx, orgId, *rs.Metadata.Name, *rs)
 	if status.Code != http.StatusOK {
 		r.log.Errorf("Failed to update resourcesync status for %s: %s", *rs.Metadata.Name, status.Message)
@@ -492,13 +492,13 @@ func isValidFile(filename string) bool {
 	return false
 }
 
-func (r *ResourceSync) validateFleetNameConflicts(ctx context.Context, orgId uuid.UUID, fleets []*api.Fleet, owner string) error {
+func (r *ResourceSync) validateFleetNameConflicts(ctx context.Context, orgId uuid.UUID, fleets []*domain.Fleet, owner string) error {
 	var conflictingFleets []string
 
 	for _, fleet := range fleets {
 		fleetName := *fleet.Metadata.Name
 		// Check if a fleet with this name already exists
-		existingFleet, status := r.serviceHandler.GetFleet(ctx, orgId, fleetName, api.GetFleetParams{})
+		existingFleet, status := r.serviceHandler.GetFleet(ctx, orgId, fleetName, domain.GetFleetParams{})
 		if status.Code == http.StatusOK {
 			// Fleet exists - check if it's owned by a different ResourceSync
 			if existingFleet.Metadata.Owner != nil && *existingFleet.Metadata.Owner != owner {

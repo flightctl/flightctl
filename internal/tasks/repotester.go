@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/go-git/go-git/v5"
@@ -31,7 +31,7 @@ type API interface {
 
 // RepoTesterMapping maps a repository to its appropriate TypeSpecificRepoTester.
 // Returns nil if the repository type is unsupported.
-type RepoTesterMapping func(repository *api.Repository) TypeSpecificRepoTester
+type RepoTesterMapping func(repository *domain.Repository) TypeSpecificRepoTester
 
 type RepoTester struct {
 	log              logrus.FieldLogger
@@ -59,17 +59,17 @@ var (
 
 // DefaultRepoTesterMapping returns the appropriate TypeSpecificRepoTester based on the repository spec.
 // Returns nil if the repository type is unsupported.
-func DefaultRepoTesterMapping(repository *api.Repository) TypeSpecificRepoTester {
+func DefaultRepoTesterMapping(repository *domain.Repository) TypeSpecificRepoTester {
 	specType, err := repository.Spec.Discriminator()
 	if err != nil {
 		return nil
 	}
-	switch api.RepoSpecType(specType) {
-	case api.RepoSpecTypeOci:
+	switch domain.RepoSpecType(specType) {
+	case domain.RepoSpecTypeOci:
 		return ociRepoTester
-	case api.RepoSpecTypeHttp:
+	case domain.RepoSpecTypeHttp:
 		return httpRepoTester
-	case api.RepoSpecTypeGit:
+	case domain.RepoSpecTypeGit:
 		return gitRepoTester
 	default:
 		return nil
@@ -85,7 +85,7 @@ func (r *RepoTester) TestRepositories(ctx context.Context, orgId uuid.UUID) {
 	continueToken := (*string)(nil)
 
 	for {
-		repositories, status := r.serviceHandler.ListRepositories(ctx, orgId, api.ListRepositoriesParams{
+		repositories, status := r.serviceHandler.ListRepositories(ctx, orgId, domain.ListRepositoriesParams{
 			Limit:    &limit,
 			Continue: continueToken,
 		})
@@ -114,19 +114,19 @@ func (r *RepoTester) TestRepositories(ctx context.Context, orgId uuid.UUID) {
 	}
 }
 
-func (r *RepoTester) SetAccessCondition(ctx context.Context, orgId uuid.UUID, repository *api.Repository, err error) error {
+func (r *RepoTester) SetAccessCondition(ctx context.Context, orgId uuid.UUID, repository *domain.Repository, err error) error {
 	if repository.Status == nil {
-		repository.Status = &api.RepositoryStatus{Conditions: []api.Condition{}}
+		repository.Status = &domain.RepositoryStatus{Conditions: []domain.Condition{}}
 	}
 	if repository.Status.Conditions == nil {
-		repository.Status.Conditions = []api.Condition{}
+		repository.Status.Conditions = []domain.Condition{}
 	}
 	_, status := r.serviceHandler.ReplaceRepositoryStatusByError(ctx, orgId, lo.FromPtr(repository.Metadata.Name), *repository, err)
 
 	return service.ApiStatusToErr(status)
 }
 
-func (r *RepoTester) testRepository(ctx context.Context, orgId uuid.UUID, repository api.Repository, tester TypeSpecificRepoTester) {
+func (r *RepoTester) testRepository(ctx context.Context, orgId uuid.UUID, repository domain.Repository, tester TypeSpecificRepoTester) {
 	repoName := *repository.Metadata.Name
 	accessErr := tester.TestAccess(&repository)
 	if err := r.SetAccessCondition(ctx, orgId, &repository, accessErr); err != nil {
@@ -135,7 +135,7 @@ func (r *RepoTester) testRepository(ctx context.Context, orgId uuid.UUID, reposi
 }
 
 type TypeSpecificRepoTester interface {
-	TestAccess(repository *api.Repository) error
+	TestAccess(repository *domain.Repository) error
 }
 
 type GitRepoTester struct {
@@ -147,7 +147,7 @@ type HttpRepoTester struct {
 type OciRepoTester struct {
 }
 
-func (r *GitRepoTester) TestAccess(repository *api.Repository) error {
+func (r *GitRepoTester) TestAccess(repository *domain.Repository) error {
 	repoURL, err := repository.Spec.GetRepoURL()
 	if err != nil {
 		return err
@@ -181,7 +181,7 @@ func (r *GitRepoTester) TestAccess(repository *api.Repository) error {
 	return nil
 }
 
-func (r *HttpRepoTester) TestAccess(repository *api.Repository) error {
+func (r *HttpRepoTester) TestAccess(repository *domain.Repository) error {
 	repoHttpSpec, err := repository.Spec.GetHttpRepoSpec()
 	if err != nil {
 		return fmt.Errorf("failed to get HTTP repo spec: %w", err)
@@ -198,7 +198,7 @@ func (r *HttpRepoTester) TestAccess(repository *api.Repository) error {
 	return err
 }
 
-func (r *OciRepoTester) TestAccess(repository *api.Repository) error {
+func (r *OciRepoTester) TestAccess(repository *domain.Repository) error {
 	ociSpec, err := repository.Spec.GetOciRepoSpec()
 	if err != nil {
 		return fmt.Errorf("failed to get OCI repo spec: %w", err)
@@ -261,8 +261,8 @@ func (r *OciRepoTester) TestAccess(repository *api.Repository) error {
 		if err != nil {
 			return fmt.Errorf("failed to determine OCI auth type: %w", err)
 		}
-		switch api.OciAuthType(authType) {
-		case api.Docker:
+		switch domain.OciAuthType(authType) {
+		case domain.Docker:
 			return r.authenticateDocker(client, v2URL, resp, ociSpec.OciAuth)
 		default:
 			return fmt.Errorf("unsupported OCI auth type: %s", authType)
@@ -274,7 +274,7 @@ func (r *OciRepoTester) TestAccess(repository *api.Repository) error {
 }
 
 // authenticateDocker performs Docker registry token-based authentication (Bearer token exchange)
-func (r *OciRepoTester) authenticateDocker(client *http.Client, v2URL string, initialResp *http.Response, ociAuth *api.OciAuth) error {
+func (r *OciRepoTester) authenticateDocker(client *http.Client, v2URL string, initialResp *http.Response, ociAuth *domain.OciAuth) error {
 	// Docker registries return 401 with Www-Authenticate header for token exchange
 	if initialResp.StatusCode != http.StatusUnauthorized {
 		return fmt.Errorf("unexpected status code: %d", initialResp.StatusCode)

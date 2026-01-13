@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
@@ -36,10 +36,10 @@ func (t *DeviceDisconnected) Poll(ctx context.Context, orgID uuid.UUID) {
 	defer cancel()
 
 	// Calculate the cutoff time for disconnected devices
-	cutoffTime := time.Now().UTC().Add(-api.DeviceDisconnectedTimeout)
+	cutoffTime := time.Now().UTC().Add(-domain.DeviceDisconnectedTimeout)
 
 	// List devices that match the disconnection criteria with pagination
-	listParams := api.ListDevicesParams{
+	listParams := domain.ListDevicesParams{
 		Limit: lo.ToPtr(int32(ItemsPerPage)),
 	}
 
