@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	fccrypto "github.com/flightctl/flightctl/pkg/crypto"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 )
 
@@ -408,6 +409,9 @@ func (cm *CertManager) shouldProvisionCertificate(b *bundleRegistry, pk string, 
 
 // provisionCertificate queues a certificate for provisioning.
 func (cm *CertManager) provisionCertificate(_ context.Context, b *bundleRegistry, pk string, cert *certificate, cfg CertificateConfig) error {
+	cert.Provisioner = nil
+	cert.Storage = nil
+
 	return cm.certificateReconciler.Enqueue(b.name, pk, cert, cfg)
 }
 
@@ -500,6 +504,11 @@ func (cm *CertManager) ensureCertificate_do(ctx context.Context, b *bundleRegist
 		return nil, fmt.Errorf("provisioner returned Ready=true with nil certificate")
 	}
 
+	parsedCert, err := fccrypto.ParsePEMCertificate(res.Cert)
+	if err != nil {
+		return nil, fmt.Errorf("parsing provisioned certificate PEM: %w", err)
+	}
+
 	if err := cert.Storage.Store(ctx, StoreRequest{
 		Result:      res,
 		Desired:     config.Storage,
@@ -508,7 +517,7 @@ func (cm *CertManager) ensureCertificate_do(ctx context.Context, b *bundleRegist
 		return nil, err
 	}
 
-	cm.addCertificateInfo(cert, res.Cert)
+	cm.addCertificateInfo(cert, parsedCert)
 
 	// Update last-applied config only on successful write.
 	cert.Config = config

@@ -126,6 +126,21 @@ func (mr *MockProviderMockRecorder) GenerateCSR(deviceName any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GenerateCSR", reflect.TypeOf((*MockProvider)(nil).GenerateCSR), deviceName)
 }
 
+// GetCertificate mocks base method.
+func (m *MockProvider) GetCertificate() ([]byte, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetCertificate")
+	ret0, _ := ret[0].([]byte)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetCertificate indicates an expected call of GetCertificate.
+func (mr *MockProviderMockRecorder) GetCertificate() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCertificate", reflect.TypeOf((*MockProvider)(nil).GetCertificate))
+}
+
 // GetDeviceName mocks base method.
 func (m *MockProvider) GetDeviceName() (string, error) {
 	m.ctrl.T.Helper()

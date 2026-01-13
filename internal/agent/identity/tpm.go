@@ -24,6 +24,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
+	"k8s.io/client-go/util/cert"
 	certutil "k8s.io/client-go/util/cert"
 )
 
@@ -337,6 +338,39 @@ func (t *tpmProvider) HasCertificate() bool {
 	return hasCertificate(t.rw, t.clientCertPath, t.log)
 }
 
+func (t *tpmProvider) GetCertificate() ([]byte, error) {
+	// Prefer in-memory cert if present (Initialize/StoreCertificate already loads it).
+	pemBytes := t.certificateData
+
+	// Fallback to disk if not in memory.
+	if len(pemBytes) == 0 {
+		if t.clientCertPath == "" {
+			return nil, nil
+		}
+
+		exists, err := t.rw.PathExists(t.clientCertPath)
+		if err != nil {
+			return nil, fmt.Errorf("checking certificate file %q: %w", t.clientCertPath, err)
+		}
+		if !exists {
+			return nil, nil
+		}
+
+		b, err := t.rw.ReadFile(t.clientCertPath)
+		if err != nil {
+			return nil, fmt.Errorf("reading certificate file %q: %w", t.clientCertPath, err)
+		}
+
+		if _, err := cert.ParseCertsPEM(b); err != nil {
+			return nil, fmt.Errorf("parsing certificate file %q: %w", t.clientCertPath, err)
+		}
+
+		pemBytes = b
+	}
+
+	return pemBytes, nil
+}
+
 func (t *tpmProvider) createCertificate() (*tls.Certificate, error) {
 	if t.client == nil {
 		return nil, fmt.Errorf("TPM client not initialized")
@@ -375,53 +409,55 @@ func normalizeManagementConfig(config *base_client.Config) (*base_client.Config,
 }
 
 func (t *tpmProvider) CreateManagementClient(config *base_client.Config, metricsCallback client.RPCMetricsCallback) (client.Management, error) {
-	tlsCert, err := t.createCertificate()
-	if err != nil {
-		return nil, err
-	}
-	tlsConfig := &tls.Config{
-		Certificates: []tls.Certificate{*tlsCert},
-		MinVersion:   tls.VersionTLS13,
-	}
-
-	configCopy, err := normalizeManagementConfig(config)
-	if err != nil {
-		return nil, fmt.Errorf("normalizing config: %w", err)
-	}
-	if configCopy.Service.CertificateAuthorityData != nil {
-		caCertPool := x509.NewCertPool()
-		caCertPool.AppendCertsFromPEM(configCopy.Service.CertificateAuthorityData)
-		tlsConfig.RootCAs = caCertPool
-	}
-
-	if configCopy.Service.TLSServerName != "" {
-		tlsConfig.ServerName = configCopy.Service.TLSServerName
-	} else {
-		u, err := url.Parse(configCopy.Service.Server)
-		if err == nil {
-			tlsConfig.ServerName = u.Hostname()
+	return client.NewManagementDelegate(func() (client.Management, error) {
+		tlsCert, err := t.createCertificate()
+		if err != nil {
+			return nil, err
 		}
-	}
-
-	httpClient := &http.Client{
-		Transport: &http.Transport{
-			TLSClientConfig: tlsConfig,
-		},
-	}
-
-	for _, opt := range configCopy.HTTPOptions {
-		if err = opt(httpClient); err != nil {
-			return nil, fmt.Errorf("applying HTTP option: %w", err)
+		tlsConfig := &tls.Config{
+			Certificates: []tls.Certificate{*tlsCert},
+			MinVersion:   tls.VersionTLS13,
 		}
-	}
 
-	clientWithResponses, err := agent_client.NewClientWithResponses(configCopy.Service.Server, agent_client.WithHTTPClient(httpClient))
-	if err != nil {
-		return nil, fmt.Errorf("creating client: %w", err)
-	}
+		configCopy, err := normalizeManagementConfig(config)
+		if err != nil {
+			return nil, fmt.Errorf("normalizing config: %w", err)
+		}
+		if configCopy.Service.CertificateAuthorityData != nil {
+			caCertPool := x509.NewCertPool()
+			caCertPool.AppendCertsFromPEM(configCopy.Service.CertificateAuthorityData)
+			tlsConfig.RootCAs = caCertPool
+		}
 
-	managementClient := client.NewManagement(clientWithResponses, metricsCallback)
-	return managementClient, nil
+		if configCopy.Service.TLSServerName != "" {
+			tlsConfig.ServerName = configCopy.Service.TLSServerName
+		} else {
+			u, err := url.Parse(configCopy.Service.Server)
+			if err == nil {
+				tlsConfig.ServerName = u.Hostname()
+			}
+		}
+
+		httpClient := &http.Client{
+			Transport: &http.Transport{
+				TLSClientConfig: tlsConfig,
+			},
+		}
+
+		for _, opt := range configCopy.HTTPOptions {
+			if err := opt(httpClient); err != nil {
+				return nil, fmt.Errorf("applying HTTP option: %w", err)
+			}
+		}
+
+		clientWithResponses, err := agent_client.NewClientWithResponses(configCopy.Service.Server, agent_client.WithHTTPClient(httpClient))
+		if err != nil {
+			return nil, fmt.Errorf("creating client: %w", err)
+		}
+
+		managementClient := client.NewManagement(clientWithResponses, metricsCallback)
+		return managementClient, nil
+	})
 }
 
 func (t *tpmProvider) CreateGRPCClient(config *base_client.Config) (grpc_v1.RouterServiceClient, error) {

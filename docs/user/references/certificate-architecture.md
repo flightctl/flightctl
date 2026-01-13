@@ -114,7 +114,7 @@ flightctl certificate request --signer=enrollment --expiration=30d --output=embe
 | Setting                      | Default  | Description                    |
 | ---------------------------- | -------- | ------------------------------ |
 | `certValidityDays`           | 3650     | CA certificate validity        |
-| `clientBootStrapValidityDays`| 365      | Enrollment certificate validity|
+| `clientBootstrapValidityDays`| 365      | Enrollment certificate validity|
 | `serverCertValidityDays`     | 365      | Server certificate validity    |
 
 ## Certificate Rotation

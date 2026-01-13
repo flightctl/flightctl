@@ -82,10 +82,11 @@ type ProvisionResult struct {
 	// If false, the caller should retry after RequeueAfter.
 	Ready bool
 
-	// Cert is the provisioned X.509 certificate.
+	// Cert contains the provisioned X.509 certificate in PEM form.
+	//
 	// MUST be non-nil when Ready == true.
 	// MUST be nil when Ready == false.
-	Cert *x509.Certificate
+	Cert []byte
 
 	// Key contains the private key material in PEM form, if exportable.
 	//

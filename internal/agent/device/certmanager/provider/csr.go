@@ -13,7 +13,6 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/identity"
 	agentapi "github.com/flightctl/flightctl/internal/api/client/agent"
 	"github.com/flightctl/flightctl/pkg/certmanager"
-	fccrypto "github.com/flightctl/flightctl/pkg/crypto"
 	"github.com/google/uuid"
 )
 
@@ -164,17 +163,12 @@ func (p *CSRProvisioner) check(ctx context.Context) (*certmanager.ProvisionResul
 	if api.IsStatusConditionTrue(csr.Status.Conditions, api.ConditionTypeCertificateSigningRequestApproved) && csr.Status.Certificate != nil {
 		certPEM := *csr.Status.Certificate
 
-		cert, err := fccrypto.ParsePEMCertificate(certPEM)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse CSR PEM certificate: %w", err)
-		}
-
 		keyPEM, err := p.identity.KeyPEM()
 		if err != nil {
 			return nil, fmt.Errorf("key pem: %w", err)
 		}
 
-		return &certmanager.ProvisionResult{Ready: true, Cert: cert, Key: keyPEM}, nil
+		return &certmanager.ProvisionResult{Ready: true, Cert: certPEM, Key: keyPEM}, nil
 	}
 
 	if api.IsStatusConditionTrue(csr.Status.Conditions, api.ConditionTypeCertificateSigningRequestDenied) ||

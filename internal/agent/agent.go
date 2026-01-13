@@ -326,13 +326,10 @@ func (a *Agent) Run(ctx context.Context) error {
 		bootstrap.ManagementClient(),
 		deviceReadWriter,
 		identity.NewExportableFactory(tpmClient, a.log),
+		identityProvider,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to initialize certificate manager: %w", err)
-	}
-
-	if err := certManager.Sync(ctx, a.config); err != nil {
-		a.log.Warnf("Failed to sync certificate manager: %v", err)
 	}
 
 	// create the gRPC client this must be done after bootstrap
@@ -424,6 +421,11 @@ func (a *Agent) Run(ctx context.Context) error {
 	// publisher is async to poll management server for spec updates at regular intervals
 	// fetching is async, but spec management remains serial in the main agent loop
 	go specManager.Publisher().Run(ctx)
+
+	// certManager runs certificate reconciliation asynchronously.
+	// It periodically syncs device certificates (issuance/renewal) and must not
+	// block the main agent loop or other long-running managers.
+	go certManager.Run(ctx)
 
 	// main agent loop: all critical work happens here serially
 	return agent.Run(ctx)
