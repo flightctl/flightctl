@@ -128,6 +128,13 @@ type GitServerConfig struct {
 	SSHKey   string // path to SSH private key if using key auth
 }
 
+// ResourceTestConfig represents a test configuration for resource operations
+// with different success expectations per resource group
+type ResourceTestConfig struct {
+	Resources     []string
+	ShouldSucceed bool
+}
+
 // findTopLevelDir is unused but kept for potential future use
 func findTopLevelDir() string { //nolint:unused
 	currentWorkDirectory, err := os.Getwd()
@@ -215,6 +222,23 @@ func (h *Harness) ReadClientConfig(filePath string) (*client.Config, error) {
 		filePath = defaultPath
 	}
 	return client.ParseConfigFile(filePath)
+}
+
+// RefreshClient recreates the FlightCtl API client from the config file.
+// This is useful after login when the config file has been updated with new authentication or organization information.
+func (h *Harness) RefreshClient() error {
+	baseDir, err := client.DefaultFlightctlClientConfigPath()
+	if err != nil {
+		return fmt.Errorf("failed to get client config path: %w", err)
+	}
+
+	c, err := client.NewFromConfigFile(baseDir)
+	if err != nil {
+		return fmt.Errorf("failed to recreate client: %w", err)
+	}
+	h.Client = c.ClientWithResponses
+	logrus.Infof("Refreshed FlightCtl API client from config file")
+	return nil
 }
 
 // ExtractAuthURL extracts the authentication URL from an AuthProvider based on its type
@@ -2169,6 +2193,28 @@ func (h *Harness) CreateGitRepositoryWithContent(repoName, filePath, content str
 	return nil
 }
 
+// ChangeK8sNamespace changes the current Kubernetes namespace
+func (h *Harness) ChangeK8sNamespace(namespace string) error {
+	if util.BinaryExistsOnPath("oc") {
+		// Use oc project for OpenShift
+		cmd := exec.Command("oc", "project", namespace)
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("failed to change namespace to %s: %v, output: %s", namespace, err, string(output))
+		}
+		GinkgoWriter.Printf("Changed namespace to %s using oc project\n", namespace)
+		return nil
+	}
+	// Use kubectl for regular Kubernetes
+	cmd := exec.Command("kubectl", "config", "set-context", "--current", "--namespace", namespace)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to change namespace to %s: %v, output: %s", namespace, err, string(output))
+	}
+	GinkgoWriter.Printf("Changed namespace to %s using kubectl\n", namespace)
+	return nil
+}
+
 // ChangeK8sContext changes the kubernetes context
 func (h *Harness) ChangeK8sContext(ctx context.Context, k8sContext string) (string, error) {
 	if !util.BinaryExistsOnPath("oc") {
@@ -2313,6 +2359,19 @@ func ExecuteResourceOperations(ctx context.Context, harness *Harness, resourceTy
 	return nil
 }
 
+// TestResourceOperations tests multiple resource groups with different success expectations.
+// It iterates through testConfigs and calls ExecuteResourceOperations for each group.
+func TestResourceOperations(ctx context.Context, harness *Harness, operations []string, testConfigs []ResourceTestConfig, testLabels *map[string]string, namespace string) error {
+	GinkgoWriter.Println("Testing resource operations in namespace:", namespace)
+	for _, config := range testConfigs {
+		err := ExecuteResourceOperations(ctx, harness, config.Resources, config.ShouldSucceed, testLabels, namespace, operations)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // executeResourceOperation handles a single operation for a resource type
 func executeResourceOperation(harness *Harness, operation, resourceType string, resourceName *string, resourceData *[]byte, shouldSucceed bool, testLabels *map[string]string) error {
 	var output string
@@ -2361,8 +2420,8 @@ func validateResourceOperationResult(operationName, resourceType, output string,
 		if err == nil {
 			return fmt.Errorf("%s %s should fail but succeeded", operationName, resourceType)
 		}
-		if !strings.Contains(output, "403") {
-			return fmt.Errorf("%s %s should fail with error code 403, got: %s", operationName, resourceType, output)
+		if !strings.Contains(output, strconv.Itoa(util.HTTP_403_ERROR)) {
+			return fmt.Errorf("%s %s should fail with error code %s, got: %s", operationName, resourceType, strconv.Itoa(util.HTTP_403_ERROR), output)
 		}
 	}
 	return nil
