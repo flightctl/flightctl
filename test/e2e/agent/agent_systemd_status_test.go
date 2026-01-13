@@ -306,12 +306,12 @@ var _ = Describe("VM Agent systemd status", func() {
 
 			By("Waiting for greenboot to detect agent failure and trigger OS rollback")
 			// The device will reboot into v11, agent fails to start, greenboot detects failure,
-			// and triggers rollback. With GREENBOOT_MAX_BOOT_ATTEMPTS=1 (set in v11 image),
+			// and triggers rollback. With GREENBOOT_MAX_BOOT_ATTEMPTS=1 (set in BASE image),
 			// this should complete in a single boot cycle (~3-5 minutes).
 			harness.WaitForDeviceContents(deviceId, "device should rollback to initial OS image and come online", func(device *v1beta1.Device) bool {
 				return device.Status.Os.Image == initialStatusImage &&
 					device.Status.Summary.Status == v1beta1.DeviceSummaryStatusOnline
-			}, "7m")
+			}, LONGTIMEOUT)
 
 			By("Verifying device reports as OutOfDate after rollback")
 			harness.WaitForDeviceContents(deviceId, "device should be out of date after rollback", func(device *v1beta1.Device) bool {

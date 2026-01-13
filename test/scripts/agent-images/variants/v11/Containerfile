@@ -23,7 +23,6 @@ RUN mkdir -p /etc/systemd/system/flightctl-agent.service.d
 # Copy the drop-in that overrides ExecStart to /bin/false
 COPY --from=variant-context 99-break-agent.conf /etc/systemd/system/flightctl-agent.service.d/
 
-# Speed up greenboot rollback for E2E testing (shell greenboot 0.15.x):
-# - Reduce boot attempts from 3 to 1 (saves ~6 minutes of waiting)
-# Note: greenboot-rs (0.16.x) may ignore this config file
-COPY --from=variant-context greenboot.conf /etc/greenboot/greenboot.conf
+# Note: GREENBOOT_MAX_BOOT_ATTEMPTS=1 is set in the BASE image's greenboot.conf
+# because greenboot-grub2-set-counter reads the config from the SOURCE image
+# at staging time, not from the TARGET image being deployed.

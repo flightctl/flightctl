@@ -50,6 +50,11 @@ RUN --mount=type=cache,target=/var/cache/dnf \
     systemctl enable firewalld.service && \
     systemctl enable podman.service
 
+# Speed up greenboot rollback for E2E testing:
+# Reduce boot attempts from 3 to 1 (saves ~6 minutes per rollback test)
+# Note: This config is read at staging time by greenboot-grub2-set-counter.service
+RUN echo "GREENBOOT_MAX_BOOT_ATTEMPTS=1" >> /etc/greenboot/greenboot.conf
+
 # Create test user
 RUN useradd -ms /bin/bash user && \
     echo "user:user" | chpasswd && \
