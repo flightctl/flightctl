@@ -23,9 +23,9 @@ clean-cluster:
 	kind delete cluster
 
 ifndef SKIP_BUILD
-deploy: cluster build-containers build-cli deploy-helm prepare-agent-config
+deploy: cluster build-containers build-cli deploy-helm prepare-agent-config deploy-tpm-certs
 else
-deploy: cluster deploy-helm prepare-agent-config
+deploy: cluster deploy-helm prepare-agent-config deploy-tpm-certs
 	@echo "Skipping container and CLI builds (SKIP_BUILD is set)"
 endif
 
@@ -60,6 +60,31 @@ deploy-helm:
 
 prepare-agent-config:
 	TPM=$(TPM) test/scripts/agent-images/prepare_agent_config.sh --status-update-interval $(STATUS_UPDATE_INTERVAL) --spec-fetch-interval $(SPEC_FETCH_INTERVAL)
+
+deploy-tpm-certs:
+ifeq ($(TPM),enabled)
+	@echo "TPM is enabled - configuring TPM manufacturer CA certificates..."
+	@# Copy TPM manufacturer CA certificates to validate real hardware TPMs.
+	@mkdir -p bin/tpm-cas
+	@find tpm-manufacturer-certs -type f -name "*.pem" -exec cp {} bin/tpm-cas/ \;
+	@echo "Copied $$(ls bin/tpm-cas/*.pem 2>/dev/null | wc -l) TPM manufacturer CA certificates to bin/tpm-cas/"
+	@if ! compgen -G "bin/tpm-cas/*.pem" >/dev/null 2>&1; then \
+		echo "WARNING: No TPM manufacturer CA certificates found in tpm-manufacturer-certs/"; \
+		echo "         Hardware TPM enrollment may fail without manufacturer CAs."; \
+	fi
+	@echo ""
+	@# Create test swtpm CA (which will sign EK certs) for emulated TPM testing. These certificates must be
+	@# available to the server to validate TPM-based enrollment requests from the agent VM.
+	@echo "Creating test swtpm CA for emulated TPM testing..."
+	@test/scripts/create-test-swtpm-ca.sh bin/swtpm-ca
+	@cp bin/swtpm-ca/swtpm-localca-rootca-cert.pem bin/tpm-cas/
+	@cp bin/swtpm-ca/issuercert.pem bin/tpm-cas/swtpm-localca-issuer-cert.pem
+	@echo "✓ Added test swtpm CA certificates to deployment"
+	@echo ""
+	NAMESPACE=flightctl-external test/scripts/add-certs-to-deployment.sh bin/tpm-cas
+else
+	@echo "TPM is disabled - skipping TPM CA certificate configuration"
+endif
 
 deploy-db-helm: cluster
 	test/scripts/deploy_with_helm.sh --only-db
