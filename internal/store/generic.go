@@ -6,8 +6,8 @@ import (
 	"reflect"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/google/uuid"
@@ -22,8 +22,8 @@ type IntegrationTestCallback func()
 // GenericStore provides generic CRUD operations for resources
 // P is a pointer to a model, for example: *model.Device
 // M is the model, for example: model.Device
-// A is the API resource, for example: api.Device
-// AL is the API list, for example: api.DeviceList
+// A is the API resource, for example: domain.Device
+// AL is the API list, for example: domain.DeviceList
 type Model interface {
 	model.AuthProvider | model.CertificateSigningRequest | model.Device | model.EnrollmentRequest | model.Fleet | model.Repository | model.ResourceSync | model.TemplateVersion | model.Event
 }
@@ -202,7 +202,7 @@ func (s *GenericStore[P, M, A, AL]) updateResource(ctx context.Context, fromAPI 
 	}
 
 	// Don't let the user update a fleet's labels if it has an owner
-	if fromAPI && hasOwner && !allowResourceSyncUpdate && resource.GetKind() == api.FleetKind {
+	if fromAPI && hasOwner && !allowResourceSyncUpdate && resource.GetKind() == domain.FleetKind {
 		sameLabels := reflect.DeepEqual(existing.GetLabels(), resource.GetLabels())
 		if !sameLabels {
 			return false, flterrors.ErrUpdatingResourceWithOwnerNotAllowed
@@ -217,7 +217,7 @@ func (s *GenericStore[P, M, A, AL]) updateResource(ctx context.Context, fromAPI 
 	resource.SetResourceVersion(lo.ToPtr(lo.FromPtr(existing.GetResourceVersion()) + 1))
 
 	selectFields := []string{"spec"}
-	if resource.GetKind() == api.DeviceKind {
+	if resource.GetKind() == domain.DeviceKind {
 		selectFields = append(selectFields, "alias")
 	}
 	selectFields = append(selectFields, resource.GetNonNilFieldsFromResource()...)

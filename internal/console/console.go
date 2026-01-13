@@ -6,8 +6,8 @@ import (
 	"errors"
 	"net/http"
 
-	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/rendered"
 	"github.com/flightctl/flightctl/internal/service"
@@ -52,7 +52,7 @@ func NewConsoleSessionManager(serviceHandler service.Service, log logrus.FieldLo
 	}
 }
 
-func (m *ConsoleSessionManager) modifyAnnotations(ctx context.Context, orgId uuid.UUID, deviceName string, updater func(value string) (string, error)) api.Status {
+func (m *ConsoleSessionManager) modifyAnnotations(ctx context.Context, orgId uuid.UUID, deviceName string, updater func(value string) (string, error)) domain.Status {
 	var (
 		err                 error
 		newValue            string
@@ -67,27 +67,27 @@ func (m *ConsoleSessionManager) modifyAnnotations(ctx context.Context, orgId uui
 
 		// Check if device is in waiting, paused, or decommissioned state - prevent console updates
 		annotations := lo.FromPtr(device.Metadata.Annotations)
-		if waitingValue, exists := annotations[api.DeviceAnnotationAwaitingReconnect]; exists && waitingValue == "true" {
-			return api.StatusConflict("Device is awaiting reconnection after restore")
+		if waitingValue, exists := annotations[domain.DeviceAnnotationAwaitingReconnect]; exists && waitingValue == "true" {
+			return domain.StatusConflict("Device is awaiting reconnection after restore")
 		}
-		if pausedValue, exists := annotations[api.DeviceAnnotationConflictPaused]; exists && pausedValue == "true" {
-			return api.StatusConflict("Device is paused due to conflicts")
+		if pausedValue, exists := annotations[domain.DeviceAnnotationConflictPaused]; exists && pausedValue == "true" {
+			return domain.StatusConflict("Device is paused due to conflicts")
 		}
 		if device.Spec != nil && device.Spec.Decommissioning != nil {
-			return api.StatusConflict("Device is decommissioned")
+			return domain.StatusConflict("Device is decommissioned")
 		}
 
-		value, _ := util.GetFromMap(annotations, api.DeviceAnnotationConsole)
+		value, _ := util.GetFromMap(annotations, domain.DeviceAnnotationConsole)
 		newValue, err = updater(value)
 		if err != nil {
-			return api.StatusInternalServerError(err.Error())
+			return domain.StatusInternalServerError(err.Error())
 		}
-		(*device.Metadata.Annotations)[api.DeviceAnnotationConsole] = newValue
-		nextRenderedVersion, err = api.GetNextDeviceRenderedVersion(*device.Metadata.Annotations, device.Status)
+		(*device.Metadata.Annotations)[domain.DeviceAnnotationConsole] = newValue
+		nextRenderedVersion, err = domain.GetNextDeviceRenderedVersion(*device.Metadata.Annotations, device.Status)
 		if err != nil {
-			return api.StatusInternalServerError(err.Error())
+			return domain.StatusInternalServerError(err.Error())
 		}
-		(*device.Metadata.Annotations)[api.DeviceAnnotationRenderedVersion] = nextRenderedVersion
+		(*device.Metadata.Annotations)[domain.DeviceAnnotationRenderedVersion] = nextRenderedVersion
 		m.log.Infof("About to save annotations %+v", *device.Metadata.Annotations)
 		_, err = m.serviceHandler.UpdateDevice(context.WithValue(ctx, consts.InternalRequestCtxKey, true), orgId, deviceName, *device, nil)
 		if !errors.Is(err, flterrors.ErrResourceVersionConflict) {
@@ -98,21 +98,21 @@ func (m *ConsoleSessionManager) modifyAnnotations(ctx context.Context, orgId uui
 		err = rendered.Bus.Instance().StoreAndNotify(ctx, orgId, deviceName, nextRenderedVersion)
 	}
 	if err != nil {
-		return api.StatusInternalServerError(err.Error())
+		return domain.StatusInternalServerError(err.Error())
 	}
-	return api.StatusOK()
+	return domain.StatusOK()
 }
 
 func addSession(sessionID string, sessionMetadata string) func(string) (string, error) {
 	return func(existing string) (string, error) {
-		var consoles []api.DeviceConsole
+		var consoles []domain.DeviceConsole
 		if existing != "" {
 			err := json.Unmarshal([]byte(existing), &consoles)
 			if err != nil {
 				return "", err
 			}
 		}
-		consoles = append(consoles, api.DeviceConsole{
+		consoles = append(consoles, domain.DeviceConsole{
 			SessionID:       sessionID,
 			SessionMetadata: sessionMetadata,
 		})
@@ -129,12 +129,12 @@ func removeSession(sessionID string) func(string) (string, error) {
 		if existing == "" {
 			return "", nil
 		}
-		var consoles []api.DeviceConsole
+		var consoles []domain.DeviceConsole
 		err := json.Unmarshal([]byte(existing), &consoles)
 		if err != nil {
 			return "", err
 		}
-		_, i, found := lo.FindIndexOf(consoles, func(c api.DeviceConsole) bool { return c.SessionID == sessionID })
+		_, i, found := lo.FindIndexOf(consoles, func(c domain.DeviceConsole) bool { return c.SessionID == sessionID })
 		if found && i >= 0 {
 			consoles = append(consoles[:i], consoles[i+1:]...)
 		}
@@ -146,10 +146,10 @@ func removeSession(sessionID string) func(string) (string, error) {
 	}
 }
 
-func (m *ConsoleSessionManager) StartSession(ctx context.Context, orgId uuid.UUID, deviceName, sessionMetadata string) (*ConsoleSession, api.Status) {
+func (m *ConsoleSessionManager) StartSession(ctx context.Context, orgId uuid.UUID, deviceName, sessionMetadata string) (*ConsoleSession, domain.Status) {
 	if sessionMetadata == "" {
 		m.log.Error("incompatible client: missing session metadata")
-		return nil, api.StatusBadRequest("incompatible client: missing session metadata")
+		return nil, domain.StatusBadRequest("incompatible client: missing session metadata")
 	}
 	m.log.Infof("Start session. Metadata %s", sessionMetadata)
 	session := &ConsoleSession{
@@ -176,12 +176,12 @@ func (m *ConsoleSessionManager) StartSession(ctx context.Context, orgId uuid.UUI
 		if annStatus := m.modifyAnnotations(ctx, orgId, deviceName, removeSession(session.UUID)); annStatus.Code != http.StatusOK {
 			m.log.Errorf("Failed to remove annotation from device %s: %v", deviceName, annStatus)
 		}
-		return nil, api.StatusInternalServerError(err.Error())
+		return nil, domain.StatusInternalServerError(err.Error())
 	}
-	return session, api.StatusOK()
+	return session, domain.StatusOK()
 }
 
-func (m *ConsoleSessionManager) CloseSession(ctx context.Context, session *ConsoleSession) api.Status {
+func (m *ConsoleSessionManager) CloseSession(ctx context.Context, session *ConsoleSession) domain.Status {
 	closeSessionErr := m.sessionRegistration.CloseSession(session)
 	// make sure the device exists
 
@@ -191,7 +191,7 @@ func (m *ConsoleSessionManager) CloseSession(ctx context.Context, session *Conso
 
 	// we still want to signal if there was an error closing the session
 	if closeSessionErr != nil {
-		return api.StatusInternalServerError(closeSessionErr.Error())
+		return domain.StatusInternalServerError(closeSessionErr.Error())
 	}
-	return api.StatusOK()
+	return domain.StatusOK()
 }

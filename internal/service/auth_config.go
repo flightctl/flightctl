@@ -3,11 +3,11 @@ package service
 import (
 	"context"
 
-	api "github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/internal/domain"
 )
 
 // GetAuthConfig returns the authentication configuration
 // The auth config from the middleware already includes all static and dynamic providers
-func (h *ServiceHandler) GetAuthConfig(ctx context.Context, authConfig *api.AuthConfig) (*api.AuthConfig, api.Status) {
-	return authConfig, api.StatusOK()
+func (h *ServiceHandler) GetAuthConfig(ctx context.Context, authConfig *domain.AuthConfig) (*domain.AuthConfig, domain.Status) {
+	return authConfig, domain.StatusOK()
 }

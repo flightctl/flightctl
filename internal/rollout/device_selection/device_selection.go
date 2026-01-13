@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
@@ -25,7 +25,7 @@ type RolloutDeviceSelector interface {
 }
 
 type Selection interface {
-	Devices(ctx context.Context) (*api.DeviceList, error)
+	Devices(ctx context.Context) (*domain.DeviceList, error)
 	Approve(ctx context.Context) error
 	IsApproved() bool
 	IsRolledOut(ctx context.Context) (bool, error)
@@ -37,7 +37,7 @@ type Selection interface {
 	OnFinish(ctx context.Context) error
 }
 
-func getUpdateTimeout(defaultUpdateTimeoutStr *api.Duration) (time.Duration, error) {
+func getUpdateTimeout(defaultUpdateTimeoutStr *domain.Duration) (time.Duration, error) {
 	timeout := DefaultUpdateTimeout
 
 	if defaultUpdateTimeoutStr != nil {
@@ -52,7 +52,7 @@ func getUpdateTimeout(defaultUpdateTimeoutStr *api.Duration) (time.Duration, err
 	return timeout, nil
 }
 
-func NewRolloutDeviceSelector(deviceSelection *api.RolloutDeviceSelection, defaultUpdateTimeoutStr *api.Duration, serviceHandler service.Service, orgId uuid.UUID, fleet *api.Fleet, templateVersionName string, log logrus.FieldLogger) (RolloutDeviceSelector, error) {
+func NewRolloutDeviceSelector(deviceSelection *domain.RolloutDeviceSelection, defaultUpdateTimeoutStr *domain.Duration, serviceHandler service.Service, orgId uuid.UUID, fleet *domain.Fleet, templateVersionName string, log logrus.FieldLogger) (RolloutDeviceSelector, error) {
 
 	updateTimeout, err := getUpdateTimeout(defaultUpdateTimeoutStr)
 	if err != nil {
@@ -63,22 +63,22 @@ func NewRolloutDeviceSelector(deviceSelection *api.RolloutDeviceSelection, defau
 		return nil, err
 	}
 	switch v := selectorInterface.(type) {
-	case api.BatchSequence:
+	case domain.BatchSequence:
 		return newBatchSequenceSelector(v, updateTimeout, serviceHandler, orgId, fleet, templateVersionName, log), nil
 	default:
 		return nil, fmt.Errorf("unexpected selector %T", selectorInterface)
 	}
 }
 
-func cleanupRollout(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet, serviceHandler service.Service) (bool, error) {
+func cleanupRollout(ctx context.Context, orgId uuid.UUID, fleet *domain.Fleet, serviceHandler service.Service) (bool, error) {
 	fleetName := lo.FromPtr(fleet.Metadata.Name)
 	annotationsToDelete := []string{
-		api.FleetAnnotationBatchNumber,
-		api.FleetAnnotationLastBatchCompletionReport,
-		api.FleetAnnotationRolloutApproved,
-		api.FleetAnnotationRolloutApprovalMethod,
-		api.FleetAnnotationDeployingTemplateVersion,
-		api.FleetAnnotationDeviceSelectionConfigDigest,
+		domain.FleetAnnotationBatchNumber,
+		domain.FleetAnnotationLastBatchCompletionReport,
+		domain.FleetAnnotationRolloutApproved,
+		domain.FleetAnnotationRolloutApprovalMethod,
+		domain.FleetAnnotationDeployingTemplateVersion,
+		domain.FleetAnnotationDeviceSelectionConfigDigest,
 	}
 	if lo.NoneBy(annotationsToDelete, func(ann string) bool {
 		return lo.HasKey(lo.CoalesceMapOrEmpty(lo.FromPtr(fleet.Metadata.Annotations)), ann)

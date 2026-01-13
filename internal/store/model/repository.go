@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"strconv"
 
-	api "github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/samber/lo"
@@ -16,10 +16,10 @@ type Repository struct {
 	Resource
 
 	// The desired state, stored as opaque JSON object.
-	Spec *JSONField[api.RepositorySpec] `gorm:"type:jsonb"`
+	Spec *JSONField[domain.RepositorySpec] `gorm:"type:jsonb"`
 
 	// The last reported state, stored as opaque JSON object.
-	Status *JSONField[api.RepositoryStatus] `gorm:"type:jsonb"`
+	Status *JSONField[domain.RepositoryStatus] `gorm:"type:jsonb"`
 
 	// Join table with the relationship of repository to fleets
 	Fleets []Fleet `gorm:"many2many:fleet_repos;constraint:OnDelete:CASCADE;"`
@@ -33,12 +33,12 @@ func (r Repository) String() string {
 	return string(val)
 }
 
-func NewRepositoryFromApiResource(resource *api.Repository) (*Repository, error) {
+func NewRepositoryFromApiResource(resource *domain.Repository) (*Repository, error) {
 	if resource == nil || resource.Metadata.Name == nil {
 		return &Repository{}, nil
 	}
 
-	status := api.RepositoryStatus{Conditions: []api.Condition{}}
+	status := domain.RepositoryStatus{Conditions: []domain.Condition{}}
 	if resource.Status != nil {
 		status = *resource.Status
 	}
@@ -63,28 +63,28 @@ func NewRepositoryFromApiResource(resource *api.Repository) (*Repository, error)
 }
 
 func RepositoryAPIVersion() string {
-	return fmt.Sprintf("%s/%s", api.APIGroup, api.RepositoryAPIVersion)
+	return fmt.Sprintf("%s/%s", domain.APIGroup, domain.RepositoryAPIVersion)
 }
 
-func (r *Repository) ToApiResource(opts ...APIResourceOption) (*api.Repository, error) {
+func (r *Repository) ToApiResource(opts ...APIResourceOption) (*domain.Repository, error) {
 	if r == nil {
-		return &api.Repository{}, nil
+		return &domain.Repository{}, nil
 	}
 
-	var spec api.RepositorySpec
+	var spec domain.RepositorySpec
 	if r.Spec != nil {
 		spec = r.Spec.Data
 	}
 
-	status := api.RepositoryStatus{Conditions: []api.Condition{}}
+	status := domain.RepositoryStatus{Conditions: []domain.Condition{}}
 	if r.Status != nil {
 		status = r.Status.Data
 	}
 
-	return &api.Repository{
+	return &domain.Repository{
 		ApiVersion: RepositoryAPIVersion(),
-		Kind:       api.RepositoryKind,
-		Metadata: api.ObjectMeta{
+		Kind:       domain.RepositoryKind,
+		Metadata: domain.ObjectMeta{
 			Name:              lo.ToPtr(r.Name),
 			CreationTimestamp: lo.ToPtr(r.CreatedAt.UTC()),
 			Labels:            lo.ToPtr(util.EnsureMap(r.Resource.Labels)),
@@ -96,24 +96,24 @@ func (r *Repository) ToApiResource(opts ...APIResourceOption) (*api.Repository, 
 	}, nil
 }
 
-func RepositoriesToApiResource(repos []Repository, cont *string, numRemaining *int64) (api.RepositoryList, error) {
-	repositoryList := make([]api.Repository, len(repos))
+func RepositoriesToApiResource(repos []Repository, cont *string, numRemaining *int64) (domain.RepositoryList, error) {
+	repositoryList := make([]domain.Repository, len(repos))
 	for i, repository := range repos {
 		repo, err := repository.ToApiResource()
 		if err != nil {
-			return api.RepositoryList{
+			return domain.RepositoryList{
 				ApiVersion: RepositoryAPIVersion(),
-				Kind:       api.RepositoryListKind,
-				Items:      []api.Repository{},
+				Kind:       domain.RepositoryListKind,
+				Items:      []domain.Repository{},
 			}, err
 		}
 		repositoryList[i] = *repo
 	}
-	ret := api.RepositoryList{
+	ret := domain.RepositoryList{
 		ApiVersion: RepositoryAPIVersion(),
-		Kind:       api.RepositoryListKind,
+		Kind:       domain.RepositoryListKind,
 		Items:      repositoryList,
-		Metadata:   api.ListMeta{},
+		Metadata:   domain.ListMeta{},
 	}
 	if cont != nil {
 		ret.Metadata.Continue = cont
@@ -123,7 +123,7 @@ func RepositoriesToApiResource(repos []Repository, cont *string, numRemaining *i
 }
 
 func (r *Repository) GetKind() string {
-	return api.RepositoryKind
+	return domain.RepositoryKind
 }
 
 func (r *Repository) HasNilSpec() bool {

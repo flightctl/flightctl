@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics/worker"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/kvstore"
@@ -162,103 +162,103 @@ func runTaskWithMetrics(name string, workerMetrics *worker.WorkerCollector, fn f
 	return err
 }
 
-func shouldRolloutFleet(ctx context.Context, event api.Event, log logrus.FieldLogger) bool {
+func shouldRolloutFleet(ctx context.Context, event domain.Event, log logrus.FieldLogger) bool {
 	// If a devices's owner or labels were updated return true
-	if event.Reason == api.EventReasonResourceUpdated && event.InvolvedObject.Kind == api.DeviceKind {
-		return hasUpdatedFields(event.Details, log, api.Owner, api.Labels)
+	if event.Reason == domain.EventReasonResourceUpdated && event.InvolvedObject.Kind == domain.DeviceKind {
+		return hasUpdatedFields(event.Details, log, domain.Owner, domain.Labels)
 	}
 
-	if event.Reason == api.EventReasonFleetRolloutBatchDispatched && event.InvolvedObject.Kind == api.FleetKind {
+	if event.Reason == domain.EventReasonFleetRolloutBatchDispatched && event.InvolvedObject.Kind == domain.FleetKind {
 		return true
 	}
 
 	// If a device was created, return true
-	if event.Reason == api.EventReasonResourceCreated && event.InvolvedObject.Kind == api.DeviceKind {
+	if event.Reason == domain.EventReasonResourceCreated && event.InvolvedObject.Kind == domain.DeviceKind {
 		return true
 	}
 
 	// If we got a rollout started event and it's immediate, return true
-	if event.Reason == api.EventReasonFleetRolloutStarted && event.Details != nil {
+	if event.Reason == domain.EventReasonFleetRolloutStarted && event.Details != nil {
 		details, err := event.Details.AsFleetRolloutStartedDetails()
 		if err != nil {
 			log.WithError(err).Error("failed to convert event details to fleet rollout started details")
 			return false
 		}
-		return details.RolloutStrategy == api.None
+		return details.RolloutStrategy == domain.None
 	}
 
 	return false
 }
 
-func shouldReconcileDeviceOwnership(ctx context.Context, event api.Event, log logrus.FieldLogger) bool {
+func shouldReconcileDeviceOwnership(ctx context.Context, event domain.Event, log logrus.FieldLogger) bool {
 	// If a fleet's label selector was updated, return true
-	if event.Reason == api.EventReasonResourceUpdated && event.InvolvedObject.Kind == api.FleetKind {
-		return hasUpdatedFields(event.Details, log, api.SpecSelector)
+	if event.Reason == domain.EventReasonResourceUpdated && event.InvolvedObject.Kind == domain.FleetKind {
+		return hasUpdatedFields(event.Details, log, domain.SpecSelector)
 	}
 
 	// If a fleet was created, return true
-	if event.Reason == api.EventReasonResourceCreated && event.InvolvedObject.Kind == api.FleetKind {
+	if event.Reason == domain.EventReasonResourceCreated && event.InvolvedObject.Kind == domain.FleetKind {
 		return true
 	}
 
 	// If a fleet was deleted, return true
-	if event.Reason == api.EventReasonResourceDeleted && event.InvolvedObject.Kind == api.FleetKind {
+	if event.Reason == domain.EventReasonResourceDeleted && event.InvolvedObject.Kind == domain.FleetKind {
 		return true
 	}
 
 	// If a device was created, return true
-	if event.Reason == api.EventReasonResourceCreated && event.InvolvedObject.Kind == api.DeviceKind {
+	if event.Reason == domain.EventReasonResourceCreated && event.InvolvedObject.Kind == domain.DeviceKind {
 		return true
 	}
 
 	// If a device's labels were updated, return true
-	if event.Reason == api.EventReasonResourceUpdated && event.InvolvedObject.Kind == api.DeviceKind {
-		return hasUpdatedFields(event.Details, log, api.Labels)
+	if event.Reason == domain.EventReasonResourceUpdated && event.InvolvedObject.Kind == domain.DeviceKind {
+		return hasUpdatedFields(event.Details, log, domain.Labels)
 	}
 
 	return false
 }
 
-func shouldValidateFleet(ctx context.Context, event api.Event, log logrus.FieldLogger) bool {
+func shouldValidateFleet(ctx context.Context, event domain.Event, log logrus.FieldLogger) bool {
 	// If a fleet's template was updated, return true
-	if event.Reason == api.EventReasonResourceUpdated && event.InvolvedObject.Kind == api.FleetKind {
-		return hasUpdatedFields(event.Details, log, api.SpecTemplate)
+	if event.Reason == domain.EventReasonResourceUpdated && event.InvolvedObject.Kind == domain.FleetKind {
+		return hasUpdatedFields(event.Details, log, domain.SpecTemplate)
 	}
 
 	// If a fleet was created, return true
-	if event.Reason == api.EventReasonResourceCreated && event.InvolvedObject.Kind == api.FleetKind {
+	if event.Reason == domain.EventReasonResourceCreated && event.InvolvedObject.Kind == domain.FleetKind {
 		return true
 	}
 
 	// If a repository that the fleet is associated with was updated, return true
-	if event.Reason == api.EventReasonReferencedRepositoryUpdated && event.InvolvedObject.Kind == api.FleetKind {
+	if event.Reason == domain.EventReasonReferencedRepositoryUpdated && event.InvolvedObject.Kind == domain.FleetKind {
 		return true
 	}
 
 	return false
 }
 
-func shouldRenderDevice(ctx context.Context, event api.Event, log logrus.FieldLogger) bool {
-	if event.InvolvedObject.Kind != api.DeviceKind {
+func shouldRenderDevice(ctx context.Context, event domain.Event, log logrus.FieldLogger) bool {
+	if event.InvolvedObject.Kind != domain.DeviceKind {
 		return false
 	}
 
-	if lo.Contains([]api.EventReason{api.EventReasonReferencedRepositoryUpdated,
-		api.EventReasonResourceCreated,
-		api.EventReasonFleetRolloutDeviceSelected, api.EventReasonDeviceConflictResolved,
-		api.EventReasonDeviceDecommissioned}, event.Reason) {
+	if lo.Contains([]domain.EventReason{domain.EventReasonReferencedRepositoryUpdated,
+		domain.EventReasonResourceCreated,
+		domain.EventReasonFleetRolloutDeviceSelected, domain.EventReasonDeviceConflictResolved,
+		domain.EventReasonDeviceDecommissioned}, event.Reason) {
 		return true
 	}
 
 	// If a device spec was updated and it doesn't have the delayDeviceRender annotation equal to "true", return true
-	if event.Reason == api.EventReasonResourceUpdated {
-		if !hasUpdatedFields(event.Details, log, api.Spec) {
+	if event.Reason == domain.EventReasonResourceUpdated {
+		if !hasUpdatedFields(event.Details, log, domain.Spec) {
 			return false
 		}
 		if event.Metadata.Annotations == nil {
 			return true
 		}
-		if val, ok := (*event.Metadata.Annotations)[api.EventAnnotationDelayDeviceRender]; ok {
+		if val, ok := (*event.Metadata.Annotations)[domain.EventAnnotationDelayDeviceRender]; ok {
 			if val == "true" {
 				return false
 			}
@@ -269,21 +269,21 @@ func shouldRenderDevice(ctx context.Context, event api.Event, log logrus.FieldLo
 	return false
 }
 
-func shouldUpdateRepositoryReferers(ctx context.Context, event api.Event, log logrus.FieldLogger) bool {
+func shouldUpdateRepositoryReferers(ctx context.Context, event domain.Event, log logrus.FieldLogger) bool {
 	// If a repository was updated, return true
-	if event.Reason == api.EventReasonResourceUpdated && event.InvolvedObject.Kind == api.RepositoryKind {
-		return hasUpdatedFields(event.Details, log, api.Spec)
+	if event.Reason == domain.EventReasonResourceUpdated && event.InvolvedObject.Kind == domain.RepositoryKind {
+		return hasUpdatedFields(event.Details, log, domain.Spec)
 	}
 
 	// If a repository was created, return true
-	if event.Reason == api.EventReasonResourceCreated && event.InvolvedObject.Kind == api.RepositoryKind {
+	if event.Reason == domain.EventReasonResourceCreated && event.InvolvedObject.Kind == domain.RepositoryKind {
 		return true
 	}
 
 	return false
 }
 
-func hasUpdatedFields(details *api.EventDetails, log logrus.FieldLogger, fields ...api.ResourceUpdatedDetailsUpdatedFields) bool {
+func hasUpdatedFields(details *domain.EventDetails, log logrus.FieldLogger, fields ...domain.ResourceUpdatedDetailsUpdatedFields) bool {
 	if details == nil {
 		return false
 	}

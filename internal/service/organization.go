@@ -6,29 +6,29 @@ import (
 	"net/http"
 	"regexp"
 
-	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/contextutil"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/google/uuid"
 )
 
-var organizationApiVersion = fmt.Sprintf("%s/%s", api.APIGroup, api.OrganizationAPIVersion)
+var organizationApiVersion = fmt.Sprintf("%s/%s", domain.APIGroup, domain.OrganizationAPIVersion)
 
-// organizationModelToAPI converts a model.Organization to api.Organization
-func organizationModelToAPI(org *model.Organization) api.Organization {
+// organizationModelToAPI converts a model.Organization to domain.Organization
+func organizationModelToAPI(org *model.Organization) domain.Organization {
 	name := org.ID.String()
-	return api.Organization{
+	return domain.Organization{
 		ApiVersion: organizationApiVersion,
-		Kind:       api.OrganizationKind,
-		Metadata:   api.ObjectMeta{Name: &name},
-		Spec: &api.OrganizationSpec{
+		Kind:       domain.OrganizationKind,
+		Metadata:   domain.ObjectMeta{Name: &name},
+		Spec: &domain.OrganizationSpec{
 			ExternalId:  &org.ExternalID,
 			DisplayName: &org.DisplayName,
 		},
 	}
 }
 
-func (h *ServiceHandler) ListOrganizations(ctx context.Context, params api.ListOrganizationsParams) (*api.OrganizationList, api.Status) {
+func (h *ServiceHandler) ListOrganizations(ctx context.Context, params domain.ListOrganizationsParams) (*domain.OrganizationList, domain.Status) {
 	var orgs []*model.Organization
 	var err error
 	listParams, status := prepareListParams(nil, nil, params.FieldSelector, nil)
@@ -40,7 +40,7 @@ func (h *ServiceHandler) ListOrganizations(ctx context.Context, params api.ListO
 		var listErr error
 		userOrgs, listErr := h.listUserOrganizations(ctx)
 		if listErr != nil {
-			status := StoreErrorToApiStatus(listErr, false, api.OrganizationKind, nil)
+			status := StoreErrorToApiStatus(listErr, false, domain.OrganizationKind, nil)
 			return nil, status
 		}
 		if params.FieldSelector != nil && *params.FieldSelector != "" {
@@ -60,22 +60,22 @@ func (h *ServiceHandler) ListOrganizations(ctx context.Context, params api.ListO
 	} else {
 		orgs, err = h.store.Organization().List(ctx, *listParams)
 		if err != nil {
-			status := StoreErrorToApiStatus(err, false, api.OrganizationKind, nil)
+			status := StoreErrorToApiStatus(err, false, domain.OrganizationKind, nil)
 			return nil, status
 		}
 	}
 
-	apiOrgs := make([]api.Organization, len(orgs))
+	apiOrgs := make([]domain.Organization, len(orgs))
 	for i, org := range orgs {
 		apiOrgs[i] = organizationModelToAPI(org)
 	}
 
-	return &api.OrganizationList{
+	return &domain.OrganizationList{
 		Items:      apiOrgs,
 		ApiVersion: organizationApiVersion,
-		Kind:       api.OrganizationListKind,
-		Metadata:   api.ListMeta{},
-	}, api.StatusOK()
+		Kind:       domain.OrganizationListKind,
+		Metadata:   domain.ListMeta{},
+	}, domain.StatusOK()
 }
 
 func (h *ServiceHandler) listUserOrganizations(ctx context.Context) ([]*model.Organization, error) {

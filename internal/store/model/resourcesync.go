@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"strconv"
 
-	api "github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/samber/lo"
@@ -16,10 +16,10 @@ type ResourceSync struct {
 	Resource
 
 	// The desired state, stored as opaque JSON object.
-	Spec *JSONField[api.ResourceSyncSpec] `gorm:"type:jsonb"`
+	Spec *JSONField[domain.ResourceSyncSpec] `gorm:"type:jsonb"`
 
 	// The last reported state, stored as opaque JSON object.
-	Status *JSONField[api.ResourceSyncStatus] `gorm:"type:jsonb"`
+	Status *JSONField[domain.ResourceSyncStatus] `gorm:"type:jsonb"`
 }
 
 func (rs *ResourceSync) String() string {
@@ -27,12 +27,12 @@ func (rs *ResourceSync) String() string {
 	return string(val)
 }
 
-func NewResourceSyncFromApiResource(resource *api.ResourceSync) (*ResourceSync, error) {
+func NewResourceSyncFromApiResource(resource *domain.ResourceSync) (*ResourceSync, error) {
 	if resource == nil || resource.Metadata.Name == nil {
 		return &ResourceSync{}, nil
 	}
 
-	status := api.ResourceSyncStatus{Conditions: []api.Condition{}}
+	status := domain.ResourceSyncStatus{Conditions: []domain.Condition{}}
 	if resource.Status != nil {
 		status = *resource.Status
 	}
@@ -57,28 +57,28 @@ func NewResourceSyncFromApiResource(resource *api.ResourceSync) (*ResourceSync, 
 }
 
 func ResourceSyncAPIVersion() string {
-	return fmt.Sprintf("%s/%s", api.APIGroup, api.ResourceSyncAPIVersion)
+	return fmt.Sprintf("%s/%s", domain.APIGroup, domain.ResourceSyncAPIVersion)
 }
 
-func (rs *ResourceSync) ToApiResource(opts ...APIResourceOption) (*api.ResourceSync, error) {
+func (rs *ResourceSync) ToApiResource(opts ...APIResourceOption) (*domain.ResourceSync, error) {
 	if rs == nil {
-		return &api.ResourceSync{}, nil
+		return &domain.ResourceSync{}, nil
 	}
 
-	var spec api.ResourceSyncSpec
+	var spec domain.ResourceSyncSpec
 	if rs.Spec != nil {
 		spec = rs.Spec.Data
 	}
 
-	status := api.ResourceSyncStatus{Conditions: []api.Condition{}}
+	status := domain.ResourceSyncStatus{Conditions: []domain.Condition{}}
 	if rs.Status != nil {
 		status = rs.Status.Data
 	}
 
-	return &api.ResourceSync{
+	return &domain.ResourceSync{
 		ApiVersion: ResourceSyncAPIVersion(),
-		Kind:       api.ResourceSyncKind,
-		Metadata: api.ObjectMeta{
+		Kind:       domain.ResourceSyncKind,
+		Metadata: domain.ObjectMeta{
 			Name:              lo.ToPtr(rs.Name),
 			CreationTimestamp: lo.ToPtr(rs.CreatedAt.UTC()),
 			Labels:            lo.ToPtr(util.EnsureMap(rs.Resource.Labels)),
@@ -91,17 +91,17 @@ func (rs *ResourceSync) ToApiResource(opts ...APIResourceOption) (*api.ResourceS
 	}, nil
 }
 
-func ResourceSyncsToApiResource(rss []ResourceSync, cont *string, numRemaining *int64) (api.ResourceSyncList, error) {
-	resourceSyncList := make([]api.ResourceSync, len(rss))
+func ResourceSyncsToApiResource(rss []ResourceSync, cont *string, numRemaining *int64) (domain.ResourceSyncList, error) {
+	resourceSyncList := make([]domain.ResourceSync, len(rss))
 	for i, resourceSync := range rss {
 		apiResource, _ := resourceSync.ToApiResource()
 		resourceSyncList[i] = *apiResource
 	}
-	ret := api.ResourceSyncList{
+	ret := domain.ResourceSyncList{
 		ApiVersion: ResourceSyncAPIVersion(),
-		Kind:       api.ResourceSyncListKind,
+		Kind:       domain.ResourceSyncListKind,
 		Items:      resourceSyncList,
-		Metadata:   api.ListMeta{},
+		Metadata:   domain.ListMeta{},
 	}
 	if cont != nil {
 		ret.Metadata.Continue = cont
@@ -111,7 +111,7 @@ func ResourceSyncsToApiResource(rss []ResourceSync, cont *string, numRemaining *
 }
 
 func (rs *ResourceSync) GetKind() string {
-	return api.ResourceSyncKind
+	return domain.ResourceSyncKind
 }
 
 func (rs *ResourceSync) HasNilSpec() bool {

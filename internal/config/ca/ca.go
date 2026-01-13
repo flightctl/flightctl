@@ -1,7 +1,7 @@
 package ca
 
 import (
-	api "github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/internal/domain"
 )
 
 type CAIdType int
@@ -41,7 +41,7 @@ type Config struct {
 func NewDefault(tempDir string) *Config {
 	c := &Config{
 		CAType:                          InternalCA,
-		AdminCommonName:                 api.ExternalRoleAdmin,
+		AdminCommonName:                 domain.ExternalRoleAdmin,
 		ClientBootstrapCertName:         "client-enrollment",
 		ClientBootstrapCommonName:       "client-enrollment",
 		DeviceEnrollmentSignerName:      "flightctl.io/enrollment",

@@ -7,7 +7,7 @@ import (
 	"runtime/debug"
 	"strings"
 
-	api "github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/store/selector"
@@ -29,7 +29,7 @@ type CreateOrUpdateMode string
 
 type EventCallbackCaller func(ctx context.Context, callbackEvent EventCallback, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error)
 
-type EventCallback func(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error)
+type EventCallback func(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error)
 
 func ErrorFromGormError(err error) error {
 	switch {
@@ -347,7 +347,7 @@ func SafeEventCallback(log logrus.FieldLogger, callback func()) {
 	callback()
 }
 
-func CallEventCallback(resourceKind api.ResourceKind, log logrus.FieldLogger) func(ctx context.Context, callbackEvent EventCallback, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
+func CallEventCallback(resourceKind domain.ResourceKind, log logrus.FieldLogger) func(ctx context.Context, callbackEvent EventCallback, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
 	return func(ctx context.Context, callbackEvent EventCallback, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
 		if callbackEvent == nil {
 			return

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
@@ -45,7 +45,7 @@ func (e *EventProcessor) ProcessLatestEvents(ctx context.Context, oldCheckpoint 
 	})
 
 	// Get all organizations
-	orgs, status := e.handler.ListOrganizations(ctx, api.ListOrganizationsParams{})
+	orgs, status := e.handler.ListOrganizations(ctx, domain.ListOrganizationsParams{})
 	if status.Code != http.StatusOK {
 		logger.WithFields(logrus.Fields{
 			"status_code": status.Code,
@@ -227,29 +227,29 @@ func (e *EventProcessor) countTotalAlerts(alerts map[AlertKey]map[string]*AlertI
 	return total
 }
 
-func getListEventsParams(newerThan string) api.ListEventsParams {
-	eventsOfInterest := []api.EventReason{
-		api.EventReasonDeviceApplicationDegraded,
-		api.EventReasonDeviceApplicationError,
-		api.EventReasonDeviceApplicationHealthy,
-		api.EventReasonDeviceCPUCritical,
-		api.EventReasonDeviceCPUNormal,
-		api.EventReasonDeviceCPUWarning,
-		api.EventReasonDeviceConnected,
-		api.EventReasonDeviceDisconnected,
-		api.EventReasonDeviceMemoryCritical,
-		api.EventReasonDeviceMemoryNormal,
-		api.EventReasonDeviceMemoryWarning,
-		api.EventReasonDeviceDiskCritical,
-		api.EventReasonDeviceDiskNormal,
-		api.EventReasonDeviceDiskWarning,
-		api.EventReasonResourceDeleted,
-		api.EventReasonDeviceDecommissioned,
+func getListEventsParams(newerThan string) domain.ListEventsParams {
+	eventsOfInterest := []domain.EventReason{
+		domain.EventReasonDeviceApplicationDegraded,
+		domain.EventReasonDeviceApplicationError,
+		domain.EventReasonDeviceApplicationHealthy,
+		domain.EventReasonDeviceCPUCritical,
+		domain.EventReasonDeviceCPUNormal,
+		domain.EventReasonDeviceCPUWarning,
+		domain.EventReasonDeviceConnected,
+		domain.EventReasonDeviceDisconnected,
+		domain.EventReasonDeviceMemoryCritical,
+		domain.EventReasonDeviceMemoryNormal,
+		domain.EventReasonDeviceMemoryWarning,
+		domain.EventReasonDeviceDiskCritical,
+		domain.EventReasonDeviceDiskNormal,
+		domain.EventReasonDeviceDiskWarning,
+		domain.EventReasonResourceDeleted,
+		domain.EventReasonDeviceDecommissioned,
 	}
 
 	fieldSelectors := []string{
 		fmt.Sprintf("reason in (%s)",
-			strings.Join(lo.Map(eventsOfInterest, func(r api.EventReason, _ int) string {
+			strings.Join(lo.Map(eventsOfInterest, func(r domain.EventReason, _ int) string {
 				return string(r)
 			}), ",")),
 	}
@@ -258,65 +258,65 @@ func getListEventsParams(newerThan string) api.ListEventsParams {
 			fmt.Sprintf("metadata.creationTimestamp>=%s", newerThan))
 	}
 
-	return api.ListEventsParams{
-		Order:         lo.ToPtr(api.Asc), // Oldest to newest
+	return domain.ListEventsParams{
+		Order:         lo.ToPtr(domain.Asc), // Oldest to newest
 		FieldSelector: lo.ToPtr(strings.Join(fieldSelectors, ",")),
 		Limit:         lo.ToPtr(int32(1000)),
 	}
 }
 
 var (
-	appStatusGroup = []string{string(api.EventReasonDeviceApplicationError), string(api.EventReasonDeviceApplicationDegraded)}
-	cpuGroup       = []string{string(api.EventReasonDeviceCPUCritical), string(api.EventReasonDeviceCPUWarning)}
-	memoryGroup    = []string{string(api.EventReasonDeviceMemoryCritical), string(api.EventReasonDeviceMemoryWarning)}
-	diskGroup      = []string{string(api.EventReasonDeviceDiskCritical), string(api.EventReasonDeviceDiskWarning)}
+	appStatusGroup = []string{string(domain.EventReasonDeviceApplicationError), string(domain.EventReasonDeviceApplicationDegraded)}
+	cpuGroup       = []string{string(domain.EventReasonDeviceCPUCritical), string(domain.EventReasonDeviceCPUWarning)}
+	memoryGroup    = []string{string(domain.EventReasonDeviceMemoryCritical), string(domain.EventReasonDeviceMemoryWarning)}
+	diskGroup      = []string{string(domain.EventReasonDeviceDiskCritical), string(domain.EventReasonDeviceDiskWarning)}
 )
 
-func (c *CheckpointContext) processEvent(event api.Event, orgID uuid.UUID) {
+func (c *CheckpointContext) processEvent(event domain.Event, orgID uuid.UUID) {
 	switch event.Reason {
-	case api.EventReasonResourceDeleted, api.EventReasonDeviceDecommissioned:
+	case domain.EventReasonResourceDeleted, domain.EventReasonDeviceDecommissioned:
 		c.resolveAllAlertsForResource(event, orgID)
 	// Applications
-	case api.EventReasonDeviceApplicationError:
-		c.setAlert(event, string(api.EventReasonDeviceApplicationError), appStatusGroup, orgID)
-	case api.EventReasonDeviceApplicationDegraded:
-		c.setAlert(event, string(api.EventReasonDeviceApplicationDegraded), appStatusGroup, orgID)
-	case api.EventReasonDeviceApplicationHealthy:
+	case domain.EventReasonDeviceApplicationError:
+		c.setAlert(event, string(domain.EventReasonDeviceApplicationError), appStatusGroup, orgID)
+	case domain.EventReasonDeviceApplicationDegraded:
+		c.setAlert(event, string(domain.EventReasonDeviceApplicationDegraded), appStatusGroup, orgID)
+	case domain.EventReasonDeviceApplicationHealthy:
 		c.clearAlertGroup(event, appStatusGroup, orgID)
 	// CPU
-	case api.EventReasonDeviceCPUCritical:
-		c.setAlert(event, string(api.EventReasonDeviceCPUCritical), cpuGroup, orgID)
-	case api.EventReasonDeviceCPUWarning:
-		c.setAlert(event, string(api.EventReasonDeviceCPUWarning), cpuGroup, orgID)
-	case api.EventReasonDeviceCPUNormal:
+	case domain.EventReasonDeviceCPUCritical:
+		c.setAlert(event, string(domain.EventReasonDeviceCPUCritical), cpuGroup, orgID)
+	case domain.EventReasonDeviceCPUWarning:
+		c.setAlert(event, string(domain.EventReasonDeviceCPUWarning), cpuGroup, orgID)
+	case domain.EventReasonDeviceCPUNormal:
 		c.clearAlertGroup(event, cpuGroup, orgID)
 	// Memory
-	case api.EventReasonDeviceMemoryCritical:
-		c.setAlert(event, string(api.EventReasonDeviceMemoryCritical), memoryGroup, orgID)
-	case api.EventReasonDeviceMemoryWarning:
-		c.setAlert(event, string(api.EventReasonDeviceMemoryWarning), memoryGroup, orgID)
-	case api.EventReasonDeviceMemoryNormal:
+	case domain.EventReasonDeviceMemoryCritical:
+		c.setAlert(event, string(domain.EventReasonDeviceMemoryCritical), memoryGroup, orgID)
+	case domain.EventReasonDeviceMemoryWarning:
+		c.setAlert(event, string(domain.EventReasonDeviceMemoryWarning), memoryGroup, orgID)
+	case domain.EventReasonDeviceMemoryNormal:
 		c.clearAlertGroup(event, memoryGroup, orgID)
 	// Disk
-	case api.EventReasonDeviceDiskCritical:
-		c.setAlert(event, string(api.EventReasonDeviceDiskCritical), diskGroup, orgID)
-	case api.EventReasonDeviceDiskWarning:
-		c.setAlert(event, string(api.EventReasonDeviceDiskWarning), diskGroup, orgID)
-	case api.EventReasonDeviceDiskNormal:
+	case domain.EventReasonDeviceDiskCritical:
+		c.setAlert(event, string(domain.EventReasonDeviceDiskCritical), diskGroup, orgID)
+	case domain.EventReasonDeviceDiskWarning:
+		c.setAlert(event, string(domain.EventReasonDeviceDiskWarning), diskGroup, orgID)
+	case domain.EventReasonDeviceDiskNormal:
 		c.clearAlertGroup(event, diskGroup, orgID)
 	// Device connection status
-	case api.EventReasonDeviceDisconnected:
-		c.setAlert(event, string(api.EventReasonDeviceDisconnected), nil, orgID)
-	case api.EventReasonDeviceConnected:
-		c.clearAlertGroup(event, []string{string(api.EventReasonDeviceDisconnected)}, orgID)
+	case domain.EventReasonDeviceDisconnected:
+		c.setAlert(event, string(domain.EventReasonDeviceDisconnected), nil, orgID)
+	case domain.EventReasonDeviceConnected:
+		c.clearAlertGroup(event, []string{string(domain.EventReasonDeviceDisconnected)}, orgID)
 	}
 }
 
-func AlertKeyFromEvent(event api.Event, orgID uuid.UUID) AlertKey {
+func AlertKeyFromEvent(event domain.Event, orgID uuid.UUID) AlertKey {
 	return NewAlertKey(orgID.String(), event.InvolvedObject.Kind, event.InvolvedObject.Name)
 }
 
-func (c *CheckpointContext) resolveAllAlertsForResource(event api.Event, orgID uuid.UUID) {
+func (c *CheckpointContext) resolveAllAlertsForResource(event domain.Event, orgID uuid.UUID) {
 	k := AlertKeyFromEvent(event, orgID)
 	if _, exists := c.alerts[k]; !exists {
 		return
@@ -329,7 +329,7 @@ func (c *CheckpointContext) resolveAllAlertsForResource(event api.Event, orgID u
 	}
 }
 
-func (c *CheckpointContext) setAlert(event api.Event, reason string, group []string, orgID uuid.UUID) {
+func (c *CheckpointContext) setAlert(event domain.Event, reason string, group []string, orgID uuid.UUID) {
 	// Clear other alerts in the same group
 	k := AlertKeyFromEvent(event, orgID)
 	if _, exists := c.alerts[k]; !exists {
@@ -368,7 +368,7 @@ func (c *CheckpointContext) setAlert(event api.Event, reason string, group []str
 	}
 }
 
-func (c *CheckpointContext) clearAlertGroup(event api.Event, group []string, orgID uuid.UUID) {
+func (c *CheckpointContext) clearAlertGroup(event domain.Event, group []string, orgID uuid.UUID) {
 	k := AlertKeyFromEvent(event, orgID)
 	if _, exists := c.alerts[k]; !exists {
 		// No alerts for this resource

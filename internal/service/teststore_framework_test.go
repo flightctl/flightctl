@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"net/http"
 
-	api "github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
@@ -33,32 +33,32 @@ type TestStore struct {
 
 type DummyDevice struct {
 	store.Device
-	devices *[]api.Device
+	devices *[]domain.Device
 }
 
 type DummyEvent struct {
 	store.Event
-	events *[]api.Event
+	events *[]domain.Event
 }
 
 type DummyFleet struct {
 	store.Fleet
-	fleets *[]api.Fleet
+	fleets *[]domain.Fleet
 }
 
 type DummyRepository struct {
 	store.Repository
-	repositories *[]api.Repository
+	repositories *[]domain.Repository
 }
 
 type DummyResourceSync struct {
 	store.ResourceSync
-	resourceSyncVals *[]api.ResourceSync
+	resourceSyncVals *[]domain.ResourceSync
 }
 
 type DummyEnrollmentRequest struct {
 	store.EnrollmentRequestStore
-	enrollmentRequests *[]api.EnrollmentRequest
+	enrollmentRequests *[]domain.EnrollmentRequest
 }
 
 type DummyOrganization struct {
@@ -69,22 +69,22 @@ type DummyOrganization struct {
 
 func (s *TestStore) init() {
 	if s.events == nil {
-		s.events = &DummyEvent{events: &[]api.Event{}}
+		s.events = &DummyEvent{events: &[]domain.Event{}}
 	}
 	if s.devices == nil {
-		s.devices = &DummyDevice{devices: &[]api.Device{}}
+		s.devices = &DummyDevice{devices: &[]domain.Device{}}
 	}
 	if s.fleets == nil {
-		s.fleets = &DummyFleet{fleets: &[]api.Fleet{}}
+		s.fleets = &DummyFleet{fleets: &[]domain.Fleet{}}
 	}
 	if s.repositories == nil {
-		s.repositories = &DummyRepository{repositories: &[]api.Repository{}}
+		s.repositories = &DummyRepository{repositories: &[]domain.Repository{}}
 	}
 	if s.resourceSyncVals == nil {
-		s.resourceSyncVals = &DummyResourceSync{resourceSyncVals: &[]api.ResourceSync{}}
+		s.resourceSyncVals = &DummyResourceSync{resourceSyncVals: &[]domain.ResourceSync{}}
 	}
 	if s.enrollmentRequests == nil {
-		s.enrollmentRequests = &DummyEnrollmentRequest{enrollmentRequests: &[]api.EnrollmentRequest{}}
+		s.enrollmentRequests = &DummyEnrollmentRequest{enrollmentRequests: &[]domain.EnrollmentRequest{}}
 	}
 	if s.organizations == nil {
 		s.organizations = &DummyOrganization{organizations: &[]*model.Organization{}}
@@ -128,18 +128,18 @@ func (s *TestStore) Organization() store.Organization {
 
 // --------------------------------------> Event
 
-func (s *DummyEvent) Create(ctx context.Context, orgId uuid.UUID, event *api.Event) error {
-	var ev api.Event
+func (s *DummyEvent) Create(ctx context.Context, orgId uuid.UUID, event *domain.Event) error {
+	var ev domain.Event
 	deepCopy(event, &ev)
 	*s.events = append(*s.events, ev)
 	return nil
 }
 
-func (s *DummyEvent) List(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (*api.EventList, error) {
-	list := &api.EventList{
+func (s *DummyEvent) List(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (*domain.EventList, error) {
+	list := &domain.EventList{
 		ApiVersion: "",
 		Kind:       "",
-		Metadata:   api.ListMeta{},
+		Metadata:   domain.ListMeta{},
 		Items:      *s.events,
 	}
 	return list, nil
@@ -147,10 +147,10 @@ func (s *DummyEvent) List(ctx context.Context, orgId uuid.UUID, listParams store
 
 // --------------------------------------> Device
 
-func (s *DummyDevice) Get(ctx context.Context, orgId uuid.UUID, name string) (*api.Device, error) {
+func (s *DummyDevice) Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.Device, error) {
 	for _, device := range *s.devices {
 		if name == *device.Metadata.Name {
-			var dev api.Device
+			var dev domain.Device
 			deepCopy(device, &dev)
 			return &dev, nil
 		}
@@ -158,16 +158,16 @@ func (s *DummyDevice) Get(ctx context.Context, orgId uuid.UUID, name string) (*a
 	return nil, flterrors.ErrResourceNotFound
 }
 
-func (s *DummyDevice) GetWithoutServiceConditions(ctx context.Context, orgId uuid.UUID, name string) (*api.Device, error) {
+func (s *DummyDevice) GetWithoutServiceConditions(ctx context.Context, orgId uuid.UUID, name string) (*domain.Device, error) {
 	return s.Get(ctx, orgId, name)
 }
 
-func (s *DummyDevice) Update(ctx context.Context, orgId uuid.UUID, device *api.Device, fieldsToUnset []string, fromAPI bool, validationCallback store.DeviceStoreValidationCallback, callbackEvent store.EventCallback) (*api.Device, error) {
+func (s *DummyDevice) Update(ctx context.Context, orgId uuid.UUID, device *domain.Device, fieldsToUnset []string, fromAPI bool, validationCallback store.DeviceStoreValidationCallback, callbackEvent store.EventCallback) (*domain.Device, error) {
 	for i, dev := range *s.devices {
 		if *device.Metadata.Name == *dev.Metadata.Name {
-			var oldDevice api.Device
+			var oldDevice domain.Device
 			deepCopy(dev, &oldDevice)
-			var d api.Device
+			var d domain.Device
 			deepCopy(device, &d)
 			if validationCallback != nil {
 				// TODO
@@ -177,7 +177,7 @@ func (s *DummyDevice) Update(ctx context.Context, orgId uuid.UUID, device *api.D
 			}
 			(*s.devices)[i] = d
 			if callbackEvent != nil {
-				callbackEvent(ctx, api.DeviceKind, orgId, lo.FromPtr(device.Metadata.Name), &oldDevice, &d, false, nil)
+				callbackEvent(ctx, domain.DeviceKind, orgId, lo.FromPtr(device.Metadata.Name), &oldDevice, &d, false, nil)
 			}
 			return device, nil
 		}
@@ -186,11 +186,11 @@ func (s *DummyDevice) Update(ctx context.Context, orgId uuid.UUID, device *api.D
 
 }
 
-func (s *DummyDevice) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *api.Device, fieldsToUnset []string, fromAPI bool, validationCallback store.DeviceStoreValidationCallback, callbackEvent store.EventCallback) (*api.Device, bool, error) {
+func (s *DummyDevice) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *domain.Device, fieldsToUnset []string, fromAPI bool, validationCallback store.DeviceStoreValidationCallback, callbackEvent store.EventCallback) (*domain.Device, bool, error) {
 	created := true
-	var d api.Device
+	var d domain.Device
 	deepCopy(device, &d)
-	var oldDevice api.Device
+	var oldDevice domain.Device
 	for i, dev := range *s.devices {
 		if *device.Metadata.Name == *dev.Metadata.Name {
 			deepCopy(dev, &oldDevice)
@@ -209,32 +209,32 @@ func (s *DummyDevice) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, devic
 	}
 	*s.devices = append(*s.devices, d)
 	if callbackEvent != nil {
-		callbackEvent(ctx, api.DeviceKind, orgId, lo.FromPtr(device.Metadata.Name), &oldDevice, &d, created, nil)
+		callbackEvent(ctx, domain.DeviceKind, orgId, lo.FromPtr(device.Metadata.Name), &oldDevice, &d, created, nil)
 	}
 	return &d, created, nil
 }
 
-func (s *DummyDevice) Create(ctx context.Context, orgId uuid.UUID, device *api.Device, callbackEvent store.EventCallback) (*api.Device, error) {
-	var d api.Device
+func (s *DummyDevice) Create(ctx context.Context, orgId uuid.UUID, device *domain.Device, callbackEvent store.EventCallback) (*domain.Device, error) {
+	var d domain.Device
 	deepCopy(device, &d)
 	*s.devices = append(*s.devices, d)
 	if callbackEvent != nil {
-		callbackEvent(ctx, api.DeviceKind, orgId, lo.FromPtr(d.Metadata.Name), nil, device, true, nil)
+		callbackEvent(ctx, domain.DeviceKind, orgId, lo.FromPtr(d.Metadata.Name), nil, device, true, nil)
 	}
 	return device, nil
 }
 
-func (s *DummyDevice) UpdateStatus(ctx context.Context, orgId uuid.UUID, device *api.Device, callbackEvent store.EventCallback) (*api.Device, error) {
+func (s *DummyDevice) UpdateStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device, callbackEvent store.EventCallback) (*domain.Device, error) {
 	for i, dev := range *s.devices {
 		if *device.Metadata.Name == *dev.Metadata.Name {
-			var oldDevice api.Device
+			var oldDevice domain.Device
 			deepCopy(dev, &oldDevice)
-			var d api.Device
+			var d domain.Device
 			deepCopy(device, &d)
 			// Update the device status
 			(*s.devices)[i].Status = d.Status
 			if callbackEvent != nil {
-				callbackEvent(ctx, api.DeviceKind, orgId, lo.FromPtr(d.Metadata.Name), &oldDevice, &d, false, nil)
+				callbackEvent(ctx, domain.DeviceKind, orgId, lo.FromPtr(d.Metadata.Name), &oldDevice, &d, false, nil)
 			}
 			return &d, nil
 		}
@@ -244,10 +244,10 @@ func (s *DummyDevice) UpdateStatus(ctx context.Context, orgId uuid.UUID, device 
 
 // --------------------------------------> Fleet
 
-func (s *DummyFleet) Get(ctx context.Context, orgId uuid.UUID, name string, options ...store.GetOption) (*api.Fleet, error) {
+func (s *DummyFleet) Get(ctx context.Context, orgId uuid.UUID, name string, options ...store.GetOption) (*domain.Fleet, error) {
 	for _, fleet := range *s.fleets {
 		if name == *fleet.Metadata.Name {
-			var f api.Fleet
+			var f domain.Fleet
 			deepCopy(fleet, &f)
 			return &f, nil
 		}
@@ -255,22 +255,22 @@ func (s *DummyFleet) Get(ctx context.Context, orgId uuid.UUID, name string, opti
 	return nil, flterrors.ErrResourceNotFound
 }
 
-func (s *DummyFleet) Create(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet, callbackEvent store.EventCallback) (*api.Fleet, error) {
-	var f api.Fleet
+func (s *DummyFleet) Create(ctx context.Context, orgId uuid.UUID, fleet *domain.Fleet, callbackEvent store.EventCallback) (*domain.Fleet, error) {
+	var f domain.Fleet
 	deepCopy(fleet, &f)
 	*s.fleets = append(*s.fleets, f)
 	if callbackEvent != nil {
-		callbackEvent(ctx, api.FleetKind, orgId, lo.FromPtr(fleet.Metadata.Name), nil, fleet, true, nil)
+		callbackEvent(ctx, domain.FleetKind, orgId, lo.FromPtr(fleet.Metadata.Name), nil, fleet, true, nil)
 	}
 	return fleet, nil
 }
 
-func (s *DummyFleet) Update(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet, fieldsToUnset []string, fromAPI bool, callbackEvent store.EventCallback) (*api.Fleet, error) {
+func (s *DummyFleet) Update(ctx context.Context, orgId uuid.UUID, fleet *domain.Fleet, fieldsToUnset []string, fromAPI bool, callbackEvent store.EventCallback) (*domain.Fleet, error) {
 	for i, flt := range *s.fleets {
 		if *fleet.Metadata.Name == *flt.Metadata.Name {
-			var f api.Fleet
+			var f domain.Fleet
 			if callbackEvent != nil {
-				callbackEvent(ctx, api.FleetKind, orgId, lo.FromPtr(fleet.Metadata.Name), &(*s.fleets)[i], fleet, false, nil)
+				callbackEvent(ctx, domain.FleetKind, orgId, lo.FromPtr(fleet.Metadata.Name), &(*s.fleets)[i], fleet, false, nil)
 			}
 			deepCopy(fleet, &f)
 			(*s.fleets)[i] = f
@@ -282,10 +282,10 @@ func (s *DummyFleet) Update(ctx context.Context, orgId uuid.UUID, fleet *api.Fle
 
 // --------------------------------------> Repository
 
-func (s *DummyRepository) Get(ctx context.Context, orgId uuid.UUID, name string) (*api.Repository, error) {
+func (s *DummyRepository) Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.Repository, error) {
 	for _, repo := range *s.repositories {
 		if name == *repo.Metadata.Name {
-			var r api.Repository
+			var r domain.Repository
 			deepCopy(repo, &r)
 			return &r, nil
 		}
@@ -293,26 +293,26 @@ func (s *DummyRepository) Get(ctx context.Context, orgId uuid.UUID, name string)
 	return nil, flterrors.ErrResourceNotFound
 }
 
-func (s *DummyRepository) Create(ctx context.Context, orgId uuid.UUID, repository *api.Repository, callbackEvent store.EventCallback) (*api.Repository, error) {
-	var repo api.Repository
+func (s *DummyRepository) Create(ctx context.Context, orgId uuid.UUID, repository *domain.Repository, callbackEvent store.EventCallback) (*domain.Repository, error) {
+	var repo domain.Repository
 	deepCopy(repository, &repo)
 	*s.repositories = append(*s.repositories, repo)
 	if callbackEvent != nil {
-		callbackEvent(ctx, api.RepositoryKind, orgId, lo.FromPtr(repository.Metadata.Name), nil, &repo, true, nil)
+		callbackEvent(ctx, domain.RepositoryKind, orgId, lo.FromPtr(repository.Metadata.Name), nil, &repo, true, nil)
 	}
 	return &repo, nil
 }
 
-func (s *DummyRepository) Update(ctx context.Context, orgId uuid.UUID, repository *api.Repository, callbackEvent store.EventCallback) (*api.Repository, error) {
+func (s *DummyRepository) Update(ctx context.Context, orgId uuid.UUID, repository *domain.Repository, callbackEvent store.EventCallback) (*domain.Repository, error) {
 	for i, r := range *s.repositories {
 		if *repository.Metadata.Name == *r.Metadata.Name {
-			var oldRepo api.Repository
+			var oldRepo domain.Repository
 			deepCopy(r, &oldRepo)
-			var repo api.Repository
+			var repo domain.Repository
 			deepCopy(repository, &repo)
 			(*s.repositories)[i] = repo
 			if callbackEvent != nil {
-				callbackEvent(ctx, api.RepositoryKind, orgId, lo.FromPtr(repository.Metadata.Name), &oldRepo, &repo, false, nil)
+				callbackEvent(ctx, domain.RepositoryKind, orgId, lo.FromPtr(repository.Metadata.Name), &oldRepo, &repo, false, nil)
 			}
 			return &repo, nil
 		}
@@ -320,11 +320,11 @@ func (s *DummyRepository) Update(ctx context.Context, orgId uuid.UUID, repositor
 	return nil, flterrors.ErrResourceNotFound
 }
 
-func (s *DummyRepository) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, repository *api.Repository, callbackEvent store.EventCallback) (*api.Repository, bool, error) {
+func (s *DummyRepository) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, repository *domain.Repository, callbackEvent store.EventCallback) (*domain.Repository, bool, error) {
 	created := true
-	var repo api.Repository
+	var repo domain.Repository
 	deepCopy(repository, &repo)
-	var oldRepo api.Repository
+	var oldRepo domain.Repository
 	for i, r := range *s.repositories {
 		if *repository.Metadata.Name == *r.Metadata.Name {
 			deepCopy(r, &oldRepo)
@@ -335,17 +335,17 @@ func (s *DummyRepository) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, r
 	}
 	*s.repositories = append(*s.repositories, repo)
 	if callbackEvent != nil {
-		callbackEvent(ctx, api.RepositoryKind, orgId, lo.FromPtr(repository.Metadata.Name), &oldRepo, &repo, created, nil)
+		callbackEvent(ctx, domain.RepositoryKind, orgId, lo.FromPtr(repository.Metadata.Name), &oldRepo, &repo, created, nil)
 	}
 	return &repo, created, nil
 }
 
-func (s *DummyRepository) UpdateStatus(ctx context.Context, orgId uuid.UUID, repository *api.Repository, callbackEvent store.EventCallback) (*api.Repository, error) {
+func (s *DummyRepository) UpdateStatus(ctx context.Context, orgId uuid.UUID, repository *domain.Repository, callbackEvent store.EventCallback) (*domain.Repository, error) {
 	for i, repo := range *s.repositories {
 		if *repository.Metadata.Name == *repo.Metadata.Name {
-			var oldRepo api.Repository
+			var oldRepo domain.Repository
 			deepCopy(repo, &oldRepo)
-			var r api.Repository
+			var r domain.Repository
 			deepCopy(repository, &r)
 			status := repo.Status
 			if status != nil {
@@ -353,7 +353,7 @@ func (s *DummyRepository) UpdateStatus(ctx context.Context, orgId uuid.UUID, rep
 			}
 			(*s.repositories)[i].Status = r.Status
 			if callbackEvent != nil {
-				callbackEvent(ctx, api.RepositoryKind, orgId, lo.FromPtr(r.Metadata.Name), &oldRepo, &r, false, nil)
+				callbackEvent(ctx, domain.RepositoryKind, orgId, lo.FromPtr(r.Metadata.Name), &oldRepo, &r, false, nil)
 			}
 			return &r, nil
 		}
@@ -365,11 +365,11 @@ func (s *DummyRepository) UpdateStatus(ctx context.Context, orgId uuid.UUID, rep
 func (s *DummyRepository) Delete(ctx context.Context, orgId uuid.UUID, name string, callbackEvent store.EventCallback) error {
 	for i, repo := range *s.repositories {
 		if name == *repo.Metadata.Name {
-			var oldRepo api.Repository
+			var oldRepo domain.Repository
 			deepCopy(repo, &oldRepo)
 			*s.repositories = append((*s.repositories)[:i], (*s.repositories)[i+1:]...)
 			if callbackEvent != nil {
-				callbackEvent(ctx, api.RepositoryKind, orgId, name, &oldRepo, nil, false, nil)
+				callbackEvent(ctx, domain.RepositoryKind, orgId, name, &oldRepo, nil, false, nil)
 			}
 			return nil
 		}
@@ -377,21 +377,21 @@ func (s *DummyRepository) Delete(ctx context.Context, orgId uuid.UUID, name stri
 	return flterrors.ErrResourceNotFound
 }
 
-func (s *DummyRepository) List(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (*api.RepositoryList, error) {
-	return &api.RepositoryList{
+func (s *DummyRepository) List(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (*domain.RepositoryList, error) {
+	return &domain.RepositoryList{
 		ApiVersion: "",
 		Kind:       "",
-		Metadata:   api.ListMeta{},
+		Metadata:   domain.ListMeta{},
 		Items:      *s.repositories,
 	}, nil
 }
 
 // --------------------------------------> ResourceSync
 
-func (s *DummyResourceSync) Get(ctx context.Context, orgId uuid.UUID, name string) (*api.ResourceSync, error) {
+func (s *DummyResourceSync) Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.ResourceSync, error) {
 	for _, res := range *s.resourceSyncVals {
 		if name == *res.Metadata.Name {
-			var r api.ResourceSync
+			var r domain.ResourceSync
 			deepCopy(res, &r)
 			return &r, nil
 		}
@@ -399,23 +399,23 @@ func (s *DummyResourceSync) Get(ctx context.Context, orgId uuid.UUID, name strin
 	return nil, flterrors.ErrResourceNotFound
 }
 
-func (s *DummyResourceSync) Create(ctx context.Context, orgId uuid.UUID, resourceSync *api.ResourceSync, callbackEvent store.EventCallback) (*api.ResourceSync, error) {
-	var r api.ResourceSync
+func (s *DummyResourceSync) Create(ctx context.Context, orgId uuid.UUID, resourceSync *domain.ResourceSync, callbackEvent store.EventCallback) (*domain.ResourceSync, error) {
+	var r domain.ResourceSync
 	deepCopy(resourceSync, &r)
 	*s.resourceSyncVals = append(*s.resourceSyncVals, r)
 	if callbackEvent != nil {
-		callbackEvent(ctx, api.ResourceSyncKind, orgId, lo.FromPtr(resourceSync.Metadata.Name), nil, resourceSync, true, nil)
+		callbackEvent(ctx, domain.ResourceSyncKind, orgId, lo.FromPtr(resourceSync.Metadata.Name), nil, resourceSync, true, nil)
 	}
 	return resourceSync, nil
 }
 
-func (s *DummyResourceSync) Update(ctx context.Context, orgId uuid.UUID, resourceSync *api.ResourceSync, callbackEvent store.EventCallback) (*api.ResourceSync, error) {
+func (s *DummyResourceSync) Update(ctx context.Context, orgId uuid.UUID, resourceSync *domain.ResourceSync, callbackEvent store.EventCallback) (*domain.ResourceSync, error) {
 	for i, sync := range *s.resourceSyncVals {
 		if *resourceSync.Metadata.Name == *sync.Metadata.Name {
 			if callbackEvent != nil {
-				callbackEvent(ctx, api.ResourceSyncKind, orgId, lo.FromPtr(resourceSync.Metadata.Name), (*s.resourceSyncVals)[i], resourceSync, false, nil)
+				callbackEvent(ctx, domain.ResourceSyncKind, orgId, lo.FromPtr(resourceSync.Metadata.Name), (*s.resourceSyncVals)[i], resourceSync, false, nil)
 			}
-			var r api.ResourceSync
+			var r domain.ResourceSync
 			deepCopy(resourceSync, &r)
 			(*s.resourceSyncVals)[i] = r
 			return resourceSync, nil
@@ -424,8 +424,8 @@ func (s *DummyResourceSync) Update(ctx context.Context, orgId uuid.UUID, resourc
 	return nil, flterrors.ErrResourceNotFound
 }
 
-func (s *DummyResourceSync) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resourceSync *api.ResourceSync, callbackEvent store.EventCallback) (*api.ResourceSync, bool, error) {
-	var oldRs *api.ResourceSync
+func (s *DummyResourceSync) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resourceSync *domain.ResourceSync, callbackEvent store.EventCallback) (*domain.ResourceSync, bool, error) {
+	var oldRs *domain.ResourceSync
 	created := true
 	for i, resource := range *s.resourceSyncVals {
 		if *resourceSync.Metadata.Name == *resource.Metadata.Name {
@@ -437,28 +437,28 @@ func (s *DummyResourceSync) CreateOrUpdate(ctx context.Context, orgId uuid.UUID,
 	}
 	// TODO: update found device
 	// resourceSync -> oldResourceSync
-	var r api.ResourceSync
+	var r domain.ResourceSync
 	deepCopy(resourceSync, &r)
 	*s.resourceSyncVals = append(*s.resourceSyncVals, r)
 	if callbackEvent != nil {
-		callbackEvent(ctx, api.ResourceSyncKind, orgId, lo.FromPtr(resourceSync.Metadata.Name), oldRs, resourceSync, created, nil)
+		callbackEvent(ctx, domain.ResourceSyncKind, orgId, lo.FromPtr(resourceSync.Metadata.Name), oldRs, resourceSync, created, nil)
 	}
 	return resourceSync, created, nil
 }
 
-func (s *DummyResourceSync) List(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (*api.ResourceSyncList, error) {
-	return &api.ResourceSyncList{
+func (s *DummyResourceSync) List(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (*domain.ResourceSyncList, error) {
+	return &domain.ResourceSyncList{
 		ApiVersion: "",
 		Kind:       "",
-		Metadata:   api.ListMeta{},
+		Metadata:   domain.ListMeta{},
 		Items:      *s.resourceSyncVals,
 	}, nil
 }
 
-func (s *DummyResourceSync) UpdateStatus(ctx context.Context, orgId uuid.UUID, resourceSync *api.ResourceSync, eventCallback store.EventCallback) (*api.ResourceSync, error) {
+func (s *DummyResourceSync) UpdateStatus(ctx context.Context, orgId uuid.UUID, resourceSync *domain.ResourceSync, eventCallback store.EventCallback) (*domain.ResourceSync, error) {
 	for i, rs := range *s.resourceSyncVals {
 		if *resourceSync.Metadata.Name == *rs.Metadata.Name {
-			var r api.ResourceSync
+			var r domain.ResourceSync
 			deepCopy(resourceSync, &r)
 			(*s.resourceSyncVals)[i].Status = r.Status
 			return resourceSync, nil
@@ -469,10 +469,10 @@ func (s *DummyResourceSync) UpdateStatus(ctx context.Context, orgId uuid.UUID, r
 
 // --------------------------------------> EnrollmentRequest
 
-func (s *DummyEnrollmentRequest) Get(ctx context.Context, orgId uuid.UUID, name string) (*api.EnrollmentRequest, error) {
+func (s *DummyEnrollmentRequest) Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.EnrollmentRequest, error) {
 	for _, enrollment := range *s.enrollmentRequests {
 		if name == *enrollment.Metadata.Name {
-			var e api.EnrollmentRequest
+			var e domain.EnrollmentRequest
 			deepCopy(enrollment, &e)
 			return &e, nil
 		}
@@ -480,26 +480,26 @@ func (s *DummyEnrollmentRequest) Get(ctx context.Context, orgId uuid.UUID, name 
 	return nil, flterrors.ErrResourceNotFound
 }
 
-func (s *DummyEnrollmentRequest) Create(ctx context.Context, orgId uuid.UUID, er *api.EnrollmentRequest, callbackEvent store.EventCallback) (*api.EnrollmentRequest, error) {
-	var e api.EnrollmentRequest
+func (s *DummyEnrollmentRequest) Create(ctx context.Context, orgId uuid.UUID, er *domain.EnrollmentRequest, callbackEvent store.EventCallback) (*domain.EnrollmentRequest, error) {
+	var e domain.EnrollmentRequest
 	deepCopy(er, &e)
 	*s.enrollmentRequests = append(*s.enrollmentRequests, e)
 	if callbackEvent != nil {
-		callbackEvent(ctx, api.EnrollmentRequestKind, orgId, lo.FromPtr(er.Metadata.Name), nil, er, true, nil)
+		callbackEvent(ctx, domain.EnrollmentRequestKind, orgId, lo.FromPtr(er.Metadata.Name), nil, er, true, nil)
 	}
 	return er, nil
 }
 
-func (s *DummyEnrollmentRequest) CreateWithFromAPI(ctx context.Context, orgId uuid.UUID, er *api.EnrollmentRequest, fromAPI bool, callbackEvent store.EventCallback) (*api.EnrollmentRequest, error) {
+func (s *DummyEnrollmentRequest) CreateWithFromAPI(ctx context.Context, orgId uuid.UUID, er *domain.EnrollmentRequest, fromAPI bool, callbackEvent store.EventCallback) (*domain.EnrollmentRequest, error) {
 	return s.Create(ctx, orgId, er, callbackEvent)
 }
 
-func (s *DummyEnrollmentRequest) UpdateStatus(ctx context.Context, orgId uuid.UUID, er *api.EnrollmentRequest, callbackEvent store.EventCallback) (*api.EnrollmentRequest, error) {
+func (s *DummyEnrollmentRequest) UpdateStatus(ctx context.Context, orgId uuid.UUID, er *domain.EnrollmentRequest, callbackEvent store.EventCallback) (*domain.EnrollmentRequest, error) {
 	for i, e := range *s.enrollmentRequests {
 		if *er.Metadata.Name == *e.Metadata.Name {
 			oldEr := (*s.enrollmentRequests)[i]
 			if callbackEvent != nil {
-				callbackEvent(ctx, api.EnrollmentRequestKind, orgId, lo.FromPtr(er.Metadata.Name), oldEr, er, false, nil)
+				callbackEvent(ctx, domain.EnrollmentRequestKind, orgId, lo.FromPtr(er.Metadata.Name), oldEr, er, false, nil)
 			}
 			oldEr.Status = er.Status
 			return er, nil
@@ -543,7 +543,7 @@ func (s *DummyOrganization) List(ctx context.Context, listParams store.ListParam
 type DummyWorkerClient struct {
 }
 
-func (s *DummyWorkerClient) EmitEvent(ctx context.Context, orgId uuid.UUID, event *api.Event) {
+func (s *DummyWorkerClient) EmitEvent(ctx context.Context, orgId uuid.UUID, event *domain.Event) {
 	// TODO: implement
 }
 

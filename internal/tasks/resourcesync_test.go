@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	api "github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -37,7 +37,7 @@ func TestResourceSync_ParseFleetsFromResources_ValidResources(t *testing.T) {
 	// Create valid resources
 	resources := []GenericResourceMap{
 		{
-			"kind": api.FleetKind,
+			"kind": domain.FleetKind,
 			"metadata": map[string]interface{}{
 				"name": "test-fleet",
 			},
@@ -95,7 +95,7 @@ func TestResourceSync_ParseFleetsFromResources_InvalidResources(t *testing.T) {
 func TestRemoveIgnoredFields_NoIgnoredFields(t *testing.T) {
 	// Test with no ignored fields
 	resource := GenericResourceMap{
-		"kind": api.FleetKind,
+		"kind": domain.FleetKind,
 		"metadata": map[string]interface{}{
 			"name": "test-fleet",
 			"labels": map[string]interface{}{
@@ -124,7 +124,7 @@ func TestRemoveIgnoredFields_NoIgnoredFields(t *testing.T) {
 func TestRemoveIgnoredFields_RemoveTopLevelField(t *testing.T) {
 	// Test removing a top-level field
 	resource := GenericResourceMap{
-		"kind": api.FleetKind,
+		"kind": domain.FleetKind,
 		"metadata": map[string]interface{}{
 			"name": "test-fleet",
 		},
@@ -162,7 +162,7 @@ func TestRemoveIgnoredFields_RemoveTopLevelField(t *testing.T) {
 func TestRemoveIgnoredFields_RemoveNestedField(t *testing.T) {
 	// Test removing a nested field
 	resource := GenericResourceMap{
-		"kind": api.FleetKind,
+		"kind": domain.FleetKind,
 		"metadata": map[string]interface{}{
 			"name": "test-fleet",
 			"labels": map[string]interface{}{
@@ -199,7 +199,7 @@ func TestRemoveIgnoredFields_RemoveNestedField(t *testing.T) {
 func TestRemoveIgnoredFields_RemoveMultipleFields(t *testing.T) {
 	// Test removing multiple fields
 	resource := GenericResourceMap{
-		"kind": api.FleetKind,
+		"kind": domain.FleetKind,
 		"metadata": map[string]interface{}{
 			"name": "test-fleet",
 			"labels": map[string]interface{}{
@@ -243,7 +243,7 @@ func TestRemoveIgnoredFields_RemoveMultipleFields(t *testing.T) {
 func TestRemoveIgnoredFields_RemoveDeeplyNestedField(t *testing.T) {
 	// Test removing a deeply nested field
 	resource := GenericResourceMap{
-		"kind": api.FleetKind,
+		"kind": domain.FleetKind,
 		"metadata": map[string]interface{}{
 			"name": "test-fleet",
 		},
@@ -284,7 +284,7 @@ func TestRemoveIgnoredFields_RemoveDeeplyNestedField(t *testing.T) {
 func TestRemoveIgnoredFields_NonExistentField(t *testing.T) {
 	// Test removing a field that doesn't exist
 	resource := GenericResourceMap{
-		"kind": api.FleetKind,
+		"kind": domain.FleetKind,
 		"metadata": map[string]interface{}{
 			"name": "test-fleet",
 		},
@@ -300,7 +300,7 @@ func TestRemoveIgnoredFields_NonExistentField(t *testing.T) {
 func TestRemoveIgnoredFields_EmptyIgnorePaths(t *testing.T) {
 	// Test with empty ignore paths
 	resource := GenericResourceMap{
-		"kind": api.FleetKind,
+		"kind": domain.FleetKind,
 		"metadata": map[string]interface{}{
 			"name": "test-fleet",
 		},
@@ -316,7 +316,7 @@ func TestRemoveIgnoredFields_EmptyIgnorePaths(t *testing.T) {
 func TestRemoveIgnoredFields_WithLeadingSlash(t *testing.T) {
 	// Test with ignore paths that have leading slashes
 	resource := GenericResourceMap{
-		"kind": api.FleetKind,
+		"kind": domain.FleetKind,
 		"metadata": map[string]interface{}{
 			"name": "test-fleet",
 			"labels": map[string]interface{}{
@@ -350,7 +350,7 @@ func TestResourceSync_WithIgnoredFields(t *testing.T) {
 	// Create resources with fields that should be ignored
 	resources := []GenericResourceMap{
 		{
-			"kind": api.FleetKind,
+			"kind": domain.FleetKind,
 			"metadata": map[string]interface{}{
 				"name": "test-fleet",
 				"labels": map[string]interface{}{

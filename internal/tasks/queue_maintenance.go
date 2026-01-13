@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics/worker"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/worker_client"
@@ -88,7 +88,7 @@ func (t *QueueMaintenanceTask) processTimedOutMessages(ctx context.Context, log 
 		log.WithField("entryID", entryID).Debug("Processing timed out message")
 
 		// Try to extract the original event from the message body
-		var originalEvent api.Event
+		var originalEvent domain.Event
 		var eventWithOrgId worker_client.EventWithOrgId
 
 		// Parse the body as JSON to extract the original event
@@ -131,7 +131,7 @@ func (t *QueueMaintenanceTask) retryFailedMessages(ctx context.Context, log logr
 		}
 
 		// Try to extract the original event from the message body
-		var originalEvent api.Event
+		var originalEvent domain.Event
 		var eventWithOrgId worker_client.EventWithOrgId
 
 		// Parse the body as JSON to extract the original event
@@ -139,19 +139,19 @@ func (t *QueueMaintenanceTask) retryFailedMessages(ctx context.Context, log logr
 			// Successfully parsed the original event
 			originalEvent = eventWithOrgId.Event
 
-			resourceKind := api.ResourceKind(api.SystemKind)
-			resourceName := api.SystemComponentQueue
+			resourceKind := domain.ResourceKind(domain.SystemKind)
+			resourceName := domain.SystemComponentQueue
 			errorMessage := fmt.Sprintf("Message processing permanently failed after %d retry attempts", retryCount)
 			message := fmt.Sprintf("%s internal task failed: %s - %s.", resourceKind, originalEvent.Reason, errorMessage)
-			event := api.GetBaseEvent(ctx,
+			event := domain.GetBaseEvent(ctx,
 				resourceKind,
 				resourceName,
-				api.EventReasonInternalTaskPermanentlyFailed,
+				domain.EventReasonInternalTaskPermanentlyFailed,
 				message,
 				nil)
 
-			details := api.EventDetails{}
-			if detailsErr := details.FromInternalTaskPermanentlyFailedDetails(api.InternalTaskPermanentlyFailedDetails{
+			details := domain.EventDetails{}
+			if detailsErr := details.FromInternalTaskPermanentlyFailedDetails(domain.InternalTaskPermanentlyFailedDetails{
 				ErrorMessage:  errorMessage,
 				RetryCount:    retryCount,
 				OriginalEvent: originalEvent,
@@ -271,7 +271,7 @@ func (t *QueueMaintenanceTask) republishEventsSince(ctx context.Context, since t
 	log.WithField("since", since.Format(time.RFC3339Nano)).Info("Starting event republishing")
 
 	// First, get all organizations
-	orgList, status := t.serviceHandler.ListOrganizations(ctx, api.ListOrganizationsParams{})
+	orgList, status := t.serviceHandler.ListOrganizations(ctx, domain.ListOrganizationsParams{})
 	if status.Code >= 400 {
 		return fmt.Errorf("failed to list organizations: %s", status.Message)
 	}
@@ -295,9 +295,9 @@ func (t *QueueMaintenanceTask) republishEventsSince(ctx context.Context, since t
 		fieldSelector := fmt.Sprintf("metadata.creationTimestamp>=%s", since.Format(time.RFC3339Nano))
 
 		// Create list parameters with field selector and ascending order (oldest first)
-		params := api.ListEventsParams{
+		params := domain.ListEventsParams{
 			FieldSelector: &fieldSelector,
-			Order:         lo.ToPtr(api.Asc),     // Process oldest events first
+			Order:         lo.ToPtr(domain.Asc),  // Process oldest events first
 			Limit:         lo.ToPtr(int32(1000)), // Process in batches of 1000
 		}
 
@@ -354,7 +354,7 @@ func (t *QueueMaintenanceTask) republishEventsSince(ctx context.Context, since t
 }
 
 // republishSingleEvent republishes a single event using the worker client
-func (t *QueueMaintenanceTask) republishSingleEvent(ctx context.Context, event *api.Event, orgID uuid.UUID, log logrus.FieldLogger) error {
+func (t *QueueMaintenanceTask) republishSingleEvent(ctx context.Context, event *domain.Event, orgID uuid.UUID, log logrus.FieldLogger) error {
 	// Use the worker client to emit the event (will filter by reason)
 	if t.workerClient != nil {
 		t.workerClient.EmitEvent(ctx, orgID, event)

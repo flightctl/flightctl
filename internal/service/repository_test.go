@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	api "github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
@@ -12,30 +12,30 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func verifyRepoPatchFailed(require *require.Assertions, status api.Status) {
+func verifyRepoPatchFailed(require *require.Assertions, status domain.Status) {
 	require.Equal(statusBadRequestCode, status.Code)
 }
 
-func newOciAuth(username, password string) *api.OciAuth {
-	auth := &api.OciAuth{}
-	_ = auth.FromDockerAuth(api.DockerAuth{
+func newOciAuth(username, password string) *domain.OciAuth {
+	auth := &domain.OciAuth{}
+	_ = auth.FromDockerAuth(domain.DockerAuth{
 		Username: username,
 		Password: password,
 	})
 	return auth
 }
 
-func testRepositoryPatch(require *require.Assertions, patch api.PatchRequest) (*api.Repository, api.Repository, api.Status) {
-	spec := api.RepositorySpec{}
-	err := spec.FromGenericRepoSpec(api.GenericRepoSpec{
+func testRepositoryPatch(require *require.Assertions, patch domain.PatchRequest) (*domain.Repository, domain.Repository, domain.Status) {
+	spec := domain.RepositorySpec{}
+	err := spec.FromGenericRepoSpec(domain.GenericRepoSpec{
 		Url:  "foo",
 		Type: "git",
 	})
 	require.NoError(err)
-	repository := api.Repository{
+	repository := domain.Repository{
 		ApiVersion: "v1",
 		Kind:       "Repository",
-		Metadata: api.ObjectMeta{
+		Metadata: domain.ObjectMeta{
 			Name:   lo.ToPtr("foo"),
 			Labels: &map[string]string{"labelKey": "labelValue"},
 		},
@@ -60,13 +60,13 @@ func testRepositoryPatch(require *require.Assertions, patch api.PatchRequest) (*
 func TestRepositoryPatchName(t *testing.T) {
 	require := require.New(t)
 	var value interface{} = "bar"
-	pr := api.PatchRequest{
+	pr := domain.PatchRequest{
 		{Op: "replace", Path: "/metadata/name", Value: &value},
 	}
 	_, _, status := testRepositoryPatch(require, pr)
 	verifyRepoPatchFailed(require, status)
 
-	pr = api.PatchRequest{
+	pr = domain.PatchRequest{
 		{Op: "remove", Path: "/metadata/name"},
 	}
 	_, _, status = testRepositoryPatch(require, pr)
@@ -76,13 +76,13 @@ func TestRepositoryPatchName(t *testing.T) {
 func TestRepositoryPatchKind(t *testing.T) {
 	require := require.New(t)
 	var value interface{} = "bar"
-	pr := api.PatchRequest{
+	pr := domain.PatchRequest{
 		{Op: "replace", Path: "/kind", Value: &value},
 	}
 	_, _, status := testRepositoryPatch(require, pr)
 	verifyRepoPatchFailed(require, status)
 
-	pr = api.PatchRequest{
+	pr = domain.PatchRequest{
 		{Op: "remove", Path: "/kind"},
 	}
 	_, _, status = testRepositoryPatch(require, pr)
@@ -92,13 +92,13 @@ func TestRepositoryPatchKind(t *testing.T) {
 func TestRepositoryPatchAPIVersion(t *testing.T) {
 	require := require.New(t)
 	var value interface{} = "bar"
-	pr := api.PatchRequest{
+	pr := domain.PatchRequest{
 		{Op: "replace", Path: "/apiVersion", Value: &value},
 	}
 	_, _, status := testRepositoryPatch(require, pr)
 	verifyRepoPatchFailed(require, status)
 
-	pr = api.PatchRequest{
+	pr = domain.PatchRequest{
 		{Op: "remove", Path: "/apiVersion"},
 	}
 	_, _, status = testRepositoryPatch(require, pr)
@@ -107,7 +107,7 @@ func TestRepositoryPatchAPIVersion(t *testing.T) {
 
 func TestRepositoryPatchSpec(t *testing.T) {
 	require := require.New(t)
-	pr := api.PatchRequest{
+	pr := domain.PatchRequest{
 		{Op: "remove", Path: "/spec"},
 	}
 	_, _, status := testRepositoryPatch(require, pr)
@@ -117,13 +117,13 @@ func TestRepositoryPatchSpec(t *testing.T) {
 func TestRepositoryPatchStatus(t *testing.T) {
 	require := require.New(t)
 	var value interface{} = "1234"
-	pr := api.PatchRequest{
+	pr := domain.PatchRequest{
 		{Op: "replace", Path: "/status/updatedAt", Value: &value},
 	}
 	_, _, status := testRepositoryPatch(require, pr)
 	verifyRepoPatchFailed(require, status)
 
-	pr = api.PatchRequest{
+	pr = domain.PatchRequest{
 		{Op: "replace", Path: "/status/updatedAt"},
 	}
 	_, _, status = testRepositoryPatch(require, pr)
@@ -133,13 +133,13 @@ func TestRepositoryPatchStatus(t *testing.T) {
 func TestRepositoryPatchNonExistingPath(t *testing.T) {
 	require := require.New(t)
 	var value interface{} = "foo"
-	pr := api.PatchRequest{
+	pr := domain.PatchRequest{
 		{Op: "replace", Path: "/spec/os/doesnotexist", Value: &value},
 	}
 	_, _, status := testRepositoryPatch(require, pr)
 	verifyRepoPatchFailed(require, status)
 
-	pr = api.PatchRequest{
+	pr = domain.PatchRequest{
 		{Op: "remove", Path: "/spec/os/doesnotexist"},
 	}
 	_, _, status = testRepositoryPatch(require, pr)
@@ -150,7 +150,7 @@ func TestRepositoryPatchLabels(t *testing.T) {
 	require := require.New(t)
 	addLabels := map[string]string{"labelKey": "labelValue1"}
 	var value interface{} = "labelValue1"
-	pr := api.PatchRequest{
+	pr := domain.PatchRequest{
 		{Op: "replace", Path: "/metadata/labels/labelKey", Value: &value},
 	}
 
@@ -159,7 +159,7 @@ func TestRepositoryPatchLabels(t *testing.T) {
 	require.Equal(statusSuccessCode, status.Code)
 	require.Equal(orig, *resp)
 
-	pr = api.PatchRequest{
+	pr = domain.PatchRequest{
 		{Op: "remove", Path: "/metadata/labels/labelKey"},
 	}
 
@@ -172,7 +172,7 @@ func TestRepositoryPatchLabels(t *testing.T) {
 func TestRepositoryNonExistingResource(t *testing.T) {
 	require := require.New(t)
 	var value interface{} = "labelValue1"
-	pr := api.PatchRequest{
+	pr := domain.PatchRequest{
 		{Op: "replace", Path: "/metadata/labels/labelKey", Value: &value},
 	}
 
@@ -185,8 +185,8 @@ func TestRepositoryNonExistingResource(t *testing.T) {
 		log:          logrus.New(),
 	}
 	ctx := context.Background()
-	_, err := serviceHandler.store.Repository().Create(ctx, store.NullOrgId, &api.Repository{
-		Metadata: api.ObjectMeta{Name: lo.ToPtr("foo")},
+	_, err := serviceHandler.store.Repository().Create(ctx, store.NullOrgId, &domain.Repository{
+		Metadata: domain.ObjectMeta{Name: lo.ToPtr("foo")},
 	}, nil)
 	require.NoError(err)
 	_, status := serviceHandler.PatchRepository(ctx, store.NullOrgId, "bar", pr)
@@ -196,32 +196,32 @@ func TestRepositoryNonExistingResource(t *testing.T) {
 }
 
 func createRepository(ctx context.Context, r store.Repository, orgId uuid.UUID, name string, labels *map[string]string) error {
-	spec := api.RepositorySpec{}
-	err := spec.FromGenericRepoSpec(api.GenericRepoSpec{
+	spec := domain.RepositorySpec{}
+	err := spec.FromGenericRepoSpec(domain.GenericRepoSpec{
 		Url: "myrepourl",
 	})
 	if err != nil {
 		return err
 	}
-	resource := api.Repository{
-		Metadata: api.ObjectMeta{
+	resource := domain.Repository{
+		Metadata: domain.ObjectMeta{
 			Name:   lo.ToPtr(name),
 			Labels: labels,
 		},
 		Spec: spec,
 	}
 
-	callback := store.EventCallback(func(context.Context, api.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {})
+	callback := store.EventCallback(func(context.Context, domain.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {})
 	_, err = r.Create(ctx, orgId, &resource, callback)
 	return err
 }
 
-func setAccessCondition(ctx context.Context, orgId uuid.UUID, repository *api.Repository, err error, h ServiceHandler) error {
+func setAccessCondition(ctx context.Context, orgId uuid.UUID, repository *domain.Repository, err error, h ServiceHandler) error {
 	if repository.Status == nil {
-		repository.Status = &api.RepositoryStatus{Conditions: []api.Condition{}}
+		repository.Status = &domain.RepositoryStatus{Conditions: []domain.Condition{}}
 	}
 	if repository.Status.Conditions == nil {
-		repository.Status.Conditions = []api.Condition{}
+		repository.Status.Conditions = []domain.Condition{}
 	}
 	_, status := h.ReplaceRepositoryStatusByError(ctx, orgId, lo.FromPtr(repository.Metadata.Name), *repository, err)
 
@@ -255,18 +255,18 @@ func TestRepoTester_SetAccessCondition(t *testing.T) {
 	require.NoError(err)
 }
 
-func testOciRepositoryPatch(require *require.Assertions, patch api.PatchRequest) (*api.Repository, api.Repository, api.Status) {
-	spec := api.RepositorySpec{}
-	err := spec.FromOciRepoSpec(api.OciRepoSpec{
+func testOciRepositoryPatch(require *require.Assertions, patch domain.PatchRequest) (*domain.Repository, domain.Repository, domain.Status) {
+	spec := domain.RepositorySpec{}
+	err := spec.FromOciRepoSpec(domain.OciRepoSpec{
 		Registry: "quay.io",
 		Type:     "oci",
 		OciAuth:  newOciAuth("myuser", "mypassword"),
 	})
 	require.NoError(err)
-	repository := api.Repository{
+	repository := domain.Repository{
 		ApiVersion: "v1",
 		Kind:       "Repository",
-		Metadata: api.ObjectMeta{
+		Metadata: domain.ObjectMeta{
 			Name:   lo.ToPtr("oci-repo"),
 			Labels: &map[string]string{"type": "oci"},
 		},
@@ -293,7 +293,7 @@ func TestOciRepositoryPatchLabels(t *testing.T) {
 	require := require.New(t)
 	addLabels := map[string]string{"type": "oci", "env": "prod"}
 	var value interface{} = "prod"
-	pr := api.PatchRequest{
+	pr := domain.PatchRequest{
 		{Op: "add", Path: "/metadata/labels/env", Value: &value},
 	}
 
@@ -317,18 +317,18 @@ func TestOciRepositoryCreate(t *testing.T) {
 	ctx := context.Background()
 
 	// Test creating OCI repository with credentials
-	spec := api.RepositorySpec{}
-	err := spec.FromOciRepoSpec(api.OciRepoSpec{
+	spec := domain.RepositorySpec{}
+	err := spec.FromOciRepoSpec(domain.OciRepoSpec{
 		Registry: "quay.io",
 		Type:     "oci",
 		OciAuth:  newOciAuth("myuser", "mypassword"),
 	})
 	require.NoError(err)
 
-	repository := api.Repository{
+	repository := domain.Repository{
 		ApiVersion: "v1",
 		Kind:       "Repository",
-		Metadata: api.ObjectMeta{
+		Metadata: domain.ObjectMeta{
 			Name: lo.ToPtr("test-oci-repo"),
 		},
 		Spec: spec,
@@ -348,7 +348,7 @@ func TestOciRepositoryCreate(t *testing.T) {
 	ociSpec, err := retrieved.Spec.GetOciRepoSpec()
 	require.NoError(err)
 	require.Equal("quay.io", ociSpec.Registry)
-	require.Equal(api.RepoSpecTypeOci, ociSpec.Type)
+	require.Equal(domain.RepoSpecTypeOci, ociSpec.Type)
 	require.NotNil(ociSpec.OciAuth)
 	dockerAuth, err := ociSpec.OciAuth.AsDockerAuth()
 	require.NoError(err)
@@ -370,17 +370,17 @@ func TestOciRepositoryCreateWithoutCredentials(t *testing.T) {
 	ctx := context.Background()
 
 	// Test creating OCI repository without credentials (public registry)
-	spec := api.RepositorySpec{}
-	err := spec.FromOciRepoSpec(api.OciRepoSpec{
+	spec := domain.RepositorySpec{}
+	err := spec.FromOciRepoSpec(domain.OciRepoSpec{
 		Registry: "registry.redhat.io",
 		Type:     "oci",
 	})
 	require.NoError(err)
 
-	repository := api.Repository{
+	repository := domain.Repository{
 		ApiVersion: "v1",
 		Kind:       "Repository",
-		Metadata: api.ObjectMeta{
+		Metadata: domain.ObjectMeta{
 			Name: lo.ToPtr("public-oci-repo"),
 		},
 		Spec: spec,
@@ -416,17 +416,17 @@ func TestGitRepositoryCreate(t *testing.T) {
 	ctx := context.Background()
 	serviceHandler := createServiceHandler()
 
-	spec := api.RepositorySpec{}
-	err := spec.FromGenericRepoSpec(api.GenericRepoSpec{
+	spec := domain.RepositorySpec{}
+	err := spec.FromGenericRepoSpec(domain.GenericRepoSpec{
 		Url:  "https://github.com/flightctl/flightctl.git",
-		Type: api.RepoSpecTypeGit,
+		Type: domain.RepoSpecTypeGit,
 	})
 	require.NoError(err)
 
-	repository := api.Repository{
+	repository := domain.Repository{
 		ApiVersion: "v1",
 		Kind:       "Repository",
-		Metadata: api.ObjectMeta{
+		Metadata: domain.ObjectMeta{
 			Name:   lo.ToPtr("test-git-repo"),
 			Labels: &map[string]string{"type": "git"},
 		},
@@ -447,7 +447,7 @@ func TestGitRepositoryCreate(t *testing.T) {
 	genericSpec, err := retrieved.Spec.GetGenericRepoSpec()
 	require.NoError(err)
 	require.Equal("https://github.com/flightctl/flightctl.git", genericSpec.Url)
-	require.Equal(api.RepoSpecTypeGit, genericSpec.Type)
+	require.Equal(domain.RepoSpecTypeGit, genericSpec.Type)
 }
 
 func TestGitRepositoryGet(t *testing.T) {
@@ -456,15 +456,15 @@ func TestGitRepositoryGet(t *testing.T) {
 	serviceHandler := createServiceHandler()
 
 	// Create a repository first
-	spec := api.RepositorySpec{}
-	err := spec.FromGenericRepoSpec(api.GenericRepoSpec{
+	spec := domain.RepositorySpec{}
+	err := spec.FromGenericRepoSpec(domain.GenericRepoSpec{
 		Url:  "https://github.com/flightctl/flightctl.git",
-		Type: api.RepoSpecTypeGit,
+		Type: domain.RepoSpecTypeGit,
 	})
 	require.NoError(err)
 
-	repository := api.Repository{
-		Metadata: api.ObjectMeta{
+	repository := domain.Repository{
+		Metadata: domain.ObjectMeta{
 			Name: lo.ToPtr("get-test-repo"),
 		},
 		Spec: spec,
@@ -496,15 +496,15 @@ func TestGitRepositoryReplace(t *testing.T) {
 	serviceHandler := createServiceHandler()
 
 	// Create a repository first
-	spec := api.RepositorySpec{}
-	err := spec.FromGenericRepoSpec(api.GenericRepoSpec{
+	spec := domain.RepositorySpec{}
+	err := spec.FromGenericRepoSpec(domain.GenericRepoSpec{
 		Url:  "https://github.com/original/repo.git",
-		Type: api.RepoSpecTypeGit,
+		Type: domain.RepoSpecTypeGit,
 	})
 	require.NoError(err)
 
-	repository := api.Repository{
-		Metadata: api.ObjectMeta{
+	repository := domain.Repository{
+		Metadata: domain.ObjectMeta{
 			Name: lo.ToPtr("replace-test-repo"),
 		},
 		Spec: spec,
@@ -514,9 +514,9 @@ func TestGitRepositoryReplace(t *testing.T) {
 	require.Equal(int32(201), status.Code)
 
 	// Replace with updated URL
-	err = spec.FromGenericRepoSpec(api.GenericRepoSpec{
+	err = spec.FromGenericRepoSpec(domain.GenericRepoSpec{
 		Url:  "https://github.com/updated/repo.git",
-		Type: api.RepoSpecTypeGit,
+		Type: domain.RepoSpecTypeGit,
 	})
 	require.NoError(err)
 	repository.Spec = spec
@@ -537,15 +537,15 @@ func TestGitRepositoryDelete(t *testing.T) {
 	serviceHandler := createServiceHandler()
 
 	// Create a repository first
-	spec := api.RepositorySpec{}
-	err := spec.FromGenericRepoSpec(api.GenericRepoSpec{
+	spec := domain.RepositorySpec{}
+	err := spec.FromGenericRepoSpec(domain.GenericRepoSpec{
 		Url:  "https://github.com/flightctl/flightctl.git",
-		Type: api.RepoSpecTypeGit,
+		Type: domain.RepoSpecTypeGit,
 	})
 	require.NoError(err)
 
-	repository := api.Repository{
-		Metadata: api.ObjectMeta{
+	repository := domain.Repository{
+		Metadata: domain.ObjectMeta{
 			Name: lo.ToPtr("delete-test-repo"),
 		},
 		Spec: spec,
@@ -575,11 +575,11 @@ func TestSshRepositoryCreate(t *testing.T) {
 	passphrase := "mysecretpassphrase"
 	skipVerify := true
 
-	spec := api.RepositorySpec{}
-	err := spec.FromSshRepoSpec(api.SshRepoSpec{
+	spec := domain.RepositorySpec{}
+	err := spec.FromSshRepoSpec(domain.SshRepoSpec{
 		Url:  "git@github.com:flightctl/flightctl.git",
-		Type: api.RepoSpecTypeGit,
-		SshConfig: api.SshConfig{
+		Type: domain.RepoSpecTypeGit,
+		SshConfig: domain.SshConfig{
 			SshPrivateKey:          &privateKey,
 			PrivateKeyPassphrase:   &passphrase,
 			SkipServerVerification: &skipVerify,
@@ -587,10 +587,10 @@ func TestSshRepositoryCreate(t *testing.T) {
 	})
 	require.NoError(err)
 
-	repository := api.Repository{
+	repository := domain.Repository{
 		ApiVersion: "v1",
 		Kind:       "Repository",
-		Metadata: api.ObjectMeta{
+		Metadata: domain.ObjectMeta{
 			Name:   lo.ToPtr("test-ssh-repo"),
 			Labels: &map[string]string{"type": "ssh"},
 		},
@@ -611,7 +611,7 @@ func TestSshRepositoryCreate(t *testing.T) {
 	sshSpec, err := retrieved.Spec.GetSshRepoSpec()
 	require.NoError(err)
 	require.Equal("git@github.com:flightctl/flightctl.git", sshSpec.Url)
-	require.Equal(api.RepoSpecTypeGit, sshSpec.Type)
+	require.Equal(domain.RepoSpecTypeGit, sshSpec.Type)
 	require.NotNil(sshSpec.SshConfig.SshPrivateKey)
 	require.Equal(privateKey, *sshSpec.SshConfig.SshPrivateKey)
 	require.NotNil(sshSpec.SshConfig.PrivateKeyPassphrase)
@@ -628,18 +628,18 @@ func TestSshRepositoryCreateWithoutPassphrase(t *testing.T) {
 	// Valid base64-encoded private key
 	privateKey := "c3NoLXJzYSBBQUFBQg=="
 
-	spec := api.RepositorySpec{}
-	err := spec.FromSshRepoSpec(api.SshRepoSpec{
+	spec := domain.RepositorySpec{}
+	err := spec.FromSshRepoSpec(domain.SshRepoSpec{
 		Url:  "git@gitlab.com:myorg/myrepo.git",
-		Type: api.RepoSpecTypeGit,
-		SshConfig: api.SshConfig{
+		Type: domain.RepoSpecTypeGit,
+		SshConfig: domain.SshConfig{
 			SshPrivateKey: &privateKey,
 		},
 	})
 	require.NoError(err)
 
-	repository := api.Repository{
-		Metadata: api.ObjectMeta{
+	repository := domain.Repository{
+		Metadata: domain.ObjectMeta{
 			Name: lo.ToPtr("ssh-no-passphrase"),
 		},
 		Spec: spec,
@@ -668,11 +668,11 @@ func TestHttpRepositoryCreate(t *testing.T) {
 	password := "httppassword"
 	skipVerify := true
 
-	spec := api.RepositorySpec{}
-	err := spec.FromHttpRepoSpec(api.HttpRepoSpec{
+	spec := domain.RepositorySpec{}
+	err := spec.FromHttpRepoSpec(domain.HttpRepoSpec{
 		Url:  "https://github.com/flightctl/flightctl.git",
-		Type: api.RepoSpecTypeHttp,
-		HttpConfig: api.HttpConfig{
+		Type: domain.RepoSpecTypeHttp,
+		HttpConfig: domain.HttpConfig{
 			Username:               &username,
 			Password:               &password,
 			SkipServerVerification: &skipVerify,
@@ -680,10 +680,10 @@ func TestHttpRepositoryCreate(t *testing.T) {
 	})
 	require.NoError(err)
 
-	repository := api.Repository{
+	repository := domain.Repository{
 		ApiVersion: "v1",
 		Kind:       "Repository",
-		Metadata: api.ObjectMeta{
+		Metadata: domain.ObjectMeta{
 			Name:   lo.ToPtr("test-http-repo"),
 			Labels: &map[string]string{"type": "http"},
 		},
@@ -704,7 +704,7 @@ func TestHttpRepositoryCreate(t *testing.T) {
 	httpSpec, err := retrieved.Spec.GetHttpRepoSpec()
 	require.NoError(err)
 	require.Equal("https://github.com/flightctl/flightctl.git", httpSpec.Url)
-	require.Equal(api.RepoSpecTypeHttp, httpSpec.Type)
+	require.Equal(domain.RepoSpecTypeHttp, httpSpec.Type)
 	require.NotNil(httpSpec.HttpConfig.Username)
 	require.Equal(username, *httpSpec.HttpConfig.Username)
 	require.NotNil(httpSpec.HttpConfig.Password)
@@ -721,18 +721,18 @@ func TestHttpRepositoryCreateWithToken(t *testing.T) {
 	// JWT format token (three base64url-encoded parts separated by dots)
 	token := "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c" //nolint:gosec
 
-	spec := api.RepositorySpec{}
-	err := spec.FromHttpRepoSpec(api.HttpRepoSpec{
+	spec := domain.RepositorySpec{}
+	err := spec.FromHttpRepoSpec(domain.HttpRepoSpec{
 		Url:  "https://github.com/flightctl/flightctl.git",
-		Type: api.RepoSpecTypeHttp,
-		HttpConfig: api.HttpConfig{
+		Type: domain.RepoSpecTypeHttp,
+		HttpConfig: domain.HttpConfig{
 			Token: &token,
 		},
 	})
 	require.NoError(err)
 
-	repository := api.Repository{
-		Metadata: api.ObjectMeta{
+	repository := domain.Repository{
+		Metadata: domain.ObjectMeta{
 			Name: lo.ToPtr("http-token-repo"),
 		},
 		Spec: spec,
@@ -761,11 +761,11 @@ func TestHttpRepositoryCreateWithTLS(t *testing.T) {
 	tlsCrt := "LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCg=="
 	tlsKey := "LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0tCg=="
 
-	spec := api.RepositorySpec{}
-	err := spec.FromHttpRepoSpec(api.HttpRepoSpec{
+	spec := domain.RepositorySpec{}
+	err := spec.FromHttpRepoSpec(domain.HttpRepoSpec{
 		Url:  "https://private.git.server/repo.git",
-		Type: api.RepoSpecTypeHttp,
-		HttpConfig: api.HttpConfig{
+		Type: domain.RepoSpecTypeHttp,
+		HttpConfig: domain.HttpConfig{
 			CaCrt:  &caCrt,
 			TlsCrt: &tlsCrt,
 			TlsKey: &tlsKey,
@@ -773,8 +773,8 @@ func TestHttpRepositoryCreateWithTLS(t *testing.T) {
 	})
 	require.NoError(err)
 
-	repository := api.Repository{
-		Metadata: api.ObjectMeta{
+	repository := domain.Repository{
+		Metadata: domain.ObjectMeta{
 			Name: lo.ToPtr("http-tls-repo"),
 		},
 		Spec: spec,
@@ -803,19 +803,19 @@ func TestHttpRepositoryReplace(t *testing.T) {
 	// Create initial HTTP repository with username/password
 	username := "originaluser"
 	password := "originalpass"
-	spec := api.RepositorySpec{}
-	err := spec.FromHttpRepoSpec(api.HttpRepoSpec{
+	spec := domain.RepositorySpec{}
+	err := spec.FromHttpRepoSpec(domain.HttpRepoSpec{
 		Url:  "https://github.com/original/repo.git",
-		Type: api.RepoSpecTypeHttp,
-		HttpConfig: api.HttpConfig{
+		Type: domain.RepoSpecTypeHttp,
+		HttpConfig: domain.HttpConfig{
 			Username: &username,
 			Password: &password,
 		},
 	})
 	require.NoError(err)
 
-	repository := api.Repository{
-		Metadata: api.ObjectMeta{
+	repository := domain.Repository{
+		Metadata: domain.ObjectMeta{
 			Name: lo.ToPtr("http-replace-test"),
 		},
 		Spec: spec,
@@ -827,10 +827,10 @@ func TestHttpRepositoryReplace(t *testing.T) {
 	// Replace with new values
 	newUsername := "updateduser"
 	newPassword := "updatedpass"
-	err = spec.FromHttpRepoSpec(api.HttpRepoSpec{
+	err = spec.FromHttpRepoSpec(domain.HttpRepoSpec{
 		Url:  "https://github.com/updated/repo.git",
-		Type: api.RepoSpecTypeHttp,
-		HttpConfig: api.HttpConfig{
+		Type: domain.RepoSpecTypeHttp,
+		HttpConfig: domain.HttpConfig{
 			Username: &newUsername,
 			Password: &newPassword,
 		},
@@ -858,19 +858,19 @@ func TestHttpRepositoryDelete(t *testing.T) {
 	// Create HTTP repository with username/password
 	username := "deleteuser"
 	password := "deletepass"
-	spec := api.RepositorySpec{}
-	err := spec.FromHttpRepoSpec(api.HttpRepoSpec{
+	spec := domain.RepositorySpec{}
+	err := spec.FromHttpRepoSpec(domain.HttpRepoSpec{
 		Url:  "https://github.com/delete/repo.git",
-		Type: api.RepoSpecTypeHttp,
-		HttpConfig: api.HttpConfig{
+		Type: domain.RepoSpecTypeHttp,
+		HttpConfig: domain.HttpConfig{
 			Username: &username,
 			Password: &password,
 		},
 	})
 	require.NoError(err)
 
-	repository := api.Repository{
-		Metadata: api.ObjectMeta{
+	repository := domain.Repository{
+		Metadata: domain.ObjectMeta{
 			Name: lo.ToPtr("http-delete-test"),
 		},
 		Spec: spec,

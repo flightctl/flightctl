@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"strconv"
 
-	api "github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/samber/lo"
@@ -16,7 +16,7 @@ type AuthProvider struct {
 	Resource
 
 	// The desired state, stored as opaque JSON object.
-	Spec *JSONField[api.AuthProviderSpec] `gorm:"type:jsonb"`
+	Spec *JSONField[domain.AuthProviderSpec] `gorm:"type:jsonb"`
 }
 
 func (a AuthProvider) String() string {
@@ -24,7 +24,7 @@ func (a AuthProvider) String() string {
 	return string(val)
 }
 
-func NewAuthProviderFromApiResource(resource *api.AuthProvider) (*AuthProvider, error) {
+func NewAuthProviderFromApiResource(resource *domain.AuthProvider) (*AuthProvider, error) {
 	if resource == nil {
 		return nil, fmt.Errorf("resource is nil")
 	}
@@ -55,23 +55,23 @@ func NewAuthProviderFromApiResource(resource *api.AuthProvider) (*AuthProvider, 
 }
 
 func AuthProviderAPIVersion() string {
-	return fmt.Sprintf("%s/%s", api.APIGroup, api.AuthProviderAPIVersion)
+	return fmt.Sprintf("%s/%s", domain.APIGroup, domain.AuthProviderAPIVersion)
 }
 
-func (a *AuthProvider) ToApiResource(opts ...APIResourceOption) (*api.AuthProvider, error) {
+func (a *AuthProvider) ToApiResource(opts ...APIResourceOption) (*domain.AuthProvider, error) {
 	if a == nil {
-		return &api.AuthProvider{}, nil
+		return &domain.AuthProvider{}, nil
 	}
 
-	var spec api.AuthProviderSpec
+	var spec domain.AuthProviderSpec
 	if a.Spec != nil {
 		spec = a.Spec.Data
 	}
 
-	return &api.AuthProvider{
+	return &domain.AuthProvider{
 		ApiVersion: AuthProviderAPIVersion(),
-		Kind:       api.AuthProviderKind,
-		Metadata: api.ObjectMeta{
+		Kind:       domain.AuthProviderKind,
+		Metadata: domain.ObjectMeta{
 			Name:              lo.ToPtr(a.Name),
 			CreationTimestamp: lo.ToPtr(a.CreatedAt.UTC()),
 			Labels:            lo.ToPtr(util.EnsureMap(a.Resource.Labels)),
@@ -84,7 +84,7 @@ func (a *AuthProvider) ToApiResource(opts ...APIResourceOption) (*api.AuthProvid
 }
 
 func (a *AuthProvider) GetKind() string {
-	return api.AuthProviderKind
+	return domain.AuthProviderKind
 }
 
 func (a *AuthProvider) GetStatusAsJson() ([]byte, error) {
@@ -112,16 +112,16 @@ func (a *AuthProvider) HasSameSpecAs(otherResource any) bool {
 	return reflect.DeepEqual(a.Spec.Data, other.Spec.Data)
 }
 
-func AuthProvidersToApiResource(authProviders []AuthProvider, continueToken *string, resourceVersion *int64) (api.AuthProviderList, error) {
-	items := lo.Map(authProviders, func(authProvider AuthProvider, _ int) api.AuthProvider {
+func AuthProvidersToApiResource(authProviders []AuthProvider, continueToken *string, resourceVersion *int64) (domain.AuthProviderList, error) {
+	items := lo.Map(authProviders, func(authProvider AuthProvider, _ int) domain.AuthProvider {
 		resource, _ := authProvider.ToApiResource()
 		return *resource
 	})
 
-	return api.AuthProviderList{
+	return domain.AuthProviderList{
 		ApiVersion: AuthProviderAPIVersion(),
-		Kind:       api.AuthProviderListKind,
-		Metadata: api.ListMeta{
+		Kind:       domain.AuthProviderListKind,
+		Metadata: domain.ListMeta{
 			Continue: continueToken,
 		},
 		Items: items,

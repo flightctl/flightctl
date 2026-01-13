@@ -13,7 +13,7 @@ import (
 	"runtime"
 	"testing"
 
-	api "github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/getkin/kin-openapi/openapi3filter"
 	"github.com/getkin/kin-openapi/routers/gorillamux"
@@ -32,7 +32,7 @@ func getExamplesDir() string {
 // loadRepositoryFromYAML loads a Repository from a YAML file
 // It uses a two-step process: YAML -> map -> JSON -> struct
 // This ensures that the RepositorySpec union type is properly populated
-func loadRepositoryFromYAML(filename string) (*api.Repository, error) {
+func loadRepositoryFromYAML(filename string) (*domain.Repository, error) {
 	examplesDir := getExamplesDir()
 	yamlPath := filepath.Join(examplesDir, filename)
 
@@ -54,7 +54,7 @@ func loadRepositoryFromYAML(filename string) (*api.Repository, error) {
 	}
 
 	// Unmarshal JSON into the struct (this triggers proper UnmarshalJSON for union types)
-	var repo api.Repository
+	var repo domain.Repository
 	if err := json.Unmarshal(jsonData, &repo); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal JSON: %w", err)
 	}
@@ -64,9 +64,9 @@ func loadRepositoryFromYAML(filename string) (*api.Repository, error) {
 
 // validateRepositoryAgainstOpenAPI validates a Repository against the OpenAPI schema
 // This simulates the middleware validation that happens when a request is sent to the API
-func validateRepositoryAgainstOpenAPI(ctx context.Context, repo *api.Repository) error {
+func validateRepositoryAgainstOpenAPI(ctx context.Context, repo *domain.Repository) error {
 	// Get the OpenAPI spec
-	swagger, err := api.GetSwagger()
+	swagger, err := domain.GetSwagger()
 	if err != nil {
 		return fmt.Errorf("failed to get swagger spec: %w", err)
 	}
@@ -167,7 +167,7 @@ func TestRepositoryExampleFlightctl(t *testing.T) {
 	genericSpec, err := retrieved.Spec.GetGenericRepoSpec()
 	require.NoError(err)
 	require.Equal("https://github.com/flightctl/flightctl.git", genericSpec.Url)
-	require.Equal(api.RepoSpecTypeGit, genericSpec.Type)
+	require.Equal(domain.RepoSpecTypeGit, genericSpec.Type)
 }
 
 func TestRepositoryExampleSsh(t *testing.T) {
@@ -204,7 +204,7 @@ func TestRepositoryExampleSsh(t *testing.T) {
 	sshSpec, err := retrieved.Spec.GetSshRepoSpec()
 	require.NoError(err)
 	require.Equal("ssh://git@github.com/flightctl/flightctl.git", sshSpec.Url)
-	require.Equal(api.RepoSpecTypeGit, sshSpec.Type)
+	require.Equal(domain.RepoSpecTypeGit, sshSpec.Type)
 	require.NotNil(sshSpec.SshConfig.SshPrivateKey)
 	require.NotNil(sshSpec.SshConfig.PrivateKeyPassphrase)
 	require.Equal("testpassphrase", *sshSpec.SshConfig.PrivateKeyPassphrase)
@@ -246,7 +246,7 @@ func TestRepositoryExampleHttp(t *testing.T) {
 	httpSpec, err := retrieved.Spec.GetHttpRepoSpec()
 	require.NoError(err)
 	require.Equal("https://my-server.com/flightctl", httpSpec.Url)
-	require.Equal(api.RepoSpecTypeHttp, httpSpec.Type)
+	require.Equal(domain.RepoSpecTypeHttp, httpSpec.Type)
 	require.NotNil(httpSpec.HttpConfig.Username)
 	require.Equal("myusername", *httpSpec.HttpConfig.Username)
 	require.NotNil(httpSpec.HttpConfig.Password)
@@ -289,7 +289,7 @@ func TestRepositoryExampleHttpGit(t *testing.T) {
 	httpSpec, err := retrieved.Spec.GetHttpRepoSpec()
 	require.NoError(err)
 	require.Equal("https://github.com/flightctl/flightctl.git", httpSpec.Url)
-	require.Equal(api.RepoSpecTypeHttp, httpSpec.Type)
+	require.Equal(domain.RepoSpecTypeHttp, httpSpec.Type)
 	require.NotNil(httpSpec.HttpConfig.Username)
 	require.Equal("myusername", *httpSpec.HttpConfig.Username)
 	require.NotNil(httpSpec.HttpConfig.Password)

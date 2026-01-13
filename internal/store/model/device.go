@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
@@ -20,22 +20,22 @@ type Device struct {
 	Alias *string `selector:"metadata.alias"`
 
 	// The desired state, stored as opaque JSON object.
-	Spec *JSONField[api.DeviceSpec] `gorm:"type:jsonb"`
+	Spec *JSONField[domain.DeviceSpec] `gorm:"type:jsonb"`
 
 	// The last reported state, stored as opaque JSON object.
-	Status *JSONField[api.DeviceStatus] `gorm:"type:jsonb"`
+	Status *JSONField[domain.DeviceStatus] `gorm:"type:jsonb"`
 
 	// Conditions set by the service, as opposed to the agent.
 	ServiceConditions *JSONField[ServiceConditions] `gorm:"type:jsonb"`
 
 	// The rendered device config
-	RenderedConfig *JSONField[*[]api.ConfigProviderSpec] `gorm:"type:jsonb"`
+	RenderedConfig *JSONField[*[]domain.ConfigProviderSpec] `gorm:"type:jsonb"`
 
 	// Timestamp when the device was rendered
 	RenderTimestamp time.Time
 
 	// The rendered application provided by the service.
-	RenderedApplications *JSONField[*[]api.ApplicationProviderSpec] `gorm:"type:jsonb"`
+	RenderedApplications *JSONField[*[]domain.ApplicationProviderSpec] `gorm:"type:jsonb"`
 
 	// Join table with the relationship of devices to repositories (only maintained for standalone devices)
 	Repositories []Repository `gorm:"many2many:device_repos;constraint:OnDelete:CASCADE;"`
@@ -66,7 +66,7 @@ type DeviceType interface {
 }
 
 type DeviceTypePtr interface {
-	ToApiResource(opts ...APIResourceOption) (*api.Device, error)
+	ToApiResource(opts ...APIResourceOption) (*domain.Device, error)
 }
 
 type DeviceLabel struct {
@@ -80,7 +80,7 @@ type DeviceLabel struct {
 }
 
 type ServiceConditions struct {
-	Conditions *[]api.Condition `json:"conditions,omitempty"`
+	Conditions *[]domain.Condition `json:"conditions,omitempty"`
 }
 
 func (d Device) String() string {
@@ -88,22 +88,22 @@ func (d Device) String() string {
 	return string(val)
 }
 
-func NewDeviceFromApiResource(resource *api.Device) (*Device, error) {
+func NewDeviceFromApiResource(resource *domain.Device) (*Device, error) {
 	if resource == nil || resource.Metadata.Name == nil {
 		return &Device{}, nil
 	}
 
-	spec := api.DeviceSpec{}
+	spec := domain.DeviceSpec{}
 	if resource.Spec != nil {
 		spec = *resource.Spec
 	}
 
-	status := api.NewDeviceStatus()
+	status := domain.NewDeviceStatus()
 	if resource.Status != nil {
 		status = *resource.Status
 	}
 	if status.Conditions == nil {
-		status.Conditions = []api.Condition{}
+		status.Conditions = []domain.Condition{}
 	}
 
 	var resourceVersion *int64
@@ -137,12 +137,12 @@ func NewDeviceFromApiResource(resource *api.Device) (*Device, error) {
 }
 
 func DeviceAPIVersion() string {
-	return fmt.Sprintf("%s/%s", api.APIGroup, api.DeviceAPIVersion)
+	return fmt.Sprintf("%s/%s", domain.APIGroup, domain.DeviceAPIVersion)
 }
 
-func (d *Device) ToApiResource(opts ...APIResourceOption) (*api.Device, error) {
+func (d *Device) ToApiResource(opts ...APIResourceOption) (*domain.Device, error) {
 	if d == nil {
-		return &api.Device{}, nil
+		return &domain.Device{}, nil
 	}
 
 	var apiOpts = &apiResourceOptions{}
@@ -150,20 +150,20 @@ func (d *Device) ToApiResource(opts ...APIResourceOption) (*api.Device, error) {
 		opt(apiOpts)
 	}
 
-	spec := api.DeviceSpec{}
+	spec := domain.DeviceSpec{}
 	if d.Spec != nil {
 		spec = d.Spec.Data
 	}
 
 	if apiOpts.isRendered {
 		annotations := util.EnsureMap(d.Annotations)
-		renderedVersion, ok := annotations[api.DeviceAnnotationRenderedVersion]
+		renderedVersion, ok := annotations[domain.DeviceAnnotationRenderedVersion]
 		if !ok {
 			return nil, flterrors.ErrNoRenderedVersion
 		}
-		var consoles []api.DeviceConsole
+		var consoles []domain.DeviceConsole
 
-		if val, ok := d.Annotations[api.DeviceAnnotationConsole]; ok && val != "" {
+		if val, ok := d.Annotations[domain.DeviceAnnotationConsole]; ok && val != "" {
 			if err := json.Unmarshal([]byte(val), &consoles); err != nil {
 				return nil, fmt.Errorf("failed to unmarshal consoles: %w", err)
 			}
@@ -194,7 +194,7 @@ func (d *Device) ToApiResource(opts ...APIResourceOption) (*api.Device, error) {
 		spec.Consoles = &consoles
 	}
 
-	status := api.NewDeviceStatus()
+	status := domain.NewDeviceStatus()
 	if d.Status != nil {
 		status = d.Status.Data
 	}
@@ -202,7 +202,7 @@ func (d *Device) ToApiResource(opts ...APIResourceOption) (*api.Device, error) {
 	if !apiOpts.withoutServiceConditions {
 		if d.ServiceConditions != nil && d.ServiceConditions.Data.Conditions != nil {
 			if status.Conditions == nil {
-				status.Conditions = []api.Condition{}
+				status.Conditions = []domain.Condition{}
 			}
 			status.Conditions = append(status.Conditions, *d.ServiceConditions.Data.Conditions...)
 		}
@@ -212,10 +212,10 @@ func (d *Device) ToApiResource(opts ...APIResourceOption) (*api.Device, error) {
 	if d.ResourceVersion != nil {
 		resourceVersion = lo.ToPtr(strconv.FormatInt(*d.ResourceVersion, 10))
 	}
-	return &api.Device{
+	return &domain.Device{
 		ApiVersion: DeviceAPIVersion(),
-		Kind:       api.DeviceKind,
-		Metadata: api.ObjectMeta{
+		Kind:       domain.DeviceKind,
+		Metadata: domain.ObjectMeta{
 			Name:              lo.ToPtr(d.Name),
 			CreationTimestamp: lo.ToPtr(d.CreatedAt.UTC()),
 			Labels:            lo.ToPtr(util.EnsureMap(d.Resource.Labels)),
@@ -229,15 +229,15 @@ func (d *Device) ToApiResource(opts ...APIResourceOption) (*api.Device, error) {
 	}, nil
 }
 
-func DevicesToApiResource[D DeviceType](devices []D, cont *string, numRemaining *int64) (api.DeviceList, error) {
-	deviceList := make([]api.Device, len(devices))
+func DevicesToApiResource[D DeviceType](devices []D, cont *string, numRemaining *int64) (domain.DeviceList, error) {
+	deviceList := make([]domain.Device, len(devices))
 	applicationStatuses := make(map[string]int64)
 	summaryStatuses := make(map[string]int64)
 	updateStatuses := make(map[string]int64)
 	for i, device := range devices {
 		dptr, ok := any(&device).(DeviceTypePtr)
 		if !ok {
-			return api.DeviceList{}, fmt.Errorf("type assertion to DeviceTypePtr failed")
+			return domain.DeviceList{}, fmt.Errorf("type assertion to DeviceTypePtr failed")
 		}
 		apiResource, _ := dptr.ToApiResource()
 		deviceList[i] = *apiResource
@@ -248,12 +248,12 @@ func DevicesToApiResource[D DeviceType](devices []D, cont *string, numRemaining 
 		updateStatus := string(deviceList[i].Status.Updated.Status)
 		updateStatuses[updateStatus] = updateStatuses[updateStatus] + 1
 	}
-	ret := api.DeviceList{
+	ret := domain.DeviceList{
 		ApiVersion: DeviceAPIVersion(),
-		Kind:       api.DeviceListKind,
+		Kind:       domain.DeviceListKind,
 		Items:      deviceList,
-		Metadata:   api.ListMeta{},
-		Summary: &api.DevicesSummary{
+		Metadata:   domain.ListMeta{},
+		Summary: &domain.DevicesSummary{
 			ApplicationStatus: applicationStatuses,
 			SummaryStatus:     summaryStatuses,
 			UpdateStatus:      updateStatuses,
@@ -268,7 +268,7 @@ func DevicesToApiResource[D DeviceType](devices []D, cont *string, numRemaining 
 }
 
 func (d *Device) GetKind() string {
-	return api.DeviceKind
+	return domain.DeviceKind
 }
 
 func (d *Device) HasNilSpec() bool {
@@ -289,16 +289,16 @@ func (d *Device) HasSameSpecAs(otherResource any) bool {
 	if (d.Spec == nil && other.Spec != nil) || (d.Spec != nil && other.Spec == nil) {
 		return false
 	}
-	return api.DeviceSpecsAreEqual(d.Spec.Data, other.Spec.Data)
+	return domain.DeviceSpecsAreEqual(d.Spec.Data, other.Spec.Data)
 }
 
 func (d *Device) GetStatusAsJson() ([]byte, error) {
 	return d.Status.MarshalJSON()
 }
 
-func (d *DeviceWithTimestamp) ToApiResource(opts ...APIResourceOption) (*api.Device, error) {
+func (d *DeviceWithTimestamp) ToApiResource(opts ...APIResourceOption) (*domain.Device, error) {
 	if d == nil {
-		return &api.Device{}, nil
+		return &domain.Device{}, nil
 	}
 	baseDevice, err := d.Device.ToApiResource(opts...)
 	if err != nil {

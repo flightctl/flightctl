@@ -9,8 +9,8 @@ import (
 	"runtime/debug"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/sirupsen/logrus"
@@ -30,7 +30,7 @@ func InitMigrationDB(cfg *config.Config, log *logrus.Logger) (*gorm.DB, error) {
 	return initDBWithUser(cfg, log, cfg.Database.MigrationUser, cfg.Database.MigrationPassword)
 }
 
-func initDBWithUser(cfg *config.Config, log *logrus.Logger, user string, password api.SecureString) (*gorm.DB, error) {
+func initDBWithUser(cfg *config.Config, log *logrus.Logger, user string, password domain.SecureString) (*gorm.DB, error) {
 	var dia gorm.Dialector
 
 	if cfg.Database.Type != "pgsql" {
@@ -124,7 +124,7 @@ func initDBWithUser(cfg *config.Config, log *logrus.Logger, user string, passwor
 	return newDB, nil
 }
 
-func createDSN(cfg *config.Config, user string, password api.SecureString) string {
+func createDSN(cfg *config.Config, user string, password domain.SecureString) string {
 	dsn := fmt.Sprintf("host=%s user=%s password=%s port=%d",
 		cfg.Database.Hostname,
 		user,

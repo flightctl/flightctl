@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
@@ -30,10 +30,10 @@ type TemplateVersion struct {
 	DeletedAt       gorm.DeletedAt `gorm:"index"`
 
 	// The desired state, stored as opaque JSON object.
-	Spec *JSONField[api.TemplateVersionSpec] `gorm:"type:jsonb"`
+	Spec *JSONField[domain.TemplateVersionSpec] `gorm:"type:jsonb"`
 
 	// The last reported state, stored as opaque JSON object.
-	Status *JSONField[api.TemplateVersionStatus] `gorm:"type:jsonb"`
+	Status *JSONField[domain.TemplateVersionStatus] `gorm:"type:jsonb"`
 }
 
 func (tv TemplateVersion) String() string {
@@ -41,13 +41,13 @@ func (tv TemplateVersion) String() string {
 	return string(val)
 }
 
-func NewTemplateVersionFromApiResource(resource *api.TemplateVersion) (*TemplateVersion, error) {
+func NewTemplateVersionFromApiResource(resource *domain.TemplateVersion) (*TemplateVersion, error) {
 	// Shouldn't happen, but just to be safe
 	if resource == nil || resource.Metadata.Name == nil {
 		return &TemplateVersion{}, nil
 	}
 
-	status := api.TemplateVersionStatus{}
+	status := domain.TemplateVersionStatus{}
 	if resource.Status != nil {
 		status = *resource.Status
 	}
@@ -74,35 +74,35 @@ func NewTemplateVersionFromApiResource(resource *api.TemplateVersion) (*Template
 }
 
 func TemplateVersionAPIVersion() string {
-	return fmt.Sprintf("%s/%s", api.APIGroup, api.TemplateVersionAPIVersion)
+	return fmt.Sprintf("%s/%s", domain.APIGroup, domain.TemplateVersionAPIVersion)
 }
 
-func (tv *TemplateVersion) ToApiResource(opts ...APIResourceOption) (*api.TemplateVersion, error) {
+func (tv *TemplateVersion) ToApiResource(opts ...APIResourceOption) (*domain.TemplateVersion, error) {
 	// Shouldn't happen, but just to be safe
 	if tv == nil {
-		return &api.TemplateVersion{}, nil
+		return &domain.TemplateVersion{}, nil
 	}
 
-	var spec api.TemplateVersionSpec
+	var spec domain.TemplateVersionSpec
 	if tv.Spec != nil {
 		spec = tv.Spec.Data
 	}
 
-	status := api.TemplateVersionStatus{}
+	status := domain.TemplateVersionStatus{}
 	if tv.Status != nil {
 		status = tv.Status.Data
 	}
 
-	return &api.TemplateVersion{
+	return &domain.TemplateVersion{
 		ApiVersion: TemplateVersionAPIVersion(),
-		Kind:       api.TemplateVersionKind,
-		Metadata: api.ObjectMeta{
+		Kind:       domain.TemplateVersionKind,
+		Metadata: domain.ObjectMeta{
 			Name:              lo.ToPtr(tv.Name),
 			CreationTimestamp: lo.ToPtr(tv.CreatedAt.UTC()),
 			Labels:            lo.ToPtr(util.EnsureMap(tv.Labels)),
 			Annotations:       lo.ToPtr(util.EnsureMap(tv.Annotations)),
 			Generation:        tv.Generation,
-			Owner:             util.SetResourceOwner(api.FleetKind, tv.FleetName),
+			Owner:             util.SetResourceOwner(domain.FleetKind, tv.FleetName),
 			ResourceVersion:   lo.Ternary(tv.ResourceVersion != nil, lo.ToPtr(strconv.FormatInt(lo.FromPtr(tv.ResourceVersion), 10)), nil),
 		},
 		Spec:   spec,
@@ -110,15 +110,15 @@ func (tv *TemplateVersion) ToApiResource(opts ...APIResourceOption) (*api.Templa
 	}, nil
 }
 
-func TemplateVersionsToApiResource(tvs []TemplateVersion, cont *string, numRemaining *int64) (api.TemplateVersionList, error) {
-	deviceList := make([]api.TemplateVersion, len(tvs))
+func TemplateVersionsToApiResource(tvs []TemplateVersion, cont *string, numRemaining *int64) (domain.TemplateVersionList, error) {
+	deviceList := make([]domain.TemplateVersion, len(tvs))
 	for i, device := range tvs {
 		apiResource, _ := device.ToApiResource()
 		deviceList[i] = *apiResource
 	}
-	ret := api.TemplateVersionList{
+	ret := domain.TemplateVersionList{
 		ApiVersion: TemplateVersionAPIVersion(),
-		Kind:       api.TemplateVersionListKind,
+		Kind:       domain.TemplateVersionListKind,
 		Items:      deviceList,
 	}
 	if cont != nil {
@@ -129,7 +129,7 @@ func TemplateVersionsToApiResource(tvs []TemplateVersion, cont *string, numRemai
 }
 
 func (tv *TemplateVersion) GetKind() string {
-	return api.TemplateVersionKind
+	return domain.TemplateVersionKind
 }
 
 func (tv *TemplateVersion) GetName() string {
