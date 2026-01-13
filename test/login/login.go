@@ -170,5 +170,13 @@ func LoginAsNonAdmin(harness *e2e.Harness, user string, password string, k8sCont
 	if method == AuthDisabled {
 		return errors.New("Login is disabled")
 	}
+
+	// Refresh the harness client to pick up the updated organization from the config file
+	// The login may have updated the organization context in the config
+	err = harness.RefreshClient()
+	if err != nil {
+		return fmt.Errorf("failed to refresh client after login: %w", err)
+	}
+
 	return nil
 }
