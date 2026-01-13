@@ -5,6 +5,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/flightctl/flightctl/internal/config/ca"
@@ -34,7 +35,7 @@ type CA interface {
 type CASigners struct {
 	ca                 CA
 	signers            map[string]Signer
-	restrictedPrefixes map[string]Signer
+	restrictedPrefixes map[string]map[string]struct{}
 }
 
 func NewCASigners(ca CA) *CASigners {
@@ -58,6 +59,13 @@ func NewCASigners(ca CA) *CASigners {
 					),
 				),
 			),
+			cfg.DeviceManagementRenewalSignerName: WithSignerNameValidation(
+				WithCertificateReuse(
+					WithCSRValidation(
+						WithSignerNameExtension(WithOrgIDExtension(NewSignerDeviceManagementRenewal))(ca),
+					),
+				),
+			),
 			cfg.DeviceSvcClientSignerName: WithSignerNameValidation(
 				WithCertificateReuse(
 					WithCSRValidation(
@@ -75,16 +83,23 @@ func NewCASigners(ca CA) *CASigners {
 		},
 	}
 
-	ret.restrictedPrefixes = make(map[string]Signer)
+	ret.restrictedPrefixes = make(map[string]map[string]struct{})
 	for _, s := range ret.signers {
-		if rs, ok := findRestrictedSigner(s); ok {
-			if p := rs.RestrictedPrefix(); p != "" {
-				if _, ok := ret.restrictedPrefixes[p]; ok {
-					panic(fmt.Sprintf("duplicate restricted prefix %q found in signer %q", p, s.Name()))
-				}
-				ret.restrictedPrefixes[p] = s
-			}
+		rs, ok := findRestrictedSigner(s)
+		if !ok {
+			continue
 		}
+		p := rs.RestrictedPrefix()
+		if p == "" {
+			continue
+		}
+
+		allowed, ok := ret.restrictedPrefixes[p]
+		if !ok {
+			allowed = make(map[string]struct{})
+			ret.restrictedPrefixes[p] = allowed
+		}
+		allowed[s.Name()] = struct{}{}
 	}
 
 	if len(ret.restrictedPrefixes) > 0 {
@@ -293,13 +308,27 @@ func WithOrgIDExtension(s func(CA) Signer) func(CA) Signer {
 	}
 }
 
-func WithSignerRestrictedPrefixes(restrictedPrefixes map[string]Signer, s Signer) Signer {
-	checkPrefixes := func(cert *x509.CertificateRequest) error {
-		for p, restrictedSigner := range restrictedPrefixes {
-			if strings.HasPrefix(cert.Subject.CommonName, p) && restrictedSigner != s {
-				return fmt.Errorf("common name prefix %q is restricted to signer %q, but requested by signer %q",
-					p, restrictedSigner.Name(), s.Name())
+func WithSignerRestrictedPrefixes(restrictedPrefixes map[string]map[string]struct{}, s Signer) Signer {
+	checkPrefixes := func(csr *x509.CertificateRequest) error {
+		cn := csr.Subject.CommonName
+		for p, allowed := range restrictedPrefixes {
+			if !strings.HasPrefix(cn, p) {
+				continue
 			}
+			if _, ok := allowed[s.Name()]; ok {
+				return nil
+			}
+
+			names := make([]string, 0, len(allowed))
+			for name := range allowed {
+				names = append(names, name)
+			}
+			sort.Strings(names)
+
+			return fmt.Errorf(
+				"common name prefix %q is restricted to signer(s) %v, but requested by signer %q",
+				p, names, s.Name(),
+			)
 		}
 		return nil
 	}

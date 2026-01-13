@@ -17,8 +17,10 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// AgentAuthMiddleware handles certificate-based authentication for device agents
-// This middleware is specifically for device operations that use DeviceManagementSignerName
+// AgentAuthMiddleware handles certificate-based authentication for device agents.
+// It authenticates agents presenting a device management client certificate issued by either:
+// - the initial device management signer, or
+// - the device management renewal signer (for rotated certs).
 type AgentAuthMiddleware struct {
 	ca    *crypto.CAClient
 	log   logrus.FieldLogger
@@ -27,7 +29,7 @@ type AgentAuthMiddleware struct {
 
 // NewAgentAuthMiddleware creates a new device agent authentication middleware
 func NewAgentAuthMiddleware(ca *crypto.CAClient, log logrus.FieldLogger) *AgentAuthMiddleware {
-	cache := ttlcache.New[string, *AgentIdentity](
+	cache := ttlcache.New(
 		ttlcache.WithTTL[string, *AgentIdentity](10 * time.Minute),
 	)
 
@@ -82,10 +84,27 @@ func (m *AgentAuthMiddleware) AuthenticateAgent(next http.Handler) http.Handler 
 			}
 		}
 
+		peerSigner := m.ca.PeerCertificateSignerFromCtx(ctx)
+		if peerSigner == nil {
+			m.log.Warn("could not determine peer certificate signer")
+			http.Error(w, "could not determine peer certificate signer", http.StatusUnauthorized)
+			return
+		}
+
 		// Validate certificate signer using the same pattern as handler.go
-		if s := m.ca.PeerCertificateSignerFromCtx(ctx); s != nil && s.Name() != m.ca.Cfg.DeviceManagementSignerName {
-			m.log.Warnf("unexpected client certificate signer: expected %q, got %q", m.ca.Cfg.DeviceManagementSignerName, s.Name())
-			http.Error(w, fmt.Sprintf("unexpected client certificate signer: expected %q, got %q", m.ca.Cfg.DeviceManagementSignerName, s.Name()), http.StatusUnauthorized)
+		if !signer.IsDeviceManagementClientCertSigner(m.ca.Cfg, peerSigner) {
+			m.log.Warnf(
+				"unexpected client certificate signer: expected %q or %q, got %q",
+				m.ca.Cfg.DeviceManagementSignerName,
+				m.ca.Cfg.DeviceManagementRenewalSignerName,
+				peerSigner.Name(),
+			)
+			http.Error(w, fmt.Sprintf(
+				"unexpected client certificate signer: expected %q or %q, got %q",
+				m.ca.Cfg.DeviceManagementSignerName,
+				m.ca.Cfg.DeviceManagementRenewalSignerName,
+				peerSigner.Name(),
+			), http.StatusUnauthorized)
 			return
 		}
 

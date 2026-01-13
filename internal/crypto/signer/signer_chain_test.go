@@ -314,12 +314,26 @@ func TestSignerWrappers(t *testing.T) {
 		{
 			name: "restricted_prefix_enforced",
 			chainedSigner: func(baseFactory func(CA) Signer, ca CA) Signer {
-				restricted := &mockSigner{name: "restricted", ca: ca, restrictedPrefix: ca.Config().DeviceCommonNamePrefix}
-				restrictedMap := map[string]Signer{restricted.RestrictedPrefix(): restricted}
-				return WithSignerRestrictedPrefixes(restrictedMap, baseFactory(ca))
+				const restrictedPrefix = "restricted:"
+
+				restricted := &mockSigner{
+					name:             "restricted",
+					ca:               ca,
+					restrictedPrefix: restrictedPrefix,
+				}
+
+				restrictedPrefixes := map[string]map[string]struct{}{
+					restrictedPrefix: {
+						restricted.Name(): {},
+					},
+				}
+
+				// baseFactory(ca) is NOT in the allowed set, so Verify/Sign should fail
+				return WithSignerRestrictedPrefixes(restrictedPrefixes, baseFactory(ca))
 			},
 			build: func() (context.Context, SignRequest) {
-				cn := ca.Config().DeviceCommonNamePrefix + "abcdef0123456789"
+				const restrictedPrefix = "restricted:"
+				cn := restrictedPrefix + "abcdef0123456789"
 				csr := makeCSR(t, cn, orgID)
 				req, err := NewSignRequest(mockSignerName, *csr)
 				if err != nil {

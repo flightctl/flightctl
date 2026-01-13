@@ -12,6 +12,7 @@ import (
 	baseclient "github.com/flightctl/flightctl/internal/client"
 	fccrypto "github.com/flightctl/flightctl/pkg/crypto"
 	"github.com/flightctl/flightctl/pkg/log"
+	"k8s.io/client-go/util/cert"
 )
 
 var _ Provider = (*fileProvider)(nil)
@@ -120,6 +121,31 @@ func (f *fileProvider) HasCertificate() bool {
 	return hasCertificate(f.rw, f.clientCertPath, f.log)
 }
 
+func (f *fileProvider) GetCertificate() ([]byte, error) {
+	if f.clientCertPath == "" {
+		return nil, nil
+	}
+
+	exists, err := f.rw.PathExists(f.clientCertPath)
+	if err != nil {
+		return nil, fmt.Errorf("checking certificate file %q: %w", f.clientCertPath, err)
+	}
+	if !exists {
+		return nil, nil
+	}
+
+	pemBytes, err := f.rw.ReadFile(f.clientCertPath)
+	if err != nil {
+		return nil, fmt.Errorf("reading certificate file %q: %w", f.clientCertPath, err)
+	}
+
+	if _, err := cert.ParseCertsPEM(pemBytes); err != nil {
+		return nil, fmt.Errorf("parsing certificate file %q: %w", f.clientCertPath, err)
+	}
+
+	return pemBytes, nil
+}
+
 func (f *fileProvider) CreateManagementClient(config *baseclient.Config, metricsCallback client.RPCMetricsCallback) (client.Management, error) {
 	// check if management certificate exists
 	managementCertExists, err := f.rw.PathExists(config.GetClientCertificatePath())
@@ -131,13 +157,13 @@ func (f *fileProvider) CreateManagementClient(config *baseclient.Config, metrics
 		return nil, fmt.Errorf("management client certificate does not exist at %q - device needs re-enrollment", config.GetClientCertificatePath())
 	}
 
-	httpClient, err := client.NewFromConfig(config, f.log)
-	if err != nil {
-		return nil, fmt.Errorf("create management client: %w", err)
-	}
-
-	managementClient := client.NewManagement(httpClient, metricsCallback)
-	return managementClient, nil
+	return client.NewManagementDelegate(func() (client.Management, error) {
+		httpClient, err := client.NewFromConfig(config, f.log)
+		if err != nil {
+			return nil, fmt.Errorf("create management client: %w", err)
+		}
+		return client.NewManagement(httpClient, metricsCallback), nil
+	})
 }
 
 func (f *fileProvider) CreateGRPCClient(config *baseclient.Config) (grpc_v1.RouterServiceClient, error) {

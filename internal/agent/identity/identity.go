@@ -82,6 +82,8 @@ type Provider interface {
 	StoreCertificate(certPEM []byte) error
 	// HasCertificate returns true if the provider has a certificate available
 	HasCertificate() bool
+	// GetCertificate returns the current certificate if installed
+	GetCertificate() ([]byte, error)
 	// CreateManagementClient creates a fully configured management client with this identity
 	CreateManagementClient(config *base_client.Config, metricsCallback client.RPCMetricsCallback) (client.Management, error)
 	// CreateGRPCClient creates a fully configured gRPC client with this identity
