@@ -23,9 +23,9 @@ import (
 // ImageBuildService handles business logic for ImageBuild resources
 type ImageBuildService interface {
 	Create(ctx context.Context, orgId uuid.UUID, imageBuild api.ImageBuild) (*api.ImageBuild, v1beta1.Status)
-	Get(ctx context.Context, orgId uuid.UUID, name string) (*api.ImageBuild, v1beta1.Status)
+	Get(ctx context.Context, orgId uuid.UUID, name string, withExports bool) (*api.ImageBuild, v1beta1.Status)
 	List(ctx context.Context, orgId uuid.UUID, params api.ListImageBuildsParams) (*api.ImageBuildList, v1beta1.Status)
-	Delete(ctx context.Context, orgId uuid.UUID, name string) v1beta1.Status
+	Delete(ctx context.Context, orgId uuid.UUID, name string) (*api.ImageBuild, v1beta1.Status)
 	// Internal methods (not exposed via API)
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, imageBuild *api.ImageBuild) (*api.ImageBuild, error)
 	UpdateLastSeen(ctx context.Context, orgId uuid.UUID, name string, timestamp time.Time) error
@@ -61,13 +61,13 @@ func (s *imageBuildService) Create(ctx context.Context, orgId uuid.UUID, imageBu
 
 	result, err := s.store.Create(ctx, orgId, &imageBuild)
 	if err != nil {
-		return result, StoreErrorToApiStatus(err, true, ImageBuildKind, imageBuild.Metadata.Name)
+		return result, StoreErrorToApiStatus(err, true, string(api.ResourceKindImageBuild), imageBuild.Metadata.Name)
 	}
 
 	// Create event separately (no transaction)
 	var event *v1beta1.Event
 	if result != nil && s.eventHandler != nil {
-		event = common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, true, v1beta1.ResourceKind(api.ImageBuildKind), lo.FromPtr(result.Metadata.Name), nil, s.log, nil)
+		event = common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, true, v1beta1.ResourceKind(string(api.ResourceKindImageBuild)), lo.FromPtr(result.Metadata.Name), nil, s.log, nil)
 		if event != nil {
 			s.eventHandler.CreateEvent(ctx, orgId, event)
 		}
@@ -81,12 +81,12 @@ func (s *imageBuildService) Create(ctx context.Context, orgId uuid.UUID, imageBu
 		}
 	}
 
-	return result, StoreErrorToApiStatus(nil, true, ImageBuildKind, imageBuild.Metadata.Name)
+	return result, StoreErrorToApiStatus(nil, true, string(api.ResourceKindImageBuild), imageBuild.Metadata.Name)
 }
 
-func (s *imageBuildService) Get(ctx context.Context, orgId uuid.UUID, name string) (*api.ImageBuild, v1beta1.Status) {
-	result, err := s.store.Get(ctx, orgId, name)
-	return result, StoreErrorToApiStatus(err, false, ImageBuildKind, &name)
+func (s *imageBuildService) Get(ctx context.Context, orgId uuid.UUID, name string, withExports bool) (*api.ImageBuild, v1beta1.Status) {
+	result, err := s.store.Get(ctx, orgId, name, store.GetWithExports(withExports))
+	return result, StoreErrorToApiStatus(err, false, string(api.ResourceKindImageBuild), &name)
 }
 
 func (s *imageBuildService) List(ctx context.Context, orgId uuid.UUID, params api.ListImageBuildsParams) (*api.ImageBuildList, v1beta1.Status) {
@@ -95,7 +95,7 @@ func (s *imageBuildService) List(ctx context.Context, orgId uuid.UUID, params ap
 		return nil, status
 	}
 
-	result, err := s.store.List(ctx, orgId, *listParams)
+	result, err := s.store.List(ctx, orgId, *listParams, store.ListWithExports(lo.FromPtrOr(params.WithExports, false)))
 	if err == nil {
 		return result, StatusOK()
 	}
@@ -109,9 +109,9 @@ func (s *imageBuildService) List(ctx context.Context, orgId uuid.UUID, params ap
 	}
 }
 
-func (s *imageBuildService) Delete(ctx context.Context, orgId uuid.UUID, name string) v1beta1.Status {
-	err := s.store.Delete(ctx, orgId, name)
-	return StoreErrorToApiStatus(err, false, ImageBuildKind, &name)
+func (s *imageBuildService) Delete(ctx context.Context, orgId uuid.UUID, name string) (*api.ImageBuild, v1beta1.Status) {
+	result, err := s.store.Delete(ctx, orgId, name)
+	return result, StoreErrorToApiStatus(err, false, string(api.ResourceKindImageBuild), &name)
 }
 
 // Internal methods (not exposed via API)

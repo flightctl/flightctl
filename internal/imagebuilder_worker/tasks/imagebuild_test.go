@@ -122,7 +122,7 @@ func (m *mockServiceHandler) GenerateEnrollmentCredential(ctx context.Context, o
 func newTestImageBuild(name string, bindingType string) *api.ImageBuild {
 	imageBuild := &api.ImageBuild{
 		ApiVersion: api.ImageBuildAPIVersion,
-		Kind:       api.ImageBuildKind,
+		Kind:       string(api.ResourceKindImageBuild),
 		Metadata: v1beta1.ObjectMeta{
 			Name: lo.ToPtr(name),
 		},

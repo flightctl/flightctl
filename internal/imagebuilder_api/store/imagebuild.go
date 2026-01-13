@@ -10,17 +10,42 @@ import (
 	flightctlstore "github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/google/uuid"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
 
+type GetOption func(*GetOptions)
+
+type GetOptions struct {
+	WithExports bool
+}
+
+func GetWithExports(val bool) GetOption {
+	return func(o *GetOptions) {
+		o.WithExports = val
+	}
+}
+
+type ListOption func(*ListOptions)
+
+type ListOptions struct {
+	WithExports bool
+}
+
+func ListWithExports(val bool) ListOption {
+	return func(o *ListOptions) {
+		o.WithExports = val
+	}
+}
+
 // ImageBuildStore is the store interface for ImageBuild resources
 type ImageBuildStore interface {
 	Create(ctx context.Context, orgId uuid.UUID, imageBuild *api.ImageBuild) (*api.ImageBuild, error)
-	Get(ctx context.Context, orgId uuid.UUID, name string) (*api.ImageBuild, error)
-	List(ctx context.Context, orgId uuid.UUID, listParams flightctlstore.ListParams) (*api.ImageBuildList, error)
-	Delete(ctx context.Context, orgId uuid.UUID, name string) error
+	Get(ctx context.Context, orgId uuid.UUID, name string, opts ...GetOption) (*api.ImageBuild, error)
+	List(ctx context.Context, orgId uuid.UUID, listParams flightctlstore.ListParams, opts ...ListOption) (*api.ImageBuildList, error)
+	Delete(ctx context.Context, orgId uuid.UUID, name string) (*api.ImageBuild, error)
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, imageBuild *api.ImageBuild) (*api.ImageBuild, error)
 	UpdateLastSeen(ctx context.Context, orgId uuid.UUID, name string, timestamp time.Time) error
 	InitialMigration(ctx context.Context) error
@@ -58,6 +83,10 @@ func (s *imageBuildStore) Create(ctx context.Context, orgId uuid.UUID, imageBuil
 	}
 	m.OrgID = orgId
 
+	// Set initial Generation and ResourceVersion on create (matching GenericStore pattern)
+	m.Generation = lo.ToPtr(int64(1))
+	m.ResourceVersion = lo.ToPtr(int64(1))
+
 	db := getDB(ctx, s.db)
 	result := db.WithContext(ctx).Create(m)
 	if result.Error != nil {
@@ -72,7 +101,12 @@ func (s *imageBuildStore) Create(ctx context.Context, orgId uuid.UUID, imageBuil
 
 // Get retrieves an ImageBuild resource by name
 // If a transaction exists in the context (via WithTx), it will be used automatically
-func (s *imageBuildStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*api.ImageBuild, error) {
+func (s *imageBuildStore) Get(ctx context.Context, orgId uuid.UUID, name string, opts ...GetOption) (*api.ImageBuild, error) {
+	options := GetOptions{}
+	for _, opt := range opts {
+		opt(&options)
+	}
+
 	m := &ImageBuild{}
 	db := getDB(ctx, s.db)
 	result := db.WithContext(ctx).Where("org_id = ? AND name = ?", orgId, name).First(m)
@@ -83,14 +117,42 @@ func (s *imageBuildStore) Get(ctx context.Context, orgId uuid.UUID, name string)
 		return nil, result.Error
 	}
 
-	return m.ToApiResource()
+	var imageExports []api.ImageExport
+	if options.WithExports {
+		// Fetch related ImageExports using field selector
+		var exportModels []ImageExport
+		err := db.WithContext(ctx).
+			Where("org_id = ? AND spec->'source'->>'imageBuildRef' = ?", orgId, name).
+			Find(&exportModels).Error
+		if err == nil {
+			// Convert models to API resources
+			for _, exportModel := range exportModels {
+				exportAPI, err := exportModel.ToApiResource()
+				if err == nil {
+					imageExports = append(imageExports, *exportAPI)
+				}
+			}
+		}
+	}
+
+	var apiOpts []ImageBuildAPIResourceOption
+	if len(imageExports) > 0 {
+		apiOpts = append(apiOpts, WithImageExports(imageExports))
+	}
+
+	return m.ToApiResource(apiOpts...)
 }
 
 // List retrieves a list of ImageBuild resources
-func (s *imageBuildStore) List(ctx context.Context, orgId uuid.UUID, listParams flightctlstore.ListParams) (*api.ImageBuildList, error) {
+func (s *imageBuildStore) List(ctx context.Context, orgId uuid.UUID, listParams flightctlstore.ListParams, opts ...ListOption) (*api.ImageBuildList, error) {
 	var models []ImageBuild
 	var nextContinue *string
 	var numRemaining *int64
+	options := ListOptions{}
+
+	for _, opt := range opts {
+		opt(&options)
+	}
 
 	// Default to sorting by creation date descending (newest first)
 	if len(listParams.SortColumns) == 0 {
@@ -119,7 +181,37 @@ func (s *imageBuildStore) List(ctx context.Context, orgId uuid.UUID, listParams 
 		models = models[:len(models)-1]
 	}
 
-	list, err := ImageBuildsToApiResource(models, nextContinue, numRemaining)
+	// If withExports is true, fetch ImageExports for each ImageBuild
+	var imageExportsMap map[string][]api.ImageExport
+	if options.WithExports && len(models) > 0 {
+		// Collect all ImageBuild names
+		buildNames := make([]string, len(models))
+		for i, build := range models {
+			buildNames[i] = build.Name
+		}
+
+		// Fetch all ImageExports that reference any of these ImageBuilds
+		var exportModels []ImageExport
+		err := s.db.WithContext(ctx).
+			Where("org_id = ? AND spec->'source'->>'imageBuildRef' IN ?", orgId, buildNames).
+			Find(&exportModels).Error
+		if err == nil {
+			// Group ImageExports by ImageBuild name
+			imageExportsMap = make(map[string][]api.ImageExport)
+			for _, exportModel := range exportModels {
+				exportAPI, err := exportModel.ToApiResource()
+				if err == nil {
+					// Get the imageBuildRef from the source
+					if buildRefSource, err := exportAPI.Spec.Source.AsImageBuildRefSource(); err == nil {
+						buildName := buildRefSource.ImageBuildRef
+						imageExportsMap[buildName] = append(imageExportsMap[buildName], *exportAPI)
+					}
+				}
+			}
+		}
+	}
+
+	list, err := ImageBuildsToApiResourceWithOptions(models, nextContinue, numRemaining, imageExportsMap)
 	if err != nil {
 		return nil, err
 	}
@@ -150,16 +242,38 @@ func (s *imageBuildStore) calculateContinue(ctx context.Context, orgId uuid.UUID
 	return flightctlstore.BuildContinueString(continueValues, numRemainingVal), &numRemainingVal
 }
 
-// Delete removes an ImageBuild resource by name
-func (s *imageBuildStore) Delete(ctx context.Context, orgId uuid.UUID, name string) error {
-	result := s.db.WithContext(ctx).Unscoped().Where("org_id = ? AND name = ?", orgId, name).Delete(&ImageBuild{})
+// Delete removes an ImageBuild resource by name and returns the deleted resource
+// Delete is idempotent - returns (nil, nil) if the resource doesn't exist
+func (s *imageBuildStore) Delete(ctx context.Context, orgId uuid.UUID, name string) (*api.ImageBuild, error) {
+	// Get the resource before deleting it
+	m := &ImageBuild{}
+	db := getDB(ctx, s.db)
+	result := db.WithContext(ctx).Where("org_id = ? AND name = ?", orgId, name).First(m)
 	if result.Error != nil {
-		return flightctlstore.ErrorFromGormError(result.Error)
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			// Idempotent delete - resource doesn't exist, return success
+			return nil, nil
+		}
+		return nil, flightctlstore.ErrorFromGormError(result.Error)
+	}
+
+	// Convert to API resource before deleting
+	apiResource, err := m.ToApiResource()
+	if err != nil {
+		return nil, err
+	}
+
+	// Delete the resource
+	result = db.WithContext(ctx).Unscoped().Where("org_id = ? AND name = ?", orgId, name).Delete(&ImageBuild{})
+	if result.Error != nil {
+		return nil, flightctlstore.ErrorFromGormError(result.Error)
 	}
 	if result.RowsAffected == 0 {
-		return flterrors.ErrResourceNotFound
+		// Idempotent delete - resource was already deleted, return success
+		return nil, nil
 	}
-	return nil
+
+	return apiResource, nil
 }
 
 // UpdateStatus updates the status of an ImageBuild resource

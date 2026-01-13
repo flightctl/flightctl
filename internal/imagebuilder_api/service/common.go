@@ -13,7 +13,6 @@ import (
 
 const (
 	MaxRecordsPerListRequest = 1000
-	ImageBuildKind           = "ImageBuild"
 )
 
 // NilOutManagedObjectMetaProperties clears fields that are managed by the service

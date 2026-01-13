@@ -586,7 +586,7 @@ func (c *Consumer) generateAgentConfigWithGenerator(ctx context.Context, orgID u
 	// Generate enrollment credential using the credential generator
 	// This will create a CSR, auto-approve it, sign it, and return the credential
 	// The CSR owner is set to the ImageBuild resource for traceability
-	credential, status := credentialGenerator.GenerateEnrollmentCredential(ctx, orgID, name, api.ImageBuildKind, imageBuildName)
+	credential, status := credentialGenerator.GenerateEnrollmentCredential(ctx, orgID, name, string(api.ResourceKindImageBuild), imageBuildName)
 	if err := service.ApiStatusToErr(status); err != nil {
 		return nil, fmt.Errorf("generating enrollment credential: %w", err)
 	}

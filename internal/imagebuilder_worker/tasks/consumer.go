@@ -89,7 +89,7 @@ func (c *Consumer) Consume(ctx context.Context, payload []byte, entryID string, 
 	// Route to appropriate handler based on involved object kind and reason
 	var processingErr error
 	switch event.InvolvedObject.Kind {
-	case apiimagebuilder.ImageBuildKind:
+	case string(apiimagebuilder.ResourceKindImageBuild):
 		if event.Reason == api.EventReasonResourceCreated {
 			processingErr = c.processImageBuild(ctx, eventWithOrgId, log)
 		} else {
@@ -103,7 +103,7 @@ func (c *Consumer) Consume(ctx context.Context, payload []byte, entryID string, 
 			return nil
 		}
 
-	case apiimagebuilder.ImageExportKind:
+	case string(apiimagebuilder.ResourceKindImageExport):
 		if event.Reason == api.EventReasonResourceCreated {
 			processingErr = c.processImageExport(ctx, eventWithOrgId, log)
 		} else {

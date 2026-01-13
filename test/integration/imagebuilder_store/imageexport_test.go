@@ -11,6 +11,7 @@ import (
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/store"
 	flightctlstore "github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/store/testutil"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	testutilpkg "github.com/flightctl/flightctl/test/util"
@@ -33,7 +34,32 @@ func newTestImageExport(name string) *api.ImageExport {
 
 	return &api.ImageExport{
 		ApiVersion: api.ImageExportAPIVersion,
-		Kind:       api.ImageExportKind,
+		Kind:       string(api.ResourceKindImageExport),
+		Metadata: v1beta1.ObjectMeta{
+			Name: lo.ToPtr(name),
+		},
+		Spec: api.ImageExportSpec{
+			Source: source,
+			Destination: api.ImageExportDestination{
+				Repository: "output-registry",
+				ImageName:  "output-image",
+				Tag:        "v1.0",
+			},
+			Format: api.ExportFormatTypeQCOW2,
+		},
+	}
+}
+
+func newTestImageExportWithImageBuildRef(name string, imageBuildRef string) *api.ImageExport {
+	source := api.ImageExportSource{}
+	_ = source.FromImageBuildRefSource(api.ImageBuildRefSource{
+		Type:          api.ImageBuildRefSourceTypeImageBuild,
+		ImageBuildRef: imageBuildRef,
+	})
+
+	return &api.ImageExport{
+		ApiVersion: api.ImageExportAPIVersion,
+		Kind:       string(api.ResourceKindImageExport),
 		Metadata: v1beta1.ObjectMeta{
 			Name: lo.ToPtr(name),
 		},
@@ -98,6 +124,10 @@ var _ = Describe("ImageExportStore", func() {
 			Expect(result).ToNot(BeNil())
 			Expect(lo.FromPtr(result.Metadata.Name)).To(Equal("test-export-1"))
 			Expect(result.Metadata.CreationTimestamp).ToNot(BeNil())
+			Expect(result.Metadata.Generation).ToNot(BeNil())
+			Expect(*result.Metadata.Generation).To(Equal(int64(1)))
+			Expect(result.Metadata.ResourceVersion).ToNot(BeNil())
+			Expect(*result.Metadata.ResourceVersion).ToNot(BeEmpty())
 		})
 
 		It("should fail to create duplicate ImageExport", func() {
@@ -195,25 +225,316 @@ var _ = Describe("ImageExportStore", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(result.Items).To(HaveLen(0))
 		})
+
+		It("should filter ImageExports by imageBuildRef using fieldSelector with = operator", func() {
+			// Create ImageBuilds
+			build1 := &api.ImageBuild{
+				ApiVersion: api.ImageBuildAPIVersion,
+				Kind:       string(api.ResourceKindImageBuild),
+				Metadata: v1beta1.ObjectMeta{
+					Name: lo.ToPtr("filter-build-1"),
+				},
+				Spec: api.ImageBuildSpec{
+					Source: api.ImageBuildSource{
+						Repository: "input-registry",
+						ImageName:  "input-image",
+						ImageTag:   "v1.0",
+					},
+					Destination: api.ImageBuildDestination{
+						Repository: "output-registry",
+						ImageName:  "output-image",
+						Tag:        "v1.0",
+					},
+				},
+			}
+			_, err := storeInst.ImageBuild().Create(ctx, orgId, build1)
+			Expect(err).ToNot(HaveOccurred())
+
+			build2 := &api.ImageBuild{
+				ApiVersion: api.ImageBuildAPIVersion,
+				Kind:       string(api.ResourceKindImageBuild),
+				Metadata: v1beta1.ObjectMeta{
+					Name: lo.ToPtr("filter-build-2"),
+				},
+				Spec: api.ImageBuildSpec{
+					Source: api.ImageBuildSource{
+						Repository: "input-registry",
+						ImageName:  "input-image",
+						ImageTag:   "v1.0",
+					},
+					Destination: api.ImageBuildDestination{
+						Repository: "output-registry",
+						ImageName:  "output-image",
+						Tag:        "v1.0",
+					},
+				},
+			}
+			_, err = storeInst.ImageBuild().Create(ctx, orgId, build2)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Create ImageExports that reference build1
+			export1 := newTestImageExportWithImageBuildRef("filter-export-1", "filter-build-1")
+			_, err = storeInst.ImageExport().Create(ctx, orgId, export1)
+			Expect(err).ToNot(HaveOccurred())
+
+			export2 := newTestImageExportWithImageBuildRef("filter-export-2", "filter-build-1")
+			_, err = storeInst.ImageExport().Create(ctx, orgId, export2)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Create ImageExport that references build2
+			export3 := newTestImageExportWithImageBuildRef("filter-export-3", "filter-build-2")
+			_, err = storeInst.ImageExport().Create(ctx, orgId, export3)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Create ImageExport with ImageReferenceSource (should not be included)
+			export4 := newTestImageExport("filter-export-4")
+			_, err = storeInst.ImageExport().Create(ctx, orgId, export4)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Filter by build1 - should return only export1 and export2
+			listParams := flightctlstore.ListParams{
+				Limit:         1000,
+				FieldSelector: selector.NewFieldSelectorFromMapOrDie(map[string]string{"spec.source.imageBuildRef": "filter-build-1"}),
+			}
+			result, err := storeInst.ImageExport().List(ctx, orgId, listParams)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(result.Items).To(HaveLen(2))
+
+			exportNames := make(map[string]bool)
+			for _, item := range result.Items {
+				exportNames[lo.FromPtr(item.Metadata.Name)] = true
+			}
+			Expect(exportNames).To(HaveKey("filter-export-1"))
+			Expect(exportNames).To(HaveKey("filter-export-2"))
+			Expect(exportNames).ToNot(HaveKey("filter-export-3"))
+			Expect(exportNames).ToNot(HaveKey("filter-export-4"))
+		})
+
+		It("should filter ImageExports by imageBuildRef using fieldSelector with in operator", func() {
+			// Create ImageBuilds
+			build1 := &api.ImageBuild{
+				ApiVersion: api.ImageBuildAPIVersion,
+				Kind:       string(api.ResourceKindImageBuild),
+				Metadata: v1beta1.ObjectMeta{
+					Name: lo.ToPtr("in-filter-build-1"),
+				},
+				Spec: api.ImageBuildSpec{
+					Source: api.ImageBuildSource{
+						Repository: "input-registry",
+						ImageName:  "input-image",
+						ImageTag:   "v1.0",
+					},
+					Destination: api.ImageBuildDestination{
+						Repository: "output-registry",
+						ImageName:  "output-image",
+						Tag:        "v1.0",
+					},
+				},
+			}
+			_, err := storeInst.ImageBuild().Create(ctx, orgId, build1)
+			Expect(err).ToNot(HaveOccurred())
+
+			build2 := &api.ImageBuild{
+				ApiVersion: api.ImageBuildAPIVersion,
+				Kind:       string(api.ResourceKindImageBuild),
+				Metadata: v1beta1.ObjectMeta{
+					Name: lo.ToPtr("in-filter-build-2"),
+				},
+				Spec: api.ImageBuildSpec{
+					Source: api.ImageBuildSource{
+						Repository: "input-registry",
+						ImageName:  "input-image",
+						ImageTag:   "v1.0",
+					},
+					Destination: api.ImageBuildDestination{
+						Repository: "output-registry",
+						ImageName:  "output-image",
+						Tag:        "v1.0",
+					},
+				},
+			}
+			_, err = storeInst.ImageBuild().Create(ctx, orgId, build2)
+			Expect(err).ToNot(HaveOccurred())
+
+			build3 := &api.ImageBuild{
+				ApiVersion: api.ImageBuildAPIVersion,
+				Kind:       string(api.ResourceKindImageBuild),
+				Metadata: v1beta1.ObjectMeta{
+					Name: lo.ToPtr("in-filter-build-3"),
+				},
+				Spec: api.ImageBuildSpec{
+					Source: api.ImageBuildSource{
+						Repository: "input-registry",
+						ImageName:  "input-image",
+						ImageTag:   "v1.0",
+					},
+					Destination: api.ImageBuildDestination{
+						Repository: "output-registry",
+						ImageName:  "output-image",
+						Tag:        "v1.0",
+					},
+				},
+			}
+			_, err = storeInst.ImageBuild().Create(ctx, orgId, build3)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Create ImageExports that reference different builds
+			export1 := newTestImageExportWithImageBuildRef("in-filter-export-1", "in-filter-build-1")
+			_, err = storeInst.ImageExport().Create(ctx, orgId, export1)
+			Expect(err).ToNot(HaveOccurred())
+
+			export2 := newTestImageExportWithImageBuildRef("in-filter-export-2", "in-filter-build-2")
+			_, err = storeInst.ImageExport().Create(ctx, orgId, export2)
+			Expect(err).ToNot(HaveOccurred())
+
+			export3 := newTestImageExportWithImageBuildRef("in-filter-export-3", "in-filter-build-3")
+			_, err = storeInst.ImageExport().Create(ctx, orgId, export3)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Create ImageExport with ImageReferenceSource (should not be included)
+			export4 := newTestImageExport("in-filter-export-4")
+			_, err = storeInst.ImageExport().Create(ctx, orgId, export4)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Filter by build1 and build2 using in operator - should return export1 and export2
+			fieldSelector, err := selector.NewFieldSelector("spec.source.imageBuildRef in (in-filter-build-1,in-filter-build-2)")
+			Expect(err).ToNot(HaveOccurred())
+			listParams := flightctlstore.ListParams{
+				Limit:         1000,
+				FieldSelector: fieldSelector,
+			}
+			result, err := storeInst.ImageExport().List(ctx, orgId, listParams)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(result.Items).To(HaveLen(2))
+
+			exportNames := make(map[string]bool)
+			for _, item := range result.Items {
+				exportNames[lo.FromPtr(item.Metadata.Name)] = true
+			}
+			Expect(exportNames).To(HaveKey("in-filter-export-1"))
+			Expect(exportNames).To(HaveKey("in-filter-export-2"))
+			Expect(exportNames).ToNot(HaveKey("in-filter-export-3"))
+			Expect(exportNames).ToNot(HaveKey("in-filter-export-4"))
+		})
+
+		It("should respect org isolation when filtering ImageExports by imageBuildRef", func() {
+			// Create ImageBuild in first org
+			build1 := &api.ImageBuild{
+				ApiVersion: api.ImageBuildAPIVersion,
+				Kind:       string(api.ResourceKindImageBuild),
+				Metadata: v1beta1.ObjectMeta{
+					Name: lo.ToPtr("org-isolation-build"),
+				},
+				Spec: api.ImageBuildSpec{
+					Source: api.ImageBuildSource{
+						Repository: "input-registry",
+						ImageName:  "input-image",
+						ImageTag:   "v1.0",
+					},
+					Destination: api.ImageBuildDestination{
+						Repository: "output-registry",
+						ImageName:  "output-image",
+						Tag:        "v1.0",
+					},
+				},
+			}
+			_, err := storeInst.ImageBuild().Create(ctx, orgId, build1)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Create ImageExport in first org
+			export1 := newTestImageExportWithImageBuildRef("org-isolation-export", "org-isolation-build")
+			_, err = storeInst.ImageExport().Create(ctx, orgId, export1)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Create another org
+			otherOrgId := uuid.New()
+			err = testutilpkg.CreateTestOrganization(ctx, mainStoreInst, otherOrgId)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Create ImageBuild with same name in second org
+			build2 := &api.ImageBuild{
+				ApiVersion: api.ImageBuildAPIVersion,
+				Kind:       string(api.ResourceKindImageBuild),
+				Metadata: v1beta1.ObjectMeta{
+					Name: lo.ToPtr("org-isolation-build"),
+				},
+				Spec: api.ImageBuildSpec{
+					Source: api.ImageBuildSource{
+						Repository: "input-registry",
+						ImageName:  "input-image",
+						ImageTag:   "v1.0",
+					},
+					Destination: api.ImageBuildDestination{
+						Repository: "output-registry",
+						ImageName:  "output-image",
+						Tag:        "v1.0",
+					},
+				},
+			}
+			_, err = storeInst.ImageBuild().Create(ctx, otherOrgId, build2)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Create ImageExport in second org
+			export2 := newTestImageExportWithImageBuildRef("org-isolation-export-2", "org-isolation-build")
+			_, err = storeInst.ImageExport().Create(ctx, otherOrgId, export2)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Filter in first org - should only return export from first org
+			listParams := flightctlstore.ListParams{
+				Limit:         1000,
+				FieldSelector: selector.NewFieldSelectorFromMapOrDie(map[string]string{"spec.source.imageBuildRef": "org-isolation-build"}),
+			}
+			result, err := storeInst.ImageExport().List(ctx, orgId, listParams)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(result.Items).To(HaveLen(1))
+			Expect(lo.FromPtr(result.Items[0].Metadata.Name)).To(Equal("org-isolation-export"))
+
+			// Filter in second org - should only return export from second org
+			result, err = storeInst.ImageExport().List(ctx, otherOrgId, listParams)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(result.Items).To(HaveLen(1))
+			Expect(lo.FromPtr(result.Items[0].Metadata.Name)).To(Equal("org-isolation-export-2"))
+		})
+
+		It("should return empty list when filtering by non-existent imageBuildRef", func() {
+			// Create ImageExport with ImageReferenceSource (not referencing any build)
+			export1 := newTestImageExport("no-build-export")
+			_, err := storeInst.ImageExport().Create(ctx, orgId, export1)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Filter by non-existent build - should return empty list
+			listParams := flightctlstore.ListParams{
+				Limit:         1000,
+				FieldSelector: selector.NewFieldSelectorFromMapOrDie(map[string]string{"spec.source.imageBuildRef": "non-existent-build"}),
+			}
+			result, err := storeInst.ImageExport().List(ctx, orgId, listParams)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(result.Items).To(HaveLen(0))
+		})
 	})
 
 	Context("Delete", func() {
-		It("should delete an existing ImageExport", func() {
+		It("should delete an existing ImageExport and return the deleted resource", func() {
 			imageExport := newTestImageExport("delete-test")
-			_, err := storeInst.ImageExport().Create(ctx, orgId, imageExport)
+			created, err := storeInst.ImageExport().Create(ctx, orgId, imageExport)
 			Expect(err).ToNot(HaveOccurred())
 
-			err = storeInst.ImageExport().Delete(ctx, orgId, "delete-test")
+			deleted, err := storeInst.ImageExport().Delete(ctx, orgId, "delete-test")
 			Expect(err).ToNot(HaveOccurred())
+			Expect(deleted).ToNot(BeNil())
+			Expect(lo.FromPtr(deleted.Metadata.Name)).To(Equal("delete-test"))
+			Expect(deleted.Metadata.Generation).To(Equal(created.Metadata.Generation))
+			Expect(deleted.Metadata.ResourceVersion).To(Equal(created.Metadata.ResourceVersion))
 
 			_, err = storeInst.ImageExport().Get(ctx, orgId, "delete-test")
 			Expect(err).To(MatchError(flterrors.ErrResourceNotFound))
 		})
 
-		It("should return not found when deleting non-existent ImageExport", func() {
-			err := storeInst.ImageExport().Delete(ctx, orgId, "nonexistent")
-			Expect(err).To(HaveOccurred())
-			Expect(err).To(MatchError(flterrors.ErrResourceNotFound))
+		It("should return success when deleting non-existent ImageExport (idempotent)", func() {
+			// Delete is idempotent - deleting non-existent resource returns success
+			deleted, err := storeInst.ImageExport().Delete(ctx, orgId, "nonexistent")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(deleted).To(BeNil())
 		})
 	})
 

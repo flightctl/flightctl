@@ -78,9 +78,9 @@ func (f *TableFormatter) formatList(w *tabwriter.Writer, data interface{}, optio
 		return f.printEventsTable(w, data.(*apiclient.ListEventsResponse).JSON200.Items...)
 	case strings.EqualFold(options.Kind, api.AuthProviderKind):
 		return f.printAuthProvidersTable(w, data.(*apiclient.ListAuthProvidersResponse).JSON200.Items...)
-	case strings.EqualFold(options.Kind, imagebuilderapi.ImageBuildKind):
+	case strings.EqualFold(options.Kind, string(imagebuilderapi.ResourceKindImageBuild)):
 		return f.printImageBuildsTable(w, data.(*imagebuilderclient.ListImageBuildsResponse).JSON200.Items...)
-	case strings.EqualFold(options.Kind, imagebuilderapi.ImageExportKind):
+	case strings.EqualFold(options.Kind, string(imagebuilderapi.ResourceKindImageExport)):
 		return f.printImageExportsTable(w, data.(*imagebuilderclient.ListImageExportsResponse).JSON200.Items...)
 	case strings.EqualFold(options.Kind, api.AuthConfigKind):
 		// Special case for AuthConfig which contains providers
@@ -134,9 +134,9 @@ func (f *TableFormatter) formatSingle(w *tabwriter.Writer, data interface{}, opt
 		return f.printCSRTable(w, *data.(*apiclient.GetCertificateSigningRequestResponse).JSON200)
 	case strings.EqualFold(options.Kind, api.AuthProviderKind):
 		return f.printAuthProvidersTable(w, *data.(*apiclient.GetAuthProviderResponse).JSON200)
-	case strings.EqualFold(options.Kind, imagebuilderapi.ImageBuildKind):
+	case strings.EqualFold(options.Kind, string(imagebuilderapi.ResourceKindImageBuild)):
 		return f.printImageBuildsTable(w, *data.(*imagebuilderclient.GetImageBuildResponse).JSON200)
-	case strings.EqualFold(options.Kind, imagebuilderapi.ImageExportKind):
+	case strings.EqualFold(options.Kind, string(imagebuilderapi.ResourceKindImageExport)):
 		return f.printImageExportsTable(w, *data.(*imagebuilderclient.GetImageExportResponse).JSON200)
 	default:
 		return fmt.Errorf("unknown resource type %s", options.Kind)
