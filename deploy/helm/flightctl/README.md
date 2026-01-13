@@ -301,15 +301,13 @@ For more detailed configuration options, see the [Values](#values) section below
 | imageBuilderApi.image.image | string | `"quay.io/flightctl/flightctl-imagebuilder-api"` | ImageBuilder API container image |
 | imageBuilderApi.image.pullPolicy | string | `""` | Image pull policy for ImageBuilder API container |
 | imageBuilderApi.image.tag | string | `""` | ImageBuilder API image tag |
-| imageBuilderWorker | object | `{"buildTimeout":"30m","defaultTTL":"168h","enabled":true,"image":{"image":"quay.io/flightctl/flightctl-imagebuilder-worker","pullPolicy":"","tag":""},"logLevel":"info","logRetention":"168h","maxConcurrentBuilds":2,"privileged":false,"replicas":1,"resources":{}}` | ImageBuilder Worker Configuration |
-| imageBuilderWorker.buildTimeout | string | `"30m"` | Timeout for individual image builds |
+| imageBuilderWorker | object | `{"defaultTTL":"168h","enabled":true,"image":{"image":"quay.io/flightctl/flightctl-imagebuilder-worker","pullPolicy":"","tag":""},"logLevel":"info","maxConcurrentBuilds":2,"privileged":false,"replicas":1,"resources":{}}` | ImageBuilder Worker Configuration |
 | imageBuilderWorker.defaultTTL | string | `"168h"` | Default TTL for image build resources |
 | imageBuilderWorker.enabled | bool | `true` | Enable imagebuilder worker service |
 | imageBuilderWorker.image.image | string | `"quay.io/flightctl/flightctl-imagebuilder-worker"` | ImageBuilder Worker container image |
 | imageBuilderWorker.image.pullPolicy | string | `""` | Image pull policy for ImageBuilder Worker container |
 | imageBuilderWorker.image.tag | string | `""` | ImageBuilder Worker image tag |
 | imageBuilderWorker.logLevel | string | `"info"` | Log level for the imagebuilder worker |
-| imageBuilderWorker.logRetention | string | `"168h"` | Retention period for build logs |
 | imageBuilderWorker.maxConcurrentBuilds | int | `2` | Maximum number of concurrent image builds |
 | imageBuilderWorker.privileged | bool | `false` | Enable privileged mode for container-in-container builds |
 | imageBuilderWorker.replicas | int | `1` | Number of worker replicas |

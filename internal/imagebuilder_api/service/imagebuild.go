@@ -59,45 +59,21 @@ func (s *imageBuildService) Create(ctx context.Context, orgId uuid.UUID, imageBu
 		return nil, StatusBadRequest(errors.Join(errs...).Error())
 	}
 
-	var result *api.ImageBuild
-	var event *v1beta1.Event
-
-	// Execute in a transaction - create ImageBuild and Event atomically
-	err := s.store.Transaction(ctx, func(txCtx context.Context) error {
-		var createErr error
-		result, createErr = s.store.Create(txCtx, orgId, &imageBuild)
-		if createErr != nil {
-			return createErr
-		}
-
-		// Create event for ImageBuild creation
-		event = common.GetResourceCreatedOrUpdatedSuccessEvent(txCtx, true, v1beta1.ResourceKind(api.ImageBuildKind), lo.FromPtr(result.Metadata.Name), nil, s.log, nil)
-		if event != nil {
-			// Persist event in database using EventHandler (for audit/logging)
-			// Note: workerClient is nil, so it won't push to TaskQueue
-			// The transaction context is passed so the event is created in the same transaction
-			if s.eventHandler != nil {
-				s.eventHandler.CreateEvent(txCtx, orgId, event)
-			}
-		}
-
-		return nil
-	})
-
+	result, err := s.store.Create(ctx, orgId, &imageBuild)
 	if err != nil {
-		// Check if the error is a statusError (from transaction rollback)
-		// This allows us to return the proper status instead of converting to a generic error
-		var statusErr *statusError
-		if errors.As(err, &statusErr) {
-			return result, statusErr.status
-		}
-		// Otherwise convert the store error to an API status
 		return result, StoreErrorToApiStatus(err, true, ImageBuildKind, imageBuild.Metadata.Name)
 	}
 
-	// Enqueue event to imagebuild-queue for worker processing (outside transaction)
-	// This is done after the transaction commits to ensure the event is persisted first
-	// Reuse the same event that was created and persisted in the transaction
+	// Create event separately (no transaction)
+	var event *v1beta1.Event
+	if result != nil && s.eventHandler != nil {
+		event = common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, true, v1beta1.ResourceKind(api.ImageBuildKind), lo.FromPtr(result.Metadata.Name), nil, s.log, nil)
+		if event != nil {
+			s.eventHandler.CreateEvent(ctx, orgId, event)
+		}
+	}
+
+	// Enqueue event to imagebuild-queue for worker processing
 	if result != nil && event != nil && s.queueProducer != nil {
 		if err := s.enqueueImageBuildEvent(ctx, orgId, event); err != nil {
 			s.log.WithError(err).WithField("orgId", orgId).WithField("name", lo.FromPtr(result.Metadata.Name)).Error("failed to enqueue imageBuild event")
@@ -159,26 +135,14 @@ func (s *imageBuildService) validate(imageBuild *api.ImageBuild) []error {
 	if imageBuild.Spec.Source.Repository == "" {
 		errs = append(errs, errors.New("spec.source.repository is required"))
 	}
-	if imageBuild.Spec.Source.ImageName == "" {
-		errs = append(errs, errors.New("spec.source.imageName is required"))
-	}
-	if imageBuild.Spec.Source.ImageTag == "" {
-		errs = append(errs, errors.New("spec.source.imageTag is required"))
-	}
+	errs = append(errs, ValidateImageName(&imageBuild.Spec.Source.ImageName, "spec.source.imageName")...)
+	errs = append(errs, ValidateImageTag(&imageBuild.Spec.Source.ImageTag, "spec.source.imageTag")...)
 
 	if imageBuild.Spec.Destination.Repository == "" {
 		errs = append(errs, errors.New("spec.destination.repository is required"))
 	}
-	if imageBuild.Spec.Destination.ImageName == "" {
-		errs = append(errs, errors.New("spec.destination.imageName is required"))
-	}
-	if imageBuild.Spec.Destination.Tag == "" {
-		errs = append(errs, errors.New("spec.destination.tag is required"))
-	}
-
-	// Binding validation is now enforced by the schema:
-	// - EarlyBinding requires cert (enforced by schema)
-	// - LateBinding has no additional required fields
+	errs = append(errs, ValidateImageName(&imageBuild.Spec.Destination.ImageName, "spec.destination.imageName")...)
+	errs = append(errs, ValidateImageTag(&imageBuild.Spec.Destination.Tag, "spec.destination.tag")...)
 
 	return errs
 }

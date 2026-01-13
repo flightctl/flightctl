@@ -41,7 +41,5 @@ data:
     imageBuilderWorker:
         logLevel: {{ default "info" .Values.imageBuilderWorker.logLevel }}
         maxConcurrentBuilds: {{ default 2 .Values.imageBuilderWorker.maxConcurrentBuilds }}
-        buildTimeout: {{ default "30m" .Values.imageBuilderWorker.buildTimeout }}
-        logRetention: {{ default "168h" .Values.imageBuilderWorker.logRetention }}
         defaultTTL: {{ default "168h" .Values.imageBuilderWorker.defaultTTL }}
 {{- end }}

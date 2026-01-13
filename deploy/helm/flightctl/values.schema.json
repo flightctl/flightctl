@@ -518,8 +518,6 @@
         },
         "logLevel": { "type": "string", "description": "Log level for ImageBuilder Worker" },
         "maxConcurrentBuilds": { "type": "integer", "description": "Maximum concurrent builds" },
-        "buildTimeout": { "type": "string", "description": "Build timeout duration" },
-        "logRetention": { "type": "string", "description": "Log retention duration" },
         "defaultTTL": { "type": "string", "description": "Default TTL for build resources" },
         "privileged": { "type": "boolean", "description": "Enable privileged mode for container-in-container builds" },
         "resources": { "type": "object", "description": "Resource requests and limits" }
