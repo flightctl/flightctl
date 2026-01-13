@@ -60,8 +60,15 @@ func (t RepositorySpec) GetOciRepoSpec() (OciRepoSpec, error) {
 	return body, err
 }
 
-// loose decoder is fine here as all repo specs have `repo` field
+// GetRepoURL returns the repository URL. For OCI repositories, it returns the registry hostname.
 func (t RepositorySpec) GetRepoURL() (string, error) {
+	// Check if it's an OCI repository - if so, return the registry hostname
+	ociSpec, err := t.GetOciRepoSpec()
+	if err == nil {
+		return ociSpec.Registry, nil
+	}
+
+	// For other repository types, get the URL from GenericRepoSpec
 	genericRepo, err := t.AsGenericRepoSpec()
 	if err != nil {
 		return "", err

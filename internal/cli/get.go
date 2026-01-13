@@ -458,7 +458,9 @@ func (o *GetOptions) createImageBuilderFetchers(ctx context.Context, kind Resour
 			return response, nil
 		}
 		singleFetcher = func(name string) (interface{}, error) {
-			response, err := c.GetImageBuildWithResponse(ctx, name)
+			response, err := c.GetImageBuildWithResponse(ctx, name, &imagebuilderapi.GetImageBuildParams{
+				WithExports: lo.ToPtr(false),
+			})
 			if err != nil {
 				return nil, err
 			}

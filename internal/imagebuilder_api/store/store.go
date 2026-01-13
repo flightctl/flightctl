@@ -35,7 +35,6 @@ func getDB(ctx context.Context, db *gorm.DB) *gorm.DB {
 type Store interface {
 	ImageBuild() ImageBuildStore
 	ImageExport() ImageExportStore
-	ImagePipeline() ImagePipelineStore
 	RunMigrations(ctx context.Context) error
 	Ping() error
 	Close() error
@@ -43,21 +42,19 @@ type Store interface {
 
 // storeImpl is the concrete implementation of the imagebuilder Store interface
 type storeImpl struct {
-	imageBuild    ImageBuildStore
-	imageExport   ImageExportStore
-	imagePipeline ImagePipelineStore
-	db            *gorm.DB
-	log           logrus.FieldLogger
+	imageBuild  ImageBuildStore
+	imageExport ImageExportStore
+	db          *gorm.DB
+	log         logrus.FieldLogger
 }
 
 // NewStore creates a new imagebuilder store
 func NewStore(db *gorm.DB, log logrus.FieldLogger) Store {
 	return &storeImpl{
-		imageBuild:    NewImageBuildStore(db, log),
-		imageExport:   NewImageExportStore(db, log),
-		imagePipeline: NewImagePipelineStore(db, log),
-		db:            db,
-		log:           log,
+		imageBuild:  NewImageBuildStore(db, log),
+		imageExport: NewImageExportStore(db, log),
+		db:          db,
+		log:         log,
 	}
 }
 
@@ -69,11 +66,6 @@ func (s *storeImpl) ImageBuild() ImageBuildStore {
 // ImageExport returns the ImageExport store
 func (s *storeImpl) ImageExport() ImageExportStore {
 	return s.imageExport
-}
-
-// ImagePipeline returns the ImagePipeline store
-func (s *storeImpl) ImagePipeline() ImagePipelineStore {
-	return s.imagePipeline
 }
 
 // RunMigrations runs the imagebuilder-specific migrations

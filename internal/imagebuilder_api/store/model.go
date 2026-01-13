@@ -2,12 +2,15 @@ package store
 
 import (
 	"encoding/json"
+	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	api "github.com/flightctl/flightctl/api/imagebuilder/v1beta1"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store/model"
+	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/samber/lo"
 )
@@ -68,9 +71,26 @@ func ImageBuildAPIVersion() string {
 	return api.ImageBuildAPIVersion
 }
 
-func (i *ImageBuild) ToApiResource() (*api.ImageBuild, error) {
+type ImageBuildAPIResourceOption func(*imageBuildAPIResourceOptions)
+
+type imageBuildAPIResourceOptions struct {
+	imageExports []api.ImageExport
+}
+
+func WithImageExports(imageExports []api.ImageExport) ImageBuildAPIResourceOption {
+	return func(o *imageBuildAPIResourceOptions) {
+		o.imageExports = imageExports
+	}
+}
+
+func (i *ImageBuild) ToApiResource(opts ...ImageBuildAPIResourceOption) (*api.ImageBuild, error) {
 	if i == nil {
 		return &api.ImageBuild{}, nil
+	}
+
+	options := imageBuildAPIResourceOptions{}
+	for _, opt := range opts {
+		opt(&options)
 	}
 
 	spec := api.ImageBuildSpec{}
@@ -83,9 +103,9 @@ func (i *ImageBuild) ToApiResource() (*api.ImageBuild, error) {
 		status = i.Status.Data
 	}
 
-	return &api.ImageBuild{
+	result := &api.ImageBuild{
 		ApiVersion: ImageBuildAPIVersion(),
-		Kind:       api.ImageBuildKind,
+		Kind:       string(api.ResourceKindImageBuild),
 		Metadata: v1beta1.ObjectMeta{
 			Name:              lo.ToPtr(i.Name),
 			CreationTimestamp: lo.ToPtr(i.CreatedAt.UTC()),
@@ -97,13 +117,30 @@ func (i *ImageBuild) ToApiResource() (*api.ImageBuild, error) {
 		},
 		Spec:   spec,
 		Status: &status,
-	}, nil
+	}
+
+	// Add imageexports field if provided
+	if len(options.imageExports) > 0 {
+		result.Imageexports = &options.imageExports
+	}
+
+	return result, nil
 }
 
 func ImageBuildsToApiResource(imageBuilds []ImageBuild, cont *string, numRemaining *int64) (api.ImageBuildList, error) {
+	return ImageBuildsToApiResourceWithOptions(imageBuilds, cont, numRemaining, nil)
+}
+
+func ImageBuildsToApiResourceWithOptions(imageBuilds []ImageBuild, cont *string, numRemaining *int64, imageExportsMap map[string][]api.ImageExport) (api.ImageBuildList, error) {
 	imageBuildList := make([]api.ImageBuild, len(imageBuilds))
 	for i, imageBuild := range imageBuilds {
-		apiResource, _ := imageBuild.ToApiResource()
+		var apiOpts []ImageBuildAPIResourceOption
+		if imageExportsMap != nil {
+			if exports, ok := imageExportsMap[imageBuild.Name]; ok && len(exports) > 0 {
+				apiOpts = append(apiOpts, WithImageExports(exports))
+			}
+		}
+		apiResource, _ := imageBuild.ToApiResource(apiOpts...)
 		imageBuildList[i] = *apiResource
 	}
 	ret := api.ImageBuildList{
@@ -120,7 +157,7 @@ func ImageBuildsToApiResource(imageBuilds []ImageBuild, cont *string, numRemaini
 }
 
 func (i *ImageBuild) GetKind() string {
-	return api.ImageBuildKind
+	return string(api.ResourceKindImageBuild)
 }
 
 func (i *ImageBuild) HasNilSpec() bool {
@@ -222,7 +259,7 @@ func (i *ImageExport) ToApiResource() (*api.ImageExport, error) {
 
 	return &api.ImageExport{
 		ApiVersion: ImageExportAPIVersion(),
-		Kind:       api.ImageExportKind,
+		Kind:       string(api.ResourceKindImageExport),
 		Metadata: v1beta1.ObjectMeta{
 			Name:              lo.ToPtr(i.Name),
 			CreationTimestamp: lo.ToPtr(i.CreatedAt.UTC()),
@@ -257,7 +294,7 @@ func ImageExportsToApiResource(imageExports []ImageExport, cont *string, numRema
 }
 
 func (i *ImageExport) GetKind() string {
-	return api.ImageExportKind
+	return string(api.ResourceKindImageExport)
 }
 
 func (i *ImageExport) HasNilSpec() bool {
@@ -289,4 +326,56 @@ func (i *ImageExport) GetStatusAsJson() ([]byte, error) {
 		return []byte("{}"), nil
 	}
 	return i.Status.MarshalJSON()
+}
+
+// Field selector support for ImageExport
+var imageExportSpecSelectors = map[selector.SelectorName]selector.SelectorType{
+	selector.NewSelectorName("spec.source.imageBuildRef"): selector.String,
+}
+
+// ResolveSelector resolves a field selector name to a SelectorField for ImageExport
+func (i *ImageExport) ResolveSelector(name selector.SelectorName) (*selector.SelectorField, error) {
+	if typ, exists := imageExportSpecSelectors[name]; exists {
+		return makeImageExportJSONBSelectorField(name, typ)
+	}
+	return nil, fmt.Errorf("unable to resolve selector for image export")
+}
+
+// ListSelectors returns all available field selectors for ImageExport
+func (i *ImageExport) ListSelectors() selector.SelectorNameSet {
+	keys := make([]selector.SelectorName, 0, len(imageExportSpecSelectors))
+	for sn := range imageExportSpecSelectors {
+		keys = append(keys, sn)
+	}
+	return selector.NewSelectorFieldNameSet().Add(keys...)
+}
+
+// makeImageExportJSONBSelectorField creates a SelectorField for JSONB fields in ImageExport
+func makeImageExportJSONBSelectorField(selectorName selector.SelectorName, selectorType selector.SelectorType) (*selector.SelectorField, error) {
+	selectorStr := selectorName.String()
+	if len(selectorStr) == 0 {
+		return nil, fmt.Errorf("jsonb selector name cannot be empty")
+	}
+
+	var params strings.Builder
+	parts := strings.Split(selectorStr, ".")
+	params.WriteString(parts[0])
+
+	lastIndex := len(parts[1:]) - 1
+	for i, part := range parts[1:] {
+		if i == lastIndex && selectorType != selector.Jsonb {
+			params.WriteString(" ->> '")
+		} else {
+			params.WriteString(" -> '")
+		}
+		params.WriteString(part)
+		params.WriteString("'")
+	}
+
+	return &selector.SelectorField{
+		Name:      selectorName,
+		Type:      selectorType,
+		FieldName: params.String(),
+		FieldType: "jsonb",
+	}, nil
 }

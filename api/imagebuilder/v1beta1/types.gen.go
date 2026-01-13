@@ -88,6 +88,12 @@ const (
 	Late LateBindingType = "late"
 )
 
+// Defines values for ResourceKind.
+const (
+	ResourceKindImageBuild  ResourceKind = "ImageBuild"
+	ResourceKindImageExport ResourceKind = "ImageExport"
+)
+
 // BindingType The type of binding for the image build.
 type BindingType string
 
@@ -107,6 +113,9 @@ type ExportFormatType string
 type ImageBuild struct {
 	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
 	ApiVersion string `json:"apiVersion"`
+
+	// Imageexports Array of ImageExport resources that reference this ImageBuild. Only populated when withExports query parameter is true.
+	Imageexports *[]ImageExport `json:"imageexports,omitempty"`
 
 	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.
 	Kind string `json:"kind"`
@@ -344,24 +353,6 @@ type ImageExportStatus struct {
 	ManifestDigest *string `json:"manifestDigest,omitempty"`
 }
 
-// ImagePipelineRequest Request to create an ImagePipeline consisting of an ImageBuild and optionally an ImageExport atomically. If imageExport is provided, the server will override its source to reference the created ImageBuild.
-type ImagePipelineRequest struct {
-	// ImageBuild ImageBuild represents a build request for a container image.
-	ImageBuild ImageBuild `json:"imageBuild"`
-
-	// ImageExport ImageExport represents an export request to convert and push images to different formats.
-	ImageExport *ImageExport `json:"imageExport,omitempty"`
-}
-
-// ImagePipelineResponse Response containing the created ImagePipeline resources (ImageBuild and optionally ImageExport).
-type ImagePipelineResponse struct {
-	// ImageBuild ImageBuild represents a build request for a container image.
-	ImageBuild ImageBuild `json:"imageBuild"`
-
-	// ImageExport ImageExport represents an export request to convert and push images to different formats.
-	ImageExport *ImageExport `json:"imageExport,omitempty"`
-}
-
 // ImageReferenceSource ImageReferenceSource specifies a source image from a repository.
 type ImageReferenceSource struct {
 	// ImageName The name of the source image.
@@ -389,6 +380,9 @@ type LateBinding struct {
 // LateBindingType The type of binding.
 type LateBindingType string
 
+// ResourceKind Resource types exposed via the ImageBuilder API.
+type ResourceKind string
+
 // ListImageBuildsParams defines parameters for ListImageBuilds.
 type ListImageBuildsParams struct {
 	// LabelSelector A selector to restrict the list of returned objects by their labels.
@@ -402,6 +396,15 @@ type ListImageBuildsParams struct {
 
 	// Continue An optional parameter to query more results from the server.
 	Continue *string `form:"continue,omitempty" json:"continue,omitempty"`
+
+	// WithExports If true, includes related ImageExport resources in each ImageBuild in the response.
+	WithExports *bool `form:"withExports,omitempty" json:"withExports,omitempty"`
+}
+
+// GetImageBuildParams defines parameters for GetImageBuild.
+type GetImageBuildParams struct {
+	// WithExports If true, includes related ImageExport resources in the response.
+	WithExports *bool `form:"withExports,omitempty" json:"withExports,omitempty"`
 }
 
 // ListImageExportsParams defines parameters for ListImageExports.
@@ -424,9 +427,6 @@ type CreateImageBuildJSONRequestBody = ImageBuild
 
 // CreateImageExportJSONRequestBody defines body for CreateImageExport for application/json ContentType.
 type CreateImageExportJSONRequestBody = ImageExport
-
-// CreateImagePipelineJSONRequestBody defines body for CreateImagePipeline for application/json ContentType.
-type CreateImagePipelineJSONRequestBody = ImagePipelineRequest
 
 // AsEarlyBinding returns the union data inside the ImageBuildBinding as a EarlyBinding
 func (t ImageBuildBinding) AsEarlyBinding() (EarlyBinding, error) {

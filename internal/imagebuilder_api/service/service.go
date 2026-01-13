@@ -15,14 +15,12 @@ import (
 type Service interface {
 	ImageBuild() ImageBuildService
 	ImageExport() ImageExportService
-	ImagePipeline() ImagePipelineService
 }
 
 // service is the concrete implementation of Service
 type service struct {
-	imageBuild    ImageBuildService
-	imageExport   ImageExportService
-	imagePipeline ImagePipelineService
+	imageBuild  ImageBuildService
+	imageExport ImageExportService
 }
 
 // NewService creates a new aggregate Service with all sub-services
@@ -38,9 +36,8 @@ func NewService(ctx context.Context, s imagebuilderstore.Store, mainStore mainst
 	imageBuildSvc := NewImageBuildService(s.ImageBuild(), eventHandler, queueProducer, log)
 	imageExportSvc := NewImageExportService(s.ImageExport(), s.ImageBuild(), log)
 	return &service{
-		imageBuild:    imageBuildSvc,
-		imageExport:   imageExportSvc,
-		imagePipeline: NewImagePipelineService(s.ImagePipeline(), imageBuildSvc, imageExportSvc, log),
+		imageBuild:  imageBuildSvc,
+		imageExport: imageExportSvc,
 	}
 }
 
@@ -52,9 +49,4 @@ func (s *service) ImageBuild() ImageBuildService {
 // ImageExport returns the ImageExportService
 func (s *service) ImageExport() ImageExportService {
 	return s.imageExport
-}
-
-// ImagePipeline returns the ImagePipelineService
-func (s *service) ImagePipeline() ImagePipelineService {
-	return s.imagePipeline
 }
