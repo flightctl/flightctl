@@ -29,6 +29,4 @@ service:
 imageBuilderWorker:
   logLevel: {{if .imagebuilderWorker.logLevel}}{{.imagebuilderWorker.logLevel}}{{else}}info{{end}}
   maxConcurrentBuilds: {{if .imagebuilderWorker.maxConcurrentBuilds}}{{.imagebuilderWorker.maxConcurrentBuilds}}{{else}}2{{end}}
-  buildTimeout: {{if .imagebuilderWorker.buildTimeout}}{{.imagebuilderWorker.buildTimeout}}{{else}}30m{{end}}
-  logRetention: {{if .imagebuilderWorker.logRetention}}{{.imagebuilderWorker.logRetention}}{{else}}168h{{end}}
   defaultTTL: {{if .imagebuilderWorker.defaultTTL}}{{.imagebuilderWorker.defaultTTL}}{{else}}168h{{end}}

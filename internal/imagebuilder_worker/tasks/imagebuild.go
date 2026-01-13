@@ -18,6 +18,7 @@ import (
 	api "github.com/flightctl/flightctl/api/imagebuilder/v1beta1"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"
+	imagebuilderservice "github.com/flightctl/flightctl/internal/imagebuilder_api/service"
 	imagebuilderstore "github.com/flightctl/flightctl/internal/imagebuilder_api/store"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
@@ -647,11 +648,33 @@ func (w *statusWriter) Write(p []byte) (n int, err error) {
 	return len(p), nil
 }
 
+// validateImageRefComponents validates the components of an image reference
+// This is a defense-in-depth check - user input is already validated at the service layer
+func validateImageRefComponents(imageName, imageTag string) error {
+	if errs := imagebuilderservice.ValidateImageName(&imageName, "imageName"); len(errs) > 0 {
+		return fmt.Errorf("invalid image name in image reference: %v", errs)
+	}
+	if errs := imagebuilderservice.ValidateImageTag(&imageTag, "imageTag"); len(errs) > 0 {
+		return fmt.Errorf("invalid image tag in image reference: %v", errs)
+	}
+	return nil
+}
+
 // runInWorker runs a podman command inside the worker container
 // It streams output to the status updater to track progress
-func (w *podmanWorker) runInWorker(ctx context.Context, log logrus.FieldLogger, phaseName string, args ...string) error {
+// envVars is a map of environment variable names to values (e.g., {"REGISTRY_AUTH_FILE": "/build/auth.json"})
+func (w *podmanWorker) runInWorker(ctx context.Context, log logrus.FieldLogger, phaseName string, envVars map[string]string, args ...string) error {
 	// We use "podman exec" to run inside the running container
-	execArgs := append([]string{"exec", w.ContainerName, "podman"}, args...)
+	execArgs := []string{"exec"}
+
+	// Add environment variables using -e flag
+	// Iterating over a nil map is safe in Go (no-op)
+	for key, value := range envVars {
+		execArgs = append(execArgs, "-e", fmt.Sprintf("%s=%s", key, value))
+	}
+
+	execArgs = append(execArgs, w.ContainerName, "podman")
+	execArgs = append(execArgs, args...)
 	cmd := exec.CommandContext(ctx, "podman", execArgs...)
 
 	// Create a shared buffer for the final output
@@ -807,6 +830,65 @@ ignore_chown_errors = "true"
 	}, nil
 }
 
+// loginToRegistry logs into a registry using podman login with stdin
+// This is used for push operations where authfile doesn't work reliably
+func (c *Consumer) loginToRegistry(
+	ctx context.Context,
+	podmanWorker *podmanWorker,
+	registryHostname string,
+	username string,
+	password string,
+	log logrus.FieldLogger,
+) error {
+	if username == "" || password == "" {
+		return nil
+	}
+
+	// Validate username to prevent command injection
+	// Username should not contain shell metacharacters that could be used for injection
+	// Allow alphanumeric, dots, hyphens, underscores, @, and $ (for email-style and system usernames)
+	// Block dangerous patterns like command substitution, pipes, and other shell operators
+	if strings.ContainsAny(username, ";|&`(){}[]<>\"'\\\n\r\t") {
+		return fmt.Errorf("invalid username: contains unsafe characters")
+	}
+	if len(username) > 256 {
+		return fmt.Errorf("invalid username: exceeds maximum length of 256 characters")
+	}
+
+	// Validate registryHostname to prevent command injection
+	// Registry hostname should not contain shell metacharacters that could be used for injection
+	if strings.ContainsAny(registryHostname, ";|&`(){}[]<>\"'\\\n\r\t") {
+		return fmt.Errorf("invalid registry hostname: contains unsafe characters")
+	}
+	if len(registryHostname) > 256 {
+		return fmt.Errorf("invalid registry hostname: exceeds maximum length of 256 characters")
+	}
+
+	log.WithField("registry", registryHostname).Debug("Logging into registry with podman login")
+
+	// Run podman login inside the container with stdin
+	// Format: podman exec -i <container> podman login -u <username> -p <password> <registry>
+	// username and registryHostname are validated above to prevent command injection
+	//nolint:gosec // G204: Inputs are validated above to prevent command injection. exec.CommandContext uses separate arguments (not shell), making this safe.
+	loginCmd := exec.CommandContext(ctx, "podman", "exec", "-i", podmanWorker.ContainerName, "podman", "login", "-u", username, "--password-stdin", registryHostname)
+
+	// Write password to stdin
+	loginCmd.Stdin = strings.NewReader(password)
+
+	var outputBuffer bytes.Buffer
+	loginCmd.Stdout = &outputBuffer
+	loginCmd.Stderr = &outputBuffer
+
+	if err := loginCmd.Run(); err != nil {
+		output := outputBuffer.String()
+		log.WithError(err).Warnf("Failed to login to registry: %s", output)
+		return fmt.Errorf("failed to login to registry %q: %w. Output: %s", registryHostname, err, output)
+	}
+
+	log.Debugf("Successfully logged into registry %q", registryHostname)
+	return nil
+}
+
 // buildImageWithPodman builds the image using podman in a container-in-container setup.
 // It creates a manifest list, builds for AMD64 platform, and handles authentication.
 func (c *Consumer) buildImageWithPodman(
@@ -834,6 +916,11 @@ func (c *Consumer) buildImageWithPodman(
 	destRegistryHostname, err := extractHostnameFromURL(destRegistryURL)
 	if err != nil {
 		return fmt.Errorf("failed to extract hostname from destination registry URL %q: %w", destRegistryURL, err)
+	}
+
+	// Validate image reference components (defense-in-depth)
+	if err := validateImageRefComponents(spec.Destination.ImageName, spec.Destination.Tag); err != nil {
+		return fmt.Errorf("invalid image reference components: %w", err)
 	}
 
 	// Build the full image reference
@@ -867,20 +954,30 @@ func (c *Consumer) buildImageWithPodman(
 		return fmt.Errorf("failed to parse OCI repository spec: %w", err)
 	}
 
-	// Build credentials string for podman (username:password format)
-	// These credentials are used to pull the base image during build
-	var credsFlag []string
+	// Container paths
+	containerBuildDir := "/build"
+
+	// Get source registry hostname for login
+	sourceRegistryURL, err := c.getRepositoryURL(ctx, orgID, spec.Source.Repository)
+	if err != nil {
+		return fmt.Errorf("failed to get source repository URL: %w", err)
+	}
+	sourceRegistryHostname, err := extractHostnameFromURL(sourceRegistryURL)
+	if err != nil {
+		return fmt.Errorf("failed to extract hostname from source registry URL %q: %w", sourceRegistryURL, err)
+	}
+
+	// Login to source registry using podman login with stdin
+	// This is used to pull the base image during build
 	if ociSpec.OciAuth != nil {
 		dockerAuth, err := ociSpec.OciAuth.AsDockerAuth()
 		if err == nil && dockerAuth.Username != "" && dockerAuth.Password != "" {
-			creds := fmt.Sprintf("%s:%s", dockerAuth.Username, dockerAuth.Password)
-			credsFlag = []string{"--creds", creds}
-			log.Debug("Using source repository credentials for pulling base image")
+			if err := c.loginToRegistry(ctx, podmanWorker, sourceRegistryHostname, dockerAuth.Username, dockerAuth.Password, log); err != nil {
+				return fmt.Errorf("failed to login to source registry: %w", err)
+			}
 		}
 	}
 
-	// Container paths
-	containerBuildDir := "/build"
 	containerContainerfilePath := filepath.Join(containerBuildDir, "Containerfile")
 
 	// ---------------------------------------------------------
@@ -889,7 +986,7 @@ func (c *Consumer) buildImageWithPodman(
 	log.Info("Phase: Build Started")
 
 	// A. Create Manifest (ignore error if it already exists)
-	if err := podmanWorker.runInWorker(ctx, log, "manifest create", "manifest", "create", imageRef); err != nil {
+	if err := podmanWorker.runInWorker(ctx, log, "manifest create", nil, "manifest", "create", imageRef); err != nil {
 		// Manifest might already exist, which is okay
 		if !strings.Contains(err.Error(), "already exists") {
 			return err
@@ -898,16 +995,16 @@ func (c *Consumer) buildImageWithPodman(
 	}
 
 	// B. Build
+	// Authentication is handled via podman login above
 	buildArgs := []string{
 		"build",
 		"--platform", platform,
 		"--manifest", imageRef,
 		"-f", containerContainerfilePath,
+		containerBuildDir,
 	}
-	buildArgs = append(buildArgs, credsFlag...)
-	buildArgs = append(buildArgs, containerBuildDir)
 
-	if err := podmanWorker.runInWorker(ctx, log, "build", buildArgs...); err != nil {
+	if err := podmanWorker.runInWorker(ctx, log, "build", nil, buildArgs...); err != nil {
 		return err
 	}
 
@@ -938,10 +1035,15 @@ func (c *Consumer) pushImageWithPodman(
 		return "", fmt.Errorf("failed to get destination repository URL: %w", err)
 	}
 
-	// Extract hostname from registry URL for image reference and login
+	// Extract hostname from registry URL for image reference
 	destRegistryHostname, err := extractHostnameFromURL(destRegistryURL)
 	if err != nil {
 		return "", fmt.Errorf("failed to extract hostname from destination registry URL %q: %w", destRegistryURL, err)
+	}
+
+	// Validate image reference components (defense-in-depth)
+	if err := validateImageRefComponents(spec.Destination.ImageName, spec.Destination.Tag); err != nil {
+		return "", fmt.Errorf("invalid image reference components: %w", err)
 	}
 
 	imageRef := fmt.Sprintf("%s/%s:%s", destRegistryHostname, spec.Destination.ImageName, spec.Destination.Tag)
@@ -957,30 +1059,27 @@ func (c *Consumer) pushImageWithPodman(
 		return "", fmt.Errorf("failed to parse OCI repository spec: %w", err)
 	}
 
+	// Login to registry using podman login with stdin
+	// This is more reliable than authfile for push operations
+	if ociSpec.OciAuth != nil {
+		dockerAuth, err := ociSpec.OciAuth.AsDockerAuth()
+		if err == nil && dockerAuth.Username != "" && dockerAuth.Password != "" {
+			if err := c.loginToRegistry(ctx, podmanWorker, destRegistryHostname, dockerAuth.Username, dockerAuth.Password, log); err != nil {
+				return "", fmt.Errorf("failed to login to destination registry: %w", err)
+			}
+		}
+	}
+
 	// ---------------------------------------------------------
 	// PHASE: PUSH (Explicit State Transition)
 	// ---------------------------------------------------------
 	log.Info("Phase: Push Started")
 
-	// A. Login (if needed inside the container)
-	if ociSpec.OciAuth != nil {
-		dockerAuth, err := ociSpec.OciAuth.AsDockerAuth()
-		if err == nil && dockerAuth.Username != "" && dockerAuth.Password != "" {
-			loginArgs := []string{
-				"login",
-				"-u", dockerAuth.Username,
-				"-p", dockerAuth.Password,
-				destRegistryHostname,
-			}
-			if err := podmanWorker.runInWorker(ctx, log, "login", loginArgs...); err != nil {
-				return "", fmt.Errorf("failed to login to registry: %w", err)
-			}
-		}
-	}
-
-	// B. Push
+	// Push
 	// Note: We push the MANIFEST (imageRef), which pushes all layers
-	if err := podmanWorker.runInWorker(ctx, log, "push", "push", imageRef); err != nil {
+	// Authentication is handled via podman login above
+	pushArgs := []string{"push", imageRef}
+	if err := podmanWorker.runInWorker(ctx, log, "push", nil, pushArgs...); err != nil {
 		return "", err
 	}
 

@@ -10,7 +10,7 @@ RUN systemctl enable flightctl-agent.service
 
 # Install VM and cloud tools (needed for both early and late binding)
 # afterburn provides cloud metadata support, open-vm-tools for VMware guest tools
-RUN dnf install -y afterburn open-vm-tools && dnf clean all
+RUN dnf install -y open-vm-tools && dnf clean all
 
 RUN systemctl enable vmtoolsd.service
 
@@ -24,5 +24,5 @@ RUN chmod 600 {{.AgentConfigDestPath}}
 {{else}}
 # Late binding: install boot provisioning dependencies
 # Ignition is used for QCOW2/ISO formats
-RUN dnf install -y ignition cloud-init && dnf clean all
+RUN dnf install -y ignition afterburn cloud-init && dnf clean all
 {{end}}

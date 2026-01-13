@@ -109,12 +109,6 @@ func (s *DummyImageBuildStore) InitialMigration(ctx context.Context) error {
 	return nil
 }
 
-// Transaction executes fn within a simulated transaction for unit tests
-// For the dummy store, this just executes the callback immediately
-func (s *DummyImageBuildStore) Transaction(ctx context.Context, fn func(ctx context.Context) error) error {
-	return fn(ctx)
-}
-
 // DummyImageExportStore is a mock implementation of store.ImageExportStore
 type DummyImageExportStore struct {
 	imageExports *[]api.ImageExport
