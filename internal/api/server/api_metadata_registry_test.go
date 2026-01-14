@@ -33,8 +33,26 @@ func TestGetEndpointMetadata(t *testing.T) {
 			method:         "GET",
 			expectedFound:  true,
 			expectedOpID:   "getDevice",
-			expectedRes:    "",
-			expectedAction: "",
+			expectedRes:    "devices",
+			expectedAction: "get",
+		},
+		{
+			name:           "List devices endpoint",
+			path:           "/api/v1/devices",
+			method:         "GET",
+			expectedFound:  true,
+			expectedOpID:   "listDevices",
+			expectedRes:    "devices",
+			expectedAction: "list",
+		},
+		{
+			name:           "Fleet status endpoint",
+			path:           "/api/v1/fleets/{name}/status",
+			method:         "GET",
+			expectedFound:  true,
+			expectedOpID:   "getFleetStatus",
+			expectedRes:    "fleets/status",
+			expectedAction: "get",
 		},
 		{
 			name:          "Non-existent endpoint",
@@ -134,5 +152,85 @@ func TestAPIMetadataRegistryContainsResumeDevices(t *testing.T) {
 	}
 	if metadata.Action != "update" {
 		t.Errorf("ResumeDevices action = %v, want update", metadata.Action)
+	}
+
+	// Verify version information
+	if len(metadata.Versions) == 0 {
+		t.Error("ResumeDevices should have at least one version")
+		return
+	}
+	if metadata.Versions[0].Version != "v1beta1" {
+		t.Errorf("ResumeDevices version = %v, want v1beta1", metadata.Versions[0].Version)
+	}
+	if metadata.Versions[0].DeprecatedAt != nil {
+		t.Errorf("ResumeDevices should not be deprecated, got %v", metadata.Versions[0].DeprecatedAt)
+	}
+}
+
+func TestAPIMetadataVersionOrdering(t *testing.T) {
+	// Test that versions are ordered correctly (stable > beta > alpha)
+	// For now we only have v1beta1, but this test ensures the structure is correct
+	metadata, found := APIMetadataMap["GET:/api/v1/devices"]
+
+	if !found {
+		t.Error("listDevices endpoint not found in APIMetadataMap")
+		return
+	}
+
+	if len(metadata.Versions) == 0 {
+		t.Error("listDevices should have at least one version")
+		return
+	}
+
+	// All endpoints should have v1beta1 version
+	hasV1beta1 := false
+	for _, v := range metadata.Versions {
+		if v.Version == "v1beta1" {
+			hasV1beta1 = true
+			break
+		}
+	}
+	if !hasV1beta1 {
+		t.Error("listDevices should have v1beta1 version")
+	}
+}
+
+func TestEndpointResourceInference(t *testing.T) {
+	// Test that resources are correctly extracted from x-resource
+	tests := []struct {
+		key              string
+		expectedResource string
+		expectedAction   string
+	}{
+		{"GET:/api/v1/devices", "devices", "list"},
+		{"GET:/api/v1/devices/{name}", "devices", "get"},
+		{"POST:/api/v1/devices", "devices", "create"},
+		{"PUT:/api/v1/devices/{name}", "devices", "update"},
+		{"DELETE:/api/v1/devices/{name}", "devices", "delete"},
+		{"GET:/api/v1/fleets", "fleets", "list"},
+		{"GET:/api/v1/fleets/{name}/status", "fleets/status", "get"},
+		{"GET:/api/v1/repositories", "repositories", "list"},
+		{"GET:/api/v1/resourcesyncs", "resourcesyncs", "list"},
+		{"GET:/api/v1/enrollmentrequests", "enrollmentrequests", "list"},
+		{"GET:/api/v1/certificatesigningrequests", "certificatesigningrequests", "list"},
+		{"GET:/api/v1/authproviders", "authproviders", "list"},
+		{"GET:/api/v1/events", "events", "list"},
+		{"GET:/api/v1/organizations", "organizations", "list"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.key, func(t *testing.T) {
+			metadata, found := APIMetadataMap[tt.key]
+			if !found {
+				t.Errorf("Endpoint %s not found in APIMetadataMap", tt.key)
+				return
+			}
+			if metadata.Resource != tt.expectedResource {
+				t.Errorf("Endpoint %s resource = %v, want %v", tt.key, metadata.Resource, tt.expectedResource)
+			}
+			if metadata.Action != tt.expectedAction {
+				t.Errorf("Endpoint %s action = %v, want %v", tt.key, metadata.Action, tt.expectedAction)
+			}
+		})
 	}
 }

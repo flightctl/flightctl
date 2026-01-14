@@ -256,6 +256,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Status'
   /api/v1/resourcesyncs:
+    x-resource: resourcesyncs
     get:
       tags:
         - resourcesync
@@ -377,6 +378,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Status'
   /api/v1/resourcesyncs/{name}:
+    x-resource: resourcesyncs
     get:
       tags:
         - resourcesync
@@ -616,6 +618,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Status'
   /api/v1/repositories:
+    x-resource: repositories
     get:
       tags:
         - repository
@@ -737,6 +740,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Status'
   /api/v1/repositories/{name}:
+    x-resource: repositories
     get:
       tags:
         - repository
@@ -976,6 +980,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Status'
   /api/v1/devices:
+    x-resource: devices
     get:
       tags:
         - device
@@ -1103,6 +1108,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Status'
   /api/v1/devices/{name}:
+    x-resource: devices
     get:
       tags:
         - device
@@ -1342,6 +1348,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Status'
   /api/v1/devices/{name}/status:
+    x-resource: devices/status
     get:
       tags:
         - device
@@ -1520,6 +1527,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Status'
   /api/v1/devices/{name}/decommission:
+    x-resource: devices/decommission
     put:
       tags:
         - device
@@ -1582,6 +1590,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Status'
   /api/v1/devices/{name}/rendered:
+    x-resource: devices/rendered
     get:
       tags:
         - device
@@ -1647,6 +1656,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Status'
   /api/v1/devices/{name}/lastseen:
+    x-resource: devices/lastseen
     get:
       tags:
         - device
@@ -1700,6 +1710,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Status'
   /api/v1/deviceactions/resume:
+    x-resource: devices/resume
     post:
       tags:
         - deviceactions
@@ -1809,6 +1820,7 @@ paths:
                 $ref: '#/components/schemas/Status'
 
   /api/v1/enrollmentrequests:
+    x-resource: enrollmentrequests
     get:
       tags:
         - enrollmentrequest
@@ -1930,6 +1942,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Status'
   /api/v1/enrollmentrequests/{name}:
+    x-resource: enrollmentrequests
     get:
       tags:
         - enrollmentrequest
@@ -2175,6 +2188,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Status'
   /api/v1/enrollmentrequests/{name}/status:
+    x-resource: enrollmentrequests/status
     get:
       tags:
         - enrollmentrequest
@@ -2347,6 +2361,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Status'
   /api/v1/enrollmentrequests/{name}/approval:
+    x-resource: enrollmentrequests/approval
     put:
       tags:
         - enrollmentrequest
@@ -2409,6 +2424,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Status'
   /api/v1/certificatesigningrequests:
+    x-resource: certificatesigningrequests
     get:
       tags:
         - certificatesigningrequest
@@ -2530,6 +2546,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Status'
   /api/v1/certificatesigningrequests/{name}:
+    x-resource: certificatesigningrequests
     patch:
       tags:
         - certificatesigningrequest
@@ -2770,6 +2787,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Status'
   /api/v1/certificatesigningrequests/{name}/approval:
+    x-resource: certificatesigningrequests/approval
     put:
       tags:
         - certificatesigningrequest
@@ -2838,6 +2856,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Status'
   /api/v1/fleets:
+    x-resource: fleets
     get:
       tags:
         - fleet
@@ -2965,6 +2984,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Status'
   /api/v1/fleets/{name}:
+    x-resource: fleets
     get:
       tags:
         - fleet
@@ -3210,6 +3230,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Status'
   /api/v1/fleets/{name}/status:
+    x-resource: fleets/status
     get:
       tags:
         - fleet
@@ -3376,6 +3397,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Status'
   /api/v1/fleets/{fleet}/templateversions:
+    x-resource: fleets/templateversions
     get:
       tags:
         - fleet
@@ -3449,6 +3471,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Status'
   /api/v1/fleets/{fleet}/templateversions/{name}:
+    x-resource: fleets/templateversions
     get:
       tags:
         - fleet
@@ -3560,6 +3583,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Status'
   /api/v1/labels:
+    x-resource: labels
     get:
       tags:
         - label
@@ -3637,6 +3661,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Status'
   /api/v1/events:
+    x-resource: events
     get:
       tags:
         - event
@@ -3707,6 +3732,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Status'
   /api/v1/organizations:
+    x-resource: organizations
     get:
       tags:
         - organization
@@ -3757,6 +3783,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Status'
   /api/v1/authproviders:
+    x-resource: authproviders
     get:
       tags:
         - authprovider
@@ -3878,6 +3905,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Status'
   /api/v1/authproviders/{name}:
+    x-resource: authproviders
     get:
       tags:
         - authprovider
