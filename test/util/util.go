@@ -5,10 +5,12 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -443,4 +445,29 @@ func RunTable[T any](cases []TestCase[T], runFunc func(T)) {
 
 func EventuallySlow(actual any) types.AsyncAssertion {
 	return Eventually(actual).WithTimeout(LONG_TIMEOUT).WithPolling(LONG_POLLING)
+}
+
+// CopyFile copies a file from src to dst, creating the destination directory if it does not exist.
+func CopyFile(src, dst string) error {
+	srcFile, err := os.Open(src)
+	if err != nil {
+		return fmt.Errorf("opening source file: %w", err)
+	}
+	defer srcFile.Close()
+
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return fmt.Errorf("creating destination directory: %w", err)
+	}
+
+	dstFile, err := os.Create(dst)
+	if err != nil {
+		return fmt.Errorf("creating destination file: %w", err)
+	}
+	defer dstFile.Close()
+
+	if _, err := io.Copy(dstFile, srcFile); err != nil {
+		return fmt.Errorf("copying file contents: %w", err)
+	}
+
+	return nil
 }
