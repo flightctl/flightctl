@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/internal/api/convert"
 	agentServer "github.com/flightctl/flightctl/internal/api/server/agent"
 	"github.com/flightctl/flightctl/internal/api_server/middleware"
 	"github.com/flightctl/flightctl/internal/consts"
@@ -19,6 +20,7 @@ import (
 
 type AgentTransportHandler struct {
 	serviceHandler service.Service
+	converter      convert.Converter
 	ca             *crypto.CAClient
 	log            logrus.FieldLogger
 }
@@ -26,8 +28,8 @@ type AgentTransportHandler struct {
 // Make sure we conform to servers Service interface
 var _ agentServer.Transport = (*AgentTransportHandler)(nil)
 
-func NewAgentTransportHandler(serviceHandler service.Service, ca *crypto.CAClient, log logrus.FieldLogger) *AgentTransportHandler {
-	return &AgentTransportHandler{serviceHandler: serviceHandler, ca: ca, log: log}
+func NewAgentTransportHandler(serviceHandler service.Service, converter convert.Converter, ca *crypto.CAClient, log logrus.FieldLogger) *AgentTransportHandler {
+	return &AgentTransportHandler{serviceHandler: serviceHandler, converter: converter, ca: ca, log: log}
 }
 
 // (GET /api/v1/devices/{name}/rendered)
@@ -59,8 +61,10 @@ func (s *AgentTransportHandler) GetRenderedDevice(w http.ResponseWriter, r *http
 		return
 	}
 
-	body, status := s.serviceHandler.GetRenderedDevice(ctx, transport.OrgIDFromContext(ctx), fingerprint, params)
-	transport.SetResponse(w, body, status)
+	domainParams := s.converter.V1beta1().Device().GetRenderedParamsToDomain(params)
+	body, status := s.serviceHandler.GetRenderedDevice(ctx, transport.OrgIDFromContext(ctx), fingerprint, domainParams)
+	apiResult := s.converter.V1beta1().Device().FromDomain(body)
+	transport.SetResponse(w, apiResult, status)
 }
 
 // (PUT /api/v1/devices/{name}/status)
@@ -98,8 +102,10 @@ func (s *AgentTransportHandler) ReplaceDeviceStatus(w http.ResponseWriter, r *ht
 		return
 	}
 
-	body, status := s.serviceHandler.ReplaceDeviceStatus(ctx, transport.OrgIDFromContext(ctx), fingerprint, device)
-	transport.SetResponse(w, body, status)
+	domainDevice := s.converter.V1beta1().Device().ToDomain(device)
+	body, status := s.serviceHandler.ReplaceDeviceStatus(ctx, transport.OrgIDFromContext(ctx), fingerprint, domainDevice)
+	apiResult := s.converter.V1beta1().Device().FromDomain(body)
+	transport.SetResponse(w, apiResult, status)
 }
 
 // (PATCH) /api/v1/devices/{name}/status)
@@ -137,8 +143,10 @@ func (s *AgentTransportHandler) PatchDeviceStatus(w http.ResponseWriter, r *http
 		return
 	}
 
-	body, status := s.serviceHandler.PatchDeviceStatus(ctx, transport.OrgIDFromContext(ctx), fingerprint, patch)
-	transport.SetResponse(w, body, status)
+	domainPatch := s.converter.V1beta1().Common().PatchRequestToDomain(patch)
+	body, status := s.serviceHandler.PatchDeviceStatus(ctx, transport.OrgIDFromContext(ctx), fingerprint, domainPatch)
+	apiResult := s.converter.V1beta1().Device().FromDomain(body)
+	transport.SetResponse(w, apiResult, status)
 }
 
 // (POST /api/v1/enrollmentrequests)
@@ -168,8 +176,10 @@ func (s *AgentTransportHandler) CreateEnrollmentRequest(w http.ResponseWriter, r
 		return
 	}
 
-	body, status := s.serviceHandler.CreateEnrollmentRequest(ctx, transport.OrgIDFromContext(ctx), er)
-	transport.SetResponse(w, body, status)
+	domainER := s.converter.V1beta1().EnrollmentRequest().ToDomain(er)
+	body, status := s.serviceHandler.CreateEnrollmentRequest(ctx, transport.OrgIDFromContext(ctx), domainER)
+	apiResult := s.converter.V1beta1().EnrollmentRequest().FromDomain(body)
+	transport.SetResponse(w, apiResult, status)
 }
 
 // (GET /api/v1/enrollmentrequests/{name})
@@ -194,7 +204,8 @@ func (s *AgentTransportHandler) GetEnrollmentRequest(w http.ResponseWriter, r *h
 	}
 
 	body, status := s.serviceHandler.GetEnrollmentRequest(ctx, transport.OrgIDFromContext(ctx), name)
-	transport.SetResponse(w, body, status)
+	apiResult := s.converter.V1beta1().EnrollmentRequest().FromDomain(body)
+	transport.SetResponse(w, apiResult, status)
 }
 
 // (POST /api/v1/certificatesigningrequests)
@@ -243,7 +254,8 @@ func (s *AgentTransportHandler) CreateCertificateSigningRequest(w http.ResponseW
 	request.Status = nil
 	service.NilOutManagedObjectMetaProperties(&request.Metadata)
 	request.Metadata.Owner = util.SetResourceOwner(api.DeviceKind, fingerprint)
-	csr, status := s.serviceHandler.CreateCertificateSigningRequest(context.WithValue(ctx, consts.InternalRequestCtxKey, true), transport.OrgIDFromContext(ctx), request)
+	domainCSR := s.converter.V1beta1().CertificateSigningRequest().ToDomain(request)
+	csr, status := s.serviceHandler.CreateCertificateSigningRequest(context.WithValue(ctx, consts.InternalRequestCtxKey, true), transport.OrgIDFromContext(ctx), domainCSR)
 	if status.Code != http.StatusCreated && status.Code != http.StatusOK {
 		transport.SetResponse(w, status, status)
 		return
@@ -261,7 +273,8 @@ func (s *AgentTransportHandler) CreateCertificateSigningRequest(w http.ResponseW
 			return
 		}
 	}
-	transport.SetResponse(w, csr, status)
+	apiResult := s.converter.V1beta1().CertificateSigningRequest().FromDomain(csr)
+	transport.SetResponse(w, apiResult, status)
 }
 
 // (GET /api/v1/certificatesigningrequests/{name})
@@ -287,7 +300,8 @@ func (s *AgentTransportHandler) GetCertificateSigningRequest(w http.ResponseWrit
 
 	csr, status := s.serviceHandler.GetCertificateSigningRequest(ctx, transport.OrgIDFromContext(ctx), name)
 	if status.Code != http.StatusOK {
-		transport.SetResponse(w, csr, status)
+		apiResult := s.converter.V1beta1().CertificateSigningRequest().FromDomain(csr)
+		transport.SetResponse(w, apiResult, status)
 		return
 	}
 
@@ -299,7 +313,8 @@ func (s *AgentTransportHandler) GetCertificateSigningRequest(w http.ResponseWrit
 		return
 	}
 
-	transport.SetResponse(w, csr, status)
+	apiResult := s.converter.V1beta1().CertificateSigningRequest().FromDomain(csr)
+	transport.SetResponse(w, apiResult, status)
 }
 
 func (s *AgentTransportHandler) autoApprove(ctx context.Context, csr *api.CertificateSigningRequest) (*api.CertificateSigningRequest, api.Status) {

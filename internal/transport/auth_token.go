@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	api "github.com/flightctl/flightctl/api/core/v1beta1"
+	apiv1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
 )
 
 // AuthToken handles OAuth2 token exchange requests
@@ -21,7 +21,7 @@ func (h *TransportHandler) AuthToken(w http.ResponseWriter, r *http.Request, pro
 	}
 
 	// Parse the token request from the body
-	var tokenReq api.TokenRequest
+	var tokenReq apiv1beta1.TokenRequest
 	contentType := r.Header.Get("Content-Type")
 
 	if strings.Contains(contentType, "application/x-www-form-urlencoded") {
@@ -33,7 +33,7 @@ func (h *TransportHandler) AuthToken(w http.ResponseWriter, r *http.Request, pro
 		}
 
 		// Convert form values to TokenRequest
-		grantType := api.TokenRequestGrantType(r.FormValue("grant_type"))
+		grantType := apiv1beta1.TokenRequestGrantType(r.FormValue("grant_type"))
 		tokenReq.GrantType = grantType
 		tokenReq.ClientId = r.FormValue("client_id")
 		if code := r.FormValue("code"); code != "" {
@@ -60,19 +60,23 @@ func (h *TransportHandler) AuthToken(w http.ResponseWriter, r *http.Request, pro
 		}
 	}
 
-	// Call auth token proxy to process the token request
-	tokenResp, httpStatus := h.authTokenProxy.ProxyTokenRequest(r.Context(), providername, &tokenReq)
+	// Convert to domain type and call auth token proxy
+	domainTokenReq := h.converter.V1beta1().Auth().TokenRequestToDomain(&tokenReq)
+	tokenResp, httpStatus := h.authTokenProxy.ProxyTokenRequest(r.Context(), providername, domainTokenReq)
+
+	// Convert response back to API type
+	apiTokenResp := h.converter.V1beta1().Auth().TokenResponseFromDomain(tokenResp)
 
 	// OAuth2 token endpoint returns 200 for success, 400 for all errors
 	// Token response includes error fields for error cases
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(httpStatus)
-	_ = json.NewEncoder(w).Encode(tokenResp)
+	_ = json.NewEncoder(w).Encode(apiTokenResp)
 }
 
 // createTokenErrorResponse creates an OAuth2 error response
-func createTokenErrorResponse(errorCode, errorDescription string) api.TokenResponse {
-	return api.TokenResponse{
+func createTokenErrorResponse(errorCode, errorDescription string) apiv1beta1.TokenResponse {
+	return apiv1beta1.TokenResponse{
 		Error:            &errorCode,
 		ErrorDescription: &errorDescription,
 	}
