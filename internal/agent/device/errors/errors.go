@@ -11,12 +11,31 @@ import (
 	"syscall"
 
 	"github.com/flightctl/flightctl/pkg/poll"
+	"google.golang.org/grpc/codes"
 	"k8s.io/apimachinery/pkg/util/wait"
 )
 
 var (
 	ErrRetryable = errors.New("retryable error")
 	ErrNoRetry   = errors.New("no retry")
+
+	// phases - used to wrap errors indicating which sync phase failed
+	ErrPhasePreparing        = errors.New("before update")
+	ErrPhaseApplyingUpdate   = errors.New("sync device")
+	ErrPhaseActivatingConfig = errors.New("after update")
+
+	// components - used to wrap errors indicating which component failed
+	ErrComponentResources      = errors.New("resources")
+	ErrComponentDownloadPolicy = errors.New("download policy")
+	ErrComponentUpdatePolicy   = errors.New("update policy")
+	ErrComponentPrefetch       = errors.New("prefetch")
+	ErrComponentApplications   = errors.New("applications")
+	ErrComponentHooks          = errors.New("hooks")
+	ErrComponentConfig         = errors.New("config")
+	ErrComponentSystemd        = errors.New("systemd")
+	ErrComponentLifecycle      = errors.New("lifecycle")
+	ErrComponentOS             = errors.New("os")
+	ErrComponentOSReconciled   = errors.New("os reconciliation")
 
 	// bootstrap
 	ErrEnrollmentRequestFailed = errors.New("enrollment request failed")
@@ -101,6 +120,101 @@ var (
 
 	// resource monitoring
 	ErrCriticalResourceAlert = errors.New("critical resource alert")
+
+	stderrKeywords = map[string]error{
+		// authentication
+		"authentication required": ErrAuthenticationFailed,
+		"unauthorized":            ErrAuthenticationFailed,
+		"access denied":           ErrAuthenticationFailed,
+		// not found
+		"not found":        ErrNotFound,
+		"manifest unknown": ErrImageNotFound,
+		// networking
+		"no such host":           ErrNetwork,
+		"connection refused":     ErrNetwork,
+		"unable to resolve host": ErrNetwork,
+		"network is unreachable": ErrNetwork,
+		"i/o timeout":            ErrNetwork,
+		"unexpected EOF":         ErrNetwork,
+		// context
+		"context canceled":          context.Canceled,
+		"context deadline exceeded": context.DeadlineExceeded,
+		// container image resolution
+		"short-name resolution enforced": ErrImageShortName,
+		// no such object
+		"no such object": ErrNotFound,
+	}
+
+	// errorTypeToCode maps error types from stderrKeywords to status codes.
+	ErrorTypeToCode = map[error]codes.Code{
+		// authentication
+		ErrAuthenticationFailed: codes.Unauthenticated,
+
+		// not found / filesystem
+		ErrNotFound:            codes.NotFound,
+		ErrNotExist:            codes.NotFound,
+		ErrReadingPath:         codes.NotFound,
+		ErrMissingRenderedSpec: codes.NotFound,
+
+		// networking
+		ErrNetwork:       codes.Unavailable,
+		ErrImageNotFound: codes.Unavailable,
+		ErrNoContent:     codes.Unavailable,
+		ErrNilResponse:   codes.Unavailable,
+
+		// context
+		context.Canceled:         codes.Canceled,
+		context.DeadlineExceeded: codes.DeadlineExceeded,
+
+		// invalid argument / configuration
+		ErrImageShortName:     codes.InvalidArgument,
+		ErrNoComposeFile:      codes.InvalidArgument,
+		ErrNoComposeServices:  codes.InvalidArgument,
+		ErrNoQuadletFile:      codes.InvalidArgument,
+		ErrNoQuadletWorkload:  codes.InvalidArgument,
+		ErrInvalidTokenFormat: codes.InvalidArgument,
+		ErrTokenNotSupported:  codes.InvalidArgument,
+		ErrRunActionInvalid:   codes.InvalidArgument,
+		ErrPathIsDir:          codes.InvalidArgument,
+		ErrInvalidPath:        codes.InvalidArgument,
+		ErrInvalidSpec:        codes.InvalidArgument,
+
+		// internal errors
+		ErrAppDependency:            codes.Internal,
+		ErrParseAppType:             codes.Internal,
+		ErrActionTypeNotFound:       codes.Internal,
+		ErrInvalidSpecType:          codes.Internal,
+		ErrInvalidPolicyType:        codes.Internal,
+		ErrParseRenderedVersion:     codes.Internal,
+		ErrUnmarshalSpec:            codes.Internal,
+		ErrBootcStatusInvalidJSON:   codes.Internal,
+		ErrGettingBootcStatus:       codes.Internal,
+		ErrUnknownApplicationStatus: codes.Internal,
+
+		// unimplemented
+		ErrUnsupportedAppType:             codes.Unimplemented,
+		ErrUnsupportedVolumeType:          codes.Unimplemented,
+		ErrUnsupportedAppProvider:         codes.Unimplemented,
+		ErrUnsupportedFilesystemOperation: codes.Unimplemented,
+
+		// failed precondition
+		ErrAppLabel:               codes.FailedPrecondition,
+		ErrDownloadPolicyNotReady: codes.FailedPrecondition,
+		ErrUpdatePolicyNotReady:   codes.FailedPrecondition,
+		ErrPrefetchNotReady:       codes.FailedPrecondition,
+		ErrOCICollectorNotReady:   codes.FailedPrecondition,
+
+		// resource exhausted
+		ErrCriticalResourceAlert: codes.ResourceExhausted,
+
+		// permission denied
+		ErrReadingRenderedSpec: codes.PermissionDenied,
+		ErrWritingRenderedSpec: codes.PermissionDenied,
+
+		// enrollment
+		ErrEnrollmentRequestFailed: codes.Aborted,
+		ErrEnrollmentRequestDenied: codes.PermissionDenied,
+	}
 )
 
 type stderrError struct {
@@ -226,31 +340,7 @@ func IsTimeoutError(err error) bool {
 
 // FromStderr converts stderr output from a command into an error type.
 func FromStderr(stderr string, exitCode int) error {
-	// mapping is used to convert stderr output from os.exec into an error
-	errMap := map[string]error{
-		// authentication
-		"authentication required": ErrAuthenticationFailed,
-		"unauthorized":            ErrAuthenticationFailed,
-		"access denied":           ErrAuthenticationFailed,
-		// not found
-		"not found":        ErrNotFound,
-		"manifest unknown": ErrImageNotFound,
-		// networking
-		"no such host":           ErrNetwork,
-		"connection refused":     ErrNetwork,
-		"unable to resolve host": ErrNetwork,
-		"network is unreachable": ErrNetwork,
-		"i/o timeout":            ErrNetwork,
-		"unexpected EOF":         ErrNetwork,
-		// context
-		"context canceled":          context.Canceled,
-		"context deadline exceeded": context.DeadlineExceeded,
-		// container image resolution
-		"short-name resolution enforced": ErrImageShortName,
-		// no such object
-		"no such object": ErrNotFound,
-	}
-	for check, err := range errMap {
+	for check, err := range stderrKeywords {
 		if strings.Contains(stderr, check) {
 			return &stderrError{
 				wrapped: err,
@@ -271,4 +361,18 @@ func IsContext(err error) bool {
 		return true
 	}
 	return false
+}
+
+// ToCode returns the gRPC status code for an error.
+func ToCode(err error) codes.Code {
+	if err == nil {
+		return codes.OK
+	}
+	for sentinel, code := range ErrorTypeToCode {
+		if errors.Is(err, sentinel) {
+			return code
+		}
+	}
+
+	return codes.Unknown
 }

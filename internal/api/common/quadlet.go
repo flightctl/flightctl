@@ -1,10 +1,10 @@
 package common
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
-	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/quadlet"
 )
 
