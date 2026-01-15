@@ -38,6 +38,7 @@ const (
 	FlagSummary     = "summary"      // for listing devices and fleets
 	FlagSummaryOnly = "summary-only" // for listing devices
 	FlagLastSeen    = "last-seen"    // for a single device
+	FlagWithExports = "with-exports" // for listing or getting imagebuild(s)
 )
 
 type FlagContextualRule struct {
@@ -59,6 +60,7 @@ type GetOptions struct {
 	Summary       bool
 	SummaryOnly   bool
 	LastSeen      bool
+	WithExports   bool
 }
 
 func DefaultGetOptions() *GetOptions {
@@ -71,6 +73,7 @@ func DefaultGetOptions() *GetOptions {
 		FleetName:     "",
 		Rendered:      false,
 		LastSeen:      false,
+		WithExports:   false,
 	}
 }
 
@@ -123,6 +126,7 @@ func (o *GetOptions) Bind(fs *pflag.FlagSet) {
 	fs.BoolVarP(&o.Summary, FlagSummary, "s", false, "Display summary information.")
 	fs.BoolVar(&o.SummaryOnly, FlagSummaryOnly, false, "Display summary information only.")
 	fs.BoolVar(&o.LastSeen, FlagLastSeen, false, "Display the last seen timestamp of the device.")
+	fs.BoolVar(&o.WithExports, FlagWithExports, false, "Include associated ImageExport resources for each ImageBuild.")
 	o.hideHelpContextualFlags(fs)
 }
 
@@ -132,6 +136,7 @@ var flagContextualRules = []FlagContextualRule{
 	{FlagRendered, []ResourceKind{DeviceKind}, []string{"single"}},
 	{FlagLastSeen, []ResourceKind{DeviceKind}, []string{"single"}},
 	{FlagFleetName, []ResourceKind{TemplateVersionKind}, []string{"any"}},
+	{FlagWithExports, []ResourceKind{ImageBuildKind}, []string{"any"}},
 }
 
 func (o *GetOptions) hideHelpContextualFlags(fs *pflag.FlagSet) {
@@ -238,6 +243,7 @@ func (o *GetOptions) Validate(args []string) error {
 		func() error { return o.validateSingleResourceRestrictions(kind, names) },
 		func() error { return o.validateLimit() },
 		func() error { return o.validateLastSeen(kind, names) },
+		func() error { return o.validateWithExports(kind) },
 	}
 
 	for _, v := range validators {
@@ -356,6 +362,20 @@ func (o *GetOptions) validateLastSeen(kind ResourceKind, names []string) error {
 	return nil
 }
 
+// validateWithExports checks the usage of the --with-exports flag.
+func (o *GetOptions) validateWithExports(kind ResourceKind) error {
+	if !o.WithExports {
+		return nil
+	}
+	if kind != ImageBuildKind {
+		return fmt.Errorf("'--with-exports' can only be used when listing or getting imagebuild(s)")
+	}
+	if o.Output == "" || o.Output == string(display.NameFormat) || o.Output == string(display.WideFormat) {
+		return fmt.Errorf("'--with-exports' can only be used with JSON or YAML output format (use '-o json' or '-o yaml')")
+	}
+	return nil
+}
+
 func (o *GetOptions) Run(ctx context.Context, args []string) error {
 	kind, names, err := parseAndValidateKindNameFromArgs(args)
 	if err != nil {
@@ -447,6 +467,7 @@ func (o *GetOptions) createImageBuilderFetchers(ctx context.Context, kind Resour
 				FieldSelector: util.ToPtrWithNilDefault(o.FieldSelector),
 				Limit:         util.ToPtrWithNilDefault(o.Limit),
 				Continue:      util.ToPtrWithNilDefault(o.Continue),
+				WithExports:   lo.ToPtr(o.WithExports),
 			}
 			response, err := c.ListImageBuildsWithResponse(ctx, params)
 			if err != nil {
@@ -459,7 +480,7 @@ func (o *GetOptions) createImageBuilderFetchers(ctx context.Context, kind Resour
 		}
 		singleFetcher = func(name string) (interface{}, error) {
 			response, err := c.GetImageBuildWithResponse(ctx, name, &imagebuilderapi.GetImageBuildParams{
-				WithExports: lo.ToPtr(false),
+				WithExports: lo.ToPtr(o.WithExports),
 			})
 			if err != nil {
 				return nil, err
