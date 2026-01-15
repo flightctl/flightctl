@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -346,4 +347,22 @@ func GetHostname() string {
 		return "unknown"
 	}
 	return hostname
+}
+
+// PercentageAsInt parses a percentage string (e.g., "50%") to an integer.
+// It validates that the string is in the correct format and the value
+// is between 0 and 100 inclusive.
+func PercentageAsInt(p string) (int, error) {
+	index := strings.Index(p, "%")
+	if index <= 0 || index != len(p)-1 {
+		return 0, fmt.Errorf("%s is not in percentage format", p)
+	}
+	percentage, err := strconv.ParseInt(p[:index], 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("failed to parse percentage value: %w", err)
+	}
+	if percentage < 0 || percentage > 100 {
+		return 0, fmt.Errorf("percentage must be between 0 and 100, got %d", percentage)
+	}
+	return int(percentage), nil
 }

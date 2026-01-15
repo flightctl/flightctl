@@ -377,7 +377,7 @@ func (b *batchSelection) getSuccessThreshold() (int, error) {
 		successThreshold = b.batch.SuccessThreshold
 	}
 	if successThreshold != nil {
-		ret, err = domain.PercentageAsInt(*successThreshold)
+		ret, err = util.PercentageAsInt(*successThreshold)
 		if err != nil {
 			return 0, err
 		}
@@ -551,7 +551,7 @@ func (b *batchSelection) calculateLimit(ctx context.Context) (*int, error) {
 	if pErr != nil {
 		return nil, errors.Join(intErr, pErr)
 	}
-	percentage, err := domain.PercentageAsInt(percentageStr)
+	percentage, err := util.PercentageAsInt(percentageStr)
 	if err != nil {
 		return nil, err
 	}

@@ -1,15 +1,6 @@
 package domain
 
-import (
-	"time"
-
-	v1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
-	"github.com/google/uuid"
-)
-
-// ========== Organization ==========
-
-var NullOrgId = v1beta1.NullOrgId
+import v1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
 
 // ========== API Group ==========
 
@@ -161,8 +152,6 @@ const (
 	RoleInstaller = v1beta1.RoleInstaller
 )
 
-var KnownExternalRoles = v1beta1.KnownExternalRoles
-
 // ========== Update State ==========
 
 type UpdateState = v1beta1.UpdateState
@@ -232,12 +221,3 @@ const (
 // ========== Condition Reasons ==========
 
 const DeviceConditionBootstrapReason = v1beta1.DeviceConditionBootstrapReason
-
-// ========== Utility Functions from util.go ==========
-
-var GetGoTemplateFuncMap = v1beta1.GetGoTemplateFuncMap
-var ExecuteGoTemplateOnDevice = v1beta1.ExecuteGoTemplateOnDevice
-
-// Helper to avoid unused import warning at compile time
-var _ = uuid.UUID{}
-var _ = time.Time{}
