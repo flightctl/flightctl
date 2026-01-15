@@ -56,13 +56,13 @@ redhat:
   images:
     db:
       image: registry.redhat.io/rhel9/postgresql-16
-      tag: 9.6-1752571367
+      tag: 9.7-1766414426
     kv:
       image: registry.redhat.io/rhel9/redis-7
-      tag: 9.6-1752567986
+      tag: 9.7-1766414358
     alertmanager:
       image: registry.redhat.io/rhacm2/prometheus-alertmanager-rhel9
-      tag: v2.13.2
+      tag: v2.15.0-1
     clusterCli:
       image: registry.redhat.io/openshift4/ose-cli-rhel9
       tag: v4.20.0
