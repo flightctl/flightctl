@@ -212,6 +212,24 @@ func (h *Harness) ReadClientConfig(filePath string) (*client.Config, error) {
 	return client.ParseConfigFile(filePath)
 }
 
+// RefreshClient recreates the FlightCtl API client from the config file.
+// This is useful after login when the config file has been updated with new authentication or organization information.
+func (h *Harness) RefreshClient() error {
+	baseDir, err := client.DefaultFlightctlClientConfigPath()
+	if err != nil {
+		return fmt.Errorf("failed to get client config path: %w", err)
+	}
+
+	c, err := client.NewFromConfigFile(baseDir)
+	if err != nil {
+		return fmt.Errorf("failed to recreate client: %w", err)
+	}
+
+	h.Client = c
+	logrus.Infof("Refreshed FlightCtl API client from config file")
+	return nil
+}
+
 // ExtractAuthURL extracts the authentication URL from an AuthProvider based on its type
 func ExtractAuthURL(provider *v1beta1.AuthProvider) string {
 	if provider == nil {
@@ -2070,6 +2088,28 @@ func (h *Harness) CreateGitRepositoryWithContent(repoName, filePath, content str
 		}
 	}
 
+	return nil
+}
+
+// ChangeK8sNamespace changes the current Kubernetes namespace
+func (h *Harness) ChangeK8sNamespace(namespace string) error {
+	if util.BinaryExistsOnPath("oc") {
+		// Use oc project for OpenShift
+		cmd := exec.Command("oc", "project", namespace)
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("failed to change namespace to %s: %v, output: %s", namespace, err, string(output))
+		}
+		GinkgoWriter.Printf("Changed namespace to %s using oc project\n", namespace)
+		return nil
+	}
+	// Use kubectl for regular Kubernetes
+	cmd := exec.Command("kubectl", "config", "set-context", "--current", "--namespace", namespace)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to change namespace to %s: %v, output: %s", namespace, err, string(output))
+	}
+	GinkgoWriter.Printf("Changed namespace to %s using kubectl\n", namespace)
 	return nil
 }
 

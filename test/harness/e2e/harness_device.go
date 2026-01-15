@@ -541,7 +541,15 @@ func (h *Harness) GetDevice(deviceId string) (*v1beta1.Device, error) {
 		return nil, fmt.Errorf("device response is nil")
 	}
 	if response.JSON200 == nil {
-		return nil, fmt.Errorf("device not found")
+		// Include HTTP status code in error for better debugging
+		statusCode := response.StatusCode()
+		if statusCode == 403 {
+			return nil, fmt.Errorf("device %s: permission denied (403) - RBAC permissions may not have propagated yet", deviceId)
+		}
+		if statusCode == 404 {
+			return nil, fmt.Errorf("device %s not found (404)", deviceId)
+		}
+		return nil, fmt.Errorf("device %s not found (HTTP %d): %s", deviceId, statusCode, string(response.Body))
 	}
 	device := response.JSON200
 	return device, nil
