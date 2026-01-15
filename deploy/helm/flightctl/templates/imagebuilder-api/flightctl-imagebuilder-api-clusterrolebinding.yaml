@@ -1,4 +1,4 @@
-{{- if and .Values.imageBuilderApi .Values.imageBuilderApi.enabled (eq (include "flightctl.getEffectiveAuthType" .) "k8s") }}
+{{- if and .Values.imageBuilderApi .Values.imageBuilderApi.enabled }}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:

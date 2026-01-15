@@ -70,24 +70,40 @@ spec:
             - mountPath: /var/tmp/flightctl-builds
               name: flightctl-builds
               readOnly: false
+            - mountPath: /var/tmp/flightctl-exports
+              name: flightctl-exports
+              readOnly: false
             - mountPath: /var/lib/containers
               name: worker-storage
               readOnly: false
+            # 1. SYSFS: Mandatory. Bypasses K8s read-only masks so bootc can validate privileges.
+            - mountPath: /sys
+              name: host-sys
+            
+            # 2. DEVICES: Gives access to /dev/loop-control and loop devices provided by Kind.
+            - mountPath: /dev
+              name: host-dev
+
+            # 3. MODULES: Allows osbuild to verify/load the loop module.
+            - mountPath: /lib/modules
+              name: host-modules
+              readOnly: true
+              
             {{- include "flightctl.dbSslVolumeMounts" . | nindent 12 }}
           {{- with .Values.imageBuilderWorker.resources }}
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
+          terminationMessagePath: /tmp/termination-log
           securityContext:
-            # Required for container-in-container builds (matches quadlet: SecurityLabelDisable=true, AddCapability=SYS_ADMIN)
-            # Additional capabilities required for rootful Podman per documentation
-            privileged: {{ default false .Values.imageBuilderWorker.privileged }}
+            privileged: {{ default true .Values.imageBuilderWorker.privileged }}
             capabilities:
               add:
                 - SYS_ADMIN
                 - MKNOD
                 - SYS_CHROOT
                 - SETFCAP
+
       restartPolicy: Always
       volumes:
         - name: flightctl-imagebuilder-worker-config
@@ -103,7 +119,23 @@ spec:
           hostPath:
             path: /var/tmp/flightctl-builds
             type: DirectoryOrCreate
+        - name: flightctl-exports
+          hostPath:
+            path: /var/tmp/flightctl-exports
+            type: DirectoryOrCreate
         - name: worker-storage
           emptyDir: {}
+        - name: host-sys
+          hostPath:
+            path: /sys
+            type: Directory
+        - name: host-dev
+          hostPath:
+            path: /dev
+            type: Directory
+        - name: host-modules
+          hostPath:
+            path: /lib/modules
+            type: Directory
         {{- include "flightctl.dbSslVolumes" . | nindent 8 }}
 {{- end }}
