@@ -12,8 +12,8 @@ spec:
     imageBuildRef: my-edge-image-build-2
   # Destination defines where to push the exported images
   destination:
-    repository: my-export-registry
-    imageName: rhel-edge-exported
+    repository: my-registry
+    imageName: my-user/centos-bootc-custom
     tag: v1.0.0
   # Format to export the image to
   format: qcow2

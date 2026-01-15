@@ -20,14 +20,14 @@ Volume=/etc/flightctl/pki/flightctl-api/client-signer.key:/root/.flightctl/certs
 Volume=/etc/flightctl/pki/ca-bundle.crt:/root/.flightctl/certs/ca-bundle.crt:ro,z
 Volume=/etc/flightctl/pki/db:/root/.flightctl/certs/db:ro,z
 Volume=/var/tmp/flightctl-builds:/var/tmp/flightctl-builds:rw,z
+Volume=/var/tmp/flightctl-exports:/var/tmp/flightctl-exports:rw,z
 Volume=flightctl-worker-storage:/var/lib/containers
-# For container-in-container builds (E5)
-SecurityLabelDisable=true
-AddCapability=SYS_ADMIN
+PodmanArgs=--privileged
 
 [Service]
 Restart=always
 RestartSec=30
+Delegate=yes
 
 ExecStartPre=/usr/bin/flightctl-standalone render template --input-file /usr/share/flightctl/flightctl-imagebuilder-worker/config.yaml.template --output-file /etc/flightctl/flightctl-imagebuilder-worker/config.yaml
 
