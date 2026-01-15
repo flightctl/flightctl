@@ -97,9 +97,3 @@ const (
 // ========== Interfaces ==========
 
 type SensitiveDataHider = v1beta1.SensitiveDataHider
-
-// ========== Utility Functions ==========
-
-var MatchExpressionsToString = v1beta1.MatchExpressionsToString
-var PercentageAsInt = v1beta1.PercentageAsInt
-var ValidateConditions = v1beta1.ValidateConditions

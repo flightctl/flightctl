@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	authprovider "github.com/flightctl/flightctl/internal/auth/provider"
 	"github.com/flightctl/flightctl/internal/contextutil"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/store/selector"
@@ -75,7 +76,7 @@ func applyAuthProviderDefaults(spec *domain.AuthProviderSpec) error {
 
 		// Infer introspection if not provided
 		if oauth2Spec.Introspection == nil {
-			introspection, err := domain.InferOAuth2IntrospectionConfig(oauth2Spec)
+			introspection, err := authprovider.InferOAuth2IntrospectionConfig(oauth2Spec)
 			if err != nil {
 				return fmt.Errorf("introspection field is required and could not be inferred: %w", err)
 			}

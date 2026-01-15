@@ -4,55 +4,64 @@ import (
 	"encoding/json"
 	"net/http"
 
-	api "github.com/flightctl/flightctl/api/core/v1beta1"
+	apiv1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
 )
 
 // (POST /api/v1/authproviders)
 func (h *TransportHandler) CreateAuthProvider(w http.ResponseWriter, r *http.Request) {
-	var authProvider api.AuthProvider
+	var authProvider apiv1beta1.AuthProvider
 	if err := json.NewDecoder(r.Body).Decode(&authProvider); err != nil {
 		SetParseFailureResponse(w, err)
 		return
 	}
 
-	body, status := h.serviceHandler.CreateAuthProvider(r.Context(), OrgIDFromContext(r.Context()), authProvider)
-	SetResponse(w, body, status)
+	domainAP := h.converter.V1beta1().AuthProvider().ToDomain(authProvider)
+	body, status := h.serviceHandler.CreateAuthProvider(r.Context(), OrgIDFromContext(r.Context()), domainAP)
+	apiResult := h.converter.V1beta1().AuthProvider().FromDomain(body)
+	SetResponse(w, apiResult, status)
 }
 
 // (GET /api/v1/authproviders)
-func (h *TransportHandler) ListAuthProviders(w http.ResponseWriter, r *http.Request, params api.ListAuthProvidersParams) {
-	body, status := h.serviceHandler.ListAuthProviders(r.Context(), OrgIDFromContext(r.Context()), params)
-	SetResponse(w, body, status)
+func (h *TransportHandler) ListAuthProviders(w http.ResponseWriter, r *http.Request, params apiv1beta1.ListAuthProvidersParams) {
+	domainParams := h.converter.V1beta1().AuthProvider().ListParamsToDomain(params)
+	body, status := h.serviceHandler.ListAuthProviders(r.Context(), OrgIDFromContext(r.Context()), domainParams)
+	apiResult := h.converter.V1beta1().AuthProvider().ListFromDomain(body)
+	SetResponse(w, apiResult, status)
 }
 
 // (GET /api/v1/authproviders/{name})
 func (h *TransportHandler) GetAuthProvider(w http.ResponseWriter, r *http.Request, name string) {
 	body, status := h.serviceHandler.GetAuthProvider(r.Context(), OrgIDFromContext(r.Context()), name)
-	SetResponse(w, body, status)
+	apiResult := h.converter.V1beta1().AuthProvider().FromDomain(body)
+	SetResponse(w, apiResult, status)
 }
 
 // (PUT /api/v1/authproviders/{name})
 func (h *TransportHandler) ReplaceAuthProvider(w http.ResponseWriter, r *http.Request, name string) {
-	var authProvider api.AuthProvider
+	var authProvider apiv1beta1.AuthProvider
 	if err := json.NewDecoder(r.Body).Decode(&authProvider); err != nil {
 		SetParseFailureResponse(w, err)
 		return
 	}
 
-	body, status := h.serviceHandler.ReplaceAuthProvider(r.Context(), OrgIDFromContext(r.Context()), name, authProvider)
-	SetResponse(w, body, status)
+	domainAP := h.converter.V1beta1().AuthProvider().ToDomain(authProvider)
+	body, status := h.serviceHandler.ReplaceAuthProvider(r.Context(), OrgIDFromContext(r.Context()), name, domainAP)
+	apiResult := h.converter.V1beta1().AuthProvider().FromDomain(body)
+	SetResponse(w, apiResult, status)
 }
 
 // (PATCH /api/v1/authproviders/{name})
 func (h *TransportHandler) PatchAuthProvider(w http.ResponseWriter, r *http.Request, name string) {
-	var patch api.PatchRequest
+	var patch apiv1beta1.PatchRequest
 	if err := json.NewDecoder(r.Body).Decode(&patch); err != nil {
 		SetParseFailureResponse(w, err)
 		return
 	}
 
-	body, status := h.serviceHandler.PatchAuthProvider(r.Context(), OrgIDFromContext(r.Context()), name, patch)
-	SetResponse(w, body, status)
+	domainPatch := h.converter.V1beta1().Common().PatchRequestToDomain(patch)
+	body, status := h.serviceHandler.PatchAuthProvider(r.Context(), OrgIDFromContext(r.Context()), name, domainPatch)
+	apiResult := h.converter.V1beta1().AuthProvider().FromDomain(body)
+	SetResponse(w, apiResult, status)
 }
 
 // (DELETE /api/v1/authproviders/{name})

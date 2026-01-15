@@ -3,11 +3,13 @@ package transport
 import (
 	"net/http"
 
-	api "github.com/flightctl/flightctl/api/core/v1beta1"
+	apiv1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
 )
 
 // (GET /api/v1/enrollmentconfig)
-func (h *TransportHandler) GetEnrollmentConfig(w http.ResponseWriter, r *http.Request, params api.GetEnrollmentConfigParams) {
-	body, status := h.serviceHandler.GetEnrollmentConfig(r.Context(), OrgIDFromContext(r.Context()), params)
-	SetResponse(w, body, status)
+func (h *TransportHandler) GetEnrollmentConfig(w http.ResponseWriter, r *http.Request, params apiv1beta1.GetEnrollmentConfigParams) {
+	domainParams := h.converter.V1beta1().EnrollmentRequest().GetConfigParamsToDomain(params)
+	body, status := h.serviceHandler.GetEnrollmentConfig(r.Context(), OrgIDFromContext(r.Context()), domainParams)
+	apiResult := h.converter.V1beta1().EnrollmentRequest().ConfigFromDomain(body)
+	SetResponse(w, apiResult, status)
 }

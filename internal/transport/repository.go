@@ -4,43 +4,50 @@ import (
 	"encoding/json"
 	"net/http"
 
-	api "github.com/flightctl/flightctl/api/core/v1beta1"
+	apiv1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
 )
 
 // (POST /api/v1/repositories)
 func (h *TransportHandler) CreateRepository(w http.ResponseWriter, r *http.Request) {
-	var rs api.Repository
+	var rs apiv1beta1.Repository
 	if err := json.NewDecoder(r.Body).Decode(&rs); err != nil {
 		SetParseFailureResponse(w, err)
 		return
 	}
 
-	body, status := h.serviceHandler.CreateRepository(r.Context(), OrgIDFromContext(r.Context()), rs)
-	SetResponse(w, body, status)
+	domainRepo := h.converter.V1beta1().Repository().ToDomain(rs)
+	body, status := h.serviceHandler.CreateRepository(r.Context(), OrgIDFromContext(r.Context()), domainRepo)
+	apiResult := h.converter.V1beta1().Repository().FromDomain(body)
+	SetResponse(w, apiResult, status)
 }
 
 // (GET /api/v1/repositories)
-func (h *TransportHandler) ListRepositories(w http.ResponseWriter, r *http.Request, params api.ListRepositoriesParams) {
-	body, status := h.serviceHandler.ListRepositories(r.Context(), OrgIDFromContext(r.Context()), params)
-	SetResponse(w, body, status)
+func (h *TransportHandler) ListRepositories(w http.ResponseWriter, r *http.Request, params apiv1beta1.ListRepositoriesParams) {
+	domainParams := h.converter.V1beta1().Repository().ListParamsToDomain(params)
+	body, status := h.serviceHandler.ListRepositories(r.Context(), OrgIDFromContext(r.Context()), domainParams)
+	apiResult := h.converter.V1beta1().Repository().ListFromDomain(body)
+	SetResponse(w, apiResult, status)
 }
 
 // (GET /api/v1/repositories/{name})
 func (h *TransportHandler) GetRepository(w http.ResponseWriter, r *http.Request, name string) {
 	body, status := h.serviceHandler.GetRepository(r.Context(), OrgIDFromContext(r.Context()), name)
-	SetResponse(w, body, status)
+	apiResult := h.converter.V1beta1().Repository().FromDomain(body)
+	SetResponse(w, apiResult, status)
 }
 
 // (PUT /api/v1/repositories/{name})
 func (h *TransportHandler) ReplaceRepository(w http.ResponseWriter, r *http.Request, name string) {
-	var rs api.Repository
+	var rs apiv1beta1.Repository
 	if err := json.NewDecoder(r.Body).Decode(&rs); err != nil {
 		SetParseFailureResponse(w, err)
 		return
 	}
 
-	body, status := h.serviceHandler.ReplaceRepository(r.Context(), OrgIDFromContext(r.Context()), name, rs)
-	SetResponse(w, body, status)
+	domainRepo := h.converter.V1beta1().Repository().ToDomain(rs)
+	body, status := h.serviceHandler.ReplaceRepository(r.Context(), OrgIDFromContext(r.Context()), name, domainRepo)
+	apiResult := h.converter.V1beta1().Repository().FromDomain(body)
+	SetResponse(w, apiResult, status)
 }
 
 // (DELETE /api/v1/repositories/{name})
@@ -51,12 +58,14 @@ func (h *TransportHandler) DeleteRepository(w http.ResponseWriter, r *http.Reque
 
 // (PATCH /api/v1/repositories/{name})
 func (h *TransportHandler) PatchRepository(w http.ResponseWriter, r *http.Request, name string) {
-	var patch api.PatchRequest
+	var patch apiv1beta1.PatchRequest
 	if err := json.NewDecoder(r.Body).Decode(&patch); err != nil {
 		SetParseFailureResponse(w, err)
 		return
 	}
 
-	body, status := h.serviceHandler.PatchRepository(r.Context(), OrgIDFromContext(r.Context()), name, patch)
-	SetResponse(w, body, status)
+	domainPatch := h.converter.V1beta1().Common().PatchRequestToDomain(patch)
+	body, status := h.serviceHandler.PatchRepository(r.Context(), OrgIDFromContext(r.Context()), name, domainPatch)
+	apiResult := h.converter.V1beta1().Repository().FromDomain(body)
+	SetResponse(w, apiResult, status)
 }

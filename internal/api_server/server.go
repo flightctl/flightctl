@@ -11,6 +11,7 @@ import (
 	"time"
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/internal/api/convert"
 	"github.com/flightctl/flightctl/internal/api/server"
 	fcmiddleware "github.com/flightctl/flightctl/internal/api_server/middleware"
 	"github.com/flightctl/flightctl/internal/auth"
@@ -260,7 +261,7 @@ func (s *Server) Run(ctx context.Context) error {
 			})
 		}
 
-		h := transport.NewTransportHandler(serviceHandler, s.authN, authTokenProxy, authUserInfoProxy, s.authZ)
+		h := transport.NewTransportHandler(serviceHandler, convert.NewConverter(), s.authN, authTokenProxy, authUserInfoProxy, s.authZ)
 
 		// Register all other endpoints with general rate limiting (already applied at router level)
 		// Create a custom handler that excludes the auth validate endpoint
@@ -305,7 +306,7 @@ func (s *Server) Run(ctx context.Context) error {
 			})
 		}
 
-		h := transport.NewTransportHandler(serviceHandler, s.authN, authTokenProxy, authUserInfoProxy, s.authZ)
+		h := transport.NewTransportHandler(serviceHandler, convert.NewConverter(), s.authN, authTokenProxy, authUserInfoProxy, s.authZ)
 		// Use the wrapper to handle the AuthValidate method signature
 		wrapper := &server.ServerInterfaceWrapper{
 			Handler:            h,

@@ -1,6 +1,14 @@
 package domain
 
-import v1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
+import (
+	"context"
+
+	v1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/go-chi/chi/v5/middleware"
+	"github.com/google/uuid"
+	"github.com/samber/lo"
+)
 
 // ========== Resource Types ==========
 
@@ -120,5 +128,81 @@ const (
 
 // ========== Utility Functions ==========
 
-var GetBaseEvent = v1beta1.GetBaseEvent
-var GetEventType = v1beta1.GetEventType
+// warningReasons contains all event reasons that should result in Warning events
+var warningReasons = map[EventReason]struct{}{
+	EventReasonResourceCreationFailed:          {},
+	EventReasonResourceUpdateFailed:            {},
+	EventReasonResourceDeletionFailed:          {},
+	EventReasonDeviceDecommissionFailed:        {},
+	EventReasonEnrollmentRequestApprovalFailed: {},
+	EventReasonDeviceApplicationDegraded:       {},
+	EventReasonDeviceApplicationError:          {},
+	EventReasonDeviceCPUCritical:               {},
+	EventReasonDeviceCPUWarning:                {},
+	EventReasonDeviceMemoryCritical:            {},
+	EventReasonDeviceMemoryWarning:             {},
+	EventReasonDeviceDiskCritical:              {},
+	EventReasonDeviceDiskWarning:               {},
+	EventReasonDeviceDisconnected:              {},
+	EventReasonDeviceConflictPaused:            {},
+	EventReasonDeviceSpecInvalid:               {},
+	EventReasonFleetInvalid:                    {},
+	EventReasonDeviceMultipleOwnersDetected:    {},
+	EventReasonDeviceUpdateFailed:              {},
+	EventReasonInternalTaskFailed:              {},
+	EventReasonInternalTaskPermanentlyFailed:   {},
+	EventReasonResourceSyncInaccessible:        {},
+	EventReasonResourceSyncParsingFailed:       {},
+	EventReasonResourceSyncSyncFailed:          {},
+	EventReasonFleetRolloutFailed:              {},
+}
+
+// GetEventType determines the event type based on the event reason
+func GetEventType(reason EventReason) EventType {
+	if _, contains := warningReasons[reason]; contains {
+		return EventTypeWarning
+	}
+	return EventTypeNormal
+}
+
+// GetBaseEvent creates a base event with common fields
+func GetBaseEvent(ctx context.Context, resourceKind ResourceKind, resourceName string, reason EventReason, message string, details *EventDetails) *Event {
+	var actorStr string
+	if actor := ctx.Value(consts.EventActorCtxKey); actor != nil {
+		actorStr = actor.(string)
+	}
+
+	var componentStr string
+	if component := ctx.Value(consts.EventSourceComponentCtxKey); component != nil {
+		componentStr = component.(string)
+	}
+
+	// Generate a UUID for the event name to ensure k8s compliance
+	eventName := uuid.New().String()
+
+	event := Event{
+		Metadata: ObjectMeta{
+			Name: lo.ToPtr(eventName),
+		},
+		InvolvedObject: ObjectReference{
+			Kind: string(resourceKind),
+			Name: resourceName,
+		},
+		Source: EventSource{
+			Component: componentStr,
+		},
+		Actor: actorStr,
+	}
+
+	// Add request ID to the event for correlation
+	if reqID := ctx.Value(middleware.RequestIDKey); reqID != nil {
+		event.Metadata.Annotations = &map[string]string{EventAnnotationRequestID: reqID.(string)}
+	}
+
+	event.Reason = reason
+	event.Message = message
+	event.Type = GetEventType(reason)
+	event.Details = details
+
+	return &event
+}

@@ -2,19 +2,10 @@ package v1beta1
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
-	"reflect"
-	"strconv"
 	"strings"
 	"text/template"
-
-	"github.com/flightctl/flightctl/internal/consts"
-	"github.com/flightctl/flightctl/internal/util"
-	"github.com/go-chi/chi/v5/middleware"
-	"github.com/google/uuid"
-	"github.com/samber/lo"
 )
 
 type DeviceCompletionCount struct {
@@ -179,29 +170,6 @@ func (c ApplicationVolume) GetReclaimPolicy() ApplicationVolumeReclaimPolicy {
 	return *c.ReclaimPolicy
 }
 
-func PercentageAsInt(p Percentage) (int, error) {
-	index := strings.Index(p, "%")
-	if index <= 0 || index != len(p)-1 {
-		return 0, fmt.Errorf("%s is not in percentage format", p)
-	}
-	percentage, err := strconv.ParseInt(p[:index], 10, 64)
-	if err != nil {
-		return 0, fmt.Errorf("failed to parse percentage value: %w", err)
-	}
-	if percentage < 0 || percentage > 100 {
-		return 0, fmt.Errorf("percentage must be between 0 and 100, got %d", percentage)
-	}
-	return int(percentage), nil
-}
-
-func DeviceSpecsAreEqual(d1, d2 DeviceSpec) bool {
-	return util.DeepEqualWithUnionHandling(reflect.ValueOf(d1), reflect.ValueOf(d2))
-}
-
-func FleetSpecsAreEqual(f1, f2 FleetSpec) bool {
-	return util.DeepEqualWithUnionHandling(reflect.ValueOf(f1), reflect.ValueOf(f2))
-}
-
 // Some functions that we provide to users.  In case of a missing label,
 // we may get an interface{} rather than string because
 // ExecuteGoTemplateOnDevice() converts the Device struct to a map.
@@ -273,23 +241,6 @@ func ExecuteGoTemplateOnDevice(t *template.Template, dev *Device) (string, error
 	return buf.String(), nil
 }
 
-// MatchExpressionsToString converts a list of MatchExpressions into a formatted string.
-// Each MatchExpression is represented by its string form, separated by ", ".
-func MatchExpressionsToString(exprs ...MatchExpression) string {
-	if len(exprs) == 0 {
-		return ""
-	}
-
-	var sb strings.Builder
-	for i, e := range exprs {
-		sb.WriteString(e.String())
-		if i < len(exprs)-1 {
-			sb.WriteString(", ")
-		}
-	}
-	return sb.String()
-}
-
 // String converts a MatchExpression into its string representation.
 // Example formats:
 // - Exists: "key"
@@ -331,33 +282,6 @@ func (rd DeviceSpec) GetConsoles() []DeviceConsole {
 	} else {
 		return *rd.Consoles
 	}
-}
-
-func GetNextDeviceRenderedVersion(annotations map[string]string, deviceStatus *DeviceStatus) (string, error) {
-	// Get service-side renderedVersion version from annotations
-	var renderedVersion int64 = 0
-	renderedVersionString, ok := annotations[DeviceAnnotationRenderedVersion]
-	if ok {
-		var err error
-		renderedVersion, err = strconv.ParseInt(renderedVersionString, 10, 64)
-		if err != nil {
-			return "", err
-		}
-	}
-
-	// Get device-reported version from status (if available)
-	var deviceRenderedVersion int64 = 0
-	if deviceStatus != nil && deviceStatus.Config.RenderedVersion != "" {
-		var err error
-		deviceRenderedVersion, err = strconv.ParseInt(deviceStatus.Config.RenderedVersion, 10, 64)
-		if err != nil {
-			return "", err
-		}
-	}
-
-	// max(rendered, device_reported) + 1
-	nextVersion := max(renderedVersion, deviceRenderedVersion) + 1
-	return strconv.FormatInt(nextVersion, 10), nil
 }
 
 type SensitiveDataHider interface {
@@ -520,83 +444,4 @@ func (a *AuthConfig) HideSensitiveData() error {
 		}
 	}
 	return nil
-}
-
-// GetBaseEvent creates a base event with common fields
-func GetBaseEvent(ctx context.Context, resourceKind ResourceKind, resourceName string, reason EventReason, message string, details *EventDetails) *Event {
-	var actorStr string
-	if actor := ctx.Value(consts.EventActorCtxKey); actor != nil {
-		actorStr = actor.(string)
-	}
-
-	var componentStr string
-	if component := ctx.Value(consts.EventSourceComponentCtxKey); component != nil {
-		componentStr = component.(string)
-	}
-
-	// Generate a UUID for the event name to ensure k8s compliance
-	eventName := uuid.New().String()
-
-	event := Event{
-		Metadata: ObjectMeta{
-			Name: lo.ToPtr(eventName),
-		},
-		InvolvedObject: ObjectReference{
-			Kind: string(resourceKind),
-			Name: resourceName,
-		},
-		Source: EventSource{
-			Component: componentStr,
-		},
-		Actor: actorStr,
-	}
-
-	// Add request ID to the event for correlation
-	if reqID := ctx.Value(middleware.RequestIDKey); reqID != nil {
-		event.Metadata.Annotations = &map[string]string{EventAnnotationRequestID: reqID.(string)}
-	}
-
-	event.Reason = reason
-	event.Message = message
-	event.Type = GetEventType(reason)
-	event.Details = details
-
-	return &event
-}
-
-// warningReasons contains all event reasons that should result in Warning events
-var warningReasons = map[EventReason]struct{}{
-	EventReasonResourceCreationFailed:          {},
-	EventReasonResourceUpdateFailed:            {},
-	EventReasonResourceDeletionFailed:          {},
-	EventReasonDeviceDecommissionFailed:        {},
-	EventReasonEnrollmentRequestApprovalFailed: {},
-	EventReasonDeviceApplicationDegraded:       {},
-	EventReasonDeviceApplicationError:          {},
-	EventReasonDeviceCPUCritical:               {},
-	EventReasonDeviceCPUWarning:                {},
-	EventReasonDeviceMemoryCritical:            {},
-	EventReasonDeviceMemoryWarning:             {},
-	EventReasonDeviceDiskCritical:              {},
-	EventReasonDeviceDiskWarning:               {},
-	EventReasonDeviceDisconnected:              {},
-	EventReasonDeviceConflictPaused:            {},
-	EventReasonDeviceSpecInvalid:               {},
-	EventReasonFleetInvalid:                    {},
-	EventReasonDeviceMultipleOwnersDetected:    {},
-	EventReasonDeviceUpdateFailed:              {},
-	EventReasonInternalTaskFailed:              {},
-	EventReasonInternalTaskPermanentlyFailed:   {},
-	EventReasonResourceSyncInaccessible:        {},
-	EventReasonResourceSyncParsingFailed:       {},
-	EventReasonResourceSyncSyncFailed:          {},
-	EventReasonFleetRolloutFailed:              {},
-}
-
-// GetEventType determines the event type based on the event reason
-func GetEventType(reason EventReason) EventType {
-	if _, contains := warningReasons[reason]; contains {
-		return Warning
-	}
-	return Normal
 }

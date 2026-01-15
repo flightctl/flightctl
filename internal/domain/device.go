@@ -1,6 +1,10 @@
 package domain
 
-import v1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
+import (
+	"strconv"
+
+	v1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
+)
 
 // ========== Resource Types ==========
 
@@ -151,8 +155,65 @@ type TerminalSize = v1beta1.TerminalSize
 type DeviceConsoleSessionMetadata = v1beta1.DeviceConsoleSessionMetadata
 type DeviceCommand = v1beta1.DeviceCommand
 
-// ========== Utility Functions ==========
+// NewDeviceStatus creates a new DeviceStatus with default values
+func NewDeviceStatus() DeviceStatus {
+	return DeviceStatus{
+		Conditions: []Condition{
+			{
+				Type:   ConditionTypeDeviceUpdating,
+				Status: ConditionStatusUnknown,
+			},
+		},
+		Applications: []DeviceApplicationStatus{},
+		ApplicationsSummary: DeviceApplicationsSummaryStatus{
+			Status: ApplicationsSummaryStatusUnknown,
+		},
+		Integrity: DeviceIntegrityStatus{
+			Status: DeviceIntegrityStatusUnknown,
+		},
+		Resources: DeviceResourceStatus{
+			Cpu:    DeviceResourceStatusUnknown,
+			Disk:   DeviceResourceStatusUnknown,
+			Memory: DeviceResourceStatusUnknown,
+		},
+		Updated: DeviceUpdatedStatus{
+			Status: DeviceUpdatedStatusUnknown,
+		},
+		Summary: DeviceSummaryStatus{
+			Status: DeviceSummaryStatusUnknown,
+		},
+		Lifecycle: DeviceLifecycleStatus{
+			Status: DeviceLifecycleStatusUnknown,
+		},
+	}
+}
 
-var NewDeviceStatus = v1beta1.NewDeviceStatus
-var DeviceSpecsAreEqual = v1beta1.DeviceSpecsAreEqual
-var GetNextDeviceRenderedVersion = v1beta1.GetNextDeviceRenderedVersion
+// GetNextDeviceRenderedVersion calculates the next rendered version for a device.
+// It takes the maximum of the service-side rendered version (from annotations)
+// and the device-reported version (from status), then increments by 1.
+func GetNextDeviceRenderedVersion(annotations map[string]string, deviceStatus *DeviceStatus) (string, error) {
+	// Get service-side renderedVersion version from annotations
+	var renderedVersion int64 = 0
+	renderedVersionString, ok := annotations[DeviceAnnotationRenderedVersion]
+	if ok {
+		var err error
+		renderedVersion, err = strconv.ParseInt(renderedVersionString, 10, 64)
+		if err != nil {
+			return "", err
+		}
+	}
+
+	// Get device-reported version from status (if available)
+	var deviceRenderedVersion int64 = 0
+	if deviceStatus != nil && deviceStatus.Config.RenderedVersion != "" {
+		var err error
+		deviceRenderedVersion, err = strconv.ParseInt(deviceStatus.Config.RenderedVersion, 10, 64)
+		if err != nil {
+			return "", err
+		}
+	}
+
+	// max(rendered, device_reported) + 1
+	nextVersion := max(renderedVersion, deviceRenderedVersion) + 1
+	return strconv.FormatInt(nextVersion, 10), nil
+}

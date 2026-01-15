@@ -39,4 +39,5 @@ const (
 	PatchOpTest    = v1beta1.Test
 )
 
+// GetSwagger returns the OpenAPI spec - re-exported for service layer access due to depguard rules
 var GetSwagger = v1beta1.GetSwagger
