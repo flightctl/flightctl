@@ -13,7 +13,6 @@ import (
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/rollout"
 	"github.com/flightctl/flightctl/internal/service"
-	"github.com/flightctl/flightctl/internal/service/templating"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
@@ -740,12 +739,12 @@ func (f FleetRolloutsLogic) updateDeviceInStore(ctx context.Context, device *dom
 }
 
 func replaceParametersInString(s string, device *domain.Device) (string, error) {
-	t, err := template.New("t").Option("missingkey=error").Funcs(templating.GetGoTemplateFuncMap()).Parse(s)
+	t, err := template.New("t").Option("missingkey=error").Funcs(domain.GetGoTemplateFuncMap()).Parse(s)
 	if err != nil {
 		return "", fmt.Errorf("invalid parameter syntax: %v", err)
 	}
 
-	output, err := templating.ExecuteGoTemplateOnDevice(t, device)
+	output, err := domain.ExecuteGoTemplateOnDevice(t, device)
 	if err != nil {
 		return "", fmt.Errorf("cannot apply parameters, possibly because they access invalid fields: %w", err)
 	}
