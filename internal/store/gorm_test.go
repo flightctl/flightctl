@@ -3,8 +3,8 @@ package store
 import (
 	"testing"
 
-	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -14,7 +14,7 @@ func TestCreateDSN(t *testing.T) {
 		name     string
 		setupCfg func() *config.Config
 		user     string
-		password api.SecureString
+		password domain.SecureString
 		expected string
 	}{
 		{
@@ -31,7 +31,7 @@ func TestCreateDSN(t *testing.T) {
 				return cfg
 			},
 			user:     "testuser",
-			password: api.SecureString("testpass"),
+			password: domain.SecureString("testpass"),
 			expected: "host=localhost user=testuser password=testpass port=5432",
 		},
 		{
@@ -48,7 +48,7 @@ func TestCreateDSN(t *testing.T) {
 				return cfg
 			},
 			user:     "testuser",
-			password: api.SecureString("testpass"),
+			password: domain.SecureString("testpass"),
 			expected: "host=localhost user=testuser password=testpass port=5432 dbname=testdb",
 		},
 		{
@@ -65,7 +65,7 @@ func TestCreateDSN(t *testing.T) {
 				return cfg
 			},
 			user:     "testuser",
-			password: api.SecureString("testpass"),
+			password: domain.SecureString("testpass"),
 			expected: "host=localhost user=testuser password=testpass port=5432 dbname=testdb sslmode=require",
 		},
 		{
@@ -82,7 +82,7 @@ func TestCreateDSN(t *testing.T) {
 				return cfg
 			},
 			user:     "testuser",
-			password: api.SecureString("testpass"),
+			password: domain.SecureString("testpass"),
 			expected: "host=localhost user=testuser password=testpass port=5432 dbname=testdb sslmode=verify-full sslcert=/path/to/client.crt sslkey=/path/to/client.key sslrootcert=/path/to/ca.crt",
 		},
 		{
@@ -99,7 +99,7 @@ func TestCreateDSN(t *testing.T) {
 				return cfg
 			},
 			user:     "testuser",
-			password: api.SecureString("testpass"),
+			password: domain.SecureString("testpass"),
 			expected: "host=localhost user=testuser password=testpass port=5432 sslmode=require sslrootcert=/path/to/ca.crt",
 		},
 		{
@@ -116,7 +116,7 @@ func TestCreateDSN(t *testing.T) {
 				return cfg
 			},
 			user:     "testuser",
-			password: api.SecureString("testpass"),
+			password: domain.SecureString("testpass"),
 			expected: "host=localhost user=testuser password=testpass port=5432 dbname=testdb",
 		},
 	}

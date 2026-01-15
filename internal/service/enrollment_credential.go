@@ -10,9 +10,9 @@ import (
 	"encoding/pem"
 	"fmt"
 
-	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/crypto"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/util"
 	fccrypto "github.com/flightctl/flightctl/pkg/crypto"
 	"github.com/google/uuid"
@@ -35,11 +35,11 @@ import (
 //   - baseName: base name for the CSR (will be made unique with UUID suffix)
 //   - ownerKind: the kind of the resource that owns this CSR (e.g., "ImageBuild")
 //   - ownerName: the name of the resource that owns this CSR
-func (h *ServiceHandler) GenerateEnrollmentCredential(ctx context.Context, orgId uuid.UUID, baseName string, ownerKind string, ownerName string) (*crypto.EnrollmentCredential, api.Status) {
+func (h *ServiceHandler) GenerateEnrollmentCredential(ctx context.Context, orgId uuid.UUID, baseName string, ownerKind string, ownerName string) (*crypto.EnrollmentCredential, domain.Status) {
 	// Generate a new ECDSA P-256 key pair
 	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
-		return nil, api.StatusInternalServerError(fmt.Sprintf("generating private key: %v", err))
+		return nil, domain.StatusInternalServerError(fmt.Sprintf("generating private key: %v", err))
 	}
 
 	// Generate unique CSR name to avoid conflicts (same pattern as CLI)
@@ -55,7 +55,7 @@ func (h *ServiceHandler) GenerateEnrollmentCredential(ctx context.Context, orgId
 
 	csrBytes, err := x509.CreateCertificateRequest(rand.Reader, csrTemplate, privateKey)
 	if err != nil {
-		return nil, api.StatusInternalServerError(fmt.Sprintf("creating CSR: %v", err))
+		return nil, domain.StatusInternalServerError(fmt.Sprintf("creating CSR: %v", err))
 	}
 
 	// Encode CSR to PEM format (same structure as CLI)
@@ -66,14 +66,14 @@ func (h *ServiceHandler) GenerateEnrollmentCredential(ctx context.Context, orgId
 	})
 
 	// Create CSR resource using the enrollment signer
-	csrResource := api.CertificateSigningRequest{
-		ApiVersion: api.CertificateSigningRequestAPIVersion,
-		Kind:       api.CertificateSigningRequestKind,
-		Metadata: api.ObjectMeta{
+	csrResource := domain.CertificateSigningRequest{
+		ApiVersion: domain.CertificateSigningRequestAPIVersion,
+		Kind:       domain.CertificateSigningRequestKind,
+		Metadata: domain.ObjectMeta{
 			Name:  &csrName,
 			Owner: util.SetResourceOwner(ownerKind, ownerName),
 		},
-		Spec: api.CertificateSigningRequestSpec{
+		Spec: domain.CertificateSigningRequestSpec{
 			Request:    csrPEM,
 			SignerName: h.ca.Cfg.DeviceEnrollmentSignerName,
 			Usages:     lo.ToPtr([]string{"clientAuth", "CA:false"}),
@@ -90,19 +90,19 @@ func (h *ServiceHandler) GenerateEnrollmentCredential(ctx context.Context, orgId
 
 	// Verify we got a signed certificate back
 	if result.Status == nil || result.Status.Certificate == nil || len(*result.Status.Certificate) == 0 {
-		return nil, api.StatusInternalServerError("CSR was not signed - no certificate returned")
+		return nil, domain.StatusInternalServerError("CSR was not signed - no certificate returned")
 	}
 
 	// Encode the private key to PEM
 	privateKeyPEM, err := fccrypto.PEMEncodeKey(privateKey)
 	if err != nil {
-		return nil, api.StatusInternalServerError(fmt.Sprintf("encoding private key: %v", err))
+		return nil, domain.StatusInternalServerError(fmt.Sprintf("encoding private key: %v", err))
 	}
 
 	// Get the CA bundle
 	caBundle, err := h.ca.GetCABundle()
 	if err != nil {
-		return nil, api.StatusInternalServerError(fmt.Sprintf("getting CA bundle: %v", err))
+		return nil, domain.StatusInternalServerError(fmt.Sprintf("getting CA bundle: %v", err))
 	}
 
 	return &crypto.EnrollmentCredential{
@@ -112,7 +112,7 @@ func (h *ServiceHandler) GenerateEnrollmentCredential(ctx context.Context, orgId
 		EnrollmentEndpoint:   h.agentEndpoint,
 		EnrollmentUIEndpoint: h.uiUrl,
 		CSRName:              csrName,
-	}, api.StatusOK()
+	}, domain.StatusOK()
 }
 
 // createUniqueCsrName generates a unique CSR name by appending a UUID suffix.
