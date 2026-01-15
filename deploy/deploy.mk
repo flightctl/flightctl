@@ -10,6 +10,10 @@ ifeq ($(SPEC_FETCH_INTERVAL),)
 	SPEC_FETCH_INTERVAL := 0m2s
 endif
 
+ifeq ($(TPM),)
+	TPM := disabled
+endif
+
 # Create kind cluster if it doesn't exist (idempotent)
 cluster: bin/e2e-certs/ca.pem
 	test/scripts/install_kind.sh
@@ -55,7 +59,7 @@ deploy-helm:
 	test/scripts/deploy_with_helm.sh --db-size $(DB_SIZE)
 
 prepare-agent-config:
-	test/scripts/agent-images/prepare_agent_config.sh --status-update-interval $(STATUS_UPDATE_INTERVAL) --spec-fetch-interval $(SPEC_FETCH_INTERVAL)
+	TPM=$(TPM) test/scripts/agent-images/prepare_agent_config.sh --status-update-interval $(STATUS_UPDATE_INTERVAL) --spec-fetch-interval $(SPEC_FETCH_INTERVAL)
 
 deploy-db-helm: cluster
 	test/scripts/deploy_with_helm.sh --only-db
