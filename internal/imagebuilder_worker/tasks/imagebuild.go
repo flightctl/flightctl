@@ -5,7 +5,6 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -268,8 +267,6 @@ func (u *statusUpdater) run(cfg *config.Config) {
 	for {
 		select {
 		case <-u.ctx.Done():
-			// Context cancelled, perform final update if needed and exit
-			u.updateStatus(pendingCondition, &lastSeenUpdateTime, pendingImageReference)
 			return
 		case <-ticker.C:
 			// Periodic LastSeen update - only if we have new output time and haven't set it yet
@@ -280,7 +277,7 @@ func (u *statusUpdater) run(cfg *config.Config) {
 					// Store a copy of the time we're setting
 					lastSetLastSeenCopy := *lastOutputTime
 					lastSetLastSeen = &lastSetLastSeenCopy
-					u.updateStatus(pendingCondition, &lastSeenUpdateTime, pendingImageReference)
+					u.updateStatus(u.ctx, pendingCondition, &lastSeenUpdateTime, pendingImageReference)
 					pendingCondition = nil      // Clear after update
 					pendingImageReference = nil // Clear after update
 				}
@@ -304,7 +301,7 @@ func (u *statusUpdater) run(cfg *config.Config) {
 			}
 			// Update immediately when condition or image reference changes
 			if req.Condition != nil || req.ImageReference != nil {
-				u.updateStatus(pendingCondition, &lastSeenUpdateTime, pendingImageReference)
+				u.updateStatus(u.ctx, pendingCondition, &lastSeenUpdateTime, pendingImageReference)
 				pendingCondition = nil      // Clear after update
 				pendingImageReference = nil // Clear after update
 			}
@@ -313,9 +310,9 @@ func (u *statusUpdater) run(cfg *config.Config) {
 }
 
 // updateStatus performs the actual database update, merging conditions, LastSeen, and ImageReference
-func (u *statusUpdater) updateStatus(condition *api.ImageBuildCondition, lastSeen *time.Time, imageReference *string) {
+func (u *statusUpdater) updateStatus(ctx context.Context, condition *api.ImageBuildCondition, lastSeen *time.Time, imageReference *string) {
 	// Load current status from database
-	imageBuild, err := u.store.ImageBuild().Get(u.ctx, u.orgID, u.imageBuildName)
+	imageBuild, err := u.store.ImageBuild().Get(ctx, u.orgID, u.imageBuildName)
 	if err != nil {
 		u.log.WithError(err).Warn("Failed to load ImageBuild for status update")
 		return
@@ -347,7 +344,7 @@ func (u *statusUpdater) updateStatus(condition *api.ImageBuildCondition, lastSee
 	}
 
 	// Write updated status atomically
-	_, err = u.store.ImageBuild().UpdateStatus(u.ctx, u.orgID, imageBuild)
+	_, err = u.store.ImageBuild().UpdateStatus(ctx, u.orgID, imageBuild)
 	if err != nil {
 		u.log.WithError(err).Warn("Failed to update ImageBuild status")
 	}
@@ -451,18 +448,28 @@ func (c *Consumer) generateContainerfileWithGenerator(
 
 	spec := imageBuild.Spec
 
-	// Load the source repository to get the registry URL
-	registryURL, err := c.getRepositoryURL(ctx, orgID, spec.Source.Repository)
+	// Load the source repository to get the registry hostname
+	repo, err := c.mainStore.Repository().Get(ctx, orgID, spec.Source.Repository)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get source repository URL: %w", err)
+		return nil, fmt.Errorf("failed to get source repository: %w", err)
 	}
 
-	// Extract hostname from registry URL for Containerfile FROM instruction
-	// Containerfile FROM only accepts hostname, not full URLs with scheme
-	registryHostname, err := extractHostnameFromURL(registryURL)
+	// Validate that the repository is of OCI type
+	repoType, err := repo.Spec.Discriminator()
 	if err != nil {
-		return nil, fmt.Errorf("failed to extract hostname from registry URL %q: %w", registryURL, err)
+		return nil, fmt.Errorf("failed to determine repository type: %w", err)
 	}
+	if repoType != string(v1beta1.RepoSpecTypeOci) {
+		return nil, fmt.Errorf("repository %q must be of type 'oci', got %q", spec.Source.Repository, repoType)
+	}
+
+	ociSpec, err := repo.Spec.GetOciRepoSpec()
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse OCI repository spec: %w", err)
+	}
+
+	// ociSpec.Registry is already the hostname (no scheme)
+	registryHostname := ociSpec.Registry
 
 	// Determine binding type
 	bindingType, err := spec.Binding.Discriminator()
@@ -471,7 +478,6 @@ func (c *Consumer) generateContainerfileWithGenerator(
 	}
 
 	log.WithFields(logrus.Fields{
-		"registryURL":      registryURL,
 		"registryHostname": registryHostname,
 		"imageName":        spec.Source.ImageName,
 		"imageTag":         spec.Source.ImageTag,
@@ -518,66 +524,6 @@ func (c *Consumer) generateContainerfileWithGenerator(
 
 	result.Containerfile = containerfile
 	return result, nil
-}
-
-// extractHostnameFromURL extracts the hostname (and optional port) from a URL string.
-// It handles both URLs with schemes (e.g., "https://registry.example.com") and plain hostnames (e.g., "registry.example.com").
-func extractHostnameFromURL(urlStr string) (string, error) {
-	// If the string doesn't contain "://", treat it as a plain hostname
-	if !strings.Contains(urlStr, "://") {
-		return urlStr, nil
-	}
-
-	parsedURL, err := url.Parse(urlStr)
-	if err != nil {
-		return "", fmt.Errorf("failed to parse URL: %w", err)
-	}
-
-	// Return hostname with port if present (e.g., "registry.example.com:5000")
-	host := parsedURL.Host
-	if host == "" {
-		return "", fmt.Errorf("no hostname found in URL: %s", urlStr)
-	}
-
-	return host, nil
-}
-
-// getRepositoryURL retrieves the registry URL from a Repository resource
-func getRepositoryURL(ctx context.Context, mainStore store.Store, orgID uuid.UUID, repoName string) (string, error) {
-	c := &Consumer{mainStore: mainStore}
-	return c.getRepositoryURL(ctx, orgID, repoName)
-}
-
-// getRepositoryURL retrieves the registry URL from a Repository resource
-func (c *Consumer) getRepositoryURL(ctx context.Context, orgID uuid.UUID, repoName string) (string, error) {
-	repo, err := c.mainStore.Repository().Get(ctx, orgID, repoName)
-	if err != nil {
-		return "", fmt.Errorf("repository %q not found: %w", repoName, err)
-	}
-
-	// Get the repository spec type
-	specType, err := repo.Spec.Discriminator()
-	if err != nil {
-		return "", fmt.Errorf("failed to determine repository spec type: %w", err)
-	}
-
-	// Only OCI repositories are supported for image builds
-	if specType != string(v1beta1.RepoSpecTypeOci) {
-		return "", fmt.Errorf("repository %q must be of type 'oci', got %q", repoName, specType)
-	}
-
-	ociSpec, err := repo.Spec.AsOciRepoSpec()
-	if err != nil {
-		return "", fmt.Errorf("failed to parse OCI repository spec: %w", err)
-	}
-
-	// Build the full registry URL with optional scheme
-	registryURL := ociSpec.Registry
-	if ociSpec.Scheme != nil {
-		registryURL = fmt.Sprintf("%s://%s", *ociSpec.Scheme, ociSpec.Registry)
-	}
-
-	return registryURL, nil
 }
 
 // generateAgentConfigWithGenerator generates a complete agent config.yaml for early binding.
@@ -906,16 +852,24 @@ func (c *Consumer) buildImageWithPodman(
 
 	spec := imageBuild.Spec
 
-	// Get destination repository URL
-	destRegistryURL, err := c.getRepositoryURL(ctx, orgID, spec.Destination.Repository)
+	// Get destination repository to get registry hostname and validate
+	destRepo, err := c.mainStore.Repository().Get(ctx, orgID, spec.Destination.Repository)
 	if err != nil {
-		return fmt.Errorf("failed to get destination repository URL: %w", err)
+		return fmt.Errorf("failed to get destination repository: %w", err)
 	}
 
-	// Extract hostname from registry URL for image reference
-	destRegistryHostname, err := extractHostnameFromURL(destRegistryURL)
+	// Validate that the destination repository is of OCI type
+	destRepoType, err := destRepo.Spec.Discriminator()
 	if err != nil {
-		return fmt.Errorf("failed to extract hostname from destination registry URL %q: %w", destRegistryURL, err)
+		return fmt.Errorf("failed to determine destination repository type: %w", err)
+	}
+	if destRepoType != string(v1beta1.RepoSpecTypeOci) {
+		return fmt.Errorf("destination repository %q must be of type 'oci', got %q", spec.Destination.Repository, destRepoType)
+	}
+
+	destOciSpec, err := destRepo.Spec.GetOciRepoSpec()
+	if err != nil {
+		return fmt.Errorf("failed to parse destination OCI repository spec: %w", err)
 	}
 
 	// Validate image reference components (defense-in-depth)
@@ -923,7 +877,8 @@ func (c *Consumer) buildImageWithPodman(
 		return fmt.Errorf("invalid image reference components: %w", err)
 	}
 
-	// Build the full image reference
+	// ociSpec.Registry is already the hostname (no scheme)
+	destRegistryHostname := destOciSpec.Registry
 	imageRef := fmt.Sprintf("%s/%s:%s", destRegistryHostname, spec.Destination.ImageName, spec.Destination.Tag)
 
 	// Determine platform from ImageBuild status architecture, default to linux/amd64
@@ -949,7 +904,16 @@ func (c *Consumer) buildImageWithPodman(
 		return fmt.Errorf("failed to load source repository: %w", err)
 	}
 
-	ociSpec, err := repo.Spec.AsOciRepoSpec()
+	// Validate that the source repository is of OCI type
+	repoType, err := repo.Spec.Discriminator()
+	if err != nil {
+		return fmt.Errorf("failed to determine source repository type: %w", err)
+	}
+	if repoType != string(v1beta1.RepoSpecTypeOci) {
+		return fmt.Errorf("source repository %q must be of type 'oci', got %q", spec.Source.Repository, repoType)
+	}
+
+	ociSpec, err := repo.Spec.GetOciRepoSpec()
 	if err != nil {
 		return fmt.Errorf("failed to parse OCI repository spec: %w", err)
 	}
@@ -957,15 +921,8 @@ func (c *Consumer) buildImageWithPodman(
 	// Container paths
 	containerBuildDir := "/build"
 
-	// Get source registry hostname for login
-	sourceRegistryURL, err := c.getRepositoryURL(ctx, orgID, spec.Source.Repository)
-	if err != nil {
-		return fmt.Errorf("failed to get source repository URL: %w", err)
-	}
-	sourceRegistryHostname, err := extractHostnameFromURL(sourceRegistryURL)
-	if err != nil {
-		return fmt.Errorf("failed to extract hostname from source registry URL %q: %w", sourceRegistryURL, err)
-	}
+	// ociSpec.Registry is already the hostname (no scheme)
+	sourceRegistryHostname := ociSpec.Registry
 
 	// Login to source registry using podman login with stdin
 	// This is used to pull the base image during build
@@ -1029,16 +986,24 @@ func (c *Consumer) pushImageWithPodman(
 
 	spec := imageBuild.Spec
 
-	// Get destination repository URL and construct image reference
-	destRegistryURL, err := c.getRepositoryURL(ctx, orgID, spec.Destination.Repository)
+	// Get destination repository for authentication and to get registry hostname
+	repo, err := c.mainStore.Repository().Get(ctx, orgID, spec.Destination.Repository)
 	if err != nil {
-		return "", fmt.Errorf("failed to get destination repository URL: %w", err)
+		return "", fmt.Errorf("failed to load destination repository: %w", err)
 	}
 
-	// Extract hostname from registry URL for image reference
-	destRegistryHostname, err := extractHostnameFromURL(destRegistryURL)
+	// Validate that the destination repository is of OCI type
+	repoType, err := repo.Spec.Discriminator()
 	if err != nil {
-		return "", fmt.Errorf("failed to extract hostname from destination registry URL %q: %w", destRegistryURL, err)
+		return "", fmt.Errorf("failed to determine destination repository type: %w", err)
+	}
+	if repoType != string(v1beta1.RepoSpecTypeOci) {
+		return "", fmt.Errorf("destination repository %q must be of type 'oci', got %q", spec.Destination.Repository, repoType)
+	}
+
+	ociSpec, err := repo.Spec.GetOciRepoSpec()
+	if err != nil {
+		return "", fmt.Errorf("failed to parse OCI repository spec: %w", err)
 	}
 
 	// Validate image reference components (defense-in-depth)
@@ -1046,18 +1011,9 @@ func (c *Consumer) pushImageWithPodman(
 		return "", fmt.Errorf("invalid image reference components: %w", err)
 	}
 
+	// ociSpec.Registry is already the hostname (no scheme)
+	destRegistryHostname := ociSpec.Registry
 	imageRef := fmt.Sprintf("%s/%s:%s", destRegistryHostname, spec.Destination.ImageName, spec.Destination.Tag)
-
-	// Get repository credentials for authentication
-	repo, err := c.mainStore.Repository().Get(ctx, orgID, spec.Destination.Repository)
-	if err != nil {
-		return "", fmt.Errorf("failed to load destination repository: %w", err)
-	}
-
-	ociSpec, err := repo.Spec.AsOciRepoSpec()
-	if err != nil {
-		return "", fmt.Errorf("failed to parse OCI repository spec: %w", err)
-	}
 
 	// Login to registry using podman login with stdin
 	// This is more reliable than authfile for push operations
