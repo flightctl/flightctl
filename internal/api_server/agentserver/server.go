@@ -11,6 +11,7 @@ import (
 	"time"
 
 	agent "github.com/flightctl/flightctl/api/agent/v1beta1"
+	"github.com/flightctl/flightctl/internal/api/convert"
 	server "github.com/flightctl/flightctl/internal/api/server/agent"
 	fcmiddleware "github.com/flightctl/flightctl/internal/api_server/middleware"
 	"github.com/flightctl/flightctl/internal/config"
@@ -311,7 +312,7 @@ func (s *AgentServer) prepareHTTPHandler(ctx context.Context, serviceHandler ser
 		})
 	}
 
-	h := transport.NewAgentTransportHandler(serviceHandler, s.ca, s.log)
+	h := transport.NewAgentTransportHandler(serviceHandler, convert.NewConverter(), s.ca, s.log)
 	server.HandlerFromMux(h, router)
 
 	return otelhttp.NewHandler(router, "agent-http-server"), nil
