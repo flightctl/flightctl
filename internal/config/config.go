@@ -124,6 +124,7 @@ type imageBuilderWorkerConfig struct {
 	MaxConcurrentBuilds    int           `json:"maxConcurrentBuilds,omitempty"`
 	DefaultTTL             util.Duration `json:"defaultTTL,omitempty"`
 	PodmanImage            string        `json:"podmanImage,omitempty"`
+	BootcImageBuilderImage string        `json:"bootcImageBuilderImage,omitempty"`
 	LastSeenUpdateInterval util.Duration `json:"lastSeenUpdateInterval,omitempty"`
 }
 
@@ -134,6 +135,7 @@ func NewDefaultImageBuilderWorkerConfig() *imageBuilderWorkerConfig {
 		MaxConcurrentBuilds:    2,
 		DefaultTTL:             util.Duration(7 * 24 * time.Hour),
 		PodmanImage:            "quay.io/podman/stable:v5.7.1",
+		BootcImageBuilderImage: "quay.io/centos-bootc/bootc-image-builder@sha256:773019f6b11766ca48170a4a7bf898be4268f3c2acfd0ec1db612408b3092a90",
 		LastSeenUpdateInterval: util.Duration(30 * time.Second),
 	}
 }

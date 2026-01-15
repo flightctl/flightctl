@@ -17,7 +17,7 @@ import (
 func newTestImageExportService() (ImageExportService, *DummyImageExportStore, *DummyImageBuildStore) {
 	imageExportStore := NewDummyImageExportStore()
 	imageBuildStore := NewDummyImageBuildStore()
-	svc := NewImageExportService(imageExportStore, imageBuildStore, log.InitLogs())
+	svc := NewImageExportService(imageExportStore, imageBuildStore, nil, nil, log.InitLogs())
 	return svc, imageExportStore, imageBuildStore
 }
 
