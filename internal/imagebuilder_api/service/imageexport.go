@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -10,7 +11,11 @@ import (
 	api "github.com/flightctl/flightctl/api/imagebuilder/v1beta1"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/store"
+	internalservice "github.com/flightctl/flightctl/internal/service"
+	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store/selector"
+	"github.com/flightctl/flightctl/internal/worker_client"
+	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -31,14 +36,18 @@ type ImageExportService interface {
 type imageExportService struct {
 	imageExportStore store.ImageExportStore
 	imageBuildStore  store.ImageBuildStore
+	eventHandler     *internalservice.EventHandler
+	queueProducer    queues.QueueProducer
 	log              logrus.FieldLogger
 }
 
 // NewImageExportService creates a new ImageExportService
-func NewImageExportService(imageExportStore store.ImageExportStore, imageBuildStore store.ImageBuildStore, log logrus.FieldLogger) ImageExportService {
+func NewImageExportService(imageExportStore store.ImageExportStore, imageBuildStore store.ImageBuildStore, eventHandler *internalservice.EventHandler, queueProducer queues.QueueProducer, log logrus.FieldLogger) ImageExportService {
 	return &imageExportService{
 		imageExportStore: imageExportStore,
 		imageBuildStore:  imageBuildStore,
+		eventHandler:     eventHandler,
+		queueProducer:    queueProducer,
 		log:              log,
 	}
 }
@@ -56,7 +65,28 @@ func (s *imageExportService) Create(ctx context.Context, orgId uuid.UUID, imageE
 	}
 
 	result, err := s.imageExportStore.Create(ctx, orgId, &imageExport)
-	return result, StoreErrorToApiStatus(err, true, string(api.ResourceKindImageExport), imageExport.Metadata.Name)
+	if err != nil {
+		return result, StoreErrorToApiStatus(err, true, string(api.ResourceKindImageExport), imageExport.Metadata.Name)
+	}
+
+	// Create event separately (no transaction)
+	var event *v1beta1.Event
+	if result != nil && s.eventHandler != nil {
+		event = common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, true, v1beta1.ResourceKind(string(api.ResourceKindImageExport)), lo.FromPtr(result.Metadata.Name), nil, s.log, nil)
+		if event != nil {
+			s.eventHandler.CreateEvent(ctx, orgId, event)
+		}
+	}
+
+	// Enqueue event to imagebuild-queue for worker processing
+	if result != nil && event != nil && s.queueProducer != nil {
+		if err := s.enqueueImageExportEvent(ctx, orgId, event); err != nil {
+			s.log.WithError(err).WithField("orgId", orgId).WithField("name", lo.FromPtr(result.Metadata.Name)).Error("failed to enqueue imageExport event")
+			// Don't fail the creation if enqueue fails - the event can be retried later
+		}
+	}
+
+	return result, StoreErrorToApiStatus(nil, true, string(api.ResourceKindImageExport), imageExport.Metadata.Name)
 }
 
 func (s *imageExportService) Get(ctx context.Context, orgId uuid.UUID, name string) (*api.ImageExport, v1beta1.Status) {
@@ -166,4 +196,37 @@ func (s *imageExportService) validate(ctx context.Context, orgId uuid.UUID, imag
 	}
 
 	return errs, nil
+}
+
+// enqueueImageExportEvent enqueues an event to the imagebuild-queue
+func (s *imageExportService) enqueueImageExportEvent(ctx context.Context, orgId uuid.UUID, event *v1beta1.Event) error {
+	if event == nil {
+		return errors.New("event is nil")
+	}
+
+	// Create EventWithOrgId structure for the queue
+	eventWithOrgId := worker_client.EventWithOrgId{
+		OrgId: orgId,
+		Event: *event,
+	}
+
+	payload, err := json.Marshal(eventWithOrgId)
+	if err != nil {
+		return fmt.Errorf("failed to marshal event: %w", err)
+	}
+
+	// Use creation timestamp if available, otherwise use current time
+	var timestamp int64
+	if event.Metadata.CreationTimestamp != nil {
+		timestamp = event.Metadata.CreationTimestamp.UnixMicro()
+	} else {
+		timestamp = time.Now().UnixMicro()
+	}
+
+	if err := s.queueProducer.Enqueue(ctx, payload, timestamp); err != nil {
+		return fmt.Errorf("failed to enqueue event: %w", err)
+	}
+
+	s.log.WithField("orgId", orgId).WithField("name", event.InvolvedObject.Name).Info("enqueued imageExport event")
+	return nil
 }

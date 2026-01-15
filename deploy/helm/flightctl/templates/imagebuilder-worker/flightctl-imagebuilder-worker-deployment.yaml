@@ -70,6 +70,9 @@ spec:
             - mountPath: /var/tmp/flightctl-builds
               name: flightctl-builds
               readOnly: false
+            - mountPath: /var/tmp/flightctl-exports
+              name: flightctl-exports
+              readOnly: false
             - mountPath: /var/lib/containers
               name: worker-storage
               readOnly: false
@@ -79,15 +82,7 @@ spec:
             {{- toYaml . | nindent 12 }}
           {{- end }}
           securityContext:
-            # Required for container-in-container builds (matches quadlet: SecurityLabelDisable=true, AddCapability=SYS_ADMIN)
-            # Additional capabilities required for rootful Podman per documentation
-            privileged: {{ default false .Values.imageBuilderWorker.privileged }}
-            capabilities:
-              add:
-                - SYS_ADMIN
-                - MKNOD
-                - SYS_CHROOT
-                - SETFCAP
+            privileged: {{ default true .Values.imageBuilderWorker.privileged }}
       restartPolicy: Always
       volumes:
         - name: flightctl-imagebuilder-worker-config
@@ -102,6 +97,10 @@ spec:
         - name: flightctl-builds
           hostPath:
             path: /var/tmp/flightctl-builds
+            type: DirectoryOrCreate
+        - name: flightctl-exports
+          hostPath:
+            path: /var/tmp/flightctl-exports
             type: DirectoryOrCreate
         - name: worker-storage
           emptyDir: {}

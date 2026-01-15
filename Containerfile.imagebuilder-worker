@@ -4,7 +4,7 @@ WORKDIR /app
 # Switch to root for build operations
 USER 0
 
-RUN dnf install -y --installroot=/runtime-root --setopt=install_weak_deps=False --nodocs podman fuse-overlayfs
+RUN dnf install -y --installroot=/runtime-root --setopt=install_weak_deps=False --nodocs podman
 
 # Copy dependencies first (most stable)
 COPY go.* ./
