@@ -9,6 +9,7 @@ import (
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
@@ -1055,7 +1056,7 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Test: Specs should be equal after database round-trip
-			Expect(api.DeviceSpecsAreEqual(originalSpec, *retrieved.Spec)).To(BeTrue(),
+			Expect(domain.DeviceSpecsAreEqual(originalSpec, *retrieved.Spec)).To(BeTrue(),
 				"DeviceSpec should be equal after database round-trip")
 
 			// Test: Create equivalent spec with different map ordering
@@ -1084,7 +1085,7 @@ var _ = Describe("DeviceStore create", func() {
 			}
 
 			// Test: Specs should be equal despite different map ordering
-			Expect(api.DeviceSpecsAreEqual(originalSpec, equivalentSpec)).To(BeTrue(),
+			Expect(domain.DeviceSpecsAreEqual(originalSpec, equivalentSpec)).To(BeTrue(),
 				"DeviceSpecs should be equal despite different map key ordering")
 
 			// Test: JSON serialization consistency
@@ -1117,7 +1118,7 @@ var _ = Describe("DeviceStore create", func() {
 			differentSpec := originalSpec
 			differentSpec.Config = &[]api.ConfigProviderSpec{differentConfig}
 
-			Expect(api.DeviceSpecsAreEqual(originalSpec, differentSpec)).To(BeFalse(),
+			Expect(domain.DeviceSpecsAreEqual(originalSpec, differentSpec)).To(BeFalse(),
 				"DeviceSpecs with different configs should not be equal")
 
 			// Test: nil vs empty slice differences
@@ -1127,7 +1128,7 @@ var _ = Describe("DeviceStore create", func() {
 			emptySliceSpec := originalSpec
 			emptySliceSpec.Applications = &[]api.ApplicationProviderSpec{}
 
-			Expect(api.DeviceSpecsAreEqual(nilSliceSpec, emptySliceSpec)).To(BeFalse(),
+			Expect(domain.DeviceSpecsAreEqual(nilSliceSpec, emptySliceSpec)).To(BeFalse(),
 				"DeviceSpecs with nil vs empty slice should not be equal")
 		})
 
@@ -1183,7 +1184,7 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Test: FleetSpecs should be equal after database round-trip
-			Expect(api.FleetSpecsAreEqual(originalFleetSpec, retrieved.Spec)).To(BeTrue(),
+			Expect(domain.FleetSpecsAreEqual(originalFleetSpec, retrieved.Spec)).To(BeTrue(),
 				"FleetSpec should be equal after database round-trip")
 
 			// Test: Create equivalent spec with different map ordering
@@ -1220,7 +1221,7 @@ var _ = Describe("DeviceStore create", func() {
 			}
 
 			// Test: FleetSpecs should be equal despite map ordering differences
-			Expect(api.FleetSpecsAreEqual(originalFleetSpec, equivalentFleetSpec)).To(BeTrue(),
+			Expect(domain.FleetSpecsAreEqual(originalFleetSpec, equivalentFleetSpec)).To(BeTrue(),
 				"FleetSpecs should be equal despite different map key ordering")
 
 			// Test: Different rollout policies should not be equal
@@ -1231,7 +1232,7 @@ var _ = Describe("DeviceStore create", func() {
 				},
 			}
 
-			Expect(api.FleetSpecsAreEqual(originalFleetSpec, differentFleetSpec)).To(BeFalse(),
+			Expect(domain.FleetSpecsAreEqual(originalFleetSpec, differentFleetSpec)).To(BeFalse(),
 				"FleetSpecs with different rollout policies should not be equal")
 		})
 

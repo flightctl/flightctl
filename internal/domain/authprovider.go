@@ -109,7 +109,3 @@ const (
 	RefreshToken      = v1beta1.RefreshToken
 	Bearer            = v1beta1.Bearer
 )
-
-// ========== Utility Functions ==========
-
-var InferOAuth2IntrospectionConfig = v1beta1.InferOAuth2IntrospectionConfig

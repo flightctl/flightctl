@@ -98,7 +98,3 @@ const (
 	PullIfNotPresent = v1beta1.PullIfNotPresent
 	PullNever        = v1beta1.PullNever
 )
-
-// ========== Validation Functions ==========
-
-var ValidateContainerImageApplicationSpec = v1beta1.ValidateContainerImageApplicationSpec
