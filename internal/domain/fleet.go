@@ -61,7 +61,3 @@ const (
 // ========== Rollout Types ==========
 
 type RolloutBatchCompletionReport = v1beta1.RolloutBatchCompletionReport
-
-// ========== Utility Functions ==========
-
-var FleetSpecsAreEqual = v1beta1.FleetSpecsAreEqual
