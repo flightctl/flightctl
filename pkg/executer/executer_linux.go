@@ -10,13 +10,13 @@ import (
 	"syscall"
 )
 
-func (e *CommonExecuter) CommandContext(ctx context.Context, command string, args ...string) *exec.Cmd {
+func (e *commonExecuter) CommandContext(ctx context.Context, command string, args ...string) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, command, args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Pdeathsig: syscall.SIGTERM}
 	return cmd
 }
 
-func (e *CommonExecuter) execute(ctx context.Context, cmd *exec.Cmd) (stdout string, stderr string, exitCode int) {
+func (e *commonExecuter) execute(ctx context.Context, cmd *exec.Cmd) (stdout string, stderr string, exitCode int) {
 	var stdoutBytes, stderrBytes bytes.Buffer
 	cmd.Stdout = &stdoutBytes
 	cmd.Stderr = &stderrBytes
