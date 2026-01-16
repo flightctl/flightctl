@@ -130,8 +130,10 @@ func TestCheckRunActionDependency(t *testing.T) {
 	require := require.New(t)
 	tempDir := t.TempDir()
 
-	readWriter := fileio.NewReadWriter()
-	readWriter.SetRootdir(tempDir)
+	readWriter := fileio.NewReadWriter(
+		fileio.NewReader(fileio.WithReaderRootDir(tempDir)),
+		fileio.NewWriter(fileio.WithWriterRootDir(tempDir)),
+	)
 	err := readWriter.WriteFile("executable.sh", []byte("#!/bin/bash\necho 'Hello'"), 0755)
 	require.NoError(err)
 	err = readWriter.WriteFile("non-executable.txt", []byte("Just some text"), 0644)

@@ -170,9 +170,11 @@ func TestSync(t *testing.T) {
 			// setup
 			log := log.NewPrefixLogger("test")
 			log.SetLevel(logrus.DebugLevel)
-			tmpDir := t.TempDir()
-			readWriter := fileio.NewReadWriter()
-			readWriter.SetRootdir(tmpDir)
+			tempDir := t.TempDir()
+			readWriter := fileio.NewReadWriter(
+				fileio.NewReader(fileio.WithReaderRootDir(tempDir)),
+				fileio.NewWriter(fileio.WithWriterRootDir(tempDir)),
+			)
 
 			podmanClient := client.NewPodman(log, mockExec, readWriter, testutil.NewPollConfig())
 			mockWatcher := spec.NewMockWatcher(ctrl)
@@ -290,8 +292,10 @@ func TestRollbackDevice(t *testing.T) {
 			log := log.NewPrefixLogger("test")
 			log.SetLevel(logrus.DebugLevel)
 			tmpDir := t.TempDir()
-			readWriter := fileio.NewReadWriter()
-			readWriter.SetRootdir(tmpDir)
+			readWriter := fileio.NewReadWriter(
+				fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+				fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+			)
 			dataDir := filepath.Join(tmpDir, "data")
 
 			policyManager := policy.NewManager(log)

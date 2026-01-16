@@ -45,8 +45,7 @@ func TestExists(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tmpDir := t.TempDir()
-			writer := NewWriter()
-			writer.SetRootdir(tmpDir)
+			writer := NewWriter(WithWriterRootDir(tmpDir))
 			if tt.pathExists {
 				err := writer.WriteFile(tt.f.Path, []byte("contents"), 0644)
 				require.NoError(err)
@@ -115,8 +114,7 @@ func TestIsUpToDate(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			tmpDir := t.TempDir()
 			t.Log(tmpDir)
-			writer := NewWriter()
-			writer.SetRootdir(tmpDir)
+			writer := NewWriter(WithWriterRootDir(tmpDir))
 			if tt.current != nil {
 				// write the current file to disk if it exists
 				managed, err := writer.CreateManagedFile(*tt.current)

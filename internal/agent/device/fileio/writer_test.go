@@ -16,8 +16,10 @@ func TestCopyFile(t *testing.T) {
 
 	currentBytes := []byte("current")
 	desiredBytes := []byte("desired")
-	rw := NewReadWriter()
-	rw.SetRootdir(tmpDir)
+	rw := NewReadWriter(
+		NewReader(WithReaderRootDir(tmpDir)),
+		NewWriter(WithWriterRootDir(tmpDir)),
+	)
 	err := rw.WriteFile("current", currentBytes, 0644)
 	require.NoError(err)
 	err = rw.WriteFile("desired", desiredBytes, 0644)
@@ -43,8 +45,10 @@ func TestMkdirTemp(t *testing.T) {
 
 	t.Run("create temp dir and write/read file", func(t *testing.T) {
 		tmpDir := t.TempDir()
-		rw := NewReadWriter()
-		rw.SetRootdir(tmpDir)
+		rw := NewReadWriter(
+			NewReader(WithReaderRootDir(tmpDir)),
+			NewWriter(WithWriterRootDir(tmpDir)),
+		)
 		dir, err := rw.MkdirTemp("test")
 		require.NoError(err)
 		require.NotEmpty(dir)
@@ -65,7 +69,7 @@ func TestMkdirTemp(t *testing.T) {
 	})
 
 	t.Run("no rootdir create temp dir and write/read file", func(t *testing.T) {
-		rw := NewReadWriter()
+		rw := NewReadWriter(NewReader(), NewWriter())
 
 		dir, err := rw.MkdirTemp("test")
 		require.NoError(err)
@@ -452,7 +456,7 @@ func TestCopyDir(t *testing.T) {
 			tmpDir := t.TempDir()
 			srcDir, dstDir := tt.setup(t, tmpDir)
 
-			rw := NewReadWriter()
+			rw := NewReadWriter(NewReader(), NewWriter())
 			err := rw.CopyDir(srcDir, dstDir, tt.opts...)
 
 			if tt.expectError {
@@ -573,8 +577,10 @@ func TestUnpackTar(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tmpDir := t.TempDir()
-			rw := NewReadWriter()
-			rw.SetRootdir(tmpDir)
+			rw := NewReadWriter(
+				NewReader(WithReaderRootDir(tmpDir)),
+				NewWriter(WithWriterRootDir(tmpDir)),
+			)
 
 			tarFileName := "test.tar"
 			if tt.name == "gzipped tar" {
@@ -602,4 +608,12 @@ func TestUnpackTar(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestWriterForUser(t *testing.T) {
+	w := NewWriter(WithUID(17080), WithGID(17080))
+	dir := t.TempDir()
+	err := w.WriteFile(filepath.Join(dir, "test.txt"), []byte("testing"), DefaultFilePermissions)
+	require.Error(t, err)
+	require.ErrorContains(t, err, "chown")
 }

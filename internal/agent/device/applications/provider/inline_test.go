@@ -147,8 +147,10 @@ func TestInlineProvider(t *testing.T) {
 			defer ctrl.Finish()
 			mockExec := executer.NewMockExecuter(ctrl)
 			tmpDir := t.TempDir()
-			rw := fileio.NewReadWriter()
-			rw.SetRootdir(tmpDir)
+			rw := fileio.NewReadWriter(
+				fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+				fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+			)
 			podman := client.NewPodman(log, mockExec, rw, util.NewPollConfig())
 
 			if tt.setupMocks != nil {

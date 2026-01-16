@@ -235,7 +235,7 @@ func TestEnsureScheduled(t *testing.T) {
 			mockResourceManager := resource.NewMockManager(ctrl)
 			tt.setupMocks(mockExec, mockResourceManager)
 
-			rw := fileio.NewReadWriter()
+			rw := fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter())
 			podman := client.NewPodman(log, mockExec, rw, poll.Config{})
 
 			timeout := util.Duration(5 * time.Second)
@@ -316,7 +316,7 @@ func TestIsReady(t *testing.T) {
 
 			mockExec := executer.NewMockExecuter(ctrl)
 			mockResourceManager := resource.NewMockManager(ctrl)
-			rw := fileio.NewReadWriter()
+			rw := fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter())
 			podman := client.NewPodman(log, mockExec, rw, poll.Config{})
 
 			timeout := util.Duration(5 * time.Second)
@@ -366,7 +366,7 @@ func TestStatus(t *testing.T) {
 	mockResourceManager := resource.NewMockManager(ctrl)
 	mockResourceManager.EXPECT().IsCriticalAlert(gomock.Any()).Return(false).AnyTimes()
 
-	rw := fileio.NewReadWriter()
+	rw := fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter())
 	podman := client.NewPodman(log, mockExec, rw, poll.Config{})
 
 	timeout := util.Duration(5 * time.Second)
@@ -715,7 +715,7 @@ func TestBeforeUpdate(t *testing.T) {
 			mockResourceManager := resource.NewMockManager(ctrl)
 			mockResourceManager.EXPECT().IsCriticalAlert(gomock.Any()).Return(false).AnyTimes()
 
-			rw := fileio.NewReadWriter()
+			rw := fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter())
 			podman := client.NewPodman(log, mockExec, rw, poll.Config{})
 
 			timeout := util.Duration(5 * time.Second)
@@ -848,7 +848,7 @@ func TestPullSecretCleanup(t *testing.T) {
 	mockResourceManager := resource.NewMockManager(ctrl)
 	mockResourceManager.EXPECT().IsCriticalAlert(gomock.Any()).Return(false).AnyTimes()
 
-	rw := fileio.NewReadWriter()
+	rw := fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter())
 	podman := client.NewPodman(log, mockExec, rw, poll.Config{})
 	timeout := util.Duration(5 * time.Second)
 	manager := NewPrefetchManager(log, podman, client.NewSkopeo(log, mockExec, rw), rw, timeout, mockResourceManager, poll.Config{})
@@ -1061,8 +1061,10 @@ func TestCleanupPartialLayers(t *testing.T) {
 			}
 
 			// setup fileio with root dir
-			rw := fileio.NewReadWriter()
-			rw.SetRootdir(rootDir)
+			rw := fileio.NewReadWriter(
+				fileio.NewReader(fileio.WithReaderRootDir(rootDir)),
+				fileio.NewWriter(fileio.WithWriterRootDir(rootDir)),
+			)
 
 			log := log.NewPrefixLogger("test")
 			log.SetLevel(logrus.DebugLevel)
@@ -1140,7 +1142,7 @@ func TestSetResultAfterCleanup(t *testing.T) {
 	mockResourceManager := resource.NewMockManager(ctrl)
 	mockResourceManager.EXPECT().IsCriticalAlert(gomock.Any()).Return(false).AnyTimes()
 
-	readWriter := fileio.NewReadWriter()
+	readWriter := fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter())
 	podmanClient := client.NewPodman(logger, mockExec, readWriter, poll.Config{})
 	skopeoClient := client.NewSkopeo(logger, mockExec, readWriter)
 	pullTimeout := util.Duration(5 * time.Minute)
