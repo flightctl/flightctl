@@ -57,7 +57,7 @@ type vars struct {
 
 func setupVars(t *testing.T) *vars {
 	ctrl := gomock.NewController(t)
-	executor := &executer.CommonExecuter{}
+	executor := executer.NewCommonExecuter()
 	logger := log.NewPrefixLogger("console")
 	mockGrpcClient := NewMockRouterServiceClient(ctrl)
 	mockStreamClient := NewMockRouterService_StreamClient(ctrl)
