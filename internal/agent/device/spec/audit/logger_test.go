@@ -100,7 +100,10 @@ func TestNewFileLogger_EmptyAgentVersionUsesUnknown(t *testing.T) {
 
 	// Create temp directory for test
 	tempDir := t.TempDir()
-	readWriter := fileio.NewReadWriter(fileio.WithTestRootDir(tempDir))
+	readWriter := fileio.NewReadWriter(
+		fileio.NewReader(fileio.WithReaderRootDir(tempDir)),
+		fileio.NewWriter(fileio.WithWriterRootDir(tempDir)),
+	)
 
 	config := NewDefaultAuditConfig()
 	logger := log.NewPrefixLogger("test")
@@ -122,7 +125,10 @@ func TestFileLogger_LogEventApply(t *testing.T) {
 
 	// Create temp directory for test
 	tempDir := t.TempDir()
-	readWriter := fileio.NewReadWriter(fileio.WithTestRootDir(tempDir))
+	readWriter := fileio.NewReadWriter(
+		fileio.NewReader(fileio.WithReaderRootDir(tempDir)),
+		fileio.NewWriter(fileio.WithWriterRootDir(tempDir)),
+	)
 	logger := log.NewPrefixLogger("test")
 
 	config := NewDefaultAuditConfig()
@@ -172,7 +178,10 @@ func TestFileLogger_LogEventFailure(t *testing.T) {
 
 	// Create temp directory for test
 	tempDir := t.TempDir()
-	readWriter := fileio.NewReadWriter(fileio.WithTestRootDir(tempDir))
+	readWriter := fileio.NewReadWriter(
+		fileio.NewReader(fileio.WithReaderRootDir(tempDir)),
+		fileio.NewWriter(fileio.WithWriterRootDir(tempDir)),
+	)
 	logger := log.NewPrefixLogger("test")
 
 	config := NewDefaultAuditConfig()
@@ -221,7 +230,10 @@ func TestFileLogger_LogEventRollback(t *testing.T) {
 
 	// Create temp directory for test
 	tempDir := t.TempDir()
-	readWriter := fileio.NewReadWriter(fileio.WithTestRootDir(tempDir))
+	readWriter := fileio.NewReadWriter(
+		fileio.NewReader(fileio.WithReaderRootDir(tempDir)),
+		fileio.NewWriter(fileio.WithWriterRootDir(tempDir)),
+	)
 	logger := log.NewPrefixLogger("test")
 
 	config := NewDefaultAuditConfig()
@@ -271,7 +283,10 @@ func TestFileLogger_LogEventBootstrap(t *testing.T) {
 
 	// Create temp directory for test
 	tempDir := t.TempDir()
-	readWriter := fileio.NewReadWriter(fileio.WithTestRootDir(tempDir))
+	readWriter := fileio.NewReadWriter(
+		fileio.NewReader(fileio.WithReaderRootDir(tempDir)),
+		fileio.NewWriter(fileio.WithWriterRootDir(tempDir)),
+	)
 	logger := log.NewPrefixLogger("test")
 
 	config := NewDefaultAuditConfig()
@@ -321,7 +336,10 @@ func TestFileLogger_LogEventSync(t *testing.T) {
 
 	// Create temp directory for test
 	tempDir := t.TempDir()
-	readWriter := fileio.NewReadWriter(fileio.WithTestRootDir(tempDir))
+	readWriter := fileio.NewReadWriter(
+		fileio.NewReader(fileio.WithReaderRootDir(tempDir)),
+		fileio.NewWriter(fileio.WithWriterRootDir(tempDir)),
+	)
 	logger := log.NewPrefixLogger("test")
 
 	config := NewDefaultAuditConfig()
@@ -371,7 +389,10 @@ func TestFileLogger_DifferentEventTypes(t *testing.T) {
 
 	// Create temp directory for test
 	tempDir := t.TempDir()
-	readWriter := fileio.NewReadWriter(fileio.WithTestRootDir(tempDir))
+	readWriter := fileio.NewReadWriter(
+		fileio.NewReader(fileio.WithReaderRootDir(tempDir)),
+		fileio.NewWriter(fileio.WithWriterRootDir(tempDir)),
+	)
 	logger := log.NewPrefixLogger("test")
 
 	config := NewDefaultAuditConfig()
@@ -469,7 +490,10 @@ func TestFileLogger_RotationBehavior(t *testing.T) {
 
 	// Create temp directory for test
 	tempDir := t.TempDir()
-	readWriter := fileio.NewReadWriter(fileio.WithTestRootDir(tempDir))
+	readWriter := fileio.NewReadWriter(
+		fileio.NewReader(fileio.WithReaderRootDir(tempDir)),
+		fileio.NewWriter(fileio.WithWriterRootDir(tempDir)),
+	)
 	logger := log.NewPrefixLogger("test")
 
 	config := NewDefaultAuditConfig()
@@ -506,7 +530,10 @@ func TestFileLogger_DisabledLogging(t *testing.T) {
 
 	// Create temp directory for test
 	tempDir := t.TempDir()
-	readWriter := fileio.NewReadWriter(fileio.WithTestRootDir(tempDir))
+	readWriter := fileio.NewReadWriter(
+		fileio.NewReader(fileio.WithReaderRootDir(tempDir)),
+		fileio.NewWriter(fileio.WithWriterRootDir(tempDir)),
+	)
 	logger := log.NewPrefixLogger("test")
 
 	// Create config with logging disabled

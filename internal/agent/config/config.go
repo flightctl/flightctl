@@ -182,7 +182,7 @@ func NewDefault() *Config {
 		DataDir:              DefaultDataDir,
 		StatusUpdateInterval: DefaultStatusUpdateInterval,
 		SpecFetchInterval:    DefaultSpecFetchInterval,
-		readWriter:           fileio.NewReadWriter(),
+		readWriter:           fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter()),
 		LogLevel:             logrus.InfoLevel.String(),
 		DefaultLabels:        make(map[string]string),
 		ServiceConfig:        config.NewServiceConfig(),
@@ -209,7 +209,10 @@ func NewDefault() *Config {
 		c.testRootDir = filepath.Clean(value)
 	}
 
-	c.readWriter = fileio.NewReadWriter(fileio.WithTestRootDir(c.testRootDir))
+	c.readWriter = fileio.NewReadWriter(
+		fileio.NewReader(fileio.WithReaderRootDir(c.testRootDir)),
+		fileio.NewWriter(fileio.WithWriterRootDir(c.testRootDir)),
+	)
 
 	return c
 }

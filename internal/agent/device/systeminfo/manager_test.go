@@ -22,8 +22,10 @@ func TestManager(t *testing.T) {
 	// setup
 	tmpDir := t.TempDir()
 	dataDir := filepath.Join("etc", "flightctl")
-	readWriter := fileio.NewReadWriter()
-	readWriter.SetRootdir(tmpDir)
+	readWriter := fileio.NewReadWriter(
+		fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+		fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+	)
 	err := readWriter.MkdirAll(dataDir, 0755)
 	require.NoError(err)
 	err = readWriter.MkdirAll("/proc/sys/kernel/random", 0755)
@@ -146,8 +148,10 @@ func TestReloadConfig(t *testing.T) {
 
 			tmpDir := t.TempDir()
 			dataDir := filepath.Join("etc", "flightctl")
-			readWriter := fileio.NewReadWriter()
-			readWriter.SetRootdir(tmpDir)
+			readWriter := fileio.NewReadWriter(
+				fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+				fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+			)
 			err := readWriter.MkdirAll(dataDir, 0755)
 			require.NoError(err)
 

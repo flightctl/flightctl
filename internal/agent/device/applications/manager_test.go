@@ -209,7 +209,12 @@ func TestManager(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			readWriter := fileio.NewReadWriter()
+			tempDir := t.TempDir()
+			readWriter := fileio.NewReadWriter(
+				fileio.NewReader(fileio.WithReaderRootDir(tempDir)),
+				fileio.NewWriter(fileio.WithWriterRootDir(tempDir)),
+			)
+
 			ctx := context.Background()
 			log := log.NewPrefixLogger("test")
 			log.SetLevel(logrus.DebugLevel)
@@ -222,9 +227,6 @@ func TestManager(t *testing.T) {
 			mockSystemdMgr := systemd.NewMockManager(ctrl)
 			mockSystemdMgr.EXPECT().AddExclusions(gomock.Any()).AnyTimes()
 			mockSystemdMgr.EXPECT().RemoveExclusions(gomock.Any()).AnyTimes()
-
-			tmpDir := t.TempDir()
-			readWriter.SetRootdir(tmpDir)
 
 			tc.setupMocks(
 				mockExec,
@@ -289,9 +291,11 @@ func TestManagerRemoveApplication(t *testing.T) {
 	mockSystemdMgr.EXPECT().AddExclusions(gomock.Any()).AnyTimes()
 	mockSystemdMgr.EXPECT().RemoveExclusions(gomock.Any()).AnyTimes()
 
-	readWriter := fileio.NewReadWriter()
-	tmpDir := t.TempDir()
-	readWriter.SetRootdir(tmpDir)
+	tempDir := t.TempDir()
+	readWriter := fileio.NewReadWriter(
+		fileio.NewReader(fileio.WithReaderRootDir(tempDir)),
+		fileio.NewWriter(fileio.WithWriterRootDir(tempDir)),
+	)
 
 	current := newTestDeviceWithApplications(t, "app-remove", []testInlineDetails{
 		{Content: compose1, Path: "podman-compose.yaml"},
@@ -672,9 +676,11 @@ func TestCollectOCITargetsErrorHandling(t *testing.T) {
 				mockSystemdMgr := systemd.NewMockManager(ctrl)
 				mockSystemdMgr.EXPECT().AddExclusions(gomock.Any()).AnyTimes()
 				mockSystemdMgr.EXPECT().RemoveExclusions(gomock.Any()).AnyTimes()
-				readWriter := fileio.NewReadWriter()
-				tmpDir := t.TempDir()
-				readWriter.SetRootdir(tmpDir)
+				tempDir := t.TempDir()
+				readWriter := fileio.NewReadWriter(
+					fileio.NewReader(fileio.WithReaderRootDir(tempDir)),
+					fileio.NewWriter(fileio.WithWriterRootDir(tempDir)),
+				)
 
 				return &manager{
 					readWriter:     readWriter,
@@ -718,9 +724,11 @@ func TestCollectOCITargetsErrorHandling(t *testing.T) {
 				mockSystemdMgr := systemd.NewMockManager(ctrl)
 				mockSystemdMgr.EXPECT().AddExclusions(gomock.Any()).AnyTimes()
 				mockSystemdMgr.EXPECT().RemoveExclusions(gomock.Any()).AnyTimes()
-				readWriter := fileio.NewReadWriter()
-				tmpDir := t.TempDir()
-				readWriter.SetRootdir(tmpDir)
+				tempDir := t.TempDir()
+				readWriter := fileio.NewReadWriter(
+					fileio.NewReader(fileio.WithReaderRootDir(tempDir)),
+					fileio.NewWriter(fileio.WithWriterRootDir(tempDir)),
+				)
 
 				return &manager{
 					readWriter:     readWriter,

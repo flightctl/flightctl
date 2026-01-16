@@ -27,8 +27,10 @@ func setupTestEnv(t *testing.T) (*log.PrefixLogger, *client.Podman, fileio.ReadW
 
 	mockExec := executer.NewMockExecuter(ctrl)
 	tmpDir := t.TempDir()
-	rw := fileio.NewReadWriter()
-	rw.SetRootdir(tmpDir)
+	rw := fileio.NewReadWriter(
+		fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+		fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+	)
 	podman := client.NewPodman(log, mockExec, rw, util.NewPollConfig())
 
 	// Create the systemd unit directory for target file copying

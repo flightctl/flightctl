@@ -2050,6 +2050,9 @@ type KubernetesSecretProviderSpec struct {
 
 	// SecretRef The reference to a Kubernetes secret.
 	SecretRef struct {
+		// Group The file's group, specified either as a name or numeric ID. Defaults to "root".
+		Group *string `json:"group,omitempty"`
+
 		// MountPath Path in the device's file system at which the secret should be mounted.
 		MountPath string `json:"mountPath"`
 
@@ -2058,6 +2061,9 @@ type KubernetesSecretProviderSpec struct {
 
 		// Namespace The namespace of the secret.
 		Namespace string `json:"namespace"`
+
+		// User The file's owner, specified either as a name or numeric ID. Defaults to "root".
+		User *string `json:"user,omitempty"`
 	} `json:"secretRef"`
 }
 

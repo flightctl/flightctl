@@ -822,8 +822,10 @@ func TestRollback(t *testing.T) {
 			defer cancel()
 
 			tmpDir := t.TempDir()
-			readWriter := fileio.NewReadWriter()
-			readWriter.SetRootdir(tmpDir)
+			readWriter := fileio.NewReadWriter(
+				fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+				fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+			)
 			log := log.NewPrefixLogger("test")
 			mockPolicyManager := policy.NewMockManager(ctrl)
 			pub := newPublisher("testDevice", poll.NewConfig(10*time.Millisecond, 1.5), "0", nil, log)

@@ -21,7 +21,7 @@ func BenchmarkCollectInfo(b *testing.B) {
 	ctx := context.Background()
 	log := log.NewPrefixLogger("test")
 	exec := &executer.CommonExecuter{}
-	reader := fileio.NewReadWriter()
+	reader := fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter())
 	hardwareMapPath := "/var/lib/flightctl/hardware_map.json"
 
 	b.ResetTimer()
@@ -136,8 +136,10 @@ func TestGetCustomInfoMap(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tmpDir := t.TempDir()
-			rw := fileio.NewReadWriter()
-			rw.SetRootdir(tmpDir)
+			rw := fileio.NewReadWriter(
+				fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+				fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+			)
 
 			err := rw.MkdirAll(config.SystemInfoCustomScriptDir, fileio.DefaultDirectoryPermissions)
 			require.NoError(err)
@@ -417,7 +419,10 @@ func TestCollectOptFunctions(t *testing.T) {
 
 func TestCollect_AllDisabled(t *testing.T) {
 	tmpDir := t.TempDir()
-	readWriter := fileio.NewReadWriter(fileio.WithTestRootDir(tmpDir))
+	readWriter := fileio.NewReadWriter(
+		fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+		fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+	)
 
 	// Create minimal file structure
 	err := readWriter.MkdirAll("/proc/sys/kernel/random", 0755)
@@ -476,8 +481,10 @@ func TestGetCustomInfoContextTimeout(t *testing.T) {
 			require := require.New(t)
 
 			tmpDir := t.TempDir()
-			rw := fileio.NewReadWriter()
-			rw.SetRootdir(tmpDir)
+			rw := fileio.NewReadWriter(
+				fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+				fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+			)
 
 			err := rw.MkdirAll(config.SystemInfoCustomScriptDir, fileio.DefaultDirectoryPermissions)
 			require.NoError(err)

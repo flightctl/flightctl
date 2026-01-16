@@ -56,7 +56,11 @@ func TestComposeEnsurePodmanVolumeRetainReseeds(t *testing.T) {
 
 	mockWriter := fileio.NewMockWriter(ctrl)
 	mockExec := executer.NewMockExecuter(ctrl)
-	readWriter := fileio.NewReadWriter(fileio.WithTestRootDir(t.TempDir()))
+	tmpDir := t.TempDir()
+	readWriter := fileio.NewReadWriter(
+		fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+		fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+	)
 
 	logger := log.NewPrefixLogger("test")
 	podman := client.NewPodman(logger, mockExec, readWriter, testutil.NewPollConfig())
