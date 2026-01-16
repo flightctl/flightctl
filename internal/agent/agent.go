@@ -124,7 +124,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.log.Infof("Using persisted CSR for enrollment")
 	}
 
-	executer := &executer.CommonExecuter{}
+	executer := executer.NewCommonExecuter()
 
 	// create enrollment client
 	enrollmentClient, err := newEnrollmentClient(a.config, a.log)
