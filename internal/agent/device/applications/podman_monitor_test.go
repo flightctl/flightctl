@@ -201,8 +201,10 @@ func TestListenForEvents(t *testing.T) {
 			log := log.NewPrefixLogger("test")
 			log.SetLevel(logrus.DebugLevel)
 			tmpDir := t.TempDir()
-			rw := fileio.NewReadWriter()
-			rw.SetRootdir(tmpDir)
+			rw := fileio.NewReadWriter(
+				fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+				fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+			)
 			execMock := executer.NewMockExecuter(ctrl)
 
 			var testInspect []client.PodmanInspect
@@ -357,8 +359,10 @@ func TestApplicationAddRemove(t *testing.T) {
 
 			log := log.NewPrefixLogger("test")
 			tmpDir := t.TempDir()
-			readWriter := fileio.NewReadWriter()
-			readWriter.SetRootdir(tmpDir)
+			readWriter := fileio.NewReadWriter(
+				fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+				fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+			)
 			execMock := executer.NewMockExecuter(ctrl)
 
 			podman := client.NewPodman(log, execMock, readWriter, util.NewPollConfig())
@@ -511,9 +515,11 @@ func TestPodmanMonitorMultipleAddRemoveCycles(t *testing.T) {
 	mockExec := executer.NewMockExecuter(ctrl)
 	mockPodmanClient := client.NewPodman(log, mockExec, mockReadWriter, util.NewPollConfig())
 
-	readWriter := fileio.NewReadWriter()
-	tmpDir := t.TempDir()
-	readWriter.SetRootdir(tmpDir)
+	tempDir := t.TempDir()
+	readWriter := fileio.NewReadWriter(
+		fileio.NewReader(fileio.WithReaderRootDir(tempDir)),
+		fileio.NewWriter(fileio.WithWriterRootDir(tempDir)),
+	)
 
 	// Unlike the real podman events call, this will emit a single event and then close
 	mockExec.EXPECT().CommandContext(gomock.Any(), "podman", gomock.Any()).
@@ -615,9 +621,11 @@ func TestPodmanMonitorHandlerSelection(t *testing.T) {
 	mockExec := executer.NewMockExecuter(ctrl)
 	mockPodmanClient := client.NewPodman(log, mockExec, mockReadWriter, util.NewPollConfig())
 
-	readWriter := fileio.NewReadWriter()
-	tmpDir := t.TempDir()
-	readWriter.SetRootdir(tmpDir)
+	tempDir := t.TempDir()
+	readWriter := fileio.NewReadWriter(
+		fileio.NewReader(fileio.WithReaderRootDir(tempDir)),
+		fileio.NewWriter(fileio.WithWriterRootDir(tempDir)),
+	)
 
 	mockExec.EXPECT().CommandContext(gomock.Any(), "podman", gomock.Any()).
 		DoAndReturn(func(ctx context.Context, name string, args ...string) *exec.Cmd {
@@ -829,8 +837,10 @@ func TestPodmanMonitorStatusAggregation(t *testing.T) {
 			testLog := log.NewPrefixLogger("test")
 			testLog.SetLevel(logrus.DebugLevel)
 			tmpDir := t.TempDir()
-			rw := fileio.NewReadWriter()
-			rw.SetRootdir(tmpDir)
+			rw := fileio.NewReadWriter(
+				fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+				fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+			)
 			execMock := executer.NewMockExecuter(ctrl)
 
 			podman := client.NewPodman(testLog, execMock, rw, util.NewPollConfig())

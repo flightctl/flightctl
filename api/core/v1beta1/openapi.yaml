@@ -4545,6 +4545,12 @@ components:
             mountPath:
               type: string
               description: Path in the device's file system at which the secret should be mounted.
+            user:
+              type: string
+              description: The file's owner, specified either as a name or numeric ID. Defaults to "root".
+            group:
+              type: string
+              description: The file's group, specified either as a name or numeric ID. Defaults to "root".
           required:
             - name
             - namespace

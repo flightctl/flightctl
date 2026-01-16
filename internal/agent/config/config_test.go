@@ -206,7 +206,7 @@ status-update-interval: 0m10s
 			cfg := NewDefault()
 			cfg.ConfigDir = configDir
 			cfg.DataDir = dataDir
-			cfg.readWriter = fileio.NewReadWriter()
+			cfg.readWriter = fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter())
 
 			configFile := tt.setupFiles(t, configDir)
 
@@ -241,7 +241,7 @@ func TestLoadWithOverridesIncludesPruningFromConfD(t *testing.T) {
 	cfg := NewDefault()
 	cfg.ConfigDir = configDir
 	cfg.DataDir = dataDir
-	cfg.readWriter = fileio.NewReadWriter()
+	cfg.readWriter = fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter())
 
 	// Create base config file with pruning disabled
 	configFile := filepath.Join(configDir, "config.yaml")

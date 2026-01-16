@@ -74,7 +74,10 @@ func (a *Agent) Run(ctx context.Context) error {
 	go instrumentation.NewAgentInstrumentation(a.log, a.config).Run(ctx)
 
 	// create file io writer and reader
-	deviceReadWriter := fileio.NewReadWriter(fileio.WithTestRootDir(a.config.GetTestRootDir()))
+	deviceReadWriter := fileio.NewReadWriter(
+		fileio.NewReader(fileio.WithReaderRootDir(a.config.GetTestRootDir())),
+		fileio.NewWriter(fileio.WithWriterRootDir(a.config.GetTestRootDir())),
+	)
 
 	tpmClient, err := a.tryLoadTPM(deviceReadWriter)
 	if err != nil {

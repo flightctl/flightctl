@@ -441,7 +441,7 @@ func (t *DeviceRenderLogic) renderK8sConfig(ctx context.Context, configItem *dom
 		if err := validation.DenyForbiddenDevicePath(dest); err != nil {
 			return &k8sSpec.Name, nil, fmt.Errorf("invalid secret-derived path %q: %w", dest, err)
 		}
-		ignitionWrapper.SetFile(dest, contents, 0o644, false, nil, nil)
+		ignitionWrapper.SetFile(dest, contents, 0o644, false, k8sSpec.SecretRef.User, k8sSpec.SecretRef.Group)
 	}
 
 	*ignitionConfig = lo.ToPtr(ignitionWrapper.Merge(**ignitionConfig))

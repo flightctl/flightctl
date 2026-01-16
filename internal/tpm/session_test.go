@@ -672,8 +672,10 @@ func setupMocks(t *testing.T) (*gomock.Controller, *MockStorage, *mockReadWriteC
 	conn := &mockReadWriteCloser{Buffer: bytes.NewBuffer(nil), validSRK: false}
 
 	tmpDir := t.TempDir()
-	rw := fileio.NewReadWriter()
-	rw.SetRootdir(tmpDir)
+	rw := fileio.NewReadWriter(
+		fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+		fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+	)
 
 	logger := log.NewPrefixLogger("test")
 

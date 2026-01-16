@@ -130,8 +130,10 @@ func TestNewClient(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			tmpDir := t.TempDir()
-			rw := fileio.NewReadWriter()
-			rw.SetRootdir(tmpDir)
+			rw := fileio.NewReadWriter(
+				fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+				fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+			)
 			logger := log.NewPrefixLogger("test")
 
 			if tc.setupFiles != nil {
@@ -407,8 +409,10 @@ func TestDiscoverTPMDevices(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			tmpDir := t.TempDir()
-			rw := fileio.NewReadWriter()
-			rw.SetRootdir(tmpDir)
+			rw := fileio.NewReadWriter(
+				fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+				fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+			)
 
 			if tc.setupFiles != nil {
 				tc.setupFiles(t, rw)
@@ -469,8 +473,10 @@ func TestValidateTPMVersion2(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			tmpDir := t.TempDir()
-			rw := fileio.NewReadWriter()
-			rw.SetRootdir(tmpDir)
+			rw := fileio.NewReadWriter(
+				fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+				fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+			)
 
 			if tc.setupFiles != nil {
 				tc.setupFiles(t, rw)
@@ -520,8 +526,10 @@ func TestDeviceExists(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			tmpDir := t.TempDir()
-			rw := fileio.NewReadWriter()
-			rw.SetRootdir(tmpDir)
+			rw := fileio.NewReadWriter(
+				fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+				fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+			)
 
 			if tc.setupFiles != nil {
 				tc.setupFiles(t, rw)
@@ -588,8 +596,10 @@ func TestDiscoverDefaultTPM(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			tmpDir := t.TempDir()
-			rw := fileio.NewReadWriter()
-			rw.SetRootdir(tmpDir)
+			rw := fileio.NewReadWriter(
+				fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+				fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+			)
 			logger := log.NewPrefixLogger("test")
 
 			if tc.setupFiles != nil {
@@ -671,8 +681,10 @@ func TestResolveTPMPath(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			tmpDir := t.TempDir()
-			rw := fileio.NewReadWriter()
-			rw.SetRootdir(tmpDir)
+			rw := fileio.NewReadWriter(
+				fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+				fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+			)
 
 			if tc.setupFiles != nil {
 				tc.setupFiles(t, rw)
@@ -872,7 +884,11 @@ func TestClient_SimulatorIntegration(t *testing.T) {
 			err = setupFakeRSAEKCertificate(sim)
 			require.NoError(err)
 
-			rw := fileio.NewReadWriter(fileio.WithTestRootDir(t.TempDir()))
+			tmpDir := t.TempDir()
+			rw := fileio.NewReadWriter(
+				fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+				fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+			)
 
 			connFactory := func() (io.ReadWriteCloser, error) {
 				return sim, nil
@@ -1355,7 +1371,11 @@ func TestSessionGenerateChallenge(t *testing.T) {
 			err = tc.setupEKCert(sim)
 			require.NoError(err)
 
-			rw := fileio.NewReadWriter(fileio.WithTestRootDir(t.TempDir()))
+			tmpDir := t.TempDir()
+			rw := fileio.NewReadWriter(
+				fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+				fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+			)
 
 			connFactory := func() (io.ReadWriteCloser, error) {
 				return sim, nil
@@ -1415,7 +1435,11 @@ func TestCreateCredential(t *testing.T) {
 			err = tc.setupEKCert(sim)
 			require.NoError(err)
 
-			rw := fileio.NewReadWriter(fileio.WithTestRootDir(t.TempDir()))
+			tmpDir := t.TempDir()
+			rw := fileio.NewReadWriter(
+				fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+				fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+			)
 
 			connFactory := func() (io.ReadWriteCloser, error) {
 				return sim, nil
@@ -1500,7 +1524,11 @@ func TestClient_CreateApplicationKeys(t *testing.T) {
 			err = setupFakeRSAEKCertificate(sim)
 			require.NoError(err)
 
-			rw := fileio.NewReadWriter(fileio.WithTestRootDir(t.TempDir()))
+			tmpDir := t.TempDir()
+			rw := fileio.NewReadWriter(
+				fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+				fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+			)
 
 			// Connection factory that properly manages the simulator connection
 			connFactory := func() (io.ReadWriteCloser, error) {

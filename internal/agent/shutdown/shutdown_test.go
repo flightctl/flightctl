@@ -14,7 +14,7 @@ import (
 
 func TestParseUtmpRecords(t *testing.T) {
 	t.Skip("Test disabled to avoid reading from actual run level path")
-	reader := fileio.NewReadWriter()
+	reader := fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter())
 	testData, err := reader.ReadFile(runlevelPath)
 	require.Nil(t, err)
 	l := log.NewPrefixLogger("test")
@@ -35,8 +35,10 @@ func TestParseUtmpRecords(t *testing.T) {
 
 func TestIsShuttingDownViaRunlevelWithTestData(t *testing.T) {
 	tmpDir := t.TempDir()
-	rw := fileio.NewReadWriter()
-	rw.SetRootdir(tmpDir)
+	rw := fileio.NewReadWriter(
+		fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+		fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+	)
 	testLogger := log.NewPrefixLogger("test")
 
 	// Write test data to a file
@@ -216,8 +218,10 @@ func TestIsSystemShutdown(t *testing.T) {
 
 			// Setup file system
 			tmpDir := t.TempDir()
-			rw := fileio.NewReadWriter()
-			rw.SetRootdir(tmpDir)
+			rw := fileio.NewReadWriter(
+				fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+				fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+			)
 
 			// Write utmp test data
 			if tc.utmpData != nil {
@@ -256,8 +260,10 @@ func TestIsSystemShutdownScheduledFile(t *testing.T) {
 
 	// Setup file system
 	tmpDir := t.TempDir()
-	rw := fileio.NewReadWriter()
-	rw.SetRootdir(tmpDir)
+	rw := fileio.NewReadWriter(
+		fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+		fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+	)
 
 	err := rw.WriteFile(shutdownScheduledPath, []byte{0x00}, 0600)
 	require.Nil(t, err)

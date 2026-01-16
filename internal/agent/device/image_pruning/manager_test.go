@@ -27,7 +27,7 @@ func TestManager_getImageReferencesFromSpecs(t *testing.T) {
 
 	log := log.NewPrefixLogger("test")
 	mockExec := executer.NewMockExecuter(ctrl)
-	readWriter := fileio.NewReadWriter()
+	readWriter := fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter())
 	podmanClient := client.NewPodman(log, mockExec, readWriter, poll.Config{})
 	mockSpecManager := spec.NewMockManager(ctrl)
 	enabled := true
@@ -616,8 +616,10 @@ func TestManager_determineEligibleImages(t *testing.T) {
 			// Create a temporary directory for the test
 			tmpDir := t.TempDir()
 			// Create a new readWriter for each test to avoid shared state
-			testReadWriter := fileio.NewReadWriter()
-			testReadWriter.SetRootdir(tmpDir)
+			testReadWriter := fileio.NewReadWriter(
+				fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+				fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+			)
 			tc.setupMocks(mockExec, mockSpecManager, testReadWriter, tmpDir)
 
 			podmanClient := client.NewPodman(log, mockExec, testReadWriter, poll.Config{})
@@ -765,7 +767,7 @@ func TestManager_validateCapability(t *testing.T) {
 			defer ctrl.Finish()
 
 			mockExec := executer.NewMockExecuter(ctrl)
-			readWriter := fileio.NewReadWriter()
+			readWriter := fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter())
 			mockSpecManager := spec.NewMockManager(ctrl)
 
 			tc.setupMocks(mockExec, mockSpecManager)
@@ -858,7 +860,7 @@ func TestManager_removeEligibleImages(t *testing.T) {
 
 			log := log.NewPrefixLogger("test")
 			mockExec := executer.NewMockExecuter(ctrl)
-			readWriter := fileio.NewReadWriter()
+			readWriter := fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter())
 			mockSpecManager := spec.NewMockManager(ctrl)
 			enabled := true
 			config := config.ImagePruning{Enabled: &enabled}

@@ -21,14 +21,29 @@ type reader struct {
 	rootDir string
 }
 
-// New creates a new writer
-func NewReader() *reader {
-	return &reader{}
+type readerOptions struct {
+	rootDir string
 }
 
-// SetRootdir sets the root directory for the reader, useful for testing
-func (r *reader) SetRootdir(path string) {
-	r.rootDir = path
+type ReaderOption func(*readerOptions)
+
+func WithReaderRootDir(rootDir string) ReaderOption {
+	return func(wo *readerOptions) {
+		wo.rootDir = rootDir
+	}
+}
+
+// New creates a new writer
+func NewReader(options ...ReaderOption) *reader {
+	opts := readerOptions{
+		rootDir: "",
+	}
+	for _, o := range options {
+		o(&opts)
+	}
+	return &reader{
+		rootDir: opts.rootDir,
+	}
 }
 
 // PathFor returns the full path for the provided file, useful for using functions

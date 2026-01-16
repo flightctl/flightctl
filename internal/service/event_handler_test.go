@@ -582,7 +582,11 @@ func TestEventEnrollmentRequestApproved(t *testing.T) {
 	}
 	status := domain.EnrollmentRequestStatus{}
 	deviceStatus := domain.NewDeviceStatus()
-	deviceReadWriter := fileio.NewReadWriter(fileio.WithTestRootDir(t.TempDir()))
+	tmpDir := t.TempDir()
+	deviceReadWriter := fileio.NewReadWriter(
+		fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+		fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+	)
 	_, privateKey, _, err := fccrypto.EnsureKey(deviceReadWriter.PathFor("TestCSR"))
 	require.NoError(err)
 	csr, err := fccrypto.MakeCSR(privateKey.(crypto.Signer), name)
