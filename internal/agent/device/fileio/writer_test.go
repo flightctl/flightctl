@@ -603,3 +603,11 @@ func TestUnpackTar(t *testing.T) {
 		})
 	}
 }
+
+func TestWriterForUser(t *testing.T) {
+	w := NewWriterForUser(17080, 17080)
+	dir := t.TempDir()
+	err := w.WriteFile(filepath.Join(dir, "test.txt"), []byte("testing"), DefaultFilePermissions)
+	require.Error(t, err)
+	require.ErrorContains(t, err, "chown")
+}

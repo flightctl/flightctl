@@ -622,9 +622,11 @@ var gitConfigInvalidRepo = v1beta1.GitConfigProviderSpec{
 var k8sSecretConfig = v1beta1.KubernetesSecretProviderSpec{
 	Name: "example-k8s-secret-config-provider",
 	SecretRef: struct {
-		MountPath string "json:\"mountPath\""
-		Name      string "json:\"name\""
-		Namespace string "json:\"namespace\""
+		Group     *string `json:"group,omitempty"`
+		MountPath string  `json:"mountPath"`
+		Name      string  `json:"name"`
+		Namespace string  `json:"namespace"`
+		User      *string `json:"user,omitempty"`
 	}{
 		MountPath: "/etc",
 		Name:      "test-config",

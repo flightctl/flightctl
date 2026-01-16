@@ -38,6 +38,8 @@ type Writer interface {
 	// RemoveContents removes all files and subdirectories within the given path,
 	// but leaves the directory itself intact. It is a no-op if the path does not exist.
 	RemoveContents(path string) error
+	// OpenFile opens the file at the given path, ensuring that it is owned by the correct user.
+	OpenFile(path string, flag int, perm fs.FileMode) (*os.File, error)
 	// MkdirAll creates a directory at the given path with the specified permissions.
 	MkdirAll(path string, perm fs.FileMode) error
 	// MkdirTemp creates a temporary directory with the given prefix and returns its path.
