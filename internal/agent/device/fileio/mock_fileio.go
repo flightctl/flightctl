@@ -11,6 +11,7 @@ package fileio
 
 import (
 	fs "io/fs"
+	os "os"
 	reflect "reflect"
 
 	v1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
@@ -196,6 +197,21 @@ func (m *MockWriter) MkdirTemp(prefix string) (string, error) {
 func (mr *MockWriterMockRecorder) MkdirTemp(prefix any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MkdirTemp", reflect.TypeOf((*MockWriter)(nil).MkdirTemp), prefix)
+}
+
+// OpenFile mocks base method.
+func (m *MockWriter) OpenFile(path string, flag int, perm fs.FileMode) (*os.File, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "OpenFile", path, flag, perm)
+	ret0, _ := ret[0].(*os.File)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// OpenFile indicates an expected call of OpenFile.
+func (mr *MockWriterMockRecorder) OpenFile(path, flag, perm any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OpenFile", reflect.TypeOf((*MockWriter)(nil).OpenFile), path, flag, perm)
 }
 
 // OverwriteAndWipe mocks base method.
@@ -496,6 +512,21 @@ func (m *MockReadWriter) MkdirTemp(prefix string) (string, error) {
 func (mr *MockReadWriterMockRecorder) MkdirTemp(prefix any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MkdirTemp", reflect.TypeOf((*MockReadWriter)(nil).MkdirTemp), prefix)
+}
+
+// OpenFile mocks base method.
+func (m *MockReadWriter) OpenFile(path string, flag int, perm fs.FileMode) (*os.File, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "OpenFile", path, flag, perm)
+	ret0, _ := ret[0].(*os.File)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// OpenFile indicates an expected call of OpenFile.
+func (mr *MockReadWriterMockRecorder) OpenFile(path, flag, perm any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OpenFile", reflect.TypeOf((*MockReadWriter)(nil).OpenFile), path, flag, perm)
 }
 
 // OverwriteAndWipe mocks base method.

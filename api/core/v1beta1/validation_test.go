@@ -2085,9 +2085,11 @@ func TestKubernetesSecretProviderSpec_Validate_ForbiddenPaths(t *testing.T) {
 			spec := KubernetesSecretProviderSpec{
 				Name: "test-k8s-config",
 				SecretRef: struct {
-					MountPath string `json:"mountPath"`
-					Name      string `json:"name"`
-					Namespace string `json:"namespace"`
+					Group     *string `json:"group,omitempty"`
+					MountPath string  `json:"mountPath"`
+					Name      string  `json:"name"`
+					Namespace string  `json:"namespace"`
+					User      *string `json:"user,omitempty"`
 				}{
 					MountPath: tt.mountPath,
 					Name:      "test-secret",
