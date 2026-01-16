@@ -20,7 +20,7 @@ import (
 func BenchmarkCollectInfo(b *testing.B) {
 	ctx := context.Background()
 	log := log.NewPrefixLogger("test")
-	exec := &executer.CommonExecuter{}
+	exec := executer.NewCommonExecuter()
 	reader := fileio.NewReadWriter()
 	hardwareMapPath := "/var/lib/flightctl/hardware_map.json"
 
@@ -152,7 +152,7 @@ func TestGetCustomInfoMap(t *testing.T) {
 			}
 
 			log := log.NewPrefixLogger("test")
-			exec := &executer.CommonExecuter{}
+			exec := executer.NewCommonExecuter()
 			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 			defer cancel()
 
@@ -490,7 +490,7 @@ func TestGetCustomInfoContextTimeout(t *testing.T) {
 			)
 			require.NoError(err)
 
-			exec := &executer.CommonExecuter{}
+			exec := executer.NewCommonExecuter()
 			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 			defer cancel()
 

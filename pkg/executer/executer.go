@@ -18,23 +18,27 @@ type Executer interface {
 	LookPath(file string) (string, error)
 }
 
-type CommonExecuter struct{}
+type commonExecuter struct{}
 
-func (e *CommonExecuter) TempFile(dir, pattern string) (f *os.File, err error) {
+func NewCommonExecuter() *commonExecuter {
+	return &commonExecuter{}
+}
+
+func (e *commonExecuter) TempFile(dir, pattern string) (f *os.File, err error) {
 	return os.CreateTemp(dir, pattern)
 }
 
-func (e *CommonExecuter) Execute(command string, args ...string) (stdout string, stderr string, exitCode int) {
+func (e *commonExecuter) Execute(command string, args ...string) (stdout string, stderr string, exitCode int) {
 	cmd := exec.Command(command, args...)
 	return e.execute(context.Background(), cmd)
 }
 
-func (e *CommonExecuter) ExecuteWithContext(ctx context.Context, command string, args ...string) (stdout string, stderr string, exitCode int) {
+func (e *commonExecuter) ExecuteWithContext(ctx context.Context, command string, args ...string) (stdout string, stderr string, exitCode int) {
 	cmd := exec.CommandContext(ctx, command, args...)
 	return e.execute(ctx, cmd)
 }
 
-func (e *CommonExecuter) ExecuteWithContextFromDir(ctx context.Context, workingDir string, command string, args []string, env ...string) (stdout string, stderr string, exitCode int) {
+func (e *commonExecuter) ExecuteWithContextFromDir(ctx context.Context, workingDir string, command string, args []string, env ...string) (stdout string, stderr string, exitCode int) {
 	cmd := exec.CommandContext(ctx, command, args...)
 	cmd.Dir = workingDir
 	if len(env) > 0 {
@@ -43,7 +47,7 @@ func (e *CommonExecuter) ExecuteWithContextFromDir(ctx context.Context, workingD
 	return e.execute(ctx, cmd)
 }
 
-func (e *CommonExecuter) LookPath(file string) (string, error) {
+func (e *commonExecuter) LookPath(file string) (string, error) {
 	return exec.LookPath(file)
 }
 

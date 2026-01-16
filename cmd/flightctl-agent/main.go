@@ -122,7 +122,7 @@ func (s *systemInfoCmd) Execute() error {
 	reader := fileio.NewReader()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	exec := &executer.CommonExecuter{}
+	exec := executer.NewCommonExecuter()
 	info, err := systeminfo.Collect(ctx, s.log, exec, reader, nil, s.hardwareMapPath, systeminfo.WithAll())
 	if err != nil {
 		s.log.Fatalf("Error collecting system info: %v", err)
