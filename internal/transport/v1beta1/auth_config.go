@@ -1,9 +1,10 @@
-package transport
+package transportv1beta1
 
 import (
 	"net/http"
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/internal/transport"
 )
 
 // AuthConfig returns the authentication configuration
@@ -13,12 +14,12 @@ func (h *TransportHandler) AuthConfig(w http.ResponseWriter, r *http.Request) {
 
 	authConfig := h.authN.GetAuthConfig()
 	body, status := h.serviceHandler.GetAuthConfig(r.Context(), authConfig)
-	SetResponse(w, body, status)
+	transport.SetResponse(w, body, status)
 }
 
 // AuthValidate validates an authentication token
 // (GET /api/v1/auth/validate)
 func (h *TransportHandler) AuthValidate(w http.ResponseWriter, r *http.Request, params api.AuthValidateParams) {
 	// auth middleware already checked the token validity
-	SetResponse(w, nil, api.StatusOK())
+	transport.SetResponse(w, nil, api.StatusOK())
 }

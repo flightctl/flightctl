@@ -1,4 +1,4 @@
-package transport
+package transportv1beta1
 
 import (
 	"encoding/json"
@@ -8,6 +8,7 @@ import (
 	"time"
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/internal/transport"
 	"github.com/go-chi/chi/v5"
 	"github.com/gorilla/websocket"
 )
@@ -31,7 +32,7 @@ func (h *WebsocketHandler) HandleDeviceConsole(w http.ResponseWriter, r *http.Re
 	h.log.Infof("websocket console connection requested for device: %s", deviceName)
 
 	// Extract organization ID from context
-	orgId := OrgIDFromContext(r.Context())
+	orgId := transport.OrgIDFromContext(r.Context())
 
 	// Extract metadata
 	metadata, err := h.injectProtocolsToMetadata(r.URL.Query().Get(api.DeviceQueryConsoleSessionMetadata),
