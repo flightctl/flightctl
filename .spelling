@@ -274,6 +274,11 @@ approvedBy
 creationTimestamp
 deletionTimestamp
 resourceVersion
+ImageBuild
+ImageExport
+ImageExports
+ImageBuilds
+ReadWrite
  - docs/user/introduction.md
 emea
 hw-generation
@@ -324,6 +329,8 @@ namespaced
  - docs/user/building/building-images.md
 usr
 iso
+ImageExport
+ImageBuild
  - docs/user/using/registering-microshift-devices-acm.md
 klusterlet
  - docs/user/using/field-selectors.md
@@ -490,3 +497,14 @@ CLI
 webserver
  - docs/user/references/components.md
 flightctl-api
+- docs/user/using/managing-repositories.md
+ImageBuild
+ImageExport
+OCI
+IPv6
+- docs/user/using/managing-image-builds.md
+ImageBuild
+ImageExport
+OCI
+ReadWrite
+ImageBuilder
