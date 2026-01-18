@@ -1,4 +1,4 @@
-package transport
+package transportv1beta1
 
 import (
 	"github.com/flightctl/flightctl/internal/api/convert"
