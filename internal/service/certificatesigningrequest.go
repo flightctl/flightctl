@@ -213,7 +213,7 @@ func (h *ServiceHandler) PatchCertificateSigningRequest(ctx context.Context, org
 	}
 
 	newObj := &domain.CertificateSigningRequest{}
-	err = ApplyJSONPatch(ctx, currentObj, newObj, patch, "/api/v1/certificatesigningrequests/"+name)
+	err = ApplyJSONPatch(ctx, currentObj, newObj, patch, "/certificatesigningrequests/"+name)
 	if err != nil {
 		return nil, domain.StatusBadRequest(err.Error())
 	}

@@ -20,7 +20,7 @@ func TestGetEndpointMetadata(t *testing.T) {
 	}{
 		{
 			name:           "ResumeDevices endpoint with x-rbac",
-			path:           "/api/v1/deviceactions/resume",
+			path:           "/deviceactions/resume",
 			method:         "POST",
 			expectedFound:  true,
 			expectedOpID:   "resumeDevices",
@@ -29,7 +29,7 @@ func TestGetEndpointMetadata(t *testing.T) {
 		},
 		{
 			name:           "Device endpoint with path parameter",
-			path:           "/api/v1/devices/{name}",
+			path:           "/devices/{name}",
 			method:         "GET",
 			expectedFound:  true,
 			expectedOpID:   "getDevice",
@@ -38,7 +38,7 @@ func TestGetEndpointMetadata(t *testing.T) {
 		},
 		{
 			name:           "List devices endpoint",
-			path:           "/api/v1/devices",
+			path:           "/devices",
 			method:         "GET",
 			expectedFound:  true,
 			expectedOpID:   "listDevices",
@@ -47,7 +47,7 @@ func TestGetEndpointMetadata(t *testing.T) {
 		},
 		{
 			name:           "Fleet status endpoint",
-			path:           "/api/v1/fleets/{name}/status",
+			path:           "/fleets/{name}/status",
 			method:         "GET",
 			expectedFound:  true,
 			expectedOpID:   "getFleetStatus",
@@ -56,13 +56,13 @@ func TestGetEndpointMetadata(t *testing.T) {
 		},
 		{
 			name:          "Non-existent endpoint",
-			path:          "/api/v1/nonexistent",
+			path:          "/nonexistent",
 			method:        "GET",
 			expectedFound: false,
 		},
 		{
 			name:          "Wrong method",
-			path:          "/api/v1/deviceactions/resume",
+			path:          "/deviceactions/resume",
 			method:        "GET",
 			expectedFound: false,
 		},
@@ -137,7 +137,7 @@ func TestGetEndpointMetadata(t *testing.T) {
 func TestAPIMetadataRegistryContainsResumeDevices(t *testing.T) {
 	// Verify that our registry contains the ResumeDevices endpoint
 	// Test direct map lookup for the resumeDevices endpoint
-	metadata, found := APIMetadataMap["POST:/api/v1/deviceactions/resume"]
+	metadata, found := APIMetadataMap["POST:/deviceactions/resume"]
 
 	if !found {
 		t.Error("ResumeDevices endpoint not found in APIMetadataMap")
@@ -170,7 +170,7 @@ func TestAPIMetadataRegistryContainsResumeDevices(t *testing.T) {
 func TestAPIMetadataVersionOrdering(t *testing.T) {
 	// Test that versions are ordered correctly (stable > beta > alpha)
 	// For now we only have v1beta1, but this test ensures the structure is correct
-	metadata, found := APIMetadataMap["GET:/api/v1/devices"]
+	metadata, found := APIMetadataMap["GET:/devices"]
 
 	if !found {
 		t.Error("listDevices endpoint not found in APIMetadataMap")
@@ -202,20 +202,20 @@ func TestEndpointResourceInference(t *testing.T) {
 		expectedResource string
 		expectedAction   string
 	}{
-		{"GET:/api/v1/devices", "devices", "list"},
-		{"GET:/api/v1/devices/{name}", "devices", "get"},
-		{"POST:/api/v1/devices", "devices", "create"},
-		{"PUT:/api/v1/devices/{name}", "devices", "update"},
-		{"DELETE:/api/v1/devices/{name}", "devices", "delete"},
-		{"GET:/api/v1/fleets", "fleets", "list"},
-		{"GET:/api/v1/fleets/{name}/status", "fleets/status", "get"},
-		{"GET:/api/v1/repositories", "repositories", "list"},
-		{"GET:/api/v1/resourcesyncs", "resourcesyncs", "list"},
-		{"GET:/api/v1/enrollmentrequests", "enrollmentrequests", "list"},
-		{"GET:/api/v1/certificatesigningrequests", "certificatesigningrequests", "list"},
-		{"GET:/api/v1/authproviders", "authproviders", "list"},
-		{"GET:/api/v1/events", "events", "list"},
-		{"GET:/api/v1/organizations", "organizations", "list"},
+		{"GET:/devices", "devices", "list"},
+		{"GET:/devices/{name}", "devices", "get"},
+		{"POST:/devices", "devices", "create"},
+		{"PUT:/devices/{name}", "devices", "update"},
+		{"DELETE:/devices/{name}", "devices", "delete"},
+		{"GET:/fleets", "fleets", "list"},
+		{"GET:/fleets/{name}/status", "fleets/status", "get"},
+		{"GET:/repositories", "repositories", "list"},
+		{"GET:/resourcesyncs", "resourcesyncs", "list"},
+		{"GET:/enrollmentrequests", "enrollmentrequests", "list"},
+		{"GET:/certificatesigningrequests", "certificatesigningrequests", "list"},
+		{"GET:/authproviders", "authproviders", "list"},
+		{"GET:/events", "events", "list"},
+		{"GET:/organizations", "organizations", "list"},
 	}
 
 	for _, tt := range tests {

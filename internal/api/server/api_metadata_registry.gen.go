@@ -31,7 +31,7 @@ func timePtr(year, month, day int) *time.Time {
 
 // APIMetadataMap provides O(1) lookup for endpoint metadata using pattern+method as key
 var APIMetadataMap = map[string]EndpointMetadata{
-	"GET:/api/v1/auth/config": {
+	"GET:/auth/config": {
 		OperationID: "authConfig",
 		Resource:    "",
 		Action:      "list",
@@ -39,7 +39,7 @@ var APIMetadataMap = map[string]EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"GET:/api/v1/auth/permissions": {
+	"GET:/auth/permissions": {
 		OperationID: "authGetPermissions",
 		Resource:    "",
 		Action:      "list",
@@ -47,7 +47,7 @@ var APIMetadataMap = map[string]EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"GET:/api/v1/auth/userinfo": {
+	"GET:/auth/userinfo": {
 		OperationID: "authUserInfo",
 		Resource:    "",
 		Action:      "list",
@@ -55,7 +55,7 @@ var APIMetadataMap = map[string]EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"GET:/api/v1/auth/validate": {
+	"GET:/auth/validate": {
 		OperationID: "authValidate",
 		Resource:    "",
 		Action:      "list",
@@ -63,7 +63,7 @@ var APIMetadataMap = map[string]EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"POST:/api/v1/auth/{providername}/token": {
+	"POST:/auth/{providername}/token": {
 		OperationID: "authToken",
 		Resource:    "",
 		Action:      "create",
@@ -71,7 +71,7 @@ var APIMetadataMap = map[string]EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"GET:/api/v1/authproviders": {
+	"GET:/authproviders": {
 		OperationID: "listAuthProviders",
 		Resource:    "authproviders",
 		Action:      "list",
@@ -79,7 +79,7 @@ var APIMetadataMap = map[string]EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"POST:/api/v1/authproviders": {
+	"POST:/authproviders": {
 		OperationID: "createAuthProvider",
 		Resource:    "authproviders",
 		Action:      "create",
@@ -87,7 +87,7 @@ var APIMetadataMap = map[string]EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"DELETE:/api/v1/authproviders/{name}": {
+	"DELETE:/authproviders/{name}": {
 		OperationID: "deleteAuthProvider",
 		Resource:    "authproviders",
 		Action:      "delete",
@@ -95,7 +95,7 @@ var APIMetadataMap = map[string]EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"GET:/api/v1/authproviders/{name}": {
+	"GET:/authproviders/{name}": {
 		OperationID: "getAuthProvider",
 		Resource:    "authproviders",
 		Action:      "get",
@@ -103,7 +103,7 @@ var APIMetadataMap = map[string]EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"PATCH:/api/v1/authproviders/{name}": {
+	"PATCH:/authproviders/{name}": {
 		OperationID: "patchAuthProvider",
 		Resource:    "authproviders",
 		Action:      "patch",
@@ -111,7 +111,7 @@ var APIMetadataMap = map[string]EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"PUT:/api/v1/authproviders/{name}": {
+	"PUT:/authproviders/{name}": {
 		OperationID: "replaceAuthProvider",
 		Resource:    "authproviders",
 		Action:      "update",
@@ -119,7 +119,7 @@ var APIMetadataMap = map[string]EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"GET:/api/v1/certificatesigningrequests": {
+	"GET:/certificatesigningrequests": {
 		OperationID: "listCertificateSigningRequests",
 		Resource:    "certificatesigningrequests",
 		Action:      "list",
@@ -127,7 +127,7 @@ var APIMetadataMap = map[string]EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"POST:/api/v1/certificatesigningrequests": {
+	"POST:/certificatesigningrequests": {
 		OperationID: "createCertificateSigningRequest",
 		Resource:    "certificatesigningrequests",
 		Action:      "create",
@@ -135,7 +135,7 @@ var APIMetadataMap = map[string]EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"DELETE:/api/v1/certificatesigningrequests/{name}": {
+	"DELETE:/certificatesigningrequests/{name}": {
 		OperationID: "deleteCertificateSigningRequest",
 		Resource:    "certificatesigningrequests",
 		Action:      "delete",
@@ -143,7 +143,7 @@ var APIMetadataMap = map[string]EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"GET:/api/v1/certificatesigningrequests/{name}": {
+	"GET:/certificatesigningrequests/{name}": {
 		OperationID: "getCertificateSigningRequest",
 		Resource:    "certificatesigningrequests",
 		Action:      "get",
@@ -151,7 +151,7 @@ var APIMetadataMap = map[string]EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"PATCH:/api/v1/certificatesigningrequests/{name}": {
+	"PATCH:/certificatesigningrequests/{name}": {
 		OperationID: "patchCertificateSigningRequest",
 		Resource:    "certificatesigningrequests",
 		Action:      "patch",
@@ -159,7 +159,7 @@ var APIMetadataMap = map[string]EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"PUT:/api/v1/certificatesigningrequests/{name}": {
+	"PUT:/certificatesigningrequests/{name}": {
 		OperationID: "replaceCertificateSigningRequest",
 		Resource:    "certificatesigningrequests",
 		Action:      "update",
@@ -167,7 +167,7 @@ var APIMetadataMap = map[string]EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"PUT:/api/v1/certificatesigningrequests/{name}/approval": {
+	"PUT:/certificatesigningrequests/{name}/approval": {
 		OperationID: "updateCertificateSigningRequestApproval",
 		Resource:    "certificatesigningrequests/approval",
 		Action:      "update",
@@ -175,7 +175,7 @@ var APIMetadataMap = map[string]EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"POST:/api/v1/deviceactions/resume": {
+	"POST:/deviceactions/resume": {
 		OperationID: "resumeDevices",
 		Resource:    "devices/resume",
 		Action:      "update",
@@ -183,7 +183,7 @@ var APIMetadataMap = map[string]EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"GET:/api/v1/devices": {
+	"GET:/devices": {
 		OperationID: "listDevices",
 		Resource:    "devices",
 		Action:      "list",
@@ -191,7 +191,7 @@ var APIMetadataMap = map[string]EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"POST:/api/v1/devices": {
+	"POST:/devices": {
 		OperationID: "createDevice",
 		Resource:    "devices",
 		Action:      "create",
@@ -199,7 +199,7 @@ var APIMetadataMap = map[string]EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"DELETE:/api/v1/devices/{name}": {
+	"DELETE:/devices/{name}": {
 		OperationID: "deleteDevice",
 		Resource:    "devices",
 		Action:      "delete",
@@ -207,7 +207,7 @@ var APIMetadataMap = map[string]EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"GET:/api/v1/devices/{name}": {
+	"GET:/devices/{name}": {
 		OperationID: "getDevice",
 		Resource:    "devices",
 		Action:      "get",
@@ -215,7 +215,7 @@ var APIMetadataMap = map[string]EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"PATCH:/api/v1/devices/{name}": {
+	"PATCH:/devices/{name}": {
 		OperationID: "patchDevice",
 		Resource:    "devices",
 		Action:      "patch",
@@ -223,7 +223,7 @@ var APIMetadataMap = map[string]EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"PUT:/api/v1/devices/{name}": {
+	"PUT:/devices/{name}": {
 		OperationID: "replaceDevice",
 		Resource:    "devices",
 		Action:      "update",
@@ -231,7 +231,7 @@ var APIMetadataMap = map[string]EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"PUT:/api/v1/devices/{name}/decommission": {
+	"PUT:/devices/{name}/decommission": {
 		OperationID: "decommissionDevice",
 		Resource:    "devices/decommission",
 		Action:      "update",
@@ -239,7 +239,7 @@ var APIMetadataMap = map[string]EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"GET:/api/v1/devices/{name}/lastseen": {
+	"GET:/devices/{name}/lastseen": {
 		OperationID: "getDeviceLastSeen",
 		Resource:    "devices/lastseen",
 		Action:      "get",
@@ -247,7 +247,7 @@ var APIMetadataMap = map[string]EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"GET:/api/v1/devices/{name}/rendered": {
+	"GET:/devices/{name}/rendered": {
 		OperationID: "getRenderedDevice",
 		Resource:    "devices/rendered",
 		Action:      "get",
@@ -255,7 +255,7 @@ var APIMetadataMap = map[string]EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"GET:/api/v1/devices/{name}/status": {
+	"GET:/devices/{name}/status": {
 		OperationID: "getDeviceStatus",
 		Resource:    "devices/status",
 		Action:      "get",
@@ -263,7 +263,7 @@ var APIMetadataMap = map[string]EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"PATCH:/api/v1/devices/{name}/status": {
+	"PATCH:/devices/{name}/status": {
 		OperationID: "patchDeviceStatus",
 		Resource:    "devices/status",
 		Action:      "patch",
@@ -271,7 +271,7 @@ var APIMetadataMap = map[string]EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"PUT:/api/v1/devices/{name}/status": {
+	"PUT:/devices/{name}/status": {
 		OperationID: "replaceDeviceStatus",
 		Resource:    "devices/status",
 		Action:      "update",
@@ -279,7 +279,7 @@ var APIMetadataMap = map[string]EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"GET:/api/v1/enrollmentconfig": {
+	"GET:/enrollmentconfig": {
 		OperationID: "getEnrollmentConfig",
 		Resource:    "",
 		Action:      "list",
@@ -287,7 +287,7 @@ var APIMetadataMap = map[string]EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"GET:/api/v1/enrollmentrequests": {
+	"GET:/enrollmentrequests": {
 		OperationID: "listEnrollmentRequests",
 		Resource:    "enrollmentrequests",
 		Action:      "list",
@@ -295,7 +295,7 @@ var APIMetadataMap = map[string]EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"POST:/api/v1/enrollmentrequests": {
+	"POST:/enrollmentrequests": {
 		OperationID: "createEnrollmentRequest",
 		Resource:    "enrollmentrequests",
 		Action:      "create",
@@ -303,7 +303,7 @@ var APIMetadataMap = map[string]EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"DELETE:/api/v1/enrollmentrequests/{name}": {
+	"DELETE:/enrollmentrequests/{name}": {
 		OperationID: "deleteEnrollmentRequest",
 		Resource:    "enrollmentrequests",
 		Action:      "delete",
@@ -311,7 +311,7 @@ var APIMetadataMap = map[string]EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"GET:/api/v1/enrollmentrequests/{name}": {
+	"GET:/enrollmentrequests/{name}": {
 		OperationID: "getEnrollmentRequest",
 		Resource:    "enrollmentrequests",
 		Action:      "get",
@@ -319,7 +319,7 @@ var APIMetadataMap = map[string]EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"PATCH:/api/v1/enrollmentrequests/{name}": {
+	"PATCH:/enrollmentrequests/{name}": {
 		OperationID: "patchEnrollmentRequest",
 		Resource:    "enrollmentrequests",
 		Action:      "patch",
@@ -327,7 +327,7 @@ var APIMetadataMap = map[string]EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"PUT:/api/v1/enrollmentrequests/{name}": {
+	"PUT:/enrollmentrequests/{name}": {
 		OperationID: "replaceEnrollmentRequest",
 		Resource:    "enrollmentrequests",
 		Action:      "update",
@@ -335,7 +335,7 @@ var APIMetadataMap = map[string]EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"PUT:/api/v1/enrollmentrequests/{name}/approval": {
+	"PUT:/enrollmentrequests/{name}/approval": {
 		OperationID: "approveEnrollmentRequest",
 		Resource:    "enrollmentrequests/approval",
 		Action:      "update",
@@ -343,7 +343,7 @@ var APIMetadataMap = map[string]EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"GET:/api/v1/enrollmentrequests/{name}/status": {
+	"GET:/enrollmentrequests/{name}/status": {
 		OperationID: "getEnrollmentRequestStatus",
 		Resource:    "enrollmentrequests/status",
 		Action:      "get",
@@ -351,7 +351,7 @@ var APIMetadataMap = map[string]EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"PATCH:/api/v1/enrollmentrequests/{name}/status": {
+	"PATCH:/enrollmentrequests/{name}/status": {
 		OperationID: "patchEnrollmentRequestStatus",
 		Resource:    "enrollmentrequests/status",
 		Action:      "patch",
@@ -359,7 +359,7 @@ var APIMetadataMap = map[string]EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"PUT:/api/v1/enrollmentrequests/{name}/status": {
+	"PUT:/enrollmentrequests/{name}/status": {
 		OperationID: "replaceEnrollmentRequestStatus",
 		Resource:    "enrollmentrequests/status",
 		Action:      "update",
@@ -367,7 +367,7 @@ var APIMetadataMap = map[string]EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"GET:/api/v1/events": {
+	"GET:/events": {
 		OperationID: "listEvents",
 		Resource:    "events",
 		Action:      "list",
@@ -375,7 +375,7 @@ var APIMetadataMap = map[string]EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"GET:/api/v1/fleets": {
+	"GET:/fleets": {
 		OperationID: "listFleets",
 		Resource:    "fleets",
 		Action:      "list",
@@ -383,7 +383,7 @@ var APIMetadataMap = map[string]EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"POST:/api/v1/fleets": {
+	"POST:/fleets": {
 		OperationID: "createFleet",
 		Resource:    "fleets",
 		Action:      "create",
@@ -391,7 +391,7 @@ var APIMetadataMap = map[string]EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"GET:/api/v1/fleets/{fleet}/templateversions": {
+	"GET:/fleets/{fleet}/templateversions": {
 		OperationID: "listTemplateVersions",
 		Resource:    "fleets/templateversions",
 		Action:      "get",
@@ -399,7 +399,7 @@ var APIMetadataMap = map[string]EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"DELETE:/api/v1/fleets/{fleet}/templateversions/{name}": {
+	"DELETE:/fleets/{fleet}/templateversions/{name}": {
 		OperationID: "deleteTemplateVersion",
 		Resource:    "fleets/templateversions",
 		Action:      "delete",
@@ -407,7 +407,7 @@ var APIMetadataMap = map[string]EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"GET:/api/v1/fleets/{fleet}/templateversions/{name}": {
+	"GET:/fleets/{fleet}/templateversions/{name}": {
 		OperationID: "getTemplateVersion",
 		Resource:    "fleets/templateversions",
 		Action:      "get",
@@ -415,7 +415,7 @@ var APIMetadataMap = map[string]EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"DELETE:/api/v1/fleets/{name}": {
+	"DELETE:/fleets/{name}": {
 		OperationID: "deleteFleet",
 		Resource:    "fleets",
 		Action:      "delete",
@@ -423,7 +423,7 @@ var APIMetadataMap = map[string]EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"GET:/api/v1/fleets/{name}": {
+	"GET:/fleets/{name}": {
 		OperationID: "getFleet",
 		Resource:    "fleets",
 		Action:      "get",
@@ -431,7 +431,7 @@ var APIMetadataMap = map[string]EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"PATCH:/api/v1/fleets/{name}": {
+	"PATCH:/fleets/{name}": {
 		OperationID: "patchFleet",
 		Resource:    "fleets",
 		Action:      "patch",
@@ -439,7 +439,7 @@ var APIMetadataMap = map[string]EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"PUT:/api/v1/fleets/{name}": {
+	"PUT:/fleets/{name}": {
 		OperationID: "replaceFleet",
 		Resource:    "fleets",
 		Action:      "update",
@@ -447,7 +447,7 @@ var APIMetadataMap = map[string]EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"GET:/api/v1/fleets/{name}/status": {
+	"GET:/fleets/{name}/status": {
 		OperationID: "getFleetStatus",
 		Resource:    "fleets/status",
 		Action:      "get",
@@ -455,7 +455,7 @@ var APIMetadataMap = map[string]EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"PATCH:/api/v1/fleets/{name}/status": {
+	"PATCH:/fleets/{name}/status": {
 		OperationID: "patchFleetStatus",
 		Resource:    "fleets/status",
 		Action:      "patch",
@@ -463,7 +463,7 @@ var APIMetadataMap = map[string]EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"PUT:/api/v1/fleets/{name}/status": {
+	"PUT:/fleets/{name}/status": {
 		OperationID: "replaceFleetStatus",
 		Resource:    "fleets/status",
 		Action:      "update",
@@ -471,7 +471,7 @@ var APIMetadataMap = map[string]EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"GET:/api/v1/labels": {
+	"GET:/labels": {
 		OperationID: "listLabels",
 		Resource:    "labels",
 		Action:      "list",
@@ -479,7 +479,7 @@ var APIMetadataMap = map[string]EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"GET:/api/v1/organizations": {
+	"GET:/organizations": {
 		OperationID: "listOrganizations",
 		Resource:    "organizations",
 		Action:      "list",
@@ -487,7 +487,7 @@ var APIMetadataMap = map[string]EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"GET:/api/v1/repositories": {
+	"GET:/repositories": {
 		OperationID: "listRepositories",
 		Resource:    "repositories",
 		Action:      "list",
@@ -495,7 +495,7 @@ var APIMetadataMap = map[string]EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"POST:/api/v1/repositories": {
+	"POST:/repositories": {
 		OperationID: "createRepository",
 		Resource:    "repositories",
 		Action:      "create",
@@ -503,7 +503,7 @@ var APIMetadataMap = map[string]EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"DELETE:/api/v1/repositories/{name}": {
+	"DELETE:/repositories/{name}": {
 		OperationID: "deleteRepository",
 		Resource:    "repositories",
 		Action:      "delete",
@@ -511,7 +511,7 @@ var APIMetadataMap = map[string]EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"GET:/api/v1/repositories/{name}": {
+	"GET:/repositories/{name}": {
 		OperationID: "getRepository",
 		Resource:    "repositories",
 		Action:      "get",
@@ -519,7 +519,7 @@ var APIMetadataMap = map[string]EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"PATCH:/api/v1/repositories/{name}": {
+	"PATCH:/repositories/{name}": {
 		OperationID: "patchRepository",
 		Resource:    "repositories",
 		Action:      "patch",
@@ -527,7 +527,7 @@ var APIMetadataMap = map[string]EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"PUT:/api/v1/repositories/{name}": {
+	"PUT:/repositories/{name}": {
 		OperationID: "replaceRepository",
 		Resource:    "repositories",
 		Action:      "update",
@@ -535,7 +535,7 @@ var APIMetadataMap = map[string]EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"GET:/api/v1/resourcesyncs": {
+	"GET:/resourcesyncs": {
 		OperationID: "listResourceSyncs",
 		Resource:    "resourcesyncs",
 		Action:      "list",
@@ -543,7 +543,7 @@ var APIMetadataMap = map[string]EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"POST:/api/v1/resourcesyncs": {
+	"POST:/resourcesyncs": {
 		OperationID: "createResourceSync",
 		Resource:    "resourcesyncs",
 		Action:      "create",
@@ -551,7 +551,7 @@ var APIMetadataMap = map[string]EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"DELETE:/api/v1/resourcesyncs/{name}": {
+	"DELETE:/resourcesyncs/{name}": {
 		OperationID: "deleteResourceSync",
 		Resource:    "resourcesyncs",
 		Action:      "delete",
@@ -559,7 +559,7 @@ var APIMetadataMap = map[string]EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"GET:/api/v1/resourcesyncs/{name}": {
+	"GET:/resourcesyncs/{name}": {
 		OperationID: "getResourceSync",
 		Resource:    "resourcesyncs",
 		Action:      "get",
@@ -567,7 +567,7 @@ var APIMetadataMap = map[string]EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"PATCH:/api/v1/resourcesyncs/{name}": {
+	"PATCH:/resourcesyncs/{name}": {
 		OperationID: "patchResourceSync",
 		Resource:    "resourcesyncs",
 		Action:      "patch",
@@ -575,7 +575,7 @@ var APIMetadataMap = map[string]EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"PUT:/api/v1/resourcesyncs/{name}": {
+	"PUT:/resourcesyncs/{name}": {
 		OperationID: "replaceResourceSync",
 		Resource:    "resourcesyncs",
 		Action:      "update",
@@ -583,7 +583,7 @@ var APIMetadataMap = map[string]EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
-	"GET:/api/version": {
+	"GET:/version": {
 		OperationID: "getVersion",
 		Resource:    "",
 		Action:      "list",

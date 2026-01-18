@@ -79,7 +79,7 @@ func (h *ServiceHandler) PatchRepository(ctx context.Context, orgId uuid.UUID, n
 	}
 
 	newObj := &domain.Repository{}
-	err = ApplyJSONPatch(ctx, currentObj, newObj, patch, "/api/v1/repositories/"+name)
+	err = ApplyJSONPatch(ctx, currentObj, newObj, patch, "/repositories/"+name)
 	if err != nil {
 		return nil, domain.StatusBadRequest(err.Error())
 	}

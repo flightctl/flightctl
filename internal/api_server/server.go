@@ -14,6 +14,7 @@ import (
 	convertv1beta1 "github.com/flightctl/flightctl/internal/api/convert/v1beta1"
 	"github.com/flightctl/flightctl/internal/api/server"
 	fcmiddleware "github.com/flightctl/flightctl/internal/api_server/middleware"
+	"github.com/flightctl/flightctl/internal/api_server/versioning"
 	"github.com/flightctl/flightctl/internal/auth"
 	"github.com/flightctl/flightctl/internal/auth/authn"
 	"github.com/flightctl/flightctl/internal/config"
@@ -235,13 +236,30 @@ func (s *Server) Run(ctx context.Context) error {
 		userAgentMiddleware,
 	)
 
-	// a group is a new mux copy, with its own copy of the middleware stack
-	// this one handles the OpenAPI handling of the service (excluding auth validate endpoint)
-	router.Group(func(r chi.Router) {
-		//NOTE(majopela): keeping metrics middleware separate from the rest of the middleware stack
-		// to avoid issues with websocket connections
-		r.Use(oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapiOpts))
-		r.Use(authMiddewares...)
+	// Create version registry with v1beta1 as default
+	registry := versioning.NewRegistry(versioning.V1Beta1)
+
+	// Create v1beta1 transport handler
+	handlerV1Beta1 := transportv1beta1.NewTransportHandler(
+		serviceHandler, convertv1beta1.NewConverter(),
+		s.authN, authTokenProxy, authUserInfoProxy, s.authZ,
+	)
+
+	// Create v1beta1 router with OpenAPI validation
+	routerV1Beta1 := versioning.NewRouter(versioning.RouterConfig{
+		Version:     versioning.V1Beta1,
+		Swagger:     swagger,
+		Handler:     &customTransportHandler{handlerV1Beta1},
+		OapiOptions: oapiOpts,
+	})
+
+	// Create dispatcher with version routers
+	dispatcher := versioning.NewDispatcher(registry, map[versioning.Version]chi.Router{
+		versioning.V1Beta1: routerV1Beta1,
+	})
+
+	// Versioned API endpoints at /api/v1
+	router.Route("/api/v1", func(r chi.Router) {
 		// Add general rate limiting (only if configured and enabled)
 		if s.cfg.Service.RateLimit != nil && s.cfg.Service.RateLimit.Enabled {
 			trustedProxies := s.cfg.Service.RateLimit.TrustedProxies
@@ -261,13 +279,49 @@ func (s *Server) Run(ctx context.Context) error {
 			})
 		}
 
-		h := transportv1beta1.NewTransportHandler(serviceHandler, convertv1beta1.NewConverter(), s.authN, authTokenProxy, authUserInfoProxy, s.authZ)
+		// Auth middlewares (shared by all versions)
+		r.Use(authMiddewares...)
 
-		// Register all other endpoints with general rate limiting (already applied at router level)
-		// Create a custom handler that excludes the auth validate endpoint
-		customHandler := &customTransportHandler{h}
-		server.HandlerFromMux(customHandler, r)
+		// Version negotiation middleware
+		r.Use(versioning.Middleware(registry))
+
+		// Auth validate with stricter rate limiting (separate group)
+		r.Group(func(r chi.Router) {
+			r.Use(oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapiOpts))
+			r.Use(identityMappingMiddleware.MapIdentityToDB)
+			if s.cfg.Service.RateLimit != nil && s.cfg.Service.RateLimit.Enabled {
+				trustedProxies := s.cfg.Service.RateLimit.TrustedProxies
+				authRequests := 20      // Default auth requests limit
+				authWindow := time.Hour // Default auth window
+				if s.cfg.Service.RateLimit.AuthRequests > 0 {
+					authRequests = s.cfg.Service.RateLimit.AuthRequests
+				}
+				if s.cfg.Service.RateLimit.AuthWindow > 0 {
+					authWindow = time.Duration(s.cfg.Service.RateLimit.AuthWindow)
+				}
+				fcmiddleware.InstallRateLimiter(r, fcmiddleware.RateLimitOptions{
+					Requests:       authRequests,
+					Window:         authWindow,
+					Message:        "Login rate limit exceeded, please try again later",
+					TrustedProxies: trustedProxies,
+				})
+			}
+			wrapper := &server.ServerInterfaceWrapper{
+				Handler:            handlerV1Beta1,
+				HandlerMiddlewares: nil,
+				ErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
+					oapiErrorHandler(w, err.Error(), http.StatusBadRequest)
+				},
+			}
+			r.Get("/auth/validate", wrapper.AuthValidate)
+		})
+
+		// Dispatcher routes to version-specific router
+		r.Mount("/", dispatcher)
 	})
+
+	// Backward-compatible /api/version endpoint (redirects to same handler as /api/v1/version)
+	router.Get("/api/version", handlerV1Beta1.GetVersion)
 
 	// health endpoints: bypass OpenAPI + auth, but keep global safety middlewares
 	router.Group(func(r chi.Router) {
@@ -277,45 +331,6 @@ func (s *Server) Run(ctx context.Context) error {
 				ReadyzHandler(time.Duration(hc.ReadinessTimeout), s.store, s.queuesProvider))
 			r.Method(http.MethodGet, hc.LivenessPath, HealthzHandler())
 		}
-	})
-
-	// Register auth validate endpoint with stricter rate limiting (outside main API group)
-	// This ensures it gets all the necessary middleware with stricter rate limiting
-	router.Group(func(r chi.Router) {
-		// Add conditional middleware
-		r.Use(oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapiOpts))
-		r.Use(authMiddewares...)
-		r.Use(identityMappingMiddleware.MapIdentityToDB) // Map identity to DB objects AFTER authentication
-
-		// Add auth-specific rate limiting (only if configured and enabled)
-		if s.cfg.Service.RateLimit != nil && s.cfg.Service.RateLimit.Enabled {
-			trustedProxies := s.cfg.Service.RateLimit.TrustedProxies
-			authRequests := 20      // Default auth requests limit
-			authWindow := time.Hour // Default auth window
-			if s.cfg.Service.RateLimit.AuthRequests > 0 {
-				authRequests = s.cfg.Service.RateLimit.AuthRequests
-			}
-			if s.cfg.Service.RateLimit.AuthWindow > 0 {
-				authWindow = time.Duration(s.cfg.Service.RateLimit.AuthWindow)
-			}
-			fcmiddleware.InstallRateLimiter(r, fcmiddleware.RateLimitOptions{
-				Requests:       authRequests,
-				Window:         authWindow,
-				Message:        "Login rate limit exceeded, please try again later",
-				TrustedProxies: trustedProxies,
-			})
-		}
-
-		h := transportv1beta1.NewTransportHandler(serviceHandler, convertv1beta1.NewConverter(), s.authN, authTokenProxy, authUserInfoProxy, s.authZ)
-		// Use the wrapper to handle the AuthValidate method signature
-		wrapper := &server.ServerInterfaceWrapper{
-			Handler:            h,
-			HandlerMiddlewares: nil,
-			ErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
-				oapiErrorHandler(w, err.Error(), http.StatusBadRequest)
-			},
-		}
-		r.Get("/api/v1/auth/validate", wrapper.AuthValidate)
 	})
 
 	// ws handling
