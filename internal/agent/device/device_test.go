@@ -320,6 +320,7 @@ func TestRollbackDevice(t *testing.T) {
 				poll.NewConfig(time.Second, 1.5),
 				func() error { return nil },
 				mockAuditLogger,
+				false, // reportConnectivityStatus disabled in tests
 				log,
 			)
 

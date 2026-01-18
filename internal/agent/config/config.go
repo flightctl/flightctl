@@ -74,6 +74,8 @@ const (
 	DefaultMetricsEnabled = false
 	// DefaultProfilingEnabled controls whether runtime profiling (pprof) is enabled by default.
 	DefaultProfilingEnabled = false
+	// DefaultStatusNotify controls whether connectivity status reporting is enabled by default.
+	DefaultStatusNotify = true
 )
 
 type Config struct {
@@ -146,6 +148,9 @@ type Config struct {
 	// ImagePruning holds all image/artifact pruning-related configuration
 	ImagePruning ImagePruning `json:"image-pruning,omitempty"`
 
+	// StatusNotify enables connectivity status reporting to systemd via sd_notify.
+	StatusNotify bool `json:"status-notify,omitempty"`
+
 	readWriter fileio.ReadWriter
 }
 
@@ -207,6 +212,7 @@ func NewDefault() *Config {
 		ImagePruning: ImagePruning{
 			Enabled: lo.ToPtr(false),
 		},
+		StatusNotify: DefaultStatusNotify,
 	}
 
 	if value := os.Getenv(TestRootDirEnvKey); value != "" {
@@ -470,6 +476,9 @@ func mergeConfigs(base, override *Config) {
 	// Note: This means a dropin without a pruning section won't change the base value,
 	// but a dropin with image-pruning.enabled: false will override to false.
 	overrideIfNotEmpty(&base.ImagePruning.Enabled, override.ImagePruning.Enabled)
+
+	// connectivity status reporting
+	overrideIfNotEmpty(&base.StatusNotify, override.StatusNotify)
 
 	for k, v := range override.DefaultLabels {
 		base.DefaultLabels[k] = v
