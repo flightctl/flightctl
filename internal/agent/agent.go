@@ -248,6 +248,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		pollBackoff,
 		deviceNotFoundHandler,
 		auditLogger,
+		a.config.StatusNotify,
 		a.log,
 	)
 

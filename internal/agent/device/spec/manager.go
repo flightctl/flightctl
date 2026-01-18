@@ -56,6 +56,7 @@ func NewManager(
 	pollConfig poll.Config,
 	deviceNotFoundHandler func() error,
 	auditLogger audit.Logger,
+	statusNotify bool,
 	log *log.PrefixLogger,
 ) *manager {
 	cache := newCache(log)
@@ -88,7 +89,7 @@ func NewManager(
 		lastKnownVersion = desired.Version()
 	}
 
-	pub := newPublisher(deviceName, systemdClient, pollConfig, lastKnownVersion, deviceNotFoundHandler, log)
+	pub := newPublisher(deviceName, systemdClient, pollConfig, lastKnownVersion, deviceNotFoundHandler, statusNotify, log)
 	m.publisher = pub
 	m.watcher = pub.Watch()
 

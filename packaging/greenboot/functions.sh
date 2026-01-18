@@ -5,15 +5,14 @@
 #
 
 SCRIPT_NAME=$(basename "$0")
-SCRIPT_PID=$$
 
-# Default configuration
-DEFAULT_BASE_TIMEOUT=150
-DEFAULT_MAX_BOOT_ATTEMPTS=3
+#
+# Constants
+#
 
-# Configuration environment variables (set in /etc/greenboot/greenboot.conf):
-#   FLIGHTCTL_WAIT_TIMEOUT_SEC  - Base timeout in seconds (default: 150)
-#   GREENBOOT_MAX_BOOT_ATTEMPTS - Max boots before rollback (default: 3)
+# Static timeout for health check polling (in seconds).
+# This should be >= systemd's TimeoutStartSec (default ~90s).
+FLIGHTCTL_HEALTH_CHECK_TIMEOUT=150
 
 #
 # Logging
@@ -45,34 +44,6 @@ print_boot_status() {
         log_info "bootc status:"
         bootc status --booted 2>/dev/null || echo "N/A"
     fi
-}
-
-#
-# Dynamic timeout
-#
-
-# Get wait timeout that increases with each boot attempt.
-# Formula: base_timeout * (max_boots - boot_counter)
-#   Boot 1 (counter=2): 150 * 1 = 150s
-#   Boot 2 (counter=1): 150 * 2 = 300s
-#   Boot 3 (counter=0): 150 * 3 = 450s
-get_wait_timeout() {
-    local conf=/etc/greenboot/greenboot.conf
-    # shellcheck source=/dev/null
-    [ -f "$conf" ] && source "$conf"
-
-    local base=${FLIGHTCTL_WAIT_TIMEOUT_SEC:-${DEFAULT_BASE_TIMEOUT}}
-    local max_boots=${GREENBOOT_MAX_BOOT_ATTEMPTS:-${DEFAULT_MAX_BOOT_ATTEMPTS}}
-
-    local counter
-    counter=$(grub2-editenv - list 2>/dev/null | grep ^boot_counter= | cut -d= -f2 || echo "")
-    [ -z "$counter" ] && counter=$((max_boots - 1))
-
-    local mult=$((max_boots - counter))
-    [ "$mult" -le 0 ] && mult=1
-
-    echo "[${SCRIPT_NAME}] INFO: Boot counter: ${counter}, Multiplier: ${mult}, Timeout: $((base * mult))s" >&2
-    echo $((base * mult))
 }
 
 #

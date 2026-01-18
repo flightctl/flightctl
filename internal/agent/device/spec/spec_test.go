@@ -828,7 +828,7 @@ func TestRollback(t *testing.T) {
 			)
 			log := log.NewPrefixLogger("test")
 			mockPolicyManager := policy.NewMockManager(ctrl)
-			pub := newPublisher("testDevice", nil, poll.NewConfig(10*time.Millisecond, 1.5), "0", nil, log)
+			pub := newPublisher("testDevice", nil, poll.NewConfig(10*time.Millisecond, 1.5), "0", nil, false, log)
 			cache := newCache(log)
 			queue := newQueueManager(
 				defaultSpecQueueMaxSize,

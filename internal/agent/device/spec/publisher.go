@@ -58,6 +58,7 @@ type publisher struct {
 	log                   *log.PrefixLogger
 	pollConfig            poll.Config
 	deviceNotFoundHandler func() error
+	statusNotify          bool
 	minDelay              time.Duration
 	mu                    sync.Mutex
 }
@@ -67,6 +68,7 @@ func newPublisher(deviceName string,
 	pollConfig poll.Config,
 	lastKnownVersion string,
 	deviceNotFoundHandler func() error,
+	statusNotify bool,
 	log *log.PrefixLogger) Publisher {
 	return &publisher{
 		deviceName:            deviceName,
@@ -74,6 +76,7 @@ func newPublisher(deviceName string,
 		pollConfig:            pollConfig,
 		lastKnownVersion:      lastKnownVersion,
 		deviceNotFoundHandler: deviceNotFoundHandler,
+		statusNotify:          statusNotify,
 		log:                   log,
 	}
 }
@@ -261,7 +264,7 @@ func (n *publisher) stop() {
 // notifyConnectivityStatus reports the agent's connectivity status to systemd.
 // This is visible via `systemctl status flightctl-agent` as StatusText.
 func (n *publisher) notifyConnectivityStatus(status string) {
-	if n.systemdClient == nil {
+	if !n.statusNotify || n.systemdClient == nil {
 		return
 	}
 	if err := n.systemdClient.SdNotify(fmt.Sprintf("STATUS=%s", status)); err != nil {
