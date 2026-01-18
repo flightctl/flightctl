@@ -1,4 +1,4 @@
-package agenttransport
+package agenttransportv1beta1
 
 import (
 	"context"

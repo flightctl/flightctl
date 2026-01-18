@@ -1,4 +1,4 @@
-package transport
+package transportv1beta1
 
 import (
 	"encoding/json"
