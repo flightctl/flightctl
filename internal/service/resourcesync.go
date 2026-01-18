@@ -82,7 +82,7 @@ func (h *ServiceHandler) PatchResourceSync(ctx context.Context, orgId uuid.UUID,
 	}
 
 	newObj := &domain.ResourceSync{}
-	err = ApplyJSONPatch(ctx, currentObj, newObj, patch, "/api/v1/resourcesyncs/"+name)
+	err = ApplyJSONPatch(ctx, currentObj, newObj, patch, "/resourcesyncs/"+name)
 	if err != nil {
 		return nil, domain.StatusBadRequest(err.Error())
 	}

@@ -224,7 +224,7 @@ func (h *ServiceHandler) PatchAuthProvider(ctx context.Context, orgId uuid.UUID,
 	}
 
 	newObj := &domain.AuthProvider{}
-	err = ApplyJSONPatch(ctx, currentObj, newObj, patch, "/api/v1/authproviders/"+name)
+	err = ApplyJSONPatch(ctx, currentObj, newObj, patch, "/authproviders/"+name)
 	if err != nil {
 		return nil, domain.StatusBadRequest(sanitizeSchemaError(err))
 	}

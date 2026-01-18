@@ -370,7 +370,7 @@ func (h *ServiceHandler) PatchDeviceStatus(ctx context.Context, orgId uuid.UUID,
 	}
 
 	newObj := &domain.Device{}
-	err = ApplyJSONPatch(ctx, currentObj, newObj, patch, "/api/v1/devices/"+name)
+	err = ApplyJSONPatch(ctx, currentObj, newObj, patch, "/devices/"+name)
 	if err != nil {
 		return nil, domain.StatusBadRequest(err.Error())
 	}
@@ -463,7 +463,7 @@ func (h *ServiceHandler) PatchDevice(ctx context.Context, orgId uuid.UUID, name 
 	}
 
 	newObj := &domain.Device{}
-	err = ApplyJSONPatch(ctx, currentObj, newObj, patch, "/api/v1/devices/"+name)
+	err = ApplyJSONPatch(ctx, currentObj, newObj, patch, "/devices/"+name)
 	if err != nil {
 		return nil, domain.StatusBadRequest(err.Error())
 	}

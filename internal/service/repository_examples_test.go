@@ -79,12 +79,12 @@ func validateRepositoryAgainstOpenAPI(ctx context.Context, repo *domain.Reposito
 		return fmt.Errorf("failed to marshal repository to JSON: %w", err)
 	}
 
-	// Create a fake HTTP request for the PUT /api/v1/repositories/{name} endpoint
+	// Create a fake HTTP request for the PUT /repositories/{name} endpoint
 	repoName := "test-repo"
 	if repo.Metadata.Name != nil {
 		repoName = *repo.Metadata.Name
 	}
-	reqURL, err := url.Parse(fmt.Sprintf("/api/v1/repositories/%s", repoName))
+	reqURL, err := url.Parse(fmt.Sprintf("/repositories/%s", repoName))
 	if err != nil {
 		return fmt.Errorf("failed to parse URL: %w", err)
 	}
