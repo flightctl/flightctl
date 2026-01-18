@@ -264,7 +264,7 @@ func (h *Harness) GenerateFleetYAMLsForSimulator(fleetCount, devicesPerFleet int
 		b.WriteString("        - name: base\n")
 		b.WriteString("          gitRef:\n")
 		b.WriteString("            repository: flightctl-demos\n")
-		b.WriteString("            targetRevision: main\n")
+		b.WriteString("            targetRevision: c5ff21b9a8116bb5daf72c8f07b67449c221b596\n")
 		b.WriteString("            path: /demos/basic-nginx-demo/configuration/\n")
 	}
 	return b.String(), nil
