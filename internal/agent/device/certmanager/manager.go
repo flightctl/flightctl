@@ -9,16 +9,21 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/config"
 	"github.com/flightctl/flightctl/internal/agent/device/certmanager/provider"
+	"github.com/flightctl/flightctl/internal/agent/device/certmanager/provider/management"
+	"github.com/flightctl/flightctl/internal/agent/device/certmanager/provider/management/middleware"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/identity"
 	pkgcertmanager "github.com/flightctl/flightctl/pkg/certmanager"
 )
 
 const (
+	managementBundleName = "device-management"
+
 	certsBundleName       = "certs-config-yaml"
 	certsBundleConfigFile = "certs.yaml"
 
 	defaultSyncInterval = time.Hour
+	renewBeforeExpiry   = 30 * 24 * time.Hour
 )
 
 type AgentCertManager struct {
@@ -53,6 +58,24 @@ func NewAgentCertManager(
 		return nil, fmt.Errorf("idFactory is nil")
 	}
 
+	managementBundle, err := pkgcertmanager.NewBundle(
+		managementBundleName,
+		pkgcertmanager.WithConfigProvider(
+			management.NewManagementConfigProvider(renewBeforeExpiry),
+		),
+		pkgcertmanager.WithProvisionerFactory(
+			middleware.WithMetricsProvisioner(cfg.GetManagementCertMetricsCallback(),
+				management.NewManagementProvisionerFactory(deviceName, identityProvider, managementClient)),
+		),
+		pkgcertmanager.WithStorageFactory(
+			middleware.WithMetricsStorage(cfg.GetManagementCertMetricsCallback(),
+				management.NewManagementStorageFactory(identityProvider, managementClient)),
+		),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("new %q bundle: %w", managementBundleName, err)
+	}
+
 	certsBundle, err := pkgcertmanager.NewBundle(
 		certsBundleName,
 		pkgcertmanager.WithConfigProvider(
@@ -66,11 +89,11 @@ func NewAgentCertManager(
 		),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("new bundle: %w", err)
+		return nil, fmt.Errorf("new %q bundle: %w", certsBundleName, err)
 	}
 
 	cm, err := pkgcertmanager.NewManager(ctx, log,
-		pkgcertmanager.WithBundleProvider(provider.NewManagementBundle(deviceName, identityProvider, managementClient)),
+		pkgcertmanager.WithBundleProvider(managementBundle),
 		pkgcertmanager.WithBundleProvider(certsBundle),
 	)
 	if err != nil {

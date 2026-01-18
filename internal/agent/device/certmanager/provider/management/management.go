@@ -1,4 +1,4 @@
-package provider
+package management
 
 import (
 	"context"
@@ -18,17 +18,45 @@ import (
 )
 
 const (
-	bundleName         = "device-management"
-	configProviderName = "agent"
-	provisionerType    = "management"
+	configProviderName = "device-management-config"
+	managementCertName = "device-management"
 
-	renewBeforeExpiry = 30 * 24 * time.Hour
+	provisionerType = "management"
 
 	backoffInitial      = 10 * time.Minute
 	backoffFactor       = 2.0
 	backoffMax          = 30 * time.Minute
 	backoffJitterFactor = 0.1
+
+	managementSignerName = "flightctl.io/device-management-renewal"
 )
+
+// ---- ConfigProvider ----
+
+type managementConfigProvider struct {
+	renewBeforeExpiry time.Duration
+}
+
+func NewManagementConfigProvider(renewBeforeExpiry time.Duration) *managementConfigProvider {
+	return &managementConfigProvider{renewBeforeExpiry: renewBeforeExpiry}
+}
+
+func (p *managementConfigProvider) Name() string { return configProviderName }
+
+func (p *managementConfigProvider) GetCertificateConfigs() ([]certmanager.CertificateConfig, error) {
+	return []certmanager.CertificateConfig{
+		{
+			Name: managementCertName,
+			Provisioner: certmanager.ProvisionerConfig{
+				Type: provisionerType,
+			},
+			Storage: certmanager.StorageConfig{
+				Type: provisionerType,
+			},
+			RenewBeforeExpiry: p.renewBeforeExpiry,
+		},
+	}, nil
+}
 
 // ---- ProvisionerProvider ----
 
@@ -37,24 +65,11 @@ type managementProvisioner struct {
 	identityProvider identity.Provider
 	managementClient client.Management
 	deviceName       string
-	backoffCfg       poll.Config
-	csrName          string
-	lastInfo         time.Time
-}
 
-func newManagementProvisioner(log certmanager.Logger, deviceName string, identityProvider identity.Provider, managementClient client.Management) *managementProvisioner {
-	return &managementProvisioner{
-		log:              log,
-		deviceName:       deviceName,
-		identityProvider: identityProvider,
-		managementClient: managementClient,
-		backoffCfg: poll.Config{
-			BaseDelay:    backoffInitial,
-			Factor:       backoffFactor,
-			MaxDelay:     backoffMax,
-			JitterFactor: backoffJitterFactor,
-		},
-	}
+	backoffCfg poll.Config
+
+	csrName  string
+	lastInfo time.Time
 }
 
 func (p *managementProvisioner) Provision(ctx context.Context, req certmanager.ProvisionRequest) (*certmanager.ProvisionResult, error) {
@@ -101,7 +116,7 @@ func (p *managementProvisioner) Provision(ctx context.Context, req certmanager.P
 			},
 			Spec: api.CertificateSigningRequestSpec{
 				Request:    csrPEM,
-				SignerName: "flightctl.io/device-management-renewal",
+				SignerName: managementSignerName,
 				Usages:     &usages,
 			},
 		}
@@ -127,11 +142,7 @@ func (p *managementProvisioner) Provision(ctx context.Context, req certmanager.P
 			return p.requeueWithBackoff(req.Attempt, "create csr got 503", nil)
 		}
 		if statusCode != http.StatusOK && statusCode != http.StatusCreated {
-			return nil, fmt.Errorf(
-				"create CSR %q: unexpected status code %d",
-				csrName,
-				statusCode,
-			)
+			return nil, fmt.Errorf("create CSR %q: unexpected status code %d", csrName, statusCode)
 		}
 
 		p.csrName = csrName
@@ -166,11 +177,7 @@ func (p *managementProvisioner) poll(ctx context.Context, req certmanager.Provis
 		return p.requeueWithBackoff(req.Attempt, "get csr got 503", nil)
 	}
 	if statusCode != http.StatusOK {
-		return nil, fmt.Errorf(
-			"get CSR %q: unexpected status code %d",
-			p.csrName,
-			statusCode,
-		)
+		return nil, fmt.Errorf("get CSR %q: unexpected status code %d", p.csrName, statusCode)
 	}
 
 	if csrObj == nil || csrObj.Status == nil {
@@ -235,10 +242,7 @@ func (p *managementProvisioner) poll(ctx context.Context, req certmanager.Provis
 	}
 
 	// Default: pending approval
-	p.log.Infof(
-		"Management certificate signing request %q is pending approval",
-		p.csrName,
-	)
+	p.log.Infof("Management certificate signing request %q is pending approval", p.csrName)
 	return p.requeueWithBackoff(req.Attempt, "csr pending approval", nil)
 }
 
@@ -253,17 +257,11 @@ func (p *managementProvisioner) requeueWithBackoff(attempt int, reason string, e
 	// First user-facing INFO
 	if p.lastInfo.IsZero() {
 		p.lastInfo = now
-		p.log.Infof(
-			"Management certificate renewal pending; next retry in %s",
-			formatExpiry(delay),
-		)
+		p.log.Infof("Management certificate renewal pending; next retry in %s", formatExpiry(delay))
 	} else if now.Sub(p.lastInfo) >= p.backoffCfg.MaxDelay {
 		// Periodic INFO during long outages
 		p.lastInfo = now
-		p.log.Infof(
-			"Management certificate renewal still pending; next retry in %s",
-			formatExpiry(delay),
-		)
+		p.log.Infof("Management certificate renewal still pending; next retry in %s", formatExpiry(delay))
 	}
 
 	if err != nil {
@@ -288,6 +286,118 @@ func (p *managementProvisioner) requeueWithBackoff(attempt int, reason string, e
 		RequeueAfter: delay,
 	}, nil
 }
+
+// ---- StorageProvider ----
+
+type managementStorage struct {
+	log              certmanager.Logger
+	identityProvider identity.Provider
+	managementClient client.Management
+}
+
+func (s *managementStorage) Store(ctx context.Context, req certmanager.StoreRequest) error {
+	if s.identityProvider == nil {
+		return fmt.Errorf("management storage: identityProvider is nil")
+	}
+	if len(req.Result.Cert) == 0 {
+		return fmt.Errorf("management storage: empty certificate PEM")
+	}
+
+	if err := s.identityProvider.StoreCertificate(req.Result.Cert); err != nil {
+		return err
+	}
+
+	// Reload is best-effort: if we can reload, do it; if it fails, don't fail the store.
+	if ok, err := client.TryReload(s.managementClient); ok && err != nil {
+		s.log.Debugf("Failed to reload management client after cert rotation: %v", err)
+	}
+
+	// Best-effort: parse the cert just for logging.
+	if s.log != nil {
+		if certs, err := cert.ParseCertsPEM(req.Result.Cert); err == nil && len(certs) > 0 {
+			c := certs[0]
+			expiresIn := time.Until(c.NotAfter)
+			s.log.Infof(
+				"Installed new management certificate (expires in %s, notAfter=%s)",
+				formatExpiry(expiresIn),
+				c.NotAfter.UTC().Format(time.RFC3339),
+			)
+		} else {
+			s.log.Infof("Installed new management certificate")
+		}
+	}
+
+	return nil
+}
+
+func (s *managementStorage) LoadCertificate(ctx context.Context) (*x509.Certificate, error) {
+	return getCurrentCertificate(s.identityProvider)
+}
+
+// ---- Factories ----
+
+type managementProvisionerFactory struct {
+	deviceName       string
+	identityProvider identity.Provider
+	managementClient client.Management
+}
+
+func NewManagementProvisionerFactory(deviceName string, identityProvider identity.Provider, managementClient client.Management) *managementProvisionerFactory {
+	return &managementProvisionerFactory{
+		deviceName:       deviceName,
+		identityProvider: identityProvider,
+		managementClient: managementClient,
+	}
+}
+
+func (f managementProvisionerFactory) Type() string { return provisionerType }
+
+func (f managementProvisionerFactory) Validate(log certmanager.Logger, cc certmanager.CertificateConfig) error {
+	return nil
+}
+
+func (f managementProvisionerFactory) New(log certmanager.Logger, cc certmanager.CertificateConfig) (certmanager.ProvisionerProvider, error) {
+	return &managementProvisioner{
+		log:              log,
+		deviceName:       f.deviceName,
+		identityProvider: f.identityProvider,
+		managementClient: f.managementClient,
+		backoffCfg: poll.Config{
+			BaseDelay:    backoffInitial,
+			Factor:       backoffFactor,
+			MaxDelay:     backoffMax,
+			JitterFactor: backoffJitterFactor,
+		},
+	}, nil
+}
+
+type managementStorageFactory struct {
+	identityProvider identity.Provider
+	managementClient client.Management
+}
+
+func NewManagementStorageFactory(identityProvider identity.Provider, managementClient client.Management) *managementStorageFactory {
+	return &managementStorageFactory{
+		identityProvider: identityProvider,
+		managementClient: managementClient,
+	}
+}
+
+func (f managementStorageFactory) Type() string { return provisionerType }
+
+func (f managementStorageFactory) Validate(log certmanager.Logger, cc certmanager.CertificateConfig) error {
+	return nil
+}
+
+func (f managementStorageFactory) New(log certmanager.Logger, cc certmanager.CertificateConfig) (certmanager.StorageProvider, error) {
+	return &managementStorage{
+		log:              log,
+		identityProvider: f.identityProvider,
+		managementClient: f.managementClient,
+	}, nil
+}
+
+// ---- Helpers ----
 
 func formatExpiry(d time.Duration) string {
 	if d <= 0 {
@@ -317,52 +427,6 @@ func formatExpiry(d time.Duration) string {
 	}
 }
 
-// ---- StorageProvider ----
-
-type managementStorage struct {
-	log              certmanager.Logger
-	identityProvider identity.Provider
-	managementClient client.Management
-}
-
-func (s *managementStorage) Store(ctx context.Context, req certmanager.StoreRequest) error {
-	if s.identityProvider == nil {
-		return fmt.Errorf("management storage: identityProvider is nil")
-	}
-	if len(req.Result.Cert) == 0 {
-		return fmt.Errorf("management storage: empty certificate PEM")
-	}
-
-	if err := s.identityProvider.StoreCertificate(req.Result.Cert); err != nil {
-		return err
-	}
-
-	if ok, err := client.TryReload(s.managementClient); ok && err != nil {
-		s.log.Debugf("Failed to reload management client after cert rotation: %v", err)
-	}
-
-	// Best-effort: parse the cert just for logging.
-	if s.log != nil {
-		if certs, err := cert.ParseCertsPEM(req.Result.Cert); err == nil && len(certs) > 0 {
-			c := certs[0]
-			expiresIn := time.Until(c.NotAfter)
-			s.log.Infof(
-				"Installed new management certificate (expires in %s, notAfter=%s)",
-				formatExpiry(expiresIn),
-				c.NotAfter.UTC().Format(time.RFC3339),
-			)
-		} else {
-			s.log.Infof("Installed new management certificate")
-		}
-	}
-
-	return nil
-}
-
-func (s *managementStorage) LoadCertificate(ctx context.Context) (*x509.Certificate, error) {
-	return getCurrentCertificate(s.identityProvider)
-}
-
 func getCurrentCertificate(identityProvider identity.Provider) (*x509.Certificate, error) {
 	if identityProvider == nil {
 		return nil, fmt.Errorf("getCurrentCertificate: identityProvider is nil")
@@ -384,110 +448,4 @@ func getCurrentCertificate(identityProvider identity.Provider) (*x509.Certificat
 		return nil, nil
 	}
 	return certs[0], nil
-}
-
-// ---- Bundle / Factories / Config ----
-
-// managementBundle wires together the management-cert providers/factories.
-type managementBundle struct {
-	deviceName       string
-	identityProvider identity.Provider
-	managementClient client.Management
-}
-
-func NewManagementBundle(deviceName string, identityProvider identity.Provider, managementClient client.Management) certmanager.BundleProvider {
-	return &managementBundle{
-		deviceName:       deviceName,
-		identityProvider: identityProvider,
-		managementClient: managementClient,
-	}
-}
-
-func (b *managementBundle) Name() string { return bundleName }
-
-func (b *managementBundle) DisableRenewal() bool { return false }
-
-func (b *managementBundle) Configs() map[string]certmanager.ConfigProvider {
-	return map[string]certmanager.ConfigProvider{
-		configProviderName: &managementConfigProvider{},
-	}
-}
-
-func (b *managementBundle) Provisioners() map[string]certmanager.ProvisionerFactory {
-	return map[string]certmanager.ProvisionerFactory{
-		provisionerType: managementProvisionerFactory{
-			deviceName:       b.deviceName,
-			identityProvider: b.identityProvider,
-			managementClient: b.managementClient,
-		},
-	}
-}
-
-func (b *managementBundle) Storages() map[string]certmanager.StorageFactory {
-	return map[string]certmanager.StorageFactory{
-		provisionerType: managementStorageFactory{
-			identityProvider: b.identityProvider,
-			managementClient: b.managementClient,
-		},
-	}
-}
-
-// ---- ConfigProvider ----
-
-type managementConfigProvider struct{}
-
-func (p *managementConfigProvider) Name() string { return configProviderName }
-
-func (p *managementConfigProvider) GetCertificateConfigs() ([]certmanager.CertificateConfig, error) {
-	return []certmanager.CertificateConfig{
-		{
-			Name: bundleName,
-			Provisioner: certmanager.ProvisionerConfig{
-				Type: provisionerType,
-			},
-			Storage: certmanager.StorageConfig{
-				Type: provisionerType,
-			},
-			RenewBeforeExpiry: renewBeforeExpiry,
-		},
-	}, nil
-}
-
-// ---- ProvisionerFactory ----
-
-type managementProvisionerFactory struct {
-	identityProvider identity.Provider
-	managementClient client.Management
-	deviceName       string
-}
-
-func (f managementProvisionerFactory) Type() string { return provisionerType }
-
-func (f managementProvisionerFactory) Validate(log certmanager.Logger, cc certmanager.CertificateConfig) error {
-	return nil
-}
-
-func (f managementProvisionerFactory) New(log certmanager.Logger, cc certmanager.CertificateConfig) (certmanager.ProvisionerProvider, error) {
-	return newManagementProvisioner(log, f.deviceName, f.identityProvider, f.managementClient), nil
-}
-
-// ---- StorageFactory ----
-
-type managementStorageFactory struct {
-	identityProvider identity.Provider
-	managementClient client.Management
-}
-
-func (f managementStorageFactory) Type() string { return provisionerType }
-
-func (f managementStorageFactory) Validate(log certmanager.Logger, cc certmanager.CertificateConfig) error {
-	return nil
-}
-
-func (f managementStorageFactory) New(log certmanager.Logger, cc certmanager.CertificateConfig) (certmanager.StorageProvider, error) {
-	return &managementStorage{
-		log:              log,
-		identityProvider: f.identityProvider,
-		managementClient: f.managementClient,
-	}, nil
 }

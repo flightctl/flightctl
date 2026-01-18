@@ -31,13 +31,16 @@ func NewMetricsServer(l *log.PrefixLogger, cfg *agent_config.Config) *metricsSer
 		return ms
 	}
 
+	// Built-in RPC collector + config callbacks (so producers can record timings).
 	rpcCollector := agentmetrics.NewRPCCollector(l)
-
-	// Provide the Observe hook to producers (enrollment/management RPCs).
 	cfg.SetEnrollmentMetricsCallback(rpcCollector.Observe)
 	cfg.SetManagementMetricsCallback(rpcCollector.Observe)
 
-	ms.srv = instmetrics.NewMetricsServer(l, rpcCollector)
+	// Built-in management certificate collector + config callback (observer for certmanager middleware).
+	mgmtCertCollector := agentmetrics.NewMgmtCertCollector(l)
+	cfg.SetManagementCertMetricsCallback(mgmtCertCollector.Observe)
+
+	ms.srv = instmetrics.NewMetricsServer(l, rpcCollector, mgmtCertCollector)
 	return ms
 }
 
