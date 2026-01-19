@@ -12,6 +12,9 @@ import (
 	"github.com/oapi-codegen/runtime"
 )
 
+// ServerUrlApiv1 defines the Server URL for
+const ServerUrlApiv1 = "/api/v1"
+
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
 
