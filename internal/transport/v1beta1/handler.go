@@ -1,7 +1,7 @@
 package transportv1beta1
 
 import (
-	"github.com/flightctl/flightctl/internal/api/convert"
+	convertv1beta1 "github.com/flightctl/flightctl/internal/api/convert/v1beta1"
 	"github.com/flightctl/flightctl/internal/api/server"
 	"github.com/flightctl/flightctl/internal/auth"
 	"github.com/flightctl/flightctl/internal/auth/common"
@@ -14,7 +14,7 @@ import (
 
 type TransportHandler struct {
 	serviceHandler    service.Service
-	converter         convert.Converter
+	converter         convertv1beta1.Converter
 	authN             common.AuthNMiddleware
 	authTokenProxy    *service.AuthTokenProxy
 	authUserInfoProxy *service.AuthUserInfoProxy
@@ -30,7 +30,7 @@ type WebsocketHandler struct {
 // Make sure we conform to servers Transport interface
 var _ server.Transport = (*TransportHandler)(nil)
 
-func NewTransportHandler(serviceHandler service.Service, converter convert.Converter, authN common.AuthNMiddleware, authTokenProxy *service.AuthTokenProxy, authUserInfoProxy *service.AuthUserInfoProxy, authZ auth.AuthZMiddleware) *TransportHandler {
+func NewTransportHandler(serviceHandler service.Service, converter convertv1beta1.Converter, authN common.AuthNMiddleware, authTokenProxy *service.AuthTokenProxy, authUserInfoProxy *service.AuthUserInfoProxy, authZ auth.AuthZMiddleware) *TransportHandler {
 	return &TransportHandler{
 		serviceHandler:    serviceHandler,
 		converter:         converter,

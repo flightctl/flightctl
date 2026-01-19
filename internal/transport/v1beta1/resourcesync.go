@@ -16,24 +16,24 @@ func (h *TransportHandler) CreateResourceSync(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	domainRS := h.converter.V1beta1().ResourceSync().ToDomain(rs)
+	domainRS := h.converter.ResourceSync().ToDomain(rs)
 	body, status := h.serviceHandler.CreateResourceSync(r.Context(), transport.OrgIDFromContext(r.Context()), domainRS)
-	apiResult := h.converter.V1beta1().ResourceSync().FromDomain(body)
+	apiResult := h.converter.ResourceSync().FromDomain(body)
 	transport.SetResponse(w, apiResult, status)
 }
 
 // (GET /api/v1/resourcesyncs)
 func (h *TransportHandler) ListResourceSyncs(w http.ResponseWriter, r *http.Request, params apiv1beta1.ListResourceSyncsParams) {
-	domainParams := h.converter.V1beta1().ResourceSync().ListParamsToDomain(params)
+	domainParams := h.converter.ResourceSync().ListParamsToDomain(params)
 	body, status := h.serviceHandler.ListResourceSyncs(r.Context(), transport.OrgIDFromContext(r.Context()), domainParams)
-	apiResult := h.converter.V1beta1().ResourceSync().ListFromDomain(body)
+	apiResult := h.converter.ResourceSync().ListFromDomain(body)
 	transport.SetResponse(w, apiResult, status)
 }
 
 // (GET /api/v1/resourcesyncs/{name})
 func (h *TransportHandler) GetResourceSync(w http.ResponseWriter, r *http.Request, name string) {
 	body, status := h.serviceHandler.GetResourceSync(r.Context(), transport.OrgIDFromContext(r.Context()), name)
-	apiResult := h.converter.V1beta1().ResourceSync().FromDomain(body)
+	apiResult := h.converter.ResourceSync().FromDomain(body)
 	transport.SetResponse(w, apiResult, status)
 }
 
@@ -45,9 +45,9 @@ func (h *TransportHandler) ReplaceResourceSync(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	domainRS := h.converter.V1beta1().ResourceSync().ToDomain(rs)
+	domainRS := h.converter.ResourceSync().ToDomain(rs)
 	body, status := h.serviceHandler.ReplaceResourceSync(r.Context(), transport.OrgIDFromContext(r.Context()), name, domainRS)
-	apiResult := h.converter.V1beta1().ResourceSync().FromDomain(body)
+	apiResult := h.converter.ResourceSync().FromDomain(body)
 	transport.SetResponse(w, apiResult, status)
 }
 
@@ -65,8 +65,8 @@ func (h *TransportHandler) PatchResourceSync(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	domainPatch := h.converter.V1beta1().Common().PatchRequestToDomain(patch)
+	domainPatch := h.converter.Common().PatchRequestToDomain(patch)
 	body, status := h.serviceHandler.PatchResourceSync(r.Context(), transport.OrgIDFromContext(r.Context()), name, domainPatch)
-	apiResult := h.converter.V1beta1().ResourceSync().FromDomain(body)
+	apiResult := h.converter.ResourceSync().FromDomain(body)
 	transport.SetResponse(w, apiResult, status)
 }

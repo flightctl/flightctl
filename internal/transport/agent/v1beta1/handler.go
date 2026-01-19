@@ -7,7 +7,7 @@ import (
 	"net/http"
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
-	"github.com/flightctl/flightctl/internal/api/convert"
+	convertv1beta1 "github.com/flightctl/flightctl/internal/api/convert/v1beta1"
 	agentServer "github.com/flightctl/flightctl/internal/api/server/agent"
 	"github.com/flightctl/flightctl/internal/api_server/middleware"
 	"github.com/flightctl/flightctl/internal/consts"
@@ -20,7 +20,7 @@ import (
 
 type AgentTransportHandler struct {
 	serviceHandler service.Service
-	converter      convert.Converter
+	converter      convertv1beta1.Converter
 	ca             *crypto.CAClient
 	log            logrus.FieldLogger
 }
@@ -28,7 +28,7 @@ type AgentTransportHandler struct {
 // Make sure we conform to servers Service interface
 var _ agentServer.Transport = (*AgentTransportHandler)(nil)
 
-func NewAgentTransportHandler(serviceHandler service.Service, converter convert.Converter, ca *crypto.CAClient, log logrus.FieldLogger) *AgentTransportHandler {
+func NewAgentTransportHandler(serviceHandler service.Service, converter convertv1beta1.Converter, ca *crypto.CAClient, log logrus.FieldLogger) *AgentTransportHandler {
 	return &AgentTransportHandler{serviceHandler: serviceHandler, converter: converter, ca: ca, log: log}
 }
 
@@ -61,9 +61,9 @@ func (s *AgentTransportHandler) GetRenderedDevice(w http.ResponseWriter, r *http
 		return
 	}
 
-	domainParams := s.converter.V1beta1().Device().GetRenderedParamsToDomain(params)
+	domainParams := s.converter.Device().GetRenderedParamsToDomain(params)
 	body, status := s.serviceHandler.GetRenderedDevice(ctx, transport.OrgIDFromContext(ctx), fingerprint, domainParams)
-	apiResult := s.converter.V1beta1().Device().FromDomain(body)
+	apiResult := s.converter.Device().FromDomain(body)
 	transport.SetResponse(w, apiResult, status)
 }
 
@@ -102,9 +102,9 @@ func (s *AgentTransportHandler) ReplaceDeviceStatus(w http.ResponseWriter, r *ht
 		return
 	}
 
-	domainDevice := s.converter.V1beta1().Device().ToDomain(device)
+	domainDevice := s.converter.Device().ToDomain(device)
 	body, status := s.serviceHandler.ReplaceDeviceStatus(ctx, transport.OrgIDFromContext(ctx), fingerprint, domainDevice)
-	apiResult := s.converter.V1beta1().Device().FromDomain(body)
+	apiResult := s.converter.Device().FromDomain(body)
 	transport.SetResponse(w, apiResult, status)
 }
 
@@ -143,9 +143,9 @@ func (s *AgentTransportHandler) PatchDeviceStatus(w http.ResponseWriter, r *http
 		return
 	}
 
-	domainPatch := s.converter.V1beta1().Common().PatchRequestToDomain(patch)
+	domainPatch := s.converter.Common().PatchRequestToDomain(patch)
 	body, status := s.serviceHandler.PatchDeviceStatus(ctx, transport.OrgIDFromContext(ctx), fingerprint, domainPatch)
-	apiResult := s.converter.V1beta1().Device().FromDomain(body)
+	apiResult := s.converter.Device().FromDomain(body)
 	transport.SetResponse(w, apiResult, status)
 }
 
@@ -176,9 +176,9 @@ func (s *AgentTransportHandler) CreateEnrollmentRequest(w http.ResponseWriter, r
 		return
 	}
 
-	domainER := s.converter.V1beta1().EnrollmentRequest().ToDomain(er)
+	domainER := s.converter.EnrollmentRequest().ToDomain(er)
 	body, status := s.serviceHandler.CreateEnrollmentRequest(ctx, transport.OrgIDFromContext(ctx), domainER)
-	apiResult := s.converter.V1beta1().EnrollmentRequest().FromDomain(body)
+	apiResult := s.converter.EnrollmentRequest().FromDomain(body)
 	transport.SetResponse(w, apiResult, status)
 }
 
@@ -204,7 +204,7 @@ func (s *AgentTransportHandler) GetEnrollmentRequest(w http.ResponseWriter, r *h
 	}
 
 	body, status := s.serviceHandler.GetEnrollmentRequest(ctx, transport.OrgIDFromContext(ctx), name)
-	apiResult := s.converter.V1beta1().EnrollmentRequest().FromDomain(body)
+	apiResult := s.converter.EnrollmentRequest().FromDomain(body)
 	transport.SetResponse(w, apiResult, status)
 }
 
@@ -254,7 +254,7 @@ func (s *AgentTransportHandler) CreateCertificateSigningRequest(w http.ResponseW
 	request.Status = nil
 	service.NilOutManagedObjectMetaProperties(&request.Metadata)
 	request.Metadata.Owner = util.SetResourceOwner(api.DeviceKind, fingerprint)
-	domainCSR := s.converter.V1beta1().CertificateSigningRequest().ToDomain(request)
+	domainCSR := s.converter.CertificateSigningRequest().ToDomain(request)
 	csr, status := s.serviceHandler.CreateCertificateSigningRequest(context.WithValue(ctx, consts.InternalRequestCtxKey, true), transport.OrgIDFromContext(ctx), domainCSR)
 	if status.Code != http.StatusCreated && status.Code != http.StatusOK {
 		transport.SetResponse(w, status, status)
@@ -273,7 +273,7 @@ func (s *AgentTransportHandler) CreateCertificateSigningRequest(w http.ResponseW
 			return
 		}
 	}
-	apiResult := s.converter.V1beta1().CertificateSigningRequest().FromDomain(csr)
+	apiResult := s.converter.CertificateSigningRequest().FromDomain(csr)
 	transport.SetResponse(w, apiResult, status)
 }
 
@@ -300,7 +300,7 @@ func (s *AgentTransportHandler) GetCertificateSigningRequest(w http.ResponseWrit
 
 	csr, status := s.serviceHandler.GetCertificateSigningRequest(ctx, transport.OrgIDFromContext(ctx), name)
 	if status.Code != http.StatusOK {
-		apiResult := s.converter.V1beta1().CertificateSigningRequest().FromDomain(csr)
+		apiResult := s.converter.CertificateSigningRequest().FromDomain(csr)
 		transport.SetResponse(w, apiResult, status)
 		return
 	}
@@ -313,7 +313,7 @@ func (s *AgentTransportHandler) GetCertificateSigningRequest(w http.ResponseWrit
 		return
 	}
 
-	apiResult := s.converter.V1beta1().CertificateSigningRequest().FromDomain(csr)
+	apiResult := s.converter.CertificateSigningRequest().FromDomain(csr)
 	transport.SetResponse(w, apiResult, status)
 }
 

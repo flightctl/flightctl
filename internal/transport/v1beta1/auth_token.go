@@ -61,11 +61,11 @@ func (h *TransportHandler) AuthToken(w http.ResponseWriter, r *http.Request, pro
 	}
 
 	// Convert to domain type and call auth token proxy
-	domainTokenReq := h.converter.V1beta1().Auth().TokenRequestToDomain(&tokenReq)
+	domainTokenReq := h.converter.Auth().TokenRequestToDomain(&tokenReq)
 	tokenResp, httpStatus := h.authTokenProxy.ProxyTokenRequest(r.Context(), providername, domainTokenReq)
 
 	// Convert response back to API type
-	apiTokenResp := h.converter.V1beta1().Auth().TokenResponseFromDomain(tokenResp)
+	apiTokenResp := h.converter.Auth().TokenResponseFromDomain(tokenResp)
 
 	// OAuth2 token endpoint returns 200 for success, 400 for all errors
 	// Token response includes error fields for error cases
