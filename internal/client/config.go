@@ -348,7 +348,7 @@ func NewFromConfig(config *Config, configFilePath string, opts ...client.ClientO
 	})
 	defaultOpts := []client.ClientOption{client.WithHTTPClient(httpClient), ref, WithOrganization(config.Organization)}
 	defaultOpts = append(defaultOpts, opts...)
-	return client.NewClientWithResponses(config.Service.Server, defaultOpts...)
+	return client.NewClientWithResponses(config.Service.Server+client.ServerUrlApiv1, defaultOpts...)
 }
 
 // NewFromConfigFile returns a new Flight Control API client using the config

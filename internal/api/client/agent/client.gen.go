@@ -18,6 +18,9 @@ import (
 	"github.com/oapi-codegen/runtime"
 )
 
+// ServerUrlApiv1 defines the Server URL for
+const ServerUrlApiv1 = "/api/v1"
+
 // RequestEditorFn  is the function signature for the RequestEditor callback function
 type RequestEditorFn func(ctx context.Context, req *http.Request) error
 

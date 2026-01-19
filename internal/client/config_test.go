@@ -106,14 +106,14 @@ func TestClientConfig(t *testing.T) {
 			name:           "local service",
 			server:         "https://localhost:3443",
 			serverName:     "",
-			serverWant:     "https://localhost:3443/",
+			serverWant:     "https://localhost:3443" + apiclient.ServerUrlApiv1 + "/",
 			serverNameWant: "localhost",
 		},
 		{
 			name:           "remote service",
 			server:         "https://api.flightctl.edge-devices.net/devicemanagement/",
 			serverName:     "flightctl.edge-devices.net",
-			serverWant:     "https://api.flightctl.edge-devices.net/devicemanagement/",
+			serverWant:     "https://api.flightctl.edge-devices.net/devicemanagement/" + apiclient.ServerUrlApiv1 + "/",
 			serverNameWant: "flightctl.edge-devices.net",
 		},
 	}
