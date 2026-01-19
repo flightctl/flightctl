@@ -41,6 +41,11 @@ func (r *Registry) Negotiate(requested Version, metadata *server.EndpointMetadat
 		return requested, supported, nil
 	}
 
+	// When no metadata is available (e.g., agent server routes), accept the fallback version
+	if len(supported) == 0 && requested == r.fallbackVersion {
+		return requested, supported, nil
+	}
+
 	return "", supported, ErrNotAcceptable
 }
 
