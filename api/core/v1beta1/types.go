@@ -46,7 +46,21 @@ const CurrentProcessUsername Username = ""
 
 // UserWithDefault returns the user this application should run as. Blank string implies
 // root.
-func (a *ApplicationProviderSpec) UserWithDefault() Username {
+func (a ContainerApplication) UserWithDefault() Username {
+	if a.RunAs == "" {
+		return CurrentProcessUsername
+	}
+	return a.RunAs
+}
+
+func (a QuadletApplication) UserWithDefault() Username {
+	if a.RunAs == "" {
+		return CurrentProcessUsername
+	}
+	return a.RunAs
+}
+
+func (a ComposeApplication) UserWithDefault() Username {
 	if a.RunAs == "" {
 		return CurrentProcessUsername
 	}

@@ -266,6 +266,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.log,
 		rwFactory,
 		podmanClientFactory,
+		cliClients,
 		systemInfoManager,
 		systemdManagerFactory,
 	)
@@ -380,6 +381,7 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	applicationsController := applications.NewController(
 		podmanClientFactory,
+		cliClients,
 		applicationsManager,
 		rwFactory,
 		a.log,
@@ -390,7 +392,9 @@ func (a *Agent) Run(ctx context.Context) error {
 	pruningManager := imagepruning.New(
 		podmanClientFactory,
 		rootPodmanClient,
+		cliClients,
 		specManager,
+		rwFactory,
 		rootReadWriter,
 		a.log,
 		a.config.ImagePruning,

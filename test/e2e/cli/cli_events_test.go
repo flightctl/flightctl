@@ -386,14 +386,17 @@ var _ = Describe("cli events operation", func() {
 			err = harness.UpdateDeviceWithRetries(deviceName, func(device *v1beta1.Device) {
 				imageName := "quay.io/rh_ee_camadorg/oci-app-ko:latest"
 				// Create the application spec with the invalid image
-				var applicationConfig = v1beta1.ImageApplicationProviderSpec{
+				imageSpec := v1beta1.ImageApplicationProviderSpec{
 					Image: imageName,
 				}
-
-				appSpec := v1beta1.ApplicationProviderSpec{
+				composeApp := v1beta1.ComposeApplication{
 					AppType: v1beta1.AppTypeCompose,
 				}
-				err := appSpec.FromImageApplicationProviderSpec(applicationConfig)
+				err := composeApp.FromImageApplicationProviderSpec(imageSpec)
+				Expect(err).ToNot(HaveOccurred())
+
+				var appSpec v1beta1.ApplicationProviderSpec
+				err = appSpec.FromComposeApplication(composeApp)
 				Expect(err).ToNot(HaveOccurred())
 
 				device.Spec.Applications = &[]v1beta1.ApplicationProviderSpec{appSpec}

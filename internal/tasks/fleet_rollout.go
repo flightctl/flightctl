@@ -281,19 +281,25 @@ func (f FleetRolloutsLogic) getDeviceApps(device *domain.Device, templateVersion
 	appErrs := []error{}
 	for appIndex, appItem := range *templateVersion.Status.Applications {
 		var newAppItem *domain.ApplicationProviderSpec
-		errs := []error{}
-		appType, err := appItem.Type()
+		var errs []error
+
+		appType, err := appItem.GetAppType()
 		if err != nil {
-			appErrs = append(errs, fmt.Errorf("failed getting type for app %d: %w", appIndex, err))
+			appErrs = append(appErrs, fmt.Errorf("failed to get app type for app %d: %w", appIndex, err))
 			continue
 		}
+
 		switch appType {
-		case domain.ImageApplicationProviderType:
-			newAppItem, errs = f.replaceImageApplicationParameters(device, appItem)
-		case domain.InlineApplicationProviderType:
-			newAppItem, errs = f.replaceInlineApplicationParameters(device, appItem)
+		case domain.AppTypeContainer:
+			newAppItem, errs = f.replaceContainerApplicationParameters(device, appItem)
+		case domain.AppTypeHelm:
+			newAppItem, errs = f.replaceHelmApplicationParameters(device, appItem)
+		case domain.AppTypeCompose:
+			newAppItem, errs = f.replaceComposeApplicationParameters(device, appItem)
+		case domain.AppTypeQuadlet:
+			newAppItem, errs = f.replaceQuadletApplicationParameters(device, appItem)
 		default:
-			errs = append(errs, fmt.Errorf("unsupported type for app %d: %s", appIndex, appType))
+			errs = append(errs, fmt.Errorf("unsupported app type for app %d: %s", appIndex, appType))
 		}
 
 		appErrs = append(appErrs, errs...)
@@ -309,45 +315,47 @@ func (f FleetRolloutsLogic) getDeviceApps(device *domain.Device, templateVersion
 	return &deviceApps, nil
 }
 
-func replaceEnvVars(device *domain.Device, app *domain.ApplicationProviderSpec) []error {
-	var errs []error
-	if app.EnvVars != nil {
-		origEnvVars := *app.EnvVars
-		newEnvVars := make(map[string]string, len(origEnvVars))
-		for k, v := range origEnvVars {
-			newValue, err := replaceParametersInString(v, device)
-			if err != nil {
-				errs = append(errs, fmt.Errorf("failed replacing parameters in env var %s: %w", k, err))
-				continue
-			}
-			newEnvVars[k] = newValue
-		}
-		app.EnvVars = &newEnvVars
+func replaceEnvVarsMap(device *domain.Device, envVars *map[string]string) (*map[string]string, []error) {
+	if envVars == nil {
+		return nil, nil
 	}
-	return errs
+	var errs []error
+	origEnvVars := *envVars
+	newEnvVars := make(map[string]string, len(origEnvVars))
+	for k, v := range origEnvVars {
+		newValue, err := replaceParametersInString(v, device)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("failed replacing parameters in env var %s: %w", k, err))
+			continue
+		}
+		newEnvVars[k] = newValue
+	}
+	return &newEnvVars, errs
 }
 
-func (f FleetRolloutsLogic) replaceImageApplicationParameters(device *domain.Device, app domain.ApplicationProviderSpec) (*domain.ApplicationProviderSpec, []error) {
-	appName := lo.FromPtr(app.Name)
-	imageSpec, err := app.AsImageApplicationProviderSpec()
+func (f FleetRolloutsLogic) replaceContainerApplicationParameters(device *domain.Device, app domain.ApplicationProviderSpec) (*domain.ApplicationProviderSpec, []error) {
+	containerApp, err := app.AsContainerApplication()
 	if err != nil {
-		return nil, []error{fmt.Errorf("failed to convert to image application provider: %w", err)}
+		return nil, []error{fmt.Errorf("failed to convert to container application: %w", err)}
 	}
+	appName := lo.FromPtr(containerApp.Name)
 
 	var errs []error
 
-	imageSpec.Image, err = replaceParametersInString(imageSpec.Image, device)
+	containerApp.Image, err = replaceParametersInString(containerApp.Image, device)
 	if err != nil {
 		errs = append(errs, fmt.Errorf("failed replacing parameters in image for app %s: %w", appName, err))
 	}
 
-	errs = append(errs, replaceEnvVars(device, &app)...)
+	newEnvVars, envErrs := replaceEnvVarsMap(device, containerApp.EnvVars)
+	errs = append(errs, envErrs...)
+	containerApp.EnvVars = newEnvVars
 
-	if imageSpec.Volumes != nil {
-		newVolumes, volErrs := f.replaceVolumeParameters(device, appName, *imageSpec.Volumes)
+	if containerApp.Volumes != nil {
+		newVolumes, volErrs := f.replaceVolumeParameters(device, appName, *containerApp.Volumes)
 		errs = append(errs, volErrs...)
 		if len(volErrs) == 0 {
-			imageSpec.Volumes = &newVolumes
+			containerApp.Volumes = &newVolumes
 		}
 	}
 
@@ -355,17 +363,207 @@ func (f FleetRolloutsLogic) replaceImageApplicationParameters(device *domain.Dev
 		return nil, errs
 	}
 
-	newItem := domain.ApplicationProviderSpec{
-		Name:    app.Name,
-		EnvVars: app.EnvVars,
-		AppType: app.AppType,
-	}
-	err = newItem.FromImageApplicationProviderSpec(imageSpec)
-	if err != nil {
-		return nil, []error{fmt.Errorf("failed converting image application: %w", err)}
+	var newItem domain.ApplicationProviderSpec
+	if err := newItem.FromContainerApplication(containerApp); err != nil {
+		return nil, []error{fmt.Errorf("failed converting container application: %w", err)}
 	}
 
 	return &newItem, nil
+}
+
+func (f FleetRolloutsLogic) replaceHelmApplicationParameters(device *domain.Device, app domain.ApplicationProviderSpec) (*domain.ApplicationProviderSpec, []error) {
+	helmApp, err := app.AsHelmApplication()
+	if err != nil {
+		return nil, []error{fmt.Errorf("failed to convert to helm application: %w", err)}
+	}
+	appName := lo.FromPtr(helmApp.Name)
+
+	var errs []error
+
+	helmApp.Image, err = replaceParametersInString(helmApp.Image, device)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("failed replacing parameters in image for app %s: %w", appName, err))
+	}
+
+	if len(errs) > 0 {
+		return nil, errs
+	}
+
+	var newItem domain.ApplicationProviderSpec
+	if err := newItem.FromHelmApplication(helmApp); err != nil {
+		return nil, []error{fmt.Errorf("failed converting helm application: %w", err)}
+	}
+
+	return &newItem, nil
+}
+
+func (f FleetRolloutsLogic) replaceComposeApplicationParameters(device *domain.Device, app domain.ApplicationProviderSpec) (*domain.ApplicationProviderSpec, []error) {
+	composeApp, err := app.AsComposeApplication()
+	if err != nil {
+		return nil, []error{fmt.Errorf("failed to convert to compose application: %w", err)}
+	}
+	appName := lo.FromPtr(composeApp.Name)
+
+	var errs []error
+
+	newEnvVars, envErrs := replaceEnvVarsMap(device, composeApp.EnvVars)
+	errs = append(errs, envErrs...)
+	composeApp.EnvVars = newEnvVars
+
+	if composeApp.Volumes != nil {
+		newVolumes, volErrs := f.replaceVolumeParameters(device, appName, *composeApp.Volumes)
+		errs = append(errs, volErrs...)
+		if len(volErrs) == 0 {
+			composeApp.Volumes = &newVolumes
+		}
+	}
+
+	providerType, err := composeApp.Type()
+	if err != nil {
+		return nil, []error{fmt.Errorf("failed getting provider type for compose app %s: %w", appName, err)}
+	}
+
+	switch providerType {
+	case domain.ImageApplicationProviderType:
+		imageSpec, err := composeApp.AsImageApplicationProviderSpec()
+		if err != nil {
+			return nil, []error{fmt.Errorf("failed to get image spec for compose app %s: %w", appName, err)}
+		}
+		imageSpec.Image, err = replaceParametersInString(imageSpec.Image, device)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("failed replacing parameters in image for app %s: %w", appName, err))
+		}
+		if len(errs) > 0 {
+			return nil, errs
+		}
+		if err := composeApp.FromImageApplicationProviderSpec(imageSpec); err != nil {
+			return nil, []error{fmt.Errorf("failed updating image spec for compose app %s: %w", appName, err)}
+		}
+
+	case domain.InlineApplicationProviderType:
+		inlineSpec, err := composeApp.AsInlineApplicationProviderSpec()
+		if err != nil {
+			return nil, []error{fmt.Errorf("failed to get inline spec for compose app %s: %w", appName, err)}
+		}
+		inlineErrs := f.replaceInlineContentParameters(device, appName, &inlineSpec)
+		errs = append(errs, inlineErrs...)
+		if len(errs) > 0 {
+			return nil, errs
+		}
+		if err := composeApp.FromInlineApplicationProviderSpec(inlineSpec); err != nil {
+			return nil, []error{fmt.Errorf("failed updating inline spec for compose app %s: %w", appName, err)}
+		}
+	}
+
+	var newItem domain.ApplicationProviderSpec
+	if err := newItem.FromComposeApplication(composeApp); err != nil {
+		return nil, []error{fmt.Errorf("failed converting compose application: %w", err)}
+	}
+
+	return &newItem, nil
+}
+
+func (f FleetRolloutsLogic) replaceQuadletApplicationParameters(device *domain.Device, app domain.ApplicationProviderSpec) (*domain.ApplicationProviderSpec, []error) {
+	quadletApp, err := app.AsQuadletApplication()
+	if err != nil {
+		return nil, []error{fmt.Errorf("failed to convert to quadlet application: %w", err)}
+	}
+	appName := lo.FromPtr(quadletApp.Name)
+
+	var errs []error
+
+	newEnvVars, envErrs := replaceEnvVarsMap(device, quadletApp.EnvVars)
+	errs = append(errs, envErrs...)
+	quadletApp.EnvVars = newEnvVars
+
+	if quadletApp.Volumes != nil {
+		newVolumes, volErrs := f.replaceVolumeParameters(device, appName, *quadletApp.Volumes)
+		errs = append(errs, volErrs...)
+		if len(volErrs) == 0 {
+			quadletApp.Volumes = &newVolumes
+		}
+	}
+
+	providerType, err := quadletApp.Type()
+	if err != nil {
+		return nil, []error{fmt.Errorf("failed getting provider type for quadlet app %s: %w", appName, err)}
+	}
+
+	switch providerType {
+	case domain.ImageApplicationProviderType:
+		imageSpec, err := quadletApp.AsImageApplicationProviderSpec()
+		if err != nil {
+			return nil, []error{fmt.Errorf("failed to get image spec for quadlet app %s: %w", appName, err)}
+		}
+		imageSpec.Image, err = replaceParametersInString(imageSpec.Image, device)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("failed replacing parameters in image for app %s: %w", appName, err))
+		}
+		if len(errs) > 0 {
+			return nil, errs
+		}
+		if err := quadletApp.FromImageApplicationProviderSpec(imageSpec); err != nil {
+			return nil, []error{fmt.Errorf("failed updating image spec for quadlet app %s: %w", appName, err)}
+		}
+
+	case domain.InlineApplicationProviderType:
+		inlineSpec, err := quadletApp.AsInlineApplicationProviderSpec()
+		if err != nil {
+			return nil, []error{fmt.Errorf("failed to get inline spec for quadlet app %s: %w", appName, err)}
+		}
+		inlineErrs := f.replaceInlineContentParameters(device, appName, &inlineSpec)
+		errs = append(errs, inlineErrs...)
+		if len(errs) > 0 {
+			return nil, errs
+		}
+		if err := quadletApp.FromInlineApplicationProviderSpec(inlineSpec); err != nil {
+			return nil, []error{fmt.Errorf("failed updating inline spec for quadlet app %s: %w", appName, err)}
+		}
+	}
+
+	var newItem domain.ApplicationProviderSpec
+	if err := newItem.FromQuadletApplication(quadletApp); err != nil {
+		return nil, []error{fmt.Errorf("failed converting quadlet application: %w", err)}
+	}
+
+	return &newItem, nil
+}
+
+func (f FleetRolloutsLogic) replaceInlineContentParameters(device *domain.Device, appName string, inlineSpec *domain.InlineApplicationProviderSpec) []error {
+	var errs []error
+	for fileIndex, file := range inlineSpec.Inline {
+		var decodedBytes []byte
+		var err error
+
+		inlineSpec.Inline[fileIndex].Path, err = replaceParametersInString(file.Path, device)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("failed replacing parameters in path for file %d in inline app %s: %w", fileIndex, appName, err))
+		}
+
+		content := lo.FromPtr(file.Content)
+		encoding := lo.FromPtr(file.ContentEncoding)
+		if encoding == domain.EncodingBase64 {
+			decodedBytes, err = base64.StdEncoding.DecodeString(content)
+			if err != nil {
+				errs = append(errs, fmt.Errorf("failed base64 decoding contents for file %d in inline app %s: %w", fileIndex, appName, err))
+				continue
+			}
+		} else {
+			decodedBytes = []byte(content)
+		}
+
+		contentsReplaced, err := replaceParametersInString(string(decodedBytes), device)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("failed replacing parameters in contents for file %d in inline app %s: %w", fileIndex, appName, err))
+			continue
+		}
+
+		if encoding == domain.EncodingBase64 {
+			contentsReplaced = base64.StdEncoding.EncodeToString([]byte(contentsReplaced))
+		}
+		inlineSpec.Inline[fileIndex].Content = &contentsReplaced
+	}
+	return errs
 }
 
 func (f FleetRolloutsLogic) replaceVolumeParameters(device *domain.Device, appName string, volumes []domain.ApplicationVolume) ([]domain.ApplicationVolume, []error) {
@@ -606,76 +804,6 @@ func (f FleetRolloutsLogic) replaceInlineConfigParameters(device *domain.Device,
 	}
 
 	return &newConfigItem, nil
-}
-
-func (f FleetRolloutsLogic) replaceInlineApplicationParameters(device *domain.Device, item domain.ApplicationProviderSpec) (*domain.ApplicationProviderSpec, []error) {
-	appName := lo.FromPtr(item.Name)
-	inlineSpec, err := item.AsInlineApplicationProviderSpec()
-	if err != nil {
-		return nil, []error{fmt.Errorf("failed to convert to inline application provider: %w", err)}
-	}
-
-	errs := []error{}
-	for fileIndex, file := range inlineSpec.Inline {
-		var decodedBytes []byte
-		var err error
-
-		inlineSpec.Inline[fileIndex].Path, err = replaceParametersInString(file.Path, device)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("failed replacing parameters in path for file %d in inline app %s: %w", fileIndex, appName, err))
-		}
-
-		content := lo.FromPtr(file.Content)
-		encoding := lo.FromPtr(file.ContentEncoding)
-		if encoding == domain.EncodingBase64 {
-			decodedBytes, err = base64.StdEncoding.DecodeString(content)
-			if err != nil {
-				errs = append(errs, fmt.Errorf("failed base64 decoding contents for file %d in inline app %s: %w", fileIndex, appName, err))
-				continue
-			}
-		} else {
-			decodedBytes = []byte(content)
-		}
-
-		contentsReplaced, err := replaceParametersInString(string(decodedBytes), device)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("failed replacing parameters in contents for file %d in inline app %s: %w", fileIndex, appName, err))
-			continue
-		}
-
-		if encoding == domain.EncodingBase64 {
-			contentsReplaced = base64.StdEncoding.EncodeToString([]byte(contentsReplaced))
-			inlineSpec.Inline[fileIndex].Content = &contentsReplaced
-		} else {
-			inlineSpec.Inline[fileIndex].Content = &contentsReplaced
-		}
-	}
-
-	errs = append(errs, replaceEnvVars(device, &item)...)
-
-	if inlineSpec.Volumes != nil {
-		newVolumes, volErrs := f.replaceVolumeParameters(device, appName, *inlineSpec.Volumes)
-		errs = append(errs, volErrs...)
-		if len(volErrs) == 0 {
-			inlineSpec.Volumes = &newVolumes
-		}
-	}
-
-	if len(errs) > 0 {
-		return nil, errs
-	}
-
-	newItem := domain.ApplicationProviderSpec{
-		Name:    &appName,
-		EnvVars: item.EnvVars,
-		AppType: item.AppType,
-	}
-	err = newItem.FromInlineApplicationProviderSpec(inlineSpec)
-	if err != nil {
-		return nil, []error{fmt.Errorf("failed converting inline application: %w", err)}
-	}
-
-	return &newItem, nil
 }
 
 func (f FleetRolloutsLogic) replaceHTTPConfigParameters(device *domain.Device, configItem domain.ConfigProviderSpec) (*domain.ConfigProviderSpec, []error) {

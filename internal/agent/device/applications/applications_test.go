@@ -243,7 +243,7 @@ func TestApplicationStatus(t *testing.T) {
 			mockExec := executer.NewMockExecuter(ctrl)
 			podman := client.NewPodman(log, mockExec, readWriter, util.NewPollConfig())
 
-			spec := v1beta1.InlineApplicationProviderSpec{
+			inlineSpec := v1beta1.InlineApplicationProviderSpec{
 				Inline: []v1beta1.ApplicationContent{
 					{
 						Content: lo.ToPtr(util.NewComposeSpec()),
@@ -252,11 +252,15 @@ func TestApplicationStatus(t *testing.T) {
 				},
 			}
 
-			providerSpec := v1beta1.ApplicationProviderSpec{
+			composeApp := v1beta1.ComposeApplication{
 				Name:    lo.ToPtr("app"),
 				AppType: v1beta1.AppTypeCompose,
 			}
-			err := providerSpec.FromInlineApplicationProviderSpec(spec)
+			err := composeApp.FromInlineApplicationProviderSpec(inlineSpec)
+			require.NoError(err)
+
+			var providerSpec v1beta1.ApplicationProviderSpec
+			err = providerSpec.FromComposeApplication(composeApp)
 			require.NoError(err)
 			desired := v1beta1.DeviceSpec{
 				Applications: &[]v1beta1.ApplicationProviderSpec{
@@ -269,7 +273,7 @@ func TestApplicationStatus(t *testing.T) {
 			var rwFactory fileio.ReadWriterFactory = func(username v1beta1.Username) (fileio.ReadWriter, error) {
 				return readWriter, nil
 			}
-			providers, err := provider.FromDeviceSpec(context.Background(), log, podmanFactory, rwFactory, &desired)
+			providers, err := provider.FromDeviceSpec(context.Background(), log, podmanFactory, nil, rwFactory, &desired)
 			require.NoError(err)
 			require.Len(providers, 1)
 			application := NewApplication(providers[0])

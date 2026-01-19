@@ -211,7 +211,7 @@ func TestParseAppProviders(t *testing.T) {
 				return readWriter, nil
 			}
 
-			providers, err := provider.FromDeviceSpec(ctx, log, mockPodmanFactory, rwFactory, spec, provider.WithProviderTypes(v1beta1.ImageApplicationProviderType))
+			providers, err := provider.FromDeviceSpec(ctx, log, mockPodmanFactory, nil, rwFactory, spec, provider.WithProviderTypes(v1beta1.ImageApplicationProviderType))
 			if tc.wantErr != nil {
 				require.ErrorIs(err, tc.wantErr)
 				return
@@ -254,14 +254,18 @@ func newImageConfig(labels map[string]string) (string, error) {
 func newTestDeviceSpec(appSpecs []testApp) (*v1beta1.DeviceSpec, error) {
 	var applications []v1beta1.ApplicationProviderSpec
 	for _, spec := range appSpecs {
-		app := v1beta1.ApplicationProviderSpec{
+		imageSpec := v1beta1.ImageApplicationProviderSpec{
+			Image: spec.image,
+		}
+		composeApp := v1beta1.ComposeApplication{
 			Name:    lo.ToPtr(spec.name),
 			AppType: v1beta1.AppTypeCompose,
 		}
-		provider := v1beta1.ImageApplicationProviderSpec{
-			Image: spec.image,
+		if err := composeApp.FromImageApplicationProviderSpec(imageSpec); err != nil {
+			return nil, err
 		}
-		if err := app.FromImageApplicationProviderSpec(provider); err != nil {
+		var app v1beta1.ApplicationProviderSpec
+		if err := app.FromComposeApplication(composeApp); err != nil {
 			return nil, err
 		}
 		applications = append(applications, app)
@@ -516,7 +520,7 @@ func TestControllerSync(t *testing.T) {
 				return readWriter, nil
 			}
 
-			controller := NewController(podmanFactory, mockAppManager, rwFactory, log, "2025-01-01T00:00:00Z")
+			controller := NewController(podmanFactory, nil, mockAppManager, rwFactory, log, "2025-01-01T00:00:00Z")
 
 			countainerMountDir := "/mount"
 			err = readWriter.MkdirAll(countainerMountDir, fileio.DefaultDirectoryPermissions)

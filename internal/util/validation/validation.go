@@ -411,6 +411,22 @@ func isTCGCSRFormat(csr []byte) bool {
 	return false
 }
 
+func ValidateHelmValuesFile(s *string, path string, maxLength int) []error {
+	if s == nil {
+		return nil
+	}
+
+	errs := ValidateRelativePath(s, path, maxLength)
+
+	ext := filepath.Ext(*s)
+	if !strings.EqualFold(ext, ".yaml") && !strings.EqualFold(ext, ".yml") {
+		extErrs := asErrors(field.ErrorList{field.Invalid(fieldPathFor(path), *s, "must have .yaml or .yml extension")})
+		errs = append(errs, extErrs...)
+	}
+
+	return errs
+}
+
 func FormatInvalidError(input, path, errorMsg string) []error {
 	errors := field.ErrorList{field.Invalid(fieldPathFor(path), input, errorMsg)}
 	return asErrors(errors)

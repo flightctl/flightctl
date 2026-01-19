@@ -4666,35 +4666,65 @@ components:
       - name
       - httpRef
     ApplicationProviderSpec:
+      oneOf:
+        - $ref: '#/components/schemas/ComposeApplication'
+        - $ref: '#/components/schemas/QuadletApplication'
+        - $ref: '#/components/schemas/ContainerApplication'
+        - $ref: '#/components/schemas/HelmApplication'
+      discriminator:
+        propertyName: appType
+        mapping:
+          compose: '#/components/schemas/ComposeApplication'
+          quadlet: '#/components/schemas/QuadletApplication'
+          container: '#/components/schemas/ContainerApplication'
+          helm: '#/components/schemas/HelmApplication'
+
+    ApplicationProviderBase:
+      type: object
+      description: Common properties for all application types.
+      properties:
+        name:
+          type: string
+          description: The application name must be 1–253 characters long, start with a letter or number, and contain no whitespace.
+        appType:
+          $ref: '#/components/schemas/AppType'
+      required:
+        - appType
+
+    ComposeApplication:
       type: object
       allOf:
+        - $ref: '#/components/schemas/ApplicationProviderBase'
         - $ref: '#/components/schemas/ApplicationEnvVars'
-        - type: object
-          properties:
-            name:
-              type: string
-              description: The application name must be 1–253 characters long, start with a letter or number, and contain no whitespace.
-            appType:
-              $ref: '#/components/schemas/AppType'
-            runAs:
-              type: string
-              description: The username of the system user this application should be run under. This is not the same as the user within any containers of the application (if applicable). Defaults to the user that the agent runs as (generally root) if not specified.
-              x-go-type: Username
-              x-go-type-skip-optional-pointer: true
-          required: 
-            - appType
+        - $ref: '#/components/schemas/ApplicationUser'
+        - $ref: '#/components/schemas/ApplicationVolumeProviderSpec'
         - oneOf:
             - $ref: '#/components/schemas/ImageApplicationProviderSpec'
             - $ref: '#/components/schemas/InlineApplicationProviderSpec'
-    ImageApplicationProviderSpec:
+
+    QuadletApplication:
       type: object
       allOf:
+        - $ref: '#/components/schemas/ApplicationProviderBase'
+        - $ref: '#/components/schemas/ApplicationEnvVars'
+        - $ref: '#/components/schemas/ApplicationUser'
+        - $ref: '#/components/schemas/ApplicationVolumeProviderSpec'
+        - oneOf:
+            - $ref: '#/components/schemas/ImageApplicationProviderSpec'
+            - $ref: '#/components/schemas/InlineApplicationProviderSpec'
+
+    ContainerApplication:
+      type: object
+      allOf:
+        - $ref: '#/components/schemas/ApplicationProviderBase'
+        - $ref: '#/components/schemas/ApplicationEnvVars'
+        - $ref: '#/components/schemas/ApplicationUser'
         - $ref: '#/components/schemas/ApplicationVolumeProviderSpec'
         - type: object
           properties:
             image:
               type: string
-              description: Reference to the OCI image or artifact for the application package.
+              description: Reference to the image for this container.
             ports:
               type: array
               description: Port mappings.
@@ -4704,10 +4734,81 @@ components:
               $ref: '#/components/schemas/ApplicationResources'
           required:
             - image
+
+    HelmApplication:
+      type: object
+      allOf:
+        - $ref: '#/components/schemas/ApplicationProviderBase'
+        - type: object
+          properties:
+            image:
+              type: string
+              description: Reference to the chart for this helm application.
+            namespace:
+              type: string
+              description: The target namespace for the application deployment.
+              example: "my-app-namespace"
+            values:
+              type: object
+              additionalProperties: true
+              description: Configuration values for the application. Supports arbitrarily nested structures.
+              example:
+                replicaCount: 3
+                image:
+                  repository: nginx
+                  tag: "1.21"
+                service:
+                  type: ClusterIP
+                  port: 80
+                ingress:
+                  enabled: true
+                  hosts:
+                    - host: example.com
+                      paths:
+                        - path: /
+                          pathType: Prefix
+            valuesFiles:
+              type: array
+              description: List of values files to apply during deployment. Files are relative paths and applied in array order before user-provided values.
+              items:
+                type: string
+              example:
+                - "values-production.yaml"
+                - "values-overrides.yml"
+          required:
+            - image
+    ApplicationUser:
+      type: object
+      properties:
+        runAs:
+          type: string
+          description: The username of the system user this application should be run under. This is not the same as the user within any containers of the application (if applicable). Defaults to the user that the agent runs as (generally root) if not specified.
+          x-go-type: Username
+          x-go-type-skip-optional-pointer: true
+    ContainerApplicationProperties:
+      type: object
+      description: Properties for container application deployments.
+      properties:
+        ports:
+          type: array
+          description: Port mappings.
+          items:
+            $ref: '#/components/schemas/ApplicationPort'
+        resources:
+          $ref: '#/components/schemas/ApplicationResources'
+    ImageApplicationProviderSpec:
+      type: object
+      allOf:
+        - type: object
+          properties:
+            image:
+              type: string
+              description: Reference to the OCI image or artifact for the application package.
+          required:
+            - image
     InlineApplicationProviderSpec:
       type: object
       allOf:
-        - $ref: '#/components/schemas/ApplicationVolumeProviderSpec'
         - type: object
           properties:
             inline:
@@ -4843,11 +4944,12 @@ components:
         - "compose"
         - "quadlet"
         - "container"
+        - "helm"
       x-enum-varnames:
         - "AppTypeCompose"
         - "AppTypeQuadlet"
         - "AppTypeContainer"
-
+        - "AppTypeHelm"
     ResourceMonitor:
       oneOf:
         - $ref: '#/components/schemas/CpuResourceMonitorSpec'

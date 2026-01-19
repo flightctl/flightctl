@@ -117,12 +117,17 @@ func (c ConfigProviderSpec) Type() (ConfigProviderType, error) {
 	return "", fmt.Errorf("unable to determine config provider type: %+v", data)
 }
 
-// Type returns the type of the application provider.
-func (a ApplicationProviderSpec) Type() (ApplicationProviderType, error) {
-	return getApplicationType(a.union)
+// Type returns the provider type (image or inline) for compose applications.
+func (c ComposeApplication) Type() (ApplicationProviderType, error) {
+	return getApplicationProviderType(c.union)
 }
 
-func getApplicationType(union json.RawMessage) (ApplicationProviderType, error) {
+// Type returns the provider type (image or inline) for quadlet applications.
+func (q QuadletApplication) Type() (ApplicationProviderType, error) {
+	return getApplicationProviderType(q.union)
+}
+
+func getApplicationProviderType(union json.RawMessage) (ApplicationProviderType, error) {
 	var data map[ApplicationProviderType]interface{}
 	if err := json.Unmarshal(union, &data); err != nil {
 		return "", err
@@ -137,6 +142,51 @@ func getApplicationType(union json.RawMessage) (ApplicationProviderType, error) 
 	}
 
 	return "", fmt.Errorf("unable to determine application provider type: %+v", data)
+}
+
+// GetAppType returns the application type from the discriminator.
+func (a ApplicationProviderSpec) GetAppType() (AppType, error) {
+	discriminator, err := a.Discriminator()
+	if err != nil {
+		return "", err
+	}
+	return AppType(discriminator), nil
+}
+
+// GetName returns the application name from the underlying type.
+func (a ApplicationProviderSpec) GetName() (*string, error) {
+	appType, err := a.GetAppType()
+	if err != nil {
+		return nil, err
+	}
+	switch appType {
+	case AppTypeContainer:
+		app, err := a.AsContainerApplication()
+		if err != nil {
+			return nil, err
+		}
+		return app.Name, nil
+	case AppTypeHelm:
+		app, err := a.AsHelmApplication()
+		if err != nil {
+			return nil, err
+		}
+		return app.Name, nil
+	case AppTypeCompose:
+		app, err := a.AsComposeApplication()
+		if err != nil {
+			return nil, err
+		}
+		return app.Name, nil
+	case AppTypeQuadlet:
+		app, err := a.AsQuadletApplication()
+		if err != nil {
+			return nil, err
+		}
+		return app.Name, nil
+	default:
+		return nil, fmt.Errorf("unknown app type: %s", appType)
+	}
 }
 
 func (c ApplicationVolume) Type() (ApplicationVolumeProviderType, error) {

@@ -5,6 +5,11 @@ import v1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
 // ========== Application Types ==========
 
 type ApplicationProviderSpec = v1beta1.ApplicationProviderSpec
+
+type ComposeApplication = v1beta1.ComposeApplication
+type QuadletApplication = v1beta1.QuadletApplication
+type ContainerApplication = v1beta1.ContainerApplication
+type HelmApplication = v1beta1.HelmApplication
 type ImageApplicationProviderSpec = v1beta1.ImageApplicationProviderSpec
 type InlineApplicationProviderSpec = v1beta1.InlineApplicationProviderSpec
 
@@ -81,6 +86,7 @@ type AppType = v1beta1.AppType
 const (
 	AppTypeCompose   = v1beta1.AppTypeCompose
 	AppTypeContainer = v1beta1.AppTypeContainer
+	AppTypeHelm      = v1beta1.AppTypeHelm
 	AppTypeQuadlet   = v1beta1.AppTypeQuadlet
 )
 

@@ -147,16 +147,27 @@ func (h *Harness) UpdateApplication(withRetries bool, deviceId string, appName s
 
 	updateFunc := func(device *v1beta1.Device) {
 		logrus.Infof("Starting update for device: %s", *device.Metadata.Name)
-		var appSpec v1beta1.ApplicationProviderSpec
-		var err error
 
+		// Build the ComposeApplication with name and envVars
+		composeApp := v1beta1.ComposeApplication{
+			AppType: v1beta1.AppTypeCompose,
+			Name:    &appName,
+		}
+
+		if envVars != nil {
+			logrus.Infof("Setting environment variables for app %s: %v", appName, envVars)
+			composeApp.EnvVars = &envVars
+		}
+
+		// Set the image/inline union on the ComposeApplication
+		var err error
 		switch spec := appProvider.(type) {
 		case v1beta1.InlineApplicationProviderSpec:
 			logrus.Infof("Processing InlineApplicationProviderSpec for %s", appName)
-			err = appSpec.FromInlineApplicationProviderSpec(spec)
+			err = composeApp.FromInlineApplicationProviderSpec(spec)
 		case v1beta1.ImageApplicationProviderSpec:
 			logrus.Infof("Processing ImageApplicationProviderSpec for %s", appName)
-			err = appSpec.FromImageApplicationProviderSpec(spec)
+			err = composeApp.FromImageApplicationProviderSpec(spec)
 		default:
 			logrus.Errorf("Unsupported application provider type: %T for %s", appProvider, appName)
 			return
@@ -167,12 +178,11 @@ func (h *Harness) UpdateApplication(withRetries bool, deviceId string, appName s
 			return
 		}
 
-		appSpec.Name = &appName
-		appSpec.AppType = v1beta1.AppTypeCompose
-
-		if envVars != nil {
-			logrus.Infof("Setting environment variables for app %s: %v", appName, envVars)
-			appSpec.EnvVars = &envVars
+		// Create the ApplicationProviderSpec from the ComposeApplication
+		var appSpec v1beta1.ApplicationProviderSpec
+		if err := appSpec.FromComposeApplication(composeApp); err != nil {
+			logrus.Errorf("Error creating ApplicationProviderSpec: %v", err)
+			return
 		}
 
 		if device.Spec.Applications == nil {
@@ -182,7 +192,8 @@ func (h *Harness) UpdateApplication(withRetries bool, deviceId string, appName s
 		}
 
 		for i, a := range *device.Spec.Applications {
-			if a.Name != nil && *a.Name == appName {
+			existingName, _ := a.GetName()
+			if existingName != nil && *existingName == appName {
 				logrus.Infof("Updating existing application %s at index %d", appName, i)
 				(*device.Spec.Applications)[i] = appSpec
 				return

@@ -24,6 +24,277 @@ const (
 	embeddedQuadletMarkerFile = ".flightctl-embedded"
 )
 
+type quadletProvider struct {
+	log        *log.PrefixLogger
+	podman     *client.Podman
+	readWriter fileio.ReadWriter
+	spec       *ApplicationSpec
+
+	imageRef      string
+	inlineContent []v1beta1.ApplicationContent
+
+	AppData *AppData
+}
+
+func newQuadletProvider(
+	ctx context.Context,
+	log *log.PrefixLogger,
+	podmanFactory client.PodmanFactory,
+	apiSpec *v1beta1.ApplicationProviderSpec,
+	rwFactory fileio.ReadWriterFactory,
+	cfg *parseConfig,
+) (*quadletProvider, error) {
+	quadletApp, err := (*apiSpec).AsQuadletApplication()
+	if err != nil {
+		return nil, fmt.Errorf("getting quadlet application: %w", err)
+	}
+
+	appName := lo.FromPtr(quadletApp.Name)
+	envVars := lo.FromPtr(quadletApp.EnvVars)
+	volumes := quadletApp.Volumes
+
+	user := quadletApp.UserWithDefault()
+	podman, err := podmanFactory(user)
+	if err != nil {
+		return nil, fmt.Errorf("creating podman client for user %s: %w", user, err)
+	}
+
+	readWriter, err := rwFactory(user)
+	if err != nil {
+		return nil, fmt.Errorf("creating read/writer for user %s: %w", user, err)
+	}
+
+	providerType, err := quadletApp.Type()
+	if err != nil {
+		return nil, fmt.Errorf("getting quadlet provider type: %w", err)
+	}
+
+	if cfg != nil && cfg.providerTypes != nil {
+		if _, exists := cfg.providerTypes[providerType]; !exists {
+			return nil, nil
+		}
+	}
+
+	var imageRef string
+	var inlineContent []v1beta1.ApplicationContent
+	var volumeProvider func() ([]*Volume, error)
+
+	switch providerType {
+	case v1beta1.ImageApplicationProviderType:
+		imageSpec, err := quadletApp.AsImageApplicationProviderSpec()
+		if err != nil {
+			return nil, fmt.Errorf("getting quadlet image provider: %w", err)
+		}
+		imageRef = imageSpec.Image
+		if appName == "" {
+			appName = imageRef
+		}
+
+		if err := ensureAppTypeFromImage(ctx, podman, v1beta1.AppTypeQuadlet, imageRef); err != nil {
+			return nil, fmt.Errorf("ensuring app type: %w", err)
+		}
+
+	case v1beta1.InlineApplicationProviderType:
+		inlineSpec, err := quadletApp.AsInlineApplicationProviderSpec()
+		if err != nil {
+			return nil, fmt.Errorf("getting quadlet inline provider: %w", err)
+		}
+		inlineContent = inlineSpec.Inline
+	}
+
+	volumeManager, err := NewVolumeManager(log, appName, v1beta1.AppTypeQuadlet, volumes)
+	if err != nil {
+		return nil, err
+	}
+
+	appPath := filepath.Join(lifecycle.QuadletAppPath, appName)
+	appID := client.NewComposeID(appName)
+
+	// For inline apps, extract volumes immediately since content is available
+	// For image-based apps, volume extraction is deferred to Install() after content is extracted
+	if imageRef == "" {
+		volumeProvider = func() ([]*Volume, error) {
+			return extractQuadletVolumesFromSpec(appID, inlineContent)
+		}
+		quadletVolumes, err := volumeProvider()
+		if err != nil {
+			return nil, fmt.Errorf("getting quadlet volumes: %w", err)
+		}
+		volumeManager.AddVolumes(quadletVolumes)
+	}
+
+	p := &quadletProvider{
+		log:           log,
+		podman:        podman,
+		readWriter:    readWriter,
+		imageRef:      imageRef,
+		inlineContent: inlineContent,
+		spec: &ApplicationSpec{
+			Name:       appName,
+			ID:         appID,
+			AppType:    v1beta1.AppTypeQuadlet,
+			Path:       appPath,
+			EnvVars:    envVars,
+			QuadletApp: &quadletApp,
+			Volume:     volumeManager,
+		},
+	}
+
+	if cfg != nil && cfg.appDataCache != nil {
+		if cachedData, found := cfg.appDataCache[appName]; found {
+			p.AppData = cachedData
+		}
+	}
+
+	return p, nil
+}
+
+func (p *quadletProvider) isImageBased() bool {
+	return p.imageRef != ""
+}
+
+func (p *quadletProvider) Verify(ctx context.Context) error {
+	if err := validateEnvVars(p.spec.EnvVars); err != nil {
+		return fmt.Errorf("%w: validating env vars: %w", errors.ErrInvalidSpec, err)
+	}
+
+	if err := ensureDependenciesFromVolumes(ctx, p.podman, p.spec.QuadletApp.Volumes); err != nil {
+		return fmt.Errorf("%w: ensuring volume dependencies: %w", errors.ErrNoRetry, err)
+	}
+
+	if err := ensureDependenciesFromAppType([]string{"podman"}); err != nil {
+		return fmt.Errorf("%w: ensuring dependencies: %w", errors.ErrNoRetry, err)
+	}
+
+	version, err := p.podman.Version(ctx)
+	if err != nil {
+		return fmt.Errorf("podman version: %w", err)
+	}
+	if err := ensureMinQuadletPodmanVersion(version); err != nil {
+		return fmt.Errorf("%w: quadlet app type: %w", errors.ErrNoRetry, err)
+	}
+
+	if err := ensureImageVolumes(lo.FromPtr(p.spec.QuadletApp.Volumes)); err != nil {
+		return fmt.Errorf("%w: ensuring volumes: %w", errors.ErrNoRetry, err)
+	}
+
+	var tmpAppPath string
+	var shouldCleanup bool
+	if p.AppData != nil && p.AppData.TmpPath != "" {
+		tmpAppPath = p.AppData.TmpPath
+		shouldCleanup = false
+	} else {
+		var err error
+		tmpAppPath, err = p.readWriter.MkdirTemp("app_temp")
+		if err != nil {
+			return fmt.Errorf("creating tmp dir: %w", err)
+		}
+		shouldCleanup = true
+
+		if p.isImageBased() {
+			if err := p.extractOCIContents(ctx, tmpAppPath); err != nil {
+				return fmt.Errorf("extracting OCI contents: %w", err)
+			}
+		} else {
+			if err := p.writeInlineContent(tmpAppPath); err != nil {
+				return fmt.Errorf("writing inline content: %w", err)
+			}
+		}
+	}
+
+	defer func() {
+		if shouldCleanup && tmpAppPath != "" {
+			if err := p.readWriter.RemoveAll(tmpAppPath); err != nil {
+				p.log.Warnf("Failed to cleanup temporary directory %q: %v", tmpAppPath, err)
+			}
+		}
+	}()
+
+	if err := ensureQuadlet(p.readWriter, tmpAppPath); err != nil {
+		return fmt.Errorf("%w: verifying quadlet: %w", errors.ErrNoRetry, err)
+	}
+
+	return nil
+}
+
+func (p *quadletProvider) extractOCIContents(ctx context.Context, path string) error {
+	return extractOCIContentsToPath(ctx, p.podman, p.log, p.readWriter, p.imageRef, path)
+}
+
+func (p *quadletProvider) writeInlineContent(appPath string) error {
+	return writeInlineContentToPath(p.readWriter, appPath, p.inlineContent)
+}
+
+func (p *quadletProvider) Install(ctx context.Context) error {
+	if p.AppData != nil {
+		p.log.Debugf("Cleaning up cached app data before Install")
+		if cleanupErr := p.AppData.Cleanup(); cleanupErr != nil {
+			p.log.Warnf("Failed to cleanup cached app data: %v", cleanupErr)
+		}
+		p.AppData = nil
+	}
+
+	if p.isImageBased() {
+		if err := p.extractOCIContents(ctx, p.spec.Path); err != nil {
+			return fmt.Errorf("extracting OCI contents: %w", err)
+		}
+	} else {
+		if err := p.writeInlineContent(p.spec.Path); err != nil {
+			return fmt.Errorf("writing inline content: %w", err)
+		}
+	}
+
+	if err := writeENVFile(p.spec.Path, p.readWriter, p.spec.EnvVars); err != nil {
+		return fmt.Errorf("writing env file: %w", err)
+	}
+
+	// For image-based apps, volumes are extracted after content is available
+	if p.isImageBased() {
+		quadletVolumes, err := extractQuadletVolumesFromDir(p.spec.ID, p.readWriter, p.spec.Path)
+		if err != nil {
+			return fmt.Errorf("getting quadlet volumes: %w", err)
+		}
+		p.spec.Volume.AddVolumes(quadletVolumes)
+	}
+
+	if err := installQuadlet(p.readWriter, p.log, p.spec.Path, p.spec.ID); err != nil {
+		return fmt.Errorf("installing quadlet: %w", err)
+	}
+
+	return nil
+}
+
+func (p *quadletProvider) Remove(ctx context.Context) error {
+	if p.AppData != nil {
+		p.log.Debugf("Cleaning up cached app data before Remove")
+		if cleanupErr := p.AppData.Cleanup(); cleanupErr != nil {
+			p.log.Warnf("Failed to cleanup cached app data: %v", cleanupErr)
+		}
+		p.AppData = nil
+	}
+
+	path := filepath.Join(lifecycle.QuadletTargetPath, quadlet.NamespaceResource(p.spec.ID, lifecycle.QuadletTargetName))
+	if err := p.readWriter.RemoveFile(path); err != nil {
+		return fmt.Errorf("removing quadlet target file: %w", err)
+	}
+	if err := p.readWriter.RemoveAll(p.spec.Path); err != nil {
+		return fmt.Errorf("removing quadlet app path: %w", err)
+	}
+	return nil
+}
+
+func (p *quadletProvider) Name() string {
+	return p.spec.Name
+}
+
+func (p *quadletProvider) ID() string {
+	return p.spec.ID
+}
+
+func (p *quadletProvider) Spec() *ApplicationSpec {
+	return p.spec
+}
+
 type quadletInstaller struct {
 	readWriter fileio.ReadWriter
 	logger     *log.PrefixLogger
@@ -759,93 +1030,6 @@ func (q *quadletInstaller) updateDropInReferences(dirPath string, quadletBasenam
 		}
 	}
 
-	return nil
-}
-
-func createVolumeQuadlet(rw fileio.ReadWriter, dir string, volumeName string, imageRef string) error {
-	unit := quadlet.NewEmptyUnit()
-	unit.Add(quadlet.VolumeGroup, quadlet.ImageKey, imageRef)
-	unit.Add(quadlet.VolumeGroup, quadlet.DriverKey, "image")
-
-	contents, err := unit.Write()
-	if err != nil {
-		return fmt.Errorf("serializing volume quadlet: %w", err)
-	}
-
-	volumeFile := filepath.Join(dir, fmt.Sprintf("%s.volume", volumeName))
-	if err := rw.WriteFile(volumeFile, contents, fileio.DefaultFilePermissions); err != nil {
-		return fmt.Errorf("writing volume file: %w", err)
-	}
-
-	return nil
-}
-
-func generateQuadlet(ctx context.Context, podman *client.Podman, rw fileio.ReadWriter, dir string, spec *v1beta1.ImageApplicationProviderSpec) error {
-	unit := quadlet.NewEmptyUnit()
-	unit.Add(quadlet.ContainerGroup, quadlet.ImageKey, spec.Image)
-
-	if spec.Resources != nil && spec.Resources.Limits != nil {
-		lims := spec.Resources.Limits
-		if lims.Cpu != nil {
-			unit.Add(quadlet.ContainerGroup, quadlet.PodmanArgsKey, fmt.Sprintf("--cpus %s", *lims.Cpu))
-		}
-		if lims.Memory != nil {
-			// the memory key was made a first class citizen in 5.6
-			unit.Add(quadlet.ContainerGroup, quadlet.PodmanArgsKey, fmt.Sprintf("--memory %s", *lims.Memory))
-		}
-	}
-	for _, port := range lo.FromPtr(spec.Ports) {
-		unit.Add(quadlet.ContainerGroup, quadlet.PublishPortKey, port)
-	}
-
-	// add default values to [Service] and [Install] sections
-	unit.Add("Service", "Restart", "on-failure").
-		Add("Service", "RestartSec", "60").
-		Add("Install", "WantedBy", "multi-user.target default.target")
-
-	for _, vol := range lo.FromPtr(spec.Volumes) {
-		volType, err := vol.Type()
-		if err != nil {
-			return fmt.Errorf("getting volume type: %w", err)
-		}
-
-		switch volType {
-		case v1beta1.MountApplicationVolumeProviderType:
-			mountSpec, err := vol.AsMountVolumeProviderSpec()
-			if err != nil {
-				return fmt.Errorf("getting mount volume spec: %w", err)
-			}
-			unit.Add(quadlet.ContainerGroup, quadlet.VolumeKey, fmt.Sprintf("%s:%s", vol.Name, mountSpec.Mount.Path))
-		case v1beta1.ImageMountApplicationVolumeProviderType:
-			imageMountSpec, err := vol.AsImageMountVolumeProviderSpec()
-			if err != nil {
-				return fmt.Errorf("getting image mount volume spec: %w", err)
-			}
-
-			// if it was previously discovered as an image then we can just populate the volume with the image
-			if podman.ImageExists(ctx, imageMountSpec.Image.Reference) {
-				if err := createVolumeQuadlet(rw, dir, vol.Name, imageMountSpec.Image.Reference); err != nil {
-					return fmt.Errorf("creating volume quadlet for %s: %w", vol.Name, err)
-				}
-				unit.Add(quadlet.ContainerGroup, quadlet.VolumeKey, fmt.Sprintf("%s.volume:%s", vol.Name, imageMountSpec.Mount.Path))
-			} else {
-				// if it's an artifact we have to handle it more similarly to compose (named volume that we extract into)
-				unit.Add(quadlet.ContainerGroup, quadlet.VolumeKey, fmt.Sprintf("%s:%s", vol.Name, imageMountSpec.Mount.Path))
-			}
-		default:
-			return fmt.Errorf("%w: %s", errors.ErrUnsupportedVolumeType, volType)
-		}
-	}
-
-	contents, err := unit.Write()
-	if err != nil {
-		return fmt.Errorf("serializing quadlet: %w", err)
-	}
-
-	// namespacing should occur after the quadlet has been generated so it is fine to default to a basic container name
-	if err := rw.WriteFile(filepath.Join(dir, "app.container"), contents, fileio.DefaultFilePermissions); err != nil {
-		return fmt.Errorf("writing container quadlet: %w", err)
-	}
 	return nil
 }
 

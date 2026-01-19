@@ -84,6 +84,10 @@ func (p *embeddedProvider) Name() string {
 	return p.spec.Name
 }
 
+func (p *embeddedProvider) ID() string {
+	return p.spec.ID
+}
+
 func (p *embeddedProvider) Spec() *ApplicationSpec {
 	return p.spec
 }

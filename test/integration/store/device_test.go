@@ -438,30 +438,32 @@ var _ = Describe("DeviceStore create", func() {
 					},
 				})
 
-				imageApp := &api.ImageApplicationProviderSpec{
-					Image:   "quay.io/flightctl/test-app:latest",
+				imageComposeApp := api.ComposeApplication{
+					Name:    lo.ToPtr("test-image-app"),
+					AppType: api.AppTypeCompose,
 					Volumes: &[]api.ApplicationVolume{imageVolume},
 				}
-				imageAppItem := api.ApplicationProviderSpec{
-					AppType: api.AppTypeCompose,
-					Name:    lo.ToPtr("test-image-app"),
-				}
-				_ = imageAppItem.FromImageApplicationProviderSpec(*imageApp)
+				_ = imageComposeApp.FromImageApplicationProviderSpec(api.ImageApplicationProviderSpec{
+					Image: "quay.io/flightctl/test-app:latest",
+				})
+				var imageAppItem api.ApplicationProviderSpec
+				_ = imageAppItem.FromComposeApplication(imageComposeApp)
 
-				inlineApp := &api.InlineApplicationProviderSpec{
+				inlineComposeApp := api.ComposeApplication{
+					Name:    lo.ToPtr("test-inline-app"),
+					AppType: api.AppTypeCompose,
+					Volumes: &[]api.ApplicationVolume{imageVolume}, // Reuse the same volume
+				}
+				_ = inlineComposeApp.FromInlineApplicationProviderSpec(api.InlineApplicationProviderSpec{
 					Inline: []api.ApplicationContent{
 						{
 							Path:    "docker-compose.yaml",
 							Content: lo.ToPtr("version: '3'\nservices:\n  test:\n    image: alpine\n"),
 						},
 					},
-					Volumes: &[]api.ApplicationVolume{imageVolume}, // Reuse the same volume
-				}
-				inlineAppItem := api.ApplicationProviderSpec{
-					AppType: api.AppTypeCompose,
-					Name:    lo.ToPtr("test-inline-app"),
-				}
-				_ = inlineAppItem.FromInlineApplicationProviderSpec(*inlineApp)
+				})
+				var inlineAppItem api.ApplicationProviderSpec
+				_ = inlineAppItem.FromComposeApplication(inlineComposeApp)
 
 				// Create resource monitors (union types)
 				cpuMonitor := api.ResourceMonitor{}
@@ -1010,22 +1012,28 @@ var _ = Describe("DeviceStore create", func() {
 			})
 			Expect(err).ToNot(HaveOccurred())
 
+			// Create compose application with env vars
+			testComposeApp := api.ComposeApplication{
+				Name:    lo.ToPtr("test-app"),
+				AppType: api.AppTypeCompose,
+				EnvVars: &map[string]string{
+					"ENV1": "value1",
+					"ENV2": "value2",
+					"ENV3": "value3",
+				},
+			}
+			_ = testComposeApp.FromImageApplicationProviderSpec(api.ImageApplicationProviderSpec{
+				Image: "quay.io/test/app:v1",
+			})
+			var testAppSpec api.ApplicationProviderSpec
+			_ = testAppSpec.FromComposeApplication(testComposeApp)
+
 			originalSpec := api.DeviceSpec{
 				Os: &api.DeviceOsSpec{
 					Image: "quay.io/test/os:v1.0.0",
 				},
-				Config: &[]api.ConfigProviderSpec{gitConfig, inlineConfig},
-				Applications: &[]api.ApplicationProviderSpec{
-					{
-						Name:    lo.ToPtr("test-app"),
-						AppType: api.AppTypeCompose,
-						EnvVars: &map[string]string{
-							"ENV1": "value1",
-							"ENV2": "value2",
-							"ENV3": "value3",
-						},
-					},
-				},
+				Config:       &[]api.ConfigProviderSpec{gitConfig, inlineConfig},
+				Applications: &[]api.ApplicationProviderSpec{testAppSpec},
 				UpdatePolicy: &api.DeviceUpdatePolicySpec{
 					DownloadSchedule: &api.UpdateSchedule{
 						At:       "0 2 * * *",
@@ -1060,22 +1068,27 @@ var _ = Describe("DeviceStore create", func() {
 				"DeviceSpec should be equal after database round-trip")
 
 			// Test: Create equivalent spec with different map ordering
+			equivComposeApp := api.ComposeApplication{
+				Name:    lo.ToPtr("test-app"),
+				AppType: api.AppTypeCompose,
+				EnvVars: &map[string]string{
+					"ENV3": "value3", // Different key order
+					"ENV1": "value1",
+					"ENV2": "value2",
+				},
+			}
+			_ = equivComposeApp.FromImageApplicationProviderSpec(api.ImageApplicationProviderSpec{
+				Image: "quay.io/test/app:v1",
+			})
+			var equivAppSpec api.ApplicationProviderSpec
+			_ = equivAppSpec.FromComposeApplication(equivComposeApp)
+
 			equivalentSpec := api.DeviceSpec{
 				Os: &api.DeviceOsSpec{
 					Image: "quay.io/test/os:v1.0.0",
 				},
-				Config: &[]api.ConfigProviderSpec{gitConfig, inlineConfig},
-				Applications: &[]api.ApplicationProviderSpec{
-					{
-						Name:    lo.ToPtr("test-app"),
-						AppType: api.AppTypeCompose,
-						EnvVars: &map[string]string{
-							"ENV3": "value3", // Different key order
-							"ENV1": "value1",
-							"ENV2": "value2",
-						},
-					},
-				},
+				Config:       &[]api.ConfigProviderSpec{gitConfig, inlineConfig},
+				Applications: &[]api.ApplicationProviderSpec{equivAppSpec},
 				UpdatePolicy: &api.DeviceUpdatePolicySpec{
 					DownloadSchedule: &api.UpdateSchedule{
 						At:       "0 2 * * *",

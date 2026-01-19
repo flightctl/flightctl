@@ -13,6 +13,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/config"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
+	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/api/common"
@@ -55,8 +56,10 @@ type ImagePruningConfig = config.ImagePruning
 type manager struct {
 	podmanClientFactory client.PodmanFactory
 	rootPodmanClient    *client.Podman
+	clients             client.CLIClients
 	specManager         spec.Manager
 	readWriter          fileio.ReadWriter
+	rwFactory           fileio.ReadWriterFactory
 	log                 *log.PrefixLogger
 	config              atomic.Pointer[ImagePruningConfig]
 	dataDir             string
@@ -67,6 +70,7 @@ type manager struct {
 //
 // Dependencies:
 //   - podmanClient: Podman client for image/artifact operations
+//   - clients: CLI clients for Helm and Kube operations
 //   - specManager: Spec manager for reading current and desired specs
 //   - readWriter: File I/O interface for any file operations
 //   - log: Logger for structured logging
@@ -75,7 +79,9 @@ type manager struct {
 func New(
 	podmanClientFactory client.PodmanFactory,
 	rootPodmanClient *client.Podman,
+	clients client.CLIClients,
 	specManager spec.Manager,
+	rwFactory fileio.ReadWriterFactory,
 	readWriter fileio.ReadWriter,
 	log *log.PrefixLogger,
 	config ImagePruningConfig,
@@ -84,7 +90,9 @@ func New(
 	ret := &manager{
 		podmanClientFactory: podmanClientFactory,
 		rootPodmanClient:    rootPodmanClient,
+		clients:             clients,
 		specManager:         specManager,
+		rwFactory:           rwFactory,
 		readWriter:          readWriter,
 		log:                 log,
 		dataDir:             dataDir,
@@ -240,6 +248,13 @@ type ImageArtifactReferences struct {
 type ImageRef struct {
 	Image string           `json:"image"`
 	Owner v1beta1.Username `json:"owner"`
+}
+
+// setOwnerOnRefs sets the owner on all ImageRefs in the slice.
+func setOwnerOnRefs(refs []ImageRef, owner v1beta1.Username) {
+	for i := range refs {
+		refs[i].Owner = owner
+	}
 }
 
 // readPreviousReferences reads the previous image/artifact references from the file.
@@ -493,7 +508,8 @@ func (m *manager) extractReferencesFromSpec(ctx context.Context, deviceSpec *v1b
 		for _, appSpec := range lo.FromPtr(deviceSpec.Applications) {
 			appRefs, err := m.extractReferencesFromApplication(ctx, &appSpec)
 			if err != nil {
-				return nil, fmt.Errorf("extracting references from application %s: %w", lo.FromPtr(appSpec.Name), err)
+				appName, _ := provider.ResolveImageAppName(&appSpec)
+				return nil, fmt.Errorf("extracting references from application %s: %w", appName, err)
 			}
 			refs = append(refs, appRefs...)
 		}
@@ -512,68 +528,109 @@ func (m *manager) extractReferencesFromSpec(ctx context.Context, deviceSpec *v1b
 }
 
 // extractReferencesFromApplication extracts image and artifact reference strings from a single application spec.
-func (m *manager) extractReferencesFromApplication(ctx context.Context, appSpec *v1beta1.ApplicationProviderSpec) ([]ImageRef, error) {
+func (m *manager) extractReferencesFromApplication(_ context.Context, appSpec *v1beta1.ApplicationProviderSpec) ([]ImageRef, error) {
 	var refs []ImageRef
 
-	providerType, err := appSpec.Type()
+	owner, err := provider.ResolveUser(appSpec)
 	if err != nil {
-		return nil, fmt.Errorf("determining provider type: %w", err)
+		return nil, fmt.Errorf("resolving user: %w", err)
 	}
 
-	switch providerType {
-	case v1beta1.ImageApplicationProviderType:
-		imageSpec, err := appSpec.AsImageApplicationProviderSpec()
-		if err != nil {
-			return nil, fmt.Errorf("getting image provider spec: %w", err)
-		}
-		refs = append(refs, ImageRef{Image: imageSpec.Image})
+	appType, err := (*appSpec).GetAppType()
+	if err != nil {
+		return nil, fmt.Errorf("getting app type: %w", err)
+	}
 
-		// Extract volume references
-		if imageSpec.Volumes != nil {
-			volRefs, err := m.extractVolumeReferences(*imageSpec.Volumes)
+	switch appType {
+	case v1beta1.AppTypeContainer:
+		containerApp, err := (*appSpec).AsContainerApplication()
+		if err != nil {
+			return nil, fmt.Errorf("getting container application: %w", err)
+		}
+		refs = append(refs, ImageRef{Image: containerApp.Image, Owner: owner})
+		if containerApp.Volumes != nil {
+			volRefs, err := m.extractVolumeReferences(*containerApp.Volumes)
 			if err != nil {
 				return nil, fmt.Errorf("extracting volume references: %w", err)
 			}
+			setOwnerOnRefs(volRefs, owner)
 			refs = append(refs, volRefs...)
 		}
 
-	case v1beta1.InlineApplicationProviderType:
-		inlineSpec, err := appSpec.AsInlineApplicationProviderSpec()
+	case v1beta1.AppTypeCompose:
+		composeApp, err := (*appSpec).AsComposeApplication()
 		if err != nil {
-			return nil, fmt.Errorf("getting inline provider spec: %w", err)
+			return nil, fmt.Errorf("getting compose application: %w", err)
 		}
-
-		// Extract references from inline content based on app type
-		switch appSpec.AppType {
-		case v1beta1.AppTypeCompose:
+		providerType, err := composeApp.Type()
+		if err != nil {
+			return nil, fmt.Errorf("getting compose provider type: %w", err)
+		}
+		if providerType == v1beta1.ImageApplicationProviderType {
+			imageSpec, err := composeApp.AsImageApplicationProviderSpec()
+			if err != nil {
+				return nil, fmt.Errorf("getting compose image spec: %w", err)
+			}
+			refs = append(refs, ImageRef{Image: imageSpec.Image, Owner: owner})
+		} else {
+			inlineSpec, err := composeApp.AsInlineApplicationProviderSpec()
+			if err != nil {
+				return nil, fmt.Errorf("getting compose inline spec: %w", err)
+			}
 			composeRefs, err := m.extractComposeReferences(inlineSpec.Inline)
 			if err != nil {
 				return nil, fmt.Errorf("extracting compose references: %w", err)
 			}
+			setOwnerOnRefs(composeRefs, owner)
 			refs = append(refs, composeRefs...)
+		}
+		if composeApp.Volumes != nil {
+			volRefs, err := m.extractVolumeReferences(*composeApp.Volumes)
+			if err != nil {
+				return nil, fmt.Errorf("extracting volume references: %w", err)
+			}
+			setOwnerOnRefs(volRefs, owner)
+			refs = append(refs, volRefs...)
+		}
 
-		case v1beta1.AppTypeQuadlet:
+	case v1beta1.AppTypeQuadlet:
+		quadletApp, err := (*appSpec).AsQuadletApplication()
+		if err != nil {
+			return nil, fmt.Errorf("getting quadlet application: %w", err)
+		}
+		providerType, err := quadletApp.Type()
+		if err != nil {
+			return nil, fmt.Errorf("getting quadlet provider type: %w", err)
+		}
+		if providerType == v1beta1.ImageApplicationProviderType {
+			imageSpec, err := quadletApp.AsImageApplicationProviderSpec()
+			if err != nil {
+				return nil, fmt.Errorf("getting quadlet image spec: %w", err)
+			}
+			refs = append(refs, ImageRef{Image: imageSpec.Image, Owner: owner})
+		} else {
+			inlineSpec, err := quadletApp.AsInlineApplicationProviderSpec()
+			if err != nil {
+				return nil, fmt.Errorf("getting quadlet inline spec: %w", err)
+			}
 			quadletRefs, err := m.extractQuadletReferences(inlineSpec.Inline)
 			if err != nil {
 				return nil, fmt.Errorf("extracting quadlet references: %w", err)
 			}
+			setOwnerOnRefs(quadletRefs, owner)
 			refs = append(refs, quadletRefs...)
-
-		default:
-			return nil, fmt.Errorf("unsupported app type for inline provider: %s", appSpec.AppType)
 		}
-
-		// Extract volume references
-		if inlineSpec.Volumes != nil {
-			volRefs, err := m.extractVolumeReferences(*inlineSpec.Volumes)
+		if quadletApp.Volumes != nil {
+			volRefs, err := m.extractVolumeReferences(*quadletApp.Volumes)
 			if err != nil {
 				return nil, fmt.Errorf("extracting volume references: %w", err)
 			}
+			setOwnerOnRefs(volRefs, owner)
 			refs = append(refs, volRefs...)
 		}
 
 	default:
-		return nil, fmt.Errorf("unsupported application provider type: %s", providerType)
+		return nil, fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, appType)
 	}
 
 	return refs, nil
@@ -805,28 +862,34 @@ func (m *manager) extractNestedTargetsFromSpec(ctx context.Context, device *v1be
 
 	// Process each application in the spec
 	for _, appSpec := range lo.FromPtr(device.Spec.Applications) {
+		appName, _ := provider.ResolveImageAppName(&appSpec)
+
 		// Only image-based apps have nested targets extracted from parent images
-		providerType, err := appSpec.Type()
+		needsExtraction, err := provider.AppNeedsNestedExtraction(&appSpec)
 		if err != nil {
-			m.log.Debugf("Skipping app %s: failed to get provider type: %v", lo.FromPtr(appSpec.Name), err)
+			m.log.Debugf("Skipping app %s: failed to check nested extraction: %v", appName, err)
 			continue
 		}
 
-		if providerType != v1beta1.ImageApplicationProviderType {
+		if !needsExtraction {
 			continue
 		}
 
-		imageSpec, err := appSpec.AsImageApplicationProviderSpec()
+		imageName, err := provider.ResolveImageRef(&appSpec)
 		if err != nil {
-			m.log.Debugf("Skipping app %s: failed to get image spec: %v", lo.FromPtr(appSpec.Name), err)
+			m.log.Debugf("Skipping app %s: failed to resolve image ref: %v", appName, err)
 			continue
 		}
 
-		imageName := imageSpec.Image
-
-		podmanClient, err := m.podmanClientFactory(appSpec.UserWithDefault())
+		user, err := provider.ResolveUser(&appSpec)
 		if err != nil {
-			m.log.Errorf("Skipping app %s: failed to create podman client: %v", lo.FromPtr(appSpec.Name), err)
+			m.log.Debugf("Skipping app %s: failed to resolve user: %v", appName, err)
+			continue
+		}
+
+		podmanClient, err := m.podmanClientFactory(user)
+		if err != nil {
+			m.log.Errorf("Skipping app %s: failed to create podman client: %v", appName, err)
 			continue
 		}
 
@@ -834,7 +897,7 @@ func (m *manager) extractNestedTargetsFromSpec(ctx context.Context, device *v1be
 		exists := podmanClient.ImageExists(ctx, imageName) || podmanClient.ArtifactExists(ctx, imageName)
 		if !exists {
 			// Image not available locally - skip nested extraction (best-effort for pruning)
-			m.log.Debugf("Skipping nested extraction for app %s: image %s not available locally", lo.FromPtr(appSpec.Name), imageName)
+			m.log.Debugf("Skipping nested extraction for app %s: image %s not available locally", appName, imageName)
 			continue
 		}
 
@@ -843,15 +906,15 @@ func (m *manager) extractNestedTargetsFromSpec(ctx context.Context, device *v1be
 		appData, err := provider.ExtractNestedTargetsFromImage(
 			ctx,
 			m.log,
-			podmanClient,
-			m.readWriter,
+			m.podmanClientFactory,
+			m.clients,
+			m.rwFactory,
 			&appSpec,
-			&imageSpec,
 			nil, // pullSecret not needed for extraction from local images
 		)
 		if err != nil {
 			// Log warning but continue - nested extraction is best-effort for pruning
-			m.log.Debugf("Failed to extract nested targets from app %s (image %s): %v", lo.FromPtr(appSpec.Name), imageName, err)
+			m.log.Debugf("Failed to extract nested targets from app %s (image %s): %v", appName, imageName, err)
 			continue
 		}
 
@@ -862,7 +925,7 @@ func (m *manager) extractNestedTargetsFromSpec(ctx context.Context, device *v1be
 		// Collect reference strings from extracted targets
 		for _, target := range appData.Targets {
 			if target.Reference != "" {
-				allReferences = append(allReferences, ImageRef{Image: target.Reference})
+				allReferences = append(allReferences, ImageRef{Image: target.Reference, Owner: user})
 			}
 		}
 

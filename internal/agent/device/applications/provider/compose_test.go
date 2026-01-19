@@ -20,26 +20,47 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-func TestImageProvider(t *testing.T) {
-	require := require.New(t)
+func TestComposeImageProvider(t *testing.T) {
 	appImage := "quay.io/flightctl-tests/alpine:v1"
 	tests := []struct {
 		name          string
 		image         string
-		spec          *v1beta1.ApplicationProviderSpec
+		appName       string
+		envVars       map[string]string
 		composeSpec   string
 		labels        map[string]string
 		setupMocks    func(*executer.MockExecuter, string)
 		wantVerifyErr error
 	}{
 		{
-			name:   "missing appType label",
-			image:  appImage,
-			labels: map[string]string{},
-			spec: &v1beta1.ApplicationProviderSpec{
-				Name: lo.ToPtr("app"),
-			},
+			name:        "missing appType label is allowed",
+			image:       appImage,
+			appName:     "app",
+			labels:      map[string]string{},
 			composeSpec: util.NewComposeSpec(),
+			setupMocks: func(mockExec *executer.MockExecuter, appLabels string) {
+				mockExec.EXPECT().
+					ExecuteWithContext(gomock.Any(), "podman", "image", "exists", gomock.Any()).
+					Return("", "", 0).
+					AnyTimes()
+				gomock.InOrder(
+					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", appImage).Return(appLabels, "", 0),
+					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "unshare", "podman", "image", "mount", appImage).Return("/mount", "", 0),
+					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "unmount", appImage).Return("", "", 0),
+
+					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "unshare", "podman", "image", "mount", appImage).Return("/mount", "", 0),
+					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "unmount", appImage).Return("", "", 0),
+				)
+			},
+			// No error expected - missing appType label is now allowed
+		},
+		{
+			name:  "appType label set to invalid value",
+			image: appImage,
+			labels: map[string]string{
+				AppTypeLabel: "invalid",
+			},
+			appName: "app",
 			setupMocks: func(mockExec *executer.MockExecuter, appLabels string) {
 				mockExec.EXPECT().
 					ExecuteWithContext(gomock.Any(), "podman", "image", "exists", gomock.Any()).
@@ -52,37 +73,14 @@ func TestImageProvider(t *testing.T) {
 			wantVerifyErr: errors.ErrAppLabel,
 		},
 		{
-			name:  "appType label set to invalid value",
-			image: appImage,
-			labels: map[string]string{
-				AppTypeLabel: "invalid",
-			},
-			spec: &v1beta1.ApplicationProviderSpec{
-				Name: lo.ToPtr("app"),
-			},
-			composeSpec: util.NewComposeSpec(),
-			setupMocks: func(mockExec *executer.MockExecuter, appLabels string) {
-				mockExec.EXPECT().
-					ExecuteWithContext(gomock.Any(), "podman", "image", "exists", gomock.Any()).
-					Return("", "", 0).
-					AnyTimes()
-				gomock.InOrder(
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", appImage).Return(appLabels, "", 0),
-				)
-			},
-			wantVerifyErr: errors.ErrUnsupportedAppType,
-		},
-		{
 			name:  "appType compose with valid env",
 			image: appImage,
 			labels: map[string]string{
 				AppTypeLabel: string(v1beta1.AppTypeCompose),
 			},
-			spec: &v1beta1.ApplicationProviderSpec{
-				Name: lo.ToPtr("app"),
-				EnvVars: lo.ToPtr(map[string]string{
-					"FOO": "bar",
-				}),
+			appName: "app",
+			envVars: map[string]string{
+				"FOO": "bar",
 			},
 			composeSpec: util.NewComposeSpec(),
 			setupMocks: func(mockExec *executer.MockExecuter, appLabels string) {
@@ -106,13 +104,10 @@ func TestImageProvider(t *testing.T) {
 			labels: map[string]string{
 				AppTypeLabel: string(v1beta1.AppTypeCompose),
 			},
-			spec: &v1beta1.ApplicationProviderSpec{
-				Name: lo.ToPtr("app"),
-				EnvVars: lo.ToPtr(map[string]string{
-					"!nvalid": "bar",
-				}),
+			appName: "app",
+			envVars: map[string]string{
+				"!nvalid": "bar",
 			},
-			composeSpec: util.NewComposeSpec(),
 			setupMocks: func(mockExec *executer.MockExecuter, appLabels string) {
 				mockExec.EXPECT().
 					ExecuteWithContext(gomock.Any(), "podman", "image", "exists", gomock.Any()).
@@ -130,9 +125,7 @@ func TestImageProvider(t *testing.T) {
 			labels: map[string]string{
 				AppTypeLabel: string(v1beta1.AppTypeCompose),
 			},
-			spec: &v1beta1.ApplicationProviderSpec{
-				Name: lo.ToPtr("app"),
-			},
+			appName: "app",
 			composeSpec: `version: "3.8"
 services:
   service1:
@@ -157,9 +150,7 @@ services:
 			labels: map[string]string{
 				AppTypeLabel: string(v1beta1.AppTypeCompose),
 			},
-			spec: &v1beta1.ApplicationProviderSpec{
-				Name: lo.ToPtr("app"),
-			},
+			appName: "app",
 			composeSpec: `version: "3.8"
 services:
 image: quay.io/flightctl-tests/alpine:v1`,
@@ -180,6 +171,7 @@ image: quay.io/flightctl-tests/alpine:v1`,
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			require := require.New(t)
 			log := log.NewPrefixLogger("test")
 			log.SetLevel(logrus.DebugLevel)
 
@@ -191,17 +183,33 @@ image: quay.io/flightctl-tests/alpine:v1`,
 				fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
 				fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
 			)
+
+			composeSpec := tt.composeSpec
+			if composeSpec == "" {
+				composeSpec = util.NewComposeSpec()
+			}
+
 			err := rw.MkdirAll("/mount", fileio.DefaultDirectoryPermissions)
 			require.NoError(err)
-			err = rw.WriteFile("/mount/podman-compose.yaml", []byte(tt.composeSpec), fileio.DefaultFilePermissions)
+			err = rw.WriteFile("/mount/podman-compose.yaml", []byte(composeSpec), fileio.DefaultFilePermissions)
 			require.NoError(err)
 			podman := client.NewPodman(log, mockExec, rw, util.NewPollConfig())
 
-			spec := v1beta1.ImageApplicationProviderSpec{
-				Image: tt.image,
+			// Build the ComposeApplication with the new schema
+			composeApp := v1beta1.ComposeApplication{
+				AppType: v1beta1.AppTypeCompose,
+				Name:    lo.ToPtr(tt.appName),
 			}
-			provider := tt.spec
-			err = provider.FromImageApplicationProviderSpec(spec)
+			if tt.envVars != nil {
+				composeApp.EnvVars = &tt.envVars
+			}
+			err = composeApp.FromImageApplicationProviderSpec(v1beta1.ImageApplicationProviderSpec{
+				Image: tt.image,
+			})
+			require.NoError(err)
+
+			var appSpec v1beta1.ApplicationProviderSpec
+			err = appSpec.FromComposeApplication(composeApp)
 			require.NoError(err)
 
 			ctx, cancel := context.WithCancel(context.Background())
@@ -213,38 +221,179 @@ image: quay.io/flightctl-tests/alpine:v1`,
 
 			tt.setupMocks(mockExec, string(inspectBytes))
 
-			appType := tt.spec.AppType
-			if appType == "" {
-				appType, err = typeFromImage(ctx, podman, spec.Image)
-				if err != nil && tt.wantVerifyErr != nil {
-					require.ErrorIs(err, tt.wantVerifyErr)
-					return
-				}
+			var podmanFactory client.PodmanFactory = func(user v1beta1.Username) (*client.Podman, error) {
+				return podman, nil
+			}
+			var rwFactory fileio.ReadWriterFactory = func(user v1beta1.Username) (fileio.ReadWriter, error) {
+				return rw, nil
 			}
 
-			imageProvider, err := newImage(log, podman, provider, rw, appType)
+			composeProvider, err := newComposeProvider(ctx, log, podmanFactory, &appSpec, rwFactory, nil)
 			if tt.wantVerifyErr != nil && err != nil {
 				require.ErrorIs(err, tt.wantVerifyErr)
 				return
 			}
 			require.NoError(err)
 
-			err = imageProvider.Verify(ctx)
+			err = composeProvider.Verify(ctx)
 			if tt.wantVerifyErr != nil {
 				require.Error(err)
 				require.ErrorIs(err, tt.wantVerifyErr)
 				return
 			}
 			require.NoError(err)
-			err = imageProvider.Install(ctx)
+			err = composeProvider.Install(ctx)
 			require.NoError(err)
+
 			// verify env file
-			if tt.spec.EnvVars != nil {
-				appPath := imageProvider.handler.AppPath()
-				require.True(rw.PathExists(filepath.Join(appPath, ".env")))
+			if tt.envVars != nil {
+				appPath := composeProvider.spec.Path
+				exists, err := rw.PathExists(filepath.Join(appPath, ".env"))
+				require.NoError(err)
+				require.True(exists)
 				envFile, err := rw.ReadFile(filepath.Join(appPath, ".env"))
 				require.NoError(err)
-				for k, v := range lo.FromPtr(tt.spec.EnvVars) {
+				for k, v := range tt.envVars {
+					require.Contains(string(envFile), k+"="+v)
+				}
+			}
+		})
+	}
+}
+
+func TestComposeInlineProvider(t *testing.T) {
+	tests := []struct {
+		name          string
+		appName       string
+		envVars       map[string]string
+		content       []v1beta1.ApplicationContent
+		setupMocks    func(*executer.MockExecuter)
+		wantVerifyErr error
+	}{
+		{
+			name:    "happy path",
+			appName: "app",
+			envVars: map[string]string{
+				"FOO": "bar",
+				"BAZ": "qux",
+			},
+			content: []v1beta1.ApplicationContent{
+				{
+					Content: lo.ToPtr(util.NewComposeSpec()),
+					Path:    "docker-compose.yml",
+				},
+			},
+		},
+		{
+			name:    "invalid compose path",
+			appName: "app",
+			content: []v1beta1.ApplicationContent{
+				{
+					Content: lo.ToPtr(util.NewComposeSpec()),
+					Path:    "invalid-compose.yml",
+				},
+			},
+			wantVerifyErr: errors.ErrNoComposeFile,
+		},
+		{
+			name:    "invalid env vars",
+			appName: "app",
+			envVars: map[string]string{
+				"1NVALID": "bar",
+			},
+			content: []v1beta1.ApplicationContent{
+				{
+					Content: lo.ToPtr(util.NewComposeSpec()),
+					Path:    "docker-compose.yml",
+				},
+			},
+			wantVerifyErr: errors.ErrInvalidSpec,
+		},
+		{
+			name:    "valid override",
+			appName: "app",
+			content: []v1beta1.ApplicationContent{
+				{
+					Content: lo.ToPtr(util.NewComposeSpec()),
+					Path:    "podman-compose.yml",
+				},
+				{
+					Content: lo.ToPtr(util.NewComposeSpec("docker.io/override:latest")),
+					Path:    "podman-compose.override.yml",
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require := require.New(t)
+			log := log.NewPrefixLogger("test")
+			log.SetLevel(logrus.DebugLevel)
+
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+			mockExec := executer.NewMockExecuter(ctrl)
+			tmpDir := t.TempDir()
+			rw := fileio.NewReadWriter(
+				fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+				fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+			)
+			podman := client.NewPodman(log, mockExec, rw, util.NewPollConfig())
+
+			if tt.setupMocks != nil {
+				tt.setupMocks(mockExec)
+			}
+
+			// Build the ComposeApplication with inline content
+			composeApp := v1beta1.ComposeApplication{
+				AppType: v1beta1.AppTypeCompose,
+				Name:    lo.ToPtr(tt.appName),
+			}
+			if tt.envVars != nil {
+				composeApp.EnvVars = &tt.envVars
+			}
+			err := composeApp.FromInlineApplicationProviderSpec(v1beta1.InlineApplicationProviderSpec{
+				Inline: tt.content,
+			})
+			require.NoError(err)
+
+			var appSpec v1beta1.ApplicationProviderSpec
+			err = appSpec.FromComposeApplication(composeApp)
+			require.NoError(err)
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			var podmanFactory client.PodmanFactory = func(user v1beta1.Username) (*client.Podman, error) {
+				return podman, nil
+			}
+			var rwFactory fileio.ReadWriterFactory = func(user v1beta1.Username) (fileio.ReadWriter, error) {
+				return rw, nil
+			}
+
+			composeProvider, err := newComposeProvider(ctx, log, podmanFactory, &appSpec, rwFactory, nil)
+			require.NoError(err)
+
+			err = composeProvider.Verify(ctx)
+			if tt.wantVerifyErr != nil {
+				require.Error(err)
+				require.ErrorIs(err, tt.wantVerifyErr)
+				return
+			}
+			require.NoError(err)
+			err = composeProvider.Install(ctx)
+			require.NoError(err)
+
+			// verify env file
+			if tt.envVars != nil {
+				appPath := composeProvider.spec.Path
+				exists, err := rw.PathExists(filepath.Join(appPath, ".env"))
+				require.NoError(err)
+				require.True(exists)
+				envFile, err := rw.ReadFile(filepath.Join(appPath, ".env"))
+				require.NoError(err)
+				for k, v := range tt.envVars {
 					require.Contains(string(envFile), k+"="+v)
 				}
 			}

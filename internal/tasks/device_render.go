@@ -295,18 +295,31 @@ func (t *DeviceRenderLogic) renderConfigItem(ctx context.Context, configItem *do
 }
 
 func renderApplication(_ context.Context, app *domain.ApplicationProviderSpec) (*string, *domain.ApplicationProviderSpec, error) {
-	appType, err := app.Type()
+	appType, err := (*app).GetAppType()
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed getting application type: %w", err)
+		return nil, nil, fmt.Errorf("failed to get app type: %w", err)
 	}
+
 	switch appType {
-	case domain.ImageApplicationProviderType:
-		return app.Name, app, nil
-	case domain.InlineApplicationProviderType:
-		return app.Name, app, nil
+	case domain.AppTypeContainer:
+		_, err = (*app).AsContainerApplication()
+	case domain.AppTypeHelm:
+		_, err = (*app).AsHelmApplication()
+	case domain.AppTypeCompose:
+		_, err = (*app).AsComposeApplication()
+	case domain.AppTypeQuadlet:
+		_, err = (*app).AsQuadletApplication()
 	default:
 		return nil, nil, fmt.Errorf("%w: unsupported application type: %q", ErrUnknownApplicationType, appType)
 	}
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to parse application spec for type %s: %w", appType, err)
+	}
+	appName, err := (*app).GetName()
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get app name: %w", err)
+	}
+	return appName, app, nil
 }
 
 func (t *DeviceRenderLogic) renderGitConfig(ctx context.Context, configItem *domain.ConfigProviderSpec, ignitionConfig **config_latest_types.Config) (*string, *string, error) {
