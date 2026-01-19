@@ -7,10 +7,10 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"strings"
 	"time"
 
 	convertv1beta1 "github.com/flightctl/flightctl/internal/api/convert/v1beta1"
+	apimetaserver "github.com/flightctl/flightctl/internal/api/server"
 	server "github.com/flightctl/flightctl/internal/api/server/agent"
 	apiserver "github.com/flightctl/flightctl/internal/api_server"
 	fcmiddleware "github.com/flightctl/flightctl/internal/api_server/middleware"
@@ -31,10 +31,6 @@ import (
 	"github.com/sirupsen/logrus"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"google.golang.org/grpc"
-)
-
-const (
-	enrollmentRequestsPath = server.ServerUrlApiv1 + "/enrollmentrequests"
 )
 
 type AgentServer struct {
@@ -193,14 +189,17 @@ func addAgentContext(next http.Handler) http.Handler {
 
 // isEnrollmentRequest checks if the request is for enrollment-related operations
 func isEnrollmentRequest(r *http.Request) bool {
-	// POST to /api/v1/enrollmentrequests (create enrollment request)
-	if r.Method == "POST" && r.URL.Path == enrollmentRequestsPath {
+	metadata, found := apimetaserver.GetEndpointMetadata(r)
+	if !found || metadata == nil {
+		return false
+	}
+
+	// Enrollment requests are create/get on the enrollmentrequests resource.
+	if metadata.Resource == apimetaserver.API_RESOURCE_ENROLLMENTREQUESTS &&
+		(metadata.Action == apimetaserver.API_ACTION_CREATE || metadata.Action == apimetaserver.API_ACTION_GET) {
 		return true
 	}
-	// GET to /api/v1/enrollmentrequests/{name} (check enrollment status)
-	if r.Method == "GET" && strings.HasPrefix(r.URL.Path, enrollmentRequestsPath+"/") {
-		return true
-	}
+
 	return false
 }
 
@@ -293,37 +292,29 @@ func (s *AgentServer) prepareHTTPHandler(ctx context.Context, serviceHandler ser
 		return nil, fmt.Errorf("failed to create agent v1beta1 router: %w", err)
 	}
 
-	// Create dispatcher for version routing
+	// Create negotiated router for version routing
 	// Future versions (v1, v2, etc.) would add more entries here
-	dispatcher := versioning.NewDispatcher(registry, map[versioning.Version]chi.Router{
+	negotiatedRouter := versioning.NewNegotiatedRouter(registry, map[versioning.Version]chi.Router{
 		versioning.V1Beta1: routerV1Beta1,
 	})
 
+	// Rate limiting middleware - applied before validation (only if configured and enabled)
+	rateLimit := func(r chi.Router) {
+		apiserver.ConfigureRateLimiterFromConfig(
+			r,
+			s.cfg.Service.RateLimit,
+			apiserver.RateLimitScopeGeneral,
+			// Agent server doesn't need trusted proxy validation since it's mTLS.
+			apiserver.WithNoTrustedProxies(),
+		)
+	}
+
 	// Versioned API endpoints at /api/v1
 	router.Route(server.ServerUrlApiv1, func(r chi.Router) {
-		// Rate limiting (if enabled)
-		if s.cfg.Service.RateLimit != nil && s.cfg.Service.RateLimit.Enabled {
-			requests := 300
-			window := time.Minute
-			if s.cfg.Service.RateLimit.Requests > 0 {
-				requests = s.cfg.Service.RateLimit.Requests
-			}
-			if s.cfg.Service.RateLimit.Window > 0 {
-				window = time.Duration(s.cfg.Service.RateLimit.Window)
-			}
-			apiserver.ConfigureRateLimiter(r, apiserver.RateLimitConfig{
-				Requests:       requests,
-				Window:         window,
-				TrustedProxies: []string{},
-				Message:        "Rate limit exceeded, please try again later",
-			})
-		}
+		rateLimit(r)
 
-		// Version negotiation middleware
-		r.Use(versioning.Middleware(registry))
-
-		// Dispatcher routes to version-specific router
-		r.Mount("/", dispatcher)
+		// Negotiated API endpoints
+		r.Mount("/", negotiatedRouter)
 	})
 
 	return otelhttp.NewHandler(router, "agent-http-server"), nil

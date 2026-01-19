@@ -302,6 +302,36 @@ func (h *Harness) Cleanup(printConsole bool) {
 	h.ctxCancel()
 }
 
+// PrintAgentLogsIfFailed prints flightctl-agent journalctl logs from all boots if the current test failed.
+// This is useful for VM pool-based tests where Cleanup is not called and logs need to be captured on failure.
+func (h *Harness) PrintAgentLogsIfFailed() {
+	if !CurrentSpecReport().Failed() {
+		return
+	}
+
+	if h.VM == nil {
+		return
+	}
+
+	running, err := h.VM.IsRunning()
+	if err != nil || !running {
+		return
+	}
+
+	logrus.Infof("Test failed: %s", CurrentSpecReport().FullText())
+
+	stdout, _ := h.VM.RunSSH([]string{"sudo", "systemctl", "status", "flightctl-agent"}, nil)
+	logrus.Infof("systemctl status flightctl-agent:\n%s", stdout.String())
+
+	logrus.Infof("flightctl-agent logs (all boots):")
+	logs, err := h.ReadPrimaryVMAgentLogs("", util.FLIGHTCTL_AGENT_SERVICE)
+	if err != nil {
+		logrus.Errorf("Failed to read agent logs: %v", err)
+	} else {
+		logrus.Infof("%s", logs)
+	}
+}
+
 // GetServiceLogs returns the logs from the specified service using journalctl.
 // This is useful for debugging service output and capturing logs from the latest service invocation.
 func (h *Harness) GetServiceLogs(serviceName string) (string, error) {

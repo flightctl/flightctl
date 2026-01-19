@@ -4,6 +4,7 @@ package server
 
 import (
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -22,11 +23,45 @@ type EndpointMetadata struct {
 	Action      string                    // x-rbac.action, else inferred from method/pattern
 	Versions    []EndpointMetadataVersion // Ordered by preference (stable > beta > alpha)
 }
-
+const (
+	API_RESOURCE_AUTHPROVIDERS = "authproviders"
+	API_RESOURCE_CERTIFICATESIGNINGREQUESTS = "certificatesigningrequests"
+	API_RESOURCE_CERTIFICATESIGNINGREQUESTS_APPROVAL = "certificatesigningrequests/approval"
+	API_RESOURCE_DEVICES = "devices"
+	API_RESOURCE_DEVICES_DECOMMISSION = "devices/decommission"
+	API_RESOURCE_DEVICES_LASTSEEN = "devices/lastseen"
+	API_RESOURCE_DEVICES_RENDERED = "devices/rendered"
+	API_RESOURCE_DEVICES_RESUME = "devices/resume"
+	API_RESOURCE_DEVICES_STATUS = "devices/status"
+	API_RESOURCE_ENROLLMENTREQUESTS = "enrollmentrequests"
+	API_RESOURCE_ENROLLMENTREQUESTS_APPROVAL = "enrollmentrequests/approval"
+	API_RESOURCE_ENROLLMENTREQUESTS_STATUS = "enrollmentrequests/status"
+	API_RESOURCE_EVENTS = "events"
+	API_RESOURCE_FLEETS = "fleets"
+	API_RESOURCE_FLEETS_STATUS = "fleets/status"
+	API_RESOURCE_FLEETS_TEMPLATEVERSIONS = "fleets/templateversions"
+	API_RESOURCE_LABELS = "labels"
+	API_RESOURCE_ORGANIZATIONS = "organizations"
+	API_RESOURCE_REPOSITORIES = "repositories"
+	API_RESOURCE_RESOURCESYNCS = "resourcesyncs"
+)
+const (
+	API_ACTION_CREATE = "create"
+	API_ACTION_DELETE = "delete"
+	API_ACTION_GET = "get"
+	API_ACTION_LIST = "list"
+	API_ACTION_PATCH = "patch"
+	API_ACTION_UPDATE = "update"
+)
 // timePtr is a helper to create time.Time pointers
 func timePtr(year, month, day int) *time.Time {
 	t := time.Date(year, time.Month(month), day, 0, 0, 0, 0, time.UTC)
 	return &t
+}
+
+// ServerURLPrefixes lists normalized OpenAPI server URL path prefixes.
+var ServerURLPrefixes = []string{
+	"/api/v1",
 }
 
 // APIMetadataMap provides O(1) lookup for endpoint metadata using pattern+method as key
@@ -593,26 +628,125 @@ var APIMetadataMap = map[string]EndpointMetadata{
 	},
 }
 
-// GetEndpointMetadata returns metadata for a given request using the existing Chi router context
+// GetEndpointMetadata returns endpoint metadata even when routes are mounted under
+// a base prefix like /api/v1 by normalizing and matching request paths.
 func GetEndpointMetadata(r *http.Request) (*EndpointMetadata, bool) {
-	// Get the route context from the existing Chi router that already processed this request
 	rctx := chi.RouteContext(r.Context())
-	if rctx == nil {
+	if rctx != nil {
+		if metadata, ok := lookupMetadata(r.Method, rctx.RoutePath); ok {
+			return metadata, true
+		}
+	}
+
+	return lookupMetadata(r.Method, r.URL.Path)
+}
+
+func normalizePath(p string) string {
+	if p == "" {
+		return "/"
+	}
+	if len(p) > 1 && strings.HasSuffix(p, "/") {
+		p = strings.TrimSuffix(p, "/")
+	}
+	if !strings.HasPrefix(p, "/") {
+		p = "/" + p
+	}
+	return p
+}
+
+func lookupMetadata(method, path string) (*EndpointMetadata, bool) {
+	candidates := normalizeCandidates(path)
+	if len(candidates) == 0 {
 		return nil, false
 	}
-
-	// Get the route pattern that matched in the main Chi router
-	routePattern := rctx.RoutePattern()
-	if routePattern == "" {
-		return nil, false
+	for _, candidate := range candidates {
+		key := method + ":" + candidate
+		if metadata, exists := APIMetadataMap[key]; exists {
+			return &metadata, true
+		}
 	}
 
-	// O(1) lookup using method:pattern as key
-	key := r.Method + ":" + routePattern
-	if metadata, exists := APIMetadataMap[key]; exists {
-		return &metadata, true
+	methodPrefix := method + ":"
+	for key, metadata := range APIMetadataMap {
+		if !strings.HasPrefix(key, methodPrefix) {
+			continue
+		}
+		pattern := strings.TrimPrefix(key, methodPrefix)
+		for _, candidate := range candidates {
+			if matchTemplatePath(pattern, candidate) {
+				return &metadata, true
+			}
+		}
 	}
-
 	return nil, false
+}
+
+func normalizeCandidates(path string) []string {
+	base := normalizePath(path)
+	candidates := make([]string, 0, 1+len(ServerURLPrefixes))
+	seen := map[string]struct{}{}
+	addCandidate := func(p string) {
+		if p == "" {
+			return
+		}
+		if _, exists := seen[p]; exists {
+			return
+		}
+		seen[p] = struct{}{}
+		candidates = append(candidates, p)
+	}
+
+	addCandidate(base)
+	for _, prefix := range ServerURLPrefixes {
+		if prefix == "/" {
+			continue
+		}
+		if base == prefix {
+			addCandidate("/")
+			continue
+		}
+		if strings.HasPrefix(base, prefix+"/") {
+			stripped := strings.TrimPrefix(base, prefix)
+			addCandidate(normalizePath(stripped))
+		}
+	}
+	return candidates
+}
+
+func matchTemplatePath(pattern, path string) bool {
+	pattern = normalizePath(pattern)
+	path = normalizePath(path)
+
+	pSegs := splitPath(pattern)
+	pathSegs := splitPath(path)
+	if len(pSegs) != len(pathSegs) {
+		return false
+	}
+	for i := range pSegs {
+		ps := pSegs[i]
+		if len(ps) >= 2 && ps[0] == '{' && ps[len(ps)-1] == '}' {
+			continue
+		}
+		if ps != pathSegs[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func splitPath(p string) []string {
+	p = strings.Trim(p, "/")
+	if p == "" {
+		return nil
+	}
+	parts := strings.Split(p, "/")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if part == "" {
+			continue
+		}
+		out = append(out, part)
+	}
+	return out
 }
 
