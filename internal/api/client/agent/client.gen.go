@@ -273,7 +273,7 @@ func NewCreateCertificateSigningRequestRequestWithBody(server string, contentTyp
 		return nil, err
 	}
 
-	operationPath := fmt.Sprintf("/api/v1/certificatesigningrequests")
+	operationPath := fmt.Sprintf("/certificatesigningrequests")
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -309,7 +309,7 @@ func NewGetCertificateSigningRequestRequest(server string, name string) (*http.R
 		return nil, err
 	}
 
-	operationPath := fmt.Sprintf("/api/v1/certificatesigningrequests/%s", pathParam0)
+	operationPath := fmt.Sprintf("/certificatesigningrequests/%s", pathParam0)
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -343,7 +343,7 @@ func NewGetRenderedDeviceRequest(server string, name string, params *GetRendered
 		return nil, err
 	}
 
-	operationPath := fmt.Sprintf("/api/v1/devices/%s/rendered", pathParam0)
+	operationPath := fmt.Sprintf("/devices/%s/rendered", pathParam0)
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -410,7 +410,7 @@ func NewPatchDeviceStatusRequestWithBody(server string, name string, contentType
 		return nil, err
 	}
 
-	operationPath := fmt.Sprintf("/api/v1/devices/%s/status", pathParam0)
+	operationPath := fmt.Sprintf("/devices/%s/status", pathParam0)
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -457,7 +457,7 @@ func NewReplaceDeviceStatusRequestWithBody(server string, name string, contentTy
 		return nil, err
 	}
 
-	operationPath := fmt.Sprintf("/api/v1/devices/%s/status", pathParam0)
+	operationPath := fmt.Sprintf("/devices/%s/status", pathParam0)
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -497,7 +497,7 @@ func NewCreateEnrollmentRequestRequestWithBody(server string, contentType string
 		return nil, err
 	}
 
-	operationPath := fmt.Sprintf("/api/v1/enrollmentrequests")
+	operationPath := fmt.Sprintf("/enrollmentrequests")
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -533,7 +533,7 @@ func NewGetEnrollmentRequestRequest(server string, name string) (*http.Request, 
 		return nil, err
 	}
 
-	operationPath := fmt.Sprintf("/api/v1/enrollmentrequests/%s", pathParam0)
+	operationPath := fmt.Sprintf("/enrollmentrequests/%s", pathParam0)
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
