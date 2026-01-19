@@ -10,10 +10,10 @@ import (
 	"strings"
 	"time"
 
-	agent "github.com/flightctl/flightctl/api/agent/v1beta1"
 	convertv1beta1 "github.com/flightctl/flightctl/internal/api/convert/v1beta1"
 	server "github.com/flightctl/flightctl/internal/api/server/agent"
 	fcmiddleware "github.com/flightctl/flightctl/internal/api_server/middleware"
+	"github.com/flightctl/flightctl/internal/api_server/versioning"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/crypto"
@@ -26,7 +26,6 @@ import (
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	oapimiddleware "github.com/oapi-codegen/nethttp-middleware"
 	"github.com/sirupsen/logrus"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"google.golang.org/grpc"
@@ -34,7 +33,7 @@ import (
 
 const (
 	gracefulShutdownTimeout = 5 * time.Second
-	enrollmentRequestsPath  = "/api/v1/enrollmentrequests"
+	enrollmentRequestsPath  = server.ServerUrlApiv1 + "/enrollmentrequests"
 )
 
 type AgentServer struct {
@@ -209,17 +208,6 @@ func isEnrollmentRequest(r *http.Request) bool {
 }
 
 func (s *AgentServer) prepareHTTPHandler(ctx context.Context, serviceHandler service.Service) (http.Handler, error) {
-	swagger, err := agent.GetSwagger()
-	if err != nil {
-		return nil, fmt.Errorf("prepareHTTPHandler: failed loading swagger spec: %w", err)
-	}
-	// Skip server name validation
-	swagger.Servers = nil
-
-	oapiOpts := oapimiddleware.Options{
-		ErrorHandler: oapiErrorHandler,
-	}
-
 	// Create agent authentication middleware for device operations
 	agentAuthMiddleware := fcmiddleware.NewAgentAuthMiddleware(s.ca, s.log)
 	go agentAuthMiddleware.Start()
@@ -287,33 +275,64 @@ func (s *AgentServer) prepareHTTPHandler(ctx context.Context, serviceHandler ser
 		filteredLogger(s.log),
 		addAgentContext,
 		middleware.Recoverer,
-		oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapiOpts),
 	}...)
 
 	router := chi.NewRouter()
 	router.Use(middlewares...)
 
-	// Rate limiting middleware - applied before validation (only if configured and enabled)
-	// Note: Agent server doesn't need trusted proxy validation since it's mTLS
+	// Create versioning infrastructure
+	registry := versioning.NewRegistry(versioning.V1Beta1)
+
+	// Create handler for agent API
+	h := agenttransportv1beta1.NewAgentTransportHandler(serviceHandler, convertv1beta1.NewConverter(), s.ca, s.log)
+
+	// Create version-specific router with OpenAPI validation via helper
+	// Each version router validates against its own swagger spec
+	oapiVersionOpts := &versioning.OapiOptions{
+		ErrorHandler: oapiErrorHandler,
+	}
+	routerV1Beta1, err := versioning.CreateAgentV1Beta1Router(h, oapiVersionOpts)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create agent v1beta1 router: %w", err)
+	}
+
+	// Create dispatcher for version routing
+	// Future versions (v1, v2, etc.) would add more entries here
+	dispatcher := versioning.NewDispatcher(registry, map[versioning.Version]chi.Router{
+		versioning.V1Beta1: routerV1Beta1,
+	})
+
+	// Mount at /api/v1 with version negotiation
+	// Create a sub-router for /api/v1 routes
+	apiV1Router := chi.NewRouter()
+
+	// Rate limiting (if enabled)
 	if s.cfg.Service.RateLimit != nil && s.cfg.Service.RateLimit.Enabled {
-		requests := 300       // Default requests limit
-		window := time.Minute // Default window
+		requests := 300
+		window := time.Minute
 		if s.cfg.Service.RateLimit.Requests > 0 {
 			requests = s.cfg.Service.RateLimit.Requests
 		}
 		if s.cfg.Service.RateLimit.Window > 0 {
 			window = time.Duration(s.cfg.Service.RateLimit.Window)
 		}
-		fcmiddleware.InstallRateLimiter(router, fcmiddleware.RateLimitOptions{
+		fcmiddleware.InstallRateLimiter(apiV1Router, fcmiddleware.RateLimitOptions{
 			Requests:       requests,
 			Window:         window,
 			Message:        "Rate limit exceeded, please try again later",
-			TrustedProxies: []string{}, // No proxy headers for mTLS
+			TrustedProxies: []string{},
 		})
 	}
 
-	h := agenttransportv1beta1.NewAgentTransportHandler(serviceHandler, convertv1beta1.NewConverter(), s.ca, s.log)
-	server.HandlerFromMux(h, router)
+	// Version negotiation middleware - determines version from header
+	apiV1Router.Use(versioning.Middleware(registry))
+
+	// Mount dispatcher with explicit path stripping
+	// The dispatcher receives requests with stripped path like /enrollmentrequests
+	apiV1Router.Handle("/*", http.StripPrefix(server.ServerUrlApiv1, dispatcher))
+
+	// Mount the sub-router at /api/v1
+	router.Mount(server.ServerUrlApiv1, apiV1Router)
 
 	return otelhttp.NewHandler(router, "agent-http-server"), nil
 }
