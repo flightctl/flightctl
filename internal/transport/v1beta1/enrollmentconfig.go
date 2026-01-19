@@ -9,8 +9,8 @@ import (
 
 // (GET /api/v1/enrollmentconfig)
 func (h *TransportHandler) GetEnrollmentConfig(w http.ResponseWriter, r *http.Request, params apiv1beta1.GetEnrollmentConfigParams) {
-	domainParams := h.converter.V1beta1().EnrollmentRequest().GetConfigParamsToDomain(params)
+	domainParams := h.converter.EnrollmentRequest().GetConfigParamsToDomain(params)
 	body, status := h.serviceHandler.GetEnrollmentConfig(r.Context(), transport.OrgIDFromContext(r.Context()), domainParams)
-	apiResult := h.converter.V1beta1().EnrollmentRequest().ConfigFromDomain(body)
+	apiResult := h.converter.EnrollmentRequest().ConfigFromDomain(body)
 	transport.SetResponse(w, apiResult, status)
 }

@@ -16,24 +16,24 @@ func (h *TransportHandler) CreateAuthProvider(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	domainAP := h.converter.V1beta1().AuthProvider().ToDomain(authProvider)
+	domainAP := h.converter.AuthProvider().ToDomain(authProvider)
 	body, status := h.serviceHandler.CreateAuthProvider(r.Context(), transport.OrgIDFromContext(r.Context()), domainAP)
-	apiResult := h.converter.V1beta1().AuthProvider().FromDomain(body)
+	apiResult := h.converter.AuthProvider().FromDomain(body)
 	transport.SetResponse(w, apiResult, status)
 }
 
 // (GET /api/v1/authproviders)
 func (h *TransportHandler) ListAuthProviders(w http.ResponseWriter, r *http.Request, params apiv1beta1.ListAuthProvidersParams) {
-	domainParams := h.converter.V1beta1().AuthProvider().ListParamsToDomain(params)
+	domainParams := h.converter.AuthProvider().ListParamsToDomain(params)
 	body, status := h.serviceHandler.ListAuthProviders(r.Context(), transport.OrgIDFromContext(r.Context()), domainParams)
-	apiResult := h.converter.V1beta1().AuthProvider().ListFromDomain(body)
+	apiResult := h.converter.AuthProvider().ListFromDomain(body)
 	transport.SetResponse(w, apiResult, status)
 }
 
 // (GET /api/v1/authproviders/{name})
 func (h *TransportHandler) GetAuthProvider(w http.ResponseWriter, r *http.Request, name string) {
 	body, status := h.serviceHandler.GetAuthProvider(r.Context(), transport.OrgIDFromContext(r.Context()), name)
-	apiResult := h.converter.V1beta1().AuthProvider().FromDomain(body)
+	apiResult := h.converter.AuthProvider().FromDomain(body)
 	transport.SetResponse(w, apiResult, status)
 }
 
@@ -45,9 +45,9 @@ func (h *TransportHandler) ReplaceAuthProvider(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	domainAP := h.converter.V1beta1().AuthProvider().ToDomain(authProvider)
+	domainAP := h.converter.AuthProvider().ToDomain(authProvider)
 	body, status := h.serviceHandler.ReplaceAuthProvider(r.Context(), transport.OrgIDFromContext(r.Context()), name, domainAP)
-	apiResult := h.converter.V1beta1().AuthProvider().FromDomain(body)
+	apiResult := h.converter.AuthProvider().FromDomain(body)
 	transport.SetResponse(w, apiResult, status)
 }
 
@@ -59,9 +59,9 @@ func (h *TransportHandler) PatchAuthProvider(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	domainPatch := h.converter.V1beta1().Common().PatchRequestToDomain(patch)
+	domainPatch := h.converter.Common().PatchRequestToDomain(patch)
 	body, status := h.serviceHandler.PatchAuthProvider(r.Context(), transport.OrgIDFromContext(r.Context()), name, domainPatch)
-	apiResult := h.converter.V1beta1().AuthProvider().FromDomain(body)
+	apiResult := h.converter.AuthProvider().FromDomain(body)
 	transport.SetResponse(w, apiResult, status)
 }
 
