@@ -949,6 +949,8 @@ func validateApplications(apps []ApplicationProviderSpec, fleetTemplate bool) []
 				allErrs = append(allErrs, ValidateContainerImageApplicationSpec(appName, &provider)...)
 			}
 
+			allErrs = append(allErrs, validateHelmApplicationFields(appName, app.AppType, &provider)...)
+
 			volumes = provider.Volumes
 
 		case InlineApplicationProviderType:
@@ -957,8 +959,8 @@ func validateApplications(apps []ApplicationProviderSpec, fleetTemplate bool) []
 				allErrs = append(allErrs, fmt.Errorf("invalid inline application provider: %w", err))
 				continue
 			}
-			if app.AppType == AppTypeContainer {
-				allErrs = append(allErrs, fmt.Errorf("inline application type must not be %q", AppTypeContainer))
+			if app.AppType == AppTypeContainer || app.AppType == AppTypeHelm {
+				allErrs = append(allErrs, fmt.Errorf("inline application type must not be %q", app.AppType))
 			}
 			allErrs = append(allErrs, provider.Validate(app.AppType, fleetTemplate)...)
 			volumes = provider.Volumes
@@ -993,6 +995,39 @@ func ValidateContainerImageApplicationSpec(appName string, spec *ImageApplicatio
 		errs = append(errs, validatePodmanCPULimit(spec.Resources.Limits.Cpu, fmt.Sprintf("spec.applications[%s].resources.limits.cpu", appName))...)
 		errs = append(errs, validatePodmanMemoryLimit(spec.Resources.Limits.Memory, fmt.Sprintf("spec.applications[%s].resources.limits.memory", appName))...)
 	}
+	return errs
+}
+
+func validateHelmApplicationFields(appName string, appType AppType, spec *ImageApplicationProviderSpec) []error {
+	var errs []error
+	pathPrefix := fmt.Sprintf("spec.applications[%s]", appName)
+
+	valuesSet := spec.Values != nil
+	valuesFilesSet := spec.ValuesFiles != nil
+	namespaceSet := spec.Namespace != nil
+	namespaceNonEmpty := namespaceSet && *spec.Namespace != ""
+
+	if appType == AppTypeHelm {
+		if namespaceNonEmpty {
+			errs = append(errs, validation.ValidateGenericName(spec.Namespace, pathPrefix+".namespace")...)
+		}
+		if valuesFilesSet {
+			for i, vf := range *spec.ValuesFiles {
+				errs = append(errs, validation.ValidateHelmValuesFile(&vf, fmt.Sprintf("%s.valuesFiles[%d]", pathPrefix, i), validation.DNS1123MaxLength)...)
+			}
+		}
+	} else {
+		if valuesSet {
+			errs = append(errs, fmt.Errorf("%s.values: can only be defined for helm applications, not %q", pathPrefix, appType))
+		}
+		if valuesFilesSet {
+			errs = append(errs, fmt.Errorf("%s.valuesFiles: can only be defined for helm applications, not %q", pathPrefix, appType))
+		}
+		if namespaceSet {
+			errs = append(errs, fmt.Errorf("%s.namespace: can only be defined for helm applications, not %q", pathPrefix, appType))
+		}
+	}
+
 	return errs
 }
 

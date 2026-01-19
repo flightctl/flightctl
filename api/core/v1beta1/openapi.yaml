@@ -4686,6 +4686,37 @@ components:
             image:
               type: string
               description: Reference to the OCI image or artifact for the application package.
+            namespace:
+              type: string
+              description: The target namespace for the application deployment.
+              example: "my-app-namespace"
+            values:
+              type: object
+              additionalProperties: true
+              description: Configuration values for the application. Supports arbitrarily nested structures.
+              example:
+                replicaCount: 3
+                image:
+                  repository: nginx
+                  tag: "1.21"
+                service:
+                  type: ClusterIP
+                  port: 80
+                ingress:
+                  enabled: true
+                  hosts:
+                    - host: example.com
+                      paths:
+                        - path: /
+                          pathType: Prefix
+            valuesFiles:
+              type: array
+              description: List of values files to apply during deployment. Files are relative paths and applied in array order before user-provided values.
+              items:
+                type: string
+              example:
+                - "values-production.yaml"
+                - "values-overrides.yml"
             ports:
               type: array
               description: Port mappings.
@@ -4834,10 +4865,12 @@ components:
         - "compose"
         - "quadlet"
         - "container"
+        - "helm"
       x-enum-varnames:
         - "AppTypeCompose"
         - "AppTypeQuadlet"
         - "AppTypeContainer"
+        - "AppTypeHelm"
     ResourceMonitor:
       oneOf:
         - $ref: '#/components/schemas/CpuResourceMonitorSpec'

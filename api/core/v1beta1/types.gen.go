@@ -21,6 +21,7 @@ const (
 const (
 	AppTypeCompose   AppType = "compose"
 	AppTypeContainer AppType = "container"
+	AppTypeHelm      AppType = "helm"
 	AppTypeQuadlet   AppType = "quadlet"
 )
 
@@ -1904,11 +1905,20 @@ type ImageApplicationProviderSpec struct {
 	// Image Reference to the OCI image or artifact for the application package.
 	Image string `json:"image"`
 
+	// Namespace The target namespace for the application deployment.
+	Namespace *string `json:"namespace,omitempty"`
+
 	// Ports Port mappings.
 	Ports *[]ApplicationPort `json:"ports,omitempty"`
 
 	// Resources Resource constraints for the application.
 	Resources *ApplicationResources `json:"resources,omitempty"`
+
+	// Values Configuration values for the application. Supports arbitrarily nested structures.
+	Values *map[string]interface{} `json:"values,omitempty"`
+
+	// ValuesFiles List of values files to apply during deployment. Files are relative paths and applied in array order before user-provided values.
+	ValuesFiles *[]string `json:"valuesFiles,omitempty"`
 
 	// Volumes List of application volumes.
 	Volumes *[]ApplicationVolume `json:"volumes,omitempty"`
