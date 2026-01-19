@@ -299,38 +299,32 @@ func (s *AgentServer) prepareHTTPHandler(ctx context.Context, serviceHandler ser
 		versioning.V1Beta1: routerV1Beta1,
 	})
 
-	// Mount at /api/v1 with version negotiation
-	// Create a sub-router for /api/v1 routes
-	apiV1Router := chi.NewRouter()
-
-	// Rate limiting (if enabled)
-	if s.cfg.Service.RateLimit != nil && s.cfg.Service.RateLimit.Enabled {
-		requests := 300
-		window := time.Minute
-		if s.cfg.Service.RateLimit.Requests > 0 {
-			requests = s.cfg.Service.RateLimit.Requests
+	// Versioned API endpoints at /api/v1
+	router.Route(server.ServerUrlApiv1, func(r chi.Router) {
+		// Rate limiting (if enabled)
+		if s.cfg.Service.RateLimit != nil && s.cfg.Service.RateLimit.Enabled {
+			requests := 300
+			window := time.Minute
+			if s.cfg.Service.RateLimit.Requests > 0 {
+				requests = s.cfg.Service.RateLimit.Requests
+			}
+			if s.cfg.Service.RateLimit.Window > 0 {
+				window = time.Duration(s.cfg.Service.RateLimit.Window)
+			}
+			apiserver.ConfigureRateLimiter(r, apiserver.RateLimitConfig{
+				Requests:       requests,
+				Window:         window,
+				TrustedProxies: []string{},
+				Message:        "Rate limit exceeded, please try again later",
+			})
 		}
-		if s.cfg.Service.RateLimit.Window > 0 {
-			window = time.Duration(s.cfg.Service.RateLimit.Window)
-		}
-		apiserver.ConfigureRateLimiter(apiV1Router, apiserver.RateLimitConfig{
-			Requests:       requests,
-			Window:         window,
-			TrustedProxies: []string{},
-			Message:        "Rate limit exceeded, please try again later",
-		})
-	}
 
-	// Version negotiation middleware - determines version from header
-	apiV1Router.Use(versioning.Middleware(registry))
+		// Version negotiation middleware
+		r.Use(versioning.Middleware(registry))
 
-	// Mount dispatcher with path stripping
-	// chi.Mount matches the /api/v1 prefix but Handle("/*") receives the full path,
-	// so we need http.StripPrefix to remove /api/v1 before passing to dispatcher
-	apiV1Router.Handle("/*", http.StripPrefix(server.ServerUrlApiv1, dispatcher))
-
-	// Mount the sub-router at /api/v1
-	router.Mount(server.ServerUrlApiv1, apiV1Router)
+		// Dispatcher routes to version-specific router
+		r.Mount("/", dispatcher)
+	})
 
 	return otelhttp.NewHandler(router, "agent-http-server"), nil
 }
