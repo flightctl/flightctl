@@ -81,7 +81,7 @@ var _ = Describe("CertificateSigningRequest Integration Tests", func() {
 					{
 						Op:    "replace",
 						Path:  "/metadata/name",
-						Value: AnyPtr("new-name"),
+						Value: "new-name",
 					},
 				},
 				nil, // Don't care about result on failure
@@ -92,7 +92,7 @@ var _ = Describe("CertificateSigningRequest Integration Tests", func() {
 					{
 						Op:    "replace",
 						Path:  "/metadata/resourceVersion",
-						Value: AnyPtr("999"),
+						Value: "999",
 					},
 				},
 				HaveField("Metadata.ResourceVersion", Not(Equal("999"))),
@@ -103,7 +103,7 @@ var _ = Describe("CertificateSigningRequest Integration Tests", func() {
 					{
 						Op:    "replace",
 						Path:  "/spec/signerName",
-						Value: AnyPtr("fake-signer"),
+						Value: "fake-signer",
 					},
 				},
 				nil, // Spec immutability verified by VerifyCSRSpecImmutability
@@ -114,7 +114,7 @@ var _ = Describe("CertificateSigningRequest Integration Tests", func() {
 					{
 						Op:    "replace",
 						Path:  "/spec/request",
-						Value: AnyPtr("fake-csr-data"),
+						Value: "fake-csr-data",
 					},
 				},
 				nil, // Spec immutability verified by VerifyCSRSpecImmutability
@@ -125,7 +125,7 @@ var _ = Describe("CertificateSigningRequest Integration Tests", func() {
 					{
 						Op:    "replace",
 						Path:  "/spec/usages",
-						Value: AnyPtr([]string{"fakeUsage"}),
+						Value: []string{"fakeUsage"},
 					},
 				},
 				HaveField("Spec.Usages", PointTo(Not(ContainElement("fakeUsage")))),
@@ -136,7 +136,7 @@ var _ = Describe("CertificateSigningRequest Integration Tests", func() {
 					{
 						Op:   "add",
 						Path: "/status",
-						Value: AnyPtr(api.CertificateSigningRequestStatus{
+						Value: api.CertificateSigningRequestStatus{
 							Conditions: []api.Condition{
 								{
 									Type:    api.ConditionTypeCertificateSigningRequestDenied,
@@ -145,7 +145,7 @@ var _ = Describe("CertificateSigningRequest Integration Tests", func() {
 									Message: "Denied via patch",
 								},
 							},
-						}),
+						},
 					},
 				},
 				Not(HaveField("Status.Conditions", ContainElement(HaveField("Type", api.ConditionTypeCertificateSigningRequestDenied)))),
@@ -156,7 +156,7 @@ var _ = Describe("CertificateSigningRequest Integration Tests", func() {
 					{
 						Op:    "add",
 						Path:  "/nonexistent/field",
-						Value: AnyPtr("value"),
+						Value: "value",
 					},
 				},
 				nil, // Don't care about result on failure
