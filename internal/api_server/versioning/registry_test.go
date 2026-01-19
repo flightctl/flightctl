@@ -77,8 +77,16 @@ func TestRegistry_Negotiate(t *testing.T) {
 			wantErr:       nil,
 		},
 		{
-			name:          "nil metadata with version requested returns error",
+			name:          "nil metadata with fallback version requested returns success",
 			requested:     V1Beta1,
+			metadata:      nil,
+			wantVersion:   V1Beta1,
+			wantSupported: nil,
+			wantErr:       nil,
+		},
+		{
+			name:          "nil metadata with non-fallback version requested returns error",
+			requested:     "v2",
 			metadata:      nil,
 			wantVersion:   "",
 			wantSupported: nil,

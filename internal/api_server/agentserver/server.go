@@ -12,6 +12,7 @@ import (
 
 	convertv1beta1 "github.com/flightctl/flightctl/internal/api/convert/v1beta1"
 	server "github.com/flightctl/flightctl/internal/api/server/agent"
+	apiserver "github.com/flightctl/flightctl/internal/api_server"
 	fcmiddleware "github.com/flightctl/flightctl/internal/api_server/middleware"
 	"github.com/flightctl/flightctl/internal/api_server/versioning"
 	"github.com/flightctl/flightctl/internal/config"
@@ -26,14 +27,14 @@ import (
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	oapimiddleware "github.com/oapi-codegen/nethttp-middleware"
 	"github.com/sirupsen/logrus"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"google.golang.org/grpc"
 )
 
 const (
-	gracefulShutdownTimeout = 5 * time.Second
-	enrollmentRequestsPath  = server.ServerUrlApiv1 + "/enrollmentrequests"
+	enrollmentRequestsPath = server.ServerUrlApiv1 + "/enrollmentrequests"
 )
 
 type AgentServer struct {
@@ -122,10 +123,6 @@ func (s *AgentServer) GetGRPCServer() *AgentGrpcServer {
 	return s.agentGrpcServer
 }
 
-func oapiErrorHandler(w http.ResponseWriter, message string, statusCode int) {
-	http.Error(w, fmt.Sprintf("API Error: %s", message), statusCode)
-}
-
 func (s *AgentServer) Run(ctx context.Context) error {
 	s.log.Println("Starting Agent-side API server")
 
@@ -140,7 +137,7 @@ func (s *AgentServer) Run(ctx context.Context) error {
 	go func() {
 		<-ctx.Done()
 		s.log.Println("Shutdown signal received:", ctx.Err())
-		ctxTimeout, cancel := context.WithTimeout(context.Background(), gracefulShutdownTimeout)
+		ctxTimeout, cancel := context.WithTimeout(context.Background(), apiserver.GracefulShutdownTimeout)
 		defer cancel()
 
 		srv.SetKeepAlivesEnabled(false)
@@ -288,10 +285,10 @@ func (s *AgentServer) prepareHTTPHandler(ctx context.Context, serviceHandler ser
 
 	// Create version-specific router with OpenAPI validation via helper
 	// Each version router validates against its own swagger spec
-	oapiVersionOpts := &versioning.OapiOptions{
-		ErrorHandler: oapiErrorHandler,
+	oapiOpts := &oapimiddleware.Options{
+		ErrorHandler: apiserver.OapiErrorHandler,
 	}
-	routerV1Beta1, err := versioning.CreateAgentV1Beta1Router(h, oapiVersionOpts)
+	routerV1Beta1, err := versioning.CreateAgentV1Beta1Router(h, oapiOpts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create agent v1beta1 router: %w", err)
 	}
@@ -316,19 +313,20 @@ func (s *AgentServer) prepareHTTPHandler(ctx context.Context, serviceHandler ser
 		if s.cfg.Service.RateLimit.Window > 0 {
 			window = time.Duration(s.cfg.Service.RateLimit.Window)
 		}
-		fcmiddleware.InstallRateLimiter(apiV1Router, fcmiddleware.RateLimitOptions{
+		apiserver.ConfigureRateLimiter(apiV1Router, apiserver.RateLimitConfig{
 			Requests:       requests,
 			Window:         window,
-			Message:        "Rate limit exceeded, please try again later",
 			TrustedProxies: []string{},
+			Message:        "Rate limit exceeded, please try again later",
 		})
 	}
 
 	// Version negotiation middleware - determines version from header
 	apiV1Router.Use(versioning.Middleware(registry))
 
-	// Mount dispatcher with explicit path stripping
-	// The dispatcher receives requests with stripped path like /enrollmentrequests
+	// Mount dispatcher with path stripping
+	// chi.Mount matches the /api/v1 prefix but Handle("/*") receives the full path,
+	// so we need http.StripPrefix to remove /api/v1 before passing to dispatcher
 	apiV1Router.Handle("/*", http.StripPrefix(server.ServerUrlApiv1, dispatcher))
 
 	// Mount the sub-router at /api/v1
