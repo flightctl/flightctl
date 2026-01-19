@@ -162,8 +162,11 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	serviceClient.Start(ctx)
+	defer serviceClient.Stop()
+
 	// Create simulator fleet configuration
-	if err := createSimulatorFleet(ctx, serviceClient, log); err != nil {
+	if err := createSimulatorFleet(ctx, serviceClient.ClientWithResponses, log); err != nil {
 		log.Warnf("Failed to create simulator fleet: %v", err)
 	}
 
@@ -199,7 +202,7 @@ func main() {
 		agents:          agents,
 		agentFolders:    agentsFolders,
 		log:             log,
-		serviceClient:   serviceClient,
+		serviceClient:   serviceClient.ClientWithResponses,
 		formattedLabels: formattedLables,
 		sem:             sem,
 		jitterDuration:  jitterDuration,

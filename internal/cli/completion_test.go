@@ -10,6 +10,7 @@ import (
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
+	"github.com/flightctl/flightctl/internal/client"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
 )
@@ -45,7 +46,7 @@ func makeDeviceListResponse(t *testing.T, numItems int) *http.Response {
 
 type fakeClientOptions struct {
 	responses      []*http.Response
-	client         *apiclient.ClientWithResponses
+	client         *client.Client
 	fakeHTTPClient *fakeHTTPClient
 	t              *testing.T
 }
@@ -61,9 +62,13 @@ func (fo *fakeClientOptions) Complete(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func (fo *fakeClientOptions) BuildClient() (*apiclient.ClientWithResponses, error) {
+func (fo *fakeClientOptions) BuildClient() (*client.Client, error) {
 	if fo.client == nil {
-		fo.client, fo.fakeHTTPClient = newTestClient(fo.t, fo.responses...)
+		var apiClient *apiclient.ClientWithResponses
+		apiClient, fo.fakeHTTPClient = newTestClient(fo.t, fo.responses...)
+		fo.client = &client.Client{
+			ClientWithResponses: apiClient,
+		}
 	}
 	return fo.client, nil
 }

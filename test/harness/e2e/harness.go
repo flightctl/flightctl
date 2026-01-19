@@ -114,6 +114,9 @@ type Harness struct {
 	// Git repository management
 	gitRepos   map[string]string // map of repo name to repo path
 	gitWorkDir string            // working directory for git operations
+
+	// clientWrapper stores the Client wrapper for token refresh management
+	clientWrapper *client.Client
 }
 
 // GitServerConfig holds configuration for the git server
@@ -299,6 +302,11 @@ func (h *Harness) Cleanup(printConsole bool) {
 
 	diffTime := time.Since(h.startTime)
 	fmt.Printf("Test took %s\n", diffTime)
+
+	// Stop the client wrapper if it exists
+	if h.clientWrapper != nil {
+		h.clientWrapper.Stop()
+	}
 
 	// Cancel the context to stop any blocking operations
 	h.ctxCancel()
@@ -1434,14 +1442,17 @@ func NewTestHarnessWithoutVM(ctx context.Context) (*Harness, error) {
 		return nil, fmt.Errorf("failed to get kubernetes cluster: %w", err)
 	}
 
+	c.Start(ctx)
+
 	// Create harness without VM first
 	return &Harness{
-		Client:    c,
-		Context:   ctx,
-		Cluster:   k8sCluster,
-		ctxCancel: cancel,
-		startTime: startTime,
-		VM:        nil,
+		Client:        c.ClientWithResponses,
+		Context:       ctx,
+		Cluster:       k8sCluster,
+		ctxCancel:     cancel,
+		startTime:     startTime,
+		VM:            nil,
+		clientWrapper: c,
 	}, nil
 
 }
@@ -1474,16 +1485,19 @@ func NewTestHarnessWithVMPool(ctx context.Context, workerID int) (*Harness, erro
 	err = os.MkdirAll(gitWorkDir, 0755)
 	Expect(err).ToNot(HaveOccurred())
 
+	c.Start(ctx)
+
 	// Create harness without VM first
 	harness := &Harness{
-		Client:     c,
-		Context:    ctx,
-		Cluster:    k8sCluster,
-		ctxCancel:  cancel,
-		startTime:  startTime,
-		VM:         nil,
-		gitRepos:   make(map[string]string),
-		gitWorkDir: gitWorkDir,
+		Client:        c.ClientWithResponses,
+		Context:       ctx,
+		Cluster:       k8sCluster,
+		ctxCancel:     cancel,
+		startTime:     startTime,
+		VM:            nil,
+		gitRepos:      make(map[string]string),
+		gitWorkDir:    gitWorkDir,
+		clientWrapper: c,
 	}
 
 	// Get VM from the pool (this should already exist from BeforeSuite)

@@ -148,7 +148,10 @@ func (o *ConsoleOptions) Run(ctx context.Context, flagArgs, passThroughArgs []st
 		return err
 	}
 
-	o.analyzeResponseAndExit(ctx, name, o.connectViaWS(ctx, config, name, client.GetAccessToken(config, o.ConfigFilePath), passThroughArgs))
+	refresher := client.NewAccessTokenRefresher(config, o.ConfigFilePath, 8080)
+	refresher.Start(ctx)
+	accessToken := refresher.GetAccessToken()
+	o.analyzeResponseAndExit(ctx, name, o.connectViaWS(ctx, config, name, accessToken, passThroughArgs))
 
 	// unreachable
 	return nil
@@ -383,6 +386,8 @@ func (o *ConsoleOptions) emitUpgradeFailureError(ctx context.Context, name strin
 		fmt.Fprintf(os.Stderr, "Error for device %s: %v\n", name, origErr)
 		return
 	}
+	c.Start(ctx)
+	defer c.Stop()
 	response, err := c.GetDeviceWithResponse(ctx, name)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error for device %s: %v\n", name, origErr)

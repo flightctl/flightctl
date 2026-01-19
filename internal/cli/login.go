@@ -451,6 +451,8 @@ func (o *LoginOptions) validateTokenWithServer(ctx context.Context, token string
 				o.enableInsecure()
 				c, cerr := client.NewFromConfig(o.clientConfig, o.ConfigFilePath, client.WithUserAgentHeader("flightctl-cli"))
 				if cerr == nil {
+					c.Start(ctx)
+					defer c.Stop()
 					res, err = c.AuthValidateWithResponse(ctx, &v1beta1.AuthValidateParams{Authorization: &headerVal})
 				}
 			}

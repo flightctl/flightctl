@@ -145,6 +145,8 @@ func (o *ResumeOptions) Run(ctx context.Context, args []string) error {
 	if err != nil {
 		return fmt.Errorf("creating client: %w", err)
 	}
+	c.Start(ctx)
+	defer c.Stop()
 
 	// Handle single device case
 	_, name, err := parseAndValidateKindNameFromArgsOptionalSingle(args)
@@ -153,10 +155,10 @@ func (o *ResumeOptions) Run(ctx context.Context, args []string) error {
 	}
 
 	if len(name) == 0 {
-		return o.runBulkResume(ctx, c)
+		return o.runBulkResume(ctx, c.ClientWithResponses)
 	}
 
-	return o.runSingleResume(ctx, c, name)
+	return o.runSingleResume(ctx, c.ClientWithResponses, name)
 }
 
 func (o *ResumeOptions) runSingleResume(ctx context.Context, c *apiclient.ClientWithResponses, name string) error {
