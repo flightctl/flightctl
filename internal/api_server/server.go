@@ -260,7 +260,7 @@ func (s *Server) Run(ctx context.Context) error {
 	})
 
 	// Versioned API endpoints at /api/v1
-	router.Route("/api/v1", func(r chi.Router) {
+	router.Route(server.ServerUrlApiv1, func(r chi.Router) {
 		// Add general rate limiting (only if configured and enabled)
 		if s.cfg.Service.RateLimit != nil && s.cfg.Service.RateLimit.Enabled {
 			trustedProxies := s.cfg.Service.RateLimit.TrustedProxies
