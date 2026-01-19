@@ -12,14 +12,14 @@ info:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0.html
 servers:
-  - url: /
+  - url: /api/v1
 tags:
   - name: device
     description: Operations on Device resources.
   - name: enrollmentrequest
     description: Operations on EnrollmentRequest resources.
 paths:
-  /api/v1/devices/{name}/status:
+  /devices/{name}/status:
     put:
       tags:
         - device
@@ -130,7 +130,7 @@ paths:
             application/json:
               schema:
                 $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
-  /api/v1/devices/{name}/rendered:
+  /devices/{name}/rendered:
     #$ref: '../../core/v1beta1/openapi.yaml#/paths/~1api~1v1~1devices~1{name}~1rendered'
     # this is buggy and generates invalid references, see:
     # https://github.com/oapi-codegen/oapi-codegen/issues/1452#issuecomment-2176032513
@@ -186,7 +186,7 @@ paths:
             application/json:
               schema:
                 $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
-  /api/v1/enrollmentrequests/{name}:
+  /enrollmentrequests/{name}:
     # $ref: '../../core/v1beta1/openapi.yaml#/paths/~1api~1v1~1enrollmentrequests~1{name}' (same oapi-codegen bug as above)
     get:
       tags:
@@ -237,7 +237,7 @@ paths:
             application/json:
               schema:
                 $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
-  /api/v1/enrollmentrequests:
+  /enrollmentrequests:
     post:
       tags:
         - enrollmentrequest
@@ -292,7 +292,7 @@ paths:
             application/json:
               schema:
                 $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
-  /api/v1/certificatesigningrequests:
+  /certificatesigningrequests:
     post:
       tags:
         - certificatesigningrequest
@@ -348,7 +348,7 @@ paths:
               schema:
                 $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
 
-  /api/v1/certificatesigningrequests/{name}:
+  /certificatesigningrequests/{name}:
     get:
       tags:
         - certificatesigningrequest
