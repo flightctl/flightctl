@@ -16,24 +16,24 @@ func (h *TransportHandler) CreateRepository(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	domainRepo := h.converter.V1beta1().Repository().ToDomain(rs)
+	domainRepo := h.converter.Repository().ToDomain(rs)
 	body, status := h.serviceHandler.CreateRepository(r.Context(), transport.OrgIDFromContext(r.Context()), domainRepo)
-	apiResult := h.converter.V1beta1().Repository().FromDomain(body)
+	apiResult := h.converter.Repository().FromDomain(body)
 	transport.SetResponse(w, apiResult, status)
 }
 
 // (GET /api/v1/repositories)
 func (h *TransportHandler) ListRepositories(w http.ResponseWriter, r *http.Request, params apiv1beta1.ListRepositoriesParams) {
-	domainParams := h.converter.V1beta1().Repository().ListParamsToDomain(params)
+	domainParams := h.converter.Repository().ListParamsToDomain(params)
 	body, status := h.serviceHandler.ListRepositories(r.Context(), transport.OrgIDFromContext(r.Context()), domainParams)
-	apiResult := h.converter.V1beta1().Repository().ListFromDomain(body)
+	apiResult := h.converter.Repository().ListFromDomain(body)
 	transport.SetResponse(w, apiResult, status)
 }
 
 // (GET /api/v1/repositories/{name})
 func (h *TransportHandler) GetRepository(w http.ResponseWriter, r *http.Request, name string) {
 	body, status := h.serviceHandler.GetRepository(r.Context(), transport.OrgIDFromContext(r.Context()), name)
-	apiResult := h.converter.V1beta1().Repository().FromDomain(body)
+	apiResult := h.converter.Repository().FromDomain(body)
 	transport.SetResponse(w, apiResult, status)
 }
 
@@ -45,9 +45,9 @@ func (h *TransportHandler) ReplaceRepository(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	domainRepo := h.converter.V1beta1().Repository().ToDomain(rs)
+	domainRepo := h.converter.Repository().ToDomain(rs)
 	body, status := h.serviceHandler.ReplaceRepository(r.Context(), transport.OrgIDFromContext(r.Context()), name, domainRepo)
-	apiResult := h.converter.V1beta1().Repository().FromDomain(body)
+	apiResult := h.converter.Repository().FromDomain(body)
 	transport.SetResponse(w, apiResult, status)
 }
 
@@ -65,8 +65,8 @@ func (h *TransportHandler) PatchRepository(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	domainPatch := h.converter.V1beta1().Common().PatchRequestToDomain(patch)
+	domainPatch := h.converter.Common().PatchRequestToDomain(patch)
 	body, status := h.serviceHandler.PatchRepository(r.Context(), transport.OrgIDFromContext(r.Context()), name, domainPatch)
-	apiResult := h.converter.V1beta1().Repository().FromDomain(body)
+	apiResult := h.converter.Repository().FromDomain(body)
 	transport.SetResponse(w, apiResult, status)
 }
