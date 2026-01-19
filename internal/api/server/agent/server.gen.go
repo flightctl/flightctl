@@ -15,25 +15,25 @@ import (
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
 
-	// (POST /api/v1/certificatesigningrequests)
+	// (POST /certificatesigningrequests)
 	CreateCertificateSigningRequest(w http.ResponseWriter, r *http.Request)
 
-	// (GET /api/v1/certificatesigningrequests/{name})
+	// (GET /certificatesigningrequests/{name})
 	GetCertificateSigningRequest(w http.ResponseWriter, r *http.Request, name string)
 
-	// (GET /api/v1/devices/{name}/rendered)
+	// (GET /devices/{name}/rendered)
 	GetRenderedDevice(w http.ResponseWriter, r *http.Request, name string, params GetRenderedDeviceParams)
 
-	// (PATCH /api/v1/devices/{name}/status)
+	// (PATCH /devices/{name}/status)
 	PatchDeviceStatus(w http.ResponseWriter, r *http.Request, name string)
 
-	// (PUT /api/v1/devices/{name}/status)
+	// (PUT /devices/{name}/status)
 	ReplaceDeviceStatus(w http.ResponseWriter, r *http.Request, name string)
 
-	// (POST /api/v1/enrollmentrequests)
+	// (POST /enrollmentrequests)
 	CreateEnrollmentRequest(w http.ResponseWriter, r *http.Request)
 
-	// (GET /api/v1/enrollmentrequests/{name})
+	// (GET /enrollmentrequests/{name})
 	GetEnrollmentRequest(w http.ResponseWriter, r *http.Request, name string)
 }
 
@@ -41,37 +41,37 @@ type ServerInterface interface {
 
 type Unimplemented struct{}
 
-// (POST /api/v1/certificatesigningrequests)
+// (POST /certificatesigningrequests)
 func (_ Unimplemented) CreateCertificateSigningRequest(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (GET /api/v1/certificatesigningrequests/{name})
+// (GET /certificatesigningrequests/{name})
 func (_ Unimplemented) GetCertificateSigningRequest(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (GET /api/v1/devices/{name}/rendered)
+// (GET /devices/{name}/rendered)
 func (_ Unimplemented) GetRenderedDevice(w http.ResponseWriter, r *http.Request, name string, params GetRenderedDeviceParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (PATCH /api/v1/devices/{name}/status)
+// (PATCH /devices/{name}/status)
 func (_ Unimplemented) PatchDeviceStatus(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (PUT /api/v1/devices/{name}/status)
+// (PUT /devices/{name}/status)
 func (_ Unimplemented) ReplaceDeviceStatus(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (POST /api/v1/enrollmentrequests)
+// (POST /enrollmentrequests)
 func (_ Unimplemented) CreateEnrollmentRequest(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// (GET /api/v1/enrollmentrequests/{name})
+// (GET /enrollmentrequests/{name})
 func (_ Unimplemented) GetEnrollmentRequest(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
@@ -363,25 +363,25 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	}
 
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/api/v1/certificatesigningrequests", wrapper.CreateCertificateSigningRequest)
+		r.Post(options.BaseURL+"/certificatesigningrequests", wrapper.CreateCertificateSigningRequest)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/certificatesigningrequests/{name}", wrapper.GetCertificateSigningRequest)
+		r.Get(options.BaseURL+"/certificatesigningrequests/{name}", wrapper.GetCertificateSigningRequest)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/devices/{name}/rendered", wrapper.GetRenderedDevice)
+		r.Get(options.BaseURL+"/devices/{name}/rendered", wrapper.GetRenderedDevice)
 	})
 	r.Group(func(r chi.Router) {
-		r.Patch(options.BaseURL+"/api/v1/devices/{name}/status", wrapper.PatchDeviceStatus)
+		r.Patch(options.BaseURL+"/devices/{name}/status", wrapper.PatchDeviceStatus)
 	})
 	r.Group(func(r chi.Router) {
-		r.Put(options.BaseURL+"/api/v1/devices/{name}/status", wrapper.ReplaceDeviceStatus)
+		r.Put(options.BaseURL+"/devices/{name}/status", wrapper.ReplaceDeviceStatus)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/api/v1/enrollmentrequests", wrapper.CreateEnrollmentRequest)
+		r.Post(options.BaseURL+"/enrollmentrequests", wrapper.CreateEnrollmentRequest)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/enrollmentrequests/{name}", wrapper.GetEnrollmentRequest)
+		r.Get(options.BaseURL+"/enrollmentrequests/{name}", wrapper.GetEnrollmentRequest)
 	})
 
 	return r
