@@ -128,8 +128,8 @@ func (m *manager) BeforeUpdate(ctx context.Context, desired *v1beta1.DeviceSpec)
 	return m.verifyProviders(ctx, providers)
 }
 
-func (m *manager) resolvePullSecret(desired *v1beta1.DeviceSpec) (*client.PullSecret, error) {
-	secret, found, err := client.ResolvePullSecret(m.log, m.readWriter, desired, pullAuthPath)
+func (m *manager) resolvePullSecret(desired *v1beta1.DeviceSpec) (*client.PullConfig, error) {
+	secret, found, err := client.ResolvePullConfig(m.log, m.readWriter, desired, pullAuthPath)
 	if err != nil {
 		return nil, fmt.Errorf("resolving pull secret: %w", err)
 	}
@@ -237,7 +237,7 @@ func (m *manager) CollectOCITargets(ctx context.Context, current, desired *v1bet
 func (m *manager) collectNestedTargets(
 	ctx context.Context,
 	desired *v1beta1.DeviceSpec,
-	secret *client.PullSecret,
+	secret *client.PullConfig,
 ) ([]dependency.OCIPullTarget, bool, []string, error) {
 	var allNestedTargets []dependency.OCIPullTarget
 	var activeAppNames []string
@@ -335,7 +335,7 @@ func (m *manager) extractNestedTargetsForImage(
 	ctx context.Context,
 	appSpec v1beta1.ApplicationProviderSpec,
 	imageSpec *v1beta1.ImageApplicationProviderSpec,
-	secret *client.PullSecret,
+	secret *client.PullConfig,
 ) (*provider.AppData, error) {
 	return provider.ExtractNestedTargetsFromImage(
 		ctx,

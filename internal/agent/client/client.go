@@ -97,57 +97,107 @@ func IsComposeAvailable() bool {
 	return false
 }
 
-type PullSecret struct {
-	// Absolute path to the pull secret
+// PullConfig holds the path to a configuration file and a cleanup function for temporary files.
+type PullConfig struct {
+	// Path is the absolute path to the configuration file.
 	Path string
-	// Cleanup function for temporary files, or no-op
+	// Cleanup removes temporary files created for inline configurations.
 	Cleanup func()
 }
 
-// ResolvePullSecret returns the image pull secret path, preferring inline spec
-// auth then falling back to on disk.  Cleanup removes tmp files generated from
+// ConfigType identifies the type of configuration being resolved.
+type ConfigType string
+
+const (
+	// ConfigTypeContainerSecret is the configuration type for container registry pull secrets.
+	ConfigTypeContainerSecret ConfigType = "container-secret"
+	// ConfigTypeHelmRegistrySecret is the configuration type for Helm OCI registry secrets.
+	ConfigTypeHelmRegistrySecret ConfigType = "helm-registry-secret" //nolint:gosec
+	// ConfigTypeHelmRepoConfig is the configuration type for Helm repository configuration.
+	ConfigTypeHelmRepoConfig ConfigType = "helm-repo-config"
+	// ConfigTypeCRIConfig is the configuration type for CRI runtime configuration.
+	ConfigTypeCRIConfig ConfigType = "cri-config"
+)
+
+// PullConfigProvider provides access to configuration files by type.
+type PullConfigProvider interface {
+	// Get returns the PullConfig for the specified type, or nil if not available.
+	Get(configType ConfigType) *PullConfig
+	// Cleanup releases resources for all configurations.
+	Cleanup()
+}
+
+type pullConfigProvider struct {
+	configs map[ConfigType]*PullConfig
+}
+
+// NewPullConfigProvider creates a new PullConfigProvider with the given configurations.
+func NewPullConfigProvider(configs map[ConfigType]*PullConfig) PullConfigProvider {
+	return &pullConfigProvider{configs: configs}
+}
+
+func (p *pullConfigProvider) Get(configType ConfigType) *PullConfig {
+	if p == nil || p.configs == nil {
+		return nil
+	}
+	return p.configs[configType]
+}
+
+func (p *pullConfigProvider) Cleanup() {
+	if p == nil || p.configs == nil {
+		return
+	}
+	for _, config := range p.configs {
+		if config != nil && config.Cleanup != nil {
+			config.Cleanup()
+		}
+	}
+}
+
+// ResolvePullConfig returns the pull config path, preferring inline spec
+// then falling back to on disk. Cleanup removes tmp files generated from
 // inline spec if found and is otherwise a no-op.
-func ResolvePullSecret(
+func ResolvePullConfig(
 	log *log.PrefixLogger,
 	rw fileio.ReadWriter,
 	desired *v1beta1.DeviceSpec,
-	authPath string,
-) (*PullSecret, bool, error) {
-	specContent, found, err := authFromSpec(log, desired, authPath)
+	configPath string,
+) (*PullConfig, bool, error) {
+	specContent, found, err := authFromSpec(log, desired, configPath)
 	if err != nil {
 		return nil, false, err
 	}
 	if found {
-		exists, err := rw.PathExists(authPath)
+		exists, err := rw.PathExists(configPath)
 		if err != nil {
 			return nil, false, err
 		}
 		if exists {
-			diskContent, err := rw.ReadFile(authPath)
+			diskContent, err := rw.ReadFile(configPath)
 			if err != nil {
-				return nil, false, fmt.Errorf("reading existing auth file: %w", err)
+				return nil, false, fmt.Errorf("reading existing config file: %w", err)
 			}
 
 			if bytes.Equal(diskContent, specContent) {
-				log.Debugf("Using on-disk pull secret (identical to spec): %s", authPath)
-				return &PullSecret{Path: authPath, Cleanup: func() {}}, true, nil
+				log.Debugf("Using on-disk config (identical to spec): %s", configPath)
+				return &PullConfig{Path: configPath, Cleanup: func() {}}, true, nil
 			}
 		}
-		path, cleanup, err := fileio.WriteTmpFile(rw, "os_auth_", "auth.json", specContent, 0600)
+		path, cleanup, err := fileio.WriteTmpFile(rw, "config_", "config", specContent, 0600)
 		if err != nil {
-			return nil, false, fmt.Errorf("writing inline auth file: %w", err)
+			return nil, false, fmt.Errorf("writing inline config file: %w", err)
 		}
-		log.Debugf("Using inline auth from device spec")
-		return &PullSecret{Path: path, Cleanup: cleanup}, true, nil
+		log.Debugf("Using inline config from device spec")
+		return &PullConfig{Path: path, Cleanup: cleanup}, true, nil
 	}
 
-	exists, err := rw.PathExists(authPath)
+	exists, err := rw.PathExists(configPath)
 	if err != nil {
 		return nil, false, err
 	}
 	if exists {
-		log.Debugf("Using on-disk pull secret: %s", authPath)
-		return &PullSecret{Path: authPath, Cleanup: func() {}}, true, nil
+		log.Debugf("Using on-disk config: %s", configPath)
+		return &PullConfig{Path: configPath, Cleanup: func() {}}, true, nil
 	}
 
 	return nil, false, nil
@@ -192,8 +242,10 @@ func authFromSpec(log *log.PrefixLogger, device *v1beta1.DeviceSpec, authPath st
 type ClientOption func(*clientOptions)
 
 type clientOptions struct {
-	pullSecretPath string
-	timeout        time.Duration
+	pullSecretPath       string
+	repositoryConfigPath string
+	criConfigPath        string
+	timeout              time.Duration
 }
 
 // WithPullSecret sets the path to the pull secret. If unset uses the default
@@ -201,6 +253,22 @@ type clientOptions struct {
 func WithPullSecret(path string) ClientOption {
 	return func(opts *clientOptions) {
 		opts.pullSecretPath = path
+	}
+}
+
+// WithRepositoryConfig sets the path to the Helm repository configuration file.
+// This is used for authenticating with HTTP-based Helm chart repositories.
+func WithRepositoryConfig(path string) ClientOption {
+	return func(opts *clientOptions) {
+		opts.repositoryConfigPath = path
+	}
+}
+
+// WithCRIConfig sets the path to the crictl configuration file.
+// This is used for configuring the CRI runtime endpoint.
+func WithCRIConfig(path string) ClientOption {
+	return func(opts *clientOptions) {
+		opts.criConfigPath = path
 	}
 }
 

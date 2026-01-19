@@ -486,7 +486,7 @@ func (m *mockProvider) Spec() *provider.ApplicationSpec {
 	}
 }
 
-func (m *mockProvider) OCITargets(ctx context.Context, pullSecret *client.PullSecret) ([]dependency.OCIPullTarget, error) {
+func (m *mockProvider) OCITargets(ctx context.Context, pullSecret *client.PullConfig) ([]dependency.OCIPullTarget, error) {
 	return nil, nil
 }
 

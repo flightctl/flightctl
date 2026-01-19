@@ -66,7 +66,7 @@ func CollectBaseOCITargets(
 	ctx context.Context,
 	readWriter fileio.ReadWriter,
 	spec *v1beta1.DeviceSpec,
-	pullSecret *client.PullSecret,
+	pullSecret *client.PullConfig,
 ) ([]dependency.OCIPullTarget, error) {
 	if spec.Applications == nil {
 		return nil, nil
@@ -170,7 +170,7 @@ func CollectBaseOCITargets(
 }
 
 // collectEmbeddedOCITargets discovers embedded applications and extracts their OCI targets
-func collectEmbeddedOCITargets(ctx context.Context, readWriter fileio.ReadWriter, pullSecret *client.PullSecret) ([]dependency.OCIPullTarget, error) {
+func collectEmbeddedOCITargets(ctx context.Context, readWriter fileio.ReadWriter, pullSecret *client.PullConfig) ([]dependency.OCIPullTarget, error) {
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
@@ -194,7 +194,7 @@ func collectEmbeddedOCITargets(ctx context.Context, readWriter fileio.ReadWriter
 	return targets, nil
 }
 
-func collectEmbeddedComposeTargets(ctx context.Context, readWriter fileio.ReadWriter, pullSecret *client.PullSecret) ([]dependency.OCIPullTarget, error) {
+func collectEmbeddedComposeTargets(ctx context.Context, readWriter fileio.ReadWriter, pullSecret *client.PullConfig) ([]dependency.OCIPullTarget, error) {
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
@@ -256,7 +256,7 @@ func collectEmbeddedComposeTargets(ctx context.Context, readWriter fileio.ReadWr
 	return targets, nil
 }
 
-func collectEmbeddedQuadletTargets(ctx context.Context, readWriter fileio.ReadWriter, pullSecret *client.PullSecret) ([]dependency.OCIPullTarget, error) {
+func collectEmbeddedQuadletTargets(ctx context.Context, readWriter fileio.ReadWriter, pullSecret *client.PullConfig) ([]dependency.OCIPullTarget, error) {
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
@@ -320,7 +320,7 @@ func ExtractNestedTargetsFromImage(
 	readWriter fileio.ReadWriter,
 	appSpec *v1beta1.ApplicationProviderSpec,
 	imageSpec *v1beta1.ImageApplicationProviderSpec,
-	pullSecret *client.PullSecret,
+	pullSecret *client.PullConfig,
 ) (*AppData, error) {
 	// Resolve canonical app name
 	appName, err := ResolveImageAppName(appSpec)
@@ -698,7 +698,7 @@ func extractAppDataFromOCITarget(
 	appName string,
 	imageRef string,
 	appType v1beta1.AppType,
-	pullSecret *client.PullSecret,
+	pullSecret *client.PullConfig,
 ) (*AppData, error) {
 	tmpAppPath, err := readWriter.MkdirTemp("app_temp")
 	if err != nil {
@@ -951,7 +951,7 @@ func validateEnvVars(envVars map[string]string) error {
 	return nil
 }
 
-func extractQuadletTargets(quad *common.QuadletReferences, pullSecret *client.PullSecret) []dependency.OCIPullTarget {
+func extractQuadletTargets(quad *common.QuadletReferences, pullSecret *client.PullConfig) []dependency.OCIPullTarget {
 	var targets []dependency.OCIPullTarget
 	if quad.Image != nil && !quadlet.IsImageReference(*quad.Image) {
 		targets = append(targets, dependency.OCIPullTarget{
@@ -974,7 +974,7 @@ func extractQuadletTargets(quad *common.QuadletReferences, pullSecret *client.Pu
 	return targets
 }
 
-func extractVolumeTargets(vols *[]v1beta1.ApplicationVolume, pullSecret *client.PullSecret) ([]dependency.OCIPullTarget, error) {
+func extractVolumeTargets(vols *[]v1beta1.ApplicationVolume, pullSecret *client.PullConfig) ([]dependency.OCIPullTarget, error) {
 	var targets []dependency.OCIPullTarget
 	if vols == nil {
 		return targets, nil

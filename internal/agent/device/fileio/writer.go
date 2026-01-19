@@ -170,6 +170,10 @@ func (w *writer) RemoveAll(path string) error {
 	return nil
 }
 
+func (w *writer) Rename(oldpath, newpath string) error {
+	return os.Rename(filepath.Join(w.rootDir, oldpath), filepath.Join(w.rootDir, newpath))
+}
+
 func (w *writer) RemoveContents(path string) error {
 	fullPath := filepath.Join(w.rootDir, path)
 	entries, err := os.ReadDir(fullPath)
