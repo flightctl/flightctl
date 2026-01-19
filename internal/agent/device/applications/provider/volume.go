@@ -31,8 +31,6 @@ type Volume struct {
 	ReclaimPolicy v1beta1.ApplicationVolumeReclaimPolicy
 }
 
-type volumeProvider func() ([]*Volume, error)
-
 type VolumeManager interface {
 	// Get returns the Volume by name, if it exists.
 	Get(name string) (*Volume, bool)

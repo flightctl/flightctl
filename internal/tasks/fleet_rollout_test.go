@@ -390,11 +390,11 @@ func createTestDeviceWithLabels(name string, owner string, labels map[string]str
 	}
 }
 
-func TestFleetRolloutsLogic_ReplaceImageApplicationParameters(t *testing.T) {
+func TestFleetRolloutsLogic_ReplaceComposeImageApplicationParameters(t *testing.T) {
 	tests := []struct {
 		name          string
 		device        *domain.Device
-		appSpec       domain.ImageApplicationProviderSpec
+		imageSpec     domain.ImageApplicationProviderSpec
 		envVars       *map[string]string
 		expectedImage string
 		expectedEnv   map[string]string
@@ -403,7 +403,7 @@ func TestFleetRolloutsLogic_ReplaceImageApplicationParameters(t *testing.T) {
 		{
 			name:   "replaces template in image tag",
 			device: createTestDeviceWithLabels("mydevice", "fleet/test", map[string]string{"version": "v1.0"}),
-			appSpec: domain.ImageApplicationProviderSpec{
+			imageSpec: domain.ImageApplicationProviderSpec{
 				Image: "quay.io/test/app:{{ index .metadata.labels \"version\" }}",
 			},
 			expectedImage: "quay.io/test/app:v1.0",
@@ -412,7 +412,7 @@ func TestFleetRolloutsLogic_ReplaceImageApplicationParameters(t *testing.T) {
 		{
 			name:   "replaces device name in image tag",
 			device: createTestDeviceWithLabels("mydevice-123", "fleet/test", map[string]string{}),
-			appSpec: domain.ImageApplicationProviderSpec{
+			imageSpec: domain.ImageApplicationProviderSpec{
 				Image: "quay.io/test/app:{{ .metadata.name }}",
 			},
 			expectedImage: "quay.io/test/app:mydevice-123",
@@ -421,7 +421,7 @@ func TestFleetRolloutsLogic_ReplaceImageApplicationParameters(t *testing.T) {
 		{
 			name:   "replaces template in envVars",
 			device: createTestDeviceWithLabels("mydevice", "fleet/test", map[string]string{"env": "prod"}),
-			appSpec: domain.ImageApplicationProviderSpec{
+			imageSpec: domain.ImageApplicationProviderSpec{
 				Image: "quay.io/test/app:latest",
 			},
 			envVars:       &map[string]string{"MY_ENV": "{{ index .metadata.labels \"env\" }}"},
@@ -432,7 +432,7 @@ func TestFleetRolloutsLogic_ReplaceImageApplicationParameters(t *testing.T) {
 		{
 			name:   "missing label results in empty string",
 			device: createTestDeviceWithLabels("mydevice", "fleet/test", map[string]string{}),
-			appSpec: domain.ImageApplicationProviderSpec{
+			imageSpec: domain.ImageApplicationProviderSpec{
 				Image: "quay.io/test/app:{{ index .metadata.labels \"missing\" }}",
 			},
 			expectedImage: "quay.io/test/app:",
@@ -442,46 +442,53 @@ func TestFleetRolloutsLogic_ReplaceImageApplicationParameters(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			require := require.New(t)
 			log := logrus.New()
 			logic := FleetRolloutsLogic{log: log}
 
-			app := domain.ApplicationProviderSpec{
+			composeApp := domain.ComposeApplication{
+				EnvVars: tt.envVars,
 				Name:    lo.ToPtr("test-app"),
 				AppType: domain.AppTypeCompose,
-				EnvVars: tt.envVars,
 			}
-			err := app.FromImageApplicationProviderSpec(tt.appSpec)
-			require.NoError(t, err)
+			err := composeApp.FromImageApplicationProviderSpec(tt.imageSpec)
+			require.NoError(err)
 
-			result, errs := logic.replaceImageApplicationParameters(tt.device, app)
+			var app domain.ApplicationProviderSpec
+			err = app.FromComposeApplication(composeApp)
+			require.NoError(err)
+
+			result, errs := logic.replaceComposeApplicationParameters(tt.device, app)
 
 			if tt.expectError {
 				assert.NotEmpty(t, errs)
 				return
 			}
 
-			require.Empty(t, errs)
-			require.NotNil(t, result)
+			require.Empty(errs)
+			require.NotNil(result)
 
-			imgSpec, err := result.AsImageApplicationProviderSpec()
-			require.NoError(t, err)
+			resultComposeApp, err := result.AsComposeApplication()
+			require.NoError(err)
+			imgSpec, err := resultComposeApp.AsImageApplicationProviderSpec()
+			require.NoError(err)
 			assert.Equal(t, tt.expectedImage, imgSpec.Image)
 
 			if tt.expectedEnv != nil {
-				require.NotNil(t, result.EnvVars)
+				require.NotNil(resultComposeApp.EnvVars)
 				for k, v := range tt.expectedEnv {
-					assert.Equal(t, v, (*result.EnvVars)[k])
+					assert.Equal(t, v, (*resultComposeApp.EnvVars)[k])
 				}
 			}
 		})
 	}
 }
 
-func TestFleetRolloutsLogic_ReplaceInlineApplicationParameters(t *testing.T) {
+func TestFleetRolloutsLogic_ReplaceQuadletInlineApplicationParameters(t *testing.T) {
 	tests := []struct {
 		name            string
 		device          *domain.Device
-		appSpec         domain.InlineApplicationProviderSpec
+		inlineSpec      domain.InlineApplicationProviderSpec
 		envVars         *map[string]string
 		expectedPath    string
 		expectedContent string
@@ -491,7 +498,7 @@ func TestFleetRolloutsLogic_ReplaceInlineApplicationParameters(t *testing.T) {
 		{
 			name:   "replaces template in path",
 			device: createTestDeviceWithLabels("mydevice", "fleet/test", map[string]string{}),
-			appSpec: domain.InlineApplicationProviderSpec{
+			inlineSpec: domain.InlineApplicationProviderSpec{
 				Inline: []domain.ApplicationContent{
 					{
 						Path:    "/etc/{{ .metadata.name }}.conf",
@@ -506,7 +513,7 @@ func TestFleetRolloutsLogic_ReplaceInlineApplicationParameters(t *testing.T) {
 		{
 			name:   "replaces template in content",
 			device: createTestDeviceWithLabels("mydevice", "fleet/test", map[string]string{"version": "2.0"}),
-			appSpec: domain.InlineApplicationProviderSpec{
+			inlineSpec: domain.InlineApplicationProviderSpec{
 				Inline: []domain.ApplicationContent{
 					{
 						Path:    "/etc/app.conf",
@@ -521,7 +528,7 @@ func TestFleetRolloutsLogic_ReplaceInlineApplicationParameters(t *testing.T) {
 		{
 			name:   "replaces templates in both path and content",
 			device: createTestDeviceWithLabels("mydevice", "fleet/test", map[string]string{"env": "prod"}),
-			appSpec: domain.InlineApplicationProviderSpec{
+			inlineSpec: domain.InlineApplicationProviderSpec{
 				Inline: []domain.ApplicationContent{
 					{
 						Path:    "/etc/{{ .metadata.name }}/config",
@@ -536,7 +543,7 @@ func TestFleetRolloutsLogic_ReplaceInlineApplicationParameters(t *testing.T) {
 		{
 			name:   "replaces template in envVars",
 			device: createTestDeviceWithLabels("mydevice", "fleet/test", map[string]string{"region": "us-east"}),
-			appSpec: domain.InlineApplicationProviderSpec{
+			inlineSpec: domain.InlineApplicationProviderSpec{
 				Inline: []domain.ApplicationContent{
 					{
 						Path:    "/etc/app.conf",
@@ -553,7 +560,7 @@ func TestFleetRolloutsLogic_ReplaceInlineApplicationParameters(t *testing.T) {
 		{
 			name:   "missing label in content results in empty string",
 			device: createTestDeviceWithLabels("mydevice", "fleet/test", map[string]string{}),
-			appSpec: domain.InlineApplicationProviderSpec{
+			inlineSpec: domain.InlineApplicationProviderSpec{
 				Inline: []domain.ApplicationContent{
 					{
 						Path:    "/etc/app.conf",
@@ -569,38 +576,395 @@ func TestFleetRolloutsLogic_ReplaceInlineApplicationParameters(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			require := require.New(t)
 			log := logrus.New()
 			logic := FleetRolloutsLogic{log: log}
 
-			app := domain.ApplicationProviderSpec{
+			quadletApp := domain.QuadletApplication{
+				EnvVars: tt.envVars,
 				Name:    lo.ToPtr("test-app"),
 				AppType: domain.AppTypeQuadlet,
-				EnvVars: tt.envVars,
 			}
-			err := app.FromInlineApplicationProviderSpec(tt.appSpec)
-			require.NoError(t, err)
+			err := quadletApp.FromInlineApplicationProviderSpec(tt.inlineSpec)
+			require.NoError(err)
 
-			result, errs := logic.replaceInlineApplicationParameters(tt.device, app)
+			var app domain.ApplicationProviderSpec
+			err = app.FromQuadletApplication(quadletApp)
+			require.NoError(err)
+
+			result, errs := logic.replaceQuadletApplicationParameters(tt.device, app)
 
 			if tt.expectError {
 				assert.NotEmpty(t, errs)
 				return
 			}
 
-			require.Empty(t, errs)
-			require.NotNil(t, result)
+			require.Empty(errs)
+			require.NotNil(result)
 
-			inlineSpec, err := result.AsInlineApplicationProviderSpec()
-			require.NoError(t, err)
-			require.Len(t, inlineSpec.Inline, 1)
+			resultQuadletApp, err := result.AsQuadletApplication()
+			require.NoError(err)
+			inlineSpec, err := resultQuadletApp.AsInlineApplicationProviderSpec()
+			require.NoError(err)
+			require.Len(inlineSpec.Inline, 1)
 			assert.Equal(t, tt.expectedPath, inlineSpec.Inline[0].Path)
-			require.NotNil(t, inlineSpec.Inline[0].Content)
+			require.NotNil(inlineSpec.Inline[0].Content)
 			assert.Equal(t, tt.expectedContent, *inlineSpec.Inline[0].Content)
 
 			if tt.expectedEnv != nil {
-				require.NotNil(t, result.EnvVars)
+				require.NotNil(resultQuadletApp.EnvVars)
 				for k, v := range tt.expectedEnv {
-					assert.Equal(t, v, (*result.EnvVars)[k])
+					assert.Equal(t, v, (*resultQuadletApp.EnvVars)[k])
+				}
+			}
+		})
+	}
+}
+
+func TestFleetRolloutsLogic_ReplaceQuadletImageApplicationParameters(t *testing.T) {
+	tests := []struct {
+		name          string
+		device        *domain.Device
+		imageSpec     domain.ImageApplicationProviderSpec
+		envVars       *map[string]string
+		expectedImage string
+		expectedEnv   map[string]string
+		expectError   bool
+	}{
+		{
+			name:   "replaces template in image tag",
+			device: createTestDeviceWithLabels("mydevice", "fleet/test", map[string]string{"version": "v2.0"}),
+			imageSpec: domain.ImageApplicationProviderSpec{
+				Image: "quay.io/test/quadlet:{{ index .metadata.labels \"version\" }}",
+			},
+			expectedImage: "quay.io/test/quadlet:v2.0",
+			expectError:   false,
+		},
+		{
+			name:   "replaces device name in image tag",
+			device: createTestDeviceWithLabels("quadlet-device", "fleet/test", map[string]string{}),
+			imageSpec: domain.ImageApplicationProviderSpec{
+				Image: "quay.io/test/app:{{ .metadata.name }}",
+			},
+			expectedImage: "quay.io/test/app:quadlet-device",
+			expectError:   false,
+		},
+		{
+			name:   "replaces template in envVars",
+			device: createTestDeviceWithLabels("mydevice", "fleet/test", map[string]string{"region": "eu-west"}),
+			imageSpec: domain.ImageApplicationProviderSpec{
+				Image: "quay.io/test/quadlet:latest",
+			},
+			envVars:       &map[string]string{"REGION": "{{ index .metadata.labels \"region\" }}"},
+			expectedImage: "quay.io/test/quadlet:latest",
+			expectedEnv:   map[string]string{"REGION": "eu-west"},
+			expectError:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require := require.New(t)
+			log := logrus.New()
+			logic := FleetRolloutsLogic{log: log}
+
+			quadletApp := domain.QuadletApplication{
+				EnvVars: tt.envVars,
+				Name:    lo.ToPtr("test-quadlet-app"),
+				AppType: domain.AppTypeQuadlet,
+			}
+			err := quadletApp.FromImageApplicationProviderSpec(tt.imageSpec)
+			require.NoError(err)
+
+			var app domain.ApplicationProviderSpec
+			err = app.FromQuadletApplication(quadletApp)
+			require.NoError(err)
+
+			result, errs := logic.replaceQuadletApplicationParameters(tt.device, app)
+
+			if tt.expectError {
+				assert.NotEmpty(t, errs)
+				return
+			}
+
+			require.Empty(errs)
+			require.NotNil(result)
+
+			resultQuadletApp, err := result.AsQuadletApplication()
+			require.NoError(err)
+			imgSpec, err := resultQuadletApp.AsImageApplicationProviderSpec()
+			require.NoError(err)
+			assert.Equal(t, tt.expectedImage, imgSpec.Image)
+
+			if tt.expectedEnv != nil {
+				require.NotNil(resultQuadletApp.EnvVars)
+				for k, v := range tt.expectedEnv {
+					assert.Equal(t, v, (*resultQuadletApp.EnvVars)[k])
+				}
+			}
+		})
+	}
+}
+
+func TestFleetRolloutsLogic_ReplaceContainerApplicationParameters(t *testing.T) {
+	tests := []struct {
+		name          string
+		device        *domain.Device
+		image         string
+		envVars       *map[string]string
+		expectedImage string
+		expectedEnv   map[string]string
+		expectError   bool
+	}{
+		{
+			name:          "replaces template in image tag",
+			device:        createTestDeviceWithLabels("mydevice", "fleet/test", map[string]string{"version": "v1.5"}),
+			image:         "quay.io/test/container:{{ index .metadata.labels \"version\" }}",
+			expectedImage: "quay.io/test/container:v1.5",
+			expectError:   false,
+		},
+		{
+			name:          "replaces device name in image tag",
+			device:        createTestDeviceWithLabels("container-device-456", "fleet/test", map[string]string{}),
+			image:         "quay.io/test/app:{{ .metadata.name }}",
+			expectedImage: "quay.io/test/app:container-device-456",
+			expectError:   false,
+		},
+		{
+			name:          "replaces template in envVars",
+			device:        createTestDeviceWithLabels("mydevice", "fleet/test", map[string]string{"env": "staging"}),
+			image:         "quay.io/test/container:latest",
+			envVars:       &map[string]string{"ENVIRONMENT": "{{ index .metadata.labels \"env\" }}"},
+			expectedImage: "quay.io/test/container:latest",
+			expectedEnv:   map[string]string{"ENVIRONMENT": "staging"},
+			expectError:   false,
+		},
+		{
+			name:          "replaces multiple templates",
+			device:        createTestDeviceWithLabels("mydevice", "fleet/test", map[string]string{"version": "v3.0", "tier": "premium"}),
+			image:         "quay.io/test/container:{{ index .metadata.labels \"version\" }}",
+			envVars:       &map[string]string{"TIER": "{{ index .metadata.labels \"tier\" }}"},
+			expectedImage: "quay.io/test/container:v3.0",
+			expectedEnv:   map[string]string{"TIER": "premium"},
+			expectError:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require := require.New(t)
+			log := logrus.New()
+			logic := FleetRolloutsLogic{log: log}
+
+			containerApp := domain.ContainerApplication{
+				Image:   tt.image,
+				EnvVars: tt.envVars,
+				Name:    lo.ToPtr("test-container-app"),
+				AppType: domain.AppTypeContainer,
+			}
+
+			var app domain.ApplicationProviderSpec
+			err := app.FromContainerApplication(containerApp)
+			require.NoError(err)
+
+			result, errs := logic.replaceContainerApplicationParameters(tt.device, app)
+
+			if tt.expectError {
+				assert.NotEmpty(t, errs)
+				return
+			}
+
+			require.Empty(errs)
+			require.NotNil(result)
+
+			resultContainerApp, err := result.AsContainerApplication()
+			require.NoError(err)
+			assert.Equal(t, tt.expectedImage, resultContainerApp.Image)
+
+			if tt.expectedEnv != nil {
+				require.NotNil(resultContainerApp.EnvVars)
+				for k, v := range tt.expectedEnv {
+					assert.Equal(t, v, (*resultContainerApp.EnvVars)[k])
+				}
+			}
+		})
+	}
+}
+
+func TestFleetRolloutsLogic_ReplaceHelmApplicationParameters(t *testing.T) {
+	tests := []struct {
+		name          string
+		device        *domain.Device
+		image         string
+		namespace     *string
+		expectedImage string
+		expectError   bool
+	}{
+		{
+			name:          "replaces template in image tag",
+			device:        createTestDeviceWithLabels("mydevice", "fleet/test", map[string]string{"chartVersion": "1.2.3"}),
+			image:         "oci://registry.example.com/charts/myapp:{{ index .metadata.labels \"chartVersion\" }}",
+			expectedImage: "oci://registry.example.com/charts/myapp:1.2.3",
+			expectError:   false,
+		},
+		{
+			name:          "replaces device name in image tag",
+			device:        createTestDeviceWithLabels("helm-device-789", "fleet/test", map[string]string{}),
+			image:         "oci://registry.example.com/charts/{{ .metadata.name }}:latest",
+			expectedImage: "oci://registry.example.com/charts/helm-device-789:latest",
+			expectError:   false,
+		},
+		{
+			name:          "no template - image unchanged",
+			device:        createTestDeviceWithLabels("mydevice", "fleet/test", map[string]string{}),
+			image:         "oci://registry.example.com/charts/static:v1.0.0",
+			expectedImage: "oci://registry.example.com/charts/static:v1.0.0",
+			expectError:   false,
+		},
+		{
+			name:          "missing label results in empty string",
+			device:        createTestDeviceWithLabels("mydevice", "fleet/test", map[string]string{}),
+			image:         "oci://registry.example.com/charts/myapp:{{ index .metadata.labels \"missing\" }}",
+			expectedImage: "oci://registry.example.com/charts/myapp:",
+			expectError:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require := require.New(t)
+			log := logrus.New()
+			logic := FleetRolloutsLogic{log: log}
+
+			helmApp := domain.HelmApplication{
+				Image:     tt.image,
+				Namespace: tt.namespace,
+				Name:      lo.ToPtr("test-helm-app"),
+				AppType:   domain.AppTypeHelm,
+			}
+
+			var app domain.ApplicationProviderSpec
+			err := app.FromHelmApplication(helmApp)
+			require.NoError(err)
+
+			result, errs := logic.replaceHelmApplicationParameters(tt.device, app)
+
+			if tt.expectError {
+				assert.NotEmpty(t, errs)
+				return
+			}
+
+			require.Empty(errs)
+			require.NotNil(result)
+
+			resultHelmApp, err := result.AsHelmApplication()
+			require.NoError(err)
+			assert.Equal(t, tt.expectedImage, resultHelmApp.Image)
+		})
+	}
+}
+
+func TestFleetRolloutsLogic_ReplaceComposeInlineApplicationParameters(t *testing.T) {
+	tests := []struct {
+		name            string
+		device          *domain.Device
+		inlineSpec      domain.InlineApplicationProviderSpec
+		envVars         *map[string]string
+		expectedPath    string
+		expectedContent string
+		expectedEnv     map[string]string
+		expectError     bool
+	}{
+		{
+			name:   "replaces template in path",
+			device: createTestDeviceWithLabels("compose-device", "fleet/test", map[string]string{}),
+			inlineSpec: domain.InlineApplicationProviderSpec{
+				Inline: []domain.ApplicationContent{
+					{
+						Path:    "/etc/compose/{{ .metadata.name }}.yaml",
+						Content: lo.ToPtr("version: '3'"),
+					},
+				},
+			},
+			expectedPath:    "/etc/compose/compose-device.yaml",
+			expectedContent: "version: '3'",
+			expectError:     false,
+		},
+		{
+			name:   "replaces template in content",
+			device: createTestDeviceWithLabels("mydevice", "fleet/test", map[string]string{"replicas": "3"}),
+			inlineSpec: domain.InlineApplicationProviderSpec{
+				Inline: []domain.ApplicationContent{
+					{
+						Path:    "/etc/docker-compose.yaml",
+						Content: lo.ToPtr("replicas: {{ index .metadata.labels \"replicas\" }}"),
+					},
+				},
+			},
+			expectedPath:    "/etc/docker-compose.yaml",
+			expectedContent: "replicas: 3",
+			expectError:     false,
+		},
+		{
+			name:   "replaces template in envVars",
+			device: createTestDeviceWithLabels("mydevice", "fleet/test", map[string]string{"db": "postgres"}),
+			inlineSpec: domain.InlineApplicationProviderSpec{
+				Inline: []domain.ApplicationContent{
+					{
+						Path:    "/etc/compose.yaml",
+						Content: lo.ToPtr("services: {}"),
+					},
+				},
+			},
+			envVars:         &map[string]string{"DATABASE": "{{ index .metadata.labels \"db\" }}"},
+			expectedPath:    "/etc/compose.yaml",
+			expectedContent: "services: {}",
+			expectedEnv:     map[string]string{"DATABASE": "postgres"},
+			expectError:     false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require := require.New(t)
+			log := logrus.New()
+			logic := FleetRolloutsLogic{log: log}
+
+			composeApp := domain.ComposeApplication{
+				EnvVars: tt.envVars,
+				Name:    lo.ToPtr("test-compose-inline-app"),
+				AppType: domain.AppTypeCompose,
+			}
+			err := composeApp.FromInlineApplicationProviderSpec(tt.inlineSpec)
+			require.NoError(err)
+
+			var app domain.ApplicationProviderSpec
+			err = app.FromComposeApplication(composeApp)
+			require.NoError(err)
+
+			result, errs := logic.replaceComposeApplicationParameters(tt.device, app)
+
+			if tt.expectError {
+				assert.NotEmpty(t, errs)
+				return
+			}
+
+			require.Empty(errs)
+			require.NotNil(result)
+
+			resultComposeApp, err := result.AsComposeApplication()
+			require.NoError(err)
+			inlineSpec, err := resultComposeApp.AsInlineApplicationProviderSpec()
+			require.NoError(err)
+			require.Len(inlineSpec.Inline, 1)
+			assert.Equal(t, tt.expectedPath, inlineSpec.Inline[0].Path)
+			require.NotNil(inlineSpec.Inline[0].Content)
+			assert.Equal(t, tt.expectedContent, *inlineSpec.Inline[0].Content)
+
+			if tt.expectedEnv != nil {
+				require.NotNil(resultComposeApp.EnvVars)
+				for k, v := range tt.expectedEnv {
+					assert.Equal(t, v, (*resultComposeApp.EnvVars)[k])
 				}
 			}
 		})

@@ -49,11 +49,26 @@ func createInlineApplicationSpec(content string, path string) v1beta1.InlineAppl
 
 func updateDeviceApplicationFromInline(device *v1beta1.Device, inlineAppName string, inlineApp v1beta1.InlineApplicationProviderSpec) error {
 	for i, app := range *device.Spec.Applications {
-		if app.Name != nil && *app.Name == inlineAppName {
-			err := (*device.Spec.Applications)[i].FromInlineApplicationProviderSpec(inlineApp)
+		existingName, _ := app.GetName()
+		if existingName != nil && *existingName == inlineAppName {
+			// Get the existing ComposeApplication to preserve Name and other fields
+			composeApp, err := app.AsComposeApplication()
 			if err != nil {
-				return fmt.Errorf("failed to update application %s from inline spec: %w", inlineAppName, err)
+				return fmt.Errorf("failed to get compose application: %w", err)
 			}
+
+			// Update the inline spec
+			if err := composeApp.FromInlineApplicationProviderSpec(inlineApp); err != nil {
+				return fmt.Errorf("failed to update inline spec: %w", err)
+			}
+
+			// Convert back to ApplicationProviderSpec
+			var newAppSpec v1beta1.ApplicationProviderSpec
+			if err := newAppSpec.FromComposeApplication(composeApp); err != nil {
+				return fmt.Errorf("failed to create application spec: %w", err)
+			}
+
+			(*device.Spec.Applications)[i] = newAppSpec
 			return nil
 		}
 	}

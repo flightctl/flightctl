@@ -32,6 +32,8 @@ type Provider interface {
 	Remove(ctx context.Context) error
 	// Name returns the name of the application.
 	Name() string
+	// ID returns the unique identifier for the application.
+	ID() string
 	// Spec returns the application spec.
 	Spec() *ApplicationSpec
 }
@@ -55,10 +57,12 @@ type ApplicationSpec struct {
 	bootTime string
 	// Volume manager.
 	Volume VolumeManager
-	// ImageProvider is the spec for the image provider
-	ImageProvider *v1beta1.ImageApplicationProviderSpec
-	// InlineProvider is the spec for the inline provider
-	InlineProvider *v1beta1.InlineApplicationProviderSpec
+
+	// App-type-specific specs (only one will be set based on AppType)
+	ContainerApp *v1beta1.ContainerApplication
+	HelmApp      *v1beta1.HelmApplication
+	ComposeApp   *v1beta1.ComposeApplication
+	QuadletApp   *v1beta1.QuadletApplication
 }
 
 // CollectBaseOCITargets collects only the base OCI targets (images and volumes) from the device spec
@@ -77,90 +81,17 @@ func CollectBaseOCITargets(
 	var targets dependency.OCIPullTargetsByUser
 
 	for _, providerSpec := range lo.FromPtr(spec.Applications) {
-		providerType, err := providerSpec.Type()
-		if err != nil {
-			return nil, err
-		}
-
-		if providerSpec.AppType == "" {
+		appType, err := providerSpec.GetAppType()
+		if err != nil || appType == "" {
 			return nil, fmt.Errorf("application type must be defined")
 		}
 
-		targetUser := providerSpec.UserWithDefault()
-
-		switch providerType {
-		case v1beta1.ImageApplicationProviderType:
-			imageSpec, err := providerSpec.AsImageApplicationProviderSpec()
-			if err != nil {
-				return nil, fmt.Errorf("getting image provider spec: %w", err)
-			}
-
-			ociType := dependency.OCITypeAuto
-			// a requirement of container types is that the image reference is a runnable image
-			if providerSpec.AppType == v1beta1.AppTypeContainer {
-				ociType = dependency.OCITypePodmanImage
-			}
-
-			policy := v1beta1.PullIfNotPresent
-			targets = targets.Add(targetUser, dependency.OCIPullTarget{
-				Type:       ociType,
-				Reference:  imageSpec.Image,
-				PullPolicy: policy,
-				Configs:    configProvider,
-			})
-
-			// Add volume artifacts
-			volTargets, err := extractVolumeTargets(imageSpec.Volumes, configProvider)
-			if err != nil {
-				return nil, fmt.Errorf("extracting volume targets: %w", err)
-			}
-			targets = targets.Add(targetUser, volTargets...)
-
-		case v1beta1.InlineApplicationProviderType:
-			inlineSpec, err := providerSpec.AsInlineApplicationProviderSpec()
-			if err != nil {
-				return nil, fmt.Errorf("getting inline provider spec: %w", err)
-			}
-
-			// Extract images from inline content based on app type
-			switch providerSpec.AppType {
-			case v1beta1.AppTypeCompose:
-				// Inline compose specs are already validated by the API
-				spec, err := client.ParseComposeFromSpec(inlineSpec.Inline)
-				if err != nil {
-					return nil, fmt.Errorf("parsing compose spec: %w", err)
-				}
-				for _, svc := range spec.Services {
-					if svc.Image != "" {
-						targets = targets.Add(targetUser, dependency.OCIPullTarget{
-							Type:       dependency.OCITypePodmanImage,
-							Reference:  svc.Image,
-							PullPolicy: v1beta1.PullIfNotPresent,
-							Configs:    configProvider,
-						})
-					}
-				}
-			case v1beta1.AppTypeQuadlet:
-				spec, err := client.ParseQuadletReferencesFromSpec(inlineSpec.Inline)
-				if err != nil {
-					return nil, fmt.Errorf("parsing quadlet spec: %w", err)
-				}
-				for _, quad := range spec {
-					targets = targets.Add(targetUser, extractQuadletTargets(quad, configProvider)...)
-				}
-			default:
-				return nil, fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, providerSpec.AppType)
-			}
-
-			// Add volume artifacts
-			volTargets, err := extractVolumeTargets(inlineSpec.Volumes, configProvider)
-			if err != nil {
-				return nil, fmt.Errorf("extracting volume targets: %w", err)
-			}
-			targets = targets.Add(targetUser, volTargets...)
-
-		default:
-			return nil, fmt.Errorf("unsupported application provider type: %s", providerType)
+		appTargets, err := collectAppTypeOCITargets(appType, &providerSpec, configProvider)
+		if err != nil {
+			return nil, err
+		}
+		if len(appTargets) > 0 {
+			targets = targets.MergeWith(appTargets)
 		}
 	}
 
@@ -176,6 +107,135 @@ func CollectBaseOCITargets(
 	targets = targets.Add(v1beta1.CurrentProcessUsername, embeddedTargets...)
 
 	return targets, nil
+}
+
+func collectAppTypeOCITargets(appType v1beta1.AppType, providerSpec *v1beta1.ApplicationProviderSpec, configProvider client.PullConfigProvider) (dependency.OCIPullTargetsByUser, error) {
+	switch appType {
+	case v1beta1.AppTypeContainer:
+		return collectContainerOCITargets(providerSpec, configProvider)
+	case v1beta1.AppTypeCompose:
+		return collectComposeOCITargets(providerSpec, configProvider)
+	case v1beta1.AppTypeQuadlet:
+		return collectQuadletOCITargets(providerSpec, configProvider)
+	default:
+		return nil, fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, appType)
+	}
+}
+
+func collectContainerOCITargets(providerSpec *v1beta1.ApplicationProviderSpec, configProvider client.PullConfigProvider) (dependency.OCIPullTargetsByUser, error) {
+	containerApp, err := providerSpec.AsContainerApplication()
+	if err != nil {
+		return nil, fmt.Errorf("getting container application: %w", err)
+	}
+	targetUser := containerApp.UserWithDefault()
+	var targets dependency.OCIPullTargetsByUser
+	targets = targets.Add(containerApp.UserWithDefault(), dependency.OCIPullTarget{
+		Type:       dependency.OCITypePodmanImage,
+		Reference:  containerApp.Image,
+		PullPolicy: v1beta1.PullIfNotPresent,
+		Configs:    configProvider,
+	})
+	volTargets, err := extractVolumeTargets(containerApp.Volumes, configProvider)
+	if err != nil {
+		return nil, fmt.Errorf("extracting container volume targets: %w", err)
+	}
+	return targets.Add(targetUser, volTargets...), nil
+}
+
+func collectComposeOCITargets(providerSpec *v1beta1.ApplicationProviderSpec, configProvider client.PullConfigProvider) (dependency.OCIPullTargetsByUser, error) {
+	composeApp, err := providerSpec.AsComposeApplication()
+	if err != nil {
+		return nil, fmt.Errorf("getting compose application: %w", err)
+	}
+	providerType, err := composeApp.Type()
+	if err != nil {
+		return nil, fmt.Errorf("getting compose provider type: %w", err)
+	}
+
+	targetUser := composeApp.UserWithDefault()
+
+	var targets dependency.OCIPullTargetsByUser
+	switch providerType {
+	case v1beta1.ImageApplicationProviderType:
+		imageSpec, err := composeApp.AsImageApplicationProviderSpec()
+		if err != nil {
+			return nil, fmt.Errorf("getting compose image provider: %w", err)
+		}
+		targets = targets.Add(targetUser, dependency.OCIPullTarget{
+			Type:       dependency.OCITypeAuto,
+			Reference:  imageSpec.Image,
+			PullPolicy: v1beta1.PullIfNotPresent,
+			Configs:    configProvider,
+		})
+	case v1beta1.InlineApplicationProviderType:
+		inlineSpec, err := composeApp.AsInlineApplicationProviderSpec()
+		if err != nil {
+			return nil, fmt.Errorf("getting compose inline provider: %w", err)
+		}
+		composeSpec, err := client.ParseComposeFromSpec(inlineSpec.Inline)
+		if err != nil {
+			return nil, fmt.Errorf("parsing compose spec: %w", err)
+		}
+		for _, svc := range composeSpec.Services {
+			if svc.Image != "" {
+				targets = targets.Add(targetUser, dependency.OCIPullTarget{
+					Type:       dependency.OCITypePodmanImage,
+					Reference:  svc.Image,
+					PullPolicy: v1beta1.PullIfNotPresent,
+					Configs:    configProvider,
+				})
+			}
+		}
+	}
+	volTargets, err := extractVolumeTargets(composeApp.Volumes, configProvider)
+	if err != nil {
+		return nil, fmt.Errorf("extracting compose volume targets: %w", err)
+	}
+	return targets.Add(targetUser, volTargets...), nil
+}
+
+func collectQuadletOCITargets(providerSpec *v1beta1.ApplicationProviderSpec, configProvider client.PullConfigProvider) (dependency.OCIPullTargetsByUser, error) {
+	quadletApp, err := providerSpec.AsQuadletApplication()
+	if err != nil {
+		return nil, fmt.Errorf("getting quadlet application: %w", err)
+	}
+	providerType, err := quadletApp.Type()
+	if err != nil {
+		return nil, fmt.Errorf("getting quadlet provider type: %w", err)
+	}
+
+	targetUser := quadletApp.UserWithDefault()
+	var targets dependency.OCIPullTargetsByUser
+	switch providerType {
+	case v1beta1.ImageApplicationProviderType:
+		imageSpec, err := quadletApp.AsImageApplicationProviderSpec()
+		if err != nil {
+			return nil, fmt.Errorf("getting quadlet image provider: %w", err)
+		}
+		targets = targets.Add(targetUser, dependency.OCIPullTarget{
+			Type:       dependency.OCITypeAuto,
+			Reference:  imageSpec.Image,
+			PullPolicy: v1beta1.PullIfNotPresent,
+			Configs:    configProvider,
+		})
+	case v1beta1.InlineApplicationProviderType:
+		inlineSpec, err := quadletApp.AsInlineApplicationProviderSpec()
+		if err != nil {
+			return nil, fmt.Errorf("getting quadlet inline provider: %w", err)
+		}
+		quadletSpec, err := client.ParseQuadletReferencesFromSpec(inlineSpec.Inline)
+		if err != nil {
+			return nil, fmt.Errorf("parsing quadlet spec: %w", err)
+		}
+		for _, quad := range quadletSpec {
+			targets = targets.Add(targetUser, extractQuadletTargets(quad, configProvider)...)
+		}
+	}
+	volTargets, err := extractVolumeTargets(quadletApp.Volumes, configProvider)
+	if err != nil {
+		return nil, fmt.Errorf("extracting quadlet volume targets: %w", err)
+	}
+	return targets.Add(targetUser, volTargets...), nil
 }
 
 // collectEmbeddedOCITargets discovers embedded applications and extracts their OCI targets
@@ -306,17 +366,170 @@ func collectEmbeddedQuadletTargets(ctx context.Context, readWriter fileio.ReadWr
 // ResolveImageAppName resolves the canonical application name from an ApplicationProviderSpec.
 // If the spec has an explicit name, it uses that; otherwise, it falls back to the image reference.
 func ResolveImageAppName(appSpec *v1beta1.ApplicationProviderSpec) (string, error) {
-	appName := lo.FromPtr(appSpec.Name)
-	if appName != "" {
-		return appName, nil
-	}
-
-	imageSpec, err := appSpec.AsImageApplicationProviderSpec()
+	appName, err := (*appSpec).GetName()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("getting app name: %w", err)
+	}
+	if appName != nil && *appName != "" {
+		return *appName, nil
 	}
 
-	return imageSpec.Image, nil
+	appType, err := (*appSpec).GetAppType()
+	if err != nil {
+		return "", fmt.Errorf("getting app type: %w", err)
+	}
+
+	switch appType {
+	case v1beta1.AppTypeContainer:
+		app, err := (*appSpec).AsContainerApplication()
+		if err != nil {
+			return "", err
+		}
+		return app.Image, nil
+	case v1beta1.AppTypeCompose:
+		app, err := (*appSpec).AsComposeApplication()
+		if err != nil {
+			return "", err
+		}
+		providerType, err := app.Type()
+		if err != nil {
+			return "", err
+		}
+		if providerType == v1beta1.ImageApplicationProviderType {
+			imageSpec, err := app.AsImageApplicationProviderSpec()
+			if err != nil {
+				return "", err
+			}
+			return imageSpec.Image, nil
+		}
+		return "", fmt.Errorf("inline compose app must have explicit name")
+	case v1beta1.AppTypeQuadlet:
+		app, err := (*appSpec).AsQuadletApplication()
+		if err != nil {
+			return "", err
+		}
+		providerType, err := app.Type()
+		if err != nil {
+			return "", err
+		}
+		if providerType == v1beta1.ImageApplicationProviderType {
+			imageSpec, err := app.AsImageApplicationProviderSpec()
+			if err != nil {
+				return "", err
+			}
+			return imageSpec.Image, nil
+		}
+		return "", fmt.Errorf("inline quadlet app must have explicit name")
+	default:
+		return "", fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, appType)
+	}
+}
+
+// AppNeedsNestedExtraction determines if an app needs nested OCI target extraction.
+// Container apps don't need extraction (simple image pull).
+// Helm apps need extraction for chart images.
+// Compose/Quadlet apps need extraction only if image-based (not inline).
+func AppNeedsNestedExtraction(appSpec *v1beta1.ApplicationProviderSpec) (bool, error) {
+	appType, err := (*appSpec).GetAppType()
+	if err != nil {
+		return false, err
+	}
+	switch appType {
+	case v1beta1.AppTypeContainer:
+		return false, nil
+	case v1beta1.AppTypeCompose:
+		composeApp, err := (*appSpec).AsComposeApplication()
+		if err != nil {
+			return false, err
+		}
+		providerType, err := composeApp.Type()
+		if err != nil {
+			return false, err
+		}
+		return providerType == v1beta1.ImageApplicationProviderType, nil
+	case v1beta1.AppTypeQuadlet:
+		quadletApp, err := (*appSpec).AsQuadletApplication()
+		if err != nil {
+			return false, err
+		}
+		providerType, err := quadletApp.Type()
+		if err != nil {
+			return false, err
+		}
+		return providerType == v1beta1.ImageApplicationProviderType, nil
+	default:
+		return false, nil
+	}
+}
+
+// ResolveImageRef extracts the OCI image reference from an app spec based on its type.
+// For Container and Helm apps, returns the image directly.
+// For Compose and Quadlet apps, returns the image from the nested ImageApplicationProviderSpec.
+func ResolveImageRef(appSpec *v1beta1.ApplicationProviderSpec) (string, error) {
+	appType, err := (*appSpec).GetAppType()
+	if err != nil {
+		return "", fmt.Errorf("getting app type: %w", err)
+	}
+	switch appType {
+	case v1beta1.AppTypeContainer:
+		app, err := (*appSpec).AsContainerApplication()
+		if err != nil {
+			return "", err
+		}
+		return app.Image, nil
+	case v1beta1.AppTypeCompose:
+		app, err := (*appSpec).AsComposeApplication()
+		if err != nil {
+			return "", err
+		}
+		imageSpec, err := app.AsImageApplicationProviderSpec()
+		if err != nil {
+			return "", err
+		}
+		return imageSpec.Image, nil
+	case v1beta1.AppTypeQuadlet:
+		app, err := (*appSpec).AsQuadletApplication()
+		if err != nil {
+			return "", err
+		}
+		imageSpec, err := app.AsImageApplicationProviderSpec()
+		if err != nil {
+			return "", err
+		}
+		return imageSpec.Image, nil
+	default:
+		return "", fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, appType)
+	}
+}
+
+// ResolveUser returns the User association with the application
+func ResolveUser(appSpec *v1beta1.ApplicationProviderSpec) (v1beta1.Username, error) {
+	appType, err := (*appSpec).GetAppType()
+	if err != nil {
+		return "", fmt.Errorf("getting app type: %w", err)
+	}
+	switch appType {
+	case v1beta1.AppTypeContainer:
+		app, err := (*appSpec).AsContainerApplication()
+		if err != nil {
+			return "", err
+		}
+		return app.UserWithDefault(), nil
+	case v1beta1.AppTypeCompose:
+		app, err := (*appSpec).AsComposeApplication()
+		if err != nil {
+			return "", err
+		}
+		return app.UserWithDefault(), nil
+	case v1beta1.AppTypeQuadlet:
+		app, err := (*appSpec).AsQuadletApplication()
+		if err != nil {
+			return "", err
+		}
+		return app.UserWithDefault(), nil
+	default:
+		return "", fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, appType)
+	}
 }
 
 // ExtractNestedTargetsFromImage extracts nested OCI targets from a single image-based application.
@@ -325,48 +538,95 @@ func ResolveImageAppName(appSpec *v1beta1.ApplicationProviderSpec) (string, erro
 func ExtractNestedTargetsFromImage(
 	ctx context.Context,
 	log *log.PrefixLogger,
-	podman *client.Podman,
-	readWriter fileio.ReadWriter,
+	podmanFactory client.PodmanFactory,
+	clients client.CLIClients,
+	rwFactory fileio.ReadWriterFactory,
 	appSpec *v1beta1.ApplicationProviderSpec,
-	imageSpec *v1beta1.ImageApplicationProviderSpec,
 	configProvider client.PullConfigProvider,
 ) (*AppData, error) {
-	// Resolve canonical app name
 	appName, err := ResolveImageAppName(appSpec)
 	if err != nil {
 		return nil, fmt.Errorf("resolving app name: %w", err)
 	}
 
-	// determine app type
-	appType := appSpec.AppType
-	// Nothing nested in a container type
-	if appType == v1beta1.AppTypeContainer {
+	appType, err := (*appSpec).GetAppType()
+	if err != nil {
+		return nil, fmt.Errorf("getting app type: %w", err)
+	}
+
+	switch appType {
+	case v1beta1.AppTypeContainer:
 		return &AppData{}, nil
-	}
 
-	if err := ensureAppTypeFromImage(ctx, podman, appType, imageSpec.Image); err != nil {
-		return nil, fmt.Errorf("ensuring app type: %w", err)
-	}
+	case v1beta1.AppTypeCompose:
+		composeApp, err := (*appSpec).AsComposeApplication()
 
-	if appType != v1beta1.AppTypeCompose && appType != v1beta1.AppTypeQuadlet {
+		if err != nil {
+			return nil, fmt.Errorf("getting compose application: %w", err)
+		}
+		providerType, err := composeApp.Type()
+		if err != nil {
+			return nil, fmt.Errorf("getting compose provider type: %w", err)
+		}
+		if providerType != v1beta1.ImageApplicationProviderType {
+			return &AppData{}, nil
+		}
+
+		user := composeApp.UserWithDefault()
+
+		podman, err := podmanFactory(user)
+		if err != nil {
+			return nil, fmt.Errorf("creating podman client for user %s: %w", user, err)
+		}
+
+		readWriter, err := rwFactory(user)
+		if err != nil {
+			return nil, fmt.Errorf("creating read/writer for user %s: %w", user, err)
+		}
+		imageSpec, err := composeApp.AsImageApplicationProviderSpec()
+		if err != nil {
+			return nil, fmt.Errorf("getting compose image provider: %w", err)
+		}
+		if err := ensureAppTypeFromImage(ctx, podman, v1beta1.AppTypeCompose, imageSpec.Image); err != nil {
+			return nil, fmt.Errorf("ensuring app type: %w", err)
+		}
+		return extractAppDataFromOCITarget(ctx, podman, readWriter, appName, imageSpec.Image, v1beta1.AppTypeCompose, configProvider)
+
+	case v1beta1.AppTypeQuadlet:
+		quadletApp, err := (*appSpec).AsQuadletApplication()
+		if err != nil {
+			return nil, fmt.Errorf("getting quadlet application: %w", err)
+		}
+		providerType, err := quadletApp.Type()
+		if err != nil {
+			return nil, fmt.Errorf("getting quadlet provider type: %w", err)
+		}
+		if providerType != v1beta1.ImageApplicationProviderType {
+			return &AppData{}, nil
+		}
+		user := quadletApp.UserWithDefault()
+
+		podman, err := podmanFactory(user)
+		if err != nil {
+			return nil, fmt.Errorf("creating podman client for user %s: %w", user, err)
+		}
+
+		readWriter, err := rwFactory(user)
+		if err != nil {
+			return nil, fmt.Errorf("creating read/writer for user %s: %w", user, err)
+		}
+		imageSpec, err := quadletApp.AsImageApplicationProviderSpec()
+		if err != nil {
+			return nil, fmt.Errorf("getting quadlet image provider: %w", err)
+		}
+		if err := ensureAppTypeFromImage(ctx, podman, v1beta1.AppTypeQuadlet, imageSpec.Image); err != nil {
+			return nil, fmt.Errorf("ensuring app type: %w", err)
+		}
+		return extractAppDataFromOCITarget(ctx, podman, readWriter, appName, imageSpec.Image, v1beta1.AppTypeQuadlet, configProvider)
+
+	default:
 		return nil, fmt.Errorf("%w for app %s: %s", errors.ErrUnsupportedAppType, appName, appType)
 	}
-
-	// extract nested targets
-	cachedAppData, err := extractAppDataFromOCITarget(
-		ctx,
-		podman,
-		readWriter,
-		appName,
-		imageSpec.Image,
-		appType,
-		configProvider,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	return cachedAppData, nil
 }
 
 // FromDeviceSpec parses the application spec and returns a list of providers.
@@ -374,6 +634,7 @@ func FromDeviceSpec(
 	ctx context.Context,
 	log *log.PrefixLogger,
 	podmanFactory client.PodmanFactory,
+	clients client.CLIClients,
 	rwFactory fileio.ReadWriterFactory,
 	spec *v1beta1.DeviceSpec,
 	opts ...ParseOpt,
@@ -385,63 +646,14 @@ func FromDeviceSpec(
 
 	var providers []Provider
 	for _, providerSpec := range lo.FromPtr(spec.Applications) {
-		providerType, err := providerSpec.Type()
+		provider, err := createProviderForAppType(ctx, log, podmanFactory, clients, rwFactory, &providerSpec, &cfg)
 		if err != nil {
 			return nil, err
 		}
-		if cfg.providerTypes != nil {
-			if _, exists := cfg.providerTypes[providerType]; !exists {
-				continue
-			}
+		if provider == nil {
+			continue
 		}
-
-		user := providerSpec.UserWithDefault()
-		podman, err := podmanFactory(user)
-		if err != nil {
-			return nil, fmt.Errorf("creating podman client for user %s: %w", user, err)
-		}
-
-		readWriter, err := rwFactory(user)
-		if err != nil {
-			return nil, fmt.Errorf("creating read/writer for user %s: %w", user, err)
-		}
-
-		switch providerType {
-		case v1beta1.ImageApplicationProviderType:
-			// determine app type for image provider
-			imageSpec, err := providerSpec.AsImageApplicationProviderSpec()
-			if err != nil {
-				return nil, fmt.Errorf("getting image provider spec: %w", err)
-			}
-
-			if err := ensureAppTypeFromImage(ctx, podman, providerSpec.AppType, imageSpec.Image); err != nil {
-				return nil, fmt.Errorf("ensuring app type: %w", err)
-			}
-
-			imgProvider, err := newImage(log, podman, &providerSpec, readWriter, providerSpec.AppType)
-			if err != nil {
-				return nil, err
-			}
-			// inject extraction cache if available
-			if cfg.appDataCache != nil {
-				appName, err := ResolveImageAppName(&providerSpec)
-				if err != nil {
-					return nil, fmt.Errorf("resolving app name for cache lookup: %w", err)
-				}
-				if cachedData, found := cfg.appDataCache[appName]; found {
-					imgProvider.AppData = cachedData
-				}
-			}
-			providers = append(providers, imgProvider)
-		case v1beta1.InlineApplicationProviderType:
-			provider, err := newInline(log, podman, &providerSpec, readWriter)
-			if err != nil {
-				return nil, err
-			}
-			providers = append(providers, provider)
-		default:
-			return nil, fmt.Errorf("unsupported application provider type: %s", providerType)
-		}
+		providers = append(providers, provider)
 	}
 
 	rootPodman, err := podmanFactory(v1beta1.CurrentProcessUsername)
@@ -475,6 +687,34 @@ func FromDeviceSpec(
 	}
 
 	return providers, nil
+}
+
+func createProviderForAppType(
+	ctx context.Context,
+	log *log.PrefixLogger,
+	podman client.PodmanFactory,
+	clients client.CLIClients,
+	rwFactory fileio.ReadWriterFactory,
+	providerSpec *v1beta1.ApplicationProviderSpec,
+	cfg *parseConfig,
+) (Provider, error) {
+	appType, err := (*providerSpec).GetAppType()
+	if err != nil {
+		return nil, fmt.Errorf("getting app type: %w", err)
+	}
+	switch appType {
+	case v1beta1.AppTypeContainer:
+		return newContainerProvider(ctx, log, podman, providerSpec, rwFactory, cfg)
+
+	case v1beta1.AppTypeCompose:
+		return newComposeProvider(ctx, log, podman, providerSpec, rwFactory, cfg)
+
+	case v1beta1.AppTypeQuadlet:
+		return newQuadletProvider(ctx, log, podman, providerSpec, rwFactory, cfg)
+
+	default:
+		return nil, fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, appType)
+	}
 }
 
 func discoverEmbeddedApplications(ctx context.Context, log *log.PrefixLogger, podman *client.Podman, readWriter fileio.ReadWriter, providers *[]Provider, basePath string, appType v1beta1.AppType, patterns []string, bootTime string) error {
@@ -604,28 +844,28 @@ func GetDiff(
 
 	desiredProviders := make(map[string]Provider)
 	for _, provider := range desired {
-		if len(provider.Name()) == 0 {
+		if len(provider.ID()) == 0 {
 			return diff, errors.ErrAppNameRequired
 		}
-		desiredProviders[provider.Name()] = provider
+		desiredProviders[provider.ID()] = provider
 	}
 
 	currentProviders := make(map[string]Provider)
 	for _, provider := range current {
-		if len(provider.Name()) == 0 {
+		if len(provider.ID()) == 0 {
 			return diff, errors.ErrAppNameRequired
 		}
-		currentProviders[provider.Name()] = provider
+		currentProviders[provider.ID()] = provider
 	}
 
-	for name, provider := range currentProviders {
-		if _, exists := desiredProviders[name]; !exists {
+	for id, provider := range currentProviders {
+		if _, exists := desiredProviders[id]; !exists {
 			diff.Removed = append(diff.Removed, provider)
 		}
 	}
 
-	for name, desiredProvider := range desiredProviders {
-		if currentProvider, exists := currentProviders[name]; !exists {
+	for id, desiredProvider := range desiredProviders {
+		if currentProvider, exists := currentProviders[id]; !exists {
 			diff.Ensure = append(diff.Ensure, desiredProvider)
 		} else {
 			if isEqual(currentProvider, desiredProvider) {

@@ -809,10 +809,8 @@ func validateSshConfig(config *SshConfig) []error {
 
 func (a ApplicationProviderSpec) Validate() []error {
 	allErrs := []error{}
-	// name must be 1–253 characters long, start with a letter or number, and contain no whitespace
-	allErrs = append(allErrs, validation.ValidateString(a.Name, "spec.applications[].name", 1, validation.DNS1123MaxLength, validation.GenericNameRegexp, validation.Dns1123LabelFmt)...)
-	// envVars keys and values must be between 1 and 253 characters
-	allErrs = append(allErrs, validation.ValidateStringMap(a.EnvVars, "spec.applications[].envVars", 1, validation.DNS1123MaxLength, validation.EnvVarNameRegexp, nil, "")...)
+	name, _ := a.GetName()
+	allErrs = append(allErrs, validation.ValidateString(name, "spec.applications[].name", 1, validation.DNS1123MaxLength, validation.GenericNameRegexp, validation.Dns1123LabelFmt)...)
 	return allErrs
 }
 
@@ -902,14 +900,13 @@ func validateApplications(apps []ApplicationProviderSpec, fleetTemplate bool) []
 	seenAppNames := make(map[string]struct{})
 
 	for _, app := range apps {
-		seenVolumeNames := make(map[string]struct{})
-		providerType, err := validateAppProviderType(app)
-		if err != nil {
-			allErrs = append(allErrs, err)
+		appType, err := app.Discriminator()
+		if err != nil || appType == "" {
+			allErrs = append(allErrs, fmt.Errorf("app type must be defined"))
 			continue
 		}
 
-		appName, err := ensureAppName(app, providerType)
+		appName, err := ensureAppName(app)
 		if err != nil {
 			allErrs = append(allErrs, err)
 			continue
@@ -921,79 +918,175 @@ func validateApplications(apps []ApplicationProviderSpec, fleetTemplate bool) []
 		}
 		seenAppNames[appName] = struct{}{}
 
-		if app.AppType == "" {
-			allErrs = append(allErrs, fmt.Errorf("app type must be defined for application: %s", appName))
-			continue
-		}
-
-		var volumes *[]ApplicationVolume
-		switch providerType {
-		case ImageApplicationProviderType:
-			provider, err := app.AsImageApplicationProviderSpec()
-			if err != nil {
-				allErrs = append(allErrs, fmt.Errorf("invalid image application provider: %w", err))
-				continue
-			}
-			if provider.Image == "" && app.Name == nil {
-				allErrs = append(allErrs, fmt.Errorf("image reference cannot be empty when application name is not provided"))
-			}
-			allErrs = append(allErrs, validateOciImageReference(&provider.Image, fmt.Sprintf("spec.applications[%s].image", appName), fleetTemplate)...)
-			if app.AppType != AppTypeContainer {
-				if provider.Ports != nil && len(*provider.Ports) > 0 {
-					allErrs = append(allErrs, fmt.Errorf("ports can only be defined for container applications, not %q", app.AppType))
-				}
-				if provider.Resources != nil {
-					allErrs = append(allErrs, fmt.Errorf("resources can only be defined for container applications, not %q", app.AppType))
-				}
-			} else {
-				allErrs = append(allErrs, ValidateContainerImageApplicationSpec(appName, &provider)...)
-			}
-
-			volumes = provider.Volumes
-
-		case InlineApplicationProviderType:
-			provider, err := app.AsInlineApplicationProviderSpec()
-			if err != nil {
-				allErrs = append(allErrs, fmt.Errorf("invalid inline application provider: %w", err))
-				continue
-			}
-			if app.AppType == AppTypeContainer {
-				allErrs = append(allErrs, fmt.Errorf("inline application type must not be %q", AppTypeContainer))
-			}
-			allErrs = append(allErrs, provider.Validate(app.AppType, fleetTemplate)...)
-			volumes = provider.Volumes
-		default:
-			allErrs = append(allErrs, fmt.Errorf("no validations implemented for application provider type: %s", providerType))
-			continue
-		}
-
 		allErrs = append(allErrs, app.Validate()...)
 
-		if volumes != nil {
-			for i, vol := range *volumes {
-				path := fmt.Sprintf("spec.applications[%s].volumes[%d]", appName, i)
-				if _, exists := seenVolumeNames[vol.Name]; exists {
-					allErrs = append(allErrs, fmt.Errorf("duplicate volume name for application: %s", vol.Name))
-					continue
-				}
-				seenVolumeNames[vol.Name] = struct{}{}
-
-				allErrs = append(allErrs, validation.ValidateString(&vol.Name, path+".name", 1, 253, validation.GenericNameRegexp, "")...)
-				allErrs = append(allErrs, validateVolume(vol, path, fleetTemplate, app.AppType)...)
-			}
+		switch AppType(appType) {
+		case AppTypeContainer:
+			allErrs = append(allErrs, validateContainerApplication(app, appName, fleetTemplate)...)
+		case AppTypeHelm:
+			allErrs = append(allErrs, validateHelmApplication(app, appName, fleetTemplate)...)
+		case AppTypeCompose:
+			allErrs = append(allErrs, validateComposeApplication(app, appName, fleetTemplate)...)
+		case AppTypeQuadlet:
+			allErrs = append(allErrs, validateQuadletApplication(app, appName, fleetTemplate)...)
+		default:
+			allErrs = append(allErrs, fmt.Errorf("unknown application type: %s", appType))
 		}
 	}
 
 	return allErrs
 }
 
-func ValidateContainerImageApplicationSpec(appName string, spec *ImageApplicationProviderSpec) []error {
-	errs := validateContainerPorts(spec.Ports, fmt.Sprintf("spec.applications[%s].ports", appName))
-	if spec.Resources != nil && spec.Resources.Limits != nil {
-		errs = append(errs, validatePodmanCPULimit(spec.Resources.Limits.Cpu, fmt.Sprintf("spec.applications[%s].resources.limits.cpu", appName))...)
-		errs = append(errs, validatePodmanMemoryLimit(spec.Resources.Limits.Memory, fmt.Sprintf("spec.applications[%s].resources.limits.memory", appName))...)
+func validateContainerApplication(app ApplicationProviderSpec, appName string, fleetTemplate bool) []error {
+	allErrs := []error{}
+	pathPrefix := fmt.Sprintf("spec.applications[%s]", appName)
+
+	container, err := app.AsContainerApplication()
+	if err != nil {
+		return []error{fmt.Errorf("invalid container application: %w", err)}
 	}
-	return errs
+
+	allErrs = append(allErrs, validateOciImageReference(&container.Image, pathPrefix+".image", fleetTemplate)...)
+	allErrs = append(allErrs, validateContainerPorts(container.Ports, pathPrefix+".ports")...)
+
+	if container.Resources != nil && container.Resources.Limits != nil {
+		allErrs = append(allErrs, validatePodmanCPULimit(container.Resources.Limits.Cpu, pathPrefix+".resources.limits.cpu")...)
+		allErrs = append(allErrs, validatePodmanMemoryLimit(container.Resources.Limits.Memory, pathPrefix+".resources.limits.memory")...)
+	}
+
+	allErrs = append(allErrs, validateEnvVars(container.EnvVars, pathPrefix)...)
+	allErrs = append(allErrs, validateApplicationVolumes(container.Volumes, appName, AppTypeContainer, fleetTemplate)...)
+
+	return allErrs
+}
+
+func validateHelmApplication(app ApplicationProviderSpec, appName string, fleetTemplate bool) []error {
+	allErrs := []error{}
+	pathPrefix := fmt.Sprintf("spec.applications[%s]", appName)
+
+	helm, err := app.AsHelmApplication()
+	if err != nil {
+		return []error{fmt.Errorf("invalid helm application: %w", err)}
+	}
+
+	allErrs = append(allErrs, validateOciImageReference(&helm.Image, pathPrefix+".image", fleetTemplate)...)
+
+	if helm.Namespace != nil && *helm.Namespace != "" {
+		allErrs = append(allErrs, validation.ValidateGenericName(helm.Namespace, pathPrefix+".namespace")...)
+	}
+
+	if helm.ValuesFiles != nil {
+		for i, vf := range *helm.ValuesFiles {
+			allErrs = append(allErrs, validation.ValidateHelmValuesFile(&vf, fmt.Sprintf("%s.valuesFiles[%d]", pathPrefix, i), validation.DNS1123MaxLength)...)
+		}
+	}
+
+	return allErrs
+}
+
+func validateComposeApplication(app ApplicationProviderSpec, appName string, fleetTemplate bool) []error {
+	allErrs := []error{}
+	pathPrefix := fmt.Sprintf("spec.applications[%s]", appName)
+
+	compose, err := app.AsComposeApplication()
+	if err != nil {
+		return []error{fmt.Errorf("invalid compose application: %w", err)}
+	}
+
+	providerType, err := compose.Type()
+	if err != nil {
+		return []error{fmt.Errorf("invalid compose application provider type: %w", err)}
+	}
+
+	switch providerType {
+	case ImageApplicationProviderType:
+		imageSpec, err := compose.AsImageApplicationProviderSpec()
+		if err != nil {
+			allErrs = append(allErrs, fmt.Errorf("invalid compose image provider: %w", err))
+		} else {
+			allErrs = append(allErrs, validateOciImageReference(&imageSpec.Image, pathPrefix+".image", fleetTemplate)...)
+		}
+	case InlineApplicationProviderType:
+		inlineSpec, err := compose.AsInlineApplicationProviderSpec()
+		if err != nil {
+			allErrs = append(allErrs, fmt.Errorf("invalid compose inline provider: %w", err))
+		} else {
+			allErrs = append(allErrs, inlineSpec.Validate(AppTypeCompose, fleetTemplate)...)
+		}
+	default:
+		allErrs = append(allErrs, fmt.Errorf("unknown compose provider type: %s", providerType))
+	}
+
+	allErrs = append(allErrs, validateEnvVars(compose.EnvVars, pathPrefix)...)
+	allErrs = append(allErrs, validateApplicationVolumes(compose.Volumes, appName, AppTypeCompose, fleetTemplate)...)
+
+	return allErrs
+}
+
+func validateQuadletApplication(app ApplicationProviderSpec, appName string, fleetTemplate bool) []error {
+	allErrs := []error{}
+	pathPrefix := fmt.Sprintf("spec.applications[%s]", appName)
+
+	quadlet, err := app.AsQuadletApplication()
+	if err != nil {
+		return []error{fmt.Errorf("invalid quadlet application: %w", err)}
+	}
+
+	providerType, err := quadlet.Type()
+	if err != nil {
+		return []error{fmt.Errorf("invalid quadlet application provider type: %w", err)}
+	}
+
+	switch providerType {
+	case ImageApplicationProviderType:
+		imageSpec, err := quadlet.AsImageApplicationProviderSpec()
+		if err != nil {
+			allErrs = append(allErrs, fmt.Errorf("invalid quadlet image provider: %w", err))
+		} else {
+			allErrs = append(allErrs, validateOciImageReference(&imageSpec.Image, pathPrefix+".image", fleetTemplate)...)
+		}
+	case InlineApplicationProviderType:
+		inlineSpec, err := quadlet.AsInlineApplicationProviderSpec()
+		if err != nil {
+			allErrs = append(allErrs, fmt.Errorf("invalid quadlet inline provider: %w", err))
+		} else {
+			allErrs = append(allErrs, inlineSpec.Validate(AppTypeQuadlet, fleetTemplate)...)
+		}
+	default:
+		allErrs = append(allErrs, fmt.Errorf("unknown quadlet provider type: %s", providerType))
+	}
+
+	allErrs = append(allErrs, validateEnvVars(quadlet.EnvVars, pathPrefix)...)
+	allErrs = append(allErrs, validateApplicationVolumes(quadlet.Volumes, appName, AppTypeQuadlet, fleetTemplate)...)
+
+	return allErrs
+}
+
+func validateEnvVars(envVars *map[string]string, pathPrefix string) []error {
+	return validation.ValidateStringMap(envVars, pathPrefix+".envVars", 1, validation.DNS1123MaxLength, validation.EnvVarNameRegexp, nil, "")
+}
+
+func validateApplicationVolumes(volumes *[]ApplicationVolume, appName string, appType AppType, fleetTemplate bool) []error {
+	if volumes == nil {
+		return nil
+	}
+
+	allErrs := []error{}
+	seenVolumeNames := make(map[string]struct{})
+
+	for i, vol := range *volumes {
+		path := fmt.Sprintf("spec.applications[%s].volumes[%d]", appName, i)
+		if _, exists := seenVolumeNames[vol.Name]; exists {
+			allErrs = append(allErrs, fmt.Errorf("duplicate volume name for application: %s", vol.Name))
+			continue
+		}
+		seenVolumeNames[vol.Name] = struct{}{}
+
+		allErrs = append(allErrs, validation.ValidateString(&vol.Name, path+".name", 1, 253, validation.GenericNameRegexp, "")...)
+		allErrs = append(allErrs, validateVolume(vol, path, fleetTemplate, appType)...)
+	}
+
+	return allErrs
 }
 
 func validateVolume(vol ApplicationVolume, path string, fleetTemplate bool, appType AppType) []error {
@@ -1113,46 +1206,81 @@ func validatePodmanMemoryLimit(memory *string, path string) []error {
 	return nil
 }
 
-func validateAppProviderType(app ApplicationProviderSpec) (ApplicationProviderType, error) {
-	providerType, err := app.Type()
+func ensureAppName(app ApplicationProviderSpec) (string, error) {
+	name, err := app.GetName()
 	if err != nil {
-		return "", fmt.Errorf("application type error: %w", err)
+		return "", err
+	}
+	if name != nil && *name != "" {
+		return *name, nil
 	}
 
-	switch providerType {
-	case ImageApplicationProviderType:
-		return providerType, nil
-	case InlineApplicationProviderType:
-		return providerType, nil
-	default:
-		return "", fmt.Errorf("unknown application provider type: %s", providerType)
+	appType, err := app.GetAppType()
+	if err != nil {
+		return "", fmt.Errorf("failed to get app type: %w", err)
 	}
-}
 
-func ensureAppName(app ApplicationProviderSpec, appType ApplicationProviderType) (string, error) {
 	switch appType {
-	case ImageApplicationProviderType:
-		provider, err := app.AsImageApplicationProviderSpec()
+	case AppTypeContainer:
+		container, err := app.AsContainerApplication()
 		if err != nil {
-			return "", fmt.Errorf("invalid image application provider: %w", err)
+			return "", fmt.Errorf("invalid container application: %w", err)
 		}
-
-		// default name to provider image if not provided
-		if app.Name == nil {
-			if provider.Image == "" {
-				return "", fmt.Errorf("provider image cannot be empty when application name is not provided")
+		if container.Image == "" {
+			return "", fmt.Errorf("container image cannot be empty when application name is not provided")
+		}
+		return container.Image, nil
+	case AppTypeHelm:
+		helm, err := app.AsHelmApplication()
+		if err != nil {
+			return "", fmt.Errorf("invalid helm application: %w", err)
+		}
+		if helm.Image == "" {
+			return "", fmt.Errorf("helm image cannot be empty when application name is not provided")
+		}
+		return helm.Image, nil
+	case AppTypeCompose:
+		compose, err := app.AsComposeApplication()
+		if err != nil {
+			return "", fmt.Errorf("invalid compose application: %w", err)
+		}
+		providerType, err := compose.Type()
+		if err != nil {
+			return "", fmt.Errorf("invalid compose application provider type: %w", err)
+		}
+		if providerType == ImageApplicationProviderType {
+			imageSpec, err := compose.AsImageApplicationProviderSpec()
+			if err != nil {
+				return "", fmt.Errorf("invalid compose image provider: %w", err)
 			}
-			return provider.Image, nil
+			if imageSpec.Image == "" {
+				return "", fmt.Errorf("compose image cannot be empty when application name is not provided")
+			}
+			return imageSpec.Image, nil
 		}
-
-		return *app.Name, nil
-	case InlineApplicationProviderType:
-		if app.Name == nil {
-			return "", fmt.Errorf("inline application name cannot be empty")
+		return "", fmt.Errorf("inline compose application name cannot be empty")
+	case AppTypeQuadlet:
+		quadlet, err := app.AsQuadletApplication()
+		if err != nil {
+			return "", fmt.Errorf("invalid quadlet application: %w", err)
 		}
-		return *app.Name, nil
+		providerType, err := quadlet.Type()
+		if err != nil {
+			return "", fmt.Errorf("invalid quadlet application provider type: %w", err)
+		}
+		if providerType == ImageApplicationProviderType {
+			imageSpec, err := quadlet.AsImageApplicationProviderSpec()
+			if err != nil {
+				return "", fmt.Errorf("invalid quadlet image provider: %w", err)
+			}
+			if imageSpec.Image == "" {
+				return "", fmt.Errorf("quadlet image cannot be empty when application name is not provided")
+			}
+			return imageSpec.Image, nil
+		}
+		return "", fmt.Errorf("inline quadlet application name cannot be empty")
 	default:
-		return "", fmt.Errorf("unsupported application provider type: %s", appType)
+		return "", fmt.Errorf("unsupported application type: %s", appType)
 	}
 }
 

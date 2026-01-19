@@ -64,16 +64,17 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			deviceName := "new-device-with-error-apps"
 
 			// Step 1: Create a new device (simulating enrollment)
-			app := api.ApplicationProviderSpec{
+			composeApp := api.ComposeApplication{
 				Name:    lo.ToPtr("test-app"),
 				AppType: api.AppTypeCompose,
 			}
-
-			// Create proper ImageApplicationProviderSpec
-			imageProvider := api.ImageApplicationProviderSpec{
+			err := composeApp.FromImageApplicationProviderSpec(api.ImageApplicationProviderSpec{
 				Image: "quay.io/test/app:v1",
-			}
-			err := app.FromImageApplicationProviderSpec(imageProvider)
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			var app api.ApplicationProviderSpec
+			err = app.FromComposeApplication(composeApp)
 			Expect(err).ToNot(HaveOccurred())
 
 			device := api.Device{
@@ -171,16 +172,17 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			deviceName := "new-device-with-healthy-apps"
 
 			// Step 1: Create a new device
-			app := api.ApplicationProviderSpec{
+			composeApp := api.ComposeApplication{
 				Name:    lo.ToPtr("test-app"),
 				AppType: api.AppTypeCompose,
 			}
-
-			// Create proper ImageApplicationProviderSpec
-			imageProvider := api.ImageApplicationProviderSpec{
+			err := composeApp.FromImageApplicationProviderSpec(api.ImageApplicationProviderSpec{
 				Image: "quay.io/test/app:v1",
-			}
-			err := app.FromImageApplicationProviderSpec(imageProvider)
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			var app api.ApplicationProviderSpec
+			err = app.FromComposeApplication(composeApp)
 			Expect(err).ToNot(HaveOccurred())
 
 			device := api.Device{
