@@ -12,7 +12,7 @@ import (
 )
 
 func TestExtractQuadletTargets(t *testing.T) {
-	testPullSecret := &client.PullSecret{
+	testPullSecret := &client.PullConfig{
 		Path:    "/tmp/test-pull-secret",
 		Cleanup: func() {},
 	}
@@ -20,7 +20,7 @@ func TestExtractQuadletTargets(t *testing.T) {
 	tests := []struct {
 		name           string
 		quad           *common.QuadletReferences
-		pullSecret     *client.PullSecret
+		pullSecret     *client.PullConfig
 		expectedCount  int
 		expectedRefs   []string
 		expectedType   dependency.OCIType

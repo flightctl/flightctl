@@ -112,7 +112,7 @@ func (m *manager) CollectOCITargets(ctx context.Context, current, desired *v1bet
 	}
 
 	// resolve pull secret for authentication
-	secret, found, err := client.ResolvePullSecret(m.log, m.readWriter, desired, authPath)
+	secret, found, err := client.ResolvePullConfig(m.log, m.readWriter, desired, authPath)
 	if err != nil {
 		return nil, fmt.Errorf("resolving pull secret: %w", err)
 	}
