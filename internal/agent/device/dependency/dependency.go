@@ -74,7 +74,7 @@ type OCIPullTarget struct {
 	Reference  string
 	Digest     string
 	PullPolicy v1beta1.ImagePullPolicy
-	PullSecret *client.PullSecret
+	PullSecret *client.PullConfig
 }
 
 // OCICollection represents the result of collecting OCI targets

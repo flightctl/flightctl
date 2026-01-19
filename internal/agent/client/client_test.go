@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestResolvePullSecret(t *testing.T) {
+func TestResolvePullConfig(t *testing.T) {
 	require := require.New(t)
 
 	tests := []struct {
@@ -178,7 +178,7 @@ func TestResolvePullSecret(t *testing.T) {
 			}
 			log := log.NewPrefixLogger("test")
 
-			result, found, err := ResolvePullSecret(log, rw, tt.deviceSpec, tt.authPath)
+			result, found, err := ResolvePullConfig(log, rw, tt.deviceSpec, tt.authPath)
 			if tt.expectedError {
 				require.Error(err)
 				require.Nil(result)

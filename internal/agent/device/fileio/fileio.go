@@ -33,6 +33,8 @@ type Writer interface {
 	RemoveFile(file string) error
 	// RemoveAll removes the file or directory at the given path
 	RemoveAll(path string) error
+	// Rename renames (moves) oldpath to newpath
+	Rename(oldpath, newpath string) error
 	// RemoveContents removes all files and subdirectories within the given path,
 	// but leaves the directory itself intact. It is a no-op if the path does not exist.
 	RemoveContents(path string) error

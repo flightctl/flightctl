@@ -857,7 +857,7 @@ func TestPullSecretCleanup(t *testing.T) {
 	var cleanupCalls []string
 
 	// create multiple pull secrets to test comprehensive cleanup
-	appPullSecret := &client.PullSecret{
+	appPullSecret := &client.PullConfig{
 		Path: "/tmp/app-auth.json",
 		Cleanup: func() {
 			cleanupCalls = append(cleanupCalls, "app-auth-cleanup")

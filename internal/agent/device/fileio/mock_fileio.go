@@ -284,6 +284,20 @@ func (mr *MockWriterMockRecorder) RemoveFile(file any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemoveFile", reflect.TypeOf((*MockWriter)(nil).RemoveFile), file)
 }
 
+// Rename mocks base method.
+func (m *MockWriter) Rename(oldpath, newpath string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Rename", oldpath, newpath)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Rename indicates an expected call of Rename.
+func (mr *MockWriterMockRecorder) Rename(oldpath, newpath any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Rename", reflect.TypeOf((*MockWriter)(nil).Rename), oldpath, newpath)
+}
+
 // WriteFile mocks base method.
 func (m *MockWriter) WriteFile(name string, data []byte, perm fs.FileMode, opts ...FileOption) error {
 	m.ctrl.T.Helper()
@@ -623,6 +637,20 @@ func (m *MockReadWriter) RemoveFile(file string) error {
 func (mr *MockReadWriterMockRecorder) RemoveFile(file any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemoveFile", reflect.TypeOf((*MockReadWriter)(nil).RemoveFile), file)
+}
+
+// Rename mocks base method.
+func (m *MockReadWriter) Rename(oldpath, newpath string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Rename", oldpath, newpath)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Rename indicates an expected call of Rename.
+func (mr *MockReadWriterMockRecorder) Rename(oldpath, newpath any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Rename", reflect.TypeOf((*MockReadWriter)(nil).Rename), oldpath, newpath)
 }
 
 // WriteFile mocks base method.
