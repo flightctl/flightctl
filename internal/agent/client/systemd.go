@@ -27,13 +27,32 @@ func NewSystemd(exec executer.Executer) *Systemd {
 	}
 }
 
+// NewUserSystemd creates an systemd client that will use the user instance of systemd instead of
+// the system-wide instance. The user is determined by the executer -- whichever user it executes
+// commands under by default.
+func NewUserSystemd(exec executer.Executer) *Systemd {
+	return &Systemd{
+		exec:           exec,
+		isUserInstance: true,
+	}
+}
+
 type Systemd struct {
 	exec executer.Executer
+	// If true, the `--user` flag will be included in all systemctl invocations.
+	isUserInstance bool
+}
+
+func (s *Systemd) createArgs(args ...string) (string, []string) {
+	if s.isUserInstance {
+		args = append([]string{"--user"}, args...)
+	}
+	return systemctlCommand, args
 }
 
 func (s *Systemd) Reload(ctx context.Context, name string) error {
-	args := []string{"reload", name}
-	_, stderr, exitCode := s.exec.ExecuteWithContext(ctx, systemctlCommand, args...)
+	command, args := s.createArgs("reload", name)
+	_, stderr, exitCode := s.exec.ExecuteWithContext(ctx, command, args...)
 	if exitCode != 0 {
 		return fmt.Errorf("reload systemd unit:%s :%w", name, errors.FromStderr(stderr, exitCode))
 	}
@@ -44,8 +63,8 @@ func (s *Systemd) Start(ctx context.Context, units ...string) error {
 	if len(units) == 0 {
 		return ErrNoSystemDUnits
 	}
-	args := append([]string{"start"}, units...)
-	_, stderr, exitCode := s.exec.ExecuteWithContext(ctx, systemctlCommand, args...)
+	command, args := s.createArgs(append([]string{"start"}, units...)...)
+	_, stderr, exitCode := s.exec.ExecuteWithContext(ctx, command, args...)
 	if exitCode != 0 {
 		return fmt.Errorf("start systemd unit(s): %q: %w", strings.Join(units, ","), errors.FromStderr(stderr, exitCode))
 	}
@@ -56,8 +75,8 @@ func (s *Systemd) Stop(ctx context.Context, units ...string) error {
 	if len(units) == 0 {
 		return ErrNoSystemDUnits
 	}
-	args := append([]string{"stop"}, units...)
-	_, stderr, exitCode := s.exec.ExecuteWithContext(ctx, systemctlCommand, args...)
+	command, args := s.createArgs(append([]string{"stop"}, units...)...)
+	_, stderr, exitCode := s.exec.ExecuteWithContext(ctx, command, args...)
 	if exitCode != 0 {
 		return fmt.Errorf("stop systemd unit(s): %q: %w", strings.Join(units, ","), errors.FromStderr(stderr, exitCode))
 	}
@@ -65,8 +84,11 @@ func (s *Systemd) Stop(ctx context.Context, units ...string) error {
 }
 
 func (s *Systemd) Reboot(ctx context.Context) error {
-	args := []string{"reboot"}
-	_, stderr, exitCode := s.exec.ExecuteWithContext(ctx, systemctlCommand, args...)
+	if s.isUserInstance {
+		return fmt.Errorf("cannot reboot from user instance of systemd")
+	}
+	command, args := s.createArgs("reboot")
+	_, stderr, exitCode := s.exec.ExecuteWithContext(ctx, command, args...)
 	if exitCode != 0 {
 		return fmt.Errorf("reboot systemd: %w", errors.FromStderr(stderr, exitCode))
 	}
@@ -74,8 +96,8 @@ func (s *Systemd) Reboot(ctx context.Context) error {
 }
 
 func (s *Systemd) Restart(ctx context.Context, name string) error {
-	args := []string{"restart", name}
-	_, stderr, exitCode := s.exec.ExecuteWithContext(ctx, systemctlCommand, args...)
+	command, args := s.createArgs("restart", name)
+	_, stderr, exitCode := s.exec.ExecuteWithContext(ctx, command, args...)
 	if exitCode != 0 {
 		return fmt.Errorf("restart systemd unit: %s: %w", name, errors.FromStderr(stderr, exitCode))
 	}
@@ -83,8 +105,8 @@ func (s *Systemd) Restart(ctx context.Context, name string) error {
 }
 
 func (s *Systemd) Disable(ctx context.Context, name string) error {
-	args := []string{"disable", name}
-	_, stderr, exitCode := s.exec.ExecuteWithContext(ctx, systemctlCommand, args...)
+	command, args := s.createArgs("disable", name)
+	_, stderr, exitCode := s.exec.ExecuteWithContext(ctx, command, args...)
 	if exitCode != 0 {
 		return fmt.Errorf("disable systemd unit: %s: %w", name, errors.FromStderr(stderr, exitCode))
 	}
@@ -92,8 +114,8 @@ func (s *Systemd) Disable(ctx context.Context, name string) error {
 }
 
 func (s *Systemd) Enable(ctx context.Context, name string) error {
-	args := []string{"enable", name}
-	_, stderr, exitCode := s.exec.ExecuteWithContext(ctx, systemctlCommand, args...)
+	command, args := s.createArgs("enable", name)
+	_, stderr, exitCode := s.exec.ExecuteWithContext(ctx, command, args...)
 	if exitCode != 0 {
 		return fmt.Errorf("enable systemd unit: %s: %w", name, errors.FromStderr(stderr, exitCode))
 	}
@@ -101,8 +123,8 @@ func (s *Systemd) Enable(ctx context.Context, name string) error {
 }
 
 func (s *Systemd) DaemonReload(ctx context.Context) error {
-	args := []string{"daemon-reload"}
-	_, stderr, exitCode := s.exec.ExecuteWithContext(ctx, systemctlCommand, args...)
+	command, args := s.createArgs("daemon-reload")
+	_, stderr, exitCode := s.exec.ExecuteWithContext(ctx, command, args...)
 	if exitCode != 0 {
 		return fmt.Errorf("daemon-reload systemd: %w", errors.FromStderr(stderr, exitCode))
 	}
@@ -113,8 +135,8 @@ func (s *Systemd) ResetFailed(ctx context.Context, units ...string) error {
 	if len(units) == 0 {
 		return ErrNoSystemDUnits
 	}
-	args := append([]string{"reset-failed"}, units...)
-	_, stderr, exitCode := s.exec.ExecuteWithContext(ctx, systemctlCommand, args...)
+	command, args := s.createArgs(append([]string{"reset-failed"}, units...)...)
+	_, stderr, exitCode := s.exec.ExecuteWithContext(ctx, command, args...)
 	if exitCode != 0 {
 		return fmt.Errorf("reset-failed systemd unit(s): %q: %w", strings.Join(units, ","), errors.FromStderr(stderr, exitCode))
 	}
@@ -133,8 +155,8 @@ func (s *Systemd) ListUnitsByMatchPattern(ctx context.Context, matchPatterns []s
 	execCtx, cancel := context.WithTimeout(ctx, defaultSystemctlTimeout)
 	defer cancel()
 
-	args := append([]string{"list-units", "--all", "--output", "json", "--"}, matchPatterns...)
-	stdout, stderr, exitCode := s.exec.ExecuteWithContext(execCtx, systemctlCommand, args...)
+	command, args := s.createArgs(append([]string{"list-units", "--all", "--output", "json", "--"}, matchPatterns...)...)
+	stdout, stderr, exitCode := s.exec.ExecuteWithContext(execCtx, command, args...)
 	if exitCode != 0 {
 		return nil, fmt.Errorf("list systemd units: %w", errors.FromStderr(stderr, exitCode))
 	}
@@ -150,8 +172,8 @@ func (s *Systemd) ShowByMatchPattern(ctx context.Context, matchPatterns []string
 	execCtx, cancel := context.WithTimeout(ctx, defaultSystemctlTimeout)
 	defer cancel()
 
-	args := append([]string{"show", "--all", "--"}, matchPatterns...)
-	stdout, stderr, exitCode := s.exec.ExecuteWithContext(execCtx, systemctlCommand, args...)
+	command, args := s.createArgs(append([]string{"show", "--all", "--"}, matchPatterns...)...)
+	stdout, stderr, exitCode := s.exec.ExecuteWithContext(execCtx, command, args...)
 	if exitCode != 0 {
 		return nil, fmt.Errorf("show systemd units: %w", errors.FromStderr(stderr, exitCode))
 	}
@@ -196,8 +218,8 @@ func (s *Systemd) ListDependencies(ctx context.Context, unit string) ([]string, 
 	ctx, cancel := context.WithTimeout(ctx, defaultSystemctlTimeout)
 	defer cancel()
 
-	args := []string{"list-dependencies", "--plain", "--no-pager", unit}
-	stdout, stderr, exitCode := s.exec.ExecuteWithContext(ctx, systemctlCommand, args...)
+	command, args := s.createArgs("list-dependencies", "--plain", "--no-pager", unit)
+	stdout, stderr, exitCode := s.exec.ExecuteWithContext(ctx, command, args...)
 	if exitCode != 0 {
 		return nil, fmt.Errorf("list-dependencies for %s: %w", unit, errors.FromStderr(stderr, exitCode))
 	}
@@ -228,8 +250,8 @@ func (s *Systemd) ListJobs(ctx context.Context) ([]SystemdJob, error) {
 	ctx, cancel := context.WithTimeout(ctx, defaultSystemctlTimeout)
 	defer cancel()
 
-	args := []string{"list-jobs", "--no-pager", "--no-legend"}
-	stdout, stderr, exitCode := s.exec.ExecuteWithContext(ctx, systemctlCommand, args...)
+	command, args := s.createArgs("list-jobs", "--no-pager", "--no-legend")
+	stdout, stderr, exitCode := s.exec.ExecuteWithContext(ctx, command, args...)
 	if exitCode != 0 {
 		return nil, fmt.Errorf("systemctl list-jobs: %w", errors.FromStderr(stderr, exitCode))
 	}
@@ -282,8 +304,8 @@ func (s *Systemd) Show(ctx context.Context, unit string, opts ...SystemdShowOpti
 		opt(showOpts)
 	}
 
-	args := append([]string{"show", "--no-pager", unit}, showOpts.args...)
-	stdout, stderr, exitCode := s.exec.ExecuteWithContext(ctx, systemctlCommand, args...)
+	command, args := s.createArgs(append([]string{"show", "--no-pager", unit}, showOpts.args...)...)
+	stdout, stderr, exitCode := s.exec.ExecuteWithContext(ctx, command, args...)
 	if exitCode != 0 {
 		return nil, fmt.Errorf("systemctl show: %w", errors.FromStderr(stderr, exitCode))
 	}
