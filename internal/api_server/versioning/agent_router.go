@@ -9,8 +9,10 @@ import (
 
 // CreateAgentV1Beta1Router creates a chi.Router for agent v1beta1 API with OpenAPI validation.
 // Routes are auto-registered via the generated agentserver.HandlerFromMux.
+// Chi's Mount strips the /api/v1 prefix before passing to this router, so routes
+// are registered without the prefix (e.g., /enrollmentrequests not /api/v1/enrollmentrequests).
 // Each version has its own swagger spec for independent schema validation.
-func CreateAgentV1Beta1Router(handler agentserver.ServerInterface, opts *OapiOptions) (chi.Router, error) {
+func CreateAgentV1Beta1Router(handler agentserver.ServerInterface, opts *oapimiddleware.Options) (chi.Router, error) {
 	swagger, err := agent.GetSwagger()
 	if err != nil {
 		return nil, err
@@ -21,16 +23,11 @@ func CreateAgentV1Beta1Router(handler agentserver.ServerInterface, opts *OapiOpt
 
 	router := chi.NewRouter()
 
-	oapiOpts := oapimiddleware.Options{}
 	if opts != nil {
-		if opts.ErrorHandler != nil {
-			oapiOpts.ErrorHandler = opts.ErrorHandler
-		}
-		if opts.MultiErrorHandler != nil {
-			oapiOpts.MultiErrorHandler = opts.MultiErrorHandler
-		}
+		router.Use(oapimiddleware.OapiRequestValidatorWithOptions(swagger, opts))
+	} else {
+		router.Use(oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapimiddleware.Options{}))
 	}
-	router.Use(oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapiOpts))
 
 	agentserver.HandlerFromMux(handler, router)
 

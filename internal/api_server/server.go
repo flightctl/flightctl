@@ -46,10 +46,6 @@ func (c *customTransportHandler) AuthValidate(w http.ResponseWriter, r *http.Req
 	http.NotFound(w, r)
 }
 
-const (
-	gracefulShutdownTimeout = 5 * time.Second
-)
-
 type Server struct {
 	log                logrus.FieldLogger
 	cfg                *config.Config
@@ -81,10 +77,6 @@ func New(
 		queuesProvider:     queuesProvider,
 		consoleEndpointReg: consoleEndpointReg,
 	}
-}
-
-func oapiErrorHandler(w http.ResponseWriter, message string, statusCode int) {
-	http.Error(w, fmt.Sprintf("API Error: %s", message), statusCode)
 }
 
 // If we got back multiple errors of the format:
@@ -162,7 +154,7 @@ func (s *Server) Run(ctx context.Context) error {
 	swagger.Servers = nil
 
 	oapiOpts := oapimiddleware.Options{
-		ErrorHandler:      oapiErrorHandler,
+		ErrorHandler:      OapiErrorHandler,
 		MultiErrorHandler: oapiMultiErrorHandler,
 	}
 
@@ -313,7 +305,7 @@ func (s *Server) Run(ctx context.Context) error {
 				Handler:            handlerV1Beta1,
 				HandlerMiddlewares: nil,
 				ErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
-					oapiErrorHandler(w, err.Error(), http.StatusBadRequest)
+					OapiErrorHandler(w, err.Error(), http.StatusBadRequest)
 				},
 			}
 			r.Get("/auth/validate", wrapper.AuthValidate)
@@ -371,7 +363,7 @@ func (s *Server) Run(ctx context.Context) error {
 	go func() {
 		<-ctx.Done()
 		s.log.Println("Shutdown signal received:", ctx.Err())
-		ctxTimeout, cancel := context.WithTimeout(context.Background(), gracefulShutdownTimeout)
+		ctxTimeout, cancel := context.WithTimeout(context.Background(), GracefulShutdownTimeout)
 		defer cancel()
 
 		srv.SetKeepAlivesEnabled(false)
