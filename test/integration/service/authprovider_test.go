@@ -1090,12 +1090,12 @@ var _ = Describe("AuthProvider Service Integration Tests", func() {
 				{
 					Op:    "replace",
 					Path:  "/spec/userinfoUrl",
-					Value: AnyPtr("https://oauth2-1.example.com/userinfo"),
+					Value: "https://oauth2-1.example.com/userinfo",
 				},
 				{
 					Op:    "replace",
 					Path:  "/spec/clientId",
-					Value: AnyPtr("oauth2-patch-client-1"),
+					Value: "oauth2-patch-client-1",
 				},
 			}
 

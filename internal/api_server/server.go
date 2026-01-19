@@ -256,6 +256,7 @@ func (s *Server) Run(ctx context.Context) error {
 	// Create dispatcher with version routers
 	dispatcher := versioning.NewDispatcher(registry, map[versioning.Version]chi.Router{
 		versioning.V1Beta1: routerV1Beta1,
+		// V1Beta2, V1, etc..
 	})
 
 	// Versioned API endpoints at /api/v1
@@ -287,8 +288,9 @@ func (s *Server) Run(ctx context.Context) error {
 
 		// Auth validate with stricter rate limiting (separate group)
 		r.Group(func(r chi.Router) {
+			// Add conditional middleware
 			r.Use(oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapiOpts))
-			r.Use(identityMappingMiddleware.MapIdentityToDB)
+			r.Use(identityMappingMiddleware.MapIdentityToDB) // Map identity to DB objects AFTER authentication
 			if s.cfg.Service.RateLimit != nil && s.cfg.Service.RateLimit.Enabled {
 				trustedProxies := s.cfg.Service.RateLimit.TrustedProxies
 				authRequests := 20      // Default auth requests limit
@@ -306,6 +308,7 @@ func (s *Server) Run(ctx context.Context) error {
 					TrustedProxies: trustedProxies,
 				})
 			}
+
 			wrapper := &server.ServerInterfaceWrapper{
 				Handler:            handlerV1Beta1,
 				HandlerMiddlewares: nil,
