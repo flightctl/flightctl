@@ -9,25 +9,31 @@ import (
 
 // CreateAgentV1Beta1Router creates a chi.Router for agent v1beta1 API with OpenAPI validation.
 // Routes are auto-registered via the generated agentserver.HandlerFromMux.
-// Chi's Mount strips the /api/v1 prefix before passing to this router, so routes
-// are registered without the prefix (e.g., /enrollmentrequests not /api/v1/enrollmentrequests).
+// Routes are registered without a prefix; chi mount and swagger Servers handle /api/v1.
 // Each version has its own swagger spec for independent schema validation.
 func CreateAgentV1Beta1Router(handler agentserver.ServerInterface, opts *oapimiddleware.Options) (chi.Router, error) {
 	swagger, err := agent.GetSwagger()
 	if err != nil {
 		return nil, err
 	}
-	// Skip server name validation - Chi strips the /api/v1 prefix before
-	// this router sees the request, so server URL matching would fail
-	swagger.Servers = nil
+	// Keep swagger.Servers intact with /api/v1 base path. OpenAPI validator uses this to:
+	// - Match full paths (strips base, matches path)
+	// - Fall back to direct matching for stripped paths
 
 	router := chi.NewRouter()
 
-	if opts != nil {
-		router.Use(oapimiddleware.OapiRequestValidatorWithOptions(swagger, opts))
-	} else {
-		router.Use(oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapimiddleware.Options{}))
+	oapiOpts := oapimiddleware.Options{
+		SilenceServersWarning: true, // Suppress Host header mismatch warnings
 	}
+	if opts != nil {
+		if opts.ErrorHandler != nil {
+			oapiOpts.ErrorHandler = opts.ErrorHandler
+		}
+		if opts.MultiErrorHandler != nil {
+			oapiOpts.MultiErrorHandler = opts.MultiErrorHandler
+		}
+	}
+	router.Use(oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapiOpts))
 
 	agentserver.HandlerFromMux(handler, router)
 

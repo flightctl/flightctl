@@ -26,3 +26,12 @@ func NewRouter(cfg RouterConfig) chi.Router {
 	server.HandlerFromMux(cfg.Handler, r)
 	return r
 }
+
+// NewNegotiatedRouter creates a router that negotiates the API version
+// and dispatches to the appropriate version-specific router.
+func NewNegotiatedRouter(registry *Registry, routers map[Version]chi.Router) chi.Router {
+	r := chi.NewRouter()
+	r.Use(Middleware(registry))
+	r.Mount("/", NewDispatcher(registry, routers))
+	return r
+}
