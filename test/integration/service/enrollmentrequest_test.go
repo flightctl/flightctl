@@ -97,16 +97,16 @@ var _ = Describe("EnrollmentRequest Integration Tests", func() {
 				api.PatchRequest{{
 					Op:    "add",
 					Path:  "/metadata/labels/foo",
-					Value: AnyPtr("bar"),
+					Value: "bar",
 				}, {
 					Op:   "add",
 					Path: "/status/conditions",
-					Value: AnyPtr([]api.Condition{{
+					Value: []api.Condition{{
 						Type:    api.ConditionTypeEnrollmentRequestApproved,
 						Status:  api.ConditionStatusTrue,
 						Reason:  "FakeApproval",
 						Message: "This should be ignored",
-					}}),
+					}},
 				}},
 				nil, // Don't care about result on failure
 				BeEquivalentTo(http.StatusBadRequest),
@@ -116,7 +116,7 @@ var _ = Describe("EnrollmentRequest Integration Tests", func() {
 				api.PatchRequest{{
 					Op:    "replace",
 					Path:  "/spec/csr",
-					Value: AnyPtr("fake-csr-data"),
+					Value: "fake-csr-data",
 				}},
 				HaveField("Spec.Csr", Not(Equal("fake-csr-data"))),
 				BeEquivalentTo(http.StatusBadRequest),

@@ -12,18 +12,12 @@ import (
 	"github.com/samber/lo"
 )
 
-// AnyPtr is a helper function to create *interface{} from any value, reducing verbosity
-// in patch operations and other places where Go requires *interface{}
-func AnyPtr(v interface{}) *interface{} {
-	return &v
-}
-
 // NewLabelPatch creates a patch request to add a single label
 func NewLabelPatch(key, value string) api.PatchRequest {
 	return api.PatchRequest{{
 		Op:    "add",
 		Path:  fmt.Sprintf("/metadata/labels/%s", key),
-		Value: AnyPtr(value),
+		Value: value,
 	}}
 }
 
@@ -32,7 +26,7 @@ func NewReplaceLabelPatch(key, value string) api.PatchRequest {
 	return api.PatchRequest{{
 		Op:    "replace",
 		Path:  fmt.Sprintf("/metadata/labels/%s", key),
-		Value: AnyPtr(value),
+		Value: value,
 	}}
 }
 
@@ -44,11 +38,11 @@ func NewMultiLabelPatch(addLabels map[string]string, replaceLabels map[string]st
 		patch = append(patch, struct {
 			Op    api.PatchRequestOp `json:"op"`
 			Path  string             `json:"path"`
-			Value *interface{}       `json:"value,omitempty"`
+			Value interface{}        `json:"value,omitempty"`
 		}{
 			Op:    "add",
 			Path:  fmt.Sprintf("/metadata/labels/%s", key),
-			Value: AnyPtr(value),
+			Value: value,
 		})
 	}
 
@@ -56,11 +50,11 @@ func NewMultiLabelPatch(addLabels map[string]string, replaceLabels map[string]st
 		patch = append(patch, struct {
 			Op    api.PatchRequestOp `json:"op"`
 			Path  string             `json:"path"`
-			Value *interface{}       `json:"value,omitempty"`
+			Value interface{}        `json:"value,omitempty"`
 		}{
 			Op:    "replace",
 			Path:  fmt.Sprintf("/metadata/labels/%s", key),
-			Value: AnyPtr(value),
+			Value: value,
 		})
 	}
 
