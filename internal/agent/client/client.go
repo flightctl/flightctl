@@ -51,7 +51,9 @@ func NewFromConfig(config *baseclient.Config, log *log.PrefixLogger, opts ...HTT
 		}
 		return nil
 	})
-	return client.NewClientWithResponses(config.Service.Server+client.ServerUrlApiv1, client.WithHTTPClient(httpClient), ref)
+	// Trim trailing slash to avoid double slash when appending /api/v1
+	serverURL := strings.TrimSuffix(config.Service.Server, "/") + client.ServerUrlApiv1
+	return client.NewClientWithResponses(serverURL, client.WithHTTPClient(httpClient), ref)
 }
 
 // Management is the client interface for managing devices.

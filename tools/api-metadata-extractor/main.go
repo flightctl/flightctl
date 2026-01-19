@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -15,11 +16,16 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
+type OpenAPIServer struct {
+	URL string `yaml:"url"`
+}
+
 type OpenAPISpec struct {
 	Info struct {
 		Version string `yaml:"version"`
 	} `yaml:"info"`
-	Paths map[string]map[string]any `yaml:"paths"`
+	Servers []OpenAPIServer           `yaml:"servers"`
+	Paths   map[string]map[string]any `yaml:"paths"`
 }
 
 type endpointKey struct {
@@ -48,9 +54,17 @@ type EndpointOutput struct {
 	Versions    []EndpointMetadataVersion
 }
 
+type ConstEntry struct {
+	Name  string
+	Value string
+}
+
 type TemplateData struct {
-	Package   string
-	Endpoints []EndpointOutput
+	Package        string
+	Endpoints      []EndpointOutput
+	ServerPrefixes []string
+	ResourceConsts []ConstEntry
+	ActionConsts   []ConstEntry
 }
 
 const (
@@ -156,23 +170,135 @@ func versionKey(v string) (int, int, int) {
 	return major, stability, num
 }
 
-func parseOpenAPISpecFile(filePath string) (string, map[endpointKey]parsedEndpoint, error) {
+func extractServerPrefixes(servers []OpenAPIServer) []string {
+	if len(servers) == 0 {
+		return nil
+	}
+	prefixes := make([]string, 0, len(servers))
+	for _, server := range servers {
+		if prefix, ok := normalizeServerPrefix(server.URL); ok {
+			prefixes = append(prefixes, prefix)
+		}
+	}
+	return prefixes
+}
+
+func normalizeServerPrefix(raw string) (string, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", false
+	}
+	if parsed, err := url.Parse(raw); err == nil && (parsed.Scheme != "" || parsed.Host != "") {
+		raw = parsed.Path
+	}
+	if raw == "" {
+		raw = "/"
+	}
+	return normalizePath(raw), true
+}
+
+func normalizePath(p string) string {
+	if p == "" {
+		return "/"
+	}
+	if len(p) > 1 && strings.HasSuffix(p, "/") {
+		p = strings.TrimSuffix(p, "/")
+	}
+	if !strings.HasPrefix(p, "/") {
+		p = "/" + p
+	}
+	return p
+}
+
+func dedupeAndSortPrefixes(prefixSet map[string]struct{}) []string {
+	if len(prefixSet) == 0 {
+		return nil
+	}
+	prefixes := make([]string, 0, len(prefixSet))
+	for prefix := range prefixSet {
+		prefixes = append(prefixes, normalizePath(prefix))
+	}
+	sort.Slice(prefixes, func(i, j int) bool {
+		if len(prefixes[i]) != len(prefixes[j]) {
+			return len(prefixes[i]) > len(prefixes[j])
+		}
+		return prefixes[i] < prefixes[j]
+	})
+	return prefixes
+}
+
+func buildConstEntries(prefix string, values map[string]struct{}) []ConstEntry {
+	if len(values) == 0 {
+		return nil
+	}
+	sorted := make([]string, 0, len(values))
+	for value := range values {
+		sorted = append(sorted, value)
+	}
+	sort.Strings(sorted)
+
+	out := make([]ConstEntry, 0, len(sorted))
+	usedNames := map[string]int{}
+	for _, value := range sorted {
+		name := prefix + toConstToken(value)
+		if count, exists := usedNames[name]; exists {
+			count++
+			usedNames[name] = count
+			name = fmt.Sprintf("%s_%d", name, count)
+		} else {
+			usedNames[name] = 0
+		}
+		out = append(out, ConstEntry{Name: name, Value: value})
+	}
+	return out
+}
+
+func toConstToken(value string) string {
+	var b strings.Builder
+	b.Grow(len(value))
+	prevUnderscore := false
+	for _, r := range value {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+			if r >= 'a' && r <= 'z' {
+				r = r - 'a' + 'A'
+			}
+			b.WriteRune(r)
+			prevUnderscore = false
+			continue
+		}
+		if !prevUnderscore {
+			b.WriteByte('_')
+			prevUnderscore = true
+		}
+	}
+	token := strings.Trim(b.String(), "_")
+	if token == "" {
+		return "UNSPECIFIED"
+	}
+	if token[0] >= '0' && token[0] <= '9' {
+		return "N_" + token
+	}
+	return token
+}
+
+func parseOpenAPISpecFile(filePath string) (string, []string, map[endpointKey]parsedEndpoint, error) {
 	data, err := os.ReadFile(filePath)
 	if err != nil {
-		return "", nil, fmt.Errorf("read file: %w", err)
+		return "", nil, nil, fmt.Errorf("read file: %w", err)
 	}
 
 	var spec OpenAPISpec
 	if err := yaml.Unmarshal(data, &spec); err != nil {
-		return "", nil, fmt.Errorf("parse YAML: %w", err)
+		return "", nil, nil, fmt.Errorf("parse YAML: %w", err)
 	}
 
 	version := strings.TrimSpace(spec.Info.Version)
 	if version == "" {
-		return "", nil, fmt.Errorf("info.version is missing")
+		return "", nil, nil, fmt.Errorf("info.version is missing")
 	}
 
 	out := make(map[endpointKey]parsedEndpoint)
+	serverPrefixes := extractServerPrefixes(spec.Servers)
 
 	// Deterministic iteration
 	paths := make([]string, 0, len(spec.Paths))
@@ -238,7 +364,7 @@ func parseOpenAPISpecFile(filePath string) (string, map[endpointKey]parsedEndpoi
 		}
 	}
 
-	return version, out, nil
+	return version, serverPrefixes, out, nil
 }
 
 func isHigherPriorityVersion(version1, version2 string) bool {
@@ -253,13 +379,19 @@ func isHigherPriorityVersion(version1, version2 string) bool {
 	return an > bn
 }
 
-func processAllSpecs(files []string) ([]EndpointOutput, error) {
+func processAllSpecs(files []string) ([]EndpointOutput, []string, []ConstEntry, []ConstEntry, error) {
 	byKey := map[endpointKey][]parsedEndpoint{}
+	serverPrefixSet := map[string]struct{}{}
+	resourceSet := map[string]struct{}{}
+	actionSet := map[string]struct{}{}
 
 	for _, f := range files {
-		_, eps, err := parseOpenAPISpecFile(f)
+		_, serverPrefixes, eps, err := parseOpenAPISpecFile(f)
 		if err != nil {
-			return nil, fmt.Errorf("processing %s: %w", f, err)
+			return nil, nil, nil, nil, fmt.Errorf("processing %s: %w", f, err)
+		}
+		for _, prefix := range serverPrefixes {
+			serverPrefixSet[prefix] = struct{}{}
 		}
 		for k, ep := range eps {
 			byKey[k] = append(byKey[k], ep)
@@ -318,9 +450,21 @@ func processAllSpecs(files []string) ([]EndpointOutput, error) {
 			Action:      first.Action,
 			Versions:    vout,
 		})
+
+		if first.Resource != "" {
+			resourceSet[first.Resource] = struct{}{}
+		}
+		if first.Action != "" {
+			actionSet[first.Action] = struct{}{}
+		}
 	}
 
-	return out, nil
+	serverPrefixes := dedupeAndSortPrefixes(serverPrefixSet)
+	if len(serverPrefixes) == 0 {
+		serverPrefixes = []string{"/"}
+	}
+
+	return out, serverPrefixes, buildConstEntries("API_RESOURCE_", resourceSet), buildConstEntries("API_ACTION_", actionSet), nil
 }
 
 const registryTemplate = `// Code generated by api-metadata-extractor. DO NOT EDIT.
@@ -329,6 +473,7 @@ package {{.Package}}
 
 import (
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -348,10 +493,33 @@ type EndpointMetadata struct {
 	Versions    []EndpointMetadataVersion // Ordered by preference (stable > beta > alpha)
 }
 
+{{- if .ResourceConsts}}
+const (
+{{- range .ResourceConsts}}
+	{{.Name}} = {{printf "%q" .Value}}
+{{- end}}
+)
+
+{{- end}}
+{{- if .ActionConsts}}
+const (
+{{- range .ActionConsts}}
+	{{.Name}} = {{printf "%q" .Value}}
+{{- end}}
+)
+
+{{- end}}
 // timePtr is a helper to create time.Time pointers
 func timePtr(year, month, day int) *time.Time {
 	t := time.Date(year, time.Month(month), day, 0, 0, 0, 0, time.UTC)
 	return &t
+}
+
+// ServerURLPrefixes lists normalized OpenAPI server URL path prefixes.
+var ServerURLPrefixes = []string{
+{{- range .ServerPrefixes}}
+	{{printf "%q" .}},
+{{- end}}
 }
 
 // APIMetadataMap provides O(1) lookup for endpoint metadata using pattern+method as key
@@ -370,27 +538,126 @@ var APIMetadataMap = map[string]EndpointMetadata{
 {{- end}}
 }
 
-// GetEndpointMetadata returns metadata for a given request using the existing Chi router context
+// GetEndpointMetadata returns endpoint metadata even when routes are mounted under
+// a base prefix like /api/v1 by normalizing and matching request paths.
 func GetEndpointMetadata(r *http.Request) (*EndpointMetadata, bool) {
-	// Get the route context from the existing Chi router that already processed this request
 	rctx := chi.RouteContext(r.Context())
-	if rctx == nil {
+	if rctx != nil {
+		if metadata, ok := lookupMetadata(r.Method, rctx.RoutePath); ok {
+			return metadata, true
+		}
+	}
+
+	return lookupMetadata(r.Method, r.URL.Path)
+}
+
+func normalizePath(p string) string {
+	if p == "" {
+		return "/"
+	}
+	if len(p) > 1 && strings.HasSuffix(p, "/") {
+		p = strings.TrimSuffix(p, "/")
+	}
+	if !strings.HasPrefix(p, "/") {
+		p = "/" + p
+	}
+	return p
+}
+
+func lookupMetadata(method, path string) (*EndpointMetadata, bool) {
+	candidates := normalizeCandidates(path)
+	if len(candidates) == 0 {
 		return nil, false
 	}
-
-	// Get the route pattern that matched in the main Chi router
-	routePattern := rctx.RoutePattern()
-	if routePattern == "" {
-		return nil, false
+	for _, candidate := range candidates {
+		key := method + ":" + candidate
+		if metadata, exists := APIMetadataMap[key]; exists {
+			return &metadata, true
+		}
 	}
 
-	// O(1) lookup using method:pattern as key
-	key := r.Method + ":" + routePattern
-	if metadata, exists := APIMetadataMap[key]; exists {
-		return &metadata, true
+	methodPrefix := method + ":"
+	for key, metadata := range APIMetadataMap {
+		if !strings.HasPrefix(key, methodPrefix) {
+			continue
+		}
+		pattern := strings.TrimPrefix(key, methodPrefix)
+		for _, candidate := range candidates {
+			if matchTemplatePath(pattern, candidate) {
+				return &metadata, true
+			}
+		}
 	}
-
 	return nil, false
+}
+
+func normalizeCandidates(path string) []string {
+	base := normalizePath(path)
+	candidates := make([]string, 0, 1+len(ServerURLPrefixes))
+	seen := map[string]struct{}{}
+	addCandidate := func(p string) {
+		if p == "" {
+			return
+		}
+		if _, exists := seen[p]; exists {
+			return
+		}
+		seen[p] = struct{}{}
+		candidates = append(candidates, p)
+	}
+
+	addCandidate(base)
+	for _, prefix := range ServerURLPrefixes {
+		if prefix == "/" {
+			continue
+		}
+		if base == prefix {
+			addCandidate("/")
+			continue
+		}
+		if strings.HasPrefix(base, prefix+"/") {
+			stripped := strings.TrimPrefix(base, prefix)
+			addCandidate(normalizePath(stripped))
+		}
+	}
+	return candidates
+}
+
+func matchTemplatePath(pattern, path string) bool {
+	pattern = normalizePath(pattern)
+	path = normalizePath(path)
+
+	pSegs := splitPath(pattern)
+	pathSegs := splitPath(path)
+	if len(pSegs) != len(pathSegs) {
+		return false
+	}
+	for i := range pSegs {
+		ps := pSegs[i]
+		if len(ps) >= 2 && ps[0] == '{' && ps[len(ps)-1] == '}' {
+			continue
+		}
+		if ps != pathSegs[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func splitPath(p string) []string {
+	p = strings.Trim(p, "/")
+	if p == "" {
+		return nil
+	}
+	parts := strings.Split(p, "/")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if part == "" {
+			continue
+		}
+		out = append(out, part)
+	}
+	return out
 }
 
 `
@@ -418,7 +685,7 @@ func main() {
 	}
 
 	// Process all specs and merge endpoints
-	endpoints, err := processAllSpecs(files)
+	endpoints, serverPrefixes, resourceConsts, actionConsts, err := processAllSpecs(files)
 	if err != nil {
 		log.Fatalf("Failed to process specs: %v", err)
 	}
@@ -443,8 +710,11 @@ func main() {
 	defer file.Close()
 
 	templateData := TemplateData{
-		Package:   packageName,
-		Endpoints: endpoints,
+		Package:        packageName,
+		Endpoints:      endpoints,
+		ServerPrefixes: serverPrefixes,
+		ResourceConsts: resourceConsts,
+		ActionConsts:   actionConsts,
 	}
 
 	if err := tmpl.Execute(file, templateData); err != nil {

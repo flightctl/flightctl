@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/core/v1beta1"
+	corev1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
 	convertv1beta1 "github.com/flightctl/flightctl/internal/api/convert/v1beta1"
 	"github.com/flightctl/flightctl/internal/api/server"
 	fcmiddleware "github.com/flightctl/flightctl/internal/api_server/middleware"
@@ -42,7 +42,7 @@ type customTransportHandler struct {
 
 // AuthValidate is overridden to return 404 for this handler
 // since the auth validate endpoint is handled separately
-func (c *customTransportHandler) AuthValidate(w http.ResponseWriter, r *http.Request, params api.AuthValidateParams) {
+func (c *customTransportHandler) AuthValidate(w http.ResponseWriter, r *http.Request, params corev1beta1.AuthValidateParams) {
 	http.NotFound(w, r)
 }
 
@@ -146,17 +146,6 @@ func (s *Server) Run(ctx context.Context) error {
 	workerClient := worker_client.NewWorkerClient(publisher, s.log)
 
 	s.log.Println("Initializing API server")
-	swagger, err := api.GetSwagger()
-	if err != nil {
-		return fmt.Errorf("failed loading swagger spec: %w", err)
-	}
-	// Skip server name validation
-	swagger.Servers = nil
-
-	oapiOpts := oapimiddleware.Options{
-		ErrorHandler:      OapiErrorHandler,
-		MultiErrorHandler: oapiMultiErrorHandler,
-	}
 
 	// Create service handler and wrap with tracing
 	baseServiceHandler := service.NewServiceHandler(
@@ -238,68 +227,53 @@ func (s *Server) Run(ctx context.Context) error {
 	)
 
 	// Create v1beta1 router with OpenAPI validation
+	v1beta1Swagger, err := corev1beta1.GetSwagger()
+	if err != nil {
+		return fmt.Errorf("failed loading v1beta1 swagger spec: %w", err)
+	}
+	oapiOpts := oapimiddleware.Options{
+		ErrorHandler:          OapiErrorHandler,
+		MultiErrorHandler:     oapiMultiErrorHandler,
+		SilenceServersWarning: true, // Suppress Host header mismatch warnings
+	}
 	routerV1Beta1 := versioning.NewRouter(versioning.RouterConfig{
 		Version:     versioning.V1Beta1,
-		Swagger:     swagger,
+		Swagger:     v1beta1Swagger,
 		Handler:     &customTransportHandler{handlerV1Beta1},
 		OapiOptions: oapiOpts,
 	})
 
-	// Create dispatcher with version routers
-	dispatcher := versioning.NewDispatcher(registry, map[versioning.Version]chi.Router{
+	// Create negotiated router with version-specific sub-routers
+	negotiatedRouter := versioning.NewNegotiatedRouter(registry, map[versioning.Version]chi.Router{
 		versioning.V1Beta1: routerV1Beta1,
 		// V1Beta2, V1, etc..
 	})
 
+	// a group is a new mux copy, with its own copy of the middleware stack
+	// this one handles the OpenAPI handling of the service (excluding auth validate endpoint)
 	// Versioned API endpoints at /api/v1
 	router.Route(server.ServerUrlApiv1, func(r chi.Router) {
 		// Add general rate limiting (only if configured and enabled)
-		if s.cfg.Service.RateLimit != nil && s.cfg.Service.RateLimit.Enabled {
-			trustedProxies := s.cfg.Service.RateLimit.TrustedProxies
-			requests := 300       // Default requests limit
-			window := time.Minute // Default window
-			if s.cfg.Service.RateLimit.Requests > 0 {
-				requests = s.cfg.Service.RateLimit.Requests
-			}
-			if s.cfg.Service.RateLimit.Window > 0 {
-				window = time.Duration(s.cfg.Service.RateLimit.Window)
-			}
-			fcmiddleware.InstallRateLimiter(r, fcmiddleware.RateLimitOptions{
-				Requests:       requests,
-				Window:         window,
-				Message:        "Rate limit exceeded, please try again later",
-				TrustedProxies: trustedProxies,
-			})
-		}
+		ConfigureRateLimiterFromConfig(
+			r,
+			s.cfg.Service.RateLimit,
+			RateLimitScopeGeneral,
+		)
 
 		// Auth middlewares (shared by all versions)
 		r.Use(authMiddewares...)
 
-		// Version negotiation middleware
-		r.Use(versioning.Middleware(registry))
-
 		// Auth validate with stricter rate limiting (separate group)
+		// This ensures it gets all the necessary middleware with stricter rate limiting
 		r.Group(func(r chi.Router) {
 			// Add conditional middleware
-			r.Use(oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapiOpts))
+			r.Use(oapimiddleware.OapiRequestValidatorWithOptions(v1beta1Swagger, &oapiOpts))
 			r.Use(identityMappingMiddleware.MapIdentityToDB) // Map identity to DB objects AFTER authentication
-			if s.cfg.Service.RateLimit != nil && s.cfg.Service.RateLimit.Enabled {
-				trustedProxies := s.cfg.Service.RateLimit.TrustedProxies
-				authRequests := 20      // Default auth requests limit
-				authWindow := time.Hour // Default auth window
-				if s.cfg.Service.RateLimit.AuthRequests > 0 {
-					authRequests = s.cfg.Service.RateLimit.AuthRequests
-				}
-				if s.cfg.Service.RateLimit.AuthWindow > 0 {
-					authWindow = time.Duration(s.cfg.Service.RateLimit.AuthWindow)
-				}
-				fcmiddleware.InstallRateLimiter(r, fcmiddleware.RateLimitOptions{
-					Requests:       authRequests,
-					Window:         authWindow,
-					Message:        "Login rate limit exceeded, please try again later",
-					TrustedProxies: trustedProxies,
-				})
-			}
+			ConfigureRateLimiterFromConfig(
+				r,
+				s.cfg.Service.RateLimit,
+				RateLimitScopeAuth,
+			)
 
 			wrapper := &server.ServerInterfaceWrapper{
 				Handler:            handlerV1Beta1,
@@ -311,11 +285,12 @@ func (s *Server) Run(ctx context.Context) error {
 			r.Get("/auth/validate", wrapper.AuthValidate)
 		})
 
-		// Dispatcher routes to version-specific router
-		r.Mount("/", dispatcher)
+		// Register all other endpoints with general rate limiting (already applied at router level)
+		// Negotiated API endpoints
+		r.Mount("/", negotiatedRouter)
 	})
 
-	// Backward-compatible /api/version endpoint (redirects to same handler as /api/v1/version)
+	// Backward-compatible /corev1beta1/version endpoint (redirects to same handler as /corev1beta1/v1/version)
 	router.Get("/api/version", handlerV1Beta1.GetVersion)
 
 	// health endpoints: bypass OpenAPI + auth, but keep global safety middlewares
@@ -334,23 +309,11 @@ func (s *Server) Run(ctx context.Context) error {
 		r.Use(authMiddewares...)
 		r.Use(identityMappingMiddleware.MapIdentityToDB) // Map identity to DB objects AFTER authentication
 		// Add websocket rate limiting (only if configured and enabled)
-		if s.cfg.Service.RateLimit != nil && s.cfg.Service.RateLimit.Enabled {
-			trustedProxies := s.cfg.Service.RateLimit.TrustedProxies
-			requests := 300       // Default requests limit
-			window := time.Minute // Default window
-			if s.cfg.Service.RateLimit.Requests > 0 {
-				requests = s.cfg.Service.RateLimit.Requests
-			}
-			if s.cfg.Service.RateLimit.Window > 0 {
-				window = time.Duration(s.cfg.Service.RateLimit.Window)
-			}
-			fcmiddleware.InstallRateLimiter(r, fcmiddleware.RateLimitOptions{
-				Requests:       requests,
-				Window:         window,
-				Message:        "Rate limit exceeded, please try again later",
-				TrustedProxies: trustedProxies,
-			})
-		}
+		ConfigureRateLimiterFromConfig(
+			r,
+			s.cfg.Service.RateLimit,
+			RateLimitScopeGeneral,
+		)
 
 		consoleSessionManager := console.NewConsoleSessionManager(serviceHandler, s.log, s.consoleEndpointReg)
 		ws := transportv1beta1.NewWebsocketHandler(s.ca, s.log, consoleSessionManager)

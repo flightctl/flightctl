@@ -15,6 +15,7 @@ func Middleware(registry *Registry) func(http.Handler) http.Handler {
 			requested := Version(r.Header.Get(HeaderAPIVersion))
 
 			metadata, _ := server.GetEndpointMetadata(r)
+
 			negotiated, supported, err := registry.Negotiate(requested, metadata)
 
 			// Always set response headers

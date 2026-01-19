@@ -450,7 +450,10 @@ func (t *tpmProvider) CreateManagementClient(config *base_client.Config, metrics
 			}
 		}
 
-		clientWithResponses, err := agent_client.NewClientWithResponses(configCopy.Service.Server, agent_client.WithHTTPClient(httpClient))
+		// IMPORTANT: Add /api/v1 path suffix to match file provider behavior
+		// Trim trailing slash to avoid double slash when appending /api/v1
+		serverURL := strings.TrimSuffix(configCopy.Service.Server, "/") + agent_client.ServerUrlApiv1
+		clientWithResponses, err := agent_client.NewClientWithResponses(serverURL, agent_client.WithHTTPClient(httpClient))
 		if err != nil {
 			return nil, fmt.Errorf("creating client: %w", err)
 		}
