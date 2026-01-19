@@ -38,7 +38,11 @@ func NewClient(server string, opts ...ClientOption) (*apiclient.ClientWithRespon
 	for _, opt := range opts {
 		opt(config)
 	}
-	return internalclient.NewFromConfig(config, "")
+	c, err := internalclient.NewFromConfig(config, "")
+	if err != nil {
+		return nil, err
+	}
+	return c.ClientWithResponses, nil
 }
 
 // GetDevice fetches a device by name.

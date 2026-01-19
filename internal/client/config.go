@@ -21,6 +21,7 @@ import (
 	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
 	"github.com/flightctl/flightctl/api/versioning"
 	"github.com/flightctl/flightctl/internal/api/client"
+	imagebuilderclient "github.com/flightctl/flightctl/internal/api/imagebuilder/client"
 	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/org"
@@ -45,6 +46,18 @@ const (
 
 // HTTPClientOption is a functional option for configuring HTTP client behavior.
 type HTTPClientOption func(*http.Client) error
+
+// WithDisableRedirectFollowing returns a ClientOption that disables automatic redirect following
+func WithDisableRedirectFollowing() imagebuilderclient.ClientOption {
+	return func(c *imagebuilderclient.Client) error {
+		if httpClient, ok := c.Client.(*http.Client); ok {
+			httpClient.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+				return http.ErrUseLastResponse
+			}
+		}
+		return nil
+	}
+}
 
 // Config holds the information needed to connect to a Flight Control API server
 type Config struct {
@@ -332,35 +345,163 @@ func WithUserAgentHeader(component string) client.ClientOption {
 	return WithHeader("User-Agent", userAgent)
 }
 
-// NewFromConfig returns a new Flight Control API client from the given config.
-func NewFromConfig(config *Config, configFilePath string, opts ...client.ClientOption) (*client.ClientWithResponses, error) {
+// Client wraps the Flight Control API client with token refresh capabilities.
+// It embeds *client.ClientWithResponses so all API methods are available directly.
+type Client struct {
+	*client.ClientWithResponses
+	refresher *AccessTokenRefresher
+}
 
+// Start starts the token refresh loop if a refresher is configured.
+// The provided context is used as the parent context for the refresh loop.
+func (c *Client) Start(ctx context.Context) {
+	if c.refresher != nil {
+		c.refresher.Start(ctx)
+	}
+}
+
+// Stop stops the token refresh loop if a refresher is configured.
+func (c *Client) Stop() {
+	if c.refresher != nil {
+		c.refresher.Stop()
+	}
+}
+
+// ImageBuilderClient wraps the imagebuilder API client with token refresh capabilities.
+type ImageBuilderClient struct {
+	*imagebuilderclient.ClientWithResponses
+	refresher *AccessTokenRefresher
+}
+
+// Start starts the token refresh loop if a refresher is configured.
+// The provided context is used as the parent context for the refresh loop.
+func (c *ImageBuilderClient) Start(ctx context.Context) {
+	if c.refresher != nil {
+		c.refresher.Start(ctx)
+	}
+}
+
+// Stop stops the token refresh loop if a refresher is configured.
+func (c *ImageBuilderClient) Stop() {
+	if c.refresher != nil {
+		c.refresher.Stop()
+	}
+}
+
+// NewImageBuilderClientFromConfig returns a new ImageBuilder API client from the given config.
+// If the config has a refresh token, a token refresher will be created and included in the client.
+// The refresher is not started automatically - call Start() to begin token refresh.
+func NewImageBuilderClientFromConfig(config *Config, configFilePath string, imageBuilderServer string, organization string, opts ...imagebuilderclient.ClientOption) (*ImageBuilderClient, error) {
+	httpClient, err := NewHTTPClientFromConfig(config)
+	if err != nil {
+		return nil, fmt.Errorf("NewImageBuilderClientFromConfig: creating HTTP client %w", err)
+	}
+
+	var refresher *AccessTokenRefresher
+	var ref imagebuilderclient.ClientOption
+
+	if config.AuthInfo.RefreshToken != "" {
+		refresher = NewAccessTokenRefresher(config, configFilePath, 8080)
+		ref = imagebuilderclient.WithRequestEditorFn(func(ctx context.Context, req *http.Request) error {
+			req.Header.Set(middleware.RequestIDHeader, reqid.NextRequestID())
+			accessToken := refresher.GetAccessToken()
+			if accessToken != "" {
+				req.Header.Set(common.AuthHeader, fmt.Sprintf("Bearer %s", accessToken))
+			}
+			return nil
+		})
+	} else {
+		ref = imagebuilderclient.WithRequestEditorFn(func(ctx context.Context, req *http.Request) error {
+			req.Header.Set(middleware.RequestIDHeader, reqid.NextRequestID())
+			accessToken := config.AuthInfo.AccessToken
+			if config.AuthInfo.TokenToUse == TokenToUseIdToken {
+				accessToken = config.AuthInfo.IdToken
+			}
+			if accessToken != "" {
+				req.Header.Set(common.AuthHeader, fmt.Sprintf("Bearer %s", accessToken))
+			}
+			return nil
+		})
+	}
+
+	orgEditor := imagebuilderclient.WithRequestEditorFn(func(ctx context.Context, req *http.Request) error {
+		if organization == "" {
+			return nil
+		}
+		q := req.URL.Query()
+		q.Set("org_id", organization)
+		req.URL.RawQuery = q.Encode()
+		return nil
+	})
+
+	defaultOpts := []imagebuilderclient.ClientOption{imagebuilderclient.WithHTTPClient(httpClient), ref, orgEditor}
+	defaultOpts = append(defaultOpts, opts...)
+	apiClient, err := imagebuilderclient.NewClientWithResponses(imageBuilderServer, defaultOpts...)
+	if err != nil {
+		return nil, err
+	}
+
+	return &ImageBuilderClient{
+		ClientWithResponses: apiClient,
+		refresher:           refresher,
+	}, nil
+}
+
+// NewFromConfig returns a new Flight Control API client from the given config.
+// If the config has a refresh token, a token refresher will be created and included in the client.
+// The refresher is not started automatically - call Start() to begin token refresh.
+func NewFromConfig(config *Config, configFilePath string, opts ...client.ClientOption) (*Client, error) {
 	httpClient, err := NewHTTPClientFromConfig(config)
 	if err != nil {
 		return nil, fmt.Errorf("NewFromConfig: creating HTTP client %w", err)
 	}
 
-	ref := client.WithRequestEditorFn(func(ctx context.Context, req *http.Request) error {
-		req.Header.Set(middleware.RequestIDHeader, reqid.NextRequestID())
-		accessToken := GetAccessToken(config, configFilePath)
-		if accessToken != "" {
-			req.Header.Set(common.AuthHeader, fmt.Sprintf("Bearer %s", accessToken))
-		}
-		return nil
-	})
-	defaultOpts := []client.ClientOption{
-		client.WithHTTPClient(httpClient),
-		ref,
-		WithOrganization(config.Organization),
+	var refresher *AccessTokenRefresher
+	var ref client.ClientOption
+
+	if config.AuthInfo.RefreshToken != "" {
+		refresher = NewAccessTokenRefresher(config, configFilePath, 8080)
+		ref = client.WithRequestEditorFn(func(ctx context.Context, req *http.Request) error {
+			req.Header.Set(middleware.RequestIDHeader, reqid.NextRequestID())
+			accessToken := refresher.GetAccessToken()
+			if accessToken != "" {
+				req.Header.Set(common.AuthHeader, fmt.Sprintf("Bearer %s", accessToken))
+			}
+			return nil
+		})
+	} else {
+		ref = client.WithRequestEditorFn(func(ctx context.Context, req *http.Request) error {
+			req.Header.Set(middleware.RequestIDHeader, reqid.NextRequestID())
+			accessToken := config.AuthInfo.AccessToken
+			if config.AuthInfo.TokenToUse == TokenToUseIdToken {
+				accessToken = config.AuthInfo.IdToken
+			}
+			if accessToken != "" {
+				req.Header.Set(common.AuthHeader, fmt.Sprintf("Bearer %s", accessToken))
+			}
+			return nil
+		})
 	}
+
+	defaultOpts := []client.ClientOption{client.WithHTTPClient(httpClient), ref, WithOrganization(config.Organization)}
 	defaultOpts = append(defaultOpts, opts...)
-	return client.NewClientWithResponses(JoinServerURL(config.Service.Server, client.ServerUrlApiv1), defaultOpts...)
+	apiClient, err := client.NewClientWithResponses(JoinServerURL(config.Service.Server, client.ServerUrlApiv1), defaultOpts...)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Client{
+		ClientWithResponses: apiClient,
+		refresher:           refresher,
+	}, nil
 }
 
 // NewFromConfigFile returns a new Flight Control API client using the config
 // read from the given file. Additional client options may be supplied and will
 // be appended after the defaults.
-func NewFromConfigFile(filename string, opts ...client.ClientOption) (*client.ClientWithResponses, error) {
+// If the config has a refresh token, a token refresher will be created and included in the client.
+// The refresher is not started automatically - call Start() to begin token refresh.
+func NewFromConfigFile(filename string, opts ...client.ClientOption) (*Client, error) {
 	config, err := ParseConfigFile(filename)
 	if err != nil {
 		return nil, err

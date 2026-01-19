@@ -15,6 +15,7 @@ import (
 
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	imagebuilderclient "github.com/flightctl/flightctl/internal/api/imagebuilder/client"
+	"github.com/flightctl/flightctl/internal/client"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	yamlutil "k8s.io/apimachinery/pkg/util/yaml"
@@ -107,16 +108,22 @@ func (o *ApplyOptions) Run(ctx context.Context, args []string) error {
 	if err != nil {
 		return fmt.Errorf("creating client: %w", err)
 	}
+	c.Start(ctx)
+	defer c.Stop()
 
 	// Build imagebuilder client (may be nil if not configured)
-	var ibClient *imagebuilderclient.ClientWithResponses
+	var ibClient *client.ImageBuilderClient
 	ibClient, _ = o.BuildImageBuilderClient() // Ignore error; we'll check per-resource
+	if ibClient != nil {
+		ibClient.Start(ctx)
+		defer ibClient.Stop()
+	}
 
 	errs := make([]error, 0)
 	for _, filename := range o.Filenames {
 		switch {
 		case filename == "-":
-			errs = append(errs, applyFromReader(ctx, c, ibClient, "<stdin>", os.Stdin, o.DryRun)...)
+			errs = append(errs, applyFromReader(ctx, c.ClientWithResponses, ibClient, "<stdin>", os.Stdin, o.DryRun)...)
 		default:
 			expandedFilenames, err := expandIfFilePattern(filename)
 			if err != nil {
@@ -154,7 +161,7 @@ func (o *ApplyOptions) Run(ctx context.Context, args []string) error {
 						return nil
 					}
 					defer r.Close()
-					errs = append(errs, applyFromReader(ctx, c, ibClient, path, r, o.DryRun)...)
+					errs = append(errs, applyFromReader(ctx, c.ClientWithResponses, ibClient, path, r, o.DryRun)...)
 					return nil
 				})
 				if err != nil {
@@ -175,7 +182,7 @@ type applyResult struct {
 	err          error
 }
 
-func applyFromReader(ctx context.Context, client *apiclient.ClientWithResponses, ibClient *imagebuilderclient.ClientWithResponses, filename string, r io.Reader, dryRun bool) []error {
+func applyFromReader(ctx context.Context, client *apiclient.ClientWithResponses, ibClient *client.ImageBuilderClient, filename string, r io.Reader, dryRun bool) []error {
 	decoder := yamlutil.NewYAMLOrJSONDecoder(r, 100)
 	resources := []genericResource{}
 
@@ -201,7 +208,7 @@ func applyFromReader(ctx context.Context, client *apiclient.ClientWithResponses,
 	return errs
 }
 
-func applySingleResource(ctx context.Context, client *apiclient.ClientWithResponses, ibClient *imagebuilderclient.ClientWithResponses, filename string, resource genericResource, dryRun bool) []error {
+func applySingleResource(ctx context.Context, client *apiclient.ClientWithResponses, ibClient *client.ImageBuilderClient, filename string, resource genericResource, dryRun bool) []error {
 	kindLike, ok := resource["kind"].(string)
 	if !ok {
 		return []error{fmt.Errorf("%s: skipping resource of unspecified kind: %v", filename, resource)}
@@ -245,7 +252,7 @@ func applySingleResource(ctx context.Context, client *apiclient.ClientWithRespon
 	return errs
 }
 
-func applyResourceByKind(ctx context.Context, client *apiclient.ClientWithResponses, ibClient *imagebuilderclient.ClientWithResponses, kind ResourceKind, resourceName string, buf []byte) applyResult {
+func applyResourceByKind(ctx context.Context, client *apiclient.ClientWithResponses, ibClient *client.ImageBuilderClient, kind ResourceKind, resourceName string, buf []byte) applyResult {
 	switch kind {
 	case DeviceKind:
 		response, err := client.ReplaceDeviceWithBodyWithResponse(ctx, resourceName, "application/json", bytes.NewReader(buf))

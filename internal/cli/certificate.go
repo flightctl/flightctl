@@ -176,8 +176,10 @@ func (o *CertificateOptions) Run(ctx context.Context, args []string) error {
 	if err != nil {
 		return fmt.Errorf("creating client: %w", err)
 	}
+	c.Start(ctx)
+	defer c.Stop()
 
-	csrName, err := o.submitCsrWithRetries(ctx, c, priv)
+	csrName, err := o.submitCsrWithRetries(ctx, c.ClientWithResponses, priv)
 	if err != nil {
 		return err
 	}
@@ -192,7 +194,7 @@ func (o *CertificateOptions) Run(ctx context.Context, args []string) error {
 	var currentCsr *api.CertificateSigningRequest
 	err = wait.PollUntilContextTimeout(ctx, time.Second, 2*time.Minute, false, func(ctx context.Context) (bool, error) {
 		fmt.Fprint(os.Stderr, ".")
-		currentCsr, err = getCsr(csrName, c, ctx)
+		currentCsr, err = getCsr(csrName, c.ClientWithResponses, ctx)
 		if err != nil {
 			return false, fmt.Errorf("reading CSR %q: %w", ctx.Value("name"), err)
 		}

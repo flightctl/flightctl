@@ -79,6 +79,8 @@ func (o *EnrollmentConfigOptions) Run(ctx context.Context, args []string) error 
 	if err != nil {
 		return fmt.Errorf("creating client: %w", err)
 	}
+	c.Start(ctx)
+	defer c.Stop()
 
 	params := &api.GetEnrollmentConfigParams{}
 	if len(args) > 0 {
