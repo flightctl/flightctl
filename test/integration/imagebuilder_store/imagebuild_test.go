@@ -523,7 +523,7 @@ var _ = Describe("ImageBuildStore", func() {
 
 			_, err := storeInst.ImageBuild().UpdateStatus(ctx, orgId, imageBuild)
 			Expect(err).To(HaveOccurred())
-			Expect(err).To(MatchError(flterrors.ErrResourceNotFound))
+			Expect(err).To(MatchError(flterrors.ErrNoRowsUpdated))
 		})
 	})
 

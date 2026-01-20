@@ -32,9 +32,9 @@ var (
 	suiteCtx context.Context
 )
 
-func TestContainerfileGeneration(t *testing.T) {
+func TestImageBuilderWorker(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "Containerfile Generation Suite")
+	RunSpecs(t, "ImageBuilder Worker Integration Suite")
 }
 
 var _ = BeforeSuite(func() {

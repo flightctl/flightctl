@@ -328,9 +328,37 @@ func (i *ImageExport) GetStatusAsJson() ([]byte, error) {
 	return i.Status.MarshalJSON()
 }
 
+// Field selector support for ImageBuild
+var imageBuildStatusSelectors = map[selector.SelectorName]selector.SelectorType{
+	selector.NewSelectorName("status.conditions.ready.reason"): selector.String,
+	selector.NewSelectorName("status.lastSeen"):                selector.Timestamp,
+}
+
 // Field selector support for ImageExport
 var imageExportSpecSelectors = map[selector.SelectorName]selector.SelectorType{
 	selector.NewSelectorName("spec.source.imageBuildRef"): selector.String,
+}
+
+var imageExportStatusSelectors = map[selector.SelectorName]selector.SelectorType{
+	selector.NewSelectorName("status.conditions.ready.reason"): selector.String,
+	selector.NewSelectorName("status.lastSeen"):                selector.Timestamp,
+}
+
+// ResolveSelector resolves a field selector name to a SelectorField for ImageBuild
+func (i *ImageBuild) ResolveSelector(name selector.SelectorName) (*selector.SelectorField, error) {
+	if typ, exists := imageBuildStatusSelectors[name]; exists {
+		return makeImageBuildStatusJSONBSelectorField(name, typ)
+	}
+	return nil, fmt.Errorf("unable to resolve selector for image build")
+}
+
+// ListSelectors returns all available field selectors for ImageBuild
+func (i *ImageBuild) ListSelectors() selector.SelectorNameSet {
+	keys := make([]selector.SelectorName, 0, len(imageBuildStatusSelectors))
+	for sn := range imageBuildStatusSelectors {
+		keys = append(keys, sn)
+	}
+	return selector.NewSelectorFieldNameSet().Add(keys...)
 }
 
 // ResolveSelector resolves a field selector name to a SelectorField for ImageExport
@@ -338,13 +366,19 @@ func (i *ImageExport) ResolveSelector(name selector.SelectorName) (*selector.Sel
 	if typ, exists := imageExportSpecSelectors[name]; exists {
 		return makeImageExportJSONBSelectorField(name, typ)
 	}
+	if typ, exists := imageExportStatusSelectors[name]; exists {
+		return makeImageExportStatusJSONBSelectorField(name, typ)
+	}
 	return nil, fmt.Errorf("unable to resolve selector for image export")
 }
 
 // ListSelectors returns all available field selectors for ImageExport
 func (i *ImageExport) ListSelectors() selector.SelectorNameSet {
-	keys := make([]selector.SelectorName, 0, len(imageExportSpecSelectors))
+	keys := make([]selector.SelectorName, 0, len(imageExportSpecSelectors)+len(imageExportStatusSelectors))
 	for sn := range imageExportSpecSelectors {
+		keys = append(keys, sn)
+	}
+	for sn := range imageExportStatusSelectors {
 		keys = append(keys, sn)
 	}
 	return selector.NewSelectorFieldNameSet().Add(keys...)
@@ -378,4 +412,56 @@ func makeImageExportJSONBSelectorField(selectorName selector.SelectorName, selec
 		FieldName: params.String(),
 		FieldType: "jsonb",
 	}, nil
+}
+
+// makeImageBuildStatusJSONBSelectorField creates a SelectorField for status condition fields in ImageBuild
+// Handles status.conditions.ready.reason by querying the JSONB array
+func makeImageBuildStatusJSONBSelectorField(selectorName selector.SelectorName, selectorType selector.SelectorType) (*selector.SelectorField, error) {
+	selectorStr := selectorName.String()
+	switch selectorStr {
+	case "status.conditions.ready.reason":
+		// Query JSONB array to find condition with type="Ready" and extract its reason
+		// This uses a subquery to find the condition in the array
+		return &selector.SelectorField{
+			Name:      selectorName,
+			Type:      selectorType,
+			FieldName: `(SELECT elem->>'reason' FROM jsonb_array_elements(COALESCE(status, '{}'::jsonb)->'conditions') AS elem WHERE elem->>'type' = 'Ready' LIMIT 1)`,
+			FieldType: "jsonb",
+		}, nil
+	case "status.lastSeen":
+		// Extract lastSeen timestamp from status JSONB
+		return &selector.SelectorField{
+			Name:      selectorName,
+			Type:      selectorType,
+			FieldName: `(status->>'lastSeen')::timestamp`,
+			FieldType: "jsonb",
+		}, nil
+	}
+	return nil, fmt.Errorf("unsupported status selector: %s", selectorStr)
+}
+
+// makeImageExportStatusJSONBSelectorField creates a SelectorField for status condition fields in ImageExport
+// Handles status.conditions.ready.reason by querying the JSONB array
+func makeImageExportStatusJSONBSelectorField(selectorName selector.SelectorName, selectorType selector.SelectorType) (*selector.SelectorField, error) {
+	selectorStr := selectorName.String()
+	switch selectorStr {
+	case "status.conditions.ready.reason":
+		// Query JSONB array to find condition with type="Ready" and extract its reason
+		// This uses a subquery to find the condition in the array
+		return &selector.SelectorField{
+			Name:      selectorName,
+			Type:      selectorType,
+			FieldName: `(SELECT elem->>'reason' FROM jsonb_array_elements(COALESCE(status, '{}'::jsonb)->'conditions') AS elem WHERE elem->>'type' = 'Ready' LIMIT 1)`,
+			FieldType: "jsonb",
+		}, nil
+	case "status.lastSeen":
+		// Extract lastSeen timestamp from status JSONB
+		return &selector.SelectorField{
+			Name:      selectorName,
+			Type:      selectorType,
+			FieldName: `(status->>'lastSeen')::timestamp`,
+			FieldType: "jsonb",
+		}, nil
+	}
+	return nil, fmt.Errorf("unsupported status selector: %s", selectorStr)
 }

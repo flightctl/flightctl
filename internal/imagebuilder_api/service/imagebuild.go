@@ -9,6 +9,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	api "github.com/flightctl/flightctl/api/imagebuilder/v1beta1"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/store"
 	internalservice "github.com/flightctl/flightctl/internal/service"
@@ -123,7 +124,46 @@ func (s *imageBuildService) Delete(ctx context.Context, orgId uuid.UUID, name st
 // Internal methods (not exposed via API)
 
 func (s *imageBuildService) UpdateStatus(ctx context.Context, orgId uuid.UUID, imageBuild *api.ImageBuild) (*api.ImageBuild, error) {
-	return s.store.UpdateStatus(ctx, orgId, imageBuild)
+	// Update status
+	result, err := s.store.UpdateStatus(ctx, orgId, imageBuild)
+	if err != nil {
+		return result, err
+	}
+
+	// Create event for status update
+	var event *v1beta1.Event
+	if result != nil && result.Metadata.Name != nil && s.eventHandler != nil {
+		// Create a simple status update event since status is not in UpdatedFields enum
+		event = domain.GetBaseEvent(
+			ctx,
+			v1beta1.ResourceKind(string(api.ResourceKindImageBuild)),
+			*result.Metadata.Name,
+			domain.EventReasonResourceUpdated,
+			fmt.Sprintf("%s status was updated successfully.", string(api.ResourceKindImageBuild)),
+			nil,
+		)
+		if event != nil {
+			s.eventHandler.CreateEvent(ctx, orgId, event)
+		}
+	}
+
+	// Enqueue event to imagebuild-queue if image is ready (Completed)
+	if result != nil && event != nil && s.queueProducer != nil {
+		// Check if Ready condition is True with reason Completed
+		if result.Status != nil && result.Status.Conditions != nil {
+			readyCondition := api.FindImageBuildStatusCondition(*result.Status.Conditions, api.ImageBuildConditionTypeReady)
+			if readyCondition != nil &&
+				readyCondition.Status == v1beta1.ConditionStatusTrue &&
+				readyCondition.Reason == string(api.ImageBuildConditionReasonCompleted) {
+				if err := s.enqueueImageBuildEvent(ctx, orgId, event); err != nil {
+					s.log.WithError(err).WithField("orgId", orgId).WithField("name", *result.Metadata.Name).Error("failed to enqueue imageBuild event")
+					// Don't fail the update if enqueue fails - the event can be retried later
+				}
+			}
+		}
+	}
+
+	return result, err
 }
 
 func (s *imageBuildService) UpdateLastSeen(ctx context.Context, orgId uuid.UUID, name string, timestamp time.Time) error {
