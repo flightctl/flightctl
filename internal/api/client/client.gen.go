@@ -7323,6 +7323,7 @@ type GetVersionResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *Version
+	JSON401      *Status
 	JSON403      *Status
 	JSON429      *Status
 	JSON503      *Status
@@ -12789,6 +12790,13 @@ func ParseGetVersionResponse(rsp *http.Response) (*GetVersionResponse, error) {
 			return nil, err
 		}
 		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
 		var dest Status
