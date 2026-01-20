@@ -157,6 +157,22 @@ func (a *Agent) Run(ctx context.Context) error {
 	// create skopeo client
 	skopeoClient := client.NewSkopeo(a.log, executer, deviceReadWriter)
 
+	// create kube client
+	kubeClient := client.NewKube(a.log, executer, deviceReadWriter)
+
+	// create helm client
+	helmClient := client.NewHelm(a.log, executer, deviceReadWriter, a.config.DataDir)
+
+	// create CRI client
+	criClient := client.NewCRI(a.log, executer, deviceReadWriter)
+
+	// create CLI clients
+	cliClients := client.NewCLIClients(
+		client.WithKubeClient(kubeClient),
+		client.WithHelmClient(helmClient),
+		client.WithCRIClient(criClient),
+	)
+
 	// create systemd client
 	systemdClient := client.NewSystemd(executer)
 
@@ -255,8 +271,10 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	// create prefetch manager
 	prefetchManager := dependency.NewPrefetchManager(
-		a.log, podmanClient,
+		a.log,
+		podmanClient,
 		skopeoClient,
+		cliClients,
 		deviceReadWriter,
 		a.config.PullTimeout,
 		resourceManager,

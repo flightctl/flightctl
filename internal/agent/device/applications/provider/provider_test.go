@@ -16,11 +16,14 @@ func TestExtractQuadletTargets(t *testing.T) {
 		Path:    "/tmp/test-pull-secret",
 		Cleanup: func() {},
 	}
+	testPullSecretProvider := client.NewPullConfigProvider(map[client.ConfigType]*client.PullConfig{
+		client.ConfigTypeContainerSecret: testPullSecret,
+	})
 
 	tests := []struct {
 		name           string
 		quad           *common.QuadletReferences
-		pullSecret     *client.PullConfig
+		pullSecret     client.PullConfigProvider
 		expectedCount  int
 		expectedRefs   []string
 		expectedType   dependency.OCIType
@@ -35,7 +38,7 @@ func TestExtractQuadletTargets(t *testing.T) {
 			pullSecret:     nil,
 			expectedCount:  1,
 			expectedRefs:   []string{"nginx:latest"},
-			expectedType:   dependency.OCITypeImage,
+			expectedType:   dependency.OCITypePodmanImage,
 			expectedPolicy: v1beta1.PullIfNotPresent,
 		},
 		{
@@ -47,7 +50,7 @@ func TestExtractQuadletTargets(t *testing.T) {
 			pullSecret:     nil,
 			expectedCount:  2,
 			expectedRefs:   []string{"alpine:3.18", "busybox:latest"},
-			expectedType:   dependency.OCITypeImage,
+			expectedType:   dependency.OCITypePodmanImage,
 			expectedPolicy: v1beta1.PullIfNotPresent,
 		},
 		{
@@ -60,7 +63,7 @@ func TestExtractQuadletTargets(t *testing.T) {
 			pullSecret:     nil,
 			expectedCount:  3,
 			expectedRefs:   []string{"quay.io/myapp:v1.0", "redis:7", "postgres:15"},
-			expectedType:   dependency.OCITypeImage,
+			expectedType:   dependency.OCITypePodmanImage,
 			expectedPolicy: v1beta1.PullIfNotPresent,
 		},
 		{
@@ -69,10 +72,10 @@ func TestExtractQuadletTargets(t *testing.T) {
 				Type:  common.QuadletTypeContainer,
 				Image: lo.ToPtr("private-registry.io/secure-app:latest"),
 			},
-			pullSecret:     testPullSecret,
+			pullSecret:     testPullSecretProvider,
 			expectedCount:  1,
 			expectedRefs:   []string{"private-registry.io/secure-app:latest"},
-			expectedType:   dependency.OCITypeImage,
+			expectedType:   dependency.OCITypePodmanImage,
 			expectedPolicy: v1beta1.PullIfNotPresent,
 		},
 		{
@@ -83,7 +86,7 @@ func TestExtractQuadletTargets(t *testing.T) {
 			pullSecret:     nil,
 			expectedCount:  0,
 			expectedRefs:   []string{},
-			expectedType:   dependency.OCITypeImage,
+			expectedType:   dependency.OCITypePodmanImage,
 			expectedPolicy: v1beta1.PullIfNotPresent,
 		},
 		{
@@ -95,7 +98,7 @@ func TestExtractQuadletTargets(t *testing.T) {
 			pullSecret:     nil,
 			expectedCount:  0,
 			expectedRefs:   []string{},
-			expectedType:   dependency.OCITypeImage,
+			expectedType:   dependency.OCITypePodmanImage,
 			expectedPolicy: v1beta1.PullIfNotPresent,
 		},
 		{
@@ -107,7 +110,7 @@ func TestExtractQuadletTargets(t *testing.T) {
 			pullSecret:     nil,
 			expectedCount:  0,
 			expectedRefs:   []string{},
-			expectedType:   dependency.OCITypeImage,
+			expectedType:   dependency.OCITypePodmanImage,
 			expectedPolicy: v1beta1.PullIfNotPresent,
 		},
 		{
@@ -120,7 +123,7 @@ func TestExtractQuadletTargets(t *testing.T) {
 			pullSecret:     nil,
 			expectedCount:  3,
 			expectedRefs:   []string{"nginx:alpine", "redis:7", "postgres:15"},
-			expectedType:   dependency.OCITypeImage,
+			expectedType:   dependency.OCITypePodmanImage,
 			expectedPolicy: v1beta1.PullIfNotPresent,
 		},
 		{
@@ -133,7 +136,7 @@ func TestExtractQuadletTargets(t *testing.T) {
 			pullSecret:     nil,
 			expectedCount:  2,
 			expectedRefs:   []string{"alpine:latest", "busybox:latest"},
-			expectedType:   dependency.OCITypeImage,
+			expectedType:   dependency.OCITypePodmanImage,
 			expectedPolicy: v1beta1.PullIfNotPresent,
 		},
 		{
@@ -146,7 +149,7 @@ func TestExtractQuadletTargets(t *testing.T) {
 			pullSecret:     nil,
 			expectedCount:  1,
 			expectedRefs:   []string{"ubuntu:22.04"},
-			expectedType:   dependency.OCITypeImage,
+			expectedType:   dependency.OCITypePodmanImage,
 			expectedPolicy: v1beta1.PullIfNotPresent,
 		},
 		{
@@ -159,7 +162,7 @@ func TestExtractQuadletTargets(t *testing.T) {
 			pullSecret:     nil,
 			expectedCount:  2,
 			expectedRefs:   []string{"fedora:39", "alpine:3.18"},
-			expectedType:   dependency.OCITypeImage,
+			expectedType:   dependency.OCITypePodmanImage,
 			expectedPolicy: v1beta1.PullIfNotPresent,
 		},
 	}
@@ -176,7 +179,7 @@ func TestExtractQuadletTargets(t *testing.T) {
 				require.Equal(tt.expectedRefs[i], target.Reference, "unexpected reference at index %d", i)
 				require.Equal(tt.expectedType, target.Type, "unexpected type at index %d", i)
 				require.Equal(tt.expectedPolicy, target.PullPolicy, "unexpected pull policy at index %d", i)
-				require.Equal(tt.pullSecret, target.PullSecret, "unexpected pull secret at index %d", i)
+				require.Equal(tt.pullSecret, target.Configs, "unexpected configs at index %d", i)
 			}
 		})
 	}

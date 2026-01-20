@@ -116,7 +116,7 @@ func (p *imageProvider) extractOCIContents(ctx context.Context, ociType dependen
 			p.log.Warnf("Failed to cleanup directory %q: %v", path, err)
 		}
 	}
-	if ociType == dependency.OCITypeArtifact {
+	if ociType == dependency.OCITypePodmanArtifact {
 		if err := extractAndProcessArtifact(ctx, p.podman, p.log, p.spec.ImageProvider.Image, path, p.readWriter); err != nil {
 			clean()
 			return fmt.Errorf("extract artifact contents: %w", err)
@@ -266,7 +266,7 @@ func typeFromImage(ctx context.Context, podman *client.Podman, image string) (v1
 	var appTypeValue string
 	var ok bool
 
-	if ociType == dependency.OCITypeArtifact {
+	if ociType == dependency.OCITypePodmanArtifact {
 		// For artifacts, check annotations
 		artifactInfo, err := podman.InspectArtifactAnnotations(ctx, image)
 		if err != nil {
@@ -297,12 +297,12 @@ func typeFromImage(ctx context.Context, podman *client.Podman, image string) (v1
 func detectOCIType(ctx context.Context, podman *client.Podman, imageRef string) (dependency.OCIType, error) {
 	// Check if it exists as an image first (most common case)
 	if podman.ImageExists(ctx, imageRef) {
-		return dependency.OCITypeImage, nil
+		return dependency.OCITypePodmanImage, nil
 	}
 
 	// Check if it exists as an artifact
 	if podman.ArtifactExists(ctx, imageRef) {
-		return dependency.OCITypeArtifact, nil
+		return dependency.OCITypePodmanArtifact, nil
 	}
 
 	// Reference doesn't exist locally - this shouldn't happen after prefetch

@@ -20,13 +20,13 @@ func TestNestedTargetCacheGetSet(t *testing.T) {
 	imageBasedEntry := CacheEntry{
 		Name: "image-app",
 		Parent: dependency.OCIPullTarget{
-			Type:      dependency.OCITypeImage,
+			Type:      dependency.OCITypePodmanImage,
 			Reference: "quay.io/myapp:v1",
 			Digest:    "sha256:abc123",
 		},
 		Children: []dependency.OCIPullTarget{
-			{Type: dependency.OCITypeImage, Reference: "quay.io/redis:latest"},
-			{Type: dependency.OCITypeImage, Reference: "quay.io/postgres:16"},
+			{Type: dependency.OCITypePodmanImage, Reference: "quay.io/redis:latest"},
+			{Type: dependency.OCITypePodmanImage, Reference: "quay.io/postgres:16"},
 		},
 	}
 	cache.Set(imageBasedEntry)
@@ -53,17 +53,17 @@ func TestNestedTargetCacheGC(t *testing.T) {
 				c.Set(CacheEntry{
 					Name:     "active1",
 					Parent:   dependency.OCIPullTarget{Reference: "quay.io/app1:v1", Digest: "sha256:aaa"},
-					Children: []dependency.OCIPullTarget{{Type: dependency.OCITypeImage, Reference: "quay.io/redis:latest"}},
+					Children: []dependency.OCIPullTarget{{Type: dependency.OCITypePodmanImage, Reference: "quay.io/redis:latest"}},
 				})
 				c.Set(CacheEntry{
 					Name:     "active2",
 					Parent:   dependency.OCIPullTarget{Reference: "quay.io/app2:v1", Digest: "sha256:bbb"},
-					Children: []dependency.OCIPullTarget{{Type: dependency.OCITypeImage, Reference: "quay.io/postgres:16"}},
+					Children: []dependency.OCIPullTarget{{Type: dependency.OCITypePodmanImage, Reference: "quay.io/postgres:16"}},
 				})
 				c.Set(CacheEntry{
 					Name:     "stale1",
 					Parent:   dependency.OCIPullTarget{Reference: "quay.io/app3:v1", Digest: "sha256:ccc"},
-					Children: []dependency.OCIPullTarget{{Type: dependency.OCITypeImage, Reference: "quay.io/nginx:alpine"}},
+					Children: []dependency.OCIPullTarget{{Type: dependency.OCITypePodmanImage, Reference: "quay.io/nginx:alpine"}},
 				})
 			},
 			activeNames:    []string{"active1", "active2"},
@@ -137,12 +137,12 @@ func TestNestedTargetCacheClear(t *testing.T) {
 	cache.Set(CacheEntry{
 		Name:     "image-app1",
 		Parent:   dependency.OCIPullTarget{Reference: "quay.io/app1:v1", Digest: "sha256:abc"},
-		Children: []dependency.OCIPullTarget{{Type: dependency.OCITypeImage, Reference: "quay.io/redis:latest"}},
+		Children: []dependency.OCIPullTarget{{Type: dependency.OCITypePodmanImage, Reference: "quay.io/redis:latest"}},
 	})
 	cache.Set(CacheEntry{
 		Name:     "image-app2",
 		Parent:   dependency.OCIPullTarget{Reference: "quay.io/app2:v1", Digest: "sha256:def"},
-		Children: []dependency.OCIPullTarget{{Type: dependency.OCITypeImage, Reference: "quay.io/nginx:alpine"}},
+		Children: []dependency.OCIPullTarget{{Type: dependency.OCITypePodmanImage, Reference: "quay.io/nginx:alpine"}},
 	})
 	require.Equal(2, cache.Len())
 
@@ -162,7 +162,7 @@ func TestNestedTargetCacheOverwriteEntry(t *testing.T) {
 	initialEntry := CacheEntry{
 		Name:     "myapp",
 		Parent:   dependency.OCIPullTarget{Reference: "quay.io/app:v1", Digest: "sha256:old"},
-		Children: []dependency.OCIPullTarget{{Type: dependency.OCITypeImage, Reference: "quay.io/redis:6"}},
+		Children: []dependency.OCIPullTarget{{Type: dependency.OCITypePodmanImage, Reference: "quay.io/redis:6"}},
 	}
 	cache.Set(initialEntry)
 
@@ -175,8 +175,8 @@ func TestNestedTargetCacheOverwriteEntry(t *testing.T) {
 		Name:   "myapp",
 		Parent: dependency.OCIPullTarget{Reference: "quay.io/app:v1", Digest: "sha256:new"},
 		Children: []dependency.OCIPullTarget{
-			{Type: dependency.OCITypeImage, Reference: "quay.io/redis:7"},
-			{Type: dependency.OCITypeImage, Reference: "quay.io/postgres:16"},
+			{Type: dependency.OCITypePodmanImage, Reference: "quay.io/redis:7"},
+			{Type: dependency.OCITypePodmanImage, Reference: "quay.io/postgres:16"},
 		},
 	}
 	cache.Set(updatedEntry)
@@ -196,7 +196,7 @@ func TestNestedTargetCacheInvalidation(t *testing.T) {
 	cache.Set(CacheEntry{
 		Name:     "myapp",
 		Parent:   dependency.OCIPullTarget{Reference: "quay.io/app:v1", Digest: "sha256:old"},
-		Children: []dependency.OCIPullTarget{{Type: dependency.OCITypeImage, Reference: "quay.io/redis:6"}},
+		Children: []dependency.OCIPullTarget{{Type: dependency.OCITypePodmanImage, Reference: "quay.io/redis:6"}},
 	})
 
 	entry, found := cache.Get("myapp")
@@ -212,8 +212,8 @@ func TestNestedTargetCacheInvalidation(t *testing.T) {
 		Name:   "myapp",
 		Parent: dependency.OCIPullTarget{Reference: "quay.io/app:v1", Digest: "sha256:new"},
 		Children: []dependency.OCIPullTarget{
-			{Type: dependency.OCITypeImage, Reference: "quay.io/redis:7"},
-			{Type: dependency.OCITypeImage, Reference: "quay.io/postgres:16"},
+			{Type: dependency.OCITypePodmanImage, Reference: "quay.io/redis:7"},
+			{Type: dependency.OCITypePodmanImage, Reference: "quay.io/postgres:16"},
 		},
 	})
 

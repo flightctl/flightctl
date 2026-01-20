@@ -593,8 +593,8 @@ func TestCollectOCITargetsCache(t *testing.T) {
 
 	// populate cache with nested targets for two applications
 	nestedTargets := []dependency.OCIPullTarget{
-		{Type: dependency.OCITypeImage, Reference: "quay.io/nested/image1:v1"},
-		{Type: dependency.OCITypeImage, Reference: "quay.io/nested/image2:v1"},
+		{Type: dependency.OCITypePodmanImage, Reference: "quay.io/nested/image1:v1"},
+		{Type: dependency.OCITypePodmanImage, Reference: "quay.io/nested/image2:v1"},
 	}
 
 	entry1 := provider.CacheEntry{
