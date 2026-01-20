@@ -540,11 +540,11 @@ var APIMetadataMap = map[string]EndpointMetadata{
 
 // GetEndpointMetadata returns endpoint metadata even when routes are mounted under
 // a base prefix like /api/v1 by normalizing and matching request paths.
-func GetEndpointMetadata(r *http.Request) (*EndpointMetadata, bool) {
+func GetEndpointMetadata(r *http.Request) *EndpointMetadata {
 	rctx := chi.RouteContext(r.Context())
 	if rctx != nil {
-		if metadata, ok := lookupMetadata(r.Method, rctx.RoutePath); ok {
-			return metadata, true
+		if metadata := lookupMetadata(r.Method, rctx.RoutePath); metadata != nil {
+			return metadata
 		}
 	}
 
@@ -564,15 +564,15 @@ func normalizePath(p string) string {
 	return p
 }
 
-func lookupMetadata(method, path string) (*EndpointMetadata, bool) {
+func lookupMetadata(method, path string) *EndpointMetadata {
 	candidates := normalizeCandidates(path)
 	if len(candidates) == 0 {
-		return nil, false
+		return nil
 	}
 	for _, candidate := range candidates {
 		key := method + ":" + candidate
 		if metadata, exists := APIMetadataMap[key]; exists {
-			return &metadata, true
+			return &metadata
 		}
 	}
 
@@ -584,11 +584,11 @@ func lookupMetadata(method, path string) (*EndpointMetadata, bool) {
 		pattern := strings.TrimPrefix(key, methodPrefix)
 		for _, candidate := range candidates {
 			if matchTemplatePath(pattern, candidate) {
-				return &metadata, true
+				return &metadata
 			}
 		}
 	}
-	return nil, false
+	return nil
 }
 
 func normalizeCandidates(path string) []string {
