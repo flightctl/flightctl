@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
@@ -122,6 +124,93 @@ func (h *TransportHandler) GetImageExport(w http.ResponseWriter, r *http.Request
 func (h *TransportHandler) DeleteImageExport(w http.ResponseWriter, r *http.Request, name string) {
 	body, status := h.service.ImageExport().Delete(r.Context(), OrgIDFromContext(r.Context()), name)
 	SetResponse(w, body, status)
+}
+
+// DownloadImageExport handles GET /api/v1/imageexports/{name}/download
+func (h *TransportHandler) DownloadImageExport(w http.ResponseWriter, r *http.Request, name string) {
+	ctx := r.Context()
+	orgId := OrgIDFromContext(ctx)
+
+	download, err := h.service.ImageExport().Download(ctx, orgId, name)
+	if err != nil {
+		status := downloadErrorToStatus(err, name)
+		SetResponse(w, nil, status)
+		return
+	}
+
+	// Handle redirect
+	if download.RedirectURL != "" {
+		statusCode := download.StatusCode
+		if statusCode == 0 {
+			// Default to 302 if status code not set
+			statusCode = http.StatusFound
+		}
+		w.Header().Set("Location", download.RedirectURL)
+		w.WriteHeader(statusCode)
+		return
+	}
+
+	// Handle blob streaming
+	if download.BlobReader != nil {
+		defer download.BlobReader.Close()
+
+		// Copy all headers from registry response
+		for key, values := range download.Headers {
+			for _, value := range values {
+				w.Header().Add(key, value)
+			}
+		}
+
+		// Set status code
+		statusCode := download.StatusCode
+		if statusCode == 0 {
+			statusCode = http.StatusOK
+		}
+		w.WriteHeader(statusCode)
+
+		// Stream the blob content
+		_, err := io.Copy(w, download.BlobReader)
+		if err != nil {
+			h.log.WithError(err).WithField("name", name).Error("failed to stream blob content")
+			// Response may have already been written, so we can't change status
+		}
+		return
+	}
+
+	// Should not reach here, but handle gracefully
+	h.log.WithField("name", name).Error("download returned neither redirect nor blob")
+	status := v1beta1.Status{
+		Code:    int32(http.StatusInternalServerError),
+		Message: "Invalid download response",
+	}
+	SetResponse(w, nil, status)
+}
+
+// downloadErrorToStatus converts download errors to appropriate API status codes
+func downloadErrorToStatus(err error, name string) v1beta1.Status {
+	// Check for store errors (resource not found, etc.)
+	if status := service.StoreErrorToApiStatus(err, false, string(api.ResourceKindImageExport), &name); status.Code != 0 {
+		return status
+	}
+
+	// Check for external service errors (should return 503 Service Unavailable)
+	if errors.Is(err, service.ErrExternalServiceUnavailable) {
+		return service.StatusServiceUnavailable(err.Error())
+	}
+
+	// Check for validation errors (should return 4xx)
+	if errors.Is(err, service.ErrImageExportNotReady) ||
+		errors.Is(err, service.ErrImageExportStatusNotReady) ||
+		errors.Is(err, service.ErrImageExportReadyConditionNotFound) ||
+		errors.Is(err, service.ErrImageExportManifestDigestNotSet) ||
+		errors.Is(err, service.ErrInvalidManifestDigest) ||
+		errors.Is(err, service.ErrInvalidManifestLayerCount) ||
+		errors.Is(err, service.ErrRepositoryNotFound) {
+		return service.StatusBadRequest(err.Error())
+	}
+
+	// Default to internal server error (5xx)
+	return service.StatusInternalServerError(err.Error())
 }
 
 // SetResponse writes the response body and status to the response writer
