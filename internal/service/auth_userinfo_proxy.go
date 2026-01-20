@@ -3,9 +3,9 @@ package service
 import (
 	"context"
 
-	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/identity"
 )
 
@@ -22,20 +22,20 @@ func NewAuthUserInfoProxy(authN common.AuthNMiddleware) *AuthUserInfoProxy {
 }
 
 // ProxyUserInfoRequest handles OIDC UserInfo requests by extracting the authenticated identity from context
-func (p *AuthUserInfoProxy) ProxyUserInfoRequest(ctx context.Context) (*api.UserInfoResponse, api.Status) {
+func (p *AuthUserInfoProxy) ProxyUserInfoRequest(ctx context.Context) (*domain.UserInfoResponse, domain.Status) {
 	// Extract mapped identity from context (set by auth middleware)
 	mappedIdentity, ok := ctx.Value(consts.MappedIdentityCtxKey).(*identity.MappedIdentity)
 	if !ok || mappedIdentity == nil {
-		return createErrorUserInfoResponse("invalid_token"), api.StatusUnauthorized("No authenticated identity found")
+		return createErrorUserInfoResponse("invalid_token"), domain.StatusUnauthorized("No authenticated identity found")
 	}
 
 	// Convert mapped identity to UserInfoResponse
-	return mappedIdentityToUserInfoResponse(mappedIdentity), api.StatusOK()
+	return mappedIdentityToUserInfoResponse(mappedIdentity), domain.StatusOK()
 }
 
-// mappedIdentityToUserInfoResponse converts a MappedIdentity to an api.UserInfoResponse
-func mappedIdentityToUserInfoResponse(mappedIdentity *identity.MappedIdentity) *api.UserInfoResponse {
-	response := &api.UserInfoResponse{}
+// mappedIdentityToUserInfoResponse converts a MappedIdentity to an domain.UserInfoResponse
+func mappedIdentityToUserInfoResponse(mappedIdentity *identity.MappedIdentity) *domain.UserInfoResponse {
+	response := &domain.UserInfoResponse{}
 
 	// Set subject (UID)
 	if mappedIdentity.UID != "" {
@@ -53,7 +53,7 @@ func mappedIdentityToUserInfoResponse(mappedIdentity *identity.MappedIdentity) *
 
 	// Set organizations (full objects, not just names)
 	if len(mappedIdentity.Organizations) > 0 {
-		orgs := make([]api.Organization, 0, len(mappedIdentity.Organizations))
+		orgs := make([]domain.Organization, 0, len(mappedIdentity.Organizations))
 		for _, org := range mappedIdentity.Organizations {
 			orgs = append(orgs, organizationModelToAPI(org))
 		}
@@ -64,8 +64,8 @@ func mappedIdentityToUserInfoResponse(mappedIdentity *identity.MappedIdentity) *
 }
 
 // createErrorUserInfoResponse creates an error UserInfo response
-func createErrorUserInfoResponse(errorCode string) *api.UserInfoResponse {
-	return &api.UserInfoResponse{
+func createErrorUserInfoResponse(errorCode string) *domain.UserInfoResponse {
+	return &domain.UserInfoResponse{
 		Error: &errorCode,
 	}
 }

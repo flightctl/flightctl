@@ -3,7 +3,7 @@ package client
 import (
 	"testing"
 
-	"github.com/flightctl/flightctl/api/v1beta1"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/api/common"
 	"github.com/samber/lo"
@@ -255,8 +255,10 @@ Mount=type=image,source=quay.io/data/myapp:latest,destination=/myapp
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tmpDir := t.TempDir()
-			readerWriter := fileio.NewReadWriter()
-			readerWriter.SetRootdir(tmpDir)
+			readerWriter := fileio.NewReadWriter(
+				fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+				fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+			)
 
 			for filename, content := range tt.files {
 				if err := readerWriter.WriteFile(filename, content, fileio.DefaultFilePermissions); err != nil {

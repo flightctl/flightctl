@@ -15,9 +15,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 
-	"github.com/flightctl/flightctl/api/v1beta1"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/google/renameio"
 	"github.com/samber/lo"
 )
@@ -26,6 +25,10 @@ import (
 type writer struct {
 	// rootDir is the root directory for the device writer useful for testing
 	rootDir string
+	// Default UID of the owner of any files created or moved. -1 disables uid handling.
+	uid int
+	// Default GID of the owner of any files created or moved. -1 disabled gid handling.
+	gid int
 }
 
 type symlinkBehavior int
@@ -89,14 +92,49 @@ func WithPreserveSymlinkWithinRoot() CopyDirOption {
 	}
 }
 
-// New creates a new writer
-func NewWriter() *writer {
-	return &writer{}
+type writerOptions struct {
+	uid     int
+	gid     int
+	rootDir string
 }
 
-// SetRootdir sets the root directory for the writer, useful for testing
-func (w *writer) SetRootdir(path string) {
-	w.rootDir = path
+type WriterOption func(*writerOptions)
+
+func WithUID(uid int) WriterOption {
+	return func(wo *writerOptions) {
+		wo.uid = uid
+	}
+}
+
+func WithGID(gid int) WriterOption {
+	return func(wo *writerOptions) {
+		wo.gid = gid
+	}
+}
+
+func WithWriterRootDir(rootDir string) WriterOption {
+	return func(wo *writerOptions) {
+		wo.rootDir = rootDir
+	}
+}
+
+// New creates a new writer
+func NewWriter(options ...WriterOption) *writer {
+	opts := writerOptions{
+		// -1 means "don't change ownership" when passed through to the fchown syscall on
+		// Linux.
+		uid:     -1,
+		gid:     -1,
+		rootDir: "",
+	}
+	for _, o := range options {
+		o(&opts)
+	}
+	return &writer{
+		uid:     opts.uid,
+		gid:     opts.gid,
+		rootDir: opts.rootDir,
+	}
 }
 
 func (w *writer) PathFor(filePath string) string {
@@ -105,23 +143,9 @@ func (w *writer) PathFor(filePath string) string {
 
 // WriteFile writes the provided data to the file at the path with the provided permissions and ownership information
 func (w *writer) WriteFile(name string, data []byte, perm fs.FileMode, opts ...FileOption) error {
-	fopts := &fileOptions{uid: -1, gid: -1}
+	fopts := &fileOptions{uid: w.uid, gid: w.gid}
 	for _, opt := range opts {
 		opt(fopts)
-	}
-
-	var uid, gid int
-	// if rootDir is set use the default UID and GID
-	if w.rootDir != "" {
-		defaultUID, defaultGID, err := getUserIdentity()
-		if err != nil {
-			return err
-		}
-		uid = defaultUID
-		gid = defaultGID
-	} else {
-		uid = fopts.uid
-		gid = fopts.gid
 	}
 
 	// TODO: implement createOrigFile
@@ -129,7 +153,7 @@ func (w *writer) WriteFile(name string, data []byte, perm fs.FileMode, opts ...F
 	// 	return err
 	// }
 
-	return writeFileAtomically(filepath.Join(w.rootDir, name), data, DefaultDirectoryPermissions, perm, uid, gid)
+	return writeFileAtomically(filepath.Join(w.rootDir, name), data, DefaultDirectoryPermissions, perm, fopts.uid, fopts.gid)
 }
 
 func (w *writer) RemoveFile(file string) error {
@@ -167,8 +191,25 @@ func (w *writer) RemoveContents(path string) error {
 	return nil
 }
 
+func (w *writer) CreateFile(path string, flag int, perm fs.FileMode) (*os.File, error) {
+	f, err := os.OpenFile(w.PathFor(path), os.O_CREATE|flag, perm)
+	if err != nil {
+		return nil, fmt.Errorf("opening file %s: %w", path, err)
+	}
+	if err := f.Chown(w.uid, w.gid); err != nil {
+		_ = f.Close()
+		return nil, fmt.Errorf("setting owner of %s: %w", path, err)
+	}
+	return f, nil
+}
+
 func (w *writer) MkdirAll(path string, perm os.FileMode) error {
-	return os.MkdirAll(filepath.Join(w.rootDir, path), perm)
+	finalPath := filepath.Join(w.rootDir, path)
+	if err := os.MkdirAll(finalPath, perm); err != nil {
+		return err
+	}
+	// Change the owner for only the last dir in the path, not every created dir.
+	return os.Chown(finalPath, w.uid, w.gid)
 }
 
 func (w *writer) MkdirTemp(prefix string) (string, error) {
@@ -180,7 +221,11 @@ func (w *writer) MkdirTemp(prefix string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return strings.TrimPrefix(path, w.rootDir), nil
+	finalPath := strings.TrimPrefix(path, w.rootDir)
+	if err := os.Chown(path, w.uid, w.gid); err != nil {
+		return finalPath, err
+	}
+	return finalPath, nil
 }
 
 func (w *writer) CopyFile(src, dst string) error {
@@ -229,13 +274,8 @@ func (w *writer) copyFile(src, dst string) error {
 		return fmt.Errorf("failed to set file permissions: %w", err)
 	}
 
-	stat, ok := srcFileInfo.Sys().(*syscall.Stat_t)
-	if !ok {
-		return fmt.Errorf("failed to retrieve UID and GID")
-	}
-
 	// set file ownership
-	if err := os.Chown(dstTarget, int(stat.Uid), int(stat.Gid)); err != nil {
+	if err := os.Chown(dstTarget, w.uid, w.gid); err != nil {
 		return fmt.Errorf("failed to set UID and GID: %w", err)
 	}
 
@@ -486,17 +526,15 @@ func writeFileAtomically(fpath string, b []byte, dirMode, fileMode os.FileMode, 
 	if err := t.Chmod(fileMode); err != nil {
 		return err
 	}
+	if err := t.Chown(uid, gid); err != nil {
+		return err
+	}
 	w := bufio.NewWriter(t)
 	if _, err := w.Write(b); err != nil {
 		return err
 	}
 	if err := w.Flush(); err != nil {
 		return err
-	}
-	if uid != -1 && gid != -1 {
-		if err := t.Chown(uid, gid); err != nil {
-			return err
-		}
 	}
 	return t.CloseAtomicallyReplace()
 }
@@ -621,56 +659,6 @@ func WriteTmpFile(rw ReadWriter, prefix, filename string, content []byte, perm o
 	return tmpPath, cleanup, nil
 }
 
-// AppendFile appends the provided data to the file at the path, creating the file if it doesn't exist.
-func AppendFile(w Writer, name string, data []byte, perm fs.FileMode, opts ...FileOption) error {
-	fopts := &fileOptions{uid: -1, gid: -1}
-	for _, opt := range opts {
-		opt(fopts)
-	}
-
-	var uid, gid int
-	// Check if we're in test mode by checking if PathFor returns a modified path
-	testPath := w.PathFor("")
-	if testPath != "" {
-		// Test mode: use default UID and GID
-		defaultUID, defaultGID, err := getUserIdentity()
-		if err != nil {
-			return err
-		}
-		uid = defaultUID
-		gid = defaultGID
-	} else {
-		// Production mode: use provided or default ownership
-		uid = fopts.uid
-		gid = fopts.gid
-	}
-
-	filePath := w.PathFor(name)
-
-	// Create directory if it doesn't exist
-	if err := os.MkdirAll(filepath.Dir(filePath), DefaultDirectoryPermissions); err != nil {
-		return err
-	}
-
-	// Open file for appending, create if not exists
-	file, err := os.OpenFile(filePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, perm)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	// Set ownership if specified (use -1 as "don't change ownership" sentinel)
-	if uid != -1 && gid != -1 {
-		if err := file.Chown(uid, gid); err != nil {
-			return err
-		}
-	}
-
-	// Append data
-	_, err = file.Write(data)
-	return err
-}
-
 // UnpackTar unpacks a tar or tar.gz file to the destination directory.
 func UnpackTar(writer Writer, tarPath, destDir string) error {
 	// Open the tar file for streaming
@@ -722,10 +710,10 @@ func UnpackTar(writer Writer, tarPath, destDir string) error {
 			if perm == 0 {
 				perm = DefaultFilePermissions
 			}
-			if err := os.MkdirAll(filepath.Dir(writer.PathFor(destPath)), DefaultDirectoryPermissions); err != nil {
+			if err := writer.MkdirAll(filepath.Dir(destPath), DefaultDirectoryPermissions); err != nil {
 				return fmt.Errorf("creating parent directory: %w", err)
 			}
-			destFile, err := os.OpenFile(writer.PathFor(destPath), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, perm)
+			destFile, err := writer.CreateFile(destPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, perm)
 			if err != nil {
 				return fmt.Errorf("creating file %s: %w", destPath, err)
 			}

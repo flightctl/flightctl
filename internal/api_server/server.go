@@ -10,7 +10,8 @@ import (
 	"strings"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/v1beta1"
+	api "github.com/flightctl/flightctl/api/core/v1beta1"
+	convertv1beta1 "github.com/flightctl/flightctl/internal/api/convert/v1beta1"
 	"github.com/flightctl/flightctl/internal/api/server"
 	fcmiddleware "github.com/flightctl/flightctl/internal/api_server/middleware"
 	"github.com/flightctl/flightctl/internal/auth"
@@ -21,7 +22,7 @@ import (
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
-	"github.com/flightctl/flightctl/internal/transport"
+	transportv1beta1 "github.com/flightctl/flightctl/internal/transport/v1beta1"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/getkin/kin-openapi/openapi3"
@@ -35,7 +36,7 @@ import (
 // customTransportHandler wraps the transport handler to exclude the auth validate endpoint
 // since it's handled separately with stricter rate limiting
 type customTransportHandler struct {
-	*transport.TransportHandler
+	*transportv1beta1.TransportHandler
 }
 
 // AuthValidate is overridden to return 404 for this handler
@@ -260,7 +261,7 @@ func (s *Server) Run(ctx context.Context) error {
 			})
 		}
 
-		h := transport.NewTransportHandler(serviceHandler, s.authN, authTokenProxy, authUserInfoProxy, s.authZ)
+		h := transportv1beta1.NewTransportHandler(serviceHandler, convertv1beta1.NewConverter(), s.authN, authTokenProxy, authUserInfoProxy, s.authZ)
 
 		// Register all other endpoints with general rate limiting (already applied at router level)
 		// Create a custom handler that excludes the auth validate endpoint
@@ -305,7 +306,7 @@ func (s *Server) Run(ctx context.Context) error {
 			})
 		}
 
-		h := transport.NewTransportHandler(serviceHandler, s.authN, authTokenProxy, authUserInfoProxy, s.authZ)
+		h := transportv1beta1.NewTransportHandler(serviceHandler, convertv1beta1.NewConverter(), s.authN, authTokenProxy, authUserInfoProxy, s.authZ)
 		// Use the wrapper to handle the AuthValidate method signature
 		wrapper := &server.ServerInterfaceWrapper{
 			Handler:            h,
@@ -342,7 +343,7 @@ func (s *Server) Run(ctx context.Context) error {
 		}
 
 		consoleSessionManager := console.NewConsoleSessionManager(serviceHandler, s.log, s.consoleEndpointReg)
-		ws := transport.NewWebsocketHandler(s.ca, s.log, consoleSessionManager)
+		ws := transportv1beta1.NewWebsocketHandler(s.ca, s.log, consoleSessionManager)
 		ws.RegisterRoutes(r)
 	})
 

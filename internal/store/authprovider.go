@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/v1beta1"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/store/selector"
@@ -19,29 +19,29 @@ import (
 type AuthProvider interface {
 	InitialMigration(ctx context.Context) error
 
-	Create(ctx context.Context, orgId uuid.UUID, authProvider *api.AuthProvider, eventCallback EventCallback) (*api.AuthProvider, error)
-	CreateWithFromAPI(ctx context.Context, orgId uuid.UUID, authProvider *api.AuthProvider, fromAPI bool, eventCallback EventCallback) (*api.AuthProvider, error)
-	Update(ctx context.Context, orgId uuid.UUID, authProvider *api.AuthProvider, eventCallback EventCallback) (*api.AuthProvider, error)
-	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, authProvider *api.AuthProvider, eventCallback EventCallback) (*api.AuthProvider, bool, error)
-	Get(ctx context.Context, orgId uuid.UUID, name string) (*api.AuthProvider, error)
-	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.AuthProviderList, error)
+	Create(ctx context.Context, orgId uuid.UUID, authProvider *domain.AuthProvider, eventCallback EventCallback) (*domain.AuthProvider, error)
+	CreateWithFromAPI(ctx context.Context, orgId uuid.UUID, authProvider *domain.AuthProvider, fromAPI bool, eventCallback EventCallback) (*domain.AuthProvider, error)
+	Update(ctx context.Context, orgId uuid.UUID, authProvider *domain.AuthProvider, eventCallback EventCallback) (*domain.AuthProvider, error)
+	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, authProvider *domain.AuthProvider, eventCallback EventCallback) (*domain.AuthProvider, bool, error)
+	Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.AuthProvider, error)
+	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*domain.AuthProviderList, error)
 	Delete(ctx context.Context, orgId uuid.UUID, name string, eventCallback EventCallback) error
-	UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.AuthProvider, eventCallback EventCallback) (*api.AuthProvider, error)
-	GetAuthProviderByIssuerAndClientId(ctx context.Context, orgId uuid.UUID, issuer string, clientId string) (*api.AuthProvider, error)
-	GetAuthProviderByAuthorizationUrl(ctx context.Context, orgId uuid.UUID, authorizationUrl string) (*api.AuthProvider, error)
+	UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.AuthProvider, eventCallback EventCallback) (*domain.AuthProvider, error)
+	GetAuthProviderByIssuerAndClientId(ctx context.Context, orgId uuid.UUID, issuer string, clientId string) (*domain.AuthProvider, error)
+	GetAuthProviderByAuthorizationUrl(ctx context.Context, orgId uuid.UUID, authorizationUrl string) (*domain.AuthProvider, error)
 
 	// Used by domain metrics
 	Count(ctx context.Context, orgId uuid.UUID, listParams ListParams) (int64, error)
 	CountByOrg(ctx context.Context, orgId *uuid.UUID) ([]CountByOrgResult, error)
 
 	// ListAll lists all auth providers without org filtering
-	ListAll(ctx context.Context, listParams ListParams) (*api.AuthProviderList, error)
+	ListAll(ctx context.Context, listParams ListParams) (*domain.AuthProviderList, error)
 }
 
 type AuthProviderStore struct {
 	dbHandler           *gorm.DB
 	log                 logrus.FieldLogger
-	genericStore        *GenericStore[*model.AuthProvider, model.AuthProvider, api.AuthProvider, api.AuthProviderList]
+	genericStore        *GenericStore[*model.AuthProvider, model.AuthProvider, domain.AuthProvider, domain.AuthProviderList]
 	eventCallbackCaller EventCallbackCaller
 }
 
@@ -49,7 +49,7 @@ type AuthProviderStore struct {
 var _ AuthProvider = (*AuthProviderStore)(nil)
 
 func NewAuthProvider(db *gorm.DB, log logrus.FieldLogger) AuthProvider {
-	genericStore := NewGenericStore[*model.AuthProvider, model.AuthProvider, api.AuthProvider, api.AuthProviderList](
+	genericStore := NewGenericStore[*model.AuthProvider, model.AuthProvider, domain.AuthProvider, domain.AuthProviderList](
 		db,
 		log,
 		model.NewAuthProviderFromApiResource,
@@ -61,7 +61,7 @@ func NewAuthProvider(db *gorm.DB, log logrus.FieldLogger) AuthProvider {
 		dbHandler:           db,
 		log:                 log,
 		genericStore:        genericStore,
-		eventCallbackCaller: CallEventCallback(api.AuthProviderKind, log),
+		eventCallbackCaller: CallEventCallback(domain.AuthProviderKind, log),
 	}
 }
 
@@ -117,14 +117,14 @@ func (s *AuthProviderStore) createOAuth2UniqueIndex(db *gorm.DB) error {
 	return nil
 }
 
-func (s *AuthProviderStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.AuthProvider, eventCallback EventCallback) (*api.AuthProvider, error) {
+func (s *AuthProviderStore) Create(ctx context.Context, orgId uuid.UUID, resource *domain.AuthProvider, eventCallback EventCallback) (*domain.AuthProvider, error) {
 	provider, err := s.genericStore.Create(ctx, orgId, resource)
 	s.eventCallbackCaller(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), nil, provider, true, err)
 	return provider, err
 }
 
-func (s *AuthProviderStore) CreateWithFromAPI(ctx context.Context, orgId uuid.UUID, resource *api.AuthProvider, fromAPI bool, eventCallback EventCallback) (*api.AuthProvider, error) {
-	provider, _, _, err := s.genericStore.CreateOrUpdate(ctx, orgId, resource, nil, fromAPI, func(ctx context.Context, before, after *api.AuthProvider) error {
+func (s *AuthProviderStore) CreateWithFromAPI(ctx context.Context, orgId uuid.UUID, resource *domain.AuthProvider, fromAPI bool, eventCallback EventCallback) (*domain.AuthProvider, error) {
+	provider, _, _, err := s.genericStore.CreateOrUpdate(ctx, orgId, resource, nil, fromAPI, func(ctx context.Context, before, after *domain.AuthProvider) error {
 		// If there's an existing resource, return an error to enforce create-only behavior
 		if before != nil {
 			return flterrors.ErrDuplicateName
@@ -135,23 +135,23 @@ func (s *AuthProviderStore) CreateWithFromAPI(ctx context.Context, orgId uuid.UU
 	return provider, err
 }
 
-func (s *AuthProviderStore) Update(ctx context.Context, orgId uuid.UUID, resource *api.AuthProvider, eventCallback EventCallback) (*api.AuthProvider, error) {
+func (s *AuthProviderStore) Update(ctx context.Context, orgId uuid.UUID, resource *domain.AuthProvider, eventCallback EventCallback) (*domain.AuthProvider, error) {
 	newProvider, oldProvider, err := s.genericStore.Update(ctx, orgId, resource, nil, true, nil)
 	s.eventCallbackCaller(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), oldProvider, newProvider, false, err)
 	return newProvider, err
 }
 
-func (s *AuthProviderStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.AuthProvider, eventCallback EventCallback) (*api.AuthProvider, bool, error) {
+func (s *AuthProviderStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *domain.AuthProvider, eventCallback EventCallback) (*domain.AuthProvider, bool, error) {
 	newProvider, oldProvider, created, err := s.genericStore.CreateOrUpdate(ctx, orgId, resource, nil, true, nil)
 	s.eventCallbackCaller(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), oldProvider, newProvider, created, err)
 	return newProvider, created, err
 }
 
-func (s *AuthProviderStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*api.AuthProvider, error) {
+func (s *AuthProviderStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.AuthProvider, error) {
 	return s.genericStore.Get(ctx, orgId, name)
 }
 
-func (s *AuthProviderStore) List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.AuthProviderList, error) {
+func (s *AuthProviderStore) List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*domain.AuthProviderList, error) {
 	return s.genericStore.List(ctx, orgId, listParams)
 }
 
@@ -167,7 +167,7 @@ func (s *AuthProviderStore) Delete(ctx context.Context, orgId uuid.UUID, name st
 	return err
 }
 
-func (s *AuthProviderStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.AuthProvider, eventCallback EventCallback) (*api.AuthProvider, error) {
+func (s *AuthProviderStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.AuthProvider, eventCallback EventCallback) (*domain.AuthProvider, error) {
 	return s.genericStore.UpdateStatus(ctx, orgId, resource)
 }
 
@@ -206,7 +206,7 @@ func (s *AuthProviderStore) CountByOrg(ctx context.Context, orgId *uuid.UUID) ([
 	return results, nil
 }
 
-func (s *AuthProviderStore) ListAll(ctx context.Context, listParams ListParams) (*api.AuthProviderList, error) {
+func (s *AuthProviderStore) ListAll(ctx context.Context, listParams ListParams) (*domain.AuthProviderList, error) {
 	var resourceList []model.AuthProvider
 	var nextContinue *string
 	var numRemaining *int64
@@ -315,7 +315,7 @@ func (s *AuthProviderStore) ListAll(ctx context.Context, listParams ListParams) 
 	return &apiList, err
 }
 
-func (s *AuthProviderStore) GetAuthProviderByIssuerAndClientId(ctx context.Context, orgId uuid.UUID, issuer string, clientId string) (*api.AuthProvider, error) {
+func (s *AuthProviderStore) GetAuthProviderByIssuerAndClientId(ctx context.Context, orgId uuid.UUID, issuer string, clientId string) (*domain.AuthProvider, error) {
 	query := s.getDB(ctx).Model(&model.AuthProvider{}).Where("org_id = ? AND spec->>'issuer' = ? AND spec->>'clientId' = ?", orgId, issuer, clientId)
 	var authProvider model.AuthProvider
 	if err := query.First(&authProvider).Error; err != nil {
@@ -325,7 +325,7 @@ func (s *AuthProviderStore) GetAuthProviderByIssuerAndClientId(ctx context.Conte
 	return apiResource, err
 }
 
-func (s *AuthProviderStore) GetAuthProviderByAuthorizationUrl(ctx context.Context, orgId uuid.UUID, authorizationUrl string) (*api.AuthProvider, error) {
+func (s *AuthProviderStore) GetAuthProviderByAuthorizationUrl(ctx context.Context, orgId uuid.UUID, authorizationUrl string) (*domain.AuthProvider, error) {
 	query := s.getDB(ctx).Model(&model.AuthProvider{}).Where("org_id = ? AND spec->>'authorizationUrl' = ?", orgId, authorizationUrl)
 	var authProvider model.AuthProvider
 	if err := query.First(&authProvider).Error; err != nil {

@@ -1,18 +1,20 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io/fs"
 	"net/http"
 	"os"
+	"os/user"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/ccoveille/go-safecast"
-	"github.com/flightctl/flightctl/api/v1beta1"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/device/certmanager/provider"
 	"github.com/flightctl/flightctl/internal/crypto/signer"
 	"github.com/flightctl/flightctl/internal/org"
@@ -319,6 +321,11 @@ func getEnrollmentDeviceName(h *harness.TestHarness, deviceName *string) bool {
 func getTestFleet(fleetYaml string) v1beta1.Fleet {
 	fleetBytes, err := os.ReadFile(filepath.Join("testdata", fleetYaml))
 	Expect(err).ToNot(HaveOccurred())
+
+	u, err := user.Current()
+	Expect(err).ToNot(HaveOccurred())
+	fleetBytes = bytes.ReplaceAll(fleetBytes, []byte("_CURRENT_USER_"), []byte(u.Username))
+	fleetBytes = bytes.ReplaceAll(fleetBytes, []byte("_CURRENT_GROUP_"), []byte("'"+u.Gid+"'"))
 
 	var fleet v1beta1.Fleet
 	err = yaml.Unmarshal(fleetBytes, &fleet)

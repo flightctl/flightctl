@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
@@ -17,8 +17,8 @@ import (
 
 // MockFleetStore implements store.Fleet for testing
 type MockFleetStore struct {
-	fleetList            *api.FleetList
-	fleetListWithDevices *api.FleetList
+	fleetList            *domain.FleetList
+	fleetListWithDevices *domain.FleetList
 	rolloutStatusCounts  []store.CountByRolloutStatusResult
 	shouldError          bool
 }
@@ -30,23 +30,23 @@ func (m *MockFleetStore) InitialMigration(ctx context.Context) error {
 	return nil
 }
 
-func (m *MockFleetStore) Create(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet, callback store.EventCallback) (*api.Fleet, error) {
+func (m *MockFleetStore) Create(ctx context.Context, orgId uuid.UUID, fleet *domain.Fleet, callback store.EventCallback) (*domain.Fleet, error) {
 	return nil, nil
 }
 
-func (m *MockFleetStore) Update(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet, fieldsToUnset []string, fromAPI bool, callback store.EventCallback) (*api.Fleet, error) {
+func (m *MockFleetStore) Update(ctx context.Context, orgId uuid.UUID, fleet *domain.Fleet, fieldsToUnset []string, fromAPI bool, callback store.EventCallback) (*domain.Fleet, error) {
 	return nil, nil
 }
 
-func (m *MockFleetStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet, fieldsToUnset []string, fromAPI bool, callback store.EventCallback) (*api.Fleet, bool, error) {
+func (m *MockFleetStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, fleet *domain.Fleet, fieldsToUnset []string, fromAPI bool, callback store.EventCallback) (*domain.Fleet, bool, error) {
 	return nil, false, nil
 }
 
-func (m *MockFleetStore) Get(ctx context.Context, orgId uuid.UUID, name string, opts ...store.GetOption) (*api.Fleet, error) {
+func (m *MockFleetStore) Get(ctx context.Context, orgId uuid.UUID, name string, opts ...store.GetOption) (*domain.Fleet, error) {
 	return nil, nil
 }
 
-func (m *MockFleetStore) List(ctx context.Context, orgId uuid.UUID, listParams store.ListParams, opts ...store.ListOption) (*api.FleetList, error) {
+func (m *MockFleetStore) List(ctx context.Context, orgId uuid.UUID, listParams store.ListParams, opts ...store.ListOption) (*domain.FleetList, error) {
 	if m.shouldError {
 		return nil, assert.AnError
 	}
@@ -74,15 +74,15 @@ func (m *MockFleetStore) Delete(ctx context.Context, orgId uuid.UUID, name strin
 	return nil
 }
 
-func (m *MockFleetStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet) (*api.Fleet, error) {
+func (m *MockFleetStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, fleet *domain.Fleet) (*domain.Fleet, error) {
 	return nil, nil
 }
 
-func (m *MockFleetStore) ListRolloutDeviceSelection(ctx context.Context, orgId uuid.UUID) (*api.FleetList, error) {
+func (m *MockFleetStore) ListRolloutDeviceSelection(ctx context.Context, orgId uuid.UUID) (*domain.FleetList, error) {
 	return nil, nil
 }
 
-func (m *MockFleetStore) ListDisruptionBudgetFleets(ctx context.Context, orgId uuid.UUID) (*api.FleetList, error) {
+func (m *MockFleetStore) ListDisruptionBudgetFleets(ctx context.Context, orgId uuid.UUID) (*domain.FleetList, error) {
 	return nil, nil
 }
 
@@ -94,7 +94,7 @@ func (m *MockFleetStore) UnsetOwnerByKind(ctx context.Context, tx *gorm.DB, orgI
 	return nil
 }
 
-func (m *MockFleetStore) UpdateConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition, eventCallback store.EventCallback) error {
+func (m *MockFleetStore) UpdateConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition, eventCallback store.EventCallback) error {
 	return nil
 }
 
@@ -106,7 +106,7 @@ func (m *MockFleetStore) OverwriteRepositoryRefs(ctx context.Context, orgId uuid
 	return nil
 }
 
-func (m *MockFleetStore) GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*api.RepositoryList, error) {
+func (m *MockFleetStore) GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*domain.RepositoryList, error) {
 	return nil, nil
 }
 

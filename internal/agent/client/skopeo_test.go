@@ -210,7 +210,7 @@ func TestSkopeoInspectManifest(t *testing.T) {
 
 			tt.setupMocks(mockExec)
 
-			readWriter := fileio.NewReadWriter()
+			readWriter := fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter())
 			skopeo := NewSkopeo(logger, mockExec, readWriter)
 
 			var opts []ClientOption

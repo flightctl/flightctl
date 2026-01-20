@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	api "github.com/flightctl/flightctl/api/v1beta1"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/store/selector"
@@ -21,22 +21,22 @@ import (
 type Fleet interface {
 	InitialMigration(ctx context.Context) error
 
-	Create(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet, eventCallback EventCallback) (*api.Fleet, error)
-	Update(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet, fieldsToUnset []string, fromAPI bool, eventCallback EventCallback) (*api.Fleet, error)
-	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet, fieldsToUnset []string, fromAPI bool, eventCallback EventCallback) (*api.Fleet, bool, error)
-	Get(ctx context.Context, orgId uuid.UUID, name string, opts ...GetOption) (*api.Fleet, error)
-	List(ctx context.Context, orgId uuid.UUID, listParams ListParams, opts ...ListOption) (*api.FleetList, error)
+	Create(ctx context.Context, orgId uuid.UUID, fleet *domain.Fleet, eventCallback EventCallback) (*domain.Fleet, error)
+	Update(ctx context.Context, orgId uuid.UUID, fleet *domain.Fleet, fieldsToUnset []string, fromAPI bool, eventCallback EventCallback) (*domain.Fleet, error)
+	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, fleet *domain.Fleet, fieldsToUnset []string, fromAPI bool, eventCallback EventCallback) (*domain.Fleet, bool, error)
+	Get(ctx context.Context, orgId uuid.UUID, name string, opts ...GetOption) (*domain.Fleet, error)
+	List(ctx context.Context, orgId uuid.UUID, listParams ListParams, opts ...ListOption) (*domain.FleetList, error)
 	Delete(ctx context.Context, orgId uuid.UUID, name string, eventCallback EventCallback) error
-	UpdateStatus(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet) (*api.Fleet, error)
+	UpdateStatus(ctx context.Context, orgId uuid.UUID, fleet *domain.Fleet) (*domain.Fleet, error)
 
-	ListRolloutDeviceSelection(ctx context.Context, orgId uuid.UUID) (*api.FleetList, error)
-	ListDisruptionBudgetFleets(ctx context.Context, orgId uuid.UUID) (*api.FleetList, error)
+	ListRolloutDeviceSelection(ctx context.Context, orgId uuid.UUID) (*domain.FleetList, error)
+	ListDisruptionBudgetFleets(ctx context.Context, orgId uuid.UUID) (*domain.FleetList, error)
 	UnsetOwner(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, owner string) error
 	UnsetOwnerByKind(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, resourceKind string) error
-	UpdateConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition, eventCallback EventCallback) error
+	UpdateConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition, eventCallback EventCallback) error
 	UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string, eventCallback EventCallback) error
 	OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error
-	GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*api.RepositoryList, error)
+	GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*domain.RepositoryList, error)
 
 	// Used by domain metrics
 	CountByRolloutStatus(ctx context.Context, orgId *uuid.UUID, _ *string) ([]CountByRolloutStatusResult, error)
@@ -45,14 +45,14 @@ type Fleet interface {
 type FleetStore struct {
 	dbHandler    *gorm.DB
 	log          logrus.FieldLogger
-	genericStore *GenericStore[*model.Fleet, model.Fleet, api.Fleet, api.FleetList]
+	genericStore *GenericStore[*model.Fleet, model.Fleet, domain.Fleet, domain.FleetList]
 }
 
 // Make sure we conform to Fleet interface
 var _ Fleet = (*FleetStore)(nil)
 
 func NewFleet(db *gorm.DB, log logrus.FieldLogger) Fleet {
-	genericStore := NewGenericStore[*model.Fleet, model.Fleet, api.Fleet, api.FleetList](
+	genericStore := NewGenericStore[*model.Fleet, model.Fleet, domain.Fleet, domain.FleetList](
 		db,
 		log,
 		model.NewFleetFromApiResource,
@@ -62,13 +62,13 @@ func NewFleet(db *gorm.DB, log logrus.FieldLogger) Fleet {
 	return &FleetStore{dbHandler: db, log: log, genericStore: genericStore}
 }
 
-func (s *FleetStore) callEventCallback(ctx context.Context, eventCallback EventCallback, orgId uuid.UUID, name string, oldFleet, newFleet *api.Fleet, created bool, err error) {
+func (s *FleetStore) callEventCallback(ctx context.Context, eventCallback EventCallback, orgId uuid.UUID, name string, oldFleet, newFleet *domain.Fleet, created bool, err error) {
 	if eventCallback == nil {
 		return
 	}
 
 	SafeEventCallback(s.log, func() {
-		eventCallback(ctx, api.FleetKind, orgId, name, oldFleet, newFleet, created, err)
+		eventCallback(ctx, domain.FleetKind, orgId, name, oldFleet, newFleet, created, err)
 	})
 }
 func (s *FleetStore) getDB(ctx context.Context) *gorm.DB {
@@ -111,20 +111,20 @@ func (s *FleetStore) InitialMigration(ctx context.Context) error {
 	return nil
 }
 
-func (s *FleetStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.Fleet, eventCallback EventCallback) (*api.Fleet, error) {
+func (s *FleetStore) Create(ctx context.Context, orgId uuid.UUID, resource *domain.Fleet, eventCallback EventCallback) (*domain.Fleet, error) {
 	fleet, err := s.genericStore.Create(ctx, orgId, resource)
 	name := lo.FromPtr(resource.Metadata.Name)
 	s.callEventCallback(ctx, eventCallback, orgId, name, nil, fleet, true, err)
 	return fleet, err
 }
 
-func (s *FleetStore) Update(ctx context.Context, orgId uuid.UUID, resource *api.Fleet, fieldsToUnset []string, fromAPI bool, eventCallback EventCallback) (*api.Fleet, error) {
+func (s *FleetStore) Update(ctx context.Context, orgId uuid.UUID, resource *domain.Fleet, fieldsToUnset []string, fromAPI bool, eventCallback EventCallback) (*domain.Fleet, error) {
 	newFleet, oldFleet, err := s.genericStore.Update(ctx, orgId, resource, fieldsToUnset, fromAPI, nil)
 	s.callEventCallback(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), oldFleet, newFleet, false, err)
 	return newFleet, err
 }
 
-func (s *FleetStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.Fleet, fieldsToUnset []string, fromAPI bool, eventCallback EventCallback) (*api.Fleet, bool, error) {
+func (s *FleetStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *domain.Fleet, fieldsToUnset []string, fromAPI bool, eventCallback EventCallback) (*domain.Fleet, bool, error) {
 	newFleet, oldFleet, created, err := s.genericStore.CreateOrUpdate(ctx, orgId, resource, fieldsToUnset, fromAPI, nil)
 	s.callEventCallback(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), oldFleet, newFleet, created, err)
 	return newFleet, created, err
@@ -142,7 +142,7 @@ func GetWithDeviceSummary(val bool) GetOption {
 	}
 }
 
-func (s *FleetStore) Get(ctx context.Context, orgId uuid.UUID, name string, opts ...GetOption) (*api.Fleet, error) {
+func (s *FleetStore) Get(ctx context.Context, orgId uuid.UUID, name string, opts ...GetOption) (*domain.Fleet, error) {
 	options := getOptions{}
 	for _, opt := range opts {
 		opt(&options)
@@ -159,10 +159,10 @@ func (s *FleetStore) Get(ctx context.Context, orgId uuid.UUID, name string, opts
 		return nil, flterrors.ErrResourceNotFound
 	}
 
-	var summary *api.DevicesSummary // Remains nil unless withDeviceSummary is true; will be omitted in JSON if not set
+	var summary *domain.DevicesSummary // Remains nil unless withDeviceSummary is true; will be omitted in JSON if not set
 
 	if options.withDeviceSummary {
-		summary = &api.DevicesSummary{Total: fleet.DeviceCount}
+		summary = &domain.DevicesSummary{Total: fleet.DeviceCount}
 		err := s.addStatusSummary(ctx, orgId, name, summary)
 		if err != nil {
 			return nil, err
@@ -174,9 +174,9 @@ func (s *FleetStore) Get(ctx context.Context, orgId uuid.UUID, name string, opts
 	return apiFleet, nil
 }
 
-func (s *FleetStore) addStatusSummary(ctx context.Context, orgId uuid.UUID, fleetName string, summary *api.DevicesSummary) error {
+func (s *FleetStore) addStatusSummary(ctx context.Context, orgId uuid.UUID, fleetName string, summary *domain.DevicesSummary) error {
 	fs, err := selector.NewFieldSelectorFromMap(
-		map[string]string{"metadata.owner": util.ResourceOwner(api.FleetKind, fleetName)})
+		map[string]string{"metadata.owner": util.ResourceOwner(domain.FleetKind, fleetName)})
 	if err != nil {
 		return err
 	}
@@ -224,7 +224,7 @@ type fleetWithCount struct {
 
 func fleetSelectStr(withDeviceSummary bool) string {
 	return lo.Ternary(withDeviceSummary,
-		fmt.Sprintf("*, (select count(*) from devices where org_id = fleets.org_id and owner = CONCAT('%s/', fleets.name)) as device_count", api.FleetKind),
+		fmt.Sprintf("*, (select count(*) from devices where org_id = fleets.org_id and owner = CONCAT('%s/', fleets.name)) as device_count", domain.FleetKind),
 		"*")
 }
 
@@ -233,7 +233,7 @@ func fleetSelectStr(withDeviceSummary bool) string {
 // - marked as selected for rollout
 // - the template version of the fleet is not the same the template version in the annotation 'device-controller/renderedTemplateVersion'
 // - the field 'status.config.renderedVersion' is not the same as the annotation 'device-controller/renderedVersion'
-func (s *FleetStore) ListRolloutDeviceSelection(ctx context.Context, orgId uuid.UUID) (*api.FleetList, error) {
+func (s *FleetStore) ListRolloutDeviceSelection(ctx context.Context, orgId uuid.UUID) (*domain.FleetList, error) {
 	var fleets []model.Fleet
 	err := s.getDB(ctx).Raw(fmt.Sprintf(`select * from (select *, annotations ->> '%s' as tv from fleets) as main_query
          where
@@ -246,8 +246,8 @@ func (s *FleetStore) ListRolloutDeviceSelection(ctx context.Context, orgId uuid.
                                  main_query.tv <> COALESCE(annotations ->> '%s', '') or
                            		 status -> 'config' ->> 'renderedVersion' <> COALESCE(annotations ->> '%s', '')) and
                            		 org_id = ? and owner = CONCAT('%s/', main_query.name) limit 1)`,
-		api.FleetAnnotationTemplateVersion, api.DeviceAnnotationSelectedForRollout, api.DeviceAnnotationRenderedTemplateVersion, api.DeviceAnnotationRenderedVersion,
-		api.FleetKind), orgId, gorm.Expr("?"), orgId).Scan(&fleets).Error
+		domain.FleetAnnotationTemplateVersion, domain.DeviceAnnotationSelectedForRollout, domain.DeviceAnnotationRenderedTemplateVersion, domain.DeviceAnnotationRenderedVersion,
+		domain.FleetKind), orgId, gorm.Expr("?"), orgId).Scan(&fleets).Error
 	if err != nil {
 		return nil, ErrorFromGormError(err)
 	}
@@ -262,7 +262,7 @@ func (s *FleetStore) ListRolloutDeviceSelection(ctx context.Context, orgId uuid.
 // a gate to device rendering, the query searches for fleets that each contains at least 1 device that has different value set
 // between tha annotation 'device-controller/templateVersion' which is set before rollout and 'device-controller/renderedTemplateVersion'
 // which is set after rollout.
-func (s *FleetStore) ListDisruptionBudgetFleets(ctx context.Context, orgId uuid.UUID) (*api.FleetList, error) {
+func (s *FleetStore) ListDisruptionBudgetFleets(ctx context.Context, orgId uuid.UUID) (*domain.FleetList, error) {
 	var fleets []model.Fleet
 	err := s.getDB(ctx).Raw(fmt.Sprintf(`select * from (select *, annotations ->> '%s' as tv from fleets) as main_query
          where
@@ -272,8 +272,8 @@ func (s *FleetStore) ListDisruptionBudgetFleets(ctx context.Context, orgId uuid.
                  (select 1 from devices where deleted_at is null and org_id = ? and owner = CONCAT('%s/', main_query.name) and
 					main_query.tv = annotations ->> '%s' and
                     main_query.tv <> COALESCE(annotations ->> '%s', '') limit 1)`,
-		api.FleetAnnotationTemplateVersion,
-		api.FleetKind, api.DeviceAnnotationTemplateVersion, api.DeviceAnnotationRenderedTemplateVersion), orgId, orgId).Scan(&fleets).Error
+		domain.FleetAnnotationTemplateVersion,
+		domain.FleetKind, domain.DeviceAnnotationTemplateVersion, domain.DeviceAnnotationRenderedTemplateVersion), orgId, orgId).Scan(&fleets).Error
 	if err != nil {
 		return nil, ErrorFromGormError(err)
 	}
@@ -284,7 +284,7 @@ func (s *FleetStore) ListDisruptionBudgetFleets(ctx context.Context, orgId uuid.
 	return &apiFleets, nil
 }
 
-func (s *FleetStore) List(ctx context.Context, orgId uuid.UUID, listParams ListParams, opts ...ListOption) (*api.FleetList, error) {
+func (s *FleetStore) List(ctx context.Context, orgId uuid.UUID, listParams ListParams, opts ...ListOption) (*domain.FleetList, error) {
 	var fleetsWithCount []fleetWithCount
 	var nextContinue *string
 	var numRemaining *int64
@@ -335,7 +335,7 @@ func (s *FleetStore) List(ctx context.Context, orgId uuid.UUID, listParams ListP
 	for _, f := range fleetsWithCount {
 		if options.withDeviceSummary {
 			if f.Fleet.Status.Data.DevicesSummary == nil {
-				f.Fleet.Status.Data.DevicesSummary = &api.DevicesSummary{}
+				f.Fleet.Status.Data.DevicesSummary = &domain.DevicesSummary{}
 			}
 			f.Fleet.Status.Data.DevicesSummary.Total = f.DeviceCount
 			err = s.addStatusSummary(ctx, orgId, f.Fleet.Name, f.Fleet.Status.Data.DevicesSummary)
@@ -372,7 +372,7 @@ func (s *FleetStore) Delete(ctx context.Context, orgId uuid.UUID, name string, e
 	}
 	return err
 }
-func (s *FleetStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.Fleet) (*api.Fleet, error) {
+func (s *FleetStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.Fleet) (*domain.Fleet, error) {
 	return s.genericStore.UpdateStatus(ctx, orgId, resource)
 }
 
@@ -406,7 +406,7 @@ func (s *FleetStore) UnsetOwnerByKind(ctx context.Context, tx *gorm.DB, orgId uu
 	return ErrorFromGormError(result.Error)
 }
 
-func (s *FleetStore) updateConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition, eventCallback EventCallback) (bool, error) {
+func (s *FleetStore) updateConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition, eventCallback EventCallback) (bool, error) {
 	existingRecord := model.Fleet{Resource: model.Resource{OrgID: orgId, Name: name}}
 	result := s.getDB(ctx).Take(&existingRecord)
 	if result.Error != nil {
@@ -414,19 +414,19 @@ func (s *FleetStore) updateConditions(ctx context.Context, orgId uuid.UUID, name
 	}
 
 	if existingRecord.Status == nil {
-		existingRecord.Status = model.MakeJSONField(api.FleetStatus{})
+		existingRecord.Status = model.MakeJSONField(domain.FleetStatus{})
 	}
 	if existingRecord.Status.Data.Conditions == nil {
-		existingRecord.Status.Data.Conditions = []api.Condition{}
+		existingRecord.Status.Data.Conditions = []domain.Condition{}
 	}
 
 	// Make a full copy of the existing conditions
-	existingConditions := make([]api.Condition, len(existingRecord.Status.Data.Conditions))
+	existingConditions := make([]domain.Condition, len(existingRecord.Status.Data.Conditions))
 	copy(existingConditions, existingRecord.Status.Data.Conditions)
 
 	changed := false
 	for _, condition := range conditions {
-		if api.SetStatusCondition(&existingRecord.Status.Data.Conditions, condition) {
+		if domain.SetStatusCondition(&existingRecord.Status.Data.Conditions, condition) {
 			changed = true
 		}
 	}
@@ -453,7 +453,7 @@ func (s *FleetStore) updateConditions(ctx context.Context, orgId uuid.UUID, name
 	return false, nil
 }
 
-func (s *FleetStore) UpdateConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition, eventCallback EventCallback) error {
+func (s *FleetStore) UpdateConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition, eventCallback EventCallback) error {
 	return retryUpdate(func() (bool, error) {
 		return s.updateConditions(ctx, orgId, name, conditions, eventCallback)
 	})
@@ -489,10 +489,10 @@ func (s *FleetStore) UpdateAnnotations(ctx context.Context, orgId uuid.UUID, nam
 		return s.updateAnnotations(ctx, existingRecord, newAnnotations)
 	})
 
-	oldFleet := &api.Fleet{Metadata: api.ObjectMeta{
+	oldFleet := &domain.Fleet{Metadata: domain.ObjectMeta{
 		Annotations: &existingAnnotations,
 	}}
-	newFleet := &api.Fleet{Metadata: api.ObjectMeta{
+	newFleet := &domain.Fleet{Metadata: domain.ObjectMeta{
 		Annotations: &newAnnotations,
 	}}
 	s.callEventCallback(ctx, eventCallback, orgId, name, oldFleet, newFleet, false, err)
@@ -513,7 +513,7 @@ func (s *FleetStore) OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUI
 	})
 }
 
-func (s *FleetStore) GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*api.RepositoryList, error) {
+func (s *FleetStore) GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*domain.RepositoryList, error) {
 	fleet := model.Fleet{Resource: model.Resource{OrgID: orgId, Name: name}}
 	var repos []model.Repository
 	err := s.getDB(ctx).Model(&fleet).Association("Repositories").Find(&repos)

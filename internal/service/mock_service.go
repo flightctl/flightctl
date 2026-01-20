@@ -14,7 +14,7 @@ import (
 	reflect "reflect"
 	time "time"
 
-	v1beta1 "github.com/flightctl/flightctl/api/v1beta1"
+	domain "github.com/flightctl/flightctl/internal/domain"
 	store "github.com/flightctl/flightctl/internal/store"
 	selector "github.com/flightctl/flightctl/internal/store/selector"
 	uuid "github.com/google/uuid"
@@ -45,11 +45,11 @@ func (m *MockService) EXPECT() *MockServiceMockRecorder {
 }
 
 // ApproveEnrollmentRequest mocks base method.
-func (m *MockService) ApproveEnrollmentRequest(ctx context.Context, orgId uuid.UUID, name string, approval v1beta1.EnrollmentRequestApproval) (*v1beta1.EnrollmentRequestApprovalStatus, v1beta1.Status) {
+func (m *MockService) ApproveEnrollmentRequest(ctx context.Context, orgId uuid.UUID, name string, approval domain.EnrollmentRequestApproval) (*domain.EnrollmentRequestApprovalStatus, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ApproveEnrollmentRequest", ctx, orgId, name, approval)
-	ret0, _ := ret[0].(*v1beta1.EnrollmentRequestApprovalStatus)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret0, _ := ret[0].(*domain.EnrollmentRequestApprovalStatus)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -60,11 +60,11 @@ func (mr *MockServiceMockRecorder) ApproveEnrollmentRequest(ctx, orgId, name, ap
 }
 
 // CountDevices mocks base method.
-func (m *MockService) CountDevices(ctx context.Context, orgId uuid.UUID, params v1beta1.ListDevicesParams, annotationSelector *selector.AnnotationSelector) (int64, v1beta1.Status) {
+func (m *MockService) CountDevices(ctx context.Context, orgId uuid.UUID, params domain.ListDevicesParams, annotationSelector *selector.AnnotationSelector) (int64, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CountDevices", ctx, orgId, params, annotationSelector)
 	ret0, _ := ret[0].(int64)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -75,11 +75,11 @@ func (mr *MockServiceMockRecorder) CountDevices(ctx, orgId, params, annotationSe
 }
 
 // CountDevicesByLabels mocks base method.
-func (m *MockService) CountDevicesByLabels(ctx context.Context, orgId uuid.UUID, params v1beta1.ListDevicesParams, annotationSelector *selector.AnnotationSelector, groupBy []string) ([]map[string]any, v1beta1.Status) {
+func (m *MockService) CountDevicesByLabels(ctx context.Context, orgId uuid.UUID, params domain.ListDevicesParams, annotationSelector *selector.AnnotationSelector, groupBy []string) ([]map[string]any, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CountDevicesByLabels", ctx, orgId, params, annotationSelector, groupBy)
 	ret0, _ := ret[0].([]map[string]any)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -90,11 +90,11 @@ func (mr *MockServiceMockRecorder) CountDevicesByLabels(ctx, orgId, params, anno
 }
 
 // CreateAuthProvider mocks base method.
-func (m *MockService) CreateAuthProvider(ctx context.Context, orgId uuid.UUID, authProvider v1beta1.AuthProvider) (*v1beta1.AuthProvider, v1beta1.Status) {
+func (m *MockService) CreateAuthProvider(ctx context.Context, orgId uuid.UUID, authProvider domain.AuthProvider) (*domain.AuthProvider, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CreateAuthProvider", ctx, orgId, authProvider)
-	ret0, _ := ret[0].(*v1beta1.AuthProvider)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret0, _ := ret[0].(*domain.AuthProvider)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -105,11 +105,11 @@ func (mr *MockServiceMockRecorder) CreateAuthProvider(ctx, orgId, authProvider a
 }
 
 // CreateCertificateSigningRequest mocks base method.
-func (m *MockService) CreateCertificateSigningRequest(ctx context.Context, orgId uuid.UUID, csr v1beta1.CertificateSigningRequest) (*v1beta1.CertificateSigningRequest, v1beta1.Status) {
+func (m *MockService) CreateCertificateSigningRequest(ctx context.Context, orgId uuid.UUID, csr domain.CertificateSigningRequest) (*domain.CertificateSigningRequest, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CreateCertificateSigningRequest", ctx, orgId, csr)
-	ret0, _ := ret[0].(*v1beta1.CertificateSigningRequest)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret0, _ := ret[0].(*domain.CertificateSigningRequest)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -120,11 +120,11 @@ func (mr *MockServiceMockRecorder) CreateCertificateSigningRequest(ctx, orgId, c
 }
 
 // CreateDevice mocks base method.
-func (m *MockService) CreateDevice(ctx context.Context, orgId uuid.UUID, device v1beta1.Device) (*v1beta1.Device, v1beta1.Status) {
+func (m *MockService) CreateDevice(ctx context.Context, orgId uuid.UUID, device domain.Device) (*domain.Device, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CreateDevice", ctx, orgId, device)
-	ret0, _ := ret[0].(*v1beta1.Device)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret0, _ := ret[0].(*domain.Device)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -135,11 +135,11 @@ func (mr *MockServiceMockRecorder) CreateDevice(ctx, orgId, device any) *gomock.
 }
 
 // CreateEnrollmentRequest mocks base method.
-func (m *MockService) CreateEnrollmentRequest(ctx context.Context, orgId uuid.UUID, er v1beta1.EnrollmentRequest) (*v1beta1.EnrollmentRequest, v1beta1.Status) {
+func (m *MockService) CreateEnrollmentRequest(ctx context.Context, orgId uuid.UUID, er domain.EnrollmentRequest) (*domain.EnrollmentRequest, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CreateEnrollmentRequest", ctx, orgId, er)
-	ret0, _ := ret[0].(*v1beta1.EnrollmentRequest)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret0, _ := ret[0].(*domain.EnrollmentRequest)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -150,7 +150,7 @@ func (mr *MockServiceMockRecorder) CreateEnrollmentRequest(ctx, orgId, er any) *
 }
 
 // CreateEvent mocks base method.
-func (m *MockService) CreateEvent(ctx context.Context, orgId uuid.UUID, event *v1beta1.Event) {
+func (m *MockService) CreateEvent(ctx context.Context, orgId uuid.UUID, event *domain.Event) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "CreateEvent", ctx, orgId, event)
 }
@@ -162,11 +162,11 @@ func (mr *MockServiceMockRecorder) CreateEvent(ctx, orgId, event any) *gomock.Ca
 }
 
 // CreateFleet mocks base method.
-func (m *MockService) CreateFleet(ctx context.Context, orgId uuid.UUID, fleet v1beta1.Fleet) (*v1beta1.Fleet, v1beta1.Status) {
+func (m *MockService) CreateFleet(ctx context.Context, orgId uuid.UUID, fleet domain.Fleet) (*domain.Fleet, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CreateFleet", ctx, orgId, fleet)
-	ret0, _ := ret[0].(*v1beta1.Fleet)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret0, _ := ret[0].(*domain.Fleet)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -177,11 +177,11 @@ func (mr *MockServiceMockRecorder) CreateFleet(ctx, orgId, fleet any) *gomock.Ca
 }
 
 // CreateRepository mocks base method.
-func (m *MockService) CreateRepository(ctx context.Context, orgId uuid.UUID, repo v1beta1.Repository) (*v1beta1.Repository, v1beta1.Status) {
+func (m *MockService) CreateRepository(ctx context.Context, orgId uuid.UUID, repo domain.Repository) (*domain.Repository, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CreateRepository", ctx, orgId, repo)
-	ret0, _ := ret[0].(*v1beta1.Repository)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret0, _ := ret[0].(*domain.Repository)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -192,11 +192,11 @@ func (mr *MockServiceMockRecorder) CreateRepository(ctx, orgId, repo any) *gomoc
 }
 
 // CreateResourceSync mocks base method.
-func (m *MockService) CreateResourceSync(ctx context.Context, orgId uuid.UUID, rs v1beta1.ResourceSync) (*v1beta1.ResourceSync, v1beta1.Status) {
+func (m *MockService) CreateResourceSync(ctx context.Context, orgId uuid.UUID, rs domain.ResourceSync) (*domain.ResourceSync, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CreateResourceSync", ctx, orgId, rs)
-	ret0, _ := ret[0].(*v1beta1.ResourceSync)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret0, _ := ret[0].(*domain.ResourceSync)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -207,11 +207,11 @@ func (mr *MockServiceMockRecorder) CreateResourceSync(ctx, orgId, rs any) *gomoc
 }
 
 // CreateTemplateVersion mocks base method.
-func (m *MockService) CreateTemplateVersion(ctx context.Context, orgId uuid.UUID, tv v1beta1.TemplateVersion, immediateRollout bool) (*v1beta1.TemplateVersion, v1beta1.Status) {
+func (m *MockService) CreateTemplateVersion(ctx context.Context, orgId uuid.UUID, tv domain.TemplateVersion, immediateRollout bool) (*domain.TemplateVersion, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CreateTemplateVersion", ctx, orgId, tv, immediateRollout)
-	ret0, _ := ret[0].(*v1beta1.TemplateVersion)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret0, _ := ret[0].(*domain.TemplateVersion)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -222,11 +222,11 @@ func (mr *MockServiceMockRecorder) CreateTemplateVersion(ctx, orgId, tv, immedia
 }
 
 // DecommissionDevice mocks base method.
-func (m *MockService) DecommissionDevice(ctx context.Context, orgId uuid.UUID, name string, decom v1beta1.DeviceDecommission) (*v1beta1.Device, v1beta1.Status) {
+func (m *MockService) DecommissionDevice(ctx context.Context, orgId uuid.UUID, name string, decom domain.DeviceDecommission) (*domain.Device, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "DecommissionDevice", ctx, orgId, name, decom)
-	ret0, _ := ret[0].(*v1beta1.Device)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret0, _ := ret[0].(*domain.Device)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -237,10 +237,10 @@ func (mr *MockServiceMockRecorder) DecommissionDevice(ctx, orgId, name, decom an
 }
 
 // DeleteAuthProvider mocks base method.
-func (m *MockService) DeleteAuthProvider(ctx context.Context, orgId uuid.UUID, name string) v1beta1.Status {
+func (m *MockService) DeleteAuthProvider(ctx context.Context, orgId uuid.UUID, name string) domain.Status {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "DeleteAuthProvider", ctx, orgId, name)
-	ret0, _ := ret[0].(v1beta1.Status)
+	ret0, _ := ret[0].(domain.Status)
 	return ret0
 }
 
@@ -251,10 +251,10 @@ func (mr *MockServiceMockRecorder) DeleteAuthProvider(ctx, orgId, name any) *gom
 }
 
 // DeleteCertificateSigningRequest mocks base method.
-func (m *MockService) DeleteCertificateSigningRequest(ctx context.Context, orgId uuid.UUID, name string) v1beta1.Status {
+func (m *MockService) DeleteCertificateSigningRequest(ctx context.Context, orgId uuid.UUID, name string) domain.Status {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "DeleteCertificateSigningRequest", ctx, orgId, name)
-	ret0, _ := ret[0].(v1beta1.Status)
+	ret0, _ := ret[0].(domain.Status)
 	return ret0
 }
 
@@ -265,10 +265,10 @@ func (mr *MockServiceMockRecorder) DeleteCertificateSigningRequest(ctx, orgId, n
 }
 
 // DeleteDevice mocks base method.
-func (m *MockService) DeleteDevice(ctx context.Context, orgId uuid.UUID, name string) v1beta1.Status {
+func (m *MockService) DeleteDevice(ctx context.Context, orgId uuid.UUID, name string) domain.Status {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "DeleteDevice", ctx, orgId, name)
-	ret0, _ := ret[0].(v1beta1.Status)
+	ret0, _ := ret[0].(domain.Status)
 	return ret0
 }
 
@@ -279,10 +279,10 @@ func (mr *MockServiceMockRecorder) DeleteDevice(ctx, orgId, name any) *gomock.Ca
 }
 
 // DeleteEnrollmentRequest mocks base method.
-func (m *MockService) DeleteEnrollmentRequest(ctx context.Context, orgId uuid.UUID, name string) v1beta1.Status {
+func (m *MockService) DeleteEnrollmentRequest(ctx context.Context, orgId uuid.UUID, name string) domain.Status {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "DeleteEnrollmentRequest", ctx, orgId, name)
-	ret0, _ := ret[0].(v1beta1.Status)
+	ret0, _ := ret[0].(domain.Status)
 	return ret0
 }
 
@@ -293,11 +293,11 @@ func (mr *MockServiceMockRecorder) DeleteEnrollmentRequest(ctx, orgId, name any)
 }
 
 // DeleteEventsOlderThan mocks base method.
-func (m *MockService) DeleteEventsOlderThan(ctx context.Context, cutoffTime time.Time) (int64, v1beta1.Status) {
+func (m *MockService) DeleteEventsOlderThan(ctx context.Context, cutoffTime time.Time) (int64, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "DeleteEventsOlderThan", ctx, cutoffTime)
 	ret0, _ := ret[0].(int64)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -308,10 +308,10 @@ func (mr *MockServiceMockRecorder) DeleteEventsOlderThan(ctx, cutoffTime any) *g
 }
 
 // DeleteFleet mocks base method.
-func (m *MockService) DeleteFleet(ctx context.Context, orgId uuid.UUID, name string) v1beta1.Status {
+func (m *MockService) DeleteFleet(ctx context.Context, orgId uuid.UUID, name string) domain.Status {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "DeleteFleet", ctx, orgId, name)
-	ret0, _ := ret[0].(v1beta1.Status)
+	ret0, _ := ret[0].(domain.Status)
 	return ret0
 }
 
@@ -322,10 +322,10 @@ func (mr *MockServiceMockRecorder) DeleteFleet(ctx, orgId, name any) *gomock.Cal
 }
 
 // DeleteRepository mocks base method.
-func (m *MockService) DeleteRepository(ctx context.Context, orgId uuid.UUID, name string) v1beta1.Status {
+func (m *MockService) DeleteRepository(ctx context.Context, orgId uuid.UUID, name string) domain.Status {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "DeleteRepository", ctx, orgId, name)
-	ret0, _ := ret[0].(v1beta1.Status)
+	ret0, _ := ret[0].(domain.Status)
 	return ret0
 }
 
@@ -336,10 +336,10 @@ func (mr *MockServiceMockRecorder) DeleteRepository(ctx, orgId, name any) *gomoc
 }
 
 // DeleteResourceSync mocks base method.
-func (m *MockService) DeleteResourceSync(ctx context.Context, orgId uuid.UUID, name string) v1beta1.Status {
+func (m *MockService) DeleteResourceSync(ctx context.Context, orgId uuid.UUID, name string) domain.Status {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "DeleteResourceSync", ctx, orgId, name)
-	ret0, _ := ret[0].(v1beta1.Status)
+	ret0, _ := ret[0].(domain.Status)
 	return ret0
 }
 
@@ -350,10 +350,10 @@ func (mr *MockServiceMockRecorder) DeleteResourceSync(ctx, orgId, name any) *gom
 }
 
 // DeleteTemplateVersion mocks base method.
-func (m *MockService) DeleteTemplateVersion(ctx context.Context, orgId uuid.UUID, fleet, name string) v1beta1.Status {
+func (m *MockService) DeleteTemplateVersion(ctx context.Context, orgId uuid.UUID, fleet, name string) domain.Status {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "DeleteTemplateVersion", ctx, orgId, fleet, name)
-	ret0, _ := ret[0].(v1beta1.Status)
+	ret0, _ := ret[0].(domain.Status)
 	return ret0
 }
 
@@ -364,11 +364,11 @@ func (mr *MockServiceMockRecorder) DeleteTemplateVersion(ctx, orgId, fleet, name
 }
 
 // GetAuthConfig mocks base method.
-func (m *MockService) GetAuthConfig(ctx context.Context, authConfig *v1beta1.AuthConfig) (*v1beta1.AuthConfig, v1beta1.Status) {
+func (m *MockService) GetAuthConfig(ctx context.Context, authConfig *domain.AuthConfig) (*domain.AuthConfig, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetAuthConfig", ctx, authConfig)
-	ret0, _ := ret[0].(*v1beta1.AuthConfig)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret0, _ := ret[0].(*domain.AuthConfig)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -379,11 +379,11 @@ func (mr *MockServiceMockRecorder) GetAuthConfig(ctx, authConfig any) *gomock.Ca
 }
 
 // GetAuthProvider mocks base method.
-func (m *MockService) GetAuthProvider(ctx context.Context, orgId uuid.UUID, name string) (*v1beta1.AuthProvider, v1beta1.Status) {
+func (m *MockService) GetAuthProvider(ctx context.Context, orgId uuid.UUID, name string) (*domain.AuthProvider, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetAuthProvider", ctx, orgId, name)
-	ret0, _ := ret[0].(*v1beta1.AuthProvider)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret0, _ := ret[0].(*domain.AuthProvider)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -394,11 +394,11 @@ func (mr *MockServiceMockRecorder) GetAuthProvider(ctx, orgId, name any) *gomock
 }
 
 // GetAuthProviderByAuthorizationUrl mocks base method.
-func (m *MockService) GetAuthProviderByAuthorizationUrl(ctx context.Context, orgId uuid.UUID, authorizationUrl string) (*v1beta1.AuthProvider, v1beta1.Status) {
+func (m *MockService) GetAuthProviderByAuthorizationUrl(ctx context.Context, orgId uuid.UUID, authorizationUrl string) (*domain.AuthProvider, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetAuthProviderByAuthorizationUrl", ctx, orgId, authorizationUrl)
-	ret0, _ := ret[0].(*v1beta1.AuthProvider)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret0, _ := ret[0].(*domain.AuthProvider)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -409,11 +409,11 @@ func (mr *MockServiceMockRecorder) GetAuthProviderByAuthorizationUrl(ctx, orgId,
 }
 
 // GetAuthProviderByIssuerAndClientId mocks base method.
-func (m *MockService) GetAuthProviderByIssuerAndClientId(ctx context.Context, orgId uuid.UUID, issuer, clientId string) (*v1beta1.AuthProvider, v1beta1.Status) {
+func (m *MockService) GetAuthProviderByIssuerAndClientId(ctx context.Context, orgId uuid.UUID, issuer, clientId string) (*domain.AuthProvider, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetAuthProviderByIssuerAndClientId", ctx, orgId, issuer, clientId)
-	ret0, _ := ret[0].(*v1beta1.AuthProvider)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret0, _ := ret[0].(*domain.AuthProvider)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -424,11 +424,11 @@ func (mr *MockServiceMockRecorder) GetAuthProviderByIssuerAndClientId(ctx, orgId
 }
 
 // GetCertificateSigningRequest mocks base method.
-func (m *MockService) GetCertificateSigningRequest(ctx context.Context, orgId uuid.UUID, name string) (*v1beta1.CertificateSigningRequest, v1beta1.Status) {
+func (m *MockService) GetCertificateSigningRequest(ctx context.Context, orgId uuid.UUID, name string) (*domain.CertificateSigningRequest, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetCertificateSigningRequest", ctx, orgId, name)
-	ret0, _ := ret[0].(*v1beta1.CertificateSigningRequest)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret0, _ := ret[0].(*domain.CertificateSigningRequest)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -439,11 +439,11 @@ func (mr *MockServiceMockRecorder) GetCertificateSigningRequest(ctx, orgId, name
 }
 
 // GetCheckpoint mocks base method.
-func (m *MockService) GetCheckpoint(ctx context.Context, consumer, key string) ([]byte, v1beta1.Status) {
+func (m *MockService) GetCheckpoint(ctx context.Context, consumer, key string) ([]byte, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetCheckpoint", ctx, consumer, key)
 	ret0, _ := ret[0].([]byte)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -454,11 +454,11 @@ func (mr *MockServiceMockRecorder) GetCheckpoint(ctx, consumer, key any) *gomock
 }
 
 // GetDatabaseTime mocks base method.
-func (m *MockService) GetDatabaseTime(ctx context.Context) (time.Time, v1beta1.Status) {
+func (m *MockService) GetDatabaseTime(ctx context.Context) (time.Time, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetDatabaseTime", ctx)
 	ret0, _ := ret[0].(time.Time)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -469,11 +469,11 @@ func (mr *MockServiceMockRecorder) GetDatabaseTime(ctx any) *gomock.Call {
 }
 
 // GetDevice mocks base method.
-func (m *MockService) GetDevice(ctx context.Context, orgId uuid.UUID, name string) (*v1beta1.Device, v1beta1.Status) {
+func (m *MockService) GetDevice(ctx context.Context, orgId uuid.UUID, name string) (*domain.Device, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetDevice", ctx, orgId, name)
-	ret0, _ := ret[0].(*v1beta1.Device)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret0, _ := ret[0].(*domain.Device)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -484,11 +484,11 @@ func (mr *MockServiceMockRecorder) GetDevice(ctx, orgId, name any) *gomock.Call 
 }
 
 // GetDeviceCompletionCounts mocks base method.
-func (m *MockService) GetDeviceCompletionCounts(ctx context.Context, orgId uuid.UUID, owner, templateVersion string, updateTimeout *time.Duration) ([]v1beta1.DeviceCompletionCount, v1beta1.Status) {
+func (m *MockService) GetDeviceCompletionCounts(ctx context.Context, orgId uuid.UUID, owner, templateVersion string, updateTimeout *time.Duration) ([]domain.DeviceCompletionCount, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetDeviceCompletionCounts", ctx, orgId, owner, templateVersion, updateTimeout)
-	ret0, _ := ret[0].([]v1beta1.DeviceCompletionCount)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret0, _ := ret[0].([]domain.DeviceCompletionCount)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -499,11 +499,11 @@ func (mr *MockServiceMockRecorder) GetDeviceCompletionCounts(ctx, orgId, owner, 
 }
 
 // GetDeviceLastSeen mocks base method.
-func (m *MockService) GetDeviceLastSeen(ctx context.Context, orgId uuid.UUID, name string) (*v1beta1.DeviceLastSeen, v1beta1.Status) {
+func (m *MockService) GetDeviceLastSeen(ctx context.Context, orgId uuid.UUID, name string) (*domain.DeviceLastSeen, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetDeviceLastSeen", ctx, orgId, name)
-	ret0, _ := ret[0].(*v1beta1.DeviceLastSeen)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret0, _ := ret[0].(*domain.DeviceLastSeen)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -514,11 +514,11 @@ func (mr *MockServiceMockRecorder) GetDeviceLastSeen(ctx, orgId, name any) *gomo
 }
 
 // GetDeviceRepositoryRefs mocks base method.
-func (m *MockService) GetDeviceRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*v1beta1.RepositoryList, v1beta1.Status) {
+func (m *MockService) GetDeviceRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*domain.RepositoryList, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetDeviceRepositoryRefs", ctx, orgId, name)
-	ret0, _ := ret[0].(*v1beta1.RepositoryList)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret0, _ := ret[0].(*domain.RepositoryList)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -529,11 +529,11 @@ func (mr *MockServiceMockRecorder) GetDeviceRepositoryRefs(ctx, orgId, name any)
 }
 
 // GetDeviceStatus mocks base method.
-func (m *MockService) GetDeviceStatus(ctx context.Context, orgId uuid.UUID, name string) (*v1beta1.Device, v1beta1.Status) {
+func (m *MockService) GetDeviceStatus(ctx context.Context, orgId uuid.UUID, name string) (*domain.Device, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetDeviceStatus", ctx, orgId, name)
-	ret0, _ := ret[0].(*v1beta1.Device)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret0, _ := ret[0].(*domain.Device)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -544,11 +544,11 @@ func (mr *MockServiceMockRecorder) GetDeviceStatus(ctx, orgId, name any) *gomock
 }
 
 // GetDevicesSummary mocks base method.
-func (m *MockService) GetDevicesSummary(ctx context.Context, orgId uuid.UUID, params v1beta1.ListDevicesParams, annotationSelector *selector.AnnotationSelector) (*v1beta1.DevicesSummary, v1beta1.Status) {
+func (m *MockService) GetDevicesSummary(ctx context.Context, orgId uuid.UUID, params domain.ListDevicesParams, annotationSelector *selector.AnnotationSelector) (*domain.DevicesSummary, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetDevicesSummary", ctx, orgId, params, annotationSelector)
-	ret0, _ := ret[0].(*v1beta1.DevicesSummary)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret0, _ := ret[0].(*domain.DevicesSummary)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -559,11 +559,11 @@ func (mr *MockServiceMockRecorder) GetDevicesSummary(ctx, orgId, params, annotat
 }
 
 // GetEnrollmentConfig mocks base method.
-func (m *MockService) GetEnrollmentConfig(ctx context.Context, orgId uuid.UUID, params v1beta1.GetEnrollmentConfigParams) (*v1beta1.EnrollmentConfig, v1beta1.Status) {
+func (m *MockService) GetEnrollmentConfig(ctx context.Context, orgId uuid.UUID, params domain.GetEnrollmentConfigParams) (*domain.EnrollmentConfig, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetEnrollmentConfig", ctx, orgId, params)
-	ret0, _ := ret[0].(*v1beta1.EnrollmentConfig)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret0, _ := ret[0].(*domain.EnrollmentConfig)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -574,11 +574,11 @@ func (mr *MockServiceMockRecorder) GetEnrollmentConfig(ctx, orgId, params any) *
 }
 
 // GetEnrollmentRequest mocks base method.
-func (m *MockService) GetEnrollmentRequest(ctx context.Context, orgId uuid.UUID, name string) (*v1beta1.EnrollmentRequest, v1beta1.Status) {
+func (m *MockService) GetEnrollmentRequest(ctx context.Context, orgId uuid.UUID, name string) (*domain.EnrollmentRequest, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetEnrollmentRequest", ctx, orgId, name)
-	ret0, _ := ret[0].(*v1beta1.EnrollmentRequest)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret0, _ := ret[0].(*domain.EnrollmentRequest)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -589,11 +589,11 @@ func (mr *MockServiceMockRecorder) GetEnrollmentRequest(ctx, orgId, name any) *g
 }
 
 // GetEnrollmentRequestStatus mocks base method.
-func (m *MockService) GetEnrollmentRequestStatus(ctx context.Context, orgId uuid.UUID, name string) (*v1beta1.EnrollmentRequest, v1beta1.Status) {
+func (m *MockService) GetEnrollmentRequestStatus(ctx context.Context, orgId uuid.UUID, name string) (*domain.EnrollmentRequest, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetEnrollmentRequestStatus", ctx, orgId, name)
-	ret0, _ := ret[0].(*v1beta1.EnrollmentRequest)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret0, _ := ret[0].(*domain.EnrollmentRequest)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -604,11 +604,11 @@ func (mr *MockServiceMockRecorder) GetEnrollmentRequestStatus(ctx, orgId, name a
 }
 
 // GetFleet mocks base method.
-func (m *MockService) GetFleet(ctx context.Context, orgId uuid.UUID, name string, params v1beta1.GetFleetParams) (*v1beta1.Fleet, v1beta1.Status) {
+func (m *MockService) GetFleet(ctx context.Context, orgId uuid.UUID, name string, params domain.GetFleetParams) (*domain.Fleet, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetFleet", ctx, orgId, name, params)
-	ret0, _ := ret[0].(*v1beta1.Fleet)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret0, _ := ret[0].(*domain.Fleet)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -619,11 +619,11 @@ func (mr *MockServiceMockRecorder) GetFleet(ctx, orgId, name, params any) *gomoc
 }
 
 // GetFleetRepositoryRefs mocks base method.
-func (m *MockService) GetFleetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*v1beta1.RepositoryList, v1beta1.Status) {
+func (m *MockService) GetFleetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*domain.RepositoryList, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetFleetRepositoryRefs", ctx, orgId, name)
-	ret0, _ := ret[0].(*v1beta1.RepositoryList)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret0, _ := ret[0].(*domain.RepositoryList)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -634,11 +634,11 @@ func (mr *MockServiceMockRecorder) GetFleetRepositoryRefs(ctx, orgId, name any) 
 }
 
 // GetFleetStatus mocks base method.
-func (m *MockService) GetFleetStatus(ctx context.Context, orgId uuid.UUID, name string) (*v1beta1.Fleet, v1beta1.Status) {
+func (m *MockService) GetFleetStatus(ctx context.Context, orgId uuid.UUID, name string) (*domain.Fleet, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetFleetStatus", ctx, orgId, name)
-	ret0, _ := ret[0].(*v1beta1.Fleet)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret0, _ := ret[0].(*domain.Fleet)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -649,11 +649,11 @@ func (mr *MockServiceMockRecorder) GetFleetStatus(ctx, orgId, name any) *gomock.
 }
 
 // GetLatestTemplateVersion mocks base method.
-func (m *MockService) GetLatestTemplateVersion(ctx context.Context, orgId uuid.UUID, fleet string) (*v1beta1.TemplateVersion, v1beta1.Status) {
+func (m *MockService) GetLatestTemplateVersion(ctx context.Context, orgId uuid.UUID, fleet string) (*domain.TemplateVersion, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetLatestTemplateVersion", ctx, orgId, fleet)
-	ret0, _ := ret[0].(*v1beta1.TemplateVersion)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret0, _ := ret[0].(*domain.TemplateVersion)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -664,11 +664,11 @@ func (mr *MockServiceMockRecorder) GetLatestTemplateVersion(ctx, orgId, fleet an
 }
 
 // GetRenderedDevice mocks base method.
-func (m *MockService) GetRenderedDevice(ctx context.Context, orgId uuid.UUID, name string, params v1beta1.GetRenderedDeviceParams) (*v1beta1.Device, v1beta1.Status) {
+func (m *MockService) GetRenderedDevice(ctx context.Context, orgId uuid.UUID, name string, params domain.GetRenderedDeviceParams) (*domain.Device, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetRenderedDevice", ctx, orgId, name, params)
-	ret0, _ := ret[0].(*v1beta1.Device)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret0, _ := ret[0].(*domain.Device)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -679,11 +679,11 @@ func (mr *MockServiceMockRecorder) GetRenderedDevice(ctx, orgId, name, params an
 }
 
 // GetRepository mocks base method.
-func (m *MockService) GetRepository(ctx context.Context, orgId uuid.UUID, name string) (*v1beta1.Repository, v1beta1.Status) {
+func (m *MockService) GetRepository(ctx context.Context, orgId uuid.UUID, name string) (*domain.Repository, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetRepository", ctx, orgId, name)
-	ret0, _ := ret[0].(*v1beta1.Repository)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret0, _ := ret[0].(*domain.Repository)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -694,11 +694,11 @@ func (mr *MockServiceMockRecorder) GetRepository(ctx, orgId, name any) *gomock.C
 }
 
 // GetRepositoryDeviceReferences mocks base method.
-func (m *MockService) GetRepositoryDeviceReferences(ctx context.Context, orgId uuid.UUID, name string) (*v1beta1.DeviceList, v1beta1.Status) {
+func (m *MockService) GetRepositoryDeviceReferences(ctx context.Context, orgId uuid.UUID, name string) (*domain.DeviceList, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetRepositoryDeviceReferences", ctx, orgId, name)
-	ret0, _ := ret[0].(*v1beta1.DeviceList)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret0, _ := ret[0].(*domain.DeviceList)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -709,11 +709,11 @@ func (mr *MockServiceMockRecorder) GetRepositoryDeviceReferences(ctx, orgId, nam
 }
 
 // GetRepositoryFleetReferences mocks base method.
-func (m *MockService) GetRepositoryFleetReferences(ctx context.Context, orgId uuid.UUID, name string) (*v1beta1.FleetList, v1beta1.Status) {
+func (m *MockService) GetRepositoryFleetReferences(ctx context.Context, orgId uuid.UUID, name string) (*domain.FleetList, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetRepositoryFleetReferences", ctx, orgId, name)
-	ret0, _ := ret[0].(*v1beta1.FleetList)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret0, _ := ret[0].(*domain.FleetList)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -724,11 +724,11 @@ func (mr *MockServiceMockRecorder) GetRepositoryFleetReferences(ctx, orgId, name
 }
 
 // GetResourceSync mocks base method.
-func (m *MockService) GetResourceSync(ctx context.Context, orgId uuid.UUID, name string) (*v1beta1.ResourceSync, v1beta1.Status) {
+func (m *MockService) GetResourceSync(ctx context.Context, orgId uuid.UUID, name string) (*domain.ResourceSync, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetResourceSync", ctx, orgId, name)
-	ret0, _ := ret[0].(*v1beta1.ResourceSync)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret0, _ := ret[0].(*domain.ResourceSync)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -739,11 +739,11 @@ func (mr *MockServiceMockRecorder) GetResourceSync(ctx, orgId, name any) *gomock
 }
 
 // GetTemplateVersion mocks base method.
-func (m *MockService) GetTemplateVersion(ctx context.Context, orgId uuid.UUID, fleet, name string) (*v1beta1.TemplateVersion, v1beta1.Status) {
+func (m *MockService) GetTemplateVersion(ctx context.Context, orgId uuid.UUID, fleet, name string) (*domain.TemplateVersion, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetTemplateVersion", ctx, orgId, fleet, name)
-	ret0, _ := ret[0].(*v1beta1.TemplateVersion)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret0, _ := ret[0].(*domain.TemplateVersion)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -754,11 +754,11 @@ func (mr *MockServiceMockRecorder) GetTemplateVersion(ctx, orgId, fleet, name an
 }
 
 // ListAllAuthProviders mocks base method.
-func (m *MockService) ListAllAuthProviders(ctx context.Context, params v1beta1.ListAuthProvidersParams) (*v1beta1.AuthProviderList, v1beta1.Status) {
+func (m *MockService) ListAllAuthProviders(ctx context.Context, params domain.ListAuthProvidersParams) (*domain.AuthProviderList, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ListAllAuthProviders", ctx, params)
-	ret0, _ := ret[0].(*v1beta1.AuthProviderList)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret0, _ := ret[0].(*domain.AuthProviderList)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -769,11 +769,11 @@ func (mr *MockServiceMockRecorder) ListAllAuthProviders(ctx, params any) *gomock
 }
 
 // ListAuthProviders mocks base method.
-func (m *MockService) ListAuthProviders(ctx context.Context, orgId uuid.UUID, params v1beta1.ListAuthProvidersParams) (*v1beta1.AuthProviderList, v1beta1.Status) {
+func (m *MockService) ListAuthProviders(ctx context.Context, orgId uuid.UUID, params domain.ListAuthProvidersParams) (*domain.AuthProviderList, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ListAuthProviders", ctx, orgId, params)
-	ret0, _ := ret[0].(*v1beta1.AuthProviderList)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret0, _ := ret[0].(*domain.AuthProviderList)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -784,11 +784,11 @@ func (mr *MockServiceMockRecorder) ListAuthProviders(ctx, orgId, params any) *go
 }
 
 // ListCertificateSigningRequests mocks base method.
-func (m *MockService) ListCertificateSigningRequests(ctx context.Context, orgId uuid.UUID, params v1beta1.ListCertificateSigningRequestsParams) (*v1beta1.CertificateSigningRequestList, v1beta1.Status) {
+func (m *MockService) ListCertificateSigningRequests(ctx context.Context, orgId uuid.UUID, params domain.ListCertificateSigningRequestsParams) (*domain.CertificateSigningRequestList, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ListCertificateSigningRequests", ctx, orgId, params)
-	ret0, _ := ret[0].(*v1beta1.CertificateSigningRequestList)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret0, _ := ret[0].(*domain.CertificateSigningRequestList)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -799,11 +799,11 @@ func (mr *MockServiceMockRecorder) ListCertificateSigningRequests(ctx, orgId, pa
 }
 
 // ListDevices mocks base method.
-func (m *MockService) ListDevices(ctx context.Context, orgId uuid.UUID, params v1beta1.ListDevicesParams, annotationSelector *selector.AnnotationSelector) (*v1beta1.DeviceList, v1beta1.Status) {
+func (m *MockService) ListDevices(ctx context.Context, orgId uuid.UUID, params domain.ListDevicesParams, annotationSelector *selector.AnnotationSelector) (*domain.DeviceList, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ListDevices", ctx, orgId, params, annotationSelector)
-	ret0, _ := ret[0].(*v1beta1.DeviceList)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret0, _ := ret[0].(*domain.DeviceList)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -814,11 +814,11 @@ func (mr *MockServiceMockRecorder) ListDevices(ctx, orgId, params, annotationSel
 }
 
 // ListDevicesByServiceCondition mocks base method.
-func (m *MockService) ListDevicesByServiceCondition(ctx context.Context, orgId uuid.UUID, conditionType, conditionStatus string, listParams store.ListParams) (*v1beta1.DeviceList, v1beta1.Status) {
+func (m *MockService) ListDevicesByServiceCondition(ctx context.Context, orgId uuid.UUID, conditionType, conditionStatus string, listParams store.ListParams) (*domain.DeviceList, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ListDevicesByServiceCondition", ctx, orgId, conditionType, conditionStatus, listParams)
-	ret0, _ := ret[0].(*v1beta1.DeviceList)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret0, _ := ret[0].(*domain.DeviceList)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -829,11 +829,11 @@ func (mr *MockServiceMockRecorder) ListDevicesByServiceCondition(ctx, orgId, con
 }
 
 // ListDisconnectedDevices mocks base method.
-func (m *MockService) ListDisconnectedDevices(ctx context.Context, orgId uuid.UUID, params v1beta1.ListDevicesParams, cutoffTime time.Time) (*v1beta1.DeviceList, v1beta1.Status) {
+func (m *MockService) ListDisconnectedDevices(ctx context.Context, orgId uuid.UUID, params domain.ListDevicesParams, cutoffTime time.Time) (*domain.DeviceList, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ListDisconnectedDevices", ctx, orgId, params, cutoffTime)
-	ret0, _ := ret[0].(*v1beta1.DeviceList)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret0, _ := ret[0].(*domain.DeviceList)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -844,11 +844,11 @@ func (mr *MockServiceMockRecorder) ListDisconnectedDevices(ctx, orgId, params, c
 }
 
 // ListDisruptionBudgetFleets mocks base method.
-func (m *MockService) ListDisruptionBudgetFleets(ctx context.Context, orgId uuid.UUID) (*v1beta1.FleetList, v1beta1.Status) {
+func (m *MockService) ListDisruptionBudgetFleets(ctx context.Context, orgId uuid.UUID) (*domain.FleetList, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ListDisruptionBudgetFleets", ctx, orgId)
-	ret0, _ := ret[0].(*v1beta1.FleetList)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret0, _ := ret[0].(*domain.FleetList)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -859,11 +859,11 @@ func (mr *MockServiceMockRecorder) ListDisruptionBudgetFleets(ctx, orgId any) *g
 }
 
 // ListEnrollmentRequests mocks base method.
-func (m *MockService) ListEnrollmentRequests(ctx context.Context, orgId uuid.UUID, params v1beta1.ListEnrollmentRequestsParams) (*v1beta1.EnrollmentRequestList, v1beta1.Status) {
+func (m *MockService) ListEnrollmentRequests(ctx context.Context, orgId uuid.UUID, params domain.ListEnrollmentRequestsParams) (*domain.EnrollmentRequestList, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ListEnrollmentRequests", ctx, orgId, params)
-	ret0, _ := ret[0].(*v1beta1.EnrollmentRequestList)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret0, _ := ret[0].(*domain.EnrollmentRequestList)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -874,11 +874,11 @@ func (mr *MockServiceMockRecorder) ListEnrollmentRequests(ctx, orgId, params any
 }
 
 // ListEvents mocks base method.
-func (m *MockService) ListEvents(ctx context.Context, orgId uuid.UUID, params v1beta1.ListEventsParams) (*v1beta1.EventList, v1beta1.Status) {
+func (m *MockService) ListEvents(ctx context.Context, orgId uuid.UUID, params domain.ListEventsParams) (*domain.EventList, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ListEvents", ctx, orgId, params)
-	ret0, _ := ret[0].(*v1beta1.EventList)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret0, _ := ret[0].(*domain.EventList)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -889,11 +889,11 @@ func (mr *MockServiceMockRecorder) ListEvents(ctx, orgId, params any) *gomock.Ca
 }
 
 // ListFleetRolloutDeviceSelection mocks base method.
-func (m *MockService) ListFleetRolloutDeviceSelection(ctx context.Context, orgId uuid.UUID) (*v1beta1.FleetList, v1beta1.Status) {
+func (m *MockService) ListFleetRolloutDeviceSelection(ctx context.Context, orgId uuid.UUID) (*domain.FleetList, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ListFleetRolloutDeviceSelection", ctx, orgId)
-	ret0, _ := ret[0].(*v1beta1.FleetList)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret0, _ := ret[0].(*domain.FleetList)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -904,11 +904,11 @@ func (mr *MockServiceMockRecorder) ListFleetRolloutDeviceSelection(ctx, orgId an
 }
 
 // ListFleets mocks base method.
-func (m *MockService) ListFleets(ctx context.Context, orgId uuid.UUID, params v1beta1.ListFleetsParams) (*v1beta1.FleetList, v1beta1.Status) {
+func (m *MockService) ListFleets(ctx context.Context, orgId uuid.UUID, params domain.ListFleetsParams) (*domain.FleetList, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ListFleets", ctx, orgId, params)
-	ret0, _ := ret[0].(*v1beta1.FleetList)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret0, _ := ret[0].(*domain.FleetList)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -919,11 +919,11 @@ func (mr *MockServiceMockRecorder) ListFleets(ctx, orgId, params any) *gomock.Ca
 }
 
 // ListLabels mocks base method.
-func (m *MockService) ListLabels(ctx context.Context, orgId uuid.UUID, params v1beta1.ListLabelsParams) (*v1beta1.LabelList, v1beta1.Status) {
+func (m *MockService) ListLabels(ctx context.Context, orgId uuid.UUID, params domain.ListLabelsParams) (*domain.LabelList, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ListLabels", ctx, orgId, params)
-	ret0, _ := ret[0].(*v1beta1.LabelList)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret0, _ := ret[0].(*domain.LabelList)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -934,11 +934,11 @@ func (mr *MockServiceMockRecorder) ListLabels(ctx, orgId, params any) *gomock.Ca
 }
 
 // ListOrganizations mocks base method.
-func (m *MockService) ListOrganizations(ctx context.Context, params v1beta1.ListOrganizationsParams) (*v1beta1.OrganizationList, v1beta1.Status) {
+func (m *MockService) ListOrganizations(ctx context.Context, params domain.ListOrganizationsParams) (*domain.OrganizationList, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ListOrganizations", ctx, params)
-	ret0, _ := ret[0].(*v1beta1.OrganizationList)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret0, _ := ret[0].(*domain.OrganizationList)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -949,11 +949,11 @@ func (mr *MockServiceMockRecorder) ListOrganizations(ctx, params any) *gomock.Ca
 }
 
 // ListRepositories mocks base method.
-func (m *MockService) ListRepositories(ctx context.Context, orgId uuid.UUID, params v1beta1.ListRepositoriesParams) (*v1beta1.RepositoryList, v1beta1.Status) {
+func (m *MockService) ListRepositories(ctx context.Context, orgId uuid.UUID, params domain.ListRepositoriesParams) (*domain.RepositoryList, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ListRepositories", ctx, orgId, params)
-	ret0, _ := ret[0].(*v1beta1.RepositoryList)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret0, _ := ret[0].(*domain.RepositoryList)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -964,11 +964,11 @@ func (mr *MockServiceMockRecorder) ListRepositories(ctx, orgId, params any) *gom
 }
 
 // ListResourceSyncs mocks base method.
-func (m *MockService) ListResourceSyncs(ctx context.Context, orgId uuid.UUID, params v1beta1.ListResourceSyncsParams) (*v1beta1.ResourceSyncList, v1beta1.Status) {
+func (m *MockService) ListResourceSyncs(ctx context.Context, orgId uuid.UUID, params domain.ListResourceSyncsParams) (*domain.ResourceSyncList, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ListResourceSyncs", ctx, orgId, params)
-	ret0, _ := ret[0].(*v1beta1.ResourceSyncList)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret0, _ := ret[0].(*domain.ResourceSyncList)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -979,11 +979,11 @@ func (mr *MockServiceMockRecorder) ListResourceSyncs(ctx, orgId, params any) *go
 }
 
 // ListTemplateVersions mocks base method.
-func (m *MockService) ListTemplateVersions(ctx context.Context, orgId uuid.UUID, fleet string, params v1beta1.ListTemplateVersionsParams) (*v1beta1.TemplateVersionList, v1beta1.Status) {
+func (m *MockService) ListTemplateVersions(ctx context.Context, orgId uuid.UUID, fleet string, params domain.ListTemplateVersionsParams) (*domain.TemplateVersionList, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ListTemplateVersions", ctx, orgId, fleet, params)
-	ret0, _ := ret[0].(*v1beta1.TemplateVersionList)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret0, _ := ret[0].(*domain.TemplateVersionList)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -994,10 +994,10 @@ func (mr *MockServiceMockRecorder) ListTemplateVersions(ctx, orgId, fleet, param
 }
 
 // MarkDevicesRolloutSelection mocks base method.
-func (m *MockService) MarkDevicesRolloutSelection(ctx context.Context, orgId uuid.UUID, params v1beta1.ListDevicesParams, annotationSelector *selector.AnnotationSelector, limit *int) v1beta1.Status {
+func (m *MockService) MarkDevicesRolloutSelection(ctx context.Context, orgId uuid.UUID, params domain.ListDevicesParams, annotationSelector *selector.AnnotationSelector, limit *int) domain.Status {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "MarkDevicesRolloutSelection", ctx, orgId, params, annotationSelector, limit)
-	ret0, _ := ret[0].(v1beta1.Status)
+	ret0, _ := ret[0].(domain.Status)
 	return ret0
 }
 
@@ -1008,14 +1008,14 @@ func (mr *MockServiceMockRecorder) MarkDevicesRolloutSelection(ctx, orgId, param
 }
 
 // OverwriteDeviceRepositoryRefs mocks base method.
-func (m *MockService) OverwriteDeviceRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) v1beta1.Status {
+func (m *MockService) OverwriteDeviceRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) domain.Status {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, orgId, name}
 	for _, a := range repositoryNames {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "OverwriteDeviceRepositoryRefs", varargs...)
-	ret0, _ := ret[0].(v1beta1.Status)
+	ret0, _ := ret[0].(domain.Status)
 	return ret0
 }
 
@@ -1027,14 +1027,14 @@ func (mr *MockServiceMockRecorder) OverwriteDeviceRepositoryRefs(ctx, orgId, nam
 }
 
 // OverwriteFleetRepositoryRefs mocks base method.
-func (m *MockService) OverwriteFleetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) v1beta1.Status {
+func (m *MockService) OverwriteFleetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) domain.Status {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, orgId, name}
 	for _, a := range repositoryNames {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "OverwriteFleetRepositoryRefs", varargs...)
-	ret0, _ := ret[0].(v1beta1.Status)
+	ret0, _ := ret[0].(domain.Status)
 	return ret0
 }
 
@@ -1046,11 +1046,11 @@ func (mr *MockServiceMockRecorder) OverwriteFleetRepositoryRefs(ctx, orgId, name
 }
 
 // PatchAuthProvider mocks base method.
-func (m *MockService) PatchAuthProvider(ctx context.Context, orgId uuid.UUID, name string, patch v1beta1.PatchRequest) (*v1beta1.AuthProvider, v1beta1.Status) {
+func (m *MockService) PatchAuthProvider(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest) (*domain.AuthProvider, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "PatchAuthProvider", ctx, orgId, name, patch)
-	ret0, _ := ret[0].(*v1beta1.AuthProvider)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret0, _ := ret[0].(*domain.AuthProvider)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -1061,11 +1061,11 @@ func (mr *MockServiceMockRecorder) PatchAuthProvider(ctx, orgId, name, patch any
 }
 
 // PatchCertificateSigningRequest mocks base method.
-func (m *MockService) PatchCertificateSigningRequest(ctx context.Context, orgId uuid.UUID, name string, patch v1beta1.PatchRequest) (*v1beta1.CertificateSigningRequest, v1beta1.Status) {
+func (m *MockService) PatchCertificateSigningRequest(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest) (*domain.CertificateSigningRequest, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "PatchCertificateSigningRequest", ctx, orgId, name, patch)
-	ret0, _ := ret[0].(*v1beta1.CertificateSigningRequest)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret0, _ := ret[0].(*domain.CertificateSigningRequest)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -1076,11 +1076,11 @@ func (mr *MockServiceMockRecorder) PatchCertificateSigningRequest(ctx, orgId, na
 }
 
 // PatchDevice mocks base method.
-func (m *MockService) PatchDevice(ctx context.Context, orgId uuid.UUID, name string, patch v1beta1.PatchRequest) (*v1beta1.Device, v1beta1.Status) {
+func (m *MockService) PatchDevice(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest) (*domain.Device, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "PatchDevice", ctx, orgId, name, patch)
-	ret0, _ := ret[0].(*v1beta1.Device)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret0, _ := ret[0].(*domain.Device)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -1091,11 +1091,11 @@ func (mr *MockServiceMockRecorder) PatchDevice(ctx, orgId, name, patch any) *gom
 }
 
 // PatchDeviceStatus mocks base method.
-func (m *MockService) PatchDeviceStatus(ctx context.Context, orgId uuid.UUID, name string, patch v1beta1.PatchRequest) (*v1beta1.Device, v1beta1.Status) {
+func (m *MockService) PatchDeviceStatus(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest) (*domain.Device, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "PatchDeviceStatus", ctx, orgId, name, patch)
-	ret0, _ := ret[0].(*v1beta1.Device)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret0, _ := ret[0].(*domain.Device)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -1106,11 +1106,11 @@ func (mr *MockServiceMockRecorder) PatchDeviceStatus(ctx, orgId, name, patch any
 }
 
 // PatchEnrollmentRequest mocks base method.
-func (m *MockService) PatchEnrollmentRequest(ctx context.Context, orgId uuid.UUID, name string, patch v1beta1.PatchRequest) (*v1beta1.EnrollmentRequest, v1beta1.Status) {
+func (m *MockService) PatchEnrollmentRequest(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest) (*domain.EnrollmentRequest, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "PatchEnrollmentRequest", ctx, orgId, name, patch)
-	ret0, _ := ret[0].(*v1beta1.EnrollmentRequest)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret0, _ := ret[0].(*domain.EnrollmentRequest)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -1121,11 +1121,11 @@ func (mr *MockServiceMockRecorder) PatchEnrollmentRequest(ctx, orgId, name, patc
 }
 
 // PatchFleet mocks base method.
-func (m *MockService) PatchFleet(ctx context.Context, orgId uuid.UUID, name string, patch v1beta1.PatchRequest) (*v1beta1.Fleet, v1beta1.Status) {
+func (m *MockService) PatchFleet(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest) (*domain.Fleet, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "PatchFleet", ctx, orgId, name, patch)
-	ret0, _ := ret[0].(*v1beta1.Fleet)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret0, _ := ret[0].(*domain.Fleet)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -1136,11 +1136,11 @@ func (mr *MockServiceMockRecorder) PatchFleet(ctx, orgId, name, patch any) *gomo
 }
 
 // PatchRepository mocks base method.
-func (m *MockService) PatchRepository(ctx context.Context, orgId uuid.UUID, name string, patch v1beta1.PatchRequest) (*v1beta1.Repository, v1beta1.Status) {
+func (m *MockService) PatchRepository(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest) (*domain.Repository, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "PatchRepository", ctx, orgId, name, patch)
-	ret0, _ := ret[0].(*v1beta1.Repository)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret0, _ := ret[0].(*domain.Repository)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -1151,11 +1151,11 @@ func (mr *MockServiceMockRecorder) PatchRepository(ctx, orgId, name, patch any) 
 }
 
 // PatchResourceSync mocks base method.
-func (m *MockService) PatchResourceSync(ctx context.Context, orgId uuid.UUID, name string, patch v1beta1.PatchRequest) (*v1beta1.ResourceSync, v1beta1.Status) {
+func (m *MockService) PatchResourceSync(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest) (*domain.ResourceSync, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "PatchResourceSync", ctx, orgId, name, patch)
-	ret0, _ := ret[0].(*v1beta1.ResourceSync)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret0, _ := ret[0].(*domain.ResourceSync)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -1166,11 +1166,11 @@ func (mr *MockServiceMockRecorder) PatchResourceSync(ctx, orgId, name, patch any
 }
 
 // ReplaceAuthProvider mocks base method.
-func (m *MockService) ReplaceAuthProvider(ctx context.Context, orgId uuid.UUID, name string, authProvider v1beta1.AuthProvider) (*v1beta1.AuthProvider, v1beta1.Status) {
+func (m *MockService) ReplaceAuthProvider(ctx context.Context, orgId uuid.UUID, name string, authProvider domain.AuthProvider) (*domain.AuthProvider, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ReplaceAuthProvider", ctx, orgId, name, authProvider)
-	ret0, _ := ret[0].(*v1beta1.AuthProvider)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret0, _ := ret[0].(*domain.AuthProvider)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -1181,11 +1181,11 @@ func (mr *MockServiceMockRecorder) ReplaceAuthProvider(ctx, orgId, name, authPro
 }
 
 // ReplaceCertificateSigningRequest mocks base method.
-func (m *MockService) ReplaceCertificateSigningRequest(ctx context.Context, orgId uuid.UUID, name string, csr v1beta1.CertificateSigningRequest) (*v1beta1.CertificateSigningRequest, v1beta1.Status) {
+func (m *MockService) ReplaceCertificateSigningRequest(ctx context.Context, orgId uuid.UUID, name string, csr domain.CertificateSigningRequest) (*domain.CertificateSigningRequest, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ReplaceCertificateSigningRequest", ctx, orgId, name, csr)
-	ret0, _ := ret[0].(*v1beta1.CertificateSigningRequest)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret0, _ := ret[0].(*domain.CertificateSigningRequest)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -1196,11 +1196,11 @@ func (mr *MockServiceMockRecorder) ReplaceCertificateSigningRequest(ctx, orgId, 
 }
 
 // ReplaceDevice mocks base method.
-func (m *MockService) ReplaceDevice(ctx context.Context, orgId uuid.UUID, name string, device v1beta1.Device, fieldsToUnset []string) (*v1beta1.Device, v1beta1.Status) {
+func (m *MockService) ReplaceDevice(ctx context.Context, orgId uuid.UUID, name string, device domain.Device, fieldsToUnset []string) (*domain.Device, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ReplaceDevice", ctx, orgId, name, device, fieldsToUnset)
-	ret0, _ := ret[0].(*v1beta1.Device)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret0, _ := ret[0].(*domain.Device)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -1211,11 +1211,11 @@ func (mr *MockServiceMockRecorder) ReplaceDevice(ctx, orgId, name, device, field
 }
 
 // ReplaceDeviceStatus mocks base method.
-func (m *MockService) ReplaceDeviceStatus(ctx context.Context, orgId uuid.UUID, name string, device v1beta1.Device) (*v1beta1.Device, v1beta1.Status) {
+func (m *MockService) ReplaceDeviceStatus(ctx context.Context, orgId uuid.UUID, name string, device domain.Device) (*domain.Device, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ReplaceDeviceStatus", ctx, orgId, name, device)
-	ret0, _ := ret[0].(*v1beta1.Device)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret0, _ := ret[0].(*domain.Device)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -1226,11 +1226,11 @@ func (mr *MockServiceMockRecorder) ReplaceDeviceStatus(ctx, orgId, name, device 
 }
 
 // ReplaceEnrollmentRequest mocks base method.
-func (m *MockService) ReplaceEnrollmentRequest(ctx context.Context, orgId uuid.UUID, name string, er v1beta1.EnrollmentRequest) (*v1beta1.EnrollmentRequest, v1beta1.Status) {
+func (m *MockService) ReplaceEnrollmentRequest(ctx context.Context, orgId uuid.UUID, name string, er domain.EnrollmentRequest) (*domain.EnrollmentRequest, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ReplaceEnrollmentRequest", ctx, orgId, name, er)
-	ret0, _ := ret[0].(*v1beta1.EnrollmentRequest)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret0, _ := ret[0].(*domain.EnrollmentRequest)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -1241,11 +1241,11 @@ func (mr *MockServiceMockRecorder) ReplaceEnrollmentRequest(ctx, orgId, name, er
 }
 
 // ReplaceEnrollmentRequestStatus mocks base method.
-func (m *MockService) ReplaceEnrollmentRequestStatus(ctx context.Context, orgId uuid.UUID, name string, er v1beta1.EnrollmentRequest) (*v1beta1.EnrollmentRequest, v1beta1.Status) {
+func (m *MockService) ReplaceEnrollmentRequestStatus(ctx context.Context, orgId uuid.UUID, name string, er domain.EnrollmentRequest) (*domain.EnrollmentRequest, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ReplaceEnrollmentRequestStatus", ctx, orgId, name, er)
-	ret0, _ := ret[0].(*v1beta1.EnrollmentRequest)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret0, _ := ret[0].(*domain.EnrollmentRequest)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -1256,11 +1256,11 @@ func (mr *MockServiceMockRecorder) ReplaceEnrollmentRequestStatus(ctx, orgId, na
 }
 
 // ReplaceFleet mocks base method.
-func (m *MockService) ReplaceFleet(ctx context.Context, orgId uuid.UUID, name string, fleet v1beta1.Fleet) (*v1beta1.Fleet, v1beta1.Status) {
+func (m *MockService) ReplaceFleet(ctx context.Context, orgId uuid.UUID, name string, fleet domain.Fleet) (*domain.Fleet, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ReplaceFleet", ctx, orgId, name, fleet)
-	ret0, _ := ret[0].(*v1beta1.Fleet)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret0, _ := ret[0].(*domain.Fleet)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -1271,11 +1271,11 @@ func (mr *MockServiceMockRecorder) ReplaceFleet(ctx, orgId, name, fleet any) *go
 }
 
 // ReplaceFleetStatus mocks base method.
-func (m *MockService) ReplaceFleetStatus(ctx context.Context, orgId uuid.UUID, name string, fleet v1beta1.Fleet) (*v1beta1.Fleet, v1beta1.Status) {
+func (m *MockService) ReplaceFleetStatus(ctx context.Context, orgId uuid.UUID, name string, fleet domain.Fleet) (*domain.Fleet, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ReplaceFleetStatus", ctx, orgId, name, fleet)
-	ret0, _ := ret[0].(*v1beta1.Fleet)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret0, _ := ret[0].(*domain.Fleet)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -1286,11 +1286,11 @@ func (mr *MockServiceMockRecorder) ReplaceFleetStatus(ctx, orgId, name, fleet an
 }
 
 // ReplaceRepository mocks base method.
-func (m *MockService) ReplaceRepository(ctx context.Context, orgId uuid.UUID, name string, repo v1beta1.Repository) (*v1beta1.Repository, v1beta1.Status) {
+func (m *MockService) ReplaceRepository(ctx context.Context, orgId uuid.UUID, name string, repo domain.Repository) (*domain.Repository, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ReplaceRepository", ctx, orgId, name, repo)
-	ret0, _ := ret[0].(*v1beta1.Repository)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret0, _ := ret[0].(*domain.Repository)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -1301,11 +1301,11 @@ func (mr *MockServiceMockRecorder) ReplaceRepository(ctx, orgId, name, repo any)
 }
 
 // ReplaceRepositoryStatusByError mocks base method.
-func (m *MockService) ReplaceRepositoryStatusByError(ctx context.Context, orgId uuid.UUID, name string, repository v1beta1.Repository, err error) (*v1beta1.Repository, v1beta1.Status) {
+func (m *MockService) ReplaceRepositoryStatusByError(ctx context.Context, orgId uuid.UUID, name string, repository domain.Repository, err error) (*domain.Repository, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ReplaceRepositoryStatusByError", ctx, orgId, name, repository, err)
-	ret0, _ := ret[0].(*v1beta1.Repository)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret0, _ := ret[0].(*domain.Repository)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -1316,11 +1316,11 @@ func (mr *MockServiceMockRecorder) ReplaceRepositoryStatusByError(ctx, orgId, na
 }
 
 // ReplaceResourceSync mocks base method.
-func (m *MockService) ReplaceResourceSync(ctx context.Context, orgId uuid.UUID, name string, rs v1beta1.ResourceSync) (*v1beta1.ResourceSync, v1beta1.Status) {
+func (m *MockService) ReplaceResourceSync(ctx context.Context, orgId uuid.UUID, name string, rs domain.ResourceSync) (*domain.ResourceSync, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ReplaceResourceSync", ctx, orgId, name, rs)
-	ret0, _ := ret[0].(*v1beta1.ResourceSync)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret0, _ := ret[0].(*domain.ResourceSync)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -1331,11 +1331,11 @@ func (mr *MockServiceMockRecorder) ReplaceResourceSync(ctx, orgId, name, rs any)
 }
 
 // ReplaceResourceSyncStatus mocks base method.
-func (m *MockService) ReplaceResourceSyncStatus(ctx context.Context, orgId uuid.UUID, name string, resourceSync v1beta1.ResourceSync) (*v1beta1.ResourceSync, v1beta1.Status) {
+func (m *MockService) ReplaceResourceSyncStatus(ctx context.Context, orgId uuid.UUID, name string, resourceSync domain.ResourceSync) (*domain.ResourceSync, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ReplaceResourceSyncStatus", ctx, orgId, name, resourceSync)
-	ret0, _ := ret[0].(*v1beta1.ResourceSync)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret0, _ := ret[0].(*domain.ResourceSync)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -1346,11 +1346,11 @@ func (mr *MockServiceMockRecorder) ReplaceResourceSyncStatus(ctx, orgId, name, r
 }
 
 // ResumeDevices mocks base method.
-func (m *MockService) ResumeDevices(ctx context.Context, orgId uuid.UUID, request v1beta1.DeviceResumeRequest) (v1beta1.DeviceResumeResponse, v1beta1.Status) {
+func (m *MockService) ResumeDevices(ctx context.Context, orgId uuid.UUID, request domain.DeviceResumeRequest) (domain.DeviceResumeResponse, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ResumeDevices", ctx, orgId, request)
-	ret0, _ := ret[0].(v1beta1.DeviceResumeResponse)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret0, _ := ret[0].(domain.DeviceResumeResponse)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -1361,10 +1361,10 @@ func (mr *MockServiceMockRecorder) ResumeDevices(ctx, orgId, request any) *gomoc
 }
 
 // SetCheckpoint mocks base method.
-func (m *MockService) SetCheckpoint(ctx context.Context, consumer, key string, value []byte) v1beta1.Status {
+func (m *MockService) SetCheckpoint(ctx context.Context, consumer, key string, value []byte) domain.Status {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "SetCheckpoint", ctx, consumer, key, value)
-	ret0, _ := ret[0].(v1beta1.Status)
+	ret0, _ := ret[0].(domain.Status)
 	return ret0
 }
 
@@ -1375,10 +1375,10 @@ func (mr *MockServiceMockRecorder) SetCheckpoint(ctx, consumer, key, value any) 
 }
 
 // SetDeviceServiceConditions mocks base method.
-func (m *MockService) SetDeviceServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []v1beta1.Condition) v1beta1.Status {
+func (m *MockService) SetDeviceServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition) domain.Status {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "SetDeviceServiceConditions", ctx, orgId, name, conditions)
-	ret0, _ := ret[0].(v1beta1.Status)
+	ret0, _ := ret[0].(domain.Status)
 	return ret0
 }
 
@@ -1403,10 +1403,10 @@ func (mr *MockServiceMockRecorder) SetOutOfDate(ctx, orgId, owner any) *gomock.C
 }
 
 // UnmarkDevicesRolloutSelection mocks base method.
-func (m *MockService) UnmarkDevicesRolloutSelection(ctx context.Context, orgId uuid.UUID, fleetName string) v1beta1.Status {
+func (m *MockService) UnmarkDevicesRolloutSelection(ctx context.Context, orgId uuid.UUID, fleetName string) domain.Status {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "UnmarkDevicesRolloutSelection", ctx, orgId, fleetName)
-	ret0, _ := ret[0].(v1beta1.Status)
+	ret0, _ := ret[0].(domain.Status)
 	return ret0
 }
 
@@ -1417,11 +1417,11 @@ func (mr *MockServiceMockRecorder) UnmarkDevicesRolloutSelection(ctx, orgId, fle
 }
 
 // UpdateCertificateSigningRequestApproval mocks base method.
-func (m *MockService) UpdateCertificateSigningRequestApproval(ctx context.Context, orgId uuid.UUID, name string, csr v1beta1.CertificateSigningRequest) (*v1beta1.CertificateSigningRequest, v1beta1.Status) {
+func (m *MockService) UpdateCertificateSigningRequestApproval(ctx context.Context, orgId uuid.UUID, name string, csr domain.CertificateSigningRequest) (*domain.CertificateSigningRequest, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "UpdateCertificateSigningRequestApproval", ctx, orgId, name, csr)
-	ret0, _ := ret[0].(*v1beta1.CertificateSigningRequest)
-	ret1, _ := ret[1].(v1beta1.Status)
+	ret0, _ := ret[0].(*domain.CertificateSigningRequest)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -1432,10 +1432,10 @@ func (mr *MockServiceMockRecorder) UpdateCertificateSigningRequestApproval(ctx, 
 }
 
 // UpdateDevice mocks base method.
-func (m *MockService) UpdateDevice(ctx context.Context, orgId uuid.UUID, name string, device v1beta1.Device, fieldsToUnset []string) (*v1beta1.Device, error) {
+func (m *MockService) UpdateDevice(ctx context.Context, orgId uuid.UUID, name string, device domain.Device, fieldsToUnset []string) (*domain.Device, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "UpdateDevice", ctx, orgId, name, device, fieldsToUnset)
-	ret0, _ := ret[0].(*v1beta1.Device)
+	ret0, _ := ret[0].(*domain.Device)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -1447,10 +1447,10 @@ func (mr *MockServiceMockRecorder) UpdateDevice(ctx, orgId, name, device, fields
 }
 
 // UpdateDeviceAnnotations mocks base method.
-func (m *MockService) UpdateDeviceAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) v1beta1.Status {
+func (m *MockService) UpdateDeviceAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) domain.Status {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "UpdateDeviceAnnotations", ctx, orgId, name, annotations, deleteKeys)
-	ret0, _ := ret[0].(v1beta1.Status)
+	ret0, _ := ret[0].(domain.Status)
 	return ret0
 }
 
@@ -1461,10 +1461,10 @@ func (mr *MockServiceMockRecorder) UpdateDeviceAnnotations(ctx, orgId, name, ann
 }
 
 // UpdateFleetAnnotations mocks base method.
-func (m *MockService) UpdateFleetAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) v1beta1.Status {
+func (m *MockService) UpdateFleetAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) domain.Status {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "UpdateFleetAnnotations", ctx, orgId, name, annotations, deleteKeys)
-	ret0, _ := ret[0].(v1beta1.Status)
+	ret0, _ := ret[0].(domain.Status)
 	return ret0
 }
 
@@ -1475,10 +1475,10 @@ func (mr *MockServiceMockRecorder) UpdateFleetAnnotations(ctx, orgId, name, anno
 }
 
 // UpdateFleetConditions mocks base method.
-func (m *MockService) UpdateFleetConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []v1beta1.Condition) v1beta1.Status {
+func (m *MockService) UpdateFleetConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition) domain.Status {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "UpdateFleetConditions", ctx, orgId, name, conditions)
-	ret0, _ := ret[0].(v1beta1.Status)
+	ret0, _ := ret[0].(domain.Status)
 	return ret0
 }
 
@@ -1489,10 +1489,10 @@ func (mr *MockServiceMockRecorder) UpdateFleetConditions(ctx, orgId, name, condi
 }
 
 // UpdateRenderedDevice mocks base method.
-func (m *MockService) UpdateRenderedDevice(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash string) v1beta1.Status {
+func (m *MockService) UpdateRenderedDevice(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash string) domain.Status {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "UpdateRenderedDevice", ctx, orgId, name, renderedConfig, renderedApplications, specHash)
-	ret0, _ := ret[0].(v1beta1.Status)
+	ret0, _ := ret[0].(domain.Status)
 	return ret0
 }
 
@@ -1517,7 +1517,7 @@ func (mr *MockServiceMockRecorder) UpdateServerSideDeviceStatus(ctx, orgId, name
 }
 
 // UpdateServiceSideDeviceStatus mocks base method.
-func (m *MockService) UpdateServiceSideDeviceStatus(ctx context.Context, orgId uuid.UUID, device v1beta1.Device) bool {
+func (m *MockService) UpdateServiceSideDeviceStatus(ctx context.Context, orgId uuid.UUID, device domain.Device) bool {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "UpdateServiceSideDeviceStatus", ctx, orgId, device)
 	ret0, _ := ret[0].(bool)

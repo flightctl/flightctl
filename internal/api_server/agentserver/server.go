@@ -10,7 +10,8 @@ import (
 	"strings"
 	"time"
 
-	agent "github.com/flightctl/flightctl/api/v1beta1/agent"
+	agent "github.com/flightctl/flightctl/api/agent/v1beta1"
+	convertv1beta1 "github.com/flightctl/flightctl/internal/api/convert/v1beta1"
 	server "github.com/flightctl/flightctl/internal/api/server/agent"
 	fcmiddleware "github.com/flightctl/flightctl/internal/api_server/middleware"
 	"github.com/flightctl/flightctl/internal/config"
@@ -20,7 +21,7 @@ import (
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
-	transport "github.com/flightctl/flightctl/internal/transport/agent"
+	agenttransportv1beta1 "github.com/flightctl/flightctl/internal/transport/agent/v1beta1"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/go-chi/chi/v5"
@@ -311,7 +312,7 @@ func (s *AgentServer) prepareHTTPHandler(ctx context.Context, serviceHandler ser
 		})
 	}
 
-	h := transport.NewAgentTransportHandler(serviceHandler, s.ca, s.log)
+	h := agenttransportv1beta1.NewAgentTransportHandler(serviceHandler, convertv1beta1.NewConverter(), s.ca, s.log)
 	server.HandlerFromMux(h, router)
 
 	return otelhttp.NewHandler(router, "agent-http-server"), nil

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/flightctl/flightctl/api/v1beta1"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -64,8 +64,10 @@ func TestWriteComposeOverride(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			tmpDir := t.TempDir()
 			log := log.NewPrefixLogger("test")
-			writer := fileio.NewReadWriter()
-			writer.SetRootdir(tmpDir)
+			writer := fileio.NewReadWriter(
+				fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+				fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+			)
 
 			volumeManager, err := NewVolumeManager(log, tt.appName, v1beta1.AppTypeCompose, newTestImageApplicationVolumes(require, tt.volumes))
 			require.NoError(err)
@@ -399,8 +401,10 @@ Image=test`),
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tmpDir := t.TempDir()
-			rw := fileio.NewReadWriter()
-			rw.SetRootdir(tmpDir)
+			rw := fileio.NewReadWriter(
+				fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+				fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+			)
 
 			quadletDir := filepath.Join("/test", "quadlets")
 			err := rw.MkdirAll(quadletDir, fileio.DefaultDirectoryPermissions)

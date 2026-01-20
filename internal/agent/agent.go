@@ -15,6 +15,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/hook"
+	imagepruning "github.com/flightctl/flightctl/internal/agent/device/image_pruning"
 	"github.com/flightctl/flightctl/internal/agent/device/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/os"
 	"github.com/flightctl/flightctl/internal/agent/device/policy"
@@ -73,7 +74,10 @@ func (a *Agent) Run(ctx context.Context) error {
 	go instrumentation.NewAgentInstrumentation(a.log, a.config).Run(ctx)
 
 	// create file io writer and reader
-	deviceReadWriter := fileio.NewReadWriter(fileio.WithTestRootDir(a.config.GetTestRootDir()))
+	deviceReadWriter := fileio.NewReadWriter(
+		fileio.NewReader(fileio.WithReaderRootDir(a.config.GetTestRootDir())),
+		fileio.NewWriter(fileio.WithWriterRootDir(a.config.GetTestRootDir())),
+	)
 
 	tpmClient, err := a.tryLoadTPM(deviceReadWriter)
 	if err != nil {
@@ -325,13 +329,10 @@ func (a *Agent) Run(ctx context.Context) error {
 		bootstrap.ManagementClient(),
 		deviceReadWriter,
 		identity.NewExportableFactory(tpmClient, a.log),
+		identityProvider,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to initialize certificate manager: %w", err)
-	}
-
-	if err := certManager.Sync(ctx, a.config); err != nil {
-		a.log.Warnf("Failed to sync certificate manager: %v", err)
 	}
 
 	// create the gRPC client this must be done after bootstrap
@@ -357,6 +358,16 @@ func (a *Agent) Run(ctx context.Context) error {
 		systemInfoManager.BootTime(),
 	)
 
+	// create image pruning manager
+	pruningManager := imagepruning.New(
+		podmanClient,
+		specManager,
+		deviceReadWriter,
+		a.log,
+		a.config.ImagePruning,
+		a.config.DataDir,
+	)
+
 	// create agent
 	agent := device.NewAgent(
 		deviceName,
@@ -377,6 +388,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		osClient,
 		podmanClient,
 		prefetchManager,
+		pruningManager,
 		backoff,
 		a.log,
 	)
@@ -386,6 +398,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	reloadManager.Register(systemInfoManager.ReloadConfig)
 	reloadManager.Register(statusManager.ReloadCollect)
 	reloadManager.Register(certManager.Sync)
+	reloadManager.Register(pruningManager.ReloadConfig)
 
 	// agent is serial by default. only a small number of operations run async.
 	// device reconciliation, status updates, and spec application happen serially.
@@ -411,6 +424,11 @@ func (a *Agent) Run(ctx context.Context) error {
 	// publisher is async to poll management server for spec updates at regular intervals
 	// fetching is async, but spec management remains serial in the main agent loop
 	go specManager.Publisher().Run(ctx)
+
+	// certManager runs certificate reconciliation asynchronously.
+	// It periodically syncs device certificates (issuance/renewal) and must not
+	// block the main agent loop or other long-running managers.
+	go certManager.Run(ctx)
 
 	// main agent loop: all critical work happens here serially
 	return agent.Run(ctx)

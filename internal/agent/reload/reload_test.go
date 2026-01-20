@@ -64,32 +64,42 @@ func runTest(t *testing.T, rw fileio.ReadWriter, testdataSubdir, expected string
 func TestReloader(t *testing.T) {
 	t.Run("No level definition fallback to default", func(t *testing.T) {
 		tmpDir := t.TempDir()
-		rw := fileio.NewReadWriter()
-		rw.SetRootdir(tmpDir)
+		rw := fileio.NewReadWriter(
+			fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+			fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+		)
 		runTest(t, rw, "t1", "info")
 	})
 	t.Run("Only top level definition", func(t *testing.T) {
 		tmpDir := t.TempDir()
-		rw := fileio.NewReadWriter()
-		rw.SetRootdir(tmpDir)
+		rw := fileio.NewReadWriter(
+			fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+			fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+		)
 		runTest(t, rw, "t2", "warning")
 	})
 	t.Run("With single override", func(t *testing.T) {
 		tmpDir := t.TempDir()
-		rw := fileio.NewReadWriter()
-		rw.SetRootdir(tmpDir)
+		rw := fileio.NewReadWriter(
+			fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+			fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+		)
 		runTest(t, rw, "t3", "debug")
 	})
 	t.Run("With 2 overrides", func(t *testing.T) {
 		tmpDir := t.TempDir()
-		rw := fileio.NewReadWriter()
-		rw.SetRootdir(tmpDir)
+		rw := fileio.NewReadWriter(
+			fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+			fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+		)
 		runTest(t, rw, "t4", "info")
 	})
 	t.Run("With illegal file name", func(t *testing.T) {
 		tmpDir := t.TempDir()
-		rw := fileio.NewReadWriter()
-		rw.SetRootdir(tmpDir)
+		rw := fileio.NewReadWriter(
+			fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+			fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+		)
 		runTest(t, rw, "t5", "warning")
 	})
 }

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/flightctl/flightctl/api/v1beta1"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
@@ -371,7 +371,7 @@ var (
 	configLabelKey        = "config"
 	configLabelValue      = "fedora-bootc"
 	revisionLabelKey      = "revision"
-	revisionLabelValue    = "main"
+	revisionLabelValue    = "c5ff21b9a8116bb5daf72c8f07b67449c221b596"
 	suffix                = "{{ .metadata.labels.suffix }}"
 	gitConfigName         = "git-config"
 	httpConfigName        = "http-config"

@@ -67,6 +67,51 @@ To get a end-to-end GitOps experience, you can:
 
 Flightctl will periodically check for updates to the fleet definitions and apply them to the system.  This will, of course, trigger the creation of template version objects, that will trigger updating the devices in the fleets.
 
+## ImageBuilds
+
+An ImageBuild resource automates the process of building bootc container images with the Flight Control agent embedded. It handles generating a Containerfile, building the container image using podman, and pushing the built image to a destination registry.
+
+An ImageBuild specifies:
+
+* **Source**: A source bootc image from a Repository resource (type `oci`)
+* **Destination**: Where to push the built image (a Repository resource with ReadWrite access)
+* **Binding**: Whether to use early binding (embed enrollment certificate) or late binding (no certificate)
+
+When you create an ImageBuild, Flight Control:
+
+1. Generates a Containerfile that includes the Flight Control agent
+2. Builds the container image using podman
+3. Pushes the built image to the destination registry
+4. Updates the ImageBuild status with the result
+
+The ImageBuild status tracks the build progress through conditions: Pending, Building, Pushing, Completed, or Failed. On successful completion, the `status.imageReference` field contains the full image reference of the built image.
+
+For more details, see [Managing Image Builds and Exports](../using/managing-image-builds.md).
+
+## ImageExports
+
+An ImageExport resource converts bootc container images into disk image formats (qcow2, vmdk or iso, etc.) suitable for provisioning physical or virtual devices. It uses `bootc-image-builder` to perform the conversion.
+
+An ImageExport specifies:
+
+* **Source**: Either an ImageBuild resource or a direct image reference from a Repository
+* **Destination**: Where to push the exported disk image (a Repository resource with ReadWrite access)
+* **Format**: The disk image format (qcow2, vmdk or iso.)
+
+When you create an ImageExport, Flight Control:
+
+1. Retrieves the source image (from ImageBuild or registry)
+2. Converts the image to the specified format using bootc-image-builder
+3. Pushes the exported disk image to the destination registry
+4. Updates the ImageExport status with the result
+
+The ImageExport status tracks the export progress through conditions: Pending, Converting, Pushing, Completed, or Failed.
+
+> [!NOTE]
+> ImageExport functionality is currently in development. The resource structure is defined, but the actual export execution is planned for a future release.
+
+For more details, see [Managing Image Builds and Exports](../using/managing-image-builds.md).
+
 ## Resource Relationships
 
 * A device's configuration may reference zero or more repositories.  A repository may be referenced by zero or more devices.
@@ -75,6 +120,9 @@ Flightctl will periodically check for updates to the fleet definitions and apply
 * Approving an enrollment request creates a single device.
 * A fleet may have zero or more template versions.
 * A resource sync may create one or more fleets.  A fleet may be created by zero or one resource sync.
+* An ImageBuild references a source Repository and a destination Repository (both of type `oci`).
+* An ImageExport may reference an ImageBuild as its source, or reference a Repository directly.
+* An ImageExport references a destination Repository (type `oci`).
 
 ```mermaid
 erDiagram
@@ -84,4 +132,9 @@ erDiagram
     EnrollmentRequest ||--|| Device : creates
     TemplateVersion}o..|| Fleet : belongs-to
     ResourceSync|o..|{ Fleet : creates
+    ImageBuild}o..|| Repository : "source (oci)"
+    ImageBuild}o..|| Repository : "destination (oci)"
+    ImageExport}o..o| ImageBuild : "source (optional)"
+    ImageExport}o..o| Repository : "source (oci, optional)"
+    ImageExport}o..|| Repository : "destination (oci)"
 ```

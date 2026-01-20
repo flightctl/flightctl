@@ -9,7 +9,8 @@ import (
 	"strings"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/v1beta1"
+	api "github.com/flightctl/flightctl/api/core/v1beta1"
+	authprovider "github.com/flightctl/flightctl/internal/auth/provider"
 	"github.com/flightctl/flightctl/internal/config/ca"
 	"github.com/flightctl/flightctl/internal/org"
 	"github.com/flightctl/flightctl/internal/util"
@@ -24,6 +25,7 @@ type Config struct {
 	Database            *dbConfig                  `json:"database,omitempty"`
 	Service             *svcConfig                 `json:"service,omitempty"`
 	ImageBuilderService *imageBuilderServiceConfig `json:"imageBuilderService,omitempty"`
+	ImageBuilderWorker  *imageBuilderWorkerConfig  `json:"imageBuilderWorker,omitempty"`
 	KV                  *kvConfig                  `json:"kv,omitempty"`
 	Alertmanager        *alertmanagerConfig        `json:"alertmanager,omitempty"`
 	Auth                *authConfig                `json:"auth,omitempty"`
@@ -116,6 +118,27 @@ type imageBuilderServiceConfig struct {
 	HttpMaxRequestSize    int              `json:"httpMaxRequestSize,omitempty"`
 	RateLimit             *RateLimitConfig `json:"rateLimit,omitempty"`
 	HealthChecks          *HealthChecks    `json:"healthChecks,omitempty"`
+}
+
+type imageBuilderWorkerConfig struct {
+	LogLevel               string        `json:"logLevel,omitempty"`
+	MaxConcurrentBuilds    int           `json:"maxConcurrentBuilds,omitempty"`
+	DefaultTTL             util.Duration `json:"defaultTTL,omitempty"`
+	PodmanImage            string        `json:"podmanImage,omitempty"`
+	BootcImageBuilderImage string        `json:"bootcImageBuilderImage,omitempty"`
+	LastSeenUpdateInterval util.Duration `json:"lastSeenUpdateInterval,omitempty"`
+}
+
+// NewDefaultImageBuilderWorkerConfig returns a default ImageBuilder worker configuration
+func NewDefaultImageBuilderWorkerConfig() *imageBuilderWorkerConfig {
+	return &imageBuilderWorkerConfig{
+		LogLevel:               "info",
+		MaxConcurrentBuilds:    2,
+		DefaultTTL:             util.Duration(7 * 24 * time.Hour),
+		PodmanImage:            "quay.io/podman/stable:v5.7.1",
+		BootcImageBuilderImage: "quay.io/centos-bootc/bootc-image-builder@sha256:773019f6b11766ca48170a4a7bf898be4268f3c2acfd0ec1db612408b3092a90",
+		LastSeenUpdateInterval: util.Duration(30 * time.Second),
+	}
 }
 
 // NewDefaultImageBuilderServiceConfig returns a default ImageBuilder service configuration
@@ -454,6 +477,7 @@ func NewDefault(opts ...ConfigOption) *Config {
 			// Rate limiting is disabled by default - set RateLimit to enable
 		},
 		ImageBuilderService: NewDefaultImageBuilderServiceConfig(),
+		ImageBuilderWorker:  NewDefaultImageBuilderWorkerConfig(),
 		KV: &kvConfig{
 			Hostname: "localhost",
 			Port:     6379,
@@ -736,7 +760,7 @@ func applyOAuth2Defaults(c *Config) error {
 
 	// Infer introspection configuration if not provided
 	if c.Auth.OAuth2.Introspection == nil {
-		introspection, err := api.InferOAuth2IntrospectionConfig(*c.Auth.OAuth2)
+		introspection, err := authprovider.InferOAuth2IntrospectionConfig(*c.Auth.OAuth2)
 		if err != nil {
 			return fmt.Errorf("failed to infer OAuth2 introspection configuration: %w", err)
 		}

@@ -31,6 +31,9 @@ The OS disk image is used to image (or "flash") a device when it is provisioned.
 
 This section describes the generic process for building an OS image (bootc) that contains the Flight Control agent and building an OS disk image for flashing to physical devices. Later sections then describe considerations when building for specific virtualization and bare metal provisioning environments.
 
+> [!NOTE]
+> For basic images, you can use Flight Control's built-in [ImageBuild and ImageExport services](../using/managing-image-builds.md) to automate the image building and export process through the API.
+
 Before you start, ensure you have installed the following prerequisites:
 
 * `flightctl` CLI latest version ([installation guide](../installing/installing-cli.md))

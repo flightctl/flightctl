@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/flightctl/flightctl/api/v1beta1"
-	api "github.com/flightctl/flightctl/api/v1beta1/imagebuilder"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
+	api "github.com/flightctl/flightctl/api/imagebuilder/v1beta1"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
@@ -20,14 +20,24 @@ func statusCode(status v1beta1.Status) int32 {
 
 func newTestImageBuildService() (ImageBuildService, *DummyImageBuildStore) {
 	imageBuildStore := NewDummyImageBuildStore()
-	svc := NewImageBuildService(imageBuildStore, log.InitLogs())
+	repositoryStore := NewDummyRepositoryStore()
+	svc := NewImageBuildService(imageBuildStore, repositoryStore, nil, nil, log.InitLogs())
 	return svc, imageBuildStore
+}
+
+func newTestImageBuildServiceWithExports() (ImageBuildService, *DummyImageBuildStore, *DummyImageExportStore) {
+	imageExportStore := NewDummyImageExportStore()
+	imageBuildStore := NewDummyImageBuildStoreWithExports(imageExportStore)
+	repositoryStore := NewDummyRepositoryStore()
+	// Note: ImageBuildService doesn't need ImageExportService - the store handles withExports
+	svc := NewImageBuildService(imageBuildStore, repositoryStore, nil, nil, log.InitLogs())
+	return svc, imageBuildStore, imageExportStore
 }
 
 func newValidImageBuild(name string) api.ImageBuild {
 	return api.ImageBuild{
 		ApiVersion: api.ImageBuildAPIVersion,
-		Kind:       api.ImageBuildKind,
+		Kind:       string(api.ResourceKindImageBuild),
 		Metadata: v1beta1.ObjectMeta{
 			Name: lo.ToPtr(name),
 		},
@@ -46,11 +56,25 @@ func newValidImageBuild(name string) api.ImageBuild {
 	}
 }
 
+func setupRepositoriesForImageBuild(repoStore *DummyRepositoryStore, ctx context.Context, orgId uuid.UUID) {
+	// Create source repository (Read is fine for source)
+	sourceRepo := newOciRepository("input-registry", v1beta1.Read)
+	_, _ = repoStore.Create(ctx, orgId, sourceRepo, nil)
+
+	// Create destination repository (must be ReadWrite)
+	destRepo := newOciRepository("output-registry", v1beta1.ReadWrite)
+	_, _ = repoStore.Create(ctx, orgId, destRepo, nil)
+}
+
 func TestCreateImageBuild(t *testing.T) {
 	require := require.New(t)
-	svc, _ := newTestImageBuildService()
 	ctx := context.Background()
 	orgId := uuid.New()
+
+	// Set up repositories
+	repoStore := NewDummyRepositoryStore()
+	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
+	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, log.InitLogs())
 
 	imageBuild := newValidImageBuild("test-build")
 	result, status := svc.Create(ctx, orgId, imageBuild)
@@ -62,9 +86,13 @@ func TestCreateImageBuild(t *testing.T) {
 
 func TestCreateImageBuildDuplicate(t *testing.T) {
 	require := require.New(t)
-	svc, _ := newTestImageBuildService()
 	ctx := context.Background()
 	orgId := uuid.New()
+
+	// Set up repositories
+	repoStore := NewDummyRepositoryStore()
+	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
+	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, log.InitLogs())
 
 	imageBuild := newValidImageBuild("duplicate-test")
 
@@ -105,9 +133,13 @@ func TestCreateImageBuildMissingInputRegistry(t *testing.T) {
 
 func TestGetImageBuild(t *testing.T) {
 	require := require.New(t)
-	svc, _ := newTestImageBuildService()
 	ctx := context.Background()
 	orgId := uuid.New()
+
+	// Set up repositories
+	repoStore := NewDummyRepositoryStore()
+	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
+	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, log.InitLogs())
 
 	// Create first
 	imageBuild := newValidImageBuild("get-test")
@@ -115,7 +147,7 @@ func TestGetImageBuild(t *testing.T) {
 	require.Equal(int32(http.StatusCreated), statusCode(status))
 
 	// Get it back
-	result, status := svc.Get(ctx, orgId, "get-test")
+	result, status := svc.Get(ctx, orgId, "get-test", false)
 	require.Equal(int32(http.StatusOK), statusCode(status))
 	require.NotNil(result)
 	require.Equal("get-test", lo.FromPtr(result.Metadata.Name))
@@ -127,15 +159,19 @@ func TestGetImageBuildNotFound(t *testing.T) {
 	ctx := context.Background()
 	orgId := uuid.New()
 
-	_, status := svc.Get(ctx, orgId, "nonexistent")
+	_, status := svc.Get(ctx, orgId, "nonexistent", false)
 	require.Equal(int32(http.StatusNotFound), statusCode(status))
 }
 
 func TestListImageBuilds(t *testing.T) {
 	require := require.New(t)
-	svc, _ := newTestImageBuildService()
 	ctx := context.Background()
 	orgId := uuid.New()
+
+	// Set up repositories
+	repoStore := NewDummyRepositoryStore()
+	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
+	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, log.InitLogs())
 
 	// Create multiple
 	for i := 0; i < 3; i++ {
@@ -153,9 +189,13 @@ func TestListImageBuilds(t *testing.T) {
 
 func TestListImageBuildsWithLimit(t *testing.T) {
 	require := require.New(t)
-	svc, _ := newTestImageBuildService()
 	ctx := context.Background()
 	orgId := uuid.New()
+
+	// Set up repositories
+	repoStore := NewDummyRepositoryStore()
+	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
+	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, log.InitLogs())
 
 	// Create multiple
 	for i := 0; i < 5; i++ {
@@ -174,9 +214,13 @@ func TestListImageBuildsWithLimit(t *testing.T) {
 
 func TestDeleteImageBuild(t *testing.T) {
 	require := require.New(t)
-	svc, _ := newTestImageBuildService()
 	ctx := context.Background()
 	orgId := uuid.New()
+
+	// Set up repositories
+	repoStore := NewDummyRepositoryStore()
+	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
+	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, log.InitLogs())
 
 	// Create first
 	imageBuild := newValidImageBuild("delete-test")
@@ -184,11 +228,13 @@ func TestDeleteImageBuild(t *testing.T) {
 	require.Equal(int32(http.StatusCreated), statusCode(status))
 
 	// Delete it
-	status = svc.Delete(ctx, orgId, "delete-test")
+	deleted, status := svc.Delete(ctx, orgId, "delete-test")
 	require.Equal(int32(http.StatusOK), statusCode(status))
+	require.NotNil(deleted)
+	require.Equal("delete-test", lo.FromPtr(deleted.Metadata.Name))
 
 	// Verify it's gone
-	_, status = svc.Get(ctx, orgId, "delete-test")
+	_, status = svc.Get(ctx, orgId, "delete-test", false)
 	require.Equal(int32(http.StatusNotFound), statusCode(status))
 }
 
@@ -198,15 +244,21 @@ func TestDeleteImageBuildNotFound(t *testing.T) {
 	ctx := context.Background()
 	orgId := uuid.New()
 
-	status := svc.Delete(ctx, orgId, "nonexistent")
-	require.Equal(int32(http.StatusNotFound), statusCode(status))
+	// Delete is idempotent - deleting non-existent resource returns success
+	deleted, status := svc.Delete(ctx, orgId, "nonexistent")
+	require.Equal(int32(http.StatusOK), statusCode(status))
+	require.Nil(deleted)
 }
 
 func TestUpdateStatus(t *testing.T) {
 	require := require.New(t)
-	svc, _ := newTestImageBuildService()
 	ctx := context.Background()
 	orgId := uuid.New()
+
+	// Set up repositories
+	repoStore := NewDummyRepositoryStore()
+	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
+	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, log.InitLogs())
 
 	// Create first
 	imageBuild := newValidImageBuild("status-test")
@@ -234,4 +286,274 @@ func TestUpdateStatus(t *testing.T) {
 	require.Len(*result.Status.Conditions, 1)
 	require.Equal(api.ImageBuildConditionTypeReady, (*result.Status.Conditions)[0].Type)
 	require.Equal(string(api.ImageBuildConditionReasonBuilding), (*result.Status.Conditions)[0].Reason)
+}
+
+func TestGetImageBuildWithExports(t *testing.T) {
+	require := require.New(t)
+	_, _, imageExportStore := newTestImageBuildServiceWithExports()
+	ctx := context.Background()
+	orgId := uuid.New()
+
+	// Set up repositories
+	repoStore := NewDummyRepositoryStore()
+	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
+	svc := NewImageBuildService(NewDummyImageBuildStoreWithExports(imageExportStore), repoStore, nil, nil, log.InitLogs())
+
+	// Create an ImageBuild
+	imageBuild := newValidImageBuild("build-with-exports")
+	_, status := svc.Create(ctx, orgId, imageBuild)
+	require.Equal(int32(http.StatusCreated), statusCode(status))
+
+	// Create ImageExports that reference the ImageBuild
+	imageExport1 := newImageExportWithImageBuildSource("export-1", "build-with-exports")
+	_, err := imageExportStore.Create(ctx, orgId, &imageExport1)
+	require.NoError(err)
+
+	imageExport2 := newImageExportWithImageBuildSource("export-2", "build-with-exports")
+	_, err = imageExportStore.Create(ctx, orgId, &imageExport2)
+	require.NoError(err)
+
+	// Get without withExports - should not include ImageExports
+	result, status := svc.Get(ctx, orgId, "build-with-exports", false)
+	require.Equal(int32(http.StatusOK), statusCode(status))
+	require.NotNil(result)
+	require.Nil(result.Imageexports)
+
+	// Get with withExports=true - should include ImageExports
+	result, status = svc.Get(ctx, orgId, "build-with-exports", true)
+	require.Equal(int32(http.StatusOK), statusCode(status))
+	require.NotNil(result)
+	require.NotNil(result.Imageexports)
+	require.Len(*result.Imageexports, 2)
+
+	// Verify the ImageExports are correct
+	exportNames := make(map[string]bool)
+	for _, export := range *result.Imageexports {
+		exportNames[lo.FromPtr(export.Metadata.Name)] = true
+	}
+	require.True(exportNames["export-1"])
+	require.True(exportNames["export-2"])
+}
+
+func TestGetImageBuildWithExportsNoExports(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	orgId := uuid.New()
+
+	// Set up repositories
+	repoStore := NewDummyRepositoryStore()
+	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
+	svc := NewImageBuildService(NewDummyImageBuildStoreWithExports(NewDummyImageExportStore()), repoStore, nil, nil, log.InitLogs())
+
+	// Create an ImageBuild with no ImageExports
+	imageBuild := newValidImageBuild("build-no-exports")
+	_, status := svc.Create(ctx, orgId, imageBuild)
+	require.Equal(int32(http.StatusCreated), statusCode(status))
+
+	// Get with withExports=true - should return nil Imageexports (not empty array)
+	result, status := svc.Get(ctx, orgId, "build-no-exports", true)
+	require.Equal(int32(http.StatusOK), statusCode(status))
+	require.NotNil(result)
+	require.Nil(result.Imageexports)
+}
+
+func TestListImageBuildsWithExports(t *testing.T) {
+	require := require.New(t)
+	_, _, imageExportStore := newTestImageBuildServiceWithExports()
+	ctx := context.Background()
+	orgId := uuid.New()
+
+	// Set up repositories
+	repoStore := NewDummyRepositoryStore()
+	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
+	svc := NewImageBuildService(NewDummyImageBuildStoreWithExports(imageExportStore), repoStore, nil, nil, log.InitLogs())
+
+	// Create multiple ImageBuilds
+	build1 := newValidImageBuild("build-1")
+	_, status := svc.Create(ctx, orgId, build1)
+	require.Equal(int32(http.StatusCreated), statusCode(status))
+
+	build2 := newValidImageBuild("build-2")
+	_, status = svc.Create(ctx, orgId, build2)
+	require.Equal(int32(http.StatusCreated), statusCode(status))
+
+	build3 := newValidImageBuild("build-3")
+	_, status = svc.Create(ctx, orgId, build3)
+	require.Equal(int32(http.StatusCreated), statusCode(status))
+
+	// Create ImageExports that reference the ImageBuilds
+	export1 := newImageExportWithImageBuildSource("export-1", "build-1")
+	_, err := imageExportStore.Create(ctx, orgId, &export1)
+	require.NoError(err)
+
+	export2 := newImageExportWithImageBuildSource("export-2", "build-1")
+	_, err = imageExportStore.Create(ctx, orgId, &export2)
+	require.NoError(err)
+
+	export3 := newImageExportWithImageBuildSource("export-3", "build-2")
+	_, err = imageExportStore.Create(ctx, orgId, &export3)
+	require.NoError(err)
+
+	// List without withExports - should not include ImageExports
+	result, status := svc.List(ctx, orgId, api.ListImageBuildsParams{})
+	require.Equal(int32(http.StatusOK), statusCode(status))
+	require.NotNil(result)
+	require.Len(result.Items, 3)
+	for _, item := range result.Items {
+		require.Nil(item.Imageexports)
+	}
+
+	// List with withExports=true - should include ImageExports
+	withExports := true
+	result, status = svc.List(ctx, orgId, api.ListImageBuildsParams{WithExports: &withExports})
+	require.Equal(int32(http.StatusOK), statusCode(status))
+	require.NotNil(result)
+	require.Len(result.Items, 3)
+
+	// Verify ImageExports are attached correctly
+	build1Found := false
+	build2Found := false
+	build3Found := false
+	for _, item := range result.Items {
+		name := lo.FromPtr(item.Metadata.Name)
+		switch name {
+		case "build-1":
+			build1Found = true
+			require.NotNil(item.Imageexports)
+			require.Len(*item.Imageexports, 2)
+		case "build-2":
+			build2Found = true
+			require.NotNil(item.Imageexports)
+			require.Len(*item.Imageexports, 1)
+		case "build-3":
+			build3Found = true
+			require.Nil(item.Imageexports) // No exports for build-3
+		}
+	}
+	require.True(build1Found)
+	require.True(build2Found)
+	require.True(build3Found)
+}
+
+func TestCreateImageBuildSourceRepositoryNotFound(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	orgId := uuid.New()
+
+	// Set up only destination repository
+	repoStore := NewDummyRepositoryStore()
+	destRepo := newOciRepository("output-registry", v1beta1.ReadWrite)
+	_, _ = repoStore.Create(ctx, orgId, destRepo, nil)
+	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, log.InitLogs())
+
+	imageBuild := newValidImageBuild("test-build")
+	_, status := svc.Create(ctx, orgId, imageBuild)
+
+	require.Equal(int32(http.StatusBadRequest), statusCode(status))
+	require.Contains(status.Message, "spec.source.repository: Repository \"input-registry\" not found")
+}
+
+func TestCreateImageBuildDestinationRepositoryNotFound(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	orgId := uuid.New()
+
+	// Set up only source repository
+	repoStore := NewDummyRepositoryStore()
+	sourceRepo := newOciRepository("input-registry", v1beta1.Read)
+	_, _ = repoStore.Create(ctx, orgId, sourceRepo, nil)
+	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, log.InitLogs())
+
+	imageBuild := newValidImageBuild("test-build")
+	_, status := svc.Create(ctx, orgId, imageBuild)
+
+	require.Equal(int32(http.StatusBadRequest), statusCode(status))
+	require.Contains(status.Message, "spec.destination.repository: Repository \"output-registry\" not found")
+}
+
+func TestCreateImageBuildSourceRepositoryNotOci(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	orgId := uuid.New()
+
+	// Set up repositories - source is Git type (not OCI)
+	repoStore := NewDummyRepositoryStore()
+	spec := v1beta1.RepositorySpec{}
+	_ = spec.FromGenericRepoSpec(v1beta1.GenericRepoSpec{
+		Type: v1beta1.RepoSpecTypeGit,
+		Url:  "https://github.com/example/repo.git",
+	})
+	sourceRepo := &v1beta1.Repository{
+		ApiVersion: "flightctl.io/v1beta1",
+		Kind:       string(v1beta1.ResourceKindRepository),
+		Metadata: v1beta1.ObjectMeta{
+			Name: lo.ToPtr("input-registry"),
+		},
+		Spec: spec,
+	}
+	_, _ = repoStore.Create(ctx, orgId, sourceRepo, nil)
+
+	destRepo := newOciRepository("output-registry", v1beta1.ReadWrite)
+	_, _ = repoStore.Create(ctx, orgId, destRepo, nil)
+	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, log.InitLogs())
+
+	imageBuild := newValidImageBuild("test-build")
+	_, status := svc.Create(ctx, orgId, imageBuild)
+
+	require.Equal(int32(http.StatusBadRequest), statusCode(status))
+	require.Contains(status.Message, "spec.source.repository: Repository \"input-registry\" must be of type 'oci'")
+}
+
+func TestCreateImageBuildDestinationRepositoryNotOci(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	orgId := uuid.New()
+
+	// Set up repositories - destination is Git type (not OCI)
+	repoStore := NewDummyRepositoryStore()
+	sourceRepo := newOciRepository("input-registry", v1beta1.Read)
+	_, _ = repoStore.Create(ctx, orgId, sourceRepo, nil)
+
+	spec := v1beta1.RepositorySpec{}
+	_ = spec.FromGenericRepoSpec(v1beta1.GenericRepoSpec{
+		Type: v1beta1.RepoSpecTypeGit,
+		Url:  "https://github.com/example/repo.git",
+	})
+	destRepo := &v1beta1.Repository{
+		ApiVersion: "flightctl.io/v1beta1",
+		Kind:       string(v1beta1.ResourceKindRepository),
+		Metadata: v1beta1.ObjectMeta{
+			Name: lo.ToPtr("output-registry"),
+		},
+		Spec: spec,
+	}
+	_, _ = repoStore.Create(ctx, orgId, destRepo, nil)
+	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, log.InitLogs())
+
+	imageBuild := newValidImageBuild("test-build")
+	_, status := svc.Create(ctx, orgId, imageBuild)
+
+	require.Equal(int32(http.StatusBadRequest), statusCode(status))
+	require.Contains(status.Message, "spec.destination.repository: Repository \"output-registry\" must be of type 'oci'")
+}
+
+func TestCreateImageBuildDestinationRepositoryNotReadWrite(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	orgId := uuid.New()
+
+	// Set up repositories - destination is Read-only
+	repoStore := NewDummyRepositoryStore()
+	sourceRepo := newOciRepository("input-registry", v1beta1.Read)
+	_, _ = repoStore.Create(ctx, orgId, sourceRepo, nil)
+
+	destRepo := newOciRepository("output-registry", v1beta1.Read)
+	_, _ = repoStore.Create(ctx, orgId, destRepo, nil)
+	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, log.InitLogs())
+
+	imageBuild := newValidImageBuild("test-build")
+	_, status := svc.Create(ctx, orgId, imageBuild)
+
+	require.Equal(int32(http.StatusBadRequest), statusCode(status))
+	require.Contains(status.Message, "spec.destination.repository: Repository \"output-registry\" must have 'ReadWrite' access mode")
 }

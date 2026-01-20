@@ -4,7 +4,7 @@ import (
 	"context"
 	"net/http"
 
-	api "github.com/flightctl/flightctl/api/v1beta1"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/util"
@@ -31,9 +31,9 @@ func NewReconciler(serviceHandler service.Service, log logrus.FieldLogger) Recon
 	}
 }
 
-func (r *reconciler) emitFleetRolloutStartedEventDueToPolicyRemoval(ctx context.Context, orgId uuid.UUID, fleet api.Fleet, annotations map[string]string) {
+func (r *reconciler) emitFleetRolloutStartedEventDueToPolicyRemoval(ctx context.Context, orgId uuid.UUID, fleet domain.Fleet, annotations map[string]string) {
 	fleetName := lo.FromPtr(fleet.Metadata.Name)
-	templateVersionName, exists := annotations[api.FleetAnnotationTemplateVersion]
+	templateVersionName, exists := annotations[domain.FleetAnnotationTemplateVersion]
 	if !exists {
 		templateVersionName = "unknown"
 		r.log.Warnf("%v/%s: Active rollout detected but no template version found, using 'unknown'", orgId, fleetName)
@@ -41,9 +41,9 @@ func (r *reconciler) emitFleetRolloutStartedEventDueToPolicyRemoval(ctx context.
 	r.serviceHandler.CreateEvent(ctx, orgId, common.GetFleetRolloutStartedEvent(ctx, templateVersionName, fleetName, true, true))
 }
 
-func (r *reconciler) emitFleetRolloutBatchDispatchedEvent(ctx context.Context, orgId uuid.UUID, fleet api.Fleet, templateVersionName string) {
+func (r *reconciler) emitFleetRolloutBatchDispatchedEvent(ctx context.Context, orgId uuid.UUID, fleet domain.Fleet, templateVersionName string) {
 	fleetName := lo.FromPtr(fleet.Metadata.Name)
-	batchNumberStr, exists := util.GetFromMap(lo.FromPtr(fleet.Metadata.Annotations), api.FleetAnnotationBatchNumber)
+	batchNumberStr, exists := util.GetFromMap(lo.FromPtr(fleet.Metadata.Annotations), domain.FleetAnnotationBatchNumber)
 	if exists {
 		if evt := common.GetFleetRolloutBatchDispatchedEvent(ctx, fleetName, templateVersionName, batchNumberStr); evt != nil {
 			r.serviceHandler.CreateEvent(ctx, orgId, evt)
@@ -55,7 +55,7 @@ func (r *reconciler) emitFleetRolloutBatchDispatchedEvent(ctx context.Context, o
 	}
 }
 
-func (r *reconciler) reconcileFleet(ctx context.Context, orgId uuid.UUID, fleet api.Fleet) {
+func (r *reconciler) reconcileFleet(ctx context.Context, orgId uuid.UUID, fleet domain.Fleet) {
 	fleetName := lo.FromPtr(fleet.Metadata.Name)
 
 	r.log.Infof("Device selection: starting reconciling fleet %v/%s", orgId, fleetName)
@@ -79,7 +79,7 @@ func (r *reconciler) reconcileFleet(ctx context.Context, orgId uuid.UUID, fleet 
 		}
 		return
 	}
-	templateVersionName, exists := annotations[api.FleetAnnotationTemplateVersion]
+	templateVersionName, exists := annotations[domain.FleetAnnotationTemplateVersion]
 	if !exists {
 		r.log.Warnf("No template version for fleet %v/%s", orgId, fleetName)
 		return

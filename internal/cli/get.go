@@ -9,8 +9,8 @@ import (
 	"slices"
 	"strings"
 
-	api "github.com/flightctl/flightctl/api/v1beta1"
-	imagebuilderapi "github.com/flightctl/flightctl/api/v1beta1/imagebuilder"
+	api "github.com/flightctl/flightctl/api/core/v1beta1"
+	imagebuilderapi "github.com/flightctl/flightctl/api/imagebuilder/v1beta1"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/cli/display"
 	"github.com/flightctl/flightctl/internal/util"
@@ -458,7 +458,9 @@ func (o *GetOptions) createImageBuilderFetchers(ctx context.Context, kind Resour
 			return response, nil
 		}
 		singleFetcher = func(name string) (interface{}, error) {
-			response, err := c.GetImageBuildWithResponse(ctx, name)
+			response, err := c.GetImageBuildWithResponse(ctx, name, &imagebuilderapi.GetImageBuildParams{
+				WithExports: lo.ToPtr(false),
+			})
 			if err != nil {
 				return nil, err
 			}

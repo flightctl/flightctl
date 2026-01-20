@@ -13,7 +13,7 @@ import (
 
 	config_latest "github.com/coreos/ignition/v2/config/v3_4"
 	config_latest_types "github.com/coreos/ignition/v2/config/v3_4/types"
-	api "github.com/flightctl/flightctl/api/v1beta1"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/util"
@@ -43,9 +43,9 @@ import (
 // This design ensures the task can be retried safely, detects mid-write inconsistencies,
 // and avoids unnecessary reprocessing when the output is already up to date.
 
-func deviceRender(ctx context.Context, orgId uuid.UUID, event api.Event, serviceHandler service.Service, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore, log logrus.FieldLogger) error {
+func deviceRender(ctx context.Context, orgId uuid.UUID, event domain.Event, serviceHandler service.Service, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore, log logrus.FieldLogger) error {
 	logic := NewDeviceRenderLogic(log, serviceHandler, k8sClient, kvStore, orgId, event)
-	if event.InvolvedObject.Kind == api.DeviceKind {
+	if event.InvolvedObject.Kind == domain.DeviceKind {
 		err := logic.RenderDevice(ctx)
 		if err != nil {
 			log.Errorf("failed rendering device %s/%s: %v", orgId, event.InvolvedObject.Name, err)
@@ -64,14 +64,14 @@ type DeviceRenderLogic struct {
 	k8sClient       k8sclient.K8SClient
 	kvStore         kvstore.KVStore
 	orgId           uuid.UUID
-	event           api.Event
+	event           domain.Event
 	ownerFleet      *string
 	templateVersion *string
-	deviceConfig    *[]api.ConfigProviderSpec
-	applications    *[]api.ApplicationProviderSpec
+	deviceConfig    *[]domain.ConfigProviderSpec
+	applications    *[]domain.ApplicationProviderSpec
 }
 
-func NewDeviceRenderLogic(log logrus.FieldLogger, serviceHandler service.Service, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore, orgId uuid.UUID, event api.Event) DeviceRenderLogic {
+func NewDeviceRenderLogic(log logrus.FieldLogger, serviceHandler service.Service, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore, orgId uuid.UUID, event domain.Event) DeviceRenderLogic {
 	return DeviceRenderLogic{log: log, serviceHandler: serviceHandler, k8sClient: k8sClient, kvStore: kvStore, orgId: orgId, event: event}
 }
 
@@ -94,13 +94,13 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 		annotations := lo.FromPtr(device.Metadata.Annotations)
 
 		// Don't render if the device is awaiting reconnection or paused due to conflicts after restore
-		if val, ok := annotations[api.DeviceAnnotationAwaitingReconnect]; ok {
+		if val, ok := annotations[domain.DeviceAnnotationAwaitingReconnect]; ok {
 			if val == "true" {
 				t.log.Infof("Device %s is awaiting reconnection after restore", t.event.InvolvedObject.Name)
 				return nil
 			}
 		}
-		if val, ok := annotations[api.DeviceAnnotationConflictPaused]; ok {
+		if val, ok := annotations[domain.DeviceAnnotationConflictPaused]; ok {
 			if val == "true" {
 				t.log.Infof("Device %s is paused due to conflicts", t.event.InvolvedObject.Name)
 				return nil
@@ -108,7 +108,7 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 		}
 
 		// Don't render if the device spec hash hasn't changed since the last render
-		if val, ok := annotations[api.DeviceAnnotationRenderedSpecHash]; ok {
+		if val, ok := annotations[domain.DeviceAnnotationRenderedSpecHash]; ok {
 			if val == specHash {
 				t.log.Infof("Device %s spec hash hasn't changed since the last render", t.event.InvolvedObject.Name)
 				return nil
@@ -124,7 +124,7 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 		t.ownerFleet = &owner
 
 		annotations := lo.FromPtr(device.Metadata.Annotations)
-		tvString, exists := util.GetFromMap(annotations, api.DeviceAnnotationTemplateVersion)
+		tvString, exists := util.GetFromMap(annotations, domain.DeviceAnnotationTemplateVersion)
 		if !exists {
 			return fmt.Errorf("device has no templateversion annotation")
 		}
@@ -163,18 +163,18 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 }
 
 func (t *DeviceRenderLogic) setStatus(ctx context.Context, renderErr error) error {
-	condition := api.Condition{Type: api.ConditionTypeDeviceSpecValid}
+	condition := domain.Condition{Type: domain.ConditionTypeDeviceSpecValid}
 
 	if renderErr == nil {
-		condition.Status = api.ConditionStatusTrue
+		condition.Status = domain.ConditionStatusTrue
 		condition.Reason = "Valid"
 	} else {
-		condition.Status = api.ConditionStatusFalse
+		condition.Status = domain.ConditionStatusFalse
 		condition.Reason = "Invalid"
 		condition.Message = renderErr.Error()
 	}
 
-	status := t.serviceHandler.SetDeviceServiceConditions(ctx, t.orgId, t.event.InvolvedObject.Name, []api.Condition{condition})
+	status := t.serviceHandler.SetDeviceServiceConditions(ctx, t.orgId, t.event.InvolvedObject.Name, []domain.Condition{condition})
 	if status.Code != http.StatusOK {
 		t.log.Errorf("Failed setting condition for device %s/%s: %s", t.orgId, t.event.InvolvedObject.Name, status.Message)
 	}
@@ -187,7 +187,7 @@ func (t *DeviceRenderLogic) renderApplications(ctx context.Context) ([]byte, err
 	}
 
 	var invalidApplications []string
-	var renderedApplications []api.ApplicationProviderSpec
+	var renderedApplications []domain.ApplicationProviderSpec
 	var firstError error
 
 	for i := range *t.applications {
@@ -273,42 +273,42 @@ type RenderItem interface {
 	MarshalJSON() ([]byte, error)
 }
 
-func (t *DeviceRenderLogic) renderConfigItem(ctx context.Context, configItem *api.ConfigProviderSpec, ignitionConfig **config_latest_types.Config) (*string, *string, error) {
+func (t *DeviceRenderLogic) renderConfigItem(ctx context.Context, configItem *domain.ConfigProviderSpec, ignitionConfig **config_latest_types.Config) (*string, *string, error) {
 	configType, err := configItem.Type()
 	if err != nil {
 		return nil, nil, fmt.Errorf("%w: failed getting config type: %w", ErrUnknownConfigName, err)
 	}
 
 	switch configType {
-	case api.GitConfigProviderType:
+	case domain.GitConfigProviderType:
 		return t.renderGitConfig(ctx, configItem, ignitionConfig)
-	case api.KubernetesSecretProviderType:
+	case domain.KubernetesSecretProviderType:
 		return t.renderK8sConfig(ctx, configItem, ignitionConfig)
-	case api.InlineConfigProviderType:
+	case domain.InlineConfigProviderType:
 		return t.renderInlineConfig(configItem, ignitionConfig)
-	case api.HttpConfigProviderType:
+	case domain.HttpConfigProviderType:
 		return t.renderHttpProviderConfig(ctx, configItem, ignitionConfig)
 	default:
 		return nil, nil, fmt.Errorf("%w: unsupported config type %q", ErrUnknownConfigName, configType)
 	}
 }
 
-func renderApplication(_ context.Context, app *api.ApplicationProviderSpec) (*string, *api.ApplicationProviderSpec, error) {
+func renderApplication(_ context.Context, app *domain.ApplicationProviderSpec) (*string, *domain.ApplicationProviderSpec, error) {
 	appType, err := app.Type()
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed getting application type: %w", err)
 	}
 	switch appType {
-	case api.ImageApplicationProviderType:
+	case domain.ImageApplicationProviderType:
 		return app.Name, app, nil
-	case api.InlineApplicationProviderType:
+	case domain.InlineApplicationProviderType:
 		return app.Name, app, nil
 	default:
 		return nil, nil, fmt.Errorf("%w: unsupported application type: %q", ErrUnknownApplicationType, appType)
 	}
 }
 
-func (t *DeviceRenderLogic) renderGitConfig(ctx context.Context, configItem *api.ConfigProviderSpec, ignitionConfig **config_latest_types.Config) (*string, *string, error) {
+func (t *DeviceRenderLogic) renderGitConfig(ctx context.Context, configItem *domain.ConfigProviderSpec, ignitionConfig **config_latest_types.Config) (*string, *string, error) {
 	gitSpec, err := configItem.AsGitConfigProviderSpec()
 	if err != nil {
 		return nil, nil, fmt.Errorf("%w: failed getting config item as GitConfigProviderSpec: %w", ErrUnknownConfigName, err)
@@ -370,7 +370,7 @@ func (t *DeviceRenderLogic) renderGitConfig(ctx context.Context, configItem *api
 	return &gitSpec.Name, &gitSpec.GitRef.Repository, nil
 }
 
-func (t *DeviceRenderLogic) renderK8sConfig(ctx context.Context, configItem *api.ConfigProviderSpec, ignitionConfig **config_latest_types.Config) (*string, *string, error) {
+func (t *DeviceRenderLogic) renderK8sConfig(ctx context.Context, configItem *domain.ConfigProviderSpec, ignitionConfig **config_latest_types.Config) (*string, *string, error) {
 	k8sSpec, err := configItem.AsKubernetesSecretProviderSpec()
 	if err != nil {
 		return nil, nil, fmt.Errorf("%w: failed getting config item as KubernetesSecretProviderSpec: %w", ErrUnknownConfigName, err)
@@ -441,14 +441,14 @@ func (t *DeviceRenderLogic) renderK8sConfig(ctx context.Context, configItem *api
 		if err := validation.DenyForbiddenDevicePath(dest); err != nil {
 			return &k8sSpec.Name, nil, fmt.Errorf("invalid secret-derived path %q: %w", dest, err)
 		}
-		ignitionWrapper.SetFile(dest, contents, 0o644, false, nil, nil)
+		ignitionWrapper.SetFile(dest, contents, 0o644, false, k8sSpec.SecretRef.User, k8sSpec.SecretRef.Group)
 	}
 
 	*ignitionConfig = lo.ToPtr(ignitionWrapper.Merge(**ignitionConfig))
 	return &k8sSpec.Name, nil, nil
 }
 
-func (t *DeviceRenderLogic) renderInlineConfig(configItem *api.ConfigProviderSpec, ignitionConfig **config_latest_types.Config) (*string, *string, error) {
+func (t *DeviceRenderLogic) renderInlineConfig(configItem *domain.ConfigProviderSpec, ignitionConfig **config_latest_types.Config) (*string, *string, error) {
 	inlineSpec, err := configItem.AsInlineConfigProviderSpec()
 	if err != nil {
 		return nil, nil, fmt.Errorf("%w: failed getting config item as InlineConfigProviderSpec: %w", ErrUnknownConfigName, err)
@@ -466,7 +466,7 @@ func (t *DeviceRenderLogic) renderInlineConfig(configItem *api.ConfigProviderSpe
 		}
 
 		isBase64 := false
-		if file.ContentEncoding != nil && *file.ContentEncoding == api.EncodingBase64 {
+		if file.ContentEncoding != nil && *file.ContentEncoding == domain.EncodingBase64 {
 			isBase64 = true
 		}
 		ignitionWrapper.SetFile(file.Path, []byte(file.Content), mode, isBase64, file.User, file.Group)
@@ -476,7 +476,7 @@ func (t *DeviceRenderLogic) renderInlineConfig(configItem *api.ConfigProviderSpe
 	return &inlineSpec.Name, nil, nil
 }
 
-func (t *DeviceRenderLogic) renderHttpProviderConfig(ctx context.Context, configItem *api.ConfigProviderSpec, ignitionConfig **config_latest_types.Config) (*string, *string, error) {
+func (t *DeviceRenderLogic) renderHttpProviderConfig(ctx context.Context, configItem *domain.ConfigProviderSpec, ignitionConfig **config_latest_types.Config) (*string, *string, error) {
 	httpConfigProviderSpec, err := configItem.AsHttpConfigProviderSpec()
 	if err != nil {
 		return nil, nil, fmt.Errorf("%w: failed getting config item as HttpConfigProviderSpec: %w", ErrUnknownConfigName, err)
@@ -553,7 +553,7 @@ func (t *DeviceRenderLogic) renderHttpProviderConfig(ctx context.Context, config
 	return &httpConfigProviderSpec.Name, &httpConfigProviderSpec.HttpRef.Repository, nil
 }
 
-func (t *DeviceRenderLogic) getFrozenRepositoryURL(ctx context.Context, repo *api.Repository) error {
+func (t *DeviceRenderLogic) getFrozenRepositoryURL(ctx context.Context, repo *domain.Repository) error {
 	repoURL, err := repo.Spec.GetRepoURL()
 	if err != nil {
 		return fmt.Errorf("failed fetching git repository URL %s/%s: %w", t.orgId, *repo.Metadata.Name, err)
@@ -571,7 +571,7 @@ func (t *DeviceRenderLogic) getFrozenRepositoryURL(ctx context.Context, repo *ap
 	}
 	if repoURL != string(origRepoURL) {
 		t.log.Warnf("repository URL updated from %s to %s for %s/%s", origRepoURL, repoURL, t.orgId, *repo.Metadata.Name)
-		err = repo.Spec.MergeGenericRepoSpec(api.GenericRepoSpec{Url: string(origRepoURL)})
+		err = repo.Spec.MergeGenericRepoSpec(domain.GenericRepoSpec{Url: string(origRepoURL)})
 		if err != nil {
 			return fmt.Errorf("failed updating changed repository url for %s/%s: %w", t.orgId, *repo.Metadata.Name, err)
 		}
@@ -580,7 +580,7 @@ func (t *DeviceRenderLogic) getFrozenRepositoryURL(ctx context.Context, repo *ap
 	return nil
 }
 
-func (t *DeviceRenderLogic) cloneCachedGitRepoToIgnition(ctx context.Context, repo *api.Repository, targetRevision string, path string) (*config_latest_types.Config, error) {
+func (t *DeviceRenderLogic) cloneCachedGitRepoToIgnition(ctx context.Context, repo *domain.Repository, targetRevision string, path string) (*config_latest_types.Config, error) {
 	// 1. Get the frozen repository URL
 	err := t.getFrozenRepositoryURL(ctx, repo)
 	if err != nil {
@@ -672,14 +672,14 @@ func ignitionConfigToRenderedConfig(ignition *config_latest_types.Config) ([]byt
 		return emptyConfig, nil
 	}
 
-	var files []api.FileSpec
+	var files []domain.FileSpec
 	for _, file := range ignition.Storage.Files {
 		content := lo.FromPtr(file.Contents.Source)
-		encoding := api.EncodingPlain
+		encoding := domain.EncodingPlain
 
 		// parse encoding
 		if strings.HasPrefix(content, "data:") {
-			encoding = api.EncodingBase64
+			encoding = domain.EncodingBase64
 			if commaIndex := strings.Index(content, ","); commaIndex != -1 {
 				content = content[commaIndex+1:]
 			}
@@ -695,7 +695,7 @@ func ignitionConfigToRenderedConfig(ignition *config_latest_types.Config) ([]byt
 			user = strconv.Itoa(*file.User.ID)
 		}
 
-		fileSpec := api.FileSpec{
+		fileSpec := domain.FileSpec{
 			Content:         content,
 			ContentEncoding: &encoding,
 			Path:            file.Path,
@@ -708,14 +708,14 @@ func ignitionConfigToRenderedConfig(ignition *config_latest_types.Config) ([]byt
 	}
 
 	// convert all files to a single inline config provider
-	provider := api.ConfigProviderSpec{}
-	err := provider.FromInlineConfigProviderSpec(api.InlineConfigProviderSpec{
+	provider := domain.ConfigProviderSpec{}
+	err := provider.FromInlineConfigProviderSpec(domain.InlineConfigProviderSpec{
 		Inline: files,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("converting files to inline config provider: %w", err)
 	}
-	providers := &[]api.ConfigProviderSpec{provider}
+	providers := &[]domain.ConfigProviderSpec{provider}
 	renderedConfig, err := json.Marshal(providers)
 	if err != nil {
 		return nil, fmt.Errorf("marshalling rendered config: %w", err)
@@ -725,7 +725,7 @@ func ignitionConfigToRenderedConfig(ignition *config_latest_types.Config) ([]byt
 }
 
 // hashRenderedWithSpec creates a hash of the device spec to detect changes
-func hashRenderedWithSpec(deviceSpec *api.DeviceSpec) string {
+func hashRenderedWithSpec(deviceSpec *domain.DeviceSpec) string {
 	if deviceSpec == nil {
 		return ""
 	}

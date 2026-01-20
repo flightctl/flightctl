@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/flightctl/flightctl/api/v1beta1"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	apiClient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/cli/display"
@@ -779,7 +779,8 @@ func (o *LoginOptions) validateURLFormat(urlStr string) error {
 }
 
 // deriveImageBuilderService derives the imagebuilder service configuration from the main API service.
-// The imagebuilder service runs on the same host as the main API but on port 8445.
+// For nodePort mode: uses the same host as the main API but on port 8445.
+// For route mode: uses imagebuilder-api.{domain} with standard ports (443 for https, 80 for http).
 func deriveImageBuilderService(mainService client.Service) (*client.Service, error) {
 	const defaultImageBuilderPort = "8445"
 
@@ -789,9 +790,24 @@ func deriveImageBuilderService(mainService client.Service) (*client.Service, err
 	}
 
 	hostname := parsedUrl.Hostname()
+	port := parsedUrl.Port()
 
-	// Build the imagebuilder URL using the same host but with the imagebuilder port
-	imageBuilderURL := parsedUrl.Scheme + "://" + hostname + ":" + defaultImageBuilderPort
+	// Detect if we're using routes (no port or standard ports 80/443)
+	// For routes, use a different hostname: imagebuilder-api.{domain}
+	// For nodePort, use the same hostname with port 8445
+	var imageBuilderURL string
+	if port == "" || port == "443" || port == "80" {
+		// Route mode: replace "api." with "imagebuilder-api." in the hostname
+		if strings.HasPrefix(hostname, "api.") {
+			imageBuilderURL = parsedUrl.Scheme + "://" + strings.Replace(hostname, "api.", "imagebuilder-api.", 1)
+		} else {
+			// Fallback: if hostname doesn't start with "api.", append port 8445
+			imageBuilderURL = parsedUrl.Scheme + "://" + hostname + ":" + defaultImageBuilderPort
+		}
+	} else {
+		// NodePort mode: use the same host but with the imagebuilder port
+		imageBuilderURL = parsedUrl.Scheme + "://" + hostname + ":" + defaultImageBuilderPort
+	}
 
 	return &client.Service{
 		Server:                   imageBuilderURL,

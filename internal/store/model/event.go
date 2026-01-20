@@ -4,21 +4,21 @@ import (
 	"encoding/json"
 	"fmt"
 
-	api "github.com/flightctl/flightctl/api/v1beta1"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/samber/lo"
 )
 
 type Event struct {
 	Resource
-	Reason             string                       `gorm:"type:string;index" selector:"reason"`
-	SourceComponent    string                       `gorm:"type:string"`
-	Actor              string                       `gorm:"type:string" selector:"actor"`
-	Type               string                       `gorm:"type:string;index" selector:"type"`
-	Message            string                       `gorm:"type:text"`
-	Details            *JSONField[api.EventDetails] `gorm:"type:jsonb"`
-	InvolvedObjectName string                       `gorm:"type:string;index:idx_involved_object" selector:"involvedObject.name"`
-	InvolvedObjectKind string                       `gorm:"type:string;index:idx_involved_object" selector:"involvedObject.kind"`
+	Reason             string                          `gorm:"type:string;index" selector:"reason"`
+	SourceComponent    string                          `gorm:"type:string"`
+	Actor              string                          `gorm:"type:string" selector:"actor"`
+	Type               string                          `gorm:"type:string;index" selector:"type"`
+	Message            string                          `gorm:"type:text"`
+	Details            *JSONField[domain.EventDetails] `gorm:"type:jsonb"`
+	InvolvedObjectName string                          `gorm:"type:string;index:idx_involved_object" selector:"involvedObject.name"`
+	InvolvedObjectKind string                          `gorm:"type:string;index:idx_involved_object" selector:"involvedObject.kind"`
 }
 
 func (e Event) String() string {
@@ -26,11 +26,11 @@ func (e Event) String() string {
 	return string(val)
 }
 
-func NewEventFromApiResource(resource *api.Event) (*Event, error) {
+func NewEventFromApiResource(resource *domain.Event) (*Event, error) {
 	if resource == nil {
 		return &Event{}, nil
 	}
-	details := api.EventDetails{}
+	details := domain.EventDetails{}
 	if resource.Details != nil {
 		details = *resource.Details
 	}
@@ -51,54 +51,54 @@ func NewEventFromApiResource(resource *api.Event) (*Event, error) {
 }
 
 func EventAPIVersion() string {
-	return fmt.Sprintf("%s/%s", api.APIGroup, api.EventAPIVersion)
+	return fmt.Sprintf("%s/%s", domain.APIGroup, domain.EventAPIVersion)
 }
 
-func (e *Event) ToApiResource(opts ...APIResourceOption) (*api.Event, error) {
+func (e *Event) ToApiResource(opts ...APIResourceOption) (*domain.Event, error) {
 	if e == nil {
-		return &api.Event{}, nil
+		return &domain.Event{}, nil
 	}
 
-	var details *api.EventDetails
+	var details *domain.EventDetails
 	if e.Details != nil {
 		details = &e.Details.Data
 	}
 
-	return &api.Event{
+	return &domain.Event{
 		ApiVersion: EventAPIVersion(),
-		Kind:       api.EventKind,
-		Metadata: api.ObjectMeta{
+		Kind:       domain.EventKind,
+		Metadata: domain.ObjectMeta{
 			Name:              lo.ToPtr(e.Name),
 			Annotations:       lo.ToPtr(util.EnsureMap(e.Resource.Annotations)),
 			CreationTimestamp: lo.ToPtr(e.CreatedAt.UTC()),
 		},
-		InvolvedObject: api.ObjectReference{
+		InvolvedObject: domain.ObjectReference{
 			Kind: e.InvolvedObjectKind,
 			Name: e.InvolvedObjectName,
 		},
-		Reason: api.EventReason(e.Reason),
-		Source: api.EventSource{
+		Reason: domain.EventReason(e.Reason),
+		Source: domain.EventSource{
 			Component: e.SourceComponent,
 		},
 		Actor:   e.Actor,
-		Type:    api.EventType(e.Type),
+		Type:    domain.EventType(e.Type),
 		Message: e.Message,
 		Details: details,
 	}, nil
 }
 
-func EventsToApiResource(events []Event, cont *string, numRemaining *int64) (api.EventList, error) {
-	eventList := make([]api.Event, len(events))
+func EventsToApiResource(events []Event, cont *string, numRemaining *int64) (domain.EventList, error) {
+	eventList := make([]domain.Event, len(events))
 	for i, event := range events {
 		var opts []APIResourceOption
 		apiResource, _ := event.ToApiResource(opts...)
 		eventList[i] = *apiResource
 	}
-	ret := api.EventList{
+	ret := domain.EventList{
 		ApiVersion: EventAPIVersion(),
-		Kind:       api.EventListKind,
+		Kind:       domain.EventListKind,
 		Items:      eventList,
-		Metadata:   api.ListMeta{},
+		Metadata:   domain.ListMeta{},
 	}
 	if cont != nil {
 		ret.Metadata.Continue = cont
@@ -108,7 +108,7 @@ func EventsToApiResource(events []Event, cont *string, numRemaining *int64) (api
 }
 
 func (e *Event) GetKind() string {
-	return api.EventKind
+	return domain.EventKind
 }
 
 func (e *Event) HasNilSpec() bool {

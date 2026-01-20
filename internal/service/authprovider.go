@@ -6,8 +6,9 @@ import (
 	"fmt"
 	"strings"
 
-	api "github.com/flightctl/flightctl/api/v1beta1"
+	authprovider "github.com/flightctl/flightctl/internal/auth/provider"
 	"github.com/flightctl/flightctl/internal/contextutil"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
@@ -32,14 +33,14 @@ func sanitizeSchemaError(err error) string {
 // applyAuthProviderDefaults applies default values to auth provider specs during creation.
 // This includes setting UsernameClaim for OIDC and OAuth2 providers, Issuer for OAuth2,
 // and inferring Introspection for OAuth2 if not provided.
-func applyAuthProviderDefaults(spec *api.AuthProviderSpec) error {
+func applyAuthProviderDefaults(spec *domain.AuthProviderSpec) error {
 	discriminator, err := spec.Discriminator()
 	if err != nil {
 		return nil // Not a valid provider, nothing to do
 	}
 
 	switch discriminator {
-	case string(api.Oidc):
+	case string(domain.Oidc):
 		oidcSpec, err := spec.AsOIDCProviderSpec()
 		if err != nil {
 			return fmt.Errorf("invalid OIDC provider spec: %w", err)
@@ -56,7 +57,7 @@ func applyAuthProviderDefaults(spec *api.AuthProviderSpec) error {
 			return fmt.Errorf("failed to update OIDC provider spec: %w", mergeErr)
 		}
 
-	case string(api.Oauth2):
+	case string(domain.Oauth2):
 		oauth2Spec, err := spec.AsOAuth2ProviderSpec()
 		if err != nil {
 			return fmt.Errorf("invalid OAuth2 provider spec: %w", err)
@@ -75,7 +76,7 @@ func applyAuthProviderDefaults(spec *api.AuthProviderSpec) error {
 
 		// Infer introspection if not provided
 		if oauth2Spec.Introspection == nil {
-			introspection, err := api.InferOAuth2IntrospectionConfig(oauth2Spec)
+			introspection, err := authprovider.InferOAuth2IntrospectionConfig(oauth2Spec)
 			if err != nil {
 				return fmt.Errorf("introspection field is required and could not be inferred: %w", err)
 			}
@@ -93,31 +94,31 @@ func applyAuthProviderDefaults(spec *api.AuthProviderSpec) error {
 
 // handleSuperAdminAnnotation checks if the request is from a super admin and sets the annotation if needed.
 // Returns true if the auth provider was created by a super admin, false otherwise.
-func (h *ServiceHandler) handleSuperAdminAnnotation(ctx context.Context, authProvider *api.AuthProvider) bool {
+func (h *ServiceHandler) handleSuperAdminAnnotation(ctx context.Context, authProvider *domain.AuthProvider) bool {
 	mappedIdentity, ok := contextutil.GetMappedIdentityFromContext(ctx)
 	createdBySuperAdmin := ok && mappedIdentity.IsSuperAdmin()
 
 	if createdBySuperAdmin {
 		// Clear user-provided annotations and set our annotation
 		authProvider.Metadata.Annotations = lo.ToPtr(map[string]string{
-			api.AuthProviderAnnotationCreatedBySuperAdmin: "true",
+			domain.AuthProviderAnnotationCreatedBySuperAdmin: "true",
 		})
 	}
 	return createdBySuperAdmin
 }
 
-func (h *ServiceHandler) CreateAuthProvider(ctx context.Context, orgId uuid.UUID, authProvider api.AuthProvider) (*api.AuthProvider, api.Status) {
+func (h *ServiceHandler) CreateAuthProvider(ctx context.Context, orgId uuid.UUID, authProvider domain.AuthProvider) (*domain.AuthProvider, domain.Status) {
 
 	// don't set fields that are managed by the service
 	NilOutManagedObjectMetaProperties(&authProvider.Metadata)
 
 	// Apply defaults for auth providers (only during creation)
 	if err := applyAuthProviderDefaults(&authProvider.Spec); err != nil {
-		return nil, api.StatusBadRequest(sanitizeSchemaError(err))
+		return nil, domain.StatusBadRequest(sanitizeSchemaError(err))
 	}
 
 	if errs := authProvider.Validate(ctx); len(errs) > 0 {
-		return nil, api.StatusBadRequest(sanitizeSchemaError(errors.Join(errs...)))
+		return nil, domain.StatusBadRequest(sanitizeSchemaError(errors.Join(errs...)))
 	}
 
 	// Check if created by super admin and prepare annotations
@@ -126,65 +127,65 @@ func (h *ServiceHandler) CreateAuthProvider(ctx context.Context, orgId uuid.UUID
 	// Use fromAPI=false to preserve annotations when created by super admin
 	if createdBySuperAdmin {
 		result, err := h.store.AuthProvider().CreateWithFromAPI(ctx, orgId, &authProvider, false, h.callbackAuthProviderUpdated)
-		return result, StoreErrorToApiStatus(err, true, api.AuthProviderKind, authProvider.Metadata.Name)
+		return result, StoreErrorToApiStatus(err, true, domain.AuthProviderKind, authProvider.Metadata.Name)
 	}
 
 	// For non-super-admin users, use regular Create (fromAPI=true, annotations cleared)
 	result, err := h.store.AuthProvider().Create(ctx, orgId, &authProvider, h.callbackAuthProviderUpdated)
-	return result, StoreErrorToApiStatus(err, true, api.AuthProviderKind, authProvider.Metadata.Name)
+	return result, StoreErrorToApiStatus(err, true, domain.AuthProviderKind, authProvider.Metadata.Name)
 }
 
-func (h *ServiceHandler) ListAuthProviders(ctx context.Context, orgId uuid.UUID, params api.ListAuthProvidersParams) (*api.AuthProviderList, api.Status) {
+func (h *ServiceHandler) ListAuthProviders(ctx context.Context, orgId uuid.UUID, params domain.ListAuthProvidersParams) (*domain.AuthProviderList, domain.Status) {
 
 	listParams, status := prepareListParams(params.Continue, params.LabelSelector, params.FieldSelector, params.Limit)
-	if status != api.StatusOK() {
+	if status != domain.StatusOK() {
 		return nil, status
 	}
 
 	result, err := h.store.AuthProvider().List(ctx, orgId, *listParams)
 	if err == nil {
-		return result, api.StatusOK()
+		return result, domain.StatusOK()
 	}
 
 	var se *selector.SelectorError
 
 	switch {
 	case selector.AsSelectorError(err, &se):
-		return nil, api.StatusBadRequest(se.Error())
+		return nil, domain.StatusBadRequest(se.Error())
 	default:
-		return nil, api.StatusInternalServerError(err.Error())
+		return nil, domain.StatusInternalServerError(err.Error())
 	}
 }
 
-func (h *ServiceHandler) ListAllAuthProviders(ctx context.Context, params api.ListAuthProvidersParams) (*api.AuthProviderList, api.Status) {
+func (h *ServiceHandler) ListAllAuthProviders(ctx context.Context, params domain.ListAuthProvidersParams) (*domain.AuthProviderList, domain.Status) {
 
 	listParams, status := prepareListParams(params.Continue, params.LabelSelector, params.FieldSelector, params.Limit)
-	if status != api.StatusOK() {
+	if status != domain.StatusOK() {
 		return nil, status
 	}
 
 	result, err := h.store.AuthProvider().ListAll(ctx, *listParams)
 	if err == nil {
-		return result, api.StatusOK()
+		return result, domain.StatusOK()
 	}
 
 	var se *selector.SelectorError
 
 	switch {
 	case selector.AsSelectorError(err, &se):
-		return nil, api.StatusBadRequest(se.Error())
+		return nil, domain.StatusBadRequest(se.Error())
 	default:
-		return nil, api.StatusInternalServerError(err.Error())
+		return nil, domain.StatusInternalServerError(err.Error())
 	}
 }
 
-func (h *ServiceHandler) GetAuthProvider(ctx context.Context, orgId uuid.UUID, name string) (*api.AuthProvider, api.Status) {
+func (h *ServiceHandler) GetAuthProvider(ctx context.Context, orgId uuid.UUID, name string) (*domain.AuthProvider, domain.Status) {
 
 	result, err := h.store.AuthProvider().Get(ctx, orgId, name)
-	return result, StoreErrorToApiStatus(err, false, api.AuthProviderKind, &name)
+	return result, StoreErrorToApiStatus(err, false, domain.AuthProviderKind, &name)
 }
 
-func (h *ServiceHandler) ReplaceAuthProvider(ctx context.Context, orgId uuid.UUID, name string, authProvider api.AuthProvider) (*api.AuthProvider, api.Status) {
+func (h *ServiceHandler) ReplaceAuthProvider(ctx context.Context, orgId uuid.UUID, name string, authProvider domain.AuthProvider) (*domain.AuthProvider, domain.Status) {
 
 	// don't overwrite fields that are managed by the service for external requests
 	if !IsInternalRequest(ctx) {
@@ -193,10 +194,10 @@ func (h *ServiceHandler) ReplaceAuthProvider(ctx context.Context, orgId uuid.UUI
 
 	// Validate name early for both create and update paths
 	if authProvider.Metadata.Name == nil {
-		return nil, api.StatusBadRequest("metadata.name is required")
+		return nil, domain.StatusBadRequest("metadata.name is required")
 	}
 	if name != *authProvider.Metadata.Name {
-		return nil, api.StatusBadRequest("resource name specified in metadata does not match name in path")
+		return nil, domain.StatusBadRequest("resource name specified in metadata does not match name in path")
 	}
 
 	// Get the existing resource to perform update validation
@@ -204,7 +205,7 @@ func (h *ServiceHandler) ReplaceAuthProvider(ctx context.Context, orgId uuid.UUI
 	if err == nil {
 		// Resource exists, validate update
 		if errs := authProvider.ValidateUpdate(ctx, currentObj); len(errs) > 0 {
-			return nil, api.StatusBadRequest(sanitizeSchemaError(errors.Join(errs...)))
+			return nil, domain.StatusBadRequest(sanitizeSchemaError(errors.Join(errs...)))
 		}
 	} else {
 		// Resource doesn't exist, delegate to CreateAuthProvider which handles all creation logic
@@ -212,63 +213,63 @@ func (h *ServiceHandler) ReplaceAuthProvider(ctx context.Context, orgId uuid.UUI
 	}
 
 	result, created, err := h.store.AuthProvider().CreateOrUpdate(ctx, orgId, &authProvider, h.callbackAuthProviderUpdated)
-	return result, StoreErrorToApiStatus(err, created, api.AuthProviderKind, &name)
+	return result, StoreErrorToApiStatus(err, created, domain.AuthProviderKind, &name)
 }
 
-func (h *ServiceHandler) PatchAuthProvider(ctx context.Context, orgId uuid.UUID, name string, patch api.PatchRequest) (*api.AuthProvider, api.Status) {
+func (h *ServiceHandler) PatchAuthProvider(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest) (*domain.AuthProvider, domain.Status) {
 
 	currentObj, err := h.store.AuthProvider().Get(ctx, orgId, name)
 	if err != nil {
-		return nil, StoreErrorToApiStatus(err, false, api.AuthProviderKind, &name)
+		return nil, StoreErrorToApiStatus(err, false, domain.AuthProviderKind, &name)
 	}
 
-	newObj := &api.AuthProvider{}
+	newObj := &domain.AuthProvider{}
 	err = ApplyJSONPatch(ctx, currentObj, newObj, patch, "/api/v1/authproviders/"+name)
 	if err != nil {
-		return nil, api.StatusBadRequest(sanitizeSchemaError(err))
+		return nil, domain.StatusBadRequest(sanitizeSchemaError(err))
 	}
 
 	// Forbid changing metadata.name via PATCH
 	if currentObj.Metadata.Name != nil && newObj.Metadata.Name != nil && *currentObj.Metadata.Name != *newObj.Metadata.Name {
-		return nil, api.StatusBadRequest("metadata.name cannot be changed")
+		return nil, domain.StatusBadRequest("metadata.name cannot be changed")
 	}
 
 	// Use ValidateUpdate to prevent deletion of required fields
 	if errs := newObj.ValidateUpdate(ctx, currentObj); len(errs) > 0 {
-		return nil, api.StatusBadRequest(sanitizeSchemaError(errors.Join(errs...)))
+		return nil, domain.StatusBadRequest(sanitizeSchemaError(errors.Join(errs...)))
 	}
 
 	NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
 
 	result, err := h.store.AuthProvider().Update(ctx, orgId, newObj, h.callbackAuthProviderUpdated)
-	return result, StoreErrorToApiStatus(err, false, api.AuthProviderKind, &name)
+	return result, StoreErrorToApiStatus(err, false, domain.AuthProviderKind, &name)
 }
 
-func (h *ServiceHandler) DeleteAuthProvider(ctx context.Context, orgId uuid.UUID, name string) api.Status {
+func (h *ServiceHandler) DeleteAuthProvider(ctx context.Context, orgId uuid.UUID, name string) domain.Status {
 
 	err := h.store.AuthProvider().Delete(ctx, orgId, name, h.callbackAuthProviderDeleted)
-	return StoreErrorToApiStatus(err, false, api.AuthProviderKind, &name)
+	return StoreErrorToApiStatus(err, false, domain.AuthProviderKind, &name)
 }
 
-func (h *ServiceHandler) GetAuthProviderByIssuerAndClientId(ctx context.Context, orgId uuid.UUID, issuer string, clientId string) (*api.AuthProvider, api.Status) {
+func (h *ServiceHandler) GetAuthProviderByIssuerAndClientId(ctx context.Context, orgId uuid.UUID, issuer string, clientId string) (*domain.AuthProvider, domain.Status) {
 
 	result, err := h.store.AuthProvider().GetAuthProviderByIssuerAndClientId(ctx, orgId, issuer, clientId)
-	return result, StoreErrorToApiStatus(err, false, api.AuthProviderKind, &issuer)
+	return result, StoreErrorToApiStatus(err, false, domain.AuthProviderKind, &issuer)
 }
 
-func (h *ServiceHandler) GetAuthProviderByAuthorizationUrl(ctx context.Context, orgId uuid.UUID, authorizationUrl string) (*api.AuthProvider, api.Status) {
+func (h *ServiceHandler) GetAuthProviderByAuthorizationUrl(ctx context.Context, orgId uuid.UUID, authorizationUrl string) (*domain.AuthProvider, domain.Status) {
 
 	result, err := h.store.AuthProvider().GetAuthProviderByAuthorizationUrl(ctx, orgId, authorizationUrl)
-	return result, StoreErrorToApiStatus(err, false, api.AuthProviderKind, &authorizationUrl)
+	return result, StoreErrorToApiStatus(err, false, domain.AuthProviderKind, &authorizationUrl)
 }
 
 // callbackAuthProviderUpdated is the auth provider-specific callback that handles auth provider update events
-func (h *ServiceHandler) callbackAuthProviderUpdated(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
+func (h *ServiceHandler) callbackAuthProviderUpdated(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
 	h.eventHandler.HandleAuthProviderUpdatedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
 }
 
 // callbackAuthProviderDeleted is the auth provider-specific callback that handles auth provider deletion events
-func (h *ServiceHandler) callbackAuthProviderDeleted(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
+func (h *ServiceHandler) callbackAuthProviderDeleted(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
 	h.eventHandler.HandleAuthProviderDeletedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
 }

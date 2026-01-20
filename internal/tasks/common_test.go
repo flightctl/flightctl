@@ -1,10 +1,10 @@
 package tasks
 
-import api "github.com/flightctl/flightctl/api/v1beta1"
+import "github.com/flightctl/flightctl/internal/domain"
 
-func createTestEvent(kind api.ResourceKind, reason api.EventReason, name string) api.Event {
-	return api.Event{
-		InvolvedObject: api.ObjectReference{
+func createTestEvent(kind domain.ResourceKind, reason domain.EventReason, name string) domain.Event {
+	return domain.Event{
+		InvolvedObject: domain.ObjectReference{
 			Kind: string(kind),
 			Name: name,
 		},
@@ -12,23 +12,23 @@ func createTestEvent(kind api.ResourceKind, reason api.EventReason, name string)
 	}
 }
 
-func createTestFleet(name string, rolloutPolicy *api.RolloutPolicy) *api.Fleet {
+func createTestFleet(name string, rolloutPolicy *domain.RolloutPolicy) *domain.Fleet {
 	fleetName := name
 	generation := int64(1)
 
-	return &api.Fleet{
-		Metadata: api.ObjectMeta{
+	return &domain.Fleet{
+		Metadata: domain.ObjectMeta{
 			Name:       &fleetName,
 			Generation: &generation,
 		},
-		Spec: api.FleetSpec{
+		Spec: domain.FleetSpec{
 			RolloutPolicy: rolloutPolicy,
 			Template: struct {
-				Metadata *api.ObjectMeta `json:"metadata,omitempty"`
-				Spec     api.DeviceSpec  `json:"spec"`
+				Metadata *domain.ObjectMeta `json:"metadata,omitempty"`
+				Spec     domain.DeviceSpec  `json:"spec"`
 			}{
-				Spec: api.DeviceSpec{
-					Os: &api.DeviceOsSpec{
+				Spec: domain.DeviceSpec{
+					Os: &domain.DeviceOsSpec{
 						Image: "test-image:latest",
 					},
 				},

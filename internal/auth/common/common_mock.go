@@ -14,7 +14,7 @@ import (
 	http "net/http"
 	reflect "reflect"
 
-	v1beta1 "github.com/flightctl/flightctl/api/v1beta1"
+	v1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
 	identity "github.com/flightctl/flightctl/internal/identity"
 	gomock "go.uber.org/mock/gomock"
 )

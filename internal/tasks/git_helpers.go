@@ -13,7 +13,7 @@ import (
 	"strings"
 
 	config_latest_types "github.com/coreos/ignition/v2/config/v3_4/types"
-	api "github.com/flightctl/flightctl/api/v1beta1"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/pkg/ignition"
 	"github.com/go-git/go-billy/v5"
 	"github.com/go-git/go-billy/v5/memfs"
@@ -32,9 +32,9 @@ import (
 var scpLikeUrlRegExp = regexp.MustCompile(`^(?:(?P<user>[^@]+)@)?(?P<host>[^:\s]+):(?:(?P<port>[0-9]{1,5}):)?(?P<path>[^\\].*)$`)
 
 // a function to clone a git repo, for mockable unit testing
-type cloneGitRepoFunc func(repo *api.Repository, revision *string, depth *int) (billy.Filesystem, string, error)
+type cloneGitRepoFunc func(repo *domain.Repository, revision *string, depth *int) (billy.Filesystem, string, error)
 
-func CloneGitRepo(repo *api.Repository, revision *string, depth *int) (billy.Filesystem, string, error) {
+func CloneGitRepo(repo *domain.Repository, revision *string, depth *int) (billy.Filesystem, string, error) {
 	storage := gitmemory.NewStorage()
 	mfs := memfs.New()
 	repoURL, err := repo.Spec.GetRepoURL()
@@ -87,7 +87,7 @@ func CloneGitRepo(repo *api.Repository, revision *string, depth *int) (billy.Fil
 
 // Read repository's ssh/http config and create transport.AuthMethod.
 // If no ssh/http config is defined a nil is returned.
-func GetAuth(repository *api.Repository) (transport.AuthMethod, error) {
+func GetAuth(repository *domain.Repository) (transport.AuthMethod, error) {
 	_, err := repository.Spec.GetGenericRepoSpec()
 	if err == nil {
 		return nil, nil
@@ -158,7 +158,7 @@ func GetAuth(repository *api.Repository) (transport.AuthMethod, error) {
 	return nil, nil
 }
 
-func configureRepoHTTPSClient(httpConfig api.HttpConfig) error {
+func configureRepoHTTPSClient(httpConfig domain.HttpConfig) error {
 	tlsConfig := tls.Config{} //nolint:gosec
 	if httpConfig.SkipServerVerification != nil {
 		tlsConfig.InsecureSkipVerify = *httpConfig.SkipServerVerification //nolint:gosec
@@ -254,7 +254,7 @@ func ConvertFileSystemToIgnition(mfs billy.Filesystem, path string) (*config_lat
 	return &ignition, nil
 }
 
-func CloneGitRepoToIgnition(repo *api.Repository, revision string, path string) (*config_latest_types.Config, string, error) {
+func CloneGitRepoToIgnition(repo *domain.Repository, revision string, path string) (*config_latest_types.Config, string, error) {
 	mfs, hash, err := CloneGitRepo(repo, &revision, nil)
 	if err != nil {
 		return nil, "", err

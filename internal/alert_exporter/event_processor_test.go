@@ -4,18 +4,18 @@ import (
 	"testing"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/v1beta1"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 )
 
-func fakeEvent(org, kind, name, reason string) api.Event {
-	return api.Event{
-		Metadata: api.ObjectMeta{
+func fakeEvent(org, kind, name, reason string) domain.Event {
+	return domain.Event{
+		Metadata: domain.ObjectMeta{
 			CreationTimestamp: lo.ToPtr(time.Now()),
 		},
-		Reason: api.EventReason(reason),
-		InvolvedObject: api.ObjectReference{
+		Reason: domain.EventReason(reason),
+		InvolvedObject: domain.ObjectReference{
 			Kind: kind,
 			Name: name,
 		},
@@ -25,36 +25,36 @@ func fakeEvent(org, kind, name, reason string) api.Event {
 func TestSetExclusiveAlert(t *testing.T) {
 	testOrgID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
 	now := time.Now()
-	event1 := fakeEvent("org", "Device", "dev1", string(api.EventReasonDeviceCPUCritical))
-	event2 := fakeEvent("org", "Device", "dev1", string(api.EventReasonDeviceDiskWarning))
+	event1 := fakeEvent("org", "Device", "dev1", string(domain.EventReasonDeviceCPUCritical))
+	event2 := fakeEvent("org", "Device", "dev1", string(domain.EventReasonDeviceDiskWarning))
 	alerts := map[AlertKey]map[string]*AlertInfo{
 		AlertKeyFromEvent(event1, testOrgID): {
-			string(api.EventReasonDeviceCPUWarning):   &AlertInfo{StartsAt: now},
-			string(api.EventReasonDeviceDiskCritical): &AlertInfo{StartsAt: now},
-			string(api.EventReasonDeviceDisconnected): &AlertInfo{StartsAt: now}, // should remain
+			string(domain.EventReasonDeviceCPUWarning):   &AlertInfo{StartsAt: now},
+			string(domain.EventReasonDeviceDiskCritical): &AlertInfo{StartsAt: now},
+			string(domain.EventReasonDeviceDisconnected): &AlertInfo{StartsAt: now}, // should remain
 		},
 	}
 	checkpointCtx := &CheckpointContext{
 		alerts: alerts,
 	}
 
-	checkpointCtx.setAlert(event1, string(api.EventReasonDeviceCPUCritical), cpuGroup, testOrgID)
-	checkpointCtx.setAlert(event2, string(api.EventReasonDeviceDiskWarning), diskGroup, testOrgID)
+	checkpointCtx.setAlert(event1, string(domain.EventReasonDeviceCPUCritical), cpuGroup, testOrgID)
+	checkpointCtx.setAlert(event2, string(domain.EventReasonDeviceDiskWarning), diskGroup, testOrgID)
 
 	reasons := alerts[AlertKeyFromEvent(event1, testOrgID)]
-	if reasons[string(api.EventReasonDeviceCPUWarning)] == nil || reasons[string(api.EventReasonDeviceCPUWarning)].EndsAt == nil {
+	if reasons[string(domain.EventReasonDeviceCPUWarning)] == nil || reasons[string(domain.EventReasonDeviceCPUWarning)].EndsAt == nil {
 		t.Errorf("expected DeviceCPUWarning to be resolved")
 	}
-	if reasons[string(api.EventReasonDeviceCPUCritical)] == nil || reasons[string(api.EventReasonDeviceCPUCritical)].EndsAt != nil {
+	if reasons[string(domain.EventReasonDeviceCPUCritical)] == nil || reasons[string(domain.EventReasonDeviceCPUCritical)].EndsAt != nil {
 		t.Errorf("expected DeviceCPUCritical to be active")
 	}
-	if reasons[string(api.EventReasonDeviceDiskCritical)] == nil || reasons[string(api.EventReasonDeviceDiskCritical)].EndsAt == nil {
+	if reasons[string(domain.EventReasonDeviceDiskCritical)] == nil || reasons[string(domain.EventReasonDeviceDiskCritical)].EndsAt == nil {
 		t.Errorf("expected DeviceDiskCritical to be resolved")
 	}
-	if reasons[string(api.EventReasonDeviceDiskWarning)] == nil || reasons[string(api.EventReasonDeviceDiskWarning)].EndsAt != nil {
+	if reasons[string(domain.EventReasonDeviceDiskWarning)] == nil || reasons[string(domain.EventReasonDeviceDiskWarning)].EndsAt != nil {
 		t.Errorf("expected DeviceDiskWarning to be active")
 	}
-	if reasons[string(api.EventReasonDeviceDisconnected)] == nil || reasons[string(api.EventReasonDeviceDisconnected)].EndsAt != nil {
+	if reasons[string(domain.EventReasonDeviceDisconnected)] == nil || reasons[string(domain.EventReasonDeviceDisconnected)].EndsAt != nil {
 		t.Errorf("expected DeviceDisconnected to be active")
 	}
 }
@@ -62,12 +62,12 @@ func TestSetExclusiveAlert(t *testing.T) {
 func TestClearAlertGroup(t *testing.T) {
 	testOrgID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
 	now := time.Now()
-	event := fakeEvent("org", "Device", "dev1", string(api.EventReasonDeviceMemoryNormal))
+	event := fakeEvent("org", "Device", "dev1", string(domain.EventReasonDeviceMemoryNormal))
 	key := AlertKeyFromEvent(event, testOrgID)
 	alerts := map[AlertKey]map[string]*AlertInfo{
 		key: {
-			string(api.EventReasonDeviceMemoryWarning):  {StartsAt: now},
-			string(api.EventReasonDeviceMemoryCritical): {StartsAt: now},
+			string(domain.EventReasonDeviceMemoryWarning):  {StartsAt: now},
+			string(domain.EventReasonDeviceMemoryCritical): {StartsAt: now},
 		},
 	}
 	checkpointCtx := &CheckpointContext{
@@ -75,17 +75,17 @@ func TestClearAlertGroup(t *testing.T) {
 	}
 	checkpointCtx.clearAlertGroup(event, memoryGroup, testOrgID)
 
-	if alerts[key][string(api.EventReasonDeviceMemoryWarning)].EndsAt == nil {
+	if alerts[key][string(domain.EventReasonDeviceMemoryWarning)].EndsAt == nil {
 		t.Errorf("expected DeviceMemoryWarning to be resolved")
 	}
-	if alerts[key][string(api.EventReasonDeviceMemoryCritical)].EndsAt == nil {
+	if alerts[key][string(domain.EventReasonDeviceMemoryCritical)].EndsAt == nil {
 		t.Errorf("expected DeviceMemoryCritical to be resolved")
 	}
 }
 
 func TestProcessEvent_AppStatus(t *testing.T) {
 	testOrgID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
-	event := fakeEvent("org", "Device", "dev1", string(api.EventReasonDeviceApplicationError))
+	event := fakeEvent("org", "Device", "dev1", string(domain.EventReasonDeviceApplicationError))
 	key := AlertKeyFromEvent(event, testOrgID)
 	checkpointCtx := &CheckpointContext{
 		alerts: make(map[AlertKey]map[string]*AlertInfo),
@@ -94,19 +94,19 @@ func TestProcessEvent_AppStatus(t *testing.T) {
 	checkpointCtx.processEvent(event, testOrgID)
 
 	reasons := checkpointCtx.alerts[key]
-	if reasons[string(api.EventReasonDeviceApplicationError)].EndsAt != nil || reasons[string(api.EventReasonDeviceApplicationError)].StartsAt != *event.Metadata.CreationTimestamp {
+	if reasons[string(domain.EventReasonDeviceApplicationError)].EndsAt != nil || reasons[string(domain.EventReasonDeviceApplicationError)].StartsAt != *event.Metadata.CreationTimestamp {
 		t.Errorf("expected DeviceApplicationError to be set")
 	}
 }
 
 func TestProcessEvent_AppHealthy(t *testing.T) {
 	testOrgID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
-	event := fakeEvent("org", "Device", "dev1", string(api.EventReasonDeviceApplicationHealthy))
+	event := fakeEvent("org", "Device", "dev1", string(domain.EventReasonDeviceApplicationHealthy))
 	key := AlertKeyFromEvent(event, testOrgID)
 	alerts := map[AlertKey]map[string]*AlertInfo{
 		key: {
-			string(api.EventReasonDeviceApplicationError):    {StartsAt: time.Now()},
-			string(api.EventReasonDeviceApplicationDegraded): {StartsAt: time.Now()},
+			string(domain.EventReasonDeviceApplicationError):    {StartsAt: time.Now()},
+			string(domain.EventReasonDeviceApplicationDegraded): {StartsAt: time.Now()},
 		},
 	}
 
@@ -115,20 +115,20 @@ func TestProcessEvent_AppHealthy(t *testing.T) {
 	}
 	checkpointCtx.processEvent(event, testOrgID)
 
-	if alerts[key][string(api.EventReasonDeviceApplicationError)].EndsAt == nil {
+	if alerts[key][string(domain.EventReasonDeviceApplicationError)].EndsAt == nil {
 		t.Errorf("expected DeviceApplicationError to be resolved")
 	}
-	if alerts[key][string(api.EventReasonDeviceApplicationDegraded)].EndsAt == nil {
+	if alerts[key][string(domain.EventReasonDeviceApplicationDegraded)].EndsAt == nil {
 		t.Errorf("expected DeviceApplicationDegraded to be resolved")
 	}
 }
 
 func TestProcessEvent_Connected(t *testing.T) {
 	testOrgID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
-	event := fakeEvent("org", "Device", "dev1", string(api.EventReasonDeviceConnected))
+	event := fakeEvent("org", "Device", "dev1", string(domain.EventReasonDeviceConnected))
 	key := AlertKeyFromEvent(event, testOrgID)
 	alerts := map[AlertKey]map[string]*AlertInfo{
-		key: {string(api.EventReasonDeviceDisconnected): {StartsAt: time.Now()}},
+		key: {string(domain.EventReasonDeviceDisconnected): {StartsAt: time.Now()}},
 	}
 
 	checkpointCtx := &CheckpointContext{
@@ -136,20 +136,20 @@ func TestProcessEvent_Connected(t *testing.T) {
 	}
 	checkpointCtx.processEvent(event, testOrgID)
 
-	if alerts[key][string(api.EventReasonDeviceDisconnected)].EndsAt == nil {
+	if alerts[key][string(domain.EventReasonDeviceDisconnected)].EndsAt == nil {
 		t.Errorf("expected DeviceDisconnected to be resolved")
 	}
 }
 
 func TestProcessEvent_ResourceDeleted(t *testing.T) {
 	testOrgID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
-	event := fakeEvent("org", "Device", "dev1", string(api.EventReasonResourceDeleted))
+	event := fakeEvent("org", "Device", "dev1", string(domain.EventReasonResourceDeleted))
 	key := AlertKeyFromEvent(event, testOrgID)
 
 	alerts := map[AlertKey]map[string]*AlertInfo{
 		key: {
-			string(api.EventReasonDeviceMemoryWarning): {StartsAt: time.Now()},
-			string(api.EventReasonDeviceDiskCritical):  {StartsAt: time.Now()},
+			string(domain.EventReasonDeviceMemoryWarning): {StartsAt: time.Now()},
+			string(domain.EventReasonDeviceDiskCritical):  {StartsAt: time.Now()},
 		},
 	}
 
@@ -158,10 +158,10 @@ func TestProcessEvent_ResourceDeleted(t *testing.T) {
 	}
 	checkpointCtx.processEvent(event, testOrgID)
 
-	if alerts[key][string(api.EventReasonDeviceMemoryWarning)].EndsAt == nil {
+	if alerts[key][string(domain.EventReasonDeviceMemoryWarning)].EndsAt == nil {
 		t.Errorf("expected DeviceMemoryWarning to be resolved")
 	}
-	if alerts[key][string(api.EventReasonDeviceDiskCritical)].EndsAt == nil {
+	if alerts[key][string(domain.EventReasonDeviceDiskCritical)].EndsAt == nil {
 		t.Errorf("expected DeviceDiskCritical to be resolved")
 	}
 }
@@ -176,12 +176,12 @@ func TestEventToAlertConversion(t *testing.T) {
 
 	testCases := []struct {
 		name   string
-		events []api.Event
+		events []domain.Event
 		checks func(t *testing.T, checkpoint *AlertCheckpoint)
 	}{
 		{
 			name: "device disconnected",
-			events: []api.Event{
+			events: []domain.Event{
 				fakeEvent("myorg", "Device", "device1", "DeviceDisconnected"),
 			},
 			checks: func(t *testing.T, checkpoint *AlertCheckpoint) {
@@ -196,7 +196,7 @@ func TestEventToAlertConversion(t *testing.T) {
 		},
 		{
 			name: "device connected after disconnected",
-			events: []api.Event{
+			events: []domain.Event{
 				fakeEvent("myorg", "Device", "device1", "DeviceDisconnected"),
 				fakeEvent("myorg", "Device", "device1", "DeviceConnected"),
 			},
@@ -230,8 +230,8 @@ func TestMultiOrgEventProcessing(t *testing.T) {
 	org1ID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
 	org2ID := uuid.MustParse("22222222-2222-2222-2222-222222222222")
 
-	event1 := fakeEvent("org1", "Device", "device1", string(api.EventReasonDeviceCPUCritical))
-	event2 := fakeEvent("org2", "Device", "device1", string(api.EventReasonDeviceCPUCritical))
+	event1 := fakeEvent("org1", "Device", "device1", string(domain.EventReasonDeviceCPUCritical))
+	event2 := fakeEvent("org2", "Device", "device1", string(domain.EventReasonDeviceCPUCritical))
 
 	checkpointCtx := &CheckpointContext{
 		alerts: make(map[AlertKey]map[string]*AlertInfo),
@@ -249,7 +249,7 @@ func TestMultiOrgEventProcessing(t *testing.T) {
 	}
 
 	// Verify org1 alert
-	if alert1, exists := checkpointCtx.alerts[key1][string(api.EventReasonDeviceCPUCritical)]; !exists {
+	if alert1, exists := checkpointCtx.alerts[key1][string(domain.EventReasonDeviceCPUCritical)]; !exists {
 		t.Errorf("Expected alert for org1")
 	} else {
 		if alert1.OrgID != org1ID.String() {
@@ -261,7 +261,7 @@ func TestMultiOrgEventProcessing(t *testing.T) {
 	}
 
 	// Verify org2 alert
-	if alert2, exists := checkpointCtx.alerts[key2][string(api.EventReasonDeviceCPUCritical)]; !exists {
+	if alert2, exists := checkpointCtx.alerts[key2][string(domain.EventReasonDeviceCPUCritical)]; !exists {
 		t.Errorf("Expected alert for org2")
 	} else {
 		if alert2.OrgID != org2ID.String() {
@@ -277,8 +277,8 @@ func TestOrgIsolation(t *testing.T) {
 	org1ID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
 	org2ID := uuid.MustParse("22222222-2222-2222-2222-222222222222")
 
-	event1 := fakeEvent("org1", "Device", "device1", string(api.EventReasonDeviceCPUCritical))
-	event2 := fakeEvent("org2", "Device", "device1", string(api.EventReasonDeviceCPUNormal))
+	event1 := fakeEvent("org1", "Device", "device1", string(domain.EventReasonDeviceCPUCritical))
+	event2 := fakeEvent("org2", "Device", "device1", string(domain.EventReasonDeviceCPUNormal))
 
 	checkpointCtx := &CheckpointContext{
 		alerts: make(map[AlertKey]map[string]*AlertInfo),
@@ -290,7 +290,7 @@ func TestOrgIsolation(t *testing.T) {
 
 	// Verify org1 still has active CPU critical alert
 	key1 := AlertKeyFromEvent(event1, org1ID)
-	if alert, exists := checkpointCtx.alerts[key1][string(api.EventReasonDeviceCPUCritical)]; !exists || alert.EndsAt != nil {
+	if alert, exists := checkpointCtx.alerts[key1][string(domain.EventReasonDeviceCPUCritical)]; !exists || alert.EndsAt != nil {
 		t.Errorf("Expected active CPU critical alert for org1")
 	}
 

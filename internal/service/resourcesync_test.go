@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	api "github.com/flightctl/flightctl/api/v1beta1"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
@@ -12,20 +12,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func verifyRSPatchFailed(require *require.Assertions, status api.Status) {
+func verifyRSPatchFailed(require *require.Assertions, status domain.Status) {
 	require.Equal(statusBadRequestCode, status.Code)
 }
 
-func testResourceSyncPatch(require *require.Assertions, patch api.PatchRequest) (*api.ResourceSync, api.ResourceSync, api.Status) {
+func testResourceSyncPatch(require *require.Assertions, patch domain.PatchRequest) (*domain.ResourceSync, domain.ResourceSync, domain.Status) {
 	ctx := context.Background()
-	resourceSync := api.ResourceSync{
+	resourceSync := domain.ResourceSync{
 		ApiVersion: "v1",
 		Kind:       "ResourceSync",
-		Metadata: api.ObjectMeta{
+		Metadata: domain.ObjectMeta{
 			Name:   lo.ToPtr("foo"),
 			Labels: &map[string]string{"labelKey": "labelValue"},
 		},
-		Spec: api.ResourceSyncSpec{
+		Spec: domain.ResourceSyncSpec{
 			Repository:     "repo",
 			TargetRevision: "main",
 			Path:           "/foo",
@@ -52,14 +52,14 @@ func TestResourceSyncCreateWithLongNames(t *testing.T) {
 	require := require.New(t)
 	ctx := context.Background()
 
-	resourceSync := api.ResourceSync{
+	resourceSync := domain.ResourceSync{
 		ApiVersion: "v1",
 		Kind:       "ResourceSync",
-		Metadata: api.ObjectMeta{
+		Metadata: domain.ObjectMeta{
 			Name:   lo.ToPtr("01234567890123456789012345678901234567890123456789012345678901234567890123456789"),
 			Labels: &map[string]string{"labelKey": "labelValue"},
 		},
-		Spec: api.ResourceSyncSpec{
+		Spec: domain.ResourceSyncSpec{
 			Repository:     "01234567890123456789012345678901234567890123456789012345678901234567890123456789",
 			TargetRevision: "main",
 			Path:           "/foo",
@@ -85,13 +85,13 @@ func TestResourceSyncCreateWithLongNames(t *testing.T) {
 func TestResourceSyncPatchName(t *testing.T) {
 	require := require.New(t)
 	var value interface{} = "bar"
-	pr := api.PatchRequest{
+	pr := domain.PatchRequest{
 		{Op: "replace", Path: "/metadata/name", Value: &value},
 	}
 	_, _, status := testResourceSyncPatch(require, pr)
 	verifyRSPatchFailed(require, status)
 
-	pr = api.PatchRequest{
+	pr = domain.PatchRequest{
 		{Op: "remove", Path: "/metadata/name"},
 	}
 	_, _, status = testResourceSyncPatch(require, pr)
@@ -101,13 +101,13 @@ func TestResourceSyncPatchName(t *testing.T) {
 func TestResourceSyncPatchKind(t *testing.T) {
 	require := require.New(t)
 	var value interface{} = "bar"
-	pr := api.PatchRequest{
+	pr := domain.PatchRequest{
 		{Op: "replace", Path: "/kind", Value: &value},
 	}
 	_, _, status := testResourceSyncPatch(require, pr)
 	verifyRSPatchFailed(require, status)
 
-	pr = api.PatchRequest{
+	pr = domain.PatchRequest{
 		{Op: "remove", Path: "/kind"},
 	}
 	_, _, status = testResourceSyncPatch(require, pr)
@@ -117,13 +117,13 @@ func TestResourceSyncPatchKind(t *testing.T) {
 func TestResourceSyncPatchAPIVersion(t *testing.T) {
 	require := require.New(t)
 	var value interface{} = "bar"
-	pr := api.PatchRequest{
+	pr := domain.PatchRequest{
 		{Op: "replace", Path: "/apiVersion", Value: &value},
 	}
 	_, _, status := testResourceSyncPatch(require, pr)
 	verifyRSPatchFailed(require, status)
 
-	pr = api.PatchRequest{
+	pr = domain.PatchRequest{
 		{Op: "remove", Path: "/apiVersion"},
 	}
 	_, _, status = testResourceSyncPatch(require, pr)
@@ -132,14 +132,14 @@ func TestResourceSyncPatchAPIVersion(t *testing.T) {
 
 func TestResourceSyncPatchSpec(t *testing.T) {
 	require := require.New(t)
-	pr := api.PatchRequest{
+	pr := domain.PatchRequest{
 		{Op: "remove", Path: "/spec"},
 	}
 	_, _, status := testResourceSyncPatch(require, pr)
 	verifyRSPatchFailed(require, status)
 
 	var value interface{} = "bar"
-	pr = api.PatchRequest{
+	pr = domain.PatchRequest{
 		{Op: "replace", Path: "/spec/repository", Value: &value},
 	}
 	resp, orig, status := testResourceSyncPatch(require, pr)
@@ -151,13 +151,13 @@ func TestResourceSyncPatchSpec(t *testing.T) {
 func TestResourceSyncPatchStatus(t *testing.T) {
 	require := require.New(t)
 	var value interface{} = "1234"
-	pr := api.PatchRequest{
+	pr := domain.PatchRequest{
 		{Op: "replace", Path: "/status/updatedAt", Value: &value},
 	}
 	_, _, status := testResourceSyncPatch(require, pr)
 	verifyRSPatchFailed(require, status)
 
-	pr = api.PatchRequest{
+	pr = domain.PatchRequest{
 		{Op: "replace", Path: "/status/updatedAt"},
 	}
 	_, _, status = testResourceSyncPatch(require, pr)
@@ -167,13 +167,13 @@ func TestResourceSyncPatchStatus(t *testing.T) {
 func TestResourceSyncPatchNonExistingPath(t *testing.T) {
 	require := require.New(t)
 	var value interface{} = "foo"
-	pr := api.PatchRequest{
+	pr := domain.PatchRequest{
 		{Op: "replace", Path: "/spec/os/doesnotexist", Value: &value},
 	}
 	_, _, status := testResourceSyncPatch(require, pr)
 	verifyRSPatchFailed(require, status)
 
-	pr = api.PatchRequest{
+	pr = domain.PatchRequest{
 		{Op: "remove", Path: "/spec/os/doesnotexist"},
 	}
 	_, _, status = testResourceSyncPatch(require, pr)
@@ -184,7 +184,7 @@ func TestResourceSyncPatchLabels(t *testing.T) {
 	require := require.New(t)
 	addLabels := map[string]string{"labelKey": "labelValue1"}
 	var value interface{} = "labelValue1"
-	pr := api.PatchRequest{
+	pr := domain.PatchRequest{
 		{Op: "replace", Path: "/metadata/labels/labelKey", Value: &value},
 	}
 
@@ -193,7 +193,7 @@ func TestResourceSyncPatchLabels(t *testing.T) {
 	require.Equal(statusSuccessCode, status.Code)
 	require.Equal(orig, *resp)
 
-	pr = api.PatchRequest{
+	pr = domain.PatchRequest{
 		{Op: "remove", Path: "/metadata/labels/labelKey"},
 	}
 
@@ -207,7 +207,7 @@ func TestResourceSyncNonExistingResource(t *testing.T) {
 	require := require.New(t)
 	ctx := context.Background()
 	var value interface{} = "labelValue1"
-	pr := api.PatchRequest{
+	pr := domain.PatchRequest{
 		{Op: "replace", Path: "/metadata/labels/labelKey", Value: &value},
 	}
 
@@ -218,8 +218,8 @@ func TestResourceSyncNonExistingResource(t *testing.T) {
 		log:          logrus.New(),
 	}
 	testOrgId := uuid.New()
-	_, err := serviceHandler.store.ResourceSync().Create(ctx, testOrgId, &api.ResourceSync{
-		Metadata: api.ObjectMeta{Name: lo.ToPtr("foo")},
+	_, err := serviceHandler.store.ResourceSync().Create(ctx, testOrgId, &domain.ResourceSync{
+		Metadata: domain.ObjectMeta{Name: lo.ToPtr("foo")},
 	}, serviceHandler.callbackResourceSyncUpdated)
 	require.NoError(err)
 	_, status := serviceHandler.PatchResourceSync(ctx, testOrgId, "bar", pr)

@@ -37,3 +37,6 @@ alertmanager:
 imagebuilder-api:
   image: flightctl-imagebuilder-api
   tag: latest
+imagebuilder-worker:
+  image: flightctl-imagebuilder-worker
+  tag: latest

@@ -10,7 +10,6 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/certmanager"
 	fccrypto "github.com/flightctl/flightctl/pkg/crypto"
-	oscrypto "github.com/openshift/library-go/pkg/crypto"
 )
 
 const (
@@ -74,10 +73,7 @@ func (fs *FileSystemStorage) Store(ctx context.Context, req certmanager.StoreReq
 		return fmt.Errorf("filesystem storage: nil certificate")
 	}
 
-	certPEM, err := oscrypto.EncodeCertificates(req.Result.Cert)
-	if err != nil {
-		return err
-	}
+	certPEM := req.Result.Cert
 
 	if err := fs.deviceReadWriter.MkdirAll(filepath.Dir(fs.CertPath), 0o700); err != nil {
 		return fmt.Errorf("mkdir for cert path: %w", err)

@@ -1,0 +1,45 @@
+{{- if and .Values.imageBuilderWorker .Values.imageBuilderWorker.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  labels:
+    flightctl.service: flightctl-imagebuilder-worker
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+  name: flightctl-imagebuilder-worker-config
+  namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
+data:
+  config.yaml: |-
+    database:
+        hostname: {{ include "flightctl.dbHostname" . }}
+        type: "pgsql"
+        port: {{ include "flightctl.dbPort" . | int }}
+        name: {{ .Values.db.name }}
+        {{- if eq .Values.db.type "external" }}
+        {{- if .Values.db.external.sslmode }}
+        sslmode: {{ .Values.db.external.sslmode | quote }}
+        {{- end }}
+        {{- if .Values.db.external.tlsConfigMapName }}
+        sslrootcert: /etc/ssl/postgres/ca-cert.pem
+        {{- end }}
+        {{- if .Values.db.external.tlsSecretName }}
+        sslkey: /etc/ssl/postgres/client-key.pem
+        sslcert: /etc/ssl/postgres/client-cert.pem
+        {{- end }}
+        {{- end }}
+    kv:
+        hostname: flightctl-kv.{{ default .Release.Namespace .Values.global.internalNamespace }}.svc.cluster.local
+        port: 6379
+    service:
+        {{- if eq (include "flightctl.getServiceExposeMethod" .) "nodePort" }}
+        baseAgentEndpointUrl: https://agent-api.{{ include "flightctl.getBaseDomain" . }}:{{ .Values.dev.nodePorts.agent }}/
+        {{- else if and (eq (include "flightctl.getServiceExposeMethod" .) "gateway") (not (eq (int .Values.global.gateway.ports.tls) 443)) }}
+        baseAgentEndpointUrl: https://agent-api.{{ include "flightctl.getBaseDomain" . }}:{{ .Values.global.gateway.ports.tls }}/
+        {{- else }}
+        baseAgentEndpointUrl: https://agent-api.{{ include "flightctl.getBaseDomain" . }}/
+        {{- end }}
+        baseUIUrl: {{ include "flightctl.getUIUrl" . }}
+    imageBuilderWorker:
+        logLevel: {{ default "info" .Values.imageBuilderWorker.logLevel }}
+        maxConcurrentBuilds: {{ default 2 .Values.imageBuilderWorker.maxConcurrentBuilds }}
+        defaultTTL: {{ default "168h" .Values.imageBuilderWorker.defaultTTL }}
+{{- end }}

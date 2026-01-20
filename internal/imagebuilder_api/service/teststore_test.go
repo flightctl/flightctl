@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/v1beta1/imagebuilder"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
+	api "github.com/flightctl/flightctl/api/imagebuilder/v1beta1"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/store"
 	flightctlstore "github.com/flightctl/flightctl/internal/store"
@@ -16,12 +18,20 @@ import (
 
 // DummyImageBuildStore is a mock implementation of store.ImageBuildStore
 type DummyImageBuildStore struct {
-	imageBuilds *[]api.ImageBuild
+	imageBuilds      *[]api.ImageBuild
+	imageExportStore *DummyImageExportStore
 }
 
 func NewDummyImageBuildStore() *DummyImageBuildStore {
 	return &DummyImageBuildStore{
 		imageBuilds: &[]api.ImageBuild{},
+	}
+}
+
+func NewDummyImageBuildStoreWithExports(imageExportStore *DummyImageExportStore) *DummyImageBuildStore {
+	return &DummyImageBuildStore{
+		imageBuilds:      &[]api.ImageBuild{},
+		imageExportStore: imageExportStore,
 	}
 }
 
@@ -41,18 +51,50 @@ func (s *DummyImageBuildStore) Create(ctx context.Context, orgId uuid.UUID, imag
 	return &created, nil
 }
 
-func (s *DummyImageBuildStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*api.ImageBuild, error) {
+func (s *DummyImageBuildStore) Get(ctx context.Context, orgId uuid.UUID, name string, opts ...store.GetOption) (*api.ImageBuild, error) {
+	// Extract withExports value from options
+	options := store.GetOptions{}
+	for _, opt := range opts {
+		opt(&options)
+	}
+	withExports := options.WithExports
+
 	for _, ib := range *s.imageBuilds {
 		if lo.FromPtr(ib.Metadata.Name) == name {
 			var result api.ImageBuild
 			deepCopy(ib, &result)
+
+			// If withExports is true, find related ImageExports
+			if withExports && s.imageExportStore != nil {
+				var imageExports []api.ImageExport
+				for _, export := range *s.imageExportStore.imageExports {
+					if buildRefSource, err := export.Spec.Source.AsImageBuildRefSource(); err == nil {
+						if buildRefSource.ImageBuildRef == name {
+							var exportCopy api.ImageExport
+							deepCopy(export, &exportCopy)
+							imageExports = append(imageExports, exportCopy)
+						}
+					}
+				}
+				if len(imageExports) > 0 {
+					result.Imageexports = &imageExports
+				}
+			}
+
 			return &result, nil
 		}
 	}
 	return nil, flterrors.ErrResourceNotFound
 }
 
-func (s *DummyImageBuildStore) List(ctx context.Context, orgId uuid.UUID, listParams flightctlstore.ListParams) (*api.ImageBuildList, error) {
+func (s *DummyImageBuildStore) List(ctx context.Context, orgId uuid.UUID, listParams flightctlstore.ListParams, opts ...store.ListOption) (*api.ImageBuildList, error) {
+	// Extract withExports value from options
+	options := store.ListOptions{}
+	for _, opt := range opts {
+		opt(&options)
+	}
+	withExports := options.WithExports
+
 	items := make([]api.ImageBuild, len(*s.imageBuilds))
 	for i, ib := range *s.imageBuilds {
 		deepCopy(ib, &items[i])
@@ -63,6 +105,28 @@ func (s *DummyImageBuildStore) List(ctx context.Context, orgId uuid.UUID, listPa
 		items = items[:listParams.Limit]
 	}
 
+	// If withExports is true, find related ImageExports for each ImageBuild
+	if withExports && s.imageExportStore != nil {
+		// Build a map of ImageBuild name to ImageExports
+		exportsMap := make(map[string][]api.ImageExport)
+		for _, export := range *s.imageExportStore.imageExports {
+			if buildRefSource, err := export.Spec.Source.AsImageBuildRefSource(); err == nil {
+				buildName := buildRefSource.ImageBuildRef
+				var exportCopy api.ImageExport
+				deepCopy(export, &exportCopy)
+				exportsMap[buildName] = append(exportsMap[buildName], exportCopy)
+			}
+		}
+
+		// Attach ImageExports to each ImageBuild
+		for i := range items {
+			buildName := lo.FromPtr(items[i].Metadata.Name)
+			if exports, ok := exportsMap[buildName]; ok {
+				items[i].Imageexports = &exports
+			}
+		}
+	}
+
 	return &api.ImageBuildList{
 		ApiVersion: api.ImageBuildAPIVersion,
 		Kind:       api.ImageBuildListKind,
@@ -70,14 +134,17 @@ func (s *DummyImageBuildStore) List(ctx context.Context, orgId uuid.UUID, listPa
 	}, nil
 }
 
-func (s *DummyImageBuildStore) Delete(ctx context.Context, orgId uuid.UUID, name string) error {
+func (s *DummyImageBuildStore) Delete(ctx context.Context, orgId uuid.UUID, name string) (*api.ImageBuild, error) {
 	for i, ib := range *s.imageBuilds {
 		if lo.FromPtr(ib.Metadata.Name) == name {
+			var deleted api.ImageBuild
+			deepCopy(ib, &deleted)
 			*s.imageBuilds = append((*s.imageBuilds)[:i], (*s.imageBuilds)[i+1:]...)
-			return nil
+			return &deleted, nil
 		}
 	}
-	return flterrors.ErrResourceNotFound
+	// Idempotent delete - return (nil, nil) if resource doesn't exist
+	return nil, nil
 }
 
 func (s *DummyImageBuildStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, imageBuild *api.ImageBuild) (*api.ImageBuild, error) {
@@ -167,14 +234,17 @@ func (s *DummyImageExportStore) List(ctx context.Context, orgId uuid.UUID, listP
 	}, nil
 }
 
-func (s *DummyImageExportStore) Delete(ctx context.Context, orgId uuid.UUID, name string) error {
+func (s *DummyImageExportStore) Delete(ctx context.Context, orgId uuid.UUID, name string) (*api.ImageExport, error) {
 	for i, ie := range *s.imageExports {
 		if lo.FromPtr(ie.Metadata.Name) == name {
+			var deleted api.ImageExport
+			deepCopy(ie, &deleted)
 			*s.imageExports = append((*s.imageExports)[:i], (*s.imageExports)[i+1:]...)
-			return nil
+			return &deleted, nil
 		}
 	}
-	return flterrors.ErrResourceNotFound
+	// Idempotent delete - return (nil, nil) if resource doesn't exist
+	return nil, nil
 }
 
 func (s *DummyImageExportStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, imageExport *api.ImageExport) (*api.ImageExport, error) {
@@ -249,6 +319,111 @@ func (s *DummyImageExportStore) InitialMigration(ctx context.Context) error {
 	return nil
 }
 
+// DummyRepositoryStore is a mock implementation of flightctlstore.Repository
+type DummyRepositoryStore struct {
+	repositories map[string]*domain.Repository // key: name
+}
+
+func NewDummyRepositoryStore() *DummyRepositoryStore {
+	return &DummyRepositoryStore{
+		repositories: make(map[string]*domain.Repository),
+	}
+}
+
+func (s *DummyRepositoryStore) InitialMigration(ctx context.Context) error {
+	return nil
+}
+
+func (s *DummyRepositoryStore) Create(ctx context.Context, orgId uuid.UUID, repository *domain.Repository, eventCallback flightctlstore.EventCallback) (*domain.Repository, error) {
+	name := lo.FromPtr(repository.Metadata.Name)
+	if _, exists := s.repositories[name]; exists {
+		return nil, flterrors.ErrDuplicateName
+	}
+	var created domain.Repository
+	deepCopy(repository, &created)
+	s.repositories[name] = &created
+	return &created, nil
+}
+
+func (s *DummyRepositoryStore) Update(ctx context.Context, orgId uuid.UUID, repository *domain.Repository, eventCallback flightctlstore.EventCallback) (*domain.Repository, error) {
+	name := lo.FromPtr(repository.Metadata.Name)
+	if _, exists := s.repositories[name]; !exists {
+		return nil, flterrors.ErrResourceNotFound
+	}
+	var updated domain.Repository
+	deepCopy(repository, &updated)
+	s.repositories[name] = &updated
+	return &updated, nil
+}
+
+func (s *DummyRepositoryStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, repository *domain.Repository, eventCallback flightctlstore.EventCallback) (*domain.Repository, bool, error) {
+	name := lo.FromPtr(repository.Metadata.Name)
+	created := false
+	if _, exists := s.repositories[name]; !exists {
+		created = true
+	}
+	var result domain.Repository
+	deepCopy(repository, &result)
+	s.repositories[name] = &result
+	return &result, created, nil
+}
+
+func (s *DummyRepositoryStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.Repository, error) {
+	repo, exists := s.repositories[name]
+	if !exists {
+		return nil, flterrors.ErrResourceNotFound
+	}
+	var result domain.Repository
+	deepCopy(repo, &result)
+	return &result, nil
+}
+
+func (s *DummyRepositoryStore) List(ctx context.Context, orgId uuid.UUID, listParams flightctlstore.ListParams) (*domain.RepositoryList, error) {
+	return &domain.RepositoryList{}, nil
+}
+
+func (s *DummyRepositoryStore) Delete(ctx context.Context, orgId uuid.UUID, name string, eventCallback flightctlstore.EventCallback) error {
+	return nil
+}
+
+func (s *DummyRepositoryStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.Repository, eventCallback flightctlstore.EventCallback) (*domain.Repository, error) {
+	return nil, nil
+}
+
+func (s *DummyRepositoryStore) GetFleetRefs(ctx context.Context, orgId uuid.UUID, name string) (*domain.FleetList, error) {
+	return &domain.FleetList{}, nil
+}
+
+func (s *DummyRepositoryStore) GetDeviceRefs(ctx context.Context, orgId uuid.UUID, name string) (*domain.DeviceList, error) {
+	return &domain.DeviceList{}, nil
+}
+
+func (s *DummyRepositoryStore) Count(ctx context.Context, orgId uuid.UUID, listParams flightctlstore.ListParams) (int64, error) {
+	return 0, nil
+}
+
+func (s *DummyRepositoryStore) CountByOrg(ctx context.Context, orgId *uuid.UUID) ([]flightctlstore.CountByOrgResult, error) {
+	return nil, nil
+}
+
+// newOciRepository creates a test OCI repository with the specified access mode
+func newOciRepository(name string, accessMode v1beta1.OciRepoSpecAccessMode) *v1beta1.Repository {
+	spec := v1beta1.RepositorySpec{}
+	_ = spec.FromOciRepoSpec(v1beta1.OciRepoSpec{
+		Registry:   "quay.io",
+		Type:       v1beta1.RepoSpecTypeOci,
+		AccessMode: &accessMode,
+	})
+	return &v1beta1.Repository{
+		ApiVersion: "flightctl.io/v1beta1",
+		Kind:       string(v1beta1.ResourceKindRepository),
+		Metadata: v1beta1.ObjectMeta{
+			Name: lo.ToPtr(name),
+		},
+		Spec: spec,
+	}
+}
+
 // deepCopy performs a deep copy using JSON marshaling
 func deepCopy(src, dst interface{}) {
 	data, err := json.Marshal(src)
@@ -260,31 +435,16 @@ func deepCopy(src, dst interface{}) {
 	}
 }
 
-// DummyImagePipelineStore is a mock implementation of store.ImagePipelineStore
-type DummyImagePipelineStore struct{}
-
-func NewDummyImagePipelineStore() *DummyImagePipelineStore {
-	return &DummyImagePipelineStore{}
-}
-
-// Transaction executes fn within a simulated transaction for unit tests
-// For the dummy store, this just executes the callback immediately
-func (s *DummyImagePipelineStore) Transaction(ctx context.Context, fn func(ctx context.Context) error) error {
-	return fn(ctx)
-}
-
 // DummyStore is a mock implementation of store.Store for unit testing
 type DummyStore struct {
-	imageBuildStore    *DummyImageBuildStore
-	imageExportStore   *DummyImageExportStore
-	imagePipelineStore *DummyImagePipelineStore
+	imageBuildStore  *DummyImageBuildStore
+	imageExportStore *DummyImageExportStore
 }
 
 func NewDummyStore() *DummyStore {
 	return &DummyStore{
-		imageBuildStore:    NewDummyImageBuildStore(),
-		imageExportStore:   NewDummyImageExportStore(),
-		imagePipelineStore: NewDummyImagePipelineStore(),
+		imageBuildStore:  NewDummyImageBuildStore(),
+		imageExportStore: NewDummyImageExportStore(),
 	}
 }
 
@@ -294,10 +454,6 @@ func (s *DummyStore) ImageBuild() store.ImageBuildStore {
 
 func (s *DummyStore) ImageExport() store.ImageExportStore {
 	return s.imageExportStore
-}
-
-func (s *DummyStore) ImagePipeline() store.ImagePipelineStore {
-	return s.imagePipelineStore
 }
 
 func (s *DummyStore) RunMigrations(ctx context.Context) error {

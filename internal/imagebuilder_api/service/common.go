@@ -3,7 +3,7 @@ package service
 import (
 	"errors"
 
-	"github.com/flightctl/flightctl/api/v1beta1"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
@@ -13,7 +13,6 @@ import (
 
 const (
 	MaxRecordsPerListRequest = 1000
-	ImageBuildKind           = "ImageBuild"
 )
 
 // NilOutManagedObjectMetaProperties clears fields that are managed by the service

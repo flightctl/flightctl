@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/flightctl/flightctl/api/v1beta1"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
@@ -39,6 +39,7 @@ func newImageHandler(appType v1beta1.AppType, name string, rw fileio.ReadWriter,
 			rw:          rw,
 			log:         l,
 			specVolumes: lo.FromPtr(provider.Volumes),
+			podman:      podman,
 		}
 		qb.volumeProvider = func() ([]*Volume, error) {
 			return extractQuadletVolumesFromDir(qb.ID(), rw, qb.AppPath())

@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/flightctl/flightctl/api/v1beta1"
-	api "github.com/flightctl/flightctl/api/v1beta1/imagebuilder"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
+	api "github.com/flightctl/flightctl/api/imagebuilder/v1beta1"
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/api/server"
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/service"
 	"github.com/flightctl/flightctl/internal/store"
@@ -62,8 +62,12 @@ func (h *TransportHandler) CreateImageBuild(w http.ResponseWriter, r *http.Reque
 }
 
 // GetImageBuild handles GET /api/v1/imagebuilds/{name}
-func (h *TransportHandler) GetImageBuild(w http.ResponseWriter, r *http.Request, name string) {
-	body, status := h.service.ImageBuild().Get(r.Context(), OrgIDFromContext(r.Context()), name)
+func (h *TransportHandler) GetImageBuild(w http.ResponseWriter, r *http.Request, name string, params api.GetImageBuildParams) {
+	withExports := false
+	if params.WithExports != nil {
+		withExports = *params.WithExports
+	}
+	body, status := h.service.ImageBuild().Get(r.Context(), OrgIDFromContext(r.Context()), name, withExports)
 	SetResponse(w, body, status)
 }
 
@@ -86,19 +90,7 @@ func (h *TransportHandler) ReplaceImageBuild(w http.ResponseWriter, r *http.Requ
 
 // DeleteImageBuild handles DELETE /api/v1/imagebuilds/{name}
 func (h *TransportHandler) DeleteImageBuild(w http.ResponseWriter, r *http.Request, name string) {
-	status := h.service.ImageBuild().Delete(r.Context(), OrgIDFromContext(r.Context()), name)
-	SetResponse(w, nil, status)
-}
-
-// CreateImagePipeline handles POST /api/v1/imagepipelines
-func (h *TransportHandler) CreateImagePipeline(w http.ResponseWriter, r *http.Request) {
-	var req api.ImagePipelineRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		SetParseFailureResponse(w, err)
-		return
-	}
-
-	body, status := h.service.ImagePipeline().Create(r.Context(), OrgIDFromContext(r.Context()), req)
+	body, status := h.service.ImageBuild().Delete(r.Context(), OrgIDFromContext(r.Context()), name)
 	SetResponse(w, body, status)
 }
 
@@ -128,8 +120,8 @@ func (h *TransportHandler) GetImageExport(w http.ResponseWriter, r *http.Request
 
 // DeleteImageExport handles DELETE /api/v1/imageexports/{name}
 func (h *TransportHandler) DeleteImageExport(w http.ResponseWriter, r *http.Request, name string) {
-	status := h.service.ImageExport().Delete(r.Context(), OrgIDFromContext(r.Context()), name)
-	SetResponse(w, nil, status)
+	body, status := h.service.ImageExport().Delete(r.Context(), OrgIDFromContext(r.Context()), name)
+	SetResponse(w, body, status)
 }
 
 // SetResponse writes the response body and status to the response writer

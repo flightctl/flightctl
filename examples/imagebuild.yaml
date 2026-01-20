@@ -1,23 +1,24 @@
 apiVersion: flightctl.io/v1beta1
 kind: ImageBuild
 metadata:
-  name: my-edge-image-build-2
+  name: centos-bootc-stream9-build
   labels:
     environment: production
     team: edge-platform
 spec:
   # Source defines the source image to build from
+  # Note: The repository must be a Repository resource of type 'oci' that references quay.io
   source:
-    repository: my-source-registry
-    imageName: rhel-edge-base
-    imageTag: "9.4"
+    repository: quay-io
+    imageName: centos-bootc/centos-bootc
+    imageTag: stream9
   # Destination defines where to push the built image
+  # Note: The repository must be a Repository resource of type 'oci' with ReadWrite access
   destination:
-    repository: my-output-registry
-    imageName: rhel-edge-custom
+    repository: my-registry
+    imageName: my-user/centos-bootc-custom
     tag: v1.0.0
   # Binding configuration for device enrollment
   # Use 'early' with certName to embed certificate in image, or 'late' for first-boot binding
   binding:
-    type: early
-    certName: my-enrollment-certificate
+    type: late

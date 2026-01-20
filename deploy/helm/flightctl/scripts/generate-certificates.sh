@@ -11,6 +11,7 @@ UI_SANS=()
 CLI_ARTIFACTS_SANS=()
 IMAGEBUILDER_API_SANS=()
 NAMESPACE=""
+INTERNAL_NAMESPACE=""
 CREATE_K8S_SECRETS="false"
 
 # Parse command-line arguments
@@ -31,6 +32,7 @@ Optional:
   --imagebuilder-api-san <dns>  DNS SAN for flightctl-imagebuilder-api (can be specified multiple times)
   --create-k8s-secrets          Create Kubernetes secrets using oc/kubectl
   --namespace <ns>              Kubernetes namespace (required if --create-k8s-secrets is set)
+  --internal-namespace <ns>      Internal namespace to copy CA secrets to (optional)
 EOF
     exit 1
 }
@@ -76,6 +78,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --namespace)
             NAMESPACE="$2"
+            shift 2
+            ;;
+        --internal-namespace)
+            INTERNAL_NAMESPACE="$2"
             shift 2
             ;;
         -h|--help)
@@ -489,6 +495,29 @@ if [[ "$CREATE_K8S_SECRETS" == "true" ]]; then
         --namespace="$NAMESPACE" \
         --from-file=ca-bundle.crt="$CA_BUNDLE" \
         --dry-run=client -o yaml | $K8S_CLI apply -f -
+
+    # Copy CA secrets to internal namespace if different from release namespace
+    if [[ -n "$INTERNAL_NAMESPACE" ]] && [[ "$INTERNAL_NAMESPACE" != "$NAMESPACE" ]]; then
+        echo ""
+        echo "=== Copying CA secrets to internal namespace: $INTERNAL_NAMESPACE ==="
+
+        # Copy client-signer-ca secret
+        echo "Copying secret: flightctl-client-signer-ca"
+        $K8S_CLI create secret tls flightctl-client-signer-ca \
+            --namespace="$INTERNAL_NAMESPACE" \
+            --cert="$CLIENT_SIGNER_CA_CERT" \
+            --key="$CLIENT_SIGNER_CA_KEY" \
+            --dry-run=client -o yaml | $K8S_CLI apply -f -
+
+        # Copy CA bundle secret
+        echo "Copying secret: flightctl-ca-bundle"
+        $K8S_CLI create secret generic flightctl-ca-bundle \
+            --namespace="$INTERNAL_NAMESPACE" \
+            --from-file=ca-bundle.crt="$CA_BUNDLE" \
+            --dry-run=client -o yaml | $K8S_CLI apply -f -
+
+        echo "CA secrets copied successfully to $INTERNAL_NAMESPACE"
+    fi
 
     echo ""
     echo "=== Kubernetes Secret Creation Complete ==="

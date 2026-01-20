@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	api "github.com/flightctl/flightctl/api/v1beta1"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/google/uuid"
@@ -12,35 +12,35 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func verifyFleetPatchFailed(require *require.Assertions, status api.Status) {
+func verifyFleetPatchFailed(require *require.Assertions, status domain.Status) {
 	require.Equal(statusBadRequestCode, status.Code)
 }
 
-func testFleetPatch(require *require.Assertions, patch api.PatchRequest) (*api.Fleet, api.Fleet, api.Status) {
-	fleet := api.Fleet{
+func testFleetPatch(require *require.Assertions, patch domain.PatchRequest) (*domain.Fleet, domain.Fleet, domain.Status) {
+	fleet := domain.Fleet{
 		ApiVersion: "v1",
 		Kind:       "Fleet",
-		Metadata: api.ObjectMeta{
+		Metadata: domain.ObjectMeta{
 			Name:   lo.ToPtr("foo"),
 			Labels: &map[string]string{"labelKey": "labelValue"},
 		},
-		Spec: api.FleetSpec{
-			Selector: &api.LabelSelector{
+		Spec: domain.FleetSpec{
+			Selector: &domain.LabelSelector{
 				MatchLabels: &map[string]string{"devKey": "devValue"},
 			},
 			Template: struct {
-				Metadata *api.ObjectMeta "json:\"metadata,omitempty\""
-				Spec     api.DeviceSpec  "json:\"spec\""
+				Metadata *domain.ObjectMeta "json:\"metadata,omitempty\""
+				Spec     domain.DeviceSpec  "json:\"spec\""
 			}{
-				Spec: api.DeviceSpec{
-					Os: &api.DeviceOsSpec{
+				Spec: domain.DeviceSpec{
+					Os: &domain.DeviceOsSpec{
 						Image: "img",
 					},
 				},
 			},
 		},
-		Status: &api.FleetStatus{
-			Conditions: []api.Condition{
+		Status: &domain.FleetStatus{
+			Conditions: []domain.Condition{
 				{
 					Type:   "Approved",
 					Status: "True",
@@ -69,12 +69,12 @@ func testFleetPatch(require *require.Assertions, patch api.PatchRequest) (*api.F
 func TestFleetPatchName(t *testing.T) {
 	require := require.New(t)
 	var value interface{} = "bar"
-	pr := api.PatchRequest{
+	pr := domain.PatchRequest{
 		{Op: "replace", Path: "/metadata/name", Value: &value},
 	}
 	_, _, status := testFleetPatch(require, pr)
 	verifyFleetPatchFailed(require, status)
-	pr = api.PatchRequest{
+	pr = domain.PatchRequest{
 		{Op: "remove", Path: "/metadata/name"},
 	}
 	_, _, status = testFleetPatch(require, pr)
@@ -84,13 +84,13 @@ func TestFleetPatchName(t *testing.T) {
 func TestFleetPatchKind(t *testing.T) {
 	require := require.New(t)
 	var value interface{} = "bar"
-	pr := api.PatchRequest{
+	pr := domain.PatchRequest{
 		{Op: "replace", Path: "/kind", Value: &value},
 	}
 	_, _, status := testFleetPatch(require, pr)
 	verifyFleetPatchFailed(require, status)
 
-	pr = api.PatchRequest{
+	pr = domain.PatchRequest{
 		{Op: "remove", Path: "/kind"},
 	}
 	_, _, status = testFleetPatch(require, pr)
@@ -100,13 +100,13 @@ func TestFleetPatchKind(t *testing.T) {
 func TestFleetPatchAPIVersion(t *testing.T) {
 	require := require.New(t)
 	var value interface{} = "bar"
-	pr := api.PatchRequest{
+	pr := domain.PatchRequest{
 		{Op: "replace", Path: "/apiVersion", Value: &value},
 	}
 	_, _, status := testFleetPatch(require, pr)
 	verifyFleetPatchFailed(require, status)
 
-	pr = api.PatchRequest{
+	pr = domain.PatchRequest{
 		{Op: "remove", Path: "/apiVersion"},
 	}
 	_, _, status = testFleetPatch(require, pr)
@@ -116,21 +116,21 @@ func TestFleetPatchAPIVersion(t *testing.T) {
 func TestFleetPatchSpec(t *testing.T) {
 	require := require.New(t)
 	var value interface{} = "newValue"
-	pr := api.PatchRequest{
+	pr := domain.PatchRequest{
 		{Op: "replace", Path: "/spec/selector/matchLabels/devKey", Value: &value},
 	}
 	_, _, status := testResourceSyncPatch(require, pr)
 	verifyFleetPatchFailed(require, status)
 
 	value = 1234
-	pr = api.PatchRequest{
+	pr = domain.PatchRequest{
 		{Op: "replace", Path: "/spec/selector/matchLabels/devKey", Value: &value},
 	}
 	_, _, status = testFleetPatch(require, pr)
 	verifyFleetPatchFailed(require, status)
 
 	value = "newimg"
-	pr = api.PatchRequest{
+	pr = domain.PatchRequest{
 		{Op: "replace", Path: "/spec/template/spec/os/image", Value: &value},
 	}
 	resp, orig, status := testFleetPatch(require, pr)
@@ -138,7 +138,7 @@ func TestFleetPatchSpec(t *testing.T) {
 	require.Equal(statusSuccessCode, status.Code)
 	require.Equal(orig, *resp)
 
-	pr = api.PatchRequest{
+	pr = domain.PatchRequest{
 		{Op: "remove", Path: "/spec/template/spec/os"},
 	}
 	resp, orig, status = testFleetPatch(require, pr)
@@ -147,7 +147,7 @@ func TestFleetPatchSpec(t *testing.T) {
 	require.Equal(orig, *resp)
 
 	value = "foo"
-	pr = api.PatchRequest{
+	pr = domain.PatchRequest{
 		{Op: "replace", Path: "/spec/template/spec/os", Value: &value},
 	}
 	_, _, status = testFleetPatch(require, pr)
@@ -156,7 +156,7 @@ func TestFleetPatchSpec(t *testing.T) {
 
 func TestFleetPatchStatus(t *testing.T) {
 	require := require.New(t)
-	pr := api.PatchRequest{
+	pr := domain.PatchRequest{
 		{Op: "remove", Path: "/status/conditions/0"},
 	}
 	_, _, status := testFleetPatch(require, pr)
@@ -166,13 +166,13 @@ func TestFleetPatchStatus(t *testing.T) {
 func TestFleetPatchNonExistingPath(t *testing.T) {
 	require := require.New(t)
 	var value interface{} = "foo"
-	pr := api.PatchRequest{
+	pr := domain.PatchRequest{
 		{Op: "replace", Path: "/spec/doesnotexist", Value: &value},
 	}
 	_, _, status := testFleetPatch(require, pr)
 	verifyFleetPatchFailed(require, status)
 
-	pr = api.PatchRequest{
+	pr = domain.PatchRequest{
 		{Op: "remove", Path: "/spec/doesnotexist"},
 	}
 	_, _, status = testFleetPatch(require, pr)
@@ -183,7 +183,7 @@ func TestFleetPatchLabels(t *testing.T) {
 	require := require.New(t)
 	addLabels := map[string]string{"labelKey": "labelValue1"}
 	var value interface{} = "labelValue1"
-	pr := api.PatchRequest{
+	pr := domain.PatchRequest{
 		{Op: "replace", Path: "/metadata/labels/labelKey", Value: &value},
 	}
 
@@ -192,7 +192,7 @@ func TestFleetPatchLabels(t *testing.T) {
 	require.Equal(statusSuccessCode, status.Code)
 	require.Equal(orig, *resp)
 
-	pr = api.PatchRequest{
+	pr = domain.PatchRequest{
 		{Op: "remove", Path: "/metadata/labels/labelKey"},
 	}
 
@@ -205,7 +205,7 @@ func TestFleetPatchLabels(t *testing.T) {
 func TestFleetNonExistingResource(t *testing.T) {
 	require := require.New(t)
 	var value interface{} = "labelValue1"
-	pr := api.PatchRequest{
+	pr := domain.PatchRequest{
 		{Op: "replace", Path: "/metadata/labels/labelKey", Value: &value},
 	}
 

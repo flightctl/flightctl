@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/flightctl/flightctl/api/v1beta1"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
@@ -18,7 +18,7 @@ import (
 )
 
 // setupTestEnv creates a test environment with logger, podman mock, and readWriter
-func setupTestEnv(t *testing.T) (*log.PrefixLogger, *client.Podman, fileio.ReadWriter) {
+func setupTestEnv(t *testing.T) (*log.PrefixLogger, *client.Podman, fileio.ReadWriter, *executer.MockExecuter) {
 	log := log.NewPrefixLogger("test")
 	log.SetLevel(logrus.DebugLevel)
 
@@ -27,14 +27,16 @@ func setupTestEnv(t *testing.T) (*log.PrefixLogger, *client.Podman, fileio.ReadW
 
 	mockExec := executer.NewMockExecuter(ctrl)
 	tmpDir := t.TempDir()
-	rw := fileio.NewReadWriter()
-	rw.SetRootdir(tmpDir)
+	rw := fileio.NewReadWriter(
+		fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+		fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+	)
 	podman := client.NewPodman(log, mockExec, rw, util.NewPollConfig())
 
 	// Create the systemd unit directory for target file copying
 	require.NoError(t, rw.MkdirAll(lifecycle.QuadletTargetPath, fileio.DefaultDirectoryPermissions))
 
-	return log, podman, rw
+	return log, podman, rw, mockExec
 }
 
 // setupEmbeddedQuadletApp creates an embedded quadlet app directory with specified files
@@ -159,7 +161,7 @@ Network=app-net.network
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			logger, podman, rw := setupTestEnv(t)
+			logger, podman, rw, _ := setupTestEnv(t)
 
 			// Setup embedded app
 			setupEmbeddedQuadletApp(t, rw, tt.appName, tt.files)
@@ -211,7 +213,7 @@ func TestEmbeddedProvider_Remove(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			logger, podman, rw := setupTestEnv(t)
+			logger, podman, rw, _ := setupTestEnv(t)
 
 			// Setup embedded app (to ensure it exists)
 			setupEmbeddedQuadletApp(t, rw, tt.appName, map[string]string{"web.container": "[Container]\n"})
@@ -232,6 +234,89 @@ func TestEmbeddedProvider_Remove(t *testing.T) {
 			if tt.verifyFn != nil {
 				tt.verifyFn(t, rw, tt.appName)
 			}
+		})
+	}
+}
+
+func TestEmbeddedProvider_Verify(t *testing.T) {
+	tests := []struct {
+		name          string
+		appName       string
+		files         map[string]string
+		setupMocks    func(*executer.MockExecuter)
+		wantVerifyErr bool
+	}{
+		{
+			name:    "quadlet with valid podman version",
+			appName: "myapp",
+			files: map[string]string{
+				"web.container": `[Container]
+Image=quay.io/flightctl-tests/nginx:latest
+`,
+			},
+			setupMocks: func(mockExec *executer.MockExecuter) {
+				mockExec.EXPECT().
+					ExecuteWithContext(gomock.Any(), "podman", "--version").
+					Return("podman version 5.4.2", "", 0)
+			},
+			wantVerifyErr: false,
+		},
+		{
+			name:    "quadlet with podman version below minimum",
+			appName: "myapp",
+			files: map[string]string{
+				"web.container": `[Container]
+Image=quay.io/flightctl-tests/nginx:latest
+`,
+			},
+			setupMocks: func(mockExec *executer.MockExecuter) {
+				mockExec.EXPECT().
+					ExecuteWithContext(gomock.Any(), "podman", "--version").
+					Return("podman version 4.9.0", "", 0)
+			},
+			wantVerifyErr: true,
+		},
+		{
+			name:    "quadlet with podman version exactly at minimum",
+			appName: "myapp",
+			files: map[string]string{
+				"web.container": `[Container]
+Image=quay.io/flightctl-tests/nginx:latest
+`,
+			},
+			setupMocks: func(mockExec *executer.MockExecuter) {
+				mockExec.EXPECT().
+					ExecuteWithContext(gomock.Any(), "podman", "--version").
+					Return("podman version 5.0.0", "", 0)
+			},
+			wantVerifyErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, podman, rw, mockExec := setupTestEnv(t)
+
+			// Setup embedded app
+			setupEmbeddedQuadletApp(t, rw, tt.appName, tt.files)
+
+			if tt.setupMocks != nil {
+				tt.setupMocks(mockExec)
+			}
+
+			// Create embedded provider
+			provider, err := newEmbedded(logger, podman, rw, tt.appName, v1beta1.AppTypeQuadlet, "2025-01-01T00:00:00Z", false)
+			require.NoError(t, err)
+
+			// Call Verify
+			ctx := context.Background()
+			err = provider.Verify(ctx)
+			if tt.wantVerifyErr {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), "podman version")
+				return
+			}
+			require.NoError(t, err)
 		})
 	}
 }
@@ -326,7 +411,7 @@ func TestParseEmbeddedQuadlet(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			logger, podman, rw := setupTestEnv(t)
+			logger, podman, rw, _ := setupTestEnv(t)
 
 			// Setup all apps
 			for appName, files := range tt.apps {

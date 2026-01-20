@@ -4,369 +4,592 @@ package server
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 )
 
+// EndpointMetadataVersion contains version-specific information for an endpoint
+type EndpointMetadataVersion struct {
+	Version      string     // e.g., "v1", "v1beta1"
+	DeprecatedAt *time.Time // nil if not deprecated; interpreted as 00:00:00 UTC
+}
+
 // EndpointMetadata contains metadata for an API endpoint
 type EndpointMetadata struct {
 	OperationID string
-	Resource    string
-	Action      string
+	Resource    string                    // empty = fixed-contract
+	Action      string                    // x-rbac.action, else inferred from method/pattern
+	Versions    []EndpointMetadataVersion // Ordered by preference (stable > beta > alpha)
 }
 
+// timePtr is a helper to create time.Time pointers
+func timePtr(year, month, day int) *time.Time {
+	t := time.Date(year, time.Month(month), day, 0, 0, 0, 0, time.UTC)
+	return &t
+}
 
 // APIMetadataMap provides O(1) lookup for endpoint metadata using pattern+method as key
 var APIMetadataMap = map[string]EndpointMetadata{
 	"GET:/api/v1/auth/config": {
 		OperationID: "authConfig",
 		Resource:    "",
-		Action:      "",
+		Action:      "list",
+		Versions: []EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
 	},
 	"GET:/api/v1/auth/permissions": {
 		OperationID: "authGetPermissions",
 		Resource:    "",
-		Action:      "",
+		Action:      "list",
+		Versions: []EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
 	},
 	"GET:/api/v1/auth/userinfo": {
 		OperationID: "authUserInfo",
 		Resource:    "",
-		Action:      "",
+		Action:      "list",
+		Versions: []EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
 	},
 	"GET:/api/v1/auth/validate": {
 		OperationID: "authValidate",
 		Resource:    "",
-		Action:      "",
+		Action:      "list",
+		Versions: []EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
 	},
 	"POST:/api/v1/auth/{providername}/token": {
 		OperationID: "authToken",
 		Resource:    "",
-		Action:      "",
+		Action:      "create",
+		Versions: []EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
 	},
 	"GET:/api/v1/authproviders": {
 		OperationID: "listAuthProviders",
-		Resource:    "",
-		Action:      "",
+		Resource:    "authproviders",
+		Action:      "list",
+		Versions: []EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
 	},
 	"POST:/api/v1/authproviders": {
 		OperationID: "createAuthProvider",
-		Resource:    "",
-		Action:      "",
+		Resource:    "authproviders",
+		Action:      "create",
+		Versions: []EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
 	},
 	"DELETE:/api/v1/authproviders/{name}": {
 		OperationID: "deleteAuthProvider",
-		Resource:    "",
-		Action:      "",
+		Resource:    "authproviders",
+		Action:      "delete",
+		Versions: []EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
 	},
 	"GET:/api/v1/authproviders/{name}": {
 		OperationID: "getAuthProvider",
-		Resource:    "",
-		Action:      "",
+		Resource:    "authproviders",
+		Action:      "get",
+		Versions: []EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
 	},
 	"PATCH:/api/v1/authproviders/{name}": {
 		OperationID: "patchAuthProvider",
-		Resource:    "",
-		Action:      "",
+		Resource:    "authproviders",
+		Action:      "patch",
+		Versions: []EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
 	},
 	"PUT:/api/v1/authproviders/{name}": {
 		OperationID: "replaceAuthProvider",
-		Resource:    "",
-		Action:      "",
+		Resource:    "authproviders",
+		Action:      "update",
+		Versions: []EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
 	},
 	"GET:/api/v1/certificatesigningrequests": {
 		OperationID: "listCertificateSigningRequests",
-		Resource:    "",
-		Action:      "",
+		Resource:    "certificatesigningrequests",
+		Action:      "list",
+		Versions: []EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
 	},
 	"POST:/api/v1/certificatesigningrequests": {
 		OperationID: "createCertificateSigningRequest",
-		Resource:    "",
-		Action:      "",
+		Resource:    "certificatesigningrequests",
+		Action:      "create",
+		Versions: []EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
 	},
 	"DELETE:/api/v1/certificatesigningrequests/{name}": {
 		OperationID: "deleteCertificateSigningRequest",
-		Resource:    "",
-		Action:      "",
+		Resource:    "certificatesigningrequests",
+		Action:      "delete",
+		Versions: []EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
 	},
 	"GET:/api/v1/certificatesigningrequests/{name}": {
 		OperationID: "getCertificateSigningRequest",
-		Resource:    "",
-		Action:      "",
+		Resource:    "certificatesigningrequests",
+		Action:      "get",
+		Versions: []EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
 	},
 	"PATCH:/api/v1/certificatesigningrequests/{name}": {
 		OperationID: "patchCertificateSigningRequest",
-		Resource:    "",
-		Action:      "",
+		Resource:    "certificatesigningrequests",
+		Action:      "patch",
+		Versions: []EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
 	},
 	"PUT:/api/v1/certificatesigningrequests/{name}": {
 		OperationID: "replaceCertificateSigningRequest",
-		Resource:    "",
-		Action:      "",
+		Resource:    "certificatesigningrequests",
+		Action:      "update",
+		Versions: []EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
 	},
 	"PUT:/api/v1/certificatesigningrequests/{name}/approval": {
 		OperationID: "updateCertificateSigningRequestApproval",
-		Resource:    "",
-		Action:      "",
+		Resource:    "certificatesigningrequests/approval",
+		Action:      "update",
+		Versions: []EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
 	},
 	"POST:/api/v1/deviceactions/resume": {
 		OperationID: "resumeDevices",
 		Resource:    "devices/resume",
 		Action:      "update",
+		Versions: []EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
 	},
 	"GET:/api/v1/devices": {
 		OperationID: "listDevices",
-		Resource:    "",
-		Action:      "",
+		Resource:    "devices",
+		Action:      "list",
+		Versions: []EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
 	},
 	"POST:/api/v1/devices": {
 		OperationID: "createDevice",
-		Resource:    "",
-		Action:      "",
+		Resource:    "devices",
+		Action:      "create",
+		Versions: []EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
 	},
 	"DELETE:/api/v1/devices/{name}": {
 		OperationID: "deleteDevice",
-		Resource:    "",
-		Action:      "",
+		Resource:    "devices",
+		Action:      "delete",
+		Versions: []EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
 	},
 	"GET:/api/v1/devices/{name}": {
 		OperationID: "getDevice",
-		Resource:    "",
-		Action:      "",
+		Resource:    "devices",
+		Action:      "get",
+		Versions: []EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
 	},
 	"PATCH:/api/v1/devices/{name}": {
 		OperationID: "patchDevice",
-		Resource:    "",
-		Action:      "",
+		Resource:    "devices",
+		Action:      "patch",
+		Versions: []EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
 	},
 	"PUT:/api/v1/devices/{name}": {
 		OperationID: "replaceDevice",
-		Resource:    "",
-		Action:      "",
+		Resource:    "devices",
+		Action:      "update",
+		Versions: []EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
 	},
 	"PUT:/api/v1/devices/{name}/decommission": {
 		OperationID: "decommissionDevice",
-		Resource:    "",
-		Action:      "",
+		Resource:    "devices/decommission",
+		Action:      "update",
+		Versions: []EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
 	},
 	"GET:/api/v1/devices/{name}/lastseen": {
 		OperationID: "getDeviceLastSeen",
-		Resource:    "",
-		Action:      "",
+		Resource:    "devices/lastseen",
+		Action:      "get",
+		Versions: []EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
 	},
 	"GET:/api/v1/devices/{name}/rendered": {
 		OperationID: "getRenderedDevice",
-		Resource:    "",
-		Action:      "",
+		Resource:    "devices/rendered",
+		Action:      "get",
+		Versions: []EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
 	},
 	"GET:/api/v1/devices/{name}/status": {
 		OperationID: "getDeviceStatus",
-		Resource:    "",
-		Action:      "",
+		Resource:    "devices/status",
+		Action:      "get",
+		Versions: []EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
 	},
 	"PATCH:/api/v1/devices/{name}/status": {
 		OperationID: "patchDeviceStatus",
-		Resource:    "",
-		Action:      "",
+		Resource:    "devices/status",
+		Action:      "patch",
+		Versions: []EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
 	},
 	"PUT:/api/v1/devices/{name}/status": {
 		OperationID: "replaceDeviceStatus",
-		Resource:    "",
-		Action:      "",
+		Resource:    "devices/status",
+		Action:      "update",
+		Versions: []EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
 	},
 	"GET:/api/v1/enrollmentconfig": {
 		OperationID: "getEnrollmentConfig",
 		Resource:    "",
-		Action:      "",
+		Action:      "list",
+		Versions: []EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
 	},
 	"GET:/api/v1/enrollmentrequests": {
 		OperationID: "listEnrollmentRequests",
-		Resource:    "",
-		Action:      "",
+		Resource:    "enrollmentrequests",
+		Action:      "list",
+		Versions: []EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
 	},
 	"POST:/api/v1/enrollmentrequests": {
 		OperationID: "createEnrollmentRequest",
-		Resource:    "",
-		Action:      "",
+		Resource:    "enrollmentrequests",
+		Action:      "create",
+		Versions: []EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
 	},
 	"DELETE:/api/v1/enrollmentrequests/{name}": {
 		OperationID: "deleteEnrollmentRequest",
-		Resource:    "",
-		Action:      "",
+		Resource:    "enrollmentrequests",
+		Action:      "delete",
+		Versions: []EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
 	},
 	"GET:/api/v1/enrollmentrequests/{name}": {
 		OperationID: "getEnrollmentRequest",
-		Resource:    "",
-		Action:      "",
+		Resource:    "enrollmentrequests",
+		Action:      "get",
+		Versions: []EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
 	},
 	"PATCH:/api/v1/enrollmentrequests/{name}": {
 		OperationID: "patchEnrollmentRequest",
-		Resource:    "",
-		Action:      "",
+		Resource:    "enrollmentrequests",
+		Action:      "patch",
+		Versions: []EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
 	},
 	"PUT:/api/v1/enrollmentrequests/{name}": {
 		OperationID: "replaceEnrollmentRequest",
-		Resource:    "",
-		Action:      "",
+		Resource:    "enrollmentrequests",
+		Action:      "update",
+		Versions: []EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
 	},
 	"PUT:/api/v1/enrollmentrequests/{name}/approval": {
 		OperationID: "approveEnrollmentRequest",
-		Resource:    "",
-		Action:      "",
+		Resource:    "enrollmentrequests/approval",
+		Action:      "update",
+		Versions: []EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
 	},
 	"GET:/api/v1/enrollmentrequests/{name}/status": {
 		OperationID: "getEnrollmentRequestStatus",
-		Resource:    "",
-		Action:      "",
+		Resource:    "enrollmentrequests/status",
+		Action:      "get",
+		Versions: []EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
 	},
 	"PATCH:/api/v1/enrollmentrequests/{name}/status": {
 		OperationID: "patchEnrollmentRequestStatus",
-		Resource:    "",
-		Action:      "",
+		Resource:    "enrollmentrequests/status",
+		Action:      "patch",
+		Versions: []EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
 	},
 	"PUT:/api/v1/enrollmentrequests/{name}/status": {
 		OperationID: "replaceEnrollmentRequestStatus",
-		Resource:    "",
-		Action:      "",
+		Resource:    "enrollmentrequests/status",
+		Action:      "update",
+		Versions: []EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
 	},
 	"GET:/api/v1/events": {
 		OperationID: "listEvents",
-		Resource:    "",
-		Action:      "",
+		Resource:    "events",
+		Action:      "list",
+		Versions: []EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
 	},
 	"GET:/api/v1/fleets": {
 		OperationID: "listFleets",
-		Resource:    "",
-		Action:      "",
+		Resource:    "fleets",
+		Action:      "list",
+		Versions: []EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
 	},
 	"POST:/api/v1/fleets": {
 		OperationID: "createFleet",
-		Resource:    "",
-		Action:      "",
+		Resource:    "fleets",
+		Action:      "create",
+		Versions: []EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
 	},
 	"GET:/api/v1/fleets/{fleet}/templateversions": {
 		OperationID: "listTemplateVersions",
-		Resource:    "",
-		Action:      "",
+		Resource:    "fleets/templateversions",
+		Action:      "get",
+		Versions: []EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
 	},
 	"DELETE:/api/v1/fleets/{fleet}/templateversions/{name}": {
 		OperationID: "deleteTemplateVersion",
-		Resource:    "",
-		Action:      "",
+		Resource:    "fleets/templateversions",
+		Action:      "delete",
+		Versions: []EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
 	},
 	"GET:/api/v1/fleets/{fleet}/templateversions/{name}": {
 		OperationID: "getTemplateVersion",
-		Resource:    "",
-		Action:      "",
+		Resource:    "fleets/templateversions",
+		Action:      "get",
+		Versions: []EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
 	},
 	"DELETE:/api/v1/fleets/{name}": {
 		OperationID: "deleteFleet",
-		Resource:    "",
-		Action:      "",
+		Resource:    "fleets",
+		Action:      "delete",
+		Versions: []EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
 	},
 	"GET:/api/v1/fleets/{name}": {
 		OperationID: "getFleet",
-		Resource:    "",
-		Action:      "",
+		Resource:    "fleets",
+		Action:      "get",
+		Versions: []EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
 	},
 	"PATCH:/api/v1/fleets/{name}": {
 		OperationID: "patchFleet",
-		Resource:    "",
-		Action:      "",
+		Resource:    "fleets",
+		Action:      "patch",
+		Versions: []EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
 	},
 	"PUT:/api/v1/fleets/{name}": {
 		OperationID: "replaceFleet",
-		Resource:    "",
-		Action:      "",
+		Resource:    "fleets",
+		Action:      "update",
+		Versions: []EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
 	},
 	"GET:/api/v1/fleets/{name}/status": {
 		OperationID: "getFleetStatus",
-		Resource:    "",
-		Action:      "",
+		Resource:    "fleets/status",
+		Action:      "get",
+		Versions: []EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
 	},
 	"PATCH:/api/v1/fleets/{name}/status": {
 		OperationID: "patchFleetStatus",
-		Resource:    "",
-		Action:      "",
+		Resource:    "fleets/status",
+		Action:      "patch",
+		Versions: []EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
 	},
 	"PUT:/api/v1/fleets/{name}/status": {
 		OperationID: "replaceFleetStatus",
-		Resource:    "",
-		Action:      "",
+		Resource:    "fleets/status",
+		Action:      "update",
+		Versions: []EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
 	},
 	"GET:/api/v1/labels": {
 		OperationID: "listLabels",
-		Resource:    "",
-		Action:      "",
+		Resource:    "labels",
+		Action:      "list",
+		Versions: []EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
 	},
 	"GET:/api/v1/organizations": {
 		OperationID: "listOrganizations",
-		Resource:    "",
-		Action:      "",
+		Resource:    "organizations",
+		Action:      "list",
+		Versions: []EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
 	},
 	"GET:/api/v1/repositories": {
 		OperationID: "listRepositories",
-		Resource:    "",
-		Action:      "",
+		Resource:    "repositories",
+		Action:      "list",
+		Versions: []EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
 	},
 	"POST:/api/v1/repositories": {
 		OperationID: "createRepository",
-		Resource:    "",
-		Action:      "",
+		Resource:    "repositories",
+		Action:      "create",
+		Versions: []EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
 	},
 	"DELETE:/api/v1/repositories/{name}": {
 		OperationID: "deleteRepository",
-		Resource:    "",
-		Action:      "",
+		Resource:    "repositories",
+		Action:      "delete",
+		Versions: []EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
 	},
 	"GET:/api/v1/repositories/{name}": {
 		OperationID: "getRepository",
-		Resource:    "",
-		Action:      "",
+		Resource:    "repositories",
+		Action:      "get",
+		Versions: []EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
 	},
 	"PATCH:/api/v1/repositories/{name}": {
 		OperationID: "patchRepository",
-		Resource:    "",
-		Action:      "",
+		Resource:    "repositories",
+		Action:      "patch",
+		Versions: []EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
 	},
 	"PUT:/api/v1/repositories/{name}": {
 		OperationID: "replaceRepository",
-		Resource:    "",
-		Action:      "",
+		Resource:    "repositories",
+		Action:      "update",
+		Versions: []EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
 	},
 	"GET:/api/v1/resourcesyncs": {
 		OperationID: "listResourceSyncs",
-		Resource:    "",
-		Action:      "",
+		Resource:    "resourcesyncs",
+		Action:      "list",
+		Versions: []EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
 	},
 	"POST:/api/v1/resourcesyncs": {
 		OperationID: "createResourceSync",
-		Resource:    "",
-		Action:      "",
+		Resource:    "resourcesyncs",
+		Action:      "create",
+		Versions: []EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
 	},
 	"DELETE:/api/v1/resourcesyncs/{name}": {
 		OperationID: "deleteResourceSync",
-		Resource:    "",
-		Action:      "",
+		Resource:    "resourcesyncs",
+		Action:      "delete",
+		Versions: []EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
 	},
 	"GET:/api/v1/resourcesyncs/{name}": {
 		OperationID: "getResourceSync",
-		Resource:    "",
-		Action:      "",
+		Resource:    "resourcesyncs",
+		Action:      "get",
+		Versions: []EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
 	},
 	"PATCH:/api/v1/resourcesyncs/{name}": {
 		OperationID: "patchResourceSync",
-		Resource:    "",
-		Action:      "",
+		Resource:    "resourcesyncs",
+		Action:      "patch",
+		Versions: []EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
 	},
 	"PUT:/api/v1/resourcesyncs/{name}": {
 		OperationID: "replaceResourceSync",
-		Resource:    "",
-		Action:      "",
+		Resource:    "resourcesyncs",
+		Action:      "update",
+		Versions: []EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
 	},
 	"GET:/api/version": {
 		OperationID: "getVersion",
 		Resource:    "",
-		Action:      "",
+		Action:      "list",
+		Versions: []EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
 	},
 }
 
@@ -377,19 +600,19 @@ func GetEndpointMetadata(r *http.Request) (*EndpointMetadata, bool) {
 	if rctx == nil {
 		return nil, false
 	}
-	
+
 	// Get the route pattern that matched in the main Chi router
 	routePattern := rctx.RoutePattern()
 	if routePattern == "" {
 		return nil, false
 	}
-	
+
 	// O(1) lookup using method:pattern as key
 	key := r.Method + ":" + routePattern
 	if metadata, exists := APIMetadataMap[key]; exists {
 		return &metadata, true
 	}
-	
+
 	return nil, false
 }
 

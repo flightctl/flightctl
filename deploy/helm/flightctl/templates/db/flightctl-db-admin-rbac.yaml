@@ -168,6 +168,11 @@ subjects:
   name: flightctl-imagebuilder-api
   namespace: {{ .Release.Namespace }}
 {{- end }}
+{{- if and .Values.imageBuilderWorker .Values.imageBuilderWorker.enabled }}
+- kind: ServiceAccount
+  name: flightctl-imagebuilder-worker
+  namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
+{{- end }}
 roleRef:
   kind: Role
   name: flightctl-job-status-reader
@@ -204,6 +209,11 @@ subjects:
 - kind: ServiceAccount
   name: flightctl-imagebuilder-api
   namespace: {{ .Release.Namespace }}
+{{- end }}
+{{- if and .Values.imageBuilderWorker .Values.imageBuilderWorker.enabled }}
+- kind: ServiceAccount
+  name: flightctl-imagebuilder-worker
+  namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
 {{- end }}
 roleRef:
   kind: Role

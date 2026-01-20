@@ -3,7 +3,7 @@ package model
 import (
 	"time"
 
-	api "github.com/flightctl/flightctl/api/v1beta1"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
@@ -52,8 +52,8 @@ func (r *Resource) BeforeCreate(tx *gorm.DB) error {
 type APIResourceOption func(*apiResourceOptions)
 
 type apiResourceOptions struct {
-	devicesSummary           *api.DevicesSummary // Used by Fleet
-	isRendered               bool                // Used by Device
+	devicesSummary           *domain.DevicesSummary // Used by Fleet
+	isRendered               bool                   // Used by Device
 	withoutServiceConditions bool
 	knownRenderedVersion     *string
 }
@@ -65,7 +65,7 @@ func WithRendered(knownRenderedVersion *string) APIResourceOption {
 	}
 }
 
-func WithDevicesSummary(devicesSummary *api.DevicesSummary) APIResourceOption {
+func WithDevicesSummary(devicesSummary *domain.DevicesSummary) APIResourceOption {
 	return func(o *apiResourceOptions) {
 		o.devicesSummary = devicesSummary
 	}

@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	api "github.com/flightctl/flightctl/api/v1beta1"
+	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/executer"
@@ -56,7 +56,11 @@ func TestComposeEnsurePodmanVolumeRetainReseeds(t *testing.T) {
 
 	mockWriter := fileio.NewMockWriter(ctrl)
 	mockExec := executer.NewMockExecuter(ctrl)
-	readWriter := fileio.NewReadWriter(fileio.WithTestRootDir(t.TempDir()))
+	tmpDir := t.TempDir()
+	readWriter := fileio.NewReadWriter(
+		fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+		fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+	)
 
 	logger := log.NewPrefixLogger("test")
 	podman := client.NewPodman(logger, mockExec, readWriter, testutil.NewPollConfig())

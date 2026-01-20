@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
@@ -56,31 +56,31 @@ func (m *MockRepository) CountByOrg(ctx context.Context, orgId *uuid.UUID) ([]st
 
 // Implement other required methods with empty implementations
 func (m *MockRepository) InitialMigration(context.Context) error { return nil }
-func (m *MockRepository) Create(context.Context, uuid.UUID, *api.Repository, store.EventCallback) (*api.Repository, error) {
+func (m *MockRepository) Create(context.Context, uuid.UUID, *domain.Repository, store.EventCallback) (*domain.Repository, error) {
 	return nil, nil
 }
-func (m *MockRepository) Update(context.Context, uuid.UUID, *api.Repository, store.EventCallback) (*api.Repository, error) {
+func (m *MockRepository) Update(context.Context, uuid.UUID, *domain.Repository, store.EventCallback) (*domain.Repository, error) {
 	return nil, nil
 }
-func (m *MockRepository) CreateOrUpdate(context.Context, uuid.UUID, *api.Repository, store.EventCallback) (*api.Repository, bool, error) {
+func (m *MockRepository) CreateOrUpdate(context.Context, uuid.UUID, *domain.Repository, store.EventCallback) (*domain.Repository, bool, error) {
 	return nil, false, nil
 }
-func (m *MockRepository) Get(context.Context, uuid.UUID, string) (*api.Repository, error) {
+func (m *MockRepository) Get(context.Context, uuid.UUID, string) (*domain.Repository, error) {
 	return nil, nil
 }
-func (m *MockRepository) List(context.Context, uuid.UUID, store.ListParams) (*api.RepositoryList, error) {
+func (m *MockRepository) List(context.Context, uuid.UUID, store.ListParams) (*domain.RepositoryList, error) {
 	return nil, nil
 }
 func (m *MockRepository) Delete(context.Context, uuid.UUID, string, store.EventCallback) error {
 	return nil
 }
-func (m *MockRepository) UpdateStatus(context.Context, uuid.UUID, *api.Repository, store.EventCallback) (*api.Repository, error) {
+func (m *MockRepository) UpdateStatus(context.Context, uuid.UUID, *domain.Repository, store.EventCallback) (*domain.Repository, error) {
 	return nil, nil
 }
-func (m *MockRepository) GetFleetRefs(context.Context, uuid.UUID, string) (*api.FleetList, error) {
+func (m *MockRepository) GetFleetRefs(context.Context, uuid.UUID, string) (*domain.FleetList, error) {
 	return nil, nil
 }
-func (m *MockRepository) GetDeviceRefs(context.Context, uuid.UUID, string) (*api.DeviceList, error) {
+func (m *MockRepository) GetDeviceRefs(context.Context, uuid.UUID, string) (*domain.DeviceList, error) {
 	return nil, nil
 }
 

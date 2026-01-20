@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strconv"
 
-	api "github.com/flightctl/flightctl/api/v1beta1"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/samber/lo"
@@ -15,10 +15,10 @@ type Fleet struct {
 	Resource
 
 	// The desired state, stored as opaque JSON object.
-	Spec *JSONField[api.FleetSpec] `gorm:"type:jsonb"`
+	Spec *JSONField[domain.FleetSpec] `gorm:"type:jsonb"`
 
 	// The last reported state, stored as opaque JSON object.
-	Status *JSONField[api.FleetStatus] `gorm:"type:jsonb"`
+	Status *JSONField[domain.FleetStatus] `gorm:"type:jsonb"`
 
 	// Join table with the relationship of fleets to repositories
 	Repositories []Repository `gorm:"many2many:fleet_repos;constraint:OnDelete:CASCADE;"`
@@ -29,12 +29,12 @@ func (d Fleet) String() string {
 	return string(val)
 }
 
-func NewFleetFromApiResource(resource *api.Fleet) (*Fleet, error) {
+func NewFleetFromApiResource(resource *domain.Fleet) (*Fleet, error) {
 	if resource == nil || resource.Metadata.Name == nil {
 		return &Fleet{}, nil
 	}
 
-	status := api.FleetStatus{Conditions: []api.Condition{}}
+	status := domain.FleetStatus{Conditions: []domain.Condition{}}
 	if resource.Status != nil {
 		status = *resource.Status
 	}
@@ -61,12 +61,12 @@ func NewFleetFromApiResource(resource *api.Fleet) (*Fleet, error) {
 }
 
 func FleetAPIVersion() string {
-	return fmt.Sprintf("%s/%s", api.APIGroup, api.FleetAPIVersion)
+	return fmt.Sprintf("%s/%s", domain.APIGroup, domain.FleetAPIVersion)
 }
 
-func (f *Fleet) ToApiResource(opts ...APIResourceOption) (*api.Fleet, error) {
+func (f *Fleet) ToApiResource(opts ...APIResourceOption) (*domain.Fleet, error) {
 	if f == nil {
-		return &api.Fleet{}, nil
+		return &domain.Fleet{}, nil
 	}
 
 	options := apiResourceOptions{}
@@ -74,21 +74,21 @@ func (f *Fleet) ToApiResource(opts ...APIResourceOption) (*api.Fleet, error) {
 		opt(&options)
 	}
 
-	spec := api.FleetSpec{}
+	spec := domain.FleetSpec{}
 	if f.Spec != nil {
 		spec = f.Spec.Data
 	}
 
-	status := api.FleetStatus{Conditions: []api.Condition{}}
+	status := domain.FleetStatus{Conditions: []domain.Condition{}}
 	if f.Status != nil {
 		status = f.Status.Data
 	}
 	status.DevicesSummary = options.devicesSummary
 
-	return &api.Fleet{
+	return &domain.Fleet{
 		ApiVersion: FleetAPIVersion(),
-		Kind:       api.FleetKind,
-		Metadata: api.ObjectMeta{
+		Kind:       domain.FleetKind,
+		Metadata: domain.ObjectMeta{
 			Name:              lo.ToPtr(f.Name),
 			CreationTimestamp: lo.ToPtr(f.CreatedAt.UTC()),
 			Labels:            lo.ToPtr(util.EnsureMap(f.Resource.Labels)),
@@ -102,8 +102,8 @@ func (f *Fleet) ToApiResource(opts ...APIResourceOption) (*api.Fleet, error) {
 	}, nil
 }
 
-func FleetsToApiResource(fleets []Fleet, cont *string, numRemaining *int64) (api.FleetList, error) {
-	fleetList := make([]api.Fleet, len(fleets))
+func FleetsToApiResource(fleets []Fleet, cont *string, numRemaining *int64) (domain.FleetList, error) {
+	fleetList := make([]domain.Fleet, len(fleets))
 	for i, fleet := range fleets {
 		var opts []APIResourceOption
 		if fleet.Status.Data.DevicesSummary != nil {
@@ -112,11 +112,11 @@ func FleetsToApiResource(fleets []Fleet, cont *string, numRemaining *int64) (api
 		apiResource, _ := fleet.ToApiResource(opts...)
 		fleetList[i] = *apiResource
 	}
-	ret := api.FleetList{
+	ret := domain.FleetList{
 		ApiVersion: FleetAPIVersion(),
-		Kind:       api.FleetListKind,
+		Kind:       domain.FleetListKind,
 		Items:      fleetList,
-		Metadata:   api.ListMeta{},
+		Metadata:   domain.ListMeta{},
 	}
 	if cont != nil {
 		ret.Metadata.Continue = cont
@@ -130,7 +130,7 @@ func FleetPtrToFleet(f *Fleet) *Fleet {
 }
 
 func (f *Fleet) GetKind() string {
-	return api.FleetKind
+	return domain.FleetKind
 }
 
 func (f *Fleet) HasNilSpec() bool {
@@ -151,7 +151,7 @@ func (f *Fleet) HasSameSpecAs(otherResource any) bool {
 	if (f.Spec == nil && other.Spec != nil) || (f.Spec != nil && other.Spec == nil) {
 		return false
 	}
-	return api.FleetSpecsAreEqual(f.Spec.Data, other.Spec.Data)
+	return domain.FleetSpecsAreEqual(f.Spec.Data, other.Spec.Data)
 }
 
 func (f *Fleet) GetStatusAsJson() ([]byte, error) {

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	api "github.com/flightctl/flightctl/api/v1beta1"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/samber/lo"
 )
 
@@ -63,29 +63,29 @@ func TestConfig_String_RedactsAuthClientSecrets(t *testing.T) {
 
 	cfg := &Config{
 		Auth: &authConfig{
-			OIDC: &api.OIDCProviderSpec{
-				ProviderType: api.Oidc,
+			OIDC: &domain.OIDCProviderSpec{
+				ProviderType: domain.Oidc,
 				Issuer:       "https://example.com",
 				ClientId:     "test-client-id",
 				ClientSecret: &oidcSecret,
 			},
-			OAuth2: &api.OAuth2ProviderSpec{
-				ProviderType:     api.Oauth2,
+			OAuth2: &domain.OAuth2ProviderSpec{
+				ProviderType:     domain.Oauth2,
 				AuthorizationUrl: "https://example.com/auth",
 				TokenUrl:         "https://example.com/token",
 				UserinfoUrl:      "https://example.com/userinfo",
 				ClientId:         "test-client-id",
 				ClientSecret:     &oauth2Secret,
 			},
-			OpenShift: &api.OpenShiftProviderSpec{
-				ProviderType:           api.Openshift,
-				ClusterControlPlaneUrl: lo.ToPtr("https://api.example.com"),
+			OpenShift: &domain.OpenShiftProviderSpec{
+				ProviderType:           domain.Openshift,
+				ClusterControlPlaneUrl: lo.ToPtr("https://domain.example.com"),
 				AuthorizationUrl:       lo.ToPtr("https://example.com/auth"),
 				ClientId:               lo.ToPtr("test-client-id"),
 				ClientSecret:           &openshiftSecret,
 			},
-			AAP: &api.AapProviderSpec{
-				ProviderType:     api.Aap,
+			AAP: &domain.AapProviderSpec{
+				ProviderType:     domain.Aap,
 				ApiUrl:           "https://aap.example.com",
 				AuthorizationUrl: "https://aap.example.com/auth",
 				ClientId:         "test-client-id",
@@ -137,8 +137,8 @@ func TestConfig_String_DoesNotMutateOriginal(t *testing.T) {
 	oidcSecret := "original-secret"
 	cfg := &Config{
 		Auth: &authConfig{
-			OIDC: &api.OIDCProviderSpec{
-				ProviderType: api.Oidc,
+			OIDC: &domain.OIDCProviderSpec{
+				ProviderType: domain.Oidc,
 				Issuer:       "https://example.com",
 				ClientId:     "test-client-id",
 				ClientSecret: &oidcSecret,
@@ -179,14 +179,14 @@ func TestConfig_String_HandlesNilAuthConfig(t *testing.T) {
 func TestConfig_String_HandlesNilClientSecrets(t *testing.T) {
 	cfg := &Config{
 		Auth: &authConfig{
-			OIDC: &api.OIDCProviderSpec{
-				ProviderType: api.Oidc,
+			OIDC: &domain.OIDCProviderSpec{
+				ProviderType: domain.Oidc,
 				Issuer:       "https://example.com",
 				ClientId:     "test-client-id",
 				ClientSecret: nil, // No secret configured
 			},
-			OAuth2: &api.OAuth2ProviderSpec{
-				ProviderType:     api.Oauth2,
+			OAuth2: &domain.OAuth2ProviderSpec{
+				ProviderType:     domain.Oauth2,
 				AuthorizationUrl: "https://example.com/auth",
 				TokenUrl:         "https://example.com/token",
 				UserinfoUrl:      "https://example.com/userinfo",

@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/google/uuid"
@@ -16,27 +16,27 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func verifyDevicePatchSucceeded(require *require.Assertions, expectedDevice api.Device, resp *api.Device, status api.Status) {
+func verifyDevicePatchSucceeded(require *require.Assertions, expectedDevice domain.Device, resp *domain.Device, status domain.Status) {
 	require.Equal(statusSuccessCode, status.Code)
-	require.True(api.DeviceSpecsAreEqual(*expectedDevice.Spec, *resp.Spec))
+	require.True(domain.DeviceSpecsAreEqual(*expectedDevice.Spec, *resp.Spec))
 	require.Equal(expectedDevice.Metadata, resp.Metadata)
 }
 
-func verifyDevicePatchFailed(require *require.Assertions, status api.Status) {
+func verifyDevicePatchFailed(require *require.Assertions, status domain.Status) {
 	require.Equal(statusBadRequestCode, status.Code)
 }
 
-func testDevicePatch(require *require.Assertions, patch api.PatchRequest) (*api.Device, api.Device, api.Status) {
-	status := api.NewDeviceStatus()
-	device := api.Device{
+func testDevicePatch(require *require.Assertions, patch domain.PatchRequest) (*domain.Device, domain.Device, domain.Status) {
+	status := domain.NewDeviceStatus()
+	device := domain.Device{
 		ApiVersion: "v1",
 		Kind:       "Device",
-		Metadata: api.ObjectMeta{
+		Metadata: domain.ObjectMeta{
 			Name:   lo.ToPtr("foo"),
 			Labels: &map[string]string{"labelKey": "labelValue"},
 		},
-		Spec: &api.DeviceSpec{
-			Os: &api.DeviceOsSpec{Image: "img"},
+		Spec: &domain.DeviceSpec{
+			Os: &domain.DeviceOsSpec{Image: "img"},
 		},
 		Status: &status,
 	}
@@ -56,7 +56,7 @@ func testDevicePatch(require *require.Assertions, patch api.PatchRequest) (*api.
 	return resp, device, retStatus
 }
 
-func testDeviceStatusPatch(require *require.Assertions, orig api.Device, patch api.PatchRequest) (*api.Device, api.Status) {
+func testDeviceStatusPatch(require *require.Assertions, orig domain.Device, patch domain.PatchRequest) (*domain.Device, domain.Status) {
 	ts := &TestStore{}
 	wc := &DummyWorkerClient{}
 	serviceHandler := &ServiceHandler{
@@ -76,13 +76,13 @@ func testDeviceStatusPatch(require *require.Assertions, orig api.Device, patch a
 func TestDevicePatchName(t *testing.T) {
 	require := require.New(t)
 	var value interface{} = "bar"
-	pr := api.PatchRequest{
+	pr := domain.PatchRequest{
 		{Op: "replace", Path: "/metadata/name", Value: &value},
 	}
 	_, _, status := testDevicePatch(require, pr)
-	require.Equal(api.StatusBadRequest("metadata.name is immutable"), status)
+	require.Equal(domain.StatusBadRequest("metadata.name is immutable"), status)
 
-	pr = api.PatchRequest{
+	pr = domain.PatchRequest{
 		{Op: "remove", Path: "/metadata/name"},
 	}
 	_, _, status = testDevicePatch(require, pr)
@@ -95,10 +95,10 @@ func TestDeviceStatusPatch(t *testing.T) {
 		name               string
 		patchPath          string
 		patchValueType     string // "systemInfo" or "string"
-		systemInfo         api.DeviceSystemInfo
+		systemInfo         domain.DeviceSystemInfo
 		stringValue        string
 		expectedCode       int32
-		expectedSystemInfo *api.DeviceSystemInfo
+		expectedSystemInfo *domain.DeviceSystemInfo
 		expectError        bool
 		errorMessage       string
 	}{
@@ -106,14 +106,14 @@ func TestDeviceStatusPatch(t *testing.T) {
 			name:           "update system info happy path",
 			patchPath:      "/status/systemInfo",
 			patchValueType: "systemInfo",
-			systemInfo: api.DeviceSystemInfo{
+			systemInfo: domain.DeviceSystemInfo{
 				AgentVersion:    "a",
 				Architecture:    "b",
 				BootID:          "c",
 				OperatingSystem: "d",
 			},
 			expectedCode: 200,
-			expectedSystemInfo: &api.DeviceSystemInfo{
+			expectedSystemInfo: &domain.DeviceSystemInfo{
 				AgentVersion:    "a",
 				Architecture:    "b",
 				BootID:          "c",
@@ -124,14 +124,14 @@ func TestDeviceStatusPatch(t *testing.T) {
 			name:           "update system info partial",
 			patchPath:      "/status/systemInfo",
 			patchValueType: "systemInfo",
-			systemInfo: api.DeviceSystemInfo{
+			systemInfo: domain.DeviceSystemInfo{
 				AgentVersion:    "a",
 				Architecture:    "b",
 				BootID:          "3",
 				OperatingSystem: "4",
 			},
 			expectedCode: 200,
-			expectedSystemInfo: &api.DeviceSystemInfo{
+			expectedSystemInfo: &domain.DeviceSystemInfo{
 				AgentVersion:    "a",
 				Architecture:    "b",
 				BootID:          "3",
@@ -168,8 +168,8 @@ func TestDeviceStatusPatch(t *testing.T) {
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			deviceStatus := api.NewDeviceStatus()
-			deviceStatus.SystemInfo = api.DeviceSystemInfo{
+			deviceStatus := domain.NewDeviceStatus()
+			deviceStatus.SystemInfo = domain.DeviceSystemInfo{
 				AgentVersion:    "1",
 				Architecture:    "2",
 				BootID:          "3",
@@ -177,32 +177,32 @@ func TestDeviceStatusPatch(t *testing.T) {
 			}
 
 			// initialize device
-			device := api.Device{
+			device := domain.Device{
 				ApiVersion: "v1",
 				Kind:       "Device",
-				Metadata: api.ObjectMeta{
+				Metadata: domain.ObjectMeta{
 					Name:   lo.ToPtr("foo"),
 					Labels: &map[string]string{"labelKey": "labelValue"},
 				},
-				Spec: &api.DeviceSpec{
-					Os: &api.DeviceOsSpec{Image: "img"},
+				Spec: &domain.DeviceSpec{
+					Os: &domain.DeviceOsSpec{Image: "img"},
 				},
 				Status: &deviceStatus,
 			}
 
 			// create patch request
-			var patchRequest api.PatchRequest
+			var patchRequest domain.PatchRequest
 			if tc.patchValueType == "systemInfo" {
 				infoMap, err := util.StructToMap(tc.systemInfo)
 				require.NoError(err)
 
 				var value interface{} = infoMap
-				patchRequest = api.PatchRequest{
+				patchRequest = domain.PatchRequest{
 					{Op: "replace", Path: tc.patchPath, Value: &value},
 				}
 			} else {
 				var value interface{} = tc.stringValue
-				patchRequest = api.PatchRequest{
+				patchRequest = domain.PatchRequest{
 					{Op: "replace", Path: tc.patchPath, Value: &value},
 				}
 			}
@@ -210,7 +210,7 @@ func TestDeviceStatusPatch(t *testing.T) {
 			require.Equal(tc.expectedCode, status.Code)
 
 			if tc.expectError {
-				require.Equal(api.StatusBadRequest(tc.errorMessage), status)
+				require.Equal(domain.StatusBadRequest(tc.errorMessage), status)
 			} else {
 				require.Equal(*tc.expectedSystemInfo, resp.Status.SystemInfo)
 			}
@@ -221,13 +221,13 @@ func TestDeviceStatusPatch(t *testing.T) {
 func TestDevicePatchKind(t *testing.T) {
 	require := require.New(t)
 	var value interface{} = "bar"
-	pr := api.PatchRequest{
+	pr := domain.PatchRequest{
 		{Op: "replace", Path: "/kind", Value: &value},
 	}
 	_, _, status := testDevicePatch(require, pr)
 	verifyDevicePatchFailed(require, status)
 
-	pr = api.PatchRequest{
+	pr = domain.PatchRequest{
 		{Op: "remove", Path: "/kind"},
 	}
 	_, _, status = testDevicePatch(require, pr)
@@ -237,13 +237,13 @@ func TestDevicePatchKind(t *testing.T) {
 func TestDevicePatchAPIVersion(t *testing.T) {
 	require := require.New(t)
 	var value interface{} = "bar"
-	pr := api.PatchRequest{
+	pr := domain.PatchRequest{
 		{Op: "replace", Path: "/apiVersion", Value: &value},
 	}
 	_, _, status := testDevicePatch(require, pr)
 	verifyDevicePatchFailed(require, status)
 
-	pr = api.PatchRequest{
+	pr = domain.PatchRequest{
 		{Op: "remove", Path: "/apiVersion"},
 	}
 	_, _, status = testDevicePatch(require, pr)
@@ -254,14 +254,14 @@ func TestDevicePatchAPIVersion(t *testing.T) {
 func TestDevicePatchSpec(t *testing.T) {
 	require := require.New(t)
 	var value interface{} = "newimg"
-	pr := api.PatchRequest{
+	pr := domain.PatchRequest{
 		{Op: "replace", Path: "/spec/os/image", Value: &value},
 	}
 	resp, orig, status := testDevicePatch(require, pr)
 	orig.Spec.Os.Image = "newimg"
 	verifyDevicePatchSucceeded(require, orig, resp, status)
 
-	pr = api.PatchRequest{
+	pr = domain.PatchRequest{
 		{Op: "remove", Path: "/spec/os"},
 	}
 	resp, orig, status = testDevicePatch(require, pr)
@@ -269,7 +269,7 @@ func TestDevicePatchSpec(t *testing.T) {
 	verifyDevicePatchSucceeded(require, orig, resp, status)
 
 	value = "foo"
-	pr = api.PatchRequest{
+	pr = domain.PatchRequest{
 		{Op: "replace", Path: "/spec/os", Value: &value},
 	}
 	_, _, status = testDevicePatch(require, pr)
@@ -279,13 +279,13 @@ func TestDevicePatchSpec(t *testing.T) {
 func TestDevicePatchStatus(t *testing.T) {
 	require := require.New(t)
 	var value interface{} = "1234"
-	pr := api.PatchRequest{
+	pr := domain.PatchRequest{
 		{Op: "replace", Path: "/status/updatedAt", Value: &value},
 	}
 	_, _, status := testDevicePatch(require, pr)
 	verifyDevicePatchFailed(require, status)
 
-	pr = api.PatchRequest{
+	pr = domain.PatchRequest{
 		{Op: "remove", Path: "/status/updatedAt"},
 	}
 	_, _, status = testDevicePatch(require, pr)
@@ -296,13 +296,13 @@ func TestDevicePatchStatus(t *testing.T) {
 func TestDevicePatchNonExistingPath(t *testing.T) {
 	require := require.New(t)
 	var value interface{} = "foo"
-	pr := api.PatchRequest{
+	pr := domain.PatchRequest{
 		{Op: "replace", Path: "/spec/os/doesnotexist", Value: &value},
 	}
 	_, _, status := testDevicePatch(require, pr)
 	verifyDevicePatchFailed(require, status)
 
-	pr = api.PatchRequest{
+	pr = domain.PatchRequest{
 		{Op: "remove", Path: "/spec/os/doesnotexist"},
 	}
 	_, _, status = testDevicePatch(require, pr)
@@ -313,7 +313,7 @@ func TestDevicePatchLabels(t *testing.T) {
 	require := require.New(t)
 	addLabels := map[string]string{"labelKey": "labelValue1"}
 	var value interface{} = "labelValue1"
-	pr := api.PatchRequest{
+	pr := domain.PatchRequest{
 		{Op: "replace", Path: "/metadata/labels/labelKey", Value: &value},
 	}
 
@@ -321,7 +321,7 @@ func TestDevicePatchLabels(t *testing.T) {
 	orig.Metadata.Labels = &addLabels
 	verifyDevicePatchSucceeded(require, orig, resp, status)
 
-	pr = api.PatchRequest{
+	pr = domain.PatchRequest{
 		{Op: "remove", Path: "/metadata/labels/labelKey"},
 	}
 
@@ -333,7 +333,7 @@ func TestDevicePatchLabels(t *testing.T) {
 func TestDeviceNonExistingResource(t *testing.T) {
 	require := require.New(t)
 	var value interface{} = "labelValue1"
-	pr := api.PatchRequest{
+	pr := domain.PatchRequest{
 		{Op: "replace", Path: "/metadata/labels/labelKey", Value: &value},
 	}
 
@@ -346,13 +346,13 @@ func TestDeviceNonExistingResource(t *testing.T) {
 	}
 	ctx := context.Background()
 	testOrgId := uuid.New()
-	_, err := serviceHandler.store.Device().Create(ctx, testOrgId, &api.Device{
-		Metadata: api.ObjectMeta{Name: lo.ToPtr("foo")},
+	_, err := serviceHandler.store.Device().Create(ctx, testOrgId, &domain.Device{
+		Metadata: domain.ObjectMeta{Name: lo.ToPtr("foo")},
 	}, nil)
 	require.NoError(err)
 	_, retStatus := serviceHandler.PatchDevice(ctx, testOrgId, "bar", pr)
 	require.Equal(statusNotFoundCode, retStatus.Code)
-	require.Equal(api.StatusResourceNotFound("Device", "bar"), retStatus)
+	require.Equal(domain.StatusResourceNotFound("Device", "bar"), retStatus)
 }
 
 func TestDeviceDisconnected(t *testing.T) {
@@ -378,8 +378,8 @@ func TestDeviceDisconnected(t *testing.T) {
 	//device, err = serviceHandler.store.Device().Get(ctx, testOrgId, *device.Metadata.Name)
 	//require.NoError(err)
 	device.Status.LastSeen = lo.ToPtr(time.Now().Add(-10 * time.Minute))
-	device.Status.Summary.Status = api.DeviceSummaryStatusOnline
+	device.Status.Summary.Status = domain.DeviceSummaryStatusOnline
 	changed := serviceHandler.UpdateServiceSideDeviceStatus(ctx, testOrgId, *device)
 	require.Equal(true, changed)
-	require.Equal(device.Status.Summary.Status, api.DeviceSummaryStatusUnknown)
+	require.Equal(device.Status.Summary.Status, domain.DeviceSummaryStatusUnknown)
 }

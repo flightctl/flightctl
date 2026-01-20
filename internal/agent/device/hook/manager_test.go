@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/flightctl/flightctl/api/v1beta1"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/device/config"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/util"
@@ -139,7 +139,11 @@ const testHookRebootedCondition = `
 `
 
 func createTempHooksDir(t *testing.T, hooks map[string]string) fileio.ReadWriter {
-	readerWriter := fileio.NewReadWriter(fileio.WithTestRootDir(t.TempDir()))
+	tempDir := t.TempDir()
+	readerWriter := fileio.NewReadWriter(
+		fileio.NewReader(fileio.WithReaderRootDir(tempDir)),
+		fileio.NewWriter(fileio.WithWriterRootDir(tempDir)),
+	)
 
 	util.Must(readerWriter.MkdirAll("/usr/lib/flightctl/hooks.d/afterupdating", 0755))
 	util.Must(readerWriter.MkdirAll("/etc/flightctl/hooks.d/afterupdating", 0755))

@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"testing"
 
-	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
@@ -16,23 +16,23 @@ import (
 	gomock "go.uber.org/mock/gomock"
 )
 
-func createTestFleetForRollout(name string, rolloutPolicy *api.RolloutPolicy) *api.Fleet {
+func createTestFleetForRollout(name string, rolloutPolicy *domain.RolloutPolicy) *domain.Fleet {
 	fleetName := name
 	generation := int64(1)
 
-	return &api.Fleet{
-		Metadata: api.ObjectMeta{
+	return &domain.Fleet{
+		Metadata: domain.ObjectMeta{
 			Name:       &fleetName,
 			Generation: &generation,
 		},
-		Spec: api.FleetSpec{
+		Spec: domain.FleetSpec{
 			RolloutPolicy: rolloutPolicy,
 			Template: struct {
-				Metadata *api.ObjectMeta `json:"metadata,omitempty"`
-				Spec     api.DeviceSpec  `json:"spec"`
+				Metadata *domain.ObjectMeta `json:"metadata,omitempty"`
+				Spec     domain.DeviceSpec  `json:"spec"`
 			}{
-				Spec: api.DeviceSpec{
-					Os: &api.DeviceOsSpec{
+				Spec: domain.DeviceSpec{
+					Os: &domain.DeviceOsSpec{
 						Image: "test-image:latest",
 					},
 				},
@@ -41,35 +41,35 @@ func createTestFleetForRollout(name string, rolloutPolicy *api.RolloutPolicy) *a
 	}
 }
 
-func createTestTemplateVersion(name string) *api.TemplateVersion {
+func createTestTemplateVersion(name string) *domain.TemplateVersion {
 	tvName := name
-	return &api.TemplateVersion{
-		Metadata: api.ObjectMeta{
+	return &domain.TemplateVersion{
+		Metadata: domain.ObjectMeta{
 			Name: &tvName,
 		},
-		Status: &api.TemplateVersionStatus{
-			Os: &api.DeviceOsSpec{
+		Status: &domain.TemplateVersionStatus{
+			Os: &domain.DeviceOsSpec{
 				Image: "test-image:latest",
 			},
 		},
 	}
 }
 
-func createTestDevice(name string, owner string) *api.Device {
+func createTestDevice(name string, owner string) *domain.Device {
 	deviceName := name
 	ownerName := owner
-	return &api.Device{
-		Metadata: api.ObjectMeta{
+	return &domain.Device{
+		Metadata: domain.ObjectMeta{
 			Name:  &deviceName,
 			Owner: &ownerName,
 		},
-		Spec: &api.DeviceSpec{
-			Os: &api.DeviceOsSpec{
+		Spec: &domain.DeviceSpec{
+			Os: &domain.DeviceOsSpec{
 				Image: "old-image:latest",
 			},
 		},
-		Status: &api.DeviceStatus{
-			Conditions: []api.Condition{},
+		Status: &domain.DeviceStatus{
+			Conditions: []domain.Condition{},
 		},
 	}
 }
@@ -77,7 +77,7 @@ func createTestDevice(name string, owner string) *api.Device {
 func TestFleetRolloutsLogic_DelayDeviceRenderCondition(t *testing.T) {
 	tests := []struct {
 		name               string
-		fleet              *api.Fleet
+		fleet              *domain.Fleet
 		expectedDelayValue bool
 		description        string
 	}{
@@ -89,17 +89,17 @@ func TestFleetRolloutsLogic_DelayDeviceRenderCondition(t *testing.T) {
 		},
 		{
 			name: "RolloutPolicyWithoutDisruptionBudget",
-			fleet: createTestFleetForRollout("test-fleet", &api.RolloutPolicy{
-				DeviceSelection: &api.RolloutDeviceSelection{},
+			fleet: createTestFleetForRollout("test-fleet", &domain.RolloutPolicy{
+				DeviceSelection: &domain.RolloutDeviceSelection{},
 			}),
 			expectedDelayValue: false,
 			description:        "delayDeviceRender should be false when fleet has RolloutPolicy but no DisruptionBudget",
 		},
 		{
 			name: "RolloutPolicyWithDisruptionBudget",
-			fleet: createTestFleetForRollout("test-fleet", &api.RolloutPolicy{
-				DeviceSelection: &api.RolloutDeviceSelection{},
-				DisruptionBudget: &api.DisruptionBudget{
+			fleet: createTestFleetForRollout("test-fleet", &domain.RolloutPolicy{
+				DeviceSelection: &domain.RolloutDeviceSelection{},
+				DisruptionBudget: &domain.DisruptionBudget{
 					MaxUnavailable: lo.ToPtr(25),
 				},
 			}),
@@ -108,8 +108,8 @@ func TestFleetRolloutsLogic_DelayDeviceRenderCondition(t *testing.T) {
 		},
 		{
 			name: "RolloutPolicyWithOnlyDisruptionBudget",
-			fleet: createTestFleetForRollout("test-fleet", &api.RolloutPolicy{
-				DisruptionBudget: &api.DisruptionBudget{
+			fleet: createTestFleetForRollout("test-fleet", &domain.RolloutPolicy{
+				DisruptionBudget: &domain.DisruptionBudget{
 					MaxUnavailable: lo.ToPtr(10),
 				},
 			}),
@@ -118,9 +118,9 @@ func TestFleetRolloutsLogic_DelayDeviceRenderCondition(t *testing.T) {
 		},
 		{
 			name: "RolloutPolicyWithComplexDisruptionBudget",
-			fleet: createTestFleetForRollout("test-fleet", &api.RolloutPolicy{
-				DeviceSelection: &api.RolloutDeviceSelection{},
-				DisruptionBudget: &api.DisruptionBudget{
+			fleet: createTestFleetForRollout("test-fleet", &domain.RolloutPolicy{
+				DeviceSelection: &domain.RolloutDeviceSelection{},
+				DisruptionBudget: &domain.DisruptionBudget{
 					MaxUnavailable: lo.ToPtr(50),
 					MinAvailable:   lo.ToPtr(25),
 				},
@@ -144,7 +144,7 @@ func TestFleetRolloutsLogic_DelayDeviceRenderCondition(t *testing.T) {
 func TestFleetRolloutsLogic_RolloutFleet_DelayDeviceRenderPropagation(t *testing.T) {
 	tests := []struct {
 		name               string
-		fleet              *api.Fleet
+		fleet              *domain.Fleet
 		expectedDelayValue bool
 		description        string
 	}{
@@ -156,9 +156,9 @@ func TestFleetRolloutsLogic_RolloutFleet_DelayDeviceRenderPropagation(t *testing
 		},
 		{
 			name: "RolloutPolicyWithDisruptionBudget",
-			fleet: createTestFleetForRollout("test-fleet", &api.RolloutPolicy{
-				DeviceSelection: &api.RolloutDeviceSelection{},
-				DisruptionBudget: &api.DisruptionBudget{
+			fleet: createTestFleetForRollout("test-fleet", &domain.RolloutPolicy{
+				DeviceSelection: &domain.RolloutDeviceSelection{},
+				DisruptionBudget: &domain.DisruptionBudget{
 					MaxUnavailable: lo.ToPtr(25),
 				},
 			}),
@@ -183,7 +183,7 @@ func TestFleetRolloutsLogic_RolloutFleet_DelayDeviceRenderPropagation(t *testing
 func TestFleetRolloutsLogic_FullDelayDeviceRenderPropagation(t *testing.T) {
 	tests := []struct {
 		name               string
-		fleet              *api.Fleet
+		fleet              *domain.Fleet
 		expectedDelayValue bool
 		description        string
 	}{
@@ -195,9 +195,9 @@ func TestFleetRolloutsLogic_FullDelayDeviceRenderPropagation(t *testing.T) {
 		},
 		{
 			name: "RolloutPolicyWithDisruptionBudget",
-			fleet: createTestFleetForRollout("test-fleet", &api.RolloutPolicy{
-				DeviceSelection: &api.RolloutDeviceSelection{},
-				DisruptionBudget: &api.DisruptionBudget{
+			fleet: createTestFleetForRollout("test-fleet", &domain.RolloutPolicy{
+				DeviceSelection: &domain.RolloutDeviceSelection{},
+				DisruptionBudget: &domain.DisruptionBudget{
 					MaxUnavailable: lo.ToPtr(25),
 				},
 			}),
@@ -215,18 +215,18 @@ func TestFleetRolloutsLogic_FullDelayDeviceRenderPropagation(t *testing.T) {
 			orgId := uuid.New()
 			log := logrus.New()
 			fleetName := "test-fleet"
-			event := api.Event{
-				InvolvedObject: api.ObjectReference{
-					Kind: api.FleetKind,
+			event := domain.Event{
+				InvolvedObject: domain.ObjectReference{
+					Kind: domain.FleetKind,
 					Name: fleetName,
 				},
-				Reason: api.EventReasonFleetRolloutBatchDispatched,
+				Reason: domain.EventReasonFleetRolloutBatchDispatched,
 			}
 
 			mockService := service.NewMockService(ctrl)
 
 			// Mock GetFleet to return our test fleet
-			mockService.EXPECT().GetFleet(gomock.Any(), gomock.Any(), fleetName, gomock.Any()).Return(tt.fleet, api.Status{Code: http.StatusOK})
+			mockService.EXPECT().GetFleet(gomock.Any(), gomock.Any(), fleetName, gomock.Any()).Return(tt.fleet, domain.Status{Code: http.StatusOK})
 
 			// Mock GetLatestTemplateVersion with a simple template that won't trigger complex processing
 			templateVersion := createTestTemplateVersion("test-tv")
@@ -234,11 +234,11 @@ func TestFleetRolloutsLogic_FullDelayDeviceRenderPropagation(t *testing.T) {
 			templateVersion.Status.Os = nil
 			templateVersion.Status.Config = nil
 			templateVersion.Status.Applications = nil
-			mockService.EXPECT().GetLatestTemplateVersion(gomock.Any(), gomock.Any(), fleetName).Return(templateVersion, api.Status{Code: http.StatusOK})
+			mockService.EXPECT().GetLatestTemplateVersion(gomock.Any(), gomock.Any(), fleetName).Return(templateVersion, domain.Status{Code: http.StatusOK})
 
 			// Create test device with owner that matches what f.owner will be set to
-			// f.owner will be set to "Fleet/test-fleet" from util.SetResourceOwner(api.FleetKind, "test-fleet")
-			// Note: api.FleetKind = "Fleet" (uppercase F), not "fleet"
+			// f.owner will be set to "Fleet/test-fleet" from util.SetResourceOwner(domain.FleetKind, "test-fleet")
+			// Note: domain.FleetKind = "Fleet" (uppercase F), not "fleet"
 			expectedOwner := "Fleet/test-fleet"
 			testDevice := createTestDevice("test-device", expectedOwner)
 
@@ -248,16 +248,16 @@ func TestFleetRolloutsLogic_FullDelayDeviceRenderPropagation(t *testing.T) {
 
 			// Mock ListDevices to return a device so the rollout process continues
 			// This is the key change - returning a non-empty device list to test full propagation
-			mockService.EXPECT().ListDevices(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(&api.DeviceList{
-				Metadata: api.ListMeta{},
-				Items:    []api.Device{*testDevice},
-			}, api.Status{Code: http.StatusOK})
+			mockService.EXPECT().ListDevices(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(&domain.DeviceList{
+				Metadata: domain.ListMeta{},
+				Items:    []domain.Device{*testDevice},
+			}, domain.Status{Code: http.StatusOK})
 
 			// Mock ReplaceDevice to capture the delayDeviceRender value from context
 			// This will be called during the device update process, allowing us to verify propagation
 			var capturedDelayDeviceRender bool
 			mockService.EXPECT().ReplaceDevice(gomock.Any(), gomock.Any(), "test-device", gomock.Any(), gomock.Any()).DoAndReturn(
-				func(ctx context.Context, orgId uuid.UUID, name string, device api.Device, fieldsToUnset []string) (*api.Device, api.Status) {
+				func(ctx context.Context, orgId uuid.UUID, name string, device domain.Device, fieldsToUnset []string) (*domain.Device, domain.Status) {
 					// Debug: Print the device owner when ReplaceDevice is called
 					if device.Metadata.Owner != nil {
 						t.Logf("ReplaceDevice called with device owner: %s", *device.Metadata.Owner)
@@ -272,11 +272,11 @@ func TestFleetRolloutsLogic_FullDelayDeviceRenderPropagation(t *testing.T) {
 					} else {
 						t.Logf("No delayDeviceRender value found in context")
 					}
-					return &device, api.Status{Code: http.StatusOK}
+					return &device, domain.Status{Code: http.StatusOK}
 				})
 
 			// Mock UpdateDeviceAnnotations for the device update
-			mockService.EXPECT().UpdateDeviceAnnotations(gomock.Any(), gomock.Any(), "test-device", gomock.Any(), gomock.Any()).Return(api.Status{Code: http.StatusOK})
+			mockService.EXPECT().UpdateDeviceAnnotations(gomock.Any(), gomock.Any(), "test-device", gomock.Any(), gomock.Any()).Return(domain.Status{Code: http.StatusOK})
 
 			// Create FleetRolloutsLogic instance
 			logic := NewFleetRolloutsLogic(log, mockService, orgId, event)
@@ -330,12 +330,12 @@ func TestFleetRolloutsLogic_DelayDeviceRenderPropagationThroughContext(t *testin
 
 			orgId := uuid.New()
 			log := logrus.New()
-			event := api.Event{
-				InvolvedObject: api.ObjectReference{
-					Kind: api.FleetKind,
+			event := domain.Event{
+				InvolvedObject: domain.ObjectReference{
+					Kind: domain.FleetKind,
 					Name: "test-fleet",
 				},
-				Reason: api.EventReasonFleetRolloutBatchDispatched,
+				Reason: domain.EventReasonFleetRolloutBatchDispatched,
 			}
 
 			mockService := service.NewMockService(ctrl)
@@ -352,16 +352,16 @@ func TestFleetRolloutsLogic_DelayDeviceRenderPropagationThroughContext(t *testin
 			// Mock ReplaceDevice to capture the context value
 			var capturedDelayDeviceRender bool
 			mockService.EXPECT().ReplaceDevice(gomock.Any(), gomock.Any(), "test-device", gomock.Any(), gomock.Any()).DoAndReturn(
-				func(ctx context.Context, orgId uuid.UUID, name string, device api.Device, fieldsToUnset []string) (*api.Device, api.Status) {
+				func(ctx context.Context, orgId uuid.UUID, name string, device domain.Device, fieldsToUnset []string) (*domain.Device, domain.Status) {
 					// Extract the delayDeviceRender value from context
 					if delayValue, ok := ctx.Value(consts.DelayDeviceRenderCtxKey).(bool); ok {
 						capturedDelayDeviceRender = delayValue
 					}
-					return &device, api.Status{Code: http.StatusOK}
+					return &device, domain.Status{Code: http.StatusOK}
 				})
 
 			// Execute the key function that contains the delayDeviceRender propagation logic
-			err := logic.updateDeviceInStore(context.Background(), device, &api.DeviceSpec{}, tt.delayDeviceRender)
+			err := logic.updateDeviceInStore(context.Background(), device, &domain.DeviceSpec{}, tt.delayDeviceRender)
 
 			// Assert
 			require.NoError(t, err)
@@ -370,22 +370,22 @@ func TestFleetRolloutsLogic_DelayDeviceRenderPropagationThroughContext(t *testin
 	}
 }
 
-func createTestDeviceWithLabels(name string, owner string, labels map[string]string) *api.Device {
+func createTestDeviceWithLabels(name string, owner string, labels map[string]string) *domain.Device {
 	deviceName := name
 	ownerName := owner
-	return &api.Device{
-		Metadata: api.ObjectMeta{
+	return &domain.Device{
+		Metadata: domain.ObjectMeta{
 			Name:   &deviceName,
 			Owner:  &ownerName,
 			Labels: &labels,
 		},
-		Spec: &api.DeviceSpec{
-			Os: &api.DeviceOsSpec{
+		Spec: &domain.DeviceSpec{
+			Os: &domain.DeviceOsSpec{
 				Image: "old-image:latest",
 			},
 		},
-		Status: &api.DeviceStatus{
-			Conditions: []api.Condition{},
+		Status: &domain.DeviceStatus{
+			Conditions: []domain.Condition{},
 		},
 	}
 }
@@ -393,8 +393,8 @@ func createTestDeviceWithLabels(name string, owner string, labels map[string]str
 func TestFleetRolloutsLogic_ReplaceImageApplicationParameters(t *testing.T) {
 	tests := []struct {
 		name          string
-		device        *api.Device
-		appSpec       api.ImageApplicationProviderSpec
+		device        *domain.Device
+		appSpec       domain.ImageApplicationProviderSpec
 		envVars       *map[string]string
 		expectedImage string
 		expectedEnv   map[string]string
@@ -403,7 +403,7 @@ func TestFleetRolloutsLogic_ReplaceImageApplicationParameters(t *testing.T) {
 		{
 			name:   "replaces template in image tag",
 			device: createTestDeviceWithLabels("mydevice", "fleet/test", map[string]string{"version": "v1.0"}),
-			appSpec: api.ImageApplicationProviderSpec{
+			appSpec: domain.ImageApplicationProviderSpec{
 				Image: "quay.io/test/app:{{ index .metadata.labels \"version\" }}",
 			},
 			expectedImage: "quay.io/test/app:v1.0",
@@ -412,7 +412,7 @@ func TestFleetRolloutsLogic_ReplaceImageApplicationParameters(t *testing.T) {
 		{
 			name:   "replaces device name in image tag",
 			device: createTestDeviceWithLabels("mydevice-123", "fleet/test", map[string]string{}),
-			appSpec: api.ImageApplicationProviderSpec{
+			appSpec: domain.ImageApplicationProviderSpec{
 				Image: "quay.io/test/app:{{ .metadata.name }}",
 			},
 			expectedImage: "quay.io/test/app:mydevice-123",
@@ -421,7 +421,7 @@ func TestFleetRolloutsLogic_ReplaceImageApplicationParameters(t *testing.T) {
 		{
 			name:   "replaces template in envVars",
 			device: createTestDeviceWithLabels("mydevice", "fleet/test", map[string]string{"env": "prod"}),
-			appSpec: api.ImageApplicationProviderSpec{
+			appSpec: domain.ImageApplicationProviderSpec{
 				Image: "quay.io/test/app:latest",
 			},
 			envVars:       &map[string]string{"MY_ENV": "{{ index .metadata.labels \"env\" }}"},
@@ -432,7 +432,7 @@ func TestFleetRolloutsLogic_ReplaceImageApplicationParameters(t *testing.T) {
 		{
 			name:   "missing label results in empty string",
 			device: createTestDeviceWithLabels("mydevice", "fleet/test", map[string]string{}),
-			appSpec: api.ImageApplicationProviderSpec{
+			appSpec: domain.ImageApplicationProviderSpec{
 				Image: "quay.io/test/app:{{ index .metadata.labels \"missing\" }}",
 			},
 			expectedImage: "quay.io/test/app:",
@@ -445,9 +445,9 @@ func TestFleetRolloutsLogic_ReplaceImageApplicationParameters(t *testing.T) {
 			log := logrus.New()
 			logic := FleetRolloutsLogic{log: log}
 
-			app := api.ApplicationProviderSpec{
+			app := domain.ApplicationProviderSpec{
 				Name:    lo.ToPtr("test-app"),
-				AppType: api.AppTypeCompose,
+				AppType: domain.AppTypeCompose,
 				EnvVars: tt.envVars,
 			}
 			err := app.FromImageApplicationProviderSpec(tt.appSpec)
@@ -480,8 +480,8 @@ func TestFleetRolloutsLogic_ReplaceImageApplicationParameters(t *testing.T) {
 func TestFleetRolloutsLogic_ReplaceInlineApplicationParameters(t *testing.T) {
 	tests := []struct {
 		name            string
-		device          *api.Device
-		appSpec         api.InlineApplicationProviderSpec
+		device          *domain.Device
+		appSpec         domain.InlineApplicationProviderSpec
 		envVars         *map[string]string
 		expectedPath    string
 		expectedContent string
@@ -491,8 +491,8 @@ func TestFleetRolloutsLogic_ReplaceInlineApplicationParameters(t *testing.T) {
 		{
 			name:   "replaces template in path",
 			device: createTestDeviceWithLabels("mydevice", "fleet/test", map[string]string{}),
-			appSpec: api.InlineApplicationProviderSpec{
-				Inline: []api.ApplicationContent{
+			appSpec: domain.InlineApplicationProviderSpec{
+				Inline: []domain.ApplicationContent{
 					{
 						Path:    "/etc/{{ .metadata.name }}.conf",
 						Content: lo.ToPtr("static content"),
@@ -506,8 +506,8 @@ func TestFleetRolloutsLogic_ReplaceInlineApplicationParameters(t *testing.T) {
 		{
 			name:   "replaces template in content",
 			device: createTestDeviceWithLabels("mydevice", "fleet/test", map[string]string{"version": "2.0"}),
-			appSpec: api.InlineApplicationProviderSpec{
-				Inline: []api.ApplicationContent{
+			appSpec: domain.InlineApplicationProviderSpec{
+				Inline: []domain.ApplicationContent{
 					{
 						Path:    "/etc/app.conf",
 						Content: lo.ToPtr("version={{ index .metadata.labels \"version\" }}"),
@@ -521,8 +521,8 @@ func TestFleetRolloutsLogic_ReplaceInlineApplicationParameters(t *testing.T) {
 		{
 			name:   "replaces templates in both path and content",
 			device: createTestDeviceWithLabels("mydevice", "fleet/test", map[string]string{"env": "prod"}),
-			appSpec: api.InlineApplicationProviderSpec{
-				Inline: []api.ApplicationContent{
+			appSpec: domain.InlineApplicationProviderSpec{
+				Inline: []domain.ApplicationContent{
 					{
 						Path:    "/etc/{{ .metadata.name }}/config",
 						Content: lo.ToPtr("environment={{ index .metadata.labels \"env\" }}"),
@@ -536,8 +536,8 @@ func TestFleetRolloutsLogic_ReplaceInlineApplicationParameters(t *testing.T) {
 		{
 			name:   "replaces template in envVars",
 			device: createTestDeviceWithLabels("mydevice", "fleet/test", map[string]string{"region": "us-east"}),
-			appSpec: api.InlineApplicationProviderSpec{
-				Inline: []api.ApplicationContent{
+			appSpec: domain.InlineApplicationProviderSpec{
+				Inline: []domain.ApplicationContent{
 					{
 						Path:    "/etc/app.conf",
 						Content: lo.ToPtr("config"),
@@ -553,8 +553,8 @@ func TestFleetRolloutsLogic_ReplaceInlineApplicationParameters(t *testing.T) {
 		{
 			name:   "missing label in content results in empty string",
 			device: createTestDeviceWithLabels("mydevice", "fleet/test", map[string]string{}),
-			appSpec: api.InlineApplicationProviderSpec{
-				Inline: []api.ApplicationContent{
+			appSpec: domain.InlineApplicationProviderSpec{
+				Inline: []domain.ApplicationContent{
 					{
 						Path:    "/etc/app.conf",
 						Content: lo.ToPtr("version={{ index .metadata.labels \"missing\" }}"),
@@ -572,9 +572,9 @@ func TestFleetRolloutsLogic_ReplaceInlineApplicationParameters(t *testing.T) {
 			log := logrus.New()
 			logic := FleetRolloutsLogic{log: log}
 
-			app := api.ApplicationProviderSpec{
+			app := domain.ApplicationProviderSpec{
 				Name:    lo.ToPtr("test-app"),
-				AppType: api.AppTypeQuadlet,
+				AppType: domain.AppTypeQuadlet,
 				EnvVars: tt.envVars,
 			}
 			err := app.FromInlineApplicationProviderSpec(tt.appSpec)

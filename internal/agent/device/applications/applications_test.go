@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/flightctl/flightctl/api/v1beta1"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
@@ -336,9 +336,11 @@ func TestApplicationStatus(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			defer ctrl.Finish()
 
-			tmpDir := t.TempDir()
-			readWriter := fileio.NewReadWriter()
-			readWriter.SetRootdir(tmpDir)
+			tempDir := t.TempDir()
+			readWriter := fileio.NewReadWriter(
+				fileio.NewReader(fileio.WithReaderRootDir(tempDir)),
+				fileio.NewWriter(fileio.WithWriterRootDir(tempDir)),
+			)
 
 			mockExec := executer.NewMockExecuter(ctrl)
 			podman := client.NewPodman(log, mockExec, readWriter, util.NewPollConfig())

@@ -19,7 +19,7 @@ func TestPodman_ListImages(t *testing.T) {
 
 	log := log.NewPrefixLogger("test")
 	mockExec := executer.NewMockExecuter(ctrl)
-	readWriter := fileio.NewReadWriter()
+	readWriter := fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter())
 	backoff := poll.Config{}
 
 	testCases := []struct {
@@ -117,7 +117,7 @@ func TestPodman_ListArtifacts(t *testing.T) {
 
 	log := log.NewPrefixLogger("test")
 	mockExec := executer.NewMockExecuter(ctrl)
-	readWriter := fileio.NewReadWriter()
+	readWriter := fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter())
 	backoff := poll.Config{}
 
 	testCases := []struct {
@@ -213,7 +213,7 @@ func TestPodman_RemoveImage(t *testing.T) {
 
 	log := log.NewPrefixLogger("test")
 	mockExec := executer.NewMockExecuter(ctrl)
-	readWriter := fileio.NewReadWriter()
+	readWriter := fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter())
 	backoff := poll.Config{}
 
 	testCases := []struct {
@@ -281,7 +281,7 @@ func TestPodman_RemoveArtifact(t *testing.T) {
 
 	log := log.NewPrefixLogger("test")
 	mockExec := executer.NewMockExecuter(ctrl)
-	readWriter := fileio.NewReadWriter()
+	readWriter := fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter())
 	backoff := poll.Config{}
 
 	testCases := []struct {

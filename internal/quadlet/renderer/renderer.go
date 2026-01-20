@@ -54,19 +54,20 @@ type RendererConfig struct {
 	FlightctlUiTagOverride       bool   `mapstructure:"flightctl-ui-tag-override"`
 
 	// Images
-	Api               ImageConfig `mapstructure:"api"`
-	Periodic          ImageConfig `mapstructure:"periodic"`
-	Worker            ImageConfig `mapstructure:"worker"`
-	AlertExporter     ImageConfig `mapstructure:"alert-exporter"`
-	CliArtifacts      ImageConfig `mapstructure:"cli-artifacts"`
-	AlertmanagerProxy ImageConfig `mapstructure:"alertmanager-proxy"`
-	PamIssuer         ImageConfig `mapstructure:"pam-issuer"`
-	Ui                ImageConfig `mapstructure:"ui"`
-	DbSetup           ImageConfig `mapstructure:"db-setup"`
-	Db                ImageConfig `mapstructure:"db"`
-	Kv                ImageConfig `mapstructure:"kv"`
-	Alertmanager      ImageConfig `mapstructure:"alertmanager"`
-	ImagebuilderApi   ImageConfig `mapstructure:"imagebuilder-api"`
+	Api                ImageConfig `mapstructure:"api"`
+	Periodic           ImageConfig `mapstructure:"periodic"`
+	Worker             ImageConfig `mapstructure:"worker"`
+	AlertExporter      ImageConfig `mapstructure:"alert-exporter"`
+	CliArtifacts       ImageConfig `mapstructure:"cli-artifacts"`
+	AlertmanagerProxy  ImageConfig `mapstructure:"alertmanager-proxy"`
+	PamIssuer          ImageConfig `mapstructure:"pam-issuer"`
+	Ui                 ImageConfig `mapstructure:"ui"`
+	DbSetup            ImageConfig `mapstructure:"db-setup"`
+	Db                 ImageConfig `mapstructure:"db"`
+	Kv                 ImageConfig `mapstructure:"kv"`
+	Alertmanager       ImageConfig `mapstructure:"alertmanager"`
+	ImagebuilderApi    ImageConfig `mapstructure:"imagebuilder-api"`
+	ImagebuilderWorker ImageConfig `mapstructure:"imagebuilder-worker"`
 }
 
 func NewRendererConfig() *RendererConfig {

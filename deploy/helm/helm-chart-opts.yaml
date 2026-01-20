@@ -34,6 +34,8 @@ community:
       image: quay.io/flightctl/flightctl-alertmanager-proxy
     imageBuilderApi:
       image: quay.io/flightctl/flightctl-imagebuilder-api
+    imageBuilderWorker:
+      image: quay.io/flightctl/flightctl-imagebuilder-worker
     ui:
       image: quay.io/flightctl/flightctl-ui
     uiPlugin:
@@ -78,6 +80,8 @@ redhat:
       image: registry.redhat.io/rhem/flightctl-alertmanager-proxy-rhel9
     imageBuilderApi:
       image: registry.redhat.io/rhem/flightctl-imagebuilder-api-rhel9
+    imageBuilderWorker:
+      image: registry.redhat.io/rhem/flightctl-imagebuilder-worker-rhel9
     ui:
       image: registry.redhat.io/rhem/flightctl-ui-rhel9
     uiPlugin:

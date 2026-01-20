@@ -12,7 +12,7 @@ import (
 	"net/http"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/v1beta1"
+	"github.com/flightctl/flightctl/internal/domain"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -59,8 +59,8 @@ var _ = Describe("buildHttpRepoRequestAuth", func() {
 			password := "pass"
 			token := "token"
 			req, _ := http.NewRequest("GET", "http://example.com", nil)
-			repoHttpSpec := api.HttpRepoSpec{
-				HttpConfig: api.HttpConfig{
+			repoHttpSpec := domain.HttpRepoSpec{
+				HttpConfig: domain.HttpConfig{
 					Username: &username,
 					Password: &password,
 					Token:    &token,
@@ -80,8 +80,8 @@ var _ = Describe("buildHttpRepoRequestAuth", func() {
 			tlsCrtEncoded := base64.StdEncoding.EncodeToString(tlsCrt)
 			tlsKeyEncoded := base64.StdEncoding.EncodeToString(tlsKey)
 			req, _ := http.NewRequest("GET", "http://example.com", nil)
-			repoHttpSpec := api.HttpRepoSpec{
-				HttpConfig: api.HttpConfig{
+			repoHttpSpec := domain.HttpRepoSpec{
+				HttpConfig: domain.HttpConfig{
 					TlsCrt: &tlsCrtEncoded,
 					TlsKey: &tlsKeyEncoded,
 				},
@@ -96,8 +96,8 @@ var _ = Describe("buildHttpRepoRequestAuth", func() {
 		It("sets the CA certificate", func() {
 			caCrt := base64.StdEncoding.EncodeToString([]byte("ca"))
 			req, _ := http.NewRequest("GET", "http://example.com", nil)
-			repoHttpSpec := api.HttpRepoSpec{
-				HttpConfig: api.HttpConfig{
+			repoHttpSpec := domain.HttpRepoSpec{
+				HttpConfig: domain.HttpConfig{
 					CaCrt: &caCrt,
 				},
 			}
@@ -111,8 +111,8 @@ var _ = Describe("buildHttpRepoRequestAuth", func() {
 		It("sets InsecureSkipVerify to true", func() {
 			skip := true
 			req, _ := http.NewRequest("GET", "http://example.com", nil)
-			repoHttpSpec := api.HttpRepoSpec{
-				HttpConfig: api.HttpConfig{
+			repoHttpSpec := domain.HttpRepoSpec{
+				HttpConfig: domain.HttpConfig{
 					SkipServerVerification: &skip,
 				},
 			}
@@ -125,7 +125,7 @@ var _ = Describe("buildHttpRepoRequestAuth", func() {
 	When("no authentication details are provided", func() {
 		It("does not set any auth headers", func() {
 			req, _ := http.NewRequest("GET", "http://example.com", nil)
-			repoHttpSpec := api.HttpRepoSpec{}
+			repoHttpSpec := domain.HttpRepoSpec{}
 			req, tlsConfig, err := buildHttpRepoRequestAuth(repoHttpSpec, req)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(req.Header.Get("Authorization")).To(BeEmpty())

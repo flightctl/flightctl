@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/v1beta1"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/pkg/poll"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -53,7 +53,7 @@ func newPublisherTestFixture(t *testing.T) *publisherTestFixture {
 
 func (f *publisherTestFixture) withOrganizations(count int) *publisherTestFixture {
 	f.orgService.organizations = createTestOrganizations(count)
-	f.orgService.status = api.Status{Code: 200}
+	f.orgService.status = domain.Status{Code: 200}
 	return f
 }
 
@@ -77,12 +77,12 @@ func (f *publisherTestFixture) clearHeap() {
 }
 
 type mockOrganizationService struct {
-	organizations *api.OrganizationList
-	status        api.Status
+	organizations *domain.OrganizationList
+	status        domain.Status
 	callCount     int
 }
 
-func (m *mockOrganizationService) ListOrganizations(ctx context.Context, _ api.ListOrganizationsParams) (*api.OrganizationList, api.Status) {
+func (m *mockOrganizationService) ListOrganizations(ctx context.Context, _ domain.ListOrganizationsParams) (*domain.OrganizationList, domain.Status) {
 	m.callCount++
 	return m.organizations, m.status
 }
@@ -120,16 +120,16 @@ func createPublisherTestLogger() logrus.FieldLogger {
 	return logger
 }
 
-func createTestOrganizations(count int) *api.OrganizationList {
-	organizations := &api.OrganizationList{
-		Items: make([]api.Organization, count),
+func createTestOrganizations(count int) *domain.OrganizationList {
+	organizations := &domain.OrganizationList{
+		Items: make([]domain.Organization, count),
 	}
 
 	for i := 0; i < count; i++ {
 		orgID := uuid.New()
 		orgIDStr := orgID.String()
-		organizations.Items[i] = api.Organization{
-			Metadata: api.ObjectMeta{
+		organizations.Items[i] = domain.Organization{
+			Metadata: domain.ObjectMeta{
 				Name: &orgIDStr,
 			},
 		}
@@ -255,7 +255,7 @@ func TestPeriodicTaskPublisher_syncOrganizations(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			f := newPublisherTestFixture(t)
 			f.orgService.organizations = createTestOrganizations(tt.orgCount)
-			f.orgService.status = api.Status{Code: tt.statusCode}
+			f.orgService.status = domain.Status{Code: tt.statusCode}
 
 			ctx := context.Background()
 			f.syncOrganizations(ctx)
@@ -272,7 +272,7 @@ func TestPeriodicTaskPublisher_syncOrganizations_AddAndRemoveOrgs(t *testing.T) 
 	// First sync with 2 organizations
 	orgs1 := createTestOrganizations(2)
 	f.orgService.organizations = orgs1
-	f.orgService.status = api.Status{Code: 200}
+	f.orgService.status = domain.Status{Code: 200}
 
 	ctx, cancel := withTestContext(t, 2*time.Second)
 	defer cancel()
@@ -370,7 +370,7 @@ func TestPeriodicTaskPublisher_schedulingLoopTimer(t *testing.T) {
 			if tasks := tt.setupTasks(); len(tasks) > 0 {
 				orgs := createTestOrganizations(len(tasks))
 				f.orgService.organizations = orgs
-				f.orgService.status = api.Status{Code: 200}
+				f.orgService.status = domain.Status{Code: 200}
 
 				// Update task OrgIDs if needed
 				for i, task := range tasks {
@@ -409,7 +409,7 @@ func TestPeriodicTaskPublisher_schedulingLoop_MultipleTasksReady(t *testing.T) {
 	// Create test organizations
 	orgs := createTestOrganizations(3)
 	f.orgService.organizations = orgs
-	f.orgService.status = api.Status{Code: 200}
+	f.orgService.status = domain.Status{Code: 200}
 	orgIDs := []uuid.UUID{
 		uuid.MustParse(*orgs.Items[0].Metadata.Name),
 		uuid.MustParse(*orgs.Items[1].Metadata.Name),
@@ -487,7 +487,7 @@ func TestPeriodicTaskPublisher_schedulingLoopWakeupSignal(t *testing.T) {
 	// Create test organization
 	orgs := createTestOrganizations(1)
 	f.orgService.organizations = orgs
-	f.orgService.status = api.Status{Code: 200}
+	f.orgService.status = domain.Status{Code: 200}
 	orgID := uuid.MustParse(*orgs.Items[0].Metadata.Name)
 
 	// Add organization to publisher's tracking

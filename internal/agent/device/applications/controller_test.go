@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/flightctl/flightctl/api/v1beta1"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
@@ -181,8 +181,10 @@ func TestParseAppProviders(t *testing.T) {
 			defer cancel()
 
 			tmpDir := t.TempDir()
-			readWriter := fileio.NewReadWriter()
-			readWriter.SetRootdir(tmpDir)
+			readWriter := fileio.NewReadWriter(
+				fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+				fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+			)
 			err := readWriter.MkdirAll("/mount", fileio.DefaultDirectoryPermissions)
 			require.NoError(err)
 			err = readWriter.WriteFile("/mount/podman-compose.yaml", []byte(util.NewComposeSpec()), fileio.DefaultFilePermissions)
@@ -488,8 +490,10 @@ func TestControllerSync(t *testing.T) {
 			defer cancel()
 
 			tmpDir := t.TempDir()
-			readWriter := fileio.NewReadWriter()
-			readWriter.SetRootdir(tmpDir)
+			readWriter := fileio.NewReadWriter(
+				fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+				fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+			)
 			log := log.NewPrefixLogger("test")
 			log.SetLevel(logrus.DebugLevel)
 

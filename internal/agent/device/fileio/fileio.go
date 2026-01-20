@@ -4,7 +4,7 @@ import (
 	"io/fs"
 	"os"
 
-	"github.com/flightctl/flightctl/api/v1beta1"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 )
 
 const (
@@ -24,8 +24,6 @@ type ManagedFile interface {
 }
 
 type Writer interface {
-	// SetRootdir sets the root directory for the writer, useful for testing
-	SetRootdir(path string)
 	// PathFor returns the full path for the given filePath, prepending the rootDir if set
 	// This is useful for testing to ensure that the file is written to the correct location
 	PathFor(filePath string) string
@@ -38,6 +36,8 @@ type Writer interface {
 	// RemoveContents removes all files and subdirectories within the given path,
 	// but leaves the directory itself intact. It is a no-op if the path does not exist.
 	RemoveContents(path string) error
+	// CreateFile creates or opens the file at the given path, ensuring that it is owned by the correct user.
+	CreateFile(path string, flag int, perm fs.FileMode) (*os.File, error)
 	// MkdirAll creates a directory at the given path with the specified permissions.
 	MkdirAll(path string, perm fs.FileMode) error
 	// MkdirTemp creates a temporary directory with the given prefix and returns its path.
@@ -53,7 +53,6 @@ type Writer interface {
 }
 
 type Reader interface {
-	SetRootdir(path string)
 	PathFor(filePath string) string
 	ReadFile(filePath string) ([]byte, error)
 	ReadDir(dirPath string) ([]fs.DirEntry, error)
@@ -66,39 +65,19 @@ type ReadWriter interface {
 }
 
 type readWriter struct {
-	*reader
-	*writer
+	Reader
+	Writer
 }
 
-func NewReadWriter(opts ...Option) ReadWriter {
-	rw := &readWriter{
-		reader: NewReader(),
-		writer: NewWriter(),
+func NewReadWriter(reader Reader, writer Writer) ReadWriter {
+	return &readWriter{
+		Reader: reader,
+		Writer: writer,
 	}
-	for _, opt := range opts {
-		opt(rw)
-	}
-	return rw
-}
-
-func (rw *readWriter) SetRootdir(path string) {
-	rw.reader.SetRootdir(path)
-	rw.writer.SetRootdir(path)
 }
 
 func (rw *readWriter) PathFor(path string) string {
-	return rw.writer.PathFor(path)
-}
-
-type Option func(*readWriter)
-
-// WithTestRootDir sets the root directory for the reader and writer, useful for testing.
-func WithTestRootDir(testRootDir string) Option {
-	return func(rw *readWriter) {
-		if testRootDir != "" {
-			rw.SetRootdir(testRootDir)
-		}
-	}
+	return rw.Writer.PathFor(path)
 }
 
 type fileOptions struct {

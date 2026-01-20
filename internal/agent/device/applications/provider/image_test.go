@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/flightctl/flightctl/api/v1beta1"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
@@ -187,8 +187,10 @@ image: quay.io/flightctl-tests/alpine:v1`,
 			defer ctrl.Finish()
 			mockExec := executer.NewMockExecuter(ctrl)
 			tmpDir := t.TempDir()
-			rw := fileio.NewReadWriter()
-			rw.SetRootdir(tmpDir)
+			rw := fileio.NewReadWriter(
+				fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+				fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+			)
 			err := rw.MkdirAll("/mount", fileio.DefaultDirectoryPermissions)
 			require.NoError(err)
 			err = rw.WriteFile("/mount/podman-compose.yaml", []byte(tt.composeSpec), fileio.DefaultFilePermissions)

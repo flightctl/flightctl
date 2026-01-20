@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
@@ -44,25 +44,25 @@ type MockResourceSync struct {
 }
 
 func (m *MockResourceSync) InitialMigration(ctx context.Context) error { return nil }
-func (m *MockResourceSync) Create(ctx context.Context, orgId uuid.UUID, resourceSync *api.ResourceSync, callbackEvent store.EventCallback) (*api.ResourceSync, error) {
+func (m *MockResourceSync) Create(ctx context.Context, orgId uuid.UUID, resourceSync *domain.ResourceSync, callbackEvent store.EventCallback) (*domain.ResourceSync, error) {
 	return nil, nil
 }
-func (m *MockResourceSync) Update(ctx context.Context, orgId uuid.UUID, resourceSync *api.ResourceSync, callbackEvent store.EventCallback) (*api.ResourceSync, error) {
+func (m *MockResourceSync) Update(ctx context.Context, orgId uuid.UUID, resourceSync *domain.ResourceSync, callbackEvent store.EventCallback) (*domain.ResourceSync, error) {
 	return nil, nil
 }
-func (m *MockResourceSync) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resourceSync *api.ResourceSync, callbackEvent store.EventCallback) (*api.ResourceSync, bool, error) {
+func (m *MockResourceSync) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resourceSync *domain.ResourceSync, callbackEvent store.EventCallback) (*domain.ResourceSync, bool, error) {
 	return nil, false, nil
 }
-func (m *MockResourceSync) Get(ctx context.Context, orgId uuid.UUID, name string) (*api.ResourceSync, error) {
+func (m *MockResourceSync) Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.ResourceSync, error) {
 	return nil, nil
 }
-func (m *MockResourceSync) List(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (*api.ResourceSyncList, error) {
+func (m *MockResourceSync) List(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (*domain.ResourceSyncList, error) {
 	return nil, nil
 }
 func (m *MockResourceSync) Delete(ctx context.Context, orgId uuid.UUID, name string, callback store.RemoveOwnerCallback, callbackEvent store.EventCallback) error {
 	return nil
 }
-func (m *MockResourceSync) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.ResourceSync, callbackEvent store.EventCallback) (*api.ResourceSync, error) {
+func (m *MockResourceSync) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.ResourceSync, callbackEvent store.EventCallback) (*domain.ResourceSync, error) {
 	return nil, nil
 }
 func (m *MockResourceSync) Count(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (int64, error) {

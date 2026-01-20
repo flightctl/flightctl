@@ -84,8 +84,28 @@ linters-settings:
     rules:
       main:
         deny:
-          - pkg: "^math/rand$"
+          - pkg: "math/rand$"
             desc: "Use math/rand/v2 instead"
+
+      service-no-api:
+        list-mode: lax
+        files:
+          - "**/internal/service/**"
+        deny:
+          - pkg: "github.com/flightctl/flightctl/api$"
+            desc: "Use internal/domain instead of api/ in service layer"
+          - pkg: "github.com/flightctl/flightctl/api/"
+            desc: "Use internal/domain instead of api/ in service layer"
+
+      store-no-api:
+        list-mode: lax
+        files:
+          - "**/internal/store/**"
+        deny:
+          - pkg: "github.com/flightctl/flightctl/api$"
+            desc: "Use internal/domain instead of api/ in store layer"
+          - pkg: "github.com/flightctl/flightctl/api/"
+            desc: "Use internal/domain instead of api/ in store layer"
 
   govet:
     settings:

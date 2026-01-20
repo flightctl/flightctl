@@ -12,7 +12,7 @@ import (
 func TestCheckPathExistsAndReadable(t *testing.T) {
 	require := require.New(t)
 	tmpDir := t.TempDir()
-	readWriter := NewReadWriter(WithTestRootDir(tmpDir))
+	readWriter := NewReadWriter(NewReader(WithReaderRootDir(tmpDir)), NewWriter(WithWriterRootDir(tmpDir)))
 	filePath := "testfile"
 
 	err := readWriter.WriteFile(filePath, []byte("test data"), 0644)
@@ -57,7 +57,7 @@ func TestCheckPathExistsAndReadable(t *testing.T) {
 func TestPathExistsWithSkipContentCheck(t *testing.T) {
 	require := require.New(t)
 	tmpDir := t.TempDir()
-	readWriter := NewReadWriter(WithTestRootDir(tmpDir))
+	readWriter := NewReadWriter(NewReader(WithReaderRootDir(tmpDir)), NewWriter(WithWriterRootDir(tmpDir)))
 	emptyFilePath := "emptyfile"
 
 	// create empty file

@@ -9,11 +9,12 @@ import (
 	"net/http"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/v1beta1/imagebuilder"
+	api "github.com/flightctl/flightctl/api/imagebuilder/v1beta1"
 	fcmiddleware "github.com/flightctl/flightctl/internal/api_server/middleware"
 	"github.com/flightctl/flightctl/internal/auth"
 	"github.com/flightctl/flightctl/internal/auth/authn"
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/api/server"
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/service"
 	imagebuilderstore "github.com/flightctl/flightctl/internal/imagebuilder_api/store"
@@ -54,7 +55,20 @@ func New(
 	mainStore store.Store,
 	kvStore kvstore.KVStore,
 	queuesProvider queues.Provider,
-) *Server {
+) (*Server, error) {
+	ctx := context.Background()
+
+	// Create queue producer for imagebuild queue
+	var queueProducer queues.QueueProducer
+	if queuesProvider != nil {
+		var err error
+		queueProducer, err = queuesProvider.NewQueueProducer(ctx, consts.ImageBuildTaskQueue)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create imagebuild queue producer: %w", err)
+		}
+	}
+
+	svc := service.NewService(ctx, imageBuilderStore, mainStore, queueProducer, log)
 	return &Server{
 		log:               log,
 		cfg:               cfg,
@@ -62,8 +76,8 @@ func New(
 		mainStore:         mainStore,
 		kvStore:           kvStore,
 		queuesProvider:    queuesProvider,
-		service:           service.NewService(imageBuilderStore, log),
-	}
+		service:           svc,
+	}, nil
 }
 
 func oapiErrorHandler(w http.ResponseWriter, message string, statusCode int) {
@@ -86,12 +100,11 @@ func (s *Server) Run(ctx context.Context) error {
 		ErrorHandler: oapiErrorHandler,
 	}
 
-	// Create auth provider service for dynamic provider loading and wrap with tracing (same as api_server)
+	// Create auth provider service for dynamic provider loading
 	authProviderService := internalservice.NewAuthProviderServiceHandler(s.mainStore, s.log)
-	tracedAuthProviderService := internalservice.WrapWithTracing(authProviderService)
 
 	// Initialize auth (same as api_server)
-	authN, err := auth.InitMultiAuth(s.cfg, s.log, tracedAuthProviderService)
+	authN, err := auth.InitMultiAuth(s.cfg, s.log, authProviderService)
 	if err != nil {
 		return fmt.Errorf("failed initializing auth: %w", err)
 	}

@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
-	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	agent_config "github.com/flightctl/flightctl/internal/agent/config"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
@@ -82,6 +82,8 @@ type Provider interface {
 	StoreCertificate(certPEM []byte) error
 	// HasCertificate returns true if the provider has a certificate available
 	HasCertificate() bool
+	// GetCertificate returns the current certificate if installed
+	GetCertificate() ([]byte, error)
 	// CreateManagementClient creates a fully configured management client with this identity
 	CreateManagementClient(config *base_client.Config, metricsCallback client.RPCMetricsCallback) (client.Management, error)
 	// CreateGRPCClient creates a fully configured gRPC client with this identity

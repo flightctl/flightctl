@@ -182,7 +182,7 @@ func NewDefault() *Config {
 		DataDir:              DefaultDataDir,
 		StatusUpdateInterval: DefaultStatusUpdateInterval,
 		SpecFetchInterval:    DefaultSpecFetchInterval,
-		readWriter:           fileio.NewReadWriter(),
+		readWriter:           fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter()),
 		LogLevel:             logrus.InfoLevel.String(),
 		DefaultLabels:        make(map[string]string),
 		ServiceConfig:        config.NewServiceConfig(),
@@ -209,7 +209,10 @@ func NewDefault() *Config {
 		c.testRootDir = filepath.Clean(value)
 	}
 
-	c.readWriter = fileio.NewReadWriter(fileio.WithTestRootDir(c.testRootDir))
+	c.readWriter = fileio.NewReadWriter(
+		fileio.NewReader(fileio.WithReaderRootDir(c.testRootDir)),
+		fileio.NewWriter(fileio.WithWriterRootDir(c.testRootDir)),
+	)
 
 	return c
 }
@@ -452,7 +455,7 @@ func mergeConfigs(base, override *Config) {
 	// Always override pruning config from dropins when present.
 	// Since dropins are meant to override base config, we always apply the value.
 	// Note: This means a dropin without a pruning section won't change the base value,
-	// but a dropin with pruning.enabled: false will override to false.
+	// but a dropin with image-pruning.enabled: false will override to false.
 	overrideIfNotEmpty(&base.ImagePruning.Enabled, override.ImagePruning.Enabled)
 
 	for k, v := range override.DefaultLabels {

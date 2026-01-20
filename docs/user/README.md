@@ -58,6 +58,7 @@ Welcome to the Flight Control user documentation.
   * [Selecting Devices into a Fleet](using/managing-fleets.md#selecting-devices-into-a-fleet)
   * [Defining Device Templates](using/managing-fleets.md#defining-device-templates)
   * [Defining Rollout Policies](using/managing-fleets.md#defining-rollout-policies)
+* **[Managing Image Builds and Exports](using/managing-image-builds.md)** - How to build and export OS images using the Flight Control API.
 * **Solving Specific Use Cases** - How to solve specific use cases in Flight Control.
   * [Auto-Registering Devices with MicroShift into ACM](using/registering-microshift-devices-acm.md)
   * [Adding Device Observability](using/device-observability.md)
@@ -76,12 +77,14 @@ Welcome to the Flight Control user documentation.
 
 **References** - Useful references.
 
+* [Component Reference](references/components.md)
 * [CLI Commands](references/cli-commands.md)
 * [API Resources](references/api-resources.md)
 * [Authentication Resources](references/auth-resources.md)
 * [Device Status Definitions](references/device-api-statuses.md)
 * [Certificate Architecture](references/certificate-architecture.md)
 * [Upgrade Compatibility Matrix](references/upgrade-compatibility.md)
+* [Events](references/events.md)
 * [Alerts and Monitoring](references/alerts.md)
 * [Metrics Configuration](references/metrics.md)
 * [Security Guidelines](references/security-guidelines.md)

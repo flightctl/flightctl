@@ -636,6 +636,9 @@ The following table shows the application runtimes and formats supported by Flig
 > Compose applications require `podman-compose` to be installed on the device.
 
 > [!NOTE]
+> `quadlet` and `container` applications require podman version 5.0 or above.
+
+> [!NOTE]
 > Image downloads adhere to the `pull-timeout` [configuration](../installing/installing-agent.md#agent-configuration).
 
 > [!TIP]
@@ -683,6 +686,115 @@ spec:
       WORDPRESS_DB_PASSWORD: "password"
 [...]
 ```
+
+## Image and Artifact Pruning
+
+The Flight Control agent can automatically remove unused container images and OCI artifacts from devices to free up disk space. This feature helps prevent storage exhaustion on edge devices with limited capacity.
+
+### How Pruning Works
+
+Image and artifact pruning operates on a "lost reference" model:
+
+1. **Reference Tracking**: Before each device update, the agent records all images and artifacts referenced in the current and desired device specifications to a file (`/var/lib/flightctl/image-artifact-references.json`).
+
+2. **Pruning Execution**: After a successful spec update, the agent compares the previously recorded references with the current device specifications. Any images or artifacts that were previously referenced but are no longer needed are eligible for removal.
+
+3. **Safe Pruning**: The agent only removes items that:
+   * Were previously recorded in the references file
+   * Are no longer referenced in the current or desired device specifications
+   * Exist locally on the device
+
+4. **Preservation**: Images and artifacts required for current operations or potential rollback (desired state) are always preserved, even if they appear in the references file.
+
+> [!NOTE]
+> Pruning runs automatically after successful device spec updates. The references file is maintained even when pruning is disabled, ensuring accurate pruning behavior when the feature is later enabled.
+
+### What Gets Pruned
+
+The pruning process considers the following types of OCI targets:
+
+* **Application Images**: Container images referenced by Compose, Quadlet, or container applications
+* **OS Images**: Operating system images specified in the device's OS configuration
+
+### Configuring Pruning
+
+Image and artifact pruning is **disabled by default**. To enable it, configure the agent's pruning settings.
+
+#### Base Configuration
+
+Add the pruning configuration to the main agent configuration file at `/etc/flightctl/config.yaml`:
+
+```yaml
+image-pruning:
+  enabled: true
+```
+
+#### Drop in Configuration
+
+You can also configure pruning using drop in files in `/etc/flightctl/conf.d/`. This allows you to enable or disable pruning for specific devices or fleets without modifying the base configuration.
+
+Create a drop in file (e.g., `/etc/flightctl/conf.d/enable-pruning.yaml`):
+
+```yaml
+image-pruning:
+  enabled: true
+```
+
+Drop in files are processed in lexical order and override the base configuration. For example, to disable pruning via drop in:
+
+```yaml
+image-pruning:
+  enabled: false
+```
+
+> [!NOTE]
+> Configuration changes take effect after the agent reloads its configuration. The agent automatically reloads configuration when it receives a SIGHUP signal. When files in `/etc/flightctl/conf.d/` are created, updated, or removed, the agent automatically sends itself a SIGHUP signal to reload configuration. You can also manually restart the agent service to apply changes.
+
+> [!TIP]
+> Consider disabling pruning when experimenting with many images that were previously pruned because their references were lost and are now present again. This prevents the agent from immediately pruning images you're actively testing, allowing you to iterate on configurations without repeatedly re-downloading images.
+
+### Pruning Behavior
+
+* **Automatic Execution**: Pruning runs automatically after successful device spec updates. No manual intervention is required.
+
+* **Non-Blocking**: Pruning errors do not block device reconciliation. If pruning fails, the agent logs a warning and continues normal operation.
+
+* **Reference Accumulation**: The references file accumulates references over time, even when pruning is disabled. This ensures that if pruning is later enabled, it has accurate historical data about what was previously referenced.
+
+* **Incremental Updates**: The references file is updated before each upgrade to include all currently referenced images and artifacts, ensuring the tracking remains current.
+
+### Example Scenarios
+
+#### Scenario 1: Application Update**
+
+* Device initially runs application `quay.io/myorg/app:v1.0`
+* Application is updated to `quay.io/myorg/app:v2.0`
+* After successful update, `v1.0` image is pruned (if it was previously recorded)
+
+#### Scenario 2: Application Removal**
+
+* Device runs multiple applications
+* One application is removed from the device specification
+* After successful update, images and artifacts used only by the removed application are pruned
+
+#### Scenario 3: OS Image Update**
+
+* Device OS is updated from `quay.io/flightctl/rhel:9.4` to `quay.io/flightctl/rhel:9.5`
+* After successful update, the old OS image (`9.4`) is pruned (if it was previously recorded)
+
+### Monitoring Pruning
+
+Pruning operations are logged by the agent. You can monitor pruning activity through:
+
+* **Agent Logs**: Check the agent's systemd journal for pruning messages:
+
+  ```console
+  journalctl -u flightctl-agent -f | grep -i pruning
+  ```
+
+* **Log Messages**: The agent logs messages such as:
+  * `"Starting pruning of X eligible images and Y eligible artifacts"`
+  * `"Pruning complete: removed X of Y eligible images, Z of W eligible artifacts"`
 
 ## Creating Applications
 
@@ -975,7 +1087,7 @@ spec:
 
 **Environment Variables:**
 
-Environment variables are injected using the `envVars` field. The agent generates a `.env` file and systemd drop-in configuration to apply them:
+Environment variables are injected using the `envVars` field. The agent generates a `.env` file and systemd drop in configuration to apply them:
 
 ```yaml
 spec:
@@ -1218,8 +1330,8 @@ Refer to the [Device API status reference](../references/device-api-statuses.md)
 
 Device lifecycle hooks can be defined by adding rule files to one of two locations in the device's filesystem, whereby `${lifecyclehook}` is the all-lower-case name of the hook to be defined:
 
-* Rules in the `/usr/lib/flightctl/hooks.d/${lifecyclehook}/` drop-in directory are read-only and thus have to be added to the OS image during [image building](../building/building-images.md).
-* Rules in the `/etc/flightctl/hooks.d/${lifecyclehook}/` drop-in directory are read-writable and can thus be updated at runtime using the methods described in [Managing OS Configuration](#managing-os-configuration).
+* Rules in the `/usr/lib/flightctl/hooks.d/${lifecyclehook}/` drop in directory are read-only and thus have to be added to the OS image during [image building](../building/building-images.md).
+* Rules in the `/etc/flightctl/hooks.d/${lifecyclehook}/` drop in directory are read-writable and can thus be updated at runtime using the methods described in [Managing OS Configuration](#managing-os-configuration).
 
 If rules are defined in both locations they will be merged, whereby files under `/etc` take precedence over files of the same name under `/usr`. If multiple rule files are added to a hook's directory, they are processed in lexical order of their file names.
 
@@ -1266,11 +1378,12 @@ If you have specified a "path condition" for an action in the `afterUpdating` ho
 
 The Flight Control Agent comes with a built-in set of rules defined in `/usr/lib/flightctl/hooks.d/afterupdating/00-default.yaml`:
 
-| If files changed below | then the agent runs | Description |
-| ------------------------ | -------------- | ----------- |
-| `/etc/systemd/system/` | `systemctl daemon-reload` | Changes to systemd units will be activated by signaling the systemd daemon to reload the systemd manager configuration. This will rerun all generators, reload all unit files, and recreate the entire dependency tree. |
-| `/etc/NetworkManager/system-connections/` | `nmcli conn reload` | Changes to Network Manager system connections will be activated by signaling Network Manager to reload all connections. |
-| `/etc/firewalld/` | `firewall-cmd --reload` | Changes to firewalld's permanent configuration will be activated by signaling firewalld to reload firewall rules as new runtime configuration. |
+| If files changed below | then the agent runs | Description                                                                                                                                                                                                                                                 |
+| ------------------------ | -------------- |-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `/etc/systemd/system/` | `systemctl daemon-reload` | Changes to systemd units will be activated by signaling the systemd daemon to reload the systemd manager configuration. This will rerun all generators, reload all unit files, and recreate the entire dependency tree.                                     |
+| `/etc/NetworkManager/system-connections/` | `nmcli conn reload` | Changes to Network Manager system connections will be activated by signaling Network Manager to reload all connections.                                                                                                                                     |
+| `/etc/firewalld/` | `firewall-cmd --reload` | Changes to firewalld's permanent configuration will be activated by signaling firewalld to reload firewall rules as new runtime configuration.                                                                                                              |
+| `/etc/flightctl/conf.d/` | `kill -HUP ${FLIGHTCTL_AGENT_PID}` | Changes to configuration drop in files will automatically trigger the agent to reload its configuration by sending itself a SIGHUP signal. This ensures that configuration changes in `/etc/flightctl/conf.d/` take effect immediately after being applied. |
 
 ## Monitoring Device Resources
 
