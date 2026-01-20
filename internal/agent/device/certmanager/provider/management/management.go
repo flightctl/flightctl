@@ -342,7 +342,7 @@ type managementProvisionerFactory struct {
 	managementClient client.Management
 }
 
-func NewManagementProvisionerFactory(deviceName string, identityProvider identity.Provider, managementClient client.Management) *managementProvisionerFactory {
+func NewManagementProvisionerFactory(deviceName string, identityProvider identity.Provider, managementClient client.Management) certmanager.ProvisionerFactory {
 	return &managementProvisionerFactory{
 		deviceName:       deviceName,
 		identityProvider: identityProvider,
@@ -376,7 +376,7 @@ type managementStorageFactory struct {
 	managementClient client.Management
 }
 
-func NewManagementStorageFactory(identityProvider identity.Provider, managementClient client.Management) *managementStorageFactory {
+func NewManagementStorageFactory(identityProvider identity.Provider, managementClient client.Management) certmanager.StorageFactory {
 	return &managementStorageFactory{
 		identityProvider: identityProvider,
 		managementClient: managementClient,

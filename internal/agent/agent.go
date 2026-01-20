@@ -348,6 +348,8 @@ func (a *Agent) Run(ctx context.Context) error {
 		deviceReadWriter,
 		identity.NewExportableFactory(tpmClient, a.log),
 		identityProvider,
+		statusManager,
+		systemInfoManager,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to initialize certificate manager: %w", err)

@@ -719,7 +719,7 @@ func getSystemInfoMap(ctx context.Context, log *log.PrefixLogger, info *Info, in
 		} else {
 			val := collectorfn(ctx)
 			trimmed := strings.TrimSpace(val)
-			reg, _ := regexp.Compile("[^a-zA-Z0-9]+")
+			reg, _ := regexp.Compile("[^a-zA-Z0-9 .:_/@+-]+")
 			sanitizedval := reg.ReplaceAllString(trimmed, "")
 			infoMap[key] = sanitizedval
 		}

@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/agent/client"
-	certobservability "github.com/flightctl/flightctl/internal/agent/device/certmanager/provider/management/middleware"
+	mgmtcertcommon "github.com/flightctl/flightctl/internal/agent/device/certmanager/provider/management/common"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/spec/audit"
 	baseclient "github.com/flightctl/flightctl/internal/client"
@@ -111,7 +111,7 @@ type Config struct {
 	managementMetricsCallback client.RPCMetricsCallback
 
 	// managementCertMetricsCallback observes management certificate events for metrics.
-	managementCertMetricsCallback certobservability.ManagementCertMetricsCallback
+	managementCertMetricsCallback mgmtcertcommon.ManagementCertMetricsCallback
 
 	// DefaultLabels are automatically applied to this device when the agent is enrolled in a service
 	DefaultLabels map[string]string `json:"default-labels,omitempty"`
@@ -248,11 +248,11 @@ func (cfg *Config) GetManagementMetricsCallback() client.RPCMetricsCallback {
 	return cfg.managementMetricsCallback
 }
 
-func (cfg *Config) SetManagementCertMetricsCallback(cb certobservability.ManagementCertMetricsCallback) {
+func (cfg *Config) SetManagementCertMetricsCallback(cb mgmtcertcommon.ManagementCertMetricsCallback) {
 	cfg.managementCertMetricsCallback = cb
 }
 
-func (cfg *Config) GetManagementCertMetricsCallback() certobservability.ManagementCertMetricsCallback {
+func (cfg *Config) GetManagementCertMetricsCallback() mgmtcertcommon.ManagementCertMetricsCallback {
 	return cfg.managementCertMetricsCallback
 }
 
