@@ -1,6 +1,8 @@
 package versioning
 
 import (
+	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -31,15 +33,20 @@ func NewRouter(cfg RouterConfig) chi.Router {
 
 // NewNegotiatedRouter creates a router that negotiates the API version
 // and dispatches to the appropriate version-specific router.
+// It returns an error if the fallback version is empty or has no corresponding router.
 func NewNegotiatedRouter(
 	negotiateMW Middleware,
 	routers map[Version]chi.Router,
 	fallback Version,
-) chi.Router {
+) (chi.Router, error) {
+	d, err := newDispatcher(routers, fallback)
+	if err != nil {
+		return nil, err
+	}
 	r := chi.NewRouter()
 	r.Use(negotiateMW)
-	r.Mount("/", newDispatcher(routers, fallback))
-	return r
+	r.Mount("/", d)
+	return r, nil
 }
 
 // dispatcher routes requests to version-specific handlers.
@@ -51,20 +58,20 @@ type dispatcher struct {
 }
 
 // newDispatcher creates a dispatcher with the given version routers.
-// It panics if the fallback version is empty or has no corresponding router.
-func newDispatcher(routers map[Version]chi.Router, fallback Version) *dispatcher {
+// It returns an error if the fallback version is empty or has no corresponding router.
+func newDispatcher(routers map[Version]chi.Router, fallback Version) (*dispatcher, error) {
 	if fallback == "" {
-		panic("versioning: fallback version cannot be empty")
+		return nil, errors.New("versioning: fallback version cannot be empty")
 	}
 	fallbackRouter := routers[fallback]
 	if fallbackRouter == nil {
-		panic("versioning: no router for fallback version " + string(fallback))
+		return nil, fmt.Errorf("versioning: no router for fallback version %s", fallback)
 	}
 	return &dispatcher{
 		routers:        routers,
 		fallback:       fallback,
 		fallbackRouter: fallbackRouter,
-	}
+	}, nil
 }
 
 // ServeHTTP routes to the appropriate version-specific router
