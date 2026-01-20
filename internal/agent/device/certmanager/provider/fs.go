@@ -80,7 +80,7 @@ func (fs *FileSystemStorage) Store(ctx context.Context, req certmanager.StoreReq
 	}
 	// write certificate (0644)
 	if err := fs.deviceReadWriter.WriteFile(fs.CertPath, certPEM, fileio.DefaultFilePermissions); err != nil {
-		fs.log.Errorf("failed to write cert to %s: %v", fs.CertPath, err)
+		fs.log.Errorf("Failed to write cert to %s: %v", fs.CertPath, err)
 		return fmt.Errorf("write cert: %w", err)
 	}
 
@@ -89,7 +89,7 @@ func (fs *FileSystemStorage) Store(ctx context.Context, req certmanager.StoreReq
 			return fmt.Errorf("mkdir for key path: %w", err)
 		}
 		if err := fs.deviceReadWriter.WriteFile(fs.KeyPath, req.Result.Key, 0o600); err != nil {
-			fs.log.Errorf("failed to write key to %s: %v", fs.KeyPath, err)
+			fs.log.Errorf("Failed to write key to %s: %v", fs.KeyPath, err)
 			return fmt.Errorf("write key: %w", err)
 		}
 		fs.log.Debugf("Successfully wrote cert and key to %s and %s", fs.CertPath, fs.KeyPath)

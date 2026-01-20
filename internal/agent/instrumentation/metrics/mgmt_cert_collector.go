@@ -4,7 +4,8 @@ import (
 	"crypto/x509"
 	"errors"
 
-	certobservability "github.com/flightctl/flightctl/internal/agent/device/certmanager/provider/management/middleware"
+	mgmtcert "github.com/flightctl/flightctl/internal/agent/device/certmanager/provider/management"
+	mgmtcertcommon "github.com/flightctl/flightctl/internal/agent/device/certmanager/provider/management/common"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/prometheus/client_golang/prometheus"
 )
@@ -12,11 +13,11 @@ import (
 const (
 	// Management cert current state
 	mgmtCertLoadedGaugeName   = "flightctl_device_mgmt_cert_loaded"
-	mgmtCertNotAfterGaugeName = "flightctl_device_cert_not_after_timestamp_seconds"
+	mgmtCertNotAfterGaugeName = "flightctl_device_mgmt_cert_not_after_timestamp_seconds"
 
 	// Renewal flow metrics
-	mgmtCertRenewalAttemptsName = "flightctl_device_cert_renewal_attempts_total"
-	mgmtCertRenewalDurationName = "flightctl_device_cert_renewal_duration_seconds"
+	mgmtCertRenewalAttemptsName = "flightctl_device_mgmt_cert_renewal_attempts_total"
+	mgmtCertRenewalDurationName = "flightctl_device_mgmt_cert_renewal_duration_seconds"
 
 	mgmtCertLabelResult   = "result"
 	mgmtCertResultSuccess = "success"
@@ -96,9 +97,9 @@ func NewMgmtCertCollector(l *log.PrefixLogger) *MgmtCertCollector {
 //	  	- err == nil                               → success
 //	  	- ErrProvisionNotReady                     → pending
 //	  	- any other error                          → failure
-func (c *MgmtCertCollector) Observe(kind certobservability.ManagementCertEventKind, cert *x509.Certificate, durationSeconds float64, err error) {
+func (c *MgmtCertCollector) Observe(kind mgmtcertcommon.ManagementCertEventKind, cert *x509.Certificate, durationSeconds float64, err error) {
 	switch kind {
-	case certobservability.ManagementCertEventKindCurrent:
+	case mgmtcertcommon.ManagementCertEventKindCurrent:
 		// Startup/current: explicit state reporting.
 		if cert == nil {
 			c.loaded.Set(0)
@@ -109,13 +110,13 @@ func (c *MgmtCertCollector) Observe(kind certobservability.ManagementCertEventKi
 		c.notAfter.Set(float64(cert.NotAfter.Unix()))
 		return
 
-	case certobservability.ManagementCertEventKindRenewal:
+	case mgmtcertcommon.ManagementCertEventKindRenewal:
 		// Renewal: attempts + duration.
 		var result string
 		switch {
 		case err == nil:
 			result = mgmtCertResultSuccess
-		case errors.Is(err, certobservability.ErrProvisionNotReady):
+		case errors.Is(err, mgmtcert.ErrProvisionNotReady):
 			result = mgmtCertResultPending
 		default:
 			result = mgmtCertResultFailure

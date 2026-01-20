@@ -241,12 +241,32 @@ func (m *manager) defaultSystemInfo() v1beta1.DeviceSystemInfo {
 
 // RegisterCollector allows the caller to register a collector function for system information.
 func (m *manager) RegisterCollector(ctx context.Context, key string, fn CollectorFn) {
-	m.log.Debugf("Registering system info collector: %s", key)
-	if _, ok := m.collectors[key]; ok {
-		m.log.Errorf("Collector %s already registered", key)
+	if ctx != nil && ctx.Err() != nil {
 		return
 	}
+	if key == "" || fn == nil {
+		if m.log != nil {
+			m.log.Errorf("Invalid system info collector registration (key=%q, fn=nil=%t)", key, fn == nil)
+		}
+		return
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.log != nil {
+		m.log.Debugf("Registering system info collector: %s", key)
+	}
+
+	if _, ok := m.collectors[key]; ok {
+		if m.log != nil {
+			m.log.Errorf("Collector %s already registered", key)
+		}
+		return
+	}
+
 	m.collectors[key] = fn
+	m.collected = false
 }
 
 // collectDeviceSystemInfo collects the system information from the device and returns it as a DeviceSystemInfo object.

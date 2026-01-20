@@ -10,10 +10,12 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/config"
 	"github.com/flightctl/flightctl/internal/agent/device/certmanager/provider"
 	"github.com/flightctl/flightctl/internal/agent/device/certmanager/provider/management"
-	"github.com/flightctl/flightctl/internal/agent/device/certmanager/provider/management/middleware"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/agent/device/status"
+	"github.com/flightctl/flightctl/internal/agent/device/systeminfo"
 	"github.com/flightctl/flightctl/internal/agent/identity"
 	pkgcertmanager "github.com/flightctl/flightctl/pkg/certmanager"
+	"github.com/flightctl/flightctl/pkg/log"
 )
 
 const (
@@ -28,19 +30,21 @@ const (
 
 type AgentCertManager struct {
 	cm  *pkgcertmanager.CertManager
-	log pkgcertmanager.Logger
+	log *log.PrefixLogger
 }
 
 // NewAgentCertManager wires the pkg certmanager with agent-specific providers/factories.
 func NewAgentCertManager(
 	ctx context.Context,
-	log pkgcertmanager.Logger,
+	log *log.PrefixLogger,
 	cfg *config.Config,
 	deviceName string,
 	managementClient client.Management,
 	readWriter fileio.ReadWriter,
 	idFactory identity.ExportableFactory,
 	identityProvider identity.Provider,
+	statusManager status.Manager,
+	systemInfoManager systeminfo.Manager,
 ) (*AgentCertManager, error) {
 	if log == nil {
 		return nil, fmt.Errorf("logger is nil")
@@ -58,19 +62,48 @@ func NewAgentCertManager(
 		return nil, fmt.Errorf("idFactory is nil")
 	}
 
+	// Base provisioner: issues/renews the management certificate.
+	managementProvisionerFactory := management.NewManagementProvisionerFactory(
+		deviceName,
+		identityProvider,
+		managementClient,
+	)
+
+	// Observe provisioning attempts, outcomes, and duration for metrics.
+	managementProvisionerFactory = management.WithCertMetricsProvisioner(
+		cfg.GetManagementCertMetricsCallback(),
+		managementProvisionerFactory,
+	)
+
+	// Base storage: persists the management certificate.
+	managementStorageFactory := management.NewManagementStorageFactory(
+		identityProvider,
+		managementClient,
+	)
+
+	// Observe completed renewal outcomes on successful store.
+	managementStorageFactory = management.WithCertMetricsOnStore(
+		cfg.GetManagementCertMetricsCallback(),
+		managementStorageFactory,
+	)
+
+	// Trigger system-info and status collection after cert changes.
+	managementStorageFactory = management.WithStatusCollectOnStore(
+		ctx,
+		log,
+		identityProvider,
+		systemInfoManager,
+		statusManager,
+		managementStorageFactory,
+	)
+
 	managementBundle, err := pkgcertmanager.NewBundle(
 		managementBundleName,
 		pkgcertmanager.WithConfigProvider(
 			management.NewManagementConfigProvider(renewBeforeExpiry),
 		),
-		pkgcertmanager.WithProvisionerFactory(
-			middleware.WithMetricsProvisioner(cfg.GetManagementCertMetricsCallback(),
-				management.NewManagementProvisionerFactory(deviceName, identityProvider, managementClient)),
-		),
-		pkgcertmanager.WithStorageFactory(
-			middleware.WithMetricsStorage(cfg.GetManagementCertMetricsCallback(),
-				management.NewManagementStorageFactory(identityProvider, managementClient)),
-		),
+		pkgcertmanager.WithProvisionerFactory(managementProvisionerFactory),
+		pkgcertmanager.WithStorageFactory(managementStorageFactory),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("new %q bundle: %w", managementBundleName, err)
@@ -116,7 +149,7 @@ func (a *AgentCertManager) Sync(ctx context.Context, _ *config.Config) error {
 func (a *AgentCertManager) Run(ctx context.Context) {
 	// First sync immediately.
 	if err := a.cm.Sync(ctx); err != nil {
-		a.log.Errorf("initial certificate sync failed: %v", err)
+		a.log.Errorf("Initial certificate sync failed: %v", err)
 	}
 
 	t := time.NewTicker(defaultSyncInterval)
@@ -128,7 +161,7 @@ func (a *AgentCertManager) Run(ctx context.Context) {
 			return
 		case <-t.C:
 			if err := a.cm.Sync(ctx); err != nil {
-				a.log.Errorf("certificate sync failed: %v", err)
+				a.log.Errorf("Certificate sync failed: %v", err)
 			}
 		}
 	}

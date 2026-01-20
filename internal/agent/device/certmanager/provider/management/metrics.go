@@ -1,4 +1,4 @@
-package middleware
+package management
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/flightctl/flightctl/internal/agent/device/certmanager/provider/management/common"
 	"github.com/flightctl/flightctl/pkg/certmanager"
 	"k8s.io/client-go/util/cert"
 )
@@ -15,24 +16,7 @@ const metaKeyStartUnixNano = "flightctl.mgmt_cert.renewal_start_unix_nano"
 
 var ErrProvisionNotReady = errors.New("certificate not ready")
 
-type ManagementCertEventKind string
-
-const (
-	// Emitted when we load the currently-installed certificate (e.g., agent restart).
-	ManagementCertEventKindCurrent ManagementCertEventKind = "current"
-	// Emitted for a renewal flow (provision/store).
-	ManagementCertEventKindRenewal ManagementCertEventKind = "renewal"
-)
-
-// ManagementCertMetricsCallback observes management certificate events.
-//
-// Semantics:
-//   - kind=current: best-effort observation of the currently installed cert (no renewal attempt).
-//   - kind=renewal: one renewal attempt observation (success/failure) + duration.
-//   - cert may be nil (e.g., failures or non-ready).
-type ManagementCertMetricsCallback func(kind ManagementCertEventKind, cert *x509.Certificate, durationSeconds float64, err error)
-
-func WithMetricsProvisioner(cb ManagementCertMetricsCallback, f certmanager.ProvisionerFactory) certmanager.ProvisionerFactory {
+func WithCertMetricsProvisioner(cb common.ManagementCertMetricsCallback, f certmanager.ProvisionerFactory) certmanager.ProvisionerFactory {
 	if cb == nil || f == nil {
 		return f
 	}
@@ -44,13 +28,13 @@ func WithMetricsProvisioner(cb ManagementCertMetricsCallback, f certmanager.Prov
 
 			res, err := next.Provision(ctx, req)
 			if err != nil {
-				cb(ManagementCertEventKindRenewal, nil, time.Since(start).Seconds(), err)
+				cb(common.ManagementCertEventKindRenewal, nil, time.Since(start).Seconds(), err)
 				return res, err
 			}
 
 			if res == nil || !res.Ready {
 				// Not ready is not a "hard" error for control flow, but for metrics it is a failed attempt.
-				cb(ManagementCertEventKindRenewal, nil, time.Since(start).Seconds(), ErrProvisionNotReady)
+				cb(common.ManagementCertEventKindRenewal, nil, time.Since(start).Seconds(), ErrProvisionNotReady)
 				return res, nil
 			}
 
@@ -67,7 +51,7 @@ func WithMetricsProvisioner(cb ManagementCertMetricsCallback, f certmanager.Prov
 	}
 }
 
-func WithMetricsStorage(cb ManagementCertMetricsCallback, f certmanager.StorageFactory) certmanager.StorageFactory {
+func WithCertMetricsOnStore(cb common.ManagementCertMetricsCallback, f certmanager.StorageFactory) certmanager.StorageFactory {
 	if cb == nil || f == nil {
 		return f
 	}
@@ -75,9 +59,8 @@ func WithMetricsStorage(cb ManagementCertMetricsCallback, f certmanager.StorageF
 	return &chainStorageFactory{
 		next: f,
 		loadCert: func(ctx context.Context, next certmanager.StorageProvider) (*x509.Certificate, error) {
-			start := time.Now()
 			c, err := next.LoadCertificate(ctx)
-			cb(ManagementCertEventKindCurrent, c, time.Since(start).Seconds(), err)
+			cb(common.ManagementCertEventKindCurrent, c, 0, err)
 			return c, err
 		},
 		store: func(ctx context.Context, next certmanager.StorageProvider, req certmanager.StoreRequest) error {
@@ -91,7 +74,7 @@ func WithMetricsStorage(cb ManagementCertMetricsCallback, f certmanager.StorageF
 
 			err := next.Store(ctx, req)
 			if err != nil {
-				cb(ManagementCertEventKindRenewal, nil, time.Since(start).Seconds(), err)
+				cb(common.ManagementCertEventKindRenewal, nil, time.Since(start).Seconds(), err)
 				return err
 			}
 
@@ -103,7 +86,7 @@ func WithMetricsStorage(cb ManagementCertMetricsCallback, f certmanager.StorageF
 				}
 			}
 
-			cb(ManagementCertEventKindRenewal, parsed, time.Since(start).Seconds(), nil)
+			cb(common.ManagementCertEventKindRenewal, parsed, time.Since(start).Seconds(), nil)
 			return nil
 		},
 	}
