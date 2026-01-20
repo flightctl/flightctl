@@ -54,13 +54,20 @@ func New(log *log.PrefixLogger, config *agent_config.Config, configFile string) 
 }
 
 type Agent struct {
-	config     *agent_config.Config
-	configFile string
-	log        *log.PrefixLogger
+	config       *agent_config.Config
+	configFile   string
+	log          *log.PrefixLogger
+	testExecuter executer.Executer // optional executer for testing
 }
 
 func (a *Agent) GetLogPrefix() string {
 	return a.log.Prefix()
+}
+
+// SetTestExecuter sets a custom executer for testing purposes.
+// This should only be used in tests to prevent dangerous commands from executing.
+func (a *Agent) SetTestExecuter(exec executer.Executer) {
+	a.testExecuter = exec
 }
 
 func (a *Agent) Run(ctx context.Context) error {
@@ -126,7 +133,14 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.log.Infof("Using persisted CSR for enrollment")
 	}
 
-	rootExecuter := executer.NewCommonExecuter()
+	// Use test executer if set (for integration tests), otherwise use real executer
+	var exec executer.Executer
+	if a.testExecuter != nil {
+		exec = a.testExecuter
+		a.log.Infof("Using configured test executer")
+	} else {
+		exec = executer.NewCommonExecuter()
+	}
 
 	// create enrollment client
 	enrollmentClient, err := newEnrollmentClient(a.config, a.log)
@@ -151,7 +165,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 
 	// create os client
-	osClient := os.NewClient(a.log, rootExecuter)
+	osClient := os.NewClient(a.log, exec)
 
 	// create podman client
 	podmanClientFactory := client.NewPodmanFactory(a.log, pollBackoff, rwFactory)
@@ -164,13 +178,13 @@ func (a *Agent) Run(ctx context.Context) error {
 	skopeoClientFactory := client.NewSkopeoFactory(a.log, rwFactory)
 
 	// create kube client
-	kubeClient := client.NewKube(a.log, rootExecuter, rootReadWriter)
+	kubeClient := client.NewKube(a.log, exec, rootReadWriter)
 
 	// create helm client
-	helmClient := client.NewHelm(a.log, rootExecuter, rootReadWriter, a.config.DataDir)
+	helmClient := client.NewHelm(a.log, exec, rootReadWriter, a.config.DataDir)
 
 	// create CRI client
-	criClient := client.NewCRI(a.log, rootExecuter, rootReadWriter)
+	criClient := client.NewCRI(a.log, exec, rootReadWriter)
 
 	// create CLI clients
 	cliClients := client.NewCLIClients(
@@ -180,12 +194,12 @@ func (a *Agent) Run(ctx context.Context) error {
 	)
 
 	// create systemd client
-	rootSystemdClient := client.NewSystemd(rootExecuter)
+	rootSystemdClient := client.NewSystemd(exec)
 
 	// create systemInfo manager
 	systemInfoManager := systeminfo.NewManager(
 		a.log,
-		rootExecuter,
+		exec,
 		rootReadWriter,
 		a.config.DataDir,
 		a.config.SystemInfo,
@@ -213,7 +227,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	policyManager := policy.NewManager(a.log)
 
 	deviceNotFoundHandler := func() error {
-		return wipeCertificateAndRestart(ctx, identityProvider, rootExecuter, a.log)
+		return wipeCertificateAndRestart(ctx, identityProvider, exec, a.log)
 	}
 
 	// create audit logger
@@ -252,7 +266,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	)
 
 	// create hook manager
-	hookManager := hook.NewManager(rootReadWriter, rootExecuter, a.log)
+	hookManager := hook.NewManager(rootReadWriter, exec, a.log)
 
 	// create systemd manager
 	systemdManagerFactory := systemd.NewManagerFactory(a.log)
@@ -328,7 +342,7 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	bootstrap := device.NewBootstrap(
 		deviceName,
-		rootExecuter,
+		exec,
 		rootReadWriter,
 		specManager,
 		statusManager,
@@ -373,7 +387,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	consoleManager := console.NewManager(
 		grpcClient,
 		deviceName,
-		rootExecuter,
+		exec,
 		specManager.Watch(),
 		a.log,
 	)
