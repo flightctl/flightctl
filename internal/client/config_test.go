@@ -113,7 +113,7 @@ func TestClientConfig(t *testing.T) {
 			name:           "remote service",
 			server:         "https://api.flightctl.edge-devices.net/devicemanagement/",
 			serverName:     "flightctl.edge-devices.net",
-			serverWant:     "https://api.flightctl.edge-devices.net/devicemanagement/" + apiclient.ServerUrlApiv1 + "/",
+			serverWant:     "https://api.flightctl.edge-devices.net/devicemanagement" + apiclient.ServerUrlApiv1 + "/",
 			serverNameWant: "flightctl.edge-devices.net",
 		},
 	}
