@@ -31,6 +31,14 @@ data:
         port: 6379
     periodic:
         consumers: {{ .Values.periodic.consumers }}
+        {{ if .Values.periodic.tasks }}
+        tasks:
+          {{ if .Values.periodic.tasks.resourceSync }}
+          resourceSync:
+            schedule:
+              interval: {{ default "2m" .Values.periodic.tasks.resourceSync.schedule.interval }}
+          {{ end }}
+        {{ end }}
     {{ if (default dict .Values.dev).tracing }}
     tracing:
         enabled: true
