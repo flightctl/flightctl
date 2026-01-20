@@ -27,13 +27,14 @@ var _ = Describe("API Version Negotiation HTTP", func() {
 			w.WriteHeader(http.StatusOK)
 		})
 
-		negotiatedRouter := versioning.NewNegotiatedRouter(
+		negotiatedRouter, err := versioning.NewNegotiatedRouter(
 			negotiator.NegotiateMiddleware,
 			map[versioning.Version]chi.Router{
 				versioning.V1Beta1: v1beta1Router,
 			},
 			versioning.V1Beta1,
 		)
+		Expect(err).ToNot(HaveOccurred())
 
 		router := chi.NewRouter()
 		router.Mount("/api/v1", negotiatedRouter)

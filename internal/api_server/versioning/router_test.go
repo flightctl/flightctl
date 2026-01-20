@@ -16,9 +16,12 @@ func TestDispatcher_RoutesToCorrectVersion(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	dispatcher := newDispatcher(map[Version]chi.Router{
+	dispatcher, err := newDispatcher(map[Version]chi.Router{
 		V1Beta1: v1beta1Router,
 	}, V1Beta1)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	// Create request with version in context
 	req := httptest.NewRequest(http.MethodGet, "/devices", nil)
@@ -44,9 +47,12 @@ func TestDispatcher_UsesDefaultVersionWhenNotInContext(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	dispatcher := newDispatcher(map[Version]chi.Router{
+	dispatcher, err := newDispatcher(map[Version]chi.Router{
 		V1Beta1: v1beta1Router,
 	}, V1Beta1)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	// Create request without version in context
 	req := httptest.NewRequest(http.MethodGet, "/devices", nil)
@@ -70,9 +76,12 @@ func TestDispatcher_ReturnsErrorWhenVersionNotFound(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	dispatcher := newDispatcher(map[Version]chi.Router{
+	dispatcher, err := newDispatcher(map[Version]chi.Router{
 		V1Beta1: v1beta1Router,
 	}, V1Beta1)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	// Create request with unknown version in context
 	req := httptest.NewRequest(http.MethodGet, "/devices", nil)
@@ -88,32 +97,26 @@ func TestDispatcher_ReturnsErrorWhenVersionNotFound(t *testing.T) {
 	}
 }
 
-func TestDispatcher_PanicsWhenFallbackVersionMissing(t *testing.T) {
+func TestDispatcher_ErrorsWhenFallbackVersionMissing(t *testing.T) {
 	v1beta1Router := chi.NewRouter()
 
-	defer func() {
-		if r := recover(); r == nil {
-			t.Error("expected panic when fallback version has no router")
-		}
-	}()
-
-	// This should panic because V1Beta1 is the fallback but there's no router for it
-	_ = newDispatcher(map[Version]chi.Router{
+	// This should return an error because V1Beta1 is the fallback but there's no router for it
+	_, err := newDispatcher(map[Version]chi.Router{
 		Version("v2"): v1beta1Router,
 	}, V1Beta1)
+	if err == nil {
+		t.Error("expected error when fallback version has no router")
+	}
 }
 
-func TestDispatcher_PanicsWhenFallbackVersionEmpty(t *testing.T) {
+func TestDispatcher_ErrorsWhenFallbackVersionEmpty(t *testing.T) {
 	v1beta1Router := chi.NewRouter()
 
-	defer func() {
-		if r := recover(); r == nil {
-			t.Error("expected panic when fallback version is empty")
-		}
-	}()
-
-	// This should panic because fallback version is empty
-	_ = newDispatcher(map[Version]chi.Router{
+	// This should return an error because fallback version is empty
+	_, err := newDispatcher(map[Version]chi.Router{
 		V1Beta1: v1beta1Router,
 	}, "")
+	if err == nil {
+		t.Error("expected error when fallback version is empty")
+	}
 }

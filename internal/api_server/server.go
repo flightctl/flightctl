@@ -245,7 +245,7 @@ func (s *Server) Run(ctx context.Context) error {
 	})
 
 	// Create negotiated router with version-specific sub-routers
-	negotiatedRouter := versioning.NewNegotiatedRouter(
+	negotiatedRouter, err := versioning.NewNegotiatedRouter(
 		negotiator.NegotiateMiddleware,
 		map[versioning.Version]chi.Router{
 			versioning.V1Beta1: routerV1Beta1,
@@ -253,6 +253,9 @@ func (s *Server) Run(ctx context.Context) error {
 		},
 		versioning.V1Beta1,
 	)
+	if err != nil {
+		return fmt.Errorf("failed to create negotiated router: %w", err)
+	}
 
 	// a group is a new mux copy, with its own copy of the middleware stack
 	// this one handles the OpenAPI handling of the service (excluding auth validate endpoint)

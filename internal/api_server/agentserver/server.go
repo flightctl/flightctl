@@ -302,13 +302,16 @@ func (s *AgentServer) prepareHTTPHandler(ctx context.Context, serviceHandler ser
 
 	// Create negotiated router for version routing
 	// Future versions (v1, v2, etc.) would add more entries here
-	negotiatedRouter := versioning.NewNegotiatedRouter(
+	negotiatedRouter, err := versioning.NewNegotiatedRouter(
 		negotiator.NegotiateMiddleware,
 		map[versioning.Version]chi.Router{
 			versioning.V1Beta1: routerV1Beta1,
 		},
 		versioning.V1Beta1,
 	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create negotiated router: %w", err)
+	}
 
 	// Rate limiting middleware - applied before validation (only if configured and enabled)
 	rateLimit := func(r chi.Router) {
