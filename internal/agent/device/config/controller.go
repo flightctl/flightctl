@@ -5,6 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"path/filepath"
+	"sort"
+	"strings"
 
 	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
@@ -83,18 +86,53 @@ func (c *Controller) ensureConfigFiles(currentFiles, desiredFiles []v1beta1.File
 	return nil
 }
 
-// removeObsoleteFiles removes files that are present in the currentFiles but not in the desiredFiles.
+// removeObsoleteFiles removes files that are present in the currentFiles but not in the desiredFiles and cleans up empty directories.
 func (c *Controller) removeObsoleteFiles(currentFiles, desiredFiles []v1beta1.FileSpec) error {
-	removeFiles := computeRemoval(currentFiles, desiredFiles)
-	for _, file := range removeFiles {
+	filesToRemove := computeRemoval(currentFiles, desiredFiles)
+	if len(filesToRemove) == 0 {
+		return nil
+	}
+
+	dirsToKeep := collectParentDirs(desiredFiles)
+	dirsToRemove := make(map[string]struct{})
+	sep := string(filepath.Separator)
+
+	for _, file := range filesToRemove {
 		if len(file) == 0 {
 			continue
 		}
 		c.log.Debugf("Deleting file: %s", file)
 		if err := c.deviceWriter.RemoveFile(file); err != nil {
-			return fmt.Errorf("deleting files failed: %w", err)
+			return fmt.Errorf("deleting file %s: %w", file, err)
+		}
+
+		// Collect parent directories for cleanup
+		for dir := filepath.Dir(file); dir != "." && dir != sep; dir = filepath.Dir(dir) {
+			if _, keep := dirsToKeep[dir]; !keep {
+				dirsToRemove[dir] = struct{}{}
+			}
 		}
 	}
+
+	if len(dirsToRemove) == 0 {
+		return nil
+	}
+
+	sortedDirs := make([]string, 0, len(dirsToRemove))
+	for dir := range dirsToRemove {
+		sortedDirs = append(sortedDirs, dir)
+	}
+	sort.Slice(sortedDirs, func(i, j int) bool {
+		return strings.Count(sortedDirs[i], sep) > strings.Count(sortedDirs[j], sep)
+	})
+
+	// Remove empty directories
+	for _, dir := range sortedDirs {
+		if err := c.deviceWriter.RemoveFile(dir); err == nil {
+			c.log.Debugf("Removed empty directory: %s", dir)
+		}
+	}
+
 	return nil
 }
 
@@ -160,4 +198,16 @@ func FilesToProviderSpec(files []v1beta1.FileSpec) (*[]v1beta1.ConfigProviderSpe
 		return nil, fmt.Errorf("inline config: %w", err)
 	}
 	return &[]v1beta1.ConfigProviderSpec{provider}, nil
+}
+
+// collectParentDirs returns all parent directories in the path hierarchy of the given files.
+func collectParentDirs(files []v1beta1.FileSpec) map[string]struct{} {
+	parentDirs := make(map[string]struct{})
+	sep := string(filepath.Separator)
+	for _, f := range files {
+		for dir := filepath.Dir(f.Path); dir != "." && dir != sep; dir = filepath.Dir(dir) {
+			parentDirs[dir] = struct{}{}
+		}
+	}
+	return parentDirs
 }
