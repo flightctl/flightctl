@@ -9,9 +9,10 @@ import (
 	"net/http"
 	"time"
 
+	agentv1beta1 "github.com/flightctl/flightctl/api/agent/v1beta1"
 	convertv1beta1 "github.com/flightctl/flightctl/internal/api/convert/v1beta1"
 	apimetaserver "github.com/flightctl/flightctl/internal/api/server"
-	server "github.com/flightctl/flightctl/internal/api/server/agent"
+	agentserver "github.com/flightctl/flightctl/internal/api/server/agent"
 	apiserver "github.com/flightctl/flightctl/internal/api_server"
 	fcmiddleware "github.com/flightctl/flightctl/internal/api_server/middleware"
 	"github.com/flightctl/flightctl/internal/api_server/versioning"
@@ -189,8 +190,8 @@ func addAgentContext(next http.Handler) http.Handler {
 
 // isEnrollmentRequest checks if the request is for enrollment-related operations
 func isEnrollmentRequest(r *http.Request) bool {
-	metadata, found := apimetaserver.GetEndpointMetadata(r)
-	if !found || metadata == nil {
+	metadata := apimetaserver.GetEndpointMetadata(r)
+	if metadata == nil {
 		return false
 	}
 
@@ -277,26 +278,37 @@ func (s *AgentServer) prepareHTTPHandler(ctx context.Context, serviceHandler ser
 	router.Use(middlewares...)
 
 	// Create versioning infrastructure
-	registry := versioning.NewRegistry(versioning.V1Beta1)
+	negotiator := versioning.NewNegotiator(versioning.V1Beta1)
 
 	// Create handler for agent API
-	h := agenttransportv1beta1.NewAgentTransportHandler(serviceHandler, convertv1beta1.NewConverter(), s.ca, s.log)
+	handlerV1Beta1 := agenttransportv1beta1.NewAgentTransportHandler(serviceHandler, convertv1beta1.NewConverter(), s.ca, s.log)
 
-	// Create version-specific router with OpenAPI validation via helper
-	// Each version router validates against its own swagger spec
-	oapiOpts := &oapimiddleware.Options{
-		ErrorHandler: apiserver.OapiErrorHandler,
-	}
-	routerV1Beta1, err := versioning.CreateAgentV1Beta1Router(h, oapiOpts)
+	// Create version-specific router with OpenAPI validation
+	agentV1Beta1Swagger, err := agentv1beta1.GetSwagger()
 	if err != nil {
-		return nil, fmt.Errorf("failed to create agent v1beta1 router: %w", err)
+		return nil, fmt.Errorf("failed loading agent v1beta1 swagger spec: %w", err)
 	}
+	routerV1Beta1 := versioning.NewRouter(versioning.RouterConfig{
+		Middlewares: []versioning.Middleware{
+			oapimiddleware.OapiRequestValidatorWithOptions(agentV1Beta1Swagger, &oapimiddleware.Options{
+				ErrorHandler:          apiserver.OapiErrorHandler,
+				SilenceServersWarning: true,
+			}),
+		},
+		RegisterRoutes: func(r chi.Router) {
+			agentserver.HandlerFromMux(handlerV1Beta1, r)
+		},
+	})
 
 	// Create negotiated router for version routing
 	// Future versions (v1, v2, etc.) would add more entries here
-	negotiatedRouter := versioning.NewNegotiatedRouter(registry, map[versioning.Version]chi.Router{
-		versioning.V1Beta1: routerV1Beta1,
-	})
+	negotiatedRouter := versioning.NewNegotiatedRouter(
+		negotiator.NegotiateMiddleware,
+		map[versioning.Version]chi.Router{
+			versioning.V1Beta1: routerV1Beta1,
+		},
+		versioning.V1Beta1,
+	)
 
 	// Rate limiting middleware - applied before validation (only if configured and enabled)
 	rateLimit := func(r chi.Router) {
@@ -310,7 +322,7 @@ func (s *AgentServer) prepareHTTPHandler(ctx context.Context, serviceHandler ser
 	}
 
 	// Versioned API endpoints at /api/v1
-	router.Route(server.ServerUrlApiv1, func(r chi.Router) {
+	router.Route(agentserver.ServerUrlApiv1, func(r chi.Router) {
 		rateLimit(r)
 
 		// Negotiated API endpoints

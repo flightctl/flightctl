@@ -20,22 +20,23 @@ var _ = Describe("API Version Negotiation HTTP", func() {
 	var svr *httptest.Server
 
 	BeforeEach(func() {
-		registry := versioning.NewRegistry(versioning.V1Beta1)
+		negotiator := versioning.NewNegotiator(versioning.V1Beta1)
 
 		v1beta1Router := chi.NewRouter()
 		v1beta1Router.Get("/*", func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 		})
 
-		dispatcher := versioning.NewDispatcher(registry, map[versioning.Version]chi.Router{
-			versioning.V1Beta1: v1beta1Router,
-		})
+		negotiatedRouter := versioning.NewNegotiatedRouter(
+			negotiator.NegotiateMiddleware,
+			map[versioning.Version]chi.Router{
+				versioning.V1Beta1: v1beta1Router,
+			},
+			versioning.V1Beta1,
+		)
 
 		router := chi.NewRouter()
-		router.Route("/api/v1", func(r chi.Router) {
-			r.Use(versioning.Middleware(registry))
-			r.Mount("/", dispatcher)
-		})
+		router.Mount("/api/v1", negotiatedRouter)
 
 		svr = httptest.NewServer(router)
 	})
@@ -70,6 +71,6 @@ var _ = Describe("API Version Negotiation HTTP", func() {
 		defer resp.Body.Close()
 
 		Expect(resp.StatusCode).To(Equal(http.StatusNotAcceptable))
-		Expect(resp.Header.Get(versioning.HeaderAPIVersion)).To(Equal(string(versioning.V1Beta1)))
+		Expect(resp.Header.Get(versioning.HeaderAPIVersionsSupported)).To(Equal(string(versioning.V1Beta1)))
 	})
 })

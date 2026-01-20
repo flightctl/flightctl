@@ -9,8 +9,6 @@ import (
 )
 
 func TestDispatcher_RoutesToCorrectVersion(t *testing.T) {
-	registry := NewRegistry(V1Beta1)
-
 	// Create version-specific router
 	v1beta1Router := chi.NewRouter()
 	v1beta1Router.Get("/*", func(w http.ResponseWriter, r *http.Request) {
@@ -18,9 +16,9 @@ func TestDispatcher_RoutesToCorrectVersion(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	dispatcher := NewDispatcher(registry, map[Version]chi.Router{
+	dispatcher := newDispatcher(map[Version]chi.Router{
 		V1Beta1: v1beta1Router,
-	})
+	}, V1Beta1)
 
 	// Create request with version in context
 	req := httptest.NewRequest(http.MethodGet, "/devices", nil)
@@ -40,17 +38,15 @@ func TestDispatcher_RoutesToCorrectVersion(t *testing.T) {
 }
 
 func TestDispatcher_UsesDefaultVersionWhenNotInContext(t *testing.T) {
-	registry := NewRegistry(V1Beta1)
-
 	v1beta1Router := chi.NewRouter()
 	v1beta1Router.Get("/*", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Routed-Version", "v1beta1")
 		w.WriteHeader(http.StatusOK)
 	})
 
-	dispatcher := NewDispatcher(registry, map[Version]chi.Router{
+	dispatcher := newDispatcher(map[Version]chi.Router{
 		V1Beta1: v1beta1Router,
-	})
+	}, V1Beta1)
 
 	// Create request without version in context
 	req := httptest.NewRequest(http.MethodGet, "/devices", nil)
@@ -67,18 +63,16 @@ func TestDispatcher_UsesDefaultVersionWhenNotInContext(t *testing.T) {
 	}
 }
 
-func TestDispatcher_FallsBackToDefaultWhenVersionNotFound(t *testing.T) {
-	registry := NewRegistry(V1Beta1)
-
+func TestDispatcher_ReturnsErrorWhenVersionNotFound(t *testing.T) {
 	v1beta1Router := chi.NewRouter()
 	v1beta1Router.Get("/*", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Routed-Version", "v1beta1")
 		w.WriteHeader(http.StatusOK)
 	})
 
-	dispatcher := NewDispatcher(registry, map[Version]chi.Router{
+	dispatcher := newDispatcher(map[Version]chi.Router{
 		V1Beta1: v1beta1Router,
-	})
+	}, V1Beta1)
 
 	// Create request with unknown version in context
 	req := httptest.NewRequest(http.MethodGet, "/devices", nil)
@@ -88,30 +82,38 @@ func TestDispatcher_FallsBackToDefaultWhenVersionNotFound(t *testing.T) {
 	rec := httptest.NewRecorder()
 	dispatcher.ServeHTTP(rec, req)
 
-	// Should fall back to default version
-	if rec.Code != http.StatusOK {
-		t.Errorf("status code = %v, want %v", rec.Code, http.StatusOK)
-	}
-
-	if rec.Header().Get("X-Routed-Version") != "v1beta1" {
-		t.Errorf("routed version = %v, want v1beta1", rec.Header().Get("X-Routed-Version"))
-	}
-}
-
-func TestDispatcher_ReturnsErrorWhenNoRouterAvailable(t *testing.T) {
-	registry := NewRegistry(V1Beta1)
-
-	// Create dispatcher with no routers
-	dispatcher := NewDispatcher(registry, map[Version]chi.Router{})
-
-	req := httptest.NewRequest(http.MethodGet, "/devices", nil)
-	ctx := ContextWithVersion(req.Context(), V1Beta1)
-	req = req.WithContext(ctx)
-
-	rec := httptest.NewRecorder()
-	dispatcher.ServeHTTP(rec, req)
-
+	// Should return 500 error instead of silently falling back
 	if rec.Code != http.StatusInternalServerError {
 		t.Errorf("status code = %v, want %v", rec.Code, http.StatusInternalServerError)
 	}
+}
+
+func TestDispatcher_PanicsWhenFallbackVersionMissing(t *testing.T) {
+	v1beta1Router := chi.NewRouter()
+
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("expected panic when fallback version has no router")
+		}
+	}()
+
+	// This should panic because V1Beta1 is the fallback but there's no router for it
+	_ = newDispatcher(map[Version]chi.Router{
+		Version("v2"): v1beta1Router,
+	}, V1Beta1)
+}
+
+func TestDispatcher_PanicsWhenFallbackVersionEmpty(t *testing.T) {
+	v1beta1Router := chi.NewRouter()
+
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("expected panic when fallback version is empty")
+		}
+	}()
+
+	// This should panic because fallback version is empty
+	_ = newDispatcher(map[Version]chi.Router{
+		V1Beta1: v1beta1Router,
+	}, "")
 }

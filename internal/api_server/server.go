@@ -217,8 +217,8 @@ func (s *Server) Run(ctx context.Context) error {
 		userAgentMiddleware,
 	)
 
-	// Create version registry with v1beta1 as default
-	registry := versioning.NewRegistry(versioning.V1Beta1)
+	// Create version negotiator with v1beta1 as default
+	negotiator := versioning.NewNegotiator(versioning.V1Beta1)
 
 	// Create v1beta1 transport handler
 	handlerV1Beta1 := transportv1beta1.NewTransportHandler(
@@ -231,23 +231,28 @@ func (s *Server) Run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed loading v1beta1 swagger spec: %w", err)
 	}
-	oapiOpts := oapimiddleware.Options{
+	v1beta1OapiMiddleware := oapimiddleware.OapiRequestValidatorWithOptions(v1beta1Swagger, &oapimiddleware.Options{
 		ErrorHandler:          OapiErrorHandler,
 		MultiErrorHandler:     oapiMultiErrorHandler,
 		SilenceServersWarning: true, // Suppress Host header mismatch warnings
-	}
+	})
+
 	routerV1Beta1 := versioning.NewRouter(versioning.RouterConfig{
-		Version:     versioning.V1Beta1,
-		Swagger:     v1beta1Swagger,
-		Handler:     &customTransportHandler{handlerV1Beta1},
-		OapiOptions: oapiOpts,
+		Middlewares: []versioning.Middleware{v1beta1OapiMiddleware},
+		RegisterRoutes: func(r chi.Router) {
+			server.HandlerFromMux(&customTransportHandler{handlerV1Beta1}, r)
+		},
 	})
 
 	// Create negotiated router with version-specific sub-routers
-	negotiatedRouter := versioning.NewNegotiatedRouter(registry, map[versioning.Version]chi.Router{
-		versioning.V1Beta1: routerV1Beta1,
-		// V1Beta2, V1, etc..
-	})
+	negotiatedRouter := versioning.NewNegotiatedRouter(
+		negotiator.NegotiateMiddleware,
+		map[versioning.Version]chi.Router{
+			versioning.V1Beta1: routerV1Beta1,
+			// V1Beta2, V1, etc..
+		},
+		versioning.V1Beta1,
+	)
 
 	// a group is a new mux copy, with its own copy of the middleware stack
 	// this one handles the OpenAPI handling of the service (excluding auth validate endpoint)
@@ -267,7 +272,7 @@ func (s *Server) Run(ctx context.Context) error {
 		// This ensures it gets all the necessary middleware with stricter rate limiting
 		r.Group(func(r chi.Router) {
 			// Add conditional middleware
-			r.Use(oapimiddleware.OapiRequestValidatorWithOptions(v1beta1Swagger, &oapiOpts))
+			r.Use(v1beta1OapiMiddleware)
 			r.Use(identityMappingMiddleware.MapIdentityToDB) // Map identity to DB objects AFTER authentication
 			ConfigureRateLimiterFromConfig(
 				r,
