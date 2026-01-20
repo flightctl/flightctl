@@ -20,15 +20,17 @@ func statusCode(status v1beta1.Status) int32 {
 
 func newTestImageBuildService() (ImageBuildService, *DummyImageBuildStore) {
 	imageBuildStore := NewDummyImageBuildStore()
-	svc := NewImageBuildService(imageBuildStore, nil, nil, log.InitLogs())
+	repositoryStore := NewDummyRepositoryStore()
+	svc := NewImageBuildService(imageBuildStore, repositoryStore, nil, nil, log.InitLogs())
 	return svc, imageBuildStore
 }
 
 func newTestImageBuildServiceWithExports() (ImageBuildService, *DummyImageBuildStore, *DummyImageExportStore) {
 	imageExportStore := NewDummyImageExportStore()
 	imageBuildStore := NewDummyImageBuildStoreWithExports(imageExportStore)
+	repositoryStore := NewDummyRepositoryStore()
 	// Note: ImageBuildService doesn't need ImageExportService - the store handles withExports
-	svc := NewImageBuildService(imageBuildStore, nil, nil, log.InitLogs())
+	svc := NewImageBuildService(imageBuildStore, repositoryStore, nil, nil, log.InitLogs())
 	return svc, imageBuildStore, imageExportStore
 }
 
@@ -54,11 +56,25 @@ func newValidImageBuild(name string) api.ImageBuild {
 	}
 }
 
+func setupRepositoriesForImageBuild(repoStore *DummyRepositoryStore, ctx context.Context, orgId uuid.UUID) {
+	// Create source repository (Read is fine for source)
+	sourceRepo := newOciRepository("input-registry", v1beta1.Read)
+	_, _ = repoStore.Create(ctx, orgId, sourceRepo, nil)
+
+	// Create destination repository (must be ReadWrite)
+	destRepo := newOciRepository("output-registry", v1beta1.ReadWrite)
+	_, _ = repoStore.Create(ctx, orgId, destRepo, nil)
+}
+
 func TestCreateImageBuild(t *testing.T) {
 	require := require.New(t)
-	svc, _ := newTestImageBuildService()
 	ctx := context.Background()
 	orgId := uuid.New()
+
+	// Set up repositories
+	repoStore := NewDummyRepositoryStore()
+	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
+	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, log.InitLogs())
 
 	imageBuild := newValidImageBuild("test-build")
 	result, status := svc.Create(ctx, orgId, imageBuild)
@@ -70,9 +86,13 @@ func TestCreateImageBuild(t *testing.T) {
 
 func TestCreateImageBuildDuplicate(t *testing.T) {
 	require := require.New(t)
-	svc, _ := newTestImageBuildService()
 	ctx := context.Background()
 	orgId := uuid.New()
+
+	// Set up repositories
+	repoStore := NewDummyRepositoryStore()
+	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
+	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, log.InitLogs())
 
 	imageBuild := newValidImageBuild("duplicate-test")
 
@@ -113,9 +133,13 @@ func TestCreateImageBuildMissingInputRegistry(t *testing.T) {
 
 func TestGetImageBuild(t *testing.T) {
 	require := require.New(t)
-	svc, _ := newTestImageBuildService()
 	ctx := context.Background()
 	orgId := uuid.New()
+
+	// Set up repositories
+	repoStore := NewDummyRepositoryStore()
+	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
+	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, log.InitLogs())
 
 	// Create first
 	imageBuild := newValidImageBuild("get-test")
@@ -141,9 +165,13 @@ func TestGetImageBuildNotFound(t *testing.T) {
 
 func TestListImageBuilds(t *testing.T) {
 	require := require.New(t)
-	svc, _ := newTestImageBuildService()
 	ctx := context.Background()
 	orgId := uuid.New()
+
+	// Set up repositories
+	repoStore := NewDummyRepositoryStore()
+	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
+	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, log.InitLogs())
 
 	// Create multiple
 	for i := 0; i < 3; i++ {
@@ -161,9 +189,13 @@ func TestListImageBuilds(t *testing.T) {
 
 func TestListImageBuildsWithLimit(t *testing.T) {
 	require := require.New(t)
-	svc, _ := newTestImageBuildService()
 	ctx := context.Background()
 	orgId := uuid.New()
+
+	// Set up repositories
+	repoStore := NewDummyRepositoryStore()
+	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
+	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, log.InitLogs())
 
 	// Create multiple
 	for i := 0; i < 5; i++ {
@@ -182,9 +214,13 @@ func TestListImageBuildsWithLimit(t *testing.T) {
 
 func TestDeleteImageBuild(t *testing.T) {
 	require := require.New(t)
-	svc, _ := newTestImageBuildService()
 	ctx := context.Background()
 	orgId := uuid.New()
+
+	// Set up repositories
+	repoStore := NewDummyRepositoryStore()
+	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
+	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, log.InitLogs())
 
 	// Create first
 	imageBuild := newValidImageBuild("delete-test")
@@ -216,9 +252,13 @@ func TestDeleteImageBuildNotFound(t *testing.T) {
 
 func TestUpdateStatus(t *testing.T) {
 	require := require.New(t)
-	svc, _ := newTestImageBuildService()
 	ctx := context.Background()
 	orgId := uuid.New()
+
+	// Set up repositories
+	repoStore := NewDummyRepositoryStore()
+	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
+	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, log.InitLogs())
 
 	// Create first
 	imageBuild := newValidImageBuild("status-test")
@@ -250,9 +290,14 @@ func TestUpdateStatus(t *testing.T) {
 
 func TestGetImageBuildWithExports(t *testing.T) {
 	require := require.New(t)
-	svc, _, imageExportStore := newTestImageBuildServiceWithExports()
+	_, _, imageExportStore := newTestImageBuildServiceWithExports()
 	ctx := context.Background()
 	orgId := uuid.New()
+
+	// Set up repositories
+	repoStore := NewDummyRepositoryStore()
+	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
+	svc := NewImageBuildService(NewDummyImageBuildStoreWithExports(imageExportStore), repoStore, nil, nil, log.InitLogs())
 
 	// Create an ImageBuild
 	imageBuild := newValidImageBuild("build-with-exports")
@@ -292,9 +337,13 @@ func TestGetImageBuildWithExports(t *testing.T) {
 
 func TestGetImageBuildWithExportsNoExports(t *testing.T) {
 	require := require.New(t)
-	svc, _, _ := newTestImageBuildServiceWithExports()
 	ctx := context.Background()
 	orgId := uuid.New()
+
+	// Set up repositories
+	repoStore := NewDummyRepositoryStore()
+	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
+	svc := NewImageBuildService(NewDummyImageBuildStoreWithExports(NewDummyImageExportStore()), repoStore, nil, nil, log.InitLogs())
 
 	// Create an ImageBuild with no ImageExports
 	imageBuild := newValidImageBuild("build-no-exports")
@@ -310,9 +359,14 @@ func TestGetImageBuildWithExportsNoExports(t *testing.T) {
 
 func TestListImageBuildsWithExports(t *testing.T) {
 	require := require.New(t)
-	svc, _, imageExportStore := newTestImageBuildServiceWithExports()
+	_, _, imageExportStore := newTestImageBuildServiceWithExports()
 	ctx := context.Background()
 	orgId := uuid.New()
+
+	// Set up repositories
+	repoStore := NewDummyRepositoryStore()
+	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
+	svc := NewImageBuildService(NewDummyImageBuildStoreWithExports(imageExportStore), repoStore, nil, nil, log.InitLogs())
 
 	// Create multiple ImageBuilds
 	build1 := newValidImageBuild("build-1")
@@ -379,4 +433,127 @@ func TestListImageBuildsWithExports(t *testing.T) {
 	require.True(build1Found)
 	require.True(build2Found)
 	require.True(build3Found)
+}
+
+func TestCreateImageBuildSourceRepositoryNotFound(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	orgId := uuid.New()
+
+	// Set up only destination repository
+	repoStore := NewDummyRepositoryStore()
+	destRepo := newOciRepository("output-registry", v1beta1.ReadWrite)
+	_, _ = repoStore.Create(ctx, orgId, destRepo, nil)
+	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, log.InitLogs())
+
+	imageBuild := newValidImageBuild("test-build")
+	_, status := svc.Create(ctx, orgId, imageBuild)
+
+	require.Equal(int32(http.StatusBadRequest), statusCode(status))
+	require.Contains(status.Message, "spec.source.repository: Repository \"input-registry\" not found")
+}
+
+func TestCreateImageBuildDestinationRepositoryNotFound(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	orgId := uuid.New()
+
+	// Set up only source repository
+	repoStore := NewDummyRepositoryStore()
+	sourceRepo := newOciRepository("input-registry", v1beta1.Read)
+	_, _ = repoStore.Create(ctx, orgId, sourceRepo, nil)
+	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, log.InitLogs())
+
+	imageBuild := newValidImageBuild("test-build")
+	_, status := svc.Create(ctx, orgId, imageBuild)
+
+	require.Equal(int32(http.StatusBadRequest), statusCode(status))
+	require.Contains(status.Message, "spec.destination.repository: Repository \"output-registry\" not found")
+}
+
+func TestCreateImageBuildSourceRepositoryNotOci(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	orgId := uuid.New()
+
+	// Set up repositories - source is Git type (not OCI)
+	repoStore := NewDummyRepositoryStore()
+	spec := v1beta1.RepositorySpec{}
+	_ = spec.FromGenericRepoSpec(v1beta1.GenericRepoSpec{
+		Type: v1beta1.RepoSpecTypeGit,
+		Url:  "https://github.com/example/repo.git",
+	})
+	sourceRepo := &v1beta1.Repository{
+		ApiVersion: "flightctl.io/v1beta1",
+		Kind:       string(v1beta1.ResourceKindRepository),
+		Metadata: v1beta1.ObjectMeta{
+			Name: lo.ToPtr("input-registry"),
+		},
+		Spec: spec,
+	}
+	_, _ = repoStore.Create(ctx, orgId, sourceRepo, nil)
+
+	destRepo := newOciRepository("output-registry", v1beta1.ReadWrite)
+	_, _ = repoStore.Create(ctx, orgId, destRepo, nil)
+	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, log.InitLogs())
+
+	imageBuild := newValidImageBuild("test-build")
+	_, status := svc.Create(ctx, orgId, imageBuild)
+
+	require.Equal(int32(http.StatusBadRequest), statusCode(status))
+	require.Contains(status.Message, "spec.source.repository: Repository \"input-registry\" must be of type 'oci'")
+}
+
+func TestCreateImageBuildDestinationRepositoryNotOci(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	orgId := uuid.New()
+
+	// Set up repositories - destination is Git type (not OCI)
+	repoStore := NewDummyRepositoryStore()
+	sourceRepo := newOciRepository("input-registry", v1beta1.Read)
+	_, _ = repoStore.Create(ctx, orgId, sourceRepo, nil)
+
+	spec := v1beta1.RepositorySpec{}
+	_ = spec.FromGenericRepoSpec(v1beta1.GenericRepoSpec{
+		Type: v1beta1.RepoSpecTypeGit,
+		Url:  "https://github.com/example/repo.git",
+	})
+	destRepo := &v1beta1.Repository{
+		ApiVersion: "flightctl.io/v1beta1",
+		Kind:       string(v1beta1.ResourceKindRepository),
+		Metadata: v1beta1.ObjectMeta{
+			Name: lo.ToPtr("output-registry"),
+		},
+		Spec: spec,
+	}
+	_, _ = repoStore.Create(ctx, orgId, destRepo, nil)
+	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, log.InitLogs())
+
+	imageBuild := newValidImageBuild("test-build")
+	_, status := svc.Create(ctx, orgId, imageBuild)
+
+	require.Equal(int32(http.StatusBadRequest), statusCode(status))
+	require.Contains(status.Message, "spec.destination.repository: Repository \"output-registry\" must be of type 'oci'")
+}
+
+func TestCreateImageBuildDestinationRepositoryNotReadWrite(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	orgId := uuid.New()
+
+	// Set up repositories - destination is Read-only
+	repoStore := NewDummyRepositoryStore()
+	sourceRepo := newOciRepository("input-registry", v1beta1.Read)
+	_, _ = repoStore.Create(ctx, orgId, sourceRepo, nil)
+
+	destRepo := newOciRepository("output-registry", v1beta1.Read)
+	_, _ = repoStore.Create(ctx, orgId, destRepo, nil)
+	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, log.InitLogs())
+
+	imageBuild := newValidImageBuild("test-build")
+	_, status := svc.Create(ctx, orgId, imageBuild)
+
+	require.Equal(int32(http.StatusBadRequest), statusCode(status))
+	require.Contains(status.Message, "spec.destination.repository: Repository \"output-registry\" must have 'ReadWrite' access mode")
 }

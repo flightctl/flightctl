@@ -9,9 +9,11 @@ import (
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	api "github.com/flightctl/flightctl/api/imagebuilder/v1beta1"
+	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/store"
 	internalservice "github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/service/common"
+	mainstore "github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/queues"
@@ -33,19 +35,21 @@ type ImageBuildService interface {
 
 // imageBuildService is the concrete implementation of ImageBuildService
 type imageBuildService struct {
-	store         store.ImageBuildStore
-	eventHandler  *internalservice.EventHandler
-	queueProducer queues.QueueProducer
-	log           logrus.FieldLogger
+	store           store.ImageBuildStore
+	repositoryStore mainstore.Repository
+	eventHandler    *internalservice.EventHandler
+	queueProducer   queues.QueueProducer
+	log             logrus.FieldLogger
 }
 
 // NewImageBuildService creates a new ImageBuildService
-func NewImageBuildService(s store.ImageBuildStore, eventHandler *internalservice.EventHandler, queueProducer queues.QueueProducer, log logrus.FieldLogger) ImageBuildService {
+func NewImageBuildService(s store.ImageBuildStore, repositoryStore mainstore.Repository, eventHandler *internalservice.EventHandler, queueProducer queues.QueueProducer, log logrus.FieldLogger) ImageBuildService {
 	return &imageBuildService{
-		store:         s,
-		eventHandler:  eventHandler,
-		queueProducer: queueProducer,
-		log:           log,
+		store:           s,
+		repositoryStore: repositoryStore,
+		eventHandler:    eventHandler,
+		queueProducer:   queueProducer,
+		log:             log,
 	}
 }
 
@@ -55,7 +59,9 @@ func (s *imageBuildService) Create(ctx context.Context, orgId uuid.UUID, imageBu
 	NilOutManagedObjectMetaProperties(&imageBuild.Metadata)
 
 	// Validate input
-	if errs := s.validate(&imageBuild); len(errs) > 0 {
+	if errs, internalErr := s.validate(ctx, orgId, &imageBuild); internalErr != nil {
+		return nil, StatusInternalServerError(internalErr.Error())
+	} else if len(errs) > 0 {
 		return nil, StatusBadRequest(errors.Join(errs...).Error())
 	}
 
@@ -125,7 +131,8 @@ func (s *imageBuildService) UpdateLastSeen(ctx context.Context, orgId uuid.UUID,
 }
 
 // validate performs validation on an ImageBuild resource
-func (s *imageBuildService) validate(imageBuild *api.ImageBuild) []error {
+// Returns validation errors (4xx) and internal errors (5xx) separately
+func (s *imageBuildService) validate(ctx context.Context, orgId uuid.UUID, imageBuild *api.ImageBuild) ([]error, error) {
 	var errs []error
 
 	if lo.FromPtr(imageBuild.Metadata.Name) == "" {
@@ -134,17 +141,58 @@ func (s *imageBuildService) validate(imageBuild *api.ImageBuild) []error {
 
 	if imageBuild.Spec.Source.Repository == "" {
 		errs = append(errs, errors.New("spec.source.repository is required"))
+	} else {
+		// Validate source repository exists and is OCI type
+		repo, err := s.repositoryStore.Get(ctx, orgId, imageBuild.Spec.Source.Repository)
+		if errors.Is(err, flterrors.ErrResourceNotFound) {
+			errs = append(errs, fmt.Errorf("spec.source.repository: Repository %q not found", imageBuild.Spec.Source.Repository))
+		} else if err != nil {
+			return nil, fmt.Errorf("failed to get source repository %q: %w", imageBuild.Spec.Source.Repository, err)
+		} else {
+			specType, err := repo.Spec.Discriminator()
+			if err != nil {
+				return nil, fmt.Errorf("failed to get source repository spec type: %w", err)
+			}
+			if specType != string(v1beta1.RepoSpecTypeOci) {
+				errs = append(errs, fmt.Errorf("spec.source.repository: Repository %q must be of type 'oci', got %q", imageBuild.Spec.Source.Repository, specType))
+			}
+		}
 	}
 	errs = append(errs, ValidateImageName(&imageBuild.Spec.Source.ImageName, "spec.source.imageName")...)
 	errs = append(errs, ValidateImageTag(&imageBuild.Spec.Source.ImageTag, "spec.source.imageTag")...)
 
 	if imageBuild.Spec.Destination.Repository == "" {
 		errs = append(errs, errors.New("spec.destination.repository is required"))
+	} else {
+		// Validate destination repository exists, is OCI type, and has ReadWrite access
+		repo, err := s.repositoryStore.Get(ctx, orgId, imageBuild.Spec.Destination.Repository)
+		if errors.Is(err, flterrors.ErrResourceNotFound) {
+			errs = append(errs, fmt.Errorf("spec.destination.repository: Repository %q not found", imageBuild.Spec.Destination.Repository))
+		} else if err != nil {
+			return nil, fmt.Errorf("failed to get destination repository %q: %w", imageBuild.Spec.Destination.Repository, err)
+		} else {
+			specType, err := repo.Spec.Discriminator()
+			if err != nil {
+				return nil, fmt.Errorf("failed to get destination repository spec type: %w", err)
+			}
+			if specType != string(v1beta1.RepoSpecTypeOci) {
+				errs = append(errs, fmt.Errorf("spec.destination.repository: Repository %q must be of type 'oci', got %q", imageBuild.Spec.Destination.Repository, specType))
+			} else {
+				ociSpec, err := repo.Spec.AsOciRepoSpec()
+				if err != nil {
+					return nil, fmt.Errorf("failed to get destination repository OCI spec: %w", err)
+				}
+				accessMode := lo.FromPtrOr(ociSpec.AccessMode, v1beta1.Read)
+				if accessMode != v1beta1.ReadWrite {
+					errs = append(errs, fmt.Errorf("spec.destination.repository: Repository %q must have 'ReadWrite' access mode, got %q", imageBuild.Spec.Destination.Repository, accessMode))
+				}
+			}
+		}
 	}
 	errs = append(errs, ValidateImageName(&imageBuild.Spec.Destination.ImageName, "spec.destination.imageName")...)
 	errs = append(errs, ValidateImageTag(&imageBuild.Spec.Destination.Tag, "spec.destination.tag")...)
 
-	return errs
+	return errs, nil
 }
 
 // enqueueImageBuildEvent enqueues an event to the imagebuild-queue

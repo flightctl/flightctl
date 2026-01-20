@@ -33,8 +33,8 @@ func NewService(ctx context.Context, s imagebuilderstore.Store, mainStore mainst
 		eventHandler = internalservice.NewEventHandler(mainStore, nil, log)
 	}
 
-	imageBuildSvc := NewImageBuildService(s.ImageBuild(), eventHandler, queueProducer, log)
-	imageExportSvc := NewImageExportService(s.ImageExport(), s.ImageBuild(), eventHandler, queueProducer, log)
+	imageBuildSvc := NewImageBuildService(s.ImageBuild(), mainStore.Repository(), eventHandler, queueProducer, log)
+	imageExportSvc := NewImageExportService(s.ImageExport(), s.ImageBuild(), mainStore.Repository(), eventHandler, queueProducer, log)
 	return &service{
 		imageBuild:  imageBuildSvc,
 		imageExport: imageExportSvc,

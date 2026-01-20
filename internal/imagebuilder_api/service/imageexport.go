@@ -13,6 +13,7 @@ import (
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/store"
 	internalservice "github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/service/common"
+	mainstore "github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/queues"
@@ -36,16 +37,18 @@ type ImageExportService interface {
 type imageExportService struct {
 	imageExportStore store.ImageExportStore
 	imageBuildStore  store.ImageBuildStore
+	repositoryStore  mainstore.Repository
 	eventHandler     *internalservice.EventHandler
 	queueProducer    queues.QueueProducer
 	log              logrus.FieldLogger
 }
 
 // NewImageExportService creates a new ImageExportService
-func NewImageExportService(imageExportStore store.ImageExportStore, imageBuildStore store.ImageBuildStore, eventHandler *internalservice.EventHandler, queueProducer queues.QueueProducer, log logrus.FieldLogger) ImageExportService {
+func NewImageExportService(imageExportStore store.ImageExportStore, imageBuildStore store.ImageBuildStore, repositoryStore mainstore.Repository, eventHandler *internalservice.EventHandler, queueProducer queues.QueueProducer, log logrus.FieldLogger) ImageExportService {
 	return &imageExportService{
 		imageExportStore: imageExportStore,
 		imageBuildStore:  imageBuildStore,
+		repositoryStore:  repositoryStore,
 		eventHandler:     eventHandler,
 		queueProducer:    queueProducer,
 		log:              log,
@@ -166,6 +169,22 @@ func (s *imageExportService) validate(ctx context.Context, orgId uuid.UUID, imag
 			} else {
 				if source.Repository == "" {
 					errs = append(errs, errors.New("spec.source.repository is required for imageReference source type"))
+				} else {
+					// Validate source repository exists and is OCI type
+					repo, err := s.repositoryStore.Get(ctx, orgId, source.Repository)
+					if errors.Is(err, flterrors.ErrResourceNotFound) {
+						errs = append(errs, fmt.Errorf("spec.source.repository: Repository %q not found", source.Repository))
+					} else if err != nil {
+						return nil, fmt.Errorf("failed to get source repository %q: %w", source.Repository, err)
+					} else {
+						specType, err := repo.Spec.Discriminator()
+						if err != nil {
+							return nil, fmt.Errorf("failed to get source repository spec type: %w", err)
+						}
+						if specType != string(v1beta1.RepoSpecTypeOci) {
+							errs = append(errs, fmt.Errorf("spec.source.repository: Repository %q must be of type 'oci', got %q", source.Repository, specType))
+						}
+					}
 				}
 				if source.ImageName == "" {
 					errs = append(errs, errors.New("spec.source.imageName is required for imageReference source type"))
@@ -182,6 +201,31 @@ func (s *imageExportService) validate(ctx context.Context, orgId uuid.UUID, imag
 	// Validate output
 	if imageExport.Spec.Destination.Repository == "" {
 		errs = append(errs, errors.New("spec.destination.repository is required"))
+	} else {
+		// Validate destination repository exists, is OCI type, and has ReadWrite access
+		repo, err := s.repositoryStore.Get(ctx, orgId, imageExport.Spec.Destination.Repository)
+		if errors.Is(err, flterrors.ErrResourceNotFound) {
+			errs = append(errs, fmt.Errorf("spec.destination.repository: Repository %q not found", imageExport.Spec.Destination.Repository))
+		} else if err != nil {
+			return nil, fmt.Errorf("failed to get destination repository %q: %w", imageExport.Spec.Destination.Repository, err)
+		} else {
+			specType, err := repo.Spec.Discriminator()
+			if err != nil {
+				return nil, fmt.Errorf("failed to get destination repository spec type: %w", err)
+			}
+			if specType != string(v1beta1.RepoSpecTypeOci) {
+				errs = append(errs, fmt.Errorf("spec.destination.repository: Repository %q must be of type 'oci', got %q", imageExport.Spec.Destination.Repository, specType))
+			} else {
+				ociSpec, err := repo.Spec.AsOciRepoSpec()
+				if err != nil {
+					return nil, fmt.Errorf("failed to get destination repository OCI spec: %w", err)
+				}
+				accessMode := lo.FromPtrOr(ociSpec.AccessMode, v1beta1.Read)
+				if accessMode != v1beta1.ReadWrite {
+					errs = append(errs, fmt.Errorf("spec.destination.repository: Repository %q must have 'ReadWrite' access mode, got %q", imageExport.Spec.Destination.Repository, accessMode))
+				}
+			}
+		}
 	}
 	if imageExport.Spec.Destination.ImageName == "" {
 		errs = append(errs, errors.New("spec.destination.imageName is required"))
