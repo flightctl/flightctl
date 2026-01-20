@@ -2,21 +2,16 @@ package versioning
 
 import (
 	"context"
+
+	apiversioning "github.com/flightctl/flightctl/api/versioning"
 )
 
 // Version represents an API version string
 type Version string
 
 const (
-	V1Beta1 Version = "v1beta1"
+	V1Beta1 Version = Version(apiversioning.V1Beta1)
 	// V1 Version = "v1"  // Add when v1 is introduced
-)
-
-// Header names
-const (
-	HeaderAPIVersion           = "Flightctl-API-Version"
-	HeaderAPIVersionsSupported = "Flightctl-API-Versions-Supported"
-	HeaderDeprecation          = "Deprecation"
 )
 
 type versionCtxKey struct{}

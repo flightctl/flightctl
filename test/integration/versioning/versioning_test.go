@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	apiversioning "github.com/flightctl/flightctl/api/versioning"
 	"github.com/flightctl/flightctl/internal/api_server/versioning"
 	"github.com/go-chi/chi/v5"
 	. "github.com/onsi/ginkgo/v2"
@@ -52,7 +53,7 @@ var _ = Describe("API Version Negotiation HTTP", func() {
 		defer resp.Body.Close()
 
 		Expect(resp.StatusCode).To(Equal(http.StatusOK))
-		Expect(resp.Header.Get(versioning.HeaderAPIVersion)).To(Equal(string(versioning.V1Beta1)))
+		Expect(resp.Header.Get(apiversioning.HeaderAPIVersion)).To(Equal(string(versioning.V1Beta1)))
 	})
 
 	It("returns Vary header for cache differentiation", func() {
@@ -60,18 +61,18 @@ var _ = Describe("API Version Negotiation HTTP", func() {
 		Expect(err).ToNot(HaveOccurred())
 		defer resp.Body.Close()
 
-		Expect(resp.Header.Get("Vary")).To(Equal(versioning.HeaderAPIVersion))
+		Expect(resp.Header.Get("Vary")).To(Equal(apiversioning.HeaderAPIVersion))
 	})
 
 	It("returns 406 when unsupported version requested", func() {
 		req, _ := http.NewRequest(http.MethodGet, svr.URL+"/api/v1/devices", nil)
-		req.Header.Set(versioning.HeaderAPIVersion, "v999")
+		req.Header.Set(apiversioning.HeaderAPIVersion, "v999")
 
 		resp, err := http.DefaultClient.Do(req)
 		Expect(err).ToNot(HaveOccurred())
 		defer resp.Body.Close()
 
 		Expect(resp.StatusCode).To(Equal(http.StatusNotAcceptable))
-		Expect(resp.Header.Get(versioning.HeaderAPIVersionsSupported)).To(Equal(string(versioning.V1Beta1)))
+		Expect(resp.Header.Get(apiversioning.HeaderAPIVersionsSupported)).To(Equal(string(versioning.V1Beta1)))
 	})
 })

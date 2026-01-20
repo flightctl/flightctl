@@ -13,6 +13,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
+	"github.com/flightctl/flightctl/api/versioning"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	agent_config "github.com/flightctl/flightctl/internal/agent/config"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
@@ -450,9 +451,14 @@ func (t *tpmProvider) CreateManagementClient(config *base_client.Config, metrics
 			}
 		}
 
+		httpClient.Transport = versioning.NewTransport(httpClient.Transport, versioning.WithAPIV1Beta1())
+
 		// Trim trailing slash to avoid double slash when appending /api/v1
 		serverURL := base_client.JoinServerURL(configCopy.Service.Server, agent_client.ServerUrlApiv1)
-		clientWithResponses, err := agent_client.NewClientWithResponses(serverURL, agent_client.WithHTTPClient(httpClient))
+		clientWithResponses, err := agent_client.NewClientWithResponses(
+			serverURL,
+			agent_client.WithHTTPClient(httpClient),
+		)
 		if err != nil {
 			return nil, fmt.Errorf("creating client: %w", err)
 		}
