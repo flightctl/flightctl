@@ -153,7 +153,7 @@ func (s *AgentServer) Run(ctx context.Context) error {
 
 // Custom logger that logs only responses with status >= 400
 func filteredLogger(log logrus.FieldLogger) func(next http.Handler) http.Handler {
-	formatter := middleware.DefaultLogFormatter{Logger: log}
+	formatter := fcmiddleware.ChiLogFormatterWithAPIVersionTag(log)
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
