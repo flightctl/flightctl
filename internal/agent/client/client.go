@@ -52,7 +52,7 @@ func NewFromConfig(config *baseclient.Config, log *log.PrefixLogger, opts ...HTT
 		return nil
 	})
 	// Trim trailing slash to avoid double slash when appending /api/v1
-	serverURL := strings.TrimSuffix(config.Service.Server, "/") + client.ServerUrlApiv1
+	serverURL := baseclient.JoinServerURL(config.Service.Server, client.ServerUrlApiv1)
 	return client.NewClientWithResponses(serverURL, client.WithHTTPClient(httpClient), ref)
 }
 
