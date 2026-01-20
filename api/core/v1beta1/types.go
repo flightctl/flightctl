@@ -28,3 +28,6 @@ type RolloutBatchCompletionReport struct {
 	Failed            int64  `json:"failed"`
 	TimedOut          int64  `json:"timedOut"`
 }
+
+// A username on the system
+type Username = string
