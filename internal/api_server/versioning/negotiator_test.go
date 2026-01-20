@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	apiversioning "github.com/flightctl/flightctl/api/versioning"
 	"github.com/flightctl/flightctl/internal/api/server"
 	"github.com/go-chi/chi/v5"
 )
@@ -43,7 +44,7 @@ func TestNegotiator_NegotiateMiddleware(t *testing.T) {
 			routePath:             "/devices",
 			wantVersion:           V1Beta1,
 			wantStatusCode:        http.StatusOK,
-			wantVaryHeader:        HeaderAPIVersion,
+			wantVaryHeader:        apiversioning.HeaderAPIVersion,
 			wantSupportedVersions: "",
 		},
 		{
@@ -52,7 +53,7 @@ func TestNegotiator_NegotiateMiddleware(t *testing.T) {
 			routePath:             "/devices",
 			wantVersion:           V1Beta1,
 			wantStatusCode:        http.StatusOK,
-			wantVaryHeader:        HeaderAPIVersion,
+			wantVaryHeader:        apiversioning.HeaderAPIVersion,
 			wantSupportedVersions: "",
 		},
 		{
@@ -69,7 +70,7 @@ func TestNegotiator_NegotiateMiddleware(t *testing.T) {
 			routePath:             "/unknown/path",
 			wantVersion:           V1Beta1,
 			wantStatusCode:        http.StatusOK,
-			wantVaryHeader:        HeaderAPIVersion,
+			wantVaryHeader:        apiversioning.HeaderAPIVersion,
 			wantSupportedVersions: "",
 		},
 		{
@@ -78,7 +79,7 @@ func TestNegotiator_NegotiateMiddleware(t *testing.T) {
 			routePath:             "/unknown/path",
 			wantVersion:           V1Beta1,
 			wantStatusCode:        http.StatusOK,
-			wantVaryHeader:        HeaderAPIVersion,
+			wantVaryHeader:        apiversioning.HeaderAPIVersion,
 			wantSupportedVersions: "",
 		},
 		{
@@ -103,7 +104,7 @@ func TestNegotiator_NegotiateMiddleware(t *testing.T) {
 
 			req := httptest.NewRequest(http.MethodGet, tt.routePath, nil)
 			if tt.requested != "" {
-				req.Header.Set(HeaderAPIVersion, string(tt.requested))
+				req.Header.Set(apiversioning.HeaderAPIVersion, string(tt.requested))
 			}
 			req = withChiRouteContext(req, tt.routePath)
 
@@ -124,18 +125,18 @@ func TestNegotiator_NegotiateMiddleware(t *testing.T) {
 					t.Errorf("Vary header = %v, want %v", rec.Header().Get("Vary"), tt.wantVaryHeader)
 				}
 
-				if rec.Header().Get(HeaderAPIVersion) != string(tt.wantVersion) {
-					t.Errorf("%s header = %v, want %v", HeaderAPIVersion, rec.Header().Get(HeaderAPIVersion), tt.wantVersion)
+				if rec.Header().Get(apiversioning.HeaderAPIVersion) != string(tt.wantVersion) {
+					t.Errorf("%s header = %v, want %v", apiversioning.HeaderAPIVersion, rec.Header().Get(apiversioning.HeaderAPIVersion), tt.wantVersion)
 				}
 
 				// Supported versions header should NOT be present on success
-				if rec.Header().Get(HeaderAPIVersionsSupported) != "" {
-					t.Errorf("%s header should not be present on success, got %v", HeaderAPIVersionsSupported, rec.Header().Get(HeaderAPIVersionsSupported))
+				if rec.Header().Get(apiversioning.HeaderAPIVersionsSupported) != "" {
+					t.Errorf("%s header should not be present on success, got %v", apiversioning.HeaderAPIVersionsSupported, rec.Header().Get(apiversioning.HeaderAPIVersionsSupported))
 				}
 			} else if tt.wantStatusCode == http.StatusNotAcceptable {
 				// Supported versions header should be present on 406 errors (when metadata has versions)
-				if tt.wantSupportedVersions != "" && rec.Header().Get(HeaderAPIVersionsSupported) != tt.wantSupportedVersions {
-					t.Errorf("%s header = %v, want %v", HeaderAPIVersionsSupported, rec.Header().Get(HeaderAPIVersionsSupported), tt.wantSupportedVersions)
+				if tt.wantSupportedVersions != "" && rec.Header().Get(apiversioning.HeaderAPIVersionsSupported) != tt.wantSupportedVersions {
+					t.Errorf("%s header = %v, want %v", apiversioning.HeaderAPIVersionsSupported, rec.Header().Get(apiversioning.HeaderAPIVersionsSupported), tt.wantSupportedVersions)
 				}
 			}
 		})

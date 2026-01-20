@@ -9,6 +9,7 @@ import (
 	"time"
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
+	apiversioning "github.com/flightctl/flightctl/api/versioning"
 	"github.com/flightctl/flightctl/internal/api/server"
 )
 
@@ -33,7 +34,7 @@ func (n *Negotiator) FallbackVersion() Version {
 // NegotiateMiddleware is HTTP middleware that performs version negotiation.
 func (n *Negotiator) NegotiateMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		requested := Version(req.Header.Get(HeaderAPIVersion))
+		requested := Version(req.Header.Get(apiversioning.HeaderAPIVersion))
 		metadata := server.GetEndpointMetadata(req)
 
 		negotiated, deprecatedAt, err := n.negotiate(requested, metadata)
@@ -77,25 +78,25 @@ func (n *Negotiator) negotiate(requested Version, metadata *server.EndpointMetad
 // setHeaders sets version-related response headers for successful negotiation.
 // Note: supported versions header is intentionally NOT set here (only on 406).
 func (n *Negotiator) setHeaders(w http.ResponseWriter, negotiated Version, deprecatedAt *time.Time) {
-	addVary(w.Header(), HeaderAPIVersion)
+	addVary(w.Header(), apiversioning.HeaderAPIVersion)
 
 	// Negotiated version header.
-	w.Header().Set(HeaderAPIVersion, string(negotiated))
+	w.Header().Set(apiversioning.HeaderAPIVersion, string(negotiated))
 
 	// Deprecation header format must be "@<epoch-seconds>".
 	if deprecatedAt != nil {
-		w.Header().Set(HeaderDeprecation, "@"+strconv.FormatInt(deprecatedAt.UTC().Unix(), 10))
+		w.Header().Set(apiversioning.HeaderDeprecation, "@"+strconv.FormatInt(deprecatedAt.UTC().Unix(), 10))
 	}
 }
 
 // writeError writes a 406 Not Acceptable response.
 // Supported versions header is returned ONLY here (on 406).
 func (n *Negotiator) writeError(w http.ResponseWriter, metadata *server.EndpointMetadata) {
-	addVary(w.Header(), HeaderAPIVersion)
+	addVary(w.Header(), apiversioning.HeaderAPIVersion)
 
 	supportedStr := supportedVersionsString(metadata, n.fallbackVersion)
 	if supportedStr != "" {
-		w.Header().Set(HeaderAPIVersionsSupported, supportedStr)
+		w.Header().Set(apiversioning.HeaderAPIVersionsSupported, supportedStr)
 	}
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")

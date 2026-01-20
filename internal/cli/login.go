@@ -420,6 +420,7 @@ func (o *LoginOptions) validateTokenWithServer(ctx context.Context, token string
 	if err != nil {
 		return nil, fmt.Errorf("creating HTTP client: %w", err)
 	}
+
 	tokenEditor := apiClient.WithRequestEditorFn(func(ctx context.Context, req *http.Request) error {
 		req.Header.Set(common.AuthHeader, fmt.Sprintf("Bearer %s", token))
 		return nil
@@ -603,7 +604,11 @@ func (o *LoginOptions) getAuthConfig(ctx context.Context) (*v1beta1.AuthConfig, 
 			return nil, fmt.Errorf("failed to create http client:\n%s", friendlyErr)
 		}
 	}
-	c, err := apiClient.NewClientWithResponses(client.JoinServerURL(o.clientConfig.Service.Server, apiClient.ServerUrlApiv1), apiClient.WithHTTPClient(httpClient))
+
+	c, err := apiClient.NewClientWithResponses(
+		client.JoinServerURL(o.clientConfig.Service.Server, apiClient.ServerUrlApiv1),
+		apiClient.WithHTTPClient(httpClient),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("creating client: %w", err)
 	}
@@ -639,7 +644,10 @@ func (o *LoginOptions) getAuthConfig(ctx context.Context) (*v1beta1.AuthConfig, 
 				// retry once
 				httpClient, herr := client.NewHTTPClientFromConfig(o.clientConfig)
 				if herr == nil {
-					c, herr = apiClient.NewClientWithResponses(client.JoinServerURL(o.clientConfig.Service.Server, apiClient.ServerUrlApiv1), apiClient.WithHTTPClient(httpClient))
+					c, herr = apiClient.NewClientWithResponses(
+						client.JoinServerURL(o.clientConfig.Service.Server, apiClient.ServerUrlApiv1),
+						apiClient.WithHTTPClient(httpClient),
+					)
 					if herr == nil {
 						resp, err = c.AuthConfigWithResponse(ctx)
 					}

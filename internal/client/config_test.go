@@ -159,7 +159,17 @@ func TestClientConfig(t *testing.T) {
 			httpClient, ok := c.Client.(*http.Client)
 			require.True(ok)
 
-			httpTransport, ok := httpClient.Transport.(*http.Transport)
+			// Unwrap any transport wrappers to get the base http.Transport.
+			baseTransport := httpClient.Transport
+			for {
+				unwrapper, ok := baseTransport.(interface{ UnwrapTransport() http.RoundTripper })
+				if !ok {
+					break
+				}
+				baseTransport = unwrapper.UnwrapTransport()
+			}
+
+			httpTransport, ok := baseTransport.(*http.Transport)
 			require.True(ok)
 			require.Equal(tt.serverNameWant, httpTransport.TLSClientConfig.ServerName)
 			require.NotEmpty(httpTransport.TLSClientConfig.Certificates)

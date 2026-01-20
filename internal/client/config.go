@@ -19,6 +19,7 @@ import (
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
+	"github.com/flightctl/flightctl/api/versioning"
 	"github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/crypto"
@@ -338,6 +339,7 @@ func NewFromConfig(config *Config, configFilePath string, opts ...client.ClientO
 	if err != nil {
 		return nil, fmt.Errorf("NewFromConfig: creating HTTP client %w", err)
 	}
+
 	ref := client.WithRequestEditorFn(func(ctx context.Context, req *http.Request) error {
 		req.Header.Set(middleware.RequestIDHeader, reqid.NextRequestID())
 		accessToken := GetAccessToken(config, configFilePath)
@@ -346,7 +348,11 @@ func NewFromConfig(config *Config, configFilePath string, opts ...client.ClientO
 		}
 		return nil
 	})
-	defaultOpts := []client.ClientOption{client.WithHTTPClient(httpClient), ref, WithOrganization(config.Organization)}
+	defaultOpts := []client.ClientOption{
+		client.WithHTTPClient(httpClient),
+		ref,
+		WithOrganization(config.Organization),
+	}
 	defaultOpts = append(defaultOpts, opts...)
 	return client.NewClientWithResponses(JoinServerURL(config.Service.Server, client.ServerUrlApiv1), defaultOpts...)
 }
@@ -416,6 +422,9 @@ func NewHTTPClientFromConfig(config *Config) (*http.Client, error) {
 			return nil, fmt.Errorf("NewHTTPClientFromConfig: applying HTTP option: %w", err)
 		}
 	}
+
+	// Wrap transport with versioning to inject API version header (after HTTPOptions)
+	httpClient.Transport = versioning.NewTransport(httpClient.Transport, versioning.WithAPIV1Beta1())
 
 	return httpClient, nil
 }
@@ -735,10 +744,26 @@ func resolvePath(path string, baseDir string) string {
 	return path
 }
 
+func unwrapTransport(rt http.RoundTripper) http.RoundTripper {
+	for {
+		u, ok := rt.(interface{ UnwrapTransport() http.RoundTripper })
+		if !ok {
+			return rt
+		}
+		rt = u.UnwrapTransport()
+	}
+}
+
 func resolveTransport(client *http.Client) (*http.Transport, error) {
-	transport, ok := client.Transport.(*http.Transport)
+	rt := client.Transport
+	if rt == nil {
+		rt = http.DefaultTransport
+	}
+	rt = unwrapTransport(rt)
+
+	transport, ok := rt.(*http.Transport)
 	if !ok {
-		return nil, fmt.Errorf("transport is an unknown type: %T", client.Transport)
+		return nil, fmt.Errorf("transport is an unknown type: %T", rt)
 	}
 
 	return transport.Clone(), nil
@@ -790,8 +815,14 @@ func WithCachedTransport() HTTPClientOption {
 			}
 			cached = transport
 		}
-		if _, ok := client.Transport.(*http.Transport); !ok {
-			return fmt.Errorf("WithCachedTransport: transport is an unknown type: %T", client.Transport)
+
+		rt := client.Transport
+		if rt == nil {
+			rt = http.DefaultTransport
+		}
+		rt = unwrapTransport(rt)
+		if _, ok := rt.(*http.Transport); !ok {
+			return fmt.Errorf("WithCachedTransport: transport is an unknown type: %T", rt)
 		}
 		client.Transport = cached
 		return nil
