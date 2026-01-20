@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	api "github.com/flightctl/flightctl/api/imagebuilder/v1beta1"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/store"
 	flightctlstore "github.com/flightctl/flightctl/internal/store"
@@ -315,6 +317,111 @@ func (s *DummyImageExportStore) ListPendingRetry(ctx context.Context, orgId uuid
 
 func (s *DummyImageExportStore) InitialMigration(ctx context.Context) error {
 	return nil
+}
+
+// DummyRepositoryStore is a mock implementation of flightctlstore.Repository
+type DummyRepositoryStore struct {
+	repositories map[string]*domain.Repository // key: name
+}
+
+func NewDummyRepositoryStore() *DummyRepositoryStore {
+	return &DummyRepositoryStore{
+		repositories: make(map[string]*domain.Repository),
+	}
+}
+
+func (s *DummyRepositoryStore) InitialMigration(ctx context.Context) error {
+	return nil
+}
+
+func (s *DummyRepositoryStore) Create(ctx context.Context, orgId uuid.UUID, repository *domain.Repository, eventCallback flightctlstore.EventCallback) (*domain.Repository, error) {
+	name := lo.FromPtr(repository.Metadata.Name)
+	if _, exists := s.repositories[name]; exists {
+		return nil, flterrors.ErrDuplicateName
+	}
+	var created domain.Repository
+	deepCopy(repository, &created)
+	s.repositories[name] = &created
+	return &created, nil
+}
+
+func (s *DummyRepositoryStore) Update(ctx context.Context, orgId uuid.UUID, repository *domain.Repository, eventCallback flightctlstore.EventCallback) (*domain.Repository, error) {
+	name := lo.FromPtr(repository.Metadata.Name)
+	if _, exists := s.repositories[name]; !exists {
+		return nil, flterrors.ErrResourceNotFound
+	}
+	var updated domain.Repository
+	deepCopy(repository, &updated)
+	s.repositories[name] = &updated
+	return &updated, nil
+}
+
+func (s *DummyRepositoryStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, repository *domain.Repository, eventCallback flightctlstore.EventCallback) (*domain.Repository, bool, error) {
+	name := lo.FromPtr(repository.Metadata.Name)
+	created := false
+	if _, exists := s.repositories[name]; !exists {
+		created = true
+	}
+	var result domain.Repository
+	deepCopy(repository, &result)
+	s.repositories[name] = &result
+	return &result, created, nil
+}
+
+func (s *DummyRepositoryStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.Repository, error) {
+	repo, exists := s.repositories[name]
+	if !exists {
+		return nil, flterrors.ErrResourceNotFound
+	}
+	var result domain.Repository
+	deepCopy(repo, &result)
+	return &result, nil
+}
+
+func (s *DummyRepositoryStore) List(ctx context.Context, orgId uuid.UUID, listParams flightctlstore.ListParams) (*domain.RepositoryList, error) {
+	return &domain.RepositoryList{}, nil
+}
+
+func (s *DummyRepositoryStore) Delete(ctx context.Context, orgId uuid.UUID, name string, eventCallback flightctlstore.EventCallback) error {
+	return nil
+}
+
+func (s *DummyRepositoryStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.Repository, eventCallback flightctlstore.EventCallback) (*domain.Repository, error) {
+	return nil, nil
+}
+
+func (s *DummyRepositoryStore) GetFleetRefs(ctx context.Context, orgId uuid.UUID, name string) (*domain.FleetList, error) {
+	return &domain.FleetList{}, nil
+}
+
+func (s *DummyRepositoryStore) GetDeviceRefs(ctx context.Context, orgId uuid.UUID, name string) (*domain.DeviceList, error) {
+	return &domain.DeviceList{}, nil
+}
+
+func (s *DummyRepositoryStore) Count(ctx context.Context, orgId uuid.UUID, listParams flightctlstore.ListParams) (int64, error) {
+	return 0, nil
+}
+
+func (s *DummyRepositoryStore) CountByOrg(ctx context.Context, orgId *uuid.UUID) ([]flightctlstore.CountByOrgResult, error) {
+	return nil, nil
+}
+
+// newOciRepository creates a test OCI repository with the specified access mode
+func newOciRepository(name string, accessMode v1beta1.OciRepoSpecAccessMode) *v1beta1.Repository {
+	spec := v1beta1.RepositorySpec{}
+	_ = spec.FromOciRepoSpec(v1beta1.OciRepoSpec{
+		Registry:   "quay.io",
+		Type:       v1beta1.RepoSpecTypeOci,
+		AccessMode: &accessMode,
+	})
+	return &v1beta1.Repository{
+		ApiVersion: "flightctl.io/v1beta1",
+		Kind:       string(v1beta1.ResourceKindRepository),
+		Metadata: v1beta1.ObjectMeta{
+			Name: lo.ToPtr(name),
+		},
+		Spec: spec,
+	}
 }
 
 // deepCopy performs a deep copy using JSON marshaling
