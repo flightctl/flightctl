@@ -38,6 +38,9 @@ type ServerInterface interface {
 
 	// (GET /api/v1/imageexports/{name})
 	GetImageExport(w http.ResponseWriter, r *http.Request, name string)
+
+	// (GET /api/v1/imageexports/{name}/download)
+	DownloadImageExport(w http.ResponseWriter, r *http.Request, name string)
 }
 
 // Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
@@ -81,6 +84,11 @@ func (_ Unimplemented) DeleteImageExport(w http.ResponseWriter, r *http.Request,
 
 // (GET /api/v1/imageexports/{name})
 func (_ Unimplemented) GetImageExport(w http.ResponseWriter, r *http.Request, name string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /api/v1/imageexports/{name}/download)
+func (_ Unimplemented) DownloadImageExport(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -342,6 +350,31 @@ func (siw *ServerInterfaceWrapper) GetImageExport(w http.ResponseWriter, r *http
 	handler.ServeHTTP(w, r)
 }
 
+// DownloadImageExport operation middleware
+func (siw *ServerInterfaceWrapper) DownloadImageExport(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", chi.URLParam(r, "name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DownloadImageExport(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 type UnescapedCookieParamError struct {
 	ParamName string
 	Err       error
@@ -478,6 +511,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/imageexports/{name}", wrapper.GetImageExport)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/imageexports/{name}/download", wrapper.DownloadImageExport)
 	})
 
 	return r

@@ -2,6 +2,7 @@ package tasks
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -199,6 +200,10 @@ func (m *mockImageExportService) UpdateLastSeen(ctx context.Context, orgId uuid.
 
 func (m *mockImageExportService) Delete(ctx context.Context, orgId uuid.UUID, name string) (*apiimagebuilder.ImageExport, v1beta1.Status) {
 	return nil, v1beta1.StatusOK()
+}
+
+func (m *mockImageExportService) Download(ctx context.Context, orgId uuid.UUID, name string) (*imagebuilderapi.ImageExportDownload, error) {
+	return nil, fmt.Errorf("not implemented in mock")
 }
 
 func createTestImageBuild(name string, reason apiimagebuilder.ImageBuildConditionReason, lastSeen time.Time) *apiimagebuilder.ImageBuild {

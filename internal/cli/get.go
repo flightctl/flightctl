@@ -38,6 +38,7 @@ const (
 	FlagSummary     = "summary"      // for listing devices and fleets
 	FlagSummaryOnly = "summary-only" // for listing devices
 	FlagLastSeen    = "last-seen"    // for a single device
+	FlagWithExports = "with-exports" // for imagebuilds
 )
 
 type FlagContextualRule struct {
@@ -59,6 +60,7 @@ type GetOptions struct {
 	Summary       bool
 	SummaryOnly   bool
 	LastSeen      bool
+	WithExports   bool
 }
 
 func DefaultGetOptions() *GetOptions {
@@ -71,6 +73,7 @@ func DefaultGetOptions() *GetOptions {
 		FleetName:     "",
 		Rendered:      false,
 		LastSeen:      false,
+		WithExports:   false,
 	}
 }
 
@@ -123,6 +126,7 @@ func (o *GetOptions) Bind(fs *pflag.FlagSet) {
 	fs.BoolVarP(&o.Summary, FlagSummary, "s", false, "Display summary information.")
 	fs.BoolVar(&o.SummaryOnly, FlagSummaryOnly, false, "Display summary information only.")
 	fs.BoolVar(&o.LastSeen, FlagLastSeen, false, "Display the last seen timestamp of the device.")
+	fs.BoolVar(&o.WithExports, FlagWithExports, false, "Include related ImageExport resources when getting imagebuilds.")
 	o.hideHelpContextualFlags(fs)
 }
 
@@ -447,6 +451,7 @@ func (o *GetOptions) createImageBuilderFetchers(ctx context.Context, kind Resour
 				FieldSelector: util.ToPtrWithNilDefault(o.FieldSelector),
 				Limit:         util.ToPtrWithNilDefault(o.Limit),
 				Continue:      util.ToPtrWithNilDefault(o.Continue),
+				WithExports:   lo.ToPtr(o.WithExports),
 			}
 			response, err := c.ListImageBuildsWithResponse(ctx, params)
 			if err != nil {
@@ -459,7 +464,7 @@ func (o *GetOptions) createImageBuilderFetchers(ctx context.Context, kind Resour
 		}
 		singleFetcher = func(name string) (interface{}, error) {
 			response, err := c.GetImageBuildWithResponse(ctx, name, &imagebuilderapi.GetImageBuildParams{
-				WithExports: lo.ToPtr(false),
+				WithExports: lo.ToPtr(o.WithExports),
 			})
 			if err != nil {
 				return nil, err
@@ -735,6 +740,7 @@ func (o *GetOptions) displayResponse(formatter display.OutputFormatter, response
 		Summary:     o.Summary,
 		SummaryOnly: o.SummaryOnly,
 		Wide:        o.Output == string(display.WideFormat),
+		WithExports: o.WithExports,
 		Writer:      os.Stdout,
 	}
 

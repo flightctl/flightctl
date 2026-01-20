@@ -2,6 +2,7 @@ package display
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -79,7 +80,7 @@ func (f *TableFormatter) formatList(w *tabwriter.Writer, data interface{}, optio
 	case strings.EqualFold(options.Kind, api.AuthProviderKind):
 		return f.printAuthProvidersTable(w, data.(*apiclient.ListAuthProvidersResponse).JSON200.Items...)
 	case strings.EqualFold(options.Kind, string(imagebuilderapi.ResourceKindImageBuild)):
-		return f.printImageBuildsTable(w, data.(*imagebuilderclient.ListImageBuildsResponse).JSON200.Items...)
+		return f.printImageBuildsTable(w, options.WithExports, data.(*imagebuilderclient.ListImageBuildsResponse).JSON200.Items...)
 	case strings.EqualFold(options.Kind, string(imagebuilderapi.ResourceKindImageExport)):
 		return f.printImageExportsTable(w, data.(*imagebuilderclient.ListImageExportsResponse).JSON200.Items...)
 	case strings.EqualFold(options.Kind, api.AuthConfigKind):
@@ -135,7 +136,7 @@ func (f *TableFormatter) formatSingle(w *tabwriter.Writer, data interface{}, opt
 	case strings.EqualFold(options.Kind, api.AuthProviderKind):
 		return f.printAuthProvidersTable(w, *data.(*apiclient.GetAuthProviderResponse).JSON200)
 	case strings.EqualFold(options.Kind, string(imagebuilderapi.ResourceKindImageBuild)):
-		return f.printImageBuildsTable(w, *data.(*imagebuilderclient.GetImageBuildResponse).JSON200)
+		return f.printImageBuildsTable(w, options.WithExports, *data.(*imagebuilderclient.GetImageBuildResponse).JSON200)
 	case strings.EqualFold(options.Kind, string(imagebuilderapi.ResourceKindImageExport)):
 		return f.printImageExportsTable(w, *data.(*imagebuilderclient.GetImageExportResponse).JSON200)
 	default:
@@ -592,8 +593,12 @@ func (f *TableFormatter) printAuthProvidersTable(w *tabwriter.Writer, authProvid
 	return nil
 }
 
-func (f *TableFormatter) printImageBuildsTable(w *tabwriter.Writer, imageBuilds ...imagebuilderapi.ImageBuild) error {
-	f.printHeaderRowLn(w, "NAME", "PHASE", "INPUT", "OUTPUT", "AGE")
+func (f *TableFormatter) printImageBuildsTable(w *tabwriter.Writer, withExports bool, imageBuilds ...imagebuilderapi.ImageBuild) error {
+	if withExports {
+		f.printHeaderRowLn(w, "NAME", "PHASE", "INPUT", "OUTPUT", "EXPORTS", "AGE")
+	} else {
+		f.printHeaderRowLn(w, "NAME", "PHASE", "INPUT", "OUTPUT", "AGE")
+	}
 	for _, ib := range imageBuilds {
 		name := NoneString
 		if ib.Metadata.Name != nil {
@@ -618,7 +623,29 @@ func (f *TableFormatter) printImageBuildsTable(w *tabwriter.Writer, imageBuilds 
 			age = humanize.Time(*ib.Metadata.CreationTimestamp)
 		}
 
-		f.printTableRowLn(w, name, phase, source, destination, age)
+		if withExports {
+			exports := NoneString
+			if ib.Imageexports != nil && len(*ib.Imageexports) > 0 {
+				formatMap := make(map[string]bool)
+				for _, export := range *ib.Imageexports {
+					if export.Spec.Format != "" {
+						formatMap[string(export.Spec.Format)] = true
+					}
+				}
+				if len(formatMap) > 0 {
+					var formats []string
+					for format := range formatMap {
+						formats = append(formats, format)
+					}
+					// Sort formats for consistent output
+					slices.Sort(formats)
+					exports = strings.Join(formats, ",")
+				}
+			}
+			f.printTableRowLn(w, name, phase, source, destination, exports, age)
+		} else {
+			f.printTableRowLn(w, name, phase, source, destination, age)
+		}
 	}
 	return nil
 }

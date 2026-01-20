@@ -149,6 +149,11 @@ func StatusInternalServerError(message string) v1beta1.Status {
 	return v1beta1.Status{Code: 500, Message: message}
 }
 
+// StatusServiceUnavailable returns a 503 Service Unavailable status with the given message
+func StatusServiceUnavailable(message string) v1beta1.Status {
+	return v1beta1.Status{Code: 503, Message: message}
+}
+
 // IsStatusOK returns true if the status code is in the 2xx range
 func IsStatusOK(status v1beta1.Status) bool {
 	return status.Code >= 200 && status.Code < 300

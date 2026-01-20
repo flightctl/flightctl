@@ -101,10 +101,21 @@ func (o *GlobalOptions) BuildClient() (*apiclient.ClientWithResponses, error) {
 	return client.NewFromConfigFile(o.ConfigFilePath, client.WithOrganization(organization), client.WithUserAgentHeader("flightctl-cli"))
 }
 
+// BuildImageBuilderClientOptions contains options for building the imagebuilder client
+type BuildImageBuilderClientOptions struct {
+	// DisableRedirectFollowing disables automatic redirect following in the HTTP client
+	DisableRedirectFollowing bool
+}
+
 // BuildImageBuilderClient constructs an ImageBuilder API client using configuration
 // derived from the global options. Returns an error if the imagebuilder service
 // is not configured.
 func (o *GlobalOptions) BuildImageBuilderClient() (*imagebuilderclient.ClientWithResponses, error) {
+	return o.BuildImageBuilderClientWithOptions(BuildImageBuilderClientOptions{})
+}
+
+// BuildImageBuilderClientWithOptions constructs an ImageBuilder API client with the given options
+func (o *GlobalOptions) BuildImageBuilderClientWithOptions(opts BuildImageBuilderClientOptions) (*imagebuilderclient.ClientWithResponses, error) {
 	config, err := client.ParseConfigFile(o.ConfigFilePath)
 	if err != nil {
 		return nil, err
@@ -118,6 +129,13 @@ func (o *GlobalOptions) BuildImageBuilderClient() (*imagebuilderclient.ClientWit
 	httpClient, err := client.NewHTTPClientFromConfig(config)
 	if err != nil {
 		return nil, fmt.Errorf("creating HTTP client: %w", err)
+	}
+
+	// Disable redirect following if requested
+	if opts.DisableRedirectFollowing {
+		httpClient.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		}
 	}
 
 	ref := imagebuilderclient.WithRequestEditorFn(func(ctx context.Context, req *http.Request) error {
