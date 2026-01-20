@@ -287,8 +287,21 @@ type gitOpsConfig struct {
 	IgnoreResourceUpdates []string `json:"ignoreResourceUpdates,omitempty"`
 }
 
+type periodicTaskScheduleConfig struct {
+	Interval util.Duration `json:"interval,omitempty"`
+}
+
+type periodicTaskConfig struct {
+	Schedule periodicTaskScheduleConfig `json:"schedule,omitempty"`
+}
+
+type periodicTasksConfig struct {
+	ResourceSync periodicTaskConfig `json:"resourceSync,omitempty"`
+}
+
 type periodicConfig struct {
-	Consumers int `json:"consumers,omitempty"`
+	Consumers int                 `json:"consumers,omitempty"`
+	Tasks     periodicTasksConfig `json:"tasks,omitempty"`
 }
 
 type organizationsConfig struct {

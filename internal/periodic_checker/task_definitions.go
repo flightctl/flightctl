@@ -51,6 +51,28 @@ var periodicTasks = map[PeriodicTaskType]PeriodicTaskMetadata{
 	PeriodicTaskTypeQueueMaintenance:       {Interval: QueueMaintenanceInterval, SystemWide: true},
 }
 
+// MergeTasksWithConfig merges configured task intervals with defaults.
+// Configured intervals override defaults; unconfigured tasks use defaults.
+func MergeTasksWithConfig(cfg *config.Config) map[PeriodicTaskType]PeriodicTaskMetadata {
+	merged := make(map[PeriodicTaskType]PeriodicTaskMetadata, len(periodicTasks))
+	for k, v := range periodicTasks {
+		merged[k] = v
+	}
+
+	if cfg == nil || cfg.Periodic == nil {
+		return merged
+	}
+
+	tasks := cfg.Periodic.Tasks
+	if tasks.ResourceSync.Schedule.Interval > 0 {
+		meta := merged[PeriodicTaskTypeResourceSync]
+		meta.Interval = time.Duration(tasks.ResourceSync.Schedule.Interval)
+		merged[PeriodicTaskTypeResourceSync] = meta
+	}
+
+	return merged
+}
+
 type PeriodicTaskReference struct {
 	Type  PeriodicTaskType
 	OrgID uuid.UUID

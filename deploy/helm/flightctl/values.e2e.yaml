@@ -19,6 +19,10 @@ periodic:
   env:
     GORM_TRACE_ENFORCE_FATAL: "true"
     GORM_TRACE_INCLUDE_QUERY_VARIABLES: "true"
+  tasks:
+    resourceSync:
+      schedule:
+        interval: 5s
 alertExporter:
   env:
     GORM_TRACE_ENFORCE_FATAL: "true"
