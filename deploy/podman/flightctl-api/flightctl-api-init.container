@@ -21,6 +21,8 @@ Restart=on-failure
 RestartSec=5s
 ExecStartPre=/usr/bin/mkdir -p /run/flightctl
 ExecStartPre=/bin/sh -c 'echo "HOST_FQDN=$(hostname -f || hostname)" > /run/flightctl/api_init_host.env'
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=flightctl.target
