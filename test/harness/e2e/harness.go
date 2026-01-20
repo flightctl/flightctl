@@ -1052,7 +1052,9 @@ func (h *Harness) FixNetworkFailureForCLI(ip, port string) error {
 
 // CheckRunningContainers verifies the expected number of running containers on the VM.
 func (h *Harness) CheckRunningContainers() (string, error) {
-	out, err := h.VM.RunSSH([]string{"sudo", "podman", "ps", "|", "grep", "Up", "|", "wc", "-l"}, nil)
+	// Use a shell so the pipe is interpreted correctly.
+	cmd := "sudo podman ps --filter status=running --format '{{.Names}}' | wc -l"
+	out, err := h.VM.RunSSH(vmShellCommandArgs(cmd), nil)
 	if err != nil {
 		return "", err
 	}

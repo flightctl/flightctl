@@ -213,6 +213,244 @@ func (h *Harness) UpdateApplication(withRetries bool, deviceId string, appName s
 	return h.UpdateDevice(deviceId, updateFunc)
 }
 
+// WaitForApplicationRunningStatus waits for a specific application on a device to reach the "Running" status with all
+// expected workloads running within a timeout.
+func (h *Harness) WaitForApplicationRunningStatus(deviceId string, applicationImage string) {
+	GinkgoWriter.Printf("Waiting for application running status (device=%s image=%s)\n", deviceId, applicationImage)
+	h.WaitForDeviceContents(deviceId, "status: Running",
+		func(device *v1beta1.Device) bool {
+			if device == nil || device.Status == nil || device.Status.Applications == nil {
+				return false
+			}
+			for _, application := range device.Status.Applications {
+				if application.Name == applicationImage && application.Status == v1beta1.ApplicationStatusRunning {
+					// ready indicates the number of workloads that are currently running compared to the number of expected
+					// workloads. Checks to see if "1/1" or "2/3" containers are ready
+					parts := strings.Split(application.Ready, "/")
+					if len(parts) != 2 {
+						return false
+					}
+					return parts[0] == parts[1]
+				}
+			}
+			return false
+		}, TIMEOUT)
+}
+
+// WaitForApplicationsSummaryNotHealthy waits until applications summary status is set and not Healthy.
+func (h *Harness) WaitForApplicationsSummaryNotHealthy(deviceID string) {
+	GinkgoWriter.Printf("Waiting for applications summary to become non-healthy (device=%s)\n", deviceID)
+	Expect(h).ToNot(BeNil())
+	Expect(strings.TrimSpace(deviceID)).ToNot(BeEmpty())
+
+	Eventually(func() bool {
+		response, err := h.GetDeviceWithStatusSystem(deviceID)
+		if err != nil || response == nil || response.JSON200 == nil {
+			return false
+		}
+		device := response.JSON200
+		if device.Status == nil {
+			return false
+		}
+		if device.Status.ApplicationsSummary.Status == "" {
+			return false
+		}
+		return device.Status.ApplicationsSummary.Status != v1beta1.ApplicationsSummaryStatusHealthy
+	}, TIMEOUT, POLLING).Should(BeTrue())
+}
+
+func (h *Harness) UpdateDeviceAndWait(deviceID string, updateFunc func(device *v1beta1.Device)) error {
+	GinkgoWriter.Printf("Preparing device update (device=%s)\n", deviceID)
+	newRenderedVersion, err := h.PrepareNextDeviceVersion(deviceID)
+	if err != nil {
+		return err
+	}
+
+	err = h.UpdateDeviceWithRetries(deviceID, updateFunc)
+	if err != nil {
+		return err
+	}
+
+	GinkgoWriter.Printf("Waiting for device to pick config (device=%s)\n", deviceID)
+	return h.WaitForDeviceNewRenderedVersion(deviceID, newRenderedVersion)
+}
+
+func (h *Harness) ExtractSingleContainerNameFromVM() (string, error) {
+	GinkgoWriter.Printf("Extracting container name from VM\n")
+	cmd := "sudo podman ps --format \"{{.Names}}\" | head -n 1"
+	containerName, err := h.VM.RunSSH(vmShellCommandArgs(cmd), nil)
+	if err != nil {
+		return "", err
+	}
+	containerNameString := ""
+	if containerName == nil {
+		GinkgoWriter.Printf("Container name output is nil for command: %s\n", cmd)
+	} else {
+		containerNameString = strings.Trim(containerName.String(), "\n")
+	}
+	if strings.TrimSpace(containerNameString) == "" {
+		_, _ = h.VM.RunSSH(vmShellCommandArgs("sudo podman ps -a --format '{{.Names}} {{.Status}}'"), nil)
+		return "", fmt.Errorf("no container name found (command=%q)", cmd)
+	}
+	GinkgoWriter.Printf("Found container name: %s\n", containerNameString)
+	return containerNameString, nil
+}
+
+func (h *Harness) VerifyContainerCount(count int) error {
+	GinkgoWriter.Printf("Verifying container count (expected=%d)\n", count)
+	out, err := h.CheckRunningContainers()
+	if err != nil {
+		return err
+	}
+	actualCount, err := strconv.Atoi(strings.TrimSpace(out))
+	if err != nil {
+		return fmt.Errorf("parsing container count from %q: %w", out, err)
+	}
+	if actualCount != count {
+		return fmt.Errorf("container count mismatch: expected %d, got %d", count, actualCount)
+	}
+	return nil
+}
+
+func (h *Harness) VerifyCommandOutputsSubstring(args []string, s string) error {
+	GinkgoWriter.Printf("Verifying command output contains substring: %s\n", s)
+	stdout, err := h.VM.RunSSH(args, nil)
+	if err != nil {
+		return err
+	}
+	if stdout == nil {
+		return errors.New("command output is nil")
+	}
+	if !strings.Contains(stdout.String(), s) {
+		return fmt.Errorf("command output missing substring %q: %s", s, stdout.String())
+	}
+	return nil
+}
+
+func (h *Harness) VerifyCommandLacksSubstring(args []string, s string) error {
+	GinkgoWriter.Printf("Verifying command output lacks substring: %s\n", s)
+	stdout, err := h.VM.RunSSH(args, nil)
+	if err != nil {
+		return err
+	}
+	if stdout == nil {
+		return errors.New("command output is nil")
+	}
+	if strings.Contains(stdout.String(), s) {
+		return fmt.Errorf("command output unexpectedly contains substring %q: %s", s, stdout.String())
+	}
+	return nil
+}
+
+type InlineContent struct {
+	Path    string
+	Content string
+}
+
+func BuildInlineAppSpec(appName string, appType v1beta1.AppType, contents []InlineContent) (v1beta1.ApplicationProviderSpec, error) {
+	inline := make([]v1beta1.ApplicationContent, 0, len(contents))
+	for _, c := range contents {
+		content := c.Content
+		inline = append(inline, v1beta1.ApplicationContent{
+			Path:    c.Path,
+			Content: &content,
+		})
+	}
+	return BuildAppSpec(appName, appType, v1beta1.InlineApplicationProviderSpec{Inline: inline})
+}
+
+func BuildImageAppSpec(appName string, appType v1beta1.AppType, image string) (v1beta1.ApplicationProviderSpec, error) {
+	return BuildAppSpec(appName, appType, v1beta1.ImageApplicationProviderSpec{Image: image})
+}
+
+func BuildAppSpec(appName string, appType v1beta1.AppType, provider any) (v1beta1.ApplicationProviderSpec, error) {
+	switch appType {
+	case v1beta1.AppTypeCompose:
+		app := v1beta1.ComposeApplication{
+			AppType: appType,
+			Name:    &appName,
+		}
+		if err := applyAppProvider(&app, provider); err != nil {
+			return v1beta1.ApplicationProviderSpec{}, err
+		}
+		var appSpec v1beta1.ApplicationProviderSpec
+		if err := appSpec.FromComposeApplication(app); err != nil {
+			return v1beta1.ApplicationProviderSpec{}, err
+		}
+		return appSpec, nil
+	case v1beta1.AppTypeQuadlet:
+		app := v1beta1.QuadletApplication{
+			AppType: appType,
+			Name:    &appName,
+		}
+		if err := applyAppProvider(&app, provider); err != nil {
+			return v1beta1.ApplicationProviderSpec{}, err
+		}
+		var appSpec v1beta1.ApplicationProviderSpec
+		if err := appSpec.FromQuadletApplication(app); err != nil {
+			return v1beta1.ApplicationProviderSpec{}, err
+		}
+		return appSpec, nil
+	case v1beta1.AppTypeContainer:
+		imageSpec, ok := provider.(v1beta1.ImageApplicationProviderSpec)
+		if !ok {
+			return v1beta1.ApplicationProviderSpec{}, fmt.Errorf("container app requires ImageApplicationProviderSpec")
+		}
+		app := v1beta1.ContainerApplication{
+			AppType: appType,
+			Name:    &appName,
+			Image:   imageSpec.Image,
+		}
+		var appSpec v1beta1.ApplicationProviderSpec
+		if err := appSpec.FromContainerApplication(app); err != nil {
+			return v1beta1.ApplicationProviderSpec{}, err
+		}
+		return appSpec, nil
+	case v1beta1.AppTypeHelm:
+		imageSpec, ok := provider.(v1beta1.ImageApplicationProviderSpec)
+		if !ok {
+			return v1beta1.ApplicationProviderSpec{}, fmt.Errorf("helm app requires ImageApplicationProviderSpec")
+		}
+		app := v1beta1.HelmApplication{
+			AppType: appType,
+			Name:    &appName,
+			Image:   imageSpec.Image,
+		}
+		var appSpec v1beta1.ApplicationProviderSpec
+		if err := appSpec.FromHelmApplication(app); err != nil {
+			return v1beta1.ApplicationProviderSpec{}, err
+		}
+		return appSpec, nil
+	default:
+		return v1beta1.ApplicationProviderSpec{}, fmt.Errorf("unsupported app type %s", appType)
+	}
+}
+
+func applyAppProvider(target any, provider any) error {
+	switch app := target.(type) {
+	case *v1beta1.ComposeApplication:
+		switch spec := provider.(type) {
+		case v1beta1.InlineApplicationProviderSpec:
+			return app.FromInlineApplicationProviderSpec(spec)
+		case v1beta1.ImageApplicationProviderSpec:
+			return app.FromImageApplicationProviderSpec(spec)
+		default:
+			return fmt.Errorf("unsupported application provider type %T", provider)
+		}
+	case *v1beta1.QuadletApplication:
+		switch spec := provider.(type) {
+		case v1beta1.InlineApplicationProviderSpec:
+			return app.FromInlineApplicationProviderSpec(spec)
+		case v1beta1.ImageApplicationProviderSpec:
+			return app.FromImageApplicationProviderSpec(spec)
+		default:
+			return fmt.Errorf("unsupported application provider type %T", provider)
+		}
+	default:
+		return fmt.Errorf("unsupported application target type %T", target)
+	}
+}
+
 func (h *Harness) fetchDeviceContents(deviceId string) (*v1beta1.Device, error) {
 	response, err := h.Client.GetDeviceWithResponse(h.Context, deviceId)
 	if err != nil {
@@ -380,24 +618,44 @@ func (h *Harness) WaitForDeviceNewRenderedVersion(deviceId string, newRenderedVe
 	// Wait for the device to pickup the new config and report measurements on device status.
 	logrus.Infof("Waiting for the device to pick the config")
 	UpdateRenderedVersionSuccessMessage := fmt.Sprintf("%s %d", util.UpdateRenderedVersionSuccess.String(), newRenderedVersionInt)
+	seenUpdating := false
 	h.WaitForDeviceContents(deviceId, UpdateRenderedVersionSuccessMessage,
 		func(device *v1beta1.Device) bool {
 			if device == nil || device.Status == nil {
 				logrus.Warnf("Device %s or device status is nil, cannot check conditions", deviceId)
 				return false
 			}
-			for _, condition := range device.Status.Conditions {
-				if condition.Type == "Updating" && condition.Reason == "Updated" && condition.Status == "False" &&
-					device.Status.Updated.Status == v1beta1.DeviceUpdatedStatusUpToDate {
-					// Accept jumps where multiple renders happen quickly (e.g., concurrent fleet/device updates)
-					if v, err := strconv.Atoi(device.Status.Config.RenderedVersion); err == nil && v >= newRenderedVersionInt {
-						if v > newRenderedVersionInt {
-							logrus.Warnf("Device %s has rendered version %d, which is greater than %d", deviceId, v, newRenderedVersionInt)
-						}
-						return true
-					}
-				}
+
+			if device.Status.Updated.Status == v1beta1.DeviceUpdatedStatusUpdating {
+				seenUpdating = true
 			}
+
+			// Primary success signal: desired rendered version is applied, regardless of summary state.
+			// Fleet-owned devices can momentarily report OutOfDate even after applying the target version.
+			currentRenderedVersion, parseErr := strconv.Atoi(device.Status.Config.RenderedVersion)
+			if parseErr == nil && currentRenderedVersion >= newRenderedVersionInt {
+				if currentRenderedVersion > newRenderedVersionInt {
+					logrus.Warnf("Device %s has rendered version %d, which is greater than %d", deviceId, currentRenderedVersion, newRenderedVersionInt)
+				}
+				return true
+			}
+
+			// Fail fast on terminal update failures only after we've seen active updating,
+			// to avoid tripping on initial OutOfDate before the update begins.
+			if seenUpdating && device.Status.Updated.Status == v1beta1.DeviceUpdatedStatusOutOfDate {
+				updatedInfo := ""
+				if device.Status.Updated.Info != nil {
+					updatedInfo = *device.Status.Updated.Info
+				}
+				Fail(fmt.Sprintf(
+					"Device %s failed to update to renderedVersion %d (current=%s): %s",
+					deviceId,
+					newRenderedVersionInt,
+					device.Status.Config.RenderedVersion,
+					updatedInfo,
+				))
+			}
+
 			return false
 		}, LONGTIMEOUT)
 
