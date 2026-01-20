@@ -1,0 +1,12 @@
+apiVersion: flightctl.io/v1beta1
+kind: Fleet
+metadata:
+  name: resourcesync-conflict-fleet-{{.TestID}}
+spec:
+  selector:
+    matchLabels:
+      fleet: resourcesync-conflict-{{.TestID}}
+  template:
+    spec:
+      os:
+        image: quay.io/fedora/fedora-bootc:42
