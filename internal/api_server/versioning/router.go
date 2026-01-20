@@ -13,7 +13,7 @@ type Middleware func(http.Handler) http.Handler
 
 // RouterConfig configures a version-specific router.
 type RouterConfig struct {
-	Middlewares    []Middleware
+	Middlewares    []Middleware // Version-specific middleware (validation)
 	RegisterRoutes func(r chi.Router)
 }
 
