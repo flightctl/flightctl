@@ -4,13 +4,13 @@ extends:
 
 aliases:
   PathToResourceCollection:
-    - '$.paths[?(@property.match( "^/api/v1/[a-z]+$" ))]'
+    - '$.paths[?(@property.match( "^(/api/v[0-9]+[a-z0-9]*)?/[a-z]+$" ))]'
   PathToResource:
-    - '$.paths[?(@property.match( "^/api/v1/[a-z]+/{name}$" ))]'
+    - '$.paths[?(@property.match( "^(/api/v[0-9]+[a-z0-9]*)?/[a-z]+/{name}$" ))]'
   PathToStatusSubresource:
-    - '$.paths[?(@property.match( "^/api/v1/[a-z]+/{name}/status$" ))]'
+    - '$.paths[?(@property.match( "^(/api/v[0-9]+[a-z0-9]*)?/[a-z]+/{name}/status$" ))]'
   PathToApprovalSubresource:
-    - '$.paths[?(@property.match( "^/api/v1/[a-z]+/{name}/approval$" ))]'
+    - '$.paths[?(@property.match( "^(/api/v[0-9]+[a-z0-9]*)?/[a-z]+/{name}/approval$" ))]'
 
 rules:
   # Allow conditions of different resource kinds to have the same name.
@@ -508,23 +508,31 @@ rules:
       functionOptions:
         match: ".+\\.$"
 
+# Paths here mirror the OpenAPI spec where /api/v1 is defined in server URL, not in paths.
 overrides:
   - files:
-      - "**#/paths/~1api~1v1~1labels"
-      - "**#/paths/~1api~1v1~1events"
-      - "**#/paths/~1api~1v1~1enrollmentconfig"
-      - "**#/paths/~1api~1v1~1organizations"
-      - "**#/paths/~1api~1v1~1imagepipelines"
+      - "**#/paths/~1labels"
+      - "**#/paths/~1events"
+      - "**#/paths/~1enrollmentconfig"
+      - "**#/paths/~1organizations"
+      - "**#/paths/~1imagepipelines"
     rules:
       collection-verbs-required: off
+  # /version endpoint doesn't need 400 response (no query params)
+  - files:
+      - "**#/paths/~1version"
+    rules:
+      collection-verbs-required: off
+      responses-collection-get-required: off
+      responses-collection-get-allowed: off
   # OIDC spec endpoints must follow OIDC specification standards
   - files:
-      - "**#/paths/~1api~1v1~1auth~1authorize"
-      - "**#/paths/~1api~1v1~1auth~1login"
-      - "**#/paths/~1api~1v1~1auth~1token"
-      - "**#/paths/~1api~1v1~1auth~1%7Bprovidername%7D~1token"
-      - "**#/paths/~1api~1v1~1auth~1userinfo"
-      - "**#/paths/~1api~1v1~1auth~1.well-known~1openid-configuration"
+      - "**#/paths/~1auth~1authorize"
+      - "**#/paths/~1auth~1login"
+      - "**#/paths/~1auth~1token"
+      - "**#/paths/~1auth~1%7Bprovidername%7D~1token"
+      - "**#/paths/~1auth~1userinfo"
+      - "**#/paths/~1auth~1.well-known~1openid-configuration"
     rules:
       query-is-camelcase: off
       response-media-type-2xx: off
@@ -545,6 +553,7 @@ overrides:
     rules:
       properties-description-required: off
   # ImageBuilder API doesn't require PUT/PATCH verbs
+  # Note: imagebuilder uses full paths (server URL is /)
   - files:
       - "**#/paths/~1api~1v1~1imagebuilds~1%7Bname%7D"
       - "**#/paths/~1api~1v1~1imageexports~1%7Bname%7D"
