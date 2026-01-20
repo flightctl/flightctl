@@ -1566,7 +1566,7 @@ type FileMetadata struct {
 	Mode *int `json:"mode,omitempty"`
 
 	// User The file's owner, specified either as a name or numeric ID. Defaults to "root".
-	User *string `json:"user,omitempty"`
+	User *Username `json:"user,omitempty"`
 }
 
 // FileOperation defines model for FileOperation.
@@ -1590,7 +1590,7 @@ type FileSpec struct {
 	Path string `json:"path"`
 
 	// User The file's owner, specified either as a name or numeric ID. Defaults to "root".
-	User *string `json:"user,omitempty"`
+	User *Username `json:"user,omitempty"`
 }
 
 // Fleet Fleet represents a set of devices.
@@ -2063,7 +2063,7 @@ type KubernetesSecretProviderSpec struct {
 		Namespace string `json:"namespace"`
 
 		// User The file's owner, specified either as a name or numeric ID. Defaults to "root".
-		User *string `json:"user,omitempty"`
+		User *Username `json:"user,omitempty"`
 	} `json:"secretRef"`
 }
 

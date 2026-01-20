@@ -10,6 +10,7 @@ import (
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
+	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/samber/lo"
 )
@@ -40,6 +41,23 @@ type Manager interface {
 	// Show gets information about the specified unit
 	Show(ctx context.Context, unit string, options ...client.SystemdShowOptions) ([]string, error)
 	status.Exporter
+}
+
+// ManagerFactory creates a systemd manager factory. A blank user means to use the same process user.
+type ManagerFactory func(user v1beta1.Username) (Manager, error)
+
+func NewManagerFactory(log *log.PrefixLogger) ManagerFactory {
+	return func(username v1beta1.Username) (Manager, error) {
+		execOpts, err := executer.LookupUserOptions(username)
+		if err != nil {
+			return nil, fmt.Errorf("creating executer: %w", err)
+		}
+		exec := executer.NewCommonExecuter(execOpts...)
+		systemdClient := client.NewSystemd(exec)
+		journalctlClient := client.NewJournalctl(exec)
+
+		return NewManager(log, systemdClient, journalctlClient), nil
+	}
 }
 
 type manager struct {

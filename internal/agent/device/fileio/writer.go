@@ -100,15 +100,15 @@ type writerOptions struct {
 
 type WriterOption func(*writerOptions)
 
-func WithUID(uid int) WriterOption {
+func WithUID(uid uint32) WriterOption {
 	return func(wo *writerOptions) {
-		wo.uid = uid
+		wo.uid = int(uid)
 	}
 }
 
-func WithGID(gid int) WriterOption {
+func WithGID(gid uint32) WriterOption {
 	return func(wo *writerOptions) {
-		wo.gid = gid
+		wo.gid = int(gid)
 	}
 }
 

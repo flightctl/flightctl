@@ -30,6 +30,9 @@ type ExecuterOption func(e *commonExecuter)
 // LookupUserOptions generates a set of options to NewCommonExecuter used to execute commands as a
 // different user.
 func LookupUserOptions(username string) ([]ExecuterOption, error) {
+	if username == "" {
+		return nil, nil
+	}
 	u, err := user.Lookup(username)
 	if err != nil {
 		return nil, err
@@ -46,15 +49,15 @@ func LookupUserOptions(username string) ([]ExecuterOption, error) {
 	}
 
 	return []ExecuterOption{
-		WithUIDAndGID(uid, gid),
+		WithUIDAndGID(uint32(uid), uint32(gid)), //nolint:gosec // Linux UIDs are at most 2^32-1
 		WithHomeDir(u.HomeDir),
 	}, nil
 }
 
-func WithUIDAndGID(uid int, gid int) ExecuterOption {
+func WithUIDAndGID(uid uint32, gid uint32) ExecuterOption {
 	return func(e *commonExecuter) {
-		e.uid = uid
-		e.gid = gid
+		e.uid = int(uid)
+		e.gid = int(gid)
 	}
 }
 

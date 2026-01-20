@@ -124,7 +124,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.log.Infof("Using persisted CSR for enrollment")
 	}
 
-	executer := executer.NewCommonExecuter()
+	rootExecuter := executer.NewCommonExecuter()
 
 	// create enrollment client
 	enrollmentClient, err := newEnrollmentClient(a.config, a.log)
@@ -149,22 +149,30 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 
 	// create os client
-	osClient := os.NewClient(a.log, executer)
+	osClient := os.NewClient(a.log, rootExecuter)
 
 	// create podman client
-	podmanClient := client.NewPodman(a.log, executer, deviceReadWriter, pollBackoff)
+	podmanClientFactory := client.NewPodmanFactory(a.log, pollBackoff, a.config.GetTestRootDir())
+	rootPodmanClient, err := podmanClientFactory("")
+	if err != nil {
+		return err
+	}
 
 	// create skopeo client
-	skopeoClient := client.NewSkopeo(a.log, executer, deviceReadWriter)
+	skopeoClientFactory := client.NewSkopeoFactory(a.log, a.config.GetTestRootDir())
+	rootSkopeoClient, err := skopeoClientFactory("")
+	if err != nil {
+		return err
+	}
 
 	// create kube client
-	kubeClient := client.NewKube(a.log, executer, deviceReadWriter)
+	kubeClient := client.NewKube(a.log, rootExecuter, deviceReadWriter)
 
 	// create helm client
-	helmClient := client.NewHelm(a.log, executer, deviceReadWriter, a.config.DataDir)
+	helmClient := client.NewHelm(a.log, rootExecuter, deviceReadWriter, a.config.DataDir)
 
 	// create CRI client
-	criClient := client.NewCRI(a.log, executer, deviceReadWriter)
+	criClient := client.NewCRI(a.log, rootExecuter, deviceReadWriter)
 
 	// create CLI clients
 	cliClients := client.NewCLIClients(
@@ -174,15 +182,12 @@ func (a *Agent) Run(ctx context.Context) error {
 	)
 
 	// create systemd client
-	systemdClient := client.NewSystemd(executer)
-
-	// create journalctl client
-	journalctlClient := client.NewJournalctl(executer)
+	rootSystemdClient := client.NewSystemd(rootExecuter)
 
 	// create systemInfo manager
 	systemInfoManager := systeminfo.NewManager(
 		a.log,
-		executer,
+		rootExecuter,
 		deviceReadWriter,
 		a.config.DataDir,
 		a.config.SystemInfo,
@@ -194,7 +199,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 
 	// create shutdown manager
-	shutdownManager := shutdown.NewManager(a.log, systemdClient, deviceReadWriter, gracefulShutdownTimeout, cancel)
+	shutdownManager := shutdown.NewManager(a.log, rootSystemdClient, deviceReadWriter, gracefulShutdownTimeout, cancel)
 
 	if tpmClient != nil {
 		systemInfoManager.RegisterCollector(ctx, "tpmVendorInfo", tpmClient.VendorInfoCollector)
@@ -210,7 +215,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	policyManager := policy.NewManager(a.log)
 
 	deviceNotFoundHandler := func() error {
-		return wipeCertificateAndRestart(ctx, identityProvider, executer, a.log)
+		return wipeCertificateAndRestart(ctx, identityProvider, rootExecuter, a.log)
 	}
 
 	// create audit logger
@@ -249,31 +254,35 @@ func (a *Agent) Run(ctx context.Context) error {
 	)
 
 	// create hook manager
-	hookManager := hook.NewManager(deviceReadWriter, executer, a.log)
+	hookManager := hook.NewManager(deviceReadWriter, rootExecuter, a.log)
 
 	// create systemd manager
-	systemdManager := systemd.NewManager(a.log, systemdClient, journalctlClient)
+	systemdManagerFactory := systemd.NewManagerFactory(a.log)
+	rootSystemdManager, err := systemdManagerFactory("")
+	if err != nil {
+		return err
+	}
 
 	// create application manager
 	applicationsManager := applications.NewManager(
 		a.log,
 		deviceReadWriter,
-		podmanClient,
+		rootPodmanClient,
 		systemInfoManager,
-		systemdManager,
+		rootSystemdManager,
 	)
 
 	// register the application manager with the shutdown manager
 	shutdownManager.Register("applications", applicationsManager.Shutdown)
 
 	// create os manager
-	osManager := os.NewManager(a.log, osClient, deviceReadWriter, podmanClient)
+	osManager := os.NewManager(a.log, osClient, deviceReadWriter, rootPodmanClient)
 
 	// create prefetch manager
 	prefetchManager := dependency.NewPrefetchManager(
 		a.log,
-		podmanClient,
-		skopeoClient,
+		rootPodmanClient,
+		rootSkopeoClient,
 		cliClients,
 		deviceReadWriter,
 		a.config.PullTimeout,
@@ -299,7 +308,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		csr,
 		a.config.DefaultLabels,
 		statusManager,
-		systemdClient,
+		rootSystemdClient,
 		identityProvider,
 		backoff,
 		a.log,
@@ -307,7 +316,7 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	// register status exporters
 	statusManager.RegisterStatusExporter(applicationsManager)
-	statusManager.RegisterStatusExporter(systemdManager)
+	statusManager.RegisterStatusExporter(rootSystemdManager)
 	statusManager.RegisterStatusExporter(resourceManager)
 	statusManager.RegisterStatusExporter(osManager)
 	statusManager.RegisterStatusExporter(specManager)
@@ -321,7 +330,7 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	bootstrap := device.NewBootstrap(
 		deviceName,
-		executer,
+		rootExecuter,
 		deviceReadWriter,
 		specManager,
 		statusManager,
@@ -330,7 +339,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		&a.config.ManagementService.Config,
 		systemInfoManager,
 		a.config.GetManagementMetricsCallback(),
-		podmanClient,
+		rootPodmanClient,
 		identityProvider,
 		a.log,
 	)
@@ -363,13 +372,13 @@ func (a *Agent) Run(ctx context.Context) error {
 	consoleManager := console.NewManager(
 		grpcClient,
 		deviceName,
-		executer,
+		rootExecuter,
 		specManager.Watch(),
 		a.log,
 	)
 
 	applicationsController := applications.NewController(
-		podmanClient,
+		rootPodmanClient,
 		applicationsManager,
 		deviceReadWriter,
 		a.log,
@@ -378,7 +387,8 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	// create image pruning manager
 	pruningManager := imagepruning.New(
-		podmanClient,
+		podmanClientFactory,
+		rootPodmanClient,
 		specManager,
 		deviceReadWriter,
 		a.log,
@@ -393,7 +403,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		statusManager,
 		specManager,
 		applicationsManager,
-		systemdManager,
+		rootSystemdManager,
 		a.config.StatusUpdateInterval,
 		hookManager,
 		osManager,
@@ -404,7 +414,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		resourceManager,
 		consoleManager,
 		osClient,
-		podmanClient,
+		rootPodmanClient,
 		prefetchManager,
 		pruningManager,
 		backoff,
