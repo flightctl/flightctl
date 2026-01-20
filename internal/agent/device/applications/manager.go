@@ -211,13 +211,20 @@ func (m *manager) CollectOCITargets(ctx context.Context, current, desired *v1bet
 		return nil, fmt.Errorf("resolving pull secret: %w", err)
 	}
 
-	baseTargets, err := provider.CollectBaseOCITargets(ctx, m.readWriter, desired, secret)
+	// create config provider from pull secret
+	configs := make(map[client.ConfigType]*client.PullConfig)
+	if secret != nil {
+		configs[client.ConfigTypeContainerSecret] = secret
+	}
+	configProvider := client.NewPullConfigProvider(configs)
+
+	baseTargets, err := provider.CollectBaseOCITargets(ctx, m.readWriter, desired, configProvider)
 	if err != nil {
 		return nil, fmt.Errorf("collecting base OCI targets: %w", err)
 	}
 	m.log.Debugf("Collected %d base OCI targets", len(baseTargets))
 
-	nestedTargets, requeue, activeNames, err := m.collectNestedTargets(ctx, desired, secret)
+	nestedTargets, requeue, activeNames, err := m.collectNestedTargets(ctx, desired, configProvider)
 	if err != nil {
 		return nil, fmt.Errorf("collecting nested OCI targets: %w", err)
 	}
@@ -237,7 +244,7 @@ func (m *manager) CollectOCITargets(ctx context.Context, current, desired *v1bet
 func (m *manager) collectNestedTargets(
 	ctx context.Context,
 	desired *v1beta1.DeviceSpec,
-	secret *client.PullConfig,
+	configProvider client.PullConfigProvider,
 ) ([]dependency.OCIPullTarget, bool, []string, error) {
 	var allNestedTargets []dependency.OCIPullTarget
 	var activeAppNames []string
@@ -271,14 +278,14 @@ func (m *manager) collectNestedTargets(
 
 		// Check if it's an image first (most common case)
 		if m.podmanClient.ImageExists(ctx, imageRef) {
-			ociType = dependency.OCITypeImage
+			ociType = dependency.OCITypePodmanImage
 			exists = true
 			digest, err = m.podmanClient.ImageDigest(ctx, imageRef)
 			if err != nil {
 				return nil, false, nil, fmt.Errorf("getting image digest for %s: %w", imageRef, err)
 			}
 		} else if m.podmanClient.ArtifactExists(ctx, imageRef) {
-			ociType = dependency.OCITypeArtifact
+			ociType = dependency.OCITypePodmanArtifact
 			exists = true
 			digest, err = m.podmanClient.ArtifactDigest(ctx, imageRef)
 			if err != nil {
@@ -303,7 +310,7 @@ func (m *manager) collectNestedTargets(
 		}
 
 		// cache miss or invalid - extract nested targets for this image
-		appData, err := m.extractNestedTargetsForImage(ctx, appSpec, &imageSpec, secret)
+		appData, err := m.extractNestedTargetsForImage(ctx, appSpec, &imageSpec, configProvider)
 		if err != nil {
 			return nil, false, nil, fmt.Errorf("extracting nested targets for app %s: %w", appName, err)
 		}
@@ -335,7 +342,7 @@ func (m *manager) extractNestedTargetsForImage(
 	ctx context.Context,
 	appSpec v1beta1.ApplicationProviderSpec,
 	imageSpec *v1beta1.ImageApplicationProviderSpec,
-	secret *client.PullConfig,
+	configProvider client.PullConfigProvider,
 ) (*provider.AppData, error) {
 	return provider.ExtractNestedTargetsFromImage(
 		ctx,
@@ -344,6 +351,6 @@ func (m *manager) extractNestedTargetsForImage(
 		m.readWriter,
 		&appSpec,
 		imageSpec,
-		secret,
+		configProvider,
 	)
 }

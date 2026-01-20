@@ -105,19 +105,21 @@ func (m *manager) CollectOCITargets(ctx context.Context, current, desired *v1bet
 		return &dependency.OCICollection{}, nil
 	}
 
-	target := dependency.OCIPullTarget{
-		Type:       dependency.OCITypeImage,
-		Reference:  osImage,
-		PullPolicy: v1beta1.PullIfNotPresent,
-	}
-
 	// resolve pull secret for authentication
-	secret, found, err := client.ResolvePullConfig(m.log, m.readWriter, desired, authPath)
+	configs := make(map[client.ConfigType]*client.PullConfig)
+	containerConfig, found, err := client.ResolvePullConfig(m.log, m.readWriter, desired, authPath)
 	if err != nil {
-		return nil, fmt.Errorf("resolving pull secret: %w", err)
+		return nil, fmt.Errorf("resolving pull config: %w", err)
 	}
 	if found {
-		target.PullSecret = secret
+		configs[client.ConfigTypeContainerSecret] = containerConfig
+	}
+
+	target := dependency.OCIPullTarget{
+		Type:       dependency.OCITypePodmanImage,
+		Reference:  osImage,
+		PullPolicy: v1beta1.PullIfNotPresent,
+		Configs:    client.NewPullConfigProvider(configs),
 	}
 
 	m.log.Debugf("Collected 1 OCI target from OS spec: %s", osImage)

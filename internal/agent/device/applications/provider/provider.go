@@ -66,7 +66,7 @@ func CollectBaseOCITargets(
 	ctx context.Context,
 	readWriter fileio.ReadWriter,
 	spec *v1beta1.DeviceSpec,
-	pullSecret *client.PullConfig,
+	configProvider client.PullConfigProvider,
 ) ([]dependency.OCIPullTarget, error) {
 	if spec.Applications == nil {
 		return nil, nil
@@ -94,7 +94,7 @@ func CollectBaseOCITargets(
 			ociType := dependency.OCITypeAuto
 			// a requirement of container types is that the image reference is a runnable image
 			if providerSpec.AppType == v1beta1.AppTypeContainer {
-				ociType = dependency.OCITypeImage
+				ociType = dependency.OCITypePodmanImage
 			}
 
 			policy := v1beta1.PullIfNotPresent
@@ -102,11 +102,11 @@ func CollectBaseOCITargets(
 				Type:       ociType,
 				Reference:  imageSpec.Image,
 				PullPolicy: policy,
-				PullSecret: pullSecret,
+				Configs:    configProvider,
 			})
 
 			// Add volume artifacts
-			volTargets, err := extractVolumeTargets(imageSpec.Volumes, pullSecret)
+			volTargets, err := extractVolumeTargets(imageSpec.Volumes, configProvider)
 			if err != nil {
 				return nil, fmt.Errorf("extracting volume targets: %w", err)
 			}
@@ -129,10 +129,10 @@ func CollectBaseOCITargets(
 				for _, svc := range spec.Services {
 					if svc.Image != "" {
 						targets = append(targets, dependency.OCIPullTarget{
-							Type:       dependency.OCITypeImage,
+							Type:       dependency.OCITypePodmanImage,
 							Reference:  svc.Image,
 							PullPolicy: v1beta1.PullIfNotPresent,
-							PullSecret: pullSecret,
+							Configs:    configProvider,
 						})
 					}
 				}
@@ -142,14 +142,14 @@ func CollectBaseOCITargets(
 					return nil, fmt.Errorf("parsing quadlet spec: %w", err)
 				}
 				for _, quad := range spec {
-					targets = append(targets, extractQuadletTargets(quad, pullSecret)...)
+					targets = append(targets, extractQuadletTargets(quad, configProvider)...)
 				}
 			default:
 				return nil, fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, providerSpec.AppType)
 			}
 
 			// Add volume artifacts
-			volTargets, err := extractVolumeTargets(inlineSpec.Volumes, pullSecret)
+			volTargets, err := extractVolumeTargets(inlineSpec.Volumes, configProvider)
 			if err != nil {
 				return nil, fmt.Errorf("extracting volume targets: %w", err)
 			}
@@ -160,7 +160,7 @@ func CollectBaseOCITargets(
 		}
 	}
 
-	embeddedTargets, err := collectEmbeddedOCITargets(ctx, readWriter, pullSecret)
+	embeddedTargets, err := collectEmbeddedOCITargets(ctx, readWriter, configProvider)
 	if err != nil {
 		return nil, fmt.Errorf("collecting embedded OCI targets: %w", err)
 	}
@@ -170,7 +170,7 @@ func CollectBaseOCITargets(
 }
 
 // collectEmbeddedOCITargets discovers embedded applications and extracts their OCI targets
-func collectEmbeddedOCITargets(ctx context.Context, readWriter fileio.ReadWriter, pullSecret *client.PullConfig) ([]dependency.OCIPullTarget, error) {
+func collectEmbeddedOCITargets(ctx context.Context, readWriter fileio.ReadWriter, configProvider client.PullConfigProvider) ([]dependency.OCIPullTarget, error) {
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
@@ -178,14 +178,14 @@ func collectEmbeddedOCITargets(ctx context.Context, readWriter fileio.ReadWriter
 	var targets []dependency.OCIPullTarget
 
 	// discover embedded compose applications
-	composeTargets, err := collectEmbeddedComposeTargets(ctx, readWriter, pullSecret)
+	composeTargets, err := collectEmbeddedComposeTargets(ctx, readWriter, configProvider)
 	if err != nil {
 		return nil, fmt.Errorf("collecting embedded compose targets: %w", err)
 	}
 	targets = append(targets, composeTargets...)
 
 	// discover embedded quadlet applications
-	quadletTargets, err := collectEmbeddedQuadletTargets(ctx, readWriter, pullSecret)
+	quadletTargets, err := collectEmbeddedQuadletTargets(ctx, readWriter, configProvider)
 	if err != nil {
 		return nil, fmt.Errorf("collecting embedded quadlet targets: %w", err)
 	}
@@ -194,7 +194,7 @@ func collectEmbeddedOCITargets(ctx context.Context, readWriter fileio.ReadWriter
 	return targets, nil
 }
 
-func collectEmbeddedComposeTargets(ctx context.Context, readWriter fileio.ReadWriter, pullSecret *client.PullConfig) ([]dependency.OCIPullTarget, error) {
+func collectEmbeddedComposeTargets(ctx context.Context, readWriter fileio.ReadWriter, configProvider client.PullConfigProvider) ([]dependency.OCIPullTarget, error) {
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
@@ -244,10 +244,10 @@ func collectEmbeddedComposeTargets(ctx context.Context, readWriter fileio.ReadWr
 		for _, svc := range spec.Services {
 			if svc.Image != "" {
 				targets = append(targets, dependency.OCIPullTarget{
-					Type:       dependency.OCITypeImage,
+					Type:       dependency.OCITypePodmanImage,
 					Reference:  svc.Image,
 					PullPolicy: v1beta1.PullIfNotPresent,
-					PullSecret: pullSecret,
+					Configs:    configProvider,
 				})
 			}
 		}
@@ -256,7 +256,7 @@ func collectEmbeddedComposeTargets(ctx context.Context, readWriter fileio.ReadWr
 	return targets, nil
 }
 
-func collectEmbeddedQuadletTargets(ctx context.Context, readWriter fileio.ReadWriter, pullSecret *client.PullConfig) ([]dependency.OCIPullTarget, error) {
+func collectEmbeddedQuadletTargets(ctx context.Context, readWriter fileio.ReadWriter, configProvider client.PullConfigProvider) ([]dependency.OCIPullTarget, error) {
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
@@ -287,7 +287,7 @@ func collectEmbeddedQuadletTargets(ctx context.Context, readWriter fileio.ReadWr
 		// extract images from quadlet references using the helper function
 		// which handles IsImageReference checks properly
 		for _, ref := range refs {
-			targets = append(targets, extractQuadletTargets(ref, pullSecret)...)
+			targets = append(targets, extractQuadletTargets(ref, configProvider)...)
 		}
 	}
 
@@ -320,7 +320,7 @@ func ExtractNestedTargetsFromImage(
 	readWriter fileio.ReadWriter,
 	appSpec *v1beta1.ApplicationProviderSpec,
 	imageSpec *v1beta1.ImageApplicationProviderSpec,
-	pullSecret *client.PullConfig,
+	configProvider client.PullConfigProvider,
 ) (*AppData, error) {
 	// Resolve canonical app name
 	appName, err := ResolveImageAppName(appSpec)
@@ -351,7 +351,7 @@ func ExtractNestedTargetsFromImage(
 		appName,
 		imageSpec.Image,
 		appType,
-		pullSecret,
+		configProvider,
 	)
 	if err != nil {
 		return nil, err
@@ -698,7 +698,7 @@ func extractAppDataFromOCITarget(
 	appName string,
 	imageRef string,
 	appType v1beta1.AppType,
-	pullSecret *client.PullConfig,
+	configProvider client.PullConfigProvider,
 ) (*AppData, error) {
 	tmpAppPath, err := readWriter.MkdirTemp("app_temp")
 	if err != nil {
@@ -717,7 +717,7 @@ func extractAppDataFromOCITarget(
 		return nil, fmt.Errorf("detecting OCI type for app %s (%s): %w", appName, imageRef, err)
 	}
 
-	if ociType == dependency.OCITypeArtifact {
+	if ociType == dependency.OCITypePodmanArtifact {
 		if err := extractAndProcessArtifact(ctx, podman, log.NewPrefixLogger(""), imageRef, tmpAppPath, readWriter); err != nil {
 			if rmErr := cleanupFn(); rmErr != nil {
 				return nil, fmt.Errorf("extracting artifact contents for app %s (%s): %w (cleanup failed: %v)", appName, imageRef, err, rmErr)
@@ -758,10 +758,10 @@ func extractAppDataFromOCITarget(
 		for _, svc := range spec.Services {
 			if svc.Image != "" {
 				targets = append(targets, dependency.OCIPullTarget{
-					Type:       dependency.OCITypeImage,
+					Type:       dependency.OCITypePodmanImage,
 					Reference:  svc.Image,
 					PullPolicy: v1beta1.PullIfNotPresent,
-					PullSecret: pullSecret,
+					Configs:    configProvider,
 				})
 			}
 		}
@@ -792,7 +792,7 @@ func extractAppDataFromOCITarget(
 
 		// extract images
 		for _, quad := range spec {
-			targets = append(targets, extractQuadletTargets(quad, pullSecret)...)
+			targets = append(targets, extractQuadletTargets(quad, configProvider)...)
 		}
 
 	default:
@@ -951,30 +951,30 @@ func validateEnvVars(envVars map[string]string) error {
 	return nil
 }
 
-func extractQuadletTargets(quad *common.QuadletReferences, pullSecret *client.PullConfig) []dependency.OCIPullTarget {
+func extractQuadletTargets(quad *common.QuadletReferences, configProvider client.PullConfigProvider) []dependency.OCIPullTarget {
 	var targets []dependency.OCIPullTarget
 	if quad.Image != nil && !quadlet.IsImageReference(*quad.Image) {
 		targets = append(targets, dependency.OCIPullTarget{
-			Type:       dependency.OCITypeImage,
+			Type:       dependency.OCITypePodmanImage,
 			Reference:  *quad.Image,
 			PullPolicy: v1beta1.PullIfNotPresent,
-			PullSecret: pullSecret,
+			Configs:    configProvider,
 		})
 	}
 	for _, image := range quad.MountImages {
 		if !quadlet.IsImageReference(image) {
 			targets = append(targets, dependency.OCIPullTarget{
-				Type:       dependency.OCITypeImage,
+				Type:       dependency.OCITypePodmanImage,
 				Reference:  image,
 				PullPolicy: v1beta1.PullIfNotPresent,
-				PullSecret: pullSecret,
+				Configs:    configProvider,
 			})
 		}
 	}
 	return targets
 }
 
-func extractVolumeTargets(vols *[]v1beta1.ApplicationVolume, pullSecret *client.PullConfig) ([]dependency.OCIPullTarget, error) {
+func extractVolumeTargets(vols *[]v1beta1.ApplicationVolume, configProvider client.PullConfigProvider) ([]dependency.OCIPullTarget, error) {
 	var targets []dependency.OCIPullTarget
 	if vols == nil {
 		return targets, nil
@@ -986,7 +986,7 @@ func extractVolumeTargets(vols *[]v1beta1.ApplicationVolume, pullSecret *client.
 			return nil, fmt.Errorf("getting volume type: %w", err)
 		}
 		var source *v1beta1.ImageVolumeSource
-		ociType := dependency.OCITypeArtifact
+		ociType := dependency.OCITypePodmanArtifact
 		switch vType {
 		case v1beta1.ImageApplicationVolumeProviderType:
 			spec, err := v.AsImageVolumeProviderSpec()
@@ -1013,7 +1013,7 @@ func extractVolumeTargets(vols *[]v1beta1.ApplicationVolume, pullSecret *client.
 			Type:       ociType,
 			Reference:  source.Reference,
 			PullPolicy: policy,
-			PullSecret: pullSecret,
+			Configs:    configProvider,
 		})
 	}
 

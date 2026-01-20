@@ -33,39 +33,42 @@ const (
 type OCIType string
 
 const (
-	OCITypeImage    OCIType = "Image"
-	OCITypeArtifact OCIType = "Artifact"
-	OCITypeAuto     OCIType = "Auto"
+	OCITypePodmanImage    OCIType = "PodmanImage"
+	OCITypeCRIImage       OCIType = "CRIImage"
+	OCITypePodmanArtifact OCIType = "PodmanArtifact"
+	OCITypeAuto           OCIType = "Auto"
+	OCITypeHelmChart      OCIType = "HelmChart"
 )
 
 // detectOCIType analyzes an OCI manifest to determine if it's an image or artifact
+// Returns Podman-specific types as the default runtime
 func detectOCIType(manifest *client.OCIManifest) (OCIType, error) {
 	if manifest == nil {
 		return "", fmt.Errorf("manifest is nil")
 	}
 
 	if len(manifest.Manifests) > 0 {
-		return OCITypeImage, nil
+		return OCITypePodmanImage, nil
 	}
 
 	if manifest.ArtifactType != "" {
-		return OCITypeArtifact, nil
+		return OCITypePodmanArtifact, nil
 	}
 
 	if manifest.Config != nil {
 		switch manifest.Config.MediaType {
 		case ociImageConfigMediaType, dockerImageConfigMediaType:
-			return OCITypeImage, nil
+			return OCITypePodmanImage, nil
 		case "":
 			return "", fmt.Errorf("media type not set")
 		default:
 			// artifact types could be anything, so default to artifact
 			// if there is any value here that isn't the default image type
-			return OCITypeArtifact, nil
+			return OCITypePodmanArtifact, nil
 		}
 	}
 
-	return OCITypeImage, nil
+	return OCITypePodmanImage, nil
 }
 
 // OCIPullTarget represents an OCI target to be prefetched
@@ -74,7 +77,7 @@ type OCIPullTarget struct {
 	Reference  string
 	Digest     string
 	PullPolicy v1beta1.ImagePullPolicy
-	PullSecret *client.PullConfig
+	Configs    client.PullConfigProvider
 }
 
 // OCICollection represents the result of collecting OCI targets
@@ -114,6 +117,7 @@ type prefetchManager struct {
 	log             *log.PrefixLogger
 	podmanClient    *client.Podman
 	skopeoClient    *client.Skopeo
+	cliClients      client.CLIClients
 	readWriter      fileio.ReadWriter
 	resourceManager resource.Manager
 	// pullTimeout is the duration that each target will wait unless it
@@ -138,10 +142,12 @@ type prefetchTask struct {
 }
 
 // NewPrefetchManager creates a new prefetch manager instance
+// TODO: Consider extending cliClients to include podman and skopeo in the future
 func NewPrefetchManager(
 	log *log.PrefixLogger,
 	podmanClient *client.Podman,
 	skopeoClient *client.Skopeo,
+	cliClients client.CLIClients,
 	readWriter fileio.ReadWriter,
 	pullTimeout util.Duration,
 	resourceManager resource.Manager,
@@ -151,6 +157,7 @@ func NewPrefetchManager(
 		log:             log,
 		podmanClient:    podmanClient,
 		skopeoClient:    skopeoClient,
+		cliClients:      cliClients,
 		readWriter:      readWriter,
 		pullTimeout:     time.Duration(pullTimeout),
 		pollConfig:      &pollConfig,
@@ -368,33 +375,36 @@ func (m *prefetchManager) pull(ctx context.Context, target string, task *prefetc
 
 	var err error
 	switch ociType {
-	case OCITypeImage:
+	case OCITypePodmanImage:
 		_, err = m.podmanClient.Pull(ctx, target, task.clientOps...)
-	case OCITypeArtifact:
+	case OCITypeCRIImage:
+		_, err = m.cliClients.CRI().Pull(ctx, target, task.clientOps...)
+	case OCITypePodmanArtifact:
 		_, err = m.podmanClient.PullArtifact(ctx, target, task.clientOps...)
+	case OCITypeHelmChart:
+		err = m.cliClients.Helm().Resolve(ctx, target, task.clientOps...)
 	case OCITypeAuto:
 		m.log.Debugf("Auto-detecting OCI type for %s", target)
-		manifest, err := m.skopeoClient.InspectManifest(ctx, target, task.clientOps...)
-		if err != nil {
-			return fmt.Errorf("inspecting manifest for auto-detection: %w", err)
+		manifest, inspectErr := m.skopeoClient.InspectManifest(ctx, target, task.clientOps...)
+		if inspectErr != nil {
+			return fmt.Errorf("inspecting manifest for auto-detection: %w", inspectErr)
 		}
 
-		detectedType, err := detectOCIType(manifest)
-		if err != nil {
-			return fmt.Errorf("detecting OCI type: %w", err)
+		detectedType, detectErr := detectOCIType(manifest)
+		if detectErr != nil {
+			return fmt.Errorf("detecting OCI type: %w", detectErr)
 		}
 
 		m.log.Infof("Detected OCI type for %s: %s", target, detectedType)
 
 		switch detectedType {
-		case OCITypeImage:
+		case OCITypePodmanImage:
 			_, err = m.podmanClient.Pull(ctx, target, task.clientOps...)
-		case OCITypeArtifact:
+		case OCITypePodmanArtifact:
 			_, err = m.podmanClient.PullArtifact(ctx, target, task.clientOps...)
 		default:
 			return fmt.Errorf("unexpected detected OCI type: %s", detectedType)
 		}
-		return err
 	default:
 		return fmt.Errorf("invalid oci type %s", ociType)
 	}
@@ -429,19 +439,41 @@ func (m *prefetchManager) Schedule(ctx context.Context, targets []OCIPullTarget)
 		opts := []client.ClientOption{
 			client.Timeout(m.pullTimeout),
 		}
+
+		opts = m.buildClientOptions(target, opts)
+
 		var cleanupFns []func()
-		if target.PullSecret != nil {
-			opts = append(opts, client.WithPullSecret(target.PullSecret.Path))
-			if target.PullSecret.Cleanup != nil {
-				cleanupFns = append(cleanupFns, target.PullSecret.Cleanup)
-			}
+		if target.Configs != nil {
+			cleanupFns = append(cleanupFns, target.Configs.Cleanup)
 		}
+
 		if err := m.schedule(ctx, target.Reference, target.Type, cleanupFns, opts...); err != nil {
 			return fmt.Errorf("prefetch schedule: %w", err)
 		}
 	}
 
 	return nil
+}
+
+func (m *prefetchManager) buildClientOptions(target OCIPullTarget, opts []client.ClientOption) []client.ClientOption {
+	if target.Configs == nil {
+		return opts
+	}
+
+	if cfg := target.Configs.Get(client.ConfigTypeContainerSecret); cfg != nil {
+		opts = append(opts, client.WithPullSecret(cfg.Path))
+	}
+	if cfg := target.Configs.Get(client.ConfigTypeHelmRegistrySecret); cfg != nil {
+		opts = append(opts, client.WithPullSecret(cfg.Path))
+	}
+	if cfg := target.Configs.Get(client.ConfigTypeCRIConfig); cfg != nil {
+		opts = append(opts, client.WithCRIConfig(cfg.Path))
+	}
+	if cfg := target.Configs.Get(client.ConfigTypeHelmRepoConfig); cfg != nil {
+		opts = append(opts, client.WithRepositoryConfig(cfg.Path))
+	}
+
+	return opts
 }
 
 func (m *prefetchManager) schedule(ctx context.Context, target string, ociType OCIType, cleanupFns []func(), opts ...client.ClientOption) error {
@@ -453,14 +485,23 @@ func (m *prefetchManager) schedule(ctx context.Context, target string, ociType O
 
 	var targetExists bool
 	switch ociType {
-	case OCITypeImage:
+	case OCITypePodmanImage:
 		targetExists = m.podmanClient.ImageExists(ctx, target)
-	case OCITypeArtifact:
+	case OCITypeCRIImage:
+		targetExists = m.cliClients.CRI().ImageExists(ctx, target, opts...)
+	case OCITypePodmanArtifact:
 		targetExists = m.podmanClient.ArtifactExists(ctx, target)
 	case OCITypeAuto:
 		// attempt to resolve whether the dependency already exists as an artifact or an image.
 		// avoids making a network call to determine the actual type
 		targetExists = m.podmanClient.ImageExists(ctx, target) || m.podmanClient.ArtifactExists(ctx, target)
+	case OCITypeHelmChart:
+		resolved, err := m.cliClients.Helm().IsResolved(target)
+		if err != nil {
+			m.mu.Unlock()
+			return fmt.Errorf("check helm chart resolved: %w", err)
+		}
+		targetExists = resolved
 	default:
 		m.mu.Unlock()
 		return fmt.Errorf("invalid oci type %s", ociType)
