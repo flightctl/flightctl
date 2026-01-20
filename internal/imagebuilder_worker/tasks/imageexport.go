@@ -17,7 +17,8 @@ import (
 	v1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
 	api "github.com/flightctl/flightctl/api/imagebuilder/v1beta1"
 	"github.com/flightctl/flightctl/internal/config"
-	imagebuilderstore "github.com/flightctl/flightctl/internal/imagebuilder_api/store"
+	"github.com/flightctl/flightctl/internal/flterrors"
+	imagebuilderapi "github.com/flightctl/flightctl/internal/imagebuilder_api/service"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/google/uuid"
 	"github.com/opencontainers/go-digest"
@@ -53,9 +54,9 @@ func (c *Consumer) processImageExport(ctx context.Context, eventWithOrgId worker
 	log.Info("Processing imageExport event")
 
 	// Load the ImageExport resource from the database
-	imageExport, err := c.store.ImageExport().Get(ctx, orgID, imageExportName)
-	if err != nil {
-		return fmt.Errorf("failed to load ImageExport %q: %w", imageExportName, err)
+	imageExport, status := c.imageBuilderService.ImageExport().Get(ctx, orgID, imageExportName)
+	if imageExport == nil || !imagebuilderapi.IsStatusOK(status) {
+		return fmt.Errorf("failed to load ImageExport %q: %v", imageExportName, status)
 	}
 
 	log.WithField("spec", imageExport.Spec).Debug("Loaded ImageExport resource")
@@ -65,34 +66,57 @@ func (c *Consumer) processImageExport(ctx context.Context, eventWithOrgId worker
 		imageExport.Status = &api.ImageExportStatus{}
 	}
 
-	// Check if already completed or failed - skip if so
+	// Check current state - only process if Pending (or has no Ready condition)
+	// We only lock resources that are in Pending state to avoid stealing work from other processes
+	var readyCondition *api.ImageExportCondition
 	if imageExport.Status.Conditions != nil {
-		for _, cond := range *imageExport.Status.Conditions {
-			if cond.Type == api.ImageExportConditionTypeReady {
-				if cond.Reason == string(api.ImageExportConditionReasonCompleted) || cond.Reason == string(api.ImageExportConditionReasonFailed) {
-					log.Infof("ImageExport %q already in terminal state %q, skipping", imageExportName, cond.Reason)
-					return nil
-				}
-			}
+		readyCondition = api.FindImageExportStatusCondition(*imageExport.Status.Conditions, api.ImageExportConditionTypeReady)
+	}
+	if readyCondition != nil {
+		reason := readyCondition.Reason
+		// Skip if already completed or failed
+		if reason == string(api.ImageExportConditionReasonCompleted) || reason == string(api.ImageExportConditionReasonFailed) {
+			log.Infof("ImageExport %q already in terminal state %q, skipping", imageExportName, reason)
+			return nil
+		}
+		// Skip if already Converting - another process is handling it
+		if reason == string(api.ImageExportConditionReasonConverting) {
+			log.Infof("ImageExport %q is already being processed (Converting), skipping", imageExportName)
+			return nil
+		}
+		// Skip if Pushing - another process is handling it
+		if reason == string(api.ImageExportConditionReasonPushing) {
+			log.Infof("ImageExport %q is already being processed (Pushing), skipping", imageExportName)
+			return nil
+		}
+		// Only proceed if Pending - if it's any other state, skip (shouldn't happen, but defensive)
+		if reason != string(api.ImageExportConditionReasonPending) {
+			log.Warnf("ImageExport %q is in unexpected state %q (expected Pending), skipping", imageExportName, reason)
+			return nil
 		}
 	}
+	// If no Ready condition exists, treat as Pending and proceed
 
 	// Validate and normalize source to exportSource
 	source, err := c.validateAndNormalizeSource(ctx, orgID, imageExport, log)
 	if err != nil {
-		// Check if this is a pending state (ImageBuild not ready) - update condition and return nil to allow re-enqueue
+		// Check if this is a pending state (ImageBuild not ready)
+		// Resource should already be in Pending state, but update message if different
 		if errors.Is(err, errImageBuildNotReady) {
-			updateCondition(ctx, c.store, orgID, imageExport, api.ImageExportCondition{
-				Type:               api.ImageExportConditionTypeReady,
-				Status:             v1beta1.ConditionStatusFalse,
-				Reason:             string(api.ImageExportConditionReasonPending),
-				Message:            err.Error(),
-				LastTransitionTime: time.Now().UTC(),
-			}, log)
+			// Only update if message is different (resource is already Pending)
+			if readyCondition == nil || readyCondition.Message != err.Error() {
+				updateCondition(ctx, c.imageBuilderService.ImageExport(), orgID, imageExport, api.ImageExportCondition{
+					Type:               api.ImageExportConditionTypeReady,
+					Status:             v1beta1.ConditionStatusFalse,
+					Reason:             string(api.ImageExportConditionReasonPending),
+					Message:            err.Error(),
+					LastTransitionTime: time.Now().UTC(),
+				}, log)
+			}
 			return nil
 		}
 		// For other errors, update condition and return error
-		updateCondition(ctx, c.store, orgID, imageExport, api.ImageExportCondition{
+		updateCondition(ctx, c.imageBuilderService.ImageExport(), orgID, imageExport, api.ImageExportCondition{
 			Type:               api.ImageExportConditionTypeReady,
 			Status:             v1beta1.ConditionStatusFalse,
 			Reason:             string(api.ImageExportConditionReasonFailed),
@@ -102,11 +126,8 @@ func (c *Consumer) processImageExport(ctx context.Context, eventWithOrgId worker
 		return err
 	}
 
-	// Start status updater goroutine - this is the single writer for all status updates
-	statusUpdater, cleanupStatusUpdater := startImageExportStatusUpdater(ctx, c.store, orgID, imageExportName, c.cfg, log)
-	defer cleanupStatusUpdater()
-
-	// Update status to Converting
+	// Lock the export: atomically transition to Converting state using resource_version
+	// This ensures only one process can start processing
 	now := time.Now().UTC()
 	convertingCondition := api.ImageExportCondition{
 		Type:               api.ImageExportConditionTypeReady,
@@ -115,9 +136,41 @@ func (c *Consumer) processImageExport(ctx context.Context, eventWithOrgId worker
 		Message:            "Export conversion in progress",
 		LastTransitionTime: now,
 	}
-	statusUpdater.updateCondition(convertingCondition)
 
-	log.Info("Updated ImageExport status to Converting")
+	// Prepare status with Converting condition
+	if imageExport.Status == nil {
+		imageExport.Status = &api.ImageExportStatus{}
+	}
+	if imageExport.Status.Conditions == nil {
+		imageExport.Status.Conditions = &[]api.ImageExportCondition{}
+	}
+	api.SetImageExportStatusCondition(imageExport.Status.Conditions, convertingCondition)
+	// Set initial lastSeen when locking the resource
+	imageExport.Status.LastSeen = &now
+
+	// Synchronously update status to Converting - this will fail if resource_version changed
+	_, err = c.imageBuilderService.ImageExport().UpdateStatus(ctx, orgID, imageExport)
+	if err != nil {
+		if errors.Is(err, flterrors.ErrNoRowsUpdated) {
+			// Another process updated the resource - it's likely already Converting
+			log.Infof("ImageExport %q was updated by another process, skipping", imageExportName)
+			return nil
+		}
+		return fmt.Errorf("failed to lock ImageExport for processing: %w", err)
+	}
+
+	log.Info("Successfully locked ImageExport for processing (status set to Converting)")
+
+	// Start status updater goroutine - this is the single writer for all status updates
+	statusUpdater, cleanupStatusUpdater := startImageExportStatusUpdater(ctx, c.imageBuilderService.ImageExport(), orgID, imageExportName, c.cfg, log)
+	defer cleanupStatusUpdater()
+
+	// Send initial lastSeen update to status updater to ensure it's tracking the current time
+	select {
+	case statusUpdater.updateChan <- newImageExportStatusUpdateRequest():
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 
 	// Execute the export
 	outputFilePath, cleanup, err := c.executeExport(ctx, orgID, imageExport, source, statusUpdater, log)
@@ -175,24 +228,32 @@ type imageExportStatusUpdateRequest struct {
 	ManifestDigest *string
 }
 
+// newImageExportStatusUpdateRequest creates a new update request with LastSeen automatically set to now
+func newImageExportStatusUpdateRequest() imageExportStatusUpdateRequest {
+	now := time.Now().UTC()
+	return imageExportStatusUpdateRequest{
+		LastSeen: &now,
+	}
+}
+
 // imageExportStatusUpdater manages all status updates for an ImageExport, ensuring atomic updates
 // and preventing race conditions between LastSeen and condition updates.
 type imageExportStatusUpdater struct {
-	store           imagebuilderstore.Store
-	orgID           uuid.UUID
-	imageExportName string
-	updateChan      chan imageExportStatusUpdateRequest
-	outputChan      chan []byte // Central channel for all task outputs
-	ctx             context.Context
-	cancel          context.CancelFunc
-	wg              sync.WaitGroup
-	log             logrus.FieldLogger
+	imageExportService imagebuilderapi.ImageExportService
+	orgID              uuid.UUID
+	imageExportName    string
+	updateChan         chan imageExportStatusUpdateRequest
+	outputChan         chan []byte // Central channel for all task outputs
+	ctx                context.Context
+	cancel             context.CancelFunc
+	wg                 sync.WaitGroup
+	log                logrus.FieldLogger
 }
 
 // startImageExportStatusUpdater starts a goroutine that is the single writer for ImageExport status updates.
 func startImageExportStatusUpdater(
 	ctx context.Context,
-	store imagebuilderstore.Store,
+	imageExportService imagebuilderapi.ImageExportService,
 	orgID uuid.UUID,
 	imageExportName string,
 	cfg *config.Config,
@@ -201,14 +262,14 @@ func startImageExportStatusUpdater(
 	updaterCtx, updaterCancel := context.WithCancel(ctx)
 
 	updater := &imageExportStatusUpdater{
-		store:           store,
-		orgID:           orgID,
-		imageExportName: imageExportName,
-		updateChan:      make(chan imageExportStatusUpdateRequest),
-		outputChan:      make(chan []byte, 100),
-		ctx:             updaterCtx,
-		cancel:          updaterCancel,
-		log:             log,
+		imageExportService: imageExportService,
+		orgID:              orgID,
+		imageExportName:    imageExportName,
+		updateChan:         make(chan imageExportStatusUpdateRequest),
+		outputChan:         make(chan []byte, 100),
+		ctx:                updaterCtx,
+		cancel:             updaterCancel,
+		log:                log,
 	}
 
 	updater.wg.Add(1)
@@ -267,7 +328,9 @@ func (u *imageExportStatusUpdater) run(cfg *config.Config) {
 			if req.LastSeen != nil {
 				lastSeenUpdateTime = *req.LastSeen
 			}
-			if req.Condition != nil || req.ManifestDigest != nil {
+			// Update immediately when condition or manifest digest changes
+			// LastSeen-only updates are handled immediately to set initial value
+			if req.Condition != nil || req.ManifestDigest != nil || req.LastSeen != nil {
 				u.updateStatus(u.ctx, pendingCondition, &lastSeenUpdateTime, req.ManifestDigest)
 				pendingCondition = nil
 			}
@@ -277,9 +340,9 @@ func (u *imageExportStatusUpdater) run(cfg *config.Config) {
 
 // updateStatus performs the actual database update
 func (u *imageExportStatusUpdater) updateStatus(ctx context.Context, condition *api.ImageExportCondition, lastSeen *time.Time, manifestDigest *string) {
-	imageExport, err := u.store.ImageExport().Get(ctx, u.orgID, u.imageExportName)
-	if err != nil {
-		u.log.WithError(err).Warn("Failed to load ImageExport for status update")
+	imageExport, status := u.imageExportService.Get(ctx, u.orgID, u.imageExportName)
+	if imageExport == nil || !imagebuilderapi.IsStatusOK(status) {
+		u.log.WithField("status", status).Warn("Failed to load ImageExport for status update")
 		return
 	}
 
@@ -302,7 +365,7 @@ func (u *imageExportStatusUpdater) updateStatus(ctx context.Context, condition *
 		imageExport.Status.ManifestDigest = manifestDigest
 	}
 
-	_, err = u.store.ImageExport().UpdateStatus(ctx, u.orgID, imageExport)
+	_, err := u.imageExportService.UpdateStatus(ctx, u.orgID, imageExport)
 	if err != nil {
 		u.log.WithError(err).Warn("Failed to update ImageExport status")
 	}
@@ -310,16 +373,20 @@ func (u *imageExportStatusUpdater) updateStatus(ctx context.Context, condition *
 
 // updateCondition sends a condition update request to the updater goroutine
 func (u *imageExportStatusUpdater) updateCondition(condition api.ImageExportCondition) {
+	req := newImageExportStatusUpdateRequest()
+	req.Condition = &condition
 	select {
-	case u.updateChan <- imageExportStatusUpdateRequest{Condition: &condition}:
+	case u.updateChan <- req:
 	case <-u.ctx.Done():
 	}
 }
 
 // setManifestDigest sets the manifest digest in the ImageExport status
 func (u *imageExportStatusUpdater) setManifestDigest(manifestDigest string) {
+	req := newImageExportStatusUpdateRequest()
+	req.ManifestDigest = &manifestDigest
 	select {
-	case u.updateChan <- imageExportStatusUpdateRequest{ManifestDigest: &manifestDigest}:
+	case u.updateChan <- req:
 	case <-u.ctx.Done():
 	}
 }
@@ -776,7 +843,7 @@ func (c *Consumer) findOutputFile(outputDir string, format api.ExportFormatType,
 // updateCondition updates the ImageExport condition and status
 func updateCondition(
 	ctx context.Context,
-	store imagebuilderstore.Store,
+	imageExportService imagebuilderapi.ImageExportService,
 	orgID uuid.UUID,
 	imageExport *api.ImageExport,
 	condition api.ImageExportCondition,
@@ -791,7 +858,7 @@ func updateCondition(
 	}
 	api.SetImageExportStatusCondition(imageExport.Status.Conditions, condition)
 	imageExport.Status.LastSeen = &now
-	if _, updateErr := store.ImageExport().UpdateStatus(ctx, orgID, imageExport); updateErr != nil {
+	if _, updateErr := imageExportService.UpdateStatus(ctx, orgID, imageExport); updateErr != nil {
 		log.WithError(updateErr).Error("failed to update ImageExport status")
 	}
 }
@@ -814,9 +881,9 @@ func (c *Consumer) validateAndNormalizeSource(ctx context.Context, orgID uuid.UU
 			return nil, fmt.Errorf("failed to parse imageBuild source: %w", err)
 		}
 
-		imageBuild, err := c.store.ImageBuild().Get(ctx, orgID, source.ImageBuildRef)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get ImageBuild %q: %w", source.ImageBuildRef, err)
+		imageBuild, status := c.imageBuilderService.ImageBuild().Get(ctx, orgID, source.ImageBuildRef, false)
+		if imageBuild == nil || !imagebuilderapi.IsStatusOK(status) {
+			return nil, fmt.Errorf("failed to get ImageBuild %q: %v", source.ImageBuildRef, status)
 		}
 
 		// Check if ImageBuild is ready

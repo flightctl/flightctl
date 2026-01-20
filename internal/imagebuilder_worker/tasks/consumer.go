@@ -10,6 +10,7 @@ import (
 	apiimagebuilder "github.com/flightctl/flightctl/api/imagebuilder/v1beta1"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
+	imagebuilderapi "github.com/flightctl/flightctl/internal/imagebuilder_api/service"
 	imagebuilderstore "github.com/flightctl/flightctl/internal/imagebuilder_api/store"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/kvstore"
@@ -17,6 +18,7 @@ import (
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/queues"
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel/attribute"
 )
@@ -28,12 +30,14 @@ const (
 
 // Consumer handles incoming jobs from the queue and routes them to appropriate handlers
 type Consumer struct {
-	store          imagebuilderstore.Store
-	mainStore      store.Store
-	kvStore        kvstore.KVStore
-	serviceHandler *service.ServiceHandler
-	cfg            *config.Config
-	log            logrus.FieldLogger
+	store               imagebuilderstore.Store
+	mainStore           store.Store
+	kvStore             kvstore.KVStore
+	serviceHandler      *service.ServiceHandler
+	imageBuilderService imagebuilderapi.Service
+	queueProducer       queues.QueueProducer
+	cfg                 *config.Config
+	log                 logrus.FieldLogger
 }
 
 // NewConsumer creates a new Consumer instance with the provided dependencies
@@ -42,16 +46,20 @@ func NewConsumer(
 	mainStore store.Store,
 	kvStore kvstore.KVStore,
 	serviceHandler *service.ServiceHandler,
+	imageBuilderService imagebuilderapi.Service,
+	queueProducer queues.QueueProducer,
 	cfg *config.Config,
 	log logrus.FieldLogger,
 ) *Consumer {
 	return &Consumer{
-		store:          store,
-		mainStore:      mainStore,
-		kvStore:        kvStore,
-		serviceHandler: serviceHandler,
-		cfg:            cfg,
-		log:            log,
+		store:               store,
+		mainStore:           mainStore,
+		kvStore:             kvStore,
+		serviceHandler:      serviceHandler,
+		imageBuilderService: imageBuilderService,
+		queueProducer:       queueProducer,
+		cfg:                 cfg,
+		log:                 log,
 	}
 }
 
@@ -90,11 +98,15 @@ func (c *Consumer) Consume(ctx context.Context, payload []byte, entryID string, 
 	var processingErr error
 	switch event.InvolvedObject.Kind {
 	case string(apiimagebuilder.ResourceKindImageBuild):
-		if event.Reason == api.EventReasonResourceCreated {
+		switch event.Reason {
+		case api.EventReasonResourceCreated:
 			processingErr = c.processImageBuild(ctx, eventWithOrgId, log)
-		} else {
-			log.Debugf("ignoring ImageBuild event with reason %q (only ResourceCreated is processed)", event.Reason)
-			// Complete non-ResourceCreated events without processing
+		case api.EventReasonResourceUpdated:
+			// Handle ImageBuild updates - if completed, requeue related ImageExports
+			processingErr = c.HandleImageBuildUpdate(ctx, eventWithOrgId, log)
+		default:
+			log.Debugf("ignoring ImageBuild event with reason %q (only ResourceCreated and ResourceUpdated are processed)", event.Reason)
+			// Complete non-ResourceCreated/ResourceUpdated events without processing
 			ackCtx, cancelAck := context.WithTimeout(context.Background(), AckTimeout)
 			defer cancelAck()
 			if ackErr := consumer.Complete(ackCtx, entryID, payload, nil); ackErr != nil {
@@ -104,9 +116,10 @@ func (c *Consumer) Consume(ctx context.Context, payload []byte, entryID string, 
 		}
 
 	case string(apiimagebuilder.ResourceKindImageExport):
-		if event.Reason == api.EventReasonResourceCreated {
+		switch event.Reason {
+		case api.EventReasonResourceCreated:
 			processingErr = c.processImageExport(ctx, eventWithOrgId, log)
-		} else {
+		default:
 			log.Debugf("ignoring ImageExport event with reason %q (only ResourceCreated is processed)", event.Reason)
 			// Complete non-ResourceCreated events without processing
 			ackCtx, cancelAck := context.WithTimeout(context.Background(), AckTimeout)
@@ -150,6 +163,38 @@ func (c *Consumer) Consume(ctx context.Context, payload []byte, entryID string, 
 	return processingErr
 }
 
+// enqueueEvent enqueues an event to the imagebuild queue
+func (c *Consumer) enqueueEvent(ctx context.Context, orgID uuid.UUID, event *api.Event, log logrus.FieldLogger) error {
+	// Create EventWithOrgId structure for the queue
+	eventWithOrgId := worker_client.EventWithOrgId{
+		OrgId: orgID,
+		Event: *event,
+	}
+
+	payload, err := json.Marshal(eventWithOrgId)
+	if err != nil {
+		return fmt.Errorf("failed to marshal event: %w", err)
+	}
+
+	// Use creation timestamp if available, otherwise use current time
+	var timestamp int64
+	if event.Metadata.CreationTimestamp != nil {
+		timestamp = event.Metadata.CreationTimestamp.UnixMicro()
+	} else {
+		timestamp = time.Now().UnixMicro()
+	}
+
+	if err := c.queueProducer.Enqueue(ctx, payload, timestamp); err != nil {
+		return fmt.Errorf("failed to enqueue event: %w", err)
+	}
+
+	log.WithField("orgId", orgID).
+		WithField("kind", event.InvolvedObject.Kind).
+		WithField("name", event.InvolvedObject.Name).
+		Debug("Enqueued event")
+	return nil
+}
+
 // LaunchConsumers starts the specified number of queue consumers for imagebuild jobs
 func LaunchConsumers(
 	ctx context.Context,
@@ -158,13 +203,20 @@ func LaunchConsumers(
 	mainStore store.Store,
 	kvStore kvstore.KVStore,
 	serviceHandler *service.ServiceHandler,
+	imageBuilderService imagebuilderapi.Service,
 	cfg *config.Config,
 	log logrus.FieldLogger,
 ) error {
 	maxConcurrentBuilds := cfg.ImageBuilderWorker.MaxConcurrentBuilds
 	log.Infof("Launching %d imagebuild queue consumers", maxConcurrentBuilds)
 
-	taskConsumer := NewConsumer(store, mainStore, kvStore, serviceHandler, cfg, log)
+	// Create queue producer for consumer (used for requeueing related ImageExports)
+	consumerQueueProducer, err := queuesProvider.NewQueueProducer(ctx, consts.ImageBuildTaskQueue)
+	if err != nil {
+		return fmt.Errorf("failed to create queue producer for consumer: %w", err)
+	}
+
+	taskConsumer := NewConsumer(store, mainStore, kvStore, serviceHandler, imageBuilderService, consumerQueueProducer, cfg, log)
 
 	for i := 0; i < maxConcurrentBuilds; i++ {
 		consumer, err := queuesProvider.NewQueueConsumer(ctx, consts.ImageBuildTaskQueue)
@@ -176,6 +228,73 @@ func LaunchConsumers(
 		}
 	}
 
+	// Run requeue task once on startup
+	go taskConsumer.RunRequeueOnStartup(ctx)
+
+	// Start periodic timeout check task
+	go taskConsumer.runPeriodicTimeoutCheck(ctx)
+
 	log.Info("All imagebuild queue consumers started")
 	return nil
+}
+
+// runPeriodicTimeoutCheck runs the periodic timeout check task loop
+func (c *Consumer) runPeriodicTimeoutCheck(ctx context.Context) {
+	// Get interval from config (defaults are set when config is created)
+	interval := time.Duration(c.cfg.ImageBuilderWorker.TimeoutCheckTaskInterval)
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	// Run immediately on startup
+	c.executeTimeoutCheck(ctx)
+
+	for {
+		select {
+		case <-ctx.Done():
+			c.log.Info("Periodic timeout check task stopped")
+			return
+		case <-ticker.C:
+			c.executeTimeoutCheck(ctx)
+		}
+	}
+}
+
+// executeTimeoutCheck performs the timeout check for all organizations
+func (c *Consumer) executeTimeoutCheck(ctx context.Context) {
+	log := c.log.WithField("task", "timeout-check")
+	log.Debug("Starting periodic timeout check task")
+
+	// Get timeout duration from config
+	if c.cfg == nil || c.cfg.ImageBuilderWorker == nil {
+		log.Error("Config or ImageBuilderWorker config is nil, skipping timeout check")
+		return
+	}
+	timeoutDuration := time.Duration(c.cfg.ImageBuilderWorker.ImageBuilderTimeout)
+	if timeoutDuration <= 0 {
+		log.WithField("timeoutDuration", timeoutDuration).Error("Invalid timeout duration, skipping timeout check")
+		return
+	}
+
+	// List all organizations
+	orgs, err := c.mainStore.Organization().List(ctx, store.ListParams{})
+	if err != nil {
+		log.WithError(err).Error("Failed to list organizations")
+		return
+	}
+
+	totalFailed := 0
+	for _, org := range orgs {
+		failedCount, err := c.CheckAndMarkTimeoutsForOrg(ctx, org.ID, timeoutDuration, log)
+		if err != nil {
+			log.WithError(err).WithField("orgId", org.ID).Error("Failed to check timeouts for organization")
+			continue
+		}
+		totalFailed += failedCount
+	}
+
+	if totalFailed > 0 {
+		log.WithField("movedToFail", totalFailed).Info("Periodic timeout check task completed")
+	} else {
+		log.Debug("Periodic timeout check task completed - no resources moved to fail")
+	}
 }

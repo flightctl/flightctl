@@ -121,23 +121,27 @@ type imageBuilderServiceConfig struct {
 }
 
 type imageBuilderWorkerConfig struct {
-	LogLevel               string        `json:"logLevel,omitempty"`
-	MaxConcurrentBuilds    int           `json:"maxConcurrentBuilds,omitempty"`
-	DefaultTTL             util.Duration `json:"defaultTTL,omitempty"`
-	PodmanImage            string        `json:"podmanImage,omitempty"`
-	BootcImageBuilderImage string        `json:"bootcImageBuilderImage,omitempty"`
-	LastSeenUpdateInterval util.Duration `json:"lastSeenUpdateInterval,omitempty"`
+	LogLevel                 string        `json:"logLevel,omitempty"`
+	MaxConcurrentBuilds      int           `json:"maxConcurrentBuilds,omitempty"`
+	DefaultTTL               util.Duration `json:"defaultTTL,omitempty"`
+	PodmanImage              string        `json:"podmanImage,omitempty"`
+	BootcImageBuilderImage   string        `json:"bootcImageBuilderImage,omitempty"`
+	LastSeenUpdateInterval   util.Duration `json:"lastSeenUpdateInterval,omitempty"`
+	ImageBuilderTimeout      util.Duration `json:"imageBuilderTimeout,omitempty"`
+	TimeoutCheckTaskInterval util.Duration `json:"timeoutCheckTaskInterval,omitempty"`
 }
 
 // NewDefaultImageBuilderWorkerConfig returns a default ImageBuilder worker configuration
 func NewDefaultImageBuilderWorkerConfig() *imageBuilderWorkerConfig {
 	return &imageBuilderWorkerConfig{
-		LogLevel:               "info",
-		MaxConcurrentBuilds:    2,
-		DefaultTTL:             util.Duration(7 * 24 * time.Hour),
-		PodmanImage:            "quay.io/podman/stable:v5.7.1",
-		BootcImageBuilderImage: "quay.io/centos-bootc/bootc-image-builder@sha256:773019f6b11766ca48170a4a7bf898be4268f3c2acfd0ec1db612408b3092a90",
-		LastSeenUpdateInterval: util.Duration(30 * time.Second),
+		LogLevel:                 "info",
+		MaxConcurrentBuilds:      2,
+		DefaultTTL:               util.Duration(7 * 24 * time.Hour),
+		PodmanImage:              "quay.io/podman/stable:v5.7.1",
+		BootcImageBuilderImage:   "quay.io/centos-bootc/bootc-image-builder@sha256:773019f6b11766ca48170a4a7bf898be4268f3c2acfd0ec1db612408b3092a90",
+		LastSeenUpdateInterval:   util.Duration(30 * time.Second),
+		ImageBuilderTimeout:      util.Duration(3 * time.Minute),
+		TimeoutCheckTaskInterval: util.Duration(1 * time.Minute),
 	}
 }
 
@@ -834,6 +838,12 @@ func Validate(cfg *Config) error {
 		}
 		if hc.ReadinessPath == hc.LivenessPath {
 			return fmt.Errorf("imageBuilderService.healthChecks.readinessPath and livenessPath must not be identical")
+		}
+	}
+
+	if cfg.ImageBuilderWorker != nil {
+		if time.Duration(cfg.ImageBuilderWorker.TimeoutCheckTaskInterval) <= 0 {
+			return fmt.Errorf("imageBuilderWorker.timeoutCheckTaskInterval must be greater than 0")
 		}
 	}
 

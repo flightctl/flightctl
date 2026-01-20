@@ -572,7 +572,7 @@ var _ = Describe("ImageExportStore", func() {
 
 			_, err := storeInst.ImageExport().UpdateStatus(ctx, orgId, imageExport)
 			Expect(err).To(HaveOccurred())
-			Expect(err).To(MatchError(flterrors.ErrResourceNotFound))
+			Expect(err).To(MatchError(flterrors.ErrNoRowsUpdated))
 		})
 	})
 

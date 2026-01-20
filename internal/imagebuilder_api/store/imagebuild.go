@@ -3,8 +3,10 @@ package store
 import (
 	"context"
 	"errors"
+	"strconv"
 	"time"
 
+	v1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
 	api "github.com/flightctl/flightctl/api/imagebuilder/v1beta1"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	flightctlstore "github.com/flightctl/flightctl/internal/store"
@@ -86,6 +88,23 @@ func (s *imageBuildStore) Create(ctx context.Context, orgId uuid.UUID, imageBuil
 	// Set initial Generation and ResourceVersion on create (matching GenericStore pattern)
 	m.Generation = lo.ToPtr(int64(1))
 	m.ResourceVersion = lo.ToPtr(int64(1))
+
+	// Set initial status with Ready=False, Reason=Pending if status is nil or empty
+	if m.Status == nil || m.Status.Data.Conditions == nil || len(*m.Status.Data.Conditions) == 0 {
+		now := time.Now().UTC()
+		initialStatus := api.ImageBuildStatus{
+			Conditions: &[]api.ImageBuildCondition{
+				{
+					Type:               api.ImageBuildConditionTypeReady,
+					Status:             v1beta1.ConditionStatusFalse,
+					Reason:             string(api.ImageBuildConditionReasonPending),
+					Message:            "ImageBuild created, waiting to be processed",
+					LastTransitionTime: now,
+				},
+			},
+		}
+		m.Status = model.MakeJSONField(initialStatus)
+	}
 
 	db := getDB(ctx, s.db)
 	result := db.WithContext(ctx).Create(m)
@@ -285,17 +304,37 @@ func (s *imageBuildStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, ima
 		return nil, flterrors.ErrResourceIsNil
 	}
 
-	// Update status and return updated row in single query
+	// Parse resource_version from input for optimistic locking
+	var resourceVersion *int64
+	if imageBuild.Metadata.ResourceVersion != nil {
+		rv, err := strconv.ParseInt(lo.FromPtr(imageBuild.Metadata.ResourceVersion), 10, 64)
+		if err != nil {
+			return nil, flterrors.ErrIllegalResourceVersionFormat
+		}
+		resourceVersion = &rv
+	}
+
+	// Update with optional resource_version check for optimistic locking
+	// If resourceVersion is nil, skip optimistic locking (no resource_version in WHERE clause)
+	// Always increment resource_version regardless
 	var updated []ImageBuild
-	result := s.db.WithContext(ctx).Model(&updated).
+	query := getDB(ctx, s.db).WithContext(ctx).Model(&updated).
 		Clauses(clause.Returning{}).
-		Where("org_id = ? AND name = ?", orgId, *imageBuild.Metadata.Name).
-		Update("status", model.MakeJSONField(*imageBuild.Status))
+		Where("org_id = ? AND name = ?", orgId, *imageBuild.Metadata.Name)
+
+	if resourceVersion != nil {
+		query = query.Where("resource_version = ?", lo.FromPtr(resourceVersion))
+	}
+
+	result := query.Updates(map[string]interface{}{
+		"status":           model.MakeJSONField(*imageBuild.Status),
+		"resource_version": gorm.Expr("resource_version + 1"),
+	})
 	if result.Error != nil {
 		return nil, flightctlstore.ErrorFromGormError(result.Error)
 	}
 	if result.RowsAffected == 0 {
-		return nil, flterrors.ErrResourceNotFound
+		return nil, flterrors.ErrNoRowsUpdated
 	}
 
 	return updated[0].ToApiResource()

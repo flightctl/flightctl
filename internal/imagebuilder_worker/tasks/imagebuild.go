@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	_ "embed"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -17,8 +18,9 @@ import (
 	api "github.com/flightctl/flightctl/api/imagebuilder/v1beta1"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"
+	"github.com/flightctl/flightctl/internal/flterrors"
+	imagebuilderapi "github.com/flightctl/flightctl/internal/imagebuilder_api/service"
 	imagebuilderservice "github.com/flightctl/flightctl/internal/imagebuilder_api/service"
-	imagebuilderstore "github.com/flightctl/flightctl/internal/imagebuilder_api/store"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/worker_client"
@@ -57,9 +59,9 @@ func (c *Consumer) processImageBuild(ctx context.Context, eventWithOrgId worker_
 	log.Info("Processing imageBuild event")
 
 	// Load the ImageBuild resource from the database
-	imageBuild, err := c.store.ImageBuild().Get(ctx, orgID, imageBuildName)
-	if err != nil {
-		return fmt.Errorf("failed to load ImageBuild %q: %w", imageBuildName, err)
+	imageBuild, status := c.imageBuilderService.ImageBuild().Get(ctx, orgID, imageBuildName, false)
+	if imageBuild == nil || !imagebuilderapi.IsStatusOK(status) {
+		return fmt.Errorf("failed to load ImageBuild %q: %v", imageBuildName, status)
 	}
 
 	log.WithField("spec", imageBuild.Spec).Debug("Loaded ImageBuild resource")
@@ -69,24 +71,39 @@ func (c *Consumer) processImageBuild(ctx context.Context, eventWithOrgId worker_
 		imageBuild.Status = &api.ImageBuildStatus{}
 	}
 
-	// Check if already completed or failed - skip if so
+	// Check current state - only process if Pending (or has no Ready condition)
+	// We only lock resources that are in Pending state to avoid stealing work from other processes
+	var readyCondition *api.ImageBuildCondition
 	if imageBuild.Status.Conditions != nil {
-		for _, cond := range *imageBuild.Status.Conditions {
-			if cond.Type == api.ImageBuildConditionTypeReady {
-				if cond.Reason == string(api.ImageBuildConditionReasonCompleted) || cond.Reason == string(api.ImageBuildConditionReasonFailed) {
-					log.Infof("ImageBuild %q already in terminal state %q, skipping", imageBuildName, cond.Reason)
-					return nil
-				}
-			}
+		readyCondition = api.FindImageBuildStatusCondition(*imageBuild.Status.Conditions, api.ImageBuildConditionTypeReady)
+	}
+	if readyCondition != nil {
+		reason := readyCondition.Reason
+		// Skip if already completed or failed
+		if reason == string(api.ImageBuildConditionReasonCompleted) || reason == string(api.ImageBuildConditionReasonFailed) {
+			log.Infof("ImageBuild %q already in terminal state %q, skipping", imageBuildName, reason)
+			return nil
+		}
+		// Skip if already Building - another process is handling it
+		if reason == string(api.ImageBuildConditionReasonBuilding) {
+			log.Infof("ImageBuild %q is already being processed (Building), skipping", imageBuildName)
+			return nil
+		}
+		// Skip if Pushing - another process is handling it
+		if reason == string(api.ImageBuildConditionReasonPushing) {
+			log.Infof("ImageBuild %q is already being processed (Pushing), skipping", imageBuildName)
+			return nil
+		}
+		// Only proceed if Pending - if it's any other state, skip (shouldn't happen, but defensive)
+		if reason != string(api.ImageBuildConditionReasonPending) {
+			log.Warnf("ImageBuild %q is in unexpected state %q (expected Pending), skipping", imageBuildName, reason)
+			return nil
 		}
 	}
+	// If no Ready condition exists, treat as Pending and proceed
 
-	// Start status updater goroutine - this is the single writer for all status updates
-	// It handles both LastSeen (periodic) and condition updates (on-demand)
-	statusUpdater, cleanupStatusUpdater := startStatusUpdater(ctx, c.store, orgID, imageBuildName, c.cfg, log)
-	defer cleanupStatusUpdater()
-
-	// Update status to Building
+	// Lock the build: atomically transition from Pending to Building state using resource_version
+	// This ensures only one process can start processing
 	now := time.Now().UTC()
 	buildingCondition := api.ImageBuildCondition{
 		Type:               api.ImageBuildConditionTypeReady,
@@ -95,9 +112,33 @@ func (c *Consumer) processImageBuild(ctx context.Context, eventWithOrgId worker_
 		Message:            "Build is in progress",
 		LastTransitionTime: now,
 	}
-	statusUpdater.updateCondition(buildingCondition)
 
-	log.Info("Updated ImageBuild status to Building")
+	// Prepare status with Building condition
+	if imageBuild.Status == nil {
+		imageBuild.Status = &api.ImageBuildStatus{}
+	}
+	if imageBuild.Status.Conditions == nil {
+		imageBuild.Status.Conditions = &[]api.ImageBuildCondition{}
+	}
+	api.SetImageBuildStatusCondition(imageBuild.Status.Conditions, buildingCondition)
+
+	// Synchronously update status to Building - this will fail if resource_version changed
+	_, err := c.imageBuilderService.ImageBuild().UpdateStatus(ctx, orgID, imageBuild)
+	if err != nil {
+		if errors.Is(err, flterrors.ErrNoRowsUpdated) {
+			// Another process updated the resource - it's likely already Building
+			log.Infof("ImageBuild %q was updated by another process, skipping", imageBuildName)
+			return nil
+		}
+		return fmt.Errorf("failed to lock ImageBuild for processing: %w", err)
+	}
+
+	log.Info("Successfully locked ImageBuild for processing (status set to Building)")
+
+	// Start status updater goroutine - this is the single writer for all status updates
+	// It handles both LastSeen (periodic) and condition updates (on-demand)
+	statusUpdater, cleanupStatusUpdater := startStatusUpdater(ctx, c.imageBuilderService.ImageBuild(), orgID, imageBuildName, c.cfg, log)
+	defer cleanupStatusUpdater()
 
 	// Step 1: Generate Containerfile
 	log.Info("Generating Containerfile for image build")
@@ -193,15 +234,15 @@ type statusUpdateRequest struct {
 // and preventing race conditions between LastSeen and condition updates.
 // It also tracks task outputs and only updates LastSeen when new data is received.
 type statusUpdater struct {
-	store          imagebuilderstore.Store
-	orgID          uuid.UUID
-	imageBuildName string
-	updateChan     chan statusUpdateRequest
-	outputChan     chan []byte // Central channel for all task outputs
-	ctx            context.Context
-	cancel         context.CancelFunc
-	wg             sync.WaitGroup
-	log            logrus.FieldLogger
+	imageBuildService imagebuilderapi.ImageBuildService
+	orgID             uuid.UUID
+	imageBuildName    string
+	updateChan        chan statusUpdateRequest
+	outputChan        chan []byte // Central channel for all task outputs
+	ctx               context.Context
+	cancel            context.CancelFunc
+	wg                sync.WaitGroup
+	log               logrus.FieldLogger
 }
 
 // startStatusUpdater starts a goroutine that is the single writer for ImageBuild status updates.
@@ -209,7 +250,7 @@ type statusUpdater struct {
 // Returns the updater and a cleanup function.
 func startStatusUpdater(
 	ctx context.Context,
-	store imagebuilderstore.Store,
+	imageBuildService imagebuilderapi.ImageBuildService,
 	orgID uuid.UUID,
 	imageBuildName string,
 	cfg *config.Config,
@@ -218,14 +259,14 @@ func startStatusUpdater(
 	updaterCtx, updaterCancel := context.WithCancel(ctx)
 
 	updater := &statusUpdater{
-		store:          store,
-		orgID:          orgID,
-		imageBuildName: imageBuildName,
-		updateChan:     make(chan statusUpdateRequest), // Unbuffered channel - blocks until processed
-		outputChan:     make(chan []byte, 100),         // Buffered channel for task outputs
-		ctx:            updaterCtx,
-		cancel:         updaterCancel,
-		log:            log,
+		imageBuildService: imageBuildService,
+		orgID:             orgID,
+		imageBuildName:    imageBuildName,
+		updateChan:        make(chan statusUpdateRequest), // Unbuffered channel - blocks until processed
+		outputChan:        make(chan []byte, 100),         // Buffered channel for task outputs
+		ctx:               updaterCtx,
+		cancel:            updaterCancel,
+		log:               log,
 	}
 
 	updater.wg.Add(1)
@@ -312,9 +353,9 @@ func (u *statusUpdater) run(cfg *config.Config) {
 // updateStatus performs the actual database update, merging conditions, LastSeen, and ImageReference
 func (u *statusUpdater) updateStatus(ctx context.Context, condition *api.ImageBuildCondition, lastSeen *time.Time, imageReference *string) {
 	// Load current status from database
-	imageBuild, err := u.store.ImageBuild().Get(ctx, u.orgID, u.imageBuildName)
-	if err != nil {
-		u.log.WithError(err).Warn("Failed to load ImageBuild for status update")
+	imageBuild, status := u.imageBuildService.Get(ctx, u.orgID, u.imageBuildName, false)
+	if imageBuild == nil || !imagebuilderapi.IsStatusOK(status) {
+		u.log.WithField("status", status).Warn("Failed to load ImageBuild for status update")
 		return
 	}
 
@@ -344,7 +385,7 @@ func (u *statusUpdater) updateStatus(ctx context.Context, condition *api.ImageBu
 	}
 
 	// Write updated status atomically
-	_, err = u.store.ImageBuild().UpdateStatus(ctx, u.orgID, imageBuild)
+	_, err := u.imageBuildService.UpdateStatus(ctx, u.orgID, imageBuild)
 	if err != nil {
 		u.log.WithError(err).Warn("Failed to update ImageBuild status")
 	}
