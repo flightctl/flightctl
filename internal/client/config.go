@@ -348,7 +348,7 @@ func NewFromConfig(config *Config, configFilePath string, opts ...client.ClientO
 	})
 	defaultOpts := []client.ClientOption{client.WithHTTPClient(httpClient), ref, WithOrganization(config.Organization)}
 	defaultOpts = append(defaultOpts, opts...)
-	return client.NewClientWithResponses(config.Service.Server+client.ServerUrlApiv1, defaultOpts...)
+	return client.NewClientWithResponses(JoinServerURL(config.Service.Server, client.ServerUrlApiv1), defaultOpts...)
 }
 
 // NewFromConfigFile returns a new Flight Control API client using the config
@@ -796,4 +796,9 @@ func WithCachedTransport() HTTPClientOption {
 		client.Transport = cached
 		return nil
 	}
+}
+
+// JoinServerURL joins a server base URL with a path, handling trailing slashes.
+func JoinServerURL(server, path string) string {
+	return strings.TrimSuffix(server, "/") + path
 }
