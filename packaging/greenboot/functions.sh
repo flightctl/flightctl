@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash  
 #
 # Shared functions for flightctl greenboot health check scripts.
 # Installed to: /usr/share/flightctl/functions/greenboot.sh
