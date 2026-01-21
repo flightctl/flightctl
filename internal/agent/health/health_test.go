@@ -16,98 +16,114 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-func TestCheckServiceStatus(t *testing.T) {
-	require := require.New(t)
-
-	tests := []struct {
-		name         string
-		mockStdout   string
-		mockStderr   string
-		mockExitCode int
-		expectError  bool
-		errorMsg     string
-	}{
-		{
-			name: "service enabled and active",
-			mockStdout: `Id=flightctl-agent.service
+const (
+	activeServiceOutput = `Id=flightctl-agent.service
 Description=Flight Control Agent
 LoadState=loaded
 ActiveState=active
 SubState=running
 UnitFileState=enabled
-`,
-			expectError: false,
-		},
-		{
-			name: "service enabled and active with status text",
-			mockStdout: `Id=flightctl-agent.service
+NRestarts=0
+`
+	activeServiceWithStatusOutput = `Id=flightctl-agent.service
 Description=Flight Control Agent
 LoadState=loaded
 ActiveState=active
 SubState=running
 UnitFileState=enabled
+NRestarts=0
 StatusText=Connected to server
-`,
-			expectError: false,
-		},
-		{
-			name: "service enabled and reloading",
-			mockStdout: `Id=flightctl-agent.service
-Description=Flight Control Agent
-LoadState=loaded
-ActiveState=reloading
-SubState=running
-UnitFileState=enabled
-`,
-			expectError: false,
-		},
-		{
-			name: "service not enabled - exits successfully",
-			mockStdout: `Id=flightctl-agent.service
+`
+	disabledServiceOutput = `Id=flightctl-agent.service
 Description=Flight Control Agent
 LoadState=loaded
 ActiveState=inactive
 SubState=dead
 UnitFileState=disabled
-`,
-			expectError: false,
-		},
-		{
-			name: "service enabled but inactive",
-			mockStdout: `Id=flightctl-agent.service
+NRestarts=0
+`
+	activatingServiceOutput = `Id=flightctl-agent.service
 Description=Flight Control Agent
 LoadState=loaded
-ActiveState=inactive
-SubState=dead
+ActiveState=activating
+SubState=start
 UnitFileState=enabled
-`,
-			expectError: true,
-			errorMsg:    "not active",
-		},
-		{
-			name: "service enabled but failed",
-			mockStdout: `Id=flightctl-agent.service
+NRestarts=0
+`
+	failedServiceOutput = `Id=flightctl-agent.service
 Description=Flight Control Agent
 LoadState=loaded
 ActiveState=failed
 SubState=failed
 UnitFileState=enabled
-`,
+`
+)
+
+func TestWaitForServiceActive(t *testing.T) {
+	require := require.New(t)
+
+	tests := []struct {
+		name        string
+		setupMocks  func(*executer.MockExecuter)
+		expectError bool
+		errorMsg    string
+	}{
+		{
+			name: "service immediately active",
+			setupMocks: func(m *executer.MockExecuter) {
+				m.EXPECT().
+					ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "show", "--all", "--", serviceName).
+					Return(activeServiceOutput, "", 0)
+			},
+			expectError: false,
+		},
+		{
+			name: "service disabled - fails health check",
+			setupMocks: func(m *executer.MockExecuter) {
+				m.EXPECT().
+					ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "show", "--all", "--", serviceName).
+					Return(disabledServiceOutput, "", 0)
+			},
+			expectError: true,
+			errorMsg:    "not enabled",
+		},
+		{
+			name: "service failed",
+			setupMocks: func(m *executer.MockExecuter) {
+				m.EXPECT().
+					ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "show", "--all", "--", serviceName).
+					Return(failedServiceOutput, "", 0)
+			},
 			expectError: true,
 			errorMsg:    "has failed",
 		},
 		{
-			name:         "systemctl command failure",
-			mockStderr:   "Failed to get properties: Connection refused",
-			mockExitCode: 1,
-			expectError:  true,
-			errorMsg:     "getting service status",
+			name: "service becomes active after polling",
+			setupMocks: func(m *executer.MockExecuter) {
+				gomock.InOrder(
+					m.EXPECT().
+						ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "show", "--all", "--", serviceName).
+						Return(activatingServiceOutput, "", 0),
+					m.EXPECT().
+						ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "show", "--all", "--", serviceName).
+						Return(activeServiceOutput, "", 0),
+				)
+			},
+			expectError: false,
 		},
 		{
-			name:        "service not found",
-			mockStdout:  "",
-			expectError: true,
-			errorMsg:    "not found",
+			name: "systemctl command failure retries",
+			setupMocks: func(m *executer.MockExecuter) {
+				gomock.InOrder(
+					m.EXPECT().
+						ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "show", "--all", "--", serviceName).
+						Return("", "connection refused", 1),
+					m.EXPECT().
+						ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "show", "--all", "--", serviceName).
+						Return(activeServiceOutput, "", 0),
+				)
+			},
+			expectError: false,
 		},
 	}
 
@@ -117,29 +133,182 @@ UnitFileState=enabled
 			defer ctrl.Finish()
 
 			execMock := executer.NewMockExecuter(ctrl)
+			tt.setupMocks(execMock)
+
 			logger := log.NewPrefixLogger("test")
 			output := &bytes.Buffer{}
 
-			systemdClient := client.NewSystemd(execMock)
 			checker := NewChecker(
 				logger,
+				WithTimeout(30*time.Second),
 				WithVerbose(true),
 				WithOutput(output),
-				WithSystemdClient(systemdClient),
+				WithSystemdClient(client.NewSystemd(execMock)),
 			)
 
-			// Set up mock expectation for systemctl show
-			execMock.EXPECT().
-				ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "show", "--all", "--", serviceName).
-				Return(tt.mockStdout, tt.mockStderr, tt.mockExitCode)
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
 
-			err := checker.checkServiceStatus(context.Background())
+			err := checker.waitForServiceActive(ctx)
 
 			if tt.expectError {
 				require.Error(err)
 				require.Contains(err.Error(), tt.errorMsg)
 			} else {
 				require.NoError(err)
+			}
+		})
+	}
+}
+
+func TestMonitorStability(t *testing.T) {
+	require := require.New(t)
+
+	tests := []struct {
+		name        string
+		setupMocks  func(*executer.MockExecuter)
+		expectError bool
+		errorMsg    string
+	}{
+		{
+			name: "service remains stable",
+			setupMocks: func(m *executer.MockExecuter) {
+				// Called multiple times during stability window
+				m.EXPECT().
+					ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "show", "--all", "--", serviceName).
+					Return(activeServiceOutput, "", 0).
+					MinTimes(2)
+			},
+			expectError: false,
+		},
+		{
+			name: "service fails during stability window",
+			setupMocks: func(m *executer.MockExecuter) {
+				gomock.InOrder(
+					m.EXPECT().
+						ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "show", "--all", "--", serviceName).
+						Return(activeServiceOutput, "", 0),
+					m.EXPECT().
+						ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "show", "--all", "--", serviceName).
+						Return(failedServiceOutput, "", 0),
+				)
+			},
+			expectError: true,
+			errorMsg:    "failed during stability window",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			execMock := executer.NewMockExecuter(ctrl)
+			tt.setupMocks(execMock)
+
+			logger := log.NewPrefixLogger("test")
+			output := &bytes.Buffer{}
+
+			checker := NewChecker(
+				logger,
+				WithTimeout(30*time.Second),
+				WithStabilityWindow(10*time.Second), // Short window for testing
+				WithVerbose(true),
+				WithOutput(output),
+				WithSystemdClient(client.NewSystemd(execMock)),
+			)
+
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+
+			err := checker.monitorStability(ctx)
+
+			if tt.expectError {
+				require.Error(err)
+				require.Contains(err.Error(), tt.errorMsg)
+			} else {
+				require.NoError(err)
+			}
+		})
+	}
+}
+
+func TestRun(t *testing.T) {
+	require := require.New(t)
+
+	tests := []struct {
+		name        string
+		setupMocks  func(*executer.MockExecuter)
+		expectError bool
+		errorMsg    string
+	}{
+		{
+			name: "all checks pass",
+			setupMocks: func(m *executer.MockExecuter) {
+				m.EXPECT().
+					ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "show", "--all", "--", serviceName).
+					Return(activeServiceOutput, "", 0).
+					MinTimes(2) // At least once for active check, once+ for stability
+			},
+			expectError: false,
+		},
+		{
+			name: "service disabled - fails health check",
+			setupMocks: func(m *executer.MockExecuter) {
+				m.EXPECT().
+					ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "show", "--all", "--", serviceName).
+					Return(disabledServiceOutput, "", 0)
+			},
+			expectError: true,
+			errorMsg:    "not enabled",
+		},
+		{
+			name: "service fails during stability",
+			setupMocks: func(m *executer.MockExecuter) {
+				gomock.InOrder(
+					// waitForServiceActive succeeds
+					m.EXPECT().
+						ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "show", "--all", "--", serviceName).
+						Return(activeServiceOutput, "", 0),
+					// Service fails during stability window
+					m.EXPECT().
+						ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "show", "--all", "--", serviceName).
+						Return(failedServiceOutput, "", 0),
+				)
+			},
+			expectError: true,
+			errorMsg:    "failed during stability window",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			execMock := executer.NewMockExecuter(ctrl)
+			tt.setupMocks(execMock)
+
+			logger := log.NewPrefixLogger("test")
+			output := &bytes.Buffer{}
+
+			checker := NewChecker(
+				logger,
+				WithTimeout(30*time.Second),
+				WithStabilityWindow(10*time.Second),
+				WithVerbose(true),
+				WithOutput(output),
+				WithSystemdClient(client.NewSystemd(execMock)),
+			)
+
+			err := checker.Run(context.Background())
+
+			if tt.expectError {
+				require.Error(err)
+				require.Contains(err.Error(), tt.errorMsg)
+			} else {
+				require.NoError(err)
+				require.Contains(output.String(), "All health checks passed")
 			}
 		})
 	}
@@ -187,79 +356,14 @@ func TestReportConnectivityStatus(t *testing.T) {
 	}
 }
 
-func TestRun(t *testing.T) {
-	require := require.New(t)
-
-	tests := []struct {
-		name         string
-		mockStdout   string
-		mockStderr   string
-		mockExitCode int
-		expectError  bool
-	}{
-		{
-			name: "all checks pass",
-			mockStdout: `Id=flightctl-agent.service
-Description=Flight Control Agent
-LoadState=loaded
-ActiveState=active
-SubState=running
-UnitFileState=enabled
-`,
-			expectError: false,
-		},
-		{
-			name: "service check fails",
-			mockStdout: `Id=flightctl-agent.service
-Description=Flight Control Agent
-LoadState=loaded
-ActiveState=failed
-SubState=failed
-UnitFileState=enabled
-`,
-			expectError: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ctrl := gomock.NewController(t)
-			defer ctrl.Finish()
-
-			execMock := executer.NewMockExecuter(ctrl)
-			logger := log.NewPrefixLogger("test")
-			output := &bytes.Buffer{}
-
-			checker := NewChecker(
-				logger,
-				WithVerbose(true),
-				WithOutput(output),
-				WithSystemdClient(client.NewSystemd(execMock)),
-			)
-
-			execMock.EXPECT().
-				ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "show", "--all", "--", serviceName).
-				Return(tt.mockStdout, tt.mockStderr, tt.mockExitCode)
-
-			err := checker.Run(context.Background())
-
-			if tt.expectError {
-				require.Error(err)
-			} else {
-				require.NoError(err)
-				require.Contains(output.String(), "All health checks passed")
-			}
-		})
-	}
-}
-
 func TestNewDefaults(t *testing.T) {
 	require := require.New(t)
 	logger := log.NewPrefixLogger("test")
 
 	checker := NewChecker(logger)
 
-	require.Equal(30*time.Second, checker.timeout)
+	require.Equal(150*time.Second, checker.timeout)
+	require.Equal(defaultStabilityWindow, checker.stabilityWindow)
 	require.NotNil(checker.output)
 	require.NotNil(checker.systemd)
 	require.False(checker.verbose)
@@ -278,12 +382,14 @@ func TestNewWithOptions(t *testing.T) {
 	checker := NewChecker(
 		logger,
 		WithTimeout(60*time.Second),
+		WithStabilityWindow(30*time.Second),
 		WithVerbose(true),
 		WithOutput(output),
 		WithSystemdClient(customSystemd),
 	)
 
 	require.Equal(60*time.Second, checker.timeout)
+	require.Equal(30*time.Second, checker.stabilityWindow)
 	require.True(checker.verbose)
 	require.Equal(output, checker.output)
 	require.Equal(customSystemd, checker.systemd)
