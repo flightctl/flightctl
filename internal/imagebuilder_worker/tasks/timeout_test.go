@@ -119,6 +119,14 @@ func (m *mockImageBuildService) UpdateLastSeen(ctx context.Context, orgId uuid.U
 	return nil
 }
 
+func (m *mockImageBuildService) GetLogs(ctx context.Context, orgId uuid.UUID, name string, follow bool) (imagebuilderapi.LogStreamReader, string, v1beta1.Status) {
+	return nil, "", v1beta1.StatusOK()
+}
+
+func (m *mockImageBuildService) UpdateLogs(ctx context.Context, orgId uuid.UUID, name string, logs string) error {
+	return nil
+}
+
 func (m *mockImageBuildService) Delete(ctx context.Context, orgId uuid.UUID, name string) (*apiimagebuilder.ImageBuild, v1beta1.Status) {
 	return nil, v1beta1.StatusOK()
 }

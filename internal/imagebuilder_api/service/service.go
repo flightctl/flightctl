@@ -4,6 +4,7 @@ import (
 	"context"
 
 	imagebuilderstore "github.com/flightctl/flightctl/internal/imagebuilder_api/store"
+	"github.com/flightctl/flightctl/internal/kvstore"
 	internalservice "github.com/flightctl/flightctl/internal/service"
 	mainstore "github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/pkg/queues"
@@ -24,7 +25,7 @@ type service struct {
 }
 
 // NewService creates a new aggregate Service with all sub-services
-func NewService(ctx context.Context, s imagebuilderstore.Store, mainStore mainstore.Store, queueProducer queues.QueueProducer, log logrus.FieldLogger) Service {
+func NewService(ctx context.Context, s imagebuilderstore.Store, mainStore mainstore.Store, queueProducer queues.QueueProducer, kvStore kvstore.KVStore, log logrus.FieldLogger) Service {
 	// Create event handler for ImageBuild events
 	// Note: We pass nil for workerClient so events are stored in DB for audit/logging
 	// but are not pushed to TaskQueue. Events are manually enqueued to ImageBuildTaskQueue instead.
@@ -33,7 +34,7 @@ func NewService(ctx context.Context, s imagebuilderstore.Store, mainStore mainst
 		eventHandler = internalservice.NewEventHandler(mainStore, nil, log)
 	}
 
-	imageBuildSvc := NewImageBuildService(s.ImageBuild(), mainStore.Repository(), eventHandler, queueProducer, log)
+	imageBuildSvc := NewImageBuildService(s.ImageBuild(), mainStore.Repository(), eventHandler, queueProducer, kvStore, log)
 	imageExportSvc := NewImageExportService(s.ImageExport(), s.ImageBuild(), mainStore.Repository(), eventHandler, queueProducer, log)
 	return &service{
 		imageBuild:  imageBuildSvc,

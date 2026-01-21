@@ -377,6 +377,12 @@ type GetImageBuildParams struct {
 	WithExports *bool `form:"withExports,omitempty" json:"withExports,omitempty"`
 }
 
+// GetImageBuildLogParams defines parameters for GetImageBuildLog.
+type GetImageBuildLogParams struct {
+	// Follow If true, stream logs continuously (like kubectl logs -f). For active builds, keeps connection open. For completed builds, returns all logs and closes.
+	Follow *bool `form:"follow,omitempty" json:"follow,omitempty"`
+}
+
 // ListImageExportsParams defines parameters for ListImageExports.
 type ListImageExportsParams struct {
 	// LabelSelector A selector to restrict the list of returned objects by their labels.

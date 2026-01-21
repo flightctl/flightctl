@@ -103,7 +103,7 @@ var _ = Describe("ImageBuild Update Integration Tests", func() {
 		Expect(err).ToNot(HaveOccurred())
 
 		// Create imagebuilder service
-		imageBuilderService = service.NewService(ctx, imageBuilderStore, mainStore, nil, log)
+		imageBuilderService = service.NewService(ctx, imageBuilderStore, mainStore, nil, nil, log)
 
 		// Setup mock queue producer to capture enqueued events
 		ctrl = gomock.NewController(GinkgoT())

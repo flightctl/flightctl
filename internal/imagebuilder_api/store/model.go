@@ -29,6 +29,11 @@ type ImageBuild struct {
 
 	// The last reported state, stored as opaque JSON object.
 	Status *model.JSONField[api.ImageBuildStatus] `gorm:"type:jsonb"`
+
+	// Logs contains the last 500 lines of build logs for completed builds.
+	// This is separate from Status to keep the ImageBuild resource lightweight.
+	// Logs are only accessible via the /log endpoint.
+	Logs *string `gorm:"type:text"`
 }
 
 func (i ImageBuild) String() string {

@@ -12,6 +12,7 @@ import (
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/store"
+	"github.com/flightctl/flightctl/internal/kvstore"
 	internalservice "github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/service/common"
 	mainstore "github.com/flightctl/flightctl/internal/store"
@@ -29,9 +30,11 @@ type ImageBuildService interface {
 	Get(ctx context.Context, orgId uuid.UUID, name string, withExports bool) (*api.ImageBuild, v1beta1.Status)
 	List(ctx context.Context, orgId uuid.UUID, params api.ListImageBuildsParams) (*api.ImageBuildList, v1beta1.Status)
 	Delete(ctx context.Context, orgId uuid.UUID, name string) (*api.ImageBuild, v1beta1.Status)
+	GetLogs(ctx context.Context, orgId uuid.UUID, name string, follow bool) (LogStreamReader, string, v1beta1.Status)
 	// Internal methods (not exposed via API)
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, imageBuild *api.ImageBuild) (*api.ImageBuild, error)
 	UpdateLastSeen(ctx context.Context, orgId uuid.UUID, name string, timestamp time.Time) error
+	UpdateLogs(ctx context.Context, orgId uuid.UUID, name string, logs string) error
 }
 
 // imageBuildService is the concrete implementation of ImageBuildService
@@ -40,16 +43,18 @@ type imageBuildService struct {
 	repositoryStore mainstore.Repository
 	eventHandler    *internalservice.EventHandler
 	queueProducer   queues.QueueProducer
+	kvStore         kvstore.KVStore
 	log             logrus.FieldLogger
 }
 
 // NewImageBuildService creates a new ImageBuildService
-func NewImageBuildService(s store.ImageBuildStore, repositoryStore mainstore.Repository, eventHandler *internalservice.EventHandler, queueProducer queues.QueueProducer, log logrus.FieldLogger) ImageBuildService {
+func NewImageBuildService(s store.ImageBuildStore, repositoryStore mainstore.Repository, eventHandler *internalservice.EventHandler, queueProducer queues.QueueProducer, kvStore kvstore.KVStore, log logrus.FieldLogger) ImageBuildService {
 	return &imageBuildService{
 		store:           s,
 		repositoryStore: repositoryStore,
 		eventHandler:    eventHandler,
 		queueProducer:   queueProducer,
+		kvStore:         kvStore,
 		log:             log,
 	}
 }
@@ -168,6 +173,63 @@ func (s *imageBuildService) UpdateStatus(ctx context.Context, orgId uuid.UUID, i
 
 func (s *imageBuildService) UpdateLastSeen(ctx context.Context, orgId uuid.UUID, name string, timestamp time.Time) error {
 	return s.store.UpdateLastSeen(ctx, orgId, name, timestamp)
+}
+
+func (s *imageBuildService) UpdateLogs(ctx context.Context, orgId uuid.UUID, name string, logs string) error {
+	return s.store.UpdateLogs(ctx, orgId, name, logs)
+}
+
+// GetLogs retrieves logs for an ImageBuild
+// Returns a LogStreamReader for active builds (if follow=true) or logs string for completed builds
+func (s *imageBuildService) GetLogs(ctx context.Context, orgId uuid.UUID, name string, follow bool) (LogStreamReader, string, v1beta1.Status) {
+	// First, get the ImageBuild to check its status
+	imageBuild, status := s.Get(ctx, orgId, name, false)
+	if imageBuild == nil || !IsStatusOK(status) {
+		return nil, "", status
+	}
+
+	// Check if build is active (Building or Pushing)
+	isActive := false
+	if imageBuild.Status != nil && imageBuild.Status.Conditions != nil {
+		readyCondition := api.FindImageBuildStatusCondition(*imageBuild.Status.Conditions, api.ImageBuildConditionTypeReady)
+		if readyCondition != nil {
+			reason := readyCondition.Reason
+			if reason == string(api.ImageBuildConditionReasonBuilding) || reason == string(api.ImageBuildConditionReasonPushing) {
+				isActive = true
+			}
+		}
+	}
+
+	if isActive {
+		// Active build - use Redis
+		if s.kvStore == nil {
+			return nil, "", StatusServiceUnavailable("Redis not available")
+		}
+		reader := newRedisLogStreamReader(s.kvStore, orgId, name, s.log)
+		if follow {
+			// Return reader for streaming
+			return reader, "", StatusOK()
+		}
+		// Return all available logs from Redis
+		logs, err := reader.ReadAll(ctx)
+		if err != nil {
+			s.log.WithError(err).Warn("Failed to read logs from Redis")
+			// Return empty logs instead of error for active builds
+			return nil, "", StatusOK()
+		}
+		return nil, logs, StatusOK()
+	}
+
+	// Completed/terminated build - use DB
+	logs, err := s.store.GetLogs(ctx, orgId, name)
+	if err != nil {
+		if errors.Is(err, flterrors.ErrResourceNotFound) {
+			return nil, "", StatusNotFound("ImageBuild not found")
+		}
+		return nil, "", StatusInternalServerError(err.Error())
+	}
+	// For completed builds, return logs string (follow doesn't matter - no new data)
+	return nil, logs, StatusOK()
 }
 
 // validate performs validation on an ImageBuild resource
