@@ -53,7 +53,7 @@ func (p *managementConfigProvider) GetCertificateConfigs() ([]certmanager.Certif
 			Storage: certmanager.StorageConfig{
 				Type: provisionerType,
 			},
-			RenewBeforeExpiry: p.renewBeforeExpiry,
+			RenewBefore: &p.renewBeforeExpiry,
 		},
 	}, nil
 }
