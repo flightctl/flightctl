@@ -13,9 +13,8 @@ import (
 )
 
 const (
-	DefaultRenewBeforeExpiry = 30 * 24 * time.Hour // 30 days
-	DefaultRequeueDelay      = 10 * time.Second
-	DefaultBundleName        = "default"
+	DefaultRequeueDelay = 10 * time.Second
+	DefaultBundleName   = "default"
 )
 
 // bundleRegistry limits which provisioners/storages a set of config providers may reference.
@@ -384,26 +383,53 @@ func (cm *CertManager) shouldProvisionCertificate(b *bundleRegistry, pk string, 
 		return true
 	}
 
-	renewBefore := cfg.RenewBeforeExpiry
-	if renewBefore <= 0 {
-		renewBefore = DefaultRenewBeforeExpiry
+	notBefore := *cert.Info.NotBefore
+	notAfter := *cert.Info.NotAfter
+	lifetime := notAfter.Sub(notBefore)
+	now := time.Now()
+
+	// Defensive: bad/degenerate lifetime.
+	if lifetime <= 0 {
+		cm.log.Debugf(
+			"Certificate %q for providerKey %q: non-positive lifetime (notBefore=%s, notAfter=%s) — provisioning",
+			cert.Name, pk, notBefore.Format(time.RFC3339), notAfter.Format(time.RFC3339),
+		)
+		return true
 	}
 
-	renewAt := cert.Info.NotAfter.Add(-renewBefore)
-	if time.Now().Before(renewAt) {
+	// Compute "renew before expiry" like k8s cert-manager:
+	// 1) RenewBefore (if valid) wins.
+	// 2) else RenewBeforePercentage (if valid).
+	// 3) else default to renewing at 2/3 lifetime => renewBefore = lifetime/3.
+	var renewBefore time.Duration
+	switch {
+	case cfg.RenewBefore != nil && *cfg.RenewBefore > 0 && *cfg.RenewBefore < lifetime:
+		renewBefore = *cfg.RenewBefore
+	case cfg.RenewBeforePercentage != nil && *cfg.RenewBeforePercentage > 0 && *cfg.RenewBeforePercentage < 100:
+		// Note: percentage-based calculation uses float64 to avoid int64 overflow for long-lived certificates.
+		renewBefore = time.Duration(float64(lifetime) * float64(*cfg.RenewBeforePercentage) / 100.0)
+	default:
+		renewBefore = lifetime / 3
+	}
+
+	renewAt := notAfter.Add(-renewBefore)
+	if now.Before(renewAt) {
 		return false
 	}
 
 	// Bundle-wide kill switch for time-based renewal.
 	if b != nil && b.disableRenewal {
 		cm.log.Debugf(
-			"Certificate %q for providerKey %q: renewal is disabled by bundle %q — skipping time-based renewal (renewBefore=%s, notAfter=%s)",
-			cert.Name, pk, b.name, renewBefore, cert.Info.NotAfter.Format(time.RFC3339),
+			"Certificate %q for providerKey %q: renewal window reached but disabled by bundle %q (renewBefore=%s, notAfter=%s)",
+			cert.Name, pk, b.name, renewBefore, notAfter.Format(time.RFC3339),
 		)
 		return false
 	}
 
-	cm.log.Debugf("Certificate %q for providerKey %q: within renewal window (%s before expiry) — provisioning", cert.Name, pk, renewBefore)
+	cm.log.Debugf(
+		"Certificate %q for providerKey %q: within renewal window (%s before expiry) — provisioning",
+		cert.Name, pk, renewBefore,
+	)
 	return true
 }
 
