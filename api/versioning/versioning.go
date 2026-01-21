@@ -2,9 +2,6 @@ package versioning
 
 import (
 	"net/http"
-	"strconv"
-	"strings"
-	"time"
 )
 
 // API Version constants
@@ -19,29 +16,11 @@ const (
 	HeaderDeprecation          = "Deprecation"
 )
 
-// Printf is a function type for printing formatted deprecation messages.
-type Printf func(format string, args ...any)
-
-// parseDeprecationTimestamp parses a Unix timestamp from the Deprecation header
-// format "@<timestamp>" (e.g., "@1688169599"). Returns the parsed time and true
-// if successful, or zero time and false if the format is invalid.
-func parseDeprecationTimestamp(value string) (time.Time, bool) {
-	if !strings.HasPrefix(value, "@") {
-		return time.Time{}, false
-	}
-	ts, err := strconv.ParseInt(value[1:], 10, 64)
-	if err != nil {
-		return time.Time{}, false
-	}
-	return time.Unix(ts, 0), true
-}
-
 // TransportOption is a functional option for configuring the versioning transport.
 type TransportOption func(*transportOptions)
 
 type transportOptions struct {
-	apiVersion        string
-	deprecationPrintf Printf // nil = no deprecation reporting
+	apiVersion string
 }
 
 // WithAPIVersion sets the API version header value.
@@ -56,20 +35,10 @@ func WithAPIV1Beta1() TransportOption {
 	return WithAPIVersion(V1Beta1)
 }
 
-// WithDeprecationPrintf enables deprecation reporting via the given function.
-// If not set, deprecation headers are ignored (effectively disabled).
-func WithDeprecationPrintf(fn Printf) TransportOption {
-	return func(o *transportOptions) {
-		o.deprecationPrintf = fn
-	}
-}
-
-// versioningTransport wraps an http.RoundTripper to inject version headers
-// and optionally report deprecation warnings.
+// versioningTransport wraps an http.RoundTripper to inject version headers.
 type versioningTransport struct {
-	base              http.RoundTripper
-	apiVersion        string
-	deprecationPrintf Printf
+	base       http.RoundTripper
+	apiVersion string
 }
 
 // UnwrapTransport returns the underlying base transport.
@@ -77,30 +46,8 @@ func (t *versioningTransport) UnwrapTransport() http.RoundTripper {
 	return t.base
 }
 
-// reportDeprecationIfNeeded checks the response for a Deprecation header and reports
-// a warning if the deprecation date has passed.
-func (t *versioningTransport) reportDeprecationIfNeeded(req *http.Request, resp *http.Response) {
-	if t.deprecationPrintf == nil {
-		return
-	}
-	depValue := resp.Header.Get(HeaderDeprecation)
-	if depValue == "" {
-		return
-	}
-	depTime, ok := parseDeprecationTimestamp(depValue)
-	if !ok || !time.Now().UTC().After(depTime) {
-		return
-	}
-	version := resp.Header.Get(HeaderAPIVersion)
-	if version == "" {
-		version = "the version"
-	}
-	t.deprecationPrintf("Deprecated API: %s %s: %s will be removed", req.Method, req.URL.String(), version)
-}
-
 // NewTransport creates an http.RoundTripper that wraps the given base transport.
-// It injects the API version header if missing (when apiVersion is set via options)
-// and optionally reports deprecation warnings using the configured Printf function.
+// It injects the API version header if missing (when apiVersion is set via options).
 // The API version must be explicitly provided via WithAPIVersion or WithAPIV1Beta1.
 func NewTransport(base http.RoundTripper, opts ...TransportOption) http.RoundTripper {
 	options := &transportOptions{}
@@ -113,9 +60,8 @@ func NewTransport(base http.RoundTripper, opts ...TransportOption) http.RoundTri
 	}
 
 	return &versioningTransport{
-		base:              base,
-		apiVersion:        options.apiVersion,
-		deprecationPrintf: options.deprecationPrintf,
+		base:       base,
+		apiVersion: options.apiVersion,
 	}
 }
 
@@ -127,12 +73,5 @@ func (t *versioningTransport) RoundTrip(req *http.Request) (*http.Response, erro
 		req = clone
 	}
 
-	resp, err := t.base.RoundTrip(req)
-	if err != nil {
-		return resp, err
-	}
-
-	t.reportDeprecationIfNeeded(req, resp)
-
-	return resp, nil
+	return t.base.RoundTrip(req)
 }
