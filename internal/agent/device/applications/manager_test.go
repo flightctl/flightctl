@@ -237,9 +237,21 @@ func TestManager(t *testing.T) {
 			currentProviders, err := provider.FromDeviceSpec(ctx, log, mockPodmanClient, readWriter, tc.current)
 			require.NoError(err)
 
+			var podmanFactory client.PodmanFactory = func(user v1beta1.Username) (*client.Podman, error) {
+				return mockPodmanClient, nil
+			}
+			var systemdFactory systemd.ManagerFactory = func(user v1beta1.Username) (systemd.Manager, error) {
+				return mockSystemdMgr, nil
+			}
+			var rwFactory fileio.ReadWriterFactory = func(username v1beta1.Username) (fileio.ReadWriter, error) {
+				return readWriter, nil
+			}
+			var rwMockFactory fileio.ReadWriterFactory = func(username v1beta1.Username) (fileio.ReadWriter, error) {
+				return mockReadWriter, nil
+			}
 			manager := &manager{
-				readWriter:    readWriter,
-				podmanMonitor: NewPodmanMonitor(log, mockPodmanClient, mockSystemdMgr, "", mockReadWriter),
+				rwFactory:     rwFactory,
+				podmanMonitor: NewPodmanMonitor(log, podmanFactory, systemdFactory, "", rwMockFactory),
 				log:           log,
 			}
 
@@ -321,9 +333,21 @@ func TestManagerRemoveApplication(t *testing.T) {
 		// Monitor stops during second AfterUpdate when no apps remain (no mock needed)
 	)
 
+	var podmanFactory client.PodmanFactory = func(user v1beta1.Username) (*client.Podman, error) {
+		return mockPodmanClient, nil
+	}
+	var systemdFactory systemd.ManagerFactory = func(user v1beta1.Username) (systemd.Manager, error) {
+		return mockSystemdMgr, nil
+	}
+	var rwFactory fileio.ReadWriterFactory = func(username v1beta1.Username) (fileio.ReadWriter, error) {
+		return readWriter, nil
+	}
+	var rwMockFactory fileio.ReadWriterFactory = func(username v1beta1.Username) (fileio.ReadWriter, error) {
+		return mockReadWriter, nil
+	}
 	manager := &manager{
-		readWriter:    readWriter,
-		podmanMonitor: NewPodmanMonitor(log, mockPodmanClient, mockSystemdMgr, "", mockReadWriter),
+		rwFactory:     rwFactory,
+		podmanMonitor: NewPodmanMonitor(log, podmanFactory, systemdFactory, "", rwMockFactory),
 		log:           log,
 	}
 
@@ -682,10 +706,23 @@ func TestCollectOCITargetsErrorHandling(t *testing.T) {
 					fileio.NewWriter(fileio.WithWriterRootDir(tempDir)),
 				)
 
+				var podmanFactory client.PodmanFactory = func(user v1beta1.Username) (*client.Podman, error) {
+					return mockPodmanClient, nil
+				}
+				var systemdFactory systemd.ManagerFactory = func(user v1beta1.Username) (systemd.Manager, error) {
+					return mockSystemdMgr, nil
+				}
+
+				var rwFactory fileio.ReadWriterFactory = func(username v1beta1.Username) (fileio.ReadWriter, error) {
+					return readWriter, nil
+				}
+				var rwMockFactory fileio.ReadWriterFactory = func(username v1beta1.Username) (fileio.ReadWriter, error) {
+					return mockReadWriter, nil
+				}
 				return &manager{
-					readWriter:     readWriter,
-					podmanMonitor:  NewPodmanMonitor(log, mockPodmanClient, mockSystemdMgr, "", mockReadWriter),
-					podmanClient:   mockPodmanClient,
+					rwFactory:      rwFactory,
+					podmanMonitor:  NewPodmanMonitor(log, podmanFactory, systemdFactory, "", rwMockFactory),
+					podmanFactory:  podmanFactory,
 					log:            log,
 					ociTargetCache: provider.NewOCITargetCache(),
 					appDataCache:   provider.NewAppDataCache(),
@@ -730,10 +767,22 @@ func TestCollectOCITargetsErrorHandling(t *testing.T) {
 					fileio.NewWriter(fileio.WithWriterRootDir(tempDir)),
 				)
 
+				var podmanFactory client.PodmanFactory = func(user v1beta1.Username) (*client.Podman, error) {
+					return mockPodmanClient, nil
+				}
+				var systemdFactory systemd.ManagerFactory = func(user v1beta1.Username) (systemd.Manager, error) {
+					return mockSystemdMgr, nil
+				}
+				var rwFactory fileio.ReadWriterFactory = func(username v1beta1.Username) (fileio.ReadWriter, error) {
+					return readWriter, nil
+				}
+				var rwMockFactory fileio.ReadWriterFactory = func(username v1beta1.Username) (fileio.ReadWriter, error) {
+					return mockReadWriter, nil
+				}
 				return &manager{
-					readWriter:     readWriter,
-					podmanMonitor:  NewPodmanMonitor(log, mockPodmanClient, mockSystemdMgr, "", mockReadWriter),
-					podmanClient:   mockPodmanClient,
+					rwFactory:      rwFactory,
+					podmanMonitor:  NewPodmanMonitor(log, podmanFactory, systemdFactory, "", rwMockFactory),
+					podmanFactory:  podmanFactory,
 					log:            log,
 					ociTargetCache: provider.NewOCITargetCache(),
 					appDataCache:   provider.NewAppDataCache(),

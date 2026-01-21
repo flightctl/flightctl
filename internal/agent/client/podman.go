@@ -17,7 +17,6 @@ import (
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/poll"
-	"github.com/flightctl/flightctl/pkg/userutil"
 )
 
 const (
@@ -101,35 +100,22 @@ type Podman struct {
 // PodmanFactory creates a podman client. A blank username means to use the process user.
 type PodmanFactory func(user v1beta1.Username) (*Podman, error)
 
-func NewPodmanFactory(log *log.PrefixLogger, backoff poll.Config, testRootDir string) PodmanFactory {
+func NewPodmanFactory(log *log.PrefixLogger, backoff poll.Config, rwFactory fileio.ReadWriterFactory) PodmanFactory {
 	return func(username v1beta1.Username) (*Podman, error) {
-		writerOptions := []fileio.WriterOption{
-			fileio.WithWriterRootDir(testRootDir),
+		readWriter, err := rwFactory(username)
+		if err != nil {
+			return nil, err
 		}
-		var executerOptions []executer.ExecuterOption
 
-		if username != "" {
-			uid, gid, homeDir, err := userutil.LookupUser(username)
-			if err != nil {
-				return nil, err
-			}
-			writerOptions = append(writerOptions,
-				fileio.WithUID(uid),
-				fileio.WithGID(gid),
-			)
-			executerOptions = append(executerOptions,
-				executer.WithUIDAndGID(uid, gid),
-				executer.WithHomeDir(homeDir),
-			)
+		exec, err := ExecuterForUser(username)
+		if err != nil {
+			return nil, err
 		}
 
 		return NewPodman(
 			log,
-			executer.NewCommonExecuter(executerOptions...),
-			fileio.NewReadWriter(
-				fileio.NewReader(fileio.WithReaderRootDir(testRootDir)),
-				fileio.NewWriter(writerOptions...),
-			),
+			exec,
+			readWriter,
 			backoff,
 		), nil
 	}

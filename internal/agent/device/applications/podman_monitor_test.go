@@ -217,7 +217,17 @@ func TestListenForEvents(t *testing.T) {
 			systemdMgr := systemd.NewMockManager(ctrl)
 			systemdMgr.EXPECT().AddExclusions(gomock.Any()).AnyTimes()
 			systemdMgr.EXPECT().RemoveExclusions(gomock.Any()).AnyTimes()
-			podmanMonitor := NewPodmanMonitor(log, podman, systemdMgr, "", rw)
+
+			var podmanFactory client.PodmanFactory = func(user v1beta1.Username) (*client.Podman, error) {
+				return podman, nil
+			}
+			var systemdFactory systemd.ManagerFactory = func(user v1beta1.Username) (systemd.Manager, error) {
+				return systemdMgr, nil
+			}
+			var rwFactory fileio.ReadWriterFactory = func(username v1beta1.Username) (fileio.ReadWriter, error) {
+				return rw, nil
+			}
+			podmanMonitor := NewPodmanMonitor(log, podmanFactory, systemdFactory, "", rwFactory)
 
 			// add test apps to the monitor
 			for _, testApp := range tc.apps {
@@ -369,7 +379,17 @@ func TestApplicationAddRemove(t *testing.T) {
 			systemdMgr := systemd.NewMockManager(ctrl)
 			systemdMgr.EXPECT().AddExclusions(gomock.Any()).AnyTimes()
 			systemdMgr.EXPECT().RemoveExclusions(gomock.Any()).AnyTimes()
-			podmanMonitor := NewPodmanMonitor(log, podman, systemdMgr, "", readWriter)
+
+			var podmanFactory client.PodmanFactory = func(user v1beta1.Username) (*client.Podman, error) {
+				return podman, nil
+			}
+			var systemdFactory systemd.ManagerFactory = func(user v1beta1.Username) (systemd.Manager, error) {
+				return systemdMgr, nil
+			}
+			var rwFactory fileio.ReadWriterFactory = func(username v1beta1.Username) (fileio.ReadWriter, error) {
+				return readWriter, nil
+			}
+			podmanMonitor := NewPodmanMonitor(log, podmanFactory, systemdFactory, "", rwFactory)
 			testApp := createTestApplication(require, tc.appName, v1beta1.ApplicationStatusPreparing)
 
 			switch tc.action {
@@ -528,7 +548,16 @@ func TestPodmanMonitorMultipleAddRemoveCycles(t *testing.T) {
 			return exec.CommandContext(ctx, "echo", fmt.Sprintf(`{"timeNano": %d}`, now)) //nolint:gosec
 		}).AnyTimes()
 
-	podmanMonitor := NewPodmanMonitor(log, mockPodmanClient, systemd.NewMockManager(ctrl), "", readWriter)
+	var podmanFactory client.PodmanFactory = func(user v1beta1.Username) (*client.Podman, error) {
+		return mockPodmanClient, nil
+	}
+	var systemdFactory systemd.ManagerFactory = func(user v1beta1.Username) (systemd.Manager, error) {
+		return systemd.NewMockManager(ctrl), nil
+	}
+	var rwFactory fileio.ReadWriterFactory = func(username v1beta1.Username) (fileio.ReadWriter, error) {
+		return readWriter, nil
+	}
+	podmanMonitor := NewPodmanMonitor(log, podmanFactory, systemdFactory, "", rwFactory)
 
 	// Override lifecycle handlers with no-op mocks to avoid file/exec expectations
 	mockComposeHandler := lifecycle.NewMockActionHandler(ctrl)
@@ -633,24 +662,33 @@ func TestPodmanMonitorHandlerSelection(t *testing.T) {
 			return exec.CommandContext(ctx, "echo", fmt.Sprintf(`{"timeNano": %d}`, now)) //nolint:gosec
 		}).AnyTimes()
 
-	podmanMonitor := NewPodmanMonitor(log, mockPodmanClient, systemd.NewMockManager(ctrl), "", readWriter)
+	var podmanFactory client.PodmanFactory = func(user v1beta1.Username) (*client.Podman, error) {
+		return mockPodmanClient, nil
+	}
+	var systemdFactory systemd.ManagerFactory = func(user v1beta1.Username) (systemd.Manager, error) {
+		return systemd.NewMockManager(ctrl), nil
+	}
+	var rwFactory fileio.ReadWriterFactory = func(username v1beta1.Username) (fileio.ReadWriter, error) {
+		return readWriter, nil
+	}
+	podmanMonitor := NewPodmanMonitor(log, podmanFactory, systemdFactory, "", rwFactory)
 
 	// Create separate mock handlers to track which one gets called
 	mockComposeHandler := lifecycle.NewMockActionHandler(ctrl)
 	mockQuadletHandler := lifecycle.NewMockActionHandler(ctrl)
 
 	// Track calls to each handler
-	var composeActions []*lifecycle.Action
-	var quadletActions []*lifecycle.Action
+	var composeActions []lifecycle.Action
+	var quadletActions []lifecycle.Action
 
 	mockComposeHandler.EXPECT().Execute(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(ctx context.Context, action *lifecycle.Action) error {
-			composeActions = append(composeActions, action)
+		func(ctx context.Context, action lifecycle.Actions) error {
+			composeActions = append(composeActions, action...)
 			return nil
 		}).AnyTimes()
 	mockQuadletHandler.EXPECT().Execute(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(ctx context.Context, action *lifecycle.Action) error {
-			quadletActions = append(quadletActions, action)
+		func(ctx context.Context, action lifecycle.Actions) error {
+			quadletActions = append(quadletActions, action...)
 			return nil
 		}).AnyTimes()
 
@@ -845,7 +883,16 @@ func TestPodmanMonitorStatusAggregation(t *testing.T) {
 
 			podman := client.NewPodman(testLog, execMock, rw, util.NewPollConfig())
 			systemdMgr := systemd.NewMockManager(ctrl)
-			podmanMonitor := NewPodmanMonitor(testLog, podman, systemdMgr, "", rw)
+			var podmanFactory client.PodmanFactory = func(user v1beta1.Username) (*client.Podman, error) {
+				return podman, nil
+			}
+			var systemdFactory systemd.ManagerFactory = func(user v1beta1.Username) (systemd.Manager, error) {
+				return systemdMgr, nil
+			}
+			var rwFactory fileio.ReadWriterFactory = func(username v1beta1.Username) (fileio.ReadWriter, error) {
+				return rw, nil
+			}
+			podmanMonitor := NewPodmanMonitor(testLog, podmanFactory, systemdFactory, "", rwFactory)
 
 			for _, app := range tc.apps {
 				podmanMonitor.apps[app.ID()] = app

@@ -26,8 +26,8 @@ var _ Manager = (*manager)(nil)
 
 type manager struct {
 	podmanMonitor *PodmanMonitor
-	podmanClient  *client.Podman
-	readWriter    fileio.ReadWriter
+	podmanFactory client.PodmanFactory
+	rwFactory     fileio.ReadWriterFactory
 	log           *log.PrefixLogger
 	bootTime      string
 
@@ -40,16 +40,17 @@ type manager struct {
 
 func NewManager(
 	log *log.PrefixLogger,
-	readWriter fileio.ReadWriter,
-	podmanClient *client.Podman,
+	rwFactory fileio.ReadWriterFactory,
+	podmanFactory client.PodmanFactory,
+	rootPodmanClient *client.Podman,
 	systemInfo systeminfo.Manager,
-	systemdManager systemd.Manager,
+	systemdFactory systemd.ManagerFactory,
 ) Manager {
 	bootTime := systemInfo.BootTime()
 	return &manager{
-		readWriter:     readWriter,
-		podmanMonitor:  NewPodmanMonitor(log, podmanClient, systemdManager, bootTime, readWriter),
-		podmanClient:   podmanClient,
+		rwFactory:      rwFactory,
+		podmanMonitor:  NewPodmanMonitor(log, podmanFactory, systemdFactory, bootTime, rwFactory),
+		podmanFactory:  podmanFactory,
 		log:            log,
 		bootTime:       bootTime,
 		ociTargetCache: provider.NewOCITargetCache(),
@@ -110,11 +111,22 @@ func (m *manager) BeforeUpdate(ctx context.Context, desired *v1beta1.DeviceSpec)
 	m.log.Debug("Pre-checking application dependencies")
 	defer m.log.Debug("Finished pre-checking application dependencies")
 
+	// TODO: remove these once the provider accepts factories
+	rootPodmanClient, err := m.podmanFactory("")
+	if err != nil {
+		return fmt.Errorf("creating podman client: %w", err)
+	}
+
+	rootReadWriter, err := m.rwFactory("")
+	if err != nil {
+		return fmt.Errorf("creating read/writer: %w", err)
+	}
+
 	providers, err := provider.FromDeviceSpec(
 		ctx,
 		m.log,
-		m.podmanMonitor.client,
-		m.readWriter,
+		rootPodmanClient,
+		rootReadWriter,
 		desired,
 		provider.WithEmbedded(m.bootTime),
 		provider.WithAppDataCache(m.appDataCache),
@@ -129,7 +141,11 @@ func (m *manager) BeforeUpdate(ctx context.Context, desired *v1beta1.DeviceSpec)
 }
 
 func (m *manager) resolvePullSecret(desired *v1beta1.DeviceSpec) (*client.PullConfig, error) {
-	secret, found, err := client.ResolvePullConfig(m.log, m.readWriter, desired, pullAuthPath)
+	rootRW, err := m.rwFactory("")
+	if err != nil {
+		return nil, err
+	}
+	secret, found, err := client.ResolvePullConfig(m.log, rootRW, desired, pullAuthPath)
 	if err != nil {
 		return nil, fmt.Errorf("resolving pull secret: %w", err)
 	}
@@ -218,7 +234,7 @@ func (m *manager) CollectOCITargets(ctx context.Context, current, desired *v1bet
 	}
 	configProvider := client.NewPullConfigProvider(configs)
 
-	baseTargets, err := provider.CollectBaseOCITargets(ctx, m.readWriter, desired, configProvider)
+	baseTargets, err := provider.CollectBaseOCITargets(ctx, m.rwFactory, desired, configProvider)
 	if err != nil {
 		return nil, fmt.Errorf("collecting base OCI targets: %w", err)
 	}
@@ -271,23 +287,28 @@ func (m *manager) collectNestedTargets(
 
 		imageRef := imageSpec.Image
 
+		podman, err := m.podmanFactory("")
+		if err != nil {
+			return nil, false, nil, fmt.Errorf("creating podman client: %w", err)
+		}
+
 		// Detect if reference is an artifact or image and check if it exists locally
 		var digest string
 		var ociType dependency.OCIType
 		var exists bool
 
 		// Check if it's an image first (most common case)
-		if m.podmanClient.ImageExists(ctx, imageRef) {
+		if podman.ImageExists(ctx, imageRef) {
 			ociType = dependency.OCITypePodmanImage
 			exists = true
-			digest, err = m.podmanClient.ImageDigest(ctx, imageRef)
+			digest, err = podman.ImageDigest(ctx, imageRef)
 			if err != nil {
 				return nil, false, nil, fmt.Errorf("getting image digest for %s: %w", imageRef, err)
 			}
-		} else if m.podmanClient.ArtifactExists(ctx, imageRef) {
+		} else if podman.ArtifactExists(ctx, imageRef) {
 			ociType = dependency.OCITypePodmanArtifact
 			exists = true
-			digest, err = m.podmanClient.ArtifactDigest(ctx, imageRef)
+			digest, err = podman.ArtifactDigest(ctx, imageRef)
 			if err != nil {
 				return nil, false, nil, fmt.Errorf("getting artifact digest for %s: %w", imageRef, err)
 			}
@@ -344,11 +365,21 @@ func (m *manager) extractNestedTargetsForImage(
 	imageSpec *v1beta1.ImageApplicationProviderSpec,
 	configProvider client.PullConfigProvider,
 ) (*provider.AppData, error) {
+	podman, err := m.podmanFactory("" /* TODO: link up app user when available */)
+	if err != nil {
+		return nil, fmt.Errorf("creating podman client: %w", err)
+	}
+
+	rw, err := m.rwFactory("" /* TODO: link up to app user when available */)
+	if err != nil {
+		return nil, fmt.Errorf("creating read/writer: %w", err)
+	}
+
 	return provider.ExtractNestedTargetsFromImage(
 		ctx,
 		m.log,
-		m.podmanMonitor.client,
-		m.readWriter,
+		podman,
+		rw,
 		&appSpec,
 		imageSpec,
 		configProvider,

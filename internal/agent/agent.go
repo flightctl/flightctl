@@ -74,12 +74,13 @@ func (a *Agent) Run(ctx context.Context) error {
 	go instrumentation.NewAgentInstrumentation(a.log, a.config).Run(ctx)
 
 	// create file io writer and reader
-	deviceReadWriter := fileio.NewReadWriter(
-		fileio.NewReader(fileio.WithReaderRootDir(a.config.GetTestRootDir())),
-		fileio.NewWriter(fileio.WithWriterRootDir(a.config.GetTestRootDir())),
-	)
+	rwFactory := fileio.NewReadWriterFactory(a.config.GetTestRootDir())
+	rootReadWriter, err := rwFactory("")
+	if err != nil {
+		return fmt.Errorf("initialize root read/writer: %w", err)
+	}
 
-	tpmClient, err := a.tryLoadTPM(deviceReadWriter)
+	tpmClient, err := a.tryLoadTPM(rootReadWriter)
 	if err != nil {
 		return fmt.Errorf("failed to initialize TPM client: %w", err)
 	}
@@ -87,7 +88,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	// create identity provider
 	identityProvider := identity.NewProvider(
 		tpmClient,
-		deviceReadWriter,
+		rootReadWriter,
 		a.config,
 		a.log,
 	)
@@ -104,7 +105,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	clientCSRPath := identity.GetCSRPath(a.config.DataDir)
 
 	// Try to load persisted CSR first, generate a new one only if not found
-	csr, found, err := identity.LoadCSR(deviceReadWriter, clientCSRPath)
+	csr, found, err := identity.LoadCSR(rootReadWriter, clientCSRPath)
 	if err != nil {
 		return fmt.Errorf("failed to load CSR: %w", err)
 	}
@@ -116,7 +117,7 @@ func (a *Agent) Run(ctx context.Context) error {
 			return fmt.Errorf("failed to generate CSR: %w", err)
 		}
 
-		if err := identity.StoreCSR(deviceReadWriter, clientCSRPath, csr); err != nil {
+		if err := identity.StoreCSR(rootReadWriter, clientCSRPath, csr); err != nil {
 			return fmt.Errorf("failed to store CSR: %w", err)
 		}
 		a.log.Infof("CSR generated and persisted successfully")
@@ -152,27 +153,27 @@ func (a *Agent) Run(ctx context.Context) error {
 	osClient := os.NewClient(a.log, rootExecuter)
 
 	// create podman client
-	podmanClientFactory := client.NewPodmanFactory(a.log, pollBackoff, a.config.GetTestRootDir())
+	podmanClientFactory := client.NewPodmanFactory(a.log, pollBackoff, rwFactory)
 	rootPodmanClient, err := podmanClientFactory("")
 	if err != nil {
 		return err
 	}
 
 	// create skopeo client
-	skopeoClientFactory := client.NewSkopeoFactory(a.log, a.config.GetTestRootDir())
+	skopeoClientFactory := client.NewSkopeoFactory(a.log, rwFactory)
 	rootSkopeoClient, err := skopeoClientFactory("")
 	if err != nil {
 		return err
 	}
 
 	// create kube client
-	kubeClient := client.NewKube(a.log, rootExecuter, deviceReadWriter)
+	kubeClient := client.NewKube(a.log, rootExecuter, rootReadWriter)
 
 	// create helm client
-	helmClient := client.NewHelm(a.log, rootExecuter, deviceReadWriter, a.config.DataDir)
+	helmClient := client.NewHelm(a.log, rootExecuter, rootReadWriter, a.config.DataDir)
 
 	// create CRI client
-	criClient := client.NewCRI(a.log, rootExecuter, deviceReadWriter)
+	criClient := client.NewCRI(a.log, rootExecuter, rootReadWriter)
 
 	// create CLI clients
 	cliClients := client.NewCLIClients(
@@ -188,7 +189,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	systemInfoManager := systeminfo.NewManager(
 		a.log,
 		rootExecuter,
-		deviceReadWriter,
+		rootReadWriter,
 		a.config.DataDir,
 		a.config.SystemInfo,
 		a.config.SystemInfoCustom,
@@ -199,7 +200,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 
 	// create shutdown manager
-	shutdownManager := shutdown.NewManager(a.log, rootSystemdClient, deviceReadWriter, gracefulShutdownTimeout, cancel)
+	shutdownManager := shutdown.NewManager(a.log, rootSystemdClient, rootReadWriter, gracefulShutdownTimeout, cancel)
 
 	if tpmClient != nil {
 		systemInfoManager.RegisterCollector(ctx, "tpmVendorInfo", tpmClient.VendorInfoCollector)
@@ -221,7 +222,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	// create audit logger
 	auditLogger, err := audit.NewFileLogger(
 		&a.config.AuditLog,
-		deviceReadWriter,
+		rootReadWriter,
 		deviceName,
 		version.Get().String(),
 		a.log,
@@ -240,7 +241,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		deviceName,
 		a.config.DataDir,
 		policyManager,
-		deviceReadWriter,
+		rootReadWriter,
 		osClient,
 		pollBackoff,
 		deviceNotFoundHandler,
@@ -254,7 +255,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	)
 
 	// create hook manager
-	hookManager := hook.NewManager(deviceReadWriter, rootExecuter, a.log)
+	hookManager := hook.NewManager(rootReadWriter, rootExecuter, a.log)
 
 	// create systemd manager
 	systemdManagerFactory := systemd.NewManagerFactory(a.log)
@@ -266,17 +267,18 @@ func (a *Agent) Run(ctx context.Context) error {
 	// create application manager
 	applicationsManager := applications.NewManager(
 		a.log,
-		deviceReadWriter,
+		rwFactory,
+		podmanClientFactory,
 		rootPodmanClient,
 		systemInfoManager,
-		rootSystemdManager,
+		systemdManagerFactory,
 	)
 
 	// register the application manager with the shutdown manager
 	shutdownManager.Register("applications", applicationsManager.Shutdown)
 
 	// create os manager
-	osManager := os.NewManager(a.log, osClient, deviceReadWriter, rootPodmanClient)
+	osManager := os.NewManager(a.log, osClient, rootReadWriter, rootPodmanClient)
 
 	// create prefetch manager
 	prefetchManager := dependency.NewPrefetchManager(
@@ -284,7 +286,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		rootPodmanClient,
 		rootSkopeoClient,
 		cliClients,
-		deviceReadWriter,
+		rootReadWriter,
 		a.config.PullTimeout,
 		resourceManager,
 		pollBackoff,
@@ -303,7 +305,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.config.ManagementService.GetClientCertificatePath(),
 		a.config.ManagementService.GetClientKeyPath(),
 		a.config.DataDir,
-		deviceReadWriter,
+		rootReadWriter,
 		enrollmentClient,
 		csr,
 		a.config.DefaultLabels,
@@ -324,14 +326,14 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	// create config controller
 	configController := config.NewController(
-		deviceReadWriter,
+		rootReadWriter,
 		a.log,
 	)
 
 	bootstrap := device.NewBootstrap(
 		deviceName,
 		rootExecuter,
-		deviceReadWriter,
+		rootReadWriter,
 		specManager,
 		statusManager,
 		hookManager,
@@ -354,7 +356,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		ctx, a.log,
 		a.config, deviceName,
 		bootstrap.ManagementClient(),
-		deviceReadWriter,
+		rootReadWriter,
 		identity.NewExportableFactory(tpmClient, a.log),
 		identityProvider,
 		statusManager,
@@ -382,7 +384,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	applicationsController := applications.NewController(
 		rootPodmanClient,
 		applicationsManager,
-		deviceReadWriter,
+		rootReadWriter,
 		a.log,
 		systemInfoManager.BootTime(),
 	)
@@ -392,7 +394,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		podmanClientFactory,
 		rootPodmanClient,
 		specManager,
-		deviceReadWriter,
+		rootReadWriter,
 		a.log,
 		a.config.ImagePruning,
 		a.config.DataDir,
@@ -401,7 +403,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	// create agent
 	agent := device.NewAgent(
 		deviceName,
-		deviceReadWriter,
+		rootReadWriter,
 		statusManager,
 		specManager,
 		applicationsManager,
