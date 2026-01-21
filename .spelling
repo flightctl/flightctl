@@ -274,11 +274,17 @@ approvedBy
 creationTimestamp
 deletionTimestamp
 resourceVersion
+v1beta1
+1.x.x
 ImageBuild
 ImageExport
 ImageExports
 ImageBuilds
 ReadWrite
+ - docs/user/references/upgrade-compatibility.md
+v1betaX
+v1alphaX
+v1
  - docs/user/introduction.md
 emea
 hw-generation

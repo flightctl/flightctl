@@ -26,3 +26,31 @@ Before attempting an upgrade:
 ## Upgrade Procedure
 
 Detailed upgrade procedures will be documented here once upgrade paths are available.
+
+## API Version Compatibility
+
+Flight Control maintains API version compatibility according to these principles.
+
+### Stability Levels
+
+| Level | Description | Support Guarantee |
+|-------|-------------|-------------------|
+| **v1alphaX** | Alpha versions | TBD |
+| **v1betaX** | Beta versions | Supported throughout the 1.x.x major version |
+| **v1** | Stable version | TBD |
+
+### Client Recommendations
+
+1. **Always specify a version**: Use the `Flightctl-API-Version` header to ensure consistent behavior across server upgrades
+
+2. **Monitor deprecation headers**: Check responses for the `Deprecation` header and plan migrations accordingly
+
+3. **Handle version negotiation failures**: If you receive HTTP 406 Not Acceptable, check the `Flightctl-API-Versions-Supported` header for available versions
+
+### Server Upgrade Impact
+
+When upgrading the Flight Control server:
+
+- Existing API versions continue to work unless explicitly removed
+- New versions may be added without affecting existing clients
+- For versioned resources, the server returns the `Flightctl-API-Version` header indicating which version was used
