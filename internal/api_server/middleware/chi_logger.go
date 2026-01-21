@@ -18,17 +18,16 @@ type apiVersionTaggingLogger struct {
 
 // Print intercepts log messages and injects the API version tag.
 func (l apiVersionTaggingLogger) Print(v ...interface{}) {
-	if l.apiVersion == "" || len(v) != 1 {
+	if len(v) != 1 {
 		l.base.Print(v...)
 		return
 	}
 
 	// Chi logs format: "HTTP/1.1 200 OK from 127.0.0.1". This finds " from "
-	// and injects the version before it: "HTTP/1.1 200 OK (v1alpha1) from 127.0.0.1"
-
+	// and injects the version tag before it: "HTTP/1.1 200 OK (v1beta1) from 127.0.0.1"
 	// It's hacky, but allows reusing the existing logger
 	if s, ok := v[0].(string); ok {
-		tag := " (" + l.apiVersion + ")"
+		tag := " " + l.apiVersion
 		if i := strings.Index(s, " from "); i >= 0 {
 			l.base.Print(s[:i] + tag + s[i:])
 			return
@@ -40,13 +39,26 @@ func (l apiVersionTaggingLogger) Print(v ...interface{}) {
 	l.base.Print(v...)
 }
 
+// apiVersionTag returns a formatted API version tag for logging.
+// Returns "(<version>)" if valid, "(missing)" if empty, or "(invalid)" otherwise.
+func apiVersionTag(raw string) string {
+	if raw == "" {
+		return "(missing)"
+	}
+	v := versioning.Version(strings.TrimSpace(raw))
+	if v.IsValid() {
+		return "(" + string(v) + ")"
+	}
+	return "(invalid)"
+}
+
 type apiVersionLogFormatter struct {
 	Logger  chimw.LoggerInterface
 	NoColor bool
 }
 
 func (f *apiVersionLogFormatter) NewLogEntry(r *http.Request) chimw.LogEntry {
-	apiVersion := strings.TrimSpace(r.Header.Get(versioning.HeaderAPIVersion))
+	apiVersion := apiVersionTag(r.Header.Get(versioning.HeaderAPIVersion))
 	logger := apiVersionTaggingLogger{base: f.Logger, apiVersion: apiVersion}
 
 	df := &chimw.DefaultLogFormatter{Logger: logger, NoColor: f.NoColor}
