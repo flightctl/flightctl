@@ -84,6 +84,15 @@ func NewChecker(log *log.PrefixLogger, opts ...Option) *checker {
 	for _, opt := range opts {
 		opt(c)
 	}
+
+	// Configure logger output and level
+	c.log.SetOutput(c.output)
+	if c.verbose {
+		c.log.Level("debug")
+	} else {
+		c.log.Level("warn") // Only show warnings and errors when not verbose
+	}
+
 	// Default systemd client if not provided
 	if c.systemd == nil {
 		c.systemd = client.NewSystemd(&executer.CommonExecuter{})
@@ -230,13 +239,9 @@ func (c *checker) reportConnectivityStatus(props map[string]string) {
 }
 
 func (c *checker) printInfo(format string, args ...any) {
-	if c.output != nil && c.verbose {
-		fmt.Fprintf(c.output, "[health] "+format+"\n", args...)
-	}
+	c.log.Debugf(format, args...)
 }
 
 func (c *checker) printError(format string, args ...any) {
-	if c.output != nil {
-		fmt.Fprintf(c.output, "[health] ERROR: "+format+"\n", args...)
-	}
+	c.log.Errorf(format, args...)
 }

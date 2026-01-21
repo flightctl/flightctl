@@ -9,7 +9,7 @@ set -x -euo pipefail
 source /usr/share/flightctl/functions/greenboot.sh
 
 # Exit handler for consistent logging (preserve original exit code)
-trap 'rc=$?; [ "$rc" -ne 0 ] && log_error "FAILURE" || log_info "FINISHED"; exit $rc' EXIT
+trap 'rc=$?; [ "$rc" -ne 0 ] && log_error "[health-check] FAILED (exit code: $rc)" || log_info "[health-check] FINISHED successfully"; exit $rc' EXIT
 
 # Exit if not root
 if [ "$(id -u)" -ne 0 ]; then
@@ -17,7 +17,8 @@ if [ "$(id -u)" -ne 0 ]; then
     exit 1
 fi
 
-echo "STARTED"
+log_info "=== flightctl-agent greenboot health check started ==="
+log_info "Timeout: ${FLIGHTCTL_HEALTH_CHECK_TIMEOUT}s (Phase 1: wait for active, Phase 2: 60s stability window)"
 print_boot_status
 
 # Run health check via Go binary

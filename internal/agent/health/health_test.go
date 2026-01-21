@@ -23,7 +23,6 @@ LoadState=loaded
 ActiveState=active
 SubState=running
 UnitFileState=enabled
-NRestarts=0
 `
 	activeServiceWithStatusOutput = `Id=flightctl-agent.service
 Description=Flight Control Agent
@@ -31,7 +30,6 @@ LoadState=loaded
 ActiveState=active
 SubState=running
 UnitFileState=enabled
-NRestarts=0
 StatusText=Connected to server
 `
 	disabledServiceOutput = `Id=flightctl-agent.service
@@ -40,7 +38,6 @@ LoadState=loaded
 ActiveState=inactive
 SubState=dead
 UnitFileState=disabled
-NRestarts=0
 `
 	activatingServiceOutput = `Id=flightctl-agent.service
 Description=Flight Control Agent
@@ -48,7 +45,6 @@ LoadState=loaded
 ActiveState=activating
 SubState=start
 UnitFileState=enabled
-NRestarts=0
 `
 	failedServiceOutput = `Id=flightctl-agent.service
 Description=Flight Control Agent
