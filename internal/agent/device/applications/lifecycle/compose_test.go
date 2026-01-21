@@ -54,7 +54,7 @@ func TestComposeEnsurePodmanVolumeRetainReseeds(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	mockWriter := fileio.NewMockWriter(ctrl)
+	mockWriter := fileio.NewMockReadWriter(ctrl)
 	mockExec := executer.NewMockExecuter(ctrl)
 	tmpDir := t.TempDir()
 	readWriter := fileio.NewReadWriter(
@@ -64,7 +64,14 @@ func TestComposeEnsurePodmanVolumeRetainReseeds(t *testing.T) {
 
 	logger := log.NewPrefixLogger("test")
 	podman := client.NewPodman(logger, mockExec, readWriter, testutil.NewPollConfig())
-	compose := NewCompose(logger, mockWriter, podman)
+	podmanFactory := func(user api.Username) (*client.Podman, error) {
+		return podman, nil
+	}
+
+	var rwFactory fileio.ReadWriterFactory = func(username api.Username) (fileio.ReadWriter, error) {
+		return mockWriter, nil
+	}
+	compose := NewCompose(logger, rwFactory, podmanFactory)
 
 	mountPath := "/var/lib/containers/storage/volumes/app-123-vol1/_data"
 
@@ -84,6 +91,8 @@ func TestComposeEnsurePodmanVolumeRetainReseeds(t *testing.T) {
 			ReclaimPolicy: api.Retain,
 		},
 		nil,
+		podman,
+		mockWriter,
 	)
 	require.NoError(t, err)
 }

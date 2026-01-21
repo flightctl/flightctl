@@ -83,13 +83,13 @@ func TestQuadlet_Execute(t *testing.T) {
 	require := require.New(t)
 	testCases := []struct {
 		name       string
-		action     *Action
+		action     Action
 		setupMocks func(*systemd.MockManager, *fileio.MockReadWriter, *executer.MockExecuter)
 		wantErr    bool
 	}{
 		{
 			name: "ActionAdd success",
-			action: &Action{
+			action: Action{
 				Type: ActionAdd,
 				Name: "test-app",
 				Path: "/test/path",
@@ -106,19 +106,19 @@ func TestQuadlet_Execute(t *testing.T) {
 		},
 		{
 			name: "ActionRemove success",
-			action: &Action{
+			action: Action{
 				Type: ActionRemove,
 				Name: "test-app",
 				ID:   "test-id",
 			},
 			setupMocks: func(mockSystemdMgr *systemd.MockManager, mockRW *fileio.MockReadWriter, mockExec *executer.MockExecuter) {
-				mockSystemdMgr.EXPECT().DaemonReload(gomock.Any()).Return(nil)
 				mockSystemdMgr.EXPECT().ListDependencies(gomock.Any(), "test-id-flightctl-quadlet-app.target").Return([]string{"test-id-app.service"}, nil)
 				mockSystemdMgr.EXPECT().Stop(gomock.Any(), "test-id-flightctl-quadlet-app.target").Return(nil)
 				mockSystemdMgr.EXPECT().Stop(gomock.Any(), "test-id-app.service").Return(nil)
 				mockSystemdMgr.EXPECT().ListUnitsByMatchPattern(gomock.Any(), []string{"test-id-app.service"}).
 					Return([]client.SystemDUnitListEntry{{Unit: "test-id-app.service", LoadState: string(api.SystemdLoadStateLoaded)}}, nil)
 				mockSystemdMgr.EXPECT().ResetFailed(gomock.Any(), "test-id-app.service").Return(nil)
+				mockSystemdMgr.EXPECT().DaemonReload(gomock.Any()).Return(nil)
 
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume")).Return("[]", "", 0).AnyTimes()
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("stop")).Return("", "", 0).Times(1)
@@ -130,7 +130,7 @@ func TestQuadlet_Execute(t *testing.T) {
 		},
 		{
 			name: "ActionUpdate success",
-			action: &Action{
+			action: Action{
 				Type: ActionUpdate,
 				Name: "test-app",
 				Path: "/test/path",
@@ -141,6 +141,7 @@ func TestQuadlet_Execute(t *testing.T) {
 				mockSystemdMgr.EXPECT().ListDependencies(gomock.Any(), "test-id-flightctl-quadlet-app.target").Return([]string{"test-id-app.service"}, nil).Times(2)
 				mockSystemdMgr.EXPECT().Stop(gomock.Any(), "test-id-flightctl-quadlet-app.target").Return(nil)
 				mockSystemdMgr.EXPECT().Stop(gomock.Any(), "test-id-app.service").Return(nil)
+				mockSystemdMgr.EXPECT().DaemonReload(gomock.Any()).Return(nil)
 				mockSystemdMgr.EXPECT().ListUnitsByMatchPattern(gomock.Any(), []string{"test-id-app.service"}).
 					Return([]client.SystemDUnitListEntry{{Unit: "test-id-app.service", ActiveState: string(api.SystemdActiveStateInactive), LoadState: string(api.SystemdLoadStateLoaded)}}, nil).Times(2)
 				mockSystemdMgr.EXPECT().ResetFailed(gomock.Any(), "test-id-app.service").Return(nil)
@@ -153,14 +154,13 @@ func TestQuadlet_Execute(t *testing.T) {
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("pod")).Return("", "", 0).AnyTimes()
 
 				// Add phase
-				mockSystemdMgr.EXPECT().DaemonReload(gomock.Any()).Return(nil)
 				mockSystemdMgr.EXPECT().Start(gomock.Any(), "test-id-flightctl-quadlet-app.target").Return(nil)
 			},
 			wantErr: false,
 		},
 		{
 			name: "unsupported action type",
-			action: &Action{
+			action: Action{
 				Type: "invalid",
 				Name: "test-app",
 			},
@@ -184,9 +184,22 @@ func TestQuadlet_Execute(t *testing.T) {
 			logger := log.NewPrefixLogger("test")
 			mockSystemdMgr.EXPECT().AddExclusions(gomock.Any()).AnyTimes()
 			mockSystemdMgr.EXPECT().RemoveExclusions(gomock.Any()).AnyTimes()
-			q := NewQuadlet(logger, mockRW, mockSystemdMgr, podman)
 
-			err := q.Execute(context.Background(), tc.action)
+			var systemdFactory systemd.ManagerFactory = func(user api.Username) (systemd.Manager, error) {
+				return mockSystemdMgr, nil
+			}
+
+			var podmanFactory client.PodmanFactory = func(user api.Username) (*client.Podman, error) {
+				return podman, nil
+			}
+
+			var rwFactory fileio.ReadWriterFactory = func(username api.Username) (fileio.ReadWriter, error) {
+				return mockRW, nil
+			}
+
+			q := NewQuadlet(logger, rwFactory, systemdFactory, podmanFactory)
+
+			err := q.Execute(context.Background(), Actions{tc.action})
 			if tc.wantErr {
 				require.Error(err)
 			} else {
@@ -201,13 +214,13 @@ func TestQuadlet_add(t *testing.T) {
 
 	testCases := []struct {
 		name       string
-		action     *Action
+		action     Action
 		setupMocks func(*systemd.MockManager, *fileio.MockReadWriter, *executer.MockExecuter)
 		wantErr    bool
 	}{
 		{
 			name: "add container file",
-			action: &Action{
+			action: Action{
 				Name: "test-app",
 				Path: "/test/path",
 				ID:   "test-id",
@@ -222,7 +235,7 @@ func TestQuadlet_add(t *testing.T) {
 		},
 		{
 			name: "add pod file with custom ServiceName",
-			action: &Action{
+			action: Action{
 				Name: "test-app",
 				Path: "/test/path",
 				ID:   "test-id",
@@ -237,7 +250,7 @@ func TestQuadlet_add(t *testing.T) {
 		},
 		{
 			name: "add pod file with default service name",
-			action: &Action{
+			action: Action{
 				Name: "test-app",
 				Path: "/test/path",
 				ID:   "test-id",
@@ -252,7 +265,7 @@ func TestQuadlet_add(t *testing.T) {
 		},
 		{
 			name: "add multiple services",
-			action: &Action{
+			action: Action{
 				Name: "test-app",
 				Path: "/test/path",
 				ID:   "test-id",
@@ -267,7 +280,7 @@ func TestQuadlet_add(t *testing.T) {
 		},
 		{
 			name: "list dependencies fails",
-			action: &Action{
+			action: Action{
 				Name: "test-app",
 				Path: "/test/path",
 				ID:   "test-id",
@@ -281,7 +294,7 @@ func TestQuadlet_add(t *testing.T) {
 		},
 		{
 			name: "start target fails",
-			action: &Action{
+			action: Action{
 				Name: "test-app",
 				Path: "/test/path",
 				ID:   "test-id",
@@ -311,7 +324,7 @@ func TestQuadlet_add(t *testing.T) {
 		},
 		{
 			name: "service not loaded as target",
-			action: &Action{
+			action: Action{
 				Name: "test-app",
 				Path: "/test/path",
 				ID:   "test-id",
@@ -329,7 +342,7 @@ func TestQuadlet_add(t *testing.T) {
 		},
 		{
 			name: "add with artifact volumes",
-			action: &Action{
+			action: Action{
 				ID:   "app-with-vols",
 				Name: "test-app",
 				Path: "/test/path",
@@ -355,7 +368,7 @@ func TestQuadlet_add(t *testing.T) {
 		},
 		{
 			name: "add with mixed image and artifact volumes",
-			action: &Action{
+			action: Action{
 				ID:   "app-mixed-vols",
 				Name: "test-app",
 				Path: "/test/path",
@@ -383,7 +396,7 @@ func TestQuadlet_add(t *testing.T) {
 		},
 		{
 			name: "add fails when artifact volume creation fails",
-			action: &Action{
+			action: Action{
 				ID:   "app-vol-fail",
 				Name: "test-app",
 				Path: "/test/path",
@@ -431,9 +444,21 @@ func TestQuadlet_add(t *testing.T) {
 			podman := client.NewPodman(log.NewPrefixLogger("test"), mockExec, mockRW, testutil.NewPollConfig())
 			logger := log.NewPrefixLogger("test")
 			mockSystemdMgr.EXPECT().AddExclusions(gomock.Any()).AnyTimes()
-			q := NewQuadlet(logger, mockRW, mockSystemdMgr, podman)
 
-			err := q.add(context.Background(), tc.action)
+			var systemdFactory systemd.ManagerFactory = func(user api.Username) (systemd.Manager, error) {
+				return mockSystemdMgr, nil
+			}
+
+			var podmanFactory client.PodmanFactory = func(user api.Username) (*client.Podman, error) {
+				return podman, nil
+			}
+
+			var rwFactory fileio.ReadWriterFactory = func(username api.Username) (fileio.ReadWriter, error) {
+				return mockRW, nil
+			}
+			q := NewQuadlet(logger, rwFactory, systemdFactory, podmanFactory)
+
+			err := q.add(context.Background(), tc.action, mockSystemdMgr)
 			if tc.wantErr {
 				require.Error(err)
 			} else {
@@ -447,13 +472,13 @@ func TestQuadlet_remove(t *testing.T) {
 	require := require.New(t)
 	testCases := []struct {
 		name       string
-		action     *Action
+		action     Action
 		setupMocks func(*systemd.MockManager, *fileio.MockReadWriter, *executer.MockExecuter)
 		wantErr    bool
 	}{
 		{
 			name: "remove with matching units",
-			action: &Action{
+			action: Action{
 				Name: "test-app",
 				ID:   "app-123",
 			},
@@ -479,7 +504,7 @@ func TestQuadlet_remove(t *testing.T) {
 		},
 		{
 			name: "list dependencies fails on remove",
-			action: &Action{
+			action: Action{
 				Name: "test-app",
 				ID:   "app-456",
 			},
@@ -490,7 +515,7 @@ func TestQuadlet_remove(t *testing.T) {
 		},
 		{
 			name: "StopTarget fails",
-			action: &Action{
+			action: Action{
 				Name: "test-app",
 				ID:   "app-999",
 			},
@@ -502,7 +527,7 @@ func TestQuadlet_remove(t *testing.T) {
 		},
 		{
 			name: "stop succeeds, one failed service, reset succeeds",
-			action: &Action{
+			action: Action{
 				Name: "test-app",
 				ID:   "app-failed-1",
 			},
@@ -526,7 +551,7 @@ func TestQuadlet_remove(t *testing.T) {
 		},
 		{
 			name: "stop succeeds, multiple services, reset succeeds",
-			action: &Action{
+			action: Action{
 				Name: "test-app",
 				ID:   "app-multi",
 			},
@@ -551,7 +576,7 @@ func TestQuadlet_remove(t *testing.T) {
 		},
 		{
 			name: "stop succeeds, reset-failed fails",
-			action: &Action{
+			action: Action{
 				Name: "test-app",
 				ID:   "app-reset-fail",
 			},
@@ -569,7 +594,7 @@ func TestQuadlet_remove(t *testing.T) {
 		},
 		{
 			name: "stop succeeds, list-units fails",
-			action: &Action{
+			action: Action{
 				Name: "test-app",
 				ID:   "app-list-fail",
 			},
@@ -595,9 +620,21 @@ func TestQuadlet_remove(t *testing.T) {
 			podman := client.NewPodman(log.NewPrefixLogger("test"), mockExec, mockRW, testutil.NewPollConfig())
 			logger := log.NewPrefixLogger("test")
 			mockSystemdMgr.EXPECT().RemoveExclusions(gomock.Any()).AnyTimes()
-			q := NewQuadlet(logger, mockRW, mockSystemdMgr, podman)
+			var systemdFactory systemd.ManagerFactory = func(user api.Username) (systemd.Manager, error) {
+				return mockSystemdMgr, nil
+			}
 
-			err := q.remove(context.Background(), tc.action)
+			var podmanFactory client.PodmanFactory = func(user api.Username) (*client.Podman, error) {
+				return podman, nil
+			}
+
+			var rwFactory fileio.ReadWriterFactory = func(username api.Username) (fileio.ReadWriter, error) {
+				return mockRW, nil
+			}
+
+			q := NewQuadlet(logger, rwFactory, systemdFactory, podmanFactory)
+
+			err := q.remove(context.Background(), tc.action, mockSystemdMgr)
 			if tc.wantErr {
 				require.Error(err)
 			} else {
@@ -612,13 +649,13 @@ func TestQuadlet_update(t *testing.T) {
 
 	testCases := []struct {
 		name       string
-		action     *Action
+		action     Action
 		setupMocks func(*systemd.MockManager, *fileio.MockReadWriter, *executer.MockExecuter)
 		wantErr    bool
 	}{
 		{
 			name: "update success",
-			action: &Action{
+			action: Action{
 				Type: ActionUpdate,
 				Name: "test-app",
 				Path: "/test/path",
@@ -634,18 +671,18 @@ func TestQuadlet_update(t *testing.T) {
 				mockSystemdMgr.EXPECT().ListDependencies(gomock.Any(), "app-123-flightctl-quadlet-app.target").Return([]string{"app-123-app.service"}, nil).Times(2)
 				mockSystemdMgr.EXPECT().Stop(gomock.Any(), "app-123-flightctl-quadlet-app.target").Return(nil)
 				mockSystemdMgr.EXPECT().Stop(gomock.Any(), "app-123-app.service").Return(nil)
+				mockSystemdMgr.EXPECT().DaemonReload(gomock.Any()).Return(nil)
 				mockSystemdMgr.EXPECT().ListUnitsByMatchPattern(gomock.Any(), []string{"app-123-app.service"}).
 					Return([]client.SystemDUnitListEntry{{Unit: "app-123-app.service", ActiveState: string(api.SystemdActiveStateInactive), LoadState: string(api.SystemdLoadStateLoaded)}}, nil).Times(2)
 				mockSystemdMgr.EXPECT().ResetFailed(gomock.Any(), "app-123-app.service").Return(nil)
 
-				mockSystemdMgr.EXPECT().DaemonReload(gomock.Any()).Return(nil)
 				mockSystemdMgr.EXPECT().Start(gomock.Any(), "app-123-flightctl-quadlet-app.target").Return(nil)
 			},
 			wantErr: false,
 		},
 		{
 			name: "update fails on remove",
-			action: &Action{
+			action: Action{
 				Type: ActionUpdate,
 				Name: "test-app",
 				Path: "/test/path",
@@ -659,7 +696,7 @@ func TestQuadlet_update(t *testing.T) {
 		},
 		{
 			name: "update fails on daemon reload",
-			action: &Action{
+			action: Action{
 				Type: ActionUpdate,
 				Name: "test-app",
 				Path: "/test/path",
@@ -696,9 +733,21 @@ func TestQuadlet_update(t *testing.T) {
 			logger := log.NewPrefixLogger("test")
 			mockSystemdMgr.EXPECT().AddExclusions(gomock.Any()).AnyTimes()
 			mockSystemdMgr.EXPECT().RemoveExclusions(gomock.Any()).AnyTimes()
-			q := NewQuadlet(logger, mockRW, mockSystemdMgr, podman)
+			var systemdFactory systemd.ManagerFactory = func(user api.Username) (systemd.Manager, error) {
+				return mockSystemdMgr, nil
+			}
 
-			err := q.Execute(context.Background(), tc.action)
+			var podmanFactory client.PodmanFactory = func(user api.Username) (*client.Podman, error) {
+				return podman, nil
+			}
+
+			var rwFactory fileio.ReadWriterFactory = func(username api.Username) (fileio.ReadWriter, error) {
+				return mockRW, nil
+			}
+
+			q := NewQuadlet(logger, rwFactory, systemdFactory, podmanFactory)
+
+			err := q.Execute(context.Background(), Actions{tc.action})
 			if tc.wantErr {
 				require.Error(err)
 			} else {
@@ -713,13 +762,13 @@ func TestQuadlet_ExecuteMultipleActions(t *testing.T) {
 
 	testCases := []struct {
 		name       string
-		actions    []*Action
+		actions    []Action
 		setupMocks func(*systemd.MockManager, *fileio.MockReadWriter, *executer.MockExecuter)
 		wantErr    bool
 	}{
 		{
 			name: "mixed add, remove, update - correct ordering",
-			actions: []*Action{
+			actions: []Action{
 				{Type: ActionAdd, Name: "app1", ID: "app1-id", Path: "/path/app1"},
 				{Type: ActionRemove, Name: "app2", ID: "app2-id"},
 				{Type: ActionUpdate, Name: "app3", ID: "app3-id", Path: "/path/app3"},
@@ -753,7 +802,7 @@ func TestQuadlet_ExecuteMultipleActions(t *testing.T) {
 		},
 		{
 			name: "multiple removes then multiple adds",
-			actions: []*Action{
+			actions: []Action{
 				{Type: ActionAdd, Name: "new-app1", ID: "new1-id", Path: "/path/new1"},
 				{Type: ActionAdd, Name: "new-app2", ID: "new2-id", Path: "/path/new2"},
 				{Type: ActionRemove, Name: "old-app1", ID: "old1-id"},
@@ -788,7 +837,7 @@ func TestQuadlet_ExecuteMultipleActions(t *testing.T) {
 		},
 		{
 			name: "remove fails stops execution",
-			actions: []*Action{
+			actions: []Action{
 				{Type: ActionRemove, Name: "app1", ID: "app1-id"},
 				{Type: ActionAdd, Name: "app2", ID: "app2-id", Path: "/path/app2"},
 			},
@@ -800,7 +849,7 @@ func TestQuadlet_ExecuteMultipleActions(t *testing.T) {
 		},
 		{
 			name: "daemon reload failure stops add phase",
-			actions: []*Action{
+			actions: []Action{
 				{Type: ActionRemove, Name: "app1", ID: "app1-id"},
 				{Type: ActionAdd, Name: "app2", ID: "app2-id", Path: "/path/app2"},
 			},
@@ -832,9 +881,21 @@ func TestQuadlet_ExecuteMultipleActions(t *testing.T) {
 			logger := log.NewPrefixLogger("test")
 			mockSystemdMgr.EXPECT().AddExclusions(gomock.Any()).AnyTimes()
 			mockSystemdMgr.EXPECT().RemoveExclusions(gomock.Any()).AnyTimes()
-			q := NewQuadlet(logger, mockRW, mockSystemdMgr, podman)
+			var systemdFactory systemd.ManagerFactory = func(user api.Username) (systemd.Manager, error) {
+				return mockSystemdMgr, nil
+			}
 
-			err := q.Execute(context.Background(), tc.actions...)
+			var podmanFactory client.PodmanFactory = func(user api.Username) (*client.Podman, error) {
+				return podman, nil
+			}
+
+			var rwFactory fileio.ReadWriterFactory = func(username api.Username) (fileio.ReadWriter, error) {
+				return mockRW, nil
+			}
+
+			q := NewQuadlet(logger, rwFactory, systemdFactory, podmanFactory)
+
+			err := q.Execute(context.Background(), tc.actions)
 			if tc.wantErr {
 				require.Error(err)
 			} else {
@@ -849,14 +910,14 @@ func TestQuadlet_ensureArtifactVolumes(t *testing.T) {
 
 	testCases := []struct {
 		name      string
-		action    *Action
+		action    Action
 		setupExec func(*executer.MockExecuter)
 		setupRW   func(*fileio.MockReadWriter)
 		wantErr   bool
 	}{
 		{
 			name: "no volumes",
-			action: &Action{
+			action: Action{
 				ID:      "app-123",
 				Name:    "test-app",
 				Volumes: []Volume{},
@@ -866,7 +927,7 @@ func TestQuadlet_ensureArtifactVolumes(t *testing.T) {
 		},
 		{
 			name: "single artifact volume",
-			action: &Action{
+			action: Action{
 				ID:   "app-123",
 				Name: "test-app",
 				Volumes: []Volume{
@@ -885,7 +946,7 @@ func TestQuadlet_ensureArtifactVolumes(t *testing.T) {
 		},
 		{
 			name: "artifact volume with retain policy is not tracked",
-			action: &Action{
+			action: Action{
 				ID:   "app-123",
 				Name: "test-app",
 				Volumes: []Volume{
@@ -904,7 +965,7 @@ func TestQuadlet_ensureArtifactVolumes(t *testing.T) {
 		},
 		{
 			name: "existing retain artifact volume is reseeded",
-			action: &Action{
+			action: Action{
 				ID:   "app-keep",
 				Name: "test-app",
 				Volumes: []Volume{
@@ -925,7 +986,7 @@ func TestQuadlet_ensureArtifactVolumes(t *testing.T) {
 		},
 		{
 			name: "multiple artifact volumes",
-			action: &Action{
+			action: Action{
 				ID:   "app-456",
 				Name: "test-app",
 				Volumes: []Volume{
@@ -951,7 +1012,7 @@ func TestQuadlet_ensureArtifactVolumes(t *testing.T) {
 		},
 		{
 			name: "image volume should be skipped",
-			action: &Action{
+			action: Action{
 				ID:   "app-789",
 				Name: "test-app",
 				Volumes: []Volume{
@@ -965,7 +1026,7 @@ func TestQuadlet_ensureArtifactVolumes(t *testing.T) {
 		},
 		{
 			name: "mixed image and artifact volumes",
-			action: &Action{
+			action: Action{
 				ID:   "app-mixed",
 				Name: "test-app",
 				Volumes: []Volume{
@@ -989,7 +1050,7 @@ func TestQuadlet_ensureArtifactVolumes(t *testing.T) {
 		},
 		{
 			name: "CreateVolume fails",
-			action: &Action{
+			action: Action{
 				ID:   "app-fail",
 				Name: "test-app",
 				Volumes: []Volume{
@@ -1005,7 +1066,7 @@ func TestQuadlet_ensureArtifactVolumes(t *testing.T) {
 		},
 		{
 			name: "ExtractArtifact fails",
-			action: &Action{
+			action: Action{
 				ID:   "app-extract-fail",
 				Name: "test-app",
 				Volumes: []Volume{
@@ -1040,7 +1101,16 @@ func TestQuadlet_ensureArtifactVolumes(t *testing.T) {
 
 			podman := client.NewPodman(log.NewPrefixLogger("test"), mockExec, mockRW, testutil.NewPollConfig())
 			logger := log.NewPrefixLogger("test")
-			q := NewQuadlet(logger, mockRW, nil, podman)
+
+			var podmanFactory client.PodmanFactory = func(user api.Username) (*client.Podman, error) {
+				return podman, nil
+			}
+
+			var rwFactory fileio.ReadWriterFactory = func(username api.Username) (fileio.ReadWriter, error) {
+				return mockRW, nil
+			}
+
+			q := NewQuadlet(logger, rwFactory, nil, podmanFactory)
 
 			err := q.ensureArtifactVolumes(context.Background(), tc.action)
 			if tc.wantErr {

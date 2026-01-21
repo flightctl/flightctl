@@ -2,6 +2,7 @@ package lifecycle
 
 import (
 	"context"
+	"iter"
 	"time"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
@@ -22,7 +23,7 @@ const (
 )
 
 type ActionHandler interface {
-	Execute(ctx context.Context, actions ...*Action) error
+	Execute(ctx context.Context, actions Actions) error
 }
 
 type Action struct {
@@ -38,10 +39,46 @@ type Action struct {
 	AppType v1beta1.AppType
 	// Path to the application
 	Path string
+	// User that owns the app. Blank means the same user as the current process.
+	User v1beta1.Username
 	// Embedded is true if the application is embedded in the device
 	Embedded bool
 	// Volumes is a list of volume names related to this application
 	Volumes []Volume
+}
+
+type Actions []Action
+
+type ActionsByType struct {
+	Adds    []Action
+	Removes []Action
+	Updates []Action
+	Unknown []Action
+}
+
+func (as Actions) ByUser() iter.Seq2[v1beta1.Username, ActionsByType] {
+	return func(yield func(v1beta1.Username, ActionsByType) bool) {
+		byUser := make(map[v1beta1.Username]ActionsByType)
+		for _, a := range as {
+			byType := byUser[a.User]
+			switch a.Type {
+			case ActionAdd:
+				byType.Adds = append(byType.Adds, a)
+			case ActionRemove:
+				byType.Removes = append(byType.Removes, a)
+			case ActionUpdate:
+				byType.Updates = append(byType.Updates, a)
+			default:
+				byType.Unknown = append(byType.Unknown, a)
+			}
+			byUser[a.User] = byType
+		}
+		for u, abt := range byUser {
+			if !yield(u, abt) {
+				return
+			}
+		}
+	}
 }
 
 type Volume struct {

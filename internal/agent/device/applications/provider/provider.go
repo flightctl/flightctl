@@ -64,7 +64,7 @@ type ApplicationSpec struct {
 // before the base images are available locally.
 func CollectBaseOCITargets(
 	ctx context.Context,
-	readWriter fileio.ReadWriter,
+	rwFactory fileio.ReadWriterFactory,
 	spec *v1beta1.DeviceSpec,
 	configProvider client.PullConfigProvider,
 ) ([]dependency.OCIPullTarget, error) {
@@ -160,6 +160,10 @@ func CollectBaseOCITargets(
 		}
 	}
 
+	readWriter, err := rwFactory("")
+	if err != nil {
+		return nil, err
+	}
 	embeddedTargets, err := collectEmbeddedOCITargets(ctx, readWriter, configProvider)
 	if err != nil {
 		return nil, fmt.Errorf("collecting embedded OCI targets: %w", err)
