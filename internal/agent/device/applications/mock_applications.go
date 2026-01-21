@@ -14,6 +14,7 @@ import (
 	reflect "reflect"
 
 	v1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
+	lifecycle "github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
 	provider "github.com/flightctl/flightctl/internal/agent/device/applications/provider"
 	dependency "github.com/flightctl/flightctl/internal/agent/device/dependency"
 	status "github.com/flightctl/flightctl/internal/agent/device/status"
@@ -232,6 +233,20 @@ func NewMockApplication(ctrl *gomock.Controller) *MockApplication {
 // EXPECT returns an object that allows the caller to indicate expected use.
 func (m *MockApplication) EXPECT() *MockApplicationMockRecorder {
 	return m.recorder
+}
+
+// ActionSpec mocks base method.
+func (m *MockApplication) ActionSpec() lifecycle.ActionSpec {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ActionSpec")
+	ret0, _ := ret[0].(lifecycle.ActionSpec)
+	return ret0
+}
+
+// ActionSpec indicates an expected call of ActionSpec.
+func (mr *MockApplicationMockRecorder) ActionSpec() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ActionSpec", reflect.TypeOf((*MockApplication)(nil).ActionSpec))
 }
 
 // AddWorkload mocks base method.

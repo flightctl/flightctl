@@ -102,7 +102,11 @@ func TestKube_WatchPodsCmd(t *testing.T) {
 
 			k8s := NewKube(logger, mockExec, mockReadWriter, WithBinary(tc.binary))
 
-			cmd, err := k8s.WatchPodsCmd(context.Background(), tc.kubeconfigPath)
+			var opts []KubeOption
+			if tc.kubeconfigPath != "" {
+				opts = append(opts, WithKubeKubeconfig(tc.kubeconfigPath))
+			}
+			cmd, err := k8s.WatchPodsCmd(context.Background(), opts...)
 			require.NoError(err)
 			require.NotNil(cmd)
 			require.Equal(append([]string{tc.binary}, tc.expectedArgs...), cmd.Args)
@@ -117,7 +121,7 @@ func TestKube_WatchPodsCmd_NoBinary(t *testing.T) {
 		binary: "",
 	}
 
-	cmd, err := k8s.WatchPodsCmd(context.Background(), "")
+	cmd, err := k8s.WatchPodsCmd(context.Background())
 	require.Error(err)
 	require.Nil(cmd)
 	require.Contains(err.Error(), "kubernetes CLI binary not available")

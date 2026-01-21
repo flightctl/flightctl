@@ -271,6 +271,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		rwFactory,
 		podmanClientFactory,
 		rootPodmanClient,
+		cliClients,
 		systemInfoManager,
 		systemdManagerFactory,
 	)

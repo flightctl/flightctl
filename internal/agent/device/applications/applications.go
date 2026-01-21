@@ -3,9 +3,11 @@ package applications
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strconv"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
 	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
@@ -87,6 +89,8 @@ type Application interface {
 	// the user. In the case there is no name provided it will be populated
 	// according to the rules of the application type.
 	Status() (*v1beta1.DeviceApplicationStatus, v1beta1.DeviceApplicationsSummaryStatus, error)
+	// ActionSpec returns the type-specific action configuration for this application.
+	ActionSpec() lifecycle.ActionSpec
 }
 
 // Workload represents an application workload tracked by a Monitor.
@@ -99,16 +103,17 @@ type Workload struct {
 }
 
 type application struct {
-	id        string
-	path      string
-	workloads []Workload
-	volume    provider.VolumeManager
-	status    *v1beta1.DeviceApplicationStatus
+	id         string
+	path       string
+	workloads  []Workload
+	volume     provider.VolumeManager
+	status     *v1beta1.DeviceApplicationStatus
+	actionSpec lifecycle.ActionSpec
 }
 
 // NewApplication creates a new application from an application provider.
-func NewApplication(provider provider.Provider) *application {
-	spec := provider.Spec()
+func NewApplication(p provider.Provider) *application {
+	spec := p.Spec()
 	return &application{
 		id:   spec.ID,
 		path: spec.Path,
@@ -119,6 +124,43 @@ func NewApplication(provider provider.Provider) *application {
 			AppType:  spec.AppType,
 		},
 		volume: spec.Volume,
+	}
+}
+
+// NewHelmApplication creates a new application with Helm-specific configuration.
+func NewHelmApplication(p provider.Provider) *application {
+	spec := p.Spec()
+
+	var namespace string
+	var valuesFiles []string
+	var providerValuesPath string
+
+	if spec.ImageProvider != nil {
+		if spec.ImageProvider.Namespace != nil {
+			namespace = *spec.ImageProvider.Namespace
+		}
+		if spec.ImageProvider.ValuesFiles != nil {
+			valuesFiles = slices.Clone(*spec.ImageProvider.ValuesFiles)
+		}
+		// TODO handle the values
+		providerValuesPath = ""
+	}
+
+	return &application{
+		id:   spec.ID,
+		path: spec.Path,
+		status: &v1beta1.DeviceApplicationStatus{
+			Name:     spec.Name,
+			Status:   v1beta1.ApplicationStatusUnknown,
+			Embedded: spec.Embedded,
+			AppType:  spec.AppType,
+		},
+		volume: spec.Volume,
+		actionSpec: lifecycle.HelmSpec{
+			Namespace:          namespace,
+			ValuesFiles:        valuesFiles,
+			ProviderValuesPath: providerValuesPath,
+		},
 	}
 }
 
@@ -167,6 +209,10 @@ func (a *application) IsEmbedded() bool {
 
 func (a *application) Volume() provider.VolumeManager {
 	return a.volume
+}
+
+func (a *application) ActionSpec() lifecycle.ActionSpec {
+	return a.actionSpec
 }
 
 func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.DeviceApplicationsSummaryStatus, error) {

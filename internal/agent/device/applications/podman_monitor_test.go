@@ -239,7 +239,7 @@ func TestListenForEvents(t *testing.T) {
 			reader, writer := io.Pipe()
 			defer reader.Close()
 
-			go podmanMonitor.listenForEvents(context.Background(), reader)
+			go podmanMonitor.monitor.listenForEvents(context.Background(), reader, lineParser{}, podmanMonitor.handleEvent)
 
 			execMock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return(string(inspectBytes), "", 0).Times(len(tc.events))
 
@@ -905,8 +905,9 @@ func TestPodmanMonitorStatusAggregation(t *testing.T) {
 				}
 			}
 
-			statuses, summary, err := podmanMonitor.Status()
+			results, err := podmanMonitor.Status()
 			require.NoError(err)
+			statuses, summary := aggregateAppStatuses(results)
 
 			require.Equal(tc.expectedStatus, summary.Status,
 				"expected summary status %s but got %s", tc.expectedStatus, summary.Status)

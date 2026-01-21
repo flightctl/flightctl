@@ -34,6 +34,29 @@ func WithBinary(binary string) KubernetesOption {
 	}
 }
 
+// KubeOption is a functional option for configuring individual kube operations.
+type KubeOption func(*kubeOptions)
+
+type kubeOptions struct {
+	kubeconfigPath string
+	labels         []string
+}
+
+// WithKubeKubeconfig sets the kubeconfig file path for kube operations.
+func WithKubeKubeconfig(path string) KubeOption {
+	return func(opts *kubeOptions) {
+		opts.kubeconfigPath = path
+	}
+}
+
+// WithKubeLabels sets labels to apply during kube operations.
+// Each label should be in the format "key=value".
+func WithKubeLabels(labels []string) KubeOption {
+	return func(opts *kubeOptions) {
+		opts.labels = labels
+	}
+}
+
 // Kube provides a client for executing kubectl/oc CLI commands.
 type Kube struct {
 	exec       executer.Executer
@@ -100,19 +123,100 @@ func (k *Kube) RefreshBinary() bool {
 }
 
 // WatchPodsCmd returns an exec.Cmd configured to watch pod events across all namespaces.
-func (k *Kube) WatchPodsCmd(ctx context.Context, kubeconfigPath string) (*exec.Cmd, error) {
+// Use WithKubeLabels to filter pods by label selector.
+func (k *Kube) WatchPodsCmd(ctx context.Context, opts ...KubeOption) (*exec.Cmd, error) {
 	if k.binary == "" {
 		return nil, fmt.Errorf("kubernetes CLI binary not available")
 	}
 
+	options := &kubeOptions{}
+	for _, opt := range opts {
+		opt(options)
+	}
+
 	args := []string{"get", "pods", "--watch", "--output-watch-events", "--all-namespaces", "-o", "json"}
 
-	if kubeconfigPath != "" {
-		args = append(args, "--kubeconfig", kubeconfigPath)
+	if len(options.labels) > 0 {
+		args = append(args, "-l", strings.Join(options.labels, ","))
+	}
+
+	if options.kubeconfigPath != "" {
+		args = append(args, "--kubeconfig", options.kubeconfigPath)
 	}
 
 	// #nosec G204 - binary is either hardcoded ("kubectl"/"oc") or explicitly configured, args are internally constructed
 	return exec.CommandContext(ctx, k.binary, args...), nil
+}
+
+// EnsureNamespace creates a namespace if it doesn't exist and applies any specified labels.
+func (k *Kube) EnsureNamespace(ctx context.Context, namespace string, opts ...KubeOption) error {
+	if k.binary == "" {
+		return fmt.Errorf("kubernetes CLI binary not available")
+	}
+
+	options := &kubeOptions{}
+	for _, opt := range opts {
+		opt(options)
+	}
+
+	exists, err := k.NamespaceExists(ctx, namespace, opts...)
+	if err != nil {
+		return fmt.Errorf("check namespace exists: %w", err)
+	}
+
+	if exists {
+		return nil
+	}
+
+	createArgs := []string{"create", "namespace", namespace}
+	if options.kubeconfigPath != "" {
+		createArgs = append(createArgs, "--kubeconfig", options.kubeconfigPath)
+	}
+	_, stderr, exitCode := k.exec.ExecuteWithContext(ctx, k.binary, createArgs...)
+	if exitCode != 0 {
+		return fmt.Errorf("create namespace: %s", stderr)
+	}
+
+	if len(options.labels) > 0 {
+		labelArgs := []string{"label", "namespace", namespace}
+		labelArgs = append(labelArgs, options.labels...)
+		labelArgs = append(labelArgs, "--overwrite")
+		if options.kubeconfigPath != "" {
+			labelArgs = append(labelArgs, "--kubeconfig", options.kubeconfigPath)
+		}
+		_, stderr, exitCode := k.exec.ExecuteWithContext(ctx, k.binary, labelArgs...)
+		if exitCode != 0 {
+			return fmt.Errorf("label namespace: %s", stderr)
+		}
+	}
+
+	return nil
+}
+
+// NamespaceExists checks if a namespace exists in the cluster.
+func (k *Kube) NamespaceExists(ctx context.Context, namespace string, opts ...KubeOption) (bool, error) {
+	if k.binary == "" {
+		return false, fmt.Errorf("kubernetes CLI binary not available")
+	}
+
+	options := &kubeOptions{}
+	for _, opt := range opts {
+		opt(options)
+	}
+
+	args := []string{"get", "namespace", namespace}
+	if options.kubeconfigPath != "" {
+		args = append(args, "--kubeconfig", options.kubeconfigPath)
+	}
+
+	_, stderr, exitCode := k.exec.ExecuteWithContext(ctx, k.binary, args...)
+	if exitCode == 0 {
+		return true, nil
+	}
+	if strings.Contains(stderr, "not found") {
+		return false, nil
+	}
+	return false, fmt.Errorf("get namespace: %s", stderr)
 }
 
 // ResolveKubeconfig finds a valid kubeconfig path by checking KUBECONFIG env,

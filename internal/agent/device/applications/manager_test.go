@@ -249,10 +249,13 @@ func TestManager(t *testing.T) {
 			var rwMockFactory fileio.ReadWriterFactory = func(username v1beta1.Username) (fileio.ReadWriter, error) {
 				return mockReadWriter, nil
 			}
+			mockClients := client.NewCLIClients()
 			manager := &manager{
-				rwFactory:     rwFactory,
-				podmanMonitor: NewPodmanMonitor(log, podmanFactory, systemdFactory, "", rwMockFactory),
-				log:           log,
+				rwFactory:         rwFactory,
+				podmanMonitor:     NewPodmanMonitor(log, podmanFactory, systemdFactory, "", rwMockFactory),
+				kubernetesMonitor: NewKubernetesMonitor(log, mockClients, rwMockFactory),
+				clients:           mockClients,
+				log:               log,
 			}
 
 			// ensure the current applications are installed
@@ -333,6 +336,7 @@ func TestManagerRemoveApplication(t *testing.T) {
 		// Monitor stops during second AfterUpdate when no apps remain (no mock needed)
 	)
 
+	mockClients := client.NewCLIClients()
 	var podmanFactory client.PodmanFactory = func(user v1beta1.Username) (*client.Podman, error) {
 		return mockPodmanClient, nil
 	}
@@ -346,9 +350,11 @@ func TestManagerRemoveApplication(t *testing.T) {
 		return mockReadWriter, nil
 	}
 	manager := &manager{
-		rwFactory:     rwFactory,
-		podmanMonitor: NewPodmanMonitor(log, podmanFactory, systemdFactory, "", rwMockFactory),
-		log:           log,
+		rwFactory:         rwFactory,
+		podmanMonitor:     NewPodmanMonitor(log, podmanFactory, systemdFactory, "", rwMockFactory),
+		kubernetesMonitor: NewKubernetesMonitor(log, mockClients, rwMockFactory),
+		log:               log,
+		clients:           mockClients,
 	}
 
 	// Ensure current applications
@@ -719,10 +725,12 @@ func TestCollectOCITargetsErrorHandling(t *testing.T) {
 				var rwMockFactory fileio.ReadWriterFactory = func(username v1beta1.Username) (fileio.ReadWriter, error) {
 					return mockReadWriter, nil
 				}
+				mockClients := client.NewCLIClients()
 				return &manager{
 					rwFactory:      rwFactory,
 					podmanMonitor:  NewPodmanMonitor(log, podmanFactory, systemdFactory, "", rwMockFactory),
 					podmanFactory:  podmanFactory,
+					clients:        mockClients,
 					log:            log,
 					ociTargetCache: provider.NewOCITargetCache(),
 					appDataCache:   provider.NewAppDataCache(),
@@ -779,6 +787,7 @@ func TestCollectOCITargetsErrorHandling(t *testing.T) {
 				var rwMockFactory fileio.ReadWriterFactory = func(username v1beta1.Username) (fileio.ReadWriter, error) {
 					return mockReadWriter, nil
 				}
+				mockClients := client.NewCLIClients()
 				return &manager{
 					rwFactory:      rwFactory,
 					podmanMonitor:  NewPodmanMonitor(log, podmanFactory, systemdFactory, "", rwMockFactory),
@@ -786,6 +795,7 @@ func TestCollectOCITargetsErrorHandling(t *testing.T) {
 					log:            log,
 					ociTargetCache: provider.NewOCITargetCache(),
 					appDataCache:   provider.NewAppDataCache(),
+					clients:        mockClients,
 				}
 			},
 			expectError:   true,
@@ -831,5 +841,172 @@ func TestCollectOCITargetsErrorHandling(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestAggregateAppStatusesCombinedMonitors(t *testing.T) {
+	testCases := []struct {
+		name           string
+		podmanResults  []AppStatusResult
+		k8sResults     []AppStatusResult
+		expectedStatus v1beta1.ApplicationsSummaryStatusType
+		expectedCount  int
+	}{
+		{
+			name:           "no applications from either monitor",
+			podmanResults:  []AppStatusResult{},
+			k8sResults:     []AppStatusResult{},
+			expectedStatus: v1beta1.ApplicationsSummaryStatusNoApplications,
+			expectedCount:  0,
+		},
+		{
+			name: "podman apps only - all healthy",
+			podmanResults: []AppStatusResult{
+				createAppStatusResult("podman-app1", v1beta1.ApplicationStatusRunning, v1beta1.ApplicationsSummaryStatusHealthy),
+				createAppStatusResult("podman-app2", v1beta1.ApplicationStatusRunning, v1beta1.ApplicationsSummaryStatusHealthy),
+			},
+			k8sResults:     []AppStatusResult{},
+			expectedStatus: v1beta1.ApplicationsSummaryStatusHealthy,
+			expectedCount:  2,
+		},
+		{
+			name:          "kubernetes apps only - all healthy",
+			podmanResults: []AppStatusResult{},
+			k8sResults: []AppStatusResult{
+				createAppStatusResult("helm-app1", v1beta1.ApplicationStatusRunning, v1beta1.ApplicationsSummaryStatusHealthy),
+			},
+			expectedStatus: v1beta1.ApplicationsSummaryStatusHealthy,
+			expectedCount:  1,
+		},
+		{
+			name: "both monitors healthy - combined healthy",
+			podmanResults: []AppStatusResult{
+				createAppStatusResult("compose-app", v1beta1.ApplicationStatusRunning, v1beta1.ApplicationsSummaryStatusHealthy),
+			},
+			k8sResults: []AppStatusResult{
+				createAppStatusResult("helm-app", v1beta1.ApplicationStatusRunning, v1beta1.ApplicationsSummaryStatusHealthy),
+			},
+			expectedStatus: v1beta1.ApplicationsSummaryStatusHealthy,
+			expectedCount:  2,
+		},
+		{
+			name: "podman healthy, kubernetes degraded - combined degraded",
+			podmanResults: []AppStatusResult{
+				createAppStatusResult("compose-app", v1beta1.ApplicationStatusRunning, v1beta1.ApplicationsSummaryStatusHealthy),
+			},
+			k8sResults: []AppStatusResult{
+				createAppStatusResult("helm-app", v1beta1.ApplicationStatusStarting, v1beta1.ApplicationsSummaryStatusDegraded),
+			},
+			expectedStatus: v1beta1.ApplicationsSummaryStatusDegraded,
+			expectedCount:  2,
+		},
+		{
+			name: "podman degraded, kubernetes healthy - combined degraded",
+			podmanResults: []AppStatusResult{
+				createAppStatusResult("compose-app", v1beta1.ApplicationStatusStarting, v1beta1.ApplicationsSummaryStatusDegraded),
+			},
+			k8sResults: []AppStatusResult{
+				createAppStatusResult("helm-app", v1beta1.ApplicationStatusRunning, v1beta1.ApplicationsSummaryStatusHealthy),
+			},
+			expectedStatus: v1beta1.ApplicationsSummaryStatusDegraded,
+			expectedCount:  2,
+		},
+		{
+			name: "podman error, kubernetes healthy - combined error",
+			podmanResults: []AppStatusResult{
+				createAppStatusResult("compose-app", v1beta1.ApplicationStatusError, v1beta1.ApplicationsSummaryStatusError),
+			},
+			k8sResults: []AppStatusResult{
+				createAppStatusResult("helm-app", v1beta1.ApplicationStatusRunning, v1beta1.ApplicationsSummaryStatusHealthy),
+			},
+			expectedStatus: v1beta1.ApplicationsSummaryStatusError,
+			expectedCount:  2,
+		},
+		{
+			name: "podman healthy, kubernetes error - combined error",
+			podmanResults: []AppStatusResult{
+				createAppStatusResult("compose-app", v1beta1.ApplicationStatusRunning, v1beta1.ApplicationsSummaryStatusHealthy),
+			},
+			k8sResults: []AppStatusResult{
+				createAppStatusResult("helm-app", v1beta1.ApplicationStatusError, v1beta1.ApplicationsSummaryStatusError),
+			},
+			expectedStatus: v1beta1.ApplicationsSummaryStatusError,
+			expectedCount:  2,
+		},
+		{
+			name: "podman degraded, kubernetes error - combined error (error takes precedence)",
+			podmanResults: []AppStatusResult{
+				createAppStatusResult("compose-app", v1beta1.ApplicationStatusStarting, v1beta1.ApplicationsSummaryStatusDegraded),
+			},
+			k8sResults: []AppStatusResult{
+				createAppStatusResult("helm-app", v1beta1.ApplicationStatusError, v1beta1.ApplicationsSummaryStatusError),
+			},
+			expectedStatus: v1beta1.ApplicationsSummaryStatusError,
+			expectedCount:  2,
+		},
+		{
+			name: "multiple apps from both monitors - one error cascades",
+			podmanResults: []AppStatusResult{
+				createAppStatusResult("compose-app1", v1beta1.ApplicationStatusRunning, v1beta1.ApplicationsSummaryStatusHealthy),
+				createAppStatusResult("compose-app2", v1beta1.ApplicationStatusRunning, v1beta1.ApplicationsSummaryStatusHealthy),
+			},
+			k8sResults: []AppStatusResult{
+				createAppStatusResult("helm-app1", v1beta1.ApplicationStatusRunning, v1beta1.ApplicationsSummaryStatusHealthy),
+				createAppStatusResult("helm-app2", v1beta1.ApplicationStatusError, v1beta1.ApplicationsSummaryStatusError),
+			},
+			expectedStatus: v1beta1.ApplicationsSummaryStatusError,
+			expectedCount:  4,
+		},
+		{
+			name: "mixed statuses - error takes precedence over degraded",
+			podmanResults: []AppStatusResult{
+				createAppStatusResult("compose-app", v1beta1.ApplicationStatusError, v1beta1.ApplicationsSummaryStatusError),
+			},
+			k8sResults: []AppStatusResult{
+				createAppStatusResult("helm-app", v1beta1.ApplicationStatusStarting, v1beta1.ApplicationsSummaryStatusDegraded),
+			},
+			expectedStatus: v1beta1.ApplicationsSummaryStatusError,
+			expectedCount:  2,
+		},
+		{
+			name: "unknown status from one monitor is treated as degraded",
+			podmanResults: []AppStatusResult{
+				createAppStatusResult("compose-app", v1beta1.ApplicationStatusRunning, v1beta1.ApplicationsSummaryStatusHealthy),
+			},
+			k8sResults: []AppStatusResult{
+				createAppStatusResult("helm-app", v1beta1.ApplicationStatusUnknown, v1beta1.ApplicationsSummaryStatusUnknown),
+			},
+			expectedStatus: v1beta1.ApplicationsSummaryStatusDegraded,
+			expectedCount:  2,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+
+			var allResults []AppStatusResult
+			allResults = append(allResults, tc.podmanResults...)
+			allResults = append(allResults, tc.k8sResults...)
+
+			statuses, summary := aggregateAppStatuses(allResults)
+
+			require.Equal(tc.expectedCount, len(statuses),
+				"expected %d app statuses but got %d", tc.expectedCount, len(statuses))
+			require.Equal(tc.expectedStatus, summary.Status,
+				"expected summary status %s but got %s", tc.expectedStatus, summary.Status)
+		})
+	}
+}
+
+func createAppStatusResult(name string, appStatus v1beta1.ApplicationStatusType, summaryStatus v1beta1.ApplicationsSummaryStatusType) AppStatusResult {
+	return AppStatusResult{
+		Status: v1beta1.DeviceApplicationStatus{
+			Name:   name,
+			Status: appStatus,
+		},
+		Summary: v1beta1.DeviceApplicationsSummaryStatus{
+			Status: summaryStatus,
+		},
 	}
 }
