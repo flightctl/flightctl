@@ -230,7 +230,7 @@ func (s *imageBuildService) validate(ctx context.Context, orgId uuid.UUID, image
 		}
 	}
 	errs = append(errs, ValidateImageName(&imageBuild.Spec.Destination.ImageName, "spec.destination.imageName")...)
-	errs = append(errs, ValidateImageTag(&imageBuild.Spec.Destination.Tag, "spec.destination.tag")...)
+	errs = append(errs, ValidateImageTag(&imageBuild.Spec.Destination.ImageTag, "spec.destination.imageTag")...)
 
 	return errs, nil
 }

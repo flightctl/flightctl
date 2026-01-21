@@ -914,13 +914,13 @@ func (c *Consumer) buildImageWithPodman(
 	}
 
 	// Validate image reference components (defense-in-depth)
-	if err := validateImageRefComponents(spec.Destination.ImageName, spec.Destination.Tag); err != nil {
+	if err := validateImageRefComponents(spec.Destination.ImageName, spec.Destination.ImageTag); err != nil {
 		return fmt.Errorf("invalid image reference components: %w", err)
 	}
 
 	// ociSpec.Registry is already the hostname (no scheme)
 	destRegistryHostname := destOciSpec.Registry
-	imageRef := fmt.Sprintf("%s/%s:%s", destRegistryHostname, spec.Destination.ImageName, spec.Destination.Tag)
+	imageRef := fmt.Sprintf("%s/%s:%s", destRegistryHostname, spec.Destination.ImageName, spec.Destination.ImageTag)
 
 	// Determine platform from ImageBuild status architecture, default to linux/amd64
 	platform := "linux/amd64"
@@ -1048,13 +1048,13 @@ func (c *Consumer) pushImageWithPodman(
 	}
 
 	// Validate image reference components (defense-in-depth)
-	if err := validateImageRefComponents(spec.Destination.ImageName, spec.Destination.Tag); err != nil {
+	if err := validateImageRefComponents(spec.Destination.ImageName, spec.Destination.ImageTag); err != nil {
 		return "", fmt.Errorf("invalid image reference components: %w", err)
 	}
 
 	// ociSpec.Registry is already the hostname (no scheme)
 	destRegistryHostname := ociSpec.Registry
-	imageRef := fmt.Sprintf("%s/%s:%s", destRegistryHostname, spec.Destination.ImageName, spec.Destination.Tag)
+	imageRef := fmt.Sprintf("%s/%s:%s", destRegistryHostname, spec.Destination.ImageName, spec.Destination.ImageTag)
 
 	// Login to registry using podman login with stdin
 	// This is more reliable than authfile for push operations

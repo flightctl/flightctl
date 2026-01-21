@@ -893,19 +893,9 @@ func (c *Consumer) validateAndNormalizeSource(ctx context.Context, orgID uuid.UU
 
 		repoName = imageBuild.Spec.Destination.Repository
 		imageName = imageBuild.Spec.Destination.ImageName
-		imageTag = imageBuild.Spec.Destination.Tag
+		imageTag = imageBuild.Spec.Destination.ImageTag
 
 		log.Infof("ImageBuild %q is ready, proceeding with export", source.ImageBuildRef)
-
-	case string(api.ImageExportSourceTypeImageReference):
-		source, err := imageExport.Spec.Source.AsImageReferenceSource()
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse imageReference source: %w", err)
-		}
-
-		repoName = source.Repository
-		imageName = source.ImageName
-		imageTag = source.ImageTag
 
 	default:
 		return nil, fmt.Errorf("unknown source type: %q", sourceType)
@@ -1015,8 +1005,27 @@ func (c *Consumer) pushArtifact(
 	statusUpdater *imageExportStatusUpdater,
 	log logrus.FieldLogger,
 ) error {
+	// Get the ImageBuild to use its destination
+	sourceType, err := imageExport.Spec.Source.Discriminator()
+	if err != nil {
+		return fmt.Errorf("failed to determine source type: %w", err)
+	}
+	if sourceType != string(api.ImageExportSourceTypeImageBuild) {
+		return fmt.Errorf("unexpected source type: %q", sourceType)
+	}
+
+	source, err := imageExport.Spec.Source.AsImageBuildRefSource()
+	if err != nil {
+		return fmt.Errorf("failed to parse imageBuild source: %w", err)
+	}
+
+	imageBuild, status := c.imageBuilderService.ImageBuild().Get(ctx, orgID, source.ImageBuildRef, false)
+	if imageBuild == nil || !imagebuilderapi.IsStatusOK(status) {
+		return fmt.Errorf("failed to get ImageBuild %q: %v", source.ImageBuildRef, status)
+	}
+
 	// Get destination repository for authentication and to get registry hostname
-	repo, err := c.mainStore.Repository().Get(ctx, orgID, imageExport.Spec.Destination.Repository)
+	repo, err := c.mainStore.Repository().Get(ctx, orgID, imageBuild.Spec.Destination.Repository)
 	if err != nil {
 		return fmt.Errorf("failed to load destination repository: %w", err)
 	}
@@ -1032,13 +1041,13 @@ func (c *Consumer) pushArtifact(
 	// With referrers API 1.1, we don't create a separate tag - the artifact is discoverable
 	// via the referrers API when querying the original image
 	// The destination reference is just the base repository (no tag)
-	destRef := fmt.Sprintf("%s/%s", destRegistryHostname, imageExport.Spec.Destination.ImageName)
+	destRef := fmt.Sprintf("%s/%s", destRegistryHostname, imageBuild.Spec.Destination.ImageName)
 
 	log.WithFields(logrus.Fields{
 		"destination": destRef,
 		"artifact":    artifactPath,
 		"format":      imageExport.Spec.Format,
-		"subject":     fmt.Sprintf("%s:%s", destRef, imageExport.Spec.Destination.Tag),
+		"subject":     fmt.Sprintf("%s:%s", destRef, imageBuild.Spec.Destination.ImageTag),
 	}).Info("Pushing artifact as referrer to destination")
 
 	// Update condition to Pushing
@@ -1080,7 +1089,7 @@ func (c *Consumer) pushArtifact(
 	}
 
 	// Resolve the destination image's manifest to get its digest for the referrer subject
-	destImageTag := imageExport.Spec.Destination.Tag
+	destImageTag := imageBuild.Spec.Destination.ImageTag
 	destManifestDesc, err := getReferencedDigest(ctx, repoRef, destImageTag, destRef, statusUpdater, log)
 	if err != nil {
 		return err

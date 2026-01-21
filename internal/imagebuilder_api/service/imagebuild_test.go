@@ -50,7 +50,7 @@ func newValidImageBuild(name string) api.ImageBuild {
 			Destination: api.ImageBuildDestination{
 				Repository: "output-registry",
 				ImageName:  "output-image",
-				Tag:        "v1.0",
+				ImageTag:   "v1.0",
 			},
 		},
 	}
@@ -122,7 +122,7 @@ func TestCreateImageBuildMissingInputRegistry(t *testing.T) {
 			Destination: api.ImageBuildDestination{
 				Repository: "output-registry",
 				ImageName:  "output-image",
-				Tag:        "v1.0",
+				ImageTag:   "v1.0",
 			},
 		},
 	}

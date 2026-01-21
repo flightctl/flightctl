@@ -25,11 +25,9 @@ import (
 
 func newTestImageExport(name string) *api.ImageExport {
 	source := api.ImageExportSource{}
-	_ = source.FromImageReferenceSource(api.ImageReferenceSource{
-		Type:       api.ImageReference,
-		Repository: "source-registry",
-		ImageName:  "source-image",
-		ImageTag:   "v1.0",
+	_ = source.FromImageBuildRefSource(api.ImageBuildRefSource{
+		Type:          api.ImageBuildRefSourceTypeImageBuild,
+		ImageBuildRef: "test-image-build",
 	})
 
 	return &api.ImageExport{
@@ -40,11 +38,6 @@ func newTestImageExport(name string) *api.ImageExport {
 		},
 		Spec: api.ImageExportSpec{
 			Source: source,
-			Destination: api.ImageExportDestination{
-				Repository: "output-registry",
-				ImageName:  "output-image",
-				Tag:        "v1.0",
-			},
 			Format: api.ExportFormatTypeQCOW2,
 		},
 	}
@@ -65,11 +58,6 @@ func newTestImageExportWithImageBuildRef(name string, imageBuildRef string) *api
 		},
 		Spec: api.ImageExportSpec{
 			Source: source,
-			Destination: api.ImageExportDestination{
-				Repository: "output-registry",
-				ImageName:  "output-image",
-				Tag:        "v1.0",
-			},
 			Format: api.ExportFormatTypeQCOW2,
 		},
 	}
@@ -243,7 +231,7 @@ var _ = Describe("ImageExportStore", func() {
 					Destination: api.ImageBuildDestination{
 						Repository: "output-registry",
 						ImageName:  "output-image",
-						Tag:        "v1.0",
+						ImageTag:   "v1.0",
 					},
 				},
 			}
@@ -265,7 +253,7 @@ var _ = Describe("ImageExportStore", func() {
 					Destination: api.ImageBuildDestination{
 						Repository: "output-registry",
 						ImageName:  "output-image",
-						Tag:        "v1.0",
+						ImageTag:   "v1.0",
 					},
 				},
 			}
@@ -327,7 +315,7 @@ var _ = Describe("ImageExportStore", func() {
 					Destination: api.ImageBuildDestination{
 						Repository: "output-registry",
 						ImageName:  "output-image",
-						Tag:        "v1.0",
+						ImageTag:   "v1.0",
 					},
 				},
 			}
@@ -349,7 +337,7 @@ var _ = Describe("ImageExportStore", func() {
 					Destination: api.ImageBuildDestination{
 						Repository: "output-registry",
 						ImageName:  "output-image",
-						Tag:        "v1.0",
+						ImageTag:   "v1.0",
 					},
 				},
 			}
@@ -371,7 +359,7 @@ var _ = Describe("ImageExportStore", func() {
 					Destination: api.ImageBuildDestination{
 						Repository: "output-registry",
 						ImageName:  "output-image",
-						Tag:        "v1.0",
+						ImageTag:   "v1.0",
 					},
 				},
 			}
@@ -434,7 +422,7 @@ var _ = Describe("ImageExportStore", func() {
 					Destination: api.ImageBuildDestination{
 						Repository: "output-registry",
 						ImageName:  "output-image",
-						Tag:        "v1.0",
+						ImageTag:   "v1.0",
 					},
 				},
 			}
@@ -467,7 +455,7 @@ var _ = Describe("ImageExportStore", func() {
 					Destination: api.ImageBuildDestination{
 						Repository: "output-registry",
 						ImageName:  "output-image",
-						Tag:        "v1.0",
+						ImageTag:   "v1.0",
 					},
 				},
 			}

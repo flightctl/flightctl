@@ -159,7 +159,7 @@ var _ = Describe("Requeue Integration Tests", func() {
 				Destination: apiimagebuilder.ImageBuildDestination{
 					Repository: outputRepoName,
 					ImageName:  "output-image",
-					Tag:        "v1.0.0",
+					ImageTag:   "v1.0.0",
 				},
 			},
 		}
@@ -199,12 +199,15 @@ var _ = Describe("Requeue Integration Tests", func() {
 
 	// Helper function to create an ImageExport with specific status
 	createImageExportWithStatus := func(name string, reason apiimagebuilder.ImageExportConditionReason) *apiimagebuilder.ImageExport {
+		// First create an ImageBuild that the ImageExport will reference
+		// Set it to Completed so it doesn't get requeued during requeue tests
+		imageBuildName := "build-for-" + name
+		_ = createImageBuildWithStatus(imageBuildName, apiimagebuilder.ImageBuildConditionReasonCompleted)
+
 		source := apiimagebuilder.ImageExportSource{}
-		err := source.FromImageReferenceSource(apiimagebuilder.ImageReferenceSource{
-			Type:       apiimagebuilder.ImageReference,
-			Repository: sourceRepoName,
-			ImageName:  "source-image",
-			ImageTag:   "v1.0.0",
+		err := source.FromImageBuildRefSource(apiimagebuilder.ImageBuildRefSource{
+			Type:          apiimagebuilder.ImageBuildRefSourceTypeImageBuild,
+			ImageBuildRef: imageBuildName,
 		})
 		Expect(err).ToNot(HaveOccurred())
 
@@ -216,18 +219,13 @@ var _ = Describe("Requeue Integration Tests", func() {
 			},
 			Spec: apiimagebuilder.ImageExportSpec{
 				Source: source,
-				Destination: apiimagebuilder.ImageExportDestination{
-					Repository: outputRepoName,
-					ImageName:  "output-image",
-					Tag:        "v1.0.0",
-				},
 				Format: apiimagebuilder.ExportFormatTypeQCOW2,
 			},
 		}
 
 		// Create the resource (status will be set to Pending by default)
-		_, status := imageBuilderService.ImageExport().Create(ctx, orgID, *imageExport)
-		Expect(status.Code).To(Equal(int32(201)))
+		_, exportStatus := imageBuilderService.ImageExport().Create(ctx, orgID, *imageExport)
+		Expect(exportStatus.Code).To(Equal(int32(201)))
 
 		// Get the created resource to update its status
 		toUpdate, status := imageBuilderService.ImageExport().Get(ctx, orgID, name)

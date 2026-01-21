@@ -17,7 +17,7 @@ spec:
   destination:
     repository: my-registry
     imageName: my-user/centos-bootc-custom
-    tag: v1.0.0
+    imageTag: v1.0.0
   # Binding configuration for device enrollment
   # Use 'early' with certName to embed certificate in image, or 'late' for first-boot binding
   binding:

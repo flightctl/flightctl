@@ -160,7 +160,7 @@ var _ = Describe("ImageBuild Update Integration Tests", func() {
 				Destination: apiimagebuilder.ImageBuildDestination{
 					Repository: outputRepoName,
 					ImageName:  "output-image",
-					Tag:        "v1.0.0",
+					ImageTag:   "v1.0.0",
 				},
 			},
 		}
@@ -219,11 +219,6 @@ var _ = Describe("ImageBuild Update Integration Tests", func() {
 			},
 			Spec: apiimagebuilder.ImageExportSpec{
 				Source: source,
-				Destination: apiimagebuilder.ImageExportDestination{
-					Repository: outputRepoName,
-					ImageName:  "output-image",
-					Tag:        "v1.0.0",
-				},
 				Format: apiimagebuilder.ExportFormatTypeQCOW2,
 			},
 		}
@@ -462,7 +457,7 @@ var _ = Describe("ImageBuild Update Integration Tests", func() {
 					Destination: apiimagebuilder.ImageBuildDestination{
 						Repository: outputRepoName,
 						ImageName:  "output-image",
-						Tag:        "v1.0.0",
+						ImageTag:   "v1.0.0",
 					},
 				},
 			}

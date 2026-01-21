@@ -131,7 +131,7 @@ var _ = Describe("Timeout Check Integration Tests", func() {
 				Destination: apiimagebuilder.ImageBuildDestination{
 					Repository: outputRepoName,
 					ImageName:  "output-image",
-					Tag:        "v1.0.0",
+					ImageTag:   "v1.0.0",
 				},
 			},
 		}
@@ -176,12 +176,38 @@ var _ = Describe("Timeout Check Integration Tests", func() {
 
 	// Helper function to create an ImageExport with specific status
 	createImageExportWithStatus := func(name string, reason apiimagebuilder.ImageExportConditionReason, lastSeen time.Time) *apiimagebuilder.ImageExport {
+		// First create an ImageBuild that the ImageExport will reference
+		imageBuildName := "build-for-" + name
+		imageBuild := &apiimagebuilder.ImageBuild{
+			ApiVersion: apiimagebuilder.ImageBuildAPIVersion,
+			Kind:       string(apiimagebuilder.ResourceKindImageBuild),
+			Metadata: v1beta1.ObjectMeta{
+				Name: lo.ToPtr(imageBuildName),
+			},
+			Spec: apiimagebuilder.ImageBuildSpec{
+				Source: apiimagebuilder.ImageBuildSource{
+					Repository: sourceRepoName,
+					ImageName:  "source-image",
+					ImageTag:   "v1.0.0",
+				},
+				Destination: apiimagebuilder.ImageBuildDestination{
+					Repository: outputRepoName,
+					ImageName:  "output-image",
+					ImageTag:   "v1.0.0",
+				},
+				Binding: apiimagebuilder.ImageBuildBinding{},
+			},
+		}
+		_ = imageBuild.Spec.Binding.FromLateBinding(apiimagebuilder.LateBinding{
+			Type: apiimagebuilder.Late,
+		})
+		_, createStatus := imageBuilderService.ImageBuild().Create(ctx, orgID, *imageBuild)
+		Expect(createStatus.Code).To(Equal(int32(201)))
+
 		source := apiimagebuilder.ImageExportSource{}
-		err := source.FromImageReferenceSource(apiimagebuilder.ImageReferenceSource{
-			Type:       apiimagebuilder.ImageReference,
-			Repository: sourceRepoName,
-			ImageName:  "source-image",
-			ImageTag:   "v1.0.0",
+		err := source.FromImageBuildRefSource(apiimagebuilder.ImageBuildRefSource{
+			Type:          apiimagebuilder.ImageBuildRefSourceTypeImageBuild,
+			ImageBuildRef: imageBuildName,
 		})
 		Expect(err).ToNot(HaveOccurred())
 
@@ -193,11 +219,6 @@ var _ = Describe("Timeout Check Integration Tests", func() {
 			},
 			Spec: apiimagebuilder.ImageExportSpec{
 				Source: source,
-				Destination: apiimagebuilder.ImageExportDestination{
-					Repository: outputRepoName,
-					ImageName:  "output-image",
-					Tag:        "v1.0.0",
-				},
 				Format: apiimagebuilder.ExportFormatTypeQCOW2,
 			},
 		}

@@ -129,21 +129,17 @@ An ImageExport resource converts bootc container images into disk image formats 
 
 An ImageExport specifies:
 
-* **Source**: Either an ImageBuild resource or a direct image reference from a Repository
-* **Destination**: Where to push the exported disk image (a Repository resource with ReadWrite access)
+* **Source**: An ImageBuild resource (required)
 * **Format**: The disk image format (qcow2, vmdk or iso.)
 
 When you create an ImageExport, Flight Control:
 
-1. Retrieves the source image (from ImageBuild or registry)
+1. Retrieves the source image from the referenced ImageBuild
 2. Converts the image to the specified format using bootc-image-builder
-3. Pushes the exported disk image to the destination registry
+3. Pushes the exported disk image to the destination registry (from the ImageBuild destination)
 4. Updates the ImageExport status with the result
 
 The ImageExport status tracks the export progress through conditions: Pending, Converting, Pushing, Completed, or Failed.
-
-> [!NOTE]
-> ImageExport functionality is currently in development. The resource structure is defined, but the actual export execution is planned for a future release.
 
 For more details, see [Managing Image Builds and Exports](../using/managing-image-builds.md).
 
@@ -156,8 +152,7 @@ For more details, see [Managing Image Builds and Exports](../using/managing-imag
 * A fleet may have zero or more template versions.
 * A resource sync may create one or more fleets.  A fleet may be created by zero or one resource sync.
 * An ImageBuild references a source Repository and a destination Repository (both of type `oci`).
-* An ImageExport may reference an ImageBuild as its source, or reference a Repository directly.
-* An ImageExport references a destination Repository (type `oci`).
+* An ImageExport references an ImageBuild as its source and uses the ImageBuild's destination.
 
 ```mermaid
 erDiagram
@@ -169,7 +164,5 @@ erDiagram
     ResourceSync|o..|{ Fleet : creates
     ImageBuild}o..|| Repository : "source (oci)"
     ImageBuild}o..|| Repository : "destination (oci)"
-    ImageExport}o..o| ImageBuild : "source (optional)"
-    ImageExport}o..o| Repository : "source (oci, optional)"
-    ImageExport}o..|| Repository : "destination (oci)"
+    ImageExport}o..|| ImageBuild : "source (required)"
 ```

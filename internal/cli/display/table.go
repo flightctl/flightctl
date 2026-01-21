@@ -616,7 +616,7 @@ func (f *TableFormatter) printImageBuildsTable(w *tabwriter.Writer, withExports 
 		}
 
 		source := fmt.Sprintf("%s/%s:%s", ib.Spec.Source.Repository, ib.Spec.Source.ImageName, ib.Spec.Source.ImageTag)
-		destination := fmt.Sprintf("%s/%s:%s", ib.Spec.Destination.Repository, ib.Spec.Destination.ImageName, ib.Spec.Destination.Tag)
+		destination := fmt.Sprintf("%s/%s:%s", ib.Spec.Destination.Repository, ib.Spec.Destination.ImageName, ib.Spec.Destination.ImageTag)
 
 		age := NoneString
 		if ib.Metadata.CreationTimestamp != nil {
@@ -669,21 +669,18 @@ func (f *TableFormatter) printImageExportsTable(w *tabwriter.Writer, imageExport
 		}
 
 		source := NoneString
+		output := NoneString
 		discriminator, err := ie.Spec.Source.Discriminator()
 		if err == nil {
 			switch discriminator {
 			case string(imagebuilderapi.ImageExportSourceTypeImageBuild):
 				if buildSource, err := ie.Spec.Source.AsImageBuildRefSource(); err == nil {
 					source = fmt.Sprintf("imagebuild/%s", buildSource.ImageBuildRef)
-				}
-			case string(imagebuilderapi.ImageExportSourceTypeImageReference):
-				if refSource, err := ie.Spec.Source.AsImageReferenceSource(); err == nil {
-					source = fmt.Sprintf("%s/%s:%s", refSource.Repository, refSource.ImageName, refSource.ImageTag)
+					// Output uses ImageBuild destination
+					output = fmt.Sprintf("imagebuild/%s", buildSource.ImageBuildRef)
 				}
 			}
 		}
-
-		output := fmt.Sprintf("%s/%s:%s", ie.Spec.Destination.Repository, ie.Spec.Destination.ImageName, ie.Spec.Destination.Tag)
 
 		format := NoneString
 		if ie.Spec.Format != "" {
