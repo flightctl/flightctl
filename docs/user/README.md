@@ -16,6 +16,7 @@ Welcome to the Flight Control user documentation.
     * [Installing with Ansible Automation Platform](installing/installing-service-on-kubernetes.md#installing-with-ansible-automation-platform)
 
   * **[Installing the Flight Control Service on Linux](installing/installing-service-on-linux.md)**
+    * **[Uninstalling on Linux](installing/uninstalling-service-on-linux.md)
 
   * Configuring the Flight Control Service
     * [Configuring Authentication and Authorization](installing/configuring-auth/overview.md)
