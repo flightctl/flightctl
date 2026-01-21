@@ -57,7 +57,7 @@ func newTestImageBuild(name string, bindingType string) api.ImageBuild {
 			Destination: api.ImageBuildDestination{
 				Repository: "output-repo",
 				ImageName:  "output-image",
-				Tag:        "v1.0.0",
+				ImageTag:   "v1.0.0",
 			},
 		},
 	}

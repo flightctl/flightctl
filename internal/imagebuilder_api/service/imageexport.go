@@ -224,10 +224,33 @@ func (s *imageExportService) Download(ctx context.Context, orgId uuid.UUID, name
 	manifestDigestStr := *imageExport.Status.ManifestDigest
 	log.WithField("manifestDigest", manifestDigestStr).Debug("Found manifest digest")
 
-	// Fetch destination repository from database
-	repo, err := s.repositoryStore.Get(ctx, orgId, imageExport.Spec.Destination.Repository)
+	// Get the ImageBuild to use its destination
+	sourceType, err := imageExport.Spec.Source.Discriminator()
 	if err != nil {
-		log.WithError(err).WithField("destinationRepo", imageExport.Spec.Destination.Repository).Error("Failed to get destination repository")
+		return nil, fmt.Errorf("failed to determine source type: %w", err)
+	}
+	if sourceType != string(api.ImageExportSourceTypeImageBuild) {
+		return nil, fmt.Errorf("unexpected source type: %q", sourceType)
+	}
+
+	source, err := imageExport.Spec.Source.AsImageBuildRefSource()
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse imageBuild source: %w", err)
+	}
+
+	imageBuild, err := s.imageBuildStore.Get(ctx, orgId, source.ImageBuildRef)
+	if err != nil {
+		log.WithError(err).WithField("imageBuildRef", source.ImageBuildRef).Error("Failed to get ImageBuild")
+		if errors.Is(err, flterrors.ErrResourceNotFound) {
+			return nil, fmt.Errorf("ImageBuild %q not found: %w", source.ImageBuildRef, err)
+		}
+		return nil, fmt.Errorf("failed to get ImageBuild %q: %w", source.ImageBuildRef, err)
+	}
+
+	// Fetch destination repository from database
+	repo, err := s.repositoryStore.Get(ctx, orgId, imageBuild.Spec.Destination.Repository)
+	if err != nil {
+		log.WithError(err).WithField("destinationRepo", imageBuild.Spec.Destination.Repository).Error("Failed to get destination repository")
 		if errors.Is(err, flterrors.ErrResourceNotFound) {
 			return nil, fmt.Errorf("%w: %w", ErrRepositoryNotFound, err)
 		}
@@ -237,12 +260,12 @@ func (s *imageExportService) Download(ctx context.Context, orgId uuid.UUID, name
 
 	ociSpec, err := repo.Spec.AsOciRepoSpec()
 	if err != nil {
-		log.WithError(err).WithField("destinationRepo", imageExport.Spec.Destination.Repository).Error("Failed to parse OCI repository spec")
+		log.WithError(err).WithField("destinationRepo", imageBuild.Spec.Destination.Repository).Error("Failed to parse OCI repository spec")
 		return nil, fmt.Errorf("failed to parse OCI repository spec: %w", err)
 	}
 
 	// Setup repository reference and authentication
-	repoRef, scheme, registryHostname, err := s.setupRepositoryReference(ctx, &ociSpec, imageExport.Spec.Destination.ImageName, log)
+	repoRef, scheme, registryHostname, err := s.setupRepositoryReference(ctx, &ociSpec, imageBuild.Spec.Destination.ImageName, log)
 	if err != nil {
 		return nil, err
 	}
@@ -266,7 +289,7 @@ func (s *imageExportService) Download(ctx context.Context, orgId uuid.UUID, name
 	}).Debug("Extracted layer information from manifest")
 
 	// Construct blob URL
-	path, err := url.JoinPath("/v2", imageExport.Spec.Destination.ImageName, "blobs", layerDigestStr)
+	path, err := url.JoinPath("/v2", imageBuild.Spec.Destination.ImageName, "blobs", layerDigestStr)
 	if err != nil {
 		log.WithError(err).Error("Failed to construct blob URL path")
 		return nil, fmt.Errorf("failed to construct blob URL path: %w", err)
@@ -295,7 +318,7 @@ func (s *imageExportService) Download(ctx context.Context, orgId uuid.UUID, name
 	}
 
 	// Add authentication if available
-	if err := s.addAuthenticationToRequest(ctx, getReq, httpClient, scheme, registryHostname, imageExport.Spec.Destination.ImageName, &ociSpec, log); err != nil {
+	if err := s.addAuthenticationToRequest(ctx, getReq, httpClient, scheme, registryHostname, imageBuild.Spec.Destination.ImageName, &ociSpec, log); err != nil {
 		return nil, err
 	}
 
@@ -708,83 +731,27 @@ func (s *imageExportService) validate(ctx context.Context, orgId uuid.UUID, imag
 				errs = append(errs, errors.New("spec.source.imageBuildRef is required for imageBuild source type"))
 			} else {
 				// Check that the referenced ImageBuild exists
-				_, err = s.imageBuildStore.Get(ctx, orgId, source.ImageBuildRef)
+				imageBuild, err := s.imageBuildStore.Get(ctx, orgId, source.ImageBuildRef)
 				if errors.Is(err, flterrors.ErrResourceNotFound) {
 					errs = append(errs, fmt.Errorf("spec.source.imageBuildRef: ImageBuild %q not found", source.ImageBuildRef))
 				} else if err != nil {
 					return nil, fmt.Errorf("failed to get ImageBuild %q: %w", source.ImageBuildRef, err)
-				}
-			}
-		case string(api.ImageExportSourceTypeImageReference):
-			source, err := imageExport.Spec.Source.AsImageReferenceSource()
-			if err != nil {
-				errs = append(errs, errors.New("invalid imageReference source"))
-			} else {
-				if source.Repository == "" {
-					errs = append(errs, errors.New("spec.source.repository is required for imageReference source type"))
 				} else {
-					// Validate source repository exists and is OCI type
-					repo, err := s.repositoryStore.Get(ctx, orgId, source.Repository)
-					if errors.Is(err, flterrors.ErrResourceNotFound) {
-						errs = append(errs, fmt.Errorf("spec.source.repository: Repository %q not found", source.Repository))
-					} else if err != nil {
-						return nil, fmt.Errorf("failed to get source repository %q: %w", source.Repository, err)
-					} else {
-						specType, err := repo.Spec.Discriminator()
-						if err != nil {
-							return nil, fmt.Errorf("failed to get source repository spec type: %w", err)
-						}
-						if specType != string(v1beta1.RepoSpecTypeOci) {
-							errs = append(errs, fmt.Errorf("spec.source.repository: Repository %q must be of type 'oci', got %q", source.Repository, specType))
-						}
+					// Validate that the ImageBuild has a destination configured
+					if imageBuild.Spec.Destination.Repository == "" {
+						errs = append(errs, fmt.Errorf("spec.source.imageBuildRef: ImageBuild %q does not have a destination repository configured", source.ImageBuildRef))
 					}
-				}
-				if source.ImageName == "" {
-					errs = append(errs, errors.New("spec.source.imageName is required for imageReference source type"))
-				}
-				if source.ImageTag == "" {
-					errs = append(errs, errors.New("spec.source.imageTag is required for imageReference source type"))
+					if imageBuild.Spec.Destination.ImageName == "" {
+						errs = append(errs, fmt.Errorf("spec.source.imageBuildRef: ImageBuild %q does not have a destination imageName configured", source.ImageBuildRef))
+					}
+					if imageBuild.Spec.Destination.ImageTag == "" {
+						errs = append(errs, fmt.Errorf("spec.source.imageBuildRef: ImageBuild %q does not have a destination imageTag configured", source.ImageBuildRef))
+					}
 				}
 			}
 		default:
-			errs = append(errs, errors.New("spec.source.type must be 'imageBuild' or 'imageReference'"))
+			errs = append(errs, errors.New("spec.source.type must be 'imageBuild'"))
 		}
-	}
-
-	// Validate output
-	if imageExport.Spec.Destination.Repository == "" {
-		errs = append(errs, errors.New("spec.destination.repository is required"))
-	} else {
-		// Validate destination repository exists, is OCI type, and has ReadWrite access
-		repo, err := s.repositoryStore.Get(ctx, orgId, imageExport.Spec.Destination.Repository)
-		if errors.Is(err, flterrors.ErrResourceNotFound) {
-			errs = append(errs, fmt.Errorf("spec.destination.repository: Repository %q not found", imageExport.Spec.Destination.Repository))
-		} else if err != nil {
-			return nil, fmt.Errorf("failed to get destination repository %q: %w", imageExport.Spec.Destination.Repository, err)
-		} else {
-			specType, err := repo.Spec.Discriminator()
-			if err != nil {
-				return nil, fmt.Errorf("failed to get destination repository spec type: %w", err)
-			}
-			if specType != string(v1beta1.RepoSpecTypeOci) {
-				errs = append(errs, fmt.Errorf("spec.destination.repository: Repository %q must be of type 'oci', got %q", imageExport.Spec.Destination.Repository, specType))
-			} else {
-				ociSpec, err := repo.Spec.AsOciRepoSpec()
-				if err != nil {
-					return nil, fmt.Errorf("failed to get destination repository OCI spec: %w", err)
-				}
-				accessMode := lo.FromPtrOr(ociSpec.AccessMode, v1beta1.Read)
-				if accessMode != v1beta1.ReadWrite {
-					errs = append(errs, fmt.Errorf("spec.destination.repository: Repository %q must have 'ReadWrite' access mode, got %q", imageExport.Spec.Destination.Repository, accessMode))
-				}
-			}
-		}
-	}
-	if imageExport.Spec.Destination.ImageName == "" {
-		errs = append(errs, errors.New("spec.destination.imageName is required"))
-	}
-	if imageExport.Spec.Destination.Tag == "" {
-		errs = append(errs, errors.New("spec.destination.tag is required"))
 	}
 
 	// Validate formats

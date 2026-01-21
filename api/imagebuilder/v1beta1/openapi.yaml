@@ -649,13 +649,13 @@ components:
         imageName:
           type: string
           description: The name of the output image.
-        tag:
+        imageTag:
           type: string
           description: The tag of the output image.
       required:
         - repository
         - imageName
-        - tag
+        - imageTag
 
     ImageBuildBinding:
       description: ImageBuildBinding specifies binding configuration for the build.
@@ -807,28 +807,20 @@ components:
       properties:
         source:
           $ref: '#/components/schemas/ImageExportSource'
-        destination:
-          $ref: '#/components/schemas/ImageExportDestination'
         format:
           $ref: '#/components/schemas/ExportFormatType'
-        tagSuffix:
-          type: string
-          description: Optional suffix to append to the output tag for this format.
       required:
         - source
-        - destination
         - format
 
     ImageExportSource:
       description: ImageExportSource specifies the source image for the export.
       oneOf:
         - $ref: '#/components/schemas/ImageBuildRefSource'
-        - $ref: '#/components/schemas/ImageReferenceSource'
       discriminator:
         propertyName: type
         mapping:
           imageBuild: '#/components/schemas/ImageBuildRefSource'
-          imageReference: '#/components/schemas/ImageReferenceSource'
 
     ImageBuildRefSource:
       type: object
@@ -845,56 +837,14 @@ components:
           type: string
           description: The name of the ImageBuild resource to use as source.
 
-    ImageReferenceSource:
-      type: object
-      description: ImageReferenceSource specifies a source image from a repository.
-      required:
-        - type
-        - repository
-        - imageName
-        - imageTag
-      properties:
-        type:
-          type: string
-          enum: [imageReference]
-          description: The type of source.
-        repository:
-          type: string
-          description: The name of the Repository resource containing the source image.
-        imageName:
-          type: string
-          description: The name of the source image.
-        imageTag:
-          type: string
-          description: The tag of the source image.
-
     ImageExportSourceType:
       type: string
       description: The type of source for the image export.
       enum:
         - imageBuild
-        - imageReference
       x-enum-varnames:
         - ImageExportSourceTypeImageBuild
-        - ImageExportSourceTypeImageReference
 
-    ImageExportDestination:
-      type: object
-      description: ImageExportDestination specifies the destination for the exported images.
-      properties:
-        repository:
-          type: string
-          description: The name of the Repository resource to push the exported images to.
-        imageName:
-          type: string
-          description: The name of the destination image.
-        tag:
-          type: string
-          description: The base tag for the destination images.
-      required:
-        - repository
-        - imageName
-        - tag
     ExportFormatType:
       type: string
       description: The type of format to export the image to.

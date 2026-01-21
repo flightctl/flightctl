@@ -52,7 +52,7 @@ func newTestImageBuild(name string) *api.ImageBuild {
 			Destination: api.ImageBuildDestination{
 				Repository: "output-registry",
 				ImageName:  "output-image",
-				Tag:        "v1.0",
+				ImageTag:   "v1.0",
 			},
 		},
 	}
@@ -188,11 +188,6 @@ var _ = Describe("ImageBuildStore", func() {
 						})
 						return source
 					}(),
-					Destination: api.ImageExportDestination{
-						Repository: "output-registry",
-						ImageName:  "output-image",
-						Tag:        "v1.0",
-					},
 					Format: api.ExportFormatTypeQCOW2,
 				},
 			}
@@ -214,11 +209,6 @@ var _ = Describe("ImageBuildStore", func() {
 						})
 						return source
 					}(),
-					Destination: api.ImageExportDestination{
-						Repository: "output-registry",
-						ImageName:  "output-image-2",
-						Tag:        "v1.0",
-					},
 					Format: api.ExportFormatTypeVMDK,
 				},
 			}
@@ -269,11 +259,6 @@ var _ = Describe("ImageBuildStore", func() {
 						})
 						return source
 					}(),
-					Destination: api.ImageExportDestination{
-						Repository: "output-registry",
-						ImageName:  "output-image",
-						Tag:        "v1.0",
-					},
 					Format: api.ExportFormatTypeQCOW2,
 				},
 			}
@@ -360,11 +345,6 @@ var _ = Describe("ImageBuildStore", func() {
 						})
 						return source
 					}(),
-					Destination: api.ImageExportDestination{
-						Repository: "output-registry",
-						ImageName:  "output-image",
-						Tag:        "v1.0",
-					},
 					Format: api.ExportFormatTypeQCOW2,
 				},
 			}
@@ -386,11 +366,6 @@ var _ = Describe("ImageBuildStore", func() {
 						})
 						return source
 					}(),
-					Destination: api.ImageExportDestination{
-						Repository: "output-registry",
-						ImageName:  "output-image-2",
-						Tag:        "v1.0",
-					},
 					Format: api.ExportFormatTypeVMDK,
 				},
 			}
@@ -412,11 +387,6 @@ var _ = Describe("ImageBuildStore", func() {
 						})
 						return source
 					}(),
-					Destination: api.ImageExportDestination{
-						Repository: "output-registry",
-						ImageName:  "output-image-3",
-						Tag:        "v1.0",
-					},
 					Format: api.ExportFormatTypeQCOW2,
 				},
 			}

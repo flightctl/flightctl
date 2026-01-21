@@ -41,7 +41,7 @@ spec:
   destination:
     repository: my-registry                 # Name of Repository resource
     imageName: my-user/centos-bootc-custom  # Destination image name
-    tag: v1.0.0                             # Destination tag
+    imageTag: v1.0.0                        # Destination image tag
   binding:
     type: late                              # or "early"
 ```
@@ -56,7 +56,7 @@ spec:
 
 * `repository`: The name of a Repository resource of type `oci` with ReadWrite access
 * `imageName`: The container image name (path) where the built image will be pushed
-* `tag`: The tag to apply to the built image
+* `imageTag`: The tag to apply to the built image
 
 **Binding Configuration:**
 
@@ -116,7 +116,7 @@ spec:
   destination:
     repository: my-registry
     imageName: my-user/centos-bootc-custom
-    tag: v1.0.0-early
+    imageTag: v1.0.0-early
   binding:
     type: early
 ```
@@ -136,7 +136,7 @@ spec:
   destination:
     repository: my-registry
     imageName: my-user/centos-bootc-custom
-    tag: v1.0.0
+    imageTag: v1.0.0
   binding:
     type: late
 ```
@@ -156,41 +156,25 @@ metadata:
   name: my-image-export
 spec:
   source:
-    type: imageBuild                    # or "imageReference"
-    imageBuildRef: my-image-build        # Required if type is "imageBuild"
-    # OR for imageReference:
-    # repository: my-source-registry
-    # imageName: rhel-edge-base
-    # imageTag: "9.4"
-  destination:
-    repository: my-export-registry       # Name of Repository resource
-    imageName: rhel-edge-exported        # Destination image name
-    tag: v1.0.0                          # Destination tag
+    type: imageBuild                    # Only imageBuild is supported
+    imageBuildRef: my-image-build        # Name of the ImageBuild resource to export
   format: qcow2                          # Export format: qcow2, vmdk, iso, etc.
-  tagSuffix: "-qcow2"                    # Optional suffix to append to tag
 ```
 
 **Source Configuration:**
-The source can be specified in two ways:
 
-1. **From ImageBuild**: Reference an existing ImageBuild resource
-   * `type: imageBuild`
-   * `imageBuildRef`: The name of the ImageBuild resource to export
-   * If the referenced ImageBuild is not yet completed, the ImageExport will wait until the ImageBuild reaches `Completed` status before starting the export
+The source must reference an existing ImageBuild resource:
 
-2. **From Image Reference**: Reference an image directly from a registry
-   * `type: imageReference`
-   * `repository`: The name of an OCI Repository resource
-   * `imageName`: The container image name
-   * `imageTag`: The image tag
+* `type: imageBuild` (required)
+* `imageBuildRef`: The name of the ImageBuild resource to export
+* If the referenced ImageBuild is not yet completed, the ImageExport will wait until the ImageBuild reaches `Completed` status before starting the export
+* The destination for the exported image is automatically taken from the referenced ImageBuild's destination configuration
 
 **Destination Configuration:**
 
-* `repository`: The name of a Repository resource of type `oci` with ReadWrite access
-* `imageName`: The image name where the exported disk image will be pushed
-* `tag`: The tag to apply to the exported image
+The destination is automatically inherited from the referenced ImageBuild resource. You do not need to specify a destination in the ImageExport spec. The exported disk image will be pushed to the same repository, image name, and tag as specified in the ImageBuild destination.
 
-The exported disk image artifact is pushed to the destination repository as an [ORAS artifact](https://oras.land/) with a reference to the provided destination image. To retrieve the exported artifact, use the `oras discover` command:
+The exported disk image artifact is pushed to the destination repository (from the referenced ImageBuild) as an [ORAS artifact](https://oras.land/) with a reference to the destination image. To retrieve the exported artifact, use the `oras discover` command:
 
 ```console
 oras discover quay.io/my-user/centos-bootc-custom:v1.1.0-early --distribution-spec v1.1-referrers-api --platform linux/arm64
@@ -205,7 +189,6 @@ This will show the exported disk image artifacts associated with the destination
   * `vmdk`: VMware disk image format
   * `iso`: ISO disk image format (for bare metal provisioning)
   * Other formats supported by `bootc-image-builder`
-* `tagSuffix`: Optional suffix to append to the destination tag (e.g., `-qcow2`, `-vmware`)
 
 ### Creating an ImageExport
 
@@ -251,34 +234,11 @@ spec:
   source:
     type: imageBuild
     imageBuildRef: my-edge-image-build-2
-  destination:
-    repository: my-export-registry
-    imageName: rhel-edge-exported
-    tag: v1.0.0
   format: qcow2
-  tagSuffix: "-qcow2"
 ```
 
-### Example: Export from Image Reference
-
-```yaml
-apiVersion: flightctl.io/v1beta1
-kind: ImageExport
-metadata:
-  name: my-edge-export-from-registry
-spec:
-  source:
-    type: imageReference
-    repository: my-source-registry
-    imageName: rhel-edge-base
-    imageTag: "9.4"
-  destination:
-    repository: my-export-registry
-    imageName: rhel-edge-exported
-    tag: v2.0.0
-  format: vmdk
-  tagSuffix: "-vmware"
-```
+> [!NOTE]
+> The destination is automatically taken from the referenced ImageBuild resource. You do not need to specify a destination in the ImageExport spec.
 
 ## Workflow: Building and Exporting Images
 

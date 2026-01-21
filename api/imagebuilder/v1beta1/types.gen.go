@@ -74,13 +74,7 @@ const (
 
 // Defines values for ImageExportSourceType.
 const (
-	ImageExportSourceTypeImageBuild     ImageExportSourceType = "imageBuild"
-	ImageExportSourceTypeImageReference ImageExportSourceType = "imageReference"
-)
-
-// Defines values for ImageReferenceSourceType.
-const (
-	ImageReference ImageReferenceSourceType = "imageReference"
+	ImageExportSourceTypeImageBuild ImageExportSourceType = "imageBuild"
 )
 
 // Defines values for LateBindingType.
@@ -167,11 +161,11 @@ type ImageBuildDestination struct {
 	// ImageName The name of the output image.
 	ImageName string `json:"imageName"`
 
+	// ImageTag The tag of the output image.
+	ImageTag string `json:"imageTag"`
+
 	// Repository The name of the Repository resource of type OCI to push the built image to.
 	Repository string `json:"repository"`
-
-	// Tag The tag of the output image.
-	Tag string `json:"tag"`
 }
 
 // ImageBuildList ImageBuildList is a list of ImageBuild resources.
@@ -288,18 +282,6 @@ type ImageExportConditionReason string
 // ImageExportConditionType Type of ImageExport condition.
 type ImageExportConditionType string
 
-// ImageExportDestination ImageExportDestination specifies the destination for the exported images.
-type ImageExportDestination struct {
-	// ImageName The name of the destination image.
-	ImageName string `json:"imageName"`
-
-	// Repository The name of the Repository resource to push the exported images to.
-	Repository string `json:"repository"`
-
-	// Tag The base tag for the destination images.
-	Tag string `json:"tag"`
-}
-
 // ImageExportFormatPhase The phase of a single format conversion.
 type ImageExportFormatPhase string
 
@@ -328,17 +310,11 @@ type ImageExportSourceType string
 
 // ImageExportSpec ImageExportSpec describes the specification for an image export.
 type ImageExportSpec struct {
-	// Destination ImageExportDestination specifies the destination for the exported images.
-	Destination ImageExportDestination `json:"destination"`
-
 	// Format The type of format to export the image to.
 	Format ExportFormatType `json:"format"`
 
 	// Source ImageExportSource specifies the source image for the export.
 	Source ImageExportSource `json:"source"`
-
-	// TagSuffix Optional suffix to append to the output tag for this format.
-	TagSuffix *string `json:"tagSuffix,omitempty"`
 }
 
 // ImageExportStatus ImageExportStatus represents the current status of an ImageExport.
@@ -352,24 +328,6 @@ type ImageExportStatus struct {
 	// ManifestDigest The digest of the exported image manifest for this format.
 	ManifestDigest *string `json:"manifestDigest,omitempty"`
 }
-
-// ImageReferenceSource ImageReferenceSource specifies a source image from a repository.
-type ImageReferenceSource struct {
-	// ImageName The name of the source image.
-	ImageName string `json:"imageName"`
-
-	// ImageTag The tag of the source image.
-	ImageTag string `json:"imageTag"`
-
-	// Repository The name of the Repository resource containing the source image.
-	Repository string `json:"repository"`
-
-	// Type The type of source.
-	Type ImageReferenceSourceType `json:"type"`
-}
-
-// ImageReferenceSourceType The type of source.
-type ImageReferenceSourceType string
 
 // LateBinding Late binding configuration - device binds at first boot.
 type LateBinding struct {
@@ -545,34 +503,6 @@ func (t *ImageExportSource) MergeImageBuildRefSource(v ImageBuildRefSource) erro
 	return err
 }
 
-// AsImageReferenceSource returns the union data inside the ImageExportSource as a ImageReferenceSource
-func (t ImageExportSource) AsImageReferenceSource() (ImageReferenceSource, error) {
-	var body ImageReferenceSource
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromImageReferenceSource overwrites any union data inside the ImageExportSource as the provided ImageReferenceSource
-func (t *ImageExportSource) FromImageReferenceSource(v ImageReferenceSource) error {
-	v.Type = "imageReference"
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeImageReferenceSource performs a merge with any union data inside the ImageExportSource, using the provided ImageReferenceSource
-func (t *ImageExportSource) MergeImageReferenceSource(v ImageReferenceSource) error {
-	v.Type = "imageReference"
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
 func (t ImageExportSource) Discriminator() (string, error) {
 	var discriminator struct {
 		Discriminator string `json:"type"`
@@ -589,8 +519,6 @@ func (t ImageExportSource) ValueByDiscriminator() (interface{}, error) {
 	switch discriminator {
 	case "imageBuild":
 		return t.AsImageBuildRefSource()
-	case "imageReference":
-		return t.AsImageReferenceSource()
 	default:
 		return nil, errors.New("unknown discriminator value: " + discriminator)
 	}

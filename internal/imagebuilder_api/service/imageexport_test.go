@@ -32,11 +32,9 @@ func newTestImageExportService() (ImageExportService, *DummyImageExportStore, *D
 
 func newValidImageExport(name string) api.ImageExport {
 	source := api.ImageExportSource{}
-	_ = source.FromImageReferenceSource(api.ImageReferenceSource{
-		Type:       api.ImageReference,
-		Repository: "source-registry",
-		ImageName:  "source-image",
-		ImageTag:   "v1.0",
+	_ = source.FromImageBuildRefSource(api.ImageBuildRefSource{
+		Type:          api.ImageBuildRefSourceTypeImageBuild,
+		ImageBuildRef: "test-image-build",
 	})
 
 	return api.ImageExport{
@@ -47,11 +45,6 @@ func newValidImageExport(name string) api.ImageExport {
 		},
 		Spec: api.ImageExportSpec{
 			Source: source,
-			Destination: api.ImageExportDestination{
-				Repository: "output-registry",
-				ImageName:  "output-image",
-				Tag:        "v1.0",
-			},
 			Format: api.ExportFormatTypeQCOW2,
 		},
 	}
@@ -72,11 +65,6 @@ func newImageExportWithImageBuildSource(name, imageBuildRef string) api.ImageExp
 		},
 		Spec: api.ImageExportSpec{
 			Source: source,
-			Destination: api.ImageExportDestination{
-				Repository: "output-registry",
-				ImageName:  "output-image",
-				Tag:        "v1.0",
-			},
 			Format: api.ExportFormatTypeVMDK,
 		},
 	}
@@ -94,6 +82,12 @@ func setupRepositoriesForImageExport(repoStore *DummyRepositoryStore, ctx contex
 	_, _ = repoStore.Create(ctx, orgId, destRepo, nil)
 }
 
+// setupImageBuildForExport creates the ImageBuild that newValidImageExport references
+func setupImageBuildForExport(imageBuildStore *DummyImageBuildStore, ctx context.Context, orgId uuid.UUID) {
+	imageBuild := newValidImageBuild("test-image-build")
+	_, _ = imageBuildStore.Create(ctx, orgId, &imageBuild)
+}
+
 func TestCreateImageExport(t *testing.T) {
 	require := require.New(t)
 	ctx := context.Background()
@@ -101,8 +95,15 @@ func TestCreateImageExport(t *testing.T) {
 
 	// Set up repositories
 	repoStore := NewDummyRepositoryStore()
-	setupRepositoriesForImageExport(repoStore, ctx, orgId, true)
-	svc := NewImageExportService(NewDummyImageExportStore(), NewDummyImageBuildStore(), repoStore, nil, nil, log.InitLogs())
+	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
+	imageBuildStore := NewDummyImageBuildStore()
+
+	// Create the ImageBuild that will be referenced
+	imageBuild := newValidImageBuild("test-image-build")
+	_, err := imageBuildStore.Create(ctx, orgId, &imageBuild)
+	require.NoError(err)
+
+	svc := NewImageExportService(NewDummyImageExportStore(), imageBuildStore, repoStore, nil, nil, log.InitLogs())
 
 	imageExport := newValidImageExport("test-export")
 	result, status := svc.Create(ctx, orgId, imageExport)
@@ -119,8 +120,15 @@ func TestCreateImageExportDuplicate(t *testing.T) {
 
 	// Set up repositories
 	repoStore := NewDummyRepositoryStore()
-	setupRepositoriesForImageExport(repoStore, ctx, orgId, true)
-	svc := NewImageExportService(NewDummyImageExportStore(), NewDummyImageBuildStore(), repoStore, nil, nil, log.InitLogs())
+	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
+	imageBuildStore := NewDummyImageBuildStore()
+
+	// Create the ImageBuild that will be referenced
+	imageBuild := newValidImageBuild("test-image-build")
+	_, err := imageBuildStore.Create(ctx, orgId, &imageBuild)
+	require.NoError(err)
+
+	svc := NewImageExportService(NewDummyImageExportStore(), imageBuildStore, repoStore, nil, nil, log.InitLogs())
 
 	imageExport := newValidImageExport("duplicate-test")
 
@@ -133,24 +141,24 @@ func TestCreateImageExportDuplicate(t *testing.T) {
 	require.Equal(int32(http.StatusConflict), statusCode(status))
 }
 
-func TestCreateImageExportMissingDestinationRepository(t *testing.T) {
-	require := require.New(t)
-	svc, _, _ := newTestImageExportService()
-	ctx := context.Background()
-	orgId := uuid.New()
-
-	imageExport := newValidImageExport("test")
-	imageExport.Spec.Destination.Repository = ""
-
-	_, status := svc.Create(ctx, orgId, imageExport)
-	require.Equal(int32(http.StatusBadRequest), statusCode(status))
-}
+// TestCreateImageExportMissingDestinationRepository removed - ImageExport no longer has destination field
 
 func TestCreateImageExportMissingFormats(t *testing.T) {
 	require := require.New(t)
-	svc, _, _ := newTestImageExportService()
 	ctx := context.Background()
 	orgId := uuid.New()
+
+	// Set up repositories
+	repoStore := NewDummyRepositoryStore()
+	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
+	imageBuildStore := NewDummyImageBuildStore()
+
+	// Create the ImageBuild that will be referenced
+	imageBuild := newValidImageBuild("test-image-build")
+	_, err := imageBuildStore.Create(ctx, orgId, &imageBuild)
+	require.NoError(err)
+
+	svc := NewImageExportService(NewDummyImageExportStore(), imageBuildStore, repoStore, nil, nil, log.InitLogs())
 
 	imageExport := newValidImageExport("test")
 	imageExport.Spec.Format = ""
@@ -204,8 +212,15 @@ func TestGetImageExport(t *testing.T) {
 
 	// Set up repositories
 	repoStore := NewDummyRepositoryStore()
-	setupRepositoriesForImageExport(repoStore, ctx, orgId, true)
-	svc := NewImageExportService(NewDummyImageExportStore(), NewDummyImageBuildStore(), repoStore, nil, nil, log.InitLogs())
+	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
+	imageBuildStore := NewDummyImageBuildStore()
+
+	// Create the ImageBuild that will be referenced
+	imageBuild := newValidImageBuild("test-image-build")
+	_, err := imageBuildStore.Create(ctx, orgId, &imageBuild)
+	require.NoError(err)
+
+	svc := NewImageExportService(NewDummyImageExportStore(), imageBuildStore, repoStore, nil, nil, log.InitLogs())
 
 	// Create first
 	imageExport := newValidImageExport("get-test")
@@ -236,8 +251,15 @@ func TestListImageExports(t *testing.T) {
 
 	// Set up repositories
 	repoStore := NewDummyRepositoryStore()
-	setupRepositoriesForImageExport(repoStore, ctx, orgId, true)
-	svc := NewImageExportService(NewDummyImageExportStore(), NewDummyImageBuildStore(), repoStore, nil, nil, log.InitLogs())
+	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
+	imageBuildStore := NewDummyImageBuildStore()
+
+	// Create the ImageBuild that will be referenced
+	imageBuild := newValidImageBuild("test-image-build")
+	_, err := imageBuildStore.Create(ctx, orgId, &imageBuild)
+	require.NoError(err)
+
+	svc := NewImageExportService(NewDummyImageExportStore(), imageBuildStore, repoStore, nil, nil, log.InitLogs())
 
 	// Create multiple
 	for i := 0; i < 3; i++ {
@@ -260,8 +282,15 @@ func TestListImageExportsWithLimit(t *testing.T) {
 
 	// Set up repositories
 	repoStore := NewDummyRepositoryStore()
-	setupRepositoriesForImageExport(repoStore, ctx, orgId, true)
-	svc := NewImageExportService(NewDummyImageExportStore(), NewDummyImageBuildStore(), repoStore, nil, nil, log.InitLogs())
+	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
+	imageBuildStore := NewDummyImageBuildStore()
+
+	// Create the ImageBuild that will be referenced
+	imageBuild := newValidImageBuild("test-image-build")
+	_, err := imageBuildStore.Create(ctx, orgId, &imageBuild)
+	require.NoError(err)
+
+	svc := NewImageExportService(NewDummyImageExportStore(), imageBuildStore, repoStore, nil, nil, log.InitLogs())
 
 	// Create multiple
 	for i := 0; i < 5; i++ {
@@ -285,8 +314,15 @@ func TestDeleteImageExport(t *testing.T) {
 
 	// Set up repositories
 	repoStore := NewDummyRepositoryStore()
-	setupRepositoriesForImageExport(repoStore, ctx, orgId, true)
-	svc := NewImageExportService(NewDummyImageExportStore(), NewDummyImageBuildStore(), repoStore, nil, nil, log.InitLogs())
+	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
+	imageBuildStore := NewDummyImageBuildStore()
+
+	// Create the ImageBuild that will be referenced
+	imageBuild := newValidImageBuild("test-image-build")
+	_, err := imageBuildStore.Create(ctx, orgId, &imageBuild)
+	require.NoError(err)
+
+	svc := NewImageExportService(NewDummyImageExportStore(), imageBuildStore, repoStore, nil, nil, log.InitLogs())
 
 	// Create first
 	imageExport := newValidImageExport("delete-test")
@@ -323,8 +359,15 @@ func TestUpdateImageExportStatus(t *testing.T) {
 
 	// Set up repositories
 	repoStore := NewDummyRepositoryStore()
-	setupRepositoriesForImageExport(repoStore, ctx, orgId, true)
-	svc := NewImageExportService(NewDummyImageExportStore(), NewDummyImageBuildStore(), repoStore, nil, nil, log.InitLogs())
+	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
+	imageBuildStore := NewDummyImageBuildStore()
+
+	// Create the ImageBuild that will be referenced
+	imageBuild := newValidImageBuild("test-image-build")
+	_, err := imageBuildStore.Create(ctx, orgId, &imageBuild)
+	require.NoError(err)
+
+	svc := NewImageExportService(NewDummyImageExportStore(), imageBuildStore, repoStore, nil, nil, log.InitLogs())
 
 	// Create first
 	imageExport := newValidImageExport("status-test")
@@ -354,128 +397,8 @@ func TestUpdateImageExportStatus(t *testing.T) {
 	require.Equal(string(api.ImageExportConditionReasonConverting), (*result.Status.Conditions)[0].Reason)
 }
 
-func TestCreateImageExportSourceRepositoryNotFound(t *testing.T) {
-	require := require.New(t)
-	ctx := context.Background()
-	orgId := uuid.New()
-
-	// Set up only destination repository
-	repoStore := NewDummyRepositoryStore()
-	destRepo := newOciRepository("output-registry", v1beta1.ReadWrite)
-	_, _ = repoStore.Create(ctx, orgId, destRepo, nil)
-	svc := NewImageExportService(NewDummyImageExportStore(), NewDummyImageBuildStore(), repoStore, nil, nil, log.InitLogs())
-
-	imageExport := newValidImageExport("test-export")
-	_, status := svc.Create(ctx, orgId, imageExport)
-
-	require.Equal(int32(http.StatusBadRequest), statusCode(status))
-	require.Contains(status.Message, "spec.source.repository: Repository \"source-registry\" not found")
-}
-
-func TestCreateImageExportDestinationRepositoryNotFound(t *testing.T) {
-	require := require.New(t)
-	ctx := context.Background()
-	orgId := uuid.New()
-
-	// Set up only source repository
-	repoStore := NewDummyRepositoryStore()
-	sourceRepo := newOciRepository("source-registry", v1beta1.Read)
-	_, _ = repoStore.Create(ctx, orgId, sourceRepo, nil)
-	svc := NewImageExportService(NewDummyImageExportStore(), NewDummyImageBuildStore(), repoStore, nil, nil, log.InitLogs())
-
-	imageExport := newValidImageExport("test-export")
-	_, status := svc.Create(ctx, orgId, imageExport)
-
-	require.Equal(int32(http.StatusBadRequest), statusCode(status))
-	require.Contains(status.Message, "spec.destination.repository: Repository \"output-registry\" not found")
-}
-
-func TestCreateImageExportSourceRepositoryNotOci(t *testing.T) {
-	require := require.New(t)
-	ctx := context.Background()
-	orgId := uuid.New()
-
-	// Set up repositories - source is Git type (not OCI)
-	repoStore := NewDummyRepositoryStore()
-	spec := v1beta1.RepositorySpec{}
-	_ = spec.FromGenericRepoSpec(v1beta1.GenericRepoSpec{
-		Type: v1beta1.RepoSpecTypeGit,
-		Url:  "https://github.com/example/repo.git",
-	})
-	sourceRepo := &v1beta1.Repository{
-		ApiVersion: "flightctl.io/v1beta1",
-		Kind:       string(v1beta1.ResourceKindRepository),
-		Metadata: v1beta1.ObjectMeta{
-			Name: lo.ToPtr("source-registry"),
-		},
-		Spec: spec,
-	}
-	_, _ = repoStore.Create(ctx, orgId, sourceRepo, nil)
-
-	destRepo := newOciRepository("output-registry", v1beta1.ReadWrite)
-	_, _ = repoStore.Create(ctx, orgId, destRepo, nil)
-	svc := NewImageExportService(NewDummyImageExportStore(), NewDummyImageBuildStore(), repoStore, nil, nil, log.InitLogs())
-
-	imageExport := newValidImageExport("test-export")
-	_, status := svc.Create(ctx, orgId, imageExport)
-
-	require.Equal(int32(http.StatusBadRequest), statusCode(status))
-	require.Contains(status.Message, "spec.source.repository: Repository \"source-registry\" must be of type 'oci'")
-}
-
-func TestCreateImageExportDestinationRepositoryNotOci(t *testing.T) {
-	require := require.New(t)
-	ctx := context.Background()
-	orgId := uuid.New()
-
-	// Set up repositories - destination is Git type (not OCI)
-	repoStore := NewDummyRepositoryStore()
-	sourceRepo := newOciRepository("source-registry", v1beta1.Read)
-	_, _ = repoStore.Create(ctx, orgId, sourceRepo, nil)
-
-	spec := v1beta1.RepositorySpec{}
-	_ = spec.FromGenericRepoSpec(v1beta1.GenericRepoSpec{
-		Type: v1beta1.RepoSpecTypeGit,
-		Url:  "https://github.com/example/repo.git",
-	})
-	destRepo := &v1beta1.Repository{
-		ApiVersion: "flightctl.io/v1beta1",
-		Kind:       string(v1beta1.ResourceKindRepository),
-		Metadata: v1beta1.ObjectMeta{
-			Name: lo.ToPtr("output-registry"),
-		},
-		Spec: spec,
-	}
-	_, _ = repoStore.Create(ctx, orgId, destRepo, nil)
-	svc := NewImageExportService(NewDummyImageExportStore(), NewDummyImageBuildStore(), repoStore, nil, nil, log.InitLogs())
-
-	imageExport := newValidImageExport("test-export")
-	_, status := svc.Create(ctx, orgId, imageExport)
-
-	require.Equal(int32(http.StatusBadRequest), statusCode(status))
-	require.Contains(status.Message, "spec.destination.repository: Repository \"output-registry\" must be of type 'oci'")
-}
-
-func TestCreateImageExportDestinationRepositoryNotReadWrite(t *testing.T) {
-	require := require.New(t)
-	ctx := context.Background()
-	orgId := uuid.New()
-
-	// Set up repositories - destination is Read-only
-	repoStore := NewDummyRepositoryStore()
-	sourceRepo := newOciRepository("source-registry", v1beta1.Read)
-	_, _ = repoStore.Create(ctx, orgId, sourceRepo, nil)
-
-	destRepo := newOciRepository("output-registry", v1beta1.Read)
-	_, _ = repoStore.Create(ctx, orgId, destRepo, nil)
-	svc := NewImageExportService(NewDummyImageExportStore(), NewDummyImageBuildStore(), repoStore, nil, nil, log.InitLogs())
-
-	imageExport := newValidImageExport("test-export")
-	_, status := svc.Create(ctx, orgId, imageExport)
-
-	require.Equal(int32(http.StatusBadRequest), statusCode(status))
-	require.Contains(status.Message, "spec.destination.repository: Repository \"output-registry\" must have 'ReadWrite' access mode")
-}
+// Tests for old imageReference source type removed - only imageBuild source is supported now
+// Tests for destination validation removed - destination now comes from ImageBuild
 
 func newReadyImageExport(name string, manifestDigest string) api.ImageExport {
 	imageExport := newValidImageExport(name)
@@ -513,9 +436,11 @@ func TestDownloadImageExportNotReadyNoStatus(t *testing.T) {
 
 	// Set up repositories
 	repoStore := NewDummyRepositoryStore()
-	setupRepositoriesForImageExport(repoStore, ctx, orgId, true)
+	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
+	imageBuildStore := NewDummyImageBuildStore()
+	setupImageBuildForExport(imageBuildStore, ctx, orgId)
 	imageExportStore := NewDummyImageExportStore()
-	svc := NewImageExportService(imageExportStore, NewDummyImageBuildStore(), repoStore, nil, nil, log.InitLogs())
+	svc := NewImageExportService(imageExportStore, imageBuildStore, repoStore, nil, nil, log.InitLogs())
 
 	// Create ImageExport without status
 	imageExport := newValidImageExport("test-export")
@@ -534,9 +459,11 @@ func TestDownloadImageExportNotReadyNoConditions(t *testing.T) {
 
 	// Set up repositories
 	repoStore := NewDummyRepositoryStore()
-	setupRepositoriesForImageExport(repoStore, ctx, orgId, true)
+	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
+	imageBuildStore := NewDummyImageBuildStore()
+	setupImageBuildForExport(imageBuildStore, ctx, orgId)
 	imageExportStore := NewDummyImageExportStore()
-	svc := NewImageExportService(imageExportStore, NewDummyImageBuildStore(), repoStore, nil, nil, log.InitLogs())
+	svc := NewImageExportService(imageExportStore, imageBuildStore, repoStore, nil, nil, log.InitLogs())
 
 	// Create ImageExport with status but no conditions
 	imageExport := newValidImageExport("test-export")
@@ -558,9 +485,11 @@ func TestDownloadImageExportNotReadyNoReadyCondition(t *testing.T) {
 
 	// Set up repositories
 	repoStore := NewDummyRepositoryStore()
-	setupRepositoriesForImageExport(repoStore, ctx, orgId, true)
+	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
+	imageBuildStore := NewDummyImageBuildStore()
+	setupImageBuildForExport(imageBuildStore, ctx, orgId)
 	imageExportStore := NewDummyImageExportStore()
-	svc := NewImageExportService(imageExportStore, NewDummyImageBuildStore(), repoStore, nil, nil, log.InitLogs())
+	svc := NewImageExportService(imageExportStore, imageBuildStore, repoStore, nil, nil, log.InitLogs())
 
 	// Create ImageExport with status but no Ready condition
 	imageExport := newValidImageExport("test-export")
@@ -590,9 +519,11 @@ func TestDownloadImageExportNotReadyFalseStatus(t *testing.T) {
 
 	// Set up repositories
 	repoStore := NewDummyRepositoryStore()
-	setupRepositoriesForImageExport(repoStore, ctx, orgId, true)
+	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
+	imageBuildStore := NewDummyImageBuildStore()
+	setupImageBuildForExport(imageBuildStore, ctx, orgId)
 	imageExportStore := NewDummyImageExportStore()
-	svc := NewImageExportService(imageExportStore, NewDummyImageBuildStore(), repoStore, nil, nil, log.InitLogs())
+	svc := NewImageExportService(imageExportStore, imageBuildStore, repoStore, nil, nil, log.InitLogs())
 
 	// Create ImageExport with Ready condition but status is False
 	imageExport := newValidImageExport("test-export")
@@ -625,9 +556,11 @@ func TestDownloadImageExportMissingManifestDigest(t *testing.T) {
 
 	// Set up repositories
 	repoStore := NewDummyRepositoryStore()
-	setupRepositoriesForImageExport(repoStore, ctx, orgId, true)
+	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
+	imageBuildStore := NewDummyImageBuildStore()
+	setupImageBuildForExport(imageBuildStore, ctx, orgId)
 	imageExportStore := NewDummyImageExportStore()
-	svc := NewImageExportService(imageExportStore, NewDummyImageBuildStore(), repoStore, nil, nil, log.InitLogs())
+	svc := NewImageExportService(imageExportStore, imageBuildStore, repoStore, nil, nil, log.InitLogs())
 
 	// Create ImageExport with Ready condition but no manifest digest
 	imageExport := newValidImageExport("test-export")
@@ -658,9 +591,11 @@ func TestDownloadImageExportEmptyManifestDigest(t *testing.T) {
 
 	// Set up repositories
 	repoStore := NewDummyRepositoryStore()
-	setupRepositoriesForImageExport(repoStore, ctx, orgId, true)
+	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
+	imageBuildStore := NewDummyImageBuildStore()
+	setupImageBuildForExport(imageBuildStore, ctx, orgId)
 	imageExportStore := NewDummyImageExportStore()
-	svc := NewImageExportService(imageExportStore, NewDummyImageBuildStore(), repoStore, nil, nil, log.InitLogs())
+	svc := NewImageExportService(imageExportStore, imageBuildStore, repoStore, nil, nil, log.InitLogs())
 
 	// Create ImageExport with Ready condition but empty manifest digest
 	imageExport := newValidImageExport("test-export")
@@ -692,15 +627,22 @@ func TestDownloadImageExportDestinationRepositoryNotFound(t *testing.T) {
 
 	// Set up repositories - don't create destination repository
 	repoStore := NewDummyRepositoryStore()
-	sourceRepo := newOciRepository("source-registry", v1beta1.Read)
+	sourceRepo := newOciRepository("input-registry", v1beta1.Read)
 	_, _ = repoStore.Create(ctx, orgId, sourceRepo, nil)
 
-	imageExportStore := NewDummyImageExportStore()
-	svc := NewImageExportService(imageExportStore, NewDummyImageBuildStore(), repoStore, nil, nil, log.InitLogs())
+	// Create ImageBuild with destination repository that doesn't exist
+	imageBuildStore := NewDummyImageBuildStore()
+	imageBuild := newValidImageBuild("test-image-build")
+	imageBuild.Spec.Destination.Repository = "output-registry" // This repository doesn't exist
+	_, err := imageBuildStore.Create(ctx, orgId, &imageBuild)
+	require.NoError(err)
 
-	// Create ImageExport that references non-existent destination repository
+	imageExportStore := NewDummyImageExportStore()
+	svc := NewImageExportService(imageExportStore, imageBuildStore, repoStore, nil, nil, log.InitLogs())
+
+	// Create ImageExport that references ImageBuild with non-existent destination repository
 	imageExport := newReadyImageExport("test-export", "sha256:abc123")
-	_, err := imageExportStore.Create(ctx, orgId, &imageExport)
+	_, err = imageExportStore.Create(ctx, orgId, &imageExport)
 	require.NoError(err)
 
 	_, err = svc.Download(ctx, orgId, "test-export")
@@ -715,13 +657,20 @@ func TestDownloadImageExportInvalidManifestDigest(t *testing.T) {
 
 	// Set up repositories
 	repoStore := NewDummyRepositoryStore()
-	setupRepositoriesForImageExport(repoStore, ctx, orgId, true)
+	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
+	imageBuildStore := NewDummyImageBuildStore()
+
+	// Create the ImageBuild that will be referenced
+	imageBuild := newValidImageBuild("test-image-build")
+	_, err := imageBuildStore.Create(ctx, orgId, &imageBuild)
+	require.NoError(err)
+
 	imageExportStore := NewDummyImageExportStore()
-	svc := NewImageExportService(imageExportStore, NewDummyImageBuildStore(), repoStore, nil, nil, log.InitLogs())
+	svc := NewImageExportService(imageExportStore, imageBuildStore, repoStore, nil, nil, log.InitLogs())
 
 	// Create ImageExport with invalid manifest digest
 	imageExport := newReadyImageExport("test-export", "invalid-digest")
-	_, err := imageExportStore.Create(ctx, orgId, &imageExport)
+	_, err = imageExportStore.Create(ctx, orgId, &imageExport)
 	require.NoError(err)
 
 	_, err = svc.Download(ctx, orgId, "test-export")
@@ -820,12 +769,20 @@ func TestDownloadImageExportWithRedirect(t *testing.T) {
 	_, err = repoStore.Create(ctx, orgId, destRepo, nil)
 	require.NoError(err)
 
+	// Create ImageBuild with destination
+	imageBuildStore := NewDummyImageBuildStore()
+	imageBuild := newValidImageBuild("test-image-build")
+	imageBuild.Spec.Destination.Repository = "output-registry"
+	imageBuild.Spec.Destination.ImageName = "test-image"
+	imageBuild.Spec.Destination.ImageTag = "v1.0"
+	_, err = imageBuildStore.Create(ctx, orgId, &imageBuild)
+	require.NoError(err)
+
 	imageExportStore := NewDummyImageExportStore()
-	svc := NewImageExportService(imageExportStore, NewDummyImageBuildStore(), repoStore, nil, nil, log.InitLogs())
+	svc := NewImageExportService(imageExportStore, imageBuildStore, repoStore, nil, nil, log.InitLogs())
 
 	// Create ImageExport
 	imageExport := newReadyImageExport("test-export", manifestDigest)
-	imageExport.Spec.Destination.ImageName = "test-image"
 	_, err = imageExportStore.Create(ctx, orgId, &imageExport)
 	require.NoError(err)
 
@@ -906,12 +863,20 @@ func TestDownloadImageExportWithBlobReader(t *testing.T) {
 	_, err = repoStore.Create(ctx, orgId, destRepo, nil)
 	require.NoError(err)
 
+	// Create ImageBuild with destination
+	imageBuildStore := NewDummyImageBuildStore()
+	imageBuild := newValidImageBuild("test-image-build")
+	imageBuild.Spec.Destination.Repository = "output-registry"
+	imageBuild.Spec.Destination.ImageName = "test-image"
+	imageBuild.Spec.Destination.ImageTag = "v1.0"
+	_, err = imageBuildStore.Create(ctx, orgId, &imageBuild)
+	require.NoError(err)
+
 	imageExportStore := NewDummyImageExportStore()
-	svc := NewImageExportService(imageExportStore, NewDummyImageBuildStore(), repoStore, nil, nil, log.InitLogs())
+	svc := NewImageExportService(imageExportStore, imageBuildStore, repoStore, nil, nil, log.InitLogs())
 
 	// Create ImageExport
 	imageExport := newReadyImageExport("test-export", manifestDigest)
-	imageExport.Spec.Destination.ImageName = "test-image"
 	_, err = imageExportStore.Create(ctx, orgId, &imageExport)
 	require.NoError(err)
 
@@ -1000,12 +965,20 @@ func TestDownloadImageExportManifestWrongLayerCount(t *testing.T) {
 	_, err = repoStore.Create(ctx, orgId, destRepo, nil)
 	require.NoError(err)
 
+	// Create ImageBuild with destination
+	imageBuildStore := NewDummyImageBuildStore()
+	imageBuild := newValidImageBuild("test-image-build")
+	imageBuild.Spec.Destination.Repository = "output-registry"
+	imageBuild.Spec.Destination.ImageName = "test-image"
+	imageBuild.Spec.Destination.ImageTag = "v1.0"
+	_, err = imageBuildStore.Create(ctx, orgId, &imageBuild)
+	require.NoError(err)
+
 	imageExportStore := NewDummyImageExportStore()
-	svc := NewImageExportService(imageExportStore, NewDummyImageBuildStore(), repoStore, nil, nil, log.InitLogs())
+	svc := NewImageExportService(imageExportStore, imageBuildStore, repoStore, nil, nil, log.InitLogs())
 
 	// Create ImageExport
 	imageExport := newReadyImageExport("test-export", manifestDigest)
-	imageExport.Spec.Destination.ImageName = "test-image"
 	_, err = imageExportStore.Create(ctx, orgId, &imageExport)
 	require.NoError(err)
 
