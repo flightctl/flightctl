@@ -105,6 +105,9 @@ type ClientInterface interface {
 	// GetImageBuild request
 	GetImageBuild(ctx context.Context, name string, params *GetImageBuildParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// GetImageBuildLog request
+	GetImageBuildLog(ctx context.Context, name string, params *GetImageBuildLogParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ListImageExports request
 	ListImageExports(ctx context.Context, params *ListImageExportsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -173,6 +176,18 @@ func (c *Client) DeleteImageBuild(ctx context.Context, name string, reqEditors .
 
 func (c *Client) GetImageBuild(ctx context.Context, name string, params *GetImageBuildParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetImageBuildRequest(c.Server, name, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetImageBuildLog(ctx context.Context, name string, params *GetImageBuildLogParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetImageBuildLogRequest(c.Server, name, params)
 	if err != nil {
 		return nil, err
 	}
@@ -498,6 +513,62 @@ func NewGetImageBuildRequest(server string, name string, params *GetImageBuildPa
 	return req, nil
 }
 
+// NewGetImageBuildLogRequest generates requests for GetImageBuildLog
+func NewGetImageBuildLogRequest(server string, name string, params *GetImageBuildLogParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "name", runtime.ParamLocationPath, name)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/imagebuilds/%s/log", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		queryValues := queryURL.Query()
+
+		if params.Follow != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "follow", runtime.ParamLocationQuery, *params.Follow); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		queryURL.RawQuery = queryValues.Encode()
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewListImageExportsRequest generates requests for ListImageExports
 func NewListImageExportsRequest(server string, params *ListImageExportsParams) (*http.Request, error) {
 	var err error
@@ -794,6 +865,9 @@ type ClientWithResponsesInterface interface {
 	// GetImageBuildWithResponse request
 	GetImageBuildWithResponse(ctx context.Context, name string, params *GetImageBuildParams, reqEditors ...RequestEditorFn) (*GetImageBuildResponse, error)
 
+	// GetImageBuildLogWithResponse request
+	GetImageBuildLogWithResponse(ctx context.Context, name string, params *GetImageBuildLogParams, reqEditors ...RequestEditorFn) (*GetImageBuildLogResponse, error)
+
 	// ListImageExportsWithResponse request
 	ListImageExportsWithResponse(ctx context.Context, params *ListImageExportsParams, reqEditors ...RequestEditorFn) (*ListImageExportsResponse, error)
 
@@ -915,6 +989,32 @@ func (r GetImageBuildResponse) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r GetImageBuildResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type GetImageBuildLogResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON401      *externalRef0.Status
+	JSON403      *externalRef0.Status
+	JSON404      *externalRef0.Status
+	JSON429      *externalRef0.Status
+	JSON503      *externalRef0.Status
+}
+
+// Status returns HTTPResponse.Status
+func (r GetImageBuildLogResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetImageBuildLogResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -1100,6 +1200,15 @@ func (c *ClientWithResponses) GetImageBuildWithResponse(ctx context.Context, nam
 		return nil, err
 	}
 	return ParseGetImageBuildResponse(rsp)
+}
+
+// GetImageBuildLogWithResponse request returning *GetImageBuildLogResponse
+func (c *ClientWithResponses) GetImageBuildLogWithResponse(ctx context.Context, name string, params *GetImageBuildLogParams, reqEditors ...RequestEditorFn) (*GetImageBuildLogResponse, error) {
+	rsp, err := c.GetImageBuildLog(ctx, name, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetImageBuildLogResponse(rsp)
 }
 
 // ListImageExportsWithResponse request returning *ListImageExportsResponse
@@ -1366,6 +1475,60 @@ func ParseGetImageBuildResponse(rsp *http.Response) (*GetImageBuildResponse, err
 		}
 		response.JSON200 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetImageBuildLogResponse parses an HTTP response from a GetImageBuildLogWithResponse call
+func ParseGetImageBuildLogResponse(rsp *http.Response) (*GetImageBuildLogResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetImageBuildLogResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
 		var dest externalRef0.Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {

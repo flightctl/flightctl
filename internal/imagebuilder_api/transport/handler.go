@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	api "github.com/flightctl/flightctl/api/imagebuilder/v1beta1"
@@ -94,6 +95,123 @@ func (h *TransportHandler) ReplaceImageBuild(w http.ResponseWriter, r *http.Requ
 func (h *TransportHandler) DeleteImageBuild(w http.ResponseWriter, r *http.Request, name string) {
 	body, status := h.service.ImageBuild().Delete(r.Context(), OrgIDFromContext(r.Context()), name)
 	SetResponse(w, body, status)
+}
+
+// GetImageBuildLog handles GET /api/v1/imagebuilds/{name}/log
+func (h *TransportHandler) GetImageBuildLog(w http.ResponseWriter, r *http.Request, name string, params api.GetImageBuildLogParams) {
+	ctx := r.Context()
+	orgID := OrgIDFromContext(ctx)
+
+	follow := false
+	if params.Follow != nil {
+		follow = *params.Follow
+	}
+
+	reader, logs, status := h.service.ImageBuild().GetLogs(ctx, orgID, name, follow)
+	if !service.IsStatusOK(status) {
+		SetResponse(w, nil, status)
+		return
+	}
+
+	// If we have a reader (active build with follow=true), stream via SSE
+	if reader != nil {
+		// Set SSE headers
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		w.WriteHeader(http.StatusOK)
+
+		// Flush headers
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+
+		// Stream logs with SSE format
+		err := streamLogsSSE(ctx, reader, w)
+		if err != nil && err != context.Canceled {
+			h.log.WithError(err).WithField("name", name).Error("failed to stream logs")
+		}
+		return
+	}
+
+	// If we have logs string (completed build or active build without follow), return as plain text
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(http.StatusOK)
+	if logs != "" {
+		_, _ = w.Write([]byte(logs))
+	}
+}
+
+// streamLogsSSE streams logs in Server-Sent Events format
+func streamLogsSSE(ctx context.Context, reader service.LogStreamReader, w http.ResponseWriter) error {
+	// First, send all existing logs in SSE format
+	allLogs, err := reader.ReadAll(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to read existing logs: %w", err)
+	}
+
+	if len(allLogs) > 0 {
+		// Split by lines and send each as SSE event
+		lines := splitLines(allLogs)
+		for _, line := range lines {
+			if line == "" {
+				continue
+			}
+			if _, err := fmt.Fprintf(w, "data: %s\n\n", line); err != nil {
+				return fmt.Errorf("failed to write SSE data: %w", err)
+			}
+		}
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+	}
+
+	// Then stream new logs
+	return reader.Stream(ctx, &sseWriter{w: w})
+}
+
+// splitLines splits a string into lines, preserving newlines
+func splitLines(s string) []string {
+	if s == "" {
+		return []string{}
+	}
+	// Split by \n but keep the newline in each line (except the last)
+	lines := []string{}
+	remaining := s
+	for {
+		idx := strings.Index(remaining, "\n")
+		if idx == -1 {
+			if len(remaining) > 0 {
+				lines = append(lines, remaining)
+			}
+			break
+		}
+		lines = append(lines, remaining[:idx+1])
+		remaining = remaining[idx+1:]
+	}
+	return lines
+}
+
+// sseWriter wraps http.ResponseWriter to format log lines as SSE events
+type sseWriter struct {
+	w http.ResponseWriter
+}
+
+func (sw *sseWriter) Write(p []byte) (n int, err error) {
+	// Format as SSE: data: {line}\n\n
+	lines := strings.Split(string(p), "\n")
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		if _, err := fmt.Fprintf(sw.w, "data: %s\n\n", line); err != nil {
+			return 0, err
+		}
+	}
+	if flusher, ok := sw.w.(http.Flusher); ok {
+		flusher.Flush()
+	}
+	return len(p), nil
 }
 
 // ListImageExports handles GET /api/v1/imageexports

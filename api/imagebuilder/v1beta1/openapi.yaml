@@ -252,6 +252,67 @@ paths:
             application/json:
               schema:
                 $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+  /api/v1/imagebuilds/{name}/log:
+    get:
+      tags:
+        - imagebuild
+      description: Get logs for an ImageBuild resource. For active builds, streams logs live. For completed builds, returns last 500 lines.
+      operationId: getImageBuildLog
+      parameters:
+        - name: name
+          in: path
+          description: The name of the ImageBuild resource.
+          required: true
+          schema:
+            type: string
+        - name: follow
+          in: query
+          description: If true, stream logs continuously (like kubectl logs -f). For active builds, keeps connection open. For completed builds, returns all logs and closes.
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "200":
+          description: OK
+          content:
+            text/plain:
+              schema:
+                type: string
+                description: Log output as plain text (when follow=false or for completed builds)
+            text/event-stream:
+              schema:
+                type: string
+                description: Log output as Server-Sent Events stream (when follow=true for active builds)
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
   /api/v1/imageexports:
     get:
       tags:

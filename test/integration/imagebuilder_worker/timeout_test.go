@@ -95,7 +95,7 @@ var _ = Describe("Timeout Check Integration Tests", func() {
 		Expect(err).ToNot(HaveOccurred())
 
 		// Create imagebuilder service
-		imageBuilderService = service.NewService(ctx, imageBuilderStore, mainStore, nil, log)
+		imageBuilderService = service.NewService(ctx, imageBuilderStore, mainStore, nil, nil, log)
 
 		// Create consumer
 		consumer = tasks.NewConsumer(

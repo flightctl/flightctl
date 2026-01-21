@@ -27,6 +27,9 @@ type ServerInterface interface {
 	// (GET /api/v1/imagebuilds/{name})
 	GetImageBuild(w http.ResponseWriter, r *http.Request, name string, params GetImageBuildParams)
 
+	// (GET /api/v1/imagebuilds/{name}/log)
+	GetImageBuildLog(w http.ResponseWriter, r *http.Request, name string, params GetImageBuildLogParams)
+
 	// (GET /api/v1/imageexports)
 	ListImageExports(w http.ResponseWriter, r *http.Request, params ListImageExportsParams)
 
@@ -64,6 +67,11 @@ func (_ Unimplemented) DeleteImageBuild(w http.ResponseWriter, r *http.Request, 
 
 // (GET /api/v1/imagebuilds/{name})
 func (_ Unimplemented) GetImageBuild(w http.ResponseWriter, r *http.Request, name string, params GetImageBuildParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /api/v1/imagebuilds/{name}/log)
+func (_ Unimplemented) GetImageBuildLog(w http.ResponseWriter, r *http.Request, name string, params GetImageBuildLogParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -235,6 +243,43 @@ func (siw *ServerInterfaceWrapper) GetImageBuild(w http.ResponseWriter, r *http.
 	handler.ServeHTTP(w, r)
 }
 
+// GetImageBuildLog operation middleware
+func (siw *ServerInterfaceWrapper) GetImageBuildLog(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var err error
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", chi.URLParam(r, "name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetImageBuildLogParams
+
+	// ------------- Optional query parameter "follow" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "follow", r.URL.Query(), &params.Follow)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "follow", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetImageBuildLog(w, r, name, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
 // ListImageExports operation middleware
 func (siw *ServerInterfaceWrapper) ListImageExports(w http.ResponseWriter, r *http.Request) {
 
@@ -375,6 +420,32 @@ func (siw *ServerInterfaceWrapper) DownloadImageExport(w http.ResponseWriter, r 
 	handler.ServeHTTP(w, r)
 }
 
+// DownloadImageExport operation middleware
+func (siw *ServerInterfaceWrapper) DownloadImageExport(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var err error
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", chi.URLParam(r, "name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DownloadImageExport(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
 type UnescapedCookieParamError struct {
 	ParamName string
 	Err       error
@@ -499,6 +570,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/imagebuilds/{name}", wrapper.GetImageBuild)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/imagebuilds/{name}/log", wrapper.GetImageBuildLog)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/imageexports", wrapper.ListImageExports)

@@ -67,7 +67,7 @@ func (w *Worker) Run(ctx context.Context) error {
 		w.log.WithError(err).Error("failed to create queue producer for service")
 		return err
 	}
-	imageBuilderService := imagebuilderapi.NewService(ctx, w.store, w.mainStore, queueProducer, w.log)
+	imageBuilderService := imagebuilderapi.NewService(ctx, w.store, w.mainStore, queueProducer, w.kvStore, w.log)
 
 	// Launch queue consumers
 	if err := tasks.LaunchConsumers(ctx, w.queuesProvider, w.store, w.mainStore, w.kvStore, w.serviceHandler, imageBuilderService, w.cfg, w.log); err != nil {

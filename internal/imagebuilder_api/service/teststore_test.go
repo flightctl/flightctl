@@ -172,6 +172,28 @@ func (s *DummyImageBuildStore) UpdateLastSeen(ctx context.Context, orgId uuid.UU
 	return flterrors.ErrResourceNotFound
 }
 
+func (s *DummyImageBuildStore) UpdateLogs(ctx context.Context, orgId uuid.UUID, name string, logs string) error {
+	for _, ib := range *s.imageBuilds {
+		if lo.FromPtr(ib.Metadata.Name) == name {
+			// In a real implementation, this would update a Logs field
+			// For the dummy store, we just return success
+			return nil
+		}
+	}
+	return flterrors.ErrResourceNotFound
+}
+
+func (s *DummyImageBuildStore) GetLogs(ctx context.Context, orgId uuid.UUID, name string) (string, error) {
+	for _, ib := range *s.imageBuilds {
+		if lo.FromPtr(ib.Metadata.Name) == name {
+			// In a real implementation, this would return the Logs field
+			// For the dummy store, we just return empty string
+			return "", nil
+		}
+	}
+	return "", flterrors.ErrResourceNotFound
+}
+
 func (s *DummyImageBuildStore) InitialMigration(ctx context.Context) error {
 	return nil
 }
