@@ -444,4 +444,114 @@ var _ = Describe("Containerfile Generation", func() {
 			}
 		})
 	})
+
+	Context("User configuration in containerfile generation", func() {
+		It("should generate containerfile with user configuration for late binding", func() {
+			// Create OCI repositories (source and destination)
+			_, err := createOCIRepository(ctx, mainStoreInst.Repository(), orgId, "test-repo", "registry.example.com", lo.ToPtr(v1beta1.OciRepoSpecSchemeHttps))
+			Expect(err).ToNot(HaveOccurred())
+			_, err = createOCIRepository(ctx, mainStoreInst.Repository(), orgId, "output-repo", "registry.example.com", lo.ToPtr(v1beta1.OciRepoSpecSchemeHttps))
+			Expect(err).ToNot(HaveOccurred())
+
+			// Create ImageBuild with late binding and user configuration
+			imageBuild := newTestImageBuild("test-build-userconfig", "late")
+			imageBuild.Spec.UserConfiguration = &api.ImageBuildUserConfiguration{
+				Username:  "testuser",
+				Publickey: "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC7vbqajDhA/2dZ0jofdR7H3nKJvN2k3J8K9L0M1N2O3P4Q5R6S7T8U9V0W1X2Y3Z4A5B6C7D8E9F0G1H2I3J4K5L6M7N8O9P0Q1R2S3T4U5V6W7X8Y9Z0A1B2C3D4E5F6G7H8I9J0K1L2M3N4O5P6Q7R8S9T0U1V2W3X4Y5Z6A7B8C9D0E1F2G3H4I5J6K7L8M9N0O1P2Q3R4S5T6U7V8W9X0Y1Z2A3B4C5D6E7E8F9G0H1I2J3K4L5M6N7O8P9Q0R1S2T3U4V5W6X7Y8Z9A0B1C2D3E4F5G6H7I8J9K0L1M2N3O4P5Q6R7S8T9U0V1W2X3Y4Z5A6B7C8D9E0F1G2H3I4J5K6L7M8N9O0P1Q2R3S4T5U6V7W8X9Y0Z1A2B3C4D5E6F7G8H9I0J1K2L3M4N5O6P7Q8R9S0T1U2V3W4X5Y6Z7A8B9C0D1E2F3G4H5I6J7K8L9M0N1O2P3Q4R5S6T7U8V9W0X1Y2Z3A4B5C6D7E8F9G0H1I2J3K4L5M6N7O8P9Q0R1S2T3U4V5W6X7Y8Z9A0B1C2D3E4F5G6H7I8J9K0L1M2N3O4P5Q6R7S8T9U9 test@example.com",
+			}
+			_, err = storeInst.ImageBuild().Create(ctx, orgId, &imageBuild)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Load the ImageBuild from store
+			loadedBuild, err := storeInst.ImageBuild().Get(ctx, orgId, "test-build-userconfig")
+			Expect(err).ToNot(HaveOccurred())
+
+			// Generate containerfile
+			result, err := tasks.GenerateContainerfile(ctx, mainStoreInst, serviceHandler, orgId, loadedBuild, log)
+
+			Expect(err).ToNot(HaveOccurred())
+			Expect(result).ToNot(BeNil())
+			Expect(result.Containerfile).ToNot(BeEmpty())
+
+			// Verify Containerfile content includes user configuration
+			containerfile := result.Containerfile
+			Expect(containerfile).To(ContainSubstring("useradd -m -s /bin/bash testuser"))
+			Expect(containerfile).To(ContainSubstring("usermod -aG wheel testuser"))
+			Expect(containerfile).To(ContainSubstring("mkdir -p /home/testuser/.ssh"))
+			Expect(containerfile).To(ContainSubstring("cat > /home/testuser/.ssh/authorized_keys"))
+			Expect(containerfile).To(ContainSubstring("ssh-rsa"))
+			Expect(containerfile).To(ContainSubstring("chmod 700 /home/testuser/.ssh"))
+			Expect(containerfile).To(ContainSubstring("chmod 600 /home/testuser/.ssh/authorized_keys"))
+			Expect(containerfile).To(ContainSubstring("chown -R testuser:testuser /home/testuser/.ssh"))
+		})
+
+		It("should generate containerfile with user configuration for early binding", func() {
+			// Create OCI repositories (source and destination)
+			_, err := createOCIRepository(ctx, mainStoreInst.Repository(), orgId, "test-repo", "registry.example.com", lo.ToPtr(v1beta1.OciRepoSpecSchemeHttps))
+			Expect(err).ToNot(HaveOccurred())
+			_, err = createOCIRepository(ctx, mainStoreInst.Repository(), orgId, "output-repo", "registry.example.com", lo.ToPtr(v1beta1.OciRepoSpecSchemeHttps))
+			Expect(err).ToNot(HaveOccurred())
+
+			// Create ImageBuild with early binding and user configuration
+			imageBuild := newTestImageBuild("test-build-userconfig-early", "early")
+			imageBuild.Spec.UserConfiguration = &api.ImageBuildUserConfiguration{
+				Username:  "admin",
+				Publickey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGq8vY8vY8vY8vY8vY8vY8vY8vY8vY8vY8vY8vY8vY8 test@example.com",
+			}
+			_, err = storeInst.ImageBuild().Create(ctx, orgId, &imageBuild)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Load the ImageBuild from store
+			loadedBuild, err := storeInst.ImageBuild().Get(ctx, orgId, "test-build-userconfig-early")
+			Expect(err).ToNot(HaveOccurred())
+
+			// Generate containerfile
+			result, err := tasks.GenerateContainerfile(ctx, mainStoreInst, serviceHandler, orgId, loadedBuild, log)
+
+			Expect(err).ToNot(HaveOccurred())
+			Expect(result).ToNot(BeNil())
+			Expect(result.Containerfile).ToNot(BeEmpty())
+
+			// Verify Containerfile content includes both early binding config and user configuration
+			containerfile := result.Containerfile
+			Expect(containerfile).To(ContainSubstring("useradd -m -s /bin/bash admin"))
+			Expect(containerfile).To(ContainSubstring("usermod -aG wheel admin"))
+			Expect(containerfile).To(ContainSubstring("mkdir -p /home/admin/.ssh"))
+			Expect(containerfile).To(ContainSubstring("cat > /home/admin/.ssh/authorized_keys"))
+			Expect(containerfile).To(ContainSubstring("ssh-ed25519"))
+			Expect(containerfile).To(ContainSubstring("/etc/flightctl/config.yaml"))
+			Expect(containerfile).To(ContainSubstring("FLIGHTCTL_CONFIG"))
+		})
+
+		It("should not include user configuration when not provided", func() {
+			// Create OCI repositories (source and destination)
+			_, err := createOCIRepository(ctx, mainStoreInst.Repository(), orgId, "test-repo", "registry.example.com", lo.ToPtr(v1beta1.OciRepoSpecSchemeHttps))
+			Expect(err).ToNot(HaveOccurred())
+			_, err = createOCIRepository(ctx, mainStoreInst.Repository(), orgId, "output-repo", "registry.example.com", lo.ToPtr(v1beta1.OciRepoSpecSchemeHttps))
+			Expect(err).ToNot(HaveOccurred())
+
+			// Create ImageBuild without user configuration
+			imageBuild := newTestImageBuild("test-build-no-user", "late")
+			// No UserConfiguration set
+			_, err = storeInst.ImageBuild().Create(ctx, orgId, &imageBuild)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Load the ImageBuild from store
+			loadedBuild, err := storeInst.ImageBuild().Get(ctx, orgId, "test-build-no-user")
+			Expect(err).ToNot(HaveOccurred())
+
+			// Generate containerfile
+			result, err := tasks.GenerateContainerfile(ctx, mainStoreInst, serviceHandler, orgId, loadedBuild, log)
+
+			Expect(err).ToNot(HaveOccurred())
+			Expect(result).ToNot(BeNil())
+			Expect(result.Containerfile).ToNot(BeEmpty())
+
+			// Verify Containerfile content does NOT include user configuration
+			containerfile := result.Containerfile
+			Expect(containerfile).ToNot(ContainSubstring("useradd"))
+			Expect(containerfile).ToNot(ContainSubstring("usermod -aG wheel"))
+			Expect(containerfile).ToNot(ContainSubstring(".ssh/authorized_keys"))
+		})
+	})
 })

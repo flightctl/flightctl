@@ -217,6 +217,9 @@ type ImageBuildSpec struct {
 
 	// Source ImageBuildSource specifies the source image for the build.
 	Source ImageBuildSource `json:"source"`
+
+	// UserConfiguration ImageBuildUserConfiguration specifies user configuration for the build.
+	UserConfiguration *ImageBuildUserConfiguration `json:"userConfiguration,omitempty"`
 }
 
 // ImageBuildStatus ImageBuildStatus represents the current status of an ImageBuild.
@@ -235,6 +238,15 @@ type ImageBuildStatus struct {
 
 	// ManifestDigest The digest of the built image manifest.
 	ManifestDigest *string `json:"manifestDigest,omitempty"`
+}
+
+// ImageBuildUserConfiguration ImageBuildUserConfiguration specifies user configuration for the build.
+type ImageBuildUserConfiguration struct {
+	// Publickey The public key for the user configuration.
+	Publickey string `json:"publickey"`
+
+	// Username The username for the user configuration.
+	Username string `json:"username"`
 }
 
 // ImageExport ImageExport represents an export request to convert and push images to different formats.

@@ -26,3 +26,21 @@ RUN chmod 600 {{.AgentConfigDestPath}}
 # Ignition is used for QCOW2/ISO formats
 RUN dnf install -y ignition afterburn cloud-init && dnf clean all
 {{end}}
+
+{{if .HasUserConfig}}
+# Create user and configure SSH access
+# Note: Using 'wheel' group for sudo access (RHEL/Fedora/CentOS convention)
+# This template assumes RHEL/Fedora-based images (uses dnf package manager)
+RUN useradd -m -s /bin/bash {{.Username}} && \
+    usermod -aG wheel {{.Username}}
+# Configure passwordless sudo for the user
+RUN echo '{{.Username}} ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/{{.Username}} && \
+    chmod 440 /etc/sudoers.d/{{.Username}}
+RUN mkdir -p /home/{{.Username}}/.ssh && \
+    cat > /home/{{.Username}}/.ssh/authorized_keys <<'{{.PublicKeyDelimiter}}'
+{{.Publickey}}
+{{.PublicKeyDelimiter}}
+RUN chmod 700 /home/{{.Username}}/.ssh && \
+    chmod 600 /home/{{.Username}}/.ssh/authorized_keys && \
+    chown -R {{.Username}}:{{.Username}} /home/{{.Username}}/.ssh
+{{end}}

@@ -616,6 +616,8 @@ components:
           $ref: '#/components/schemas/ImageBuildDestination'
         binding:
           $ref: '#/components/schemas/ImageBuildBinding'
+        userConfiguration:
+          $ref: '#/components/schemas/ImageBuildUserConfiguration'
       required:
         - source
         - destination
@@ -667,6 +669,20 @@ components:
         mapping:
           early: '#/components/schemas/EarlyBinding'
           late: '#/components/schemas/LateBinding'
+
+    ImageBuildUserConfiguration:
+      type: object
+      description: ImageBuildUserConfiguration specifies user configuration for the build.
+      properties:
+        username:
+          type: string
+          description: The username for the user configuration.
+        publickey:
+          type: string
+          description: The public key for the user configuration.
+      required:
+        - username
+        - publickey
 
     EarlyBinding:
       type: object

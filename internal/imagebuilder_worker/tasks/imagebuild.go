@@ -428,6 +428,10 @@ type containerfileData struct {
 	AgentConfig         string
 	AgentConfigDestPath string
 	HeredocDelimiter    string
+	PublicKeyDelimiter  string
+	Username            string
+	Publickey           string
+	HasUserConfig       bool
 }
 
 // EnrollmentCredentialGenerator is an interface for generating enrollment credentials
@@ -530,6 +534,12 @@ func (c *Consumer) generateContainerfileWithGenerator(
 	// Generate a unique heredoc delimiter to avoid conflicts with config content
 	heredocDelimiter := fmt.Sprintf("FLIGHTCTL_CONFIG_%s", uuid.NewString()[:8])
 
+	// Generate a unique heredoc delimiter for public key if user config is provided
+	publicKeyDelimiter := ""
+	if spec.UserConfiguration != nil {
+		publicKeyDelimiter = fmt.Sprintf("FLIGHTCTL_PUBKEY_%s", uuid.NewString()[:8])
+	}
+
 	// Prepare template data
 	data := containerfileData{
 		RegistryHostname:    registryHostname,
@@ -538,6 +548,14 @@ func (c *Consumer) generateContainerfileWithGenerator(
 		EarlyBinding:        bindingType == string(api.BindingTypeEarly),
 		AgentConfigDestPath: agentConfigPath,
 		HeredocDelimiter:    heredocDelimiter,
+		PublicKeyDelimiter:  publicKeyDelimiter,
+		HasUserConfig:       spec.UserConfiguration != nil,
+	}
+
+	// Add user configuration if provided
+	if spec.UserConfiguration != nil {
+		data.Username = spec.UserConfiguration.Username
+		data.Publickey = spec.UserConfiguration.Publickey
 	}
 
 	// Handle early binding - generate enrollment credentials
