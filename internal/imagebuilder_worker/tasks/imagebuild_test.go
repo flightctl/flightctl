@@ -397,3 +397,89 @@ func TestGenerateContainerfile_HeredocDelimiterUniqueness(t *testing.T) {
 		}
 	}
 }
+
+func TestGenerateContainerfile_WithUserConfiguration(t *testing.T) {
+	mockStore := newMockStore()
+	mockStore.repositories["test-repo"] = createTestRepository("test-repo", "quay.io", nil)
+
+	mockServiceHandler := newMockServiceHandler()
+	imageBuild := newTestImageBuild("test-build", "late")
+	imageBuild.Spec.UserConfiguration = &api.ImageBuildUserConfiguration{
+		Username:  "testuser",
+		Publickey: "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC7vbqajDhA/2dZ0jofdR7H3nKJvN2k3J8K9L0M1N2O3P4Q5R6S7T8U9V0W1X2Y3Z4A5B6C7D8E9F0G1H2I3J4K5L6M7N8O9P0Q1R2S3T4U5V6W7X8Y9Z0A1B2C3D4E5F6G7H8I9J0K1L2M3N4O5P6Q7R8S9T0U1V2W3X4Y5Z6A7B8C9D0E1F2G3H4I5J6K7L8M9N0O1P2Q3R4S5T6U7V8W9X0Y1Z2A3B4C5D6E7E8F9G0H1I2J3K4L5M6N7O8P9Q0R1S2T3U4V5W6X7Y8Z9A0B1C2D3E4F5G6H7I8J9K0L1M2N3O4P5Q6R7S8T9U0V1W2X3Y4Z5A6B7C8D9E0F1G2H3I4J5K6L7M8N9O0P1Q2R3S4T5U6V7W8X9Y0Z1A2B3C4D5E6F7G8H9I0J1K2L3M4N5O6P7Q8R9S0T1U2V3W4X5Y6Z7A8B9C0D1E2F3G4H5I6J7K8L9M0N1O2P3Q4R5S6T7U8V9W0X1Y2Z3A4B5C6D7E8F9G0H1I2J3K4L5M6N7O8P9Q0R1S2T3U4V5W6X7Y8Z9A0B1C2D3E4F5G6H7I8J9K0L1M2N3O4P5Q6R7S8T9U9 test@example.com",
+	}
+
+	ctx := context.Background()
+	orgID := uuid.New()
+	logger := log.InitLogs()
+
+	result, err := GenerateContainerfile(ctx, mockStore, mockServiceHandler, orgID, imageBuild, logger)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.NotEmpty(t, result.Containerfile)
+
+	// Verify user configuration is included
+	require.Contains(t, result.Containerfile, "useradd -m -s /bin/bash testuser")
+	require.Contains(t, result.Containerfile, "usermod -aG wheel testuser")
+	require.Contains(t, result.Containerfile, "mkdir -p /home/testuser/.ssh")
+	require.Contains(t, result.Containerfile, "cat > /home/testuser/.ssh/authorized_keys")
+	require.Contains(t, result.Containerfile, "ssh-rsa")
+	require.Contains(t, result.Containerfile, "chmod 700 /home/testuser/.ssh")
+	require.Contains(t, result.Containerfile, "chmod 600 /home/testuser/.ssh/authorized_keys")
+	require.Contains(t, result.Containerfile, "chown -R testuser:testuser /home/testuser/.ssh")
+}
+
+func TestGenerateContainerfile_WithoutUserConfiguration(t *testing.T) {
+	mockStore := newMockStore()
+	mockStore.repositories["test-repo"] = createTestRepository("test-repo", "quay.io", nil)
+
+	mockServiceHandler := newMockServiceHandler()
+	imageBuild := newTestImageBuild("test-build", "late")
+	// No UserConfiguration set
+
+	ctx := context.Background()
+	orgID := uuid.New()
+	logger := log.InitLogs()
+
+	result, err := GenerateContainerfile(ctx, mockStore, mockServiceHandler, orgID, imageBuild, logger)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.NotEmpty(t, result.Containerfile)
+
+	// Verify user configuration is NOT included
+	require.NotContains(t, result.Containerfile, "useradd")
+	require.NotContains(t, result.Containerfile, "usermod -aG wheel")
+	require.NotContains(t, result.Containerfile, ".ssh/authorized_keys")
+}
+
+func TestRenderContainerfileTemplate_WithUserConfiguration(t *testing.T) {
+	data := containerfileData{
+		RegistryHostname:    "quay.io",
+		ImageName:           "test-image",
+		ImageTag:            "v1.0.0",
+		EarlyBinding:        false,
+		AgentConfigDestPath: "/etc/flightctl/config.yaml",
+		HeredocDelimiter:    "FLIGHTCTL_CONFIG_ABC123",
+		PublicKeyDelimiter:  "FLIGHTCTL_PUBKEY_XYZ789",
+		HasUserConfig:       true,
+		Username:            "testuser",
+		Publickey:           "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC7vbqajDhA/2dZ0jofdR7H3nKJvN2k3J8K9L0M1N2O3P4Q5R6S7T8U9V0W1X2Y3Z4A5B6C7D8E9F0G1H2I3J4K5L6M7N8O9P0Q1R2S3T4U5V6W7X8Y9Z0A1B2C3D4E5F6G7H8I9J0K1L2M3N4O5P6Q7R8S9T0U1V2W3X4Y5Z6A7B8C9D0E1F2G3H4I5J6K7L8M9N0O1P2Q3R4S5T6U7V8W9X0Y1Z2A3B4C5D6E7E8F9G0H1I2J3K4L5M6N7O8P9Q0R1S2T3U4V5W6X7Y8Z9A0B1C2D3E4F5G6H7I8J9K0L1M2N3O4P5Q6R7S8T9U0V1W2X3Y4Z5A6B7C8D9E0F1G2H3I4J5K6L7M8N9O0P1Q2R3S4T5U6V7W8X9Y0Z1A2B3C4D5E6F7G8H9I0J1K2L3M4N5O6P7Q8R9S0T1U2V3W4X5Y6Z7A8B9C0D1E2F3G4H5I6J7K8L9M0N1O2P3Q4R5S6T7U8V9W0X1Y2Z3A4B5C6D7E8F9G0H1I2J3K4L5M6N7O8P9Q0R1S2T3U4V5W6X7Y8Z9A0B1C2D3E4F5G6H7I8J9K0L1M2N3O4P5Q6R7S8T9U9 test@example.com",
+	}
+
+	result, err := renderContainerfileTemplate(data)
+	require.NoError(t, err)
+	require.NotEmpty(t, result)
+
+	// Verify user configuration is included
+	require.Contains(t, result, "useradd -m -s /bin/bash testuser")
+	require.Contains(t, result, "usermod -aG wheel testuser")
+	require.Contains(t, result, "mkdir -p /home/testuser/.ssh")
+	require.Contains(t, result, "cat > /home/testuser/.ssh/authorized_keys")
+	require.Contains(t, result, "FLIGHTCTL_PUBKEY_XYZ789")
+	require.Contains(t, result, "ssh-rsa")
+	require.Contains(t, result, "chmod 700 /home/testuser/.ssh")
+	require.Contains(t, result, "chmod 600 /home/testuser/.ssh/authorized_keys")
+	require.Contains(t, result, "chown -R testuser:testuser /home/testuser/.ssh")
+}

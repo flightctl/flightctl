@@ -232,6 +232,12 @@ func (s *imageBuildService) validate(ctx context.Context, orgId uuid.UUID, image
 	errs = append(errs, ValidateImageName(&imageBuild.Spec.Destination.ImageName, "spec.destination.imageName")...)
 	errs = append(errs, ValidateImageTag(&imageBuild.Spec.Destination.ImageTag, "spec.destination.imageTag")...)
 
+	// Validate userConfiguration if provided
+	if imageBuild.Spec.UserConfiguration != nil {
+		errs = append(errs, ValidateUsername(&imageBuild.Spec.UserConfiguration.Username, "spec.userConfiguration.username")...)
+		errs = append(errs, ValidatePublicKey(&imageBuild.Spec.UserConfiguration.Publickey, "spec.userConfiguration.publickey")...)
+	}
+
 	return errs, nil
 }
 
