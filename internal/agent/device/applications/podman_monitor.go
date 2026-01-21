@@ -37,6 +37,8 @@ type PodmanMonitor struct {
 	cmd      *exec.Cmd
 	cancelFn context.CancelFunc
 	running  bool
+	// stoppedContainers is used to track containers that have been manually stopped
+	stoppedContainers map[string]bool
 	// listenerCloseChan is used to ensure that the event listening goroutine comes to completion
 	// during the stopMonitor invocation
 	listenerCloseChan chan struct{}
@@ -79,6 +81,7 @@ func NewPodmanMonitor(
 		apps:                   make(map[string]Application),
 		lastEventTime:          bootTime,
 		lastActionsSuccessTime: startTime,
+		stoppedContainers:      make(map[string]bool),
 		log:                    log,
 		rw:                     rw,
 	}
@@ -604,6 +607,14 @@ func (m *PodmanMonitor) handleEvent(ctx context.Context, data []byte) {
 
 func (m *PodmanMonitor) updateAppStatus(ctx context.Context, app Application, event *client.PodmanEvent) {
 	if event.Type == "container" {
+		if event.Status == string(StatusStop) {
+			m.mu.Lock()
+			if m.stoppedContainers == nil {
+				m.stoppedContainers = make(map[string]bool)
+			}
+			m.stoppedContainers[event.ID] = true
+			m.mu.Unlock()
+		}
 		m.updateContainerStatus(ctx, app, event)
 		return
 	}
@@ -753,8 +764,20 @@ func (m *PodmanMonitor) resolveStatus(status string, inspectData []client.Podman
 	initialStatus := StatusType(status)
 	// podman events don't properly event exited in the case where the container exits 0.
 	if initialStatus == StatusDie || initialStatus == StatusDied {
-		if len(inspectData) > 0 && inspectData[0].State.ExitCode == 0 && inspectData[0].State.FinishedAt != "" {
-			return StatusExited
+		if len(inspectData) > 0 {
+			containerID := inspectData[0].ID
+			m.mu.Lock()
+			wasStopped := m.stoppedContainers[containerID]
+			// clean up after use
+			delete(m.stoppedContainers, containerID)
+			m.mu.Unlock()
+
+			if wasStopped && inspectData[0].State.ExitCode == 0 {
+				return StatusStop
+			}
+			if inspectData[0].State.ExitCode == 0 && inspectData[0].State.FinishedAt != "" {
+				return StatusExited
+			}
 		}
 	}
 	return initialStatus
