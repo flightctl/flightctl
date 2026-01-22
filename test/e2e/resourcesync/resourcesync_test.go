@@ -174,9 +174,10 @@ var _ = Describe("ResourceSync Failure Cases", func() {
 
 	It("fails to sync when repository credentials are invalid", func() {
 		// Create a Repository resource with INVALID SSH credentials (garbage key)
-		repoURL := tc.harness.GetInternalGitRepoURL(tc.repoName)
+		repoURL, err := tc.harness.GetInternalGitRepoURL(tc.repoName)
+		Expect(err).ToNot(HaveOccurred())
 		invalidSSHKey := "-----BEGIN OPENSSH PRIVATE KEY-----\nINVALID_KEY_DATA\n-----END OPENSSH PRIVATE KEY-----"
-		err := tc.harness.CreateRepositoryWithSSHCredentials(tc.repoName, repoURL, invalidSSHKey)
+		err = tc.harness.CreateRepositoryWithSSHCredentials(tc.repoName, repoURL, invalidSSHKey)
 		Expect(err).ToNot(HaveOccurred())
 
 		tc.setupOwnerFilter(tc.resourceSyncName)
