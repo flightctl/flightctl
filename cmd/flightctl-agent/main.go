@@ -6,11 +6,15 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/agent"
+	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/config"
+	"github.com/flightctl/flightctl/internal/agent/device/applications/helm"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/systeminfo"
 	"github.com/flightctl/flightctl/pkg/executer"
@@ -48,6 +52,14 @@ func main() {
 		flag.CommandLine = flag.NewFlagSet("system-info", flag.ExitOnError)
 		command := NewSystemInfoCommand()
 		if err := command.Execute(); err != nil {
+			os.Exit(1)
+		}
+
+	case "helm-render":
+		flag.CommandLine = flag.NewFlagSet("helm-render", flag.ExitOnError)
+		command := NewHelmRenderCommand()
+		if err := command.Execute(); err != nil {
+			fmt.Fprintf(os.Stderr, "helm-render error: %v\n", err)
 			os.Exit(1)
 		}
 	default:
@@ -143,6 +155,7 @@ func printUsage() {
 	fmt.Println("commands:")
 	fmt.Println("  version      Display version information")
 	fmt.Println("  system-info  Display system information")
+	fmt.Println("  helm-render  Inject app labels into Helm-rendered manifests")
 	fmt.Println("")
 	fmt.Println("Run '<command> --help' for command-specific flags.")
 	fmt.Println("flags:")
@@ -177,4 +190,106 @@ func isAgentFlags(args []string) bool {
 	// there is no agent subcommand so we assume if the first arg is a flag it
 	// is against the agent
 	return len(args) > 0 && strings.HasPrefix(args[0], "-")
+}
+
+// helmRenderCmd implements the helm-render subcommand which acts as a Helm
+// post-renderer. Helm post-renderers are external programs that receive
+// rendered Kubernetes manifests on stdin and output modified manifests on
+// stdout. This allows modification of Helm-generated resources before they
+// are applied to the cluster.
+//
+// This command injects an app label (agent.flightctl.io/app) into all
+// Kubernetes resources. This label enables querying all resources belonging
+// to a specific application, which is essential for:
+//   - Resource cleanup when uninstalling applications
+//   - Monitoring application health across all owned resources
+//   - Debugging and troubleshooting deployment issues
+//
+// The label is injected into:
+//   - metadata.labels: All resources
+//   - spec.template.metadata.labels: Deployments, StatefulSets, DaemonSets,
+//     ReplicaSets, ReplicationControllers, DeploymentConfigs, Jobs (so pods inherit the label)
+//   - spec.jobTemplate.spec.template.metadata.labels: CronJobs
+//
+// Usage with Helm:
+//
+//	helm upgrade --install my-app ./chart \
+//	  --post-renderer /usr/bin/flightctl-agent \
+//	  --post-renderer-args helm-render \
+//	  --post-renderer-args --app=my-app
+type helmRenderCmd struct {
+	app string
+}
+
+func NewHelmRenderCommand() *helmRenderCmd {
+	fs := flag.NewFlagSet("helm-render", flag.ExitOnError)
+	cmd := &helmRenderCmd{}
+
+	fs.StringVar(&cmd.app, "app", "", "The application name to inject as a label (required).")
+
+	if hasHelpFlag(os.Args[2:]) {
+		printHelmRenderHelp(fs)
+		os.Exit(0)
+	}
+
+	if err := fs.Parse(os.Args[2:]); err != nil {
+		fmt.Fprintf(os.Stderr, "Error parsing flags: %v\n", err)
+		os.Exit(1)
+	}
+
+	return cmd
+}
+
+func printHelmRenderHelp(fs *flag.FlagSet) {
+	fmt.Println("Usage: flightctl-agent helm-render [flags]")
+	fmt.Println()
+	fmt.Println("The helm-render subcommand acts as a Helm post-renderer that injects")
+	fmt.Println("app labels into Kubernetes manifests. It reads YAML from stdin,")
+	fmt.Println("adds the 'agent.flightctl.io/app' label to all resources, and outputs")
+	fmt.Println("the modified YAML to stdout.")
+	fmt.Println()
+	fmt.Println("This enables tracking which resources belong to which application,")
+	fmt.Println("supporting resource cleanup, health monitoring, and troubleshooting.")
+	fmt.Println()
+	fmt.Println("Labels are injected into:")
+	fmt.Println("  - metadata.labels (all resources)")
+	fmt.Println("  - spec.template.metadata.labels (Deployments, StatefulSets, etc.)")
+	fmt.Println("  - spec.jobTemplate.spec.template.metadata.labels (CronJobs)")
+	fmt.Println()
+	fmt.Println("Example usage with Helm:")
+	fmt.Println("  helm upgrade --install my-app ./chart \\")
+	fmt.Println("    --post-renderer /usr/bin/flightctl-agent \\")
+	fmt.Println("    --post-renderer-args helm-render \\")
+	fmt.Println("    --post-renderer-args --app=my-app")
+	fmt.Println()
+	fmt.Println("Flags:")
+	fs.PrintDefaults()
+}
+
+// Execute runs the helm-render command, reading Helm-rendered manifests
+// from stdin, injecting the app label, and writing the result to stdout.
+func (h *helmRenderCmd) Execute() error {
+	if h.app == "" {
+		return fmt.Errorf("--app flag is required")
+	}
+
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+
+	logger := log.NewPrefixLogger("")
+	exec := executer.NewCommonExecuter()
+	readWriter := fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter())
+
+	kubeClient := client.NewKube(logger, exec, readWriter)
+	if !kubeClient.IsAvailable() {
+		return fmt.Errorf("kubectl or oc not found in PATH")
+	}
+
+	labeler := helm.NewLabeler(kubeClient, readWriter)
+
+	labels := map[string]string{
+		helm.AppLabelKey: h.app,
+	}
+
+	return labeler.InjectLabels(ctx, os.Stdin, os.Stdout, labels)
 }

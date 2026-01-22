@@ -163,3 +163,8 @@ func (k *Kube) ResolveKubeconfig() (string, error) {
 
 	return "", fmt.Errorf("no kubeconfig found, checked: %s", strings.Join(checkedPaths, ", "))
 }
+
+// Kustomize runs kubectl kustomize on the specified directory and returns the output.
+func (k *Kube) Kustomize(ctx context.Context, dir string) (stdout, stderr string, exitCode int) {
+	return k.exec.ExecuteWithContext(ctx, k.binary, "kustomize", dir)
+}

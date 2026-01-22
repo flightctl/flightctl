@@ -1,4 +1,4 @@
-package client
+package helm
 
 import (
 	"sort"
@@ -8,8 +8,6 @@ import (
 )
 
 func TestExtractImagesFromManifests(t *testing.T) {
-	require := require.New(t)
-
 	testCases := []struct {
 		name           string
 		manifests      string
@@ -258,6 +256,7 @@ spec:
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
 			images, err := ExtractImagesFromManifests(tc.manifests)
 			require.NoError(err)
 
