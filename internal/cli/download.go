@@ -275,13 +275,15 @@ func (o *DownloadOptions) saveToFile(reader io.Reader, totalSize int64) error {
 
 	// Create progress writer
 	progressWriter := newProgressWriter(outFile, totalSize, o.Output)
-	defer progressWriter.finish()
 
 	// Copy stream to file with progress tracking
 	_, err = io.Copy(progressWriter, reader)
 	if err != nil {
 		return fmt.Errorf("failed to write to output file: %w", err)
 	}
+
+	// Only call finish() on successful copy
+	progressWriter.finish()
 
 	return nil
 }

@@ -280,9 +280,10 @@ func (s *imageExportService) Download(ctx context.Context, orgId uuid.UUID, name
 	log.WithFields(logrus.Fields{"blobURL": blobURLStr, "layerDigest": layerDigestStr}).Debug("Constructed blob URL")
 
 	// Create HTTP client with TLS configuration
-	httpClient := s.createHTTPClient(&ociSpec)
-	if httpClient == nil {
-		return nil, errors.New("failed to create HTTP client")
+	httpClient, err := s.createHTTPClient(&ociSpec)
+	if err != nil {
+		log.WithError(err).Error("Failed to create HTTP client")
+		return nil, fmt.Errorf("failed to create HTTP client: %w", err)
 	}
 
 	// Make GET request to fetch blob
@@ -399,7 +400,7 @@ func (s *imageExportService) fetchAndParseManifest(ctx context.Context, repoRef 
 }
 
 // createHTTPClient creates an HTTP client with TLS configuration
-func (s *imageExportService) createHTTPClient(ociSpec *v1beta1.OciRepoSpec) *http.Client {
+func (s *imageExportService) createHTTPClient(ociSpec *v1beta1.OciRepoSpec) (*http.Client, error) {
 	tlsConfig := &tls.Config{
 		MinVersion: tls.VersionTLS12,
 	}
@@ -409,16 +410,18 @@ func (s *imageExportService) createHTTPClient(ociSpec *v1beta1.OciRepoSpec) *htt
 	if ociSpec.CaCrt != nil {
 		ca, err := base64.StdEncoding.DecodeString(*ociSpec.CaCrt)
 		if err != nil {
-			return nil
+			return nil, fmt.Errorf("createHTTPClient: decode CA: %w", err)
 		}
 		rootCAs, err := x509.SystemCertPool()
 		if err != nil {
-			return nil
+			return nil, fmt.Errorf("createHTTPClient: system cert pool: %w", err)
 		}
 		if rootCAs == nil {
 			rootCAs = x509.NewCertPool()
 		}
-		rootCAs.AppendCertsFromPEM(ca)
+		if !rootCAs.AppendCertsFromPEM(ca) {
+			return nil, fmt.Errorf("createHTTPClient: failed to append CA certificates from PEM")
+		}
 		tlsConfig.RootCAs = rootCAs
 	}
 
@@ -430,7 +433,7 @@ func (s *imageExportService) createHTTPClient(ociSpec *v1beta1.OciRepoSpec) *htt
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
-	}
+	}, nil
 }
 
 // addAuthenticationToRequest adds authentication headers to the request if needed
@@ -605,13 +608,73 @@ func parseWwwAuthenticate(header string) (realm, service string, err error) {
 	}
 	header = strings.TrimPrefix(header, "Bearer ")
 
-	parts := strings.Split(header, ",")
-	for _, part := range parts {
-		part = strings.TrimSpace(part)
-		if strings.HasPrefix(part, "realm=") {
-			realm = strings.Trim(part[6:], "\"")
-		} else if strings.HasPrefix(part, "service=") {
-			service = strings.Trim(part[8:], "\"")
+	// Parse key="value" pairs, handling commas inside quoted strings
+	i := 0
+	for i < len(header) {
+		// Skip whitespace
+		for i < len(header) && (header[i] == ' ' || header[i] == '\t') {
+			i++
+		}
+		if i >= len(header) {
+			break
+		}
+
+		// Find the key (everything up to '=')
+		keyStart := i
+		for i < len(header) && header[i] != '=' {
+			i++
+		}
+		if i >= len(header) {
+			break
+		}
+		key := strings.TrimSpace(header[keyStart:i])
+		i++ // skip '='
+
+		// Skip whitespace after '='
+		for i < len(header) && (header[i] == ' ' || header[i] == '\t') {
+			i++
+		}
+		if i >= len(header) {
+			break
+		}
+
+		// Parse the value (quoted string)
+		if header[i] != '"' {
+			return "", "", fmt.Errorf("expected quoted value for key %q", key)
+		}
+		i++ // skip opening quote
+
+		// Extract value, handling escaped quotes
+		var value strings.Builder
+		for i < len(header) {
+			if header[i] == '\\' && i+1 < len(header) && header[i+1] == '"' {
+				// Escaped quote
+				value.WriteByte('"')
+				i += 2
+			} else if header[i] == '"' {
+				// End of quoted string
+				i++
+				break
+			} else {
+				value.WriteByte(header[i])
+				i++
+			}
+		}
+
+		// Store the value
+		parsedValue := value.String()
+		if key == "realm" {
+			realm = parsedValue
+		} else if key == "service" {
+			service = parsedValue
+		}
+
+		// Skip whitespace and comma separator
+		for i < len(header) && (header[i] == ' ' || header[i] == '\t') {
+			i++
+		}
+		if i < len(header) && header[i] == ',' {
+			i++ // skip comma
 		}
 	}
 

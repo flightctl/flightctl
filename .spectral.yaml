@@ -559,3 +559,8 @@ overrides:
       - "**#/paths/~1api~1v1~1imageexports~1%7Bname%7D"
     rules:
       resource-verbs-required: off
+  # Download endpoint returns binary data (application/octet-stream), not JSON
+  - files:
+      - "**#/paths/~1api~1v1~1imageexports~1%7Bname%7D~1download"
+    rules:
+      response-media-type-2xx: off

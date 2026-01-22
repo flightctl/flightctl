@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 
@@ -796,7 +797,7 @@ func TestDownloadImageExportWithRedirect(t *testing.T) {
 		case "/v2/test-image/manifests/" + manifestDigest:
 			// Manifest fetch
 			w.Header().Set("Content-Type", ocispec.MediaTypeImageManifest)
-			w.Header().Set("Content-Length", string(rune(len(manifestBytes))))
+			w.Header().Set("Content-Length", strconv.Itoa(len(manifestBytes)))
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write(manifestBytes)
 		case "/v2/test-image/blobs/" + layerDigest:
@@ -880,13 +881,13 @@ func TestDownloadImageExportWithBlobReader(t *testing.T) {
 		case "/v2/test-image/manifests/" + manifestDigest:
 			// Manifest fetch
 			w.Header().Set("Content-Type", ocispec.MediaTypeImageManifest)
-			w.Header().Set("Content-Length", string(rune(len(manifestBytes))))
+			w.Header().Set("Content-Length", strconv.Itoa(len(manifestBytes)))
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write(manifestBytes)
 		case "/v2/test-image/blobs/" + layerDigest:
 			// Blob fetch - return blob content directly
 			w.Header().Set("Content-Type", "application/octet-stream")
-			w.Header().Set("Content-Length", string(rune(len(blobContent))))
+			w.Header().Set("Content-Length", strconv.Itoa(len(blobContent)))
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write(blobContent)
 		default:
@@ -980,7 +981,7 @@ func TestDownloadImageExportManifestWrongLayerCount(t *testing.T) {
 		case "/v2/test-image/manifests/" + manifestDigest:
 			// Manifest fetch
 			w.Header().Set("Content-Type", ocispec.MediaTypeImageManifest)
-			w.Header().Set("Content-Length", string(rune(len(manifestBytes))))
+			w.Header().Set("Content-Length", strconv.Itoa(len(manifestBytes)))
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write(manifestBytes)
 		default:
