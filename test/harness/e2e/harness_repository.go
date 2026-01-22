@@ -29,12 +29,15 @@ func (h *Harness) GetRepository(repositoryName string) (*v1beta1.Repository, err
 
 // GetInternalGitRepoURL returns the internal cluster URL for a git repository on the E2E git server.
 // This URL is used by services running inside the cluster (e.g., ResourceSync periodic task).
-func (h *Harness) GetInternalGitRepoURL(repoName string) string {
-	gitConfig := h.GetGitServerConfig()
+func (h *Harness) GetInternalGitRepoURL(repoName string) (string, error) {
+	gitConfig, err := h.GetGitServerConfig()
+	if err != nil {
+		return "", fmt.Errorf("failed to get git server config: %w", err)
+	}
 	// Use the internal cluster URL since services run inside the cluster
 	gitServerInternalHost := "e2e-git-server.flightctl-e2e.svc.cluster.local"
 	return fmt.Sprintf("%s@%s:%d:/home/user/repos/%s.git",
-		gitConfig.User, gitServerInternalHost, gitConfig.Port, repoName)
+		gitConfig.User, gitServerInternalHost, gitConfig.Port, repoName), nil
 }
 
 // CreateRepositoryWithSSHCredentials creates a Repository resource with SSH credentials
@@ -76,7 +79,10 @@ func (h *Harness) CreateRepositoryWithSSHCredentials(repoName, repoURL, sshPriva
 // CreateRepositoryWithValidE2ECredentials creates a Repository resource using the E2E SSH key
 // and the internal cluster URL for the git server.
 func (h *Harness) CreateRepositoryWithValidE2ECredentials(repoName string) error {
-	repoURL := h.GetInternalGitRepoURL(repoName)
+	repoURL, err := h.GetInternalGitRepoURL(repoName)
+	if err != nil {
+		return fmt.Errorf("failed to get internal git repo URL: %w", err)
+	}
 	sshPrivateKey, err := GetSSHPrivateKey()
 	if err != nil {
 		return fmt.Errorf("failed to read SSH private key: %w", err)

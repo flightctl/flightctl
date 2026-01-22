@@ -8,19 +8,61 @@ import (
 	"path/filepath"
 
 	"github.com/flightctl/flightctl/internal/domain"
+	"github.com/flightctl/flightctl/test/util"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 )
 
-// GetGitServerConfig returns the configuration for the e2e git server
-func (h *Harness) GetGitServerConfig() GitServerConfig {
-	// Default configuration for the e2e git server
+// GetGitServerConfig returns the configuration for the e2e git server.
+// In KIND environments, it uses localhost:3222 (via port mappings).
+// In OCP environments, it dynamically discovers the node IP and NodePort.
+func (h *Harness) GetGitServerConfig() (GitServerConfig, error) {
+	host := getEnvOrDefault("E2E_GIT_SERVER_HOST", "")
+	port := getEnvOrDefaultInt("E2E_GIT_SERVER_PORT", 0)
+
+	if host == "" || port == 0 {
+		ctx, err := GetContext()
+		if err != nil {
+			return GitServerConfig{}, fmt.Errorf("failed to get cluster context: %w", err)
+		}
+
+		switch ctx {
+		case util.KIND:
+			if host == "" {
+				host = "localhost"
+			}
+			if port == 0 {
+				port = 3222
+			}
+
+		case util.OCP:
+			if host == "" {
+				nodeIP, err := getNodeIP()
+				if err != nil {
+					return GitServerConfig{}, fmt.Errorf("failed to get node IP: %w", err)
+				}
+				host = nodeIP
+			}
+
+			if port == 0 {
+				nodePort, err := getServiceNodePort("e2e-git-server", util.E2E_NAMESPACE)
+				if err != nil {
+					return GitServerConfig{}, fmt.Errorf("failed to get git server NodePort: %w", err)
+				}
+				port = nodePort
+			}
+
+		default:
+			return GitServerConfig{}, fmt.Errorf("unsupported cluster context: %s", ctx)
+		}
+	}
+
 	return GitServerConfig{
-		Host:     getEnvOrDefault("E2E_GIT_SERVER_HOST", "localhost"),
-		Port:     getEnvOrDefaultInt("E2E_GIT_SERVER_PORT", 3222),
+		Host:     host,
+		Port:     port,
 		User:     getEnvOrDefault("E2E_GIT_SERVER_USER", "user"),
 		Password: getEnvOrDefault("E2E_GIT_SERVER_PASSWORD", "user"),
-	}
+	}, nil
 }
 
 // GitServerConfig holds configuration for the git server
@@ -57,7 +99,10 @@ func (h *Harness) runGitServerSSHCommand(config GitServerConfig, command string)
 // runGitCommands executes a sequence of git commands in the specified working directory
 // with proper authentication and author configuration.
 func (h *Harness) runGitCommands(workDir string, gitCmds [][]string) error {
-	config := h.GetGitServerConfig()
+	config, err := h.GetGitServerConfig()
+	if err != nil {
+		return fmt.Errorf("failed to get git server config: %w", err)
+	}
 	gitEnv := append(os.Environ(),
 		"GIT_SSH_COMMAND=sshpass -e ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -o PubkeyAuthentication=no",
 		"SSHPASS="+config.Password,
@@ -86,11 +131,14 @@ func (h *Harness) CreateGitRepositoryOnServer(repoName string) error {
 		return fmt.Errorf("repository name cannot be empty")
 	}
 
-	config := h.GetGitServerConfig()
+	config, err := h.GetGitServerConfig()
+	if err != nil {
+		return fmt.Errorf("failed to get git server config: %w", err)
+	}
 
 	// Use SSH to create the repository on the git server
 	createCmd := fmt.Sprintf("create-repo %s", repoName)
-	err := h.runGitServerSSHCommand(config, createCmd)
+	err = h.runGitServerSSHCommand(config, createCmd)
 	if err != nil {
 		return fmt.Errorf("failed to create git repository %s: %w", repoName, err)
 	}
@@ -109,11 +157,14 @@ func (h *Harness) DeleteGitRepositoryOnServer(repoName string) error {
 		return fmt.Errorf("repository name cannot be empty")
 	}
 
-	config := h.GetGitServerConfig()
+	config, err := h.GetGitServerConfig()
+	if err != nil {
+		return fmt.Errorf("failed to get git server config: %w", err)
+	}
 
 	// Use SSH to delete the repository on the git server
 	deleteCmd := fmt.Sprintf("delete-repo %s", repoName)
-	err := h.runGitServerSSHCommand(config, deleteCmd)
+	err = h.runGitServerSSHCommand(config, deleteCmd)
 	if err != nil {
 		return fmt.Errorf("failed to delete git repository %s: %w", repoName, err)
 	}
@@ -134,7 +185,10 @@ func (h *Harness) CloneGitRepositoryFromServer(repoName, localPath string) error
 		return fmt.Errorf("local path cannot be empty")
 	}
 
-	config := h.GetGitServerConfig()
+	config, err := h.GetGitServerConfig()
+	if err != nil {
+		return fmt.Errorf("failed to get git server config: %w", err)
+	}
 	repoURL := fmt.Sprintf("ssh://%s@%s:%d/home/user/repos/%s.git",
 		config.User, config.Host, config.Port, repoName)
 
