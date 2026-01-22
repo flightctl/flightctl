@@ -19,6 +19,7 @@ import (
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/store"
+	"github.com/flightctl/flightctl/internal/kvstore"
 	internalservice "github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/service/common"
 	mainstore "github.com/flightctl/flightctl/internal/store"
@@ -56,9 +57,11 @@ type ImageExportService interface {
 	List(ctx context.Context, orgId uuid.UUID, params api.ListImageExportsParams) (*api.ImageExportList, v1beta1.Status)
 	Delete(ctx context.Context, orgId uuid.UUID, name string) (*api.ImageExport, v1beta1.Status)
 	Download(ctx context.Context, orgId uuid.UUID, name string) (*ImageExportDownload, error)
+	GetLogs(ctx context.Context, orgId uuid.UUID, name string, follow bool) (LogStreamReader, string, v1beta1.Status)
 	// Internal methods (not exposed via API)
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, imageExport *api.ImageExport) (*api.ImageExport, error)
 	UpdateLastSeen(ctx context.Context, orgId uuid.UUID, name string, timestamp time.Time) error
+	UpdateLogs(ctx context.Context, orgId uuid.UUID, name string, logs string) error
 }
 
 // ImageExportDownload contains information for downloading an ImageExport artifact
@@ -76,17 +79,19 @@ type imageExportService struct {
 	repositoryStore  mainstore.Repository
 	eventHandler     *internalservice.EventHandler
 	queueProducer    queues.QueueProducer
+	kvStore          kvstore.KVStore
 	log              logrus.FieldLogger
 }
 
 // NewImageExportService creates a new ImageExportService
-func NewImageExportService(imageExportStore store.ImageExportStore, imageBuildStore store.ImageBuildStore, repositoryStore mainstore.Repository, eventHandler *internalservice.EventHandler, queueProducer queues.QueueProducer, log logrus.FieldLogger) ImageExportService {
+func NewImageExportService(imageExportStore store.ImageExportStore, imageBuildStore store.ImageBuildStore, repositoryStore mainstore.Repository, eventHandler *internalservice.EventHandler, queueProducer queues.QueueProducer, kvStore kvstore.KVStore, log logrus.FieldLogger) ImageExportService {
 	return &imageExportService{
 		imageExportStore: imageExportStore,
 		imageBuildStore:  imageBuildStore,
 		repositoryStore:  repositoryStore,
 		eventHandler:     eventHandler,
 		queueProducer:    queueProducer,
+		kvStore:          kvStore,
 		log:              log,
 	}
 }
@@ -793,4 +798,61 @@ func (s *imageExportService) enqueueImageExportEvent(ctx context.Context, orgId 
 
 	s.log.WithField("orgId", orgId).WithField("name", event.InvolvedObject.Name).Info("enqueued imageExport event")
 	return nil
+}
+
+func (s *imageExportService) UpdateLogs(ctx context.Context, orgId uuid.UUID, name string, logs string) error {
+	return s.imageExportStore.UpdateLogs(ctx, orgId, name, logs)
+}
+
+// GetLogs retrieves logs for an ImageExport
+// Returns a LogStreamReader for active exports (if follow=true) or logs string for completed exports
+func (s *imageExportService) GetLogs(ctx context.Context, orgId uuid.UUID, name string, follow bool) (LogStreamReader, string, v1beta1.Status) {
+	// First, get the ImageExport to check its status
+	imageExport, status := s.Get(ctx, orgId, name)
+	if imageExport == nil || !IsStatusOK(status) {
+		return nil, "", status
+	}
+
+	// Check if export is active (Converting or Pushing)
+	isActive := false
+	if imageExport.Status != nil && imageExport.Status.Conditions != nil {
+		readyCondition := api.FindImageExportStatusCondition(*imageExport.Status.Conditions, api.ImageExportConditionTypeReady)
+		if readyCondition != nil {
+			reason := readyCondition.Reason
+			if reason == string(api.ImageExportConditionReasonConverting) || reason == string(api.ImageExportConditionReasonPushing) {
+				isActive = true
+			}
+		}
+	}
+
+	if isActive {
+		// Active export - use Redis
+		if s.kvStore == nil {
+			return nil, "", StatusServiceUnavailable("Redis not available")
+		}
+		reader := newImageExportRedisLogStreamReader(s.kvStore, orgId, name, s.log)
+		if follow {
+			// Return reader for streaming
+			return reader, "", StatusOK()
+		}
+		// Return all available logs from Redis
+		logs, err := reader.ReadAll(ctx)
+		if err != nil {
+			s.log.WithError(err).Warn("Failed to read logs from Redis")
+			// Return empty logs instead of error for active exports
+			return nil, "", StatusOK()
+		}
+		return nil, logs, StatusOK()
+	}
+
+	// Completed/terminated export - use DB
+	logs, err := s.imageExportStore.GetLogs(ctx, orgId, name)
+	if err != nil {
+		if errors.Is(err, flterrors.ErrResourceNotFound) {
+			return nil, "", StatusNotFound("ImageExport not found")
+		}
+		return nil, "", StatusInternalServerError(err.Error())
+	}
+	// For completed exports, return logs string (follow doesn't matter - no new data)
+	return nil, logs, StatusOK()
 }

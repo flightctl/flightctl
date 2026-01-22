@@ -304,6 +304,51 @@ func (h *TransportHandler) DownloadImageExport(w http.ResponseWriter, r *http.Re
 	SetResponse(w, nil, status)
 }
 
+// GetImageExportLog handles GET /api/v1/imageexports/{name}/log
+func (h *TransportHandler) GetImageExportLog(w http.ResponseWriter, r *http.Request, name string, params api.GetImageExportLogParams) {
+	ctx := r.Context()
+	orgID := OrgIDFromContext(ctx)
+
+	follow := false
+	if params.Follow != nil {
+		follow = *params.Follow
+	}
+
+	reader, logs, status := h.service.ImageExport().GetLogs(ctx, orgID, name, follow)
+	if !service.IsStatusOK(status) {
+		SetResponse(w, nil, status)
+		return
+	}
+
+	// If we have a reader (active export with follow=true), stream via SSE
+	if reader != nil {
+		// Set SSE headers
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		w.WriteHeader(http.StatusOK)
+
+		// Flush headers
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+
+		// Stream logs with SSE format
+		err := streamLogsSSE(ctx, reader, w)
+		if err != nil && err != context.Canceled {
+			h.log.WithError(err).WithField("name", name).Error("failed to stream logs")
+		}
+		return
+	}
+
+	// If we have logs string (completed export or active export without follow), return as plain text
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(http.StatusOK)
+	if logs != "" {
+		_, _ = w.Write([]byte(logs))
+	}
+}
+
 // downloadErrorToStatus converts download errors to appropriate API status codes
 func downloadErrorToStatus(err error, name string) v1beta1.Status {
 	// Check for external service errors first (should return 503 Service Unavailable)

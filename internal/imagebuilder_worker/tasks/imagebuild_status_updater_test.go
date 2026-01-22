@@ -563,3 +563,96 @@ func TestStatusUpdater_updateStatus_withFailedCondition(t *testing.T) {
 	// Should have persisted logs when condition is Failed
 	assert.Equal(t, 1, mockService.getUpdateLogsCallsCount())
 }
+
+func TestStatusUpdater_writeStreamCompleteMarker(t *testing.T) {
+	t.Run("writes completion marker to Redis", func(t *testing.T) {
+		orgID := uuid.New()
+		name := "test-build"
+		mockStore := newMockKVStore()
+
+		updater := &statusUpdater{
+			orgID:          orgID,
+			imageBuildName: name,
+			kvStore:        mockStore,
+			log:            logrus.NewEntry(logrus.New()),
+		}
+
+		ctx := context.Background()
+		updater.writeStreamCompleteMarker(ctx)
+
+		assert.Equal(t, 1, mockStore.getStreamAddCalls())
+		pushedValues := mockStore.getPushedValues()
+		assert.Equal(t, 1, len(pushedValues))
+		assert.Equal(t, []byte(api.LogStreamCompleteMarker), pushedValues[0])
+	})
+
+	t.Run("skips when kvStore is nil", func(t *testing.T) {
+		updater := &statusUpdater{
+			orgID:          uuid.New(),
+			imageBuildName: "test-build",
+			kvStore:        nil,
+			log:            logrus.NewEntry(logrus.New()),
+		}
+
+		ctx := context.Background()
+		// Should not panic when kvStore is nil
+		updater.writeStreamCompleteMarker(ctx)
+	})
+}
+
+func TestStatusUpdater_completedConditionWritesMarker(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	orgID := uuid.New()
+	name := "test-build"
+	imageBuild := &api.ImageBuild{
+		Metadata: v1beta1.ObjectMeta{Name: &name},
+		Status:   &api.ImageBuildStatus{},
+	}
+
+	mockService := newMockImageBuildServiceForStatusUpdater(ctrl, imageBuild)
+	mockKVStore := newMockKVStore()
+
+	updater, cleanup := StartStatusUpdater(
+		context.Background(),
+		mockService,
+		orgID,
+		name,
+		mockKVStore,
+		&config.Config{
+			ImageBuilderWorker: config.NewDefaultImageBuilderWorkerConfig(),
+		},
+		logrus.NewEntry(logrus.New()),
+	)
+	defer cleanup()
+
+	// Add some logs to buffer
+	updater.logBufferMu.Lock()
+	updater.logBuffer = []string{"line 1", "line 2"}
+	updater.logBufferMu.Unlock()
+
+	completedCondition := api.ImageBuildCondition{
+		Type:               api.ImageBuildConditionTypeReady,
+		Status:             v1beta1.ConditionStatusTrue,
+		Reason:             string(api.ImageBuildConditionReasonCompleted),
+		Message:            "build completed",
+		LastTransitionTime: time.Now().UTC(),
+	}
+
+	updater.UpdateCondition(completedCondition)
+
+	// Give goroutine time to process
+	time.Sleep(200 * time.Millisecond)
+
+	// Should have written completion marker to Redis
+	pushedValues := mockKVStore.getPushedValues()
+	foundMarker := false
+	for _, v := range pushedValues {
+		if string(v) == api.LogStreamCompleteMarker {
+			foundMarker = true
+			break
+		}
+	}
+	assert.True(t, foundMarker, "Stream complete marker should have been written to Redis")
+}

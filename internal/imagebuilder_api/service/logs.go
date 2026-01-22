@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	imagebuilderapi "github.com/flightctl/flightctl/api/imagebuilder/v1beta1"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -16,6 +17,8 @@ import (
 const (
 	// Redis key pattern for imagebuild logs
 	imageBuildLogsKeyPattern = "imagebuild:logs:%s:%s"
+	// Redis key pattern for imageexport logs
+	imageExportLogsKeyPattern = "imageexport:logs:%s:%s"
 )
 
 // LogStreamReader provides an interface for reading logs from Redis
@@ -35,7 +38,7 @@ type redisLogStreamReader struct {
 	lastID  string // Track the last message ID read for streaming
 }
 
-// newRedisLogStreamReader creates a new Redis log stream reader
+// newRedisLogStreamReader creates a new Redis log stream reader for ImageBuild
 func newRedisLogStreamReader(kvStore kvstore.KVStore, orgID uuid.UUID, name string, log logrus.FieldLogger) *redisLogStreamReader {
 	key := fmt.Sprintf(imageBuildLogsKeyPattern, orgID.String(), name)
 	return &redisLogStreamReader{
@@ -46,7 +49,19 @@ func newRedisLogStreamReader(kvStore kvstore.KVStore, orgID uuid.UUID, name stri
 	}
 }
 
+// newImageExportRedisLogStreamReader creates a new Redis log stream reader for ImageExport
+func newImageExportRedisLogStreamReader(kvStore kvstore.KVStore, orgID uuid.UUID, name string, log logrus.FieldLogger) *redisLogStreamReader {
+	key := fmt.Sprintf(imageExportLogsKeyPattern, orgID.String(), name)
+	return &redisLogStreamReader{
+		kvStore: kvStore,
+		key:     key,
+		log:     log,
+		lastID:  "0", // Start from beginning
+	}
+}
+
 // ReadAll reads all available logs from Redis stream
+// Returns the logs and a boolean indicating if the stream is complete
 func (r *redisLogStreamReader) ReadAll(ctx context.Context) (string, error) {
 	// Get all items from the stream ("-" to "+" means all items)
 	entries, err := r.kvStore.StreamRange(ctx, r.key, "-", "+")
@@ -57,6 +72,11 @@ func (r *redisLogStreamReader) ReadAll(ctx context.Context) (string, error) {
 	var logLines []string
 	for _, entry := range entries {
 		logLine := string(entry.Value)
+		// Skip the completion marker - it's not actual log content
+		if logLine == imagebuilderapi.LogStreamCompleteMarker {
+			r.lastID = entry.ID
+			continue
+		}
 		// Ensure each log line ends with a newline
 		if !strings.HasSuffix(logLine, "\n") {
 			logLine += "\n"
@@ -70,6 +90,7 @@ func (r *redisLogStreamReader) ReadAll(ctx context.Context) (string, error) {
 
 // Stream reads logs from Redis stream and streams them to the writer
 // For active builds, it uses XREAD with blocking to wait for new log entries
+// Returns nil when the stream is complete (LogStreamCompleteMarker received)
 func (r *redisLogStreamReader) Stream(ctx context.Context, w io.Writer) error {
 	// First, send all existing logs
 	allLogs, err := r.ReadAll(ctx)
@@ -107,6 +128,19 @@ func (r *redisLogStreamReader) Stream(ctx context.Context, w io.Writer) error {
 
 			for _, entry := range entries {
 				logLine := string(entry.Value)
+				// Check for completion marker - stream is complete (orderly close)
+				// Forward the marker to the client so it knows the stream ended orderly
+				if logLine == imagebuilderapi.LogStreamCompleteMarker {
+					r.log.Debug("Stream complete marker received, forwarding to client and closing stream")
+					// Write the marker to the client so it can differentiate orderly vs abrupt close
+					if _, err := w.Write([]byte(imagebuilderapi.LogStreamCompleteMarker)); err != nil {
+						return fmt.Errorf("failed to write completion marker: %w", err)
+					}
+					if flusher, ok := w.(http.Flusher); ok {
+						flusher.Flush()
+					}
+					return nil
+				}
 				if !strings.HasSuffix(logLine, "\n") {
 					logLine += "\n"
 				}

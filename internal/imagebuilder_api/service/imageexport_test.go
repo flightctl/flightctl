@@ -26,7 +26,7 @@ func newTestImageExportService() (ImageExportService, *DummyImageExportStore, *D
 	imageExportStore := NewDummyImageExportStore()
 	imageBuildStore := NewDummyImageBuildStore()
 	repositoryStore := NewDummyRepositoryStore()
-	svc := NewImageExportService(imageExportStore, imageBuildStore, repositoryStore, nil, nil, log.InitLogs())
+	svc := NewImageExportService(imageExportStore, imageBuildStore, repositoryStore, nil, nil, nil, log.InitLogs())
 	return svc, imageExportStore, imageBuildStore
 }
 
@@ -103,7 +103,7 @@ func TestCreateImageExport(t *testing.T) {
 	_, err := imageBuildStore.Create(ctx, orgId, &imageBuild)
 	require.NoError(err)
 
-	svc := NewImageExportService(NewDummyImageExportStore(), imageBuildStore, repoStore, nil, nil, log.InitLogs())
+	svc := NewImageExportService(NewDummyImageExportStore(), imageBuildStore, repoStore, nil, nil, nil, log.InitLogs())
 
 	imageExport := newValidImageExport("test-export")
 	result, status := svc.Create(ctx, orgId, imageExport)
@@ -128,7 +128,7 @@ func TestCreateImageExportDuplicate(t *testing.T) {
 	_, err := imageBuildStore.Create(ctx, orgId, &imageBuild)
 	require.NoError(err)
 
-	svc := NewImageExportService(NewDummyImageExportStore(), imageBuildStore, repoStore, nil, nil, log.InitLogs())
+	svc := NewImageExportService(NewDummyImageExportStore(), imageBuildStore, repoStore, nil, nil, nil, log.InitLogs())
 
 	imageExport := newValidImageExport("duplicate-test")
 
@@ -158,7 +158,7 @@ func TestCreateImageExportMissingFormats(t *testing.T) {
 	_, err := imageBuildStore.Create(ctx, orgId, &imageBuild)
 	require.NoError(err)
 
-	svc := NewImageExportService(NewDummyImageExportStore(), imageBuildStore, repoStore, nil, nil, log.InitLogs())
+	svc := NewImageExportService(NewDummyImageExportStore(), imageBuildStore, repoStore, nil, nil, nil, log.InitLogs())
 
 	imageExport := newValidImageExport("test")
 	imageExport.Spec.Format = ""
@@ -176,7 +176,7 @@ func TestCreateImageExportWithImageBuildRef(t *testing.T) {
 	// Set up repositories (destination only, source comes from ImageBuild)
 	repoStore := NewDummyRepositoryStore()
 	setupRepositoriesForImageExport(repoStore, ctx, orgId, false)
-	svc := NewImageExportService(NewDummyImageExportStore(), imageBuildStore, repoStore, nil, nil, log.InitLogs())
+	svc := NewImageExportService(NewDummyImageExportStore(), imageBuildStore, repoStore, nil, nil, nil, log.InitLogs())
 
 	// First create the ImageBuild that will be referenced
 	imageBuild := newValidImageBuild("my-build")
@@ -220,7 +220,7 @@ func TestGetImageExport(t *testing.T) {
 	_, err := imageBuildStore.Create(ctx, orgId, &imageBuild)
 	require.NoError(err)
 
-	svc := NewImageExportService(NewDummyImageExportStore(), imageBuildStore, repoStore, nil, nil, log.InitLogs())
+	svc := NewImageExportService(NewDummyImageExportStore(), imageBuildStore, repoStore, nil, nil, nil, log.InitLogs())
 
 	// Create first
 	imageExport := newValidImageExport("get-test")
@@ -259,7 +259,7 @@ func TestListImageExports(t *testing.T) {
 	_, err := imageBuildStore.Create(ctx, orgId, &imageBuild)
 	require.NoError(err)
 
-	svc := NewImageExportService(NewDummyImageExportStore(), imageBuildStore, repoStore, nil, nil, log.InitLogs())
+	svc := NewImageExportService(NewDummyImageExportStore(), imageBuildStore, repoStore, nil, nil, nil, log.InitLogs())
 
 	// Create multiple
 	for i := 0; i < 3; i++ {
@@ -290,7 +290,7 @@ func TestListImageExportsWithLimit(t *testing.T) {
 	_, err := imageBuildStore.Create(ctx, orgId, &imageBuild)
 	require.NoError(err)
 
-	svc := NewImageExportService(NewDummyImageExportStore(), imageBuildStore, repoStore, nil, nil, log.InitLogs())
+	svc := NewImageExportService(NewDummyImageExportStore(), imageBuildStore, repoStore, nil, nil, nil, log.InitLogs())
 
 	// Create multiple
 	for i := 0; i < 5; i++ {
@@ -322,7 +322,7 @@ func TestDeleteImageExport(t *testing.T) {
 	_, err := imageBuildStore.Create(ctx, orgId, &imageBuild)
 	require.NoError(err)
 
-	svc := NewImageExportService(NewDummyImageExportStore(), imageBuildStore, repoStore, nil, nil, log.InitLogs())
+	svc := NewImageExportService(NewDummyImageExportStore(), imageBuildStore, repoStore, nil, nil, nil, log.InitLogs())
 
 	// Create first
 	imageExport := newValidImageExport("delete-test")
@@ -367,7 +367,7 @@ func TestUpdateImageExportStatus(t *testing.T) {
 	_, err := imageBuildStore.Create(ctx, orgId, &imageBuild)
 	require.NoError(err)
 
-	svc := NewImageExportService(NewDummyImageExportStore(), imageBuildStore, repoStore, nil, nil, log.InitLogs())
+	svc := NewImageExportService(NewDummyImageExportStore(), imageBuildStore, repoStore, nil, nil, nil, log.InitLogs())
 
 	// Create first
 	imageExport := newValidImageExport("status-test")
@@ -440,7 +440,7 @@ func TestDownloadImageExportNotReadyNoStatus(t *testing.T) {
 	imageBuildStore := NewDummyImageBuildStore()
 	setupImageBuildForExport(imageBuildStore, ctx, orgId)
 	imageExportStore := NewDummyImageExportStore()
-	svc := NewImageExportService(imageExportStore, imageBuildStore, repoStore, nil, nil, log.InitLogs())
+	svc := NewImageExportService(imageExportStore, imageBuildStore, repoStore, nil, nil, nil, log.InitLogs())
 
 	// Create ImageExport without status
 	imageExport := newValidImageExport("test-export")
@@ -463,7 +463,7 @@ func TestDownloadImageExportNotReadyNoConditions(t *testing.T) {
 	imageBuildStore := NewDummyImageBuildStore()
 	setupImageBuildForExport(imageBuildStore, ctx, orgId)
 	imageExportStore := NewDummyImageExportStore()
-	svc := NewImageExportService(imageExportStore, imageBuildStore, repoStore, nil, nil, log.InitLogs())
+	svc := NewImageExportService(imageExportStore, imageBuildStore, repoStore, nil, nil, nil, log.InitLogs())
 
 	// Create ImageExport with status but no conditions
 	imageExport := newValidImageExport("test-export")
@@ -489,7 +489,7 @@ func TestDownloadImageExportNotReadyNoReadyCondition(t *testing.T) {
 	imageBuildStore := NewDummyImageBuildStore()
 	setupImageBuildForExport(imageBuildStore, ctx, orgId)
 	imageExportStore := NewDummyImageExportStore()
-	svc := NewImageExportService(imageExportStore, imageBuildStore, repoStore, nil, nil, log.InitLogs())
+	svc := NewImageExportService(imageExportStore, imageBuildStore, repoStore, nil, nil, nil, log.InitLogs())
 
 	// Create ImageExport with status but no Ready condition
 	imageExport := newValidImageExport("test-export")
@@ -523,7 +523,7 @@ func TestDownloadImageExportNotReadyFalseStatus(t *testing.T) {
 	imageBuildStore := NewDummyImageBuildStore()
 	setupImageBuildForExport(imageBuildStore, ctx, orgId)
 	imageExportStore := NewDummyImageExportStore()
-	svc := NewImageExportService(imageExportStore, imageBuildStore, repoStore, nil, nil, log.InitLogs())
+	svc := NewImageExportService(imageExportStore, imageBuildStore, repoStore, nil, nil, nil, log.InitLogs())
 
 	// Create ImageExport with Ready condition but status is False
 	imageExport := newValidImageExport("test-export")
@@ -560,7 +560,7 @@ func TestDownloadImageExportMissingManifestDigest(t *testing.T) {
 	imageBuildStore := NewDummyImageBuildStore()
 	setupImageBuildForExport(imageBuildStore, ctx, orgId)
 	imageExportStore := NewDummyImageExportStore()
-	svc := NewImageExportService(imageExportStore, imageBuildStore, repoStore, nil, nil, log.InitLogs())
+	svc := NewImageExportService(imageExportStore, imageBuildStore, repoStore, nil, nil, nil, log.InitLogs())
 
 	// Create ImageExport with Ready condition but no manifest digest
 	imageExport := newValidImageExport("test-export")
@@ -595,7 +595,7 @@ func TestDownloadImageExportEmptyManifestDigest(t *testing.T) {
 	imageBuildStore := NewDummyImageBuildStore()
 	setupImageBuildForExport(imageBuildStore, ctx, orgId)
 	imageExportStore := NewDummyImageExportStore()
-	svc := NewImageExportService(imageExportStore, imageBuildStore, repoStore, nil, nil, log.InitLogs())
+	svc := NewImageExportService(imageExportStore, imageBuildStore, repoStore, nil, nil, nil, log.InitLogs())
 
 	// Create ImageExport with Ready condition but empty manifest digest
 	imageExport := newValidImageExport("test-export")
@@ -638,7 +638,7 @@ func TestDownloadImageExportDestinationRepositoryNotFound(t *testing.T) {
 	require.NoError(err)
 
 	imageExportStore := NewDummyImageExportStore()
-	svc := NewImageExportService(imageExportStore, imageBuildStore, repoStore, nil, nil, log.InitLogs())
+	svc := NewImageExportService(imageExportStore, imageBuildStore, repoStore, nil, nil, nil, log.InitLogs())
 
 	// Create ImageExport that references ImageBuild with non-existent destination repository
 	imageExport := newReadyImageExport("test-export", "sha256:abc123")
@@ -666,7 +666,7 @@ func TestDownloadImageExportInvalidManifestDigest(t *testing.T) {
 	require.NoError(err)
 
 	imageExportStore := NewDummyImageExportStore()
-	svc := NewImageExportService(imageExportStore, imageBuildStore, repoStore, nil, nil, log.InitLogs())
+	svc := NewImageExportService(imageExportStore, imageBuildStore, repoStore, nil, nil, nil, log.InitLogs())
 
 	// Create ImageExport with invalid manifest digest
 	imageExport := newReadyImageExport("test-export", "invalid-digest")
@@ -779,7 +779,7 @@ func TestDownloadImageExportWithRedirect(t *testing.T) {
 	require.NoError(err)
 
 	imageExportStore := NewDummyImageExportStore()
-	svc := NewImageExportService(imageExportStore, imageBuildStore, repoStore, nil, nil, log.InitLogs())
+	svc := NewImageExportService(imageExportStore, imageBuildStore, repoStore, nil, nil, nil, log.InitLogs())
 
 	// Create ImageExport
 	imageExport := newReadyImageExport("test-export", manifestDigest)
@@ -873,7 +873,7 @@ func TestDownloadImageExportWithBlobReader(t *testing.T) {
 	require.NoError(err)
 
 	imageExportStore := NewDummyImageExportStore()
-	svc := NewImageExportService(imageExportStore, imageBuildStore, repoStore, nil, nil, log.InitLogs())
+	svc := NewImageExportService(imageExportStore, imageBuildStore, repoStore, nil, nil, nil, log.InitLogs())
 
 	// Create ImageExport
 	imageExport := newReadyImageExport("test-export", manifestDigest)
@@ -975,7 +975,7 @@ func TestDownloadImageExportManifestWrongLayerCount(t *testing.T) {
 	require.NoError(err)
 
 	imageExportStore := NewDummyImageExportStore()
-	svc := NewImageExportService(imageExportStore, imageBuildStore, repoStore, nil, nil, log.InitLogs())
+	svc := NewImageExportService(imageExportStore, imageBuildStore, repoStore, nil, nil, nil, log.InitLogs())
 
 	// Create ImageExport
 	imageExport := newReadyImageExport("test-export", manifestDigest)

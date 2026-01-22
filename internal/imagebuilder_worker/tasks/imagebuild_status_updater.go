@@ -182,10 +182,11 @@ func (u *statusUpdater) updateStatus(ctx context.Context, condition *api.ImageBu
 		// Use helper function to set condition, keeping ImageBuildCondition type
 		api.SetImageBuildStatusCondition(imageBuild.Status.Conditions, *condition)
 
-		// If build is completed or failed, persist logs to DB
+		// If build is completed or failed, persist logs to DB and signal stream completion
 		if condition.Reason == string(api.ImageBuildConditionReasonCompleted) ||
 			condition.Reason == string(api.ImageBuildConditionReasonFailed) {
 			u.persistLogsToDB(ctx)
+			u.writeStreamCompleteMarker(ctx)
 		}
 	}
 
@@ -297,5 +298,19 @@ func (u *statusUpdater) persistLogsToDB(ctx context.Context) {
 		if err := u.imageBuildService.UpdateLogs(ctx, u.orgID, u.imageBuildName, logs); err != nil {
 			u.log.WithError(err).Warn("Failed to persist logs to DB")
 		}
+	}
+}
+
+// writeStreamCompleteMarker writes a completion marker to Redis to signal that log streaming is complete
+// This allows clients following the log stream to know the stream has ended
+func (u *statusUpdater) writeStreamCompleteMarker(ctx context.Context) {
+	if u.kvStore == nil {
+		return
+	}
+
+	key := u.getLogKey()
+	_, err := u.kvStore.StreamAdd(ctx, key, []byte(api.LogStreamCompleteMarker))
+	if err != nil {
+		u.log.WithError(err).Warn("Failed to write stream complete marker to Redis")
 	}
 }

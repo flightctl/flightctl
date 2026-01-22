@@ -16,7 +16,6 @@ import (
 
 	v1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
 	api "github.com/flightctl/flightctl/api/imagebuilder/v1beta1"
-	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	imagebuilderapi "github.com/flightctl/flightctl/internal/imagebuilder_api/service"
 	"github.com/flightctl/flightctl/internal/worker_client"
@@ -162,7 +161,7 @@ func (c *Consumer) processImageExport(ctx context.Context, eventWithOrgId worker
 	log.Info("Successfully locked ImageExport for processing (status set to Converting)")
 
 	// Start status updater goroutine - this is the single writer for all status updates
-	statusUpdater, cleanupStatusUpdater := startImageExportStatusUpdater(ctx, c.imageBuilderService.ImageExport(), orgID, imageExportName, c.cfg, log)
+	statusUpdater, cleanupStatusUpdater := startImageExportStatusUpdater(ctx, c.imageBuilderService.ImageExport(), orgID, imageExportName, c.kvStore, c.cfg, log)
 	defer cleanupStatusUpdater()
 
 	// Send initial lastSeen update to status updater to ensure it's tracking the current time
@@ -219,184 +218,6 @@ func (c *Consumer) processImageExport(ctx context.Context, eventWithOrgId worker
 
 	log.Info("ImageExport marked as Completed")
 	return nil
-}
-
-// imageExportStatusUpdateRequest represents a request to update the ImageExport status
-type imageExportStatusUpdateRequest struct {
-	Condition      *api.ImageExportCondition
-	LastSeen       *time.Time
-	ManifestDigest *string
-}
-
-// newImageExportStatusUpdateRequest creates a new update request with LastSeen automatically set to now
-func newImageExportStatusUpdateRequest() imageExportStatusUpdateRequest {
-	now := time.Now().UTC()
-	return imageExportStatusUpdateRequest{
-		LastSeen: &now,
-	}
-}
-
-// imageExportStatusUpdater manages all status updates for an ImageExport, ensuring atomic updates
-// and preventing race conditions between LastSeen and condition updates.
-type imageExportStatusUpdater struct {
-	imageExportService imagebuilderapi.ImageExportService
-	orgID              uuid.UUID
-	imageExportName    string
-	updateChan         chan imageExportStatusUpdateRequest
-	outputChan         chan []byte // Central channel for all task outputs
-	ctx                context.Context
-	cancel             context.CancelFunc
-	wg                 sync.WaitGroup
-	log                logrus.FieldLogger
-}
-
-// startImageExportStatusUpdater starts a goroutine that is the single writer for ImageExport status updates.
-func startImageExportStatusUpdater(
-	ctx context.Context,
-	imageExportService imagebuilderapi.ImageExportService,
-	orgID uuid.UUID,
-	imageExportName string,
-	cfg *config.Config,
-	log logrus.FieldLogger,
-) (*imageExportStatusUpdater, func()) {
-	updaterCtx, updaterCancel := context.WithCancel(ctx)
-
-	updater := &imageExportStatusUpdater{
-		imageExportService: imageExportService,
-		orgID:              orgID,
-		imageExportName:    imageExportName,
-		updateChan:         make(chan imageExportStatusUpdateRequest),
-		outputChan:         make(chan []byte, 100),
-		ctx:                updaterCtx,
-		cancel:             updaterCancel,
-		log:                log,
-	}
-
-	updater.wg.Add(1)
-	go updater.run(cfg)
-
-	cleanup := func() {
-		updaterCancel()
-		close(updater.updateChan)
-		close(updater.outputChan)
-		updater.wg.Wait()
-	}
-
-	return updater, cleanup
-}
-
-// run is the main loop for the status updater goroutine
-func (u *imageExportStatusUpdater) run(cfg *config.Config) {
-	defer u.wg.Done()
-
-	if cfg == nil || cfg.ImageBuilderWorker == nil {
-		u.log.Error("Config or ImageBuilderWorker config is nil, cannot update status")
-		return
-	}
-	updateInterval := time.Duration(cfg.ImageBuilderWorker.LastSeenUpdateInterval)
-	ticker := time.NewTicker(updateInterval)
-	defer ticker.Stop()
-
-	var pendingCondition *api.ImageExportCondition
-	lastSeenUpdateTime := time.Now().UTC()
-
-	var lastOutputTime *time.Time
-	var lastSetLastSeen *time.Time
-
-	for {
-		select {
-		case <-u.ctx.Done():
-			return
-		case <-ticker.C:
-			if lastOutputTime != nil {
-				if lastSetLastSeen == nil || !lastOutputTime.Equal(*lastSetLastSeen) {
-					lastSeenUpdateTime = *lastOutputTime
-					lastSetLastSeenCopy := *lastOutputTime
-					lastSetLastSeen = &lastSetLastSeenCopy
-					u.updateStatus(u.ctx, pendingCondition, &lastSeenUpdateTime, nil)
-					pendingCondition = nil
-				}
-			}
-		case output := <-u.outputChan:
-			now := time.Now().UTC()
-			lastOutputTime = &now
-			u.log.Debugf("Task output: %s", string(output))
-		case req := <-u.updateChan:
-			if req.Condition != nil {
-				pendingCondition = req.Condition
-			}
-			if req.LastSeen != nil {
-				lastSeenUpdateTime = *req.LastSeen
-			}
-			// Update immediately when condition or manifest digest changes
-			// LastSeen-only updates are handled immediately to set initial value
-			if req.Condition != nil || req.ManifestDigest != nil || req.LastSeen != nil {
-				u.updateStatus(u.ctx, pendingCondition, &lastSeenUpdateTime, req.ManifestDigest)
-				pendingCondition = nil
-			}
-		}
-	}
-}
-
-// updateStatus performs the actual database update
-func (u *imageExportStatusUpdater) updateStatus(ctx context.Context, condition *api.ImageExportCondition, lastSeen *time.Time, manifestDigest *string) {
-	imageExport, status := u.imageExportService.Get(ctx, u.orgID, u.imageExportName)
-	if imageExport == nil || !imagebuilderapi.IsStatusOK(status) {
-		u.log.WithField("status", status).Warn("Failed to load ImageExport for status update")
-		return
-	}
-
-	if imageExport.Status == nil {
-		imageExport.Status = &api.ImageExportStatus{}
-	}
-
-	if lastSeen != nil {
-		imageExport.Status.LastSeen = lastSeen
-	}
-
-	if condition != nil {
-		if imageExport.Status.Conditions == nil {
-			imageExport.Status.Conditions = &[]api.ImageExportCondition{}
-		}
-		api.SetImageExportStatusCondition(imageExport.Status.Conditions, *condition)
-	}
-
-	if manifestDigest != nil {
-		imageExport.Status.ManifestDigest = manifestDigest
-	}
-
-	_, err := u.imageExportService.UpdateStatus(ctx, u.orgID, imageExport)
-	if err != nil {
-		u.log.WithError(err).Warn("Failed to update ImageExport status")
-	}
-}
-
-// updateCondition sends a condition update request to the updater goroutine
-func (u *imageExportStatusUpdater) updateCondition(condition api.ImageExportCondition) {
-	req := newImageExportStatusUpdateRequest()
-	req.Condition = &condition
-	select {
-	case u.updateChan <- req:
-	case <-u.ctx.Done():
-	}
-}
-
-// setManifestDigest sets the manifest digest in the ImageExport status
-func (u *imageExportStatusUpdater) setManifestDigest(manifestDigest string) {
-	req := newImageExportStatusUpdateRequest()
-	req.ManifestDigest = &manifestDigest
-	select {
-	case u.updateChan <- req:
-	case <-u.ctx.Done():
-	}
-}
-
-// reportOutput sends task output to the central output handler
-func (u *imageExportStatusUpdater) reportOutput(output []byte) {
-	select {
-	case u.outputChan <- output:
-	case <-u.ctx.Done():
-	}
 }
 
 // progressReader wraps an io.Reader and reports progress as data is read

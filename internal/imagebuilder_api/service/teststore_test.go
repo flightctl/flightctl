@@ -341,6 +341,14 @@ func (s *DummyImageExportStore) InitialMigration(ctx context.Context) error {
 	return nil
 }
 
+func (s *DummyImageExportStore) UpdateLogs(ctx context.Context, orgId uuid.UUID, name string, logs string) error {
+	return nil
+}
+
+func (s *DummyImageExportStore) GetLogs(ctx context.Context, orgId uuid.UUID, name string) (string, error) {
+	return "", nil
+}
+
 // DummyRepositoryStore is a mock implementation of flightctlstore.Repository
 type DummyRepositoryStore struct {
 	repositories map[string]*domain.Repository // key: name
