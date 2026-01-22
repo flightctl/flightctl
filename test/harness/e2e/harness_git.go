@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"fmt"
+	"html/template"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -358,5 +359,109 @@ func (h *Harness) CommitAndPushGitRepo(workDir, commitMessage string) error {
 	}
 
 	logrus.Infof("Committed and pushed changes from %s", workDir)
+	return nil
+}
+
+// getTestDataPath returns the path to a file/directory in the testdata folder.
+// Note: ginkgo runs tests from the test package directory (e.g. resourcesync test runs from test/e2e/resourcesync/).
+func GetTestDataPath(relativePath string) string {
+	return filepath.Join("testdata", relativePath)
+}
+
+// getSSHPrivateKey reads the SSH private key from bin/.ssh/id_rsa.
+// Note: ginkgo runs tests from the test package directory (e.g. resourcesync test runs from test/e2e/resourcesync/),
+// so navigate up to the project root.
+func GetSSHPrivateKey() (string, error) {
+	keyPath := filepath.Join("..", "..", "..", "bin", ".ssh", "id_rsa")
+	content, err := os.ReadFile(keyPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read SSH private key from %s: %w", keyPath, err)
+	}
+	return string(content), nil
+}
+
+// writeTemplatedFilesToDir is a helper that
+// 1. reads template files from sourceDir
+// 2. applies Go templating with the provided data
+// 3. writes the results to destDir.
+func writeTemplatedFilesToDir(sourceDir, destDir string, data interface{}) error {
+	entries, err := os.ReadDir(sourceDir)
+	if err != nil {
+		return fmt.Errorf("failed to read directory %s: %w", sourceDir, err)
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+
+		filePath := filepath.Join(sourceDir, entry.Name())
+		content, err := os.ReadFile(filePath)
+		if err != nil {
+			return fmt.Errorf("failed to read file %s: %w", filePath, err)
+		}
+
+		tmpl, err := template.New(entry.Name()).Parse(string(content))
+		if err != nil {
+			return fmt.Errorf("failed to parse template %s: %w", entry.Name(), err)
+		}
+
+		destPath := filepath.Join(destDir, entry.Name())
+		destFile, err := os.Create(destPath)
+		if err != nil {
+			return fmt.Errorf("failed to create file %s: %w", destPath, err)
+		}
+
+		err = tmpl.Execute(destFile, data)
+		destFile.Close()
+		if err != nil {
+			return fmt.Errorf("failed to execute template %s: %w", entry.Name(), err)
+		}
+	}
+
+	return nil
+}
+
+// SetupTemplatedGitRepoFromDir creates a git repo, clones it, populates with templated files, and pushes
+func (h *Harness) SetupTemplatedGitRepoFromDir(repoName, sourceDir string, data interface{}) (string, error) {
+	err := h.CreateGitRepositoryOnServer(repoName)
+	if err != nil {
+		return "", fmt.Errorf("failed to create git repository: %w", err)
+	}
+
+	workDir, err := os.MkdirTemp("", "resourcesync-test-*")
+	if err != nil {
+		return "", fmt.Errorf("failed to create temp directory: %w", err)
+	}
+	err = h.CloneGitRepositoryFromServer(repoName, workDir)
+	if err != nil {
+		return "", fmt.Errorf("failed to clone git repository: %w", err)
+	}
+
+	err = writeTemplatedFilesToDir(sourceDir, workDir, data)
+	if err != nil {
+		return "", fmt.Errorf("failed to write templated files: %w", err)
+	}
+
+	err = h.CommitAndPushGitRepo(workDir, "Add initial fleet files")
+	if err != nil {
+		return "", fmt.Errorf("failed to commit and push: %w", err)
+	}
+
+	return workDir, nil
+}
+
+// PushTemplatedFilesToGitRepo updates an existing git repo with templated files, commits and pushes
+func (h *Harness) PushTemplatedFilesToGitRepo(repoName, sourceDir, workDir string, data interface{}) error {
+	err := writeTemplatedFilesToDir(sourceDir, workDir, data)
+	if err != nil {
+		return fmt.Errorf("failed to write templated files: %w", err)
+	}
+
+	err = h.CommitAndPushGitRepo(workDir, "")
+	if err != nil {
+		return fmt.Errorf("failed to commit and push: %w", err)
+	}
+
 	return nil
 }
