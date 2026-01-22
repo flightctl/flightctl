@@ -196,7 +196,6 @@ func TestGetCollectionOptsFromInfoKeys(t *testing.T) {
 		expectSystem  bool
 		expectKernel  bool
 		expectDistro  bool
-		expectErr     bool
 	}{
 		{
 			name:     "empty infoKeys",
@@ -251,26 +250,14 @@ func TestGetCollectionOptsFromInfoKeys(t *testing.T) {
 			expectSystem:  true,
 		},
 		{
-			name:      "unknown keys",
-			infoKeys:  []string{"unknownKey", "anotherUnknown"},
-			expectErr: true,
-		},
-		{
 			name:      "mixed known and unknown",
 			infoKeys:  []string{cpuCoresKey, "unknownKey", gpuKey},
 			expectCPU: true,
 			expectGPU: true,
-			expectErr: true,
-		},
-		{
-			name:      "hostname key should be supported",
-			infoKeys:  []string{hostnameKey},
-			expectErr: false, // Fixed: hostname is now properly supported
 		},
 		{
 			name:          "default system info with hostname key",
 			infoKeys:      config.DefaultSystemInfo, // This includes "hostname" which is now supported
-			expectErr:     false,                    // Fixed: default config now works properly
 			expectKernel:  true,                     // kernel is in default config
 			expectDistro:  true,                     // distro keys are in default config
 			expectSystem:  true,                     // product keys are in default config
@@ -280,13 +267,7 @@ func TestGetCollectionOptsFromInfoKeys(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			opts, err := collectionOptsFromInfoKeys(tt.infoKeys)
-
-			if tt.expectErr {
-				require.Error(t, err)
-			} else {
-				require.NoError(t, err)
-			}
+			opts := collectionOptsFromInfoKeys(tt.infoKeys)
 
 			cfg := &collectCfg{}
 			for _, opt := range opts {

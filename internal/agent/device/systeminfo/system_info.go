@@ -433,11 +433,13 @@ func withCollector(cType collectorType, fn collectorFunc) CollectOpt {
 	return func(cfg *collectCfg) { cfg.addCollector(cType, fn) }
 }
 
-// collectionOptsFromInfoKeys returns CollectOpt functions based on the provided infoKeys. An error is returned
-// containing any unknown keys that were supplied. All successful Opts that were constructed are always returned
-func collectionOptsFromInfoKeys(infoKeys []string) ([]CollectOpt, error) {
+// collectionOptsFromInfoKeys returns CollectOpt functions for the subset of infoKeys
+// that are handled by built-in collectors.
+//
+// Unknown keys are intentionally ignored here. They may correspond to system info
+// values provided by runtime-registered collectors.
+func collectionOptsFromInfoKeys(infoKeys []string) []CollectOpt {
 	var opts []CollectOpt
-	var errs []error
 
 	for _, key := range infoKeys {
 		switch key {
@@ -460,13 +462,11 @@ func collectionOptsFromInfoKeys(infoKeys []string) ([]CollectOpt, error) {
 		case hostnameKey, architectureKey:
 			// No specific collector needed - hostname and architecture are always collected
 		default:
-			errs = append(errs, fmt.Errorf("unknown key: %q", key))
+			// Intentionally ignored: may be handled by a runtime-registered collector.
 		}
 	}
 
-	// Always return the opts that we successfully handled so that collection isn't fully blocked
-	// by invalid keys. errors.Join returns nil if there are no errors
-	return opts, errors.Join(errs...)
+	return opts
 }
 
 // Collect collects system information and returns it as a map of key-value pairs.
@@ -700,31 +700,30 @@ func getSystemInfoMap(ctx context.Context, log *log.PrefixLogger, info *Info, in
 			return infoMap
 		}
 
-		formatFn, exists := SupportedInfoKeys[key]
-		if !exists {
-			log.Errorf("Unsupported system info key: %s", key)
+		if formatFn, exists := SupportedInfoKeys[key]; exists {
+			val := formatFn(info)
+			if val == "" {
+				log.Debugf("SystemInfo key returned an empty value: %s", key)
+			}
+			infoMap[key] = val
+		} else if collectorfn, ok := collectors[key]; ok {
+			_, alreadyExists := infoMap[key]
+			if alreadyExists {
+				log.Warnf("SystemInfo collector already populated: %s is %s", key, infoMap[key])
+			} else {
+				val := collectorfn(ctx)
+				trimmed := strings.TrimSpace(val)
+				reg, _ := regexp.Compile("[^a-zA-Z0-9 .:_/@+-]+")
+				sanitizedval := reg.ReplaceAllString(trimmed, "")
+				infoMap[key] = sanitizedval
+			}
+		} else {
+			// Best-effort: key may be conditionally unavailable (e.g. hardware/config dependent),
+			// or provided by a runtime-registered collector that is not registered yet.
+			log.Debugf("SystemInfo key not available yet: %s", key)
 			continue
 		}
-		val := formatFn(info)
-		if val == "" {
-			log.Debugf("SystemInfo key returned an empty value: %s", key)
-		}
-		infoMap[key] = val
 	}
-
-	for key, collectorfn := range collectors {
-		_, alreadyExists := infoMap[key]
-		if alreadyExists {
-			log.Warnf("SystemInfo collector already populated: %s is %s", key, infoMap[key])
-		} else {
-			val := collectorfn(ctx)
-			trimmed := strings.TrimSpace(val)
-			reg, _ := regexp.Compile("[^a-zA-Z0-9 .:_/@+-]+")
-			sanitizedval := reg.ReplaceAllString(trimmed, "")
-			infoMap[key] = sanitizedval
-		}
-	}
-
 	return infoMap
 }
 

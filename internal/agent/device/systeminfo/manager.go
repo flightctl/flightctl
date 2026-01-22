@@ -118,19 +118,28 @@ func (m *manager) ReloadConfig(ctx context.Context, cfg *config.Config) error {
 	if !reflect.DeepEqual(m.infoKeys, cfg.SystemInfo) {
 		m.log.Infof("Updating system info keys: %v -> %v", m.infoKeys, cfg.SystemInfo)
 
+		// Best-effort: derive built-in collector types from the configured keys.
+		// Unknown keys may correspond to runtime/optional collectors and are ignored here;
+		// we additionally detect "newly collectable" keys (supported or already-registered
+		// runtime collectors) below.
 		oldConfig := collectCfg{}
-
-		// Ignore errors for previous and new. We're just trying to diff the two to see if there
-		// is something new that should be collected
-		opts, _ := collectionOptsFromInfoKeys(m.infoKeys)
-		for _, opt := range opts {
+		for _, opt := range collectionOptsFromInfoKeys(m.infoKeys) {
 			opt(&oldConfig)
 		}
 
 		newConfig := collectCfg{}
-		opts, _ = collectionOptsFromInfoKeys(cfg.SystemInfo)
-		for _, opt := range opts {
+		for _, opt := range collectionOptsFromInfoKeys(cfg.SystemInfo) {
 			opt(&newConfig)
+		}
+
+		// Snapshot old/new key sets (string keys), so we can detect newly added keys.
+		oldKeys := make(map[string]struct{}, len(m.infoKeys))
+		for _, k := range m.infoKeys {
+			oldKeys[k] = struct{}{}
+		}
+		newKeys := make(map[string]struct{}, len(cfg.SystemInfo))
+		for _, k := range cfg.SystemInfo {
+			newKeys[k] = struct{}{}
 		}
 
 		m.infoKeys = cfg.SystemInfo
@@ -142,6 +151,19 @@ func (m *manager) ReloadConfig(ctx context.Context, cfg *config.Config) error {
 			if !oldConfig.hasCollector(cType) {
 				hasNewCollectors = true
 				break
+			}
+		}
+
+		if !hasNewCollectors {
+			for k := range newKeys {
+				if _, existed := oldKeys[k]; existed {
+					continue
+				}
+				if _, ok := m.collectors[k]; ok {
+					// Runtime collector already registered -> can collect immediately.
+					hasNewCollectors = true
+					break
+				}
 			}
 		}
 
@@ -283,11 +305,7 @@ func collectDeviceSystemInfo(
 ) (v1beta1.DeviceSystemInfo, error) {
 	agentVersion := version.Get()
 
-	collectionOpts, err := collectionOptsFromInfoKeys(infoKeys)
-	// Don't block collection for a few unknown keys. Try our best to grab everything we can
-	if err != nil {
-		log.Warnf("Failed to handle system info keys: %v", err)
-	}
+	collectionOpts := collectionOptsFromInfoKeys(infoKeys)
 
 	info, err := Collect(ctx, log, exec, reader, customKeys, hardwareMapPath, collectionOpts...)
 	if err != nil {
