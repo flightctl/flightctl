@@ -326,7 +326,7 @@ func (s *Systemd) Show(ctx context.Context, unit string, opts ...SystemdShowOpti
 
 // SdNotify sends notification messages to systemd via the NOTIFY_SOCKET.
 // The socket path is captured when NewSystemd is called, before bootstrap unsets it.
-func (s *Systemd) SdNotify(messages ...string) error {
+func (s *Systemd) SdNotify(ctx context.Context, messages ...string) error {
 	if s.notifySocket == "" {
 		return nil // Not running under systemd with Type=notify
 	}
@@ -336,7 +336,10 @@ func (s *Systemd) SdNotify(messages ...string) error {
 		Net:  "unixgram",
 	}
 
-	conn, err := net.DialUnix(socketAddr.Net, nil, socketAddr)
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	d := net.Dialer{}
+	conn, err := d.DialContext(ctx, socketAddr.Net, socketAddr.String())
 	if err != nil {
 		return fmt.Errorf("failed to connect to systemd socket %q: %w", s.notifySocket, err)
 	}
