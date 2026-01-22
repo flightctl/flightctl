@@ -214,6 +214,14 @@ func (m *mockImageExportService) Download(ctx context.Context, orgId uuid.UUID, 
 	return nil, fmt.Errorf("not implemented in mock")
 }
 
+func (m *mockImageExportService) GetLogs(ctx context.Context, orgId uuid.UUID, name string, follow bool) (imagebuilderapi.LogStreamReader, string, v1beta1.Status) {
+	return nil, "", v1beta1.StatusOK()
+}
+
+func (m *mockImageExportService) UpdateLogs(ctx context.Context, orgId uuid.UUID, name string, logs string) error {
+	return nil
+}
+
 func createTestImageBuild(name string, reason apiimagebuilder.ImageBuildConditionReason, lastSeen time.Time) *apiimagebuilder.ImageBuild {
 	now := time.Now().UTC()
 	conditions := []apiimagebuilder.ImageBuildCondition{

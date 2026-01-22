@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"strings"
 
@@ -31,12 +32,18 @@ func NewCmdLogs() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "logs (TYPE/NAME | TYPE NAME) [flags]",
 		Short: "Print the logs for a resource",
-		Long:  "Print the logs for a resource. Currently supports imagebuild resources.",
+		Long:  "Print the logs for a resource. Supports imagebuild and imageexport resources.",
 		Example: `  # Get logs for an imagebuild
   flightctl logs imagebuild/my-build
 
   # Follow logs for an active imagebuild
-  flightctl logs imagebuild/my-build -f`,
+  flightctl logs imagebuild/my-build -f
+
+  # Get logs for an imageexport
+  flightctl logs imageexport/my-export
+
+  # Follow logs for an active imageexport
+  flightctl logs imageexport/my-export -f`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := o.Complete(cmd, args); err != nil {
@@ -76,9 +83,9 @@ func (o *LogsOptions) Validate(args []string) error {
 		return err
 	}
 
-	// Currently only support imagebuild
-	if kind != ImageBuildKind {
-		return fmt.Errorf("logs command currently only supports imagebuild resources, got: %s", kind)
+	// Support imagebuild and imageexport
+	if kind != ImageBuildKind && kind != ImageExportKind {
+		return fmt.Errorf("logs command only supports imagebuild and imageexport resources, got: %s", kind)
 	}
 
 	if name == "" {
@@ -90,7 +97,7 @@ func (o *LogsOptions) Validate(args []string) error {
 
 func (o *LogsOptions) Run(ctx context.Context, args []string) error {
 	resourceArg := args[0]
-	_, name, err := parseResourceArg(resourceArg)
+	kind, name, err := parseResourceArg(resourceArg)
 	if err != nil {
 		return err
 	}
@@ -101,15 +108,27 @@ func (o *LogsOptions) Run(ctx context.Context, args []string) error {
 		return fmt.Errorf("creating imagebuilder client: %w", err)
 	}
 
-	// Prepare parameters
-	params := &imagebuilderapi.GetImageBuildLogParams{}
+	// Prepare follow parameter
+	var follow *bool
 	if o.Follow {
-		follow := true
-		params.Follow = &follow
+		f := true
+		follow = &f
 	}
 
-	// Make the request
-	resp, err := ibClient.GetImageBuildLog(ctx, name, params)
+	// Make the request based on resource kind
+	// Use the raw HTTP response methods (not WithResponse) to allow streaming
+	var resp *http.Response
+	switch kind {
+	case ImageBuildKind:
+		params := &imagebuilderapi.GetImageBuildLogParams{Follow: follow}
+		resp, err = ibClient.GetImageBuildLog(ctx, name, params)
+	case ImageExportKind:
+		params := &imagebuilderapi.GetImageExportLogParams{Follow: follow}
+		resp, err = ibClient.GetImageExportLog(ctx, name, params)
+	default:
+		return fmt.Errorf("unsupported resource kind for logs: %s", kind)
+	}
+
 	if err != nil {
 		return fmt.Errorf("requesting logs: %w", err)
 	}
@@ -134,9 +153,11 @@ func (o *LogsOptions) Run(ctx context.Context, args []string) error {
 }
 
 // handleSSEStream processes Server-Sent Events stream
+// Returns nil on orderly close (completion marker received) or error on abrupt close
 func (o *LogsOptions) handleSSEStream(body io.Reader) error {
 	scanner := bufio.NewScanner(body)
 	var currentData strings.Builder
+	streamCompleted := false
 
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -145,6 +166,11 @@ func (o *LogsOptions) handleSSEStream(body io.Reader) error {
 		if strings.HasPrefix(line, "data: ") {
 			// Extract the data after "data: "
 			data := strings.TrimPrefix(line, "data: ")
+			// Check for completion marker - indicates orderly stream close
+			if data == imagebuilderapi.LogStreamCompleteMarker {
+				streamCompleted = true
+				break
+			}
 			currentData.WriteString(data)
 		} else if line == "" {
 			// Empty line after data line - this is the SSE delimiter
@@ -175,10 +201,16 @@ func (o *LogsOptions) handleSSEStream(body io.Reader) error {
 	}
 
 	if err := scanner.Err(); err != nil {
-		if errors.Is(err, context.Canceled) || errors.Is(err, io.EOF) {
+		if errors.Is(err, context.Canceled) {
+			// User cancelled (Ctrl+C) - not an error
 			return nil
 		}
 		return fmt.Errorf("reading stream: %w", err)
+	}
+
+	// Check if stream ended orderly (with completion marker) or abruptly
+	if !streamCompleted {
+		return fmt.Errorf("stream closed unexpectedly (connection lost or server error)")
 	}
 
 	return nil

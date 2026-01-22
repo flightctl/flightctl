@@ -398,6 +398,12 @@ type ListImageExportsParams struct {
 	Continue *string `form:"continue,omitempty" json:"continue,omitempty"`
 }
 
+// GetImageExportLogParams defines parameters for GetImageExportLog.
+type GetImageExportLogParams struct {
+	// Follow If true, stream logs continuously (like kubectl logs -f). For active exports, keeps connection open. For completed exports, returns all logs and closes.
+	Follow *bool `form:"follow,omitempty" json:"follow,omitempty"`
+}
+
 // CreateImageBuildJSONRequestBody defines body for CreateImageBuild for application/json ContentType.
 type CreateImageBuildJSONRequestBody = ImageBuild
 

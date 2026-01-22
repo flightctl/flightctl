@@ -124,6 +124,9 @@ type ClientInterface interface {
 
 	// DownloadImageExport request
 	DownloadImageExport(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetImageExportLog request
+	GetImageExportLog(ctx context.Context, name string, params *GetImageExportLogParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 }
 
 func (c *Client) ListImageBuilds(ctx context.Context, params *ListImageBuildsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -260,6 +263,18 @@ func (c *Client) GetImageExport(ctx context.Context, name string, reqEditors ...
 
 func (c *Client) DownloadImageExport(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewDownloadImageExportRequest(c.Server, name)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetImageExportLog(ctx context.Context, name string, params *GetImageExportLogParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetImageExportLogRequest(c.Server, name, params)
 	if err != nil {
 		return nil, err
 	}
@@ -808,6 +823,62 @@ func NewDownloadImageExportRequest(server string, name string) (*http.Request, e
 	return req, nil
 }
 
+// NewGetImageExportLogRequest generates requests for GetImageExportLog
+func NewGetImageExportLogRequest(server string, name string, params *GetImageExportLogParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "name", runtime.ParamLocationPath, name)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/imageexports/%s/log", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		queryValues := queryURL.Query()
+
+		if params.Follow != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "follow", runtime.ParamLocationQuery, *params.Follow); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		queryURL.RawQuery = queryValues.Encode()
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 func (c *Client) applyEditors(ctx context.Context, req *http.Request, additionalEditors []RequestEditorFn) error {
 	for _, r := range c.RequestEditors {
 		if err := r(ctx, req); err != nil {
@@ -884,6 +955,9 @@ type ClientWithResponsesInterface interface {
 
 	// DownloadImageExportWithResponse request
 	DownloadImageExportWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*DownloadImageExportResponse, error)
+
+	// GetImageExportLogWithResponse request
+	GetImageExportLogWithResponse(ctx context.Context, name string, params *GetImageExportLogParams, reqEditors ...RequestEditorFn) (*GetImageExportLogResponse, error)
 }
 
 type ListImageBuildsResponse struct {
@@ -1158,6 +1232,32 @@ func (r DownloadImageExportResponse) StatusCode() int {
 	return 0
 }
 
+type GetImageExportLogResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON401      *externalRef0.Status
+	JSON403      *externalRef0.Status
+	JSON404      *externalRef0.Status
+	JSON429      *externalRef0.Status
+	JSON503      *externalRef0.Status
+}
+
+// Status returns HTTPResponse.Status
+func (r GetImageExportLogResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetImageExportLogResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
 // ListImageBuildsWithResponse request returning *ListImageBuildsResponse
 func (c *ClientWithResponses) ListImageBuildsWithResponse(ctx context.Context, params *ListImageBuildsParams, reqEditors ...RequestEditorFn) (*ListImageBuildsResponse, error) {
 	rsp, err := c.ListImageBuilds(ctx, params, reqEditors...)
@@ -1262,6 +1362,15 @@ func (c *ClientWithResponses) DownloadImageExportWithResponse(ctx context.Contex
 		return nil, err
 	}
 	return ParseDownloadImageExportResponse(rsp)
+}
+
+// GetImageExportLogWithResponse request returning *GetImageExportLogResponse
+func (c *ClientWithResponses) GetImageExportLogWithResponse(ctx context.Context, name string, params *GetImageExportLogParams, reqEditors ...RequestEditorFn) (*GetImageExportLogResponse, error) {
+	rsp, err := c.GetImageExportLog(ctx, name, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetImageExportLogResponse(rsp)
 }
 
 // ParseListImageBuildsResponse parses an HTTP response from a ListImageBuildsWithResponse call
@@ -1875,6 +1984,60 @@ func ParseDownloadImageExportResponse(rsp *http.Response) (*DownloadImageExportR
 			return nil, err
 		}
 		response.JSON500 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetImageExportLogResponse parses an HTTP response from a GetImageExportLogWithResponse call
+func ParseGetImageExportLogResponse(rsp *http.Response) (*GetImageExportLogResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetImageExportLogResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
 		var dest externalRef0.Status

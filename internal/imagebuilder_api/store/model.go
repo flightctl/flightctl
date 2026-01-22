@@ -205,6 +205,11 @@ type ImageExport struct {
 
 	// The last reported state, stored as opaque JSON object.
 	Status *model.JSONField[api.ImageExportStatus] `gorm:"type:jsonb"`
+
+	// Logs contains the last 500 lines of export logs for completed exports.
+	// This is separate from Status to keep the ImageExport resource lightweight.
+	// Logs are only accessible via the /log endpoint.
+	Logs *string `gorm:"type:text"`
 }
 
 func (i ImageExport) String() string {

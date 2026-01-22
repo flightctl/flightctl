@@ -44,6 +44,9 @@ type ServerInterface interface {
 
 	// (GET /api/v1/imageexports/{name}/download)
 	DownloadImageExport(w http.ResponseWriter, r *http.Request, name string)
+
+	// (GET /api/v1/imageexports/{name}/log)
+	GetImageExportLog(w http.ResponseWriter, r *http.Request, name string, params GetImageExportLogParams)
 }
 
 // Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
@@ -97,6 +100,11 @@ func (_ Unimplemented) GetImageExport(w http.ResponseWriter, r *http.Request, na
 
 // (GET /api/v1/imageexports/{name}/download)
 func (_ Unimplemented) DownloadImageExport(w http.ResponseWriter, r *http.Request, name string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /api/v1/imageexports/{name}/log)
+func (_ Unimplemented) GetImageExportLog(w http.ResponseWriter, r *http.Request, name string, params GetImageExportLogParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -245,7 +253,6 @@ func (siw *ServerInterfaceWrapper) GetImageBuild(w http.ResponseWriter, r *http.
 
 // GetImageBuildLog operation middleware
 func (siw *ServerInterfaceWrapper) GetImageBuildLog(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
 
 	var err error
 
@@ -277,7 +284,7 @@ func (siw *ServerInterfaceWrapper) GetImageBuildLog(w http.ResponseWriter, r *ht
 		handler = middleware(handler)
 	}
 
-	handler.ServeHTTP(w, r.WithContext(ctx))
+	handler.ServeHTTP(w, r)
 }
 
 // ListImageExports operation middleware
@@ -420,9 +427,8 @@ func (siw *ServerInterfaceWrapper) DownloadImageExport(w http.ResponseWriter, r 
 	handler.ServeHTTP(w, r)
 }
 
-// DownloadImageExport operation middleware
-func (siw *ServerInterfaceWrapper) DownloadImageExport(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
+// GetImageExportLog operation middleware
+func (siw *ServerInterfaceWrapper) GetImageExportLog(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 
@@ -435,15 +441,26 @@ func (siw *ServerInterfaceWrapper) DownloadImageExport(w http.ResponseWriter, r 
 		return
 	}
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetImageExportLogParams
+
+	// ------------- Optional query parameter "follow" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "follow", r.URL.Query(), &params.Follow)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "follow", Err: err})
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DownloadImageExport(w, r, name)
+		siw.Handler.GetImageExportLog(w, r, name, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
 		handler = middleware(handler)
 	}
 
-	handler.ServeHTTP(w, r.WithContext(ctx))
+	handler.ServeHTTP(w, r)
 }
 
 type UnescapedCookieParamError struct {
@@ -588,6 +605,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/imageexports/{name}/download", wrapper.DownloadImageExport)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/imageexports/{name}/log", wrapper.GetImageExportLog)
 	})
 
 	return r

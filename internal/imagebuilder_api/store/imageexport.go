@@ -26,6 +26,8 @@ type ImageExportStore interface {
 	Delete(ctx context.Context, orgId uuid.UUID, name string) (*api.ImageExport, error)
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, imageExport *api.ImageExport) (*api.ImageExport, error)
 	UpdateLastSeen(ctx context.Context, orgId uuid.UUID, name string, timestamp time.Time) error
+	UpdateLogs(ctx context.Context, orgId uuid.UUID, name string, logs string) error
+	GetLogs(ctx context.Context, orgId uuid.UUID, name string) (string, error)
 	InitialMigration(ctx context.Context) error
 }
 
@@ -262,4 +264,37 @@ func (s *imageExportStore) UpdateLastSeen(ctx context.Context, orgId uuid.UUID, 
 		return flterrors.ErrResourceNotFound
 	}
 	return nil
+}
+
+// UpdateLogs updates the logs field of an ImageExport resource
+func (s *imageExportStore) UpdateLogs(ctx context.Context, orgId uuid.UUID, name string, logs string) error {
+	result := s.db.WithContext(ctx).Model(&ImageExport{}).
+		Where("org_id = ? AND name = ?", orgId, name).
+		Update("logs", logs)
+	if result.Error != nil {
+		return flightctlstore.ErrorFromGormError(result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return flterrors.ErrResourceNotFound
+	}
+	return nil
+}
+
+// GetLogs retrieves the logs field of an ImageExport resource
+func (s *imageExportStore) GetLogs(ctx context.Context, orgId uuid.UUID, name string) (string, error) {
+	var imageExport ImageExport
+	result := s.db.WithContext(ctx).
+		Select("logs").
+		Where("org_id = ? AND name = ?", orgId, name).
+		First(&imageExport)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return "", flterrors.ErrResourceNotFound
+		}
+		return "", flightctlstore.ErrorFromGormError(result.Error)
+	}
+	if imageExport.Logs == nil {
+		return "", nil
+	}
+	return *imageExport.Logs, nil
 }
