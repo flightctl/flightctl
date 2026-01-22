@@ -338,3 +338,41 @@ It prints a JSON summary of the device's hardware and OS, including:
 
 > [!NOTE]
 > This command is local-only and does not affect device state or communicate with the Flight Control service.
+
+## flightctl-agent helm-render
+
+This subcommand acts as a Helm post-renderer that injects application labels into Kubernetes manifests. It reads YAML from standard input, adds the `agent.flightctl.io/app` label to all resources, and outputs the modified YAML to standard output.
+
+This enables tracking which resources belong to which application, supporting resource cleanup, health monitoring, and troubleshooting.
+
+### Usage
+
+```bash
+flightctl-agent helm-render --app=<app-name>
+```
+
+### Flags
+
+| Flag | Required | Description |
+| ---- | :------: | ----------- |
+| `--app` | Y | The application name to inject as a label value |
+
+### Labels Injected
+
+Labels are injected into:
+
+* `metadata.labels` - All resources
+* `spec.template.metadata.labels` - Deployments, StatefulSets, DaemonSets, Jobs (so pods inherit the label)
+* `spec.jobTemplate.spec.template.metadata.labels` - CronJobs
+
+### Example Usage with Helm
+
+```bash
+helm upgrade --install my-app ./chart \
+  --post-renderer /usr/bin/flightctl-agent \
+  --post-renderer-args helm-render \
+  --post-renderer-args --app=my-app
+```
+
+> [!NOTE]
+> This command requires `kubectl` or `oc` to be available in the PATH, as it uses `kubectl kustomize` internally to inject labels.

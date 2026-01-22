@@ -23,13 +23,15 @@ const (
 type HelmOption func(*helmOptions)
 
 type helmOptions struct {
-	namespace       string
-	valuesPaths     []string
-	kubeconfigPath  string
-	atomic          bool
-	createNamespace bool
-	install         bool
-	timeout         time.Duration
+	namespace        string
+	valuesPaths      []string
+	kubeconfigPath   string
+	atomic           bool
+	createNamespace  bool
+	install          bool
+	timeout          time.Duration
+	postRendererPath string
+	postRendererArgs []string
 }
 
 // WithNamespace sets the Kubernetes namespace for helm operations.
@@ -85,6 +87,16 @@ func WithInstall() HelmOption {
 func WithHelmTimeout(timeout time.Duration) HelmOption {
 	return func(opts *helmOptions) {
 		opts.timeout = timeout
+	}
+}
+
+// WithPostRenderer sets the post-renderer binary path and arguments.
+// The post-renderer is invoked after Helm renders templates, allowing
+// modification of the manifests before they are applied.
+func WithPostRenderer(path string, args ...string) HelmOption {
+	return func(opts *helmOptions) {
+		opts.postRendererPath = path
+		opts.postRendererArgs = args
 	}
 }
 
@@ -323,6 +335,13 @@ func (h *Helm) Install(ctx context.Context, releaseName, chartPath string, opts 
 		args = append(args, "--atomic")
 	}
 
+	if options.postRendererPath != "" {
+		args = append(args, "--post-renderer", options.postRendererPath)
+		for _, arg := range options.postRendererArgs {
+			args = append(args, "--post-renderer-args", arg)
+		}
+	}
+
 	_, stderr, exitCode := h.exec.ExecuteWithContext(ctx, helmCmd, args...)
 	if exitCode != 0 {
 		return fmt.Errorf("helm install: %w", errors.FromStderr(stderr, exitCode))
@@ -384,6 +403,13 @@ func (h *Helm) Upgrade(ctx context.Context, releaseName, chartPath string, opts 
 
 	if options.atomic {
 		args = append(args, "--atomic")
+	}
+
+	if options.postRendererPath != "" {
+		args = append(args, "--post-renderer", options.postRendererPath)
+		for _, arg := range options.postRendererArgs {
+			args = append(args, "--post-renderer-args", arg)
+		}
 	}
 
 	_, stderr, exitCode := h.exec.ExecuteWithContext(ctx, helmCmd, args...)
