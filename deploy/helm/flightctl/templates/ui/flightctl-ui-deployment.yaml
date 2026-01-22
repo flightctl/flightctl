@@ -55,6 +55,13 @@ spec:
                 name: flightctl-ui
                 key: FLIGHTCTL_ALERTMANAGER_PROXY
           {{- end }}
+          {{- if and .Values.imageBuilderApi .Values.imageBuilderApi.enabled }}
+          - name: FLIGHTCTL_IMAGEBUILDER_SERVER
+            valueFrom:
+              configMapKeyRef:
+                name: flightctl-ui
+                key: FLIGHTCTL_IMAGEBUILDER_SERVER
+          {{- end }}
           {{- if eq $enableMulticlusterExtensions "true" }}
           - name: TLS_KEY
             value: /app/serving-cert/tls.key

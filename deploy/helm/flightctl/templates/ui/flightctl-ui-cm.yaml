@@ -16,6 +16,9 @@ data:
   {{- if .Values.alertmanagerProxy.enabled }}
   FLIGHTCTL_ALERTMANAGER_PROXY: {{ include "flightctl.getAlertManagerProxyUrl" . }}
   {{- end }}
+  {{- if and .Values.imageBuilderApi .Values.imageBuilderApi.enabled }}
+  FLIGHTCTL_IMAGEBUILDER_SERVER: {{ include "flightctl.getInternalImagebuilderApiUrl" . }}
+  {{- end }}
   IS_RHEM: {{ (eq .Chart.Name "redhat-rhem") | quote }}
   AUTH_INSECURE_SKIP_VERIFY: {{ default ((.Values.global).auth).insecureSkipTlsVerify .Values.ui.auth.insecureSkipTlsVerify | quote }}
   BASE_UI_URL: {{ include "flightctl.getUIUrl" . }}
