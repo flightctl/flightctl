@@ -1037,7 +1037,9 @@ type DownloadImageExportResponse struct {
 	JSON401      *externalRef0.Status
 	JSON403      *externalRef0.Status
 	JSON404      *externalRef0.Status
+	JSON429      *externalRef0.Status
 	JSON500      *externalRef0.Status
+	JSON503      *externalRef0.Status
 }
 
 // Status returns HTTPResponse.Status
@@ -1697,12 +1699,26 @@ func ParseDownloadImageExportResponse(rsp *http.Response) (*DownloadImageExportR
 		}
 		response.JSON404 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
 		var dest externalRef0.Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON500 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
 
 	}
 

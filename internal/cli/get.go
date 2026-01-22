@@ -242,6 +242,7 @@ func (o *GetOptions) Validate(args []string) error {
 		func() error { return o.validateSingleResourceRestrictions(kind, names) },
 		func() error { return o.validateLimit() },
 		func() error { return o.validateLastSeen(kind, names) },
+		func() error { return o.validateWithExports(kind) },
 	}
 
 	for _, v := range validators {
@@ -356,6 +357,14 @@ func (o *GetOptions) validateLastSeen(kind ResourceKind, names []string) error {
 	// Name output requires metadata.name which DeviceLastSeen does not provide.
 	if o.LastSeen && o.Output == string(display.NameFormat) {
 		return fmt.Errorf("'--last-seen' does not support '-o name'")
+	}
+	return nil
+}
+
+// validateWithExports checks the usage of the --with-exports flag.
+func (o *GetOptions) validateWithExports(kind ResourceKind) error {
+	if o.WithExports && kind != ImageBuildKind {
+		return fmt.Errorf("'--with-exports' can only be specified when getting imagebuilds")
 	}
 	return nil
 }

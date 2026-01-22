@@ -188,17 +188,12 @@ func (h *TransportHandler) DownloadImageExport(w http.ResponseWriter, r *http.Re
 
 // downloadErrorToStatus converts download errors to appropriate API status codes
 func downloadErrorToStatus(err error, name string) v1beta1.Status {
-	// Check for store errors (resource not found, etc.)
-	if status := service.StoreErrorToApiStatus(err, false, string(api.ResourceKindImageExport), &name); status.Code != 0 {
-		return status
-	}
-
-	// Check for external service errors (should return 503 Service Unavailable)
+	// Check for external service errors first (should return 503 Service Unavailable)
 	if errors.Is(err, service.ErrExternalServiceUnavailable) {
 		return service.StatusServiceUnavailable(err.Error())
 	}
 
-	// Check for validation errors (should return 4xx)
+	// Check for validation errors (should return 400 Bad Request)
 	if errors.Is(err, service.ErrImageExportNotReady) ||
 		errors.Is(err, service.ErrImageExportStatusNotReady) ||
 		errors.Is(err, service.ErrImageExportReadyConditionNotFound) ||
@@ -207,6 +202,11 @@ func downloadErrorToStatus(err error, name string) v1beta1.Status {
 		errors.Is(err, service.ErrInvalidManifestLayerCount) ||
 		errors.Is(err, service.ErrRepositoryNotFound) {
 		return service.StatusBadRequest(err.Error())
+	}
+
+	// Check for store errors (resource not found, etc.) as fallback
+	if status := service.StoreErrorToApiStatus(err, false, string(api.ResourceKindImageExport), &name); status.Code != 0 {
+		return status
 	}
 
 	// Default to internal server error (5xx)
