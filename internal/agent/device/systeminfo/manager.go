@@ -18,6 +18,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
+	"github.com/flightctl/flightctl/internal/agent/device/systeminfo/common"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -118,17 +119,18 @@ func (m *manager) ReloadConfig(ctx context.Context, cfg *config.Config) error {
 	if !reflect.DeepEqual(m.infoKeys, cfg.SystemInfo) {
 		m.log.Infof("Updating system info keys: %v -> %v", m.infoKeys, cfg.SystemInfo)
 
-		// Best-effort: derive built-in collector types from the configured keys.
-		// Unknown keys may correspond to runtime/optional collectors and are ignored here;
-		// we additionally detect "newly collectable" keys (supported or already-registered
-		// runtime collectors) below.
 		oldConfig := collectCfg{}
-		for _, opt := range collectionOptsFromInfoKeys(m.infoKeys) {
+
+		// Ignore errors for previous and new. We're just trying to diff the two to see if there
+		// is something new that should be collected
+		opts, _ := collectionOptsFromInfoKeys(m.infoKeys)
+		for _, opt := range opts {
 			opt(&oldConfig)
 		}
 
 		newConfig := collectCfg{}
-		for _, opt := range collectionOptsFromInfoKeys(cfg.SystemInfo) {
+		opts, _ = collectionOptsFromInfoKeys(cfg.SystemInfo)
+		for _, opt := range opts {
 			opt(&newConfig)
 		}
 
@@ -273,6 +275,20 @@ func (m *manager) RegisterCollector(ctx context.Context, key string, fn Collecto
 		return
 	}
 
+	if !common.IsKnownKey(key) {
+		if m.log != nil {
+			m.log.Errorf("Unknown system info collector key: %q", key)
+		}
+		return
+	}
+
+	if common.IsBuiltInKey(key) {
+		if m.log != nil {
+			m.log.Errorf("BuiltIn system info key must not be registered as a runtime collector: %q", key)
+		}
+		return
+	}
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -305,7 +321,11 @@ func collectDeviceSystemInfo(
 ) (v1beta1.DeviceSystemInfo, error) {
 	agentVersion := version.Get()
 
-	collectionOpts := collectionOptsFromInfoKeys(infoKeys)
+	collectionOpts, err := collectionOptsFromInfoKeys(infoKeys)
+	// Don't block collection for a few unknown keys. Try our best to grab everything we can
+	if err != nil {
+		log.Warnf("Failed to handle system info keys: %v", err)
+	}
 
 	info, err := Collect(ctx, log, exec, reader, customKeys, hardwareMapPath, collectionOpts...)
 	if err != nil {

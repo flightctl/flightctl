@@ -7,6 +7,7 @@ import (
 
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/agent/device/systeminfo"
+	systeminfocommon "github.com/flightctl/flightctl/internal/agent/device/systeminfo/common"
 	"github.com/flightctl/flightctl/internal/agent/identity"
 	"github.com/flightctl/flightctl/pkg/certmanager"
 	"k8s.io/client-go/util/cert"
@@ -24,7 +25,7 @@ func WithStatusCollectOnStore(
 		return f
 	}
 
-	systemInfoManager.RegisterCollector(ctx, "managementCertSerial", func(ctx context.Context) string {
+	systemInfoManager.RegisterCollector(ctx, systeminfocommon.ManagementCertSerialKey, func(ctx context.Context) string {
 		pemBytes, err := identityProvider.GetCertificate()
 		if err != nil {
 			return ""
@@ -52,7 +53,7 @@ func WithStatusCollectOnStore(
 		return string(out)
 	})
 
-	systemInfoManager.RegisterCollector(ctx, "managementCertNotAfter", func(ctx context.Context) string {
+	systemInfoManager.RegisterCollector(ctx, systeminfocommon.ManagementCertNotAfterKey, func(ctx context.Context) string {
 		pemBytes, err := identityProvider.GetCertificate()
 		if err != nil {
 			return ""

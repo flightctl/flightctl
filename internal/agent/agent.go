@@ -25,6 +25,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/agent/device/systemd"
 	"github.com/flightctl/flightctl/internal/agent/device/systeminfo"
+	systeminfocommon "github.com/flightctl/flightctl/internal/agent/device/systeminfo/common"
 	"github.com/flightctl/flightctl/internal/agent/identity"
 	"github.com/flightctl/flightctl/internal/agent/instrumentation"
 	"github.com/flightctl/flightctl/internal/agent/reload"
@@ -202,7 +203,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	shutdownManager := shutdown.NewManager(a.log, rootSystemdClient, deviceReadWriter, gracefulShutdownTimeout, cancel)
 
 	if tpmClient != nil {
-		systemInfoManager.RegisterCollector(ctx, "tpmVendorInfo", tpmClient.VendorInfoCollector)
+		systemInfoManager.RegisterCollector(ctx, systeminfocommon.TPMVendorInfoKey, tpmClient.VendorInfoCollector)
 		defer func() {
 			if err = tpmClient.Close(); err != nil {
 				a.log.Errorf("Failed to close TPM client: %v", err)
