@@ -178,6 +178,9 @@ var DefaultSystemInfo = []string{
 	"netInterfaceDefault",
 	"netIpDefault",
 	"netMacDefault",
+	"managementCertNotAfter",
+	"managementCertSerial",
+	"tpmVendorInfo",
 }
 
 func NewDefault() *Config {
