@@ -34,6 +34,7 @@ type Bootstrap struct {
 	hookManager       hook.Manager
 	systemInfoManager systeminfo.Manager
 	podmanClient      *client.Podman
+	systemdClient     *client.Systemd
 
 	lifecycle lifecycle.Initializer
 
@@ -41,6 +42,7 @@ type Bootstrap struct {
 	managementClient          client.Management
 	managementMetricsCallback client.RPCMetricsCallback
 	identityProvider          identity.Provider
+	reportConnectivityStatus  bool
 
 	log *log.PrefixLogger
 }
@@ -57,6 +59,8 @@ func NewBootstrap(
 	systemInfoManager systeminfo.Manager,
 	managementMetricsCallback client.RPCMetricsCallback,
 	podmanClient *client.Podman,
+	systemdClient *client.Systemd,
+	reportConnectivityStatus bool,
 	identityProvider identity.Provider,
 	log *log.PrefixLogger,
 ) *Bootstrap {
@@ -72,6 +76,8 @@ func NewBootstrap(
 		systemInfoManager:         systemInfoManager,
 		managementMetricsCallback: managementMetricsCallback,
 		podmanClient:              podmanClient,
+		systemdClient:             systemdClient,
+		reportConnectivityStatus:  reportConnectivityStatus,
 		identityProvider:          identityProvider,
 		log:                       log,
 	}
@@ -124,6 +130,14 @@ func (b *Bootstrap) Initialize(ctx context.Context) error {
 	}
 
 	b.updateStatus(ctx)
+
+	// Report connectivity status to systemd if enabled.
+	// This is visible via `systemctl status flightctl-agent` as StatusText.
+	if b.reportConnectivityStatus && b.systemdClient != nil {
+		if err := b.systemdClient.SdNotify(ctx, "STATUS=Connected"); err != nil {
+			b.log.Debugf("Failed to notify systemd of connectivity status: %v", err)
+		}
+	}
 
 	// unset NOTIFY_SOCKET on successful bootstrap to prevent subprocesses from
 	// using it.

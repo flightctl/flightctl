@@ -93,7 +93,7 @@ func NewManager(
 // Initialize ensures the device is enrolled to the management service.
 func (m *LifecycleManager) Initialize(ctx context.Context, status *v1beta1.DeviceStatus) error {
 	if !m.IsInitialized() {
-		if err := m.writeEnrollmentBanner(); err != nil {
+		if err := m.writeEnrollmentBanner(ctx); err != nil {
 			return err
 		}
 
@@ -111,7 +111,7 @@ func (m *LifecycleManager) Initialize(ctx context.Context, status *v1beta1.Devic
 	}
 
 	// write the management banner
-	return m.writeManagementBanner()
+	return m.writeManagementBanner(ctx)
 }
 
 func (m *LifecycleManager) Sync(ctx context.Context, current, desired *v1beta1.DeviceSpec) error {
@@ -318,32 +318,32 @@ func (m *LifecycleManager) verifyEnrollment(ctx context.Context) (bool, error) {
 	return true, nil
 }
 
-func (m *LifecycleManager) writeEnrollmentBanner() error {
+func (m *LifecycleManager) writeEnrollmentBanner(ctx context.Context) error {
 	if m.enrollmentUIEndpoint == "" {
 		m.log.Warn("Flightctl enrollment UI endpoint is missing, skipping enrollment banner")
 		return nil
 	}
 	url := fmt.Sprintf("%s/enroll/%s", m.enrollmentUIEndpoint, m.deviceName)
-	if err := m.writeQRBanner("\nEnroll your device to flightctl by scanning\nthe above QR code or following this URL:\n%s\n\n", url); err != nil {
+	if err := m.writeQRBanner(ctx, "\nEnroll your device to flightctl by scanning\nthe above QR code or following this URL:\n%s\n\n", url); err != nil {
 		return fmt.Errorf("failed to write device enrollment banner: %w", err)
 	}
 	return nil
 }
 
-func (m *LifecycleManager) writeManagementBanner() error {
+func (m *LifecycleManager) writeManagementBanner(ctx context.Context) error {
 	// write a banner that explains that the device is enrolled
 	if m.enrollmentUIEndpoint == "" {
 		m.log.Warn("Flightctl enrollment UI endpoint is missing, skipping management banner")
 		return nil
 	}
 	url := fmt.Sprintf("%s/manage/%s", m.enrollmentUIEndpoint, m.deviceName)
-	if err := m.writeQRBanner("\nYour device is enrolled to flightctl,\nyou can manage your device scanning the above QR. or following this URL:\n%s\n\n", url); err != nil {
+	if err := m.writeQRBanner(ctx, "\nYour device is enrolled to flightctl,\nyou can manage your device scanning the above QR. or following this URL:\n%s\n\n", url); err != nil {
 		return fmt.Errorf("failed to write device management banner: %w", err)
 	}
 	return nil
 }
 
-func (m *LifecycleManager) writeQRBanner(message, url string) error {
+func (m *LifecycleManager) writeQRBanner(ctx context.Context, message, url string) error {
 	qrCode, err := qrcode.New(url, qrcode.High)
 	if err != nil {
 		return fmt.Errorf("failed to generate new QR code: %w", err)
@@ -364,7 +364,7 @@ func (m *LifecycleManager) writeQRBanner(message, url string) error {
 		return fmt.Errorf("failed to write banner to disk: %w", err)
 	}
 
-	if err := m.systemdClient.SdNotify("READY=1"); err != nil {
+	if err := m.systemdClient.SdNotify(ctx, "READY=1"); err != nil {
 		m.log.Warnf("Failed to notify systemd: %v", err)
 	}
 

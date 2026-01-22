@@ -244,11 +244,9 @@ func (a *Agent) Run(ctx context.Context) error {
 		policyManager,
 		rootReadWriter,
 		osClient,
-		systemdClient,
 		pollBackoff,
 		deviceNotFoundHandler,
 		auditLogger,
-		a.config.StatusNotify,
 		a.log,
 	)
 
@@ -345,6 +343,8 @@ func (a *Agent) Run(ctx context.Context) error {
 		systemInfoManager,
 		a.config.GetManagementMetricsCallback(),
 		rootPodmanClient,
+		rootSystemdClient,
+		a.config.ReportConnectivityStatus,
 		identityProvider,
 		a.log,
 	)

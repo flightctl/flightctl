@@ -30,7 +30,6 @@ type manager struct {
 	deviceName       string
 	deviceReadWriter fileio.ReadWriter
 	osClient         os.Client
-	systemdClient    *client.Systemd
 	publisher        Publisher
 	watcher          Watcher
 	cache            *cache
@@ -52,11 +51,9 @@ func NewManager(
 	policyManager policy.Manager,
 	deviceReadWriter fileio.ReadWriter,
 	osClient os.Client,
-	systemdClient *client.Systemd,
 	pollConfig poll.Config,
 	deviceNotFoundHandler func() error,
 	auditLogger audit.Logger,
-	statusNotify bool,
 	log *log.PrefixLogger,
 ) *manager {
 	cache := newCache(log)
@@ -76,7 +73,6 @@ func NewManager(
 		deviceName:       deviceName,
 		deviceReadWriter: deviceReadWriter,
 		osClient:         osClient,
-		systemdClient:    systemdClient,
 		cache:            cache,
 		policyManager:    policyManager,
 		auditLogger:      auditLogger,
@@ -89,7 +85,7 @@ func NewManager(
 		lastKnownVersion = desired.Version()
 	}
 
-	pub := newPublisher(deviceName, systemdClient, pollConfig, lastKnownVersion, deviceNotFoundHandler, statusNotify, log)
+	pub := newPublisher(deviceName, pollConfig, lastKnownVersion, deviceNotFoundHandler, log)
 	m.publisher = pub
 	m.watcher = pub.Watch()
 

@@ -95,7 +95,7 @@ func NewChecker(log *log.PrefixLogger, opts ...Option) *checker {
 
 	// Default systemd client if not provided
 	if c.systemd == nil {
-		c.systemd = client.NewSystemd(&executer.CommonExecuter{})
+		c.systemd = client.NewSystemd(executer.NewCommonExecuter())
 	}
 	return c
 }

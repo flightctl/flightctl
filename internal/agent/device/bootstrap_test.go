@@ -157,18 +157,21 @@ func TestInitialization(t *testing.T) {
 
 			log := log.NewPrefixLogger("test")
 			podmanClient := client.NewPodman(log, mockExecutor, mockReadWriter, util.NewPollConfig())
+			systemdClient := client.NewSystemd(mockExecutor)
 
 			b := &Bootstrap{
-				statusManager:           mockStatusManager,
-				specManager:             mockSpecManager,
-				hookManager:             mockHookManager,
-				lifecycle:               mockLifecycleInitializer,
-				deviceReadWriter:        mockReadWriter,
-				managementServiceConfig: &baseclient.Config{},
-				systemInfoManager:       mockSystemInfoManager,
-				podmanClient:            podmanClient,
-				identityProvider:        mockIdentityProvider,
-				log:                     log,
+				statusManager:            mockStatusManager,
+				specManager:              mockSpecManager,
+				hookManager:              mockHookManager,
+				lifecycle:                mockLifecycleInitializer,
+				deviceReadWriter:         mockReadWriter,
+				managementServiceConfig:  &baseclient.Config{},
+				systemInfoManager:        mockSystemInfoManager,
+				podmanClient:             podmanClient,
+				systemdClient:            systemdClient,
+				reportConnectivityStatus: true,
+				identityProvider:         mockIdentityProvider,
+				log:                      log,
 			}
 
 			ctx := context.TODO()

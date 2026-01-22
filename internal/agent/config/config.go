@@ -74,8 +74,8 @@ const (
 	DefaultMetricsEnabled = false
 	// DefaultProfilingEnabled controls whether runtime profiling (pprof) is enabled by default.
 	DefaultProfilingEnabled = false
-	// DefaultStatusNotify controls whether connectivity status reporting is enabled by default.
-	DefaultStatusNotify = true
+	// DefaultReportConnectivityStatus controls whether connectivity status reporting is enabled by default.
+	DefaultReportConnectivityStatus = true
 )
 
 type Config struct {
@@ -148,8 +148,10 @@ type Config struct {
 	// ImagePruning holds all image/artifact pruning-related configuration
 	ImagePruning ImagePruning `json:"image-pruning,omitempty"`
 
-	// StatusNotify enables connectivity status reporting to systemd via sd_notify.
-	StatusNotify bool `json:"status-notify,omitempty"`
+	// ReportConnectivityStatus enables connectivity status reporting to systemd via sd_notify.
+	// This is user-configurable based on deployment needs (e.g., always-online factory cameras
+	// vs. expected-offline drones).
+	ReportConnectivityStatus bool `json:"report-connectivity-status,omitempty"`
 
 	readWriter fileio.ReadWriter
 }
@@ -212,7 +214,7 @@ func NewDefault() *Config {
 		ImagePruning: ImagePruning{
 			Enabled: lo.ToPtr(false),
 		},
-		StatusNotify: DefaultStatusNotify,
+		ReportConnectivityStatus: DefaultReportConnectivityStatus,
 	}
 
 	if value := os.Getenv(TestRootDirEnvKey); value != "" {
@@ -478,7 +480,7 @@ func mergeConfigs(base, override *Config) {
 	overrideIfNotEmpty(&base.ImagePruning.Enabled, override.ImagePruning.Enabled)
 
 	// connectivity status reporting
-	overrideIfNotEmpty(&base.StatusNotify, override.StatusNotify)
+	overrideIfNotEmpty(&base.ReportConnectivityStatus, override.ReportConnectivityStatus)
 
 	for k, v := range override.DefaultLabels {
 		base.DefaultLabels[k] = v

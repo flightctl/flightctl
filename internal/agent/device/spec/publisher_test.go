@@ -496,7 +496,7 @@ func TestNewWithInitialVersion(t *testing.T) {
 
 	t.Run("creates publisher with initial version", func(t *testing.T) {
 		initialVersion := "42"
-		p := newPublisher("test-device", nil, pollCfg, initialVersion, nil, false, log.NewPrefixLogger(""))
+		p := newPublisher("test-device", pollCfg, initialVersion, nil, log.NewPrefixLogger(""))
 
 		publisher, ok := p.(*publisher)
 		require.True(t, ok)
@@ -505,7 +505,7 @@ func TestNewWithInitialVersion(t *testing.T) {
 
 	t.Run("creates publisher with empty initial version", func(t *testing.T) {
 		initialVersion := ""
-		p := newPublisher("test-device", nil, pollCfg, initialVersion, nil, false, log.NewPrefixLogger(""))
+		p := newPublisher("test-device", pollCfg, initialVersion, nil, log.NewPrefixLogger(""))
 
 		publisher, ok := p.(*publisher)
 		require.True(t, ok)

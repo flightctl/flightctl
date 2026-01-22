@@ -168,7 +168,7 @@ func NewHealthCommand() *healthCmd {
 	fs := flag.NewFlagSet("health", flag.ExitOnError)
 	cmd := &healthCmd{}
 
-	fs.DurationVar(&cmd.timeout, "timeout", 30*time.Second, "Maximum time to wait for checks.")
+	fs.DurationVar(&cmd.timeout, "timeout", 150*time.Second, "Maximum time to wait for checks.")
 	fs.BoolVar(&cmd.verbose, "verbose", false, "Print detailed check results.")
 
 	if hasHelpFlag(os.Args[2:]) {
@@ -214,7 +214,7 @@ func printUsage() {
 	fmt.Println("  version      Display version information")
 	fmt.Println("  system-info  Display system information")
 	fmt.Println("  helm-render  Inject app labels into Helm-rendered manifests")
-	fmt.Println("  health       Perform health checks on agent configuration and state")
+	fmt.Println("  health       Perform health checks on agent")
 	fmt.Println("")
 	fmt.Println("Run '<command> --help' for command-specific flags.")
 	fmt.Println("flags:")
