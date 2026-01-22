@@ -263,7 +263,13 @@ func TestApplicationStatus(t *testing.T) {
 					providerSpec,
 				},
 			}
-			providers, err := provider.FromDeviceSpec(context.Background(), log, podman, readWriter, &desired)
+			var podmanFactory client.PodmanFactory = func(user v1beta1.Username) (*client.Podman, error) {
+				return podman, nil
+			}
+			var rwFactory fileio.ReadWriterFactory = func(username v1beta1.Username) (fileio.ReadWriter, error) {
+				return readWriter, nil
+			}
+			providers, err := provider.FromDeviceSpec(context.Background(), log, podmanFactory, rwFactory, &desired)
 			require.NoError(err)
 			require.Len(providers, 1)
 			application := NewApplication(providers[0])

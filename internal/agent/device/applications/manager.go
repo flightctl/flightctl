@@ -42,7 +42,6 @@ func NewManager(
 	log *log.PrefixLogger,
 	rwFactory fileio.ReadWriterFactory,
 	podmanFactory client.PodmanFactory,
-	rootPodmanClient *client.Podman,
 	systemInfo systeminfo.Manager,
 	systemdFactory systemd.ManagerFactory,
 ) Manager {
@@ -111,22 +110,11 @@ func (m *manager) BeforeUpdate(ctx context.Context, desired *v1beta1.DeviceSpec)
 	m.log.Debug("Pre-checking application dependencies")
 	defer m.log.Debug("Finished pre-checking application dependencies")
 
-	// TODO: remove these once the provider accepts factories
-	rootPodmanClient, err := m.podmanFactory("")
-	if err != nil {
-		return fmt.Errorf("creating podman client: %w", err)
-	}
-
-	rootReadWriter, err := m.rwFactory("")
-	if err != nil {
-		return fmt.Errorf("creating read/writer: %w", err)
-	}
-
 	providers, err := provider.FromDeviceSpec(
 		ctx,
 		m.log,
-		rootPodmanClient,
-		rootReadWriter,
+		m.podmanFactory,
+		m.rwFactory,
 		desired,
 		provider.WithEmbedded(m.bootTime),
 		provider.WithAppDataCache(m.appDataCache),
@@ -246,9 +234,9 @@ func (m *manager) CollectOCITargets(ctx context.Context, current, desired *v1bet
 	}
 	m.log.Debugf("Collected %d nested OCI targets", len(nestedTargets))
 
-	var allTargets []dependency.OCIPullTarget
-	allTargets = append(allTargets, baseTargets...)
-	allTargets = append(allTargets, nestedTargets...)
+	var allTargets dependency.OCIPullTargetsByUser
+	allTargets = allTargets.MergeWith(baseTargets)
+	allTargets = allTargets.MergeWith(nestedTargets)
 
 	// garbage collect stale cache entries
 	m.ociTargetCache.GC(activeNames)
@@ -261,8 +249,8 @@ func (m *manager) collectNestedTargets(
 	ctx context.Context,
 	desired *v1beta1.DeviceSpec,
 	configProvider client.PullConfigProvider,
-) ([]dependency.OCIPullTarget, bool, []string, error) {
-	var allNestedTargets []dependency.OCIPullTarget
+) (dependency.OCIPullTargetsByUser, bool, []string, error) {
+	var allNestedTargets dependency.OCIPullTargetsByUser
 	var activeAppNames []string
 	needsRequeue := false
 
@@ -287,15 +275,17 @@ func (m *manager) collectNestedTargets(
 
 		imageRef := imageSpec.Image
 
-		podman, err := m.podmanFactory("")
-		if err != nil {
-			return nil, false, nil, fmt.Errorf("creating podman client: %w", err)
-		}
+		targetUser := appSpec.UserWithDefault()
 
 		// Detect if reference is an artifact or image and check if it exists locally
 		var digest string
 		var ociType dependency.OCIType
 		var exists bool
+
+		podman, err := m.podmanFactory(targetUser)
+		if err != nil {
+			return nil, false, nil, fmt.Errorf("creating podman client: %w", err)
+		}
 
 		// Check if it's an image first (most common case)
 		if podman.ImageExists(ctx, imageRef) {
@@ -324,7 +314,7 @@ func (m *manager) collectNestedTargets(
 			if cachedEntry.Parent.Digest == digest {
 				// cache hit - parent digest matches
 				m.log.Debugf("Using cached nested targets for app %s (digest: %s)", appName, digest)
-				allNestedTargets = append(allNestedTargets, cachedEntry.Children...)
+				allNestedTargets = allNestedTargets.Add(cachedEntry.Owner, cachedEntry.Children...)
 				continue
 			}
 			m.log.Debugf("Cache invalidated for app %s - digest changed from %s to %s", appName, cachedEntry.Parent.Digest, digest)
@@ -341,7 +331,8 @@ func (m *manager) collectNestedTargets(
 
 		// update nested targets cache
 		cacheEntry := provider.CacheEntry{
-			Name: appName,
+			Name:  appName,
+			Owner: appData.Owner,
 			Parent: dependency.OCIPullTarget{
 				Type:      ociType,
 				Reference: imageRef,
@@ -352,7 +343,7 @@ func (m *manager) collectNestedTargets(
 		m.ociTargetCache.Set(cacheEntry)
 		m.log.Debugf("Cached %d nested targets for app %s (type: %s, digest: %s)", len(appData.Targets), appName, ociType, digest)
 
-		allNestedTargets = append(allNestedTargets, appData.Targets...)
+		allNestedTargets = allNestedTargets.Add(appData.Owner, appData.Targets...)
 	}
 
 	return allNestedTargets, needsRequeue, activeAppNames, nil
@@ -365,12 +356,12 @@ func (m *manager) extractNestedTargetsForImage(
 	imageSpec *v1beta1.ImageApplicationProviderSpec,
 	configProvider client.PullConfigProvider,
 ) (*provider.AppData, error) {
-	podman, err := m.podmanFactory("" /* TODO: link up app user when available */)
+	podman, err := m.podmanFactory(appSpec.UserWithDefault())
 	if err != nil {
 		return nil, fmt.Errorf("creating podman client: %w", err)
 	}
 
-	rw, err := m.rwFactory("" /* TODO: link up to app user when available */)
+	rw, err := m.rwFactory(appSpec.UserWithDefault())
 	if err != nil {
 		return nil, fmt.Errorf("creating read/writer: %w", err)
 	}

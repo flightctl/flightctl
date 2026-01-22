@@ -66,6 +66,7 @@ func newEmbedded(log *log.PrefixLogger, podman *client.Podman, readWriter fileio
 			Name:     name,
 			ID:       handler.ID(),
 			AppType:  appType,
+			User:     v1beta1.CurrentProcessUsername,
 			Embedded: true,
 			EnvVars:  make(map[string]string),
 			Volume:   volumeManager,

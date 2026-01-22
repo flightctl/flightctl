@@ -583,7 +583,10 @@ type ApplicationProviderSpec struct {
 	EnvVars *map[string]string `json:"envVars,omitempty"`
 
 	// Name The application name must be 1–253 characters long, start with a letter or number, and contain no whitespace.
-	Name  *string `json:"name,omitempty"`
+	Name *string `json:"name,omitempty"`
+
+	// RunAs The username of the system user this application should be run under. This is not the same as the user within any containers of the application (if applicable). Defaults to the user that the agent runs as (generally root) if not specified.
+	RunAs Username `json:"runAs,omitempty"`
 	union json.RawMessage
 }
 
@@ -966,6 +969,9 @@ type DeviceApplicationStatus struct {
 
 	// Restarts Number of restarts observed for the application.
 	Restarts int `json:"restarts"`
+
+	// RunAs The username of the system user this application is runing under. If blank, the application is run as the same user as the agent (generally root).
+	RunAs Username `json:"runAs,omitempty"`
 
 	// Status Status of a single application on the device.
 	Status ApplicationStatusType `json:"status"`
@@ -3378,6 +3384,12 @@ func (t ApplicationProviderSpec) MarshalJSON() ([]byte, error) {
 			return nil, fmt.Errorf("error marshaling 'name': %w", err)
 		}
 	}
+
+	object["runAs"], err = json.Marshal(t.RunAs)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'runAs': %w", err)
+	}
+
 	b, err = json.Marshal(object)
 	return b, err
 }
@@ -3411,6 +3423,13 @@ func (t *ApplicationProviderSpec) UnmarshalJSON(b []byte) error {
 		err = json.Unmarshal(raw, &t.Name)
 		if err != nil {
 			return fmt.Errorf("error reading 'name': %w", err)
+		}
+	}
+
+	if raw, found := object["runAs"]; found {
+		err = json.Unmarshal(raw, &t.RunAs)
+		if err != nil {
+			return fmt.Errorf("error reading 'runAs': %w", err)
 		}
 	}
 

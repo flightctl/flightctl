@@ -326,6 +326,7 @@ func (m *PodmanMonitor) Ensure(app Application) error {
 	action := lifecycle.Action{
 		AppType:  app.AppType(),
 		Type:     lifecycle.ActionAdd,
+		User:     app.User(),
 		Name:     appName,
 		ID:       appID,
 		Path:     app.Path(),
@@ -363,6 +364,7 @@ func (m *PodmanMonitor) Remove(app Application) error {
 		AppType: app.AppType(),
 		Type:    lifecycle.ActionRemove,
 		Name:    appName,
+		User:    app.User(),
 		ID:      appID,
 		Volumes: provider.ToLifecycleVolumes(app.Volume().List()),
 	}
@@ -388,6 +390,7 @@ func (m *PodmanMonitor) Update(app Application) error {
 		AppType: app.AppType(),
 		Type:    lifecycle.ActionUpdate,
 		Name:    app.Name(),
+		User:    app.User(),
 		ID:      appID,
 		Path:    app.Path(),
 		Volumes: provider.ToLifecycleVolumes(app.Volume().List()),
@@ -675,7 +678,7 @@ func (m *PodmanMonitor) updateQuadletContainerStatus(ctx context.Context, app Ap
 		return
 	}
 
-	systemctl, err := m.systemdFactory("")
+	systemctl, err := m.systemdFactory(app.User())
 	if err != nil {
 		m.log.Errorf("Failed to create systemctl client for %s: %v", systemdUnit, err)
 		return
@@ -712,7 +715,7 @@ func (m *PodmanMonitor) updateQuadletContainerStatus(ctx context.Context, app Ap
 }
 
 func (m *PodmanMonitor) updateComposeContainerStatus(ctx context.Context, app Application, event *client.PodmanEvent) {
-	client, err := m.clientFactory("")
+	client, err := m.clientFactory(app.User())
 	if err != nil {
 		m.log.Errorf("Failed to create podman client for %s: %v", app.Name(), err)
 		return

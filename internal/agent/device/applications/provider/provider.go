@@ -43,6 +43,8 @@ type ApplicationSpec struct {
 	ID string
 	// Type of the application
 	AppType v1beta1.AppType
+	// User that the app should be run under
+	User string
 	// Path to the application
 	Path string
 	// EnvVars are the environment variables to be passed to the application
@@ -67,12 +69,12 @@ func CollectBaseOCITargets(
 	rwFactory fileio.ReadWriterFactory,
 	spec *v1beta1.DeviceSpec,
 	configProvider client.PullConfigProvider,
-) ([]dependency.OCIPullTarget, error) {
+) (dependency.OCIPullTargetsByUser, error) {
 	if spec.Applications == nil {
 		return nil, nil
 	}
 
-	var targets []dependency.OCIPullTarget
+	var targets dependency.OCIPullTargetsByUser
 
 	for _, providerSpec := range lo.FromPtr(spec.Applications) {
 		providerType, err := providerSpec.Type()
@@ -83,6 +85,8 @@ func CollectBaseOCITargets(
 		if providerSpec.AppType == "" {
 			return nil, fmt.Errorf("application type must be defined")
 		}
+
+		targetUser := providerSpec.UserWithDefault()
 
 		switch providerType {
 		case v1beta1.ImageApplicationProviderType:
@@ -98,7 +102,7 @@ func CollectBaseOCITargets(
 			}
 
 			policy := v1beta1.PullIfNotPresent
-			targets = append(targets, dependency.OCIPullTarget{
+			targets = targets.Add(targetUser, dependency.OCIPullTarget{
 				Type:       ociType,
 				Reference:  imageSpec.Image,
 				PullPolicy: policy,
@@ -110,7 +114,7 @@ func CollectBaseOCITargets(
 			if err != nil {
 				return nil, fmt.Errorf("extracting volume targets: %w", err)
 			}
-			targets = append(targets, volTargets...)
+			targets = targets.Add(targetUser, volTargets...)
 
 		case v1beta1.InlineApplicationProviderType:
 			inlineSpec, err := providerSpec.AsInlineApplicationProviderSpec()
@@ -128,7 +132,7 @@ func CollectBaseOCITargets(
 				}
 				for _, svc := range spec.Services {
 					if svc.Image != "" {
-						targets = append(targets, dependency.OCIPullTarget{
+						targets = targets.Add(targetUser, dependency.OCIPullTarget{
 							Type:       dependency.OCITypePodmanImage,
 							Reference:  svc.Image,
 							PullPolicy: v1beta1.PullIfNotPresent,
@@ -142,7 +146,7 @@ func CollectBaseOCITargets(
 					return nil, fmt.Errorf("parsing quadlet spec: %w", err)
 				}
 				for _, quad := range spec {
-					targets = append(targets, extractQuadletTargets(quad, configProvider)...)
+					targets = targets.Add(targetUser, extractQuadletTargets(quad, configProvider)...)
 				}
 			default:
 				return nil, fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, providerSpec.AppType)
@@ -153,14 +157,15 @@ func CollectBaseOCITargets(
 			if err != nil {
 				return nil, fmt.Errorf("extracting volume targets: %w", err)
 			}
-			targets = append(targets, volTargets...)
+			targets = targets.Add(targetUser, volTargets...)
 
 		default:
 			return nil, fmt.Errorf("unsupported application provider type: %s", providerType)
 		}
 	}
 
-	readWriter, err := rwFactory("")
+	// Embedded apps are always owned by root for now.
+	readWriter, err := rwFactory(v1beta1.CurrentProcessUsername)
 	if err != nil {
 		return nil, err
 	}
@@ -168,7 +173,7 @@ func CollectBaseOCITargets(
 	if err != nil {
 		return nil, fmt.Errorf("collecting embedded OCI targets: %w", err)
 	}
-	targets = append(targets, embeddedTargets...)
+	targets = targets.Add(v1beta1.CurrentProcessUsername, embeddedTargets...)
 
 	return targets, nil
 }
@@ -368,8 +373,8 @@ func ExtractNestedTargetsFromImage(
 func FromDeviceSpec(
 	ctx context.Context,
 	log *log.PrefixLogger,
-	podman *client.Podman,
-	readWriter fileio.ReadWriter,
+	podmanFactory client.PodmanFactory,
+	rwFactory fileio.ReadWriterFactory,
 	spec *v1beta1.DeviceSpec,
 	opts ...ParseOpt,
 ) ([]Provider, error) {
@@ -388,6 +393,17 @@ func FromDeviceSpec(
 			if _, exists := cfg.providerTypes[providerType]; !exists {
 				continue
 			}
+		}
+
+		user := providerSpec.UserWithDefault()
+		podman, err := podmanFactory(user)
+		if err != nil {
+			return nil, fmt.Errorf("creating podman client for user %s: %w", user, err)
+		}
+
+		readWriter, err := rwFactory(user)
+		if err != nil {
+			return nil, fmt.Errorf("creating read/writer for user %s: %w", user, err)
 		}
 
 		switch providerType {
@@ -428,14 +444,24 @@ func FromDeviceSpec(
 		}
 	}
 
+	rootPodman, err := podmanFactory(v1beta1.CurrentProcessUsername)
+	if err != nil {
+		return nil, fmt.Errorf("creating root podman client: %w", err)
+	}
+
+	rootReadWriter, err := rwFactory(v1beta1.CurrentProcessUsername)
+	if err != nil {
+		return nil, fmt.Errorf("creating root read/writer: %w", err)
+	}
+
 	if cfg.installedEmbedded {
-		if err := discoverInstalledEmbeddedApps(ctx, log, podman, readWriter, &providers); err != nil {
+		if err := discoverInstalledEmbeddedApps(ctx, log, rootPodman, rootReadWriter, &providers); err != nil {
 			log.Warnf("Failed to discover installed embedded apps: %v", err)
 		}
 	}
 
 	if cfg.embedded {
-		if err := parseEmbedded(ctx, log, podman, readWriter, cfg.embeddedBootTime, &providers); err != nil {
+		if err := parseEmbedded(ctx, log, rootPodman, rootReadWriter, cfg.embeddedBootTime, &providers); err != nil {
 			return nil, err
 		}
 	}
@@ -675,6 +701,7 @@ func isEqual(a, b Provider) bool {
 
 // AppData holds the extracted application data and cleanup function
 type AppData struct {
+	Owner     v1beta1.Username
 	Targets   []dependency.OCIPullTarget
 	TmpPath   string
 	CleanupFn func() error

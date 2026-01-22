@@ -79,6 +79,7 @@ func newInline(log *log.PrefixLogger, podman *client.Podman, spec *v1beta1.Appli
 		spec: &ApplicationSpec{
 			Name:           appName,
 			AppType:        appType,
+			User:           spec.UserWithDefault(),
 			EnvVars:        lo.FromPtr(spec.EnvVars),
 			Embedded:       false,
 			InlineProvider: &provider,

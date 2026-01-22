@@ -32,23 +32,23 @@ const (
 func TestEnsureScheduled(t *testing.T) {
 	tests := []struct {
 		name          string
-		targets       []OCIPullTarget
+		targets       OCIPullTargetsByUser
 		setupMocks    func(*executer.MockExecuter, *resource.MockManager)
 		expectedError error
 	}{
 		{
 			name:       "empty target list returns ready immediately",
-			targets:    []OCIPullTarget{},
+			targets:    OCIPullTargetsByUser{},
 			setupMocks: func(mockExec *executer.MockExecuter, mockResourceManager *resource.MockManager) {},
 		},
 		{
 			name: "single image already exists returns ready",
-			targets: []OCIPullTarget{
-				{
+			targets: OCIPullTargetsByUser{
+				"": []OCIPullTarget{{
 					Type:       OCITypePodmanImage,
 					Reference:  "quay.io/test/existing:latest",
 					PullPolicy: v1beta1.PullIfNotPresent,
-				},
+				}},
 			},
 			setupMocks: func(mockExec *executer.MockExecuter, mockResourceManager *resource.MockManager) {
 				mockExec.EXPECT().ExecuteWithContext(
@@ -59,11 +59,13 @@ func TestEnsureScheduled(t *testing.T) {
 		},
 		{
 			name: "single image needs pulling returns not ready",
-			targets: []OCIPullTarget{
-				{
-					Type:       OCITypePodmanImage,
-					Reference:  "quay.io/test/missing:latest",
-					PullPolicy: v1beta1.PullIfNotPresent,
+			targets: OCIPullTargetsByUser{
+				"": []OCIPullTarget{
+					{
+						Type:       OCITypePodmanImage,
+						Reference:  "quay.io/test/missing:latest",
+						PullPolicy: v1beta1.PullIfNotPresent,
+					},
 				},
 			},
 			setupMocks: func(mockExec *executer.MockExecuter, mockResourceManager *resource.MockManager) {
@@ -76,16 +78,18 @@ func TestEnsureScheduled(t *testing.T) {
 		},
 		{
 			name: "multiple images some missing returns not ready",
-			targets: []OCIPullTarget{
-				{
-					Type:       OCITypePodmanImage,
-					Reference:  "quay.io/test/ready1:latest",
-					PullPolicy: v1beta1.PullIfNotPresent,
-				},
-				{
-					Type:       OCITypePodmanImage,
-					Reference:  "quay.io/test/missing1:latest",
-					PullPolicy: v1beta1.PullIfNotPresent,
+			targets: OCIPullTargetsByUser{
+				"": []OCIPullTarget{
+					{
+						Type:       OCITypePodmanImage,
+						Reference:  "quay.io/test/ready1:latest",
+						PullPolicy: v1beta1.PullIfNotPresent,
+					},
+					{
+						Type:       OCITypePodmanImage,
+						Reference:  "quay.io/test/missing1:latest",
+						PullPolicy: v1beta1.PullIfNotPresent,
+					},
 				},
 			},
 			setupMocks: func(mockExec *executer.MockExecuter, mockResourceManager *resource.MockManager) {
@@ -103,11 +107,13 @@ func TestEnsureScheduled(t *testing.T) {
 		},
 		{
 			name: "artifact target needs pulling returns not ready",
-			targets: []OCIPullTarget{
-				{
-					Type:       OCITypePodmanArtifact,
-					Reference:  "quay.io/test/artifact:latest",
-					PullPolicy: v1beta1.PullIfNotPresent,
+			targets: OCIPullTargetsByUser{
+				"": []OCIPullTarget{
+					{
+						Type:       OCITypePodmanArtifact,
+						Reference:  "quay.io/test/artifact:latest",
+						PullPolicy: v1beta1.PullIfNotPresent,
+					},
 				},
 			},
 			setupMocks: func(mockExec *executer.MockExecuter, mockResourceManager *resource.MockManager) {
@@ -120,11 +126,13 @@ func TestEnsureScheduled(t *testing.T) {
 		},
 		{
 			name: "artifact already exists returns ready",
-			targets: []OCIPullTarget{
-				{
-					Type:       OCITypePodmanArtifact,
-					Reference:  "quay.io/test/existing-artifact:latest",
-					PullPolicy: v1beta1.PullIfNotPresent,
+			targets: OCIPullTargetsByUser{
+				"": []OCIPullTarget{
+					{
+						Type:       OCITypePodmanArtifact,
+						Reference:  "quay.io/test/existing-artifact:latest",
+						PullPolicy: v1beta1.PullIfNotPresent,
+					},
 				},
 			},
 			setupMocks: func(mockExec *executer.MockExecuter, mockResourceManager *resource.MockManager) {
@@ -136,16 +144,18 @@ func TestEnsureScheduled(t *testing.T) {
 		},
 		{
 			name: "mixed image and artifact targets with some missing",
-			targets: []OCIPullTarget{
-				{
-					Type:       OCITypePodmanImage,
-					Reference:  "quay.io/test/existing-image:latest",
-					PullPolicy: v1beta1.PullIfNotPresent,
-				},
-				{
-					Type:       OCITypePodmanArtifact,
-					Reference:  "quay.io/test/missing-artifact:latest",
-					PullPolicy: v1beta1.PullIfNotPresent,
+			targets: OCIPullTargetsByUser{
+				"": []OCIPullTarget{
+					{
+						Type:       OCITypePodmanImage,
+						Reference:  "quay.io/test/existing-image:latest",
+						PullPolicy: v1beta1.PullIfNotPresent,
+					},
+					{
+						Type:       OCITypePodmanArtifact,
+						Reference:  "quay.io/test/missing-artifact:latest",
+						PullPolicy: v1beta1.PullIfNotPresent,
+					},
 				},
 			},
 			setupMocks: func(mockExec *executer.MockExecuter, mockResourceManager *resource.MockManager) {
@@ -163,16 +173,18 @@ func TestEnsureScheduled(t *testing.T) {
 		},
 		{
 			name: "mixed image and artifact targets all existing",
-			targets: []OCIPullTarget{
-				{
-					Type:       OCITypePodmanImage,
-					Reference:  "quay.io/test/existing-image:latest",
-					PullPolicy: v1beta1.PullIfNotPresent,
-				},
-				{
-					Type:       OCITypePodmanArtifact,
-					Reference:  "quay.io/test/existing-artifact:latest",
-					PullPolicy: v1beta1.PullIfNotPresent,
+			targets: OCIPullTargetsByUser{
+				"": []OCIPullTarget{
+					{
+						Type:       OCITypePodmanImage,
+						Reference:  "quay.io/test/existing-image:latest",
+						PullPolicy: v1beta1.PullIfNotPresent,
+					},
+					{
+						Type:       OCITypePodmanArtifact,
+						Reference:  "quay.io/test/existing-artifact:latest",
+						PullPolicy: v1beta1.PullIfNotPresent,
+					},
 				},
 			},
 			setupMocks: func(mockExec *executer.MockExecuter, mockResourceManager *resource.MockManager) {
@@ -189,11 +201,13 @@ func TestEnsureScheduled(t *testing.T) {
 		},
 		{
 			name: "pull always policy with existing artifact returns ready",
-			targets: []OCIPullTarget{
-				{
-					Type:       OCITypePodmanArtifact,
-					Reference:  "quay.io/test/always-artifact:latest",
-					PullPolicy: v1beta1.PullAlways,
+			targets: OCIPullTargetsByUser{
+				"": []OCIPullTarget{
+					{
+						Type:       OCITypePodmanArtifact,
+						Reference:  "quay.io/test/always-artifact:latest",
+						PullPolicy: v1beta1.PullAlways,
+					},
 				},
 			},
 			setupMocks: func(mockExec *executer.MockExecuter, mockResourceManager *resource.MockManager) {
@@ -205,11 +219,13 @@ func TestEnsureScheduled(t *testing.T) {
 		},
 		{
 			name: "pull always policy with existing image returns ready",
-			targets: []OCIPullTarget{
-				{
-					Type:       OCITypePodmanImage,
-					Reference:  "quay.io/test/always:latest",
-					PullPolicy: v1beta1.PullAlways,
+			targets: OCIPullTargetsByUser{
+				"": []OCIPullTarget{
+					{
+						Type:       OCITypePodmanImage,
+						Reference:  "quay.io/test/always:latest",
+						PullPolicy: v1beta1.PullAlways,
+					},
 				},
 			},
 			setupMocks: func(mockExec *executer.MockExecuter, mockResourceManager *resource.MockManager) {
@@ -239,19 +255,23 @@ func TestEnsureScheduled(t *testing.T) {
 			podman := client.NewPodman(log, mockExec, rw, poll.Config{})
 			skopeo := client.NewSkopeo(log, mockExec, rw)
 
+			var podmanFactory client.PodmanFactory = func(user v1beta1.Username) (*client.Podman, error) {
+				return podman, nil
+			}
+			var skopeoFactory client.SkopeoFactory = func(u v1beta1.Username) (*client.Skopeo, error) {
+				return skopeo, nil
+			}
+
 			timeout := util.Duration(5 * time.Second)
 			cliClients := client.NewCLIClients()
-			manager := NewPrefetchManager(log, podman, skopeo, cliClients, rw, timeout, mockResourceManager, poll.Config{})
+			manager := NewPrefetchManager(log, podmanFactory, skopeoFactory, cliClients, rw, timeout, mockResourceManager, poll.Config{})
 
 			// register a collector that returns the test targets
 			manager.RegisterOCICollector(newTestOCICollector(func(ctx context.Context, current, desired *v1beta1.DeviceSpec) (*OCICollection, error) {
 				return &OCICollection{Targets: tt.targets}, nil
 			}))
 
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
-
-			err := manager.BeforeUpdate(ctx, &v1beta1.DeviceSpec{}, &v1beta1.DeviceSpec{})
+			err := manager.BeforeUpdate(t.Context(), &v1beta1.DeviceSpec{}, &v1beta1.DeviceSpec{})
 			if tt.expectedError != nil {
 				require.Error(err)
 				require.ErrorIs(err, tt.expectedError)
@@ -324,12 +344,20 @@ func TestIsReady(t *testing.T) {
 
 			timeout := util.Duration(5 * time.Second)
 			cliClients := client.NewCLIClients()
-			manager := NewPrefetchManager(log, podman, skopeo, cliClients, rw, timeout, mockResourceManager, poll.Config{})
+
+			var podmanFactory client.PodmanFactory = func(user v1beta1.Username) (*client.Podman, error) {
+				return podman, nil
+			}
+			var skopeoFactory client.SkopeoFactory = func(u v1beta1.Username) (*client.Skopeo, error) {
+				return skopeo, nil
+			}
+
+			manager := NewPrefetchManager(log, podmanFactory, skopeoFactory, cliClients, rw, timeout, mockResourceManager, poll.Config{})
 
 			for _, image := range tt.scheduledImages {
 				state := tt.imageStates[image]
 				manager.mu.Lock()
-				manager.tasks[image] = &prefetchTask{
+				manager.tasks[imageRef{image: image}] = &prefetchTask{
 					ociType: OCITypePodmanImage,
 					done:    state.done,
 					err:     state.err,
@@ -339,7 +367,7 @@ func TestIsReady(t *testing.T) {
 
 			// Check if target is ready
 			manager.mu.Lock()
-			task, ok := manager.tasks[tt.imageToCheck]
+			task, ok := manager.tasks[imageRef{image: tt.imageToCheck}]
 			ready := ok && task.err == nil && task.done
 			manager.mu.Unlock()
 
@@ -376,18 +404,28 @@ func TestStatus(t *testing.T) {
 
 	timeout := util.Duration(5 * time.Second)
 	cliClients := client.NewCLIClients()
-	manager := NewPrefetchManager(log, podman, skopeo, cliClients, rw, timeout, mockResourceManager, poll.Config{})
 
-	targets := []OCIPullTarget{
-		{
-			Type:       OCITypePodmanImage,
-			Reference:  "quay.io/test/existing:latest",
-			PullPolicy: v1beta1.PullIfNotPresent,
-		},
-		{
-			Type:       OCITypePodmanImage,
-			Reference:  "quay.io/test/missing:latest",
-			PullPolicy: v1beta1.PullIfNotPresent,
+	var podmanFactory client.PodmanFactory = func(user v1beta1.Username) (*client.Podman, error) {
+		return podman, nil
+	}
+	var skopeoFactory client.SkopeoFactory = func(u v1beta1.Username) (*client.Skopeo, error) {
+		return skopeo, nil
+	}
+
+	manager := NewPrefetchManager(log, podmanFactory, skopeoFactory, cliClients, rw, timeout, mockResourceManager, poll.Config{})
+
+	targets := OCIPullTargetsByUser{
+		"": []OCIPullTarget{
+			{
+				Type:       OCITypePodmanImage,
+				Reference:  "quay.io/test/existing:latest",
+				PullPolicy: v1beta1.PullIfNotPresent,
+			},
+			{
+				Type:       OCITypePodmanImage,
+				Reference:  "quay.io/test/missing:latest",
+				PullPolicy: v1beta1.PullIfNotPresent,
+			},
 		},
 	}
 
@@ -428,7 +466,7 @@ func TestBeforeUpdate(t *testing.T) {
 			name: "empty device specs with registered collectors",
 			collectors: []func() (*OCICollection, error){
 				func() (*OCICollection, error) {
-					return &OCICollection{Targets: []OCIPullTarget{}}, nil
+					return &OCICollection{Targets: OCIPullTargetsByUser{}}, nil
 				},
 			},
 			setupMocks: func(mockExec *executer.MockExecuter) {
@@ -439,16 +477,18 @@ func TestBeforeUpdate(t *testing.T) {
 			name: "single collector with missing images",
 			collectors: []func() (*OCICollection, error){
 				func() (*OCICollection, error) {
-					return &OCICollection{Targets: []OCIPullTarget{
-						{
-							Type:       OCITypePodmanImage,
-							Reference:  testImageV1,
-							PullPolicy: v1beta1.PullIfNotPresent,
-						},
-						{
-							Type:       OCITypePodmanImage,
-							Reference:  testImageV2,
-							PullPolicy: v1beta1.PullIfNotPresent,
+					return &OCICollection{Targets: OCIPullTargetsByUser{
+						"": []OCIPullTarget{
+							{
+								Type:       OCITypePodmanImage,
+								Reference:  testImageV1,
+								PullPolicy: v1beta1.PullIfNotPresent,
+							},
+							{
+								Type:       OCITypePodmanImage,
+								Reference:  testImageV2,
+								PullPolicy: v1beta1.PullIfNotPresent,
+							},
 						},
 					}}, nil
 				},
@@ -467,16 +507,18 @@ func TestBeforeUpdate(t *testing.T) {
 			name: "single collector with all images present",
 			collectors: []func() (*OCICollection, error){
 				func() (*OCICollection, error) {
-					return &OCICollection{Targets: []OCIPullTarget{
-						{
-							Type:       OCITypePodmanImage,
-							Reference:  testImageV1,
-							PullPolicy: v1beta1.PullIfNotPresent,
-						},
-						{
-							Type:       OCITypePodmanImage,
-							Reference:  testImageV2,
-							PullPolicy: v1beta1.PullIfNotPresent,
+					return &OCICollection{Targets: OCIPullTargetsByUser{
+						"": []OCIPullTarget{
+							{
+								Type:       OCITypePodmanImage,
+								Reference:  testImageV1,
+								PullPolicy: v1beta1.PullIfNotPresent,
+							},
+							{
+								Type:       OCITypePodmanImage,
+								Reference:  testImageV2,
+								PullPolicy: v1beta1.PullIfNotPresent,
+							},
 						},
 					}}, nil
 				},
@@ -494,16 +536,18 @@ func TestBeforeUpdate(t *testing.T) {
 			name: "single collector with mixed image availability",
 			collectors: []func() (*OCICollection, error){
 				func() (*OCICollection, error) {
-					return &OCICollection{Targets: []OCIPullTarget{
-						{
-							Type:       OCITypePodmanImage,
-							Reference:  testImageV1,
-							PullPolicy: v1beta1.PullIfNotPresent,
-						},
-						{
-							Type:       OCITypePodmanImage,
-							Reference:  testImageV2,
-							PullPolicy: v1beta1.PullIfNotPresent,
+					return &OCICollection{Targets: OCIPullTargetsByUser{
+						"": []OCIPullTarget{
+							{
+								Type:       OCITypePodmanImage,
+								Reference:  testImageV1,
+								PullPolicy: v1beta1.PullIfNotPresent,
+							},
+							{
+								Type:       OCITypePodmanImage,
+								Reference:  testImageV2,
+								PullPolicy: v1beta1.PullIfNotPresent,
+							},
 						},
 					}}, nil
 				},
@@ -523,26 +567,30 @@ func TestBeforeUpdate(t *testing.T) {
 			collectors: []func() (*OCICollection, error){
 				// app collector
 				func() (*OCICollection, error) {
-					return &OCICollection{Targets: []OCIPullTarget{
-						{
-							Type:       OCITypePodmanImage,
-							Reference:  testImageV1,
-							PullPolicy: v1beta1.PullIfNotPresent,
-						},
-						{
-							Type:       OCITypePodmanImage,
-							Reference:  testImageV2,
-							PullPolicy: v1beta1.PullIfNotPresent,
+					return &OCICollection{Targets: OCIPullTargetsByUser{
+						"": []OCIPullTarget{
+							{
+								Type:       OCITypePodmanImage,
+								Reference:  testImageV1,
+								PullPolicy: v1beta1.PullIfNotPresent,
+							},
+							{
+								Type:       OCITypePodmanImage,
+								Reference:  testImageV2,
+								PullPolicy: v1beta1.PullIfNotPresent,
+							},
 						},
 					}}, nil
 				},
 				// os collector
 				func() (*OCICollection, error) {
-					return &OCICollection{Targets: []OCIPullTarget{
-						{
-							Type:       OCITypePodmanImage,
-							Reference:  testOSImage,
-							PullPolicy: v1beta1.PullIfNotPresent,
+					return &OCICollection{Targets: OCIPullTargetsByUser{
+						"": []OCIPullTarget{
+							{
+								Type:       OCITypePodmanImage,
+								Reference:  testOSImage,
+								PullPolicy: v1beta1.PullIfNotPresent,
+							},
 						},
 					}}, nil
 				},
@@ -575,11 +623,13 @@ func TestBeforeUpdate(t *testing.T) {
 			name: "artifact target with missing image",
 			collectors: []func() (*OCICollection, error){
 				func() (*OCICollection, error) {
-					return &OCICollection{Targets: []OCIPullTarget{
-						{
-							Type:       OCITypePodmanArtifact,
-							Reference:  "quay.io/test/artifact:latest",
-							PullPolicy: v1beta1.PullIfNotPresent,
+					return &OCICollection{Targets: OCIPullTargetsByUser{
+						"": []OCIPullTarget{
+							{
+								Type:       OCITypePodmanArtifact,
+								Reference:  "quay.io/test/artifact:latest",
+								PullPolicy: v1beta1.PullIfNotPresent,
+							},
 						},
 					}}, nil
 				},
@@ -595,11 +645,13 @@ func TestBeforeUpdate(t *testing.T) {
 			name: "artifact target with existing artifact",
 			collectors: []func() (*OCICollection, error){
 				func() (*OCICollection, error) {
-					return &OCICollection{Targets: []OCIPullTarget{
-						{
-							Type:       OCITypePodmanArtifact,
-							Reference:  "quay.io/test/existing-artifact:latest",
-							PullPolicy: v1beta1.PullIfNotPresent,
+					return &OCICollection{Targets: OCIPullTargetsByUser{
+						"": []OCIPullTarget{
+							{
+								Type:       OCITypePodmanArtifact,
+								Reference:  "quay.io/test/existing-artifact:latest",
+								PullPolicy: v1beta1.PullIfNotPresent,
+							},
 						},
 					}}, nil
 				},
@@ -614,16 +666,18 @@ func TestBeforeUpdate(t *testing.T) {
 			name: "mixed image and artifact targets with some missing",
 			collectors: []func() (*OCICollection, error){
 				func() (*OCICollection, error) {
-					return &OCICollection{Targets: []OCIPullTarget{
-						{
-							Type:       OCITypePodmanImage,
-							Reference:  "quay.io/test/existing-image:latest",
-							PullPolicy: v1beta1.PullIfNotPresent,
-						},
-						{
-							Type:       OCITypePodmanArtifact,
-							Reference:  "quay.io/test/missing-artifact:latest",
-							PullPolicy: v1beta1.PullIfNotPresent,
+					return &OCICollection{Targets: OCIPullTargetsByUser{
+						"": []OCIPullTarget{
+							{
+								Type:       OCITypePodmanImage,
+								Reference:  "quay.io/test/existing-image:latest",
+								PullPolicy: v1beta1.PullIfNotPresent,
+							},
+							{
+								Type:       OCITypePodmanArtifact,
+								Reference:  "quay.io/test/missing-artifact:latest",
+								PullPolicy: v1beta1.PullIfNotPresent,
+							},
 						},
 					}}, nil
 				},
@@ -642,16 +696,18 @@ func TestBeforeUpdate(t *testing.T) {
 			name: "mixed image and artifact targets all existing",
 			collectors: []func() (*OCICollection, error){
 				func() (*OCICollection, error) {
-					return &OCICollection{Targets: []OCIPullTarget{
-						{
-							Type:       OCITypePodmanImage,
-							Reference:  "quay.io/test/existing-image:latest",
-							PullPolicy: v1beta1.PullIfNotPresent,
-						},
-						{
-							Type:       OCITypePodmanArtifact,
-							Reference:  "quay.io/test/existing-artifact:latest",
-							PullPolicy: v1beta1.PullIfNotPresent,
+					return &OCICollection{Targets: OCIPullTargetsByUser{
+						"": []OCIPullTarget{
+							{
+								Type:       OCITypePodmanImage,
+								Reference:  "quay.io/test/existing-image:latest",
+								PullPolicy: v1beta1.PullIfNotPresent,
+							},
+							{
+								Type:       OCITypePodmanArtifact,
+								Reference:  "quay.io/test/existing-artifact:latest",
+								PullPolicy: v1beta1.PullIfNotPresent,
+							},
 						},
 					}}, nil
 				},
@@ -669,11 +725,13 @@ func TestBeforeUpdate(t *testing.T) {
 			name: "pull always policy with existing artifact",
 			collectors: []func() (*OCICollection, error){
 				func() (*OCICollection, error) {
-					return &OCICollection{Targets: []OCIPullTarget{
-						{
-							Type:       OCITypePodmanArtifact,
-							Reference:  "quay.io/test/always-artifact:latest",
-							PullPolicy: v1beta1.PullAlways,
+					return &OCICollection{Targets: OCIPullTargetsByUser{
+						"": []OCIPullTarget{
+							{
+								Type:       OCITypePodmanArtifact,
+								Reference:  "quay.io/test/always-artifact:latest",
+								PullPolicy: v1beta1.PullAlways,
+							},
 						},
 					}}, nil
 				},
@@ -688,11 +746,13 @@ func TestBeforeUpdate(t *testing.T) {
 			name: "pull always policy with existing image",
 			collectors: []func() (*OCICollection, error){
 				func() (*OCICollection, error) {
-					return &OCICollection{Targets: []OCIPullTarget{
-						{
-							Type:       OCITypePodmanImage,
-							Reference:  testImageV1,
-							PullPolicy: v1beta1.PullAlways,
+					return &OCICollection{Targets: OCIPullTargetsByUser{
+						"": []OCIPullTarget{
+							{
+								Type:       OCITypePodmanImage,
+								Reference:  testImageV1,
+								PullPolicy: v1beta1.PullAlways,
+							},
 						},
 					}}, nil
 				},
@@ -725,9 +785,16 @@ func TestBeforeUpdate(t *testing.T) {
 			podman := client.NewPodman(log, mockExec, rw, poll.Config{})
 			skopeo := client.NewSkopeo(log, mockExec, rw)
 
+			var podmanFactory client.PodmanFactory = func(user v1beta1.Username) (*client.Podman, error) {
+				return podman, nil
+			}
+			var skopeoFactory client.SkopeoFactory = func(u v1beta1.Username) (*client.Skopeo, error) {
+				return skopeo, nil
+			}
+
 			timeout := util.Duration(5 * time.Second)
 			cliClients := client.NewCLIClients()
-			manager := NewPrefetchManager(log, podman, skopeo, cliClients, rw, timeout, mockResourceManager, poll.Config{})
+			manager := NewPrefetchManager(log, podmanFactory, skopeoFactory, cliClients, rw, timeout, mockResourceManager, poll.Config{})
 
 			// Register collectors
 			for _, collector := range tt.collectors {
@@ -736,10 +803,7 @@ func TestBeforeUpdate(t *testing.T) {
 				}))
 			}
 
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
-
-			err := manager.BeforeUpdate(ctx, &v1beta1.DeviceSpec{}, &v1beta1.DeviceSpec{})
+			err := manager.BeforeUpdate(t.Context(), &v1beta1.DeviceSpec{}, &v1beta1.DeviceSpec{})
 			if tt.wantErr != nil {
 				require.Error(err)
 				if errors.Is(tt.wantErr, errors.ErrPrefetchNotReady) {
@@ -772,9 +836,9 @@ func TestStatusMessage(t *testing.T) {
 		{
 			name: "all images ready",
 			setupManager: func(m *prefetchManager) {
-				m.tasks = map[string]*prefetchTask{
-					"image1": {done: true, err: nil},
-					"image2": {done: true, err: nil},
+				m.tasks = map[imageRef]*prefetchTask{
+					{image: "image1"}: {done: true, err: nil},
+					{image: "image2"}: {done: true, err: nil},
 				}
 			},
 			expected: "All 2 images ready",
@@ -782,10 +846,10 @@ func TestStatusMessage(t *testing.T) {
 		{
 			name: "some images pending",
 			setupManager: func(m *prefetchManager) {
-				m.tasks = map[string]*prefetchTask{
-					"image1": {done: true, err: nil},
-					"image2": {done: false, err: nil},
-					"image3": {done: false, err: nil},
+				m.tasks = map[imageRef]*prefetchTask{
+					{image: "image1"}: {done: true, err: nil},
+					{image: "image2"}: {done: false, err: nil},
+					{image: "image3"}: {done: false, err: nil},
 				}
 			},
 			expected: "1/3 images complete, pending: image2, image3",
@@ -793,10 +857,10 @@ func TestStatusMessage(t *testing.T) {
 		{
 			name: "some images retrying with reason",
 			setupManager: func(m *prefetchManager) {
-				m.tasks = map[string]*prefetchTask{
-					"image1": {done: true, err: nil},
-					"image2": {done: false, err: nil},
-					"image3": {done: false, err: errors.ErrNetwork},
+				m.tasks = map[imageRef]*prefetchTask{
+					{image: "image1"}: {done: true, err: nil},
+					{image: "image2"}: {done: false, err: nil},
+					{image: "image3"}: {done: false, err: errors.ErrNetwork},
 				}
 			},
 			expected: "1/3 images complete, retrying: image3: network, and 1 more pending",
@@ -804,12 +868,12 @@ func TestStatusMessage(t *testing.T) {
 		{
 			name: "many images pending",
 			setupManager: func(m *prefetchManager) {
-				m.tasks = map[string]*prefetchTask{
-					"image1": {done: true, err: nil},
-					"image2": {done: false, err: nil},
-					"image3": {done: false, err: nil},
-					"image4": {done: false, err: nil},
-					"image5": {done: false, err: nil},
+				m.tasks = map[imageRef]*prefetchTask{
+					{image: "image1"}: {done: true, err: nil},
+					{image: "image2"}: {done: false, err: nil},
+					{image: "image3"}: {done: false, err: nil},
+					{image: "image4"}: {done: false, err: nil},
+					{image: "image5"}: {done: false, err: nil},
 				}
 			},
 			expected: "1/5 images complete, pending: image2, image3, image4 and 1 more",
@@ -825,7 +889,7 @@ func TestStatusMessage(t *testing.T) {
 			manager := &prefetchManager{
 				log:         log,
 				pullTimeout: time.Duration(timeout),
-				tasks:       make(map[string]*prefetchTask),
+				tasks:       make(map[imageRef]*prefetchTask),
 			}
 
 			tt.setupManager(manager)
@@ -859,9 +923,17 @@ func TestPullSecretCleanup(t *testing.T) {
 	rw := fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter())
 	podman := client.NewPodman(log, mockExec, rw, poll.Config{})
 	skopeo := client.NewSkopeo(log, mockExec, rw)
+
+	var podmanFactory client.PodmanFactory = func(user v1beta1.Username) (*client.Podman, error) {
+		return podman, nil
+	}
+	var skopeoFactory client.SkopeoFactory = func(u v1beta1.Username) (*client.Skopeo, error) {
+		return skopeo, nil
+	}
+
 	timeout := util.Duration(5 * time.Second)
 	cliClients := client.NewCLIClients()
-	manager := NewPrefetchManager(log, podman, skopeo, cliClients, rw, timeout, mockResourceManager, poll.Config{})
+	manager := NewPrefetchManager(log, podmanFactory, skopeoFactory, cliClients, rw, timeout, mockResourceManager, poll.Config{})
 
 	// simulate the complete lifecycle of pull secret cleanup
 	var cleanupCalls []string
@@ -879,12 +951,14 @@ func TestPullSecretCleanup(t *testing.T) {
 
 	// simulate a collector that would be called by applications manager
 	appCollector := func(ctx context.Context, current, desired *v1beta1.DeviceSpec) (*OCICollection, error) {
-		return &OCICollection{Targets: []OCIPullTarget{
-			{
-				Type:       OCITypePodmanImage,
-				Reference:  "registry.example.com/app:latest",
-				PullPolicy: v1beta1.PullIfNotPresent,
-				Configs:    appPullSecretProvider,
+		return &OCICollection{Targets: OCIPullTargetsByUser{
+			"": []OCIPullTarget{
+				{
+					Type:       OCITypePodmanImage,
+					Reference:  "registry.example.com/app:latest",
+					PullPolicy: v1beta1.PullIfNotPresent,
+					Configs:    appPullSecretProvider,
+				},
 			},
 		}}, nil
 	}
@@ -910,7 +984,7 @@ func TestPullSecretCleanup(t *testing.T) {
 	require.Empty(cleanupCalls)
 
 	// simulate successful pull completion
-	manager.setResult("registry.example.com/app:latest", nil)
+	manager.setResult(imageRef{image: "registry.example.com/app:latest"}, nil)
 
 	// verify the manager is now ready
 	require.True(manager.IsReady(ctx))
@@ -1099,25 +1173,28 @@ func TestCleanupPartialLayers(t *testing.T) {
 				AnyTimes()
 
 			// create podman client
-			podmanClient := client.NewPodman(log, mockExec, rw, poll.Config{})
-			skopeoClient := client.NewSkopeo(log, mockExec, rw)
+			var podmanFactory client.PodmanFactory = func(user v1beta1.Username) (*client.Podman, error) {
+				return client.NewPodman(log, mockExec, rw, poll.Config{}), nil
+			}
+			var skopeoFactory client.SkopeoFactory = func(u v1beta1.Username) (*client.Skopeo, error) {
+				return client.NewSkopeo(log, mockExec, rw), nil
+			}
 			cliClients := client.NewCLIClients()
 
 			// create prefetch manager
 			pm := &prefetchManager{
-				log:          log,
-				podmanClient: podmanClient,
-				skopeoClient: skopeoClient,
-				cliClients:   cliClients,
-				readWriter:   rw,
-				pullTimeout:  5 * time.Minute,
-				tasks:        make(map[string]*prefetchTask),
-				tmpDir:       "", // always start without cache to test fetching
+				log:           log,
+				podmanFactory: podmanFactory,
+				skopeoFactory: skopeoFactory,
+				cliClients:    cliClients,
+				readWriter:    rw,
+				pullTimeout:   5 * time.Minute,
+				tasks:         make(map[imageRef]*prefetchTask),
 			}
 
 			// setup active pulls if needed
 			if tt.activePulls {
-				pm.tasks["test-image"] = &prefetchTask{
+				pm.tasks[imageRef{image: "test-image"}] = &prefetchTask{
 					cancelFn: func() {},
 					done:     false,
 				}
@@ -1125,7 +1202,7 @@ func TestCleanupPartialLayers(t *testing.T) {
 
 			// run cleanup
 			ctx := context.Background()
-			err = pm.cleanupPartialLayers(ctx)
+			err = pm.cleanupPartialLayers(ctx, "")
 			require.NoError(err)
 
 			// verify expected directories exist
@@ -1165,9 +1242,16 @@ func TestSetResultAfterCleanup(t *testing.T) {
 	cliClients := client.NewCLIClients()
 	pullTimeout := util.Duration(5 * time.Minute)
 
-	pm := NewPrefetchManager(logger, podmanClient, skopeoClient, cliClients, readWriter, pullTimeout, mockResourceManager, poll.Config{})
+	var podmanFactory client.PodmanFactory = func(user v1beta1.Username) (*client.Podman, error) {
+		return podmanClient, nil
+	}
+	var skopeoFactory client.SkopeoFactory = func(u v1beta1.Username) (*client.Skopeo, error) {
+		return skopeoClient, nil
+	}
 
-	testImage := "quay.io/test/image:latest"
+	pm := NewPrefetchManager(logger, podmanFactory, skopeoFactory, cliClients, readWriter, pullTimeout, mockResourceManager, poll.Config{})
+
+	testImage := imageRef{image: "quay.io/test/image:latest"}
 	pm.tasks[testImage] = &prefetchTask{
 		ociType: OCITypePodmanImage,
 		done:    false,
@@ -1191,14 +1275,14 @@ func TestSelectiveCleanup(t *testing.T) {
 	manager := &prefetchManager{
 		log:         logger,
 		pullTimeout: time.Duration(pullTimeout),
-		tasks:       make(map[string]*prefetchTask),
-		queue:       make(chan string, maxQueueSize),
+		tasks:       make(map[imageRef]*prefetchTask),
+		queue:       make(chan imageRef, maxQueueSize),
 	}
 
-	initialImages := []string{
-		"registry.example.com/app:v1",
-		"registry.example.com/sidecar:v1",
-		"registry.example.com/database:v1",
+	initialImages := []imageRef{
+		{image: "registry.example.com/app:v1"},
+		{image: "registry.example.com/sidecar:v1"},
+		{image: "registry.example.com/database:v1"},
 	}
 	for _, ref := range initialImages {
 		manager.tasks[ref] = &prefetchTask{
@@ -1213,9 +1297,9 @@ func TestSelectiveCleanup(t *testing.T) {
 		{Type: OCITypePodmanImage, Reference: "registry.example.com/cache:v1"},
 	}
 
-	newRefs := make(map[string]struct{}, len(newTargets))
+	newRefs := make(map[imageRef]struct{}, len(newTargets))
 	for _, target := range newTargets {
-		newRefs[target.Reference] = struct{}{}
+		newRefs[imageRef{image: target.Reference}] = struct{}{}
 	}
 
 	manager.mu.Lock()
@@ -1223,18 +1307,18 @@ func TestSelectiveCleanup(t *testing.T) {
 	manager.mu.Unlock()
 
 	// app and sidecar tasks should still exist
-	_, appExists := manager.tasks["registry.example.com/app:v1"]
+	_, appExists := manager.tasks[imageRef{image: "registry.example.com/app:v1"}]
 	require.True(t, appExists, "app:v1 task should be preserved")
 
-	_, sidecarExists := manager.tasks["registry.example.com/sidecar:v1"]
+	_, sidecarExists := manager.tasks[imageRef{image: "registry.example.com/sidecar:v1"}]
 	require.True(t, sidecarExists, "sidecar:v1 task should be preserved")
 
 	// database should be removed
-	_, databaseExists := manager.tasks["registry.example.com/database:v1"]
+	_, databaseExists := manager.tasks[imageRef{image: "registry.example.com/database:v1"}]
 	require.False(t, databaseExists, "database:v1 task should be removed")
 
 	// cache task should NOT exist yet
-	_, cacheExists := manager.tasks["registry.example.com/cache:v1"]
+	_, cacheExists := manager.tasks[imageRef{image: "registry.example.com/cache:v1"}]
 	require.False(t, cacheExists, "cache:v1 task should not exist (not scheduled)")
 
 	require.Equal(t, 2, len(manager.tasks), "should have exactly 2 tasks remaining")
@@ -1295,13 +1379,13 @@ func TestTargetChangeCleanup(t *testing.T) {
 			manager := &prefetchManager{
 				log:         logger,
 				pullTimeout: time.Duration(pullTimeout),
-				tasks:       make(map[string]*prefetchTask),
-				queue:       make(chan string, maxQueueSize),
+				tasks:       make(map[imageRef]*prefetchTask),
+				queue:       make(chan imageRef, maxQueueSize),
 			}
 
 			if len(tt.initialTargets) > 0 {
 				for _, ref := range tt.initialTargets {
-					manager.tasks[ref] = &prefetchTask{done: false}
+					manager.tasks[imageRef{image: ref}] = &prefetchTask{done: false}
 				}
 			}
 
@@ -1316,9 +1400,9 @@ func TestTargetChangeCleanup(t *testing.T) {
 				}
 			}
 
-			newRefs := make(map[string]struct{}, len(newTargets))
+			newRefs := make(map[imageRef]struct{}, len(newTargets))
 			for _, target := range newTargets {
-				newRefs[target.Reference] = struct{}{}
+				newRefs[imageRef{image: target.Reference}] = struct{}{}
 			}
 
 			manager.mu.Lock()
@@ -1337,7 +1421,7 @@ func TestTargetChangeCleanup(t *testing.T) {
 				// ensure only stale tasks were removed
 				for _, ref := range tt.newTargets {
 					if slices.Contains(tt.initialTargets, ref) {
-						_, exists := manager.tasks[ref]
+						_, exists := manager.tasks[imageRef{image: ref}]
 						require.True(exists, "existing task for %s should be preserved", ref)
 					}
 				}
@@ -1345,7 +1429,7 @@ func TestTargetChangeCleanup(t *testing.T) {
 				// tasks for removed targets should be gone
 				for _, ref := range tt.initialTargets {
 					if !slices.Contains(tt.newTargets, ref) {
-						_, exists := manager.tasks[ref]
+						_, exists := manager.tasks[imageRef{image: ref}]
 						require.False(exists, "stale task for %s should be removed", ref)
 					}
 				}
@@ -1377,13 +1461,13 @@ func BenchmarkPrefetchTargetChange(b *testing.B) {
 				manager := &prefetchManager{
 					log:         logger,
 					pullTimeout: 5 * time.Minute,
-					tasks:       make(map[string]*prefetchTask),
-					queue:       make(chan string, maxQueueSize),
+					tasks:       make(map[imageRef]*prefetchTask),
+					queue:       make(chan imageRef, maxQueueSize),
 				}
 
 				for j := 0; j < bm.initialCount; j++ {
 					ref := fmt.Sprintf("registry.example.com/image-%d:v1", j)
-					manager.tasks[ref] = &prefetchTask{
+					manager.tasks[imageRef{image: ref}] = &prefetchTask{
 						done:     false,
 						cancelFn: func() {},
 					}
@@ -1406,9 +1490,9 @@ func BenchmarkPrefetchTargetChange(b *testing.B) {
 
 				b.StartTimer()
 				manager.mu.Lock()
-				newRefs := make(map[string]struct{}, len(allTargets))
+				newRefs := make(map[imageRef]struct{}, len(allTargets))
 				for _, target := range allTargets {
-					newRefs[target.Reference] = struct{}{}
+					newRefs[imageRef{image: target.Reference}] = struct{}{}
 				}
 				if manager.isTargetsChanged(newRefs) {
 					manager.cleanupStaleTasks(newRefs)

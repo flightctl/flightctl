@@ -234,9 +234,6 @@ func TestManager(t *testing.T) {
 				mockSystemdMgr,
 			)
 
-			currentProviders, err := provider.FromDeviceSpec(ctx, log, mockPodmanClient, readWriter, tc.current)
-			require.NoError(err)
-
 			var podmanFactory client.PodmanFactory = func(user v1beta1.Username) (*client.Podman, error) {
 				return mockPodmanClient, nil
 			}
@@ -249,6 +246,10 @@ func TestManager(t *testing.T) {
 			var rwMockFactory fileio.ReadWriterFactory = func(username v1beta1.Username) (fileio.ReadWriter, error) {
 				return mockReadWriter, nil
 			}
+
+			currentProviders, err := provider.FromDeviceSpec(ctx, log, podmanFactory, rwFactory, tc.current)
+			require.NoError(err)
+
 			manager := &manager{
 				rwFactory:     rwFactory,
 				podmanMonitor: NewPodmanMonitor(log, podmanFactory, systemdFactory, "", rwMockFactory),
@@ -265,7 +266,7 @@ func TestManager(t *testing.T) {
 			err = manager.AfterUpdate(ctx)
 			require.NoError(err)
 
-			desiredProviders, err := provider.FromDeviceSpec(ctx, log, mockPodmanClient, readWriter, tc.desired)
+			desiredProviders, err := provider.FromDeviceSpec(ctx, log, podmanFactory, rwFactory, tc.desired)
 			require.NoError(err)
 
 			err = syncProviders(ctx, log, manager, currentProviders, desiredProviders)
@@ -352,7 +353,7 @@ func TestManagerRemoveApplication(t *testing.T) {
 	}
 
 	// Ensure current applications
-	currentProviders, err := provider.FromDeviceSpec(ctx, log, mockPodmanClient, readWriter, current)
+	currentProviders, err := provider.FromDeviceSpec(ctx, log, podmanFactory, rwFactory, current)
 	require.NoError(err)
 	for _, provider := range currentProviders {
 		err := manager.Ensure(ctx, provider)
@@ -368,7 +369,7 @@ func TestManagerRemoveApplication(t *testing.T) {
 	require.True(manager.podmanMonitor.isRunning())
 
 	// Remove applications
-	desiredProviders, err := provider.FromDeviceSpec(ctx, log, mockPodmanClient, readWriter, desired)
+	desiredProviders, err := provider.FromDeviceSpec(ctx, log, podmanFactory, rwFactory, desired)
 	require.NoError(err)
 	err = syncProviders(ctx, log, manager, currentProviders, desiredProviders)
 	require.NoError(err)
@@ -623,6 +624,7 @@ func TestCollectOCITargetsCache(t *testing.T) {
 
 	entry1 := provider.CacheEntry{
 		Name:     "app1",
+		Owner:    "flightctl",
 		Parent:   dependency.OCIPullTarget{Reference: "quay.io/parent:v1", Digest: "sha256:digest1"},
 		Children: nestedTargets,
 	}

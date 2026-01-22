@@ -346,6 +346,20 @@ func (mr *MockApplicationMockRecorder) Status() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Status", reflect.TypeOf((*MockApplication)(nil).Status))
 }
 
+// User mocks base method.
+func (m *MockApplication) User() v1beta1.Username {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "User")
+	ret0, _ := ret[0].(v1beta1.Username)
+	return ret0
+}
+
+// User indicates an expected call of User.
+func (mr *MockApplicationMockRecorder) User() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "User", reflect.TypeOf((*MockApplication)(nil).User))
+}
+
 // Volume mocks base method.
 func (m *MockApplication) Volume() provider.VolumeManager {
 	m.ctrl.T.Helper()

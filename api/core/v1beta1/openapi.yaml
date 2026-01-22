@@ -4672,6 +4672,11 @@ components:
               description: The application name must be 1–253 characters long, start with a letter or number, and contain no whitespace.
             appType:
               $ref: '#/components/schemas/AppType'
+            runAs:
+              type: string
+              description: The username of the system user this application should be run under. This is not the same as the user within any containers of the application (if applicable). Defaults to the user that the agent runs as (generally root) if not specified.
+              x-go-type: Username
+              x-go-type-skip-optional-pointer: true
           required: 
             - appType
         - oneOf:
@@ -4838,6 +4843,7 @@ components:
         - "AppTypeCompose"
         - "AppTypeQuadlet"
         - "AppTypeContainer"
+
     ResourceMonitor:
       oneOf:
         - $ref: '#/components/schemas/CpuResourceMonitorSpec'
@@ -5334,6 +5340,11 @@ components:
           description: Whether the application is embedded in the bootc image.
         appType:
           $ref: "#/components/schemas/AppType"
+        runAs:
+          type: string
+          description: The username of the system user this application is runing under. If blank, the application is run as the same user as the agent (generally root).
+          x-go-type: Username
+          x-go-type-skip-optional-pointer: true
         volumes:
           type: array
           description: Status of volumes used by this application.
