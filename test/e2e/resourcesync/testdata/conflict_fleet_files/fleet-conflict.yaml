@@ -1,7 +1,8 @@
 apiVersion: flightctl.io/v1beta1
 kind: Fleet
 metadata:
-  name: resourcesync-conflict-fleet-{{.TestID}}
+  # This fleet has the name as fleet-1 from valid_fleet_files to create a conflict
+  name: resourcesync-test-fleet-1-{{.TestID}}
 spec:
   selector:
     matchLabels:

@@ -3,6 +3,7 @@ package e2e
 import (
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/test/util"
@@ -237,4 +238,26 @@ func (h *Harness) UpdateFleet(fleetName string, updateFunc func(*v1beta1.Fleet))
 	}
 
 	return nil
+}
+
+func (h *Harness) FleetExists(fleetName string) bool {
+	resp, err := h.Client.GetFleetWithResponse(h.Context, fleetName, nil)
+	if err != nil {
+		return false
+	}
+	return resp.JSON200 != nil
+}
+
+func (h *Harness) WaitForFleetCount(params *v1beta1.ListFleetsParams, expectedCount int, timeout, polling time.Duration) {
+	Eventually(func() (int, error) {
+		resp, err := h.Client.ListFleetsWithResponse(h.Context, params)
+		if err != nil {
+			return 0, err
+		}
+		if resp.JSON200 == nil {
+			return 0, fmt.Errorf("unexpected nil response")
+		}
+		return len(resp.JSON200.Items), nil
+	}, timeout, polling).Should(Equal(expectedCount),
+		fmt.Sprintf("Expected %d fleets matching params", expectedCount))
 }
