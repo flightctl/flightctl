@@ -938,18 +938,8 @@ func validateApplications(apps []ApplicationProviderSpec, fleetTemplate bool) []
 				allErrs = append(allErrs, fmt.Errorf("image reference cannot be empty when application name is not provided"))
 			}
 			allErrs = append(allErrs, validateOciImageReference(&provider.Image, fmt.Sprintf("spec.applications[%s].image", appName), fleetTemplate)...)
-			if app.AppType != AppTypeContainer {
-				if provider.Ports != nil && len(*provider.Ports) > 0 {
-					allErrs = append(allErrs, fmt.Errorf("ports can only be defined for container applications, not %q", app.AppType))
-				}
-				if provider.Resources != nil {
-					allErrs = append(allErrs, fmt.Errorf("resources can only be defined for container applications, not %q", app.AppType))
-				}
-			} else {
-				allErrs = append(allErrs, ValidateContainerImageApplicationSpec(appName, &provider)...)
-			}
-
-			allErrs = append(allErrs, validateHelmApplicationFields(appName, app.AppType, &provider)...)
+			allErrs = append(allErrs, validateContainerApplicationProperties(appName, app.AppType, &provider)...)
+			allErrs = append(allErrs, validateHelmApplicationProperties(appName, app.AppType, &provider)...)
 
 			volumes = provider.Volumes
 
@@ -989,19 +979,39 @@ func validateApplications(apps []ApplicationProviderSpec, fleetTemplate bool) []
 	return allErrs
 }
 
-func ValidateContainerImageApplicationSpec(appName string, spec *ImageApplicationProviderSpec) []error {
-	errs := validateContainerPorts(spec.Ports, fmt.Sprintf("spec.applications[%s].ports", appName))
-	if spec.Resources != nil && spec.Resources.Limits != nil {
-		errs = append(errs, validatePodmanCPULimit(spec.Resources.Limits.Cpu, fmt.Sprintf("spec.applications[%s].resources.limits.cpu", appName))...)
-		errs = append(errs, validatePodmanMemoryLimit(spec.Resources.Limits.Memory, fmt.Sprintf("spec.applications[%s].resources.limits.memory", appName))...)
+func validateContainerApplicationProperties(appName string, appType AppType, spec *ImageApplicationProviderSpec) []error {
+	pathPrefix := fmt.Sprintf("spec.applications[%s]", appName)
+
+	var errs []error
+	portsSet := spec.Ports != nil && len(*spec.Ports) > 0
+	resourcesSet := spec.Resources != nil
+
+	if appType == AppTypeContainer {
+		errs = append(errs, validateContainerPorts(spec.Ports, pathPrefix+".ports")...)
+		if spec.Resources != nil && spec.Resources.Limits != nil {
+			errs = append(errs, validatePodmanCPULimit(spec.Resources.Limits.Cpu, pathPrefix+".resources.limits.cpu")...)
+			errs = append(errs, validatePodmanMemoryLimit(spec.Resources.Limits.Memory, pathPrefix+".resources.limits.memory")...)
+		}
+	} else {
+		if portsSet {
+			errs = append(errs, fmt.Errorf("%s.ports: can only be defined for container applications, not %q", pathPrefix, appType))
+		}
+		if resourcesSet {
+			errs = append(errs, fmt.Errorf("%s.resources: can only be defined for container applications, not %q", pathPrefix, appType))
+		}
 	}
+
 	return errs
 }
 
-func validateHelmApplicationFields(appName string, appType AppType, spec *ImageApplicationProviderSpec) []error {
-	var errs []error
+func ValidateContainerImageApplicationSpec(appName string, spec *ImageApplicationProviderSpec) []error {
+	return validateContainerApplicationProperties(appName, AppTypeContainer, spec)
+}
+
+func validateHelmApplicationProperties(appName string, appType AppType, spec *ImageApplicationProviderSpec) []error {
 	pathPrefix := fmt.Sprintf("spec.applications[%s]", appName)
 
+	var errs []error
 	valuesSet := spec.Values != nil
 	valuesFilesSet := spec.ValuesFiles != nil
 	namespaceSet := spec.Namespace != nil

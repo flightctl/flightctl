@@ -4672,58 +4672,68 @@ components:
               description: The application name must be 1–253 characters long, start with a letter or number, and contain no whitespace.
             appType:
               $ref: '#/components/schemas/AppType'
-          required: 
+          required:
             - appType
         - oneOf:
             - $ref: '#/components/schemas/ImageApplicationProviderSpec'
             - $ref: '#/components/schemas/InlineApplicationProviderSpec'
+    HelmApplicationProperties:
+      type: object
+      description: Properties for helm application deployments.
+      properties:
+        namespace:
+          type: string
+          description: The target namespace for the application deployment.
+          example: "my-app-namespace"
+        values:
+          type: object
+          additionalProperties: true
+          description: Configuration values for the application. Supports arbitrarily nested structures.
+          example:
+            replicaCount: 3
+            image:
+              repository: nginx
+              tag: "1.21"
+            service:
+              type: ClusterIP
+              port: 80
+            ingress:
+              enabled: true
+              hosts:
+                - host: example.com
+                  paths:
+                    - path: /
+                      pathType: Prefix
+        valuesFiles:
+          type: array
+          description: List of values files to apply during deployment. Files are relative paths and applied in array order before user-provided values.
+          items:
+            type: string
+          example:
+            - "values-production.yaml"
+            - "values-overrides.yml"
+    ContainerApplicationProperties:
+      type: object
+      description: Properties for container application deployments.
+      properties:
+        ports:
+          type: array
+          description: Port mappings.
+          items:
+            $ref: '#/components/schemas/ApplicationPort'
+        resources:
+          $ref: '#/components/schemas/ApplicationResources'
     ImageApplicationProviderSpec:
       type: object
       allOf:
         - $ref: '#/components/schemas/ApplicationVolumeProviderSpec'
+        - $ref: '#/components/schemas/HelmApplicationProperties'
+        - $ref: '#/components/schemas/ContainerApplicationProperties'
         - type: object
           properties:
             image:
               type: string
               description: Reference to the OCI image or artifact for the application package.
-            namespace:
-              type: string
-              description: The target namespace for the application deployment.
-              example: "my-app-namespace"
-            values:
-              type: object
-              additionalProperties: true
-              description: Configuration values for the application. Supports arbitrarily nested structures.
-              example:
-                replicaCount: 3
-                image:
-                  repository: nginx
-                  tag: "1.21"
-                service:
-                  type: ClusterIP
-                  port: 80
-                ingress:
-                  enabled: true
-                  hosts:
-                    - host: example.com
-                      paths:
-                        - path: /
-                          pathType: Prefix
-            valuesFiles:
-              type: array
-              description: List of values files to apply during deployment. Files are relative paths and applied in array order before user-provided values.
-              items:
-                type: string
-              example:
-                - "values-production.yaml"
-                - "values-overrides.yml"
-            ports:
-              type: array
-              description: Port mappings.
-              items:
-                $ref: '#/components/schemas/ApplicationPort'
-            resources:
-              $ref: '#/components/schemas/ApplicationResources'
           required:
             - image
     InlineApplicationProviderSpec:

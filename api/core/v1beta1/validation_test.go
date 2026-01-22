@@ -976,7 +976,7 @@ func TestValidateApplications(t *testing.T) {
 			apps: []ApplicationProviderSpec{
 				newTestApplicationWithPortsAndResources(require, "app1", AppTypeCompose, "quay.io/app/image:1", []string{"8080:80"}, nil),
 			},
-			wantErrs: []string{"ports can only be defined for container applications"},
+			wantErrs: []string{".ports: can only be defined for container applications"},
 		},
 		{
 			name: "compose app with resources - invalid",
@@ -988,14 +988,14 @@ func TestValidateApplications(t *testing.T) {
 					},
 				}),
 			},
-			wantErrs: []string{"resources can only be defined for container applications"},
+			wantErrs: []string{".resources: can only be defined for container applications"},
 		},
 		{
 			name: "quadlet app with ports - invalid",
 			apps: []ApplicationProviderSpec{
 				newTestApplicationWithPortsAndResources(require, "app1", AppTypeQuadlet, "quay.io/app/image:1", []string{"8080:80"}, nil),
 			},
-			wantErrs: []string{"ports can only be defined for container applications"},
+			wantErrs: []string{".ports: can only be defined for container applications"},
 		},
 		{
 			name: "quadlet app with resources - invalid",
@@ -1007,7 +1007,7 @@ func TestValidateApplications(t *testing.T) {
 					},
 				}),
 			},
-			wantErrs: []string{"resources can only be defined for container applications"},
+			wantErrs: []string{".resources: can only be defined for container applications"},
 		},
 		{
 			name: "container app with valid port format",

@@ -912,6 +912,15 @@ type ConfigProviderSpec struct {
 	union json.RawMessage
 }
 
+// ContainerApplicationProperties Properties for container application deployments.
+type ContainerApplicationProperties struct {
+	// Ports Port mappings.
+	Ports *[]ApplicationPort `json:"ports,omitempty"`
+
+	// Resources Resource constraints for the application.
+	Resources *ApplicationResources `json:"resources,omitempty"`
+}
+
 // CpuResourceMonitorSpec defines model for CpuResourceMonitorSpec.
 type CpuResourceMonitorSpec struct {
 	// AlertRules Array of alert rules. Only one alert per severity is allowed.
@@ -1803,6 +1812,18 @@ type GitHubIntrospectionSpec struct {
 
 // GitHubIntrospectionSpecType The introspection type.
 type GitHubIntrospectionSpecType string
+
+// HelmApplicationProperties Properties for helm application deployments.
+type HelmApplicationProperties struct {
+	// Namespace The target namespace for the application deployment.
+	Namespace *string `json:"namespace,omitempty"`
+
+	// Values Configuration values for the application. Supports arbitrarily nested structures.
+	Values *map[string]interface{} `json:"values,omitempty"`
+
+	// ValuesFiles List of values files to apply during deployment. Files are relative paths and applied in array order before user-provided values.
+	ValuesFiles *[]string `json:"valuesFiles,omitempty"`
+}
 
 // HookAction defines model for HookAction.
 type HookAction struct {

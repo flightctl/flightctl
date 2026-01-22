@@ -1748,6 +1748,15 @@ func makeImageMountVolume(name, imageRef, path string) v1beta1.ApplicationVolume
 	return vol
 }
 
+func newImageSpecWithContainerProps(t *testing.T, image string, ports *[]v1beta1.ApplicationPort, resources *v1beta1.ApplicationResources) *v1beta1.ImageApplicationProviderSpec {
+	t.Helper()
+	return &v1beta1.ImageApplicationProviderSpec{
+		Image:     image,
+		Ports:     ports,
+		Resources: resources,
+	}
+}
+
 func TestGenerateQuadlet(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -1764,9 +1773,7 @@ func TestGenerateQuadlet(t *testing.T) {
 	}{
 		{
 			name: "simple image only",
-			spec: &v1beta1.ImageApplicationProviderSpec{
-				Image: "nginx:latest",
-			},
+			spec: newImageSpecWithContainerProps(t, "nginx:latest", nil, nil),
 			checkFileContents: func(t *testing.T, content []byte) {
 				contentStr := string(content)
 				require.Contains(t, contentStr, "[Container]")
@@ -1777,14 +1784,11 @@ func TestGenerateQuadlet(t *testing.T) {
 		},
 		{
 			name: "with CPU limit only",
-			spec: &v1beta1.ImageApplicationProviderSpec{
-				Image: "nginx:latest",
-				Resources: &v1beta1.ApplicationResources{
-					Limits: &v1beta1.ApplicationResourceLimits{
-						Cpu: &cpuLimit,
-					},
+			spec: newImageSpecWithContainerProps(t, "nginx:latest", nil, &v1beta1.ApplicationResources{
+				Limits: &v1beta1.ApplicationResourceLimits{
+					Cpu: &cpuLimit,
 				},
-			},
+			}),
 			checkFileContents: func(t *testing.T, content []byte) {
 				contentStr := string(content)
 				require.Contains(t, contentStr, "[Container]")
@@ -1795,14 +1799,11 @@ func TestGenerateQuadlet(t *testing.T) {
 		},
 		{
 			name: "with memory limit only",
-			spec: &v1beta1.ImageApplicationProviderSpec{
-				Image: "postgres:latest",
-				Resources: &v1beta1.ApplicationResources{
-					Limits: &v1beta1.ApplicationResourceLimits{
-						Memory: &memoryLimit,
-					},
+			spec: newImageSpecWithContainerProps(t, "postgres:latest", nil, &v1beta1.ApplicationResources{
+				Limits: &v1beta1.ApplicationResourceLimits{
+					Memory: &memoryLimit,
 				},
-			},
+			}),
 			checkFileContents: func(t *testing.T, content []byte) {
 				contentStr := string(content)
 				require.Contains(t, contentStr, "[Container]")
@@ -1813,15 +1814,12 @@ func TestGenerateQuadlet(t *testing.T) {
 		},
 		{
 			name: "with both CPU and memory limits",
-			spec: &v1beta1.ImageApplicationProviderSpec{
-				Image: "redis:latest",
-				Resources: &v1beta1.ApplicationResources{
-					Limits: &v1beta1.ApplicationResourceLimits{
-						Cpu:    &cpuLimit,
-						Memory: &memoryLimit,
-					},
+			spec: newImageSpecWithContainerProps(t, "redis:latest", nil, &v1beta1.ApplicationResources{
+				Limits: &v1beta1.ApplicationResourceLimits{
+					Cpu:    &cpuLimit,
+					Memory: &memoryLimit,
 				},
-			},
+			}),
 			checkFileContents: func(t *testing.T, content []byte) {
 				contentStr := string(content)
 				require.Contains(t, contentStr, "[Container]")
@@ -1832,10 +1830,7 @@ func TestGenerateQuadlet(t *testing.T) {
 		},
 		{
 			name: "with single port",
-			spec: &v1beta1.ImageApplicationProviderSpec{
-				Image: "nginx:latest",
-				Ports: &[]v1beta1.ApplicationPort{"8080:80"},
-			},
+			spec: newImageSpecWithContainerProps(t, "nginx:latest", &[]v1beta1.ApplicationPort{"8080:80"}, nil),
 			checkFileContents: func(t *testing.T, content []byte) {
 				contentStr := string(content)
 				require.Contains(t, contentStr, "[Container]")
@@ -1845,14 +1840,11 @@ func TestGenerateQuadlet(t *testing.T) {
 		},
 		{
 			name: "with multiple ports",
-			spec: &v1beta1.ImageApplicationProviderSpec{
-				Image: "webapp:latest",
-				Ports: &[]v1beta1.ApplicationPort{
-					"8080:80",
-					"8443:443",
-					"9090:9090",
-				},
-			},
+			spec: newImageSpecWithContainerProps(t, "webapp:latest", &[]v1beta1.ApplicationPort{
+				"8080:80",
+				"8443:443",
+				"9090:9090",
+			}, nil),
 			checkFileContents: func(t *testing.T, content []byte) {
 				contentStr := string(content)
 				require.Contains(t, contentStr, "[Container]")
@@ -1864,19 +1856,15 @@ func TestGenerateQuadlet(t *testing.T) {
 		},
 		{
 			name: "complete spec with resources and ports",
-			spec: &v1beta1.ImageApplicationProviderSpec{
-				Image: "myapp:v1.0",
-				Resources: &v1beta1.ApplicationResources{
-					Limits: &v1beta1.ApplicationResourceLimits{
-						Cpu:    &cpuLimit,
-						Memory: &memoryLimit,
-					},
+			spec: newImageSpecWithContainerProps(t, "myapp:v1.0", &[]v1beta1.ApplicationPort{
+				"3000:3000",
+				"3001:3001",
+			}, &v1beta1.ApplicationResources{
+				Limits: &v1beta1.ApplicationResourceLimits{
+					Cpu:    &cpuLimit,
+					Memory: &memoryLimit,
 				},
-				Ports: &[]v1beta1.ApplicationPort{
-					"3000:3000",
-					"3001:3001",
-				},
-			},
+			}),
 			checkFileContents: func(t *testing.T, content []byte) {
 				contentStr := string(content)
 				require.Contains(t, contentStr, "[Container]")
@@ -1889,10 +1877,7 @@ func TestGenerateQuadlet(t *testing.T) {
 		},
 		{
 			name: "nil resources",
-			spec: &v1beta1.ImageApplicationProviderSpec{
-				Image:     "alpine:latest",
-				Resources: nil,
-			},
+			spec: newImageSpecWithContainerProps(t, "alpine:latest", nil, nil),
 			checkFileContents: func(t *testing.T, content []byte) {
 				contentStr := string(content)
 				require.Contains(t, contentStr, "[Container]")
@@ -1902,12 +1887,9 @@ func TestGenerateQuadlet(t *testing.T) {
 		},
 		{
 			name: "nil limits",
-			spec: &v1beta1.ImageApplicationProviderSpec{
-				Image: "ubuntu:latest",
-				Resources: &v1beta1.ApplicationResources{
-					Limits: nil,
-				},
-			},
+			spec: newImageSpecWithContainerProps(t, "ubuntu:latest", nil, &v1beta1.ApplicationResources{
+				Limits: nil,
+			}),
 			checkFileContents: func(t *testing.T, content []byte) {
 				contentStr := string(content)
 				require.Contains(t, contentStr, "[Container]")
@@ -1917,10 +1899,7 @@ func TestGenerateQuadlet(t *testing.T) {
 		},
 		{
 			name: "nil ports",
-			spec: &v1beta1.ImageApplicationProviderSpec{
-				Image: "busybox:latest",
-				Ports: nil,
-			},
+			spec: newImageSpecWithContainerProps(t, "busybox:latest", nil, nil),
 			checkFileContents: func(t *testing.T, content []byte) {
 				contentStr := string(content)
 				require.Contains(t, contentStr, "[Container]")
@@ -1930,10 +1909,7 @@ func TestGenerateQuadlet(t *testing.T) {
 		},
 		{
 			name: "empty ports slice",
-			spec: &v1beta1.ImageApplicationProviderSpec{
-				Image: "centos:latest",
-				Ports: &[]v1beta1.ApplicationPort{},
-			},
+			spec: newImageSpecWithContainerProps(t, "centos:latest", &[]v1beta1.ApplicationPort{}, nil),
 			checkFileContents: func(t *testing.T, content []byte) {
 				contentStr := string(content)
 				require.Contains(t, contentStr, "[Container]")
@@ -1943,12 +1919,13 @@ func TestGenerateQuadlet(t *testing.T) {
 		},
 		{
 			name: "with mount volume",
-			spec: &v1beta1.ImageApplicationProviderSpec{
-				Image: "nginx:latest",
-				Volumes: &[]v1beta1.ApplicationVolume{
+			spec: func() *v1beta1.ImageApplicationProviderSpec {
+				spec := newImageSpecWithContainerProps(t, "nginx:latest", nil, nil)
+				spec.Volumes = &[]v1beta1.ApplicationVolume{
 					makeMountVolume("app-data", "/var/lib/app"),
-				},
-			},
+				}
+				return spec
+			}(),
 			checkFileContents: func(t *testing.T, content []byte) {
 				contentStr := string(content)
 				require.Contains(t, contentStr, "[Container]")
@@ -1958,12 +1935,13 @@ func TestGenerateQuadlet(t *testing.T) {
 		},
 		{
 			name: "with image mount volume - image exists",
-			spec: &v1beta1.ImageApplicationProviderSpec{
-				Image: "nginx:latest",
-				Volumes: &[]v1beta1.ApplicationVolume{
+			spec: func() *v1beta1.ImageApplicationProviderSpec {
+				spec := newImageSpecWithContainerProps(t, "nginx:latest", nil, nil)
+				spec.Volumes = &[]v1beta1.ApplicationVolume{
 					makeImageMountVolume("app-config", "quay.io/config:v1", "/etc/app/config"),
-				},
-			},
+				}
+				return spec
+			}(),
 			setupMocks: func(mockExec *executer.MockExecuter) {
 				// Return success (0) for image exists command
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", gomock.Any()).Return("", "", 0).AnyTimes()
@@ -1978,12 +1956,13 @@ func TestGenerateQuadlet(t *testing.T) {
 		},
 		{
 			name: "with image mount volume - artifact (image does not exist)",
-			spec: &v1beta1.ImageApplicationProviderSpec{
-				Image: "nginx:latest",
-				Volumes: &[]v1beta1.ApplicationVolume{
+			spec: func() *v1beta1.ImageApplicationProviderSpec {
+				spec := newImageSpecWithContainerProps(t, "nginx:latest", nil, nil)
+				spec.Volumes = &[]v1beta1.ApplicationVolume{
 					makeImageMountVolume("app-artifact", "quay.io/artifact:v1", "/data/artifact"),
-				},
-			},
+				}
+				return spec
+			}(),
 			setupMocks: func(mockExec *executer.MockExecuter) {
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", gomock.Any()).Return("", "", 1).AnyTimes()
 			},
@@ -1996,14 +1975,15 @@ func TestGenerateQuadlet(t *testing.T) {
 		},
 		{
 			name: "with multiple volumes - mixed types",
-			spec: &v1beta1.ImageApplicationProviderSpec{
-				Image: "webapp:latest",
-				Volumes: &[]v1beta1.ApplicationVolume{
+			spec: func() *v1beta1.ImageApplicationProviderSpec {
+				spec := newImageSpecWithContainerProps(t, "webapp:latest", nil, nil)
+				spec.Volumes = &[]v1beta1.ApplicationVolume{
 					makeMountVolume("data", "/var/data"),
 					makeImageMountVolume("config", "quay.io/config:latest", "/etc/config"),
 					makeImageMountVolume("cache", "quay.io/artifact:v1", "/cache"),
-				},
-			},
+				}
+				return spec
+			}(),
 			setupMocks: func(mockExec *executer.MockExecuter) {
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", gomock.Any()).DoAndReturn(
 					func(ctx context.Context, command string, args ...string) (string, string, int) {
@@ -2026,23 +2006,21 @@ func TestGenerateQuadlet(t *testing.T) {
 		},
 		{
 			name: "with volumes and ports and resources",
-			spec: &v1beta1.ImageApplicationProviderSpec{
-				Image: "fullapp:latest",
-				Resources: &v1beta1.ApplicationResources{
-					Limits: &v1beta1.ApplicationResourceLimits{
-						Cpu:    &cpuLimit,
-						Memory: &memoryLimit,
-					},
-				},
-				Ports: &[]v1beta1.ApplicationPort{
-					"8080:80",
-					"8443:443",
-				},
-				Volumes: &[]v1beta1.ApplicationVolume{
+			spec: func() *v1beta1.ImageApplicationProviderSpec {
+				spec := newImageSpecWithContainerProps(t, "fullapp:latest",
+					&[]v1beta1.ApplicationPort{"8080:80", "8443:443"},
+					&v1beta1.ApplicationResources{
+						Limits: &v1beta1.ApplicationResourceLimits{
+							Cpu:    &cpuLimit,
+							Memory: &memoryLimit,
+						},
+					})
+				spec.Volumes = &[]v1beta1.ApplicationVolume{
 					makeMountVolume("data", "/data"),
 					makeImageMountVolume("config", "quay.io/config:v1", "/config"),
-				},
-			},
+				}
+				return spec
+			}(),
 			setupMocks: func(mockExec *executer.MockExecuter) {
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", gomock.Any()).DoAndReturn(
 					func(ctx context.Context, command string, args ...string) (string, string, int) {
