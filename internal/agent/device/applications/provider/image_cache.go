@@ -1,12 +1,14 @@
 package provider
 
 import (
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 )
 
 // CacheEntry represents cached nested targets extracted from image-based applications.
 type CacheEntry struct {
-	Name string
+	Name  string
+	Owner v1beta1.Username
 	// Parent is the parent image from which child OCI targets were extracted.
 	Parent dependency.OCIPullTarget
 	// Children are OCI targets extracted from parent image.

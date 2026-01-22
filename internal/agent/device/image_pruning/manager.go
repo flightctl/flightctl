@@ -824,8 +824,7 @@ func (m *manager) extractNestedTargetsFromSpec(ctx context.Context, device *v1be
 
 		imageName := imageSpec.Image
 
-		// TODO: Update this to use specific users when available
-		podmanClient, err := m.podmanClientFactory("")
+		podmanClient, err := m.podmanClientFactory(appSpec.UserWithDefault())
 		if err != nil {
 			m.log.Errorf("Skipping app %s: failed to create podman client: %v", lo.FromPtr(appSpec.Name), err)
 			continue

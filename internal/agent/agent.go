@@ -162,10 +162,6 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	// create skopeo client
 	skopeoClientFactory := client.NewSkopeoFactory(a.log, rwFactory)
-	rootSkopeoClient, err := skopeoClientFactory("")
-	if err != nil {
-		return err
-	}
 
 	// create kube client
 	kubeClient := client.NewKube(a.log, rootExecuter, rootReadWriter)
@@ -270,7 +266,6 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.log,
 		rwFactory,
 		podmanClientFactory,
-		rootPodmanClient,
 		systemInfoManager,
 		systemdManagerFactory,
 	)
@@ -284,8 +279,8 @@ func (a *Agent) Run(ctx context.Context) error {
 	// create prefetch manager
 	prefetchManager := dependency.NewPrefetchManager(
 		a.log,
-		rootPodmanClient,
-		rootSkopeoClient,
+		podmanClientFactory,
+		skopeoClientFactory,
 		cliClients,
 		rootReadWriter,
 		a.config.PullTimeout,
@@ -383,9 +378,9 @@ func (a *Agent) Run(ctx context.Context) error {
 	)
 
 	applicationsController := applications.NewController(
-		rootPodmanClient,
+		podmanClientFactory,
 		applicationsManager,
-		rootReadWriter,
+		rwFactory,
 		a.log,
 		systemInfoManager.BootTime(),
 	)

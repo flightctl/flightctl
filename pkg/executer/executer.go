@@ -8,6 +8,8 @@ import (
 	"os/user"
 	"strconv"
 	"syscall"
+
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 )
 
 type Executer interface {
@@ -29,8 +31,8 @@ type ExecuterOption func(e *commonExecuter)
 
 // LookupUserOptions generates a set of options to NewCommonExecuter used to execute commands as a
 // different user.
-func LookupUserOptions(username string) ([]ExecuterOption, error) {
-	if username == "" {
+func LookupUserOptions(username v1beta1.Username) ([]ExecuterOption, error) {
+	if username == v1beta1.CurrentProcessUsername {
 		return nil, nil
 	}
 	u, err := user.Lookup(username)

@@ -123,7 +123,11 @@ func (m *manager) CollectOCITargets(ctx context.Context, current, desired *v1bet
 	}
 
 	m.log.Debugf("Collected 1 OCI target from OS spec: %s", osImage)
-	return &dependency.OCICollection{Targets: []dependency.OCIPullTarget{target}}, nil
+	return &dependency.OCICollection{
+		Targets: dependency.OCIPullTargetsByUser{
+			v1beta1.CurrentProcessUsername: []dependency.OCIPullTarget{target},
+		},
+	}, nil
 }
 
 func (m *manager) AfterUpdate(ctx context.Context, desired *v1beta1.DeviceSpec) error {

@@ -12,26 +12,26 @@ import (
 )
 
 type Controller struct {
-	podman     *client.Podman
-	readWriter fileio.ReadWriter
-	manager    Manager
-	log        *log.PrefixLogger
-	bootTime   string
+	podmanFactory client.PodmanFactory
+	rwFactory     fileio.ReadWriterFactory
+	manager       Manager
+	log           *log.PrefixLogger
+	bootTime      string
 }
 
 func NewController(
-	podman *client.Podman,
+	podmanFactory client.PodmanFactory,
 	manager Manager,
-	readWriter fileio.ReadWriter,
+	rwFactory fileio.ReadWriterFactory,
 	log *log.PrefixLogger,
 	bootTime string,
 ) *Controller {
 	return &Controller{
-		log:        log,
-		manager:    manager,
-		podman:     podman,
-		readWriter: readWriter,
-		bootTime:   bootTime,
+		log:           log,
+		manager:       manager,
+		podmanFactory: podmanFactory,
+		rwFactory:     rwFactory,
+		bootTime:      bootTime,
 	}
 }
 
@@ -42,8 +42,8 @@ func (c *Controller) Sync(ctx context.Context, current, desired *v1beta1.DeviceS
 	currentAppProviders, err := provider.FromDeviceSpec(
 		ctx,
 		c.log,
-		c.podman,
-		c.readWriter,
+		c.podmanFactory,
+		c.rwFactory,
 		current,
 		provider.WithInstalledEmbedded(),
 	)
@@ -54,8 +54,8 @@ func (c *Controller) Sync(ctx context.Context, current, desired *v1beta1.DeviceS
 	desiredAppProviders, err := provider.FromDeviceSpec(
 		ctx,
 		c.log,
-		c.podman,
-		c.readWriter,
+		c.podmanFactory,
+		c.rwFactory,
 		desired,
 		provider.WithEmbedded(c.bootTime),
 	)

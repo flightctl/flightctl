@@ -71,6 +71,8 @@ type Application interface {
 	Name() string
 	// Type returns the application type.
 	AppType() v1beta1.AppType
+	// User is the username that the app runs as.
+	User() v1beta1.Username
 	// Path returns the path to the application on the device.
 	Path() string
 	// Workload returns a workload by name.
@@ -117,6 +119,7 @@ func NewApplication(provider provider.Provider) *application {
 			Status:   v1beta1.ApplicationStatusUnknown,
 			Embedded: spec.Embedded,
 			AppType:  spec.AppType,
+			RunAs:    spec.User,
 		},
 		volume: spec.Volume,
 	}
@@ -132,6 +135,10 @@ func (a *application) Name() string {
 
 func (a *application) AppType() v1beta1.AppType {
 	return a.status.AppType
+}
+
+func (a *application) User() v1beta1.Username {
+	return a.status.RunAs
 }
 
 func (a *application) Workload(name string) (*Workload, bool) {

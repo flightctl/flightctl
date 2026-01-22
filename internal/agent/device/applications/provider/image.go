@@ -97,6 +97,7 @@ func newImage(log *log.PrefixLogger, podman *client.Podman, spec *v1beta1.Applic
 			Name:          appName,
 			ID:            handler.ID(),
 			AppType:       appType,
+			User:          spec.UserWithDefault(),
 			Path:          handler.AppPath(),
 			EnvVars:       lo.FromPtr(spec.EnvVars),
 			Embedded:      false,
