@@ -1,3 +1,4 @@
+// Package resources provides utilities for creating and managing FlightCtl resources in e2e tests.
 package resources
 
 import (
@@ -14,6 +15,22 @@ const (
 	created = "created"
 )
 
+// createMultiple is a generic helper for batch resource creation.
+// It handles the common pattern of creating multiple resources with indexed names.
+func createMultiple(harness *e2e.Harness, count int, namePrefix string, createFn func(name string) error) ([]string, error) {
+	names := make([]string, count)
+	testID := harness.GetTestIDFromContext()
+
+	for i := 0; i < count; i++ {
+		names[i] = fmt.Sprintf("%s-%d-%s", namePrefix, i+1, testID)
+		if err := createFn(names[i]); err != nil {
+			return names[:i], fmt.Errorf("failed to create resource %s: %w", names[i], err)
+		}
+	}
+	return names, nil
+}
+
+// CreateDevice creates a single device with the given name and labels.
 func CreateDevice(harness *e2e.Harness, name string, labels *map[string]string) (*api.Device, error) {
 	device := &api.Device{
 		ApiVersion: api.DeviceAPIVersion,
@@ -24,12 +41,7 @@ func CreateDevice(harness *e2e.Harness, name string, labels *map[string]string) 
 		},
 	}
 
-	// Ensure test-id label is preserved
-	if labels != nil {
-		harness.SetLabelsForDeviceMetadata(&device.Metadata, *labels)
-	} else {
-		harness.SetLabelsForDeviceMetadata(&device.Metadata, map[string]string{})
-	}
+	setLabelsOrDefault(harness.SetLabelsForDeviceMetadata, &device.Metadata, labels)
 
 	yamlStr, err := marshalToString(device)
 	if err != nil {
@@ -39,17 +51,34 @@ func CreateDevice(harness *e2e.Harness, name string, labels *map[string]string) 
 	return device, applyToCreateFromText(harness, yamlStr)
 }
 
+// CreateDevices creates multiple devices with names formatted as "{namePrefix}-{index}-{testID}".
+// Returns the list of created device names.
+func CreateDevices(harness *e2e.Harness, count int, namePrefix string, labels *map[string]string) ([]string, error) {
+	return createMultiple(harness, count, namePrefix, func(name string) error {
+		_, err := CreateDevice(harness, name, labels)
+		return err
+	})
+}
+
+// DeleteDevices deletes multiple devices.
 func DeleteDevices(harness *e2e.Harness, devices []*api.Device) error {
 	for _, device := range devices {
-		_, err := Delete(harness, Devices, *device.Metadata.Name)
-		if err != nil {
+		if _, err := Delete(harness, Devices, *device.Metadata.Name); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func CreateFleet(harness *e2e.Harness, name string, templateImage string, labels *map[string]string) (*api.Fleet, error) {
+// CreateFleet creates a single fleet with the given name, template image, and labels.
+func CreateFleet(harness *e2e.Harness, name, templateImage string, labels *map[string]string) (*api.Fleet, error) {
+	// Ensure selector has valid matchLabels (empty map if nil) to pass API validation
+	selectorLabels := labels
+	if selectorLabels == nil {
+		empty := map[string]string{}
+		selectorLabels = &empty
+	}
+
 	fleet := &api.Fleet{
 		ApiVersion: api.FleetAPIVersion,
 		Kind:       api.FleetKind,
@@ -58,88 +87,96 @@ func CreateFleet(harness *e2e.Harness, name string, templateImage string, labels
 			Labels: labels,
 		},
 		Spec: api.FleetSpec{
-			Selector: &api.LabelSelector{
-				MatchLabels: labels,
-			},
+			Selector: &api.LabelSelector{MatchLabels: selectorLabels},
 			Template: struct {
 				Metadata *api.ObjectMeta `json:"metadata,omitempty"`
 				Spec     api.DeviceSpec  `json:"spec"`
 			}{
 				Spec: api.DeviceSpec{
-					Os: &api.DeviceOsSpec{
-						Image: templateImage,
-					},
+					Os: &api.DeviceOsSpec{Image: templateImage},
 				},
 			},
 		},
 	}
 
-	// Ensure test-id label is preserved
-	if labels != nil {
-		harness.SetLabelsForFleetMetadata(&fleet.Metadata, *labels)
-	} else {
-		harness.SetLabelsForFleetMetadata(&fleet.Metadata, map[string]string{})
-	}
+	setLabelsOrDefault(harness.SetLabelsForFleetMetadata, &fleet.Metadata, labels)
 
 	yamlStr, err := marshalToString(fleet)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal fleet: %w", err)
 	}
-
 	return fleet, applyToCreateFromText(harness, yamlStr)
 }
 
+// CreateFleets creates multiple fleets with names formatted as "{namePrefix}-{index}-{testID}".
+// Returns the list of created fleet names.
+func CreateFleets(harness *e2e.Harness, count int, namePrefix, templateImage string, labels *map[string]string) ([]string, error) {
+	return createMultiple(harness, count, namePrefix, func(name string) error {
+		_, err := CreateFleet(harness, name, templateImage, labels)
+		return err
+	})
+}
+
+// DeleteFleets deletes multiple fleets by name.
 func DeleteFleets(harness *e2e.Harness, fleets []*api.Fleet) error {
 	for _, fleet := range fleets {
-		_, err := Delete(harness, Fleets, *fleet.Metadata.Name)
-		if err != nil {
+		if _, err := Delete(harness, Fleets, *fleet.Metadata.Name); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func CreateRepository(harness *e2e.Harness, name string, url string, labels *map[string]string) (*api.Repository, error) {
+// CreateRepository creates a single git repository with the given name, URL, and labels.
+func CreateRepository(harness *e2e.Harness, name, url string, labels *map[string]string) (*api.Repository, error) {
 	spec := api.RepositorySpec{}
-	specError := spec.FromGenericRepoSpec(api.GenericRepoSpec{
-		Url:  url,
-		Type: api.RepoSpecTypeGit,
-	})
-	if specError != nil {
-		return nil, specError
+	if err := spec.FromGenericRepoSpec(api.GenericRepoSpec{Url: url, Type: api.RepoSpecTypeGit}); err != nil {
+		return nil, fmt.Errorf("failed to create repo spec: %w", err)
 	}
 
 	repository := &api.Repository{
 		ApiVersion: api.RepositoryAPIVersion,
 		Kind:       api.RepositoryKind,
-		Metadata: api.ObjectMeta{
-			Name: &name,
-		},
-		Spec: spec,
+		Metadata:   api.ObjectMeta{Name: &name},
+		Spec:       spec,
 	}
 
-	if labels != nil {
-		harness.SetLabelsForRepositoryMetadata(&repository.Metadata, *labels)
-	} else {
-		harness.SetLabelsForRepositoryMetadata(&repository.Metadata, map[string]string{})
-	}
+	setLabelsOrDefault(harness.SetLabelsForRepositoryMetadata, &repository.Metadata, labels)
 
 	yamlStr, err := marshalToString(repository)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal repository: %w", err)
 	}
-
 	return repository, applyToCreateFromText(harness, yamlStr)
 }
 
+// CreateRepositories creates multiple repositories with names formatted as "{namePrefix}-{index}-{testID}".
+// Returns the list of created repository names.
+func CreateRepositories(harness *e2e.Harness, count int, namePrefix, url string, labels *map[string]string) ([]string, error) {
+	return createMultiple(harness, count, namePrefix, func(name string) error {
+		_, err := CreateRepository(harness, name, url, labels)
+		return err
+	})
+}
+
+// DeleteRepositories deletes multiple repositories by name.
 func DeleteRepositories(harness *e2e.Harness, repositories []*api.Repository) error {
 	for _, repository := range repositories {
-		_, err := Delete(harness, Repositories, *repository.Metadata.Name)
-		if err != nil {
+		if _, err := Delete(harness, Repositories, *repository.Metadata.Name); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// setLabelsOrDefault applies labels to metadata, using an empty map if labels is nil.
+// This ensures test-id labels are always preserved.
+func setLabelsOrDefault(setFn func(*api.ObjectMeta, map[string]string), metadata *api.ObjectMeta, labels *map[string]string) {
+	if labels != nil {
+		setFn(metadata, *labels)
+	} else {
+		setFn(metadata, map[string]string{})
+	}
 }
 
 func marshalToString(v interface{}) (string, error) {
@@ -158,10 +195,12 @@ func applyToCreateFromText(harness *e2e.Harness, text string) error {
 	return err
 }
 
-func Delete(harness *e2e.Harness, resourceKind string, name string) (string, error) {
+// Delete removes a resource by kind and name.
+func Delete(harness *e2e.Harness, resourceKind, name string) (string, error) {
 	return harness.CLI("delete", fmt.Sprintf("%s/%s", resourceKind, name))
 }
 
+// DeleteAll removes all provided devices, fleets, and repositories.
 func DeleteAll(harness *e2e.Harness, devices []*api.Device, fleets []*api.Fleet, repositories []*api.Repository) error {
 	if err := DeleteDevices(harness, devices); err != nil {
 		return err
