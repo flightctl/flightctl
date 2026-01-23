@@ -58,34 +58,37 @@ func (h *Harness) GetGitServerConfig() (GitServerConfig, error) {
 	}
 
 	return GitServerConfig{
-		Host:     host,
-		Port:     port,
-		User:     getEnvOrDefault("E2E_GIT_SERVER_USER", "user"),
-		Password: getEnvOrDefault("E2E_GIT_SERVER_PASSWORD", "user"),
+		Host: host,
+		Port: port,
+		User: getEnvOrDefault("E2E_GIT_SERVER_USER", "user"),
 	}, nil
 }
 
 // GitServerConfig holds configuration for the git server
 type GitServerConfig struct {
-	Host     string
-	Port     int
-	User     string
-	Password string
-	SSHKey   string // path to SSH private key if using key auth
+	Host string
+	Port int
+	User string
 }
 
-// runGitServerSSHCommand executes a command on the git server via SSH
+// runGitServerSSHCommand executes a command on the git server via SSH using key authentication
 func (h *Harness) runGitServerSSHCommand(config GitServerConfig, command string) error {
+	keyPath, err := GetSSHPrivateKeyPath()
+	if err != nil {
+		return fmt.Errorf("failed to get SSH key path: %w", err)
+	}
+
 	// #nosec G204 -- This is test code with controlled inputs from GitServerConfig
-	sshCmd := exec.Command("sshpass", "-e", "ssh",
+	sshCmd := exec.Command("ssh",
+		"-i", keyPath,
 		"-p", fmt.Sprintf("%d", config.Port),
 		"-o", "UserKnownHostsFile=/dev/null",
 		"-o", "StrictHostKeyChecking=no",
-		"-o", "PubkeyAuthentication=no",
+		"-o", "PasswordAuthentication=no",
+		"-o", "BatchMode=yes",
 		"-o", "LogLevel=ERROR",
 		fmt.Sprintf("%s@%s", config.User, config.Host),
 		command)
-	sshCmd.Env = append(os.Environ(), fmt.Sprintf("SSHPASS=%s", config.Password))
 
 	output, err := sshCmd.CombinedOutput()
 	if err != nil {
@@ -99,13 +102,13 @@ func (h *Harness) runGitServerSSHCommand(config GitServerConfig, command string)
 // runGitCommands executes a sequence of git commands in the specified working directory
 // with proper authentication and author configuration.
 func (h *Harness) runGitCommands(workDir string, gitCmds [][]string) error {
-	config, err := h.GetGitServerConfig()
+	keyPath, err := GetSSHPrivateKeyPath()
 	if err != nil {
-		return fmt.Errorf("failed to get git server config: %w", err)
+		return fmt.Errorf("failed to get SSH key path: %w", err)
 	}
+
 	gitEnv := append(os.Environ(),
-		"GIT_SSH_COMMAND=sshpass -e ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -o PubkeyAuthentication=no",
-		"SSHPASS="+config.Password,
+		fmt.Sprintf("GIT_SSH_COMMAND=ssh -i %s -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -o PasswordAuthentication=no -o BatchMode=yes", keyPath),
 		"GIT_AUTHOR_NAME=Test Harness",
 		"GIT_AUTHOR_EMAIL=test@flightctl.dev",
 		"GIT_COMMITTER_NAME=Test Harness",
@@ -189,6 +192,12 @@ func (h *Harness) CloneGitRepositoryFromServer(repoName, localPath string) error
 	if err != nil {
 		return fmt.Errorf("failed to get git server config: %w", err)
 	}
+
+	keyPath, err := GetSSHPrivateKeyPath()
+	if err != nil {
+		return fmt.Errorf("failed to get SSH key path: %w", err)
+	}
+
 	repoURL := fmt.Sprintf("ssh://%s@%s:%d/home/user/repos/%s.git",
 		config.User, config.Host, config.Port, repoName)
 
@@ -197,12 +206,10 @@ func (h *Harness) CloneGitRepositoryFromServer(repoName, localPath string) error
 		return fmt.Errorf("failed to create parent directory: %w", err)
 	}
 
-	// Use sshpass for authentication when cloning via GIT_SSH_COMMAND
 	// #nosec G204 -- This is test code with controlled inputs from GitServerConfig
 	cloneCmd := exec.Command("git", "clone", repoURL, localPath)
 	cloneCmd.Env = append(os.Environ(),
-		"SSHPASS="+config.Password,
-		"GIT_SSH_COMMAND=sshpass -e ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -o PubkeyAuthentication=no")
+		fmt.Sprintf("GIT_SSH_COMMAND=ssh -i %s -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -o PasswordAuthentication=no -o BatchMode=yes", keyPath))
 
 	if output, err := cloneCmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to clone repository %s to %s: %w, output: %s", repoURL, localPath, err, string(output))
@@ -422,11 +429,26 @@ func GetTestDataPath(relativePath string) string {
 	return filepath.Join("testdata", relativePath)
 }
 
-// getSSHPrivateKey reads the SSH private key from bin/.ssh/id_rsa.
+// GetSSHPrivateKeyPath returns the path to the SSH private key file (bin/.ssh/id_rsa).
 // Note: ginkgo runs tests from the test package directory (e.g. resourcesync test runs from test/e2e/resourcesync/),
 // so navigate up to the project root.
-func GetSSHPrivateKey() (string, error) {
+func GetSSHPrivateKeyPath() (string, error) {
 	keyPath := filepath.Join("..", "..", "..", "bin", ".ssh", "id_rsa")
+	absPath, err := filepath.Abs(keyPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to get absolute path for SSH private key: %w", err)
+	}
+	if _, err := os.Stat(absPath); err != nil {
+		return "", fmt.Errorf("SSH private key not found at %s: %w", absPath, err)
+	}
+	return absPath, nil
+}
+
+func GetSSHPrivateKey() (string, error) {
+	keyPath, err := GetSSHPrivateKeyPath()
+	if err != nil {
+		return "", err
+	}
 	content, err := os.ReadFile(keyPath)
 	if err != nil {
 		return "", fmt.Errorf("failed to read SSH private key from %s: %w", keyPath, err)

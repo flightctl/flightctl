@@ -21,7 +21,7 @@ spec:
         - name: container-reg
           image: {{ .Values.gitserver.image }}
           ports:
-            - containerPort: 22
+            - containerPort: 2222
               protocol: TCP
           imagePullPolicy: IfNotPresent
           #TODO(make sure the container works with this security context in openshift)
