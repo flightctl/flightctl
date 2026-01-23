@@ -3,6 +3,9 @@
 ## Overview
 The agent reconciles `Device.Spec` from control plane, reports resource usage, manages application lifecycles, handles OS-level configuration, and provides lifecycle hooks.
 
+> [!IMPORTANT]
+> Before contributing, read the [Agent Architecture](../../docs/user/references/agent-architecture.md) documentation for design principles and secure device lifecycle context.
+
 ## Core Principles
 
 ### Minimal Binary Profile
