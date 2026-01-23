@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"text/template"
 	"time"
 
 	v1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
@@ -40,11 +39,15 @@ var containerfileTemplate string
 
 // ContainerfileResult contains the generated Containerfile and any associated files
 type ContainerfileResult struct {
-	// Containerfile is the generated Containerfile content
+	// Containerfile is the generated Containerfile content (static template)
 	Containerfile string
+	// BuildArgs contains the arguments to pass to podman build via --build-arg
+	BuildArgs containerfileBuildArgs
 	// AgentConfig contains the full agent config.yaml content (for early binding)
 	// This includes: client-certificate-data, client-key-data, certificate-authority-data, server URL
 	AgentConfig []byte
+	// Publickey contains the SSH public key content (for user configuration)
+	Publickey []byte
 }
 
 // processImageBuild processes an imageBuild event by loading the ImageBuild resource
@@ -222,18 +225,15 @@ func (c *Consumer) processImageBuild(ctx context.Context, eventWithOrgId worker_
 	return nil
 }
 
-// containerfileData holds the data for rendering the Containerfile template
-type containerfileData struct {
+// containerfileBuildArgs holds the build arguments for the Containerfile
+// These are passed via --build-arg flags to podman build for safer execution
+type containerfileBuildArgs struct {
 	RegistryHostname    string
 	ImageName           string
 	ImageTag            string
 	EarlyBinding        bool
-	AgentConfig         string
 	AgentConfigDestPath string
-	HeredocDelimiter    string
-	PublicKeyDelimiter  string
 	Username            string
-	Publickey           string
 	HasUserConfig       bool
 }
 
@@ -332,37 +332,33 @@ func (c *Consumer) generateContainerfileWithGenerator(
 		"bindingType":      bindingType,
 	}).Debug("Generating Containerfile")
 
-	result := &ContainerfileResult{}
+	isEarlyBinding := bindingType == string(api.BindingTypeEarly)
+	hasUserConfig := spec.UserConfiguration != nil
 
-	// Generate a unique heredoc delimiter to avoid conflicts with config content
-	heredocDelimiter := fmt.Sprintf("FLIGHTCTL_CONFIG_%s", uuid.NewString()[:8])
-
-	// Generate a unique heredoc delimiter for public key if user config is provided
-	publicKeyDelimiter := ""
-	if spec.UserConfiguration != nil {
-		publicKeyDelimiter = fmt.Sprintf("FLIGHTCTL_PUBKEY_%s", uuid.NewString()[:8])
-	}
-
-	// Prepare template data
-	data := containerfileData{
+	// Prepare build arguments (passed via --build-arg to podman build)
+	buildArgs := containerfileBuildArgs{
 		RegistryHostname:    registryHostname,
 		ImageName:           spec.Source.ImageName,
 		ImageTag:            spec.Source.ImageTag,
-		EarlyBinding:        bindingType == string(api.BindingTypeEarly),
+		EarlyBinding:        isEarlyBinding,
 		AgentConfigDestPath: agentConfigPath,
-		HeredocDelimiter:    heredocDelimiter,
-		PublicKeyDelimiter:  publicKeyDelimiter,
-		HasUserConfig:       spec.UserConfiguration != nil,
+		HasUserConfig:       hasUserConfig,
+	}
+
+	result := &ContainerfileResult{
+		Containerfile: containerfileTemplate, // Static template, no Go template rendering needed
+		BuildArgs:     buildArgs,
 	}
 
 	// Add user configuration if provided
-	if spec.UserConfiguration != nil {
-		data.Username = spec.UserConfiguration.Username
-		data.Publickey = spec.UserConfiguration.Publickey
+	if hasUserConfig {
+		buildArgs.Username = spec.UserConfiguration.Username
+		result.BuildArgs = buildArgs
+		result.Publickey = []byte(spec.UserConfiguration.Publickey)
 	}
 
 	// Handle early binding - generate enrollment credentials
-	if data.EarlyBinding {
+	if isEarlyBinding {
 		// Generate a unique name for this build's enrollment credentials
 		imageBuildName := lo.FromPtr(imageBuild.Metadata.Name)
 		credentialName := fmt.Sprintf("imagebuild-%s-%s", imageBuildName, orgID.String()[:8])
@@ -372,19 +368,10 @@ func (c *Consumer) generateContainerfileWithGenerator(
 			return nil, fmt.Errorf("failed to generate agent config for early binding: %w", err)
 		}
 
-		// Store agent config as string for template rendering
-		data.AgentConfig = string(agentConfig)
 		result.AgentConfig = agentConfig
 		log.WithField("credentialName", credentialName).Debug("Generated agent config for early binding")
 	}
 
-	// Render the Containerfile template
-	containerfile, err := renderContainerfileTemplate(data)
-	if err != nil {
-		return nil, fmt.Errorf("failed to render Containerfile template: %w", err)
-	}
-
-	result.Containerfile = containerfile
 	return result, nil
 }
 
@@ -406,21 +393,6 @@ func (c *Consumer) generateAgentConfigWithGenerator(ctx context.Context, orgID u
 	}
 
 	return agentConfig, nil
-}
-
-// renderContainerfileTemplate renders the Containerfile template with the given data
-func renderContainerfileTemplate(data containerfileData) (string, error) {
-	tmpl, err := template.New("containerfile").Parse(containerfileTemplate)
-	if err != nil {
-		return "", fmt.Errorf("failed to parse template: %w", err)
-	}
-
-	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, data); err != nil {
-		return "", fmt.Errorf("failed to execute template: %w", err)
-	}
-
-	return buf.String(), nil
 }
 
 // podmanWorker holds information about a running podman worker container
@@ -760,6 +732,26 @@ func (c *Consumer) buildImageWithPodman(
 		return fmt.Errorf("failed to write Containerfile: %w", err)
 	}
 
+	// Write agent config file to build context (required by COPY instruction, empty if not early binding)
+	agentConfigPath := filepath.Join(podmanWorker.TmpDir, "agent-config.yaml")
+	agentConfigContent := containerfileResult.AgentConfig
+	if agentConfigContent == nil {
+		agentConfigContent = []byte{} // Empty placeholder
+	}
+	if err := os.WriteFile(agentConfigPath, agentConfigContent, 0600); err != nil {
+		return fmt.Errorf("failed to write agent-config.yaml: %w", err)
+	}
+
+	// Write public key file to build context (required by COPY instruction, empty if no user config)
+	publickeyPath := filepath.Join(podmanWorker.TmpDir, "user-publickey.txt")
+	publickeyContent := containerfileResult.Publickey
+	if publickeyContent == nil {
+		publickeyContent = []byte{} // Empty placeholder
+	}
+	if err := os.WriteFile(publickeyPath, publickeyContent, 0600); err != nil {
+		return fmt.Errorf("failed to write user-publickey.txt: %w", err)
+	}
+
 	// Get source repository credentials for pulling the base image (FROM)
 	repo, err := c.mainStore.Repository().Get(ctx, orgID, spec.Source.Repository)
 	if err != nil {
@@ -815,15 +807,24 @@ func (c *Consumer) buildImageWithPodman(
 
 	// B. Build
 	// Authentication is handled via podman login above
-	buildArgs := []string{
+	// Build arguments are passed via --build-arg for safer execution (no shell injection risk)
+	args := containerfileResult.BuildArgs
+	podmanBuildArgs := []string{
 		"build",
 		"--platform", platform,
 		"--manifest", imageRef,
+		"--build-arg", fmt.Sprintf("REGISTRY_HOSTNAME=%s", args.RegistryHostname),
+		"--build-arg", fmt.Sprintf("IMAGE_NAME=%s", args.ImageName),
+		"--build-arg", fmt.Sprintf("IMAGE_TAG=%s", args.ImageTag),
+		"--build-arg", fmt.Sprintf("EARLY_BINDING=%t", args.EarlyBinding),
+		"--build-arg", fmt.Sprintf("HAS_USER_CONFIG=%t", args.HasUserConfig),
+		"--build-arg", fmt.Sprintf("USERNAME=%s", args.Username),
+		"--build-arg", fmt.Sprintf("AGENT_CONFIG_DEST_PATH=%s", args.AgentConfigDestPath),
 		"-f", containerContainerfilePath,
 		containerBuildDir,
 	}
 
-	if err := podmanWorker.runInWorker(ctx, log, "build", nil, buildArgs...); err != nil {
+	if err := podmanWorker.runInWorker(ctx, log, "build", nil, podmanBuildArgs...); err != nil {
 		return err
 	}
 
