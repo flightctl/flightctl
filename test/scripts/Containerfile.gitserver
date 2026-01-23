@@ -15,11 +15,10 @@ RUN mkdir -p /home/user/repos \
     && chmod -R g=u /home/user
 
 
-RUN mkdir -p /etc/ssh/authorized_keys
-COPY bin/.ssh/id_rsa.pub /etc/ssh/authorized_keys/user
-RUN chown -R root:0 /etc/ssh/authorized_keys \
-    && chmod 755 /etc/ssh/authorized_keys \
-    && chmod 644 /etc/ssh/authorized_keys/user
+# Create authorized_keys directory - the actual public key is mounted at runtime via K8s Secret
+RUN mkdir -p /etc/ssh/authorized_keys \
+    && chown -R root:0 /etc/ssh/authorized_keys \
+    && chmod 755 /etc/ssh/authorized_keys
 
 RUN mkdir -p /home/user/git-shell-commands
 COPY test/scripts/git-server-cmds/* /home/user/git-shell-commands/

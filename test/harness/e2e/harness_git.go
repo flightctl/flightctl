@@ -1,17 +1,28 @@
 package e2e
 
 import (
+	"encoding/base64"
 	"fmt"
-	"html/template"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync"
+	"text/template"
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/test/util"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 )
+
+// sshKeyCacheData holds the cached SSH private key path to avoid repeated kubectl calls
+type sshKeyCacheData struct {
+	path string
+	once sync.Once
+	err  error
+}
+
+var sshKeyCache sshKeyCacheData
 
 // GetGitServerConfig returns the configuration for the e2e git server.
 // In KIND environments, it uses localhost:3222 (via port mappings).
@@ -429,10 +440,64 @@ func GetTestDataPath(relativePath string) string {
 	return filepath.Join("testdata", relativePath)
 }
 
-// GetSSHPrivateKeyPath returns the path to the SSH private key file (bin/.ssh/id_rsa).
+// getSSHPrivateKeyFromSecret retrieves the SSH private key from the e2e-git-ssh-keys Kubernetes Secret.
+// This is used when running on OpenShift where the key is mounted from a Secret rather than baked into the image.
+func getSSHPrivateKeyFromSecret() (string, error) {
+	encodedKey, err := getSecretData("e2e-git-ssh-keys", util.E2E_NAMESPACE, "id_rsa")
+	if err != nil {
+		return "", err
+	}
+
+	// The key is base64 encoded in the secret
+	decoded, err := base64.StdEncoding.DecodeString(encodedKey)
+	if err != nil {
+		return "", fmt.Errorf("failed to decode SSH key from secret: %w", err)
+	}
+
+	return string(decoded), nil
+}
+
+// getSSHPrivateKeyFromLocalFile retrieves the SSH private key from the local bin/.ssh/id_rsa file.
 // Note: ginkgo runs tests from the test package directory (e.g. resourcesync test runs from test/e2e/resourcesync/),
 // so navigate up to the project root.
+func getSSHPrivateKeyFromLocalFile() (string, error) {
+	keyPath := filepath.Join("..", "..", "..", "bin", ".ssh", "id_rsa")
+	absPath, err := filepath.Abs(keyPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to get absolute path for SSH private key: %w", err)
+	}
+	content, err := os.ReadFile(absPath)
+	if err != nil {
+		return "", fmt.Errorf("SSH private key not found at %s: %w", absPath, err)
+	}
+	return string(content), nil
+}
+
+// GetSSHPrivateKeyPath returns the path to the SSH private key file.
 func GetSSHPrivateKeyPath() (string, error) {
+	sshKeyCache.once.Do(func() {
+		sshKeyCache.path, sshKeyCache.err = initSSHPrivateKeyPath()
+	})
+	return sshKeyCache.path, sshKeyCache.err
+}
+
+// initSSHPrivateKeyPath initializes the SSH private key path by trying the Secret first,
+// then falling back to the local file. If the key comes from a Secret, it writes it to a temp file.
+func initSSHPrivateKeyPath() (string, error) {
+	keyContent, err := getSSHPrivateKeyFromSecret()
+	if err == nil && keyContent != "" {
+		logrus.Info("Using SSH private key from Kubernetes Secret")
+		// Write to a temp file since SSH commands require a file path
+		tempFile, err := os.CreateTemp("", "e2e-git-ssh-key-*")
+		if err != nil {
+			return "", fmt.Errorf("failed to create temp file for SSH key: %w", err)
+		}
+		if err := os.WriteFile(tempFile.Name(), []byte(keyContent), 0600); err != nil {
+			return "", fmt.Errorf("failed to write SSH key to temp file: %w", err)
+		}
+		return tempFile.Name(), nil
+	}
+
 	keyPath := filepath.Join("..", "..", "..", "bin", ".ssh", "id_rsa")
 	absPath, err := filepath.Abs(keyPath)
 	if err != nil {
@@ -441,19 +506,21 @@ func GetSSHPrivateKeyPath() (string, error) {
 	if _, err := os.Stat(absPath); err != nil {
 		return "", fmt.Errorf("SSH private key not found at %s: %w", absPath, err)
 	}
+	logrus.Info("Using SSH private key from local file")
 	return absPath, nil
 }
 
+// GetSSHPrivateKey returns the SSH private key content.
+// It first tries to get the key from the Kubernetes Secret (for OpenShift deployments),
+// then falls back to the local bin/.ssh/id_rsa file (for local development).
 func GetSSHPrivateKey() (string, error) {
-	keyPath, err := GetSSHPrivateKeyPath()
-	if err != nil {
-		return "", err
+	keyContent, err := getSSHPrivateKeyFromSecret()
+	if err == nil && keyContent != "" {
+		return keyContent, nil
 	}
-	content, err := os.ReadFile(keyPath)
-	if err != nil {
-		return "", fmt.Errorf("failed to read SSH private key from %s: %w", keyPath, err)
-	}
-	return string(content), nil
+
+	// Fall back to local file
+	return getSSHPrivateKeyFromLocalFile()
 }
 
 // writeTemplatedFilesToDir is a helper that
