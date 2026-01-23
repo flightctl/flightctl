@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/x509"
 	"fmt"
+	"os"
+	"strconv"
 )
 
 const signerDeviceManagementExpiryDays int32 = 365
@@ -58,7 +60,6 @@ func (s *SignerDeviceManagement) Sign(ctx context.Context, request SignRequest) 
 	// Parse the CSR (for TCG CSRs, the service layer provides the embedded standard CSR)
 	x509CSR := request.X509()
 	supplied, err := CNFromDeviceFingerprint(cfg, x509CSR.Subject.CommonName)
-
 	if err != nil {
 		return nil, fmt.Errorf("invalid CN supplied in CSR: %w", err)
 	}
@@ -74,7 +75,15 @@ func (s *SignerDeviceManagement) Sign(ctx context.Context, request SignRequest) 
 
 	x509CSR.Subject.CommonName = desired
 
+	// Default expiry (can be overridden in tests via env var).
 	expirySeconds := signerDeviceManagementExpiryDays * 24 * 60 * 60
+	if v := os.Getenv("FLIGHTCTL_TEST_MGMT_CERT_EXPIRY_SECONDS"); v != "" {
+		if seconds, err := strconv.ParseInt(v, 10, 32); err == nil && seconds > 0 {
+			expirySeconds = int32(seconds)
+		}
+	}
+
+	// If request specifies a smaller expiry, honor it.
 	if request.ExpirationSeconds() != nil && *request.ExpirationSeconds() < expirySeconds {
 		expirySeconds = *request.ExpirationSeconds()
 	}

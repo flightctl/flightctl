@@ -3,6 +3,7 @@ package certmanager
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -152,7 +153,10 @@ func (a *AgentCertManager) Run(ctx context.Context) {
 		a.log.Errorf("Initial certificate sync failed: %v", err)
 	}
 
-	t := time.NewTicker(defaultSyncInterval)
+	interval := certManagerSyncInterval()
+	a.log.Debugf("Certificate manager sync interval: %s", interval)
+
+	t := time.NewTicker(interval)
 	defer t.Stop()
 
 	for {
@@ -165,4 +169,13 @@ func (a *AgentCertManager) Run(ctx context.Context) {
 			}
 		}
 	}
+}
+
+func certManagerSyncInterval() time.Duration {
+	if v := os.Getenv("FLIGHTCTL_TEST_CERT_MANAGER_SYNC_INTERVAL"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			return d
+		}
+	}
+	return defaultSyncInterval
 }
