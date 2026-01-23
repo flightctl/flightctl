@@ -3,7 +3,6 @@ package tasks
 import (
 	"context"
 	"fmt"
-	"strings"
 	"testing"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
@@ -176,70 +175,39 @@ func createTestRepository(name string, registry string, scheme *v1beta1.OciRepoS
 	}
 }
 
-func TestRenderContainerfileTemplate(t *testing.T) {
-	tests := []struct {
-		name     string
-		data     containerfileData
-		expected []string // strings that must be present in the output
-	}{
-		{
-			name: "late binding template",
-			data: containerfileData{
-				RegistryHostname:    "quay.io",
-				ImageName:           "test-image",
-				ImageTag:            "v1.0.0",
-				EarlyBinding:        false,
-				AgentConfigDestPath: "/etc/flightctl/config.yaml",
-				HeredocDelimiter:    "FLIGHTCTL_CONFIG_ABC123",
-			},
-			expected: []string{
-				"FROM quay.io/test-image:v1.0.0",
-				"flightctl-agent",
-				"systemctl enable flightctl-agent.service",
-				"ignition",
-			},
-		},
-		{
-			name: "early binding template",
-			data: containerfileData{
-				RegistryHostname:    "registry.example.com",
-				ImageName:           "base-image",
-				ImageTag:            "latest",
-				EarlyBinding:        true,
-				AgentConfig:         "test: config\ndata: value",
-				AgentConfigDestPath: "/etc/flightctl/config.yaml",
-				HeredocDelimiter:    "FLIGHTCTL_CONFIG_XYZ789",
-			},
-			expected: []string{
-				"FROM registry.example.com/base-image:latest",
-				"flightctl-agent",
-				"systemctl enable flightctl-agent.service",
-				"/etc/flightctl/config.yaml",
-				"FLIGHTCTL_CONFIG_XYZ789",
-				"test: config",
-				"chmod 600",
-			},
-		},
+func TestContainerfileTemplate(t *testing.T) {
+	// The Containerfile template is now static with ARG declarations
+	// Values are passed via --build-arg at build time for safer execution
+	require.NotEmpty(t, containerfileTemplate, "Containerfile template should not be empty")
+
+	// Verify the template has required ARG declarations
+	expectedArgs := []string{
+		"ARG REGISTRY_HOSTNAME",
+		"ARG IMAGE_NAME",
+		"ARG IMAGE_TAG",
+		"ARG EARLY_BINDING",
+		"ARG HAS_USER_CONFIG",
+		"ARG USERNAME",
+		"ARG AGENT_CONFIG_DEST_PATH",
+	}
+	for _, arg := range expectedArgs {
+		require.Contains(t, containerfileTemplate, arg, "Template should declare %q", arg)
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result, err := renderContainerfileTemplate(tt.data)
-			require.NoError(t, err)
-			require.NotEmpty(t, result)
+	// Verify FROM uses ARGs
+	require.Contains(t, containerfileTemplate, "FROM ${REGISTRY_HOSTNAME}/${IMAGE_NAME}:${IMAGE_TAG}")
 
-			for _, expected := range tt.expected {
-				require.Contains(t, result, expected, "Containerfile should contain %q", expected)
-			}
+	// Verify COPY instructions for files
+	require.Contains(t, containerfileTemplate, "COPY agent-config.yaml")
+	require.Contains(t, containerfileTemplate, "COPY user-publickey.txt")
 
-			// Verify early binding doesn't include ignition
-			if tt.data.EarlyBinding {
-				require.NotContains(t, result, "ignition", "Early binding should not include ignition")
-			} else {
-				require.NotContains(t, result, "FLIGHTCTL_CONFIG", "Late binding should not include agent config")
-			}
-		})
-	}
+	// Verify conditional logic uses shell if statements
+	require.Contains(t, containerfileTemplate, `if [ "${EARLY_BINDING}" = "true" ]`)
+	require.Contains(t, containerfileTemplate, `if [ "${HAS_USER_CONFIG}" = "true" ]`)
+
+	// Verify common content
+	require.Contains(t, containerfileTemplate, "flightctl-agent")
+	require.Contains(t, containerfileTemplate, "systemctl enable flightctl-agent.service")
 }
 
 func TestGenerateContainerfile_LateBinding(t *testing.T) {
@@ -260,11 +228,17 @@ func TestGenerateContainerfile_LateBinding(t *testing.T) {
 	require.NotEmpty(t, result.Containerfile)
 	require.Nil(t, result.AgentConfig, "Late binding should not have agent config")
 
-	// Verify Containerfile content
-	require.Contains(t, result.Containerfile, "FROM quay.io/test-image:v1.0.0")
+	// Verify BuildArgs are set correctly
+	require.Equal(t, "quay.io", result.BuildArgs.RegistryHostname)
+	require.Equal(t, "test-image", result.BuildArgs.ImageName)
+	require.Equal(t, "v1.0.0", result.BuildArgs.ImageTag)
+	require.False(t, result.BuildArgs.EarlyBinding)
+	require.False(t, result.BuildArgs.HasUserConfig)
+
+	// Verify Containerfile is static template with ARG declarations
+	require.Contains(t, result.Containerfile, "ARG REGISTRY_HOSTNAME")
+	require.Contains(t, result.Containerfile, "FROM ${REGISTRY_HOSTNAME}/${IMAGE_NAME}:${IMAGE_TAG}")
 	require.Contains(t, result.Containerfile, "flightctl-agent")
-	require.Contains(t, result.Containerfile, "ignition")
-	require.NotContains(t, result.Containerfile, "FLIGHTCTL_CONFIG", "Late binding should not include agent config")
 }
 
 func TestGenerateContainerfile_EarlyBinding(t *testing.T) {
@@ -286,12 +260,17 @@ func TestGenerateContainerfile_EarlyBinding(t *testing.T) {
 	require.NotNil(t, result.AgentConfig, "Early binding should have agent config")
 	require.NotEmpty(t, result.AgentConfig)
 
-	// Verify Containerfile content
-	require.Contains(t, result.Containerfile, "FROM registry.example.com/test-image:v1.0.0")
+	// Verify BuildArgs are set correctly
+	require.Equal(t, "registry.example.com", result.BuildArgs.RegistryHostname)
+	require.Equal(t, "test-image", result.BuildArgs.ImageName)
+	require.Equal(t, "v1.0.0", result.BuildArgs.ImageTag)
+	require.True(t, result.BuildArgs.EarlyBinding)
+	require.Equal(t, "/etc/flightctl/config.yaml", result.BuildArgs.AgentConfigDestPath)
+
+	// Verify Containerfile is static template with ARG declarations
+	require.Contains(t, result.Containerfile, "ARG EARLY_BINDING")
+	require.Contains(t, result.Containerfile, "ARG AGENT_CONFIG_DEST_PATH")
 	require.Contains(t, result.Containerfile, "flightctl-agent")
-	require.Contains(t, result.Containerfile, "/etc/flightctl/config.yaml")
-	require.Contains(t, result.Containerfile, "chmod 600")
-	require.NotContains(t, result.Containerfile, "ignition", "Early binding should not include ignition")
 }
 
 func TestGenerateContainerfile_RepositoryNotFound(t *testing.T) {
@@ -363,50 +342,16 @@ func TestGenerateContainerfile_ServiceHandlerError(t *testing.T) {
 	require.Contains(t, err.Error(), "agent config")
 }
 
-func TestGenerateContainerfile_HeredocDelimiterUniqueness(t *testing.T) {
-	mockStore := newMockStore()
-	mockStore.repositories["test-repo"] = createTestRepository("test-repo", "quay.io", nil)
-
-	mockServiceHandler := newMockServiceHandler()
-	imageBuild := newTestImageBuild("test-build", "early")
-
-	ctx := context.Background()
-	orgID := uuid.New()
-	logger := log.InitLogs()
-
-	// Generate multiple containerfiles and verify heredoc delimiters are unique
-	delimiters := make(map[string]bool)
-	for i := 0; i < 10; i++ {
-		result, err := GenerateContainerfile(ctx, mockStore, mockServiceHandler, orgID, imageBuild, logger)
-		require.NoError(t, err)
-
-		// Extract heredoc delimiter from the Containerfile
-		lines := strings.Split(result.Containerfile, "\n")
-		for _, line := range lines {
-			if strings.Contains(line, "FLIGHTCTL_CONFIG_") {
-				parts := strings.Fields(line)
-				for _, part := range parts {
-					if strings.HasPrefix(part, "FLIGHTCTL_CONFIG_") {
-						delimiter := strings.Trim(part, "'")
-						require.False(t, delimiters[delimiter], "Heredoc delimiter should be unique: %s", delimiter)
-						delimiters[delimiter] = true
-						break
-					}
-				}
-			}
-		}
-	}
-}
-
 func TestGenerateContainerfile_WithUserConfiguration(t *testing.T) {
 	mockStore := newMockStore()
 	mockStore.repositories["test-repo"] = createTestRepository("test-repo", "quay.io", nil)
 
 	mockServiceHandler := newMockServiceHandler()
 	imageBuild := newTestImageBuild("test-build", "late")
+	testPublicKey := "ssh-rsa AAAAB3NzaC1yc2EAAAADAQAB test@example.com"
 	imageBuild.Spec.UserConfiguration = &api.ImageBuildUserConfiguration{
 		Username:  "testuser",
-		Publickey: "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC7vbqajDhA/2dZ0jofdR7H3nKJvN2k3J8K9L0M1N2O3P4Q5R6S7T8U9V0W1X2Y3Z4A5B6C7D8E9F0G1H2I3J4K5L6M7N8O9P0Q1R2S3T4U5V6W7X8Y9Z0A1B2C3D4E5F6G7H8I9J0K1L2M3N4O5P6Q7R8S9T0U1V2W3X4Y5Z6A7B8C9D0E1F2G3H4I5J6K7L8M9N0O1P2Q3R4S5T6U7V8W9X0Y1Z2A3B4C5D6E7E8F9G0H1I2J3K4L5M6N7O8P9Q0R1S2T3U4V5W6X7Y8Z9A0B1C2D3E4F5G6H7I8J9K0L1M2N3O4P5Q6R7S8T9U0V1W2X3Y4Z5A6B7C8D9E0F1G2H3I4J5K6L7M8N9O0P1Q2R3S4T5U6V7W8X9Y0Z1A2B3C4D5E6F7G8H9I0J1K2L3M4N5O6P7Q8R9S0T1U2V3W4X5Y6Z7A8B9C0D1E2F3G4H5I6J7K8L9M0N1O2P3Q4R5S6T7U8V9W0X1Y2Z3A4B5C6D7E8F9G0H1I2J3K4L5M6N7O8P9Q0R1S2T3U4V5W6X7Y8Z9A0B1C2D3E4F5G6H7I8J9K0L1M2N3O4P5Q6R7S8T9U9 test@example.com",
+		Publickey: testPublicKey,
 	}
 
 	ctx := context.Background()
@@ -419,15 +364,17 @@ func TestGenerateContainerfile_WithUserConfiguration(t *testing.T) {
 	require.NotNil(t, result)
 	require.NotEmpty(t, result.Containerfile)
 
-	// Verify user configuration is included
-	require.Contains(t, result.Containerfile, "useradd -m -s /bin/bash testuser")
-	require.Contains(t, result.Containerfile, "usermod -aG wheel testuser")
-	require.Contains(t, result.Containerfile, "mkdir -p /home/testuser/.ssh")
-	require.Contains(t, result.Containerfile, "cat > /home/testuser/.ssh/authorized_keys")
-	require.Contains(t, result.Containerfile, "ssh-rsa")
-	require.Contains(t, result.Containerfile, "chmod 700 /home/testuser/.ssh")
-	require.Contains(t, result.Containerfile, "chmod 600 /home/testuser/.ssh/authorized_keys")
-	require.Contains(t, result.Containerfile, "chown -R testuser:testuser /home/testuser/.ssh")
+	// Verify BuildArgs are set correctly for user configuration
+	require.True(t, result.BuildArgs.HasUserConfig)
+	require.Equal(t, "testuser", result.BuildArgs.Username)
+
+	// Verify Publickey is stored for writing to build context
+	require.Equal(t, []byte(testPublicKey), result.Publickey)
+
+	// Verify Containerfile has user configuration support (shell conditionals)
+	require.Contains(t, result.Containerfile, "ARG HAS_USER_CONFIG")
+	require.Contains(t, result.Containerfile, "ARG USERNAME")
+	require.Contains(t, result.Containerfile, `if [ "${HAS_USER_CONFIG}" = "true" ]`)
 }
 
 func TestGenerateContainerfile_WithoutUserConfiguration(t *testing.T) {
@@ -448,38 +395,10 @@ func TestGenerateContainerfile_WithoutUserConfiguration(t *testing.T) {
 	require.NotNil(t, result)
 	require.NotEmpty(t, result.Containerfile)
 
-	// Verify user configuration is NOT included
-	require.NotContains(t, result.Containerfile, "useradd")
-	require.NotContains(t, result.Containerfile, "usermod -aG wheel")
-	require.NotContains(t, result.Containerfile, ".ssh/authorized_keys")
-}
+	// Verify BuildArgs indicate no user configuration
+	require.False(t, result.BuildArgs.HasUserConfig)
+	require.Empty(t, result.BuildArgs.Username)
 
-func TestRenderContainerfileTemplate_WithUserConfiguration(t *testing.T) {
-	data := containerfileData{
-		RegistryHostname:    "quay.io",
-		ImageName:           "test-image",
-		ImageTag:            "v1.0.0",
-		EarlyBinding:        false,
-		AgentConfigDestPath: "/etc/flightctl/config.yaml",
-		HeredocDelimiter:    "FLIGHTCTL_CONFIG_ABC123",
-		PublicKeyDelimiter:  "FLIGHTCTL_PUBKEY_XYZ789",
-		HasUserConfig:       true,
-		Username:            "testuser",
-		Publickey:           "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC7vbqajDhA/2dZ0jofdR7H3nKJvN2k3J8K9L0M1N2O3P4Q5R6S7T8U9V0W1X2Y3Z4A5B6C7D8E9F0G1H2I3J4K5L6M7N8O9P0Q1R2S3T4U5V6W7X8Y9Z0A1B2C3D4E5F6G7H8I9J0K1L2M3N4O5P6Q7R8S9T0U1V2W3X4Y5Z6A7B8C9D0E1F2G3H4I5J6K7L8M9N0O1P2Q3R4S5T6U7V8W9X0Y1Z2A3B4C5D6E7E8F9G0H1I2J3K4L5M6N7O8P9Q0R1S2T3U4V5W6X7Y8Z9A0B1C2D3E4F5G6H7I8J9K0L1M2N3O4P5Q6R7S8T9U0V1W2X3Y4Z5A6B7C8D9E0F1G2H3I4J5K6L7M8N9O0P1Q2R3S4T5U6V7W8X9Y0Z1A2B3C4D5E6F7G8H9I0J1K2L3M4N5O6P7Q8R9S0T1U2V3W4X5Y6Z7A8B9C0D1E2F3G4H5I6J7K8L9M0N1O2P3Q4R5S6T7U8V9W0X1Y2Z3A4B5C6D7E8F9G0H1I2J3K4L5M6N7O8P9Q0R1S2T3U4V5W6X7Y8Z9A0B1C2D3E4F5G6H7I8J9K0L1M2N3O4P5Q6R7S8T9U9 test@example.com",
-	}
-
-	result, err := renderContainerfileTemplate(data)
-	require.NoError(t, err)
-	require.NotEmpty(t, result)
-
-	// Verify user configuration is included
-	require.Contains(t, result, "useradd -m -s /bin/bash testuser")
-	require.Contains(t, result, "usermod -aG wheel testuser")
-	require.Contains(t, result, "mkdir -p /home/testuser/.ssh")
-	require.Contains(t, result, "cat > /home/testuser/.ssh/authorized_keys")
-	require.Contains(t, result, "FLIGHTCTL_PUBKEY_XYZ789")
-	require.Contains(t, result, "ssh-rsa")
-	require.Contains(t, result, "chmod 700 /home/testuser/.ssh")
-	require.Contains(t, result, "chmod 600 /home/testuser/.ssh/authorized_keys")
-	require.Contains(t, result, "chown -R testuser:testuser /home/testuser/.ssh")
+	// Verify Publickey is nil when no user configuration
+	require.Nil(t, result.Publickey)
 }
