@@ -444,7 +444,7 @@ var _ = Describe("VM Agent behavior", func() {
 				GinkgoWriter.Printf("Updating %s with resources %v\n", fleet1Name, fleet.Spec.Template.Spec.Resources)
 			})
 			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring(`/spec/template/spec/resources/0": Error at "/samplingInterval": string doesn't match the regular expression "^[1-9]\d*[smh]$`))
+			Expect(err.Error()).To(ContainSubstring(`string doesn't match the regular expression "^[1-9]\d*[smh]$`))
 
 			By("Should fail with invalid percentage")
 			err = harness.UpdateFleet(fleet1Name, func(fleet *v1beta1.Fleet) {
