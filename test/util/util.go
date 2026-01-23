@@ -379,15 +379,39 @@ func TestEnrollmentApproval() *v1beta1.EnrollmentRequestApproval {
 	}
 }
 
-// TestTempEnv sets the environment variable key to value and returns a function that will reset the environment variable to its original value.
-func TestTempEnv(key, value string) func() {
-	originalValue, hadOriginalValue := os.LookupEnv(key)
-	os.Setenv(key, value)
+// TestTempEnv sets one or more environment variables and returns a cleanup
+// function that restores their original values.
+func TestTempEnv(kv ...string) func() {
+	if len(kv)%2 != 0 {
+		panic("TestTempEnv requires even number of arguments: key, value pairs")
+	}
+
+	type original struct {
+		key    string
+		value  string
+		exists bool
+	}
+
+	originals := make([]original, 0, len(kv)/2)
+
+	for i := 0; i < len(kv); i += 2 {
+		key, value := kv[i], kv[i+1]
+		origVal, exists := os.LookupEnv(key)
+		originals = append(originals, original{
+			key:    key,
+			value:  origVal,
+			exists: exists,
+		})
+		_ = os.Setenv(key, value)
+	}
+
 	return func() {
-		if hadOriginalValue {
-			os.Setenv(key, originalValue)
-		} else {
-			os.Unsetenv(key)
+		for _, o := range originals {
+			if o.exists {
+				_ = os.Setenv(o.key, o.value)
+			} else {
+				_ = os.Unsetenv(o.key)
+			}
 		}
 	}
 }

@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/x509"
 	"fmt"
+	"os"
+	"strconv"
 )
 
 type SignerDeviceManagementRenewal struct {
@@ -78,7 +80,15 @@ func (s *SignerDeviceManagementRenewal) Sign(ctx context.Context, request SignRe
 	}
 	x509CSR.Subject.CommonName = cn
 
+	// Default expiry (can be overridden in tests via env var).
 	expirySeconds := signerDeviceManagementExpiryDays * 24 * 60 * 60
+	if v := os.Getenv("FLIGHTCTL_TEST_MGMT_CERT_EXPIRY_SECONDS"); v != "" {
+		if seconds, err := strconv.ParseInt(v, 10, 32); err == nil && seconds > 0 {
+			expirySeconds = int32(seconds)
+		}
+	}
+
+	// If request specifies a smaller expiry, honor it.
 	if request.ExpirationSeconds() != nil && *request.ExpirationSeconds() < expirySeconds {
 		expirySeconds = *request.ExpirationSeconds()
 	}

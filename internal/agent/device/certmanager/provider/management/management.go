@@ -5,6 +5,8 @@ import (
 	"crypto/x509"
 	"fmt"
 	"net/http"
+	"os"
+	"strconv"
 	"time"
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
@@ -44,18 +46,27 @@ func NewManagementConfigProvider(renewBeforeExpiry time.Duration) *managementCon
 func (p *managementConfigProvider) Name() string { return configProviderName }
 
 func (p *managementConfigProvider) GetCertificateConfigs() ([]certmanager.CertificateConfig, error) {
-	return []certmanager.CertificateConfig{
-		{
-			Name: managementCertName,
-			Provisioner: certmanager.ProvisionerConfig{
-				Type: provisionerType,
-			},
-			Storage: certmanager.StorageConfig{
-				Type: provisionerType,
-			},
-			RenewBefore: &p.renewBeforeExpiry,
+	cfg := certmanager.CertificateConfig{
+		Name: managementCertName,
+		Provisioner: certmanager.ProvisionerConfig{
+			Type: provisionerType,
 		},
-	}, nil
+		Storage: certmanager.StorageConfig{
+			Type: provisionerType,
+		},
+	}
+
+	// Apply env overrides (can set both, precedence handled by certmanager)
+	renewBefore, renewBeforePercent := renewPolicyFromEnv()
+	cfg.RenewBefore = renewBefore
+	cfg.RenewBeforePercentage = renewBeforePercent
+
+	// Fall back to provider default only if neither override is set
+	if cfg.RenewBefore == nil && cfg.RenewBeforePercentage == nil {
+		cfg.RenewBefore = &p.renewBeforeExpiry
+	}
+
+	return []certmanager.CertificateConfig{cfg}, nil
 }
 
 // ---- ProvisionerProvider ----
@@ -448,4 +459,27 @@ func getCurrentCertificate(identityProvider identity.Provider) (*x509.Certificat
 		return nil, nil
 	}
 	return certs[0], nil
+}
+
+func renewPolicyFromEnv() (*time.Duration, *int32) {
+	var (
+		renewBefore        *time.Duration
+		renewBeforePercent *int32
+	)
+
+	if v := os.Getenv("FLIGHTCTL_TEST_MGMT_CERT_RENEW_BEFORE_SECONDS"); v != "" {
+		if sec, err := strconv.ParseInt(v, 10, 64); err == nil && sec > 0 {
+			d := time.Duration(sec) * time.Second
+			renewBefore = &d
+		}
+	}
+
+	if v := os.Getenv("FLIGHTCTL_TEST_MGMT_CERT_RENEW_BEFORE_PERCENT"); v != "" {
+		if p, err := strconv.ParseInt(v, 10, 32); err == nil && p > 0 && p < 100 {
+			pp := int32(p)
+			renewBeforePercent = &pp
+		}
+	}
+
+	return renewBefore, renewBeforePercent
 }
