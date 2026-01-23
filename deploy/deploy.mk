@@ -18,10 +18,19 @@ cluster: bin/e2e-certs/ca.pem
 clean-cluster:
 	kind delete cluster
 
+# Warn if deploy is run with sudo (kind-based deploy doesn't need sudo)
+check-sudo-warning:
+	@if [ "$$(id -u)" = "0" ] && [ -n "$$SUDO_USER" ]; then \
+		echo "WARNING: Running 'make deploy' with sudo is not recommended."; \
+		echo "The kind-based deployment does not require sudo."; \
+		echo "Container builds will use your user's podman to avoid permission issues."; \
+		echo ""; \
+	fi
+
 ifndef SKIP_BUILD
-deploy: cluster build-containers build-cli deploy-helm prepare-agent-config
+deploy: check-sudo-warning cluster build-containers build-cli deploy-helm prepare-agent-config
 else
-deploy: cluster deploy-helm prepare-agent-config
+deploy: check-sudo-warning cluster deploy-helm prepare-agent-config
 	@echo "Skipping container and CLI builds (SKIP_BUILD is set)"
 endif
 
