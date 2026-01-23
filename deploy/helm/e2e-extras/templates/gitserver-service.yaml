@@ -10,7 +10,7 @@ spec:
   ports:
     - name: "registry"
       port: 3222
-      targetPort: 22
+      targetPort: 2222
       {{ if .Values.global.nodePorts.gitserver }}
       nodePort: {{ .Values.global.nodePorts.gitserver }}
       {{ end }}
