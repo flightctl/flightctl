@@ -34,10 +34,11 @@ func (h *Harness) GetInternalGitRepoURL(repoName string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to get git server config: %w", err)
 	}
-	// Use the internal cluster URL since services run inside the cluster
+	// Use the internal cluster URL and port since services run inside the cluster.
 	gitServerInternalHost := "e2e-git-server.flightctl-e2e.svc.cluster.local"
+	gitServerInternalPort := 3222
 	return fmt.Sprintf("%s@%s:%d:/home/user/repos/%s.git",
-		gitConfig.User, gitServerInternalHost, gitConfig.Port, repoName), nil
+		gitConfig.User, gitServerInternalHost, gitServerInternalPort, repoName), nil
 }
 
 // CreateRepositoryWithSSHCredentials creates a Repository resource with SSH credentials
