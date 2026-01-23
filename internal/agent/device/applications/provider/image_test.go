@@ -222,7 +222,7 @@ image: quay.io/flightctl-tests/alpine:v1`,
 				}
 			}
 
-			imageProvider, err := newImage(log, podman, provider, rw, appType)
+			imageProvider, err := newImage(log, podman, nil, provider, rw, appType)
 			if tt.wantVerifyErr != nil && err != nil {
 				require.ErrorIs(err, tt.wantVerifyErr)
 				return

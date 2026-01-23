@@ -26,6 +26,12 @@ type ActionHandler interface {
 	Execute(ctx context.Context, actions Actions) error
 }
 
+// ActionSpec is a marker interface for type-specific action configuration.
+// Only spec types defined in this package can implement this interface.
+type ActionSpec interface {
+	actionSpec()
+}
+
 type Action struct {
 	// ID of the application
 	ID string
@@ -45,7 +51,22 @@ type Action struct {
 	Embedded bool
 	// Volumes is a list of volume names related to this application
 	Volumes []Volume
+	// Spec holds type-specific configuration, discriminated by AppType.
+	Spec ActionSpec
 }
+
+// HelmSpec contains Helm-specific action configuration.
+type HelmSpec struct {
+	// Namespace is the Kubernetes namespace for the Helm release.
+	Namespace string
+	// ValuesFiles is a list of relative paths to values files within the chart.
+	ValuesFiles []string
+	// ProviderValuesPath is the absolute path to the provider-generated values file.
+	// This is set when the application spec contains inline Values.
+	ProviderValuesPath string
+}
+
+func (HelmSpec) actionSpec() {}
 
 type Actions []Action
 

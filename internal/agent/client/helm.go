@@ -12,6 +12,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
+	"gopkg.in/yaml.v3"
 )
 
 const (
@@ -209,7 +210,8 @@ func (h *Helm) Pull(ctx context.Context, chartRef, destDir string, opts ...Clien
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	chartPath, version := SplitChartRef(chartRef)
+	normalizedRef := NormalizeChartRef(chartRef)
+	chartPath, version := SplitChartRef(normalizedRef)
 	args := []string{"pull", chartPath, "--untar", "--destination", destDir}
 	if version != "" {
 		args = append(args, "--version", version)
@@ -498,6 +500,109 @@ func (h *Helm) Template(ctx context.Context, releaseName, chartPath string, opts
 	}
 
 	return stdout, nil
+}
+
+// Lint runs helm lint on a chart to validate its structure and templates.
+func (h *Helm) Lint(ctx context.Context, chartPath string, opts ...HelmOption) error {
+	options := &helmOptions{}
+	for _, opt := range opts {
+		opt(options)
+	}
+
+	timeout := h.timeout
+	if options.timeout > 0 {
+		timeout = options.timeout
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	args := []string{"lint", chartPath}
+
+	for _, valuesPath := range options.valuesPaths {
+		exists, err := h.readWriter.PathExists(valuesPath)
+		if err != nil {
+			return fmt.Errorf("check values file path: %w", err)
+		}
+		if !exists {
+			return fmt.Errorf("values file does not exist: %s", valuesPath)
+		}
+		args = append(args, "--values", valuesPath)
+	}
+
+	_, stderr, exitCode := h.exec.ExecuteWithContext(ctx, helmCmd, args...)
+	if exitCode != 0 {
+		return fmt.Errorf("helm lint: %w", errors.FromStderr(stderr, exitCode))
+	}
+
+	return nil
+}
+
+// helmDryRunOutput represents the YAML output structure from helm dry-run.
+type helmDryRunOutput struct {
+	Manifest string `yaml:"manifest"`
+}
+
+// DryRun performs a helm upgrade --install --dry-run=server to validate
+// the chart against the Kubernetes API server without actually installing it.
+// Returns only the manifest (raw YAML) for compatibility with Template output.
+func (h *Helm) DryRun(ctx context.Context, releaseName, chartPath string, opts ...HelmOption) (string, error) {
+	options := &helmOptions{}
+	for _, opt := range opts {
+		opt(options)
+	}
+
+	timeout := h.timeout
+	if options.timeout > 0 {
+		timeout = options.timeout
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	args := []string{"upgrade", "--install", "--dry-run=server", "-o", "yaml", releaseName, chartPath}
+
+	if options.namespace != "" {
+		args = append(args, "--namespace", options.namespace)
+	}
+
+	if options.createNamespace {
+		args = append(args, "--create-namespace")
+	}
+
+	for _, valuesPath := range options.valuesPaths {
+		exists, err := h.readWriter.PathExists(valuesPath)
+		if err != nil {
+			return "", fmt.Errorf("check values file path: %w", err)
+		}
+		if !exists {
+			return "", fmt.Errorf("values file does not exist: %s", valuesPath)
+		}
+		args = append(args, "--values", valuesPath)
+	}
+
+	if options.kubeconfigPath != "" {
+		exists, err := h.readWriter.PathExists(options.kubeconfigPath)
+		if err != nil {
+			return "", fmt.Errorf("check kubeconfig path: %w", err)
+		}
+		if !exists {
+			return "", fmt.Errorf("kubeconfig does not exist: %s", options.kubeconfigPath)
+		}
+		args = append(args, "--kubeconfig", options.kubeconfigPath)
+	}
+
+	stdout, stderr, exitCode := h.exec.ExecuteWithContext(ctx, helmCmd, args...)
+	if exitCode != 0 {
+		return "", fmt.Errorf("helm dry-run: %w", errors.FromStderr(stderr, exitCode))
+	}
+
+	var output helmDryRunOutput
+	if err := yaml.Unmarshal([]byte(stdout), &output); err != nil {
+		return "", fmt.Errorf("parse dry-run output: %w", err)
+	}
+
+	return output.Manifest, nil
 }
 
 // Resolve ensures a chart is pulled and its dependencies are updated.

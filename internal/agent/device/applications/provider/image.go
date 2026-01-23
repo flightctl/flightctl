@@ -31,7 +31,7 @@ type imageProvider struct {
 	AppData *AppData
 }
 
-func newImageHandler(appType v1beta1.AppType, name string, rw fileio.ReadWriter, l *log.PrefixLogger, podman *client.Podman, vm VolumeManager, provider *v1beta1.ImageApplicationProviderSpec) (appTypeHandler, error) {
+func newImageHandler(appType v1beta1.AppType, name string, rw fileio.ReadWriter, l *log.PrefixLogger, podman *client.Podman, clients client.CLIClients, vm VolumeManager, provider *v1beta1.ImageApplicationProviderSpec) (appTypeHandler, error) {
 	switch appType {
 	case v1beta1.AppTypeQuadlet:
 		qb := &quadletHandler{
@@ -61,21 +61,28 @@ func newImageHandler(appType v1beta1.AppType, name string, rw fileio.ReadWriter,
 			podman: podman,
 			spec:   provider,
 		}, nil
+	case v1beta1.AppTypeHelm:
+		return &helmHandler{
+			name:    name,
+			spec:    provider,
+			clients: clients,
+			rw:      rw,
+			log:     l,
+		}, nil
 	default:
 		return nil, fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, appType)
 	}
 }
 
-func newImage(log *log.PrefixLogger, podman *client.Podman, spec *v1beta1.ApplicationProviderSpec, readWriter fileio.ReadWriter, appType v1beta1.AppType) (*imageProvider, error) {
+func newImage(log *log.PrefixLogger, podman *client.Podman, clients client.CLIClients, spec *v1beta1.ApplicationProviderSpec, readWriter fileio.ReadWriter, appType v1beta1.AppType) (*imageProvider, error) {
 	provider, err := spec.AsImageApplicationProviderSpec()
 	if err != nil {
 		return nil, fmt.Errorf("getting provider spec:%w", err)
 	}
 
-	// set the app name to the image name if not provided
-	appName := lo.FromPtr(spec.Name)
-	if appName == "" {
-		appName = provider.Image
+	appName, err := ResolveImageAppName(spec)
+	if err != nil {
+		return nil, fmt.Errorf("resolving app name: %w", err)
 	}
 
 	volumeManager, err := NewVolumeManager(log, appName, appType, provider.Volumes)
@@ -83,7 +90,7 @@ func newImage(log *log.PrefixLogger, podman *client.Podman, spec *v1beta1.Applic
 		return nil, err
 	}
 
-	handler, err := newImageHandler(appType, appName, readWriter, log, podman, volumeManager, &provider)
+	handler, err := newImageHandler(appType, appName, readWriter, log, podman, clients, volumeManager, &provider)
 	if err != nil {
 		return nil, fmt.Errorf("constructing image handler: %w", err)
 	}
@@ -104,6 +111,15 @@ func newImage(log *log.PrefixLogger, podman *client.Podman, spec *v1beta1.Applic
 			Volume:        volumeManager,
 		},
 	}, nil
+}
+
+func isPodmanBasedAppType(appType v1beta1.AppType) bool {
+	switch appType {
+	case v1beta1.AppTypeCompose, v1beta1.AppTypeQuadlet, v1beta1.AppTypeContainer:
+		return true
+	default:
+		return false
+	}
 }
 
 func (p *imageProvider) extractOCIContents(ctx context.Context, ociType dependency.OCIType, path string) error {
@@ -139,18 +155,12 @@ func (p *imageProvider) Verify(ctx context.Context) error {
 		return fmt.Errorf("%w: ensuring volume dependencies: %w", errors.ErrNoRetry, err)
 	}
 
-	ociType, err := detectOCIType(ctx, p.podman, p.spec.ImageProvider.Image)
-	if err != nil {
-		return fmt.Errorf("detecting OCI type: %w", err)
-	}
-
 	var tmpAppPath string
 	var shouldCleanup bool
 	if p.AppData != nil {
 		tmpAppPath = p.AppData.TmpPath
 		shouldCleanup = false
 	} else {
-		// no cache, extract the OCI contents
 		var err error
 		tmpAppPath, err = p.readWriter.MkdirTemp("app_temp")
 		if err != nil {
@@ -158,9 +168,18 @@ func (p *imageProvider) Verify(ctx context.Context) error {
 		}
 		shouldCleanup = true
 
-		if err := p.extractOCIContents(ctx, ociType, tmpAppPath); err != nil {
-			return fmt.Errorf("extracting OCI: %s contents: %w", ociType, err)
+		if isPodmanBasedAppType(p.spec.AppType) {
+			ociType, err := detectOCIType(ctx, p.podman, p.spec.ImageProvider.Image)
+			if err != nil {
+				return fmt.Errorf("detecting OCI type: %w", err)
+			}
+
+			if err := p.extractOCIContents(ctx, ociType, tmpAppPath); err != nil {
+				return fmt.Errorf("extracting OCI: %s contents: %w", ociType, err)
+			}
 		}
+
+		// for non podman apps, just utilize the tmp dir that is created.
 	}
 
 	defer func() {
@@ -192,17 +211,19 @@ func (p *imageProvider) Install(ctx context.Context) error {
 		return fmt.Errorf("image application spec is nil")
 	}
 
-	ociType, err := detectOCIType(ctx, p.podman, p.spec.ImageProvider.Image)
-	if err != nil {
-		return fmt.Errorf("detecting OCI type: %w", err)
-	}
+	if isPodmanBasedAppType(p.spec.AppType) {
+		ociType, err := detectOCIType(ctx, p.podman, p.spec.ImageProvider.Image)
+		if err != nil {
+			return fmt.Errorf("detecting OCI type: %w", err)
+		}
 
-	if err := p.extractOCIContents(ctx, ociType, p.spec.Path); err != nil {
-		return fmt.Errorf("extracting OCI: %s contents: %w", ociType, err)
-	}
+		if err := p.extractOCIContents(ctx, ociType, p.spec.Path); err != nil {
+			return fmt.Errorf("extracting OCI: %s contents: %w", ociType, err)
+		}
 
-	if err := writeENVFile(p.spec.Path, p.readWriter, p.spec.EnvVars); err != nil {
-		return fmt.Errorf("writing env file: %w", err)
+		if err := writeENVFile(p.spec.Path, p.readWriter, p.spec.EnvVars); err != nil {
+			return fmt.Errorf("writing env file: %w", err)
+		}
 	}
 
 	// image providers may have volumes that are nested within the contents of the application
@@ -226,14 +247,15 @@ func (p *imageProvider) Remove(ctx context.Context) error {
 		p.AppData = nil
 	}
 
-	if err := p.readWriter.RemoveAll(p.spec.Path); err != nil {
-		return fmt.Errorf("removing application: %w", err)
-	}
 	return p.handler.Remove(ctx)
 }
 
 func (p *imageProvider) Name() string {
 	return p.spec.Name
+}
+
+func (p *imageProvider) ID() string {
+	return p.spec.ID
 }
 
 func (p *imageProvider) Spec() *ApplicationSpec {

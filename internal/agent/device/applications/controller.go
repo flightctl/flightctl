@@ -13,6 +13,7 @@ import (
 
 type Controller struct {
 	podman     *client.Podman
+	clients    client.CLIClients
 	readWriter fileio.ReadWriter
 	manager    Manager
 	log        *log.PrefixLogger
@@ -21,6 +22,7 @@ type Controller struct {
 
 func NewController(
 	podman *client.Podman,
+	clients client.CLIClients,
 	manager Manager,
 	readWriter fileio.ReadWriter,
 	log *log.PrefixLogger,
@@ -30,6 +32,7 @@ func NewController(
 		log:        log,
 		manager:    manager,
 		podman:     podman,
+		clients:    clients,
 		readWriter: readWriter,
 		bootTime:   bootTime,
 	}
@@ -43,6 +46,7 @@ func (c *Controller) Sync(ctx context.Context, current, desired *v1beta1.DeviceS
 		ctx,
 		c.log,
 		c.podman,
+		c.clients,
 		c.readWriter,
 		current,
 		provider.WithInstalledEmbedded(),
@@ -55,6 +59,7 @@ func (c *Controller) Sync(ctx context.Context, current, desired *v1beta1.DeviceS
 		ctx,
 		c.log,
 		c.podman,
+		c.clients,
 		c.readWriter,
 		desired,
 		provider.WithEmbedded(c.bootTime),

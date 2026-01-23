@@ -495,6 +495,10 @@ func (m *mockProvider) Name() string {
 	return m.name
 }
 
+func (m *mockProvider) ID() string {
+	return client.NewComposeID(m.name)
+}
+
 func (m *mockProvider) Spec() *provider.ApplicationSpec {
 	volManager, err := provider.NewVolumeManager(nil, m.name, v1beta1.AppTypeCompose, nil)
 	m.require.NoError(err)

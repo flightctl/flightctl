@@ -6,7 +6,9 @@ import (
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
+	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -263,7 +265,7 @@ func TestApplicationStatus(t *testing.T) {
 					providerSpec,
 				},
 			}
-			providers, err := provider.FromDeviceSpec(context.Background(), log, podman, readWriter, &desired)
+			providers, err := provider.FromDeviceSpec(context.Background(), log, podman, nil, readWriter, &desired)
 			require.NoError(err)
 			require.Len(providers, 1)
 			application := NewApplication(providers[0])
@@ -279,4 +281,150 @@ func TestApplicationStatus(t *testing.T) {
 			require.Equal(tt.expectedSummaryStatus, summary.Status)
 		})
 	}
+}
+
+func TestNewHelmApplication(t *testing.T) {
+	tests := []struct {
+		name                       string
+		appName                    string
+		namespace                  string
+		valuesFiles                []string
+		values                     map[string]interface{}
+		expectedNamespace          string
+		expectedValuesFiles        []string
+		expectedProviderValuesPath string
+	}{
+		{
+			name:                       "with namespace and values files",
+			appName:                    "my-helm-app",
+			namespace:                  "production",
+			valuesFiles:                []string{"values.yaml", "values-prod.yaml"},
+			values:                     nil,
+			expectedNamespace:          "production",
+			expectedValuesFiles:        []string{"values.yaml", "values-prod.yaml"},
+			expectedProviderValuesPath: "",
+		},
+		{
+			name:                       "with inline values",
+			appName:                    "my-helm-app",
+			namespace:                  "default",
+			valuesFiles:                nil,
+			values:                     map[string]interface{}{"replicaCount": 3},
+			expectedNamespace:          "default",
+			expectedValuesFiles:        nil,
+			expectedProviderValuesPath: "/var/lib/flightctl/helm/values/my-helm-app/flightctl-values.yaml",
+		},
+		{
+			name:                       "with all options",
+			appName:                    "full-app",
+			namespace:                  "staging",
+			valuesFiles:                []string{"base.yaml"},
+			values:                     map[string]interface{}{"key": "value"},
+			expectedNamespace:          "staging",
+			expectedValuesFiles:        []string{"base.yaml"},
+			expectedProviderValuesPath: "/var/lib/flightctl/helm/values/full-app/flightctl-values.yaml",
+		},
+		{
+			name:                       "empty values does not set provider path",
+			appName:                    "empty-app",
+			namespace:                  "",
+			valuesFiles:                nil,
+			values:                     map[string]interface{}{},
+			expectedNamespace:          "",
+			expectedValuesFiles:        nil,
+			expectedProviderValuesPath: "",
+		},
+		{
+			name:                       "nil image provider",
+			appName:                    "nil-provider-app",
+			namespace:                  "",
+			valuesFiles:                nil,
+			values:                     nil,
+			expectedNamespace:          "",
+			expectedValuesFiles:        nil,
+			expectedProviderValuesPath: "",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+
+			mockProvider := &helmMockProvider{
+				name:        tc.appName,
+				namespace:   tc.namespace,
+				valuesFiles: tc.valuesFiles,
+				values:      tc.values,
+			}
+
+			app := NewHelmApplication(mockProvider)
+
+			require.Equal(tc.appName, app.Name())
+			require.Equal(v1beta1.AppTypeHelm, app.AppType())
+			require.Equal(v1beta1.ApplicationStatusUnknown, app.status.Status)
+
+			helmSpec, ok := app.ActionSpec().(lifecycle.HelmSpec)
+			require.True(ok, "ActionSpec should be HelmSpec")
+			require.Equal(tc.expectedNamespace, helmSpec.Namespace)
+			require.Equal(tc.expectedValuesFiles, helmSpec.ValuesFiles)
+			require.Equal(tc.expectedProviderValuesPath, helmSpec.ProviderValuesPath)
+		})
+	}
+}
+
+type helmMockProvider struct {
+	name        string
+	namespace   string
+	valuesFiles []string
+	values      map[string]interface{}
+}
+
+func (m *helmMockProvider) Name() string {
+	return m.name
+}
+
+func (m *helmMockProvider) ID() string {
+	return m.namespace + "/" + m.name
+}
+
+func (m *helmMockProvider) Spec() *provider.ApplicationSpec {
+	volManager, _ := provider.NewVolumeManager(nil, m.name, v1beta1.AppTypeHelm, nil)
+
+	var imageProvider *v1beta1.ImageApplicationProviderSpec
+	if m.namespace != "" || m.valuesFiles != nil || m.values != nil {
+		imageProvider = &v1beta1.ImageApplicationProviderSpec{}
+		if m.namespace != "" {
+			imageProvider.Namespace = lo.ToPtr(m.namespace)
+		}
+		if m.valuesFiles != nil {
+			imageProvider.ValuesFiles = lo.ToPtr(m.valuesFiles)
+		}
+		if m.values != nil {
+			imageProvider.Values = lo.ToPtr(m.values)
+		}
+	}
+
+	return &provider.ApplicationSpec{
+		ID:            m.namespace + "/" + m.name,
+		Name:          m.name,
+		Volume:        volManager,
+		AppType:       v1beta1.AppTypeHelm,
+		ImageProvider: imageProvider,
+	}
+}
+
+func (m *helmMockProvider) OCITargets(ctx context.Context, pullSecret *client.PullConfig) ([]dependency.OCIPullTarget, error) {
+	return nil, nil
+}
+
+func (m *helmMockProvider) Verify(ctx context.Context) error {
+	return nil
+}
+
+func (m *helmMockProvider) Install(ctx context.Context) error {
+	return nil
+}
+
+func (m *helmMockProvider) Remove(ctx context.Context) error {
+	return nil
 }

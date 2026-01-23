@@ -234,7 +234,7 @@ func TestManager(t *testing.T) {
 				mockSystemdMgr,
 			)
 
-			currentProviders, err := provider.FromDeviceSpec(ctx, log, mockPodmanClient, readWriter, tc.current)
+			currentProviders, err := provider.FromDeviceSpec(ctx, log, mockPodmanClient, nil, readWriter, tc.current)
 			require.NoError(err)
 
 			var podmanFactory client.PodmanFactory = func(user v1beta1.Username) (*client.Podman, error) {
@@ -265,7 +265,7 @@ func TestManager(t *testing.T) {
 			err = manager.AfterUpdate(ctx)
 			require.NoError(err)
 
-			desiredProviders, err := provider.FromDeviceSpec(ctx, log, mockPodmanClient, readWriter, tc.desired)
+			desiredProviders, err := provider.FromDeviceSpec(ctx, log, mockPodmanClient, nil, readWriter, tc.desired)
 			require.NoError(err)
 
 			err = syncProviders(ctx, log, manager, currentProviders, desiredProviders)
@@ -352,7 +352,7 @@ func TestManagerRemoveApplication(t *testing.T) {
 	}
 
 	// Ensure current applications
-	currentProviders, err := provider.FromDeviceSpec(ctx, log, mockPodmanClient, readWriter, current)
+	currentProviders, err := provider.FromDeviceSpec(ctx, log, mockPodmanClient, nil, readWriter, current)
 	require.NoError(err)
 	for _, provider := range currentProviders {
 		err := manager.Ensure(ctx, provider)
@@ -368,7 +368,7 @@ func TestManagerRemoveApplication(t *testing.T) {
 	require.True(manager.podmanMonitor.isRunning())
 
 	// Remove applications
-	desiredProviders, err := provider.FromDeviceSpec(ctx, log, mockPodmanClient, readWriter, desired)
+	desiredProviders, err := provider.FromDeviceSpec(ctx, log, mockPodmanClient, nil, readWriter, desired)
 	require.NoError(err)
 	err = syncProviders(ctx, log, manager, currentProviders, desiredProviders)
 	require.NoError(err)

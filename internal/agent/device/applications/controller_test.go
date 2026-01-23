@@ -204,7 +204,7 @@ func TestParseAppProviders(t *testing.T) {
 
 			tc.setupMocks(execMock, imageConfig)
 
-			providers, err := provider.FromDeviceSpec(ctx, log, mockPodman, readWriter, spec, provider.WithProviderTypes(v1beta1.ImageApplicationProviderType))
+			providers, err := provider.FromDeviceSpec(ctx, log, mockPodman, nil, readWriter, spec, provider.WithProviderTypes(v1beta1.ImageApplicationProviderType))
 			if tc.wantErr != nil {
 				require.ErrorIs(err, tc.wantErr)
 				return
@@ -503,7 +503,7 @@ func TestControllerSync(t *testing.T) {
 			mockAppManager := NewMockManager(ctrl)
 			podmanClient := client.NewPodman(log, mockExecuter, readWriter, util.NewPollConfig())
 
-			controller := NewController(podmanClient, mockAppManager, readWriter, log, "2025-01-01T00:00:00Z")
+			controller := NewController(podmanClient, nil, mockAppManager, readWriter, log, "2025-01-01T00:00:00Z")
 
 			countainerMountDir := "/mount"
 			err = readWriter.MkdirAll(countainerMountDir, fileio.DefaultDirectoryPermissions)

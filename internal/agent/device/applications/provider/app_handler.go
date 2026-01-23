@@ -79,6 +79,9 @@ func (b *quadletHandler) Remove(ctx context.Context) error {
 	if err := b.rw.RemoveFile(path); err != nil {
 		return fmt.Errorf("removing quadlet target file: %w", err)
 	}
+	if err := b.rw.RemoveAll(b.AppPath()); err != nil {
+		return fmt.Errorf("removing quadlet app path: %w", err)
+	}
 	return nil
 }
 
@@ -125,6 +128,9 @@ func (b *composeHandler) Install(ctx context.Context) error {
 }
 
 func (b *composeHandler) Remove(ctx context.Context) error {
+	if err := b.rw.RemoveAll(b.AppPath()); err != nil {
+		return fmt.Errorf("removing compose app path: %w", err)
+	}
 	return nil
 }
 
@@ -196,6 +202,9 @@ func (b *containerHandler) Remove(ctx context.Context) error {
 	path := filepath.Join(lifecycle.QuadletTargetPath, quadlet.NamespaceResource(b.ID(), lifecycle.QuadletTargetName))
 	if err := b.rw.RemoveFile(path); err != nil {
 		return fmt.Errorf("removing container target file: %w", err)
+	}
+	if err := b.rw.RemoveAll(b.AppPath()); err != nil {
+		return fmt.Errorf("removing container app path: %w", err)
 	}
 	return nil
 }

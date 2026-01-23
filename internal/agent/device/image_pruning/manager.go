@@ -55,6 +55,7 @@ type ImagePruningConfig = config.ImagePruning
 type manager struct {
 	podmanClientFactory client.PodmanFactory
 	rootPodmanClient    *client.Podman
+	clients             client.CLIClients
 	specManager         spec.Manager
 	readWriter          fileio.ReadWriter
 	log                 *log.PrefixLogger
@@ -67,6 +68,7 @@ type manager struct {
 //
 // Dependencies:
 //   - podmanClient: Podman client for image/artifact operations
+//   - clients: CLI clients for Helm and Kube operations
 //   - specManager: Spec manager for reading current and desired specs
 //   - readWriter: File I/O interface for any file operations
 //   - log: Logger for structured logging
@@ -75,6 +77,7 @@ type manager struct {
 func New(
 	podmanClientFactory client.PodmanFactory,
 	rootPodmanClient *client.Podman,
+	clients client.CLIClients,
 	specManager spec.Manager,
 	readWriter fileio.ReadWriter,
 	log *log.PrefixLogger,
@@ -84,6 +87,7 @@ func New(
 	ret := &manager{
 		podmanClientFactory: podmanClientFactory,
 		rootPodmanClient:    rootPodmanClient,
+		clients:             clients,
 		specManager:         specManager,
 		readWriter:          readWriter,
 		log:                 log,
@@ -845,6 +849,7 @@ func (m *manager) extractNestedTargetsFromSpec(ctx context.Context, device *v1be
 			ctx,
 			m.log,
 			podmanClient,
+			m.clients,
 			m.readWriter,
 			&appSpec,
 			&imageSpec,

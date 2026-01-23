@@ -1008,6 +1008,10 @@ func ValidateContainerImageApplicationSpec(appName string, spec *ImageApplicatio
 	return validateContainerApplicationProperties(appName, AppTypeContainer, spec)
 }
 
+func ValidateHelmImageApplicationSpec(appName string, spec *ImageApplicationProviderSpec) []error {
+	return validateHelmApplicationProperties(appName, AppTypeHelm, spec)
+}
+
 func validateHelmApplicationProperties(appName string, appType AppType, spec *ImageApplicationProviderSpec) []error {
 	pathPrefix := fmt.Sprintf("spec.applications[%s]", appName)
 

@@ -159,14 +159,6 @@ func (c *helmChartCache) GetChartPath(chartRef string) string {
 	return c.ChartDir(chartRef)
 }
 
-// ChartRefType indicates whether a chart reference uses a tag or digest.
-type ChartRefType int
-
-const (
-	ChartRefTypeTag ChartRefType = iota
-	ChartRefTypeDigest
-)
-
 // ParseChartRef extracts the chart name and version/digest from a chart reference.
 // Supports both tag-based (oci://registry/chart:version) and digest-based (oci://registry/chart@sha256:...) references.
 func ParseChartRef(chartRef string) (name, version string, err error) {
@@ -226,6 +218,15 @@ func SplitChartRef(chartRef string) (chartPath, version string) {
 	}
 
 	return chartRef, ""
+}
+
+// NormalizeChartRef ensures a chart reference has the oci:// scheme.
+// If no scheme is present, it assumes OCI and adds the prefix.
+func NormalizeChartRef(chartRef string) string {
+	if strings.Contains(chartRef, "://") {
+		return chartRef
+	}
+	return "oci://" + chartRef
 }
 
 // SanitizeChartRef converts a chart reference into a filesystem-safe directory name.

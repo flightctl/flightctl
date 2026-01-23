@@ -10,6 +10,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/agent/device/applications/helm"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
@@ -32,6 +33,8 @@ type Provider interface {
 	Remove(ctx context.Context) error
 	// Name returns the name of the application.
 	Name() string
+	// ID returns the unique identifier for the application.
+	ID() string
 	// Spec returns the application spec.
 	Spec() *ApplicationSpec
 }
@@ -91,17 +94,20 @@ func CollectBaseOCITargets(
 				return nil, fmt.Errorf("getting image provider spec: %w", err)
 			}
 
-			ociType := dependency.OCITypeAuto
-			// a requirement of container types is that the image reference is a runnable image
-			if providerSpec.AppType == v1beta1.AppTypeContainer {
+			var ociType dependency.OCIType
+			switch providerSpec.AppType {
+			case v1beta1.AppTypeContainer:
 				ociType = dependency.OCITypePodmanImage
+			case v1beta1.AppTypeHelm:
+				ociType = dependency.OCITypeHelmChart
+			default:
+				ociType = dependency.OCITypeAuto
 			}
 
-			policy := v1beta1.PullIfNotPresent
 			targets = append(targets, dependency.OCIPullTarget{
 				Type:       ociType,
 				Reference:  imageSpec.Image,
-				PullPolicy: policy,
+				PullPolicy: v1beta1.PullIfNotPresent,
 				Configs:    configProvider,
 			})
 
@@ -299,7 +305,9 @@ func collectEmbeddedQuadletTargets(ctx context.Context, readWriter fileio.ReadWr
 }
 
 // ResolveImageAppName resolves the canonical application name from an ApplicationProviderSpec.
-// If the spec has an explicit name, it uses that; otherwise, it falls back to the image reference.
+// If the spec has an explicit name, it uses that. For Helm apps without an explicit name,
+// it derives a valid release name from the chart reference. For other app types, it falls
+// back to the image reference.
 func ResolveImageAppName(appSpec *v1beta1.ApplicationProviderSpec) (string, error) {
 	appName := lo.FromPtr(appSpec.Name)
 	if appName != "" {
@@ -309,6 +317,14 @@ func ResolveImageAppName(appSpec *v1beta1.ApplicationProviderSpec) (string, erro
 	imageSpec, err := appSpec.AsImageApplicationProviderSpec()
 	if err != nil {
 		return "", err
+	}
+
+	if appSpec.AppType == v1beta1.AppTypeHelm {
+		chartName, version, err := client.ParseChartRef(imageSpec.Image)
+		if err != nil {
+			return "", fmt.Errorf("parsing chart ref for release name: %w", err)
+		}
+		return helm.SanitizeReleaseName(chartName, version), nil
 	}
 
 	return imageSpec.Image, nil
@@ -321,6 +337,7 @@ func ExtractNestedTargetsFromImage(
 	ctx context.Context,
 	log *log.PrefixLogger,
 	podman *client.Podman,
+	clients client.CLIClients,
 	readWriter fileio.ReadWriter,
 	appSpec *v1beta1.ApplicationProviderSpec,
 	imageSpec *v1beta1.ImageApplicationProviderSpec,
@@ -334,34 +351,110 @@ func ExtractNestedTargetsFromImage(
 
 	// determine app type
 	appType := appSpec.AppType
-	// Nothing nested in a container type
-	if appType == v1beta1.AppTypeContainer {
+
+	switch appType {
+	case v1beta1.AppTypeContainer:
+		// Nothing nested in container types
 		return &AppData{}, nil
-	}
 
-	if err := ensureAppTypeFromImage(ctx, podman, appType, imageSpec.Image); err != nil {
-		return nil, fmt.Errorf("ensuring app type: %w", err)
-	}
+	case v1beta1.AppTypeHelm:
+		// Extract nested targets from Helm chart manifests
+		return extractHelmNestedTargets(ctx, log, clients, readWriter, appName, imageSpec, configProvider)
 
-	if appType != v1beta1.AppTypeCompose && appType != v1beta1.AppTypeQuadlet {
+	case v1beta1.AppTypeCompose, v1beta1.AppTypeQuadlet:
+		if err := ensureAppTypeFromImage(ctx, podman, appType, imageSpec.Image); err != nil {
+			return nil, fmt.Errorf("ensuring app type: %w", err)
+		}
+		// extract nested targets
+		return extractAppDataFromOCITarget(
+			ctx,
+			podman,
+			readWriter,
+			appName,
+			imageSpec.Image,
+			appType,
+			configProvider,
+		)
+
+	default:
 		return nil, fmt.Errorf("%w for app %s: %s", errors.ErrUnsupportedAppType, appName, appType)
 	}
+}
 
-	// extract nested targets
-	cachedAppData, err := extractAppDataFromOCITarget(
-		ctx,
-		podman,
-		readWriter,
-		appName,
-		imageSpec.Image,
-		appType,
-		configProvider,
-	)
-	if err != nil {
-		return nil, err
+// extractHelmNestedTargets extracts container images from Helm chart manifests via dry-run.
+func extractHelmNestedTargets(
+	ctx context.Context,
+	log *log.PrefixLogger,
+	clients client.CLIClients,
+	readWriter fileio.ReadWriter,
+	appName string,
+	imageSpec *v1beta1.ImageApplicationProviderSpec,
+	configProvider client.PullConfigProvider,
+) (*AppData, error) {
+	if clients == nil {
+		return nil, fmt.Errorf("CLIClients required for Helm app extraction")
 	}
 
-	return cachedAppData, nil
+	chartRef := imageSpec.Image
+
+	resolved, err := clients.Helm().IsResolved(chartRef)
+	if err != nil {
+		return nil, fmt.Errorf("check chart resolved: %w", err)
+	}
+	if !resolved {
+		return nil, fmt.Errorf("chart %s not resolved", chartRef)
+	}
+
+	kubeconfigPath, err := clients.Kube().ResolveKubeconfig()
+	if err != nil {
+		return nil, fmt.Errorf("resolve kubeconfig: %w", err)
+	}
+
+	chartPath := clients.Helm().GetChartPath(chartRef)
+
+	valuesPaths, cleanup, err := resolveHelmValues(appName, chartPath, lo.FromPtr(imageSpec.ValuesFiles), imageSpec.Values, "", readWriter)
+	if err != nil {
+		return nil, fmt.Errorf("resolving values: %w", err)
+	}
+	defer cleanup()
+
+	dryRunOpts := []client.HelmOption{
+		client.WithKubeconfig(kubeconfigPath),
+		client.WithCreateNamespace(),
+	}
+
+	namespace := lo.FromPtr(imageSpec.Namespace)
+	if namespace != "" {
+		dryRunOpts = append(dryRunOpts, client.WithNamespace(namespace))
+	}
+
+	if len(valuesPaths) > 0 {
+		dryRunOpts = append(dryRunOpts, client.WithValuesFiles(valuesPaths))
+	}
+
+	manifests, err := clients.Helm().DryRun(ctx, appName, chartPath, dryRunOpts...)
+	if err != nil {
+		return nil, fmt.Errorf("helm dry-run: %w", err)
+	}
+
+	images, err := helm.ExtractImagesFromManifests(manifests)
+	if err != nil {
+		return nil, fmt.Errorf("extract images from manifests: %w", err)
+	}
+
+	var targets []dependency.OCIPullTarget
+	for _, img := range images {
+		targets = append(targets, dependency.OCIPullTarget{
+			Type:       dependency.OCITypeCRIImage,
+			Reference:  img,
+			PullPolicy: v1beta1.PullIfNotPresent,
+			Configs:    configProvider,
+		})
+	}
+
+	log.Debugf("Extracted %d images from Helm chart %s", len(targets), chartRef)
+
+	return &AppData{Targets: targets}, nil
 }
 
 // FromDeviceSpec parses the application spec and returns a list of providers.
@@ -369,6 +462,7 @@ func FromDeviceSpec(
 	ctx context.Context,
 	log *log.PrefixLogger,
 	podman *client.Podman,
+	clients client.CLIClients,
 	readWriter fileio.ReadWriter,
 	spec *v1beta1.DeviceSpec,
 	opts ...ParseOpt,
@@ -392,17 +486,19 @@ func FromDeviceSpec(
 
 		switch providerType {
 		case v1beta1.ImageApplicationProviderType:
-			// determine app type for image provider
 			imageSpec, err := providerSpec.AsImageApplicationProviderSpec()
 			if err != nil {
 				return nil, fmt.Errorf("getting image provider spec: %w", err)
 			}
 
-			if err := ensureAppTypeFromImage(ctx, podman, providerSpec.AppType, imageSpec.Image); err != nil {
-				return nil, fmt.Errorf("ensuring app type: %w", err)
+			// Skip image type validation for Helm apps - they use helm pull, not podman
+			if providerSpec.AppType != v1beta1.AppTypeHelm {
+				if err := ensureAppTypeFromImage(ctx, podman, providerSpec.AppType, imageSpec.Image); err != nil {
+					return nil, fmt.Errorf("ensuring app type: %w", err)
+				}
 			}
 
-			imgProvider, err := newImage(log, podman, &providerSpec, readWriter, providerSpec.AppType)
+			imgProvider, err := newImage(log, podman, clients, &providerSpec, readWriter, providerSpec.AppType)
 			if err != nil {
 				return nil, err
 			}
@@ -578,28 +674,28 @@ func GetDiff(
 
 	desiredProviders := make(map[string]Provider)
 	for _, provider := range desired {
-		if len(provider.Name()) == 0 {
+		if len(provider.ID()) == 0 {
 			return diff, errors.ErrAppNameRequired
 		}
-		desiredProviders[provider.Name()] = provider
+		desiredProviders[provider.ID()] = provider
 	}
 
 	currentProviders := make(map[string]Provider)
 	for _, provider := range current {
-		if len(provider.Name()) == 0 {
+		if len(provider.ID()) == 0 {
 			return diff, errors.ErrAppNameRequired
 		}
-		currentProviders[provider.Name()] = provider
+		currentProviders[provider.ID()] = provider
 	}
 
-	for name, provider := range currentProviders {
-		if _, exists := desiredProviders[name]; !exists {
+	for id, provider := range currentProviders {
+		if _, exists := desiredProviders[id]; !exists {
 			diff.Removed = append(diff.Removed, provider)
 		}
 	}
 
-	for name, desiredProvider := range desiredProviders {
-		if currentProvider, exists := currentProviders[name]; !exists {
+	for id, desiredProvider := range desiredProviders {
+		if currentProvider, exists := currentProviders[id]; !exists {
 			diff.Ensure = append(diff.Ensure, desiredProvider)
 		} else {
 			if isEqual(currentProvider, desiredProvider) {

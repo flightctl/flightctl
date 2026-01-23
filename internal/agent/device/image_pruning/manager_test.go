@@ -36,7 +36,7 @@ func TestManager_getImageReferencesFromSpecs(t *testing.T) {
 	enabled := true
 	config := config.ImagePruning{Enabled: &enabled}
 
-	m := New(podmanClientFactory, rootPodmanClient, mockSpecManager, readWriter, log, config, "/tmp").(*manager)
+	m := New(podmanClientFactory, rootPodmanClient, nil, mockSpecManager, readWriter, log, config, "/tmp").(*manager)
 
 	// Helper to mock image existence checks for nested target extraction
 	// For most tests, we'll mock that images don't exist locally (so nested extraction is skipped)
@@ -632,7 +632,7 @@ func TestManager_determineEligibleImages(t *testing.T) {
 			podmanClientFactory := func(user v1beta1.Username) (*client.Podman, error) {
 				return rootPodmanClient, nil
 			}
-			m := New(podmanClientFactory, rootPodmanClient, mockSpecManager, testReadWriter, log, config, tmpDir).(*manager)
+			m := New(podmanClientFactory, rootPodmanClient, nil, mockSpecManager, testReadWriter, log, config, tmpDir).(*manager)
 
 			got, err := m.determineEligibleImages(context.Background())
 			if tc.wantErr {
@@ -785,7 +785,7 @@ func TestManager_validateCapability(t *testing.T) {
 			podmanClientFactory := func(user v1beta1.Username) (*client.Podman, error) {
 				return rootPodmanClient, nil
 			}
-			m := New(podmanClientFactory, rootPodmanClient, mockSpecManager, readWriter, log, config, "/tmp").(*manager)
+			m := New(podmanClientFactory, rootPodmanClient, nil, mockSpecManager, readWriter, log, config, "/tmp").(*manager)
 
 			err := m.validateCapability(context.Background())
 			if tc.wantErr {
@@ -883,7 +883,7 @@ func TestManager_removeEligibleImages(t *testing.T) {
 			podmanClientFactory := func(user v1beta1.Username) (*client.Podman, error) {
 				return rootPodmanClient, nil
 			}
-			m := New(podmanClientFactory, rootPodmanClient, mockSpecManager, readWriter, log, config, "/tmp").(*manager)
+			m := New(podmanClientFactory, rootPodmanClient, nil, mockSpecManager, readWriter, log, config, "/tmp").(*manager)
 
 			count, removedRefs, err := m.removeEligibleImages(context.Background(), tc.images)
 			require.Equal(tc.wantCount, count)

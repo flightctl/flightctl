@@ -152,14 +152,15 @@ func (p *inlineProvider) writeInlineContent(appPath string, contents []v1beta1.A
 }
 
 func (p *inlineProvider) Remove(ctx context.Context) error {
-	if err := p.readWriter.RemoveAll(p.handler.AppPath()); err != nil {
-		return fmt.Errorf("removing application: %w", err)
-	}
 	return p.handler.Remove(ctx)
 }
 
 func (p *inlineProvider) Name() string {
 	return p.spec.Name
+}
+
+func (p *inlineProvider) ID() string {
+	return p.spec.ID
 }
 
 func (p *inlineProvider) Spec() *ApplicationSpec {
