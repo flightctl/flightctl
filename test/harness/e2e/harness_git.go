@@ -495,6 +495,7 @@ func initSSHPrivateKeyPath() (string, error) {
 		if err := os.WriteFile(tempFile.Name(), []byte(keyContent), 0600); err != nil {
 			return "", fmt.Errorf("failed to write SSH key to temp file: %w", err)
 		}
+		tempFile.Close()
 		return tempFile.Name(), nil
 	}
 
