@@ -37,7 +37,7 @@ var _ = BeforeSuite(func() {
 
 var _ = AfterEach(func() {
 	workerID := GinkgoParallelProcess()
-	GinkgoWriter.Printf("🔄 [AfterEach] Worker %d: Cleaning up test resources\n", workerID)
+	GinkgoWriter.Printf("[AfterEach] Worker %d: Cleaning up test resources\n", workerID)
 
 	// Get the harness and context directly - no shared variables needed
 	harness := e2e.GetWorkerHarness()
