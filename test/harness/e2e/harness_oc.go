@@ -49,3 +49,19 @@ func getServiceNodePort(serviceName, namespace string) (int, error) {
 	logrus.Debugf("Discovered NodePort for %s: %d", serviceName, port)
 	return port, nil
 }
+
+// getSecretData retrieves data from a Kubernetes secret using oc.
+// Returns the base64-encoded value for the specified key.
+func getSecretData(secretName, namespace, key string) (string, error) {
+	// #nosec G204 -- This is test code with controlled inputs
+	cmd := exec.Command("oc", "get", "secret", secretName,
+		"-n", namespace,
+		"-o", fmt.Sprintf("jsonpath={.data.%s}", key))
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("failed to get secret %s: %w, output: %s", secretName, err, string(output))
+	}
+
+	return strings.TrimSpace(string(output)), nil
+}
