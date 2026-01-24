@@ -31,7 +31,7 @@ telemetryGateway:
   forward:
     endpoint: {{.telemetryGateway.forward.endpoint}}
     tls:
-      caFile: /etc/flightctl/telemetry-gateway/forward/ca.crt
-      certFile: /etc/flightctl/telemetry-gateway/forward/client.crt
-      keyFile: /etc/flightctl/telemetry-gateway/forward/client.key
+      caFile: /etc/flightctl/flightctl-telemetry-gateway/forward/ca.crt
+      certFile: /etc/flightctl/flightctl-telemetry-gateway/forward/client.crt
+      keyFile: /etc/flightctl/flightctl-telemetry-gateway/forward/client.key
 {{- end}}
