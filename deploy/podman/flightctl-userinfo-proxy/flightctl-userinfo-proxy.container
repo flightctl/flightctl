@@ -13,10 +13,8 @@ ContainerName=flightctl-userinfo-proxy
 # Network configuration
 Network=flightctl.network
 
-# Environment variables for configuration
-Environment=USERINFO_LISTEN_PORT=8080
-Environment=USERINFO_UPSTREAM_URL={{.userinfoProxy.upstreamUrl}}
-Environment=USERINFO_SKIP_TLS_VERIFY={{if .userinfoProxy.insecureSkipTlsVerify}}{{.userinfoProxy.insecureSkipTlsVerify}}{{else}}false{{end}}
+# Environment variables loaded from file
+EnvironmentFile=/etc/flightctl/flightctl-userinfo-proxy/env
 
 # Security
 User=1001:1001
@@ -25,6 +23,7 @@ User=1001:1001
 Restart=on-failure
 RestartSec=10
 TimeoutStartSec=30
+ExecStartPre=/usr/bin/flightctl-standalone render template --input-file /usr/share/flightctl/flightctl-userinfo-proxy/env.template --output-file /etc/flightctl/flightctl-userinfo-proxy/env
 
 [Install]
 WantedBy=multi-user.target 
