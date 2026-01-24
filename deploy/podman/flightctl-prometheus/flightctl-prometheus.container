@@ -1,7 +1,7 @@
 [Unit]
 Description=Flight Control Prometheus Metrics Server
-After=flightctl-network.service
-Wants=flightctl-network.service
+After=flightctl-network.service flightctl-certs-init.service
+Wants=flightctl-network.service flightctl-certs-init.service
 PartOf=flightctl-observability.target
 
 [Container]
@@ -19,6 +19,7 @@ Volume=/var/lib/prometheus:/prometheus:rw,z
 
 [Service]
 Restart=on-failure
+ExecStartPre=/bin/sh -c 'cp /usr/share/flightctl/flightctl-prometheus/prometheus.yml /etc/flightctl/flightctl-prometheus/prometheus.yml'
 
 [Install]
 WantedBy=multi-user.target

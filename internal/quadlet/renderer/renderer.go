@@ -69,6 +69,10 @@ type RendererConfig struct {
 	Alertmanager       ImageConfig `mapstructure:"alertmanager"`
 	ImagebuilderApi    ImageConfig `mapstructure:"imagebuilder-api"`
 	ImagebuilderWorker ImageConfig `mapstructure:"imagebuilder-worker"`
+	Grafana            ImageConfig `mapstructure:"grafana"`
+	Prometheus         ImageConfig `mapstructure:"prometheus"`
+	TelemetryGateway   ImageConfig `mapstructure:"telemetry-gateway"`
+	UserinfoProxy      ImageConfig `mapstructure:"userinfo-proxy"`
 }
 
 func NewRendererConfig() *RendererConfig {
