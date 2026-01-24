@@ -139,11 +139,10 @@ services to be running. This package automatically includes the flightctl-teleme
 
 # Directories owned by the telemetry-gateway RPM
 %dir /etc/flightctl
-%dir /etc/flightctl/telemetry-gateway
-%dir /etc/flightctl/scripts
+%dir /etc/flightctl/flightctl-telemetry-gateway
 
 # Ghost files for runtime-generated configuration
-%ghost /etc/flightctl/telemetry-gateway/config.yaml
+%ghost /etc/flightctl/flightctl-telemetry-gateway/config.yaml
 
 %files observability
 # Grafana configuration templates and static files
@@ -153,6 +152,9 @@ services to be running. This package automatically includes the flightctl-teleme
 
 # Prometheus static configuration
 %{_datadir}/flightctl/flightctl-prometheus/prometheus.yml
+
+# UserInfo Proxy configuration templates
+%{_datadir}/flightctl/flightctl-userinfo-proxy/env.template
 
 # Generated quadlet files (created during build by flightctl-standalone)
 %{_datadir}/containers/systemd/flightctl-grafana.container
@@ -189,7 +191,7 @@ echo "Note: OpenTelemetry collector can be installed independently of other Flig
 echo "Running post-install actions for Flight Control Telemetry Gateway..."
 
 # Create necessary directories on the host if they don't already exist.
-/usr/bin/mkdir -p /etc/flightctl /etc/flightctl/scripts /etc/flightctl/telemetry-gateway
+/usr/bin/mkdir -p /etc/flightctl /etc/flightctl/scripts /etc/flightctl/flightctl-telemetry-gateway /etc/flightctl/flightctl-telemetry-gateway/forward
 
 # Enable specific SELinux boolean if needed
 /usr/sbin/setsebool -P container_manage_cgroup on >/dev/null 2>&1 || :
@@ -442,6 +444,10 @@ echo "Flight Control Observability Stack uninstalled."
      # Install systemd targets for service grouping
      install -m 0644 deploy/podman/flightctl-telemetry-gateway.target %{buildroot}/usr/lib/systemd/system/
      install -m 0644 deploy/podman/flightctl-observability.target %{buildroot}/usr/lib/systemd/system/
+
+     # Create observability persistent data directories
+     mkdir -p %{buildroot}/var/lib/prometheus
+     mkdir -p %{buildroot}/var/lib/grafana
 
 %check
     %{buildroot}%{_bindir}/flightctl-agent version
