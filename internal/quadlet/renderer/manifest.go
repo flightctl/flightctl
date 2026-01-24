@@ -70,6 +70,22 @@ func servicesManifest(config *RendererConfig) []InstallAction {
 		{Action: ActionCopyFile, Source: "deploy/podman/flightctl-imagebuilder-worker/flightctl-imagebuilder-worker.container", Destination: filepath.Join(config.QuadletFilesOutputDir, "flightctl-imagebuilder-worker.container"), Template: true, Mode: RegularFileMode},
 		{Action: ActionCopyDir, Source: "deploy/podman/flightctl-imagebuilder-worker/flightctl-imagebuilder-worker-config/", Destination: filepath.Join(config.ReadOnlyConfigOutputDir, "flightctl-imagebuilder-worker/"), Template: false, Mode: RegularFileMode},
 
+		// Telemetry Gateway service
+		{Action: ActionCopyFile, Source: "deploy/podman/flightctl-telemetry-gateway/flightctl-telemetry-gateway.container", Destination: filepath.Join(config.QuadletFilesOutputDir, "flightctl-telemetry-gateway.container"), Template: true, Mode: RegularFileMode},
+		{Action: ActionCopyDir, Source: "deploy/podman/flightctl-telemetry-gateway/flightctl-telemetry-gateway-config/", Destination: filepath.Join(config.ReadOnlyConfigOutputDir, "flightctl-telemetry-gateway/"), Template: false, Mode: RegularFileMode},
+
+		// Prometheus service
+		{Action: ActionCopyFile, Source: "deploy/podman/flightctl-prometheus/flightctl-prometheus.container", Destination: filepath.Join(config.QuadletFilesOutputDir, "flightctl-prometheus.container"), Template: true, Mode: RegularFileMode},
+		{Action: ActionCopyDir, Source: "deploy/podman/flightctl-prometheus/flightctl-prometheus-config/", Destination: filepath.Join(config.ReadOnlyConfigOutputDir, "flightctl-prometheus/"), Template: false, Mode: RegularFileMode},
+
+		// Grafana service
+		{Action: ActionCopyFile, Source: "deploy/podman/flightctl-grafana/flightctl-grafana.container", Destination: filepath.Join(config.QuadletFilesOutputDir, "flightctl-grafana.container"), Template: true, Mode: RegularFileMode},
+		{Action: ActionCopyDir, Source: "deploy/podman/flightctl-grafana/flightctl-grafana-config/", Destination: filepath.Join(config.ReadOnlyConfigOutputDir, "flightctl-grafana/"), Template: false, Mode: RegularFileMode},
+
+		// UserInfo Proxy service
+		{Action: ActionCopyFile, Source: "deploy/podman/flightctl-userinfo-proxy/flightctl-userinfo-proxy.container", Destination: filepath.Join(config.QuadletFilesOutputDir, "flightctl-userinfo-proxy.container"), Template: true, Mode: RegularFileMode},
+		{Action: ActionCopyDir, Source: "deploy/podman/flightctl-userinfo-proxy/flightctl-userinfo-proxy-config/", Destination: filepath.Join(config.ReadOnlyConfigOutputDir, "flightctl-userinfo-proxy/"), Template: false, Mode: RegularFileMode},
+
 		// Certs init service
 		{Action: ActionCopyFile, Source: "deploy/podman/flightctl-certs-init.service", Destination: filepath.Join(config.SystemdUnitOutputDir, "flightctl-certs-init.service"), Template: false, Mode: RegularFileMode},
 		{Action: ActionCopyFile, Source: "deploy/helm/flightctl/scripts/generate-certificates.sh", Destination: filepath.Join(config.ReadOnlyConfigOutputDir, "generate-certificates.sh"), Template: false, Mode: ExecutableFileMode},
@@ -98,6 +114,10 @@ func servicesManifest(config *RendererConfig) []InstallAction {
 		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "pki", "flightctl-alertmanager-proxy"), Mode: ExecutableFileMode},
 		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "pki", "flightctl-pam-issuer"), Mode: ExecutableFileMode},
 		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "pki", "flightctl-imagebuilder-api"), Mode: ExecutableFileMode},
+		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "pki", "flightctl-telemetry-gateway"), Mode: ExecutableFileMode},
+		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "pki", "flightctl-prometheus"), Mode: ExecutableFileMode},
+		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "pki", "flightctl-grafana"), Mode: ExecutableFileMode},
+		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "pki", "flightctl-userinfo-proxy"), Mode: ExecutableFileMode},
 		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "pki", "db"), Mode: ExecutableFileMode},
 		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "flightctl-api"), Mode: ExecutableFileMode},
 		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "flightctl-worker"), Mode: ExecutableFileMode},
@@ -112,5 +132,17 @@ func servicesManifest(config *RendererConfig) []InstallAction {
 		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "flightctl-imagebuilder-worker"), Mode: ExecutableFileMode},
 		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.VarTmpOutputDir, "flightctl-builds"), Mode: ExecutableFileMode},
 		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.VarTmpOutputDir, "flightctl-exports"), Mode: ExecutableFileMode},
+		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "flightctl-telemetry-gateway"), Mode: ExecutableFileMode},
+		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "flightctl-telemetry-gateway", "forward"), Mode: ExecutableFileMode},
+		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "flightctl-prometheus"), Mode: ExecutableFileMode},
+		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "flightctl-grafana"), Mode: ExecutableFileMode},
+		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "flightctl-grafana", "provisioning"), Mode: ExecutableFileMode},
+		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "flightctl-grafana", "provisioning", "datasources"), Mode: ExecutableFileMode},
+		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "flightctl-grafana", "provisioning", "alerting"), Mode: ExecutableFileMode},
+		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "flightctl-grafana", "provisioning", "dashboards"), Mode: ExecutableFileMode},
+		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "flightctl-grafana", "provisioning", "dashboards", "flightctl"), Mode: ExecutableFileMode},
+		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "flightctl-grafana", "certs"), Mode: ExecutableFileMode},
+		{Action: ActionCreateEmptyDir, Destination: filepath.Join("/var/tmp/flightctl-builds"), Mode: ExecutableFileMode},
+		{Action: ActionCreateEmptyDir, Destination: filepath.Join("/var/tmp/flightctl-exports"), Mode: ExecutableFileMode},
 	}
 }
