@@ -19,7 +19,7 @@ Volume=/var/lib/prometheus:/prometheus:rw,z
 
 [Service]
 Restart=on-failure
-ExecStartPre=/bin/sh -c 'cp /usr/share/flightctl/flightctl-prometheus/prometheus.yml /etc/flightctl/flightctl-prometheus/prometheus.yml'
+ExecStartPre=/usr/bin/flightctl-standalone render template --input-file /usr/share/flightctl/flightctl-prometheus/prometheus.yml --output-file /etc/flightctl/flightctl-prometheus/prometheus.yml
 
 [Install]
 WantedBy=multi-user.target

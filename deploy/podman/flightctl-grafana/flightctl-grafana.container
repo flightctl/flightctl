@@ -30,7 +30,6 @@ Volume=/etc/flightctl/flightctl-grafana/provisioning/alerting:/etc/grafana/provi
 
 [Service]
 Restart=on-failure
-ExecStartPre=mkdir -p /var/lib/grafana /etc/flightctl/flightctl-grafana /etc/flightctl/flightctl-grafana/provisioning /etc/flightctl/flightctl-grafana/provisioning/datasources /etc/flightctl/pki/flightctl-grafana
 ExecStartPre=/usr/bin/flightctl-standalone render template --input-file /usr/share/flightctl/flightctl-grafana/grafana.ini.template --output-file /etc/flightctl/flightctl-grafana/grafana.ini
 ExecStartPre=/bin/sh -c 'chown -R "$(podman image inspect {{ .Grafana.Image }}:{{ .Grafana.Tag }} | jq -r .[0].Config.User)" /var/lib/grafana || true'
 
