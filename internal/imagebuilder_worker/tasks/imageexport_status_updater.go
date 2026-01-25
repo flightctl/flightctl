@@ -78,9 +78,9 @@ func startImageExportStatusUpdater(
 
 	cleanup := func() {
 		updaterCancel()
+		updater.wg.Wait()
 		close(updater.updateChan)
 		close(updater.outputChan)
-		updater.wg.Wait()
 	}
 
 	return updater, cleanup

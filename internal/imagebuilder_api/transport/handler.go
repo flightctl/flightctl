@@ -152,7 +152,7 @@ func streamLogsSSE(ctx context.Context, reader service.LogStreamReader, w http.R
 
 	if len(allLogs) > 0 {
 		// Split by lines and send each as SSE event
-		lines := splitLines(allLogs)
+		lines := strings.Split(allLogs, "\n")
 		for _, line := range lines {
 			if line == "" {
 				continue
@@ -168,28 +168,6 @@ func streamLogsSSE(ctx context.Context, reader service.LogStreamReader, w http.R
 
 	// Then stream new logs
 	return reader.Stream(ctx, &sseWriter{w: w})
-}
-
-// splitLines splits a string into lines, preserving newlines
-func splitLines(s string) []string {
-	if s == "" {
-		return []string{}
-	}
-	// Split by \n but keep the newline in each line (except the last)
-	lines := []string{}
-	remaining := s
-	for {
-		idx := strings.Index(remaining, "\n")
-		if idx == -1 {
-			if len(remaining) > 0 {
-				lines = append(lines, remaining)
-			}
-			break
-		}
-		lines = append(lines, remaining[:idx+1])
-		remaining = remaining[idx+1:]
-	}
-	return lines
 }
 
 // sseWriter wraps http.ResponseWriter to format log lines as SSE events
