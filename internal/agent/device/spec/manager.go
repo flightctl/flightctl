@@ -399,6 +399,12 @@ func (s *manager) consumeLatest(ctx context.Context) (bool, error) {
 			return false, fmt.Errorf("getting rendered version: %w", err)
 		}
 		if s.lastConsumedDevice.Version() != version {
+			// Check if this version is permanently failed
+			lastVersion, _ := stringToInt64(s.lastConsumedDevice.Version())
+			if s.queue.IsFailed(lastVersion) {
+				s.log.Debugf("Last consumed device version %s is permanently failed, skipping requeue", s.lastConsumedDevice.Version())
+				return false, nil
+			}
 			// In case of rollback we would like to consume again the last device
 			s.log.Debugf("Requeuing last consumed device. version: %s", s.lastConsumedDevice.Version())
 			s.queue.Add(ctx, s.lastConsumedDevice)
