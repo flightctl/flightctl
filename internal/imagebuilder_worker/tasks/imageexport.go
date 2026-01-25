@@ -3,6 +3,7 @@ package tasks
 import (
 	"bytes"
 	"context"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -28,6 +29,11 @@ import (
 	"oras.land/oras-go/v2/registry/remote"
 	"oras.land/oras-go/v2/registry/remote/auth"
 )
+
+// containerdiskTemplate is embedded from the templates directory for building containerdisk images
+//
+//go:embed templates/Containerfile.containerdisk.tmpl
+var containerdiskTemplate string
 
 var (
 	// errImageBuildNotReady is returned when ImageBuild is not ready yet (pending state)
@@ -353,6 +359,16 @@ func (c *Consumer) executeExport(
 		return "", cleanup, fmt.Errorf("failed to find output file: %w", err)
 	}
 
+	// Step 7: For qcow2-disk-container, build the container disk image and save to OCI directory
+	if imageExport.Spec.Format == api.ExportFormatTypeQCOW2DiskContainer {
+		ociDirPath, err := c.buildContainerDiskImage(ctx, worker, outputFilePath, log)
+		if err != nil {
+			return "", cleanup, fmt.Errorf("failed to build container disk image: %w", err)
+		}
+		outputFilePath = ociDirPath
+		log.WithField("ociDir", ociDirPath).Info("Container disk image built and saved to OCI directory")
+	}
+
 	log.WithField("outputFile", outputFilePath).Info("Export completed successfully")
 	return outputFilePath, cleanup, nil
 }
@@ -596,9 +612,17 @@ func (c *Consumer) runBootcImageBuilder(
 	bootcImageRef string,
 	log logrus.FieldLogger,
 ) error {
+	// Map qcow2-disk-container to qcow2 for bootc-image-builder
+	// The container wrapping happens later in executeExport
+	bootcFormat := format
+	if format == api.ExportFormatTypeQCOW2DiskContainer {
+		bootcFormat = api.ExportFormatTypeQCOW2
+	}
+
 	log.WithFields(logrus.Fields{
-		"format": format,
-		"image":  bootcImageRef,
+		"format":      format,
+		"bootcFormat": bootcFormat,
+		"image":       bootcImageRef,
 	}).Info("Running bootc-image-builder")
 
 	// Run bootc-image-builder entrypoint inside the existing container
@@ -609,7 +633,7 @@ func (c *Consumer) runBootcImageBuilder(
 		"-w", "/output",
 		worker.ContainerName,
 		"bootc-image-builder",
-		"--type", string(format),
+		"--type", string(bootcFormat),
 		"--rootfs", "xfs",
 		bootcImageRef,
 	}
@@ -642,12 +666,17 @@ func (c *Consumer) runBootcImageBuilder(
 // Since we run with -w /output, files are at /output/{type}/disk.{type} in container
 // which maps to {outputDir}/{type}/disk.{type} on the host
 // Exception: ISO format uses bootiso/install.iso instead of iso/disk.iso
+// Exception: qcow2-disk-container uses qcow2/disk.qcow2 (same as qcow2)
 func (c *Consumer) findOutputFile(outputDir string, format api.ExportFormatType, log logrus.FieldLogger) (string, error) {
 	var outputFilePath string
-	if format == api.ExportFormatTypeISO {
+	switch format {
+	case api.ExportFormatTypeISO:
 		// ISO format uses bootiso/install.iso instead of iso/disk.iso
 		outputFilePath = filepath.Join(outputDir, "bootiso", "install.iso")
-	} else {
+	case api.ExportFormatTypeQCOW2DiskContainer:
+		// qcow2-disk-container uses qcow2 output from bootc-image-builder
+		outputFilePath = filepath.Join(outputDir, "qcow2", "disk.qcow2")
+	default:
 		// Other formats (vmdk, qcow2) use {format}/disk.{format}
 		outputFilePath = filepath.Join(outputDir, string(format), "disk."+string(format))
 	}
@@ -659,6 +688,100 @@ func (c *Consumer) findOutputFile(outputDir string, format api.ExportFormatType,
 
 	log.WithField("outputFile", outputFilePath).Info("Found output file")
 	return outputFilePath, nil
+}
+
+// buildContainerDiskImage builds a container image wrapping the qcow2 disk for OpenShift Virt
+// and saves it to OCI directory format. Returns the path to the OCI directory.
+func (c *Consumer) buildContainerDiskImage(
+	ctx context.Context,
+	worker *privilegedPodmanWorker,
+	qcow2Path string,
+	log logrus.FieldLogger,
+) (string, error) {
+	log.Info("Building container disk image for OpenShift Virt")
+
+	// Get the directory containing the qcow2 file
+	qcow2Dir := filepath.Dir(qcow2Path)
+	qcow2Filename := filepath.Base(qcow2Path)
+
+	// Write Containerfile from embedded template to the qcow2 directory
+	containerfilePath := filepath.Join(qcow2Dir, "Containerfile")
+	if err := os.WriteFile(containerfilePath, []byte(containerdiskTemplate), 0600); err != nil {
+		return "", fmt.Errorf("failed to write Containerfile: %w", err)
+	}
+	log.WithField("containerfile", containerfilePath).Debug("Wrote Containerfile for container disk")
+
+	// Container paths - the qcow2 directory is under /output in the container
+	// qcow2Dir on host maps to /output/qcow2 in container
+	containerBuildDir := "/output/qcow2"
+	containerOciDir := "/output/containerdisk-oci"
+	localImageName := "containerdisk:latest"
+
+	// Build the container image inside the worker container
+	// Pass DISK_IMAGE_FILE as build arg to specify the disk image filename
+	log.Info("Running podman build for container disk image")
+	buildArgs := []string{
+		"exec",
+		worker.ContainerName,
+		"podman", "build",
+		"-t", localImageName,
+		"--build-arg", fmt.Sprintf("DISK_IMAGE_FILE=%s", qcow2Filename),
+		"-f", filepath.Join(containerBuildDir, "Containerfile"),
+		containerBuildDir,
+	}
+
+	buildCmd := exec.CommandContext(ctx, "podman", buildArgs...)
+	var buildOutput bytes.Buffer
+	buildWriter := &imageExportStatusWriter{
+		buf:           &buildOutput,
+		statusUpdater: worker.statusUpdater,
+	}
+	buildCmd.Stdout = buildWriter
+	buildCmd.Stderr = buildWriter
+
+	if err := buildCmd.Run(); err != nil {
+		output := buildOutput.String()
+		log.Debugf("podman build output:\n%s", output)
+		return "", fmt.Errorf("podman build failed: %w. Output: %s", err, output)
+	}
+	log.Debug("Container disk image built successfully")
+
+	// Save the image to OCI directory format
+	log.Info("Saving container disk image to OCI directory format")
+	saveArgs := []string{
+		"exec",
+		worker.ContainerName,
+		"podman", "save",
+		"--format", "oci-dir",
+		"-o", containerOciDir,
+		localImageName,
+	}
+
+	saveCmd := exec.CommandContext(ctx, "podman", saveArgs...)
+	var saveOutput bytes.Buffer
+	saveWriter := &imageExportStatusWriter{
+		buf:           &saveOutput,
+		statusUpdater: worker.statusUpdater,
+	}
+	saveCmd.Stdout = saveWriter
+	saveCmd.Stderr = saveWriter
+
+	if err := saveCmd.Run(); err != nil {
+		output := saveOutput.String()
+		log.Debugf("podman save output:\n%s", output)
+		return "", fmt.Errorf("podman save failed: %w. Output: %s", err, output)
+	}
+
+	// Return the host path to the OCI directory
+	ociDirPath := filepath.Join(worker.TmpOutDir, "containerdisk-oci")
+
+	// Verify the OCI directory exists
+	if _, err := os.Stat(ociDirPath); err != nil {
+		return "", fmt.Errorf("OCI directory not found at expected path %q: %w", ociDirPath, err)
+	}
+
+	log.WithField("ociDir", ociDirPath).Info("Container disk image saved to OCI directory")
+	return ociDirPath, nil
 }
 
 // updateCondition updates the ImageExport condition and status
@@ -916,6 +1039,11 @@ func (c *Consumer) pushArtifact(
 		return err
 	}
 
+	// For qcow2-disk-container, push the OCI image with subject field
+	if imageExport.Spec.Format == api.ExportFormatTypeQCOW2DiskContainer {
+		return c.pushContainerDiskAsReferrer(ctx, repoRef, artifactPath, destManifestDesc, statusUpdater, log)
+	}
+
 	// Determine media type based on format
 	mediaType := fmt.Sprintf("application/vnd.%s", string(imageExport.Spec.Format))
 
@@ -1005,6 +1133,145 @@ func (c *Consumer) pushArtifact(
 	statusUpdater.reportOutput([]byte(fmt.Sprintf("Artifact blob digest: %s\n", artifactBlobDigest)))
 	statusUpdater.reportOutput([]byte(fmt.Sprintf("Subject digest: %s\n", destManifestDesc.Digest.String())))
 
+	return nil
+}
+
+// pushContainerDiskAsReferrer pushes a container disk image from OCI directory as a referrer
+// to the original bootc image. This creates a proper OCI Image Manifest with subject field.
+// The manifest is pushed without a tag - it's discoverable only via the referrers API.
+func (c *Consumer) pushContainerDiskAsReferrer(
+	ctx context.Context,
+	repoRef *remote.Repository,
+	ociDirPath string,
+	subjectDesc ocispec.Descriptor,
+	statusUpdater *imageExportStatusUpdater,
+	log logrus.FieldLogger,
+) error {
+	log.WithFields(logrus.Fields{
+		"ociDir":        ociDirPath,
+		"subjectDigest": subjectDesc.Digest.String(),
+	}).Info("Pushing container disk image as OCI image referrer")
+	statusUpdater.reportOutput([]byte(fmt.Sprintf("Pushing container disk image as referrer to %s\n", subjectDesc.Digest.String())))
+
+	// Read index.json from OCI directory
+	indexPath := filepath.Join(ociDirPath, "index.json")
+	indexData, err := os.ReadFile(indexPath)
+	if err != nil {
+		return fmt.Errorf("failed to read OCI index.json: %w", err)
+	}
+
+	var index ocispec.Index
+	if err := json.Unmarshal(indexData, &index); err != nil {
+		return fmt.Errorf("failed to parse OCI index.json: %w", err)
+	}
+
+	if len(index.Manifests) == 0 {
+		return fmt.Errorf("OCI index.json contains no manifests")
+	}
+
+	// Get the first manifest descriptor
+	manifestDesc := index.Manifests[0]
+	log.WithField("manifestDigest", manifestDesc.Digest.String()).Debug("Found manifest in OCI index")
+
+	// Read the manifest from blobs
+	manifestPath := filepath.Join(ociDirPath, "blobs", manifestDesc.Digest.Algorithm().String(), manifestDesc.Digest.Encoded())
+	manifestData, err := os.ReadFile(manifestPath)
+	if err != nil {
+		return fmt.Errorf("failed to read manifest blob: %w", err)
+	}
+
+	var manifest ocispec.Manifest
+	if err := json.Unmarshal(manifestData, &manifest); err != nil {
+		return fmt.Errorf("failed to parse manifest: %w", err)
+	}
+
+	statusUpdater.reportOutput([]byte(fmt.Sprintf("Found %d layers and config in OCI image\n", len(manifest.Layers))))
+
+	// Push config blob
+	log.Debug("Pushing config blob")
+	statusUpdater.reportOutput([]byte(fmt.Sprintf("Pushing config blob (%d bytes)...\n", manifest.Config.Size)))
+	if err := c.pushBlobFromOCIDirWithProgress(ctx, repoRef, ociDirPath, manifest.Config, "config", statusUpdater); err != nil {
+		return fmt.Errorf("failed to push config blob: %w", err)
+	}
+
+	// Push layer blobs with progress tracking
+	for i, layer := range manifest.Layers {
+		log.WithField("layer", i).Debug("Pushing layer blob")
+		statusUpdater.reportOutput([]byte(fmt.Sprintf("Pushing layer %d/%d (%d bytes)...\n", i+1, len(manifest.Layers), layer.Size)))
+		layerName := fmt.Sprintf("layer %d/%d", i+1, len(manifest.Layers))
+		if err := c.pushBlobFromOCIDirWithProgress(ctx, repoRef, ociDirPath, layer, layerName, statusUpdater); err != nil {
+			return fmt.Errorf("failed to push layer blob %d: %w", i, err)
+		}
+	}
+
+	statusUpdater.reportOutput([]byte("All blobs pushed, creating OCI image manifest with subject\n"))
+
+	// Create OCI Image Manifest with subject field using PackManifestVersion1_1
+	// When ConfigDescriptor is provided, PackManifestVersion1_1 creates an OCI Image Manifest
+	// (not an Artifact Manifest), which is pullable by kubevirt as a container image
+	packOpts := oras.PackManifestOptions{
+		Subject:          &subjectDesc, // Links to original bootc image for referrers API
+		Layers:           manifest.Layers,
+		ConfigDescriptor: &manifest.Config, // This makes it an OCI Image Manifest (not Artifact)
+		ManifestAnnotations: map[string]string{
+			ocispec.AnnotationTitle: "containerdisk",
+		},
+	}
+
+	// Use PackManifestVersion1_1 which supports subject field
+	// Set artifact type for KubeVirt container disk discovery
+	const containerDiskArtifactType = "application/vnd.kubevirt.containerdisk"
+	newManifestDesc, err := oras.PackManifest(ctx, repoRef, oras.PackManifestVersion1_1, containerDiskArtifactType, packOpts)
+	if err != nil {
+		return fmt.Errorf("failed to pack OCI image manifest: %w", err)
+	}
+
+	referrerManifestDigest := newManifestDesc.Digest.String()
+	statusUpdater.reportOutput([]byte(fmt.Sprintf("Successfully created OCI image manifest: %s\n", referrerManifestDigest)))
+
+	// Set the referrer manifest digest in the status
+	statusUpdater.setManifestDigest(referrerManifestDigest)
+
+	log.WithFields(logrus.Fields{
+		"manifestDigest": referrerManifestDigest,
+		"subjectDigest":  subjectDesc.Digest.String(),
+	}).Info("Successfully pushed container disk as OCI image referrer (discoverable via referrers API 1.1)")
+
+	statusUpdater.reportOutput([]byte("Successfully pushed container disk as OCI image referrer\n"))
+	statusUpdater.reportOutput([]byte(fmt.Sprintf("Referrer manifest digest: %s\n", referrerManifestDigest)))
+	statusUpdater.reportOutput([]byte(fmt.Sprintf("Subject digest: %s\n", subjectDesc.Digest.String())))
+
+	return nil
+}
+
+// pushBlobFromOCIDirWithProgress pushes a blob from an OCI directory to the remote repository
+// with progress tracking similar to artifact push
+func (c *Consumer) pushBlobFromOCIDirWithProgress(
+	ctx context.Context,
+	repoRef *remote.Repository,
+	ociDirPath string,
+	desc ocispec.Descriptor,
+	blobName string,
+	statusUpdater *imageExportStatusUpdater,
+) error {
+	blobPath := filepath.Join(ociDirPath, "blobs", desc.Digest.Algorithm().String(), desc.Digest.Encoded())
+	blobFile, err := os.Open(blobPath)
+	if err != nil {
+		return fmt.Errorf("failed to open blob file: %w", err)
+	}
+	defer blobFile.Close()
+
+	// Create a progress-tracking reader that reports progress during push
+	progressReader := newProgressReader(blobFile, desc.Size, func(bytesRead int64, totalBytes int64) {
+		percent := float64(bytesRead) / float64(totalBytes) * 100
+		statusUpdater.reportOutput([]byte(fmt.Sprintf("Pushing %s: %d/%d bytes (%.1f%%)\n", blobName, bytesRead, totalBytes, percent)))
+	})
+
+	if err := repoRef.Push(ctx, desc, progressReader); err != nil {
+		return fmt.Errorf("failed to push blob: %w", err)
+	}
+
+	statusUpdater.reportOutput([]byte(fmt.Sprintf("Successfully pushed %s: %s\n", blobName, desc.Digest.String())))
 	return nil
 }
 
