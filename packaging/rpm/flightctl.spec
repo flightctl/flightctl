@@ -135,7 +135,10 @@ services to be running. This package automatically includes the flightctl-teleme
 
 # Directories owned by the telemetry-gateway RPM
 %dir /etc/flightctl
+%dir /etc/flightctl/pki
+%dir /etc/flightctl/pki/flightctl-telemetry-gateway
 %dir /etc/flightctl/flightctl-telemetry-gateway
+%dir /etc/flightctl/flightctl-telemetry-gateway/forward
 
 # Ghost files for runtime-generated configuration
 %ghost /etc/flightctl/flightctl-telemetry-gateway/config.yaml
@@ -161,6 +164,10 @@ services to be running. This package automatically includes the flightctl-teleme
 /usr/lib/systemd/system/flightctl-observability.target
 
 # Directories owned by the observability RPM
+%dir /etc/flightctl/pki
+%dir /etc/flightctl/pki/flightctl-grafana
+%dir /etc/flightctl/pki/flightctl-prometheus
+%dir /etc/flightctl/pki/flightctl-userinfo-proxy
 %dir /etc/flightctl/flightctl-grafana
 %dir /etc/flightctl/flightctl-grafana/provisioning
 %dir /etc/flightctl/flightctl-grafana/provisioning/datasources
@@ -549,14 +556,17 @@ loginctl disable-linger flightctl || :
     %dir %{_sysconfdir}/flightctl/pki/flightctl-pam-issuer
     %dir %{_sysconfdir}/flightctl/pki/flightctl-imagebuilder-api
     %dir %{_sysconfdir}/flightctl/pki/db
-    %dir %{_sysconfdir}/flightctl/flightctl-api
-    %dir %{_sysconfdir}/flightctl/flightctl-ui
-    %dir %{_sysconfdir}/flightctl/flightctl-cli-artifacts
+    %dir %{_sysconfdir}/flightctl/flightctl-alert-exporter
     %dir %{_sysconfdir}/flightctl/flightctl-alertmanager-proxy
-    %dir %{_sysconfdir}/flightctl/flightctl-pam-issuer
+    %dir %{_sysconfdir}/flightctl/flightctl-api
+    %dir %{_sysconfdir}/flightctl/flightctl-cli-artifacts
     %dir %{_sysconfdir}/flightctl/flightctl-db-migrate
     %dir %{_sysconfdir}/flightctl/flightctl-imagebuilder-api
     %dir %{_sysconfdir}/flightctl/flightctl-imagebuilder-worker
+    %dir %{_sysconfdir}/flightctl/flightctl-pam-issuer
+    %dir %{_sysconfdir}/flightctl/flightctl-periodic
+    %dir %{_sysconfdir}/flightctl/flightctl-ui
+    %dir %{_sysconfdir}/flightctl/flightctl-worker
     %dir %{_sysconfdir}/flightctl/ssh
     %config(noreplace) %{_sysconfdir}/flightctl/service-config.yaml
     %config(noreplace) %{_sysconfdir}/flightctl/flightctl-services-install.conf
