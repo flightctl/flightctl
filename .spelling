@@ -103,6 +103,11 @@ RHACM
 RHEL
 rollbacks
 rollout
+redboot
+post-mortem
+150s
+pre-rollback
+red.d
 rootful
 runtime
 schemas
@@ -526,3 +531,6 @@ ImageBuilder
  - docs/user/references/agent-architecture.md
 MCD-like
 jumphost-less
+ - docs/user/using/greenboot.md
+flightctl_agent_pre_rollback
+redboot-task-runner
