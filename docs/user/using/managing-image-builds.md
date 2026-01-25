@@ -101,6 +101,20 @@ The status includes:
 * `conditions`: Array of condition objects showing the current state
 * `imageReference`: The full image reference of the built image (populated on completion)
 
+### Viewing ImageBuild Logs
+
+View the logs for an ImageBuild resource:
+
+```console
+flightctl logs imagebuild/my-image-build
+```
+
+To follow logs in real-time while the build is running:
+
+```console
+flightctl logs imagebuild/my-image-build -f
+```
+
 ### Example: Early Binding ImageBuild
 
 ```yaml
@@ -174,13 +188,7 @@ The source must reference an existing ImageBuild resource:
 
 The destination is automatically inherited from the referenced ImageBuild resource. You do not need to specify a destination in the ImageExport spec. The exported disk image will be pushed to the same repository, image name, and tag as specified in the ImageBuild destination.
 
-The exported disk image artifact is pushed to the destination repository (from the referenced ImageBuild) as an [ORAS artifact](https://oras.land/) with a reference to the destination image. To retrieve the exported artifact, use the `oras discover` command:
-
-```console
-oras discover quay.io/my-user/centos-bootc-custom:v1.1.0-early --distribution-spec v1.1-referrers-api --platform linux/arm64
-```
-
-This will show the exported disk image artifacts associated with the destination image reference.
+The exported disk image artifact is pushed to the destination repository (from the referenced ImageBuild) as an [ORAS artifact](https://oras.land/) with a reference to the destination image.
 
 **Format Configuration:**
 
@@ -223,6 +231,30 @@ Query the status:
 flightctl get imageexport my-image-export
 ```
 
+### Viewing ImageExport Logs
+
+View the logs for an ImageExport resource:
+
+```console
+flightctl logs imageexport/my-image-export
+```
+
+To follow logs in real-time while the export is running:
+
+```console
+flightctl logs imageexport/my-image-export -f
+```
+
+### Downloading the Exported Image
+
+Once the ImageExport reaches `Completed` status, download the disk image artifact using the `flightctl download` command:
+
+```console
+flightctl download imageexport/my-image-export ./my-image.qcow2
+```
+
+This downloads the exported disk image directly to a local file with progress indication. The command supports all export formats (qcow2, vmdk, iso, etc.).
+
 ### Example: Export from ImageBuild
 
 ```yaml
@@ -246,10 +278,11 @@ A typical workflow using ImageBuild and ImageExport resources:
 
 1. **Create OCI Repository resources** for your source and destination registries (see [Configuring OCI Repositories](managing-repositories.md))
 2. **Create an ImageBuild resource** to build your bootc image with the Flight Control agent
-3. **Monitor the ImageBuild** until it reaches `Completed` status
+3. **Monitor the ImageBuild** using `flightctl get imagebuild NAME` or follow logs with `flightctl logs imagebuild/NAME -f`
 4. **Create an ImageExport resource** referencing the completed ImageBuild
-5. **Monitor the ImageExport** until it reaches `Completed` status
-6. **Use the exported disk image** to provision devices
+5. **Monitor the ImageExport** using `flightctl get imageexport NAME` or follow logs with `flightctl logs imageexport/NAME -f`
+6. **Download the exported disk image** using `flightctl download imageexport/NAME ./output-file`
+7. **Use the exported disk image** to provision devices
 
 ## API vs Manual Building
 
