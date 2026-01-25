@@ -23,6 +23,7 @@ Wants=flightctl-ui.service
 Wants=flightctl-cli-artifacts-init.service
 Wants=flightctl-cli-artifacts.service
 Wants=flightctl-certs-init.service
+Wants=flightctl-telemetry-gateway.service
 Wants=flightctl-imagebuilder-api.service
 Wants=flightctl-imagebuilder-worker.service
 
@@ -44,6 +45,7 @@ After=flightctl-ui.service
 After=flightctl-cli-artifacts-init.service
 After=flightctl-cli-artifacts.service
 After=flightctl-certs-init.service
+After=flightctl-telemetry-gateway.service
 After=flightctl-imagebuilder-api.service
 After=flightctl-imagebuilder-worker.service
 
