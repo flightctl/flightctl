@@ -44,7 +44,7 @@ func NewCmdLogs() *cobra.Command {
 
   # Follow logs for an active imageexport
   flightctl logs imageexport/my-export -f`,
-		Args: cobra.ExactArgs(1),
+		Args: cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := o.Complete(cmd, args); err != nil {
 				return err
@@ -76,9 +76,8 @@ func (o *LogsOptions) Validate(args []string) error {
 		return err
 	}
 
-	// Parse the resource argument
-	resourceArg := args[0]
-	kind, name, err := parseResourceArg(resourceArg)
+	// Parse the resource argument(s)
+	kind, name, err := parseResourceArgs(args)
 	if err != nil {
 		return err
 	}
@@ -96,8 +95,7 @@ func (o *LogsOptions) Validate(args []string) error {
 }
 
 func (o *LogsOptions) Run(ctx context.Context, args []string) error {
-	resourceArg := args[0]
-	kind, name, err := parseResourceArg(resourceArg)
+	kind, name, err := parseResourceArgs(args)
 	if err != nil {
 		return err
 	}
@@ -156,6 +154,9 @@ func (o *LogsOptions) Run(ctx context.Context, args []string) error {
 // Returns nil on orderly close (completion marker received) or error on abrupt close
 func (o *LogsOptions) handleSSEStream(body io.Reader) error {
 	scanner := bufio.NewScanner(body)
+	// Increase buffer size to handle very long log lines (default 64KB is often insufficient)
+	const maxScannerBuffer = 1024 * 1024 // 1MB
+	scanner.Buffer(make([]byte, 0, maxScannerBuffer), maxScannerBuffer)
 	var currentData strings.Builder
 	streamCompleted := false
 
@@ -216,10 +217,19 @@ func (o *LogsOptions) handleSSEStream(body io.Reader) error {
 	return nil
 }
 
-// parseResourceArg parses a resource argument in the format "kind/name" or "kind name"
-func parseResourceArg(arg string) (ResourceKind, string, error) {
-	// Try "kind/name" format first
-	parts := strings.SplitN(arg, "/", 2)
+// parseResourceArgs parses resource arguments supporting both "type/name" (single arg) and "type name" (two args) formats
+func parseResourceArgs(args []string) (ResourceKind, string, error) {
+	if len(args) == 2 {
+		// Two separate args: "type" "name"
+		kind, err := ResourceKindFromString(args[0])
+		if err != nil {
+			return InvalidKind, "", fmt.Errorf("invalid resource kind: %w", err)
+		}
+		return kind, args[1], nil
+	}
+
+	// Single arg: try "type/name" format
+	parts := strings.SplitN(args[0], "/", 2)
 	if len(parts) == 2 {
 		kind, err := ResourceKindFromString(parts[0])
 		if err != nil {
@@ -228,15 +238,5 @@ func parseResourceArg(arg string) (ResourceKind, string, error) {
 		return kind, parts[1], nil
 	}
 
-	// Try "kind name" format (space-separated)
-	parts = strings.Fields(arg)
-	if len(parts) == 2 {
-		kind, err := ResourceKindFromString(parts[0])
-		if err != nil {
-			return InvalidKind, "", fmt.Errorf("invalid resource kind: %w", err)
-		}
-		return kind, parts[1], nil
-	}
-
-	return InvalidKind, "", fmt.Errorf("invalid resource format: expected 'kind/name' or 'kind name', got: %s", arg)
+	return InvalidKind, "", fmt.Errorf("invalid resource format: expected 'type/name' or 'type name', got: %s", args[0])
 }

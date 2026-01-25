@@ -108,12 +108,10 @@ func (r *redisLogStreamReader) Stream(ctx context.Context, w io.Writer) error {
 	}
 
 	// Then, stream new logs using XREAD with blocking
-	// Start from lastID (or "$" for new messages only after existing ones)
+	// Start from lastID to continue where ReadAll() left off
+	// Note: We intentionally keep "0" instead of switching to "$" to avoid missing
+	// entries written between ReadAll() returning and StreamRead() blocking
 	startID := r.lastID
-	if startID == "0" {
-		// If we read all logs, start from "$" to only get new messages
-		startID = "$"
-	}
 
 	for {
 		select {
