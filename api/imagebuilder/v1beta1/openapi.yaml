@@ -990,10 +990,12 @@ components:
         - vmdk
         - qcow2
         - iso
+        - qcow2-disk-container
       x-enum-varnames:
         - ExportFormatTypeVMDK
         - ExportFormatTypeQCOW2
         - ExportFormatTypeISO
+        - ExportFormatTypeQCOW2DiskContainer
 
     ImageExportStatus:
       type: object

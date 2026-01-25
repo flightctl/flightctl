@@ -25,9 +25,10 @@ const (
 
 // Defines values for ExportFormatType.
 const (
-	ExportFormatTypeISO   ExportFormatType = "iso"
-	ExportFormatTypeQCOW2 ExportFormatType = "qcow2"
-	ExportFormatTypeVMDK  ExportFormatType = "vmdk"
+	ExportFormatTypeISO                ExportFormatType = "iso"
+	ExportFormatTypeQCOW2              ExportFormatType = "qcow2"
+	ExportFormatTypeQCOW2DiskContainer ExportFormatType = "qcow2-disk-container"
+	ExportFormatTypeVMDK               ExportFormatType = "vmdk"
 )
 
 // Defines values for ImageBuildConditionReason.
