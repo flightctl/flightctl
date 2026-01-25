@@ -47,6 +47,7 @@ type RendererConfig struct {
 	SystemdUnitOutputDir     string `mapstructure:"systemd-dir"`
 	BinOutputDir             string `mapstructure:"bin-dir"`
 	VarTmpOutputDir          string `mapstructure:"var-tmp-dir"`
+	VarLibOutputDir          string `mapstructure:"var-lib-dir"`
 
 	// Source directories for binary search
 	BinSourceDirs []string `mapstructure:"bin-source-dirs"`
@@ -83,6 +84,7 @@ func NewRendererConfig() *RendererConfig {
 		SystemdUnitOutputDir:     "/usr/lib/systemd/system",
 		BinOutputDir:             "/usr/bin",
 		VarTmpOutputDir:          "/var/tmp",
+		VarLibOutputDir:          "/var/lib",
 	}
 }
 
