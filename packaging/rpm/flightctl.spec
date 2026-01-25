@@ -125,10 +125,6 @@ services to be running. This package automatically includes the flightctl-teleme
 # Telemetry Gateway configuration template
 %{_datadir}/flightctl/flightctl-telemetry-gateway/config.yaml.template
 
-# Certificate setup helper scripts
-/etc/flightctl/scripts/setup_telemetry_gateway_certs.sh
-/etc/flightctl/scripts/functions
-
 # Note: Uses flightctl network from flightctl-services package
 
 # Systemd target for service grouping
@@ -191,7 +187,7 @@ echo "Note: OpenTelemetry collector can be installed independently of other Flig
 echo "Running post-install actions for Flight Control Telemetry Gateway..."
 
 # Create necessary directories on the host if they don't already exist.
-/usr/bin/mkdir -p /etc/flightctl /etc/flightctl/scripts /etc/flightctl/flightctl-telemetry-gateway /etc/flightctl/flightctl-telemetry-gateway/forward
+/usr/bin/mkdir -p /etc/flightctl /etc/flightctl/flightctl-telemetry-gateway /etc/flightctl/flightctl-telemetry-gateway/forward
 
 # Enable specific SELinux boolean if needed
 /usr/sbin/setsebool -P container_manage_cgroup on >/dev/null 2>&1 || :
@@ -435,11 +431,6 @@ echo "Flight Control Observability Stack uninstalled."
 
      # Observability quadlets are now rendered together with regular services above
      # using flightctl-standalone render quadlets, which processes all components in deploy/podman/
-
-     # Copy certificate setup helper script (still needed for telemetry-gateway)
-     mkdir -p %{buildroot}/etc/flightctl/scripts
-     install -m 0755 test/scripts/setup_telemetry_gateway_certs.sh %{buildroot}/etc/flightctl/scripts
-     install -m 0755 test/scripts/functions %{buildroot}/etc/flightctl/scripts
 
      # Install systemd targets for service grouping
      install -m 0644 deploy/podman/flightctl-telemetry-gateway.target %{buildroot}/usr/lib/systemd/system/
