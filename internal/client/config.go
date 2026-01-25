@@ -392,7 +392,7 @@ func (c *ImageBuilderClient) Stop() {
 // If the config has a refresh token, a token refresher will be created and included in the client.
 // The refresher is not started automatically - call Start() to begin token refresh.
 func NewImageBuilderClientFromConfig(config *Config, configFilePath string, imageBuilderServer string, organization string, opts ...imagebuilderclient.ClientOption) (*ImageBuilderClient, error) {
-	httpClient, err := NewHTTPClientFromConfig(config)
+	httpClient, err := NewHTTPClientForServer(config, imageBuilderServer)
 	if err != nil {
 		return nil, fmt.Errorf("NewImageBuilderClientFromConfig: creating HTTP client %w", err)
 	}
@@ -518,7 +518,15 @@ func (c *Config) GetImageBuilderServer() string {
 }
 
 // NewHTTPClientFromConfig returns a new HTTP Client from the given config.
+// It uses the config's Service.Server to derive the TLS ServerName for SNI.
 func NewHTTPClientFromConfig(config *Config) (*http.Client, error) {
+	return NewHTTPClientForServer(config, config.Service.Server)
+}
+
+// NewHTTPClientForServer returns a new HTTP Client from the given config,
+// using the specified server URL to derive the TLS ServerName for SNI.
+// This is important for OpenShift routes which use SNI-based routing.
+func NewHTTPClientForServer(config *Config, serverURL string) (*http.Client, error) {
 	config = config.DeepCopy()
 	if err := config.Flatten(); err != nil {
 		return nil, err
@@ -526,16 +534,16 @@ func NewHTTPClientFromConfig(config *Config) (*http.Client, error) {
 
 	tlsServerName := config.Service.TLSServerName
 	if len(tlsServerName) == 0 {
-		u, err := url.Parse(config.Service.Server)
+		u, err := url.Parse(serverURL)
 		if err != nil {
-			return nil, fmt.Errorf("NewHTTPClientFromConfig: parsing server url: %w", err)
+			return nil, fmt.Errorf("NewHTTPClientForServer: parsing server url: %w", err)
 		}
 		tlsServerName = u.Hostname()
 	}
 
 	tlsConfig, err := CreateTLSConfigFromConfig(config)
 	if err != nil {
-		return nil, fmt.Errorf("NewHTTPClientFromConfig: creating TLS config: %w", err)
+		return nil, fmt.Errorf("NewHTTPClientForServer: creating TLS config: %w", err)
 	}
 	tlsConfig.ServerName = tlsServerName
 
@@ -549,7 +557,7 @@ func NewHTTPClientFromConfig(config *Config) (*http.Client, error) {
 	// Configure HTTP/2
 	t2, err := http2.ConfigureTransports(transport)
 	if err != nil {
-		return nil, fmt.Errorf("NewHTTPClientFromConfig: configuring HTTP/2 transport: %w", err)
+		return nil, fmt.Errorf("NewHTTPClientForServer: configuring HTTP/2 transport: %w", err)
 	}
 	if t2 != nil {
 		t2.ReadIdleTimeout = http2ReadIdleTimeout
@@ -560,7 +568,7 @@ func NewHTTPClientFromConfig(config *Config) (*http.Client, error) {
 
 	for _, opt := range config.HTTPOptions {
 		if err = opt(httpClient); err != nil {
-			return nil, fmt.Errorf("NewHTTPClientFromConfig: applying HTTP option: %w", err)
+			return nil, fmt.Errorf("NewHTTPClientForServer: applying HTTP option: %w", err)
 		}
 	}
 
