@@ -93,6 +93,7 @@ func servicesManifest(config *RendererConfig) []InstallAction {
 		// Shared files
 		{Action: ActionCopyFile, Source: "deploy/podman/flightctl.network", Destination: filepath.Join(config.QuadletFilesOutputDir, "flightctl.network"), Template: false, Mode: RegularFileMode},
 		{Action: ActionCopyFile, Source: "deploy/podman/flightctl.target", Destination: filepath.Join(config.SystemdUnitOutputDir, "flightctl.target"), Template: false, Mode: RegularFileMode},
+		{Action: ActionCopyFile, Source: "deploy/podman/flightctl-observability.target", Destination: filepath.Join(config.SystemdUnitOutputDir, "flightctl-observability.target"), Template: false, Mode: RegularFileMode},
 		{Action: ActionCopyFile, Source: "deploy/podman/service-config.yaml", Destination: filepath.Join(config.WriteableConfigOutputDir, "service-config.yaml"), Template: false, Mode: RegularFileMode},
 
 		// Helper scripts
@@ -142,7 +143,7 @@ func servicesManifest(config *RendererConfig) []InstallAction {
 		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "flightctl-grafana", "provisioning", "dashboards"), Mode: ExecutableFileMode},
 		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "flightctl-grafana", "provisioning", "dashboards", "flightctl"), Mode: ExecutableFileMode},
 		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "flightctl-grafana", "certs"), Mode: ExecutableFileMode},
-		{Action: ActionCreateEmptyDir, Destination: filepath.Join("/var/tmp/flightctl-builds"), Mode: ExecutableFileMode},
-		{Action: ActionCreateEmptyDir, Destination: filepath.Join("/var/tmp/flightctl-exports"), Mode: ExecutableFileMode},
+		{Action: ActionCreateEmptyDir, Destination: filepath.Join("/var/lib/grafana"), Mode: ExecutableFileMode},
+		{Action: ActionCreateEmptyDir, Destination: filepath.Join("/var/lib/prometheus"), Mode: ExecutableFileMode},
 	}
 }
