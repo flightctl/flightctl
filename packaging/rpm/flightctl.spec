@@ -85,6 +85,7 @@ Summary: Flight Control services
 Requires: bash
 Requires: podman
 Requires: python3-pyyaml
+Requires: flightctl-telemetry-gateway = %{version}-%{release}
 BuildRequires: systemd-rpm-macros
 %{?systemd_requires}
 
@@ -93,7 +94,6 @@ The flightctl-services package provides installation and setup of files for runn
 
 %package telemetry-gateway
 Summary: Telemetry Gateway for Flight Control
-Requires:       flightctl-services = %{version}-%{release}
 Requires:       podman
 %{?systemd_requires}
 Requires:       selinux-policy-targeted
@@ -122,6 +122,11 @@ managed by systemd and can be installed independently without requiring core Fli
 services to be running. This package automatically includes the flightctl-telemetry-gateway package.
 
 %files telemetry-gateway
+# Shared directories (also owned by services package)
+%dir %{_datadir}/flightctl
+%dir %{_datadir}/flightctl/flightctl-telemetry-gateway
+%dir %{_datadir}/containers/systemd
+
 # Telemetry Gateway configuration template
 %{_datadir}/flightctl/flightctl-telemetry-gateway/config.yaml.template
 
@@ -134,6 +139,7 @@ services to be running. This package automatically includes the flightctl-teleme
 %{_datadir}/containers/systemd/flightctl-telemetry-gateway.container
 
 # Directories owned by the telemetry-gateway RPM
+# Note: Parent directories are also owned by services package (shared ownership is allowed)
 %dir /etc/flightctl
 %dir /etc/flightctl/pki
 %dir /etc/flightctl/pki/flightctl-telemetry-gateway
@@ -144,6 +150,13 @@ services to be running. This package automatically includes the flightctl-teleme
 %ghost /etc/flightctl/flightctl-telemetry-gateway/config.yaml
 
 %files observability
+# Shared directories (also owned by services package)
+%dir %{_datadir}/flightctl
+%dir %{_datadir}/flightctl/flightctl-grafana
+%dir %{_datadir}/flightctl/flightctl-prometheus
+%dir %{_datadir}/flightctl/flightctl-userinfo-proxy
+%dir %{_datadir}/containers/systemd
+
 # Grafana configuration templates and static files
 %{_datadir}/flightctl/flightctl-grafana/grafana.ini.template
 %{_datadir}/flightctl/flightctl-grafana/grafana-datasources.yaml
@@ -164,6 +177,8 @@ services to be running. This package automatically includes the flightctl-teleme
 /usr/lib/systemd/system/flightctl-observability.target
 
 # Directories owned by the observability RPM
+# Note: Parent directories are also owned by services package (shared ownership is allowed)
+%dir /etc/flightctl
 %dir /etc/flightctl/pki
 %dir /etc/flightctl/pki/flightctl-grafana
 %dir /etc/flightctl/pki/flightctl-prometheus
@@ -418,7 +433,8 @@ echo "Flight Control Observability Stack uninstalled."
         --quadlet-dir "%{buildroot}%{_datadir}/containers/systemd" \
         --systemd-dir "%{buildroot}/usr/lib/systemd/system" \
         --bin-dir "%{buildroot}/usr/bin" \
-        --var-tmp-dir "%{buildroot}%{_var}/tmp"
+        --var-tmp-dir "%{buildroot}%{_var}/tmp" \
+        --var-lib-dir "%{buildroot}/var/lib"
 
     # Copy services must gather script
     cp packaging/must-gather/flightctl-services-must-gather %{buildroot}%{_bindir}
@@ -601,7 +617,6 @@ loginctl disable-linger flightctl || :
     %{_datadir}/flightctl/flightctl-cli-artifacts/env.template
     %{_datadir}/flightctl/flightctl-cli-artifacts/nginx.conf
     %attr(0755,root,root) %{_datadir}/flightctl/flightctl-cli-artifacts/init.sh
-    %{_datadir}/containers/systemd/flightctl*
     %{_datadir}/flightctl/flightctl-alertmanager/alertmanager.yml
     %{_datadir}/flightctl/flightctl-alertmanager-proxy/env.template
     %{_datadir}/flightctl/flightctl-pam-issuer/config.yaml.template
@@ -612,6 +627,24 @@ loginctl disable-linger flightctl || :
     %{_datadir}/flightctl/flightctl-db-migrate/config.yaml.template
     %{_datadir}/flightctl/flightctl-imagebuilder-api/config.yaml.template
     %{_datadir}/flightctl/flightctl-imagebuilder-worker/config.yaml.template
+
+    # Quadlet files (excluding observability components which are in separate packages)
+    %{_datadir}/containers/systemd/flightctl-api*.container
+    %{_datadir}/containers/systemd/flightctl-worker.container
+    %{_datadir}/containers/systemd/flightctl-periodic.container
+    %{_datadir}/containers/systemd/flightctl-alert*.container
+    %{_datadir}/containers/systemd/flightctl-cli-artifacts*.container
+    %{_datadir}/containers/systemd/flightctl-db*.container
+    %{_datadir}/containers/systemd/flightctl-db*.volume
+    %{_datadir}/containers/systemd/flightctl-kv*.container
+    %{_datadir}/containers/systemd/flightctl-kv.volume
+    %{_datadir}/containers/systemd/flightctl-pam-issuer.container
+    %{_datadir}/containers/systemd/flightctl-ui*.container
+    %{_datadir}/containers/systemd/flightctl-ui-certs.volume
+    %{_datadir}/containers/systemd/flightctl-imagebuilder*.container
+    %{_datadir}/containers/systemd/flightctl-alertmanager.volume
+    %{_datadir}/containers/systemd/flightctl-cli-artifacts-certs.volume
+    %{_datadir}/containers/systemd/flightctl.network
 
     # Handle permissions for scripts setting host config
     %attr(0755,root,root) %{_datadir}/flightctl/init_host.sh
