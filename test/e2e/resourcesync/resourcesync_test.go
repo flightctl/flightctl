@@ -19,10 +19,6 @@ const (
 	BranchName      = "main"
 )
 
-type templateData struct {
-	TestID string
-}
-
 // testContext holds shared test state across test cases
 type testContext struct {
 	harness          *e2e.Harness
@@ -182,7 +178,7 @@ var _ = Describe("ResourceSync Failure Cases", func() {
 				FieldSelector: lo.ToPtr(ownerFilter),
 			}
 
-			err = tc.createResourceSyncForRepo(resourceSyncName, repoName, BranchName)
+			err = tc.harness.CreateResourceSyncForRepo(resourceSyncName, repoName, BranchName)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Wait for the Accessible condition to become False
@@ -217,7 +213,7 @@ var _ = Describe("ResourceSync Failure Cases", func() {
 				FieldSelector: lo.ToPtr(ownerFilter),
 			}
 
-			err = tc.createResourceSyncForRepo(resourceSyncName, repoName, BranchName)
+			err = tc.harness.CreateResourceSyncForRepo(resourceSyncName, repoName, BranchName)
 			Expect(err).ToNot(HaveOccurred())
 
 			tc.harness.WaitForFleetCount(&listParams, 3, PollingTimeout, PollingInterval)
@@ -259,7 +255,7 @@ var _ = Describe("ResourceSync Failure Cases", func() {
 			err = tc.harness.CreateRepositoryWithValidE2ECredentials(repoName)
 			Expect(err).ToNot(HaveOccurred())
 
-			err = tc.createResourceSyncForRepo(resourceSyncName, repoName, BranchName)
+			err = tc.harness.CreateResourceSyncForRepo(resourceSyncName, repoName, BranchName)
 			Expect(err).ToNot(HaveOccurred())
 
 			ownerFilter := fmt.Sprintf("metadata.owner=ResourceSync/%s", resourceSyncName)
@@ -283,7 +279,7 @@ var _ = Describe("ResourceSync Failure Cases", func() {
 			err = tc.harness.CreateRepositoryWithValidE2ECredentials(repo2Name)
 			Expect(err).ToNot(HaveOccurred())
 
-			err = tc.createResourceSyncForRepo(rs2Name, repo2Name, BranchName)
+			err = tc.harness.CreateResourceSyncForRepo(rs2Name, repo2Name, BranchName)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Wait for rs2's Synced condition to become False due to conflict
@@ -303,13 +299,8 @@ var _ = Describe("ResourceSync Failure Cases", func() {
 	})
 })
 
-func (tc *testContext) createResourceSyncForRepo(resourceSyncName, repoName, branchName string) error {
-	resourceSyncSpec := v1beta1.ResourceSyncSpec{
-		Repository:     repoName,
-		TargetRevision: branchName,
-		Path:           "/",
-	}
-	return tc.harness.CreateResourceSync(resourceSyncName, repoName, resourceSyncSpec)
+type templateData struct {
+	TestID string
 }
 
 func getFleetImage(fleet *v1beta1.Fleet) string {
