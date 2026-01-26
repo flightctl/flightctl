@@ -94,9 +94,9 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 	// Helper function to create a test repository
 	createTestRepository := func(name string, url string) *api.Repository {
 		spec := api.RepositorySpec{}
-		err := spec.FromGenericRepoSpec(api.GenericRepoSpec{
+		err := spec.FromGitRepoSpec(api.GitRepoSpec{
 			Url:  url,
-			Type: "git",
+			Type: api.GitRepoSpecTypeGit,
 		})
 		Expect(err).ToNot(HaveOccurred())
 

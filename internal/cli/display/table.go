@@ -324,12 +324,14 @@ func (f *TableFormatter) printRepositoriesTable(w *tabwriter.Writer, repos ...ap
 			}
 		}
 
-		repoSpec, _ := r.Spec.GetGenericRepoSpec()
-		repoType := repoSpec.Type
+		repoType, err := r.Spec.Discriminator()
+		if err != nil {
+			repoType = "unknown"
+		}
 
 		f.printTableRowLn(w,
 			*r.Metadata.Name,
-			fmt.Sprintf("%v", repoType),
+			repoType,
 			util.DefaultIfError(r.Spec.GetRepoURL, ""),
 			accessible,
 		)

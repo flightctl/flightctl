@@ -205,9 +205,9 @@ var _ = Describe("DeviceRender", func() {
 		It("should re-render the device configuration even if template version is the same", func() {
 			// Create a repository
 			repoSpec := api.RepositorySpec{}
-			err := repoSpec.FromGenericRepoSpec(api.GenericRepoSpec{
+			err := repoSpec.FromGitRepoSpec(api.GitRepoSpec{
 				Url:  "https://github.com/flightctl/flightctl-demos",
-				Type: api.RepoSpecTypeGit,
+				Type: api.GitRepoSpecTypeGit,
 			})
 			Expect(err).ToNot(HaveOccurred())
 
@@ -345,9 +345,9 @@ var _ = Describe("DeviceRender", func() {
 		It("should skip rendering when template version and spec haven't changed", func() {
 			// Create a repository
 			repoSpec := api.RepositorySpec{}
-			err := repoSpec.FromGenericRepoSpec(api.GenericRepoSpec{
+			err := repoSpec.FromGitRepoSpec(api.GitRepoSpec{
 				Url:  "https://github.com/flightctl/flightctl-demos",
-				Type: api.RepoSpecTypeGit,
+				Type: api.GitRepoSpecTypeGit,
 			})
 			Expect(err).ToNot(HaveOccurred())
 

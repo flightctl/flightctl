@@ -661,7 +661,7 @@ func (r *Repository) Validate() []error {
 
 	switch specType {
 	case string(RepoSpecTypeOci):
-		ociRepoSpec, err := r.Spec.GetOciRepoSpec()
+		ociRepoSpec, err := r.Spec.AsOciRepoSpec()
 		if err != nil {
 			allErrs = append(allErrs, fmt.Errorf("invalid OCI repository spec: %w", err))
 			return allErrs
@@ -680,26 +680,32 @@ func (r *Repository) Validate() []error {
 			allErrs = append(allErrs, validation.ValidateBase64Field(*ociRepoSpec.CaCrt, "spec.ca.crt", maxBase64CertificateLength)...)
 		}
 	case string(RepoSpecTypeHttp):
-		httpRepoSpec, err := r.Spec.GetHttpRepoSpec()
+		httpRepoSpec, err := r.Spec.AsHttpRepoSpec()
 		if err != nil {
 			allErrs = append(allErrs, fmt.Errorf("invalid HTTP repository spec: %w", err))
 			return allErrs
 		}
 		allErrs = append(allErrs, validation.ValidateString(&httpRepoSpec.Url, "spec.url", 1, 2048, nil, "")...)
-		allErrs = append(allErrs, validateHttpConfig(&httpRepoSpec.HttpConfig)...)
-	case string(RepoSpecTypeGit):
-		sshRepoSpec, sshErr := r.Spec.GetSshRepoSpec()
-		if sshErr == nil {
-			allErrs = append(allErrs, validation.ValidateString(&sshRepoSpec.Url, "spec.url", 1, 2048, nil, "")...)
-			allErrs = append(allErrs, validateSshConfig(&sshRepoSpec.SshConfig)...)
-			return allErrs
+		if httpRepoSpec.HttpConfig != nil {
+			allErrs = append(allErrs, validateHttpConfig(httpRepoSpec.HttpConfig)...)
 		}
-		genericRepoSpec, err := r.Spec.GetGenericRepoSpec()
+	case string(RepoSpecTypeGit):
+		gitRepoSpec, err := r.Spec.AsGitRepoSpec()
 		if err != nil {
 			allErrs = append(allErrs, fmt.Errorf("invalid Git repository spec: %w", err))
 			return allErrs
 		}
-		allErrs = append(allErrs, validation.ValidateString(&genericRepoSpec.Url, "spec.url", 1, 2048, nil, "")...)
+		allErrs = append(allErrs, validation.ValidateString(&gitRepoSpec.Url, "spec.url", 1, 2048, nil, "")...)
+		// Validate that only one of httpConfig or sshConfig is specified
+		if gitRepoSpec.HttpConfig != nil && gitRepoSpec.SshConfig != nil {
+			allErrs = append(allErrs, fmt.Errorf("only one of httpConfig or sshConfig can be specified for a Git repository"))
+		}
+		if gitRepoSpec.HttpConfig != nil {
+			allErrs = append(allErrs, validateHttpConfig(gitRepoSpec.HttpConfig)...)
+		}
+		if gitRepoSpec.SshConfig != nil {
+			allErrs = append(allErrs, validateSshConfig(gitRepoSpec.SshConfig)...)
+		}
 	default:
 		allErrs = append(allErrs, fmt.Errorf("unknown repository type: %s", specType))
 	}

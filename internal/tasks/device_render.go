@@ -585,7 +585,7 @@ func (t *DeviceRenderLogic) getFrozenRepositoryURL(ctx context.Context, repo *do
 	}
 	if repoURL != string(origRepoURL) {
 		t.log.Warnf("repository URL updated from %s to %s for %s/%s", origRepoURL, repoURL, t.orgId, *repo.Metadata.Name)
-		err = repo.Spec.MergeGenericRepoSpec(domain.GenericRepoSpec{Url: string(origRepoURL)})
+		err = repo.Spec.MergeGitRepoSpec(domain.GitRepoSpec{Url: string(origRepoURL)})
 		if err != nil {
 			return fmt.Errorf("failed updating changed repository url for %s/%s: %w", t.orgId, *repo.Metadata.Name, err)
 		}

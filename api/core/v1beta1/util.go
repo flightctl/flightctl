@@ -359,6 +359,42 @@ func preserveValue(newValue, oldValue *string) {
 	}
 }
 
+func hideHttpConfig(config *HttpConfig) {
+	if config == nil {
+		return
+	}
+	hideValue(config.Password)
+	hideValue(config.Token)
+	hideValue(config.TlsKey)
+	hideValue(config.TlsCrt)
+}
+
+func hideSshConfig(config *SshConfig) {
+	if config == nil {
+		return
+	}
+	hideValue(config.SshPrivateKey)
+	hideValue(config.PrivateKeyPassphrase)
+}
+
+func preserveHttpConfig(newConfig, existingConfig *HttpConfig) {
+	if newConfig == nil || existingConfig == nil {
+		return
+	}
+	preserveValue(newConfig.Password, existingConfig.Password)
+	preserveValue(newConfig.Token, existingConfig.Token)
+	preserveValue(newConfig.TlsKey, existingConfig.TlsKey)
+	preserveValue(newConfig.TlsCrt, existingConfig.TlsCrt)
+}
+
+func preserveSshConfig(newConfig, existingConfig *SshConfig) {
+	if newConfig == nil || existingConfig == nil {
+		return
+	}
+	preserveValue(newConfig.SshPrivateKey, existingConfig.SshPrivateKey)
+	preserveValue(newConfig.PrivateKeyPassphrase, existingConfig.PrivateKeyPassphrase)
+}
+
 func (r *Repository) HideSensitiveData() error {
 	if r == nil {
 		return nil
@@ -393,24 +429,20 @@ func (r *Repository) HideSensitiveData() error {
 		if err != nil {
 			return err
 		}
-		hideValue(http.HttpConfig.Password)
-		hideValue(http.HttpConfig.Token)
-		hideValue(http.HttpConfig.TlsKey)
-		hideValue(http.HttpConfig.TlsCrt)
+		hideHttpConfig(http.HttpConfig)
 		if err := spec.FromHttpRepoSpec(http); err != nil {
 			return err
 		}
 		r.Spec = spec
 		return nil
 	case string(RepoSpecTypeGit):
-		ssh, err := spec.GetSshRepoSpec()
+		git, err := spec.AsGitRepoSpec()
 		if err != nil {
-			// Not an SSH repo spec (plain GenericRepoSpec), nothing to hide
-			return nil
+			return err
 		}
-		hideValue(ssh.SshConfig.SshPrivateKey)
-		hideValue(ssh.SshConfig.PrivateKeyPassphrase)
-		if err := spec.FromSshRepoSpec(ssh); err != nil {
+		hideSshConfig(git.SshConfig)
+		hideHttpConfig(git.HttpConfig)
+		if err := spec.FromGitRepoSpec(git); err != nil {
 			return err
 		}
 		r.Spec = spec
@@ -498,10 +530,7 @@ func (r *Repository) PreserveSensitiveData(existing SensitiveDataPreserver) erro
 		if err != nil {
 			return err
 		}
-		preserveValue(http.HttpConfig.Password, existingHttp.HttpConfig.Password)
-		preserveValue(http.HttpConfig.Token, existingHttp.HttpConfig.Token)
-		preserveValue(http.HttpConfig.TlsKey, existingHttp.HttpConfig.TlsKey)
-		preserveValue(http.HttpConfig.TlsCrt, existingHttp.HttpConfig.TlsCrt)
+		preserveHttpConfig(http.HttpConfig, existingHttp.HttpConfig)
 		if err := spec.FromHttpRepoSpec(http); err != nil {
 			return err
 		}
@@ -509,19 +538,17 @@ func (r *Repository) PreserveSensitiveData(existing SensitiveDataPreserver) erro
 		return nil
 
 	case string(RepoSpecTypeGit):
-		ssh, err := spec.GetSshRepoSpec()
+		git, err := spec.AsGitRepoSpec()
 		if err != nil {
-			// Not an SSH repo spec (plain GenericRepoSpec), nothing to preserve
 			return nil
 		}
-		existingSsh, err := existingRepo.Spec.GetSshRepoSpec()
+		existingGit, err := existingRepo.Spec.AsGitRepoSpec()
 		if err != nil {
-			// Existing is not an SSH repo spec, nothing to preserve
 			return nil
 		}
-		preserveValue(ssh.SshConfig.SshPrivateKey, existingSsh.SshConfig.SshPrivateKey)
-		preserveValue(ssh.SshConfig.PrivateKeyPassphrase, existingSsh.SshConfig.PrivateKeyPassphrase)
-		if err := spec.FromSshRepoSpec(ssh); err != nil {
+		preserveSshConfig(git.SshConfig, existingGit.SshConfig)
+		preserveHttpConfig(git.HttpConfig, existingGit.HttpConfig)
+		if err := spec.FromGitRepoSpec(git); err != nil {
 			return err
 		}
 		r.Spec = spec

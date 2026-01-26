@@ -361,7 +361,7 @@ func (c *Consumer) generateContainerfileWithGenerator(
 		return nil, fmt.Errorf("repository %q must be of type 'oci', got %q", spec.Source.Repository, repoType)
 	}
 
-	ociSpec, err := repo.Spec.GetOciRepoSpec()
+	ociSpec, err := repo.Spec.AsOciRepoSpec()
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse OCI repository spec: %w", err)
 	}
@@ -751,7 +751,7 @@ func (c *Consumer) buildImageWithPodman(
 		return fmt.Errorf("destination repository %q must be of type 'oci', got %q", spec.Destination.Repository, destRepoType)
 	}
 
-	destOciSpec, err := destRepo.Spec.GetOciRepoSpec()
+	destOciSpec, err := destRepo.Spec.AsOciRepoSpec()
 	if err != nil {
 		return fmt.Errorf("failed to parse destination OCI repository spec: %w", err)
 	}
@@ -817,7 +817,7 @@ func (c *Consumer) buildImageWithPodman(
 		return fmt.Errorf("source repository %q must be of type 'oci', got %q", spec.Source.Repository, repoType)
 	}
 
-	ociSpec, err := repo.Spec.GetOciRepoSpec()
+	ociSpec, err := repo.Spec.AsOciRepoSpec()
 	if err != nil {
 		return fmt.Errorf("failed to parse OCI repository spec: %w", err)
 	}
@@ -914,7 +914,7 @@ func (c *Consumer) pushImageWithPodman(
 		return "", fmt.Errorf("destination repository %q must be of type 'oci', got %q", spec.Destination.Repository, repoType)
 	}
 
-	ociSpec, err := repo.Spec.GetOciRepoSpec()
+	ociSpec, err := repo.Spec.AsOciRepoSpec()
 	if err != nil {
 		return "", fmt.Errorf("failed to parse OCI repository spec: %w", err)
 	}

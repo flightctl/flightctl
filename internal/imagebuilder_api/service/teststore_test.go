@@ -462,7 +462,7 @@ func newOciRepository(name string, accessMode v1beta1.OciRepoSpecAccessMode) *v1
 	spec := v1beta1.RepositorySpec{}
 	_ = spec.FromOciRepoSpec(v1beta1.OciRepoSpec{
 		Registry:   "quay.io",
-		Type:       v1beta1.RepoSpecTypeOci,
+		Type:       v1beta1.OciRepoSpecTypeOci,
 		AccessMode: &accessMode,
 	})
 	return &v1beta1.Repository{

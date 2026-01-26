@@ -163,11 +163,11 @@ func TestRepositoryExampleFlightctl(t *testing.T) {
 	require.NoError(err)
 	require.Equal("git", specType)
 
-	// Verify it can be decoded as GenericRepoSpec
-	genericSpec, err := retrieved.Spec.GetGenericRepoSpec()
+	// Verify it can be decoded as GitRepoSpec
+	gitSpec, err := retrieved.Spec.AsGitRepoSpec()
 	require.NoError(err)
-	require.Equal("https://github.com/flightctl/flightctl.git", genericSpec.Url)
-	require.Equal(domain.RepoSpecTypeGit, genericSpec.Type)
+	require.Equal("https://github.com/flightctl/flightctl.git", gitSpec.Url)
+	require.Equal(domain.GitRepoSpecTypeGit, gitSpec.Type)
 }
 
 func TestRepositoryExampleSsh(t *testing.T) {
@@ -200,16 +200,17 @@ func TestRepositoryExampleSsh(t *testing.T) {
 	require.NoError(err)
 	require.Equal("git", specType)
 
-	// Verify it can be decoded as SshRepoSpec
-	sshSpec, err := retrieved.Spec.GetSshRepoSpec()
+	// Verify it can be decoded as GitRepoSpec (SSH repos are now part of GitRepoSpec)
+	gitSpec, err := retrieved.Spec.AsGitRepoSpec()
 	require.NoError(err)
-	require.Equal("ssh://git@github.com/flightctl/flightctl.git", sshSpec.Url)
-	require.Equal(domain.RepoSpecTypeGit, sshSpec.Type)
-	require.NotNil(sshSpec.SshConfig.SshPrivateKey)
-	require.NotNil(sshSpec.SshConfig.PrivateKeyPassphrase)
-	require.Equal("testpassphrase", *sshSpec.SshConfig.PrivateKeyPassphrase)
-	require.NotNil(sshSpec.SshConfig.SkipServerVerification)
-	require.True(*sshSpec.SshConfig.SkipServerVerification)
+	require.Equal("ssh://git@github.com/flightctl/flightctl.git", gitSpec.Url)
+	require.Equal(domain.GitRepoSpecTypeGit, gitSpec.Type)
+	require.NotNil(gitSpec.SshConfig)
+	require.NotNil(gitSpec.SshConfig.SshPrivateKey)
+	require.NotNil(gitSpec.SshConfig.PrivateKeyPassphrase)
+	require.Equal("testpassphrase", *gitSpec.SshConfig.PrivateKeyPassphrase)
+	require.NotNil(gitSpec.SshConfig.SkipServerVerification)
+	require.True(*gitSpec.SshConfig.SkipServerVerification)
 }
 
 func TestRepositoryExampleHttp(t *testing.T) {
@@ -243,7 +244,7 @@ func TestRepositoryExampleHttp(t *testing.T) {
 	require.Equal("http", specType)
 
 	// Verify it can be decoded as HttpRepoSpec
-	httpSpec, err := retrieved.Spec.GetHttpRepoSpec()
+	httpSpec, err := retrieved.Spec.AsHttpRepoSpec()
 	require.NoError(err)
 	require.Equal("https://my-server.com/flightctl", httpSpec.Url)
 	require.Equal(domain.RepoSpecTypeHttp, httpSpec.Type)
@@ -283,17 +284,17 @@ func TestRepositoryExampleHttpGit(t *testing.T) {
 	// Verify spec type
 	specType, err := retrieved.Spec.Discriminator()
 	require.NoError(err)
-	require.Equal("http", specType)
+	require.Equal("git", specType)
 
-	// Verify it can be decoded as HttpRepoSpec
-	httpSpec, err := retrieved.Spec.GetHttpRepoSpec()
+	// Verify it can be decoded as GitRepoSpec
+	gitSpec, err := retrieved.Spec.AsGitRepoSpec()
 	require.NoError(err)
-	require.Equal("https://github.com/flightctl/flightctl.git", httpSpec.Url)
-	require.Equal(domain.RepoSpecTypeHttp, httpSpec.Type)
-	require.NotNil(httpSpec.HttpConfig.Username)
-	require.Equal("myusername", *httpSpec.HttpConfig.Username)
-	require.NotNil(httpSpec.HttpConfig.Password)
-	require.Equal("mypassword", *httpSpec.HttpConfig.Password)
-	require.NotNil(httpSpec.HttpConfig.SkipServerVerification)
-	require.True(*httpSpec.HttpConfig.SkipServerVerification)
+	require.Equal("https://github.com/flightctl/flightctl.git", gitSpec.Url)
+	require.Equal(domain.GitRepoSpecTypeGit, gitSpec.Type)
+	require.NotNil(gitSpec.HttpConfig.Username)
+	require.Equal("myusername", *gitSpec.HttpConfig.Username)
+	require.NotNil(gitSpec.HttpConfig.Password)
+	require.Equal("mypassword", *gitSpec.HttpConfig.Password)
+	require.NotNil(gitSpec.HttpConfig.SkipServerVerification)
+	require.True(*gitSpec.HttpConfig.SkipServerVerification)
 }

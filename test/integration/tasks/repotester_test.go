@@ -92,8 +92,9 @@ func TestHttpsMTLSRepo(t *testing.T) {
 
 	spec := api.RepositorySpec{}
 	err = spec.FromHttpRepoSpec(api.HttpRepoSpec{
-		Url: "https://localhost:4443",
-		HttpConfig: api.HttpConfig{
+		Url:  "https://localhost:4443",
+		Type: api.HttpRepoSpecTypeHttp,
+		HttpConfig: &api.HttpConfig{
 			TlsKey: &clientKeyB64,
 			TlsCrt: &clientCrtB64,
 			CaCrt:  &caB64,
@@ -141,9 +142,10 @@ func TestSSHRepo(t *testing.T) {
 	privKey := b64.StdEncoding.EncodeToString(privatePEM)
 
 	spec := api.RepositorySpec{}
-	err = spec.FromSshRepoSpec(api.SshRepoSpec{
-		Url: "ssh://root@127.0.0.1:2222",
-		SshConfig: api.SshConfig{
+	err = spec.FromGitRepoSpec(api.GitRepoSpec{
+		Url:  "ssh://root@127.0.0.1:2222",
+		Type: api.GitRepoSpecTypeGit,
+		SshConfig: &api.SshConfig{
 			SshPrivateKey:          &privKey,
 			SkipServerVerification: lo.ToPtr(true),
 		}})
@@ -170,7 +172,7 @@ func TestOciRepoOpenRegistry(t *testing.T) {
 	err := spec.FromOciRepoSpec(api.OciRepoSpec{
 		Registry: registryHost(server.URL),
 		Type:     "oci",
-		Scheme:   lo.ToPtr(api.OciRepoSpecSchemeHttp),
+		Scheme:   lo.ToPtr(api.Http),
 	})
 	require.NoError(err)
 
@@ -199,7 +201,7 @@ func TestOciRepoWithValidCredentials(t *testing.T) {
 	err := spec.FromOciRepoSpec(api.OciRepoSpec{
 		Registry: registryHost(server.URL),
 		Type:     "oci",
-		Scheme:   lo.ToPtr(api.OciRepoSpecSchemeHttp),
+		Scheme:   lo.ToPtr(api.Http),
 		OciAuth:  newOciAuth("testuser", "testpass"),
 	})
 	require.NoError(err)
@@ -229,7 +231,7 @@ func TestOciRepoWithInvalidCredentials(t *testing.T) {
 	err := spec.FromOciRepoSpec(api.OciRepoSpec{
 		Registry: registryHost(server.URL),
 		Type:     "oci",
-		Scheme:   lo.ToPtr(api.OciRepoSpecSchemeHttp),
+		Scheme:   lo.ToPtr(api.Http),
 		OciAuth:  newOciAuth("wronguser", "wrongpass"),
 	})
 	require.NoError(err)
@@ -259,7 +261,7 @@ func TestOciRepoAnonymousAccess(t *testing.T) {
 	err := spec.FromOciRepoSpec(api.OciRepoSpec{
 		Registry: registryHost(server.URL),
 		Type:     "oci",
-		Scheme:   lo.ToPtr(api.OciRepoSpecSchemeHttp),
+		Scheme:   lo.ToPtr(api.Http),
 	})
 	require.NoError(err)
 
@@ -290,7 +292,7 @@ func TestOciRepoMixedAuthRegistry(t *testing.T) {
 	err := spec.FromOciRepoSpec(api.OciRepoSpec{
 		Registry: registryHost(server.URL),
 		Type:     "oci",
-		Scheme:   lo.ToPtr(api.OciRepoSpecSchemeHttp),
+		Scheme:   lo.ToPtr(api.Http),
 		OciAuth:  newOciAuth("testuser", "testpass"),
 	})
 	require.NoError(err)
@@ -303,7 +305,7 @@ func TestOciRepoMixedAuthRegistry(t *testing.T) {
 	err = specAnon.FromOciRepoSpec(api.OciRepoSpec{
 		Registry: registryHost(server.URL),
 		Type:     "oci",
-		Scheme:   lo.ToPtr(api.OciRepoSpecSchemeHttp),
+		Scheme:   lo.ToPtr(api.Http),
 	})
 	require.NoError(err)
 
@@ -315,7 +317,7 @@ func TestOciRepoMixedAuthRegistry(t *testing.T) {
 	err = specInvalid.FromOciRepoSpec(api.OciRepoSpec{
 		Registry: registryHost(server.URL),
 		Type:     "oci",
-		Scheme:   lo.ToPtr(api.OciRepoSpecSchemeHttp),
+		Scheme:   lo.ToPtr(api.Http),
 		OciAuth:  newOciAuth("wronguser", "wrongpass"),
 	})
 	require.NoError(err)

@@ -88,25 +88,27 @@ func CloneGitRepo(repo *domain.Repository, revision *string, depth *int) (billy.
 // Read repository's ssh/http config and create transport.AuthMethod.
 // If no ssh/http config is defined a nil is returned.
 func GetAuth(repository *domain.Repository) (transport.AuthMethod, error) {
-	_, err := repository.Spec.GetGenericRepoSpec()
-	if err == nil {
+	gitSpec, err := repository.Spec.AsGitRepoSpec()
+	if err != nil {
+		// Not a Git repo spec, no auth
 		return nil, nil
 	}
-	sshSpec, err := repository.Spec.GetSshRepoSpec()
-	if err == nil {
+
+	// Handle SSH authentication
+	if gitSpec.SshConfig != nil {
 		var auth *gitssh.PublicKeys
-		if sshSpec.SshConfig.SshPrivateKey != nil {
-			sshPrivateKey, err := base64.StdEncoding.DecodeString(*sshSpec.SshConfig.SshPrivateKey)
+		if gitSpec.SshConfig.SshPrivateKey != nil {
+			sshPrivateKey, err := base64.StdEncoding.DecodeString(*gitSpec.SshConfig.SshPrivateKey)
 			if err != nil {
 				return nil, err
 			}
 
 			password := ""
-			if sshSpec.SshConfig.PrivateKeyPassphrase != nil {
-				password = *sshSpec.SshConfig.PrivateKeyPassphrase
+			if gitSpec.SshConfig.PrivateKeyPassphrase != nil {
+				password = *gitSpec.SshConfig.PrivateKeyPassphrase
 			}
 			user := ""
-			repoSubmatch := scpLikeUrlRegExp.FindStringSubmatch(sshSpec.Url)
+			repoSubmatch := scpLikeUrlRegExp.FindStringSubmatch(gitSpec.Url)
 			if len(repoSubmatch) > 1 {
 				user = repoSubmatch[1]
 			}
@@ -117,7 +119,7 @@ func GetAuth(repository *domain.Repository) (transport.AuthMethod, error) {
 		}
 
 		// Configure host key verification
-		if sshSpec.SshConfig.SkipServerVerification != nil && *sshSpec.SshConfig.SkipServerVerification {
+		if gitSpec.SshConfig.SkipServerVerification != nil && *gitSpec.SshConfig.SkipServerVerification {
 			if auth == nil {
 				auth = &gitssh.PublicKeys{}
 			}
@@ -137,24 +139,32 @@ func GetAuth(repository *domain.Repository) (transport.AuthMethod, error) {
 			}
 		}
 		return auth, nil
-	} else {
-		httpSpec, err := repository.Spec.GetHttpRepoSpec()
-		if err == nil {
-			if strings.HasPrefix(httpSpec.Url, "https") {
-				err := configureRepoHTTPSClient(httpSpec.HttpConfig)
-				if err != nil {
-					return nil, err
-				}
-			}
-			if httpSpec.HttpConfig.Username != nil && httpSpec.HttpConfig.Password != nil {
-				auth := &githttp.BasicAuth{
-					Username: *httpSpec.HttpConfig.Username,
-					Password: *httpSpec.HttpConfig.Password,
-				}
-				return auth, nil
+	}
+
+	// Handle HTTP authentication
+	if gitSpec.HttpConfig != nil {
+		if strings.HasPrefix(gitSpec.Url, "https") {
+			err := configureRepoHTTPSClient(*gitSpec.HttpConfig)
+			if err != nil {
+				return nil, err
 			}
 		}
+		if gitSpec.HttpConfig.Token != nil {
+			auth := &githttp.TokenAuth{
+				Token: *gitSpec.HttpConfig.Token,
+			}
+			return auth, nil
+		}
+		if gitSpec.HttpConfig.Username != nil && gitSpec.HttpConfig.Password != nil {
+			auth := &githttp.BasicAuth{
+				Username: *gitSpec.HttpConfig.Username,
+				Password: *gitSpec.HttpConfig.Password,
+			}
+			return auth, nil
+		}
 	}
+
+	// No auth config - public repository
 	return nil, nil
 }
 

@@ -68,14 +68,14 @@ var _ = Describe("Microshift cluster ACM enrollment tests", func() {
 
 				By("Create the acm-registration repository")
 				httpRepoUrl := fmt.Sprintf("https://%s", agentRegistrationHost)
-				httpRepoConfig := v1beta1.HttpConfig{
+				httpRepoConfig := &v1beta1.HttpConfig{
 					CaCrt: &caCrt,
 					Token: &token,
 				}
 				httpRepoSpec := v1beta1.HttpRepoSpec{
 					HttpConfig: httpRepoConfig,
 
-					Type: v1beta1.RepoSpecTypeHttp,
+					Type: v1beta1.HttpRepoSpecTypeHttp,
 
 					Url: httpRepoUrl,
 

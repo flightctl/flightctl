@@ -130,8 +130,12 @@ func DeleteFleets(harness *e2e.Harness, fleets []*api.Fleet) error {
 // CreateRepository creates a single git repository with the given name, URL, and labels.
 func CreateRepository(harness *e2e.Harness, name, url string, labels *map[string]string) (*api.Repository, error) {
 	spec := api.RepositorySpec{}
-	if err := spec.FromGenericRepoSpec(api.GenericRepoSpec{Url: url, Type: api.RepoSpecTypeGit}); err != nil {
-		return nil, fmt.Errorf("failed to create repo spec: %w", err)
+	specError := spec.FromGitRepoSpec(api.GitRepoSpec{
+		Url:  url,
+		Type: api.GitRepoSpecTypeGit,
+	})
+	if specError != nil {
+		return nil, specError
 	}
 
 	repository := &api.Repository{

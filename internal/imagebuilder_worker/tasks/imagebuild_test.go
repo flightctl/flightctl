@@ -159,7 +159,7 @@ func newTestImageBuild(name string, bindingType string) *api.ImageBuild {
 func createTestRepository(name string, registry string, scheme *v1beta1.OciRepoSpecScheme) *v1beta1.Repository {
 	ociSpec := v1beta1.OciRepoSpec{
 		Registry: registry,
-		Type:     v1beta1.RepoSpecTypeOci,
+		Type:     v1beta1.OciRepoSpecTypeOci,
 		Scheme:   scheme,
 	}
 	spec := v1beta1.RepositorySpec{}
@@ -243,7 +243,7 @@ func TestGenerateContainerfile_LateBinding(t *testing.T) {
 
 func TestGenerateContainerfile_EarlyBinding(t *testing.T) {
 	mockStore := newMockStore()
-	mockStore.repositories["test-repo"] = createTestRepository("test-repo", "registry.example.com", lo.ToPtr(v1beta1.OciRepoSpecSchemeHttps))
+	mockStore.repositories["test-repo"] = createTestRepository("test-repo", "registry.example.com", lo.ToPtr(v1beta1.Https))
 
 	mockServiceHandler := newMockServiceHandler()
 	imageBuild := newTestImageBuild("test-build", "early")

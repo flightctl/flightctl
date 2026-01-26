@@ -172,9 +172,9 @@ var _ = Describe("RepositoryStore create", func() {
 
 		It("CreateOrUpdateRepository create mode", func() {
 			spec := api.RepositorySpec{}
-			err := spec.FromGenericRepoSpec(api.GenericRepoSpec{
+			err := spec.FromGitRepoSpec(api.GitRepoSpec{
 				Url:  "myrepo",
-				Type: "git",
+				Type: api.GitRepoSpecTypeGit,
 			})
 			Expect(err).ToNot(HaveOccurred())
 			repository := api.Repository{
@@ -190,7 +190,7 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(created).To(Equal(true))
 			Expect(repo.ApiVersion).To(Equal(model.RepositoryAPIVersion()))
 			Expect(repo.Kind).To(Equal(api.RepositoryKind))
-			repoSpec, err := repo.Spec.AsGenericRepoSpec()
+			repoSpec, err := repo.Spec.AsGitRepoSpec()
 			Expect(err).ToNot(HaveOccurred())
 			Expect(repoSpec.Url).To(Equal("myrepo"))
 			Expect(repo.Status.Conditions).ToNot(BeNil())
@@ -199,9 +199,9 @@ var _ = Describe("RepositoryStore create", func() {
 
 		It("CreateOrUpdateRepository update mode", func() {
 			spec := api.RepositorySpec{}
-			err := spec.FromGenericRepoSpec(api.GenericRepoSpec{
+			err := spec.FromGitRepoSpec(api.GitRepoSpec{
 				Url:  "myotherrepo",
-				Type: "git",
+				Type: api.GitRepoSpecTypeGit,
 			})
 			Expect(err).ToNot(HaveOccurred())
 			repository := api.Repository{
@@ -217,7 +217,7 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(created).To(Equal(false))
 			Expect(repo.ApiVersion).To(Equal(model.RepositoryAPIVersion()))
 			Expect(repo.Kind).To(Equal(api.RepositoryKind))
-			repoSpec, err := repo.Spec.AsGenericRepoSpec()
+			repoSpec, err := repo.Spec.AsGitRepoSpec()
 			Expect(err).ToNot(HaveOccurred())
 			Expect(repoSpec.Url).To(Equal("myotherrepo"))
 			Expect(repo.Status.Conditions).ToNot(BeNil())
@@ -226,9 +226,9 @@ var _ = Describe("RepositoryStore create", func() {
 
 		It("CreateOrUpdateRepository create nilspec", func() {
 			spec := api.RepositorySpec{}
-			err := spec.FromGenericRepoSpec(api.GenericRepoSpec{
+			err := spec.FromGitRepoSpec(api.GitRepoSpec{
 				Url:  "myotherrepo",
-				Type: "git",
+				Type: api.GitRepoSpecTypeGit,
 			})
 			Expect(err).ToNot(HaveOccurred())
 			repository := api.Repository{
@@ -244,7 +244,7 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(created).To(Equal(true))
 			Expect(repo.ApiVersion).To(Equal(model.RepositoryAPIVersion()))
 			Expect(repo.Kind).To(Equal(api.RepositoryKind))
-			repoSpec, err := repo.Spec.AsGenericRepoSpec()
+			repoSpec, err := repo.Spec.AsGitRepoSpec()
 			Expect(err).ToNot(HaveOccurred())
 			Expect(repoSpec.Url).To(Equal("myotherrepo"))
 			Expect(repo.Status.Conditions).ToNot(BeNil())
@@ -292,7 +292,7 @@ var _ = Describe("RepositoryStore create", func() {
 			// Create additional repositories in the same org with unique names
 			for i := 10; i <= 11; i++ {
 				spec := api.RepositorySpec{}
-				err := spec.FromGenericRepoSpec(api.GenericRepoSpec{
+				err := spec.FromGitRepoSpec(api.GitRepoSpec{
 					Url: "myrepo",
 				})
 				Expect(err).ToNot(HaveOccurred())
@@ -366,7 +366,7 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(repo.Kind).To(Equal(api.RepositoryKind))
 
 			// Verify OCI spec is preserved
-			ociSpec, err := repo.Spec.GetOciRepoSpec()
+			ociSpec, err := repo.Spec.AsOciRepoSpec()
 			Expect(err).ToNot(HaveOccurred())
 			Expect(ociSpec.Registry).To(Equal("quay.io"))
 			Expect(ociSpec.Type).To(Equal(api.RepoSpecTypeOci))
@@ -402,7 +402,7 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(eventCallbackCalled).To(BeTrue())
 
 			// Verify OCI spec without credentials
-			ociSpec, err := repo.Spec.GetOciRepoSpec()
+			ociSpec, err := repo.Spec.AsOciRepoSpec()
 			Expect(err).ToNot(HaveOccurred())
 			Expect(ociSpec.Registry).To(Equal("registry.redhat.io"))
 			Expect(*ociSpec.AccessMode).To(Equal(api.Read))
@@ -458,7 +458,7 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(*repositories.Items[0].Metadata.Name).To(Equal("oci-output-registry"))
 
 			// Verify the returned repository has correct OCI spec
-			ociSpec, err := repositories.Items[0].Spec.GetOciRepoSpec()
+			ociSpec, err := repositories.Items[0].Spec.AsOciRepoSpec()
 			Expect(err).ToNot(HaveOccurred())
 			Expect(ociSpec.Registry).To(Equal("quay.io"))
 			Expect(ociSpec.Type).To(Equal(api.RepoSpecTypeOci))
@@ -472,7 +472,7 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(*repositories.Items[0].Metadata.Name).To(Equal("oci-input-registry"))
 
 			// Verify the returned repository has correct OCI spec
-			ociSpec, err = repositories.Items[0].Spec.GetOciRepoSpec()
+			ociSpec, err = repositories.Items[0].Spec.AsOciRepoSpec()
 			Expect(err).ToNot(HaveOccurred())
 			Expect(ociSpec.Registry).To(Equal("registry.redhat.io"))
 			Expect(ociSpec.Type).To(Equal(api.RepoSpecTypeOci))
@@ -506,7 +506,7 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(*repo.Metadata.Name).To(Equal("oci-get-test"))
 
 			// Verify OCI spec fields including accessMode
-			ociSpec, err := repo.Spec.GetOciRepoSpec()
+			ociSpec, err := repo.Spec.AsOciRepoSpec()
 			Expect(err).ToNot(HaveOccurred())
 			Expect(ociSpec.Registry).To(Equal("quay.io"))
 			Expect(ociSpec.Type).To(Equal(api.RepoSpecTypeOci))
@@ -621,10 +621,10 @@ var _ = Describe("RepositoryStore create", func() {
 			spec := api.RepositorySpec{}
 			privateKey := "c3NoLXJzYSBBQUFBQjNOemFDMXljMkVBQUFBREFRQUJBQUFCZ1FDN2..." // base64 encoded
 			passphrase := "mysecretpassphrase"
-			err := spec.FromSshRepoSpec(api.SshRepoSpec{
+			err := spec.FromGitRepoSpec(api.GitRepoSpec{
 				Url:  "git@github.com:flightctl/flightctl.git",
-				Type: api.RepoSpecTypeGit,
-				SshConfig: api.SshConfig{
+				Type: api.GitRepoSpecTypeGit,
+				SshConfig: &api.SshConfig{
 					SshPrivateKey:        &privateKey,
 					PrivateKeyPassphrase: &passphrase,
 				},
@@ -647,23 +647,23 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(repo.Kind).To(Equal(api.RepositoryKind))
 
 			// Verify SSH spec is preserved
-			sshSpec, err := repo.Spec.GetSshRepoSpec()
+			gitSpec, err := repo.Spec.AsGitRepoSpec()
 			Expect(err).ToNot(HaveOccurred())
-			Expect(sshSpec.Url).To(Equal("git@github.com:flightctl/flightctl.git"))
-			Expect(sshSpec.Type).To(Equal(api.RepoSpecTypeGit))
-			Expect(sshSpec.SshConfig.SshPrivateKey).ToNot(BeNil())
-			Expect(*sshSpec.SshConfig.SshPrivateKey).To(Equal(privateKey))
-			Expect(sshSpec.SshConfig.PrivateKeyPassphrase).ToNot(BeNil())
-			Expect(*sshSpec.SshConfig.PrivateKeyPassphrase).To(Equal(passphrase))
+			Expect(gitSpec.Url).To(Equal("git@github.com:flightctl/flightctl.git"))
+			Expect(gitSpec.Type).To(Equal(api.GitRepoSpecTypeGit))
+			Expect(gitSpec.SshConfig.SshPrivateKey).ToNot(BeNil())
+			Expect(*gitSpec.SshConfig.SshPrivateKey).To(Equal(privateKey))
+			Expect(gitSpec.SshConfig.PrivateKeyPassphrase).ToNot(BeNil())
+			Expect(*gitSpec.SshConfig.PrivateKeyPassphrase).To(Equal(passphrase))
 		})
 
 		It("Create SSH repository without passphrase", func() {
 			spec := api.RepositorySpec{}
 			privateKey := "c3NoLXJzYSBBQUFBQjNOemFDMXljMkVBQUFBREFRQUJBQUFCZ1FDN2..." // base64 encoded
-			err := spec.FromSshRepoSpec(api.SshRepoSpec{
+			err := spec.FromGitRepoSpec(api.GitRepoSpec{
 				Url:  "git@gitlab.com:myorg/myrepo.git",
-				Type: api.RepoSpecTypeGit,
-				SshConfig: api.SshConfig{
+				Type: api.GitRepoSpecTypeGit,
+				SshConfig: &api.SshConfig{
 					SshPrivateKey: &privateKey,
 				},
 			})
@@ -683,22 +683,22 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(eventCallbackCalled).To(BeTrue())
 
 			// Verify SSH spec without passphrase
-			sshSpec, err := repo.Spec.GetSshRepoSpec()
+			gitSpec, err := repo.Spec.AsGitRepoSpec()
 			Expect(err).ToNot(HaveOccurred())
-			Expect(sshSpec.Url).To(Equal("git@gitlab.com:myorg/myrepo.git"))
-			Expect(sshSpec.SshConfig.SshPrivateKey).ToNot(BeNil())
-			Expect(*sshSpec.SshConfig.SshPrivateKey).To(Equal(privateKey))
-			Expect(sshSpec.SshConfig.PrivateKeyPassphrase).To(BeNil())
+			Expect(gitSpec.Url).To(Equal("git@gitlab.com:myorg/myrepo.git"))
+			Expect(gitSpec.SshConfig.SshPrivateKey).ToNot(BeNil())
+			Expect(*gitSpec.SshConfig.SshPrivateKey).To(Equal(privateKey))
+			Expect(gitSpec.SshConfig.PrivateKeyPassphrase).To(BeNil())
 		})
 
 		It("Get SSH repository and verify fields", func() {
 			spec := api.RepositorySpec{}
 			privateKey := "c3NoLXJzYSBBQUFBQjNOemFDMXljMkVB..." // base64 encoded
 			passphrase := "testpass"
-			err := spec.FromSshRepoSpec(api.SshRepoSpec{
+			err := spec.FromGitRepoSpec(api.GitRepoSpec{
 				Url:  "git@github.com:testorg/testrepo.git",
-				Type: api.RepoSpecTypeGit,
-				SshConfig: api.SshConfig{
+				Type: api.GitRepoSpecTypeGit,
+				SshConfig: &api.SshConfig{
 					SshPrivateKey:        &privateKey,
 					PrivateKeyPassphrase: &passphrase,
 				},
@@ -720,24 +720,24 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(*repo.Metadata.Name).To(Equal("ssh-get-test"))
 
 			// Verify SSH spec fields
-			sshSpec, err := repo.Spec.GetSshRepoSpec()
+			gitSpec, err := repo.Spec.AsGitRepoSpec()
 			Expect(err).ToNot(HaveOccurred())
-			Expect(sshSpec.Url).To(Equal("git@github.com:testorg/testrepo.git"))
-			Expect(sshSpec.Type).To(Equal(api.RepoSpecTypeGit))
-			Expect(sshSpec.SshConfig.SshPrivateKey).ToNot(BeNil())
-			Expect(*sshSpec.SshConfig.SshPrivateKey).To(Equal(privateKey))
-			Expect(sshSpec.SshConfig.PrivateKeyPassphrase).ToNot(BeNil())
-			Expect(*sshSpec.SshConfig.PrivateKeyPassphrase).To(Equal(passphrase))
+			Expect(gitSpec.Url).To(Equal("git@github.com:testorg/testrepo.git"))
+			Expect(gitSpec.Type).To(Equal(api.GitRepoSpecTypeGit))
+			Expect(gitSpec.SshConfig.SshPrivateKey).ToNot(BeNil())
+			Expect(*gitSpec.SshConfig.SshPrivateKey).To(Equal(privateKey))
+			Expect(gitSpec.SshConfig.PrivateKeyPassphrase).ToNot(BeNil())
+			Expect(*gitSpec.SshConfig.PrivateKeyPassphrase).To(Equal(passphrase))
 		})
 
 		It("Update SSH repository", func() {
 			// Create initial SSH repository
 			spec := api.RepositorySpec{}
 			privateKey := "c3NoLXJzYSBBQUFBQjNOemFDMXljMkVB..." // base64 encoded
-			err := spec.FromSshRepoSpec(api.SshRepoSpec{
+			err := spec.FromGitRepoSpec(api.GitRepoSpec{
 				Url:  "git@github.com:original/repo.git",
-				Type: api.RepoSpecTypeGit,
-				SshConfig: api.SshConfig{
+				Type: api.GitRepoSpecTypeGit,
+				SshConfig: &api.SshConfig{
 					SshPrivateKey: &privateKey,
 				},
 			})
@@ -756,10 +756,10 @@ var _ = Describe("RepositoryStore create", func() {
 			// Update with new values
 			newPrivateKey := "bmV3LXByaXZhdGUta2V5LWNvbnRlbnQ=" // base64 encoded
 			newPassphrase := "newpassphrase"
-			err = spec.FromSshRepoSpec(api.SshRepoSpec{
+			err = spec.FromGitRepoSpec(api.GitRepoSpec{
 				Url:  "git@github.com:updated/repo.git",
-				Type: api.RepoSpecTypeGit,
-				SshConfig: api.SshConfig{
+				Type: api.GitRepoSpecTypeGit,
+				SshConfig: &api.SshConfig{
 					SshPrivateKey:        &newPrivateKey,
 					PrivateKeyPassphrase: &newPassphrase,
 				},
@@ -772,23 +772,23 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(created).To(BeFalse())
 
 			// Verify updated values
-			sshSpec, err := repo.Spec.GetSshRepoSpec()
+			gitSpec, err := repo.Spec.AsGitRepoSpec()
 			Expect(err).ToNot(HaveOccurred())
-			Expect(sshSpec.Url).To(Equal("git@github.com:updated/repo.git"))
-			Expect(sshSpec.SshConfig.SshPrivateKey).ToNot(BeNil())
-			Expect(*sshSpec.SshConfig.SshPrivateKey).To(Equal(newPrivateKey))
-			Expect(sshSpec.SshConfig.PrivateKeyPassphrase).ToNot(BeNil())
-			Expect(*sshSpec.SshConfig.PrivateKeyPassphrase).To(Equal(newPassphrase))
+			Expect(gitSpec.Url).To(Equal("git@github.com:updated/repo.git"))
+			Expect(gitSpec.SshConfig.SshPrivateKey).ToNot(BeNil())
+			Expect(*gitSpec.SshConfig.SshPrivateKey).To(Equal(newPrivateKey))
+			Expect(gitSpec.SshConfig.PrivateKeyPassphrase).ToNot(BeNil())
+			Expect(*gitSpec.SshConfig.PrivateKeyPassphrase).To(Equal(newPassphrase))
 		})
 
 		It("Delete SSH repository", func() {
 			// Create SSH repository
 			spec := api.RepositorySpec{}
 			privateKey := "c3NoLXJzYSBBQUFBQjNOemFDMXljMkVB..."
-			err := spec.FromSshRepoSpec(api.SshRepoSpec{
+			err := spec.FromGitRepoSpec(api.GitRepoSpec{
 				Url:  "git@github.com:delete/repo.git",
-				Type: api.RepoSpecTypeGit,
-				SshConfig: api.SshConfig{
+				Type: api.GitRepoSpecTypeGit,
+				SshConfig: &api.SshConfig{
 					SshPrivateKey: &privateKey,
 				},
 			})
@@ -826,8 +826,8 @@ var _ = Describe("RepositoryStore create", func() {
 			password := "httppassword"
 			err := spec.FromHttpRepoSpec(api.HttpRepoSpec{
 				Url:  "https://github.com/flightctl/flightctl.git",
-				Type: api.RepoSpecTypeHttp,
-				HttpConfig: api.HttpConfig{
+				Type: api.HttpRepoSpecTypeHttp,
+				HttpConfig: &api.HttpConfig{
 					Username: &username,
 					Password: &password,
 				},
@@ -850,10 +850,10 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(repo.Kind).To(Equal(api.RepositoryKind))
 
 			// Verify HTTP spec is preserved
-			httpSpec, err := repo.Spec.GetHttpRepoSpec()
+			httpSpec, err := repo.Spec.AsHttpRepoSpec()
 			Expect(err).ToNot(HaveOccurred())
 			Expect(httpSpec.Url).To(Equal("https://github.com/flightctl/flightctl.git"))
-			Expect(httpSpec.Type).To(Equal(api.RepoSpecTypeHttp))
+			Expect(httpSpec.Type).To(Equal(api.HttpRepoSpecTypeHttp))
 			Expect(httpSpec.HttpConfig.Username).ToNot(BeNil())
 			Expect(*httpSpec.HttpConfig.Username).To(Equal(username))
 			Expect(httpSpec.HttpConfig.Password).ToNot(BeNil())
@@ -865,8 +865,8 @@ var _ = Describe("RepositoryStore create", func() {
 			token := "ghp_1234567890abcdef"
 			err := spec.FromHttpRepoSpec(api.HttpRepoSpec{
 				Url:  "https://github.com/flightctl/flightctl.git",
-				Type: api.RepoSpecTypeHttp,
-				HttpConfig: api.HttpConfig{
+				Type: api.HttpRepoSpecTypeHttp,
+				HttpConfig: &api.HttpConfig{
 					Token: &token,
 				},
 			})
@@ -886,7 +886,7 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(eventCallbackCalled).To(BeTrue())
 
 			// Verify HTTP spec with token
-			httpSpec, err := repo.Spec.GetHttpRepoSpec()
+			httpSpec, err := repo.Spec.AsHttpRepoSpec()
 			Expect(err).ToNot(HaveOccurred())
 			Expect(httpSpec.Url).To(Equal("https://github.com/flightctl/flightctl.git"))
 			Expect(httpSpec.HttpConfig.Token).ToNot(BeNil())
@@ -902,8 +902,8 @@ var _ = Describe("RepositoryStore create", func() {
 			tlsKey := "LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0t..."
 			err := spec.FromHttpRepoSpec(api.HttpRepoSpec{
 				Url:  "https://private.git.server/repo.git",
-				Type: api.RepoSpecTypeHttp,
-				HttpConfig: api.HttpConfig{
+				Type: api.HttpRepoSpecTypeHttp,
+				HttpConfig: &api.HttpConfig{
 					CaCrt:  &caCrt,
 					TlsCrt: &tlsCrt,
 					TlsKey: &tlsKey,
@@ -925,7 +925,7 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(eventCallbackCalled).To(BeTrue())
 
 			// Verify HTTP spec with TLS config
-			httpSpec, err := repo.Spec.GetHttpRepoSpec()
+			httpSpec, err := repo.Spec.AsHttpRepoSpec()
 			Expect(err).ToNot(HaveOccurred())
 			Expect(httpSpec.Url).To(Equal("https://private.git.server/repo.git"))
 			Expect(httpSpec.HttpConfig.CaCrt).ToNot(BeNil())
@@ -941,8 +941,8 @@ var _ = Describe("RepositoryStore create", func() {
 			skipVerify := true
 			err := spec.FromHttpRepoSpec(api.HttpRepoSpec{
 				Url:  "https://insecure.git.server/repo.git",
-				Type: api.RepoSpecTypeHttp,
-				HttpConfig: api.HttpConfig{
+				Type: api.HttpRepoSpecTypeHttp,
+				HttpConfig: &api.HttpConfig{
 					SkipServerVerification: &skipVerify,
 				},
 			})
@@ -962,7 +962,7 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(eventCallbackCalled).To(BeTrue())
 
 			// Verify HTTP spec with skipServerVerification
-			httpSpec, err := repo.Spec.GetHttpRepoSpec()
+			httpSpec, err := repo.Spec.AsHttpRepoSpec()
 			Expect(err).ToNot(HaveOccurred())
 			Expect(httpSpec.Url).To(Equal("https://insecure.git.server/repo.git"))
 			Expect(httpSpec.HttpConfig.SkipServerVerification).ToNot(BeNil())
@@ -976,9 +976,9 @@ var _ = Describe("RepositoryStore create", func() {
 			validationSuffix := "/info/refs?service=git-upload-pack"
 			err := spec.FromHttpRepoSpec(api.HttpRepoSpec{
 				Url:              "https://github.com/testorg/testrepo.git",
-				Type:             api.RepoSpecTypeHttp,
+				Type:             api.HttpRepoSpecTypeHttp,
 				ValidationSuffix: &validationSuffix,
-				HttpConfig: api.HttpConfig{
+				HttpConfig: &api.HttpConfig{
 					Username: &username,
 					Password: &password,
 				},
@@ -1000,10 +1000,10 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(*repo.Metadata.Name).To(Equal("http-get-test"))
 
 			// Verify HTTP spec fields
-			httpSpec, err := repo.Spec.GetHttpRepoSpec()
+			httpSpec, err := repo.Spec.AsHttpRepoSpec()
 			Expect(err).ToNot(HaveOccurred())
 			Expect(httpSpec.Url).To(Equal("https://github.com/testorg/testrepo.git"))
-			Expect(httpSpec.Type).To(Equal(api.RepoSpecTypeHttp))
+			Expect(httpSpec.Type).To(Equal(api.HttpRepoSpecTypeHttp))
 			Expect(httpSpec.ValidationSuffix).ToNot(BeNil())
 			Expect(*httpSpec.ValidationSuffix).To(Equal(validationSuffix))
 			Expect(httpSpec.HttpConfig.Username).ToNot(BeNil())
@@ -1018,8 +1018,8 @@ var _ = Describe("RepositoryStore create", func() {
 			token := "original-token"
 			err := spec.FromHttpRepoSpec(api.HttpRepoSpec{
 				Url:  "https://github.com/original/repo.git",
-				Type: api.RepoSpecTypeHttp,
-				HttpConfig: api.HttpConfig{
+				Type: api.HttpRepoSpecTypeHttp,
+				HttpConfig: &api.HttpConfig{
 					Token: &token,
 				},
 			})
@@ -1039,8 +1039,8 @@ var _ = Describe("RepositoryStore create", func() {
 			newToken := "new-updated-token"
 			err = spec.FromHttpRepoSpec(api.HttpRepoSpec{
 				Url:  "https://github.com/updated/repo.git",
-				Type: api.RepoSpecTypeHttp,
-				HttpConfig: api.HttpConfig{
+				Type: api.HttpRepoSpecTypeHttp,
+				HttpConfig: &api.HttpConfig{
 					Token: &newToken,
 				},
 			})
@@ -1052,7 +1052,7 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(created).To(BeFalse())
 
 			// Verify updated values
-			httpSpec, err := repo.Spec.GetHttpRepoSpec()
+			httpSpec, err := repo.Spec.AsHttpRepoSpec()
 			Expect(err).ToNot(HaveOccurred())
 			Expect(httpSpec.Url).To(Equal("https://github.com/updated/repo.git"))
 			Expect(httpSpec.HttpConfig.Token).ToNot(BeNil())
@@ -1065,8 +1065,8 @@ var _ = Describe("RepositoryStore create", func() {
 			token := "delete-test-token"
 			err := spec.FromHttpRepoSpec(api.HttpRepoSpec{
 				Url:  "https://github.com/delete/repo.git",
-				Type: api.RepoSpecTypeHttp,
-				HttpConfig: api.HttpConfig{
+				Type: api.HttpRepoSpecTypeHttp,
+				HttpConfig: &api.HttpConfig{
 					Token: &token,
 				},
 			})
@@ -1103,8 +1103,8 @@ var _ = Describe("RepositoryStore create", func() {
 			token := "list-test-token"
 			err := spec.FromHttpRepoSpec(api.HttpRepoSpec{
 				Url:  "https://github.com/list-test/repo.git",
-				Type: api.RepoSpecTypeHttp,
-				HttpConfig: api.HttpConfig{
+				Type: api.HttpRepoSpecTypeHttp,
+				HttpConfig: &api.HttpConfig{
 					Token: &token,
 				},
 			})
