@@ -11,6 +11,7 @@ import (
 	"github.com/flightctl/flightctl/internal/flterrors"
 	flightctlstore "github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -140,10 +141,11 @@ func (s *imageBuildStore) Get(ctx context.Context, orgId uuid.UUID, name string,
 
 	var imageExports []api.ImageExport
 	if options.WithExports {
-		// Fetch related ImageExports using field selector
+		// Fetch related ImageExports using owner field
 		var exportModels []ImageExport
+		owner := util.ResourceOwner(string(api.ResourceKindImageBuild), name)
 		err := db.WithContext(ctx).
-			Where("org_id = ? AND spec->'source'->>'imageBuildRef' = ?", orgId, name).
+			Where("org_id = ? AND owner = ?", orgId, owner).
 			Find(&exportModels).Error
 		if err == nil {
 			// Convert models to API resources
@@ -205,27 +207,29 @@ func (s *imageBuildStore) List(ctx context.Context, orgId uuid.UUID, listParams 
 	// If withExports is true, fetch ImageExports for each ImageBuild
 	var imageExportsMap map[string][]api.ImageExport
 	if options.WithExports && len(models) > 0 {
-		// Collect all ImageBuild names
-		buildNames := make([]string, len(models))
+		// Collect owner strings for all ImageBuilds
+		owners := make([]string, len(models))
 		for i, build := range models {
-			buildNames[i] = build.Name
+			owners[i] = util.ResourceOwner(string(api.ResourceKindImageBuild), build.Name)
 		}
 
-		// Fetch all ImageExports that reference any of these ImageBuilds
+		// Fetch all ImageExports that reference any of these ImageBuilds using owner field
 		var exportModels []ImageExport
 		err := s.db.WithContext(ctx).
-			Where("org_id = ? AND spec->'source'->>'imageBuildRef' IN ?", orgId, buildNames).
+			Where("org_id = ? AND owner IN ?", orgId, owners).
 			Find(&exportModels).Error
 		if err == nil {
-			// Group ImageExports by ImageBuild name
+			// Group ImageExports by ImageBuild name (extracted from owner)
 			imageExportsMap = make(map[string][]api.ImageExport)
 			for _, exportModel := range exportModels {
 				exportAPI, err := exportModel.ToApiResource()
 				if err == nil {
-					// Get the imageBuildRef from the source
-					if buildRefSource, err := exportAPI.Spec.Source.AsImageBuildRefSource(); err == nil {
-						buildName := buildRefSource.ImageBuildRef
-						imageExportsMap[buildName] = append(imageExportsMap[buildName], *exportAPI)
+					// Get the ImageBuild name from owner field
+					if exportAPI.Metadata.Owner != nil {
+						_, buildName, err := util.GetResourceOwner(exportAPI.Metadata.Owner)
+						if err == nil {
+							imageExportsMap[buildName] = append(imageExportsMap[buildName], *exportAPI)
+						}
 					}
 				}
 			}
@@ -263,35 +267,49 @@ func (s *imageBuildStore) calculateContinue(ctx context.Context, orgId uuid.UUID
 	return flightctlstore.BuildContinueString(continueValues, numRemainingVal), &numRemainingVal
 }
 
-// Delete removes an ImageBuild resource by name and returns the deleted resource
-// Delete is idempotent - returns (nil, nil) if the resource doesn't exist
+// Delete removes an ImageBuild resource by name and returns the deleted resource.
+// It also deletes all related ImageExports that reference this ImageBuild.
+// Delete is idempotent - returns (nil, nil) if the resource doesn't exist.
 func (s *imageBuildStore) Delete(ctx context.Context, orgId uuid.UUID, name string) (*api.ImageBuild, error) {
-	// Get the resource before deleting it
-	m := &ImageBuild{}
-	db := getDB(ctx, s.db)
-	result := db.WithContext(ctx).Where("org_id = ? AND name = ?", orgId, name).First(m)
-	if result.Error != nil {
-		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			// Idempotent delete - resource doesn't exist, return success
-			return nil, nil
-		}
-		return nil, flightctlstore.ErrorFromGormError(result.Error)
-	}
+	var apiResource *api.ImageBuild
 
-	// Convert to API resource before deleting
-	apiResource, err := m.ToApiResource()
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// Get the resource before deleting it
+		m := &ImageBuild{}
+		result := tx.Where("org_id = ? AND name = ?", orgId, name).First(m)
+		if result.Error != nil {
+			if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+				// Idempotent delete - resource doesn't exist, return success
+				return nil
+			}
+			return flightctlstore.ErrorFromGormError(result.Error)
+		}
+
+		// Convert to API resource before deleting
+		var err error
+		apiResource, err = m.ToApiResource()
+		if err != nil {
+			return err
+		}
+
+		// Delete related ImageExports first (cascading delete using owner field)
+		owner := util.ResourceOwner(string(api.ResourceKindImageBuild), name)
+		result = tx.Unscoped().Where("org_id = ? AND owner = ?", orgId, owner).Delete(&ImageExport{})
+		if result.Error != nil {
+			return flightctlstore.ErrorFromGormError(result.Error)
+		}
+
+		// Delete the ImageBuild
+		result = tx.Unscoped().Where("org_id = ? AND name = ?", orgId, name).Delete(&ImageBuild{})
+		if result.Error != nil {
+			return flightctlstore.ErrorFromGormError(result.Error)
+		}
+
+		return nil
+	})
+
 	if err != nil {
 		return nil, err
-	}
-
-	// Delete the resource
-	result = db.WithContext(ctx).Unscoped().Where("org_id = ? AND name = ?", orgId, name).Delete(&ImageBuild{})
-	if result.Error != nil {
-		return nil, flightctlstore.ErrorFromGormError(result.Error)
-	}
-	if result.RowsAffected == 0 {
-		// Idempotent delete - resource was already deleted, return success
-		return nil, nil
 	}
 
 	return apiResource, nil

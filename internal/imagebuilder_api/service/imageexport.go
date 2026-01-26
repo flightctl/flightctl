@@ -24,6 +24,7 @@ import (
 	"github.com/flightctl/flightctl/internal/service/common"
 	mainstore "github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/google/uuid"
@@ -106,6 +107,13 @@ func (s *imageExportService) Create(ctx context.Context, orgId uuid.UUID, imageE
 		return nil, StatusInternalServerError(internalErr.Error())
 	} else if len(errs) > 0 {
 		return nil, StatusBadRequest(errors.Join(errs...).Error())
+	}
+
+	// Set owner based on the source ImageBuild reference
+	sourceType, _ := imageExport.Spec.Source.Discriminator()
+	if sourceType == string(api.ImageExportSourceTypeImageBuild) {
+		source, _ := imageExport.Spec.Source.AsImageBuildRefSource()
+		imageExport.Metadata.Owner = util.SetResourceOwner(string(api.ResourceKindImageBuild), source.ImageBuildRef)
 	}
 
 	result, err := s.imageExportStore.Create(ctx, orgId, &imageExport)
