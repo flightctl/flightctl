@@ -63,6 +63,14 @@ func (h *ServiceHandler) ReplaceRepository(ctx context.Context, orgId uuid.UUID,
 		return nil, domain.StatusBadRequest("resource name specified in metadata does not match name in path")
 	}
 
+	// Preserve sensitive data from existing repository if the new one contains masked placeholders
+	existingRepo, err := h.store.Repository().Get(ctx, orgId, name)
+	if err == nil {
+		if preserveErr := repository.PreserveSensitiveData(existingRepo); preserveErr != nil {
+			return nil, domain.StatusInternalServerError(preserveErr.Error())
+		}
+	}
+
 	result, created, err := h.store.Repository().CreateOrUpdate(ctx, orgId, &repository, h.callbackRepositoryUpdated)
 	return result, StoreErrorToApiStatus(err, created, domain.RepositoryKind, &name)
 }
@@ -90,6 +98,11 @@ func (h *ServiceHandler) PatchRepository(ctx context.Context, orgId uuid.UUID, n
 
 	if errs := currentObj.ValidateUpdate(newObj); len(errs) > 0 {
 		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
+	}
+
+	// Preserve sensitive data from existing repository if the new one contains masked placeholders
+	if preserveErr := newObj.PreserveSensitiveData(currentObj); preserveErr != nil {
+		return nil, domain.StatusInternalServerError(preserveErr.Error())
 	}
 
 	NilOutManagedObjectMetaProperties(&newObj.Metadata)

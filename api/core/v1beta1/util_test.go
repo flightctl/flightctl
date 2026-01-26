@@ -597,3 +597,445 @@ func TestRepositoryHideSensitiveData(t *testing.T) {
 		})
 	}
 }
+
+func TestRepositoryListHideSensitiveData(t *testing.T) {
+	// Create OCI repository with password
+	ociSpec := RepositorySpec{}
+	err := ociSpec.FromOciRepoSpec(OciRepoSpec{
+		Registry: "quay.io",
+		Type:     RepoSpecTypeOci,
+		OciAuth:  newOciAuth("ociuser", "ocisecret"),
+	})
+	require.NoError(t, err)
+	ociRepo := Repository{
+		Metadata: ObjectMeta{Name: lo.ToPtr("oci-repo")},
+		Spec:     ociSpec,
+	}
+
+	// Create HTTP repository with password
+	httpSpec := RepositorySpec{}
+	err = httpSpec.FromHttpRepoSpec(HttpRepoSpec{
+		Url:  "https://example.com/repo",
+		Type: RepoSpecTypeHttp,
+		HttpConfig: HttpConfig{
+			Username: lo.ToPtr("httpuser"),
+			Password: lo.ToPtr("httpsecret"),
+		},
+	})
+	require.NoError(t, err)
+	httpRepo := Repository{
+		Metadata: ObjectMeta{Name: lo.ToPtr("http-repo")},
+		Spec:     httpSpec,
+	}
+
+	// Create SSH repository with private key
+	sshSpec := RepositorySpec{}
+	err = sshSpec.FromSshRepoSpec(SshRepoSpec{
+		Url:  "git@github.com:org/repo.git",
+		Type: RepoSpecTypeGit,
+		SshConfig: SshConfig{
+			SshPrivateKey:        lo.ToPtr("-----BEGIN RSA PRIVATE KEY-----"),
+			PrivateKeyPassphrase: lo.ToPtr("keypassphrase"),
+		},
+	})
+	require.NoError(t, err)
+	sshRepo := Repository{
+		Metadata: ObjectMeta{Name: lo.ToPtr("ssh-repo")},
+		Spec:     sshSpec,
+	}
+
+	// Create list with all repository types
+	list := &RepositoryList{
+		Items: []Repository{ociRepo, httpRepo, sshRepo},
+	}
+
+	// Hide sensitive data
+	err = list.HideSensitiveData()
+	require.NoError(t, err)
+
+	// Verify OCI repository password is hidden
+	ociSpecResult, err := list.Items[0].Spec.GetOciRepoSpec()
+	require.NoError(t, err)
+	require.NotNil(t, ociSpecResult.OciAuth)
+	dockerAuth, err := ociSpecResult.OciAuth.AsDockerAuth()
+	require.NoError(t, err)
+	assert.Equal(t, "ociuser", dockerAuth.Username)
+	assert.Equal(t, "*****", dockerAuth.Password, "OCI password should be hidden in list")
+
+	// Verify HTTP repository password is hidden
+	httpSpecResult, err := list.Items[1].Spec.GetHttpRepoSpec()
+	require.NoError(t, err)
+	assert.Equal(t, "httpuser", *httpSpecResult.HttpConfig.Username)
+	assert.Equal(t, "*****", *httpSpecResult.HttpConfig.Password, "HTTP password should be hidden in list")
+
+	// Verify SSH repository private key is hidden
+	sshSpecResult, err := list.Items[2].Spec.GetSshRepoSpec()
+	require.NoError(t, err)
+	assert.Equal(t, "*****", *sshSpecResult.SshConfig.SshPrivateKey, "SSH private key should be hidden in list")
+	assert.Equal(t, "*****", *sshSpecResult.SshConfig.PrivateKeyPassphrase, "SSH passphrase should be hidden in list")
+}
+
+func TestRepositoryPreserveSensitiveData(t *testing.T) {
+	tests := []struct {
+		name           string
+		setupExisting  func() *Repository
+		setupNew       func() *Repository
+		checkPreserved func(t *testing.T, repo *Repository)
+	}{
+		{
+			name: "OCI repository preserves password when masked",
+			setupExisting: func() *Repository {
+				spec := RepositorySpec{}
+				err := spec.FromOciRepoSpec(OciRepoSpec{
+					Registry: "quay.io",
+					Type:     RepoSpecTypeOci,
+					OciAuth:  newOciAuth("myuser", "originalsecret"),
+				})
+				if err != nil {
+					panic(err)
+				}
+				return &Repository{
+					Metadata: ObjectMeta{Name: lo.ToPtr("oci-repo")},
+					Spec:     spec,
+				}
+			},
+			setupNew: func() *Repository {
+				spec := RepositorySpec{}
+				err := spec.FromOciRepoSpec(OciRepoSpec{
+					Registry: "quay.io",
+					Type:     RepoSpecTypeOci,
+					OciAuth:  newOciAuth("myuser", "*****"), // masked placeholder
+				})
+				if err != nil {
+					panic(err)
+				}
+				return &Repository{
+					Metadata: ObjectMeta{Name: lo.ToPtr("oci-repo")},
+					Spec:     spec,
+				}
+			},
+			checkPreserved: func(t *testing.T, repo *Repository) {
+				ociSpec, err := repo.Spec.GetOciRepoSpec()
+				require.NoError(t, err)
+				require.NotNil(t, ociSpec.OciAuth)
+				dockerAuth, err := ociSpec.OciAuth.AsDockerAuth()
+				require.NoError(t, err)
+				assert.Equal(t, "originalsecret", dockerAuth.Password, "Password should be preserved from existing")
+			},
+		},
+		{
+			name: "HTTP repository preserves password when masked",
+			setupExisting: func() *Repository {
+				spec := RepositorySpec{}
+				err := spec.FromHttpRepoSpec(HttpRepoSpec{
+					Url:  "https://example.com/repo",
+					Type: RepoSpecTypeHttp,
+					HttpConfig: HttpConfig{
+						Username: lo.ToPtr("httpuser"),
+						Password: lo.ToPtr("httporiginal"),
+						Token:    lo.ToPtr("tokenoriginal"),
+					},
+				})
+				if err != nil {
+					panic(err)
+				}
+				return &Repository{
+					Metadata: ObjectMeta{Name: lo.ToPtr("http-repo")},
+					Spec:     spec,
+				}
+			},
+			setupNew: func() *Repository {
+				spec := RepositorySpec{}
+				err := spec.FromHttpRepoSpec(HttpRepoSpec{
+					Url:  "https://example.com/repo",
+					Type: RepoSpecTypeHttp,
+					HttpConfig: HttpConfig{
+						Username: lo.ToPtr("httpuser"),
+						Password: lo.ToPtr("*****"), // masked placeholder
+						Token:    lo.ToPtr("*****"), // masked placeholder
+					},
+				})
+				if err != nil {
+					panic(err)
+				}
+				return &Repository{
+					Metadata: ObjectMeta{Name: lo.ToPtr("http-repo")},
+					Spec:     spec,
+				}
+			},
+			checkPreserved: func(t *testing.T, repo *Repository) {
+				httpSpec, err := repo.Spec.GetHttpRepoSpec()
+				require.NoError(t, err)
+				assert.Equal(t, "httporiginal", *httpSpec.HttpConfig.Password, "Password should be preserved from existing")
+				assert.Equal(t, "tokenoriginal", *httpSpec.HttpConfig.Token, "Token should be preserved from existing")
+			},
+		},
+		{
+			name: "SSH repository preserves private key when masked",
+			setupExisting: func() *Repository {
+				spec := RepositorySpec{}
+				err := spec.FromSshRepoSpec(SshRepoSpec{
+					Url:  "git@github.com:org/repo.git",
+					Type: RepoSpecTypeGit,
+					SshConfig: SshConfig{
+						SshPrivateKey:        lo.ToPtr("-----BEGIN RSA PRIVATE KEY-----"),
+						PrivateKeyPassphrase: lo.ToPtr("originalpassphrase"),
+					},
+				})
+				if err != nil {
+					panic(err)
+				}
+				return &Repository{
+					Metadata: ObjectMeta{Name: lo.ToPtr("ssh-repo")},
+					Spec:     spec,
+				}
+			},
+			setupNew: func() *Repository {
+				spec := RepositorySpec{}
+				err := spec.FromSshRepoSpec(SshRepoSpec{
+					Url:  "git@github.com:org/repo.git",
+					Type: RepoSpecTypeGit,
+					SshConfig: SshConfig{
+						SshPrivateKey:        lo.ToPtr("*****"), // masked placeholder
+						PrivateKeyPassphrase: lo.ToPtr("*****"), // masked placeholder
+					},
+				})
+				if err != nil {
+					panic(err)
+				}
+				return &Repository{
+					Metadata: ObjectMeta{Name: lo.ToPtr("ssh-repo")},
+					Spec:     spec,
+				}
+			},
+			checkPreserved: func(t *testing.T, repo *Repository) {
+				sshSpec, err := repo.Spec.GetSshRepoSpec()
+				require.NoError(t, err)
+				assert.Equal(t, "-----BEGIN RSA PRIVATE KEY-----", *sshSpec.SshConfig.SshPrivateKey, "SSH private key should be preserved from existing")
+				assert.Equal(t, "originalpassphrase", *sshSpec.SshConfig.PrivateKeyPassphrase, "SSH passphrase should be preserved from existing")
+			},
+		},
+		{
+			name: "New password is used when not masked",
+			setupExisting: func() *Repository {
+				spec := RepositorySpec{}
+				err := spec.FromHttpRepoSpec(HttpRepoSpec{
+					Url:  "https://example.com/repo",
+					Type: RepoSpecTypeHttp,
+					HttpConfig: HttpConfig{
+						Username: lo.ToPtr("httpuser"),
+						Password: lo.ToPtr("oldpassword"),
+					},
+				})
+				if err != nil {
+					panic(err)
+				}
+				return &Repository{
+					Metadata: ObjectMeta{Name: lo.ToPtr("http-repo")},
+					Spec:     spec,
+				}
+			},
+			setupNew: func() *Repository {
+				spec := RepositorySpec{}
+				err := spec.FromHttpRepoSpec(HttpRepoSpec{
+					Url:  "https://example.com/repo",
+					Type: RepoSpecTypeHttp,
+					HttpConfig: HttpConfig{
+						Username: lo.ToPtr("httpuser"),
+						Password: lo.ToPtr("newpassword"), // actual new password
+					},
+				})
+				if err != nil {
+					panic(err)
+				}
+				return &Repository{
+					Metadata: ObjectMeta{Name: lo.ToPtr("http-repo")},
+					Spec:     spec,
+				}
+			},
+			checkPreserved: func(t *testing.T, repo *Repository) {
+				httpSpec, err := repo.Spec.GetHttpRepoSpec()
+				require.NoError(t, err)
+				assert.Equal(t, "newpassword", *httpSpec.HttpConfig.Password, "New password should be used")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			existing := tt.setupExisting()
+			newRepo := tt.setupNew()
+			err := newRepo.PreserveSensitiveData(existing)
+			require.NoError(t, err)
+			tt.checkPreserved(t, newRepo)
+		})
+	}
+}
+
+func TestAuthProviderPreserveSensitiveData(t *testing.T) {
+	tests := []struct {
+		name           string
+		setupExisting  func() *AuthProvider
+		setupNew       func() *AuthProvider
+		checkPreserved func(t *testing.T, ap *AuthProvider)
+	}{
+		{
+			name: "OIDC provider preserves client secret when masked",
+			setupExisting: func() *AuthProvider {
+				assignment := AuthOrganizationAssignment{}
+				_ = assignment.FromAuthStaticOrganizationAssignment(AuthStaticOrganizationAssignment{
+					Type:             AuthStaticOrganizationAssignmentTypeStatic,
+					OrganizationName: "test-org",
+				})
+				oidcSpec := OIDCProviderSpec{
+					ProviderType:           Oidc,
+					Issuer:                 "https://oidc.example.com",
+					ClientId:               "client-id",
+					ClientSecret:           lo.ToPtr("originalsecret"),
+					Enabled:                lo.ToPtr(true),
+					OrganizationAssignment: assignment,
+				}
+				provider := &AuthProvider{
+					Metadata: ObjectMeta{Name: lo.ToPtr("oidc-provider")},
+				}
+				_ = provider.Spec.FromOIDCProviderSpec(oidcSpec)
+				return provider
+			},
+			setupNew: func() *AuthProvider {
+				assignment := AuthOrganizationAssignment{}
+				_ = assignment.FromAuthStaticOrganizationAssignment(AuthStaticOrganizationAssignment{
+					Type:             AuthStaticOrganizationAssignmentTypeStatic,
+					OrganizationName: "test-org",
+				})
+				oidcSpec := OIDCProviderSpec{
+					ProviderType:           Oidc,
+					Issuer:                 "https://oidc.example.com",
+					ClientId:               "client-id",
+					ClientSecret:           lo.ToPtr("*****"), // masked placeholder
+					Enabled:                lo.ToPtr(true),
+					OrganizationAssignment: assignment,
+				}
+				provider := &AuthProvider{
+					Metadata: ObjectMeta{Name: lo.ToPtr("oidc-provider")},
+				}
+				_ = provider.Spec.FromOIDCProviderSpec(oidcSpec)
+				return provider
+			},
+			checkPreserved: func(t *testing.T, ap *AuthProvider) {
+				oidcSpec, err := ap.Spec.AsOIDCProviderSpec()
+				require.NoError(t, err)
+				assert.Equal(t, "originalsecret", *oidcSpec.ClientSecret, "Client secret should be preserved from existing")
+			},
+		},
+		{
+			name: "OAuth2 provider preserves client secret when masked",
+			setupExisting: func() *AuthProvider {
+				assignment := AuthOrganizationAssignment{}
+				_ = assignment.FromAuthStaticOrganizationAssignment(AuthStaticOrganizationAssignment{
+					Type:             AuthStaticOrganizationAssignmentTypeStatic,
+					OrganizationName: "test-org",
+				})
+				oauth2Spec := OAuth2ProviderSpec{
+					ProviderType:           Oauth2,
+					AuthorizationUrl:       "https://oauth2.example.com/authorize",
+					TokenUrl:               "https://oauth2.example.com/token",
+					UserinfoUrl:            "https://oauth2.example.com/userinfo",
+					ClientId:               "client-id",
+					ClientSecret:           lo.ToPtr("oauth2secret"),
+					Enabled:                lo.ToPtr(true),
+					OrganizationAssignment: assignment,
+				}
+				provider := &AuthProvider{
+					Metadata: ObjectMeta{Name: lo.ToPtr("oauth2-provider")},
+				}
+				_ = provider.Spec.FromOAuth2ProviderSpec(oauth2Spec)
+				return provider
+			},
+			setupNew: func() *AuthProvider {
+				assignment := AuthOrganizationAssignment{}
+				_ = assignment.FromAuthStaticOrganizationAssignment(AuthStaticOrganizationAssignment{
+					Type:             AuthStaticOrganizationAssignmentTypeStatic,
+					OrganizationName: "test-org",
+				})
+				oauth2Spec := OAuth2ProviderSpec{
+					ProviderType:           Oauth2,
+					AuthorizationUrl:       "https://oauth2.example.com/authorize",
+					TokenUrl:               "https://oauth2.example.com/token",
+					UserinfoUrl:            "https://oauth2.example.com/userinfo",
+					ClientId:               "client-id",
+					ClientSecret:           lo.ToPtr("*****"), // masked placeholder
+					Enabled:                lo.ToPtr(true),
+					OrganizationAssignment: assignment,
+				}
+				provider := &AuthProvider{
+					Metadata: ObjectMeta{Name: lo.ToPtr("oauth2-provider")},
+				}
+				_ = provider.Spec.FromOAuth2ProviderSpec(oauth2Spec)
+				return provider
+			},
+			checkPreserved: func(t *testing.T, ap *AuthProvider) {
+				oauth2Spec, err := ap.Spec.AsOAuth2ProviderSpec()
+				require.NoError(t, err)
+				assert.Equal(t, "oauth2secret", *oauth2Spec.ClientSecret, "Client secret should be preserved from existing")
+			},
+		},
+		{
+			name: "New client secret is used when not masked",
+			setupExisting: func() *AuthProvider {
+				assignment := AuthOrganizationAssignment{}
+				_ = assignment.FromAuthStaticOrganizationAssignment(AuthStaticOrganizationAssignment{
+					Type:             AuthStaticOrganizationAssignmentTypeStatic,
+					OrganizationName: "test-org",
+				})
+				oidcSpec := OIDCProviderSpec{
+					ProviderType:           Oidc,
+					Issuer:                 "https://oidc.example.com",
+					ClientId:               "client-id",
+					ClientSecret:           lo.ToPtr("oldsecret"),
+					Enabled:                lo.ToPtr(true),
+					OrganizationAssignment: assignment,
+				}
+				provider := &AuthProvider{
+					Metadata: ObjectMeta{Name: lo.ToPtr("oidc-provider")},
+				}
+				_ = provider.Spec.FromOIDCProviderSpec(oidcSpec)
+				return provider
+			},
+			setupNew: func() *AuthProvider {
+				assignment := AuthOrganizationAssignment{}
+				_ = assignment.FromAuthStaticOrganizationAssignment(AuthStaticOrganizationAssignment{
+					Type:             AuthStaticOrganizationAssignmentTypeStatic,
+					OrganizationName: "test-org",
+				})
+				oidcSpec := OIDCProviderSpec{
+					ProviderType:           Oidc,
+					Issuer:                 "https://oidc.example.com",
+					ClientId:               "client-id",
+					ClientSecret:           lo.ToPtr("newsecret"), // actual new secret
+					Enabled:                lo.ToPtr(true),
+					OrganizationAssignment: assignment,
+				}
+				provider := &AuthProvider{
+					Metadata: ObjectMeta{Name: lo.ToPtr("oidc-provider")},
+				}
+				_ = provider.Spec.FromOIDCProviderSpec(oidcSpec)
+				return provider
+			},
+			checkPreserved: func(t *testing.T, ap *AuthProvider) {
+				oidcSpec, err := ap.Spec.AsOIDCProviderSpec()
+				require.NoError(t, err)
+				assert.Equal(t, "newsecret", *oidcSpec.ClientSecret, "New client secret should be used")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			existing := tt.setupExisting()
+			newAP := tt.setupNew()
+			err := newAP.PreserveSensitiveData(existing)
+			require.NoError(t, err)
+			tt.checkPreserved(t, newAP)
+		})
+	}
+}

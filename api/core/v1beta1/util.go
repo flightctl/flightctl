@@ -288,9 +288,24 @@ type SensitiveDataHider interface {
 	HideSensitiveData() error
 }
 
+// SensitiveDataPreserver is implemented by types that can preserve sensitive data from an existing object
+// when the new object contains the masked placeholder value ("*****").
+type SensitiveDataPreserver interface {
+	PreserveSensitiveData(existing SensitiveDataPreserver) error
+}
+
+const MaskedValuePlaceholder = "*****"
+
 func hideValue(value *string) {
 	if value != nil {
-		*value = "*****"
+		*value = MaskedValuePlaceholder
+	}
+}
+
+// preserveValue preserves the old value if the new value is the masked placeholder
+func preserveValue(newValue, oldValue *string) {
+	if newValue != nil && *newValue == MaskedValuePlaceholder && oldValue != nil {
+		*newValue = *oldValue
 	}
 }
 
@@ -359,12 +374,112 @@ func (r *RepositoryList) HideSensitiveData() error {
 	if r == nil {
 		return nil
 	}
-	for _, repo := range r.Items {
-		if err := repo.HideSensitiveData(); err != nil {
+	for i := range r.Items {
+		if err := r.Items[i].HideSensitiveData(); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// PreserveSensitiveData preserves sensitive data from the existing repository when the new repository
+// contains the masked placeholder value ("*****"). This allows users to update a repository without
+// needing to re-provide credentials if they haven't changed.
+func (r *Repository) PreserveSensitiveData(existing SensitiveDataPreserver) error {
+	if r == nil || existing == nil {
+		return nil
+	}
+
+	existingRepo, ok := existing.(*Repository)
+	if !ok {
+		return fmt.Errorf("existing object is not a Repository")
+	}
+
+	spec := r.Spec
+	specType, err := spec.Discriminator()
+	if err != nil {
+		return err
+	}
+
+	existingSpecType, err := existingRepo.Spec.Discriminator()
+	if err != nil {
+		return err
+	}
+
+	// If the repository types don't match, nothing to preserve
+	if specType != existingSpecType {
+		return nil
+	}
+
+	switch specType {
+	case string(RepoSpecTypeOci):
+		oci, err := spec.AsOciRepoSpec()
+		if err != nil {
+			return err
+		}
+		existingOci, err := existingRepo.Spec.AsOciRepoSpec()
+		if err != nil {
+			return err
+		}
+		if oci.OciAuth != nil && existingOci.OciAuth != nil {
+			dockerAuth, err := oci.OciAuth.AsDockerAuth()
+			if err == nil {
+				existingDockerAuth, existingErr := existingOci.OciAuth.AsDockerAuth()
+				if existingErr == nil {
+					preserveValue(&dockerAuth.Password, &existingDockerAuth.Password)
+					if err := oci.OciAuth.FromDockerAuth(dockerAuth); err != nil {
+						return err
+					}
+				}
+			}
+		}
+		if err := spec.FromOciRepoSpec(oci); err != nil {
+			return err
+		}
+		r.Spec = spec
+		return nil
+
+	case string(RepoSpecTypeHttp):
+		http, err := spec.AsHttpRepoSpec()
+		if err != nil {
+			return err
+		}
+		existingHttp, err := existingRepo.Spec.AsHttpRepoSpec()
+		if err != nil {
+			return err
+		}
+		preserveValue(http.HttpConfig.Password, existingHttp.HttpConfig.Password)
+		preserveValue(http.HttpConfig.Token, existingHttp.HttpConfig.Token)
+		preserveValue(http.HttpConfig.TlsKey, existingHttp.HttpConfig.TlsKey)
+		preserveValue(http.HttpConfig.TlsCrt, existingHttp.HttpConfig.TlsCrt)
+		if err := spec.FromHttpRepoSpec(http); err != nil {
+			return err
+		}
+		r.Spec = spec
+		return nil
+
+	case string(RepoSpecTypeGit):
+		ssh, err := spec.GetSshRepoSpec()
+		if err != nil {
+			// Not an SSH repo spec (plain GenericRepoSpec), nothing to preserve
+			return nil
+		}
+		existingSsh, err := existingRepo.Spec.GetSshRepoSpec()
+		if err != nil {
+			// Existing is not an SSH repo spec, nothing to preserve
+			return nil
+		}
+		preserveValue(ssh.SshConfig.SshPrivateKey, existingSsh.SshConfig.SshPrivateKey)
+		preserveValue(ssh.SshConfig.PrivateKeyPassphrase, existingSsh.SshConfig.PrivateKeyPassphrase)
+		if err := spec.FromSshRepoSpec(ssh); err != nil {
+			return err
+		}
+		r.Spec = spec
+		return nil
+
+	default:
+		return nil // Unknown type, nothing to preserve
+	}
 }
 
 func (a *AuthProvider) HideSensitiveData() error {
@@ -441,6 +556,94 @@ func (a *AuthConfig) HideSensitiveData() error {
 			if err := (*a.Providers)[i].HideSensitiveData(); err != nil {
 				return err
 			}
+		}
+	}
+	return nil
+}
+
+// PreserveSensitiveData preserves sensitive data from the existing auth provider when the new provider
+// contains the masked placeholder value ("*****"). This allows users to update an auth provider without
+// needing to re-provide credentials if they haven't changed.
+func (a *AuthProvider) PreserveSensitiveData(existing SensitiveDataPreserver) error {
+	if a == nil || existing == nil {
+		return nil
+	}
+
+	existingAP, ok := existing.(*AuthProvider)
+	if !ok {
+		return fmt.Errorf("existing object is not an AuthProvider")
+	}
+
+	discriminator, err := a.Spec.Discriminator()
+	if err != nil {
+		return err
+	}
+
+	existingDiscriminator, err := existingAP.Spec.Discriminator()
+	if err != nil {
+		return err
+	}
+
+	// If the provider types don't match, nothing to preserve
+	if discriminator != existingDiscriminator {
+		return nil
+	}
+
+	switch discriminator {
+	case string(Oidc):
+		oidcSpec, err := a.Spec.AsOIDCProviderSpec()
+		if err != nil {
+			return err
+		}
+		existingOidcSpec, err := existingAP.Spec.AsOIDCProviderSpec()
+		if err != nil {
+			return err
+		}
+		preserveValue(oidcSpec.ClientSecret, existingOidcSpec.ClientSecret)
+		if err := a.Spec.FromOIDCProviderSpec(oidcSpec); err != nil {
+			return err
+		}
+
+	case string(Oauth2):
+		oauth2Spec, err := a.Spec.AsOAuth2ProviderSpec()
+		if err != nil {
+			return err
+		}
+		existingOauth2Spec, err := existingAP.Spec.AsOAuth2ProviderSpec()
+		if err != nil {
+			return err
+		}
+		preserveValue(oauth2Spec.ClientSecret, existingOauth2Spec.ClientSecret)
+		if err := a.Spec.FromOAuth2ProviderSpec(oauth2Spec); err != nil {
+			return err
+		}
+
+	case string(Openshift):
+		openshiftSpec, err := a.Spec.AsOpenShiftProviderSpec()
+		if err != nil {
+			return err
+		}
+		existingOpenshiftSpec, err := existingAP.Spec.AsOpenShiftProviderSpec()
+		if err != nil {
+			return err
+		}
+		preserveValue(openshiftSpec.ClientSecret, existingOpenshiftSpec.ClientSecret)
+		if err := a.Spec.FromOpenShiftProviderSpec(openshiftSpec); err != nil {
+			return err
+		}
+
+	case string(Aap):
+		aapSpec, err := a.Spec.AsAapProviderSpec()
+		if err != nil {
+			return err
+		}
+		existingAapSpec, err := existingAP.Spec.AsAapProviderSpec()
+		if err != nil {
+			return err
+		}
+		preserveValue(aapSpec.ClientSecret, existingAapSpec.ClientSecret)
+		if err := a.Spec.FromAapProviderSpec(aapSpec); err != nil {
+			return err
 		}
 	}
 	return nil
