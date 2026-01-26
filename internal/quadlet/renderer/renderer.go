@@ -278,6 +278,8 @@ func (config *RendererConfig) ApplyFlightctlServicesTagOverride(log logrus.Field
 	config.AlertmanagerProxy.Tag = tag
 	config.PamIssuer.Tag = tag
 	config.DbSetup.Tag = tag
+	config.ImagebuilderApi.Tag = tag
+	config.ImagebuilderWorker.Tag = tag
 
 	if config.FlightctlUiTagOverride {
 		// For release builds, UI tag must be overridden
