@@ -231,14 +231,14 @@ var (
 
 // Create reusable FileSpecs
 var (
-	inlineConfig                    = newFileSpec(inlinePath, nil, nil, nil, "")
-	inlineConfigMode                = newFileSpec(inlinePath, inlineModePointer, nil, nil, "")
-	inlineConfigUser                = newFileSpec(inlinePath, inlineModePointer, &inlineUser, &inlineGroup, "")
-	inlineConfigContent             = newFileSpec(inlinePath1, inlineModePointer, &inlineUser, &inlineGroup, inlineContent)
-	inlineConfigPath2               = newFileSpec(inlinePath2, inlineModePointer, &inlineUser, &inlineGroup, inlineContent)
-	invalidnlineConfigNoPath        = newFileSpec("", inlineModePointer, &inlineUser, &inlineGroup, inlineContent)
-	invalidinlineConfigRelativePath = newFileSpec(relativePath, nil, nil, nil, "")
-	invalidInlineConfigInvalidMode  = newFileSpec(inlinePath, &invalidInlineMode, nil, nil, "")
+	inlineConfig                    = newFileSpec(inlinePath, nil, "", "", "")
+	inlineConfigMode                = newFileSpec(inlinePath, inlineModePointer, "", "", "")
+	inlineConfigUser                = newFileSpec(inlinePath, inlineModePointer, inlineUser, inlineGroup, "")
+	inlineConfigContent             = newFileSpec(inlinePath1, inlineModePointer, inlineUser, inlineGroup, inlineContent)
+	inlineConfigPath2               = newFileSpec(inlinePath2, inlineModePointer, inlineUser, inlineGroup, inlineContent)
+	invalidnlineConfigNoPath        = newFileSpec("", inlineModePointer, inlineUser, inlineGroup, inlineContent)
+	invalidinlineConfigRelativePath = newFileSpec(relativePath, nil, "", "", "")
+	invalidInlineConfigInvalidMode  = newFileSpec(inlinePath, &invalidInlineMode, "", "", "")
 )
 
 // Create InlineConfigProviderSpecs
@@ -275,11 +275,11 @@ func getConfigurationFromInlineConfig(inlineConfig v1beta1.InlineConfigProviderS
 }
 
 // Helper function to generate a FileSpec
-func newFileSpec(path string, mode *int, user *string, group *string, content string) v1beta1.FileSpec {
+func newFileSpec(path string, mode *int, user string, group string, content string) v1beta1.FileSpec {
 	return v1beta1.FileSpec{
 		Path:    path,
 		Mode:    mode,
-		User:    user,
+		User:    v1beta1.Username(user),
 		Group:   group,
 		Content: content,
 	}

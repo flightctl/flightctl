@@ -67,7 +67,7 @@ func (m *manager) Ensure(ctx context.Context, provider provider.Provider) error 
 		if err := provider.Install(ctx); err != nil {
 			return fmt.Errorf("installing application: %w", err)
 		}
-		return m.podmanMonitor.Ensure(NewApplication(provider))
+		return m.podmanMonitor.Ensure(ctx, NewApplication(provider))
 	default:
 		return fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, appType)
 	}
@@ -80,7 +80,7 @@ func (m *manager) Remove(ctx context.Context, provider provider.Provider) error 
 		if err := provider.Remove(ctx); err != nil {
 			return fmt.Errorf("removing application: %w", err)
 		}
-		return m.podmanMonitor.Remove(NewApplication(provider))
+		return m.podmanMonitor.QueueRemove(NewApplication(provider))
 	default:
 		return fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, appType)
 	}
@@ -96,7 +96,7 @@ func (m *manager) Update(ctx context.Context, provider provider.Provider) error 
 		if err := provider.Install(ctx); err != nil {
 			return fmt.Errorf("installing application: %w", err)
 		}
-		return m.podmanMonitor.Update(NewApplication(provider))
+		return m.podmanMonitor.QueueUpdate(NewApplication(provider))
 	default:
 		return fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, appType)
 	}

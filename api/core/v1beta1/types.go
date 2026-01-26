@@ -30,7 +30,15 @@ type RolloutBatchCompletionReport struct {
 }
 
 // A username on the system
-type Username = string
+type Username string
+
+func (u Username) String() string {
+	return string(u)
+}
+
+func (u Username) IsCurrentProcessUser() bool {
+	return string(u) == ""
+}
 
 // The value to use as a Username when the user of the current process should be used (generally
 // root).
@@ -38,7 +46,7 @@ const CurrentProcessUsername Username = ""
 
 // UserWithDefault returns the user this application should run as. Blank string implies
 // root.
-func (a *ApplicationProviderSpec) UserWithDefault() string {
+func (a *ApplicationProviderSpec) UserWithDefault() Username {
 	if a.RunAs == "" {
 		return CurrentProcessUsername
 	}

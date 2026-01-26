@@ -1566,13 +1566,13 @@ type FileContent struct {
 // FileMetadata File metadata.
 type FileMetadata struct {
 	// Group The file's group, specified either as a name or numeric ID. Defaults to "root".
-	Group *string `json:"group,omitempty"`
+	Group string `json:"group,omitempty"`
 
 	// Mode The file's permission mode. You may specify the more familiar octal with a leading zero (e.g., 0644) or as a decimal without a leading zero (e.g., 420). Setuid/setgid/sticky bits are supported. If not specified, the permission mode for files defaults to 0644.
 	Mode *int `json:"mode,omitempty"`
 
 	// User The file's owner, specified either as a name or numeric ID. Defaults to "root".
-	User *Username `json:"user,omitempty"`
+	User Username `json:"user,omitempty"`
 }
 
 // FileOperation defines model for FileOperation.
@@ -1587,7 +1587,7 @@ type FileSpec struct {
 	ContentEncoding *EncodingType `json:"contentEncoding,omitempty"`
 
 	// Group The file's group, specified either as a name or numeric ID. Defaults to "root".
-	Group *string `json:"group,omitempty"`
+	Group string `json:"group,omitempty"`
 
 	// Mode The file's permission mode. You may specify the more familiar octal with a leading zero (e.g., 0644) or as a decimal without a leading zero (e.g., 420). Setuid/setgid/sticky bits are supported. If not specified, the permission mode for files defaults to 0644.
 	Mode *int `json:"mode,omitempty"`
@@ -1596,7 +1596,7 @@ type FileSpec struct {
 	Path string `json:"path"`
 
 	// User The file's owner, specified either as a name or numeric ID. Defaults to "root".
-	User *Username `json:"user,omitempty"`
+	User Username `json:"user,omitempty"`
 }
 
 // Fleet Fleet represents a set of devices.
@@ -2057,7 +2057,7 @@ type KubernetesSecretProviderSpec struct {
 	// SecretRef The reference to a Kubernetes secret.
 	SecretRef struct {
 		// Group The file's group, specified either as a name or numeric ID. Defaults to "root".
-		Group *string `json:"group,omitempty"`
+		Group string `json:"group,omitempty"`
 
 		// MountPath Path in the device's file system at which the secret should be mounted.
 		MountPath string `json:"mountPath"`
@@ -2069,7 +2069,7 @@ type KubernetesSecretProviderSpec struct {
 		Namespace string `json:"namespace"`
 
 		// User The file's owner, specified either as a name or numeric ID. Defaults to "root".
-		User *Username `json:"user,omitempty"`
+		User Username `json:"user,omitempty"`
 	} `json:"secretRef"`
 }
 

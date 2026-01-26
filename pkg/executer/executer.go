@@ -32,10 +32,10 @@ type ExecuterOption func(e *commonExecuter)
 // LookupUserOptions generates a set of options to NewCommonExecuter used to execute commands as a
 // different user.
 func LookupUserOptions(username v1beta1.Username) ([]ExecuterOption, error) {
-	if username == v1beta1.CurrentProcessUsername {
+	if username.IsCurrentProcessUser() {
 		return nil, nil
 	}
-	u, err := user.Lookup(username)
+	u, err := user.Lookup(username.String())
 	if err != nil {
 		return nil, err
 	}

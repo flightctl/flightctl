@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -22,7 +23,6 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/systemd"
 	"github.com/flightctl/flightctl/pkg/log"
-	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -33,24 +33,18 @@ const (
 )
 
 type PodmanMonitor struct {
-	mu       sync.Mutex
-	cmd      *exec.Cmd
-	cancelFn context.CancelFunc
-	running  bool
-	// listenerCloseChan is used to ensure that the event listening goroutine comes to completion
-	// during the stopMonitor invocation
-	listenerCloseChan chan struct{}
-	// lastEventTime tracks the timestamp at which the podman monitor should start listening to events for
-	lastEventTime string
-	// lastActionsSuccessTime tracks the last timestamp at which the podman monitor successfully executed events
-	lastActionsSuccessTime time.Time
+	mu sync.Mutex
 	// apps is a map of application ID to application.
-	apps    map[string]Application
-	actions []lifecycle.Action
+	apps                   map[string]Application
+	actions                []lifecycle.Action
+	startTime              time.Time
+	lastActionsSuccessTime time.Time
 
 	handlers       map[v1beta1.AppType]lifecycle.ActionHandler
 	clientFactory  client.PodmanFactory
 	systemdFactory systemd.ManagerFactory
+	watchers       map[v1beta1.Username]*podmanEventWatcher
+	events         chan client.PodmanEvent
 
 	log *log.PrefixLogger
 }
@@ -75,160 +69,74 @@ func NewPodmanMonitor(
 			v1beta1.AppTypeCompose: lifecycle.NewCompose(log, rwFactory, podmanFactory),
 			v1beta1.AppTypeQuadlet: lifecycle.NewQuadlet(log, rwFactory, systemdFactory, podmanFactory),
 		},
+		watchers:               make(map[v1beta1.Username]*podmanEventWatcher),
 		apps:                   make(map[string]Application),
-		lastEventTime:          bootTime,
+		startTime:              startTime,
 		lastActionsSuccessTime: startTime,
 		log:                    log,
 	}
 }
 
-// hasApps returns true if there are applications to monitor
-func (m *PodmanMonitor) hasApps() bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return len(m.apps) > 0
-}
-
 // isRunning returns true if the monitor is currently running
-func (m *PodmanMonitor) isRunning() bool {
+func (m *PodmanMonitor) isRunning(username v1beta1.Username) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.running
-}
-func (m *PodmanMonitor) getLastEventTime() string {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.lastEventTime
+	_, ok := m.watchers[username]
+	return ok
 }
 
-// startMonitor starts the podman monitor if it's not already running
-func (m *PodmanMonitor) startMonitor(ctx context.Context) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.running {
-		m.log.Debug("Podman monitor is already running")
+func (m *PodmanMonitor) ensureMonitorForUser(ctx context.Context, username v1beta1.Username) error {
+	if _, ok := m.watchers[username]; ok {
+		m.log.Debugf("Podman monitor is already running for user %s", username)
 		return nil
 	}
-	m.log.Info("Starting podman monitor")
-	ctx, cancelFn := context.WithCancel(ctx)
+	m.log.Infof("Starting podman monitor for user %s", username)
 
-	// list of podman events to listen for
-	events := []string{"create", "init", "start", "stop", "die", "sync", "remove", "exited"}
-	since := m.lastEventTime
-	m.log.Debugf("Replaying podman events since: %s", since)
+	if m.events == nil {
+		m.events = make(chan client.PodmanEvent)
+		go m.listenForEvents(ctx)
+	}
 
-	// TODO: Create multiple clients and aggregate events from multiple users
-	// Right now it just looks at root podman.
-	client, err := m.clientFactory("")
+	client, err := m.clientFactory(username)
 	if err != nil {
-		cancelFn()
-		return fmt.Errorf("creating podman client: %w", err)
+		return err
 	}
 
-	cmd := client.EventsSinceCmd(ctx, events, since)
-
-	stdoutPipe, err := cmd.StdoutPipe()
-	if err != nil {
-		cancelFn()
-		return fmt.Errorf("failed to get stdout pipe: %w", err)
+	var watcher podmanEventWatcher
+	watcher.Init(m.log, username, client, m.startTime)
+	if err := watcher.Watch(ctx, m.events); err != nil {
+		return err
 	}
 
-	if err := cmd.Start(); err != nil {
-		cancelFn()
-		return fmt.Errorf("failed to start podman events: %w", err)
-	}
-
-	listenerChannel := make(chan struct{})
-	m.cancelFn = cancelFn
-	m.cmd = cmd
-	m.running = true
-	m.listenerCloseChan = listenerChannel
-
-	go func() {
-		defer close(listenerChannel)
-		m.listenForEvents(ctx, stdoutPipe)
-	}()
+	m.watchers[username] = &watcher
 
 	return nil
 }
 
-func waitForChannelWithTimeout(c <-chan struct{}, dur time.Duration) bool {
-	timer := time.NewTimer(dur)
-	defer timer.Stop()
-	select {
-	case <-c:
-		return true
-	case <-timer.C:
-		return false
-	}
-}
-
-// stopMonitor stops the podman monitor and records the stop time
-func (m *PodmanMonitor) stopMonitor() error {
-	m.mu.Lock()
-	if !m.running {
-		m.log.Debug("Podman monitor is already stopped")
-		m.mu.Unlock()
+func (m *PodmanMonitor) stopMonitorForUser(username v1beta1.Username) error {
+	watcher, ok := m.watchers[username]
+	if !ok {
+		m.log.Debugf("Podman monitor is already stopped for user %s", username)
 		return nil
 	}
-	cancelFn := m.cancelFn
-	cmd := m.cmd
-	listenerChan := m.listenerCloseChan
-	m.cmd = nil
-	m.cancelFn = nil
-	m.running = false
-	m.listenerCloseChan = nil
-	m.mu.Unlock()
-	if cmd == nil {
-		return nil
-	}
-	defer cancelFn()
+	delete(m.watchers, username)
 
-	// When a monitor is started, a separate goroutine is created to consume events from a stream
-	// To prevent unexpected errors from occurring in the reading routine, we attempt to let it
-	// gracefully exit before calling .Wait and cleaning up the commands resources
-	// see https://pkg.go.dev/os/exec#Cmd.StdoutPipe
-	m.log.Info("Stopping podman monitor")
-
-	killed := false
-	// send a graceful shutdown signal to the command
-	if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
-		m.log.Warnf("Failed to send SIGTERM to podman monitor: %v", err)
-		// If we fail to term our only option is to kill
-		cancelFn()
-		killed = true
-	}
-
-	// wait for our consuming goroutine to complete
-	if !waitForChannelWithTimeout(listenerChan, stopMonitorWaitDuration) {
-		timeoutMessage := "Timeout waiting for podman monitor reader to shutdown"
-		forceKilledMessage := fmt.Sprintf("%s after force killing the process", timeoutMessage)
-		message := timeoutMessage
-		logLevel := logrus.WarnLevel
-		if killed {
-			logLevel = logrus.ErrorLevel
-			message = forceKilledMessage
-		}
-		m.log.Log(logLevel, message)
-		if !killed {
-			cancelFn()
-			if !waitForChannelWithTimeout(listenerChan, stopMonitorWaitDuration) {
-				m.log.Error(forceKilledMessage)
-			}
-		}
-	}
-
-	// wait for the command to exit.
-	if err := cmd.Wait(); err != nil && !isExpectedShutdownError(err) {
-		return fmt.Errorf("unexpected error during podman monitor shutdown: %w", err)
-	}
-	m.log.Info("Podman monitor stopped")
-	return nil
+	return watcher.Stop()
 }
 
 // Stop stops the podman monitor without draining applications
 func (m *PodmanMonitor) Stop() error {
-	return m.stopMonitor()
+	var errs []error
+	for _, watcher := range m.watchers {
+		if err := watcher.Stop(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	m.watchers = nil
+	if m.events != nil {
+		close(m.events)
+	}
+	return errors.Join(errs...)
 }
 
 // Drain stops and removes all applications, then stops the monitor
@@ -281,7 +189,7 @@ func (m *PodmanMonitor) drain(ctx context.Context) error {
 	apps := m.getApps()
 	m.log.Infof("Draining %d applications", len(apps))
 	for _, app := range apps {
-		if err := m.Remove(app); err != nil {
+		if err := m.QueueRemove(app); err != nil {
 			errs = append(errs, err)
 		}
 	}
@@ -290,27 +198,21 @@ func (m *PodmanMonitor) drain(ctx context.Context) error {
 		errs = append(errs, err)
 	}
 
-	if len(errs) > 0 {
-		return errors.Join(errs...)
-	}
-
-	return nil
+	return errors.Join(errs...)
 }
 
 func (m *PodmanMonitor) Has(id string) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if _, ok := m.apps[id]; ok {
-		return true
-	}
-	return false
+	_, ok := m.apps[id]
+	return ok
 }
 
 // Ensures that and application is added to the monitor. if the application
 // is added for the first time an Add action is queued to be executed by the
 // lifecycle manager. so additional adds for the same app will be idempotent.
-func (m *PodmanMonitor) Ensure(app Application) error {
+func (m *PodmanMonitor) Ensure(ctx context.Context, app Application) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -346,7 +248,7 @@ func (m *PodmanMonitor) canRemoveApp(app Application) bool {
 	return ok || app.IsEmbedded()
 }
 
-func (m *PodmanMonitor) Remove(app Application) error {
+func (m *PodmanMonitor) QueueRemove(app Application) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -370,10 +272,11 @@ func (m *PodmanMonitor) Remove(app Application) error {
 	}
 
 	m.actions = append(m.actions, action)
+
 	return nil
 }
 
-func (m *PodmanMonitor) Update(app Application) error {
+func (m *PodmanMonitor) QueueUpdate(app Application) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -454,13 +357,30 @@ func (m *PodmanMonitor) ExecuteActions(ctx context.Context) error {
 	}
 
 	m.updateLastSuccessTime(time.Now())
-	if m.hasApps() {
-		if err := m.startMonitor(ctx); err != nil {
-			return fmt.Errorf("failed to start podman monitor: %w", err)
-		}
-	} else {
-		if err := m.stopMonitor(); err != nil {
-			return fmt.Errorf("failed to stop podman monitor: %w", err)
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for _, a := range actions {
+		switch a.Type {
+		case lifecycle.ActionAdd, lifecycle.ActionUpdate:
+			if err := m.ensureMonitorForUser(ctx, a.User); err != nil {
+				return fmt.Errorf("failed to start podman monitor: %w", err)
+			}
+		case lifecycle.ActionRemove:
+			// Stop the monitor for the app user if no other apps for that user are running.
+			user := a.User
+			exists := false
+			for _, app := range m.apps {
+				if app.User() == user {
+					exists = true
+				}
+			}
+			if !exists {
+				if err := m.stopMonitorForUser(user); err != nil {
+					return fmt.Errorf("failed to stop podman monitor for user %s: %w", user, err)
+				}
+			}
 		}
 	}
 
@@ -549,23 +469,14 @@ func buildAppSummaryInfo(erroredApps, degradedApps []string, maxLen int) *string
 	return &info
 }
 
-func (m *PodmanMonitor) listenForEvents(ctx context.Context, stdoutPipe io.ReadCloser) {
-	// the pipe will be closed by calling cmd.Wait
-	defer m.log.Debugf("Done listening for podman events")
-
-	scanner := bufio.NewScanner(stdoutPipe)
-	for scanner.Scan() {
-		m.log.Debugf("Received podman event: %s", scanner.Text())
+func (m *PodmanMonitor) listenForEvents(ctx context.Context) {
+	for {
 		select {
 		case <-ctx.Done():
 			return
-		default:
-			m.handleEvent(ctx, scanner.Bytes())
+		case event := <-m.events:
+			m.handleEvent(ctx, event)
 		}
-	}
-	// scanner won't emit an io.EOF error if it encounters one
-	if err := scanner.Err(); err != nil {
-		m.log.Errorf("Error reading podman events: %v", err)
 	}
 }
 
@@ -579,23 +490,7 @@ func appIDFromEvent(event *client.PodmanEvent) string {
 	return ""
 }
 
-func (m *PodmanMonitor) handleEvent(ctx context.Context, data []byte) {
-	var event client.PodmanEvent
-	if err := json.Unmarshal(data, &event); err != nil {
-		m.log.Errorf("Failed to decode podman event: %s %v", string(data), err)
-		return
-	}
-	eventTime := time.Unix(0, event.TimeNano).Format(time.RFC3339)
-	m.mu.Lock()
-	m.lastEventTime = eventTime
-	m.mu.Unlock()
-	m.log.Tracef("Received podman event: %q at %s", event.Type, eventTime)
-	// sync event means we are now in sync with the current state of the containers
-	if event.Type == "sync" {
-		m.log.Debugf("Received bootSync event : %v", event)
-		return
-	}
-
+func (m *PodmanMonitor) handleEvent(ctx context.Context, event client.PodmanEvent) {
 	appID := appIDFromEvent(&event)
 	if appID == "" {
 		m.log.Debugf("Application id not found in event attributes: %v", event)
@@ -779,4 +674,147 @@ func (m *PodmanMonitor) resolveStatus(status string, inspectData []client.Podman
 		}
 	}
 	return initialStatus
+}
+
+type podmanEventWatcher struct {
+	log      *log.PrefixLogger
+	username v1beta1.Username
+	client   *client.Podman
+	// listenerCloseChan is used to ensure that the event listening goroutine comes to completion
+	// during the stopMonitor invocation
+	listenerCloseChan chan struct{}
+	// lastEventTime tracks the timestamp at which the podman monitor should start listening to events for
+	lastEventTime atomic.Pointer[time.Time]
+	cmd           *exec.Cmd
+	cancel        context.CancelFunc
+}
+
+func (e *podmanEventWatcher) Init(log *log.PrefixLogger, username v1beta1.Username, client *client.Podman, startTime time.Time) {
+	e.log = log
+	e.username = username
+	e.client = client
+	e.listenerCloseChan = make(chan struct{})
+	e.lastEventTime.Store(&startTime)
+}
+
+func (e *podmanEventWatcher) Watch(ctx context.Context, events chan<- client.PodmanEvent) error {
+	// list of podman events to listen for
+	eventsTypes := []string{"create", "init", "start", "stop", "die", "sync", "remove", "exited"}
+	e.log.Debugf("Replaying podman events for user %s since: %s", e.username, e.lastEventTime.Load())
+
+	ctx, e.cancel = context.WithCancel(ctx)
+
+	cmd := e.client.EventsSinceCmd(ctx, eventsTypes, e.lastEventTime.Load().Format(time.RFC3339))
+
+	stdoutPipe, err := cmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("failed to get stdout pipe: %w", err)
+	}
+
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("failed to start podman events: %w", err)
+	}
+
+	e.cmd = cmd
+	e.listenerCloseChan = make(chan struct{})
+
+	go func() {
+		defer close(e.listenerCloseChan)
+		e.listenForEvents(ctx, stdoutPipe, events)
+	}()
+
+	return nil
+}
+
+func (e *podmanEventWatcher) listenForEvents(ctx context.Context, stdoutPipe io.ReadCloser, events chan<- client.PodmanEvent) {
+	// the pipe will be closed by calling cmd.Wait
+	defer e.log.Debugf("Done listening for podman events")
+
+	scanner := bufio.NewScanner(stdoutPipe)
+	for scanner.Scan() {
+		e.log.Debugf("Received podman event: %s", scanner.Text())
+		select {
+		case <-ctx.Done():
+			return
+		default:
+			e.handleEvent(ctx, scanner.Bytes(), events)
+		}
+	}
+	// scanner won't emit an io.EOF error if it encounters one
+	if err := scanner.Err(); err != nil {
+		e.log.Errorf("Error reading podman events: %v", err)
+	}
+}
+
+func (e *podmanEventWatcher) handleEvent(ctx context.Context, data []byte, events chan<- client.PodmanEvent) {
+	var event client.PodmanEvent
+	if err := json.Unmarshal(data, &event); err != nil {
+		e.log.Errorf("Failed to decode podman event: %s %v", string(data), err)
+		return
+	}
+	eventTime := time.Unix(0, event.TimeNano)
+	e.lastEventTime.Store(&eventTime)
+	e.log.Tracef("Received podman event: %q at %s", event.Type, eventTime)
+	// sync event means we are now in sync with the current state of the containers
+	if event.Type == "sync" {
+		e.log.Debugf("Received bootSync event : %v", event)
+		return
+	}
+
+	select {
+	case <-ctx.Done():
+		return
+	case events <- event:
+		return
+	}
+}
+
+func (e *podmanEventWatcher) Stop() error {
+	if e.cmd == nil {
+		return nil
+	}
+
+	// When a monitor is started, a separate goroutine is created to consume events from a stream
+	// To prevent unexpected errors from occurring in the reading routine, we attempt to let it
+	// gracefully exit before calling .Wait and cleaning up the commands resources
+	// see https://pkg.go.dev/os/exec#Cmd.StdoutPipe
+	e.log.Info("Stopping podman monitor")
+
+	// send a graceful shutdown signal to the command
+	if err := e.cmd.Process.Signal(syscall.SIGTERM); err != nil {
+		e.log.Warnf("Failed to send SIGTERM to podman monitor: %v", err)
+	}
+
+	if e.cancel != nil {
+		e.cancel()
+	}
+
+	// wait for our consuming goroutine to complete
+	if !waitForChannelWithTimeout(e.listenerCloseChan, stopMonitorWaitDuration) {
+		e.log.Warn("Timeout waiting for podman monitor reader to shutdown")
+		if err := e.cmd.Process.Signal(syscall.SIGKILL); err != nil {
+			e.log.Warnf("Failed to send SIGKILL to podman monitor: %v", err)
+		}
+		if !waitForChannelWithTimeout(e.listenerCloseChan, stopMonitorWaitDuration) {
+			e.log.Error("Timeout waiting for podman monitor reader to shutdown after force killed")
+		}
+	}
+
+	// wait for the command to exit.
+	if err := e.cmd.Wait(); err != nil && !isExpectedShutdownError(err) {
+		return fmt.Errorf("unexpected error during podman monitor shutdown: %w", err)
+	}
+	e.log.Info("Podman monitor stopped")
+	return nil
+}
+
+func waitForChannelWithTimeout(c <-chan struct{}, dur time.Duration) bool {
+	timer := time.NewTimer(dur)
+	defer timer.Stop()
+	select {
+	case <-c:
+		return true
+	case <-timer.C:
+		return false
+	}
 }

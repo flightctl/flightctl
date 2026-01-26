@@ -9,7 +9,7 @@ import (
 func ExecuterForUser(username v1beta1.Username) (executer.Executer, error) {
 	var execOpts []executer.ExecuterOption
 
-	if username != "" {
+	if !username.IsCurrentProcessUser() {
 		uid, gid, homeDir, err := userutil.LookupUser(username)
 		if err != nil {
 			return nil, err

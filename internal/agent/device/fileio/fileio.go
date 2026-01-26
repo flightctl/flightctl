@@ -80,7 +80,7 @@ func NewReadWriterFactory(rootDir string) ReadWriterFactory {
 			WithWriterRootDir(rootDir),
 		}
 
-		if username != "" {
+		if !username.IsCurrentProcessUser() {
 			uid, gid, _, err := userutil.LookupUser(username)
 			if err != nil {
 				return nil, err

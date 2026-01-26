@@ -13,6 +13,7 @@ import (
 
 	config_latest "github.com/coreos/ignition/v2/config/v3_4"
 	config_latest_types "github.com/coreos/ignition/v2/config/v3_4/types"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service"
@@ -441,7 +442,7 @@ func (t *DeviceRenderLogic) renderK8sConfig(ctx context.Context, configItem *dom
 		if err := validation.DenyForbiddenDevicePath(dest); err != nil {
 			return &k8sSpec.Name, nil, fmt.Errorf("invalid secret-derived path %q: %w", dest, err)
 		}
-		ignitionWrapper.SetFile(dest, contents, 0o644, false, k8sSpec.SecretRef.User, k8sSpec.SecretRef.Group)
+		ignitionWrapper.SetFile(dest, contents, 0o644, false, k8sSpec.SecretRef.User.String(), k8sSpec.SecretRef.Group)
 	}
 
 	*ignitionConfig = lo.ToPtr(ignitionWrapper.Merge(**ignitionConfig))
@@ -469,7 +470,7 @@ func (t *DeviceRenderLogic) renderInlineConfig(configItem *domain.ConfigProvider
 		if file.ContentEncoding != nil && *file.ContentEncoding == domain.EncodingBase64 {
 			isBase64 = true
 		}
-		ignitionWrapper.SetFile(file.Path, []byte(file.Content), mode, isBase64, file.User, file.Group)
+		ignitionWrapper.SetFile(file.Path, []byte(file.Content), mode, isBase64, file.User.String(), file.Group)
 	}
 
 	*ignitionConfig = lo.ToPtr(ignitionWrapper.Merge(**ignitionConfig))
@@ -547,7 +548,7 @@ func (t *DeviceRenderLogic) renderHttpProviderConfig(ctx context.Context, config
 		return &httpConfigProviderSpec.Name, &httpConfigProviderSpec.HttpRef.Repository, fmt.Errorf("failed to create ignition wrapper: %w", err)
 	}
 
-	ignitionWrapper.SetFile(httpConfigProviderSpec.HttpRef.FilePath, httpData, 0o644, false, nil, nil)
+	ignitionWrapper.SetFile(httpConfigProviderSpec.HttpRef.FilePath, httpData, 0o644, false, "", "")
 	*ignitionConfig = lo.ToPtr(ignitionWrapper.Merge(**ignitionConfig))
 
 	return &httpConfigProviderSpec.Name, &httpConfigProviderSpec.HttpRef.Repository, nil
@@ -699,8 +700,8 @@ func ignitionConfigToRenderedConfig(ignition *config_latest_types.Config) ([]byt
 			Content:         content,
 			ContentEncoding: &encoding,
 			Path:            file.Path,
-			User:            &user,
-			Group:           &group,
+			User:            v1beta1.Username(user),
+			Group:           group,
 			Mode:            file.Mode,
 		}
 

@@ -18,7 +18,6 @@ import (
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/google/renameio"
-	"github.com/samber/lo"
 )
 
 // writer is responsible for writing files to the device
@@ -547,17 +546,17 @@ func writeFileAtomically(fpath string, b []byte, dirMode, fileMode os.FileMode, 
 func getFileOwnership(file v1beta1.FileSpec) (int, int, error) {
 	uid, gid := 0, 0 // default to root
 	var err error
-	user := lo.FromPtr(file.User)
-	if user != "" {
-		uid, err = userToUID(user)
+	user := file.User
+	if !user.IsCurrentProcessUser() {
+		uid, err = userToUID(user.String())
 		if err != nil {
 			return uid, gid, err
 		}
 	}
 
-	group := lo.FromPtr(file.Group)
+	group := file.Group
 	if group != "" {
-		gid, err = groupToGID(*file.Group)
+		gid, err = groupToGID(file.Group)
 		if err != nil {
 			return uid, gid, err
 		}

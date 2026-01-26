@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os/exec"
 	"testing"
+	"time"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
@@ -24,6 +25,8 @@ import (
 )
 
 func TestManager(t *testing.T) {
+	bootTime := time.Now()
+
 	require := require.New(t)
 	testCases := []struct {
 		name         string
@@ -51,7 +54,7 @@ func TestManager(t *testing.T) {
 					// start new app
 					mockReadWriter.EXPECT().PathExists(gomock.Any()).Return(true, nil).AnyTimes(),
 					mockExecPodmanComposeUp(mockExec, "app-new", true, true),
-					mockExecPodmanEvents(mockExec),
+					mockExecPodmanEvents(mockExec, bootTime),
 				)
 			},
 			wantAppNames: []string{"app-new"},
@@ -68,7 +71,7 @@ func TestManager(t *testing.T) {
 					// start current app (first AfterUpdate)
 					mockReadWriter.EXPECT().PathExists(gomock.Any()).Return(true, nil).AnyTimes(),
 					mockExecPodmanComposeUp(mockExec, "app-remove", true, true),
-					mockExecPodmanEvents(mockExec),
+					mockExecPodmanEvents(mockExec, bootTime),
 
 					// remove current app (second AfterUpdate after syncProviders)
 					mockExecPodmanNetworkList(mockExec, "app-remove"),
@@ -94,7 +97,7 @@ func TestManager(t *testing.T) {
 					// start current app (first AfterUpdate)
 					mockReadWriter.EXPECT().PathExists(gomock.Any()).Return(true, nil).AnyTimes(),
 					mockExecPodmanComposeUp(mockExec, "app-update", true, true),
-					mockExecPodmanEvents(mockExec),
+					mockExecPodmanEvents(mockExec, bootTime),
 
 					// stop and remove current app (second AfterUpdate after syncProviders)
 					mockExecPodmanNetworkList(mockExec, "app-update"),
@@ -128,7 +131,7 @@ func TestManager(t *testing.T) {
 					mockExecSystemdListDependencies(mockSystemdMgr, appID, services),
 					mockExecSystemdListUnitsWithResults(mockSystemdMgr, services...),
 					mockSystemdMgr.EXPECT().Start(gomock.Any(), target).Return(nil),
-					mockExecPodmanEvents(mockExec),
+					mockExecPodmanEvents(mockExec, bootTime),
 				)
 			},
 			wantAppNames: []string{"quadlet-new"},
@@ -151,7 +154,7 @@ func TestManager(t *testing.T) {
 					mockExecSystemdListDependencies(mockSystemdMgr, appID, services),
 					mockExecSystemdListUnitsWithResults(mockSystemdMgr, services...),
 					mockSystemdMgr.EXPECT().Start(gomock.Any(), target).Return(nil),
-					mockExecPodmanEvents(mockExec),
+					mockExecPodmanEvents(mockExec, bootTime),
 
 					// remove quadlet app (second AfterUpdate after syncProviders)
 					mockExecSystemdListDependencies(mockSystemdMgr, appID, services),
@@ -185,7 +188,7 @@ func TestManager(t *testing.T) {
 					mockExecSystemdListDependencies(mockSystemdMgr, appID, services),
 					mockExecSystemdListUnitsWithResults(mockSystemdMgr, services...),
 					mockSystemdMgr.EXPECT().Start(gomock.Any(), target).Return(nil),
-					mockExecPodmanEvents(mockExec),
+					mockExecPodmanEvents(mockExec, bootTime),
 
 					// update: stop current quadlet app (remove phase)
 					mockExecSystemdListDependencies(mockSystemdMgr, appID, services),
@@ -252,7 +255,7 @@ func TestManager(t *testing.T) {
 
 			manager := &manager{
 				rwFactory:     rwFactory,
-				podmanMonitor: NewPodmanMonitor(log, podmanFactory, systemdFactory, "", rwMockFactory),
+				podmanMonitor: NewPodmanMonitor(log, podmanFactory, systemdFactory, bootTime.Format(time.RFC3339), rwMockFactory),
 				log:           log,
 			}
 
@@ -289,6 +292,8 @@ func TestManager(t *testing.T) {
 }
 
 func TestManagerRemoveApplication(t *testing.T) {
+	bootTime := time.Now()
+
 	require := require.New(t)
 
 	ctx := context.Background()
@@ -322,7 +327,7 @@ func TestManagerRemoveApplication(t *testing.T) {
 		mockExecPodmanComposeUp(mockExec, "app-remove", true, true),
 
 		// Monitor starts when AfterUpdate is called with apps
-		mockExecPodmanEvents(mockExec),
+		mockExecPodmanEvents(mockExec, bootTime),
 
 		// remove current app during syncProviders
 		mockExecPodmanNetworkList(mockExec, "app-remove"),
@@ -348,7 +353,7 @@ func TestManagerRemoveApplication(t *testing.T) {
 	}
 	manager := &manager{
 		rwFactory:     rwFactory,
-		podmanMonitor: NewPodmanMonitor(log, podmanFactory, systemdFactory, "", rwMockFactory),
+		podmanMonitor: NewPodmanMonitor(log, podmanFactory, systemdFactory, bootTime.Format(time.RFC3339), rwMockFactory),
 		log:           log,
 	}
 
@@ -366,7 +371,7 @@ func TestManagerRemoveApplication(t *testing.T) {
 
 	// Verify app exists and monitor is running
 	require.True(manager.podmanMonitor.Has(id))
-	require.True(manager.podmanMonitor.isRunning())
+	require.True(manager.podmanMonitor.isRunning(v1beta1.CurrentProcessUsername))
 
 	// Remove applications
 	desiredProviders, err := provider.FromDeviceSpec(ctx, log, podmanFactory, rwFactory, desired)
@@ -380,17 +385,17 @@ func TestManagerRemoveApplication(t *testing.T) {
 
 	// Verify app is removed and monitor is stopped
 	require.False(manager.podmanMonitor.Has(id))
-	require.False(manager.podmanMonitor.isRunning())
+	require.False(manager.podmanMonitor.isRunning(v1beta1.CurrentProcessUsername))
 }
 
-func mockExecPodmanEvents(mockExec *executer.MockExecuter) *gomock.Call {
+func mockExecPodmanEvents(mockExec *executer.MockExecuter, sinceTime time.Time) *gomock.Call {
 	return mockExec.EXPECT().CommandContext(
 		gomock.Any(),
 		"podman",
 		[]string{
 			"events",
 			"--format", "json",
-			"--since", "", // replace with actual value if needed
+			"--since", sinceTime.Format(time.RFC3339),
 			"--filter", "event=create",
 			"--filter", "event=init",
 			"--filter", "event=start",
