@@ -32,7 +32,6 @@ runAsUser:
   type: RunAsAny
 seLinuxContext:
   type: RunAsAny
-seccompProfile: '*'
 volumes:
   - '*'
 users:
