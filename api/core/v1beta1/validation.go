@@ -400,7 +400,7 @@ func (c InlineConfigProviderSpec) Validate(fleetTemplate bool) []error {
 			}
 		}
 
-		allErrs = append(allErrs, validation.ValidateLinuxUserGroup(c.Inline[i].User, fmt.Sprintf("spec.config[].inline[%d].user", i))...)
+		allErrs = append(allErrs, validation.ValidateLinuxUserGroup(c.Inline[i].User.String(), fmt.Sprintf("spec.config[].inline[%d].user", i))...)
 		allErrs = append(allErrs, validation.ValidateLinuxUserGroup(c.Inline[i].Group, fmt.Sprintf("spec.config[].inline[%d].group", i))...)
 		allErrs = append(allErrs, validation.ValidateLinuxFileMode(c.Inline[i].Mode, fmt.Sprintf("spec.config[].inline[%d].mode", i))...)
 

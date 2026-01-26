@@ -3,11 +3,13 @@ package userutil
 import (
 	"os/user"
 	"strconv"
+
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 )
 
 // LookupUser gets the uid, gid and homedir for the given user, in a format fit for Linux environments.
-func LookupUser(username string) (uid uint32, gid uint32, homeDir string, err error) {
-	user, err := user.Lookup(username)
+func LookupUser(username v1beta1.Username) (uid uint32, gid uint32, homeDir string, err error) {
+	user, err := user.Lookup(username.String())
 	if err != nil {
 		return 0, 0, "", err
 	}

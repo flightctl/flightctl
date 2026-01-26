@@ -44,7 +44,7 @@ type ApplicationSpec struct {
 	// Type of the application
 	AppType v1beta1.AppType
 	// User that the app should be run under
-	User string
+	User v1beta1.Username
 	// Path to the application
 	Path string
 	// EnvVars are the environment variables to be passed to the application

@@ -238,8 +238,8 @@ type ImageArtifactReferences struct {
 }
 
 type ImageRef struct {
-	Image string `json:"image"`
-	Owner string `json:"owner"`
+	Image string           `json:"image"`
+	Owner v1beta1.Username `json:"owner"`
 }
 
 // readPreviousReferences reads the previous image/artifact references from the file.

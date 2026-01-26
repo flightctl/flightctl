@@ -300,6 +300,6 @@ func addGitFileToIgnitionConfig(mfs billy.Filesystem, fullPath, ignPath string, 
 		return err
 	}
 
-	wrapper.SetFile(ignPath, fileContents, int(fileInfo.Mode()), false, nil, nil)
+	wrapper.SetFile(ignPath, fileContents, int(fileInfo.Mode()), false, "", "")
 	return nil
 }
