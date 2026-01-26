@@ -479,8 +479,8 @@ func TestCreateImageBuildSourceRepositoryNotOci(t *testing.T) {
 	// Set up repositories - source is Git type (not OCI)
 	repoStore := NewDummyRepositoryStore()
 	spec := v1beta1.RepositorySpec{}
-	_ = spec.FromGenericRepoSpec(v1beta1.GenericRepoSpec{
-		Type: v1beta1.RepoSpecTypeGit,
+	_ = spec.FromGitRepoSpec(v1beta1.GitRepoSpec{
+		Type: v1beta1.GitRepoSpecTypeGit,
 		Url:  "https://github.com/example/repo.git",
 	})
 	sourceRepo := &v1beta1.Repository{
@@ -515,8 +515,8 @@ func TestCreateImageBuildDestinationRepositoryNotOci(t *testing.T) {
 	_, _ = repoStore.Create(ctx, orgId, sourceRepo, nil)
 
 	spec := v1beta1.RepositorySpec{}
-	_ = spec.FromGenericRepoSpec(v1beta1.GenericRepoSpec{
-		Type: v1beta1.RepoSpecTypeGit,
+	_ = spec.FromGitRepoSpec(v1beta1.GitRepoSpec{
+		Type: v1beta1.GitRepoSpecTypeGit,
 		Url:  "https://github.com/example/repo.git",
 	})
 	destRepo := &v1beta1.Repository{

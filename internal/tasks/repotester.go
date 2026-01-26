@@ -99,8 +99,8 @@ func (r *RepoTester) TestRepositories(ctx context.Context, orgId uuid.UUID) {
 
 			tester := r.RepoTesterMapper(&repository)
 			if tester == nil {
-				repoSpec, _ := repository.Spec.GetGenericRepoSpec()
-				log.Infof("Skipping unsupported repository type: %s", repoSpec.Type)
+				repoType, _ := repository.Spec.Discriminator()
+				log.Infof("Skipping unsupported repository type: %s", repoType)
 				continue
 			}
 
@@ -182,7 +182,7 @@ func (r *GitRepoTester) TestAccess(repository *domain.Repository) error {
 }
 
 func (r *HttpRepoTester) TestAccess(repository *domain.Repository) error {
-	repoHttpSpec, err := repository.Spec.GetHttpRepoSpec()
+	repoHttpSpec, err := repository.Spec.AsHttpRepoSpec()
 	if err != nil {
 		return fmt.Errorf("failed to get HTTP repo spec: %w", err)
 	}
@@ -199,7 +199,7 @@ func (r *HttpRepoTester) TestAccess(repository *domain.Repository) error {
 }
 
 func (r *OciRepoTester) TestAccess(repository *domain.Repository) error {
-	ociSpec, err := repository.Spec.GetOciRepoSpec()
+	ociSpec, err := repository.Spec.AsOciRepoSpec()
 	if err != nil {
 		return fmt.Errorf("failed to get OCI repo spec: %w", err)
 	}

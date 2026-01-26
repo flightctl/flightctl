@@ -683,7 +683,7 @@ func newOciRepositoryWithRegistry(name string, accessMode v1beta1.OciRepoSpecAcc
 	spec := v1beta1.RepositorySpec{}
 	ociSpec := v1beta1.OciRepoSpec{
 		Registry:   registryHostname,
-		Type:       v1beta1.RepoSpecTypeOci,
+		Type:       v1beta1.OciRepoSpecTypeOci,
 		AccessMode: &accessMode,
 	}
 	if scheme != nil {
@@ -761,7 +761,7 @@ func TestDownloadImageExportWithRedirect(t *testing.T) {
 
 	// Extract hostname from test server URL (remove "https://" prefix)
 	registryHostname := ts.URL[8:]
-	scheme := v1beta1.OciRepoSpecSchemeHttps
+	scheme := v1beta1.Https
 
 	// Set up repositories pointing to test server
 	repoStore := NewDummyRepositoryStore()
@@ -855,7 +855,7 @@ func TestDownloadImageExportWithBlobReader(t *testing.T) {
 
 	// Extract hostname from test server URL (remove "https://" prefix)
 	registryHostname := ts.URL[8:]
-	scheme := v1beta1.OciRepoSpecSchemeHttps
+	scheme := v1beta1.Https
 
 	// Set up repositories pointing to test server
 	repoStore := NewDummyRepositoryStore()
@@ -957,7 +957,7 @@ func TestDownloadImageExportManifestWrongLayerCount(t *testing.T) {
 
 	// Extract hostname from test server URL (remove "https://" prefix)
 	registryHostname := ts.URL[8:]
-	scheme := v1beta1.OciRepoSpecSchemeHttps
+	scheme := v1beta1.Https
 
 	// Set up repositories pointing to test server
 	repoStore := NewDummyRepositoryStore()

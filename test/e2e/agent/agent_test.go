@@ -589,7 +589,7 @@ var repoMetadata = v1beta1.ObjectMeta{
 
 // httpRepoSpec initializes an HttpRepoSpec with an HTTP repository type and URL for clone or access operations.
 var httpRepoSpec = v1beta1.HttpRepoSpec{
-	Type: v1beta1.RepoSpecType("http"),
+	Type: v1beta1.HttpRepoSpecTypeHttp,
 	Url:  "https://github.com/flightctl/flightctl-demos.git",
 }
 

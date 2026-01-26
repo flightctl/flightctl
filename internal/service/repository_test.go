@@ -27,9 +27,9 @@ func newOciAuth(username, password string) *domain.OciAuth {
 
 func testRepositoryPatch(require *require.Assertions, patch domain.PatchRequest) (*domain.Repository, domain.Repository, domain.Status) {
 	spec := domain.RepositorySpec{}
-	err := spec.FromGenericRepoSpec(domain.GenericRepoSpec{
+	err := spec.FromGitRepoSpec(domain.GitRepoSpec{
 		Url:  "foo",
-		Type: "git",
+		Type: domain.GitRepoSpecTypeGit,
 	})
 	require.NoError(err)
 	repository := domain.Repository{
@@ -197,7 +197,7 @@ func TestRepositoryNonExistingResource(t *testing.T) {
 
 func createRepository(ctx context.Context, r store.Repository, orgId uuid.UUID, name string, labels *map[string]string) error {
 	spec := domain.RepositorySpec{}
-	err := spec.FromGenericRepoSpec(domain.GenericRepoSpec{
+	err := spec.FromGitRepoSpec(domain.GitRepoSpec{
 		Url: "myrepourl",
 	})
 	if err != nil {
@@ -345,7 +345,7 @@ func TestOciRepositoryCreate(t *testing.T) {
 	require.NotNil(retrieved)
 
 	// Verify the OCI spec is preserved
-	ociSpec, err := retrieved.Spec.GetOciRepoSpec()
+	ociSpec, err := retrieved.Spec.AsOciRepoSpec()
 	require.NoError(err)
 	require.Equal("quay.io", ociSpec.Registry)
 	require.Equal(domain.RepoSpecTypeOci, ociSpec.Type)
@@ -391,7 +391,7 @@ func TestOciRepositoryCreateWithoutCredentials(t *testing.T) {
 	require.NotNil(resp)
 
 	// Verify the OCI spec without credentials
-	ociSpec, err := resp.Spec.GetOciRepoSpec()
+	ociSpec, err := resp.Spec.AsOciRepoSpec()
 	require.NoError(err)
 	require.Equal("registry.redhat.io", ociSpec.Registry)
 	require.Nil(ociSpec.OciAuth)
@@ -409,7 +409,7 @@ func createServiceHandler() ServiceHandler {
 	}
 }
 
-// Git Repository (GenericRepoSpec) CRUD Tests
+// Git Repository (GitRepoSpec) CRUD Tests
 
 func TestGitRepositoryCreate(t *testing.T) {
 	require := require.New(t)
@@ -417,9 +417,9 @@ func TestGitRepositoryCreate(t *testing.T) {
 	serviceHandler := createServiceHandler()
 
 	spec := domain.RepositorySpec{}
-	err := spec.FromGenericRepoSpec(domain.GenericRepoSpec{
+	err := spec.FromGitRepoSpec(domain.GitRepoSpec{
 		Url:  "https://github.com/flightctl/flightctl.git",
-		Type: domain.RepoSpecTypeGit,
+		Type: domain.GitRepoSpecTypeGit,
 	})
 	require.NoError(err)
 
@@ -444,10 +444,10 @@ func TestGitRepositoryCreate(t *testing.T) {
 	require.NotNil(retrieved)
 
 	// Verify the spec is preserved
-	genericSpec, err := retrieved.Spec.GetGenericRepoSpec()
+	genericSpec, err := retrieved.Spec.AsGitRepoSpec()
 	require.NoError(err)
 	require.Equal("https://github.com/flightctl/flightctl.git", genericSpec.Url)
-	require.Equal(domain.RepoSpecTypeGit, genericSpec.Type)
+	require.Equal(domain.GitRepoSpecTypeGit, genericSpec.Type)
 }
 
 func TestGitRepositoryGet(t *testing.T) {
@@ -457,9 +457,9 @@ func TestGitRepositoryGet(t *testing.T) {
 
 	// Create a repository first
 	spec := domain.RepositorySpec{}
-	err := spec.FromGenericRepoSpec(domain.GenericRepoSpec{
+	err := spec.FromGitRepoSpec(domain.GitRepoSpec{
 		Url:  "https://github.com/flightctl/flightctl.git",
-		Type: domain.RepoSpecTypeGit,
+		Type: domain.GitRepoSpecTypeGit,
 	})
 	require.NoError(err)
 
@@ -497,9 +497,9 @@ func TestGitRepositoryReplace(t *testing.T) {
 
 	// Create a repository first
 	spec := domain.RepositorySpec{}
-	err := spec.FromGenericRepoSpec(domain.GenericRepoSpec{
+	err := spec.FromGitRepoSpec(domain.GitRepoSpec{
 		Url:  "https://github.com/original/repo.git",
-		Type: domain.RepoSpecTypeGit,
+		Type: domain.GitRepoSpecTypeGit,
 	})
 	require.NoError(err)
 
@@ -514,9 +514,9 @@ func TestGitRepositoryReplace(t *testing.T) {
 	require.Equal(int32(201), status.Code)
 
 	// Replace with updated URL
-	err = spec.FromGenericRepoSpec(domain.GenericRepoSpec{
+	err = spec.FromGitRepoSpec(domain.GitRepoSpec{
 		Url:  "https://github.com/updated/repo.git",
-		Type: domain.RepoSpecTypeGit,
+		Type: domain.GitRepoSpecTypeGit,
 	})
 	require.NoError(err)
 	repository.Spec = spec
@@ -526,7 +526,7 @@ func TestGitRepositoryReplace(t *testing.T) {
 	require.NotNil(resp)
 
 	// Verify the update
-	genericSpec, err := resp.Spec.GetGenericRepoSpec()
+	genericSpec, err := resp.Spec.AsGitRepoSpec()
 	require.NoError(err)
 	require.Equal("https://github.com/updated/repo.git", genericSpec.Url)
 }
@@ -538,9 +538,9 @@ func TestGitRepositoryDelete(t *testing.T) {
 
 	// Create a repository first
 	spec := domain.RepositorySpec{}
-	err := spec.FromGenericRepoSpec(domain.GenericRepoSpec{
+	err := spec.FromGitRepoSpec(domain.GitRepoSpec{
 		Url:  "https://github.com/flightctl/flightctl.git",
-		Type: domain.RepoSpecTypeGit,
+		Type: domain.GitRepoSpecTypeGit,
 	})
 	require.NoError(err)
 
@@ -576,10 +576,10 @@ func TestSshRepositoryCreate(t *testing.T) {
 	skipVerify := true
 
 	spec := domain.RepositorySpec{}
-	err := spec.FromSshRepoSpec(domain.SshRepoSpec{
+	err := spec.FromGitRepoSpec(domain.GitRepoSpec{
 		Url:  "git@github.com:flightctl/flightctl.git",
-		Type: domain.RepoSpecTypeGit,
-		SshConfig: domain.SshConfig{
+		Type: domain.GitRepoSpecTypeGit,
+		SshConfig: &domain.SshConfig{
 			SshPrivateKey:          &privateKey,
 			PrivateKeyPassphrase:   &passphrase,
 			SkipServerVerification: &skipVerify,
@@ -608,16 +608,16 @@ func TestSshRepositoryCreate(t *testing.T) {
 	require.NotNil(retrieved)
 
 	// Verify the SSH spec is preserved
-	sshSpec, err := retrieved.Spec.GetSshRepoSpec()
+	gitSpec, err := retrieved.Spec.AsGitRepoSpec()
 	require.NoError(err)
-	require.Equal("git@github.com:flightctl/flightctl.git", sshSpec.Url)
-	require.Equal(domain.RepoSpecTypeGit, sshSpec.Type)
-	require.NotNil(sshSpec.SshConfig.SshPrivateKey)
-	require.Equal(privateKey, *sshSpec.SshConfig.SshPrivateKey)
-	require.NotNil(sshSpec.SshConfig.PrivateKeyPassphrase)
-	require.Equal(passphrase, *sshSpec.SshConfig.PrivateKeyPassphrase)
-	require.NotNil(sshSpec.SshConfig.SkipServerVerification)
-	require.True(*sshSpec.SshConfig.SkipServerVerification)
+	require.Equal("git@github.com:flightctl/flightctl.git", gitSpec.Url)
+	require.Equal(domain.GitRepoSpecTypeGit, gitSpec.Type)
+	require.NotNil(gitSpec.SshConfig.SshPrivateKey)
+	require.Equal(privateKey, *gitSpec.SshConfig.SshPrivateKey)
+	require.NotNil(gitSpec.SshConfig.PrivateKeyPassphrase)
+	require.Equal(passphrase, *gitSpec.SshConfig.PrivateKeyPassphrase)
+	require.NotNil(gitSpec.SshConfig.SkipServerVerification)
+	require.True(*gitSpec.SshConfig.SkipServerVerification)
 }
 
 func TestSshRepositoryCreateWithoutPassphrase(t *testing.T) {
@@ -629,10 +629,10 @@ func TestSshRepositoryCreateWithoutPassphrase(t *testing.T) {
 	privateKey := "c3NoLXJzYSBBQUFBQg=="
 
 	spec := domain.RepositorySpec{}
-	err := spec.FromSshRepoSpec(domain.SshRepoSpec{
+	err := spec.FromGitRepoSpec(domain.GitRepoSpec{
 		Url:  "git@gitlab.com:myorg/myrepo.git",
-		Type: domain.RepoSpecTypeGit,
-		SshConfig: domain.SshConfig{
+		Type: domain.GitRepoSpecTypeGit,
+		SshConfig: &domain.SshConfig{
 			SshPrivateKey: &privateKey,
 		},
 	})
@@ -650,11 +650,11 @@ func TestSshRepositoryCreateWithoutPassphrase(t *testing.T) {
 	require.NotNil(resp)
 
 	// Verify the SSH spec without passphrase
-	sshSpec, err := resp.Spec.GetSshRepoSpec()
+	gitSpec, err := resp.Spec.AsGitRepoSpec()
 	require.NoError(err)
-	require.Equal("git@gitlab.com:myorg/myrepo.git", sshSpec.Url)
-	require.NotNil(sshSpec.SshConfig.SshPrivateKey)
-	require.Nil(sshSpec.SshConfig.PrivateKeyPassphrase)
+	require.Equal("git@gitlab.com:myorg/myrepo.git", gitSpec.Url)
+	require.NotNil(gitSpec.SshConfig.SshPrivateKey)
+	require.Nil(gitSpec.SshConfig.PrivateKeyPassphrase)
 }
 
 // HTTP Repository (HttpRepoSpec) CRUD Tests
@@ -671,8 +671,8 @@ func TestHttpRepositoryCreate(t *testing.T) {
 	spec := domain.RepositorySpec{}
 	err := spec.FromHttpRepoSpec(domain.HttpRepoSpec{
 		Url:  "https://github.com/flightctl/flightctl.git",
-		Type: domain.RepoSpecTypeHttp,
-		HttpConfig: domain.HttpConfig{
+		Type: domain.HttpRepoSpecTypeHttp,
+		HttpConfig: &domain.HttpConfig{
 			Username:               &username,
 			Password:               &password,
 			SkipServerVerification: &skipVerify,
@@ -701,10 +701,10 @@ func TestHttpRepositoryCreate(t *testing.T) {
 	require.NotNil(retrieved)
 
 	// Verify the HTTP spec is preserved
-	httpSpec, err := retrieved.Spec.GetHttpRepoSpec()
+	httpSpec, err := retrieved.Spec.AsHttpRepoSpec()
 	require.NoError(err)
 	require.Equal("https://github.com/flightctl/flightctl.git", httpSpec.Url)
-	require.Equal(domain.RepoSpecTypeHttp, httpSpec.Type)
+	require.Equal(domain.HttpRepoSpecTypeHttp, httpSpec.Type)
 	require.NotNil(httpSpec.HttpConfig.Username)
 	require.Equal(username, *httpSpec.HttpConfig.Username)
 	require.NotNil(httpSpec.HttpConfig.Password)
@@ -724,8 +724,8 @@ func TestHttpRepositoryCreateWithToken(t *testing.T) {
 	spec := domain.RepositorySpec{}
 	err := spec.FromHttpRepoSpec(domain.HttpRepoSpec{
 		Url:  "https://github.com/flightctl/flightctl.git",
-		Type: domain.RepoSpecTypeHttp,
-		HttpConfig: domain.HttpConfig{
+		Type: domain.HttpRepoSpecTypeHttp,
+		HttpConfig: &domain.HttpConfig{
 			Token: &token,
 		},
 	})
@@ -743,7 +743,7 @@ func TestHttpRepositoryCreateWithToken(t *testing.T) {
 	require.NotNil(resp)
 
 	// Verify the HTTP spec with token
-	httpSpec, err := resp.Spec.GetHttpRepoSpec()
+	httpSpec, err := resp.Spec.AsHttpRepoSpec()
 	require.NoError(err)
 	require.NotNil(httpSpec.HttpConfig.Token)
 	require.Equal(token, *httpSpec.HttpConfig.Token)
@@ -764,8 +764,8 @@ func TestHttpRepositoryCreateWithTLS(t *testing.T) {
 	spec := domain.RepositorySpec{}
 	err := spec.FromHttpRepoSpec(domain.HttpRepoSpec{
 		Url:  "https://private.git.server/repo.git",
-		Type: domain.RepoSpecTypeHttp,
-		HttpConfig: domain.HttpConfig{
+		Type: domain.HttpRepoSpecTypeHttp,
+		HttpConfig: &domain.HttpConfig{
 			CaCrt:  &caCrt,
 			TlsCrt: &tlsCrt,
 			TlsKey: &tlsKey,
@@ -785,7 +785,7 @@ func TestHttpRepositoryCreateWithTLS(t *testing.T) {
 	require.NotNil(resp)
 
 	// Verify the HTTP spec with TLS config
-	httpSpec, err := resp.Spec.GetHttpRepoSpec()
+	httpSpec, err := resp.Spec.AsHttpRepoSpec()
 	require.NoError(err)
 	require.NotNil(httpSpec.HttpConfig.CaCrt)
 	require.Equal(caCrt, *httpSpec.HttpConfig.CaCrt)
@@ -806,8 +806,8 @@ func TestHttpRepositoryReplace(t *testing.T) {
 	spec := domain.RepositorySpec{}
 	err := spec.FromHttpRepoSpec(domain.HttpRepoSpec{
 		Url:  "https://github.com/original/repo.git",
-		Type: domain.RepoSpecTypeHttp,
-		HttpConfig: domain.HttpConfig{
+		Type: domain.HttpRepoSpecTypeHttp,
+		HttpConfig: &domain.HttpConfig{
 			Username: &username,
 			Password: &password,
 		},
@@ -829,8 +829,8 @@ func TestHttpRepositoryReplace(t *testing.T) {
 	newPassword := "updatedpass"
 	err = spec.FromHttpRepoSpec(domain.HttpRepoSpec{
 		Url:  "https://github.com/updated/repo.git",
-		Type: domain.RepoSpecTypeHttp,
-		HttpConfig: domain.HttpConfig{
+		Type: domain.HttpRepoSpecTypeHttp,
+		HttpConfig: &domain.HttpConfig{
 			Username: &newUsername,
 			Password: &newPassword,
 		},
@@ -843,7 +843,7 @@ func TestHttpRepositoryReplace(t *testing.T) {
 	require.NotNil(resp)
 
 	// Verify the update
-	httpSpec, err := resp.Spec.GetHttpRepoSpec()
+	httpSpec, err := resp.Spec.AsHttpRepoSpec()
 	require.NoError(err)
 	require.Equal("https://github.com/updated/repo.git", httpSpec.Url)
 	require.NotNil(httpSpec.HttpConfig.Username)
@@ -861,8 +861,8 @@ func TestHttpRepositoryDelete(t *testing.T) {
 	spec := domain.RepositorySpec{}
 	err := spec.FromHttpRepoSpec(domain.HttpRepoSpec{
 		Url:  "https://github.com/delete/repo.git",
-		Type: domain.RepoSpecTypeHttp,
-		HttpConfig: domain.HttpConfig{
+		Type: domain.HttpRepoSpecTypeHttp,
+		HttpConfig: &domain.HttpConfig{
 			Username: &username,
 			Password: &password,
 		},

@@ -60,7 +60,7 @@ var _ = Describe("buildHttpRepoRequestAuth", func() {
 			token := "token"
 			req, _ := http.NewRequest("GET", "http://example.com", nil)
 			repoHttpSpec := domain.HttpRepoSpec{
-				HttpConfig: domain.HttpConfig{
+				HttpConfig: &domain.HttpConfig{
 					Username: &username,
 					Password: &password,
 					Token:    &token,
@@ -81,7 +81,7 @@ var _ = Describe("buildHttpRepoRequestAuth", func() {
 			tlsKeyEncoded := base64.StdEncoding.EncodeToString(tlsKey)
 			req, _ := http.NewRequest("GET", "http://example.com", nil)
 			repoHttpSpec := domain.HttpRepoSpec{
-				HttpConfig: domain.HttpConfig{
+				HttpConfig: &domain.HttpConfig{
 					TlsCrt: &tlsCrtEncoded,
 					TlsKey: &tlsKeyEncoded,
 				},
@@ -97,7 +97,7 @@ var _ = Describe("buildHttpRepoRequestAuth", func() {
 			caCrt := base64.StdEncoding.EncodeToString([]byte("ca"))
 			req, _ := http.NewRequest("GET", "http://example.com", nil)
 			repoHttpSpec := domain.HttpRepoSpec{
-				HttpConfig: domain.HttpConfig{
+				HttpConfig: &domain.HttpConfig{
 					CaCrt: &caCrt,
 				},
 			}
@@ -112,7 +112,7 @@ var _ = Describe("buildHttpRepoRequestAuth", func() {
 			skip := true
 			req, _ := http.NewRequest("GET", "http://example.com", nil)
 			repoHttpSpec := domain.HttpRepoSpec{
-				HttpConfig: domain.HttpConfig{
+				HttpConfig: &domain.HttpConfig{
 					SkipServerVerification: &skip,
 				},
 			}

@@ -414,9 +414,9 @@ var testFleetSelector = v1beta1.LabelSelector{
 var deviceSpec v1beta1.DeviceSpec
 
 var gitRepositorySpec v1beta1.RepositorySpec
-var _ = gitRepositorySpec.FromGenericRepoSpec(v1beta1.GenericRepoSpec{
+var _ = gitRepositorySpec.FromGitRepoSpec(v1beta1.GitRepoSpec{
 	Url:  repoTestUrl,
-	Type: v1beta1.RepoSpecTypeGit,
+	Type: v1beta1.GitRepoSpecTypeGit,
 })
 
 var gitMetadata = v1beta1.ObjectMeta{
@@ -425,7 +425,7 @@ var gitMetadata = v1beta1.ObjectMeta{
 }
 
 var httpRepoSpec = v1beta1.HttpRepoSpec{
-	Type: v1beta1.RepoSpecTypeHttp,
+	Type: v1beta1.HttpRepoSpecTypeHttp,
 	Url:  repoTestUrl,
 }
 

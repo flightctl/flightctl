@@ -2200,11 +2200,11 @@ func TestRepository_Validate_OciRepoSpec(t *testing.T) {
 
 func TestRepository_Validate_BackwardCompatibility(t *testing.T) {
 	// Ensure existing git repository specs still work
-	t.Run("GenericRepoSpec still works", func(t *testing.T) {
+	t.Run("GitRepoSpec without auth works", func(t *testing.T) {
 		repoSpec := RepositorySpec{}
-		err := repoSpec.FromGenericRepoSpec(GenericRepoSpec{
+		err := repoSpec.FromGitRepoSpec(GitRepoSpec{
 			Url:  "https://github.com/example/repo.git",
-			Type: RepoSpecTypeGit,
+			Type: GitRepoSpecTypeGit,
 		})
 		require.NoError(t, err)
 
@@ -2218,15 +2218,92 @@ func TestRepository_Validate_BackwardCompatibility(t *testing.T) {
 		}
 
 		errs := repo.Validate()
-		require.Empty(t, errs, "GenericRepoSpec should validate successfully")
+		require.Empty(t, errs, "GitRepoSpec should validate successfully")
+	})
+
+	t.Run("GitRepoSpec with httpConfig works", func(t *testing.T) {
+		repoSpec := RepositorySpec{}
+		err := repoSpec.FromGitRepoSpec(GitRepoSpec{
+			Url:  "https://github.com/example/repo.git",
+			Type: GitRepoSpecTypeGit,
+			HttpConfig: &HttpConfig{
+				Username: lo.ToPtr("user"),
+				Password: lo.ToPtr("pass"),
+			},
+		})
+		require.NoError(t, err)
+
+		repo := Repository{
+			ApiVersion: "v1",
+			Kind:       "Repository",
+			Metadata: ObjectMeta{
+				Name: lo.ToPtr("test-git-http-repo"),
+			},
+			Spec: repoSpec,
+		}
+
+		errs := repo.Validate()
+		require.Empty(t, errs, "GitRepoSpec with httpConfig should validate successfully")
+	})
+
+	t.Run("GitRepoSpec with sshConfig works", func(t *testing.T) {
+		repoSpec := RepositorySpec{}
+		err := repoSpec.FromGitRepoSpec(GitRepoSpec{
+			Url:  "git@github.com:example/repo.git",
+			Type: GitRepoSpecTypeGit,
+			SshConfig: &SshConfig{
+				SshPrivateKey: lo.ToPtr("LS0tLS1CRUdJTiBSU0EgUFJJVkFURSBLRVktLS0tLQ=="), // base64 encoded "-----BEGIN RSA PRIVATE KEY-----"
+			},
+		})
+		require.NoError(t, err)
+
+		repo := Repository{
+			ApiVersion: "v1",
+			Kind:       "Repository",
+			Metadata: ObjectMeta{
+				Name: lo.ToPtr("test-git-ssh-repo"),
+			},
+			Spec: repoSpec,
+		}
+
+		errs := repo.Validate()
+		require.Empty(t, errs, "GitRepoSpec with sshConfig should validate successfully")
+	})
+
+	t.Run("GitRepoSpec rejects both httpConfig and sshConfig", func(t *testing.T) {
+		repoSpec := RepositorySpec{}
+		err := repoSpec.FromGitRepoSpec(GitRepoSpec{
+			Url:  "https://github.com/example/repo.git",
+			Type: GitRepoSpecTypeGit,
+			HttpConfig: &HttpConfig{
+				Username: lo.ToPtr("user"),
+				Password: lo.ToPtr("pass"),
+			},
+			SshConfig: &SshConfig{
+				SshPrivateKey: lo.ToPtr("LS0tLS1CRUdJTiBSU0EgUFJJVkFURSBLRVktLS0tLQ=="),
+			},
+		})
+		require.NoError(t, err)
+
+		repo := Repository{
+			ApiVersion: "v1",
+			Kind:       "Repository",
+			Metadata: ObjectMeta{
+				Name: lo.ToPtr("test-git-both-repo"),
+			},
+			Spec: repoSpec,
+		}
+
+		errs := repo.Validate()
+		require.NotEmpty(t, errs, "GitRepoSpec with both configs should fail validation")
 	})
 
 	t.Run("HttpRepoSpec still works", func(t *testing.T) {
 		repoSpec := RepositorySpec{}
 		err := repoSpec.FromHttpRepoSpec(HttpRepoSpec{
 			Url:        "https://example.com/config",
-			Type:       RepoSpecTypeHttp,
-			HttpConfig: HttpConfig{},
+			Type:       HttpRepoSpecTypeHttp,
+			HttpConfig: &HttpConfig{},
 		})
 		require.NoError(t, err)
 

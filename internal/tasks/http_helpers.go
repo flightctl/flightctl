@@ -16,7 +16,7 @@ func sendHTTPrequest(repoSpec domain.RepositorySpec, repoURL string) ([]byte, er
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
-	repoHttpSpec, err := repoSpec.GetHttpRepoSpec()
+	repoHttpSpec, err := repoSpec.AsHttpRepoSpec()
 	if err != nil {
 		return nil, err
 	}

@@ -59,9 +59,9 @@ var _ = Describe("FleetValidate", func() {
 		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStore, nil, log, "", "", []string{})
 
 		spec := api.RepositorySpec{}
-		err = spec.FromGenericRepoSpec(api.GenericRepoSpec{
+		err = spec.FromGitRepoSpec(api.GitRepoSpec{
 			Url:  "repo-url",
-			Type: "git",
+			Type: api.GitRepoSpecTypeGit,
 		})
 		Expect(err).ToNot(HaveOccurred())
 		repository = &api.Repository{
@@ -71,9 +71,9 @@ var _ = Describe("FleetValidate", func() {
 			Spec: spec,
 		}
 		specHttp := api.RepositorySpec{}
-		err = specHttp.FromGenericRepoSpec(api.GenericRepoSpec{
+		err = specHttp.FromHttpRepoSpec(api.HttpRepoSpec{
 			Url:  "http-repo-url",
-			Type: "http",
+			Type: api.HttpRepoSpecTypeHttp,
 		})
 		Expect(err).ToNot(HaveOccurred())
 		repositoryHttp := &api.Repository{

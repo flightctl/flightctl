@@ -4292,13 +4292,19 @@ components:
           format: password
     HttpRepoSpec:
       type: object
+      description: HTTP endpoint specification for fetching configuration.
       additionalProperties: false
       properties:
         url:
           type: string
-          description: 'The HTTP URL to call or clone from.'
+          description: 'The HTTP URL to call.'
         type:
-          $ref: "#/components/schemas/RepoSpecType"
+          type: string
+          description: The repository type discriminator.
+          enum:
+            - http
+          x-enum-varnames:
+            - HttpRepoSpecTypeHttp
         httpConfig:
           $ref: "#/components/schemas/HttpConfig"
         validationSuffix:
@@ -4307,7 +4313,6 @@ components:
       required:
         - url
         - type
-        - httpConfig
     SshConfig:
       type: object
       description: Configuration for SSH transport.
@@ -4324,30 +4329,25 @@ components:
         skipServerVerification:
           type: boolean
           description: 'Skip remote server verification.'
-    SshRepoSpec:
+    GitRepoSpec:
       type: object
+      description: Git repository specification. Supports no auth (public repos), HTTP/HTTPS auth, or SSH auth.
       additionalProperties: false
       properties:
         url:
           type: string
-          description: 'The SSH Git repository URL to clone from.'
+          description: 'The Git repository URL to clone from.'
         type:
-          $ref: "#/components/schemas/RepoSpecType"
+          type: string
+          description: The repository type discriminator.
+          enum:
+            - git
+          x-enum-varnames:
+            - GitRepoSpecTypeGit
+        httpConfig:
+          $ref: "#/components/schemas/HttpConfig"
         sshConfig:
           $ref: "#/components/schemas/SshConfig"
-      required:
-        - url
-        - type
-        - sshConfig
-    GenericRepoSpec:
-      type: object
-      additionalProperties: false
-      properties:
-        url:
-          type: string
-          description: 'The (possibly remote) repository URL.'
-        type:
-          $ref: "#/components/schemas/RepoSpecType"
       required:
         - url
         - type
@@ -4399,7 +4399,12 @@ components:
             - https
           default: https
         type:
-          $ref: "#/components/schemas/RepoSpecType"
+          type: string
+          description: The repository type discriminator.
+          enum:
+            - oci
+          x-enum-varnames:
+            - OciRepoSpecTypeOci
         accessMode:
           type: string
           description: 'Access mode for the registry: "Read" for read-only (pull), "ReadWrite" for read-write (pull and push).'
@@ -4422,10 +4427,15 @@ components:
       type: object
       description: RepositorySpec describes a configuration repository.
       oneOf:
-        - $ref: "#/components/schemas/GenericRepoSpec"
+        - $ref: "#/components/schemas/GitRepoSpec"
         - $ref: "#/components/schemas/HttpRepoSpec"
-        - $ref: "#/components/schemas/SshRepoSpec"
         - $ref: "#/components/schemas/OciRepoSpec"
+      discriminator:
+        propertyName: type
+        mapping:
+          git: '#/components/schemas/GitRepoSpec'
+          http: '#/components/schemas/HttpRepoSpec'
+          oci: '#/components/schemas/OciRepoSpec'
     RepositoryStatus:
       type: object
       description: RepositoryStatus represents information about the status of a repository.
@@ -4466,6 +4476,10 @@ components:
         - git
         - http
         - oci
+      x-enum-varnames:
+        - RepoSpecTypeGit
+        - RepoSpecTypeHttp
+        - RepoSpecTypeOci
     Device:
       type: object
       properties:

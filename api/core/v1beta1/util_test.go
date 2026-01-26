@@ -486,7 +486,7 @@ func TestRepositoryHideSensitiveData(t *testing.T) {
 				spec := RepositorySpec{}
 				err := spec.FromOciRepoSpec(OciRepoSpec{
 					Registry: "quay.io",
-					Type:     RepoSpecTypeOci,
+					Type:     OciRepoSpecTypeOci,
 					OciAuth:  newOciAuth("myuser", "mysecretpassword"),
 				})
 				if err != nil {
@@ -498,7 +498,7 @@ func TestRepositoryHideSensitiveData(t *testing.T) {
 				}
 			},
 			checkHidden: func(t *testing.T, repo *Repository) {
-				ociSpec, err := repo.Spec.GetOciRepoSpec()
+				ociSpec, err := repo.Spec.AsOciRepoSpec()
 				require.NoError(t, err)
 				assert.Equal(t, "quay.io", ociSpec.Registry)
 				require.NotNil(t, ociSpec.OciAuth)
@@ -514,8 +514,8 @@ func TestRepositoryHideSensitiveData(t *testing.T) {
 				spec := RepositorySpec{}
 				err := spec.FromHttpRepoSpec(HttpRepoSpec{
 					Url:  "https://example.com/repo",
-					Type: RepoSpecTypeHttp,
-					HttpConfig: HttpConfig{
+					Type: HttpRepoSpecTypeHttp,
+					HttpConfig: &HttpConfig{
 						Username: lo.ToPtr("httpuser"),
 						Password: lo.ToPtr("httppassword"),
 					},
@@ -529,7 +529,7 @@ func TestRepositoryHideSensitiveData(t *testing.T) {
 				}
 			},
 			checkHidden: func(t *testing.T, repo *Repository) {
-				httpSpec, err := repo.Spec.GetHttpRepoSpec()
+				httpSpec, err := repo.Spec.AsHttpRepoSpec()
 				require.NoError(t, err)
 				assert.Equal(t, "https://example.com/repo", httpSpec.Url)
 				assert.Equal(t, "httpuser", *httpSpec.HttpConfig.Username)
@@ -540,10 +540,10 @@ func TestRepositoryHideSensitiveData(t *testing.T) {
 			name: "SSH repository hides private key",
 			setupRepository: func() *Repository {
 				spec := RepositorySpec{}
-				err := spec.FromSshRepoSpec(SshRepoSpec{
+				err := spec.FromGitRepoSpec(GitRepoSpec{
 					Url:  "git@github.com:org/repo.git",
-					Type: RepoSpecTypeGit,
-					SshConfig: SshConfig{
+					Type: GitRepoSpecTypeGit,
+					SshConfig: &SshConfig{
 						SshPrivateKey:        lo.ToPtr("-----BEGIN RSA PRIVATE KEY-----"),
 						PrivateKeyPassphrase: lo.ToPtr("keypassphrase"),
 					},
@@ -557,20 +557,20 @@ func TestRepositoryHideSensitiveData(t *testing.T) {
 				}
 			},
 			checkHidden: func(t *testing.T, repo *Repository) {
-				sshSpec, err := repo.Spec.GetSshRepoSpec()
+				gitSpec, err := repo.Spec.AsGitRepoSpec()
 				require.NoError(t, err)
-				assert.Equal(t, "git@github.com:org/repo.git", sshSpec.Url)
-				assert.Equal(t, "*****", *sshSpec.SshConfig.SshPrivateKey)
-				assert.Equal(t, "*****", *sshSpec.SshConfig.PrivateKeyPassphrase)
+				assert.Equal(t, "git@github.com:org/repo.git", gitSpec.Url)
+				assert.Equal(t, "*****", *gitSpec.SshConfig.SshPrivateKey)
+				assert.Equal(t, "*****", *gitSpec.SshConfig.PrivateKeyPassphrase)
 			},
 		},
 		{
-			name: "Generic repository has no sensitive data",
+			name: "Git repository without auth has no sensitive data",
 			setupRepository: func() *Repository {
 				spec := RepositorySpec{}
-				err := spec.FromGenericRepoSpec(GenericRepoSpec{
+				err := spec.FromGitRepoSpec(GitRepoSpec{
 					Url:  "https://github.com/org/repo",
-					Type: RepoSpecTypeGit,
+					Type: GitRepoSpecTypeGit,
 				})
 				if err != nil {
 					panic(err)
@@ -581,9 +581,9 @@ func TestRepositoryHideSensitiveData(t *testing.T) {
 				}
 			},
 			checkHidden: func(t *testing.T, repo *Repository) {
-				genericSpec, err := repo.Spec.GetGenericRepoSpec()
+				gitSpec, err := repo.Spec.AsGitRepoSpec()
 				require.NoError(t, err)
-				assert.Equal(t, "https://github.com/org/repo", genericSpec.Url)
+				assert.Equal(t, "https://github.com/org/repo", gitSpec.Url)
 			},
 		},
 	}
@@ -603,7 +603,7 @@ func TestRepositoryListHideSensitiveData(t *testing.T) {
 	ociSpec := RepositorySpec{}
 	err := ociSpec.FromOciRepoSpec(OciRepoSpec{
 		Registry: "quay.io",
-		Type:     RepoSpecTypeOci,
+		Type:     OciRepoSpecTypeOci,
 		OciAuth:  newOciAuth("ociuser", "ocisecret"),
 	})
 	require.NoError(t, err)
@@ -616,8 +616,8 @@ func TestRepositoryListHideSensitiveData(t *testing.T) {
 	httpSpec := RepositorySpec{}
 	err = httpSpec.FromHttpRepoSpec(HttpRepoSpec{
 		Url:  "https://example.com/repo",
-		Type: RepoSpecTypeHttp,
-		HttpConfig: HttpConfig{
+		Type: HttpRepoSpecTypeHttp,
+		HttpConfig: &HttpConfig{
 			Username: lo.ToPtr("httpuser"),
 			Password: lo.ToPtr("httpsecret"),
 		},
@@ -630,10 +630,10 @@ func TestRepositoryListHideSensitiveData(t *testing.T) {
 
 	// Create SSH repository with private key
 	sshSpec := RepositorySpec{}
-	err = sshSpec.FromSshRepoSpec(SshRepoSpec{
+	err = sshSpec.FromGitRepoSpec(GitRepoSpec{
 		Url:  "git@github.com:org/repo.git",
-		Type: RepoSpecTypeGit,
-		SshConfig: SshConfig{
+		Type: GitRepoSpecTypeGit,
+		SshConfig: &SshConfig{
 			SshPrivateKey:        lo.ToPtr("-----BEGIN RSA PRIVATE KEY-----"),
 			PrivateKeyPassphrase: lo.ToPtr("keypassphrase"),
 		},
@@ -654,7 +654,7 @@ func TestRepositoryListHideSensitiveData(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify OCI repository password is hidden
-	ociSpecResult, err := list.Items[0].Spec.GetOciRepoSpec()
+	ociSpecResult, err := list.Items[0].Spec.AsOciRepoSpec()
 	require.NoError(t, err)
 	require.NotNil(t, ociSpecResult.OciAuth)
 	dockerAuth, err := ociSpecResult.OciAuth.AsDockerAuth()
@@ -663,13 +663,13 @@ func TestRepositoryListHideSensitiveData(t *testing.T) {
 	assert.Equal(t, "*****", dockerAuth.Password, "OCI password should be hidden in list")
 
 	// Verify HTTP repository password is hidden
-	httpSpecResult, err := list.Items[1].Spec.GetHttpRepoSpec()
+	httpSpecResult, err := list.Items[1].Spec.AsHttpRepoSpec()
 	require.NoError(t, err)
 	assert.Equal(t, "httpuser", *httpSpecResult.HttpConfig.Username)
 	assert.Equal(t, "*****", *httpSpecResult.HttpConfig.Password, "HTTP password should be hidden in list")
 
 	// Verify SSH repository private key is hidden
-	sshSpecResult, err := list.Items[2].Spec.GetSshRepoSpec()
+	sshSpecResult, err := list.Items[2].Spec.AsGitRepoSpec()
 	require.NoError(t, err)
 	assert.Equal(t, "*****", *sshSpecResult.SshConfig.SshPrivateKey, "SSH private key should be hidden in list")
 	assert.Equal(t, "*****", *sshSpecResult.SshConfig.PrivateKeyPassphrase, "SSH passphrase should be hidden in list")
@@ -688,7 +688,7 @@ func TestRepositoryPreserveSensitiveData(t *testing.T) {
 				spec := RepositorySpec{}
 				err := spec.FromOciRepoSpec(OciRepoSpec{
 					Registry: "quay.io",
-					Type:     RepoSpecTypeOci,
+					Type:     OciRepoSpecTypeOci,
 					OciAuth:  newOciAuth("myuser", "originalsecret"),
 				})
 				if err != nil {
@@ -703,7 +703,7 @@ func TestRepositoryPreserveSensitiveData(t *testing.T) {
 				spec := RepositorySpec{}
 				err := spec.FromOciRepoSpec(OciRepoSpec{
 					Registry: "quay.io",
-					Type:     RepoSpecTypeOci,
+					Type:     OciRepoSpecTypeOci,
 					OciAuth:  newOciAuth("myuser", "*****"), // masked placeholder
 				})
 				if err != nil {
@@ -715,7 +715,7 @@ func TestRepositoryPreserveSensitiveData(t *testing.T) {
 				}
 			},
 			checkPreserved: func(t *testing.T, repo *Repository) {
-				ociSpec, err := repo.Spec.GetOciRepoSpec()
+				ociSpec, err := repo.Spec.AsOciRepoSpec()
 				require.NoError(t, err)
 				require.NotNil(t, ociSpec.OciAuth)
 				dockerAuth, err := ociSpec.OciAuth.AsDockerAuth()
@@ -729,8 +729,8 @@ func TestRepositoryPreserveSensitiveData(t *testing.T) {
 				spec := RepositorySpec{}
 				err := spec.FromHttpRepoSpec(HttpRepoSpec{
 					Url:  "https://example.com/repo",
-					Type: RepoSpecTypeHttp,
-					HttpConfig: HttpConfig{
+					Type: HttpRepoSpecTypeHttp,
+					HttpConfig: &HttpConfig{
 						Username: lo.ToPtr("httpuser"),
 						Password: lo.ToPtr("httporiginal"),
 						Token:    lo.ToPtr("tokenoriginal"),
@@ -748,8 +748,8 @@ func TestRepositoryPreserveSensitiveData(t *testing.T) {
 				spec := RepositorySpec{}
 				err := spec.FromHttpRepoSpec(HttpRepoSpec{
 					Url:  "https://example.com/repo",
-					Type: RepoSpecTypeHttp,
-					HttpConfig: HttpConfig{
+					Type: HttpRepoSpecTypeHttp,
+					HttpConfig: &HttpConfig{
 						Username: lo.ToPtr("httpuser"),
 						Password: lo.ToPtr("*****"), // masked placeholder
 						Token:    lo.ToPtr("*****"), // masked placeholder
@@ -764,7 +764,7 @@ func TestRepositoryPreserveSensitiveData(t *testing.T) {
 				}
 			},
 			checkPreserved: func(t *testing.T, repo *Repository) {
-				httpSpec, err := repo.Spec.GetHttpRepoSpec()
+				httpSpec, err := repo.Spec.AsHttpRepoSpec()
 				require.NoError(t, err)
 				assert.Equal(t, "httporiginal", *httpSpec.HttpConfig.Password, "Password should be preserved from existing")
 				assert.Equal(t, "tokenoriginal", *httpSpec.HttpConfig.Token, "Token should be preserved from existing")
@@ -774,10 +774,10 @@ func TestRepositoryPreserveSensitiveData(t *testing.T) {
 			name: "SSH repository preserves private key when masked",
 			setupExisting: func() *Repository {
 				spec := RepositorySpec{}
-				err := spec.FromSshRepoSpec(SshRepoSpec{
+				err := spec.FromGitRepoSpec(GitRepoSpec{
 					Url:  "git@github.com:org/repo.git",
-					Type: RepoSpecTypeGit,
-					SshConfig: SshConfig{
+					Type: GitRepoSpecTypeGit,
+					SshConfig: &SshConfig{
 						SshPrivateKey:        lo.ToPtr("-----BEGIN RSA PRIVATE KEY-----"),
 						PrivateKeyPassphrase: lo.ToPtr("originalpassphrase"),
 					},
@@ -792,10 +792,10 @@ func TestRepositoryPreserveSensitiveData(t *testing.T) {
 			},
 			setupNew: func() *Repository {
 				spec := RepositorySpec{}
-				err := spec.FromSshRepoSpec(SshRepoSpec{
+				err := spec.FromGitRepoSpec(GitRepoSpec{
 					Url:  "git@github.com:org/repo.git",
-					Type: RepoSpecTypeGit,
-					SshConfig: SshConfig{
+					Type: GitRepoSpecTypeGit,
+					SshConfig: &SshConfig{
 						SshPrivateKey:        lo.ToPtr("*****"), // masked placeholder
 						PrivateKeyPassphrase: lo.ToPtr("*****"), // masked placeholder
 					},
@@ -809,10 +809,10 @@ func TestRepositoryPreserveSensitiveData(t *testing.T) {
 				}
 			},
 			checkPreserved: func(t *testing.T, repo *Repository) {
-				sshSpec, err := repo.Spec.GetSshRepoSpec()
+				gitSpec, err := repo.Spec.AsGitRepoSpec()
 				require.NoError(t, err)
-				assert.Equal(t, "-----BEGIN RSA PRIVATE KEY-----", *sshSpec.SshConfig.SshPrivateKey, "SSH private key should be preserved from existing")
-				assert.Equal(t, "originalpassphrase", *sshSpec.SshConfig.PrivateKeyPassphrase, "SSH passphrase should be preserved from existing")
+				assert.Equal(t, "-----BEGIN RSA PRIVATE KEY-----", *gitSpec.SshConfig.SshPrivateKey, "SSH private key should be preserved from existing")
+				assert.Equal(t, "originalpassphrase", *gitSpec.SshConfig.PrivateKeyPassphrase, "SSH passphrase should be preserved from existing")
 			},
 		},
 		{
@@ -821,8 +821,8 @@ func TestRepositoryPreserveSensitiveData(t *testing.T) {
 				spec := RepositorySpec{}
 				err := spec.FromHttpRepoSpec(HttpRepoSpec{
 					Url:  "https://example.com/repo",
-					Type: RepoSpecTypeHttp,
-					HttpConfig: HttpConfig{
+					Type: HttpRepoSpecTypeHttp,
+					HttpConfig: &HttpConfig{
 						Username: lo.ToPtr("httpuser"),
 						Password: lo.ToPtr("oldpassword"),
 					},
@@ -839,8 +839,8 @@ func TestRepositoryPreserveSensitiveData(t *testing.T) {
 				spec := RepositorySpec{}
 				err := spec.FromHttpRepoSpec(HttpRepoSpec{
 					Url:  "https://example.com/repo",
-					Type: RepoSpecTypeHttp,
-					HttpConfig: HttpConfig{
+					Type: HttpRepoSpecTypeHttp,
+					HttpConfig: &HttpConfig{
 						Username: lo.ToPtr("httpuser"),
 						Password: lo.ToPtr("newpassword"), // actual new password
 					},
@@ -854,7 +854,7 @@ func TestRepositoryPreserveSensitiveData(t *testing.T) {
 				}
 			},
 			checkPreserved: func(t *testing.T, repo *Repository) {
-				httpSpec, err := repo.Spec.GetHttpRepoSpec()
+				httpSpec, err := repo.Spec.AsHttpRepoSpec()
 				require.NoError(t, err)
 				assert.Equal(t, "newpassword", *httpSpec.HttpConfig.Password, "New password should be used")
 			},

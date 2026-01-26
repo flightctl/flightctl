@@ -82,7 +82,7 @@ func newTestImageBuild(name string, bindingType string) api.ImageBuild {
 func createOCIRepository(ctx context.Context, repoStore flightctlstore.Repository, orgId uuid.UUID, name string, registry string, scheme *v1beta1.OciRepoSpecScheme) (*v1beta1.Repository, error) {
 	ociSpec := v1beta1.OciRepoSpec{
 		Registry: registry,
-		Type:     v1beta1.RepoSpecTypeOci,
+		Type:     v1beta1.OciRepoSpecTypeOci,
 		Scheme:   scheme,
 	}
 	spec := v1beta1.RepositorySpec{}
@@ -194,7 +194,7 @@ var _ = Describe("Containerfile Generation", func() {
 	Context("Early binding containerfile generation", func() {
 		It("should generate containerfile with agent config for early binding", func() {
 			// Create OCI repository
-			_, err := createOCIRepository(ctx, mainStoreInst.Repository(), orgId, "test-repo", "registry.example.com", lo.ToPtr(v1beta1.OciRepoSpecSchemeHttps))
+			_, err := createOCIRepository(ctx, mainStoreInst.Repository(), orgId, "test-repo", "registry.example.com", lo.ToPtr(v1beta1.Https))
 			Expect(err).ToNot(HaveOccurred())
 
 			// Create ImageBuild with early binding
@@ -291,7 +291,7 @@ var _ = Describe("Containerfile Generation", func() {
 		})
 
 		It("should handle repository with https scheme", func() {
-			_, err := createOCIRepository(ctx, mainStoreInst.Repository(), orgId, "https-repo", "registry.example.com", lo.ToPtr(v1beta1.OciRepoSpecSchemeHttps))
+			_, err := createOCIRepository(ctx, mainStoreInst.Repository(), orgId, "https-repo", "registry.example.com", lo.ToPtr(v1beta1.Https))
 			Expect(err).ToNot(HaveOccurred())
 
 			imageBuild := newTestImageBuild("test-build", "late")
@@ -309,7 +309,7 @@ var _ = Describe("Containerfile Generation", func() {
 		})
 
 		It("should handle repository with http scheme", func() {
-			_, err := createOCIRepository(ctx, mainStoreInst.Repository(), orgId, "http-repo", "localhost:5000", lo.ToPtr(v1beta1.OciRepoSpecSchemeHttp))
+			_, err := createOCIRepository(ctx, mainStoreInst.Repository(), orgId, "http-repo", "localhost:5000", lo.ToPtr(v1beta1.Http))
 			Expect(err).ToNot(HaveOccurred())
 
 			imageBuild := newTestImageBuild("test-build", "late")
@@ -347,8 +347,8 @@ var _ = Describe("Containerfile Generation", func() {
 		It("should return error when repository is not OCI type", func() {
 			// Create a Git repository instead of OCI
 			gitSpec := v1beta1.RepositorySpec{}
-			err := gitSpec.FromGenericRepoSpec(v1beta1.GenericRepoSpec{
-				Type: v1beta1.RepoSpecTypeGit,
+			err := gitSpec.FromGitRepoSpec(v1beta1.GitRepoSpec{
+				Type: v1beta1.GitRepoSpecTypeGit,
 				Url:  "https://github.com/example/repo.git",
 			})
 			Expect(err).ToNot(HaveOccurred())
@@ -454,9 +454,9 @@ var _ = Describe("Containerfile Generation", func() {
 	Context("User configuration in containerfile generation", func() {
 		It("should generate containerfile with user configuration for late binding", func() {
 			// Create OCI repositories (source and destination)
-			_, err := createOCIRepository(ctx, mainStoreInst.Repository(), orgId, "test-repo", "registry.example.com", lo.ToPtr(v1beta1.OciRepoSpecSchemeHttps))
+			_, err := createOCIRepository(ctx, mainStoreInst.Repository(), orgId, "test-repo", "registry.example.com", lo.ToPtr(v1beta1.Https))
 			Expect(err).ToNot(HaveOccurred())
-			_, err = createOCIRepository(ctx, mainStoreInst.Repository(), orgId, "output-repo", "registry.example.com", lo.ToPtr(v1beta1.OciRepoSpecSchemeHttps))
+			_, err = createOCIRepository(ctx, mainStoreInst.Repository(), orgId, "output-repo", "registry.example.com", lo.ToPtr(v1beta1.Https))
 			Expect(err).ToNot(HaveOccurred())
 
 			// Create ImageBuild with late binding and user configuration
@@ -496,9 +496,9 @@ var _ = Describe("Containerfile Generation", func() {
 
 		It("should generate containerfile with user configuration for early binding", func() {
 			// Create OCI repositories (source and destination)
-			_, err := createOCIRepository(ctx, mainStoreInst.Repository(), orgId, "test-repo", "registry.example.com", lo.ToPtr(v1beta1.OciRepoSpecSchemeHttps))
+			_, err := createOCIRepository(ctx, mainStoreInst.Repository(), orgId, "test-repo", "registry.example.com", lo.ToPtr(v1beta1.Https))
 			Expect(err).ToNot(HaveOccurred())
-			_, err = createOCIRepository(ctx, mainStoreInst.Repository(), orgId, "output-repo", "registry.example.com", lo.ToPtr(v1beta1.OciRepoSpecSchemeHttps))
+			_, err = createOCIRepository(ctx, mainStoreInst.Repository(), orgId, "output-repo", "registry.example.com", lo.ToPtr(v1beta1.Https))
 			Expect(err).ToNot(HaveOccurred())
 
 			// Create ImageBuild with early binding and user configuration
@@ -534,9 +534,9 @@ var _ = Describe("Containerfile Generation", func() {
 
 		It("should not include user configuration when not provided", func() {
 			// Create OCI repositories (source and destination)
-			_, err := createOCIRepository(ctx, mainStoreInst.Repository(), orgId, "test-repo", "registry.example.com", lo.ToPtr(v1beta1.OciRepoSpecSchemeHttps))
+			_, err := createOCIRepository(ctx, mainStoreInst.Repository(), orgId, "test-repo", "registry.example.com", lo.ToPtr(v1beta1.Https))
 			Expect(err).ToNot(HaveOccurred())
-			_, err = createOCIRepository(ctx, mainStoreInst.Repository(), orgId, "output-repo", "registry.example.com", lo.ToPtr(v1beta1.OciRepoSpecSchemeHttps))
+			_, err = createOCIRepository(ctx, mainStoreInst.Repository(), orgId, "output-repo", "registry.example.com", lo.ToPtr(v1beta1.Https))
 			Expect(err).ToNot(HaveOccurred())
 
 			// Create ImageBuild without user configuration
