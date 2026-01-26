@@ -18,12 +18,13 @@ Create an agent VM with greenboot installed:
 make agent-vm
 ```
 
-Get the VM IP and SSH in:
+Connect to the VM console:
 
 ```bash
-VM_IP=$(sudo virsh domifaddr flightctl-device-default | awk '/ipv4/ {print $4}' | cut -d'/' -f1)
-ssh user@$VM_IP
+sudo virsh console flightctl-device-default
 ```
+
+To exit the console, press `Ctrl + ]`.
 
 ## Health Check Implementation
 
