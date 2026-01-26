@@ -38,13 +38,6 @@ const (
 	KubernetesSecretProviderType ConfigProviderType = "secretRef"
 )
 
-type ApplicationProviderType string
-
-const (
-	ImageApplicationProviderType  ApplicationProviderType = "image"
-	InlineApplicationProviderType ApplicationProviderType = "inline"
-)
-
 type ApplicationVolumeProviderType string
 
 const (

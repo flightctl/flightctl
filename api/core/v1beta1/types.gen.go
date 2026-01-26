@@ -24,6 +24,12 @@ const (
 	AppTypeQuadlet   AppType = "quadlet"
 )
 
+// Defines values for ApplicationProviderType.
+const (
+	ImageApplicationProviderType  ApplicationProviderType = "image"
+	InlineApplicationProviderType ApplicationProviderType = "inline"
+)
+
 // Defines values for ApplicationStatusType.
 const (
 	ApplicationStatusCompleted ApplicationStatusType = "Completed"
@@ -310,11 +316,21 @@ const (
 	Github GitHubIntrospectionSpecType = "github"
 )
 
+// Defines values for ImageApplicationProviderSpecProviderType.
+const (
+	Image ImageApplicationProviderSpecProviderType = "image"
+)
+
 // Defines values for ImagePullPolicy.
 const (
 	PullAlways       ImagePullPolicy = "Always"
 	PullIfNotPresent ImagePullPolicy = "IfNotPresent"
 	PullNever        ImagePullPolicy = "Never"
+)
+
+// Defines values for InlineApplicationProviderSpecProviderType.
+const (
+	Inline InlineApplicationProviderSpecProviderType = "inline"
 )
 
 // Defines values for InternalTaskFailedDetailsDetailType.
@@ -586,6 +602,9 @@ type ApplicationProviderSpec struct {
 	Name  *string `json:"name,omitempty"`
 	union json.RawMessage
 }
+
+// ApplicationProviderType How the application content is provided.
+type ApplicationProviderType string
 
 // ApplicationResourceLimits Resource limits for the application.
 type ApplicationResourceLimits struct {
@@ -1907,12 +1926,18 @@ type ImageApplicationProviderSpec struct {
 	// Ports Port mappings.
 	Ports *[]ApplicationPort `json:"ports,omitempty"`
 
+	// ProviderType Provider type discriminator.
+	ProviderType *ImageApplicationProviderSpecProviderType `json:"providerType,omitempty"`
+
 	// Resources Resource constraints for the application.
 	Resources *ApplicationResources `json:"resources,omitempty"`
 
 	// Volumes List of application volumes.
 	Volumes *[]ApplicationVolume `json:"volumes,omitempty"`
 }
+
+// ImageApplicationProviderSpecProviderType Provider type discriminator.
+type ImageApplicationProviderSpecProviderType string
 
 // ImageMountVolumeProviderSpec Volume from OCI image mounted at specified path.
 type ImageMountVolumeProviderSpec struct {
@@ -1946,9 +1971,15 @@ type InlineApplicationProviderSpec struct {
 	// Inline A list of application content.
 	Inline []ApplicationContent `json:"inline"`
 
+	// ProviderType Provider type discriminator.
+	ProviderType *InlineApplicationProviderSpecProviderType `json:"providerType,omitempty"`
+
 	// Volumes List of application volumes.
 	Volumes *[]ApplicationVolume `json:"volumes,omitempty"`
 }
+
+// InlineApplicationProviderSpecProviderType Provider type discriminator.
+type InlineApplicationProviderSpecProviderType string
 
 // InlineConfigProviderSpec defines model for InlineConfigProviderSpec.
 type InlineConfigProviderSpec struct {

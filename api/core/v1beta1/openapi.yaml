@@ -4672,17 +4672,26 @@ components:
               description: The application name must be 1–253 characters long, start with a letter or number, and contain no whitespace.
             appType:
               $ref: '#/components/schemas/AppType'
-          required: 
+          required:
             - appType
         - oneOf:
             - $ref: '#/components/schemas/ImageApplicationProviderSpec'
             - $ref: '#/components/schemas/InlineApplicationProviderSpec'
+          discriminator:
+            propertyName: providerType
+            mapping:
+              image: '#/components/schemas/ImageApplicationProviderSpec'
+              inline: '#/components/schemas/InlineApplicationProviderSpec'
     ImageApplicationProviderSpec:
       type: object
       allOf:
         - $ref: '#/components/schemas/ApplicationVolumeProviderSpec'
         - type: object
           properties:
+            providerType:
+              type: string
+              enum: [image]
+              description: Provider type discriminator.
             image:
               type: string
               description: Reference to the OCI image or artifact for the application package.
@@ -4701,6 +4710,10 @@ components:
         - $ref: '#/components/schemas/ApplicationVolumeProviderSpec'
         - type: object
           properties:
+            providerType:
+              type: string
+              enum: [inline]
+              description: Provider type discriminator.
             inline:
               type: array
               description: A list of application content.
@@ -4838,6 +4851,15 @@ components:
         - "AppTypeCompose"
         - "AppTypeQuadlet"
         - "AppTypeContainer"
+    ApplicationProviderType:
+      type: string
+      description: How the application content is provided.
+      enum:
+        - image
+        - inline
+      x-enum-varnames:
+        - ImageApplicationProviderType
+        - InlineApplicationProviderType
     ResourceMonitor:
       oneOf:
         - $ref: '#/components/schemas/CpuResourceMonitorSpec'
