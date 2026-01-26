@@ -10,6 +10,9 @@ PAM_ISSUER_SANS=()
 UI_SANS=()
 CLI_ARTIFACTS_SANS=()
 IMAGEBUILDER_API_SANS=()
+PROMETHEUS_SANS=()
+GRAFANA_SANS=()
+USERINFO_PROXY_SANS=()
 NAMESPACE=""
 INTERNAL_NAMESPACE=""
 CREATE_K8S_SECRETS="false"
@@ -30,6 +33,9 @@ Optional:
   --ui-san <dns>                DNS SAN for flightctl-ui (can be specified multiple times)
   --cli-artifacts-san <dns>     DNS SAN for flightctl-cli-artifacts (can be specified multiple times)
   --imagebuilder-api-san <dns>  DNS SAN for flightctl-imagebuilder-api (can be specified multiple times)
+  --prometheus-san <dns>        DNS SAN for flightctl-prometheus (can be specified multiple times)
+  --grafana-san <dns>           DNS SAN for flightctl-grafana (can be specified multiple times)
+  --userinfo-proxy-san <dns>    DNS SAN for flightctl-userinfo-proxy (can be specified multiple times)
   --create-k8s-secrets          Create Kubernetes secrets using oc/kubectl
   --namespace <ns>              Kubernetes namespace (required if --create-k8s-secrets is set)
   --internal-namespace <ns>      Internal namespace to copy CA secrets to (optional)
@@ -70,6 +76,18 @@ while [[ $# -gt 0 ]]; do
             ;;
         --imagebuilder-api-san)
             IMAGEBUILDER_API_SANS+=("$2")
+            shift 2
+            ;;
+        --prometheus-san)
+            PROMETHEUS_SANS+=("$2")
+            shift 2
+            ;;
+        --grafana-san)
+            GRAFANA_SANS+=("$2")
+            shift 2
+            ;;
+        --userinfo-proxy-san)
+            USERINFO_PROXY_SANS+=("$2")
             shift 2
             ;;
         --create-k8s-secrets)
@@ -224,10 +242,10 @@ FLIGHTCTL_CA_KEY="$CERT_DIR/ca.key"
 FLIGHTCTL_CA_CERT="$CERT_DIR/ca.crt"
 
 if [[ -f "$FLIGHTCTL_CA_CERT" ]] && [[ -f "$FLIGHTCTL_CA_KEY" ]]; then
-    echo "[1/10] Skipped generation of Flight Control CA certificate (already exists)"
+    echo "[1/14] Skipped generation of Flight Control CA certificate (already exists)"
 else
     generate_root_ca "flightctl-ca" "$FLIGHTCTL_CA_KEY" "$FLIGHTCTL_CA_CERT"
-    echo "[1/10] Generated Flight Control CA certificate (10 years, ECDSA P-256)"
+    echo "[1/14] Generated Flight Control CA certificate (10 years, ECDSA P-256)"
 fi
 
 # Step 2: Client Signer CA (intermediate CA signed by Flight Control CA)
@@ -237,12 +255,12 @@ CLIENT_SIGNER_CA_KEY="$CERT_DIR/flightctl-api/client-signer.key"
 CLIENT_SIGNER_CA_CERT="$CERT_DIR/flightctl-api/client-signer.crt"
 
 if [[ -f "$CLIENT_SIGNER_CA_CERT" ]] && [[ -f "$CLIENT_SIGNER_CA_KEY" ]]; then
-    echo "[2/10] Skipped generation of Client Signer CA certificate (already exists)"
+    echo "[2/14] Skipped generation of Client Signer CA certificate (already exists)"
 else
     generate_intermediate_ca "flightctl-client-signer-ca" \
         "$CLIENT_SIGNER_CA_KEY" "$CLIENT_SIGNER_CA_CERT" \
         "$FLIGHTCTL_CA_CERT" "$FLIGHTCTL_CA_KEY"
-    echo "[2/10] Generated Client Signer CA certificate (10 years, ECDSA P-256)"
+    echo "[2/14] Generated Client Signer CA certificate (10 years, ECDSA P-256)"
 fi
 
 # Step 3: PAM Issuer Token Signer CA (intermediate CA signed by Flight Control CA)
@@ -253,15 +271,15 @@ if [[ ${#PAM_ISSUER_SANS[@]} -gt 0 ]]; then
     PAM_ISSUER_TOKEN_SIGNER_CA_CERT="$CERT_DIR/flightctl-pam-issuer/token-signer.crt"
 
     if [[ -f "$PAM_ISSUER_TOKEN_SIGNER_CA_CERT" ]] && [[ -f "$PAM_ISSUER_TOKEN_SIGNER_CA_KEY" ]]; then
-        echo "[3/10] Skipped generation of PAM Issuer Token Signer CA certificate (already exists)"
+        echo "[3/14] Skipped generation of PAM Issuer Token Signer CA certificate (already exists)"
     else
         generate_intermediate_ca "flightctl-pam-issuer-token-signer-ca" \
             "$PAM_ISSUER_TOKEN_SIGNER_CA_KEY" "$PAM_ISSUER_TOKEN_SIGNER_CA_CERT" \
             "$FLIGHTCTL_CA_CERT" "$FLIGHTCTL_CA_KEY"
-        echo "[3/10] Generated PAM Issuer Token Signer CA certificate (10 years, ECDSA P-256)"
+        echo "[3/14] Generated PAM Issuer Token Signer CA certificate (10 years, ECDSA P-256)"
     fi
 else
-    echo "[3/10] Skipped generation of PAM Issuer Token Signer CA certificate (no PAM Issuer SANs specified)"
+    echo "[3/14] Skipped generation of PAM Issuer Token Signer CA certificate (no PAM Issuer SANs specified)"
 fi
 
 # Step 4: API Server TLS certificate
@@ -271,13 +289,13 @@ API_SERVER_KEY="$CERT_DIR/flightctl-api/server.key"
 API_SERVER_CERT="$CERT_DIR/flightctl-api/server.crt"
 
 if [[ -f "$API_SERVER_CERT" ]] && [[ -f "$API_SERVER_KEY" ]]; then
-    echo "[4/10] Skipped generation of API Server TLS certificate (already exists)"
+    echo "[4/14] Skipped generation of API Server TLS certificate (already exists)"
 else
     generate_server_cert "flightctl-api" \
         "$API_SERVER_KEY" "$API_SERVER_CERT" \
         "$FLIGHTCTL_CA_CERT" "$FLIGHTCTL_CA_KEY" \
         "${API_SANS[@]}"
-    echo "[4/10] Generated API Server TLS certificate (2 years, ECDSA P-256)"
+    echo "[4/14] Generated API Server TLS certificate (2 years, ECDSA P-256)"
 fi
 
 # Step 5: PAM Issuer Server TLS certificate
@@ -288,16 +306,16 @@ if [[ ${#PAM_ISSUER_SANS[@]} -gt 0 ]]; then
     PAM_ISSUER_SERVER_CERT="$CERT_DIR/flightctl-pam-issuer/server.crt"
 
     if [[ -f "$PAM_ISSUER_SERVER_CERT" ]] && [[ -f "$PAM_ISSUER_SERVER_KEY" ]]; then
-        echo "[5/10] Skipped generation of PAM Issuer Server TLS certificate (already exists)"
+        echo "[5/14] Skipped generation of PAM Issuer Server TLS certificate (already exists)"
     else
         generate_server_cert "flightctl-pam-issuer" \
             "$PAM_ISSUER_SERVER_KEY" "$PAM_ISSUER_SERVER_CERT" \
             "$FLIGHTCTL_CA_CERT" "$FLIGHTCTL_CA_KEY" \
             "${PAM_ISSUER_SANS[@]}"
-        echo "[5/10] Generated PAM Issuer Server TLS certificate (2 years, ECDSA P-256)"
+        echo "[5/14] Generated PAM Issuer Server TLS certificate (2 years, ECDSA P-256)"
     fi
 else
-    echo "[5/10] Skipped generation of PAM Issuer Server TLS certificate (no PAM Issuer SANs specified)"
+    echo "[5/14] Skipped generation of PAM Issuer Server TLS certificate (no PAM Issuer SANs specified)"
 fi
 
 # Step 6: Telemetry Gateway TLS certificate
@@ -308,16 +326,16 @@ if [[ ${#TELEMETRY_SANS[@]} -gt 0 ]]; then
     TELEMETRY_CERT="$CERT_DIR/flightctl-telemetry-gateway/server.crt"
 
     if [[ -f "$TELEMETRY_CERT" ]] && [[ -f "$TELEMETRY_KEY" ]]; then
-        echo "[6/10] Skipped generation of Telemetry Gateway TLS certificate (already exists)"
+        echo "[6/14] Skipped generation of Telemetry Gateway TLS certificate (already exists)"
     else
         generate_server_cert "flightctl-telemetry-gateway" \
             "$TELEMETRY_KEY" "$TELEMETRY_CERT" \
             "$FLIGHTCTL_CA_CERT" "$FLIGHTCTL_CA_KEY" \
             "${TELEMETRY_SANS[@]}"
-        echo "[6/10] Generated Telemetry Gateway TLS certificate (2 years, ECDSA P-256)"
+        echo "[6/14] Generated Telemetry Gateway TLS certificate (2 years, ECDSA P-256)"
     fi
 else
-    echo "[6/10] Skipped generation of Telemetry Gateway TLS certificate (no SANs specified)"
+    echo "[6/14] Skipped generation of Telemetry Gateway TLS certificate (no SANs specified)"
 fi
 
 # Step 7: Alertmanager Proxy TLS certificate
@@ -328,16 +346,16 @@ if [[ ${#ALERTMANAGER_PROXY_SANS[@]} -gt 0 ]]; then
     ALERTMANAGER_PROXY_CERT="$CERT_DIR/flightctl-alertmanager-proxy/server.crt"
 
     if [[ -f "$ALERTMANAGER_PROXY_CERT" ]] && [[ -f "$ALERTMANAGER_PROXY_KEY" ]]; then
-        echo "[7/10] Skipped generation of Alertmanager Proxy TLS certificate (already exists)"
+        echo "[7/14] Skipped generation of Alertmanager Proxy TLS certificate (already exists)"
     else
         generate_server_cert "flightctl-alertmanager-proxy" \
             "$ALERTMANAGER_PROXY_KEY" "$ALERTMANAGER_PROXY_CERT" \
             "$FLIGHTCTL_CA_CERT" "$FLIGHTCTL_CA_KEY" \
             "${ALERTMANAGER_PROXY_SANS[@]}"
-        echo "[7/10] Generated Alertmanager Proxy TLS certificate (2 years, ECDSA P-256)"
+        echo "[7/14] Generated Alertmanager Proxy TLS certificate (2 years, ECDSA P-256)"
     fi
 else
-    echo "[7/10] Skipped generation of Alertmanager Proxy TLS certificate (no SANs specified)"
+    echo "[7/14] Skipped generation of Alertmanager Proxy TLS certificate (no SANs specified)"
 fi
 
 # Step 8: UI TLS certificate
@@ -348,16 +366,16 @@ if [[ ${#UI_SANS[@]} -gt 0 ]]; then
     UI_CERT="$CERT_DIR/flightctl-ui/server.crt"
 
     if [[ -f "$UI_CERT" ]] && [[ -f "$UI_KEY" ]]; then
-        echo "[8/10] Skipped generation of UI TLS certificate (already exists)"
+        echo "[8/14] Skipped generation of UI TLS certificate (already exists)"
     else
         generate_server_cert "flightctl-ui" \
             "$UI_KEY" "$UI_CERT" \
             "$FLIGHTCTL_CA_CERT" "$FLIGHTCTL_CA_KEY" \
             "${UI_SANS[@]}"
-        echo "[8/10] Generated UI TLS certificate (2 years, ECDSA P-256)"
+        echo "[8/14] Generated UI TLS certificate (2 years, ECDSA P-256)"
     fi
 else
-    echo "[8/10] Skipped generation of UI TLS certificate (no SANs specified)"
+    echo "[8/14] Skipped generation of UI TLS certificate (no SANs specified)"
 fi
 
 # Step 9: CLI Artifacts TLS certificate
@@ -368,16 +386,16 @@ if [[ ${#CLI_ARTIFACTS_SANS[@]} -gt 0 ]]; then
     CLI_ARTIFACTS_CERT="$CERT_DIR/flightctl-cli-artifacts/server.crt"
 
     if [[ -f "$CLI_ARTIFACTS_CERT" ]] && [[ -f "$CLI_ARTIFACTS_KEY" ]]; then
-        echo "[9/10] Skipped generation of CLI Artifacts TLS certificate (already exists)"
+        echo "[9/14] Skipped generation of CLI Artifacts TLS certificate (already exists)"
     else
         generate_server_cert "flightctl-cli-artifacts" \
             "$CLI_ARTIFACTS_KEY" "$CLI_ARTIFACTS_CERT" \
             "$FLIGHTCTL_CA_CERT" "$FLIGHTCTL_CA_KEY" \
             "${CLI_ARTIFACTS_SANS[@]}"
-        echo "[9/10] Generated CLI Artifacts TLS certificate (2 years, ECDSA P-256)"
+        echo "[9/14] Generated CLI Artifacts TLS certificate (2 years, ECDSA P-256)"
     fi
 else
-    echo "[9/10] Skipped generation of CLI Artifacts TLS certificate (no SANs specified)"
+    echo "[9/14] Skipped generation of CLI Artifacts TLS certificate (no SANs specified)"
 fi
 
 # Step 10: ImageBuilder API TLS certificate
@@ -388,19 +406,79 @@ if [[ ${#IMAGEBUILDER_API_SANS[@]} -gt 0 ]]; then
     IMAGEBUILDER_API_CERT="$CERT_DIR/flightctl-imagebuilder-api/server.crt"
 
     if [[ -f "$IMAGEBUILDER_API_CERT" ]] && [[ -f "$IMAGEBUILDER_API_KEY" ]]; then
-        echo "[10/11] Skipped generation of ImageBuilder API TLS certificate (already exists)"
+        echo "[10/14] Skipped generation of ImageBuilder API TLS certificate (already exists)"
     else
         generate_server_cert "flightctl-imagebuilder-api" \
             "$IMAGEBUILDER_API_KEY" "$IMAGEBUILDER_API_CERT" \
             "$FLIGHTCTL_CA_CERT" "$FLIGHTCTL_CA_KEY" \
             "${IMAGEBUILDER_API_SANS[@]}"
-        echo "[10/11] Generated ImageBuilder API TLS certificate (2 years, ECDSA P-256)"
+        echo "[10/14] Generated ImageBuilder API TLS certificate (2 years, ECDSA P-256)"
     fi
 else
-    echo "[10/11] Skipped generation of ImageBuilder API TLS certificate (no SANs specified)"
+    echo "[10/14] Skipped generation of ImageBuilder API TLS certificate (no SANs specified)"
 fi
 
-# Step 11: CA Bundle
+# Step 11: Prometheus TLS certificate
+if [[ ${#PROMETHEUS_SANS[@]} -gt 0 ]]; then
+    mkdir -p "$CERT_DIR/flightctl-prometheus"
+
+    PROMETHEUS_KEY="$CERT_DIR/flightctl-prometheus/server.key"
+    PROMETHEUS_CERT="$CERT_DIR/flightctl-prometheus/server.crt"
+
+    if [[ -f "$PROMETHEUS_CERT" ]] && [[ -f "$PROMETHEUS_KEY" ]]; then
+        echo "[11/14] Skipped generation of Prometheus TLS certificate (already exists)"
+    else
+        generate_server_cert "flightctl-prometheus" \
+            "$PROMETHEUS_KEY" "$PROMETHEUS_CERT" \
+            "$FLIGHTCTL_CA_CERT" "$FLIGHTCTL_CA_KEY" \
+            "${PROMETHEUS_SANS[@]}"
+        echo "[11/14] Generated Prometheus TLS certificate (2 years, ECDSA P-256)"
+    fi
+else
+    echo "[11/14] Skipped generation of Prometheus TLS certificate (no SANs specified)"
+fi
+
+# Step 12: Grafana TLS certificate
+if [[ ${#GRAFANA_SANS[@]} -gt 0 ]]; then
+    mkdir -p "$CERT_DIR/flightctl-grafana"
+
+    GRAFANA_KEY="$CERT_DIR/flightctl-grafana/server.key"
+    GRAFANA_CERT="$CERT_DIR/flightctl-grafana/server.crt"
+
+    if [[ -f "$GRAFANA_CERT" ]] && [[ -f "$GRAFANA_KEY" ]]; then
+        echo "[12/14] Skipped generation of Grafana TLS certificate (already exists)"
+    else
+        generate_server_cert "flightctl-grafana" \
+            "$GRAFANA_KEY" "$GRAFANA_CERT" \
+            "$FLIGHTCTL_CA_CERT" "$FLIGHTCTL_CA_KEY" \
+            "${GRAFANA_SANS[@]}"
+        echo "[12/14] Generated Grafana TLS certificate (2 years, ECDSA P-256)"
+    fi
+else
+    echo "[12/14] Skipped generation of Grafana TLS certificate (no SANs specified)"
+fi
+
+# Step 13: UserInfo Proxy TLS certificate
+if [[ ${#USERINFO_PROXY_SANS[@]} -gt 0 ]]; then
+    mkdir -p "$CERT_DIR/flightctl-userinfo-proxy"
+
+    USERINFO_PROXY_KEY="$CERT_DIR/flightctl-userinfo-proxy/server.key"
+    USERINFO_PROXY_CERT="$CERT_DIR/flightctl-userinfo-proxy/server.crt"
+
+    if [[ -f "$USERINFO_PROXY_CERT" ]] && [[ -f "$USERINFO_PROXY_KEY" ]]; then
+        echo "[13/14] Skipped generation of UserInfo Proxy TLS certificate (already exists)"
+    else
+        generate_server_cert "flightctl-userinfo-proxy" \
+            "$USERINFO_PROXY_KEY" "$USERINFO_PROXY_CERT" \
+            "$FLIGHTCTL_CA_CERT" "$FLIGHTCTL_CA_KEY" \
+            "${USERINFO_PROXY_SANS[@]}"
+        echo "[13/14] Generated UserInfo Proxy TLS certificate (2 years, ECDSA P-256)"
+    fi
+else
+    echo "[13/14] Skipped generation of UserInfo Proxy TLS certificate (no SANs specified)"
+fi
+
+# Step 14: CA Bundle
 CA_BUNDLE="$CERT_DIR/ca-bundle.crt"
 
 if [[ ${#PAM_ISSUER_SANS[@]} -gt 0 ]]; then
@@ -408,7 +486,7 @@ if [[ ${#PAM_ISSUER_SANS[@]} -gt 0 ]]; then
 else
     cat "$FLIGHTCTL_CA_CERT" "$CLIENT_SIGNER_CA_CERT" > "$CA_BUNDLE"
 fi
-echo "[11/11] Generated CA Bundle"
+echo "[14/14] Generated CA Bundle"
 
 # Clean up serial files
 rm -f "$CERT_DIR"/*.srl
