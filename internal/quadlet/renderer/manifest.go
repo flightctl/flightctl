@@ -110,7 +110,7 @@ func servicesManifest(config *RendererConfig) []InstallAction {
 		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "flightctl-db-migrate"), Mode: ExecutableFileMode},
 		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "flightctl-imagebuilder-api"), Mode: ExecutableFileMode},
 		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "flightctl-imagebuilder-worker"), Mode: ExecutableFileMode},
-		{Action: ActionCreateEmptyDir, Destination: filepath.Join("/var/tmp/flightctl-builds"), Mode: ExecutableFileMode},
-		{Action: ActionCreateEmptyDir, Destination: filepath.Join("/var/tmp/flightctl-exports"), Mode: ExecutableFileMode},
+		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.VarTmpOutputDir, "flightctl-builds"), Mode: ExecutableFileMode},
+		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.VarTmpOutputDir, "flightctl-exports"), Mode: ExecutableFileMode},
 	}
 }

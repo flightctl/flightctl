@@ -46,6 +46,7 @@ type RendererConfig struct {
 	QuadletFilesOutputDir    string `mapstructure:"quadlet-dir"`
 	SystemdUnitOutputDir     string `mapstructure:"systemd-dir"`
 	BinOutputDir             string `mapstructure:"bin-dir"`
+	VarTmpOutputDir          string `mapstructure:"var-tmp-dir"`
 
 	// Source directories for binary search
 	BinSourceDirs []string `mapstructure:"bin-source-dirs"`
@@ -77,6 +78,7 @@ func NewRendererConfig() *RendererConfig {
 		QuadletFilesOutputDir:    "/usr/share/containers/systemd",
 		SystemdUnitOutputDir:     "/usr/lib/systemd/system",
 		BinOutputDir:             "/usr/bin",
+		VarTmpOutputDir:          "/var/tmp",
 	}
 }
 

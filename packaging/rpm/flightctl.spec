@@ -502,7 +502,8 @@ echo "Flight Control Observability Stack uninstalled."
         --writeable-config-dir "%{buildroot}%{_sysconfdir}/flightctl" \
         --quadlet-dir "%{buildroot}%{_datadir}/containers/systemd" \
         --systemd-dir "%{buildroot}/usr/lib/systemd/system" \
-        --bin-dir "%{buildroot}/usr/bin"
+        --bin-dir "%{buildroot}/usr/bin" \
+        --var-tmp-dir "%{buildroot}%{_var}/tmp"
 
     # Copy services must gather script
     cp packaging/must-gather/flightctl-services-must-gather %{buildroot}%{_bindir}
@@ -693,6 +694,8 @@ rm -rf /usr/share/sosreport
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-db-migrate
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-imagebuilder-api
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-imagebuilder-worker
+    %dir %attr(0755,root,root) %{_var}/tmp/flightctl-builds
+    %dir %attr(0755,root,root) %{_var}/tmp/flightctl-exports
     %{_datadir}/flightctl/flightctl-api/config.yaml.template
     %{_datadir}/flightctl/flightctl-api/env.template
     %attr(0755,root,root) %{_datadir}/flightctl/flightctl-api/init.sh
