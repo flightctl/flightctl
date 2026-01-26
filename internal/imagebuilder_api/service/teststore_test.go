@@ -139,6 +139,12 @@ func (s *DummyImageBuildStore) Delete(ctx context.Context, orgId uuid.UUID, name
 		if lo.FromPtr(ib.Metadata.Name) == name {
 			var deleted api.ImageBuild
 			deepCopy(ib, &deleted)
+
+			// Cascading delete: remove related ImageExports
+			if s.imageExportStore != nil {
+				s.imageExportStore.DeleteByImageBuildRef(name)
+			}
+
 			*s.imageBuilds = append((*s.imageBuilds)[:i], (*s.imageBuilds)[i+1:]...)
 			return &deleted, nil
 		}
@@ -267,6 +273,19 @@ func (s *DummyImageExportStore) Delete(ctx context.Context, orgId uuid.UUID, nam
 	}
 	// Idempotent delete - return (nil, nil) if resource doesn't exist
 	return nil, nil
+}
+
+// DeleteByImageBuildRef deletes all ImageExports that reference the given ImageBuild name.
+// This is used for cascading delete when an ImageBuild is deleted.
+func (s *DummyImageExportStore) DeleteByImageBuildRef(imageBuildName string) {
+	filtered := make([]api.ImageExport, 0, len(*s.imageExports))
+	for _, ie := range *s.imageExports {
+		source, err := ie.Spec.Source.AsImageBuildRefSource()
+		if err != nil || source.ImageBuildRef != imageBuildName {
+			filtered = append(filtered, ie)
+		}
+	}
+	*s.imageExports = filtered
 }
 
 func (s *DummyImageExportStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, imageExport *api.ImageExport) (*api.ImageExport, error) {

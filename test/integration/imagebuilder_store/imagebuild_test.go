@@ -457,6 +457,109 @@ var _ = Describe("ImageBuildStore", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(deleted).To(BeNil())
 		})
+
+		It("should delete related ImageExports when deleting an ImageBuild (cascading delete)", func() {
+			// Create an ImageBuild
+			imageBuild := newTestImageBuild("cascade-delete-test")
+			_, err := storeInst.ImageBuild().Create(ctx, orgId, imageBuild)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Create ImageExports that reference the ImageBuild
+			export1 := &api.ImageExport{
+				ApiVersion: api.ImageExportAPIVersion,
+				Kind:       string(api.ResourceKindImageExport),
+				Metadata: v1beta1.ObjectMeta{
+					Name: lo.ToPtr("cascade-export-1"),
+				},
+				Spec: api.ImageExportSpec{
+					Source: func() api.ImageExportSource {
+						source := api.ImageExportSource{}
+						_ = source.FromImageBuildRefSource(api.ImageBuildRefSource{
+							Type:          api.ImageBuildRefSourceTypeImageBuild,
+							ImageBuildRef: "cascade-delete-test",
+						})
+						return source
+					}(),
+					Format: api.ExportFormatTypeQCOW2,
+				},
+			}
+			_, err = storeInst.ImageExport().Create(ctx, orgId, export1)
+			Expect(err).ToNot(HaveOccurred())
+
+			export2 := &api.ImageExport{
+				ApiVersion: api.ImageExportAPIVersion,
+				Kind:       string(api.ResourceKindImageExport),
+				Metadata: v1beta1.ObjectMeta{
+					Name: lo.ToPtr("cascade-export-2"),
+				},
+				Spec: api.ImageExportSpec{
+					Source: func() api.ImageExportSource {
+						source := api.ImageExportSource{}
+						_ = source.FromImageBuildRefSource(api.ImageBuildRefSource{
+							Type:          api.ImageBuildRefSourceTypeImageBuild,
+							ImageBuildRef: "cascade-delete-test",
+						})
+						return source
+					}(),
+					Format: api.ExportFormatTypeVMDK,
+				},
+			}
+			_, err = storeInst.ImageExport().Create(ctx, orgId, export2)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Create an unrelated ImageExport (should NOT be deleted)
+			unrelatedBuild := newTestImageBuild("unrelated-build")
+			_, err = storeInst.ImageBuild().Create(ctx, orgId, unrelatedBuild)
+			Expect(err).ToNot(HaveOccurred())
+
+			unrelatedExport := &api.ImageExport{
+				ApiVersion: api.ImageExportAPIVersion,
+				Kind:       string(api.ResourceKindImageExport),
+				Metadata: v1beta1.ObjectMeta{
+					Name: lo.ToPtr("unrelated-export"),
+				},
+				Spec: api.ImageExportSpec{
+					Source: func() api.ImageExportSource {
+						source := api.ImageExportSource{}
+						_ = source.FromImageBuildRefSource(api.ImageBuildRefSource{
+							Type:          api.ImageBuildRefSourceTypeImageBuild,
+							ImageBuildRef: "unrelated-build",
+						})
+						return source
+					}(),
+					Format: api.ExportFormatTypeQCOW2,
+				},
+			}
+			_, err = storeInst.ImageExport().Create(ctx, orgId, unrelatedExport)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Verify all exports exist before delete
+			_, err = storeInst.ImageExport().Get(ctx, orgId, "cascade-export-1")
+			Expect(err).ToNot(HaveOccurred())
+			_, err = storeInst.ImageExport().Get(ctx, orgId, "cascade-export-2")
+			Expect(err).ToNot(HaveOccurred())
+			_, err = storeInst.ImageExport().Get(ctx, orgId, "unrelated-export")
+			Expect(err).ToNot(HaveOccurred())
+
+			// Delete the ImageBuild - should cascade delete related exports
+			deleted, err := storeInst.ImageBuild().Delete(ctx, orgId, "cascade-delete-test")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(deleted).ToNot(BeNil())
+
+			// Verify ImageBuild is deleted
+			_, err = storeInst.ImageBuild().Get(ctx, orgId, "cascade-delete-test")
+			Expect(err).To(MatchError(flterrors.ErrResourceNotFound))
+
+			// Verify related ImageExports are deleted
+			_, err = storeInst.ImageExport().Get(ctx, orgId, "cascade-export-1")
+			Expect(err).To(MatchError(flterrors.ErrResourceNotFound))
+			_, err = storeInst.ImageExport().Get(ctx, orgId, "cascade-export-2")
+			Expect(err).To(MatchError(flterrors.ErrResourceNotFound))
+
+			// Verify unrelated ImageExport is NOT deleted
+			_, err = storeInst.ImageExport().Get(ctx, orgId, "unrelated-export")
+			Expect(err).ToNot(HaveOccurred())
+		})
 	})
 
 	Context("UpdateStatus", func() {
