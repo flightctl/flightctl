@@ -219,7 +219,9 @@ func (m *LifecycleManager) wipeAndReboot(ctx context.Context) error {
 	errs = m.deleteSpec(errs)
 
 	// TODO: incorporate before-reboot hooks
-	if err := m.systemdClient.Reboot(ctx); err != nil {
+	if m.systemdClient == nil {
+		m.log.Warnf("Systemd client not available, skipping reboot")
+	} else if err := m.systemdClient.Reboot(ctx); err != nil {
 		errs = append(errs, fmt.Errorf("failed to initiate system reboot: %w", err))
 	}
 	if len(errs) > 0 {
@@ -364,8 +366,10 @@ func (m *LifecycleManager) writeQRBanner(ctx context.Context, message, url strin
 		return fmt.Errorf("failed to write banner to disk: %w", err)
 	}
 
-	if err := m.systemdClient.SdNotify(ctx, "READY=1"); err != nil {
-		m.log.Warnf("Failed to notify systemd: %v", err)
+	if m.systemdClient != nil {
+		if err := m.systemdClient.SdNotify(ctx, "READY=1"); err != nil {
+			m.log.Warnf("Failed to notify systemd: %v", err)
+		}
 	}
 
 	value := os.Getenv("FLIGHTCTL_DISABLE_CONSOLE_BANNER")
