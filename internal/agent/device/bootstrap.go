@@ -42,7 +42,6 @@ type Bootstrap struct {
 	managementClient          client.Management
 	managementMetricsCallback client.RPCMetricsCallback
 	identityProvider          identity.Provider
-	reportConnectivityStatus  bool
 
 	log *log.PrefixLogger
 }
@@ -60,7 +59,6 @@ func NewBootstrap(
 	managementMetricsCallback client.RPCMetricsCallback,
 	podmanClient *client.Podman,
 	systemdClient *client.Systemd,
-	reportConnectivityStatus bool,
 	identityProvider identity.Provider,
 	log *log.PrefixLogger,
 ) *Bootstrap {
@@ -77,7 +75,6 @@ func NewBootstrap(
 		managementMetricsCallback: managementMetricsCallback,
 		podmanClient:              podmanClient,
 		systemdClient:             systemdClient,
-		reportConnectivityStatus:  reportConnectivityStatus,
 		identityProvider:          identityProvider,
 		log:                       log,
 	}
@@ -131,9 +128,9 @@ func (b *Bootstrap) Initialize(ctx context.Context) error {
 
 	b.updateStatus(ctx)
 
-	// Report connectivity status to systemd if enabled.
+	// Report connectivity status to systemd.
 	// This is visible via `systemctl status flightctl-agent` as StatusText.
-	if b.reportConnectivityStatus && b.systemdClient != nil {
+	if b.systemdClient != nil {
 		if err := b.systemdClient.SdNotify(ctx, "STATUS=Connected"); err != nil {
 			b.log.Debugf("Failed to notify systemd of connectivity status: %v", err)
 		}
