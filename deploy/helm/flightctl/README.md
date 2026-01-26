@@ -6,6 +6,34 @@ A helm chart for FlightControl
 
 **Homepage:** <https://github.com/flightctl/flightctl>
 
+## Prerequisites
+
+### Pod Security Standards
+
+The `flightctl-imagebuilder-worker` component requires elevated privileges to build OS images using osbuild/bootc. It needs:
+
+- Privileged container access
+- Host device access (`/dev`, `/sys`, `/lib/modules`)
+- Capabilities: `SYS_ADMIN`, `MKNOD`, `SYS_CHROOT`, `SETFCAP`
+
+If your namespace enforces the "restricted" Pod Security Standard, you will see warnings during deployment. To suppress these warnings, configure the namespace labels:
+
+```bash
+kubectl label namespace <namespace> \
+  pod-security.kubernetes.io/enforce=privileged \
+  pod-security.kubernetes.io/warn=privileged \
+  pod-security.kubernetes.io/audit=privileged
+```
+
+On OpenShift clusters, the chart automatically creates a SecurityContextConstraints (SCC) that grants the required permissions to the `flightctl-imagebuilder-worker` service account.
+
+If you don't need image building capabilities, you can disable the imagebuilder-worker:
+
+```yaml
+imageBuilderWorker:
+  enabled: false
+```
+
 ## Installation
 
 ### Install Chart
