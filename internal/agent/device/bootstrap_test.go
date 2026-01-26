@@ -160,18 +160,17 @@ func TestInitialization(t *testing.T) {
 			systemdClient := client.NewSystemd(mockExecutor)
 
 			b := &Bootstrap{
-				statusManager:            mockStatusManager,
-				specManager:              mockSpecManager,
-				hookManager:              mockHookManager,
-				lifecycle:                mockLifecycleInitializer,
-				deviceReadWriter:         mockReadWriter,
-				managementServiceConfig:  &baseclient.Config{},
-				systemInfoManager:        mockSystemInfoManager,
-				podmanClient:             podmanClient,
-				systemdClient:            systemdClient,
-				reportConnectivityStatus: true,
-				identityProvider:         mockIdentityProvider,
-				log:                      log,
+				statusManager:           mockStatusManager,
+				specManager:             mockSpecManager,
+				hookManager:             mockHookManager,
+				lifecycle:               mockLifecycleInitializer,
+				deviceReadWriter:        mockReadWriter,
+				managementServiceConfig: &baseclient.Config{},
+				systemInfoManager:       mockSystemInfoManager,
+				podmanClient:            podmanClient,
+				systemdClient:           systemdClient,
+				identityProvider:        mockIdentityProvider,
+				log:                     log,
 			}
 
 			ctx := context.TODO()

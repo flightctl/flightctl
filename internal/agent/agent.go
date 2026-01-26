@@ -339,7 +339,6 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.config.GetManagementMetricsCallback(),
 		rootPodmanClient,
 		rootSystemdClient,
-		a.config.ReportConnectivityStatus,
 		identityProvider,
 		a.log,
 	)
