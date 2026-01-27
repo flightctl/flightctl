@@ -13,6 +13,7 @@ import (
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/store"
 	flightctlstore "github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/testutil"
+	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	testutilpkg "github.com/flightctl/flightctl/test/util"
 	"github.com/google/uuid"
@@ -464,12 +465,13 @@ var _ = Describe("ImageBuildStore", func() {
 			_, err := storeInst.ImageBuild().Create(ctx, orgId, imageBuild)
 			Expect(err).ToNot(HaveOccurred())
 
-			// Create ImageExports that reference the ImageBuild
+			// Create ImageExports that reference the ImageBuild (with Owner field set for cascading delete)
 			export1 := &api.ImageExport{
 				ApiVersion: api.ImageExportAPIVersion,
 				Kind:       string(api.ResourceKindImageExport),
 				Metadata: v1beta1.ObjectMeta{
-					Name: lo.ToPtr("cascade-export-1"),
+					Name:  lo.ToPtr("cascade-export-1"),
+					Owner: util.SetResourceOwner(string(api.ResourceKindImageBuild), "cascade-delete-test"),
 				},
 				Spec: api.ImageExportSpec{
 					Source: func() api.ImageExportSource {
@@ -490,7 +492,8 @@ var _ = Describe("ImageBuildStore", func() {
 				ApiVersion: api.ImageExportAPIVersion,
 				Kind:       string(api.ResourceKindImageExport),
 				Metadata: v1beta1.ObjectMeta{
-					Name: lo.ToPtr("cascade-export-2"),
+					Name:  lo.ToPtr("cascade-export-2"),
+					Owner: util.SetResourceOwner(string(api.ResourceKindImageBuild), "cascade-delete-test"),
 				},
 				Spec: api.ImageExportSpec{
 					Source: func() api.ImageExportSource {
@@ -507,7 +510,7 @@ var _ = Describe("ImageBuildStore", func() {
 			_, err = storeInst.ImageExport().Create(ctx, orgId, export2)
 			Expect(err).ToNot(HaveOccurred())
 
-			// Create an unrelated ImageExport (should NOT be deleted)
+			// Create an unrelated ImageExport (should NOT be deleted - different owner)
 			unrelatedBuild := newTestImageBuild("unrelated-build")
 			_, err = storeInst.ImageBuild().Create(ctx, orgId, unrelatedBuild)
 			Expect(err).ToNot(HaveOccurred())
@@ -516,7 +519,8 @@ var _ = Describe("ImageBuildStore", func() {
 				ApiVersion: api.ImageExportAPIVersion,
 				Kind:       string(api.ResourceKindImageExport),
 				Metadata: v1beta1.ObjectMeta{
-					Name: lo.ToPtr("unrelated-export"),
+					Name:  lo.ToPtr("unrelated-export"),
+					Owner: util.SetResourceOwner(string(api.ResourceKindImageBuild), "unrelated-build"),
 				},
 				Spec: api.ImageExportSpec{
 					Source: func() api.ImageExportSource {
