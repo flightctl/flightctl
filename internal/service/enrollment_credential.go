@@ -82,7 +82,9 @@ func (h *ServiceHandler) GenerateEnrollmentCredential(ctx context.Context, orgId
 
 	// Submit CSR through the service with internal request context
 	// This ensures the Owner field is preserved (not nil'd out)
+	// Also add orgId to context so WithOrgIDExtension can inject it into the certificate
 	internalCtx := context.WithValue(ctx, consts.InternalRequestCtxKey, true)
+	internalCtx = util.WithOrganizationID(internalCtx, orgId)
 	result, status := h.CreateCertificateSigningRequest(internalCtx, orgId, csrResource)
 	if status.Code != 201 && status.Code != 200 {
 		return nil, status
