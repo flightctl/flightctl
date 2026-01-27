@@ -36,11 +36,11 @@ const (
 // ---- ConfigProvider ----
 
 type managementConfigProvider struct {
-	renewBeforeExpiry time.Duration
+	renewBeforeExpiryPercentage int32
 }
 
-func NewManagementConfigProvider(renewBeforeExpiry time.Duration) *managementConfigProvider {
-	return &managementConfigProvider{renewBeforeExpiry: renewBeforeExpiry}
+func NewManagementConfigProvider(renewBeforeExpiryPercentage int32) *managementConfigProvider {
+	return &managementConfigProvider{renewBeforeExpiryPercentage: renewBeforeExpiryPercentage}
 }
 
 func (p *managementConfigProvider) Name() string { return configProviderName }
@@ -63,7 +63,7 @@ func (p *managementConfigProvider) GetCertificateConfigs() ([]certmanager.Certif
 
 	// Fall back to provider default only if neither override is set
 	if cfg.RenewBefore == nil && cfg.RenewBeforePercentage == nil {
-		cfg.RenewBefore = &p.renewBeforeExpiry
+		cfg.RenewBeforePercentage = &p.renewBeforeExpiryPercentage
 	}
 
 	return []certmanager.CertificateConfig{cfg}, nil

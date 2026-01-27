@@ -25,8 +25,8 @@ const (
 	certsBundleName       = "certs-config-yaml"
 	certsBundleConfigFile = "certs.yaml"
 
-	defaultSyncInterval = time.Hour
-	renewBeforeExpiry   = 30 * 24 * time.Hour
+	defaultSyncInterval         = time.Hour
+	renewBeforeExpiryPercentage = 75
 )
 
 type AgentCertManager struct {
@@ -101,7 +101,7 @@ func NewAgentCertManager(
 	managementBundle, err := pkgcertmanager.NewBundle(
 		managementBundleName,
 		pkgcertmanager.WithConfigProvider(
-			management.NewManagementConfigProvider(renewBeforeExpiry),
+			management.NewManagementConfigProvider(renewBeforeExpiryPercentage),
 		),
 		pkgcertmanager.WithProvisionerFactory(managementProvisionerFactory),
 		pkgcertmanager.WithStorageFactory(managementStorageFactory),
