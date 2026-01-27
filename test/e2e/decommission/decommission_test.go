@@ -9,19 +9,6 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-const (
-	TIMEOUT       = "5m"
-	REBOOT_TIMOUT = "3m"
-	POLLING       = "5s"
-)
-
-// Agent credential paths that should be wiped after decommission
-const (
-	AgentCertPath = "/var/lib/flightctl/certs/agent.crt"
-	AgentKeyPath  = "/var/lib/flightctl/certs/agent.key"
-	AgentCSRPath  = "/var/lib/flightctl/certs/agent.csr"
-)
-
 var _ = Describe("CLI decommission test", func() {
 
 	Context("decommission", func() {
@@ -68,6 +55,24 @@ var _ = Describe("CLI decommission test", func() {
 			By("Verifying the agent management certificate no longer exists (requires re-enrollment)")
 			_, err = harness.VM.RunSSH([]string{"test", "-f", AgentCertPath}, nil)
 			Expect(err).To(HaveOccurred(), "Expected certificate file %s to NOT exist after decommission - agent needs to re-enroll", AgentCertPath)
+
+			// Verify spec JSON files do not contain the old device ID after decommission
+			// Note: The agent may recreate these files on startup, but they should not contain
+			// the old device's data since the identity was wiped
+			By("Verifying the spec JSON files do not contain the old device ID")
+			specFiles := []string{DesiredSpecPath, CurrentSpecPath, RollbackSpecPath}
+			for _, specFile := range specFiles {
+				output, err := harness.VM.RunSSH([]string{"sudo", "cat", specFile}, nil)
+				if err == nil && output.Len() > 0 {
+					// File exists, verify it doesn't contain the old device ID
+					Expect(output.String()).NotTo(ContainSubstring(deviceId),
+						"Expected %s to NOT contain old device ID %s after decommission", specFile, deviceId)
+					GinkgoWriter.Printf("Verified: %s does not contain old device ID\n", specFile)
+				} else {
+					// File doesn't exist or is empty - this is also acceptable
+					GinkgoWriter.Printf("Verified: %s does not exist or is empty\n", specFile)
+				}
+			}
 
 			// After reboot, the agent generates a new key and attempts to re-enroll with a new device ID
 			// The device ID is derived from the public key hash, so a new key means a new ID
