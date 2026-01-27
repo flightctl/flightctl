@@ -247,7 +247,7 @@ func TestRepositoryExampleHttp(t *testing.T) {
 	httpSpec, err := retrieved.Spec.AsHttpRepoSpec()
 	require.NoError(err)
 	require.Equal("https://my-server.com/flightctl", httpSpec.Url)
-	require.Equal(domain.RepoSpecTypeHttp, httpSpec.Type)
+	require.Equal(domain.HttpRepoSpecTypeHttp, httpSpec.Type)
 	require.NotNil(httpSpec.HttpConfig.Username)
 	require.Equal("myusername", *httpSpec.HttpConfig.Username)
 	require.NotNil(httpSpec.HttpConfig.Password)

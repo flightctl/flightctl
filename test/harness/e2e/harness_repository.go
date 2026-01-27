@@ -46,10 +46,10 @@ func (h *Harness) CreateRepositoryWithSSHCredentials(repoName, repoURL, sshPriva
 	sshPrivateKeyBase64 := base64.StdEncoding.EncodeToString([]byte(sshPrivateKey))
 
 	repoSpec := v1beta1.RepositorySpec{}
-	err := repoSpec.FromSshRepoSpec(v1beta1.SshRepoSpec{
+	err := repoSpec.FromGitRepoSpec(v1beta1.GitRepoSpec{
 		Url:  repoURL,
-		Type: v1beta1.RepoSpecTypeGit,
-		SshConfig: v1beta1.SshConfig{
+		Type: v1beta1.GitRepoSpecTypeGit,
+		SshConfig: &v1beta1.SshConfig{
 			SshPrivateKey:          lo.ToPtr(sshPrivateKeyBase64),
 			SkipServerVerification: lo.ToPtr(true),
 		},
