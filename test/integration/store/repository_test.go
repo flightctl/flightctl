@@ -293,7 +293,8 @@ var _ = Describe("RepositoryStore create", func() {
 			for i := 10; i <= 11; i++ {
 				spec := api.RepositorySpec{}
 				err := spec.FromGitRepoSpec(api.GitRepoSpec{
-					Url: "myrepo",
+					Url:  "myrepo",
+					Type: api.GitRepoSpecTypeGit,
 				})
 				Expect(err).ToNot(HaveOccurred())
 
@@ -369,7 +370,7 @@ var _ = Describe("RepositoryStore create", func() {
 			ociSpec, err := repo.Spec.AsOciRepoSpec()
 			Expect(err).ToNot(HaveOccurred())
 			Expect(ociSpec.Registry).To(Equal("quay.io"))
-			Expect(ociSpec.Type).To(Equal(api.RepoSpecTypeOci))
+			Expect(ociSpec.Type).To(Equal(api.OciRepoSpecTypeOci))
 			Expect(*ociSpec.AccessMode).To(Equal(api.ReadWrite))
 			Expect(ociSpec.OciAuth).ToNot(BeNil())
 			dockerAuth, err := ociSpec.OciAuth.AsDockerAuth()
@@ -461,7 +462,7 @@ var _ = Describe("RepositoryStore create", func() {
 			ociSpec, err := repositories.Items[0].Spec.AsOciRepoSpec()
 			Expect(err).ToNot(HaveOccurred())
 			Expect(ociSpec.Registry).To(Equal("quay.io"))
-			Expect(ociSpec.Type).To(Equal(api.RepoSpecTypeOci))
+			Expect(ociSpec.Type).To(Equal(api.OciRepoSpecTypeOci))
 			Expect(*ociSpec.AccessMode).To(Equal(api.ReadWrite))
 
 			// List only read-only repositories
@@ -475,7 +476,7 @@ var _ = Describe("RepositoryStore create", func() {
 			ociSpec, err = repositories.Items[0].Spec.AsOciRepoSpec()
 			Expect(err).ToNot(HaveOccurred())
 			Expect(ociSpec.Registry).To(Equal("registry.redhat.io"))
-			Expect(ociSpec.Type).To(Equal(api.RepoSpecTypeOci))
+			Expect(ociSpec.Type).To(Equal(api.OciRepoSpecTypeOci))
 			Expect(*ociSpec.AccessMode).To(Equal(api.Read))
 		})
 
@@ -509,7 +510,7 @@ var _ = Describe("RepositoryStore create", func() {
 			ociSpec, err := repo.Spec.AsOciRepoSpec()
 			Expect(err).ToNot(HaveOccurred())
 			Expect(ociSpec.Registry).To(Equal("quay.io"))
-			Expect(ociSpec.Type).To(Equal(api.RepoSpecTypeOci))
+			Expect(ociSpec.Type).To(Equal(api.OciRepoSpecTypeOci))
 			Expect(*ociSpec.AccessMode).To(Equal(api.ReadWrite))
 			Expect(ociSpec.OciAuth).ToNot(BeNil())
 			dockerAuth, err := ociSpec.OciAuth.AsDockerAuth()

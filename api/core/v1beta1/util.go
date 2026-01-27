@@ -540,11 +540,11 @@ func (r *Repository) PreserveSensitiveData(existing SensitiveDataPreserver) erro
 	case string(RepoSpecTypeGit):
 		git, err := spec.AsGitRepoSpec()
 		if err != nil {
-			return nil
+			return err
 		}
 		existingGit, err := existingRepo.Spec.AsGitRepoSpec()
 		if err != nil {
-			return nil
+			return err
 		}
 		preserveSshConfig(git.SshConfig, existingGit.SshConfig)
 		preserveHttpConfig(git.HttpConfig, existingGit.HttpConfig)

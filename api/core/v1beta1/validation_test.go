@@ -2252,7 +2252,7 @@ func TestRepository_Validate_BackwardCompatibility(t *testing.T) {
 			Url:  "git@github.com:example/repo.git",
 			Type: GitRepoSpecTypeGit,
 			SshConfig: &SshConfig{
-				SshPrivateKey: lo.ToPtr("LS0tLS1CRUdJTiBSU0EgUFJJVkFURSBLRVktLS0tLQ=="), // base64 encoded "-----BEGIN RSA PRIVATE KEY-----"
+				SshPrivateKey: lo.ToPtr("UExBQ0VIT0xERVJfUFJJVkFURV9LRVlfREFUQQ=="),
 			},
 		})
 		require.NoError(t, err)
@@ -2280,7 +2280,7 @@ func TestRepository_Validate_BackwardCompatibility(t *testing.T) {
 				Password: lo.ToPtr("pass"),
 			},
 			SshConfig: &SshConfig{
-				SshPrivateKey: lo.ToPtr("LS0tLS1CRUdJTiBSU0EgUFJJVkFURSBLRVktLS0tLQ=="),
+				SshPrivateKey: lo.ToPtr("UExBQ0VIT0xERVJfUFJJVkFURV9LRVlfREFUQQ=="),
 			},
 		})
 		require.NoError(t, err)

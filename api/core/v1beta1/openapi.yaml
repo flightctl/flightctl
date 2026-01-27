@@ -4351,6 +4351,10 @@ components:
       required:
         - url
         - type
+      not:
+        required:
+          - httpConfig
+          - sshConfig
     OciAuthType:
       type: string
       description: The type of authentication for OCI registries.

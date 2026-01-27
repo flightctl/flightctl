@@ -311,6 +311,16 @@ const (
 	Github GitHubIntrospectionSpecType = "github"
 )
 
+// Defines values for GitRepoSpecType.
+const (
+	GitRepoSpecTypeGit GitRepoSpecType = "git"
+)
+
+// Defines values for HttpRepoSpecType.
+const (
+	HttpRepoSpecTypeHttp HttpRepoSpecType = "http"
+)
+
 // Defines values for ImagePullPolicy.
 const (
 	PullAlways       ImagePullPolicy = "Always"
@@ -369,8 +379,13 @@ const (
 
 // Defines values for OciRepoSpecScheme.
 const (
-	OciRepoSpecSchemeHttp  OciRepoSpecScheme = "http"
-	OciRepoSpecSchemeHttps OciRepoSpecScheme = "https"
+	Http  OciRepoSpecScheme = "http"
+	Https OciRepoSpecScheme = "https"
+)
+
+// Defines values for OciRepoSpecType.
+const (
+	OciRepoSpecTypeOci OciRepoSpecType = "oci"
 )
 
 // Defines values for OpenShiftProviderSpecProviderType.
@@ -1830,15 +1845,6 @@ type FleetStatus struct {
 	Rollout *FleetRolloutStatus `json:"rollout,omitempty"`
 }
 
-// GenericRepoSpec defines model for GenericRepoSpec.
-type GenericRepoSpec struct {
-	// Type RepoSpecType is the type of the repository.
-	Type RepoSpecType `json:"type"`
-
-	// Url The (possibly remote) repository URL.
-	Url string `json:"url"`
-}
-
 // GitConfigProviderSpec defines model for GitConfigProviderSpec.
 type GitConfigProviderSpec struct {
 	// GitRef The reference to a Git configuration server.
@@ -1868,6 +1874,24 @@ type GitHubIntrospectionSpec struct {
 
 // GitHubIntrospectionSpecType The introspection type.
 type GitHubIntrospectionSpecType string
+
+// GitRepoSpec Git repository specification. Supports no auth (public repos), HTTP/HTTPS auth, or SSH auth.
+type GitRepoSpec struct {
+	// HttpConfig Configuration for HTTP transport.
+	HttpConfig *HttpConfig `json:"httpConfig,omitempty"`
+
+	// SshConfig Configuration for SSH transport.
+	SshConfig *SshConfig `json:"sshConfig,omitempty"`
+
+	// Type The repository type discriminator.
+	Type GitRepoSpecType `json:"type"`
+
+	// Url The Git repository URL to clone from.
+	Url string `json:"url"`
+}
+
+// GitRepoSpecType The repository type discriminator.
+type GitRepoSpecType string
 
 // HelmApplication defines model for HelmApplication.
 type HelmApplication struct {
@@ -1971,20 +1995,23 @@ type HttpConfigProviderSpec struct {
 	Name string `json:"name"`
 }
 
-// HttpRepoSpec defines model for HttpRepoSpec.
+// HttpRepoSpec HTTP endpoint specification for fetching configuration.
 type HttpRepoSpec struct {
 	// HttpConfig Configuration for HTTP transport.
-	HttpConfig HttpConfig `json:"httpConfig"`
+	HttpConfig *HttpConfig `json:"httpConfig,omitempty"`
 
-	// Type RepoSpecType is the type of the repository.
-	Type RepoSpecType `json:"type"`
+	// Type The repository type discriminator.
+	Type HttpRepoSpecType `json:"type"`
 
-	// Url The HTTP URL to call or clone from.
+	// Url The HTTP URL to call.
 	Url string `json:"url"`
 
 	// ValidationSuffix URL suffix used only for validating access to the repository. Users might use the URL field as a root URL to be used by config sources adding suffixes. This will help with the validation of the http endpoint.
 	ValidationSuffix *string `json:"validationSuffix,omitempty"`
 }
+
+// HttpRepoSpecType The repository type discriminator.
+type HttpRepoSpecType string
 
 // ImageApplicationProviderSpec defines model for ImageApplicationProviderSpec.
 type ImageApplicationProviderSpec struct {
@@ -2352,8 +2379,8 @@ type OciRepoSpec struct {
 	// SkipServerVerification Skip remote server verification.
 	SkipServerVerification *bool `json:"skipServerVerification,omitempty"`
 
-	// Type RepoSpecType is the type of the repository.
-	Type RepoSpecType `json:"type"`
+	// Type The repository type discriminator.
+	Type OciRepoSpecType `json:"type"`
 }
 
 // OciRepoSpecAccessMode Access mode for the registry: "Read" for read-only (pull), "ReadWrite" for read-write (pull and push).
@@ -2361,6 +2388,9 @@ type OciRepoSpecAccessMode string
 
 // OciRepoSpecScheme URL scheme for connecting to the registry.
 type OciRepoSpecScheme string
+
+// OciRepoSpecType The repository type discriminator.
+type OciRepoSpecType string
 
 // OpenShiftProviderSpec OpenShiftProviderSpec describes an OpenShift OAuth provider configuration.
 type OpenShiftProviderSpec struct {
@@ -2736,18 +2766,6 @@ type SshConfig struct {
 
 	// SshPrivateKey Base64 encoded private SSH key.
 	SshPrivateKey *string `json:"sshPrivateKey,omitempty"`
-}
-
-// SshRepoSpec defines model for SshRepoSpec.
-type SshRepoSpec struct {
-	// SshConfig Configuration for SSH transport.
-	SshConfig SshConfig `json:"sshConfig"`
-
-	// Type RepoSpecType is the type of the repository.
-	Type RepoSpecType `json:"type"`
-
-	// Url The SSH Git repository URL to clone from.
-	Url string `json:"url"`
 }
 
 // Status Status is a return value for calls that don't return other objects.
@@ -5414,22 +5432,24 @@ func (t *QuadletApplication) UnmarshalJSON(b []byte) error {
 	return err
 }
 
-// AsGenericRepoSpec returns the union data inside the RepositorySpec as a GenericRepoSpec
-func (t RepositorySpec) AsGenericRepoSpec() (GenericRepoSpec, error) {
-	var body GenericRepoSpec
+// AsGitRepoSpec returns the union data inside the RepositorySpec as a GitRepoSpec
+func (t RepositorySpec) AsGitRepoSpec() (GitRepoSpec, error) {
+	var body GitRepoSpec
 	err := json.Unmarshal(t.union, &body)
 	return body, err
 }
 
-// FromGenericRepoSpec overwrites any union data inside the RepositorySpec as the provided GenericRepoSpec
-func (t *RepositorySpec) FromGenericRepoSpec(v GenericRepoSpec) error {
+// FromGitRepoSpec overwrites any union data inside the RepositorySpec as the provided GitRepoSpec
+func (t *RepositorySpec) FromGitRepoSpec(v GitRepoSpec) error {
+	v.Type = "git"
 	b, err := json.Marshal(v)
 	t.union = b
 	return err
 }
 
-// MergeGenericRepoSpec performs a merge with any union data inside the RepositorySpec, using the provided GenericRepoSpec
-func (t *RepositorySpec) MergeGenericRepoSpec(v GenericRepoSpec) error {
+// MergeGitRepoSpec performs a merge with any union data inside the RepositorySpec, using the provided GitRepoSpec
+func (t *RepositorySpec) MergeGitRepoSpec(v GitRepoSpec) error {
+	v.Type = "git"
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
@@ -5449,6 +5469,7 @@ func (t RepositorySpec) AsHttpRepoSpec() (HttpRepoSpec, error) {
 
 // FromHttpRepoSpec overwrites any union data inside the RepositorySpec as the provided HttpRepoSpec
 func (t *RepositorySpec) FromHttpRepoSpec(v HttpRepoSpec) error {
+	v.Type = "http"
 	b, err := json.Marshal(v)
 	t.union = b
 	return err
@@ -5456,32 +5477,7 @@ func (t *RepositorySpec) FromHttpRepoSpec(v HttpRepoSpec) error {
 
 // MergeHttpRepoSpec performs a merge with any union data inside the RepositorySpec, using the provided HttpRepoSpec
 func (t *RepositorySpec) MergeHttpRepoSpec(v HttpRepoSpec) error {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-// AsSshRepoSpec returns the union data inside the RepositorySpec as a SshRepoSpec
-func (t RepositorySpec) AsSshRepoSpec() (SshRepoSpec, error) {
-	var body SshRepoSpec
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromSshRepoSpec overwrites any union data inside the RepositorySpec as the provided SshRepoSpec
-func (t *RepositorySpec) FromSshRepoSpec(v SshRepoSpec) error {
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeSshRepoSpec performs a merge with any union data inside the RepositorySpec, using the provided SshRepoSpec
-func (t *RepositorySpec) MergeSshRepoSpec(v SshRepoSpec) error {
+	v.Type = "http"
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
@@ -5501,6 +5497,7 @@ func (t RepositorySpec) AsOciRepoSpec() (OciRepoSpec, error) {
 
 // FromOciRepoSpec overwrites any union data inside the RepositorySpec as the provided OciRepoSpec
 func (t *RepositorySpec) FromOciRepoSpec(v OciRepoSpec) error {
+	v.Type = "oci"
 	b, err := json.Marshal(v)
 	t.union = b
 	return err
@@ -5508,6 +5505,7 @@ func (t *RepositorySpec) FromOciRepoSpec(v OciRepoSpec) error {
 
 // MergeOciRepoSpec performs a merge with any union data inside the RepositorySpec, using the provided OciRepoSpec
 func (t *RepositorySpec) MergeOciRepoSpec(v OciRepoSpec) error {
+	v.Type = "oci"
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
@@ -5516,6 +5514,31 @@ func (t *RepositorySpec) MergeOciRepoSpec(v OciRepoSpec) error {
 	merged, err := runtime.JSONMerge(t.union, b)
 	t.union = merged
 	return err
+}
+
+func (t RepositorySpec) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"type"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t RepositorySpec) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "git":
+		return t.AsGitRepoSpec()
+	case "http":
+		return t.AsHttpRepoSpec()
+	case "oci":
+		return t.AsOciRepoSpec()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
 }
 
 func (t RepositorySpec) MarshalJSON() ([]byte, error) {

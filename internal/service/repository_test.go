@@ -348,7 +348,7 @@ func TestOciRepositoryCreate(t *testing.T) {
 	ociSpec, err := retrieved.Spec.AsOciRepoSpec()
 	require.NoError(err)
 	require.Equal("quay.io", ociSpec.Registry)
-	require.Equal(domain.RepoSpecTypeOci, ociSpec.Type)
+	require.Equal(domain.OciRepoSpecTypeOci, ociSpec.Type)
 	require.NotNil(ociSpec.OciAuth)
 	dockerAuth, err := ociSpec.OciAuth.AsDockerAuth()
 	require.NoError(err)
@@ -563,7 +563,7 @@ func TestGitRepositoryDelete(t *testing.T) {
 	require.Equal(int32(404), status.Code)
 }
 
-// SSH Repository (SshRepoSpec) CRUD Tests
+// SSH Repository CRUD Tests
 
 func TestSshRepositoryCreate(t *testing.T) {
 	require := require.New(t)
