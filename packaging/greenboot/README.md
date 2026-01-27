@@ -2,7 +2,7 @@
 
 ## Motivation
 
-[Integrating Flight Control with Greenboot](../../docs/user/using/greenboot.md) allows for automatic software upgrade rollbacks in case of a failure.
+[Integrating Flight Control with Greenboot](../../docs/user/installing/configuring-device-greenboot.md) allows for automatic software upgrade rollbacks in case of a failure.
 
 The current document describes a few techniques for:
 * Understanding how the flightctl-agent health check works
@@ -109,19 +109,17 @@ time="..." level=error msg="health: Service check failed: service is not enabled
 
 > Run `sudo journalctl -o cat -u redboot-task-runner.service` to see pre-rollback script output.
 
-After a few failed verification attempts, the system should roll back into the previous state. Use `bootc` or `rpm-ostree` to verify the current deployment:
+After a few failed verification attempts, the system should rollback into the previous state. Use `bootc` to verify the current deployment:
 
-```bash
+```
 $ bootc status
-# or
-$ rpm-ostree status
-State: idle
-Deployments:
-* edge:rhel/9/x86_64/edge
-                  Version: 9.1 (2024-01-01T10:00:00Z)
+● Booted
+  Image: quay.io/flightctl/flightctl-device:v1
+  Digest: sha256:abc123...
 
-  edge:rhel/9/x86_64/edge
-                  Version: 9.2 (2024-01-15T10:00:00Z)
+● Rollback
+  Image: quay.io/flightctl/flightctl-device:v2
+  Digest: sha256:def456...
 ```
 
 Finish by re-enabling the agent:
@@ -158,10 +156,8 @@ time="..." level=error msg="health: Stability check failed: service failed durin
 
 > Run `sudo journalctl -o cat -u redboot-task-runner.service` to see pre-rollback script output.
 
-After a few failed verification attempts, the system should roll back into the previous state. Use `bootc` or `rpm-ostree` to verify the current deployment:
+After a few failed verification attempts, the system should rollback into the previous state. Use `bootc` to verify the current deployment:
 
 ```bash
 $ bootc status
-# or
-$ rpm-ostree status
 ```
