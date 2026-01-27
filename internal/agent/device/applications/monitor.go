@@ -18,13 +18,22 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/pkg/log"
-	"github.com/sirupsen/logrus"
 )
 
 const (
 	stopMonitorWaitDuration = 5 * time.Second
 	maxAppSummaryInfoLength = 256
+	restartDelay            = 5 * time.Second
 )
+
+// streamingMonitor defines the interface for monitors that stream events from external processes.
+// Implementations provide the command factory and event handling logic.
+type streamingMonitor interface {
+	CreateCommand(ctx context.Context) (*exec.Cmd, error)
+	Parser() streamParser
+	HandleEvent(ctx context.Context, data []byte)
+	OnRestart()
+}
 
 type streamParser interface {
 	parse(ctx context.Context, r io.Reader, handler func([]byte)) error
@@ -238,6 +247,41 @@ func (m *monitor) Update(app Application) error {
 	return nil
 }
 
+func (m *monitor) updateWithWorkloads(app Application) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	appID := app.ID()
+	oldApp, ok := m.apps[appID]
+	if !ok {
+		return errors.ErrAppNotFound
+	}
+
+	app.CopyWorkloadsFrom(oldApp)
+	m.apps[appID] = app
+
+	action := lifecycle.Action{
+		AppType: app.AppType(),
+		Type:    lifecycle.ActionUpdate,
+		Name:    app.Name(),
+		ID:      appID,
+		Path:    app.Path(),
+		Volumes: provider.ToLifecycleVolumes(app.Volume().List()),
+		Spec:    app.ActionSpec(),
+	}
+
+	m.actions = append(m.actions, action)
+	return nil
+}
+
+func (m *monitor) clearAllWorkloads() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, app := range m.apps {
+		app.ClearWorkloads()
+	}
+}
+
 func (m *monitor) drain(ctx context.Context) error {
 	var errs []error
 
@@ -256,39 +300,91 @@ func (m *monitor) drain(ctx context.Context) error {
 	return nil
 }
 
-func (m *monitor) startStreaming(ctx context.Context, cmd *exec.Cmd, parser streamParser, handler func(ctx context.Context, data []byte)) error {
+func (m *monitor) startStreaming(ctx context.Context, mon streamingMonitor) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	if m.running {
 		m.log.Debugf("%s monitor is already running", m.name)
+		m.mu.Unlock()
 		return nil
 	}
 
 	m.log.Infof("Starting %s monitor", m.name)
 	ctx, cancelFn := context.WithCancel(ctx)
 
+	listenerChannel := make(chan struct{})
+	m.cancelFn = cancelFn
+	m.running = true
+	m.listenerCloseChan = listenerChannel
+	m.mu.Unlock()
+
+	go func() {
+		defer close(listenerChannel)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+
+			mon.OnRestart()
+
+			cmd, err := mon.CreateCommand(ctx)
+			if err != nil {
+				m.log.Errorf("Failed to create %s command: %v", m.name, err)
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(restartDelay):
+				}
+				continue
+			}
+
+			err = m.runStreamingLoop(ctx, cmd, mon.Parser(), mon.HandleEvent)
+			if errors.IsContext(err) {
+				return
+			}
+
+			if err != nil {
+				m.log.Errorf("%s monitor error: %v, restarting...", m.name, err)
+			} else {
+				m.log.Debugf("%s monitor stream closed, restarting...", m.name)
+			}
+
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(restartDelay):
+			}
+		}
+	}()
+
+	return nil
+}
+
+func (m *monitor) runStreamingLoop(
+	ctx context.Context,
+	cmd *exec.Cmd,
+	parser streamParser,
+	handler func(ctx context.Context, data []byte),
+) error {
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
-		cancelFn()
 		return fmt.Errorf("failed to get stdout pipe: %w", err)
 	}
 
 	if err := cmd.Start(); err != nil {
-		cancelFn()
-		return fmt.Errorf("failed to start %s monitor: %w", m.name, err)
+		return fmt.Errorf("failed to start command: %w", err)
 	}
 
-	listenerChannel := make(chan struct{})
-	m.cancelFn = cancelFn
+	m.mu.Lock()
 	m.cmd = cmd
-	m.running = true
-	m.listenerCloseChan = listenerChannel
+	m.mu.Unlock()
 
-	go func() {
-		defer close(listenerChannel)
-		m.listenForEvents(ctx, stdoutPipe, parser, handler)
-	}()
+	m.listenForEvents(ctx, stdoutPipe, parser, handler)
+
+	if err := cmd.Wait(); err != nil && !isExpectedShutdownError(err) {
+		return fmt.Errorf("command exited with error: %w", err)
+	}
 
 	return nil
 }
@@ -322,41 +418,20 @@ func (m *monitor) stopStreaming() error {
 	m.listenerCloseChan = nil
 	m.mu.Unlock()
 
-	if cmd == nil {
-		return nil
-	}
-	defer cancelFn()
-
 	m.log.Infof("Stopping %s monitor", m.name)
 
-	killed := false
-	if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
-		m.log.Warnf("Failed to send SIGTERM to %s monitor: %v", m.name, err)
-		cancelFn()
-		killed = true
+	if cmd != nil && cmd.Process != nil {
+		if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
+			m.log.Debugf("Failed to send SIGTERM to %s monitor (process may have exited): %v", m.name, err)
+		}
 	}
+
+	cancelFn()
 
 	if !waitForChannelWithTimeout(listenerChan, stopMonitorWaitDuration) {
-		timeoutMessage := fmt.Sprintf("Timeout waiting for %s monitor reader to shutdown", m.name)
-		forceKilledMessage := fmt.Sprintf("%s after force killing the process", timeoutMessage)
-		message := timeoutMessage
-		logLevel := logrus.WarnLevel
-		if killed {
-			logLevel = logrus.ErrorLevel
-			message = forceKilledMessage
-		}
-		m.log.Log(logLevel, message)
-		if !killed {
-			cancelFn()
-			if !waitForChannelWithTimeout(listenerChan, stopMonitorWaitDuration) {
-				m.log.Error(forceKilledMessage)
-			}
-		}
+		m.log.Warnf("Timeout waiting for %s monitor to shutdown", m.name)
 	}
 
-	if err := cmd.Wait(); err != nil && !isExpectedShutdownError(err) {
-		return fmt.Errorf("unexpected error during %s monitor shutdown: %w", m.name, err)
-	}
 	m.log.Infof("%s monitor stopped", m.name)
 	return nil
 }

@@ -77,10 +77,16 @@ type Application interface {
 	Path() string
 	// Workload returns a workload by name.
 	Workload(name string) (*Workload, bool)
+	// Workloads returns a copy of all workloads.
+	Workloads() []Workload
 	// AddWorkload adds a workload to the application.
 	AddWorkload(Workload *Workload)
 	// RemoveWorkload removes a workload from the application.
 	RemoveWorkload(name string) bool
+	// ClearWorkloads removes all workloads from the application.
+	ClearWorkloads()
+	// CopyWorkloadsFrom copies workloads from another application.
+	CopyWorkloadsFrom(other Application)
 	// IsEmbedded returns true if the application is embedded.
 	IsEmbedded() bool
 	// Volume is a volume manager.
@@ -197,6 +203,20 @@ func (a *application) RemoveWorkload(name string) bool {
 		}
 	}
 	return false
+}
+
+func (a *application) Workloads() []Workload {
+	result := make([]Workload, len(a.workloads))
+	copy(result, a.workloads)
+	return result
+}
+
+func (a *application) ClearWorkloads() {
+	a.workloads = nil
+}
+
+func (a *application) CopyWorkloadsFrom(other Application) {
+	a.workloads = other.Workloads()
 }
 
 func (a *application) Path() string {

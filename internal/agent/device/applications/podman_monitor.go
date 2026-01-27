@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os/exec"
 	"strconv"
 	"sync"
 	"time"
@@ -72,25 +73,36 @@ func (m *PodmanMonitor) getLastEventTime() string {
 	return m.lastEventTime
 }
 
-func (m *PodmanMonitor) startMonitor(ctx context.Context) error {
-	if m.isRunning() {
-		return nil
-	}
-
+// CreateCommand implements streamingMonitor interface.
+func (m *PodmanMonitor) CreateCommand(ctx context.Context) (*exec.Cmd, error) {
 	events := []string{"create", "init", "start", "stop", "die", "sync", "remove", "exited"}
 	since := m.getLastEventTime()
 	m.log.Debugf("Replaying podman events since: %s", since)
 
-	// TODO: Create multiple clients and aggregate events from multiple users
-	// Right now it just looks at root podman.
 	client, err := m.clientFactory("")
 	if err != nil {
-		return fmt.Errorf("creating podman client: %w", err)
+		return nil, fmt.Errorf("creating podman client: %w", err)
 	}
+	return client.EventsSinceCmd(ctx, events, since), nil
+}
 
-	cmd := client.EventsSinceCmd(ctx, events, since)
+// Parser implements streamingMonitor interface.
+func (m *PodmanMonitor) Parser() streamParser {
+	return lineParser{}
+}
 
-	return m.startStreaming(ctx, cmd, lineParser{}, m.handleEvent)
+// HandleEvent implements streamingMonitor interface.
+func (m *PodmanMonitor) HandleEvent(ctx context.Context, data []byte) {
+	m.handleEvent(ctx, data)
+}
+
+// OnRestart implements streamingMonitor interface.
+func (m *PodmanMonitor) OnRestart() {
+	// No-op: podman replays events from lastEventTime, so no state clearing needed
+}
+
+func (m *PodmanMonitor) startMonitor(ctx context.Context) error {
+	return m.startStreaming(ctx, m)
 }
 
 func (m *PodmanMonitor) stopMonitor() error {

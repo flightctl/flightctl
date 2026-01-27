@@ -198,7 +198,10 @@ func (m *manager) resolvePullConfigs(desired *v1beta1.DeviceSpec) (client.PullCo
 	if found {
 		configs[client.ConfigTypeHelmRegistrySecret] = helmRegistryCfg
 	} else if containerConfig != nil {
-		configs[client.ConfigTypeHelmRegistrySecret] = containerConfig
+		configs[client.ConfigTypeHelmRegistrySecret] = &client.PullConfig{
+			Path:    containerConfig.Path,
+			Cleanup: nil,
+		}
 	}
 
 	helmRepoCfg, found, err := client.ResolvePullConfig(m.log, rootRW, desired, helmRepoConfig)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os/exec"
 	"time"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
@@ -102,27 +103,39 @@ func (m *KubernetesMonitor) Remove(app Application) error {
 	return m.monitor.Remove(app)
 }
 
-// Update updates an existing application.
+// Update updates an existing application, preserving workloads from the old app.
 func (m *KubernetesMonitor) Update(app Application) error {
 	if !m.enabled {
 		return errors.ErrKubernetesAppsDisabled
 	}
-	return m.monitor.Update(app)
+	return m.monitor.updateWithWorkloads(app)
 }
 
-func (m *KubernetesMonitor) startMonitor(ctx context.Context) error {
-	if m.isRunning() {
-		return nil
-	}
-
-	cmd, err := m.k8sClient.WatchPodsCmd(ctx,
+// CreateCommand implements streamingMonitor interface.
+func (m *KubernetesMonitor) CreateCommand(ctx context.Context) (*exec.Cmd, error) {
+	return m.k8sClient.WatchPodsCmd(ctx,
 		client.WithKubeKubeconfig(m.kubeconfigPath),
 		client.WithKubeLabels([]string{helm.AppLabelKey}),
 	)
-	if err != nil {
-		return err
-	}
-	return m.startStreaming(ctx, cmd, jsonStreamParser{}, m.handlePodEvent)
+}
+
+// Parser implements streamingMonitor interface.
+func (m *KubernetesMonitor) Parser() streamParser {
+	return jsonStreamParser{}
+}
+
+// HandleEvent implements streamingMonitor interface.
+func (m *KubernetesMonitor) HandleEvent(ctx context.Context, data []byte) {
+	m.handlePodEvent(ctx, data)
+}
+
+// OnRestart implements streamingMonitor interface.
+func (m *KubernetesMonitor) OnRestart() {
+	m.clearAllWorkloads()
+}
+
+func (m *KubernetesMonitor) startMonitor(ctx context.Context) error {
+	return m.startStreaming(ctx, m)
 }
 
 func (m *KubernetesMonitor) stopMonitor() error {
@@ -270,7 +283,10 @@ func (m *KubernetesMonitor) updatePodStatus(app Application, pod *kubernetesPod)
 	workload, exists := app.Workload(pod.Metadata.Name)
 	if exists {
 		workload.Status = status
-		if restarts > workload.Restarts {
+		if pod.Metadata.UID != workload.ID {
+			workload.ID = pod.Metadata.UID
+			workload.Restarts = restarts
+		} else if restarts > workload.Restarts {
 			workload.Restarts = restarts
 		}
 		return
