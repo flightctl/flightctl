@@ -56,7 +56,7 @@ func getSecretData(secretName, namespace, key string) (string, error) {
 	// #nosec G204 -- This is test code with controlled inputs
 	cmd := exec.Command("oc", "get", "secret", secretName,
 		"-n", namespace,
-		"-o", fmt.Sprintf("jsonpath={.data.%s}", key))
+		"-o", fmt.Sprintf("jsonpath={.data['%s']}", key))
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {

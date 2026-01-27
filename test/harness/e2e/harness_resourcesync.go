@@ -15,7 +15,7 @@ func (h *Harness) GetResourceSync(name string) (*v1beta1.ResourceSync, error) {
 		return nil, fmt.Errorf("failed to get ResourceSync %s: %w", name, err)
 	}
 	if resp.JSON200 == nil {
-		return nil, fmt.Errorf("ResourceSync %s not found (status: %d)", name, resp.StatusCode())
+		return nil, fmt.Errorf("unexpected response status getting ResourceSync %s: %d", name, resp.StatusCode())
 	}
 	return resp.JSON200, nil
 }
@@ -53,7 +53,7 @@ func (h *Harness) GetResourceSyncConditionMessage(name string, condType v1beta1.
 	return cond.Message, nil
 }
 
-// CreateResourceSync creates a ResourceSync resource that points to a git repository
+// CreateResourceSync creates a ResourceSync resource
 func (h *Harness) CreateResourceSync(name, repoName string, spec v1beta1.ResourceSyncSpec) error {
 	if name == "" {
 		return fmt.Errorf("ResourceSync name cannot be empty")
