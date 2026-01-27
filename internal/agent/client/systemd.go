@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/pkg/executer"
 )
@@ -23,35 +24,27 @@ var (
 	ErrNoSystemDUnits = errors.New("no units defined")
 )
 
-func NewSystemd(exec executer.Executer) *Systemd {
+func NewSystemd(exec executer.Executer, user v1beta1.Username) *Systemd {
 	return &Systemd{
 		exec: exec,
 		// Capture NOTIFY_SOCKET early, before bootstrap unsets it
 		notifySocket: os.Getenv("NOTIFY_SOCKET"),
-	}
-}
-
-// NewUserSystemd creates an systemd client that will use the user instance of systemd instead of
-// the system-wide instance. The user is determined by the executer -- whichever user it executes
-// commands under by default.
-func NewUserSystemd(exec executer.Executer) *Systemd {
-	return &Systemd{
-		exec:           exec,
-		isUserInstance: true,
+		user:         user,
 	}
 }
 
 type Systemd struct {
 	exec executer.Executer
-	// If true, the `--user` flag will be included in all systemctl invocations.
-	isUserInstance bool
+	// If set to a non-root user, the --user flag and the `-M <username>@` flag will be added to all
+	// commands.
+	user v1beta1.Username
 	// notifySocket captures NOTIFY_SOCKET early, before bootstrap unsets it
 	notifySocket string
 }
 
 func (s *Systemd) createArgs(args ...string) (string, []string) {
-	if s.isUserInstance {
-		args = append([]string{"--user"}, args...)
+	if !s.user.IsRootUser() && !s.user.IsCurrentProcessUser() {
+		args = append([]string{"--user", "-M", s.user.String() + "@"}, args...)
 	}
 	return systemctlCommand, args
 }
@@ -90,7 +83,7 @@ func (s *Systemd) Stop(ctx context.Context, units ...string) error {
 }
 
 func (s *Systemd) Reboot(ctx context.Context) error {
-	if s.isUserInstance {
+	if !s.user.IsRootUser() && !s.user.IsCurrentProcessUser() {
 		return fmt.Errorf("cannot reboot from user instance of systemd")
 	}
 	command, args := s.createArgs("reboot")

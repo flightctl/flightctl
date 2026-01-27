@@ -3,6 +3,7 @@ package client
 import (
 	"testing"
 
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/stretchr/testify/require"
 	gomock "go.uber.org/mock/gomock"
@@ -17,16 +18,16 @@ func TestSystemdUserClient(t *testing.T) {
 		run          func(m executer.Executer) error
 	}{
 		{
-			expectedArgs: []any{"--user", "restart", "testunit"},
+			expectedArgs: []any{"--user", "-M", "flightctl@", "restart", "testunit"},
 			run: func(m executer.Executer) error {
-				systemd := NewUserSystemd(m)
+				systemd := NewSystemd(m, "flightctl")
 				return systemd.Restart(t.Context(), "testunit")
 			},
 		},
 		{
 			expectedArgs: []any{"restart", "testunit"},
 			run: func(m executer.Executer) error {
-				systemd := NewSystemd(m)
+				systemd := NewSystemd(m, v1beta1.RootUsername)
 				return systemd.Restart(t.Context(), "testunit")
 			},
 		},

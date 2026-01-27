@@ -51,12 +51,13 @@ type VolumeManager interface {
 }
 
 // NewVolumeManager returns a new VolumeManager.
-func NewVolumeManager(log *log.PrefixLogger, appName string, appType v1beta1.AppType, volumes *[]v1beta1.ApplicationVolume) (VolumeManager, error) {
+func NewVolumeManager(log *log.PrefixLogger, appName string, appType v1beta1.AppType, user v1beta1.Username, volumes *[]v1beta1.ApplicationVolume) (VolumeManager, error) {
 	m := &volumeManager{
 		volumes: make(map[string]*Volume),
 		log:     log,
 		appName: appName,
 		appType: appType,
+		user:    user,
 	}
 
 	if volumes == nil {
@@ -88,7 +89,7 @@ func NewVolumeManager(log *log.PrefixLogger, appName string, appType v1beta1.App
 		default:
 			return nil, fmt.Errorf("%w: %s", errors.ErrUnsupportedVolumeType, volType)
 		}
-		volID := m.volumeID(v.Name)
+		volID := m.volumeID(v.Name, user)
 		policy := v.GetReclaimPolicy()
 		m.volumes[volID] = &Volume{
 			Name:          v.Name,
@@ -107,14 +108,15 @@ type volumeManager struct {
 	log     *log.PrefixLogger
 	appName string
 	appType v1beta1.AppType
+	user    v1beta1.Username
 }
 
-func (m *volumeManager) volumeID(volName string) string {
+func (m *volumeManager) volumeID(volName string, user v1beta1.Username) string {
 	switch m.appType {
 	case v1beta1.AppTypeQuadlet, v1beta1.AppTypeContainer:
-		return quadlet.NamespaceResource(client.NewComposeID(m.appName), volName)
+		return quadlet.NamespaceResource(lifecycle.GenerateAppID(m.appName, user), volName)
 	default:
-		return client.ComposeVolumeName(m.appName, volName)
+		return lifecycle.ComposeVolumeName(m.appName, volName, user)
 	}
 }
 
@@ -217,7 +219,7 @@ func (m *volumeManager) AddVolumes(volumes []*Volume) {
 	for _, volume := range volumes {
 		vol := volume
 		if vol.ID == "" {
-			vol.ID = m.volumeID(volume.Name)
+			vol.ID = m.volumeID(volume.Name, m.user)
 		}
 		if vol.ReclaimPolicy == "" {
 			vol.ReclaimPolicy = v1beta1.Retain

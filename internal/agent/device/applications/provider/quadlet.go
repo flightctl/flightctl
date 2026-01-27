@@ -16,6 +16,7 @@ import (
 	"github.com/flightctl/flightctl/internal/api/common"
 	"github.com/flightctl/flightctl/internal/quadlet"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/pkg/userutil"
 	"github.com/samber/lo"
 )
 
@@ -53,7 +54,7 @@ func newQuadletProvider(
 	envVars := lo.FromPtr(quadletApp.EnvVars)
 	volumes := quadletApp.Volumes
 
-	user := quadletApp.UserWithDefault()
+	user := quadletApp.RunAsWithDefault()
 	podman, err := podmanFactory(user)
 	if err != nil {
 		return nil, fmt.Errorf("creating podman client for user %s: %w", user, err)
@@ -102,13 +103,17 @@ func newQuadletProvider(
 		inlineContent = inlineSpec.Inline
 	}
 
-	volumeManager, err := NewVolumeManager(log, appName, v1beta1.AppTypeQuadlet, volumes)
+	volumeManager, err := NewVolumeManager(log, appName, v1beta1.AppTypeQuadlet, user, volumes)
 	if err != nil {
 		return nil, err
 	}
 
-	appPath := filepath.Join(lifecycle.QuadletAppPath, appName)
-	appID := client.NewComposeID(appName)
+	appPath, err := quadletAppPath(appName, user)
+	if err != nil {
+		return nil, err
+	}
+
+	appID := lifecycle.GenerateAppID(appName, user)
 
 	// For inline apps, extract volumes immediately since content is available
 	// For image-based apps, volume extraction is deferred to Install() after content is extracted
@@ -132,6 +137,7 @@ func newQuadletProvider(
 		spec: &ApplicationSpec{
 			Name:       appName,
 			ID:         appID,
+			User:       user,
 			AppType:    v1beta1.AppTypeQuadlet,
 			Path:       appPath,
 			EnvVars:    envVars,
@@ -172,6 +178,16 @@ func (p *quadletProvider) Verify(ctx context.Context) error {
 	}
 	if err := ensureMinQuadletPodmanVersion(version); err != nil {
 		return fmt.Errorf("%w: quadlet app type: %w", errors.ErrNoRetry, err)
+	}
+
+	if !p.spec.User.IsRootUser() && !p.spec.User.IsCurrentProcessUser() {
+		_, _, homeDir, err := userutil.LookupUser(p.spec.User)
+		if err != nil {
+			return fmt.Errorf("%w: application user %s does not exist: %w", errors.ErrNoRetry, p.spec.User, err)
+		}
+		if homeDir == "" {
+			return fmt.Errorf("%w: application user %s does not have a home dir set", errors.ErrNoRetry, p.spec.User)
+		}
 	}
 
 	if err := ensureImageVolumes(lo.FromPtr(p.spec.QuadletApp.Volumes)); err != nil {
@@ -257,7 +273,7 @@ func (p *quadletProvider) Install(ctx context.Context) error {
 		p.spec.Volume.AddVolumes(quadletVolumes)
 	}
 
-	if err := installQuadlet(p.readWriter, p.log, p.spec.Path, p.spec.ID); err != nil {
+	if err := installQuadlet(p.readWriter, p.log, p.spec.Path, quadletSystemdTargetPath(p.spec.User, p.spec.ID), p.spec.ID); err != nil {
 		return fmt.Errorf("installing quadlet: %w", err)
 	}
 
@@ -273,8 +289,8 @@ func (p *quadletProvider) Remove(ctx context.Context) error {
 		p.AppData = nil
 	}
 
-	path := filepath.Join(lifecycle.QuadletTargetPath, quadlet.NamespaceResource(p.spec.ID, lifecycle.QuadletTargetName))
-	if err := p.readWriter.RemoveFile(path); err != nil {
+	targetPath := quadletSystemdTargetPath(p.spec.User, p.spec.ID)
+	if err := p.readWriter.RemoveFile(targetPath); err != nil {
 		return fmt.Errorf("removing quadlet target file: %w", err)
 	}
 	if err := p.readWriter.RemoveAll(p.spec.Path); err != nil {
@@ -296,10 +312,11 @@ func (p *quadletProvider) Spec() *ApplicationSpec {
 }
 
 type quadletInstaller struct {
-	readWriter fileio.ReadWriter
-	logger     *log.PrefixLogger
-	path       string
-	appID      string
+	readWriter  fileio.ReadWriter
+	logger      *log.PrefixLogger
+	appUnitPath string
+	targetPath  string
+	appID       string
 }
 
 // installQuadlet prepares Podman quadlet files for use with flightctl by applying namespacing,
@@ -367,18 +384,19 @@ type quadletInstaller struct {
 //	    myapp-.volume.d/
 //	      99-flightctl.conf      (flightctl overrides)
 //	    .env                     (preserved as-is)
-func installQuadlet(readWriter fileio.ReadWriter, logger *log.PrefixLogger, path string, appID string) error {
+func installQuadlet(readWriter fileio.ReadWriter, logger *log.PrefixLogger, appUnitPath string, targetPath string, appID string) error {
 	q := &quadletInstaller{
-		readWriter: readWriter,
-		logger:     logger,
-		path:       path,
-		appID:      appID,
+		readWriter:  readWriter,
+		logger:      logger,
+		appUnitPath: appUnitPath,
+		targetPath:  targetPath,
+		appID:       appID,
 	}
 	return q.install()
 }
 
 func (q *quadletInstaller) install() error {
-	entries, err := q.readWriter.ReadDir(q.path)
+	entries, err := q.readWriter.ReadDir(q.appUnitPath)
 	if err != nil {
 		return fmt.Errorf("reading directory: %w", err)
 	}
@@ -412,7 +430,7 @@ func (q *quadletInstaller) install() error {
 					if err != nil {
 						return err
 					}
-					svcName, err := q.getServiceName(filepath.Join(q.path, filename), ext, defaultSvc)
+					svcName, err := q.getServiceName(filepath.Join(q.appUnitPath, filename), ext, defaultSvc)
 					if err != nil {
 						return fmt.Errorf("getting service name for %s: %w", filename, err)
 					}
@@ -425,7 +443,7 @@ func (q *quadletInstaller) install() error {
 				}
 			}
 		} else {
-			if err = q.namespaceDropInDirectory(filepath.Join(q.path, entry.Name())); err != nil {
+			if err = q.namespaceDropInDirectory(filepath.Join(q.appUnitPath, entry.Name())); err != nil {
 				return fmt.Errorf("namespacing drop-in dir %s: %w", entry.Name(), err)
 			}
 		}
@@ -436,7 +454,7 @@ func (q *quadletInstaller) install() error {
 		return fmt.Errorf("creating flightctl target: %w", err)
 	}
 
-	entries, err = q.readWriter.ReadDir(q.path)
+	entries, err = q.readWriter.ReadDir(q.appUnitPath)
 	if err != nil {
 		return fmt.Errorf("re-reading directory: %w", err)
 	}
@@ -452,7 +470,7 @@ func (q *quadletInstaller) install() error {
 				}
 			}
 		} else {
-			if err = q.updateDropInReferences(filepath.Join(q.path, entry.Name()), quadletBasenames); err != nil {
+			if err = q.updateDropInReferences(filepath.Join(q.appUnitPath, entry.Name()), quadletBasenames); err != nil {
 				return fmt.Errorf("updating drop-in references: %w", err)
 			}
 		}
@@ -495,8 +513,8 @@ func (q *quadletInstaller) namespaceQuadletFile(filename string) error {
 	}
 	q.logger.Tracef("Namespacing quadlet file %s", filename)
 
-	oldPath := filepath.Join(q.path, filename)
-	newPath := filepath.Join(q.path, namespacedQuadlet(q.appID, filename))
+	oldPath := filepath.Join(q.appUnitPath, filename)
+	newPath := filepath.Join(q.appUnitPath, namespacedQuadlet(q.appID, filename))
 
 	if err := q.readWriter.CopyFile(oldPath, newPath); err != nil {
 		return fmt.Errorf("copying file: %w", err)
@@ -583,7 +601,7 @@ func (q *quadletInstaller) namespaceDropInDirectory(dirPath string) error {
 // for a specific quadlet type. It adds the project label, PartOf directive, and optionally the EnvironmentFile parameter.
 func (q *quadletInstaller) createQuadletDropIn(extension string, hasEnvFile bool) error {
 	q.logger.Tracef("Creating drop-in for %s for app: %s", extension, q.appID)
-	dropInDir := filepath.Join(q.path, fmt.Sprintf("%s-%s.d", q.appID, extension))
+	dropInDir := filepath.Join(q.appUnitPath, fmt.Sprintf("%s-%s.d", q.appID, extension))
 	if err := q.readWriter.MkdirAll(dropInDir, fileio.DefaultDirectoryPermissions); err != nil {
 		return fmt.Errorf("creating drop-in directory: %w", err)
 	}
@@ -606,7 +624,7 @@ func (q *quadletInstaller) createQuadletDropIn(extension string, hasEnvFile bool
 
 	// Only containers support environment files
 	if hasEnvFile && extension == quadlet.ContainerExtension {
-		unit.Add(sectionName, quadlet.EnvironmentFileKey, filepath.Join(q.path, ".env"))
+		unit.Add(sectionName, quadlet.EnvironmentFileKey, filepath.Join(q.appUnitPath, ".env"))
 	}
 
 	contents, err := unit.Write()
@@ -682,16 +700,16 @@ func (q *quadletInstaller) createFlightctlTarget(serviceNames []string) error {
 		return fmt.Errorf("serializing target: %w", err)
 	}
 
-	targetPath := filepath.Join(q.path, quadlet.NamespaceResource(q.appID, lifecycle.QuadletTargetName))
+	targetPath := filepath.Join(q.appUnitPath, quadlet.NamespaceResource(q.appID, lifecycle.QuadletTargetName))
 	return q.readWriter.WriteFile(targetPath, contents, fileio.DefaultFilePermissions)
 }
 
 func (q *quadletInstaller) copyTargetToSystemd() error {
 	q.logger.Tracef("Copying flightctl target to systemd path for app: %s", q.appID)
 	targetName := quadlet.NamespaceResource(q.appID, lifecycle.QuadletTargetName)
-	srcPath := filepath.Join(q.path, targetName)
-	dstPath := filepath.Join(lifecycle.QuadletTargetPath, targetName)
-	if err := q.readWriter.MkdirAll(lifecycle.QuadletTargetPath, fileio.DefaultDirectoryPermissions); err != nil {
+	srcPath := filepath.Join(q.appUnitPath, targetName)
+	dstPath := q.targetPath
+	if err := q.readWriter.MkdirAll(filepath.Dir(q.targetPath), fileio.DefaultDirectoryPermissions); err != nil {
 		return fmt.Errorf("creating target directory: %w", err)
 	}
 
@@ -940,7 +958,7 @@ var quadletNamespaceRules = map[string][]struct {
 
 // updateQuadletReferences updates cross-references within a quadlet file after it has been namespaced
 func (q *quadletInstaller) updateQuadletReferences(filename, extension string, quadletBasenames map[string]struct{}) error {
-	return q.updateQuadletReferencesInDir(q.path, filename, extension, quadletBasenames)
+	return q.updateQuadletReferencesInDir(q.appUnitPath, filename, extension, quadletBasenames)
 }
 
 func (q *quadletInstaller) updateQuadletReferencesInDir(dirPath, filename, extension string, quadletBasenames map[string]struct{}) error {
@@ -1040,4 +1058,27 @@ func ensureMinQuadletPodmanVersion(version *client.PodmanVersion) error {
 		return fmt.Errorf("podman version 5.0 or higher required, got %d.%d", version.Major, version.Minor)
 	}
 	return nil
+}
+
+func quadletAppPath(appName string, user v1beta1.Username) (string, error) {
+	if user.IsCurrentProcessUser() || user.IsRootUser() {
+		return filepath.Join(lifecycle.RootfulQuadletAppPath, appName), nil
+	} else {
+		_, _, homeDir, err := userutil.LookupUser(user)
+		if err != nil {
+			return "", err
+		}
+		return filepath.Join(homeDir, ".config/containers/systemd", appName), nil
+	}
+}
+
+func quadletSystemdTargetPath(user v1beta1.Username, id string) string {
+	namespacedName := quadlet.NamespaceResource(id, lifecycle.QuadletTargetName)
+	if user.IsCurrentProcessUser() || user.IsRootUser() {
+		return filepath.Join(lifecycle.RootfulQuadletTargetPath, namespacedName)
+	} else {
+		// This lookup should be prevalidated.
+		_, _, homeDir, _ := userutil.LookupUser(user)
+		return filepath.Join(homeDir, ".config/systemd/user", namespacedName)
+	}
 }

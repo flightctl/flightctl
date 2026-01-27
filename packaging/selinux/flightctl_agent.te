@@ -25,6 +25,7 @@ gen_require(`
     type kernel_t, ptmx_t, devpts_t;
     type bin_t;
     type container_runtime_t;
+    type systemd_systemctl_exec_t;
     type systemd_logind_t;
     type init_t;
     type firewalld_t;
@@ -52,18 +53,23 @@ domtrans_pattern(flightctl_agent_t, install_exec_t, install_t)
 domtrans_pattern(flightctl_agent_t, hostname_exec_t, hostname_t)
 container_runtime_domtrans(flightctl_agent_t)
 
+
 # Allow the agent to run subprocesses as unconfined_t only for that subprocess. This allows us to
 # run things like the 'sos' binary which requires a ton of privileges without having to give them
 # all to the agent.
 domtrans_pattern(flightctl_agent_t, bin_t, unconfined_t)
+domtrans_pattern(flightctl_agent_t, systemd_systemctl_exec_t, unconfined_t)
 # Also give the agent the ability to kill such managed subprocessses
 allow flightctl_agent_t unconfined_t:process sigkill;
+# Allow dbus to write back to the agent
+allow system_dbusd_t flightctl_agent_t:fifo_file write;
 
 ## Process management & capabilities  ##
 
 # Basic process capabilities
-allow flightctl_agent_t self:capability { dac_override chown setuid setgid sys_admin audit_write sys_resource dac_read_search sys_chroot mknod };
+allow flightctl_agent_t self:capability { dac_override chown fowner fsetid kill setuid setgid sys_admin audit_write sys_resource dac_read_search sys_chroot mknod };
 allow flightctl_agent_t self:capability2 { mac_admin mac_override };
+allow flightctl_agent_t self:cap_userns { kill };
 allow flightctl_agent_t self:process { fork signal sigchld execmem setfscreate getsched setsched setpgid setcap setrlimit };
 
 
@@ -160,4 +166,3 @@ allow flightctl_agent_t node_t:tcp_socket node_bind;
 # it so as not to alter the behavior of bootc, but we can suppress the error as it has been
 # determined to be inoculous by the bootc maintainer.
 dontaudit unconfined_service_t self:capability2 mac_admin;
-

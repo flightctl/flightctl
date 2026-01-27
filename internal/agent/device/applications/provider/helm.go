@@ -60,7 +60,7 @@ func newHelmProvider(
 
 	chartPath := clients.Helm().GetChartPath(helmApp.Image)
 
-	volumeManager, err := NewVolumeManager(log, appName, v1beta1.AppTypeHelm, nil)
+	volumeManager, err := NewVolumeManager(log, appName, v1beta1.AppTypeHelm, v1beta1.CurrentProcessUsername, nil)
 	if err != nil {
 		return nil, err
 	}

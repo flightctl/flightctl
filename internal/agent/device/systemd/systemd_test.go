@@ -294,7 +294,7 @@ UnitFileState=enabled
 			execMock := executer.NewMockExecuter(ctrl)
 
 			log := log.NewPrefixLogger("test")
-			client := client.NewSystemd(execMock)
+			client := client.NewSystemd(execMock, v1beta1.RootUsername)
 
 			m := &manager{
 				log:              log,

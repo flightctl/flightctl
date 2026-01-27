@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	agent_config "github.com/flightctl/flightctl/internal/agent/config"
 	"github.com/flightctl/flightctl/internal/agent/device"
@@ -180,7 +181,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	)
 
 	// create systemd client
-	rootSystemdClient := client.NewSystemd(rootExecuter)
+	rootSystemdClient := client.NewSystemd(rootExecuter, v1beta1.RootUsername)
 
 	// create systemInfo manager
 	systemInfoManager := systeminfo.NewManager(
@@ -508,7 +509,7 @@ func wipeCertificateAndRestart(ctx context.Context, identityProvider identity.Pr
 	}
 
 	// Restart the flightctl-agent service
-	systemdClient := client.NewSystemd(executer)
+	systemdClient := client.NewSystemd(executer, v1beta1.RootUsername)
 	if err := systemdClient.Restart(ctx, "flightctl-agent"); err != nil {
 		return fmt.Errorf("failed to restart flightctl-agent service: %w", err)
 	}

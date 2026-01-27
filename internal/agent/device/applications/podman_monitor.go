@@ -101,7 +101,7 @@ func (m *PodmanMonitor) ensureMonitorForUser(ctx context.Context, username v1bet
 	var watcher podmanEventWatcher
 	watcher.Init(m.log, username, client, m.startTime)
 	if err := watcher.Watch(ctx, m.events); err != nil {
-		return err
+		return fmt.Errorf("initializing watcher: %w", err)
 	}
 
 	m.watchers[username] = &watcher
@@ -657,11 +657,11 @@ func (e *podmanEventWatcher) Watch(ctx context.Context, events chan<- client.Pod
 
 func (e *podmanEventWatcher) listenForEvents(ctx context.Context, stdoutPipe io.ReadCloser, events chan<- client.PodmanEvent) {
 	// the pipe will be closed by calling cmd.Wait
-	defer e.log.Debugf("Done listening for podman events")
+	defer e.log.Debugf("Done listening for podman events for user %s", e.username)
 
 	scanner := bufio.NewScanner(stdoutPipe)
 	for scanner.Scan() {
-		e.log.Debugf("Received podman event: %s", scanner.Text())
+		e.log.Debugf("Received podman event for user %s: %s", e.username, scanner.Text())
 		select {
 		case <-ctx.Done():
 			return
