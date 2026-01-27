@@ -313,6 +313,68 @@ paths:
             application/json:
               schema:
                 $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+  /api/v1/imagebuilds/{name}/cancel:
+    post:
+      tags:
+        - imagebuild
+      description: Cancel a running ImageBuild. Only builds in Pending, Building, or Pushing state can be canceled.
+      operationId: cancelImageBuild
+      parameters:
+        - name: name
+          in: path
+          description: The name of the ImageBuild resource to cancel.
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImageBuild'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+        "409":
+          description: Conflict - Build not in cancelable state
+          content:
+            application/json:
+              schema:
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
   /api/v1/imageexports:
     get:
       tags:
@@ -515,6 +577,68 @@ paths:
                 $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
         "404":
           description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+  /api/v1/imageexports/{name}/cancel:
+    post:
+      tags:
+        - imageexport
+      description: Cancel a running ImageExport. Only exports in Pending, Converting, or Pushing state can be canceled.
+      operationId: cancelImageExport
+      parameters:
+        - name: name
+          in: path
+          description: The name of the ImageExport resource to cancel.
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImageExport'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+        "409":
+          description: Conflict - Export not in cancelable state
           content:
             application/json:
               schema:
@@ -887,12 +1011,16 @@ components:
         - Pushing
         - Completed
         - Failed
+        - Canceling
+        - Canceled
       x-enum-varnames:
         - ImageBuildConditionReasonPending
         - ImageBuildConditionReasonBuilding
         - ImageBuildConditionReasonPushing
         - ImageBuildConditionReasonCompleted
         - ImageBuildConditionReasonFailed
+        - ImageBuildConditionReasonCanceling
+        - ImageBuildConditionReasonCanceled
     # ImageExport schemas
     ImageExport:
       type: object
@@ -1040,12 +1168,16 @@ components:
         - Pushing
         - Completed
         - Failed
+        - Canceling
+        - Canceled
       x-enum-varnames:
         - ImageExportConditionReasonPending
         - ImageExportConditionReasonConverting
         - ImageExportConditionReasonPushing
         - ImageExportConditionReasonCompleted
         - ImageExportConditionReasonFailed
+        - ImageExportConditionReasonCanceling
+        - ImageExportConditionReasonCanceled
 
     ImageExportFormatPhase:
       type: string

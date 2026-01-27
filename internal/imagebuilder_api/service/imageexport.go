@@ -57,6 +57,11 @@ type ImageExportService interface {
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*api.ImageExport, v1beta1.Status)
 	List(ctx context.Context, orgId uuid.UUID, params api.ListImageExportsParams) (*api.ImageExportList, v1beta1.Status)
 	Delete(ctx context.Context, orgId uuid.UUID, name string) (*api.ImageExport, v1beta1.Status)
+	// Cancel cancels an ImageExport. Returns ErrNotCancelable if not in cancelable state.
+	Cancel(ctx context.Context, orgId uuid.UUID, name string) (*api.ImageExport, error)
+	// CancelWithReason cancels an ImageExport with a custom reason message (e.g., for timeout).
+	// Returns ErrNotCancelable if not in cancelable state.
+	CancelWithReason(ctx context.Context, orgId uuid.UUID, name string, reason string) (*api.ImageExport, error)
 	Download(ctx context.Context, orgId uuid.UUID, name string) (*ImageExportDownload, error)
 	GetLogs(ctx context.Context, orgId uuid.UUID, name string, follow bool) (LogStreamReader, string, v1beta1.Status)
 	// Internal methods (not exposed via API)
@@ -169,6 +174,80 @@ func (s *imageExportService) List(ctx context.Context, orgId uuid.UUID, params a
 func (s *imageExportService) Delete(ctx context.Context, orgId uuid.UUID, name string) (*api.ImageExport, v1beta1.Status) {
 	result, err := s.imageExportStore.Delete(ctx, orgId, name)
 	return result, StoreErrorToApiStatus(err, false, string(api.ResourceKindImageExport), &name)
+}
+
+func (s *imageExportService) Cancel(ctx context.Context, orgId uuid.UUID, name string) (*api.ImageExport, error) {
+	return s.CancelWithReason(ctx, orgId, name, "Export cancellation requested")
+}
+
+func (s *imageExportService) CancelWithReason(ctx context.Context, orgId uuid.UUID, name string, reason string) (*api.ImageExport, error) {
+	// 1. Get current ImageExport
+	imageExport, err := s.imageExportStore.Get(ctx, orgId, name)
+	if err != nil {
+		return nil, err
+	}
+
+	// 2. Validate cancelable state (Pending, Converting, Pushing)
+	if !isCancelableExportState(imageExport) {
+		return nil, ErrNotCancelable
+	}
+
+	// 3. Initialize status if needed
+	if imageExport.Status == nil {
+		imageExport.Status = &api.ImageExportStatus{}
+	}
+	if imageExport.Status.Conditions == nil {
+		imageExport.Status.Conditions = &[]api.ImageExportCondition{}
+	}
+
+	// 4. Update status to Canceling
+	cancelingCondition := api.ImageExportCondition{
+		Type:               api.ImageExportConditionTypeReady,
+		Status:             v1beta1.ConditionStatusFalse,
+		Reason:             string(api.ImageExportConditionReasonCanceling),
+		Message:            reason,
+		LastTransitionTime: time.Now().UTC(),
+	}
+	api.SetImageExportStatusCondition(imageExport.Status.Conditions, cancelingCondition)
+
+	result, err := s.imageExportStore.UpdateStatus(ctx, orgId, imageExport)
+	if err != nil {
+		return nil, err
+	}
+
+	// 5. Write cancellation to Redis Stream (worker reads with blocking)
+	streamKey := fmt.Sprintf("imageexport:cancel:%s:%s", orgId.String(), name)
+	if _, err := s.kvStore.StreamAdd(ctx, streamKey, []byte("cancel")); err != nil {
+		s.log.WithError(err).Warn("Failed to write cancellation to Redis stream")
+		// Don't fail - status is already Canceling, worker can detect via DB check as fallback
+	}
+	// Set TTL on stream key (1 hour - same as logs)
+	if err := s.kvStore.SetExpire(ctx, streamKey, 1*time.Hour); err != nil {
+		s.log.WithError(err).Warn("Failed to set TTL on cancellation stream key")
+	}
+
+	s.log.WithField("orgId", orgId).WithField("name", name).WithField("reason", reason).Info("ImageExport cancellation requested")
+	return result, nil
+}
+
+// isCancelableExportState checks if an ImageExport is in a state that can be canceled
+func isCancelableExportState(imageExport *api.ImageExport) bool {
+	if imageExport.Status == nil || imageExport.Status.Conditions == nil {
+		// No status yet - treat as Pending, which is cancelable
+		return true
+	}
+
+	readyCondition := api.FindImageExportStatusCondition(*imageExport.Status.Conditions, api.ImageExportConditionTypeReady)
+	if readyCondition == nil {
+		// No Ready condition - treat as Pending
+		return true
+	}
+
+	reason := readyCondition.Reason
+	// Only Pending, Converting, Pushing states are cancelable
+	return reason == string(api.ImageExportConditionReasonPending) ||
+		reason == string(api.ImageExportConditionReasonConverting) ||
+		reason == string(api.ImageExportConditionReasonPushing)
 }
 
 // Internal methods (not exposed via API)

@@ -10,9 +10,11 @@ import (
 	v1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
 	apiimagebuilder "github.com/flightctl/flightctl/api/imagebuilder/v1beta1"
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/service"
 	imagebuilderstore "github.com/flightctl/flightctl/internal/imagebuilder_api/store"
 	"github.com/flightctl/flightctl/internal/imagebuilder_worker/tasks"
+	"github.com/flightctl/flightctl/internal/kvstore"
 	flightctlstore "github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/testutil"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
@@ -42,6 +44,7 @@ var _ = Describe("Timeout Check Integration Tests", func() {
 		cfg                 *config.Config
 		dbName              string
 		db                  *gorm.DB
+		kvStoreInst         kvstore.KVStore
 		testID              string
 		testRepoName        string
 		sourceRepoName      string
@@ -94,14 +97,19 @@ var _ = Describe("Timeout Check Integration Tests", func() {
 		}))
 		Expect(err).ToNot(HaveOccurred())
 
+		// Create kvStore for Redis operations
+		var kvErr error
+		kvStoreInst, kvErr = kvstore.NewKVStore(ctx, log, "localhost", 6379, domain.SecureString("adminpass"))
+		Expect(kvErr).ToNot(HaveOccurred())
+
 		// Create imagebuilder service
-		imageBuilderService = service.NewService(ctx, imageBuilderStore, mainStore, nil, nil, log)
+		imageBuilderService = service.NewService(ctx, imageBuilderStore, mainStore, nil, kvStoreInst, log)
 
 		// Create consumer
 		consumer = tasks.NewConsumer(
 			imageBuilderStore,
 			mainStore,
-			nil, // kvStore
+			kvStoreInst,
 			nil, // serviceHandler
 			imageBuilderService,
 			nil, // queueProducer
@@ -262,7 +270,7 @@ var _ = Describe("Timeout Check Integration Tests", func() {
 	}
 
 	Context("Timeout Check for ImageBuilds", func() {
-		It("should mark timed-out Building ImageBuild as Failed", func() {
+		It("should mark timed-out Building ImageBuild as Canceling", func() {
 			timeoutDuration := 5 * time.Minute
 			oldLastSeen := time.Now().UTC().Add(-10 * time.Minute)
 
@@ -281,12 +289,13 @@ var _ = Describe("Timeout Check Integration Tests", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(failedCount).To(Equal(1))
 
-			// Verify it was marked as Failed
+			// Verify it was marked as Canceling (graceful cancellation initiated)
+			// The worker will transition to Failed when it processes the error
 			updated, status := imageBuilderService.ImageBuild().Get(ctx, orgID, "timeout-build-1", false)
 			Expect(status.Code).To(Equal(int32(200)))
 			readyCondition = apiimagebuilder.FindImageBuildStatusCondition(*updated.Status.Conditions, apiimagebuilder.ImageBuildConditionTypeReady)
 			Expect(readyCondition).ToNot(BeNil())
-			Expect(readyCondition.Reason).To(Equal(string(apiimagebuilder.ImageBuildConditionReasonFailed)))
+			Expect(readyCondition.Reason).To(Equal(string(apiimagebuilder.ImageBuildConditionReasonCanceling)))
 			Expect(readyCondition.Message).To(ContainSubstring("timed out"))
 		})
 
@@ -330,7 +339,7 @@ var _ = Describe("Timeout Check Integration Tests", func() {
 			Expect(readyCondition.Reason).To(Equal(string(apiimagebuilder.ImageBuildConditionReasonPending)))
 		})
 
-		It("should mark timed-out Pushing ImageBuild as Failed", func() {
+		It("should mark timed-out Pushing ImageBuild as Canceling", func() {
 			timeoutDuration := 5 * time.Minute
 			oldLastSeen := time.Now().UTC().Add(-10 * time.Minute)
 
@@ -342,17 +351,17 @@ var _ = Describe("Timeout Check Integration Tests", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(failedCount).To(Equal(1))
 
-			// Verify it was marked as Failed
+			// Verify it was marked as Canceling (graceful cancellation initiated)
 			updated, status := imageBuilderService.ImageBuild().Get(ctx, orgID, "pushing-build-1", false)
 			Expect(status.Code).To(Equal(int32(200)))
 			readyCondition := apiimagebuilder.FindImageBuildStatusCondition(*updated.Status.Conditions, apiimagebuilder.ImageBuildConditionTypeReady)
 			Expect(readyCondition).ToNot(BeNil())
-			Expect(readyCondition.Reason).To(Equal(string(apiimagebuilder.ImageBuildConditionReasonFailed)))
+			Expect(readyCondition.Reason).To(Equal(string(apiimagebuilder.ImageBuildConditionReasonCanceling)))
 		})
 	})
 
 	Context("Timeout Check for ImageExports", func() {
-		It("should mark timed-out Converting ImageExport as Failed", func() {
+		It("should mark timed-out Converting ImageExport as Canceling", func() {
 			timeoutDuration := 5 * time.Minute
 			oldLastSeen := time.Now().UTC().Add(-10 * time.Minute)
 
@@ -371,12 +380,13 @@ var _ = Describe("Timeout Check Integration Tests", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(failedCount).To(Equal(1))
 
-			// Verify it was marked as Failed
+			// Verify it was marked as Canceling (graceful cancellation initiated)
+			// The worker will transition to Failed when it processes the error
 			updated, status := imageBuilderService.ImageExport().Get(ctx, orgID, "timeout-export-1")
 			Expect(status.Code).To(Equal(int32(200)))
 			readyCondition = apiimagebuilder.FindImageExportStatusCondition(*updated.Status.Conditions, apiimagebuilder.ImageExportConditionTypeReady)
 			Expect(readyCondition).ToNot(BeNil())
-			Expect(readyCondition.Reason).To(Equal(string(apiimagebuilder.ImageExportConditionReasonFailed)))
+			Expect(readyCondition.Reason).To(Equal(string(apiimagebuilder.ImageExportConditionReasonCanceling)))
 			Expect(readyCondition.Message).To(ContainSubstring("timed out"))
 		})
 
@@ -422,7 +432,7 @@ var _ = Describe("Timeout Check Integration Tests", func() {
 	})
 
 	Context("Timeout Check with Multiple Resources", func() {
-		It("should mark multiple timed-out resources correctly", func() {
+		It("should mark multiple timed-out resources as Canceling", func() {
 			timeoutDuration := 5 * time.Minute
 			oldLastSeen := time.Now().UTC().Add(-10 * time.Minute)
 			recentLastSeen := time.Now().UTC().Add(-1 * time.Minute)
@@ -439,31 +449,31 @@ var _ = Describe("Timeout Check Integration Tests", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(failedCount).To(Equal(2))
 
-			// Verify timeout-build-2 was marked as Failed
+			// Verify timeout-build-2 was marked as Canceling (graceful cancellation initiated)
 			build1, status := imageBuilderService.ImageBuild().Get(ctx, orgID, "timeout-build-2", false)
 			Expect(status.Code).To(Equal(int32(200)))
 			readyCondition := apiimagebuilder.FindImageBuildStatusCondition(*build1.Status.Conditions, apiimagebuilder.ImageBuildConditionTypeReady)
-			Expect(readyCondition.Reason).To(Equal(string(apiimagebuilder.ImageBuildConditionReasonFailed)))
+			Expect(readyCondition.Reason).To(Equal(string(apiimagebuilder.ImageBuildConditionReasonCanceling)))
 
-			// Verify recent-build-2 was NOT marked as Failed
+			// Verify recent-build-2 was NOT marked as Canceling
 			build2, status := imageBuilderService.ImageBuild().Get(ctx, orgID, "recent-build-2", false)
 			Expect(status.Code).To(Equal(int32(200)))
 			readyCondition = apiimagebuilder.FindImageBuildStatusCondition(*build2.Status.Conditions, apiimagebuilder.ImageBuildConditionTypeReady)
 			Expect(readyCondition.Reason).To(Equal(string(apiimagebuilder.ImageBuildConditionReasonBuilding)))
 
-			// Verify pending-build-2 was NOT marked as Failed
+			// Verify pending-build-2 was NOT marked as Canceling
 			build3, status := imageBuilderService.ImageBuild().Get(ctx, orgID, "pending-build-2", false)
 			Expect(status.Code).To(Equal(int32(200)))
 			readyCondition = apiimagebuilder.FindImageBuildStatusCondition(*build3.Status.Conditions, apiimagebuilder.ImageBuildConditionTypeReady)
 			Expect(readyCondition.Reason).To(Equal(string(apiimagebuilder.ImageBuildConditionReasonPending)))
 
-			// Verify timeout-export-2 was marked as Failed
+			// Verify timeout-export-2 was marked as Canceling (graceful cancellation initiated)
 			export1, status := imageBuilderService.ImageExport().Get(ctx, orgID, "timeout-export-2")
 			Expect(status.Code).To(Equal(int32(200)))
 			readyCondition2 := apiimagebuilder.FindImageExportStatusCondition(*export1.Status.Conditions, apiimagebuilder.ImageExportConditionTypeReady)
-			Expect(readyCondition2.Reason).To(Equal(string(apiimagebuilder.ImageExportConditionReasonFailed)))
+			Expect(readyCondition2.Reason).To(Equal(string(apiimagebuilder.ImageExportConditionReasonCanceling)))
 
-			// Verify recent-export-2 was NOT marked as Failed
+			// Verify recent-export-2 was NOT marked as Canceling
 			export2, status := imageBuilderService.ImageExport().Get(ctx, orgID, "recent-export-2")
 			Expect(status.Code).To(Equal(int32(200)))
 			readyCondition2 = apiimagebuilder.FindImageExportStatusCondition(*export2.Status.Conditions, apiimagebuilder.ImageExportConditionTypeReady)

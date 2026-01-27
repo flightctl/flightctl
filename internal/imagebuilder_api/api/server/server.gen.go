@@ -27,6 +27,9 @@ type ServerInterface interface {
 	// (GET /api/v1/imagebuilds/{name})
 	GetImageBuild(w http.ResponseWriter, r *http.Request, name string, params GetImageBuildParams)
 
+	// (POST /api/v1/imagebuilds/{name}/cancel)
+	CancelImageBuild(w http.ResponseWriter, r *http.Request, name string)
+
 	// (GET /api/v1/imagebuilds/{name}/log)
 	GetImageBuildLog(w http.ResponseWriter, r *http.Request, name string, params GetImageBuildLogParams)
 
@@ -41,6 +44,9 @@ type ServerInterface interface {
 
 	// (GET /api/v1/imageexports/{name})
 	GetImageExport(w http.ResponseWriter, r *http.Request, name string)
+
+	// (POST /api/v1/imageexports/{name}/cancel)
+	CancelImageExport(w http.ResponseWriter, r *http.Request, name string)
 
 	// (GET /api/v1/imageexports/{name}/download)
 	DownloadImageExport(w http.ResponseWriter, r *http.Request, name string)
@@ -73,6 +79,11 @@ func (_ Unimplemented) GetImageBuild(w http.ResponseWriter, r *http.Request, nam
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// (POST /api/v1/imagebuilds/{name}/cancel)
+func (_ Unimplemented) CancelImageBuild(w http.ResponseWriter, r *http.Request, name string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // (GET /api/v1/imagebuilds/{name}/log)
 func (_ Unimplemented) GetImageBuildLog(w http.ResponseWriter, r *http.Request, name string, params GetImageBuildLogParams) {
 	w.WriteHeader(http.StatusNotImplemented)
@@ -95,6 +106,11 @@ func (_ Unimplemented) DeleteImageExport(w http.ResponseWriter, r *http.Request,
 
 // (GET /api/v1/imageexports/{name})
 func (_ Unimplemented) GetImageExport(w http.ResponseWriter, r *http.Request, name string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (POST /api/v1/imageexports/{name}/cancel)
+func (_ Unimplemented) CancelImageExport(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -251,6 +267,31 @@ func (siw *ServerInterfaceWrapper) GetImageBuild(w http.ResponseWriter, r *http.
 	handler.ServeHTTP(w, r)
 }
 
+// CancelImageBuild operation middleware
+func (siw *ServerInterfaceWrapper) CancelImageBuild(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", chi.URLParam(r, "name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CancelImageBuild(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetImageBuildLog operation middleware
 func (siw *ServerInterfaceWrapper) GetImageBuildLog(w http.ResponseWriter, r *http.Request) {
 
@@ -393,6 +434,31 @@ func (siw *ServerInterfaceWrapper) GetImageExport(w http.ResponseWriter, r *http
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetImageExport(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CancelImageExport operation middleware
+func (siw *ServerInterfaceWrapper) CancelImageExport(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", chi.URLParam(r, "name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CancelImageExport(w, r, name)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -589,6 +655,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/api/v1/imagebuilds/{name}", wrapper.GetImageBuild)
 	})
 	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/imagebuilds/{name}/cancel", wrapper.CancelImageBuild)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/imagebuilds/{name}/log", wrapper.GetImageBuildLog)
 	})
 	r.Group(func(r chi.Router) {
@@ -602,6 +671,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/imageexports/{name}", wrapper.GetImageExport)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/imageexports/{name}/cancel", wrapper.CancelImageExport)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/imageexports/{name}/download", wrapper.DownloadImageExport)

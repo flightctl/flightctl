@@ -28,6 +28,7 @@ func NewFlightCtlCommand() *cobra.Command {
 	cmd.AddCommand(cli.NewCmdEdit())
 	cmd.AddCommand(cli.NewCmdDelete())
 	cmd.AddCommand(cli.NewCmdApprove())
+	cmd.AddCommand(cli.NewCmdCancel())
 	cmd.AddCommand(cli.NewCmdCSRConfig())
 	cmd.AddCommand(cli.NewCmdConfig())
 	cmd.AddCommand(cli.NewCmdDecommission())

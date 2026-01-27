@@ -81,8 +81,10 @@ func (c *Consumer) processImageBuild(ctx context.Context, eventWithOrgId worker_
 	}
 	if readyCondition != nil {
 		reason := readyCondition.Reason
-		// Skip if already completed or failed
-		if reason == string(api.ImageBuildConditionReasonCompleted) || reason == string(api.ImageBuildConditionReasonFailed) {
+		// Skip if already in terminal state (completed, failed, canceled)
+		if reason == string(api.ImageBuildConditionReasonCompleted) ||
+			reason == string(api.ImageBuildConditionReasonFailed) ||
+			reason == string(api.ImageBuildConditionReasonCanceled) {
 			log.Infof("ImageBuild %q already in terminal state %q, skipping", imageBuildName, reason)
 			return nil
 		}
@@ -94,6 +96,11 @@ func (c *Consumer) processImageBuild(ctx context.Context, eventWithOrgId worker_
 		// Skip if Pushing - another process is handling it
 		if reason == string(api.ImageBuildConditionReasonPushing) {
 			log.Infof("ImageBuild %q is already being processed (Pushing), skipping", imageBuildName)
+			return nil
+		}
+		// Skip if Canceling - cancellation is in progress
+		if reason == string(api.ImageBuildConditionReasonCanceling) {
+			log.Infof("ImageBuild %q is being canceled (Canceling), skipping", imageBuildName)
 			return nil
 		}
 		// Only proceed if Pending - if it's any other state, skip (shouldn't happen, but defensive)
@@ -137,24 +144,26 @@ func (c *Consumer) processImageBuild(ctx context.Context, eventWithOrgId worker_
 
 	log.Info("Successfully locked ImageBuild for processing (status set to Building)")
 
+	// Create a cancelable context for the build process
+	// The cancel function is passed to statusUpdater which will call it when cancellation is received via Redis
+	buildCtx, cancelBuild := context.WithCancel(ctx)
+	defer cancelBuild()
+
 	// Start status updater goroutine - this is the single writer for all status updates
 	// It handles both LastSeen (periodic) and condition updates (on-demand)
-	statusUpdater, cleanupStatusUpdater := StartStatusUpdater(ctx, c.imageBuilderService.ImageBuild(), orgID, imageBuildName, c.kvStore, c.cfg, log)
+	// It also listens for cancellation signals via Redis Stream
+	// IMPORTANT: Pass the original ctx (not buildCtx) so the updater can complete
+	// final status updates (like Canceled) even after buildCtx is canceled
+	statusUpdater, cleanupStatusUpdater := StartStatusUpdater(ctx, cancelBuild, c.imageBuilderService.ImageBuild(), orgID, imageBuildName, c.kvStore, c.cfg, log)
 	defer cleanupStatusUpdater()
 
 	// Step 1: Generate Containerfile
 	log.Info("Generating Containerfile for image build")
-	containerfileResult, err := c.generateContainerfile(ctx, orgID, imageBuild, log)
+	containerfileResult, err := c.generateContainerfile(buildCtx, orgID, imageBuild, log)
 	if err != nil {
-		failedTime := time.Now().UTC()
-		failedCondition := api.ImageBuildCondition{
-			Type:               api.ImageBuildConditionTypeReady,
-			Status:             v1beta1.ConditionStatusFalse,
-			Reason:             string(api.ImageBuildConditionReasonFailed),
-			Message:            err.Error(),
-			LastTransitionTime: failedTime,
+		if c.handleBuildError(ctx, orgID, imageBuildName, err, statusUpdater, log) {
+			return nil // Cancellation handled
 		}
-		statusUpdater.UpdateCondition(failedCondition)
 		return fmt.Errorf("failed to generate Containerfile: %w", err)
 	}
 
@@ -162,48 +171,30 @@ func (c *Consumer) processImageBuild(ctx context.Context, eventWithOrgId worker_
 	log.Debug("Generated Containerfile: ", containerfileResult.Containerfile)
 
 	// Step 2: Start podman worker container
-	podmanWorker, err := c.startPodmanWorker(ctx, orgID, imageBuild, statusUpdater, log)
+	podmanWorker, err := c.startPodmanWorker(buildCtx, orgID, imageBuild, statusUpdater, log)
 	if err != nil {
-		failedTime := time.Now().UTC()
-		failedCondition := api.ImageBuildCondition{
-			Type:               api.ImageBuildConditionTypeReady,
-			Status:             v1beta1.ConditionStatusFalse,
-			Reason:             string(api.ImageBuildConditionReasonFailed),
-			Message:            err.Error(),
-			LastTransitionTime: failedTime,
+		if c.handleBuildError(ctx, orgID, imageBuildName, err, statusUpdater, log) {
+			return nil // Cancellation handled
 		}
-		statusUpdater.UpdateCondition(failedCondition)
 		return fmt.Errorf("failed to start podman worker: %w", err)
 	}
 	defer podmanWorker.Cleanup()
 
 	// Step 3: Build with podman container in container
-	err = c.buildImageWithPodman(ctx, orgID, imageBuild, containerfileResult, podmanWorker, log)
+	err = c.buildImageWithPodman(buildCtx, orgID, imageBuild, containerfileResult, podmanWorker, log)
 	if err != nil {
-		failedTime := time.Now().UTC()
-		failedCondition := api.ImageBuildCondition{
-			Type:               api.ImageBuildConditionTypeReady,
-			Status:             v1beta1.ConditionStatusFalse,
-			Reason:             string(api.ImageBuildConditionReasonFailed),
-			Message:            err.Error(),
-			LastTransitionTime: failedTime,
+		if c.handleBuildError(ctx, orgID, imageBuildName, err, statusUpdater, log) {
+			return nil // Cancellation handled
 		}
-		statusUpdater.UpdateCondition(failedCondition)
 		return fmt.Errorf("failed to build image with podman: %w", err)
 	}
 
 	// Step 4: Push image to registry
-	imageRef, err := c.pushImageWithPodman(ctx, orgID, imageBuild, podmanWorker, log)
+	imageRef, err := c.pushImageWithPodman(buildCtx, orgID, imageBuild, podmanWorker, log)
 	if err != nil {
-		failedTime := time.Now().UTC()
-		failedCondition := api.ImageBuildCondition{
-			Type:               api.ImageBuildConditionTypeReady,
-			Status:             v1beta1.ConditionStatusFalse,
-			Reason:             string(api.ImageBuildConditionReasonFailed),
-			Message:            err.Error(),
-			LastTransitionTime: failedTime,
+		if c.handleBuildError(ctx, orgID, imageBuildName, err, statusUpdater, log) {
+			return nil // Cancellation handled
 		}
-		statusUpdater.UpdateCondition(failedCondition)
 		return fmt.Errorf("failed to push image with podman: %w", err)
 	}
 
@@ -223,6 +214,65 @@ func (c *Consumer) processImageBuild(ctx context.Context, eventWithOrgId worker_
 
 	log.Info("ImageBuild marked as Completed")
 	return nil
+}
+
+// handleBuildError handles errors during the build process.
+// If the error was due to cancellation (status is Canceling), it sets the final status and returns true.
+// - For user cancellation: status becomes Canceled
+// - For timeout: status becomes Failed (with the timeout message preserved)
+// Otherwise, it sets status to Failed and returns false.
+// The ctx parameter should be the original context (not buildCtx) to ensure we can still query the database.
+func (c *Consumer) handleBuildError(ctx context.Context, orgID uuid.UUID, imageBuildName string, err error, statusUpdater *statusUpdater, log logrus.FieldLogger) bool {
+	// Check if the current status is Canceling (set by API or timeout task)
+	currentBuild, status := c.imageBuilderService.ImageBuild().Get(ctx, orgID, imageBuildName, false)
+	if currentBuild != nil && imagebuilderapi.IsStatusOK(status) &&
+		currentBuild.Status != nil && currentBuild.Status.Conditions != nil {
+		readyCondition := api.FindImageBuildStatusCondition(*currentBuild.Status.Conditions, api.ImageBuildConditionTypeReady)
+		if readyCondition != nil && readyCondition.Reason == string(api.ImageBuildConditionReasonCanceling) {
+			// This was a cancellation - check if it was a timeout or user cancellation
+			message := readyCondition.Message
+			isTimeout := strings.Contains(message, "timed out")
+
+			if isTimeout {
+				// Timeout - set Failed status with the timeout message
+				log.WithField("message", message).Info("Build timed out, setting status to Failed")
+				failedCondition := api.ImageBuildCondition{
+					Type:               api.ImageBuildConditionTypeReady,
+					Status:             v1beta1.ConditionStatusFalse,
+					Reason:             string(api.ImageBuildConditionReasonFailed),
+					Message:            message,
+					LastTransitionTime: time.Now().UTC(),
+				}
+				statusUpdater.UpdateCondition(failedCondition)
+			} else {
+				// User cancellation - set Canceled status
+				if message == "" {
+					message = "Build was canceled"
+				}
+				log.WithField("message", message).Info("Build was canceled, setting status to Canceled")
+				canceledCondition := api.ImageBuildCondition{
+					Type:               api.ImageBuildConditionTypeReady,
+					Status:             v1beta1.ConditionStatusFalse,
+					Reason:             string(api.ImageBuildConditionReasonCanceled),
+					Message:            message,
+					LastTransitionTime: time.Now().UTC(),
+				}
+				statusUpdater.UpdateCondition(canceledCondition)
+			}
+			return true // Cancellation/timeout handled
+		}
+	}
+
+	// Not canceled - set Failed status
+	failedCondition := api.ImageBuildCondition{
+		Type:               api.ImageBuildConditionTypeReady,
+		Status:             v1beta1.ConditionStatusFalse,
+		Reason:             string(api.ImageBuildConditionReasonFailed),
+		Message:            err.Error(),
+		LastTransitionTime: time.Now().UTC(),
+	}
+	statusUpdater.UpdateCondition(failedCondition)
+	return false
 }
 
 // containerfileBuildArgs holds the build arguments for the Containerfile

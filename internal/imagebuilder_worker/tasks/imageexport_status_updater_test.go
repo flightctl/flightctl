@@ -74,6 +74,14 @@ func (m *mockImageExportServiceForStatusUpdater) Delete(ctx context.Context, org
 	return nil, v1beta1.StatusOK()
 }
 
+func (m *mockImageExportServiceForStatusUpdater) Cancel(ctx context.Context, orgId uuid.UUID, name string) (*api.ImageExport, error) {
+	return m.imageExport, nil
+}
+
+func (m *mockImageExportServiceForStatusUpdater) CancelWithReason(ctx context.Context, orgId uuid.UUID, name string, reason string) (*api.ImageExport, error) {
+	return m.imageExport, nil
+}
+
 func (m *mockImageExportServiceForStatusUpdater) Download(ctx context.Context, orgId uuid.UUID, name string) (*imagebuilderapi.ImageExportDownload, error) {
 	return nil, nil
 }
@@ -124,13 +132,13 @@ func TestImageExportStatusUpdater_writeLogToRedis(t *testing.T) {
 			orgID:           uuid.New(),
 			imageExportName: "test-export",
 			kvStore:         mockStore,
+			ctx:             context.Background(),
 			log:             logrus.NewEntry(logrus.New()),
 			logBuffer:       make([]string, 0, 500),
 		}
 
-		ctx := context.Background()
 		output := []byte("test log line\n")
-		updater.writeLogToRedis(ctx, output)
+		updater.writeLogToRedis(output)
 
 		assert.Equal(t, 1, mockStore.getStreamAddCalls())
 		assert.Equal(t, 1, mockStore.getSetExpireCalls())
@@ -148,10 +156,9 @@ func TestImageExportStatusUpdater_writeLogToRedis(t *testing.T) {
 			logBuffer:       make([]string, 0, 500),
 		}
 
-		ctx := context.Background()
 		output := []byte("test log line\n")
 		// Should not panic when kvStore is nil
-		updater.writeLogToRedis(ctx, output)
+		updater.writeLogToRedis(output)
 		// No assertions needed - just checking it doesn't panic
 	})
 }
@@ -161,15 +168,14 @@ func TestImageExportStatusUpdater_writeLogToRedis_bufferLimit(t *testing.T) {
 		orgID:           uuid.New(),
 		imageExportName: "test-export",
 		kvStore:         newMockKVStore(),
+		ctx:             context.Background(),
 		log:             logrus.NewEntry(logrus.New()),
 		logBuffer:       make([]string, 0, 500),
 	}
 
-	ctx := context.Background()
-
 	// Write 600 lines to test buffer truncation
 	for i := 0; i < 600; i++ {
-		updater.writeLogToRedis(ctx, []byte(fmt.Sprintf("line %d\n", i)))
+		updater.writeLogToRedis([]byte(fmt.Sprintf("line %d\n", i)))
 	}
 
 	updater.logBufferMu.Lock()
@@ -197,12 +203,12 @@ func TestImageExportStatusUpdater_persistLogsToDB(t *testing.T) {
 		imageExportService: mockService,
 		orgID:              orgID,
 		imageExportName:    name,
+		ctx:                context.Background(),
 		log:                logrus.NewEntry(logrus.New()),
 		logBuffer:          []string{"line 1", "line 2", "line 3"},
 	}
 
-	ctx := context.Background()
-	updater.persistLogsToDB(ctx)
+	updater.persistLogsToDB()
 
 	assert.Equal(t, 1, mockService.getUpdateLogsCallsCount())
 }
@@ -223,12 +229,12 @@ func TestImageExportStatusUpdater_persistLogsToDB_emptyBuffer(t *testing.T) {
 		imageExportService: mockService,
 		orgID:              orgID,
 		imageExportName:    name,
+		ctx:                context.Background(),
 		log:                logrus.NewEntry(logrus.New()),
 		logBuffer:          []string{},
 	}
 
-	ctx := context.Background()
-	updater.persistLogsToDB(ctx)
+	updater.persistLogsToDB()
 
 	// Should not call UpdateLogs when buffer is empty
 	assert.Equal(t, 0, mockService.getUpdateLogsCallsCount())
@@ -248,6 +254,7 @@ func TestImageExportStatusUpdater_updateCondition(t *testing.T) {
 	mockService := newMockImageExportServiceForStatusUpdater(ctrl, imageExport)
 	updater, cleanup := startImageExportStatusUpdater(
 		context.Background(),
+		func() {}, // no-op cancelExport for testing
 		mockService,
 		orgID,
 		name,
@@ -298,6 +305,7 @@ func TestImageExportStatusUpdater_setManifestDigest(t *testing.T) {
 	mockService := newMockImageExportServiceForStatusUpdater(ctrl, imageExport)
 	updater, cleanup := startImageExportStatusUpdater(
 		context.Background(),
+		func() {}, // no-op cancelExport for testing
 		mockService,
 		orgID,
 		name,
@@ -336,6 +344,7 @@ func TestImageExportStatusUpdater_reportOutput(t *testing.T) {
 
 	updater, cleanup := startImageExportStatusUpdater(
 		context.Background(),
+		func() {}, // no-op cancelExport for testing
 		mockService,
 		orgID,
 		name,
@@ -376,6 +385,7 @@ func TestImageExportStatusUpdater_periodicLogPersistence(t *testing.T) {
 	cfg.LastSeenUpdateInterval = util.Duration(100 * time.Millisecond)
 	updater, cleanup := startImageExportStatusUpdater(
 		context.Background(),
+		func() {}, // no-op cancelExport for testing
 		mockService,
 		orgID,
 		name,
@@ -418,6 +428,7 @@ func TestImageExportStatusUpdater_contextCancellation(t *testing.T) {
 
 	_, cleanup := startImageExportStatusUpdater(
 		ctx,
+		func() {}, // no-op cancelExport for testing
 		mockService,
 		orgID,
 		name,
@@ -460,6 +471,7 @@ func TestImageExportStatusUpdater_updateStatus_withFailedCondition(t *testing.T)
 	mockService := newMockImageExportServiceForStatusUpdater(ctrl, imageExport)
 	updater, cleanup := startImageExportStatusUpdater(
 		context.Background(),
+		func() {}, // no-op cancelExport for testing
 		mockService,
 		orgID,
 		name,
@@ -503,11 +515,11 @@ func TestImageExportStatusUpdater_writeStreamCompleteMarker(t *testing.T) {
 			orgID:           orgID,
 			imageExportName: name,
 			kvStore:         mockStore,
+			ctx:             context.Background(),
 			log:             logrus.NewEntry(logrus.New()),
 		}
 
-		ctx := context.Background()
-		updater.writeStreamCompleteMarker(ctx)
+		updater.writeStreamCompleteMarker()
 
 		assert.Equal(t, 1, mockStore.getStreamAddCalls())
 		pushedValues := mockStore.getPushedValues()
@@ -523,9 +535,8 @@ func TestImageExportStatusUpdater_writeStreamCompleteMarker(t *testing.T) {
 			log:             logrus.NewEntry(logrus.New()),
 		}
 
-		ctx := context.Background()
 		// Should not panic when kvStore is nil
-		updater.writeStreamCompleteMarker(ctx)
+		updater.writeStreamCompleteMarker()
 	})
 }
 
@@ -545,6 +556,7 @@ func TestImageExportStatusUpdater_completedConditionWritesMarker(t *testing.T) {
 
 	updater, cleanup := startImageExportStatusUpdater(
 		context.Background(),
+		func() {}, // no-op cancelExport for testing
 		mockService,
 		orgID,
 		name,

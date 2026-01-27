@@ -10,6 +10,7 @@ import (
 	v1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
 	apiimagebuilder "github.com/flightctl/flightctl/api/imagebuilder/v1beta1"
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/flterrors"
 	imagebuilderapi "github.com/flightctl/flightctl/internal/imagebuilder_api/service"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
@@ -131,6 +132,31 @@ func (m *mockImageBuildService) Delete(ctx context.Context, orgId uuid.UUID, nam
 	return nil, v1beta1.StatusOK()
 }
 
+func (m *mockImageBuildService) Cancel(ctx context.Context, orgId uuid.UUID, name string) (*apiimagebuilder.ImageBuild, error) {
+	return m.CancelWithReason(ctx, orgId, name, "Build cancellation requested")
+}
+
+func (m *mockImageBuildService) CancelWithReason(ctx context.Context, orgId uuid.UUID, name string, reason string) (*apiimagebuilder.ImageBuild, error) {
+	// Find and update the build
+	for _, build := range m.parent.imageBuilds {
+		if lo.FromPtr(build.Metadata.Name) == name {
+			// Set the Canceling condition
+			now := time.Now().UTC()
+			cancelingCondition := apiimagebuilder.ImageBuildCondition{
+				Type:               apiimagebuilder.ImageBuildConditionTypeReady,
+				Status:             v1beta1.ConditionStatusFalse,
+				Reason:             string(apiimagebuilder.ImageBuildConditionReasonCanceling),
+				Message:            reason,
+				LastTransitionTime: now,
+			}
+			apiimagebuilder.SetImageBuildStatusCondition(build.Status.Conditions, cancelingCondition)
+			m.parent.updatedBuilds[name] = build
+			return build, nil
+		}
+	}
+	return nil, flterrors.ErrResourceNotFound
+}
+
 type mockImageExportService struct {
 	parent *mockImageBuilderService
 }
@@ -222,6 +248,31 @@ func (m *mockImageExportService) UpdateLogs(ctx context.Context, orgId uuid.UUID
 	return nil
 }
 
+func (m *mockImageExportService) Cancel(ctx context.Context, orgId uuid.UUID, name string) (*apiimagebuilder.ImageExport, error) {
+	return m.CancelWithReason(ctx, orgId, name, "Export cancellation requested")
+}
+
+func (m *mockImageExportService) CancelWithReason(ctx context.Context, orgId uuid.UUID, name string, reason string) (*apiimagebuilder.ImageExport, error) {
+	// Find and update the export
+	for _, export := range m.parent.imageExports {
+		if lo.FromPtr(export.Metadata.Name) == name {
+			// Set the Canceling condition
+			now := time.Now().UTC()
+			cancelingCondition := apiimagebuilder.ImageExportCondition{
+				Type:               apiimagebuilder.ImageExportConditionTypeReady,
+				Status:             v1beta1.ConditionStatusFalse,
+				Reason:             string(apiimagebuilder.ImageExportConditionReasonCanceling),
+				Message:            reason,
+				LastTransitionTime: now,
+			}
+			apiimagebuilder.SetImageExportStatusCondition(export.Status.Conditions, cancelingCondition)
+			m.parent.updatedExports[name] = export
+			return export, nil
+		}
+	}
+	return nil, flterrors.ErrResourceNotFound
+}
+
 func createTestImageBuild(name string, reason apiimagebuilder.ImageBuildConditionReason, lastSeen time.Time) *apiimagebuilder.ImageBuild {
 	now := time.Now().UTC()
 	conditions := []apiimagebuilder.ImageBuildCondition{
@@ -287,7 +338,7 @@ func TestCheckAndMarkTimeoutsForOrg(t *testing.T) {
 		expectedUpdatedExports []string
 	}{
 		{
-			name: "marks timed-out Building ImageBuild as Failed",
+			name: "marks timed-out Building ImageBuild as Canceling",
 			setupBuilds: []*apiimagebuilder.ImageBuild{
 				createTestImageBuild("build-1", apiimagebuilder.ImageBuildConditionReasonBuilding, time.Now().UTC().Add(-10*time.Minute)),
 			},
@@ -297,7 +348,7 @@ func TestCheckAndMarkTimeoutsForOrg(t *testing.T) {
 			expectedUpdatedExports: []string{},
 		},
 		{
-			name:        "marks timed-out Converting ImageExport as Failed",
+			name:        "marks timed-out Converting ImageExport as Canceling",
 			setupBuilds: []*apiimagebuilder.ImageBuild{},
 			setupExports: []*apiimagebuilder.ImageExport{
 				createTestImageExport("export-1", apiimagebuilder.ImageExportConditionReasonConverting, time.Now().UTC().Add(-10*time.Minute)),
@@ -307,7 +358,7 @@ func TestCheckAndMarkTimeoutsForOrg(t *testing.T) {
 			expectedUpdatedExports: []string{"export-1"},
 		},
 		{
-			name: "marks timed-out Pushing ImageBuild as Failed",
+			name: "marks timed-out Pushing ImageBuild as Canceling",
 			setupBuilds: []*apiimagebuilder.ImageBuild{
 				createTestImageBuild("build-2", apiimagebuilder.ImageBuildConditionReasonPushing, time.Now().UTC().Add(-10*time.Minute)),
 			},
@@ -411,10 +462,10 @@ func TestCheckAndMarkTimeoutsForOrg(t *testing.T) {
 				updated, ok := mockService.updatedBuilds[expectedName]
 				require.True(t, ok, "build %s should have been updated", expectedName)
 
-				// Verify it was marked as Failed
+				// Verify it was marked as Canceling (graceful cancellation)
 				readyCondition := apiimagebuilder.FindImageBuildStatusCondition(*updated.Status.Conditions, apiimagebuilder.ImageBuildConditionTypeReady)
 				require.NotNil(t, readyCondition, "build %s should have Ready condition", expectedName)
-				assert.Equal(t, string(apiimagebuilder.ImageBuildConditionReasonFailed), readyCondition.Reason, "build %s should be marked as Failed", expectedName)
+				assert.Equal(t, string(apiimagebuilder.ImageBuildConditionReasonCanceling), readyCondition.Reason, "build %s should be marked as Canceling", expectedName)
 				assert.Equal(t, v1beta1.ConditionStatusFalse, readyCondition.Status, "build %s should have Status False", expectedName)
 				assert.Contains(t, readyCondition.Message, "timed out", "build %s should have timeout message", expectedName)
 			}
@@ -425,10 +476,10 @@ func TestCheckAndMarkTimeoutsForOrg(t *testing.T) {
 				updated, ok := mockService.updatedExports[expectedName]
 				require.True(t, ok, "export %s should have been updated", expectedName)
 
-				// Verify it was marked as Failed
+				// Verify it was marked as Canceling (graceful cancellation)
 				readyCondition := apiimagebuilder.FindImageExportStatusCondition(*updated.Status.Conditions, apiimagebuilder.ImageExportConditionTypeReady)
 				require.NotNil(t, readyCondition, "export %s should have Ready condition", expectedName)
-				assert.Equal(t, string(apiimagebuilder.ImageExportConditionReasonFailed), readyCondition.Reason, "export %s should be marked as Failed", expectedName)
+				assert.Equal(t, string(apiimagebuilder.ImageExportConditionReasonCanceling), readyCondition.Reason, "export %s should be marked as Canceling", expectedName)
 				assert.Equal(t, v1beta1.ConditionStatusFalse, readyCondition.Status, "export %s should have Status False", expectedName)
 				assert.Contains(t, readyCondition.Message, "timed out", "export %s should have timeout message", expectedName)
 			}

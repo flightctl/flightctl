@@ -30,6 +30,11 @@ type ImageBuildService interface {
 	Get(ctx context.Context, orgId uuid.UUID, name string, withExports bool) (*api.ImageBuild, v1beta1.Status)
 	List(ctx context.Context, orgId uuid.UUID, params api.ListImageBuildsParams) (*api.ImageBuildList, v1beta1.Status)
 	Delete(ctx context.Context, orgId uuid.UUID, name string) (*api.ImageBuild, v1beta1.Status)
+	// Cancel cancels an ImageBuild. Returns ErrNotCancelable if not in cancelable state.
+	Cancel(ctx context.Context, orgId uuid.UUID, name string) (*api.ImageBuild, error)
+	// CancelWithReason cancels an ImageBuild with a custom reason message (e.g., for timeout).
+	// Returns ErrNotCancelable if not in cancelable state.
+	CancelWithReason(ctx context.Context, orgId uuid.UUID, name string, reason string) (*api.ImageBuild, error)
 	GetLogs(ctx context.Context, orgId uuid.UUID, name string, follow bool) (LogStreamReader, string, v1beta1.Status)
 	// Internal methods (not exposed via API)
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, imageBuild *api.ImageBuild) (*api.ImageBuild, error)
@@ -124,6 +129,80 @@ func (s *imageBuildService) List(ctx context.Context, orgId uuid.UUID, params ap
 func (s *imageBuildService) Delete(ctx context.Context, orgId uuid.UUID, name string) (*api.ImageBuild, v1beta1.Status) {
 	result, err := s.store.Delete(ctx, orgId, name)
 	return result, StoreErrorToApiStatus(err, false, string(api.ResourceKindImageBuild), &name)
+}
+
+func (s *imageBuildService) Cancel(ctx context.Context, orgId uuid.UUID, name string) (*api.ImageBuild, error) {
+	return s.CancelWithReason(ctx, orgId, name, "Build cancellation requested")
+}
+
+func (s *imageBuildService) CancelWithReason(ctx context.Context, orgId uuid.UUID, name string, reason string) (*api.ImageBuild, error) {
+	// 1. Get current ImageBuild
+	imageBuild, err := s.store.Get(ctx, orgId, name)
+	if err != nil {
+		return nil, err
+	}
+
+	// 2. Validate cancelable state (Pending, Building, Pushing)
+	if !isCancelableState(imageBuild) {
+		return nil, ErrNotCancelable
+	}
+
+	// 3. Initialize status if needed
+	if imageBuild.Status == nil {
+		imageBuild.Status = &api.ImageBuildStatus{}
+	}
+	if imageBuild.Status.Conditions == nil {
+		imageBuild.Status.Conditions = &[]api.ImageBuildCondition{}
+	}
+
+	// 4. Update status to Canceling
+	cancelingCondition := api.ImageBuildCondition{
+		Type:               api.ImageBuildConditionTypeReady,
+		Status:             v1beta1.ConditionStatusFalse,
+		Reason:             string(api.ImageBuildConditionReasonCanceling),
+		Message:            reason,
+		LastTransitionTime: time.Now().UTC(),
+	}
+	api.SetImageBuildStatusCondition(imageBuild.Status.Conditions, cancelingCondition)
+
+	result, err := s.store.UpdateStatus(ctx, orgId, imageBuild)
+	if err != nil {
+		return nil, err
+	}
+
+	// 5. Write cancellation to Redis Stream (worker reads with blocking)
+	// Uses existing StreamAdd method - same as log streaming
+	streamKey := fmt.Sprintf("imagebuild:cancel:%s:%s", orgId.String(), name)
+	if _, err := s.kvStore.StreamAdd(ctx, streamKey, []byte("cancel")); err != nil {
+		s.log.WithError(err).Warn("Failed to write cancellation to Redis stream")
+		// Don't fail - status is already Canceling, worker can detect via DB check as fallback
+	}
+	// Set TTL on stream key (1 hour - same as logs)
+	if err := s.kvStore.SetExpire(ctx, streamKey, 1*time.Hour); err != nil {
+		s.log.WithError(err).Warn("Failed to set TTL on cancellation stream key")
+	}
+
+	s.log.WithField("orgId", orgId).WithField("name", name).WithField("reason", reason).Info("ImageBuild cancellation requested")
+	return result, nil
+}
+
+// isCancelableState checks if an ImageBuild is in a state that can be canceled
+func isCancelableState(imageBuild *api.ImageBuild) bool {
+	if imageBuild.Status == nil || imageBuild.Status.Conditions == nil {
+		// No status yet - treat as Pending, which is cancelable
+		return true
+	}
+
+	readyCondition := api.FindImageBuildStatusCondition(*imageBuild.Status.Conditions, api.ImageBuildConditionTypeReady)
+	if readyCondition == nil {
+		// No Ready condition - treat as Pending
+		return true
+	}
+
+	reason := readyCondition.Reason
+	return reason == string(api.ImageBuildConditionReasonPending) ||
+		reason == string(api.ImageBuildConditionReasonBuilding) ||
+		reason == string(api.ImageBuildConditionReasonPushing)
 }
 
 // Internal methods (not exposed via API)

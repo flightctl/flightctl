@@ -11,6 +11,12 @@ import (
 	"github.com/samber/lo"
 )
 
+// Sentinel errors for cancellation operations
+var (
+	// ErrNotCancelable indicates the resource is not in a cancelable state
+	ErrNotCancelable = errors.New("resource is not in a cancelable state")
+)
+
 const (
 	MaxRecordsPerListRequest = 1000
 )

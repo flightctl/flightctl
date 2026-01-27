@@ -990,3 +990,261 @@ func TestDownloadImageExportManifestWrongLayerCount(t *testing.T) {
 	require.Contains(err.Error(), "manifest must have exactly one layer")
 	require.Contains(err.Error(), "found 2")
 }
+
+// Cancel ImageExport tests
+
+func newTestImageExportServiceWithKVStore() (ImageExportService, *DummyImageExportStore, *DummyImageBuildStore) {
+	imageExportStore := NewDummyImageExportStore()
+	imageBuildStore := NewDummyImageBuildStore()
+	repositoryStore := NewDummyRepositoryStore()
+	kvStore := NewDummyKVStore()
+	svc := NewImageExportService(imageExportStore, imageBuildStore, repositoryStore, nil, nil, kvStore, log.InitLogs())
+	return svc, imageExportStore, imageBuildStore
+}
+
+func TestCancelImageExport_Pending(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	orgId := uuid.New()
+
+	svc, imageExportStore, _ := newTestImageExportServiceWithKVStore()
+
+	// Create an ImageExport
+	imageExport := newValidImageExport("cancel-test")
+	_, err := imageExportStore.Create(ctx, orgId, &imageExport)
+	require.NoError(err)
+
+	// Set status to Pending
+	imageExport.Status = &api.ImageExportStatus{
+		Conditions: &[]api.ImageExportCondition{
+			{
+				Type:               api.ImageExportConditionTypeReady,
+				Status:             v1beta1.ConditionStatusFalse,
+				Reason:             string(api.ImageExportConditionReasonPending),
+				Message:            "Export is pending",
+				LastTransitionTime: time.Now(),
+			},
+		},
+	}
+	_, err = imageExportStore.UpdateStatus(ctx, orgId, &imageExport)
+	require.NoError(err)
+
+	// Cancel the export
+	result, err := svc.Cancel(ctx, orgId, "cancel-test")
+	require.NoError(err)
+	require.NotNil(result)
+	require.NotNil(result.Status)
+	require.NotNil(result.Status.Conditions)
+
+	// Verify status is Canceling
+	readyCondition := api.FindImageExportStatusCondition(*result.Status.Conditions, api.ImageExportConditionTypeReady)
+	require.NotNil(readyCondition)
+	require.Equal(string(api.ImageExportConditionReasonCanceling), readyCondition.Reason)
+}
+
+func TestCancelImageExport_Converting(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	orgId := uuid.New()
+
+	svc, imageExportStore, _ := newTestImageExportServiceWithKVStore()
+
+	// Create an ImageExport
+	imageExport := newValidImageExport("cancel-converting-test")
+	_, err := imageExportStore.Create(ctx, orgId, &imageExport)
+	require.NoError(err)
+
+	// Set status to Converting
+	imageExport.Status = &api.ImageExportStatus{
+		Conditions: &[]api.ImageExportCondition{
+			{
+				Type:               api.ImageExportConditionTypeReady,
+				Status:             v1beta1.ConditionStatusFalse,
+				Reason:             string(api.ImageExportConditionReasonConverting),
+				Message:            "Export conversion in progress",
+				LastTransitionTime: time.Now(),
+			},
+		},
+	}
+	_, err = imageExportStore.UpdateStatus(ctx, orgId, &imageExport)
+	require.NoError(err)
+
+	// Cancel the export
+	result, err := svc.Cancel(ctx, orgId, "cancel-converting-test")
+	require.NoError(err)
+	require.NotNil(result)
+
+	// Verify status is Canceling
+	readyCondition := api.FindImageExportStatusCondition(*result.Status.Conditions, api.ImageExportConditionTypeReady)
+	require.NotNil(readyCondition)
+	require.Equal(string(api.ImageExportConditionReasonCanceling), readyCondition.Reason)
+}
+
+func TestCancelImageExport_Pushing(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	orgId := uuid.New()
+
+	svc, imageExportStore, _ := newTestImageExportServiceWithKVStore()
+
+	// Create an ImageExport
+	imageExport := newValidImageExport("cancel-pushing-test")
+	_, err := imageExportStore.Create(ctx, orgId, &imageExport)
+	require.NoError(err)
+
+	// Set status to Pushing
+	imageExport.Status = &api.ImageExportStatus{
+		Conditions: &[]api.ImageExportCondition{
+			{
+				Type:               api.ImageExportConditionTypeReady,
+				Status:             v1beta1.ConditionStatusFalse,
+				Reason:             string(api.ImageExportConditionReasonPushing),
+				Message:            "Pushing export artifact",
+				LastTransitionTime: time.Now(),
+			},
+		},
+	}
+	_, err = imageExportStore.UpdateStatus(ctx, orgId, &imageExport)
+	require.NoError(err)
+
+	// Cancel the export
+	result, err := svc.Cancel(ctx, orgId, "cancel-pushing-test")
+	require.NoError(err)
+	require.NotNil(result)
+
+	// Verify status is Canceling
+	readyCondition := api.FindImageExportStatusCondition(*result.Status.Conditions, api.ImageExportConditionTypeReady)
+	require.NotNil(readyCondition)
+	require.Equal(string(api.ImageExportConditionReasonCanceling), readyCondition.Reason)
+}
+
+func TestCancelImageExport_NotCancelable_Completed(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	orgId := uuid.New()
+
+	svc, imageExportStore, _ := newTestImageExportServiceWithKVStore()
+
+	// Create an ImageExport
+	imageExport := newValidImageExport("cancel-completed-test")
+	_, err := imageExportStore.Create(ctx, orgId, &imageExport)
+	require.NoError(err)
+
+	// Set status to Completed
+	imageExport.Status = &api.ImageExportStatus{
+		Conditions: &[]api.ImageExportCondition{
+			{
+				Type:               api.ImageExportConditionTypeReady,
+				Status:             v1beta1.ConditionStatusTrue,
+				Reason:             string(api.ImageExportConditionReasonCompleted),
+				Message:            "Export completed",
+				LastTransitionTime: time.Now(),
+			},
+		},
+	}
+	_, err = imageExportStore.UpdateStatus(ctx, orgId, &imageExport)
+	require.NoError(err)
+
+	// Attempt to cancel - should fail
+	_, err = svc.Cancel(ctx, orgId, "cancel-completed-test")
+	require.ErrorIs(err, ErrNotCancelable)
+}
+
+func TestCancelImageExport_NotCancelable_Failed(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	orgId := uuid.New()
+
+	svc, imageExportStore, _ := newTestImageExportServiceWithKVStore()
+
+	// Create an ImageExport
+	imageExport := newValidImageExport("cancel-failed-test")
+	_, err := imageExportStore.Create(ctx, orgId, &imageExport)
+	require.NoError(err)
+
+	// Set status to Failed
+	imageExport.Status = &api.ImageExportStatus{
+		Conditions: &[]api.ImageExportCondition{
+			{
+				Type:               api.ImageExportConditionTypeReady,
+				Status:             v1beta1.ConditionStatusFalse,
+				Reason:             string(api.ImageExportConditionReasonFailed),
+				Message:            "Export failed",
+				LastTransitionTime: time.Now(),
+			},
+		},
+	}
+	_, err = imageExportStore.UpdateStatus(ctx, orgId, &imageExport)
+	require.NoError(err)
+
+	// Attempt to cancel - should fail
+	_, err = svc.Cancel(ctx, orgId, "cancel-failed-test")
+	require.ErrorIs(err, ErrNotCancelable)
+}
+
+func TestCancelImageExport_NotCancelable_Canceled(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	orgId := uuid.New()
+
+	svc, imageExportStore, _ := newTestImageExportServiceWithKVStore()
+
+	// Create an ImageExport
+	imageExport := newValidImageExport("cancel-canceled-test")
+	_, err := imageExportStore.Create(ctx, orgId, &imageExport)
+	require.NoError(err)
+
+	// Set status to Canceled
+	imageExport.Status = &api.ImageExportStatus{
+		Conditions: &[]api.ImageExportCondition{
+			{
+				Type:               api.ImageExportConditionTypeReady,
+				Status:             v1beta1.ConditionStatusFalse,
+				Reason:             string(api.ImageExportConditionReasonCanceled),
+				Message:            "Export was canceled",
+				LastTransitionTime: time.Now(),
+			},
+		},
+	}
+	_, err = imageExportStore.UpdateStatus(ctx, orgId, &imageExport)
+	require.NoError(err)
+
+	// Attempt to cancel - should fail
+	_, err = svc.Cancel(ctx, orgId, "cancel-canceled-test")
+	require.ErrorIs(err, ErrNotCancelable)
+}
+
+func TestCancelImageExport_NotFound(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	orgId := uuid.New()
+
+	svc, _, _ := newTestImageExportServiceWithKVStore()
+
+	// Attempt to cancel non-existent export
+	_, err := svc.Cancel(ctx, orgId, "nonexistent")
+	require.Error(err)
+}
+
+func TestCancelImageExport_NoStatus(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	orgId := uuid.New()
+
+	svc, imageExportStore, _ := newTestImageExportServiceWithKVStore()
+
+	// Create an ImageExport with no status (treated as Pending)
+	imageExport := newValidImageExport("cancel-nostatus-test")
+	_, err := imageExportStore.Create(ctx, orgId, &imageExport)
+	require.NoError(err)
+
+	// Cancel the export (should work since no status = Pending)
+	result, err := svc.Cancel(ctx, orgId, "cancel-nostatus-test")
+	require.NoError(err)
+	require.NotNil(result)
+
+	// Verify status is Canceling
+	readyCondition := api.FindImageExportStatusCondition(*result.Status.Conditions, api.ImageExportConditionTypeReady)
+	require.NotNil(readyCondition)
+	require.Equal(string(api.ImageExportConditionReasonCanceling), readyCondition.Reason)
+}
