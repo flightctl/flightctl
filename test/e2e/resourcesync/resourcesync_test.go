@@ -17,6 +17,10 @@ const (
 	PollingInterval = 2 * time.Second
 	PollingTimeout  = 30 * time.Second
 	BranchName      = "main"
+
+	// Images used in test data files
+	Fedora42Image = "quay.io/fedora/fedora-bootc:42"
+	Fedora43Image = "quay.io/fedora/fedora-bootc:43"
 )
 
 // testContext holds shared test state across test cases
@@ -67,7 +71,7 @@ var _ = Describe("ResourceSync success cases", func() {
 		// Create a ResourceSync pointing to the repository
 		resourceSyncSpec := v1beta1.ResourceSyncSpec{
 			Repository:     tc.repoName,
-			TargetRevision: "main",
+			TargetRevision: BranchName,
 			Path:           "/",
 		}
 		err = tc.harness.CreateResourceSync(tc.resourceSyncName, tc.repoName, resourceSyncSpec)
@@ -92,7 +96,7 @@ var _ = Describe("ResourceSync success cases", func() {
 
 		for _, fleet := range fleetsResp.JSON200.Items {
 			Expect(*fleet.Metadata.Owner).To(Equal(fmt.Sprintf("ResourceSync/%s", tc.resourceSyncName)))
-			Expect(fleet.Spec.Template.Spec.Os.Image).To(Equal("quay.io/fedora/fedora-bootc:42"))
+			Expect(fleet.Spec.Template.Spec.Os.Image).To(Equal(Fedora42Image))
 			Expect(*fleet.Metadata.Name).To(ContainSubstring(tc.testID))
 		}
 
@@ -101,11 +105,9 @@ var _ = Describe("ResourceSync success cases", func() {
 		fleet1Name := fmt.Sprintf("resourcesync-test-fleet-1-%s", tc.testID)
 		fleet1, err := tc.harness.GetFleet(fleet1Name)
 		Expect(err).ToNot(HaveOccurred())
-		Expect(getFleetImage(fleet1)).To(Equal("quay.io/fedora/fedora-bootc:42"), "Expected initial image to be quay.io/fedora/fedora-bootc:42")
+		Expect(getFleetImage(fleet1)).To(Equal(Fedora42Image), fmt.Sprintf("Expected initial image to be %s", Fedora42Image))
 
 		// Modify fleet-1.yaml in the working directory with a new image (uses updated_fleet_files template)
-		newImage := "quay.io/fedora/fedora-bootc:43"
-
 		err = tc.harness.PushTemplatedFilesToGitRepo(tc.repoName, e2e.GetTestDataPath("updated_fleet_files"), tc.repoDir, templateData{TestID: tc.testID})
 		Expect(err).ToNot(HaveOccurred())
 
@@ -115,8 +117,8 @@ var _ = Describe("ResourceSync success cases", func() {
 				return "", err
 			}
 			return getFleetImage(fleet), nil
-		}, PollingTimeout, PollingInterval).Should(Equal(newImage),
-			"Expected fleet-1 image to be updated to "+newImage)
+		}, PollingTimeout, PollingInterval).Should(Equal(Fedora43Image),
+			"Expected fleet-1 image to be updated to "+Fedora43Image)
 
 		By("deleting fleet when repository file is removed")
 		// Verify fleet-3 exists
