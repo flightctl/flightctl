@@ -482,6 +482,7 @@ SSL
 PL/pgSQL
 PL
 pgSQL
+PromQL
 values.yaml
 values.dev.yaml
 CN
