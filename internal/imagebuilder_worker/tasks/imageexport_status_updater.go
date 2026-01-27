@@ -20,6 +20,8 @@ type imageExportStatusUpdateRequest struct {
 	Condition      *api.ImageExportCondition
 	LastSeen       *time.Time
 	ManifestDigest *string
+	// done is closed when the update has been processed (used for terminal conditions)
+	done chan struct{}
 }
 
 // newImageExportStatusUpdateRequest creates a new update request with LastSeen automatically set to now
@@ -41,6 +43,7 @@ type imageExportStatusUpdater struct {
 	outputChan         chan []byte // Central channel for all task outputs
 	ctx                context.Context
 	cancel             context.CancelFunc
+	cancelExport       func() // Cancel function for the export context
 	wg                 sync.WaitGroup
 	log                logrus.FieldLogger
 	// logBuffer keeps the last 500 lines of logs in memory
@@ -49,8 +52,11 @@ type imageExportStatusUpdater struct {
 }
 
 // startImageExportStatusUpdater starts a goroutine that is the single writer for ImageExport status updates.
+// ctx is the parent context (consumer context) - NOT the export context.
+// cancelExport is the cancel function for the export context, called when cancellation is received.
 func startImageExportStatusUpdater(
-	ctx context.Context,
+	ctx context.Context, // Parent context (e.g., consumer context) - NOT the export context
+	cancelExport func(), // Cancel function for the export context
 	imageExportService imagebuilderapi.ImageExportService,
 	orgID uuid.UUID,
 	imageExportName string,
@@ -58,6 +64,9 @@ func startImageExportStatusUpdater(
 	cfg *config.Config,
 	log logrus.FieldLogger,
 ) (*imageExportStatusUpdater, func()) {
+	// Derive updater context from the parent context (consumer context)
+	// This is important: do NOT pass exportCtx here - the updater needs to survive
+	// export cancellation to write the final Canceled status
 	updaterCtx, updaterCancel := context.WithCancel(ctx)
 
 	updater := &imageExportStatusUpdater{
@@ -69,12 +78,17 @@ func startImageExportStatusUpdater(
 		outputChan:         make(chan []byte, 100),
 		ctx:                updaterCtx,
 		cancel:             updaterCancel,
+		cancelExport:       cancelExport,
 		log:                log,
 		logBuffer:          make([]string, 0, 500),
 	}
 
 	updater.wg.Add(1)
 	go updater.run(cfg)
+
+	// Start cancellation listener goroutine (uses Redis Streams)
+	updater.wg.Add(1)
+	go updater.listenForCancellation()
 
 	cleanup := func() {
 		updaterCancel()
@@ -114,9 +128,9 @@ func (u *imageExportStatusUpdater) run(cfg *config.Config) {
 					lastSeenUpdateTime = *lastOutputTime
 					lastSetLastSeenCopy := *lastOutputTime
 					lastSetLastSeen = &lastSetLastSeenCopy
-					u.updateStatus(u.ctx, pendingCondition, &lastSeenUpdateTime, nil)
+					u.updateStatus(pendingCondition, &lastSeenUpdateTime, nil)
 					// Also persist logs to DB periodically
-					u.persistLogsToDB(u.ctx)
+					u.persistLogsToDB()
 					pendingCondition = nil
 				}
 			}
@@ -125,7 +139,7 @@ func (u *imageExportStatusUpdater) run(cfg *config.Config) {
 			lastOutputTime = &now
 			u.log.Debugf("Task output: %s", string(output))
 			// Write to Redis and update in-memory buffer
-			u.writeLogToRedis(u.ctx, output)
+			u.writeLogToRedis(output)
 		case req := <-u.updateChan:
 			if req.Condition != nil {
 				pendingCondition = req.Condition
@@ -136,24 +150,24 @@ func (u *imageExportStatusUpdater) run(cfg *config.Config) {
 			// Update immediately when condition or manifest digest changes
 			// LastSeen-only updates are handled immediately to set initial value
 			if req.Condition != nil || req.ManifestDigest != nil || req.LastSeen != nil {
-				u.updateStatus(u.ctx, pendingCondition, &lastSeenUpdateTime, req.ManifestDigest)
-				// If condition is completed or failed, persist logs to DB and signal stream completion
-				if pendingCondition != nil {
-					if pendingCondition.Reason == string(api.ImageExportConditionReasonCompleted) ||
-						pendingCondition.Reason == string(api.ImageExportConditionReasonFailed) {
-						u.persistLogsToDB(u.ctx)
-						u.writeStreamCompleteMarker(u.ctx)
-					}
-				}
+				u.updateStatus(pendingCondition, &lastSeenUpdateTime, req.ManifestDigest)
 				pendingCondition = nil
+			}
+			// Signal completion if done channel exists (used for synchronous updates)
+			if req.done != nil {
+				close(req.done)
 			}
 		}
 	}
 }
 
 // updateStatus performs the actual database update
-func (u *imageExportStatusUpdater) updateStatus(ctx context.Context, condition *api.ImageExportCondition, lastSeen *time.Time, manifestDigest *string) {
-	imageExport, status := u.imageExportService.Get(ctx, u.orgID, u.imageExportName)
+// Note: Uses u.ctx (updaterCtx) which is derived from the consumer context, NOT the export context.
+// When cancelExport() is called, only exportCtx is canceled - updaterCtx remains valid until
+// cleanupStatusUpdater() is called, which happens AFTER processImageExport() returns.
+// This ensures we can still write the final status (e.g., Canceled) after the export is canceled.
+func (u *imageExportStatusUpdater) updateStatus(condition *api.ImageExportCondition, lastSeen *time.Time, manifestDigest *string) {
+	imageExport, status := u.imageExportService.Get(u.ctx, u.orgID, u.imageExportName)
 	if imageExport == nil || !imagebuilderapi.IsStatusOK(status) {
 		u.log.WithField("status", status).Warn("Failed to load ImageExport for status update")
 		return
@@ -171,25 +185,65 @@ func (u *imageExportStatusUpdater) updateStatus(ctx context.Context, condition *
 		if imageExport.Status.Conditions == nil {
 			imageExport.Status.Conditions = &[]api.ImageExportCondition{}
 		}
-		api.SetImageExportStatusCondition(imageExport.Status.Conditions, *condition)
+
+		// Check if current status is "Canceling" - don't overwrite with in-progress states
+		// Only allow transitioning to terminal states (Canceled, Failed, Completed)
+		skipConditionUpdate := false
+		currentCondition := api.FindImageExportStatusCondition(*imageExport.Status.Conditions, api.ImageExportConditionTypeReady)
+		if currentCondition != nil && currentCondition.Reason == string(api.ImageExportConditionReasonCanceling) {
+			// Only allow terminal states to overwrite Canceling
+			if condition.Reason != string(api.ImageExportConditionReasonCanceled) &&
+				condition.Reason != string(api.ImageExportConditionReasonFailed) &&
+				condition.Reason != string(api.ImageExportConditionReasonCompleted) {
+				u.log.WithField("attemptedReason", condition.Reason).Info("Skipping condition update - export is being canceled")
+				skipConditionUpdate = true
+			}
+		}
+
+		if !skipConditionUpdate {
+			api.SetImageExportStatusCondition(imageExport.Status.Conditions, *condition)
+
+			// If export is completed, failed, or canceled, persist logs to DB and signal stream completion
+			if condition.Reason == string(api.ImageExportConditionReasonCompleted) ||
+				condition.Reason == string(api.ImageExportConditionReasonFailed) ||
+				condition.Reason == string(api.ImageExportConditionReasonCanceled) {
+				u.persistLogsToDB()
+				u.writeStreamCompleteMarker()
+			}
+		}
 	}
 
 	if manifestDigest != nil {
 		imageExport.Status.ManifestDigest = manifestDigest
 	}
 
-	_, err := u.imageExportService.UpdateStatus(ctx, u.orgID, imageExport)
+	_, err := u.imageExportService.UpdateStatus(u.ctx, u.orgID, imageExport)
 	if err != nil {
 		u.log.WithError(err).Warn("Failed to update ImageExport status")
 	}
 }
 
 // updateCondition sends a condition update request to the updater goroutine
+// For terminal conditions (Completed, Failed, Canceled), this blocks until the update is processed.
+// This ensures the final status is written before the caller returns and triggers cleanup.
 func (u *imageExportStatusUpdater) updateCondition(condition api.ImageExportCondition) {
+	// For terminal conditions, wait for the update to complete
+	isTerminal := condition.Reason == string(api.ImageExportConditionReasonCompleted) ||
+		condition.Reason == string(api.ImageExportConditionReasonFailed) ||
+		condition.Reason == string(api.ImageExportConditionReasonCanceled)
+
 	req := newImageExportStatusUpdateRequest()
 	req.Condition = &condition
+	if isTerminal {
+		req.done = make(chan struct{})
+	}
+
 	select {
 	case u.updateChan <- req:
+		// If terminal, wait for the update to complete
+		if req.done != nil {
+			<-req.done
+		}
 	case <-u.ctx.Done():
 	}
 }
@@ -219,7 +273,7 @@ func (u *imageExportStatusUpdater) getLogKey() string {
 
 // writeLogToRedis writes log output to Redis and updates the in-memory buffer
 // The in-memory buffer keeps only the last 500 lines to save memory
-func (u *imageExportStatusUpdater) writeLogToRedis(ctx context.Context, output []byte) {
+func (u *imageExportStatusUpdater) writeLogToRedis(output []byte) {
 	if u.kvStore == nil {
 		return
 	}
@@ -227,14 +281,14 @@ func (u *imageExportStatusUpdater) writeLogToRedis(ctx context.Context, output [
 	key := u.getLogKey()
 
 	// Write full logs to Redis stream
-	_, err := u.kvStore.StreamAdd(ctx, key, output)
+	_, err := u.kvStore.StreamAdd(u.ctx, key, output)
 	if err != nil {
 		u.log.WithError(err).Warn("Failed to write log to Redis")
 		return
 	}
 
 	// Set TTL on the key (1 hour)
-	if err := u.kvStore.SetExpire(ctx, key, 1*time.Hour); err != nil {
+	if err := u.kvStore.SetExpire(u.ctx, key, 1*time.Hour); err != nil {
 		u.log.WithError(err).Warn("Failed to set TTL on Redis log key")
 	}
 
@@ -261,7 +315,7 @@ func (u *imageExportStatusUpdater) writeLogToRedis(ctx context.Context, output [
 }
 
 // persistLogsToDB persists the last 500 lines of logs to the database
-func (u *imageExportStatusUpdater) persistLogsToDB(ctx context.Context) {
+func (u *imageExportStatusUpdater) persistLogsToDB() {
 	u.logBufferMu.Lock()
 	defer u.logBufferMu.Unlock()
 
@@ -274,7 +328,7 @@ func (u *imageExportStatusUpdater) persistLogsToDB(ctx context.Context) {
 	// Persist to DB using the service's UpdateLogs method
 	if logs != "" {
 		u.log.Debugf("Persisting %d lines of logs to DB", len(u.logBuffer))
-		if err := u.imageExportService.UpdateLogs(ctx, u.orgID, u.imageExportName, logs); err != nil {
+		if err := u.imageExportService.UpdateLogs(u.ctx, u.orgID, u.imageExportName, logs); err != nil {
 			u.log.WithError(err).Warn("Failed to persist logs to DB")
 		}
 	}
@@ -282,14 +336,90 @@ func (u *imageExportStatusUpdater) persistLogsToDB(ctx context.Context) {
 
 // writeStreamCompleteMarker writes a completion marker to Redis to signal that log streaming is complete
 // This allows clients following the log stream to know the stream has ended
-func (u *imageExportStatusUpdater) writeStreamCompleteMarker(ctx context.Context) {
+func (u *imageExportStatusUpdater) writeStreamCompleteMarker() {
 	if u.kvStore == nil {
 		return
 	}
 
 	key := u.getLogKey()
-	_, err := u.kvStore.StreamAdd(ctx, key, []byte(api.LogStreamCompleteMarker))
+	_, err := u.kvStore.StreamAdd(u.ctx, key, []byte(api.LogStreamCompleteMarker))
 	if err != nil {
 		u.log.WithError(err).Warn("Failed to write stream complete marker to Redis")
 	}
+}
+
+// listenForCancellation listens for cancellation messages via Redis Stream
+// When a cancellation message is received, it calls the cancelExport function to stop the export
+func (u *imageExportStatusUpdater) listenForCancellation() {
+	defer u.wg.Done()
+
+	if u.kvStore == nil {
+		u.log.Warn("KVStore is nil, cancellation listener not started")
+		return
+	}
+
+	streamKey := fmt.Sprintf("imageexport:cancel:%s:%s", u.orgID.String(), u.imageExportName)
+	lastID := "0" // Read from beginning
+
+	for {
+		select {
+		case <-u.ctx.Done():
+			return
+		default:
+			// Blocking read with 2 second timeout (then loop to check ctx.Done)
+			entries, err := u.kvStore.StreamRead(u.ctx, streamKey, lastID, 2*time.Second, 1)
+			if err != nil {
+				// Context canceled is expected during shutdown
+				if u.ctx.Err() != nil {
+					return
+				}
+				u.log.WithError(err).Debug("Error reading cancellation stream")
+				continue
+			}
+			if len(entries) > 0 {
+				// Update lastID to avoid re-reading the same message
+				lastID = entries[0].ID
+
+				// Verify the ImageExport status is actually "Canceling" before acting
+				// This prevents stale cancellation messages from previous attempts
+				// from canceling a new export
+				if !u.isStatusCanceling() {
+					u.log.Debug("Ignoring stale cancellation message - status is not Canceling")
+					continue
+				}
+
+				u.log.Info("Cancellation received via Redis Stream, canceling export")
+
+				// Delete the stream key to consume the signal exactly once
+				// This prevents the same signal from being processed again on retry
+				if err := u.kvStore.Delete(u.ctx, streamKey); err != nil {
+					u.log.WithError(err).Warn("Failed to delete cancellation stream after consuming")
+				}
+
+				if u.cancelExport != nil {
+					u.cancelExport()
+				}
+				return // Exit after cancellation
+			}
+		}
+	}
+}
+
+// isStatusCanceling checks if the current ImageExport status is "Canceling"
+func (u *imageExportStatusUpdater) isStatusCanceling() bool {
+	imageExport, status := u.imageExportService.Get(u.ctx, u.orgID, u.imageExportName)
+	if imageExport == nil || !imagebuilderapi.IsStatusOK(status) {
+		return false
+	}
+
+	if imageExport.Status == nil || imageExport.Status.Conditions == nil {
+		return false
+	}
+
+	readyCondition := api.FindImageExportStatusCondition(*imageExport.Status.Conditions, api.ImageExportConditionTypeReady)
+	if readyCondition == nil {
+		return false
+	}
+
+	return readyCondition.Reason == string(api.ImageExportConditionReasonCanceling)
 }

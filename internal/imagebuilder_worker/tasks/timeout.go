@@ -29,9 +29,9 @@ func (c *Consumer) CheckAndMarkTimeoutsForOrg(ctx context.Context, orgID uuid.UU
 	failedCount := 0
 
 	// Build field selector to find resources that:
-	// 1. Are not in terminal states (Completed, Failed, Pending)
+	// 1. Are not in terminal states (Completed, Failed, Canceled, Pending)
 	// 2. Have lastSeen older than threshold
-	fieldSelectorStr := fmt.Sprintf("status.conditions.ready.reason notin (Completed, Failed, Pending),status.lastSeen<%s", thresholdStr)
+	fieldSelectorStr := fmt.Sprintf("status.conditions.ready.reason notin (Completed, Failed, Canceled, Pending),status.lastSeen<%s", thresholdStr)
 
 	// Check ImageBuilds
 	imageBuilds, status := c.imageBuilderService.ImageBuild().List(ctx, orgID, apiimagebuilder.ListImageBuildsParams{
@@ -41,14 +41,27 @@ func (c *Consumer) CheckAndMarkTimeoutsForOrg(ctx context.Context, orgID uuid.UU
 		log.WithError(fmt.Errorf("status: %v", status)).Error("Failed to list imagebuilds for timeout check")
 	} else if imageBuilds != nil {
 		for _, imageBuild := range imageBuilds.Items {
-			updated, err := c.markImageBuildAsTimedOut(ctx, orgID, &imageBuild, timeoutDuration, log)
-			if err != nil {
-				log.WithError(err).WithField("imageBuild", lo.FromPtr(imageBuild.Metadata.Name)).Error("Failed to mark imageBuild as timed out")
-				failedCount++
-				continue
-			}
-			if updated {
-				failedCount++
+			// Check if this is a Canceling state - should be marked as Canceled, not Failed
+			if c.isImageBuildCanceling(&imageBuild) {
+				updated, err := c.markImageBuildAsCanceledTimeout(ctx, orgID, &imageBuild, log)
+				if err != nil {
+					log.WithError(err).WithField("imageBuild", lo.FromPtr(imageBuild.Metadata.Name)).Error("Failed to mark imageBuild as canceled")
+					failedCount++
+					continue
+				}
+				if updated {
+					failedCount++
+				}
+			} else {
+				updated, err := c.markImageBuildAsTimedOut(ctx, orgID, &imageBuild, timeoutDuration, log)
+				if err != nil {
+					log.WithError(err).WithField("imageBuild", lo.FromPtr(imageBuild.Metadata.Name)).Error("Failed to mark imageBuild as timed out")
+					failedCount++
+					continue
+				}
+				if updated {
+					failedCount++
+				}
 			}
 		}
 	}
@@ -61,14 +74,27 @@ func (c *Consumer) CheckAndMarkTimeoutsForOrg(ctx context.Context, orgID uuid.UU
 		log.WithError(fmt.Errorf("status: %v", status)).Error("Failed to list imageexports for timeout check")
 	} else if imageExports != nil {
 		for _, imageExport := range imageExports.Items {
-			updated, err := c.markImageExportAsTimedOut(ctx, orgID, &imageExport, timeoutDuration, log)
-			if err != nil {
-				log.WithError(err).WithField("imageExport", lo.FromPtr(imageExport.Metadata.Name)).Error("Failed to mark imageExport as timed out")
-				failedCount++
-				continue
-			}
-			if updated {
-				failedCount++
+			// Check if this is a Canceling state - should be marked as Canceled, not Failed
+			if c.isImageExportCanceling(&imageExport) {
+				updated, err := c.markImageExportAsCanceledTimeout(ctx, orgID, &imageExport, log)
+				if err != nil {
+					log.WithError(err).WithField("imageExport", lo.FromPtr(imageExport.Metadata.Name)).Error("Failed to mark imageExport as canceled")
+					failedCount++
+					continue
+				}
+				if updated {
+					failedCount++
+				}
+			} else {
+				updated, err := c.markImageExportAsTimedOut(ctx, orgID, &imageExport, timeoutDuration, log)
+				if err != nil {
+					log.WithError(err).WithField("imageExport", lo.FromPtr(imageExport.Metadata.Name)).Error("Failed to mark imageExport as timed out")
+					failedCount++
+					continue
+				}
+				if updated {
+					failedCount++
+				}
 			}
 		}
 	}
@@ -76,7 +102,10 @@ func (c *Consumer) CheckAndMarkTimeoutsForOrg(ctx context.Context, orgID uuid.UU
 	return failedCount, nil
 }
 
-// markImageBuildAsTimedOut marks an ImageBuild as Failed due to timeout
+// markImageBuildAsTimedOut initiates graceful cancellation of an ImageBuild due to timeout
+// Uses the service's CancelWithReason to set status to Canceling with a timeout message
+// and write to Redis cancellation stream. The worker will then transition to Canceled
+// with the preserved timeout message.
 // Returns (updated, error) where updated indicates whether a DB row was actually updated
 func (c *Consumer) markImageBuildAsTimedOut(ctx context.Context, orgID uuid.UUID, imageBuild *apiimagebuilder.ImageBuild, timeoutDuration time.Duration, log logrus.FieldLogger) (bool, error) {
 	name := lo.FromPtr(imageBuild.Metadata.Name)
@@ -84,36 +113,30 @@ func (c *Consumer) markImageBuildAsTimedOut(ctx context.Context, orgID uuid.UUID
 		return false, fmt.Errorf("imageBuild name is empty")
 	}
 
-	// Update status to Failed
-	now := time.Now().UTC()
-	failedCondition := apiimagebuilder.ImageBuildCondition{
-		Type:               apiimagebuilder.ImageBuildConditionTypeReady,
-		Status:             v1beta1.ConditionStatusFalse,
-		Reason:             string(apiimagebuilder.ImageBuildConditionReasonFailed),
-		Message:            fmt.Sprintf("Operation timed out: last seen more than %v ago", timeoutDuration),
-		LastTransitionTime: now,
-	}
+	reason := fmt.Sprintf("Operation timed out: last seen more than %v ago", timeoutDuration)
+	_, err := c.imageBuilderService.ImageBuild().CancelWithReason(ctx, orgID, name, reason)
 
-	// Set the Failed condition using the helper function
-	// Status and Conditions are guaranteed to exist due to field selector filtering
-	apiimagebuilder.SetImageBuildStatusCondition(imageBuild.Status.Conditions, failedCondition)
-
-	// Update status - if resource changed, optimistic locking will cause this to fail, which is fine
-	_, err := c.imageBuilderService.ImageBuild().UpdateStatus(ctx, orgID, imageBuild)
 	if err != nil {
-		// If update failed due to resource version mismatch, that's fine - resource was updated by another process
-		if errors.Is(err, flterrors.ErrNoRowsUpdated) {
-			log.WithField("imageBuild", name).Debug("ImageBuild was updated by another process, skipping timeout mark")
+		// ErrNotCancelable = already in terminal state or Canceling - skip silently
+		// ErrResourceNotFound = not found - skip silently
+		// ErrNoRowsUpdated = conflict (resource version mismatch) - skip silently
+		if errors.Is(err, imagebuilderapi.ErrNotCancelable) ||
+			errors.Is(err, flterrors.ErrResourceNotFound) ||
+			errors.Is(err, flterrors.ErrNoRowsUpdated) {
+			log.WithField("imageBuild", name).WithError(err).Debug("ImageBuild could not be canceled, skipping")
 			return false, nil
 		}
-		return false, fmt.Errorf("failed to update ImageBuild status: %w", err)
+		return false, fmt.Errorf("failed to cancel ImageBuild: %w", err)
 	}
 
-	log.WithField("imageBuild", name).Info("Marked ImageBuild as timed out")
+	log.WithField("imageBuild", name).Info("Initiated graceful cancellation due to timeout")
 	return true, nil
 }
 
-// markImageExportAsTimedOut marks an ImageExport as Failed due to timeout
+// markImageExportAsTimedOut initiates graceful cancellation of an ImageExport due to timeout
+// Uses the service's CancelWithReason to set status to Canceling with a timeout message
+// and write to Redis cancellation stream. The worker will then transition to Canceled
+// with the preserved timeout message.
 // Returns (updated, error) where updated indicates whether a DB row was actually updated
 func (c *Consumer) markImageExportAsTimedOut(ctx context.Context, orgID uuid.UUID, imageExport *apiimagebuilder.ImageExport, timeoutDuration time.Duration, log logrus.FieldLogger) (bool, error) {
 	name := lo.FromPtr(imageExport.Metadata.Name)
@@ -121,31 +144,108 @@ func (c *Consumer) markImageExportAsTimedOut(ctx context.Context, orgID uuid.UUI
 		return false, fmt.Errorf("imageExport name is empty")
 	}
 
-	// Update status to Failed
+	reason := fmt.Sprintf("Operation timed out: last seen more than %v ago", timeoutDuration)
+	_, err := c.imageBuilderService.ImageExport().CancelWithReason(ctx, orgID, name, reason)
+
+	if err != nil {
+		// ErrNotCancelable = already in terminal state or Canceling - skip silently
+		// ErrResourceNotFound = not found - skip silently
+		// ErrNoRowsUpdated = conflict (resource version mismatch) - skip silently
+		if errors.Is(err, imagebuilderapi.ErrNotCancelable) ||
+			errors.Is(err, flterrors.ErrResourceNotFound) ||
+			errors.Is(err, flterrors.ErrNoRowsUpdated) {
+			log.WithField("imageExport", name).WithError(err).Debug("ImageExport could not be canceled, skipping")
+			return false, nil
+		}
+		return false, fmt.Errorf("failed to cancel ImageExport: %w", err)
+	}
+
+	log.WithField("imageExport", name).Info("Initiated graceful cancellation due to timeout")
+	return true, nil
+}
+
+// markImageBuildAsCanceledTimeout marks an ImageBuild as Canceled because it was being canceled when it timed out
+// Preserves the message from the Canceling condition (which may contain timeout info)
+// Note: isImageBuildCanceling is defined in requeue.go
+func (c *Consumer) markImageBuildAsCanceledTimeout(ctx context.Context, orgID uuid.UUID, imageBuild *apiimagebuilder.ImageBuild, log logrus.FieldLogger) (bool, error) {
+	name := lo.FromPtr(imageBuild.Metadata.Name)
+	if name == "" {
+		return false, fmt.Errorf("imageBuild name is empty")
+	}
+
+	// Preserve the message from Canceling condition (may contain timeout info)
+	message := "Build was canceled"
+	if imageBuild.Status != nil && imageBuild.Status.Conditions != nil {
+		readyCondition := apiimagebuilder.FindImageBuildStatusCondition(*imageBuild.Status.Conditions, apiimagebuilder.ImageBuildConditionTypeReady)
+		if readyCondition != nil && readyCondition.Message != "" {
+			message = readyCondition.Message
+		}
+	}
+
+	// Update status to Canceled
 	now := time.Now().UTC()
-	failedCondition := apiimagebuilder.ImageExportCondition{
-		Type:               apiimagebuilder.ImageExportConditionTypeReady,
+	canceledCondition := apiimagebuilder.ImageBuildCondition{
+		Type:               apiimagebuilder.ImageBuildConditionTypeReady,
 		Status:             v1beta1.ConditionStatusFalse,
-		Reason:             string(apiimagebuilder.ImageExportConditionReasonFailed),
-		Message:            fmt.Sprintf("Operation timed out: last seen more than %v ago", timeoutDuration),
+		Reason:             string(apiimagebuilder.ImageBuildConditionReasonCanceled),
+		Message:            message,
 		LastTransitionTime: now,
 	}
 
-	// Set the Failed condition using the helper function
-	// Status and Conditions are guaranteed to exist due to field selector filtering
-	apiimagebuilder.SetImageExportStatusCondition(imageExport.Status.Conditions, failedCondition)
+	apiimagebuilder.SetImageBuildStatusCondition(imageBuild.Status.Conditions, canceledCondition)
 
-	// Update status - if resource changed, optimistic locking will cause this to fail, which is fine
+	_, err := c.imageBuilderService.ImageBuild().UpdateStatus(ctx, orgID, imageBuild)
+	if err != nil {
+		if errors.Is(err, flterrors.ErrNoRowsUpdated) {
+			log.WithField("imageBuild", name).Debug("ImageBuild was updated by another process, skipping canceled mark")
+			return false, nil
+		}
+		return false, fmt.Errorf("failed to update ImageBuild status: %w", err)
+	}
+
+	log.WithField("imageBuild", name).WithField("message", message).Info("Marked ImageBuild as canceled (was canceling when timed out)")
+	return true, nil
+}
+
+// markImageExportAsCanceledTimeout marks an ImageExport as Canceled because it was being canceled when it timed out
+// Preserves the message from the Canceling condition (which may contain timeout info)
+// Note: isImageExportCanceling is defined in requeue.go
+func (c *Consumer) markImageExportAsCanceledTimeout(ctx context.Context, orgID uuid.UUID, imageExport *apiimagebuilder.ImageExport, log logrus.FieldLogger) (bool, error) {
+	name := lo.FromPtr(imageExport.Metadata.Name)
+	if name == "" {
+		return false, fmt.Errorf("imageExport name is empty")
+	}
+
+	// Preserve the message from Canceling condition (may contain timeout info)
+	message := "Export was canceled"
+	if imageExport.Status != nil && imageExport.Status.Conditions != nil {
+		readyCondition := apiimagebuilder.FindImageExportStatusCondition(*imageExport.Status.Conditions, apiimagebuilder.ImageExportConditionTypeReady)
+		if readyCondition != nil && readyCondition.Message != "" {
+			message = readyCondition.Message
+		}
+	}
+
+	// Update status to Canceled
+	now := time.Now().UTC()
+	canceledCondition := apiimagebuilder.ImageExportCondition{
+		Type:               apiimagebuilder.ImageExportConditionTypeReady,
+		Status:             v1beta1.ConditionStatusFalse,
+		Reason:             string(apiimagebuilder.ImageExportConditionReasonCanceled),
+		Message:            message,
+		LastTransitionTime: now,
+	}
+
+	apiimagebuilder.SetImageExportStatusCondition(imageExport.Status.Conditions, canceledCondition)
+
 	_, err := c.imageBuilderService.ImageExport().UpdateStatus(ctx, orgID, imageExport)
 	if err != nil {
-		// If update failed due to resource version mismatch, that's fine - resource was updated by another process
 		if errors.Is(err, flterrors.ErrNoRowsUpdated) {
-			log.WithField("imageExport", name).Debug("ImageExport was updated by another process, skipping timeout mark")
+			log.WithField("imageExport", name).Debug("ImageExport was updated by another process, skipping canceled mark")
 			return false, nil
 		}
 		return false, fmt.Errorf("failed to update ImageExport status: %w", err)
 	}
 
-	log.WithField("imageExport", name).Info("Marked ImageExport as timed out")
+	log.WithField("imageExport", name).WithField("message", message).Info("Marked ImageExport as canceled (was canceling when timed out)")
 	return true, nil
 }

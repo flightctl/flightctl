@@ -671,3 +671,281 @@ func TestCreateImageBuildWithUserConfigurationInvalidPublickey(t *testing.T) {
 	require.Equal(int32(http.StatusBadRequest), statusCode(status))
 	require.Contains(status.Message, "spec.userConfiguration.publickey")
 }
+
+func TestCancelImageBuild_Pending(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	orgId := uuid.New()
+
+	// Set up repositories
+	repoStore := NewDummyRepositoryStore()
+	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
+	kvStore := NewDummyKVStore()
+	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, kvStore, log.InitLogs())
+
+	// Create an ImageBuild
+	imageBuild := newValidImageBuild("cancel-test")
+	_, status := svc.Create(ctx, orgId, imageBuild)
+	require.Equal(int32(http.StatusCreated), statusCode(status))
+
+	// Set status to Pending
+	imageBuild.Status = &api.ImageBuildStatus{
+		Conditions: &[]api.ImageBuildCondition{
+			{
+				Type:               api.ImageBuildConditionTypeReady,
+				Status:             v1beta1.ConditionStatusFalse,
+				Reason:             string(api.ImageBuildConditionReasonPending),
+				Message:            "Build is pending",
+				LastTransitionTime: time.Now(),
+			},
+		},
+	}
+	_, err := svc.UpdateStatus(ctx, orgId, &imageBuild)
+	require.NoError(err)
+
+	// Cancel the build
+	result, err := svc.Cancel(ctx, orgId, "cancel-test")
+	require.NoError(err)
+	require.NotNil(result)
+	require.NotNil(result.Status)
+	require.NotNil(result.Status.Conditions)
+
+	// Verify status is Canceling
+	readyCondition := api.FindImageBuildStatusCondition(*result.Status.Conditions, api.ImageBuildConditionTypeReady)
+	require.NotNil(readyCondition)
+	require.Equal(string(api.ImageBuildConditionReasonCanceling), readyCondition.Reason)
+}
+
+func TestCancelImageBuild_Building(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	orgId := uuid.New()
+
+	// Set up repositories
+	repoStore := NewDummyRepositoryStore()
+	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
+	kvStore := NewDummyKVStore()
+	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, kvStore, log.InitLogs())
+
+	// Create an ImageBuild
+	imageBuild := newValidImageBuild("cancel-building-test")
+	_, status := svc.Create(ctx, orgId, imageBuild)
+	require.Equal(int32(http.StatusCreated), statusCode(status))
+
+	// Set status to Building
+	imageBuild.Status = &api.ImageBuildStatus{
+		Conditions: &[]api.ImageBuildCondition{
+			{
+				Type:               api.ImageBuildConditionTypeReady,
+				Status:             v1beta1.ConditionStatusFalse,
+				Reason:             string(api.ImageBuildConditionReasonBuilding),
+				Message:            "Build in progress",
+				LastTransitionTime: time.Now(),
+			},
+		},
+	}
+	_, err := svc.UpdateStatus(ctx, orgId, &imageBuild)
+	require.NoError(err)
+
+	// Cancel the build
+	result, err := svc.Cancel(ctx, orgId, "cancel-building-test")
+	require.NoError(err)
+	require.NotNil(result)
+
+	// Verify status is Canceling
+	readyCondition := api.FindImageBuildStatusCondition(*result.Status.Conditions, api.ImageBuildConditionTypeReady)
+	require.NotNil(readyCondition)
+	require.Equal(string(api.ImageBuildConditionReasonCanceling), readyCondition.Reason)
+}
+
+func TestCancelImageBuild_Pushing(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	orgId := uuid.New()
+
+	// Set up repositories
+	repoStore := NewDummyRepositoryStore()
+	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
+	kvStore := NewDummyKVStore()
+	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, kvStore, log.InitLogs())
+
+	// Create an ImageBuild
+	imageBuild := newValidImageBuild("cancel-pushing-test")
+	_, status := svc.Create(ctx, orgId, imageBuild)
+	require.Equal(int32(http.StatusCreated), statusCode(status))
+
+	// Set status to Pushing
+	imageBuild.Status = &api.ImageBuildStatus{
+		Conditions: &[]api.ImageBuildCondition{
+			{
+				Type:               api.ImageBuildConditionTypeReady,
+				Status:             v1beta1.ConditionStatusFalse,
+				Reason:             string(api.ImageBuildConditionReasonPushing),
+				Message:            "Pushing image",
+				LastTransitionTime: time.Now(),
+			},
+		},
+	}
+	_, err := svc.UpdateStatus(ctx, orgId, &imageBuild)
+	require.NoError(err)
+
+	// Cancel the build
+	result, err := svc.Cancel(ctx, orgId, "cancel-pushing-test")
+	require.NoError(err)
+	require.NotNil(result)
+
+	// Verify status is Canceling
+	readyCondition := api.FindImageBuildStatusCondition(*result.Status.Conditions, api.ImageBuildConditionTypeReady)
+	require.NotNil(readyCondition)
+	require.Equal(string(api.ImageBuildConditionReasonCanceling), readyCondition.Reason)
+}
+
+func TestCancelImageBuild_NotCancelable_Completed(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	orgId := uuid.New()
+
+	// Set up repositories
+	repoStore := NewDummyRepositoryStore()
+	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
+	kvStore := NewDummyKVStore()
+	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, kvStore, log.InitLogs())
+
+	// Create an ImageBuild
+	imageBuild := newValidImageBuild("cancel-completed-test")
+	_, status := svc.Create(ctx, orgId, imageBuild)
+	require.Equal(int32(http.StatusCreated), statusCode(status))
+
+	// Set status to Completed
+	imageBuild.Status = &api.ImageBuildStatus{
+		Conditions: &[]api.ImageBuildCondition{
+			{
+				Type:               api.ImageBuildConditionTypeReady,
+				Status:             v1beta1.ConditionStatusTrue,
+				Reason:             string(api.ImageBuildConditionReasonCompleted),
+				Message:            "Build completed",
+				LastTransitionTime: time.Now(),
+			},
+		},
+	}
+	_, err := svc.UpdateStatus(ctx, orgId, &imageBuild)
+	require.NoError(err)
+
+	// Attempt to cancel - should fail
+	_, err = svc.Cancel(ctx, orgId, "cancel-completed-test")
+	require.ErrorIs(err, ErrNotCancelable)
+}
+
+func TestCancelImageBuild_NotCancelable_Failed(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	orgId := uuid.New()
+
+	// Set up repositories
+	repoStore := NewDummyRepositoryStore()
+	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
+	kvStore := NewDummyKVStore()
+	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, kvStore, log.InitLogs())
+
+	// Create an ImageBuild
+	imageBuild := newValidImageBuild("cancel-failed-test")
+	_, status := svc.Create(ctx, orgId, imageBuild)
+	require.Equal(int32(http.StatusCreated), statusCode(status))
+
+	// Set status to Failed
+	imageBuild.Status = &api.ImageBuildStatus{
+		Conditions: &[]api.ImageBuildCondition{
+			{
+				Type:               api.ImageBuildConditionTypeReady,
+				Status:             v1beta1.ConditionStatusFalse,
+				Reason:             string(api.ImageBuildConditionReasonFailed),
+				Message:            "Build failed",
+				LastTransitionTime: time.Now(),
+			},
+		},
+	}
+	_, err := svc.UpdateStatus(ctx, orgId, &imageBuild)
+	require.NoError(err)
+
+	// Attempt to cancel - should fail
+	_, err = svc.Cancel(ctx, orgId, "cancel-failed-test")
+	require.ErrorIs(err, ErrNotCancelable)
+}
+
+func TestCancelImageBuild_NotCancelable_Canceled(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	orgId := uuid.New()
+
+	// Set up repositories
+	repoStore := NewDummyRepositoryStore()
+	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
+	kvStore := NewDummyKVStore()
+	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, kvStore, log.InitLogs())
+
+	// Create an ImageBuild
+	imageBuild := newValidImageBuild("cancel-canceled-test")
+	_, status := svc.Create(ctx, orgId, imageBuild)
+	require.Equal(int32(http.StatusCreated), statusCode(status))
+
+	// Set status to Canceled
+	imageBuild.Status = &api.ImageBuildStatus{
+		Conditions: &[]api.ImageBuildCondition{
+			{
+				Type:               api.ImageBuildConditionTypeReady,
+				Status:             v1beta1.ConditionStatusFalse,
+				Reason:             string(api.ImageBuildConditionReasonCanceled),
+				Message:            "Build was canceled",
+				LastTransitionTime: time.Now(),
+			},
+		},
+	}
+	_, err := svc.UpdateStatus(ctx, orgId, &imageBuild)
+	require.NoError(err)
+
+	// Attempt to cancel - should fail
+	_, err = svc.Cancel(ctx, orgId, "cancel-canceled-test")
+	require.ErrorIs(err, ErrNotCancelable)
+}
+
+func TestCancelImageBuild_NotFound(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	orgId := uuid.New()
+
+	// Set up repositories
+	repoStore := NewDummyRepositoryStore()
+	kvStore := NewDummyKVStore()
+	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, kvStore, log.InitLogs())
+
+	// Attempt to cancel non-existent build
+	_, err := svc.Cancel(ctx, orgId, "nonexistent")
+	require.Error(err)
+}
+
+func TestCancelImageBuild_NoStatus(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	orgId := uuid.New()
+
+	// Set up repositories
+	repoStore := NewDummyRepositoryStore()
+	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
+	kvStore := NewDummyKVStore()
+	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, kvStore, log.InitLogs())
+
+	// Create an ImageBuild with no status (treated as Pending)
+	imageBuild := newValidImageBuild("cancel-nostatus-test")
+	_, status := svc.Create(ctx, orgId, imageBuild)
+	require.Equal(int32(http.StatusCreated), statusCode(status))
+
+	// Cancel the build (should work since no status = Pending)
+	result, err := svc.Cancel(ctx, orgId, "cancel-nostatus-test")
+	require.NoError(err)
+	require.NotNil(result)
+
+	// Verify status is Canceling
+	readyCondition := api.FindImageBuildStatusCondition(*result.Status.Conditions, api.ImageBuildConditionTypeReady)
+	require.NotNil(readyCondition)
+	require.Equal(string(api.ImageBuildConditionReasonCanceling), readyCondition.Reason)
+}

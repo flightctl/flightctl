@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
 
@@ -73,6 +74,14 @@ func (m *mockImageBuildServiceForStatusUpdater) List(ctx context.Context, orgId 
 
 func (m *mockImageBuildServiceForStatusUpdater) Delete(ctx context.Context, orgId uuid.UUID, name string) (*api.ImageBuild, v1beta1.Status) {
 	return nil, v1beta1.StatusOK()
+}
+
+func (m *mockImageBuildServiceForStatusUpdater) Cancel(ctx context.Context, orgId uuid.UUID, name string) (*api.ImageBuild, error) {
+	return nil, nil
+}
+
+func (m *mockImageBuildServiceForStatusUpdater) CancelWithReason(ctx context.Context, orgId uuid.UUID, name string, reason string) (*api.ImageBuild, error) {
+	return nil, nil
 }
 
 func (m *mockImageBuildServiceForStatusUpdater) GetLogs(ctx context.Context, orgId uuid.UUID, name string, follow bool) (imagebuilderapi.LogStreamReader, string, v1beta1.Status) {
@@ -284,8 +293,7 @@ func TestStatusUpdater_persistLogsToDB(t *testing.T) {
 		logBuffer:         []string{"line 1", "line 2", "line 3"},
 	}
 
-	ctx := context.Background()
-	updater.persistLogsToDB(ctx)
+	updater.persistLogsToDB()
 
 	assert.Equal(t, 1, mockService.getUpdateLogsCallsCount())
 }
@@ -310,8 +318,7 @@ func TestStatusUpdater_persistLogsToDB_emptyBuffer(t *testing.T) {
 		logBuffer:         []string{},
 	}
 
-	ctx := context.Background()
-	updater.persistLogsToDB(ctx)
+	updater.persistLogsToDB()
 
 	// Should not call UpdateLogs when buffer is empty
 	assert.Equal(t, 0, mockService.getUpdateLogsCallsCount())
@@ -331,6 +338,7 @@ func TestStatusUpdater_updateCondition(t *testing.T) {
 	mockService := newMockImageBuildServiceForStatusUpdater(ctrl, imageBuild)
 	updater, cleanup := StartStatusUpdater(
 		context.Background(),
+		func() {}, // no-op cancel function
 		mockService,
 		orgID,
 		name,
@@ -381,6 +389,7 @@ func TestStatusUpdater_updateImageReference(t *testing.T) {
 	mockService := newMockImageBuildServiceForStatusUpdater(ctrl, imageBuild)
 	updater, cleanup := StartStatusUpdater(
 		context.Background(),
+		func() {}, // no-op cancel function
 		mockService,
 		orgID,
 		name,
@@ -419,6 +428,7 @@ func TestStatusUpdater_reportOutput(t *testing.T) {
 
 	updater, cleanup := StartStatusUpdater(
 		context.Background(),
+		func() {}, // no-op cancel function
 		mockService,
 		orgID,
 		name,
@@ -459,6 +469,7 @@ func TestStatusUpdater_periodicLogPersistence(t *testing.T) {
 	cfg.LastSeenUpdateInterval = util.Duration(100 * time.Millisecond)
 	updater, cleanup := StartStatusUpdater(
 		context.Background(),
+		func() {}, // no-op cancel function
 		mockService,
 		orgID,
 		name,
@@ -501,6 +512,7 @@ func TestStatusUpdater_contextCancellation(t *testing.T) {
 
 	_, cleanup := StartStatusUpdater(
 		ctx,
+		func() {}, // no-op cancel function
 		mockService,
 		orgID,
 		name,
@@ -549,7 +561,6 @@ func TestStatusUpdater_updateStatus_withFailedCondition(t *testing.T) {
 		logBuffer:         []string{"line 1", "line 2"},
 	}
 
-	ctx := context.Background()
 	failedCondition := api.ImageBuildCondition{
 		Type:               api.ImageBuildConditionTypeReady,
 		Status:             v1beta1.ConditionStatusFalse,
@@ -558,7 +569,7 @@ func TestStatusUpdater_updateStatus_withFailedCondition(t *testing.T) {
 		LastTransitionTime: time.Now().UTC(),
 	}
 
-	updater.updateStatus(ctx, &failedCondition, nil, nil)
+	updater.updateStatus(&failedCondition, nil, nil)
 
 	// Should have persisted logs when condition is Failed
 	assert.Equal(t, 1, mockService.getUpdateLogsCallsCount())
@@ -577,8 +588,7 @@ func TestStatusUpdater_writeStreamCompleteMarker(t *testing.T) {
 			log:            logrus.NewEntry(logrus.New()),
 		}
 
-		ctx := context.Background()
-		updater.writeStreamCompleteMarker(ctx)
+		updater.writeStreamCompleteMarker()
 
 		assert.Equal(t, 1, mockStore.getStreamAddCalls())
 		pushedValues := mockStore.getPushedValues()
@@ -594,9 +604,8 @@ func TestStatusUpdater_writeStreamCompleteMarker(t *testing.T) {
 			log:            logrus.NewEntry(logrus.New()),
 		}
 
-		ctx := context.Background()
 		// Should not panic when kvStore is nil
-		updater.writeStreamCompleteMarker(ctx)
+		updater.writeStreamCompleteMarker()
 	})
 }
 
@@ -616,6 +625,7 @@ func TestStatusUpdater_completedConditionWritesMarker(t *testing.T) {
 
 	updater, cleanup := StartStatusUpdater(
 		context.Background(),
+		func() {}, // no-op cancel function
 		mockService,
 		orgID,
 		name,
@@ -655,4 +665,150 @@ func TestStatusUpdater_completedConditionWritesMarker(t *testing.T) {
 		}
 	}
 	assert.True(t, foundMarker, "Stream complete marker should have been written to Redis")
+}
+
+func TestStatusUpdater_cancelingStateBlocksNonTerminalConditions(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	orgID := uuid.New()
+	name := "test-build"
+
+	// Start with status set to Canceling
+	canceling := string(api.ImageBuildConditionReasonCanceling)
+	imageBuild := &api.ImageBuild{
+		Metadata: v1beta1.ObjectMeta{Name: &name},
+		Status: &api.ImageBuildStatus{
+			Conditions: &[]api.ImageBuildCondition{
+				{
+					Type:               api.ImageBuildConditionTypeReady,
+					Status:             v1beta1.ConditionStatusFalse,
+					Reason:             canceling,
+					Message:            "Cancellation requested",
+					LastTransitionTime: time.Now().UTC(),
+				},
+			},
+		},
+	}
+
+	mockService := newMockImageBuildServiceForStatusUpdater(ctrl, imageBuild)
+	mockKVStore := newMockKVStore()
+
+	updater, cleanup := StartStatusUpdater(
+		context.Background(),
+		func() {}, // no-op cancel function
+		mockService,
+		orgID,
+		name,
+		mockKVStore,
+		&config.Config{
+			ImageBuilderWorker: config.NewDefaultImageBuilderWorkerConfig(),
+		},
+		logrus.NewEntry(logrus.New()),
+	)
+	defer cleanup()
+
+	// Try to set status to Building (non-terminal)
+	buildingCondition := api.ImageBuildCondition{
+		Type:               api.ImageBuildConditionTypeReady,
+		Status:             v1beta1.ConditionStatusFalse,
+		Reason:             string(api.ImageBuildConditionReasonBuilding),
+		Message:            "Building",
+		LastTransitionTime: time.Now().UTC(),
+	}
+
+	updater.UpdateCondition(buildingCondition)
+
+	// Give goroutine time to process
+	time.Sleep(200 * time.Millisecond)
+
+	// Verify status is still Canceling (Building was blocked)
+	mockService.mu.RLock()
+	result := mockService.imageBuild
+	mockService.mu.RUnlock()
+
+	require.NotNil(t, result.Status)
+	require.NotNil(t, result.Status.Conditions)
+	readyCondition := api.FindImageBuildStatusCondition(*result.Status.Conditions, api.ImageBuildConditionTypeReady)
+	require.NotNil(t, readyCondition)
+	assert.Equal(t, canceling, readyCondition.Reason, "Canceling should not be overwritten by Building")
+}
+
+func TestStatusUpdater_cancelingStateAllowsTerminalConditions(t *testing.T) {
+	testCases := []struct {
+		name           string
+		terminalReason api.ImageBuildConditionReason
+	}{
+		{"Canceled", api.ImageBuildConditionReasonCanceled},
+		{"Failed", api.ImageBuildConditionReasonFailed},
+		{"Completed", api.ImageBuildConditionReasonCompleted},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			orgID := uuid.New()
+			name := "test-build"
+
+			// Start with status set to Canceling
+			imageBuild := &api.ImageBuild{
+				Metadata: v1beta1.ObjectMeta{Name: &name},
+				Status: &api.ImageBuildStatus{
+					Conditions: &[]api.ImageBuildCondition{
+						{
+							Type:               api.ImageBuildConditionTypeReady,
+							Status:             v1beta1.ConditionStatusFalse,
+							Reason:             string(api.ImageBuildConditionReasonCanceling),
+							Message:            "Cancellation requested",
+							LastTransitionTime: time.Now().UTC(),
+						},
+					},
+				},
+			}
+
+			mockService := newMockImageBuildServiceForStatusUpdater(ctrl, imageBuild)
+			mockKVStore := newMockKVStore()
+
+			updater, cleanup := StartStatusUpdater(
+				context.Background(),
+				func() {}, // no-op cancel function
+				mockService,
+				orgID,
+				name,
+				mockKVStore,
+				&config.Config{
+					ImageBuilderWorker: config.NewDefaultImageBuilderWorkerConfig(),
+				},
+				logrus.NewEntry(logrus.New()),
+			)
+			defer cleanup()
+
+			// Set terminal condition
+			terminalCondition := api.ImageBuildCondition{
+				Type:               api.ImageBuildConditionTypeReady,
+				Status:             v1beta1.ConditionStatusFalse,
+				Reason:             string(tc.terminalReason),
+				Message:            "Terminal state",
+				LastTransitionTime: time.Now().UTC(),
+			}
+
+			updater.UpdateCondition(terminalCondition)
+
+			// Give goroutine time to process
+			time.Sleep(200 * time.Millisecond)
+
+			// Verify status changed to terminal state
+			mockService.mu.RLock()
+			result := mockService.imageBuild
+			mockService.mu.RUnlock()
+
+			require.NotNil(t, result.Status)
+			require.NotNil(t, result.Status.Conditions)
+			readyCondition := api.FindImageBuildStatusCondition(*result.Status.Conditions, api.ImageBuildConditionTypeReady)
+			require.NotNil(t, readyCondition)
+			assert.Equal(t, string(tc.terminalReason), readyCondition.Reason, "Terminal state should overwrite Canceling")
+		})
+	}
 }

@@ -34,6 +34,8 @@ const (
 // Defines values for ImageBuildConditionReason.
 const (
 	ImageBuildConditionReasonBuilding  ImageBuildConditionReason = "Building"
+	ImageBuildConditionReasonCanceled  ImageBuildConditionReason = "Canceled"
+	ImageBuildConditionReasonCanceling ImageBuildConditionReason = "Canceling"
 	ImageBuildConditionReasonCompleted ImageBuildConditionReason = "Completed"
 	ImageBuildConditionReasonFailed    ImageBuildConditionReason = "Failed"
 	ImageBuildConditionReasonPending   ImageBuildConditionReason = "Pending"
@@ -52,6 +54,8 @@ const (
 
 // Defines values for ImageExportConditionReason.
 const (
+	ImageExportConditionReasonCanceled   ImageExportConditionReason = "Canceled"
+	ImageExportConditionReasonCanceling  ImageExportConditionReason = "Canceling"
 	ImageExportConditionReasonCompleted  ImageExportConditionReason = "Completed"
 	ImageExportConditionReasonConverting ImageExportConditionReason = "Converting"
 	ImageExportConditionReasonFailed     ImageExportConditionReason = "Failed"

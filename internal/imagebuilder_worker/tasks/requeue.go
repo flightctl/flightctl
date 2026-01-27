@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
@@ -66,9 +67,9 @@ func (c *Consumer) requeueForOrg(ctx context.Context, orgID uuid.UUID, log logru
 	requeuedCount := 0
 	failedCount := 0
 
-	// Get all ImageBuilds that are not completed or failed
-	// Use field selector to exclude Completed and Failed statuses
-	fieldSelectorStr := "status.conditions.ready.reason notin (Completed, Failed)"
+	// Get all ImageBuilds that are not in terminal states
+	// Use field selector to exclude Completed, Failed, and Canceled statuses
+	fieldSelectorStr := "status.conditions.ready.reason notin (Completed, Failed, Canceled)"
 	imageBuilds, status := c.imageBuilderService.ImageBuild().List(ctx, orgID, apiimagebuilder.ListImageBuildsParams{
 		FieldSelector: &fieldSelectorStr,
 	})
@@ -87,8 +88,15 @@ func (c *Consumer) requeueForOrg(ctx context.Context, orgID uuid.UUID, log logru
 				continue
 			}
 			requeuedCount++
+		} else if c.isImageBuildCanceling(&imageBuild) {
+			// Was being canceled when worker stopped - mark as Canceled
+			if err := c.markImageBuildAsCanceled(ctx, orgID, &imageBuild, log); err != nil {
+				log.WithError(err).WithField("imageBuild", lo.FromPtr(imageBuild.Metadata.Name)).Error("Failed to mark imageBuild as canceled")
+				continue
+			}
+			failedCount++
 		} else {
-			// Has started processing but isn't Completed/Failed - mark as Failed
+			// Has started processing but isn't Completed/Failed/Canceled - mark as Failed
 			if err := c.markImageBuildAsFailed(ctx, orgID, &imageBuild, log); err != nil {
 				log.WithError(err).WithField("imageBuild", lo.FromPtr(imageBuild.Metadata.Name)).Error("Failed to mark imageBuild as failed")
 				continue
@@ -116,8 +124,15 @@ func (c *Consumer) requeueForOrg(ctx context.Context, orgID uuid.UUID, log logru
 				continue
 			}
 			requeuedCount++
+		} else if c.isImageExportCanceling(&imageExport) {
+			// Was being canceled when worker stopped - mark as Canceled
+			if err := c.markImageExportAsCanceled(ctx, orgID, &imageExport, log); err != nil {
+				log.WithError(err).WithField("imageExport", lo.FromPtr(imageExport.Metadata.Name)).Error("Failed to mark imageExport as canceled")
+				continue
+			}
+			failedCount++
 		} else {
-			// Has started processing but isn't Completed/Failed - mark as Failed
+			// Has started processing but isn't Completed/Failed/Canceled - mark as Failed
 			if err := c.markImageExportAsFailed(ctx, orgID, &imageExport, log); err != nil {
 				log.WithError(err).WithField("imageExport", lo.FromPtr(imageExport.Metadata.Name)).Error("Failed to mark imageExport as failed")
 				continue
@@ -144,6 +159,18 @@ func (c *Consumer) shouldRequeueImageBuild(imageBuild *apiimagebuilder.ImageBuil
 	return readyCondition.Reason == string(apiimagebuilder.ImageBuildConditionReasonPending)
 }
 
+// isImageBuildCanceling checks if an ImageBuild is in Canceling state
+func (c *Consumer) isImageBuildCanceling(imageBuild *apiimagebuilder.ImageBuild) bool {
+	if imageBuild.Status == nil || imageBuild.Status.Conditions == nil {
+		return false
+	}
+	readyCondition := apiimagebuilder.FindImageBuildStatusCondition(*imageBuild.Status.Conditions, apiimagebuilder.ImageBuildConditionTypeReady)
+	if readyCondition == nil {
+		return false
+	}
+	return readyCondition.Reason == string(apiimagebuilder.ImageBuildConditionReasonCanceling)
+}
+
 // shouldRequeueImageExport checks if an ImageExport should be requeued
 // Returns true only if the resource is in Pending state (hasn't started processing)
 // Returns false if it has started processing (Converting, Pushing) or is in a terminal state
@@ -157,6 +184,18 @@ func (c *Consumer) shouldRequeueImageExport(imageExport *apiimagebuilder.ImageEx
 	}
 	// Only requeue if Pending
 	return readyCondition.Reason == string(apiimagebuilder.ImageExportConditionReasonPending)
+}
+
+// isImageExportCanceling checks if an ImageExport is in Canceling state
+func (c *Consumer) isImageExportCanceling(imageExport *apiimagebuilder.ImageExport) bool {
+	if imageExport.Status == nil || imageExport.Status.Conditions == nil {
+		return false
+	}
+	readyCondition := apiimagebuilder.FindImageExportStatusCondition(*imageExport.Status.Conditions, apiimagebuilder.ImageExportConditionTypeReady)
+	if readyCondition == nil {
+		return false
+	}
+	return readyCondition.Reason == string(apiimagebuilder.ImageExportConditionReasonCanceling)
 }
 
 // requeueImageBuild requeues an ImageBuild by creating and enqueueing a ResourceCreated event
@@ -276,6 +315,72 @@ func (c *Consumer) markImageBuildAsFailed(ctx context.Context, orgID uuid.UUID, 
 	return nil
 }
 
+// markImageBuildAsCanceled marks an ImageBuild as Canceled or Failed (for timeouts)
+// because it was being canceled when the worker stopped.
+// - For user cancellation: status becomes Canceled
+// - For timeout: status becomes Failed (with the timeout message preserved)
+func (c *Consumer) markImageBuildAsCanceled(ctx context.Context, orgID uuid.UUID, imageBuild *apiimagebuilder.ImageBuild, log logrus.FieldLogger) error {
+	name := lo.FromPtr(imageBuild.Metadata.Name)
+	if name == "" {
+		return fmt.Errorf("imageBuild name is empty")
+	}
+
+	// Preserve the message from Canceling condition (may contain timeout info)
+	message := "Build was canceled"
+	if imageBuild.Status != nil && imageBuild.Status.Conditions != nil {
+		readyCondition := apiimagebuilder.FindImageBuildStatusCondition(*imageBuild.Status.Conditions, apiimagebuilder.ImageBuildConditionTypeReady)
+		if readyCondition != nil && readyCondition.Message != "" {
+			message = readyCondition.Message
+		}
+	}
+
+	// Check if this was a timeout or user cancellation
+	isTimeout := strings.Contains(message, "timed out")
+	now := time.Now().UTC()
+
+	var condition apiimagebuilder.ImageBuildCondition
+	if isTimeout {
+		// Timeout - set Failed status
+		condition = apiimagebuilder.ImageBuildCondition{
+			Type:               apiimagebuilder.ImageBuildConditionTypeReady,
+			Status:             api.ConditionStatusFalse,
+			Reason:             string(apiimagebuilder.ImageBuildConditionReasonFailed),
+			Message:            message,
+			LastTransitionTime: now,
+		}
+	} else {
+		// User cancellation - set Canceled status
+		condition = apiimagebuilder.ImageBuildCondition{
+			Type:               apiimagebuilder.ImageBuildConditionTypeReady,
+			Status:             api.ConditionStatusFalse,
+			Reason:             string(apiimagebuilder.ImageBuildConditionReasonCanceled),
+			Message:            message,
+			LastTransitionTime: now,
+		}
+	}
+
+	// Status and Conditions are guaranteed to exist due to field selector filtering
+	apiimagebuilder.SetImageBuildStatusCondition(imageBuild.Status.Conditions, condition)
+
+	// Update status - if resource changed, optimistic locking will cause this to fail, which is fine
+	_, err := c.imageBuilderService.ImageBuild().UpdateStatus(ctx, orgID, imageBuild)
+	if err != nil {
+		// If update failed due to resource version mismatch, that's fine - resource was updated by another process
+		if errors.Is(err, flterrors.ErrNoRowsUpdated) {
+			log.WithField("imageBuild", name).Debug("ImageBuild was updated by another process, skipping mark")
+			return nil
+		}
+		return fmt.Errorf("failed to update ImageBuild status: %w", err)
+	}
+
+	if isTimeout {
+		log.WithField("imageBuild", name).WithField("message", message).Info("Marked ImageBuild as failed (timed out on startup)")
+	} else {
+		log.WithField("imageBuild", name).WithField("message", message).Info("Marked ImageBuild as canceled (was being canceled on startup)")
+	}
+	return nil
+}
+
 // markImageExportAsFailed marks an ImageExport as Failed because it was in a non-terminal state on startup
 func (c *Consumer) markImageExportAsFailed(ctx context.Context, orgID uuid.UUID, imageExport *apiimagebuilder.ImageExport, log logrus.FieldLogger) error {
 	name := lo.FromPtr(imageExport.Metadata.Name)
@@ -308,5 +413,71 @@ func (c *Consumer) markImageExportAsFailed(ctx context.Context, orgID uuid.UUID,
 	}
 
 	log.WithField("imageExport", name).Info("Marked ImageExport as failed (was in progress on startup)")
+	return nil
+}
+
+// markImageExportAsCanceled marks an ImageExport as Canceled or Failed (for timeouts)
+// because it was being canceled when the worker stopped.
+// - For user cancellation: status becomes Canceled
+// - For timeout: status becomes Failed (with the timeout message preserved)
+func (c *Consumer) markImageExportAsCanceled(ctx context.Context, orgID uuid.UUID, imageExport *apiimagebuilder.ImageExport, log logrus.FieldLogger) error {
+	name := lo.FromPtr(imageExport.Metadata.Name)
+	if name == "" {
+		return fmt.Errorf("imageExport name is empty")
+	}
+
+	// Preserve the message from Canceling condition (may contain timeout info)
+	message := "Export was canceled"
+	if imageExport.Status != nil && imageExport.Status.Conditions != nil {
+		readyCondition := apiimagebuilder.FindImageExportStatusCondition(*imageExport.Status.Conditions, apiimagebuilder.ImageExportConditionTypeReady)
+		if readyCondition != nil && readyCondition.Message != "" {
+			message = readyCondition.Message
+		}
+	}
+
+	// Check if this was a timeout or user cancellation
+	isTimeout := strings.Contains(message, "timed out")
+	now := time.Now().UTC()
+
+	var condition apiimagebuilder.ImageExportCondition
+	if isTimeout {
+		// Timeout - set Failed status
+		condition = apiimagebuilder.ImageExportCondition{
+			Type:               apiimagebuilder.ImageExportConditionTypeReady,
+			Status:             api.ConditionStatusFalse,
+			Reason:             string(apiimagebuilder.ImageExportConditionReasonFailed),
+			Message:            message,
+			LastTransitionTime: now,
+		}
+	} else {
+		// User cancellation - set Canceled status
+		condition = apiimagebuilder.ImageExportCondition{
+			Type:               apiimagebuilder.ImageExportConditionTypeReady,
+			Status:             api.ConditionStatusFalse,
+			Reason:             string(apiimagebuilder.ImageExportConditionReasonCanceled),
+			Message:            message,
+			LastTransitionTime: now,
+		}
+	}
+
+	// Status and Conditions are guaranteed to exist due to field selector filtering
+	apiimagebuilder.SetImageExportStatusCondition(imageExport.Status.Conditions, condition)
+
+	// Update status - if resource changed, optimistic locking will cause this to fail, which is fine
+	_, err := c.imageBuilderService.ImageExport().UpdateStatus(ctx, orgID, imageExport)
+	if err != nil {
+		// If update failed due to resource version mismatch, that's fine - resource was updated by another process
+		if errors.Is(err, flterrors.ErrNoRowsUpdated) {
+			log.WithField("imageExport", name).Debug("ImageExport was updated by another process, skipping mark")
+			return nil
+		}
+		return fmt.Errorf("failed to update ImageExport status: %w", err)
+	}
+
+	if isTimeout {
+		log.WithField("imageExport", name).WithField("message", message).Info("Marked ImageExport as failed (timed out on startup)")
+	} else {
+		log.WithField("imageExport", name).WithField("message", message).Info("Marked ImageExport as canceled (was being canceled on startup)")
+	}
 	return nil
 }

@@ -124,6 +124,7 @@ var _ = Describe("Status Updater Integration Tests", func() {
 			// Start status updater
 			updater, cleanup := tasks.StartStatusUpdater(
 				ctx,
+				func() {}, // cancelBuild - no-op for tests
 				imageBuilderService.ImageBuild(),
 				orgID,
 				imageBuildName,
@@ -179,6 +180,7 @@ var _ = Describe("Status Updater Integration Tests", func() {
 			// Start status updater
 			updater, cleanup := tasks.StartStatusUpdater(
 				ctx,
+				func() {}, // cancelBuild - no-op for tests
 				imageBuilderService.ImageBuild(),
 				orgID,
 				imageBuildName,
@@ -236,6 +238,7 @@ var _ = Describe("Status Updater Integration Tests", func() {
 			// Start status updater
 			updater, cleanup := tasks.StartStatusUpdater(
 				ctx,
+				func() {}, // cancelBuild - no-op for tests
 				imageBuilderService.ImageBuild(),
 				orgID,
 				imageBuildName,
@@ -274,6 +277,7 @@ var _ = Describe("Status Updater Integration Tests", func() {
 			// Start status updater
 			updater, cleanup := tasks.StartStatusUpdater(
 				ctx,
+				func() {}, // cancelBuild - no-op for tests
 				imageBuilderService.ImageBuild(),
 				orgID,
 				imageBuildName,

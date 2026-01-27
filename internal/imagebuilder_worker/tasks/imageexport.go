@@ -79,8 +79,11 @@ func (c *Consumer) processImageExport(ctx context.Context, eventWithOrgId worker
 	}
 	if readyCondition != nil {
 		reason := readyCondition.Reason
-		// Skip if already completed or failed
-		if reason == string(api.ImageExportConditionReasonCompleted) || reason == string(api.ImageExportConditionReasonFailed) {
+		// Skip if already in terminal state (completed, failed, canceling, canceled)
+		if reason == string(api.ImageExportConditionReasonCompleted) ||
+			reason == string(api.ImageExportConditionReasonFailed) ||
+			reason == string(api.ImageExportConditionReasonCanceling) ||
+			reason == string(api.ImageExportConditionReasonCanceled) {
 			log.Infof("ImageExport %q already in terminal state %q, skipping", imageExportName, reason)
 			return nil
 		}
@@ -166,48 +169,48 @@ func (c *Consumer) processImageExport(ctx context.Context, eventWithOrgId worker
 
 	log.Info("Successfully locked ImageExport for processing (status set to Converting)")
 
+	// Create a cancelable context for the export process
+	// The cancel function is passed to statusUpdater which will call it when cancellation is received via Redis
+	exportCtx, cancelExport := context.WithCancel(ctx)
+	defer cancelExport()
+
 	// Start status updater goroutine - this is the single writer for all status updates
-	statusUpdater, cleanupStatusUpdater := startImageExportStatusUpdater(ctx, c.imageBuilderService.ImageExport(), orgID, imageExportName, c.kvStore, c.cfg, log)
+	// It handles both LastSeen (periodic) and condition updates (on-demand)
+	// It also listens for cancellation signals via Redis Stream
+	// IMPORTANT: Pass the original ctx (not exportCtx) so the updater can complete
+	// final status updates (like Canceled) even after exportCtx is canceled
+	statusUpdater, cleanupStatusUpdater := startImageExportStatusUpdater(ctx, cancelExport, c.imageBuilderService.ImageExport(), orgID, imageExportName, c.kvStore, c.cfg, log)
 	defer cleanupStatusUpdater()
 
 	// Send initial lastSeen update to status updater to ensure it's tracking the current time
 	select {
 	case statusUpdater.updateChan <- newImageExportStatusUpdateRequest():
-	case <-ctx.Done():
-		return ctx.Err()
+	case <-exportCtx.Done():
+		if c.handleExportError(ctx, orgID, imageExportName, exportCtx.Err(), statusUpdater, log) {
+			return nil // Cancellation handled
+		}
+		return exportCtx.Err()
 	}
 
 	// Execute the export
-	outputFilePath, cleanup, err := c.executeExport(ctx, orgID, imageExport, source, statusUpdater, log)
+	outputFilePath, cleanup, err := c.executeExport(exportCtx, orgID, imageExport, source, statusUpdater, log)
 	if cleanup != nil {
 		defer cleanup()
 	}
 	if err != nil {
-		failedTime := time.Now().UTC()
-		failedCondition := api.ImageExportCondition{
-			Type:               api.ImageExportConditionTypeReady,
-			Status:             v1beta1.ConditionStatusFalse,
-			Reason:             string(api.ImageExportConditionReasonFailed),
-			Message:            err.Error(),
-			LastTransitionTime: failedTime,
+		if c.handleExportError(ctx, orgID, imageExportName, err, statusUpdater, log) {
+			return nil // Cancellation handled
 		}
-		statusUpdater.updateCondition(failedCondition)
 		return fmt.Errorf("failed to execute export: %w", err)
 	}
 
 	log.WithField("outputFile", outputFilePath).Info("Export output file created")
 
 	// Push artifact to destination (as a referrer to the source image)
-	if err := c.pushArtifact(ctx, orgID, imageExport, source, outputFilePath, statusUpdater, log); err != nil {
-		failedTime := time.Now().UTC()
-		failedCondition := api.ImageExportCondition{
-			Type:               api.ImageExportConditionTypeReady,
-			Status:             v1beta1.ConditionStatusFalse,
-			Reason:             string(api.ImageExportConditionReasonFailed),
-			Message:            fmt.Sprintf("Failed to push artifact: %v", err),
-			LastTransitionTime: failedTime,
+	if err := c.pushArtifact(exportCtx, orgID, imageExport, source, outputFilePath, statusUpdater, log); err != nil {
+		if c.handleExportError(ctx, orgID, imageExportName, fmt.Errorf("failed to push artifact: %w", err), statusUpdater, log) {
+			return nil // Cancellation handled
 		}
-		statusUpdater.updateCondition(failedCondition)
 		return fmt.Errorf("failed to push artifact: %w", err)
 	}
 
@@ -224,6 +227,64 @@ func (c *Consumer) processImageExport(ctx context.Context, eventWithOrgId worker
 
 	log.Info("ImageExport marked as Completed")
 	return nil
+}
+
+// handleExportError checks if the error was due to cancellation and sets the appropriate status.
+// If the error was due to cancellation (status is Canceling), it sets the final status and returns true.
+// - For user cancellation: status becomes Canceled
+// - For timeout: status becomes Failed (with the timeout message preserved)
+// Otherwise, it sets status to Failed and returns false.
+func (c *Consumer) handleExportError(ctx context.Context, orgID uuid.UUID, imageExportName string, err error, statusUpdater *imageExportStatusUpdater, log logrus.FieldLogger) bool {
+	// Check if the current status is Canceling (set by API or timeout task)
+	currentExport, status := c.imageBuilderService.ImageExport().Get(ctx, orgID, imageExportName)
+	if currentExport != nil && imagebuilderapi.IsStatusOK(status) &&
+		currentExport.Status != nil && currentExport.Status.Conditions != nil {
+		readyCondition := api.FindImageExportStatusCondition(*currentExport.Status.Conditions, api.ImageExportConditionTypeReady)
+		if readyCondition != nil && readyCondition.Reason == string(api.ImageExportConditionReasonCanceling) {
+			// This was a cancellation - check if it was a timeout or user cancellation
+			message := readyCondition.Message
+			isTimeout := strings.Contains(message, "timed out")
+
+			if isTimeout {
+				// Timeout - set Failed status with the timeout message
+				log.WithField("message", message).Info("Export timed out, setting status to Failed")
+				failedCondition := api.ImageExportCondition{
+					Type:               api.ImageExportConditionTypeReady,
+					Status:             v1beta1.ConditionStatusFalse,
+					Reason:             string(api.ImageExportConditionReasonFailed),
+					Message:            message,
+					LastTransitionTime: time.Now().UTC(),
+				}
+				statusUpdater.updateCondition(failedCondition)
+			} else {
+				// User cancellation - set Canceled status
+				if message == "" {
+					message = "Export was canceled"
+				}
+				log.WithField("message", message).Info("Export was canceled, setting status to Canceled")
+				canceledCondition := api.ImageExportCondition{
+					Type:               api.ImageExportConditionTypeReady,
+					Status:             v1beta1.ConditionStatusFalse,
+					Reason:             string(api.ImageExportConditionReasonCanceled),
+					Message:            message,
+					LastTransitionTime: time.Now().UTC(),
+				}
+				statusUpdater.updateCondition(canceledCondition)
+			}
+			return true // Cancellation/timeout handled
+		}
+	}
+
+	// Not canceled - set Failed status
+	failedCondition := api.ImageExportCondition{
+		Type:               api.ImageExportConditionTypeReady,
+		Status:             v1beta1.ConditionStatusFalse,
+		Reason:             string(api.ImageExportConditionReasonFailed),
+		Message:            err.Error(),
+		LastTransitionTime: time.Now().UTC(),
+	}
+	statusUpdater.updateCondition(failedCondition)
+	return false
 }
 
 // progressReader wraps an io.Reader and reports progress as data is read

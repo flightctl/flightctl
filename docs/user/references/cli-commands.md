@@ -137,6 +137,51 @@ flightctl download imageexport/my-iso-export ./install.iso
 
 ---
 
+## flightctl cancel
+
+Cancel a running resource operation.
+
+### Synopsis
+
+```shell
+flightctl cancel TYPE/NAME
+flightctl cancel TYPE NAME
+```
+
+### Arguments
+
+* `TYPE/NAME` or `TYPE NAME` - Resource type and name (both forms are accepted). Supported types:
+  * `imagebuild` - Cancel a running ImageBuild
+  * `imageexport` - Cancel a running ImageExport
+
+### Description
+
+Initiates a graceful cancellation of a running ImageBuild or ImageExport operation. The resource status will transition to `Canceling` while the operation is being stopped, and then to `Canceled` once complete.
+
+Only resources in an active state can be canceled:
+
+* **ImageBuild**: `Pending`, `Building`, or `Pushing`
+* **ImageExport**: `Pending`, `Converting`, or `Pushing`
+
+Resources that have already completed, failed, or been canceled cannot be canceled again.
+
+### Examples
+
+```shell
+# Cancel a running imagebuild (using TYPE/NAME form)
+flightctl cancel imagebuild/my-build
+
+# Cancel a running imageexport (using TYPE NAME form)
+flightctl cancel imageexport my-export
+```
+
+### Exit Status
+
+* `0` - Success
+* Non-zero - Error (resource not found, not cancelable, etc.)
+
+---
+
 ## See Also
 
 * [Using the CLI](../using/cli/overview.md)

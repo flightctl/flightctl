@@ -97,6 +97,17 @@ func (h *TransportHandler) DeleteImageBuild(w http.ResponseWriter, r *http.Reque
 	SetResponse(w, body, status)
 }
 
+// CancelImageBuild handles POST /api/v1/imagebuilds/{name}/cancel
+func (h *TransportHandler) CancelImageBuild(w http.ResponseWriter, r *http.Request, name string) {
+	body, err := h.service.ImageBuild().Cancel(r.Context(), OrgIDFromContext(r.Context()), name)
+	if err != nil {
+		status := cancelErrorToStatus(err, string(api.ResourceKindImageBuild), name)
+		SetResponse(w, nil, status)
+		return
+	}
+	SetResponse(w, body, service.StatusOK())
+}
+
 // GetImageBuildLog handles GET /api/v1/imagebuilds/{name}/log
 func (h *TransportHandler) GetImageBuildLog(w http.ResponseWriter, r *http.Request, name string, params api.GetImageBuildLogParams) {
 	ctx := r.Context()
@@ -222,6 +233,17 @@ func (h *TransportHandler) DeleteImageExport(w http.ResponseWriter, r *http.Requ
 	SetResponse(w, body, status)
 }
 
+// CancelImageExport handles POST /api/v1/imageexports/{name}/cancel
+func (h *TransportHandler) CancelImageExport(w http.ResponseWriter, r *http.Request, name string) {
+	body, err := h.service.ImageExport().Cancel(r.Context(), OrgIDFromContext(r.Context()), name)
+	if err != nil {
+		status := cancelErrorToStatus(err, string(api.ResourceKindImageExport), name)
+		SetResponse(w, nil, status)
+		return
+	}
+	SetResponse(w, body, service.StatusOK())
+}
+
 // DownloadImageExport handles GET /api/v1/imageexports/{name}/download
 func (h *TransportHandler) DownloadImageExport(w http.ResponseWriter, r *http.Request, name string) {
 	ctx := r.Context()
@@ -325,6 +347,22 @@ func (h *TransportHandler) GetImageExportLog(w http.ResponseWriter, r *http.Requ
 	if logs != "" {
 		_, _ = w.Write([]byte(logs))
 	}
+}
+
+// cancelErrorToStatus converts cancellation errors to appropriate API status codes
+func cancelErrorToStatus(err error, kind string, name string) v1beta1.Status {
+	// Check for not cancelable error (409 Conflict - resource in wrong state)
+	if errors.Is(err, service.ErrNotCancelable) {
+		return service.StatusConflict(kind + " is not in a cancelable state")
+	}
+
+	// Check for store errors (resource not found, conflict, etc.)
+	if status := service.StoreErrorToApiStatus(err, false, kind, &name); status.Code != 0 {
+		return status
+	}
+
+	// Default to internal server error (5xx)
+	return service.StatusInternalServerError(err.Error())
 }
 
 // downloadErrorToStatus converts download errors to appropriate API status codes

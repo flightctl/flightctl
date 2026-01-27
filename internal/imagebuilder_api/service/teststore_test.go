@@ -11,6 +11,7 @@ import (
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/store"
+	"github.com/flightctl/flightctl/internal/kvstore"
 	flightctlstore "github.com/flightctl/flightctl/internal/store"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
@@ -516,3 +517,66 @@ func (s *DummyStore) Ping() error {
 func (s *DummyStore) Close() error {
 	return nil
 }
+
+// DummyKVStore is a mock implementation of kvstore.KVStore for unit testing
+type DummyKVStore struct {
+	streams map[string][][]byte
+}
+
+func NewDummyKVStore() *DummyKVStore {
+	return &DummyKVStore{
+		streams: make(map[string][][]byte),
+	}
+}
+
+func (s *DummyKVStore) StreamAdd(ctx context.Context, key string, value []byte) (string, error) {
+	if s.streams[key] == nil {
+		s.streams[key] = make([][]byte, 0)
+	}
+	s.streams[key] = append(s.streams[key], value)
+	return "0-0", nil
+}
+
+func (s *DummyKVStore) SetExpire(ctx context.Context, key string, expiration time.Duration) error {
+	return nil
+}
+
+func (s *DummyKVStore) StreamRange(ctx context.Context, key string, start, stop string) ([]kvstore.StreamEntry, error) {
+	return nil, nil
+}
+
+func (s *DummyKVStore) StreamRead(ctx context.Context, key string, lastID string, block time.Duration, count int64) ([]kvstore.StreamEntry, error) {
+	return nil, nil
+}
+
+func (s *DummyKVStore) SetNX(ctx context.Context, key string, value []byte) (bool, error) {
+	return false, nil
+}
+
+func (s *DummyKVStore) SetIfGreater(ctx context.Context, key string, newVal int64) (bool, error) {
+	return false, nil
+}
+
+func (s *DummyKVStore) Get(ctx context.Context, key string) ([]byte, error) {
+	return nil, nil
+}
+
+func (s *DummyKVStore) GetOrSetNX(ctx context.Context, key string, value []byte) ([]byte, error) {
+	return nil, nil
+}
+
+func (s *DummyKVStore) DeleteKeysForTemplateVersion(ctx context.Context, key string) error {
+	return nil
+}
+
+func (s *DummyKVStore) DeleteAllKeys(ctx context.Context) error {
+	return nil
+}
+
+func (s *DummyKVStore) PrintAllKeys(ctx context.Context) {}
+
+func (s *DummyKVStore) Delete(ctx context.Context, key string) error {
+	return nil
+}
+
+func (s *DummyKVStore) Close() {}

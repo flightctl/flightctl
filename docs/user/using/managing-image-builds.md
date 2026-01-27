@@ -88,7 +88,9 @@ The ImageBuild resource includes a `status` field that tracks the build progress
 * **Building**: The Containerfile is being generated and the image is being built
 * **Pushing**: The built image is being pushed to the destination registry
 * **Completed**: The build completed successfully
-* **Failed**: The build failed (check the message for details)
+* **Failed**: The build failed or timed out (check the message for details)
+* **Canceling**: A cancellation has been requested and the build is being stopped
+* **Canceled**: The build was canceled by user request
 
 Query the status:
 
@@ -114,6 +116,19 @@ To follow logs in real-time while the build is running:
 ```console
 flightctl logs imagebuild/my-image-build -f
 ```
+
+### Canceling an ImageBuild
+
+Cancel a running ImageBuild using the `cancel` command:
+
+```console
+flightctl cancel imagebuild/my-image-build
+```
+
+This initiates a graceful cancellation of the build. The status will transition to `Canceling` and then to `Canceled` once the build process has stopped.
+
+> [!NOTE]
+> Only builds in `Pending`, `Building`, or `Pushing` status can be canceled. Builds that have already completed, failed, or been canceled cannot be canceled again.
 
 ### Example: Early Binding ImageBuild
 
@@ -223,7 +238,9 @@ The ImageExport resource includes a `status` field that tracks the export progre
 * **Converting**: The image is being converted to the target format
 * **Pushing**: The exported image is being pushed to the destination registry
 * **Completed**: The export completed successfully
-* **Failed**: The export failed (check the message for details)
+* **Failed**: The export failed or timed out (check the message for details)
+* **Canceling**: A cancellation has been requested and the export is being stopped
+* **Canceled**: The export was canceled by user request
 
 Query the status:
 
@@ -244,6 +261,19 @@ To follow logs in real-time while the export is running:
 ```console
 flightctl logs imageexport/my-image-export -f
 ```
+
+### Canceling an ImageExport
+
+Cancel a running ImageExport using the `cancel` command:
+
+```console
+flightctl cancel imageexport/my-image-export
+```
+
+This initiates a graceful cancellation of the export. The status will transition to `Canceling` and then to `Canceled` once the export process has stopped.
+
+> [!NOTE]
+> Only exports in `Pending`, `Converting`, or `Pushing` status can be canceled. Exports that have already completed, failed, or been canceled cannot be canceled again.
 
 ### Downloading the Exported Image
 
