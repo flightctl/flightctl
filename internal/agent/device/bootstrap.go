@@ -132,7 +132,7 @@ func (b *Bootstrap) Initialize(ctx context.Context) error {
 	// This is visible via `systemctl status flightctl-agent` as StatusText.
 	if b.systemdClient != nil {
 		if err := b.systemdClient.SdNotify(ctx, "STATUS=Connected"); err != nil {
-			b.log.Debugf("Failed to notify systemd of connectivity status: %v", err)
+			b.log.Errorf("Failed to notify systemd of connectivity status: %v", err)
 		}
 	}
 
