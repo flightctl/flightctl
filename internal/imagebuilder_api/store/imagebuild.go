@@ -141,11 +141,10 @@ func (s *imageBuildStore) Get(ctx context.Context, orgId uuid.UUID, name string,
 
 	var imageExports []api.ImageExport
 	if options.WithExports {
-		// Fetch related ImageExports using owner field
+		// Fetch related ImageExports using field selector
 		var exportModels []ImageExport
-		owner := util.ResourceOwner(string(api.ResourceKindImageBuild), name)
 		err := db.WithContext(ctx).
-			Where("org_id = ? AND owner = ?", orgId, owner).
+			Where("org_id = ? AND spec->'source'->>'imageBuildRef' = ?", orgId, name).
 			Find(&exportModels).Error
 		if err == nil {
 			// Convert models to API resources
@@ -207,29 +206,27 @@ func (s *imageBuildStore) List(ctx context.Context, orgId uuid.UUID, listParams 
 	// If withExports is true, fetch ImageExports for each ImageBuild
 	var imageExportsMap map[string][]api.ImageExport
 	if options.WithExports && len(models) > 0 {
-		// Collect owner strings for all ImageBuilds
-		owners := make([]string, len(models))
+		// Collect all ImageBuild names
+		buildNames := make([]string, len(models))
 		for i, build := range models {
-			owners[i] = util.ResourceOwner(string(api.ResourceKindImageBuild), build.Name)
+			buildNames[i] = build.Name
 		}
 
-		// Fetch all ImageExports that reference any of these ImageBuilds using owner field
+		// Fetch all ImageExports that reference any of these ImageBuilds
 		var exportModels []ImageExport
 		err := s.db.WithContext(ctx).
-			Where("org_id = ? AND owner IN ?", orgId, owners).
+			Where("org_id = ? AND spec->'source'->>'imageBuildRef' IN ?", orgId, buildNames).
 			Find(&exportModels).Error
 		if err == nil {
-			// Group ImageExports by ImageBuild name (extracted from owner)
+			// Group ImageExports by ImageBuild name
 			imageExportsMap = make(map[string][]api.ImageExport)
 			for _, exportModel := range exportModels {
 				exportAPI, err := exportModel.ToApiResource()
 				if err == nil {
-					// Get the ImageBuild name from owner field
-					if exportAPI.Metadata.Owner != nil {
-						_, buildName, err := util.GetResourceOwner(exportAPI.Metadata.Owner)
-						if err == nil {
-							imageExportsMap[buildName] = append(imageExportsMap[buildName], *exportAPI)
-						}
+					// Get the imageBuildRef from the source
+					if buildRefSource, err := exportAPI.Spec.Source.AsImageBuildRefSource(); err == nil {
+						buildName := buildRefSource.ImageBuildRef
+						imageExportsMap[buildName] = append(imageExportsMap[buildName], *exportAPI)
 					}
 				}
 			}
