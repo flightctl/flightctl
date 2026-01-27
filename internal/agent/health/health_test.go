@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -136,7 +137,7 @@ func TestWaitForServiceActive(t *testing.T) {
 				WithTimeout(30*time.Second),
 				WithVerbose(true),
 				WithOutput(output),
-				WithSystemdClient(client.NewSystemd(execMock)),
+				WithSystemdClient(client.NewSystemd(execMock, v1beta1.RootUsername)),
 			)
 
 			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -208,7 +209,7 @@ func TestMonitorStability(t *testing.T) {
 				WithStabilityWindow(10*time.Second), // Short window for testing
 				WithVerbose(true),
 				WithOutput(output),
-				WithSystemdClient(client.NewSystemd(execMock)),
+				WithSystemdClient(client.NewSystemd(execMock, v1beta1.RootUsername)),
 			)
 
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -291,7 +292,7 @@ func TestRun(t *testing.T) {
 				WithStabilityWindow(10*time.Second),
 				WithVerbose(true),
 				WithOutput(output),
-				WithSystemdClient(client.NewSystemd(execMock)),
+				WithSystemdClient(client.NewSystemd(execMock, v1beta1.RootUsername)),
 			)
 
 			err := checker.Run(context.Background())
@@ -370,7 +371,7 @@ func TestNewWithOptions(t *testing.T) {
 	logger := log.NewPrefixLogger("test")
 	output := &bytes.Buffer{}
 	execMock := executer.NewMockExecuter(ctrl)
-	customSystemd := client.NewSystemd(execMock)
+	customSystemd := client.NewSystemd(execMock, v1beta1.RootUsername)
 
 	checker := NewChecker(
 		logger,

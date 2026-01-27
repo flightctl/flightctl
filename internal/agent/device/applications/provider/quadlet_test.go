@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"os/user"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -604,6 +605,7 @@ Image=nginx:latest
 				"myapp-web.container",
 				"myapp-flightctl-quadlet-app.target",
 				"myapp-.container.d/99-flightctl.conf",
+				"systemd-targets/myapp.target",
 			},
 			expectedDropIns: map[string]bool{
 				"myapp-.container.d": true,
@@ -1366,7 +1368,7 @@ Network=app-net
 			)
 
 			// Create the systemd unit directory for target file copying
-			err := rw.MkdirAll(lifecycle.QuadletTargetPath, fileio.DefaultDirectoryPermissions)
+			err := rw.MkdirAll(lifecycle.RootfulQuadletTargetPath, fileio.DefaultDirectoryPermissions)
 			require.NoError(t, err)
 
 			for filename, content := range tt.files {
@@ -1381,7 +1383,7 @@ Network=app-net
 			}
 
 			logger := log.NewPrefixLogger("test")
-			err = installQuadlet(rw, logger, "/", tt.appID)
+			err = installQuadlet(rw, logger, "/", "/systemd-targets/myapp.target", tt.appID)
 			require.NoError(t, err)
 
 			for _, expectedFile := range tt.expectedFiles {
@@ -1394,7 +1396,7 @@ Network=app-net
 				}
 			}
 
-			err = installQuadlet(rw, logger, "/", tt.appID)
+			err = installQuadlet(rw, logger, "/", "/systemd-targets/myapp.target", tt.appID)
 			require.NoError(t, err, "second call to installQuadlet should succeed (idempotency)")
 
 			for _, expectedFile := range tt.expectedFiles {
@@ -2160,12 +2162,16 @@ func TestQuadletInlineProvider(t *testing.T) {
 				tt.setupMocks(mockExec)
 			}
 
+			procUser, err := user.Current()
+			require.NoError(err)
+
 			// Build the QuadletApplication with inline content
 			quadletApp := v1beta1.QuadletApplication{
 				AppType: v1beta1.AppTypeQuadlet,
 				Name:    lo.ToPtr(tt.appName),
+				RunAs:   v1beta1.Username(procUser.Username),
 			}
-			err := quadletApp.FromInlineApplicationProviderSpec(v1beta1.InlineApplicationProviderSpec{
+			err = quadletApp.FromInlineApplicationProviderSpec(v1beta1.InlineApplicationProviderSpec{
 				Inline: tt.content,
 			})
 			require.NoError(err)

@@ -49,13 +49,9 @@ type ManagerFactory func(user v1beta1.Username) (Manager, error)
 
 func NewManagerFactory(log *log.PrefixLogger) ManagerFactory {
 	return func(username v1beta1.Username) (Manager, error) {
-		execOpts, err := executer.LookupUserOptions(username)
-		if err != nil {
-			return nil, fmt.Errorf("creating executer: %w", err)
-		}
-		exec := executer.NewCommonExecuter(execOpts...)
-		systemdClient := client.NewSystemd(exec)
-		journalctlClient := client.NewJournalctl(exec)
+		rootExecuter := executer.NewCommonExecuter()
+		systemdClient := client.NewSystemd(rootExecuter, username)
+		journalctlClient := client.NewJournalctl(rootExecuter, username)
 
 		return NewManager(log, systemdClient, journalctlClient), nil
 	}
