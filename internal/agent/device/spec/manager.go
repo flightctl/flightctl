@@ -400,8 +400,10 @@ func (s *manager) consumeLatest(ctx context.Context) (bool, error) {
 		}
 		if s.lastConsumedDevice.Version() != version {
 			// Check if this version is permanently failed
-			lastVersion, _ := stringToInt64(s.lastConsumedDevice.Version())
-			if s.queue.IsFailed(lastVersion) {
+			lastVersion, err := stringToInt64(s.lastConsumedDevice.Version())
+			if err != nil {
+				s.log.Warnf("Failed to parse last consumed device version %q: %v", s.lastConsumedDevice.Version(), err)
+			} else if s.queue.IsFailed(lastVersion) {
 				s.log.Debugf("Last consumed device version %s is permanently failed, skipping requeue", s.lastConsumedDevice.Version())
 				return false, nil
 			}

@@ -4,6 +4,13 @@
 # Runs AFTER health checks fail and BEFORE system rolls back.
 # Installed to: /usr/lib/greenboot/red.d/40_flightctl_agent_pre_rollback.sh
 #
+# Exit codes:
+#   0 - Success (does not affect rollback)
+#   non-zero - Failure (logged but does not prevent rollback)
+#
+# Note: This script's exit code does NOT affect the rollback process.
+# Greenboot will proceed with rollback regardless of this script's outcome.
+#
 set -x -e -o pipefail
 
 # shellcheck source=packaging/greenboot/functions.sh
@@ -19,12 +26,11 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 log_info "=== flightctl-agent pre-rollback script started ==="
-log_info "This script runs after greenboot health checks fail, before system rollback"
 print_boot_status
 
 # Only collect debug info if rollback is imminent
 if ! grub2-editenv - list 2>/dev/null | grep -q '^boot_counter=0'; then
-    log_info "System is not scheduled to roll back"
+    log_info "System is not scheduled to rollback"
     exit 0
 fi
 
