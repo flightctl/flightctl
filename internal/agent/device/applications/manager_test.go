@@ -10,6 +10,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
 	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
@@ -66,7 +67,7 @@ func TestManager(t *testing.T) {
 			}),
 			desired: &v1beta1.DeviceSpec{},
 			setupMocks: func(mockExec *executer.MockExecuter, mockReadWriter *fileio.MockReadWriter, mockSystemdMgr *systemd.MockManager) {
-				id := client.NewComposeID("app-remove")
+				id := lifecycle.GenerateAppID("app-remove", v1beta1.CurrentProcessUsername)
 				gomock.InOrder(
 					// start current app (first AfterUpdate)
 					mockReadWriter.EXPECT().PathExists(gomock.Any()).Return(true, nil).AnyTimes(),
@@ -92,7 +93,7 @@ func TestManager(t *testing.T) {
 				{Content: compose2, Path: "podman-compose.yaml"},
 			}),
 			setupMocks: func(mockExec *executer.MockExecuter, mockReadWriter *fileio.MockReadWriter, mockSystemdMgr *systemd.MockManager) {
-				id := client.NewComposeID("app-update")
+				id := lifecycle.GenerateAppID("app-update", v1beta1.CurrentProcessUsername)
 				gomock.InOrder(
 					// start current app (first AfterUpdate)
 					mockReadWriter.EXPECT().PathExists(gomock.Any()).Return(true, nil).AnyTimes(),
@@ -122,7 +123,7 @@ func TestManager(t *testing.T) {
 			}, v1beta1.AppTypeQuadlet),
 			setupMocks: func(mockExec *executer.MockExecuter, mockReadWriter *fileio.MockReadWriter, mockSystemdMgr *systemd.MockManager) {
 				mockReadQuadletFiles(mockReadWriter, quadlet1)
-				appID := client.NewComposeID("quadlet-new")
+				appID := lifecycle.GenerateAppID("quadlet-new", v1beta1.CurrentProcessUsername)
 				target := appID + "-flightctl-quadlet-app.target"
 				services := []string{appID + "-test-app.service"}
 
@@ -144,7 +145,7 @@ func TestManager(t *testing.T) {
 			desired: &v1beta1.DeviceSpec{},
 			setupMocks: func(mockExec *executer.MockExecuter, mockReadWriter *fileio.MockReadWriter, mockSystemdMgr *systemd.MockManager) {
 				mockReadQuadletFiles(mockReadWriter, quadlet1)
-				appID := client.NewComposeID("quadlet-remove")
+				appID := lifecycle.GenerateAppID("quadlet-remove", v1beta1.CurrentProcessUsername)
 				target := appID + "-flightctl-quadlet-app.target"
 				services := []string{appID + "-test-app.service"}
 
@@ -178,7 +179,7 @@ func TestManager(t *testing.T) {
 			setupMocks: func(mockExec *executer.MockExecuter, mockReadWriter *fileio.MockReadWriter, mockSystemdMgr *systemd.MockManager) {
 				mockReadQuadletFiles(mockReadWriter, quadlet1)
 				mockReadQuadletFiles(mockReadWriter, quadlet2)
-				appID := client.NewComposeID("quadlet-update")
+				appID := lifecycle.GenerateAppID("quadlet-update", v1beta1.CurrentProcessUsername)
 				target := appID + "-flightctl-quadlet-app.target"
 				services := []string{appID + "-test-app.service"}
 
@@ -282,7 +283,7 @@ func TestManager(t *testing.T) {
 			require.NoError(err)
 
 			for _, appName := range tc.wantAppNames {
-				id := client.NewComposeID(appName)
+				id := lifecycle.GenerateAppID(appName, v1beta1.CurrentProcessUsername)
 				log.Debugf("Checking for app: %v", manager.podmanMonitor.apps)
 				_, ok := manager.podmanMonitor.apps[id]
 				require.True(ok)
@@ -323,7 +324,7 @@ func TestManagerRemoveApplication(t *testing.T) {
 	})
 	desired := &v1beta1.DeviceSpec{}
 
-	id := client.NewComposeID("app-remove")
+	id := lifecycle.GenerateAppID("app-remove", v1beta1.CurrentProcessUsername)
 	gomock.InOrder(
 		// start current app
 		mockReadWriter.EXPECT().PathExists(gomock.Any()).Return(true, nil).AnyTimes(),
@@ -415,7 +416,7 @@ func mockExecPodmanEvents(mockExec *executer.MockExecuter, sinceTime time.Time) 
 
 func mockExecPodmanComposeUp(mockExec *executer.MockExecuter, name string, hasOverride, hasAgentOverride bool) *gomock.Call {
 	workDir := fmt.Sprintf("/etc/compose/manifests/%s", name)
-	id := client.NewComposeID(name)
+	id := lifecycle.GenerateAppID(name, v1beta1.CurrentProcessUsername)
 	args := []string{"compose", "-p", id, "-f", "docker-compose.yaml"}
 	if hasOverride {
 		args = append(args, "-f", "docker-compose.override.yaml")
@@ -436,7 +437,7 @@ func mockExecPodmanNetworkList(mockExec *executer.MockExecuter, name string) *go
 			[]string{
 				"network", "ls",
 				"--format", "{{.Network.ID}}",
-				"--filter", "label=com.docker.compose.project=" + client.NewComposeID(name),
+				"--filter", "label=com.docker.compose.project=" + lifecycle.GenerateAppID(name, v1beta1.CurrentProcessUsername),
 			},
 		).
 		Return("network123", "", 0)
@@ -451,7 +452,7 @@ func mockExecPodmanPodList(mockExec *executer.MockExecuter, name string) *gomock
 			[]string{
 				"ps", "-a",
 				"--format", "{{.Pod}}",
-				"--filter", "label=com.docker.compose.project=" + client.NewComposeID(name),
+				"--filter", "label=com.docker.compose.project=" + lifecycle.GenerateAppID(name, v1beta1.CurrentProcessUsername),
 			},
 		).
 		Return("pod123", "", 0)
@@ -497,7 +498,9 @@ func newTestDeviceWithApplicationType(t *testing.T, name string, details []testI
 		require.NoError(t, err)
 		quadletApp.AppType = appType
 		quadletApp.Name = lo.ToPtr(name)
+		require.NoError(t, err)
 		err = providerSpec.FromQuadletApplication(quadletApp)
+		require.NoError(t, err)
 	default:
 		t.Fatalf("unsupported app type for inline: %s", appType)
 	}
@@ -564,7 +567,7 @@ func mockExecSystemdListDependencies(mockSystemdMgr *systemd.MockManager, appID 
 }
 
 func mockExecQuadletPodmanNetworkList(mockExec *executer.MockExecuter, name string) *gomock.Call {
-	id := client.NewComposeID(name)
+	id := lifecycle.GenerateAppID(name, v1beta1.CurrentProcessUsername)
 	return mockExec.
 		EXPECT().
 		ExecuteWithContext(
@@ -581,7 +584,7 @@ func mockExecQuadletPodmanNetworkList(mockExec *executer.MockExecuter, name stri
 }
 
 func mockExecQuadletPodmanPodList(mockExec *executer.MockExecuter, name string) *gomock.Call {
-	id := client.NewComposeID(name)
+	id := lifecycle.GenerateAppID(name, v1beta1.CurrentProcessUsername)
 	return mockExec.
 		EXPECT().
 		ExecuteWithContext(
@@ -597,7 +600,7 @@ func mockExecQuadletPodmanPodList(mockExec *executer.MockExecuter, name string) 
 }
 
 func mockExecQuadletCleanup(mockExec *executer.MockExecuter, name string) {
-	id := client.NewComposeID(name)
+	id := lifecycle.GenerateAppID(name, v1beta1.CurrentProcessUsername)
 	mockExecQuadletPodmanNetworkList(mockExec, name)
 	mockExecQuadletPodmanPodList(mockExec, name)
 	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "stop", "--filter", "label=io.flightctl.quadlet.project="+id).Return("", "", 0)
