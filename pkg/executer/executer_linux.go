@@ -13,14 +13,7 @@ import (
 
 func (e *commonExecuter) CommandContext(ctx context.Context, command string, args ...string) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, command, args...)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Pdeathsig: syscall.SIGTERM}
-	return cmd
-}
 
-func (e *commonExecuter) execute(ctx context.Context, cmd *exec.Cmd) (stdout string, stderr string, exitCode int) {
-	var stdoutBytes, stderrBytes bytes.Buffer
-	cmd.Stdout = &stdoutBytes
-	cmd.Stderr = &stderrBytes
 	// Setpgid ensures that all child processes are in the same process group.
 	// Pdeathsig ensures cleanup if the parent Go process dies unexpectedly.
 	// ref. https://pkg.go.dev/syscall#SysProcAttr
@@ -44,6 +37,7 @@ func (e *commonExecuter) execute(ctx context.Context, cmd *exec.Cmd) (stdout str
 			Gid: uint32(e.gid), //nolint:gosec
 		}
 	}
+
 	// if context is canceled, kill the entire process group
 	cmd.Cancel = func() error {
 		if cmd.Process != nil {
@@ -53,6 +47,14 @@ func (e *commonExecuter) execute(ctx context.Context, cmd *exec.Cmd) (stdout str
 		}
 		return nil
 	}
+
+	return cmd
+}
+
+func (e *commonExecuter) execute(ctx context.Context, cmd *exec.Cmd) (stdout string, stderr string, exitCode int) {
+	var stdoutBytes, stderrBytes bytes.Buffer
+	cmd.Stdout = &stdoutBytes
+	cmd.Stderr = &stderrBytes
 
 	if err := cmd.Run(); err != nil {
 		// handle timeout error

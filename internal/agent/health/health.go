@@ -9,6 +9,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -95,7 +96,7 @@ func NewChecker(log *log.PrefixLogger, opts ...Option) *checker {
 
 	// Default systemd client if not provided
 	if c.systemd == nil {
-		c.systemd = client.NewSystemd(executer.NewCommonExecuter())
+		c.systemd = client.NewSystemd(executer.NewCommonExecuter(), v1beta1.RootUsername)
 	}
 	return c
 }

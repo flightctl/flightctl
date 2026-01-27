@@ -92,6 +92,13 @@ func (s *session) buildBashCommand(ctx context.Context, metadata *api.DeviceCons
 		ret.Env = append(ret.Env, "HOME="+h)
 	}
 
+	// Normally we want all subprocesses to have this flag set to true so the child process dies with
+	// the agent, but the kernel does not permit us to do this if the process is run in a separate
+	// session/pty like we are doing here.
+	if ret.SysProcAttr != nil {
+		ret.SysProcAttr.Setpgid = false
+	}
+
 	return ret
 }
 
@@ -157,7 +164,7 @@ func (s *session) run(ctx context.Context, metadata *api.DeviceConsoleSessionMet
 	defer cancel()
 	iStreams, oStreams, err := s.initialize(ctx, cancel, metadata)
 	if err != nil {
-		s.log.WithError(err).Error("initializing console session")
+		s.log.WithError(err).Errorf("initializing console session")
 		return
 	}
 	var wg sync.WaitGroup

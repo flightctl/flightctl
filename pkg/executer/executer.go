@@ -82,17 +82,17 @@ func NewCommonExecuter(options ...ExecuterOption) *commonExecuter {
 }
 
 func (e *commonExecuter) Execute(command string, args ...string) (stdout string, stderr string, exitCode int) {
-	cmd := exec.Command(command, args...)
+	cmd := e.CommandContext(context.Background(), command, args...)
 	return e.execute(context.Background(), cmd)
 }
 
 func (e *commonExecuter) ExecuteWithContext(ctx context.Context, command string, args ...string) (stdout string, stderr string, exitCode int) {
-	cmd := exec.CommandContext(ctx, command, args...)
+	cmd := e.CommandContext(ctx, command, args...)
 	return e.execute(ctx, cmd)
 }
 
 func (e *commonExecuter) ExecuteWithContextFromDir(ctx context.Context, workingDir string, command string, args []string, env ...string) (stdout string, stderr string, exitCode int) {
-	cmd := exec.CommandContext(ctx, command, args...)
+	cmd := e.CommandContext(ctx, command, args...)
 	cmd.Dir = workingDir
 	if len(env) > 0 {
 		cmd.Env = env
