@@ -7,7 +7,7 @@ When the `flightctl-agent` starts, it reads its configuration from `/etc/flightc
 * `/usr/lib/flightctl/hooks.d/`: Drop-in directory for device lifecycle hooks.
 * `/usr/lib/flightctl/custom-info.d/`: Drop-in directory for custom system info collectors.
 
-To preserve logs across reboots for debugging rollback issues, see [systemd Journal Service Configuration](greenboot.md#the-systemd-journal-service-configuration).
+To preserve logs across reboots for debugging rollback issues, see [systemd Journal Service Configuration](configuring-device-greenboot.md#the-systemd-journal-service-configuration).
 
 ## Agent `config.yaml` configuration file
 
