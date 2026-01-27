@@ -14,6 +14,9 @@ Key components:
 - **Telemetry Gateway**  
   Acts as the entry point for all device telemetry. It terminates mTLS, validates device certificates against the Flight Control Certificate Authority (CA), and labels telemetry data with the authenticated `device_id` and `org_id`.
 
+- **Device Management Certificate (agent ↔ service)**  
+  The Flight Control agent uses a separate device-specific **management certificate** to authenticate to the Flight Control service for device management operations.
+
 - **Device Observability Certificate**  
   Devices use the Flight Control agent to request a client certificate issued by the Flight Control CA.  
   The certificate, together with its metadata, is used for mTLS connections to the Telemetry Gateway and carries the authenticated `device_id` and `org_id`.
@@ -208,6 +211,10 @@ Place this in `/etc/flightctl/certs.yaml` (or as a drop-in under `/etc/flightctl
 > When using bootc, be aware of how `/etc` is managed across upgrades.
 > See [bootc documentation](https://bootc-dev.github.io/bootc/filesystem.html#etc) for details.
 
+> [!IMPORTANT]
+> Certificates provisioned by the agent via `certs.yaml` (including this OpenTelemetry client certificate)
+> are **automatically renewed** by the `flightctl-agent` before expiration.
+
 ## Deploy OpenTelemetry Collector on the device
 
 This shows a `bootc` based device image that installs flightctl-agent and OpenTelemetry Collector, provisions the device client certificate into the OpenTelemetry Collector paths, and configures it to send host metrics to the Telemetry Gateway over mTLS (gRPC 4317). A systemd unit is included to start the collector only after the agent has written the cert/key.
@@ -323,19 +330,71 @@ metrics-enabled: true
 
 When enabled, the agent starts a lightweight HTTP server and exposes a Prometheus-compatible metrics endpoint at: `http://127.0.0.1:15690/metrics`.
 
-### Exported Metrics
+### RPC Metrics
 
 The agent records a histogram for each RPC performed against the Flight Control service.
 These metrics allow evaluating performance trends and computing service-level indicators (for example, p95 RPC latency).
 Each histogram exposes:
 
-- create_enrollmentrequest_duration_seconds
-- get_enrollmentrequest_duration_seconds
-- get_rendered_device_spec_duration_seconds
-- update_device_status_duration_seconds
-- patch_device_status_duration_seconds
-- create_certificate_signing_request_duration_seconds
-- get_certificate_signing_request_duration_seconds
+- `create_enrollmentrequest_duration_seconds`
+- `get_enrollmentrequest_duration_seconds`
+- `get_rendered_device_spec_duration_seconds`
+- `update_device_status_duration_seconds`
+- `patch_device_status_duration_seconds`
+- `create_certificate_signing_request_duration_seconds`
+- `get_certificate_signing_request_duration_seconds`
+
+### Management Certificate Metrics
+
+The agent exposes a small set of metrics that describe the **device management certificate** state and renewal behaviour.
+
+#### Current state
+
+- `flightctl_device_mgmt_cert_loaded` (gauge) - `1` when the management certificate is present and loaded successfully; `0` otherwise.
+- `flightctl_device_mgmt_cert_not_after_timestamp_seconds` - (gauge) Unix timestamp (seconds) of the currently loaded certificate `NotAfter` (expiration time). `0` if unknown / no cert is loaded.
+
+#### Renewal flow
+
+All renewal metrics include the label result, one of: success, failure, pending.
+
+- `flightctl_device_mgmt_cert_renewal_attempts_total{result=...}` (counter) - Total number of renewal attempts performed by the agent, partitioned by outcome.
+- `flightctl_device_mgmt_cert_renewal_duration_seconds{result=...}` (histogram) - Duration in seconds of a renewal attempt. For successful renewals, this includes the full flow from starting provisioning until the certificate is stored. For pending/failure, it reflects the time spent in the provisioning step.
+
+#### Example PromQL Queries
+
+```sql
+# Cert is loaded AND expires in < 7 days
+(flightctl_device_mgmt_cert_loaded == 1)
+and
+((flightctl_device_mgmt_cert_not_after_timestamp_seconds - time()) < 7 * 24 * 60 * 60)
+```
+
+```sql
+# Renewal attempts happened recently (any outcome)
+sum(increase(flightctl_device_mgmt_cert_renewal_attempts_total[30m])) > 0
+```
+
+```sql
+# Attempts increased, but NotAfter did not change in the same window.
+(sum(increase(flightctl_device_mgmt_cert_renewal_attempts_total[30m])) > 0)
+unless
+(changes(flightctl_device_mgmt_cert_not_after_timestamp_seconds[30m]) > 0)
+```
+
+```sql
+# Calculates the 95th percentile of renewal duration.
+histogram_quantile(
+  0.95,
+  sum by (le, device_id) (
+    rate(flightctl_device_mgmt_cert_renewal_duration_seconds_bucket[5m])
+  )
+)
+```
+
+```sql
+# Renewal failures in the last 30m.
+increase(flightctl_device_mgmt_cert_renewal_attempts_total{result="failure"}[30m]) > 0
+```
 
 ### Considerations
 

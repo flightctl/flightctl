@@ -6,6 +6,11 @@ The first time the Flight Control Agent runs, it generates a cryptographic key p
 
 When the device is not yet enrolled, the agent performs service discovery to find its Flight Control Service instance. It then establishes a secure, mTLS-protected network connection to the Service using the X.509 enrollment certificate it has been provided with during image building or device provisioning. Next, it submits an Enrollment Request to the service that includes a description of the device's hardware and operating system as well as an X.509 Certificate Signing Request (CSR) including its cryptographic identity to obtain its initial management certificate. At this point, the device is not yet considered trusted and therefore remains quarantined in a "device lobby" until its Enrollment Request has been approved or denied by an authorized user (e.g. a administrator, an installer persona, or an auto-approver process).
 
+> [!NOTE]
+> The device **management certificate** is automatically renewed by the `flightctl-agent`
+> **before it expires**, once it reaches approximately **75% of its lifetime**.
+> Renewal happens proactively to avoid service disruption and does not require user action.
+
 ### Enrolling using the Web UI
 
 ### Enrolling using the CLI
@@ -318,7 +323,8 @@ However, there are scenarios where this is impractical, for example, when config
 
 Conceptually, this set of configuration files can be thought of as an additional, dynamic layer on top of the OS image's layers. The Flight Control Agent applies updates to this layer transactionally, ensuring that either all files have been successfully updated in the file system or have been returned to their pre-update state. Further, if the user updates both a devices OS and configuration set at the same time, the Flight Control Agent will first update the OS, then apply the specified configuration set on top.
 
-> [!Important] After the Flight Control Agent has updated the configuration on disk, this configuration still needs to be *activated*. That means, running services need to reload the new configuration into memory for it to become effective. If the update involves a reboot, services will be restarted by systemd in the right order with the new configuration automatically. If the update does not involve a reboot, many services can detect changes to their configuration files and automatically reload them. When a service does not support this, you [use Device Lifecycle Hooks](managing-devices.md#using-device-lifecycle-hooks) to specify rules like "if configuration file X has changed, run command Y". Also refer to this section for the set of default rules that the Flight Control Agent applies.
+> [!Important]
+> After the Flight Control Agent has updated the configuration on disk, this configuration still needs to be *activated*. That means, running services need to reload the new configuration into memory for it to become effective. If the update involves a reboot, services will be restarted by systemd in the right order with the new configuration automatically. If the update does not involve a reboot, many services can detect changes to their configuration files and automatically reload them. When a service does not support this, you [use Device Lifecycle Hooks](managing-devices.md#using-device-lifecycle-hooks) to specify rules like "if configuration file X has changed, run command Y". Also refer to this section for the set of default rules that the Flight Control Agent applies.
 
 Users can specify a list of configurations sets, in which case the Flight Control Agent applies the sets in sequence and on top of each other, such that in case of conflict the "last one wins".
 

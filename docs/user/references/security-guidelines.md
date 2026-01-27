@@ -88,10 +88,13 @@ Devices authenticate using X.509 client certificates:
 
 #### Certificate Management
 
-- **Enrollment Certificates**: Used only for initial enrollment (configurable validity)
-- **Management Certificates**: Device-specific certificates for ongoing operations
-- **Hardware Protection**: Private keys are protected by TPM when available
-- **Automatic Rotation**: Certificates are currently *NOT* rotated
+- **Enrollment Certificates**: Used only for initial enrollment (configurable validity).
+- **Management Certificates**: Device-specific certificates used by the agent for ongoing
+  communication with the Flight Control service.
+- **Hardware Protection**: Private keys are protected by TPM when available.
+- **Automatic Rotation**: The device **management certificate** is automatically renewed
+  by the agent before expiration. Rotation is handled internally by the agent
+  and does not require re-enrollment or administrator action.
 
 ### Authorization
 
@@ -245,10 +248,13 @@ Devices authenticate using X.509 client certificates:
 
 #### Certificate Management
 
-- **Enrollment Certificates**: Used only for initial enrollment (configurable validity)
-- **Management Certificates**: Device-specific certificates for ongoing operations
-- **Hardware Protection**: Private keys are protected by TPM when available
-- **Automatic Rotation**: Certificates are currently *NOT* rotated
+- **Enrollment Certificates**: Used only for initial enrollment (configurable validity).
+- **Management Certificates**: Device-specific certificates used by the agent for ongoing
+  communication with the Flight Control service.
+- **Hardware Protection**: Private keys are protected by TPM when available.
+- **Automatic Rotation**: The device **management certificate** is automatically renewed
+  by the agent before expiration. Rotation is handled internally by the agent
+  and does not require re-enrollment or administrator action.
 
 ### Authorization
 
