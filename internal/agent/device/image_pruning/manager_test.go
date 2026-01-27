@@ -101,7 +101,7 @@ func TestManager_getImageReferencesFromSpecs(t *testing.T) {
 				mock.EXPECT().Read(spec.Current).Return(currentDevice, nil)
 				mock.EXPECT().Read(spec.Desired).Return(desiredDevice, nil)
 			},
-			want: []ImageRef{{Image: "quay.io/example/app:current"}, {Image: "quay.io/example/app:desired"}},
+			want: []ImageRef{{Image: "quay.io/example/app:current", Type: RefTypePodman}, {Image: "quay.io/example/app:desired", Type: RefTypePodman}},
 		},
 		{
 			name: "success with current spec only (no desired)",
@@ -133,7 +133,7 @@ func TestManager_getImageReferencesFromSpecs(t *testing.T) {
 				mock.EXPECT().Read(spec.Current).Return(currentDevice, nil)
 				mock.EXPECT().Read(spec.Desired).Return(nil, errors.New("desired not found"))
 			},
-			want: []ImageRef{{Image: "quay.io/example/app:current"}},
+			want: []ImageRef{{Image: "quay.io/example/app:current", Type: RefTypePodman}},
 		},
 		{
 			name: "error reading current spec",
@@ -261,8 +261,12 @@ func TestManager_determineEligibleImages(t *testing.T) {
 				// Create previous references file with references that are no longer referenced
 				// Using References field (new format) - all references in a single list
 				previousRefs := ImageArtifactReferences{
-					Timestamp:  "2025-01-01T00:00:00Z",
-					References: []ImageRef{{Image: "quay.io/example/old-app:v1.0"}, {Image: "quay.io/example/unused:v1.0"}, {Image: "quay.io/example/artifact:v1.0"}},
+					Timestamp: "2025-01-01T00:00:00Z",
+					References: []ImageRef{
+						{Image: "quay.io/example/old-app:v1.0", Type: RefTypePodman},
+						{Image: "quay.io/example/unused:v1.0", Type: RefTypePodman},
+						{Image: "quay.io/example/artifact:v1.0", Type: RefTypeArtifact},
+					},
 				}
 				jsonData, err := json.Marshal(previousRefs)
 				require.NoError(err)
@@ -302,22 +306,22 @@ func TestManager_determineEligibleImages(t *testing.T) {
 				mockSpec.EXPECT().Read(spec.Current).Return(currentDevice, nil).Times(1)
 				mockSpec.EXPECT().Read(spec.Desired).Return(nil, errors.New("desired not found")).Times(1)
 
-				// During categorization, we check each eligible reference individually
-				// Eligible references are: old-app:v1.0, unused:v1.0, artifact:v1.0 (not in current specs)
-				// Mock ImageExists for each eligible reference
+				// During categorization, we check each eligible reference based on its Type
+				// Eligible references are: old-app:v1.0 (podman), unused:v1.0 (podman), artifact:v1.0 (artifact)
+				// Mock ImageExists for podman references
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", "quay.io/example/old-app:v1.0"}).
 					Return("", "", 0) // Exists as image
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", "quay.io/example/unused:v1.0"}).
 					Return("", "", 0) // Exists as image
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", "quay.io/example/artifact:v1.0"}).
-					Return("", "", 1) // Doesn't exist as image
-				// Mock ArtifactExists for artifact reference (only called if ImageExists returns false)
+				// Mock ArtifactExists for artifact reference (called directly because Type is RefTypeArtifact)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"artifact", "inspect", "quay.io/example/artifact:v1.0"}).
 					Return("", "", 0) // Exists as artifact
 			},
 			want: &EligibleItems{
-				Images:    []ImageRef{{Image: "quay.io/example/unused:v1.0"}, {Image: "quay.io/example/old-app:v1.0"}},
-				Artifacts: []ImageRef{{Image: "quay.io/example/artifact:v1.0"}},
+				Images:    []ImageRef{{Image: "quay.io/example/unused:v1.0", Type: RefTypePodman}, {Image: "quay.io/example/old-app:v1.0", Type: RefTypePodman}},
+				Artifacts: []ImageRef{{Image: "quay.io/example/artifact:v1.0", Type: RefTypeArtifact}},
+				CRI:       []ImageRef{},
+				Helm:      []ImageRef{},
 			},
 		},
 		{
@@ -326,7 +330,7 @@ func TestManager_determineEligibleImages(t *testing.T) {
 				// Create previous references file - all images are still referenced
 				previousRefs := ImageArtifactReferences{
 					Timestamp:  "2025-01-01T00:00:00Z",
-					References: []ImageRef{{Image: "quay.io/example/app:v1.0"}},
+					References: []ImageRef{{Image: "quay.io/example/app:v1.0", Type: RefTypePodman}},
 				}
 				jsonData, err := json.Marshal(previousRefs)
 				require.NoError(err)
@@ -376,15 +380,18 @@ func TestManager_determineEligibleImages(t *testing.T) {
 
 				// No eligible references (app:v1.0 is still in current specs), so no categorization calls
 			},
-			want: &EligibleItems{Images: []ImageRef{}, Artifacts: []ImageRef{}}, // All images are in use
+			want: &EligibleItems{Images: []ImageRef{}, Artifacts: []ImageRef{}, CRI: []ImageRef{}, Helm: []ImageRef{}}, // All images are in use
 		},
 		{
 			name: "OS images can be pruned if they lose references",
 			setupMocks: func(mockExec *executer.MockExecuter, mockSpec *spec.MockManager, readWriter fileio.ReadWriter, dataDir string) {
 				// Create previous references file with unused image and OS image
 				previousRefs := ImageArtifactReferences{
-					Timestamp:  "2025-01-01T00:00:00Z",
-					References: []ImageRef{{Image: "quay.io/example/unused:v1.0"}, {Image: "quay.io/example/old-os:v1.0"}},
+					Timestamp: "2025-01-01T00:00:00Z",
+					References: []ImageRef{
+						{Image: "quay.io/example/unused:v1.0", Type: RefTypePodman},
+						{Image: "quay.io/example/old-os:v1.0", Type: RefTypePodman},
+					},
 				}
 				jsonData, err := json.Marshal(previousRefs)
 				require.NoError(err)
@@ -431,7 +438,12 @@ func TestManager_determineEligibleImages(t *testing.T) {
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", "quay.io/example/old-os:v1.0"}).
 					Return("", "", 0) // Exists as image
 			},
-			want: &EligibleItems{Images: []ImageRef{{Image: "quay.io/example/unused:v1.0"}, {Image: "quay.io/example/old-os:v1.0"}}, Artifacts: []ImageRef{}}, // Both unused image and old OS image are eligible
+			want: &EligibleItems{
+				Images:    []ImageRef{{Image: "quay.io/example/unused:v1.0", Type: RefTypePodman}, {Image: "quay.io/example/old-os:v1.0", Type: RefTypePodman}},
+				Artifacts: []ImageRef{},
+				CRI:       []ImageRef{},
+				Helm:      []ImageRef{},
+			}, // Both unused image and old OS image are eligible
 		},
 		{
 			name: "desired images preserved",
@@ -439,7 +451,7 @@ func TestManager_determineEligibleImages(t *testing.T) {
 				// Create previous references file with unused image (not in current or desired)
 				previousRefs := ImageArtifactReferences{
 					Timestamp:  "2025-01-01T00:00:00Z",
-					References: []ImageRef{{Image: "quay.io/example/unused:v1.0"}},
+					References: []ImageRef{{Image: "quay.io/example/unused:v1.0", Type: RefTypePodman}},
 				}
 				jsonData, err := json.Marshal(previousRefs)
 				require.NoError(err)
@@ -506,15 +518,23 @@ func TestManager_determineEligibleImages(t *testing.T) {
 				mockSpec.EXPECT().Read(spec.Current).Return(currentDevice, nil).Times(1)
 				mockSpec.EXPECT().Read(spec.Desired).Return(desiredDevice, nil).Times(1)
 			},
-			want: &EligibleItems{Images: []ImageRef{{Image: "quay.io/example/unused:v1.0"}}, Artifacts: []ImageRef{}}, // Both current and desired app images preserved
+			want: &EligibleItems{
+				Images:    []ImageRef{{Image: "quay.io/example/unused:v1.0", Type: RefTypePodman}},
+				Artifacts: []ImageRef{},
+				CRI:       []ImageRef{},
+				Helm:      []ImageRef{},
+			}, // Both current and desired app images preserved
 		},
 		{
 			name: "empty device - all images eligible",
 			setupMocks: func(mockExec *executer.MockExecuter, mockSpec *spec.MockManager, readWriter fileio.ReadWriter, dataDir string) {
 				// Create previous references file with images that are no longer referenced
 				previousRefs := ImageArtifactReferences{
-					Timestamp:  "2025-01-01T00:00:00Z",
-					References: []ImageRef{{Image: "quay.io/example/unused1:v1.0"}, {Image: "quay.io/example/unused2:v1.0"}},
+					Timestamp: "2025-01-01T00:00:00Z",
+					References: []ImageRef{
+						{Image: "quay.io/example/unused1:v1.0", Type: RefTypePodman},
+						{Image: "quay.io/example/unused2:v1.0", Type: RefTypePodman},
+					},
 				}
 				jsonData, err := json.Marshal(previousRefs)
 				require.NoError(err)
@@ -542,10 +562,15 @@ func TestManager_determineEligibleImages(t *testing.T) {
 				mockSpec.EXPECT().Read(spec.Current).Return(currentDevice, nil).Times(1)
 				mockSpec.EXPECT().Read(spec.Desired).Return(nil, errors.New("desired not found")).Times(1)
 			},
-			want: &EligibleItems{Images: []ImageRef{
-				{Image: "quay.io/example/unused1:v1.0"},
-				{Image: "quay.io/example/unused2:v1.0"},
-			}, Artifacts: []ImageRef{}},
+			want: &EligibleItems{
+				Images: []ImageRef{
+					{Image: "quay.io/example/unused1:v1.0", Type: RefTypePodman},
+					{Image: "quay.io/example/unused2:v1.0", Type: RefTypePodman},
+				},
+				Artifacts: []ImageRef{},
+				CRI:       []ImageRef{},
+				Helm:      []ImageRef{},
+			},
 		},
 		{
 			name: "partial failure - continues with available data",
@@ -553,7 +578,7 @@ func TestManager_determineEligibleImages(t *testing.T) {
 				// Create previous references file with unused image
 				previousRefs := ImageArtifactReferences{
 					Timestamp:  "2025-01-01T00:00:00Z",
-					References: []ImageRef{{Image: "quay.io/example/unused:v1.0"}},
+					References: []ImageRef{{Image: "quay.io/example/unused:v1.0", Type: RefTypePodman}},
 				}
 				jsonData, err := json.Marshal(previousRefs)
 				require.NoError(err)
@@ -598,7 +623,12 @@ func TestManager_determineEligibleImages(t *testing.T) {
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", "quay.io/example/unused:v1.0"}).
 					Return("", "", 0) // Exists as image
 			},
-			want: &EligibleItems{Images: []ImageRef{{Image: "quay.io/example/unused:v1.0"}}, Artifacts: []ImageRef{}}, // Continues with partial results
+			want: &EligibleItems{
+				Images:    []ImageRef{{Image: "quay.io/example/unused:v1.0", Type: RefTypePodman}},
+				Artifacts: []ImageRef{},
+				CRI:       []ImageRef{},
+				Helm:      []ImageRef{},
+			}, // Continues with partial results
 		},
 		{
 			name: "no previous references file - nothing eligible",
@@ -606,7 +636,7 @@ func TestManager_determineEligibleImages(t *testing.T) {
 				// Don't create previous references file - simulates first run
 				// No mocks needed since we return early
 			},
-			want: &EligibleItems{Images: []ImageRef{}, Artifacts: []ImageRef{}}, // No previous file, so nothing to prune
+			want: &EligibleItems{Images: []ImageRef{}, Artifacts: []ImageRef{}, CRI: []ImageRef{}, Helm: []ImageRef{}}, // No previous file, so nothing to prune
 		},
 	}
 
@@ -645,6 +675,8 @@ func TestManager_determineEligibleImages(t *testing.T) {
 				require.NotNil(got)
 				require.ElementsMatch(tc.want.Images, got.Images)
 				require.ElementsMatch(tc.want.Artifacts, got.Artifacts)
+				require.ElementsMatch(tc.want.CRI, got.CRI)
+				require.ElementsMatch(tc.want.Helm, got.Helm)
 			}
 		})
 	}

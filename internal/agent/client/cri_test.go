@@ -1,9 +1,14 @@
 package client
 
 import (
+	"context"
 	"testing"
 
+	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/pkg/executer"
+	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 )
 
 func TestNormalizeImageRef(t *testing.T) {
@@ -99,6 +104,71 @@ func TestBuildRegistryPaths(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			result := buildRegistryPaths(tc.input)
 			require.Equal(t, tc.expected, result)
+		})
+	}
+}
+
+func TestCRI_RemoveImage(t *testing.T) {
+	testCases := []struct {
+		name          string
+		image         string
+		setupMocks    func(*executer.MockExecuter)
+		wantErr       bool
+		wantErrSubstr string
+	}{
+		{
+			name:  "success - image removed",
+			image: "quay.io/example/app:v1.0",
+			setupMocks: func(mockExec *executer.MockExecuter) {
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "crictl", []string{"rmi", "quay.io/example/app:v1.0"}).
+					Return("Deleted: sha256:1234...", "", 0)
+			},
+			wantErr: false,
+		},
+		{
+			name:  "failure - image in use",
+			image: "quay.io/example/app:v1.0",
+			setupMocks: func(mockExec *executer.MockExecuter) {
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "crictl", []string{"rmi", "quay.io/example/app:v1.0"}).
+					Return("", "error removing image: image is in use by container", 1)
+			},
+			wantErr:       true,
+			wantErrSubstr: "crictl rmi",
+		},
+		{
+			name:  "failure - image not found",
+			image: "quay.io/example/nonexistent:v1.0",
+			setupMocks: func(mockExec *executer.MockExecuter) {
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "crictl", []string{"rmi", "quay.io/example/nonexistent:v1.0"}).
+					Return("", "no such image", 1)
+			},
+			wantErr:       true,
+			wantErrSubstr: "crictl rmi",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			mockExec := executer.NewMockExecuter(ctrl)
+			tc.setupMocks(mockExec)
+
+			logger := log.NewPrefixLogger("test")
+			readWriter := fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter())
+			criClient := NewCRI(logger, mockExec, readWriter)
+
+			err := criClient.RemoveImage(context.Background(), tc.image)
+			if tc.wantErr {
+				require.Error(err)
+				if tc.wantErrSubstr != "" {
+					require.Contains(err.Error(), tc.wantErrSubstr)
+				}
+			} else {
+				require.NoError(err)
+			}
 		})
 	}
 }

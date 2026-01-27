@@ -99,6 +99,45 @@ func (c *CRI) Pull(ctx context.Context, image string, opts ...ClientOption) (str
 	return strings.TrimSpace(stdout), nil
 }
 
+// RemoveImage removes an image using crictl rmi.
+func (c *CRI) RemoveImage(ctx context.Context, image string, opts ...ClientOption) error {
+	options := &clientOptions{}
+	for _, opt := range opts {
+		opt(options)
+	}
+
+	timeout := c.timeout
+	if options.timeout > 0 {
+		timeout = options.timeout
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	var args []string
+
+	if options.criConfigPath != "" {
+		exists, err := c.readWriter.PathExists(options.criConfigPath)
+		if err != nil {
+			return fmt.Errorf("check crictl config path: %w", err)
+		}
+		if !exists {
+			c.log.Errorf("CRI config path does not exist: %s", options.criConfigPath)
+		} else {
+			args = append(args, "--config", options.criConfigPath)
+		}
+	}
+
+	args = append(args, "rmi", image)
+
+	_, stderr, exitCode := c.exec.ExecuteWithContext(ctx, crictlCmd, args...)
+	if exitCode != 0 {
+		return fmt.Errorf("crictl rmi: %w", errors.FromStderr(stderr, exitCode))
+	}
+
+	return nil
+}
+
 // ImageExists checks if an image exists in the CRI runtime.
 func (c *CRI) ImageExists(ctx context.Context, image string, opts ...ClientOption) bool {
 	options := &clientOptions{}

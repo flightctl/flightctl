@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -24,15 +25,25 @@ const (
 type HelmOption func(*helmOptions)
 
 type helmOptions struct {
-	namespace        string
-	valuesPaths      []string
-	kubeconfigPath   string
-	atomic           bool
-	createNamespace  bool
-	install          bool
-	timeout          time.Duration
-	postRendererPath string
-	postRendererArgs []string
+	namespace         string
+	valuesPaths       []string
+	kubeconfigPath    string
+	atomic            bool
+	rollbackOnFailure bool
+	createNamespace   bool
+	install           bool
+	timeout           time.Duration
+	postRendererPath  string
+	postRendererArgs  []string
+	ignoreNotFound    bool
+	helmEnv           map[string]string
+}
+
+// WithHelmEnv sets custom environment variables for this helm operation.
+func WithHelmEnv(env map[string]string) HelmOption {
+	return func(opts *helmOptions) {
+		opts.helmEnv = env
+	}
 }
 
 // WithNamespace sets the Kubernetes namespace for helm operations.
@@ -70,6 +81,14 @@ func WithAtomic() HelmOption {
 	}
 }
 
+// WithRollbackOnFailure enables the --rollback-on-failure flag for helm upgrade operations.
+// This is the Helm 4.x replacement for --atomic.
+func WithRollbackOnFailure() HelmOption {
+	return func(opts *helmOptions) {
+		opts.rollbackOnFailure = true
+	}
+}
+
 // WithCreateNamespace enables automatic namespace creation for helm operations.
 func WithCreateNamespace() HelmOption {
 	return func(opts *helmOptions) {
@@ -101,6 +120,13 @@ func WithPostRenderer(path string, args ...string) HelmOption {
 	}
 }
 
+// WithIgnoreNotFound treats "release not found" as a successful uninstall.
+func WithIgnoreNotFound() HelmOption {
+	return func(opts *helmOptions) {
+		opts.ignoreNotFound = true
+	}
+}
+
 // Helm provides a client for executing helm CLI commands.
 type Helm struct {
 	exec       executer.Executer
@@ -121,6 +147,19 @@ func NewHelm(log *log.PrefixLogger, exec executer.Executer, readWriter fileio.Re
 	}
 	h.cache = newHelmChartCache(h, chartsDir, readWriter, log)
 	return h
+}
+
+// helmEnv returns custom environment variables for helm commands.
+// It inherits the current environment and adds any custom helm-specific variables from options.
+func helmEnv(opts *helmOptions) []string {
+	if opts == nil || opts.helmEnv == nil {
+		return nil
+	}
+	env := os.Environ()
+	for k, v := range opts.helmEnv {
+		env = append(env, k+"="+v)
+	}
+	return env
 }
 
 // HelmVersion represents a parsed helm CLI version.
@@ -337,6 +376,10 @@ func (h *Helm) Install(ctx context.Context, releaseName, chartPath string, opts 
 		args = append(args, "--atomic")
 	}
 
+	if options.rollbackOnFailure {
+		args = append(args, "--rollback-on-failure")
+	}
+
 	if options.postRendererPath != "" {
 		args = append(args, "--post-renderer", options.postRendererPath)
 		for _, arg := range options.postRendererArgs {
@@ -407,6 +450,10 @@ func (h *Helm) Upgrade(ctx context.Context, releaseName, chartPath string, opts 
 		args = append(args, "--atomic")
 	}
 
+	if options.rollbackOnFailure {
+		args = append(args, "--rollback-on-failure")
+	}
+
 	if options.postRendererPath != "" {
 		args = append(args, "--post-renderer", options.postRendererPath)
 		for _, arg := range options.postRendererArgs {
@@ -414,7 +461,14 @@ func (h *Helm) Upgrade(ctx context.Context, releaseName, chartPath string, opts 
 		}
 	}
 
-	_, stderr, exitCode := h.exec.ExecuteWithContext(ctx, helmCmd, args...)
+	var stdout, stderr string
+	var exitCode int
+	if env := helmEnv(options); env != nil {
+		stdout, stderr, exitCode = h.exec.ExecuteWithContextFromDir(ctx, "", helmCmd, args, env...)
+	} else {
+		stdout, stderr, exitCode = h.exec.ExecuteWithContext(ctx, helmCmd, args...)
+	}
+	_ = stdout
 	if exitCode != 0 {
 		return fmt.Errorf("helm upgrade: %w", errors.FromStderr(stderr, exitCode))
 	}
@@ -452,6 +506,10 @@ func (h *Helm) Uninstall(ctx context.Context, releaseName string, opts ...HelmOp
 			return fmt.Errorf("kubeconfig does not exist: %s", options.kubeconfigPath)
 		}
 		args = append(args, "--kubeconfig", options.kubeconfigPath)
+	}
+
+	if options.ignoreNotFound {
+		args = append(args, "--ignore-not-found")
 	}
 
 	_, stderr, exitCode := h.exec.ExecuteWithContext(ctx, helmCmd, args...)
@@ -618,4 +676,10 @@ func (h *Helm) IsResolved(chartRef string) (bool, error) {
 // GetChartPath returns the local filesystem path for a cached chart.
 func (h *Helm) GetChartPath(chartRef string) string {
 	return h.cache.GetChartPath(chartRef)
+}
+
+// RemoveChart removes a cached helm chart by its reference.
+// The chart reference format is: oci://registry/chart:version or registry/chart:version
+func (h *Helm) RemoveChart(chartRef string) error {
+	return h.cache.RemoveChartByRef(chartRef)
 }
