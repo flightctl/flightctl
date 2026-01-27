@@ -11,7 +11,7 @@ import (
 
 func TestBasicOperations(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "Basic Operations E2E Suite")
+	RunSpecs(t, "Basic Operations Integration Suite")
 }
 
 var _ = BeforeSuite(func() {

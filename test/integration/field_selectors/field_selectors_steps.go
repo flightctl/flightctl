@@ -8,8 +8,8 @@ import (
 	"time"
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
-	"github.com/flightctl/flightctl/test/e2e/resources"
 	"github.com/flightctl/flightctl/test/harness/e2e"
+	"github.com/flightctl/flightctl/test/integration/resources"
 )
 
 func filteringDevicesWithFieldSelectorAndOperator(harness *e2e.Harness, fieldSelector string, operator string, fieldValue string) (string, []string, error) {

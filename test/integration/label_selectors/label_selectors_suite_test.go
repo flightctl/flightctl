@@ -11,7 +11,7 @@ import (
 
 func TestLabelSelectors(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "Label Selectors E2E Suite")
+	RunSpecs(t, "Label Selectors Integration Suite")
 }
 
 var _ = BeforeSuite(func() {
