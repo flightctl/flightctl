@@ -83,7 +83,9 @@ func (c *Compose) GetPodmanComposeStatus(ctx context.Context, name string, spec 
 			if inspect.State.ExitCode != 0 {
 				anyFailed = true
 			} else {
-				if inspect.HostConfig != nil && (inspect.HostConfig.RestartPolicy.Name == "always" || inspect.HostConfig.RestartPolicy.Name == "unless-stopped") {
+				if inspect.State.Status == "stopped" {
+					anyFailed = true
+				} else if inspect.HostConfig != nil && (inspect.HostConfig.RestartPolicy.Name == "always" || inspect.HostConfig.RestartPolicy.Name == "unless-stopped") {
 					anyFailed = true
 				}
 			}

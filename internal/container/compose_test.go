@@ -114,6 +114,14 @@ func TestGetPodmanComposeStatus(t *testing.T) {
 			},
 			expectedStatus: api.ApplicationStatusCompleted,
 		},
+		{
+			name:  "one container stopped with exit code 0",
+			psout: "c1",
+			inspects: map[string]types.InspectContainerData{
+				"c1": {Id: "c1", Name: "c1", State: &types.InspectContainerState{Status: "stopped", ExitCode: 0}},
+			},
+			expectedStatus: api.ApplicationStatusFailed,
+		},
 	}
 
 	for _, tt := range tests {
