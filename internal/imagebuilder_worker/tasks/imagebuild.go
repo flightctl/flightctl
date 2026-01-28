@@ -13,10 +13,10 @@ import (
 	"sync"
 	"time"
 
-	v1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
-	api "github.com/flightctl/flightctl/api/imagebuilder/v1beta1"
 	"github.com/flightctl/flightctl/internal/crypto"
+	coredomain "github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
+	"github.com/flightctl/flightctl/internal/imagebuilder_api/domain"
 	imagebuilderapi "github.com/flightctl/flightctl/internal/imagebuilder_api/service"
 	imagebuilderservice "github.com/flightctl/flightctl/internal/imagebuilder_api/service"
 	"github.com/flightctl/flightctl/internal/service"
@@ -70,41 +70,41 @@ func (c *Consumer) processImageBuild(ctx context.Context, eventWithOrgId worker_
 
 	// Initialize status if nil
 	if imageBuild.Status == nil {
-		imageBuild.Status = &api.ImageBuildStatus{}
+		imageBuild.Status = &domain.ImageBuildStatus{}
 	}
 
 	// Check current state - only process if Pending (or has no Ready condition)
 	// We only lock resources that are in Pending state to avoid stealing work from other processes
-	var readyCondition *api.ImageBuildCondition
+	var readyCondition *domain.ImageBuildCondition
 	if imageBuild.Status.Conditions != nil {
-		readyCondition = api.FindImageBuildStatusCondition(*imageBuild.Status.Conditions, api.ImageBuildConditionTypeReady)
+		readyCondition = domain.FindImageBuildStatusCondition(*imageBuild.Status.Conditions, domain.ImageBuildConditionTypeReady)
 	}
 	if readyCondition != nil {
 		reason := readyCondition.Reason
 		// Skip if already in terminal state (completed, failed, canceled)
-		if reason == string(api.ImageBuildConditionReasonCompleted) ||
-			reason == string(api.ImageBuildConditionReasonFailed) ||
-			reason == string(api.ImageBuildConditionReasonCanceled) {
+		if reason == string(domain.ImageBuildConditionReasonCompleted) ||
+			reason == string(domain.ImageBuildConditionReasonFailed) ||
+			reason == string(domain.ImageBuildConditionReasonCanceled) {
 			log.Infof("ImageBuild %q already in terminal state %q, skipping", imageBuildName, reason)
 			return nil
 		}
 		// Skip if already Building - another process is handling it
-		if reason == string(api.ImageBuildConditionReasonBuilding) {
+		if reason == string(domain.ImageBuildConditionReasonBuilding) {
 			log.Infof("ImageBuild %q is already being processed (Building), skipping", imageBuildName)
 			return nil
 		}
 		// Skip if Pushing - another process is handling it
-		if reason == string(api.ImageBuildConditionReasonPushing) {
+		if reason == string(domain.ImageBuildConditionReasonPushing) {
 			log.Infof("ImageBuild %q is already being processed (Pushing), skipping", imageBuildName)
 			return nil
 		}
 		// Skip if Canceling - cancellation is in progress
-		if reason == string(api.ImageBuildConditionReasonCanceling) {
+		if reason == string(domain.ImageBuildConditionReasonCanceling) {
 			log.Infof("ImageBuild %q is being canceled (Canceling), skipping", imageBuildName)
 			return nil
 		}
 		// Only proceed if Pending - if it's any other state, skip (shouldn't happen, but defensive)
-		if reason != string(api.ImageBuildConditionReasonPending) {
+		if reason != string(domain.ImageBuildConditionReasonPending) {
 			log.Warnf("ImageBuild %q is in unexpected state %q (expected Pending), skipping", imageBuildName, reason)
 			return nil
 		}
@@ -114,22 +114,22 @@ func (c *Consumer) processImageBuild(ctx context.Context, eventWithOrgId worker_
 	// Lock the build: atomically transition from Pending to Building state using resource_version
 	// This ensures only one process can start processing
 	now := time.Now().UTC()
-	buildingCondition := api.ImageBuildCondition{
-		Type:               api.ImageBuildConditionTypeReady,
-		Status:             v1beta1.ConditionStatusFalse,
-		Reason:             string(api.ImageBuildConditionReasonBuilding),
+	buildingCondition := domain.ImageBuildCondition{
+		Type:               domain.ImageBuildConditionTypeReady,
+		Status:             domain.ConditionStatusFalse,
+		Reason:             string(domain.ImageBuildConditionReasonBuilding),
 		Message:            "Build is in progress",
 		LastTransitionTime: now,
 	}
 
 	// Prepare status with Building condition
 	if imageBuild.Status == nil {
-		imageBuild.Status = &api.ImageBuildStatus{}
+		imageBuild.Status = &domain.ImageBuildStatus{}
 	}
 	if imageBuild.Status.Conditions == nil {
-		imageBuild.Status.Conditions = &[]api.ImageBuildCondition{}
+		imageBuild.Status.Conditions = &[]domain.ImageBuildCondition{}
 	}
-	api.SetImageBuildStatusCondition(imageBuild.Status.Conditions, buildingCondition)
+	domain.SetImageBuildStatusCondition(imageBuild.Status.Conditions, buildingCondition)
 
 	// Synchronously update status to Building - this will fail if resource_version changed
 	_, err := c.imageBuilderService.ImageBuild().UpdateStatus(ctx, orgID, imageBuild)
@@ -203,10 +203,10 @@ func (c *Consumer) processImageBuild(ctx context.Context, eventWithOrgId worker_
 
 	// Mark as Completed
 	now = time.Now().UTC()
-	completedCondition := api.ImageBuildCondition{
-		Type:               api.ImageBuildConditionTypeReady,
-		Status:             v1beta1.ConditionStatusTrue,
-		Reason:             string(api.ImageBuildConditionReasonCompleted),
+	completedCondition := domain.ImageBuildCondition{
+		Type:               domain.ImageBuildConditionTypeReady,
+		Status:             domain.ConditionStatusTrue,
+		Reason:             string(domain.ImageBuildConditionReasonCompleted),
 		Message:            "Build completed successfully",
 		LastTransitionTime: now,
 	}
@@ -227,8 +227,8 @@ func (c *Consumer) handleBuildError(ctx context.Context, orgID uuid.UUID, imageB
 	currentBuild, status := c.imageBuilderService.ImageBuild().Get(ctx, orgID, imageBuildName, false)
 	if currentBuild != nil && imagebuilderapi.IsStatusOK(status) &&
 		currentBuild.Status != nil && currentBuild.Status.Conditions != nil {
-		readyCondition := api.FindImageBuildStatusCondition(*currentBuild.Status.Conditions, api.ImageBuildConditionTypeReady)
-		if readyCondition != nil && readyCondition.Reason == string(api.ImageBuildConditionReasonCanceling) {
+		readyCondition := domain.FindImageBuildStatusCondition(*currentBuild.Status.Conditions, domain.ImageBuildConditionTypeReady)
+		if readyCondition != nil && readyCondition.Reason == string(domain.ImageBuildConditionReasonCanceling) {
 			// This was a cancellation - check if it was a timeout or user cancellation
 			message := readyCondition.Message
 			isTimeout := strings.Contains(message, "timed out")
@@ -236,10 +236,10 @@ func (c *Consumer) handleBuildError(ctx context.Context, orgID uuid.UUID, imageB
 			if isTimeout {
 				// Timeout - set Failed status with the timeout message
 				log.WithField("message", message).Info("Build timed out, setting status to Failed")
-				failedCondition := api.ImageBuildCondition{
-					Type:               api.ImageBuildConditionTypeReady,
-					Status:             v1beta1.ConditionStatusFalse,
-					Reason:             string(api.ImageBuildConditionReasonFailed),
+				failedCondition := domain.ImageBuildCondition{
+					Type:               domain.ImageBuildConditionTypeReady,
+					Status:             domain.ConditionStatusFalse,
+					Reason:             string(domain.ImageBuildConditionReasonFailed),
 					Message:            message,
 					LastTransitionTime: time.Now().UTC(),
 				}
@@ -250,10 +250,10 @@ func (c *Consumer) handleBuildError(ctx context.Context, orgID uuid.UUID, imageB
 					message = "Build was canceled"
 				}
 				log.WithField("message", message).Info("Build was canceled, setting status to Canceled")
-				canceledCondition := api.ImageBuildCondition{
-					Type:               api.ImageBuildConditionTypeReady,
-					Status:             v1beta1.ConditionStatusFalse,
-					Reason:             string(api.ImageBuildConditionReasonCanceled),
+				canceledCondition := domain.ImageBuildCondition{
+					Type:               domain.ImageBuildConditionTypeReady,
+					Status:             domain.ConditionStatusFalse,
+					Reason:             string(domain.ImageBuildConditionReasonCanceled),
 					Message:            message,
 					LastTransitionTime: time.Now().UTC(),
 				}
@@ -264,10 +264,10 @@ func (c *Consumer) handleBuildError(ctx context.Context, orgID uuid.UUID, imageB
 	}
 
 	// Not canceled - set Failed status
-	failedCondition := api.ImageBuildCondition{
-		Type:               api.ImageBuildConditionTypeReady,
-		Status:             v1beta1.ConditionStatusFalse,
-		Reason:             string(api.ImageBuildConditionReasonFailed),
+	failedCondition := domain.ImageBuildCondition{
+		Type:               domain.ImageBuildConditionTypeReady,
+		Status:             domain.ConditionStatusFalse,
+		Reason:             string(domain.ImageBuildConditionReasonFailed),
 		Message:            err.Error(),
 		LastTransitionTime: time.Now().UTC(),
 	}
@@ -290,7 +290,7 @@ type containerfileBuildArgs struct {
 // EnrollmentCredentialGenerator is an interface for generating enrollment credentials
 // This allows for easier testing by mocking the service handler
 type EnrollmentCredentialGenerator interface {
-	GenerateEnrollmentCredential(ctx context.Context, orgId uuid.UUID, baseName string, ownerKind string, ownerName string) (*crypto.EnrollmentCredential, v1beta1.Status)
+	GenerateEnrollmentCredential(ctx context.Context, orgId uuid.UUID, baseName string, ownerKind string, ownerName string) (*crypto.EnrollmentCredential, coredomain.Status)
 }
 
 // GenerateContainerfile generates a Containerfile from an ImageBuild spec
@@ -300,7 +300,7 @@ func GenerateContainerfile(
 	mainStore store.Store,
 	credentialGenerator EnrollmentCredentialGenerator,
 	orgID uuid.UUID,
-	imageBuild *api.ImageBuild,
+	imageBuild *domain.ImageBuild,
 	log logrus.FieldLogger,
 ) (*ContainerfileResult, error) {
 	// Create a temporary consumer for testing purposes
@@ -320,7 +320,7 @@ func GenerateContainerfile(
 func (c *Consumer) generateContainerfile(
 	ctx context.Context,
 	orgID uuid.UUID,
-	imageBuild *api.ImageBuild,
+	imageBuild *domain.ImageBuild,
 	log logrus.FieldLogger,
 ) (*ContainerfileResult, error) {
 	return c.generateContainerfileWithGenerator(ctx, orgID, imageBuild, c.serviceHandler, log)
@@ -331,7 +331,7 @@ func (c *Consumer) generateContainerfile(
 func (c *Consumer) generateContainerfileWithGenerator(
 	ctx context.Context,
 	orgID uuid.UUID,
-	imageBuild *api.ImageBuild,
+	imageBuild *domain.ImageBuild,
 	credentialGenerator EnrollmentCredentialGenerator,
 	log logrus.FieldLogger,
 ) (*ContainerfileResult, error) {
@@ -357,7 +357,7 @@ func (c *Consumer) generateContainerfileWithGenerator(
 	if err != nil {
 		return nil, fmt.Errorf("failed to determine repository type: %w", err)
 	}
-	if repoType != string(v1beta1.RepoSpecTypeOci) {
+	if repoType != string(coredomain.RepoSpecTypeOci) {
 		return nil, fmt.Errorf("repository %q must be of type 'oci', got %q", spec.Source.Repository, repoType)
 	}
 
@@ -382,7 +382,7 @@ func (c *Consumer) generateContainerfileWithGenerator(
 		"bindingType":      bindingType,
 	}).Debug("Generating Containerfile")
 
-	isEarlyBinding := bindingType == string(api.BindingTypeEarly)
+	isEarlyBinding := bindingType == string(domain.BindingTypeEarly)
 	hasUserConfig := spec.UserConfiguration != nil
 
 	// Prepare build arguments (passed via --build-arg to podman build)
@@ -431,7 +431,7 @@ func (c *Consumer) generateAgentConfigWithGenerator(ctx context.Context, orgID u
 	// Generate enrollment credential using the credential generator
 	// This will create a CSR, auto-approve it, sign it, and return the credential
 	// The CSR owner is set to the ImageBuild resource for traceability
-	credential, status := credentialGenerator.GenerateEnrollmentCredential(ctx, orgID, name, string(api.ResourceKindImageBuild), imageBuildName)
+	credential, status := credentialGenerator.GenerateEnrollmentCredential(ctx, orgID, name, string(domain.ResourceKindImageBuild), imageBuildName)
 	if err := service.ApiStatusToErr(status); err != nil {
 		return nil, fmt.Errorf("generating enrollment credential: %w", err)
 	}
@@ -537,7 +537,7 @@ func (w *podmanWorker) runInWorker(ctx context.Context, log logrus.FieldLogger, 
 func (c *Consumer) startPodmanWorker(
 	ctx context.Context,
 	orgID uuid.UUID,
-	imageBuild *api.ImageBuild,
+	imageBuild *domain.ImageBuild,
 	statusUpdater *statusUpdater,
 	log logrus.FieldLogger,
 ) (*podmanWorker, error) {
@@ -724,7 +724,7 @@ func (c *Consumer) loginToRegistry(
 func (c *Consumer) buildImageWithPodman(
 	ctx context.Context,
 	orgID uuid.UUID,
-	imageBuild *api.ImageBuild,
+	imageBuild *domain.ImageBuild,
 	containerfileResult *ContainerfileResult,
 	podmanWorker *podmanWorker,
 	log logrus.FieldLogger,
@@ -747,7 +747,7 @@ func (c *Consumer) buildImageWithPodman(
 	if err != nil {
 		return fmt.Errorf("failed to determine destination repository type: %w", err)
 	}
-	if destRepoType != string(v1beta1.RepoSpecTypeOci) {
+	if destRepoType != string(coredomain.RepoSpecTypeOci) {
 		return fmt.Errorf("destination repository %q must be of type 'oci', got %q", spec.Destination.Repository, destRepoType)
 	}
 
@@ -813,7 +813,7 @@ func (c *Consumer) buildImageWithPodman(
 	if err != nil {
 		return fmt.Errorf("failed to determine source repository type: %w", err)
 	}
-	if repoType != string(v1beta1.RepoSpecTypeOci) {
+	if repoType != string(coredomain.RepoSpecTypeOci) {
 		return fmt.Errorf("source repository %q must be of type 'oci', got %q", spec.Source.Repository, repoType)
 	}
 
@@ -888,7 +888,7 @@ func (c *Consumer) buildImageWithPodman(
 func (c *Consumer) pushImageWithPodman(
 	ctx context.Context,
 	orgID uuid.UUID,
-	imageBuild *api.ImageBuild,
+	imageBuild *domain.ImageBuild,
 	podmanWorker *podmanWorker,
 	log logrus.FieldLogger,
 ) (string, error) {
@@ -910,7 +910,7 @@ func (c *Consumer) pushImageWithPodman(
 	if err != nil {
 		return "", fmt.Errorf("failed to determine destination repository type: %w", err)
 	}
-	if repoType != string(v1beta1.RepoSpecTypeOci) {
+	if repoType != string(coredomain.RepoSpecTypeOci) {
 		return "", fmt.Errorf("destination repository %q must be of type 'oci', got %q", spec.Destination.Repository, repoType)
 	}
 

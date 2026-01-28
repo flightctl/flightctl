@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/flterrors"
+	"github.com/flightctl/flightctl/internal/imagebuilder_api/domain"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
@@ -57,7 +57,7 @@ const (
 )
 
 // NilOutManagedObjectMetaProperties clears fields that are managed by the service
-func NilOutManagedObjectMetaProperties(om *v1beta1.ObjectMeta) {
+func NilOutManagedObjectMetaProperties(om *domain.ObjectMeta) {
 	if om == nil {
 		return
 	}
@@ -69,7 +69,7 @@ func NilOutManagedObjectMetaProperties(om *v1beta1.ObjectMeta) {
 }
 
 // prepareListParams prepares list parameters from request query parameters
-func prepareListParams(cont *string, lSelector *string, fSelector *string, limit *int32) (*store.ListParams, v1beta1.Status) {
+func prepareListParams(cont *string, lSelector *string, fSelector *string, limit *int32) (*store.ListParams, domain.Status) {
 	cnt, err := store.ParseContinueString(cont)
 	if err != nil {
 		return nil, StatusBadRequest("failed to parse continue parameter: " + err.Error())
@@ -128,7 +128,7 @@ var conflictErrors = map[error]bool{
 }
 
 // StoreErrorToApiStatus converts a store error to an API status
-func StoreErrorToApiStatus(err error, created bool, kind string, name *string) v1beta1.Status {
+func StoreErrorToApiStatus(err error, created bool, kind string, name *string) domain.Status {
 	if err == nil {
 		if created {
 			return StatusCreated()
@@ -156,46 +156,46 @@ func StoreErrorToApiStatus(err error, created bool, kind string, name *string) v
 }
 
 // StatusOK returns a 200 OK status
-func StatusOK() v1beta1.Status {
-	return v1beta1.Status{Code: 200}
+func StatusOK() domain.Status {
+	return domain.Status{Code: 200}
 }
 
 // StatusCreated returns a 201 Created status
-func StatusCreated() v1beta1.Status {
-	return v1beta1.Status{Code: 201}
+func StatusCreated() domain.Status {
+	return domain.Status{Code: 201}
 }
 
 // StatusBadRequest returns a 400 Bad Request status with the given message
-func StatusBadRequest(message string) v1beta1.Status {
-	return v1beta1.Status{Code: 400, Message: message}
+func StatusBadRequest(message string) domain.Status {
+	return domain.Status{Code: 400, Message: message}
 }
 
 // StatusNotFound returns a 404 Not Found status with the given message
-func StatusNotFound(message string) v1beta1.Status {
-	return v1beta1.Status{Code: 404, Message: message}
+func StatusNotFound(message string) domain.Status {
+	return domain.Status{Code: 404, Message: message}
 }
 
 // StatusResourceNotFound returns a 404 status for a specific resource
-func StatusResourceNotFound(kind string, name string) v1beta1.Status {
-	return v1beta1.Status{Code: 404, Message: kind + " " + name + " not found"}
+func StatusResourceNotFound(kind string, name string) domain.Status {
+	return domain.Status{Code: 404, Message: kind + " " + name + " not found"}
 }
 
 // StatusConflict returns a 409 Conflict status with the given message
-func StatusConflict(message string) v1beta1.Status {
-	return v1beta1.Status{Code: 409, Message: message}
+func StatusConflict(message string) domain.Status {
+	return domain.Status{Code: 409, Message: message}
 }
 
 // StatusInternalServerError returns a 500 Internal Server Error status with the given message
-func StatusInternalServerError(message string) v1beta1.Status {
-	return v1beta1.Status{Code: 500, Message: message}
+func StatusInternalServerError(message string) domain.Status {
+	return domain.Status{Code: 500, Message: message}
 }
 
 // StatusServiceUnavailable returns a 503 Service Unavailable status with the given message
-func StatusServiceUnavailable(message string) v1beta1.Status {
-	return v1beta1.Status{Code: 503, Message: message}
+func StatusServiceUnavailable(message string) domain.Status {
+	return domain.Status{Code: 503, Message: message}
 }
 
 // IsStatusOK returns true if the status code is in the 2xx range
-func IsStatusOK(status v1beta1.Status) bool {
+func IsStatusOK(status domain.Status) bool {
 	return status.Code >= 200 && status.Code < 300
 }

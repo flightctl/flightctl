@@ -7,11 +7,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/flightctl/flightctl/api/core/v1beta1"
-	api "github.com/flightctl/flightctl/api/imagebuilder/v1beta1"
 	"github.com/flightctl/flightctl/internal/config"
-	"github.com/flightctl/flightctl/internal/domain"
+	coredomain "github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
+	"github.com/flightctl/flightctl/internal/imagebuilder_api/domain"
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/store"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	internalservice "github.com/flightctl/flightctl/internal/service"
@@ -27,18 +26,18 @@ import (
 
 // ImageBuildService handles business logic for ImageBuild resources
 type ImageBuildService interface {
-	Create(ctx context.Context, orgId uuid.UUID, imageBuild api.ImageBuild) (*api.ImageBuild, v1beta1.Status)
-	Get(ctx context.Context, orgId uuid.UUID, name string, withExports bool) (*api.ImageBuild, v1beta1.Status)
-	List(ctx context.Context, orgId uuid.UUID, params api.ListImageBuildsParams) (*api.ImageBuildList, v1beta1.Status)
-	Delete(ctx context.Context, orgId uuid.UUID, name string) (*api.ImageBuild, v1beta1.Status)
+	Create(ctx context.Context, orgId uuid.UUID, imageBuild domain.ImageBuild) (*domain.ImageBuild, domain.Status)
+	Get(ctx context.Context, orgId uuid.UUID, name string, withExports bool) (*domain.ImageBuild, domain.Status)
+	List(ctx context.Context, orgId uuid.UUID, params domain.ListImageBuildsParams) (*domain.ImageBuildList, domain.Status)
+	Delete(ctx context.Context, orgId uuid.UUID, name string) (*domain.ImageBuild, domain.Status)
 	// Cancel cancels an ImageBuild. Returns ErrNotCancelable if not in cancelable state.
-	Cancel(ctx context.Context, orgId uuid.UUID, name string) (*api.ImageBuild, error)
+	Cancel(ctx context.Context, orgId uuid.UUID, name string) (*domain.ImageBuild, error)
 	// CancelWithReason cancels an ImageBuild with a custom reason message (e.g., for timeout).
 	// Returns ErrNotCancelable if not in cancelable state.
-	CancelWithReason(ctx context.Context, orgId uuid.UUID, name string, reason string) (*api.ImageBuild, error)
-	GetLogs(ctx context.Context, orgId uuid.UUID, name string, follow bool) (LogStreamReader, string, v1beta1.Status)
+	CancelWithReason(ctx context.Context, orgId uuid.UUID, name string, reason string) (*domain.ImageBuild, error)
+	GetLogs(ctx context.Context, orgId uuid.UUID, name string, follow bool) (LogStreamReader, string, domain.Status)
 	// Internal methods (not exposed via API)
-	UpdateStatus(ctx context.Context, orgId uuid.UUID, imageBuild *api.ImageBuild) (*api.ImageBuild, error)
+	UpdateStatus(ctx context.Context, orgId uuid.UUID, imageBuild *domain.ImageBuild) (*domain.ImageBuild, error)
 	UpdateLastSeen(ctx context.Context, orgId uuid.UUID, name string, timestamp time.Time) error
 	UpdateLogs(ctx context.Context, orgId uuid.UUID, name string, logs string) error
 }
@@ -69,7 +68,7 @@ func NewImageBuildService(s store.ImageBuildStore, repositoryStore mainstore.Rep
 	}
 }
 
-func (s *imageBuildService) Create(ctx context.Context, orgId uuid.UUID, imageBuild api.ImageBuild) (*api.ImageBuild, v1beta1.Status) {
+func (s *imageBuildService) Create(ctx context.Context, orgId uuid.UUID, imageBuild domain.ImageBuild) (*domain.ImageBuild, domain.Status) {
 	// Don't set fields that are managed by the service
 	imageBuild.Status = nil
 	NilOutManagedObjectMetaProperties(&imageBuild.Metadata)
@@ -83,13 +82,13 @@ func (s *imageBuildService) Create(ctx context.Context, orgId uuid.UUID, imageBu
 
 	result, err := s.store.Create(ctx, orgId, &imageBuild)
 	if err != nil {
-		return result, StoreErrorToApiStatus(err, true, string(api.ResourceKindImageBuild), imageBuild.Metadata.Name)
+		return result, StoreErrorToApiStatus(err, true, string(domain.ResourceKindImageBuild), imageBuild.Metadata.Name)
 	}
 
 	// Create event separately (no transaction)
-	var event *v1beta1.Event
+	var event *coredomain.Event
 	if result != nil && s.eventHandler != nil {
-		event = common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, true, v1beta1.ResourceKind(string(api.ResourceKindImageBuild)), lo.FromPtr(result.Metadata.Name), nil, s.log, nil)
+		event = common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, true, coredomain.ResourceKind(string(domain.ResourceKindImageBuild)), lo.FromPtr(result.Metadata.Name), nil, s.log, nil)
 		if event != nil {
 			s.eventHandler.CreateEvent(ctx, orgId, event)
 		}
@@ -103,15 +102,15 @@ func (s *imageBuildService) Create(ctx context.Context, orgId uuid.UUID, imageBu
 		}
 	}
 
-	return result, StoreErrorToApiStatus(nil, true, string(api.ResourceKindImageBuild), imageBuild.Metadata.Name)
+	return result, StoreErrorToApiStatus(nil, true, string(domain.ResourceKindImageBuild), imageBuild.Metadata.Name)
 }
 
-func (s *imageBuildService) Get(ctx context.Context, orgId uuid.UUID, name string, withExports bool) (*api.ImageBuild, v1beta1.Status) {
+func (s *imageBuildService) Get(ctx context.Context, orgId uuid.UUID, name string, withExports bool) (*domain.ImageBuild, domain.Status) {
 	result, err := s.store.Get(ctx, orgId, name, store.GetWithExports(withExports))
-	return result, StoreErrorToApiStatus(err, false, string(api.ResourceKindImageBuild), &name)
+	return result, StoreErrorToApiStatus(err, false, string(domain.ResourceKindImageBuild), &name)
 }
 
-func (s *imageBuildService) List(ctx context.Context, orgId uuid.UUID, params api.ListImageBuildsParams) (*api.ImageBuildList, v1beta1.Status) {
+func (s *imageBuildService) List(ctx context.Context, orgId uuid.UUID, params domain.ListImageBuildsParams) (*domain.ImageBuildList, domain.Status) {
 	listParams, status := prepareListParams(params.Continue, params.LabelSelector, params.FieldSelector, params.Limit)
 	if !IsStatusOK(status) {
 		return nil, status
@@ -131,7 +130,7 @@ func (s *imageBuildService) List(ctx context.Context, orgId uuid.UUID, params ap
 	}
 }
 
-func (s *imageBuildService) Delete(ctx context.Context, orgId uuid.UUID, name string) (*api.ImageBuild, v1beta1.Status) {
+func (s *imageBuildService) Delete(ctx context.Context, orgId uuid.UUID, name string) (*domain.ImageBuild, domain.Status) {
 	// First, get the ImageBuild to check its status
 	imageBuild, err := s.store.Get(ctx, orgId, name)
 	if err != nil {
@@ -139,7 +138,7 @@ func (s *imageBuildService) Delete(ctx context.Context, orgId uuid.UUID, name st
 			// Idempotent delete - resource doesn't exist
 			return nil, StatusOK()
 		}
-		return nil, StoreErrorToApiStatus(err, false, string(api.ResourceKindImageBuild), &name)
+		return nil, StoreErrorToApiStatus(err, false, string(domain.ResourceKindImageBuild), &name)
 	}
 
 	// Delete all related ImageExports first (using service which does cancel-wait-delete)
@@ -173,7 +172,7 @@ func (s *imageBuildService) Delete(ctx context.Context, orgId uuid.UUID, name st
 
 	// Now delete the ImageBuild
 	result, err := s.store.Delete(ctx, orgId, name)
-	return result, StoreErrorToApiStatus(err, false, string(api.ResourceKindImageBuild), &name)
+	return result, StoreErrorToApiStatus(err, false, string(domain.ResourceKindImageBuild), &name)
 }
 
 // deleteRelatedImageExports deletes all ImageExports that reference the given ImageBuild
@@ -181,7 +180,7 @@ func (s *imageBuildService) deleteRelatedImageExports(ctx context.Context, orgId
 	// List all ImageExports that reference this ImageBuild
 	fieldSelectorStr := fmt.Sprintf("spec.source.imageBuildRef=%s", imageBuildName)
 
-	exports, status := s.imageExportService.List(ctx, orgId, api.ListImageExportsParams{
+	exports, status := s.imageExportService.List(ctx, orgId, domain.ListImageExportsParams{
 		FieldSelector: lo.ToPtr(fieldSelectorStr),
 	})
 	if !IsStatusOK(status) {
@@ -201,11 +200,11 @@ func (s *imageBuildService) deleteRelatedImageExports(ctx context.Context, orgId
 	return nil
 }
 
-func (s *imageBuildService) Cancel(ctx context.Context, orgId uuid.UUID, name string) (*api.ImageBuild, error) {
+func (s *imageBuildService) Cancel(ctx context.Context, orgId uuid.UUID, name string) (*domain.ImageBuild, error) {
 	return s.CancelWithReason(ctx, orgId, name, "Build cancellation requested")
 }
 
-func (s *imageBuildService) CancelWithReason(ctx context.Context, orgId uuid.UUID, name string, reason string) (*api.ImageBuild, error) {
+func (s *imageBuildService) CancelWithReason(ctx context.Context, orgId uuid.UUID, name string, reason string) (*domain.ImageBuild, error) {
 	// 1. Get current ImageBuild
 	imageBuild, err := s.store.Get(ctx, orgId, name)
 	if err != nil {
@@ -219,21 +218,21 @@ func (s *imageBuildService) CancelWithReason(ctx context.Context, orgId uuid.UUI
 
 	// 3. Initialize status if needed
 	if imageBuild.Status == nil {
-		imageBuild.Status = &api.ImageBuildStatus{}
+		imageBuild.Status = &domain.ImageBuildStatus{}
 	}
 	if imageBuild.Status.Conditions == nil {
-		imageBuild.Status.Conditions = &[]api.ImageBuildCondition{}
+		imageBuild.Status.Conditions = &[]domain.ImageBuildCondition{}
 	}
 
 	// 4. Update status to Canceling
-	cancelingCondition := api.ImageBuildCondition{
-		Type:               api.ImageBuildConditionTypeReady,
-		Status:             v1beta1.ConditionStatusFalse,
-		Reason:             string(api.ImageBuildConditionReasonCanceling),
+	cancelingCondition := domain.ImageBuildCondition{
+		Type:               domain.ImageBuildConditionTypeReady,
+		Status:             domain.ConditionStatusFalse,
+		Reason:             string(domain.ImageBuildConditionReasonCanceling),
 		Message:            reason,
 		LastTransitionTime: time.Now().UTC(),
 	}
-	api.SetImageBuildStatusCondition(imageBuild.Status.Conditions, cancelingCondition)
+	domain.SetImageBuildStatusCondition(imageBuild.Status.Conditions, cancelingCondition)
 
 	result, err := s.store.UpdateStatus(ctx, orgId, imageBuild)
 	if err != nil {
@@ -260,20 +259,20 @@ func (s *imageBuildService) CancelWithReason(ctx context.Context, orgId uuid.UUI
 }
 
 // isCancelableState checks if an ImageBuild is in a state that can be canceled (used by Cancel API)
-func isCancelableState(imageBuild *api.ImageBuild) bool {
+func isCancelableState(imageBuild *domain.ImageBuild) bool {
 	return isCancelableBuildState(imageBuild)
 }
 
 // isCancelableBuildState checks if an ImageBuild is in a state that can be canceled
 // Anything NOT in a terminal state is cancelable
 // Terminal states: Canceled, Canceling, Completed, Failed
-func isCancelableBuildState(imageBuild *api.ImageBuild) bool {
+func isCancelableBuildState(imageBuild *domain.ImageBuild) bool {
 	if imageBuild.Status == nil || imageBuild.Status.Conditions == nil {
 		// No status yet - treat as Pending, which is cancelable
 		return true
 	}
 
-	readyCondition := api.FindImageBuildStatusCondition(*imageBuild.Status.Conditions, api.ImageBuildConditionTypeReady)
+	readyCondition := domain.FindImageBuildStatusCondition(*imageBuild.Status.Conditions, domain.ImageBuildConditionTypeReady)
 	if readyCondition == nil {
 		// No Ready condition - treat as Pending
 		return true
@@ -281,10 +280,10 @@ func isCancelableBuildState(imageBuild *api.ImageBuild) bool {
 
 	reason := readyCondition.Reason
 	// Anything NOT in a terminal state is cancelable
-	return reason != string(api.ImageBuildConditionReasonCanceled) &&
-		reason != string(api.ImageBuildConditionReasonCanceling) &&
-		reason != string(api.ImageBuildConditionReasonCompleted) &&
-		reason != string(api.ImageBuildConditionReasonFailed)
+	return reason != string(domain.ImageBuildConditionReasonCanceled) &&
+		reason != string(domain.ImageBuildConditionReasonCanceling) &&
+		reason != string(domain.ImageBuildConditionReasonCompleted) &&
+		reason != string(domain.ImageBuildConditionReasonFailed)
 }
 
 // getImageBuildCanceledStreamKey returns the Redis stream key for cancellation completion signals
@@ -299,7 +298,7 @@ func getImageBuildCancelStreamKey(orgId uuid.UUID, name string) string {
 
 // Internal methods (not exposed via API)
 
-func (s *imageBuildService) UpdateStatus(ctx context.Context, orgId uuid.UUID, imageBuild *api.ImageBuild) (*api.ImageBuild, error) {
+func (s *imageBuildService) UpdateStatus(ctx context.Context, orgId uuid.UUID, imageBuild *domain.ImageBuild) (*domain.ImageBuild, error) {
 	// Update status
 	result, err := s.store.UpdateStatus(ctx, orgId, imageBuild)
 	if err != nil {
@@ -307,15 +306,15 @@ func (s *imageBuildService) UpdateStatus(ctx context.Context, orgId uuid.UUID, i
 	}
 
 	// Create event for status update
-	var event *v1beta1.Event
+	var event *coredomain.Event
 	if result != nil && result.Metadata.Name != nil && s.eventHandler != nil {
 		// Create a simple status update event since status is not in UpdatedFields enum
-		event = domain.GetBaseEvent(
+		event = coredomain.GetBaseEvent(
 			ctx,
-			v1beta1.ResourceKind(string(api.ResourceKindImageBuild)),
+			coredomain.ResourceKind(string(domain.ResourceKindImageBuild)),
 			*result.Metadata.Name,
-			domain.EventReasonResourceUpdated,
-			fmt.Sprintf("%s status was updated successfully.", string(api.ResourceKindImageBuild)),
+			coredomain.EventReasonResourceUpdated,
+			fmt.Sprintf("%s status was updated successfully.", string(domain.ResourceKindImageBuild)),
 			nil,
 		)
 		if event != nil {
@@ -327,10 +326,10 @@ func (s *imageBuildService) UpdateStatus(ctx context.Context, orgId uuid.UUID, i
 	if result != nil && event != nil && s.queueProducer != nil {
 		// Check if Ready condition is True with reason Completed
 		if result.Status != nil && result.Status.Conditions != nil {
-			readyCondition := api.FindImageBuildStatusCondition(*result.Status.Conditions, api.ImageBuildConditionTypeReady)
+			readyCondition := domain.FindImageBuildStatusCondition(*result.Status.Conditions, domain.ImageBuildConditionTypeReady)
 			if readyCondition != nil &&
-				readyCondition.Status == v1beta1.ConditionStatusTrue &&
-				readyCondition.Reason == string(api.ImageBuildConditionReasonCompleted) {
+				readyCondition.Status == domain.ConditionStatusTrue &&
+				readyCondition.Reason == string(domain.ImageBuildConditionReasonCompleted) {
 				if err := s.enqueueImageBuildEvent(ctx, orgId, event); err != nil {
 					s.log.WithError(err).WithField("orgId", orgId).WithField("name", *result.Metadata.Name).Error("failed to enqueue imageBuild event")
 					// Don't fail the update if enqueue fails - the event can be retried later
@@ -352,7 +351,7 @@ func (s *imageBuildService) UpdateLogs(ctx context.Context, orgId uuid.UUID, nam
 
 // GetLogs retrieves logs for an ImageBuild
 // Returns a LogStreamReader for active builds (if follow=true) or logs string for completed builds
-func (s *imageBuildService) GetLogs(ctx context.Context, orgId uuid.UUID, name string, follow bool) (LogStreamReader, string, v1beta1.Status) {
+func (s *imageBuildService) GetLogs(ctx context.Context, orgId uuid.UUID, name string, follow bool) (LogStreamReader, string, domain.Status) {
 	// First, get the ImageBuild to check its status
 	imageBuild, status := s.Get(ctx, orgId, name, false)
 	if imageBuild == nil || !IsStatusOK(status) {
@@ -362,10 +361,10 @@ func (s *imageBuildService) GetLogs(ctx context.Context, orgId uuid.UUID, name s
 	// Check if build is active (Building or Pushing)
 	isActive := false
 	if imageBuild.Status != nil && imageBuild.Status.Conditions != nil {
-		readyCondition := api.FindImageBuildStatusCondition(*imageBuild.Status.Conditions, api.ImageBuildConditionTypeReady)
+		readyCondition := domain.FindImageBuildStatusCondition(*imageBuild.Status.Conditions, domain.ImageBuildConditionTypeReady)
 		if readyCondition != nil {
 			reason := readyCondition.Reason
-			if reason == string(api.ImageBuildConditionReasonBuilding) || reason == string(api.ImageBuildConditionReasonPushing) {
+			if reason == string(domain.ImageBuildConditionReasonBuilding) || reason == string(domain.ImageBuildConditionReasonPushing) {
 				isActive = true
 			}
 		}
@@ -405,7 +404,7 @@ func (s *imageBuildService) GetLogs(ctx context.Context, orgId uuid.UUID, name s
 
 // validate performs validation on an ImageBuild resource
 // Returns validation errors (4xx) and internal errors (5xx) separately
-func (s *imageBuildService) validate(ctx context.Context, orgId uuid.UUID, imageBuild *api.ImageBuild) ([]error, error) {
+func (s *imageBuildService) validate(ctx context.Context, orgId uuid.UUID, imageBuild *domain.ImageBuild) ([]error, error) {
 	var errs []error
 
 	if lo.FromPtr(imageBuild.Metadata.Name) == "" {
@@ -426,7 +425,7 @@ func (s *imageBuildService) validate(ctx context.Context, orgId uuid.UUID, image
 			if err != nil {
 				return nil, fmt.Errorf("failed to get source repository spec type: %w", err)
 			}
-			if specType != string(v1beta1.RepoSpecTypeOci) {
+			if specType != string(domain.RepoSpecTypeOci) {
 				errs = append(errs, fmt.Errorf("spec.source.repository: Repository %q must be of type 'oci', got %q", imageBuild.Spec.Source.Repository, specType))
 			}
 		}
@@ -448,15 +447,15 @@ func (s *imageBuildService) validate(ctx context.Context, orgId uuid.UUID, image
 			if err != nil {
 				return nil, fmt.Errorf("failed to get destination repository spec type: %w", err)
 			}
-			if specType != string(v1beta1.RepoSpecTypeOci) {
+			if specType != string(domain.RepoSpecTypeOci) {
 				errs = append(errs, fmt.Errorf("spec.destination.repository: Repository %q must be of type 'oci', got %q", imageBuild.Spec.Destination.Repository, specType))
 			} else {
 				ociSpec, err := repo.Spec.AsOciRepoSpec()
 				if err != nil {
 					return nil, fmt.Errorf("failed to get destination repository OCI spec: %w", err)
 				}
-				accessMode := lo.FromPtrOr(ociSpec.AccessMode, v1beta1.Read)
-				if accessMode != v1beta1.ReadWrite {
+				accessMode := lo.FromPtrOr(ociSpec.AccessMode, domain.Read)
+				if accessMode != domain.ReadWrite {
 					errs = append(errs, fmt.Errorf("spec.destination.repository: Repository %q must have 'ReadWrite' access mode, got %q", imageBuild.Spec.Destination.Repository, accessMode))
 				}
 			}
@@ -475,7 +474,7 @@ func (s *imageBuildService) validate(ctx context.Context, orgId uuid.UUID, image
 }
 
 // enqueueImageBuildEvent enqueues an event to the imagebuild-queue
-func (s *imageBuildService) enqueueImageBuildEvent(ctx context.Context, orgId uuid.UUID, event *v1beta1.Event) error {
+func (s *imageBuildService) enqueueImageBuildEvent(ctx context.Context, orgId uuid.UUID, event *coredomain.Event) error {
 	if event == nil {
 		return errors.New("event is nil")
 	}

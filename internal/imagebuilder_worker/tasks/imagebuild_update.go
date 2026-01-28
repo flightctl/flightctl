@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	api "github.com/flightctl/flightctl/api/core/v1beta1"
-	apiimagebuilder "github.com/flightctl/flightctl/api/imagebuilder/v1beta1"
+	coredomain "github.com/flightctl/flightctl/internal/domain"
+	"github.com/flightctl/flightctl/internal/imagebuilder_api/domain"
 	imagebuilderapi "github.com/flightctl/flightctl/internal/imagebuilder_api/service"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/worker_client"
@@ -36,10 +36,10 @@ func (c *Consumer) HandleImageBuildUpdate(ctx context.Context, eventWithOrgId wo
 		return nil
 	}
 
-	readyCondition := apiimagebuilder.FindImageBuildStatusCondition(*imageBuild.Status.Conditions, apiimagebuilder.ImageBuildConditionTypeReady)
+	readyCondition := domain.FindImageBuildStatusCondition(*imageBuild.Status.Conditions, domain.ImageBuildConditionTypeReady)
 	if readyCondition == nil ||
-		readyCondition.Status != api.ConditionStatusTrue ||
-		readyCondition.Reason != string(apiimagebuilder.ImageBuildConditionReasonCompleted) {
+		readyCondition.Status != domain.ConditionStatusTrue ||
+		readyCondition.Reason != string(domain.ImageBuildConditionReasonCompleted) {
 		log.Debug("ImageBuild is not completed, skipping requeue of ImageExports")
 		return nil
 	}
@@ -49,7 +49,7 @@ func (c *Consumer) HandleImageBuildUpdate(ctx context.Context, eventWithOrgId wo
 	// Find ImageExports that reference this ImageBuild
 	// Use field selector to filter at database level by imageBuildRef
 	fieldSelectorStr := fmt.Sprintf("spec.source.imageBuildRef = %s", imageBuildName)
-	imageExports, status := c.imageBuilderService.ImageExport().List(ctx, orgID, apiimagebuilder.ListImageExportsParams{
+	imageExports, status := c.imageBuilderService.ImageExport().List(ctx, orgID, domain.ListImageExportsParams{
 		FieldSelector: &fieldSelectorStr,
 	})
 	if !imagebuilderapi.IsStatusOK(status) {
@@ -72,11 +72,11 @@ func (c *Consumer) HandleImageBuildUpdate(ctx context.Context, eventWithOrgId wo
 			shouldRequeue = true
 		} else {
 			// Look for Ready condition
-			readyCondition := apiimagebuilder.FindImageExportStatusCondition(*imageExport.Status.Conditions, apiimagebuilder.ImageExportConditionTypeReady)
+			readyCondition := domain.FindImageExportStatusCondition(*imageExport.Status.Conditions, domain.ImageExportConditionTypeReady)
 			if readyCondition == nil {
 				// No Ready condition - needs requeueing
 				shouldRequeue = true
-			} else if readyCondition.Reason == string(apiimagebuilder.ImageExportConditionReasonPending) {
+			} else if readyCondition.Reason == string(domain.ImageExportConditionReasonPending) {
 				// Has Pending reason - needs requeueing
 				shouldRequeue = true
 			}
@@ -95,7 +95,7 @@ func (c *Consumer) HandleImageBuildUpdate(ctx context.Context, eventWithOrgId wo
 		requeueEvent := common.GetResourceCreatedOrUpdatedSuccessEvent(
 			ctx,
 			true,
-			api.ResourceKind(string(apiimagebuilder.ResourceKindImageExport)),
+			coredomain.ResourceKind(string(domain.ResourceKindImageExport)),
 			exportName,
 			nil,
 			log,

@@ -10,9 +10,10 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/flightctl/flightctl/api/core/v1beta1"
 	api "github.com/flightctl/flightctl/api/imagebuilder/v1beta1"
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/api/server"
+	convert "github.com/flightctl/flightctl/internal/imagebuilder_api/convert/v1beta1"
+	"github.com/flightctl/flightctl/internal/imagebuilder_api/domain"
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/util"
@@ -22,8 +23,9 @@ import (
 
 // TransportHandler implements the generated ServerInterface for ImageBuilder API
 type TransportHandler struct {
-	service service.Service
-	log     logrus.FieldLogger
+	service   service.Service
+	converter convert.Converter
+	log       logrus.FieldLogger
 }
 
 // Make sure we conform to ServerInterface
@@ -32,8 +34,9 @@ var _ server.ServerInterface = (*TransportHandler)(nil)
 // NewTransportHandler creates a new TransportHandler
 func NewTransportHandler(svc service.Service, log logrus.FieldLogger) *TransportHandler {
 	return &TransportHandler{
-		service: svc,
-		log:     log,
+		service:   svc,
+		converter: convert.NewConverter(),
+		log:       log,
 	}
 }
 
@@ -48,8 +51,10 @@ func OrgIDFromContext(ctx context.Context) uuid.UUID {
 
 // ListImageBuilds handles GET /api/v1/imagebuilds
 func (h *TransportHandler) ListImageBuilds(w http.ResponseWriter, r *http.Request, params api.ListImageBuildsParams) {
-	body, status := h.service.ImageBuild().List(r.Context(), OrgIDFromContext(r.Context()), params)
-	SetResponse(w, body, status)
+	domainParams := h.converter.ImageBuild().ListParamsToDomain(params)
+	domainBody, domainStatus := h.service.ImageBuild().List(r.Context(), OrgIDFromContext(r.Context()), domainParams)
+	apiBody := h.converter.ImageBuild().ListFromDomain(domainBody)
+	SetResponse(w, apiBody, domainStatus)
 }
 
 // CreateImageBuild handles POST /api/v1/imagebuilds
@@ -60,8 +65,10 @@ func (h *TransportHandler) CreateImageBuild(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	body, status := h.service.ImageBuild().Create(r.Context(), OrgIDFromContext(r.Context()), imageBuild)
-	SetResponse(w, body, status)
+	domainImageBuild := h.converter.ImageBuild().ToDomain(imageBuild)
+	domainBody, domainStatus := h.service.ImageBuild().Create(r.Context(), OrgIDFromContext(r.Context()), domainImageBuild)
+	apiBody := h.converter.ImageBuild().FromDomain(domainBody)
+	SetResponse(w, apiBody, domainStatus)
 }
 
 // GetImageBuild handles GET /api/v1/imagebuilds/{name}
@@ -70,8 +77,9 @@ func (h *TransportHandler) GetImageBuild(w http.ResponseWriter, r *http.Request,
 	if params.WithExports != nil {
 		withExports = *params.WithExports
 	}
-	body, status := h.service.ImageBuild().Get(r.Context(), OrgIDFromContext(r.Context()), name, withExports)
-	SetResponse(w, body, status)
+	domainBody, domainStatus := h.service.ImageBuild().Get(r.Context(), OrgIDFromContext(r.Context()), name, withExports)
+	apiBody := h.converter.ImageBuild().FromDomain(domainBody)
+	SetResponse(w, apiBody, domainStatus)
 }
 
 // ReplaceImageBuild handles PUT /api/v1/imagebuilds/{name}
@@ -87,25 +95,29 @@ func (h *TransportHandler) ReplaceImageBuild(w http.ResponseWriter, r *http.Requ
 	// Set the name from the path parameter
 	imageBuild.Metadata.Name = &name
 
-	body, status := h.service.ImageBuild().Create(r.Context(), OrgIDFromContext(r.Context()), imageBuild)
-	SetResponse(w, body, status)
+	domainImageBuild := h.converter.ImageBuild().ToDomain(imageBuild)
+	domainBody, domainStatus := h.service.ImageBuild().Create(r.Context(), OrgIDFromContext(r.Context()), domainImageBuild)
+	apiBody := h.converter.ImageBuild().FromDomain(domainBody)
+	SetResponse(w, apiBody, domainStatus)
 }
 
 // DeleteImageBuild handles DELETE /api/v1/imagebuilds/{name}
 func (h *TransportHandler) DeleteImageBuild(w http.ResponseWriter, r *http.Request, name string) {
-	body, status := h.service.ImageBuild().Delete(r.Context(), OrgIDFromContext(r.Context()), name)
-	SetResponse(w, body, status)
+	domainBody, domainStatus := h.service.ImageBuild().Delete(r.Context(), OrgIDFromContext(r.Context()), name)
+	apiBody := h.converter.ImageBuild().FromDomain(domainBody)
+	SetResponse(w, apiBody, domainStatus)
 }
 
 // CancelImageBuild handles POST /api/v1/imagebuilds/{name}/cancel
 func (h *TransportHandler) CancelImageBuild(w http.ResponseWriter, r *http.Request, name string) {
-	body, err := h.service.ImageBuild().Cancel(r.Context(), OrgIDFromContext(r.Context()), name)
+	domainBody, err := h.service.ImageBuild().Cancel(r.Context(), OrgIDFromContext(r.Context()), name)
 	if err != nil {
-		status := cancelErrorToStatus(err, string(api.ResourceKindImageBuild), name)
+		status := cancelErrorToStatus(err, string(domain.ResourceKindImageBuild), name)
 		SetResponse(w, nil, status)
 		return
 	}
-	SetResponse(w, body, service.StatusOK())
+	apiBody := h.converter.ImageBuild().FromDomain(domainBody)
+	SetResponse(w, apiBody, service.StatusOK())
 }
 
 // GetImageBuildLog handles GET /api/v1/imagebuilds/{name}/log
@@ -205,8 +217,10 @@ func (sw *sseWriter) Write(p []byte) (n int, err error) {
 
 // ListImageExports handles GET /api/v1/imageexports
 func (h *TransportHandler) ListImageExports(w http.ResponseWriter, r *http.Request, params api.ListImageExportsParams) {
-	body, status := h.service.ImageExport().List(r.Context(), OrgIDFromContext(r.Context()), params)
-	SetResponse(w, body, status)
+	domainParams := h.converter.ImageExport().ListParamsToDomain(params)
+	domainBody, domainStatus := h.service.ImageExport().List(r.Context(), OrgIDFromContext(r.Context()), domainParams)
+	apiBody := h.converter.ImageExport().ListFromDomain(domainBody)
+	SetResponse(w, apiBody, domainStatus)
 }
 
 // CreateImageExport handles POST /api/v1/imageexports
@@ -217,31 +231,36 @@ func (h *TransportHandler) CreateImageExport(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	body, status := h.service.ImageExport().Create(r.Context(), OrgIDFromContext(r.Context()), imageExport)
-	SetResponse(w, body, status)
+	domainImageExport := h.converter.ImageExport().ToDomain(imageExport)
+	domainBody, domainStatus := h.service.ImageExport().Create(r.Context(), OrgIDFromContext(r.Context()), domainImageExport)
+	apiBody := h.converter.ImageExport().FromDomain(domainBody)
+	SetResponse(w, apiBody, domainStatus)
 }
 
 // GetImageExport handles GET /api/v1/imageexports/{name}
 func (h *TransportHandler) GetImageExport(w http.ResponseWriter, r *http.Request, name string) {
-	body, status := h.service.ImageExport().Get(r.Context(), OrgIDFromContext(r.Context()), name)
-	SetResponse(w, body, status)
+	domainBody, domainStatus := h.service.ImageExport().Get(r.Context(), OrgIDFromContext(r.Context()), name)
+	apiBody := h.converter.ImageExport().FromDomain(domainBody)
+	SetResponse(w, apiBody, domainStatus)
 }
 
 // DeleteImageExport handles DELETE /api/v1/imageexports/{name}
 func (h *TransportHandler) DeleteImageExport(w http.ResponseWriter, r *http.Request, name string) {
-	body, status := h.service.ImageExport().Delete(r.Context(), OrgIDFromContext(r.Context()), name)
-	SetResponse(w, body, status)
+	domainBody, domainStatus := h.service.ImageExport().Delete(r.Context(), OrgIDFromContext(r.Context()), name)
+	apiBody := h.converter.ImageExport().FromDomain(domainBody)
+	SetResponse(w, apiBody, domainStatus)
 }
 
 // CancelImageExport handles POST /api/v1/imageexports/{name}/cancel
 func (h *TransportHandler) CancelImageExport(w http.ResponseWriter, r *http.Request, name string) {
-	body, err := h.service.ImageExport().Cancel(r.Context(), OrgIDFromContext(r.Context()), name)
+	domainBody, err := h.service.ImageExport().Cancel(r.Context(), OrgIDFromContext(r.Context()), name)
 	if err != nil {
-		status := cancelErrorToStatus(err, string(api.ResourceKindImageExport), name)
+		status := cancelErrorToStatus(err, string(domain.ResourceKindImageExport), name)
 		SetResponse(w, nil, status)
 		return
 	}
-	SetResponse(w, body, service.StatusOK())
+	apiBody := h.converter.ImageExport().FromDomain(domainBody)
+	SetResponse(w, apiBody, service.StatusOK())
 }
 
 // DownloadImageExport handles GET /api/v1/imageexports/{name}/download
@@ -297,7 +316,7 @@ func (h *TransportHandler) DownloadImageExport(w http.ResponseWriter, r *http.Re
 
 	// Should not reach here, but handle gracefully
 	h.log.WithField("name", name).Error("download returned neither redirect nor blob")
-	status := v1beta1.Status{
+	status := domain.Status{
 		Code:    int32(http.StatusInternalServerError),
 		Message: "Invalid download response",
 	}
@@ -350,7 +369,7 @@ func (h *TransportHandler) GetImageExportLog(w http.ResponseWriter, r *http.Requ
 }
 
 // cancelErrorToStatus converts cancellation errors to appropriate API status codes
-func cancelErrorToStatus(err error, kind string, name string) v1beta1.Status {
+func cancelErrorToStatus(err error, kind string, name string) domain.Status {
 	// Check for not cancelable error (409 Conflict - resource in wrong state)
 	if errors.Is(err, service.ErrNotCancelable) {
 		return service.StatusConflict(kind + " is not in a cancelable state")
@@ -366,7 +385,7 @@ func cancelErrorToStatus(err error, kind string, name string) v1beta1.Status {
 }
 
 // downloadErrorToStatus converts download errors to appropriate API status codes
-func downloadErrorToStatus(err error, name string) v1beta1.Status {
+func downloadErrorToStatus(err error, name string) domain.Status {
 	// Check for external service errors first (should return 503 Service Unavailable)
 	if errors.Is(err, service.ErrExternalServiceUnavailable) {
 		return service.StatusServiceUnavailable(err.Error())
@@ -384,7 +403,7 @@ func downloadErrorToStatus(err error, name string) v1beta1.Status {
 	}
 
 	// Check for store errors (resource not found, etc.) as fallback
-	if status := service.StoreErrorToApiStatus(err, false, string(api.ResourceKindImageExport), &name); status.Code != 0 {
+	if status := service.StoreErrorToApiStatus(err, false, string(domain.ResourceKindImageExport), &name); status.Code != 0 {
 		return status
 	}
 
@@ -393,7 +412,7 @@ func downloadErrorToStatus(err error, name string) v1beta1.Status {
 }
 
 // SetResponse writes the response body and status to the response writer
-func SetResponse(w http.ResponseWriter, body any, status v1beta1.Status) {
+func SetResponse(w http.ResponseWriter, body any, status domain.Status) {
 	code := int(status.Code)
 
 	// Never write a body for 204/304 (and generally 1xx), per RFC 7231
@@ -427,7 +446,7 @@ func SetResponse(w http.ResponseWriter, body any, status v1beta1.Status) {
 
 // SetParseFailureResponse writes a parse failure response
 func SetParseFailureResponse(w http.ResponseWriter, err error) {
-	status := v1beta1.Status{
+	status := domain.Status{
 		Code:    int32(http.StatusBadRequest),
 		Message: fmt.Sprintf("can't decode JSON body: %v", err),
 	}
