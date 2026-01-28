@@ -15,8 +15,7 @@ func TestResourcesync(t *testing.T) {
 }
 
 var _ = BeforeSuite(func() {
-	// Setup VM and harness for this worker
-	_, _, err := e2e.SetupWorkerHarness()
+	_, _, err := e2e.SetupWorkerHarnessWithoutVM()
 	Expect(err).ToNot(HaveOccurred())
 })
 
@@ -25,7 +24,7 @@ var _ = BeforeEach(func() {
 	harness := e2e.GetWorkerHarness()
 	suiteCtx := e2e.GetWorkerContext()
 
-	GinkgoWriter.Printf("🔄 [BeforeEach] Worker %d: Setting up test with VM from pool\n", workerID)
+	GinkgoWriter.Printf("🔄 [BeforeEach] Worker %d: Setting up test\n", workerID)
 
 	// Create test-specific context for proper tracing
 	ctx := testutil.StartSpecTracerForGinkgo(suiteCtx)
