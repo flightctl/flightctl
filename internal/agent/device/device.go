@@ -120,16 +120,16 @@ func (a *Agent) Run(ctx context.Context) error {
 func (a *Agent) sync(ctx context.Context, current, desired *v1beta1.Device) error {
 	if !spec.IsRollback(current, desired) {
 		if err := a.beforeUpdate(ctx, current, desired); err != nil {
-			return fmt.Errorf("before update: %w", err)
+			return fmt.Errorf("%w: %w", errors.ErrPhasePreparing, err)
 		}
 	}
 
 	if err := a.syncDevice(ctx, current, desired); err != nil {
-		return fmt.Errorf("sync device: %w", err)
+		return fmt.Errorf("%w: %w", errors.ErrPhaseApplyingUpdate, err)
 	}
 
 	if err := a.afterUpdate(ctx, current.Spec, desired.Spec); err != nil {
-		return fmt.Errorf("after update: %w", err)
+		return fmt.Errorf("%w: %w", errors.ErrPhaseActivatingConfig, err)
 	}
 
 	return nil
@@ -314,11 +314,11 @@ func (a *Agent) statusUpdate(ctx context.Context) {
 
 func (a *Agent) beforeUpdate(ctx context.Context, current, desired *v1beta1.Device) error {
 	if err := a.resourceManager.BeforeUpdate(ctx, desired.Spec); err != nil {
-		return fmt.Errorf("resources: %w", err)
+		return fmt.Errorf("%w: %w", errors.ErrComponentResources, err)
 	}
 
 	if err := a.specManager.CheckPolicy(ctx, policy.Download, desired.Version()); err != nil {
-		return fmt.Errorf("download policy: %w", err)
+		return fmt.Errorf("%w: %w", errors.ErrComponentDownloadPolicy, err)
 	}
 
 	// the agent is validating the desired device spec and downloading
@@ -352,19 +352,19 @@ func (a *Agent) beforeUpdate(ctx context.Context, current, desired *v1beta1.Devi
 	}
 
 	if err := a.prefetchManager.BeforeUpdate(ctx, current.Spec, desired.Spec); err != nil {
-		return fmt.Errorf("prefetch: %w", err)
+		return fmt.Errorf("%w: %w", errors.ErrComponentPrefetch, err)
 	}
 
 	if err := a.appManager.BeforeUpdate(ctx, desired.Spec); err != nil {
-		return fmt.Errorf("applications: %w", err)
+		return fmt.Errorf("%w: %w", errors.ErrComponentApplications, err)
 	}
 
 	if err := a.hookManager.OnBeforeUpdating(ctx, current.Spec, desired.Spec); err != nil {
-		return fmt.Errorf("hooks: %w", err)
+		return fmt.Errorf("%w: %w", errors.ErrComponentHooks, err)
 	}
 
 	if err := a.specManager.CheckPolicy(ctx, policy.Update, desired.Version()); err != nil {
-		return fmt.Errorf("update policy: %w", err)
+		return fmt.Errorf("%w: %w", errors.ErrComponentUpdatePolicy, err)
 	}
 
 	// the agent has validated the desired spec, downloaded all dependencies,
@@ -399,23 +399,23 @@ func (a *Agent) syncDevice(ctx context.Context, current, desired *v1beta1.Device
 	}
 
 	if err := a.applicationsController.Sync(ctx, current.Spec, desired.Spec); err != nil {
-		return fmt.Errorf("applications: %w", err)
+		return fmt.Errorf("%w: %w", errors.ErrComponentApplications, err)
 	}
 
 	if err := a.hookManager.Sync(current.Spec, desired.Spec); err != nil {
-		return fmt.Errorf("hooks: %w", err)
+		return fmt.Errorf("%w: %w", errors.ErrComponentHooks, err)
 	}
 
 	if err := a.configController.Sync(ctx, current.Spec, desired.Spec); err != nil {
-		return fmt.Errorf("config: %w", err)
+		return fmt.Errorf("%w: %w", errors.ErrComponentConfig, err)
 	}
 
 	if err := a.systemdControllerSync(ctx, desired.Spec); err != nil {
-		return fmt.Errorf("systemd: %w", err)
+		return fmt.Errorf("%w: %w", errors.ErrComponentSystemd, err)
 	}
 
 	if err := a.lifecycleManager.Sync(ctx, current.Spec, desired.Spec); err != nil {
-		return fmt.Errorf("lifecycle: %w", err)
+		return fmt.Errorf("%w: %w", errors.ErrComponentLifecycle, err)
 	}
 
 	// NOTE: policy manager is reconciled early in sync() so that the agent
@@ -537,21 +537,22 @@ func (a *Agent) handleSyncError(ctx context.Context, desired *v1beta1.Device, sy
 		Type: v1beta1.ConditionTypeDeviceUpdating,
 	}
 
+	se := errors.FormatError(syncErr)
 	if !errors.IsRetryable(syncErr) {
 		msg := fmt.Sprintf("Failed to update to renderedVersion: %s: %v", version, syncErr.Error())
 		conditionUpdate.Reason = string(v1beta1.UpdateStateError)
 		conditionUpdate.Message = log.Truncate(msg, status.MaxMessageLength)
 		conditionUpdate.Status = v1beta1.ConditionStatusFalse
 		a.prefetchManager.Cleanup()
-		a.log.Error(msg)
+		a.log.Error(msg, se.Timestamp)
 	} else {
 		msg := fmt.Sprintf("Failed to update to renderedVersion: %s: retrying: %v", version, syncErr.Error())
 		conditionUpdate.Reason = string(v1beta1.UpdateStateApplyingUpdate)
 		conditionUpdate.Message = log.Truncate(msg, status.MaxMessageLength)
 		conditionUpdate.Status = v1beta1.ConditionStatusTrue
-		a.log.Warn(msg)
+		a.log.Warn(msg, se.Timestamp)
 	}
-
+	conditionUpdate.Message = se.Message()
 	if err := a.statusManager.UpdateCondition(ctx, conditionUpdate); err != nil {
 		a.log.Warnf("Failed to update device status condition: %v", err)
 	}

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/stretchr/testify/require"
 )
 
@@ -61,7 +62,7 @@ func TestIsOsImageReconciled(t *testing.T) {
 			name:          "desired image cannot be parsed",
 			bootedImage:   "quay.io/org/flightctl-device",
 			desiredOs:     &v1beta1.DeviceOsSpec{Image: "_invalid"},
-			expectedError: ErrParsingImage,
+			expectedError: errors.ErrUnableToParseImageReference,
 		},
 	}
 
@@ -95,7 +96,7 @@ func Test_imageToBootcTarget(t *testing.T) {
 		{
 			name:          "invalid image",
 			image:         "_invalid",
-			expectedError: ErrParsingImage,
+			expectedError: errors.ErrUnableToParseImageReference,
 		},
 		{
 			name:           "image with no tag or digest",

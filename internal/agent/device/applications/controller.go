@@ -7,6 +7,7 @@ import (
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
+	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/log"
 )
@@ -52,7 +53,7 @@ func (c *Controller) Sync(ctx context.Context, current, desired *v1beta1.DeviceS
 		provider.WithInstalledEmbedded(),
 	)
 	if err != nil {
-		return fmt.Errorf("current app providers: %w", err)
+		return fmt.Errorf("current %w: %w", errors.ErrAppProviders, err)
 	}
 
 	desiredAppProviders, err := provider.FromDeviceSpec(
@@ -65,7 +66,7 @@ func (c *Controller) Sync(ctx context.Context, current, desired *v1beta1.DeviceS
 		provider.WithEmbedded(c.bootTime),
 	)
 	if err != nil {
-		return fmt.Errorf("desired app providers: %w", err)
+		return fmt.Errorf("desired %w: %w", errors.ErrAppProviders, err)
 	}
 
 	return syncProviders(ctx, c.log, c.manager, currentAppProviders, desiredAppProviders)

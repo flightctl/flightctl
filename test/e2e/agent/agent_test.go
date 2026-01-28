@@ -237,7 +237,7 @@ var _ = Describe("VM Agent behavior", func() {
 			})
 			Expect(err).ToNot(HaveOccurred())
 
-			harness.WaitForDeviceContents(deviceId, fmt.Sprintf("Failed to update to renderedVersion: %s. Error", strconv.Itoa(newRenderedVersion)),
+			harness.WaitForDeviceContents(deviceId, fmt.Sprintf("device should report update error or rollback for renderedVersion: %s", strconv.Itoa(newRenderedVersion)),
 				func(device *v1beta1.Device) bool {
 					// returning true if it is reported an error status or if the device is rolled back to the previous version
 					return e2e.ConditionExists(device, v1beta1.ConditionTypeDeviceUpdating, v1beta1.ConditionStatusFalse, string(v1beta1.UpdateStateError)) ||
@@ -269,7 +269,7 @@ var _ = Describe("VM Agent behavior", func() {
 					return e2e.ConditionExists(device, v1beta1.ConditionTypeDeviceSpecValid, v1beta1.ConditionStatusFalse, "Invalid")
 				}, TIMEOUT)
 
-			harness.WaitForDeviceContents(deviceId, fmt.Sprintf("Failed to update to renderedVersion: %s", strconv.Itoa(newRenderedVersion)),
+			harness.WaitForDeviceContents(deviceId, fmt.Sprintf("device should report update error for renderedVersion: %s", strconv.Itoa(newRenderedVersion)),
 				func(device *v1beta1.Device) bool {
 					return e2e.ConditionExists(device, v1beta1.ConditionTypeDeviceUpdating, v1beta1.ConditionStatusFalse, string(v1beta1.UpdateStateError))
 				}, TIMEOUT)
@@ -301,7 +301,7 @@ var _ = Describe("VM Agent behavior", func() {
 					return e2e.ConditionExists(device, v1beta1.ConditionTypeDeviceSpecValid, v1beta1.ConditionStatusFalse, "Invalid")
 				}, TIMEOUT)
 
-			harness.WaitForDeviceContents(deviceId, fmt.Sprintf("Failed to update to renderedVersion: %s", strconv.Itoa(newRenderedVersion)),
+			harness.WaitForDeviceContents(deviceId, fmt.Sprintf("device should report update error for renderedVersion: %s", strconv.Itoa(newRenderedVersion)),
 				func(device *v1beta1.Device) bool {
 					return e2e.ConditionExists(device, v1beta1.ConditionTypeDeviceUpdating, v1beta1.ConditionStatusFalse, string(v1beta1.UpdateStateError))
 				}, TIMEOUT)

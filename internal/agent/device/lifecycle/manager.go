@@ -125,7 +125,7 @@ func (m *LifecycleManager) AfterUpdate(ctx context.Context, current, desired *v1
 		m.log.Warn("Detected decommissioning request from flightctl service")
 		m.log.Warn("Updating Condition to decommissioning started")
 		if err := m.updateWithStartedCondition(ctx); err != nil {
-			errs = append(errs, fmt.Errorf("failed to update status with decommission started Condition: %w", err))
+			errs = append(errs, fmt.Errorf("%w started Condition: %w", errors.ErrFailedToUpdateStatusWithDecommission, err))
 			m.log.Warn("Unable to update Condition to decommissioning started")
 		}
 
@@ -135,13 +135,13 @@ func (m *LifecycleManager) AfterUpdate(ctx context.Context, current, desired *v1
 		if len(errs) == 0 {
 			m.log.Warn("No errors during decommissioning prior to wiping key and cert; updating Condition to decommissioning completed")
 			if err := m.updateWithCompletedCondition(ctx); err != nil {
-				errs = append(errs, fmt.Errorf("failed to update status with decommission completed Condition: %w", err))
+				errs = append(errs, fmt.Errorf("%w completed Condition: %w", errors.ErrFailedToUpdateStatusWithDecommission, err))
 				m.log.Warn("Unable to update Condition to decommissioning completed")
 			}
 		} else {
 			m.log.Warn("Errors encountered during decommissioning; updating Condition to decommission error")
 			if err := m.updateWithErrorCondition(ctx, errs); err != nil {
-				errs = append(errs, fmt.Errorf("failed to update status with decommission errored Condition: %w", err))
+				errs = append(errs, fmt.Errorf("%w errored Condition: %w", errors.ErrFailedToUpdateStatusWithDecommission, err))
 				m.log.Warn("Unable to update Condition to decommissioning error")
 			}
 		}

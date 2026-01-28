@@ -1,15 +1,16 @@
 package validation
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
 
-	"github.com/flightctl/flightctl/internal/agent/device/errors"
+	deviceerrors "github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/api/common"
 )
 
-var ErrHardCodedContainerName = errors.New("hardcoded container_name")
+var ErrHardCodedContainerName = deviceerrors.New("hardcoded container_name")
 
 func isAtRoot(path string) bool {
 	return filepath.Base(path) == path

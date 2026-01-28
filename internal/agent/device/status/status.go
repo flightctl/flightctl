@@ -11,6 +11,7 @@ import (
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/config"
+	deviceerrors "github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/mohae/deepcopy"
 )
@@ -182,7 +183,7 @@ func (m *StatusManager) Sync(ctx context.Context) error {
 	}
 
 	if !m.update(ctx) {
-		return fmt.Errorf("failed to push status update")
+		return deviceerrors.ErrFailedToPushStatus
 	}
 	return nil
 }
@@ -205,7 +206,7 @@ func (m *StatusManager) UpdateCondition(ctx context.Context, condition v1beta1.C
 	}
 
 	if !m.update(ctx) {
-		return fmt.Errorf("failed to push status update")
+		return deviceerrors.ErrFailedToPushStatus
 	}
 
 	return nil
@@ -234,7 +235,7 @@ func (m *StatusManager) Update(ctx context.Context, updateFuncs ...UpdateStatusF
 	// TODO: handle retries
 
 	if !m.update(ctx) {
-		return nil, fmt.Errorf("failed to push status update")
+		return nil, deviceerrors.ErrFailedToPushStatus
 	}
 
 	return m.device.Status, nil

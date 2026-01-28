@@ -72,7 +72,7 @@ func (m *manager) Ensure(ctx context.Context, provider provider.Provider) error 
 			return nil
 		}
 		if err := provider.Install(ctx); err != nil {
-			return fmt.Errorf("installing application: %w", err)
+			return fmt.Errorf("%w: %w", errors.ErrInstallingApplication, err)
 		}
 		return m.podmanMonitor.Ensure(ctx, NewApplication(provider))
 	case v1beta1.AppTypeHelm:
@@ -96,7 +96,7 @@ func (m *manager) Remove(ctx context.Context, provider provider.Provider) error 
 	switch appType {
 	case v1beta1.AppTypeCompose, v1beta1.AppTypeQuadlet, v1beta1.AppTypeContainer:
 		if err := provider.Remove(ctx); err != nil {
-			return fmt.Errorf("removing application: %w", err)
+			return fmt.Errorf("%w: %w", errors.ErrRemovingApplication, err)
 		}
 		return m.podmanMonitor.QueueRemove(NewApplication(provider))
 	case v1beta1.AppTypeHelm:
@@ -117,10 +117,10 @@ func (m *manager) Update(ctx context.Context, provider provider.Provider) error 
 	switch appType {
 	case v1beta1.AppTypeCompose, v1beta1.AppTypeQuadlet, v1beta1.AppTypeContainer:
 		if err := provider.Remove(ctx); err != nil {
-			return fmt.Errorf("removing application: %w", err)
+			return fmt.Errorf("%w: %w", errors.ErrRemovingApplication, err)
 		}
 		if err := provider.Install(ctx); err != nil {
-			return fmt.Errorf("installing application: %w", err)
+			return fmt.Errorf("%w: %w", errors.ErrInstallingApplication, err)
 		}
 		return m.podmanMonitor.QueueUpdate(NewApplication(provider))
 	case v1beta1.AppTypeHelm:

@@ -332,7 +332,7 @@ func extractQuadletVolumes(appID string, quadlets map[string]*common.QuadletRefe
 func extractQuadletVolumesFromSpec(appID string, contents []v1beta1.ApplicationContent) ([]*Volume, error) {
 	quadlets, err := client.ParseQuadletReferencesFromSpec(contents)
 	if err != nil {
-		return nil, fmt.Errorf("parsing quadlet spec: %w", err)
+		return nil, fmt.Errorf("%w: %w", errors.ErrParsingQuadletSpec, err)
 	}
 	return extractQuadletVolumes(appID, quadlets), nil
 }
@@ -340,7 +340,7 @@ func extractQuadletVolumesFromSpec(appID string, contents []v1beta1.ApplicationC
 func extractQuadletVolumesFromDir(appID string, r fileio.Reader, path string) ([]*Volume, error) {
 	quadlets, err := client.ParseQuadletReferencesFromDir(r, path)
 	if err != nil {
-		return nil, fmt.Errorf("parsing quadlet spec: %w", err)
+		return nil, fmt.Errorf("%w: %w", errors.ErrParsingQuadletSpec, err)
 	}
 	return extractQuadletVolumes(appID, quadlets), nil
 }

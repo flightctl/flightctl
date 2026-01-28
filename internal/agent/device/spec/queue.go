@@ -161,7 +161,7 @@ func (m *queueManager) CheckPolicy(ctx context.Context, policyType policy.Type, 
 	requeue, exists := m.requeueLookup[v]
 	if !exists {
 		// this would be very unexpected so we would need to requeue the version
-		return fmt.Errorf("%w: policy check failed: not found: version: %d", errors.ErrRetryable, v)
+		return fmt.Errorf("%w: %w: not found: version: %d", errors.ErrRetryable, errors.ErrPolicyCheckFailed, v)
 	}
 	m.log.Debugf("Requeue state: %+v", requeue)
 
@@ -410,10 +410,10 @@ func stringToInt64(s string) (int64, error) {
 	}
 	i, err := strconv.ParseInt(s, 10, 64)
 	if err != nil {
-		return 0, fmt.Errorf("convert string to int64: %w", err)
+		return 0, fmt.Errorf("%w: %w", errors.ErrInt64Conversion, err)
 	}
 	if i < 0 {
-		return 0, fmt.Errorf("version number cannot be negative: %d", i)
+		return 0, fmt.Errorf("%w: version number: %d", errors.ErrNegativeValue, i)
 	}
 	return i, nil
 }

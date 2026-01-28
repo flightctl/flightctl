@@ -215,10 +215,10 @@ func (c *Compose) ensurePodmanVolume(
 		c.log.Tracef("Volume %q already exists, updating contents", name)
 		volumePath, err := podman.InspectVolumeMount(ctx, name)
 		if err != nil {
-			return fmt.Errorf("inspect volume %q: %w", name, err)
+			return fmt.Errorf("inspect volume %w: %w", errors.WithElement(name), err)
 		}
 		if err := writer.RemoveContents(volumePath); err != nil {
-			return fmt.Errorf("removing volume content %q: %w", volumePath, err)
+			return fmt.Errorf("removing volume content %w: %w", errors.WithElement(volumePath), err)
 		}
 		if _, err := podman.ExtractArtifact(ctx, imageRef, volumePath); err != nil {
 			return fmt.Errorf("extract artifact: %w", err)
@@ -230,7 +230,7 @@ func (c *Compose) ensurePodmanVolume(
 
 	volumePath, err := podman.CreateVolume(ctx, name, labels)
 	if err != nil {
-		return fmt.Errorf("creating volume %q: %w", name, err)
+		return fmt.Errorf("creating volume %w: %w", errors.WithElement(name), err)
 	}
 	if _, err := podman.ExtractArtifact(ctx, imageRef, volumePath); err != nil {
 		return fmt.Errorf("copy image contents: %w", err)

@@ -223,7 +223,7 @@ type authEntry struct {
 func parseAuthFile(rw fileio.ReadWriter, path string) (*dockerAuthConfig, bool, error) {
 	exists, err := rw.PathExists(path)
 	if err != nil {
-		return nil, false, fmt.Errorf("checking auth file path: %w", err)
+		return nil, false, fmt.Errorf("%w: auth file path: %w", errors.ErrCheckingFileExists, err)
 	}
 	if !exists {
 		return nil, false, nil
@@ -231,12 +231,12 @@ func parseAuthFile(rw fileio.ReadWriter, path string) (*dockerAuthConfig, bool, 
 
 	data, err := rw.ReadFile(path)
 	if err != nil {
-		return nil, true, fmt.Errorf("reading auth file: %w", err)
+		return nil, true, fmt.Errorf("%w: %w", errors.ErrReadingAuthFile, err)
 	}
 
 	var rawConfig dockerAuthConfig
 	if err := json.Unmarshal(data, &rawConfig); err != nil {
-		return nil, true, fmt.Errorf("parsing auth file: %w", err)
+		return nil, true, fmt.Errorf("%w: %w", errors.ErrParsingAuthFile, err)
 	}
 
 	config := &dockerAuthConfig{
