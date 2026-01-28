@@ -118,6 +118,62 @@ func TestStaticAuthZ_CheckPermission(t *testing.T) {
 			op:       "create",
 			expected: true,
 		},
+		{
+			name:     "operator can create imagebuilds",
+			roles:    []string{v1beta1.RoleOperator},
+			resource: "imagebuilds",
+			op:       "create",
+			expected: true,
+		},
+		{
+			name:     "operator can cancel imagebuilds",
+			roles:    []string{v1beta1.RoleOperator},
+			resource: "imagebuilds/cancel",
+			op:       "update",
+			expected: true,
+		},
+		{
+			name:     "operator can download imageexports",
+			roles:    []string{v1beta1.RoleOperator},
+			resource: "imageexports/download",
+			op:       "get",
+			expected: true,
+		},
+		{
+			name:     "viewer can list imagebuilds",
+			roles:    []string{v1beta1.RoleViewer},
+			resource: "imagebuilds",
+			op:       "list",
+			expected: true,
+		},
+		{
+			name:     "viewer cannot download imageexports",
+			roles:    []string{v1beta1.RoleViewer},
+			resource: "imageexports/download",
+			op:       "get",
+			expected: false,
+		},
+		{
+			name:     "installer can list imagebuilds",
+			roles:    []string{v1beta1.RoleInstaller},
+			resource: "imagebuilds",
+			op:       "list",
+			expected: true,
+		},
+		{
+			name:     "installer can download imageexports",
+			roles:    []string{v1beta1.RoleInstaller},
+			resource: "imageexports/download",
+			op:       "get",
+			expected: true,
+		},
+		{
+			name:     "installer cannot create imagebuilds",
+			roles:    []string{v1beta1.RoleInstaller},
+			resource: "imagebuilds",
+			op:       "create",
+			expected: false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -178,19 +234,39 @@ func TestStaticAuthZ_GetUserPermissions(t *testing.T) {
 				},
 				{
 					Resource:   "devices",
-					Operations: []string{"create", "delete", "patch", "update"},
+					Operations: []string{"create", "delete", "get", "list", "patch", "update"},
 				},
 				{
 					Resource:   "fleets",
-					Operations: []string{"create", "delete", "patch", "update"},
+					Operations: []string{"create", "delete", "get", "list", "patch", "update"},
+				},
+				{
+					Resource:   "imagebuilds",
+					Operations: []string{"create", "delete", "get", "list", "patch", "update"},
+				},
+				{
+					Resource:   "imagebuilds/cancel",
+					Operations: []string{"update"},
+				},
+				{
+					Resource:   "imageexports",
+					Operations: []string{"create", "delete", "get", "list", "patch", "update"},
+				},
+				{
+					Resource:   "imageexports/cancel",
+					Operations: []string{"update"},
+				},
+				{
+					Resource:   "imageexports/download",
+					Operations: []string{"get"},
 				},
 				{
 					Resource:   "repositories",
-					Operations: []string{"create", "delete", "patch", "update"},
+					Operations: []string{"create", "delete", "get", "list", "patch", "update"},
 				},
 				{
 					Resource:   "resourcesyncs",
-					Operations: []string{"create", "delete", "patch", "update"},
+					Operations: []string{"create", "delete", "get", "list", "patch", "update"},
 				},
 			},
 		},
@@ -201,6 +277,10 @@ func TestStaticAuthZ_GetUserPermissions(t *testing.T) {
 				{
 					Resource:   "*",
 					Operations: []string{"get", "list"},
+				},
+				{
+					Resource:   "imageexports/download",
+					Operations: []string{}, // Explicitly denied
 				},
 			},
 		},
@@ -219,6 +299,18 @@ func TestStaticAuthZ_GetUserPermissions(t *testing.T) {
 				{
 					Resource:   "enrollmentrequests/approval",
 					Operations: []string{"update"},
+				},
+				{
+					Resource:   "imagebuilds",
+					Operations: []string{"get", "list"},
+				},
+				{
+					Resource:   "imageexports",
+					Operations: []string{"get", "list"},
+				},
+				{
+					Resource:   "imageexports/download",
+					Operations: []string{"get"},
 				},
 				{
 					Resource:   "organizations",
@@ -245,6 +337,18 @@ func TestStaticAuthZ_GetUserPermissions(t *testing.T) {
 				{
 					Resource:   "enrollmentrequests/approval",
 					Operations: []string{"update"},
+				},
+				{
+					Resource:   "imagebuilds",
+					Operations: []string{"get", "list"},
+				},
+				{
+					Resource:   "imageexports",
+					Operations: []string{"get", "list"},
+				},
+				{
+					Resource:   "imageexports/download",
+					Operations: []string{"get"}, // Installer grants access, overriding viewer's empty list
 				},
 				{
 					Resource:   "organizations",

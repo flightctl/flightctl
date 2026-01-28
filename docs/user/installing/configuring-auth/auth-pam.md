@@ -278,9 +278,9 @@ Flight Control supports the following external role names:
 |-----------|-------------|---------------|
 | `flightctl-admin` | Full administrative access | **Must be global** |
 | `flightctl-org-admin` | Organization administrator | Can be org-scoped or global |
-| `flightctl-operator` | Operator access (manage devices/fleets) | Can be org-scoped or global |
-| `flightctl-viewer` | Read-only viewer access | Can be org-scoped or global |
-| `flightctl-installer` | Installer access for device provisioning | Can be org-scoped or global |
+| `flightctl-operator` | Manage devices, fleets; imagebuilds (cancel, logs); imageexports (cancel, download, logs) | Can be org-scoped or global |
+| `flightctl-viewer` | Read-only access; imagebuilds/imageexports with logs (no download) | Can be org-scoped or global |
+| `flightctl-installer` | Device provisioning; view imagebuilds/imageexports; download imageexports | Can be org-scoped or global |
 
 **Important Notes:**
 
