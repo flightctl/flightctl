@@ -16,6 +16,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	api "github.com/flightctl/flightctl/api/imagebuilder/v1beta1"
+	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/store"
@@ -86,11 +87,12 @@ type imageExportService struct {
 	eventHandler     *internalservice.EventHandler
 	queueProducer    queues.QueueProducer
 	kvStore          kvstore.KVStore
+	cfg              *config.ImageBuilderServiceConfig
 	log              logrus.FieldLogger
 }
 
 // NewImageExportService creates a new ImageExportService
-func NewImageExportService(imageExportStore store.ImageExportStore, imageBuildStore store.ImageBuildStore, repositoryStore mainstore.Repository, eventHandler *internalservice.EventHandler, queueProducer queues.QueueProducer, kvStore kvstore.KVStore, log logrus.FieldLogger) ImageExportService {
+func NewImageExportService(imageExportStore store.ImageExportStore, imageBuildStore store.ImageBuildStore, repositoryStore mainstore.Repository, eventHandler *internalservice.EventHandler, queueProducer queues.QueueProducer, kvStore kvstore.KVStore, cfg *config.ImageBuilderServiceConfig, log logrus.FieldLogger) ImageExportService {
 	return &imageExportService{
 		imageExportStore: imageExportStore,
 		imageBuildStore:  imageBuildStore,
@@ -98,6 +100,7 @@ func NewImageExportService(imageExportStore store.ImageExportStore, imageBuildSt
 		eventHandler:     eventHandler,
 		queueProducer:    queueProducer,
 		kvStore:          kvStore,
+		cfg:              cfg,
 		log:              log,
 	}
 }
@@ -172,6 +175,36 @@ func (s *imageExportService) List(ctx context.Context, orgId uuid.UUID, params a
 }
 
 func (s *imageExportService) Delete(ctx context.Context, orgId uuid.UUID, name string) (*api.ImageExport, v1beta1.Status) {
+	// First, check if the export exists and is in a cancelable state
+	imageExport, err := s.imageExportStore.Get(ctx, orgId, name)
+	if err != nil {
+		// If not found, return success (idempotent delete)
+		if errors.Is(err, flterrors.ErrResourceNotFound) {
+			return nil, StatusOK()
+		}
+		return nil, StoreErrorToApiStatus(err, false, string(api.ResourceKindImageExport), &name)
+	}
+
+	// Check if the export is in a cancelable state
+	if isCancelableExportState(imageExport) {
+		s.log.WithField("name", name).WithField("orgId", orgId).Info("ImageExport is in cancelable state, canceling before delete")
+
+		// Attempt to cancel the export
+		_, cancelErr := s.Cancel(ctx, orgId, name)
+		if cancelErr != nil && !errors.Is(cancelErr, ErrNotCancelable) {
+			s.log.WithError(cancelErr).WithField("name", name).Warn("Failed to cancel ImageExport before delete, proceeding with delete")
+		} else if cancelErr == nil {
+			// Wait for cancellation to complete
+			s.log.WithField("name", name).Info("Waiting for ImageExport cancellation to complete")
+			if waitErr := waitForCanceled(ctx, s.kvStore, s.log, getCanceledStreamKey(orgId, name), time.Duration(s.cfg.DeleteCancelTimeout)); waitErr != nil {
+				s.log.WithError(waitErr).WithField("name", name).Warn("Timeout waiting for ImageExport cancellation, proceeding with delete")
+			} else {
+				s.log.WithField("name", name).Info("ImageExport cancellation completed, proceeding with delete")
+			}
+		}
+	}
+
+	// Proceed with delete
 	result, err := s.imageExportStore.Delete(ctx, orgId, name)
 	return result, StoreErrorToApiStatus(err, false, string(api.ResourceKindImageExport), &name)
 }
@@ -216,14 +249,16 @@ func (s *imageExportService) CancelWithReason(ctx context.Context, orgId uuid.UU
 	}
 
 	// 5. Write cancellation to Redis Stream (worker reads with blocking)
-	streamKey := fmt.Sprintf("imageexport:cancel:%s:%s", orgId.String(), name)
-	if _, err := s.kvStore.StreamAdd(ctx, streamKey, []byte("cancel")); err != nil {
-		s.log.WithError(err).Warn("Failed to write cancellation to Redis stream")
-		// Don't fail - status is already Canceling, worker can detect via DB check as fallback
-	}
-	// Set TTL on stream key (1 hour - same as logs)
-	if err := s.kvStore.SetExpire(ctx, streamKey, 1*time.Hour); err != nil {
-		s.log.WithError(err).Warn("Failed to set TTL on cancellation stream key")
+	if s.kvStore != nil {
+		streamKey := fmt.Sprintf("imageexport:cancel:%s:%s", orgId.String(), name)
+		if _, err := s.kvStore.StreamAdd(ctx, streamKey, []byte("cancel")); err != nil {
+			s.log.WithError(err).Warn("Failed to write cancellation to Redis stream")
+			// Don't fail - status is already Canceling, worker can detect via DB check as fallback
+		}
+		// Set TTL on stream key (1 hour - same as logs)
+		if err := s.kvStore.SetExpire(ctx, streamKey, 1*time.Hour); err != nil {
+			s.log.WithError(err).Warn("Failed to set TTL on cancellation stream key")
+		}
 	}
 
 	s.log.WithField("orgId", orgId).WithField("name", name).WithField("reason", reason).Info("ImageExport cancellation requested")
@@ -244,10 +279,17 @@ func isCancelableExportState(imageExport *api.ImageExport) bool {
 	}
 
 	reason := readyCondition.Reason
-	// Only Pending, Converting, Pushing states are cancelable
-	return reason == string(api.ImageExportConditionReasonPending) ||
-		reason == string(api.ImageExportConditionReasonConverting) ||
-		reason == string(api.ImageExportConditionReasonPushing)
+	// Anything NOT in a terminal state is cancelable
+	// Terminal states: Canceled, Canceling, Completed, Failed
+	return reason != string(api.ImageExportConditionReasonCanceled) &&
+		reason != string(api.ImageExportConditionReasonCanceling) &&
+		reason != string(api.ImageExportConditionReasonCompleted) &&
+		reason != string(api.ImageExportConditionReasonFailed)
+}
+
+// getCanceledStreamKey returns the Redis stream key for cancellation completion signals
+func getCanceledStreamKey(orgId uuid.UUID, name string) string {
+	return fmt.Sprintf("imageexport:canceled:%s:%s", orgId.String(), name)
 }
 
 // Internal methods (not exposed via API)

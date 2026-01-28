@@ -2,12 +2,15 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"testing"
 	"time"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	api "github.com/flightctl/flightctl/api/imagebuilder/v1beta1"
+	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
@@ -21,7 +24,7 @@ func statusCode(status v1beta1.Status) int32 {
 func newTestImageBuildService() (ImageBuildService, *DummyImageBuildStore) {
 	imageBuildStore := NewDummyImageBuildStore()
 	repositoryStore := NewDummyRepositoryStore()
-	svc := NewImageBuildService(imageBuildStore, repositoryStore, nil, nil, nil, log.InitLogs())
+	svc := NewImageBuildService(imageBuildStore, repositoryStore, nil, nil, nil, nil, nil, log.InitLogs())
 	return svc, imageBuildStore
 }
 
@@ -30,7 +33,7 @@ func newTestImageBuildServiceWithExports() (ImageBuildService, *DummyImageBuildS
 	imageBuildStore := NewDummyImageBuildStoreWithExports(imageExportStore)
 	repositoryStore := NewDummyRepositoryStore()
 	// Note: ImageBuildService doesn't need ImageExportService - the store handles withExports
-	svc := NewImageBuildService(imageBuildStore, repositoryStore, nil, nil, nil, log.InitLogs())
+	svc := NewImageBuildService(imageBuildStore, repositoryStore, nil, nil, nil, nil, nil, log.InitLogs())
 	return svc, imageBuildStore, imageExportStore
 }
 
@@ -74,7 +77,7 @@ func TestCreateImageBuild(t *testing.T) {
 	// Set up repositories
 	repoStore := NewDummyRepositoryStore()
 	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
-	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, nil, log.InitLogs())
+	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, nil, nil, nil, log.InitLogs())
 
 	imageBuild := newValidImageBuild("test-build")
 	result, status := svc.Create(ctx, orgId, imageBuild)
@@ -92,7 +95,7 @@ func TestCreateImageBuildDuplicate(t *testing.T) {
 	// Set up repositories
 	repoStore := NewDummyRepositoryStore()
 	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
-	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, nil, log.InitLogs())
+	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, nil, nil, nil, log.InitLogs())
 
 	imageBuild := newValidImageBuild("duplicate-test")
 
@@ -139,7 +142,7 @@ func TestGetImageBuild(t *testing.T) {
 	// Set up repositories
 	repoStore := NewDummyRepositoryStore()
 	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
-	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, nil, log.InitLogs())
+	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, nil, nil, nil, log.InitLogs())
 
 	// Create first
 	imageBuild := newValidImageBuild("get-test")
@@ -171,7 +174,7 @@ func TestListImageBuilds(t *testing.T) {
 	// Set up repositories
 	repoStore := NewDummyRepositoryStore()
 	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
-	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, nil, log.InitLogs())
+	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, nil, nil, nil, log.InitLogs())
 
 	// Create multiple
 	for i := 0; i < 3; i++ {
@@ -195,7 +198,7 @@ func TestListImageBuildsWithLimit(t *testing.T) {
 	// Set up repositories
 	repoStore := NewDummyRepositoryStore()
 	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
-	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, nil, log.InitLogs())
+	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, nil, nil, nil, log.InitLogs())
 
 	// Create multiple
 	for i := 0; i < 5; i++ {
@@ -212,42 +215,367 @@ func TestListImageBuildsWithLimit(t *testing.T) {
 	require.Len(result.Items, 2)
 }
 
-func TestDeleteImageBuild(t *testing.T) {
+// Helper to create a short timeout config for delete tests
+func newShortTimeoutConfigForBuild() *config.ImageBuilderServiceConfig {
+	cfg := config.NewDefaultImageBuilderServiceConfig()
+	cfg.DeleteCancelTimeout = util.Duration(100 * time.Millisecond) // Very short timeout for testing
+	return cfg
+}
+
+// Helper to set up ImageBuild service with KVStore and short timeout for delete tests
+func setupImageBuildDeleteTestService(ctx context.Context, orgId uuid.UUID, kvStore *DummyKVStore) (ImageBuildService, ImageExportService, *DummyImageBuildStore, *DummyImageExportStore) {
+	repoStore := NewDummyRepositoryStore()
+	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
+	imageBuildStore := NewDummyImageBuildStore()
+	imageExportStore := NewDummyImageExportStore()
+
+	cfg := newShortTimeoutConfigForBuild()
+
+	// Create ImageExportService first (ImageBuildService depends on it for delete flow)
+	imageExportSvc := NewImageExportService(imageExportStore, imageBuildStore, repoStore, nil, nil, kvStore, cfg, log.InitLogs())
+	// Create ImageBuildService with ImageExportService dependency
+	imageBuildSvc := NewImageBuildService(imageBuildStore, repoStore, imageExportSvc, nil, nil, kvStore, cfg, log.InitLogs())
+
+	return imageBuildSvc, imageExportSvc, imageBuildStore, imageExportStore
+}
+
+// Helper to create an ImageBuild with a specific status condition
+func createImageBuildWithStatus(ctx context.Context, svc ImageBuildService, orgId uuid.UUID, name string, reason api.ImageBuildConditionReason) *api.ImageBuild {
+	imageBuild := newValidImageBuild(name)
+	created, _ := svc.Create(ctx, orgId, imageBuild)
+
+	if created == nil {
+		return nil
+	}
+
+	// Initialize status if needed
+	if created.Status == nil {
+		created.Status = &api.ImageBuildStatus{}
+	}
+	if created.Status.Conditions == nil {
+		created.Status.Conditions = &[]api.ImageBuildCondition{}
+	}
+
+	// Set the appropriate status based on reason
+	conditionStatus := v1beta1.ConditionStatusFalse
+	if reason == api.ImageBuildConditionReasonCompleted {
+		conditionStatus = v1beta1.ConditionStatusTrue
+	}
+
+	api.SetImageBuildStatusCondition(created.Status.Conditions, api.ImageBuildCondition{
+		Type:               api.ImageBuildConditionTypeReady,
+		Status:             conditionStatus,
+		Reason:             string(reason),
+		Message:            "Test status",
+		LastTransitionTime: time.Now().UTC(),
+	})
+	updated, _ := svc.UpdateStatus(ctx, orgId, created)
+	return updated
+}
+
+func TestDeleteImageBuild_Pending_CancelSuccess(t *testing.T) {
 	require := require.New(t)
 	ctx := context.Background()
 	orgId := uuid.New()
 
-	// Set up repositories
-	repoStore := NewDummyRepositoryStore()
-	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
-	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, nil, log.InitLogs())
+	kvStore := NewDummyKVStore()
+	svc, _, _, _ := setupImageBuildDeleteTestService(ctx, orgId, kvStore)
 
-	// Create first
-	imageBuild := newValidImageBuild("delete-test")
+	// Create ImageBuild (starts in Pending state)
+	imageBuild := newValidImageBuild("delete-pending-success")
 	_, status := svc.Create(ctx, orgId, imageBuild)
 	require.Equal(int32(http.StatusCreated), statusCode(status))
 
-	// Delete it
-	deleted, status := svc.Delete(ctx, orgId, "delete-test")
+	// Simulate that the worker will send the canceled signal
+	canceledStreamKey := fmt.Sprintf("imagebuild:canceled:%s:%s", orgId.String(), "delete-pending-success")
+	kvStore.SimulateCanceledSignal(canceledStreamKey)
+
+	// Delete it - should cancel first and wait for signal
+	deleted, status := svc.Delete(ctx, orgId, "delete-pending-success")
 	require.Equal(int32(http.StatusOK), statusCode(status))
 	require.NotNil(deleted)
-	require.Equal("delete-test", lo.FromPtr(deleted.Metadata.Name))
+	require.Equal("delete-pending-success", lo.FromPtr(deleted.Metadata.Name))
 
 	// Verify it's gone
-	_, status = svc.Get(ctx, orgId, "delete-test", false)
+	_, status = svc.Get(ctx, orgId, "delete-pending-success", false)
+	require.Equal(int32(http.StatusNotFound), statusCode(status))
+}
+
+func TestDeleteImageBuild_Building_CancelSuccess(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	orgId := uuid.New()
+
+	kvStore := NewDummyKVStore()
+	svc, _, _, _ := setupImageBuildDeleteTestService(ctx, orgId, kvStore)
+
+	// Create ImageBuild and set to Building state
+	created := createImageBuildWithStatus(ctx, svc, orgId, "delete-building-success", api.ImageBuildConditionReasonBuilding)
+	require.NotNil(created)
+
+	// Simulate that the worker will send the canceled signal
+	canceledStreamKey := fmt.Sprintf("imagebuild:canceled:%s:%s", orgId.String(), "delete-building-success")
+	kvStore.SimulateCanceledSignal(canceledStreamKey)
+
+	// Delete it - should cancel first and wait for signal
+	deleted, status := svc.Delete(ctx, orgId, "delete-building-success")
+	require.Equal(int32(http.StatusOK), statusCode(status))
+	require.NotNil(deleted)
+
+	// Verify it's gone
+	_, status = svc.Get(ctx, orgId, "delete-building-success", false)
+	require.Equal(int32(http.StatusNotFound), statusCode(status))
+}
+
+func TestDeleteImageBuild_Pushing_CancelSuccess(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	orgId := uuid.New()
+
+	kvStore := NewDummyKVStore()
+	svc, _, _, _ := setupImageBuildDeleteTestService(ctx, orgId, kvStore)
+
+	// Create ImageBuild and set to Pushing state
+	created := createImageBuildWithStatus(ctx, svc, orgId, "delete-pushing-success", api.ImageBuildConditionReasonPushing)
+	require.NotNil(created)
+
+	// Simulate that the worker will send the canceled signal
+	canceledStreamKey := fmt.Sprintf("imagebuild:canceled:%s:%s", orgId.String(), "delete-pushing-success")
+	kvStore.SimulateCanceledSignal(canceledStreamKey)
+
+	// Delete it - should cancel first and wait for signal
+	deleted, status := svc.Delete(ctx, orgId, "delete-pushing-success")
+	require.Equal(int32(http.StatusOK), statusCode(status))
+	require.NotNil(deleted)
+
+	// Verify it's gone
+	_, status = svc.Get(ctx, orgId, "delete-pushing-success", false)
+	require.Equal(int32(http.StatusNotFound), statusCode(status))
+}
+
+func TestDeleteImageBuild_CancelTimeout(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	orgId := uuid.New()
+
+	kvStore := NewDummyKVStore()
+	svc, _, _, _ := setupImageBuildDeleteTestService(ctx, orgId, kvStore)
+
+	// Create ImageBuild (starts in Pending state - cancelable)
+	imageBuild := newValidImageBuild("delete-timeout")
+	_, status := svc.Create(ctx, orgId, imageBuild)
+	require.Equal(int32(http.StatusCreated), statusCode(status))
+
+	// Do NOT simulate canceled signal - this will cause timeout
+
+	// Delete it - should cancel, timeout waiting, then delete anyway
+	start := time.Now()
+	deleted, status := svc.Delete(ctx, orgId, "delete-timeout")
+	elapsed := time.Since(start)
+
+	require.Equal(int32(http.StatusOK), statusCode(status))
+	require.NotNil(deleted)
+	require.Equal("delete-timeout", lo.FromPtr(deleted.Metadata.Name))
+
+	// Verify timeout happened (should take at least 100ms but not too long)
+	require.GreaterOrEqual(elapsed.Milliseconds(), int64(100), "Should have waited for timeout")
+	require.Less(elapsed.Milliseconds(), int64(500), "Should not wait too long")
+
+	// Verify it's gone
+	_, status = svc.Get(ctx, orgId, "delete-timeout", false)
+	require.Equal(int32(http.StatusNotFound), statusCode(status))
+}
+
+func TestDeleteImageBuild_Completed_NoCancelAttempt(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	orgId := uuid.New()
+
+	kvStore := NewDummyKVStore()
+	svc, _, _, _ := setupImageBuildDeleteTestService(ctx, orgId, kvStore)
+
+	// Create ImageBuild and set to Completed state (not cancelable)
+	created := createImageBuildWithStatus(ctx, svc, orgId, "delete-completed", api.ImageBuildConditionReasonCompleted)
+	require.NotNil(created)
+
+	// Delete it - should NOT try to cancel (not cancelable)
+	start := time.Now()
+	deleted, status := svc.Delete(ctx, orgId, "delete-completed")
+	elapsed := time.Since(start)
+
+	require.Equal(int32(http.StatusOK), statusCode(status))
+	require.NotNil(deleted)
+
+	// Should be fast (no cancel wait)
+	require.Less(elapsed.Milliseconds(), int64(50), "Should not wait for cancel on completed build")
+
+	// Verify it's gone
+	_, status = svc.Get(ctx, orgId, "delete-completed", false)
+	require.Equal(int32(http.StatusNotFound), statusCode(status))
+}
+
+func TestDeleteImageBuild_Failed_NoCancelAttempt(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	orgId := uuid.New()
+
+	kvStore := NewDummyKVStore()
+	svc, _, _, _ := setupImageBuildDeleteTestService(ctx, orgId, kvStore)
+
+	// Create ImageBuild and set to Failed state (not cancelable)
+	created := createImageBuildWithStatus(ctx, svc, orgId, "delete-failed", api.ImageBuildConditionReasonFailed)
+	require.NotNil(created)
+
+	// Delete it - should NOT try to cancel (not cancelable)
+	start := time.Now()
+	deleted, status := svc.Delete(ctx, orgId, "delete-failed")
+	elapsed := time.Since(start)
+
+	require.Equal(int32(http.StatusOK), statusCode(status))
+	require.NotNil(deleted)
+
+	// Should be fast (no cancel wait)
+	require.Less(elapsed.Milliseconds(), int64(50), "Should not wait for cancel on failed build")
+
+	// Verify it's gone
+	_, status = svc.Get(ctx, orgId, "delete-failed", false)
+	require.Equal(int32(http.StatusNotFound), statusCode(status))
+}
+
+func TestDeleteImageBuild_Canceled_NoCancelAttempt(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	orgId := uuid.New()
+
+	kvStore := NewDummyKVStore()
+	svc, _, _, _ := setupImageBuildDeleteTestService(ctx, orgId, kvStore)
+
+	// Create ImageBuild and set to Canceled state (not cancelable)
+	created := createImageBuildWithStatus(ctx, svc, orgId, "delete-canceled", api.ImageBuildConditionReasonCanceled)
+	require.NotNil(created)
+
+	// Delete it - should NOT try to cancel (already canceled)
+	start := time.Now()
+	deleted, status := svc.Delete(ctx, orgId, "delete-canceled")
+	elapsed := time.Since(start)
+
+	require.Equal(int32(http.StatusOK), statusCode(status))
+	require.NotNil(deleted)
+
+	// Should be fast (no cancel wait)
+	require.Less(elapsed.Milliseconds(), int64(50), "Should not wait for cancel on already canceled build")
+
+	// Verify it's gone
+	_, status = svc.Get(ctx, orgId, "delete-canceled", false)
+	require.Equal(int32(http.StatusNotFound), statusCode(status))
+}
+
+func TestDeleteImageBuild_Canceling_NoCancelAttempt(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	orgId := uuid.New()
+
+	kvStore := NewDummyKVStore()
+	svc, _, _, _ := setupImageBuildDeleteTestService(ctx, orgId, kvStore)
+
+	// Create ImageBuild and set to Canceling state (not cancelable - already canceling)
+	created := createImageBuildWithStatus(ctx, svc, orgId, "delete-canceling", api.ImageBuildConditionReasonCanceling)
+	require.NotNil(created)
+
+	// Delete it - should NOT try to cancel (already canceling)
+	start := time.Now()
+	deleted, status := svc.Delete(ctx, orgId, "delete-canceling")
+	elapsed := time.Since(start)
+
+	require.Equal(int32(http.StatusOK), statusCode(status))
+	require.NotNil(deleted)
+
+	// Should be fast (no cancel wait)
+	require.Less(elapsed.Milliseconds(), int64(50), "Should not wait for cancel on already canceling build")
+
+	// Verify it's gone
+	_, status = svc.Get(ctx, orgId, "delete-canceling", false)
 	require.Equal(int32(http.StatusNotFound), statusCode(status))
 }
 
 func TestDeleteImageBuildNotFound(t *testing.T) {
 	require := require.New(t)
-	svc, _ := newTestImageBuildService()
 	ctx := context.Background()
 	orgId := uuid.New()
+
+	kvStore := NewDummyKVStore()
+	svc, _, _, _ := setupImageBuildDeleteTestService(ctx, orgId, kvStore)
 
 	// Delete is idempotent - deleting non-existent resource returns success
 	deleted, status := svc.Delete(ctx, orgId, "nonexistent")
 	require.Equal(int32(http.StatusOK), statusCode(status))
 	require.Nil(deleted)
+}
+
+func TestDeleteImageBuild_CascadeDeletesImageExports(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	orgId := uuid.New()
+
+	kvStore := NewDummyKVStore()
+	svc, imageExportSvc, _, _ := setupImageBuildDeleteTestService(ctx, orgId, kvStore)
+
+	// Create ImageBuild
+	imageBuild := newValidImageBuild("cascade-test-build")
+	created, status := svc.Create(ctx, orgId, imageBuild)
+	require.Equal(int32(http.StatusCreated), statusCode(status))
+	require.NotNil(created)
+
+	// Create ImageExports that reference the ImageBuild
+	export1 := newValidImageExportWithBuildRef("cascade-export-1", "cascade-test-build")
+	_, status = imageExportSvc.Create(ctx, orgId, export1)
+	require.Equal(int32(http.StatusCreated), statusCode(status))
+
+	export2 := newValidImageExportWithBuildRef("cascade-export-2", "cascade-test-build")
+	_, status = imageExportSvc.Create(ctx, orgId, export2)
+	require.Equal(int32(http.StatusCreated), statusCode(status))
+
+	// Simulate canceled signals for all resources (ImageBuild + both ImageExports)
+	kvStore.SimulateCanceledSignal(fmt.Sprintf("imagebuild:canceled:%s:%s", orgId.String(), "cascade-test-build"))
+	kvStore.SimulateCanceledSignal(fmt.Sprintf("imageexport:canceled:%s:%s", orgId.String(), "cascade-export-1"))
+	kvStore.SimulateCanceledSignal(fmt.Sprintf("imageexport:canceled:%s:%s", orgId.String(), "cascade-export-2"))
+
+	// Delete the ImageBuild - should cascade delete related ImageExports
+	deleted, status := svc.Delete(ctx, orgId, "cascade-test-build")
+	require.Equal(int32(http.StatusOK), statusCode(status))
+	require.NotNil(deleted)
+
+	// Verify ImageBuild is gone
+	_, status = svc.Get(ctx, orgId, "cascade-test-build", false)
+	require.Equal(int32(http.StatusNotFound), statusCode(status))
+
+	// Verify related ImageExports are gone
+	_, status = imageExportSvc.Get(ctx, orgId, "cascade-export-1")
+	require.Equal(int32(http.StatusNotFound), statusCode(status))
+
+	_, status = imageExportSvc.Get(ctx, orgId, "cascade-export-2")
+	require.Equal(int32(http.StatusNotFound), statusCode(status))
+}
+
+// Helper to create an ImageExport with a specific imageBuildRef
+func newValidImageExportWithBuildRef(name, imageBuildRef string) api.ImageExport {
+	source := api.ImageExportSource{}
+	_ = source.FromImageBuildRefSource(api.ImageBuildRefSource{
+		Type:          api.ImageBuildRefSourceTypeImageBuild,
+		ImageBuildRef: imageBuildRef,
+	})
+
+	return api.ImageExport{
+		ApiVersion: api.ImageExportAPIVersion,
+		Kind:       string(api.ResourceKindImageExport),
+		Metadata: v1beta1.ObjectMeta{
+			Name: lo.ToPtr(name),
+		},
+		Spec: api.ImageExportSpec{
+			Source: source,
+			Format: api.ExportFormatTypeQCOW2,
+		},
+	}
 }
 
 func TestUpdateStatus(t *testing.T) {
@@ -258,7 +586,7 @@ func TestUpdateStatus(t *testing.T) {
 	// Set up repositories
 	repoStore := NewDummyRepositoryStore()
 	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
-	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, nil, log.InitLogs())
+	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, nil, nil, nil, log.InitLogs())
 
 	// Create first
 	imageBuild := newValidImageBuild("status-test")
@@ -297,7 +625,7 @@ func TestGetImageBuildWithExports(t *testing.T) {
 	// Set up repositories
 	repoStore := NewDummyRepositoryStore()
 	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
-	svc := NewImageBuildService(NewDummyImageBuildStoreWithExports(imageExportStore), repoStore, nil, nil, nil, log.InitLogs())
+	svc := NewImageBuildService(NewDummyImageBuildStoreWithExports(imageExportStore), repoStore, nil, nil, nil, nil, nil, log.InitLogs())
 
 	// Create an ImageBuild
 	imageBuild := newValidImageBuild("build-with-exports")
@@ -343,7 +671,7 @@ func TestGetImageBuildWithExportsNoExports(t *testing.T) {
 	// Set up repositories
 	repoStore := NewDummyRepositoryStore()
 	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
-	svc := NewImageBuildService(NewDummyImageBuildStoreWithExports(NewDummyImageExportStore()), repoStore, nil, nil, nil, log.InitLogs())
+	svc := NewImageBuildService(NewDummyImageBuildStoreWithExports(NewDummyImageExportStore()), repoStore, nil, nil, nil, nil, nil, log.InitLogs())
 
 	// Create an ImageBuild with no ImageExports
 	imageBuild := newValidImageBuild("build-no-exports")
@@ -366,7 +694,7 @@ func TestListImageBuildsWithExports(t *testing.T) {
 	// Set up repositories
 	repoStore := NewDummyRepositoryStore()
 	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
-	svc := NewImageBuildService(NewDummyImageBuildStoreWithExports(imageExportStore), repoStore, nil, nil, nil, log.InitLogs())
+	svc := NewImageBuildService(NewDummyImageBuildStoreWithExports(imageExportStore), repoStore, nil, nil, nil, nil, nil, log.InitLogs())
 
 	// Create multiple ImageBuilds
 	build1 := newValidImageBuild("build-1")
@@ -444,7 +772,7 @@ func TestCreateImageBuildSourceRepositoryNotFound(t *testing.T) {
 	repoStore := NewDummyRepositoryStore()
 	destRepo := newOciRepository("output-registry", v1beta1.ReadWrite)
 	_, _ = repoStore.Create(ctx, orgId, destRepo, nil)
-	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, nil, log.InitLogs())
+	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, nil, nil, nil, log.InitLogs())
 
 	imageBuild := newValidImageBuild("test-build")
 	_, status := svc.Create(ctx, orgId, imageBuild)
@@ -462,7 +790,7 @@ func TestCreateImageBuildDestinationRepositoryNotFound(t *testing.T) {
 	repoStore := NewDummyRepositoryStore()
 	sourceRepo := newOciRepository("input-registry", v1beta1.Read)
 	_, _ = repoStore.Create(ctx, orgId, sourceRepo, nil)
-	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, nil, log.InitLogs())
+	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, nil, nil, nil, log.InitLogs())
 
 	imageBuild := newValidImageBuild("test-build")
 	_, status := svc.Create(ctx, orgId, imageBuild)
@@ -495,7 +823,7 @@ func TestCreateImageBuildSourceRepositoryNotOci(t *testing.T) {
 
 	destRepo := newOciRepository("output-registry", v1beta1.ReadWrite)
 	_, _ = repoStore.Create(ctx, orgId, destRepo, nil)
-	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, nil, log.InitLogs())
+	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, nil, nil, nil, log.InitLogs())
 
 	imageBuild := newValidImageBuild("test-build")
 	_, status := svc.Create(ctx, orgId, imageBuild)
@@ -528,7 +856,7 @@ func TestCreateImageBuildDestinationRepositoryNotOci(t *testing.T) {
 		Spec: spec,
 	}
 	_, _ = repoStore.Create(ctx, orgId, destRepo, nil)
-	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, nil, log.InitLogs())
+	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, nil, nil, nil, log.InitLogs())
 
 	imageBuild := newValidImageBuild("test-build")
 	_, status := svc.Create(ctx, orgId, imageBuild)
@@ -549,7 +877,7 @@ func TestCreateImageBuildDestinationRepositoryNotReadWrite(t *testing.T) {
 
 	destRepo := newOciRepository("output-registry", v1beta1.Read)
 	_, _ = repoStore.Create(ctx, orgId, destRepo, nil)
-	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, nil, log.InitLogs())
+	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, nil, nil, nil, log.InitLogs())
 
 	imageBuild := newValidImageBuild("test-build")
 	_, status := svc.Create(ctx, orgId, imageBuild)
@@ -566,7 +894,7 @@ func TestCreateImageBuildWithUserConfiguration(t *testing.T) {
 	// Set up repositories
 	repoStore := NewDummyRepositoryStore()
 	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
-	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, nil, log.InitLogs())
+	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, nil, nil, nil, log.InitLogs())
 
 	imageBuild := newValidImageBuild("test-build")
 	imageBuild.Spec.UserConfiguration = &api.ImageBuildUserConfiguration{
@@ -591,7 +919,7 @@ func TestCreateImageBuildWithUserConfigurationMissingUsername(t *testing.T) {
 	// Set up repositories
 	repoStore := NewDummyRepositoryStore()
 	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
-	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, nil, log.InitLogs())
+	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, nil, nil, nil, log.InitLogs())
 
 	imageBuild := newValidImageBuild("test-build")
 	imageBuild.Spec.UserConfiguration = &api.ImageBuildUserConfiguration{
@@ -613,7 +941,7 @@ func TestCreateImageBuildWithUserConfigurationMissingPublickey(t *testing.T) {
 	// Set up repositories
 	repoStore := NewDummyRepositoryStore()
 	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
-	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, nil, log.InitLogs())
+	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, nil, nil, nil, log.InitLogs())
 
 	imageBuild := newValidImageBuild("test-build")
 	imageBuild.Spec.UserConfiguration = &api.ImageBuildUserConfiguration{
@@ -635,7 +963,7 @@ func TestCreateImageBuildWithUserConfigurationInvalidUsername(t *testing.T) {
 	// Set up repositories
 	repoStore := NewDummyRepositoryStore()
 	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
-	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, nil, log.InitLogs())
+	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, nil, nil, nil, log.InitLogs())
 
 	imageBuild := newValidImageBuild("test-build")
 	imageBuild.Spec.UserConfiguration = &api.ImageBuildUserConfiguration{
@@ -658,7 +986,7 @@ func TestCreateImageBuildWithUserConfigurationInvalidPublickey(t *testing.T) {
 	// Set up repositories
 	repoStore := NewDummyRepositoryStore()
 	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
-	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, nil, log.InitLogs())
+	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, nil, nil, nil, log.InitLogs())
 
 	imageBuild := newValidImageBuild("test-build")
 	imageBuild.Spec.UserConfiguration = &api.ImageBuildUserConfiguration{
@@ -681,7 +1009,7 @@ func TestCancelImageBuild_Pending(t *testing.T) {
 	repoStore := NewDummyRepositoryStore()
 	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
 	kvStore := NewDummyKVStore()
-	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, kvStore, log.InitLogs())
+	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, nil, kvStore, nil, log.InitLogs())
 
 	// Create an ImageBuild
 	imageBuild := newValidImageBuild("cancel-test")
@@ -725,7 +1053,7 @@ func TestCancelImageBuild_Building(t *testing.T) {
 	repoStore := NewDummyRepositoryStore()
 	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
 	kvStore := NewDummyKVStore()
-	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, kvStore, log.InitLogs())
+	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, nil, kvStore, nil, log.InitLogs())
 
 	// Create an ImageBuild
 	imageBuild := newValidImageBuild("cancel-building-test")
@@ -767,7 +1095,7 @@ func TestCancelImageBuild_Pushing(t *testing.T) {
 	repoStore := NewDummyRepositoryStore()
 	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
 	kvStore := NewDummyKVStore()
-	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, kvStore, log.InitLogs())
+	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, nil, kvStore, nil, log.InitLogs())
 
 	// Create an ImageBuild
 	imageBuild := newValidImageBuild("cancel-pushing-test")
@@ -809,7 +1137,7 @@ func TestCancelImageBuild_NotCancelable_Completed(t *testing.T) {
 	repoStore := NewDummyRepositoryStore()
 	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
 	kvStore := NewDummyKVStore()
-	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, kvStore, log.InitLogs())
+	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, nil, kvStore, nil, log.InitLogs())
 
 	// Create an ImageBuild
 	imageBuild := newValidImageBuild("cancel-completed-test")
@@ -845,7 +1173,7 @@ func TestCancelImageBuild_NotCancelable_Failed(t *testing.T) {
 	repoStore := NewDummyRepositoryStore()
 	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
 	kvStore := NewDummyKVStore()
-	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, kvStore, log.InitLogs())
+	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, nil, kvStore, nil, log.InitLogs())
 
 	// Create an ImageBuild
 	imageBuild := newValidImageBuild("cancel-failed-test")
@@ -881,7 +1209,7 @@ func TestCancelImageBuild_NotCancelable_Canceled(t *testing.T) {
 	repoStore := NewDummyRepositoryStore()
 	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
 	kvStore := NewDummyKVStore()
-	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, kvStore, log.InitLogs())
+	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, nil, kvStore, nil, log.InitLogs())
 
 	// Create an ImageBuild
 	imageBuild := newValidImageBuild("cancel-canceled-test")
@@ -916,7 +1244,7 @@ func TestCancelImageBuild_NotFound(t *testing.T) {
 	// Set up repositories
 	repoStore := NewDummyRepositoryStore()
 	kvStore := NewDummyKVStore()
-	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, kvStore, log.InitLogs())
+	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, nil, kvStore, nil, log.InitLogs())
 
 	// Attempt to cancel non-existent build
 	_, err := svc.Cancel(ctx, orgId, "nonexistent")
@@ -932,7 +1260,7 @@ func TestCancelImageBuild_NoStatus(t *testing.T) {
 	repoStore := NewDummyRepositoryStore()
 	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
 	kvStore := NewDummyKVStore()
-	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, kvStore, log.InitLogs())
+	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, nil, kvStore, nil, log.InitLogs())
 
 	// Create an ImageBuild with no status (treated as Pending)
 	imageBuild := newValidImageBuild("cancel-nostatus-test")

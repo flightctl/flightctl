@@ -1,14 +1,19 @@
 package service
 
 import (
+	"context"
 	"errors"
+	"fmt"
+	"time"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/flterrors"
+	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/samber/lo"
+	"github.com/sirupsen/logrus"
 )
 
 // Sentinel errors for cancellation operations
@@ -16,6 +21,36 @@ var (
 	// ErrNotCancelable indicates the resource is not in a cancelable state
 	ErrNotCancelable = errors.New("resource is not in a cancelable state")
 )
+
+// waitForCanceled waits for the cancellation completion signal from the worker via Redis stream
+// Uses Redis XREAD BLOCK for push-based notification (no polling)
+// Returns nil if signal received, error if timeout or other error
+func waitForCanceled(ctx context.Context, kvStore kvstore.KVStore, log logrus.FieldLogger, streamKey string, timeout time.Duration) error {
+	if kvStore == nil {
+		return errors.New("kvStore is nil, cannot wait for cancellation signal")
+	}
+
+	// Single blocking call - Redis XREAD BLOCK will push data when it arrives
+	entries, err := kvStore.StreamRead(ctx, streamKey, "0", timeout, 1)
+	if err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return fmt.Errorf("error waiting for cancellation signal: %w", err)
+	}
+
+	if len(entries) > 0 {
+		// Signal received - cancellation completed
+		// Clean up the stream key
+		if delErr := kvStore.Delete(ctx, streamKey); delErr != nil {
+			log.WithError(delErr).Warn("Failed to delete canceled stream key after consuming")
+		}
+		return nil
+	}
+
+	// No entries means timeout
+	return errors.New("timeout waiting for cancellation completion")
+}
 
 const (
 	MaxRecordsPerListRequest = 1000

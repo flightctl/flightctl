@@ -97,7 +97,7 @@ var _ = Describe("Status Updater Integration Tests", func() {
 		}
 
 		// Create imagebuilder service with kvStore
-		imageBuilderService = service.NewService(ctx, imageBuilderStore, mainStore, nil, kvStoreInst, log)
+		imageBuilderService = service.NewService(ctx, cfg, imageBuilderStore, mainStore, nil, kvStoreInst, log)
 	})
 
 	AfterEach(func() {

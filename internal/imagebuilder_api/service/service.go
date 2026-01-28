@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 
+	"github.com/flightctl/flightctl/internal/config"
 	imagebuilderstore "github.com/flightctl/flightctl/internal/imagebuilder_api/store"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	internalservice "github.com/flightctl/flightctl/internal/service"
@@ -25,7 +26,7 @@ type service struct {
 }
 
 // NewService creates a new aggregate Service with all sub-services
-func NewService(ctx context.Context, s imagebuilderstore.Store, mainStore mainstore.Store, queueProducer queues.QueueProducer, kvStore kvstore.KVStore, log logrus.FieldLogger) Service {
+func NewService(ctx context.Context, cfg *config.Config, s imagebuilderstore.Store, mainStore mainstore.Store, queueProducer queues.QueueProducer, kvStore kvstore.KVStore, log logrus.FieldLogger) Service {
 	// Create event handler for ImageBuild events
 	// Note: We pass nil for workerClient so events are stored in DB for audit/logging
 	// but are not pushed to TaskQueue. Events are manually enqueued to ImageBuildTaskQueue instead.
@@ -34,8 +35,16 @@ func NewService(ctx context.Context, s imagebuilderstore.Store, mainStore mainst
 		eventHandler = internalservice.NewEventHandler(mainStore, nil, log)
 	}
 
-	imageBuildSvc := NewImageBuildService(s.ImageBuild(), mainStore.Repository(), eventHandler, queueProducer, kvStore, log)
-	imageExportSvc := NewImageExportService(s.ImageExport(), s.ImageBuild(), mainStore.Repository(), eventHandler, queueProducer, kvStore, log)
+	// Get ImageBuilderService config (nil-safe)
+	var imageBuilderServiceCfg *config.ImageBuilderServiceConfig
+	if cfg != nil {
+		imageBuilderServiceCfg = cfg.ImageBuilderService
+	}
+
+	// Create ImageExportService first (ImageBuildService depends on it for delete flow)
+	imageExportSvc := NewImageExportService(s.ImageExport(), s.ImageBuild(), mainStore.Repository(), eventHandler, queueProducer, kvStore, imageBuilderServiceCfg, log)
+	// Create ImageBuildService with ImageExportService dependency
+	imageBuildSvc := NewImageBuildService(s.ImageBuild(), mainStore.Repository(), imageExportSvc, eventHandler, queueProducer, kvStore, imageBuilderServiceCfg, log)
 	return &service{
 		imageBuild:  imageBuildSvc,
 		imageExport: imageExportSvc,

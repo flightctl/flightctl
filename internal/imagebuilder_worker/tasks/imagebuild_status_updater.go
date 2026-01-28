@@ -224,6 +224,10 @@ func (u *statusUpdater) updateStatus(condition *api.ImageBuildCondition, lastSee
 				condition.Reason == string(api.ImageBuildConditionReasonCanceled) {
 				u.persistLogsToDB()
 				u.writeStreamCompleteMarker()
+				// Signal cancellation completion to the API (for cancel-then-delete flow)
+				if condition.Reason == string(api.ImageBuildConditionReasonCanceled) {
+					u.signalCanceled()
+				}
 			}
 		}
 	}
@@ -379,7 +383,7 @@ func (u *statusUpdater) listenForCancellation() {
 		return
 	}
 
-	streamKey := fmt.Sprintf("imagebuild:cancel:%s:%s", u.orgID.String(), u.imageBuildName)
+	streamKey := getImageBuildCancelStreamKey(u.orgID, u.imageBuildName)
 	lastID := "0" // Read from beginning
 
 	for {
@@ -443,4 +447,36 @@ func (u *statusUpdater) isStatusCanceling() bool {
 	}
 
 	return readyCondition.Reason == string(api.ImageBuildConditionReasonCanceling)
+}
+
+// getImageBuildCancelStreamKey returns the Redis stream key for cancellation requests
+func getImageBuildCancelStreamKey(orgID uuid.UUID, imageBuildName string) string {
+	return fmt.Sprintf("imagebuild:cancel:%s:%s", orgID.String(), imageBuildName)
+}
+
+// GetImageBuildCanceledStreamKey returns the Redis stream key used for signaling cancellation completion
+// This is exported so the API service can use the same key format
+func GetImageBuildCanceledStreamKey(orgID uuid.UUID, imageBuildName string) string {
+	return fmt.Sprintf("imagebuild:canceled:%s:%s", orgID.String(), imageBuildName)
+}
+
+// signalCanceled writes a signal to Redis when the build has been canceled
+// This allows the API to know when cancellation is complete for the delete flow
+func (u *statusUpdater) signalCanceled() {
+	if u.kvStore == nil {
+		return
+	}
+
+	streamKey := GetImageBuildCanceledStreamKey(u.orgID, u.imageBuildName)
+	if _, err := u.kvStore.StreamAdd(u.ctx, streamKey, []byte("canceled")); err != nil {
+		u.log.WithError(err).Warn("Failed to write cancellation signal to Redis")
+		return
+	}
+
+	// Set a TTL so the key is cleaned up even if the API doesn't consume it
+	if err := u.kvStore.SetExpire(u.ctx, streamKey, 5*time.Minute); err != nil {
+		u.log.WithError(err).Warn("Failed to set TTL on cancellation signal key")
+	}
+
+	u.log.Info("Cancellation completion signal sent to Redis")
 }
