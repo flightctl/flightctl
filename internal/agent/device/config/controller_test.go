@@ -16,15 +16,13 @@ import (
 func TestSync(t *testing.T) {
 	require := require.New(t)
 	tests := []struct {
-		name       string
-		current    *v1beta1.DeviceSpec
-		desired    *v1beta1.DeviceSpec
-		setupMocks func(mockWriter *fileio.MockWriter, mockManagedFile *fileio.MockManagedFile, f string)
-		wantErr    error
-		// files which are created via the sync operation
+		name         string
+		current      *v1beta1.DeviceSpec
+		desired      *v1beta1.DeviceSpec
+		wantErr      error
 		createdFiles []string
-		// files which are removed via the sync operation
 		removedFiles []string
+		removedDirs  []string
 	}{
 		{
 			name:    "no desired config",
@@ -49,12 +47,9 @@ func TestSync(t *testing.T) {
 			current: &v1beta1.DeviceSpec{
 				Config: testConfigProvider(require, 3),
 			},
-			desired: &v1beta1.DeviceSpec{},
-			removedFiles: []string{
-				"/etc/example/file1.txt",
-				"/etc/example/file2.txt",
-				"/etc/example/file3.txt",
-			},
+			desired:      &v1beta1.DeviceSpec{},
+			removedFiles: []string{"/etc/example/file1.txt", "/etc/example/file2.txt", "/etc/example/file3.txt"},
+			removedDirs:  []string{"/etc/example", "/etc"},
 		},
 		{
 			name: "validate removal of files",
@@ -64,13 +59,9 @@ func TestSync(t *testing.T) {
 			desired: &v1beta1.DeviceSpec{
 				Config: testConfigProvider(require, 2),
 			},
-			createdFiles: []string{
-				"/etc/example/file1.txt",
-				"/etc/example/file2.txt",
-			},
-			removedFiles: []string{
-				"/etc/example/file3.txt",
-			},
+			createdFiles: []string{"/etc/example/file1.txt", "/etc/example/file2.txt"},
+			removedFiles: []string{"/etc/example/file3.txt"},
+			removedDirs:  []string{}, // directories still needed
 		},
 	}
 
@@ -82,17 +73,21 @@ func TestSync(t *testing.T) {
 
 			mockWriter := fileio.NewMockWriter(ctrl)
 			mockManagedFile := fileio.NewMockManagedFile(ctrl)
-			controller := NewController(
-				mockWriter,
-				log.NewPrefixLogger("test"),
-			)
+			controller := NewController(mockWriter, log.NewPrefixLogger("test"))
 
-			for _, f := range tt.createdFiles {
-				expectCreateFile(mockWriter, mockManagedFile, f)
+			for range tt.createdFiles {
+				mockWriter.EXPECT().CreateManagedFile(gomock.Any()).Return(mockManagedFile, nil)
+				mockManagedFile.EXPECT().IsUpToDate().Return(false, nil)
+				mockManagedFile.EXPECT().Exists().Return(false, nil)
+				mockManagedFile.EXPECT().Write().Return(nil)
 			}
 
 			for _, f := range tt.removedFiles {
-				expectRemoveFile(mockWriter, f)
+				mockWriter.EXPECT().RemoveFile(f).Return(nil)
+			}
+
+			for _, d := range tt.removedDirs {
+				mockWriter.EXPECT().RemoveFile(d).Return(nil)
 			}
 
 			err := controller.Sync(ctx, tt.current, tt.desired)
@@ -100,6 +95,7 @@ func TestSync(t *testing.T) {
 				require.ErrorIs(err, tt.wantErr)
 				return
 			}
+			require.NoError(err)
 		})
 	}
 }
@@ -118,11 +114,8 @@ func TestComputeRemoval(t *testing.T) {
 				{Path: "/etc/example/file1.txt"},
 				{Path: "/etc/example/file2.txt"},
 			},
-			desired: []v1beta1.FileSpec{},
-			expected: []string{
-				"/etc/example/file1.txt",
-				"/etc/example/file2.txt",
-			},
+			desired:  []v1beta1.FileSpec{},
+			expected: []string{"/etc/example/file1.txt", "/etc/example/file2.txt"},
 		},
 		{
 			name:    "no current files",
@@ -144,9 +137,7 @@ func TestComputeRemoval(t *testing.T) {
 				{Path: "/etc/example/file1.txt"},
 				{Path: "/etc/example/file3.txt"},
 			},
-			expected: []string{
-				"/etc/example/file2.txt",
-			},
+			expected: []string{"/etc/example/file2.txt"},
 		},
 		{
 			name:     "no files",
@@ -163,15 +154,77 @@ func TestComputeRemoval(t *testing.T) {
 	}
 }
 
-func expectCreateFile(mockWriter *fileio.MockWriter, mockManagedFile *fileio.MockManagedFile, _ string) {
-	mockWriter.EXPECT().CreateManagedFile(gomock.Any()).Return(mockManagedFile, nil)
-	mockManagedFile.EXPECT().IsUpToDate().Return(false, nil)
-	mockManagedFile.EXPECT().Exists().Return(false, nil)
-	mockManagedFile.EXPECT().Write().Return(nil)
+func TestCollectParentDirs(t *testing.T) {
+	require := require.New(t)
+	tests := []struct {
+		name     string
+		files    []v1beta1.FileSpec
+		expected map[string]struct{}
+	}{
+		{
+			name:     "empty files",
+			files:    []v1beta1.FileSpec{},
+			expected: map[string]struct{}{},
+		},
+		{
+			name:     "single file",
+			files:    []v1beta1.FileSpec{{Path: "/etc/example/file.txt"}},
+			expected: map[string]struct{}{"/etc/example": {}, "/etc": {}},
+		},
+		{
+			name: "files in subdirectories",
+			files: []v1beta1.FileSpec{
+				{Path: "/etc/drone-tracker/index.html"},
+				{Path: "/etc/drone-tracker/images/logo.png"},
+			},
+			expected: map[string]struct{}{
+				"/etc/drone-tracker":        {},
+				"/etc/drone-tracker/images": {},
+				"/etc":                      {},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			actual := collectParentDirs(tt.files)
+			require.Equal(tt.expected, actual)
+		})
+	}
 }
 
-func expectRemoveFile(mockWriter *fileio.MockWriter, f string) {
-	mockWriter.EXPECT().RemoveFile(f).Return(nil)
+func TestSyncWithSubdirectoryCleanup(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockWriter := fileio.NewMockWriter(ctrl)
+	controller := NewController(mockWriter, log.NewPrefixLogger("test"))
+
+	// Current: files in subdirectory
+	var currentProvider v1beta1.ConfigProviderSpec
+	currentFiles := []v1beta1.FileSpec{
+		{Path: "/etc/drone-tracker/index.html", Content: "html", Mode: lo.ToPtr(0o644)},
+		{Path: "/etc/drone-tracker/images/logo.png", Content: "png", Mode: lo.ToPtr(0o644)},
+	}
+	_ = currentProvider.FromInlineConfigProviderSpec(v1beta1.InlineConfigProviderSpec{Inline: currentFiles})
+	current := &v1beta1.DeviceSpec{Config: &[]v1beta1.ConfigProviderSpec{currentProvider}}
+
+	// Desired: empty (remove all)
+	desired := &v1beta1.DeviceSpec{}
+
+	// Expect files to be removed
+	mockWriter.EXPECT().RemoveFile("/etc/drone-tracker/index.html").Return(nil)
+	mockWriter.EXPECT().RemoveFile("/etc/drone-tracker/images/logo.png").Return(nil)
+
+	// Expect empty directories to be removed (deepest first)
+	mockWriter.EXPECT().RemoveFile("/etc/drone-tracker/images").Return(nil)
+	mockWriter.EXPECT().RemoveFile("/etc/drone-tracker").Return(nil)
+	mockWriter.EXPECT().RemoveFile("/etc").Return(nil)
+
+	err := controller.Sync(ctx, current, desired)
+	require.NoError(err)
 }
 
 func testConfigProvider(require *require.Assertions, fileCount int) *[]v1beta1.ConfigProviderSpec {
@@ -179,7 +232,7 @@ func testConfigProvider(require *require.Assertions, fileCount int) *[]v1beta1.C
 	files := make([]v1beta1.FileSpec, 0, fileCount)
 
 	for i := 0; i < fileCount; i++ {
-		files = append(files, v1beta1.FileSpec{ // Appending new elements
+		files = append(files, v1beta1.FileSpec{
 			Path:    fmt.Sprintf("/etc/example/file%d.txt", i+1),
 			Content: fmt.Sprintf("File %d contents", i+1),
 			Mode:    lo.ToPtr(0o420),
