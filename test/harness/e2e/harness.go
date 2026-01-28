@@ -26,12 +26,6 @@ The harness enforces a strict VM pool pattern to ensure proper test isolation an
 5. AFTER SUITE:
    - VM cleanup is handled by make scripts after all tests complete
 
-REMOVED METHODS (violated VM pool pattern):
-- NewTestHarness() - Created VMs directly (removed)
-- NewTestHarnessWithoutVM() - Manual VM setup (removed)
-- AddVM() / AddMultipleVMs() - Created VMs outside pool (removed)
-- StartMultipleVMAndEnroll() - Created multiple VMs directly (removed)
-
 Example usage:
 ```go
 var _ = BeforeSuite(func() {
@@ -1435,45 +1429,10 @@ func (h Harness) getRegistryEndpointInfo() (ip string, port string, err error) {
 
 	return "", "", fmt.Errorf("unknown context")
 }
-func NewTestHarnessWithoutVM(ctx context.Context) (*Harness, error) {
-	startTime := time.Now()
 
-	baseDir, err := client.DefaultFlightctlClientConfigPath()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get client config path: %w", err)
-	}
-
-	c, err := client.NewFromConfigFile(baseDir)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create client: %w", err)
-	}
-
-	ctx, cancel := context.WithCancel(ctx)
-
-	k8sCluster, err := kubernetesClient()
-	if err != nil {
-		cancel()
-		return nil, fmt.Errorf("failed to get kubernetes cluster: %w", err)
-	}
-
-	c.Start(ctx)
-
-	// Create harness without VM first
-	return &Harness{
-		Client:        c.ClientWithResponses,
-		Context:       ctx,
-		Cluster:       k8sCluster,
-		ctxCancel:     cancel,
-		startTime:     startTime,
-		VM:            nil,
-		clientWrapper: c,
-	}, nil
-
-}
-
-// NewTestHarnessWithVMPool creates a new test harness with VM pool management.
-// This centralizes the VM pool logic that was previously duplicated in individual tests.
-func NewTestHarnessWithVMPool(ctx context.Context, workerID int) (*Harness, error) {
+// newTestHarnessBase creates the base test harness with common setup.
+// This is used by both NewTestHarnessWithoutVM and NewTestHarnessWithVMPool.
+func newTestHarnessBase(ctx context.Context) (*Harness, error) {
 	startTime := time.Now()
 
 	baseDir, err := client.DefaultFlightctlClientConfigPath()
@@ -1497,12 +1456,14 @@ func NewTestHarnessWithVMPool(ctx context.Context, workerID int) (*Harness, erro
 	// Initialize git repository management
 	gitWorkDir := filepath.Join(GinkgoT().TempDir(), "git-repos")
 	err = os.MkdirAll(gitWorkDir, 0755)
-	Expect(err).ToNot(HaveOccurred())
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("failed to create git work directory: %w", err)
+	}
 
 	c.Start(ctx)
 
-	// Create harness without VM first
-	harness := &Harness{
+	return &Harness{
 		Client:        c.ClientWithResponses,
 		Context:       ctx,
 		Cluster:       k8sCluster,
@@ -1512,12 +1473,26 @@ func NewTestHarnessWithVMPool(ctx context.Context, workerID int) (*Harness, erro
 		gitRepos:      make(map[string]string),
 		gitWorkDir:    gitWorkDir,
 		clientWrapper: c,
+	}, nil
+}
+
+// NewTestHarnessWithoutVM creates a new test harness without VM management.
+func NewTestHarnessWithoutVM(ctx context.Context) (*Harness, error) {
+	return newTestHarnessBase(ctx)
+}
+
+// NewTestHarnessWithVMPool creates a new test harness with VM pool management.
+// This centralizes the VM pool logic that was previously duplicated in individual tests.
+func NewTestHarnessWithVMPool(ctx context.Context, workerID int) (*Harness, error) {
+	harness, err := newTestHarnessBase(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	// Get VM from the pool (this should already exist from BeforeSuite)
 	_, err = harness.GetVMFromPool(workerID)
 	if err != nil {
-		cancel()
+		harness.ctxCancel()
 		return nil, fmt.Errorf("failed to get VM from pool: %w", err)
 	}
 

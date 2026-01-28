@@ -46,13 +46,37 @@ func SetupWorkerHarness() (*Harness, context.Context, error) {
 	return harness, suiteCtx, nil
 }
 
+// SetupWorkerHarnessWithoutVM sets up a harness for the current worker without VM.
+// This is useful for tests that only need API access and don't require a device/agent VM.
+// This should be called in BeforeSuite.
+func SetupWorkerHarnessWithoutVM() (*Harness, context.Context, error) {
+	workerID := ginkgo.GinkgoParallelProcess()
+	logrus.Infof("🔄 [SetupWorkerHarnessWithoutVM] Worker %d: Setting up harness without VM", workerID)
+
+	// Create suite context for tracing
+	suiteCtx := context.Background()
+
+	// Create harness without VM (no VM pool setup needed)
+	harness, err := NewTestHarnessWithoutVM(suiteCtx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create harness for worker %d: %w", workerID, err)
+	}
+
+	// Store the harness and context for this worker
+	workerHarnesses.Store(workerID, harness)
+	workerContexts.Store(workerID, suiteCtx)
+
+	logrus.Infof("✅ [SetupWorkerHarnessWithoutVM] Worker %d: Harness setup completed (no VM)", workerID)
+	return harness, suiteCtx, nil
+}
+
 // GetWorkerHarness retrieves the harness for the current worker.
 // This should be called from your test suite's BeforeEach or tests.
 func GetWorkerHarness() *Harness {
 	workerID := ginkgo.GinkgoParallelProcess()
 	h, ok := workerHarnesses.Load(workerID)
 	if !ok {
-		ginkgo.Fail(fmt.Sprintf("No harness found for worker %d. Make sure SetupWorkerHarness was called in BeforeSuite", workerID))
+		ginkgo.Fail(fmt.Sprintf("No harness found for worker %d. Make sure SetupWorkerHarness or SetupWorkerHarnessWithoutVM was called in BeforeSuite", workerID))
 	}
 	return h.(*Harness)
 }
@@ -62,7 +86,7 @@ func GetWorkerContext() context.Context {
 	workerID := ginkgo.GinkgoParallelProcess()
 	ctx, ok := workerContexts.Load(workerID)
 	if !ok {
-		ginkgo.Fail(fmt.Sprintf("No context found for worker %d. Make sure SetupWorkerHarness was called in BeforeSuite", workerID))
+		ginkgo.Fail(fmt.Sprintf("No context found for worker %d. Make sure SetupWorkerHarness or SetupWorkerHarnessWithoutVM was called in BeforeSuite", workerID))
 	}
 	return ctx.(context.Context)
 }
