@@ -6,9 +6,8 @@ ContainerName=flightctl-kv
 Image=docker.io/redis:7.4.1
 Pull=missing
 Exec=/bin/sh -c 'redis-server /usr/local/etc/redis/redis.conf --requirepass $${KV_PASSWORD}'
-Secret=flightctl-kv-password,type=env,target=KV_PASSWORD
-Volume=/usr/share/flightctl/flightctl-kv/redis.conf:/usr/local/etc/redis/redis.conf
-
+Secret=flightctl-kv-password,type=env,target=REDIS_PASSWORD
+Volume=/usr/share/flightctl/flightctl-kv/redis.conf:/etc/redis.conf:Z
 PublishPort=6379:6379
 
 [Service]

@@ -8,8 +8,8 @@ DB_SIZE_PARAMS=
 # IMAGE_PULL_SECRET_PATH=
 SQL_VERSION=${SQL_VERSION:-"latest"}
 SQL_IMAGE=${SQL_IMAGE:-"quay.io/sclorg/postgresql-16-c9s"}
-KV_VERSION=${KV_VERSION:-"7.4.1"}
-KV_IMAGE=${KV_IMAGE:-"docker.io/redis"}
+KV_VERSION=${KV_VERSION:-"20250108"}
+KV_IMAGE=${KV_IMAGE:-"quay.io/sclorg/redis-7-c9s"}
 
 source "${SCRIPT_DIR}"/functions
 IP=$(get_ext_ip)
