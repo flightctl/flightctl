@@ -2,7 +2,6 @@ package lifecycle
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"path/filepath"
 	"slices"
@@ -11,6 +10,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/systemd"
 	"github.com/flightctl/flightctl/internal/quadlet"
@@ -128,7 +128,7 @@ func (q *Quadlet) add(ctx context.Context, action Action, systemctl systemd.Mana
 			}
 			if len(serviceLogs) > 0 {
 				q.log.Infof("Service: %q logs: %s", service, strings.Join(serviceLogs, "\n"))
-				err = fmt.Errorf("service: %q logs: %s: %w", service, strings.Join(serviceLogs, ","), err)
+				err = fmt.Errorf("service %w logs: %s: %w", errors.WithElement(service), strings.Join(serviceLogs, ","), err)
 			}
 		}
 		return err
@@ -284,22 +284,22 @@ func (q *Quadlet) ensureArtifactVolumes(ctx context.Context, action Action) erro
 			q.log.Tracef("Volume %q already exists, updating contents", volumeName)
 			volumePath, err = podman.InspectVolumeMount(ctx, volumeName)
 			if err != nil {
-				return fmt.Errorf("inspect volume %q: %w", volumeName, err)
+				return fmt.Errorf("inspect volume %w: %w", errors.WithElement(volumeName), err)
 			}
 			if err := rw.RemoveContents(volumePath); err != nil {
-				return fmt.Errorf("removing volume content %q: %w", volumePath, err)
+				return fmt.Errorf("removing volume content %w: %w", errors.WithElement(volumePath), err)
 			}
 		} else {
 			q.log.Tracef("Creating volume %q", volumeName)
 			volumePath, err = podman.CreateVolume(ctx, volumeName, labels)
 			if err != nil {
-				return cleanup(fmt.Errorf("creating volume %q: %w", volumeName, err))
+				return cleanup(fmt.Errorf("creating volume %w: %w", errors.WithElement(volumeName), err))
 			}
 			artifactVolumes = append(artifactVolumes, volumeName)
 		}
 
 		if _, err := podman.ExtractArtifact(ctx, volume.Reference, volumePath); err != nil {
-			return cleanup(fmt.Errorf("extracting artifact to volume %q: %w", volumeName, err))
+			return cleanup(fmt.Errorf("extracting artifact to volume %w: %w", errors.WithElement(volumeName), err))
 		}
 
 		q.log.Infof("Creating artifact volume %q from artifact %q", volume.ID, volume.Reference)

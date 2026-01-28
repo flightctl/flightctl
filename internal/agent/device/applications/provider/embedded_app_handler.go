@@ -7,6 +7,7 @@ import (
 
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
+	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/quadlet"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -76,7 +77,7 @@ func (e *embeddedQuadletBehavior) Remove(ctx context.Context) error {
 		return fmt.Errorf("removing quadlet target file: %w", err)
 	}
 	if err := e.rw.RemoveAll(e.AppPath()); err != nil {
-		return fmt.Errorf("removing application: %w", err)
+		return fmt.Errorf("%w: %w", errors.ErrRemovingApplication, err)
 	}
 	return nil
 }

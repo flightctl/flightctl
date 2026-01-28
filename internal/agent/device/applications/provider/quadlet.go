@@ -653,7 +653,7 @@ func (q *quadletInstaller) getServiceName(filePath, ext, defaultName string) (st
 	}
 	unit, err := quadlet.NewUnit(contents)
 	if err != nil {
-		return "", fmt.Errorf("parsing quadlet: %w", err)
+		return "", fmt.Errorf("%w: %w", errors.ErrParsingQuadletSpec, err)
 	}
 	name, err := unit.Lookup(quadlet.PodGroup, quadlet.ServiceNameKey)
 	if err != nil {

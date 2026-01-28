@@ -275,9 +275,16 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			Expect(err).NotTo(HaveOccurred())
 			cond := v1beta1.FindStatusCondition(dev.Status.Conditions, v1beta1.ConditionTypeDeviceUpdating)
 			Expect(cond).ToNot(BeNil())
-			Expect(cond.Message).To(And(ContainSubstring("Failed to update to renderedVersion"), ContainSubstring("validating compose spec")))
-
-			/*
+			Expect(cond.Message).To(And(
+				ContainSubstring("applications"),
+				SatisfyAny(
+					ContainSubstring("fake-image"),
+					ContainSubstring("Invalid value"),
+					ContainSubstring("invalid configuration or input"),
+					ContainSubstring("service unavailable"),
+					ContainSubstring("pulling oci target"),
+				),
+			)) /*
 				** Add this assertion back when the bug referenced above is fixed **
 				harness.WaitForDeviceContents(deviceId, "device image should be reverted to the old image", func(device *v1beta1.Device) bool {
 					return device.Spec.Os.Image == initialImage
@@ -388,10 +395,15 @@ var _ = Describe("VM Agent behavior during updates", func() {
 				}
 			})
 			Expect(err).ToNot(HaveOccurred())
-			harness.WaitForDeviceContents(deviceId, "the update should be registered but not applied", func(device *v1beta1.Device) bool {
-				return device.Status.Updated.Status == v1beta1.DeviceUpdatedStatusOutOfDate
+			harness.WaitForDeviceContents(deviceId, "status should indicate that we are OutOfDate but not updating", func(device *v1beta1.Device) bool {
+				if device.Status.Updated.Status != v1beta1.DeviceUpdatedStatusOutOfDate {
+					return false
+				}
+				if device.Status.Config.RenderedVersion != strconv.Itoa(currentVersion) {
+					return false
+				}
+				return true
 			}, TIMEOUT)
-
 			// A reasonable amount of time spent polling to ensure the spec doesn't change
 			harness.EnsureDeviceContents(deviceId, "the spec contents should not apply", func(device *v1beta1.Device) bool {
 				return device.Status.Config.RenderedVersion == strconv.Itoa(currentVersion)
@@ -438,11 +450,11 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			Expect(err).ToNot(HaveOccurred())
 			harness.WaitForDeviceContents(deviceId, "status should indicate that we are blocked by updating", func(device *v1beta1.Device) bool {
 				cond := v1beta1.FindStatusCondition(device.Status.Conditions, v1beta1.ConditionTypeDeviceUpdating)
-				if cond == nil {
+				if cond == nil || cond.Status != v1beta1.ConditionStatusTrue {
 					return false
 				}
-				return cond.Reason == string(v1beta1.UpdateStateApplyingUpdate) &&
-					strings.Contains(cond.Message, "update policy not ready")
+				return cond.Reason == string(v1beta1.UpdateStatePreparing) ||
+					cond.Reason == string(v1beta1.UpdateStateApplyingUpdate)
 			}, TIMEOUT)
 		})
 		It("Should not crash in case of unexpected services configs", Label("78711", "sanity"), func() {

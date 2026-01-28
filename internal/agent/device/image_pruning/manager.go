@@ -628,7 +628,7 @@ func (m *manager) extractReferencesFromApplication(_ context.Context, appSpec *v
 
 	appType, err := (*appSpec).GetAppType()
 	if err != nil {
-		return nil, fmt.Errorf("getting app type: %w", err)
+		return nil, fmt.Errorf("%w: image: %w", errors.ErrGettingProviderSpec, err)
 	}
 
 	switch appType {
@@ -650,7 +650,7 @@ func (m *manager) extractReferencesFromApplication(_ context.Context, appSpec *v
 	case v1beta1.AppTypeCompose:
 		composeApp, err := (*appSpec).AsComposeApplication()
 		if err != nil {
-			return nil, fmt.Errorf("getting compose application: %w", err)
+			return nil, fmt.Errorf("%w: inline: %w", errors.ErrGettingProviderSpec, err)
 		}
 		providerType, err := composeApp.Type()
 		if err != nil {
@@ -737,7 +737,7 @@ func (m *manager) extractReferencesFromApplication(_ context.Context, appSpec *v
 func (m *manager) extractComposeReferences(contents []v1beta1.ApplicationContent) ([]ImageRef, error) {
 	spec, err := client.ParseComposeFromSpec(contents)
 	if err != nil {
-		return nil, fmt.Errorf("parsing compose spec: %w", err)
+		return nil, fmt.Errorf("%w: %w", errors.ErrParsingComposeSpec, err)
 	}
 
 	var refs []ImageRef
@@ -776,7 +776,7 @@ func (m *manager) extractImagesFromQuadletReferences(quadlets map[string]*common
 func (m *manager) extractQuadletReferences(contents []v1beta1.ApplicationContent) ([]ImageRef, error) {
 	quadlets, err := client.ParseQuadletReferencesFromSpec(contents)
 	if err != nil {
-		return nil, fmt.Errorf("parsing quadlet spec: %w", err)
+		return nil, fmt.Errorf("%w: %w", errors.ErrParsingQuadletSpec, err)
 	}
 
 	return m.extractImagesFromQuadletReferences(quadlets), nil
@@ -797,14 +797,14 @@ func (m *manager) extractVolumeReferences(volumes []v1beta1.ApplicationVolume) (
 		case v1beta1.ImageApplicationVolumeProviderType:
 			provider, err := vol.AsImageVolumeProviderSpec()
 			if err != nil {
-				return nil, fmt.Errorf("getting image volume provider spec: %w", err)
+				return nil, fmt.Errorf("%w: image volume: %w", errors.ErrGettingProviderSpec, err)
 			}
 			refs = append(refs, ImageRef{Image: provider.Image.Reference, Type: RefTypeArtifact})
 
 		case v1beta1.ImageMountApplicationVolumeProviderType:
 			provider, err := vol.AsImageMountVolumeProviderSpec()
 			if err != nil {
-				return nil, fmt.Errorf("getting image mount volume provider spec: %w", err)
+				return nil, fmt.Errorf("%w: image mount volume: %w", errors.ErrGettingProviderSpec, err)
 			}
 			// ImageMount volumes could be images or artifacts - type is determined at pruning time
 			refs = append(refs, ImageRef{Image: provider.Image.Reference, Type: RefTypePodman})
