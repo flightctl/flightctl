@@ -10,6 +10,8 @@ RemainAfterExit=true
 Restart=on-failure
 RestartSec=5s
 ExecStart=/usr/share/flightctl/init_certs.sh
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=flightctl.target
