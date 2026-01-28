@@ -924,7 +924,7 @@ func validateApplications(apps []ApplicationProviderSpec, fleetTemplate bool) []
 		case AppTypeContainer:
 			allErrs = append(allErrs, validateContainerApplication(app, appName, fleetTemplate)...)
 		case AppTypeHelm:
-			allErrs = append(allErrs, validateHelmApplication(app, appName, fleetTemplate)...)
+			allErrs = append(allErrs, ValidateHelmApplication(app, appName, fleetTemplate)...)
 		case AppTypeCompose:
 			allErrs = append(allErrs, validateComposeApplication(app, appName, fleetTemplate)...)
 		case AppTypeQuadlet:
@@ -960,7 +960,7 @@ func validateContainerApplication(app ApplicationProviderSpec, appName string, f
 	return allErrs
 }
 
-func validateHelmApplication(app ApplicationProviderSpec, appName string, fleetTemplate bool) []error {
+func ValidateHelmApplication(app ApplicationProviderSpec, appName string, fleetTemplate bool) []error {
 	allErrs := []error{}
 	pathPrefix := fmt.Sprintf("spec.applications[%s]", appName)
 

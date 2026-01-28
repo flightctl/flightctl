@@ -253,11 +253,13 @@ func TestManager(t *testing.T) {
 			currentProviders, err := provider.FromDeviceSpec(ctx, log, podmanFactory, nil, rwFactory, tc.current)
 			require.NoError(err)
 
+			cliClients := client.NewCLIClients()
 			manager := &manager{
-				rwFactory:     rwFactory,
-				podmanMonitor: NewPodmanMonitor(log, podmanFactory, systemdFactory, bootTime.Format(time.RFC3339), rwMockFactory),
-				clients:       client.NewCLIClients(),
-				log:           log,
+				rwFactory:         rwFactory,
+				podmanMonitor:     NewPodmanMonitor(log, podmanFactory, systemdFactory, bootTime.Format(time.RFC3339), rwMockFactory),
+				kubernetesMonitor: NewKubernetesMonitor(log, cliClients, rwFactory),
+				clients:           cliClients,
+				log:               log,
 			}
 
 			// ensure the current applications are installed
@@ -352,11 +354,12 @@ func TestManagerRemoveApplication(t *testing.T) {
 	var rwMockFactory fileio.ReadWriterFactory = func(username v1beta1.Username) (fileio.ReadWriter, error) {
 		return mockReadWriter, nil
 	}
+	cliClients := client.NewCLIClients()
 	manager := &manager{
-		rwFactory:     rwFactory,
-		podmanMonitor: NewPodmanMonitor(log, podmanFactory, systemdFactory, bootTime.Format(time.RFC3339), rwMockFactory),
-		clients:       client.NewCLIClients(),
-		log:           log,
+		rwFactory:         rwFactory,
+		podmanMonitor:     NewPodmanMonitor(log, podmanFactory, systemdFactory, bootTime.Format(time.RFC3339), rwMockFactory),
+		kubernetesMonitor: NewKubernetesMonitor(log, cliClients, rwFactory),
+		log:               log,
 	}
 
 	// Ensure current applications

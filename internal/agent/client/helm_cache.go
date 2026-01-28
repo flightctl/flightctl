@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"path/filepath"
 	"strings"
 
@@ -78,6 +79,13 @@ func (c *helmChartCache) RemoveChart(chartDir string) error {
 		return fmt.Errorf("remove chart directory: %w", err)
 	}
 	return nil
+}
+
+// RemoveChartByRef removes a cached chart by its reference.
+// It resolves the chart path internally using the chart reference.
+func (c *helmChartCache) RemoveChartByRef(chartRef string) error {
+	chartDir := c.ChartDir(chartRef)
+	return c.RemoveChart(chartDir)
 }
 
 func (c *helmChartCache) EnsureChartsDir() error {
@@ -226,6 +234,16 @@ func SplitChartRef(chartRef string) (chartPath, version string) {
 	}
 
 	return chartRef, ""
+}
+
+// NormalizeChartRef ensures a chart reference has the oci:// scheme.
+// If no scheme is present, it assumes OCI and adds the prefix.
+func NormalizeChartRef(chartRef string) string {
+	parsed, err := url.Parse(chartRef)
+	if err != nil || parsed.Scheme == "" {
+		return "oci://" + chartRef
+	}
+	return chartRef
 }
 
 // SanitizeChartRef converts a chart reference into a filesystem-safe directory name.

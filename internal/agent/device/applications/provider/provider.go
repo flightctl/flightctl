@@ -10,6 +10,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/agent/device/applications/helm"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
@@ -117,6 +118,8 @@ func collectAppTypeOCITargets(appType v1beta1.AppType, providerSpec *v1beta1.App
 		return collectComposeOCITargets(providerSpec, configProvider)
 	case v1beta1.AppTypeQuadlet:
 		return collectQuadletOCITargets(providerSpec, configProvider)
+	case v1beta1.AppTypeHelm:
+		return collectHelmOCITargets(providerSpec, configProvider)
 	default:
 		return nil, fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, appType)
 	}
@@ -236,6 +239,23 @@ func collectQuadletOCITargets(providerSpec *v1beta1.ApplicationProviderSpec, con
 		return nil, fmt.Errorf("extracting quadlet volume targets: %w", err)
 	}
 	return targets.Add(targetUser, volTargets...), nil
+}
+
+func collectHelmOCITargets(providerSpec *v1beta1.ApplicationProviderSpec, configProvider client.PullConfigProvider) (dependency.OCIPullTargetsByUser, error) {
+	helmApp, err := providerSpec.AsHelmApplication()
+	if err != nil {
+		return nil, fmt.Errorf("getting helm application: %w", err)
+	}
+
+	var targets dependency.OCIPullTargetsByUser
+	targets = targets.Add(v1beta1.CurrentProcessUsername, dependency.OCIPullTarget{
+		Type:       dependency.OCITypeHelmChart,
+		Reference:  helmApp.Image,
+		PullPolicy: v1beta1.PullIfNotPresent,
+		Configs:    configProvider,
+	})
+
+	return targets, nil
 }
 
 // collectEmbeddedOCITargets discovers embedded applications and extracts their OCI targets
@@ -420,6 +440,12 @@ func ResolveImageAppName(appSpec *v1beta1.ApplicationProviderSpec) (string, erro
 			return imageSpec.Image, nil
 		}
 		return "", fmt.Errorf("inline quadlet app must have explicit name")
+	case v1beta1.AppTypeHelm:
+		app, err := (*appSpec).AsHelmApplication()
+		if err != nil {
+			return "", err
+		}
+		return helm.SanitizeReleaseName(app.Image)
 	default:
 		return "", fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, appType)
 	}
@@ -437,6 +463,8 @@ func AppNeedsNestedExtraction(appSpec *v1beta1.ApplicationProviderSpec) (bool, e
 	switch appType {
 	case v1beta1.AppTypeContainer:
 		return false, nil
+	case v1beta1.AppTypeHelm:
+		return true, nil
 	case v1beta1.AppTypeCompose:
 		composeApp, err := (*appSpec).AsComposeApplication()
 		if err != nil {
@@ -473,6 +501,12 @@ func ResolveImageRef(appSpec *v1beta1.ApplicationProviderSpec) (string, error) {
 	switch appType {
 	case v1beta1.AppTypeContainer:
 		app, err := (*appSpec).AsContainerApplication()
+		if err != nil {
+			return "", err
+		}
+		return app.Image, nil
+	case v1beta1.AppTypeHelm:
+		app, err := (*appSpec).AsHelmApplication()
 		if err != nil {
 			return "", err
 		}
@@ -527,9 +561,46 @@ func ResolveUser(appSpec *v1beta1.ApplicationProviderSpec) (v1beta1.Username, er
 			return "", err
 		}
 		return app.UserWithDefault(), nil
+	case v1beta1.AppTypeHelm:
+		return v1beta1.CurrentProcessUsername, nil
 	default:
 		return "", fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, appType)
 	}
+}
+
+type multiProviderApp interface {
+	Type() (v1beta1.ApplicationProviderType, error)
+	UserWithDefault() v1beta1.Username
+	AsImageApplicationProviderSpec() (v1beta1.ImageApplicationProviderSpec, error)
+}
+
+func extractMultipProviderAppTargets(ctx context.Context, name string, podmanFactory client.PodmanFactory, rwFactory fileio.ReadWriterFactory, app multiProviderApp, appType v1beta1.AppType, configProvider client.PullConfigProvider) (*AppData, error) {
+	providerType, err := app.Type()
+	if err != nil {
+		return nil, fmt.Errorf("getting compose provider type: %w", err)
+	}
+	if providerType != v1beta1.ImageApplicationProviderType {
+		return &AppData{}, nil
+	}
+
+	user := app.UserWithDefault()
+	podman, err := podmanFactory(user)
+	if err != nil {
+		return nil, fmt.Errorf("creating podman client for user %s: %w", user, err)
+	}
+
+	readWriter, err := rwFactory(user)
+	if err != nil {
+		return nil, fmt.Errorf("creating read/writer for user %s: %w", user, err)
+	}
+	imageSpec, err := app.AsImageApplicationProviderSpec()
+	if err != nil {
+		return nil, fmt.Errorf("getting compose image provider: %w", err)
+	}
+	if err := ensureAppTypeFromImage(ctx, podman, appType, imageSpec.Image); err != nil {
+		return nil, fmt.Errorf("ensuring app type: %w", err)
+	}
+	return extractAppDataFromOCITarget(ctx, podman, readWriter, name, imageSpec.Image, appType, configProvider)
 }
 
 // ExtractNestedTargetsFromImage extracts nested OCI targets from a single image-based application.
@@ -560,73 +631,104 @@ func ExtractNestedTargetsFromImage(
 
 	case v1beta1.AppTypeCompose:
 		composeApp, err := (*appSpec).AsComposeApplication()
-
 		if err != nil {
 			return nil, fmt.Errorf("getting compose application: %w", err)
 		}
-		providerType, err := composeApp.Type()
-		if err != nil {
-			return nil, fmt.Errorf("getting compose provider type: %w", err)
-		}
-		if providerType != v1beta1.ImageApplicationProviderType {
-			return &AppData{}, nil
-		}
-
-		user := composeApp.UserWithDefault()
-
-		podman, err := podmanFactory(user)
-		if err != nil {
-			return nil, fmt.Errorf("creating podman client for user %s: %w", user, err)
-		}
-
-		readWriter, err := rwFactory(user)
-		if err != nil {
-			return nil, fmt.Errorf("creating read/writer for user %s: %w", user, err)
-		}
-		imageSpec, err := composeApp.AsImageApplicationProviderSpec()
-		if err != nil {
-			return nil, fmt.Errorf("getting compose image provider: %w", err)
-		}
-		if err := ensureAppTypeFromImage(ctx, podman, v1beta1.AppTypeCompose, imageSpec.Image); err != nil {
-			return nil, fmt.Errorf("ensuring app type: %w", err)
-		}
-		return extractAppDataFromOCITarget(ctx, podman, readWriter, appName, imageSpec.Image, v1beta1.AppTypeCompose, configProvider)
+		return extractMultipProviderAppTargets(ctx, appName, podmanFactory, rwFactory, composeApp, v1beta1.AppTypeCompose, configProvider)
 
 	case v1beta1.AppTypeQuadlet:
 		quadletApp, err := (*appSpec).AsQuadletApplication()
 		if err != nil {
 			return nil, fmt.Errorf("getting quadlet application: %w", err)
 		}
-		providerType, err := quadletApp.Type()
-		if err != nil {
-			return nil, fmt.Errorf("getting quadlet provider type: %w", err)
-		}
-		if providerType != v1beta1.ImageApplicationProviderType {
-			return &AppData{}, nil
-		}
-		user := quadletApp.UserWithDefault()
+		return extractMultipProviderAppTargets(ctx, appName, podmanFactory, rwFactory, quadletApp, v1beta1.AppTypeQuadlet, configProvider)
 
-		podman, err := podmanFactory(user)
+	case v1beta1.AppTypeHelm:
+		helmApp, err := (*appSpec).AsHelmApplication()
 		if err != nil {
-			return nil, fmt.Errorf("creating podman client for user %s: %w", user, err)
+			return nil, fmt.Errorf("getting helm application: %w", err)
 		}
-
-		readWriter, err := rwFactory(user)
+		readWriter, err := rwFactory(v1beta1.CurrentProcessUsername)
 		if err != nil {
-			return nil, fmt.Errorf("creating read/writer for user %s: %w", user, err)
+			return nil, fmt.Errorf("creating read/writer: %w", err)
 		}
-		imageSpec, err := quadletApp.AsImageApplicationProviderSpec()
-		if err != nil {
-			return nil, fmt.Errorf("getting quadlet image provider: %w", err)
-		}
-		if err := ensureAppTypeFromImage(ctx, podman, v1beta1.AppTypeQuadlet, imageSpec.Image); err != nil {
-			return nil, fmt.Errorf("ensuring app type: %w", err)
-		}
-		return extractAppDataFromOCITarget(ctx, podman, readWriter, appName, imageSpec.Image, v1beta1.AppTypeQuadlet, configProvider)
+		return extractHelmNestedTargets(ctx, log, clients, readWriter, appName, &helmApp, configProvider)
 
 	default:
 		return nil, fmt.Errorf("%w for app %s: %s", errors.ErrUnsupportedAppType, appName, appType)
 	}
+}
+
+// extractHelmNestedTargets extracts container images from Helm chart manifests via dry-run.
+func extractHelmNestedTargets(
+	ctx context.Context,
+	log *log.PrefixLogger,
+	clients client.CLIClients,
+	readWriter fileio.ReadWriter,
+	appName string,
+	helmApp *v1beta1.HelmApplication,
+	configProvider client.PullConfigProvider,
+) (*AppData, error) {
+	if clients == nil {
+		return nil, fmt.Errorf("CLIClients required for Helm app extraction")
+	}
+
+	chartRef := helmApp.Image
+
+	resolved, err := clients.Helm().IsResolved(chartRef)
+	if err != nil {
+		return nil, fmt.Errorf("check chart resolved: %w", err)
+	}
+	if !resolved {
+		return nil, fmt.Errorf("chart %s not resolved", chartRef)
+	}
+
+	kubeconfigPath, err := clients.Kube().ResolveKubeconfig()
+	if err != nil {
+		return nil, fmt.Errorf("resolve kubeconfig: %w", err)
+	}
+
+	chartPath := clients.Helm().GetChartPath(chartRef)
+
+	valuesPaths, cleanup, err := resolveHelmValues(appName, chartPath, lo.FromPtr(helmApp.ValuesFiles), helmApp.Values, "", readWriter)
+	if err != nil {
+		return nil, fmt.Errorf("resolving values: %w", err)
+	}
+	defer cleanup()
+
+	dryRunOpts := []client.HelmOption{
+		client.WithKubeconfig(kubeconfigPath),
+		client.WithNamespace(helm.AppNamespace(helmApp.Namespace, appName)),
+		client.WithCreateNamespace(),
+	}
+
+	if len(valuesPaths) > 0 {
+		dryRunOpts = append(dryRunOpts, client.WithValuesFiles(valuesPaths))
+	}
+
+	manifests, err := clients.Helm().DryRun(ctx, appName, chartPath, dryRunOpts...)
+	if err != nil {
+		return nil, fmt.Errorf("helm dry-run: %w", err)
+	}
+
+	images, err := helm.ExtractImagesFromManifests(manifests)
+	if err != nil {
+		return nil, fmt.Errorf("extract images from manifests: %w", err)
+	}
+
+	var targets []dependency.OCIPullTarget
+	for _, img := range images {
+		targets = append(targets, dependency.OCIPullTarget{
+			Type:       dependency.OCITypeCRIImage,
+			Reference:  img,
+			PullPolicy: v1beta1.PullIfNotPresent,
+			Configs:    configProvider,
+		})
+	}
+
+	log.Debugf("Extracted %d images from Helm chart %s", len(targets), chartRef)
+
+	return &AppData{Targets: targets}, nil
 }
 
 // FromDeviceSpec parses the application spec and returns a list of providers.
@@ -711,6 +813,9 @@ func createProviderForAppType(
 
 	case v1beta1.AppTypeQuadlet:
 		return newQuadletProvider(ctx, log, podman, providerSpec, rwFactory, cfg)
+
+	case v1beta1.AppTypeHelm:
+		return newHelmProvider(ctx, log, clients, providerSpec, rwFactory, cfg)
 
 	default:
 		return nil, fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, appType)
