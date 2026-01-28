@@ -102,8 +102,11 @@ var _ = Describe("Timeout Check Integration Tests", func() {
 		kvStoreInst, kvErr = kvstore.NewKVStore(ctx, log, "localhost", 6379, domain.SecureString("adminpass"))
 		Expect(kvErr).ToNot(HaveOccurred())
 
+		// Create config with defaults
+		cfg = config.NewDefault()
+
 		// Create imagebuilder service
-		imageBuilderService = service.NewService(ctx, imageBuilderStore, mainStore, nil, kvStoreInst, log)
+		imageBuilderService = service.NewService(ctx, cfg, imageBuilderStore, mainStore, nil, kvStoreInst, log)
 
 		// Create consumer
 		consumer = tasks.NewConsumer(
@@ -113,7 +116,7 @@ var _ = Describe("Timeout Check Integration Tests", func() {
 			nil, // serviceHandler
 			imageBuilderService,
 			nil, // queueProducer
-			&config.Config{},
+			cfg,
 			log,
 		)
 	})

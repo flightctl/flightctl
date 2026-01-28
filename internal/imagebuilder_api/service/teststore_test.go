@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
@@ -521,15 +522,30 @@ func (s *DummyStore) Close() error {
 // DummyKVStore is a mock implementation of kvstore.KVStore for unit testing
 type DummyKVStore struct {
 	streams map[string][][]byte
+	mu      sync.Mutex
+	// canceledSignals maps stream keys to whether a "canceled" signal should be returned
+	// When a key is present and true, StreamRead will return the signal once
+	canceledSignals map[string]bool
 }
 
 func NewDummyKVStore() *DummyKVStore {
 	return &DummyKVStore{
-		streams: make(map[string][][]byte),
+		streams:         make(map[string][][]byte),
+		canceledSignals: make(map[string]bool),
 	}
 }
 
+// SimulateCanceledSignal configures the mock to return a "canceled" signal when
+// StreamRead is called for the given key
+func (s *DummyKVStore) SimulateCanceledSignal(key string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.canceledSignals[key] = true
+}
+
 func (s *DummyKVStore) StreamAdd(ctx context.Context, key string, value []byte) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.streams[key] == nil {
 		s.streams[key] = make([][]byte, 0)
 	}
@@ -546,7 +562,26 @@ func (s *DummyKVStore) StreamRange(ctx context.Context, key string, start, stop 
 }
 
 func (s *DummyKVStore) StreamRead(ctx context.Context, key string, lastID string, block time.Duration, count int64) ([]kvstore.StreamEntry, error) {
-	return nil, nil
+	s.mu.Lock()
+	// Check if we should return a canceled signal for this key
+	if s.canceledSignals[key] {
+		// Return the signal once, then mark as consumed
+		delete(s.canceledSignals, key)
+		s.mu.Unlock()
+		return []kvstore.StreamEntry{
+			{ID: "0-1", Value: []byte("canceled")},
+		}, nil
+	}
+	s.mu.Unlock()
+
+	// Simulate Redis XREAD BLOCK - wait for the block duration or context cancellation
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-time.After(block):
+		// Timeout - return empty (no signal)
+		return nil, nil
+	}
 }
 
 func (s *DummyKVStore) SetNX(ctx context.Context, key string, value []byte) (bool, error) {

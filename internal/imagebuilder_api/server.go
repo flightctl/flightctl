@@ -68,7 +68,7 @@ func New(
 		}
 	}
 
-	svc := service.NewService(ctx, imageBuilderStore, mainStore, queueProducer, kvStore, log)
+	svc := service.NewService(ctx, cfg, imageBuilderStore, mainStore, queueProducer, kvStore, log)
 	return &Server{
 		log:               log,
 		cfg:               cfg,

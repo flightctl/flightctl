@@ -130,6 +130,23 @@ This initiates a graceful cancellation of the build. The status will transition 
 > [!NOTE]
 > Only builds in `Pending`, `Building`, or `Pushing` status can be canceled. Builds that have already completed, failed, or been canceled cannot be canceled again.
 
+### Deleting an ImageBuild
+
+Delete an ImageBuild using the `delete` command:
+
+```console
+flightctl delete imagebuild/my-image-build
+```
+
+When deleting an ImageBuild:
+
+1. **Related ImageExports are deleted first**: Any ImageExport resources that reference this ImageBuild will be automatically deleted. Each related ImageExport will be canceled (if in progress) before deletion.
+2. **The ImageBuild is canceled if in progress**: If the ImageBuild is currently running (Pending, Building, or Pushing), it will be canceled and the delete operation will wait for the cancellation to complete.
+3. **The ImageBuild is deleted**: After all related resources are cleaned up, the ImageBuild itself is deleted.
+
+> [!NOTE]
+> Deleting an in-progress ImageBuild may take up to 30 seconds while waiting for the build to be canceled. If the cancellation does not complete within this timeout, the resource will still be deleted.
+
 ### Example: Early Binding ImageBuild
 
 ```yaml
@@ -274,6 +291,19 @@ This initiates a graceful cancellation of the export. The status will transition
 
 > [!NOTE]
 > Only exports in `Pending`, `Converting`, or `Pushing` status can be canceled. Exports that have already completed, failed, or been canceled cannot be canceled again.
+
+### Deleting an ImageExport
+
+Delete an ImageExport using the `delete` command:
+
+```console
+flightctl delete imageexport/my-image-export
+```
+
+If the ImageExport is currently in progress (Pending, Converting, or Pushing), the delete operation will automatically cancel the export first and wait for the cancellation to complete before deleting the resource. This ensures clean shutdown of any running export processes.
+
+> [!NOTE]
+> Deleting an in-progress ImageExport may take up to 30 seconds while waiting for the export to be canceled. If the cancellation does not complete within this timeout, the resource will still be deleted.
 
 ### Downloading the Exported Image
 

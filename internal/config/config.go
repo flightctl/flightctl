@@ -24,7 +24,7 @@ const (
 type Config struct {
 	Database            *dbConfig                  `json:"database,omitempty"`
 	Service             *svcConfig                 `json:"service,omitempty"`
-	ImageBuilderService *imageBuilderServiceConfig `json:"imageBuilderService,omitempty"`
+	ImageBuilderService *ImageBuilderServiceConfig `json:"imageBuilderService,omitempty"`
 	ImageBuilderWorker  *imageBuilderWorkerConfig  `json:"imageBuilderWorker,omitempty"`
 	KV                  *kvConfig                  `json:"kv,omitempty"`
 	Alertmanager        *alertmanagerConfig        `json:"alertmanager,omitempty"`
@@ -103,7 +103,7 @@ type HealthChecks struct {
 	ReadinessTimeout util.Duration `json:"readinessTimeout,omitempty"`
 }
 
-type imageBuilderServiceConfig struct {
+type ImageBuilderServiceConfig struct {
 	Address               string           `json:"address,omitempty"`
 	LogLevel              string           `json:"logLevel,omitempty"`
 	TLSCertFile           string           `json:"tlsCertFile,omitempty"`
@@ -118,6 +118,7 @@ type imageBuilderServiceConfig struct {
 	HttpMaxRequestSize    int              `json:"httpMaxRequestSize,omitempty"`
 	RateLimit             *RateLimitConfig `json:"rateLimit,omitempty"`
 	HealthChecks          *HealthChecks    `json:"healthChecks,omitempty"`
+	DeleteCancelTimeout   util.Duration    `json:"deleteCancelTimeout,omitempty"`
 }
 
 type imageBuilderWorkerConfig struct {
@@ -146,8 +147,8 @@ func NewDefaultImageBuilderWorkerConfig() *imageBuilderWorkerConfig {
 }
 
 // NewDefaultImageBuilderServiceConfig returns a default ImageBuilder service configuration
-func NewDefaultImageBuilderServiceConfig() *imageBuilderServiceConfig {
-	return &imageBuilderServiceConfig{
+func NewDefaultImageBuilderServiceConfig() *ImageBuilderServiceConfig {
+	return &ImageBuilderServiceConfig{
 		Address:               ":8445",
 		LogLevel:              "info",
 		HttpReadTimeout:       util.Duration(5 * time.Minute),
@@ -157,6 +158,7 @@ func NewDefaultImageBuilderServiceConfig() *imageBuilderServiceConfig {
 		HttpMaxNumHeaders:     32,
 		HttpMaxUrlLength:      2000,
 		HttpMaxRequestSize:    50 * 1024 * 1024, // 50MB
+		DeleteCancelTimeout:   util.Duration(30 * time.Second),
 		HealthChecks: &HealthChecks{
 			Enabled:          true,
 			ReadinessPath:    "/readyz",

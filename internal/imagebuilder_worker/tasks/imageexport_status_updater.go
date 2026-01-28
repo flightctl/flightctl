@@ -209,6 +209,10 @@ func (u *imageExportStatusUpdater) updateStatus(condition *api.ImageExportCondit
 				condition.Reason == string(api.ImageExportConditionReasonCanceled) {
 				u.persistLogsToDB()
 				u.writeStreamCompleteMarker()
+				// Signal cancellation completion so Delete API can proceed
+				if condition.Reason == string(api.ImageExportConditionReasonCanceled) {
+					u.signalCanceled()
+				}
 			}
 		}
 	}
@@ -346,6 +350,30 @@ func (u *imageExportStatusUpdater) writeStreamCompleteMarker() {
 	if err != nil {
 		u.log.WithError(err).Warn("Failed to write stream complete marker to Redis")
 	}
+}
+
+// GetCanceledStreamKey returns the Redis stream key used for signaling cancellation completion
+func GetCanceledStreamKey(orgID uuid.UUID, imageExportName string) string {
+	return fmt.Sprintf("imageexport:canceled:%s:%s", orgID.String(), imageExportName)
+}
+
+// signalCanceled writes a signal to Redis when the export has been canceled
+// This allows the Delete API to wait for cancellation completion before deleting
+func (u *imageExportStatusUpdater) signalCanceled() {
+	if u.kvStore == nil {
+		return
+	}
+
+	streamKey := GetCanceledStreamKey(u.orgID, u.imageExportName)
+	if _, err := u.kvStore.StreamAdd(u.ctx, streamKey, []byte("canceled")); err != nil {
+		u.log.WithError(err).Warn("Failed to write canceled signal to Redis")
+		return
+	}
+	// Set TTL on stream key (5 minutes - enough for delete to read it)
+	if err := u.kvStore.SetExpire(u.ctx, streamKey, 5*time.Minute); err != nil {
+		u.log.WithError(err).Warn("Failed to set TTL on canceled stream key")
+	}
+	u.log.Info("Signaled cancellation completion via Redis")
 }
 
 // listenForCancellation listens for cancellation messages via Redis Stream

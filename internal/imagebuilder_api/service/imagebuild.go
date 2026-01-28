@@ -9,6 +9,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	api "github.com/flightctl/flightctl/api/imagebuilder/v1beta1"
+	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/store"
@@ -44,23 +45,27 @@ type ImageBuildService interface {
 
 // imageBuildService is the concrete implementation of ImageBuildService
 type imageBuildService struct {
-	store           store.ImageBuildStore
-	repositoryStore mainstore.Repository
-	eventHandler    *internalservice.EventHandler
-	queueProducer   queues.QueueProducer
-	kvStore         kvstore.KVStore
-	log             logrus.FieldLogger
+	store              store.ImageBuildStore
+	repositoryStore    mainstore.Repository
+	imageExportService ImageExportService
+	eventHandler       *internalservice.EventHandler
+	queueProducer      queues.QueueProducer
+	kvStore            kvstore.KVStore
+	cfg                *config.ImageBuilderServiceConfig
+	log                logrus.FieldLogger
 }
 
 // NewImageBuildService creates a new ImageBuildService
-func NewImageBuildService(s store.ImageBuildStore, repositoryStore mainstore.Repository, eventHandler *internalservice.EventHandler, queueProducer queues.QueueProducer, kvStore kvstore.KVStore, log logrus.FieldLogger) ImageBuildService {
+func NewImageBuildService(s store.ImageBuildStore, repositoryStore mainstore.Repository, imageExportService ImageExportService, eventHandler *internalservice.EventHandler, queueProducer queues.QueueProducer, kvStore kvstore.KVStore, cfg *config.ImageBuilderServiceConfig, log logrus.FieldLogger) ImageBuildService {
 	return &imageBuildService{
-		store:           s,
-		repositoryStore: repositoryStore,
-		eventHandler:    eventHandler,
-		queueProducer:   queueProducer,
-		kvStore:         kvStore,
-		log:             log,
+		store:              s,
+		repositoryStore:    repositoryStore,
+		imageExportService: imageExportService,
+		eventHandler:       eventHandler,
+		queueProducer:      queueProducer,
+		kvStore:            kvStore,
+		cfg:                cfg,
+		log:                log,
 	}
 }
 
@@ -127,8 +132,73 @@ func (s *imageBuildService) List(ctx context.Context, orgId uuid.UUID, params ap
 }
 
 func (s *imageBuildService) Delete(ctx context.Context, orgId uuid.UUID, name string) (*api.ImageBuild, v1beta1.Status) {
+	// First, get the ImageBuild to check its status
+	imageBuild, err := s.store.Get(ctx, orgId, name)
+	if err != nil {
+		if errors.Is(err, flterrors.ErrResourceNotFound) {
+			// Idempotent delete - resource doesn't exist
+			return nil, StatusOK()
+		}
+		return nil, StoreErrorToApiStatus(err, false, string(api.ResourceKindImageBuild), &name)
+	}
+
+	// Delete all related ImageExports first (using service which does cancel-wait-delete)
+	if s.imageExportService != nil {
+		if err := s.deleteRelatedImageExports(ctx, orgId, name); err != nil {
+			s.log.WithError(err).WithField("name", name).Warn("Error deleting related ImageExports, proceeding with ImageBuild deletion")
+			// Don't fail - proceed with deleting the ImageBuild
+		}
+	}
+
+	// If ImageBuild is in a cancelable state, cancel it first and wait
+	if isCancelableBuildState(imageBuild) {
+		s.log.WithField("orgId", orgId).WithField("name", name).Info("ImageBuild is in cancelable state, canceling before delete")
+
+		if _, err := s.CancelWithReason(ctx, orgId, name, "Build cancellation requested"); err != nil {
+			s.log.WithError(err).WithField("name", name).Warn("Failed to cancel ImageBuild before delete, proceeding with delete")
+		} else {
+			// Wait for cancellation to complete
+			timeout := 30 * time.Second
+			if s.cfg != nil {
+				timeout = time.Duration(s.cfg.DeleteCancelTimeout)
+			}
+			s.log.WithField("name", name).Info("Waiting for ImageBuild cancellation to complete")
+			if err := waitForCanceled(ctx, s.kvStore, s.log, getImageBuildCanceledStreamKey(orgId, name), timeout); err != nil {
+				s.log.WithError(err).WithField("name", name).Warn("Timeout waiting for ImageBuild cancellation, proceeding with delete")
+			} else {
+				s.log.WithField("name", name).Info("ImageBuild cancellation completed, proceeding with delete")
+			}
+		}
+	}
+
+	// Now delete the ImageBuild
 	result, err := s.store.Delete(ctx, orgId, name)
 	return result, StoreErrorToApiStatus(err, false, string(api.ResourceKindImageBuild), &name)
+}
+
+// deleteRelatedImageExports deletes all ImageExports that reference the given ImageBuild
+func (s *imageBuildService) deleteRelatedImageExports(ctx context.Context, orgId uuid.UUID, imageBuildName string) error {
+	// List all ImageExports that reference this ImageBuild
+	fieldSelectorStr := fmt.Sprintf("spec.source.imageBuildRef=%s", imageBuildName)
+
+	exports, status := s.imageExportService.List(ctx, orgId, api.ListImageExportsParams{
+		FieldSelector: lo.ToPtr(fieldSelectorStr),
+	})
+	if !IsStatusOK(status) {
+		return fmt.Errorf("failed to list ImageExports: %s", status.Message)
+	}
+
+	// Delete each ImageExport using the service (which does cancel-wait-delete)
+	for _, export := range exports.Items {
+		exportName := lo.FromPtr(export.Metadata.Name)
+		s.log.WithField("imageBuild", imageBuildName).WithField("imageExport", exportName).Info("Deleting related ImageExport")
+		if _, delStatus := s.imageExportService.Delete(ctx, orgId, exportName); !IsStatusOK(delStatus) {
+			s.log.WithField("imageExport", exportName).WithField("status", delStatus.Message).Warn("Failed to delete related ImageExport")
+			// Continue deleting other exports
+		}
+	}
+
+	return nil
 }
 
 func (s *imageBuildService) Cancel(ctx context.Context, orgId uuid.UUID, name string) (*api.ImageBuild, error) {
@@ -172,22 +242,32 @@ func (s *imageBuildService) CancelWithReason(ctx context.Context, orgId uuid.UUI
 
 	// 5. Write cancellation to Redis Stream (worker reads with blocking)
 	// Uses existing StreamAdd method - same as log streaming
-	streamKey := fmt.Sprintf("imagebuild:cancel:%s:%s", orgId.String(), name)
-	if _, err := s.kvStore.StreamAdd(ctx, streamKey, []byte("cancel")); err != nil {
-		s.log.WithError(err).Warn("Failed to write cancellation to Redis stream")
-		// Don't fail - status is already Canceling, worker can detect via DB check as fallback
-	}
-	// Set TTL on stream key (1 hour - same as logs)
-	if err := s.kvStore.SetExpire(ctx, streamKey, 1*time.Hour); err != nil {
-		s.log.WithError(err).Warn("Failed to set TTL on cancellation stream key")
+	if s.kvStore != nil {
+		if _, err := s.kvStore.StreamAdd(ctx, getImageBuildCancelStreamKey(orgId, name), []byte("cancel")); err != nil {
+			s.log.WithError(err).Warn("Failed to write cancellation to Redis stream")
+			// Don't fail - status is already Canceling, worker can detect via DB check as fallback
+		}
+		// Set TTL on stream key (1 hour - same as logs)
+		if err := s.kvStore.SetExpire(ctx, getImageBuildCancelStreamKey(orgId, name), 1*time.Hour); err != nil {
+			s.log.WithError(err).Warn("Failed to set TTL on cancellation stream key")
+		}
+	} else {
+		s.log.Warn("kvStore is nil, cannot write cancellation to Redis stream")
 	}
 
 	s.log.WithField("orgId", orgId).WithField("name", name).WithField("reason", reason).Info("ImageBuild cancellation requested")
 	return result, nil
 }
 
-// isCancelableState checks if an ImageBuild is in a state that can be canceled
+// isCancelableState checks if an ImageBuild is in a state that can be canceled (used by Cancel API)
 func isCancelableState(imageBuild *api.ImageBuild) bool {
+	return isCancelableBuildState(imageBuild)
+}
+
+// isCancelableBuildState checks if an ImageBuild is in a state that can be canceled
+// Anything NOT in a terminal state is cancelable
+// Terminal states: Canceled, Canceling, Completed, Failed
+func isCancelableBuildState(imageBuild *api.ImageBuild) bool {
 	if imageBuild.Status == nil || imageBuild.Status.Conditions == nil {
 		// No status yet - treat as Pending, which is cancelable
 		return true
@@ -200,9 +280,21 @@ func isCancelableState(imageBuild *api.ImageBuild) bool {
 	}
 
 	reason := readyCondition.Reason
-	return reason == string(api.ImageBuildConditionReasonPending) ||
-		reason == string(api.ImageBuildConditionReasonBuilding) ||
-		reason == string(api.ImageBuildConditionReasonPushing)
+	// Anything NOT in a terminal state is cancelable
+	return reason != string(api.ImageBuildConditionReasonCanceled) &&
+		reason != string(api.ImageBuildConditionReasonCanceling) &&
+		reason != string(api.ImageBuildConditionReasonCompleted) &&
+		reason != string(api.ImageBuildConditionReasonFailed)
+}
+
+// getImageBuildCanceledStreamKey returns the Redis stream key for cancellation completion signals
+func getImageBuildCanceledStreamKey(orgId uuid.UUID, name string) string {
+	return fmt.Sprintf("imagebuild:canceled:%s:%s", orgId.String(), name)
+}
+
+// getImageBuildCancelStreamKey returns the Redis stream key for cancellation requests
+func getImageBuildCancelStreamKey(orgId uuid.UUID, name string) string {
+	return fmt.Sprintf("imagebuild:cancel:%s:%s", orgId.String(), name)
 }
 
 // Internal methods (not exposed via API)
