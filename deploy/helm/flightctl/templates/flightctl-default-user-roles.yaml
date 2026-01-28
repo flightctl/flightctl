@@ -30,6 +30,17 @@ rules:
       - fleets
       - resourcesyncs
       - organizations
+      - imagebuilds
+      - imageexports
+  # Viewer can view logs but NOT download
+  - verbs:
+      - get
+    apiGroups:
+      - flightctl.io
+    resources:
+      - imagebuilds/log
+      - imageexports/log
+  # Note: imageexports/download is intentionally NOT included for viewer role
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -53,6 +64,8 @@ rules:
       - fleets
       - resourcesyncs
       - repositories
+      - imagebuilds
+      - imageexports
   - verbs:
       - get
     apiGroups:
@@ -60,6 +73,17 @@ rules:
     resources:
       - devices/console
       - devices/lastseen
+      - imagebuilds/log
+      - imageexports/log
+      - imageexports/download
+  # Cancel operations for image builds/exports (PUT maps to update verb)
+  - verbs:
+      - update
+    apiGroups:
+      - flightctl.io
+    resources:
+      - imagebuilds/cancel
+      - imageexports/cancel
   - verbs:
       - get
       - list
@@ -94,6 +118,8 @@ rules:
     resources:
       - enrollmentrequests
       - organizations
+      - imagebuilds
+      - imageexports
   - verbs:
       - update  # API uses PUT for approval endpoint
     apiGroups:
@@ -109,3 +135,10 @@ rules:
       - flightctl.io
     resources:
       - certificatesigningrequests
+  # Installer can download image exports for installation
+  - verbs:
+      - get
+    apiGroups:
+      - flightctl.io
+    resources:
+      - imageexports/download
