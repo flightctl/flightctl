@@ -286,6 +286,12 @@ imagebuilds
 imagebuild
 imageexport
 imageexports
+kubeconfig
+CRI
+containerd
+prefetching
+prefetches
+networkless
  - docs/user/references/api-resources.md
 namespacing
 approvedBy

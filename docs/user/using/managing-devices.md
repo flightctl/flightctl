@@ -638,6 +638,12 @@ The following table shows the application runtimes and formats supported by Flig
 | Quadlet specification (via [Podman Quadlet](https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html)) | Unpackaged Inline | Inline in device specification |
 | Simplified container specification                                                                                 | OCI Image         | OCI registry                   |
 
+### Runtime: **Kubernetes** (Helm)
+
+| Specification                                                                 | Format    | Source / Delivery |
+|-------------------------------------------------------------------------------|-----------|-------------------|
+| Helm chart (via [Helm](https://helm.sh/))                                     | OCI Image | OCI registry      |
+
 > [!NOTE]
 > Compose applications require `podman-compose` to be installed on the device.
 
@@ -656,7 +662,7 @@ To deploy an application to a device, create a new entry in the "applications" s
 |-----------|---------------------------------------------------------------------------------------------------------------------------------|
 | Name      | A user-defined name for the application. This will be used when the web UI and CLI list applications.                           |
 | Image     | A reference to an application package in an OCI registry.                                                                       |
-| AppType   | The application format type. Currently supported types: `compose`, `quadlet`, `container`.                                      |
+| AppType   | The application format type. Currently supported types: `compose`, `quadlet`, `container`, `helm`.                              |
 | EnvVars   | (Optional) A list of key/value-pairs that will be passed to the deployment tool as environment variables or command line flags. |
 
 For each application in the "applications" section of the device's specification, there exist a corresponding device status information that contains the following information:
@@ -693,6 +699,179 @@ spec:
 [...]
 ```
 
+### Helm Applications
+
+Helm applications allow you to deploy Kubernetes workloads to edge devices running a local Kubernetes distribution such as [MicroShift](https://microshift.io/). The Flight Control agent uses Helm to install, upgrade, and uninstall charts on the device's local cluster.
+
+#### Device Requirements
+
+The following dependencies must be installed on the device:
+
+| Dependency | Required Version | Description |
+|------------|------------------|-------------|
+| `helm`     | >= 3.8           | Helm CLI for chart management. Version 3.8+ is required for OCI registry support. |
+| `kubectl` or `oc` | Any       | Kubernetes CLI for cluster operations. Either `kubectl` or `oc` (OpenShift CLI) is supported. |
+| `crictl`   | Any              | CRI compatible CLI for pulling container images referenced by Helm charts. |
+
+> [!NOTE]
+> The agent automatically detects whether `kubectl` or `oc` is available (with preference for `kubectl`) and uses the first one found.
+
+#### Kubeconfig Configuration
+
+The agent automatically discovers the kubeconfig file to connect to the local Kubernetes cluster. The following locations are checked in order:
+
+1. **`KUBECONFIG` environment variable**: If set, the agent checks each path in the colon-separated list and uses the first existing file.
+2. **MicroShift default path**: `/var/lib/microshift/resources/kubeadmin/kubeconfig`
+3. **Standard default path**: `$HOME/.kube/config`
+
+If you are using MicroShift, the kubeconfig is automatically available after the cluster starts. For other Kubernetes distributions, ensure the kubeconfig is placed in one of the above locations.
+
+> [!TIP]
+> For MicroShift deployments, you can use a lifecycle hook to wait for the kubeconfig to become available before proceeding with updates:
+>
+> ```yaml
+> - run: /usr/bin/bash -c "until [ -f $KUBECONFIG ]; do sleep 1; done"
+>   timeout: 5m
+>   envVars:
+>     KUBECONFIG: "/var/lib/microshift/resources/kubeadmin/kubeconfig"
+> ```
+
+#### Authentication Configuration
+
+Helm applications may require authentication for OCI registries (to pull charts) and container registries (to pull images referenced by the chart). Configure authentication files on the device before deploying Helm applications.
+
+| Configuration File | Purpose |
+|--------------------|---------|
+| `/root/.config/containers/auth.json` | Container registry authentication for pulling images. This is also used as a fallback for Helm OCI registry authentication. |
+| `/root/.config/helm/registry/config.json` | Helm OCI registry authentication (Docker config format). If not present, the container auth file is used. |
+| `/root/.config/helm/repositories.yaml` | Helm repository configuration for non-OCI chart repositories. |
+| `/etc/crictl.yaml` | CRI runtime configuration for `crictl` to pull images. Required if your cluster uses a non-default CRI socket path. |
+
+**Auth File Format:**
+
+The registry authentication files follow the Docker config format:
+
+```json
+{
+  "auths": {
+    "quay.io": {
+      "auth": "base64-encoded-credentials"
+    },
+    "registry.example.com": {
+      "auth": "base64-encoded-credentials"
+    }
+  }
+}
+```
+
+> [!NOTE]
+> Authentication files must exist on the device before deploying Helm applications. You can provision these files using the [Inline Config Provider](#specifying-configuration-inline-in-the-device-spec) or by including them in your OS image.
+
+#### CRI Configuration
+
+The `crictl` tool requires configuration to communicate with the container runtime. Create `/etc/crictl.yaml` with the appropriate runtime endpoint:
+
+**For MicroShift (CRI-O):**
+
+```yaml
+runtime-endpoint: unix:///var/run/crio/crio.sock
+image-endpoint: unix:///var/run/crio/crio.sock
+```
+
+**For containerd:**
+
+```yaml
+runtime-endpoint: unix:///run/containerd/containerd.sock
+image-endpoint: unix:///run/containerd/containerd.sock
+```
+
+#### Helm Application Specification
+
+To deploy a Helm application, add an entry to the `applications` section of the device specification with `appType: helm`:
+
+| Parameter | Description |
+|-----------|-------------|
+| `name` | (Optional) A user-defined name for the application. If not specified, the chart reference is used as the name. |
+| `appType` | Must be `helm` for Helm applications. |
+| `image` | OCI reference to the Helm chart. Must include registry, repository, and version tag or digest. Example: `quay.io/myorg/mychart:v1.0.0` |
+| `namespace` | (Optional) The Kubernetes namespace for deployment. If not specified, defaults to `flightctl-<app-name>`. |
+| `values` | (Optional) Inline values to pass to the Helm chart. Supports arbitrarily nested structures. |
+| `valuesFiles` | (Optional) List of values files to apply. Paths are relative to the chart root and applied in order before inline values. |
+
+#### Example: Basic Helm Application
+
+```yaml
+apiVersion: flightctl.io/v1beta1
+kind: Device
+metadata:
+  name: edge-device-001
+spec:
+  applications:
+    - name: my-app
+      appType: helm
+      image: quay.io/myorg/my-app-chart:v1.2.0
+      namespace: my-app
+```
+
+#### Example: Helm Application with Values
+
+```yaml
+apiVersion: flightctl.io/v1beta1
+kind: Device
+metadata:
+  name: edge-device-001
+spec:
+  applications:
+    - name: monitoring
+      appType: helm
+      image: quay.io/myorg/monitoring-chart:v2.0.0
+      namespace: monitoring
+      values:
+        replicaCount: 1
+        service:
+          type: NodePort
+          port: 8080
+        resources:
+          limits:
+            cpu: "500m"
+            memory: "256Mi"
+```
+
+#### Example: Helm Application with Values Files
+
+Charts may supply values files (e.g. `values-prod.yaml`). Those optional files can be referenced from a helm application's definition by supplying a relative path to the values file within the chart. The agent validates that these files exist in the chart before deployment.
+
+```yaml
+apiVersion: flightctl.io/v1beta1
+kind: Device
+metadata:
+  name: edge-device-001
+spec:
+  applications:
+    - name: my-app
+      appType: helm
+      image: quay.io/myorg/my-app-chart:v1.2.0
+      namespace: my-app
+      valuesFiles:
+        # These values must exist within 'my-app-chart:v1.2.0'
+        - values-production.yaml
+        - values-edge.yaml
+        - values/hardening.yaml
+      values:
+        # Inline values are applied last and override values files
+        nodeSelector:
+          kubernetes.io/arch: arm64
+```
+
+#### Image Prefetching
+
+The Flight Control agent attempts to prefetch all container images referenced by Helm charts before deployment. This allows applications to start without network access after the initial sync.
+
+The agent performs a Helm dry-run to extract all container images from the rendered manifests, then uses `crictl` to pull these images to the local CRI cache.
+
+> [!IMPORTANT]
+> While the agent prefetches images to enable networkless operation, charts that specify `imagePullPolicy: Always` in their manifests will still attempt to pull images at runtime. For fully offline deployments, ensure your charts use `imagePullPolicy: IfNotPresent` or `Never`.
+
 ## Image and Artifact Pruning
 
 The Flight Control agent can automatically remove unused container images and OCI artifacts from devices to free up disk space. This feature helps prevent storage exhaustion on edge devices with limited capacity.
@@ -706,9 +885,9 @@ Image and artifact pruning operates on a "lost reference" model:
 2. **Pruning Execution**: After a successful spec update, the agent compares the previously recorded references with the current device specifications. Any images or artifacts that were previously referenced but are no longer needed are eligible for removal.
 
 3. **Safe Pruning**: The agent only removes items that:
-   * Were previously recorded in the references file
-   * Are no longer referenced in the current or desired device specifications
-   * Exist locally on the device
+    * Were previously recorded in the references file
+    * Are no longer referenced in the current or desired device specifications
+    * Exist locally on the device
 
 4. **Preservation**: Images and artifacts required for current operations or potential rollback (desired state) are always preserved, even if they appear in the references file.
 
@@ -719,8 +898,9 @@ Image and artifact pruning operates on a "lost reference" model:
 
 The pruning process considers the following types of OCI targets:
 
-* **Application Images**: Container images referenced by Compose, Quadlet, or container applications
+* **Application Images**: Container images referenced by Compose, Quadlet, Container, or Helm applications
 * **OS Images**: Operating system images specified in the device's OS configuration
+* **Helm Charts**: Charts referenced by Helm applications
 
 ### Configuring Pruning
 
