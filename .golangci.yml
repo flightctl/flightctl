@@ -107,6 +107,39 @@ linters-settings:
           - pkg: "github.com/flightctl/flightctl/api/"
             desc: "Use internal/domain instead of api/ in store layer"
 
+      imagebuilder-service-no-api:
+        list-mode: lax
+        files:
+          - "**/internal/imagebuilder_api/service/**"
+          - "!**/*_test.go"
+        deny:
+          - pkg: "github.com/flightctl/flightctl/api$"
+            desc: "Use internal/imagebuilder_api/domain instead of api/ in imagebuilder service layer"
+          - pkg: "github.com/flightctl/flightctl/api/"
+            desc: "Use internal/imagebuilder_api/domain instead of api/ in imagebuilder service layer"
+
+      imagebuilder-store-no-api:
+        list-mode: lax
+        files:
+          - "**/internal/imagebuilder_api/store/**"
+          - "!**/*_test.go"
+        deny:
+          - pkg: "github.com/flightctl/flightctl/api$"
+            desc: "Use internal/imagebuilder_api/domain instead of api/ in imagebuilder store layer"
+          - pkg: "github.com/flightctl/flightctl/api/"
+            desc: "Use internal/imagebuilder_api/domain instead of api/ in imagebuilder store layer"
+
+      imagebuilder-worker-no-api:
+        list-mode: lax
+        files:
+          - "**/internal/imagebuilder_worker/**"
+          - "!**/*_test.go"
+        deny:
+          - pkg: "github.com/flightctl/flightctl/api$"
+            desc: "Use internal/imagebuilder_api/domain instead of api/ in imagebuilder worker"
+          - pkg: "github.com/flightctl/flightctl/api/"
+            desc: "Use internal/imagebuilder_api/domain instead of api/ in imagebuilder worker"
+
   govet:
     settings:
       printf:
