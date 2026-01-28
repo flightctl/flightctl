@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/core/v1beta1"
-	apiimagebuilder "github.com/flightctl/flightctl/api/imagebuilder/v1beta1"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
+	coredomain "github.com/flightctl/flightctl/internal/domain"
+	"github.com/flightctl/flightctl/internal/imagebuilder_api/domain"
 	imagebuilderapi "github.com/flightctl/flightctl/internal/imagebuilder_api/service"
 	imagebuilderstore "github.com/flightctl/flightctl/internal/imagebuilder_api/store"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
@@ -97,11 +97,11 @@ func (c *Consumer) Consume(ctx context.Context, payload []byte, entryID string, 
 	// Route to appropriate handler based on involved object kind and reason
 	var processingErr error
 	switch event.InvolvedObject.Kind {
-	case string(apiimagebuilder.ResourceKindImageBuild):
+	case string(domain.ResourceKindImageBuild):
 		switch event.Reason {
-		case api.EventReasonResourceCreated:
+		case coredomain.EventReasonResourceCreated:
 			processingErr = c.processImageBuild(ctx, eventWithOrgId, log)
-		case api.EventReasonResourceUpdated:
+		case coredomain.EventReasonResourceUpdated:
 			// Handle ImageBuild updates - if completed, requeue related ImageExports
 			processingErr = c.HandleImageBuildUpdate(ctx, eventWithOrgId, log)
 		default:
@@ -115,9 +115,9 @@ func (c *Consumer) Consume(ctx context.Context, payload []byte, entryID string, 
 			return nil
 		}
 
-	case string(apiimagebuilder.ResourceKindImageExport):
+	case string(domain.ResourceKindImageExport):
 		switch event.Reason {
-		case api.EventReasonResourceCreated:
+		case coredomain.EventReasonResourceCreated:
 			processingErr = c.processImageExport(ctx, eventWithOrgId, log)
 		default:
 			log.Debugf("ignoring ImageExport event with reason %q (only ResourceCreated is processed)", event.Reason)
@@ -164,7 +164,7 @@ func (c *Consumer) Consume(ctx context.Context, payload []byte, entryID string, 
 }
 
 // enqueueEvent enqueues an event to the imagebuild queue
-func (c *Consumer) enqueueEvent(ctx context.Context, orgID uuid.UUID, event *api.Event, log logrus.FieldLogger) error {
+func (c *Consumer) enqueueEvent(ctx context.Context, orgID uuid.UUID, event *coredomain.Event, log logrus.FieldLogger) error {
 	// Create EventWithOrgId structure for the queue
 	eventWithOrgId := worker_client.EventWithOrgId{
 		OrgId: orgID,
