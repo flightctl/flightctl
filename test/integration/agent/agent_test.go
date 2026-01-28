@@ -388,6 +388,89 @@ var _ = Describe("Device Agent behavior", func() {
 		})
 
 	})
+
+	Context("decommissioning", func() {
+		It("should delete all files in data directory during decommissioning", func() {
+			// Enroll the device first
+			dev := enrollAndWaitForDevice(h, testutil.TestEnrollmentApproval())
+			deviceName := lo.FromPtr(dev.Metadata.Name)
+
+			// Create test files in the data directory to verify they get deleted
+			dataDir := filepath.Join(h.TestDirPath, "var", "lib", "flightctl")
+			testFiles := []string{
+				filepath.Join(dataDir, "test-file-1.txt"),
+				filepath.Join(dataDir, "subdir", "test-file-2.txt"),
+				filepath.Join(dataDir, "another-dir", "nested", "test-file-3.txt"),
+			}
+
+			for _, testFile := range testFiles {
+				Expect(os.MkdirAll(filepath.Dir(testFile), 0o755)).To(Succeed())
+				Expect(os.WriteFile(testFile, []byte("test content"), 0o600)).To(Succeed())
+				GinkgoWriter.Printf("Created test file: %s\n", testFile)
+			}
+
+			// Verify files exist before decommissioning
+			for _, testFile := range testFiles {
+				_, err := os.Stat(testFile)
+				Expect(err).ToNot(HaveOccurred(), "Test file should exist before decommissioning")
+			}
+
+			// Ensure device is not already decommissioning (race condition in CI)
+			Eventually(func() bool {
+				currentDev, status := h.ServiceHandler.GetDevice(h.AuthenticatedContext(h.Context), org.DefaultID, deviceName)
+				// Fail fast on server errors (404, 500, etc) instead of retrying and masking them
+				Expect(status.Code).To(Equal(int32(200)), "GetDevice should return 200 OK")
+				return currentDev.Spec == nil || currentDev.Spec.Decommissioning == nil
+			}, TIMEOUT, POLLING).Should(BeTrue(), "Device should not already be in decommissioning state")
+
+			// Trigger decommissioning with Unenroll target
+			GinkgoWriter.Printf("Triggering decommissioning for device: %s\n", deviceName)
+			decommissionRequest := v1beta1.DeviceDecommission{
+				Target: v1beta1.DeviceDecommissionTargetTypeUnenroll,
+			}
+			_, status := h.ServiceHandler.DecommissionDevice(h.AuthenticatedContext(h.Context), org.DefaultID, deviceName, decommissionRequest)
+			if status.Code != http.StatusOK {
+				GinkgoWriter.Printf("DecommissionDevice failed with status %d: %v\n", status.Code, status)
+			}
+			Expect(status.Code).To(BeEquivalentTo(http.StatusOK), "DecommissionDevice should return 200 OK")
+
+			// Wait for decommissioning to complete - check that files are deleted
+			Eventually(func() bool {
+				// Check if any of the test files still exist
+				for _, testFile := range testFiles {
+					_, err := os.Stat(testFile)
+					if err == nil {
+						// File still exists
+						GinkgoWriter.Printf("File still exists: %s\n", testFile)
+						return false
+					}
+					if !os.IsNotExist(err) {
+						// Some other error occurred (not "file doesn't exist")
+						GinkgoWriter.Printf("Error checking file %s: %v\n", testFile, err)
+						return false
+					}
+					// File doesn't exist - this is what we want
+				}
+				GinkgoWriter.Println("All test files have been deleted")
+				return true
+			}, TIMEOUT, POLLING).Should(BeTrue(), "All files in data directory should be deleted during decommissioning")
+
+			// Verify the data directory itself still exists but is empty (or only contains subdirs that are empty)
+			entries, err := os.ReadDir(dataDir)
+			Expect(err).ToNot(HaveOccurred(), "Data directory must exist after decommissioning")
+
+			// Directory should be empty or only contain empty subdirectories
+			for _, entry := range entries {
+				if entry.IsDir() {
+					subEntries, subErr := os.ReadDir(filepath.Join(dataDir, entry.Name()))
+					Expect(subErr).ToNot(HaveOccurred())
+					Expect(subEntries).To(BeEmpty(), "Subdirectory should be empty after decommissioning")
+				} else {
+					Fail(fmt.Sprintf("Found unexpected file after decommissioning: %s", entry.Name()))
+				}
+			}
+		})
+	})
 })
 
 func enrollAndWaitForDevice(h *harness.TestHarness, approval *v1beta1.EnrollmentRequestApproval) *v1beta1.Device {
