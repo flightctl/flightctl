@@ -14,6 +14,7 @@ import (
 	reflect "reflect"
 
 	v1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
+	lifecycle "github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
 	provider "github.com/flightctl/flightctl/internal/agent/device/applications/provider"
 	dependency "github.com/flightctl/flightctl/internal/agent/device/dependency"
 	status "github.com/flightctl/flightctl/internal/agent/device/status"
@@ -234,6 +235,20 @@ func (m *MockApplication) EXPECT() *MockApplicationMockRecorder {
 	return m.recorder
 }
 
+// ActionSpec mocks base method.
+func (m *MockApplication) ActionSpec() lifecycle.ActionSpec {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ActionSpec")
+	ret0, _ := ret[0].(lifecycle.ActionSpec)
+	return ret0
+}
+
+// ActionSpec indicates an expected call of ActionSpec.
+func (mr *MockApplicationMockRecorder) ActionSpec() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ActionSpec", reflect.TypeOf((*MockApplication)(nil).ActionSpec))
+}
+
 // AddWorkload mocks base method.
 func (m *MockApplication) AddWorkload(Workload *Workload) {
 	m.ctrl.T.Helper()
@@ -258,6 +273,30 @@ func (m *MockApplication) AppType() v1beta1.AppType {
 func (mr *MockApplicationMockRecorder) AppType() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AppType", reflect.TypeOf((*MockApplication)(nil).AppType))
+}
+
+// ClearWorkloads mocks base method.
+func (m *MockApplication) ClearWorkloads() {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "ClearWorkloads")
+}
+
+// ClearWorkloads indicates an expected call of ClearWorkloads.
+func (mr *MockApplicationMockRecorder) ClearWorkloads() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClearWorkloads", reflect.TypeOf((*MockApplication)(nil).ClearWorkloads))
+}
+
+// CopyWorkloadsFrom mocks base method.
+func (m *MockApplication) CopyWorkloadsFrom(other Application) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "CopyWorkloadsFrom", other)
+}
+
+// CopyWorkloadsFrom indicates an expected call of CopyWorkloadsFrom.
+func (mr *MockApplicationMockRecorder) CopyWorkloadsFrom(other any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CopyWorkloadsFrom", reflect.TypeOf((*MockApplication)(nil).CopyWorkloadsFrom), other)
 }
 
 // ID mocks base method.
@@ -387,4 +426,18 @@ func (m *MockApplication) Workload(name string) (*Workload, bool) {
 func (mr *MockApplicationMockRecorder) Workload(name any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Workload", reflect.TypeOf((*MockApplication)(nil).Workload), name)
+}
+
+// Workloads mocks base method.
+func (m *MockApplication) Workloads() []Workload {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Workloads")
+	ret0, _ := ret[0].([]Workload)
+	return ret0
+}
+
+// Workloads indicates an expected call of Workloads.
+func (mr *MockApplicationMockRecorder) Workloads() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Workloads", reflect.TypeOf((*MockApplication)(nil).Workloads))
 }

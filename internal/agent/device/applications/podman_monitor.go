@@ -4,12 +4,10 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
-	stderrs "errors"
 	"fmt"
 	"io"
 	"os/exec"
 	"strconv"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -27,9 +25,7 @@ import (
 
 const (
 	expectedPodmanSigTermExitCode = 1
-	stopMonitorWaitDuration       = 5 * time.Second
 	quadletSystemdLabel           = "PODMAN_SYSTEMD_UNIT"
-	maxAppSummaryInfoLength       = 256
 )
 
 type PodmanMonitor struct {
@@ -157,30 +153,6 @@ func (m *PodmanMonitor) getApps() []Application {
 		apps = append(apps, app)
 	}
 	return apps
-}
-
-// isExpectedShutdownError determines if an error is expected during shutdown
-func isExpectedShutdownError(err error) bool {
-	if errors.IsContext(err) {
-		return true
-	}
-	var exitErr *exec.ExitError
-	if stderrs.As(err, &exitErr) {
-		if status, ok := exitErr.ProcessState.Sys().(syscall.WaitStatus); ok {
-			// when a SIGTERM is sent to the podman events process, it will output an exit code 1
-			// if a SIGKILL is sent, it will indicate that it was signaled via SIGKILL
-			if status.ExitStatus() == expectedPodmanSigTermExitCode {
-				return true
-			}
-			// if the process indicates a TERM or KILL signal then that was likely the agent and
-			// we shouldn't treat that as an error
-			if status.Signaled() {
-				signal := status.Signal()
-				return signal == syscall.SIGKILL || signal == syscall.SIGTERM
-			}
-		}
-	}
-	return false
 }
 
 func (m *PodmanMonitor) drain(ctx context.Context) error {
@@ -400,16 +372,12 @@ func (m *PodmanMonitor) drainActions() []lifecycle.Action {
 	return actions
 }
 
-func (m *PodmanMonitor) Status() ([]v1beta1.DeviceApplicationStatus, v1beta1.DeviceApplicationsSummaryStatus, error) {
+func (m *PodmanMonitor) Status() ([]AppStatusResult, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	var errs []error
-	var summary v1beta1.DeviceApplicationsSummaryStatus
-	statuses := make([]v1beta1.DeviceApplicationStatus, 0, len(m.apps))
-
-	var erroredApps []string
-	var degradedApps []string
+	results := make([]AppStatusResult, 0, len(m.apps))
 
 	for _, app := range m.apps {
 		appStatus, appSummary, err := app.Status()
@@ -417,56 +385,17 @@ func (m *PodmanMonitor) Status() ([]v1beta1.DeviceApplicationStatus, v1beta1.Dev
 			errs = append(errs, err)
 			continue
 		}
-		statuses = append(statuses, *appStatus)
-
-		// phases can get worse but not better
-		// Error > Degraded > Healthy
-		switch appSummary.Status {
-		case v1beta1.ApplicationsSummaryStatusError:
-			erroredApps = append(erroredApps, fmt.Sprintf("%s is in status %s", app.Name(), appSummary.Status))
-			summary.Status = v1beta1.ApplicationsSummaryStatusError
-		case v1beta1.ApplicationsSummaryStatusDegraded:
-			degradedApps = append(degradedApps, fmt.Sprintf("%s is in status %s", app.Name(), appSummary.Status))
-			if summary.Status != v1beta1.ApplicationsSummaryStatusError {
-				summary.Status = v1beta1.ApplicationsSummaryStatusDegraded
-			}
-		case v1beta1.ApplicationsSummaryStatusUnknown:
-			degradedApps = append(degradedApps, fmt.Sprintf("Not started: %s", app.Name()))
-			if summary.Status != v1beta1.ApplicationsSummaryStatusError {
-				summary.Status = v1beta1.ApplicationsSummaryStatusDegraded
-			}
-		case v1beta1.ApplicationsSummaryStatusHealthy:
-			if summary.Status != v1beta1.ApplicationsSummaryStatusError && summary.Status != v1beta1.ApplicationsSummaryStatusDegraded {
-				summary.Status = v1beta1.ApplicationsSummaryStatusHealthy
-			}
-		default:
-			errs = append(errs, fmt.Errorf("unknown application summary status: %s", appSummary.Status))
-		}
-	}
-
-	if len(statuses) == 0 {
-		summary.Status = v1beta1.ApplicationsSummaryStatusNoApplications
-	} else {
-		summary.Info = buildAppSummaryInfo(erroredApps, degradedApps, maxAppSummaryInfoLength)
+		results = append(results, AppStatusResult{
+			Status:  *appStatus,
+			Summary: appSummary,
+		})
 	}
 
 	if len(errs) > 0 {
-		return nil, summary, errors.Join(errs...)
+		return nil, errors.Join(errs...)
 	}
 
-	return statuses, summary, nil
-}
-
-func buildAppSummaryInfo(erroredApps, degradedApps []string, maxLen int) *string {
-	if len(erroredApps) == 0 && len(degradedApps) == 0 {
-		return nil
-	}
-
-	info := strings.Join(append(erroredApps, degradedApps...), ", ")
-	if len(info) > maxLen {
-		info = fmt.Sprintf("%s...", info[:maxLen-3])
-	}
-	return &info
+	return results, nil
 }
 
 func (m *PodmanMonitor) listenForEvents(ctx context.Context) {
@@ -806,15 +735,4 @@ func (e *podmanEventWatcher) Stop() error {
 	}
 	e.log.Info("Podman monitor stopped")
 	return nil
-}
-
-func waitForChannelWithTimeout(c <-chan struct{}, dur time.Duration) bool {
-	timer := time.NewTimer(dur)
-	defer timer.Stop()
-	select {
-	case <-c:
-		return true
-	case <-timer.C:
-		return false
-	}
 }

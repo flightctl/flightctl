@@ -31,6 +31,7 @@ var (
 	ErrAppDependency          = errors.New("failed to resolve application dependency")
 	ErrUnsupportedAppProvider = errors.New("unsupported application provider")
 	ErrAppLabel               = errors.New("required label not found")
+	ErrKubernetesAppsDisabled = errors.New("kubernetes applications disabled")
 
 	// compose
 	ErrNoComposeFile     = errors.New("no valid compose file found")
