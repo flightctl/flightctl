@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-KIND_VERSION=0.25.0
+KIND_VERSION=0.26.0
 
 EXISTING_VERSION=$(kind version 2>&1 | awk '{print $2}' | sed 's/v//')
 

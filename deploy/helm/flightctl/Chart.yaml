@@ -11,4 +11,4 @@ annotations:
   charts.openshift.io/name: FlightControl
   charts.openshift.io/provider: FlightControl
   charts.openshift.io/supportURL: https://github.com/flightctl/flightctl
-kubeVersion: '>= 1.31.0-0'
+kubeVersion: '>= 1.32.0-0'
