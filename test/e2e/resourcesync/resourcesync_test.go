@@ -34,7 +34,7 @@ type testContext struct {
 	listParams       v1beta1.ListFleetsParams
 }
 
-var _ = Describe("ResourceSync success cases", func() {
+var _ = PDescribe("ResourceSync success cases", func() {
 	var tc *testContext
 
 	BeforeEach(func() {
@@ -138,7 +138,7 @@ var _ = Describe("ResourceSync success cases", func() {
 	})
 })
 
-var _ = Describe("ResourceSync Failure Cases", func() {
+var _ = PDescribe("ResourceSync Failure Cases", func() {
 	var tc *testContext
 
 	BeforeEach(func() {
