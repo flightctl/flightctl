@@ -212,7 +212,7 @@ func TestKube_ResolveKubeconfig(t *testing.T) {
 		errContains string
 	}{
 		{
-			name: "KUBECONFIG env var exists and file exists",
+			name: "KUBECONFIG env var exists and file exists - returns empty to use env var",
 			setupMock: func(mockRW *fileio.MockReadWriter) {
 				mockRW.EXPECT().PathExists("/custom/kubeconfig").Return(true, nil)
 			},
@@ -268,7 +268,7 @@ func TestKube_ResolveKubeconfig(t *testing.T) {
 			errContains: "no kubeconfig found",
 		},
 		{
-			name: "KUBECONFIG with multiple paths - first exists",
+			name: "KUBECONFIG with multiple paths - first exists - returns empty to use env var",
 			setupMock: func(mockRW *fileio.MockReadWriter) {
 				mockRW.EXPECT().PathExists("/first/kubeconfig").Return(true, nil)
 			},
@@ -278,7 +278,7 @@ func TestKube_ResolveKubeconfig(t *testing.T) {
 			wantEmpty: true,
 		},
 		{
-			name: "KUBECONFIG with multiple paths - second exists",
+			name: "KUBECONFIG with multiple paths - second exists - returns empty to use env var",
 			setupMock: func(mockRW *fileio.MockReadWriter) {
 				mockRW.EXPECT().PathExists("/first/kubeconfig").Return(false, nil)
 				mockRW.EXPECT().PathExists("/second/kubeconfig").Return(true, nil)

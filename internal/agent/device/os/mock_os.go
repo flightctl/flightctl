@@ -137,18 +137,23 @@ func (mr *MockManagerMockRecorder) BeforeUpdate(ctx, current, desired any) *gomo
 }
 
 // CollectOCITargets mocks base method.
-func (m *MockManager) CollectOCITargets(ctx context.Context, current, desired *v1beta1.DeviceSpec) (*dependency.OCICollection, error) {
+func (m *MockManager) CollectOCITargets(ctx context.Context, current, desired *v1beta1.DeviceSpec, opts ...dependency.OCICollectOpt) (*dependency.OCICollection, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CollectOCITargets", ctx, current, desired)
+	varargs := []any{ctx, current, desired}
+	for _, a := range opts {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "CollectOCITargets", varargs...)
 	ret0, _ := ret[0].(*dependency.OCICollection)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // CollectOCITargets indicates an expected call of CollectOCITargets.
-func (mr *MockManagerMockRecorder) CollectOCITargets(ctx, current, desired any) *gomock.Call {
+func (mr *MockManagerMockRecorder) CollectOCITargets(ctx, current, desired any, opts ...any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CollectOCITargets", reflect.TypeOf((*MockManager)(nil).CollectOCITargets), ctx, current, desired)
+	varargs := append([]any{ctx, current, desired}, opts...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CollectOCITargets", reflect.TypeOf((*MockManager)(nil).CollectOCITargets), varargs...)
 }
 
 // Reboot mocks base method.

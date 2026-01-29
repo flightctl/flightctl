@@ -41,6 +41,28 @@ type Monitor interface {
 	Status() []v1beta1.DeviceApplicationStatus
 }
 
+// UpdateOpt configures application update behavior.
+type UpdateOpt func(*updateOpts)
+
+type updateOpts struct {
+	osUpdatePending bool
+}
+
+// WithOSUpdatePending indicates an OS update is pending.
+func WithOSUpdatePending(pending bool) UpdateOpt {
+	return func(o *updateOpts) {
+		o.osUpdatePending = pending
+	}
+}
+
+func applyUpdateOpts(opts ...UpdateOpt) updateOpts {
+	var o updateOpts
+	for _, opt := range opts {
+		opt(&o)
+	}
+	return o
+}
+
 // Manager coordinates the lifecycle of an application by interacting with its Provider
 // and ensuring it is properly handed off to the appropriate runtime Monitor.
 type Manager interface {
@@ -52,7 +74,7 @@ type Manager interface {
 	Update(ctx context.Context, provider provider.Provider) error
 	// BeforeUpdate is called prior to installing an application to ensure the
 	// application is valid and dependencies are met.
-	BeforeUpdate(ctx context.Context, desired *v1beta1.DeviceSpec) error
+	BeforeUpdate(ctx context.Context, desired *v1beta1.DeviceSpec, opts ...UpdateOpt) error
 	// AfterUpdate is called after the application has been validated and is ready to be executed.
 	AfterUpdate(ctx context.Context) error
 	// Shutdown closes the manager according to the corresponding shutdown state

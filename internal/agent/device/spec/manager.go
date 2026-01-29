@@ -430,6 +430,9 @@ func (s *manager) GetDesired(ctx context.Context) (*v1beta1.Device, bool, error)
 		}
 		s.log.Tracef("Requeuing current desired spec from disk version: %s", desired.Version())
 		s.queue.Add(ctx, desired)
+		if s.lastConsumedDevice == nil {
+			s.lastConsumedDevice = desired
+		}
 	}
 
 	return s.getDeviceFromQueue(ctx)
@@ -481,6 +484,19 @@ func (s *manager) isNewDesiredVersion(desired *v1beta1.Device) bool {
 
 func (s *manager) IsOSUpdate() bool {
 	return s.cache.getOSVersion(Current) != s.cache.getOSVersion(Desired)
+}
+
+func (s *manager) IsOSUpdatePending(ctx context.Context) (bool, error) {
+	if !s.IsOSUpdate() {
+		return false, nil
+	}
+
+	_, isReconciled, err := s.CheckOsReconciliation(ctx)
+	if err != nil {
+		return false, err
+	}
+
+	return !isReconciled, nil
 }
 
 func (s *manager) CheckOsReconciliation(ctx context.Context) (string, bool, error) {

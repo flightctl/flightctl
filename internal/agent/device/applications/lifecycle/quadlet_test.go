@@ -703,9 +703,9 @@ func TestQuadlet_update(t *testing.T) {
 				ID:   "app-789",
 			},
 			setupMocks: func(mockSystemdMgr *systemd.MockManager, mockRW *fileio.MockReadWriter, mockExec *executer.MockExecuter) {
+				// When ListDependencies returns empty, we skip Stop and go directly
+				// to cleanResources for idempotent removal
 				mockSystemdMgr.EXPECT().ListDependencies(gomock.Any(), "app-789-flightctl-quadlet-app.target").Return([]string{}, nil)
-				mockSystemdMgr.EXPECT().Stop(gomock.Any(), "app-789-flightctl-quadlet-app.target").Return(nil)
-				mockSystemdMgr.EXPECT().ListUnitsByMatchPattern(gomock.Any(), []string{}).Return([]client.SystemDUnitListEntry{}, nil)
 
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume")).Return("[]", "", 0).AnyTimes()
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("stop")).Return("", "", 0).AnyTimes()

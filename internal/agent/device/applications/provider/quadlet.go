@@ -11,6 +11,7 @@ import (
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
+	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/api/common"
@@ -25,11 +26,20 @@ const (
 	embeddedQuadletMarkerFile = ".flightctl-embedded"
 )
 
+var quadletBinaryDeps = []dependencyBins{
+	{variants: []string{"podman"}},
+	{variants: []string{"skopeo"}},
+}
+
+var _ Provider = (*quadletProvider)(nil)
+var _ appProvider = (*quadletProvider)(nil)
+
 type quadletProvider struct {
-	log        *log.PrefixLogger
-	podman     *client.Podman
-	readWriter fileio.ReadWriter
-	spec       *ApplicationSpec
+	log            *log.PrefixLogger
+	podman         *client.Podman
+	readWriter     fileio.ReadWriter
+	commandChecker commandChecker
+	spec           *ApplicationSpec
 
 	imageRef      string
 	inlineContent []v1beta1.ApplicationContent
@@ -70,12 +80,6 @@ func newQuadletProvider(
 		return nil, fmt.Errorf("getting quadlet provider type: %w", err)
 	}
 
-	if cfg != nil && cfg.providerTypes != nil {
-		if _, exists := cfg.providerTypes[providerType]; !exists {
-			return nil, nil
-		}
-	}
-
 	var imageRef string
 	var inlineContent []v1beta1.ApplicationContent
 	var volumeProvider func() ([]*Volume, error)
@@ -89,10 +93,6 @@ func newQuadletProvider(
 		imageRef = imageSpec.Image
 		if appName == "" {
 			appName = imageRef
-		}
-
-		if err := ensureAppTypeFromImage(ctx, podman, v1beta1.AppTypeQuadlet, imageRef); err != nil {
-			return nil, fmt.Errorf("ensuring app type: %w", err)
 		}
 
 	case v1beta1.InlineApplicationProviderType:
@@ -129,11 +129,12 @@ func newQuadletProvider(
 	}
 
 	p := &quadletProvider{
-		log:           log,
-		podman:        podman,
-		readWriter:    readWriter,
-		imageRef:      imageRef,
-		inlineContent: inlineContent,
+		log:            log,
+		podman:         podman,
+		readWriter:     readWriter,
+		commandChecker: client.IsCommandAvailable,
+		imageRef:       imageRef,
+		inlineContent:  inlineContent,
 		spec: &ApplicationSpec{
 			Name:       appName,
 			ID:         appID,
@@ -159,25 +160,37 @@ func (p *quadletProvider) isImageBased() bool {
 	return p.imageRef != ""
 }
 
-func (p *quadletProvider) Verify(ctx context.Context) error {
-	if err := validateEnvVars(p.spec.EnvVars); err != nil {
-		return fmt.Errorf("%w: validating env vars: %w", errors.ErrInvalidSpec, err)
-	}
-
-	if err := ensureDependenciesFromVolumes(ctx, p.podman, p.spec.QuadletApp.Volumes); err != nil {
-		return fmt.Errorf("%w: ensuring volume dependencies: %w", errors.ErrNoRetry, err)
-	}
-
-	if err := ensureDependenciesFromAppType([]string{"podman"}); err != nil {
-		return fmt.Errorf("%w: ensuring dependencies: %w", errors.ErrNoRetry, err)
+func (p *quadletProvider) EnsureDependencies(ctx context.Context) error {
+	if err := ensureDependenciesFromAppType(quadletBinaryDeps, p.commandChecker); err != nil {
+		return err
 	}
 
 	version, err := p.podman.Version(ctx)
 	if err != nil {
-		return fmt.Errorf("podman version: %w", err)
+		return fmt.Errorf("%w: podman version: %w", errors.ErrAppDependency, err)
 	}
 	if err := ensureMinQuadletPodmanVersion(version); err != nil {
-		return fmt.Errorf("%w: quadlet app type: %w", errors.ErrNoRetry, err)
+		return fmt.Errorf("%w: %w", errors.ErrAppDependency, err)
+	}
+	if err := ensureDependenciesFromVolumes(ctx, p.podman, p.spec.QuadletApp.Volumes); err != nil {
+		return fmt.Errorf("%w: volume dependencies: %w", errors.ErrAppDependency, err)
+	}
+	return nil
+}
+
+func (p *quadletProvider) Verify(ctx context.Context) error {
+	if err := p.EnsureDependencies(ctx); err != nil {
+		return err
+	}
+
+	if p.isImageBased() {
+		if err := ensureAppTypeFromImage(ctx, p.podman, v1beta1.AppTypeQuadlet, p.imageRef); err != nil {
+			return fmt.Errorf("ensuring app type: %w", err)
+		}
+	}
+
+	if err := validateEnvVars(p.spec.EnvVars); err != nil {
+		return fmt.Errorf("%w: validating env vars: %w", errors.ErrInvalidSpec, err)
 	}
 
 	if !p.spec.User.IsRootUser() && !p.spec.User.IsCurrentProcessUser() {
@@ -309,6 +322,67 @@ func (p *quadletProvider) ID() string {
 
 func (p *quadletProvider) Spec() *ApplicationSpec {
 	return p.spec
+}
+
+func (p *quadletProvider) collectOCITargets(ctx context.Context, configProvider dependency.PullConfigResolver) (dependency.OCIPullTargetsByUser, error) {
+	var targets dependency.OCIPullTargetsByUser
+	if p.imageRef != "" {
+		targets = targets.Add(p.spec.User, dependency.OCIPullTarget{
+			Type:         dependency.OCITypeAuto,
+			Reference:    p.imageRef,
+			PullPolicy:   v1beta1.PullIfNotPresent,
+			ClientOptsFn: containerPullOptions(configProvider),
+		})
+	} else {
+		quadletSpec, err := client.ParseQuadletReferencesFromSpec(p.inlineContent)
+		if err != nil {
+			return nil, fmt.Errorf("parsing quadlet spec: %w", err)
+		}
+		for _, quad := range quadletSpec {
+			targets = targets.Add(p.spec.User, extractQuadletTargets(quad, configProvider)...)
+		}
+	}
+	volTargets, err := extractVolumeTargets(p.spec.QuadletApp.Volumes, configProvider)
+	if err != nil {
+		return nil, fmt.Errorf("extracting quadlet volume targets: %w", err)
+	}
+	return targets.Add(p.spec.User, volTargets...), nil
+}
+
+func (p *quadletProvider) extractNestedTargets(ctx context.Context, configProvider dependency.PullConfigResolver) (*AppData, error) {
+	if !p.isImageBased() {
+		return &AppData{}, nil
+	}
+
+	appData, err := extractAppDataFromOCITarget(ctx, p.podman, p.readWriter, p.spec.Name, p.imageRef, v1beta1.AppTypeQuadlet, configProvider)
+	if err != nil {
+		return nil, err
+	}
+	return appData, nil
+}
+
+func (p *quadletProvider) parentIsAvailable(ctx context.Context) (string, string, bool, error) {
+	if !p.isImageBased() {
+		return "", "", true, nil
+	}
+
+	if p.podman.ImageExists(ctx, p.imageRef) {
+		digest, err := p.podman.ImageDigest(ctx, p.imageRef)
+		if err != nil {
+			return "", "", false, fmt.Errorf("getting image digest: %w", err)
+		}
+		return p.imageRef, digest, true, nil
+	}
+
+	if p.podman.ArtifactExists(ctx, p.imageRef) {
+		digest, err := p.podman.ArtifactDigest(ctx, p.imageRef)
+		if err != nil {
+			return "", "", false, fmt.Errorf("getting artifact digest: %w", err)
+		}
+		return p.imageRef, digest, true, nil
+	}
+
+	return p.imageRef, "", false, nil
 }
 
 type quadletInstaller struct {

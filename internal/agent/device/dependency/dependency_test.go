@@ -267,7 +267,7 @@ func TestEnsureScheduled(t *testing.T) {
 			manager := NewPrefetchManager(log, podmanFactory, skopeoFactory, cliClients, rw, timeout, mockResourceManager, poll.Config{})
 
 			// register a collector that returns the test targets
-			manager.RegisterOCICollector(newTestOCICollector(func(ctx context.Context, current, desired *v1beta1.DeviceSpec) (*OCICollection, error) {
+			manager.RegisterOCICollector(newTestOCICollector(func(ctx context.Context, current, desired *v1beta1.DeviceSpec, _ ...OCICollectOpt) (*OCICollection, error) {
 				return &OCICollection{Targets: tt.targets}, nil
 			}))
 
@@ -429,7 +429,7 @@ func TestStatus(t *testing.T) {
 		},
 	}
 
-	manager.RegisterOCICollector(newTestOCICollector(func(ctx context.Context, current, desired *v1beta1.DeviceSpec) (*OCICollection, error) {
+	manager.RegisterOCICollector(newTestOCICollector(func(ctx context.Context, current, desired *v1beta1.DeviceSpec, _ ...OCICollectOpt) (*OCICollection, error) {
 		return &OCICollection{Targets: targets}, nil
 	}))
 
@@ -798,7 +798,7 @@ func TestBeforeUpdate(t *testing.T) {
 
 			// Register collectors
 			for _, collector := range tt.collectors {
-				manager.RegisterOCICollector(newTestOCICollector(func(ctx context.Context, current, desired *v1beta1.DeviceSpec) (*OCICollection, error) {
+				manager.RegisterOCICollector(newTestOCICollector(func(ctx context.Context, current, desired *v1beta1.DeviceSpec, _ ...OCICollectOpt) (*OCICollection, error) {
 					return collector()
 				}))
 			}
@@ -937,7 +937,7 @@ func TestPullSecretCleanup(t *testing.T) {
 
 	// simulate a collector that would be called by applications manager
 	// note: cleanup is now handled centrally by PullConfigResolver at the device level
-	appCollector := func(ctx context.Context, current, desired *v1beta1.DeviceSpec) (*OCICollection, error) {
+	appCollector := func(ctx context.Context, current, desired *v1beta1.DeviceSpec, _ ...OCICollectOpt) (*OCICollection, error) {
 		return &OCICollection{Targets: OCIPullTargetsByUser{
 			"": []OCIPullTarget{
 				{
@@ -990,14 +990,14 @@ type taskState struct {
 
 // testOCICollector is a test helper that implements OCICollector interface
 type testOCICollector struct {
-	collectFn func(ctx context.Context, current, desired *v1beta1.DeviceSpec) (*OCICollection, error)
+	collectFn func(ctx context.Context, current, desired *v1beta1.DeviceSpec, opts ...OCICollectOpt) (*OCICollection, error)
 }
 
-func (t *testOCICollector) CollectOCITargets(ctx context.Context, current, desired *v1beta1.DeviceSpec) (*OCICollection, error) {
-	return t.collectFn(ctx, current, desired)
+func (t *testOCICollector) CollectOCITargets(ctx context.Context, current, desired *v1beta1.DeviceSpec, opts ...OCICollectOpt) (*OCICollection, error) {
+	return t.collectFn(ctx, current, desired, opts...)
 }
 
-func newTestOCICollector(fn func(ctx context.Context, current, desired *v1beta1.DeviceSpec) (*OCICollection, error)) OCICollector {
+func newTestOCICollector(fn func(ctx context.Context, current, desired *v1beta1.DeviceSpec, opts ...OCICollectOpt) (*OCICollection, error)) OCICollector {
 	return &testOCICollector{collectFn: fn}
 }
 

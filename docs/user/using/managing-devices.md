@@ -716,6 +716,9 @@ The following dependencies must be installed on the device:
 > [!NOTE]
 > The agent automatically detects whether `kubectl` or `oc` is available (with preference for `kubectl`) and uses the first one found.
 
+> [!NOTE]
+> When an OS update is pending, the agent defers dependency validation, allowing you to deploy new application types alongside an OS image that includes the required dependencies. The agent will first apply the OS update and reboot, then validate and deploy applications after booting into the new OS.
+
 #### Kubeconfig Configuration
 
 The agent automatically discovers the kubeconfig file to connect to the local Kubernetes cluster. The following locations are checked in order:
