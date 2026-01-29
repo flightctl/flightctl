@@ -140,17 +140,45 @@ type PrefetchManager interface {
 	// RegisterOCICollector registers a function that can collect OCI targets from a device spec
 	RegisterOCICollector(collector OCICollector)
 	// BeforeUpdate collects and prefetches OCI targets from all registered collectors
-	BeforeUpdate(ctx context.Context, current, desired *v1beta1.DeviceSpec) error
+	BeforeUpdate(ctx context.Context, current, desired *v1beta1.DeviceSpec, opts ...OCICollectOpt) error
 	// StatusMessage returns a human readable prefetch progress status message
 	StatusMessage(ctx context.Context) string
 	// Cleanup fires all cleanupFn cancels active pulls and drains the queue
 	Cleanup()
 }
 
+// OCICollectOpt configures OCI target collection behavior.
+type OCICollectOpt func(*ociCollectOpts)
+
+type ociCollectOpts struct {
+	osUpdatePending bool
+}
+
+// WithOSUpdatePending indicates an OS update is pending (not yet booted).
+func WithOSUpdatePending(pending bool) OCICollectOpt {
+	return func(o *ociCollectOpts) {
+		o.osUpdatePending = pending
+	}
+}
+
+// ApplyOCICollectOpts applies the given options and returns the configured options struct.
+func ApplyOCICollectOpts(opts ...OCICollectOpt) ociCollectOpts {
+	var o ociCollectOpts
+	for _, opt := range opts {
+		opt(&o)
+	}
+	return o
+}
+
+// OSUpdatePending returns true if an OS update is pending.
+func (o ociCollectOpts) OSUpdatePending() bool {
+	return o.osUpdatePending
+}
+
 // OCICollector interface for components that can collect OCI targets
 type OCICollector interface {
 	// CollectOCITargets collects OCI targets and indicates if requeue is needed
-	CollectOCITargets(ctx context.Context, current, desired *v1beta1.DeviceSpec) (*OCICollection, error)
+	CollectOCITargets(ctx context.Context, current, desired *v1beta1.DeviceSpec, opts ...OCICollectOpt) (*OCICollection, error)
 }
 
 type imageRef struct {
@@ -242,6 +270,9 @@ func (m *prefetchManager) worker(ctx context.Context) {
 func (m *prefetchManager) RegisterOCICollector(collector OCICollector) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if slices.Contains(m.collectors, collector) {
+		return
+	}
 	m.collectors = append(m.collectors, collector)
 }
 
@@ -265,7 +296,7 @@ func (m *prefetchManager) isTargetsChanged(seenTargets map[imageRef]struct{}) bo
 	return false
 }
 
-func (m *prefetchManager) BeforeUpdate(ctx context.Context, current, desired *v1beta1.DeviceSpec) error {
+func (m *prefetchManager) BeforeUpdate(ctx context.Context, current, desired *v1beta1.DeviceSpec, opts ...OCICollectOpt) error {
 	m.log.Debug("Collecting OCI targets from all dependency sources")
 
 	allTargets := make(OCIPullTargetsByUser)
@@ -275,7 +306,7 @@ func (m *prefetchManager) BeforeUpdate(ctx context.Context, current, desired *v1
 	m.mu.Unlock()
 
 	for i, collector := range collectors {
-		result, err := collector.CollectOCITargets(ctx, current, desired)
+		result, err := collector.CollectOCITargets(ctx, current, desired, opts...)
 		if err != nil {
 			return fmt.Errorf("%w %d failed: %w", errors.ErrPrefetchCollector, i, err)
 		}

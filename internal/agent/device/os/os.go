@@ -80,7 +80,7 @@ func (m *manager) BeforeUpdate(ctx context.Context, current, desired *v1beta1.De
 	return nil
 }
 
-func (m *manager) CollectOCITargets(ctx context.Context, current, desired *v1beta1.DeviceSpec) (*dependency.OCICollection, error) {
+func (m *manager) CollectOCITargets(ctx context.Context, current, desired *v1beta1.DeviceSpec, _ ...dependency.OCICollectOpt) (*dependency.OCICollection, error) {
 	if desired.Os == nil {
 		m.log.Debug("No OS spec to collect OCI targets from")
 		return &dependency.OCICollection{}, nil

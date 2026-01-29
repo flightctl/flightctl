@@ -15,6 +15,16 @@ type CacheEntry struct {
 	Children []dependency.OCIPullTarget
 }
 
+func (e *CacheEntry) IsValid(ref string, digest string) bool {
+	if e.Parent.Reference != ref {
+		return false
+	}
+	if digest != "" && e.Parent.Digest != digest {
+		return false
+	}
+	return true
+}
+
 // OCITargetCache caches child OCI targets extracted from parents.
 type OCITargetCache struct {
 	entries map[string]CacheEntry

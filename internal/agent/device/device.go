@@ -357,11 +357,19 @@ func (a *Agent) beforeUpdate(ctx context.Context, current, desired *v1beta1.Devi
 		}
 	}
 
-	if err := a.prefetchManager.BeforeUpdate(ctx, current.Spec, desired.Spec); err != nil {
+	// Compute osUpdatePending once for both prefetch and app managers
+	osUpdatePending, err := a.specManager.IsOSUpdatePending(ctx)
+	if err != nil {
+		return fmt.Errorf("checking OS update pending: %w", err)
+	}
+
+	if err := a.prefetchManager.BeforeUpdate(ctx, current.Spec, desired.Spec,
+		dependency.WithOSUpdatePending(osUpdatePending)); err != nil {
 		return fmt.Errorf("%w: %w", errors.ErrComponentPrefetch, err)
 	}
 
-	if err := a.appManager.BeforeUpdate(ctx, desired.Spec); err != nil {
+	if err := a.appManager.BeforeUpdate(ctx, desired.Spec,
+		applications.WithOSUpdatePending(osUpdatePending)); err != nil {
 		return fmt.Errorf("%w: %w", errors.ErrComponentApplications, err)
 	}
 

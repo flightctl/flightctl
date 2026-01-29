@@ -192,21 +192,15 @@ func (m *monitor) Ensure(app Application) error {
 	return nil
 }
 
-func (m *monitor) canRemoveApp(app Application) bool {
-	_, ok := m.apps[app.ID()]
-	return ok || app.IsEmbedded()
-}
-
 func (m *monitor) Remove(app Application) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	// Always proceed with removal even if the app isn't tracked. After a reboot,
+	// in-memory state is cleared but workloads (helm releases, etc.) may still
+	// exist and need cleanup. The lifecycle handlers are idempotent and will
+	// handle the case where the workload doesn't exist.
 	appID := app.ID()
-	if !m.canRemoveApp(app) {
-		m.log.Errorf("%s application not found: %s", m.name, app.Name())
-		return nil
-	}
-
 	delete(m.apps, appID)
 
 	action := lifecycle.Action{

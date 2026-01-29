@@ -546,6 +546,10 @@ func (m *mockProvider) Remove(ctx context.Context) error {
 	return nil
 }
 
+func (m *mockProvider) EnsureDependencies(ctx context.Context) error {
+	return nil
+}
+
 func TestPodmanMonitorMultipleAddRemoveCycles(t *testing.T) {
 	require := require.New(t)
 
