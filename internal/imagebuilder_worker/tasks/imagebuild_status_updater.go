@@ -350,6 +350,9 @@ func (u *statusUpdater) persistLogsToDB() {
 		logs += "\n"
 	}
 
+	// Sanitize logs to remove invalid UTF-8 sequences (PostgreSQL requires valid UTF-8)
+	logs = strings.ToValidUTF8(logs, "")
+
 	// Persist to DB using the service's UpdateLogs method
 	if logs != "" {
 		u.log.Debugf("Persisting %d lines of logs to DB", len(u.logBuffer))
