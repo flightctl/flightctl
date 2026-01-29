@@ -13,6 +13,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/test/util"
@@ -35,11 +36,12 @@ func TestParseAppProviders(t *testing.T) {
 			mockExecuter *executer.MockExecuter,
 			imageConfig string,
 		)
-		apps         []testApp
-		labels       map[string]string
-		wantNames    []string
-		wantIDPrefix []string
-		wantErr      error
+		apps          []testApp
+		labels        map[string]string
+		wantNames     []string
+		wantIDPrefix  []string
+		wantErr       error
+		wantVerifyErr error
 	}{
 		{
 			name: "valid app type",
@@ -51,6 +53,7 @@ func TestParseAppProviders(t *testing.T) {
 					ExecuteWithContext(gomock.Any(), "podman", "image", "exists", gomock.Any()).
 					Return("", "", 0).
 					AnyTimes()
+				// During Verify: inspect -> mount -> unmount (for each app)
 				gomock.InOrder(
 					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return(imageConfig, "", 0),
 					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "unshare", "podman", "image", "mount", gomock.Any()).Return("/mount", "", 0),
@@ -74,15 +77,14 @@ func TestParseAppProviders(t *testing.T) {
 					ExecuteWithContext(gomock.Any(), "podman", "image", "exists", gomock.Any()).
 					Return("", "", 0).
 					AnyTimes()
-				gomock.InOrder(
-					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return(imageConfig, "", 0),
-				)
+				// Inspect happens during Verify (ensureAppTypeFromImage)
+				mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return(imageConfig, "", 0)
 			},
 			apps: []testApp{{name: "app1", image: "quay.io/org/app1:latest"}},
 			labels: map[string]string{
 				AppTypeLabel: "invalid",
 			},
-			wantErr: errors.ErrAppLabel,
+			wantVerifyErr: errors.ErrAppLabel,
 		},
 		{
 			name: "missing app type",
@@ -94,6 +96,7 @@ func TestParseAppProviders(t *testing.T) {
 					ExecuteWithContext(gomock.Any(), "podman", "image", "exists", gomock.Any()).
 					Return("", "", 0).
 					AnyTimes()
+				// During Verify: inspect -> mount -> unmount
 				gomock.InOrder(
 					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return(imageConfig, "", 0),
 					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "unshare", "podman", "image", "mount", gomock.Any()).Return("/mount", "", 0),
@@ -113,6 +116,7 @@ func TestParseAppProviders(t *testing.T) {
 					ExecuteWithContext(gomock.Any(), "podman", "image", "exists", gomock.Any()).
 					Return("", "", 0).
 					AnyTimes()
+				// During Verify: inspect -> mount -> unmount
 				gomock.InOrder(
 					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return(imageConfig, "", 0),
 					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "unshare", "podman", "image", "mount", gomock.Any()).Return("/mount", "", 0),
@@ -145,17 +149,18 @@ func TestParseAppProviders(t *testing.T) {
 					ExecuteWithContext(gomock.Any(), "podman", "image", "exists", gomock.Any()).
 					Return("", "", 0).
 					AnyTimes()
+				// During Verify for each app: inspect -> mount -> unmount
 				gomock.InOrder(
-					// inspect all apps first
+					// app1: inspect -> mount -> unmount
 					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return(imageConfig, "", 0),
-					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return(imageConfig, "", 0),
-					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return(imageConfig, "", 0),
-
-					// then verify (mount/unmount) all apps
 					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "unshare", "podman", "image", "mount", gomock.Any()).Return("/mount", "", 0),
 					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "unmount", gomock.Any()).Return("", "", 0),
+					// app2: inspect -> mount -> unmount
+					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return(imageConfig, "", 0),
 					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "unshare", "podman", "image", "mount", gomock.Any()).Return("/mount", "", 0),
 					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "unmount", gomock.Any()).Return("", "", 0),
+					// app3: inspect -> mount -> unmount
+					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return(imageConfig, "", 0),
 					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "unshare", "podman", "image", "mount", gomock.Any()).Return("/mount", "", 0),
 					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "unmount", gomock.Any()).Return("", "", 0),
 				)
@@ -211,7 +216,7 @@ func TestParseAppProviders(t *testing.T) {
 				return readWriter, nil
 			}
 
-			providers, err := provider.FromDeviceSpec(ctx, log, mockPodmanFactory, nil, rwFactory, spec, provider.WithProviderTypes(v1beta1.ImageApplicationProviderType))
+			providers, err := provider.FromDeviceSpec(ctx, log, mockPodmanFactory, nil, rwFactory, spec)
 			if tc.wantErr != nil {
 				require.ErrorIs(err, tc.wantErr)
 				return
@@ -219,16 +224,20 @@ func TestParseAppProviders(t *testing.T) {
 			require.NoError(err)
 			require.Equal(len(tc.apps), len(providers))
 			// ensure name is populated
-			for i, provider := range providers {
+			for i, prov := range providers {
 				// verify deps
-				err := provider.Verify(ctx)
+				err := prov.Verify(ctx)
+				if tc.wantVerifyErr != nil {
+					require.ErrorIs(err, tc.wantVerifyErr)
+					return
+				}
 				require.NoError(err)
-				require.NotEmpty(provider.Name())
+				require.NotEmpty(prov.Name())
 				if len(tc.wantNames) > 0 {
-					require.Equal(tc.wantNames[i], provider.Name())
+					require.Equal(tc.wantNames[i], prov.Name())
 				}
 				if len(tc.wantIDPrefix) > 0 {
-					require.True(strings.HasPrefix(provider.Spec().ID, tc.wantIDPrefix[i]))
+					require.True(strings.HasPrefix(prov.Spec().ID, tc.wantIDPrefix[i]))
 				}
 			}
 		})
@@ -291,6 +300,132 @@ func createTestLabels(labels map[string]string) (string, error) {
 	return string(data), nil
 }
 
+func TestSyncProvidersDeferredDependencies(t *testing.T) {
+	tests := []struct {
+		name            string
+		osUpdatePending bool
+		setupProviders  func(ctrl *gomock.Controller) []provider.Provider
+		setupManager    func(ctrl *gomock.Controller) *MockManager
+		wantErr         bool
+		wantErrContains string
+	}{
+		{
+			name:            "os update pending - defers ErrAppDependency",
+			osUpdatePending: true,
+			setupProviders: func(ctrl *gomock.Controller) []provider.Provider {
+				mockProvider := provider.NewMockProvider(ctrl)
+				mockProvider.EXPECT().ID().Return("helm-app-abc123").AnyTimes()
+				mockProvider.EXPECT().Name().Return("helm-app").AnyTimes()
+				mockProvider.EXPECT().EnsureDependencies(gomock.Any()).Return(
+					fmt.Errorf("%w: helm binary not found", errors.ErrAppDependency))
+				return []provider.Provider{mockProvider}
+			},
+			setupManager: func(ctrl *gomock.Controller) *MockManager {
+				return NewMockManager(ctrl)
+			},
+			wantErr: false,
+		},
+		{
+			name:            "no os update pending - ErrAppDependency returns error",
+			osUpdatePending: false,
+			setupProviders: func(ctrl *gomock.Controller) []provider.Provider {
+				mockProvider := provider.NewMockProvider(ctrl)
+				mockProvider.EXPECT().ID().Return("helm-app-abc123").AnyTimes()
+				mockProvider.EXPECT().Name().Return("helm-app").AnyTimes()
+				mockProvider.EXPECT().EnsureDependencies(gomock.Any()).Return(
+					fmt.Errorf("%w: helm binary not found", errors.ErrAppDependency))
+				return []provider.Provider{mockProvider}
+			},
+			setupManager: func(ctrl *gomock.Controller) *MockManager {
+				return NewMockManager(ctrl)
+			},
+			wantErr:         true,
+			wantErrContains: "helm binary not found",
+		},
+		{
+			name:            "os update pending - one deferred, one succeeds",
+			osUpdatePending: true,
+			setupProviders: func(ctrl *gomock.Controller) []provider.Provider {
+				helmProvider := provider.NewMockProvider(ctrl)
+				helmProvider.EXPECT().ID().Return("helm-app-abc123").AnyTimes()
+				helmProvider.EXPECT().Name().Return("helm-app").AnyTimes()
+				helmProvider.EXPECT().EnsureDependencies(gomock.Any()).Return(
+					fmt.Errorf("%w: helm binary not found", errors.ErrAppDependency))
+
+				containerProvider := provider.NewMockProvider(ctrl)
+				containerProvider.EXPECT().ID().Return("container-app-def456").AnyTimes()
+				containerProvider.EXPECT().Name().Return("container-app").AnyTimes()
+				containerProvider.EXPECT().EnsureDependencies(gomock.Any()).Return(nil)
+
+				return []provider.Provider{helmProvider, containerProvider}
+			},
+			setupManager: func(ctrl *gomock.Controller) *MockManager {
+				mockManager := NewMockManager(ctrl)
+				mockManager.EXPECT().Ensure(gomock.Any(), gomock.Any()).Return(nil)
+				return mockManager
+			},
+			wantErr: false,
+		},
+		{
+			name:            "non-deferrable error - returns immediately",
+			osUpdatePending: true,
+			setupProviders: func(ctrl *gomock.Controller) []provider.Provider {
+				mockProvider := provider.NewMockProvider(ctrl)
+				mockProvider.EXPECT().ID().Return("helm-app-abc123").AnyTimes()
+				mockProvider.EXPECT().Name().Return("helm-app").AnyTimes()
+				mockProvider.EXPECT().EnsureDependencies(gomock.Any()).Return(
+					fmt.Errorf("critical error: permission denied"))
+				return []provider.Provider{mockProvider}
+			},
+			setupManager: func(ctrl *gomock.Controller) *MockManager {
+				return NewMockManager(ctrl)
+			},
+			wantErr:         true,
+			wantErrContains: "permission denied",
+		},
+		{
+			name:            "empty providers - no error",
+			osUpdatePending: true,
+			setupProviders: func(ctrl *gomock.Controller) []provider.Provider {
+				return []provider.Provider{}
+			},
+			setupManager: func(ctrl *gomock.Controller) *MockManager {
+				return NewMockManager(ctrl)
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require := require.New(t)
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			log := log.NewPrefixLogger("test")
+			log.SetLevel(logrus.DebugLevel)
+
+			mockManager := tt.setupManager(ctrl)
+			providers := tt.setupProviders(ctrl)
+
+			err := syncProviders(ctx, log, mockManager, nil, providers, tt.osUpdatePending)
+
+			if tt.wantErr {
+				require.Error(err)
+				if tt.wantErrContains != "" {
+					require.Contains(err.Error(), tt.wantErrContains)
+				}
+			} else {
+				require.NoError(err)
+			}
+		})
+	}
+}
+
 func TestControllerSync(t *testing.T) {
 	require := require.New(t)
 
@@ -341,18 +476,10 @@ func TestControllerSync(t *testing.T) {
 				mockAppManager *MockManager,
 				mockExecuter *executer.MockExecuter,
 			) {
-				mockExecuter.EXPECT().
-					ExecuteWithContext(gomock.Any(), "podman", "image", "exists", gomock.Any()).
-					Return("", "", 0).
-					AnyTimes()
+				// Manager is mocked, so Verify (which does inspect) is never called
+				// Only manager.Ensure calls are expected
 				gomock.InOrder(
-					// inspect to get app type from image labels
-					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", app1Image).Return(app1Labels, "", 0),
-					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", app2Image).Return(app1Labels, "", 0),
-
-					// ensure app1
 					mockAppManager.EXPECT().Ensure(gomock.Any(), gomock.Any()).Return(nil),
-					// ensure app2
 					mockAppManager.EXPECT().Ensure(gomock.Any(), gomock.Any()).Return(nil),
 				)
 			},
@@ -387,29 +514,14 @@ func TestControllerSync(t *testing.T) {
 				mockAppManager *MockManager,
 				mockExecuter *executer.MockExecuter,
 			) {
-				mockExecuter.EXPECT().
-					ExecuteWithContext(gomock.Any(), "podman", "image", "exists", gomock.Any()).
-					Return("", "", 0).
-					AnyTimes()
+				// Manager is mocked, so Verify (which does inspect) is never called
 				gomock.InOrder(
 					// rendered version 1 -> 2
-					// inspect to get app type from image labels
-					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", app1Image).Return(app1Labels, "", 0),
-					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", app2Image).Return(app1Labels, "", 0),
-
-					// ensure app1
 					mockAppManager.EXPECT().Ensure(gomock.Any(), gomock.Any()).Return(nil),
-					// ensure app2
 					mockAppManager.EXPECT().Ensure(gomock.Any(), gomock.Any()).Return(nil),
 
 					// rendered version 2 -> 3
-					// inspect current providers
-					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", app1Image).Return(app1Labels, "", 0),
-					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", app2Image).Return(app1Labels, "", 0),
-
-					// remove app1
 					mockAppManager.EXPECT().Remove(gomock.Any(), gomock.Any()).Return(nil),
-					// remove app2
 					mockAppManager.EXPECT().Remove(gomock.Any(), gomock.Any()).Return(nil),
 				)
 			},
@@ -463,34 +575,21 @@ func TestControllerSync(t *testing.T) {
 				mockAppManager *MockManager,
 				mockExecuter *executer.MockExecuter,
 			) {
-				mockExecuter.EXPECT().
-					ExecuteWithContext(gomock.Any(), "podman", "image", "exists", gomock.Any()).
-					Return("", "", 0).
-					AnyTimes()
+				// Manager is mocked, so Verify (which does inspect) is never called
 				gomock.InOrder(
 					// initial deployment app1 and app2
-					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", app1Image).Return(app1Labels, "", 0), // inspect desired app1
-					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", app2Image).Return(app1Labels, "", 0), // inspect desired app2
-					mockAppManager.EXPECT().Ensure(gomock.Any(), gomock.Any()).Return(nil),                                           // ensure app1
-					mockAppManager.EXPECT().Ensure(gomock.Any(), gomock.Any()).Return(nil),                                           // ensure app2
+					mockAppManager.EXPECT().Ensure(gomock.Any(), gomock.Any()).Return(nil), // ensure app1
+					mockAppManager.EXPECT().Ensure(gomock.Any(), gomock.Any()).Return(nil), // ensure app2
 
 					// replace app1 with app3 using same image, keep app2
-					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", app1Image).Return(app1Labels, "", 0), // inspect current app1
-					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", app2Image).Return(app1Labels, "", 0), // inspect current app2
-					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", app2Image).Return(app1Labels, "", 0), // inspect desired app2
-					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", app1Image).Return(app1Labels, "", 0), // inspect desired app3 (uses app1Image)
-					mockAppManager.EXPECT().Remove(gomock.Any(), gomock.Any()).Return(nil),                                           // remove app1
-					mockAppManager.EXPECT().Ensure(gomock.Any(), gomock.Any()).Return(nil),                                           // ensure app3
-					mockAppManager.EXPECT().Ensure(gomock.Any(), gomock.Any()).Return(nil),                                           // ensure app2
+					mockAppManager.EXPECT().Remove(gomock.Any(), gomock.Any()).Return(nil), // remove app1
+					mockAppManager.EXPECT().Ensure(gomock.Any(), gomock.Any()).Return(nil), // ensure app3
+					mockAppManager.EXPECT().Ensure(gomock.Any(), gomock.Any()).Return(nil), // ensure app2
 
 					// replace app3 with app1 (shared image)
-					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", app2Image).Return(app1Labels, "", 0), // inspect current app2
-					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", app1Image).Return(app1Labels, "", 0), // inspect current app3
-					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", app1Image).Return(app1Labels, "", 0), // inspect desired app1 (uses same image as app3)
-					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", app2Image).Return(app1Labels, "", 0), // inspect desired app2
-					mockAppManager.EXPECT().Remove(gomock.Any(), gomock.Any()).Return(nil),                                           // remove app3
-					mockAppManager.EXPECT().Ensure(gomock.Any(), gomock.Any()).Return(nil),                                           // ensure app1 (reusing app1Image from app3)
-					mockAppManager.EXPECT().Ensure(gomock.Any(), gomock.Any()).Return(nil),                                           // ensure app2
+					mockAppManager.EXPECT().Remove(gomock.Any(), gomock.Any()).Return(nil), // remove app3
+					mockAppManager.EXPECT().Ensure(gomock.Any(), gomock.Any()).Return(nil), // ensure app1 (reusing app1Image from app3)
+					mockAppManager.EXPECT().Ensure(gomock.Any(), gomock.Any()).Return(nil), // ensure app2
 				)
 			},
 		},
@@ -512,6 +611,7 @@ func TestControllerSync(t *testing.T) {
 			defer ctrl.Finish()
 			mockExecuter := executer.NewMockExecuter(ctrl)
 			mockAppManager := NewMockManager(ctrl)
+			mockSpecManager := spec.NewMockManager(ctrl)
 			podmanClient := client.NewPodman(log, mockExecuter, readWriter, util.NewPollConfig())
 			var podmanFactory client.PodmanFactory = func(user v1beta1.Username) (*client.Podman, error) {
 				return podmanClient, nil
@@ -520,7 +620,8 @@ func TestControllerSync(t *testing.T) {
 				return readWriter, nil
 			}
 
-			controller := NewController(podmanFactory, nil, mockAppManager, rwFactory, log, "2025-01-01T00:00:00Z")
+			mockSpecManager.EXPECT().IsOSUpdatePending(gomock.Any()).Return(false, nil).AnyTimes()
+			controller := NewController(podmanFactory, nil, mockAppManager, rwFactory, log, "2025-01-01T00:00:00Z", mockSpecManager)
 
 			countainerMountDir := "/mount"
 			err = readWriter.MkdirAll(countainerMountDir, fileio.DefaultDirectoryPermissions)

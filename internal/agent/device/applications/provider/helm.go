@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/helm"
+	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -21,18 +23,28 @@ const (
 	helmValuesFileName = "flightctl-values.yaml"
 )
 
+var helmBinaryDeps = []dependencyBins{
+	{variants: []string{"helm"}},
+	{variants: []string{"kubectl", "oc"}},
+	{variants: []string{"crictl"}},
+}
+
 // GetHelmProviderValuesPath returns the absolute path to the provider-generated values file
 // for a given application name.
 func GetHelmProviderValuesPath(appName string) string {
 	return filepath.Join(helmValuesPath, appName, helmValuesFileName)
 }
 
+var _ Provider = (*helmProvider)(nil)
+var _ appProvider = (*helmProvider)(nil)
+
 type helmProvider struct {
-	log       *log.PrefixLogger
-	clients   client.CLIClients
-	rw        fileio.ReadWriter
-	spec      *ApplicationSpec
-	namespace string
+	log            *log.PrefixLogger
+	clients        client.CLIClients
+	rw             fileio.ReadWriter
+	commandChecker commandChecker
+	spec           *ApplicationSpec
+	namespace      string
 }
 
 func newHelmProvider(
@@ -41,7 +53,6 @@ func newHelmProvider(
 	clients client.CLIClients,
 	apiSpec *v1beta1.ApplicationProviderSpec,
 	rwFactory fileio.ReadWriterFactory,
-	cfg *parseConfig,
 ) (*helmProvider, error) {
 	helmApp, err := (*apiSpec).AsHelmApplication()
 	if err != nil {
@@ -71,10 +82,11 @@ func newHelmProvider(
 	}
 
 	return &helmProvider{
-		log:       log,
-		clients:   clients,
-		rw:        rw,
-		namespace: namespace,
+		log:            log,
+		clients:        clients,
+		rw:             rw,
+		commandChecker: client.IsCommandAvailable,
+		namespace:      namespace,
 		spec: &ApplicationSpec{
 			Name:    appName,
 			ID:      fmt.Sprintf("%s_%s", namespace, appName),
@@ -102,7 +114,26 @@ func (p *helmProvider) valuesDir() string {
 	return filepath.Join(helmValuesPath, p.spec.Name)
 }
 
+func (p *helmProvider) EnsureDependencies(ctx context.Context) error {
+	if err := ensureDependenciesFromAppType(helmBinaryDeps, p.commandChecker); err != nil {
+		return err
+	}
+	version, err := p.clients.Helm().Version(ctx)
+	if err != nil {
+		return fmt.Errorf("%w: helm version: %w", errors.ErrAppDependency, err)
+	}
+	if !version.GreaterOrEqual(3, 8) {
+		return fmt.Errorf("%w: helm version >= 3.8 required for OCI support, found %d.%d.%d",
+			errors.ErrAppDependency, version.Major, version.Minor, version.Patch)
+	}
+	return nil
+}
+
 func (p *helmProvider) Verify(ctx context.Context) error {
+	if err := p.EnsureDependencies(ctx); err != nil {
+		return err
+	}
+
 	var apiSpec v1beta1.ApplicationProviderSpec
 	err := apiSpec.FromHelmApplication(*p.spec.HelmApp)
 	if err != nil {
@@ -110,22 +141,6 @@ func (p *helmProvider) Verify(ctx context.Context) error {
 	}
 	if errs := v1beta1.ValidateHelmApplication(apiSpec, p.spec.Name, false); len(errs) > 0 {
 		return fmt.Errorf("validating helm application: %w", errors.Join(errs...))
-	}
-
-	if err := ensureDependenciesFromAppType([]string{"helm"}); err != nil {
-		return fmt.Errorf("%w: ensuring dependencies: %w", errors.ErrNoRetry, err)
-	}
-
-	if p.clients.Kube().Binary() == "" {
-		return fmt.Errorf("kubectl or oc not installed for app %s", p.spec.Name)
-	}
-
-	version, err := p.clients.Helm().Version(ctx)
-	if err != nil {
-		return fmt.Errorf("helm version: %w", err)
-	}
-	if !version.GreaterOrEqual(3, 8) {
-		return fmt.Errorf("helm version >= 3.8 required for OCI support, found %d.%d.%d", version.Major, version.Minor, version.Patch)
 	}
 
 	resolved, err := p.clients.Helm().IsResolved(p.chartRef())
@@ -162,16 +177,13 @@ func (p *helmProvider) Verify(ctx context.Context) error {
 		client.WithKubeconfig(kubeconfigPath),
 		client.WithNamespace(p.namespace),
 		client.WithCreateNamespace(),
+		client.WithHelmTimeout(30 * time.Second),
 	}
 	if len(valuesPaths) > 0 {
 		dryRunOpts = append(dryRunOpts, client.WithValuesFiles(valuesPaths))
 	}
 
 	if _, err := p.clients.Helm().DryRun(ctx, p.spec.Name, chartPath, dryRunOpts...); err != nil {
-		if errors.Is(err, errors.ErrNetwork) || errors.IsTimeoutError(err) {
-			p.log.Warnf("Cluster not reachable for Helm dry-run of %s: %v (will retry)", p.spec.Name, err)
-			return fmt.Errorf("helm dry-run validation failed: %w: %w", err, errors.ErrRetryable)
-		}
 		return fmt.Errorf("helm dry-run validation failed: %w", err)
 	}
 
@@ -220,6 +232,78 @@ func (p *helmProvider) ID() string {
 
 func (p *helmProvider) Spec() *ApplicationSpec {
 	return p.spec
+}
+
+func (p *helmProvider) collectOCITargets(ctx context.Context, configProvider client.PullConfigProvider) (dependency.OCIPullTargetsByUser, error) {
+	var targets dependency.OCIPullTargetsByUser
+	targets = targets.Add(v1beta1.CurrentProcessUsername, dependency.OCIPullTarget{
+		Type:       dependency.OCITypeHelmChart,
+		Reference:  p.spec.HelmApp.Image,
+		PullPolicy: v1beta1.PullIfNotPresent,
+		Configs:    configProvider,
+	})
+
+	return targets, nil
+}
+
+func (p *helmProvider) extractNestedTargets(ctx context.Context, configProvider client.PullConfigProvider) (*AppData, error) {
+	kubeconfigPath, err := p.clients.Kube().ResolveKubeconfig()
+	if err != nil {
+		return nil, fmt.Errorf("resolve kubeconfig: %w", err)
+	}
+
+	valuesPaths, cleanup, err := resolveHelmValues(p.spec.Name, p.spec.Path, p.valuesFiles(), p.spec.HelmApp.Values, "", p.rw)
+	if err != nil {
+		return nil, fmt.Errorf("resolving values: %w", err)
+	}
+	defer cleanup()
+
+	dryRunOpts := []client.HelmOption{
+		client.WithKubeconfig(kubeconfigPath),
+		client.WithNamespace(p.namespace),
+		client.WithHelmTimeout(30 * time.Second),
+		client.WithCreateNamespace(),
+	}
+
+	if len(valuesPaths) > 0 {
+		dryRunOpts = append(dryRunOpts, client.WithValuesFiles(valuesPaths))
+	}
+
+	manifests, err := p.clients.Helm().DryRun(ctx, p.spec.Name, p.spec.Path, dryRunOpts...)
+	if err != nil {
+		return nil, err
+	}
+
+	images, err := helm.ExtractImagesFromManifests(manifests)
+	if err != nil {
+		return nil, fmt.Errorf("extract images from manifests: %w", err)
+	}
+
+	var targets []dependency.OCIPullTarget
+	for _, img := range images {
+		targets = append(targets, dependency.OCIPullTarget{
+			Type:       dependency.OCITypeCRIImage,
+			Reference:  img,
+			PullPolicy: v1beta1.PullIfNotPresent,
+			Configs:    configProvider,
+		})
+	}
+
+	p.log.Debugf("Extracted %d images from Helm chart %s", len(targets), p.chartRef())
+
+	return &AppData{Targets: targets}, nil
+}
+
+func (p *helmProvider) parentIsAvailable(ctx context.Context) (ref string, digest string, available bool, err error) {
+	resolved, err := p.clients.Helm().IsResolved(p.chartRef())
+	if err != nil {
+		return "", "", false, fmt.Errorf("check chart resolved: %w", err)
+	}
+	if !resolved {
+		return p.chartRef(), "", false, nil
+	}
+	// Helm charts don't have a digest concept like container images
+	return p.chartRef(), "", true, nil
 }
 
 func writeFlightctlHelmValues(_ context.Context, values *map[string]any, dir string, rw fileio.ReadWriter) error {

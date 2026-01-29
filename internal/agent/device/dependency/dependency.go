@@ -238,6 +238,9 @@ func (m *prefetchManager) worker(ctx context.Context) {
 func (m *prefetchManager) RegisterOCICollector(collector OCICollector) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if slices.Contains(m.collectors, collector) {
+		return
+	}
 	m.collectors = append(m.collectors, collector)
 }
 

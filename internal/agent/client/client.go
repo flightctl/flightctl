@@ -91,15 +91,6 @@ func IsCommandAvailable(cmdName string) bool {
 	return err == nil
 }
 
-func IsComposeAvailable() bool {
-	for _, cmdName := range []string{"podman-compose", "docker-compose"} {
-		if IsCommandAvailable(cmdName) {
-			return true
-		}
-	}
-	return false
-}
-
 // PullConfig holds the path to a configuration file and a cleanup function for temporary files.
 type PullConfig struct {
 	// Path is the absolute path to the configuration file.

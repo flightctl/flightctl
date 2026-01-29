@@ -10,6 +10,7 @@ import (
 	"github.com/containers/image/v5/docker/reference"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/pkg/poll"
 )
 
 const (
@@ -24,14 +25,16 @@ type helmChartCache struct {
 	chartsDir  string
 	readWriter fileio.ReadWriter
 	log        *log.PrefixLogger
+	backoff    poll.Config
 }
 
-func newHelmChartCache(helm *Helm, chartsDir string, readWriter fileio.ReadWriter, log *log.PrefixLogger) *helmChartCache {
+func newHelmChartCache(helm *Helm, chartsDir string, readWriter fileio.ReadWriter, log *log.PrefixLogger, backoff poll.Config) *helmChartCache {
 	return &helmChartCache{
 		helm:       helm,
 		chartsDir:  chartsDir,
 		readWriter: readWriter,
 		log:        log,
+		backoff:    backoff,
 	}
 }
 
@@ -109,6 +112,7 @@ func (c *helmChartCache) ResolveChart(ctx context.Context, chartRef, chartDir st
 		return fmt.Errorf("check if chart resolved: %w", err)
 	}
 	if resolved {
+		c.log.Debugf("Helm chart %s already resolved", chartRef)
 		return nil
 	}
 
@@ -117,6 +121,22 @@ func (c *helmChartCache) ResolveChart(ctx context.Context, chartRef, chartDir st
 		return fmt.Errorf("check if chart exists: %w", err)
 	}
 
+	c.log.Debugf("Resolving helm chart %s (exists: %v)", chartRef, chartExists)
+
+	_, err = logProgress(ctx, c.log, fmt.Sprintf("Resolving helm chart %s, please wait...", chartRef), func(ctx context.Context) (string, error) {
+		return retryWithBackoff(ctx, c.log, c.backoff, func(ctx context.Context) (string, error) {
+			return "", c.resolveChart(ctx, chartRef, chartDir, chartExists, opts...)
+		})
+	})
+	if err != nil {
+		return err
+	}
+
+	c.log.Debugf("Helm chart %s resolved successfully", chartRef)
+	return nil
+}
+
+func (c *helmChartCache) resolveChart(ctx context.Context, chartRef, chartDir string, chartExists bool, opts ...ClientOption) error {
 	if !chartExists {
 		if err := c.RemoveChart(chartDir); err != nil {
 			return fmt.Errorf("remove stale chart directory: %w", err)
@@ -142,10 +162,12 @@ func (c *helmChartCache) ResolveChart(ctx context.Context, chartRef, chartDir st
 		}
 	}
 
+	c.log.Debugf("Updating Helm chart %s dependencies", chartRef)
 	if err := c.helm.DependencyUpdate(ctx, chartDir, opts...); err != nil {
 		return fmt.Errorf("update dependencies: %w", err)
 	}
 
+	c.log.Debugf("Marking Helm chart %s resolved", chartRef)
 	if err := c.MarkChartResolved(chartDir); err != nil {
 		return fmt.Errorf("mark chart resolved: %w", err)
 	}
@@ -166,14 +188,6 @@ func (c *helmChartCache) IsResolved(chartRef string) (bool, error) {
 func (c *helmChartCache) GetChartPath(chartRef string) string {
 	return c.ChartDir(chartRef)
 }
-
-// ChartRefType indicates whether a chart reference uses a tag or digest.
-type ChartRefType int
-
-const (
-	ChartRefTypeTag ChartRefType = iota
-	ChartRefTypeDigest
-)
 
 // ParseChartRef extracts the chart name and version/digest from a chart reference.
 // Supports both tag-based (oci://registry/chart:version) and digest-based (oci://registry/chart@sha256:...) references.
