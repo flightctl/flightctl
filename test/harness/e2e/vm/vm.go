@@ -3,6 +3,7 @@ package vm
 import (
 	"bytes"
 	"fmt"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -15,23 +16,24 @@ import (
 const sshWaitTimeout time.Duration = 60 * time.Second
 
 type TestVM struct {
-	TestDir        string
-	VMName         string
-	LibvirtUri     string //linux only
-	DiskImagePath  string
-	VMUser         string //user to use when connecting to the VM
-	CloudInitDir   string
-	NoCredentials  bool
-	CloudInitData  bool
-	SSHPassword    string
-	SSHPort        int
-	Cmd            []string
-	RemoveVm       bool
-	pidFile        string
-	hasCloudInit   bool
-	cloudInitArgs  string
-	MemoryFilePath string // Path for external snapshot memory file
-	DiskSizeGB     int
+	TestDir           string
+	VMName            string
+	LibvirtUri        string //linux only
+	DiskImagePath     string
+	VMUser            string //user to use when connecting to the VM
+	CloudInitDir      string
+	NoCredentials     bool
+	CloudInitData     bool
+	SSHPassword       string
+	SSHPrivateKeyPath string // Path to SSH private key for key-based auth (alternative to SSHPassword)
+	SSHPort           int
+	Cmd               []string
+	RemoveVm          bool
+	pidFile           string
+	hasCloudInit      bool
+	cloudInitArgs     string
+	MemoryFilePath    string // Path for external snapshot memory file
+	DiskSizeGB        int
 }
 
 type TestVMInterface interface {
@@ -73,11 +75,14 @@ type JournalOpts struct {
 func (v *TestVM) WaitForSSHToBeReady() error {
 	elapsed := 0 * time.Second
 
+	authMethods, err := v.getSSHAuthMethods()
+	if err != nil {
+		return fmt.Errorf("failed to get SSH auth methods: %w", err)
+	}
+
 	config := &ssh.ClientConfig{
 		User: v.VMUser,
-		Auth: []ssh.AuthMethod{
-			ssh.Password(v.SSHPassword),
-		},
+		Auth: authMethods,
 		//nolint:gosec
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 		Timeout:         1 * time.Second,
@@ -100,23 +105,48 @@ func (v *TestVM) WaitForSSHToBeReady() error {
 	return fmt.Errorf("SSH did not become ready in %s seconds", sshWaitTimeout)
 }
 
-func (v *TestVM) SSHCommandWithUser(inputArgs []string, user string) *exec.Cmd {
+// getSSHAuthMethods returns the appropriate SSH authentication methods based on configuration.
+// If SSHPrivateKeyPath is set, it uses key-based authentication; otherwise, password authentication.
+func (v *TestVM) getSSHAuthMethods() ([]ssh.AuthMethod, error) {
+	if v.SSHPrivateKeyPath != "" {
+		key, err := os.ReadFile(v.SSHPrivateKeyPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read SSH private key: %w", err)
+		}
+		signer, err := ssh.ParsePrivateKey(key)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse SSH private key: %w", err)
+		}
+		return []ssh.AuthMethod{ssh.PublicKeys(signer)}, nil
+	}
+	return []ssh.AuthMethod{ssh.Password(v.SSHPassword)}, nil
+}
 
+func (v *TestVM) SSHCommandWithUser(inputArgs []string, user string) *exec.Cmd {
 	sshDestination := user + "@localhost"
 	port := strconv.Itoa(v.SSHPort)
 
-	args := []string{"-p", v.SSHPassword, "ssh", "-p", port, sshDestination,
+	// Common SSH args
+	sshArgs := []string{"-p", port, sshDestination,
 		"-o", "UserKnownHostsFile=/dev/null",
 		"-o", "StrictHostKeyChecking=no",
-		"-o", "PubkeyAuthentication=no", // avoid any local SSH keys to be used
-		"-o", "LogLevel=ERROR", "-o", "SetEnv=LC_ALL="}
-	if len(inputArgs) > 0 {
-		args = append(args, inputArgs...)
+		"-o", "LogLevel=ERROR",
+		"-o", "SetEnv=LC_ALL="}
+
+	var cmd *exec.Cmd
+	if v.SSHPrivateKeyPath != "" {
+		// Key-based authentication
+		sshArgs = append([]string{"-i", v.SSHPrivateKeyPath, "-o", "PasswordAuthentication=no"}, sshArgs...)
+		cmd = exec.Command("ssh", append(sshArgs, inputArgs...)...) // #nosec G204 - test code with controlled inputs
 	} else {
-		logrus.Infof("Connecting to vm %s. To close connection, use `~.` or `exit`", v.VMName)
+		// Password-based authentication with sshpass
+		sshArgs = append([]string{"-o", "PubkeyAuthentication=no"}, sshArgs...)
+		cmd = exec.Command("sshpass", append([]string{"-p", v.SSHPassword, "ssh"}, append(sshArgs, inputArgs...)...)...) // #nosec G204 - test code with controlled inputs
 	}
 
-	cmd := exec.Command("sshpass", args...)
+	if len(inputArgs) == 0 {
+		logrus.Infof("Connecting to vm %s. To close connection, use `~.` or `exit`", v.VMName)
+	}
 
 	logrus.Debugf("Running ssh command: %s", cmd.String())
 	return cmd
