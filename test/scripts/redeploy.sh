@@ -29,8 +29,12 @@ case $IMAGE in
     imagebuilder-worker)
         NAMESPACE=flightctl-internal
         ;;
+    imagebuilder-api)
+        NAMESPACE=flightctl-external
+        ;;
 
-    *) echo "Usage: $0 <api|worker|periodic|alert-exporter|alertmanager-proxy|telemetry-gateway|imagebuilder-worker>"
+
+    *) echo "Usage: $0 <api|worker|periodic|alert-exporter|alertmanager-proxy|telemetry-gateway|imagebuilder-worker|iamgebuilder-api>"
        exit 1
 esac
 
