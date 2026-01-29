@@ -14,10 +14,10 @@ if ! vm_output=$(virsh list --all --name 2>/dev/null); then
     exit 0
 fi
 
-# Filter for flightctl e2e VMs
+# Filter for flightctl e2e VMs (includes both pool VMs and imagebuild test VMs)
 flightctl_vms=()
 while IFS= read -r vm_name; do
-    if [[ -n "$vm_name" && "$vm_name" == flightctl-e2e-* ]]; then
+    if [[ -n "$vm_name" && ( "$vm_name" == flightctl-e2e-* || "$vm_name" == imagebuild-test-* ) ]]; then
         flightctl_vms+=("$vm_name")
     fi
 done <<< "$vm_output"
