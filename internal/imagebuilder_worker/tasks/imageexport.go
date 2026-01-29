@@ -3,11 +3,13 @@ package tasks
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1073,25 +1075,47 @@ func (c *Consumer) pushArtifact(
 		return fmt.Errorf("failed to create repository reference: %w", err)
 	}
 
+	// Use PlainHTTP for HTTP registries
+	if ociSpec.Scheme != nil && *ociSpec.Scheme == coredomain.OciRepoSchemeHttp {
+		repoRef.PlainHTTP = true
+		log.Debug("Using PlainHTTP for HTTP registry")
+	}
+
 	// Skip referrers GC to avoid authentication issues when pushing multiple artifacts
 	// When multiple artifacts (e.g., QCOW2 and VMDK) point to the same subject image,
 	// ORAS tries to delete old referrer indices which can cause auth failures with some registries
 	repoRef.SkipReferrersGC = true
 
+	// Configure auth client with optional TLS skip and credentials
+	authClient := &auth.Client{}
+
+	// Skip TLS verification if requested (still use HTTPS, just don't verify certs)
+	if ociSpec.SkipServerVerification != nil && *ociSpec.SkipServerVerification {
+		// Clone the default transport to preserve default settings (timeouts, connection pooling, etc.)
+		transport := http.DefaultTransport.(*http.Transport).Clone()
+		transport.TLSClientConfig = &tls.Config{
+			InsecureSkipVerify: true, //nolint:gosec
+		}
+		authClient.Client = &http.Client{
+			Transport: transport,
+		}
+		log.Debug("Using InsecureSkipVerify for TLS")
+	}
+
 	// Set up authentication if credentials are provided
 	if ociSpec.OciAuth != nil {
 		dockerAuth, err := ociSpec.OciAuth.AsDockerAuth()
 		if err == nil && dockerAuth.Username != "" && dockerAuth.Password != "" {
-			repoRef.Client = &auth.Client{
-				Credential: auth.StaticCredential(destRegistryHostname, auth.Credential{
-					Username: dockerAuth.Username,
-					Password: dockerAuth.Password,
-				}),
-			}
+			authClient.Credential = auth.StaticCredential(destRegistryHostname, auth.Credential{
+				Username: dockerAuth.Username,
+				Password: dockerAuth.Password,
+			})
 			log.Info("Successfully configured authentication for destination registry")
 			statusUpdater.reportOutput([]byte("Authenticated with destination registry\n"))
 		}
 	}
+
+	repoRef.Client = authClient
 
 	// Resolve the destination image's manifest to get its digest for the referrer subject
 	destImageTag := imageBuild.Spec.Destination.ImageTag

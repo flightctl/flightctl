@@ -70,6 +70,7 @@ import (
 	"github.com/creack/pty"
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
+	imagebuilderclient "github.com/flightctl/flightctl/internal/api/imagebuilder/client"
 	"github.com/flightctl/flightctl/internal/client"
 	service "github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/test/harness/e2e/vm"
@@ -102,11 +103,12 @@ const (
 )
 
 type Harness struct {
-	Client    *apiclient.ClientWithResponses
-	Context   context.Context
-	Cluster   kubernetes.Interface
-	ctxCancel context.CancelFunc
-	startTime time.Time
+	Client             *apiclient.ClientWithResponses
+	ImageBuilderClient *imagebuilderclient.ClientWithResponses
+	Context            context.Context
+	Cluster            kubernetes.Interface
+	ctxCancel          context.CancelFunc
+	startTime          time.Time
 
 	VM vm.TestVMInterface
 
@@ -1486,6 +1488,23 @@ func NewTestHarnessWithVMPool(ctx context.Context, workerID int) (*Harness, erro
 		return nil, fmt.Errorf("failed to create client: %w", err)
 	}
 
+	// Parse config to get imagebuilder server URL
+	config, err := client.ParseConfigFile(baseDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse config file: %w", err)
+	}
+
+	// Create imagebuilder client - server must be configured
+	imageBuilderServer := config.GetImageBuilderServer()
+	if imageBuilderServer == "" {
+		return nil, fmt.Errorf("imagebuilder server URL not configured in client config")
+	}
+	ibClientWrapper, err := client.NewImageBuilderClientFromConfig(config, baseDir, imageBuilderServer, config.Organization)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create imagebuilder client: %w", err)
+	}
+	ibClient := ibClientWrapper.ClientWithResponses
+
 	ctx, cancel := context.WithCancel(ctx)
 
 	k8sCluster, err := kubernetesClient()
@@ -1503,15 +1522,16 @@ func NewTestHarnessWithVMPool(ctx context.Context, workerID int) (*Harness, erro
 
 	// Create harness without VM first
 	harness := &Harness{
-		Client:        c.ClientWithResponses,
-		Context:       ctx,
-		Cluster:       k8sCluster,
-		ctxCancel:     cancel,
-		startTime:     startTime,
-		VM:            nil,
-		gitRepos:      make(map[string]string),
-		gitWorkDir:    gitWorkDir,
-		clientWrapper: c,
+		Client:             c.ClientWithResponses,
+		ImageBuilderClient: ibClient,
+		Context:            ctx,
+		Cluster:            k8sCluster,
+		ctxCancel:          cancel,
+		startTime:          startTime,
+		VM:                 nil,
+		gitRepos:           make(map[string]string),
+		gitWorkDir:         gitWorkDir,
+		clientWrapper:      c,
 	}
 
 	// Get VM from the pool (this should already exist from BeforeSuite)
