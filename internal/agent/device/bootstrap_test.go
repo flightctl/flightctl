@@ -157,7 +157,7 @@ func TestInitialization(t *testing.T) {
 
 			log := log.NewPrefixLogger("test")
 			podmanClient := client.NewPodman(log, mockExecutor, mockReadWriter, util.NewPollConfig())
-			systemdClient := client.NewSystemd(mockExecutor)
+			systemdClient := client.NewSystemd(mockExecutor, v1beta1.RootUsername)
 
 			b := &Bootstrap{
 				statusManager:           mockStatusManager,

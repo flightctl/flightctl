@@ -12,6 +12,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/quadlet"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/pkg/userutil"
 	"github.com/samber/lo"
 )
 
@@ -45,10 +46,19 @@ func newContainerProvider(
 		return nil, err
 	}
 
-	appPath := filepath.Join(lifecycle.QuadletAppPath, appName)
-	appID := client.NewComposeID(appName)
+	user := containerApp.RunAsWithDefault()
 
-	user := containerApp.UserWithDefault()
+	var appPath string
+	if user.IsRootUser() {
+		appPath = filepath.Join(lifecycle.RootfulQuadletAppPath, appName)
+	} else {
+		_, _, homeDir, err := userutil.LookupUser(user)
+		if err != nil {
+			return nil, err
+		}
+		appPath = filepath.Join(homeDir, ".config/containers/systemd", appName)
+	}
+	appID := client.NewComposeID(appName)
 
 	podman, err := podmanFactory(user)
 	if err != nil {
@@ -68,6 +78,7 @@ func newContainerProvider(
 			Name:         appName,
 			ID:           appID,
 			AppType:      v1beta1.AppTypeContainer,
+			User:         user,
 			Path:         appPath,
 			EnvVars:      lo.FromPtr(containerApp.EnvVars),
 			Embedded:     false,
@@ -96,6 +107,16 @@ func (p *containerProvider) Verify(ctx context.Context) error {
 	}
 	if err := ensureMinQuadletPodmanVersion(version); err != nil {
 		return fmt.Errorf("%w: container app type: %w", errors.ErrNoRetry, err)
+	}
+
+	if !p.spec.User.IsRootUser() {
+		_, _, homeDir, err := userutil.LookupUser(p.spec.User)
+		if err != nil {
+			return fmt.Errorf("application user %s does not exist: %w", p.spec.User, err)
+		}
+		if homeDir == "" {
+			return fmt.Errorf("application user %s does not have a home dir set", p.spec.User)
+		}
 	}
 
 	for _, vol := range lo.FromPtr(p.spec.ContainerApp.Volumes) {
@@ -131,7 +152,7 @@ func (p *containerProvider) Install(ctx context.Context) error {
 		return fmt.Errorf("generating quadlet: %w", err)
 	}
 
-	if err := installQuadlet(p.readWriter, p.log, p.spec.Path, p.spec.ID); err != nil {
+	if err := installQuadlet(p.readWriter, p.log, p.spec.Path, targetPathForQuadlet(p.spec.User, p.spec.ID), p.spec.ID); err != nil {
 		return fmt.Errorf("installing container: %w", err)
 	}
 
@@ -139,8 +160,8 @@ func (p *containerProvider) Install(ctx context.Context) error {
 }
 
 func (p *containerProvider) Remove(ctx context.Context) error {
-	path := filepath.Join(lifecycle.QuadletTargetPath, quadlet.NamespaceResource(p.spec.ID, lifecycle.QuadletTargetName))
-	if err := p.readWriter.RemoveFile(path); err != nil {
+	targetPath := targetPathForQuadlet(p.spec.User, p.spec.ID)
+	if err := p.readWriter.RemoveFile(targetPath); err != nil {
 		return fmt.Errorf("removing container target file: %w", err)
 	}
 	if err := p.readWriter.RemoveAll(p.spec.Path); err != nil {

@@ -112,6 +112,8 @@ func NewPodmanFactory(log *log.PrefixLogger, backoff poll.Config, rwFactory file
 			return nil, err
 		}
 
+		log.Debugf("Creating podman client for user %s", username)
+
 		return NewPodman(
 			log,
 			exec,

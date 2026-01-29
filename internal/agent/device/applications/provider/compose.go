@@ -43,7 +43,7 @@ func newComposeProvider(
 	envVars := lo.FromPtr(composeApp.EnvVars)
 	volumes := composeApp.Volumes
 
-	user := composeApp.UserWithDefault()
+	user := v1beta1.CurrentProcessUsername
 	podman, err := podmanFactory(user)
 	if err != nil {
 		return nil, fmt.Errorf("creating podman client for user %s: %w", user, err)

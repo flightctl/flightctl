@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os/exec"
+	"os/user"
 	"testing"
 	"time"
 
@@ -497,7 +498,11 @@ func newTestDeviceWithApplicationType(t *testing.T, name string, details []testI
 		require.NoError(t, err)
 		quadletApp.AppType = appType
 		quadletApp.Name = lo.ToPtr(name)
+		procUser, err := user.Current()
+		require.NoError(t, err)
+		quadletApp.RunAs = v1beta1.Username(procUser.Username)
 		err = providerSpec.FromQuadletApplication(quadletApp)
+		require.NoError(t, err)
 	default:
 		t.Fatalf("unsupported app type for inline: %s", appType)
 	}
