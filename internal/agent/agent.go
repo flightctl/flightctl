@@ -168,10 +168,10 @@ func (a *Agent) Run(ctx context.Context) error {
 	kubeClient := client.NewKube(a.log, rootExecuter, rootReadWriter)
 
 	// create helm client
-	helmClient := client.NewHelm(a.log, rootExecuter, rootReadWriter, a.config.DataDir)
+	helmClient := client.NewHelm(a.log, rootExecuter, rootReadWriter, a.config.DataDir, pollBackoff)
 
 	// create CRI client
-	criClient := client.NewCRI(a.log, rootExecuter, rootReadWriter)
+	criClient := client.NewCRI(a.log, rootExecuter, rootReadWriter, pollBackoff)
 
 	// create CLI clients
 	cliClients := client.NewCLIClients(

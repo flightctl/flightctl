@@ -3,13 +3,22 @@ package client
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/pkg/poll"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
+
+var testBackoffConfig = poll.Config{
+	BaseDelay: 10 * time.Millisecond,
+	Factor:    2.0,
+	MaxDelay:  100 * time.Millisecond,
+	MaxSteps:  1,
+}
 
 func TestHelmChartCache_ChartDir(t *testing.T) {
 	testCases := []struct {
@@ -46,7 +55,7 @@ func TestHelmChartCache_ChartDir(t *testing.T) {
 			log := log.NewPrefixLogger("test")
 			mockReadWriter := fileio.NewMockReadWriter(ctrl)
 
-			cache := newHelmChartCache(nil, tc.chartsDir, mockReadWriter, log)
+			cache := newHelmChartCache(nil, tc.chartsDir, mockReadWriter, log, testBackoffConfig)
 			got := cache.ChartDir(tc.chartRef)
 
 			require.Equal(t, tc.want, got)
@@ -94,7 +103,7 @@ func TestHelmChartCache_IsChartResolved(t *testing.T) {
 			mockReadWriter := fileio.NewMockReadWriter(ctrl)
 
 			tc.setupMock(mockReadWriter)
-			cache := newHelmChartCache(nil, "/var/lib/flightctl/helm/charts", mockReadWriter, log)
+			cache := newHelmChartCache(nil, "/var/lib/flightctl/helm/charts", mockReadWriter, log, testBackoffConfig)
 			got, err := cache.IsChartResolved(tc.chartDir)
 
 			if tc.wantErr {
@@ -139,7 +148,7 @@ func TestHelmChartCache_MarkChartResolved(t *testing.T) {
 			mockReadWriter := fileio.NewMockReadWriter(ctrl)
 
 			tc.setupMock(mockReadWriter)
-			cache := newHelmChartCache(nil, "/var/lib/flightctl/helm/charts", mockReadWriter, log)
+			cache := newHelmChartCache(nil, "/var/lib/flightctl/helm/charts", mockReadWriter, log, testBackoffConfig)
 			err := cache.MarkChartResolved(tc.chartDir)
 
 			if tc.wantErr {
@@ -205,7 +214,7 @@ func TestHelmChartCache_ChartExists(t *testing.T) {
 			mockReadWriter := fileio.NewMockReadWriter(ctrl)
 
 			tc.setupMock(mockReadWriter)
-			cache := newHelmChartCache(nil, "/var/lib/flightctl/helm/charts", mockReadWriter, log)
+			cache := newHelmChartCache(nil, "/var/lib/flightctl/helm/charts", mockReadWriter, log, testBackoffConfig)
 			got, err := cache.ChartExists(tc.chartDir)
 
 			if tc.wantErr {
@@ -258,7 +267,7 @@ func TestHelmChartCache_RemoveChart(t *testing.T) {
 			mockReadWriter := fileio.NewMockReadWriter(ctrl)
 
 			tc.setupMock(mockReadWriter)
-			cache := newHelmChartCache(nil, "/var/lib/flightctl/helm/charts", mockReadWriter, log)
+			cache := newHelmChartCache(nil, "/var/lib/flightctl/helm/charts", mockReadWriter, log, testBackoffConfig)
 			err := cache.RemoveChart(tc.chartDir)
 
 			if tc.wantErr {
@@ -309,7 +318,7 @@ func TestHelmChartCache_EnsureChartsDir(t *testing.T) {
 			mockReadWriter := fileio.NewMockReadWriter(ctrl)
 
 			tc.setupMock(mockReadWriter)
-			cache := newHelmChartCache(nil, tc.chartsDir, mockReadWriter, log)
+			cache := newHelmChartCache(nil, tc.chartsDir, mockReadWriter, log, testBackoffConfig)
 			err := cache.EnsureChartsDir()
 
 			if tc.wantErr {
@@ -505,8 +514,8 @@ func TestHelmChartCache_ResolveChart(t *testing.T) {
 
 			tc.setupMock(mockExec, mockReadWriter)
 
-			helm := NewHelm(log, mockExec, mockReadWriter, "/var/lib/flightctl/helm/charts")
-			cache := newHelmChartCache(helm, "/var/lib/flightctl/helm/charts", mockReadWriter, log)
+			helm := NewHelm(log, mockExec, mockReadWriter, "/var/lib/flightctl/helm/charts", testBackoffConfig)
+			cache := newHelmChartCache(helm, "/var/lib/flightctl/helm/charts", mockReadWriter, log, testBackoffConfig)
 			err := cache.ResolveChart(context.Background(), chartRef, chartDir)
 
 			if tc.wantErr {

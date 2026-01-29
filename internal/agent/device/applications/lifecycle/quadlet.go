@@ -154,6 +154,14 @@ func (q *Quadlet) remove(ctx context.Context, action Action, systemctl systemd.M
 		return fmt.Errorf("listing dependencies: %w", err)
 	}
 
+	// If there are no dependencies, the target was never created or has already
+	// been removed. Skip stopping and proceed directly to resource cleanup for
+	// idempotent removal.
+	if len(services) == 0 {
+		q.log.Debugf("Skipping stop for %s: target has no dependencies", appName)
+		return q.cleanResources(ctx, action)
+	}
+
 	q.log.Debugf("Stopping quadlet: %s target: %s", appName, target)
 	// stopping the target will begin stopping the individual services, but it is not a synchronous operation.
 	if err := systemctl.Stop(ctx, target); err != nil {

@@ -212,25 +212,15 @@ func (m *PodmanMonitor) Ensure(ctx context.Context, app Application) error {
 	return nil
 }
 
-// expects mutex to be held
-func (m *PodmanMonitor) canRemoveApp(app Application) bool {
-	_, ok := m.apps[app.ID()]
-	// embedded applications can adhere to slightly different lifecycles
-	// making it possible to remove an app that was never added.
-	return ok || app.IsEmbedded()
-}
-
 func (m *PodmanMonitor) QueueRemove(app Application) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	// Always proceed with removal even if the app isn't tracked. After a reboot,
+	// in-memory state is cleared but workloads (containers, pods, etc.) may still
+	// exist and need cleanup. The lifecycle handlers are idempotent and will
+	// handle the case where the workload doesn't exist.
 	appID := app.ID()
-	if !m.canRemoveApp(app) {
-		m.log.Errorf("Podman application not found: %s", app.Name())
-		// app is already removed
-		return nil
-	}
-
 	delete(m.apps, appID)
 	appName := app.Name()
 
