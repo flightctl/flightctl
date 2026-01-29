@@ -14,9 +14,13 @@ import (
 )
 
 const (
-	PollingInterval = 2 * time.Second
-	PollingTimeout  = 30 * time.Second
-	BranchName      = "main"
+	PollingInterval = 5 * time.Second
+	// Default resource sync task runtime is 2 minutes, but is configurable
+	// via periodic tasks config.  For gh ci e2e runs the interval is set to 5s,
+	// but we set the timeout at 3 minutesto ensure this test can run w/ default config.
+	// in other environments
+	PollingTimeout = 3 * time.Minute
+	BranchName     = "main"
 
 	// Images used in test data files
 	Fedora42Image = "quay.io/fedora/fedora-bootc:42"
