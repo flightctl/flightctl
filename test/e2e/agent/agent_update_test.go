@@ -243,10 +243,6 @@ var _ = Describe("VM Agent behavior during updates", func() {
 				return device.Spec.Os.Image != initialImage
 			}, TIMEOUT)
 
-			// There is currently a bug https://issues.redhat.com/browse/EDM-1365
-			// that prevents the device from rolling back to the initial image
-			// When that bug is fixed, the following assertions will need to change.
-
 			harness.WaitForDeviceContents(deviceId, "device status should indicate updating failure", func(device *v1beta1.Device) bool {
 				return e2e.ConditionExists(device, v1beta1.ConditionTypeDeviceUpdating, v1beta1.ConditionStatusFalse, string(v1beta1.UpdateStateError))
 			}, LONGTIMEOUT)
@@ -276,20 +272,14 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			cond := v1beta1.FindStatusCondition(dev.Status.Conditions, v1beta1.ConditionTypeDeviceUpdating)
 			Expect(cond).ToNot(BeNil())
 			Expect(cond.Message).To(And(
-				ContainSubstring("applications"),
-				SatisfyAny(
-					ContainSubstring("fake-image"),
-					ContainSubstring("Invalid value"),
-					ContainSubstring("invalid configuration or input"),
-					ContainSubstring("service unavailable"),
-					ContainSubstring("pulling oci target"),
-				),
-			)) /*
-				** Add this assertion back when the bug referenced above is fixed **
-				harness.WaitForDeviceContents(deviceId, "device image should be reverted to the old image", func(device *v1beta1.Device) bool {
-					return device.Spec.Os.Image == initialImage
-				}, TIMEOUT)
-			*/
+				ContainSubstring("While ApplyingUpdate"),
+				ContainSubstring("applications failed"),
+			))
+
+			// Verify the device rolled back to the previous rendered version
+			harness.WaitForDeviceContents(deviceId, "device should have rolled back to previous rendered version", func(device *v1beta1.Device) bool {
+				return device.Status.Config.RenderedVersion == strconv.Itoa(expectedVersion)
+			}, TIMEOUT)
 		})
 		It("Should trigger greenboot rollback when agent fails to start", Label("greenboot-rollback", "87279", "sanity"), func() {
 			// Get harness directly - no shared package-level variable
