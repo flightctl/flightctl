@@ -98,7 +98,10 @@ func TestManager_getImageReferencesFromSpecs(t *testing.T) {
 				mock.EXPECT().Read(spec.Current).Return(currentDevice, nil)
 				mock.EXPECT().Read(spec.Desired).Return(desiredDevice, nil)
 			},
-			want: []ImageRef{{Image: "quay.io/example/app:current", Type: RefTypePodman}, {Image: "quay.io/example/app:desired", Type: RefTypePodman}},
+			want: []ImageRef{
+				{Owner: v1beta1.CurrentProcessUsername, Image: "quay.io/example/app:current", Type: RefTypePodman},
+				{Owner: v1beta1.CurrentProcessUsername, Image: "quay.io/example/app:desired", Type: RefTypePodman},
+			},
 		},
 		{
 			name: "success with current spec only (no desired)",
@@ -127,7 +130,7 @@ func TestManager_getImageReferencesFromSpecs(t *testing.T) {
 				mock.EXPECT().Read(spec.Current).Return(currentDevice, nil)
 				mock.EXPECT().Read(spec.Desired).Return(nil, errors.New("desired not found"))
 			},
-			want: []ImageRef{{Image: "quay.io/example/app:current", Type: RefTypePodman}},
+			want: []ImageRef{{Owner: v1beta1.CurrentProcessUsername, Image: "quay.io/example/app:current", Type: RefTypePodman}},
 		},
 		{
 			name: "error reading current spec",

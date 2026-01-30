@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
@@ -237,4 +238,10 @@ func (c *Compose) ensurePodmanVolume(
 	}
 
 	return nil
+}
+
+// ComposeVolumeName generates a unique Compose-compatible volume name
+// based on the application and volume names.
+func ComposeVolumeName(appName, volumeName string, user v1beta1.Username) string {
+	return GenerateAppID(appName+"-"+volumeName, user)
 }

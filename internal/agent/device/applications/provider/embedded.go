@@ -46,7 +46,7 @@ func newEmbedded(log *log.PrefixLogger, podman *client.Podman, readWriter fileio
 		return nil, fmt.Errorf("constructing embedded app handler: %w", err)
 	}
 
-	volumeManager, err := NewVolumeManager(log, name, appType, nil)
+	volumeManager, err := NewVolumeManager(log, name, appType, v1beta1.CurrentProcessUsername, nil)
 	if err != nil {
 		return nil, err
 	}

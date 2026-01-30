@@ -69,7 +69,7 @@ func TestWriteComposeOverride(t *testing.T) {
 				fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
 			)
 
-			volumeManager, err := NewVolumeManager(log, tt.appName, v1beta1.AppTypeCompose, newTestImageApplicationVolumes(require, tt.volumes))
+			volumeManager, err := NewVolumeManager(log, tt.appName, v1beta1.AppTypeCompose, v1beta1.CurrentProcessUsername, newTestImageApplicationVolumes(require, tt.volumes))
 			require.NoError(err)
 
 			err = writeComposeOverride(log, "/etc/compose/manifest", volumeManager, writer, client.ComposeOverrideFilename)

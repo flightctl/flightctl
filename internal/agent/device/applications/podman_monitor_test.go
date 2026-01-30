@@ -69,9 +69,9 @@ func TestListenForEvents(t *testing.T) {
 				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
 			},
 			events: []client.PodmanEvent{
-				mockPodmanEventSuccess("app1", "app1-service-1", "init"),
-				mockPodmanEventSuccess("app1", "app1-service-1", "create"),
-				mockPodmanEventSuccess("app1", "app1-service-1", "start"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "init"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "create"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "start"),
 			},
 			expectedReady:    "1/1",
 			expectedStatus:   v1beta1.ApplicationStatusRunning,
@@ -84,13 +84,13 @@ func TestListenForEvents(t *testing.T) {
 				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
 			},
 			events: []client.PodmanEvent{
-				mockPodmanEventSuccess("app1", "app1-service-1", "init"),
-				mockPodmanEventSuccess("app1", "app1-service-1", "create"),
-				mockPodmanEventSuccess("app1", "app1-service-1", "start"),
-				mockPodmanEventSuccess("app1", "app1-service-2", "init"),
-				mockPodmanEventSuccess("app1", "app1-service-2", "create"),
-				mockPodmanEventSuccess("app1", "app1-service-2", "start"),
-				mockPodmanEventSuccess("app1", "app1-service-2", "stop"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "init"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "create"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "start"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "init"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "create"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "start"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "stop"),
 			},
 			expectedReady:   "1/2",
 			expectedStatus:  v1beta1.ApplicationStatusRunning,
@@ -102,13 +102,13 @@ func TestListenForEvents(t *testing.T) {
 				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
 			},
 			events: []client.PodmanEvent{
-				mockPodmanEventSuccess("app1", "app1-service-1", "init"),
-				mockPodmanEventSuccess("app1", "app1-service-1", "create"),
-				mockPodmanEventSuccess("app1", "app1-service-1", "start"),
-				mockPodmanEventSuccess("app1", "app1-service-2", "init"),
-				mockPodmanEventSuccess("app1", "app1-service-2", "create"),
-				mockPodmanEventSuccess("app1", "app1-service-2", "start"),
-				mockPodmanEventError("app1", "app1-service-2", "died", 137),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "init"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "create"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "start"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "init"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "create"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "start"),
+				mockPodmanEventError("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "died", 137),
 			},
 			expectedReady:   "1/2",
 			expectedStatus:  v1beta1.ApplicationStatusRunning,
@@ -120,10 +120,10 @@ func TestListenForEvents(t *testing.T) {
 				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
 			},
 			events: []client.PodmanEvent{
-				mockPodmanEventSuccess("app1", "app1-service-1", "init"),
-				mockPodmanEventSuccess("app1", "app1-service-1", "create"),
-				mockPodmanEventSuccess("app1", "app1-service-1", "start"),
-				mockPodmanEventSuccess("app1", "app1-service-1", "die"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "init"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "create"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "start"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "die"),
 			},
 			expectedReady:   "0/1",
 			expectedStatus:  v1beta1.ApplicationStatusError,
@@ -135,13 +135,13 @@ func TestListenForEvents(t *testing.T) {
 				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
 			},
 			events: []client.PodmanEvent{
-				mockPodmanEventSuccess("app1", "app1-service-1", "init"),
-				mockPodmanEventSuccess("app1", "app1-service-1", "create"),
-				mockPodmanEventSuccess("app1", "app1-service-1", "start"),
-				mockPodmanEventSuccess("app1", "app1-service-2", "init"),
-				mockPodmanEventSuccess("app1", "app1-service-2", "create"),
-				mockPodmanEventSuccess("app1", "app1-service-2", "start"),
-				mockPodmanEventSuccess("app1", "app1-service-2", "die"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "init"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "create"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "start"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "init"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "create"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "start"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "die"),
 			},
 			expectedReady:   "1/2",
 			expectedStatus:  v1beta1.ApplicationStatusRunning,
@@ -154,12 +154,12 @@ func TestListenForEvents(t *testing.T) {
 				createTestApplication(require, "app2", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
 			},
 			events: []client.PodmanEvent{
-				mockPodmanEventSuccess("app1", "app1-service-1", "init"),
-				mockPodmanEventSuccess("app1", "app1-service-1", "create"),
-				mockPodmanEventSuccess("app1", "app1-service-1", "start"),
-				mockPodmanEventSuccess("app2", "app1-service-1", "init"),
-				mockPodmanEventSuccess("app2", "app1-service-1", "create"),
-				mockPodmanEventSuccess("app2", "app1-service-1", "start"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "init"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "create"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "start"),
+				mockPodmanEventSuccess("app2", v1beta1.CurrentProcessUsername, "app1-service-1", "init"),
+				mockPodmanEventSuccess("app2", v1beta1.CurrentProcessUsername, "app1-service-1", "create"),
+				mockPodmanEventSuccess("app2", v1beta1.CurrentProcessUsername, "app1-service-1", "start"),
 			},
 			expectedReady:   "1/1",
 			expectedStatus:  v1beta1.ApplicationStatusRunning,
@@ -171,10 +171,10 @@ func TestListenForEvents(t *testing.T) {
 				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
 			},
 			events: []client.PodmanEvent{
-				mockPodmanEventSuccess("app1", "app1-service-1", "init"),
-				mockPodmanEventSuccess("app1", "app1-service-1", "create"),
-				mockPodmanEventSuccess("app1", "app1-service-1", "start"),
-				mockPodmanEventSuccess("app1", "app1-service-1", "remove"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "init"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "create"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "start"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "remove"),
 			},
 			expectedReady:   "0/0",
 			expectedStatus:  v1beta1.ApplicationStatusUnknown,
@@ -186,17 +186,17 @@ func TestListenForEvents(t *testing.T) {
 				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
 			},
 			events: []client.PodmanEvent{
-				mockPodmanEventSuccess("app1", "app1-service-1", "init"),
-				mockPodmanEventSuccess("app1", "app1-service-1", "create"),
-				mockPodmanEventSuccess("app1", "app1-service-1", "start"),
-				mockPodmanEventSuccess("app1", "app1-service-1", "remove"),
-				mockPodmanEventSuccess("app1", "app1-service-2", "init"),
-				mockPodmanEventSuccess("app1", "app1-service-2", "create"),
-				mockPodmanEventSuccess("app1", "app1-service-2", "start"),
-				mockPodmanEventSuccess("app1", "app1-service-2", "remove"),
-				mockPodmanEventSuccess("app1", "app1-service-1", "init"),
-				mockPodmanEventSuccess("app1", "app1-service-1", "create"),
-				mockPodmanEventSuccess("app1", "app1-service-1", "start"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "init"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "create"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "start"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "remove"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "init"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "create"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "start"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "remove"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "init"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "create"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "start"),
 			},
 			expectedReady:   "1/1",
 			expectedStatus:  v1beta1.ApplicationStatusRunning,
@@ -208,10 +208,10 @@ func TestListenForEvents(t *testing.T) {
 				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
 			},
 			events: []client.PodmanEvent{
-				mockPodmanEventSuccess("app1", "app1-service-1", "init"),
-				mockPodmanEventSuccess("app1", "app1-service-1", "create"),
-				mockPodmanEventSuccess("app1", "app1-service-1", "start"),
-				mockPodmanEventSuccess("app1", "app1-service-2", "create"), // no start
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "init"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "create"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "start"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "create"), // no start
 			},
 			expectedReady:   "1/2",
 			expectedStatus:  v1beta1.ApplicationStatusRunning,
@@ -463,15 +463,15 @@ func writeEvent(writer io.WriteCloser, event *client.PodmanEvent) error {
 	return err
 }
 
-func mockPodmanEventSuccess(name, service, status string) client.PodmanEvent {
-	return createMockPodmanEvent(name, service, status, 0)
+func mockPodmanEventSuccess(name string, username v1beta1.Username, service, status string) client.PodmanEvent {
+	return createMockPodmanEvent(name, username, service, status, 0)
 }
 
-func mockPodmanEventError(name, service, status string, exitCode int) client.PodmanEvent {
-	return createMockPodmanEvent(name, service, status, exitCode)
+func mockPodmanEventError(name string, username v1beta1.Username, service, status string, exitCode int) client.PodmanEvent {
+	return createMockPodmanEvent(name, username, service, status, exitCode)
 }
 
-func createMockPodmanEvent(name, service, status string, exitCode int) client.PodmanEvent {
+func createMockPodmanEvent(name string, username v1beta1.Username, service, status string, exitCode int) client.PodmanEvent {
 	event := client.PodmanEvent{
 		ID:     "8559c630e04ea852101467742e95b9e371fe6dd8c9195910354636d68d388a40",
 		Image:  "docker.io/library/alpine:latest",
@@ -481,7 +481,7 @@ func createMockPodmanEvent(name, service, status string, exitCode int) client.Po
 		Attributes: map[string]string{
 			"PODMAN_SYSTEMD_UNIT":                     "podman-compose@user.service",
 			"com.docker.compose.container-number":     "1",
-			"com.docker.compose.project":              client.NewComposeID(name),
+			"com.docker.compose.project":              lifecycle.GenerateAppID(name, username),
 			"com.docker.compose.project.config_files": "podman-compose.yaml",
 			"com.docker.compose.project.working_dir":  path.Join("/usr/local/lib/compose", name),
 			"com.docker.compose.service":              service,
@@ -502,14 +502,14 @@ func mockPodmanInspect(restarts int) client.PodmanInspect {
 	}
 }
 
-func BenchmarkNewComposeID(b *testing.B) {
+func BenchmarkGenerateAppID(b *testing.B) {
 	// bench different string length
 	lengths := []int{50, 100, 253}
 	for _, size := range lengths {
 		b.Run(fmt.Sprintf("size_%d", size), func(b *testing.B) {
 			input := strings.Repeat("a", size)
 			for i := 0; i < b.N; i++ {
-				client.NewComposeID(input)
+				lifecycle.GenerateAppID(input, v1beta1.CurrentProcessUsername)
 			}
 		})
 	}
@@ -531,14 +531,14 @@ func (m *mockProvider) Name() string {
 }
 
 func (m *mockProvider) ID() string {
-	return client.NewComposeID(m.name)
+	return lifecycle.GenerateAppID(m.name, m.username)
 }
 
 func (m *mockProvider) Spec() *provider.ApplicationSpec {
-	volManager, err := provider.NewVolumeManager(nil, m.name, v1beta1.AppTypeCompose, nil)
+	volManager, err := provider.NewVolumeManager(nil, m.name, v1beta1.AppTypeCompose, v1beta1.CurrentProcessUsername, nil)
 	m.require.NoError(err)
 	return &provider.ApplicationSpec{
-		ID:      client.NewComposeID(m.name),
+		ID:      lifecycle.GenerateAppID(m.name, m.username),
 		Name:    m.name,
 		Volume:  volManager,
 		AppType: m.appType,

@@ -4714,7 +4714,6 @@ components:
       allOf:
         - $ref: '#/components/schemas/ApplicationProviderBase'
         - $ref: '#/components/schemas/ApplicationEnvVars'
-        - $ref: '#/components/schemas/ApplicationUser'
         - $ref: '#/components/schemas/ApplicationVolumeProviderSpec'
         - oneOf:
             - $ref: '#/components/schemas/ImageApplicationProviderSpec'

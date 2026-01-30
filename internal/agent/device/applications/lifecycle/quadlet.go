@@ -18,10 +18,10 @@ import (
 )
 
 const (
-	QuadletAppPath         = "/etc/containers/systemd"
-	EmbeddedQuadletAppPath = "/usr/local/etc/containers/systemd"
-	QuadletTargetPath      = "/etc/systemd/system/"
-	QuadletTargetName      = "flightctl-quadlet-app.target"
+	RootfulQuadletAppPath    = "/etc/containers/systemd"
+	EmbeddedQuadletAppPath   = "/usr/local/etc/containers/systemd"
+	RootfulQuadletTargetPath = "/etc/systemd/system/"
+	QuadletTargetName        = "flightctl-quadlet-app.target"
 )
 
 var _ ActionHandler = (*Quadlet)(nil)

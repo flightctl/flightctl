@@ -43,7 +43,7 @@ func newComposeProvider(
 	envVars := lo.FromPtr(composeApp.EnvVars)
 	volumes := composeApp.Volumes
 
-	user := composeApp.UserWithDefault()
+	user := v1beta1.CurrentProcessUsername
 	podman, err := podmanFactory(user)
 	if err != nil {
 		return nil, fmt.Errorf("creating podman client for user %s: %w", user, err)
@@ -91,7 +91,7 @@ func newComposeProvider(
 		inlineContent = inlineSpec.Inline
 	}
 
-	volumeManager, err := NewVolumeManager(log, appName, v1beta1.AppTypeCompose, volumes)
+	volumeManager, err := NewVolumeManager(log, appName, v1beta1.AppTypeCompose, user, volumes)
 	if err != nil {
 		return nil, err
 	}
@@ -106,7 +106,7 @@ func newComposeProvider(
 		inlineContent: inlineContent,
 		spec: &ApplicationSpec{
 			Name:       appName,
-			ID:         client.NewComposeID(appName),
+			ID:         lifecycle.GenerateAppID(appName, user),
 			AppType:    v1beta1.AppTypeCompose,
 			Path:       appPath,
 			EnvVars:    envVars,

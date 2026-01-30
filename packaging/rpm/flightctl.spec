@@ -658,6 +658,15 @@ cp /usr/share/sosreport/flightctl.py $INSTALL_DIR
 chmod 0644 $INSTALL_DIR/flightctl.py
 rm -rf /usr/share/sosreport
 
+# We want a regular user to run applications with as there are several issues around system users
+# and running quadlet applications.
+id -u flightctl || useradd --home-dir /home/flightctl --create-home --user-group flightctl
+loginctl enable-linger flightctl || :
+mkdir -p /home/flightctl/{.config,.local}
+chown -R flightctl:flightctl /home/flightctl/{.config,.local}
+
+%postun agent
+loginctl disable-linger flightctl || :
 
 %files selinux
 %{_datadir}/selinux/packages/%{selinuxtype}/flightctl_agent.pp.bz2

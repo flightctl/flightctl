@@ -895,9 +895,6 @@ type ComposeApplication struct {
 	// Name The application name must be 1–253 characters long, start with a letter or number, and contain no whitespace.
 	Name *string `json:"name,omitempty"`
 
-	// RunAs The username of the system user this application should be run under. This is not the same as the user within any containers of the application (if applicable). Defaults to the user that the agent runs as (generally root) if not specified.
-	RunAs Username `json:"runAs,omitempty"`
-
 	// Volumes List of application volumes.
 	Volumes *[]ApplicationVolume `json:"volumes,omitempty"`
 	union   json.RawMessage
@@ -4223,11 +4220,6 @@ func (t ComposeApplication) MarshalJSON() ([]byte, error) {
 		}
 	}
 
-	object["runAs"], err = json.Marshal(t.RunAs)
-	if err != nil {
-		return nil, fmt.Errorf("error marshaling 'runAs': %w", err)
-	}
-
 	if t.Volumes != nil {
 		object["volumes"], err = json.Marshal(t.Volumes)
 		if err != nil {
@@ -4267,13 +4259,6 @@ func (t *ComposeApplication) UnmarshalJSON(b []byte) error {
 		err = json.Unmarshal(raw, &t.Name)
 		if err != nil {
 			return fmt.Errorf("error reading 'name': %w", err)
-		}
-	}
-
-	if raw, found := object["runAs"]; found {
-		err = json.Unmarshal(raw, &t.RunAs)
-		if err != nil {
-			return fmt.Errorf("error reading 'runAs': %w", err)
 		}
 	}
 

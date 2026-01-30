@@ -2,10 +2,15 @@ package lifecycle
 
 import (
 	"context"
+	"fmt"
+	"hash/crc32"
 	"iter"
+	"strings"
 	"time"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/util/validation"
 )
 
 type ActionType string
@@ -119,4 +124,28 @@ func ContextWithBatchStartTime(ctx context.Context, t time.Time) context.Context
 func BatchStartTimeFromContext(ctx context.Context) (time.Time, bool) {
 	t, ok := ctx.Value(batchStartTimeKey).(time.Time)
 	return t, ok
+}
+
+// GenerateAppID generates a deterministic, lowercase, DNS-compatible ID with a fixed-length hash suffix.
+func GenerateAppID(name string, user v1beta1.Username) string {
+	const suffixLen = 6
+	id := client.SanitizePodmanLabel(name)
+	if !user.IsCurrentProcessUser() && !user.IsRootUser() {
+		id += "-" + user.String()
+	}
+	hashValue := crc32.ChecksumIEEE([]byte(id))
+	suffix := fmt.Sprintf("%06d", hashValue)
+	maxLength := validation.DNS1123MaxLength - suffixLen - 1
+	if len(id) > maxLength {
+		id = id[:maxLength]
+	}
+
+	var builder strings.Builder
+	builder.Grow(len(id) + 1 + suffixLen)
+
+	builder.WriteString(id)
+	builder.WriteByte('-')
+	builder.WriteString(suffix[:suffixLen])
+
+	return builder.String()
 }

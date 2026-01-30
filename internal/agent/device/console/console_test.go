@@ -18,6 +18,7 @@ import (
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
@@ -59,6 +60,7 @@ func setupVars(t *testing.T) *vars {
 	ctrl := gomock.NewController(t)
 	executor := executer.NewCommonExecuter()
 	logger := log.NewPrefixLogger("console")
+	logger.SetLevel(logrus.DebugLevel)
 	mockGrpcClient := NewMockRouterServiceClient(ctrl)
 	mockStreamClient := NewMockRouterService_StreamClient(ctrl)
 	mockWatcher := spec.NewMockWatcher(ctrl)

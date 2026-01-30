@@ -34,7 +34,7 @@ func setupTestEnv(t *testing.T) (*log.PrefixLogger, *client.Podman, fileio.ReadW
 	podman := client.NewPodman(log, mockExec, rw, util.NewPollConfig())
 
 	// Create the systemd unit directory for target file copying
-	require.NoError(t, rw.MkdirAll(lifecycle.QuadletTargetPath, fileio.DefaultDirectoryPermissions))
+	require.NoError(t, rw.MkdirAll(lifecycle.RootfulQuadletTargetPath, fileio.DefaultDirectoryPermissions))
 
 	return log, podman, rw, mockExec
 }
@@ -52,7 +52,7 @@ func setupEmbeddedQuadletApp(t *testing.T, rw fileio.ReadWriter, name string, fi
 
 // setupRealQuadletApp creates a real path quadlet app for remove testing
 func setupRealQuadletApp(t *testing.T, rw fileio.ReadWriter, name string, files map[string]string) {
-	realPath := filepath.Join(lifecycle.QuadletAppPath, name)
+	realPath := filepath.Join(lifecycle.RootfulQuadletAppPath, name)
 	require.NoError(t, rw.MkdirAll(realPath, fileio.DefaultDirectoryPermissions))
 
 	for filename, content := range files {
@@ -104,8 +104,8 @@ Image=nginx:latest
 `,
 			},
 			verifyFn: func(t *testing.T, rw fileio.ReadWriter, appName string) {
-				realPath := filepath.Join(lifecycle.QuadletAppPath, appName)
-				appID := client.NewComposeID(appName)
+				realPath := filepath.Join(lifecycle.RootfulQuadletAppPath, appName)
+				appID := lifecycle.GenerateAppID(appName, v1beta1.CurrentProcessUsername)
 
 				// Verify namespaced file exists
 				namespacedFile := filepath.Join(realPath, appID+"-web.container")
@@ -135,8 +135,8 @@ Network=app-net.network
 `,
 			},
 			verifyFn: func(t *testing.T, rw fileio.ReadWriter, appName string) {
-				realPath := filepath.Join(lifecycle.QuadletAppPath, appName)
-				appID := client.NewComposeID(appName)
+				realPath := filepath.Join(lifecycle.RootfulQuadletAppPath, appName)
+				appID := lifecycle.GenerateAppID(appName, v1beta1.CurrentProcessUsername)
 
 				// Verify all namespaced files exist
 				namespacedContainer := filepath.Join(realPath, appID+"-web.container")
@@ -199,7 +199,7 @@ func TestEmbeddedProvider_Remove(t *testing.T) {
 			},
 			verifyFn: func(t *testing.T, rw fileio.ReadWriter, appName string) {
 				// Verify real path is removed
-				realPath := filepath.Join(lifecycle.QuadletAppPath, appName)
+				realPath := filepath.Join(lifecycle.RootfulQuadletAppPath, appName)
 				verifyFilesNotExist(t, rw, []string{realPath})
 
 				// Verify embedded path still exists

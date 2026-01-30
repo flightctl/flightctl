@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
@@ -44,7 +45,7 @@ func TestNewComposeID(t *testing.T) {
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			result := client.NewComposeID(tc.input)
+			result := GenerateAppID(tc.input, v1beta1.CurrentProcessUsername)
 			require.Equal(tc.expected, result)
 		})
 	}

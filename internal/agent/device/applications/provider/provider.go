@@ -130,9 +130,9 @@ func collectContainerOCITargets(providerSpec *v1beta1.ApplicationProviderSpec, c
 	if err != nil {
 		return nil, fmt.Errorf("getting container application: %w", err)
 	}
-	targetUser := containerApp.UserWithDefault()
+	targetUser := containerApp.RunAsWithDefault()
 	var targets dependency.OCIPullTargetsByUser
-	targets = targets.Add(containerApp.UserWithDefault(), dependency.OCIPullTarget{
+	targets = targets.Add(containerApp.RunAsWithDefault(), dependency.OCIPullTarget{
 		Type:       dependency.OCITypePodmanImage,
 		Reference:  containerApp.Image,
 		PullPolicy: v1beta1.PullIfNotPresent,
@@ -155,7 +155,7 @@ func collectComposeOCITargets(providerSpec *v1beta1.ApplicationProviderSpec, con
 		return nil, fmt.Errorf("getting compose provider type: %w", err)
 	}
 
-	targetUser := composeApp.UserWithDefault()
+	targetUser := v1beta1.CurrentProcessUsername
 
 	var targets dependency.OCIPullTargetsByUser
 	switch providerType {
@@ -207,7 +207,7 @@ func collectQuadletOCITargets(providerSpec *v1beta1.ApplicationProviderSpec, con
 		return nil, fmt.Errorf("getting quadlet provider type: %w", err)
 	}
 
-	targetUser := quadletApp.UserWithDefault()
+	targetUser := quadletApp.RunAsWithDefault()
 	var targets dependency.OCIPullTargetsByUser
 	switch providerType {
 	case v1beta1.ImageApplicationProviderType:
@@ -548,19 +548,15 @@ func ResolveUser(appSpec *v1beta1.ApplicationProviderSpec) (v1beta1.Username, er
 		if err != nil {
 			return "", err
 		}
-		return app.UserWithDefault(), nil
+		return app.RunAsWithDefault(), nil
 	case v1beta1.AppTypeCompose:
-		app, err := (*appSpec).AsComposeApplication()
-		if err != nil {
-			return "", err
-		}
-		return app.UserWithDefault(), nil
+		return v1beta1.CurrentProcessUsername, nil
 	case v1beta1.AppTypeQuadlet:
 		app, err := (*appSpec).AsQuadletApplication()
 		if err != nil {
 			return "", err
 		}
-		return app.UserWithDefault(), nil
+		return app.RunAsWithDefault(), nil
 	case v1beta1.AppTypeHelm:
 		return v1beta1.CurrentProcessUsername, nil
 	default:
@@ -570,7 +566,7 @@ func ResolveUser(appSpec *v1beta1.ApplicationProviderSpec) (v1beta1.Username, er
 
 type multiProviderApp interface {
 	Type() (v1beta1.ApplicationProviderType, error)
-	UserWithDefault() v1beta1.Username
+	RunAsWithDefault() v1beta1.Username
 	AsImageApplicationProviderSpec() (v1beta1.ImageApplicationProviderSpec, error)
 }
 
@@ -583,7 +579,7 @@ func extractMultipProviderAppTargets(ctx context.Context, name string, podmanFac
 		return &AppData{}, nil
 	}
 
-	user := app.UserWithDefault()
+	user := app.RunAsWithDefault()
 	podman, err := podmanFactory(user)
 	if err != nil {
 		return nil, fmt.Errorf("creating podman client for user %s: %w", user, err)
@@ -634,14 +630,14 @@ func ExtractNestedTargetsFromImage(
 		if err != nil {
 			return nil, fmt.Errorf("getting compose application: %w", err)
 		}
-		return extractMultipProviderAppTargets(ctx, appName, podmanFactory, rwFactory, composeApp, v1beta1.AppTypeCompose, configProvider)
+		return extractMultipProviderAppTargets(ctx, appName, podmanFactory, rwFactory, &composeApp, v1beta1.AppTypeCompose, configProvider)
 
 	case v1beta1.AppTypeQuadlet:
 		quadletApp, err := (*appSpec).AsQuadletApplication()
 		if err != nil {
 			return nil, fmt.Errorf("getting quadlet application: %w", err)
 		}
-		return extractMultipProviderAppTargets(ctx, appName, podmanFactory, rwFactory, quadletApp, v1beta1.AppTypeQuadlet, configProvider)
+		return extractMultipProviderAppTargets(ctx, appName, podmanFactory, rwFactory, &quadletApp, v1beta1.AppTypeQuadlet, configProvider)
 
 	case v1beta1.AppTypeHelm:
 		helmApp, err := (*appSpec).AsHelmApplication()
@@ -894,7 +890,7 @@ func discoverInstalledEmbeddedApps(
 	readWriter fileio.ReadWriter,
 	providers *[]Provider,
 ) error {
-	entries, err := readWriter.ReadDir(lifecycle.QuadletAppPath)
+	entries, err := readWriter.ReadDir(lifecycle.RootfulQuadletAppPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil
@@ -908,7 +904,7 @@ func discoverInstalledEmbeddedApps(
 		}
 
 		appName := entry.Name()
-		appPath := filepath.Join(lifecycle.QuadletAppPath, appName)
+		appPath := filepath.Join(lifecycle.RootfulQuadletAppPath, appName)
 		markerPath := filepath.Join(appPath, embeddedQuadletMarkerFile)
 
 		markerExists, err := readWriter.PathExists(markerPath)
