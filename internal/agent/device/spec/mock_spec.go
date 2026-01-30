@@ -213,6 +213,21 @@ func (mr *MockManagerMockRecorder) IsOSUpdate() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsOSUpdate", reflect.TypeOf((*MockManager)(nil).IsOSUpdate))
 }
 
+// IsOSUpdatePending mocks base method.
+func (m *MockManager) IsOSUpdatePending(ctx context.Context) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "IsOSUpdatePending", ctx)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// IsOSUpdatePending indicates an expected call of IsOSUpdatePending.
+func (mr *MockManagerMockRecorder) IsOSUpdatePending(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsOSUpdatePending", reflect.TypeOf((*MockManager)(nil).IsOSUpdatePending), ctx)
+}
+
 // IsRollingBack mocks base method.
 func (m *MockManager) IsRollingBack(ctx context.Context) (bool, error) {
 	m.ctrl.T.Helper()

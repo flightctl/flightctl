@@ -24,13 +24,23 @@ const (
 type KubernetesOption func(*kubernetesOptions)
 
 type kubernetesOptions struct {
-	binary string
+	binary         string
+	kubeconfigPath string
+	kubeconfigSet  bool
 }
 
 // WithBinary sets a specific kubectl/oc binary path instead of auto-discovering.
 func WithBinary(binary string) KubernetesOption {
 	return func(opts *kubernetesOptions) {
 		opts.binary = binary
+	}
+}
+
+// WithKubeKubeconfigPath pre-configures the kubeconfig path, skipping resolution.
+func WithKubeKubeconfigPath(path string) KubernetesOption {
+	return func(opts *kubernetesOptions) {
+		opts.kubeconfigPath = path
+		opts.kubeconfigSet = true
 	}
 }
 
@@ -61,12 +71,16 @@ func WithKubeLabels(labels []string) KubeOption {
 type Kube struct {
 	exec       executer.Executer
 	log        *log.PrefixLogger
-	binary     string
 	readWriter fileio.ReadWriter
+
+	// Lazy-loaded and cached after first successful resolution
+	binary             string
+	kubeconfigPath     string
+	kubeconfigResolved bool
 }
 
-// NewKube creates a new Kube client. It auto-discovers kubectl or oc if no binary is specified.
-// Use IsAvailable to check if a kubernetes CLI binary was found.
+// NewKube creates a new Kube client.
+// Binary discovery and kubeconfig resolution are deferred until first use.
 func NewKube(
 	log *log.PrefixLogger,
 	exec executer.Executer,
@@ -78,16 +92,13 @@ func NewKube(
 		opt(options)
 	}
 
-	binary := options.binary
-	if binary == "" {
-		binary = discoverKubernetesBinary()
-	}
-
 	return &Kube{
-		exec:       exec,
-		log:        log,
-		binary:     binary,
-		readWriter: readWriter,
+		exec:               exec,
+		log:                log,
+		binary:             options.binary,
+		readWriter:         readWriter,
+		kubeconfigPath:     options.kubeconfigPath,
+		kubeconfigResolved: options.kubeconfigSet,
 	}
 }
 
@@ -103,29 +114,21 @@ func discoverKubernetesBinary() string {
 
 // Binary returns the kubectl/oc binary path being used.
 func (k *Kube) Binary() string {
+	if k.binary == "" {
+		k.binary = discoverKubernetesBinary()
+	}
 	return k.binary
 }
 
 // IsAvailable returns true if a kubernetes CLI binary (kubectl or oc) is available.
 func (k *Kube) IsAvailable() bool {
-	return k.binary != ""
-}
-
-// RefreshBinary re-runs binary discovery to find kubectl or oc.
-// This is a no-op if a binary is already set.
-// Returns true if a binary is available.
-func (k *Kube) RefreshBinary() bool {
-	if k.binary != "" {
-		return true
-	}
-	k.binary = discoverKubernetesBinary()
-	return k.binary != ""
+	return k.Binary() != ""
 }
 
 // WatchPodsCmd returns an exec.Cmd configured to watch pod events across all namespaces.
 // Use WithKubeLabels to filter pods by label selector.
 func (k *Kube) WatchPodsCmd(ctx context.Context, opts ...KubeOption) (*exec.Cmd, error) {
-	if k.binary == "" {
+	if !k.IsAvailable() {
 		return nil, fmt.Errorf("kubernetes CLI binary not available")
 	}
 
@@ -150,7 +153,7 @@ func (k *Kube) WatchPodsCmd(ctx context.Context, opts ...KubeOption) (*exec.Cmd,
 
 // EnsureNamespace creates a namespace if it doesn't exist and applies any specified labels.
 func (k *Kube) EnsureNamespace(ctx context.Context, namespace string, opts ...KubeOption) error {
-	if k.binary == "" {
+	if !k.IsAvailable() {
 		return fmt.Errorf("kubernetes CLI binary not available")
 	}
 
@@ -195,7 +198,7 @@ func (k *Kube) EnsureNamespace(ctx context.Context, namespace string, opts ...Ku
 
 // NamespaceExists checks if a namespace exists in the cluster.
 func (k *Kube) NamespaceExists(ctx context.Context, namespace string, opts ...KubeOption) (bool, error) {
-	if k.binary == "" {
+	if !k.IsAvailable() {
 		return false, fmt.Errorf("kubernetes CLI binary not available")
 	}
 
@@ -219,10 +222,26 @@ func (k *Kube) NamespaceExists(ctx context.Context, namespace string, opts ...Ku
 	return false, fmt.Errorf("get namespace: %s", stderr)
 }
 
-// ResolveKubeconfig finds a valid kubeconfig path by checking KUBECONFIG env,
-// microshift path, and the default ~/.kube/config location.
-// KUBECONFIG may contain multiple paths. The first existing path is returned.
+// ResolveKubeconfig validates that a kubeconfig exists and returns the path to use.
+// If KUBECONFIG env is set and valid, returns empty string (let tools use the env var).
+// For microshift or default locations, returns the explicit path.
+// The result is cached after the first successful resolution.
 func (k *Kube) ResolveKubeconfig() (string, error) {
+	if k.kubeconfigResolved {
+		return k.kubeconfigPath, nil
+	}
+
+	path, err := k.resolveKubeconfig()
+	if err != nil {
+		return "", err
+	}
+
+	k.kubeconfigPath = path
+	k.kubeconfigResolved = true
+	return path, nil
+}
+
+func (k *Kube) resolveKubeconfig() (string, error) {
 	var checkedPaths []string
 
 	if kubeconfigEnv := os.Getenv("KUBECONFIG"); kubeconfigEnv != "" {
@@ -237,7 +256,8 @@ func (k *Kube) ResolveKubeconfig() (string, error) {
 				return "", fmt.Errorf("check KUBECONFIG path: %w (checked: %s)", err, strings.Join(checkedPaths, ", "))
 			}
 			if exists {
-				return path, nil
+				// KUBECONFIG is set and valid - return empty to let tools use the env var
+				return "", nil
 			}
 		}
 	}

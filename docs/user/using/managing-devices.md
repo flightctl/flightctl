@@ -716,6 +716,20 @@ The following dependencies must be installed on the device:
 > [!NOTE]
 > The agent automatically detects whether `kubectl` or `oc` is available (with preference for `kubectl`) and uses the first one found.
 
+#### Dependency Resolution with OS Updates
+
+When updating a device's OS image, you may include new dependencies (such as `helm`, `kubectl`, or `crictl`) that are required by applications in the device specification. The Flight Control agent handles this gracefully by deferring dependency validation when an OS update is pending.
+
+This means you can safely specify both an OS update and new Helm applications in the same device specification, even if the current OS does not have the required dependencies installed. The agent will:
+
+1. Detect that an OS update is pending
+2. Skip dependency validation for application types that require missing dependencies
+3. Apply the OS update and reboot
+4. Validate dependencies and deploy applications after the new OS is running
+
+> [!NOTE]
+> If no OS update is pending and required dependencies are missing, the agent will report an error status for the affected applications.
+
 #### Kubeconfig Configuration
 
 The agent automatically discovers the kubeconfig file to connect to the local Kubernetes cluster. The following locations are checked in order:

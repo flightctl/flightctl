@@ -137,7 +137,6 @@ var (
 	ErrExtractingArtifact          = errors.New("extracting artifact")
 	ErrExtractingOCI               = errors.New("extracting oci")
 	ErrVerifyingImage              = errors.New("verifying image")
-	ErrEnsuringDependencies        = errors.New("ensuring dependencies")
 	ErrDecodingApplicationContent  = errors.New("decoding application content")
 	ErrReadingAuthFile             = errors.New("reading auth file")
 	ErrParsingAuthFile             = errors.New("parsing auth file")
@@ -318,7 +317,6 @@ var (
 		ErrExtractingArtifact:          codes.Unavailable,
 		ErrExtractingOCI:               codes.Internal,
 		ErrVerifyingImage:              codes.Internal,
-		ErrEnsuringDependencies:        codes.Internal,
 		ErrDecodingApplicationContent:  codes.Internal,
 		ErrReadingAuthFile:             codes.NotFound,
 		ErrParsingAuthFile:             codes.InvalidArgument,
@@ -401,7 +399,7 @@ type stderrError struct {
 }
 
 func (e *stderrError) Error() string {
-	return fmt.Sprintf("%s: code: %d: %s", e.wrapped.Error(), e.code, e.stderr)
+	return fmt.Sprintf("%s: code: %d: %s", e.wrapped.Error(), e.code, strings.TrimSpace(e.stderr))
 }
 
 func (e *stderrError) Unwrap() error {

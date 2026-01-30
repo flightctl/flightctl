@@ -32,29 +32,13 @@ func TestNewKube_WithExplicitBinary(t *testing.T) {
 }
 
 func TestKube_IsAvailable(t *testing.T) {
-	testCases := []struct {
-		name     string
-		binary   string
-		expected bool
-	}{
-		{
-			name:     "available when binary is set",
-			binary:   "kubectl",
-			expected: true,
-		},
-		{
-			name:     "not available when binary is empty",
-			binary:   "",
-			expected: false,
-		},
-	}
+	require := require.New(t)
 
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			k8s := &Kube{binary: tc.binary}
-			require.Equal(t, tc.expected, k8s.IsAvailable())
-		})
-	}
+	k8s := &Kube{binary: "kubectl"}
+	require.True(k8s.IsAvailable())
+
+	k8s = &Kube{binary: "oc"}
+	require.True(k8s.IsAvailable())
 }
 
 func TestKube_WatchPodsCmd(t *testing.T) {
@@ -115,11 +99,19 @@ func TestKube_WatchPodsCmd(t *testing.T) {
 }
 
 func TestKube_WatchPodsCmd_NoBinary(t *testing.T) {
-	require := require.New(t)
-
-	k8s := &Kube{
-		binary: "",
+	if IsCommandAvailable("kubectl") || IsCommandAvailable("oc") {
+		t.Skip("Test requires kubectl/oc to not be installed")
 	}
+
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	logger := log.NewPrefixLogger("test")
+	mockExec := executer.NewMockExecuter(ctrl)
+	mockReadWriter := fileio.NewMockReadWriter(ctrl)
+
+	k8s := NewKube(logger, mockExec, mockReadWriter)
 
 	cmd, err := k8s.WatchPodsCmd(context.Background())
 	require.Error(err)
@@ -134,11 +126,12 @@ func TestKube_ResolveKubeconfig(t *testing.T) {
 		envSetup    func()
 		envCleanup  func()
 		wantPath    string
+		wantEmpty   bool
 		wantErr     bool
 		errContains string
 	}{
 		{
-			name: "KUBECONFIG env var exists and file exists",
+			name: "KUBECONFIG env var exists and file exists - returns empty to use env var",
 			setupMock: func(mockRW *fileio.MockReadWriter) {
 				mockRW.EXPECT().PathExists("/custom/kubeconfig").Return(true, nil)
 			},
@@ -146,7 +139,7 @@ func TestKube_ResolveKubeconfig(t *testing.T) {
 				t.Setenv("KUBECONFIG", "/custom/kubeconfig")
 			},
 			envCleanup: func() {},
-			wantPath:   "/custom/kubeconfig",
+			wantEmpty:  true,
 			wantErr:    false,
 		},
 		{
@@ -184,7 +177,6 @@ func TestKube_ResolveKubeconfig(t *testing.T) {
 				t.Setenv("KUBECONFIG", "")
 			},
 			envCleanup: func() {},
-			wantPath:   "", // will match any path since HOME varies
 			wantErr:    false,
 		},
 		{
@@ -197,12 +189,11 @@ func TestKube_ResolveKubeconfig(t *testing.T) {
 				t.Setenv("KUBECONFIG", "")
 			},
 			envCleanup:  func() {},
-			wantPath:    "",
 			wantErr:     true,
 			errContains: "no kubeconfig found",
 		},
 		{
-			name: "KUBECONFIG with multiple paths - first exists",
+			name: "KUBECONFIG with multiple paths - first exists - returns empty to use env var",
 			setupMock: func(mockRW *fileio.MockReadWriter) {
 				mockRW.EXPECT().PathExists("/first/kubeconfig").Return(true, nil)
 			},
@@ -210,11 +201,11 @@ func TestKube_ResolveKubeconfig(t *testing.T) {
 				t.Setenv("KUBECONFIG", "/first/kubeconfig:/second/kubeconfig:/third/kubeconfig")
 			},
 			envCleanup: func() {},
-			wantPath:   "/first/kubeconfig",
+			wantEmpty:  true,
 			wantErr:    false,
 		},
 		{
-			name: "KUBECONFIG with multiple paths - second exists",
+			name: "KUBECONFIG with multiple paths - second exists - returns empty to use env var",
 			setupMock: func(mockRW *fileio.MockReadWriter) {
 				mockRW.EXPECT().PathExists("/first/kubeconfig").Return(false, nil)
 				mockRW.EXPECT().PathExists("/second/kubeconfig").Return(true, nil)
@@ -223,7 +214,7 @@ func TestKube_ResolveKubeconfig(t *testing.T) {
 				t.Setenv("KUBECONFIG", "/first/kubeconfig:/second/kubeconfig:/third/kubeconfig")
 			},
 			envCleanup: func() {},
-			wantPath:   "/second/kubeconfig",
+			wantEmpty:  true,
 			wantErr:    false,
 		},
 		{
@@ -269,7 +260,9 @@ func TestKube_ResolveKubeconfig(t *testing.T) {
 			}
 
 			require.NoError(err)
-			if tc.wantPath != "" {
+			if tc.wantEmpty {
+				require.Empty(path)
+			} else if tc.wantPath != "" {
 				require.Equal(tc.wantPath, path)
 			} else {
 				require.NotEmpty(path)

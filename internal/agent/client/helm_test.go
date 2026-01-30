@@ -67,7 +67,7 @@ func TestHelm_Version(t *testing.T) {
 			readWriter := fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter())
 
 			tc.setupMock(mockExec)
-			helm := NewHelm(log, mockExec, readWriter, "/var/lib/flightctl/helm/charts")
+			helm := NewHelm(log, mockExec, readWriter, "/var/lib/flightctl/helm/charts", testBackoffConfig)
 			got, err := helm.Version(context.Background())
 
 			if tc.wantErr {
@@ -293,7 +293,7 @@ func TestHelm_Pull(t *testing.T) {
 			mockReadWriter := fileio.NewMockReadWriter(ctrl)
 
 			tc.setupMock(mockExec, mockReadWriter)
-			helm := NewHelm(log, mockExec, mockReadWriter, "/var/lib/flightctl/helm/charts")
+			helm := NewHelm(log, mockExec, mockReadWriter, "/var/lib/flightctl/helm/charts", testBackoffConfig)
 			err := helm.Pull(context.Background(), tc.chartRef, tc.destDir, tc.opts...)
 
 			if tc.wantErr {
@@ -379,7 +379,7 @@ func TestHelm_DependencyUpdate(t *testing.T) {
 			mockReadWriter := fileio.NewMockReadWriter(ctrl)
 
 			tc.setupMock(mockExec, mockReadWriter)
-			helm := NewHelm(log, mockExec, mockReadWriter, "/var/lib/flightctl/helm/charts")
+			helm := NewHelm(log, mockExec, mockReadWriter, "/var/lib/flightctl/helm/charts", testBackoffConfig)
 			err := helm.DependencyUpdate(context.Background(), tc.chartPath, tc.opts...)
 
 			if tc.wantErr {
@@ -495,7 +495,7 @@ func TestHelm_Install(t *testing.T) {
 			mockReadWriter := fileio.NewMockReadWriter(ctrl)
 
 			tc.setupMock(mockExec, mockReadWriter)
-			helm := NewHelm(log, mockExec, mockReadWriter, "/var/lib/flightctl/helm/charts")
+			helm := NewHelm(log, mockExec, mockReadWriter, "/var/lib/flightctl/helm/charts", testBackoffConfig)
 			err := helm.Install(context.Background(), tc.releaseName, tc.chartPath, tc.opts...)
 
 			if tc.wantErr {
@@ -594,7 +594,7 @@ func TestHelm_Upgrade(t *testing.T) {
 			mockReadWriter := fileio.NewMockReadWriter(ctrl)
 
 			tc.setupMock(mockExec, mockReadWriter)
-			helm := NewHelm(log, mockExec, mockReadWriter, "/var/lib/flightctl/helm/charts")
+			helm := NewHelm(log, mockExec, mockReadWriter, "/var/lib/flightctl/helm/charts", testBackoffConfig)
 			err := helm.Upgrade(context.Background(), tc.releaseName, tc.chartPath, tc.opts...)
 
 			if tc.wantErr {
@@ -714,7 +714,7 @@ func TestHelm_Template(t *testing.T) {
 			mockReadWriter := fileio.NewMockReadWriter(ctrl)
 
 			tc.setupMock(mockExec, mockReadWriter)
-			helm := NewHelm(log, mockExec, mockReadWriter, "/var/lib/flightctl/helm/charts")
+			helm := NewHelm(log, mockExec, mockReadWriter, "/var/lib/flightctl/helm/charts", testBackoffConfig)
 			got, err := helm.Template(context.Background(), tc.releaseName, tc.chartPath, tc.opts...)
 
 			if tc.wantErr {
@@ -813,7 +813,7 @@ func TestHelm_Uninstall(t *testing.T) {
 			mockReadWriter := fileio.NewMockReadWriter(ctrl)
 
 			tc.setupMock(mockExec, mockReadWriter)
-			helm := NewHelm(log, mockExec, mockReadWriter, "/var/lib/flightctl/helm/charts")
+			helm := NewHelm(log, mockExec, mockReadWriter, "/var/lib/flightctl/helm/charts", testBackoffConfig)
 			err := helm.Uninstall(context.Background(), tc.releaseName, tc.opts...)
 
 			if tc.wantErr {

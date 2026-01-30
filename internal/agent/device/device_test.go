@@ -99,6 +99,7 @@ func TestSync(t *testing.T) {
 				mockSystemdManager.EXPECT().EnsurePatterns(gomock.Any()).Return(nil).AnyTimes()
 				mockPrefetchManager.EXPECT().RegisterOCICollector(gomock.Any()).AnyTimes()
 				mockSpecManager.EXPECT().IsOSUpdate().Return(false).AnyTimes()
+				mockSpecManager.EXPECT().IsOSUpdatePending(gomock.Any()).Return(false, nil).AnyTimes()
 				mockSpecManager.EXPECT().CheckPolicy(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 				// GetDesired, Read, and BeforeUpdate may be called multiple times if syncDeviceSpec is called again
@@ -185,7 +186,7 @@ func TestSync(t *testing.T) {
 				return readWriter, nil
 			}
 			consoleManager := console.NewManager(mockRouterService, deviceName, mockExec, mockWatcher, log)
-			appController := applications.NewController(podmanFactory, nil, mockAppManager, rwFactory, log, "2025-01-01T00:00:00Z")
+			appController := applications.NewController(podmanFactory, nil, mockAppManager, rwFactory, log, "2025-01-01T00:00:00Z", mockSpecManager)
 			statusManager := status.NewManager(deviceName, log)
 			statusManager.SetClient(mockManagementClient)
 			configController := config.NewController(readWriter, log)

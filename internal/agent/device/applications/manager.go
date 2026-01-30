@@ -10,6 +10,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/agent/device/systemd"
 	"github.com/flightctl/flightctl/internal/agent/device/systeminfo"
@@ -32,6 +33,7 @@ type manager struct {
 	clients           client.CLIClients
 	podmanFactory     client.PodmanFactory
 	rwFactory         fileio.ReadWriterFactory
+	specManager       spec.Manager
 	log               *log.PrefixLogger
 	bootTime          string
 
@@ -49,6 +51,7 @@ func NewManager(
 	clients client.CLIClients,
 	systemInfo systeminfo.Manager,
 	systemdFactory systemd.ManagerFactory,
+	specManager spec.Manager,
 ) Manager {
 	bootTime := systemInfo.BootTime()
 	return &manager{
@@ -57,6 +60,7 @@ func NewManager(
 		kubernetesMonitor: NewKubernetesMonitor(log, clients, rwFactory),
 		podmanFactory:     podmanFactory,
 		clients:           clients,
+		specManager:       specManager,
 		log:               log,
 		bootTime:          bootTime,
 		ociTargetCache:    provider.NewOCITargetCache(),
@@ -76,9 +80,6 @@ func (m *manager) Ensure(ctx context.Context, provider provider.Provider) error 
 		}
 		return m.podmanMonitor.Ensure(ctx, NewApplication(provider))
 	case v1beta1.AppTypeHelm:
-		if !m.kubernetesMonitor.IsEnabled() {
-			return errors.ErrKubernetesAppsDisabled
-		}
 		if m.kubernetesMonitor.Has(provider.Spec().ID) {
 			return nil
 		}
@@ -100,9 +101,6 @@ func (m *manager) Remove(ctx context.Context, provider provider.Provider) error 
 		}
 		return m.podmanMonitor.QueueRemove(NewApplication(provider))
 	case v1beta1.AppTypeHelm:
-		if !m.kubernetesMonitor.IsEnabled() {
-			return errors.ErrKubernetesAppsDisabled
-		}
 		if err := provider.Remove(ctx); err != nil {
 			return fmt.Errorf("removing application: %w", err)
 		}
@@ -124,9 +122,6 @@ func (m *manager) Update(ctx context.Context, provider provider.Provider) error 
 		}
 		return m.podmanMonitor.QueueUpdate(NewApplication(provider))
 	case v1beta1.AppTypeHelm:
-		if !m.kubernetesMonitor.IsEnabled() {
-			return errors.ErrKubernetesAppsDisabled
-		}
 		if err := provider.Remove(ctx); err != nil {
 			return fmt.Errorf("removing application: %w", err)
 		}
@@ -213,8 +208,17 @@ func (m *manager) resolvePullConfigs(desired *v1beta1.DeviceSpec) (client.PullCo
 }
 
 func (m *manager) verifyProviders(ctx context.Context, providers []provider.Provider) error {
-	for _, provider := range providers {
-		if err := provider.Verify(ctx); err != nil {
+	osUpdatePending, err := m.specManager.IsOSUpdatePending(ctx)
+	if err != nil {
+		return fmt.Errorf("checking OS update status: %w", err)
+	}
+
+	for _, p := range providers {
+		if err := p.Verify(ctx); err != nil {
+			if errors.Is(err, errors.ErrAppDependency) && osUpdatePending {
+				m.log.Infof("Deferring app %s until after OS update: %v", p.Name(), err)
+				continue
+			}
 			return fmt.Errorf("verify app provider: %w", err)
 		}
 	}
@@ -336,211 +340,45 @@ func (m *manager) Shutdown(ctx context.Context, state shutdown.State) error {
 	return nil
 }
 
-// CollectOCITargets implements two-phase collection:
-// Phase 1: Collect base images and volumes (before images are available locally)
-// Phase 2: Extract nested images from base images (after base images are fetched)
-// The dependency manager calls this iteratively, fetching targets between calls.
-//
-// Caching: Nested targets are cached by application name. Cache entries store the parent
-// image digest (for image-based apps) or children list (for inline apps) for invalidation.
-func (m *manager) CollectOCITargets(ctx context.Context, current, desired *v1beta1.DeviceSpec) (*dependency.OCICollection, error) {
-	if desired.Applications == nil || len(*desired.Applications) == 0 {
-		m.log.Debug("No applications to collect OCI targets from")
-		m.ociTargetCache.Clear()
-		return &dependency.OCICollection{}, nil
-	}
+func isDeferredError(osUpdatePending bool, err error) bool {
+	// if an OS Update is pending, and we receive and app dependencies are not yet resolved error, defer
+	// full validation until the update occurs.
+	return osUpdatePending && errors.Is(err, errors.ErrAppDependency)
+}
 
+// CollectOCITargets collects all OCI targets for the desired spec.
+// It delegates to provider.CollectOCITargets which handles dependency checking,
+// base image collection, nested extraction, and caching.
+func (m *manager) CollectOCITargets(ctx context.Context, current, desired *v1beta1.DeviceSpec) (*dependency.OCICollection, error) {
 	configProvider, err := m.resolvePullConfigs(desired)
 	if err != nil {
 		return nil, fmt.Errorf("resolving pull secrets: %w", err)
 	}
 
-	baseTargets, err := provider.CollectBaseOCITargets(ctx, m.rwFactory, desired, configProvider)
+	osUpdatePending, err := m.specManager.IsOSUpdatePending(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("collecting base OCI targets: %w", err)
-	}
-	m.log.Debugf("Collected %d base OCI targets", len(baseTargets))
-
-	nestedTargets, requeue, activeNames, err := m.collectNestedTargets(ctx, desired, configProvider)
-	if err != nil {
-		return nil, fmt.Errorf("collecting nested OCI targets: %w", err)
-	}
-	m.log.Debugf("Collected %d nested OCI targets", len(nestedTargets))
-
-	var allTargets dependency.OCIPullTargetsByUser
-	allTargets = allTargets.MergeWith(baseTargets)
-	allTargets = allTargets.MergeWith(nestedTargets)
-
-	// garbage collect stale cache entries
-	m.ociTargetCache.GC(activeNames)
-
-	return &dependency.OCICollection{Targets: allTargets, Requeue: requeue}, nil
-}
-
-// collectNestedTargets collects nested OCI targets with per-application caching.
-func (m *manager) collectNestedTargets(
-	ctx context.Context,
-	desired *v1beta1.DeviceSpec,
-	configProvider client.PullConfigProvider,
-) (dependency.OCIPullTargetsByUser, bool, []string, error) {
-	var allNestedTargets dependency.OCIPullTargetsByUser
-	var activeAppNames []string
-	needsRequeue := false
-
-	for _, appSpec := range *desired.Applications {
-		appName, err := provider.ResolveImageAppName(&appSpec)
-		if err != nil {
-			return nil, false, nil, fmt.Errorf("resolving app name: %w", err)
-		}
-		activeAppNames = append(activeAppNames, appName)
-		needsExtraction, err := provider.AppNeedsNestedExtraction(&appSpec)
-		if err != nil {
-			return nil, false, nil, fmt.Errorf("checking nested extraction for app %s: %w", appName, err)
-		}
-		if !needsExtraction {
-			continue
-		}
-
-		targetUser, err := provider.ResolveUser(&appSpec)
-		if err != nil {
-			return nil, false, nil, fmt.Errorf("resolving user %q: %w", appSpec, err)
-		}
-
-		targets, requeue, err := m.collectNestedTargetsForApp(ctx, appSpec, configProvider)
-		if err != nil {
-			return nil, false, nil, fmt.Errorf("collecting nested targets for %s: %w", appName, err)
-		}
-
-		if requeue {
-			needsRequeue = true
-		}
-		allNestedTargets = allNestedTargets.Add(targetUser, targets...)
+		configProvider.Cleanup()
+		return nil, fmt.Errorf("checking if OS update is pending: %w", err)
 	}
 
-	return allNestedTargets, needsRequeue, activeAppNames, nil
-}
-
-// collectNestedTargetsForApp extracts nested OCI targets from a single image-based application.
-func (m *manager) collectNestedTargetsForApp(
-	ctx context.Context,
-	appSpec v1beta1.ApplicationProviderSpec,
-	configProvider client.PullConfigProvider,
-) ([]dependency.OCIPullTarget, bool, error) {
-	appName, err := provider.ResolveImageAppName(&appSpec)
-	if err != nil {
-		return nil, false, fmt.Errorf("resolving app name: %w", err)
-	}
-
-	ref, err := provider.ResolveImageRef(&appSpec)
-	if err != nil {
-		return nil, false, fmt.Errorf("resolving image ref: %w", err)
-	}
-
-	appType, err := appSpec.GetAppType()
-	if err != nil {
-		return nil, false, fmt.Errorf("getting app type: %w", err)
-	}
-
-	user, err := provider.ResolveUser(&appSpec)
-	if err != nil {
-		return nil, false, fmt.Errorf("resolving user %q: %w", appSpec, err)
-	}
-
-	available, ociType, digest, err := m.isParentAvailable(ctx, appType, ref, user)
-	if err != nil {
-		return nil, false, fmt.Errorf("checking parent availability: %w", err)
-	}
-	if !available {
-		m.log.Debugf("Reference %s for app %s not available yet, skipping nested extraction", ref, appName)
-		return nil, true, nil
-	}
-
-	if cachedEntry, found := m.ociTargetCache.Get(appName); found {
-		if m.isCacheValid(cachedEntry, ref, digest) {
-			m.log.Debugf("Using cached nested targets for app %s", appName)
-			return cachedEntry.Children, false, nil
-		}
-		m.log.Debugf("Cache invalidated for app %s", appName)
-	}
-
-	appData, err := m.extractNestedTargetsForImage(ctx, appSpec, configProvider)
-	if err != nil {
-		return nil, false, fmt.Errorf("extracting nested targets for app %s: %w", appName, err)
-	}
-
-	m.appDataCache[appName] = appData
-
-	m.ociTargetCache.Set(provider.CacheEntry{
-		Name: appName,
-		Parent: dependency.OCIPullTarget{
-			Type:      ociType,
-			Reference: ref,
-			Digest:    digest,
-		},
-		Children: appData.Targets,
-	})
-	m.log.Debugf("Cached %d nested targets for app %s (type: %s)", len(appData.Targets), appName, ociType)
-
-	return appData.Targets, false, nil
-}
-
-// isParentAvailable checks if the parent OCI target is available locally.
-func (m *manager) isParentAvailable(ctx context.Context, appType v1beta1.AppType, ref string, user v1beta1.Username) (bool, dependency.OCIType, string, error) {
-	switch appType {
-	case v1beta1.AppTypeHelm:
-		resolved, err := m.clients.Helm().IsResolved(ref)
-		if err != nil {
-			return false, "", "", fmt.Errorf("check chart resolved: %w", err)
-		}
-		return resolved, dependency.OCITypeHelmChart, "", nil
-	default:
-		podman, err := m.podmanFactory(user)
-		if err != nil {
-			return false, "", "", fmt.Errorf("creating podman client: %w", err)
-		}
-
-		if podman.ImageExists(ctx, ref) {
-			digest, err := podman.ImageDigest(ctx, ref)
-			if err != nil {
-				return false, "", "", fmt.Errorf("getting image digest: %w", err)
-			}
-			return true, dependency.OCITypePodmanImage, digest, nil
-		}
-		if podman.ArtifactExists(ctx, ref) {
-			digest, err := podman.ArtifactDigest(ctx, ref)
-			if err != nil {
-				return false, "", "", fmt.Errorf("getting artifact digest: %w", err)
-			}
-			return true, dependency.OCITypePodmanArtifact, digest, nil
-		}
-		return false, "", "", nil
-	}
-}
-
-// isCacheValid checks if a cache entry is still valid for the given reference and digest.
-func (m *manager) isCacheValid(entry provider.CacheEntry, ref, digest string) bool {
-	if entry.Parent.Reference != ref {
-		return false
-	}
-	if digest != "" && entry.Parent.Digest != digest {
-		return false
-	}
-	return true
-}
-
-// extractNestedTargetsForImage extracts nested OCI targets from a single image-based application.
-func (m *manager) extractNestedTargetsForImage(
-	ctx context.Context,
-	appSpec v1beta1.ApplicationProviderSpec,
-	configProvider client.PullConfigProvider,
-) (*provider.AppData, error) {
-	return provider.ExtractNestedTargetsFromImage(
+	collection, err := provider.CollectOCITargets(
 		ctx,
 		m.log,
 		m.podmanFactory,
 		m.clients,
 		m.rwFactory,
-		&appSpec,
-		configProvider,
+		desired,
+		provider.WithPullConfigProvider(configProvider),
+		provider.WithOCICache(m.ociTargetCache),
+		provider.WithAppData(m.appDataCache),
 	)
+	if err != nil {
+		if !isDeferredError(osUpdatePending, err) {
+			configProvider.Cleanup()
+			return nil, fmt.Errorf("collecting OCI targets: %w", err)
+		}
+		m.log.Infof("Deferred dependency error during OCI collection: %v", err)
+	}
+
+	return collection, nil
 }

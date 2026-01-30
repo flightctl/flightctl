@@ -14,6 +14,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/pkg/poll"
 )
 
 const (
@@ -27,25 +28,36 @@ type CRI struct {
 	log        *log.PrefixLogger
 	timeout    time.Duration
 	readWriter fileio.ReadWriter
+	backoff    poll.Config
 }
 
 // NewCRI creates a new CRI client for interacting with container runtimes via crictl.
-func NewCRI(log *log.PrefixLogger, exec executer.Executer, readWriter fileio.ReadWriter) *CRI {
+func NewCRI(log *log.PrefixLogger, exec executer.Executer, readWriter fileio.ReadWriter, backoff poll.Config) *CRI {
 	return &CRI{
 		log:        log,
 		exec:       exec,
 		timeout:    defaultCRITimeout,
 		readWriter: readWriter,
+		backoff:    backoff,
 	}
 }
 
 // Pull pulls an image using crictl with optional authentication.
+// Logs progress periodically while the operation is in progress.
 func (c *CRI) Pull(ctx context.Context, image string, opts ...ClientOption) (string, error) {
 	options := &clientOptions{}
 	for _, opt := range opts {
 		opt(options)
 	}
 
+	return logProgress(ctx, c.log, fmt.Sprintf("Pulling CRI image %s, please wait...", image), func(ctx context.Context) (string, error) {
+		return retryWithBackoff(ctx, c.log, c.backoff, func(ctx context.Context) (string, error) {
+			return c.pull(ctx, image, options)
+		})
+	})
+}
+
+func (c *CRI) pull(ctx context.Context, image string, options *clientOptions) (string, error) {
 	timeout := c.timeout
 	if options.timeout > 0 {
 		timeout = options.timeout
@@ -53,6 +65,8 @@ func (c *CRI) Pull(ctx context.Context, image string, opts ...ClientOption) (str
 
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
+
+	c.log.Debugf("Pulling CRI image %s (timeout: %v)", image, timeout)
 
 	var args []string
 
@@ -96,6 +110,7 @@ func (c *CRI) Pull(ctx context.Context, image string, opts ...ClientOption) (str
 		return "", fmt.Errorf("crictl pull: %w", errors.FromStderr(stderr, exitCode))
 	}
 
+	c.log.Debugf("CRI image %s pulled successfully", image)
 	return strings.TrimSpace(stdout), nil
 }
 

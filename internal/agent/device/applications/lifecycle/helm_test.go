@@ -3,15 +3,24 @@ package lifecycle
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/pkg/poll"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
+
+var testBackoffConfig = poll.Config{
+	BaseDelay: 10 * time.Millisecond,
+	Factor:    2.0,
+	MaxDelay:  100 * time.Millisecond,
+	MaxSteps:  1,
+}
 
 type testCLIClients struct {
 	helm *client.Helm
@@ -280,14 +289,14 @@ func TestHelmHandler_Execute_Add(t *testing.T) {
 			tc.setupMock(mockExec, mockReadWriter)
 
 			clients := &testCLIClients{
-				helm: client.NewHelm(logger, mockExec, mockReadWriter, "/var/lib/flightctl"),
-				kube: client.NewKube(logger, mockExec, mockReadWriter, client.WithBinary("kubectl")),
+				helm: client.NewHelm(logger, mockExec, mockReadWriter, "/var/lib/flightctl", testBackoffConfig),
+				kube: client.NewKube(logger, mockExec, mockReadWriter, client.WithBinary("kubectl"), client.WithKubeKubeconfigPath(tc.kubeconfigPath)),
 			}
 			resolver := testExecutableResolver{path: "/test/flightctl"}
 			rwFactory := func(_ v1beta1.Username) (fileio.ReadWriter, error) {
 				return mockReadWriter, nil
 			}
-			handler := NewHelmHandler(logger, clients, tc.kubeconfigPath, resolver, rwFactory)
+			handler := NewHelmHandler(logger, clients, resolver, rwFactory)
 			err := handler.Execute(context.Background(), []Action{*tc.action})
 
 			if tc.wantErr {
@@ -393,14 +402,14 @@ func TestHelmHandler_Execute_Remove(t *testing.T) {
 			tc.setupMock(mockExec, mockReadWriter)
 
 			clients := &testCLIClients{
-				helm: client.NewHelm(logger, mockExec, mockReadWriter, "/var/lib/flightctl"),
-				kube: client.NewKube(logger, mockExec, mockReadWriter, client.WithBinary("kubectl")),
+				helm: client.NewHelm(logger, mockExec, mockReadWriter, "/var/lib/flightctl", testBackoffConfig),
+				kube: client.NewKube(logger, mockExec, mockReadWriter, client.WithBinary("kubectl"), client.WithKubeKubeconfigPath(tc.kubeconfigPath)),
 			}
 			resolver := testExecutableResolver{path: "/test/flightctl"}
 			rwFactory := func(_ v1beta1.Username) (fileio.ReadWriter, error) {
 				return mockReadWriter, nil
 			}
-			handler := NewHelmHandler(logger, clients, tc.kubeconfigPath, resolver, rwFactory)
+			handler := NewHelmHandler(logger, clients, resolver, rwFactory)
 			err := handler.Execute(context.Background(), []Action{*tc.action})
 
 			if tc.wantErr {
@@ -524,14 +533,14 @@ func TestHelmHandler_Execute_Update(t *testing.T) {
 			tc.setupMock(mockExec, mockReadWriter)
 
 			clients := &testCLIClients{
-				helm: client.NewHelm(logger, mockExec, mockReadWriter, "/var/lib/flightctl"),
-				kube: client.NewKube(logger, mockExec, mockReadWriter, client.WithBinary("kubectl")),
+				helm: client.NewHelm(logger, mockExec, mockReadWriter, "/var/lib/flightctl", testBackoffConfig),
+				kube: client.NewKube(logger, mockExec, mockReadWriter, client.WithBinary("kubectl"), client.WithKubeKubeconfigPath(tc.kubeconfigPath)),
 			}
 			resolver := testExecutableResolver{path: "/test/flightctl"}
 			rwFactory := func(_ v1beta1.Username) (fileio.ReadWriter, error) {
 				return mockReadWriter, nil
 			}
-			handler := NewHelmHandler(logger, clients, tc.kubeconfigPath, resolver, rwFactory)
+			handler := NewHelmHandler(logger, clients, resolver, rwFactory)
 			err := handler.Execute(context.Background(), []Action{*tc.action})
 
 			if tc.wantErr {
@@ -589,14 +598,14 @@ func TestHelmHandler_Execute_MultipleActions(t *testing.T) {
 	)
 
 	clients := &testCLIClients{
-		helm: client.NewHelm(logger, mockExec, mockReadWriter, client.HelmChartsDir),
-		kube: client.NewKube(logger, mockExec, mockReadWriter, client.WithBinary("kubectl")),
+		helm: client.NewHelm(logger, mockExec, mockReadWriter, client.HelmChartsDir, testBackoffConfig),
+		kube: client.NewKube(logger, mockExec, mockReadWriter, client.WithBinary("kubectl"), client.WithKubeKubeconfigPath("")),
 	}
 	resolver := testExecutableResolver{path: "/test/flightctl"}
 	rwFactory := func(_ v1beta1.Username) (fileio.ReadWriter, error) {
 		return mockReadWriter, nil
 	}
-	handler := NewHelmHandler(logger, clients, "", resolver, rwFactory)
+	handler := NewHelmHandler(logger, clients, resolver, rwFactory)
 
 	actions := []Action{
 		{
@@ -633,14 +642,14 @@ func TestHelmHandler_Execute_UnsupportedActionType(t *testing.T) {
 	}).Return("v3.14.0", "", 0)
 
 	clients := &testCLIClients{
-		helm: client.NewHelm(logger, mockExec, mockReadWriter, client.HelmChartsDir),
-		kube: client.NewKube(logger, mockExec, mockReadWriter, client.WithBinary("kubectl")),
+		helm: client.NewHelm(logger, mockExec, mockReadWriter, client.HelmChartsDir, testBackoffConfig),
+		kube: client.NewKube(logger, mockExec, mockReadWriter, client.WithBinary("kubectl"), client.WithKubeKubeconfigPath("")),
 	}
 	resolver := testExecutableResolver{path: "/test/flightctl"}
 	rwFactory := func(_ v1beta1.Username) (fileio.ReadWriter, error) {
 		return mockReadWriter, nil
 	}
-	handler := NewHelmHandler(logger, clients, "", resolver, rwFactory)
+	handler := NewHelmHandler(logger, clients, resolver, rwFactory)
 
 	action := Action{
 		ID:   "ns1",
