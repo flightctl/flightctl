@@ -18,9 +18,13 @@ bootc
 bootloader
 ca.crt
 CentOS
+cgroup
+cgroups
 checksum
 cleanup
 CLI
+cpu
+CPU
 ClickOps
 CNV
 config
@@ -72,6 +76,7 @@ microservices
 MicroShift
 mTLS
 namespace
+non-root
 NAT
 OCI
 OCI-compliant
@@ -104,6 +109,7 @@ RHEL
 rollbacks
 rollout
 redboot
+RunAs
 post-mortem
 150s
 pre-rollback
