@@ -2330,7 +2330,9 @@ func TestCatalogItemValidate(t *testing.T) {
 	}
 
 	v := func(version string, channels ...string) CatalogItemVersion {
-		return CatalogItemVersion{Version: version, Tag: lo.ToPtr(version), Channels: channels}
+		// Strip "v" prefix for Version field (strict semver), but keep original for Tag
+		semverVersion := strings.TrimPrefix(version, "v")
+		return CatalogItemVersion{Version: semverVersion, Tag: lo.ToPtr(version), Channels: channels}
 	}
 
 	tests := []struct {
@@ -3104,7 +3106,7 @@ func TestSemverValidation(t *testing.T) {
 		wantErr bool
 	}{
 		{"valid major.minor.patch", "1.0.0", false},
-		{"valid with v prefix", "v1.0.0", false},
+		{"invalid with v prefix", "v1.0.0", true},
 		{"valid major.minor", "1.0", false},
 		{"valid with prerelease", "1.0.0-alpha", false},
 		{"valid with prerelease rc", "2.1.0-rc.1", false},

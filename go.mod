@@ -115,6 +115,7 @@ require (
 	github.com/opencontainers/go-digest v1.0.0
 	github.com/opencontainers/image-spec v1.1.1
 	github.com/prometheus/client_model v0.6.2
+	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1
 	github.com/spf13/viper v1.20.1
 	go.opentelemetry.io/collector/consumer/consumererror v0.130.1
 	go.opentelemetry.io/otel/exporters/prometheus v0.59.1

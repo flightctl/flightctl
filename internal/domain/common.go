@@ -85,6 +85,7 @@ type ResourceKind = v1beta1.ResourceKind
 
 const (
 	ResourceKindAuthProvider              = v1beta1.ResourceKindAuthProvider
+	ResourceKindCatalog                   = v1beta1.ResourceKindCatalog
 	ResourceKindCertificateSigningRequest = v1beta1.ResourceKindCertificateSigningRequest
 	ResourceKindDevice                    = v1beta1.ResourceKindDevice
 	ResourceKindEnrollmentRequest         = v1beta1.ResourceKindEnrollmentRequest

@@ -957,9 +957,12 @@ func validateCatalogItemVersion(version CatalogItemVersion, index int, seenVersi
 }
 
 // validateSemver checks if a string is a valid semantic version.
+// Version must be strict semver without a "v" prefix (e.g., "1.0.0", not "v1.0.0").
+// The tag field can have any format including "v" prefix.
 func validateSemver(v string) error {
-	// Strip leading 'v' if present
-	v = strings.TrimPrefix(v, "v")
+	if strings.HasPrefix(v, "v") {
+		return fmt.Errorf("version must not have 'v' prefix; use semver format (e.g., 1.0.0)")
+	}
 
 	// Handle build metadata (+build.123)
 	v = strings.SplitN(v, "+", 2)[0]

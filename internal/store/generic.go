@@ -25,7 +25,7 @@ type IntegrationTestCallback func()
 // A is the API resource, for example: domain.Device
 // AL is the API list, for example: domain.DeviceList
 type Model interface {
-	model.AuthProvider | model.CertificateSigningRequest | model.Device | model.EnrollmentRequest | model.Fleet | model.Repository | model.ResourceSync | model.TemplateVersion | model.Event
+	model.AuthProvider | model.Catalog | model.CertificateSigningRequest | model.Device | model.EnrollmentRequest | model.Fleet | model.Repository | model.ResourceSync | model.TemplateVersion | model.Event
 }
 type extInt[M any] interface {
 	model.ResourceInterface

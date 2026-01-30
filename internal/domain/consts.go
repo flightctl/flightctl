@@ -107,6 +107,16 @@ const (
 	ResourceSyncListKind   = v1beta1.ResourceSyncListKind
 )
 
+// ========== Catalog ==========
+
+const (
+	CatalogAPIVersion   = v1beta1.CatalogAPIVersion
+	CatalogKind         = v1beta1.CatalogKind
+	CatalogListKind     = v1beta1.CatalogListKind
+	CatalogItemKind     = v1beta1.CatalogItemKind
+	CatalogItemListKind = v1beta1.CatalogItemListKind
+)
+
 // ========== TemplateVersion ==========
 
 const (
