@@ -291,7 +291,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 				}, TIMEOUT)
 			*/
 		})
-		It("Should trigger greenboot rollback when agent fails to start", Label("greenboot-rollback", "sanity"), func() {
+		It("Should trigger greenboot rollback when agent fails to start", Label("greenboot-rollback", "87279", "sanity"), func() {
 			// Get harness directly - no shared package-level variable
 			harness := e2e.GetWorkerHarness()
 
