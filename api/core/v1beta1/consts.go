@@ -87,6 +87,14 @@ const (
 	ResourceSyncKind       = "ResourceSync"
 	ResourceSyncListKind   = "ResourceSyncList"
 
+	CatalogAPIVersion   = "v1beta1"
+	CatalogKind         = "Catalog"
+	CatalogListKind     = "CatalogList"
+	CatalogItemKind     = "CatalogItem"
+	CatalogItemListKind = "CatalogItemList"
+
+	CatalogItemAnnotationCatalog = "io.flightctl/catalog"
+
 	TemplateVersionAPIVersion = "v1beta1"
 	TemplateVersionKind       = "TemplateVersion"
 	TemplateVersionListKind   = "TemplateVersionList"

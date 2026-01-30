@@ -27,7 +27,7 @@ rules:
     then:
       function: pattern
       functionOptions:
-        match: '^(/[a-z0-9/]+|/{name}|/{fleet})+$'
+        match: '^(/[a-z0-9/]+|/{name}|/{fleet}|/{catalog})+$'
 
   ## Allowed and required verbs
   collection-verbs-required:
