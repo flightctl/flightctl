@@ -12,7 +12,7 @@ COPY --from=variant-context etc/yum.repos.d/microshift.repo /etc/yum.repos.d/mic
 # Use BuildKit cache mounts for dnf package caching
 RUN --mount=type=cache,target=/var/cache/dnf \
     --mount=type=cache,target=/var/lib/dnf \
-    dnf install -y microshift && \
+    dnf install -y helm microshift && \
     systemctl enable microshift.service
 
 # Create the required directory structure in /var/crio instead of /opt/crio
