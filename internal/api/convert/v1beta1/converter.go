@@ -9,6 +9,7 @@ type Converter interface {
 	CertificateSigningRequest() CertificateSigningRequestConverter
 	AuthProvider() AuthProviderConverter
 	ResourceSync() ResourceSyncConverter
+	Catalog() CatalogConverter
 	TemplateVersion() TemplateVersionConverter
 	Event() EventConverter
 	Organization() OrganizationConverter
@@ -24,6 +25,7 @@ type converterImpl struct {
 	certificateSigningRequest CertificateSigningRequestConverter
 	authProvider              AuthProviderConverter
 	resourceSync              ResourceSyncConverter
+	catalog                   CatalogConverter
 	templateVersion           TemplateVersionConverter
 	event                     EventConverter
 	organization              OrganizationConverter
@@ -41,6 +43,7 @@ func NewConverter() Converter {
 		certificateSigningRequest: NewCertificateSigningRequestConverter(),
 		authProvider:              NewAuthProviderConverter(),
 		resourceSync:              NewResourceSyncConverter(),
+		catalog:                   NewCatalogConverter(),
 		templateVersion:           NewTemplateVersionConverter(),
 		event:                     NewEventConverter(),
 		organization:              NewOrganizationConverter(),
@@ -75,6 +78,10 @@ func (c *converterImpl) AuthProvider() AuthProviderConverter {
 
 func (c *converterImpl) ResourceSync() ResourceSyncConverter {
 	return c.resourceSync
+}
+
+func (c *converterImpl) Catalog() CatalogConverter {
+	return c.catalog
 }
 
 func (c *converterImpl) TemplateVersion() TemplateVersionConverter {

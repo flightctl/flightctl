@@ -268,6 +268,10 @@ func (o *DeleteOptions) deleteOne(ctx context.Context, c *apiclient.ClientWithRe
 		response, err = c.DeleteCertificateSigningRequestWithResponse(ctx, name)
 	case AuthProviderKind:
 		response, err = c.DeleteAuthProviderWithResponse(ctx, name)
+	case CatalogKind:
+		response, err = c.DeleteCatalogWithResponse(ctx, name)
+	case CatalogItemKind:
+		return nil, fmt.Errorf("catalogitems cannot be deleted individually; delete the parent catalog")
 	default:
 		return nil, fmt.Errorf("unsupported resource kind: %s", kind)
 	}

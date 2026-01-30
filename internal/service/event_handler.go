@@ -515,6 +515,27 @@ func (h *EventHandler) HandleTemplateVersionUpdatedEvents(ctx context.Context, r
 	}
 }
 
+// HandleCatalogUpdatedEvents handles catalog update event emission logic
+func (h *EventHandler) HandleCatalogUpdatedEvents(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
+	if err != nil {
+		status := StoreErrorToApiStatus(err, created, string(resourceKind), &name)
+		h.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedFailureEvent(ctx, created, resourceKind, name, status, nil))
+	} else {
+		// Compute ResourceUpdatedDetails for updates
+		var updateDetails *domain.ResourceUpdatedDetails
+		if !created {
+			var (
+				oldCatalog, newCatalog *domain.Catalog
+				ok                     bool
+			)
+			if oldCatalog, newCatalog, ok = castResources[domain.Catalog](oldResource, newResource); ok && oldCatalog != nil && newCatalog != nil {
+				updateDetails = h.computeResourceUpdatedDetails(oldCatalog.Metadata, newCatalog.Metadata)
+			}
+		}
+		h.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, created, resourceKind, name, updateDetails, h.log, nil))
+	}
+}
+
 func (h *EventHandler) emitResourceSyncConditionEvents(ctx context.Context, orgId uuid.UUID, name string, oldResourceSync, newResourceSync *domain.ResourceSync) {
 	if oldResourceSync == nil || newResourceSync == nil {
 		return

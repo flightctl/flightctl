@@ -90,6 +90,10 @@ func (f *TableFormatter) formatList(w *tabwriter.Writer, data interface{}, optio
 			return f.printAuthConfigProvidersTable(w, authConfig)
 		}
 		return nil
+	case strings.EqualFold(options.Kind, api.CatalogKind):
+		return f.printCatalogsTable(w, data.(*apiclient.ListCatalogsResponse).JSON200.Items...)
+	case strings.EqualFold(options.Kind, api.CatalogItemKind):
+		return f.printCatalogItemsTable(w, data.(*apiclient.ListCatalogItemsResponse).JSON200.Items...)
 	default:
 		return fmt.Errorf("unknown resource type %s", options.Kind)
 	}
@@ -139,6 +143,8 @@ func (f *TableFormatter) formatSingle(w *tabwriter.Writer, data interface{}, opt
 		return f.printImageBuildsTable(w, options.WithExports, *data.(*imagebuilderclient.GetImageBuildResponse).JSON200)
 	case strings.EqualFold(options.Kind, string(imagebuilderapi.ResourceKindImageExport)):
 		return f.printImageExportsTable(w, *data.(*imagebuilderclient.GetImageExportResponse).JSON200)
+	case strings.EqualFold(options.Kind, api.CatalogKind):
+		return f.printCatalogsTable(w, *data.(*apiclient.GetCatalogResponse).JSON200)
 	default:
 		return fmt.Errorf("unknown resource type %s", options.Kind)
 	}
@@ -695,6 +701,69 @@ func (f *TableFormatter) printImageExportsTable(w *tabwriter.Writer, imageExport
 		}
 
 		f.printTableRowLn(w, name, phase, source, output, format, age)
+	}
+	return nil
+}
+
+func (f *TableFormatter) printCatalogsTable(w *tabwriter.Writer, catalogs ...api.Catalog) error {
+	f.printHeaderRowLn(w, "NAME", "DISPLAY NAME", "VISIBILITY", "AGE")
+
+	for _, cat := range catalogs {
+		name := NoneString
+		if cat.Metadata.Name != nil {
+			name = *cat.Metadata.Name
+		}
+
+		displayName := NoneString
+		if cat.Spec.DisplayName != nil {
+			displayName = *cat.Spec.DisplayName
+		}
+
+		visibility := NoneString
+		if cat.Spec.Visibility != nil {
+			visibility = string(*cat.Spec.Visibility)
+		}
+
+		age := NoneString
+		if cat.Metadata.CreationTimestamp != nil {
+			age = humanize.Time(*cat.Metadata.CreationTimestamp)
+		}
+
+		f.printTableRowLn(w, name, displayName, visibility, age)
+	}
+	return nil
+}
+
+func (f *TableFormatter) printCatalogItemsTable(w *tabwriter.Writer, items ...api.CatalogItem) error {
+	f.printHeaderRowLn(w, "NAME", "CATEGORY", "TYPE", "DISPLAY NAME", "VISIBILITY")
+
+	for _, item := range items {
+		name := NoneString
+		if item.Metadata.Name != nil {
+			name = *item.Metadata.Name
+		}
+
+		category := NoneString
+		if item.Spec.Category != nil {
+			category = string(*item.Spec.Category)
+		}
+
+		itemType := NoneString
+		if item.Spec.Type != "" {
+			itemType = string(item.Spec.Type)
+		}
+
+		displayName := NoneString
+		if item.Spec.DisplayName != nil {
+			displayName = *item.Spec.DisplayName
+		}
+
+		visibility := NoneString
+		if item.Spec.Visibility != nil {
+			visibility = string(*item.Spec.Visibility)
+		}
+
+		f.printTableRowLn(w, name, category, itemType, displayName, visibility)
 	}
 	return nil
 }

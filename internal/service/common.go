@@ -132,6 +132,7 @@ var conflictErrors = map[error]bool{
 	flterrors.ErrInvalidTemplateVersion:              true,
 	flterrors.ErrNoRenderedVersion:                   true,
 	flterrors.ErrDecommission:                        true,
+	flterrors.ErrResourceNotEmpty:                    true,
 }
 
 func StoreErrorToApiStatus(err error, created bool, kind string, name *string) domain.Status {
