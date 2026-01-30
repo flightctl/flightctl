@@ -24,6 +24,8 @@ type ResourceKind string
 
 const (
 	InvalidKind                   ResourceKind = ""
+	CatalogKind                   ResourceKind = "catalog"
+	CatalogItemKind               ResourceKind = "catalogitem"
 	CertificateSigningRequestKind ResourceKind = "certificatesigningrequest"
 	DeviceKind                    ResourceKind = "device"
 	EnrollmentRequestKind         ResourceKind = "enrollmentrequest"
@@ -62,6 +64,8 @@ func ResourceKindFromString(kindLike string) (ResourceKind, error) {
 
 var (
 	resourceKindSet = map[ResourceKind]struct{}{
+		CatalogKind:                   {},
+		CatalogItemKind:               {},
 		CertificateSigningRequestKind: {},
 		DeviceKind:                    {},
 		EnrollmentRequestKind:         {},
@@ -79,6 +83,8 @@ var (
 	validResourceKinds = slices.Collect(maps.Keys(resourceKindSet))
 
 	pluralToKind = map[string]ResourceKind{
+		"catalogs":                   CatalogKind,
+		"catalogitems":               CatalogItemKind,
 		"certificatesigningrequests": CertificateSigningRequestKind,
 		"devices":                    DeviceKind,
 		"enrollmentrequests":         EnrollmentRequestKind,
@@ -94,6 +100,8 @@ var (
 	}
 
 	kindToPlural = map[ResourceKind]string{
+		CatalogKind:                   "catalogs",
+		CatalogItemKind:               "catalogitems",
 		CertificateSigningRequestKind: "certificatesigningrequests",
 		DeviceKind:                    "devices",
 		EnrollmentRequestKind:         "enrollmentrequests",
@@ -109,6 +117,8 @@ var (
 	}
 
 	shortnameToKind = map[string]ResourceKind{
+		"cat":  CatalogKind,
+		"ci":   CatalogItemKind,
 		"csr":  CertificateSigningRequestKind,
 		"dev":  DeviceKind,
 		"er":   EnrollmentRequestKind,

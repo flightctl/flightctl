@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	imagebuilderclient "github.com/flightctl/flightctl/internal/api/imagebuilder/client"
 	"github.com/flightctl/flightctl/internal/client"
@@ -288,6 +289,17 @@ func applyResourceByKind(ctx context.Context, client *apiclient.ClientWithRespon
 		}
 		response, err := ibClient.CreateImageExportWithBodyWithResponse(ctx, "application/json", bytes.NewReader(buf))
 		return extractApplyResult(response, err)
+	case CatalogKind:
+		response, err := client.ReplaceCatalogWithBodyWithResponse(ctx, resourceName, "application/json", bytes.NewReader(buf))
+		return extractApplyResult(response, err)
+	case CatalogItemKind:
+		// CatalogItems are nested under catalogs. Extract catalog name from annotation.
+		catalogName, err := extractCatalogFromAnnotation(buf)
+		if err != nil {
+			return applyResult{err: err}
+		}
+		response, err := client.ReplaceCatalogItemWithBodyWithResponse(ctx, catalogName, resourceName, "application/json", bytes.NewReader(buf))
+		return extractApplyResult(response, err)
 	default:
 		return applyResult{err: fmt.Errorf("skipping resource of unknown kind %q", kind)}
 	}
@@ -317,6 +329,10 @@ func extractApplyResult(response interface{}, err error) applyResult {
 	case *apiclient.ReplaceCertificateSigningRequestResponse:
 		return applyResult{httpResponse: r.HTTPResponse, message: string(r.Body)}
 	case *apiclient.ReplaceAuthProviderResponse:
+		return applyResult{httpResponse: r.HTTPResponse, message: string(r.Body)}
+	case *apiclient.ReplaceCatalogResponse:
+		return applyResult{httpResponse: r.HTTPResponse, message: string(r.Body)}
+	case *apiclient.ReplaceCatalogItemResponse:
 		return applyResult{httpResponse: r.HTTPResponse, message: string(r.Body)}
 	case *imagebuilderclient.CreateImageBuildResponse:
 		return applyResult{httpResponse: r.HTTPResponse, message: string(r.Body)}
@@ -352,4 +368,20 @@ func ignoreFile(path string, extensions []string) bool {
 		}
 	}
 	return true
+}
+
+func extractCatalogFromAnnotation(buf []byte) (string, error) {
+	var resource struct {
+		Metadata struct {
+			Annotations map[string]string `json:"annotations"`
+		} `json:"metadata"`
+	}
+	if err := json.Unmarshal(buf, &resource); err != nil {
+		return "", fmt.Errorf("failed to parse resource: %w", err)
+	}
+	catalogName := resource.Metadata.Annotations[api.CatalogItemAnnotationCatalog]
+	if catalogName == "" {
+		return "", fmt.Errorf("catalogitem requires annotation %q to specify the parent catalog", api.CatalogItemAnnotationCatalog)
+	}
+	return catalogName, nil
 }
