@@ -129,6 +129,39 @@ imagebuilder_api_sans=(
 )
 imagebuilder_api_sans+=("${host_ips[@]}")
 
+# Prometheus certificate SANs
+prometheus_sans=(
+    "prometheus.$base_domain"
+    "$base_domain"
+    "$hostname_short"
+    "$hostname_fqdn"
+    "flightctl-prometheus"
+    "localhost"
+)
+prometheus_sans+=("${host_ips[@]}")
+
+# Grafana certificate SANs
+grafana_sans=(
+    "grafana.$base_domain"
+    "$base_domain"
+    "$hostname_short"
+    "$hostname_fqdn"
+    "flightctl-grafana"
+    "localhost"
+)
+grafana_sans+=("${host_ips[@]}")
+
+# UserInfo Proxy certificate SANs (for future use)
+userinfo_proxy_sans=(
+    "userinfo-proxy.$base_domain"
+    "$base_domain"
+    "$hostname_short"
+    "$hostname_fqdn"
+    "flightctl-userinfo-proxy"
+    "localhost"
+)
+userinfo_proxy_sans+=("${host_ips[@]}")
+
 # Build the certificate generation command
 cert_gen_args=("--cert-dir" "$CERT_DIR")
 
@@ -158,6 +191,18 @@ done
 
 for san in "${imagebuilder_api_sans[@]}"; do
     cert_gen_args+=("--imagebuilder-api-san" "$san")
+done
+
+for san in "${prometheus_sans[@]}"; do
+    cert_gen_args+=("--prometheus-san" "$san")
+done
+
+for san in "${grafana_sans[@]}"; do
+    cert_gen_args+=("--grafana-san" "$san")
+done
+
+for san in "${userinfo_proxy_sans[@]}"; do
+    cert_gen_args+=("--userinfo-proxy-san" "$san")
 done
 
 # Generate certificates
