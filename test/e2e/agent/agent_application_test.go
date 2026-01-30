@@ -3,6 +3,7 @@ package agent_test
 import (
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
@@ -17,6 +18,78 @@ const (
 	fileName      = "podman-compose.yaml"
 	inlineAppName = "my-app"
 )
+
+const (
+	// ApplicationRunningStatus represents the status string used to signify that an application is currently running.
+	ApplicationRunningStatus = "status: Running"
+)
+
+// WaitForApplicationRunningStatus waits for a specific application on a device to reach the "Running" status with all
+// expected workloads running within a timeout.
+func WaitForApplicationRunningStatus(h *e2e.Harness, deviceId string, applicationImage string) {
+	GinkgoWriter.Printf("Waiting for application running status (device=%s image=%s)\n", deviceId, applicationImage)
+	h.WaitForDeviceContents(deviceId, ApplicationRunningStatus,
+		func(device *v1beta1.Device) bool {
+			for _, application := range device.Status.Applications {
+				if application.Name == applicationImage && application.Status == v1beta1.ApplicationStatusRunning {
+					// ready indicates the number of workloads that are currently running compared to the number of expected
+					// workloads. Checks to see if "1/1" or "2/3" containers are ready
+					parts := strings.Split(application.Ready, "/")
+					if len(parts) != 2 {
+						return false
+					}
+					return parts[0] == parts[1]
+				}
+			}
+			return false
+		}, e2e.TIMEOUT)
+}
+
+func UpdateDevice(harness *e2e.Harness, deviceID string, updateFunc func(device *v1beta1.Device)) {
+	GinkgoWriter.Printf("Preparing device update (device=%s)\n", deviceID)
+	newRenderedVersion, err := harness.PrepareNextDeviceVersion(deviceID)
+	Expect(err).ToNot(HaveOccurred())
+
+	err = harness.UpdateDeviceWithRetries(deviceID, updateFunc)
+	Expect(err).ToNot(HaveOccurred())
+
+	GinkgoWriter.Printf("Waiting for device to pick config (device=%s)\n", deviceID)
+	err = harness.WaitForDeviceNewRenderedVersion(deviceID, newRenderedVersion)
+	Expect(err).ToNot(HaveOccurred())
+}
+
+func ExtractSingleContainerNameFromVM(harness *e2e.Harness) string {
+	GinkgoWriter.Printf("Extracting container name from VM\n")
+	cmd := "sudo podman ps --format \"{{.Names}}\" | head -n 1"
+	containerName, err := harness.VM.RunSSH([]string{"bash", "-c", cmd}, nil)
+	containerNameString := strings.Trim(containerName.String(), "\n")
+	Expect(err).ToNot(HaveOccurred())
+	GinkgoWriter.Printf("Found container name: %s\n", containerNameString)
+	return containerNameString
+}
+
+func VerifyContainerCount(harness *e2e.Harness, count int) {
+	GinkgoWriter.Printf("Verifying container count (expected=%d)\n", count)
+	out, err := harness.CheckRunningContainers()
+	Expect(err).ToNot(HaveOccurred())
+	actualCount, err := strconv.Atoi(strings.TrimSpace(out))
+	Expect(err).ToNot(HaveOccurred())
+	Expect(actualCount).To(Equal(count))
+}
+
+func VerifyCommandOutputsSubstring(harness *e2e.Harness, args []string, s string) {
+	GinkgoWriter.Printf("Verifying command output contains substring: %s\n", s)
+	stdout, err := harness.VM.RunSSH(args, nil)
+	Expect(err).ToNot(HaveOccurred())
+	Expect(stdout.String()).To(ContainSubstring(s))
+}
+
+func VerifyCommandLacksSubstring(harness *e2e.Harness, args []string, s string) {
+	GinkgoWriter.Printf("Verifying command output lacks substring: %s\n", s)
+	stdout, err := harness.VM.RunSSH(args, nil)
+	Expect(err).ToNot(HaveOccurred())
+	Expect(stdout.String()).To(Not(ContainSubstring(s)))
+}
 
 var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 	var (
@@ -50,7 +123,7 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 
 			imageName := util.NewSleepAppImageReference(util.SleepAppTags.V1).String()
 
-			updateDevice(harness, deviceId, func(device *v1beta1.Device) {
+			UpdateDevice(harness, deviceId, func(device *v1beta1.Device) {
 				composeApp := v1beta1.ComposeApplication{
 					AppType: v1beta1.AppTypeCompose,
 				}
@@ -70,7 +143,7 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 
 			By("Check that the application compose is copied to the device")
 			manifestPath := fmt.Sprintf("%s/%s", ComposeManifestPath, imageName)
-			verifyCommandOutputsSubstring(
+			VerifyCommandOutputsSubstring(
 				harness,
 				[]string{"ls", manifestPath},
 				ComposeFile)
@@ -94,7 +167,7 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 
 			imageName = util.NewSleepAppImageReference(util.SleepAppTags.V2).String()
 
-			updateDevice(harness, deviceId, func(device *v1beta1.Device) {
+			UpdateDevice(harness, deviceId, func(device *v1beta1.Device) {
 				applicationVars := map[string]string{
 					"FFO":      "FFO",
 					"SIMPLE":   "SIMPLE",
@@ -123,24 +196,24 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			WaitForApplicationRunningStatus(harness, deviceId, imageName)
 
 			By("Check that the new application containers are running")
-			verifyContainerCount(harness, ExpectedNumSleepAppV2V3Containers)
+			VerifyContainerCount(harness, ExpectedNumSleepAppV2V3Containers)
 
 			By("Check that the envs of v2 app are present in the containers")
-			containerName := extractSingleContainerNameFromVM(harness)
+			containerName := ExtractSingleContainerNameFromVM(harness)
 
-			verifyCommandOutputsSubstring(harness, []string{"sudo", "podman", "exec", containerName, "printenv"}, "SIMPLE")
+			VerifyCommandOutputsSubstring(harness, []string{"sudo", "podman", "exec", containerName, "printenv"}, "SIMPLE")
 
 			By("Delete the application from the fleet configuration")
 			GinkgoWriter.Printf("Removing all the applications from %s\n", deviceId)
 
-			updateDevice(harness, deviceId, func(device *v1beta1.Device) {
+			UpdateDevice(harness, deviceId, func(device *v1beta1.Device) {
 				device.Spec.Applications = &[]v1beta1.ApplicationProviderSpec{}
 				GinkgoWriter.Printf("Updating %s removing application %s\n", deviceId, imageName)
 			})
 			Expect(err).ToNot(HaveOccurred())
 
 			By("Check all the containers are deleted")
-			verifyContainerCount(harness, 0)
+			VerifyContainerCount(harness, 0)
 		})
 
 		It("Should handle application volumes from images correctly", Label("83000"), func() {
@@ -151,7 +224,7 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 
 			imageName := util.NewSleepAppImageReference(util.SleepAppTags.V3).String()
 
-			updateDevice(harness, deviceId, func(device *v1beta1.Device) {
+			UpdateDevice(harness, deviceId, func(device *v1beta1.Device) {
 				volumeConfig := v1beta1.ApplicationVolume{
 					Name: "testvol",
 				}
@@ -185,10 +258,10 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			WaitForApplicationRunningStatus(harness, deviceId, imageName)
 
 			By("Check that the new application containers are running")
-			verifyContainerCount(harness, ExpectedNumSleepAppV2V3Containers)
-			containerName := extractSingleContainerNameFromVM(harness)
+			VerifyContainerCount(harness, ExpectedNumSleepAppV2V3Containers)
+			containerName := ExtractSingleContainerNameFromVM(harness)
 
-			verifyCommandOutputsSubstring(
+			VerifyCommandOutputsSubstring(
 				harness,
 				[]string{"sudo", "podman", "inspect", "--format", `"{{.Mounts}}"`, containerName},
 				"testvol")
@@ -196,7 +269,7 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			By("downgrading to v2 we should not have the mount anymore")
 			imageName = util.NewSleepAppImageReference(util.SleepAppTags.V2).String()
 
-			updateDevice(harness, deviceId, func(device *v1beta1.Device) {
+			UpdateDevice(harness, deviceId, func(device *v1beta1.Device) {
 				composeApp := v1beta1.ComposeApplication{
 					AppType: v1beta1.AppTypeCompose,
 				}
@@ -213,10 +286,10 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			})
 			WaitForApplicationRunningStatus(harness, deviceId, imageName)
 
-			verifyContainerCount(harness, ExpectedNumSleepAppV2V3Containers)
-			containerName = extractSingleContainerNameFromVM(harness)
+			VerifyContainerCount(harness, ExpectedNumSleepAppV2V3Containers)
+			containerName = ExtractSingleContainerNameFromVM(harness)
 
-			verifyCommandLacksSubstring(
+			VerifyCommandLacksSubstring(
 				harness,
 				[]string{"sudo", "podman", "inspect", "--format", `"{{.Mounts}}"`, containerName},
 				"testvol")
@@ -231,7 +304,14 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			Expect(err).ToNot(HaveOccurred())
 			containerAmount := 3
 			inlineAppComposeYaml := fmt.Sprintf(inlineAppComposeYamlInitial, AlpineImage, AlpineImage, AlpineImage)
-			inlineApp := createInlineApplicationSpec(inlineAppComposeYaml, fileName)
+			inlineApp := v1beta1.InlineApplicationProviderSpec{
+				Inline: []v1beta1.ApplicationContent{
+					{
+						Content: &inlineAppComposeYaml,
+						Path:    fileName,
+					},
+				},
+			}
 			err = harness.UpdateApplication(true, deviceId, inlineAppName, inlineApp, nil)
 			Expect(err).ToNot(HaveOccurred())
 
@@ -275,17 +355,21 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			newRenderedVersion, err = harness.PrepareNextDeviceVersion(deviceId)
 			Expect(err).ToNot(HaveOccurred())
 			inlineAppComposeYaml = fmt.Sprintf(inlineAppComposeYamlUpdated, NginxImage)
-			inlineApp = createInlineApplicationSpec(inlineAppComposeYaml, fileName)
 
 			By("Update the application with the new compose file")
-			err = harness.UpdateDevice(deviceId, func(d *v1beta1.Device) {
-				err := updateDeviceApplicationFromInline(d, inlineAppName, inlineApp)
-				if err != nil {
-					GinkgoWriter.Printf("Failed to update application %s on device %s: %v\n", inlineAppName, deviceId, err)
-				} else {
-					GinkgoWriter.Printf("Successfully updated application %s on device %s\n", inlineAppName, deviceId)
-				}
-			})
+			inlineConfig := v1beta1.InlineConfigProviderSpec{
+				Name: fmt.Sprintf("%s-compose-update", inlineAppName),
+				Inline: []v1beta1.FileSpec{
+					{
+						Path:    filepath.Join(ComposeManifestPath, inlineAppName, fileName),
+						Content: inlineAppComposeYaml,
+					},
+				},
+			}
+			var configProviderSpec v1beta1.ConfigProviderSpec
+			err = configProviderSpec.FromInlineConfigProviderSpec(inlineConfig)
+			Expect(err).ToNot(HaveOccurred())
+			err = harness.AddConfigToDeviceWithRetries(deviceId, configProviderSpec)
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Wait for the device to apply the updated configuration")
@@ -326,7 +410,14 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			envVarName := "MY_ENV_VAR"
 			envVarValue := "my-value"
 			inlineAppComposeYaml = fmt.Sprintf(inlineAppComposeYamlWithEnv, AlpineImage, envVarName, envVarValue, AlpineImage, AlpineImage)
-			inlineApp = createInlineApplicationSpec(inlineAppComposeYaml, fileName)
+			inlineApp = v1beta1.InlineApplicationProviderSpec{
+				Inline: []v1beta1.ApplicationContent{
+					{
+						Content: &inlineAppComposeYaml,
+						Path:    fileName,
+					},
+				},
+			}
 			err = harness.UpdateApplication(true, deviceId, inlineAppName, inlineApp, nil)
 			Expect(err).ToNot(HaveOccurred())
 
@@ -350,7 +441,14 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			initialRenderedVersion, err := harness.PrepareNextDeviceVersion(deviceId)
 			Expect(err).ToNot(HaveOccurred())
 			inlineAppComposeYaml := fmt.Sprintf(inlineAppComposeYamlInitial, AlpineImage, AlpineImage, AlpineImage)
-			inlineApp := createInlineApplicationSpec(inlineAppComposeYaml, fileName)
+			inlineApp := v1beta1.InlineApplicationProviderSpec{
+				Inline: []v1beta1.ApplicationContent{
+					{
+						Content: &inlineAppComposeYaml,
+						Path:    fileName,
+					},
+				},
+			}
 			err = harness.UpdateApplication(true, deviceId, inlineAppName, inlineApp, nil)
 			Expect(err).ToNot(HaveOccurred())
 			err = harness.WaitForDeviceNewRenderedVersion(deviceId, initialRenderedVersion)
@@ -358,28 +456,56 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 
 			By("Update application with duplicate names")
 			inlineAppComposeYaml = fmt.Sprintf(inlineAppComposeYamlWithDuplicateNames, AlpineImage, AlpineImage)
-			inlineApp = createInlineApplicationSpec(inlineAppComposeYaml, fileName)
+			inlineApp = v1beta1.InlineApplicationProviderSpec{
+				Inline: []v1beta1.ApplicationContent{
+					{
+						Content: &inlineAppComposeYaml,
+						Path:    fileName,
+					},
+				},
+			}
 			apiError := harness.UpdateApplication(false, deviceId, inlineAppName, inlineApp, nil)
 			Expect(apiError).To(HaveOccurred())
 			Expect(apiError.Error()).To(ContainSubstring("invalid compose YAML"))
 
 			By("Update application with bad path")
 			inlineAppComposeYaml = fmt.Sprintf(inlineAppComposeYamlBadPath, AlpineImage)
-			inlineApp = createInlineApplicationSpec(inlineAppComposeYaml, "test-app")
+			inlineApp = v1beta1.InlineApplicationProviderSpec{
+				Inline: []v1beta1.ApplicationContent{
+					{
+						Content: &inlineAppComposeYaml,
+						Path:    "test-app",
+					},
+				},
+			}
 			apiError = harness.UpdateApplication(false, deviceId, inlineAppName, inlineApp, nil)
 			Expect(apiError).To(HaveOccurred())
 			Expect(apiError.Error()).To(ContainSubstring("compose path must have .yaml or .yml extension"))
 
 			By("Update application with bad YAML structure")
 			inlineAppComposeYaml = fmt.Sprintf(inlineAppComposeYamlBadStructure, NginxImage)
-			inlineApp = createInlineApplicationSpec(inlineAppComposeYaml, fileName)
+			inlineApp = v1beta1.InlineApplicationProviderSpec{
+				Inline: []v1beta1.ApplicationContent{
+					{
+						Content: &inlineAppComposeYaml,
+						Path:    fileName,
+					},
+				},
+			}
 			apiError = harness.UpdateApplication(false, deviceId, inlineAppName, inlineApp, nil)
 			Expect(apiError).To(HaveOccurred())
 			Expect(apiError.Error()).To(ContainSubstring("compose spec has no services"))
 
 			By("Update application with invalid environment variables")
 			inlineAppComposeYaml = fmt.Sprintf(inlineAppComposeYamlInitial, AlpineImage, AlpineImage, AlpineImage)
-			inlineApp = createInlineApplicationSpec(inlineAppComposeYaml, fileName)
+			inlineApp = v1beta1.InlineApplicationProviderSpec{
+				Inline: []v1beta1.ApplicationContent{
+					{
+						Content: &inlineAppComposeYaml,
+						Path:    fileName,
+					},
+				},
+			}
 			apiError = harness.UpdateApplication(false, deviceId, inlineAppName, inlineApp, map[string]string{"-1": "test", "!": "test"})
 			Expect(apiError).To(HaveOccurred())
 			Expect(apiError.Error()).To(ContainSubstring("envVars: Invalid value"))
