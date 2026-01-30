@@ -183,6 +183,7 @@ write_registry_remap() {
 [[registry]]
 prefix = "${SOURCE_REPO}"
 location = "${dest}"
+insecure = true
 EOF
   sudo chown root:root "$remap_file"
 }
