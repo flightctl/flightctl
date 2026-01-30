@@ -104,6 +104,7 @@ RHEL
 rollbacks
 rollout
 redboot
+RunAs
 post-mortem
 150s
 pre-rollback
