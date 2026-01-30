@@ -11,6 +11,26 @@ import (
 
 const SUITE_TIMEOUT = "2m"
 
+const (
+	TIMEOUT       = "5m"
+	REBOOT_TIMOUT = "3m"
+	POLLING       = "5s"
+)
+
+// Agent credential paths that should be wiped after decommission
+const (
+	AgentCertPath = "/var/lib/flightctl/certs/agent.crt"
+	AgentKeyPath  = "/var/lib/flightctl/certs/agent.key"
+	AgentCSRPath  = "/var/lib/flightctl/certs/agent.csr"
+)
+
+// Agent spec files that should be deleted after decommission
+const (
+	DesiredSpecPath  = "/var/lib/flightctl/desired.json"
+	CurrentSpecPath  = "/var/lib/flightctl/current.json"
+	RollbackSpecPath = "/var/lib/flightctl/rollback.json"
+)
+
 func TestCLIDecommission(t *testing.T) {
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "Decommission E2E Suite")
