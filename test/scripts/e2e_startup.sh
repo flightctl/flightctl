@@ -17,6 +17,8 @@ echo "🔄 [Startup] Starting global E2E environment setup..."
 
 # Resource types to clean up (in order of dependencies)
 RESOURCE_TYPES=(
+    "imageexport"
+    "imagebuild"
     "resourcesync"
     "fleet"
     "device"

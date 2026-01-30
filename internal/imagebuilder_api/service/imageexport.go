@@ -557,6 +557,10 @@ func (s *imageExportService) fetchAndParseManifest(ctx context.Context, repoRef 
 
 // createHTTPClient creates an HTTP client with TLS configuration
 func (s *imageExportService) createHTTPClient(ociSpec *coredomain.OciRepoSpec) (*http.Client, error) {
+	// Clone the default transport to preserve default settings (timeouts, connection pooling, etc.)
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+
+	// Configure TLS
 	tlsConfig := &tls.Config{
 		MinVersion: tls.VersionTLS12,
 	}
@@ -580,12 +584,11 @@ func (s *imageExportService) createHTTPClient(ociSpec *coredomain.OciRepoSpec) (
 		}
 		tlsConfig.RootCAs = rootCAs
 	}
+	transport.TLSClientConfig = tlsConfig
 
 	return &http.Client{
-		Timeout: 30 * time.Second,
-		Transport: &http.Transport{
-			TLSClientConfig: tlsConfig,
-		},
+		Timeout:   30 * time.Second,
+		Transport: transport,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
