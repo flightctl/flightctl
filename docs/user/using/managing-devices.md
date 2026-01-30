@@ -692,6 +692,8 @@ spec:
   applications:
   - name: wordpress
     image: quay.io/flightctl-demos/wordpress-app:v1.2.3
+    appType: container
+    runAs: flightctl
     envVars:
       WORDPRESS_DB_HOST: "mysql"
       WORDPRESS_DB_USER: "user"
@@ -1054,7 +1056,8 @@ spec:
   applications:
   - name: my-app
     image: quay.io/my-org/my-app:v1.2.3
-    appType: compose  # or quadlet
+    appType: container  # or quadlet
+    runAs: flightctl
 ```
 
 ### Specifying Applications Inline in the Device Spec
@@ -1099,6 +1102,29 @@ spec:
 
 Quadlet applications use [Podman Quadlet](https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html) to manage containers as native systemd services. This allows full integration with systemd's dependency management, restart policies, resource limits, and logging.
 
+We recommend running regular workloads under a rootless podman instance under the provided
+`flightctl` user's systemd instance on the agent machine. This user is automatically created when
+installing the `flightctl-agent` package. You do this by specifying the `runAs: flightctl` option in
+the application yaml config. If `runAs` is not specified, the application will run under the root
+podman and systemd instance.
+
+You may also provision your own user to run rootless applications under, but it is necessary to run
+`loginctl enable-linger <username>` to ensure the systemd instance for that user runs in the
+background without the user being logged in. Also, the user needs to have a home directory set and
+writable by that user.
+
+Reasons for running an application under the root podman include:
+
+- Exposing ports < 1024 from the host
+- Accessing volumes where root permissions are needed
+
+But most applications should not need access to the root podman instance.
+
+> [!NOTE]
+> If you want to set cpu limits on your rootless quadlet application, you might need to add
+> configuration to systemd to allow delegation of cpu cgroups to non-root users. See [this
+> troubleshooting guide for more details](https://github.com/containers/podman/blob/main/troubleshooting.md#26-running-containers-with-resource-limits-fails-with-a-permissions-error).
+
 #### Supported Quadlet File Types
 
 Flight Control supports the following Quadlet file types:
@@ -1133,6 +1159,7 @@ All Quadlet file names must be unique across all systemd service files on a Devi
 > applications:
 >   - name: web-app
 >     appType: quadlet
+>     runAs: flightctl
 >     inline:
 >       - path: app-net.network
 >         content: |
@@ -1151,6 +1178,7 @@ All Quadlet file names must be unique across all systemd service files on a Devi
 > applications:
 >   - name: network-config
 >     appType: quadlet
+>     runAs: flightctl
 >     inline:
 >       - path: shared-net.network
 >         content: |
@@ -1158,6 +1186,7 @@ All Quadlet file names must be unique across all systemd service files on a Devi
 >           NetworkName=shared-network
 >   - name: web-service
 >     appType: quadlet
+>     runAs: flightctl
 >     inline:
 >       - path: web.container
 >         content: |
@@ -1179,6 +1208,7 @@ spec:
   applications:
     - name: nginx-server
       appType: quadlet
+      runAs: flightctl
       inline:
         - path: nginx.container
           content: |
@@ -1203,6 +1233,7 @@ spec:
   applications:
     - name: postgres-db
       appType: quadlet
+      runAs: flightctl
       inline:
         - path: db.volume
           content: |
@@ -1230,6 +1261,7 @@ spec:
   applications:
     - name: nginx
       appType: quadlet
+      runAs: flightctl
       inline:
         - path: nginx.container
           content: |
@@ -1251,6 +1283,7 @@ spec:
   applications:
     - name: web-app
       appType: quadlet
+      runAs: flightctl
       inline:
         - path: app-net.network
           content: |
@@ -1280,6 +1313,7 @@ spec:
   applications:
     - name: api-server
       appType: quadlet
+      runAs: flightctl
       envVars:
         DATABASE_HOST: "db.internal"
         API_PORT: "8080"
@@ -1301,6 +1335,7 @@ spec:
   applications:
     - name: config-app
       appType: quadlet
+      runAs: flightctl
       inline:
         - path: config.volume
           content: |
@@ -1323,6 +1358,9 @@ applications, quadlet definitions are the recommended approach.
 **Supported Properties:**
 
 * **Image** - Required - Reference to OCI runnable image
+* **RunAs** - Optional - This determines which container runtime the application will run under. By
+  default it runs under the root podman/systemd instance. If set to a non-root user, it runs under a
+  rootless podman instance for that user.
 * **Environment Variables** - Optional - Variables to be injected into the running container
 * **Port Mappings** - Optional - Must be in the format `hostPort:containerPort`, with each port limited in the range of `1-65535`
 * **CPU Limits** - Optional - Positive decimal number (e.g., `"1.5"`, `"2"`, `"0.5"`)
@@ -1343,6 +1381,7 @@ spec:
   applications:
     - name: production-api
       appType: container
+      runAs: flightctl
       image: quay.io/myorg/production-api:v2.3.1 # the runnable image
       envVars:
         DATABASE_URL: "postgresql://db:5432/app"
@@ -1450,6 +1489,7 @@ spec:
   applications:
     - name: config-app
       appType: quadlet
+      runAs: flightctl
       inline:
         - path: config.volume
           content: |
