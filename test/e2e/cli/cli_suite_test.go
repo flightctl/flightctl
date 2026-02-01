@@ -1,9 +1,12 @@
 package cli_test
 
 import (
+	"context"
 	"testing"
 	"time"
 
+	"github.com/flightctl/flightctl/test/e2e/infra/satellite"
+	"github.com/flightctl/flightctl/test/e2e/infra/setup"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	"github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
@@ -24,8 +27,13 @@ func init() {
 	SetDefaultEventuallyPollingInterval(POLLING)
 }
 
+var satellites *satellite.Services
+
 var _ = BeforeSuite(func() {
-	e2e.SetupWorkerHarnessOrAbort()
+	satellites = satellite.Get(context.Background())
+	Expect(setup.EnsureDefaultProviders(nil)).To(Succeed())
+	_, _, err := e2e.SetupWorkerHarnessOrAbort()
+	Expect(err).ToNot(HaveOccurred())
 })
 
 var _ = BeforeEach(func() {

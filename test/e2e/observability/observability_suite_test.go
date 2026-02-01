@@ -1,9 +1,12 @@
 package observability_test
 
 import (
+	"context"
 	"testing"
 	"time"
 
+	"github.com/flightctl/flightctl/test/e2e/infra/satellite"
+	"github.com/flightctl/flightctl/test/e2e/infra/setup"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
@@ -17,13 +20,24 @@ const TENMINTIMEOUT = 10 * time.Minute
 const TENSECTIMEOUT = 10 * time.Second
 const FIVESECTIMEOUT = 5 * time.Second
 
+var satellites *satellite.Services
+
 func TestObservability(t *testing.T) {
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "Observability E2E Suite")
 }
 
 var _ = BeforeSuite(func() {
+	satellites = satellite.Get(context.Background())
+	Expect(setup.EnsureDefaultProviders(nil)).To(Succeed())
 	e2e.SetupWorkerHarnessOrAbort()
+})
+
+var _ = AfterSuite(func() {
+	// In CI, cleanup containers; in local dev, leave running for speed
+	if satellites != nil {
+		satellites.Cleanup(context.Background())
+	}
 })
 
 var _ = BeforeEach(func() {

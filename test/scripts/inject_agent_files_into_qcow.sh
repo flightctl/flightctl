@@ -187,16 +187,65 @@ EOF
   sudo chown root:root "$remap_file"
 }
 
+# Inject /etc/hosts entry so VM can resolve the host's hostname
+inject_hosts_entry() {
+  local base="$1"
+  local hosts_file="$base/hosts"
+  
+  # Get host IP and hostname
+  local host_ip
+  host_ip=$(get_ext_ip)
+  local host_fqdn
+  host_fqdn=$(hostname -f 2>/dev/null || hostname 2>/dev/null || echo "")
+  local host_short
+  host_short=$(hostname -s 2>/dev/null || hostname 2>/dev/null || echo "")
+  
+  if [[ -z "$host_ip" ]] || [[ -z "$host_fqdn" ]]; then
+    log "Could not determine host IP or hostname - skipping /etc/hosts injection"
+    return
+  fi
+  
+  # Skip if localhost
+  if [[ "$host_fqdn" == "localhost" ]] || [[ "$host_fqdn" == "localhost.localdomain" ]]; then
+    log "Host FQDN is localhost - skipping /etc/hosts injection"
+    return
+  fi
+  
+  log "Adding hosts entry: $host_ip -> $host_fqdn $host_short"
+  
+  # Append to existing hosts file or create new one
+  if [[ -f "$hosts_file" ]]; then
+    # Check if entry already exists
+    if sudo grep -q "$host_fqdn" "$hosts_file" 2>/dev/null; then
+      log "Hosts entry for $host_fqdn already exists"
+      return
+    fi
+    # Append entry
+    echo "$host_ip $host_fqdn $host_short" | sudo tee -a "$hosts_file" >/dev/null
+  else
+    # Create hosts file with standard entries plus our host
+    sudo tee "$hosts_file" >/dev/null <<EOF
+127.0.0.1   localhost localhost.localdomain
+::1         localhost localhost.localdomain
+$host_ip $host_fqdn $host_short
+EOF
+  fi
+  sudo chown root:root "$hosts_file"
+  log "Hosts entry added successfully"
+}
+
 # Write to deployment etc so it appears at guest /etc
 copy_into "$DEPLOY_ETC"
 inject_registry_ca "$DEPLOY_ETC"
 write_registry_remap "$DEPLOY_ETC"
+inject_hosts_entry "$DEPLOY_ETC"
 
 # Also mirror to on-disk etc so it shows under guest /sysroot/etc
 if [[ "$SYSROOT_ETC" != "$DEPLOY_ETC" ]]; then
   copy_into "$SYSROOT_ETC"
   inject_registry_ca "$SYSROOT_ETC"
   write_registry_remap "$SYSROOT_ETC"
+  inject_hosts_entry "$SYSROOT_ETC"
 fi
 
 sync

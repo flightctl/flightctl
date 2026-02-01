@@ -319,6 +319,33 @@ make in-cluster-e2e-test
 The `BREW_BUILD_URL` should be a valid URL to the Red Hat Brew system task page. Both the agent image and CLI will be built
 using the RPMs downloaded from the specified brew URL.
 
+#### OpenShift namespace (single-namespace deploy)
+
+On OCP, Flight Control is often deployed in a **single namespace** (e.g. `flightctl`), while on kind the chart may use multiple namespaces (e.g. `flightctl-internal`, `flightctl-external`). The e2e infra resolves "external" services (e.g. alertmanager-proxy, telemetry-gateway) to the main namespace when the environment is OCP, so no extra config is needed. To pin the namespace on OCP, set:
+
+```bash
+export E2E_NAMESPACE=flightctl
+```
+
+(Optional: set `E2E_ENVIRONMENT=ocp` so the environment is not auto-detected.)
+
+#### OpenShift with shared network (QE)
+
+When the test VM and the OpenShift cluster **share a network** (e.g. the same libvirt network such as `ocp3m0w-ic4s20`), the cluster can reach local testcontainers (registry, git server, prometheus) on the VM. No in-cluster registry is required.
+
+- Set `E2E_ENVIRONMENT=ocp` (or rely on context detection). Start satellite as usual; suites that need it call `satellite.Get()` and `SetEnvVars()`, which sets `REGISTRY_ENDPOINT`. The cluster and tests will use that endpoint.
+- If the test VM has **two NICs** (e.g. default for installing dependencies, OCP network for tests), set `E2E_SATELLITE_HOST` to the VM's IP on the OCP network so registry/git/prometheus are advertised on the interface the cluster can reach:
+
+```bash
+export FLIGHTCTL_NS=flightctl
+export KUBEADMIN_PASS=your-oc-password-for-kubeadmin
+export E2E_SATELLITE_HOST=192.168.122.10   # VM IP on the OCP network (e.g. ocp3m0w-ic4s20)
+
+make in-cluster-e2e-test
+```
+
+This behaves the same as disconnected envs today: one host for registry, git, and prometheus.
+
 #### If your host system is not suitable for bootc image builder
 
 * Create a test vm. Note the ssh command in the cmd output.

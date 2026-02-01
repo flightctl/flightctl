@@ -1,9 +1,12 @@
 package agent_test
 
 import (
+	"context"
 	"testing"
 	"time"
 
+	"github.com/flightctl/flightctl/test/e2e/infra/satellite"
+	"github.com/flightctl/flightctl/test/e2e/infra/setup"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
@@ -38,8 +41,20 @@ func TestAgent(t *testing.T) {
 	RunSpecs(t, "Agent E2E Suite")
 }
 
+var satellites *satellite.Services
+
 var _ = BeforeSuite(func() {
-	e2e.SetupWorkerHarnessOrAbort()
+	satellites = satellite.Get(context.Background())
+	Expect(setup.EnsureDefaultProviders(nil)).To(Succeed())
+	_, _, err := e2e.SetupWorkerHarnessOrAbort()
+	Expect(err).ToNot(HaveOccurred())
+})
+
+var _ = AfterSuite(func() {
+	// In CI, cleanup containers; in local dev, leave running for speed
+	if satellites != nil {
+		satellites.Cleanup(context.Background())
+	}
 })
 
 var _ = BeforeEach(func() {

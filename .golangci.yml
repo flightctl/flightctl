@@ -140,6 +140,27 @@ linters-settings:
           - pkg: "github.com/flightctl/flightctl/api/"
             desc: "Use internal/imagebuilder_api/domain instead of api/ in imagebuilder worker"
 
+      # E2E philosophy: harness must not import infra or setup; callers pass data in (see test/e2e/AGENTS.md).
+      harness-no-infra:
+        list-mode: lax
+        files:
+          - "**/test/harness/e2e/**"
+        deny:
+          - pkg: "github.com/flightctl/flightctl/test/e2e/infra$"
+            desc: "Harness must not import infra; tests get data from infra and pass it into harness methods"
+          - pkg: "github.com/flightctl/flightctl/test/e2e/infra/"
+            desc: "Harness must not import infra or infra/* (setup, satellite, k8s, quadlet); callers use them directly"
+
+      # E2E philosophy: K8s client only in infra/k8s; see test/e2e/AGENTS.md.
+      test-no-k8s-client:
+        list-mode: lax
+        files:
+          - "**/test/**"
+          - "!**/test/e2e/infra/k8s/**"
+        deny:
+          - pkg: "k8s.io/client-go/"
+            desc: "K8s client-go only in test/e2e/infra/k8s; use infra providers from tests"
+
   govet:
     settings:
       printf:
