@@ -20,17 +20,15 @@ const (
 
 var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 	var (
-		deviceId string
-		device   *v1beta1.Device
+		deviceId     string
+		device       *v1beta1.Device
+		registryHost string
+		registryPort string
 	)
 
 	BeforeEach(func() {
-		// Get harness directly - no shared package-level variable
 		harness := e2e.GetWorkerHarness()
-
-		// Use the shared harness from the suite test
-		// The harness is already set up with VM from pool and agent started
-		// We just need to enroll the device
+		registryHost, registryPort = satellites.RegistryHost, satellites.RegistryPort
 		deviceId, device = harness.EnrollAndWaitForOnlineStatus()
 	})
 
@@ -48,7 +46,7 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			device = response.JSON200
 			Expect(device.Status.Summary.Status).To(Equal(v1beta1.DeviceSummaryStatusOnline))
 
-			imageName := util.NewSleepAppImageReference(util.SleepAppTags.V1).String()
+			imageName := harness.GetSleepAppImageRefForFleet(registryHost, registryPort, util.SleepAppTags.V1)
 
 			err = harness.UpdateDeviceAndWait(deviceId, func(device *v1beta1.Device) {
 				composeApp := v1beta1.ComposeApplication{
@@ -94,7 +92,7 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 
 			By("Update an application image tag")
 
-			imageName = util.NewSleepAppImageReference(util.SleepAppTags.V2).String()
+			imageName = harness.GetSleepAppImageRefForFleet(registryHost, registryPort, util.SleepAppTags.V2)
 
 			err = harness.UpdateDeviceAndWait(deviceId, func(device *v1beta1.Device) {
 				applicationVars := map[string]string{
@@ -155,7 +153,7 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 
 			By("Update the application to include artifact volumes")
 
-			imageName := util.NewSleepAppImageReference(util.SleepAppTags.V3).String()
+			imageName := harness.GetSleepAppImageRefForFleet(registryHost, registryPort, util.SleepAppTags.V3)
 
 			err := harness.UpdateDeviceAndWait(deviceId, func(device *v1beta1.Device) {
 				volumeConfig := v1beta1.ApplicationVolume{
@@ -203,7 +201,7 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			By("downgrading to v2 we should not have the mount anymore")
-			imageName = util.NewSleepAppImageReference(util.SleepAppTags.V2).String()
+			imageName = harness.GetSleepAppImageRefForFleet(registryHost, registryPort, util.SleepAppTags.V2)
 
 			err = harness.UpdateDeviceAndWait(deviceId, func(device *v1beta1.Device) {
 				composeApp := v1beta1.ComposeApplication{

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo"
@@ -31,17 +32,12 @@ func (h *Harness) GetRepository(repositoryName string) (*v1beta1.Repository, err
 }
 
 // GetInternalGitRepoURL returns the internal cluster URL for a git repository on the E2E git server.
-// This URL is used by services running inside the cluster (e.g., ResourceSync periodic task).
-func (h *Harness) GetInternalGitRepoURL(repoName string) (string, error) {
-	gitConfig, err := h.GetGitServerConfig()
-	if err != nil {
-		return "", fmt.Errorf("failed to get git server config: %w", err)
+// Callers pass internalHost and internalPort from infra (e.g. satellite.Services).
+func (h *Harness) GetInternalGitRepoURL(internalHost string, internalPort int, repoName string) (string, error) {
+	if internalHost == "" || internalPort == 0 {
+		return "", fmt.Errorf("git server internal endpoints not configured")
 	}
-	// Use the internal cluster URL and port since services run inside the cluster.
-	gitServerInternalHost := "e2e-git-server.flightctl-e2e.svc.cluster.local"
-	gitServerInternalPort := 3222
-	return fmt.Sprintf("%s@%s:%d:/home/user/repos/%s.git",
-		gitConfig.User, gitServerInternalHost, gitServerInternalPort, repoName), nil
+	return fmt.Sprintf("user@%s:%d:/home/user/repos/%s.git", internalHost, internalPort, repoName), nil
 }
 
 // CreateRepositoryWithSSHCredentials creates a Repository resource with SSH credentials
@@ -81,13 +77,13 @@ func (h *Harness) CreateRepositoryWithSSHCredentials(repoName, repoURL, sshPriva
 }
 
 // CreateRepositoryWithValidE2ECredentials creates a Repository resource using the E2E SSH key
-// and the internal cluster URL for the git server.
-func (h *Harness) CreateRepositoryWithValidE2ECredentials(repoName string) error {
-	repoURL, err := h.GetInternalGitRepoURL(repoName)
+// and the internal cluster URL. Callers pass internalHost and internalPort from infra (e.g. satellite).
+func (h *Harness) CreateRepositoryWithValidE2ECredentials(internalHost string, internalPort int, repoName string) error {
+	repoURL, err := h.GetInternalGitRepoURL(internalHost, internalPort, repoName)
 	if err != nil {
 		return fmt.Errorf("failed to get internal git repo URL: %w", err)
 	}
-	sshPrivateKey, err := GetSSHPrivateKey()
+	sshPrivateKey, err := util.GetSSHPrivateKey()
 	if err != nil {
 		return fmt.Errorf("failed to read SSH private key: %w", err)
 	}

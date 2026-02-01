@@ -24,8 +24,12 @@ $(E2E_AGENT_IMAGES_SENTINEL): | bin
 	fi
 	touch $(E2E_AGENT_IMAGES_SENTINEL)
 
+# DEPRECATED: push-e2e-agent-images is no longer called from prepare-e2e-test
+# Image uploading is now handled by testcontainers at test runtime in test/e2e/infra/images.go
+# This target is kept for manual use if needed.
 .PHONY: push-e2e-agent-images
 push-e2e-agent-images: e2e-agent-images
+	@echo "NOTE: This target is deprecated. Images are now uploaded by testcontainers at test runtime."
 	@if [ ! -f "$(AGENT_BUNDLE)" ]; then \
 		echo "Agent bundle not found at $(AGENT_BUNDLE). Run 'make e2e-agent-images' first."; \
 		exit 1; \

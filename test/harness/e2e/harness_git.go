@@ -1,12 +1,10 @@
 package e2e
 
 import (
-	"encoding/base64"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sync"
 	"text/template"
 
 	"github.com/flightctl/flightctl/internal/domain"
@@ -15,79 +13,23 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// sshKeyCacheData holds the cached SSH private key path to avoid repeated kubectl calls
-type sshKeyCacheData struct {
-	path string
-	once sync.Once
-	err  error
-}
-
-var sshKeyCache sshKeyCacheData
-var sshPublicKeyCache sshKeyCacheData
-
-// GetGitServerConfig returns the configuration for the e2e git server.
-// In KIND environments, it uses localhost:3222 (via port mappings).
-// In OCP environments, it dynamically discovers the node IP and NodePort.
-func (h *Harness) GetGitServerConfig() (GitServerConfig, error) {
-	host := getEnvOrDefault("E2E_GIT_SERVER_HOST", "")
-	port := getEnvOrDefaultInt("E2E_GIT_SERVER_PORT", 0)
-
-	if host == "" || port == 0 {
-		ctx, err := GetContext()
-		if err != nil {
-			return GitServerConfig{}, fmt.Errorf("failed to get cluster context: %w", err)
-		}
-
-		switch ctx {
-		case util.KIND:
-			if host == "" {
-				host = "localhost"
-			}
-			if port == 0 {
-				port = 3222
-			}
-
-		case util.OCP:
-			if host == "" {
-				nodeIP, err := getNodeIP()
-				if err != nil {
-					return GitServerConfig{}, fmt.Errorf("failed to get node IP: %w", err)
-				}
-				host = nodeIP
-			}
-
-			if port == 0 {
-				nodePort, err := getServiceNodePort("e2e-git-server", util.E2E_NAMESPACE)
-				if err != nil {
-					return GitServerConfig{}, fmt.Errorf("failed to get git server NodePort: %w", err)
-				}
-				port = nodePort
-			}
-
-		default:
-			return GitServerConfig{}, fmt.Errorf("unsupported cluster context: %s", ctx)
-		}
-	}
-
-	return GitServerConfig{
-		Host: host,
-		Port: port,
-		User: getEnvOrDefault("E2E_GIT_SERVER_USER", "user"),
-	}, nil
-}
-
-// GitServerConfig holds configuration for the git server
+// GitServerConfig holds configuration for the git server. Callers get it from infra (e.g. satellite).
 type GitServerConfig struct {
 	Host string
 	Port int
 	User string
 }
 
-// runGitServerSSHCommand executes a command on the git server via SSH using key authentication
-func (h *Harness) runGitServerSSHCommand(config GitServerConfig, command string) error {
-	keyPath, err := GetSSHPrivateKeyPath()
-	if err != nil {
-		return fmt.Errorf("failed to get SSH key path: %w", err)
+// runGitServerSSHCommand executes a command on the git server via SSH using key authentication.
+// sshPrivateKeyPath: path to private key; if empty, util.GetSSHPrivateKeyPath() is used.
+func (h *Harness) runGitServerSSHCommand(config GitServerConfig, sshPrivateKeyPath, command string) error {
+	keyPath := sshPrivateKeyPath
+	if keyPath == "" {
+		var err error
+		keyPath, err = util.GetSSHPrivateKeyPath()
+		if err != nil {
+			return fmt.Errorf("failed to get SSH key path: %w", err)
+		}
 	}
 
 	// #nosec G204 -- This is test code with controlled inputs from GitServerConfig
@@ -111,12 +53,16 @@ func (h *Harness) runGitServerSSHCommand(config GitServerConfig, command string)
 	return nil
 }
 
-// runGitCommands executes a sequence of git commands in the specified working directory
-// with proper authentication and author configuration.
-func (h *Harness) runGitCommands(workDir string, gitCmds [][]string) error {
-	keyPath, err := GetSSHPrivateKeyPath()
-	if err != nil {
-		return fmt.Errorf("failed to get SSH key path: %w", err)
+// runGitCommands executes a sequence of git commands in the specified working directory.
+// sshPrivateKeyPath: if empty, util.GetSSHPrivateKeyPath() is used.
+func (h *Harness) runGitCommands(workDir, sshPrivateKeyPath string, gitCmds [][]string) error {
+	keyPath := sshPrivateKeyPath
+	if keyPath == "" {
+		var err error
+		keyPath, err = util.GetSSHPrivateKeyPath()
+		if err != nil {
+			return fmt.Errorf("failed to get SSH key path: %w", err)
+		}
 	}
 
 	gitEnv := append(os.Environ(),
@@ -140,20 +86,15 @@ func (h *Harness) runGitCommands(workDir string, gitCmds [][]string) error {
 	return nil
 }
 
-// CreateGitRepositoryOnServer creates a new Git repository on the e2e git server
-func (h *Harness) CreateGitRepositoryOnServer(repoName string) error {
+// CreateGitRepositoryOnServer creates a new Git repository on the e2e git server.
+// Callers pass config and sshPrivateKeyPath from infra/util.
+func (h *Harness) CreateGitRepositoryOnServer(config GitServerConfig, sshPrivateKeyPath, repoName string) error {
 	if repoName == "" {
 		return fmt.Errorf("repository name cannot be empty")
 	}
 
-	config, err := h.GetGitServerConfig()
-	if err != nil {
-		return fmt.Errorf("failed to get git server config: %w", err)
-	}
-
-	// Use SSH to create the repository on the git server
 	createCmd := fmt.Sprintf("create-repo %s", repoName)
-	err = h.runGitServerSSHCommand(config, createCmd)
+	err := h.runGitServerSSHCommand(config, sshPrivateKeyPath, createCmd)
 	if err != nil {
 		return fmt.Errorf("failed to create git repository %s: %w", repoName, err)
 	}
@@ -166,20 +107,14 @@ func (h *Harness) CreateGitRepositoryOnServer(repoName string) error {
 	return nil
 }
 
-// DeleteGitRepositoryOnServer deletes a Git repository from the e2e git server
-func (h *Harness) DeleteGitRepositoryOnServer(repoName string) error {
+// DeleteGitRepositoryOnServer deletes a Git repository from the e2e git server.
+func (h *Harness) DeleteGitRepositoryOnServer(config GitServerConfig, sshPrivateKeyPath, repoName string) error {
 	if repoName == "" {
 		return fmt.Errorf("repository name cannot be empty")
 	}
 
-	config, err := h.GetGitServerConfig()
-	if err != nil {
-		return fmt.Errorf("failed to get git server config: %w", err)
-	}
-
-	// Use SSH to delete the repository on the git server
 	deleteCmd := fmt.Sprintf("delete-repo %s", repoName)
-	err = h.runGitServerSSHCommand(config, deleteCmd)
+	err := h.runGitServerSSHCommand(config, sshPrivateKeyPath, deleteCmd)
 	if err != nil {
 		return fmt.Errorf("failed to delete git repository %s: %w", repoName, err)
 	}
@@ -191,8 +126,8 @@ func (h *Harness) DeleteGitRepositoryOnServer(repoName string) error {
 	return nil
 }
 
-// CloneGitRepositoryFromServer clones a repository from the git server to a local working directory
-func (h *Harness) CloneGitRepositoryFromServer(repoName, localPath string) error {
+// CloneGitRepositoryFromServer clones a repository from the git server to a local working directory.
+func (h *Harness) CloneGitRepositoryFromServer(config GitServerConfig, sshPrivateKeyPath, repoName, localPath string) error {
 	if repoName == "" {
 		return fmt.Errorf("repository name cannot be empty")
 	}
@@ -200,14 +135,13 @@ func (h *Harness) CloneGitRepositoryFromServer(repoName, localPath string) error
 		return fmt.Errorf("local path cannot be empty")
 	}
 
-	config, err := h.GetGitServerConfig()
-	if err != nil {
-		return fmt.Errorf("failed to get git server config: %w", err)
-	}
-
-	keyPath, err := GetSSHPrivateKeyPath()
-	if err != nil {
-		return fmt.Errorf("failed to get SSH key path: %w", err)
+	keyPath := sshPrivateKeyPath
+	if keyPath == "" {
+		var err error
+		keyPath, err = util.GetSSHPrivateKeyPath()
+		if err != nil {
+			return fmt.Errorf("failed to get SSH key path: %w", err)
+		}
 	}
 
 	repoURL := fmt.Sprintf("ssh://%s@%s:%d/home/user/repos/%s.git",
@@ -232,23 +166,20 @@ func (h *Harness) CloneGitRepositoryFromServer(repoName, localPath string) error
 }
 
 // pushToGitServerRepo is a helper that clones a repo, calls prepareContent to set up files,
-// then commits and pushes changes. The addPath is the path to pass to git add.
-func (h *Harness) pushToGitServerRepo(repoName, addPath, commitMessage string, prepareContent func(workDir string) error) error {
-	// Create a temporary working directory
+// then commits and pushes changes.
+func (h *Harness) pushToGitServerRepo(config GitServerConfig, sshPrivateKeyPath, repoName, addPath, commitMessage string, prepareContent func(workDir string) error) error {
 	workDir := filepath.Join(h.gitWorkDir, "temp-"+uuid.New().String())
 	defer os.RemoveAll(workDir)
 
-	// Clone the repository
-	if err := h.CloneGitRepositoryFromServer(repoName, workDir); err != nil {
+	if err := h.CloneGitRepositoryFromServer(config, sshPrivateKeyPath, repoName, workDir); err != nil {
 		return fmt.Errorf("failed to clone repository for push: %w", err)
 	}
 
-	// Prepare content in the working directory
 	if err := prepareContent(workDir); err != nil {
 		return err
 	}
 
-	return h.runGitCommands(workDir, [][]string{
+	return h.runGitCommands(workDir, sshPrivateKeyPath, [][]string{
 		{"git", "add", addPath},
 		{"git", "commit", "-m", commitMessage},
 		{"git", "branch", "-M", "main"},
@@ -256,8 +187,8 @@ func (h *Harness) pushToGitServerRepo(repoName, addPath, commitMessage string, p
 	})
 }
 
-// PushContentToGitServerRepo pushes content to a git repository on the server
-func (h *Harness) PushContentToGitServerRepo(repoName, filePath, content, commitMessage string) error {
+// PushContentToGitServerRepo pushes content to a git repository on the server.
+func (h *Harness) PushContentToGitServerRepo(config GitServerConfig, sshPrivateKeyPath, repoName, filePath, content, commitMessage string) error {
 	if repoName == "" {
 		return fmt.Errorf("repository name cannot be empty")
 	}
@@ -268,7 +199,7 @@ func (h *Harness) PushContentToGitServerRepo(repoName, filePath, content, commit
 		commitMessage = "Add content via test harness"
 	}
 
-	err := h.pushToGitServerRepo(repoName, filePath, commitMessage, func(workDir string) error {
+	err := h.pushToGitServerRepo(config, sshPrivateKeyPath, repoName, filePath, commitMessage, func(workDir string) error {
 		fullFilePath := filepath.Join(workDir, filePath)
 		if err := os.MkdirAll(filepath.Dir(fullFilePath), 0755); err != nil {
 			return fmt.Errorf("failed to create directory for file: %w", err)
@@ -287,9 +218,7 @@ func (h *Harness) PushContentToGitServerRepo(repoName, filePath, content, commit
 }
 
 // PushContentToGitServerRepoFromPath reads content from a local file or directory and pushes it to a git repository on the server.
-// If sourcePath is a directory, all files within it are copied to the repository root.
-// If sourcePath is a file, it is copied to the repository with its base name.
-func (h *Harness) PushContentToGitServerRepoFromPath(repoName, sourcePath, commitMessage string) error {
+func (h *Harness) PushContentToGitServerRepoFromPath(config GitServerConfig, sshPrivateKeyPath, repoName, sourcePath, commitMessage string) error {
 	if repoName == "" {
 		return fmt.Errorf("repository name cannot be empty")
 	}
@@ -305,7 +234,7 @@ func (h *Harness) PushContentToGitServerRepoFromPath(repoName, sourcePath, commi
 		return fmt.Errorf("failed to stat source path: %w", err)
 	}
 
-	err = h.pushToGitServerRepo(repoName, ".", commitMessage, func(workDir string) error {
+	err = h.pushToGitServerRepo(config, sshPrivateKeyPath, repoName, ".", commitMessage, func(workDir string) error {
 		if sourceInfo.IsDir() {
 			// Copy all files from source directory to workDir
 			return filepath.Walk(sourcePath, func(path string, info os.FileInfo, err error) error {
@@ -351,18 +280,16 @@ func (h *Harness) PushContentToGitServerRepoFromPath(repoName, sourcePath, commi
 	return nil
 }
 
-// CreateRepository creates a Repository resource pointing to the git server repository
-func (h *Harness) CreateGitRepository(repoName string, repositorySpec domain.RepositorySpec) error {
+// CreateGitRepository creates a Repository resource pointing to the git server repository.
+func (h *Harness) CreateGitRepository(config GitServerConfig, sshPrivateKeyPath, repoName string, repositorySpec domain.RepositorySpec) error {
 	if repoName == "" {
 		return fmt.Errorf("repository name cannot be empty")
 	}
 
-	// First create the git repository on the server
-	if err := h.CreateGitRepositoryOnServer(repoName); err != nil {
+	if err := h.CreateGitRepositoryOnServer(config, sshPrivateKeyPath, repoName); err != nil {
 		return fmt.Errorf("failed to create git repository on server: %w", err)
 	}
 
-	// Create the Repository resource
 	repository := domain.Repository{
 		ApiVersion: domain.RepositoryAPIVersion,
 		Kind:       domain.RepositoryKind,
@@ -374,8 +301,7 @@ func (h *Harness) CreateGitRepository(repoName string, repositorySpec domain.Rep
 
 	_, err := h.Client.CreateRepositoryWithResponse(h.Context, repository)
 	if err != nil {
-		// Clean up the git repository if Repository resource creation fails
-		if cleanupErr := h.DeleteGitRepositoryOnServer(repoName); cleanupErr != nil {
+		if cleanupErr := h.DeleteGitRepositoryOnServer(config, sshPrivateKeyPath, repoName); cleanupErr != nil {
 			logrus.Errorf("failed to delete git repository %s: %v", repoName, cleanupErr)
 		}
 		return fmt.Errorf("failed to create Repository resource: %w", err)
@@ -385,8 +311,8 @@ func (h *Harness) CreateGitRepository(repoName string, repositorySpec domain.Rep
 	return nil
 }
 
-// UpdateGitServerRepository updates content in an existing git repository working directory
-func (h *Harness) UpdateGitServerRepository(repoName, filePath, content, commitMessage string) error {
+// UpdateGitServerRepository updates content in an existing git repository working directory.
+func (h *Harness) UpdateGitServerRepository(config GitServerConfig, sshPrivateKeyPath, repoName, filePath, content, commitMessage string) error {
 	if repoName == "" {
 		return fmt.Errorf("repository name cannot be empty")
 	}
@@ -397,14 +323,12 @@ func (h *Harness) UpdateGitServerRepository(repoName, filePath, content, commitM
 		commitMessage = "Update content via test harness"
 	}
 
-	return h.PushContentToGitServerRepo(repoName, filePath, content, commitMessage)
+	return h.PushContentToGitServerRepo(config, sshPrivateKeyPath, repoName, filePath, content, commitMessage)
 }
 
 // CommitAndPushGitRepo commits all changes in a local git working directory and pushes to the remote.
-// This uses `git add -A` to stage all changes (additions, modifications, deletions),
-// then commits and pushes. The workDir must be a cloned git repository.
-// This method mirrors real git workflows where you manipulate files locally then push.
-func (h *Harness) CommitAndPushGitRepo(workDir, commitMessage string) error {
+// sshPrivateKeyPath: if empty, util.GetSSHPrivateKeyPath() is used.
+func (h *Harness) CommitAndPushGitRepo(workDir, sshPrivateKeyPath, commitMessage string) error {
 	if workDir == "" {
 		return fmt.Errorf("working directory cannot be empty")
 	}
@@ -412,16 +336,12 @@ func (h *Harness) CommitAndPushGitRepo(workDir, commitMessage string) error {
 		commitMessage = "Update via test harness"
 	}
 
-	// Verify the directory exists and is a git repository
 	gitDir := filepath.Join(workDir, ".git")
 	if _, err := os.Stat(gitDir); os.IsNotExist(err) {
 		return fmt.Errorf("working directory %s is not a git repository", workDir)
 	}
 
-	// Use git add -A to stage all changes including deletions
-	// Use git branch -M main to ensure we're on main branch (handles empty repos)
-	// Use git push -u origin main to set upstream and push
-	err := h.runGitCommands(workDir, [][]string{
+	err := h.runGitCommands(workDir, sshPrivateKeyPath, [][]string{
 		{"git", "add", "-A"},
 		{"git", "commit", "-m", commitMessage},
 		{"git", "branch", "-M", "main"},
@@ -441,139 +361,7 @@ func GetTestDataPath(relativePath string) string {
 	return filepath.Join("testdata", relativePath)
 }
 
-// getSSHPrivateKeyFromSecret retrieves the SSH private key from the e2e-git-ssh-keys Kubernetes Secret.
-// This is used when running on OpenShift where the key is mounted from a Secret rather than baked into the image.
-func getSSHPrivateKeyFromSecret() (string, error) {
-	encodedKey, err := getSecretData("e2e-git-ssh-keys", util.E2E_NAMESPACE, "id_rsa")
-	if err != nil {
-		return "", err
-	}
-
-	// The key is base64 encoded in the secret
-	decoded, err := base64.StdEncoding.DecodeString(encodedKey)
-	if err != nil {
-		return "", fmt.Errorf("failed to decode SSH key from secret: %w", err)
-	}
-
-	return string(decoded), nil
-}
-
-// getSSHPrivateKeyFromLocalFile retrieves the SSH private key from the local bin/.ssh/id_rsa file.
-// Note: ginkgo runs tests from the test package directory (e.g. resourcesync test runs from test/e2e/resourcesync/),
-// so navigate up to the project root.
-func getSSHPrivateKeyFromLocalFile() (string, error) {
-	keyPath := filepath.Join("..", "..", "..", "bin", ".ssh", "id_rsa")
-	absPath, err := filepath.Abs(keyPath)
-	if err != nil {
-		return "", fmt.Errorf("failed to get absolute path for SSH private key: %w", err)
-	}
-	content, err := os.ReadFile(absPath)
-	if err != nil {
-		return "", fmt.Errorf("SSH private key not found at %s: %w", absPath, err)
-	}
-	return string(content), nil
-}
-
-// GetSSHPrivateKeyPath returns the path to the SSH private key file.
-func GetSSHPrivateKeyPath() (string, error) {
-	sshKeyCache.once.Do(func() {
-		sshKeyCache.path, sshKeyCache.err = initSSHPrivateKeyPath()
-	})
-	return sshKeyCache.path, sshKeyCache.err
-}
-
-// getSSHPublicKeyFromSecret retrieves the SSH public key from the e2e-git-ssh-keys Kubernetes Secret.
-func getSSHPublicKeyFromSecret() (string, error) {
-	encodedKey, err := getSecretData("e2e-git-ssh-keys", util.E2E_NAMESPACE, "id_rsa.pub")
-	if err != nil {
-		return "", err
-	}
-	decoded, err := base64.StdEncoding.DecodeString(encodedKey)
-	if err != nil {
-		return "", fmt.Errorf("failed to decode SSH public key from secret: %w", err)
-	}
-	return string(decoded), nil
-}
-
-// initSSHPublicKeyPath initializes the SSH public key path by trying the Secret first,
-// then falling back to the local file. If the key comes from a Secret, it writes it to a temp file.
-func initSSHPublicKeyPath() (string, error) {
-	keyContent, err := getSSHPublicKeyFromSecret()
-	if err == nil && keyContent != "" {
-		logrus.Info("Using SSH public key from Kubernetes Secret")
-		tempFile, err := os.CreateTemp("", "e2e-git-ssh-key-pub-*")
-		if err != nil {
-			return "", fmt.Errorf("failed to create temp file for SSH public key: %w", err)
-		}
-		if err := os.WriteFile(tempFile.Name(), []byte(keyContent), 0600); err != nil {
-			return "", fmt.Errorf("failed to write SSH public key to temp file: %w", err)
-		}
-		tempFile.Close()
-		return tempFile.Name(), nil
-	}
-
-	keyPath := filepath.Join("..", "..", "..", "bin", ".ssh", "id_rsa.pub")
-	absPath, err := filepath.Abs(keyPath)
-	if err != nil {
-		return "", fmt.Errorf("failed to get absolute path for SSH public key: %w", err)
-	}
-	if _, err := os.Stat(absPath); err != nil {
-		return "", fmt.Errorf("SSH public key not found at %s: %w", absPath, err)
-	}
-	logrus.Info("Using SSH public key from local file")
-	return absPath, nil
-}
-
-// GetSSHPublicKeyPath returns the path to the SSH public key file.
-func GetSSHPublicKeyPath() (string, error) {
-	sshPublicKeyCache.once.Do(func() {
-		sshPublicKeyCache.path, sshPublicKeyCache.err = initSSHPublicKeyPath()
-	})
-	return sshPublicKeyCache.path, sshPublicKeyCache.err
-}
-
-// initSSHPrivateKeyPath initializes the SSH private key path by trying the Secret first,
-// then falling back to the local file. If the key comes from a Secret, it writes it to a temp file.
-func initSSHPrivateKeyPath() (string, error) {
-	keyContent, err := getSSHPrivateKeyFromSecret()
-	if err == nil && keyContent != "" {
-		logrus.Info("Using SSH private key from Kubernetes Secret")
-		// Write to a temp file since SSH commands require a file path
-		tempFile, err := os.CreateTemp("", "e2e-git-ssh-key-*")
-		if err != nil {
-			return "", fmt.Errorf("failed to create temp file for SSH key: %w", err)
-		}
-		if err := os.WriteFile(tempFile.Name(), []byte(keyContent), 0600); err != nil {
-			return "", fmt.Errorf("failed to write SSH key to temp file: %w", err)
-		}
-		tempFile.Close()
-		return tempFile.Name(), nil
-	}
-
-	keyPath := filepath.Join("..", "..", "..", "bin", ".ssh", "id_rsa")
-	absPath, err := filepath.Abs(keyPath)
-	if err != nil {
-		return "", fmt.Errorf("failed to get absolute path for SSH private key: %w", err)
-	}
-	if _, err := os.Stat(absPath); err != nil {
-		return "", fmt.Errorf("SSH private key not found at %s: %w", absPath, err)
-	}
-	logrus.Info("Using SSH private key from local file")
-	return absPath, nil
-}
-
-// GetSSHPrivateKey returns the SSH private key content.
-// It first tries to get the key from the Kubernetes Secret (for OpenShift deployments),
-// then falls back to the local bin/.ssh/id_rsa file (for local development).
-func GetSSHPrivateKey() (string, error) {
-	keyContent, err := getSSHPrivateKeyFromSecret()
-	if err == nil && keyContent != "" {
-		return keyContent, nil
-	}
-
-	// Fall back to local file
-	return getSSHPrivateKeyFromLocalFile()
-}
+// GetSSHPublicKeyPath and GetSSHPrivateKeyPath live in test/util (sshkeys.go); use util.GetSSHPublicKeyPath / util.GetSSHPrivateKeyPath.
 
 // writeTemplatedFilesToDir is a helper that
 // 1. reads template files from sourceDir
@@ -617,9 +405,9 @@ func writeTemplatedFilesToDir(sourceDir, destDir string, data interface{}) error
 	return nil
 }
 
-// SetupTemplatedGitRepoFromDir creates a git repo, clones it, populates with templated files, and pushes
-func (h *Harness) SetupTemplatedGitRepoFromDir(repoName, sourceDir string, data interface{}) (string, error) {
-	err := h.CreateGitRepositoryOnServer(repoName)
+// SetupTemplatedGitRepoFromDir creates a git repo, clones it, populates with templated files, and pushes.
+func (h *Harness) SetupTemplatedGitRepoFromDir(config GitServerConfig, sshPrivateKeyPath, repoName, sourceDir string, data interface{}) (string, error) {
+	err := h.CreateGitRepositoryOnServer(config, sshPrivateKeyPath, repoName)
 	if err != nil {
 		return "", fmt.Errorf("failed to create git repository: %w", err)
 	}
@@ -628,7 +416,7 @@ func (h *Harness) SetupTemplatedGitRepoFromDir(repoName, sourceDir string, data 
 	if err != nil {
 		return "", fmt.Errorf("failed to create temp directory: %w", err)
 	}
-	err = h.CloneGitRepositoryFromServer(repoName, workDir)
+	err = h.CloneGitRepositoryFromServer(config, sshPrivateKeyPath, repoName, workDir)
 	if err != nil {
 		return "", fmt.Errorf("failed to clone git repository: %w", err)
 	}
@@ -638,7 +426,7 @@ func (h *Harness) SetupTemplatedGitRepoFromDir(repoName, sourceDir string, data 
 		return "", fmt.Errorf("failed to write templated files: %w", err)
 	}
 
-	err = h.CommitAndPushGitRepo(workDir, "Add initial fleet files")
+	err = h.CommitAndPushGitRepo(workDir, sshPrivateKeyPath, "Add initial fleet files")
 	if err != nil {
 		return "", fmt.Errorf("failed to commit and push: %w", err)
 	}
@@ -646,14 +434,14 @@ func (h *Harness) SetupTemplatedGitRepoFromDir(repoName, sourceDir string, data 
 	return workDir, nil
 }
 
-// PushTemplatedFilesToGitRepo updates an existing git repo with templated files, commits and pushes
-func (h *Harness) PushTemplatedFilesToGitRepo(repoName, sourceDir, workDir string, data interface{}) error {
+// PushTemplatedFilesToGitRepo updates an existing git repo with templated files, commits and pushes.
+func (h *Harness) PushTemplatedFilesToGitRepo(workDir, sshPrivateKeyPath, sourceDir string, data interface{}) error {
 	err := writeTemplatedFilesToDir(sourceDir, workDir, data)
 	if err != nil {
 		return fmt.Errorf("failed to write templated files: %w", err)
 	}
 
-	err = h.CommitAndPushGitRepo(workDir, "")
+	err = h.CommitAndPushGitRepo(workDir, sshPrivateKeyPath, "")
 	if err != nil {
 		return fmt.Errorf("failed to commit and push: %w", err)
 	}

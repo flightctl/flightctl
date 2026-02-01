@@ -38,7 +38,6 @@ import (
 	"github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/kubernetes"
 )
 
 const (
@@ -84,19 +83,6 @@ func NewTestProvider(log logrus.FieldLogger) queues.Provider {
 		wg:          &wg,
 		log:         log,
 	}
-}
-
-// GetConfigMapDataByJSONPath returns data from a ConfigMap using a jsonpath selector.
-func GetConfigMapDataByJSONPath(namespace, name, jsonPath string) (string, error) {
-	// #nosec G204 -- command args are fixed and controlled in test.
-	out, err := exec.Command("kubectl", "get", "configmap", name,
-		"-n", namespace,
-		"-o", jsonPath,
-	).CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("kubectl get configmap: %w: %s", err, strings.TrimSpace(string(out)))
-	}
-	return string(out), nil
 }
 
 func (t *testProvider) NewQueueProducer(_ context.Context, _ string) (queues.QueueProducer, error) {
@@ -527,18 +513,6 @@ func CreateTestNamespace(name string, orgLabel ...string) *corev1.Namespace {
 			},
 		},
 	}
-}
-
-// DeleteNamespace deletes a Kubernetes namespace using the provided Kubernetes client.
-// It logs the deletion result using GinkgoWriter.
-func DeleteNamespace(ctx context.Context, client kubernetes.Interface, namespace string) error {
-	err := client.CoreV1().Namespaces().Delete(ctx, namespace, metav1.DeleteOptions{})
-	if err != nil {
-		GinkgoWriter.Printf("Warning: Failed to delete test namespace %s: %v\n", namespace, err)
-	} else {
-		GinkgoWriter.Printf("Deleted test namespace: %s\n", namespace)
-	}
-	return err
 }
 
 // ValidateStructuredError checks that a structured error message contains the expected
