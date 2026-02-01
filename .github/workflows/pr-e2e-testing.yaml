@@ -196,8 +196,12 @@ jobs:
             label_filter: 'sanity && slow'
           - os_id: cs10-bootc
             backend_type: helm
+            label_filter: 'sanity && !slow'
+            ginkgo_total_nodes: 4
+          - os_id: cs10-bootc
+            backend_type: helm
             ginkgo_total_nodes: 1
-            label_filter: 'sanity && agent'
+            label_filter: 'sanity && slow'
     uses: ./.github/workflows/run-e2e-tests.yaml
     with:
       os_id: ${{ matrix.os_id }}
