@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"strings"
 
+	apiversioning "github.com/flightctl/flightctl/api/versioning"
 	"github.com/flightctl/flightctl/internal/api_server/versioning"
 	chimw "github.com/go-chi/chi/v5/middleware"
 )
@@ -60,7 +61,7 @@ type apiVersionLogFormatter struct {
 }
 
 func (f *apiVersionLogFormatter) NewLogEntry(r *http.Request) chimw.LogEntry {
-	apiVersion := apiVersionTag(r.Header.Get(versioning.HeaderAPIVersion))
+	apiVersion := apiVersionTag(r.Header.Get(apiversioning.HeaderAPIVersion))
 	logger := apiVersionTaggingLogger{base: f.Logger, apiVersion: apiVersion}
 
 	df := &chimw.DefaultLogFormatter{Logger: logger, NoColor: f.NoColor}
