@@ -13,12 +13,14 @@ import (
 
 var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 	var (
-		deviceId string
+		deviceId     string
+		registryHost string
+		registryPort string
 	)
 
 	BeforeEach(func() {
-		// Get harness directly - no shared package-level variable
 		harness := e2e.GetWorkerHarness()
+		registryHost, registryPort = satellites.RegistryHost, satellites.RegistryPort
 		deviceId, _ = harness.EnrollAndWaitForOnlineStatus()
 	})
 
@@ -42,7 +44,7 @@ var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 			nextRenderedVersion, err := harness.PrepareNextDeviceVersion(deviceId)
 			Expect(err).ToNot(HaveOccurred())
 
-			deviceImage := util.NewDeviceImageReference(util.DeviceTags.V6).String()
+			deviceImage := harness.GetDeviceImageRefForFleet(registryHost, registryPort, util.DeviceTags.V6)
 
 			var osImageSpec = v1beta1.DeviceOsSpec{
 				Image: deviceImage,
@@ -148,7 +150,7 @@ var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 			By("Check pre/after update and pre/after reboot hooks from inline config works")
 			nextRenderedVersion, err = harness.PrepareNextDeviceVersion(deviceId)
 			Expect(err).ToNot(HaveOccurred())
-			deviceImage = util.NewDeviceImageReference(util.DeviceTags.Base).String()
+			deviceImage = harness.GetDeviceImageRefForFleet(registryHost, registryPort, util.DeviceTags.Base)
 
 			osImageSpec.Image = deviceImage
 			err = inlineConfigProviderSpec.FromInlineConfigProviderSpec(inlineConfigValidLifecycle)

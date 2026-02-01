@@ -1,9 +1,12 @@
 package tpm
 
 import (
+	"context"
 	"testing"
 	"time"
 
+	"github.com/flightctl/flightctl/test/e2e/infra/satellite"
+	"github.com/flightctl/flightctl/test/e2e/infra/setup"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -29,5 +32,7 @@ func init() {
 }
 
 var _ = BeforeSuite(func() {
+	satellite.Get(context.Background())
+	Expect(setup.EnsureDefaultProviders(nil)).To(Succeed())
 	e2e.SetupWorkerHarnessOrAbort()
 })

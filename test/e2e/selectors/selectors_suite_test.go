@@ -1,9 +1,12 @@
 package selectors
 
 import (
+	"context"
 	"testing"
 	"time"
 
+	"github.com/flightctl/flightctl/test/e2e/infra/satellite"
+	"github.com/flightctl/flightctl/test/e2e/infra/setup"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	"github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
@@ -30,6 +33,9 @@ func init() {
 }
 
 var _ = BeforeSuite(func() {
+	satellite.Get(context.Background())
+	Expect(setup.EnsureDefaultProviders(nil)).To(Succeed())
+	// Setup VM and harness for this worker
 	e2e.SetupWorkerHarnessOrAbort()
 })
 

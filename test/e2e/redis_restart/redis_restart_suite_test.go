@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/flightctl/flightctl/test/e2e/infra/setup"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -30,6 +31,8 @@ func init() {
 
 var _ = BeforeSuite(func() {
 	GinkgoWriter.Printf("🚀 Starting Redis Restart E2E Test Suite\n")
+	Expect(setup.EnsureDefaultProviders(nil)).To(Succeed())
+	// Setup VM and harness for this worker
 	e2e.SetupWorkerHarnessOrAbort()
 })
 
