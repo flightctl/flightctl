@@ -292,6 +292,16 @@ containerd
 prefetching
 prefetches
 networkless
+ - docs/user/installing/configuring-imagebuilder.md
+ entitlement
+ uncomment
+ volume
+ builder-worker
+ ImageBuilder
+ air-gapped
+ builder-worker.container
+ imageBuilderWorker
+ bool
  - docs/user/references/api-resources.md
 namespacing
 approvedBy

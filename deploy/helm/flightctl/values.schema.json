@@ -539,6 +539,8 @@
         "logLevel": { "type": "string", "description": "Log level for ImageBuilder Worker" },
         "maxConcurrentBuilds": { "type": "integer", "description": "Maximum concurrent builds" },
         "defaultTTL": { "type": "string", "description": "Default TTL for build resources" },
+        "rpmRepoUrl": { "type": "string", "description": "RPM repository URL for flightctl-agent package" },
+        "entitlementCertsSecretName": { "type": "string", "description": "Secret name containing RHEL entitlement certificates. On OpenShift, copy 'etc-pki-entitlement' from 'openshift-config-managed' namespace" },
         "privileged": { "type": "boolean", "description": "Enable privileged mode for container-in-container builds" },
         "resources": { "type": "object", "description": "Resource requests and limits" }
       }
