@@ -4,9 +4,9 @@ on:
   push:
     branches:
       - main
-      - 'release-*'
+      - "release-*"
     tags:
-      - '*'
+      - "*"
   pull_request:
   merge_group:
 
@@ -24,7 +24,15 @@ jobs:
     name: Build Binaries
     strategy:
       matrix:
-        tag: [ "linux-amd64", "linux-arm64", "darwin-amd64", "darwin-arm64", "windows-amd64", "windows-arm64" ]
+        tag:
+          [
+            "linux-amd64",
+            "linux-arm64",
+            "darwin-amd64",
+            "darwin-arm64",
+            "windows-amd64",
+            "windows-arm64",
+          ]
         include:
           # Linux builds
           - tag: linux-amd64
@@ -67,7 +75,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: 1.24.6
+          go-version: 1.24.12
 
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -133,7 +141,7 @@ jobs:
     strategy:
       matrix:
         # GitHub Actions does not provide a native Windows ARM64 runner
-        arch: [ "amd64" ]
+        arch: ["amd64"]
     runs-on: "windows-latest"
     needs: build
     steps:
@@ -148,7 +156,7 @@ jobs:
     name: Verify Binaries on linux/macos
     strategy:
       matrix:
-        os_arch: [ "linux-amd64", "linux-arm64", "darwin-amd64", "darwin-arm64" ]
+        os_arch: ["linux-amd64", "linux-arm64", "darwin-amd64", "darwin-arm64"]
         include:
           - os_arch: "linux-amd64"
             runner: "ubuntu-latest"

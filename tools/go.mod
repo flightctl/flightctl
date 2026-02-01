@@ -2,7 +2,7 @@ module github.com/flightctl/flightctl/tools
 
 go 1.24.0
 
-toolchain go1.24.6
+toolchain go1.24.12
 
 require (
 	github.com/norwoodj/helm-docs v1.14.2
