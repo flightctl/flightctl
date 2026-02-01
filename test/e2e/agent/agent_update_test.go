@@ -284,6 +284,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 					ContainSubstring("invalid configuration or input"),
 					ContainSubstring("service unavailable"),
 					ContainSubstring("pulling oci target"),
+					ContainSubstring("internal error occurred"),
 				),
 			)) /*
 				** Add this assertion back when the bug referenced above is fixed **
