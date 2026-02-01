@@ -56,7 +56,7 @@ var _ = Describe("ImageBuild", Label("imagebuild"), func() {
 			Expect(workerHarness.ImageBuilderClient).ToNot(BeNil(), "ImageBuilderClient must be available")
 
 			testID := workerHarness.GetTestIDFromContext()
-			registryAddress := workerHarness.RegistryEndpoint()
+			registryAddress := satellites.RegistryHost + ":" + satellites.RegistryPort
 
 			sourceRepoName := fmt.Sprintf("source-repo-%s", testID)
 			destRepoName := fmt.Sprintf("dest-repo-%s", testID)
@@ -83,7 +83,7 @@ var _ = Describe("ImageBuild", Label("imagebuild"), func() {
 
 			By("Step 2: Creating ImageBuild with SSH key user configuration")
 
-			sshPubKeyPath, err := e2e.GetSSHPublicKeyPath()
+			sshPubKeyPath, err := testutil.GetSSHPublicKeyPath()
 			Expect(err).ToNot(HaveOccurred(), "Should get SSH public key path")
 			sshPubKeyBytes, err := os.ReadFile(sshPubKeyPath)
 			Expect(err).ToNot(HaveOccurred(), "Should be able to read SSH public key from %s", sshPubKeyPath)
@@ -192,7 +192,7 @@ var _ = Describe("ImageBuild", Label("imagebuild"), func() {
 
 			vmName := fmt.Sprintf("imagebuild-test-%s", testID)
 			sshPort := vmSSHPortBase + GinkgoParallelProcess()
-			sshPrivateKeyPath, err := e2e.GetSSHPrivateKeyPath()
+			sshPrivateKeyPath, err := testutil.GetSSHPrivateKeyPath()
 			Expect(err).ToNot(HaveOccurred(), "Should get SSH private key path")
 
 			testVM := vm.TestVM{

@@ -1,13 +1,18 @@
 package microshift
 
 import (
+	"context"
 	"testing"
 
+	"github.com/flightctl/flightctl/test/e2e/infra/satellite"
+	"github.com/flightctl/flightctl/test/e2e/infra/setup"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
+
+var satellites *satellite.Services
 
 const TIMEOUT = "5m"
 const POLLING = "125ms"
@@ -19,7 +24,16 @@ func TestMicroshift(t *testing.T) {
 }
 
 var _ = BeforeSuite(func() {
+	satellites = satellite.Get(context.Background())
+	Expect(setup.EnsureDefaultProviders(nil)).To(Succeed())
 	e2e.SetupWorkerHarnessOrAbort()
+})
+
+var _ = AfterSuite(func() {
+	// In CI, cleanup containers; in local dev, leave running for speed
+	if satellites != nil {
+		satellites.Cleanup(context.Background())
+	}
 })
 
 var _ = BeforeEach(func() {

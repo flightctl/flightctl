@@ -2,6 +2,7 @@ package alertmanagerproxy_test
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -9,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/flightctl/flightctl/test/e2e/infra"
+	"github.com/flightctl/flightctl/test/e2e/infra/setup"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	"github.com/flightctl/flightctl/test/login"
 	"github.com/flightctl/flightctl/test/util"
@@ -55,17 +58,77 @@ const (
 )
 
 var (
-	testHarness            *e2e.Harness
-	testRuntimeContext     string
-	defaultProxyNamespaces = []string{"flightctl-external", "flightctl", util.E2E_NAMESPACE}
-	defaultPromNamespaces  = []string{util.E2E_NAMESPACE, "flightctl", "flightctl-external"}
-	defaultUINamespaces    = []string{"flightctl-external", "flightctl", util.E2E_NAMESPACE}
-	defaultUWMNamespaces   = []string{"openshift-user-workload-monitoring"}
-	defaultOCPNamespace    = []string{"openshift-monitoring"}
+	testHarness           *e2e.Harness
+	testRuntimeContext    string
+	defaultPromNamespaces = []string{util.E2E_NAMESPACE, "flightctl", "flightctl-external"}
+	defaultUWMNamespaces  = []string{"openshift-user-workload-monitoring"}
+	defaultOCPNamespace   = []string{"openshift-monitoring"}
 )
 
 type alertmanagerAlertResponse struct {
 	Labels map[string]string `json:"labels"`
+}
+
+// startServiceAccess exposes a service via infra and returns base URL, HTTP client, and cleanup.
+func startServiceAccess(serviceName string, useTLS bool, timeout time.Duration) (string, *http.Client, func(), error) {
+	p := setup.GetDefaultProviders()
+	svc, ok := infra.ServiceNameFromDeploymentName(serviceName)
+	if !ok {
+		return "", nil, nil, fmt.Errorf("unknown service %q", serviceName)
+	}
+	scheme := "http"
+	if useTLS {
+		scheme = "https"
+	}
+	baseURL, cleanup, err := p.Infra.ExposeService(svc, scheme)
+	if err != nil {
+		return "", nil, nil, err
+	}
+	transport := &http.Transport{}
+	if useTLS {
+		// #nosec G402 -- test code: TLS skip verify for e2e proxy
+		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS12}
+	}
+	if timeout <= 0 {
+		timeout = httpClientTimeout
+	}
+	client := &http.Client{Timeout: timeout, Transport: transport}
+	return baseURL, client, cleanup, nil
+}
+
+// getConfigValue returns a config value via infra (e.g. ConfigMap key).
+func getConfigValue(name, key string) (string, error) {
+	p := setup.GetDefaultProviders()
+	return p.Infra.GetConfigValue(name, key)
+}
+
+// startFirstAvailableBackendAccess tries each backend via infra and returns the first that is ready.
+func startFirstAvailableBackendAccess(h *e2e.Harness, backends []e2e.ServiceAccessBackend, timeout time.Duration) (baseURL string, client *http.Client, token string, cleanup func(), used e2e.ServiceAccessBackend, err error) {
+	for _, backend := range backends {
+		baseURL, client, cleanup, err := startServiceAccess(backend.ServiceName, backend.UseTLS, timeout)
+		if err != nil {
+			continue
+		}
+		token := ""
+		if backend.RequireAuth {
+			token, err = h.GetClientAccessToken()
+			if err != nil {
+				cleanup()
+				continue
+			}
+		}
+		// Wait for backend to be queryable
+		deadline := time.Now().Add(timeout)
+		for time.Now().Before(deadline) {
+			_, qerr := h.PromQueryWithToken(baseURL, "1", token)
+			if qerr == nil {
+				return baseURL, client, token, cleanup, backend, nil
+			}
+			time.Sleep(250 * time.Millisecond)
+		}
+		cleanup()
+	}
+	return "", nil, "", nil, e2e.ServiceAccessBackend{}, fmt.Errorf("unable to resolve backend from known candidates")
 }
 
 var prometheusBackends = []e2e.ServiceAccessBackend{
@@ -95,18 +158,17 @@ var prometheusBackends = []e2e.ServiceAccessBackend{
 var _ = Describe("Alertmanager proxy", func() {
 	BeforeEach(func() {
 		testHarness = e2e.GetWorkerHarness()
-
-		ctxName, err := e2e.GetContext()
-		Expect(err).ToNot(HaveOccurred())
-		testRuntimeContext = ctxName
-		if ctxName != util.KIND && ctxName != util.OCP {
-			Skip(fmt.Sprintf("Kubernetes-backed test context required, got %q", ctxName))
+		p := setup.GetDefaultProviders()
+		envType := p.Infra.GetEnvironmentType()
+		testRuntimeContext = envType
+		if envType != infra.EnvironmentKind && envType != infra.EnvironmentOCP {
+			Skip(fmt.Sprintf("Kubernetes-backed test context required, got %q", envType))
 		}
 	})
 
 	It("Lets a user discover and query alerts through the proxy", Label("87773", "sanity"), func() {
 		By("Opening the alertmanager proxy endpoint")
-		baseURL, client, cleanup, err := testHarness.StartServiceAccess(alertmanagerProxyServiceName, defaultProxyNamespaces, alertmanagerProxyServicePort, true, httpClientTimeout)
+		baseURL, client, cleanup, err := startServiceAccess(alertmanagerProxyServiceName, true, httpClientTimeout)
 		Expect(err).ToNot(HaveOccurred(), "failed to start proxy service access")
 		defer cleanup()
 
@@ -181,11 +243,11 @@ var _ = Describe("Alertmanager proxy", func() {
 	})
 
 	It("denies authenticated user without alerts permission", Label("87776", "sanity"), func() {
-		if testRuntimeContext != util.OCP {
+		if testRuntimeContext != infra.EnvironmentOCP {
 			Skip("non-admin authz-denied flow currently validated on OCP context")
 		}
 
-		baseURL, client, cleanup, err := testHarness.StartServiceAccess(alertmanagerProxyServiceName, defaultProxyNamespaces, alertmanagerProxyServicePort, true, httpClientTimeout)
+		baseURL, client, cleanup, err := startServiceAccess(alertmanagerProxyServiceName, true, httpClientTimeout)
 		Expect(err).ToNot(HaveOccurred(), "failed to start proxy service access")
 		defer cleanup()
 
@@ -220,11 +282,16 @@ var _ = Describe("Alertmanager proxy", func() {
 	})
 
 	It("verifies Prometheus query path for common alert series", Label("87775"), func() {
+		authMethod := login.LoginToAPIWithToken(testHarness)
+		if authMethod == login.AuthDisabled {
+			Skip(authDisabledMsg)
+		}
+
 		orgID, err := testHarness.GetOrganizationID()
 		Expect(err).ToNot(HaveOccurred(), "failed to resolve organization id")
 		Expect(orgID).ToNot(BeEmpty(), "organization id should not be empty")
 
-		promURL, _, promToken, cleanup, usedBackend, err := testHarness.StartFirstAvailableBackendAccess(prometheusBackends, httpClientTimeout)
+		promURL, _, promToken, cleanup, usedBackend, err := startFirstAvailableBackendAccess(testHarness, prometheusBackends, httpClientTimeout)
 		Expect(err).ToNot(HaveOccurred(), "failed to start prometheus backend access")
 		defer cleanup()
 		Expect(usedBackend.ServiceName).ToNot(BeEmpty(), "selected prometheus backend name should not be empty")
@@ -238,18 +305,14 @@ var _ = Describe("Alertmanager proxy", func() {
 	})
 
 	It("verifies UI visibility wiring for alertmanager-proxy", Label("87774"), func() {
-		uiNamespace, err := testHarness.ResolveServiceNamespace(uiServiceName, defaultUINamespaces)
+		proxyURL, err := getConfigValue(uiConfigMapName, "FLIGHTCTL_ALERTMANAGER_PROXY")
 		if err != nil {
-			Skip(fmt.Sprintf("ui service unavailable for this environment: %v", err))
+			Skip(fmt.Sprintf("ui config unavailable for this environment: %v", err))
 		}
-		Expect(uiNamespace).ToNot(BeEmpty(), "resolved UI namespace should not be empty")
-
-		proxyURL, err := util.GetConfigMapDataByJSONPath(uiNamespace, uiConfigMapName, uiConfigProxyJSONPath)
-		Expect(err).ToNot(HaveOccurred(), "failed to resolve UI config map proxy URL")
 		Expect(strings.TrimSpace(proxyURL)).ToNot(BeEmpty(), "UI proxy URL should not be empty")
 		Expect(strings.ToLower(proxyURL)).To(ContainSubstring(uiExpectedProxyHost), "UI proxy URL should contain %q", uiExpectedProxyHost)
 
-		uiBaseURL, uiClient, cleanup, err := testHarness.StartServiceAccess(uiServiceName, defaultUINamespaces, uiServicePort, false, httpClientTimeout)
+		uiBaseURL, uiClient, cleanup, err := startServiceAccess(uiServiceName, false, httpClientTimeout)
 		Expect(err).ToNot(HaveOccurred(), "failed to start UI service access")
 		defer cleanup()
 

@@ -1,8 +1,11 @@
 package rollout_test
 
 import (
+	"context"
 	"testing"
 
+	"github.com/flightctl/flightctl/test/e2e/infra/satellite"
+	"github.com/flightctl/flightctl/test/e2e/infra/setup"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
@@ -18,16 +21,25 @@ const LONGTIMEOUT = "15m"
 const DEVICEWAITTIME = "30s"
 const DEFAULTUPDATETIMEOUT = "90s"
 
+var satellites *satellite.Services
+
 func TestRollout(t *testing.T) {
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "Rollout Suite")
 }
 
 var _ = BeforeSuite(func() {
-	// Setup harness without VM for rollout tests
-	// Rollout tests only need API access, device VMs are created separately with worker IDs 1000+
+	satellites = satellite.Get(context.Background())
+	Expect(setup.EnsureDefaultProviders(nil)).To(Succeed())
 	_, _, err := e2e.SetupWorkerHarnessWithoutVM()
 	Expect(err).ToNot(HaveOccurred())
+})
+
+var _ = AfterSuite(func() {
+	// In CI, cleanup containers; in local dev, leave running for speed
+	if satellites != nil {
+		satellites.Cleanup(context.Background())
+	}
 })
 
 var _ = BeforeEach(func() {
