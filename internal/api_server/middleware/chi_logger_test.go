@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"testing"
 
-	"github.com/flightctl/flightctl/internal/api_server/versioning"
+	"github.com/flightctl/flightctl/api/versioning"
 	chimw "github.com/go-chi/chi/v5/middleware"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
