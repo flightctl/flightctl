@@ -88,6 +88,13 @@ spec:
             - mountPath: /lib/modules
               name: host-modules
               readOnly: true
+
+            # 4. ENTITLEMENT: Optional RHEL entitlement certs for subscription-only repos
+            {{- if .Values.imageBuilderWorker.entitlementCertsSecretName }}
+            - mountPath: /etc/pki/entitlement
+              name: entitlement-certs
+              readOnly: true
+            {{- end }}
               
             {{- include "flightctl.dbSslVolumeMounts" . | nindent 12 }}
           {{- with .Values.imageBuilderWorker.resources }}
@@ -137,5 +144,10 @@ spec:
           hostPath:
             path: /lib/modules
             type: Directory
+        {{- if .Values.imageBuilderWorker.entitlementCertsSecretName }}
+        - name: entitlement-certs
+          secret:
+            secretName: {{ .Values.imageBuilderWorker.entitlementCertsSecretName }}
+        {{- end }}
         {{- include "flightctl.dbSslVolumes" . | nindent 8 }}
 {{- end }}

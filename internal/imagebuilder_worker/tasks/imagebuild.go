@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"
 	coredomain "github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
@@ -285,6 +286,15 @@ type containerfileBuildArgs struct {
 	AgentConfigDestPath string
 	Username            string
 	HasUserConfig       bool
+	RPMRepoURL          string
+}
+
+// getRPMRepoURL returns the RPM repo URL from config, falling back to default if not configured
+func (c *Consumer) getRPMRepoURL() string {
+	if c.cfg != nil && c.cfg.ImageBuilderWorker != nil && c.cfg.ImageBuilderWorker.RPMRepoURL != "" {
+		return c.cfg.ImageBuilderWorker.RPMRepoURL
+	}
+	return config.NewDefaultImageBuilderWorkerConfig().RPMRepoURL
 }
 
 // EnrollmentCredentialGenerator is an interface for generating enrollment credentials
@@ -393,6 +403,7 @@ func (c *Consumer) generateContainerfileWithGenerator(
 		EarlyBinding:        isEarlyBinding,
 		AgentConfigDestPath: agentConfigPath,
 		HasUserConfig:       hasUserConfig,
+		RPMRepoURL:          c.getRPMRepoURL(),
 	}
 
 	result := &ContainerfileResult{
@@ -445,6 +456,9 @@ func (c *Consumer) generateAgentConfigWithGenerator(ctx context.Context, orgID u
 	return agentConfig, nil
 }
 
+// entitlementCertsPath is the standard RHEL entitlement certificates path
+const entitlementCertsPath = "/etc/pki/entitlement"
+
 // podmanWorker holds information about a running podman worker container
 type podmanWorker struct {
 	ContainerName       string
@@ -453,6 +467,7 @@ type podmanWorker struct {
 	TmpContainerStorage string
 	Cleanup             func()
 	statusUpdater       *statusUpdater // Reference to status updater for output reporting
+	HasEntitlementCerts bool           // Whether entitlement certs are mounted (for RHEL subscription repos)
 }
 
 // statusWriter is a thread-safe writer that captures output to a buffer
@@ -620,10 +635,21 @@ ignore_chown_errors = "true"
 		"-v", "/dev/urandom:/dev/urandom:rw",
 		"-v", "/dev/full:/dev/full:rw",
 		"-v", "/dev/tty:/dev/tty:rw", // Good practice for build logs
+	}
+
+	// Auto-detect and mount entitlement certs if present (for RHEL subscription repos)
+	hasEntitlementCerts := false
+	if _, err := os.Stat(entitlementCertsPath); err == nil {
+		startArgs = append(startArgs, "-v", fmt.Sprintf("%s:%s:ro,Z", entitlementCertsPath, entitlementCertsPath))
+		hasEntitlementCerts = true
+		log.Debug("Mounting entitlement certificates (auto-detected)")
+	}
+
+	startArgs = append(startArgs,
 		"--cap-add=SYS_ADMIN",
 		podmanImage,
 		"sleep", "infinity",
-	}
+	)
 
 	// Pretty print the command for debugging
 	cmdParts := []string{"podman"}
@@ -657,6 +683,7 @@ ignore_chown_errors = "true"
 		TmpContainerStorage: tmpContainerStorage,
 		Cleanup:             cleanup,
 		statusUpdater:       statusUpdater,
+		HasEntitlementCerts: hasEntitlementCerts,
 	}, nil
 }
 
@@ -870,9 +897,18 @@ func (c *Consumer) buildImageWithPodman(
 		"--build-arg", fmt.Sprintf("HAS_USER_CONFIG=%t", args.HasUserConfig),
 		"--build-arg", fmt.Sprintf("USERNAME=%s", args.Username),
 		"--build-arg", fmt.Sprintf("AGENT_CONFIG_DEST_PATH=%s", args.AgentConfigDestPath),
+		"--build-arg", fmt.Sprintf("RPM_REPO_URL=%s", args.RPMRepoURL),
+	}
+
+	// Mount entitlement certs into the build if available (for RHEL subscription repos)
+	if podmanWorker.HasEntitlementCerts {
+		podmanBuildArgs = append(podmanBuildArgs, "--volume", fmt.Sprintf("%s:%s:ro", entitlementCertsPath, entitlementCertsPath))
+	}
+
+	podmanBuildArgs = append(podmanBuildArgs,
 		"-f", containerContainerfilePath,
 		containerBuildDir,
-	}
+	)
 
 	if err := podmanWorker.runInWorker(ctx, log, "build", nil, podmanBuildArgs...); err != nil {
 		return err
