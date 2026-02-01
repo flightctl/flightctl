@@ -112,7 +112,11 @@ RUN --mount=type=bind,from=project-bin,source=.,target=/build-context \
       if [ -n "${AGENT_CERTS_FROM}" ]; then \
         echo "Installing agent certificates from ${AGENT_CERTS_FROM}"; \
         mkdir -p /etc/flightctl/certs; \
-        cp "/build-context/${AGENT_CERTS_FROM}"/* /etc/flightctl/certs/; \
+        if ls "/build-context/${AGENT_CERTS_FROM}"/* >/dev/null 2>&1; then \
+          cp "/build-context/${AGENT_CERTS_FROM}"/* /etc/flightctl/certs/; \
+        else \
+          echo "No certificate files found in ${AGENT_CERTS_FROM}, skipping copy"; \
+        fi; \
       fi'
 
 # Install flightctl RPMs (from COPR or local files)

@@ -425,8 +425,8 @@ clean-quadlets:
 
 # Use custom golangci-lint container with libvirt support
 LINT_IMAGE := flightctl-lint:latest
-LINT_CONTAINER := podman run --rm \
-	-v $(GOBASE):/app:Z \
+LINT_CONTAINER := podman run --rm --security-opt label=disable \
+	-v $(GOBASE):/app \
 	-v golangci-lint-cache:/root/.cache/golangci-lint \
 	-v go-build-cache:/root/.cache/go-build \
 	-v go-mod-cache:/go/pkg/mod \
@@ -476,7 +476,7 @@ lint-helm:
 .output/stamps/lint-docs: $(wildcard docs/user/*.md)
 	@mkdir -p .output/stamps
 	@echo "Linting user documentation markdown files"
-	podman run --rm -v $(shell pwd):/workdir:Z docker.io/davidanson/markdownlint-cli2:v0.19.0 "docs/user/**/*.md"
+	podman run --rm --security-opt label=disable -v $(shell pwd):/workdir docker.io/davidanson/markdownlint-cli2:v0.19.0 "docs/user/**/*.md"
 	@touch .output/stamps/lint-docs
 
 .PHONY: lint-docs
@@ -499,7 +499,7 @@ lint-diagrams:
 .output/stamps/spellcheck-docs: $(wildcard docs/user/*.md)
 	@mkdir -p .output/stamps
 	@echo "Checking user documentation for spelling issues"
-	podman run --rm -v $(shell pwd):/workdir:Z docker.io/tmaier/markdown-spellcheck:latest --en-us --ignore-numbers --report "docs/user/**/*.md"
+	podman run --rm --security-opt label=disable -v $(shell pwd):/workdir docker.io/tmaier/markdown-spellcheck:latest --en-us --ignore-numbers --report "docs/user/**/*.md"
 	@touch .output/stamps/spellcheck-docs
 
 .PHONY: spellcheck-docs
