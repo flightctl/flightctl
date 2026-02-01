@@ -20,6 +20,7 @@ Welcome to the Flight Control user documentation.
   * Configuring the Flight Control Service
     * [Configuring Authentication and Authorization](installing/configuring-auth/overview.md)
     * [Configuring an External PostgreSQL Database](installing/configuring-external-database.md)
+    * [Configuring the ImageBuilder Worker](installing/configuring-imagebuilder.md)
     * [Configuring Device Attestation](installing/configuring-device-attestation.md)
     * [Configuring Rate Limits on API Requests](installing/configuring-rate-limiting.md)
 
