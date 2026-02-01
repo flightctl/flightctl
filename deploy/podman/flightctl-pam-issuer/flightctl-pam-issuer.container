@@ -15,13 +15,22 @@ Volume=/etc/flightctl/pki/flightctl-pam-issuer/server.crt:/root/.flightctl/certs
 Volume=/etc/flightctl/pki/flightctl-pam-issuer/server.key:/root/.flightctl/certs/server.key:ro,z
 Volume=/etc/flightctl/pki/flightctl-pam-issuer/token-signer.crt:/root/.flightctl/certs/client-signer.crt:ro,z
 Volume=/etc/flightctl/pki/flightctl-pam-issuer/token-signer.key:/root/.flightctl/certs/client-signer.key:ro,z
-Volume=flightctl-pam-issuer-etc:/etc:rw
+# User database files - persist local users created inside the container.
+# Other /etc files (PAM configs, nsswitch.conf, etc.) come from the container image
+# and are updated when the image is updated.
+Volume=/etc/flightctl/flightctl-pam-issuer/userdb/passwd:/etc/passwd:z
+Volume=/etc/flightctl/flightctl-pam-issuer/userdb/shadow:/etc/shadow:z
+Volume=/etc/flightctl/flightctl-pam-issuer/userdb/group:/etc/group:z
+Volume=/etc/flightctl/flightctl-pam-issuer/userdb/gshadow:/etc/gshadow:z
 Volume=/etc/flightctl/flightctl-pam-issuer/config.yaml:/root/.flightctl/config.yaml:ro,z
 
 [Service]
 Restart=always
 RestartSec=30
 
+# Migration from 1.0.0: Copy user database files from old /etc volume to new location.
+# TODO: Remove this ExecStartPre once 1.0.0 becomes unsupported.
+ExecStartPre=/usr/share/flightctl/flightctl-pam-issuer/migrate-userdb.sh
 ExecStartPre=/usr/bin/flightctl-standalone render template --input-file /usr/share/flightctl/flightctl-pam-issuer/config.yaml.template --output-file /etc/flightctl/flightctl-pam-issuer/config.yaml
 
 [Install]
