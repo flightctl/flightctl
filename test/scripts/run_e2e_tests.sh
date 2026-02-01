@@ -58,10 +58,60 @@ if [[ -n "${DISCOVERY_ONLY}" ]]; then
     exit 0
 fi
 
-API_ENDPOINT=https://$(get_endpoint_host flightctl-api-route)
+# Determine environment type and set API_ENDPOINT accordingly
+E2E_ENVIRONMENT=${E2E_ENVIRONMENT:-""}
+
+# Auto-detect environment if not set
+if [[ -z "${E2E_ENVIRONMENT}" ]]; then
+    if kubectl config current-context &>/dev/null; then
+        E2E_ENVIRONMENT="k8s"
+    elif systemctl is-active flightctl-api.service &>/dev/null || sudo systemctl is-active flightctl-api.service &>/dev/null; then
+        E2E_ENVIRONMENT="quadlet"
+    else
+        E2E_ENVIRONMENT="k8s"  # Default to k8s
+    fi
+    echo "Auto-detected E2E_ENVIRONMENT: ${E2E_ENVIRONMENT}"
+fi
+export E2E_ENVIRONMENT
+
+# Set API_ENDPOINT based on environment
+if [[ -z "${API_ENDPOINT:-}" ]]; then
+    case "${E2E_ENVIRONMENT}" in
+        quadlet)
+            # For Quadlet, use FQDN so VMs can reach the API
+            QUADLET_HOST=$(hostname -f 2>/dev/null || hostname 2>/dev/null || echo "localhost")
+            API_ENDPOINT="https://${QUADLET_HOST}:3443"
+            echo "Using Quadlet API endpoint: ${API_ENDPOINT}"
+            ;;
+        *)
+            # For K8s environments, get endpoint from route/ingress
+            API_ENDPOINT=https://$(get_endpoint_host flightctl-api-route)
+            echo "Using K8s API endpoint: ${API_ENDPOINT}"
+            ;;
+    esac
+fi
 export API_ENDPOINT
-REGISTRY_ENDPOINT=$(registry_address)
-export REGISTRY_ENDPOINT
+
+# Set registry endpoint (K8s-specific, optional for Quadlet)
+if [[ "${E2E_ENVIRONMENT}" != "quadlet" ]]; then
+    REGISTRY_ENDPOINT=$(registry_address)
+    export REGISTRY_ENDPOINT
+else
+    # For Quadlet, registry may not be needed or use a local one
+    REGISTRY_ENDPOINT=${REGISTRY_ENDPOINT:-""}
+    if [[ -n "${REGISTRY_ENDPOINT}" ]]; then
+        export REGISTRY_ENDPOINT
+    fi
+fi
+
+# Set PAM authentication credentials for Quadlet environments
+if [[ "${E2E_ENVIRONMENT}" == "quadlet" ]]; then
+    # Default PAM admin user credentials for E2E tests
+    # These can be overridden by setting E2E_PAM_USER and E2E_PAM_PASSWORD
+    export E2E_PAM_USER="${E2E_PAM_USER:-admin}"
+    export E2E_DEFAULT_PAM_PASSWORD="${E2E_DEFAULT_PAM_PASSWORD:-flightctl-e2e}"
+    echo "PAM credentials configured for user: ${E2E_PAM_USER}"
+fi
 
 # Handle manual test splitting if enabled
 if [[ "${GINKGO_TOTAL_NODES}" -gt 1 ]]; then

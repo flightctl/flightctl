@@ -15,6 +15,64 @@ fi
 
 echo "🔄 [Startup] Starting global E2E environment setup..."
 
+# Ensure CLI is configured with correct endpoint
+# API_ENDPOINT should be set by run_e2e_tests.sh or environment
+if [[ -n "${API_ENDPOINT:-}" ]]; then
+    echo "🔄 [Startup] Using API endpoint: ${API_ENDPOINT}"
+    # Try to login/configure the CLI if not already configured
+    # Use --insecure-skip-tls-verify for self-signed certs
+    if ! "${FLIGHTCTL_BIN}" get device -o name &>/dev/null; then
+        echo "🔄 [Startup] CLI not configured, attempting login..."
+        
+        # Check if we're in Quadlet/PAM mode
+        if [[ "${E2E_ENVIRONMENT:-}" == "quadlet" ]]; then
+            # Set up PAM admin user if needed
+            echo "🔄 [Startup] Setting up PAM admin user for Quadlet environment..."
+            PAM_USER="${E2E_PAM_USER:-admin}"
+            PAM_PASS="${E2E_PAM_PASSWORD:-${E2E_DEFAULT_PAM_PASSWORD:-flightctl-e2e}}"
+            
+            # Check if PAM issuer container is running
+            if sudo podman ps --format '{{.Names}}' 2>/dev/null | grep -q '^flightctl-pam-issuer$'; then
+                # Create flightctl-admin group if needed
+                sudo podman exec -i flightctl-pam-issuer groupadd flightctl-admin 2>/dev/null || true
+                
+                # Create user if needed
+                if ! sudo podman exec flightctl-pam-issuer id "${PAM_USER}" &>/dev/null; then
+                    sudo podman exec flightctl-pam-issuer adduser "${PAM_USER}" 2>/dev/null || true
+                fi
+                
+                # Set password
+                sudo podman exec -i flightctl-pam-issuer sh -c "echo '${PAM_USER}:${PAM_PASS}' | chpasswd" 2>/dev/null || true
+                
+                # Add to flightctl-admin group
+                sudo podman exec -i flightctl-pam-issuer usermod -aG flightctl-admin "${PAM_USER}" 2>/dev/null || true
+                
+                echo "✅ [Startup] PAM admin user '${PAM_USER}' configured"
+            else
+                echo "⚠️  [Startup] Warning: flightctl-pam-issuer container not running"
+            fi
+            
+            # Login with PAM credentials
+            if ! "${FLIGHTCTL_BIN}" login "${API_ENDPOINT}" --insecure-skip-tls-verify -u "${PAM_USER}" -p "${PAM_PASS}" &>/dev/null; then
+                echo "⚠️  [Startup] Warning: Could not login to API at ${API_ENDPOINT} with PAM user '${PAM_USER}'"
+                echo "    Tests may fail if CLI is not configured."
+            else
+                echo "✅ [Startup] CLI login successful with PAM user '${PAM_USER}'"
+            fi
+        else
+            # Non-Quadlet environment - try no-auth login
+            if ! "${FLIGHTCTL_BIN}" login "${API_ENDPOINT}" --insecure-skip-tls-verify &>/dev/null; then
+                echo "⚠️  [Startup] Warning: Could not login to API at ${API_ENDPOINT}"
+                echo "    Tests may fail if CLI is not configured. You may need to login manually."
+            else
+                echo "✅ [Startup] CLI login successful"
+            fi
+        fi
+    fi
+else
+    echo "⚠️  [Startup] Warning: API_ENDPOINT not set, using CLI default configuration"
+fi
+
 # Resource types to clean up (in order of dependencies)
 RESOURCE_TYPES=(
     "resourcesync"

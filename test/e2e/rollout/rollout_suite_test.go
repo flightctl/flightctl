@@ -1,8 +1,10 @@
 package rollout_test
 
 import (
+	"context"
 	"testing"
 
+	"github.com/flightctl/flightctl/test/e2e/infra"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
@@ -14,15 +16,28 @@ const POLLING = "125ms"
 const MEDIUMTIMEOUT = "10m"
 const LONGTIMEOUT = "15m"
 
+var satellites *infra.SatelliteServices
+
 func TestRollout(t *testing.T) {
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "Rollout Suite")
 }
 
 var _ = BeforeSuite(func() {
+	// Get satellite services (starts if needed, reuses if available)
+	satellites = infra.GetInfra(context.Background())
+	satellites.SetEnvVars()
+
 	// Setup VM and harness for this worker
 	_, _, err := e2e.SetupWorkerHarness()
 	Expect(err).ToNot(HaveOccurred())
+})
+
+var _ = AfterSuite(func() {
+	// In CI, cleanup containers; in local dev, leave running for speed
+	if satellites != nil {
+		satellites.Cleanup(context.Background())
+	}
 })
 
 var _ = BeforeEach(func() {

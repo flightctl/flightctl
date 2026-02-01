@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/flightctl/flightctl/test/e2e/infra"
 	dto "github.com/prometheus/client_model/go"
 	"github.com/prometheus/common/expfmt"
 )
@@ -224,6 +225,7 @@ func labelsMatch(labels map[string]string, exact map[string]string, required []s
 }
 
 // GetConfigMapValue returns a string value from a ConfigMap using a jsonpath selector.
+// Deprecated: Use GetServiceConfig instead for environment-agnostic config access.
 func (h *Harness) GetConfigMapValue(namespace, name, jsonPath string) (string, error) {
 	// #nosec G204 -- command args are fixed and controlled in test.
 	out, err := exec.Command("kubectl", "get", "configmap", name,
@@ -234,6 +236,16 @@ func (h *Harness) GetConfigMapValue(namespace, name, jsonPath string) (string, e
 		return "", fmt.Errorf("kubectl get configmap: %w: %s", err, strings.TrimSpace(string(out)))
 	}
 	return string(out), nil
+}
+
+// GetServiceConfig returns the full configuration content for a service.
+// This is environment-agnostic: uses ConfigMap for K8s, config files for Quadlet.
+func (h *Harness) GetServiceConfig(service infra.ServiceName) (string, error) {
+	provider := h.GetInfraProvider()
+	if provider == nil {
+		return "", fmt.Errorf("infra provider not initialized")
+	}
+	return provider.GetServiceConfig(service)
 }
 
 // VerifyServiceExists verifies a Kubernetes service exists.

@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/test/e2e/infra"
 	"github.com/samber/lo"
 )
 
@@ -30,15 +31,16 @@ func (h *Harness) GetRepository(repositoryName string) (*v1beta1.Repository, err
 // GetInternalGitRepoURL returns the internal cluster URL for a git repository on the E2E git server.
 // This URL is used by services running inside the cluster (e.g., ResourceSync periodic task).
 func (h *Harness) GetInternalGitRepoURL(repoName string) (string, error) {
-	gitConfig, err := h.GetGitServerConfig()
-	if err != nil {
-		return "", fmt.Errorf("failed to get git server config: %w", err)
+	satellite := infra.GetInfra(h.Context)
+
+	if satellite.GitServerInternalHost == "" || satellite.GitServerInternalPort == 0 {
+		return "", fmt.Errorf("git server internal endpoints not configured")
 	}
-	// Use the internal cluster URL and port since services run inside the cluster.
-	gitServerInternalHost := "e2e-git-server.flightctl-e2e.svc.cluster.local"
-	gitServerInternalPort := 3222
-	return fmt.Sprintf("%s@%s:%d:/home/user/repos/%s.git",
-		gitConfig.User, gitServerInternalHost, gitServerInternalPort, repoName), nil
+
+	// Use SSH URL format with internal container hostname and port
+	// Services running in the kind cluster can reach testcontainers on the same network
+	return fmt.Sprintf("ssh://user@%s:%d/home/user/repos/%s.git",
+		satellite.GitServerInternalHost, satellite.GitServerInternalPort, repoName), nil
 }
 
 // CreateRepositoryWithSSHCredentials creates a Repository resource with SSH credentials

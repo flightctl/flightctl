@@ -26,6 +26,12 @@ The harness enforces a strict VM pool pattern to ensure proper test isolation an
 5. AFTER SUITE:
    - VM cleanup is handled by make scripts after all tests complete
 
+REMOVED METHODS (violated VM pool pattern):
+- NewTestHarness() - Created VMs directly (removed)
+- NewTestHarnessWithoutVM() - Manual VM setup (removed)
+- AddVM() / AddMultipleVMs() - Created VMs outside pool (removed)
+- StartMultipleVMAndEnroll() - Created multiple VMs directly (removed)
+
 Example usage:
 ```go
 var _ = BeforeSuite(func() {
@@ -66,6 +72,7 @@ import (
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/client"
 	service "github.com/flightctl/flightctl/internal/service/common"
+	"github.com/flightctl/flightctl/test/e2e/infra"
 	"github.com/flightctl/flightctl/test/harness/e2e/vm"
 	"github.com/flightctl/flightctl/test/util"
 	"github.com/google/go-cmp/cmp"
@@ -110,6 +117,54 @@ type Harness struct {
 
 	// clientWrapper stores the Client wrapper for token refresh management
 	clientWrapper *client.Client
+
+	// Infrastructure providers for environment-agnostic operations
+	infraProvider     infra.InfraProvider
+	lifecycleProvider infra.ServiceLifecycleProvider
+	rbacProvider      infra.RBACProvider
+}
+
+// SetProviders sets the infrastructure providers for the harness.
+// This allows tests to use environment-agnostic operations.
+func (h *Harness) SetProviders(providers *infra.Providers) {
+	if providers != nil {
+		h.infraProvider = providers.Infra
+		h.lifecycleProvider = providers.Lifecycle
+		h.rbacProvider = providers.RBAC
+	}
+}
+
+// GetInfraProvider returns the infrastructure provider.
+// Returns nil if providers haven't been set.
+func (h *Harness) GetInfraProvider() infra.InfraProvider {
+	return h.infraProvider
+}
+
+// GetLifecycleProvider returns the service lifecycle provider.
+// Returns nil if providers haven't been set.
+func (h *Harness) GetLifecycleProvider() infra.ServiceLifecycleProvider {
+	return h.lifecycleProvider
+}
+
+// GetRBACProvider returns the RBAC provider.
+// Returns nil if providers haven't been set.
+func (h *Harness) GetRBACProvider() infra.RBACProvider {
+	return h.rbacProvider
+}
+
+// IsK8sEnvironment returns true if running in a Kubernetes environment.
+func (h *Harness) IsK8sEnvironment() bool {
+	return infra.IsK8sEnvironment()
+}
+
+// IsQuadletEnvironment returns true if running in a Quadlet environment.
+func (h *Harness) IsQuadletEnvironment() bool {
+	return infra.IsQuadletEnvironment()
+}
+
+// GetEnvironmentType returns the detected environment type.
+func (h *Harness) GetEnvironmentType() string {
+	return infra.DetectEnvironment()
 }
 
 // ResourceTestConfig represents a test configuration for resource operations
@@ -1360,8 +1415,30 @@ func (h *Harness) WaitForFileInDevice(filePath string, timeout string, polling s
 	return h.VM.RunSSH([]string{"sudo", "bash", "-c", script}, nil)
 }
 
-// GetContext returns the Kubernetes context (KIND or OCP) or an error
+// GetContext returns the environment context (KIND, OCP, or QUADLET)
 func GetContext() (string, error) {
+	// Check environment variable first
+	if envCtx := os.Getenv("E2E_ENVIRONMENT"); envCtx != "" {
+		switch strings.ToLower(envCtx) {
+		case "quadlet":
+			logrus.Debugf("The context is: QUADLET (from E2E_ENVIRONMENT)")
+			return util.QUADLET, nil
+		case "kind":
+			logrus.Debugf("The context is: KIND (from E2E_ENVIRONMENT)")
+			return util.KIND, nil
+		case "ocp":
+			logrus.Debugf("The context is: OCP (from E2E_ENVIRONMENT)")
+			return util.OCP, nil
+		}
+	}
+
+	// Check if this is a Quadlet environment (no kubectl, but flightctl services running)
+	if infra.IsQuadletEnvironment() {
+		logrus.Debugf("The context is: QUADLET (detected)")
+		return util.QUADLET, nil
+	}
+
+	// Try kubectl for K8s environments
 	kubeContext, err := exec.Command("kubectl", "config", "current-context").Output()
 	if err != nil {
 		return "", fmt.Errorf("failed to get current kube context: %w", err)
@@ -1447,10 +1524,14 @@ func newTestHarnessBase(ctx context.Context) (*Harness, error) {
 
 	ctx, cancel := context.WithCancel(ctx)
 
-	k8sCluster, err := kubernetesClient()
-	if err != nil {
-		cancel()
-		return nil, fmt.Errorf("failed to get kubernetes cluster: %w", err)
+	// Only create K8s client when running in a K8s environment
+	var k8sCluster kubernetes.Interface
+	if infra.IsK8sEnvironment() {
+		k8sCluster, err = kubernetesClient()
+		if err != nil {
+			cancel()
+			return nil, fmt.Errorf("failed to get kubernetes cluster: %w", err)
+		}
 	}
 
 	// Initialize git repository management
@@ -1708,22 +1789,6 @@ func (h *Harness) SetLabelsForFleetMetadata(metadata *v1beta1.ObjectMeta, labels
 // SetLabelsForRepositoryMetadata sets labels on repository metadata while preserving the test-id label
 func (h *Harness) SetLabelsForRepositoryMetadata(metadata *v1beta1.ObjectMeta, labels map[string]string) {
 	h.SetLabelsForResource(metadata, labels)
-}
-
-func getEnvOrDefault(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return defaultValue
-}
-
-func getEnvOrDefaultInt(key string, defaultValue int) int {
-	if value := os.Getenv(key); value != "" {
-		if intValue, err := strconv.Atoi(value); err == nil {
-			return intValue
-		}
-	}
-	return defaultValue
 }
 
 // CreateFleetConfigInGitRepo creates a fleet configuration and pushes it to a git repository

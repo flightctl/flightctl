@@ -21,10 +21,10 @@ RUN mkdir -p /etc/ssh/authorized_keys \
     && chmod 755 /etc/ssh/authorized_keys
 
 RUN mkdir -p /home/user/git-shell-commands
-COPY test/scripts/git-server-cmds/* /home/user/git-shell-commands/
+COPY git-server-cmds/* /home/user/git-shell-commands/
 RUN chown -R user:0 /home/user/git-shell-commands
 
-COPY test/scripts/git-server-entrypoint.sh /usr/local/bin/entrypoint.sh
+COPY git-server-entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
 # Openshift runs containers with random UIDs in the root group - allow them to read ssh config + /etc/passwd
