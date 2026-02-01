@@ -24,6 +24,7 @@ const (
 const (
 	RegularFileMode    os.FileMode = 0644 // Regular files
 	ExecutableFileMode os.FileMode = 0755 // Executable files and directories
+	ShadowFileMode     os.FileMode = 0600 // Shadow files (password hashes) - root only
 )
 
 type InstallAction struct {
