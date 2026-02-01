@@ -7,7 +7,9 @@ import (
 	"syscall"
 
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/crypto"
+	imagebuilderapi "github.com/flightctl/flightctl/internal/imagebuilder_api/service"
 	imagebuilderstore "github.com/flightctl/flightctl/internal/imagebuilder_api/store"
 	"github.com/flightctl/flightctl/internal/imagebuilder_worker/tasks"
 	"github.com/flightctl/flightctl/internal/kvstore"
@@ -59,8 +61,16 @@ func (w *Worker) Run(ctx context.Context) error {
 	w.log.Println("Initializing ImageBuilder Worker")
 	w.log.Printf("Starting with maxConcurrentBuilds: %d", w.cfg.ImageBuilderWorker.MaxConcurrentBuilds)
 
+	// Create imagebuilder service
+	queueProducer, err := w.queuesProvider.NewQueueProducer(ctx, consts.ImageBuildTaskQueue)
+	if err != nil {
+		w.log.WithError(err).Error("failed to create queue producer for service")
+		return err
+	}
+	imageBuilderService := imagebuilderapi.NewService(ctx, w.cfg, w.store, w.mainStore, queueProducer, w.kvStore, w.log)
+
 	// Launch queue consumers
-	if err := tasks.LaunchConsumers(ctx, w.queuesProvider, w.store, w.mainStore, w.kvStore, w.serviceHandler, w.cfg, w.log); err != nil {
+	if err := tasks.LaunchConsumers(ctx, w.queuesProvider, w.store, w.mainStore, w.kvStore, w.serviceHandler, imageBuilderService, w.cfg, w.log); err != nil {
 		w.log.WithError(err).Error("failed to launch consumers")
 		return err
 	}

@@ -5,10 +5,11 @@ import (
 	"fmt"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
+	deviceerrors "github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/util/validation"
 )
 
-var ErrParsingImage = fmt.Errorf("unable to parse image reference into a valid bootc target")
+var ErrParsingImage = deviceerrors.ErrUnableToParseImageReference
 
 type BootcHost struct {
 	APIVersion string   `json:"apiVersion"`

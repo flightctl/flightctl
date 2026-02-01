@@ -32,9 +32,9 @@ var (
 	suiteCtx context.Context
 )
 
-func TestContainerfileGeneration(t *testing.T) {
+func TestImageBuilderWorker(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "Containerfile Generation Suite")
+	RunSpecs(t, "ImageBuilder Worker Integration Suite")
 }
 
 var _ = BeforeSuite(func() {
@@ -57,7 +57,7 @@ func newTestImageBuild(name string, bindingType string) api.ImageBuild {
 			Destination: api.ImageBuildDestination{
 				Repository: "output-repo",
 				ImageName:  "output-image",
-				Tag:        "v1.0.0",
+				ImageTag:   "v1.0.0",
 			},
 		},
 	}
@@ -82,7 +82,7 @@ func newTestImageBuild(name string, bindingType string) api.ImageBuild {
 func createOCIRepository(ctx context.Context, repoStore flightctlstore.Repository, orgId uuid.UUID, name string, registry string, scheme *v1beta1.OciRepoSpecScheme) (*v1beta1.Repository, error) {
 	ociSpec := v1beta1.OciRepoSpec{
 		Registry: registry,
-		Type:     v1beta1.RepoSpecTypeOci,
+		Type:     v1beta1.OciRepoSpecTypeOci,
 		Scheme:   scheme,
 	}
 	spec := v1beta1.RepositorySpec{}
@@ -174,21 +174,27 @@ var _ = Describe("Containerfile Generation", func() {
 			Expect(result.Containerfile).ToNot(BeEmpty())
 			Expect(result.AgentConfig).To(BeNil(), "Late binding should not have agent config")
 
-			// Verify Containerfile content
+			// Verify BuildArgs are set correctly
+			Expect(result.BuildArgs.RegistryHostname).To(Equal("quay.io"))
+			Expect(result.BuildArgs.ImageName).To(Equal("test-image"))
+			Expect(result.BuildArgs.ImageTag).To(Equal("v1.0.0"))
+			Expect(result.BuildArgs.EarlyBinding).To(BeFalse())
+
+			// Verify Containerfile is static template with ARG declarations
 			containerfile := result.Containerfile
-			Expect(containerfile).To(ContainSubstring("FROM quay.io/test-image:v1.0.0"))
+			Expect(containerfile).To(ContainSubstring("ARG REGISTRY_HOSTNAME"))
+			Expect(containerfile).To(ContainSubstring("FROM ${REGISTRY_HOSTNAME}/${IMAGE_NAME}:${IMAGE_TAG}"))
 			Expect(containerfile).To(ContainSubstring("flightctl-agent"))
 			Expect(containerfile).To(ContainSubstring("systemctl enable flightctl-agent.service"))
-			Expect(containerfile).To(ContainSubstring("ignition"))
-			Expect(containerfile).To(ContainSubstring("cloud-init"))
-			Expect(containerfile).ToNot(ContainSubstring("FLIGHTCTL_CONFIG"), "Late binding should not include agent config")
+			Expect(containerfile).To(ContainSubstring("ignition"))   // In shell conditional
+			Expect(containerfile).To(ContainSubstring("cloud-init")) // In shell conditional
 		})
 	})
 
 	Context("Early binding containerfile generation", func() {
 		It("should generate containerfile with agent config for early binding", func() {
 			// Create OCI repository
-			_, err := createOCIRepository(ctx, mainStoreInst.Repository(), orgId, "test-repo", "registry.example.com", lo.ToPtr(v1beta1.OciRepoSpecSchemeHttps))
+			_, err := createOCIRepository(ctx, mainStoreInst.Repository(), orgId, "test-repo", "registry.example.com", lo.ToPtr(v1beta1.Https))
 			Expect(err).ToNot(HaveOccurred())
 
 			// Create ImageBuild with early binding
@@ -209,16 +215,20 @@ var _ = Describe("Containerfile Generation", func() {
 			Expect(result.AgentConfig).ToNot(BeNil(), "Early binding should have agent config")
 			Expect(result.AgentConfig).ToNot(BeEmpty())
 
-			// Verify Containerfile content
+			// Verify BuildArgs are set correctly
+			Expect(result.BuildArgs.RegistryHostname).To(Equal("registry.example.com"))
+			Expect(result.BuildArgs.ImageName).To(Equal("test-image"))
+			Expect(result.BuildArgs.ImageTag).To(Equal("v1.0.0"))
+			Expect(result.BuildArgs.EarlyBinding).To(BeTrue())
+			Expect(result.BuildArgs.AgentConfigDestPath).To(Equal("/etc/flightctl/config.yaml"))
+
+			// Verify Containerfile is static template with ARG declarations
 			containerfile := result.Containerfile
-			Expect(containerfile).To(ContainSubstring("FROM registry.example.com/test-image:v1.0.0"))
+			Expect(containerfile).To(ContainSubstring("ARG EARLY_BINDING"))
+			Expect(containerfile).To(ContainSubstring("ARG AGENT_CONFIG_DEST_PATH"))
 			Expect(containerfile).To(ContainSubstring("flightctl-agent"))
 			Expect(containerfile).To(ContainSubstring("systemctl enable flightctl-agent.service"))
-			Expect(containerfile).To(ContainSubstring("/etc/flightctl/config.yaml"))
 			Expect(containerfile).To(ContainSubstring("chmod 600"))
-			Expect(containerfile).To(ContainSubstring("FLIGHTCTL_CONFIG"), "Early binding should include agent config")
-			Expect(containerfile).ToNot(ContainSubstring("ignition"), "Early binding should not include ignition")
-			Expect(containerfile).ToNot(ContainSubstring("cloud-init"), "Early binding should not include cloud-init")
 
 			// Verify agent config content
 			agentConfig := string(result.AgentConfig)
@@ -274,11 +284,14 @@ var _ = Describe("Containerfile Generation", func() {
 			result, err := tasks.GenerateContainerfile(ctx, mainStoreInst, serviceHandler, orgId, loadedBuild, log)
 
 			Expect(err).ToNot(HaveOccurred())
-			Expect(result.Containerfile).To(ContainSubstring("FROM quay.io/test-image:v1.0.0"))
+			// Values are now in BuildArgs, not templated into Containerfile
+			Expect(result.BuildArgs.RegistryHostname).To(Equal("quay.io"))
+			Expect(result.BuildArgs.ImageName).To(Equal("test-image"))
+			Expect(result.BuildArgs.ImageTag).To(Equal("v1.0.0"))
 		})
 
 		It("should handle repository with https scheme", func() {
-			_, err := createOCIRepository(ctx, mainStoreInst.Repository(), orgId, "https-repo", "registry.example.com", lo.ToPtr(v1beta1.OciRepoSpecSchemeHttps))
+			_, err := createOCIRepository(ctx, mainStoreInst.Repository(), orgId, "https-repo", "registry.example.com", lo.ToPtr(v1beta1.Https))
 			Expect(err).ToNot(HaveOccurred())
 
 			imageBuild := newTestImageBuild("test-build", "late")
@@ -292,11 +305,11 @@ var _ = Describe("Containerfile Generation", func() {
 			result, err := tasks.GenerateContainerfile(ctx, mainStoreInst, serviceHandler, orgId, loadedBuild, log)
 
 			Expect(err).ToNot(HaveOccurred())
-			Expect(result.Containerfile).To(ContainSubstring("FROM registry.example.com/test-image:v1.0.0"))
+			Expect(result.BuildArgs.RegistryHostname).To(Equal("registry.example.com"))
 		})
 
 		It("should handle repository with http scheme", func() {
-			_, err := createOCIRepository(ctx, mainStoreInst.Repository(), orgId, "http-repo", "localhost:5000", lo.ToPtr(v1beta1.OciRepoSpecSchemeHttp))
+			_, err := createOCIRepository(ctx, mainStoreInst.Repository(), orgId, "http-repo", "localhost:5000", lo.ToPtr(v1beta1.Http))
 			Expect(err).ToNot(HaveOccurred())
 
 			imageBuild := newTestImageBuild("test-build", "late")
@@ -310,7 +323,7 @@ var _ = Describe("Containerfile Generation", func() {
 			result, err := tasks.GenerateContainerfile(ctx, mainStoreInst, serviceHandler, orgId, loadedBuild, log)
 
 			Expect(err).ToNot(HaveOccurred())
-			Expect(result.Containerfile).To(ContainSubstring("FROM localhost:5000/test-image:v1.0.0"))
+			Expect(result.BuildArgs.RegistryHostname).To(Equal("localhost:5000"))
 		})
 	})
 
@@ -334,8 +347,8 @@ var _ = Describe("Containerfile Generation", func() {
 		It("should return error when repository is not OCI type", func() {
 			// Create a Git repository instead of OCI
 			gitSpec := v1beta1.RepositorySpec{}
-			err := gitSpec.FromGenericRepoSpec(v1beta1.GenericRepoSpec{
-				Type: v1beta1.RepoSpecTypeGit,
+			err := gitSpec.FromGitRepoSpec(v1beta1.GitRepoSpec{
+				Type: v1beta1.GitRepoSpecTypeGit,
 				Url:  "https://github.com/example/repo.git",
 			})
 			Expect(err).ToNot(HaveOccurred())
@@ -382,10 +395,13 @@ var _ = Describe("Containerfile Generation", func() {
 			Expect(err).ToNot(HaveOccurred())
 			containerfile := result.Containerfile
 
-			// Basic syntax checks
-			Expect(containerfile).To(ContainSubstring("FROM"))
+			// Basic syntax checks - template is now static with ARG declarations
+			Expect(containerfile).To(ContainSubstring("ARG REGISTRY_HOSTNAME"))
+			Expect(containerfile).To(ContainSubstring("ARG IMAGE_NAME"))
+			Expect(containerfile).To(ContainSubstring("ARG IMAGE_TAG"))
+			Expect(containerfile).To(ContainSubstring("FROM ${REGISTRY_HOSTNAME}/${IMAGE_NAME}:${IMAGE_TAG}"))
 			Expect(containerfile).To(ContainSubstring("RUN"))
-			Expect(strings.Count(containerfile, "FROM")).To(Equal(1), "Should have exactly one FROM statement")
+			Expect(strings.Count(containerfile, "FROM ${REGISTRY_HOSTNAME}")).To(Equal(1), "Should have exactly one FROM statement")
 
 			// Verify all RUN commands are properly formatted
 			lines := strings.Split(containerfile, "\n")
@@ -409,7 +425,7 @@ var _ = Describe("Containerfile Generation", func() {
 			}
 		})
 
-		It("should generate unique heredoc delimiters for each build", func() {
+		It("should return consistent static template for multiple generations", func() {
 			_, err := createOCIRepository(ctx, mainStoreInst.Repository(), orgId, "test-repo", "quay.io", nil)
 			Expect(err).ToNot(HaveOccurred())
 
@@ -420,28 +436,132 @@ var _ = Describe("Containerfile Generation", func() {
 			loadedBuild, err := storeInst.ImageBuild().Get(ctx, orgId, "test-build")
 			Expect(err).ToNot(HaveOccurred())
 
-			// Generate multiple containerfiles
-			delimiters := make(map[string]bool)
+			// Generate multiple containerfiles - they should all be identical (static template)
+			var firstContainerfile string
 			for i := 0; i < 5; i++ {
 				result, err := tasks.GenerateContainerfile(ctx, mainStoreInst, serviceHandler, orgId, loadedBuild, log)
 				Expect(err).ToNot(HaveOccurred())
 
-				// Extract heredoc delimiter
-				lines := strings.Split(result.Containerfile, "\n")
-				for _, line := range lines {
-					if strings.Contains(line, "FLIGHTCTL_CONFIG_") {
-						parts := strings.Fields(line)
-						for _, part := range parts {
-							if strings.HasPrefix(part, "FLIGHTCTL_CONFIG_") {
-								delimiter := strings.Trim(part, "'")
-								Expect(delimiters[delimiter]).To(BeFalse(), "Heredoc delimiter should be unique: %s", delimiter)
-								delimiters[delimiter] = true
-								break
-							}
-						}
-					}
+				if i == 0 {
+					firstContainerfile = result.Containerfile
+				} else {
+					Expect(result.Containerfile).To(Equal(firstContainerfile), "Template should be static and consistent")
 				}
 			}
+		})
+	})
+
+	Context("User configuration in containerfile generation", func() {
+		It("should generate containerfile with user configuration for late binding", func() {
+			// Create OCI repositories (source and destination)
+			_, err := createOCIRepository(ctx, mainStoreInst.Repository(), orgId, "test-repo", "registry.example.com", lo.ToPtr(v1beta1.Https))
+			Expect(err).ToNot(HaveOccurred())
+			_, err = createOCIRepository(ctx, mainStoreInst.Repository(), orgId, "output-repo", "registry.example.com", lo.ToPtr(v1beta1.Https))
+			Expect(err).ToNot(HaveOccurred())
+
+			// Create ImageBuild with late binding and user configuration
+			testPublicKey := "ssh-rsa AAAAB3NzaC1yc2EAAAADAQAB test@example.com"
+			imageBuild := newTestImageBuild("test-build-userconfig", "late")
+			imageBuild.Spec.UserConfiguration = &api.ImageBuildUserConfiguration{
+				Username:  "testuser",
+				Publickey: testPublicKey,
+			}
+			_, err = storeInst.ImageBuild().Create(ctx, orgId, &imageBuild)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Load the ImageBuild from store
+			loadedBuild, err := storeInst.ImageBuild().Get(ctx, orgId, "test-build-userconfig")
+			Expect(err).ToNot(HaveOccurred())
+
+			// Generate containerfile
+			result, err := tasks.GenerateContainerfile(ctx, mainStoreInst, serviceHandler, orgId, loadedBuild, log)
+
+			Expect(err).ToNot(HaveOccurred())
+			Expect(result).ToNot(BeNil())
+			Expect(result.Containerfile).ToNot(BeEmpty())
+
+			// Verify BuildArgs are set correctly for user configuration
+			Expect(result.BuildArgs.HasUserConfig).To(BeTrue())
+			Expect(result.BuildArgs.Username).To(Equal("testuser"))
+
+			// Verify Publickey is stored for writing to build context
+			Expect(result.Publickey).To(Equal([]byte(testPublicKey)))
+
+			// Verify Containerfile has user configuration support (shell conditionals using ARGs)
+			containerfile := result.Containerfile
+			Expect(containerfile).To(ContainSubstring("ARG HAS_USER_CONFIG"))
+			Expect(containerfile).To(ContainSubstring("ARG USERNAME"))
+			Expect(containerfile).To(ContainSubstring(`if [ "${HAS_USER_CONFIG}" = "true" ]`))
+		})
+
+		It("should generate containerfile with user configuration for early binding", func() {
+			// Create OCI repositories (source and destination)
+			_, err := createOCIRepository(ctx, mainStoreInst.Repository(), orgId, "test-repo", "registry.example.com", lo.ToPtr(v1beta1.Https))
+			Expect(err).ToNot(HaveOccurred())
+			_, err = createOCIRepository(ctx, mainStoreInst.Repository(), orgId, "output-repo", "registry.example.com", lo.ToPtr(v1beta1.Https))
+			Expect(err).ToNot(HaveOccurred())
+
+			// Create ImageBuild with early binding and user configuration
+			testPublicKey := "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI test@example.com"
+			imageBuild := newTestImageBuild("test-build-userconfig-early", "early")
+			imageBuild.Spec.UserConfiguration = &api.ImageBuildUserConfiguration{
+				Username:  "admin",
+				Publickey: testPublicKey,
+			}
+			_, err = storeInst.ImageBuild().Create(ctx, orgId, &imageBuild)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Load the ImageBuild from store
+			loadedBuild, err := storeInst.ImageBuild().Get(ctx, orgId, "test-build-userconfig-early")
+			Expect(err).ToNot(HaveOccurred())
+
+			// Generate containerfile
+			result, err := tasks.GenerateContainerfile(ctx, mainStoreInst, serviceHandler, orgId, loadedBuild, log)
+
+			Expect(err).ToNot(HaveOccurred())
+			Expect(result).ToNot(BeNil())
+			Expect(result.Containerfile).ToNot(BeEmpty())
+
+			// Verify BuildArgs are set correctly for both early binding and user configuration
+			Expect(result.BuildArgs.EarlyBinding).To(BeTrue())
+			Expect(result.BuildArgs.HasUserConfig).To(BeTrue())
+			Expect(result.BuildArgs.Username).To(Equal("admin"))
+
+			// Verify both AgentConfig and Publickey are stored
+			Expect(result.AgentConfig).ToNot(BeNil())
+			Expect(result.Publickey).To(Equal([]byte(testPublicKey)))
+		})
+
+		It("should not include user configuration when not provided", func() {
+			// Create OCI repositories (source and destination)
+			_, err := createOCIRepository(ctx, mainStoreInst.Repository(), orgId, "test-repo", "registry.example.com", lo.ToPtr(v1beta1.Https))
+			Expect(err).ToNot(HaveOccurred())
+			_, err = createOCIRepository(ctx, mainStoreInst.Repository(), orgId, "output-repo", "registry.example.com", lo.ToPtr(v1beta1.Https))
+			Expect(err).ToNot(HaveOccurred())
+
+			// Create ImageBuild without user configuration
+			imageBuild := newTestImageBuild("test-build-no-user", "late")
+			// No UserConfiguration set
+			_, err = storeInst.ImageBuild().Create(ctx, orgId, &imageBuild)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Load the ImageBuild from store
+			loadedBuild, err := storeInst.ImageBuild().Get(ctx, orgId, "test-build-no-user")
+			Expect(err).ToNot(HaveOccurred())
+
+			// Generate containerfile
+			result, err := tasks.GenerateContainerfile(ctx, mainStoreInst, serviceHandler, orgId, loadedBuild, log)
+
+			Expect(err).ToNot(HaveOccurred())
+			Expect(result).ToNot(BeNil())
+			Expect(result.Containerfile).ToNot(BeEmpty())
+
+			// Verify BuildArgs indicate no user configuration
+			Expect(result.BuildArgs.HasUserConfig).To(BeFalse())
+			Expect(result.BuildArgs.Username).To(BeEmpty())
+
+			// Verify Publickey is nil when no user configuration
+			Expect(result.Publickey).To(BeNil())
 		})
 	})
 })

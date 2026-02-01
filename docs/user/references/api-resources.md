@@ -22,6 +22,41 @@ Resources in flightctl are modeled after Kubernetes resources.  Each resource ha
 * spec: The desired state of the object.
 * status: The current state of the object.
 
+## API Versioning
+
+Flight Control uses header-based API version negotiation. This allows clients to request specific API versions without changing endpoint URLs.
+
+API versions are per-resource (e.g., Device, Fleet, Repository). Each resource can have different supported versions, allowing resources to evolve independently.
+
+### Requesting a Specific Version
+
+Include the `Flightctl-API-Version` header in your requests:
+
+```bash
+curl -H "Flightctl-API-Version: v1beta1" \
+     https://api.flightctl.example.com/api/v1/devices
+```
+
+### Response Headers
+
+| Header | Description |
+|--------|-------------|
+| `Flightctl-API-Version` | The version used for this response |
+| `Deprecation` | Deprecation date in [RFC 9651](https://www.rfc-editor.org/rfc/rfc9651.html) format `@<epoch-seconds>` per [RFC 9745](https://www.rfc-editor.org/rfc/rfc9745.html); date can be in past (already deprecated) or future (will be deprecated) |
+| `Vary` | Set to `Flightctl-API-Version` for cache differentiation |
+
+### Version Negotiation
+
+* If no version header is sent, the server uses the most stable supported version
+* If an unsupported version is requested, the server returns HTTP 406 Not Acceptable with `Flightctl-API-Versions-Supported` header listing available versions
+* For versioned resources, the response includes `Flightctl-API-Version` indicating which version was used
+
+### Current Versions
+
+| Version | Status | Support Guarantee |
+|---------|--------|-------------------|
+| v1beta1 | Current | Supported throughout the 1.x.x major version |
+
 ## Repositories
 
 A repository resource defines how flightctl can access an external configuration source.  While flightctl currently supports git as the sole repository type, others may be added in the future.
@@ -94,21 +129,17 @@ An ImageExport resource converts bootc container images into disk image formats 
 
 An ImageExport specifies:
 
-* **Source**: Either an ImageBuild resource or a direct image reference from a Repository
-* **Destination**: Where to push the exported disk image (a Repository resource with ReadWrite access)
+* **Source**: An ImageBuild resource (required)
 * **Format**: The disk image format (qcow2, vmdk or iso.)
 
 When you create an ImageExport, Flight Control:
 
-1. Retrieves the source image (from ImageBuild or registry)
+1. Retrieves the source image from the referenced ImageBuild
 2. Converts the image to the specified format using bootc-image-builder
-3. Pushes the exported disk image to the destination registry
+3. Pushes the exported disk image to the destination registry (from the ImageBuild destination)
 4. Updates the ImageExport status with the result
 
 The ImageExport status tracks the export progress through conditions: Pending, Converting, Pushing, Completed, or Failed.
-
-> [!NOTE]
-> ImageExport functionality is currently in development. The resource structure is defined, but the actual export execution is planned for a future release.
 
 For more details, see [Managing Image Builds and Exports](../using/managing-image-builds.md).
 
@@ -121,8 +152,7 @@ For more details, see [Managing Image Builds and Exports](../using/managing-imag
 * A fleet may have zero or more template versions.
 * A resource sync may create one or more fleets.  A fleet may be created by zero or one resource sync.
 * An ImageBuild references a source Repository and a destination Repository (both of type `oci`).
-* An ImageExport may reference an ImageBuild as its source, or reference a Repository directly.
-* An ImageExport references a destination Repository (type `oci`).
+* An ImageExport references an ImageBuild as its source and uses the ImageBuild's destination.
 
 ```mermaid
 erDiagram
@@ -134,7 +164,5 @@ erDiagram
     ResourceSync|o..|{ Fleet : creates
     ImageBuild}o..|| Repository : "source (oci)"
     ImageBuild}o..|| Repository : "destination (oci)"
-    ImageExport}o..o| ImageBuild : "source (optional)"
-    ImageExport}o..o| Repository : "source (oci, optional)"
-    ImageExport}o..|| Repository : "destination (oci)"
+    ImageExport}o..|| ImageBuild : "source (required)"
 ```

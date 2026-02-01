@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/pkg/userutil"
 )
 
 const (
@@ -69,6 +70,32 @@ type ReadWriter interface {
 type readWriter struct {
 	Reader
 	Writer
+}
+
+type ReadWriterFactory func(username v1beta1.Username) (ReadWriter, error)
+
+func NewReadWriterFactory(rootDir string) ReadWriterFactory {
+	return func(username v1beta1.Username) (ReadWriter, error) {
+		writerOptions := []WriterOption{
+			WithWriterRootDir(rootDir),
+		}
+
+		if !username.IsCurrentProcessUser() {
+			uid, gid, _, err := userutil.LookupUser(username)
+			if err != nil {
+				return nil, err
+			}
+			writerOptions = append(writerOptions,
+				WithUID(uid),
+				WithGID(gid),
+			)
+		}
+
+		return NewReadWriter(
+			NewReader(WithReaderRootDir(rootDir)),
+			NewWriter(writerOptions...),
+		), nil
+	}
 }
 
 func NewReadWriter(reader Reader, writer Writer) ReadWriter {

@@ -3,9 +3,11 @@ package applications
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strconv"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
 	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
@@ -71,14 +73,22 @@ type Application interface {
 	Name() string
 	// Type returns the application type.
 	AppType() v1beta1.AppType
+	// User is the username that the app runs as.
+	User() v1beta1.Username
 	// Path returns the path to the application on the device.
 	Path() string
 	// Workload returns a workload by name.
 	Workload(name string) (*Workload, bool)
+	// Workloads returns a copy of all workloads.
+	Workloads() []Workload
 	// AddWorkload adds a workload to the application.
 	AddWorkload(Workload *Workload)
 	// RemoveWorkload removes a workload from the application.
 	RemoveWorkload(name string) bool
+	// ClearWorkloads removes all workloads from the application.
+	ClearWorkloads()
+	// CopyWorkloadsFrom copies workloads from another application.
+	CopyWorkloadsFrom(other Application)
 	// IsEmbedded returns true if the application is embedded.
 	IsEmbedded() bool
 	// Volume is a volume manager.
@@ -87,6 +97,8 @@ type Application interface {
 	// the user. In the case there is no name provided it will be populated
 	// according to the rules of the application type.
 	Status() (*v1beta1.DeviceApplicationStatus, v1beta1.DeviceApplicationsSummaryStatus, error)
+	// ActionSpec returns the type-specific action configuration for this application.
+	ActionSpec() lifecycle.ActionSpec
 }
 
 // Workload represents an application workload tracked by a Monitor.
@@ -99,16 +111,17 @@ type Workload struct {
 }
 
 type application struct {
-	id        string
-	path      string
-	workloads []Workload
-	volume    provider.VolumeManager
-	status    *v1beta1.DeviceApplicationStatus
+	id         string
+	path       string
+	workloads  []Workload
+	volume     provider.VolumeManager
+	status     *v1beta1.DeviceApplicationStatus
+	actionSpec lifecycle.ActionSpec
 }
 
 // NewApplication creates a new application from an application provider.
-func NewApplication(provider provider.Provider) *application {
-	spec := provider.Spec()
+func NewApplication(p provider.Provider) *application {
+	spec := p.Spec()
 	return &application{
 		id:   spec.ID,
 		path: spec.Path,
@@ -117,9 +130,39 @@ func NewApplication(provider provider.Provider) *application {
 			Status:   v1beta1.ApplicationStatusUnknown,
 			Embedded: spec.Embedded,
 			AppType:  spec.AppType,
+			RunAs:    spec.User,
 		},
 		volume: spec.Volume,
 	}
+}
+
+// NewHelmApplication creates a new application with Helm-specific configuration.
+func NewHelmApplication(p provider.Provider) *application {
+	spec := p.Spec()
+
+	var namespace string
+	var valuesFiles []string
+	var providerValuesPath string
+
+	if spec.HelmApp != nil {
+		if spec.HelmApp.Namespace != nil {
+			namespace = *spec.HelmApp.Namespace
+		}
+		if spec.HelmApp.ValuesFiles != nil {
+			valuesFiles = slices.Clone(*spec.HelmApp.ValuesFiles)
+		}
+		if spec.HelmApp.Values != nil && len(*spec.HelmApp.Values) > 0 {
+			providerValuesPath = provider.GetHelmProviderValuesPath(spec.Name)
+		}
+	}
+
+	app := NewApplication(p)
+	app.actionSpec = lifecycle.HelmSpec{
+		Namespace:          namespace,
+		ValuesFiles:        valuesFiles,
+		ProviderValuesPath: providerValuesPath,
+	}
+	return app
 }
 
 func (a *application) ID() string {
@@ -132,6 +175,10 @@ func (a *application) Name() string {
 
 func (a *application) AppType() v1beta1.AppType {
 	return a.status.AppType
+}
+
+func (a *application) User() v1beta1.Username {
+	return a.status.RunAs
 }
 
 func (a *application) Workload(name string) (*Workload, bool) {
@@ -155,6 +202,24 @@ func (a *application) RemoveWorkload(name string) bool {
 		}
 	}
 	return false
+}
+
+func (a *application) Workloads() []Workload {
+	result := make([]Workload, len(a.workloads))
+	copy(result, a.workloads)
+	return result
+}
+
+func (a *application) ClearWorkloads() {
+	a.workloads = nil
+}
+
+func (a *application) CopyWorkloadsFrom(other Application) {
+	a.workloads = other.Workloads()
+}
+
+func (a *application) ActionSpec() lifecycle.ActionSpec {
+	return a.actionSpec
 }
 
 func (a *application) Path() string {

@@ -142,7 +142,7 @@ prepare-e2e-test: deploy-e2e-extras build-e2e-containers push-e2e-agent-images p
 	./test/scripts/prepare_cli.sh
 
 # Build E2E containers with Docker caching
-build-e2e-containers: e2e-agent-images
+build-e2e-containers: e2e-agent-images git-server-container
 	@echo "Building E2E containers with Docker caching..."
 
 # Ensure git-server container is built with proper caching

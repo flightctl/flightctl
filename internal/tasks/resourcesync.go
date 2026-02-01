@@ -206,8 +206,10 @@ func (r *ResourceSync) SyncFleets(ctx context.Context, log logrus.FieldLogger, o
 	}
 	if len(fleetsToRemove) > 0 {
 		log.Infof("Resource %s: found #%d fleets to remove. removing\n", resourceName, len(fleetsToRemove))
+		// Set ResourceSyncRequestCtxKey to allow resource sync to delete resources it owns
+		deleteCtx := context.WithValue(ctx, consts.ResourceSyncRequestCtxKey, true)
 		for _, fleetToRemove := range fleetsToRemove {
-			status := r.serviceHandler.DeleteFleet(ctx, orgId, fleetToRemove)
+			status := r.serviceHandler.DeleteFleet(deleteCtx, orgId, fleetToRemove)
 			if status.Code != http.StatusOK {
 				err := fmt.Errorf("resource %s: failed to remove old fleet %s. error: %s", resourceName, fleetToRemove, status.Message)
 				log.Errorf("%v", err)

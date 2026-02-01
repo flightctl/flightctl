@@ -3,6 +3,7 @@ package tasks
 import (
 	"bytes"
 	"context"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,10 +15,10 @@ import (
 	"sync"
 	"time"
 
-	v1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
-	api "github.com/flightctl/flightctl/api/imagebuilder/v1beta1"
-	"github.com/flightctl/flightctl/internal/config"
-	imagebuilderstore "github.com/flightctl/flightctl/internal/imagebuilder_api/store"
+	coredomain "github.com/flightctl/flightctl/internal/domain"
+	"github.com/flightctl/flightctl/internal/flterrors"
+	"github.com/flightctl/flightctl/internal/imagebuilder_api/domain"
+	imagebuilderapi "github.com/flightctl/flightctl/internal/imagebuilder_api/service"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/google/uuid"
 	"github.com/opencontainers/go-digest"
@@ -29,6 +30,11 @@ import (
 	"oras.land/oras-go/v2/registry/remote/auth"
 )
 
+// containerdiskTemplate is embedded from the templates directory for building containerdisk images
+//
+//go:embed templates/Containerfile.containerdisk.tmpl
+var containerdiskTemplate string
+
 var (
 	// errImageBuildNotReady is returned when ImageBuild is not ready yet (pending state)
 	errImageBuildNotReady = fmt.Errorf("imageBuild not ready")
@@ -36,7 +42,7 @@ var (
 
 // exportSource contains the information needed to reference a bootc image for export
 type exportSource struct {
-	OciRepoSpec *v1beta1.OciRepoSpec
+	OciRepoSpec *coredomain.OciRepoSpec
 	ImageName   string
 	ImageTag    string
 }
@@ -53,112 +59,167 @@ func (c *Consumer) processImageExport(ctx context.Context, eventWithOrgId worker
 	log.Info("Processing imageExport event")
 
 	// Load the ImageExport resource from the database
-	imageExport, err := c.store.ImageExport().Get(ctx, orgID, imageExportName)
-	if err != nil {
-		return fmt.Errorf("failed to load ImageExport %q: %w", imageExportName, err)
+	imageExport, status := c.imageBuilderService.ImageExport().Get(ctx, orgID, imageExportName)
+	if imageExport == nil || !imagebuilderapi.IsStatusOK(status) {
+		return fmt.Errorf("failed to load ImageExport %q: %v", imageExportName, status)
 	}
 
 	log.WithField("spec", imageExport.Spec).Debug("Loaded ImageExport resource")
 
 	// Initialize status if nil
 	if imageExport.Status == nil {
-		imageExport.Status = &api.ImageExportStatus{}
+		imageExport.Status = &domain.ImageExportStatus{}
 	}
 
-	// Check if already completed or failed - skip if so
+	// Check current state - only process if Pending (or has no Ready condition)
+	// We only lock resources that are in Pending state to avoid stealing work from other processes
+	var readyCondition *domain.ImageExportCondition
 	if imageExport.Status.Conditions != nil {
-		for _, cond := range *imageExport.Status.Conditions {
-			if cond.Type == api.ImageExportConditionTypeReady {
-				if cond.Reason == string(api.ImageExportConditionReasonCompleted) || cond.Reason == string(api.ImageExportConditionReasonFailed) {
-					log.Infof("ImageExport %q already in terminal state %q, skipping", imageExportName, cond.Reason)
-					return nil
-				}
-			}
+		readyCondition = domain.FindImageExportStatusCondition(*imageExport.Status.Conditions, domain.ImageExportConditionTypeReady)
+	}
+	if readyCondition != nil {
+		reason := readyCondition.Reason
+		// Skip if already in terminal state (completed, failed, canceling, canceled)
+		if reason == string(domain.ImageExportConditionReasonCompleted) ||
+			reason == string(domain.ImageExportConditionReasonFailed) ||
+			reason == string(domain.ImageExportConditionReasonCanceling) ||
+			reason == string(domain.ImageExportConditionReasonCanceled) {
+			log.Infof("ImageExport %q already in terminal state %q, skipping", imageExportName, reason)
+			return nil
+		}
+		// Skip if already Converting - another process is handling it
+		if reason == string(domain.ImageExportConditionReasonConverting) {
+			log.Infof("ImageExport %q is already being processed (Converting), skipping", imageExportName)
+			return nil
+		}
+		// Skip if Pushing - another process is handling it
+		if reason == string(domain.ImageExportConditionReasonPushing) {
+			log.Infof("ImageExport %q is already being processed (Pushing), skipping", imageExportName)
+			return nil
+		}
+		// Only proceed if Pending - if it's any other state, skip (shouldn't happen, but defensive)
+		if reason != string(domain.ImageExportConditionReasonPending) {
+			log.Warnf("ImageExport %q is in unexpected state %q (expected Pending), skipping", imageExportName, reason)
+			return nil
 		}
 	}
+	// If no Ready condition exists, treat as Pending and proceed
 
 	// Validate and normalize source to exportSource
 	source, err := c.validateAndNormalizeSource(ctx, orgID, imageExport, log)
 	if err != nil {
-		// Check if this is a pending state (ImageBuild not ready) - update condition and return nil to allow re-enqueue
+		// Check if this is a pending state (ImageBuild not ready)
+		// Resource should already be in Pending state, but update message if different
 		if errors.Is(err, errImageBuildNotReady) {
-			updateCondition(ctx, c.store, orgID, imageExport, api.ImageExportCondition{
-				Type:               api.ImageExportConditionTypeReady,
-				Status:             v1beta1.ConditionStatusFalse,
-				Reason:             string(api.ImageExportConditionReasonPending),
-				Message:            err.Error(),
-				LastTransitionTime: time.Now().UTC(),
-			}, log)
+			// Only update if message is different (resource is already Pending)
+			if readyCondition == nil || readyCondition.Message != err.Error() {
+				updateCondition(ctx, c.imageBuilderService.ImageExport(), orgID, imageExport, domain.ImageExportCondition{
+					Type:               domain.ImageExportConditionTypeReady,
+					Status:             domain.ConditionStatusFalse,
+					Reason:             string(domain.ImageExportConditionReasonPending),
+					Message:            err.Error(),
+					LastTransitionTime: time.Now().UTC(),
+				}, log)
+			}
 			return nil
 		}
 		// For other errors, update condition and return error
-		updateCondition(ctx, c.store, orgID, imageExport, api.ImageExportCondition{
-			Type:               api.ImageExportConditionTypeReady,
-			Status:             v1beta1.ConditionStatusFalse,
-			Reason:             string(api.ImageExportConditionReasonFailed),
+		updateCondition(ctx, c.imageBuilderService.ImageExport(), orgID, imageExport, domain.ImageExportCondition{
+			Type:               domain.ImageExportConditionTypeReady,
+			Status:             domain.ConditionStatusFalse,
+			Reason:             string(domain.ImageExportConditionReasonFailed),
 			Message:            err.Error(),
 			LastTransitionTime: time.Now().UTC(),
 		}, log)
 		return err
 	}
 
-	// Start status updater goroutine - this is the single writer for all status updates
-	statusUpdater, cleanupStatusUpdater := startImageExportStatusUpdater(ctx, c.store, orgID, imageExportName, c.cfg, log)
-	defer cleanupStatusUpdater()
-
-	// Update status to Converting
+	// Lock the export: atomically transition to Converting state using resource_version
+	// This ensures only one process can start processing
 	now := time.Now().UTC()
-	convertingCondition := api.ImageExportCondition{
-		Type:               api.ImageExportConditionTypeReady,
-		Status:             v1beta1.ConditionStatusFalse,
-		Reason:             string(api.ImageExportConditionReasonConverting),
+	convertingCondition := domain.ImageExportCondition{
+		Type:               domain.ImageExportConditionTypeReady,
+		Status:             domain.ConditionStatusFalse,
+		Reason:             string(domain.ImageExportConditionReasonConverting),
 		Message:            "Export conversion in progress",
 		LastTransitionTime: now,
 	}
-	statusUpdater.updateCondition(convertingCondition)
 
-	log.Info("Updated ImageExport status to Converting")
+	// Prepare status with Converting condition
+	if imageExport.Status == nil {
+		imageExport.Status = &domain.ImageExportStatus{}
+	}
+	if imageExport.Status.Conditions == nil {
+		imageExport.Status.Conditions = &[]domain.ImageExportCondition{}
+	}
+	domain.SetImageExportStatusCondition(imageExport.Status.Conditions, convertingCondition)
+	// Set initial lastSeen when locking the resource
+	imageExport.Status.LastSeen = &now
+
+	// Synchronously update status to Converting - this will fail if resource_version changed
+	_, err = c.imageBuilderService.ImageExport().UpdateStatus(ctx, orgID, imageExport)
+	if err != nil {
+		if errors.Is(err, flterrors.ErrNoRowsUpdated) {
+			// Another process updated the resource - it's likely already Converting
+			log.Infof("ImageExport %q was updated by another process, skipping", imageExportName)
+			return nil
+		}
+		return fmt.Errorf("failed to lock ImageExport for processing: %w", err)
+	}
+
+	log.Info("Successfully locked ImageExport for processing (status set to Converting)")
+
+	// Create a cancelable context for the export process
+	// The cancel function is passed to statusUpdater which will call it when cancellation is received via Redis
+	exportCtx, cancelExport := context.WithCancel(ctx)
+	defer cancelExport()
+
+	// Start status updater goroutine - this is the single writer for all status updates
+	// It handles both LastSeen (periodic) and condition updates (on-demand)
+	// It also listens for cancellation signals via Redis Stream
+	// IMPORTANT: Pass the original ctx (not exportCtx) so the updater can complete
+	// final status updates (like Canceled) even after exportCtx is canceled
+	statusUpdater, cleanupStatusUpdater := startImageExportStatusUpdater(ctx, cancelExport, c.imageBuilderService.ImageExport(), orgID, imageExportName, c.kvStore, c.cfg, log)
+	defer cleanupStatusUpdater()
+
+	// Send initial lastSeen update to status updater to ensure it's tracking the current time
+	select {
+	case statusUpdater.updateChan <- newImageExportStatusUpdateRequest():
+	case <-exportCtx.Done():
+		if c.handleExportError(ctx, orgID, imageExportName, exportCtx.Err(), statusUpdater, log) {
+			return nil // Cancellation handled
+		}
+		return exportCtx.Err()
+	}
 
 	// Execute the export
-	outputFilePath, cleanup, err := c.executeExport(ctx, orgID, imageExport, source, statusUpdater, log)
+	outputFilePath, cleanup, err := c.executeExport(exportCtx, orgID, imageExport, source, statusUpdater, log)
 	if cleanup != nil {
 		defer cleanup()
 	}
 	if err != nil {
-		failedTime := time.Now().UTC()
-		failedCondition := api.ImageExportCondition{
-			Type:               api.ImageExportConditionTypeReady,
-			Status:             v1beta1.ConditionStatusFalse,
-			Reason:             string(api.ImageExportConditionReasonFailed),
-			Message:            err.Error(),
-			LastTransitionTime: failedTime,
+		if c.handleExportError(ctx, orgID, imageExportName, err, statusUpdater, log) {
+			return nil // Cancellation handled
 		}
-		statusUpdater.updateCondition(failedCondition)
 		return fmt.Errorf("failed to execute export: %w", err)
 	}
 
 	log.WithField("outputFile", outputFilePath).Info("Export output file created")
 
 	// Push artifact to destination (as a referrer to the source image)
-	if err := c.pushArtifact(ctx, orgID, imageExport, source, outputFilePath, statusUpdater, log); err != nil {
-		failedTime := time.Now().UTC()
-		failedCondition := api.ImageExportCondition{
-			Type:               api.ImageExportConditionTypeReady,
-			Status:             v1beta1.ConditionStatusFalse,
-			Reason:             string(api.ImageExportConditionReasonFailed),
-			Message:            fmt.Sprintf("Failed to push artifact: %v", err),
-			LastTransitionTime: failedTime,
+	if err := c.pushArtifact(exportCtx, orgID, imageExport, source, outputFilePath, statusUpdater, log); err != nil {
+		if c.handleExportError(ctx, orgID, imageExportName, fmt.Errorf("failed to push artifact: %w", err), statusUpdater, log) {
+			return nil // Cancellation handled
 		}
-		statusUpdater.updateCondition(failedCondition)
 		return fmt.Errorf("failed to push artifact: %w", err)
 	}
 
 	// Mark as Completed
 	now = time.Now().UTC()
-	completedCondition := api.ImageExportCondition{
-		Type:               api.ImageExportConditionTypeReady,
-		Status:             v1beta1.ConditionStatusTrue,
-		Reason:             string(api.ImageExportConditionReasonCompleted),
+	completedCondition := domain.ImageExportCondition{
+		Type:               domain.ImageExportConditionTypeReady,
+		Status:             domain.ConditionStatusTrue,
+		Reason:             string(domain.ImageExportConditionReasonCompleted),
 		Message:            "Export completed successfully",
 		LastTransitionTime: now,
 	}
@@ -168,168 +229,62 @@ func (c *Consumer) processImageExport(ctx context.Context, eventWithOrgId worker
 	return nil
 }
 
-// imageExportStatusUpdateRequest represents a request to update the ImageExport status
-type imageExportStatusUpdateRequest struct {
-	Condition      *api.ImageExportCondition
-	LastSeen       *time.Time
-	ManifestDigest *string
-}
+// handleExportError checks if the error was due to cancellation and sets the appropriate status.
+// If the error was due to cancellation (status is Canceling), it sets the final status and returns true.
+// - For user cancellation: status becomes Canceled
+// - For timeout: status becomes Failed (with the timeout message preserved)
+// Otherwise, it sets status to Failed and returns false.
+func (c *Consumer) handleExportError(ctx context.Context, orgID uuid.UUID, imageExportName string, err error, statusUpdater *imageExportStatusUpdater, log logrus.FieldLogger) bool {
+	// Check if the current status is Canceling (set by API or timeout task)
+	currentExport, status := c.imageBuilderService.ImageExport().Get(ctx, orgID, imageExportName)
+	if currentExport != nil && imagebuilderapi.IsStatusOK(status) &&
+		currentExport.Status != nil && currentExport.Status.Conditions != nil {
+		readyCondition := domain.FindImageExportStatusCondition(*currentExport.Status.Conditions, domain.ImageExportConditionTypeReady)
+		if readyCondition != nil && readyCondition.Reason == string(domain.ImageExportConditionReasonCanceling) {
+			// This was a cancellation - check if it was a timeout or user cancellation
+			message := readyCondition.Message
+			isTimeout := strings.Contains(message, "timed out")
 
-// imageExportStatusUpdater manages all status updates for an ImageExport, ensuring atomic updates
-// and preventing race conditions between LastSeen and condition updates.
-type imageExportStatusUpdater struct {
-	store           imagebuilderstore.Store
-	orgID           uuid.UUID
-	imageExportName string
-	updateChan      chan imageExportStatusUpdateRequest
-	outputChan      chan []byte // Central channel for all task outputs
-	ctx             context.Context
-	cancel          context.CancelFunc
-	wg              sync.WaitGroup
-	log             logrus.FieldLogger
-}
-
-// startImageExportStatusUpdater starts a goroutine that is the single writer for ImageExport status updates.
-func startImageExportStatusUpdater(
-	ctx context.Context,
-	store imagebuilderstore.Store,
-	orgID uuid.UUID,
-	imageExportName string,
-	cfg *config.Config,
-	log logrus.FieldLogger,
-) (*imageExportStatusUpdater, func()) {
-	updaterCtx, updaterCancel := context.WithCancel(ctx)
-
-	updater := &imageExportStatusUpdater{
-		store:           store,
-		orgID:           orgID,
-		imageExportName: imageExportName,
-		updateChan:      make(chan imageExportStatusUpdateRequest),
-		outputChan:      make(chan []byte, 100),
-		ctx:             updaterCtx,
-		cancel:          updaterCancel,
-		log:             log,
-	}
-
-	updater.wg.Add(1)
-	go updater.run(cfg)
-
-	cleanup := func() {
-		updaterCancel()
-		close(updater.updateChan)
-		close(updater.outputChan)
-		updater.wg.Wait()
-	}
-
-	return updater, cleanup
-}
-
-// run is the main loop for the status updater goroutine
-func (u *imageExportStatusUpdater) run(cfg *config.Config) {
-	defer u.wg.Done()
-
-	if cfg == nil || cfg.ImageBuilderWorker == nil {
-		u.log.Error("Config or ImageBuilderWorker config is nil, cannot update status")
-		return
-	}
-	updateInterval := time.Duration(cfg.ImageBuilderWorker.LastSeenUpdateInterval)
-	ticker := time.NewTicker(updateInterval)
-	defer ticker.Stop()
-
-	var pendingCondition *api.ImageExportCondition
-	lastSeenUpdateTime := time.Now().UTC()
-
-	var lastOutputTime *time.Time
-	var lastSetLastSeen *time.Time
-
-	for {
-		select {
-		case <-u.ctx.Done():
-			return
-		case <-ticker.C:
-			if lastOutputTime != nil {
-				if lastSetLastSeen == nil || !lastOutputTime.Equal(*lastSetLastSeen) {
-					lastSeenUpdateTime = *lastOutputTime
-					lastSetLastSeenCopy := *lastOutputTime
-					lastSetLastSeen = &lastSetLastSeenCopy
-					u.updateStatus(u.ctx, pendingCondition, &lastSeenUpdateTime, nil)
-					pendingCondition = nil
+			if isTimeout {
+				// Timeout - set Failed status with the timeout message
+				log.WithField("message", message).Info("Export timed out, setting status to Failed")
+				failedCondition := domain.ImageExportCondition{
+					Type:               domain.ImageExportConditionTypeReady,
+					Status:             domain.ConditionStatusFalse,
+					Reason:             string(domain.ImageExportConditionReasonFailed),
+					Message:            message,
+					LastTransitionTime: time.Now().UTC(),
 				}
+				statusUpdater.updateCondition(failedCondition)
+			} else {
+				// User cancellation - set Canceled status
+				if message == "" {
+					message = "Export was canceled"
+				}
+				log.WithField("message", message).Info("Export was canceled, setting status to Canceled")
+				canceledCondition := domain.ImageExportCondition{
+					Type:               domain.ImageExportConditionTypeReady,
+					Status:             domain.ConditionStatusFalse,
+					Reason:             string(domain.ImageExportConditionReasonCanceled),
+					Message:            message,
+					LastTransitionTime: time.Now().UTC(),
+				}
+				statusUpdater.updateCondition(canceledCondition)
 			}
-		case output := <-u.outputChan:
-			now := time.Now().UTC()
-			lastOutputTime = &now
-			u.log.Debugf("Task output: %s", string(output))
-		case req := <-u.updateChan:
-			if req.Condition != nil {
-				pendingCondition = req.Condition
-			}
-			if req.LastSeen != nil {
-				lastSeenUpdateTime = *req.LastSeen
-			}
-			if req.Condition != nil || req.ManifestDigest != nil {
-				u.updateStatus(u.ctx, pendingCondition, &lastSeenUpdateTime, req.ManifestDigest)
-				pendingCondition = nil
-			}
+			return true // Cancellation/timeout handled
 		}
 	}
-}
 
-// updateStatus performs the actual database update
-func (u *imageExportStatusUpdater) updateStatus(ctx context.Context, condition *api.ImageExportCondition, lastSeen *time.Time, manifestDigest *string) {
-	imageExport, err := u.store.ImageExport().Get(ctx, u.orgID, u.imageExportName)
-	if err != nil {
-		u.log.WithError(err).Warn("Failed to load ImageExport for status update")
-		return
+	// Not canceled - set Failed status
+	failedCondition := domain.ImageExportCondition{
+		Type:               domain.ImageExportConditionTypeReady,
+		Status:             domain.ConditionStatusFalse,
+		Reason:             string(domain.ImageExportConditionReasonFailed),
+		Message:            err.Error(),
+		LastTransitionTime: time.Now().UTC(),
 	}
-
-	if imageExport.Status == nil {
-		imageExport.Status = &api.ImageExportStatus{}
-	}
-
-	if lastSeen != nil {
-		imageExport.Status.LastSeen = lastSeen
-	}
-
-	if condition != nil {
-		if imageExport.Status.Conditions == nil {
-			imageExport.Status.Conditions = &[]api.ImageExportCondition{}
-		}
-		api.SetImageExportStatusCondition(imageExport.Status.Conditions, *condition)
-	}
-
-	if manifestDigest != nil {
-		imageExport.Status.ManifestDigest = manifestDigest
-	}
-
-	_, err = u.store.ImageExport().UpdateStatus(ctx, u.orgID, imageExport)
-	if err != nil {
-		u.log.WithError(err).Warn("Failed to update ImageExport status")
-	}
-}
-
-// updateCondition sends a condition update request to the updater goroutine
-func (u *imageExportStatusUpdater) updateCondition(condition api.ImageExportCondition) {
-	select {
-	case u.updateChan <- imageExportStatusUpdateRequest{Condition: &condition}:
-	case <-u.ctx.Done():
-	}
-}
-
-// setManifestDigest sets the manifest digest in the ImageExport status
-func (u *imageExportStatusUpdater) setManifestDigest(manifestDigest string) {
-	select {
-	case u.updateChan <- imageExportStatusUpdateRequest{ManifestDigest: &manifestDigest}:
-	case <-u.ctx.Done():
-	}
-}
-
-// reportOutput sends task output to the central output handler
-func (u *imageExportStatusUpdater) reportOutput(output []byte) {
-	select {
-	case u.outputChan <- output:
-	case <-u.ctx.Done():
-	}
+	statusUpdater.updateCondition(failedCondition)
+	return false
 }
 
 // progressReader wraps an io.Reader and reports progress as data is read
@@ -394,7 +349,7 @@ func (w *imageExportStatusWriter) Write(p []byte) (n int, err error) {
 func (c *Consumer) executeExport(
 	ctx context.Context,
 	orgID uuid.UUID,
-	imageExport *api.ImageExport,
+	imageExport *domain.ImageExport,
 	exportSource *exportSource,
 	statusUpdater *imageExportStatusUpdater,
 	log logrus.FieldLogger,
@@ -465,6 +420,16 @@ func (c *Consumer) executeExport(
 		return "", cleanup, fmt.Errorf("failed to find output file: %w", err)
 	}
 
+	// Step 7: For qcow2-disk-container, build the container disk image and save to OCI directory
+	if imageExport.Spec.Format == domain.ExportFormatTypeQCOW2DiskContainer {
+		ociDirPath, err := c.buildContainerDiskImage(ctx, worker, outputFilePath, log)
+		if err != nil {
+			return "", cleanup, fmt.Errorf("failed to build container disk image: %w", err)
+		}
+		outputFilePath = ociDirPath
+		log.WithField("ociDir", ociDirPath).Info("Container disk image built and saved to OCI directory")
+	}
+
 	log.WithField("outputFile", outputFilePath).Info("Export completed successfully")
 	return outputFilePath, cleanup, nil
 }
@@ -473,7 +438,7 @@ func (c *Consumer) executeExport(
 func (c *Consumer) startBootcImageBuilderContainer(
 	ctx context.Context,
 	orgID uuid.UUID,
-	imageExport *api.ImageExport,
+	imageExport *domain.ImageExport,
 	statusUpdater *imageExportStatusUpdater,
 	log logrus.FieldLogger,
 ) (*privilegedPodmanWorker, error) {
@@ -704,13 +669,21 @@ func (c *Consumer) pullSourceImage(ctx context.Context, worker *privilegedPodman
 func (c *Consumer) runBootcImageBuilder(
 	ctx context.Context,
 	worker *privilegedPodmanWorker,
-	format api.ExportFormatType,
+	format domain.ExportFormatType,
 	bootcImageRef string,
 	log logrus.FieldLogger,
 ) error {
+	// Map qcow2-disk-container to qcow2 for bootc-image-builder
+	// The container wrapping happens later in executeExport
+	bootcFormat := format
+	if format == domain.ExportFormatTypeQCOW2DiskContainer {
+		bootcFormat = domain.ExportFormatTypeQCOW2
+	}
+
 	log.WithFields(logrus.Fields{
-		"format": format,
-		"image":  bootcImageRef,
+		"format":      format,
+		"bootcFormat": bootcFormat,
+		"image":       bootcImageRef,
 	}).Info("Running bootc-image-builder")
 
 	// Run bootc-image-builder entrypoint inside the existing container
@@ -721,7 +694,7 @@ func (c *Consumer) runBootcImageBuilder(
 		"-w", "/output",
 		worker.ContainerName,
 		"bootc-image-builder",
-		"--type", string(format),
+		"--type", string(bootcFormat),
 		"--rootfs", "xfs",
 		bootcImageRef,
 	}
@@ -754,12 +727,17 @@ func (c *Consumer) runBootcImageBuilder(
 // Since we run with -w /output, files are at /output/{type}/disk.{type} in container
 // which maps to {outputDir}/{type}/disk.{type} on the host
 // Exception: ISO format uses bootiso/install.iso instead of iso/disk.iso
-func (c *Consumer) findOutputFile(outputDir string, format api.ExportFormatType, log logrus.FieldLogger) (string, error) {
+// Exception: qcow2-disk-container uses qcow2/disk.qcow2 (same as qcow2)
+func (c *Consumer) findOutputFile(outputDir string, format domain.ExportFormatType, log logrus.FieldLogger) (string, error) {
 	var outputFilePath string
-	if format == api.ExportFormatTypeISO {
+	switch format {
+	case domain.ExportFormatTypeISO:
 		// ISO format uses bootiso/install.iso instead of iso/disk.iso
 		outputFilePath = filepath.Join(outputDir, "bootiso", "install.iso")
-	} else {
+	case domain.ExportFormatTypeQCOW2DiskContainer:
+		// qcow2-disk-container uses qcow2 output from bootc-image-builder
+		outputFilePath = filepath.Join(outputDir, "qcow2", "disk.qcow2")
+	default:
 		// Other formats (vmdk, qcow2) use {format}/disk.{format}
 		outputFilePath = filepath.Join(outputDir, string(format), "disk."+string(format))
 	}
@@ -773,31 +751,125 @@ func (c *Consumer) findOutputFile(outputDir string, format api.ExportFormatType,
 	return outputFilePath, nil
 }
 
+// buildContainerDiskImage builds a container image wrapping the qcow2 disk for OpenShift Virt
+// and saves it to OCI directory format. Returns the path to the OCI directory.
+func (c *Consumer) buildContainerDiskImage(
+	ctx context.Context,
+	worker *privilegedPodmanWorker,
+	qcow2Path string,
+	log logrus.FieldLogger,
+) (string, error) {
+	log.Info("Building container disk image for OpenShift Virt")
+
+	// Get the directory containing the qcow2 file
+	qcow2Dir := filepath.Dir(qcow2Path)
+	qcow2Filename := filepath.Base(qcow2Path)
+
+	// Write Containerfile from embedded template to the qcow2 directory
+	containerfilePath := filepath.Join(qcow2Dir, "Containerfile")
+	if err := os.WriteFile(containerfilePath, []byte(containerdiskTemplate), 0600); err != nil {
+		return "", fmt.Errorf("failed to write Containerfile: %w", err)
+	}
+	log.WithField("containerfile", containerfilePath).Debug("Wrote Containerfile for container disk")
+
+	// Container paths - the qcow2 directory is under /output in the container
+	// qcow2Dir on host maps to /output/qcow2 in container
+	containerBuildDir := "/output/qcow2"
+	containerOciDir := "/output/containerdisk-oci"
+	localImageName := "containerdisk:latest"
+
+	// Build the container image inside the worker container
+	// Pass DISK_IMAGE_FILE as build arg to specify the disk image filename
+	log.Info("Running podman build for container disk image")
+	buildArgs := []string{
+		"exec",
+		worker.ContainerName,
+		"podman", "build",
+		"-t", localImageName,
+		"--build-arg", fmt.Sprintf("DISK_IMAGE_FILE=%s", qcow2Filename),
+		"-f", filepath.Join(containerBuildDir, "Containerfile"),
+		containerBuildDir,
+	}
+
+	buildCmd := exec.CommandContext(ctx, "podman", buildArgs...)
+	var buildOutput bytes.Buffer
+	buildWriter := &imageExportStatusWriter{
+		buf:           &buildOutput,
+		statusUpdater: worker.statusUpdater,
+	}
+	buildCmd.Stdout = buildWriter
+	buildCmd.Stderr = buildWriter
+
+	if err := buildCmd.Run(); err != nil {
+		output := buildOutput.String()
+		log.Debugf("podman build output:\n%s", output)
+		return "", fmt.Errorf("podman build failed: %w. Output: %s", err, output)
+	}
+	log.Debug("Container disk image built successfully")
+
+	// Save the image to OCI directory format
+	log.Info("Saving container disk image to OCI directory format")
+	saveArgs := []string{
+		"exec",
+		worker.ContainerName,
+		"podman", "save",
+		"--format", "oci-dir",
+		"-o", containerOciDir,
+		localImageName,
+	}
+
+	saveCmd := exec.CommandContext(ctx, "podman", saveArgs...)
+	var saveOutput bytes.Buffer
+	saveWriter := &imageExportStatusWriter{
+		buf:           &saveOutput,
+		statusUpdater: worker.statusUpdater,
+	}
+	saveCmd.Stdout = saveWriter
+	saveCmd.Stderr = saveWriter
+
+	if err := saveCmd.Run(); err != nil {
+		output := saveOutput.String()
+		log.Debugf("podman save output:\n%s", output)
+		return "", fmt.Errorf("podman save failed: %w. Output: %s", err, output)
+	}
+
+	// Return the host path to the OCI directory
+	ociDirPath := filepath.Join(worker.TmpOutDir, "containerdisk-oci")
+
+	// Verify the OCI directory exists
+	if _, err := os.Stat(ociDirPath); err != nil {
+		return "", fmt.Errorf("OCI directory not found at expected path %q: %w", ociDirPath, err)
+	}
+
+	log.WithField("ociDir", ociDirPath).Info("Container disk image saved to OCI directory")
+	return ociDirPath, nil
+}
+
 // updateCondition updates the ImageExport condition and status
 func updateCondition(
 	ctx context.Context,
-	store imagebuilderstore.Store,
+	imageExportService imagebuilderapi.ImageExportService,
 	orgID uuid.UUID,
-	imageExport *api.ImageExport,
-	condition api.ImageExportCondition,
+	imageExport *domain.ImageExport,
+	condition domain.ImageExportCondition,
 	log logrus.FieldLogger,
 ) {
 	now := time.Now().UTC()
 	if imageExport.Status == nil {
-		imageExport.Status = &api.ImageExportStatus{}
+		imageExport.Status = &domain.ImageExportStatus{}
 	}
 	if imageExport.Status.Conditions == nil {
-		imageExport.Status.Conditions = &[]api.ImageExportCondition{}
+		imageExport.Status.Conditions = &[]domain.ImageExportCondition{}
 	}
-	api.SetImageExportStatusCondition(imageExport.Status.Conditions, condition)
+	domain.SetImageExportStatusCondition(imageExport.Status.Conditions, condition)
 	imageExport.Status.LastSeen = &now
-	if _, updateErr := store.ImageExport().UpdateStatus(ctx, orgID, imageExport); updateErr != nil {
+	if _, updateErr := imageExportService.UpdateStatus(ctx, orgID, imageExport); updateErr != nil {
 		log.WithError(updateErr).Error("failed to update ImageExport status")
 	}
 }
 
 // validateAndNormalizeSource validates the ImageExport source and returns a normalized exportSource
-func (c *Consumer) validateAndNormalizeSource(ctx context.Context, orgID uuid.UUID, imageExport *api.ImageExport, log logrus.FieldLogger) (*exportSource, error) {
+func (c *Consumer) validateAndNormalizeSource(ctx context.Context, orgID uuid.UUID, imageExport *domain.ImageExport, log logrus.FieldLogger) (*exportSource, error) {
 	sourceType, err := imageExport.Spec.Source.Discriminator()
 	if err != nil {
 		return nil, fmt.Errorf("failed to determine source type: %w", err)
@@ -808,15 +880,15 @@ func (c *Consumer) validateAndNormalizeSource(ctx context.Context, orgID uuid.UU
 	var imageTag string
 
 	switch sourceType {
-	case string(api.ImageExportSourceTypeImageBuild):
+	case string(domain.ImageExportSourceTypeImageBuild):
 		source, err := imageExport.Spec.Source.AsImageBuildRefSource()
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse imageBuild source: %w", err)
 		}
 
-		imageBuild, err := c.store.ImageBuild().Get(ctx, orgID, source.ImageBuildRef)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get ImageBuild %q: %w", source.ImageBuildRef, err)
+		imageBuild, status := c.imageBuilderService.ImageBuild().Get(ctx, orgID, source.ImageBuildRef, false)
+		if imageBuild == nil || !imagebuilderapi.IsStatusOK(status) {
+			return nil, fmt.Errorf("failed to get ImageBuild %q: %v", source.ImageBuildRef, status)
 		}
 
 		// Check if ImageBuild is ready
@@ -826,19 +898,9 @@ func (c *Consumer) validateAndNormalizeSource(ctx context.Context, orgID uuid.UU
 
 		repoName = imageBuild.Spec.Destination.Repository
 		imageName = imageBuild.Spec.Destination.ImageName
-		imageTag = imageBuild.Spec.Destination.Tag
+		imageTag = imageBuild.Spec.Destination.ImageTag
 
 		log.Infof("ImageBuild %q is ready, proceeding with export", source.ImageBuildRef)
-
-	case string(api.ImageExportSourceTypeImageReference):
-		source, err := imageExport.Spec.Source.AsImageReferenceSource()
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse imageReference source: %w", err)
-		}
-
-		repoName = source.Repository
-		imageName = source.ImageName
-		imageTag = source.ImageTag
 
 	default:
 		return nil, fmt.Errorf("unknown source type: %q", sourceType)
@@ -942,14 +1004,33 @@ func getReferencedDigest(
 func (c *Consumer) pushArtifact(
 	ctx context.Context,
 	orgID uuid.UUID,
-	imageExport *api.ImageExport,
+	imageExport *domain.ImageExport,
 	exportSource *exportSource,
 	artifactPath string,
 	statusUpdater *imageExportStatusUpdater,
 	log logrus.FieldLogger,
 ) error {
+	// Get the ImageBuild to use its destination
+	sourceType, err := imageExport.Spec.Source.Discriminator()
+	if err != nil {
+		return fmt.Errorf("failed to determine source type: %w", err)
+	}
+	if sourceType != string(domain.ImageExportSourceTypeImageBuild) {
+		return fmt.Errorf("unexpected source type: %q", sourceType)
+	}
+
+	source, err := imageExport.Spec.Source.AsImageBuildRefSource()
+	if err != nil {
+		return fmt.Errorf("failed to parse imageBuild source: %w", err)
+	}
+
+	imageBuild, status := c.imageBuilderService.ImageBuild().Get(ctx, orgID, source.ImageBuildRef, false)
+	if imageBuild == nil || !imagebuilderapi.IsStatusOK(status) {
+		return fmt.Errorf("failed to get ImageBuild %q: %v", source.ImageBuildRef, status)
+	}
+
 	// Get destination repository for authentication and to get registry hostname
-	repo, err := c.mainStore.Repository().Get(ctx, orgID, imageExport.Spec.Destination.Repository)
+	repo, err := c.mainStore.Repository().Get(ctx, orgID, imageBuild.Spec.Destination.Repository)
 	if err != nil {
 		return fmt.Errorf("failed to load destination repository: %w", err)
 	}
@@ -965,21 +1046,21 @@ func (c *Consumer) pushArtifact(
 	// With referrers API 1.1, we don't create a separate tag - the artifact is discoverable
 	// via the referrers API when querying the original image
 	// The destination reference is just the base repository (no tag)
-	destRef := fmt.Sprintf("%s/%s", destRegistryHostname, imageExport.Spec.Destination.ImageName)
+	destRef := fmt.Sprintf("%s/%s", destRegistryHostname, imageBuild.Spec.Destination.ImageName)
 
 	log.WithFields(logrus.Fields{
 		"destination": destRef,
 		"artifact":    artifactPath,
 		"format":      imageExport.Spec.Format,
-		"subject":     fmt.Sprintf("%s:%s", destRef, imageExport.Spec.Destination.Tag),
+		"subject":     fmt.Sprintf("%s:%s", destRef, imageBuild.Spec.Destination.ImageTag),
 	}).Info("Pushing artifact as referrer to destination")
 
 	// Update condition to Pushing
 	pushingTime := time.Now().UTC()
-	pushingCondition := api.ImageExportCondition{
-		Type:               api.ImageExportConditionTypeReady,
-		Status:             v1beta1.ConditionStatusFalse,
-		Reason:             string(api.ImageExportConditionReasonPushing),
+	pushingCondition := domain.ImageExportCondition{
+		Type:               domain.ImageExportConditionTypeReady,
+		Status:             domain.ConditionStatusFalse,
+		Reason:             string(domain.ImageExportConditionReasonPushing),
 		Message:            "Pushing artifact to destination registry",
 		LastTransitionTime: pushingTime,
 	}
@@ -1013,10 +1094,15 @@ func (c *Consumer) pushArtifact(
 	}
 
 	// Resolve the destination image's manifest to get its digest for the referrer subject
-	destImageTag := imageExport.Spec.Destination.Tag
+	destImageTag := imageBuild.Spec.Destination.ImageTag
 	destManifestDesc, err := getReferencedDigest(ctx, repoRef, destImageTag, destRef, statusUpdater, log)
 	if err != nil {
 		return err
+	}
+
+	// For qcow2-disk-container, push the OCI image with subject field
+	if imageExport.Spec.Format == domain.ExportFormatTypeQCOW2DiskContainer {
+		return c.pushContainerDiskAsReferrer(ctx, repoRef, artifactPath, destManifestDesc, statusUpdater, log)
 	}
 
 	// Determine media type based on format
@@ -1111,18 +1197,157 @@ func (c *Consumer) pushArtifact(
 	return nil
 }
 
+// pushContainerDiskAsReferrer pushes a container disk image from OCI directory as a referrer
+// to the original bootc image. This creates a proper OCI Image Manifest with subject field.
+// The manifest is pushed without a tag - it's discoverable only via the referrers API.
+func (c *Consumer) pushContainerDiskAsReferrer(
+	ctx context.Context,
+	repoRef *remote.Repository,
+	ociDirPath string,
+	subjectDesc ocispec.Descriptor,
+	statusUpdater *imageExportStatusUpdater,
+	log logrus.FieldLogger,
+) error {
+	log.WithFields(logrus.Fields{
+		"ociDir":        ociDirPath,
+		"subjectDigest": subjectDesc.Digest.String(),
+	}).Info("Pushing container disk image as OCI image referrer")
+	statusUpdater.reportOutput([]byte(fmt.Sprintf("Pushing container disk image as referrer to %s\n", subjectDesc.Digest.String())))
+
+	// Read index.json from OCI directory
+	indexPath := filepath.Join(ociDirPath, "index.json")
+	indexData, err := os.ReadFile(indexPath)
+	if err != nil {
+		return fmt.Errorf("failed to read OCI index.json: %w", err)
+	}
+
+	var index ocispec.Index
+	if err := json.Unmarshal(indexData, &index); err != nil {
+		return fmt.Errorf("failed to parse OCI index.json: %w", err)
+	}
+
+	if len(index.Manifests) == 0 {
+		return fmt.Errorf("OCI index.json contains no manifests")
+	}
+
+	// Get the first manifest descriptor
+	manifestDesc := index.Manifests[0]
+	log.WithField("manifestDigest", manifestDesc.Digest.String()).Debug("Found manifest in OCI index")
+
+	// Read the manifest from blobs
+	manifestPath := filepath.Join(ociDirPath, "blobs", manifestDesc.Digest.Algorithm().String(), manifestDesc.Digest.Encoded())
+	manifestData, err := os.ReadFile(manifestPath)
+	if err != nil {
+		return fmt.Errorf("failed to read manifest blob: %w", err)
+	}
+
+	var manifest ocispec.Manifest
+	if err := json.Unmarshal(manifestData, &manifest); err != nil {
+		return fmt.Errorf("failed to parse manifest: %w", err)
+	}
+
+	statusUpdater.reportOutput([]byte(fmt.Sprintf("Found %d layers and config in OCI image\n", len(manifest.Layers))))
+
+	// Push config blob
+	log.Debug("Pushing config blob")
+	statusUpdater.reportOutput([]byte(fmt.Sprintf("Pushing config blob (%d bytes)...\n", manifest.Config.Size)))
+	if err := c.pushBlobFromOCIDirWithProgress(ctx, repoRef, ociDirPath, manifest.Config, "config", statusUpdater); err != nil {
+		return fmt.Errorf("failed to push config blob: %w", err)
+	}
+
+	// Push layer blobs with progress tracking
+	for i, layer := range manifest.Layers {
+		log.WithField("layer", i).Debug("Pushing layer blob")
+		statusUpdater.reportOutput([]byte(fmt.Sprintf("Pushing layer %d/%d (%d bytes)...\n", i+1, len(manifest.Layers), layer.Size)))
+		layerName := fmt.Sprintf("layer %d/%d", i+1, len(manifest.Layers))
+		if err := c.pushBlobFromOCIDirWithProgress(ctx, repoRef, ociDirPath, layer, layerName, statusUpdater); err != nil {
+			return fmt.Errorf("failed to push layer blob %d: %w", i, err)
+		}
+	}
+
+	statusUpdater.reportOutput([]byte("All blobs pushed, creating OCI image manifest with subject\n"))
+
+	// Create OCI Image Manifest with subject field using PackManifestVersion1_1
+	// When ConfigDescriptor is provided, PackManifestVersion1_1 creates an OCI Image Manifest
+	// (not an Artifact Manifest), which is pullable by kubevirt as a container image
+	packOpts := oras.PackManifestOptions{
+		Subject:          &subjectDesc, // Links to original bootc image for referrers API
+		Layers:           manifest.Layers,
+		ConfigDescriptor: &manifest.Config, // This makes it an OCI Image Manifest (not Artifact)
+		ManifestAnnotations: map[string]string{
+			ocispec.AnnotationTitle: "containerdisk",
+		},
+	}
+
+	// Use PackManifestVersion1_1 which supports subject field
+	// Set artifact type for KubeVirt container disk discovery
+	const containerDiskArtifactType = "application/vnd.kubevirt.containerdisk"
+	newManifestDesc, err := oras.PackManifest(ctx, repoRef, oras.PackManifestVersion1_1, containerDiskArtifactType, packOpts)
+	if err != nil {
+		return fmt.Errorf("failed to pack OCI image manifest: %w", err)
+	}
+
+	referrerManifestDigest := newManifestDesc.Digest.String()
+	statusUpdater.reportOutput([]byte(fmt.Sprintf("Successfully created OCI image manifest: %s\n", referrerManifestDigest)))
+
+	// Set the referrer manifest digest in the status
+	statusUpdater.setManifestDigest(referrerManifestDigest)
+
+	log.WithFields(logrus.Fields{
+		"manifestDigest": referrerManifestDigest,
+		"subjectDigest":  subjectDesc.Digest.String(),
+	}).Info("Successfully pushed container disk as OCI image referrer (discoverable via referrers API 1.1)")
+
+	statusUpdater.reportOutput([]byte("Successfully pushed container disk as OCI image referrer\n"))
+	statusUpdater.reportOutput([]byte(fmt.Sprintf("Referrer manifest digest: %s\n", referrerManifestDigest)))
+	statusUpdater.reportOutput([]byte(fmt.Sprintf("Subject digest: %s\n", subjectDesc.Digest.String())))
+
+	return nil
+}
+
+// pushBlobFromOCIDirWithProgress pushes a blob from an OCI directory to the remote repository
+// with progress tracking similar to artifact push
+func (c *Consumer) pushBlobFromOCIDirWithProgress(
+	ctx context.Context,
+	repoRef *remote.Repository,
+	ociDirPath string,
+	desc ocispec.Descriptor,
+	blobName string,
+	statusUpdater *imageExportStatusUpdater,
+) error {
+	blobPath := filepath.Join(ociDirPath, "blobs", desc.Digest.Algorithm().String(), desc.Digest.Encoded())
+	blobFile, err := os.Open(blobPath)
+	if err != nil {
+		return fmt.Errorf("failed to open blob file: %w", err)
+	}
+	defer blobFile.Close()
+
+	// Create a progress-tracking reader that reports progress during push
+	progressReader := newProgressReader(blobFile, desc.Size, func(bytesRead int64, totalBytes int64) {
+		percent := float64(bytesRead) / float64(totalBytes) * 100
+		statusUpdater.reportOutput([]byte(fmt.Sprintf("Pushing %s: %d/%d bytes (%.1f%%)\n", blobName, bytesRead, totalBytes, percent)))
+	})
+
+	if err := repoRef.Push(ctx, desc, progressReader); err != nil {
+		return fmt.Errorf("failed to push blob: %w", err)
+	}
+
+	statusUpdater.reportOutput([]byte(fmt.Sprintf("Successfully pushed %s: %s\n", blobName, desc.Digest.String())))
+	return nil
+}
+
 // isImageBuildReady checks if an ImageBuild is ready (completed with image reference)
-func isImageBuildReady(imageBuild *api.ImageBuild) bool {
+func isImageBuildReady(imageBuild *domain.ImageBuild) bool {
 	if imageBuild.Status == nil || imageBuild.Status.Conditions == nil {
 		return false
 	}
 
-	readyCondition := api.FindImageBuildStatusCondition(*imageBuild.Status.Conditions, api.ImageBuildConditionTypeReady)
+	readyCondition := domain.FindImageBuildStatusCondition(*imageBuild.Status.Conditions, domain.ImageBuildConditionTypeReady)
 	if readyCondition == nil {
 		return false
 	}
 
-	if readyCondition.Reason != string(api.ImageBuildConditionReasonCompleted) {
+	if readyCondition.Reason != string(domain.ImageBuildConditionReasonCompleted) {
 		return false
 	}
 

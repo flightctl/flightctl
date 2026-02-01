@@ -17,6 +17,8 @@ type StaticAuthZ struct {
 }
 
 // Resource permissions based on K8s RBAC roles
+// Note: When a specific resource entry exists, it takes precedence over the wildcard "*".
+// An empty permission list (e.g., "resource": {}) explicitly denies access to that resource.
 var resourcePermissions = map[string]map[string][]string{
 	v1beta1.RoleOrgAdmin: {
 		"*": {"*"}, // Org admin has access to all resources and all operations within their organization
@@ -25,20 +27,30 @@ var resourcePermissions = map[string]map[string][]string{
 		"*": {"*"}, // Admin has access to all resources and all operations
 	},
 	v1beta1.RoleOperator: {
-		"devices":       {"create", "update", "patch", "delete"},
-		"fleets":        {"create", "update", "patch", "delete"},
-		"resourcesyncs": {"create", "update", "patch", "delete"},
-		"repositories":  {"create", "update", "patch", "delete"},
-		"*":             {"get", "list"},
+		// Operator has full CRUD on these resources (specific entries override wildcard)
+		"devices":               {"get", "list", "create", "update", "patch", "delete"},
+		"fleets":                {"get", "list", "create", "update", "patch", "delete"},
+		"resourcesyncs":         {"get", "list", "create", "update", "patch", "delete"},
+		"repositories":          {"get", "list", "create", "update", "patch", "delete"},
+		"imagebuilds":           {"get", "list", "create", "update", "patch", "delete"},
+		"imagebuilds/cancel":    {"update"},
+		"imageexports":          {"get", "list", "create", "update", "patch", "delete"},
+		"imageexports/cancel":   {"update"},
+		"imageexports/download": {"get"},
+		"*":                     {"get", "list"}, // Default read access for other resources
 	},
 	v1beta1.RoleViewer: {
-		"*": {"get", "list"},
+		"*":                     {"get", "list"}, // Default read access to all resources
+		"imageexports/download": {},              // Explicitly denied - empty list overrides wildcard
 	},
 	v1beta1.RoleInstaller: {
 		"enrollmentrequests":          {"get", "list"},
 		"enrollmentrequests/approval": {"update"},
 		"organizations":               {"get", "list"},
 		"certificatesigningrequests":  {"get", "list", "create", "update"},
+		"imagebuilds":                 {"get", "list"}, // Installer can view available builds
+		"imageexports":                {"get", "list"}, // Installer can view available exports
+		"imageexports/download":       {"get"},         // Installer can download images/artifacts for installation
 	},
 }
 
@@ -85,22 +97,31 @@ func (s StaticAuthZ) CheckPermission(ctx context.Context, resource string, op st
 	// Check if any of the user's roles in this org grant the required permission
 	for _, role := range roles {
 		if permissions, exists := resourcePermissions[role]; exists {
-			// First check for wildcard resource (*) - gives access to all resources
-			if resourcePerms, exists := permissions["*"]; exists {
+			// First check for specific resource - if it exists, it takes precedence over wildcard
+			// This allows explicit denials via empty permission lists
+			if resourcePerms, exists := permissions[resource]; exists {
+				// If the resource has an empty permission list, it's an explicit denial - skip to next role
+				if len(resourcePerms) == 0 {
+					s.log.Debugf("StaticAuthZ: permission explicitly denied for user=%s, role=%s, org=%s, resource=%s, op=%s",
+						mappedIdentity.GetUsername(), role, orgID, resource, op)
+					continue
+				}
 				for _, allowedOp := range resourcePerms {
 					if allowedOp == "*" || allowedOp == op {
-						s.log.Debugf("StaticAuthZ: permission granted via wildcard resource for user=%s, role=%s, org=%s, resource=%s, op=%s",
+						s.log.Debugf("StaticAuthZ: permission granted for user=%s, role=%s, org=%s, resource=%s, op=%s",
 							mappedIdentity.GetUsername(), role, orgID, resource, op)
 						return true, nil
 					}
 				}
+				// Specific resource entry exists but doesn't grant the operation - continue to check other roles
+				continue
 			}
 
-			// Then check for specific resource
-			if resourcePerms, exists := permissions[resource]; exists {
+			// No specific resource entry - check for wildcard resource (*) - gives access to all resources
+			if resourcePerms, exists := permissions["*"]; exists {
 				for _, allowedOp := range resourcePerms {
 					if allowedOp == "*" || allowedOp == op {
-						s.log.Debugf("StaticAuthZ: permission granted for user=%s, role=%s, org=%s, resource=%s, op=%s",
+						s.log.Debugf("StaticAuthZ: permission granted via wildcard resource for user=%s, role=%s, org=%s, resource=%s, op=%s",
 							mappedIdentity.GetUsername(), role, orgID, resource, op)
 						return true, nil
 					}

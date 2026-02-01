@@ -5,10 +5,11 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
+	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
-	"github.com/flightctl/flightctl/internal/quadlet"
 	"github.com/flightctl/flightctl/pkg/log"
 )
 
@@ -58,7 +59,7 @@ func (e *embeddedQuadletBehavior) Install(ctx context.Context) error {
 		return fmt.Errorf("copying embedded directory to real path: %w", err)
 	}
 
-	if err := installQuadlet(e.rw, e.log, e.AppPath(), e.ID()); err != nil {
+	if err := installQuadlet(e.rw, e.log, e.AppPath(), quadletSystemdTargetPath(v1beta1.RootUsername, e.ID()), e.ID()); err != nil {
 		return fmt.Errorf("installing quadlet: %w", err)
 	}
 
@@ -71,18 +72,18 @@ func (e *embeddedQuadletBehavior) Install(ctx context.Context) error {
 }
 
 func (e *embeddedQuadletBehavior) Remove(ctx context.Context) error {
-	path := filepath.Join(lifecycle.QuadletTargetPath, quadlet.NamespaceResource(e.ID(), lifecycle.QuadletTargetName))
+	path := quadletSystemdTargetPath(v1beta1.RootUsername, e.ID())
 	if err := e.rw.RemoveFile(path); err != nil {
 		return fmt.Errorf("removing quadlet target file: %w", err)
 	}
 	if err := e.rw.RemoveAll(e.AppPath()); err != nil {
-		return fmt.Errorf("removing application: %w", err)
+		return fmt.Errorf("%w: %w", errors.ErrRemovingApplication, err)
 	}
 	return nil
 }
 
 func (e *embeddedQuadletBehavior) AppPath() string {
-	return filepath.Join(lifecycle.QuadletAppPath, e.name)
+	return filepath.Join(lifecycle.RootfulQuadletAppPath, e.name)
 }
 
 func (e *embeddedQuadletBehavior) embeddedPath() string {
@@ -90,7 +91,7 @@ func (e *embeddedQuadletBehavior) embeddedPath() string {
 }
 
 func (e *embeddedQuadletBehavior) ID() string {
-	return client.NewComposeID(e.name)
+	return lifecycle.GenerateAppID(e.name, v1beta1.CurrentProcessUsername)
 }
 
 func (e *embeddedQuadletBehavior) Volumes() ([]*Volume, error) {
@@ -126,7 +127,7 @@ func (e *embeddedComposeBehavior) AppPath() string {
 }
 
 func (e *embeddedComposeBehavior) ID() string {
-	return client.NewComposeID(e.name)
+	return lifecycle.GenerateAppID(e.name, v1beta1.CurrentProcessUsername)
 }
 func (e *embeddedComposeBehavior) Volumes() ([]*Volume, error) {
 	return nil, nil

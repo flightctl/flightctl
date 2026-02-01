@@ -252,6 +252,129 @@ paths:
             application/json:
               schema:
                 $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+  /api/v1/imagebuilds/{name}/log:
+    get:
+      tags:
+        - imagebuild
+      description: Get logs for an ImageBuild resource. For active builds, streams logs live. For completed builds, returns last 500 lines.
+      operationId: getImageBuildLog
+      parameters:
+        - name: name
+          in: path
+          description: The name of the ImageBuild resource.
+          required: true
+          schema:
+            type: string
+        - name: follow
+          in: query
+          description: If true, stream logs continuously (like kubectl logs -f). For active builds, keeps connection open. For completed builds, returns all logs and closes.
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "200":
+          description: OK
+          content:
+            text/plain:
+              schema:
+                type: string
+                description: Log output as plain text (when follow=false or for completed builds)
+            text/event-stream:
+              schema:
+                type: string
+                description: Log output as Server-Sent Events stream (when follow=true for active builds)
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+  /api/v1/imagebuilds/{name}/cancel:
+    post:
+      tags:
+        - imagebuild
+      description: Cancel a running ImageBuild. Only builds in Pending, Building, or Pushing state can be canceled.
+      operationId: cancelImageBuild
+      parameters:
+        - name: name
+          in: path
+          description: The name of the ImageBuild resource to cancel.
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImageBuild'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+        "409":
+          description: Conflict - Build not in cancelable state
+          content:
+            application/json:
+              schema:
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
   /api/v1/imageexports:
     get:
       tags:
@@ -470,6 +593,204 @@ paths:
             application/json:
               schema:
                 $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+  /api/v1/imageexports/{name}/cancel:
+    post:
+      tags:
+        - imageexport
+      description: Cancel a running ImageExport. Only exports in Pending, Converting, or Pushing state can be canceled.
+      operationId: cancelImageExport
+      parameters:
+        - name: name
+          in: path
+          description: The name of the ImageExport resource to cancel.
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImageExport'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+        "409":
+          description: Conflict - Export not in cancelable state
+          content:
+            application/json:
+              schema:
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+  /api/v1/imageexports/{name}/download:
+    get:
+      tags:
+        - imageexport
+      description: Download an ImageExport artifact from the registry.
+      operationId: downloadImageExport
+      parameters:
+        - name: name
+          in: path
+          description: The name of the ImageExport resource.
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK - Artifact blob content
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "302":
+          description: Found - Redirect to registry blob URL
+          headers:
+            Location:
+              schema:
+                type: string
+        "307":
+          description: Temporary Redirect - Redirect to registry blob URL
+          headers:
+            Location:
+              schema:
+                type: string
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+        "500":
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+  /api/v1/imageexports/{name}/log:
+    get:
+      tags:
+        - imageexport
+      description: Get logs for an ImageExport resource. For active exports, streams logs live. For completed exports, returns last 500 lines.
+      operationId: getImageExportLog
+      parameters:
+        - name: name
+          in: path
+          description: The name of the ImageExport resource.
+          required: true
+          schema:
+            type: string
+        - name: follow
+          in: query
+          description: If true, stream logs continuously (like kubectl logs -f). For active exports, keeps connection open. For completed exports, returns all logs and closes.
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "200":
+          description: OK
+          content:
+            text/plain:
+              schema:
+                type: string
+                description: Log output as plain text (when follow=false or for completed exports)
+            text/event-stream:
+              schema:
+                type: string
+                description: Log output as Server-Sent Events stream (when follow=true for active exports)
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
 components:
   securitySchemes:
     bearerAuth:
@@ -541,6 +862,8 @@ components:
           $ref: '#/components/schemas/ImageBuildDestination'
         binding:
           $ref: '#/components/schemas/ImageBuildBinding'
+        userConfiguration:
+          $ref: '#/components/schemas/ImageBuildUserConfiguration'
       required:
         - source
         - destination
@@ -574,13 +897,13 @@ components:
         imageName:
           type: string
           description: The name of the output image.
-        tag:
+        imageTag:
           type: string
           description: The tag of the output image.
       required:
         - repository
         - imageName
-        - tag
+        - imageTag
 
     ImageBuildBinding:
       description: ImageBuildBinding specifies binding configuration for the build.
@@ -592,6 +915,20 @@ components:
         mapping:
           early: '#/components/schemas/EarlyBinding'
           late: '#/components/schemas/LateBinding'
+
+    ImageBuildUserConfiguration:
+      type: object
+      description: ImageBuildUserConfiguration specifies user configuration for the build.
+      properties:
+        username:
+          type: string
+          description: The username for the user configuration.
+        publickey:
+          type: string
+          description: The public key for the user configuration.
+      required:
+        - username
+        - publickey
 
     EarlyBinding:
       type: object
@@ -674,12 +1011,16 @@ components:
         - Pushing
         - Completed
         - Failed
+        - Canceling
+        - Canceled
       x-enum-varnames:
         - ImageBuildConditionReasonPending
         - ImageBuildConditionReasonBuilding
         - ImageBuildConditionReasonPushing
         - ImageBuildConditionReasonCompleted
         - ImageBuildConditionReasonFailed
+        - ImageBuildConditionReasonCanceling
+        - ImageBuildConditionReasonCanceled
     # ImageExport schemas
     ImageExport:
       type: object
@@ -732,28 +1073,20 @@ components:
       properties:
         source:
           $ref: '#/components/schemas/ImageExportSource'
-        destination:
-          $ref: '#/components/schemas/ImageExportDestination'
         format:
           $ref: '#/components/schemas/ExportFormatType'
-        tagSuffix:
-          type: string
-          description: Optional suffix to append to the output tag for this format.
       required:
         - source
-        - destination
         - format
 
     ImageExportSource:
       description: ImageExportSource specifies the source image for the export.
       oneOf:
         - $ref: '#/components/schemas/ImageBuildRefSource'
-        - $ref: '#/components/schemas/ImageReferenceSource'
       discriminator:
         propertyName: type
         mapping:
           imageBuild: '#/components/schemas/ImageBuildRefSource'
-          imageReference: '#/components/schemas/ImageReferenceSource'
 
     ImageBuildRefSource:
       type: object
@@ -770,56 +1103,14 @@ components:
           type: string
           description: The name of the ImageBuild resource to use as source.
 
-    ImageReferenceSource:
-      type: object
-      description: ImageReferenceSource specifies a source image from a repository.
-      required:
-        - type
-        - repository
-        - imageName
-        - imageTag
-      properties:
-        type:
-          type: string
-          enum: [imageReference]
-          description: The type of source.
-        repository:
-          type: string
-          description: The name of the Repository resource containing the source image.
-        imageName:
-          type: string
-          description: The name of the source image.
-        imageTag:
-          type: string
-          description: The tag of the source image.
-
     ImageExportSourceType:
       type: string
       description: The type of source for the image export.
       enum:
         - imageBuild
-        - imageReference
       x-enum-varnames:
         - ImageExportSourceTypeImageBuild
-        - ImageExportSourceTypeImageReference
 
-    ImageExportDestination:
-      type: object
-      description: ImageExportDestination specifies the destination for the exported images.
-      properties:
-        repository:
-          type: string
-          description: The name of the Repository resource to push the exported images to.
-        imageName:
-          type: string
-          description: The name of the destination image.
-        tag:
-          type: string
-          description: The base tag for the destination images.
-      required:
-        - repository
-        - imageName
-        - tag
     ExportFormatType:
       type: string
       description: The type of format to export the image to.
@@ -827,10 +1118,12 @@ components:
         - vmdk
         - qcow2
         - iso
+        - qcow2-disk-container
       x-enum-varnames:
         - ExportFormatTypeVMDK
         - ExportFormatTypeQCOW2
         - ExportFormatTypeISO
+        - ExportFormatTypeQCOW2DiskContainer
 
     ImageExportStatus:
       type: object
@@ -875,12 +1168,16 @@ components:
         - Pushing
         - Completed
         - Failed
+        - Canceling
+        - Canceled
       x-enum-varnames:
         - ImageExportConditionReasonPending
         - ImageExportConditionReasonConverting
         - ImageExportConditionReasonPushing
         - ImageExportConditionReasonCompleted
         - ImageExportConditionReasonFailed
+        - ImageExportConditionReasonCanceling
+        - ImageExportConditionReasonCanceled
 
     ImageExportFormatPhase:
       type: string

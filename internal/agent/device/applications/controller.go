@@ -7,31 +7,35 @@ import (
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
+	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/log"
 )
 
 type Controller struct {
-	podman     *client.Podman
-	readWriter fileio.ReadWriter
-	manager    Manager
-	log        *log.PrefixLogger
-	bootTime   string
+	podmanFactory client.PodmanFactory
+	clients       client.CLIClients
+	rwFactory     fileio.ReadWriterFactory
+	manager       Manager
+	log           *log.PrefixLogger
+	bootTime      string
 }
 
 func NewController(
-	podman *client.Podman,
+	podmanFactory client.PodmanFactory,
+	clients client.CLIClients,
 	manager Manager,
-	readWriter fileio.ReadWriter,
+	rwFactory fileio.ReadWriterFactory,
 	log *log.PrefixLogger,
 	bootTime string,
 ) *Controller {
 	return &Controller{
-		log:        log,
-		manager:    manager,
-		podman:     podman,
-		readWriter: readWriter,
-		bootTime:   bootTime,
+		log:           log,
+		manager:       manager,
+		podmanFactory: podmanFactory,
+		clients:       clients,
+		rwFactory:     rwFactory,
+		bootTime:      bootTime,
 	}
 }
 
@@ -42,25 +46,27 @@ func (c *Controller) Sync(ctx context.Context, current, desired *v1beta1.DeviceS
 	currentAppProviders, err := provider.FromDeviceSpec(
 		ctx,
 		c.log,
-		c.podman,
-		c.readWriter,
+		c.podmanFactory,
+		c.clients,
+		c.rwFactory,
 		current,
 		provider.WithInstalledEmbedded(),
 	)
 	if err != nil {
-		return fmt.Errorf("current app providers: %w", err)
+		return fmt.Errorf("current %w: %w", errors.ErrAppProviders, err)
 	}
 
 	desiredAppProviders, err := provider.FromDeviceSpec(
 		ctx,
 		c.log,
-		c.podman,
-		c.readWriter,
+		c.podmanFactory,
+		c.clients,
+		c.rwFactory,
 		desired,
 		provider.WithEmbedded(c.bootTime),
 	)
 	if err != nil {
-		return fmt.Errorf("desired app providers: %w", err)
+		return fmt.Errorf("desired %w: %w", errors.ErrAppProviders, err)
 	}
 
 	return syncProviders(ctx, c.log, c.manager, currentAppProviders, desiredAppProviders)

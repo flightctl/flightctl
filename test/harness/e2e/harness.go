@@ -75,7 +75,6 @@ import (
 	"github.com/flightctl/flightctl/test/harness/e2e/vm"
 	"github.com/flightctl/flightctl/test/util"
 	"github.com/google/go-cmp/cmp"
-	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	. "github.com/onsi/gomega"
@@ -84,6 +83,8 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	"sigs.k8s.io/yaml"
 )
+
+const fiveSecondTimeout = 5 * time.Second
 
 const POLLING = "250ms"
 const POLLINGLONG = "1s"
@@ -112,15 +113,16 @@ type Harness struct {
 	// Git repository management
 	gitRepos   map[string]string // map of repo name to repo path
 	gitWorkDir string            // working directory for git operations
+
+	// clientWrapper stores the Client wrapper for token refresh management
+	clientWrapper *client.Client
 }
 
-// GitServerConfig holds configuration for the git server
-type GitServerConfig struct {
-	Host     string
-	Port     int
-	User     string
-	Password string
-	SSHKey   string // path to SSH private key if using key auth
+// ResourceTestConfig represents a test configuration for resource operations
+// with different success expectations per resource group
+type ResourceTestConfig struct {
+	Resources     []string
+	ShouldSucceed bool
 }
 
 // findTopLevelDir is unused but kept for potential future use
@@ -212,6 +214,23 @@ func (h *Harness) ReadClientConfig(filePath string) (*client.Config, error) {
 	return client.ParseConfigFile(filePath)
 }
 
+// RefreshClient recreates the FlightCtl API client from the config file.
+// This is useful after login when the config file has been updated with new authentication or organization information.
+func (h *Harness) RefreshClient() error {
+	baseDir, err := client.DefaultFlightctlClientConfigPath()
+	if err != nil {
+		return fmt.Errorf("failed to get client config path: %w", err)
+	}
+
+	c, err := client.NewFromConfigFile(baseDir)
+	if err != nil {
+		return fmt.Errorf("failed to recreate client: %w", err)
+	}
+	h.Client = c.ClientWithResponses
+	logrus.Infof("Refreshed FlightCtl API client from config file")
+	return nil
+}
+
 // ExtractAuthURL extracts the authentication URL from an AuthProvider based on its type
 func ExtractAuthURL(provider *v1beta1.AuthProvider) string {
 	if provider == nil {
@@ -297,6 +316,11 @@ func (h *Harness) Cleanup(printConsole bool) {
 
 	diffTime := time.Since(h.startTime)
 	fmt.Printf("Test took %s\n", diffTime)
+
+	// Stop the client wrapper if it exists
+	if h.clientWrapper != nil {
+		h.clientWrapper.Stop()
+	}
 
 	// Cancel the context to stop any blocking operations
 	h.ctxCancel()
@@ -1041,6 +1065,56 @@ func (h *Harness) CheckRunningContainers() (string, error) {
 	return out.String(), nil
 }
 
+// StartPortForward starts a kubectl port-forward for a service or pod.
+func (h *Harness) StartPortForward(ctx context.Context, namespace, target string, localPort, remotePort int) (*exec.Cmd, <-chan error, error) {
+	// #nosec G204 -- command args are fixed and controlled in test.
+	cmd := exec.CommandContext(ctx, "kubectl", "port-forward",
+		"-n", namespace,
+		target,
+		fmt.Sprintf("%d:%d", localPort, remotePort),
+		"--address", "127.0.0.1",
+	)
+	cmd.Stdout = GinkgoWriter
+	cmd.Stderr = GinkgoWriter
+
+	if err := cmd.Start(); err != nil {
+		return nil, nil, err
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- cmd.Wait()
+	}()
+
+	return cmd, done, nil
+}
+
+// GetFreeLocalPort returns an available local TCP port.
+func (h *Harness) GetFreeLocalPort() (int, error) {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return 0, err
+	}
+	defer l.Close()
+	return l.Addr().(*net.TCPAddr).Port, nil
+}
+
+// GetOrganizationID returns the first organization ID from the API.
+func (h *Harness) GetOrganizationID() (string, error) {
+	resp, err := h.Client.ListOrganizationsWithResponse(h.Context, nil)
+	if err != nil {
+		return "", err
+	}
+	if resp.JSON200 == nil || len(resp.JSON200.Items) == 0 {
+		return "", fmt.Errorf("no organizations returned")
+	}
+	name := resp.JSON200.Items[0].Metadata.Name
+	if name == nil || *name == "" {
+		return "", fmt.Errorf("organization name is empty")
+	}
+	return *name, nil
+}
+
 func (h *Harness) CheckApplicationDirectoryExist(applicationName string) error {
 	_, err := h.VM.RunSSH([]string{"test", "-d", "/etc/compose/manifests/" + applicationName}, nil)
 	return err
@@ -1382,14 +1456,17 @@ func NewTestHarnessWithoutVM(ctx context.Context) (*Harness, error) {
 		return nil, fmt.Errorf("failed to get kubernetes cluster: %w", err)
 	}
 
+	c.Start(ctx)
+
 	// Create harness without VM first
 	return &Harness{
-		Client:    c,
-		Context:   ctx,
-		Cluster:   k8sCluster,
-		ctxCancel: cancel,
-		startTime: startTime,
-		VM:        nil,
+		Client:        c.ClientWithResponses,
+		Context:       ctx,
+		Cluster:       k8sCluster,
+		ctxCancel:     cancel,
+		startTime:     startTime,
+		VM:            nil,
+		clientWrapper: c,
 	}, nil
 
 }
@@ -1422,16 +1499,19 @@ func NewTestHarnessWithVMPool(ctx context.Context, workerID int) (*Harness, erro
 	err = os.MkdirAll(gitWorkDir, 0755)
 	Expect(err).ToNot(HaveOccurred())
 
+	c.Start(ctx)
+
 	// Create harness without VM first
 	harness := &Harness{
-		Client:     c,
-		Context:    ctx,
-		Cluster:    k8sCluster,
-		ctxCancel:  cancel,
-		startTime:  startTime,
-		VM:         nil,
-		gitRepos:   make(map[string]string),
-		gitWorkDir: gitWorkDir,
+		Client:        c.ClientWithResponses,
+		Context:       ctx,
+		Cluster:       k8sCluster,
+		ctxCancel:     cancel,
+		startTime:     startTime,
+		VM:            nil,
+		gitRepos:      make(map[string]string),
+		gitWorkDir:    gitWorkDir,
+		clientWrapper: c,
 	}
 
 	// Get VM from the pool (this should already exist from BeforeSuite)
@@ -1655,17 +1735,6 @@ func (h *Harness) SetLabelsForRepositoryMetadata(metadata *v1beta1.ObjectMeta, l
 	h.SetLabelsForResource(metadata, labels)
 }
 
-// GetGitServerConfig returns the configuration for the e2e git server
-func (h *Harness) GetGitServerConfig() GitServerConfig {
-	// Default configuration for the e2e git server
-	return GitServerConfig{
-		Host:     getEnvOrDefault("E2E_GIT_SERVER_HOST", "localhost"),
-		Port:     getEnvOrDefaultInt("E2E_GIT_SERVER_PORT", 3222),
-		User:     getEnvOrDefault("E2E_GIT_SERVER_USER", "user"),
-		Password: getEnvOrDefault("E2E_GIT_SERVER_PASSWORD", "user"),
-	}
-}
-
 func getEnvOrDefault(key, defaultValue string) string {
 	if value := os.Getenv(key); value != "" {
 		return value
@@ -1680,297 +1749,6 @@ func getEnvOrDefaultInt(key string, defaultValue int) int {
 		}
 	}
 	return defaultValue
-}
-
-// CreateGitRepositoryOnServer creates a new Git repository on the e2e git server
-func (h *Harness) CreateGitRepositoryOnServer(repoName string) error {
-	if repoName == "" {
-		return fmt.Errorf("repository name cannot be empty")
-	}
-
-	config := h.GetGitServerConfig()
-
-	// Use SSH to create the repository on the git server
-	createCmd := fmt.Sprintf("create-repo %s", repoName)
-	err := h.runGitServerSSHCommand(config, createCmd)
-	if err != nil {
-		return fmt.Errorf("failed to create git repository %s: %w", repoName, err)
-	}
-
-	// Store the repository name for cleanup
-	h.gitRepos[repoName] = fmt.Sprintf("ssh://%s@%s:%d/home/user/repos/%s.git",
-		config.User, config.Host, config.Port, repoName)
-
-	logrus.Infof("Created git repository: %s on git server", repoName)
-	return nil
-}
-
-// DeleteGitRepositoryOnServer deletes a Git repository from the e2e git server
-func (h *Harness) DeleteGitRepositoryOnServer(repoName string) error {
-	if repoName == "" {
-		return fmt.Errorf("repository name cannot be empty")
-	}
-
-	config := h.GetGitServerConfig()
-
-	// Use SSH to delete the repository on the git server
-	deleteCmd := fmt.Sprintf("delete-repo %s", repoName)
-	err := h.runGitServerSSHCommand(config, deleteCmd)
-	if err != nil {
-		return fmt.Errorf("failed to delete git repository %s: %w", repoName, err)
-	}
-
-	// Remove from our tracking
-	delete(h.gitRepos, repoName)
-
-	logrus.Infof("Deleted git repository: %s from git server", repoName)
-	return nil
-}
-
-// runGitServerSSHCommand executes a command on the git server via SSH
-func (h *Harness) runGitServerSSHCommand(config GitServerConfig, command string) error {
-	// #nosec G204 -- This is test code with controlled inputs from GitServerConfig
-	sshCmd := exec.Command("sshpass", "-e", "ssh",
-		"-p", fmt.Sprintf("%d", config.Port),
-		"-o", "UserKnownHostsFile=/dev/null",
-		"-o", "StrictHostKeyChecking=no",
-		"-o", "PubkeyAuthentication=no",
-		"-o", "LogLevel=ERROR",
-		fmt.Sprintf("%s@%s", config.User, config.Host),
-		command)
-	sshCmd.Env = append(os.Environ(), fmt.Sprintf("SSHPASS=%s", config.Password))
-
-	output, err := sshCmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("SSH command failed: %w, output: %s", err, string(output))
-	}
-
-	logrus.Debugf("SSH command executed successfully: %s", command)
-	return nil
-}
-
-// CloneGitRepositoryFromServer clones a repository from the git server to a local working directory
-func (h *Harness) CloneGitRepositoryFromServer(repoName, localPath string) error {
-	if repoName == "" {
-		return fmt.Errorf("repository name cannot be empty")
-	}
-	if localPath == "" {
-		return fmt.Errorf("local path cannot be empty")
-	}
-
-	config := h.GetGitServerConfig()
-	repoURL := fmt.Sprintf("ssh://%s@%s:%d/home/user/repos/%s.git",
-		config.User, config.Host, config.Port, repoName)
-
-	// Create parent directory if it doesn't exist
-	if err := os.MkdirAll(filepath.Dir(localPath), 0755); err != nil {
-		return fmt.Errorf("failed to create parent directory: %w", err)
-	}
-
-	// Use sshpass for authentication when cloning
-	// #nosec G204 -- This is test code with controlled inputs from GitServerConfig
-	cloneCmd := exec.Command("sshpass", "-e", "git", "clone", repoURL, localPath)
-	cloneCmd.Env = append(os.Environ(),
-		"SSHPASS="+config.Password,
-		"GIT_SSH_COMMAND=sshpass -e ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -o PubkeyAuthentication=no")
-
-	if output, err := cloneCmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to clone repository %s to %s: %w, output: %s", repoURL, localPath, err, string(output))
-	}
-
-	logrus.Infof("Cloned git repository %s to %s", repoName, localPath)
-	return nil
-}
-
-// PushContentToGitServerRepo pushes content to a git repository on the server
-func (h *Harness) PushContentToGitServerRepo(repoName, filePath, content, commitMessage string) error {
-	if repoName == "" {
-		return fmt.Errorf("repository name cannot be empty")
-	}
-	if filePath == "" {
-		return fmt.Errorf("file path cannot be empty")
-	}
-	if commitMessage == "" {
-		commitMessage = "Add content via test harness"
-	}
-
-	// Create a temporary working directory
-	workDir := filepath.Join(h.gitWorkDir, "temp-"+uuid.New().String())
-	defer os.RemoveAll(workDir)
-
-	// Clone the repository
-	if err := h.CloneGitRepositoryFromServer(repoName, workDir); err != nil {
-		return fmt.Errorf("failed to clone repository for push: %w", err)
-	}
-
-	// Write content to file
-	fullFilePath := filepath.Join(workDir, filePath)
-	if err := os.MkdirAll(filepath.Dir(fullFilePath), 0755); err != nil {
-		return fmt.Errorf("failed to create directory for file: %w", err)
-	}
-
-	if err := os.WriteFile(fullFilePath, []byte(content), 0600); err != nil {
-		return fmt.Errorf("failed to write content to file: %w", err)
-	}
-
-	// Git operations with authentication
-	config := h.GetGitServerConfig()
-	gitEnv := append(os.Environ(),
-		"GIT_SSH_COMMAND=sshpass -e ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -o PubkeyAuthentication=no",
-		"SSHPASS="+config.Password,
-		"GIT_AUTHOR_NAME=Test Harness",
-		"GIT_AUTHOR_EMAIL=test@flightctl.dev",
-		"GIT_COMMITTER_NAME=Test Harness",
-		"GIT_COMMITTER_EMAIL=test@flightctl.dev",
-	)
-
-	gitCmds := [][]string{
-		{"git", "add", filePath},
-		{"git", "commit", "-m", commitMessage},
-		{"git", "push", "origin", "main"},
-	}
-
-	for _, gitCmd := range gitCmds {
-		// #nosec G204 -- This is test code with controlled git commands (add, commit, push)
-		cmd := exec.Command(gitCmd[0], gitCmd[1:]...)
-		cmd.Dir = workDir
-		cmd.Env = gitEnv
-
-		if output, err := cmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("failed to execute git command %v: %w, output: %s", gitCmd, err, string(output))
-		}
-	}
-
-	logrus.Infof("Pushed content to git repository %s, file: %s", repoName, filePath)
-	return nil
-}
-
-// CreateRepository creates a Repository resource pointing to the git server repository
-func (h *Harness) CreateGitRepository(repoName string, repositorySpec v1beta1.RepositorySpec) error {
-	if repoName == "" {
-		return fmt.Errorf("repository name cannot be empty")
-	}
-
-	// First create the git repository on the server
-	if err := h.CreateGitRepositoryOnServer(repoName); err != nil {
-		return fmt.Errorf("failed to create git repository on server: %w", err)
-	}
-
-	// Create the Repository resource
-	repository := v1beta1.Repository{
-		ApiVersion: v1beta1.RepositoryAPIVersion,
-		Kind:       v1beta1.RepositoryKind,
-		Metadata: v1beta1.ObjectMeta{
-			Name: &repoName,
-		},
-		Spec: repositorySpec,
-	}
-
-	_, err := h.Client.CreateRepositoryWithResponse(h.Context, repository)
-	if err != nil {
-		// Clean up the git repository if Repository resource creation fails
-		if cleanupErr := h.DeleteGitRepositoryOnServer(repoName); cleanupErr != nil {
-			logrus.Errorf("failed to delete git repository %s: %v", repoName, cleanupErr)
-		}
-		return fmt.Errorf("failed to create Repository resource: %w", err)
-	}
-
-	logrus.Infof("Created Repository resource %s", repoName)
-	return nil
-}
-
-// UpdateGitServerRepository updates content in an existing git repository working directory
-func (h *Harness) UpdateGitServerRepository(repoName, filePath, content, commitMessage string) error {
-	if repoName == "" {
-		return fmt.Errorf("repository name cannot be empty")
-	}
-	if filePath == "" {
-		return fmt.Errorf("file path cannot be empty")
-	}
-	if commitMessage == "" {
-		commitMessage = "Update content via test harness"
-	}
-
-	return h.PushContentToGitServerRepo(repoName, filePath, content, commitMessage)
-}
-
-// CreateResourceSync creates a ResourceSync resource that points to a git repository
-func (h *Harness) CreateResourceSync(name, repoName string, spec v1beta1.ResourceSyncSpec) error {
-	if name == "" {
-		return fmt.Errorf("ResourceSync name cannot be empty")
-	}
-	if repoName == "" {
-		return fmt.Errorf("repository name cannot be empty")
-	}
-
-	// Set the repository name in the spec if not already set
-	if spec.Repository == "" {
-		spec.Repository = repoName
-	}
-
-	resourceSync := v1beta1.ResourceSync{
-		ApiVersion: v1beta1.ResourceSyncAPIVersion,
-		Kind:       v1beta1.ResourceSyncKind,
-		Metadata: v1beta1.ObjectMeta{
-			Name: &name,
-		},
-		Spec: spec,
-	}
-
-	_, err := h.Client.CreateResourceSyncWithResponse(h.Context, resourceSync)
-	if err != nil {
-		return fmt.Errorf("failed to create ResourceSync: %w", err)
-	}
-
-	logrus.Infof("Created ResourceSync %s pointing to repository %s", name, repoName)
-	return nil
-}
-
-// ReplaceResourceSync replaces an existing ResourceSync resource
-func (h *Harness) ReplaceResourceSync(name, repoName string, spec v1beta1.ResourceSyncSpec) error {
-	if name == "" {
-		return fmt.Errorf("ResourceSync name cannot be empty")
-	}
-	if repoName == "" {
-		return fmt.Errorf("repository name cannot be empty")
-	}
-
-	// Set the repository name in the spec if not already set
-	if spec.Repository == "" {
-		spec.Repository = repoName
-	}
-
-	resourceSync := v1beta1.ResourceSync{
-		ApiVersion: v1beta1.ResourceSyncAPIVersion,
-		Kind:       v1beta1.ResourceSyncKind,
-		Metadata: v1beta1.ObjectMeta{
-			Name: &name,
-		},
-		Spec: spec,
-	}
-
-	_, err := h.Client.ReplaceResourceSyncWithResponse(h.Context, name, resourceSync)
-	if err != nil {
-		return fmt.Errorf("failed to replace ResourceSync: %w", err)
-	}
-
-	logrus.Infof("Replaced ResourceSync %s pointing to repository %s", name, repoName)
-	return nil
-}
-
-// DeleteResourceSync deletes the specified ResourceSync
-func (h *Harness) DeleteResourceSync(name string) error {
-	if name == "" {
-		return fmt.Errorf("ResourceSync name cannot be empty")
-	}
-
-	_, err := h.Client.DeleteResourceSync(h.Context, name)
-	if err != nil {
-		return fmt.Errorf("failed to delete ResourceSync: %w", err)
-	}
-
-	logrus.Infof("Deleted ResourceSync %s", name)
-	return nil
 }
 
 // CreateFleetConfigInGitRepo creates a fleet configuration and pushes it to a git repository
@@ -2100,6 +1878,28 @@ func (h *Harness) CreateGitRepositoryWithContent(repoName, filePath, content str
 		}
 	}
 
+	return nil
+}
+
+// ChangeK8sNamespace changes the current Kubernetes namespace
+func (h *Harness) ChangeK8sNamespace(namespace string) error {
+	if util.BinaryExistsOnPath("oc") {
+		// Use oc project for OpenShift
+		cmd := exec.Command("oc", "project", namespace)
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("failed to change namespace to %s: %v, output: %s", namespace, err, string(output))
+		}
+		GinkgoWriter.Printf("Changed namespace to %s using oc project\n", namespace)
+		return nil
+	}
+	// Use kubectl for regular Kubernetes
+	cmd := exec.Command("kubectl", "config", "set-context", "--current", "--namespace", namespace)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to change namespace to %s: %v, output: %s", namespace, err, string(output))
+	}
+	GinkgoWriter.Printf("Changed namespace to %s using kubectl\n", namespace)
 	return nil
 }
 
@@ -2247,6 +2047,19 @@ func ExecuteResourceOperations(ctx context.Context, harness *Harness, resourceTy
 	return nil
 }
 
+// TestResourceOperations tests multiple resource groups with different success expectations.
+// It iterates through testConfigs and calls ExecuteResourceOperations for each group.
+func TestResourceOperations(ctx context.Context, harness *Harness, operations []string, testConfigs []ResourceTestConfig, testLabels *map[string]string, namespace string) error {
+	GinkgoWriter.Println("Testing resource operations in namespace:", namespace)
+	for _, config := range testConfigs {
+		err := ExecuteResourceOperations(ctx, harness, config.Resources, config.ShouldSucceed, testLabels, namespace, operations)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // executeResourceOperation handles a single operation for a resource type
 func executeResourceOperation(harness *Harness, operation, resourceType string, resourceName *string, resourceData *[]byte, shouldSucceed bool, testLabels *map[string]string) error {
 	var output string
@@ -2295,8 +2108,8 @@ func validateResourceOperationResult(operationName, resourceType, output string,
 		if err == nil {
 			return fmt.Errorf("%s %s should fail but succeeded", operationName, resourceType)
 		}
-		if !strings.Contains(output, "403") {
-			return fmt.Errorf("%s %s should fail with error code 403, got: %s", operationName, resourceType, output)
+		if !strings.Contains(output, strconv.Itoa(util.HTTP_403_ERROR)) {
+			return fmt.Errorf("%s %s should fail with error code %s, got: %s", operationName, resourceType, strconv.Itoa(util.HTTP_403_ERROR), output)
 		}
 	}
 	return nil

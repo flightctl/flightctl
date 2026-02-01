@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/executer"
@@ -94,6 +95,32 @@ type Podman struct {
 	timeout    time.Duration
 	readWriter fileio.ReadWriter
 	backoff    poll.Config
+}
+
+// PodmanFactory creates a podman client. A blank username means to use the process user.
+type PodmanFactory func(user v1beta1.Username) (*Podman, error)
+
+func NewPodmanFactory(log *log.PrefixLogger, backoff poll.Config, rwFactory fileio.ReadWriterFactory) PodmanFactory {
+	return func(username v1beta1.Username) (*Podman, error) {
+		readWriter, err := rwFactory(username)
+		if err != nil {
+			return nil, err
+		}
+
+		exec, err := ExecuterForUser(username)
+		if err != nil {
+			return nil, err
+		}
+
+		log.Debugf("Creating podman client for user %s", username)
+
+		return NewPodman(
+			log,
+			exec,
+			readWriter,
+			backoff,
+		), nil
+	}
 }
 
 func NewPodman(log *log.PrefixLogger, exec executer.Executer, readWriter fileio.ReadWriter, backoff poll.Config) *Podman {

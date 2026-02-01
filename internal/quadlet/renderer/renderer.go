@@ -46,6 +46,7 @@ type RendererConfig struct {
 	QuadletFilesOutputDir    string `mapstructure:"quadlet-dir"`
 	SystemdUnitOutputDir     string `mapstructure:"systemd-dir"`
 	BinOutputDir             string `mapstructure:"bin-dir"`
+	VarTmpOutputDir          string `mapstructure:"var-tmp-dir"`
 
 	// Source directories for binary search
 	BinSourceDirs []string `mapstructure:"bin-source-dirs"`
@@ -77,6 +78,7 @@ func NewRendererConfig() *RendererConfig {
 		QuadletFilesOutputDir:    "/usr/share/containers/systemd",
 		SystemdUnitOutputDir:     "/usr/lib/systemd/system",
 		BinOutputDir:             "/usr/bin",
+		VarTmpOutputDir:          "/var/tmp",
 	}
 }
 
@@ -276,6 +278,8 @@ func (config *RendererConfig) ApplyFlightctlServicesTagOverride(log logrus.Field
 	config.AlertmanagerProxy.Tag = tag
 	config.PamIssuer.Tag = tag
 	config.DbSetup.Tag = tag
+	config.ImagebuilderApi.Tag = tag
+	config.ImagebuilderWorker.Tag = tag
 
 	if config.FlightctlUiTagOverride {
 		// For release builds, UI tag must be overridden

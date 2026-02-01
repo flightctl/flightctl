@@ -17,9 +17,9 @@ Flight Control API server validates Kubernetes service account tokens by:
 Flight Control provides the following standard ClusterRoles out-of-the-box:
 
 - **`flightctl-admin-<namespace>`** - Full access to all Flight Control resources
-- **`flightctl-operator-<namespace>`** - CRUD operations on devices, fleets, resourcesyncs, repositories
-- **`flightctl-viewer-<namespace>`** - Read-only access to devices, fleets, resourcesyncs, organizations
-- **`flightctl-installer-<namespace>`** - Access to enrollmentrequests and certificate signing requests
+- **`flightctl-operator-<namespace>`** - CRUD operations on devices, fleets, resourcesyncs, repositories; imagebuilds (including cancel and logs); imageexports (including cancel, download, and logs)
+- **`flightctl-viewer-<namespace>`** - Read-only access to devices, fleets, resourcesyncs, organizations; imagebuilds and imageexports (including logs, but no download)
+- **`flightctl-installer-<namespace>`** - Access to enrollmentrequests, certificate signing requests; view imagebuilds and imageexports; download imageexports
 
 **Note:** ClusterRole names include a namespace suffix (e.g., `flightctl-admin-<namespace>`). The `<namespace>` value matches your Helm release namespace. When creating RoleBindings, you must use the suffixed ClusterRole names.
 

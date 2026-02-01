@@ -46,7 +46,7 @@ func newEmbedded(log *log.PrefixLogger, podman *client.Podman, readWriter fileio
 		return nil, fmt.Errorf("constructing embedded app handler: %w", err)
 	}
 
-	volumeManager, err := NewVolumeManager(log, name, appType, nil)
+	volumeManager, err := NewVolumeManager(log, name, appType, v1beta1.CurrentProcessUsername, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -66,6 +66,7 @@ func newEmbedded(log *log.PrefixLogger, podman *client.Podman, readWriter fileio
 			Name:     name,
 			ID:       handler.ID(),
 			AppType:  appType,
+			User:     v1beta1.CurrentProcessUsername,
 			Embedded: true,
 			EnvVars:  make(map[string]string),
 			Volume:   volumeManager,
@@ -81,6 +82,10 @@ func (p *embeddedProvider) Verify(ctx context.Context) error {
 
 func (p *embeddedProvider) Name() string {
 	return p.spec.Name
+}
+
+func (p *embeddedProvider) ID() string {
+	return p.spec.ID
 }
 
 func (p *embeddedProvider) Spec() *ApplicationSpec {

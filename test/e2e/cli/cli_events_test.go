@@ -379,25 +379,31 @@ var _ = Describe("cli events operation", func() {
 
 			By("Updating device with non-existing app image")
 
+			GinkgoWriter.Printf("Starting update to add invalid application for %s\n", deviceName)
+
 			// Apply the invalid application configuration
 
-			err = harness.UpdateDevice(deviceName, func(device *v1beta1.Device) {
+			err = harness.UpdateDeviceWithRetries(deviceName, func(device *v1beta1.Device) {
 				imageName := "quay.io/rh_ee_camadorg/oci-app-ko:latest"
 				// Create the application spec with the invalid image
-				var applicationConfig = v1beta1.ImageApplicationProviderSpec{
+				imageSpec := v1beta1.ImageApplicationProviderSpec{
 					Image: imageName,
 				}
-
-				appSpec := v1beta1.ApplicationProviderSpec{
+				composeApp := v1beta1.ComposeApplication{
 					AppType: v1beta1.AppTypeCompose,
 				}
-				err := appSpec.FromImageApplicationProviderSpec(applicationConfig)
+				err := composeApp.FromImageApplicationProviderSpec(imageSpec)
+				Expect(err).ToNot(HaveOccurred())
+
+				var appSpec v1beta1.ApplicationProviderSpec
+				err = appSpec.FromComposeApplication(composeApp)
 				Expect(err).ToNot(HaveOccurred())
 
 				device.Spec.Applications = &[]v1beta1.ApplicationProviderSpec{appSpec}
 				GinkgoWriter.Printf("Updating %s with application\n", deviceName)
 			})
 			Expect(err).ToNot(HaveOccurred())
+			GinkgoWriter.Printf("Finished update to add invalid application for %s\n", deviceName)
 
 			By("Checking that the application error event is shown")
 			Eventually(func() string {
@@ -409,13 +415,15 @@ var _ = Describe("cli events operation", func() {
 			}, "2m", "5s").Should(Not(BeEmpty()), "Expected application error event to be shown")
 
 			By("Fixing the application by using valid image or removing it")
+			GinkgoWriter.Printf("Starting update to remove applications for %s\n", deviceName)
 			// Remove the application to fix the issue
-			err = harness.UpdateDevice(deviceName, func(device *v1beta1.Device) {
+			err = harness.UpdateDeviceWithRetries(deviceName, func(device *v1beta1.Device) {
 				device.Spec.Applications = &[]v1beta1.ApplicationProviderSpec{}
 				GinkgoWriter.Printf("Updating %s removing applications\n", deviceName)
 			})
 
 			Expect(err).ToNot(HaveOccurred())
+			GinkgoWriter.Printf("Finished update to remove applications for %s\n", deviceName)
 
 			By("Checking that 'No application workloads' success event is shown")
 			Eventually(func() string {

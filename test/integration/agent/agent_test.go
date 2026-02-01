@@ -3,6 +3,7 @@ package agent
 import (
 	"bytes"
 	"context"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"io/fs"
@@ -10,8 +11,10 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ccoveille/go-safecast"
 	"github.com/flightctl/flightctl/api/core/v1beta1"
@@ -188,6 +191,109 @@ var _ = Describe("Device Agent behavior", func() {
 
 				// wait for the agent to retrieve the agent certificate from the EnrollmentRequest
 				Eventually(h.AgentDownloadedCertificate, TIMEOUT, POLLING).Should(BeTrue())
+			})
+		})
+
+		When("rotating the device management certificate", func() {
+			It("renews the cert and switches to the renewal signer", func(ctx context.Context) {
+				const (
+					mgmtCertTTLSecondsEnv         = "FLIGHTCTL_TEST_MGMT_CERT_EXPIRY_SECONDS"
+					mgmtCertRenewBeforeSecondsEnv = "FLIGHTCTL_TEST_MGMT_CERT_RENEW_BEFORE_SECONDS"
+					agentCertRelPath              = "var/lib/flightctl/certs/agent.crt"
+
+					// Keep the test fast:
+					// - cert lifetime: 10m
+					// - renewBefore: 10m-1s => renewal condition becomes true almost immediately
+					testCertTTLSeconds     = 10 * 60
+					testRenewBeforeSeconds = testCertTTLSeconds - 1
+
+					expectedRenewalSignerName = "flightctl.io/device-management-renewal"
+
+					// Issuance time jitter only (avoid flakes).
+					ttlTolerance = 10 * time.Second
+				)
+
+				defer testutil.TestTempEnv(
+					mgmtCertTTLSecondsEnv, strconv.Itoa(testCertTTLSeconds),
+					mgmtCertRenewBeforeSecondsEnv, strconv.Itoa(testRenewBeforeSeconds),
+				)()
+
+				// Enroll device and wait until the agent fetches its initial cert.
+				dev := enrollAndWaitForDevice(h, testutil.TestEnrollmentApproval())
+				deviceName := lo.FromPtr(dev.Metadata.Name)
+				Eventually(h.AgentDownloadedCertificate, TIMEOUT, POLLING).Should(BeTrue())
+
+				// Sanity: enrollment approved and server returned an initial certificate.
+				er, status := h.ServiceHandler.GetEnrollmentRequest(
+					h.AuthenticatedContext(h.Context),
+					org.DefaultID,
+					deviceName,
+				)
+				Expect(status.Code).To(BeEquivalentTo(200))
+				Expect(v1beta1.IsStatusConditionTrue(er.Status.Conditions, "Approved")).To(BeTrue())
+				Expect(er.Status.Certificate).ToNot(BeNil())
+
+				// Assert TTL override took effect (~10m).
+				initialCertPEM := lo.FromPtr(er.Status.Certificate)
+				initialCert, err := fccrypto.ParsePEMCertificate([]byte(initialCertPEM))
+				Expect(err).ToNot(HaveOccurred())
+
+				expectedTTL := time.Duration(testCertTTLSeconds) * time.Second
+				actualTTL := initialCert.NotAfter.Sub(initialCert.NotBefore)
+				Expect(actualTTL).To(BeNumerically(">", expectedTTL-ttlTolerance))
+				Expect(actualTTL).To(BeNumerically("<", expectedTTL+ttlTolerance))
+
+				agentCertPath := filepath.Join(h.TestDirPath, agentCertRelPath)
+				GinkgoWriter.Printf("Waiting for device %s to renew certificate (path=%s)\n", deviceName, agentCertPath)
+
+				// Wait until the on-disk agent cert is renewed (signer-name extension flips).
+				var renewedCert *x509.Certificate
+				Eventually(func() string {
+					agentCertPEM, err := os.ReadFile(agentCertPath)
+					Expect(err).ToNot(HaveOccurred())
+
+					agentCert, err := fccrypto.ParsePEMCertificate(agentCertPEM)
+					Expect(err).ToNot(HaveOccurred())
+					renewedCert = agentCert
+
+					signerName, err := signer.GetSignerNameExtension(agentCert)
+					Expect(err).ToNot(HaveOccurred())
+					return signerName
+				}, TIMEOUT, POLLING).Should(Equal(expectedRenewalSignerName))
+
+				// Expected status values are derived from the renewed cert.
+				Expect(renewedCert.SerialNumber).ToNot(BeNil())
+
+				serialBytes := renewedCert.SerialNumber.Bytes()
+				Expect(serialBytes).ToNot(BeEmpty())
+
+				serialHex := make([]byte, 0, len(serialBytes)*3-1)
+				for i, v := range serialBytes {
+					if i > 0 {
+						serialHex = append(serialHex, ':')
+					}
+					serialHex = append(serialHex, fmt.Sprintf("%02X", v)...)
+				}
+				expectedRenewedSerial := string(serialHex)
+				expectedNotAfter := renewedCert.NotAfter.UTC().Format(time.RFC3339)
+
+				// Verify device status reflects the renewed cert (serial + notAfter).
+				GinkgoWriter.Printf("Waiting for device %s systemInfo fields to update\n", deviceName)
+
+				Eventually(func() []string {
+					dev, status := h.ServiceHandler.GetDevice(
+						h.AuthenticatedContext(h.Context),
+						org.DefaultID,
+						deviceName,
+					)
+					Expect(status.Code).To(BeEquivalentTo(200))
+
+					props := dev.Status.SystemInfo.AdditionalProperties
+					return []string{
+						props["managementCertSerial"],
+						props["managementCertNotAfter"],
+					}
+				}, TIMEOUT, POLLING).Should(Equal([]string{expectedRenewedSerial, expectedNotAfter}))
 			})
 		})
 

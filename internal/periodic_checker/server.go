@@ -121,7 +121,7 @@ func (s *Server) Run(ctx context.Context) error {
 	publisherConfig := PeriodicTaskPublisherConfig{
 		Log:            s.log,
 		OrgService:     serviceHandler,
-		TasksMetadata:  periodicTasks,
+		TasksMetadata:  MergeTasksWithConfig(s.cfg),
 		ChannelManager: channelManager,
 		WorkerClient:   workerClient,
 		TaskBackoff: &poll.Config{

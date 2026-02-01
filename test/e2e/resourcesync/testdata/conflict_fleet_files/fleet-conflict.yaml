@@ -1,0 +1,13 @@
+apiVersion: flightctl.io/v1beta1
+kind: Fleet
+metadata:
+  # This fleet has the name as fleet-1 from valid_fleet_files to create a conflict
+  name: resourcesync-test-fleet-1-{{.TestID}}
+spec:
+  selector:
+    matchLabels:
+      fleet: resourcesync-conflict-{{.TestID}}
+  template:
+    spec:
+      os:
+        image: quay.io/fedora/fedora-bootc:42

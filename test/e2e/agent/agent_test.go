@@ -237,7 +237,7 @@ var _ = Describe("VM Agent behavior", func() {
 			})
 			Expect(err).ToNot(HaveOccurred())
 
-			harness.WaitForDeviceContents(deviceId, fmt.Sprintf("Failed to update to renderedVersion: %s. Error", strconv.Itoa(newRenderedVersion)),
+			harness.WaitForDeviceContents(deviceId, fmt.Sprintf("device should report update error or rollback for renderedVersion: %s", strconv.Itoa(newRenderedVersion)),
 				func(device *v1beta1.Device) bool {
 					// returning true if it is reported an error status or if the device is rolled back to the previous version
 					return e2e.ConditionExists(device, v1beta1.ConditionTypeDeviceUpdating, v1beta1.ConditionStatusFalse, string(v1beta1.UpdateStateError)) ||
@@ -269,7 +269,7 @@ var _ = Describe("VM Agent behavior", func() {
 					return e2e.ConditionExists(device, v1beta1.ConditionTypeDeviceSpecValid, v1beta1.ConditionStatusFalse, "Invalid")
 				}, TIMEOUT)
 
-			harness.WaitForDeviceContents(deviceId, fmt.Sprintf("Failed to update to renderedVersion: %s", strconv.Itoa(newRenderedVersion)),
+			harness.WaitForDeviceContents(deviceId, fmt.Sprintf("device should report update error for renderedVersion: %s", strconv.Itoa(newRenderedVersion)),
 				func(device *v1beta1.Device) bool {
 					return e2e.ConditionExists(device, v1beta1.ConditionTypeDeviceUpdating, v1beta1.ConditionStatusFalse, string(v1beta1.UpdateStateError))
 				}, TIMEOUT)
@@ -301,7 +301,7 @@ var _ = Describe("VM Agent behavior", func() {
 					return e2e.ConditionExists(device, v1beta1.ConditionTypeDeviceSpecValid, v1beta1.ConditionStatusFalse, "Invalid")
 				}, TIMEOUT)
 
-			harness.WaitForDeviceContents(deviceId, fmt.Sprintf("Failed to update to renderedVersion: %s", strconv.Itoa(newRenderedVersion)),
+			harness.WaitForDeviceContents(deviceId, fmt.Sprintf("device should report update error for renderedVersion: %s", strconv.Itoa(newRenderedVersion)),
 				func(device *v1beta1.Device) bool {
 					return e2e.ConditionExists(device, v1beta1.ConditionTypeDeviceUpdating, v1beta1.ConditionStatusFalse, string(v1beta1.UpdateStateError))
 				}, TIMEOUT)
@@ -444,7 +444,7 @@ var _ = Describe("VM Agent behavior", func() {
 				GinkgoWriter.Printf("Updating %s with resources %v\n", fleet1Name, fleet.Spec.Template.Spec.Resources)
 			})
 			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring(`/spec/template/spec/resources/0": Error at "/samplingInterval": string doesn't match the regular expression "^[1-9]\d*[smh]$`))
+			Expect(err.Error()).To(ContainSubstring(`string doesn't match the regular expression "^[1-9]\d*[smh]$`))
 
 			By("Should fail with invalid percentage")
 			err = harness.UpdateFleet(fleet1Name, func(fleet *v1beta1.Fleet) {
@@ -589,7 +589,7 @@ var repoMetadata = v1beta1.ObjectMeta{
 
 // httpRepoSpec initializes an HttpRepoSpec with an HTTP repository type and URL for clone or access operations.
 var httpRepoSpec = v1beta1.HttpRepoSpec{
-	Type: v1beta1.RepoSpecType("http"),
+	Type: v1beta1.HttpRepoSpecTypeHttp,
 	Url:  "https://github.com/flightctl/flightctl-demos.git",
 }
 
@@ -622,11 +622,11 @@ var gitConfigInvalidRepo = v1beta1.GitConfigProviderSpec{
 var k8sSecretConfig = v1beta1.KubernetesSecretProviderSpec{
 	Name: "example-k8s-secret-config-provider",
 	SecretRef: struct {
-		Group     *string `json:"group,omitempty"`
-		MountPath string  `json:"mountPath"`
-		Name      string  `json:"name"`
-		Namespace string  `json:"namespace"`
-		User      *string `json:"user,omitempty"`
+		Group     string           `json:"group,omitempty"`
+		MountPath string           `json:"mountPath"`
+		Name      string           `json:"name"`
+		Namespace string           `json:"namespace"`
+		User      v1beta1.Username `json:"user,omitempty"`
 	}{
 		MountPath: "/etc",
 		Name:      "test-config",

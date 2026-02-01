@@ -124,7 +124,7 @@ func executeAction(ctx context.Context, exec executer.Executer, log *log.PrefixL
 		}
 		return executeRunAction(ctx, exec, log, runAction, actionCtx)
 	default:
-		return fmt.Errorf("unknown hook action type %q", actionType)
+		return fmt.Errorf("%w: %q", errors.ErrUnknownHookActionType, actionType)
 	}
 }
 
@@ -160,7 +160,7 @@ func executeRunAction(ctx context.Context, exec executer.Executer, log *log.Pref
 	_, stderr, exitCode := exec.ExecuteWithContextFromDir(ctx, workDir, cmd, args, envVars...)
 	if exitCode != 0 {
 		log.Errorf("Running %q returned with exit code %d: %s", commandLine, exitCode, stderr)
-		return fmt.Errorf("%s (exit code %d)", stderr, exitCode)
+		return fmt.Errorf("%w: %s (%d)", errors.ErrExitCode, stderr, exitCode)
 	}
 	log.Infof("Hook %s executed %q without error", actionCtx.hook, commandLine)
 
@@ -267,16 +267,16 @@ func validateEnvVars(envVars *map[string]string) error {
 	}
 	for key, value := range *envVars {
 		if key == "" {
-			return fmt.Errorf("invalid envVar format: key cannot be empty: %s", strings.Join([]string{key, value}, "="))
+			return fmt.Errorf("%w: key cannot be empty: %s", errors.ErrInvalidEnvvarFormat, strings.Join([]string{key, value}, "="))
 		}
 		if strings.Contains(key, " ") {
-			return fmt.Errorf("invalid envVar format: key cannot contain spaces: %s", strings.Join([]string{key, value}, "="))
+			return fmt.Errorf("%w: key cannot contain spaces: %s", errors.ErrInvalidEnvvarFormat, strings.Join([]string{key, value}, "="))
 		}
 		if value == "" {
-			return fmt.Errorf("invalid envVar format: value cannot be empty: %s", strings.Join([]string{key, value}, "="))
+			return fmt.Errorf("%w: value cannot be empty: %s", errors.ErrInvalidEnvvarFormat, strings.Join([]string{key, value}, "="))
 		}
 		if key != strings.ToUpper(key) {
-			return fmt.Errorf("invalid envVar format: key must be uppercase: %s", strings.Join([]string{key, value}, "="))
+			return fmt.Errorf("%w: key must be uppercase: %s", errors.ErrInvalidEnvvarFormat, strings.Join([]string{key, value}, "="))
 		}
 	}
 	return nil
@@ -332,7 +332,7 @@ func checkActionDependency(action api.HookAction) error {
 		}
 		return checkRunActionDependency(runAction)
 	default:
-		return fmt.Errorf("unknown hook action type %q", actionType)
+		return fmt.Errorf("%w: %q", errors.ErrUnknownHookActionType, actionType)
 	}
 }
 

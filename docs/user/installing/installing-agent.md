@@ -7,6 +7,8 @@ When the `flightctl-agent` starts, it reads its configuration from `/etc/flightc
 * `/usr/lib/flightctl/hooks.d/`: Drop-in directory for device lifecycle hooks.
 * `/usr/lib/flightctl/custom-info.d/`: Drop-in directory for custom system info collectors.
 
+To preserve logs across reboots for debugging rollback issues, see [systemd Journal Service Configuration](configuring-device-greenboot.md#the-systemd-journal-service-configuration).
+
 ## Agent `config.yaml` configuration file
 
 The agent's configuration file `/etc/flightctl/config.yaml` takes the following parameters:
@@ -17,7 +19,7 @@ The agent's configuration file `/etc/flightctl/config.yaml` takes the following 
 | `spec-fetch-interval`    | `Duration` | | **Deprecated**: This parameter is no longer used. The agent now uses long-polling to receive specification updates immediately when available. |
 | `status-update-interval` | `Duration` | | Interval in which the agent reports its device status under normal conditions. The agent immediately sends status reports on major events related to the health of the system and application workloads as well as on the progress during a system update. Default: `60s` |
 | `default-labels`         | `object` (`string`) | | Labels (`key: value`-pairs) that the agent requests for the device during enrollment. Default: `{}` |
-| `system-info`            | `array` (`string`) | | System info that the agent shall include in status updates from built-in collectors. See [Built-in system info collectors](#built-in-system-info-collectors). Default: `["hostname", "kernel", "distroName", "distroVersion", "productName", "productUuid", "productSerial", "netInterfaceDefault", "netIpDefault", "netMacDefault"]` |
+| `system-info`            | `array` (`string`) | | System info that the agent shall include in status updates from built-in collectors. See [Built-in system info collectors](#built-in-system-info-collectors) and [Managed system-info collectors](#managed-system-info-collectors). Default: `["hostname", "kernel", "distroName", "distroVersion", "productName", "productUuid", "productSerial", "netInterfaceDefault", "netIpDefault", "netMacDefault", "managementCertNotAfter", "managementCertSerial", "tpmVendorInfo"]` |
 | `system-info-custom`     | `array` (`string`) | | System info that the agent shall include in status updates from user-defined collectors. See [Custom system info collectors](#custom-system-info-collectors). Default: `[]` |
 | `system-info-timeout`    | `Duration` | | The timeout for collecting system info. Default: `2m`. Maximum: `2m` |
 | `pull-timeout`           | `Duration` | | The timeout for pulling a single OCI target. Default: `10m` |
@@ -110,6 +112,21 @@ status:
     distroName: Red Hat Enterprise Linux
     distroVersion: 9.5 (Plow)
 ```
+
+## Managed system info collectors
+
+These system info fields are populated internally by the `flightctl-agent`.
+They reflect the agent lifecycle state and are updated only when the underlying state changes
+(for example, certificate rotation or TPM initialization).
+
+| System Info Key          | Description                                                              |
+|--------------------------|--------------------------------------------------------------------------|
+| `managementCertSerial`   | Serial number of the active device management certificate                |
+| `managementCertNotAfter` | Expiration time (`NotAfter`) of the active device management certificate |
+| `tpmVendorInfo`          | TPM vendor information derived from the device’s TPM manufacturer data   |
+
+> [!NOTE]
+> These managed system info fields follow the same configuration and reporting semantics as built-in system information collectors, and can be included or excluded from device status reporting via the `system-info` configuration parameter.
 
 ## Custom system info collectors
 
@@ -338,3 +355,41 @@ It prints a JSON summary of the device's hardware and OS, including:
 
 > [!NOTE]
 > This command is local-only and does not affect device state or communicate with the Flight Control service.
+
+## flightctl-agent helm-render
+
+This subcommand acts as a Helm post-renderer that injects application labels into Kubernetes manifests. It reads YAML from standard input, adds the `agent.flightctl.io/app` label to all resources, and outputs the modified YAML to standard output.
+
+This enables tracking which resources belong to which application, supporting resource cleanup, health monitoring, and troubleshooting.
+
+### Usage
+
+```bash
+flightctl-agent helm-render --app=<app-name>
+```
+
+### Flags
+
+| Flag | Required | Description |
+| ---- | :------: | ----------- |
+| `--app` | Y | The application name to inject as a label value |
+
+### Labels Injected
+
+Labels are injected into:
+
+* `metadata.labels` - All resources
+* `spec.template.metadata.labels` - Deployments, StatefulSets, DaemonSets, Jobs (so pods inherit the label)
+* `spec.jobTemplate.spec.template.metadata.labels` - CronJobs
+
+### Example Usage with Helm
+
+```bash
+helm upgrade --install my-app ./chart \
+  --post-renderer /usr/bin/flightctl-agent \
+  --post-renderer-args helm-render \
+  --post-renderer-args --app=my-app
+```
+
+> [!NOTE]
+> This command requires `kubectl` or `oc` to be available in the PATH, as it uses `kubectl kustomize` internally to inject labels.

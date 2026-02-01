@@ -165,6 +165,8 @@ func (o *EditOptions) Run(ctx context.Context, args []string) error {
 	if err != nil {
 		return fmt.Errorf("creating client: %w", err)
 	}
+	clientWithResponses.Start(ctx)
+	defer clientWithResponses.Stop()
 
 	kind, name, err := parseAndValidateKindName(args[0])
 	if err != nil {
@@ -182,9 +184,9 @@ func (o *EditOptions) Run(ctx context.Context, args []string) error {
 
 	switch kind {
 	case TemplateVersionKind:
-		originalResource, err = GetTemplateVersion(fetchCtx, clientWithResponses, o.FleetName, name)
+		originalResource, err = GetTemplateVersion(fetchCtx, clientWithResponses.ClientWithResponses, o.FleetName, name)
 	default:
-		originalResource, err = GetSingleResource(fetchCtx, clientWithResponses, kind, name)
+		originalResource, err = GetSingleResource(fetchCtx, clientWithResponses.ClientWithResponses, kind, name)
 	}
 	fetchCancel()
 	if err != nil {
@@ -205,7 +207,7 @@ func (o *EditOptions) Run(ctx context.Context, args []string) error {
 
 	// Apply the changes
 	applyCtx, applyCancel := o.WithTimeout(ctx)
-	err = o.applyChanges(applyCtx, clientWithResponses, editedContent, kind, name, originalResource)
+	err = o.applyChanges(applyCtx, clientWithResponses.ClientWithResponses, editedContent, kind, name, originalResource)
 	applyCancel()
 	if err != nil {
 		// Save the edited content to a temporary file for recovery

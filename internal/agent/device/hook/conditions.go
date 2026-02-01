@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/internal/agent/device/errors"
 )
 
 func checkCondition(cond *v1beta1.HookCondition, actionContext *actionContext) (bool, error) {
@@ -34,7 +35,7 @@ func checkCondition(cond *v1beta1.HookCondition, actionContext *actionContext) (
 		}
 		return checkPathOpCondition(pathOp, actionContext), nil
 	default:
-		return false, fmt.Errorf("unknown hook condition type %q", conditionType)
+		return false, fmt.Errorf("%w: %q", errors.ErrUnknownHookConditionType, conditionType)
 	}
 }
 

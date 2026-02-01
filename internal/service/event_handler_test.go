@@ -12,6 +12,7 @@ import (
 	fcrypto "github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/identity"
+	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
@@ -42,6 +43,19 @@ func (m *MockKVStore) GetOrSetNX(ctx context.Context, key string, value []byte) 
 func (m *MockKVStore) DeleteKeysForTemplateVersion(ctx context.Context, key string) error { return nil }
 func (m *MockKVStore) DeleteAllKeys(ctx context.Context) error                            { return nil }
 func (m *MockKVStore) PrintAllKeys(ctx context.Context)                                   {}
+func (m *MockKVStore) Delete(ctx context.Context, key string) error                       { return nil }
+func (m *MockKVStore) StreamAdd(ctx context.Context, key string, value []byte) (string, error) {
+	return "0-0", nil
+}
+func (m *MockKVStore) StreamRange(ctx context.Context, key string, start, stop string) ([]kvstore.StreamEntry, error) {
+	return nil, nil
+}
+func (m *MockKVStore) StreamRead(ctx context.Context, key string, lastID string, block time.Duration, count int64) ([]kvstore.StreamEntry, error) {
+	return nil, nil
+}
+func (m *MockKVStore) SetExpire(ctx context.Context, key string, expiration time.Duration) error {
+	return nil
+}
 
 func serviceHandler() *ServiceHandler {
 	testStore := &TestStore{}

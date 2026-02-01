@@ -280,6 +280,11 @@ Usage: {{- $authType := include "flightctl.getEffectiveAuthType" . }}
   {{- end }}
 {{- end }}
 
+
+{{- define "flightctl.getInternalImagebuilderApiUrl" }}
+  {{- print "https://flightctl-imagebuilder-api:8445"}}
+{{- end }}
+
 {{/*
 Generates a random alphanumeric password in the format xxxxx-xxxxx-xxxxx-xxxxx.
 */}}

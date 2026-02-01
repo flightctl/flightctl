@@ -18,6 +18,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
+	"github.com/flightctl/flightctl/internal/agent/device/systeminfo/common"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -133,6 +134,16 @@ func (m *manager) ReloadConfig(ctx context.Context, cfg *config.Config) error {
 			opt(&newConfig)
 		}
 
+		// Snapshot old/new key sets (string keys), so we can detect newly added keys.
+		oldKeys := make(map[string]struct{}, len(m.infoKeys))
+		for _, k := range m.infoKeys {
+			oldKeys[k] = struct{}{}
+		}
+		newKeys := make(map[string]struct{}, len(cfg.SystemInfo))
+		for _, k := range cfg.SystemInfo {
+			newKeys[k] = struct{}{}
+		}
+
 		m.infoKeys = cfg.SystemInfo
 
 		// If the newConfig only removes required collectors but doesn't add any
@@ -142,6 +153,19 @@ func (m *manager) ReloadConfig(ctx context.Context, cfg *config.Config) error {
 			if !oldConfig.hasCollector(cType) {
 				hasNewCollectors = true
 				break
+			}
+		}
+
+		if !hasNewCollectors {
+			for k := range newKeys {
+				if _, existed := oldKeys[k]; existed {
+					continue
+				}
+				if _, ok := m.collectors[k]; ok {
+					// Runtime collector already registered -> can collect immediately.
+					hasNewCollectors = true
+					break
+				}
 			}
 		}
 
@@ -241,12 +265,46 @@ func (m *manager) defaultSystemInfo() v1beta1.DeviceSystemInfo {
 
 // RegisterCollector allows the caller to register a collector function for system information.
 func (m *manager) RegisterCollector(ctx context.Context, key string, fn CollectorFn) {
-	m.log.Debugf("Registering system info collector: %s", key)
-	if _, ok := m.collectors[key]; ok {
-		m.log.Errorf("Collector %s already registered", key)
+	if ctx != nil && ctx.Err() != nil {
 		return
 	}
+	if key == "" || fn == nil {
+		if m.log != nil {
+			m.log.Errorf("Invalid system info collector registration (key=%q, fn=nil=%t)", key, fn == nil)
+		}
+		return
+	}
+
+	if !common.IsKnownKey(key) {
+		if m.log != nil {
+			m.log.Errorf("Unknown system info collector key: %q", key)
+		}
+		return
+	}
+
+	if common.IsBuiltInKey(key) {
+		if m.log != nil {
+			m.log.Errorf("BuiltIn system info key must not be registered as a runtime collector: %q", key)
+		}
+		return
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.log != nil {
+		m.log.Debugf("Registering system info collector: %s", key)
+	}
+
+	if _, ok := m.collectors[key]; ok {
+		if m.log != nil {
+			m.log.Errorf("Collector %s already registered", key)
+		}
+		return
+	}
+
 	m.collectors[key] = fn
+	m.collected = false
 }
 
 // collectDeviceSystemInfo collects the system information from the device and returns it as a DeviceSystemInfo object.

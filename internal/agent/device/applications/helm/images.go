@@ -1,4 +1,4 @@
-package client
+package helm
 
 import (
 	"io"
@@ -49,6 +49,8 @@ type k8sContainer struct {
 }
 
 // ExtractImagesFromManifests parses Kubernetes manifests and returns all container image references.
+// It handles multi-document YAML and extracts images from Pods, Deployments, StatefulSets,
+// DaemonSets, ReplicaSets, Jobs, and CronJobs.
 func ExtractImagesFromManifests(manifests string) ([]string, error) {
 	imageSet := make(map[string]struct{})
 

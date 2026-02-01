@@ -6,6 +6,11 @@ The first time the Flight Control Agent runs, it generates a cryptographic key p
 
 When the device is not yet enrolled, the agent performs service discovery to find its Flight Control Service instance. It then establishes a secure, mTLS-protected network connection to the Service using the X.509 enrollment certificate it has been provided with during image building or device provisioning. Next, it submits an Enrollment Request to the service that includes a description of the device's hardware and operating system as well as an X.509 Certificate Signing Request (CSR) including its cryptographic identity to obtain its initial management certificate. At this point, the device is not yet considered trusted and therefore remains quarantined in a "device lobby" until its Enrollment Request has been approved or denied by an authorized user (e.g. a administrator, an installer persona, or an auto-approver process).
 
+> [!NOTE]
+> The device **management certificate** is automatically renewed by the `flightctl-agent`
+> **before it expires**, once it reaches approximately **75% of its lifetime**.
+> Renewal happens proactively to avoid service disruption and does not require user action.
+
 ### Enrolling using the Web UI
 
 ### Enrolling using the CLI
@@ -318,7 +323,8 @@ However, there are scenarios where this is impractical, for example, when config
 
 Conceptually, this set of configuration files can be thought of as an additional, dynamic layer on top of the OS image's layers. The Flight Control Agent applies updates to this layer transactionally, ensuring that either all files have been successfully updated in the file system or have been returned to their pre-update state. Further, if the user updates both a devices OS and configuration set at the same time, the Flight Control Agent will first update the OS, then apply the specified configuration set on top.
 
-> [!Important] After the Flight Control Agent has updated the configuration on disk, this configuration still needs to be *activated*. That means, running services need to reload the new configuration into memory for it to become effective. If the update involves a reboot, services will be restarted by systemd in the right order with the new configuration automatically. If the update does not involve a reboot, many services can detect changes to their configuration files and automatically reload them. When a service does not support this, you [use Device Lifecycle Hooks](managing-devices.md#using-device-lifecycle-hooks) to specify rules like "if configuration file X has changed, run command Y". Also refer to this section for the set of default rules that the Flight Control Agent applies.
+> [!Important]
+> After the Flight Control Agent has updated the configuration on disk, this configuration still needs to be *activated*. That means, running services need to reload the new configuration into memory for it to become effective. If the update involves a reboot, services will be restarted by systemd in the right order with the new configuration automatically. If the update does not involve a reboot, many services can detect changes to their configuration files and automatically reload them. When a service does not support this, you [use Device Lifecycle Hooks](managing-devices.md#using-device-lifecycle-hooks) to specify rules like "if configuration file X has changed, run command Y". Also refer to this section for the set of default rules that the Flight Control Agent applies.
 
 Users can specify a list of configurations sets, in which case the Flight Control Agent applies the sets in sequence and on top of each other, such that in case of conflict the "last one wins".
 
@@ -632,6 +638,12 @@ The following table shows the application runtimes and formats supported by Flig
 | Quadlet specification (via [Podman Quadlet](https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html)) | Unpackaged Inline | Inline in device specification |
 | Simplified container specification                                                                                 | OCI Image         | OCI registry                   |
 
+### Runtime: **Kubernetes** (Helm)
+
+| Specification                                                                 | Format    | Source / Delivery |
+|-------------------------------------------------------------------------------|-----------|-------------------|
+| Helm chart (via [Helm](https://helm.sh/))                                     | OCI Image | OCI registry      |
+
 > [!NOTE]
 > Compose applications require `podman-compose` to be installed on the device.
 
@@ -650,7 +662,7 @@ To deploy an application to a device, create a new entry in the "applications" s
 |-----------|---------------------------------------------------------------------------------------------------------------------------------|
 | Name      | A user-defined name for the application. This will be used when the web UI and CLI list applications.                           |
 | Image     | A reference to an application package in an OCI registry.                                                                       |
-| AppType   | The application format type. Currently supported types: `compose`, `quadlet`, `container`.                                      |
+| AppType   | The application format type. Currently supported types: `compose`, `quadlet`, `container`, `helm`.                              |
 | EnvVars   | (Optional) A list of key/value-pairs that will be passed to the deployment tool as environment variables or command line flags. |
 
 For each application in the "applications" section of the device's specification, there exist a corresponding device status information that contains the following information:
@@ -687,6 +699,179 @@ spec:
 [...]
 ```
 
+### Helm Applications
+
+Helm applications allow you to deploy Kubernetes workloads to edge devices running a local Kubernetes distribution such as [MicroShift](https://microshift.io/). The Flight Control agent uses Helm to install, upgrade, and uninstall charts on the device's local cluster.
+
+#### Device Requirements
+
+The following dependencies must be installed on the device:
+
+| Dependency | Required Version | Description |
+|------------|------------------|-------------|
+| `helm`     | >= 3.8           | Helm CLI for chart management. Version 3.8+ is required for OCI registry support. |
+| `kubectl` or `oc` | Any       | Kubernetes CLI for cluster operations. Either `kubectl` or `oc` (OpenShift CLI) is supported. |
+| `crictl`   | Any              | CRI compatible CLI for pulling container images referenced by Helm charts. |
+
+> [!NOTE]
+> The agent automatically detects whether `kubectl` or `oc` is available (with preference for `kubectl`) and uses the first one found.
+
+#### Kubeconfig Configuration
+
+The agent automatically discovers the kubeconfig file to connect to the local Kubernetes cluster. The following locations are checked in order:
+
+1. **`KUBECONFIG` environment variable**: If set, the agent checks each path in the colon-separated list and uses the first existing file.
+2. **MicroShift default path**: `/var/lib/microshift/resources/kubeadmin/kubeconfig`
+3. **Standard default path**: `$HOME/.kube/config`
+
+If you are using MicroShift, the kubeconfig is automatically available after the cluster starts. For other Kubernetes distributions, ensure the kubeconfig is placed in one of the above locations.
+
+> [!TIP]
+> For MicroShift deployments, you can use a lifecycle hook to wait for the kubeconfig to become available before proceeding with updates:
+>
+> ```yaml
+> - run: /usr/bin/bash -c "until [ -f $KUBECONFIG ]; do sleep 1; done"
+>   timeout: 5m
+>   envVars:
+>     KUBECONFIG: "/var/lib/microshift/resources/kubeadmin/kubeconfig"
+> ```
+
+#### Authentication Configuration
+
+Helm applications may require authentication for OCI registries (to pull charts) and container registries (to pull images referenced by the chart). Configure authentication files on the device before deploying Helm applications.
+
+| Configuration File | Purpose |
+|--------------------|---------|
+| `/root/.config/containers/auth.json` | Container registry authentication for pulling images. This is also used as a fallback for Helm OCI registry authentication. |
+| `/root/.config/helm/registry/config.json` | Helm OCI registry authentication (Docker config format). If not present, the container auth file is used. |
+| `/root/.config/helm/repositories.yaml` | Helm repository configuration for non-OCI chart repositories. |
+| `/etc/crictl.yaml` | CRI runtime configuration for `crictl` to pull images. Required if your cluster uses a non-default CRI socket path. |
+
+**Auth File Format:**
+
+The registry authentication files follow the Docker config format:
+
+```json
+{
+  "auths": {
+    "quay.io": {
+      "auth": "base64-encoded-credentials"
+    },
+    "registry.example.com": {
+      "auth": "base64-encoded-credentials"
+    }
+  }
+}
+```
+
+> [!NOTE]
+> Authentication files must exist on the device before deploying Helm applications. You can provision these files using the [Inline Config Provider](#specifying-configuration-inline-in-the-device-spec) or by including them in your OS image.
+
+#### CRI Configuration
+
+The `crictl` tool requires configuration to communicate with the container runtime. Create `/etc/crictl.yaml` with the appropriate runtime endpoint:
+
+**For MicroShift (CRI-O):**
+
+```yaml
+runtime-endpoint: unix:///var/run/crio/crio.sock
+image-endpoint: unix:///var/run/crio/crio.sock
+```
+
+**For containerd:**
+
+```yaml
+runtime-endpoint: unix:///run/containerd/containerd.sock
+image-endpoint: unix:///run/containerd/containerd.sock
+```
+
+#### Helm Application Specification
+
+To deploy a Helm application, add an entry to the `applications` section of the device specification with `appType: helm`:
+
+| Parameter | Description |
+|-----------|-------------|
+| `name` | (Optional) A user-defined name for the application. If not specified, the chart reference is used as the name. |
+| `appType` | Must be `helm` for Helm applications. |
+| `image` | OCI reference to the Helm chart. Must include registry, repository, and version tag or digest. Example: `quay.io/myorg/mychart:v1.0.0` |
+| `namespace` | (Optional) The Kubernetes namespace for deployment. If not specified, defaults to `flightctl-<app-name>`. |
+| `values` | (Optional) Inline values to pass to the Helm chart. Supports arbitrarily nested structures. |
+| `valuesFiles` | (Optional) List of values files to apply. Paths are relative to the chart root and applied in order before inline values. |
+
+#### Example: Basic Helm Application
+
+```yaml
+apiVersion: flightctl.io/v1beta1
+kind: Device
+metadata:
+  name: edge-device-001
+spec:
+  applications:
+    - name: my-app
+      appType: helm
+      image: quay.io/myorg/my-app-chart:v1.2.0
+      namespace: my-app
+```
+
+#### Example: Helm Application with Values
+
+```yaml
+apiVersion: flightctl.io/v1beta1
+kind: Device
+metadata:
+  name: edge-device-001
+spec:
+  applications:
+    - name: monitoring
+      appType: helm
+      image: quay.io/myorg/monitoring-chart:v2.0.0
+      namespace: monitoring
+      values:
+        replicaCount: 1
+        service:
+          type: NodePort
+          port: 8080
+        resources:
+          limits:
+            cpu: "500m"
+            memory: "256Mi"
+```
+
+#### Example: Helm Application with Values Files
+
+Charts may supply values files (e.g. `values-prod.yaml`). Those optional files can be referenced from a helm application's definition by supplying a relative path to the values file within the chart. The agent validates that these files exist in the chart before deployment.
+
+```yaml
+apiVersion: flightctl.io/v1beta1
+kind: Device
+metadata:
+  name: edge-device-001
+spec:
+  applications:
+    - name: my-app
+      appType: helm
+      image: quay.io/myorg/my-app-chart:v1.2.0
+      namespace: my-app
+      valuesFiles:
+        # These values must exist within 'my-app-chart:v1.2.0'
+        - values-production.yaml
+        - values-edge.yaml
+        - values/hardening.yaml
+      values:
+        # Inline values are applied last and override values files
+        nodeSelector:
+          kubernetes.io/arch: arm64
+```
+
+#### Image Prefetching
+
+The Flight Control agent attempts to prefetch all container images referenced by Helm charts before deployment. This allows applications to start without network access after the initial sync.
+
+The agent performs a Helm dry-run to extract all container images from the rendered manifests, then uses `crictl` to pull these images to the local CRI cache.
+
+> [!IMPORTANT]
+> While the agent prefetches images to enable networkless operation, charts that specify `imagePullPolicy: Always` in their manifests will still attempt to pull images at runtime. For fully offline deployments, ensure your charts use `imagePullPolicy: IfNotPresent` or `Never`.
+
 ## Image and Artifact Pruning
 
 The Flight Control agent can automatically remove unused container images and OCI artifacts from devices to free up disk space. This feature helps prevent storage exhaustion on edge devices with limited capacity.
@@ -700,9 +885,9 @@ Image and artifact pruning operates on a "lost reference" model:
 2. **Pruning Execution**: After a successful spec update, the agent compares the previously recorded references with the current device specifications. Any images or artifacts that were previously referenced but are no longer needed are eligible for removal.
 
 3. **Safe Pruning**: The agent only removes items that:
-   * Were previously recorded in the references file
-   * Are no longer referenced in the current or desired device specifications
-   * Exist locally on the device
+    * Were previously recorded in the references file
+    * Are no longer referenced in the current or desired device specifications
+    * Exist locally on the device
 
 4. **Preservation**: Images and artifacts required for current operations or potential rollback (desired state) are always preserved, even if they appear in the references file.
 
@@ -713,8 +898,9 @@ Image and artifact pruning operates on a "lost reference" model:
 
 The pruning process considers the following types of OCI targets:
 
-* **Application Images**: Container images referenced by Compose, Quadlet, or container applications
+* **Application Images**: Container images referenced by Compose, Quadlet, Container, or Helm applications
 * **OS Images**: Operating system images specified in the device's OS configuration
+* **Helm Charts**: Charts referenced by Helm applications
 
 ### Configuring Pruning
 
@@ -1521,6 +1707,58 @@ When the device has completed its decommissioning steps, the `status.lifecycle.s
 
 ```console
 flightctl delete devices/<some_device_name>
+```
+
+## Understanding Device Error Messages
+
+Flight Control provides structured error messages within device status conditions to identify update or operation failures. These messages identify the time, phase, component, resource, and reason for a failure. Error categorization uses [gRPC status codes](https://grpc.github.io/grpc/core/md_doc_statuscodes.html) to provide consistent error classification across all operations.
+
+### Error Message Syntax
+
+Error messages follow this pattern:
+
+```text
+[timestamp] While <Phase>, <Component> failed [for "<Element>"]: <Category> issue - <Status Message>
+```
+
+| Field | Description | Allowable Values / Examples |
+|-------|-------------|----------------------------|
+| **Phase** | Update stage | `Preparing` (Preparation), `ApplyingUpdate` (Sync), `Rebooting` (Activation) |
+| **Component** | System area | `os`, `config`, `applications`, `resources`, `update policy`, `lifecycle`, `systemd` |
+| **Element** | Specific resource | File paths (`/etc/app.conf`), Service names, Volume names, Image refs |
+| **Category** | Functional area | See Error Categories table below. |
+| **Status** | Human-readable detail | Description of the specific error, derived from gRPC status codes. |
+
+### Error Categories
+
+| Category | Status Messages | Common Causes |
+|----------|----------------|---------------|
+| **Network** | "Service unavailable", "Request timed out" | Connectivity issues, DNS failure, registry unreachable |
+| **Configuration** | "Invalid configuration", "Precondition not met" | Invalid YAML/JSON, missing fields, policy waiting |
+| **Filesystem** | "Required resource not found", "Resource already exists" | Missing files, directory conflicts |
+| **Security** | "Permission denied", "Authentication failed" | Insufficient permissions, auth errors |
+| **Storage** | "Unrecoverable data loss detected" | Data corruption, storage hardware failure |
+| **Resource** | "Insufficient resources" | Disk full, Out of memory |
+| **System** | "Operation cancelled", "Internal error", "Not supported" | Internal faults, feature gaps, manual aborts |
+
+### Viewing Errors
+
+To view error conditions, retrieve the device status in YAML format:
+
+```console
+flightctl get device/<device-name> -o yaml
+```
+
+Output Example:
+
+```yaml
+status:
+  conditions:
+  - type: DeviceUpdating
+    status: "False"
+    reason: Error
+    # Breakdown: [Timestamp] While [Phase], [Component] failed for [Element]: [Category] - [Status Code]
+    message: "[2025-01-15 10:30:00 UTC] While Preparing, applications failed for \"myapp\": Network issue - Service unavailable"
 ```
 
 ## Scheduling Updates and Downloads

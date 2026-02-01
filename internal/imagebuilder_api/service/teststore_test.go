@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
@@ -11,6 +12,7 @@ import (
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/store"
+	"github.com/flightctl/flightctl/internal/kvstore"
 	flightctlstore "github.com/flightctl/flightctl/internal/store"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
@@ -139,6 +141,12 @@ func (s *DummyImageBuildStore) Delete(ctx context.Context, orgId uuid.UUID, name
 		if lo.FromPtr(ib.Metadata.Name) == name {
 			var deleted api.ImageBuild
 			deepCopy(ib, &deleted)
+
+			// Cascading delete: remove related ImageExports
+			if s.imageExportStore != nil {
+				s.imageExportStore.DeleteByImageBuildRef(name)
+			}
+
 			*s.imageBuilds = append((*s.imageBuilds)[:i], (*s.imageBuilds)[i+1:]...)
 			return &deleted, nil
 		}
@@ -170,6 +178,28 @@ func (s *DummyImageBuildStore) UpdateLastSeen(ctx context.Context, orgId uuid.UU
 		}
 	}
 	return flterrors.ErrResourceNotFound
+}
+
+func (s *DummyImageBuildStore) UpdateLogs(ctx context.Context, orgId uuid.UUID, name string, logs string) error {
+	for _, ib := range *s.imageBuilds {
+		if lo.FromPtr(ib.Metadata.Name) == name {
+			// In a real implementation, this would update a Logs field
+			// For the dummy store, we just return success
+			return nil
+		}
+	}
+	return flterrors.ErrResourceNotFound
+}
+
+func (s *DummyImageBuildStore) GetLogs(ctx context.Context, orgId uuid.UUID, name string) (string, error) {
+	for _, ib := range *s.imageBuilds {
+		if lo.FromPtr(ib.Metadata.Name) == name {
+			// In a real implementation, this would return the Logs field
+			// For the dummy store, we just return empty string
+			return "", nil
+		}
+	}
+	return "", flterrors.ErrResourceNotFound
 }
 
 func (s *DummyImageBuildStore) InitialMigration(ctx context.Context) error {
@@ -247,6 +277,19 @@ func (s *DummyImageExportStore) Delete(ctx context.Context, orgId uuid.UUID, nam
 	return nil, nil
 }
 
+// DeleteByImageBuildRef deletes all ImageExports that reference the given ImageBuild name.
+// This is used for cascading delete when an ImageBuild is deleted.
+func (s *DummyImageExportStore) DeleteByImageBuildRef(imageBuildName string) {
+	filtered := make([]api.ImageExport, 0, len(*s.imageExports))
+	for _, ie := range *s.imageExports {
+		source, err := ie.Spec.Source.AsImageBuildRefSource()
+		if err != nil || source.ImageBuildRef != imageBuildName {
+			filtered = append(filtered, ie)
+		}
+	}
+	*s.imageExports = filtered
+}
+
 func (s *DummyImageExportStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, imageExport *api.ImageExport) (*api.ImageExport, error) {
 	for i, ie := range *s.imageExports {
 		if lo.FromPtr(ie.Metadata.Name) == lo.FromPtr(imageExport.Metadata.Name) {
@@ -317,6 +360,14 @@ func (s *DummyImageExportStore) ListPendingRetry(ctx context.Context, orgId uuid
 
 func (s *DummyImageExportStore) InitialMigration(ctx context.Context) error {
 	return nil
+}
+
+func (s *DummyImageExportStore) UpdateLogs(ctx context.Context, orgId uuid.UUID, name string, logs string) error {
+	return nil
+}
+
+func (s *DummyImageExportStore) GetLogs(ctx context.Context, orgId uuid.UUID, name string) (string, error) {
+	return "", nil
 }
 
 // DummyRepositoryStore is a mock implementation of flightctlstore.Repository
@@ -411,7 +462,7 @@ func newOciRepository(name string, accessMode v1beta1.OciRepoSpecAccessMode) *v1
 	spec := v1beta1.RepositorySpec{}
 	_ = spec.FromOciRepoSpec(v1beta1.OciRepoSpec{
 		Registry:   "quay.io",
-		Type:       v1beta1.RepoSpecTypeOci,
+		Type:       v1beta1.OciRepoSpecTypeOci,
 		AccessMode: &accessMode,
 	})
 	return &v1beta1.Repository{
@@ -467,3 +518,100 @@ func (s *DummyStore) Ping() error {
 func (s *DummyStore) Close() error {
 	return nil
 }
+
+// DummyKVStore is a mock implementation of kvstore.KVStore for unit testing
+type DummyKVStore struct {
+	streams map[string][][]byte
+	mu      sync.Mutex
+	// canceledSignals maps stream keys to whether a "canceled" signal should be returned
+	// When a key is present and true, StreamRead will return the signal once
+	canceledSignals map[string]bool
+}
+
+func NewDummyKVStore() *DummyKVStore {
+	return &DummyKVStore{
+		streams:         make(map[string][][]byte),
+		canceledSignals: make(map[string]bool),
+	}
+}
+
+// SimulateCanceledSignal configures the mock to return a "canceled" signal when
+// StreamRead is called for the given key
+func (s *DummyKVStore) SimulateCanceledSignal(key string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.canceledSignals[key] = true
+}
+
+func (s *DummyKVStore) StreamAdd(ctx context.Context, key string, value []byte) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.streams[key] == nil {
+		s.streams[key] = make([][]byte, 0)
+	}
+	s.streams[key] = append(s.streams[key], value)
+	return "0-0", nil
+}
+
+func (s *DummyKVStore) SetExpire(ctx context.Context, key string, expiration time.Duration) error {
+	return nil
+}
+
+func (s *DummyKVStore) StreamRange(ctx context.Context, key string, start, stop string) ([]kvstore.StreamEntry, error) {
+	return nil, nil
+}
+
+func (s *DummyKVStore) StreamRead(ctx context.Context, key string, lastID string, block time.Duration, count int64) ([]kvstore.StreamEntry, error) {
+	s.mu.Lock()
+	// Check if we should return a canceled signal for this key
+	if s.canceledSignals[key] {
+		// Return the signal once, then mark as consumed
+		delete(s.canceledSignals, key)
+		s.mu.Unlock()
+		return []kvstore.StreamEntry{
+			{ID: "0-1", Value: []byte("canceled")},
+		}, nil
+	}
+	s.mu.Unlock()
+
+	// Simulate Redis XREAD BLOCK - wait for the block duration or context cancellation
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-time.After(block):
+		// Timeout - return empty (no signal)
+		return nil, nil
+	}
+}
+
+func (s *DummyKVStore) SetNX(ctx context.Context, key string, value []byte) (bool, error) {
+	return false, nil
+}
+
+func (s *DummyKVStore) SetIfGreater(ctx context.Context, key string, newVal int64) (bool, error) {
+	return false, nil
+}
+
+func (s *DummyKVStore) Get(ctx context.Context, key string) ([]byte, error) {
+	return nil, nil
+}
+
+func (s *DummyKVStore) GetOrSetNX(ctx context.Context, key string, value []byte) ([]byte, error) {
+	return nil, nil
+}
+
+func (s *DummyKVStore) DeleteKeysForTemplateVersion(ctx context.Context, key string) error {
+	return nil
+}
+
+func (s *DummyKVStore) DeleteAllKeys(ctx context.Context) error {
+	return nil
+}
+
+func (s *DummyKVStore) PrintAllKeys(ctx context.Context) {}
+
+func (s *DummyKVStore) Delete(ctx context.Context, key string) error {
+	return nil
+}
+
+func (s *DummyKVStore) Close() {}

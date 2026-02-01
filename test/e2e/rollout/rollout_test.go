@@ -525,12 +525,11 @@ func createDisruptionBudget(maxUnavailable, minAvailable int, groupBy []string) 
 
 // TestContext encapsulates common test setup and configuration
 type TestContext struct {
-	harness           *e2e.Harness
-	harnesses         []*e2e.Harness
-	deviceIDs         []string
-	applicationSpec   api.ApplicationProviderSpec
-	applicationConfig api.ImageApplicationProviderSpec
-	sleepAppImage     string
+	harness       *e2e.Harness
+	harnesses     []*e2e.Harness
+	deviceIDs     []string
+	composeApp    api.ComposeApplication
+	sleepAppImage string
 }
 
 func setupTestContext(ctx context.Context) *TestContext {
@@ -539,20 +538,21 @@ func setupTestContext(ctx context.Context) *TestContext {
 
 	sleepAppImage := util.NewSleepAppImageReference(util.SleepAppTags.V1).String()
 
-	applicationConfig := api.ImageApplicationProviderSpec{
-		Image: sleepAppImage,
-	}
-
-	applicationSpec := api.ApplicationProviderSpec{
+	composeApp := api.ComposeApplication{
 		Name:    lo.ToPtr("sleepapp"),
 		AppType: api.AppTypeCompose,
 	}
+	err := composeApp.FromImageApplicationProviderSpec(api.ImageApplicationProviderSpec{
+		Image: sleepAppImage,
+	})
+	if err != nil {
+		panic(fmt.Sprintf("failed to set image on compose app: %v", err))
+	}
 
 	return &TestContext{
-		harness:           harness,
-		applicationSpec:   applicationSpec,
-		applicationConfig: applicationConfig,
-		sleepAppImage:     sleepAppImage,
+		harness:       harness,
+		composeApp:    composeApp,
+		sleepAppImage: sleepAppImage,
 	}
 }
 
@@ -612,20 +612,22 @@ func (tc *TestContext) setupFleetAndDevices(context context.Context, numDevices 
 }
 
 func (tc *TestContext) createDeviceSpec() (api.DeviceSpec, error) {
-	err := tc.applicationSpec.FromImageApplicationProviderSpec(tc.applicationConfig)
+	var appSpec api.ApplicationProviderSpec
+	err := appSpec.FromComposeApplication(tc.composeApp)
 	if err != nil {
 		return api.DeviceSpec{}, err
 	}
 
 	return api.DeviceSpec{
-		Applications: &[]api.ApplicationProviderSpec{tc.applicationSpec},
+		Applications: &[]api.ApplicationProviderSpec{appSpec},
 	}, nil
 }
 
 func (tc *TestContext) updateAppVersion(version string) error {
-	tc.applicationSpec.Name = lo.ToPtr(fmt.Sprintf("sleepapp-%s", version))
-	tc.applicationConfig.Image = util.NewSleepAppImageReference(version).String()
-	return tc.applicationSpec.FromImageApplicationProviderSpec(tc.applicationConfig)
+	tc.composeApp.Name = lo.ToPtr(fmt.Sprintf("sleepapp-%s", version))
+	return tc.composeApp.FromImageApplicationProviderSpec(api.ImageApplicationProviderSpec{
+		Image: util.NewSleepAppImageReference(version).String(),
+	})
 }
 
 func (tc *TestContext) verifyAllDevicesUpdated(expectedCount int) error {
@@ -650,8 +652,8 @@ func (tc *TestContext) verifyAllDevicesUpdated(expectedCount int) error {
 			if app.Status != api.ApplicationStatusRunning {
 				return fmt.Errorf("device %s application %q is not running (status=%q)", deviceName, app.Name, app.Status)
 			}
-			if tc.applicationSpec.Name != nil && app.Name != *tc.applicationSpec.Name {
-				return fmt.Errorf("device %s application name is %q, expected %q", deviceName, app.Name, *tc.applicationSpec.Name)
+			if tc.composeApp.Name != nil && app.Name != *tc.composeApp.Name {
+				return fmt.Errorf("device %s application name is %q, expected %q", deviceName, app.Name, *tc.composeApp.Name)
 			}
 		}
 		return nil

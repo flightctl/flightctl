@@ -13,6 +13,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/config"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
+	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/api/common"
@@ -26,6 +27,14 @@ var _ Manager = (*manager)(nil)
 const (
 	// ReferencesFileName is the name of the file that stores image and artifact references
 	ReferencesFileName = "image-artifact-references.json"
+)
+
+// RefType constants for tracking what pulled each image
+const (
+	RefTypePodman   = "podman"   // Container images for podman apps (compose, quadlet, container)
+	RefTypeCRI      = "cri"      // Container images for Kubernetes/Helm workloads
+	RefTypeArtifact = "artifact" // OCI artifacts (volumes, etc.)
+	RefTypeHelm     = "helm"     // Helm charts (stored in helm cache, not image storage)
 )
 
 // Manager provides the public API for managing image pruning operations.
@@ -53,38 +62,48 @@ type ImagePruningConfig = config.ImagePruning
 
 // manager implements the Manager interface for image pruning operations.
 type manager struct {
-	podmanClient *client.Podman
-	specManager  spec.Manager
-	readWriter   fileio.ReadWriter
-	log          *log.PrefixLogger
-	config       atomic.Pointer[ImagePruningConfig]
-	dataDir      string
-	prunePending atomic.Bool
+	podmanClientFactory client.PodmanFactory
+	rootPodmanClient    *client.Podman
+	clients             client.CLIClients
+	specManager         spec.Manager
+	readWriter          fileio.ReadWriter
+	rwFactory           fileio.ReadWriterFactory
+	log                 *log.PrefixLogger
+	config              atomic.Pointer[ImagePruningConfig]
+	dataDir             string
+	prunePending        atomic.Bool
 }
 
 // New creates a new pruning manager instance.
 //
 // Dependencies:
 //   - podmanClient: Podman client for image/artifact operations
+//   - clients: CLI clients for Helm and Kube operations
 //   - specManager: Spec manager for reading current and desired specs
 //   - readWriter: File I/O interface for any file operations
 //   - log: Logger for structured logging
 //   - config: Pruning configuration (enabled flag, etc.)
 //   - dataDir: Directory where data files are stored
 func New(
-	podmanClient *client.Podman,
+	podmanClientFactory client.PodmanFactory,
+	rootPodmanClient *client.Podman,
+	clients client.CLIClients,
 	specManager spec.Manager,
+	rwFactory fileio.ReadWriterFactory,
 	readWriter fileio.ReadWriter,
 	log *log.PrefixLogger,
 	config ImagePruningConfig,
 	dataDir string,
 ) Manager {
 	ret := &manager{
-		podmanClient: podmanClient,
-		specManager:  specManager,
-		readWriter:   readWriter,
-		log:          log,
-		dataDir:      dataDir,
+		podmanClientFactory: podmanClientFactory,
+		rootPodmanClient:    rootPodmanClient,
+		clients:             clients,
+		specManager:         specManager,
+		rwFactory:           rwFactory,
+		readWriter:          readWriter,
+		log:                 log,
+		dataDir:             dataDir,
 	}
 	ret.config.Store(&config)
 	return ret
@@ -110,41 +129,52 @@ func (m *manager) Prune(ctx context.Context) error {
 		return nil
 	}
 
-	totalEligible := len(eligible.Images) + len(eligible.Artifacts)
+	totalEligible := len(eligible.Images) + len(eligible.Artifacts) + len(eligible.CRI) + len(eligible.Helm)
 
-	var removedImages int
-	var removedImageRefs []string
-	var removedArtifacts int
-	var removedArtifactRefs []string
+	var allRemovedRefs []ImageRef
 
 	if totalEligible > 0 {
-		m.log.Infof("Starting pruning of %d eligible images and %d eligible artifacts", len(eligible.Images), len(eligible.Artifacts))
+		m.log.Infof("Starting pruning of %d podman images, %d artifacts, %d CRI images, %d helm charts",
+			len(eligible.Images), len(eligible.Artifacts), len(eligible.CRI), len(eligible.Helm))
 
-		// Remove eligible images and artifacts separately, tracking which ones were successfully removed
-		var err error
-		removedImages, removedImageRefs, err = m.removeEligibleImages(ctx, eligible.Images)
+		// Remove eligible items by type, tracking which ones were successfully removed
+		removedImages, removedImageRefs, err := m.removeEligibleImages(ctx, eligible.Images)
 		if err != nil {
-			m.log.Warnf("Error during image removal: %v", err)
-			// Continue with artifact removal even if image removal failed
+			m.log.Warnf("Error during podman image removal: %v", err)
 		}
+		allRemovedRefs = append(allRemovedRefs, removedImageRefs...)
 
-		removedArtifacts, removedArtifactRefs, err = m.removeEligibleArtifacts(ctx, eligible.Artifacts)
+		removedArtifacts, removedArtifactRefs, err := m.removeEligibleArtifacts(ctx, eligible.Artifacts)
 		if err != nil {
 			m.log.Warnf("Error during artifact removal: %v", err)
-			// Continue with validation even if some removals failed
 		}
+		allRemovedRefs = append(allRemovedRefs, removedArtifactRefs...)
 
-		m.log.Infof("Pruning complete: removed %d of %d eligible images, %d of %d eligible artifacts", removedImages, len(eligible.Images), removedArtifacts, len(eligible.Artifacts))
+		removedCRI, removedCRIRefs, err := m.removeEligibleCRIImages(ctx, eligible.CRI)
+		if err != nil {
+			m.log.Warnf("Error during CRI image removal: %v", err)
+		}
+		allRemovedRefs = append(allRemovedRefs, removedCRIRefs...)
+
+		removedHelm, removedHelmRefs, err := m.removeEligibleHelmCharts(eligible.Helm)
+		if err != nil {
+			m.log.Warnf("Error during helm chart removal: %v", err)
+		}
+		allRemovedRefs = append(allRemovedRefs, removedHelmRefs...)
+
+		m.log.Infof("Pruning complete: removed %d/%d podman images, %d/%d artifacts, %d/%d CRI images, %d/%d helm charts",
+			removedImages, len(eligible.Images),
+			removedArtifacts, len(eligible.Artifacts),
+			removedCRI, len(eligible.CRI),
+			removedHelm, len(eligible.Helm))
 	} else {
 		m.log.Debug("No images or artifacts eligible for pruning")
 	}
 
 	// Remove successfully pruned items from the references file
-	// This ensures the accumulated file only contains items that still exist or haven't been pruned yet
-	if len(removedImageRefs) > 0 || len(removedArtifactRefs) > 0 {
-		if err := m.removePrunedReferencesFromFile(removedImageRefs, removedArtifactRefs); err != nil {
+	if len(allRemovedRefs) > 0 {
+		if err := m.removePrunedReferencesFromFile(allRemovedRefs, nil); err != nil {
 			m.log.Warnf("Failed to remove pruned references from file: %v", err)
-			// Don't block reconciliation on file update errors
 		}
 	}
 
@@ -194,12 +224,12 @@ func (m *manager) PrunePending() bool {
 
 // getImageReferencesFromSpecs extracts image references from a device spec.
 // It includes both explicit references and nested targets extracted from image-based applications.
-func (m *manager) getImageReferencesFromSpecs(ctx context.Context, device *v1beta1.Device) ([]string, error) {
+func (m *manager) getImageReferencesFromSpecs(ctx context.Context, device *v1beta1.Device) ([]ImageRef, error) {
 	if device == nil || device.Spec == nil {
 		return nil, nil
 	}
 
-	var images []string
+	var images []ImageRef
 
 	// Extract image/artifact references directly from the spec
 	// This mirrors the logic in CollectBaseOCITargets but only extracts reference strings
@@ -210,8 +240,9 @@ func (m *manager) getImageReferencesFromSpecs(ctx context.Context, device *v1bet
 	images = append(images, specRefs...)
 
 	// Extract OS image (not included in extractReferencesFromSpec)
+	// OS images are pulled via podman
 	if device.Spec.Os != nil && device.Spec.Os.Image != "" {
-		images = append(images, device.Spec.Os.Image)
+		images = append(images, ImageRef{Image: device.Spec.Os.Image, Type: RefTypePodman})
 	}
 
 	// Extract nested targets from image-based applications
@@ -230,8 +261,22 @@ func (m *manager) getImageReferencesFromSpecs(ctx context.Context, device *v1bet
 // References are stored without categorization during recording.
 // Categorization happens during pruning when we can check if they exist as images or artifacts.
 type ImageArtifactReferences struct {
-	Timestamp  string   `json:"timestamp"`
-	References []string `json:"references"` // Single list of all references (no categorization)
+	Timestamp  string     `json:"timestamp"`
+	References []ImageRef `json:"references"` // Single list of all references (no categorization)
+}
+
+// ImageRef represents a reference to an image, artifact, or helm chart with its source type.
+type ImageRef struct {
+	Image string           `json:"image"`
+	Owner v1beta1.Username `json:"owner"`
+	Type  string           `json:"type"` // One of RefType* constants
+}
+
+// setOwnerOnRefs sets the owner on all ImageRefs in the slice.
+func setOwnerOnRefs(refs []ImageRef, owner v1beta1.Username) {
+	for i := range refs {
+		refs[i].Owner = owner
+	}
 }
 
 // readPreviousReferences reads the previous image/artifact references from the file.
@@ -269,7 +314,7 @@ func (m *manager) recordImageArtifactReferences(ctx context.Context, current, de
 	// Extract all image references from the provided specs using getImageReferencesFromSpecs
 	// This ensures we collect exactly the same references that the prefetch manager sees
 	// We do NOT categorize here - categorization happens during pruning when we can check existence
-	var allRefs []string
+	var allRefs []ImageRef
 
 	// Process both current and desired specs in a loop
 	specs := []struct {
@@ -322,7 +367,7 @@ func (m *manager) recordImageArtifactReferences(ctx context.Context, current, de
 
 // removePrunedReferencesFromFile removes successfully pruned images and artifacts from the references file.
 // This ensures the accumulated file only contains items that still exist or haven't been pruned yet.
-func (m *manager) removePrunedReferencesFromFile(removedImages []string, removedArtifacts []string) error {
+func (m *manager) removePrunedReferencesFromFile(removedImages []ImageRef, removedArtifacts []ImageRef) error {
 	allRemoved := append(removedImages, removedArtifacts...)
 	if len(allRemoved) == 0 {
 		return nil // Nothing to remove
@@ -359,17 +404,20 @@ func (m *manager) removePrunedReferencesFromFile(removedImages []string, removed
 	return nil
 }
 
-// EligibleItems holds separate lists of eligible images and artifacts for pruning.
+// EligibleItems holds lists of eligible items for pruning, organized by type.
 type EligibleItems struct {
-	Images    []string
-	Artifacts []string
+	Images    []ImageRef // Podman images eligible for removal
+	Artifacts []ImageRef // Podman artifacts eligible for removal
+	CRI       []ImageRef // CRI images eligible for removal
+	Helm      []ImageRef // Helm charts eligible for removal
 }
 
-// determineEligibleImages determines which images and artifacts are eligible for pruning.
+// determineEligibleImages determines which images, artifacts, and charts are eligible for pruning.
 // It only prunes items that were previously referenced (according to the references file)
 // but are no longer referenced in the current specs.
-// OS images are included and can be pruned if they lose their references.
-// Returns separate lists for images and artifacts.
+// An item is only eligible when ALL reference types have been released (e.g., if an image
+// is referenced by both podman and CRI, it's only eligible when both references are dropped).
+// Returns separate lists by type for appropriate cleanup.
 func (m *manager) determineEligibleImages(ctx context.Context) (*EligibleItems, error) {
 	m.log.Debug("Determining eligible images and artifacts for pruning")
 
@@ -379,15 +427,15 @@ func (m *manager) determineEligibleImages(ctx context.Context) (*EligibleItems, 
 		// No previous references file - this is the first run, so nothing to prune
 		m.log.Debug("No previous references file found - skipping pruning on first run")
 		return &EligibleItems{
-			Images:    []string{},
-			Artifacts: []string{},
+			Images:    []ImageRef{},
+			Artifacts: []ImageRef{},
+			CRI:       []ImageRef{},
+			Helm:      []ImageRef{},
 		}, nil
 	}
 
 	// Get current required references from specs (includes application images, OS images, and artifacts)
-	// Note: We don't need to list all images/artifacts upfront anymore.
-	// Categorization happens per-reference during pruning when we check existence.
-	var currentRequiredRefs []string
+	var currentRequiredRefs []ImageRef
 
 	// Process both current and desired specs in a loop
 	specTypes := []struct {
@@ -427,61 +475,131 @@ func (m *manager) determineEligibleImages(ctx context.Context) (*EligibleItems, 
 		currentRequiredRefs = append(currentRequiredRefs, specRefs...)
 	}
 
-	currentRequiredRefs = lo.Uniq(currentRequiredRefs)
+	// Build a set of current references keyed by (Image, Type)
+	currentRefSet := make(map[string]struct{})
+	for _, ref := range currentRequiredRefs {
+		key := refKey(ref.Image, ref.Type)
+		currentRefSet[key] = struct{}{}
+	}
 
-	// Get previous references (single list, no categorization)
+	// Build a set of images that still have at least one reference
+	imagesWithRefs := make(map[string]struct{})
+	for _, ref := range currentRequiredRefs {
+		imagesWithRefs[ref.Image] = struct{}{}
+	}
+
+	// Get previous references
 	previousReferences := previousRefs.References
 
 	// Find references that were previously recorded but are no longer in current specs
-	eligibleReferences := lo.Without(lo.Uniq(previousReferences), currentRequiredRefs...)
-
-	// Categorize eligible references during pruning (when we can check existence)
-	// Only include references that we successfully categorize
-	var eligibleImages []string
-	var eligibleArtifacts []string
-
-	for _, ref := range eligibleReferences {
-		// Check if it exists as an image
-		if m.podmanClient.ImageExists(ctx, ref) {
-			eligibleImages = append(eligibleImages, ref)
-			continue
+	// A reference is eligible if its (Image, Type) tuple is not in current refs
+	var eligibleRefs []ImageRef
+	for _, ref := range previousReferences {
+		key := refKey(ref.Image, ref.Type)
+		if _, exists := currentRefSet[key]; !exists {
+			// This specific (Image, Type) reference has been dropped
+			// But we only want to delete if ALL references to this image are gone
+			if _, hasOtherRef := imagesWithRefs[ref.Image]; !hasOtherRef {
+				eligibleRefs = append(eligibleRefs, ref)
+			}
 		}
-		// Check if it exists as an artifact
-		if m.podmanClient.ArtifactExists(ctx, ref) {
-			eligibleArtifacts = append(eligibleArtifacts, ref)
-			continue
-		}
-		// If it doesn't exist as either, skip it (can't prune what doesn't exist)
-		// We don't remove it from the references file as it might be currently being downloaded
-		m.log.Debugf("Skipping reference %s - doesn't exist as image or artifact (might be downloading)", ref)
 	}
 
-	if len(eligibleImages) == 0 && len(eligibleArtifacts) == 0 {
+	eligibleRefs = lo.Uniq(eligibleRefs)
+
+	// Categorize eligible references by type and verify existence
+	var eligibleImages []ImageRef
+	var eligibleArtifacts []ImageRef
+	var eligibleCRI []ImageRef
+	var eligibleHelm []ImageRef
+
+	for _, ref := range eligibleRefs {
+		switch ref.Type {
+		case RefTypePodman:
+			podmanClient, err := m.podmanClientFactory(ref.Owner)
+			if err != nil {
+				return nil, fmt.Errorf("constructing podman client: %w", err)
+			}
+			// Image providers can reference either images or artifacts - check both
+			if podmanClient.ImageExists(ctx, ref.Image) {
+				eligibleImages = append(eligibleImages, ref)
+			} else if podmanClient.ArtifactExists(ctx, ref.Image) {
+				eligibleArtifacts = append(eligibleArtifacts, ref)
+			} else {
+				m.log.Debugf("Skipping podman reference %s - doesn't exist as image or artifact", ref.Image)
+			}
+
+		case RefTypeCRI:
+			if m.clients.CRI().ImageExists(ctx, ref.Image) {
+				eligibleCRI = append(eligibleCRI, ref)
+			} else {
+				m.log.Debugf("Skipping CRI reference %s - doesn't exist", ref.Image)
+			}
+
+		case RefTypeArtifact:
+			podmanClient, err := m.podmanClientFactory(ref.Owner)
+			if err != nil {
+				return nil, fmt.Errorf("constructing podman client: %w", err)
+			}
+			if podmanClient.ArtifactExists(ctx, ref.Image) {
+				eligibleArtifacts = append(eligibleArtifacts, ref)
+			} else {
+				m.log.Debugf("Skipping artifact reference %s - doesn't exist", ref.Image)
+			}
+
+		case RefTypeHelm:
+			resolved, err := m.clients.Helm().IsResolved(ref.Image)
+			if err != nil {
+				m.log.Debugf("Skipping helm reference %s - error checking: %v", ref.Image, err)
+				continue
+			}
+			if resolved {
+				eligibleHelm = append(eligibleHelm, ref)
+			} else {
+				m.log.Debugf("Skipping helm reference %s - chart not found", ref.Image)
+			}
+
+		default:
+			m.log.Debugf("Skipping reference %s - unknown type: %s", ref.Image, ref.Type)
+		}
+	}
+
+	totalEligible := len(eligibleImages) + len(eligibleArtifacts) + len(eligibleCRI) + len(eligibleHelm)
+	if totalEligible == 0 {
 		m.log.Debug("No previously referenced items have lost their references - nothing to prune")
 	} else {
-		m.log.Debugf("Found %d eligible images and %d eligible artifacts for pruning (previously referenced but no longer)", len(eligibleImages), len(eligibleArtifacts))
+		m.log.Debugf("Found eligible for pruning: %d images, %d artifacts, %d CRI images, %d helm charts",
+			len(eligibleImages), len(eligibleArtifacts), len(eligibleCRI), len(eligibleHelm))
 	}
 	return &EligibleItems{
 		Images:    eligibleImages,
 		Artifacts: eligibleArtifacts,
+		CRI:       eligibleCRI,
+		Helm:      eligibleHelm,
 	}, nil
+}
+
+// refKey creates a unique key for an (Image, Type) tuple.
+func refKey(image, refType string) string {
+	return image + "|" + refType
 }
 
 // extractReferencesFromSpec extracts all image and artifact reference strings from a device spec.
 // This mirrors the logic in CollectBaseOCITargets but only returns reference strings, not OCIPullTarget objects.
-func (m *manager) extractReferencesFromSpec(ctx context.Context, deviceSpec *v1beta1.DeviceSpec) ([]string, error) {
+func (m *manager) extractReferencesFromSpec(ctx context.Context, deviceSpec *v1beta1.DeviceSpec) ([]ImageRef, error) {
 	if deviceSpec == nil {
 		return nil, nil
 	}
 
-	var refs []string
+	var refs []ImageRef
 
 	// Extract from applications
 	if deviceSpec.Applications != nil {
 		for _, appSpec := range lo.FromPtr(deviceSpec.Applications) {
 			appRefs, err := m.extractReferencesFromApplication(ctx, &appSpec)
 			if err != nil {
-				return nil, fmt.Errorf("extracting references from application %s: %w", lo.FromPtr(appSpec.Name), err)
+				appName, _ := provider.ResolveImageAppName(&appSpec)
+				return nil, fmt.Errorf("extracting references from application %s: %w", appName, err)
 			}
 			refs = append(refs, appRefs...)
 		}
@@ -500,84 +618,132 @@ func (m *manager) extractReferencesFromSpec(ctx context.Context, deviceSpec *v1b
 }
 
 // extractReferencesFromApplication extracts image and artifact reference strings from a single application spec.
-func (m *manager) extractReferencesFromApplication(ctx context.Context, appSpec *v1beta1.ApplicationProviderSpec) ([]string, error) {
-	var refs []string
+func (m *manager) extractReferencesFromApplication(_ context.Context, appSpec *v1beta1.ApplicationProviderSpec) ([]ImageRef, error) {
+	var refs []ImageRef
 
-	providerType, err := appSpec.Type()
+	owner, err := provider.ResolveUser(appSpec)
 	if err != nil {
-		return nil, fmt.Errorf("determining provider type: %w", err)
+		return nil, fmt.Errorf("resolving user: %w", err)
 	}
 
-	switch providerType {
-	case v1beta1.ImageApplicationProviderType:
-		imageSpec, err := appSpec.AsImageApplicationProviderSpec()
-		if err != nil {
-			return nil, fmt.Errorf("getting image provider spec: %w", err)
-		}
-		refs = append(refs, imageSpec.Image)
+	appType, err := (*appSpec).GetAppType()
+	if err != nil {
+		return nil, fmt.Errorf("%w: image: %w", errors.ErrGettingProviderSpec, err)
+	}
 
-		// Extract volume references
-		if imageSpec.Volumes != nil {
-			volRefs, err := m.extractVolumeReferences(*imageSpec.Volumes)
+	switch appType {
+	case v1beta1.AppTypeContainer:
+		containerApp, err := (*appSpec).AsContainerApplication()
+		if err != nil {
+			return nil, fmt.Errorf("getting container application: %w", err)
+		}
+		refs = append(refs, ImageRef{Image: containerApp.Image, Owner: owner, Type: RefTypePodman})
+		if containerApp.Volumes != nil {
+			volRefs, err := m.extractVolumeReferences(*containerApp.Volumes)
 			if err != nil {
 				return nil, fmt.Errorf("extracting volume references: %w", err)
 			}
+			setOwnerOnRefs(volRefs, owner)
 			refs = append(refs, volRefs...)
 		}
 
-	case v1beta1.InlineApplicationProviderType:
-		inlineSpec, err := appSpec.AsInlineApplicationProviderSpec()
+	case v1beta1.AppTypeCompose:
+		composeApp, err := (*appSpec).AsComposeApplication()
 		if err != nil {
-			return nil, fmt.Errorf("getting inline provider spec: %w", err)
+			return nil, fmt.Errorf("%w: inline: %w", errors.ErrGettingProviderSpec, err)
 		}
-
-		// Extract references from inline content based on app type
-		switch appSpec.AppType {
-		case v1beta1.AppTypeCompose:
+		providerType, err := composeApp.Type()
+		if err != nil {
+			return nil, fmt.Errorf("getting compose provider type: %w", err)
+		}
+		if providerType == v1beta1.ImageApplicationProviderType {
+			imageSpec, err := composeApp.AsImageApplicationProviderSpec()
+			if err != nil {
+				return nil, fmt.Errorf("getting compose image spec: %w", err)
+			}
+			refs = append(refs, ImageRef{Image: imageSpec.Image, Owner: owner, Type: RefTypePodman})
+		} else {
+			inlineSpec, err := composeApp.AsInlineApplicationProviderSpec()
+			if err != nil {
+				return nil, fmt.Errorf("getting compose inline spec: %w", err)
+			}
 			composeRefs, err := m.extractComposeReferences(inlineSpec.Inline)
 			if err != nil {
 				return nil, fmt.Errorf("extracting compose references: %w", err)
 			}
+			setOwnerOnRefs(composeRefs, owner)
 			refs = append(refs, composeRefs...)
+		}
+		if composeApp.Volumes != nil {
+			volRefs, err := m.extractVolumeReferences(*composeApp.Volumes)
+			if err != nil {
+				return nil, fmt.Errorf("extracting volume references: %w", err)
+			}
+			setOwnerOnRefs(volRefs, owner)
+			refs = append(refs, volRefs...)
+		}
 
-		case v1beta1.AppTypeQuadlet:
+	case v1beta1.AppTypeQuadlet:
+		quadletApp, err := (*appSpec).AsQuadletApplication()
+		if err != nil {
+			return nil, fmt.Errorf("getting quadlet application: %w", err)
+		}
+		providerType, err := quadletApp.Type()
+		if err != nil {
+			return nil, fmt.Errorf("getting quadlet provider type: %w", err)
+		}
+		if providerType == v1beta1.ImageApplicationProviderType {
+			imageSpec, err := quadletApp.AsImageApplicationProviderSpec()
+			if err != nil {
+				return nil, fmt.Errorf("getting quadlet image spec: %w", err)
+			}
+			refs = append(refs, ImageRef{Image: imageSpec.Image, Owner: owner, Type: RefTypePodman})
+		} else {
+			inlineSpec, err := quadletApp.AsInlineApplicationProviderSpec()
+			if err != nil {
+				return nil, fmt.Errorf("getting quadlet inline spec: %w", err)
+			}
 			quadletRefs, err := m.extractQuadletReferences(inlineSpec.Inline)
 			if err != nil {
 				return nil, fmt.Errorf("extracting quadlet references: %w", err)
 			}
+			setOwnerOnRefs(quadletRefs, owner)
 			refs = append(refs, quadletRefs...)
-
-		default:
-			return nil, fmt.Errorf("unsupported app type for inline provider: %s", appSpec.AppType)
 		}
-
-		// Extract volume references
-		if inlineSpec.Volumes != nil {
-			volRefs, err := m.extractVolumeReferences(*inlineSpec.Volumes)
+		if quadletApp.Volumes != nil {
+			volRefs, err := m.extractVolumeReferences(*quadletApp.Volumes)
 			if err != nil {
 				return nil, fmt.Errorf("extracting volume references: %w", err)
 			}
+			setOwnerOnRefs(volRefs, owner)
 			refs = append(refs, volRefs...)
 		}
 
+	case v1beta1.AppTypeHelm:
+		helmApp, err := (*appSpec).AsHelmApplication()
+		if err != nil {
+			return nil, fmt.Errorf("getting helm application: %w", err)
+		}
+		refs = append(refs, ImageRef{Image: helmApp.Image, Owner: owner, Type: RefTypeHelm})
+
 	default:
-		return nil, fmt.Errorf("unsupported application provider type: %s", providerType)
+		return nil, fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, appType)
 	}
 
 	return refs, nil
 }
 
 // extractComposeReferences extracts image reference strings from Compose inline content.
-func (m *manager) extractComposeReferences(contents []v1beta1.ApplicationContent) ([]string, error) {
+func (m *manager) extractComposeReferences(contents []v1beta1.ApplicationContent) ([]ImageRef, error) {
 	spec, err := client.ParseComposeFromSpec(contents)
 	if err != nil {
-		return nil, fmt.Errorf("parsing compose spec: %w", err)
+		return nil, fmt.Errorf("%w: %w", errors.ErrParsingComposeSpec, err)
 	}
 
-	var refs []string
+	var refs []ImageRef
 	for _, svc := range spec.Services {
 		if svc.Image != "" {
-			refs = append(refs, svc.Image)
+			refs = append(refs, ImageRef{Image: svc.Image, Type: RefTypePodman})
 		}
 	}
 
@@ -586,18 +752,18 @@ func (m *manager) extractComposeReferences(contents []v1beta1.ApplicationContent
 
 // extractImagesFromQuadletReferences extracts image reference strings from a map of quadlet references.
 // Filters out quadlet file references (e.g., "base.image") - only includes actual OCI image references.
-func (m *manager) extractImagesFromQuadletReferences(quadlets map[string]*common.QuadletReferences) []string {
-	var refs []string
+func (m *manager) extractImagesFromQuadletReferences(quadlets map[string]*common.QuadletReferences) []ImageRef {
+	var refs []ImageRef
 	for _, quad := range quadlets {
 		// Extract images from service/container quadlets (only if it's an OCI image, not a quadlet file reference)
 		if quad.Image != nil && !quadlet.IsImageReference(*quad.Image) {
-			refs = append(refs, *quad.Image)
+			refs = append(refs, ImageRef{Image: *quad.Image, Type: RefTypePodman})
 		}
 
 		// Extract mount images (only if they're OCI images, not quadlet file references)
 		for _, mountImage := range quad.MountImages {
 			if !quadlet.IsImageReference(mountImage) {
-				refs = append(refs, mountImage)
+				refs = append(refs, ImageRef{Image: mountImage, Type: RefTypePodman})
 			}
 		}
 	}
@@ -607,18 +773,19 @@ func (m *manager) extractImagesFromQuadletReferences(quadlets map[string]*common
 
 // extractQuadletReferences extracts image reference strings from Quadlet inline content.
 // Filters out quadlet file references (e.g., "base.image") - only includes actual OCI image references.
-func (m *manager) extractQuadletReferences(contents []v1beta1.ApplicationContent) ([]string, error) {
+func (m *manager) extractQuadletReferences(contents []v1beta1.ApplicationContent) ([]ImageRef, error) {
 	quadlets, err := client.ParseQuadletReferencesFromSpec(contents)
 	if err != nil {
-		return nil, fmt.Errorf("parsing quadlet spec: %w", err)
+		return nil, fmt.Errorf("%w: %w", errors.ErrParsingQuadletSpec, err)
 	}
 
 	return m.extractImagesFromQuadletReferences(quadlets), nil
 }
 
 // extractVolumeReferences extracts image/artifact reference strings from application volumes.
-func (m *manager) extractVolumeReferences(volumes []v1beta1.ApplicationVolume) ([]string, error) {
-	var refs []string
+// ImageVolume types are artifacts, ImageMountVolume types could be images or artifacts (use auto-detect).
+func (m *manager) extractVolumeReferences(volumes []v1beta1.ApplicationVolume) ([]ImageRef, error) {
+	var refs []ImageRef
 
 	for _, vol := range volumes {
 		volType, err := vol.Type()
@@ -630,16 +797,17 @@ func (m *manager) extractVolumeReferences(volumes []v1beta1.ApplicationVolume) (
 		case v1beta1.ImageApplicationVolumeProviderType:
 			provider, err := vol.AsImageVolumeProviderSpec()
 			if err != nil {
-				return nil, fmt.Errorf("getting image volume provider spec: %w", err)
+				return nil, fmt.Errorf("%w: image volume: %w", errors.ErrGettingProviderSpec, err)
 			}
-			refs = append(refs, provider.Image.Reference)
+			refs = append(refs, ImageRef{Image: provider.Image.Reference, Type: RefTypeArtifact})
 
 		case v1beta1.ImageMountApplicationVolumeProviderType:
 			provider, err := vol.AsImageMountVolumeProviderSpec()
 			if err != nil {
-				return nil, fmt.Errorf("getting image mount volume provider spec: %w", err)
+				return nil, fmt.Errorf("%w: image mount volume: %w", errors.ErrGettingProviderSpec, err)
 			}
-			refs = append(refs, provider.Image.Reference)
+			// ImageMount volumes could be images or artifacts - type is determined at pruning time
+			refs = append(refs, ImageRef{Image: provider.Image.Reference, Type: RefTypePodman})
 
 		case v1beta1.MountApplicationVolumeProviderType:
 			// Mount volumes don't have images
@@ -655,12 +823,12 @@ func (m *manager) extractVolumeReferences(volumes []v1beta1.ApplicationVolume) (
 }
 
 // extractEmbeddedReferences extracts image reference strings from embedded applications in the filesystem.
-func (m *manager) extractEmbeddedReferences(ctx context.Context) ([]string, error) {
+func (m *manager) extractEmbeddedReferences(ctx context.Context) ([]ImageRef, error) {
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
 
-	var allRefs []string
+	var allRefs []ImageRef
 
 	// Extract from embedded compose applications
 	composeRefs, err := m.extractEmbeddedComposeReferences(ctx)
@@ -682,12 +850,12 @@ func (m *manager) extractEmbeddedReferences(ctx context.Context) ([]string, erro
 }
 
 // extractEmbeddedComposeReferences extracts image reference strings from embedded compose applications.
-func (m *manager) extractEmbeddedComposeReferences(ctx context.Context) ([]string, error) {
+func (m *manager) extractEmbeddedComposeReferences(ctx context.Context) ([]ImageRef, error) {
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
 
-	var refs []string
+	var refs []ImageRef
 
 	elements, err := m.readWriter.ReadDir(lifecycle.EmbeddedComposeAppPath)
 	if err != nil {
@@ -732,7 +900,7 @@ func (m *manager) extractEmbeddedComposeReferences(ctx context.Context) ([]strin
 		// Extract images from services
 		for _, svc := range spec.Services {
 			if svc.Image != "" {
-				refs = append(refs, svc.Image)
+				refs = append(refs, ImageRef{Image: svc.Image, Type: RefTypePodman})
 			}
 		}
 	}
@@ -741,12 +909,12 @@ func (m *manager) extractEmbeddedComposeReferences(ctx context.Context) ([]strin
 }
 
 // extractEmbeddedQuadletReferences extracts image reference strings from embedded quadlet applications.
-func (m *manager) extractEmbeddedQuadletReferences(ctx context.Context) ([]string, error) {
+func (m *manager) extractEmbeddedQuadletReferences(ctx context.Context) ([]ImageRef, error) {
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
 
-	var refs []string
+	var refs []ImageRef
 
 	elements, err := m.readWriter.ReadDir(lifecycle.EmbeddedQuadletAppPath)
 	if err != nil {
@@ -783,40 +951,62 @@ func (m *manager) extractEmbeddedQuadletReferences(ctx context.Context) ([]strin
 // This ensures that artifacts referenced inside images (e.g., in Compose files) are preserved during pruning.
 // Returns a list of image/artifact references found in nested targets.
 // Errors during extraction are logged but don't block collection (best-effort for pruning).
-func (m *manager) extractNestedTargetsFromSpec(ctx context.Context, device *v1beta1.Device) ([]string, error) {
+func (m *manager) extractNestedTargetsFromSpec(ctx context.Context, device *v1beta1.Device) ([]ImageRef, error) {
 	if device == nil || device.Spec == nil || device.Spec.Applications == nil {
-		return []string{}, nil
+		return nil, nil
 	}
 
-	var allReferences []string
+	var allReferences []ImageRef
 	appDataToCleanup := []*provider.AppData{}
 
 	// Process each application in the spec
 	for _, appSpec := range lo.FromPtr(device.Spec.Applications) {
+		appName, _ := provider.ResolveImageAppName(&appSpec)
+
 		// Only image-based apps have nested targets extracted from parent images
-		providerType, err := appSpec.Type()
+		needsExtraction, err := provider.AppNeedsNestedExtraction(&appSpec)
 		if err != nil {
-			m.log.Debugf("Skipping app %s: failed to get provider type: %v", lo.FromPtr(appSpec.Name), err)
+			m.log.Debugf("Skipping app %s: failed to check nested extraction: %v", appName, err)
 			continue
 		}
 
-		if providerType != v1beta1.ImageApplicationProviderType {
+		if !needsExtraction {
 			continue
 		}
 
-		imageSpec, err := appSpec.AsImageApplicationProviderSpec()
+		imageName, err := provider.ResolveImageRef(&appSpec)
 		if err != nil {
-			m.log.Debugf("Skipping app %s: failed to get image spec: %v", lo.FromPtr(appSpec.Name), err)
+			m.log.Debugf("Skipping app %s: failed to resolve image ref: %v", appName, err)
 			continue
 		}
 
-		imageRef := imageSpec.Image
+		user, err := provider.ResolveUser(&appSpec)
+		if err != nil {
+			m.log.Debugf("Skipping app %s: failed to resolve user: %v", appName, err)
+			continue
+		}
 
-		// Check if the image/artifact exists locally (required for extraction)
-		exists := m.podmanClient.ImageExists(ctx, imageRef) || m.podmanClient.ArtifactExists(ctx, imageRef)
+		appType, err := appSpec.GetAppType()
+		if err != nil {
+			m.log.Debugf("Skipping app %s: failed to get app type: %v", appName, err)
+			continue
+		}
+
+		// Check if the image/artifact/chart exists locally (required for extraction)
+		var exists bool
+		if appType == v1beta1.AppTypeHelm {
+			exists, _ = m.clients.Helm().IsResolved(imageName)
+		} else {
+			podmanClient, err := m.podmanClientFactory(user)
+			if err != nil {
+				m.log.Errorf("Skipping app %s: failed to create podman client: %v", appName, err)
+				continue
+			}
+			exists = podmanClient.ImageExists(ctx, imageName) || podmanClient.ArtifactExists(ctx, imageName)
+		}
 		if !exists {
-			// Image not available locally - skip nested extraction (best-effort for pruning)
-			m.log.Debugf("Skipping nested extraction for app %s: image %s not available locally", lo.FromPtr(appSpec.Name), imageRef)
+			// Image/chart not available locally - skip nested extraction (best-effort for pruning)
+			m.log.Debugf("Skipping nested extraction for app %s: %s not available locally", appName, imageName)
 			continue
 		}
 
@@ -825,15 +1015,15 @@ func (m *manager) extractNestedTargetsFromSpec(ctx context.Context, device *v1be
 		appData, err := provider.ExtractNestedTargetsFromImage(
 			ctx,
 			m.log,
-			m.podmanClient,
-			m.readWriter,
+			m.podmanClientFactory,
+			m.clients,
+			m.rwFactory,
 			&appSpec,
-			&imageSpec,
 			nil, // pullSecret not needed for extraction from local images
 		)
 		if err != nil {
 			// Log warning but continue - nested extraction is best-effort for pruning
-			m.log.Debugf("Failed to extract nested targets from app %s (image %s): %v", lo.FromPtr(appSpec.Name), imageRef, err)
+			m.log.Debugf("Failed to extract nested targets from app %s (%s): %v", appName, imageName, err)
 			continue
 		}
 
@@ -841,10 +1031,17 @@ func (m *manager) extractNestedTargetsFromSpec(ctx context.Context, device *v1be
 			continue
 		}
 
+		// Determine the type for nested references based on app type
+		// Helm apps use CRI for workload images, other apps use podman
+		nestedRefType := RefTypePodman
+		if appType == v1beta1.AppTypeHelm {
+			nestedRefType = RefTypeCRI
+		}
+
 		// Collect reference strings from extracted targets
 		for _, target := range appData.Targets {
 			if target.Reference != "" {
-				allReferences = append(allReferences, target.Reference)
+				allReferences = append(allReferences, ImageRef{Image: target.Reference, Owner: user, Type: nestedRefType})
 			}
 		}
 
@@ -882,23 +1079,19 @@ func (m *manager) validateCapability(ctx context.Context) error {
 		desiredDevice = nil
 	}
 
-	var missingImages []string
+	var missingImages []ImageRef
 
 	// Validate current application images
 	if currentDevice != nil && currentDevice.Spec != nil {
 		// Extract image/artifact references directly from the spec
-		var currentImages []string
+		var currentImages []ImageRef
 		specRefs, err := m.extractReferencesFromSpec(ctx, currentDevice.Spec)
 		if err != nil {
 			return fmt.Errorf("extracting current images for validation: %w", err)
 		}
 		currentImages = append(currentImages, specRefs...)
-		// Add OS image if present (will be validated separately below)
 		for _, img := range currentImages {
-			exists := m.podmanClient.ImageExists(ctx, img)
-			if !exists {
-				exists = m.podmanClient.ArtifactExists(ctx, img)
-			}
+			exists := m.checkRefExists(ctx, img)
 			if !exists {
 				missingImages = append(missingImages, img)
 				m.log.Warnf("Current application image missing after pruning: %s", img)
@@ -908,9 +1101,9 @@ func (m *manager) validateCapability(ctx context.Context) error {
 		// Validate current OS image
 		if currentDevice.Spec.Os != nil && currentDevice.Spec.Os.Image != "" {
 			osImage := currentDevice.Spec.Os.Image
-			exists := m.podmanClient.ImageExists(ctx, osImage)
+			exists := m.rootPodmanClient.ImageExists(ctx, osImage)
 			if !exists {
-				missingImages = append(missingImages, osImage)
+				missingImages = append(missingImages, ImageRef{Image: osImage})
 				m.log.Warnf("Current OS image missing after pruning: %s", osImage)
 			}
 		}
@@ -919,29 +1112,26 @@ func (m *manager) validateCapability(ctx context.Context) error {
 	// Validate desired application images
 	if desiredDevice != nil && desiredDevice.Spec != nil {
 		// Extract image/artifact references directly from the spec
-		var desiredImages []string
+		var desiredImages []ImageRef
 		specRefs, err := m.extractReferencesFromSpec(ctx, desiredDevice.Spec)
 		if err != nil {
 			return fmt.Errorf("extracting desired images for validation: %w", err)
 		}
 		desiredImages = append(desiredImages, specRefs...)
-		for _, img := range desiredImages {
-			exists := m.podmanClient.ImageExists(ctx, img)
+		for _, ref := range desiredImages {
+			exists := m.checkRefExists(ctx, ref)
 			if !exists {
-				exists = m.podmanClient.ArtifactExists(ctx, img)
-			}
-			if !exists {
-				missingImages = append(missingImages, img)
-				m.log.Warnf("Desired application image missing after pruning: %s", img)
+				missingImages = append(missingImages, ref)
+				m.log.Warnf("Desired application image missing after pruning: %s", ref)
 			}
 		}
 
 		// Validate desired OS image
 		if desiredDevice.Spec.Os != nil && desiredDevice.Spec.Os.Image != "" {
 			osImage := desiredDevice.Spec.Os.Image
-			exists := m.podmanClient.ImageExists(ctx, osImage)
+			exists := m.rootPodmanClient.ImageExists(ctx, osImage)
 			if !exists {
-				missingImages = append(missingImages, osImage)
+				missingImages = append(missingImages, ImageRef{Image: osImage})
 				m.log.Warnf("Desired OS image missing after pruning: %s", osImage)
 			}
 		}
@@ -955,28 +1145,56 @@ func (m *manager) validateCapability(ctx context.Context) error {
 	return nil
 }
 
+func (m *manager) checkRefExists(ctx context.Context, ref ImageRef) bool {
+	switch ref.Type {
+	case RefTypeHelm:
+		exists, _ := m.clients.Helm().IsResolved(ref.Image)
+		return exists
+	case RefTypeCRI:
+		return m.clients.CRI().ImageExists(ctx, ref.Image)
+	case RefTypeArtifact:
+		podmanClient, err := m.podmanClientFactory(ref.Owner)
+		if err != nil {
+			m.log.Errorf("Failed to construct podman client for artifact check: %v", err)
+			return false
+		}
+		return podmanClient.ArtifactExists(ctx, ref.Image)
+	default:
+		podmanClient, err := m.podmanClientFactory(ref.Owner)
+		if err != nil {
+			m.log.Errorf("Failed to construct podman client for image check: %v", err)
+			return false
+		}
+		return podmanClient.ImageExists(ctx, ref.Image) || podmanClient.ArtifactExists(ctx, ref.Image)
+	}
+}
+
 // removeEligibleImages removes the list of eligible images from Podman storage.
 // It returns the count of successfully removed images, the list of successfully removed image references, and any error encountered.
 // Errors during individual removals are logged but don't stop the process.
-func (m *manager) removeEligibleImages(ctx context.Context, eligibleImages []string) (int, []string, error) {
+func (m *manager) removeEligibleImages(ctx context.Context, eligibleImages []ImageRef) (int, []ImageRef, error) {
 	var removedCount int
-	var removedRefs []string
+	var removedRefs []ImageRef
 	var removalErrors []error
 
-	for _, imageRef := range eligibleImages {
+	for _, ref := range eligibleImages {
+		podmanClient, err := m.podmanClientFactory(ref.Owner)
+		if err != nil {
+			return 0, nil, fmt.Errorf("constructing podman client: %w", err)
+		}
 		// Check if image exists before attempting removal
-		imageExists := m.podmanClient.ImageExists(ctx, imageRef)
+		imageExists := podmanClient.ImageExists(ctx, ref.Image)
 
 		if imageExists {
-			if err := m.podmanClient.RemoveImage(ctx, imageRef); err != nil {
-				m.log.Warnf("Failed to remove image %s: %v", imageRef, err)
-				removalErrors = append(removalErrors, fmt.Errorf("failed to remove image %s: %w", imageRef, err))
+			if err := podmanClient.RemoveImage(ctx, ref.Image); err != nil {
+				m.log.Warnf("Failed to remove image %s: %v", ref.Image, err)
+				removalErrors = append(removalErrors, fmt.Errorf("failed to remove image %s: %w", ref.Image, err))
 				continue
 			}
 			removedCount++
-			m.log.Debugf("Removed image: %s", imageRef)
+			m.log.Debugf("Removed image: %s", ref.Image)
 		}
-		removedRefs = append(removedRefs, imageRef)
+		removedRefs = append(removedRefs, ref)
 	}
 
 	// Return error only if all removals failed
@@ -995,25 +1213,29 @@ func (m *manager) removeEligibleImages(ctx context.Context, eligibleImages []str
 // removeEligibleArtifacts removes the list of eligible artifacts from Podman storage.
 // It returns the count of successfully removed artifacts, the list of successfully removed artifact references, and any error encountered.
 // Errors during individual removals are logged but don't stop the process.
-func (m *manager) removeEligibleArtifacts(ctx context.Context, eligibleArtifacts []string) (int, []string, error) {
+func (m *manager) removeEligibleArtifacts(ctx context.Context, eligibleArtifacts []ImageRef) (int, []ImageRef, error) {
 	var removedCount int
-	var removedRefs []string
+	var removedRefs []ImageRef
 	var removalErrors []error
 
-	for _, artifactRef := range eligibleArtifacts {
+	for _, ref := range eligibleArtifacts {
+		podmanClient, err := m.podmanClientFactory(ref.Owner)
+		if err != nil {
+			return 0, nil, fmt.Errorf("constructing podman client: %w", err)
+		}
 		// Check if artifact exists before attempting removal
-		artifactExists := m.podmanClient.ArtifactExists(ctx, artifactRef)
+		artifactExists := podmanClient.ArtifactExists(ctx, ref.Image)
 
 		if artifactExists {
-			if err := m.podmanClient.RemoveArtifact(ctx, artifactRef); err != nil {
-				m.log.Warnf("Failed to remove artifact %s: %v", artifactRef, err)
-				removalErrors = append(removalErrors, fmt.Errorf("failed to remove artifact %s: %w", artifactRef, err))
+			if err := podmanClient.RemoveArtifact(ctx, ref.Image); err != nil {
+				m.log.Warnf("Failed to remove artifact %s: %v", ref, err)
+				removalErrors = append(removalErrors, fmt.Errorf("failed to remove artifact %s: %w", ref, err))
 				continue
 			}
 			removedCount++
-			m.log.Debugf("Removed artifact: %s", artifactRef)
+			m.log.Debugf("Removed artifact: %s", ref)
 		}
-		removedRefs = append(removedRefs, artifactRef)
+		removedRefs = append(removedRefs, ref)
 	}
 
 	// Return error only if all removals failed
@@ -1024,6 +1246,85 @@ func (m *manager) removeEligibleArtifacts(ctx context.Context, eligibleArtifacts
 	// Log summary if there were any failures
 	if len(removalErrors) > 0 {
 		m.log.Warnf("Artifact pruning completed with %d failures out of %d attempts", len(removalErrors), len(eligibleArtifacts))
+	}
+
+	return removedCount, removedRefs, nil
+}
+
+// removeEligibleCRIImages removes the list of eligible CRI images.
+// It returns the count of successfully removed images, the list of successfully removed image references, and any error encountered.
+// Errors during individual removals are logged but don't stop the process.
+func (m *manager) removeEligibleCRIImages(ctx context.Context, eligibleImages []ImageRef) (int, []ImageRef, error) {
+	var removedCount int
+	var removedRefs []ImageRef
+	var removalErrors []error
+
+	criClient := m.clients.CRI()
+
+	for _, ref := range eligibleImages {
+		if criClient.ImageExists(ctx, ref.Image) {
+			if err := criClient.RemoveImage(ctx, ref.Image); err != nil {
+				m.log.Warnf("Failed to remove CRI image %s: %v", ref.Image, err)
+				removalErrors = append(removalErrors, fmt.Errorf("failed to remove CRI image %s: %w", ref.Image, err))
+				continue
+			}
+			removedCount++
+			m.log.Debugf("Removed CRI image: %s", ref.Image)
+		}
+		removedRefs = append(removedRefs, ref)
+	}
+
+	// Return error only if all removals failed
+	if len(removalErrors) == len(eligibleImages) && len(eligibleImages) > 0 {
+		return removedCount, removedRefs, fmt.Errorf("all CRI image removals failed: %d errors", len(removalErrors))
+	}
+
+	// Log summary if there were any failures
+	if len(removalErrors) > 0 {
+		m.log.Warnf("CRI image pruning completed with %d failures out of %d attempts", len(removalErrors), len(eligibleImages))
+	}
+
+	return removedCount, removedRefs, nil
+}
+
+// removeEligibleHelmCharts removes the list of eligible Helm charts from the cache.
+// It returns the count of successfully removed charts, the list of successfully removed chart references, and any error encountered.
+// Errors during individual removals are logged but don't stop the process.
+func (m *manager) removeEligibleHelmCharts(eligibleCharts []ImageRef) (int, []ImageRef, error) {
+	var removedCount int
+	var removedRefs []ImageRef
+	var removalErrors []error
+
+	helmClient := m.clients.Helm()
+
+	for _, ref := range eligibleCharts {
+		resolved, err := helmClient.IsResolved(ref.Image)
+		if err != nil {
+			m.log.Warnf("Failed to check Helm chart %s: %v", ref.Image, err)
+			removalErrors = append(removalErrors, fmt.Errorf("failed to check helm chart %s: %w", ref.Image, err))
+			continue
+		}
+
+		if resolved {
+			if err := helmClient.RemoveChart(ref.Image); err != nil {
+				m.log.Warnf("Failed to remove Helm chart %s: %v", ref.Image, err)
+				removalErrors = append(removalErrors, fmt.Errorf("failed to remove helm chart %s: %w", ref.Image, err))
+				continue
+			}
+			removedCount++
+			m.log.Debugf("Removed Helm chart: %s", ref.Image)
+		}
+		removedRefs = append(removedRefs, ref)
+	}
+
+	// Return error only if all removals failed
+	if len(removalErrors) == len(eligibleCharts) && len(eligibleCharts) > 0 {
+		return removedCount, removedRefs, fmt.Errorf("all Helm chart removals failed: %d errors", len(removalErrors))
+	}
+
+	// Log summary if there were any failures
+	if len(removalErrors) > 0 {
+		m.log.Warnf("Helm chart pruning completed with %d failures out of %d attempts", len(removalErrors), len(eligibleCharts))
 	}
 
 	return removedCount, removedRefs, nil

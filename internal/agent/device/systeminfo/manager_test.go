@@ -9,6 +9,7 @@ import (
 
 	"github.com/flightctl/flightctl/internal/agent/config"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/agent/device/systeminfo/common"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -82,61 +83,61 @@ func TestReloadConfig(t *testing.T) {
 	}{
 		{
 			name:        "no change in info keys",
-			initialKeys: []string{netInterfaceDefaultKey, cpuCoresKey},
-			newKeys:     []string{netInterfaceDefaultKey, cpuCoresKey},
+			initialKeys: []string{common.NetInterfaceDefaultKey, common.CPUCoresKey},
+			newKeys:     []string{common.NetInterfaceDefaultKey, common.CPUCoresKey},
 			expected:    true,
 		},
 		{
 			name:        "change within same collector type - network",
-			initialKeys: []string{netInterfaceDefaultKey},
-			newKeys:     []string{netMACDefaultKey},
+			initialKeys: []string{common.NetInterfaceDefaultKey},
+			newKeys:     []string{common.NetMACDefaultKey},
 			expected:    true,
 		},
 		{
 			name:        "change within same collector type - CPU",
-			initialKeys: []string{cpuCoresKey},
-			newKeys:     []string{cpuModelKey},
+			initialKeys: []string{common.CPUCoresKey},
+			newKeys:     []string{common.CPUModelKey},
 			expected:    true,
 		},
 		{
 			name:        "change to different collector type",
-			initialKeys: []string{cpuCoresKey},
-			newKeys:     []string{memoryTotalKbKey},
+			initialKeys: []string{common.CPUCoresKey},
+			newKeys:     []string{common.MemoryTotalKbKey},
 			expected:    false,
 		},
 		{
 			name:        "add key requiring same collector",
-			initialKeys: []string{netInterfaceDefaultKey},
-			newKeys:     []string{netInterfaceDefaultKey, netMACDefaultKey},
+			initialKeys: []string{common.NetInterfaceDefaultKey},
+			newKeys:     []string{common.NetInterfaceDefaultKey, common.NetMACDefaultKey},
 			expected:    true,
 		},
 		{
 			name:        "add key requiring different collector",
-			initialKeys: []string{cpuCoresKey},
-			newKeys:     []string{cpuCoresKey, gpuKey},
+			initialKeys: []string{common.CPUCoresKey},
+			newKeys:     []string{common.CPUCoresKey, common.GPUKey},
 			expected:    false,
 		},
 		{
 			name:        "remove key but keep collector active",
-			initialKeys: []string{netInterfaceDefaultKey, netMACDefaultKey},
-			newKeys:     []string{netInterfaceDefaultKey},
+			initialKeys: []string{common.NetInterfaceDefaultKey, common.NetMACDefaultKey},
+			newKeys:     []string{common.NetInterfaceDefaultKey},
 			expected:    true,
 		},
 		{
 			name:        "remove key that disables collector",
-			initialKeys: []string{cpuCoresKey, memoryTotalKbKey},
-			newKeys:     []string{cpuCoresKey},
+			initialKeys: []string{common.CPUCoresKey, common.MemoryTotalKbKey},
+			newKeys:     []string{common.CPUCoresKey},
 			expected:    true,
 		},
 		{
 			name:        "empty to non-empty",
 			initialKeys: []string{},
-			newKeys:     []string{cpuCoresKey},
+			newKeys:     []string{common.CPUCoresKey},
 			expected:    false,
 		},
 		{
 			name:        "non-empty to empty",
-			initialKeys: []string{cpuCoresKey},
+			initialKeys: []string{common.CPUCoresKey},
 			newKeys:     []string{},
 			expected:    true,
 		},

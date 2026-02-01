@@ -10,6 +10,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/config"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/agent/device/systeminfo/common"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/stretchr/testify/require"
@@ -20,7 +21,7 @@ import (
 func BenchmarkCollectInfo(b *testing.B) {
 	ctx := context.Background()
 	log := log.NewPrefixLogger("test")
-	exec := &executer.CommonExecuter{}
+	exec := executer.NewCommonExecuter()
 	reader := fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter())
 	hardwareMapPath := "/var/lib/flightctl/hardware_map.json"
 
@@ -154,7 +155,7 @@ func TestGetCustomInfoMap(t *testing.T) {
 			}
 
 			log := log.NewPrefixLogger("test")
-			exec := &executer.CommonExecuter{}
+			exec := executer.NewCommonExecuter()
 			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 			defer cancel()
 
@@ -204,47 +205,47 @@ func TestGetCollectionOptsFromInfoKeys(t *testing.T) {
 		},
 		{
 			name:      "CPU keys",
-			infoKeys:  []string{cpuCoresKey, cpuProcessorsKey, cpuModelKey},
+			infoKeys:  []string{common.CPUCoresKey, common.CPUProcessorsKey, common.CPUModelKey},
 			expectCPU: true,
 		},
 		{
 			name:      "GPU keys",
-			infoKeys:  []string{gpuKey},
+			infoKeys:  []string{common.GPUKey},
 			expectGPU: true,
 		},
 		{
 			name:         "memory keys",
-			infoKeys:     []string{memoryTotalKbKey},
+			infoKeys:     []string{common.MemoryTotalKbKey},
 			expectMemory: true,
 		},
 		{
 			name:          "network keys",
-			infoKeys:      []string{netInterfaceDefaultKey, netIPDefaultKey, netMACDefaultKey},
+			infoKeys:      []string{common.NetInterfaceDefaultKey, common.NetIPDefaultKey, common.NetMACDefaultKey},
 			expectNetwork: true,
 		},
 		{
 			name:       "BIOS keys",
-			infoKeys:   []string{biosVendorKey, biosVersionKey},
+			infoKeys:   []string{common.BIOSVendorKey, common.BIOSVersionKey},
 			expectBIOS: true,
 		},
 		{
 			name:         "system keys",
-			infoKeys:     []string{productNameKey, productSerialKey, productUUIDKey},
+			infoKeys:     []string{common.ProductNameKey, common.ProductSerialKey, common.ProductUUIDKey},
 			expectSystem: true,
 		},
 		{
 			name:         "kernel key",
-			infoKeys:     []string{kernelKey},
+			infoKeys:     []string{common.KernelKey},
 			expectKernel: true,
 		},
 		{
 			name:         "distribution keys",
-			infoKeys:     []string{distroNameKey, distroVersionKey},
+			infoKeys:     []string{common.DistroNameKey, common.DistroVersionKey},
 			expectDistro: true,
 		},
 		{
 			name:          "mixed keys",
-			infoKeys:      []string{cpuCoresKey, gpuKey, netIPDefaultKey, productNameKey},
+			infoKeys:      []string{common.CPUCoresKey, common.GPUKey, common.NetIPDefaultKey, common.ProductNameKey},
 			expectCPU:     true,
 			expectGPU:     true,
 			expectNetwork: true,
@@ -257,20 +258,19 @@ func TestGetCollectionOptsFromInfoKeys(t *testing.T) {
 		},
 		{
 			name:      "mixed known and unknown",
-			infoKeys:  []string{cpuCoresKey, "unknownKey", gpuKey},
+			infoKeys:  []string{common.CPUCoresKey, "unknownKey", common.GPUKey},
 			expectCPU: true,
 			expectGPU: true,
 			expectErr: true,
 		},
 		{
 			name:      "hostname key should be supported",
-			infoKeys:  []string{hostnameKey},
+			infoKeys:  []string{common.HostnameKey},
 			expectErr: false, // Fixed: hostname is now properly supported
 		},
 		{
 			name:          "default system info with hostname key",
 			infoKeys:      config.DefaultSystemInfo, // This includes "hostname" which is now supported
-			expectErr:     false,                    // Fixed: default config now works properly
 			expectKernel:  true,                     // kernel is in default config
 			expectDistro:  true,                     // distro keys are in default config
 			expectSystem:  true,                     // product keys are in default config
@@ -497,7 +497,7 @@ func TestGetCustomInfoContextTimeout(t *testing.T) {
 			)
 			require.NoError(err)
 
-			exec := &executer.CommonExecuter{}
+			exec := executer.NewCommonExecuter()
 			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 			defer cancel()
 

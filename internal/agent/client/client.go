@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	client "github.com/flightctl/flightctl/internal/api/client/agent"
 	baseclient "github.com/flightctl/flightctl/internal/client"
@@ -187,7 +188,7 @@ func ResolvePullConfig(
 		}
 		path, cleanup, err := fileio.WriteTmpFile(rw, "config_", "config", specContent, 0600)
 		if err != nil {
-			return nil, false, fmt.Errorf("writing inline config file: %w", err)
+			return nil, false, fmt.Errorf("%w: %w", errors.ErrWritingInlineConfigFile, err)
 		}
 		log.Debugf("Using inline config from device spec")
 		return &PullConfig{Path: path, Cleanup: cleanup}, true, nil
@@ -222,7 +223,7 @@ func authFromSpec(log *log.PrefixLogger, device *v1beta1.DeviceSpec, authPath st
 		}
 		spec, err := provider.AsInlineConfigProviderSpec()
 		if err != nil {
-			return nil, false, fmt.Errorf("convert inline config provider: %v", err)
+			return nil, false, fmt.Errorf("%w: %w", errors.ErrConvertInlineConfigProvider, err)
 		}
 		for _, file := range spec.Inline {
 			if strings.TrimSpace(file.Path) == authPath {

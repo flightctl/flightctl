@@ -4,21 +4,21 @@ import (
 	"bytes"
 	"context"
 	_ "embed"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
-	"text/template"
 	"time"
 
-	v1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
-	api "github.com/flightctl/flightctl/api/imagebuilder/v1beta1"
-	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"
+	coredomain "github.com/flightctl/flightctl/internal/domain"
+	"github.com/flightctl/flightctl/internal/flterrors"
+	"github.com/flightctl/flightctl/internal/imagebuilder_api/domain"
+	imagebuilderapi "github.com/flightctl/flightctl/internal/imagebuilder_api/service"
 	imagebuilderservice "github.com/flightctl/flightctl/internal/imagebuilder_api/service"
-	imagebuilderstore "github.com/flightctl/flightctl/internal/imagebuilder_api/store"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/worker_client"
@@ -39,11 +39,15 @@ var containerfileTemplate string
 
 // ContainerfileResult contains the generated Containerfile and any associated files
 type ContainerfileResult struct {
-	// Containerfile is the generated Containerfile content
+	// Containerfile is the generated Containerfile content (static template)
 	Containerfile string
+	// BuildArgs contains the arguments to pass to podman build via --build-arg
+	BuildArgs containerfileBuildArgs
 	// AgentConfig contains the full agent config.yaml content (for early binding)
 	// This includes: client-certificate-data, client-key-data, certificate-authority-data, server URL
 	AgentConfig []byte
+	// Publickey contains the SSH public key content (for user configuration)
+	Publickey []byte
 }
 
 // processImageBuild processes an imageBuild event by loading the ImageBuild resource
@@ -57,61 +61,109 @@ func (c *Consumer) processImageBuild(ctx context.Context, eventWithOrgId worker_
 	log.Info("Processing imageBuild event")
 
 	// Load the ImageBuild resource from the database
-	imageBuild, err := c.store.ImageBuild().Get(ctx, orgID, imageBuildName)
-	if err != nil {
-		return fmt.Errorf("failed to load ImageBuild %q: %w", imageBuildName, err)
+	imageBuild, status := c.imageBuilderService.ImageBuild().Get(ctx, orgID, imageBuildName, false)
+	if imageBuild == nil || !imagebuilderapi.IsStatusOK(status) {
+		return fmt.Errorf("failed to load ImageBuild %q: %v", imageBuildName, status)
 	}
 
 	log.WithField("spec", imageBuild.Spec).Debug("Loaded ImageBuild resource")
 
 	// Initialize status if nil
 	if imageBuild.Status == nil {
-		imageBuild.Status = &api.ImageBuildStatus{}
+		imageBuild.Status = &domain.ImageBuildStatus{}
 	}
 
-	// Check if already completed or failed - skip if so
+	// Check current state - only process if Pending (or has no Ready condition)
+	// We only lock resources that are in Pending state to avoid stealing work from other processes
+	var readyCondition *domain.ImageBuildCondition
 	if imageBuild.Status.Conditions != nil {
-		for _, cond := range *imageBuild.Status.Conditions {
-			if cond.Type == api.ImageBuildConditionTypeReady {
-				if cond.Reason == string(api.ImageBuildConditionReasonCompleted) || cond.Reason == string(api.ImageBuildConditionReasonFailed) {
-					log.Infof("ImageBuild %q already in terminal state %q, skipping", imageBuildName, cond.Reason)
-					return nil
-				}
-			}
+		readyCondition = domain.FindImageBuildStatusCondition(*imageBuild.Status.Conditions, domain.ImageBuildConditionTypeReady)
+	}
+	if readyCondition != nil {
+		reason := readyCondition.Reason
+		// Skip if already in terminal state (completed, failed, canceled)
+		if reason == string(domain.ImageBuildConditionReasonCompleted) ||
+			reason == string(domain.ImageBuildConditionReasonFailed) ||
+			reason == string(domain.ImageBuildConditionReasonCanceled) {
+			log.Infof("ImageBuild %q already in terminal state %q, skipping", imageBuildName, reason)
+			return nil
+		}
+		// Skip if already Building - another process is handling it
+		if reason == string(domain.ImageBuildConditionReasonBuilding) {
+			log.Infof("ImageBuild %q is already being processed (Building), skipping", imageBuildName)
+			return nil
+		}
+		// Skip if Pushing - another process is handling it
+		if reason == string(domain.ImageBuildConditionReasonPushing) {
+			log.Infof("ImageBuild %q is already being processed (Pushing), skipping", imageBuildName)
+			return nil
+		}
+		// Skip if Canceling - cancellation is in progress
+		if reason == string(domain.ImageBuildConditionReasonCanceling) {
+			log.Infof("ImageBuild %q is being canceled (Canceling), skipping", imageBuildName)
+			return nil
+		}
+		// Only proceed if Pending - if it's any other state, skip (shouldn't happen, but defensive)
+		if reason != string(domain.ImageBuildConditionReasonPending) {
+			log.Warnf("ImageBuild %q is in unexpected state %q (expected Pending), skipping", imageBuildName, reason)
+			return nil
 		}
 	}
+	// If no Ready condition exists, treat as Pending and proceed
 
-	// Start status updater goroutine - this is the single writer for all status updates
-	// It handles both LastSeen (periodic) and condition updates (on-demand)
-	statusUpdater, cleanupStatusUpdater := startStatusUpdater(ctx, c.store, orgID, imageBuildName, c.cfg, log)
-	defer cleanupStatusUpdater()
-
-	// Update status to Building
+	// Lock the build: atomically transition from Pending to Building state using resource_version
+	// This ensures only one process can start processing
 	now := time.Now().UTC()
-	buildingCondition := api.ImageBuildCondition{
-		Type:               api.ImageBuildConditionTypeReady,
-		Status:             v1beta1.ConditionStatusFalse,
-		Reason:             string(api.ImageBuildConditionReasonBuilding),
+	buildingCondition := domain.ImageBuildCondition{
+		Type:               domain.ImageBuildConditionTypeReady,
+		Status:             domain.ConditionStatusFalse,
+		Reason:             string(domain.ImageBuildConditionReasonBuilding),
 		Message:            "Build is in progress",
 		LastTransitionTime: now,
 	}
-	statusUpdater.updateCondition(buildingCondition)
 
-	log.Info("Updated ImageBuild status to Building")
+	// Prepare status with Building condition
+	if imageBuild.Status == nil {
+		imageBuild.Status = &domain.ImageBuildStatus{}
+	}
+	if imageBuild.Status.Conditions == nil {
+		imageBuild.Status.Conditions = &[]domain.ImageBuildCondition{}
+	}
+	domain.SetImageBuildStatusCondition(imageBuild.Status.Conditions, buildingCondition)
+
+	// Synchronously update status to Building - this will fail if resource_version changed
+	_, err := c.imageBuilderService.ImageBuild().UpdateStatus(ctx, orgID, imageBuild)
+	if err != nil {
+		if errors.Is(err, flterrors.ErrNoRowsUpdated) {
+			// Another process updated the resource - it's likely already Building
+			log.Infof("ImageBuild %q was updated by another process, skipping", imageBuildName)
+			return nil
+		}
+		return fmt.Errorf("failed to lock ImageBuild for processing: %w", err)
+	}
+
+	log.Info("Successfully locked ImageBuild for processing (status set to Building)")
+
+	// Create a cancelable context for the build process
+	// The cancel function is passed to statusUpdater which will call it when cancellation is received via Redis
+	buildCtx, cancelBuild := context.WithCancel(ctx)
+	defer cancelBuild()
+
+	// Start status updater goroutine - this is the single writer for all status updates
+	// It handles both LastSeen (periodic) and condition updates (on-demand)
+	// It also listens for cancellation signals via Redis Stream
+	// IMPORTANT: Pass the original ctx (not buildCtx) so the updater can complete
+	// final status updates (like Canceled) even after buildCtx is canceled
+	statusUpdater, cleanupStatusUpdater := StartStatusUpdater(ctx, cancelBuild, c.imageBuilderService.ImageBuild(), orgID, imageBuildName, c.kvStore, c.cfg, log)
+	defer cleanupStatusUpdater()
 
 	// Step 1: Generate Containerfile
 	log.Info("Generating Containerfile for image build")
-	containerfileResult, err := c.generateContainerfile(ctx, orgID, imageBuild, log)
+	containerfileResult, err := c.generateContainerfile(buildCtx, orgID, imageBuild, log)
 	if err != nil {
-		failedTime := time.Now().UTC()
-		failedCondition := api.ImageBuildCondition{
-			Type:               api.ImageBuildConditionTypeReady,
-			Status:             v1beta1.ConditionStatusFalse,
-			Reason:             string(api.ImageBuildConditionReasonFailed),
-			Message:            err.Error(),
-			LastTransitionTime: failedTime,
+		if c.handleBuildError(ctx, orgID, imageBuildName, err, statusUpdater, log) {
+			return nil // Cancellation handled
 		}
-		statusUpdater.updateCondition(failedCondition)
 		return fmt.Errorf("failed to generate Containerfile: %w", err)
 	}
 
@@ -119,280 +171,126 @@ func (c *Consumer) processImageBuild(ctx context.Context, eventWithOrgId worker_
 	log.Debug("Generated Containerfile: ", containerfileResult.Containerfile)
 
 	// Step 2: Start podman worker container
-	podmanWorker, err := c.startPodmanWorker(ctx, orgID, imageBuild, statusUpdater, log)
+	podmanWorker, err := c.startPodmanWorker(buildCtx, orgID, imageBuild, statusUpdater, log)
 	if err != nil {
-		failedTime := time.Now().UTC()
-		failedCondition := api.ImageBuildCondition{
-			Type:               api.ImageBuildConditionTypeReady,
-			Status:             v1beta1.ConditionStatusFalse,
-			Reason:             string(api.ImageBuildConditionReasonFailed),
-			Message:            err.Error(),
-			LastTransitionTime: failedTime,
+		if c.handleBuildError(ctx, orgID, imageBuildName, err, statusUpdater, log) {
+			return nil // Cancellation handled
 		}
-		statusUpdater.updateCondition(failedCondition)
 		return fmt.Errorf("failed to start podman worker: %w", err)
 	}
 	defer podmanWorker.Cleanup()
 
 	// Step 3: Build with podman container in container
-	err = c.buildImageWithPodman(ctx, orgID, imageBuild, containerfileResult, podmanWorker, log)
+	err = c.buildImageWithPodman(buildCtx, orgID, imageBuild, containerfileResult, podmanWorker, log)
 	if err != nil {
-		failedTime := time.Now().UTC()
-		failedCondition := api.ImageBuildCondition{
-			Type:               api.ImageBuildConditionTypeReady,
-			Status:             v1beta1.ConditionStatusFalse,
-			Reason:             string(api.ImageBuildConditionReasonFailed),
-			Message:            err.Error(),
-			LastTransitionTime: failedTime,
+		if c.handleBuildError(ctx, orgID, imageBuildName, err, statusUpdater, log) {
+			return nil // Cancellation handled
 		}
-		statusUpdater.updateCondition(failedCondition)
 		return fmt.Errorf("failed to build image with podman: %w", err)
 	}
 
 	// Step 4: Push image to registry
-	imageRef, err := c.pushImageWithPodman(ctx, orgID, imageBuild, podmanWorker, log)
+	imageRef, err := c.pushImageWithPodman(buildCtx, orgID, imageBuild, podmanWorker, log)
 	if err != nil {
-		failedTime := time.Now().UTC()
-		failedCondition := api.ImageBuildCondition{
-			Type:               api.ImageBuildConditionTypeReady,
-			Status:             v1beta1.ConditionStatusFalse,
-			Reason:             string(api.ImageBuildConditionReasonFailed),
-			Message:            err.Error(),
-			LastTransitionTime: failedTime,
+		if c.handleBuildError(ctx, orgID, imageBuildName, err, statusUpdater, log) {
+			return nil // Cancellation handled
 		}
-		statusUpdater.updateCondition(failedCondition)
 		return fmt.Errorf("failed to push image with podman: %w", err)
 	}
 
 	// Update ImageBuild status with the pushed image reference and mark as Completed
-	statusUpdater.updateImageReference(imageRef)
+	statusUpdater.UpdateImageReference(imageRef)
 
 	// Mark as Completed
 	now = time.Now().UTC()
-	completedCondition := api.ImageBuildCondition{
-		Type:               api.ImageBuildConditionTypeReady,
-		Status:             v1beta1.ConditionStatusTrue,
-		Reason:             string(api.ImageBuildConditionReasonCompleted),
+	completedCondition := domain.ImageBuildCondition{
+		Type:               domain.ImageBuildConditionTypeReady,
+		Status:             domain.ConditionStatusTrue,
+		Reason:             string(domain.ImageBuildConditionReasonCompleted),
 		Message:            "Build completed successfully",
 		LastTransitionTime: now,
 	}
-	statusUpdater.updateCondition(completedCondition)
+	statusUpdater.UpdateCondition(completedCondition)
 
 	log.Info("ImageBuild marked as Completed")
 	return nil
 }
 
-// statusUpdateRequest represents a request to update the ImageBuild status
-type statusUpdateRequest struct {
-	Condition      *api.ImageBuildCondition
-	LastSeen       *time.Time
-	ImageReference *string
-}
+// handleBuildError handles errors during the build process.
+// If the error was due to cancellation (status is Canceling), it sets the final status and returns true.
+// - For user cancellation: status becomes Canceled
+// - For timeout: status becomes Failed (with the timeout message preserved)
+// Otherwise, it sets status to Failed and returns false.
+// The ctx parameter should be the original context (not buildCtx) to ensure we can still query the database.
+func (c *Consumer) handleBuildError(ctx context.Context, orgID uuid.UUID, imageBuildName string, err error, statusUpdater *statusUpdater, log logrus.FieldLogger) bool {
+	// Check if the current status is Canceling (set by API or timeout task)
+	currentBuild, status := c.imageBuilderService.ImageBuild().Get(ctx, orgID, imageBuildName, false)
+	if currentBuild != nil && imagebuilderapi.IsStatusOK(status) &&
+		currentBuild.Status != nil && currentBuild.Status.Conditions != nil {
+		readyCondition := domain.FindImageBuildStatusCondition(*currentBuild.Status.Conditions, domain.ImageBuildConditionTypeReady)
+		if readyCondition != nil && readyCondition.Reason == string(domain.ImageBuildConditionReasonCanceling) {
+			// This was a cancellation - check if it was a timeout or user cancellation
+			message := readyCondition.Message
+			isTimeout := strings.Contains(message, "timed out")
 
-// statusUpdater manages all status updates for an ImageBuild, ensuring atomic updates
-// and preventing race conditions between LastSeen and condition updates.
-// It also tracks task outputs and only updates LastSeen when new data is received.
-type statusUpdater struct {
-	store          imagebuilderstore.Store
-	orgID          uuid.UUID
-	imageBuildName string
-	updateChan     chan statusUpdateRequest
-	outputChan     chan []byte // Central channel for all task outputs
-	ctx            context.Context
-	cancel         context.CancelFunc
-	wg             sync.WaitGroup
-	log            logrus.FieldLogger
-}
-
-// startStatusUpdater starts a goroutine that is the single writer for ImageBuild status updates.
-// It receives condition updates via a channel and periodically updates LastSeen.
-// Returns the updater and a cleanup function.
-func startStatusUpdater(
-	ctx context.Context,
-	store imagebuilderstore.Store,
-	orgID uuid.UUID,
-	imageBuildName string,
-	cfg *config.Config,
-	log logrus.FieldLogger,
-) (*statusUpdater, func()) {
-	updaterCtx, updaterCancel := context.WithCancel(ctx)
-
-	updater := &statusUpdater{
-		store:          store,
-		orgID:          orgID,
-		imageBuildName: imageBuildName,
-		updateChan:     make(chan statusUpdateRequest), // Unbuffered channel - blocks until processed
-		outputChan:     make(chan []byte, 100),         // Buffered channel for task outputs
-		ctx:            updaterCtx,
-		cancel:         updaterCancel,
-		log:            log,
-	}
-
-	updater.wg.Add(1)
-	go updater.run(cfg)
-
-	cleanup := func() {
-		updaterCancel()
-		close(updater.updateChan)
-		close(updater.outputChan)
-		updater.wg.Wait()
-	}
-
-	return updater, cleanup
-}
-
-// run is the main loop for the status updater goroutine
-func (u *statusUpdater) run(cfg *config.Config) {
-	defer u.wg.Done()
-
-	// Use LastSeenUpdateInterval from config (defaults are applied during config loading)
-	if cfg == nil || cfg.ImageBuilderWorker == nil {
-		u.log.Error("Config or ImageBuilderWorker config is nil, cannot update status")
-		return
-	}
-	updateInterval := time.Duration(cfg.ImageBuilderWorker.LastSeenUpdateInterval)
-	ticker := time.NewTicker(updateInterval)
-	defer ticker.Stop()
-
-	// Track pending updates
-	var pendingCondition *api.ImageBuildCondition
-	var pendingImageReference *string
-	lastSeenUpdateTime := time.Now().UTC()
-
-	// Track the last time output was received - updated when new output arrives
-	var lastOutputTime *time.Time
-	// Track the last LastSeen value we set in the database
-	var lastSetLastSeen *time.Time
-
-	for {
-		select {
-		case <-u.ctx.Done():
-			return
-		case <-ticker.C:
-			// Periodic LastSeen update - only if we have new output time and haven't set it yet
-			if lastOutputTime != nil {
-				// Only update if this is a different time than what we last set
-				if lastSetLastSeen == nil || !lastOutputTime.Equal(*lastSetLastSeen) {
-					lastSeenUpdateTime = *lastOutputTime
-					// Store a copy of the time we're setting
-					lastSetLastSeenCopy := *lastOutputTime
-					lastSetLastSeen = &lastSetLastSeenCopy
-					u.updateStatus(u.ctx, pendingCondition, &lastSeenUpdateTime, pendingImageReference)
-					pendingCondition = nil      // Clear after update
-					pendingImageReference = nil // Clear after update
+			if isTimeout {
+				// Timeout - set Failed status with the timeout message
+				log.WithField("message", message).Info("Build timed out, setting status to Failed")
+				failedCondition := domain.ImageBuildCondition{
+					Type:               domain.ImageBuildConditionTypeReady,
+					Status:             domain.ConditionStatusFalse,
+					Reason:             string(domain.ImageBuildConditionReasonFailed),
+					Message:            message,
+					LastTransitionTime: time.Now().UTC(),
 				}
+				statusUpdater.UpdateCondition(failedCondition)
+			} else {
+				// User cancellation - set Canceled status
+				if message == "" {
+					message = "Build was canceled"
+				}
+				log.WithField("message", message).Info("Build was canceled, setting status to Canceled")
+				canceledCondition := domain.ImageBuildCondition{
+					Type:               domain.ImageBuildConditionTypeReady,
+					Status:             domain.ConditionStatusFalse,
+					Reason:             string(domain.ImageBuildConditionReasonCanceled),
+					Message:            message,
+					LastTransitionTime: time.Now().UTC(),
+				}
+				statusUpdater.UpdateCondition(canceledCondition)
 			}
-		case output := <-u.outputChan:
-			// Task output received - update local variable with current time
-			now := time.Now().UTC()
-			lastOutputTime = &now
-			// Log output for debugging (can be removed or made conditional)
-			u.log.Debugf("Task output: %s", string(output))
-		case req := <-u.updateChan:
-			// Status update requested
-			if req.Condition != nil {
-				pendingCondition = req.Condition
-			}
-			if req.LastSeen != nil {
-				lastSeenUpdateTime = *req.LastSeen
-			}
-			if req.ImageReference != nil {
-				pendingImageReference = req.ImageReference
-			}
-			// Update immediately when condition or image reference changes
-			if req.Condition != nil || req.ImageReference != nil {
-				u.updateStatus(u.ctx, pendingCondition, &lastSeenUpdateTime, pendingImageReference)
-				pendingCondition = nil      // Clear after update
-				pendingImageReference = nil // Clear after update
-			}
+			return true // Cancellation/timeout handled
 		}
 	}
+
+	// Not canceled - set Failed status
+	failedCondition := domain.ImageBuildCondition{
+		Type:               domain.ImageBuildConditionTypeReady,
+		Status:             domain.ConditionStatusFalse,
+		Reason:             string(domain.ImageBuildConditionReasonFailed),
+		Message:            err.Error(),
+		LastTransitionTime: time.Now().UTC(),
+	}
+	statusUpdater.UpdateCondition(failedCondition)
+	return false
 }
 
-// updateStatus performs the actual database update, merging conditions, LastSeen, and ImageReference
-func (u *statusUpdater) updateStatus(ctx context.Context, condition *api.ImageBuildCondition, lastSeen *time.Time, imageReference *string) {
-	// Load current status from database
-	imageBuild, err := u.store.ImageBuild().Get(ctx, u.orgID, u.imageBuildName)
-	if err != nil {
-		u.log.WithError(err).Warn("Failed to load ImageBuild for status update")
-		return
-	}
-
-	// Initialize status if needed
-	if imageBuild.Status == nil {
-		imageBuild.Status = &api.ImageBuildStatus{}
-	}
-
-	// Update LastSeen
-	if lastSeen != nil {
-		imageBuild.Status.LastSeen = lastSeen
-	}
-
-	// Update condition if provided
-	if condition != nil {
-		if imageBuild.Status.Conditions == nil {
-			imageBuild.Status.Conditions = &[]api.ImageBuildCondition{}
-		}
-
-		// Use helper function to set condition, keeping ImageBuildCondition type
-		api.SetImageBuildStatusCondition(imageBuild.Status.Conditions, *condition)
-	}
-
-	// Update ImageReference if provided
-	if imageReference != nil {
-		imageBuild.Status.ImageReference = imageReference
-	}
-
-	// Write updated status atomically
-	_, err = u.store.ImageBuild().UpdateStatus(ctx, u.orgID, imageBuild)
-	if err != nil {
-		u.log.WithError(err).Warn("Failed to update ImageBuild status")
-	}
-}
-
-// updateCondition sends a condition update request to the updater goroutine
-func (u *statusUpdater) updateCondition(condition api.ImageBuildCondition) {
-	select {
-	case u.updateChan <- statusUpdateRequest{Condition: &condition}:
-	case <-u.ctx.Done():
-		// Context cancelled, ignore update
-	}
-}
-
-// updateImageReference sends an image reference update request to the updater goroutine
-func (u *statusUpdater) updateImageReference(imageReference string) {
-	select {
-	case u.updateChan <- statusUpdateRequest{ImageReference: &imageReference}:
-	case <-u.ctx.Done():
-		// Context cancelled, ignore update
-	}
-}
-
-// reportOutput sends task output to the central output handler
-// This marks that progress has been made and LastSeen should be updated
-func (u *statusUpdater) reportOutput(output []byte) {
-	select {
-	case u.outputChan <- output:
-	case <-u.ctx.Done():
-		// Context cancelled, ignore output
-	}
-}
-
-// containerfileData holds the data for rendering the Containerfile template
-type containerfileData struct {
+// containerfileBuildArgs holds the build arguments for the Containerfile
+// These are passed via --build-arg flags to podman build for safer execution
+type containerfileBuildArgs struct {
 	RegistryHostname    string
 	ImageName           string
 	ImageTag            string
 	EarlyBinding        bool
-	AgentConfig         string
 	AgentConfigDestPath string
-	HeredocDelimiter    string
+	Username            string
+	HasUserConfig       bool
 }
 
 // EnrollmentCredentialGenerator is an interface for generating enrollment credentials
 // This allows for easier testing by mocking the service handler
 type EnrollmentCredentialGenerator interface {
-	GenerateEnrollmentCredential(ctx context.Context, orgId uuid.UUID, baseName string, ownerKind string, ownerName string) (*crypto.EnrollmentCredential, v1beta1.Status)
+	GenerateEnrollmentCredential(ctx context.Context, orgId uuid.UUID, baseName string, ownerKind string, ownerName string) (*crypto.EnrollmentCredential, coredomain.Status)
 }
 
 // GenerateContainerfile generates a Containerfile from an ImageBuild spec
@@ -402,7 +300,7 @@ func GenerateContainerfile(
 	mainStore store.Store,
 	credentialGenerator EnrollmentCredentialGenerator,
 	orgID uuid.UUID,
-	imageBuild *api.ImageBuild,
+	imageBuild *domain.ImageBuild,
 	log logrus.FieldLogger,
 ) (*ContainerfileResult, error) {
 	// Create a temporary consumer for testing purposes
@@ -422,7 +320,7 @@ func GenerateContainerfile(
 func (c *Consumer) generateContainerfile(
 	ctx context.Context,
 	orgID uuid.UUID,
-	imageBuild *api.ImageBuild,
+	imageBuild *domain.ImageBuild,
 	log logrus.FieldLogger,
 ) (*ContainerfileResult, error) {
 	return c.generateContainerfileWithGenerator(ctx, orgID, imageBuild, c.serviceHandler, log)
@@ -433,7 +331,7 @@ func (c *Consumer) generateContainerfile(
 func (c *Consumer) generateContainerfileWithGenerator(
 	ctx context.Context,
 	orgID uuid.UUID,
-	imageBuild *api.ImageBuild,
+	imageBuild *domain.ImageBuild,
 	credentialGenerator EnrollmentCredentialGenerator,
 	log logrus.FieldLogger,
 ) (*ContainerfileResult, error) {
@@ -459,11 +357,11 @@ func (c *Consumer) generateContainerfileWithGenerator(
 	if err != nil {
 		return nil, fmt.Errorf("failed to determine repository type: %w", err)
 	}
-	if repoType != string(v1beta1.RepoSpecTypeOci) {
+	if repoType != string(coredomain.RepoSpecTypeOci) {
 		return nil, fmt.Errorf("repository %q must be of type 'oci', got %q", spec.Source.Repository, repoType)
 	}
 
-	ociSpec, err := repo.Spec.GetOciRepoSpec()
+	ociSpec, err := repo.Spec.AsOciRepoSpec()
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse OCI repository spec: %w", err)
 	}
@@ -484,23 +382,33 @@ func (c *Consumer) generateContainerfileWithGenerator(
 		"bindingType":      bindingType,
 	}).Debug("Generating Containerfile")
 
-	result := &ContainerfileResult{}
+	isEarlyBinding := bindingType == string(domain.BindingTypeEarly)
+	hasUserConfig := spec.UserConfiguration != nil
 
-	// Generate a unique heredoc delimiter to avoid conflicts with config content
-	heredocDelimiter := fmt.Sprintf("FLIGHTCTL_CONFIG_%s", uuid.NewString()[:8])
-
-	// Prepare template data
-	data := containerfileData{
+	// Prepare build arguments (passed via --build-arg to podman build)
+	buildArgs := containerfileBuildArgs{
 		RegistryHostname:    registryHostname,
 		ImageName:           spec.Source.ImageName,
 		ImageTag:            spec.Source.ImageTag,
-		EarlyBinding:        bindingType == string(api.BindingTypeEarly),
+		EarlyBinding:        isEarlyBinding,
 		AgentConfigDestPath: agentConfigPath,
-		HeredocDelimiter:    heredocDelimiter,
+		HasUserConfig:       hasUserConfig,
+	}
+
+	result := &ContainerfileResult{
+		Containerfile: containerfileTemplate, // Static template, no Go template rendering needed
+		BuildArgs:     buildArgs,
+	}
+
+	// Add user configuration if provided
+	if hasUserConfig {
+		buildArgs.Username = spec.UserConfiguration.Username
+		result.BuildArgs = buildArgs
+		result.Publickey = []byte(spec.UserConfiguration.Publickey)
 	}
 
 	// Handle early binding - generate enrollment credentials
-	if data.EarlyBinding {
+	if isEarlyBinding {
 		// Generate a unique name for this build's enrollment credentials
 		imageBuildName := lo.FromPtr(imageBuild.Metadata.Name)
 		credentialName := fmt.Sprintf("imagebuild-%s-%s", imageBuildName, orgID.String()[:8])
@@ -510,19 +418,10 @@ func (c *Consumer) generateContainerfileWithGenerator(
 			return nil, fmt.Errorf("failed to generate agent config for early binding: %w", err)
 		}
 
-		// Store agent config as string for template rendering
-		data.AgentConfig = string(agentConfig)
 		result.AgentConfig = agentConfig
 		log.WithField("credentialName", credentialName).Debug("Generated agent config for early binding")
 	}
 
-	// Render the Containerfile template
-	containerfile, err := renderContainerfileTemplate(data)
-	if err != nil {
-		return nil, fmt.Errorf("failed to render Containerfile template: %w", err)
-	}
-
-	result.Containerfile = containerfile
 	return result, nil
 }
 
@@ -532,7 +431,7 @@ func (c *Consumer) generateAgentConfigWithGenerator(ctx context.Context, orgID u
 	// Generate enrollment credential using the credential generator
 	// This will create a CSR, auto-approve it, sign it, and return the credential
 	// The CSR owner is set to the ImageBuild resource for traceability
-	credential, status := credentialGenerator.GenerateEnrollmentCredential(ctx, orgID, name, string(api.ResourceKindImageBuild), imageBuildName)
+	credential, status := credentialGenerator.GenerateEnrollmentCredential(ctx, orgID, name, string(domain.ResourceKindImageBuild), imageBuildName)
 	if err := service.ApiStatusToErr(status); err != nil {
 		return nil, fmt.Errorf("generating enrollment credential: %w", err)
 	}
@@ -544,21 +443,6 @@ func (c *Consumer) generateAgentConfigWithGenerator(ctx context.Context, orgID u
 	}
 
 	return agentConfig, nil
-}
-
-// renderContainerfileTemplate renders the Containerfile template with the given data
-func renderContainerfileTemplate(data containerfileData) (string, error) {
-	tmpl, err := template.New("containerfile").Parse(containerfileTemplate)
-	if err != nil {
-		return "", fmt.Errorf("failed to parse template: %w", err)
-	}
-
-	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, data); err != nil {
-		return "", fmt.Errorf("failed to execute template: %w", err)
-	}
-
-	return buf.String(), nil
 }
 
 // podmanWorker holds information about a running podman worker container
@@ -589,7 +473,7 @@ func (w *statusWriter) Write(p []byte) (n int, err error) {
 
 	// 2. Stream to updater
 	if w.statusUpdater != nil {
-		w.statusUpdater.reportOutput(p)
+		w.statusUpdater.ReportOutput(p)
 	}
 	return len(p), nil
 }
@@ -653,7 +537,7 @@ func (w *podmanWorker) runInWorker(ctx context.Context, log logrus.FieldLogger, 
 func (c *Consumer) startPodmanWorker(
 	ctx context.Context,
 	orgID uuid.UUID,
-	imageBuild *api.ImageBuild,
+	imageBuild *domain.ImageBuild,
 	statusUpdater *statusUpdater,
 	log logrus.FieldLogger,
 ) (*podmanWorker, error) {
@@ -840,7 +724,7 @@ func (c *Consumer) loginToRegistry(
 func (c *Consumer) buildImageWithPodman(
 	ctx context.Context,
 	orgID uuid.UUID,
-	imageBuild *api.ImageBuild,
+	imageBuild *domain.ImageBuild,
 	containerfileResult *ContainerfileResult,
 	podmanWorker *podmanWorker,
 	log logrus.FieldLogger,
@@ -863,23 +747,23 @@ func (c *Consumer) buildImageWithPodman(
 	if err != nil {
 		return fmt.Errorf("failed to determine destination repository type: %w", err)
 	}
-	if destRepoType != string(v1beta1.RepoSpecTypeOci) {
+	if destRepoType != string(coredomain.RepoSpecTypeOci) {
 		return fmt.Errorf("destination repository %q must be of type 'oci', got %q", spec.Destination.Repository, destRepoType)
 	}
 
-	destOciSpec, err := destRepo.Spec.GetOciRepoSpec()
+	destOciSpec, err := destRepo.Spec.AsOciRepoSpec()
 	if err != nil {
 		return fmt.Errorf("failed to parse destination OCI repository spec: %w", err)
 	}
 
 	// Validate image reference components (defense-in-depth)
-	if err := validateImageRefComponents(spec.Destination.ImageName, spec.Destination.Tag); err != nil {
+	if err := validateImageRefComponents(spec.Destination.ImageName, spec.Destination.ImageTag); err != nil {
 		return fmt.Errorf("invalid image reference components: %w", err)
 	}
 
 	// ociSpec.Registry is already the hostname (no scheme)
 	destRegistryHostname := destOciSpec.Registry
-	imageRef := fmt.Sprintf("%s/%s:%s", destRegistryHostname, spec.Destination.ImageName, spec.Destination.Tag)
+	imageRef := fmt.Sprintf("%s/%s:%s", destRegistryHostname, spec.Destination.ImageName, spec.Destination.ImageTag)
 
 	// Determine platform from ImageBuild status architecture, default to linux/amd64
 	platform := "linux/amd64"
@@ -898,6 +782,26 @@ func (c *Consumer) buildImageWithPodman(
 		return fmt.Errorf("failed to write Containerfile: %w", err)
 	}
 
+	// Write agent config file to build context (required by COPY instruction, empty if not early binding)
+	agentConfigPath := filepath.Join(podmanWorker.TmpDir, "agent-config.yaml")
+	agentConfigContent := containerfileResult.AgentConfig
+	if agentConfigContent == nil {
+		agentConfigContent = []byte{} // Empty placeholder
+	}
+	if err := os.WriteFile(agentConfigPath, agentConfigContent, 0600); err != nil {
+		return fmt.Errorf("failed to write agent-config.yaml: %w", err)
+	}
+
+	// Write public key file to build context (required by COPY instruction, empty if no user config)
+	publickeyPath := filepath.Join(podmanWorker.TmpDir, "user-publickey.txt")
+	publickeyContent := containerfileResult.Publickey
+	if publickeyContent == nil {
+		publickeyContent = []byte{} // Empty placeholder
+	}
+	if err := os.WriteFile(publickeyPath, publickeyContent, 0600); err != nil {
+		return fmt.Errorf("failed to write user-publickey.txt: %w", err)
+	}
+
 	// Get source repository credentials for pulling the base image (FROM)
 	repo, err := c.mainStore.Repository().Get(ctx, orgID, spec.Source.Repository)
 	if err != nil {
@@ -909,11 +813,11 @@ func (c *Consumer) buildImageWithPodman(
 	if err != nil {
 		return fmt.Errorf("failed to determine source repository type: %w", err)
 	}
-	if repoType != string(v1beta1.RepoSpecTypeOci) {
+	if repoType != string(coredomain.RepoSpecTypeOci) {
 		return fmt.Errorf("source repository %q must be of type 'oci', got %q", spec.Source.Repository, repoType)
 	}
 
-	ociSpec, err := repo.Spec.GetOciRepoSpec()
+	ociSpec, err := repo.Spec.AsOciRepoSpec()
 	if err != nil {
 		return fmt.Errorf("failed to parse OCI repository spec: %w", err)
 	}
@@ -953,15 +857,24 @@ func (c *Consumer) buildImageWithPodman(
 
 	// B. Build
 	// Authentication is handled via podman login above
-	buildArgs := []string{
+	// Build arguments are passed via --build-arg for safer execution (no shell injection risk)
+	args := containerfileResult.BuildArgs
+	podmanBuildArgs := []string{
 		"build",
 		"--platform", platform,
 		"--manifest", imageRef,
+		"--build-arg", fmt.Sprintf("REGISTRY_HOSTNAME=%s", args.RegistryHostname),
+		"--build-arg", fmt.Sprintf("IMAGE_NAME=%s", args.ImageName),
+		"--build-arg", fmt.Sprintf("IMAGE_TAG=%s", args.ImageTag),
+		"--build-arg", fmt.Sprintf("EARLY_BINDING=%t", args.EarlyBinding),
+		"--build-arg", fmt.Sprintf("HAS_USER_CONFIG=%t", args.HasUserConfig),
+		"--build-arg", fmt.Sprintf("USERNAME=%s", args.Username),
+		"--build-arg", fmt.Sprintf("AGENT_CONFIG_DEST_PATH=%s", args.AgentConfigDestPath),
 		"-f", containerContainerfilePath,
 		containerBuildDir,
 	}
 
-	if err := podmanWorker.runInWorker(ctx, log, "build", nil, buildArgs...); err != nil {
+	if err := podmanWorker.runInWorker(ctx, log, "build", nil, podmanBuildArgs...); err != nil {
 		return err
 	}
 
@@ -975,7 +888,7 @@ func (c *Consumer) buildImageWithPodman(
 func (c *Consumer) pushImageWithPodman(
 	ctx context.Context,
 	orgID uuid.UUID,
-	imageBuild *api.ImageBuild,
+	imageBuild *domain.ImageBuild,
 	podmanWorker *podmanWorker,
 	log logrus.FieldLogger,
 ) (string, error) {
@@ -997,23 +910,23 @@ func (c *Consumer) pushImageWithPodman(
 	if err != nil {
 		return "", fmt.Errorf("failed to determine destination repository type: %w", err)
 	}
-	if repoType != string(v1beta1.RepoSpecTypeOci) {
+	if repoType != string(coredomain.RepoSpecTypeOci) {
 		return "", fmt.Errorf("destination repository %q must be of type 'oci', got %q", spec.Destination.Repository, repoType)
 	}
 
-	ociSpec, err := repo.Spec.GetOciRepoSpec()
+	ociSpec, err := repo.Spec.AsOciRepoSpec()
 	if err != nil {
 		return "", fmt.Errorf("failed to parse OCI repository spec: %w", err)
 	}
 
 	// Validate image reference components (defense-in-depth)
-	if err := validateImageRefComponents(spec.Destination.ImageName, spec.Destination.Tag); err != nil {
+	if err := validateImageRefComponents(spec.Destination.ImageName, spec.Destination.ImageTag); err != nil {
 		return "", fmt.Errorf("invalid image reference components: %w", err)
 	}
 
 	// ociSpec.Registry is already the hostname (no scheme)
 	destRegistryHostname := ociSpec.Registry
-	imageRef := fmt.Sprintf("%s/%s:%s", destRegistryHostname, spec.Destination.ImageName, spec.Destination.Tag)
+	imageRef := fmt.Sprintf("%s/%s:%s", destRegistryHostname, spec.Destination.ImageName, spec.Destination.ImageTag)
 
 	// Login to registry using podman login with stdin
 	// This is more reliable than authfile for push operations

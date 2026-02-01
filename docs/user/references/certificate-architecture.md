@@ -25,6 +25,7 @@ For TPM attestation certificates, see [Configuring Device Attestation](../instal
 | [Alertmanager Proxy](../../../internal/crypto/signer/signer_server_svc.go)            | Alerts TLS               | 2 years  | Root CA                  |
 | [Device Enrollment](../../../internal/crypto/signer/signer_device_enrollment.go)                    | Device enrollment        | 1 year   | Client-Signer CA         |
 | [Device Management](../../../internal/crypto/signer/signer_device_management.go)             | Device operations        | 1 year   | Client-Signer CA         |
+| [Device Management Renewal](../../../internal/crypto/signer/signer_device_management_renewal.go)             | Device operations        | 1 year   | Client-Signer CA         |
 | [Device Services](../../../internal/crypto/signer/signer_device_svc_client.go)    | Device services    | 1 year   | Client-Signer CA |
 | UI Server *                   | UI TLS                   | 2 years  | Root CA                  |
 | CLI Artifacts Server *        | CLI Artifacts TLS        | 2 years  | Root CA                  |
@@ -119,8 +120,25 @@ flightctl certificate request --signer=enrollment --expiration=30d --output=embe
 
 ## Certificate Rotation
 
+### Agent-managed Certificates
+
+The `flightctl-agent` automatically manages and rotates a subset of certificates used for device operation and communication.
+
+#### Device Management Certificate
+
+The device management certificate is **automatically rotated** by the `flightctl-agent` before expiration.
+
+- Rotation is handled internally by the agent.
+- A new certificate is issued using the `Device Management Renewal` signer.
+- Rotation occurs based on the configured renewal policy and does **not** require re-enrollment.
+- Rotation events are reflected in device status via managed system info fields: `managementCertSerial`, `managementCertNotAfter`.
+
+#### Device Services Certificates
+
+Certificates used for device services and issued using the `Device Services` signer are also agent-managed and **automatically rotated** by the `flightctl-agent` before expiration.
+
 > [!IMPORTANT]
-> Certificates are **not** automatically rotated. Administrators must track expiration dates and manually renew certificates or re-enroll devices before they expire.
+> Other Certificates are **not** automatically rotated. Administrators must track expiration dates and manually renew certificates before they expire.
 
 ## Backup and Recovery
 

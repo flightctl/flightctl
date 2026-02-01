@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
@@ -18,16 +19,16 @@ const (
 var _ ActionHandler = (*Compose)(nil)
 
 type Compose struct {
-	podman *client.Podman
-	writer fileio.Writer
-	log    *log.PrefixLogger
+	podmanFactory client.PodmanFactory
+	writerFactory fileio.ReadWriterFactory
+	log           *log.PrefixLogger
 }
 
-func NewCompose(log *log.PrefixLogger, writer fileio.Writer, podman *client.Podman) *Compose {
+func NewCompose(log *log.PrefixLogger, rwFactory fileio.ReadWriterFactory, podmanFactory client.PodmanFactory) *Compose {
 	return &Compose{
-		podman: podman,
-		writer: writer,
-		log:    log,
+		podmanFactory: podmanFactory,
+		writerFactory: rwFactory,
+		log:           log,
 	}
 }
 
@@ -36,12 +37,22 @@ func (c *Compose) add(ctx context.Context, action *Action) error {
 	projectName := action.ID
 	c.log.Debugf("Starting application: %s projectName: %s path: %s", appName, projectName, action.Path)
 
-	if err := c.ensurePodmanVolumes(ctx, action.Volumes, appName); err != nil {
+	podman, err := c.podmanFactory(action.User)
+	if err != nil {
+		return fmt.Errorf("creating podman client: %w", err)
+	}
+
+	writer, err := c.writerFactory(action.User)
+	if err != nil {
+		return fmt.Errorf("creating writer: %w", err)
+	}
+
+	if err := c.ensurePodmanVolumes(ctx, action.Volumes, appName, podman, writer); err != nil {
 		return fmt.Errorf("creating volumes: %w", err)
 	}
 
 	noRecreate := true
-	if err := c.podman.Compose().UpFromWorkDir(ctx, action.Path, projectName, noRecreate); err != nil {
+	if err := podman.Compose().UpFromWorkDir(ctx, action.Path, projectName, noRecreate); err != nil {
 		return err
 	}
 
@@ -53,8 +64,13 @@ func (c *Compose) remove(ctx context.Context, action *Action) error {
 	appName := action.Name
 	c.log.Debugf("Removing application: %s projectName: %s", appName, action.ID)
 
+	podman, err := c.podmanFactory(action.User)
+	if err != nil {
+		return fmt.Errorf("creating podman client: %w", err)
+	}
+
 	var errs []error
-	if err := c.stopAndRemoveContainers(ctx, action); err != nil {
+	if err := c.stopAndRemoveContainers(ctx, action, podman); err != nil {
 		errs = append(errs, err)
 	}
 
@@ -70,17 +86,27 @@ func (c *Compose) update(ctx context.Context, action *Action) error {
 	projectName := action.ID
 	c.log.Debugf("Updating application: %s projectName: %s path: %s", action.Name, projectName, action.Path)
 
-	if err := c.stopAndRemoveContainers(ctx, action); err != nil {
+	podman, err := c.podmanFactory(action.User)
+	if err != nil {
+		return fmt.Errorf("creating podman client: %w", err)
+	}
+
+	writer, err := c.writerFactory(action.User)
+	if err != nil {
+		return fmt.Errorf("creating writer: %w", err)
+	}
+
+	if err := c.stopAndRemoveContainers(ctx, action, podman); err != nil {
 		return err
 	}
 
-	if err := c.ensurePodmanVolumes(ctx, action.Volumes, projectName); err != nil {
+	if err := c.ensurePodmanVolumes(ctx, action.Volumes, projectName, podman, writer); err != nil {
 		return fmt.Errorf("creating volumes: %w", err)
 	}
 
 	// change to work dir and run `docker compose up -d`
 	noRecreate := true
-	if err := c.podman.Compose().UpFromWorkDir(ctx, action.Path, projectName, noRecreate); err != nil {
+	if err := podman.Compose().UpFromWorkDir(ctx, action.Path, projectName, noRecreate); err != nil {
 		return err
 	}
 
@@ -90,10 +116,10 @@ func (c *Compose) update(ctx context.Context, action *Action) error {
 }
 
 // stopAndRemoveContainers stops and removes all containers, pods, and networks created by the compose application.
-func (c *Compose) stopAndRemoveContainers(ctx context.Context, action *Action) error {
+func (c *Compose) stopAndRemoveContainers(ctx context.Context, action *Action, podman *client.Podman) error {
 	return cleanPodmanResources(
 		ctx,
-		c.podman,
+		podman,
 		[]string{
 			fmt.Sprintf("%s=%s", client.ComposeDockerProjectLabelKey, action.ID),
 		},
@@ -132,19 +158,19 @@ func cleanPodmanResources(ctx context.Context, podman *client.Podman, labels []s
 	return nil
 }
 
-func (c *Compose) Execute(ctx context.Context, actions ...*Action) error {
+func (c *Compose) Execute(ctx context.Context, actions Actions) error {
 	for _, action := range actions {
 		switch action.Type {
 		case ActionAdd:
-			if err := c.add(ctx, action); err != nil {
+			if err := c.add(ctx, &action); err != nil {
 				return err
 			}
 		case ActionRemove:
-			if err := c.remove(ctx, action); err != nil {
+			if err := c.remove(ctx, &action); err != nil {
 				return err
 			}
 		case ActionUpdate:
-			if err := c.update(ctx, action); err != nil {
+			if err := c.update(ctx, &action); err != nil {
 				return err
 			}
 		default:
@@ -159,6 +185,8 @@ func (c *Compose) ensurePodmanVolumes(
 	ctx context.Context,
 	volumes []Volume,
 	appID string,
+	podman *client.Podman,
+	writer fileio.Writer,
 ) error {
 	if len(volumes) == 0 {
 		return nil
@@ -167,7 +195,7 @@ func (c *Compose) ensurePodmanVolumes(
 	labels := []string{fmt.Sprintf("%s=%s", client.ComposeDockerProjectLabelKey, appID)}
 	// ensure the volume content is pulled and available
 	for _, volume := range volumes {
-		if err := c.ensurePodmanVolume(ctx, volume, labels); err != nil {
+		if err := c.ensurePodmanVolume(ctx, volume, labels, podman, writer); err != nil {
 			return fmt.Errorf("pulling image volume: %w", err)
 		}
 	}
@@ -179,19 +207,21 @@ func (c *Compose) ensurePodmanVolume(
 	ctx context.Context,
 	volume Volume,
 	labels []string,
+	podman *client.Podman,
+	writer fileio.Writer,
 ) error {
 	name := volume.ID
 	imageRef := volume.Reference
-	if c.podman.VolumeExists(ctx, name) {
+	if podman.VolumeExists(ctx, name) {
 		c.log.Tracef("Volume %q already exists, updating contents", name)
-		volumePath, err := c.podman.InspectVolumeMount(ctx, name)
+		volumePath, err := podman.InspectVolumeMount(ctx, name)
 		if err != nil {
-			return fmt.Errorf("inspect volume %q: %w", name, err)
+			return fmt.Errorf("inspect volume %w: %w", errors.WithElement(name), err)
 		}
-		if err := c.writer.RemoveContents(volumePath); err != nil {
-			return fmt.Errorf("removing volume content %q: %w", volumePath, err)
+		if err := writer.RemoveContents(volumePath); err != nil {
+			return fmt.Errorf("removing volume content %w: %w", errors.WithElement(volumePath), err)
 		}
-		if _, err := c.podman.ExtractArtifact(ctx, imageRef, volumePath); err != nil {
+		if _, err := podman.ExtractArtifact(ctx, imageRef, volumePath); err != nil {
 			return fmt.Errorf("extract artifact: %w", err)
 		}
 		return nil
@@ -199,13 +229,19 @@ func (c *Compose) ensurePodmanVolume(
 
 	c.log.Infof("Creating volume %q from image %q", name, imageRef)
 
-	volumePath, err := c.podman.CreateVolume(ctx, name, labels)
+	volumePath, err := podman.CreateVolume(ctx, name, labels)
 	if err != nil {
-		return fmt.Errorf("creating volume %q: %w", name, err)
+		return fmt.Errorf("creating volume %w: %w", errors.WithElement(name), err)
 	}
-	if _, err := c.podman.ExtractArtifact(ctx, imageRef, volumePath); err != nil {
+	if _, err := podman.ExtractArtifact(ctx, imageRef, volumePath); err != nil {
 		return fmt.Errorf("copy image contents: %w", err)
 	}
 
 	return nil
+}
+
+// ComposeVolumeName generates a unique Compose-compatible volume name
+// based on the application and volume names.
+func ComposeVolumeName(appName, volumeName string, user v1beta1.Username) string {
+	return GenerateAppID(appName+"-"+volumeName, user)
 }

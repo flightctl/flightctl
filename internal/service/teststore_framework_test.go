@@ -280,6 +280,21 @@ func (s *DummyFleet) Update(ctx context.Context, orgId uuid.UUID, fleet *domain.
 	return nil, flterrors.ErrResourceNotFound
 }
 
+func (s *DummyFleet) Delete(ctx context.Context, orgId uuid.UUID, name string, callbackEvent store.EventCallback) error {
+	for i, fleet := range *s.fleets {
+		if name == *fleet.Metadata.Name {
+			var oldFleet domain.Fleet
+			deepCopy(fleet, &oldFleet)
+			*s.fleets = append((*s.fleets)[:i], (*s.fleets)[i+1:]...)
+			if callbackEvent != nil {
+				callbackEvent(ctx, domain.FleetKind, orgId, name, &oldFleet, nil, false, nil)
+			}
+			return nil
+		}
+	}
+	return flterrors.ErrResourceNotFound
+}
+
 // --------------------------------------> Repository
 
 func (s *DummyRepository) Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.Repository, error) {

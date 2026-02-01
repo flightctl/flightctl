@@ -207,6 +207,11 @@ func (h *ServiceHandler) ReplaceAuthProvider(ctx context.Context, orgId uuid.UUI
 		if errs := authProvider.ValidateUpdate(ctx, currentObj); len(errs) > 0 {
 			return nil, domain.StatusBadRequest(sanitizeSchemaError(errors.Join(errs...)))
 		}
+
+		// Preserve sensitive data from existing provider if the new one contains masked placeholders
+		if preserveErr := authProvider.PreserveSensitiveData(currentObj); preserveErr != nil {
+			return nil, domain.StatusInternalServerError(preserveErr.Error())
+		}
 	} else {
 		// Resource doesn't exist, delegate to CreateAuthProvider which handles all creation logic
 		return h.CreateAuthProvider(ctx, orgId, authProvider)
@@ -237,6 +242,11 @@ func (h *ServiceHandler) PatchAuthProvider(ctx context.Context, orgId uuid.UUID,
 	// Use ValidateUpdate to prevent deletion of required fields
 	if errs := newObj.ValidateUpdate(ctx, currentObj); len(errs) > 0 {
 		return nil, domain.StatusBadRequest(sanitizeSchemaError(errors.Join(errs...)))
+	}
+
+	// Preserve sensitive data from existing provider if the new one contains masked placeholders
+	if preserveErr := newObj.PreserveSensitiveData(currentObj); preserveErr != nil {
+		return nil, domain.StatusInternalServerError(preserveErr.Error())
 	}
 
 	NilOutManagedObjectMetaProperties(&newObj.Metadata)

@@ -6,7 +6,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -94,7 +93,7 @@ func NewManager(
 // Initialize ensures the device is enrolled to the management service.
 func (m *LifecycleManager) Initialize(ctx context.Context, status *v1beta1.DeviceStatus) error {
 	if !m.IsInitialized() {
-		if err := m.writeEnrollmentBanner(); err != nil {
+		if err := m.writeEnrollmentBanner(ctx); err != nil {
 			return err
 		}
 
@@ -112,7 +111,7 @@ func (m *LifecycleManager) Initialize(ctx context.Context, status *v1beta1.Devic
 	}
 
 	// write the management banner
-	return m.writeManagementBanner()
+	return m.writeManagementBanner(ctx)
 }
 
 func (m *LifecycleManager) Sync(ctx context.Context, current, desired *v1beta1.DeviceSpec) error {
@@ -126,7 +125,7 @@ func (m *LifecycleManager) AfterUpdate(ctx context.Context, current, desired *v1
 		m.log.Warn("Detected decommissioning request from flightctl service")
 		m.log.Warn("Updating Condition to decommissioning started")
 		if err := m.updateWithStartedCondition(ctx); err != nil {
-			errs = append(errs, fmt.Errorf("failed to update status with decommission started Condition: %w", err))
+			errs = append(errs, fmt.Errorf("%w started Condition: %w", errors.ErrFailedToUpdateStatusWithDecommission, err))
 			m.log.Warn("Unable to update Condition to decommissioning started")
 		}
 
@@ -136,13 +135,13 @@ func (m *LifecycleManager) AfterUpdate(ctx context.Context, current, desired *v1
 		if len(errs) == 0 {
 			m.log.Warn("No errors during decommissioning prior to wiping key and cert; updating Condition to decommissioning completed")
 			if err := m.updateWithCompletedCondition(ctx); err != nil {
-				errs = append(errs, fmt.Errorf("failed to update status with decommission completed Condition: %w", err))
+				errs = append(errs, fmt.Errorf("%w completed Condition: %w", errors.ErrFailedToUpdateStatusWithDecommission, err))
 				m.log.Warn("Unable to update Condition to decommissioning completed")
 			}
 		} else {
 			m.log.Warn("Errors encountered during decommissioning; updating Condition to decommission error")
 			if err := m.updateWithErrorCondition(ctx, errs); err != nil {
-				errs = append(errs, fmt.Errorf("failed to update status with decommission errored Condition: %w", err))
+				errs = append(errs, fmt.Errorf("%w errored Condition: %w", errors.ErrFailedToUpdateStatusWithDecommission, err))
 				m.log.Warn("Unable to update Condition to decommissioning error")
 			}
 		}
@@ -319,32 +318,32 @@ func (m *LifecycleManager) verifyEnrollment(ctx context.Context) (bool, error) {
 	return true, nil
 }
 
-func (m *LifecycleManager) writeEnrollmentBanner() error {
+func (m *LifecycleManager) writeEnrollmentBanner(ctx context.Context) error {
 	if m.enrollmentUIEndpoint == "" {
 		m.log.Warn("Flightctl enrollment UI endpoint is missing, skipping enrollment banner")
 		return nil
 	}
 	url := fmt.Sprintf("%s/enroll/%s", m.enrollmentUIEndpoint, m.deviceName)
-	if err := m.writeQRBanner("\nEnroll your device to flightctl by scanning\nthe above QR code or following this URL:\n%s\n\n", url); err != nil {
+	if err := m.writeQRBanner(ctx, "\nEnroll your device to flightctl by scanning\nthe above QR code or following this URL:\n%s\n\n", url); err != nil {
 		return fmt.Errorf("failed to write device enrollment banner: %w", err)
 	}
 	return nil
 }
 
-func (m *LifecycleManager) writeManagementBanner() error {
+func (m *LifecycleManager) writeManagementBanner(ctx context.Context) error {
 	// write a banner that explains that the device is enrolled
 	if m.enrollmentUIEndpoint == "" {
 		m.log.Warn("Flightctl enrollment UI endpoint is missing, skipping management banner")
 		return nil
 	}
 	url := fmt.Sprintf("%s/manage/%s", m.enrollmentUIEndpoint, m.deviceName)
-	if err := m.writeQRBanner("\nYour device is enrolled to flightctl,\nyou can manage your device scanning the above QR. or following this URL:\n%s\n\n", url); err != nil {
+	if err := m.writeQRBanner(ctx, "\nYour device is enrolled to flightctl,\nyou can manage your device scanning the above QR. or following this URL:\n%s\n\n", url); err != nil {
 		return fmt.Errorf("failed to write device management banner: %w", err)
 	}
 	return nil
 }
 
-func (m *LifecycleManager) writeQRBanner(message, url string) error {
+func (m *LifecycleManager) writeQRBanner(ctx context.Context, message, url string) error {
 	qrCode, err := qrcode.New(url, qrcode.High)
 	if err != nil {
 		return fmt.Errorf("failed to generate new QR code: %w", err)
@@ -365,7 +364,7 @@ func (m *LifecycleManager) writeQRBanner(message, url string) error {
 		return fmt.Errorf("failed to write banner to disk: %w", err)
 	}
 
-	if err := m.sdNotify(); err != nil {
+	if err := m.systemdClient.SdNotify(ctx, "READY=1"); err != nil {
 		m.log.Warnf("Failed to notify systemd: %v", err)
 	}
 
@@ -429,29 +428,5 @@ func (m *LifecycleManager) enrollmentRequest(ctx context.Context, deviceStatus *
 		return fmt.Errorf("creating enrollment request: %w", err)
 	}
 
-	return nil
-}
-
-func (m *LifecycleManager) sdNotify() error {
-	socketAddr := &net.UnixAddr{
-		Name: os.Getenv("NOTIFY_SOCKET"),
-		Net:  "unixgram",
-	}
-
-	// NOTIFY_SOCKET not set
-	if socketAddr.Name == "" {
-		m.log.Warning("NOTIFY_SOCKET not set, skipping systemd notification")
-		return nil
-	}
-	conn, err := net.DialUnix(socketAddr.Net, nil, socketAddr)
-	if err != nil {
-		return fmt.Errorf("failed to connect to systemd: %w", err)
-	}
-	defer conn.Close()
-
-	_, err = conn.Write([]byte("READY=1\n"))
-	if err != nil {
-		return fmt.Errorf("failed to write to systemd: %w", err)
-	}
 	return nil
 }

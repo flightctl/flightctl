@@ -35,7 +35,7 @@ jobs:
         uses: lycheeverse/lychee-action@v2
         with:
           # Check all markdown files in docs directory
-          args: --verbose --no-progress --cache --max-cache-age 1d 'docs/**/*.md'
+          args: --verbose --no-progress --cache --max-cache-age 1d --offline 'docs/**/*.md'
           # Fail PRs with broken links, but not scheduled runs
           fail: ${{ github.event_name == 'pull_request' }}
           # Output format

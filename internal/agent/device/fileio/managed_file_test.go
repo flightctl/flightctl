@@ -137,8 +137,8 @@ func TestIsUpToDate(t *testing.T) {
 func createTestFile(path, data string, mode, user, group int) *v1beta1.FileSpec {
 	return &v1beta1.FileSpec{
 		Path:    path,
-		User:    lo.ToPtr(strconv.Itoa(user)),
-		Group:   lo.ToPtr(strconv.Itoa(group)),
+		User:    v1beta1.Username(strconv.Itoa(user)),
+		Group:   strconv.Itoa(group),
 		Content: data,
 		Mode:    lo.ToPtr(mode),
 	}

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -138,7 +139,7 @@ func RestartRedisPodman() error {
 	if err != nil {
 		return fmt.Errorf("failed to restart Redis podman service: %w", err)
 	}
-	GinkgoWriter.Printf("✓ Redis podman service restart command executed\n")
+	GinkgoWriter.Printf("Redis podman service restart command executed\n")
 	return nil
 }
 
@@ -150,7 +151,7 @@ func RestartRedisKubernetes(namespace string) error {
 	if err != nil {
 		return fmt.Errorf("failed to delete Redis pod: %w", err)
 	}
-	GinkgoWriter.Printf("✓ Redis kubernetes pod deletion command executed\n")
+	GinkgoWriter.Printf("Redis kubernetes pod deletion command executed\n")
 
 	// Wait a moment for the pod to start terminating
 	time.Sleep(POLLING)
@@ -176,7 +177,7 @@ func StopRedisPodman() error {
 	if err != nil {
 		return fmt.Errorf("failed to stop Redis podman service: %w", err)
 	}
-	GinkgoWriter.Printf("✓ Redis podman service stop command executed\n")
+	GinkgoWriter.Printf("Redis podman service stop command executed\n")
 	return nil
 }
 
@@ -188,7 +189,7 @@ func StopRedisKubernetes(namespace string) error {
 	if err != nil {
 		return fmt.Errorf("failed to scale down Redis deployment: %w", err)
 	}
-	GinkgoWriter.Printf("✓ Redis kubernetes deployment scaled down\n")
+	GinkgoWriter.Printf("Redis kubernetes deployment scaled down\n")
 	return nil
 }
 
@@ -210,7 +211,7 @@ func StartRedisPodman() error {
 	if err != nil {
 		return fmt.Errorf("failed to start Redis podman service: %w", err)
 	}
-	GinkgoWriter.Printf("✓ Redis podman service start command executed\n")
+	GinkgoWriter.Printf("Redis podman service start command executed\n")
 	return nil
 }
 
@@ -222,7 +223,7 @@ func StartRedisKubernetes(namespace string) error {
 	if err != nil {
 		return fmt.Errorf("failed to scale up Redis deployment: %w", err)
 	}
-	GinkgoWriter.Printf("✓ Redis kubernetes deployment scaled up\n")
+	GinkgoWriter.Printf("Redis kubernetes deployment scaled up\n")
 	return nil
 }
 
@@ -541,10 +542,16 @@ func GetRedisPassword(ctx string) string {
 // CanConnectToRedis checks if we can connect to Redis
 // ctx should be KIND, OCP (for kubernetes), or empty string (for podman)
 func CanConnectToRedis(ctx string) bool {
+	return CanConnectToRedisWithRetry(ctx, 3, 2*time.Second)
+}
+
+// CanConnectToRedisWithRetry checks if we can connect to Redis with retry logic
+// This handles transient TLS/network errors that can occur on OpenShift
+func CanConnectToRedisWithRetry(ctx string, maxRetries int, retryDelay time.Duration) bool {
 	if ctx == KIND || ctx == OCP {
-		// In Kubernetes, check if we can exec into the Redis pod
 		namespace := detectRedisNamespace()
 		password := GetRedisPassword(ctx)
+
 		// Get pod name first
 		cmd := exec.Command("kubectl", "get", "pod", "-n", namespace, "-l", "flightctl.service=flightctl-kv", "-o", "jsonpath={.items[0].metadata.name}")
 		output, err := cmd.Output()
@@ -555,19 +562,45 @@ func CanConnectToRedis(ctx string) bool {
 		if podName == "" {
 			return false
 		}
-		// Use AUTH command via stdin
-		cmd = exec.Command("kubectl", "exec", "-n", namespace, podName, "--", "sh", "-c", fmt.Sprintf("echo 'AUTH %s\nPING' | redis-cli", password))
-		output, err = cmd.Output()
-		if err != nil {
-			// Try with -a flag as fallback
-			cmd = exec.Command("kubectl", "exec", "-n", namespace, podName, "--", "redis-cli", "-a", password, "PING")
+
+		// Retry logic for transient TLS/network errors
+		for attempt := 0; attempt < maxRetries; attempt++ {
+			// Use AUTH command via stdin
+			cmd = exec.Command("kubectl", "exec", "-n", namespace, podName, "--", "sh", "-c", fmt.Sprintf("echo 'AUTH %s\nPING' | redis-cli", password))
 			output, err = cmd.Output()
 			if err != nil {
+				// Try with -a flag as fallback
+				cmd = exec.Command("kubectl", "exec", "-n", namespace, podName, "--", "redis-cli", "-a", password, "PING")
+				output, err = cmd.Output()
+			}
+
+			if err == nil {
+				outputStr := strings.TrimSpace(string(output))
+				if strings.Contains(outputStr, "PONG") {
+					return true
+				}
+			}
+
+			// Check if this is a transient TLS error worth retrying
+			if exitErr, ok := err.(*exec.ExitError); ok {
+				stderr := string(exitErr.Stderr)
+				if strings.Contains(stderr, "tls:") || strings.Contains(stderr, "connection refused") ||
+					strings.Contains(stderr, "i/o timeout") || strings.Contains(stderr, "dial") {
+					GinkgoWriter.Printf("CanConnectToRedis: Transient error (attempt %d/%d): %s\n", attempt+1, maxRetries, stderr)
+					time.Sleep(retryDelay)
+					continue
+				}
+			}
+
+			// Non-transient error, don't retry
+			if err != nil {
+				if exitErr, ok := err.(*exec.ExitError); ok {
+					GinkgoWriter.Printf("CanConnectToRedis: Non-transient error: %s\n", string(exitErr.Stderr))
+				}
 				return false
 			}
 		}
-		outputStr := strings.TrimSpace(string(output))
-		return strings.Contains(outputStr, "PONG")
+		return false
 	}
 
 	client := GetRedisClient(ctx)
@@ -659,6 +692,97 @@ func CheckQueueState(ctx string) QueueState {
 	}
 
 	return state
+}
+
+// IsQueueInitialized checks if the queue is ready to process tasks (accessible and consumer group exists).
+// Note: TaskQueueExists is NOT required - the stream may not exist if there are no pending tasks.
+func IsQueueInitialized(ctx string) bool {
+	state := CheckQueueState(ctx)
+	// Only check Accessible and HasConsumerGroup - TaskQueueExists can be false
+	// if tasks are processed quickly or there are no pending tasks
+	return state.Accessible && state.HasConsumerGroup
+}
+
+// IsQueueAccessible checks if the Redis queue is accessible.
+func IsQueueAccessible(ctx string) bool {
+	return CheckQueueState(ctx).Accessible
+}
+
+// WaitForQueueAccessible waits for the Redis queue to become accessible.
+func WaitForQueueAccessible(ctx string, timeout, polling time.Duration, msg string) {
+	Eventually(func() bool {
+		return CheckQueueState(ctx).Accessible
+	}, timeout, polling).Should(BeTrue(), "Queue should be accessible %s", msg)
+}
+
+// WaitForResourcesAccessible waits for all resources to be accessible using the provided check function.
+func WaitForResourcesAccessible(timeout, polling time.Duration, checkFn func() bool, msg string) {
+	Eventually(checkFn, timeout, polling).Should(BeTrue(), "All resources should be accessible %s", msg)
+}
+
+// WaitForQueueInitializedAfterRestart creates a resource after restart and verifies queue initialization.
+// Uses callbacks to avoid circular dependencies with e2e packages.
+func WaitForQueueInitializedAfterRestart(
+	ctx string,
+	timeout, polling time.Duration,
+	createResourceFn func() error,
+	verifyResourceFn func() bool,
+) {
+	// Use Eventually for resource creation to handle transient API unavailability after Redis restart
+	Eventually(createResourceFn, timeout, polling).
+		Should(Succeed(), "should create resource after restart")
+
+	Eventually(func() bool {
+		return IsQueueInitialized(ctx)
+	}, timeout, polling).Should(BeTrue(), func() string {
+		state, errors := AssertQueueState(ctx)
+		return fmt.Sprintf("queue should be initialized after restart. Errors: %v, State: %+v", errors, state)
+	})
+
+	Eventually(verifyResourceFn, timeout, polling).Should(BeTrue(), "post-restart resource should be processed")
+}
+
+// VerifyQueueHealthy checks if queue is healthy (accessible and consumer group exists).
+// Note: TaskQueueExists is informational only - the stream may not exist if there are no pending tasks.
+// Returns the state and an error describing any failures.
+func VerifyQueueHealthy(ctx string) (QueueState, error) {
+	state := CheckQueueState(ctx)
+	var errs []string
+
+	if !state.Accessible {
+		errs = append(errs, "queue is not accessible")
+	}
+	// TaskQueueExists is NOT checked - it's normal for the stream to not exist when there are no pending tasks
+	if !state.HasConsumerGroup {
+		errs = append(errs, "consumer group does not exist (validates ensureConsumerGroup fix)")
+	}
+
+	if len(errs) > 0 {
+		return state, fmt.Errorf("%s", strings.Join(errs, "; "))
+	}
+	return state, nil
+}
+
+func AssertQueueState(ctx string) (state QueueState, errors []string) {
+	state = CheckQueueState(ctx)
+	errors = []string{}
+
+	if !state.Accessible {
+		errors = append(errors, "queue is not accessible")
+	}
+	// Note: TaskQueueExists is NOT checked as an error - the stream may not exist when there are no pending tasks
+	if !state.HasConsumerGroup {
+		errors = append(errors, "consumer group does not exist (validates ensureConsumerGroup fix)")
+	}
+
+	return state, errors
+}
+
+// HasQueueActivity checks if the queue has any in-flight tasks or pending items.
+func HasQueueActivity(ctx string) (state QueueState, hasActivity bool) {
+	state = CheckQueueState(ctx)
+	hasActivity = state.Accessible && (state.InFlightTasks > 0 || state.QueueLength > 0)
+	return state, hasActivity
 }
 
 // CheckQueueStateKubernetes checks queue state using kubectl exec in Kubernetes mode

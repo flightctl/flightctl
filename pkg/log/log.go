@@ -97,6 +97,12 @@ func (f *PrefixFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 	sb.WriteString(entry.Message)
 	sb.WriteString(`" `)
 
+	if err, ok := entry.Data[logrus.ErrorKey]; ok {
+		sb.WriteString(`err="`)
+		sb.WriteString(err.(error).Error())
+		sb.WriteString(`" `)
+	}
+
 	// caller if available and not an info level log
 	if entry.HasCaller() && entry.Level != logrus.InfoLevel {
 		sb.WriteString(`file="`)

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/executer"
@@ -38,6 +39,29 @@ type Skopeo struct {
 	log        *log.PrefixLogger
 	timeout    time.Duration
 	readWriter fileio.ReadWriter
+}
+
+// SkopeoFactory creates a skopeo client. A blank username means to use the process user.
+type SkopeoFactory func(v1beta1.Username) (*Skopeo, error)
+
+func NewSkopeoFactory(log *log.PrefixLogger, rwFactory fileio.ReadWriterFactory) SkopeoFactory {
+	return func(username v1beta1.Username) (*Skopeo, error) {
+		readWriter, err := rwFactory(username)
+		if err != nil {
+			return nil, err
+		}
+
+		exec, err := ExecuterForUser(username)
+		if err != nil {
+			return nil, err
+		}
+
+		return NewSkopeo(
+			log,
+			exec,
+			readWriter,
+		), nil
+	}
 }
 
 func NewSkopeo(log *log.PrefixLogger, exec executer.Executer, readWriter fileio.ReadWriter) *Skopeo {

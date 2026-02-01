@@ -28,12 +28,18 @@ func TestManager_getImageReferencesFromSpecs(t *testing.T) {
 	log := log.NewPrefixLogger("test")
 	mockExec := executer.NewMockExecuter(ctrl)
 	readWriter := fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter())
-	podmanClient := client.NewPodman(log, mockExec, readWriter, poll.Config{})
+	rootPodmanClient := client.NewPodman(log, mockExec, readWriter, poll.Config{})
+	podmanClientFactory := func(user v1beta1.Username) (*client.Podman, error) {
+		return rootPodmanClient, nil
+	}
+	rwFactory := func(user v1beta1.Username) (fileio.ReadWriter, error) {
+		return readWriter, nil
+	}
 	mockSpecManager := spec.NewMockManager(ctrl)
 	enabled := true
 	config := config.ImagePruning{Enabled: &enabled}
 
-	m := New(podmanClient, mockSpecManager, readWriter, log, config, "/tmp").(*manager)
+	m := New(podmanClientFactory, rootPodmanClient, nil, mockSpecManager, rwFactory, readWriter, log, config, "/tmp").(*manager)
 
 	// Helper to mock image existence checks for nested target extraction
 	// For most tests, we'll mock that images don't exist locally (so nested extraction is skipped)
@@ -47,7 +53,7 @@ func TestManager_getImageReferencesFromSpecs(t *testing.T) {
 	testCases := []struct {
 		name       string
 		setupMocks func(*executer.MockExecuter, *spec.MockManager)
-		want       []string
+		want       []ImageRef
 		wantErr    bool
 		wantErrMsg string
 	}{
@@ -63,42 +69,39 @@ func TestManager_getImageReferencesFromSpecs(t *testing.T) {
 					Return("", "", 1).AnyTimes()
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"artifact", "inspect", "quay.io/example/app:desired"}).
 					Return("", "", 1).AnyTimes()
+				containerApp := v1beta1.ContainerApplication{
+					Name:    lo.ToPtr("app1"),
+					AppType: v1beta1.AppTypeContainer,
+					Image:   "quay.io/example/app:current",
+				}
+				var appSpec v1beta1.ApplicationProviderSpec
+				require.NoError(appSpec.FromContainerApplication(containerApp))
 				currentDevice := &v1beta1.Device{
 					Spec: &v1beta1.DeviceSpec{
-						Applications: lo.ToPtr([]v1beta1.ApplicationProviderSpec{
-							{
-								Name:    lo.ToPtr("app1"),
-								AppType: v1beta1.AppTypeContainer,
-							},
-						}),
+						Applications: lo.ToPtr([]v1beta1.ApplicationProviderSpec{appSpec}),
 					},
 				}
-				apps := lo.FromPtr(currentDevice.Spec.Applications)
-				imageSpec := v1beta1.ImageApplicationProviderSpec{
-					Image: "quay.io/example/app:current",
-				}
-				require.NoError(apps[0].FromImageApplicationProviderSpec(imageSpec))
 
+				desiredContainerApp := v1beta1.ContainerApplication{
+					Name:    lo.ToPtr("app1"),
+					AppType: v1beta1.AppTypeContainer,
+					Image:   "quay.io/example/app:desired",
+				}
+				var desiredAppSpec v1beta1.ApplicationProviderSpec
+				require.NoError(desiredAppSpec.FromContainerApplication(desiredContainerApp))
 				desiredDevice := &v1beta1.Device{
 					Spec: &v1beta1.DeviceSpec{
-						Applications: lo.ToPtr([]v1beta1.ApplicationProviderSpec{
-							{
-								Name:    lo.ToPtr("app1"),
-								AppType: v1beta1.AppTypeContainer,
-							},
-						}),
+						Applications: lo.ToPtr([]v1beta1.ApplicationProviderSpec{desiredAppSpec}),
 					},
 				}
-				desiredApps := lo.FromPtr(desiredDevice.Spec.Applications)
-				desiredImageSpec := v1beta1.ImageApplicationProviderSpec{
-					Image: "quay.io/example/app:desired",
-				}
-				require.NoError(desiredApps[0].FromImageApplicationProviderSpec(desiredImageSpec))
 
 				mock.EXPECT().Read(spec.Current).Return(currentDevice, nil)
 				mock.EXPECT().Read(spec.Desired).Return(desiredDevice, nil)
 			},
-			want: []string{"quay.io/example/app:current", "quay.io/example/app:desired"},
+			want: []ImageRef{
+				{Owner: v1beta1.CurrentProcessUsername, Image: "quay.io/example/app:current", Type: RefTypePodman},
+				{Owner: v1beta1.CurrentProcessUsername, Image: "quay.io/example/app:desired", Type: RefTypePodman},
+			},
 		},
 		{
 			name: "success with current spec only (no desired)",
@@ -108,21 +111,18 @@ func TestManager_getImageReferencesFromSpecs(t *testing.T) {
 					Return("", "", 1).AnyTimes()
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"artifact", "inspect", "quay.io/example/app:current"}).
 					Return("", "", 1).AnyTimes()
+				containerApp := v1beta1.ContainerApplication{
+					Name:    lo.ToPtr("app1"),
+					AppType: v1beta1.AppTypeContainer,
+					Image:   "quay.io/example/app:current",
+				}
+				var appSpec v1beta1.ApplicationProviderSpec
+				require.NoError(appSpec.FromContainerApplication(containerApp))
 				currentDevice := &v1beta1.Device{
 					Spec: &v1beta1.DeviceSpec{
-						Applications: lo.ToPtr([]v1beta1.ApplicationProviderSpec{
-							{
-								Name:    lo.ToPtr("app1"),
-								AppType: v1beta1.AppTypeContainer,
-							},
-						}),
+						Applications: lo.ToPtr([]v1beta1.ApplicationProviderSpec{appSpec}),
 					},
 				}
-				apps := lo.FromPtr(currentDevice.Spec.Applications)
-				imageSpec := v1beta1.ImageApplicationProviderSpec{
-					Image: "quay.io/example/app:current",
-				}
-				require.NoError(apps[0].FromImageApplicationProviderSpec(imageSpec))
 
 				// Mock nested target extraction - image doesn't exist locally (so extraction is skipped)
 				mockImageNotExists("quay.io/example/app:current")
@@ -130,7 +130,7 @@ func TestManager_getImageReferencesFromSpecs(t *testing.T) {
 				mock.EXPECT().Read(spec.Current).Return(currentDevice, nil)
 				mock.EXPECT().Read(spec.Desired).Return(nil, errors.New("desired not found"))
 			},
-			want: []string{"quay.io/example/app:current"},
+			want: []ImageRef{{Owner: v1beta1.CurrentProcessUsername, Image: "quay.io/example/app:current", Type: RefTypePodman}},
 		},
 		{
 			name: "error reading current spec",
@@ -144,14 +144,11 @@ func TestManager_getImageReferencesFromSpecs(t *testing.T) {
 		{
 			name: "error extracting images from current spec",
 			setupMocks: func(mockExec *executer.MockExecuter, mock *spec.MockManager) {
-				// Return a device with invalid spec structure (missing app type will cause error during extraction)
+				// Return a device with invalid spec structure (empty ApplicationProviderSpec with no union set)
 				currentDevice := &v1beta1.Device{
 					Spec: &v1beta1.DeviceSpec{
 						Applications: lo.ToPtr([]v1beta1.ApplicationProviderSpec{
-							{
-								Name:    lo.ToPtr("app1"),
-								AppType: "", // Invalid: missing app type
-							},
+							{}, // Empty spec - no From* method called, will fail extraction
 						}),
 					},
 				}
@@ -189,7 +186,7 @@ func TestManager_getImageReferencesFromSpecs(t *testing.T) {
 				desiredDevice, _ = mockSpecManager.Read(spec.Desired)
 			}
 
-			var got []string
+			var got []ImageRef
 			var err error
 
 			// Extract from current device
@@ -258,8 +255,12 @@ func TestManager_determineEligibleImages(t *testing.T) {
 				// Create previous references file with references that are no longer referenced
 				// Using References field (new format) - all references in a single list
 				previousRefs := ImageArtifactReferences{
-					Timestamp:  "2025-01-01T00:00:00Z",
-					References: []string{"quay.io/example/old-app:v1.0", "quay.io/example/unused:v1.0", "quay.io/example/artifact:v1.0"},
+					Timestamp: "2025-01-01T00:00:00Z",
+					References: []ImageRef{
+						{Image: "quay.io/example/old-app:v1.0", Type: RefTypePodman},
+						{Image: "quay.io/example/unused:v1.0", Type: RefTypePodman},
+						{Image: "quay.io/example/artifact:v1.0", Type: RefTypeArtifact},
+					},
 				}
 				jsonData, err := json.Marshal(previousRefs)
 				require.NoError(err)
@@ -270,24 +271,21 @@ func TestManager_determineEligibleImages(t *testing.T) {
 				require.NoError(readWriter.WriteFile(filePath, jsonData, fileio.DefaultFilePermissions))
 
 				// Mock spec manager - current spec only references app:v1.0, not the old ones
+				containerApp := v1beta1.ContainerApplication{
+					Name:    lo.ToPtr("app1"),
+					AppType: v1beta1.AppTypeContainer,
+					Image:   "quay.io/example/app:v1.0",
+				}
+				var appSpec v1beta1.ApplicationProviderSpec
+				require.NoError(appSpec.FromContainerApplication(containerApp))
 				currentDevice := &v1beta1.Device{
 					Spec: &v1beta1.DeviceSpec{
-						Applications: lo.ToPtr([]v1beta1.ApplicationProviderSpec{
-							{
-								Name:    lo.ToPtr("app1"),
-								AppType: v1beta1.AppTypeContainer,
-							},
-						}),
+						Applications: lo.ToPtr([]v1beta1.ApplicationProviderSpec{appSpec}),
 						Os: &v1beta1.DeviceOsSpec{
 							Image: "quay.io/example/os:v1.0",
 						},
 					},
 				}
-				apps := lo.FromPtr(currentDevice.Spec.Applications)
-				imageSpec := v1beta1.ImageApplicationProviderSpec{
-					Image: "quay.io/example/app:v1.0",
-				}
-				require.NoError(apps[0].FromImageApplicationProviderSpec(imageSpec))
 
 				// Mock nested target extraction - image doesn't exist locally (so extraction is skipped)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", "quay.io/example/app:v1.0"}).
@@ -299,22 +297,22 @@ func TestManager_determineEligibleImages(t *testing.T) {
 				mockSpec.EXPECT().Read(spec.Current).Return(currentDevice, nil).Times(1)
 				mockSpec.EXPECT().Read(spec.Desired).Return(nil, errors.New("desired not found")).Times(1)
 
-				// During categorization, we check each eligible reference individually
-				// Eligible references are: old-app:v1.0, unused:v1.0, artifact:v1.0 (not in current specs)
-				// Mock ImageExists for each eligible reference
+				// During categorization, we check each eligible reference based on its Type
+				// Eligible references are: old-app:v1.0 (podman), unused:v1.0 (podman), artifact:v1.0 (artifact)
+				// Mock ImageExists for podman references
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", "quay.io/example/old-app:v1.0"}).
 					Return("", "", 0) // Exists as image
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", "quay.io/example/unused:v1.0"}).
 					Return("", "", 0) // Exists as image
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", "quay.io/example/artifact:v1.0"}).
-					Return("", "", 1) // Doesn't exist as image
-				// Mock ArtifactExists for artifact reference (only called if ImageExists returns false)
+				// Mock ArtifactExists for artifact reference (called directly because Type is RefTypeArtifact)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"artifact", "inspect", "quay.io/example/artifact:v1.0"}).
 					Return("", "", 0) // Exists as artifact
 			},
 			want: &EligibleItems{
-				Images:    []string{"quay.io/example/unused:v1.0", "quay.io/example/old-app:v1.0"},
-				Artifacts: []string{"quay.io/example/artifact:v1.0"},
+				Images:    []ImageRef{{Image: "quay.io/example/unused:v1.0", Type: RefTypePodman}, {Image: "quay.io/example/old-app:v1.0", Type: RefTypePodman}},
+				Artifacts: []ImageRef{{Image: "quay.io/example/artifact:v1.0", Type: RefTypeArtifact}},
+				CRI:       []ImageRef{},
+				Helm:      []ImageRef{},
 			},
 		},
 		{
@@ -323,7 +321,7 @@ func TestManager_determineEligibleImages(t *testing.T) {
 				// Create previous references file - all images are still referenced
 				previousRefs := ImageArtifactReferences{
 					Timestamp:  "2025-01-01T00:00:00Z",
-					References: []string{"quay.io/example/app:v1.0"},
+					References: []ImageRef{{Image: "quay.io/example/app:v1.0", Type: RefTypePodman}},
 				}
 				jsonData, err := json.Marshal(previousRefs)
 				require.NoError(err)
@@ -334,24 +332,21 @@ func TestManager_determineEligibleImages(t *testing.T) {
 				require.NoError(readWriter.WriteFile(filePath, jsonData, fileio.DefaultFilePermissions))
 
 				// Mock spec manager FIRST - needed for getImageReferencesFromSpecs
+				containerApp := v1beta1.ContainerApplication{
+					Name:    lo.ToPtr("app1"),
+					AppType: v1beta1.AppTypeContainer,
+					Image:   "quay.io/example/app:v1.0",
+				}
+				var appSpec v1beta1.ApplicationProviderSpec
+				require.NoError(appSpec.FromContainerApplication(containerApp))
 				currentDevice := &v1beta1.Device{
 					Spec: &v1beta1.DeviceSpec{
-						Applications: lo.ToPtr([]v1beta1.ApplicationProviderSpec{
-							{
-								Name:    lo.ToPtr("app1"),
-								AppType: v1beta1.AppTypeContainer,
-							},
-						}),
+						Applications: lo.ToPtr([]v1beta1.ApplicationProviderSpec{appSpec}),
 						Os: &v1beta1.DeviceOsSpec{
 							Image: "quay.io/example/os:v1.0",
 						},
 					},
 				}
-				apps := lo.FromPtr(currentDevice.Spec.Applications)
-				imageSpec := v1beta1.ImageApplicationProviderSpec{
-					Image: "quay.io/example/app:v1.0",
-				}
-				require.NoError(apps[0].FromImageApplicationProviderSpec(imageSpec))
 
 				// Podman version check happens when Podman client methods are called
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"--version"}).
@@ -373,15 +368,18 @@ func TestManager_determineEligibleImages(t *testing.T) {
 
 				// No eligible references (app:v1.0 is still in current specs), so no categorization calls
 			},
-			want: &EligibleItems{Images: []string{}, Artifacts: []string{}}, // All images are in use
+			want: &EligibleItems{Images: []ImageRef{}, Artifacts: []ImageRef{}, CRI: []ImageRef{}, Helm: []ImageRef{}}, // All images are in use
 		},
 		{
 			name: "OS images can be pruned if they lose references",
 			setupMocks: func(mockExec *executer.MockExecuter, mockSpec *spec.MockManager, readWriter fileio.ReadWriter, dataDir string) {
 				// Create previous references file with unused image and OS image
 				previousRefs := ImageArtifactReferences{
-					Timestamp:  "2025-01-01T00:00:00Z",
-					References: []string{"quay.io/example/unused:v1.0", "quay.io/example/old-os:v1.0"},
+					Timestamp: "2025-01-01T00:00:00Z",
+					References: []ImageRef{
+						{Image: "quay.io/example/unused:v1.0", Type: RefTypePodman},
+						{Image: "quay.io/example/old-os:v1.0", Type: RefTypePodman},
+					},
 				}
 				jsonData, err := json.Marshal(previousRefs)
 				require.NoError(err)
@@ -392,24 +390,21 @@ func TestManager_determineEligibleImages(t *testing.T) {
 				require.NoError(readWriter.WriteFile(filePath, jsonData, fileio.DefaultFilePermissions))
 
 				// Mock spec manager FIRST - needed for getImageReferencesFromSpecs
+				containerApp := v1beta1.ContainerApplication{
+					Name:    lo.ToPtr("app1"),
+					AppType: v1beta1.AppTypeContainer,
+					Image:   "quay.io/example/app:v1.0",
+				}
+				var appSpec v1beta1.ApplicationProviderSpec
+				require.NoError(appSpec.FromContainerApplication(containerApp))
 				currentDevice := &v1beta1.Device{
 					Spec: &v1beta1.DeviceSpec{
-						Applications: lo.ToPtr([]v1beta1.ApplicationProviderSpec{
-							{
-								Name:    lo.ToPtr("app1"),
-								AppType: v1beta1.AppTypeContainer,
-							},
-						}),
+						Applications: lo.ToPtr([]v1beta1.ApplicationProviderSpec{appSpec}),
 						Os: &v1beta1.DeviceOsSpec{
 							Image: "quay.io/example/new-os:v1.0", // Different OS image
 						},
 					},
 				}
-				apps := lo.FromPtr(currentDevice.Spec.Applications)
-				imageSpec := v1beta1.ImageApplicationProviderSpec{
-					Image: "quay.io/example/app:v1.0",
-				}
-				require.NoError(apps[0].FromImageApplicationProviderSpec(imageSpec))
 
 				// Mock nested target extraction - image doesn't exist locally (so extraction is skipped)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", "quay.io/example/app:v1.0"}).
@@ -428,7 +423,7 @@ func TestManager_determineEligibleImages(t *testing.T) {
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", "quay.io/example/old-os:v1.0"}).
 					Return("", "", 0) // Exists as image
 			},
-			want: &EligibleItems{Images: []string{"quay.io/example/unused:v1.0", "quay.io/example/old-os:v1.0"}, Artifacts: []string{}}, // Both unused image and old OS image are eligible
+			want: &EligibleItems{Images: []ImageRef{{Image: "quay.io/example/unused:v1.0", Type: RefTypePodman}, {Image: "quay.io/example/old-os:v1.0", Type: RefTypePodman}}, Artifacts: []ImageRef{}, CRI: []ImageRef{}, Helm: []ImageRef{}}, // Both unused image and old OS image are eligible
 		},
 		{
 			name: "desired images preserved",
@@ -436,7 +431,7 @@ func TestManager_determineEligibleImages(t *testing.T) {
 				// Create previous references file with unused image (not in current or desired)
 				previousRefs := ImageArtifactReferences{
 					Timestamp:  "2025-01-01T00:00:00Z",
-					References: []string{"quay.io/example/unused:v1.0"},
+					References: []ImageRef{{Image: "quay.io/example/unused:v1.0", Type: RefTypePodman}},
 				}
 				jsonData, err := json.Marshal(previousRefs)
 				require.NoError(err)
@@ -446,43 +441,37 @@ func TestManager_determineEligibleImages(t *testing.T) {
 				filePath := filepath.Join(dataDir, ReferencesFileName)
 				require.NoError(readWriter.WriteFile(filePath, jsonData, fileio.DefaultFilePermissions))
 				// Mock spec manager - current and desired
+				currentContainerApp := v1beta1.ContainerApplication{
+					Name:    lo.ToPtr("app1"),
+					AppType: v1beta1.AppTypeContainer,
+					Image:   "quay.io/example/app:v2.0", // Current version
+				}
+				var currentAppSpec v1beta1.ApplicationProviderSpec
+				require.NoError(currentAppSpec.FromContainerApplication(currentContainerApp))
 				currentDevice := &v1beta1.Device{
 					Spec: &v1beta1.DeviceSpec{
-						Applications: lo.ToPtr([]v1beta1.ApplicationProviderSpec{
-							{
-								Name:    lo.ToPtr("app1"),
-								AppType: v1beta1.AppTypeContainer,
-							},
-						}),
+						Applications: lo.ToPtr([]v1beta1.ApplicationProviderSpec{currentAppSpec}),
 						Os: &v1beta1.DeviceOsSpec{
 							Image: "quay.io/example/os:v1.0",
 						},
 					},
 				}
-				apps := lo.FromPtr(currentDevice.Spec.Applications)
-				currentImageSpec := v1beta1.ImageApplicationProviderSpec{
-					Image: "quay.io/example/app:v2.0", // Current version
-				}
-				require.NoError(apps[0].FromImageApplicationProviderSpec(currentImageSpec))
 
+				desiredContainerApp := v1beta1.ContainerApplication{
+					Name:    lo.ToPtr("app1"),
+					AppType: v1beta1.AppTypeContainer,
+					Image:   "quay.io/example/app:v1.0", // Desired version
+				}
+				var desiredAppSpec v1beta1.ApplicationProviderSpec
+				require.NoError(desiredAppSpec.FromContainerApplication(desiredContainerApp))
 				desiredDevice := &v1beta1.Device{
 					Spec: &v1beta1.DeviceSpec{
-						Applications: lo.ToPtr([]v1beta1.ApplicationProviderSpec{
-							{
-								Name:    lo.ToPtr("app1"),
-								AppType: v1beta1.AppTypeContainer,
-							},
-						}),
+						Applications: lo.ToPtr([]v1beta1.ApplicationProviderSpec{desiredAppSpec}),
 						Os: &v1beta1.DeviceOsSpec{
 							Image: "quay.io/example/os:v1.0",
 						},
 					},
 				}
-				desiredApps := lo.FromPtr(desiredDevice.Spec.Applications)
-				desiredImageSpec := v1beta1.ImageApplicationProviderSpec{
-					Image: "quay.io/example/app:v1.0", // Desired version
-				}
-				require.NoError(desiredApps[0].FromImageApplicationProviderSpec(desiredImageSpec))
 
 				// Mock nested target extraction FIRST - images don't exist locally (so extraction is skipped)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", "quay.io/example/app:v2.0"}).
@@ -503,15 +492,18 @@ func TestManager_determineEligibleImages(t *testing.T) {
 				mockSpec.EXPECT().Read(spec.Current).Return(currentDevice, nil).Times(1)
 				mockSpec.EXPECT().Read(spec.Desired).Return(desiredDevice, nil).Times(1)
 			},
-			want: &EligibleItems{Images: []string{"quay.io/example/unused:v1.0"}, Artifacts: []string{}}, // Both current and desired app images preserved
+			want: &EligibleItems{Images: []ImageRef{{Image: "quay.io/example/unused:v1.0", Type: RefTypePodman}}, Artifacts: []ImageRef{}, CRI: []ImageRef{}, Helm: []ImageRef{}}, // Both current and desired app images preserved
 		},
 		{
 			name: "empty device - all images eligible",
 			setupMocks: func(mockExec *executer.MockExecuter, mockSpec *spec.MockManager, readWriter fileio.ReadWriter, dataDir string) {
 				// Create previous references file with images that are no longer referenced
 				previousRefs := ImageArtifactReferences{
-					Timestamp:  "2025-01-01T00:00:00Z",
-					References: []string{"quay.io/example/unused1:v1.0", "quay.io/example/unused2:v1.0"},
+					Timestamp: "2025-01-01T00:00:00Z",
+					References: []ImageRef{
+						{Image: "quay.io/example/unused1:v1.0", Type: RefTypePodman},
+						{Image: "quay.io/example/unused2:v1.0", Type: RefTypePodman},
+					},
 				}
 				jsonData, err := json.Marshal(previousRefs)
 				require.NoError(err)
@@ -539,7 +531,10 @@ func TestManager_determineEligibleImages(t *testing.T) {
 				mockSpec.EXPECT().Read(spec.Current).Return(currentDevice, nil).Times(1)
 				mockSpec.EXPECT().Read(spec.Desired).Return(nil, errors.New("desired not found")).Times(1)
 			},
-			want: &EligibleItems{Images: []string{"quay.io/example/unused1:v1.0", "quay.io/example/unused2:v1.0"}, Artifacts: []string{}},
+			want: &EligibleItems{Images: []ImageRef{
+				{Image: "quay.io/example/unused1:v1.0", Type: RefTypePodman},
+				{Image: "quay.io/example/unused2:v1.0", Type: RefTypePodman},
+			}, Artifacts: []ImageRef{}, CRI: []ImageRef{}, Helm: []ImageRef{}},
 		},
 		{
 			name: "partial failure - continues with available data",
@@ -547,7 +542,7 @@ func TestManager_determineEligibleImages(t *testing.T) {
 				// Create previous references file with unused image
 				previousRefs := ImageArtifactReferences{
 					Timestamp:  "2025-01-01T00:00:00Z",
-					References: []string{"quay.io/example/unused:v1.0"},
+					References: []ImageRef{{Image: "quay.io/example/unused:v1.0", Type: RefTypePodman}},
 				}
 				jsonData, err := json.Marshal(previousRefs)
 				require.NoError(err)
@@ -564,24 +559,21 @@ func TestManager_determineEligibleImages(t *testing.T) {
 					Return("", "", 1).AnyTimes()
 
 				// Mock spec manager
+				containerApp := v1beta1.ContainerApplication{
+					Name:    lo.ToPtr("app1"),
+					AppType: v1beta1.AppTypeContainer,
+					Image:   "quay.io/example/app:v1.0",
+				}
+				var appSpec v1beta1.ApplicationProviderSpec
+				require.NoError(appSpec.FromContainerApplication(containerApp))
 				currentDevice := &v1beta1.Device{
 					Spec: &v1beta1.DeviceSpec{
-						Applications: lo.ToPtr([]v1beta1.ApplicationProviderSpec{
-							{
-								Name:    lo.ToPtr("app1"),
-								AppType: v1beta1.AppTypeContainer,
-							},
-						}),
+						Applications: lo.ToPtr([]v1beta1.ApplicationProviderSpec{appSpec}),
 						Os: &v1beta1.DeviceOsSpec{
 							Image: "quay.io/example/os:v1.0",
 						},
 					},
 				}
-				apps := lo.FromPtr(currentDevice.Spec.Applications)
-				imageSpec := v1beta1.ImageApplicationProviderSpec{
-					Image: "quay.io/example/app:v1.0",
-				}
-				require.NoError(apps[0].FromImageApplicationProviderSpec(imageSpec))
 
 				// getImageReferencesFromSpecs now includes OS images via extractImageReferences, so only one Read per spec
 				mockSpec.EXPECT().Read(spec.Current).Return(currentDevice, nil).Times(1)
@@ -592,7 +584,53 @@ func TestManager_determineEligibleImages(t *testing.T) {
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", "quay.io/example/unused:v1.0"}).
 					Return("", "", 0) // Exists as image
 			},
-			want: &EligibleItems{Images: []string{"quay.io/example/unused:v1.0"}, Artifacts: []string{}}, // Continues with partial results
+			want: &EligibleItems{Images: []ImageRef{{Image: "quay.io/example/unused:v1.0", Type: RefTypePodman}}, Artifacts: []ImageRef{}, CRI: []ImageRef{}, Helm: []ImageRef{}}, // Continues with partial results
+		},
+		{
+			name: "image with multiple type references - not eligible when one type remains",
+			setupMocks: func(mockExec *executer.MockExecuter, mockSpec *spec.MockManager, readWriter fileio.ReadWriter, dataDir string) {
+				// Create previous references file with the same image referenced by both podman and artifact types
+				// This simulates a scenario where an image was used as both a container image and an artifact
+				previousRefs := ImageArtifactReferences{
+					Timestamp: "2025-01-01T00:00:00Z",
+					References: []ImageRef{
+						{Image: "quay.io/example/shared:v1.0", Type: RefTypePodman},
+						{Image: "quay.io/example/shared:v1.0", Type: RefTypeArtifact},
+					},
+				}
+				jsonData, err := json.Marshal(previousRefs)
+				require.NoError(err)
+				require.NoError(readWriter.MkdirAll(dataDir, fileio.DefaultDirectoryPermissions))
+				filePath := filepath.Join(dataDir, ReferencesFileName)
+				require.NoError(readWriter.WriteFile(filePath, jsonData, fileio.DefaultFilePermissions))
+
+				// Mock spec manager - current spec still has a podman reference to the same image
+				// Even though the artifact reference is dropped, image should NOT be eligible
+				containerApp := v1beta1.ContainerApplication{
+					Name:    lo.ToPtr("app1"),
+					AppType: v1beta1.AppTypeContainer,
+					Image:   "quay.io/example/shared:v1.0", // Same image, still used as container
+				}
+				var appSpec v1beta1.ApplicationProviderSpec
+				require.NoError(appSpec.FromContainerApplication(containerApp))
+				currentDevice := &v1beta1.Device{
+					Spec: &v1beta1.DeviceSpec{
+						Applications: lo.ToPtr([]v1beta1.ApplicationProviderSpec{appSpec}),
+					},
+				}
+
+				// Mock nested target extraction - image doesn't exist locally
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", "quay.io/example/shared:v1.0"}).
+					Return("", "", 1).AnyTimes()
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"artifact", "inspect", "quay.io/example/shared:v1.0"}).
+					Return("", "", 1).AnyTimes()
+
+				mockSpec.EXPECT().Read(spec.Current).Return(currentDevice, nil).Times(1)
+				mockSpec.EXPECT().Read(spec.Desired).Return(nil, errors.New("desired not found")).Times(1)
+
+				// No image existence checks should be called because the image is still referenced by podman type
+			},
+			want: &EligibleItems{Images: []ImageRef{}, Artifacts: []ImageRef{}, CRI: []ImageRef{}, Helm: []ImageRef{}}, // Image still referenced by podman - not eligible even though artifact ref dropped
 		},
 		{
 			name: "no previous references file - nothing eligible",
@@ -600,7 +638,7 @@ func TestManager_determineEligibleImages(t *testing.T) {
 				// Don't create previous references file - simulates first run
 				// No mocks needed since we return early
 			},
-			want: &EligibleItems{Images: []string{}, Artifacts: []string{}}, // No previous file, so nothing to prune
+			want: &EligibleItems{Images: []ImageRef{}, Artifacts: []ImageRef{}, CRI: []ImageRef{}, Helm: []ImageRef{}}, // No previous file, so nothing to prune
 		},
 	}
 
@@ -622,8 +660,14 @@ func TestManager_determineEligibleImages(t *testing.T) {
 			)
 			tc.setupMocks(mockExec, mockSpecManager, testReadWriter, tmpDir)
 
-			podmanClient := client.NewPodman(log, mockExec, testReadWriter, poll.Config{})
-			m := New(podmanClient, mockSpecManager, testReadWriter, log, config, tmpDir).(*manager)
+			rootPodmanClient := client.NewPodman(log, mockExec, testReadWriter, poll.Config{})
+			podmanClientFactory := func(user v1beta1.Username) (*client.Podman, error) {
+				return rootPodmanClient, nil
+			}
+			rwFactory := func(user v1beta1.Username) (fileio.ReadWriter, error) {
+				return testReadWriter, nil
+			}
+			m := New(podmanClientFactory, rootPodmanClient, nil, mockSpecManager, rwFactory, testReadWriter, log, config, tmpDir).(*manager)
 
 			got, err := m.determineEligibleImages(context.Background())
 			if tc.wantErr {
@@ -661,24 +705,21 @@ func TestManager_validateCapability(t *testing.T) {
 			name: "success - all images exist",
 			setupMocks: func(mockExec *executer.MockExecuter, mockSpec *spec.MockManager) {
 				// Mock spec manager - current spec
+				containerApp := v1beta1.ContainerApplication{
+					Name:    lo.ToPtr("app1"),
+					AppType: v1beta1.AppTypeContainer,
+					Image:   "quay.io/example/app:v1.0",
+				}
+				var appSpec v1beta1.ApplicationProviderSpec
+				require.NoError(appSpec.FromContainerApplication(containerApp))
 				currentDevice := &v1beta1.Device{
 					Spec: &v1beta1.DeviceSpec{
-						Applications: lo.ToPtr([]v1beta1.ApplicationProviderSpec{
-							{
-								Name:    lo.ToPtr("app1"),
-								AppType: v1beta1.AppTypeContainer,
-							},
-						}),
+						Applications: lo.ToPtr([]v1beta1.ApplicationProviderSpec{appSpec}),
 						Os: &v1beta1.DeviceOsSpec{
 							Image: "quay.io/example/os:v1.0",
 						},
 					},
 				}
-				apps := lo.FromPtr(currentDevice.Spec.Applications)
-				imageSpec := v1beta1.ImageApplicationProviderSpec{
-					Image: "quay.io/example/app:v1.0",
-				}
-				require.NoError(apps[0].FromImageApplicationProviderSpec(imageSpec))
 
 				// getImageReferencesFromSpecs now includes OS images via extractImageReferences, so only one Read per spec
 				mockSpec.EXPECT().Read(spec.Current).Return(currentDevice, nil).Times(1)
@@ -698,21 +739,18 @@ func TestManager_validateCapability(t *testing.T) {
 			name: "failure - current image missing",
 			setupMocks: func(mockExec *executer.MockExecuter, mockSpec *spec.MockManager) {
 				// Mock spec manager - current spec
+				containerApp := v1beta1.ContainerApplication{
+					Name:    lo.ToPtr("app1"),
+					AppType: v1beta1.AppTypeContainer,
+					Image:   "quay.io/example/app:v1.0",
+				}
+				var appSpec v1beta1.ApplicationProviderSpec
+				require.NoError(appSpec.FromContainerApplication(containerApp))
 				currentDevice := &v1beta1.Device{
 					Spec: &v1beta1.DeviceSpec{
-						Applications: lo.ToPtr([]v1beta1.ApplicationProviderSpec{
-							{
-								Name:    lo.ToPtr("app1"),
-								AppType: v1beta1.AppTypeContainer,
-							},
-						}),
+						Applications: lo.ToPtr([]v1beta1.ApplicationProviderSpec{appSpec}),
 					},
 				}
-				apps := lo.FromPtr(currentDevice.Spec.Applications)
-				imageSpec := v1beta1.ImageApplicationProviderSpec{
-					Image: "quay.io/example/app:v1.0",
-				}
-				require.NoError(apps[0].FromImageApplicationProviderSpec(imageSpec))
 
 				// getImageReferencesFromSpecs now includes OS images via extractImageReferences, so only one Read per spec
 				mockSpec.EXPECT().Read(spec.Current).Return(currentDevice, nil).Times(1)
@@ -732,21 +770,18 @@ func TestManager_validateCapability(t *testing.T) {
 			name: "success - no rollback spec",
 			setupMocks: func(mockExec *executer.MockExecuter, mockSpec *spec.MockManager) {
 				// Mock spec manager - current spec only
+				containerApp := v1beta1.ContainerApplication{
+					Name:    lo.ToPtr("app1"),
+					AppType: v1beta1.AppTypeContainer,
+					Image:   "quay.io/example/app:v1.0",
+				}
+				var appSpec v1beta1.ApplicationProviderSpec
+				require.NoError(appSpec.FromContainerApplication(containerApp))
 				currentDevice := &v1beta1.Device{
 					Spec: &v1beta1.DeviceSpec{
-						Applications: lo.ToPtr([]v1beta1.ApplicationProviderSpec{
-							{
-								Name:    lo.ToPtr("app1"),
-								AppType: v1beta1.AppTypeContainer,
-							},
-						}),
+						Applications: lo.ToPtr([]v1beta1.ApplicationProviderSpec{appSpec}),
 					},
 				}
-				apps := lo.FromPtr(currentDevice.Spec.Applications)
-				imageSpec := v1beta1.ImageApplicationProviderSpec{
-					Image: "quay.io/example/app:v1.0",
-				}
-				require.NoError(apps[0].FromImageApplicationProviderSpec(imageSpec))
 
 				// getImageReferencesFromSpecs now includes OS images via extractImageReferences, so only one Read per spec
 				mockSpec.EXPECT().Read(spec.Current).Return(currentDevice, nil).Times(1)
@@ -772,8 +807,14 @@ func TestManager_validateCapability(t *testing.T) {
 
 			tc.setupMocks(mockExec, mockSpecManager)
 
-			podmanClient := client.NewPodman(log, mockExec, readWriter, poll.Config{})
-			m := New(podmanClient, mockSpecManager, readWriter, log, config, "/tmp").(*manager)
+			rootPodmanClient := client.NewPodman(log, mockExec, readWriter, poll.Config{})
+			podmanClientFactory := func(user v1beta1.Username) (*client.Podman, error) {
+				return rootPodmanClient, nil
+			}
+			rwFactory := func(user v1beta1.Username) (fileio.ReadWriter, error) {
+				return readWriter, nil
+			}
+			m := New(podmanClientFactory, rootPodmanClient, nil, mockSpecManager, rwFactory, readWriter, log, config, "/tmp").(*manager)
 
 			err := m.validateCapability(context.Background())
 			if tc.wantErr {
@@ -792,7 +833,7 @@ func TestManager_removeEligibleImages(t *testing.T) {
 	testCases := []struct {
 		name       string
 		setupMocks func(*executer.MockExecuter)
-		images     []string
+		images     []ImageRef
 		wantCount  int
 		wantErr    bool
 		wantErrMsg string
@@ -812,7 +853,7 @@ func TestManager_removeEligibleImages(t *testing.T) {
 					Return("", "", 0) // Image removal succeeds
 				gomock.InOrder(call1, call2, call3, call4)
 			},
-			images:    []string{"quay.io/example/app:v1.0", "quay.io/example/app:v2.0"},
+			images:    []ImageRef{{Image: "quay.io/example/app:v1.0"}, {Image: "quay.io/example/app:v2.0"}},
 			wantCount: 2, // Two images removed
 			wantErr:   false,
 		},
@@ -823,7 +864,7 @@ func TestManager_removeEligibleImages(t *testing.T) {
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", "quay.io/example/app:v1.0"}).
 					Return("", "", 1) // Image doesn't exist
 			},
-			images:    []string{"quay.io/example/app:v1.0"},
+			images:    []ImageRef{{Image: "quay.io/example/app:v1.0"}},
 			wantCount: 0, // No removal (image doesn't exist), but removedRefs will still contain the reference
 			wantErr:   false,
 		},
@@ -837,7 +878,7 @@ func TestManager_removeEligibleImages(t *testing.T) {
 					Return("", "error: image is in use by container", 1) // Image removal fails
 				gomock.InOrder(call1, call2)
 			},
-			images:     []string{"quay.io/example/app:v1.0"},
+			images:     []ImageRef{{Image: "quay.io/example/app:v1.0"}},
 			wantCount:  0, // No removals succeeded
 			wantErr:    true,
 			wantErrMsg: "all image removals failed",
@@ -846,7 +887,7 @@ func TestManager_removeEligibleImages(t *testing.T) {
 			name: "empty list - no removals",
 			setupMocks: func(mockExec *executer.MockExecuter) {
 			},
-			images:    []string{},
+			images:    []ImageRef{},
 			wantCount: 0,
 			wantErr:   false,
 		},
@@ -867,8 +908,14 @@ func TestManager_removeEligibleImages(t *testing.T) {
 
 			tc.setupMocks(mockExec)
 
-			podmanClient := client.NewPodman(log, mockExec, readWriter, poll.Config{})
-			m := New(podmanClient, mockSpecManager, readWriter, log, config, "/tmp").(*manager)
+			rootPodmanClient := client.NewPodman(log, mockExec, readWriter, poll.Config{})
+			podmanClientFactory := func(user v1beta1.Username) (*client.Podman, error) {
+				return rootPodmanClient, nil
+			}
+			rwFactory := func(user v1beta1.Username) (fileio.ReadWriter, error) {
+				return readWriter, nil
+			}
+			m := New(podmanClientFactory, rootPodmanClient, nil, mockSpecManager, rwFactory, readWriter, log, config, "/tmp").(*manager)
 
 			count, removedRefs, err := m.removeEligibleImages(context.Background(), tc.images)
 			require.Equal(tc.wantCount, count)

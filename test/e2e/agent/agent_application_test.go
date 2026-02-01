@@ -51,14 +51,16 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			imageName := util.NewSleepAppImageReference(util.SleepAppTags.V1).String()
 
 			updateDevice(harness, deviceId, func(device *v1beta1.Device) {
-				var applicationConfig = v1beta1.ImageApplicationProviderSpec{
-					Image: imageName,
-				}
-
-				appSpec := v1beta1.ApplicationProviderSpec{
+				composeApp := v1beta1.ComposeApplication{
 					AppType: v1beta1.AppTypeCompose,
 				}
-				err := appSpec.FromImageApplicationProviderSpec(applicationConfig)
+				err := composeApp.FromImageApplicationProviderSpec(v1beta1.ImageApplicationProviderSpec{
+					Image: imageName,
+				})
+				Expect(err).ToNot(HaveOccurred())
+
+				var appSpec v1beta1.ApplicationProviderSpec
+				err = appSpec.FromComposeApplication(composeApp)
 				Expect(err).ToNot(HaveOccurred())
 
 				device.Spec.Applications = &[]v1beta1.ApplicationProviderSpec{appSpec}
@@ -99,17 +101,18 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 					"SOME_KEY": "SOME_KEY",
 				}
 
-				applicationConfig := v1beta1.ImageApplicationProviderSpec{
-					Image: imageName,
-				}
-
-				appSpec := v1beta1.ApplicationProviderSpec{
+				composeApp := v1beta1.ComposeApplication{
 					AppType: v1beta1.AppTypeCompose,
+					EnvVars: &applicationVars,
 				}
-				err := appSpec.FromImageApplicationProviderSpec(applicationConfig)
+				err := composeApp.FromImageApplicationProviderSpec(v1beta1.ImageApplicationProviderSpec{
+					Image: imageName,
+				})
 				Expect(err).ToNot(HaveOccurred())
 
-				appSpec.EnvVars = &applicationVars
+				var appSpec v1beta1.ApplicationProviderSpec
+				err = appSpec.FromComposeApplication(composeApp)
+				Expect(err).ToNot(HaveOccurred())
 
 				device.Spec.Applications = &[]v1beta1.ApplicationProviderSpec{appSpec}
 				GinkgoWriter.Printf("Updating %s with application %s\n", deviceId, imageName)
@@ -162,15 +165,17 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 					})
 				Expect(err).ToNot(HaveOccurred())
 
-				appConfig := v1beta1.ImageApplicationProviderSpec{
-					Image:   imageName,
+				composeApp := v1beta1.ComposeApplication{
+					AppType: v1beta1.AppTypeCompose,
 					Volumes: &[]v1beta1.ApplicationVolume{volumeConfig},
 				}
+				err = composeApp.FromImageApplicationProviderSpec(v1beta1.ImageApplicationProviderSpec{
+					Image: imageName,
+				})
+				Expect(err).ToNot(HaveOccurred())
 
-				appSpec := v1beta1.ApplicationProviderSpec{
-					AppType: v1beta1.AppTypeCompose,
-				}
-				err = appSpec.FromImageApplicationProviderSpec(appConfig)
+				var appSpec v1beta1.ApplicationProviderSpec
+				err = appSpec.FromComposeApplication(composeApp)
 				Expect(err).ToNot(HaveOccurred())
 
 				device.Spec.Applications = &[]v1beta1.ApplicationProviderSpec{appSpec}
@@ -192,14 +197,16 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			imageName = util.NewSleepAppImageReference(util.SleepAppTags.V2).String()
 
 			updateDevice(harness, deviceId, func(device *v1beta1.Device) {
-				appConfig := v1beta1.ImageApplicationProviderSpec{
-					Image: imageName,
-				}
-
-				appSpec := v1beta1.ApplicationProviderSpec{
+				composeApp := v1beta1.ComposeApplication{
 					AppType: v1beta1.AppTypeCompose,
 				}
-				err := appSpec.FromImageApplicationProviderSpec(appConfig)
+				err := composeApp.FromImageApplicationProviderSpec(v1beta1.ImageApplicationProviderSpec{
+					Image: imageName,
+				})
+				Expect(err).ToNot(HaveOccurred())
+
+				var appSpec v1beta1.ApplicationProviderSpec
+				err = appSpec.FromComposeApplication(composeApp)
 				Expect(err).ToNot(HaveOccurred())
 
 				device.Spec.Applications = &[]v1beta1.ApplicationProviderSpec{appSpec}

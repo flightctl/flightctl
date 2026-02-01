@@ -14,7 +14,7 @@ import (
 const initialIgnition = `{"ignition": {"version": "3.4.0"}}`
 
 type Wrapper interface {
-	SetFile(filePath string, contents []byte, mode int, base64 bool, user *string, group *string)
+	SetFile(filePath string, contents []byte, mode int, base64 bool, user string, group string)
 	ChangeMountPath(mountPath string)
 	AsJson() ([]byte, error)
 	AsMap() (map[string]interface{}, error)
@@ -51,7 +51,7 @@ func NewWrapperFromIgnition(ign config_latest_types.Config) Wrapper {
 	return &wrapper{config: ign}
 }
 
-func (w *wrapper) SetFile(filePath string, contents []byte, mode int, base64 bool, user *string, group *string) {
+func (w *wrapper) SetFile(filePath string, contents []byte, mode int, base64 bool, user string, group string) {
 	file := config_latest_types.File{
 		Node: config_latest_types.Node{
 			Path:      filePath,
@@ -72,11 +72,11 @@ func (w *wrapper) SetFile(filePath string, contents []byte, mode int, base64 boo
 	} else {
 		file.FileEmbedded1.Contents.Source = lo.ToPtr(dataurl.New(contents, "text/plain").String())
 	}
-	if user != nil {
-		file.Node.User = userStringToNodeUser(*user)
+	if user != "" {
+		file.Node.User = userStringToNodeUser(user)
 	}
-	if group != nil {
-		file.Node.Group = groupStringToNodeGroup(*group)
+	if group != "" {
+		file.Node.Group = groupStringToNodeGroup(group)
 	}
 	w.config.Storage.Files = append(w.config.Storage.Files, file)
 }

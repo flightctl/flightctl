@@ -40,7 +40,7 @@ fi
 cp "${CERT_DIR}/registry".* deploy/helm/e2e-extras/secrets/
 
 
-# ensure pub/private key for SSH access to agents
+# ensure pub/private key for SSH access to agents and git server
 mkdir -p bin/.ssh/
 
 # if bin/.ssh/id_rsa exists we just exit
@@ -48,3 +48,7 @@ if [ ! -f bin/.ssh/id_rsa ]; then
   echo "bin/.ssh/id_rsa does not exist, creating ssh-keygen"
   ssh-keygen -t rsa -b 4096 -f bin/.ssh/id_rsa -N "" -C "e2e test key"
 fi
+
+# copy the SSH keys to the secrets directory for the helm charts (for git server)
+cp bin/.ssh/id_rsa deploy/helm/e2e-extras/secrets/git-ssh.key
+cp bin/.ssh/id_rsa.pub deploy/helm/e2e-extras/secrets/git-ssh.pub

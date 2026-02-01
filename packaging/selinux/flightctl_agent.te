@@ -22,23 +22,16 @@ ifndef(`cgroup_type', `
 gen_require(`
     type install_t, install_exec_t;
     type hostname_t, hostname_exec_t;
-    type kernel_t, sysfs_t, ptmx_t, devpts_t, unlabeled_t, nsfs_t;
-    type etc_t, hostname_etc_t, tmp_t, home_root_t, root_t, fs_t, admin_home_t;
-    type container_var_lib_t, container_runtime_t, container_file_t, container_ro_file_t, container_var_run_t;
-    type var_t, var_run_t, device_t, var_log_t, install_var_run_t;
-    type sysctl_t, sysctl_irq_t;
-    type systemd_unit_file_t, systemd_logind_t, systemd_userdbd_runtime_t;
-    type tmpfs_t, cgroup_t;
-    type shadow_t, systemd_passwd_var_run_t, syslogd_var_run_t;
-    type proc_t, init_t, mail_spool_t;
-    type firewalld_t, firewalld_etc_rw_t;
-    type devlog_t;
-    type sshd_key_t, sshd_unit_file_t;
-    type rhsmcertd_config_t, rhsmcertd_log_t, rhsmcertd_var_run_t, rhsmcertd_var_lib_t;
-    type usr_t;
+    type kernel_t, ptmx_t, devpts_t;
+    type bin_t;
+    type container_runtime_t;
+    type systemd_systemctl_exec_t;
+    type systemd_logind_t;
+    type init_t;
+    type firewalld_t;
     type node_t;
-    type tpm_device_t, security_t;
-    type unconfined_service_t;
+    type unconfined_t, unconfined_service_t;
+    type tpm_device_t;
 
     attribute domain;
 ')
@@ -49,87 +42,36 @@ files_type(flightctl_agent_var_log_t)
 files_tmp_file(flightctl_agent_tmp_t)
 files_type(flightctl_agent_custom_info_exec_t)
 
-
 ## Basic file access permissions  ##
 
-# System directories
-files_read_etc_files(flightctl_agent_t)
-files_read_etc_runtime_files(flightctl_agent_t)
-files_read_usr_files(flightctl_agent_t)
-files_read_boot_files(flightctl_agent_t)
-files_read_generic_pids(flightctl_agent_t)
-files_read_var_lib_files(flightctl_agent_t)
-files_manage_var_files(flightctl_agent_t)
-files_manage_var_dirs(flightctl_agent_t)
+files_manage_all_files(flightctl_agent_t)
+exec_files_pattern(flightctl_agent_t, file_type, file_type)
+mmap_read_files_pattern(flightctl_agent_t, file_type, file_type)
+files_read_all_chr_files(flightctl_agent_t)
 
-# /etc management
-manage_dirs_pattern(flightctl_agent_t, etc_t, etc_t)
-manage_files_pattern(flightctl_agent_t, etc_t, etc_t)
-manage_lnk_files_pattern(flightctl_agent_t, etc_t, etc_t)
+domtrans_pattern(flightctl_agent_t, install_exec_t, install_t)
+domtrans_pattern(flightctl_agent_t, hostname_exec_t, hostname_t)
+container_runtime_domtrans(flightctl_agent_t)
 
-manage_files_pattern(flightctl_agent_t, hostname_etc_t, etc_t)
-manage_lnk_files_pattern(flightctl_agent_t, hostname_etc_t, etc_t)
 
-manage_dirs_pattern(flightctl_agent_t, bin_t, bin_t)
-manage_files_pattern(flightctl_agent_t, bin_t, bin_t)
-manage_lnk_files_pattern(flightctl_agent_t, bin_t, bin_t)
-
-manage_dirs_pattern(flightctl_agent_t, firewalld_etc_rw_t, firewalld_etc_rw_t)
-manage_files_pattern(flightctl_agent_t, firewalld_etc_rw_t, firewalld_etc_rw_t)
-manage_lnk_files_pattern(flightctl_agent_t, firewalld_etc_rw_t, firewalld_etc_rw_t)
-
-# /var/lib/flightctl management
-manage_dirs_pattern(flightctl_agent_t, flightctl_agent_var_lib_t, flightctl_agent_var_lib_t)
-manage_files_pattern(flightctl_agent_t, flightctl_agent_var_lib_t, flightctl_agent_var_lib_t)
-manage_lnk_files_pattern(flightctl_agent_t, flightctl_agent_var_lib_t, flightctl_agent_var_lib_t)
-files_var_lib_filetrans(flightctl_agent_t, flightctl_agent_var_lib_t, dir, "flightctl")
-
-# /var/log/flightctl management
-manage_dirs_pattern(flightctl_agent_t, flightctl_agent_var_log_t, flightctl_agent_var_log_t)
-manage_files_pattern(flightctl_agent_t, flightctl_agent_var_log_t, flightctl_agent_var_log_t)
-manage_lnk_files_pattern(flightctl_agent_t, flightctl_agent_var_log_t, flightctl_agent_var_log_t)
-logging_log_filetrans(flightctl_agent_t, flightctl_agent_var_log_t, dir, "flightctl")
-
-# /tmp management
-files_tmp_filetrans(flightctl_agent_t, flightctl_agent_tmp_t, { file dir })
-manage_dirs_pattern(flightctl_agent_t, tmp_t, flightctl_agent_tmp_t)
-manage_files_pattern(flightctl_agent_t, tmp_t, flightctl_agent_tmp_t)
-
-# Admin home (root) directory access
-userdom_manage_admin_dirs(flightctl_agent_t)
-userdom_manage_admin_files(flightctl_agent_t)
-userdom_search_admin_dir(flightctl_agent_t)
-allow flightctl_agent_t home_root_t:lnk_file read;
-
-# User home directory access
-userdom_search_user_home_dirs(flightctl_agent_t)
-userdom_manage_user_home_content(flightctl_agent_t)
-
-# System directory access
-allow flightctl_agent_t mail_spool_t:dir search;
-
-# TPM device access
-allow flightctl_agent_t tpm_device_t:chr_file { getattr open read write };
-allow flightctl_agent_t security_t:file { open read getattr };
-
-# /usr/lib/flightctl/custom-info.d execution
-allow flightctl_agent_t flightctl_agent_custom_info_exec_t:file { read getattr open execute execute_no_trans ioctl };
-allow flightctl_agent_t flightctl_agent_custom_info_exec_t:dir { read getattr search open };
+# Allow the agent to run subprocesses as unconfined_t only for that subprocess. This allows us to
+# run things like the 'sos' binary which requires a ton of privileges without having to give them
+# all to the agent.
+domtrans_pattern(flightctl_agent_t, bin_t, unconfined_t)
+domtrans_pattern(flightctl_agent_t, systemd_systemctl_exec_t, unconfined_t)
+# Also give the agent the ability to kill such managed subprocessses
+allow flightctl_agent_t unconfined_t:process sigkill;
+# Allow dbus to write back to the agent
+allow system_dbusd_t flightctl_agent_t:fifo_file write;
 
 ## Process management & capabilities  ##
 
 # Basic process capabilities
-allow flightctl_agent_t self:capability { dac_override chown setuid setgid sys_admin audit_write sys_resource dac_read_search sys_chroot mknod };
+allow flightctl_agent_t self:capability { dac_override chown fowner fsetid kill setuid setgid sys_admin audit_write sys_resource dac_read_search sys_chroot mknod };
 allow flightctl_agent_t self:capability2 { mac_admin mac_override };
+allow flightctl_agent_t self:cap_userns { kill };
 allow flightctl_agent_t self:process { fork signal sigchld execmem setfscreate getsched setsched setpgid setcap setrlimit };
 
-# Process information access
-allow flightctl_agent_t domain:dir getattr;
-
-# Executable access
-corecmd_exec_all_executables(flightctl_agent_t)
-domtrans_pattern(flightctl_agent_t, install_exec_t, install_t)
-domtrans_pattern(flightctl_agent_t, hostname_exec_t, hostname_t)
 
 ## System information access  ##
 
@@ -139,10 +81,6 @@ kernel_read_network_state(flightctl_agent_t)
 kernel_read_all_proc(flightctl_agent_t)
 kernel_read_all_sysctls(flightctl_agent_t)
 kernel_request_load_module(flightctl_agent_t)
-init_read_state(flightctl_agent_t)
-init_mmap_read_var_lib_files(flightctl_agent_t)
-init_read_var_lib_files(flightctl_agent_t)
-init_search_var_lib_dirs(flightctl_agent_t)
 
 # Device information
 dev_read_sysfs(flightctl_agent_t)
@@ -167,25 +105,8 @@ allow flightctl_agent_t self:netlink_audit_socket { create bind connect read wri
 
 ## System services access  ##
 
-# Authentication and user management
-auth_read_passwd(flightctl_agent_t)
-auth_read_shadow(flightctl_agent_t)
-init_read_utmp(flightctl_agent_t)
-allow flightctl_agent_t systemd_passwd_var_run_t:dir { search open read watch };
-allow flightctl_agent_t systemd_passwd_var_run_t:file { open read };
-
 # Localization and logging
-miscfiles_read_localization(flightctl_agent_t)
-logging_read_all_logs(flightctl_agent_t)
 logging_send_audit_msgs(flightctl_agent_t)
-allow flightctl_agent_t devlog_t:lnk_file read;
-allow flightctl_agent_t devlog_t:sock_file write;
-
-# Journal access permissions
-allow flightctl_agent_t syslogd_var_run_t:dir { read search };
-# Read-only access to /var/log for journal/syslog reading
-allow flightctl_agent_t var_log_t:dir { read watch search };
-allow flightctl_agent_t var_log_t:file { read open getattr };
 
 # Systemd service management
 systemd_manage_all_unit_files(flightctl_agent_t)
@@ -197,15 +118,7 @@ systemd_stop_systemd_services(flightctl_agent_t)
 allow flightctl_agent_t init_t:system { status stop start };
 
 # sshd config/service permissions
-manage_files_pattern(flightctl_agent_t, sshd_key_t, sshd_key_t)
-manage_dirs_pattern(flightctl_agent_t, sshd_key_t, sshd_key_t)
-manage_lnk_files_pattern(flightctl_agent_t, sshd_key_t, sshd_key_t)
 ssh_systemctl(flightctl_agent_t)
-
-# SystemD user database access
-allow flightctl_agent_t systemd_userdbd_runtime_t:dir read;
-allow flightctl_agent_t systemd_userdbd_runtime_t:sock_file write;
-
 
 # D-Bus system bus access
 dbus_system_bus_client(flightctl_agent_t)
@@ -217,33 +130,6 @@ allow flightctl_agent_t systemd_logind_t:dbus send_msg;
 allow flightctl_agent_t firewalld_t:dbus send_msg;
 
 ## Container runtime support  ##
-
-# Container storage and runtime
-container_read_share_files(flightctl_agent_t)
-container_manage_files(flightctl_agent_t)
-container_runtime_domtrans(flightctl_agent_t)
-admin_pattern(flightctl_agent_t, container_var_lib_t, container_var_lib_t)
-
-# Container storage overlay access
-allow flightctl_agent_t container_file_t:dir { open read getattr search write remove_name };
-allow flightctl_agent_t container_file_t:file { unlink open read getattr create write };
-allow flightctl_agent_t container_file_t:lnk_file { read getattr };
-
-# Container read-only storage access
-allow flightctl_agent_t container_ro_file_t:dir { open read getattr search write rmdir };
-allow flightctl_agent_t container_ro_file_t:file { open read getattr write };
-
-# Container runtime storage access
-allow flightctl_agent_t container_var_run_t:dir { read getattr write search remove_name rmdir };
-allow flightctl_agent_t container_var_run_t:file { read open getattr unlink };
-
-# install var run file management
-manage_files_pattern(flightctl_agent_t, install_var_run_t, install_var_run_t)
-manage_dirs_pattern(flightctl_agent_t, install_var_run_t, install_var_run_t)
-manage_lnk_files_pattern(flightctl_agent_t, install_var_run_t, install_var_run_t)
-
-# CGroup access for container management
-allow flightctl_agent_t cgroup_t:dir search;
 
 # Container runtime process interaction
 allow flightctl_agent_t { install_t hostname_t container_runtime_t }:fd use;
@@ -261,8 +147,6 @@ term_use_all_terms(flightctl_agent_t)
 allow flightctl_agent_t ptmx_t:chr_file { create read write open ioctl getattr setattr };
 allow flightctl_agent_t devpts_t:chr_file { create read write append open getattr ioctl setattr };
 allow flightctl_agent_t devpts_t:filesystem associate;
-allow flightctl_agent_t nsfs_t:file getattr;
-allow flightctl_agent_t unlabeled_t:dir search;
 
 ## Filesystem & mount operations  ##
 
@@ -272,27 +156,13 @@ fs_remount_all_fs(flightctl_agent_t)
 fs_unmount_all_fs(flightctl_agent_t)
 fs_getattr_all_fs(flightctl_agent_t)
 
-# Mount-on permissions for key directories (bind mounts)
-allow flightctl_agent_t { root_t etc_t var_t tmp_t device_t var_run_t sysfs_t admin_home_t }:dir mounton;
-allow flightctl_agent_t proc_t:dir { mounton write };
-
-# Tmpfs directory creation and mount-on permissions
-allow flightctl_agent_t tmpfs_t:dir { create write add_name mounton };
-
-# Special filesystem access for namespace operations
-allow flightctl_agent_t sysctl_t:file { mounton write };
-allow flightctl_agent_t sysctl_irq_t:dir { write mounton };
+# Write TPM devices
+allow flightctl_agent_t tpm_device_t:chr_file { getattr open read write };
   
 # This allows installation of dnf packages
 allow flightctl_agent_t node_t:tcp_socket node_bind;
-allow flightctl_agent_t rhsmcertd_config_t:dir search;
-allow flightctl_agent_t rhsmcertd_log_t:dir write;
-allow flightctl_agent_t rhsmcertd_var_lib_t:dir { getattr search };
-allow flightctl_agent_t rhsmcertd_var_run_t:dir write;
-allow flightctl_agent_t usr_t:file write;
 
 # REMOVE this once https://github.com/bootc-dev/bootc/issues/1434 is fixed. We don't want to allow
 # it so as not to alter the behavior of bootc, but we can suppress the error as it has been
 # determined to be inoculous by the bootc maintainer.
 dontaudit unconfined_service_t self:capability2 mac_admin;
-

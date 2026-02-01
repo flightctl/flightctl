@@ -13,6 +13,7 @@ import (
 	imagebuilderapi "github.com/flightctl/flightctl/api/imagebuilder/v1beta1"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/cli/display"
+	"github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/samber/lo"
@@ -38,6 +39,7 @@ const (
 	FlagSummary     = "summary"      // for listing devices and fleets
 	FlagSummaryOnly = "summary-only" // for listing devices
 	FlagLastSeen    = "last-seen"    // for a single device
+	FlagWithExports = "with-exports" // for imagebuilds
 )
 
 type FlagContextualRule struct {
@@ -59,6 +61,7 @@ type GetOptions struct {
 	Summary       bool
 	SummaryOnly   bool
 	LastSeen      bool
+	WithExports   bool
 }
 
 func DefaultGetOptions() *GetOptions {
@@ -71,6 +74,7 @@ func DefaultGetOptions() *GetOptions {
 		FleetName:     "",
 		Rendered:      false,
 		LastSeen:      false,
+		WithExports:   false,
 	}
 }
 
@@ -123,6 +127,7 @@ func (o *GetOptions) Bind(fs *pflag.FlagSet) {
 	fs.BoolVarP(&o.Summary, FlagSummary, "s", false, "Display summary information.")
 	fs.BoolVar(&o.SummaryOnly, FlagSummaryOnly, false, "Display summary information only.")
 	fs.BoolVar(&o.LastSeen, FlagLastSeen, false, "Display the last seen timestamp of the device.")
+	fs.BoolVar(&o.WithExports, FlagWithExports, false, "Include related ImageExport resources when getting imagebuilds.")
 	o.hideHelpContextualFlags(fs)
 }
 
@@ -238,6 +243,7 @@ func (o *GetOptions) Validate(args []string) error {
 		func() error { return o.validateSingleResourceRestrictions(kind, names) },
 		func() error { return o.validateLimit() },
 		func() error { return o.validateLastSeen(kind, names) },
+		func() error { return o.validateWithExports(kind) },
 	}
 
 	for _, v := range validators {
@@ -356,6 +362,14 @@ func (o *GetOptions) validateLastSeen(kind ResourceKind, names []string) error {
 	return nil
 }
 
+// validateWithExports checks the usage of the --with-exports flag.
+func (o *GetOptions) validateWithExports(kind ResourceKind) error {
+	if o.WithExports && kind != ImageBuildKind {
+		return fmt.Errorf("'--with-exports' can only be specified when getting imagebuilds")
+	}
+	return nil
+}
+
 func (o *GetOptions) Run(ctx context.Context, args []string) error {
 	kind, names, err := parseAndValidateKindNameFromArgs(args)
 	if err != nil {
@@ -365,9 +379,12 @@ func (o *GetOptions) Run(ctx context.Context, args []string) error {
 	formatter := display.NewFormatter(display.OutputFormat(o.Output))
 
 	// Create resource fetchers based on kind
-	listFetcher, singleFetcher, err := o.createFetchers(ctx, kind)
+	listFetcher, singleFetcher, stopFn, err := o.createFetchers(ctx, kind)
 	if err != nil {
 		return err
+	}
+	if stopFn != nil {
+		defer stopFn()
 	}
 
 	// Handle list case (no specific names)
@@ -392,21 +409,22 @@ type ListFetcher func() (interface{}, error)
 type SingleFetcher func(name string) (interface{}, error)
 
 // createFetchers returns the appropriate list and single fetchers based on the resource kind.
-func (o *GetOptions) createFetchers(ctx context.Context, kind ResourceKind) (ListFetcher, SingleFetcher, error) {
+func (o *GetOptions) createFetchers(ctx context.Context, kind ResourceKind) (ListFetcher, SingleFetcher, func(), error) {
 	if kind == ImageBuildKind || kind == ImageExportKind {
 		return o.createImageBuilderFetchers(ctx, kind)
 	}
 	return o.createMainAPIFetchers(ctx, kind)
 }
 
-func (o *GetOptions) createMainAPIFetchers(ctx context.Context, kind ResourceKind) (ListFetcher, SingleFetcher, error) {
+func (o *GetOptions) createMainAPIFetchers(ctx context.Context, kind ResourceKind) (ListFetcher, SingleFetcher, func(), error) {
 	c, err := o.BuildClient()
 	if err != nil {
-		return nil, nil, fmt.Errorf("creating client: %w", err)
+		return nil, nil, nil, fmt.Errorf("creating client: %w", err)
 	}
+	c.Start(ctx)
 
 	listFetcher := func() (interface{}, error) {
-		response, err := o.getResourceList(ctx, c, kind)
+		response, err := o.getResourceList(ctx, c.ClientWithResponses, kind)
 		if err != nil {
 			return nil, err
 		}
@@ -417,7 +435,7 @@ func (o *GetOptions) createMainAPIFetchers(ctx context.Context, kind ResourceKin
 	}
 
 	singleFetcher := func(name string) (interface{}, error) {
-		response, err := o.getSingleResource(ctx, c, kind, name)
+		response, err := o.getSingleResource(ctx, c.ClientWithResponses, kind, name)
 		if err != nil {
 			return nil, err
 		}
@@ -427,14 +445,16 @@ func (o *GetOptions) createMainAPIFetchers(ctx context.Context, kind ResourceKin
 		return response, nil
 	}
 
-	return listFetcher, singleFetcher, nil
+	return listFetcher, singleFetcher, c.Stop, nil
 }
 
-func (o *GetOptions) createImageBuilderFetchers(ctx context.Context, kind ResourceKind) (ListFetcher, SingleFetcher, error) {
+func (o *GetOptions) createImageBuilderFetchers(ctx context.Context, kind ResourceKind) (ListFetcher, SingleFetcher, func(), error) {
+	var c *client.ImageBuilderClient
 	c, err := o.BuildImageBuilderClient()
 	if err != nil {
-		return nil, nil, fmt.Errorf("creating imagebuilder client: %w", err)
+		return nil, nil, nil, fmt.Errorf("creating imagebuilder client: %w", err)
 	}
+	c.Start(ctx)
 
 	var listFetcher ListFetcher
 	var singleFetcher SingleFetcher
@@ -447,6 +467,7 @@ func (o *GetOptions) createImageBuilderFetchers(ctx context.Context, kind Resour
 				FieldSelector: util.ToPtrWithNilDefault(o.FieldSelector),
 				Limit:         util.ToPtrWithNilDefault(o.Limit),
 				Continue:      util.ToPtrWithNilDefault(o.Continue),
+				WithExports:   lo.ToPtr(o.WithExports),
 			}
 			response, err := c.ListImageBuildsWithResponse(ctx, params)
 			if err != nil {
@@ -459,7 +480,7 @@ func (o *GetOptions) createImageBuilderFetchers(ctx context.Context, kind Resour
 		}
 		singleFetcher = func(name string) (interface{}, error) {
 			response, err := c.GetImageBuildWithResponse(ctx, name, &imagebuilderapi.GetImageBuildParams{
-				WithExports: lo.ToPtr(false),
+				WithExports: lo.ToPtr(o.WithExports),
 			})
 			if err != nil {
 				return nil, err
@@ -497,10 +518,10 @@ func (o *GetOptions) createImageBuilderFetchers(ctx context.Context, kind Resour
 			return response, nil
 		}
 	default:
-		return nil, nil, fmt.Errorf("unsupported image builder kind: %s", kind)
+		return nil, nil, nil, fmt.Errorf("unsupported image builder kind: %s", kind)
 	}
 
-	return listFetcher, singleFetcher, nil
+	return listFetcher, singleFetcher, c.Stop, nil
 }
 
 // handleSingle fetches and displays a single resource.
@@ -735,6 +756,7 @@ func (o *GetOptions) displayResponse(formatter display.OutputFormatter, response
 		Summary:     o.Summary,
 		SummaryOnly: o.SummaryOnly,
 		Wide:        o.Output == string(display.WideFormat),
+		WithExports: o.WithExports,
 		Writer:      os.Stdout,
 	}
 

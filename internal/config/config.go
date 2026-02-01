@@ -24,7 +24,7 @@ const (
 type Config struct {
 	Database            *dbConfig                  `json:"database,omitempty"`
 	Service             *svcConfig                 `json:"service,omitempty"`
-	ImageBuilderService *imageBuilderServiceConfig `json:"imageBuilderService,omitempty"`
+	ImageBuilderService *ImageBuilderServiceConfig `json:"imageBuilderService,omitempty"`
 	ImageBuilderWorker  *imageBuilderWorkerConfig  `json:"imageBuilderWorker,omitempty"`
 	KV                  *kvConfig                  `json:"kv,omitempty"`
 	Alertmanager        *alertmanagerConfig        `json:"alertmanager,omitempty"`
@@ -103,7 +103,7 @@ type HealthChecks struct {
 	ReadinessTimeout util.Duration `json:"readinessTimeout,omitempty"`
 }
 
-type imageBuilderServiceConfig struct {
+type ImageBuilderServiceConfig struct {
 	Address               string           `json:"address,omitempty"`
 	LogLevel              string           `json:"logLevel,omitempty"`
 	TLSCertFile           string           `json:"tlsCertFile,omitempty"`
@@ -118,32 +118,37 @@ type imageBuilderServiceConfig struct {
 	HttpMaxRequestSize    int              `json:"httpMaxRequestSize,omitempty"`
 	RateLimit             *RateLimitConfig `json:"rateLimit,omitempty"`
 	HealthChecks          *HealthChecks    `json:"healthChecks,omitempty"`
+	DeleteCancelTimeout   util.Duration    `json:"deleteCancelTimeout,omitempty"`
 }
 
 type imageBuilderWorkerConfig struct {
-	LogLevel               string        `json:"logLevel,omitempty"`
-	MaxConcurrentBuilds    int           `json:"maxConcurrentBuilds,omitempty"`
-	DefaultTTL             util.Duration `json:"defaultTTL,omitempty"`
-	PodmanImage            string        `json:"podmanImage,omitempty"`
-	BootcImageBuilderImage string        `json:"bootcImageBuilderImage,omitempty"`
-	LastSeenUpdateInterval util.Duration `json:"lastSeenUpdateInterval,omitempty"`
+	LogLevel                 string        `json:"logLevel,omitempty"`
+	MaxConcurrentBuilds      int           `json:"maxConcurrentBuilds,omitempty"`
+	DefaultTTL               util.Duration `json:"defaultTTL,omitempty"`
+	PodmanImage              string        `json:"podmanImage,omitempty"`
+	BootcImageBuilderImage   string        `json:"bootcImageBuilderImage,omitempty"`
+	LastSeenUpdateInterval   util.Duration `json:"lastSeenUpdateInterval,omitempty"`
+	ImageBuilderTimeout      util.Duration `json:"imageBuilderTimeout,omitempty"`
+	TimeoutCheckTaskInterval util.Duration `json:"timeoutCheckTaskInterval,omitempty"`
 }
 
 // NewDefaultImageBuilderWorkerConfig returns a default ImageBuilder worker configuration
 func NewDefaultImageBuilderWorkerConfig() *imageBuilderWorkerConfig {
 	return &imageBuilderWorkerConfig{
-		LogLevel:               "info",
-		MaxConcurrentBuilds:    2,
-		DefaultTTL:             util.Duration(7 * 24 * time.Hour),
-		PodmanImage:            "quay.io/podman/stable:v5.7.1",
-		BootcImageBuilderImage: "quay.io/centos-bootc/bootc-image-builder@sha256:773019f6b11766ca48170a4a7bf898be4268f3c2acfd0ec1db612408b3092a90",
-		LastSeenUpdateInterval: util.Duration(30 * time.Second),
+		LogLevel:                 "info",
+		MaxConcurrentBuilds:      2,
+		DefaultTTL:               util.Duration(7 * 24 * time.Hour),
+		PodmanImage:              "quay.io/podman/stable:v5.7.1",
+		BootcImageBuilderImage:   "quay.io/centos-bootc/bootc-image-builder@sha256:773019f6b11766ca48170a4a7bf898be4268f3c2acfd0ec1db612408b3092a90",
+		LastSeenUpdateInterval:   util.Duration(30 * time.Second),
+		ImageBuilderTimeout:      util.Duration(3 * time.Minute),
+		TimeoutCheckTaskInterval: util.Duration(1 * time.Minute),
 	}
 }
 
 // NewDefaultImageBuilderServiceConfig returns a default ImageBuilder service configuration
-func NewDefaultImageBuilderServiceConfig() *imageBuilderServiceConfig {
-	return &imageBuilderServiceConfig{
+func NewDefaultImageBuilderServiceConfig() *ImageBuilderServiceConfig {
+	return &ImageBuilderServiceConfig{
 		Address:               ":8445",
 		LogLevel:              "info",
 		HttpReadTimeout:       util.Duration(5 * time.Minute),
@@ -153,6 +158,7 @@ func NewDefaultImageBuilderServiceConfig() *imageBuilderServiceConfig {
 		HttpMaxNumHeaders:     32,
 		HttpMaxUrlLength:      2000,
 		HttpMaxRequestSize:    50 * 1024 * 1024, // 50MB
+		DeleteCancelTimeout:   util.Duration(30 * time.Second),
 		HealthChecks: &HealthChecks{
 			Enabled:          true,
 			ReadinessPath:    "/readyz",
@@ -283,8 +289,21 @@ type gitOpsConfig struct {
 	IgnoreResourceUpdates []string `json:"ignoreResourceUpdates,omitempty"`
 }
 
+type periodicTaskScheduleConfig struct {
+	Interval util.Duration `json:"interval,omitempty"`
+}
+
+type periodicTaskConfig struct {
+	Schedule periodicTaskScheduleConfig `json:"schedule,omitempty"`
+}
+
+type periodicTasksConfig struct {
+	ResourceSync periodicTaskConfig `json:"resourceSync,omitempty"`
+}
+
 type periodicConfig struct {
-	Consumers int `json:"consumers,omitempty"`
+	Consumers int                 `json:"consumers,omitempty"`
+	Tasks     periodicTasksConfig `json:"tasks,omitempty"`
 }
 
 type organizationsConfig struct {
@@ -834,6 +853,12 @@ func Validate(cfg *Config) error {
 		}
 		if hc.ReadinessPath == hc.LivenessPath {
 			return fmt.Errorf("imageBuilderService.healthChecks.readinessPath and livenessPath must not be identical")
+		}
+	}
+
+	if cfg.ImageBuilderWorker != nil {
+		if time.Duration(cfg.ImageBuilderWorker.TimeoutCheckTaskInterval) <= 0 {
+			return fmt.Errorf("imageBuilderWorker.timeoutCheckTaskInterval must be greater than 0")
 		}
 	}
 

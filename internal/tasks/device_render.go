@@ -13,6 +13,7 @@ import (
 
 	config_latest "github.com/coreos/ignition/v2/config/v3_4"
 	config_latest_types "github.com/coreos/ignition/v2/config/v3_4/types"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service"
@@ -294,18 +295,31 @@ func (t *DeviceRenderLogic) renderConfigItem(ctx context.Context, configItem *do
 }
 
 func renderApplication(_ context.Context, app *domain.ApplicationProviderSpec) (*string, *domain.ApplicationProviderSpec, error) {
-	appType, err := app.Type()
+	appType, err := (*app).GetAppType()
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed getting application type: %w", err)
+		return nil, nil, fmt.Errorf("failed to get app type: %w", err)
 	}
+
 	switch appType {
-	case domain.ImageApplicationProviderType:
-		return app.Name, app, nil
-	case domain.InlineApplicationProviderType:
-		return app.Name, app, nil
+	case domain.AppTypeContainer:
+		_, err = (*app).AsContainerApplication()
+	case domain.AppTypeHelm:
+		_, err = (*app).AsHelmApplication()
+	case domain.AppTypeCompose:
+		_, err = (*app).AsComposeApplication()
+	case domain.AppTypeQuadlet:
+		_, err = (*app).AsQuadletApplication()
 	default:
 		return nil, nil, fmt.Errorf("%w: unsupported application type: %q", ErrUnknownApplicationType, appType)
 	}
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to parse application spec for type %s: %w", appType, err)
+	}
+	appName, err := (*app).GetName()
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get app name: %w", err)
+	}
+	return appName, app, nil
 }
 
 func (t *DeviceRenderLogic) renderGitConfig(ctx context.Context, configItem *domain.ConfigProviderSpec, ignitionConfig **config_latest_types.Config) (*string, *string, error) {
@@ -441,7 +455,7 @@ func (t *DeviceRenderLogic) renderK8sConfig(ctx context.Context, configItem *dom
 		if err := validation.DenyForbiddenDevicePath(dest); err != nil {
 			return &k8sSpec.Name, nil, fmt.Errorf("invalid secret-derived path %q: %w", dest, err)
 		}
-		ignitionWrapper.SetFile(dest, contents, 0o644, false, k8sSpec.SecretRef.User, k8sSpec.SecretRef.Group)
+		ignitionWrapper.SetFile(dest, contents, 0o644, false, k8sSpec.SecretRef.User.String(), k8sSpec.SecretRef.Group)
 	}
 
 	*ignitionConfig = lo.ToPtr(ignitionWrapper.Merge(**ignitionConfig))
@@ -469,7 +483,7 @@ func (t *DeviceRenderLogic) renderInlineConfig(configItem *domain.ConfigProvider
 		if file.ContentEncoding != nil && *file.ContentEncoding == domain.EncodingBase64 {
 			isBase64 = true
 		}
-		ignitionWrapper.SetFile(file.Path, []byte(file.Content), mode, isBase64, file.User, file.Group)
+		ignitionWrapper.SetFile(file.Path, []byte(file.Content), mode, isBase64, file.User.String(), file.Group)
 	}
 
 	*ignitionConfig = lo.ToPtr(ignitionWrapper.Merge(**ignitionConfig))
@@ -547,7 +561,7 @@ func (t *DeviceRenderLogic) renderHttpProviderConfig(ctx context.Context, config
 		return &httpConfigProviderSpec.Name, &httpConfigProviderSpec.HttpRef.Repository, fmt.Errorf("failed to create ignition wrapper: %w", err)
 	}
 
-	ignitionWrapper.SetFile(httpConfigProviderSpec.HttpRef.FilePath, httpData, 0o644, false, nil, nil)
+	ignitionWrapper.SetFile(httpConfigProviderSpec.HttpRef.FilePath, httpData, 0o644, false, "", "")
 	*ignitionConfig = lo.ToPtr(ignitionWrapper.Merge(**ignitionConfig))
 
 	return &httpConfigProviderSpec.Name, &httpConfigProviderSpec.HttpRef.Repository, nil
@@ -571,7 +585,7 @@ func (t *DeviceRenderLogic) getFrozenRepositoryURL(ctx context.Context, repo *do
 	}
 	if repoURL != string(origRepoURL) {
 		t.log.Warnf("repository URL updated from %s to %s for %s/%s", origRepoURL, repoURL, t.orgId, *repo.Metadata.Name)
-		err = repo.Spec.MergeGenericRepoSpec(domain.GenericRepoSpec{Url: string(origRepoURL)})
+		err = repo.Spec.MergeGitRepoSpec(domain.GitRepoSpec{Url: string(origRepoURL)})
 		if err != nil {
 			return fmt.Errorf("failed updating changed repository url for %s/%s: %w", t.orgId, *repo.Metadata.Name, err)
 		}
@@ -699,8 +713,8 @@ func ignitionConfigToRenderedConfig(ignition *config_latest_types.Config) ([]byt
 			Content:         content,
 			ContentEncoding: &encoding,
 			Path:            file.Path,
-			User:            &user,
-			Group:           &group,
+			User:            v1beta1.Username(user),
+			Group:           group,
 			Mode:            file.Mode,
 		}
 

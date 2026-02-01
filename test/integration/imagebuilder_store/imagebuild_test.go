@@ -13,6 +13,7 @@ import (
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/store"
 	flightctlstore "github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/testutil"
+	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	testutilpkg "github.com/flightctl/flightctl/test/util"
 	"github.com/google/uuid"
@@ -52,7 +53,7 @@ func newTestImageBuild(name string) *api.ImageBuild {
 			Destination: api.ImageBuildDestination{
 				Repository: "output-registry",
 				ImageName:  "output-image",
-				Tag:        "v1.0",
+				ImageTag:   "v1.0",
 			},
 		},
 	}
@@ -188,11 +189,6 @@ var _ = Describe("ImageBuildStore", func() {
 						})
 						return source
 					}(),
-					Destination: api.ImageExportDestination{
-						Repository: "output-registry",
-						ImageName:  "output-image",
-						Tag:        "v1.0",
-					},
 					Format: api.ExportFormatTypeQCOW2,
 				},
 			}
@@ -214,11 +210,6 @@ var _ = Describe("ImageBuildStore", func() {
 						})
 						return source
 					}(),
-					Destination: api.ImageExportDestination{
-						Repository: "output-registry",
-						ImageName:  "output-image-2",
-						Tag:        "v1.0",
-					},
 					Format: api.ExportFormatTypeVMDK,
 				},
 			}
@@ -269,11 +260,6 @@ var _ = Describe("ImageBuildStore", func() {
 						})
 						return source
 					}(),
-					Destination: api.ImageExportDestination{
-						Repository: "output-registry",
-						ImageName:  "output-image",
-						Tag:        "v1.0",
-					},
 					Format: api.ExportFormatTypeQCOW2,
 				},
 			}
@@ -360,11 +346,6 @@ var _ = Describe("ImageBuildStore", func() {
 						})
 						return source
 					}(),
-					Destination: api.ImageExportDestination{
-						Repository: "output-registry",
-						ImageName:  "output-image",
-						Tag:        "v1.0",
-					},
 					Format: api.ExportFormatTypeQCOW2,
 				},
 			}
@@ -386,11 +367,6 @@ var _ = Describe("ImageBuildStore", func() {
 						})
 						return source
 					}(),
-					Destination: api.ImageExportDestination{
-						Repository: "output-registry",
-						ImageName:  "output-image-2",
-						Tag:        "v1.0",
-					},
 					Format: api.ExportFormatTypeVMDK,
 				},
 			}
@@ -412,11 +388,6 @@ var _ = Describe("ImageBuildStore", func() {
 						})
 						return source
 					}(),
-					Destination: api.ImageExportDestination{
-						Repository: "output-registry",
-						ImageName:  "output-image-3",
-						Tag:        "v1.0",
-					},
 					Format: api.ExportFormatTypeQCOW2,
 				},
 			}
@@ -487,6 +458,112 @@ var _ = Describe("ImageBuildStore", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(deleted).To(BeNil())
 		})
+
+		It("should delete related ImageExports when deleting an ImageBuild (cascading delete)", func() {
+			// Create an ImageBuild
+			imageBuild := newTestImageBuild("cascade-delete-test")
+			_, err := storeInst.ImageBuild().Create(ctx, orgId, imageBuild)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Create ImageExports that reference the ImageBuild (with Owner field set for cascading delete)
+			export1 := &api.ImageExport{
+				ApiVersion: api.ImageExportAPIVersion,
+				Kind:       string(api.ResourceKindImageExport),
+				Metadata: v1beta1.ObjectMeta{
+					Name:  lo.ToPtr("cascade-export-1"),
+					Owner: util.SetResourceOwner(string(api.ResourceKindImageBuild), "cascade-delete-test"),
+				},
+				Spec: api.ImageExportSpec{
+					Source: func() api.ImageExportSource {
+						source := api.ImageExportSource{}
+						_ = source.FromImageBuildRefSource(api.ImageBuildRefSource{
+							Type:          api.ImageBuildRefSourceTypeImageBuild,
+							ImageBuildRef: "cascade-delete-test",
+						})
+						return source
+					}(),
+					Format: api.ExportFormatTypeQCOW2,
+				},
+			}
+			_, err = storeInst.ImageExport().Create(ctx, orgId, export1)
+			Expect(err).ToNot(HaveOccurred())
+
+			export2 := &api.ImageExport{
+				ApiVersion: api.ImageExportAPIVersion,
+				Kind:       string(api.ResourceKindImageExport),
+				Metadata: v1beta1.ObjectMeta{
+					Name:  lo.ToPtr("cascade-export-2"),
+					Owner: util.SetResourceOwner(string(api.ResourceKindImageBuild), "cascade-delete-test"),
+				},
+				Spec: api.ImageExportSpec{
+					Source: func() api.ImageExportSource {
+						source := api.ImageExportSource{}
+						_ = source.FromImageBuildRefSource(api.ImageBuildRefSource{
+							Type:          api.ImageBuildRefSourceTypeImageBuild,
+							ImageBuildRef: "cascade-delete-test",
+						})
+						return source
+					}(),
+					Format: api.ExportFormatTypeVMDK,
+				},
+			}
+			_, err = storeInst.ImageExport().Create(ctx, orgId, export2)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Create an unrelated ImageExport (should NOT be deleted - different owner)
+			unrelatedBuild := newTestImageBuild("unrelated-build")
+			_, err = storeInst.ImageBuild().Create(ctx, orgId, unrelatedBuild)
+			Expect(err).ToNot(HaveOccurred())
+
+			unrelatedExport := &api.ImageExport{
+				ApiVersion: api.ImageExportAPIVersion,
+				Kind:       string(api.ResourceKindImageExport),
+				Metadata: v1beta1.ObjectMeta{
+					Name:  lo.ToPtr("unrelated-export"),
+					Owner: util.SetResourceOwner(string(api.ResourceKindImageBuild), "unrelated-build"),
+				},
+				Spec: api.ImageExportSpec{
+					Source: func() api.ImageExportSource {
+						source := api.ImageExportSource{}
+						_ = source.FromImageBuildRefSource(api.ImageBuildRefSource{
+							Type:          api.ImageBuildRefSourceTypeImageBuild,
+							ImageBuildRef: "unrelated-build",
+						})
+						return source
+					}(),
+					Format: api.ExportFormatTypeQCOW2,
+				},
+			}
+			_, err = storeInst.ImageExport().Create(ctx, orgId, unrelatedExport)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Verify all exports exist before delete
+			_, err = storeInst.ImageExport().Get(ctx, orgId, "cascade-export-1")
+			Expect(err).ToNot(HaveOccurred())
+			_, err = storeInst.ImageExport().Get(ctx, orgId, "cascade-export-2")
+			Expect(err).ToNot(HaveOccurred())
+			_, err = storeInst.ImageExport().Get(ctx, orgId, "unrelated-export")
+			Expect(err).ToNot(HaveOccurred())
+
+			// Delete the ImageBuild - should cascade delete related exports
+			deleted, err := storeInst.ImageBuild().Delete(ctx, orgId, "cascade-delete-test")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(deleted).ToNot(BeNil())
+
+			// Verify ImageBuild is deleted
+			_, err = storeInst.ImageBuild().Get(ctx, orgId, "cascade-delete-test")
+			Expect(err).To(MatchError(flterrors.ErrResourceNotFound))
+
+			// Verify related ImageExports are deleted
+			_, err = storeInst.ImageExport().Get(ctx, orgId, "cascade-export-1")
+			Expect(err).To(MatchError(flterrors.ErrResourceNotFound))
+			_, err = storeInst.ImageExport().Get(ctx, orgId, "cascade-export-2")
+			Expect(err).To(MatchError(flterrors.ErrResourceNotFound))
+
+			// Verify unrelated ImageExport is NOT deleted
+			_, err = storeInst.ImageExport().Get(ctx, orgId, "unrelated-export")
+			Expect(err).ToNot(HaveOccurred())
+		})
 	})
 
 	Context("UpdateStatus", func() {
@@ -523,7 +600,7 @@ var _ = Describe("ImageBuildStore", func() {
 
 			_, err := storeInst.ImageBuild().UpdateStatus(ctx, orgId, imageBuild)
 			Expect(err).To(HaveOccurred())
-			Expect(err).To(MatchError(flterrors.ErrResourceNotFound))
+			Expect(err).To(MatchError(flterrors.ErrNoRowsUpdated))
 		})
 	})
 

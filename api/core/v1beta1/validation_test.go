@@ -939,20 +939,20 @@ func TestValidateApplications(t *testing.T) {
 		{
 			name: "container app with ports - valid",
 			apps: []ApplicationProviderSpec{
-				newTestApplicationWithPortsAndResources(require, "app1", AppTypeContainer, "quay.io/app/image:1", []string{"8080:80"}, nil),
+				newTestApplicationWithPortsAndResources(require, "app1", "quay.io/app/image:1", []string{"8080:80"}, nil),
 			},
 		},
 		{
 			name: "container app with ports out of range",
 			apps: []ApplicationProviderSpec{
-				newTestApplicationWithPortsAndResources(require, "app1", AppTypeContainer, "quay.io/app/image:1", []string{"0:65536"}, nil),
+				newTestApplicationWithPortsAndResources(require, "app1", "quay.io/app/image:1", []string{"0:65536"}, nil),
 			},
 			wantErrs: []string{"must be a number in the valid port range", "must be a number in the valid port range"},
 		},
 		{
 			name: "container app with resources - valid",
 			apps: []ApplicationProviderSpec{
-				newTestApplicationWithPortsAndResources(require, "app1", AppTypeContainer, "quay.io/app/image:1", nil, &ApplicationResources{
+				newTestApplicationWithPortsAndResources(require, "app1", "quay.io/app/image:1", nil, &ApplicationResources{
 					Limits: &ApplicationResourceLimits{
 						Cpu:    lo.ToPtr("1"),
 						Memory: lo.ToPtr("512m"),
@@ -963,7 +963,7 @@ func TestValidateApplications(t *testing.T) {
 		{
 			name: "container app with resources - valid",
 			apps: []ApplicationProviderSpec{
-				newTestApplicationWithPortsAndResources(require, "app1", AppTypeContainer, "quay.io/app/image:1", nil, &ApplicationResources{
+				newTestApplicationWithPortsAndResources(require, "app1", "quay.io/app/image:1", nil, &ApplicationResources{
 					Limits: &ApplicationResourceLimits{
 						Cpu:    lo.ToPtr("1e3"),
 						Memory: lo.ToPtr("512000000"),
@@ -972,74 +972,36 @@ func TestValidateApplications(t *testing.T) {
 			},
 		},
 		{
-			name: "compose app with ports - invalid",
-			apps: []ApplicationProviderSpec{
-				newTestApplicationWithPortsAndResources(require, "app1", AppTypeCompose, "quay.io/app/image:1", []string{"8080:80"}, nil),
-			},
-			wantErrs: []string{"ports can only be defined for container applications"},
-		},
-		{
-			name: "compose app with resources - invalid",
-			apps: []ApplicationProviderSpec{
-				newTestApplicationWithPortsAndResources(require, "app1", AppTypeCompose, "quay.io/app/image:1", nil, &ApplicationResources{
-					Limits: &ApplicationResourceLimits{
-						Cpu:    lo.ToPtr("1"),
-						Memory: lo.ToPtr("512m"),
-					},
-				}),
-			},
-			wantErrs: []string{"resources can only be defined for container applications"},
-		},
-		{
-			name: "quadlet app with ports - invalid",
-			apps: []ApplicationProviderSpec{
-				newTestApplicationWithPortsAndResources(require, "app1", AppTypeQuadlet, "quay.io/app/image:1", []string{"8080:80"}, nil),
-			},
-			wantErrs: []string{"ports can only be defined for container applications"},
-		},
-		{
-			name: "quadlet app with resources - invalid",
-			apps: []ApplicationProviderSpec{
-				newTestApplicationWithPortsAndResources(require, "app1", AppTypeQuadlet, "quay.io/app/image:1", nil, &ApplicationResources{
-					Limits: &ApplicationResourceLimits{
-						Cpu:    lo.ToPtr("1"),
-						Memory: lo.ToPtr("512m"),
-					},
-				}),
-			},
-			wantErrs: []string{"resources can only be defined for container applications"},
-		},
-		{
 			name: "container app with valid port format",
 			apps: []ApplicationProviderSpec{
-				newTestApplicationWithPortsAndResources(require, "app1", AppTypeContainer, "quay.io/app/image:1", []string{"8080:80", "443:443"}, nil),
+				newTestApplicationWithPortsAndResources(require, "app1", "quay.io/app/image:1", []string{"8080:80", "443:443"}, nil),
 			},
 		},
 		{
 			name: "container app with invalid port format - no colon",
 			apps: []ApplicationProviderSpec{
-				newTestApplicationWithPortsAndResources(require, "app1", AppTypeContainer, "quay.io/app/image:1", []string{"8080"}, nil),
+				newTestApplicationWithPortsAndResources(require, "app1", "quay.io/app/image:1", []string{"8080"}, nil),
 			},
 			wantErrs: []string{"must be in format 'portnumber:portnumber'"},
 		},
 		{
 			name: "container app with invalid port format - not numbers",
 			apps: []ApplicationProviderSpec{
-				newTestApplicationWithPortsAndResources(require, "app1", AppTypeContainer, "quay.io/app/image:1", []string{"abc:def"}, nil),
+				newTestApplicationWithPortsAndResources(require, "app1", "quay.io/app/image:1", []string{"abc:def"}, nil),
 			},
 			wantErrs: []string{"must be in format 'portnumber:portnumber'"},
 		},
 		{
 			name: "container app with invalid port format - too many colons",
 			apps: []ApplicationProviderSpec{
-				newTestApplicationWithPortsAndResources(require, "app1", AppTypeContainer, "quay.io/app/image:1", []string{"8080:80:90"}, nil),
+				newTestApplicationWithPortsAndResources(require, "app1", "quay.io/app/image:1", []string{"8080:80:90"}, nil),
 			},
 			wantErrs: []string{"must be in format 'portnumber:portnumber'"},
 		},
 		{
 			name: "container app with valid CPU formats",
 			apps: []ApplicationProviderSpec{
-				newTestApplicationWithPortsAndResources(require, "app1", AppTypeContainer, "quay.io/app/image:1", nil, &ApplicationResources{
+				newTestApplicationWithPortsAndResources(require, "app1", "quay.io/app/image:1", nil, &ApplicationResources{
 					Limits: &ApplicationResourceLimits{
 						Cpu: lo.ToPtr("1.5"),
 					},
@@ -1049,7 +1011,7 @@ func TestValidateApplications(t *testing.T) {
 		{
 			name: "container app with invalid CPU format",
 			apps: []ApplicationProviderSpec{
-				newTestApplicationWithPortsAndResources(require, "app1", AppTypeContainer, "quay.io/app/image:1", nil, &ApplicationResources{
+				newTestApplicationWithPortsAndResources(require, "app1", "quay.io/app/image:1", nil, &ApplicationResources{
 					Limits: &ApplicationResourceLimits{
 						Cpu: lo.ToPtr("not-a-number"),
 					},
@@ -1060,7 +1022,7 @@ func TestValidateApplications(t *testing.T) {
 		{
 			name: "container app with valid memory formats",
 			apps: []ApplicationProviderSpec{
-				newTestApplicationWithPortsAndResources(require, "app1", AppTypeContainer, "quay.io/app/image:1", nil, &ApplicationResources{
+				newTestApplicationWithPortsAndResources(require, "app1", "quay.io/app/image:1", nil, &ApplicationResources{
 					Limits: &ApplicationResourceLimits{
 						Memory: lo.ToPtr("512m"),
 					},
@@ -1070,7 +1032,7 @@ func TestValidateApplications(t *testing.T) {
 		{
 			name: "container app with valid memory format - bytes",
 			apps: []ApplicationProviderSpec{
-				newTestApplicationWithPortsAndResources(require, "app1", AppTypeContainer, "quay.io/app/image:1", nil, &ApplicationResources{
+				newTestApplicationWithPortsAndResources(require, "app1", "quay.io/app/image:1", nil, &ApplicationResources{
 					Limits: &ApplicationResourceLimits{
 						Memory: lo.ToPtr("1024b"),
 					},
@@ -1080,7 +1042,7 @@ func TestValidateApplications(t *testing.T) {
 		{
 			name: "container app with valid memory format - kibibytes",
 			apps: []ApplicationProviderSpec{
-				newTestApplicationWithPortsAndResources(require, "app1", AppTypeContainer, "quay.io/app/image:1", nil, &ApplicationResources{
+				newTestApplicationWithPortsAndResources(require, "app1", "quay.io/app/image:1", nil, &ApplicationResources{
 					Limits: &ApplicationResourceLimits{
 						Memory: lo.ToPtr("256k"),
 					},
@@ -1090,7 +1052,7 @@ func TestValidateApplications(t *testing.T) {
 		{
 			name: "container app with valid memory format - gibibytes",
 			apps: []ApplicationProviderSpec{
-				newTestApplicationWithPortsAndResources(require, "app1", AppTypeContainer, "quay.io/app/image:1", nil, &ApplicationResources{
+				newTestApplicationWithPortsAndResources(require, "app1", "quay.io/app/image:1", nil, &ApplicationResources{
 					Limits: &ApplicationResourceLimits{
 						Memory: lo.ToPtr("2g"),
 					},
@@ -1100,7 +1062,7 @@ func TestValidateApplications(t *testing.T) {
 		{
 			name: "container app with invalid memory format - wrong unit",
 			apps: []ApplicationProviderSpec{
-				newTestApplicationWithPortsAndResources(require, "app1", AppTypeContainer, "quay.io/app/image:1", nil, &ApplicationResources{
+				newTestApplicationWithPortsAndResources(require, "app1", "quay.io/app/image:1", nil, &ApplicationResources{
 					Limits: &ApplicationResourceLimits{
 						Memory: lo.ToPtr("1gb"),
 					},
@@ -1111,7 +1073,7 @@ func TestValidateApplications(t *testing.T) {
 		{
 			name: "container app with invalid memory format - uppercase unit",
 			apps: []ApplicationProviderSpec{
-				newTestApplicationWithPortsAndResources(require, "app1", AppTypeContainer, "quay.io/app/image:1", nil, &ApplicationResources{
+				newTestApplicationWithPortsAndResources(require, "app1", "quay.io/app/image:1", nil, &ApplicationResources{
 					Limits: &ApplicationResourceLimits{
 						Memory: lo.ToPtr("512M"),
 					},
@@ -1136,17 +1098,14 @@ func TestValidateApplications(t *testing.T) {
 }
 
 func newTestApplication(require *require.Assertions, name string, appImage, volImage string, volumeNames ...string) ApplicationProviderSpec {
-	app := ApplicationProviderSpec{
-		Name:    lo.ToPtr(name),
-		AppType: AppTypeCompose,
-	}
+	var app ApplicationProviderSpec
 
 	var volumes []ApplicationVolume
 	for _, volName := range volumeNames {
 		imageVolumeProvider := ImageVolumeProviderSpec{
 			Image: ImageVolumeSource{
 				Reference:  volImage,
-				PullPolicy: lo.ToPtr(PullIfNotPresent), // pull policy is validated by openapi
+				PullPolicy: lo.ToPtr(PullIfNotPresent),
 			},
 		}
 
@@ -1155,49 +1114,80 @@ func newTestApplication(require *require.Assertions, name string, appImage, volI
 		volumes = append(volumes, volumeProvider)
 	}
 
-	provider := ImageApplicationProviderSpec{
-		Image:   appImage,
+	imageSpec := ImageApplicationProviderSpec{
+		Image: appImage,
+	}
+
+	composeApp := ComposeApplication{
+		Name:    lo.ToPtr(name),
+		AppType: AppTypeCompose,
 		Volumes: &volumes,
 	}
-	require.NoError(app.FromImageApplicationProviderSpec(provider))
+	require.NoError(composeApp.FromImageApplicationProviderSpec(imageSpec))
+	require.NoError(app.FromComposeApplication(composeApp))
 
 	return app
 }
 
 func newTestApplicationWithVolume(require *require.Assertions, name string, appType AppType, appImage string, volume ApplicationVolume) ApplicationProviderSpec {
-	app := ApplicationProviderSpec{
-		Name:    lo.ToPtr(name),
-		AppType: appType,
-	}
+	var app ApplicationProviderSpec
 
 	volumes := []ApplicationVolume{volume}
 
-	provider := ImageApplicationProviderSpec{
-		Image:   appImage,
-		Volumes: &volumes,
+	switch appType {
+	case AppTypeContainer:
+		containerApp := ContainerApplication{
+			Name:    lo.ToPtr(name),
+			AppType: appType,
+			Image:   appImage,
+			Volumes: &volumes,
+		}
+		require.NoError(app.FromContainerApplication(containerApp))
+	case AppTypeCompose:
+		imageSpec := ImageApplicationProviderSpec{
+			Image: appImage,
+		}
+		composeApp := ComposeApplication{
+			Name:    lo.ToPtr(name),
+			AppType: appType,
+			Volumes: &volumes,
+		}
+		require.NoError(composeApp.FromImageApplicationProviderSpec(imageSpec))
+		require.NoError(app.FromComposeApplication(composeApp))
+	case AppTypeQuadlet:
+		imageSpec := ImageApplicationProviderSpec{
+			Image: appImage,
+		}
+		quadletApp := QuadletApplication{
+			Name:    lo.ToPtr(name),
+			AppType: appType,
+			Volumes: &volumes,
+		}
+		require.NoError(quadletApp.FromImageApplicationProviderSpec(imageSpec))
+		require.NoError(app.FromQuadletApplication(quadletApp))
+	default:
+		require.FailNow("unsupported app type for volume test helper: %s", appType)
 	}
-	require.NoError(app.FromImageApplicationProviderSpec(provider))
 
 	return app
 }
 
-func newTestApplicationWithPortsAndResources(require *require.Assertions, name string, appType AppType, appImage string, ports []string, resources *ApplicationResources) ApplicationProviderSpec {
-	app := ApplicationProviderSpec{
-		Name:    lo.ToPtr(name),
-		AppType: appType,
-	}
+func newTestApplicationWithPortsAndResources(require *require.Assertions, name string, appImage string, ports []string, resources *ApplicationResources) ApplicationProviderSpec {
+	var app ApplicationProviderSpec
 
 	var appPorts *[]ApplicationPort
 	if len(ports) > 0 {
 		appPorts = &ports
 	}
 
-	provider := ImageApplicationProviderSpec{
+	containerApp := ContainerApplication{
+		Name:      lo.ToPtr(name),
+		AppType:   AppTypeContainer,
 		Image:     appImage,
 		Ports:     appPorts,
 		Resources: resources,
 	}
-	require.NoError(app.FromImageApplicationProviderSpec(provider))
+	require.NoError(app.FromContainerApplication(containerApp))
 
 	return app
 }
@@ -2085,11 +2075,11 @@ func TestKubernetesSecretProviderSpec_Validate_ForbiddenPaths(t *testing.T) {
 			spec := KubernetesSecretProviderSpec{
 				Name: "test-k8s-config",
 				SecretRef: struct {
-					Group     *string `json:"group,omitempty"`
-					MountPath string  `json:"mountPath"`
-					Name      string  `json:"name"`
-					Namespace string  `json:"namespace"`
-					User      *string `json:"user,omitempty"`
+					Group     string   `json:"group,omitempty"`
+					MountPath string   `json:"mountPath"`
+					Name      string   `json:"name"`
+					Namespace string   `json:"namespace"`
+					User      Username `json:"user,omitempty"`
 				}{
 					MountPath: tt.mountPath,
 					Name:      "test-secret",
@@ -2210,11 +2200,11 @@ func TestRepository_Validate_OciRepoSpec(t *testing.T) {
 
 func TestRepository_Validate_BackwardCompatibility(t *testing.T) {
 	// Ensure existing git repository specs still work
-	t.Run("GenericRepoSpec still works", func(t *testing.T) {
+	t.Run("GitRepoSpec without auth works", func(t *testing.T) {
 		repoSpec := RepositorySpec{}
-		err := repoSpec.FromGenericRepoSpec(GenericRepoSpec{
+		err := repoSpec.FromGitRepoSpec(GitRepoSpec{
 			Url:  "https://github.com/example/repo.git",
-			Type: RepoSpecTypeGit,
+			Type: GitRepoSpecTypeGit,
 		})
 		require.NoError(t, err)
 
@@ -2228,15 +2218,92 @@ func TestRepository_Validate_BackwardCompatibility(t *testing.T) {
 		}
 
 		errs := repo.Validate()
-		require.Empty(t, errs, "GenericRepoSpec should validate successfully")
+		require.Empty(t, errs, "GitRepoSpec should validate successfully")
+	})
+
+	t.Run("GitRepoSpec with httpConfig works", func(t *testing.T) {
+		repoSpec := RepositorySpec{}
+		err := repoSpec.FromGitRepoSpec(GitRepoSpec{
+			Url:  "https://github.com/example/repo.git",
+			Type: GitRepoSpecTypeGit,
+			HttpConfig: &HttpConfig{
+				Username: lo.ToPtr("user"),
+				Password: lo.ToPtr("pass"),
+			},
+		})
+		require.NoError(t, err)
+
+		repo := Repository{
+			ApiVersion: "v1",
+			Kind:       "Repository",
+			Metadata: ObjectMeta{
+				Name: lo.ToPtr("test-git-http-repo"),
+			},
+			Spec: repoSpec,
+		}
+
+		errs := repo.Validate()
+		require.Empty(t, errs, "GitRepoSpec with httpConfig should validate successfully")
+	})
+
+	t.Run("GitRepoSpec with sshConfig works", func(t *testing.T) {
+		repoSpec := RepositorySpec{}
+		err := repoSpec.FromGitRepoSpec(GitRepoSpec{
+			Url:  "git@github.com:example/repo.git",
+			Type: GitRepoSpecTypeGit,
+			SshConfig: &SshConfig{
+				SshPrivateKey: lo.ToPtr("UExBQ0VIT0xERVJfUFJJVkFURV9LRVlfREFUQQ=="),
+			},
+		})
+		require.NoError(t, err)
+
+		repo := Repository{
+			ApiVersion: "v1",
+			Kind:       "Repository",
+			Metadata: ObjectMeta{
+				Name: lo.ToPtr("test-git-ssh-repo"),
+			},
+			Spec: repoSpec,
+		}
+
+		errs := repo.Validate()
+		require.Empty(t, errs, "GitRepoSpec with sshConfig should validate successfully")
+	})
+
+	t.Run("GitRepoSpec rejects both httpConfig and sshConfig", func(t *testing.T) {
+		repoSpec := RepositorySpec{}
+		err := repoSpec.FromGitRepoSpec(GitRepoSpec{
+			Url:  "https://github.com/example/repo.git",
+			Type: GitRepoSpecTypeGit,
+			HttpConfig: &HttpConfig{
+				Username: lo.ToPtr("user"),
+				Password: lo.ToPtr("pass"),
+			},
+			SshConfig: &SshConfig{
+				SshPrivateKey: lo.ToPtr("UExBQ0VIT0xERVJfUFJJVkFURV9LRVlfREFUQQ=="),
+			},
+		})
+		require.NoError(t, err)
+
+		repo := Repository{
+			ApiVersion: "v1",
+			Kind:       "Repository",
+			Metadata: ObjectMeta{
+				Name: lo.ToPtr("test-git-both-repo"),
+			},
+			Spec: repoSpec,
+		}
+
+		errs := repo.Validate()
+		require.NotEmpty(t, errs, "GitRepoSpec with both configs should fail validation")
 	})
 
 	t.Run("HttpRepoSpec still works", func(t *testing.T) {
 		repoSpec := RepositorySpec{}
 		err := repoSpec.FromHttpRepoSpec(HttpRepoSpec{
 			Url:        "https://example.com/config",
-			Type:       RepoSpecTypeHttp,
-			HttpConfig: HttpConfig{},
+			Type:       HttpRepoSpecTypeHttp,
+			HttpConfig: &HttpConfig{},
 		})
 		require.NoError(t, err)
 

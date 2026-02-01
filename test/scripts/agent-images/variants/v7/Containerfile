@@ -6,7 +6,8 @@ ARG BASE_IMAGE=quay.io/flightctl/flightctl-device:base
 
 FROM ${BASE_IMAGE}
 
-ADD --from=variant-context etc etc
+COPY --from=variant-context etc/yum.repos.d/flightctl.repo /etc/yum.repos.d/flightctl.repo
+COPY --from=variant-context etc/yum.repos.d/microshift.repo /etc/yum.repos.d/microshift.repo
 
 # Use BuildKit cache mounts for dnf package caching
 RUN --mount=type=cache,target=/var/cache/dnf \

@@ -214,9 +214,17 @@ type CertificateConfig struct {
 	Provisioner ProvisionerConfig `json:"provisioner"`
 	// Storage configuration
 	Storage StorageConfig `json:"storage"`
-	// RenewBeforeExpiry controls when to renew relative to NotAfter.
-	// If <= 0, the manager uses DefaultRenewBeforeExpiry.
-	RenewBeforeExpiry time.Duration `json:"renew-before-expiry,omitempty"`
+	// RenewBefore controls how long before NotAfter we should renew
+	//
+	// If set and valid (0 < RenewBefore < cert lifetime), it takes precedence over RenewBeforePercentage.
+	// If invalid, it is ignored and RenewBeforePercentage (if valid) may be used.
+	RenewBefore *time.Duration `json:"renewBefore,omitempty"`
+	// RenewBeforePercentage controls how far through the certificate lifetime we renew, expressed
+	// as a percentage of the lifetime. Valid range: (0,100)
+	//
+	// Example: 50 means renew when 50% of the lifetime remains (i.e., halfway through lifetime).
+	// If RenewBefore is set and valid, RenewBeforePercentage is ignored.
+	RenewBeforePercentage *int32 `json:"renewBeforePercentage,omitempty"`
 }
 
 // StorageConfig defines storage provider configuration including type and type-specific settings.

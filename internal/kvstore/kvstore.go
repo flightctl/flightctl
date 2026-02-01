@@ -12,6 +12,12 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// StreamEntry represents a single entry in a Redis stream
+type StreamEntry struct {
+	ID    string
+	Value []byte
+}
+
 type KVStore interface {
 	Close()
 	SetNX(ctx context.Context, key string, value []byte) (bool, error)
@@ -21,6 +27,12 @@ type KVStore interface {
 	DeleteKeysForTemplateVersion(ctx context.Context, key string) error
 	DeleteAllKeys(ctx context.Context) error
 	PrintAllKeys(ctx context.Context) // For debugging
+	// Stream operations for log streaming
+	StreamAdd(ctx context.Context, key string, value []byte) (string, error)
+	StreamRange(ctx context.Context, key string, start, stop string) ([]StreamEntry, error)
+	StreamRead(ctx context.Context, key string, lastID string, block time.Duration, count int64) ([]StreamEntry, error)
+	SetExpire(ctx context.Context, key string, expiration time.Duration) error
+	Delete(ctx context.Context, key string) error
 }
 
 type kvStore struct {
@@ -177,4 +189,121 @@ func (s *kvStore) PrintAllKeys(ctx context.Context) {
 		return
 	}
 	fmt.Printf("Keys: %v\n", keys)
+}
+
+// StreamAdd adds a value to a Redis stream and returns the message ID
+// Uses "*" to auto-generate ID (timestamp-based)
+func (s *kvStore) StreamAdd(ctx context.Context, key string, value []byte) (string, error) {
+	id, err := s.client.XAdd(ctx, &redis.XAddArgs{
+		Stream: key,
+		ID:     "*", // Auto-generate ID
+		Values: map[string]interface{}{
+			"log": value,
+		},
+	}).Result()
+	if err != nil {
+		return "", fmt.Errorf("failed to add to stream: %w", err)
+	}
+	return id, nil
+}
+
+// StreamRange returns a range of entries from a Redis stream
+// start and stop can be "-" (beginning), "+" (end), or specific message IDs
+func (s *kvStore) StreamRange(ctx context.Context, key string, start, stop string) ([]StreamEntry, error) {
+	entries, err := s.client.XRange(ctx, key, start, stop).Result()
+	if err != nil {
+		if err == redis.Nil {
+			return []StreamEntry{}, nil
+		}
+		return nil, fmt.Errorf("failed to get stream range: %w", err)
+	}
+
+	result := make([]StreamEntry, 0, len(entries))
+	for _, entry := range entries {
+		// Extract the "log" field from the stream entry
+		logValue, ok := entry.Values["log"].(string)
+		if !ok {
+			// Try as []byte
+			if logBytes, ok := entry.Values["log"].([]byte); ok {
+				result = append(result, StreamEntry{
+					ID:    entry.ID,
+					Value: logBytes,
+				})
+				continue
+			}
+			return nil, fmt.Errorf("unexpected type for log value: %T", entry.Values["log"])
+		}
+		result = append(result, StreamEntry{
+			ID:    entry.ID,
+			Value: []byte(logValue),
+		})
+	}
+	return result, nil
+}
+
+// StreamRead reads entries from a Redis stream with blocking support
+// lastID is the last message ID read (use "0" to read from beginning, "$" for new messages only)
+// block is the blocking timeout (0 for non-blocking)
+// count limits the number of entries returned (0 for no limit)
+func (s *kvStore) StreamRead(ctx context.Context, key string, lastID string, block time.Duration, count int64) ([]StreamEntry, error) {
+	args := &redis.XReadArgs{
+		Streams: []string{key, lastID},
+		Count:   count,
+	}
+	if block > 0 {
+		args.Block = block
+	}
+
+	streams, err := s.client.XRead(ctx, args).Result()
+	if err != nil {
+		if err == redis.Nil {
+			// Timeout or no data available
+			return []StreamEntry{}, nil
+		}
+		return nil, fmt.Errorf("failed to read from stream: %w", err)
+	}
+
+	if len(streams) == 0 {
+		return []StreamEntry{}, nil
+	}
+
+	// Extract entries from the first stream
+	stream := streams[0]
+	result := make([]StreamEntry, 0, len(stream.Messages))
+	for _, msg := range stream.Messages {
+		// Extract the "log" field from the stream entry
+		logValue, ok := msg.Values["log"].(string)
+		if !ok {
+			// Try as []byte
+			if logBytes, ok := msg.Values["log"].([]byte); ok {
+				result = append(result, StreamEntry{
+					ID:    msg.ID,
+					Value: logBytes,
+				})
+				continue
+			}
+			return nil, fmt.Errorf("unexpected type for log value: %T", msg.Values["log"])
+		}
+		result = append(result, StreamEntry{
+			ID:    msg.ID,
+			Value: []byte(logValue),
+		})
+	}
+	return result, nil
+}
+
+// SetExpire sets an expiration time on a key
+func (s *kvStore) SetExpire(ctx context.Context, key string, expiration time.Duration) error {
+	if err := s.client.Expire(ctx, key, expiration).Err(); err != nil {
+		return fmt.Errorf("failed to set expiration: %w", err)
+	}
+	return nil
+}
+
+// Delete deletes a key from Redis
+func (s *kvStore) Delete(ctx context.Context, key string) error {
+	if err := s.client.Del(ctx, key).Err(); err != nil {
+		return fmt.Errorf("failed to delete key: %w", err)
+	}
+	return nil
 }

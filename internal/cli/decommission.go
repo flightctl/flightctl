@@ -103,6 +103,8 @@ func (o *DecommissionOptions) Run(ctx context.Context, args []string) error {
 	if err != nil {
 		return fmt.Errorf("creating client: %w", err)
 	}
+	c.Start(ctx)
+	defer c.Stop()
 
 	_, name, err := parseAndValidateKindNameFromArgsSingle(args)
 	if err != nil {

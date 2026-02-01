@@ -40,20 +40,50 @@ func (m *MockActionHandler) EXPECT() *MockActionHandlerMockRecorder {
 }
 
 // Execute mocks base method.
-func (m *MockActionHandler) Execute(ctx context.Context, actions ...*Action) error {
+func (m *MockActionHandler) Execute(ctx context.Context, actions Actions) error {
 	m.ctrl.T.Helper()
-	varargs := []any{ctx}
-	for _, a := range actions {
-		varargs = append(varargs, a)
-	}
-	ret := m.ctrl.Call(m, "Execute", varargs...)
+	ret := m.ctrl.Call(m, "Execute", ctx, actions)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Execute indicates an expected call of Execute.
-func (mr *MockActionHandlerMockRecorder) Execute(ctx any, actions ...any) *gomock.Call {
+func (mr *MockActionHandlerMockRecorder) Execute(ctx, actions any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	varargs := append([]any{ctx}, actions...)
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Execute", reflect.TypeOf((*MockActionHandler)(nil).Execute), varargs...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Execute", reflect.TypeOf((*MockActionHandler)(nil).Execute), ctx, actions)
+}
+
+// MockActionSpec is a mock of ActionSpec interface.
+type MockActionSpec struct {
+	ctrl     *gomock.Controller
+	recorder *MockActionSpecMockRecorder
+}
+
+// MockActionSpecMockRecorder is the mock recorder for MockActionSpec.
+type MockActionSpecMockRecorder struct {
+	mock *MockActionSpec
+}
+
+// NewMockActionSpec creates a new mock instance.
+func NewMockActionSpec(ctrl *gomock.Controller) *MockActionSpec {
+	mock := &MockActionSpec{ctrl: ctrl}
+	mock.recorder = &MockActionSpecMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockActionSpec) EXPECT() *MockActionSpecMockRecorder {
+	return m.recorder
+}
+
+// actionSpec mocks base method.
+func (m *MockActionSpec) actionSpec() {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "actionSpec")
+}
+
+// actionSpec indicates an expected call of actionSpec.
+func (mr *MockActionSpecMockRecorder) actionSpec() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "actionSpec", reflect.TypeOf((*MockActionSpec)(nil).actionSpec))
 }

@@ -218,8 +218,8 @@ func DenyForbiddenDevicePath(p string) error {
 	return nil
 }
 
-func ValidateLinuxUserGroup(s *string, path string) []error {
-	if s == nil {
+func ValidateLinuxUserGroup(s string, path string) []error {
+	if s == "" {
 		return []error{}
 	}
 
@@ -237,7 +237,7 @@ func ValidateLinuxUserGroup(s *string, path string) []error {
 	// > Usernames may only be up to 32 characters long.
 
 	isID := false
-	id, err := strconv.ParseInt(*s, 10, 64)
+	id, err := strconv.ParseInt(s, 10, 64)
 	if err == nil {
 		isID = true
 	}
@@ -245,22 +245,22 @@ func ValidateLinuxUserGroup(s *string, path string) []error {
 	if isID {
 		// https://systemd.io/UIDS-GIDS/
 		if id < 0 {
-			errs = append(errs, field.Invalid(fieldPathFor(path), *s, "must be a positive number (invalid user ID)"))
+			errs = append(errs, field.Invalid(fieldPathFor(path), s, "must be a positive number (invalid user ID)"))
 		} else if id >= 4294967295 {
-			errs = append(errs, field.Invalid(fieldPathFor(path), *s, "must be smaller than 4294967295 (invalid user ID)"))
+			errs = append(errs, field.Invalid(fieldPathFor(path), s, "must be smaller than 4294967295 (invalid user ID)"))
 		} else if id == 65535 {
-			errs = append(errs, field.Invalid(fieldPathFor(path), *s, "must not be equal to 65535 (invalid user ID)"))
+			errs = append(errs, field.Invalid(fieldPathFor(path), s, "must not be equal to 65535 (invalid user ID)"))
 		}
 		return asErrors(errs)
 	}
 
-	if len(*s) > 32 {
+	if len(s) > 32 {
 		errs = append(errs, field.TooLong(fieldPathFor(path), s, 32))
 	}
 
 	re := regexp.MustCompile(`^[a-zA-Z0-9_][a-zA-Z0-9_-]*[$]?$`)
-	if !re.Match([]byte(*s)) {
-		errs = append(errs, field.Invalid(fieldPathFor(path), *s, "is not a valid user name"))
+	if !re.Match([]byte(s)) {
+		errs = append(errs, field.Invalid(fieldPathFor(path), s, "is not a valid user name"))
 	}
 
 	return asErrors(errs)
@@ -409,6 +409,22 @@ func isTCGCSRFormat(csr []byte) bool {
 	}
 
 	return false
+}
+
+func ValidateHelmValuesFile(s *string, path string, maxLength int) []error {
+	if s == nil {
+		return nil
+	}
+
+	errs := ValidateRelativePath(s, path, maxLength)
+
+	ext := filepath.Ext(*s)
+	if !strings.EqualFold(ext, ".yaml") && !strings.EqualFold(ext, ".yml") {
+		extErrs := asErrors(field.ErrorList{field.Invalid(fieldPathFor(path), *s, "must have .yaml or .yml extension")})
+		errs = append(errs, extErrs...)
+	}
+
+	return errs
 }
 
 func FormatInvalidError(input, path, errorMsg string) []error {

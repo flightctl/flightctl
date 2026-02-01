@@ -21,6 +21,7 @@ const (
 const (
 	AppTypeCompose   AppType = "compose"
 	AppTypeContainer AppType = "container"
+	AppTypeHelm      AppType = "helm"
 	AppTypeQuadlet   AppType = "quadlet"
 )
 
@@ -310,6 +311,16 @@ const (
 	Github GitHubIntrospectionSpecType = "github"
 )
 
+// Defines values for GitRepoSpecType.
+const (
+	GitRepoSpecTypeGit GitRepoSpecType = "git"
+)
+
+// Defines values for HttpRepoSpecType.
+const (
+	HttpRepoSpecTypeHttp HttpRepoSpecType = "http"
+)
+
 // Defines values for ImagePullPolicy.
 const (
 	PullAlways       ImagePullPolicy = "Always"
@@ -368,8 +379,13 @@ const (
 
 // Defines values for OciRepoSpecScheme.
 const (
-	OciRepoSpecSchemeHttp  OciRepoSpecScheme = "http"
-	OciRepoSpecSchemeHttps OciRepoSpecScheme = "https"
+	Http  OciRepoSpecScheme = "http"
+	Https OciRepoSpecScheme = "https"
+)
+
+// Defines values for OciRepoSpecType.
+const (
+	OciRepoSpecTypeOci OciRepoSpecType = "oci"
 )
 
 // Defines values for OpenShiftProviderSpecProviderType.
@@ -574,16 +590,17 @@ type ApplicationEnvVars struct {
 // ApplicationPort Port mapping in format "hostPort:containerPort" (e.g., "8080:80").
 type ApplicationPort = string
 
-// ApplicationProviderSpec defines model for ApplicationProviderSpec.
-type ApplicationProviderSpec struct {
+// ApplicationProviderBase Common properties for all application types.
+type ApplicationProviderBase struct {
 	// AppType The type of the application.
 	AppType AppType `json:"appType"`
 
-	// EnvVars Environment variable key-value pairs, injected during runtime. The key and value each must be between 1 and 253 characters.
-	EnvVars *map[string]string `json:"envVars,omitempty"`
-
 	// Name The application name must be 1–253 characters long, start with a letter or number, and contain no whitespace.
-	Name  *string `json:"name,omitempty"`
+	Name *string `json:"name,omitempty"`
+}
+
+// ApplicationProviderSpec defines model for ApplicationProviderSpec.
+type ApplicationProviderSpec struct {
 	union json.RawMessage
 }
 
@@ -604,6 +621,12 @@ type ApplicationResources struct {
 
 // ApplicationStatusType Status of a single application on the device.
 type ApplicationStatusType string
+
+// ApplicationUser defines model for ApplicationUser.
+type ApplicationUser struct {
+	// RunAs The username of the system user this application should be run under. This is not the same as the user within any containers of the application (if applicable). Defaults to the user that the agent runs as (generally root) if not specified.
+	RunAs Username `json:"runAs,omitempty"`
+}
 
 // ApplicationVolume defines model for ApplicationVolume.
 type ApplicationVolume struct {
@@ -861,6 +884,22 @@ type CertificateSigningRequestStatus struct {
 	Conditions []Condition `json:"conditions"`
 }
 
+// ComposeApplication defines model for ComposeApplication.
+type ComposeApplication struct {
+	// AppType The type of the application.
+	AppType AppType `json:"appType"`
+
+	// EnvVars Environment variable key-value pairs, injected during runtime. The key and value each must be between 1 and 253 characters.
+	EnvVars *map[string]string `json:"envVars,omitempty"`
+
+	// Name The application name must be 1–253 characters long, start with a letter or number, and contain no whitespace.
+	Name *string `json:"name,omitempty"`
+
+	// Volumes List of application volumes.
+	Volumes *[]ApplicationVolume `json:"volumes,omitempty"`
+	union   json.RawMessage
+}
+
 // Condition defines model for Condition.
 type Condition struct {
 	// LastTransitionTime The last time the condition transitioned from one status to another.
@@ -909,6 +948,42 @@ type ConditionType string
 // ConfigProviderSpec defines model for ConfigProviderSpec.
 type ConfigProviderSpec struct {
 	union json.RawMessage
+}
+
+// ContainerApplication defines model for ContainerApplication.
+type ContainerApplication struct {
+	// AppType The type of the application.
+	AppType AppType `json:"appType"`
+
+	// EnvVars Environment variable key-value pairs, injected during runtime. The key and value each must be between 1 and 253 characters.
+	EnvVars *map[string]string `json:"envVars,omitempty"`
+
+	// Image Reference to the image for this container.
+	Image string `json:"image"`
+
+	// Name The application name must be 1–253 characters long, start with a letter or number, and contain no whitespace.
+	Name *string `json:"name,omitempty"`
+
+	// Ports Port mappings.
+	Ports *[]ApplicationPort `json:"ports,omitempty"`
+
+	// Resources Resource constraints for the application.
+	Resources *ApplicationResources `json:"resources,omitempty"`
+
+	// RunAs The username of the system user this application should be run under. This is not the same as the user within any containers of the application (if applicable). Defaults to the user that the agent runs as (generally root) if not specified.
+	RunAs Username `json:"runAs,omitempty"`
+
+	// Volumes List of application volumes.
+	Volumes *[]ApplicationVolume `json:"volumes,omitempty"`
+}
+
+// ContainerApplicationProperties Properties for container application deployments.
+type ContainerApplicationProperties struct {
+	// Ports Port mappings.
+	Ports *[]ApplicationPort `json:"ports,omitempty"`
+
+	// Resources Resource constraints for the application.
+	Resources *ApplicationResources `json:"resources,omitempty"`
 }
 
 // CpuResourceMonitorSpec defines model for CpuResourceMonitorSpec.
@@ -966,6 +1041,9 @@ type DeviceApplicationStatus struct {
 
 	// Restarts Number of restarts observed for the application.
 	Restarts int `json:"restarts"`
+
+	// RunAs The username of the system user this application is runing under. If blank, the application is run as the same user as the agent (generally root).
+	RunAs Username `json:"runAs,omitempty"`
 
 	// Status Status of a single application on the device.
 	Status ApplicationStatusType `json:"status"`
@@ -1560,13 +1638,13 @@ type FileContent struct {
 // FileMetadata File metadata.
 type FileMetadata struct {
 	// Group The file's group, specified either as a name or numeric ID. Defaults to "root".
-	Group *string `json:"group,omitempty"`
+	Group string `json:"group,omitempty"`
 
 	// Mode The file's permission mode. You may specify the more familiar octal with a leading zero (e.g., 0644) or as a decimal without a leading zero (e.g., 420). Setuid/setgid/sticky bits are supported. If not specified, the permission mode for files defaults to 0644.
 	Mode *int `json:"mode,omitempty"`
 
 	// User The file's owner, specified either as a name or numeric ID. Defaults to "root".
-	User *string `json:"user,omitempty"`
+	User Username `json:"user,omitempty"`
 }
 
 // FileOperation defines model for FileOperation.
@@ -1581,7 +1659,7 @@ type FileSpec struct {
 	ContentEncoding *EncodingType `json:"contentEncoding,omitempty"`
 
 	// Group The file's group, specified either as a name or numeric ID. Defaults to "root".
-	Group *string `json:"group,omitempty"`
+	Group string `json:"group,omitempty"`
 
 	// Mode The file's permission mode. You may specify the more familiar octal with a leading zero (e.g., 0644) or as a decimal without a leading zero (e.g., 420). Setuid/setgid/sticky bits are supported. If not specified, the permission mode for files defaults to 0644.
 	Mode *int `json:"mode,omitempty"`
@@ -1590,7 +1668,7 @@ type FileSpec struct {
 	Path string `json:"path"`
 
 	// User The file's owner, specified either as a name or numeric ID. Defaults to "root".
-	User *string `json:"user,omitempty"`
+	User Username `json:"user,omitempty"`
 }
 
 // Fleet Fleet represents a set of devices.
@@ -1764,15 +1842,6 @@ type FleetStatus struct {
 	Rollout *FleetRolloutStatus `json:"rollout,omitempty"`
 }
 
-// GenericRepoSpec defines model for GenericRepoSpec.
-type GenericRepoSpec struct {
-	// Type RepoSpecType is the type of the repository.
-	Type RepoSpecType `json:"type"`
-
-	// Url The (possibly remote) repository URL.
-	Url string `json:"url"`
-}
-
 // GitConfigProviderSpec defines model for GitConfigProviderSpec.
 type GitConfigProviderSpec struct {
 	// GitRef The reference to a Git configuration server.
@@ -1802,6 +1871,45 @@ type GitHubIntrospectionSpec struct {
 
 // GitHubIntrospectionSpecType The introspection type.
 type GitHubIntrospectionSpecType string
+
+// GitRepoSpec Git repository specification. Supports no auth (public repos), HTTP/HTTPS auth, or SSH auth.
+type GitRepoSpec struct {
+	// HttpConfig Configuration for HTTP transport.
+	HttpConfig *HttpConfig `json:"httpConfig,omitempty"`
+
+	// SshConfig Configuration for SSH transport.
+	SshConfig *SshConfig `json:"sshConfig,omitempty"`
+
+	// Type The repository type discriminator.
+	Type GitRepoSpecType `json:"type"`
+
+	// Url The Git repository URL to clone from.
+	Url string `json:"url"`
+}
+
+// GitRepoSpecType The repository type discriminator.
+type GitRepoSpecType string
+
+// HelmApplication defines model for HelmApplication.
+type HelmApplication struct {
+	// AppType The type of the application.
+	AppType AppType `json:"appType"`
+
+	// Image Reference to the chart for this helm application.
+	Image string `json:"image"`
+
+	// Name The application name must be 1–253 characters long, start with a letter or number, and contain no whitespace.
+	Name *string `json:"name,omitempty"`
+
+	// Namespace The target namespace for the application deployment.
+	Namespace *string `json:"namespace,omitempty"`
+
+	// Values Configuration values for the application. Supports arbitrarily nested structures.
+	Values *map[string]interface{} `json:"values,omitempty"`
+
+	// ValuesFiles List of values files to apply during deployment. Files are relative paths and applied in array order before user-provided values.
+	ValuesFiles *[]string `json:"valuesFiles,omitempty"`
+}
 
 // HookAction defines model for HookAction.
 type HookAction struct {
@@ -1884,34 +1992,28 @@ type HttpConfigProviderSpec struct {
 	Name string `json:"name"`
 }
 
-// HttpRepoSpec defines model for HttpRepoSpec.
+// HttpRepoSpec HTTP endpoint specification for fetching configuration.
 type HttpRepoSpec struct {
 	// HttpConfig Configuration for HTTP transport.
-	HttpConfig HttpConfig `json:"httpConfig"`
+	HttpConfig *HttpConfig `json:"httpConfig,omitempty"`
 
-	// Type RepoSpecType is the type of the repository.
-	Type RepoSpecType `json:"type"`
+	// Type The repository type discriminator.
+	Type HttpRepoSpecType `json:"type"`
 
-	// Url The HTTP URL to call or clone from.
+	// Url The HTTP URL to call.
 	Url string `json:"url"`
 
 	// ValidationSuffix URL suffix used only for validating access to the repository. Users might use the URL field as a root URL to be used by config sources adding suffixes. This will help with the validation of the http endpoint.
 	ValidationSuffix *string `json:"validationSuffix,omitempty"`
 }
 
+// HttpRepoSpecType The repository type discriminator.
+type HttpRepoSpecType string
+
 // ImageApplicationProviderSpec defines model for ImageApplicationProviderSpec.
 type ImageApplicationProviderSpec struct {
 	// Image Reference to the OCI image or artifact for the application package.
 	Image string `json:"image"`
-
-	// Ports Port mappings.
-	Ports *[]ApplicationPort `json:"ports,omitempty"`
-
-	// Resources Resource constraints for the application.
-	Resources *ApplicationResources `json:"resources,omitempty"`
-
-	// Volumes List of application volumes.
-	Volumes *[]ApplicationVolume `json:"volumes,omitempty"`
 }
 
 // ImageMountVolumeProviderSpec Volume from OCI image mounted at specified path.
@@ -1945,9 +2047,6 @@ type ImageVolumeSource struct {
 type InlineApplicationProviderSpec struct {
 	// Inline A list of application content.
 	Inline []ApplicationContent `json:"inline"`
-
-	// Volumes List of application volumes.
-	Volumes *[]ApplicationVolume `json:"volumes,omitempty"`
 }
 
 // InlineConfigProviderSpec defines model for InlineConfigProviderSpec.
@@ -2051,7 +2150,7 @@ type KubernetesSecretProviderSpec struct {
 	// SecretRef The reference to a Kubernetes secret.
 	SecretRef struct {
 		// Group The file's group, specified either as a name or numeric ID. Defaults to "root".
-		Group *string `json:"group,omitempty"`
+		Group string `json:"group,omitempty"`
 
 		// MountPath Path in the device's file system at which the secret should be mounted.
 		MountPath string `json:"mountPath"`
@@ -2063,7 +2162,7 @@ type KubernetesSecretProviderSpec struct {
 		Namespace string `json:"namespace"`
 
 		// User The file's owner, specified either as a name or numeric ID. Defaults to "root".
-		User *string `json:"user,omitempty"`
+		User Username `json:"user,omitempty"`
 	} `json:"secretRef"`
 }
 
@@ -2277,8 +2376,8 @@ type OciRepoSpec struct {
 	// SkipServerVerification Skip remote server verification.
 	SkipServerVerification *bool `json:"skipServerVerification,omitempty"`
 
-	// Type RepoSpecType is the type of the repository.
-	Type RepoSpecType `json:"type"`
+	// Type The repository type discriminator.
+	Type OciRepoSpecType `json:"type"`
 }
 
 // OciRepoSpecAccessMode Access mode for the registry: "Read" for read-only (pull), "ReadWrite" for read-write (pull and push).
@@ -2286,6 +2385,9 @@ type OciRepoSpecAccessMode string
 
 // OciRepoSpecScheme URL scheme for connecting to the registry.
 type OciRepoSpecScheme string
+
+// OciRepoSpecType The repository type discriminator.
+type OciRepoSpecType string
 
 // OpenShiftProviderSpec OpenShiftProviderSpec describes an OpenShift OAuth provider configuration.
 type OpenShiftProviderSpec struct {
@@ -2399,6 +2501,25 @@ type Permission struct {
 type PermissionList struct {
 	// Permissions List of permissions available to the user.
 	Permissions []Permission `json:"permissions"`
+}
+
+// QuadletApplication defines model for QuadletApplication.
+type QuadletApplication struct {
+	// AppType The type of the application.
+	AppType AppType `json:"appType"`
+
+	// EnvVars Environment variable key-value pairs, injected during runtime. The key and value each must be between 1 and 253 characters.
+	EnvVars *map[string]string `json:"envVars,omitempty"`
+
+	// Name The application name must be 1–253 characters long, start with a letter or number, and contain no whitespace.
+	Name *string `json:"name,omitempty"`
+
+	// RunAs The username of the system user this application should be run under. This is not the same as the user within any containers of the application (if applicable). Defaults to the user that the agent runs as (generally root) if not specified.
+	RunAs Username `json:"runAs,omitempty"`
+
+	// Volumes List of application volumes.
+	Volumes *[]ApplicationVolume `json:"volumes,omitempty"`
+	union   json.RawMessage
 }
 
 // ReferencedRepositoryUpdatedDetails defines model for ReferencedRepositoryUpdatedDetails.
@@ -2642,18 +2763,6 @@ type SshConfig struct {
 
 	// SshPrivateKey Base64 encoded private SSH key.
 	SshPrivateKey *string `json:"sshPrivateKey,omitempty"`
-}
-
-// SshRepoSpec defines model for SshRepoSpec.
-type SshRepoSpec struct {
-	// SshConfig Configuration for SSH transport.
-	SshConfig SshConfig `json:"sshConfig"`
-
-	// Type RepoSpecType is the type of the repository.
-	Type RepoSpecType `json:"type"`
-
-	// Url The SSH Git repository URL to clone from.
-	Url string `json:"url"`
 }
 
 // Status Status is a return value for calls that don't return other objects.
@@ -3295,22 +3404,24 @@ func (a DeviceSystemInfo) MarshalJSON() ([]byte, error) {
 	return json.Marshal(object)
 }
 
-// AsImageApplicationProviderSpec returns the union data inside the ApplicationProviderSpec as a ImageApplicationProviderSpec
-func (t ApplicationProviderSpec) AsImageApplicationProviderSpec() (ImageApplicationProviderSpec, error) {
-	var body ImageApplicationProviderSpec
+// AsComposeApplication returns the union data inside the ApplicationProviderSpec as a ComposeApplication
+func (t ApplicationProviderSpec) AsComposeApplication() (ComposeApplication, error) {
+	var body ComposeApplication
 	err := json.Unmarshal(t.union, &body)
 	return body, err
 }
 
-// FromImageApplicationProviderSpec overwrites any union data inside the ApplicationProviderSpec as the provided ImageApplicationProviderSpec
-func (t *ApplicationProviderSpec) FromImageApplicationProviderSpec(v ImageApplicationProviderSpec) error {
+// FromComposeApplication overwrites any union data inside the ApplicationProviderSpec as the provided ComposeApplication
+func (t *ApplicationProviderSpec) FromComposeApplication(v ComposeApplication) error {
+	v.AppType = "compose"
 	b, err := json.Marshal(v)
 	t.union = b
 	return err
 }
 
-// MergeImageApplicationProviderSpec performs a merge with any union data inside the ApplicationProviderSpec, using the provided ImageApplicationProviderSpec
-func (t *ApplicationProviderSpec) MergeImageApplicationProviderSpec(v ImageApplicationProviderSpec) error {
+// MergeComposeApplication performs a merge with any union data inside the ApplicationProviderSpec, using the provided ComposeApplication
+func (t *ApplicationProviderSpec) MergeComposeApplication(v ComposeApplication) error {
+	v.AppType = "compose"
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
@@ -3321,22 +3432,24 @@ func (t *ApplicationProviderSpec) MergeImageApplicationProviderSpec(v ImageAppli
 	return err
 }
 
-// AsInlineApplicationProviderSpec returns the union data inside the ApplicationProviderSpec as a InlineApplicationProviderSpec
-func (t ApplicationProviderSpec) AsInlineApplicationProviderSpec() (InlineApplicationProviderSpec, error) {
-	var body InlineApplicationProviderSpec
+// AsQuadletApplication returns the union data inside the ApplicationProviderSpec as a QuadletApplication
+func (t ApplicationProviderSpec) AsQuadletApplication() (QuadletApplication, error) {
+	var body QuadletApplication
 	err := json.Unmarshal(t.union, &body)
 	return body, err
 }
 
-// FromInlineApplicationProviderSpec overwrites any union data inside the ApplicationProviderSpec as the provided InlineApplicationProviderSpec
-func (t *ApplicationProviderSpec) FromInlineApplicationProviderSpec(v InlineApplicationProviderSpec) error {
+// FromQuadletApplication overwrites any union data inside the ApplicationProviderSpec as the provided QuadletApplication
+func (t *ApplicationProviderSpec) FromQuadletApplication(v QuadletApplication) error {
+	v.AppType = "quadlet"
 	b, err := json.Marshal(v)
 	t.union = b
 	return err
 }
 
-// MergeInlineApplicationProviderSpec performs a merge with any union data inside the ApplicationProviderSpec, using the provided InlineApplicationProviderSpec
-func (t *ApplicationProviderSpec) MergeInlineApplicationProviderSpec(v InlineApplicationProviderSpec) error {
+// MergeQuadletApplication performs a merge with any union data inside the ApplicationProviderSpec, using the provided QuadletApplication
+func (t *ApplicationProviderSpec) MergeQuadletApplication(v QuadletApplication) error {
+	v.AppType = "quadlet"
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
@@ -3345,75 +3458,98 @@ func (t *ApplicationProviderSpec) MergeInlineApplicationProviderSpec(v InlineApp
 	merged, err := runtime.JSONMerge(t.union, b)
 	t.union = merged
 	return err
+}
+
+// AsContainerApplication returns the union data inside the ApplicationProviderSpec as a ContainerApplication
+func (t ApplicationProviderSpec) AsContainerApplication() (ContainerApplication, error) {
+	var body ContainerApplication
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromContainerApplication overwrites any union data inside the ApplicationProviderSpec as the provided ContainerApplication
+func (t *ApplicationProviderSpec) FromContainerApplication(v ContainerApplication) error {
+	v.AppType = "container"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeContainerApplication performs a merge with any union data inside the ApplicationProviderSpec, using the provided ContainerApplication
+func (t *ApplicationProviderSpec) MergeContainerApplication(v ContainerApplication) error {
+	v.AppType = "container"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsHelmApplication returns the union data inside the ApplicationProviderSpec as a HelmApplication
+func (t ApplicationProviderSpec) AsHelmApplication() (HelmApplication, error) {
+	var body HelmApplication
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromHelmApplication overwrites any union data inside the ApplicationProviderSpec as the provided HelmApplication
+func (t *ApplicationProviderSpec) FromHelmApplication(v HelmApplication) error {
+	v.AppType = "helm"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeHelmApplication performs a merge with any union data inside the ApplicationProviderSpec, using the provided HelmApplication
+func (t *ApplicationProviderSpec) MergeHelmApplication(v HelmApplication) error {
+	v.AppType = "helm"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t ApplicationProviderSpec) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"appType"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t ApplicationProviderSpec) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "compose":
+		return t.AsComposeApplication()
+	case "container":
+		return t.AsContainerApplication()
+	case "helm":
+		return t.AsHelmApplication()
+	case "quadlet":
+		return t.AsQuadletApplication()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
 }
 
 func (t ApplicationProviderSpec) MarshalJSON() ([]byte, error) {
 	b, err := t.union.MarshalJSON()
-	if err != nil {
-		return nil, err
-	}
-	object := make(map[string]json.RawMessage)
-	if t.union != nil {
-		err = json.Unmarshal(b, &object)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	object["appType"], err = json.Marshal(t.AppType)
-	if err != nil {
-		return nil, fmt.Errorf("error marshaling 'appType': %w", err)
-	}
-
-	if t.EnvVars != nil {
-		object["envVars"], err = json.Marshal(t.EnvVars)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'envVars': %w", err)
-		}
-	}
-
-	if t.Name != nil {
-		object["name"], err = json.Marshal(t.Name)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'name': %w", err)
-		}
-	}
-	b, err = json.Marshal(object)
 	return b, err
 }
 
 func (t *ApplicationProviderSpec) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
-	if err != nil {
-		return err
-	}
-	object := make(map[string]json.RawMessage)
-	err = json.Unmarshal(b, &object)
-	if err != nil {
-		return err
-	}
-
-	if raw, found := object["appType"]; found {
-		err = json.Unmarshal(raw, &t.AppType)
-		if err != nil {
-			return fmt.Errorf("error reading 'appType': %w", err)
-		}
-	}
-
-	if raw, found := object["envVars"]; found {
-		err = json.Unmarshal(raw, &t.EnvVars)
-		if err != nil {
-			return fmt.Errorf("error reading 'envVars': %w", err)
-		}
-	}
-
-	if raw, found := object["name"]; found {
-		err = json.Unmarshal(raw, &t.Name)
-		if err != nil {
-			return fmt.Errorf("error reading 'name': %w", err)
-		}
-	}
-
 	return err
 }
 
@@ -3997,6 +4133,142 @@ func (t Batch_Limit) MarshalJSON() ([]byte, error) {
 
 func (t *Batch_Limit) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsImageApplicationProviderSpec returns the union data inside the ComposeApplication as a ImageApplicationProviderSpec
+func (t ComposeApplication) AsImageApplicationProviderSpec() (ImageApplicationProviderSpec, error) {
+	var body ImageApplicationProviderSpec
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromImageApplicationProviderSpec overwrites any union data inside the ComposeApplication as the provided ImageApplicationProviderSpec
+func (t *ComposeApplication) FromImageApplicationProviderSpec(v ImageApplicationProviderSpec) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeImageApplicationProviderSpec performs a merge with any union data inside the ComposeApplication, using the provided ImageApplicationProviderSpec
+func (t *ComposeApplication) MergeImageApplicationProviderSpec(v ImageApplicationProviderSpec) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsInlineApplicationProviderSpec returns the union data inside the ComposeApplication as a InlineApplicationProviderSpec
+func (t ComposeApplication) AsInlineApplicationProviderSpec() (InlineApplicationProviderSpec, error) {
+	var body InlineApplicationProviderSpec
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromInlineApplicationProviderSpec overwrites any union data inside the ComposeApplication as the provided InlineApplicationProviderSpec
+func (t *ComposeApplication) FromInlineApplicationProviderSpec(v InlineApplicationProviderSpec) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeInlineApplicationProviderSpec performs a merge with any union data inside the ComposeApplication, using the provided InlineApplicationProviderSpec
+func (t *ComposeApplication) MergeInlineApplicationProviderSpec(v InlineApplicationProviderSpec) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t ComposeApplication) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	if err != nil {
+		return nil, err
+	}
+	object := make(map[string]json.RawMessage)
+	if t.union != nil {
+		err = json.Unmarshal(b, &object)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	object["appType"], err = json.Marshal(t.AppType)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'appType': %w", err)
+	}
+
+	if t.EnvVars != nil {
+		object["envVars"], err = json.Marshal(t.EnvVars)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'envVars': %w", err)
+		}
+	}
+
+	if t.Name != nil {
+		object["name"], err = json.Marshal(t.Name)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'name': %w", err)
+		}
+	}
+
+	if t.Volumes != nil {
+		object["volumes"], err = json.Marshal(t.Volumes)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'volumes': %w", err)
+		}
+	}
+	b, err = json.Marshal(object)
+	return b, err
+}
+
+func (t *ComposeApplication) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	if err != nil {
+		return err
+	}
+	object := make(map[string]json.RawMessage)
+	err = json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["appType"]; found {
+		err = json.Unmarshal(raw, &t.AppType)
+		if err != nil {
+			return fmt.Errorf("error reading 'appType': %w", err)
+		}
+	}
+
+	if raw, found := object["envVars"]; found {
+		err = json.Unmarshal(raw, &t.EnvVars)
+		if err != nil {
+			return fmt.Errorf("error reading 'envVars': %w", err)
+		}
+	}
+
+	if raw, found := object["name"]; found {
+		err = json.Unmarshal(raw, &t.Name)
+		if err != nil {
+			return fmt.Errorf("error reading 'name': %w", err)
+		}
+	}
+
+	if raw, found := object["volumes"]; found {
+		err = json.Unmarshal(raw, &t.Volumes)
+		if err != nil {
+			return fmt.Errorf("error reading 'volumes': %w", err)
+		}
+	}
+
 	return err
 }
 
@@ -4997,22 +5269,172 @@ func (t *OciAuth) UnmarshalJSON(b []byte) error {
 	return err
 }
 
-// AsGenericRepoSpec returns the union data inside the RepositorySpec as a GenericRepoSpec
-func (t RepositorySpec) AsGenericRepoSpec() (GenericRepoSpec, error) {
-	var body GenericRepoSpec
+// AsImageApplicationProviderSpec returns the union data inside the QuadletApplication as a ImageApplicationProviderSpec
+func (t QuadletApplication) AsImageApplicationProviderSpec() (ImageApplicationProviderSpec, error) {
+	var body ImageApplicationProviderSpec
 	err := json.Unmarshal(t.union, &body)
 	return body, err
 }
 
-// FromGenericRepoSpec overwrites any union data inside the RepositorySpec as the provided GenericRepoSpec
-func (t *RepositorySpec) FromGenericRepoSpec(v GenericRepoSpec) error {
+// FromImageApplicationProviderSpec overwrites any union data inside the QuadletApplication as the provided ImageApplicationProviderSpec
+func (t *QuadletApplication) FromImageApplicationProviderSpec(v ImageApplicationProviderSpec) error {
 	b, err := json.Marshal(v)
 	t.union = b
 	return err
 }
 
-// MergeGenericRepoSpec performs a merge with any union data inside the RepositorySpec, using the provided GenericRepoSpec
-func (t *RepositorySpec) MergeGenericRepoSpec(v GenericRepoSpec) error {
+// MergeImageApplicationProviderSpec performs a merge with any union data inside the QuadletApplication, using the provided ImageApplicationProviderSpec
+func (t *QuadletApplication) MergeImageApplicationProviderSpec(v ImageApplicationProviderSpec) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsInlineApplicationProviderSpec returns the union data inside the QuadletApplication as a InlineApplicationProviderSpec
+func (t QuadletApplication) AsInlineApplicationProviderSpec() (InlineApplicationProviderSpec, error) {
+	var body InlineApplicationProviderSpec
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromInlineApplicationProviderSpec overwrites any union data inside the QuadletApplication as the provided InlineApplicationProviderSpec
+func (t *QuadletApplication) FromInlineApplicationProviderSpec(v InlineApplicationProviderSpec) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeInlineApplicationProviderSpec performs a merge with any union data inside the QuadletApplication, using the provided InlineApplicationProviderSpec
+func (t *QuadletApplication) MergeInlineApplicationProviderSpec(v InlineApplicationProviderSpec) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t QuadletApplication) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	if err != nil {
+		return nil, err
+	}
+	object := make(map[string]json.RawMessage)
+	if t.union != nil {
+		err = json.Unmarshal(b, &object)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	object["appType"], err = json.Marshal(t.AppType)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'appType': %w", err)
+	}
+
+	if t.EnvVars != nil {
+		object["envVars"], err = json.Marshal(t.EnvVars)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'envVars': %w", err)
+		}
+	}
+
+	if t.Name != nil {
+		object["name"], err = json.Marshal(t.Name)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'name': %w", err)
+		}
+	}
+
+	object["runAs"], err = json.Marshal(t.RunAs)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'runAs': %w", err)
+	}
+
+	if t.Volumes != nil {
+		object["volumes"], err = json.Marshal(t.Volumes)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'volumes': %w", err)
+		}
+	}
+	b, err = json.Marshal(object)
+	return b, err
+}
+
+func (t *QuadletApplication) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	if err != nil {
+		return err
+	}
+	object := make(map[string]json.RawMessage)
+	err = json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["appType"]; found {
+		err = json.Unmarshal(raw, &t.AppType)
+		if err != nil {
+			return fmt.Errorf("error reading 'appType': %w", err)
+		}
+	}
+
+	if raw, found := object["envVars"]; found {
+		err = json.Unmarshal(raw, &t.EnvVars)
+		if err != nil {
+			return fmt.Errorf("error reading 'envVars': %w", err)
+		}
+	}
+
+	if raw, found := object["name"]; found {
+		err = json.Unmarshal(raw, &t.Name)
+		if err != nil {
+			return fmt.Errorf("error reading 'name': %w", err)
+		}
+	}
+
+	if raw, found := object["runAs"]; found {
+		err = json.Unmarshal(raw, &t.RunAs)
+		if err != nil {
+			return fmt.Errorf("error reading 'runAs': %w", err)
+		}
+	}
+
+	if raw, found := object["volumes"]; found {
+		err = json.Unmarshal(raw, &t.Volumes)
+		if err != nil {
+			return fmt.Errorf("error reading 'volumes': %w", err)
+		}
+	}
+
+	return err
+}
+
+// AsGitRepoSpec returns the union data inside the RepositorySpec as a GitRepoSpec
+func (t RepositorySpec) AsGitRepoSpec() (GitRepoSpec, error) {
+	var body GitRepoSpec
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromGitRepoSpec overwrites any union data inside the RepositorySpec as the provided GitRepoSpec
+func (t *RepositorySpec) FromGitRepoSpec(v GitRepoSpec) error {
+	v.Type = "git"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeGitRepoSpec performs a merge with any union data inside the RepositorySpec, using the provided GitRepoSpec
+func (t *RepositorySpec) MergeGitRepoSpec(v GitRepoSpec) error {
+	v.Type = "git"
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
@@ -5032,6 +5454,7 @@ func (t RepositorySpec) AsHttpRepoSpec() (HttpRepoSpec, error) {
 
 // FromHttpRepoSpec overwrites any union data inside the RepositorySpec as the provided HttpRepoSpec
 func (t *RepositorySpec) FromHttpRepoSpec(v HttpRepoSpec) error {
+	v.Type = "http"
 	b, err := json.Marshal(v)
 	t.union = b
 	return err
@@ -5039,32 +5462,7 @@ func (t *RepositorySpec) FromHttpRepoSpec(v HttpRepoSpec) error {
 
 // MergeHttpRepoSpec performs a merge with any union data inside the RepositorySpec, using the provided HttpRepoSpec
 func (t *RepositorySpec) MergeHttpRepoSpec(v HttpRepoSpec) error {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-// AsSshRepoSpec returns the union data inside the RepositorySpec as a SshRepoSpec
-func (t RepositorySpec) AsSshRepoSpec() (SshRepoSpec, error) {
-	var body SshRepoSpec
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromSshRepoSpec overwrites any union data inside the RepositorySpec as the provided SshRepoSpec
-func (t *RepositorySpec) FromSshRepoSpec(v SshRepoSpec) error {
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeSshRepoSpec performs a merge with any union data inside the RepositorySpec, using the provided SshRepoSpec
-func (t *RepositorySpec) MergeSshRepoSpec(v SshRepoSpec) error {
+	v.Type = "http"
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
@@ -5084,6 +5482,7 @@ func (t RepositorySpec) AsOciRepoSpec() (OciRepoSpec, error) {
 
 // FromOciRepoSpec overwrites any union data inside the RepositorySpec as the provided OciRepoSpec
 func (t *RepositorySpec) FromOciRepoSpec(v OciRepoSpec) error {
+	v.Type = "oci"
 	b, err := json.Marshal(v)
 	t.union = b
 	return err
@@ -5091,6 +5490,7 @@ func (t *RepositorySpec) FromOciRepoSpec(v OciRepoSpec) error {
 
 // MergeOciRepoSpec performs a merge with any union data inside the RepositorySpec, using the provided OciRepoSpec
 func (t *RepositorySpec) MergeOciRepoSpec(v OciRepoSpec) error {
+	v.Type = "oci"
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
@@ -5099,6 +5499,31 @@ func (t *RepositorySpec) MergeOciRepoSpec(v OciRepoSpec) error {
 	merged, err := runtime.JSONMerge(t.union, b)
 	t.union = merged
 	return err
+}
+
+func (t RepositorySpec) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"type"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t RepositorySpec) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "git":
+		return t.AsGitRepoSpec()
+	case "http":
+		return t.AsHttpRepoSpec()
+	case "oci":
+		return t.AsOciRepoSpec()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
 }
 
 func (t RepositorySpec) MarshalJSON() ([]byte, error) {

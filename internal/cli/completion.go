@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
-	apiclient "github.com/flightctl/flightctl/internal/api/client"
+	"github.com/flightctl/flightctl/internal/client"
 	"github.com/spf13/cobra"
 )
 
@@ -157,7 +157,7 @@ func (o *CompletionOptions) Validate(args []string) error {
 
 type ClientBuilderOptions interface {
 	Complete(cmd *cobra.Command, args []string) error
-	BuildClient() (*apiclient.ClientWithResponses, error)
+	BuildClient() (*client.Client, error)
 }
 
 type KindNameAutocomplete struct {
@@ -222,6 +222,8 @@ func (kna *KindNameAutocomplete) getAutocompleteNames(cmd *cobra.Command, o Clie
 	}
 	c, err := o.BuildClient()
 	if err == nil {
+		c.Start(context.Background())
+		defer c.Stop()
 		switch kind {
 		case DeviceKind:
 			resp, err := c.ListDevicesWithResponse(context.Background(), &api.ListDevicesParams{})

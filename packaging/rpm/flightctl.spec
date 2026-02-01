@@ -456,7 +456,11 @@ echo "Flight Control Observability Stack uninstalled."
     mkdir -p %{buildroot}/usr/lib/flightctl/custom-info.d
     mkdir -p %{buildroot}/usr/lib/flightctl/hooks.d/{afterupdating,beforeupdating,afterrebooting,beforerebooting}
     mkdir -p %{buildroot}/usr/lib/greenboot/check/required.d
+    mkdir -p %{buildroot}/usr/lib/greenboot/red.d
+    mkdir -p %{buildroot}/usr/share/flightctl/functions
+    install -m 0755 packaging/greenboot/functions.sh %{buildroot}/usr/share/flightctl/functions/greenboot.sh
     install -m 0755 packaging/greenboot/flightctl-agent-running-check.sh %{buildroot}/usr/lib/greenboot/check/required.d/20_check_flightctl_agent.sh
+    install -m 0755 packaging/greenboot/flightctl-agent-pre-rollback.sh %{buildroot}/usr/lib/greenboot/red.d/40_flightctl_agent_pre_rollback.sh
     cp bin/flightctl-agent %{buildroot}/usr/bin
     cp packaging/must-gather/flightctl-must-gather %{buildroot}/usr/bin
     cp packaging/hooks.d/afterupdating/00-default.yaml %{buildroot}/usr/lib/flightctl/hooks.d/afterupdating
@@ -502,7 +506,8 @@ echo "Flight Control Observability Stack uninstalled."
         --writeable-config-dir "%{buildroot}%{_sysconfdir}/flightctl" \
         --quadlet-dir "%{buildroot}%{_datadir}/containers/systemd" \
         --systemd-dir "%{buildroot}/usr/lib/systemd/system" \
-        --bin-dir "%{buildroot}/usr/bin"
+        --bin-dir "%{buildroot}/usr/bin" \
+        --var-tmp-dir "%{buildroot}%{_var}/tmp"
 
     # Copy services must gather script
     cp packaging/must-gather/flightctl-services-must-gather %{buildroot}%{_bindir}
@@ -626,7 +631,9 @@ fi
     /usr/lib/systemd/system/flightctl-agent.service
     /usr/lib/tmpfiles.d/flightctl.conf
     /usr/lib/tmpfiles.d/centos-buildinfo.conf
+    /usr/share/flightctl/functions/greenboot.sh
     /usr/lib/greenboot/check/required.d/20_check_flightctl_agent.sh
+    /usr/lib/greenboot/red.d/40_flightctl_agent_pre_rollback.sh
     /usr/share/sosreport/flightctl.py
 
 %post agent
@@ -651,6 +658,15 @@ cp /usr/share/sosreport/flightctl.py $INSTALL_DIR
 chmod 0644 $INSTALL_DIR/flightctl.py
 rm -rf /usr/share/sosreport
 
+# We want a regular user to run applications with as there are several issues around system users
+# and running quadlet applications.
+id -u flightctl || useradd --home-dir /home/flightctl --create-home --user-group flightctl
+loginctl enable-linger flightctl || :
+mkdir -p /home/flightctl/{.config,.local}
+chown -R flightctl:flightctl /home/flightctl/{.config,.local}
+
+%postun agent
+loginctl disable-linger flightctl || :
 
 %files selinux
 %{_datadir}/selinux/packages/%{selinuxtype}/flightctl_agent.pp.bz2
@@ -693,6 +709,8 @@ rm -rf /usr/share/sosreport
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-db-migrate
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-imagebuilder-api
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-imagebuilder-worker
+    %dir %attr(0755,root,root) %{_var}/tmp/flightctl-builds
+    %dir %attr(0755,root,root) %{_var}/tmp/flightctl-exports
     %{_datadir}/flightctl/flightctl-api/config.yaml.template
     %{_datadir}/flightctl/flightctl-api/env.template
     %attr(0755,root,root) %{_datadir}/flightctl/flightctl-api/init.sh

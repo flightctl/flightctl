@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"path"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -16,6 +18,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
 	"github.com/flightctl/flightctl/internal/agent/device/dependency"
+	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/systemd"
 	"github.com/flightctl/flightctl/pkg/executer"
@@ -26,6 +29,28 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
+
+func streamDataToStdout(t *testing.T, reader io.Reader) *exec.Cmd {
+	t.Helper()
+	dir := t.TempDir()
+	file := filepath.Join(dir, "command_output")
+	f, err := os.OpenFile(file, os.O_CREATE|os.O_WRONLY, 0666)
+	require.NoError(t, err)
+
+	go func() {
+		defer f.Close()
+		_, err := io.Copy(f, reader)
+		if err != nil && !errors.Is(err, io.EOF) {
+			t.Logf("Failed to stream reader to file: %v", err)
+		}
+	}()
+
+	return exec.CommandContext(t.Context(), "tail", "-f", "-n", "+1", file)
+}
+
+func podmanEventsCommandMock(execMock *executer.MockExecuter) *gomock.Call {
+	return execMock.EXPECT().CommandContext(gomock.Any(), "podman", "events", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any())
+}
 
 func TestListenForEvents(t *testing.T) {
 	require := require.New(t)
@@ -41,12 +66,12 @@ func TestListenForEvents(t *testing.T) {
 		{
 			name: "single app start",
 			apps: []Application{
-				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing),
+				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
 			},
 			events: []client.PodmanEvent{
-				mockPodmanEventSuccess("app1", "app1-service-1", "init"),
-				mockPodmanEventSuccess("app1", "app1-service-1", "create"),
-				mockPodmanEventSuccess("app1", "app1-service-1", "start"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "init"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "create"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "start"),
 			},
 			expectedReady:    "1/1",
 			expectedStatus:   v1beta1.ApplicationStatusRunning,
@@ -56,16 +81,16 @@ func TestListenForEvents(t *testing.T) {
 		{
 			name: "single app multiple containers started then one manual stop exit code 0",
 			apps: []Application{
-				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing),
+				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
 			},
 			events: []client.PodmanEvent{
-				mockPodmanEventSuccess("app1", "app1-service-1", "init"),
-				mockPodmanEventSuccess("app1", "app1-service-1", "create"),
-				mockPodmanEventSuccess("app1", "app1-service-1", "start"),
-				mockPodmanEventSuccess("app1", "app1-service-2", "init"),
-				mockPodmanEventSuccess("app1", "app1-service-2", "create"),
-				mockPodmanEventSuccess("app1", "app1-service-2", "start"),
-				mockPodmanEventSuccess("app1", "app1-service-2", "stop"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "init"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "create"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "start"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "init"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "create"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "start"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "stop"),
 			},
 			expectedReady:   "1/2",
 			expectedStatus:  v1beta1.ApplicationStatusRunning,
@@ -74,16 +99,16 @@ func TestListenForEvents(t *testing.T) {
 		{
 			name: "single app multiple containers started then one manual stop result sigkill",
 			apps: []Application{
-				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing),
+				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
 			},
 			events: []client.PodmanEvent{
-				mockPodmanEventSuccess("app1", "app1-service-1", "init"),
-				mockPodmanEventSuccess("app1", "app1-service-1", "create"),
-				mockPodmanEventSuccess("app1", "app1-service-1", "start"),
-				mockPodmanEventSuccess("app1", "app1-service-2", "init"),
-				mockPodmanEventSuccess("app1", "app1-service-2", "create"),
-				mockPodmanEventSuccess("app1", "app1-service-2", "start"),
-				mockPodmanEventError("app1", "app1-service-2", "died", 137),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "init"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "create"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "start"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "init"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "create"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "start"),
+				mockPodmanEventError("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "died", 137),
 			},
 			expectedReady:   "1/2",
 			expectedStatus:  v1beta1.ApplicationStatusRunning,
@@ -92,13 +117,13 @@ func TestListenForEvents(t *testing.T) {
 		{
 			name: "single app start then die",
 			apps: []Application{
-				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing),
+				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
 			},
 			events: []client.PodmanEvent{
-				mockPodmanEventSuccess("app1", "app1-service-1", "init"),
-				mockPodmanEventSuccess("app1", "app1-service-1", "create"),
-				mockPodmanEventSuccess("app1", "app1-service-1", "start"),
-				mockPodmanEventSuccess("app1", "app1-service-1", "die"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "init"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "create"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "start"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "die"),
 			},
 			expectedReady:   "0/1",
 			expectedStatus:  v1beta1.ApplicationStatusError,
@@ -107,16 +132,16 @@ func TestListenForEvents(t *testing.T) {
 		{
 			name: "single app multiple containers one error one running",
 			apps: []Application{
-				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing),
+				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
 			},
 			events: []client.PodmanEvent{
-				mockPodmanEventSuccess("app1", "app1-service-1", "init"),
-				mockPodmanEventSuccess("app1", "app1-service-1", "create"),
-				mockPodmanEventSuccess("app1", "app1-service-1", "start"),
-				mockPodmanEventSuccess("app1", "app1-service-2", "init"),
-				mockPodmanEventSuccess("app1", "app1-service-2", "create"),
-				mockPodmanEventSuccess("app1", "app1-service-2", "start"),
-				mockPodmanEventSuccess("app1", "app1-service-2", "die"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "init"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "create"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "start"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "init"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "create"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "start"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "die"),
 			},
 			expectedReady:   "1/2",
 			expectedStatus:  v1beta1.ApplicationStatusRunning,
@@ -125,16 +150,16 @@ func TestListenForEvents(t *testing.T) {
 		{
 			name: "multiple apps preparing to running",
 			apps: []Application{
-				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing),
-				createTestApplication(require, "app2", v1beta1.ApplicationStatusPreparing),
+				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
+				createTestApplication(require, "app2", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
 			},
 			events: []client.PodmanEvent{
-				mockPodmanEventSuccess("app1", "app1-service-1", "init"),
-				mockPodmanEventSuccess("app1", "app1-service-1", "create"),
-				mockPodmanEventSuccess("app1", "app1-service-1", "start"),
-				mockPodmanEventSuccess("app2", "app1-service-1", "init"),
-				mockPodmanEventSuccess("app2", "app1-service-1", "create"),
-				mockPodmanEventSuccess("app2", "app1-service-1", "start"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "init"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "create"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "start"),
+				mockPodmanEventSuccess("app2", v1beta1.CurrentProcessUsername, "app1-service-1", "init"),
+				mockPodmanEventSuccess("app2", v1beta1.CurrentProcessUsername, "app1-service-1", "create"),
+				mockPodmanEventSuccess("app2", v1beta1.CurrentProcessUsername, "app1-service-1", "start"),
 			},
 			expectedReady:   "1/1",
 			expectedStatus:  v1beta1.ApplicationStatusRunning,
@@ -143,13 +168,13 @@ func TestListenForEvents(t *testing.T) {
 		{
 			name: "app start then removed",
 			apps: []Application{
-				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing),
+				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
 			},
 			events: []client.PodmanEvent{
-				mockPodmanEventSuccess("app1", "app1-service-1", "init"),
-				mockPodmanEventSuccess("app1", "app1-service-1", "create"),
-				mockPodmanEventSuccess("app1", "app1-service-1", "start"),
-				mockPodmanEventSuccess("app1", "app1-service-1", "remove"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "init"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "create"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "start"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "remove"),
 			},
 			expectedReady:   "0/0",
 			expectedStatus:  v1beta1.ApplicationStatusUnknown,
@@ -158,20 +183,20 @@ func TestListenForEvents(t *testing.T) {
 		{
 			name: "app upgrade different service/container counts",
 			apps: []Application{
-				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing),
+				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
 			},
 			events: []client.PodmanEvent{
-				mockPodmanEventSuccess("app1", "app1-service-1", "init"),
-				mockPodmanEventSuccess("app1", "app1-service-1", "create"),
-				mockPodmanEventSuccess("app1", "app1-service-1", "start"),
-				mockPodmanEventSuccess("app1", "app1-service-1", "remove"),
-				mockPodmanEventSuccess("app1", "app1-service-2", "init"),
-				mockPodmanEventSuccess("app1", "app1-service-2", "create"),
-				mockPodmanEventSuccess("app1", "app1-service-2", "start"),
-				mockPodmanEventSuccess("app1", "app1-service-2", "remove"),
-				mockPodmanEventSuccess("app1", "app1-service-1", "init"),
-				mockPodmanEventSuccess("app1", "app1-service-1", "create"),
-				mockPodmanEventSuccess("app1", "app1-service-1", "start"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "init"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "create"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "start"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "remove"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "init"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "create"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "start"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "remove"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "init"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "create"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "start"),
 			},
 			expectedReady:   "1/1",
 			expectedStatus:  v1beta1.ApplicationStatusRunning,
@@ -180,13 +205,13 @@ func TestListenForEvents(t *testing.T) {
 		{
 			name: "app only creates container no start",
 			apps: []Application{
-				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing),
+				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
 			},
 			events: []client.PodmanEvent{
-				mockPodmanEventSuccess("app1", "app1-service-1", "init"),
-				mockPodmanEventSuccess("app1", "app1-service-1", "create"),
-				mockPodmanEventSuccess("app1", "app1-service-1", "start"),
-				mockPodmanEventSuccess("app1", "app1-service-2", "create"), // no start
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "init"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "create"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "start"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "create"), // no start
 			},
 			expectedReady:   "1/2",
 			expectedStatus:  v1beta1.ApplicationStatusRunning,
@@ -207,31 +232,50 @@ func TestListenForEvents(t *testing.T) {
 			)
 			execMock := executer.NewMockExecuter(ctrl)
 
+			mockComposeHandler := lifecycle.NewMockActionHandler(ctrl)
+			mockQuadletHandler := lifecycle.NewMockActionHandler(ctrl)
+			mockComposeHandler.EXPECT().Execute(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+			mockQuadletHandler.EXPECT().Execute(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+
 			var testInspect []client.PodmanInspect
 			restartsPerContainer := 3
 			testInspect = append(testInspect, mockPodmanInspect(restartsPerContainer))
 			inspectBytes, err := json.Marshal(testInspect)
 			require.NoError(err)
 
-			podman := client.NewPodman(log, execMock, rw, util.NewPollConfig())
-			systemdMgr := systemd.NewMockManager(ctrl)
-			systemdMgr.EXPECT().AddExclusions(gomock.Any()).AnyTimes()
-			systemdMgr.EXPECT().RemoveExclusions(gomock.Any()).AnyTimes()
-			podmanMonitor := NewPodmanMonitor(log, podman, systemdMgr, "", rw)
-
-			// add test apps to the monitor
-			for _, testApp := range tc.apps {
-				err := podmanMonitor.Ensure(testApp)
-				require.NoError(err)
-			}
-
 			// create a pipe to simulate events being written to the monitor
 			reader, writer := io.Pipe()
 			defer reader.Close()
 
-			go podmanMonitor.listenForEvents(context.Background(), reader)
-
 			execMock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return(string(inspectBytes), "", 0).Times(len(tc.events))
+			podmanEventsCommandMock(execMock).Return(streamDataToStdout(t, reader))
+
+			podman := client.NewPodman(log, execMock, rw, util.NewPollConfig())
+			systemdMgr := systemd.NewMockManager(ctrl)
+			systemdMgr.EXPECT().AddExclusions(gomock.Any()).AnyTimes()
+			systemdMgr.EXPECT().RemoveExclusions(gomock.Any()).AnyTimes()
+
+			var podmanFactory client.PodmanFactory = func(user v1beta1.Username) (*client.Podman, error) {
+				return podman, nil
+			}
+			var systemdFactory systemd.ManagerFactory = func(user v1beta1.Username) (systemd.Manager, error) {
+				return systemdMgr, nil
+			}
+			var rwFactory fileio.ReadWriterFactory = func(username v1beta1.Username) (fileio.ReadWriter, error) {
+				return rw, nil
+			}
+			podmanMonitor := NewPodmanMonitor(log, podmanFactory, systemdFactory, "", rwFactory)
+
+			podmanMonitor.handlers[v1beta1.AppTypeCompose] = mockComposeHandler
+			podmanMonitor.handlers[v1beta1.AppTypeQuadlet] = mockQuadletHandler
+
+			// add test apps to the monitor
+			for _, testApp := range tc.apps {
+				err := podmanMonitor.Ensure(t.Context(), testApp)
+				require.NoError(err)
+			}
+			err = podmanMonitor.ExecuteActions(t.Context())
+			require.NoError(err)
 
 			// simulate events being written to the pipe
 			go func() {
@@ -369,15 +413,25 @@ func TestApplicationAddRemove(t *testing.T) {
 			systemdMgr := systemd.NewMockManager(ctrl)
 			systemdMgr.EXPECT().AddExclusions(gomock.Any()).AnyTimes()
 			systemdMgr.EXPECT().RemoveExclusions(gomock.Any()).AnyTimes()
-			podmanMonitor := NewPodmanMonitor(log, podman, systemdMgr, "", readWriter)
-			testApp := createTestApplication(require, tc.appName, v1beta1.ApplicationStatusPreparing)
+
+			var podmanFactory client.PodmanFactory = func(user v1beta1.Username) (*client.Podman, error) {
+				return podman, nil
+			}
+			var systemdFactory systemd.ManagerFactory = func(user v1beta1.Username) (systemd.Manager, error) {
+				return systemdMgr, nil
+			}
+			var rwFactory fileio.ReadWriterFactory = func(username v1beta1.Username) (fileio.ReadWriter, error) {
+				return readWriter, nil
+			}
+			podmanMonitor := NewPodmanMonitor(log, podmanFactory, systemdFactory, "", rwFactory)
+			testApp := createTestApplication(require, tc.appName, v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername)
 
 			switch tc.action {
 			case "add":
-				err := podmanMonitor.Ensure(testApp)
+				err := podmanMonitor.Ensure(t.Context(), testApp)
 				require.NoError(err)
 			case "remove":
-				err := podmanMonitor.Remove(testApp)
+				err := podmanMonitor.QueueRemove(testApp)
 				require.NoError(err)
 			}
 
@@ -388,12 +442,12 @@ func TestApplicationAddRemove(t *testing.T) {
 	}
 }
 
-func createTestApplication(require *require.Assertions, name string, status v1beta1.ApplicationStatusType) Application {
-	return createTestApplicationWithType(require, name, status, v1beta1.AppTypeCompose)
+func createTestApplication(require *require.Assertions, name string, status v1beta1.ApplicationStatusType, user v1beta1.Username) Application {
+	return createTestApplicationWithType(require, name, status, user, v1beta1.AppTypeCompose)
 }
 
-func createTestApplicationWithType(require *require.Assertions, name string, status v1beta1.ApplicationStatusType, appType v1beta1.AppType) Application {
-	provider := newMockProvider(require, name, appType)
+func createTestApplicationWithType(require *require.Assertions, name string, status v1beta1.ApplicationStatusType, user v1beta1.Username, appType v1beta1.AppType) Application {
+	provider := newMockProvider(require, name, user, appType)
 	app := NewApplication(provider)
 	app.status.Status = status
 	return app
@@ -409,15 +463,15 @@ func writeEvent(writer io.WriteCloser, event *client.PodmanEvent) error {
 	return err
 }
 
-func mockPodmanEventSuccess(name, service, status string) client.PodmanEvent {
-	return createMockPodmanEvent(name, service, status, 0)
+func mockPodmanEventSuccess(name string, username v1beta1.Username, service, status string) client.PodmanEvent {
+	return createMockPodmanEvent(name, username, service, status, 0)
 }
 
-func mockPodmanEventError(name, service, status string, exitCode int) client.PodmanEvent {
-	return createMockPodmanEvent(name, service, status, exitCode)
+func mockPodmanEventError(name string, username v1beta1.Username, service, status string, exitCode int) client.PodmanEvent {
+	return createMockPodmanEvent(name, username, service, status, exitCode)
 }
 
-func createMockPodmanEvent(name, service, status string, exitCode int) client.PodmanEvent {
+func createMockPodmanEvent(name string, username v1beta1.Username, service, status string, exitCode int) client.PodmanEvent {
 	event := client.PodmanEvent{
 		ID:     "8559c630e04ea852101467742e95b9e371fe6dd8c9195910354636d68d388a40",
 		Image:  "docker.io/library/alpine:latest",
@@ -427,7 +481,7 @@ func createMockPodmanEvent(name, service, status string, exitCode int) client.Po
 		Attributes: map[string]string{
 			"PODMAN_SYSTEMD_UNIT":                     "podman-compose@user.service",
 			"com.docker.compose.container-number":     "1",
-			"com.docker.compose.project":              client.NewComposeID(name),
+			"com.docker.compose.project":              lifecycle.GenerateAppID(name, username),
 			"com.docker.compose.project.config_files": "podman-compose.yaml",
 			"com.docker.compose.project.working_dir":  path.Join("/usr/local/lib/compose", name),
 			"com.docker.compose.service":              service,
@@ -448,41 +502,47 @@ func mockPodmanInspect(restarts int) client.PodmanInspect {
 	}
 }
 
-func BenchmarkNewComposeID(b *testing.B) {
+func BenchmarkGenerateAppID(b *testing.B) {
 	// bench different string length
 	lengths := []int{50, 100, 253}
 	for _, size := range lengths {
 		b.Run(fmt.Sprintf("size_%d", size), func(b *testing.B) {
 			input := strings.Repeat("a", size)
 			for i := 0; i < b.N; i++ {
-				client.NewComposeID(input)
+				lifecycle.GenerateAppID(input, v1beta1.CurrentProcessUsername)
 			}
 		})
 	}
 }
 
-func newMockProvider(require *require.Assertions, name string, appType v1beta1.AppType) provider.Provider {
-	return &mockProvider{name: name, require: require, appType: appType}
+func newMockProvider(require *require.Assertions, name string, username v1beta1.Username, appType v1beta1.AppType) provider.Provider {
+	return &mockProvider{name: name, require: require, appType: appType, username: username}
 }
 
 type mockProvider struct {
-	name    string
-	require *require.Assertions
-	appType v1beta1.AppType
+	name     string
+	require  *require.Assertions
+	appType  v1beta1.AppType
+	username v1beta1.Username
 }
 
 func (m *mockProvider) Name() string {
 	return m.name
 }
 
+func (m *mockProvider) ID() string {
+	return lifecycle.GenerateAppID(m.name, m.username)
+}
+
 func (m *mockProvider) Spec() *provider.ApplicationSpec {
-	volManager, err := provider.NewVolumeManager(nil, m.name, v1beta1.AppTypeCompose, nil)
+	volManager, err := provider.NewVolumeManager(nil, m.name, v1beta1.AppTypeCompose, v1beta1.CurrentProcessUsername, nil)
 	m.require.NoError(err)
 	return &provider.ApplicationSpec{
-		ID:      client.NewComposeID(m.name),
+		ID:      lifecycle.GenerateAppID(m.name, m.username),
 		Name:    m.name,
 		Volume:  volManager,
 		AppType: m.appType,
+		User:    m.username,
 	}
 }
 
@@ -528,7 +588,16 @@ func TestPodmanMonitorMultipleAddRemoveCycles(t *testing.T) {
 			return exec.CommandContext(ctx, "echo", fmt.Sprintf(`{"timeNano": %d}`, now)) //nolint:gosec
 		}).AnyTimes()
 
-	podmanMonitor := NewPodmanMonitor(log, mockPodmanClient, systemd.NewMockManager(ctrl), "", readWriter)
+	var podmanFactory client.PodmanFactory = func(user v1beta1.Username) (*client.Podman, error) {
+		return mockPodmanClient, nil
+	}
+	var systemdFactory systemd.ManagerFactory = func(user v1beta1.Username) (systemd.Manager, error) {
+		return systemd.NewMockManager(ctrl), nil
+	}
+	var rwFactory fileio.ReadWriterFactory = func(username v1beta1.Username) (fileio.ReadWriter, error) {
+		return readWriter, nil
+	}
+	podmanMonitor := NewPodmanMonitor(log, podmanFactory, systemdFactory, "", rwFactory)
 
 	// Override lifecycle handlers with no-op mocks to avoid file/exec expectations
 	mockComposeHandler := lifecycle.NewMockActionHandler(ctrl)
@@ -538,73 +607,100 @@ func TestPodmanMonitorMultipleAddRemoveCycles(t *testing.T) {
 	podmanMonitor.handlers[v1beta1.AppTypeCompose] = mockComposeHandler
 	podmanMonitor.handlers[v1beta1.AppTypeQuadlet] = mockQuadletHandler
 
+	rootlessUser := v1beta1.Username("flightctl")
+
 	// Create test applications
-	app1 := createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing)
-	app2 := createTestApplication(require, "app2", v1beta1.ApplicationStatusPreparing)
+	app1 := createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername)
+	app2 := createTestApplication(require, "app2", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername)
+	app3 := createTestApplication(require, "app3", v1beta1.ApplicationStatusPreparing, rootlessUser)
 
 	// Application IDs for tracking
 	app1ID := app1.ID()
 	app2ID := app2.ID()
+	app3ID := app3.ID()
 
 	// 1. Start with no applications - verify monitor is not running
-	require.False(podmanMonitor.isRunning())
+	require.False(podmanMonitor.isRunning(v1beta1.CurrentProcessUsername))
+	require.False(podmanMonitor.isRunning(rootlessUser))
 	require.Equal(0, len(podmanMonitor.apps))
 
 	// 2. Add two applications
-	err := podmanMonitor.Ensure(app1)
+	err := podmanMonitor.Ensure(t.Context(), app1)
 	require.NoError(err)
-	err = podmanMonitor.Ensure(app2)
+	err = podmanMonitor.Ensure(t.Context(), app2)
+	require.NoError(err)
+	err = podmanMonitor.Ensure(t.Context(), app3)
 	require.NoError(err)
 
 	// Execute actions - monitor should start because we have apps
 	err = podmanMonitor.ExecuteActions(ctx)
 	require.NoError(err)
-	require.True(podmanMonitor.isRunning())
+	require.True(podmanMonitor.isRunning(v1beta1.CurrentProcessUsername))
+	require.True(podmanMonitor.isRunning(rootlessUser))
 	require.True(podmanMonitor.Has(app1ID))
 	require.True(podmanMonitor.Has(app2ID))
+	require.True(podmanMonitor.Has(app3ID))
 
 	// Process an event
 	require.Eventually(func() bool {
-		return podmanMonitor.getLastEventTime() != ""
+		return !podmanMonitor.watchers[v1beta1.CurrentProcessUsername].lastEventTime.Load().IsZero()
+	}, time.Millisecond*100, 5*time.Millisecond)
+
+	require.Eventually(func() bool {
+		return !podmanMonitor.watchers[rootlessUser].lastEventTime.Load().IsZero()
 	}, time.Millisecond*100, 5*time.Millisecond)
 
 	// 3. Remove app1 - monitor should still be running
-	err = podmanMonitor.Remove(app1)
+	err = podmanMonitor.QueueRemove(app1)
 	require.NoError(err)
 	err = podmanMonitor.ExecuteActions(ctx)
 	require.NoError(err)
-	require.True(podmanMonitor.isRunning()) // Still running because app2 exists
+	require.True(podmanMonitor.isRunning(v1beta1.CurrentProcessUsername)) // Still running because app2 exists
+	require.True(podmanMonitor.isRunning(rootlessUser))                   // Still running because app3 exists
 	require.False(podmanMonitor.Has(app1ID))
 	require.True(podmanMonitor.Has(app2ID))
+	require.True(podmanMonitor.Has(app3ID))
 
 	// 4. Remove app2 - monitor should stop
-	err = podmanMonitor.Remove(app2)
+	err = podmanMonitor.QueueRemove(app2)
 	require.NoError(err)
 	err = podmanMonitor.ExecuteActions(ctx)
 	require.NoError(err)
-	require.False(podmanMonitor.isRunning()) // Stopped because no apps
+	require.False(podmanMonitor.isRunning(v1beta1.CurrentProcessUsername)) // Stopped because only app3
+	require.True(podmanMonitor.isRunning(rootlessUser))                    // Still running because app3 exists
 	require.False(podmanMonitor.Has(app1ID))
 	require.False(podmanMonitor.Has(app2ID))
+	require.True(podmanMonitor.Has(app3ID))
+
+	err = podmanMonitor.QueueRemove(app3)
+	require.NoError(err)
+	err = podmanMonitor.ExecuteActions(ctx)
+	require.NoError(err)
+	require.False(podmanMonitor.isRunning(rootlessUser)) // Stopped because no apps
+	require.False(podmanMonitor.Has(app1ID))
+	require.False(podmanMonitor.Has(app2ID))
+	require.False(podmanMonitor.Has(app3ID))
 
 	// ensure no panic occurs as the result of stopping an already stopped monitor
 	err = podmanMonitor.ExecuteActions(ctx)
 	require.NoError(err)
-	require.False(podmanMonitor.isRunning())
+	require.False(podmanMonitor.isRunning(v1beta1.CurrentProcessUsername))
+	require.False(podmanMonitor.isRunning(rootlessUser))
 
 	// 5. Add app1 again - monitor should start
-	err = podmanMonitor.Ensure(app1)
+	err = podmanMonitor.Ensure(t.Context(), app1)
 	require.NoError(err)
 	err = podmanMonitor.ExecuteActions(ctx)
 	require.NoError(err)
-	require.True(podmanMonitor.isRunning()) // Started again
+	require.True(podmanMonitor.isRunning(v1beta1.CurrentProcessUsername)) // Started again
 	require.True(podmanMonitor.Has(app1ID))
 
 	// 6. Remove app1 final time - monitor should stop
-	err = podmanMonitor.Remove(app1)
+	err = podmanMonitor.QueueRemove(app1)
 	require.NoError(err)
 	err = podmanMonitor.ExecuteActions(ctx)
 	require.NoError(err)
-	require.False(podmanMonitor.isRunning()) // Stopped again
+	require.False(podmanMonitor.isRunning(v1beta1.CurrentProcessUsername)) // Stopped again
 	require.False(podmanMonitor.Has(app1ID))
 }
 
@@ -633,24 +729,33 @@ func TestPodmanMonitorHandlerSelection(t *testing.T) {
 			return exec.CommandContext(ctx, "echo", fmt.Sprintf(`{"timeNano": %d}`, now)) //nolint:gosec
 		}).AnyTimes()
 
-	podmanMonitor := NewPodmanMonitor(log, mockPodmanClient, systemd.NewMockManager(ctrl), "", readWriter)
+	var podmanFactory client.PodmanFactory = func(user v1beta1.Username) (*client.Podman, error) {
+		return mockPodmanClient, nil
+	}
+	var systemdFactory systemd.ManagerFactory = func(user v1beta1.Username) (systemd.Manager, error) {
+		return systemd.NewMockManager(ctrl), nil
+	}
+	var rwFactory fileio.ReadWriterFactory = func(username v1beta1.Username) (fileio.ReadWriter, error) {
+		return readWriter, nil
+	}
+	podmanMonitor := NewPodmanMonitor(log, podmanFactory, systemdFactory, "", rwFactory)
 
 	// Create separate mock handlers to track which one gets called
 	mockComposeHandler := lifecycle.NewMockActionHandler(ctrl)
 	mockQuadletHandler := lifecycle.NewMockActionHandler(ctrl)
 
 	// Track calls to each handler
-	var composeActions []*lifecycle.Action
-	var quadletActions []*lifecycle.Action
+	var composeActions []lifecycle.Action
+	var quadletActions []lifecycle.Action
 
 	mockComposeHandler.EXPECT().Execute(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(ctx context.Context, action *lifecycle.Action) error {
-			composeActions = append(composeActions, action)
+		func(ctx context.Context, action lifecycle.Actions) error {
+			composeActions = append(composeActions, action...)
 			return nil
 		}).AnyTimes()
 	mockQuadletHandler.EXPECT().Execute(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(ctx context.Context, action *lifecycle.Action) error {
-			quadletActions = append(quadletActions, action)
+		func(ctx context.Context, action lifecycle.Actions) error {
+			quadletActions = append(quadletActions, action...)
 			return nil
 		}).AnyTimes()
 
@@ -658,13 +763,13 @@ func TestPodmanMonitorHandlerSelection(t *testing.T) {
 	podmanMonitor.handlers[v1beta1.AppTypeQuadlet] = mockQuadletHandler
 
 	// Create apps with different types
-	composeApp := createTestApplicationWithType(require, "compose-app", v1beta1.ApplicationStatusPreparing, v1beta1.AppTypeCompose)
-	quadletApp := createTestApplicationWithType(require, "quadlet-app", v1beta1.ApplicationStatusPreparing, v1beta1.AppTypeQuadlet)
+	composeApp := createTestApplicationWithType(require, "compose-app", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername, v1beta1.AppTypeCompose)
+	quadletApp := createTestApplicationWithType(require, "quadlet-app", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername, v1beta1.AppTypeQuadlet)
 
 	// Ensure both apps
-	err := podmanMonitor.Ensure(composeApp)
+	err := podmanMonitor.Ensure(t.Context(), composeApp)
 	require.NoError(err)
-	err = podmanMonitor.Ensure(quadletApp)
+	err = podmanMonitor.Ensure(t.Context(), quadletApp)
 	require.NoError(err)
 
 	// Execute actions
@@ -688,7 +793,7 @@ func TestPodmanMonitorHandlerSelection(t *testing.T) {
 	quadletActions = nil
 
 	// Remove compose app
-	err = podmanMonitor.Remove(composeApp)
+	err = podmanMonitor.QueueRemove(composeApp)
 	require.NoError(err)
 	err = podmanMonitor.ExecuteActions(ctx)
 	require.NoError(err)
@@ -722,7 +827,7 @@ func TestPodmanMonitorStatusAggregation(t *testing.T) {
 		{
 			name: "single healthy app returns Healthy",
 			apps: []Application{
-				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing),
+				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
 			},
 			workloads: map[string][]Workload{
 				"app1": {{Name: "container1", Status: StatusRunning}},
@@ -733,7 +838,7 @@ func TestPodmanMonitorStatusAggregation(t *testing.T) {
 		{
 			name: "single unknown app (no workloads) returns Degraded",
 			apps: []Application{
-				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing),
+				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
 			},
 			workloads:      map[string][]Workload{},
 			expectedStatus: v1beta1.ApplicationsSummaryStatusDegraded,
@@ -742,8 +847,8 @@ func TestPodmanMonitorStatusAggregation(t *testing.T) {
 		{
 			name: "two unknown apps returns Degraded with both names",
 			apps: []Application{
-				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing),
-				createTestApplication(require, "app2", v1beta1.ApplicationStatusPreparing),
+				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
+				createTestApplication(require, "app2", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
 			},
 			workloads:      map[string][]Workload{},
 			expectedStatus: v1beta1.ApplicationsSummaryStatusDegraded,
@@ -751,8 +856,8 @@ func TestPodmanMonitorStatusAggregation(t *testing.T) {
 		{
 			name: "one healthy one unknown returns Degraded",
 			apps: []Application{
-				createTestApplication(require, "healthy-app", v1beta1.ApplicationStatusPreparing),
-				createTestApplication(require, "unknown-app", v1beta1.ApplicationStatusPreparing),
+				createTestApplication(require, "healthy-app", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
+				createTestApplication(require, "unknown-app", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
 			},
 			workloads: map[string][]Workload{
 				"healthy-app": {{Name: "container1", Status: StatusRunning}},
@@ -762,9 +867,9 @@ func TestPodmanMonitorStatusAggregation(t *testing.T) {
 		{
 			name: "two unknown one healthy returns Degraded",
 			apps: []Application{
-				createTestApplication(require, "unknown1", v1beta1.ApplicationStatusPreparing),
-				createTestApplication(require, "unknown2", v1beta1.ApplicationStatusPreparing),
-				createTestApplication(require, "healthy", v1beta1.ApplicationStatusPreparing),
+				createTestApplication(require, "unknown1", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
+				createTestApplication(require, "unknown2", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
+				createTestApplication(require, "healthy", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
 			},
 			workloads: map[string][]Workload{
 				"healthy": {{Name: "container1", Status: StatusRunning}},
@@ -774,8 +879,8 @@ func TestPodmanMonitorStatusAggregation(t *testing.T) {
 		{
 			name: "one healthy one error returns Error",
 			apps: []Application{
-				createTestApplication(require, "healthy-app", v1beta1.ApplicationStatusPreparing),
-				createTestApplication(require, "error-app", v1beta1.ApplicationStatusPreparing),
+				createTestApplication(require, "healthy-app", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
+				createTestApplication(require, "error-app", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
 			},
 			workloads: map[string][]Workload{
 				"healthy-app": {{Name: "container1", Status: StatusRunning}},
@@ -787,8 +892,8 @@ func TestPodmanMonitorStatusAggregation(t *testing.T) {
 		{
 			name: "one unknown one error returns Error",
 			apps: []Application{
-				createTestApplication(require, "unknown-app", v1beta1.ApplicationStatusPreparing),
-				createTestApplication(require, "error-app", v1beta1.ApplicationStatusPreparing),
+				createTestApplication(require, "unknown-app", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
+				createTestApplication(require, "error-app", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
 			},
 			workloads: map[string][]Workload{
 				"error-app": {{Name: "container1", Status: StatusDie}},
@@ -799,9 +904,9 @@ func TestPodmanMonitorStatusAggregation(t *testing.T) {
 		{
 			name: "all healthy returns Healthy",
 			apps: []Application{
-				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing),
-				createTestApplication(require, "app2", v1beta1.ApplicationStatusPreparing),
-				createTestApplication(require, "app3", v1beta1.ApplicationStatusPreparing),
+				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
+				createTestApplication(require, "app2", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
+				createTestApplication(require, "app3", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
 			},
 			workloads: map[string][]Workload{
 				"app1": {{Name: "container1", Status: StatusRunning}},
@@ -814,8 +919,8 @@ func TestPodmanMonitorStatusAggregation(t *testing.T) {
 		{
 			name: "one degraded one healthy returns Degraded",
 			apps: []Application{
-				createTestApplication(require, "healthy-app", v1beta1.ApplicationStatusPreparing),
-				createTestApplication(require, "degraded-app", v1beta1.ApplicationStatusPreparing),
+				createTestApplication(require, "healthy-app", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
+				createTestApplication(require, "degraded-app", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
 			},
 			workloads: map[string][]Workload{
 				"healthy-app": {{Name: "container1", Status: StatusRunning}},
@@ -845,7 +950,16 @@ func TestPodmanMonitorStatusAggregation(t *testing.T) {
 
 			podman := client.NewPodman(testLog, execMock, rw, util.NewPollConfig())
 			systemdMgr := systemd.NewMockManager(ctrl)
-			podmanMonitor := NewPodmanMonitor(testLog, podman, systemdMgr, "", rw)
+			var podmanFactory client.PodmanFactory = func(user v1beta1.Username) (*client.Podman, error) {
+				return podman, nil
+			}
+			var systemdFactory systemd.ManagerFactory = func(user v1beta1.Username) (systemd.Manager, error) {
+				return systemdMgr, nil
+			}
+			var rwFactory fileio.ReadWriterFactory = func(username v1beta1.Username) (fileio.ReadWriter, error) {
+				return rw, nil
+			}
+			podmanMonitor := NewPodmanMonitor(testLog, podmanFactory, systemdFactory, "", rwFactory)
 
 			for _, app := range tc.apps {
 				podmanMonitor.apps[app.ID()] = app
@@ -858,8 +972,10 @@ func TestPodmanMonitorStatusAggregation(t *testing.T) {
 				}
 			}
 
-			statuses, summary, err := podmanMonitor.Status()
+			results, err := podmanMonitor.Status()
 			require.NoError(err)
+
+			statuses, summary := aggregateAppStatuses(results)
 
 			require.Equal(tc.expectedStatus, summary.Status,
 				"expected summary status %s but got %s", tc.expectedStatus, summary.Status)

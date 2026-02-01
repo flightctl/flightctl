@@ -24,7 +24,7 @@ func TestModelSchemaSelectors(t *testing.T) {
 		{"status", &domain.CertificateSigningRequestStatus{}, certificateSigningRequestStatusSelectors},
 		{"spec", &domain.FleetSpec{}, fleetSpecSelectors},
 		{"spec", &domain.ResourceSyncSpec{}, resourceSyncSpecSelectors},
-		{"spec", &domain.GenericRepoSpec{}, repositorySpecSelectors},
+		{"spec", &domain.GitRepoSpec{}, repositorySpecSelectors},
 		// OCI repos support common selectors plus OCI-specific ones
 		{"spec", &domain.OciRepoSpec{}, ociRepositorySpecSelectors},
 	}

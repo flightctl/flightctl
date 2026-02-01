@@ -7,7 +7,7 @@ import (
 	"net/http"
 
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
-	imagebuilderclient "github.com/flightctl/flightctl/internal/api/imagebuilder/client"
+	"github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -113,9 +113,11 @@ func (o *DeleteOptions) Run(ctx context.Context, args []string) error {
 	if err != nil {
 		return fmt.Errorf("creating client: %w", err)
 	}
+	c.Start(ctx)
+	defer c.Stop()
 
 	if len(args) == 1 {
-		response, err := o.deleteOne(ctx, c, kind, name)
+		response, err := o.deleteOne(ctx, c.ClientWithResponses, kind, name)
 		if err != nil {
 			return err
 		}
@@ -128,7 +130,7 @@ func (o *DeleteOptions) Run(ctx context.Context, args []string) error {
 
 	names := args[1:]
 
-	return o.deleteMultiple(ctx, c, kind, names)
+	return o.deleteMultiple(ctx, c.ClientWithResponses, kind, names)
 }
 
 func (o *DeleteOptions) runImageBuildDelete(ctx context.Context, args []string, kind ResourceKind, name string) error {
@@ -136,6 +138,8 @@ func (o *DeleteOptions) runImageBuildDelete(ctx context.Context, args []string, 
 	if err != nil {
 		return fmt.Errorf("creating imagebuilder client: %w", err)
 	}
+	ibClient.Start(ctx)
+	defer ibClient.Stop()
 
 	if len(args) == 1 {
 		response, err := ibClient.DeleteImageBuildWithResponse(ctx, name)
@@ -153,7 +157,7 @@ func (o *DeleteOptions) runImageBuildDelete(ctx context.Context, args []string, 
 	return o.deleteMultipleImageBuilds(ctx, ibClient, kind, names)
 }
 
-func (o *DeleteOptions) deleteMultipleImageBuilds(ctx context.Context, c *imagebuilderclient.ClientWithResponses, kind ResourceKind, names []string) error {
+func (o *DeleteOptions) deleteMultipleImageBuilds(ctx context.Context, c *client.ImageBuilderClient, kind ResourceKind, names []string) error {
 	var errorCount int
 
 	for _, name := range names {
@@ -180,6 +184,8 @@ func (o *DeleteOptions) runImageExportDelete(ctx context.Context, args []string,
 	if err != nil {
 		return fmt.Errorf("creating imagebuilder client: %w", err)
 	}
+	ibClient.Start(ctx)
+	defer ibClient.Stop()
 
 	if len(args) == 1 {
 		response, err := ibClient.DeleteImageExportWithResponse(ctx, name)
@@ -197,7 +203,7 @@ func (o *DeleteOptions) runImageExportDelete(ctx context.Context, args []string,
 	return o.deleteMultipleImageExports(ctx, ibClient, kind, names)
 }
 
-func (o *DeleteOptions) deleteMultipleImageExports(ctx context.Context, c *imagebuilderclient.ClientWithResponses, kind ResourceKind, names []string) error {
+func (o *DeleteOptions) deleteMultipleImageExports(ctx context.Context, c *client.ImageBuilderClient, kind ResourceKind, names []string) error {
 	var errorCount int
 
 	for _, name := range names {

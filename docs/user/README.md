@@ -33,6 +33,7 @@ Welcome to the Flight Control user documentation.
 * **[Installing the Flight Control CLI](installing/installing-cli.md)**
 
 * **[Installing the Flight Control Agent](installing/installing-agent.md)**
+  * [Integrating with Greenboot](installing/configuring-device-greenboot.md)
 
 **Using Flight Control** - How to manage individual and fleets of devices with Flight Control.
 

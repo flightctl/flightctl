@@ -28,3 +28,43 @@ type RolloutBatchCompletionReport struct {
 	Failed            int64  `json:"failed"`
 	TimedOut          int64  `json:"timedOut"`
 }
+
+// A username on the system
+type Username string
+
+func (u Username) String() string {
+	return string(u)
+}
+
+func (u Username) IsCurrentProcessUser() bool {
+	return u == CurrentProcessUsername
+}
+
+const RootUsername Username = "root"
+
+func (u Username) IsRootUser() bool {
+	return u == RootUsername
+}
+
+func (u Username) WithDefault(fallback Username) Username {
+	if u == "" {
+		return fallback
+	}
+	return u
+}
+
+// The value to use as a Username when the user of the current process should be used (generally
+// root).
+const CurrentProcessUsername Username = ""
+
+func (a ContainerApplication) RunAsWithDefault() Username {
+	return a.RunAs.WithDefault(CurrentProcessUsername)
+}
+
+func (a QuadletApplication) RunAsWithDefault() Username {
+	return a.RunAs.WithDefault(CurrentProcessUsername)
+}
+
+func (a ComposeApplication) RunAsWithDefault() Username {
+	return CurrentProcessUsername
+}

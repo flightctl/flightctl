@@ -1,4 +1,14 @@
-FROM {{.RegistryHostname}}/{{.ImageName}}:{{.ImageTag}}
+ARG REGISTRY_HOSTNAME
+ARG IMAGE_NAME
+ARG IMAGE_TAG
+
+FROM ${REGISTRY_HOSTNAME}/${IMAGE_NAME}:${IMAGE_TAG}
+
+# Re-declare ARGs after FROM (they're scoped to build stage)
+ARG EARLY_BINDING=false
+ARG HAS_USER_CONFIG=false
+ARG USERNAME
+ARG AGENT_CONFIG_DEST_PATH=/etc/flightctl/config.yaml
 
 # Add Flight Control repository and install agent
 RUN dnf -y config-manager --add-repo https://rpm.flightctl.io/flightctl-epel.repo && \
@@ -8,21 +18,46 @@ RUN dnf -y config-manager --add-repo https://rpm.flightctl.io/flightctl-epel.rep
 # Enable Flight Control agent service
 RUN systemctl enable flightctl-agent.service
 
+# Disable automatic bootc updates (flightctl manages updates)
+RUN systemctl mask bootc-fetch-apply-updates.timer || true
+
 # Install VM and cloud tools (needed for both early and late binding)
 # afterburn provides cloud metadata support, open-vm-tools for VMware guest tools
 RUN dnf install -y open-vm-tools && dnf clean all
 
 RUN systemctl enable vmtoolsd.service
 
-{{if .EarlyBinding}}
+# Copy config files from build context to temp location.
+# These files must always exist (even if empty) because COPY is unconditional -
+# it runs at build time regardless of ARG values. Shell conditionals below
+# determine whether to actually use the file contents.
+COPY agent-config.yaml /tmp/agent-config.yaml
+COPY user-publickey.txt /tmp/user-publickey.txt
+
 # Early binding: embed agent config with enrollment credentials
-RUN mkdir -p $(dirname {{.AgentConfigDestPath}}) && \
-    cat > {{.AgentConfigDestPath}} <<'{{.HeredocDelimiter}}'
-{{.AgentConfig}}
-{{.HeredocDelimiter}}
-RUN chmod 600 {{.AgentConfigDestPath}}
-{{else}}
 # Late binding: install boot provisioning dependencies
-# Ignition is used for QCOW2/ISO formats
-RUN dnf install -y ignition afterburn cloud-init && dnf clean all
-{{end}}
+RUN if [ "${EARLY_BINDING}" = "true" ]; then \
+        mkdir -p $(dirname ${AGENT_CONFIG_DEST_PATH}) && \
+        cp /tmp/agent-config.yaml ${AGENT_CONFIG_DEST_PATH} && \
+        chmod 600 ${AGENT_CONFIG_DEST_PATH}; \
+    else \
+        dnf install -y ignition afterburn cloud-init && dnf clean all; \
+    fi
+
+# Create user and configure SSH access (conditional on HAS_USER_CONFIG)
+# Note: Using 'wheel' group for sudo access (RHEL/Fedora/CentOS convention)
+# This template assumes RHEL/Fedora-based images (uses dnf package manager)
+RUN if [ "${HAS_USER_CONFIG}" = "true" ] && [ -n "${USERNAME}" ]; then \
+        useradd -m -s /bin/bash ${USERNAME} && \
+        usermod -aG wheel ${USERNAME} && \
+        echo "${USERNAME} ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/${USERNAME} && \
+        chmod 440 /etc/sudoers.d/${USERNAME} && \
+        mkdir -p /home/${USERNAME}/.ssh && \
+        cp /tmp/user-publickey.txt /home/${USERNAME}/.ssh/authorized_keys && \
+        chmod 700 /home/${USERNAME}/.ssh && \
+        chmod 600 /home/${USERNAME}/.ssh/authorized_keys && \
+        chown -R ${USERNAME}:${USERNAME} /home/${USERNAME}/.ssh; \
+    fi
+
+# Cleanup temp files
+RUN rm -f /tmp/agent-config.yaml /tmp/user-publickey.txt

@@ -25,14 +25,17 @@ const (
 
 // Defines values for ExportFormatType.
 const (
-	ExportFormatTypeISO   ExportFormatType = "iso"
-	ExportFormatTypeQCOW2 ExportFormatType = "qcow2"
-	ExportFormatTypeVMDK  ExportFormatType = "vmdk"
+	ExportFormatTypeISO                ExportFormatType = "iso"
+	ExportFormatTypeQCOW2              ExportFormatType = "qcow2"
+	ExportFormatTypeQCOW2DiskContainer ExportFormatType = "qcow2-disk-container"
+	ExportFormatTypeVMDK               ExportFormatType = "vmdk"
 )
 
 // Defines values for ImageBuildConditionReason.
 const (
 	ImageBuildConditionReasonBuilding  ImageBuildConditionReason = "Building"
+	ImageBuildConditionReasonCanceled  ImageBuildConditionReason = "Canceled"
+	ImageBuildConditionReasonCanceling ImageBuildConditionReason = "Canceling"
 	ImageBuildConditionReasonCompleted ImageBuildConditionReason = "Completed"
 	ImageBuildConditionReasonFailed    ImageBuildConditionReason = "Failed"
 	ImageBuildConditionReasonPending   ImageBuildConditionReason = "Pending"
@@ -51,6 +54,8 @@ const (
 
 // Defines values for ImageExportConditionReason.
 const (
+	ImageExportConditionReasonCanceled   ImageExportConditionReason = "Canceled"
+	ImageExportConditionReasonCanceling  ImageExportConditionReason = "Canceling"
 	ImageExportConditionReasonCompleted  ImageExportConditionReason = "Completed"
 	ImageExportConditionReasonConverting ImageExportConditionReason = "Converting"
 	ImageExportConditionReasonFailed     ImageExportConditionReason = "Failed"
@@ -74,13 +79,7 @@ const (
 
 // Defines values for ImageExportSourceType.
 const (
-	ImageExportSourceTypeImageBuild     ImageExportSourceType = "imageBuild"
-	ImageExportSourceTypeImageReference ImageExportSourceType = "imageReference"
-)
-
-// Defines values for ImageReferenceSourceType.
-const (
-	ImageReference ImageReferenceSourceType = "imageReference"
+	ImageExportSourceTypeImageBuild ImageExportSourceType = "imageBuild"
 )
 
 // Defines values for LateBindingType.
@@ -167,11 +166,11 @@ type ImageBuildDestination struct {
 	// ImageName The name of the output image.
 	ImageName string `json:"imageName"`
 
+	// ImageTag The tag of the output image.
+	ImageTag string `json:"imageTag"`
+
 	// Repository The name of the Repository resource of type OCI to push the built image to.
 	Repository string `json:"repository"`
-
-	// Tag The tag of the output image.
-	Tag string `json:"tag"`
 }
 
 // ImageBuildList ImageBuildList is a list of ImageBuild resources.
@@ -223,6 +222,9 @@ type ImageBuildSpec struct {
 
 	// Source ImageBuildSource specifies the source image for the build.
 	Source ImageBuildSource `json:"source"`
+
+	// UserConfiguration ImageBuildUserConfiguration specifies user configuration for the build.
+	UserConfiguration *ImageBuildUserConfiguration `json:"userConfiguration,omitempty"`
 }
 
 // ImageBuildStatus ImageBuildStatus represents the current status of an ImageBuild.
@@ -241,6 +243,15 @@ type ImageBuildStatus struct {
 
 	// ManifestDigest The digest of the built image manifest.
 	ManifestDigest *string `json:"manifestDigest,omitempty"`
+}
+
+// ImageBuildUserConfiguration ImageBuildUserConfiguration specifies user configuration for the build.
+type ImageBuildUserConfiguration struct {
+	// Publickey The public key for the user configuration.
+	Publickey string `json:"publickey"`
+
+	// Username The username for the user configuration.
+	Username string `json:"username"`
 }
 
 // ImageExport ImageExport represents an export request to convert and push images to different formats.
@@ -288,18 +299,6 @@ type ImageExportConditionReason string
 // ImageExportConditionType Type of ImageExport condition.
 type ImageExportConditionType string
 
-// ImageExportDestination ImageExportDestination specifies the destination for the exported images.
-type ImageExportDestination struct {
-	// ImageName The name of the destination image.
-	ImageName string `json:"imageName"`
-
-	// Repository The name of the Repository resource to push the exported images to.
-	Repository string `json:"repository"`
-
-	// Tag The base tag for the destination images.
-	Tag string `json:"tag"`
-}
-
 // ImageExportFormatPhase The phase of a single format conversion.
 type ImageExportFormatPhase string
 
@@ -328,17 +327,11 @@ type ImageExportSourceType string
 
 // ImageExportSpec ImageExportSpec describes the specification for an image export.
 type ImageExportSpec struct {
-	// Destination ImageExportDestination specifies the destination for the exported images.
-	Destination ImageExportDestination `json:"destination"`
-
 	// Format The type of format to export the image to.
 	Format ExportFormatType `json:"format"`
 
 	// Source ImageExportSource specifies the source image for the export.
 	Source ImageExportSource `json:"source"`
-
-	// TagSuffix Optional suffix to append to the output tag for this format.
-	TagSuffix *string `json:"tagSuffix,omitempty"`
 }
 
 // ImageExportStatus ImageExportStatus represents the current status of an ImageExport.
@@ -352,24 +345,6 @@ type ImageExportStatus struct {
 	// ManifestDigest The digest of the exported image manifest for this format.
 	ManifestDigest *string `json:"manifestDigest,omitempty"`
 }
-
-// ImageReferenceSource ImageReferenceSource specifies a source image from a repository.
-type ImageReferenceSource struct {
-	// ImageName The name of the source image.
-	ImageName string `json:"imageName"`
-
-	// ImageTag The tag of the source image.
-	ImageTag string `json:"imageTag"`
-
-	// Repository The name of the Repository resource containing the source image.
-	Repository string `json:"repository"`
-
-	// Type The type of source.
-	Type ImageReferenceSourceType `json:"type"`
-}
-
-// ImageReferenceSourceType The type of source.
-type ImageReferenceSourceType string
 
 // LateBinding Late binding configuration - device binds at first boot.
 type LateBinding struct {
@@ -407,6 +382,12 @@ type GetImageBuildParams struct {
 	WithExports *bool `form:"withExports,omitempty" json:"withExports,omitempty"`
 }
 
+// GetImageBuildLogParams defines parameters for GetImageBuildLog.
+type GetImageBuildLogParams struct {
+	// Follow If true, stream logs continuously (like kubectl logs -f). For active builds, keeps connection open. For completed builds, returns all logs and closes.
+	Follow *bool `form:"follow,omitempty" json:"follow,omitempty"`
+}
+
 // ListImageExportsParams defines parameters for ListImageExports.
 type ListImageExportsParams struct {
 	// LabelSelector A selector to restrict the list of returned objects by their labels.
@@ -420,6 +401,12 @@ type ListImageExportsParams struct {
 
 	// Continue An optional parameter to query more results from the server.
 	Continue *string `form:"continue,omitempty" json:"continue,omitempty"`
+}
+
+// GetImageExportLogParams defines parameters for GetImageExportLog.
+type GetImageExportLogParams struct {
+	// Follow If true, stream logs continuously (like kubectl logs -f). For active exports, keeps connection open. For completed exports, returns all logs and closes.
+	Follow *bool `form:"follow,omitempty" json:"follow,omitempty"`
 }
 
 // CreateImageBuildJSONRequestBody defines body for CreateImageBuild for application/json ContentType.
@@ -545,34 +532,6 @@ func (t *ImageExportSource) MergeImageBuildRefSource(v ImageBuildRefSource) erro
 	return err
 }
 
-// AsImageReferenceSource returns the union data inside the ImageExportSource as a ImageReferenceSource
-func (t ImageExportSource) AsImageReferenceSource() (ImageReferenceSource, error) {
-	var body ImageReferenceSource
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromImageReferenceSource overwrites any union data inside the ImageExportSource as the provided ImageReferenceSource
-func (t *ImageExportSource) FromImageReferenceSource(v ImageReferenceSource) error {
-	v.Type = "imageReference"
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeImageReferenceSource performs a merge with any union data inside the ImageExportSource, using the provided ImageReferenceSource
-func (t *ImageExportSource) MergeImageReferenceSource(v ImageReferenceSource) error {
-	v.Type = "imageReference"
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
 func (t ImageExportSource) Discriminator() (string, error) {
 	var discriminator struct {
 		Discriminator string `json:"type"`
@@ -589,8 +548,6 @@ func (t ImageExportSource) ValueByDiscriminator() (interface{}, error) {
 	switch discriminator {
 	case "imageBuild":
 		return t.AsImageBuildRefSource()
-	case "imageReference":
-		return t.AsImageReferenceSource()
 	default:
 		return nil, errors.New("unknown discriminator value: " + discriminator)
 	}

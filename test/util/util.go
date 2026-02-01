@@ -36,6 +36,9 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/types"
 	"github.com/sirupsen/logrus"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
 )
 
 const (
@@ -379,15 +382,39 @@ func TestEnrollmentApproval() *v1beta1.EnrollmentRequestApproval {
 	}
 }
 
-// TestTempEnv sets the environment variable key to value and returns a function that will reset the environment variable to its original value.
-func TestTempEnv(key, value string) func() {
-	originalValue, hadOriginalValue := os.LookupEnv(key)
-	os.Setenv(key, value)
+// TestTempEnv sets one or more environment variables and returns a cleanup
+// function that restores their original values.
+func TestTempEnv(kv ...string) func() {
+	if len(kv)%2 != 0 {
+		panic("TestTempEnv requires even number of arguments: key, value pairs")
+	}
+
+	type original struct {
+		key    string
+		value  string
+		exists bool
+	}
+
+	originals := make([]original, 0, len(kv)/2)
+
+	for i := 0; i < len(kv); i += 2 {
+		key, value := kv[i], kv[i+1]
+		origVal, exists := os.LookupEnv(key)
+		originals = append(originals, original{
+			key:    key,
+			value:  origVal,
+			exists: exists,
+		})
+		_ = os.Setenv(key, value)
+	}
+
 	return func() {
-		if hadOriginalValue {
-			os.Setenv(key, originalValue)
-		} else {
-			os.Unsetenv(key)
+		for _, o := range originals {
+			if o.exists {
+				_ = os.Setenv(o.key, o.value)
+			} else {
+				_ = os.Unsetenv(o.key)
+			}
 		}
 	}
 }
@@ -470,4 +497,33 @@ func CopyFile(src, dst string) error {
 	}
 
 	return nil
+}
+
+// CreateTestNamespace creates a Kubernetes namespace with an org label.
+// If orgLabel is empty, it defaults to DefaultOrgLabel.
+func CreateTestNamespace(name string, orgLabel ...string) *corev1.Namespace {
+	orgLabelValue := DefaultOrgLabel
+	if len(orgLabel) > 0 && orgLabel[0] != "" {
+		orgLabelValue = orgLabel[0]
+	}
+	return &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: name,
+			Labels: map[string]string{
+				OrgLabelKey: orgLabelValue,
+			},
+		},
+	}
+}
+
+// DeleteNamespace deletes a Kubernetes namespace using the provided Kubernetes client.
+// It logs the deletion result using GinkgoWriter.
+func DeleteNamespace(ctx context.Context, client kubernetes.Interface, namespace string) error {
+	err := client.CoreV1().Namespaces().Delete(ctx, namespace, metav1.DeleteOptions{})
+	if err != nil {
+		GinkgoWriter.Printf("Warning: Failed to delete test namespace %s: %v\n", namespace, err)
+	} else {
+		GinkgoWriter.Printf("Deleted test namespace: %s\n", namespace)
+	}
+	return err
 }
