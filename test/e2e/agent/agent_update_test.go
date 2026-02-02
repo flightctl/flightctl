@@ -69,7 +69,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			GinkgoWriter.Printf("Device updated to new image 🎉\n")
 		})
 
-		It("Should update to v4 with embedded application", Label("77671", "sanity"), func() {
+		It("Should update to v4 with embedded application", Label("77671", "sanity", "agent"), func() {
 			// Get harness directly - no shared package-level variable
 			harness := e2e.GetWorkerHarness()
 
@@ -226,7 +226,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			err = harness.WaitForDeviceNewRenderedVersion(deviceId, expectedVersion)
 			Expect(err).NotTo(HaveOccurred())
 		})
-		It("Should rollback when updating to a broken image", Label("82481", "sanity"), func() {
+		It("Should rollback when updating to a broken image", Label("82481", "sanity", "agent"), func() {
 			Skip("Test temporarily disabled, re-enable after EDM-3264 is fixed")
 			// Get harness directly - no shared package-level variable
 			harness := e2e.GetWorkerHarness()
@@ -293,7 +293,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 				}, TIMEOUT)
 			*/
 		})
-		It("Should trigger greenboot rollback when agent fails to start", Label("greenboot-rollback", "87279", "sanity"), func() {
+		It("Should trigger greenboot rollback when agent fails to start", Label("greenboot-rollback", "87279", "sanity", "agent"), func() {
 			// Get harness directly - no shared package-level variable
 			harness := e2e.GetWorkerHarness()
 
@@ -349,7 +349,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 
 			GinkgoWriter.Printf("Device successfully rolled back from v11 to %s via greenboot\n", initialStatusImage)
 		})
-		It("Should respect the spec's update schedule", Label("79220", "sanity", "slow"), func() {
+		It("Should respect the spec's update schedule", Label("79220", "sanity", "agent", "slow"), func() {
 			// Get harness directly - no shared package-level variable
 			harness := e2e.GetWorkerHarness()
 
@@ -459,7 +459,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 					cond.Reason == string(v1beta1.UpdateStateApplyingUpdate)
 			}, TIMEOUT)
 		})
-		It("Should not crash in case of unexpected services configs", Label("78711", "sanity"), func() {
+		It("Should not crash in case of unexpected services configs", Label("78711", "sanity", "agent"), func() {
 			// Get harness directly - no shared package-level variable
 			harness := e2e.GetWorkerHarness()
 

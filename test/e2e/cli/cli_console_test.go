@@ -37,7 +37,7 @@ var _ = Describe("CLI - device console", func() {
 		deviceID, _ = harness.EnrollAndWaitForOnlineStatus()
 	})
 
-	It("connects to a device and executes a simple command", Label("80483", "sanity"), func() {
+	It("connects to a device and executes a simple command", Label("80483", "sanity", "agent"), func() {
 		// Get harness directly - no shared package-level variable
 		harness := e2e.GetWorkerHarness()
 
@@ -47,7 +47,7 @@ var _ = Describe("CLI - device console", func() {
 		cs.Close()
 	})
 
-	It("supports multiple simultaneous console sessions", Label("81737", "sanity"), func() {
+	It("supports multiple simultaneous console sessions", Label("81737", "sanity", "agent"), func() {
 		// Get harness directly - no shared package-level variable
 		harness := e2e.GetWorkerHarness()
 
@@ -259,7 +259,7 @@ var _ = Describe("CLI - device console", func() {
 			Should(WithTransform((*v1beta1.Device).IsUpdatedToDeviceSpec, BeTrue()))
 	})
 
-	It("provides console --help and auxiliary features", Label("81866", "sanity"), func() {
+	It("provides console --help and auxiliary features", Label("81866", "sanity", "agent"), func() {
 		// Get harness directly - no shared package-level variable
 		harness := e2e.GetWorkerHarness()
 

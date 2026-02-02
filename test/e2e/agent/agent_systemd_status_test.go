@@ -23,7 +23,7 @@ var _ = Describe("VM Agent systemd status", func() {
 	})
 
 	Context("systemd", func() {
-		It("reports systemd services and applications based on device spec", Label("sanity", "86238"), func() {
+		It("reports systemd services and applications based on device spec", Label("sanity", "agent", "86238"), func() {
 			harness := e2e.GetWorkerHarness()
 
 			By("enrolling a fresh device")

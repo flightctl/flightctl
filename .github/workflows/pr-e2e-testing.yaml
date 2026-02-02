@@ -186,22 +186,31 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # Non-Agent metrics
+          ## CS9
           - os_id: cs9-bootc
             backend_type: helm
-            label_filter: 'sanity && !slow'
+            label_filter: 'sanity && !agent'
+            ginkgo_total_nodes: 4
+          # Agent metrics
+          ## CS9 Agent metrics
+          - os_id: cs9-bootc
+            backend_type: helm
+            label_filter: 'sanity && agent && !slow'
             ginkgo_total_nodes: 4
           - os_id: cs9-bootc
             backend_type: helm
+            label_filter: 'sanity && agent && slow'
             ginkgo_total_nodes: 1
-            label_filter: 'sanity && slow'
+          ## CS10 Agent metrics
           - os_id: cs10-bootc
             backend_type: helm
-            label_filter: 'sanity && !slow'
+            label_filter: 'sanity && agent && !slow'
             ginkgo_total_nodes: 4
           - os_id: cs10-bootc
             backend_type: helm
+            label_filter: 'sanity && agent && slow'
             ginkgo_total_nodes: 1
-            label_filter: 'sanity && slow'
     uses: ./.github/workflows/run-e2e-tests.yaml
     with:
       os_id: ${{ matrix.os_id }}
