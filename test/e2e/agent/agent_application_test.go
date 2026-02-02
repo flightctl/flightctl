@@ -35,7 +35,7 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 	})
 
 	Context("application", func() {
-		It("should install an application image package and report its status", Label("76800", "sanity"), func() {
+		It("should install an application image package and report its status", Label("76800", "sanity", "agent"), func() {
 			// Get harness directly - no shared package-level variable
 			harness := e2e.GetWorkerHarness()
 
