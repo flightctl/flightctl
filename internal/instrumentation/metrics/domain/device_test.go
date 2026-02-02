@@ -65,6 +65,10 @@ func (m *MockStore) AuthProvider() store.AuthProvider {
 	return nil
 }
 
+func (m *MockStore) Catalog() store.Catalog {
+	return nil
+}
+
 func (m *MockStore) RunMigrations(context.Context) error {
 	return nil
 }

@@ -84,14 +84,15 @@ type TimeZone = v1beta1.TimeZone
 type ResourceKind = v1beta1.ResourceKind
 
 const (
-	ResourceKindAuthProvider              = v1beta1.ResourceKindAuthProvider
-	ResourceKindCertificateSigningRequest = v1beta1.ResourceKindCertificateSigningRequest
-	ResourceKindDevice                    = v1beta1.ResourceKindDevice
-	ResourceKindEnrollmentRequest         = v1beta1.ResourceKindEnrollmentRequest
-	ResourceKindFleet                     = v1beta1.ResourceKindFleet
-	ResourceKindRepository                = v1beta1.ResourceKindRepository
-	ResourceKindResourceSync              = v1beta1.ResourceKindResourceSync
-	ResourceKindTemplateVersion           = v1beta1.ResourceKindTemplateVersion
+	ResourceKindAuthProvider                           = v1beta1.ResourceKindAuthProvider
+	ResourceKindCatalog                   ResourceKind = "Catalog" // v1alpha1-only resource
+	ResourceKindCertificateSigningRequest              = v1beta1.ResourceKindCertificateSigningRequest
+	ResourceKindDevice                                 = v1beta1.ResourceKindDevice
+	ResourceKindEnrollmentRequest                      = v1beta1.ResourceKindEnrollmentRequest
+	ResourceKindFleet                                  = v1beta1.ResourceKindFleet
+	ResourceKindRepository                             = v1beta1.ResourceKindRepository
+	ResourceKindResourceSync                           = v1beta1.ResourceKindResourceSync
+	ResourceKindTemplateVersion                        = v1beta1.ResourceKindTemplateVersion
 )
 
 // ========== Interfaces ==========

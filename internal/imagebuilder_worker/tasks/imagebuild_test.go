@@ -41,6 +41,7 @@ func (m *mockStore) Event() store.Event                                         
 func (m *mockStore) Checkpoint() store.Checkpoint                               { return nil }
 func (m *mockStore) Organization() store.Organization                           { return nil }
 func (m *mockStore) AuthProvider() store.AuthProvider                           { return nil }
+func (m *mockStore) Catalog() store.Catalog                                     { return nil }
 func (m *mockStore) RunMigrations(context.Context) error                        { return nil }
 func (m *mockStore) CheckHealth(context.Context) error                          { return nil }
 func (m *mockStore) Close() error                                               { return nil }
