@@ -15,6 +15,7 @@ import (
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/cli/display"
+	"github.com/flightctl/flightctl/internal/client"
 )
 
 // fakeHTTPClient is a minimal HTTP client stub that returns the supplied
@@ -39,11 +40,11 @@ func newTestClient(t *testing.T, responses ...*http.Response) (*apiclient.Client
 	t.Helper()
 
 	fake := &fakeHTTPClient{responses: responses}
-	client, err := apiclient.NewClientWithResponses("http://example.com", apiclient.WithHTTPClient(fake))
+	c, err := apiclient.NewClientWithResponses("http://example.com", apiclient.WithHTTPClient(fake))
 	if err != nil {
 		t.Fatalf("failed to create test client: %v", err)
 	}
-	return client, fake
+	return c, fake
 }
 
 // makeDeviceListPage builds an *http.Response that contains a single page of a
@@ -165,7 +166,8 @@ func TestHandleListBatching(t *testing.T) {
 				responses = append(responses, makeDeviceListPage(t, numItems, continueToken, remaining))
 			}
 
-			clientWithResponses, fakeClient := newTestClient(t, responses...)
+			apiClient, fakeClient := newTestClient(t, responses...)
+			c := client.NewTestClient(apiClient)
 
 			opts := DefaultGetOptions()
 			opts.Output = testCase.output
@@ -173,7 +175,7 @@ func TestHandleListBatching(t *testing.T) {
 
 			ctx := context.Background()
 			fetcher := func() (interface{}, error) {
-				response, err := opts.getResourceList(ctx, clientWithResponses, DeviceKind)
+				response, err := opts.getResourceList(ctx, c, DeviceKind)
 				if err != nil {
 					return nil, err
 				}
