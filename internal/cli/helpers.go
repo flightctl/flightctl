@@ -12,7 +12,7 @@ import (
 	"strings"
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
-	apiclient "github.com/flightctl/flightctl/internal/api/client"
+	"github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/org"
 )
 
@@ -24,6 +24,8 @@ type ResourceKind string
 
 const (
 	InvalidKind                   ResourceKind = ""
+	CatalogKind                   ResourceKind = "catalog"
+	CatalogItemKind               ResourceKind = "catalogitem"
 	CertificateSigningRequestKind ResourceKind = "certificatesigningrequest"
 	DeviceKind                    ResourceKind = "device"
 	EnrollmentRequestKind         ResourceKind = "enrollmentrequest"
@@ -62,6 +64,8 @@ func ResourceKindFromString(kindLike string) (ResourceKind, error) {
 
 var (
 	resourceKindSet = map[ResourceKind]struct{}{
+		CatalogKind:                   {},
+		CatalogItemKind:               {},
 		CertificateSigningRequestKind: {},
 		DeviceKind:                    {},
 		EnrollmentRequestKind:         {},
@@ -79,6 +83,8 @@ var (
 	validResourceKinds = slices.Collect(maps.Keys(resourceKindSet))
 
 	pluralToKind = map[string]ResourceKind{
+		"catalogs":                   CatalogKind,
+		"catalogitems":               CatalogItemKind,
 		"certificatesigningrequests": CertificateSigningRequestKind,
 		"devices":                    DeviceKind,
 		"enrollmentrequests":         EnrollmentRequestKind,
@@ -94,6 +100,8 @@ var (
 	}
 
 	kindToPlural = map[ResourceKind]string{
+		CatalogKind:                   "catalogs",
+		CatalogItemKind:               "catalogitems",
 		CertificateSigningRequestKind: "certificatesigningrequests",
 		DeviceKind:                    "devices",
 		EnrollmentRequestKind:         "enrollmentrequests",
@@ -109,6 +117,8 @@ var (
 	}
 
 	shortnameToKind = map[string]ResourceKind{
+		"cat":  CatalogKind,
+		"ci":   CatalogItemKind,
 		"csr":  CertificateSigningRequestKind,
 		"dev":  DeviceKind,
 		"er":   EnrollmentRequestKind,
@@ -304,8 +314,7 @@ func responseField[T any](response interface{}, name string) (T, error) {
 }
 
 // GetSingleResource fetches a single resource by kind and name.
-// This function centralizes the resource fetching logic used by both get and edit commands.
-func GetSingleResource(ctx context.Context, c *apiclient.ClientWithResponses, kind ResourceKind, name string) (interface{}, error) {
+func GetSingleResource(ctx context.Context, c *client.Client, kind ResourceKind, name string) (interface{}, error) {
 	switch kind {
 	case DeviceKind:
 		return c.GetDeviceWithResponse(ctx, name)
@@ -328,17 +337,17 @@ func GetSingleResource(ctx context.Context, c *apiclient.ClientWithResponses, ki
 }
 
 // GetRenderedDevice fetches a rendered device configuration.
-func GetRenderedDevice(ctx context.Context, c *apiclient.ClientWithResponses, name string) (interface{}, error) {
+func GetRenderedDevice(ctx context.Context, c *client.Client, name string) (interface{}, error) {
 	return c.GetRenderedDeviceWithResponse(ctx, name, &api.GetRenderedDeviceParams{})
 }
 
 // GetLastSeenDevice fetches the last seen timestamp for a device.
-func GetLastSeenDevice(ctx context.Context, c *apiclient.ClientWithResponses, name string) (interface{}, error) {
+func GetLastSeenDevice(ctx context.Context, c *client.Client, name string) (interface{}, error) {
 	return c.GetDeviceLastSeenWithResponse(ctx, name)
 }
 
 // GetTemplateVersion fetches a template version with the specified fleet name.
-func GetTemplateVersion(ctx context.Context, c *apiclient.ClientWithResponses, fleetName, name string) (interface{}, error) {
+func GetTemplateVersion(ctx context.Context, c *client.Client, fleetName, name string) (interface{}, error) {
 	return c.GetTemplateVersionWithResponse(ctx, fleetName, name)
 }
 

@@ -184,9 +184,9 @@ func (o *EditOptions) Run(ctx context.Context, args []string) error {
 
 	switch kind {
 	case TemplateVersionKind:
-		originalResource, err = GetTemplateVersion(fetchCtx, clientWithResponses.ClientWithResponses, o.FleetName, name)
+		originalResource, err = GetTemplateVersion(fetchCtx, clientWithResponses, o.FleetName, name)
 	default:
-		originalResource, err = GetSingleResource(fetchCtx, clientWithResponses.ClientWithResponses, kind, name)
+		originalResource, err = GetSingleResource(fetchCtx, clientWithResponses, kind, name)
 	}
 	fetchCancel()
 	if err != nil {

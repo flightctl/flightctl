@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 
-	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/spf13/cobra"
@@ -16,13 +15,15 @@ import (
 type DeleteOptions struct {
 	GlobalOptions
 
-	FleetName string
+	FleetName   string
+	CatalogName string
 }
 
 func DefaultDeleteOptions() *DeleteOptions {
 	return &DeleteOptions{
 		GlobalOptions: DefaultGlobalOptions(),
 		FleetName:     "",
+		CatalogName:   "",
 	}
 }
 
@@ -54,6 +55,7 @@ func (o *DeleteOptions) Bind(fs *pflag.FlagSet) {
 	o.GlobalOptions.Bind(fs)
 
 	fs.StringVarP(&o.FleetName, "fleetname", "f", o.FleetName, "Fleet name for accessing templateversions.")
+	fs.StringVar(&o.CatalogName, "catalog", o.CatalogName, "Catalog name for accessing catalogitems.")
 }
 
 func (o *DeleteOptions) Complete(cmd *cobra.Command, args []string) error {
@@ -92,6 +94,9 @@ func (o *DeleteOptions) Validate(args []string) error {
 	if kind == TemplateVersionKind && len(o.FleetName) == 0 {
 		return fmt.Errorf("fleetname must be specified when deleting templateversions")
 	}
+	if kind == CatalogItemKind && len(o.CatalogName) == 0 {
+		return fmt.Errorf("--catalog must be specified when deleting catalogitems")
+	}
 	return nil
 }
 
@@ -117,7 +122,7 @@ func (o *DeleteOptions) Run(ctx context.Context, args []string) error {
 	defer c.Stop()
 
 	if len(args) == 1 {
-		response, err := o.deleteOne(ctx, c.ClientWithResponses, kind, name)
+		response, err := o.deleteOne(ctx, c, kind, name)
 		if err != nil {
 			return err
 		}
@@ -130,7 +135,7 @@ func (o *DeleteOptions) Run(ctx context.Context, args []string) error {
 
 	names := args[1:]
 
-	return o.deleteMultiple(ctx, c.ClientWithResponses, kind, names)
+	return o.deleteMultiple(ctx, c, kind, names)
 }
 
 func (o *DeleteOptions) runImageBuildDelete(ctx context.Context, args []string, kind ResourceKind, name string) error {
@@ -225,7 +230,7 @@ func (o *DeleteOptions) deleteMultipleImageExports(ctx context.Context, c *clien
 	return nil
 }
 
-func (o *DeleteOptions) deleteMultiple(ctx context.Context, c *apiclient.ClientWithResponses, kind ResourceKind, names []string) error {
+func (o *DeleteOptions) deleteMultiple(ctx context.Context, c *client.Client, kind ResourceKind, names []string) error {
 	var errorCount int
 
 	for _, name := range names {
@@ -247,7 +252,7 @@ func (o *DeleteOptions) deleteMultiple(ctx context.Context, c *apiclient.ClientW
 	return nil
 }
 
-func (o *DeleteOptions) deleteOne(ctx context.Context, c *apiclient.ClientWithResponses, kind ResourceKind, name string) (interface{}, error) {
+func (o *DeleteOptions) deleteOne(ctx context.Context, c *client.Client, kind ResourceKind, name string) (interface{}, error) {
 	var response interface{}
 	var err error
 
@@ -268,6 +273,10 @@ func (o *DeleteOptions) deleteOne(ctx context.Context, c *apiclient.ClientWithRe
 		response, err = c.DeleteCertificateSigningRequestWithResponse(ctx, name)
 	case AuthProviderKind:
 		response, err = c.DeleteAuthProviderWithResponse(ctx, name)
+	case CatalogKind:
+		response, err = c.V1Alpha1().DeleteCatalogWithResponse(ctx, name)
+	case CatalogItemKind:
+		response, err = c.V1Alpha1().DeleteCatalogItemWithResponse(ctx, o.CatalogName, name)
 	default:
 		return nil, fmt.Errorf("unsupported resource kind: %s", kind)
 	}
