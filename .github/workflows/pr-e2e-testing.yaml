@@ -119,9 +119,9 @@ jobs:
     strategy:
       matrix:
         include:
-          - label_filter: 'sanity && !slow'
-          - label_filter: 'sanity && slow'
-          - label_filter: 'sanity && agent'
+          - label_filter: 'sanity && !agent'
+          - label_filter: 'sanity && agent && !slow'
+          - label_filter: 'sanity && agent && slow'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
