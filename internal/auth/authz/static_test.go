@@ -233,6 +233,14 @@ func TestStaticAuthZ_GetUserPermissions(t *testing.T) {
 					Operations: []string{"get", "list"},
 				},
 				{
+					Resource:   "catalogitems",
+					Operations: []string{"create", "delete", "get", "list", "patch", "update"},
+				},
+				{
+					Resource:   "catalogs",
+					Operations: []string{"create", "delete", "get", "list", "patch", "update"},
+				},
+				{
 					Resource:   "devices",
 					Operations: []string{"create", "delete", "get", "list", "patch", "update"},
 				},

@@ -179,6 +179,7 @@ type ResourceInterface interface {
 
 var _ ResourceInterface = (*Device)(nil)
 var _ ResourceInterface = (*Fleet)(nil)
+var _ ResourceInterface = (*Catalog)(nil)
 var _ ResourceInterface = (*CertificateSigningRequest)(nil)
 var _ ResourceInterface = (*EnrollmentRequest)(nil)
 var _ ResourceInterface = (*Repository)(nil)

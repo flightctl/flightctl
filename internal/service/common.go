@@ -41,6 +41,17 @@ func NilOutManagedObjectMetaProperties(om *domain.ObjectMeta) {
 	om.DeletionTimestamp = nil
 }
 
+func NilOutManagedCatalogItemMetaProperties(om *domain.CatalogItemMeta) {
+	if om == nil {
+		return
+	}
+	om.Generation = nil
+	om.Owner = nil
+	om.Annotations = nil
+	om.CreationTimestamp = nil
+	om.DeletionTimestamp = nil
+}
+
 func validateAgainstSchema(ctx context.Context, obj []byte, objPath string) error {
 	swagger, err := domain.GetSwagger()
 	if err != nil {
@@ -132,6 +143,7 @@ var conflictErrors = map[error]bool{
 	flterrors.ErrInvalidTemplateVersion:              true,
 	flterrors.ErrNoRenderedVersion:                   true,
 	flterrors.ErrDecommission:                        true,
+	flterrors.ErrResourceNotEmpty:                    true,
 }
 
 func StoreErrorToApiStatus(err error, created bool, kind string, name *string) domain.Status {
