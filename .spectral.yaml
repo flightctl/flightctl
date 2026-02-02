@@ -27,7 +27,7 @@ rules:
     then:
       function: pattern
       functionOptions:
-        match: '^(/[a-z0-9/]+|/{name}|/{fleet})+$'
+        match: '^(/[a-z0-9/]+|/{name}|/{fleet}|/{catalog})+$'
 
   ## Allowed and required verbs
   collection-verbs-required:
@@ -465,6 +465,7 @@ rules:
         values:
         - '#/components/schemas/Status'
         - '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+        - '../v1beta1/openapi.yaml#/components/schemas/Status'
 
   # Components
   ## Component formatting and descriptions
