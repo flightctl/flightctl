@@ -104,6 +104,36 @@ func (mr *MockServiceMockRecorder) CreateAuthProvider(ctx, orgId, authProvider a
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateAuthProvider", reflect.TypeOf((*MockService)(nil).CreateAuthProvider), ctx, orgId, authProvider)
 }
 
+// CreateCatalog mocks base method.
+func (m *MockService) CreateCatalog(ctx context.Context, orgId uuid.UUID, catalog domain.Catalog) (*domain.Catalog, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateCatalog", ctx, orgId, catalog)
+	ret0, _ := ret[0].(*domain.Catalog)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// CreateCatalog indicates an expected call of CreateCatalog.
+func (mr *MockServiceMockRecorder) CreateCatalog(ctx, orgId, catalog any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateCatalog", reflect.TypeOf((*MockService)(nil).CreateCatalog), ctx, orgId, catalog)
+}
+
+// CreateCatalogItem mocks base method.
+func (m *MockService) CreateCatalogItem(ctx context.Context, orgId uuid.UUID, catalogName string, item domain.CatalogItem) (*domain.CatalogItem, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateCatalogItem", ctx, orgId, catalogName, item)
+	ret0, _ := ret[0].(*domain.CatalogItem)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// CreateCatalogItem indicates an expected call of CreateCatalogItem.
+func (mr *MockServiceMockRecorder) CreateCatalogItem(ctx, orgId, catalogName, item any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateCatalogItem", reflect.TypeOf((*MockService)(nil).CreateCatalogItem), ctx, orgId, catalogName, item)
+}
+
 // CreateCertificateSigningRequest mocks base method.
 func (m *MockService) CreateCertificateSigningRequest(ctx context.Context, orgId uuid.UUID, csr domain.CertificateSigningRequest) (*domain.CertificateSigningRequest, domain.Status) {
 	m.ctrl.T.Helper()
@@ -248,6 +278,34 @@ func (m *MockService) DeleteAuthProvider(ctx context.Context, orgId uuid.UUID, n
 func (mr *MockServiceMockRecorder) DeleteAuthProvider(ctx, orgId, name any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteAuthProvider", reflect.TypeOf((*MockService)(nil).DeleteAuthProvider), ctx, orgId, name)
+}
+
+// DeleteCatalog mocks base method.
+func (m *MockService) DeleteCatalog(ctx context.Context, orgId uuid.UUID, name string) domain.Status {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteCatalog", ctx, orgId, name)
+	ret0, _ := ret[0].(domain.Status)
+	return ret0
+}
+
+// DeleteCatalog indicates an expected call of DeleteCatalog.
+func (mr *MockServiceMockRecorder) DeleteCatalog(ctx, orgId, name any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteCatalog", reflect.TypeOf((*MockService)(nil).DeleteCatalog), ctx, orgId, name)
+}
+
+// DeleteCatalogItem mocks base method.
+func (m *MockService) DeleteCatalogItem(ctx context.Context, orgId uuid.UUID, catalogName, itemName string) domain.Status {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteCatalogItem", ctx, orgId, catalogName, itemName)
+	ret0, _ := ret[0].(domain.Status)
+	return ret0
+}
+
+// DeleteCatalogItem indicates an expected call of DeleteCatalogItem.
+func (mr *MockServiceMockRecorder) DeleteCatalogItem(ctx, orgId, catalogName, itemName any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteCatalogItem", reflect.TypeOf((*MockService)(nil).DeleteCatalogItem), ctx, orgId, catalogName, itemName)
 }
 
 // DeleteCertificateSigningRequest mocks base method.
@@ -421,6 +479,51 @@ func (m *MockService) GetAuthProviderByIssuerAndClientId(ctx context.Context, or
 func (mr *MockServiceMockRecorder) GetAuthProviderByIssuerAndClientId(ctx, orgId, issuer, clientId any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAuthProviderByIssuerAndClientId", reflect.TypeOf((*MockService)(nil).GetAuthProviderByIssuerAndClientId), ctx, orgId, issuer, clientId)
+}
+
+// GetCatalog mocks base method.
+func (m *MockService) GetCatalog(ctx context.Context, orgId uuid.UUID, name string) (*domain.Catalog, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetCatalog", ctx, orgId, name)
+	ret0, _ := ret[0].(*domain.Catalog)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// GetCatalog indicates an expected call of GetCatalog.
+func (mr *MockServiceMockRecorder) GetCatalog(ctx, orgId, name any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCatalog", reflect.TypeOf((*MockService)(nil).GetCatalog), ctx, orgId, name)
+}
+
+// GetCatalogItem mocks base method.
+func (m *MockService) GetCatalogItem(ctx context.Context, orgId uuid.UUID, catalogName, itemName string) (*domain.CatalogItem, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetCatalogItem", ctx, orgId, catalogName, itemName)
+	ret0, _ := ret[0].(*domain.CatalogItem)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// GetCatalogItem indicates an expected call of GetCatalogItem.
+func (mr *MockServiceMockRecorder) GetCatalogItem(ctx, orgId, catalogName, itemName any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCatalogItem", reflect.TypeOf((*MockService)(nil).GetCatalogItem), ctx, orgId, catalogName, itemName)
+}
+
+// GetCatalogStatus mocks base method.
+func (m *MockService) GetCatalogStatus(ctx context.Context, orgId uuid.UUID, name string) (*domain.Catalog, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetCatalogStatus", ctx, orgId, name)
+	ret0, _ := ret[0].(*domain.Catalog)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// GetCatalogStatus indicates an expected call of GetCatalogStatus.
+func (mr *MockServiceMockRecorder) GetCatalogStatus(ctx, orgId, name any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCatalogStatus", reflect.TypeOf((*MockService)(nil).GetCatalogStatus), ctx, orgId, name)
 }
 
 // GetCertificateSigningRequest mocks base method.
@@ -783,6 +886,36 @@ func (mr *MockServiceMockRecorder) ListAuthProviders(ctx, orgId, params any) *go
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListAuthProviders", reflect.TypeOf((*MockService)(nil).ListAuthProviders), ctx, orgId, params)
 }
 
+// ListCatalogItems mocks base method.
+func (m *MockService) ListCatalogItems(ctx context.Context, orgId uuid.UUID, catalogName string, params domain.ListCatalogItemsParams) (*domain.CatalogItemList, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListCatalogItems", ctx, orgId, catalogName, params)
+	ret0, _ := ret[0].(*domain.CatalogItemList)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// ListCatalogItems indicates an expected call of ListCatalogItems.
+func (mr *MockServiceMockRecorder) ListCatalogItems(ctx, orgId, catalogName, params any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListCatalogItems", reflect.TypeOf((*MockService)(nil).ListCatalogItems), ctx, orgId, catalogName, params)
+}
+
+// ListCatalogs mocks base method.
+func (m *MockService) ListCatalogs(ctx context.Context, orgId uuid.UUID, params domain.ListCatalogsParams) (*domain.CatalogList, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListCatalogs", ctx, orgId, params)
+	ret0, _ := ret[0].(*domain.CatalogList)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// ListCatalogs indicates an expected call of ListCatalogs.
+func (mr *MockServiceMockRecorder) ListCatalogs(ctx, orgId, params any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListCatalogs", reflect.TypeOf((*MockService)(nil).ListCatalogs), ctx, orgId, params)
+}
+
 // ListCertificateSigningRequests mocks base method.
 func (m *MockService) ListCertificateSigningRequests(ctx context.Context, orgId uuid.UUID, params domain.ListCertificateSigningRequestsParams) (*domain.CertificateSigningRequestList, domain.Status) {
 	m.ctrl.T.Helper()
@@ -1060,6 +1193,36 @@ func (mr *MockServiceMockRecorder) PatchAuthProvider(ctx, orgId, name, patch any
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PatchAuthProvider", reflect.TypeOf((*MockService)(nil).PatchAuthProvider), ctx, orgId, name, patch)
 }
 
+// PatchCatalog mocks base method.
+func (m *MockService) PatchCatalog(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest) (*domain.Catalog, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PatchCatalog", ctx, orgId, name, patch)
+	ret0, _ := ret[0].(*domain.Catalog)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// PatchCatalog indicates an expected call of PatchCatalog.
+func (mr *MockServiceMockRecorder) PatchCatalog(ctx, orgId, name, patch any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PatchCatalog", reflect.TypeOf((*MockService)(nil).PatchCatalog), ctx, orgId, name, patch)
+}
+
+// PatchCatalogStatus mocks base method.
+func (m *MockService) PatchCatalogStatus(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest) (*domain.Catalog, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PatchCatalogStatus", ctx, orgId, name, patch)
+	ret0, _ := ret[0].(*domain.Catalog)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// PatchCatalogStatus indicates an expected call of PatchCatalogStatus.
+func (mr *MockServiceMockRecorder) PatchCatalogStatus(ctx, orgId, name, patch any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PatchCatalogStatus", reflect.TypeOf((*MockService)(nil).PatchCatalogStatus), ctx, orgId, name, patch)
+}
+
 // PatchCertificateSigningRequest mocks base method.
 func (m *MockService) PatchCertificateSigningRequest(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest) (*domain.CertificateSigningRequest, domain.Status) {
 	m.ctrl.T.Helper()
@@ -1178,6 +1341,51 @@ func (m *MockService) ReplaceAuthProvider(ctx context.Context, orgId uuid.UUID, 
 func (mr *MockServiceMockRecorder) ReplaceAuthProvider(ctx, orgId, name, authProvider any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceAuthProvider", reflect.TypeOf((*MockService)(nil).ReplaceAuthProvider), ctx, orgId, name, authProvider)
+}
+
+// ReplaceCatalog mocks base method.
+func (m *MockService) ReplaceCatalog(ctx context.Context, orgId uuid.UUID, name string, catalog domain.Catalog) (*domain.Catalog, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReplaceCatalog", ctx, orgId, name, catalog)
+	ret0, _ := ret[0].(*domain.Catalog)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// ReplaceCatalog indicates an expected call of ReplaceCatalog.
+func (mr *MockServiceMockRecorder) ReplaceCatalog(ctx, orgId, name, catalog any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceCatalog", reflect.TypeOf((*MockService)(nil).ReplaceCatalog), ctx, orgId, name, catalog)
+}
+
+// ReplaceCatalogItem mocks base method.
+func (m *MockService) ReplaceCatalogItem(ctx context.Context, orgId uuid.UUID, catalogName, itemName string, item domain.CatalogItem) (*domain.CatalogItem, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReplaceCatalogItem", ctx, orgId, catalogName, itemName, item)
+	ret0, _ := ret[0].(*domain.CatalogItem)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// ReplaceCatalogItem indicates an expected call of ReplaceCatalogItem.
+func (mr *MockServiceMockRecorder) ReplaceCatalogItem(ctx, orgId, catalogName, itemName, item any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceCatalogItem", reflect.TypeOf((*MockService)(nil).ReplaceCatalogItem), ctx, orgId, catalogName, itemName, item)
+}
+
+// ReplaceCatalogStatus mocks base method.
+func (m *MockService) ReplaceCatalogStatus(ctx context.Context, orgId uuid.UUID, name string, catalog domain.Catalog) (*domain.Catalog, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReplaceCatalogStatus", ctx, orgId, name, catalog)
+	ret0, _ := ret[0].(*domain.Catalog)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// ReplaceCatalogStatus indicates an expected call of ReplaceCatalogStatus.
+func (mr *MockServiceMockRecorder) ReplaceCatalogStatus(ctx, orgId, name, catalog any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceCatalogStatus", reflect.TypeOf((*MockService)(nil).ReplaceCatalogStatus), ctx, orgId, name, catalog)
 }
 
 // ReplaceCertificateSigningRequest mocks base method.

@@ -10,9 +10,12 @@ import (
 	"strings"
 	"time"
 
+	corev1alpha1 "github.com/flightctl/flightctl/api/core/v1alpha1"
 	corev1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
+	convertv1alpha1 "github.com/flightctl/flightctl/internal/api/convert/v1alpha1"
 	convertv1beta1 "github.com/flightctl/flightctl/internal/api/convert/v1beta1"
 	"github.com/flightctl/flightctl/internal/api/server"
+	serverv1alpha1 "github.com/flightctl/flightctl/internal/api/server/v1alpha1"
 	fcmiddleware "github.com/flightctl/flightctl/internal/api_server/middleware"
 	"github.com/flightctl/flightctl/internal/api_server/versioning"
 	"github.com/flightctl/flightctl/internal/auth"
@@ -23,6 +26,7 @@ import (
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
+	transportv1alpha1 "github.com/flightctl/flightctl/internal/transport/v1alpha1"
 	transportv1beta1 "github.com/flightctl/flightctl/internal/transport/v1beta1"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/queues"
@@ -244,12 +248,35 @@ func (s *Server) Run(ctx context.Context) error {
 		},
 	})
 
+	// Create v1alpha1 router with OpenAPI validation (for alpha-stage resources like Catalog)
+	v1alpha1Swagger, err := corev1alpha1.GetSwagger()
+	if err != nil {
+		return fmt.Errorf("failed loading v1alpha1 swagger spec: %w", err)
+	}
+	v1alpha1OapiMiddleware := oapimiddleware.OapiRequestValidatorWithOptions(v1alpha1Swagger, &oapimiddleware.Options{
+		ErrorHandler:          OapiErrorHandler,
+		MultiErrorHandler:     oapiMultiErrorHandler,
+		SilenceServersWarning: true,
+	})
+
+	// Create v1alpha1 transport handler for alpha-stage resources (Catalog)
+	handlerV1Alpha1 := transportv1alpha1.NewTransportHandler(
+		serviceHandler, convertv1alpha1.NewConverter(),
+	)
+
+	routerV1Alpha1 := versioning.NewRouter(versioning.RouterConfig{
+		Middlewares: []versioning.Middleware{v1alpha1OapiMiddleware},
+		RegisterRoutes: func(r chi.Router) {
+			serverv1alpha1.HandlerFromMux(handlerV1Alpha1, r)
+		},
+	})
+
 	// Create negotiated router with version-specific sub-routers
 	negotiatedRouter, err := versioning.NewNegotiatedRouter(
 		negotiator.NegotiateMiddleware,
 		map[versioning.Version]chi.Router{
-			versioning.V1Beta1: routerV1Beta1,
-			// V1Beta2, V1, etc..
+			versioning.V1Beta1:  routerV1Beta1,
+			versioning.V1Alpha1: routerV1Alpha1,
 		},
 		versioning.V1Beta1,
 	)

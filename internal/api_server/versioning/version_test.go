@@ -12,6 +12,11 @@ func TestVersion_IsValid(t *testing.T) {
 		want    bool
 	}{
 		{
+			name:    "v1alpha1 is valid",
+			version: V1Alpha1,
+			want:    true,
+		},
+		{
 			name:    "v1beta1 is valid",
 			version: V1Beta1,
 			want:    true,
