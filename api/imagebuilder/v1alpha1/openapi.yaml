@@ -1,7 +1,7 @@
 openapi: 3.0.1
 info:
   title: Flight Control Image Builder API
-  version: v1beta1
+  version: v1alpha1
   description: |
     Image Builder service for Flight Control.
     This service manages image build resources for building and pushing container images.

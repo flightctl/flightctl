@@ -1046,7 +1046,7 @@ The agent will automatically extract `app-files.tar.gz` when deploying the appli
 After building and pushing either package type, reference the image in `spec.applications[]`:
 
 ```yaml
-apiVersion: flightctl.io/v1alpha1
+apiVersion: flightctl.io/v1beta1
 kind: Device
 metadata:
   name: some_device_name
@@ -1171,7 +1171,7 @@ All Quadlet file names must be unique across all systemd service files on a Devi
 **Simple Container Example:**
 
 ```yaml
-apiVersion: flightctl.io/v1alpha1
+apiVersion: flightctl.io/v1beta1
 kind: Device
 metadata:
   name: some_device_name

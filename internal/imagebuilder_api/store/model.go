@@ -72,7 +72,7 @@ func NewImageBuildFromDomain(resource *domain.ImageBuild) (*ImageBuild, error) {
 }
 
 func ImageBuildAPIVersion() string {
-	return domain.ImageBuildAPIVersion
+	return fmt.Sprintf("%s/%s", domain.APIGroup, domain.ImageBuildAPIVersion)
 }
 
 type ImageBuildDomainOption func(*imageBuildDomainOptions)
@@ -248,7 +248,7 @@ func NewImageExportFromDomain(resource *domain.ImageExport) (*ImageExport, error
 }
 
 func ImageExportAPIVersion() string {
-	return domain.ImageExportAPIVersion
+	return fmt.Sprintf("%s/%s", domain.APIGroup, domain.ImageExportAPIVersion)
 }
 
 func (i *ImageExport) ToDomain() (*domain.ImageExport, error) {

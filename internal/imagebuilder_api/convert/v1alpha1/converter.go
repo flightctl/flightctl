@@ -1,6 +1,6 @@
-package v1beta1
+package v1alpha1
 
-// Converter aggregates all resource-specific converters for imagebuilder v1beta1 API.
+// Converter aggregates all resource-specific converters for imagebuilder v1alpha1 API.
 type Converter interface {
 	ImageBuild() ImageBuildConverter
 	ImageExport() ImageExportConverter

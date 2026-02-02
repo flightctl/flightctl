@@ -392,7 +392,8 @@ func (c *ImageBuilderClient) Stop() {
 // If the config has a refresh token, a token refresher will be created and included in the client.
 // The refresher is not started automatically - call Start() to begin token refresh.
 func NewImageBuilderClientFromConfig(config *Config, configFilePath string, imageBuilderServer string, organization string, opts ...imagebuilderclient.ClientOption) (*ImageBuilderClient, error) {
-	httpClient, err := NewHTTPClientForServer(config, imageBuilderServer)
+	// ImageBuilder API uses v1alpha1
+	httpClient, err := NewHTTPClientForServer(config, imageBuilderServer, versioning.WithAPIVersion(versioning.V1Alpha1))
 	if err != nil {
 		return nil, fmt.Errorf("NewImageBuilderClientFromConfig: creating HTTP client %w", err)
 	}
@@ -526,7 +527,9 @@ func NewHTTPClientFromConfig(config *Config) (*http.Client, error) {
 // NewHTTPClientForServer returns a new HTTP Client from the given config,
 // using the specified server URL to derive the TLS ServerName for SNI.
 // This is important for OpenShift routes which use SNI-based routing.
-func NewHTTPClientForServer(config *Config, serverURL string) (*http.Client, error) {
+// Optional versioning.TransportOption can be passed to configure the API version header.
+// If no option is provided, it defaults to v1beta1.
+func NewHTTPClientForServer(config *Config, serverURL string, versionOpts ...versioning.TransportOption) (*http.Client, error) {
 	config = config.DeepCopy()
 	if err := config.Flatten(); err != nil {
 		return nil, err
@@ -573,7 +576,11 @@ func NewHTTPClientForServer(config *Config, serverURL string) (*http.Client, err
 	}
 
 	// Wrap transport with versioning to inject API version header (after HTTPOptions)
-	httpClient.Transport = versioning.NewTransport(httpClient.Transport, versioning.WithAPIV1Beta1())
+	// Default to v1beta1 if no version option is provided
+	if len(versionOpts) == 0 {
+		versionOpts = []versioning.TransportOption{versioning.WithAPIV1Beta1()}
+	}
+	httpClient.Transport = versioning.NewTransport(httpClient.Transport, versionOpts...)
 
 	return httpClient, nil
 }

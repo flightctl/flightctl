@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/imagebuilder/v1beta1"
+	api "github.com/flightctl/flightctl/api/imagebuilder/v1alpha1"
 	fcmiddleware "github.com/flightctl/flightctl/internal/api_server/middleware"
 	"github.com/flightctl/flightctl/internal/api_server/versioning"
 	"github.com/flightctl/flightctl/internal/auth"
@@ -172,18 +172,18 @@ func (s *Server) Run(ctx context.Context) error {
 		userAgentMiddleware,
 	)
 
-	// Create version negotiator with v1beta1 as default
-	negotiator := versioning.NewNegotiator(versioning.V1Beta1)
+	// Create version negotiator with v1alpha1 as default (imagebuilder resources are v1alpha1)
+	negotiator := versioning.NewNegotiator(versioning.V1Alpha1)
 
 	// Create transport handler that implements ServerInterface
 	transportHandler := transport.NewTransportHandler(s.service, s.log)
 
-	// Create v1beta1 OpenAPI middleware
-	v1beta1OapiMiddleware := oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapiOpts)
+	// Create v1alpha1 OpenAPI middleware
+	v1alpha1OapiMiddleware := oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapiOpts)
 
-	// Create v1beta1 router with OpenAPI validation and auth
-	routerV1Beta1 := versioning.NewRouter(versioning.RouterConfig{
-		Middlewares: []versioning.Middleware{v1beta1OapiMiddleware},
+	// Create v1alpha1 router with OpenAPI validation and auth
+	routerV1Alpha1 := versioning.NewRouter(versioning.RouterConfig{
+		Middlewares: []versioning.Middleware{v1alpha1OapiMiddleware},
 		RegisterRoutes: func(r chi.Router) {
 			server.HandlerFromMux(transportHandler, r)
 		},
@@ -193,9 +193,9 @@ func (s *Server) Run(ctx context.Context) error {
 	negotiatedRouter, err := versioning.NewNegotiatedRouter(
 		negotiator.NegotiateMiddleware,
 		map[versioning.Version]chi.Router{
-			versioning.V1Beta1: routerV1Beta1,
+			versioning.V1Alpha1: routerV1Alpha1,
 		},
-		versioning.V1Beta1,
+		versioning.V1Alpha1,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create negotiated router: %w", err)

@@ -6,7 +6,8 @@ import (
 
 // API Version constants
 const (
-	V1Beta1 = "v1beta1"
+	V1Alpha1 = "v1alpha1"
+	V1Beta1  = "v1beta1"
 )
 
 // API Header names
