@@ -14,7 +14,7 @@ import (
 	"strings"
 
 	externalRef0 "github.com/flightctl/flightctl/api/core/v1beta1"
-	. "github.com/flightctl/flightctl/api/imagebuilder/v1beta1"
+	. "github.com/flightctl/flightctl/api/imagebuilder/v1alpha1"
 	"github.com/oapi-codegen/runtime"
 )
 

@@ -53,9 +53,10 @@ curl -H "Flightctl-API-Version: v1beta1" \
 
 ### Current Versions
 
-| Version | Status | Support Guarantee |
-|---------|--------|-------------------|
-| v1beta1 | Current | Supported throughout the 1.x.x major version |
+| Version | Resources | Status | Support Guarantee |
+|---------|-----------|--------|-------------------|
+| v1beta1 | Device, Fleet, Repository, EnrollmentRequest, TemplateVersion, ResourceSync, CertificateSigningRequest, Event, AuthProvider, AuthConfig, Organization | Current | Supported throughout the 1.x.x major version |
+| v1alpha1 | ImageBuild, ImageExport | Alpha | No breaking changes anticipated, but may evolve as the feature matures |
 
 ## Repositories
 

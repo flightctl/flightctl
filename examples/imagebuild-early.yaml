@@ -1,4 +1,4 @@
-apiVersion: flightctl.io/v1beta1
+apiVersion: flightctl.io/v1alpha1
 kind: ImageBuild
 metadata:
   name: centos-bootc-stream9-build-early

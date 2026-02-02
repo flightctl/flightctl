@@ -3,10 +3,10 @@ package imagebuilder
 const (
 	APIGroup = "flightctl.io"
 
-	ImageBuildAPIVersion = "v1beta1"
+	ImageBuildAPIVersion = "v1alpha1"
 	ImageBuildListKind   = "ImageBuildList"
 
-	ImageExportAPIVersion = "v1beta1"
+	ImageExportAPIVersion = "v1alpha1"
 	ImageExportListKind   = "ImageExportList"
 
 	// LogStreamCompleteMarker is sent by the server when a log stream is complete.

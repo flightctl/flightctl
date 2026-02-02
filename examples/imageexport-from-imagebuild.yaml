@@ -1,4 +1,4 @@
-apiVersion: flightctl.io/v1beta1
+apiVersion: flightctl.io/v1alpha1
 kind: ImageExport
 metadata:
   name: my-edge-export-from-build
