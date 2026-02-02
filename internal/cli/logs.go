@@ -10,7 +10,7 @@ import (
 	"os"
 	"strings"
 
-	imagebuilderapi "github.com/flightctl/flightctl/api/imagebuilder/v1beta1"
+	imagebuilderapi "github.com/flightctl/flightctl/api/imagebuilder/v1alpha1"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )

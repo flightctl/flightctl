@@ -1,5 +1,8 @@
 # Managing Image Builds and Exports
 
+> [!NOTE]
+> The ImageBuild and ImageExport APIs use version `v1alpha1`. While no breaking changes are currently anticipated, the alpha designation indicates these APIs may evolve as the feature matures.
+
 Flight Control provides API resources that automate the image building and export process. Instead of manually building images with `podman` and `bootc-image-builder`, you can use the `ImageBuild` and `ImageExport` resources to build and export images through the Flight Control service.
 
 ## Prerequisites
@@ -27,7 +30,7 @@ The `ImageBuild` resource automates the process of building bootc container imag
 An `ImageBuild` resource has the following structure:
 
 ```yaml
-apiVersion: flightctl.io/v1beta1
+apiVersion: flightctl.io/v1alpha1
 kind: ImageBuild
 metadata:
   name: my-image-build
@@ -150,7 +153,7 @@ When deleting an ImageBuild:
 ### Example: Early Binding ImageBuild
 
 ```yaml
-apiVersion: flightctl.io/v1beta1
+apiVersion: flightctl.io/v1alpha1
 kind: ImageBuild
 metadata:
   name: centos-bootc-stream9-build-early
@@ -170,7 +173,7 @@ spec:
 ### Example: Late Binding ImageBuild
 
 ```yaml
-apiVersion: flightctl.io/v1beta1
+apiVersion: flightctl.io/v1alpha1
 kind: ImageBuild
 metadata:
   name: centos-bootc-stream9-build
@@ -196,7 +199,7 @@ The `ImageExport` resource converts bootc container images into disk image forma
 An `ImageExport` resource has the following structure:
 
 ```yaml
-apiVersion: flightctl.io/v1beta1
+apiVersion: flightctl.io/v1alpha1
 kind: ImageExport
 metadata:
   name: my-image-export
@@ -318,7 +321,7 @@ This downloads the exported disk image directly to a local file with progress in
 ### Example: Export from ImageBuild
 
 ```yaml
-apiVersion: flightctl.io/v1beta1
+apiVersion: flightctl.io/v1alpha1
 kind: ImageExport
 metadata:
   name: my-edge-export-from-build

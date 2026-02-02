@@ -1,11 +1,11 @@
-package v1beta1
+package v1alpha1
 
 import (
-	api "github.com/flightctl/flightctl/api/imagebuilder/v1beta1"
+	api "github.com/flightctl/flightctl/api/imagebuilder/v1alpha1"
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/domain"
 )
 
-// ImageExportConverter converts between v1beta1 API types and domain types for ImageExport resources.
+// ImageExportConverter converts between v1alpha1 API types and domain types for ImageExport resources.
 type ImageExportConverter interface {
 	// Core resource conversions
 	ToDomain(api.ImageExport) domain.ImageExport

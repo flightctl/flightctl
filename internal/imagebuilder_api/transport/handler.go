@@ -10,9 +10,9 @@ import (
 	"net/http"
 	"strings"
 
-	api "github.com/flightctl/flightctl/api/imagebuilder/v1beta1"
+	api "github.com/flightctl/flightctl/api/imagebuilder/v1alpha1"
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/api/server"
-	convert "github.com/flightctl/flightctl/internal/imagebuilder_api/convert/v1beta1"
+	convert "github.com/flightctl/flightctl/internal/imagebuilder_api/convert/v1alpha1"
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/domain"
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/service"
 	"github.com/flightctl/flightctl/internal/store"

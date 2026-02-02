@@ -1,7 +1,7 @@
 package domain
 
 import (
-	api "github.com/flightctl/flightctl/api/imagebuilder/v1beta1"
+	api "github.com/flightctl/flightctl/api/imagebuilder/v1alpha1"
 )
 
 // ========== Resource Types ==========
@@ -82,6 +82,7 @@ const (
 // ========== API Version ==========
 
 const (
+	APIGroup             = api.APIGroup
 	ImageBuildAPIVersion = api.ImageBuildAPIVersion
 )
 
