@@ -23,7 +23,7 @@ var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 	})
 
 	Context("hooks", func() {
-		It(`Verifies that lifecycles hooks are triggered after the device and agent events`, Label("78753", "sanity", "slow"), func() {
+		It(`Verifies that lifecycles hooks are triggered after the device and agent events`, Label("78753", "sanity", "agent", "slow"), func() {
 			// Get harness directly - no shared package-level variable
 			harness := e2e.GetWorkerHarness()
 
