@@ -531,7 +531,7 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 	if response, err := c.ListOrganizationsWithResponse(ctx, &v1beta1.ListOrganizationsParams{}); err == nil && response.StatusCode() == http.StatusOK && response.JSON200 != nil {
 
 		if len(response.JSON200.Items) == 0 {
-			return fmt.Errorf("no organizations found")
+			return fmt.Errorf("Unable to log in to the application\n\nYou do not have access to any organizations.\n\nPlease contact your administrator to be granted access to an organization.")
 		}
 
 		org := response.JSON200.Items[0]
