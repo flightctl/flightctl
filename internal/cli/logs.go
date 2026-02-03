@@ -133,9 +133,9 @@ func (o *LogsOptions) Run(ctx context.Context, args []string) error {
 	defer resp.Body.Close()
 
 	// Check response status
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("failed to get logs: status %d, body: %s", resp.StatusCode, string(body))
+		return validateHttpResponse(body, resp.StatusCode, http.StatusOK)
 	}
 
 	// Handle streaming vs non-streaming

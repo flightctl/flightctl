@@ -5,12 +5,14 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 type DownloadOptions struct {
@@ -53,8 +55,12 @@ func NewCmdDownload() *cobra.Command {
 		},
 		SilenceUsage: true,
 	}
-
+	o.Bind(cmd.Flags())
 	return cmd
+}
+
+func (o *DownloadOptions) Bind(fs *pflag.FlagSet) {
+	o.GlobalOptions.Bind(fs)
 }
 
 func (o *DownloadOptions) Complete(cmd *cobra.Command, args []string) error {
@@ -153,16 +159,9 @@ func (o *DownloadOptions) downloadImageExport(ctx context.Context, name string) 
 
 	// Handle error responses
 	if httpResp.StatusCode >= 400 {
-		// Read error body for error messages
-		bodyBytes, err := io.ReadAll(httpResp.Body)
-		httpResp.Body.Close() // Close body on error path
-		var errorMsg string
-		if err == nil && len(bodyBytes) > 0 {
-			errorMsg = string(bodyBytes)
-		} else {
-			errorMsg = httpResp.Status
-		}
-		return nil, fmt.Errorf("download failed with status %d: %s", httpResp.StatusCode, errorMsg)
+		bodyBytes, _ := io.ReadAll(httpResp.Body)
+		httpResp.Body.Close()
+		return nil, validateHttpResponse(bodyBytes, httpResp.StatusCode, http.StatusOK)
 	}
 
 	// Handle successful download (200 or after redirect) - stream directly from response body
