@@ -84,7 +84,17 @@ func (s *imageBuildService) Create(ctx context.Context, orgId uuid.UUID, imageBu
 	if err != nil {
 		return result, StoreErrorToApiStatus(err, true, string(domain.ResourceKindImageBuild), imageBuild.Metadata.Name)
 	}
-
+	// Clear any stale Redis keys from a previous resource with the same name
+	// This prevents old cancellation signals from affecting the new resource
+	if s.kvStore != nil && imageBuild.Metadata.Name != nil {
+		name := *imageBuild.Metadata.Name
+		if err := s.kvStore.Delete(ctx, getImageBuildCancelStreamKey(orgId, name)); err != nil {
+			s.log.WithError(err).Debug("Failed to clear stale cancel stream key (may not exist)")
+		}
+		if err := s.kvStore.Delete(ctx, getImageBuildCanceledStreamKey(orgId, name)); err != nil {
+			s.log.WithError(err).Debug("Failed to clear stale canceled stream key (may not exist)")
+		}
+	}
 	// Create event separately (no transaction)
 	var event *coredomain.Event
 	if result != nil && s.eventHandler != nil {
@@ -205,6 +215,29 @@ func (s *imageBuildService) Cancel(ctx context.Context, orgId uuid.UUID, name st
 }
 
 func (s *imageBuildService) CancelWithReason(ctx context.Context, orgId uuid.UUID, name string, reason string) (*domain.ImageBuild, error) {
+	const maxRetries = 3
+
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		result, err := s.tryCancelImageBuild(ctx, orgId, name, reason)
+		if err == nil {
+			return result, nil
+		}
+
+		// Retry on version conflict (race condition with worker)
+		if errors.Is(err, flterrors.ErrNoRowsUpdated) {
+			s.log.WithField("name", name).WithField("attempt", attempt+1).Debug("Retrying cancel after version conflict")
+			continue
+		}
+
+		// Non-retryable error
+		return nil, err
+	}
+
+	return nil, fmt.Errorf("failed to cancel ImageBuild after %d attempts due to concurrent modifications", maxRetries)
+}
+
+// tryCancelImageBuild attempts to cancel an ImageBuild once
+func (s *imageBuildService) tryCancelImageBuild(ctx context.Context, orgId uuid.UUID, name string, reason string) (*domain.ImageBuild, error) {
 	// 1. Get current ImageBuild
 	imageBuild, err := s.store.Get(ctx, orgId, name)
 	if err != nil {
@@ -224,38 +257,68 @@ func (s *imageBuildService) CancelWithReason(ctx context.Context, orgId uuid.UUI
 		imageBuild.Status.Conditions = &[]domain.ImageBuildCondition{}
 	}
 
-	// 4. Update status to Canceling
-	cancelingCondition := domain.ImageBuildCondition{
+	// 4. Determine target state based on current state
+	// - Pending: go directly to Canceled (no active processing to stop)
+	// - Building/Pushing: go to Canceling (worker will complete the cancellation)
+	currentState := getCurrentBuildState(imageBuild)
+	isPending := currentState == "" || currentState == string(domain.ImageBuildConditionReasonPending)
+
+	var targetReason string
+	if isPending {
+		targetReason = string(domain.ImageBuildConditionReasonCanceled)
+	} else {
+		targetReason = string(domain.ImageBuildConditionReasonCanceling)
+	}
+
+	condition := domain.ImageBuildCondition{
 		Type:               domain.ImageBuildConditionTypeReady,
 		Status:             domain.ConditionStatusFalse,
-		Reason:             string(domain.ImageBuildConditionReasonCanceling),
+		Reason:             targetReason,
 		Message:            reason,
 		LastTransitionTime: time.Now().UTC(),
 	}
-	domain.SetImageBuildStatusCondition(imageBuild.Status.Conditions, cancelingCondition)
+	domain.SetImageBuildStatusCondition(imageBuild.Status.Conditions, condition)
 
 	result, err := s.store.UpdateStatus(ctx, orgId, imageBuild)
 	if err != nil {
 		return nil, err
 	}
 
-	// 5. Write cancellation to Redis Stream (worker reads with blocking)
-	// Uses existing StreamAdd method - same as log streaming
+	// 5. If we set to Canceling (active processing), write to Redis Stream
+	// If we set directly to Canceled, signal completion for cancel-then-delete flow
 	if s.kvStore != nil {
-		if _, err := s.kvStore.StreamAdd(ctx, getImageBuildCancelStreamKey(orgId, name), []byte("cancel")); err != nil {
-			s.log.WithError(err).Warn("Failed to write cancellation to Redis stream")
-			// Don't fail - status is already Canceling, worker can detect via DB check as fallback
+		if targetReason == string(domain.ImageBuildConditionReasonCanceling) {
+			if _, err := s.kvStore.StreamAdd(ctx, getImageBuildCancelStreamKey(orgId, name), []byte("cancel")); err != nil {
+				s.log.WithError(err).Warn("Failed to write cancellation to Redis stream")
+			}
+			if err := s.kvStore.SetExpire(ctx, getImageBuildCancelStreamKey(orgId, name), 1*time.Hour); err != nil {
+				s.log.WithError(err).Warn("Failed to set TTL on cancellation stream key")
+			}
+		} else {
+			// Signal cancellation completion for cancel-then-delete flow
+			canceledStreamKey := getImageBuildCanceledStreamKey(orgId, name)
+			if _, err := s.kvStore.StreamAdd(ctx, canceledStreamKey, []byte("canceled")); err != nil {
+				s.log.WithError(err).Warn("Failed to write cancellation completion signal to Redis")
+			} else if err := s.kvStore.SetExpire(ctx, canceledStreamKey, 5*time.Minute); err != nil {
+				s.log.WithError(err).Warn("Failed to set TTL on cancellation completion signal key")
+			}
 		}
-		// Set TTL on stream key (1 hour - same as logs)
-		if err := s.kvStore.SetExpire(ctx, getImageBuildCancelStreamKey(orgId, name), 1*time.Hour); err != nil {
-			s.log.WithError(err).Warn("Failed to set TTL on cancellation stream key")
-		}
-	} else {
-		s.log.Warn("kvStore is nil, cannot write cancellation to Redis stream")
 	}
 
-	s.log.WithField("orgId", orgId).WithField("name", name).WithField("reason", reason).Info("ImageBuild cancellation requested")
+	s.log.WithField("orgId", orgId).WithField("name", name).WithField("reason", reason).WithField("targetState", targetReason).Info("ImageBuild cancellation requested")
 	return result, nil
+}
+
+// getCurrentBuildState returns the current state reason or empty string if none
+func getCurrentBuildState(imageBuild *domain.ImageBuild) string {
+	if imageBuild.Status == nil || imageBuild.Status.Conditions == nil {
+		return ""
+	}
+	readyCondition := domain.FindImageBuildStatusCondition(*imageBuild.Status.Conditions, domain.ImageBuildConditionTypeReady)
+	if readyCondition == nil {
+		return ""
+	}
+	return readyCondition.Reason
 }
 
 // isCancelableState checks if an ImageBuild is in a state that can be canceled (used by Cancel API)
