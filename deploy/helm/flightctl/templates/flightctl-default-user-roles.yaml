@@ -78,7 +78,7 @@ rules:
       - imageexports/download
   # Cancel operations for image builds/exports (PUT maps to update verb)
   - verbs:
-      - update
+      - create
     apiGroups:
       - flightctl.io
     resources:
