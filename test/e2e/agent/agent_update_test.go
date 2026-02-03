@@ -227,7 +227,6 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			Expect(err).NotTo(HaveOccurred())
 		})
 		It("Should rollback when updating to a broken image", Label("82481", "sanity"), func() {
-			Skip("Test temporarily disabled, re-enable after EDM-3264 is fixed")
 			// Get harness directly - no shared package-level variable
 			harness := e2e.GetWorkerHarness()
 

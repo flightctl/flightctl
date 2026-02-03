@@ -552,7 +552,11 @@ func (a *Agent) handleSyncError(ctx context.Context, desired *v1beta1.Device, sy
 		conditionUpdate.Status = v1beta1.ConditionStatusTrue
 		a.log.Warn(msg, se.Timestamp)
 	}
-	conditionUpdate.Message = se.Message()
+
+	if !se.Is(errors.ErrImagePull) {
+		conditionUpdate.Message = se.Message()
+	}
+
 	if err := a.statusManager.UpdateCondition(ctx, conditionUpdate); err != nil {
 		a.log.Warnf("Failed to update device status condition: %v", err)
 	}
