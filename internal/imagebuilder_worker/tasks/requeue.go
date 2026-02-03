@@ -373,6 +373,28 @@ func (c *Consumer) markImageBuildAsCanceled(ctx context.Context, orgID uuid.UUID
 		return fmt.Errorf("failed to update ImageBuild status: %w", err)
 	}
 
+	// Clean up the Redis cancel signal and signal completion if kvStore is available
+	if c.kvStore != nil {
+		// Delete the cancel request stream
+		cancelStreamKey := getImageBuildCancelStreamKey(orgID, name)
+		if err := c.kvStore.Delete(ctx, cancelStreamKey); err != nil {
+			log.WithError(err).Debug("Failed to delete cancellation stream key (may not exist)")
+		}
+
+		// Signal cancellation completion (for cancel-then-delete flow)
+		if !isTimeout {
+			canceledStreamKey := GetImageBuildCanceledStreamKey(orgID, name)
+			if _, err := c.kvStore.StreamAdd(ctx, canceledStreamKey, []byte("canceled")); err != nil {
+				log.WithError(err).Warn("Failed to write cancellation completion signal to Redis")
+			} else {
+				// Set a TTL so the key is cleaned up even if the API doesn't consume it
+				if err := c.kvStore.SetExpire(ctx, canceledStreamKey, 5*time.Minute); err != nil {
+					log.WithError(err).Warn("Failed to set TTL on cancellation completion signal key")
+				}
+			}
+		}
+	}
+
 	if isTimeout {
 		log.WithField("imageBuild", name).WithField("message", message).Info("Marked ImageBuild as failed (timed out on startup)")
 	} else {
@@ -472,6 +494,28 @@ func (c *Consumer) markImageExportAsCanceled(ctx context.Context, orgID uuid.UUI
 			return nil
 		}
 		return fmt.Errorf("failed to update ImageExport status: %w", err)
+	}
+
+	// Clean up the Redis cancel signal and signal completion if kvStore is available
+	if c.kvStore != nil {
+		// Delete the cancel request stream
+		cancelStreamKey := fmt.Sprintf("imageexport:cancel:%s:%s", orgID.String(), name)
+		if err := c.kvStore.Delete(ctx, cancelStreamKey); err != nil {
+			log.WithError(err).Debug("Failed to delete cancellation stream key (may not exist)")
+		}
+
+		// Signal cancellation completion (for cancel-then-delete flow)
+		if !isTimeout {
+			canceledStreamKey := GetCanceledStreamKey(orgID, name)
+			if _, err := c.kvStore.StreamAdd(ctx, canceledStreamKey, []byte("canceled")); err != nil {
+				log.WithError(err).Warn("Failed to write cancellation completion signal to Redis")
+			} else {
+				// Set a TTL so the key is cleaned up even if the API doesn't consume it
+				if err := c.kvStore.SetExpire(ctx, canceledStreamKey, 5*time.Minute); err != nil {
+					log.WithError(err).Warn("Failed to set TTL on cancellation completion signal key")
+				}
+			}
+		}
 	}
 
 	if isTimeout {

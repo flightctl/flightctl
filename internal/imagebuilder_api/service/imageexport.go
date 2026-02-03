@@ -127,6 +127,18 @@ func (s *imageExportService) Create(ctx context.Context, orgId uuid.UUID, imageE
 	if err != nil {
 		return result, StoreErrorToApiStatus(err, true, string(domain.ResourceKindImageExport), imageExport.Metadata.Name)
 	}
+	// Clear any stale Redis keys from a previous resource with the same name
+	// This prevents old cancellation signals from affecting the new resource
+	if s.kvStore != nil && imageExport.Metadata.Name != nil {
+		name := *imageExport.Metadata.Name
+		cancelStreamKey := fmt.Sprintf("imageexport:cancel:%s:%s", orgId.String(), name)
+		if err := s.kvStore.Delete(ctx, cancelStreamKey); err != nil {
+			s.log.WithError(err).Debug("Failed to clear stale cancel stream key (may not exist)")
+		}
+		if err := s.kvStore.Delete(ctx, getCanceledStreamKey(orgId, name)); err != nil {
+			s.log.WithError(err).Debug("Failed to clear stale canceled stream key (may not exist)")
+		}
+	}
 
 	// Create event separately (no transaction)
 	var event *coredomain.Event
@@ -213,6 +225,29 @@ func (s *imageExportService) Cancel(ctx context.Context, orgId uuid.UUID, name s
 }
 
 func (s *imageExportService) CancelWithReason(ctx context.Context, orgId uuid.UUID, name string, reason string) (*domain.ImageExport, error) {
+	const maxRetries = 3
+
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		result, err := s.tryCancelImageExport(ctx, orgId, name, reason)
+		if err == nil {
+			return result, nil
+		}
+
+		// Retry on version conflict (race condition with worker)
+		if errors.Is(err, flterrors.ErrNoRowsUpdated) {
+			s.log.WithField("name", name).WithField("attempt", attempt+1).Debug("Retrying cancel after version conflict")
+			continue
+		}
+
+		// Non-retryable error
+		return nil, err
+	}
+
+	return nil, fmt.Errorf("failed to cancel ImageExport after %d attempts due to concurrent modifications", maxRetries)
+}
+
+// tryCancelImageExport attempts to cancel an ImageExport once
+func (s *imageExportService) tryCancelImageExport(ctx context.Context, orgId uuid.UUID, name string, reason string) (*domain.ImageExport, error) {
 	// 1. Get current ImageExport
 	imageExport, err := s.imageExportStore.Get(ctx, orgId, name)
 	if err != nil {
@@ -232,36 +267,69 @@ func (s *imageExportService) CancelWithReason(ctx context.Context, orgId uuid.UU
 		imageExport.Status.Conditions = &[]domain.ImageExportCondition{}
 	}
 
-	// 4. Update status to Canceling
-	cancelingCondition := domain.ImageExportCondition{
+	// 4. Determine target state based on current state
+	// - Pending: go directly to Canceled (no active processing to stop)
+	// - Converting/Pushing: go to Canceling (worker will complete the cancellation)
+	currentState := getCurrentExportState(imageExport)
+	isPending := currentState == "" || currentState == string(domain.ImageExportConditionReasonPending)
+
+	var targetReason string
+	if isPending {
+		targetReason = string(domain.ImageExportConditionReasonCanceled)
+	} else {
+		targetReason = string(domain.ImageExportConditionReasonCanceling)
+	}
+
+	condition := domain.ImageExportCondition{
 		Type:               domain.ImageExportConditionTypeReady,
 		Status:             domain.ConditionStatusFalse,
-		Reason:             string(domain.ImageExportConditionReasonCanceling),
+		Reason:             targetReason,
 		Message:            reason,
 		LastTransitionTime: time.Now().UTC(),
 	}
-	domain.SetImageExportStatusCondition(imageExport.Status.Conditions, cancelingCondition)
+	domain.SetImageExportStatusCondition(imageExport.Status.Conditions, condition)
 
 	result, err := s.imageExportStore.UpdateStatus(ctx, orgId, imageExport)
 	if err != nil {
 		return nil, err
 	}
 
-	// 5. Write cancellation to Redis Stream (worker reads with blocking)
+	// 5. If we set to Canceling (active processing), write to Redis Stream
+	// If we set directly to Canceled, signal completion for cancel-then-delete flow
 	if s.kvStore != nil {
-		streamKey := fmt.Sprintf("imageexport:cancel:%s:%s", orgId.String(), name)
-		if _, err := s.kvStore.StreamAdd(ctx, streamKey, []byte("cancel")); err != nil {
-			s.log.WithError(err).Warn("Failed to write cancellation to Redis stream")
-			// Don't fail - status is already Canceling, worker can detect via DB check as fallback
-		}
-		// Set TTL on stream key (1 hour - same as logs)
-		if err := s.kvStore.SetExpire(ctx, streamKey, 1*time.Hour); err != nil {
-			s.log.WithError(err).Warn("Failed to set TTL on cancellation stream key")
+		if targetReason == string(domain.ImageExportConditionReasonCanceling) {
+			streamKey := fmt.Sprintf("imageexport:cancel:%s:%s", orgId.String(), name)
+			if _, err := s.kvStore.StreamAdd(ctx, streamKey, []byte("cancel")); err != nil {
+				s.log.WithError(err).Warn("Failed to write cancellation to Redis stream")
+			}
+			if err := s.kvStore.SetExpire(ctx, streamKey, 1*time.Hour); err != nil {
+				s.log.WithError(err).Warn("Failed to set TTL on cancellation stream key")
+			}
+		} else {
+			// Signal cancellation completion for cancel-then-delete flow
+			canceledStreamKey := getCanceledStreamKey(orgId, name)
+			if _, err := s.kvStore.StreamAdd(ctx, canceledStreamKey, []byte("canceled")); err != nil {
+				s.log.WithError(err).Warn("Failed to write cancellation completion signal to Redis")
+			} else if err := s.kvStore.SetExpire(ctx, canceledStreamKey, 5*time.Minute); err != nil {
+				s.log.WithError(err).Warn("Failed to set TTL on cancellation completion signal key")
+			}
 		}
 	}
 
-	s.log.WithField("orgId", orgId).WithField("name", name).WithField("reason", reason).Info("ImageExport cancellation requested")
+	s.log.WithField("orgId", orgId).WithField("name", name).WithField("reason", reason).WithField("targetState", targetReason).Info("ImageExport cancellation requested")
 	return result, nil
+}
+
+// getCurrentExportState returns the current state reason or empty string if none
+func getCurrentExportState(imageExport *domain.ImageExport) string {
+	if imageExport.Status == nil || imageExport.Status.Conditions == nil {
+		return ""
+	}
+	readyCondition := domain.FindImageExportStatusCondition(*imageExport.Status.Conditions, domain.ImageExportConditionTypeReady)
+	if readyCondition == nil {
+		return ""
+	}
+	return readyCondition.Reason
 }
 
 // isCancelableExportState checks if an ImageExport is in a state that can be canceled

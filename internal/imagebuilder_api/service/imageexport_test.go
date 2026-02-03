@@ -1307,10 +1307,10 @@ func TestCancelImageExport_Pending(t *testing.T) {
 	require.NotNil(result.Status)
 	require.NotNil(result.Status.Conditions)
 
-	// Verify status is Canceling
+	// Verify status is Canceled (Pending resources go directly to Canceled, no active processing to stop)
 	readyCondition := api.FindImageExportStatusCondition(*result.Status.Conditions, api.ImageExportConditionTypeReady)
 	require.NotNil(readyCondition)
-	require.Equal(string(api.ImageExportConditionReasonCanceling), readyCondition.Reason)
+	require.Equal(string(api.ImageExportConditionReasonCanceled), readyCondition.Reason)
 }
 
 func TestCancelImageExport_Converting(t *testing.T) {
@@ -1514,8 +1514,8 @@ func TestCancelImageExport_NoStatus(t *testing.T) {
 	require.NoError(err)
 	require.NotNil(result)
 
-	// Verify status is Canceling
+	// Verify status is Canceled (no status = Pending, which goes directly to Canceled)
 	readyCondition := api.FindImageExportStatusCondition(*result.Status.Conditions, api.ImageExportConditionTypeReady)
 	require.NotNil(readyCondition)
-	require.Equal(string(api.ImageExportConditionReasonCanceling), readyCondition.Reason)
+	require.Equal(string(api.ImageExportConditionReasonCanceled), readyCondition.Reason)
 }
