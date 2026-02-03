@@ -221,6 +221,12 @@ function is_acm_installed() {
   fi
 }
 
+# Function to check if RHOCP repo is accessible (required for v7/MicroShift)
+function has_rhocp_access() {
+    local url="https://rhsm-pulp.corp.redhat.com/content/dist/layered/rhel9/x86_64/rhocp/4.15/os/repodata/repomd.xml"
+    curl -sf --connect-timeout 5 --max-time 10 -o /dev/null "$url" 2>/dev/null
+}
+
 # Function to get the ocp nodes network name
 function get_ocp_nodes_network() {
   ip=$(/usr/local/bin/oc get node -owide --no-headers | tail -n 1 | awk '{print $6}') || return 1

@@ -31,11 +31,19 @@ fi
 
 export JOBS="${PARALLEL_JOBS}"
 
-# Handle ACM detection - enable v7 variant and increase VM memory
-if is_acm_installed; then
-    export EXCLUDE_VARIANTS=""
-    sed -i 's|<memory unit="MiB">512</memory>|<memory unit="MiB">2048</memory>|' test/harness/e2e/vm/domain-template.xml
-    echo "ACM detected, enabling v7 variant"
+# Handle v7 variant based on OS and RHOCP access
+# Only auto-detect if user hasn't explicitly set EXCLUDE_VARIANTS
+if [ -z "${EXCLUDE_VARIANTS+x}" ]; then
+    if [ "${AGENT_OS_ID:-cs9-bootc}" = "cs10-bootc" ]; then
+        export EXCLUDE_VARIANTS="v7"
+        echo "cs10: v7 excluded (no MicroShift for cs10)"
+    elif has_rhocp_access; then
+        export EXCLUDE_VARIANTS=""
+        echo "RHOCP access available, enabling v7"
+    else
+        export EXCLUDE_VARIANTS="v7"
+        echo "No RHOCP access, excluding v7"
+    fi
 fi
 
 # Determine OS suffix based on flavor
@@ -170,9 +178,9 @@ build_variants_and_qcow2() {
         mv "${QCOW_SRC}" "${QCOW_DST}"
         echo "Moved qcow2 to ${QCOW_DST}"
 
-        # Resize disk for ACM if installed
-        if is_acm_installed; then
-            echo "ACM detected, resizing qcow2 disk +5G"
+        # Resize disk if v7 is enabled (for MicroShift)
+        if [ -z "${EXCLUDE_VARIANTS:-}" ] || ! echo "${EXCLUDE_VARIANTS}" | grep -qw "v7"; then
+            echo "v7 enabled, resizing qcow2 disk +5G"
             sudo qemu-img resize "${QCOW_DST}" +5G
         fi
 
