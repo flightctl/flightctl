@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"fmt"
-	"net/http"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -118,21 +117,12 @@ func (o *CancelOptions) cancelImageBuild(ctx context.Context, name string) error
 		return fmt.Errorf("canceling imagebuild %s: %w", name, err)
 	}
 
-	if response.HTTPResponse != nil {
-		switch response.HTTPResponse.StatusCode {
-		case http.StatusOK:
-			fmt.Printf("ImageBuild cancellation requested: %s\n", name)
-			return nil
-		case http.StatusBadRequest:
-			return fmt.Errorf("cannot cancel imagebuild %s: %s", name, string(response.Body))
-		case http.StatusNotFound:
-			return fmt.Errorf("imagebuild not found: %s", name)
-		default:
-			return fmt.Errorf("failed to cancel imagebuild %s: %s", name, string(response.Body))
-		}
+	if err := validateImageBuilderResponse(response); err != nil {
+		return err
 	}
 
-	return fmt.Errorf("no response received")
+	fmt.Printf("ImageBuild cancellation requested: %s\n", name)
+	return nil
 }
 
 func (o *CancelOptions) cancelImageExport(ctx context.Context, name string) error {
@@ -146,19 +136,10 @@ func (o *CancelOptions) cancelImageExport(ctx context.Context, name string) erro
 		return fmt.Errorf("canceling imageexport %s: %w", name, err)
 	}
 
-	if response.HTTPResponse != nil {
-		switch response.HTTPResponse.StatusCode {
-		case http.StatusOK:
-			fmt.Printf("ImageExport cancellation requested: %s\n", name)
-			return nil
-		case http.StatusBadRequest:
-			return fmt.Errorf("cannot cancel imageexport %s: %s", name, string(response.Body))
-		case http.StatusNotFound:
-			return fmt.Errorf("imageexport not found: %s", name)
-		default:
-			return fmt.Errorf("failed to cancel imageexport %s: %s", name, string(response.Body))
-		}
+	if err := validateImageBuilderResponse(response); err != nil {
+		return err
 	}
 
-	return fmt.Errorf("no response received")
+	fmt.Printf("ImageExport cancellation requested: %s\n", name)
+	return nil
 }

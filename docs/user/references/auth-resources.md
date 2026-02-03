@@ -62,11 +62,11 @@ The table below contains the routes, names, resource names, and verbs for Flight
 |`GET /api/v1/imagebuilds/{name}`|`GetImageBuild`|`imagebuilds`|`get`|
 |`DELETE /api/v1/imagebuilds/{name}`|`DeleteImageBuild`|`imagebuilds`|`delete`|
 |`GET /api/v1/imagebuilds/{name}/log`|`GetImageBuildLog`|`imagebuilds/log`|`get`|
-|`PUT /api/v1/imagebuilds/{name}/cancel`|`CancelImageBuild`|`imagebuilds/cancel`|`update`|
+|`POST /api/v1/imagebuilds/{name}/cancel`|`CancelImageBuild`|`imagebuilds/cancel`|`create`|
 |`GET /api/v1/imageexports`|`ListImageExports`|`imageexports`|`list`|
 |`POST /api/v1/imageexports`|`CreateImageExport`|`imageexports`|`create`|
 |`GET /api/v1/imageexports/{name}`|`GetImageExport`|`imageexports`|`get`|
 |`DELETE /api/v1/imageexports/{name}`|`DeleteImageExport`|`imageexports`|`delete`|
 |`GET /api/v1/imageexports/{name}/log`|`GetImageExportLog`|`imageexports/log`|`get`|
-|`PUT /api/v1/imageexports/{name}/cancel`|`CancelImageExport`|`imageexports/cancel`|`update`|
+|`POST /api/v1/imageexports/{name}/cancel`|`CancelImageExport`|`imageexports/cancel`|`create`|
 |`GET /api/v1/imageexports/{name}/download`|`DownloadImageExport`|`imageexports/download`|`get`|
