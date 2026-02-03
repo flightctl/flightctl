@@ -132,7 +132,9 @@ if [ -n "${EXCLUDE_VARIANTS:-}" ]; then
     [ $skip -eq 0 ] && tmp="${tmp} ${v}"
   done
   variants_list="$(echo "${tmp}" | xargs -n999 echo)"
+  echo "  EXCLUDE_VARIANTS: ${EXCLUDE_VARIANTS}"
 fi
+echo "  Variants to build: ${variants_list:-none}"
 
   if [ "${BUILD_BASE}" = "true" ]; then
     echo -e "\033[32m[${OS_ID}] Building base ${base_img_canonical}\033[m"
