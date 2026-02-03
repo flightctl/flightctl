@@ -131,7 +131,8 @@ func (o *RenderTemplateOptions) getHostnameFQDN() (string, error) {
 	if err == nil && len(output) > 0 {
 		hostname := strings.TrimSpace(string(output))
 		if hostname != "" {
-			return hostname, nil
+			// Normalize to lowercase (DNS is case-insensitive per RFC 1123)
+			return strings.ToLower(hostname), nil
 		}
 	}
 
@@ -147,7 +148,8 @@ func (o *RenderTemplateOptions) getHostnameFQDN() (string, error) {
 		return "", fmt.Errorf("hostname command returned empty value")
 	}
 
-	return hostname, nil
+	// Normalize to lowercase (DNS is case-insensitive per RFC 1123)
+	return strings.ToLower(hostname), nil
 }
 
 func (o *RenderTemplateOptions) validateConfig(data map[string]interface{}) error {
