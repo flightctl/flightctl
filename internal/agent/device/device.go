@@ -539,18 +539,18 @@ func (a *Agent) handleSyncError(ctx context.Context, desired *v1beta1.Device, sy
 
 	se := errors.FormatError(syncErr)
 	if !errors.IsRetryable(syncErr) {
-		msg := fmt.Sprintf("Failed to update to renderedVersion: %s: %v", version, syncErr.Error())
+		msg := fmt.Sprintf("Failed to update to renderedVersion: %s: %v", version, syncErr)
 		conditionUpdate.Reason = string(v1beta1.UpdateStateError)
 		conditionUpdate.Message = log.Truncate(msg, status.MaxMessageLength)
 		conditionUpdate.Status = v1beta1.ConditionStatusFalse
 		a.prefetchManager.Cleanup()
-		a.log.Error(msg, se.Timestamp)
+		a.log.Error(msg)
 	} else {
-		msg := fmt.Sprintf("Failed to update to renderedVersion: %s: retrying: %v", version, syncErr.Error())
+		msg := fmt.Sprintf("Failed to update to renderedVersion: %s: retrying: %v", version, syncErr)
 		conditionUpdate.Reason = string(v1beta1.UpdateStateApplyingUpdate)
 		conditionUpdate.Message = log.Truncate(msg, status.MaxMessageLength)
 		conditionUpdate.Status = v1beta1.ConditionStatusTrue
-		a.log.Warn(msg, se.Timestamp)
+		a.log.Warn(msg)
 	}
 
 	if !se.Is(errors.ErrImagePull) {

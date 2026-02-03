@@ -1,6 +1,7 @@
 package errors
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -19,8 +20,8 @@ type StructuredError struct {
 
 // FormatError extracts phase and component from the error chain.
 func FormatError(err error) *StructuredError {
-	phase, rest := splitWrapped(err)
-	component, rest := splitWrapped(rest)
+	phase, rest := unwrap(err)
+	component, rest := unwrap(rest)
 	statusCode := ToCode(rest)
 
 	return &StructuredError{
@@ -31,6 +32,32 @@ func FormatError(err error) *StructuredError {
 		Category:   inferCategory(statusCode),
 		Timestamp:  time.Now(),
 	}
+}
+
+func unwrap(err error) (first, rest error) {
+	if err == nil {
+		return nil, nil
+	}
+
+	type unwrapper interface {
+		Unwrap() error
+	}
+
+	type multiUnwrapper interface {
+		Unwrap() []error
+	}
+
+	switch e := err.(type) {
+	case multiUnwrapper:
+		errs := e.Unwrap()
+		if len(errs) > 0 {
+			return errs[0], errors.Join(errs[1:]...)
+		}
+	case unwrapper:
+		return err, e.Unwrap()
+	}
+
+	return nil, err
 }
 
 // splitWrapped extracts the first error from a joined error pair.
@@ -89,6 +116,19 @@ func (se *StructuredError) Message() string {
 		component,
 		statusMsg,
 	)
+}
+
+func (se *StructuredError) Is(target error) bool {
+	if target == nil {
+		return false
+	}
+	if errors.Is(se.Phase, target) {
+		return true
+	}
+	if errors.Is(se.Component, target) {
+		return true
+	}
+	return false
 }
 
 // Category represents the high-level functional area describing WHAT failed.
