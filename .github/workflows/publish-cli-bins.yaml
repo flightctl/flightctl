@@ -213,8 +213,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          OLD_RELEASE=$(gh release list --json 'tagName' --jq 'any(.[]; .tagName == "latest")')
-          if [ $OLD_RELEASE == 'true' ]; then
+          if gh release view latest >/dev/null 2>&1; then
             # if there is a release already we only update the binaries
             # otherwise a new release will trigger an rpm build from packit
             gh release upload latest --clobber release/*
