@@ -461,7 +461,7 @@ check-rpmlint:
 .output/stamps/lint-openapi: api/core/v1beta1/openapi.yaml  api/imagebuilder/v1alpha1/openapi.yaml .spectral.yaml
 	@mkdir -p .output/stamps
 	@echo "Linting OpenAPI specs"
-	podman run --rm -it -v $(shell pwd):/workdir:Z docker.io/stoplight/spectral:6.14.2 lint --ruleset=/workdir/.spectral.yaml --fail-severity=warn \
+	podman run --rm -it --security-opt label=disable -v $(shell pwd):/workdir docker.io/stoplight/spectral:6.14.2 lint --ruleset=/workdir/.spectral.yaml --fail-severity=warn \
 		/workdir/api/core/v1beta1/openapi.yaml \
 		/workdir/api/imagebuilder/v1alpha1/openapi.yaml
 	@touch .output/stamps/lint-openapi
@@ -508,7 +508,7 @@ spellcheck-docs: .output/stamps/spellcheck-docs
 .PHONY: fix-spelling
 fix-spelling:
 	@echo "Running markdown-spellcheck interactively to allow fixing spelling issues"
-	podman run --rm -it -v $(shell pwd):/workdir:Z docker.io/tmaier/markdown-spellcheck:latest --en-us --ignore-numbers "docs/user/**/*.md"
+	podman run --rm -it --security-opt label=disable -v $(shell pwd):/workdir docker.io/tmaier/markdown-spellcheck:latest --en-us --ignore-numbers "docs/user/**/*.md"
 
 # include the deployment targets
 include deploy/deploy.mk

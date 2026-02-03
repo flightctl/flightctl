@@ -191,7 +191,7 @@ jobs:
           - os_id: cs9-bootc
             backend_type: helm
             label_filter: 'sanity && !agent'
-            ginkgo_total_nodes: 2
+            ginkgo_total_nodes: 1
           # Agent metrics
           ## CS9 Agent metrics
           - os_id: cs9-bootc
