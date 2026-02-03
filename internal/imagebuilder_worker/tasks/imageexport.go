@@ -79,12 +79,20 @@ func (c *Consumer) processImageExport(ctx context.Context, eventWithOrgId worker
 	}
 	if readyCondition != nil {
 		reason := readyCondition.Reason
-		// Skip if already in terminal state (completed, failed, canceling, canceled)
+		// Skip if already in terminal state (completed, failed, canceled)
 		if reason == string(domain.ImageExportConditionReasonCompleted) ||
 			reason == string(domain.ImageExportConditionReasonFailed) ||
-			reason == string(domain.ImageExportConditionReasonCanceling) ||
 			reason == string(domain.ImageExportConditionReasonCanceled) {
 			log.Infof("ImageExport %q already in terminal state %q, skipping", imageExportName, reason)
+			return nil
+		}
+		// If Canceling and we haven't started processing yet, complete the cancellation
+		// This happens when a Pending export was canceled before the worker picked it up
+		if reason == string(domain.ImageExportConditionReasonCanceling) {
+			log.Infof("ImageExport %q was canceled before processing started, completing cancellation", imageExportName)
+			if err := c.markImageExportAsCanceled(ctx, orgID, imageExport, log); err != nil {
+				return fmt.Errorf("failed to mark ImageExport as canceled: %w", err)
+			}
 			return nil
 		}
 		// Skip if already Converting - another process is handling it

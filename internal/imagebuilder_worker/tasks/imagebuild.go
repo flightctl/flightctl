@@ -99,9 +99,13 @@ func (c *Consumer) processImageBuild(ctx context.Context, eventWithOrgId worker_
 			log.Infof("ImageBuild %q is already being processed (Pushing), skipping", imageBuildName)
 			return nil
 		}
-		// Skip if Canceling - cancellation is in progress
+		// If Canceling and we haven't started processing yet, complete the cancellation
+		// This happens when a Pending build was canceled before the worker picked it up
 		if reason == string(domain.ImageBuildConditionReasonCanceling) {
-			log.Infof("ImageBuild %q is being canceled (Canceling), skipping", imageBuildName)
+			log.Infof("ImageBuild %q was canceled before processing started, completing cancellation", imageBuildName)
+			if err := c.markImageBuildAsCanceled(ctx, orgID, imageBuild, log); err != nil {
+				return fmt.Errorf("failed to mark ImageBuild as canceled: %w", err)
+			}
 			return nil
 		}
 		// Only proceed if Pending - if it's any other state, skip (shouldn't happen, but defensive)
