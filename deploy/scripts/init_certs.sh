@@ -152,7 +152,7 @@ grafana_sans=(
 )
 grafana_sans+=("${host_ips[@]}")
 
-# UserInfo Proxy certificate SANs (for future use)
+# UserInfo Proxy certificate SANs
 userinfo_proxy_sans=(
     "userinfo-proxy.$base_domain"
     "$base_domain"
