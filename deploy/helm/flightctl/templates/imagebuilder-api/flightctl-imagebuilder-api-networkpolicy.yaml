@@ -1,0 +1,25 @@
+{{- if and .Values.imageBuilderApi .Values.imageBuilderApi.enabled }}
+{{ if and (eq (include "flightctl.enableMulticlusterExtensions" .) "false") (eq (include "flightctl.getServiceExposeMethod" .) "route") }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: flightctl-imagebuilder-api-from-ingress
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+    flightctl.service: flightctl-imagebuilder-api
+spec:
+  ingress:
+  - from:
+    - podSelector: {}
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          network.openshift.io/policy-group: ingress
+  podSelector:
+    matchLabels:
+      flightctl.service: flightctl-imagebuilder-api
+  policyTypes:
+  - Ingress
+{{ end }}
+{{- end }}
