@@ -69,6 +69,61 @@ type ApplicationSpec struct {
 	QuadletApp   *v1beta1.QuadletApplication
 }
 
+const (
+	pullAuthPath       = "/root/.config/containers/auth.json"
+	helmRegistryConfig = "/root/.config/helm/registry/config.json"
+	helmRepoConfig     = "/root/.config/helm/repositories.yaml"
+	criConfigPath      = "/etc/crictl.yaml"
+)
+
+// containerPullOptions returns a lazy function for resolving container pull options.
+// Resolver may be nil when extracting metadata from already-pulled images (e.g., image pruning).
+func containerPullOptions(resolver dependency.PullConfigResolver) dependency.ClientOptsFn {
+	if resolver == nil {
+		return nil
+	}
+	return resolver.Options(dependency.PullConfigSpec{
+		Paths:    []string{pullAuthPath},
+		OptionFn: client.WithPullSecret,
+	})
+}
+
+// helmPullOptions returns a lazy function for resolving Helm chart pull options.
+// Resolver may be nil when extracting metadata from already-pulled images (e.g., image pruning).
+func helmPullOptions(resolver dependency.PullConfigResolver) dependency.ClientOptsFn {
+	if resolver == nil {
+		return nil
+	}
+	return resolver.Options(
+		dependency.PullConfigSpec{
+			Paths:    []string{helmRegistryConfig, pullAuthPath},
+			OptionFn: client.WithPullSecret,
+		},
+		dependency.PullConfigSpec{
+			Paths:    []string{helmRepoConfig},
+			OptionFn: client.WithRepositoryConfig,
+		},
+	)
+}
+
+// criPullOptions returns a lazy function for resolving CRI image pull options.
+// Resolver may be nil when extracting metadata from already-pulled images (e.g., image pruning).
+func criPullOptions(resolver dependency.PullConfigResolver) dependency.ClientOptsFn {
+	if resolver == nil {
+		return nil
+	}
+	return resolver.Options(
+		dependency.PullConfigSpec{
+			Paths:    []string{criConfigPath},
+			OptionFn: client.WithCRIConfig,
+		},
+		dependency.PullConfigSpec{
+			Paths:    []string{pullAuthPath},
+			OptionFn: client.WithPullSecret,
+		},
+	)
+}
+
 // CollectBaseOCITargets collects only the base OCI targets (images and volumes) from the device spec
 // without creating providers or extracting nested targets. This is used in phase 1 of prefetching
 // before the base images are available locally.
@@ -76,7 +131,7 @@ func CollectBaseOCITargets(
 	ctx context.Context,
 	rwFactory fileio.ReadWriterFactory,
 	spec *v1beta1.DeviceSpec,
-	configProvider client.PullConfigProvider,
+	resolver dependency.PullConfigResolver,
 ) (dependency.OCIPullTargetsByUser, error) {
 	if spec.Applications == nil {
 		return nil, nil
@@ -90,7 +145,7 @@ func CollectBaseOCITargets(
 			return nil, fmt.Errorf("application type must be defined")
 		}
 
-		appTargets, err := collectAppTypeOCITargets(appType, &providerSpec, configProvider)
+		appTargets, err := collectAppTypeOCITargets(appType, &providerSpec, resolver)
 		if err != nil {
 			return nil, fmt.Errorf("%w: image: %w", errors.ErrGettingProviderSpec, err)
 		}
@@ -104,7 +159,7 @@ func CollectBaseOCITargets(
 	if err != nil {
 		return nil, err
 	}
-	embeddedTargets, err := collectEmbeddedOCITargets(ctx, readWriter, configProvider)
+	embeddedTargets, err := collectEmbeddedOCITargets(ctx, readWriter, resolver)
 	if err != nil {
 		return nil, fmt.Errorf("%w: OCI targets: %w", errors.ErrCollectingEmbedded, err)
 	}
@@ -113,22 +168,22 @@ func CollectBaseOCITargets(
 	return targets, nil
 }
 
-func collectAppTypeOCITargets(appType v1beta1.AppType, providerSpec *v1beta1.ApplicationProviderSpec, configProvider client.PullConfigProvider) (dependency.OCIPullTargetsByUser, error) {
+func collectAppTypeOCITargets(appType v1beta1.AppType, providerSpec *v1beta1.ApplicationProviderSpec, resolver dependency.PullConfigResolver) (dependency.OCIPullTargetsByUser, error) {
 	switch appType {
 	case v1beta1.AppTypeContainer:
-		return collectContainerOCITargets(providerSpec, configProvider)
+		return collectContainerOCITargets(providerSpec, resolver)
 	case v1beta1.AppTypeCompose:
-		return collectComposeOCITargets(providerSpec, configProvider)
+		return collectComposeOCITargets(providerSpec, resolver)
 	case v1beta1.AppTypeQuadlet:
-		return collectQuadletOCITargets(providerSpec, configProvider)
+		return collectQuadletOCITargets(providerSpec, resolver)
 	case v1beta1.AppTypeHelm:
-		return collectHelmOCITargets(providerSpec, configProvider)
+		return collectHelmOCITargets(providerSpec, resolver)
 	default:
 		return nil, fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, appType)
 	}
 }
 
-func collectContainerOCITargets(providerSpec *v1beta1.ApplicationProviderSpec, configProvider client.PullConfigProvider) (dependency.OCIPullTargetsByUser, error) {
+func collectContainerOCITargets(providerSpec *v1beta1.ApplicationProviderSpec, resolver dependency.PullConfigResolver) (dependency.OCIPullTargetsByUser, error) {
 	containerApp, err := providerSpec.AsContainerApplication()
 	if err != nil {
 		return nil, fmt.Errorf("getting container application: %w", err)
@@ -136,19 +191,19 @@ func collectContainerOCITargets(providerSpec *v1beta1.ApplicationProviderSpec, c
 	targetUser := containerApp.RunAsWithDefault()
 	var targets dependency.OCIPullTargetsByUser
 	targets = targets.Add(containerApp.RunAsWithDefault(), dependency.OCIPullTarget{
-		Type:       dependency.OCITypePodmanImage,
-		Reference:  containerApp.Image,
-		PullPolicy: v1beta1.PullIfNotPresent,
-		Configs:    configProvider,
+		Type:         dependency.OCITypePodmanImage,
+		Reference:    containerApp.Image,
+		PullPolicy:   v1beta1.PullIfNotPresent,
+		ClientOptsFn: containerPullOptions(resolver),
 	})
-	volTargets, err := extractVolumeTargets(containerApp.Volumes, configProvider)
+	volTargets, err := extractVolumeTargets(containerApp.Volumes, resolver)
 	if err != nil {
 		return nil, fmt.Errorf("extracting container volume targets: %w", err)
 	}
 	return targets.Add(targetUser, volTargets...), nil
 }
 
-func collectComposeOCITargets(providerSpec *v1beta1.ApplicationProviderSpec, configProvider client.PullConfigProvider) (dependency.OCIPullTargetsByUser, error) {
+func collectComposeOCITargets(providerSpec *v1beta1.ApplicationProviderSpec, resolver dependency.PullConfigResolver) (dependency.OCIPullTargetsByUser, error) {
 	composeApp, err := providerSpec.AsComposeApplication()
 	if err != nil {
 		return nil, fmt.Errorf("getting compose application: %w", err)
@@ -168,10 +223,10 @@ func collectComposeOCITargets(providerSpec *v1beta1.ApplicationProviderSpec, con
 			return nil, fmt.Errorf("getting compose image provider: %w", err)
 		}
 		targets = targets.Add(targetUser, dependency.OCIPullTarget{
-			Type:       dependency.OCITypeAuto,
-			Reference:  imageSpec.Image,
-			PullPolicy: v1beta1.PullIfNotPresent,
-			Configs:    configProvider,
+			Type:         dependency.OCITypeAuto,
+			Reference:    imageSpec.Image,
+			PullPolicy:   v1beta1.PullIfNotPresent,
+			ClientOptsFn: containerPullOptions(resolver),
 		})
 	case v1beta1.InlineApplicationProviderType:
 		inlineSpec, err := composeApp.AsInlineApplicationProviderSpec()
@@ -185,22 +240,22 @@ func collectComposeOCITargets(providerSpec *v1beta1.ApplicationProviderSpec, con
 		for _, svc := range composeSpec.Services {
 			if svc.Image != "" {
 				targets = targets.Add(targetUser, dependency.OCIPullTarget{
-					Type:       dependency.OCITypePodmanImage,
-					Reference:  svc.Image,
-					PullPolicy: v1beta1.PullIfNotPresent,
-					Configs:    configProvider,
+					Type:         dependency.OCITypePodmanImage,
+					Reference:    svc.Image,
+					PullPolicy:   v1beta1.PullIfNotPresent,
+					ClientOptsFn: containerPullOptions(resolver),
 				})
 			}
 		}
 	}
-	volTargets, err := extractVolumeTargets(composeApp.Volumes, configProvider)
+	volTargets, err := extractVolumeTargets(composeApp.Volumes, resolver)
 	if err != nil {
 		return nil, fmt.Errorf("extracting compose volume targets: %w", err)
 	}
 	return targets.Add(targetUser, volTargets...), nil
 }
 
-func collectQuadletOCITargets(providerSpec *v1beta1.ApplicationProviderSpec, configProvider client.PullConfigProvider) (dependency.OCIPullTargetsByUser, error) {
+func collectQuadletOCITargets(providerSpec *v1beta1.ApplicationProviderSpec, resolver dependency.PullConfigResolver) (dependency.OCIPullTargetsByUser, error) {
 	quadletApp, err := providerSpec.AsQuadletApplication()
 	if err != nil {
 		return nil, fmt.Errorf("getting quadlet application: %w", err)
@@ -219,10 +274,10 @@ func collectQuadletOCITargets(providerSpec *v1beta1.ApplicationProviderSpec, con
 			return nil, fmt.Errorf("getting quadlet image provider: %w", err)
 		}
 		targets = targets.Add(targetUser, dependency.OCIPullTarget{
-			Type:       dependency.OCITypeAuto,
-			Reference:  imageSpec.Image,
-			PullPolicy: v1beta1.PullIfNotPresent,
-			Configs:    configProvider,
+			Type:         dependency.OCITypeAuto,
+			Reference:    imageSpec.Image,
+			PullPolicy:   v1beta1.PullIfNotPresent,
+			ClientOptsFn: containerPullOptions(resolver),
 		})
 	case v1beta1.InlineApplicationProviderType:
 		inlineSpec, err := quadletApp.AsInlineApplicationProviderSpec()
@@ -234,17 +289,17 @@ func collectQuadletOCITargets(providerSpec *v1beta1.ApplicationProviderSpec, con
 			return nil, fmt.Errorf("parsing quadlet spec: %w", err)
 		}
 		for _, quad := range quadletSpec {
-			targets = targets.Add(targetUser, extractQuadletTargets(quad, configProvider)...)
+			targets = targets.Add(targetUser, extractQuadletTargets(quad, resolver)...)
 		}
 	}
-	volTargets, err := extractVolumeTargets(quadletApp.Volumes, configProvider)
+	volTargets, err := extractVolumeTargets(quadletApp.Volumes, resolver)
 	if err != nil {
 		return nil, fmt.Errorf("extracting quadlet volume targets: %w", err)
 	}
 	return targets.Add(targetUser, volTargets...), nil
 }
 
-func collectHelmOCITargets(providerSpec *v1beta1.ApplicationProviderSpec, configProvider client.PullConfigProvider) (dependency.OCIPullTargetsByUser, error) {
+func collectHelmOCITargets(providerSpec *v1beta1.ApplicationProviderSpec, resolver dependency.PullConfigResolver) (dependency.OCIPullTargetsByUser, error) {
 	helmApp, err := providerSpec.AsHelmApplication()
 	if err != nil {
 		return nil, fmt.Errorf("getting helm application: %w", err)
@@ -252,17 +307,17 @@ func collectHelmOCITargets(providerSpec *v1beta1.ApplicationProviderSpec, config
 
 	var targets dependency.OCIPullTargetsByUser
 	targets = targets.Add(v1beta1.CurrentProcessUsername, dependency.OCIPullTarget{
-		Type:       dependency.OCITypeHelmChart,
-		Reference:  helmApp.Image,
-		PullPolicy: v1beta1.PullIfNotPresent,
-		Configs:    configProvider,
+		Type:         dependency.OCITypeHelmChart,
+		Reference:    helmApp.Image,
+		PullPolicy:   v1beta1.PullIfNotPresent,
+		ClientOptsFn: helmPullOptions(resolver),
 	})
 
 	return targets, nil
 }
 
 // collectEmbeddedOCITargets discovers embedded applications and extracts their OCI targets
-func collectEmbeddedOCITargets(ctx context.Context, readWriter fileio.ReadWriter, configProvider client.PullConfigProvider) ([]dependency.OCIPullTarget, error) {
+func collectEmbeddedOCITargets(ctx context.Context, readWriter fileio.ReadWriter, resolver dependency.PullConfigResolver) ([]dependency.OCIPullTarget, error) {
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
@@ -270,14 +325,14 @@ func collectEmbeddedOCITargets(ctx context.Context, readWriter fileio.ReadWriter
 	var targets []dependency.OCIPullTarget
 
 	// discover embedded compose applications
-	composeTargets, err := collectEmbeddedComposeTargets(ctx, readWriter, configProvider)
+	composeTargets, err := collectEmbeddedComposeTargets(ctx, readWriter, resolver)
 	if err != nil {
 		return nil, fmt.Errorf("%w: compose targets: %w", errors.ErrCollectingEmbedded, err)
 	}
 	targets = append(targets, composeTargets...)
 
 	// discover embedded quadlet applications
-	quadletTargets, err := collectEmbeddedQuadletTargets(ctx, readWriter, configProvider)
+	quadletTargets, err := collectEmbeddedQuadletTargets(ctx, readWriter, resolver)
 	if err != nil {
 		return nil, fmt.Errorf("%w: quadlet targets: %w", errors.ErrCollectingEmbedded, err)
 	}
@@ -286,7 +341,7 @@ func collectEmbeddedOCITargets(ctx context.Context, readWriter fileio.ReadWriter
 	return targets, nil
 }
 
-func collectEmbeddedComposeTargets(ctx context.Context, readWriter fileio.ReadWriter, configProvider client.PullConfigProvider) ([]dependency.OCIPullTarget, error) {
+func collectEmbeddedComposeTargets(ctx context.Context, readWriter fileio.ReadWriter, resolver dependency.PullConfigResolver) ([]dependency.OCIPullTarget, error) {
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
@@ -336,10 +391,10 @@ func collectEmbeddedComposeTargets(ctx context.Context, readWriter fileio.ReadWr
 		for _, svc := range spec.Services {
 			if svc.Image != "" {
 				targets = append(targets, dependency.OCIPullTarget{
-					Type:       dependency.OCITypePodmanImage,
-					Reference:  svc.Image,
-					PullPolicy: v1beta1.PullIfNotPresent,
-					Configs:    configProvider,
+					Type:         dependency.OCITypePodmanImage,
+					Reference:    svc.Image,
+					PullPolicy:   v1beta1.PullIfNotPresent,
+					ClientOptsFn: containerPullOptions(resolver),
 				})
 			}
 		}
@@ -348,7 +403,7 @@ func collectEmbeddedComposeTargets(ctx context.Context, readWriter fileio.ReadWr
 	return targets, nil
 }
 
-func collectEmbeddedQuadletTargets(ctx context.Context, readWriter fileio.ReadWriter, configProvider client.PullConfigProvider) ([]dependency.OCIPullTarget, error) {
+func collectEmbeddedQuadletTargets(ctx context.Context, readWriter fileio.ReadWriter, resolver dependency.PullConfigResolver) ([]dependency.OCIPullTarget, error) {
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
@@ -379,7 +434,7 @@ func collectEmbeddedQuadletTargets(ctx context.Context, readWriter fileio.ReadWr
 		// extract images from quadlet references using the helper function
 		// which handles IsImageReference checks properly
 		for _, ref := range refs {
-			targets = append(targets, extractQuadletTargets(ref, configProvider)...)
+			targets = append(targets, extractQuadletTargets(ref, resolver)...)
 		}
 	}
 
@@ -573,7 +628,7 @@ type multiProviderApp interface {
 	AsImageApplicationProviderSpec() (v1beta1.ImageApplicationProviderSpec, error)
 }
 
-func extractMultipProviderAppTargets(ctx context.Context, name string, podmanFactory client.PodmanFactory, rwFactory fileio.ReadWriterFactory, app multiProviderApp, appType v1beta1.AppType, configProvider client.PullConfigProvider) (*AppData, error) {
+func extractMultipProviderAppTargets(ctx context.Context, name string, podmanFactory client.PodmanFactory, rwFactory fileio.ReadWriterFactory, app multiProviderApp, appType v1beta1.AppType, resolver dependency.PullConfigResolver) (*AppData, error) {
 	providerType, err := app.Type()
 	if err != nil {
 		return nil, fmt.Errorf("getting compose provider type: %w", err)
@@ -599,7 +654,7 @@ func extractMultipProviderAppTargets(ctx context.Context, name string, podmanFac
 	if err := ensureAppTypeFromImage(ctx, podman, appType, imageSpec.Image); err != nil {
 		return nil, fmt.Errorf("ensuring app type: %w", err)
 	}
-	return extractAppDataFromOCITarget(ctx, podman, readWriter, name, imageSpec.Image, appType, configProvider)
+	return extractAppDataFromOCITarget(ctx, podman, readWriter, name, imageSpec.Image, appType, resolver)
 }
 
 // ExtractNestedTargetsFromImage extracts nested OCI targets from a single image-based application.
@@ -612,7 +667,7 @@ func ExtractNestedTargetsFromImage(
 	clients client.CLIClients,
 	rwFactory fileio.ReadWriterFactory,
 	appSpec *v1beta1.ApplicationProviderSpec,
-	configProvider client.PullConfigProvider,
+	resolver dependency.PullConfigResolver,
 ) (*AppData, error) {
 	appName, err := ResolveImageAppName(appSpec)
 	if err != nil {
@@ -633,14 +688,14 @@ func ExtractNestedTargetsFromImage(
 		if err != nil {
 			return nil, fmt.Errorf("getting compose application: %w", err)
 		}
-		return extractMultipProviderAppTargets(ctx, appName, podmanFactory, rwFactory, &composeApp, v1beta1.AppTypeCompose, configProvider)
+		return extractMultipProviderAppTargets(ctx, appName, podmanFactory, rwFactory, &composeApp, v1beta1.AppTypeCompose, resolver)
 
 	case v1beta1.AppTypeQuadlet:
 		quadletApp, err := (*appSpec).AsQuadletApplication()
 		if err != nil {
 			return nil, fmt.Errorf("getting quadlet application: %w", err)
 		}
-		return extractMultipProviderAppTargets(ctx, appName, podmanFactory, rwFactory, &quadletApp, v1beta1.AppTypeQuadlet, configProvider)
+		return extractMultipProviderAppTargets(ctx, appName, podmanFactory, rwFactory, &quadletApp, v1beta1.AppTypeQuadlet, resolver)
 
 	case v1beta1.AppTypeHelm:
 		helmApp, err := (*appSpec).AsHelmApplication()
@@ -651,7 +706,7 @@ func ExtractNestedTargetsFromImage(
 		if err != nil {
 			return nil, fmt.Errorf("creating read/writer: %w", err)
 		}
-		return extractHelmNestedTargets(ctx, log, clients, readWriter, appName, &helmApp, configProvider)
+		return extractHelmNestedTargets(ctx, log, clients, readWriter, appName, &helmApp, resolver)
 
 	default:
 		return nil, fmt.Errorf("%w %w: %s", errors.ErrUnsupportedAppType, errors.WithElement(appName), appType)
@@ -666,7 +721,7 @@ func extractHelmNestedTargets(
 	readWriter fileio.ReadWriter,
 	appName string,
 	helmApp *v1beta1.HelmApplication,
-	configProvider client.PullConfigProvider,
+	resolver dependency.PullConfigResolver,
 ) (*AppData, error) {
 	if clients == nil {
 		return nil, fmt.Errorf("CLIClients required for Helm app extraction")
@@ -718,10 +773,10 @@ func extractHelmNestedTargets(
 	var targets []dependency.OCIPullTarget
 	for _, img := range images {
 		targets = append(targets, dependency.OCIPullTarget{
-			Type:       dependency.OCITypeCRIImage,
-			Reference:  img,
-			PullPolicy: v1beta1.PullIfNotPresent,
-			Configs:    configProvider,
+			Type:         dependency.OCITypeCRIImage,
+			Reference:    img,
+			PullPolicy:   v1beta1.PullIfNotPresent,
+			ClientOptsFn: criPullOptions(resolver),
 		})
 	}
 
@@ -1080,7 +1135,7 @@ func extractAppDataFromOCITarget(
 	appName string,
 	imageRef string,
 	appType v1beta1.AppType,
-	configProvider client.PullConfigProvider,
+	resolver dependency.PullConfigResolver,
 ) (*AppData, error) {
 	tmpAppPath, err := readWriter.MkdirTemp("app_temp")
 	if err != nil {
@@ -1140,10 +1195,10 @@ func extractAppDataFromOCITarget(
 		for _, svc := range spec.Services {
 			if svc.Image != "" {
 				targets = append(targets, dependency.OCIPullTarget{
-					Type:       dependency.OCITypePodmanImage,
-					Reference:  svc.Image,
-					PullPolicy: v1beta1.PullIfNotPresent,
-					Configs:    configProvider,
+					Type:         dependency.OCITypePodmanImage,
+					Reference:    svc.Image,
+					PullPolicy:   v1beta1.PullIfNotPresent,
+					ClientOptsFn: containerPullOptions(resolver),
 				})
 			}
 		}
@@ -1174,7 +1229,7 @@ func extractAppDataFromOCITarget(
 
 		// extract images
 		for _, quad := range spec {
-			targets = append(targets, extractQuadletTargets(quad, configProvider)...)
+			targets = append(targets, extractQuadletTargets(quad, resolver)...)
 		}
 
 	default:
@@ -1333,30 +1388,30 @@ func validateEnvVars(envVars map[string]string) error {
 	return nil
 }
 
-func extractQuadletTargets(quad *common.QuadletReferences, configProvider client.PullConfigProvider) []dependency.OCIPullTarget {
+func extractQuadletTargets(quad *common.QuadletReferences, resolver dependency.PullConfigResolver) []dependency.OCIPullTarget {
 	var targets []dependency.OCIPullTarget
 	if quad.Image != nil && !quadlet.IsImageReference(*quad.Image) {
 		targets = append(targets, dependency.OCIPullTarget{
-			Type:       dependency.OCITypePodmanImage,
-			Reference:  *quad.Image,
-			PullPolicy: v1beta1.PullIfNotPresent,
-			Configs:    configProvider,
+			Type:         dependency.OCITypePodmanImage,
+			Reference:    *quad.Image,
+			PullPolicy:   v1beta1.PullIfNotPresent,
+			ClientOptsFn: containerPullOptions(resolver),
 		})
 	}
 	for _, image := range quad.MountImages {
 		if !quadlet.IsImageReference(image) {
 			targets = append(targets, dependency.OCIPullTarget{
-				Type:       dependency.OCITypePodmanImage,
-				Reference:  image,
-				PullPolicy: v1beta1.PullIfNotPresent,
-				Configs:    configProvider,
+				Type:         dependency.OCITypePodmanImage,
+				Reference:    image,
+				PullPolicy:   v1beta1.PullIfNotPresent,
+				ClientOptsFn: containerPullOptions(resolver),
 			})
 		}
 	}
 	return targets
 }
 
-func extractVolumeTargets(vols *[]v1beta1.ApplicationVolume, configProvider client.PullConfigProvider) ([]dependency.OCIPullTarget, error) {
+func extractVolumeTargets(vols *[]v1beta1.ApplicationVolume, resolver dependency.PullConfigResolver) ([]dependency.OCIPullTarget, error) {
 	var targets []dependency.OCIPullTarget
 	if vols == nil {
 		return targets, nil
@@ -1392,10 +1447,10 @@ func extractVolumeTargets(vols *[]v1beta1.ApplicationVolume, configProvider clie
 			policy = *source.PullPolicy
 		}
 		targets = append(targets, dependency.OCIPullTarget{
-			Type:       ociType,
-			Reference:  source.Reference,
-			PullPolicy: policy,
-			Configs:    configProvider,
+			Type:         ociType,
+			Reference:    source.Reference,
+			PullPolicy:   policy,
+			ClientOptsFn: containerPullOptions(resolver),
 		})
 	}
 

@@ -17,23 +17,17 @@ import (
 	"github.com/flightctl/flightctl/pkg/log"
 )
 
-const (
-	pullAuthPath       = "/root/.config/containers/auth.json"
-	helmRegistryConfig = "/root/.config/helm/registry/config.json"
-	helmRepoConfig     = "/root/.config/helm/repositories.yaml"
-	criConfigPath      = "/etc/crictl.yaml"
-)
-
 var _ Manager = (*manager)(nil)
 
 type manager struct {
-	podmanMonitor     *PodmanMonitor
-	kubernetesMonitor *KubernetesMonitor
-	clients           client.CLIClients
-	podmanFactory     client.PodmanFactory
-	rwFactory         fileio.ReadWriterFactory
-	log               *log.PrefixLogger
-	bootTime          string
+	podmanMonitor      *PodmanMonitor
+	kubernetesMonitor  *KubernetesMonitor
+	clients            client.CLIClients
+	podmanFactory      client.PodmanFactory
+	rwFactory          fileio.ReadWriterFactory
+	pullConfigResolver dependency.PullConfigResolver
+	log                *log.PrefixLogger
+	bootTime           string
 
 	// cache of extracted nested OCI targets
 	ociTargetCache *provider.OCITargetCache
@@ -49,18 +43,20 @@ func NewManager(
 	clients client.CLIClients,
 	systemInfo systeminfo.Manager,
 	systemdFactory systemd.ManagerFactory,
+	pullConfigResolver dependency.PullConfigResolver,
 ) Manager {
 	bootTime := systemInfo.BootTime()
 	return &manager{
-		rwFactory:         rwFactory,
-		podmanMonitor:     NewPodmanMonitor(log, podmanFactory, systemdFactory, bootTime, rwFactory),
-		kubernetesMonitor: NewKubernetesMonitor(log, clients, rwFactory),
-		podmanFactory:     podmanFactory,
-		clients:           clients,
-		log:               log,
-		bootTime:          bootTime,
-		ociTargetCache:    provider.NewOCITargetCache(),
-		appDataCache:      provider.NewAppDataCache(),
+		rwFactory:          rwFactory,
+		podmanMonitor:      NewPodmanMonitor(log, podmanFactory, systemdFactory, bootTime, rwFactory),
+		kubernetesMonitor:  NewKubernetesMonitor(log, clients, rwFactory),
+		podmanFactory:      podmanFactory,
+		clients:            clients,
+		pullConfigResolver: pullConfigResolver,
+		log:                log,
+		bootTime:           bootTime,
+		ociTargetCache:     provider.NewOCITargetCache(),
+		appDataCache:       provider.NewAppDataCache(),
 	}
 }
 
@@ -163,54 +159,6 @@ func (m *manager) BeforeUpdate(ctx context.Context, desired *v1beta1.DeviceSpec)
 	}
 
 	return m.verifyProviders(ctx, providers)
-}
-
-func (m *manager) resolvePullConfigs(desired *v1beta1.DeviceSpec) (client.PullConfigProvider, error) {
-	rootRW, err := m.rwFactory("")
-	if err != nil {
-		return nil, err
-	}
-	configs := make(map[client.ConfigType]*client.PullConfig)
-
-	containerConfig, found, err := client.ResolvePullConfig(m.log, rootRW, desired, pullAuthPath)
-	if err != nil {
-		return nil, fmt.Errorf("resolving container auth config: %w", err)
-	}
-	if found {
-		configs[client.ConfigTypeContainerSecret] = containerConfig
-	}
-
-	helmRegistryCfg, found, err := client.ResolvePullConfig(m.log, rootRW, desired, helmRegistryConfig)
-	if err != nil {
-		return nil, fmt.Errorf("resolving helm registry config: %w", err)
-	}
-	if found {
-		configs[client.ConfigTypeHelmRegistrySecret] = helmRegistryCfg
-	} else if containerConfig != nil {
-		// Avoid double cleaning
-		configs[client.ConfigTypeHelmRegistrySecret] = &client.PullConfig{
-			Path:    containerConfig.Path,
-			Cleanup: nil,
-		}
-	}
-
-	helmRepoCfg, found, err := client.ResolvePullConfig(m.log, rootRW, desired, helmRepoConfig)
-	if err != nil {
-		return nil, fmt.Errorf("resolving helm repository config: %w", err)
-	}
-	if found {
-		configs[client.ConfigTypeHelmRepoConfig] = helmRepoCfg
-	}
-
-	criConfig, found, err := client.ResolvePullConfig(m.log, rootRW, desired, criConfigPath)
-	if err != nil {
-		return nil, fmt.Errorf("resolving CRI config: %w", err)
-	}
-	if found {
-		configs[client.ConfigTypeCRIConfig] = criConfig
-	}
-
-	return client.NewPullConfigProvider(configs), nil
 }
 
 func (m *manager) verifyProviders(ctx context.Context, providers []provider.Provider) error {
@@ -351,18 +299,13 @@ func (m *manager) CollectOCITargets(ctx context.Context, current, desired *v1bet
 		return &dependency.OCICollection{}, nil
 	}
 
-	configProvider, err := m.resolvePullConfigs(desired)
-	if err != nil {
-		return nil, fmt.Errorf("resolving pull secrets: %w", err)
-	}
-
-	baseTargets, err := provider.CollectBaseOCITargets(ctx, m.rwFactory, desired, configProvider)
+	baseTargets, err := provider.CollectBaseOCITargets(ctx, m.rwFactory, desired, m.pullConfigResolver)
 	if err != nil {
 		return nil, fmt.Errorf("collecting base OCI targets: %w", err)
 	}
 	m.log.Debugf("Collected %d base OCI targets", len(baseTargets))
 
-	nestedTargets, requeue, activeNames, err := m.collectNestedTargets(ctx, desired, configProvider)
+	nestedTargets, requeue, activeNames, err := m.collectNestedTargets(ctx, desired)
 	if err != nil {
 		return nil, fmt.Errorf("collecting nested OCI targets: %w", err)
 	}
@@ -382,7 +325,6 @@ func (m *manager) CollectOCITargets(ctx context.Context, current, desired *v1bet
 func (m *manager) collectNestedTargets(
 	ctx context.Context,
 	desired *v1beta1.DeviceSpec,
-	configProvider client.PullConfigProvider,
 ) (dependency.OCIPullTargetsByUser, bool, []string, error) {
 	var allNestedTargets dependency.OCIPullTargetsByUser
 	var activeAppNames []string
@@ -407,7 +349,7 @@ func (m *manager) collectNestedTargets(
 			return nil, false, nil, fmt.Errorf("resolving user %q: %w", appSpec, err)
 		}
 
-		targets, requeue, err := m.collectNestedTargetsForApp(ctx, appSpec, configProvider)
+		targets, requeue, err := m.collectNestedTargetsForApp(ctx, appSpec)
 		if err != nil {
 			return nil, false, nil, fmt.Errorf("collecting nested targets for %s: %w", appName, err)
 		}
@@ -425,7 +367,6 @@ func (m *manager) collectNestedTargets(
 func (m *manager) collectNestedTargetsForApp(
 	ctx context.Context,
 	appSpec v1beta1.ApplicationProviderSpec,
-	configProvider client.PullConfigProvider,
 ) ([]dependency.OCIPullTarget, bool, error) {
 	appName, err := provider.ResolveImageAppName(&appSpec)
 	if err != nil {
@@ -464,7 +405,7 @@ func (m *manager) collectNestedTargetsForApp(
 		m.log.Debugf("Cache invalidated for app %s", appName)
 	}
 
-	appData, err := m.extractNestedTargetsForImage(ctx, appSpec, configProvider)
+	appData, err := m.extractNestedTargetsForImage(ctx, appSpec)
 	if err != nil {
 		return nil, false, fmt.Errorf("extracting nested targets for app %s: %w", appName, err)
 	}
@@ -533,7 +474,6 @@ func (m *manager) isCacheValid(entry provider.CacheEntry, ref, digest string) bo
 func (m *manager) extractNestedTargetsForImage(
 	ctx context.Context,
 	appSpec v1beta1.ApplicationProviderSpec,
-	configProvider client.PullConfigProvider,
 ) (*provider.AppData, error) {
 	return provider.ExtractNestedTargetsFromImage(
 		ctx,
@@ -542,6 +482,6 @@ func (m *manager) extractNestedTargetsForImage(
 		m.clients,
 		m.rwFactory,
 		&appSpec,
-		configProvider,
+		m.pullConfigResolver,
 	)
 }

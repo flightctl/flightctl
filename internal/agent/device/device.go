@@ -48,6 +48,7 @@ type Agent struct {
 	osClient               os.Client
 	podmanClient           *client.Podman
 	prefetchManager        dependency.PrefetchManager
+	pullConfigResolver     dependency.PullConfigResolver
 	pruningManager         imagepruning.Manager
 
 	statusUpdateInterval util.Duration
@@ -76,6 +77,7 @@ func NewAgent(
 	osClient os.Client,
 	podmanClient *client.Podman,
 	prefetchManager dependency.PrefetchManager,
+	pullConfigResolver dependency.PullConfigResolver,
 	pruningManager imagepruning.Manager,
 	backoff wait.Backoff,
 	log *log.PrefixLogger,
@@ -99,6 +101,7 @@ func NewAgent(
 		osClient:               osClient,
 		podmanClient:           podmanClient,
 		prefetchManager:        prefetchManager,
+		pullConfigResolver:     pullConfigResolver,
 		pruningManager:         pruningManager,
 		backoff:                backoff,
 		log:                    log,
@@ -208,6 +211,7 @@ func (a *Agent) syncDeviceSpec(ctx context.Context) {
 		return
 	}
 
+	defer a.pullConfigResolver.Cleanup()
 	defer a.prefetchManager.Cleanup()
 
 	// skip status update if the device is in a steady state and not upgrading.
@@ -335,6 +339,8 @@ func (a *Agent) beforeUpdate(ctx context.Context, current, desired *v1beta1.Devi
 			a.log.Warnf("Failed setting status: %v", updateErr)
 		}
 	}
+
+	a.pullConfigResolver.BeforeUpdate(desired.Spec)
 
 	a.prefetchManager.RegisterOCICollector(a.appManager)
 	if a.specManager.IsOSUpdate() {
@@ -543,6 +549,7 @@ func (a *Agent) handleSyncError(ctx context.Context, desired *v1beta1.Device, sy
 		conditionUpdate.Reason = string(v1beta1.UpdateStateError)
 		conditionUpdate.Message = log.Truncate(msg, status.MaxMessageLength)
 		conditionUpdate.Status = v1beta1.ConditionStatusFalse
+		a.pullConfigResolver.Cleanup()
 		a.prefetchManager.Cleanup()
 		a.log.Error(msg, se.Timestamp)
 	} else {

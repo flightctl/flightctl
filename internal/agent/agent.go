@@ -262,6 +262,9 @@ func (a *Agent) Run(ctx context.Context) error {
 		return err
 	}
 
+	// create pull config resolver
+	pullConfigResolver := dependency.NewPullConfigResolver(a.log, rwFactory)
+
 	// create application manager
 	applicationsManager := applications.NewManager(
 		a.log,
@@ -270,13 +273,14 @@ func (a *Agent) Run(ctx context.Context) error {
 		cliClients,
 		systemInfoManager,
 		systemdManagerFactory,
+		pullConfigResolver,
 	)
 
 	// register the application manager with the shutdown manager
 	shutdownManager.Register("applications", applicationsManager.Shutdown)
 
 	// create os manager
-	osManager := os.NewManager(a.log, osClient, rootReadWriter, rootPodmanClient)
+	osManager := os.NewManager(a.log, osClient, rootReadWriter, rootPodmanClient, pullConfigResolver)
 
 	// create prefetch manager
 	prefetchManager := dependency.NewPrefetchManager(
@@ -422,6 +426,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		osClient,
 		rootPodmanClient,
 		prefetchManager,
+		pullConfigResolver,
 		pruningManager,
 		backoff,
 		a.log,

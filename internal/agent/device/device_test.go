@@ -63,6 +63,7 @@ func TestSync(t *testing.T) {
 			mockPrefetchManager *dependency.MockPrefetchManager,
 			mockOSManager *os.MockManager,
 			mockPruningManager *imagepruning.MockManager,
+			mockPullConfigResolver *dependency.MockPullConfigResolver,
 		)
 	}{
 		{
@@ -87,7 +88,10 @@ func TestSync(t *testing.T) {
 				mockPrefetchManager *dependency.MockPrefetchManager,
 				mockOSManager *os.MockManager,
 				mockPruningManager *imagepruning.MockManager,
+				mockPullConfigResolver *dependency.MockPullConfigResolver,
 			) {
+				mockPullConfigResolver.EXPECT().BeforeUpdate(gomock.Any()).AnyTimes()
+				mockPullConfigResolver.EXPECT().Cleanup().AnyTimes()
 				nonRetryableHookError := errors.New("hook error")
 				// IsCriticalAlert is called at the start of each syncDeviceSpec call
 				mockResourceManager.EXPECT().IsCriticalAlert(gomock.Any()).Return(false).AnyTimes()
@@ -132,6 +136,7 @@ func TestSync(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			// mocks
 			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
 			mockOSClient := os.NewMockClient(ctrl)
 			mockManagementClient := client.NewMockManagement(ctrl)
 			mockSystemInfoManager := systeminfo.NewMockManager(ctrl)
@@ -147,6 +152,7 @@ func TestSync(t *testing.T) {
 			mockPrefetchManager := dependency.NewMockPrefetchManager(ctrl)
 			mockOSManager := os.NewMockManager(ctrl)
 			mockPruningManager := imagepruning.NewMockManager(ctrl)
+			mockPullConfigResolver := dependency.NewMockPullConfigResolver(ctrl)
 			tc.setupMocks(
 				tc.current,
 				tc.desired,
@@ -165,6 +171,7 @@ func TestSync(t *testing.T) {
 				mockPrefetchManager,
 				mockOSManager,
 				mockPruningManager,
+				mockPullConfigResolver,
 			)
 
 			// setup
@@ -207,6 +214,7 @@ func TestSync(t *testing.T) {
 				prefetchManager:        mockPrefetchManager,
 				osManager:              mockOSManager,
 				pruningManager:         mockPruningManager,
+				pullConfigResolver:     mockPullConfigResolver,
 			}
 
 			// initial sync
@@ -286,6 +294,7 @@ func TestRollbackDevice(t *testing.T) {
 			require := require.New(t)
 			// mocks
 			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
 			mockOSClient := os.NewMockClient(ctrl)
 			mockManagementClient := client.NewMockManagement(ctrl)
 			tc.setupMocks(
