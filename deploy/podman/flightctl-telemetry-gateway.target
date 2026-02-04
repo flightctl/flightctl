@@ -1,8 +1,0 @@
-[Unit]
-Description=Flight Control Telemetry Gateway target
-Documentation=https://docs.flightctl.io/user/standalone-observability/
-Wants=flightctl-network.service flightctl-telemetry-gateway.service
-After=flightctl-network.service flightctl-telemetry-gateway.service
-
-[Install]
-WantedBy=multi-user.target 
