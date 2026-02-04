@@ -290,6 +290,9 @@ echo "Flight Control Observability Stack uninstalled."
     install -m 0755 packaging/greenboot/functions.sh %{buildroot}/usr/share/flightctl/functions/greenboot.sh
     install -m 0755 packaging/greenboot/flightctl-agent-running-check.sh %{buildroot}/usr/lib/greenboot/check/required.d/20_check_flightctl_agent.sh
     install -m 0755 packaging/greenboot/flightctl-agent-pre-rollback.sh %{buildroot}/usr/lib/greenboot/red.d/40_flightctl_agent_pre_rollback.sh
+    mkdir -p %{buildroot}/usr/libexec/flightctl
+    install -m 0755 packaging/greenboot/flightctl-configure-greenboot.sh %{buildroot}/usr/libexec/flightctl/configure-greenboot.sh
+    install -m 0644 packaging/systemd/flightctl-configure-greenboot.service %{buildroot}/usr/lib/systemd/system
     cp bin/flightctl-agent %{buildroot}/usr/bin
     cp packaging/must-gather/flightctl-must-gather %{buildroot}/usr/bin
     cp packaging/hooks.d/afterupdating/00-default.yaml %{buildroot}/usr/lib/flightctl/hooks.d/afterupdating
@@ -427,9 +430,15 @@ fi
     /usr/share/flightctl/functions/greenboot.sh
     /usr/lib/greenboot/check/required.d/20_check_flightctl_agent.sh
     /usr/lib/greenboot/red.d/40_flightctl_agent_pre_rollback.sh
+    /usr/libexec/flightctl/configure-greenboot.sh
+    /usr/lib/systemd/system/flightctl-configure-greenboot.service
     /usr/share/sosreport/flightctl.py
 
 %post agent
+# Enable the greenboot configuration service (runs before greenboot-healthcheck.service)
+# This ensures only flightctl health checks can trigger OS rollback
+systemctl enable flightctl-configure-greenboot.service >/dev/null 2>&1 || :
+
 # Ensure /var/lib/flightctl exists immediately for environments where systemd-tmpfiles succeeds or via fallback
 # Try systemd-tmpfiles first, fall back to manual creation if it fails
 /usr/bin/systemd-tmpfiles --create /usr/lib/tmpfiles.d/flightctl.conf || {
