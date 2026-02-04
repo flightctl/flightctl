@@ -83,26 +83,31 @@ func syncProviders(
 		return err
 	}
 
-	for _, provider := range diff.Removed {
-		log.Debugf("Removing application: %s", provider.Name())
-		if err := manager.Remove(ctx, provider); err != nil {
-			return err
+	var errs []error
+
+	for _, p := range diff.Removed {
+		log.Debugf("Removing application: %s", p.Name())
+		if err := manager.Remove(ctx, p); err != nil {
+			log.Warnf("Failed to remove application %s: %v", p.Name(), err)
+			errs = append(errs, fmt.Errorf("removing: %w: %w", errors.WithElement(p.Name()), err))
 		}
 	}
 
-	for _, provider := range diff.Ensure {
-		log.Debugf("Ensuring application: %s", provider.Name())
-		if err := manager.Ensure(ctx, provider); err != nil {
-			return err
+	for _, p := range diff.Ensure {
+		log.Debugf("Ensuring application: %s", p.Name())
+		if err := manager.Ensure(ctx, p); err != nil {
+			log.Warnf("Failed to ensure application %s: %v", p.Name(), err)
+			errs = append(errs, fmt.Errorf("ensuring: %w: %w", errors.WithElement(p.Name()), err))
 		}
 	}
 
-	for _, provider := range diff.Changed {
-		log.Debugf("Updating application: %s", provider.Name())
-		if err := manager.Update(ctx, provider); err != nil {
-			return err
+	for _, p := range diff.Changed {
+		log.Debugf("Updating application: %s", p.Name())
+		if err := manager.Update(ctx, p); err != nil {
+			log.Warnf("Failed to update application %s: %v", p.Name(), err)
+			errs = append(errs, fmt.Errorf("updating: %w: %w", errors.WithElement(p.Name()), err))
 		}
 	}
 
-	return nil
+	return errors.Join(errs...)
 }

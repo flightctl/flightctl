@@ -160,7 +160,7 @@ metadata:
 
 			tc.setupMocks(mockExec, mockReadWriter, tc.input)
 
-			kubeClient := client.NewKube(logger, mockExec, mockReadWriter, client.WithBinary("kubectl"))
+			kubeClient := client.NewKube(logger, mockExec, mockReadWriter, client.WithBinary("kubectl"), client.WithKubeconfigPath("/tmp"))
 			labeler := NewLabeler(kubeClient, mockReadWriter)
 
 			var output bytes.Buffer
@@ -188,7 +188,7 @@ func TestLabelerInjectLabels_MkdirTempFails(t *testing.T) {
 
 	mockReadWriter.EXPECT().MkdirTemp("kustomize-labels-*").Return("", fmt.Errorf("disk full"))
 
-	kubeClient := client.NewKube(logger, mockExec, mockReadWriter, client.WithBinary("kubectl"))
+	kubeClient := client.NewKube(logger, mockExec, mockReadWriter, client.WithBinary("kubectl"), client.WithKubeconfigPath("/tmp"))
 	labeler := NewLabeler(kubeClient, mockReadWriter)
 
 	var output bytes.Buffer
@@ -216,7 +216,7 @@ func TestLabelerInjectLabels_KustomizeFails(t *testing.T) {
 		Return("", "error: invalid kustomization", 1)
 	mockReadWriter.EXPECT().RemoveAll(tempDir).Return(nil)
 
-	kubeClient := client.NewKube(logger, mockExec, mockReadWriter, client.WithBinary("kubectl"))
+	kubeClient := client.NewKube(logger, mockExec, mockReadWriter, client.WithBinary("kubectl"), client.WithKubeconfigPath("/tmp"))
 	labeler := NewLabeler(kubeClient, mockReadWriter)
 
 	var output bytes.Buffer
@@ -243,7 +243,7 @@ func TestLabelerInjectLabels_EmptyInput(t *testing.T) {
 		Return("", "", 0)
 	mockReadWriter.EXPECT().RemoveAll(tempDir).Return(nil)
 
-	kubeClient := client.NewKube(logger, mockExec, mockReadWriter, client.WithBinary("kubectl"))
+	kubeClient := client.NewKube(logger, mockExec, mockReadWriter, client.WithBinary("kubectl"), client.WithKubeconfigPath("/tmp"))
 	labeler := NewLabeler(kubeClient, mockReadWriter)
 
 	var output bytes.Buffer
@@ -304,7 +304,7 @@ metadata:
 		Return(kustomizeOutput, "", 0)
 	mockReadWriter.EXPECT().RemoveAll(tempDir).Return(nil)
 
-	kubeClient := client.NewKube(logger, mockExec, mockReadWriter, client.WithBinary("kubectl"))
+	kubeClient := client.NewKube(logger, mockExec, mockReadWriter, client.WithBinary("kubectl"), client.WithKubeconfigPath("/tmp"))
 	labeler := NewLabeler(kubeClient, mockReadWriter)
 
 	labels := map[string]string{AppLabelKey: "multi-doc-test"}
