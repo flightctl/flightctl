@@ -751,14 +751,17 @@ func TestCollectOCITargetsErrorHandling(t *testing.T) {
 					return mockReadWriter, nil
 				}
 				mockClients := client.NewCLIClients()
+				mockPullConfigResolver := dependency.NewMockPullConfigResolver(ctrl)
+				mockPullConfigResolver.EXPECT().Options(gomock.Any()).Return(func() []client.ClientOption { return nil }).AnyTimes()
 				return &manager{
-					rwFactory:      rwFactory,
-					podmanMonitor:  NewPodmanMonitor(log, podmanFactory, systemdFactory, "", rwMockFactory),
-					podmanFactory:  podmanFactory,
-					clients:        mockClients,
-					log:            log,
-					ociTargetCache: provider.NewOCITargetCache(),
-					appDataCache:   provider.NewAppDataCache(),
+					rwFactory:          rwFactory,
+					podmanMonitor:      NewPodmanMonitor(log, podmanFactory, systemdFactory, "", rwMockFactory),
+					podmanFactory:      podmanFactory,
+					clients:            mockClients,
+					log:                log,
+					ociTargetCache:     provider.NewOCITargetCache(),
+					appDataCache:       provider.NewAppDataCache(),
+					pullConfigResolver: mockPullConfigResolver,
 				}
 			},
 			expectError:   false,
@@ -813,14 +816,17 @@ func TestCollectOCITargetsErrorHandling(t *testing.T) {
 					return mockReadWriter, nil
 				}
 				mockClients := client.NewCLIClients()
+				mockPullConfigResolver := dependency.NewMockPullConfigResolver(ctrl)
+				mockPullConfigResolver.EXPECT().Options(gomock.Any()).Return(func() []client.ClientOption { return nil }).AnyTimes()
 				return &manager{
-					rwFactory:      rwFactory,
-					podmanMonitor:  NewPodmanMonitor(log, podmanFactory, systemdFactory, "", rwMockFactory),
-					podmanFactory:  podmanFactory,
-					log:            log,
-					ociTargetCache: provider.NewOCITargetCache(),
-					appDataCache:   provider.NewAppDataCache(),
-					clients:        mockClients,
+					rwFactory:          rwFactory,
+					podmanMonitor:      NewPodmanMonitor(log, podmanFactory, systemdFactory, "", rwMockFactory),
+					podmanFactory:      podmanFactory,
+					log:                log,
+					ociTargetCache:     provider.NewOCITargetCache(),
+					appDataCache:       provider.NewAppDataCache(),
+					clients:            mockClients,
+					pullConfigResolver: mockPullConfigResolver,
 				}
 			},
 			expectError:   true,

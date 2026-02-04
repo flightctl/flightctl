@@ -935,21 +935,8 @@ func TestPullSecretCleanup(t *testing.T) {
 	cliClients := client.NewCLIClients()
 	manager := NewPrefetchManager(log, podmanFactory, skopeoFactory, cliClients, rw, timeout, mockResourceManager, poll.Config{})
 
-	// simulate the complete lifecycle of pull secret cleanup
-	var cleanupCalls []string
-
-	// create multiple pull secrets to test comprehensive cleanup
-	appPullSecret := &client.PullConfig{
-		Path: "/tmp/app-auth.json",
-		Cleanup: func() {
-			cleanupCalls = append(cleanupCalls, "app-auth-cleanup")
-		},
-	}
-	appPullSecretProvider := client.NewPullConfigProvider(map[client.ConfigType]*client.PullConfig{
-		client.ConfigTypeContainerSecret: appPullSecret,
-	})
-
 	// simulate a collector that would be called by applications manager
+	// note: cleanup is now handled centrally by PullConfigResolver at the device level
 	appCollector := func(ctx context.Context, current, desired *v1beta1.DeviceSpec) (*OCICollection, error) {
 		return &OCICollection{Targets: OCIPullTargetsByUser{
 			"": []OCIPullTarget{
@@ -957,7 +944,9 @@ func TestPullSecretCleanup(t *testing.T) {
 					Type:       OCITypePodmanImage,
 					Reference:  "registry.example.com/app:latest",
 					PullPolicy: v1beta1.PullIfNotPresent,
-					Configs:    appPullSecretProvider,
+					ClientOptsFn: func() []client.ClientOption {
+						return []client.ClientOption{client.WithPullSecret("/tmp/app-auth.json")}
+					},
 				},
 			},
 		}}, nil
@@ -980,9 +969,6 @@ func TestPullSecretCleanup(t *testing.T) {
 	err := manager.BeforeUpdate(ctx, current, desired)
 	require.ErrorIs(err, errors.ErrPrefetchNotReady)
 
-	// no cleanup
-	require.Empty(cleanupCalls)
-
 	// simulate successful pull completion
 	manager.setResult(imageRef{image: "registry.example.com/app:latest"}, nil)
 
@@ -993,9 +979,8 @@ func TestPullSecretCleanup(t *testing.T) {
 	err = manager.BeforeUpdate(ctx, current, desired)
 	require.NoError(err)
 
-	// ensure cleanup
+	// cleanup is now handled by PullConfigResolver at the device level
 	manager.Cleanup()
-	require.NotEmpty(cleanupCalls)
 }
 
 type taskState struct {

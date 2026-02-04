@@ -17,7 +17,6 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
-	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/systemd"
@@ -544,10 +543,6 @@ func (m *mockProvider) Spec() *provider.ApplicationSpec {
 		AppType: m.appType,
 		User:    m.username,
 	}
-}
-
-func (m *mockProvider) OCITargets(ctx context.Context, pullSecret *client.PullConfig) ([]dependency.OCIPullTarget, error) {
-	return nil, nil
 }
 
 func (m *mockProvider) Verify(ctx context.Context) error {
