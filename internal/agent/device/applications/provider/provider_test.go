@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"context"
 	"testing"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
@@ -182,5 +183,138 @@ func TestExtractQuadletTargets(t *testing.T) {
 				require.Equal(tt.pullSecret, target.Configs, "unexpected configs at index %d", i)
 			}
 		})
+	}
+}
+
+type mockProvider struct {
+	id   string
+	name string
+	spec *ApplicationSpec
+}
+
+func (m *mockProvider) ID() string                      { return m.id }
+func (m *mockProvider) Name() string                    { return m.name }
+func (m *mockProvider) Spec() *ApplicationSpec          { return m.spec }
+func (m *mockProvider) Verify(_ context.Context) error  { return nil }
+func (m *mockProvider) Install(_ context.Context) error { return nil }
+func (m *mockProvider) Remove(_ context.Context) error  { return nil }
+func (m *mockProvider) IsEqual(other Provider) bool     { return m.id == other.ID() }
+func (m *mockProvider) ActionSpec() interface{}         { return nil }
+
+func newMockProvider(id, name string) *mockProvider {
+	return &mockProvider{id: id, name: name, spec: &ApplicationSpec{ID: id, Name: name}}
+}
+
+func TestGetDiff_DeterministicOrdering(t *testing.T) {
+	tests := []struct {
+		name            string
+		current         []Provider
+		desired         []Provider
+		expectedRemoved []string
+		expectedEnsure  []string
+		expectedChanged []string
+	}{
+		{
+			name: "removed apps are sorted by ID",
+			current: []Provider{
+				newMockProvider("zebra", "Zebra App"),
+				newMockProvider("alpha", "Alpha App"),
+				newMockProvider("mike", "Mike App"),
+			},
+			desired:         []Provider{},
+			expectedRemoved: []string{"alpha", "mike", "zebra"},
+			expectedEnsure:  []string{},
+			expectedChanged: []string{},
+		},
+		{
+			name:    "ensured apps are sorted by ID",
+			current: []Provider{},
+			desired: []Provider{
+				newMockProvider("zebra", "Zebra App"),
+				newMockProvider("alpha", "Alpha App"),
+				newMockProvider("mike", "Mike App"),
+			},
+			expectedRemoved: []string{},
+			expectedEnsure:  []string{"alpha", "mike", "zebra"},
+			expectedChanged: []string{},
+		},
+		{
+			name: "mixed operations are each sorted by ID",
+			current: []Provider{
+				newMockProvider("charlie", "Charlie App"),
+				newMockProvider("alpha", "Alpha App"),
+			},
+			desired: []Provider{
+				newMockProvider("bravo", "Bravo App"),
+				newMockProvider("alpha", "Alpha App"),
+			},
+			expectedRemoved: []string{"charlie"},
+			expectedEnsure:  []string{"alpha", "bravo"},
+			expectedChanged: []string{},
+		},
+		{
+			name: "ordering is consistent across multiple runs",
+			current: []Provider{
+				newMockProvider("d", "D"),
+				newMockProvider("b", "B"),
+				newMockProvider("a", "A"),
+				newMockProvider("c", "C"),
+			},
+			desired:         []Provider{},
+			expectedRemoved: []string{"a", "b", "c", "d"},
+			expectedEnsure:  []string{},
+			expectedChanged: []string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require := require.New(t)
+
+			diff, err := GetDiff(tt.current, tt.desired)
+			require.NoError(err)
+
+			removedIDs := make([]string, len(diff.Removed))
+			for i, p := range diff.Removed {
+				removedIDs[i] = p.ID()
+			}
+			require.Equal(tt.expectedRemoved, removedIDs, "removed apps should be sorted by ID")
+
+			ensureIDs := make([]string, len(diff.Ensure))
+			for i, p := range diff.Ensure {
+				ensureIDs[i] = p.ID()
+			}
+			require.Equal(tt.expectedEnsure, ensureIDs, "ensured apps should be sorted by ID")
+
+			changedIDs := make([]string, len(diff.Changed))
+			for i, p := range diff.Changed {
+				changedIDs[i] = p.ID()
+			}
+			require.Equal(tt.expectedChanged, changedIDs, "changed apps should be sorted by ID")
+		})
+	}
+}
+
+func TestGetDiff_DeterministicOrdering_Consistency(t *testing.T) {
+	require := require.New(t)
+
+	current := []Provider{
+		newMockProvider("z", "Z"),
+		newMockProvider("m", "M"),
+		newMockProvider("a", "A"),
+		newMockProvider("f", "F"),
+	}
+	desired := []Provider{}
+
+	for i := 0; i < 100; i++ {
+		diff, err := GetDiff(current, desired)
+		require.NoError(err)
+
+		removedIDs := make([]string, len(diff.Removed))
+		for j, p := range diff.Removed {
+			removedIDs[j] = p.ID()
+		}
+		require.Equal([]string{"a", "f", "m", "z"}, removedIDs,
+			"ordering should be consistent on iteration %d", i)
 	}
 }

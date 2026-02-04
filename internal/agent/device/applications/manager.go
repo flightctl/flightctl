@@ -101,7 +101,8 @@ func (m *manager) Remove(ctx context.Context, provider provider.Provider) error 
 		return m.podmanMonitor.QueueRemove(NewApplication(provider))
 	case v1beta1.AppTypeHelm:
 		if !m.kubernetesMonitor.IsEnabled() {
-			return errors.ErrKubernetesAppsDisabled
+			m.log.Debugf("Skipping removal of Helm app %s: Kubernetes not available", provider.Name())
+			return nil
 		}
 		if err := provider.Remove(ctx); err != nil {
 			return fmt.Errorf("removing application: %w", err)

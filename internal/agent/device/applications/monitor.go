@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"sort"
 	"strings"
 	"sync"
 	"syscall"
@@ -132,10 +133,38 @@ func (m *monitor) getApps() []Application {
 func (m *monitor) drainActions() []lifecycle.Action {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	actions := make([]lifecycle.Action, len(m.actions))
-	copy(actions, m.actions)
+	actions := reduceActions(m.actions)
 	m.actions = nil
 	return actions
+}
+
+// reduceActions deduplicates actions by app ID, keeping only the latest action
+// for each app. The result is sorted by original queue position.
+func reduceActions(actions []lifecycle.Action) []lifecycle.Action {
+	if len(actions) == 0 {
+		return actions
+	}
+
+	type actionState struct {
+		action lifecycle.Action
+		order  int
+	}
+
+	netEffect := make(map[string]*actionState)
+	for i, action := range actions {
+		netEffect[action.ID] = &actionState{action: action, order: i}
+	}
+
+	result := make([]lifecycle.Action, 0, len(netEffect))
+	for _, state := range netEffect {
+		result = append(result, state.action)
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return netEffect[result[i].ID].order < netEffect[result[j].ID].order
+	})
+
+	return result
 }
 
 func (m *monitor) Ensure(app Application) error {
