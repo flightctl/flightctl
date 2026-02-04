@@ -2,7 +2,7 @@
 Description=Flight Control Telemetry Gateway service
 After=flightctl-network.service flightctl-certs-init.service
 Wants=flightctl-network.service flightctl-certs-init.service
-PartOf=flightctl-telemetry-gateway.target flightctl-observability.target
+PartOf=flightctl.target flightctl-observability.target
 
 [Container]
 Image={{ .TelemetryGateway.Image }}:{{ .TelemetryGateway.Tag }}

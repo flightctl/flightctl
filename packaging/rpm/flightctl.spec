@@ -33,7 +33,7 @@ Requires: openssl
 %global flightctl_target flightctl.target
 
 # --- Restart these on upgrade  ---
-%global flightctl_services_restart flightctl-api.service flightctl-ui.service flightctl-worker.service flightctl-alertmanager.service flightctl-alert-exporter.service flightctl-alertmanager-proxy.service flightctl-cli-artifacts.service flightctl-periodic.service flightctl-db-migrate.service flightctl-db-wait.service flightctl-imagebuilder-api.service
+%global flightctl_services_restart flightctl-api.service flightctl-ui.service flightctl-worker.service flightctl-alertmanager.service flightctl-alert-exporter.service flightctl-alertmanager-proxy.service flightctl-cli-artifacts.service flightctl-periodic.service flightctl-db-migrate.service flightctl-db-wait.service flightctl-imagebuilder-api.service flightctl-imagebuilder-worker.service flightctl-telemetry-gateway.service
 
 
 %description
@@ -85,27 +85,16 @@ Summary: Flight Control services
 Requires: bash
 Requires: podman
 Requires: python3-pyyaml
-Requires: flightctl-telemetry-gateway = %{version}-%{release}
 BuildRequires: systemd-rpm-macros
 %{?systemd_requires}
+Requires: selinux-policy-targeted
+Obsoletes: flightctl-telemetry-gateway < %{version}-%{release}
 
 %description services
 The flightctl-services package provides installation and setup of files for running containerized Flight Control services
 
-%package telemetry-gateway
-Summary: Telemetry Gateway for Flight Control
-Requires:       podman
-%{?systemd_requires}
-Requires:       selinux-policy-targeted
-
-%description telemetry-gateway
-This package provides the Flight Control Telemetry Gateway for telemetry collection/forwarding.
-It runs in a Podman container managed by systemd and can be installed
-independently of core Flight Control services. Includes certificate tooling for Podman/Kubernetes.
-
 %package observability
 Summary: Complete Flight Control observability stack
-Requires:       flightctl-telemetry-gateway = %{version}-%{release}
 Requires:       flightctl-services = %{version}-%{release}
 Requires:       /usr/sbin/semanage
 Requires:       /usr/sbin/restorecon
@@ -115,39 +104,8 @@ Requires:       systemd
 Requires:       selinux-policy-targeted
 
 %description observability
-This package provides the complete Flight Control Observability Stack, including
-Prometheus for metric storage, Grafana for visualization, and
-Telemetry Gateway for metric collection. All components run in Podman containers
-managed by systemd and can be installed independently without requiring core Flight Control
-services to be running. This package automatically includes the flightctl-telemetry-gateway package.
-
-%files telemetry-gateway
-# Shared directories (also owned by services package)
-%dir %{_datadir}/flightctl
-%dir %{_datadir}/flightctl/flightctl-telemetry-gateway
-%dir %{_datadir}/containers/systemd
-
-# Telemetry Gateway configuration template
-%{_datadir}/flightctl/flightctl-telemetry-gateway/config.yaml.template
-
-# Note: Uses flightctl network from flightctl-services package
-
-# Systemd target for service grouping
-/usr/lib/systemd/system/flightctl-telemetry-gateway.target
-
-# Generated quadlet file (created during build by flightctl-standalone)
-%{_datadir}/containers/systemd/flightctl-telemetry-gateway.container
-
-# Directories owned by the telemetry-gateway RPM
-# Note: Parent directories are also owned by services package (shared ownership is allowed)
-%dir /etc/flightctl
-%dir /etc/flightctl/pki
-%dir /etc/flightctl/pki/flightctl-telemetry-gateway
-%dir /etc/flightctl/flightctl-telemetry-gateway
-%dir /etc/flightctl/flightctl-telemetry-gateway/forward
-
-# Ghost files for runtime-generated configuration
-%ghost /etc/flightctl/flightctl-telemetry-gateway/config.yaml
+This package provides the Flight Control Observability Stack, including
+Prometheus for metric storage and Grafana for visualization.
 
 %files observability
 # Shared directories (also owned by services package)
@@ -196,61 +154,6 @@ services to be running. This package automatically includes the flightctl-teleme
 
 # Ghost files for runtime-generated configuration
 %ghost /etc/flightctl/flightctl-grafana/grafana.ini
-
-
-%pre telemetry-gateway
-# This script runs BEFORE the files are installed onto the system.
-echo "Preparing to install Flight Control Telemetry Gateway..."
-echo "Note: OpenTelemetry collector can be installed independently of other Flight Control services."
-
-
-%post telemetry-gateway
-# This script runs AFTER the files have been installed onto the system.
-echo "Running post-install actions for Flight Control Telemetry Gateway..."
-
-# Create necessary directories on the host if they don't already exist.
-/usr/bin/mkdir -p /etc/flightctl /etc/flightctl/flightctl-telemetry-gateway /etc/flightctl/flightctl-telemetry-gateway/forward
-
-# Enable specific SELinux boolean if needed
-/usr/sbin/setsebool -P container_manage_cgroup on >/dev/null 2>&1 || :
-
-# Reload systemd daemon to pick up new quadlet files
-echo "Reloading systemd daemon..."
-/usr/bin/systemctl daemon-reload
-
-echo "Flight Control Telemetry Gateway installed. Service is configured but not started."
-echo "Configuration templates are rendered at service start time."
-echo "To start services: sudo systemctl start flightctl-telemetry-gateway.target"
-echo "For automatic startup: sudo systemctl enable flightctl-telemetry-gateway.target"
-
-
-%preun telemetry-gateway
-echo "Running pre-uninstall actions for Flight Control Telemetry Gateway..."
-# Stop and disable the target and services
-/usr/bin/systemctl stop flightctl-telemetry-gateway.target >/dev/null 2>&1 || :
-/usr/bin/systemctl disable flightctl-telemetry-gateway.target >/dev/null 2>&1 || :
-/usr/bin/systemctl stop flightctl-telemetry-gateway.service >/dev/null 2>&1 || :
-/usr/bin/systemctl disable flightctl-telemetry-gateway.service >/dev/null 2>&1 || :
-
-
-%postun telemetry-gateway
-echo "Running post-uninstall actions for Flight Control Telemetry Gateway..."
-# Clean up Podman container
-/usr/bin/podman rm -f flightctl-telemetry-gateway >/dev/null 2>&1 || :
-
-# Clean up Podman secrets created by the certificate setup script
-echo "Cleaning up Podman secrets..."
-if command -v podman >/dev/null 2>&1; then
-    /usr/bin/podman secret rm telemetry-gateway-tls >/dev/null 2>&1 || :
-    /usr/bin/podman secret rm telemetry-gateway-tls-key >/dev/null 2>&1 || :
-    /usr/bin/podman secret rm flightctl-ca-secret >/dev/null 2>&1 || :
-    echo "Podman secrets cleanup completed"
-else
-    echo "Podman not available, skipping cleanup"
-fi
-
-/usr/bin/systemctl daemon-reload
-echo "Flight Control Telemetry Gateway uninstalled."
 
 
 %pre observability
@@ -456,7 +359,6 @@ echo "Flight Control Observability Stack uninstalled."
      # using flightctl-standalone render quadlets, which processes all components in deploy/podman/
 
      # Install systemd targets for service grouping
-     install -m 0644 deploy/podman/flightctl-telemetry-gateway.target %{buildroot}/usr/lib/systemd/system/
      install -m 0644 deploy/podman/flightctl-observability.target %{buildroot}/usr/lib/systemd/system/
 
      # Create observability persistent data directories
@@ -571,6 +473,7 @@ loginctl disable-linger flightctl || :
     %dir %{_sysconfdir}/flightctl/pki/flightctl-alertmanager-proxy
     %dir %{_sysconfdir}/flightctl/pki/flightctl-pam-issuer
     %dir %{_sysconfdir}/flightctl/pki/flightctl-imagebuilder-api
+    %dir %{_sysconfdir}/flightctl/pki/flightctl-telemetry-gateway
     %dir %{_sysconfdir}/flightctl/pki/db
     %dir %{_sysconfdir}/flightctl/flightctl-alert-exporter
     %dir %{_sysconfdir}/flightctl/flightctl-alertmanager-proxy
@@ -583,10 +486,13 @@ loginctl disable-linger flightctl || :
     %dir %{_sysconfdir}/flightctl/flightctl-periodic
     %dir %{_sysconfdir}/flightctl/flightctl-ui
     %dir %{_sysconfdir}/flightctl/flightctl-worker
+    %dir %{_sysconfdir}/flightctl/flightctl-telemetry-gateway
+    %dir %{_sysconfdir}/flightctl/flightctl-telemetry-gateway/forward
     %dir %{_sysconfdir}/flightctl/ssh
     %config(noreplace) %{_sysconfdir}/flightctl/service-config.yaml
     %config(noreplace) %{_sysconfdir}/flightctl/flightctl-services-install.conf
     %config(noreplace) %{_sysconfdir}/flightctl/ssh/known_hosts
+    %ghost /etc/flightctl/flightctl-telemetry-gateway/config.yaml
 
     # Files mounted to data dir
     %dir %attr(0755,root,root) %{_datadir}/flightctl
@@ -603,6 +509,7 @@ loginctl disable-linger flightctl || :
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-db-migrate
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-imagebuilder-api
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-imagebuilder-worker
+    %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-telemetry-gateway
     %dir %attr(0755,root,root) %{_var}/tmp/flightctl-builds
     %dir %attr(0755,root,root) %{_var}/tmp/flightctl-exports
     %{_datadir}/flightctl/flightctl-api/config.yaml.template
@@ -627,6 +534,7 @@ loginctl disable-linger flightctl || :
     %{_datadir}/flightctl/flightctl-db-migrate/config.yaml.template
     %{_datadir}/flightctl/flightctl-imagebuilder-api/config.yaml.template
     %{_datadir}/flightctl/flightctl-imagebuilder-worker/config.yaml.template
+    %{_datadir}/flightctl/flightctl-telemetry-gateway/config.yaml.template
 
     # Quadlet files (excluding observability components which are in separate packages)
     %{_datadir}/containers/systemd/flightctl-api*.container
@@ -644,6 +552,7 @@ loginctl disable-linger flightctl || :
     %{_datadir}/containers/systemd/flightctl-imagebuilder*.container
     %{_datadir}/containers/systemd/flightctl-alertmanager.volume
     %{_datadir}/containers/systemd/flightctl-cli-artifacts-certs.volume
+    %{_datadir}/containers/systemd/flightctl-telemetry-gateway.container
     %{_datadir}/containers/systemd/flightctl.network
 
     # Handle permissions for scripts setting host config
@@ -687,6 +596,9 @@ fi
 %post services
 # On initial install: apply preset policy to enable/disable services based on system defaults
 %systemd_post %{flightctl_target}
+
+# Enable specific SELinux boolean if needed
+/usr/sbin/setsebool -P container_manage_cgroup on >/dev/null 2>&1 || :
 
 # Reload systemd to recognize new container files
 /usr/bin/systemctl daemon-reload >/dev/null 2>&1 || :
