@@ -3,9 +3,12 @@ package provider
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
+	"sort"
 	"strings"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
@@ -959,13 +962,20 @@ func GetDiff(
 		currentProviders[provider.ID()] = provider
 	}
 
-	for id, provider := range currentProviders {
+	currentIDs := slices.Collect(maps.Keys(currentProviders))
+	desiredIDs := slices.Collect(maps.Keys(desiredProviders))
+
+	sort.Strings(currentIDs)
+	sort.Strings(desiredIDs)
+
+	for _, id := range currentIDs {
 		if _, exists := desiredProviders[id]; !exists {
-			diff.Removed = append(diff.Removed, provider)
+			diff.Removed = append(diff.Removed, currentProviders[id])
 		}
 	}
 
-	for id, desiredProvider := range desiredProviders {
+	for _, id := range desiredIDs {
+		desiredProvider := desiredProviders[id]
 		if currentProvider, exists := currentProviders[id]; !exists {
 			diff.Ensure = append(diff.Ensure, desiredProvider)
 		} else {

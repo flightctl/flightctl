@@ -41,7 +41,6 @@ func (r OSExecutableResolver) Resolve() (string, error) {
 type HelmHandler struct {
 	clients            client.CLIClients
 	log                *log.PrefixLogger
-	kubeconfigPath     string
 	executableResolver ExecutableResolver
 	rwFactory          fileio.ReadWriterFactory
 }
@@ -62,17 +61,23 @@ type helmVersionConfig struct {
 	cleanup      func()
 }
 
-func NewHelmHandler(log *log.PrefixLogger, clients client.CLIClients, kubeconfigPath string, resolver ExecutableResolver, rwFactory fileio.ReadWriterFactory) *HelmHandler {
+// NewHelmHandler creates a new HelmHandler.
+// The kubeconfig path is resolved at operation time from the kube client.
+func NewHelmHandler(log *log.PrefixLogger, clients client.CLIClients, resolver ExecutableResolver, rwFactory fileio.ReadWriterFactory) *HelmHandler {
 	return &HelmHandler{
 		clients:            clients,
 		log:                log,
-		kubeconfigPath:     kubeconfigPath,
 		executableResolver: resolver,
 		rwFactory:          rwFactory,
 	}
 }
 
 func (h *HelmHandler) Execute(ctx context.Context, actions Actions) error {
+	kubeconfigPath, err := h.clients.Kube().ResolveKubeconfig()
+	if err != nil {
+		return fmt.Errorf("resolving kubeconfig: %w", err)
+	}
+
 	versionConfig, err := h.setupHelmVersionConfig(ctx)
 	if err != nil {
 		return fmt.Errorf("setting up post-renderer: %w", err)
@@ -82,15 +87,15 @@ func (h *HelmHandler) Execute(ctx context.Context, actions Actions) error {
 	for _, action := range actions {
 		switch action.Type {
 		case ActionAdd:
-			if err := h.add(ctx, &action, versionConfig); err != nil {
+			if err := h.add(ctx, &action, versionConfig, kubeconfigPath); err != nil {
 				return err
 			}
 		case ActionRemove:
-			if err := h.remove(ctx, &action); err != nil {
+			if err := h.remove(ctx, &action, kubeconfigPath); err != nil {
 				return err
 			}
 		case ActionUpdate:
-			if err := h.update(ctx, &action, versionConfig); err != nil {
+			if err := h.update(ctx, &action, versionConfig, kubeconfigPath); err != nil {
 				return err
 			}
 		default:
@@ -100,7 +105,7 @@ func (h *HelmHandler) Execute(ctx context.Context, actions Actions) error {
 	return nil
 }
 
-func (h *HelmHandler) add(ctx context.Context, action *Action, versionConfig *helmVersionConfig) error {
+func (h *HelmHandler) add(ctx context.Context, action *Action, versionConfig *helmVersionConfig, kubeconfigPath string) error {
 	releaseName := action.Name
 	chartPath := action.Path
 	helmSpec := h.getHelmSpec(action)
@@ -110,9 +115,7 @@ func (h *HelmHandler) add(ctx context.Context, action *Action, versionConfig *he
 
 	kubeOpts := []client.KubeOption{
 		client.WithKubeLabels([]string{flightctlManagedByLabel}),
-	}
-	if h.kubeconfigPath != "" {
-		kubeOpts = append(kubeOpts, client.WithKubeKubeconfig(h.kubeconfigPath))
+		client.WithKubeKubeconfig(kubeconfigPath),
 	}
 
 	if err := h.clients.Kube().EnsureNamespace(ctx, namespace, kubeOpts...); err != nil {
@@ -123,11 +126,9 @@ func (h *HelmHandler) add(ctx context.Context, action *Action, versionConfig *he
 		client.WithNamespace(namespace),
 		client.WithInstall(),
 		versionConfig.optionFunc(action.ID),
+		client.WithKubeconfig(kubeconfigPath),
 	}
 	opts = append(opts, versionConfig.extraOptions...)
-	if h.kubeconfigPath != "" {
-		opts = append(opts, client.WithKubeconfig(h.kubeconfigPath))
-	}
 
 	valuesFiles := h.resolveValuesFiles(chartPath, helmSpec)
 	if len(valuesFiles) > 0 {
@@ -142,7 +143,7 @@ func (h *HelmHandler) add(ctx context.Context, action *Action, versionConfig *he
 	return nil
 }
 
-func (h *HelmHandler) remove(ctx context.Context, action *Action) error {
+func (h *HelmHandler) remove(ctx context.Context, action *Action, kubeconfigPath string) error {
 	releaseName := action.Name
 	helmSpec := h.getHelmSpec(action)
 	namespace := helmSpec.Namespace
@@ -152,9 +153,7 @@ func (h *HelmHandler) remove(ctx context.Context, action *Action) error {
 	opts := []client.HelmOption{
 		client.WithNamespace(namespace),
 		client.WithIgnoreNotFound(),
-	}
-	if h.kubeconfigPath != "" {
-		opts = append(opts, client.WithKubeconfig(h.kubeconfigPath))
+		client.WithKubeconfig(kubeconfigPath),
 	}
 
 	if err := h.clients.Helm().Uninstall(ctx, releaseName, opts...); err != nil {
@@ -165,7 +164,7 @@ func (h *HelmHandler) remove(ctx context.Context, action *Action) error {
 	return nil
 }
 
-func (h *HelmHandler) update(ctx context.Context, action *Action, versionConfig *helmVersionConfig) error {
+func (h *HelmHandler) update(ctx context.Context, action *Action, versionConfig *helmVersionConfig, kubeconfigPath string) error {
 	releaseName := action.Name
 	chartPath := action.Path
 	helmSpec := h.getHelmSpec(action)
@@ -177,11 +176,9 @@ func (h *HelmHandler) update(ctx context.Context, action *Action, versionConfig 
 		client.WithNamespace(namespace),
 		client.WithInstall(),
 		versionConfig.optionFunc(action.ID),
+		client.WithKubeconfig(kubeconfigPath),
 	}
 	opts = append(opts, versionConfig.extraOptions...)
-	if h.kubeconfigPath != "" {
-		opts = append(opts, client.WithKubeconfig(h.kubeconfigPath))
-	}
 
 	valuesFiles := h.resolveValuesFiles(chartPath, helmSpec)
 	if len(valuesFiles) > 0 {

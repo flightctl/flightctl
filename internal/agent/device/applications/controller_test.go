@@ -291,6 +291,113 @@ func createTestLabels(labels map[string]string) (string, error) {
 	return string(data), nil
 }
 
+type mockProviderForSync struct {
+	id   string
+	name string
+}
+
+func (m *mockProviderForSync) ID() string   { return m.id }
+func (m *mockProviderForSync) Name() string { return m.name }
+func (m *mockProviderForSync) Spec() *provider.ApplicationSpec {
+	return &provider.ApplicationSpec{ID: m.id, Name: m.name}
+}
+func (m *mockProviderForSync) Verify(_ context.Context) error  { return nil }
+func (m *mockProviderForSync) Install(_ context.Context) error { return nil }
+func (m *mockProviderForSync) Remove(_ context.Context) error  { return nil }
+func (m *mockProviderForSync) IsEqual(other provider.Provider) bool {
+	return m.id == other.ID()
+}
+func (m *mockProviderForSync) ActionSpec() interface{} { return nil }
+
+func newMockProviderForSync(id, name string) *mockProviderForSync {
+	return &mockProviderForSync{id: id, name: name}
+}
+
+func TestSyncProviders_ContinueOnError(t *testing.T) {
+	tests := []struct {
+		name           string
+		currentProvs   []provider.Provider
+		desiredProvs   []provider.Provider
+		setupMocks     func(mockManager *MockManager)
+		expectedErrors int
+	}{
+		{
+			name:         "all removes succeed",
+			currentProvs: []provider.Provider{newMockProviderForSync("app1", "App 1"), newMockProviderForSync("app2", "App 2")},
+			desiredProvs: []provider.Provider{},
+			setupMocks: func(mockManager *MockManager) {
+				mockManager.EXPECT().Remove(gomock.Any(), gomock.Any()).Return(nil).Times(2)
+			},
+			expectedErrors: 0,
+		},
+		{
+			name:         "first remove fails but second continues",
+			currentProvs: []provider.Provider{newMockProviderForSync("app1", "App 1"), newMockProviderForSync("app2", "App 2")},
+			desiredProvs: []provider.Provider{},
+			setupMocks: func(mockManager *MockManager) {
+				gomock.InOrder(
+					mockManager.EXPECT().Remove(gomock.Any(), gomock.Any()).Return(errors.ErrKubernetesAppsDisabled),
+					mockManager.EXPECT().Remove(gomock.Any(), gomock.Any()).Return(nil),
+				)
+			},
+			expectedErrors: 1,
+		},
+		{
+			name:         "all removes fail",
+			currentProvs: []provider.Provider{newMockProviderForSync("app1", "App 1"), newMockProviderForSync("app2", "App 2")},
+			desiredProvs: []provider.Provider{},
+			setupMocks: func(mockManager *MockManager) {
+				mockManager.EXPECT().Remove(gomock.Any(), gomock.Any()).Return(errors.ErrKubernetesAppsDisabled).Times(2)
+			},
+			expectedErrors: 2,
+		},
+		{
+			name:         "ensure continues after failure",
+			currentProvs: []provider.Provider{},
+			desiredProvs: []provider.Provider{newMockProviderForSync("app1", "App 1"), newMockProviderForSync("app2", "App 2")},
+			setupMocks: func(mockManager *MockManager) {
+				gomock.InOrder(
+					mockManager.EXPECT().Ensure(gomock.Any(), gomock.Any()).Return(errors.ErrKubernetesAppsDisabled),
+					mockManager.EXPECT().Ensure(gomock.Any(), gomock.Any()).Return(nil),
+				)
+			},
+			expectedErrors: 1,
+		},
+		{
+			name:         "mixed operations all continue on error",
+			currentProvs: []provider.Provider{newMockProviderForSync("old-app", "Old App")},
+			desiredProvs: []provider.Provider{newMockProviderForSync("new-app", "New App")},
+			setupMocks: func(mockManager *MockManager) {
+				mockManager.EXPECT().Remove(gomock.Any(), gomock.Any()).Return(errors.ErrRemovingApplication)
+				mockManager.EXPECT().Ensure(gomock.Any(), gomock.Any()).Return(errors.ErrInstallingApplication)
+			},
+			expectedErrors: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require := require.New(t)
+
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			mockManager := NewMockManager(ctrl)
+			tt.setupMocks(mockManager)
+
+			log := log.NewPrefixLogger("test")
+
+			err := syncProviders(context.Background(), log, mockManager, tt.currentProvs, tt.desiredProvs)
+
+			if tt.expectedErrors > 0 {
+				require.Error(err)
+			} else {
+				require.NoError(err)
+			}
+		})
+	}
+}
+
 func TestControllerSync(t *testing.T) {
 	require := require.New(t)
 

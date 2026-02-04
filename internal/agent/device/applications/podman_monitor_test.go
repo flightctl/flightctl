@@ -1074,3 +1074,143 @@ func TestBuildAppSummaryInfo(t *testing.T) {
 		})
 	}
 }
+
+func TestReduceActions(t *testing.T) {
+	tests := []struct {
+		name     string
+		actions  []lifecycle.Action
+		expected []lifecycle.Action
+	}{
+		{
+			name:     "empty actions returns empty",
+			actions:  []lifecycle.Action{},
+			expected: []lifecycle.Action{},
+		},
+		{
+			name: "single add action is preserved",
+			actions: []lifecycle.Action{
+				{ID: "app1", Type: lifecycle.ActionAdd, Name: "App 1"},
+			},
+			expected: []lifecycle.Action{
+				{ID: "app1", Type: lifecycle.ActionAdd, Name: "App 1"},
+			},
+		},
+		{
+			name: "add followed by remove keeps remove",
+			actions: []lifecycle.Action{
+				{ID: "app1", Type: lifecycle.ActionAdd, Name: "App 1"},
+				{ID: "app1", Type: lifecycle.ActionRemove, Name: "App 1"},
+			},
+			expected: []lifecycle.Action{
+				{ID: "app1", Type: lifecycle.ActionRemove, Name: "App 1"},
+			},
+		},
+		{
+			name: "remove followed by add keeps the add",
+			actions: []lifecycle.Action{
+				{ID: "app1", Type: lifecycle.ActionRemove, Name: "App 1"},
+				{ID: "app1", Type: lifecycle.ActionAdd, Name: "App 1"},
+			},
+			expected: []lifecycle.Action{
+				{ID: "app1", Type: lifecycle.ActionAdd, Name: "App 1"},
+			},
+		},
+		{
+			name: "multiple apps with mixed operations preserves order",
+			actions: []lifecycle.Action{
+				{ID: "app1", Type: lifecycle.ActionAdd, Name: "App 1"},
+				{ID: "app2", Type: lifecycle.ActionAdd, Name: "App 2"},
+				{ID: "app1", Type: lifecycle.ActionRemove, Name: "App 1"},
+				{ID: "app3", Type: lifecycle.ActionAdd, Name: "App 3"},
+			},
+			expected: []lifecycle.Action{
+				{ID: "app2", Type: lifecycle.ActionAdd, Name: "App 2"},
+				{ID: "app1", Type: lifecycle.ActionRemove, Name: "App 1"},
+				{ID: "app3", Type: lifecycle.ActionAdd, Name: "App 3"},
+			},
+		},
+		{
+			name: "results are sorted by original queue order not ID",
+			actions: []lifecycle.Action{
+				{ID: "zebra", Type: lifecycle.ActionAdd, Name: "Zebra"},
+				{ID: "alpha", Type: lifecycle.ActionAdd, Name: "Alpha"},
+				{ID: "mike", Type: lifecycle.ActionAdd, Name: "Mike"},
+			},
+			expected: []lifecycle.Action{
+				{ID: "zebra", Type: lifecycle.ActionAdd, Name: "Zebra"},
+				{ID: "alpha", Type: lifecycle.ActionAdd, Name: "Alpha"},
+				{ID: "mike", Type: lifecycle.ActionAdd, Name: "Mike"},
+			},
+		},
+		{
+			name: "update action is preserved",
+			actions: []lifecycle.Action{
+				{ID: "app1", Type: lifecycle.ActionUpdate, Name: "App 1"},
+			},
+			expected: []lifecycle.Action{
+				{ID: "app1", Type: lifecycle.ActionUpdate, Name: "App 1"},
+			},
+		},
+		{
+			name: "later action of same type replaces earlier",
+			actions: []lifecycle.Action{
+				{ID: "app1", Type: lifecycle.ActionAdd, Name: "App 1 v1"},
+				{ID: "app1", Type: lifecycle.ActionAdd, Name: "App 1 v2"},
+			},
+			expected: []lifecycle.Action{
+				{ID: "app1", Type: lifecycle.ActionAdd, Name: "App 1 v2"},
+			},
+		},
+		{
+			name: "complex rollback scenario keeps removes",
+			actions: []lifecycle.Action{
+				{ID: "app1", Type: lifecycle.ActionAdd, Name: "App 1"},
+				{ID: "app2", Type: lifecycle.ActionAdd, Name: "App 2"},
+				{ID: "app1", Type: lifecycle.ActionRemove, Name: "App 1"},
+				{ID: "app2", Type: lifecycle.ActionRemove, Name: "App 2"},
+			},
+			expected: []lifecycle.Action{
+				{ID: "app1", Type: lifecycle.ActionRemove, Name: "App 1"},
+				{ID: "app2", Type: lifecycle.ActionRemove, Name: "App 2"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require := require.New(t)
+
+			result := reduceActions(tt.actions)
+
+			require.Equal(len(tt.expected), len(result), "unexpected number of actions")
+
+			for i, expected := range tt.expected {
+				require.Equal(expected.ID, result[i].ID, "unexpected ID at index %d", i)
+				require.Equal(expected.Type, result[i].Type, "unexpected Type at index %d", i)
+				require.Equal(expected.Name, result[i].Name, "unexpected Name at index %d", i)
+			}
+		})
+	}
+}
+
+func TestReduceActions_Consistency(t *testing.T) {
+	require := require.New(t)
+
+	actions := []lifecycle.Action{
+		{ID: "z", Type: lifecycle.ActionAdd, Name: "Z"},
+		{ID: "m", Type: lifecycle.ActionAdd, Name: "M"},
+		{ID: "a", Type: lifecycle.ActionAdd, Name: "A"},
+		{ID: "f", Type: lifecycle.ActionAdd, Name: "F"},
+	}
+
+	for i := 0; i < 100; i++ {
+		result := reduceActions(actions)
+
+		ids := make([]string, len(result))
+		for j, action := range result {
+			ids[j] = action.ID
+		}
+		require.Equal([]string{"z", "m", "a", "f"}, ids,
+			"ordering should be consistent on iteration %d", i)
+	}
+}
