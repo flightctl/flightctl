@@ -72,13 +72,18 @@ func detectOCIType(manifest *client.OCIManifest) (OCIType, error) {
 	return OCITypePodmanImage, nil
 }
 
+// ClientOptsFn is a function that lazily resolves client options.
+// This allows deferring config resolution until a pull is actually needed,
+// avoiding disk I/O in steady state when all images are already present.
+type ClientOptsFn func() []client.ClientOption
+
 // OCIPullTarget represents an OCI target to be prefetched
 type OCIPullTarget struct {
-	Type       OCIType
-	Reference  string
-	Digest     string
-	PullPolicy v1beta1.ImagePullPolicy
-	Configs    client.PullConfigProvider
+	Type         OCIType
+	Reference    string
+	Digest       string
+	PullPolicy   v1beta1.ImagePullPolicy
+	ClientOptsFn ClientOptsFn // Called only when pulling is actually needed
 }
 
 // A set of OCIPullTargets grouped by the user that will use the targets (blank Username is root).
@@ -179,12 +184,11 @@ type prefetchManager struct {
 }
 
 type prefetchTask struct {
-	clientOps  []client.ClientOption
-	ociType    OCIType
-	err        error
-	done       bool
-	cancelFn   context.CancelFunc
-	cleanupFns []func()
+	clientOptsFn ClientOptsFn
+	ociType      OCIType
+	err          error
+	done         bool
+	cancelFn     context.CancelFunc
 }
 
 // NewPrefetchManager creates a new prefetch manager instance
@@ -427,18 +431,24 @@ func (m *prefetchManager) pull(ctx context.Context, target imageRef, task *prefe
 		return fmt.Errorf("creating skopeo client: %w", err)
 	}
 
+	// Evaluate client options lazily at pull time
+	opts := []client.ClientOption{client.Timeout(m.pullTimeout)}
+	if task.clientOptsFn != nil {
+		opts = append(opts, task.clientOptsFn()...)
+	}
+
 	switch ociType {
 	case OCITypePodmanImage:
-		_, err = podman.Pull(ctx, target.image, task.clientOps...)
+		_, err = podman.Pull(ctx, target.image, opts...)
 	case OCITypeCRIImage:
-		_, err = m.cliClients.CRI().Pull(ctx, target.image, task.clientOps...)
+		_, err = m.cliClients.CRI().Pull(ctx, target.image, opts...)
 	case OCITypePodmanArtifact:
-		_, err = podman.PullArtifact(ctx, target.image, task.clientOps...)
+		_, err = podman.PullArtifact(ctx, target.image, opts...)
 	case OCITypeHelmChart:
-		err = m.cliClients.Helm().Resolve(ctx, target.image, task.clientOps...)
+		err = m.cliClients.Helm().Resolve(ctx, target.image, opts...)
 	case OCITypeAuto:
 		m.log.Debugf("Auto-detecting OCI type for %s", target)
-		manifest, inspectErr := skopeo.InspectManifest(ctx, target.image, task.clientOps...)
+		manifest, inspectErr := skopeo.InspectManifest(ctx, target.image, opts...)
 		if inspectErr != nil {
 			return fmt.Errorf("inspecting manifest for auto-detection: %w", inspectErr)
 		}
@@ -452,9 +462,9 @@ func (m *prefetchManager) pull(ctx context.Context, target imageRef, task *prefe
 
 		switch detectedType {
 		case OCITypePodmanImage:
-			_, err = podman.Pull(ctx, target.image, task.clientOps...)
+			_, err = podman.Pull(ctx, target.image, opts...)
 		case OCITypePodmanArtifact:
-			_, err = podman.PullArtifact(ctx, target.image, task.clientOps...)
+			_, err = podman.PullArtifact(ctx, target.image, opts...)
 		default:
 			return fmt.Errorf("unexpected detected OCI type: %s", detectedType)
 		}
@@ -489,19 +499,8 @@ func (m *prefetchManager) setError(target imageRef, err error) {
 
 func (m *prefetchManager) Schedule(ctx context.Context, targets OCIPullTargetsByUser) error {
 	for user, target := range targets.Iter() {
-		opts := []client.ClientOption{
-			client.Timeout(m.pullTimeout),
-		}
-
-		opts = m.buildClientOptions(target, opts)
-
-		var cleanupFns []func()
-		if target.Configs != nil {
-			cleanupFns = append(cleanupFns, target.Configs.Cleanup)
-		}
-
 		ref := imageRef{image: target.Reference, owner: user}
-		if err := m.schedule(ctx, ref, target.Type, cleanupFns, opts...); err != nil {
+		if err := m.schedule(ctx, ref, target.Type, target.ClientOptsFn); err != nil {
 			return fmt.Errorf("prefetch schedule: %w", err)
 		}
 	}
@@ -509,84 +508,14 @@ func (m *prefetchManager) Schedule(ctx context.Context, targets OCIPullTargetsBy
 	return nil
 }
 
-func (m *prefetchManager) buildClientOptions(target OCIPullTarget, opts []client.ClientOption) []client.ClientOption {
-	if target.Configs == nil {
-		return opts
-	}
-
-	if cfg := target.Configs.Get(client.ConfigTypeContainerSecret); cfg != nil {
-		opts = append(opts, client.WithPullSecret(cfg.Path))
-	}
-	if cfg := target.Configs.Get(client.ConfigTypeHelmRegistrySecret); cfg != nil {
-		opts = append(opts, client.WithPullSecret(cfg.Path))
-	}
-	if cfg := target.Configs.Get(client.ConfigTypeCRIConfig); cfg != nil {
-		opts = append(opts, client.WithCRIConfig(cfg.Path))
-	}
-	if cfg := target.Configs.Get(client.ConfigTypeHelmRepoConfig); cfg != nil {
-		opts = append(opts, client.WithRepositoryConfig(cfg.Path))
-	}
-
-	return opts
-}
-
-func (m *prefetchManager) schedule(ctx context.Context, target imageRef, ociType OCIType, cleanupFns []func(), opts ...client.ClientOption) error {
-	m.mu.Lock()
-	if _, exists := m.tasks[target]; exists {
-		m.mu.Unlock()
-		return nil
-	}
-
-	podman, err := m.podmanFactory(target.owner)
+func (m *prefetchManager) schedule(ctx context.Context, target imageRef, ociType OCIType, clientOptsFn ClientOptsFn) error {
+	needsQueue, err := m.prepareTask(ctx, target, ociType, clientOptsFn)
 	if err != nil {
-		return fmt.Errorf("creating podman client: %w", err)
+		return err
 	}
-
-	var targetExists bool
-	switch ociType {
-	case OCITypePodmanImage:
-		targetExists = podman.ImageExists(ctx, target.image)
-	case OCITypeCRIImage:
-		targetExists = m.cliClients.CRI().ImageExists(ctx, target.image, opts...)
-	case OCITypePodmanArtifact:
-		targetExists = podman.ArtifactExists(ctx, target.image)
-	case OCITypeAuto:
-		// attempt to resolve whether the dependency already exists as an artifact or an image.
-		// avoids making a network call to determine the actual type
-		targetExists = podman.ImageExists(ctx, target.image) || podman.ArtifactExists(ctx, target.image)
-	case OCITypeHelmChart:
-		resolved, err := m.cliClients.Helm().IsResolved(target.image)
-		if err != nil {
-			m.mu.Unlock()
-			return fmt.Errorf("check helm chart resolved: %w", err)
-		}
-		targetExists = resolved
-	default:
-		m.mu.Unlock()
-		return fmt.Errorf("invalid oci type %s", ociType)
-	}
-
-	if targetExists {
-		m.log.Debugf("Scheduled prefetch target already exists: %s", target)
-		// mark done for unified management flow
-		m.tasks[target] = &prefetchTask{
-			ociType:    ociType,
-			done:       true,
-			err:        nil,
-			cleanupFns: cleanupFns,
-		}
-		m.mu.Unlock()
+	if !needsQueue {
 		return nil
 	}
-
-	// register task
-	task := &prefetchTask{
-		ociType:    ociType,
-		clientOps:  opts,
-		cleanupFns: cleanupFns,
-	}
-	m.tasks[target] = task
-	m.mu.Unlock()
 
 	timer := time.NewTimer(250 * time.Millisecond)
 	defer timer.Stop()
@@ -602,6 +531,62 @@ func (m *prefetchManager) schedule(ctx context.Context, target imageRef, ociType
 		m.removeTask(target)
 		return fmt.Errorf("%w: buffer full", errors.ErrPrefetchNotReady)
 	}
+}
+
+func (m *prefetchManager) prepareTask(ctx context.Context, target imageRef, ociType OCIType, clientOptsFn ClientOptsFn) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if _, exists := m.tasks[target]; exists {
+		return false, nil
+	}
+
+	podman, err := m.podmanFactory(target.owner)
+	if err != nil {
+		return false, fmt.Errorf("creating podman client: %w", err)
+	}
+
+	var targetExists bool
+	switch ociType {
+	case OCITypePodmanImage:
+		targetExists = podman.ImageExists(ctx, target.image)
+	case OCITypeCRIImage:
+		// CRI needs config options for existence check
+		var opts []client.ClientOption
+		if clientOptsFn != nil {
+			opts = clientOptsFn()
+		}
+		targetExists = m.cliClients.CRI().ImageExists(ctx, target.image, opts...)
+	case OCITypePodmanArtifact:
+		targetExists = podman.ArtifactExists(ctx, target.image)
+	case OCITypeAuto:
+		targetExists = podman.ImageExists(ctx, target.image) || podman.ArtifactExists(ctx, target.image)
+	case OCITypeHelmChart:
+		resolved, err := m.cliClients.Helm().IsResolved(target.image)
+		if err != nil {
+			return false, fmt.Errorf("check helm chart resolved: %w", err)
+		}
+		targetExists = resolved
+	default:
+		return false, fmt.Errorf("invalid oci type %s", ociType)
+	}
+
+	if targetExists {
+		m.log.Debugf("Scheduled prefetch target already exists: %s", target)
+		m.tasks[target] = &prefetchTask{
+			ociType: ociType,
+			done:    true,
+			err:     nil,
+		}
+		return false, nil
+	}
+
+	task := &prefetchTask{
+		ociType:      ociType,
+		clientOptsFn: clientOptsFn,
+	}
+	m.tasks[target] = task
+	return true, nil
 }
 
 func (m *prefetchManager) removeTask(target imageRef) {
@@ -636,11 +621,6 @@ func (m *prefetchManager) cleanupStaleTasks(seenTargets map[imageRef]struct{}) {
 			if task.cancelFn != nil {
 				task.cancelFn()
 			}
-			for _, cleanup := range task.cleanupFns {
-				if cleanup != nil {
-					cleanup()
-				}
-			}
 			delete(m.tasks, ref)
 			removed++
 		}
@@ -664,12 +644,6 @@ func (m *prefetchManager) Cleanup() {
 	for _, task := range m.tasks {
 		if task.cancelFn != nil {
 			task.cancelFn()
-		}
-		// fire cleanups
-		for _, cleanup := range task.cleanupFns {
-			if cleanup != nil {
-				cleanup()
-			}
 		}
 	}
 

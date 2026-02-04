@@ -10,25 +10,21 @@ import (
 	"github.com/flightctl/flightctl/internal/api/common"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 )
 
 func TestExtractQuadletTargets(t *testing.T) {
-	testPullSecret := &client.PullConfig{
-		Path:    "/tmp/test-pull-secret",
-		Cleanup: func() {},
-	}
-	testPullSecretProvider := client.NewPullConfigProvider(map[client.ConfigType]*client.PullConfig{
-		client.ConfigTypeContainerSecret: testPullSecret,
-	})
+	testClientOpts := []client.ClientOption{client.WithPullSecret("/tmp/test-pull-secret")}
 
 	tests := []struct {
 		name           string
 		quad           *common.QuadletReferences
-		pullSecret     client.PullConfigProvider
+		setupMocks     func(*dependency.MockPullConfigResolver)
 		expectedCount  int
 		expectedRefs   []string
 		expectedType   dependency.OCIType
 		expectedPolicy v1beta1.ImagePullPolicy
+		expectedOpts   int
 	}{
 		{
 			name: "container with single OCI image",
@@ -36,11 +32,16 @@ func TestExtractQuadletTargets(t *testing.T) {
 				Type:  common.QuadletTypeContainer,
 				Image: lo.ToPtr("nginx:latest"),
 			},
-			pullSecret:     nil,
+			setupMocks: func(m *dependency.MockPullConfigResolver) {
+				m.EXPECT().Options(gomock.Any()).Return(func() []client.ClientOption {
+					return nil
+				}).AnyTimes()
+			},
 			expectedCount:  1,
 			expectedRefs:   []string{"nginx:latest"},
 			expectedType:   dependency.OCITypePodmanImage,
 			expectedPolicy: v1beta1.PullIfNotPresent,
+			expectedOpts:   0,
 		},
 		{
 			name: "container with multiple mount images",
@@ -48,11 +49,16 @@ func TestExtractQuadletTargets(t *testing.T) {
 				Type:        common.QuadletTypeContainer,
 				MountImages: []string{"alpine:3.18", "busybox:latest"},
 			},
-			pullSecret:     nil,
+			setupMocks: func(m *dependency.MockPullConfigResolver) {
+				m.EXPECT().Options(gomock.Any()).Return(func() []client.ClientOption {
+					return nil
+				}).AnyTimes()
+			},
 			expectedCount:  2,
 			expectedRefs:   []string{"alpine:3.18", "busybox:latest"},
 			expectedType:   dependency.OCITypePodmanImage,
 			expectedPolicy: v1beta1.PullIfNotPresent,
+			expectedOpts:   0,
 		},
 		{
 			name: "container with both main image and mount images",
@@ -61,11 +67,16 @@ func TestExtractQuadletTargets(t *testing.T) {
 				Image:       lo.ToPtr("quay.io/myapp:v1.0"),
 				MountImages: []string{"redis:7", "postgres:15"},
 			},
-			pullSecret:     nil,
+			setupMocks: func(m *dependency.MockPullConfigResolver) {
+				m.EXPECT().Options(gomock.Any()).Return(func() []client.ClientOption {
+					return nil
+				}).AnyTimes()
+			},
 			expectedCount:  3,
 			expectedRefs:   []string{"quay.io/myapp:v1.0", "redis:7", "postgres:15"},
 			expectedType:   dependency.OCITypePodmanImage,
 			expectedPolicy: v1beta1.PullIfNotPresent,
+			expectedOpts:   0,
 		},
 		{
 			name: "container with pull secret",
@@ -73,22 +84,32 @@ func TestExtractQuadletTargets(t *testing.T) {
 				Type:  common.QuadletTypeContainer,
 				Image: lo.ToPtr("private-registry.io/secure-app:latest"),
 			},
-			pullSecret:     testPullSecretProvider,
+			setupMocks: func(m *dependency.MockPullConfigResolver) {
+				m.EXPECT().Options(gomock.Any()).Return(func() []client.ClientOption {
+					return testClientOpts
+				}).AnyTimes()
+			},
 			expectedCount:  1,
 			expectedRefs:   []string{"private-registry.io/secure-app:latest"},
 			expectedType:   dependency.OCITypePodmanImage,
 			expectedPolicy: v1beta1.PullIfNotPresent,
+			expectedOpts:   1,
 		},
 		{
 			name: "empty quadlet with no images",
 			quad: &common.QuadletReferences{
 				Type: common.QuadletTypeContainer,
 			},
-			pullSecret:     nil,
+			setupMocks: func(m *dependency.MockPullConfigResolver) {
+				m.EXPECT().Options(gomock.Any()).Return(func() []client.ClientOption {
+					return nil
+				}).AnyTimes()
+			},
 			expectedCount:  0,
 			expectedRefs:   []string{},
 			expectedType:   dependency.OCITypePodmanImage,
 			expectedPolicy: v1beta1.PullIfNotPresent,
+			expectedOpts:   0,
 		},
 		{
 			name: "image reference to quadlet file should be filtered",
@@ -96,11 +117,16 @@ func TestExtractQuadletTargets(t *testing.T) {
 				Type:  common.QuadletTypeContainer,
 				Image: lo.ToPtr("base.image"),
 			},
-			pullSecret:     nil,
+			setupMocks: func(m *dependency.MockPullConfigResolver) {
+				m.EXPECT().Options(gomock.Any()).Return(func() []client.ClientOption {
+					return nil
+				}).AnyTimes()
+			},
 			expectedCount:  0,
 			expectedRefs:   []string{},
 			expectedType:   dependency.OCITypePodmanImage,
 			expectedPolicy: v1beta1.PullIfNotPresent,
+			expectedOpts:   0,
 		},
 		{
 			name: "mount images ending with .image should be filtered",
@@ -108,11 +134,16 @@ func TestExtractQuadletTargets(t *testing.T) {
 				Type:        common.QuadletTypeContainer,
 				MountImages: []string{"config.image", "data.image"},
 			},
-			pullSecret:     nil,
+			setupMocks: func(m *dependency.MockPullConfigResolver) {
+				m.EXPECT().Options(gomock.Any()).Return(func() []client.ClientOption {
+					return nil
+				}).AnyTimes()
+			},
 			expectedCount:  0,
 			expectedRefs:   []string{},
 			expectedType:   dependency.OCITypePodmanImage,
 			expectedPolicy: v1beta1.PullIfNotPresent,
+			expectedOpts:   0,
 		},
 		{
 			name: "mix of OCI images and .image references",
@@ -121,11 +152,16 @@ func TestExtractQuadletTargets(t *testing.T) {
 				Image:       lo.ToPtr("nginx:alpine"),
 				MountImages: []string{"base.image", "redis:7", "config.image", "postgres:15"},
 			},
-			pullSecret:     nil,
+			setupMocks: func(m *dependency.MockPullConfigResolver) {
+				m.EXPECT().Options(gomock.Any()).Return(func() []client.ClientOption {
+					return nil
+				}).AnyTimes()
+			},
 			expectedCount:  3,
 			expectedRefs:   []string{"nginx:alpine", "redis:7", "postgres:15"},
 			expectedType:   dependency.OCITypePodmanImage,
 			expectedPolicy: v1beta1.PullIfNotPresent,
+			expectedOpts:   0,
 		},
 		{
 			name: "nil quad.Image with valid mount images",
@@ -134,11 +170,16 @@ func TestExtractQuadletTargets(t *testing.T) {
 				Image:       nil,
 				MountImages: []string{"alpine:latest", "busybox:latest"},
 			},
-			pullSecret:     nil,
+			setupMocks: func(m *dependency.MockPullConfigResolver) {
+				m.EXPECT().Options(gomock.Any()).Return(func() []client.ClientOption {
+					return nil
+				}).AnyTimes()
+			},
 			expectedCount:  2,
 			expectedRefs:   []string{"alpine:latest", "busybox:latest"},
 			expectedType:   dependency.OCITypePodmanImage,
 			expectedPolicy: v1beta1.PullIfNotPresent,
+			expectedOpts:   0,
 		},
 		{
 			name: "valid quad.Image with empty MountImages slice",
@@ -147,11 +188,16 @@ func TestExtractQuadletTargets(t *testing.T) {
 				Image:       lo.ToPtr("ubuntu:22.04"),
 				MountImages: []string{},
 			},
-			pullSecret:     nil,
+			setupMocks: func(m *dependency.MockPullConfigResolver) {
+				m.EXPECT().Options(gomock.Any()).Return(func() []client.ClientOption {
+					return nil
+				}).AnyTimes()
+			},
 			expectedCount:  1,
 			expectedRefs:   []string{"ubuntu:22.04"},
 			expectedType:   dependency.OCITypePodmanImage,
 			expectedPolicy: v1beta1.PullIfNotPresent,
+			expectedOpts:   0,
 		},
 		{
 			name: "nil pullSecret should work fine",
@@ -160,19 +206,29 @@ func TestExtractQuadletTargets(t *testing.T) {
 				Image:       lo.ToPtr("fedora:39"),
 				MountImages: []string{"alpine:3.18"},
 			},
-			pullSecret:     nil,
+			setupMocks: func(m *dependency.MockPullConfigResolver) {
+				m.EXPECT().Options(gomock.Any()).Return(func() []client.ClientOption {
+					return nil
+				}).AnyTimes()
+			},
 			expectedCount:  2,
 			expectedRefs:   []string{"fedora:39", "alpine:3.18"},
 			expectedType:   dependency.OCITypePodmanImage,
 			expectedPolicy: v1beta1.PullIfNotPresent,
+			expectedOpts:   0,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			require := require.New(t)
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
 
-			targets := extractQuadletTargets(tt.quad, tt.pullSecret)
+			mockResolver := dependency.NewMockPullConfigResolver(ctrl)
+			tt.setupMocks(mockResolver)
+
+			targets := extractQuadletTargets(tt.quad, mockResolver)
 
 			require.Equal(tt.expectedCount, len(targets), "unexpected number of targets")
 
@@ -180,7 +236,11 @@ func TestExtractQuadletTargets(t *testing.T) {
 				require.Equal(tt.expectedRefs[i], target.Reference, "unexpected reference at index %d", i)
 				require.Equal(tt.expectedType, target.Type, "unexpected type at index %d", i)
 				require.Equal(tt.expectedPolicy, target.PullPolicy, "unexpected pull policy at index %d", i)
-				require.Equal(tt.pullSecret, target.Configs, "unexpected configs at index %d", i)
+				if target.ClientOptsFn != nil {
+					require.Equal(tt.expectedOpts, len(target.ClientOptsFn()), "unexpected client opts count at index %d", i)
+				} else {
+					require.Equal(0, tt.expectedOpts, "expected no client opts but expectedOpts was %d at index %d", tt.expectedOpts, i)
+				}
 			}
 		})
 	}
