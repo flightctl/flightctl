@@ -42,7 +42,7 @@ func TestSkopeoInspectManifest(t *testing.T) {
 					]
 				}`
 				mockExec.EXPECT().
-					ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--raw", "docker://quay.io/test/app:v1").
+					ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--raw", "docker://quay.io/test/app:v1", "--no-creds").
 					Return(manifestJSON, "", 0)
 			},
 			expectedResult: &OCIManifest{
@@ -77,7 +77,7 @@ func TestSkopeoInspectManifest(t *testing.T) {
 					]
 				}`
 				mockExec.EXPECT().
-					ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--raw", "docker://quay.io/test/artifact:v1").
+					ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--raw", "docker://quay.io/test/artifact:v1", "--no-creds").
 					Return(manifestJSON, "", 0)
 			},
 			expectedResult: &OCIManifest{
@@ -147,7 +147,7 @@ func TestSkopeoInspectManifest(t *testing.T) {
 					]
 				}`
 				mockExec.EXPECT().
-					ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--raw", "docker://ghcr.io/homebrew/core/sqlite:3.50.2").
+					ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--raw", "docker://ghcr.io/homebrew/core/sqlite:3.50.2", "--no-creds").
 					Return(manifestJSON, "", 0)
 			},
 			expectedResult: &OCIManifest{
@@ -180,7 +180,7 @@ func TestSkopeoInspectManifest(t *testing.T) {
 			image: "quay.io/test/nonexistent:v1",
 			setupMocks: func(mockExec *executer.MockExecuter) {
 				mockExec.EXPECT().
-					ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--raw", "docker://quay.io/test/nonexistent:v1").
+					ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--raw", "docker://quay.io/test/nonexistent:v1", "--no-creds").
 					Return("", "Error: manifest unknown", 1)
 			},
 			expectedResult: nil,
@@ -191,7 +191,7 @@ func TestSkopeoInspectManifest(t *testing.T) {
 			image: "quay.io/test/invalid:v1",
 			setupMocks: func(mockExec *executer.MockExecuter) {
 				mockExec.EXPECT().
-					ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--raw", "docker://quay.io/test/invalid:v1").
+					ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--raw", "docker://quay.io/test/invalid:v1", "--no-creds").
 					Return("not valid json", "", 0)
 			},
 			expectedResult: nil,

@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"os"
 	"os/exec"
 	"syscall"
 )
@@ -22,16 +21,17 @@ func (e *commonExecuter) CommandContext(ctx context.Context, command string, arg
 		Pdeathsig: syscall.SIGTERM,
 	}
 
-	// Inherit the current env if none was already specified in the cmd.
-	if len(cmd.Env) == 0 {
-		cmd.Env = os.Environ()
-	}
-	if e.homeDir != "" {
-		// Forcefully override any existing HOME envvar if homeDir is set.
-		cmd.Env = append(cmd.Env, "HOME="+e.homeDir)
-	}
-
 	if e.uid >= 0 {
+		// When running as a different user, make sure the env is not inherited by setting it to a blank
+		// slice (if nil, it will be inherited).
+		if cmd.Env == nil {
+			cmd.Env = []string{}
+		}
+		if e.homeDir != "" {
+			// Forcefully override any existing HOME envvar if homeDir is set.
+			cmd.Env = append(cmd.Env, "HOME="+e.homeDir)
+		}
+
 		cmd.SysProcAttr.Credential = &syscall.Credential{
 			Uid: uint32(e.uid), //nolint:gosec
 			Gid: uint32(e.gid), //nolint:gosec
