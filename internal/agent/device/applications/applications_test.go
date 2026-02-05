@@ -224,6 +224,102 @@ func TestApplicationStatus(t *testing.T) {
 			expectedStatus:        v1beta1.ApplicationStatusCompleted,
 			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusHealthy,
 		},
+		{
+			name: "app with single container was stopped",
+			workloads: []Workload{
+				{
+					Name:   "container1",
+					Status: StatusStopped,
+				},
+			},
+			expectedReady:         "0/1",
+			expectedStatus:        v1beta1.ApplicationStatusError,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusError,
+		},
+		{
+			name: "app with multiple workloads running and one stopped",
+			workloads: []Workload{
+				{
+					Name:   "container1",
+					Status: StatusRunning,
+				},
+				{
+					Name:   "container2",
+					Status: StatusStopped,
+				},
+			},
+			expectedReady:         "1/2",
+			expectedStatus:        v1beta1.ApplicationStatusError,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusError,
+		},
+		{
+			name: "app with multiple workloads all stopped",
+			workloads: []Workload{
+				{
+					Name:   "container1",
+					Status: StatusStopped,
+				},
+				{
+					Name:   "container2",
+					Status: StatusStopped,
+				},
+			},
+			expectedReady:         "0/2",
+			expectedStatus:        v1beta1.ApplicationStatusError,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusError,
+		},
+		{
+			name: "app with multiple workloads exited and one stopped",
+			workloads: []Workload{
+				{
+					Name:   "container1",
+					Status: StatusExited,
+				},
+				{
+					Name:   "container2",
+					Status: StatusStopped,
+				},
+			},
+			expectedReady:         "0/2",
+			expectedStatus:        v1beta1.ApplicationStatusError,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusError,
+		},
+		{
+			name: "app with all workloads completed and one stopped",
+			workloads: []Workload{
+				{
+					Name:   "container1",
+					Status: StatusCompleted,
+				},
+				{
+					Name:   "container2",
+					Status: StatusCompleted,
+				},
+				{
+					Name:   "container3",
+					Status: StatusStopped,
+				},
+			},
+			expectedReady:         "0/3",
+			expectedStatus:        v1beta1.ApplicationStatusError,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusError,
+		},
+		{
+			name: "app with one workload completed and one stopped",
+			workloads: []Workload{
+				{
+					Name:   "container1",
+					Status: StatusCompleted,
+				},
+				{
+					Name:   "container2",
+					Status: StatusStopped,
+				},
+			},
+			expectedReady:         "0/2",
+			expectedStatus:        v1beta1.ApplicationStatusError,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusError,
+		},
 	}
 
 	for _, tt := range tests {

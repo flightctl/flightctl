@@ -532,7 +532,9 @@ func (m *PodmanMonitor) updateQuadletContainerStatus(ctx context.Context, app Ap
 	}
 
 	status := StatusType(event.Status)
-	if isFinishedStatus(status) && event.ContainerExitCode == 0 {
+	if status == StatusStop {
+		status = StatusStopped
+	} else if isFinishedStatus(status) && event.ContainerExitCode == 0 {
 		status = StatusExited
 	}
 	m.updateApplicationStatus(app, event, status, restartCount)
@@ -596,6 +598,9 @@ func (m *PodmanMonitor) inspectContainer(ctx context.Context, containerID string
 
 func (m *PodmanMonitor) resolveStatus(status string, inspectData []client.PodmanInspect) StatusType {
 	initialStatus := StatusType(status)
+	if initialStatus == StatusStop {
+		return StatusStopped
+	}
 	// podman events don't properly event exited in the case where the container exits 0.
 	if initialStatus == StatusDie || initialStatus == StatusDied {
 		if len(inspectData) > 0 && inspectData[0].State.ExitCode == 0 && inspectData[0].State.FinishedAt != "" {
