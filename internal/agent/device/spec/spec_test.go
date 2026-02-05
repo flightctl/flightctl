@@ -614,6 +614,75 @@ func TestCheckOsReconciliation(t *testing.T) {
 	})
 }
 
+func TestVerifyBootedImage(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockOSClient := os.NewMockClient(ctrl)
+	log := log.NewPrefixLogger("test")
+
+	s := &manager{
+		log:      log,
+		osClient: mockOSClient,
+		cache:    newCache(log),
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	t.Run("skips verification during upgrade", func(t *testing.T) {
+		s.cache.current.renderedVersion = "1"
+		s.cache.desired.renderedVersion = "2"
+
+		err := s.VerifyBootedImage(ctx)
+		require.NoError(err)
+	})
+
+	t.Run("skips verification when no OS image in desired spec", func(t *testing.T) {
+		s.cache.current.renderedVersion = "1"
+		s.cache.desired.renderedVersion = "1"
+		s.cache.desired.osVersion = ""
+
+		err := s.VerifyBootedImage(ctx)
+		require.NoError(err)
+	})
+
+	t.Run("returns error on image mismatch", func(t *testing.T) {
+		desiredImage := "flightctl-device:v2"
+		bootedImage := "flightctl-device:v1"
+
+		s.cache.current.renderedVersion = "1"
+		s.cache.desired.renderedVersion = "1"
+		s.cache.desired.osVersion = desiredImage
+
+		bootcStatus := container.BootcHost{}
+		bootcStatus.Status.Booted.Image.Image.Image = bootedImage
+		osStatus := os.Status{BootcHost: bootcStatus}
+		mockOSClient.EXPECT().Status(ctx).Return(&osStatus, nil)
+
+		err := s.VerifyBootedImage(ctx)
+		require.Error(err)
+		require.Contains(err.Error(), "booted OS image mismatch")
+	})
+
+	t.Run("passes when booted image matches desired", func(t *testing.T) {
+		image := "flightctl-device:v2"
+
+		s.cache.current.renderedVersion = "1"
+		s.cache.desired.renderedVersion = "1"
+		s.cache.desired.osVersion = image
+
+		bootcStatus := container.BootcHost{}
+		bootcStatus.Status.Booted.Image.Image.Image = image
+		osStatus := os.Status{BootcHost: bootcStatus}
+		mockOSClient.EXPECT().Status(ctx).Return(&osStatus, nil)
+
+		err := s.VerifyBootedImage(ctx)
+		require.NoError(err)
+	})
+}
+
 func TestCreateRollback(t *testing.T) {
 	require := require.New(t)
 	ctrl := gomock.NewController(t)
