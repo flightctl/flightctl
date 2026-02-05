@@ -17,11 +17,11 @@ func TestExecuterUserHandling(t *testing.T) {
 		e := NewCommonExecuter(WithHomeDir("/tmp"))
 		out, _, code := e.ExecuteWithContext(t.Context(), "env")
 		require.Equal(t, 0, code)
-		require.Contains(t, out, "HOME=/tmp")
+		require.NotContains(t, out, "HOME=/tmp")
 	})
 
 	t.Run("running as user", func(t *testing.T) {
-		e := NewCommonExecuter(WithUIDAndGID(8484, 8484))
+		e := NewCommonExecuter(WithUIDAndGID(8484, 8484), WithHomeDir("/tmp"))
 		_, _, code := e.ExecuteWithContext(t.Context(), "env")
 		require.Equal(t, -1, code)
 	})
