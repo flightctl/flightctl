@@ -8,11 +8,12 @@ import (
 
 	apiversioning "github.com/flightctl/flightctl/api/versioning"
 	"github.com/flightctl/flightctl/internal/api/server"
+	"github.com/flightctl/flightctl/internal/apimetadata"
 	"github.com/go-chi/chi/v5"
 )
 
 func TestNewNegotiator(t *testing.T) {
-	negotiator := NewNegotiator(V1Beta1)
+	negotiator := NewNegotiator(V1Beta1, server.MetadataResolver)
 	if negotiator.FallbackVersion() != V1Beta1 {
 		t.Errorf("FallbackVersion() = %v, want %v", negotiator.FallbackVersion(), V1Beta1)
 	}
@@ -27,7 +28,7 @@ func withChiRouteContext(req *http.Request, pattern string) *http.Request {
 }
 
 func TestNegotiator_NegotiateMiddleware(t *testing.T) {
-	negotiator := NewNegotiator(V1Beta1)
+	negotiator := NewNegotiator(V1Beta1, server.MetadataResolver)
 
 	tests := []struct {
 		name                  string
@@ -144,11 +145,11 @@ func TestNegotiator_NegotiateMiddleware(t *testing.T) {
 }
 
 func TestNegotiator_negotiate(t *testing.T) {
-	negotiator := NewNegotiator(V1Beta1)
+	negotiator := NewNegotiator(V1Beta1, server.MetadataResolver)
 
 	t.Run("multi-version preference order", func(t *testing.T) {
-		metadata := &server.EndpointMetadata{
-			Versions: []server.EndpointMetadataVersion{
+		metadata := &apimetadata.EndpointMetadata{
+			Versions: []apimetadata.EndpointMetadataVersion{
 				{Version: "v1"},
 				{Version: "v1beta1"},
 			},
@@ -180,8 +181,8 @@ func TestNegotiator_negotiate(t *testing.T) {
 	})
 
 	t.Run("empty metadata versions list", func(t *testing.T) {
-		metadata := &server.EndpointMetadata{
-			Versions: []server.EndpointMetadataVersion{},
+		metadata := &apimetadata.EndpointMetadata{
+			Versions: []apimetadata.EndpointMetadataVersion{},
 		}
 
 		negotiated, _, err := negotiator.negotiate("", metadata)

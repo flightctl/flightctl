@@ -222,7 +222,7 @@ func (s *Server) Run(ctx context.Context) error {
 	)
 
 	// Create version negotiator with v1beta1 as default
-	negotiator := versioning.NewNegotiator(versioning.V1Beta1)
+	negotiator := versioning.NewNegotiator(versioning.V1Beta1, server.MetadataResolver)
 
 	// Create v1beta1 transport handler
 	handlerV1Beta1 := transportv1beta1.NewTransportHandler(

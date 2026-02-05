@@ -99,7 +99,7 @@ func CreateAuthZMiddleware(authZ AuthZMiddleware, log logrus.FieldLogger) func(h
 			)
 
 			// First, try to get metadata from the API metadata registry using existing Chi context
-			if metadata := server.GetEndpointMetadata(r); metadata != nil {
+			if metadata := server.MetadataResolver.Resolve(r); metadata != nil {
 				if metadata.Resource != "" && metadata.Action != "" {
 					resource = metadata.Resource
 					action = stringToAction(metadata.Action)
