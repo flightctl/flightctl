@@ -10,7 +10,7 @@ import (
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	apiversioning "github.com/flightctl/flightctl/api/versioning"
-	"github.com/flightctl/flightctl/internal/api/server"
+	"github.com/flightctl/flightctl/internal/apimetadata"
 )
 
 // ErrNotAcceptable indicates the requested version is not supported for the endpoint.
@@ -19,11 +19,15 @@ var ErrNotAcceptable = errors.New("requested API version not acceptable")
 // Negotiator provides version negotiation logic.
 type Negotiator struct {
 	fallbackVersion Version
+	resolver        apimetadata.Resolver
 }
 
-// NewNegotiator creates a negotiator with the specified fallback version.
-func NewNegotiator(fallbackVersion Version) *Negotiator {
-	return &Negotiator{fallbackVersion: fallbackVersion}
+// NewNegotiator creates a negotiator with the specified fallback version and resolver.
+func NewNegotiator(fallbackVersion Version, resolver apimetadata.Resolver) *Negotiator {
+	return &Negotiator{
+		fallbackVersion: fallbackVersion,
+		resolver:        resolver,
+	}
 }
 
 // FallbackVersion returns the fallback version.
@@ -35,7 +39,10 @@ func (n *Negotiator) FallbackVersion() Version {
 func (n *Negotiator) NegotiateMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		requested := Version(req.Header.Get(apiversioning.HeaderAPIVersion))
-		metadata := server.GetEndpointMetadata(req)
+		var metadata *apimetadata.EndpointMetadata
+		if n.resolver != nil {
+			metadata = n.resolver.Resolve(req)
+		}
 
 		negotiated, deprecatedAt, err := n.negotiate(requested, metadata)
 		if err != nil {
@@ -50,7 +57,7 @@ func (n *Negotiator) NegotiateMiddleware(next http.Handler) http.Handler {
 }
 
 // negotiate determines the version to use. Returns negotiated version, deprecation date, and error.
-func (n *Negotiator) negotiate(requested Version, metadata *server.EndpointMetadata) (Version, *time.Time, error) {
+func (n *Negotiator) negotiate(requested Version, metadata *apimetadata.EndpointMetadata) (Version, *time.Time, error) {
 	// No metadata or empty versions: accept only fallback version.
 	if metadata == nil || len(metadata.Versions) == 0 {
 		if requested == "" || requested == n.fallbackVersion {
@@ -91,7 +98,7 @@ func (n *Negotiator) setHeaders(w http.ResponseWriter, negotiated Version, depre
 
 // writeError writes a 406 Not Acceptable response.
 // Supported versions header is returned ONLY here (on 406).
-func (n *Negotiator) writeError(w http.ResponseWriter, metadata *server.EndpointMetadata) {
+func (n *Negotiator) writeError(w http.ResponseWriter, metadata *apimetadata.EndpointMetadata) {
 	addVary(w.Header(), apiversioning.HeaderAPIVersion)
 
 	supportedStr := supportedVersionsString(metadata, n.fallbackVersion)
@@ -113,7 +120,7 @@ func (n *Negotiator) writeError(w http.ResponseWriter, metadata *server.Endpoint
 	})
 }
 
-func supportedVersionsString(metadata *server.EndpointMetadata, fallback Version) string {
+func supportedVersionsString(metadata *apimetadata.EndpointMetadata, fallback Version) string {
 	// If endpoint provides versions, list them.
 	if metadata != nil && len(metadata.Versions) > 0 {
 		var b strings.Builder

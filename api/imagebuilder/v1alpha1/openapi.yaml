@@ -23,6 +23,7 @@ tags:
 # The securitySchemes are defined in components for documentation purposes
 paths:
   /api/v1/imagebuilds:
+    x-resource: imagebuilds
     get:
       tags:
         - imagebuild
@@ -148,6 +149,7 @@ paths:
               schema:
                 $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
   /api/v1/imagebuilds/{name}:
+    x-resource: imagebuilds
     get:
       tags:
         - imagebuild
@@ -253,6 +255,7 @@ paths:
               schema:
                 $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
   /api/v1/imagebuilds/{name}/log:
+    x-resource: imagebuilds/log
     get:
       tags:
         - imagebuild
@@ -314,6 +317,7 @@ paths:
               schema:
                 $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
   /api/v1/imagebuilds/{name}/cancel:
+    x-resource: imagebuilds/cancel
     post:
       tags:
         - imagebuild
@@ -376,6 +380,7 @@ paths:
               schema:
                 $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
   /api/v1/imageexports:
+    x-resource: imageexports
     get:
       tags:
         - imageexport
@@ -495,6 +500,7 @@ paths:
               schema:
                 $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
   /api/v1/imageexports/{name}:
+    x-resource: imageexports
     get:
       tags:
         - imageexport
@@ -594,6 +600,7 @@ paths:
               schema:
                 $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
   /api/v1/imageexports/{name}/cancel:
+    x-resource: imageexports/cancel
     post:
       tags:
         - imageexport
@@ -656,6 +663,7 @@ paths:
               schema:
                 $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
   /api/v1/imageexports/{name}/download:
+    x-resource: imageexports/download
     get:
       tags:
         - imageexport
@@ -731,6 +739,7 @@ paths:
               schema:
                 $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
   /api/v1/imageexports/{name}/log:
+    x-resource: imageexports/log
     get:
       tags:
         - imageexport
