@@ -101,6 +101,11 @@ func (s *Skopeo) InspectManifest(ctx context.Context, image string, opts ...Clie
 			return nil, fmt.Errorf("pull secret path %s does not exist", pullSecretPath)
 		}
 		args = append(args, "--authfile", pullSecretPath)
+	} else {
+		// Skopeo does not behave well when looking up default credentials as a non-root user without a proper systemd session
+		// running, so disable default credentials when none were explicitly provided. This
+		// means any credentials required have to be specified in the options.
+		args = append(args, "--no-creds")
 	}
 
 	stdout, stderr, exitCode := s.exec.ExecuteWithContext(ctx, skopeoCmd, args...)
