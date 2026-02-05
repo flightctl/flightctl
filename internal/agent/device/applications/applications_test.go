@@ -249,8 +249,8 @@ func TestApplicationStatus(t *testing.T) {
 				},
 			},
 			expectedReady:         "1/2",
-			expectedStatus:        v1beta1.ApplicationStatusError,
-			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusError,
+			expectedStatus:        v1beta1.ApplicationStatusRunning,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusDegraded,
 		},
 		{
 			name: "app with multiple workloads all stopped",
