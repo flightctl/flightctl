@@ -3,6 +3,7 @@ package device
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
@@ -24,6 +25,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/agent/device/systemd"
 	"github.com/flightctl/flightctl/internal/util"
+	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/samber/lo"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -32,6 +34,7 @@ import (
 // Agent is responsible for managing the applications, configuration and status of the device.
 type Agent struct {
 	name                   string
+	executer               executer.Executer
 	deviceWriter           fileio.Writer
 	statusManager          status.Manager
 	specManager            spec.Manager
@@ -60,6 +63,7 @@ type Agent struct {
 // NewAgent creates a new device agent.
 func NewAgent(
 	name string,
+	executer executer.Executer,
 	deviceWriter fileio.Writer,
 	statusManager status.Manager,
 	specManager spec.Manager,
@@ -84,6 +88,7 @@ func NewAgent(
 ) *Agent {
 	return &Agent{
 		name:                   name,
+		executer:               executer,
 		deviceWriter:           deviceWriter,
 		statusManager:          statusManager,
 		specManager:            specManager,
@@ -156,6 +161,19 @@ func (a *Agent) syncDeviceSpec(ctx context.Context) {
 		return
 	}
 
+	// Defensive check: verify the booted OS image matches what we expect.
+	// This catches unexpected rollbacks that occurred outside agent control (e.g. greenboot).
+	if err := a.specManager.VerifyBootedImage(ctx); err != nil {
+		a.log.Errorf("CRITICAL: %v", err)
+		if _, updateErr := a.statusManager.Update(ctx, status.SetDeviceSummary(v1beta1.DeviceSummaryStatus{
+			Status: v1beta1.DeviceSummaryStatusError,
+			Info:   lo.ToPtr(err.Error()),
+		})); updateErr != nil {
+			a.log.Warnf("Failed to update status: %v", updateErr)
+		}
+		return
+	}
+
 	a.log.Debugf("Reconciling spec version %s", desired.Version())
 
 	current, err := a.specManager.Read(spec.Current)
@@ -217,6 +235,13 @@ func (a *Agent) syncDeviceSpec(ctx context.Context) {
 	// skip status update if the device is in a steady state and not upgrading.
 	// also ensures previous failed status is not overwritten.
 	if a.specManager.IsUpgrading() {
+		// Wait for greenboot to mark the boot as successful before committing the spec.
+		// This prevents committing a spec that could be rolled back by greenboot.
+		if !a.isBootSuccessful() {
+			a.log.Debug("Waiting for greenboot to mark boot as successful before upgrading spec")
+			return
+		}
+
 		// reconciliation is a success, upgrade the current spec
 		// This updates the spec files to reflect that all managers have successfully applied the changes
 		if err := a.specManager.Upgrade(ctx); err != nil {
@@ -605,4 +630,23 @@ func (a *Agent) ReloadConfig(ctx context.Context, config *agent_config.Config) e
 		a.log.Level(config.LogLevel)
 	}
 	return nil
+}
+
+// isBootSuccessful checks if greenboot has marked the current boot as successful.
+// Returns true if boot_success=1 is set in the GRUB environment, or if greenboot
+// is not installed (grub2-editenv not available).
+func (a *Agent) isBootSuccessful() bool {
+	stdout, stderr, exitCode := a.executer.Execute("grub2-editenv", "-", "list")
+	if exitCode != 0 {
+		// If grub2-editenv is not available, assume boot is successful
+		// (system may not have greenboot installed)
+		a.log.Debugf("grub2-editenv failed (exit %d): %s", exitCode, stderr)
+		return true
+	}
+	for _, line := range strings.Split(stdout, "\n") {
+		if strings.TrimSpace(line) == "boot_success=1" {
+			return true
+		}
+	}
+	return false
 }
