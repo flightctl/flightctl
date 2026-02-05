@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	apiversioning "github.com/flightctl/flightctl/api/versioning"
+	"github.com/flightctl/flightctl/internal/api/server"
 	"github.com/flightctl/flightctl/internal/api_server/versioning"
 	"github.com/go-chi/chi/v5"
 	. "github.com/onsi/ginkgo/v2"
@@ -21,7 +22,7 @@ var _ = Describe("API Version Negotiation HTTP", func() {
 	var svr *httptest.Server
 
 	BeforeEach(func() {
-		negotiator := versioning.NewNegotiator(versioning.V1Beta1)
+		negotiator := versioning.NewNegotiator(versioning.V1Beta1, server.MetadataResolver)
 
 		v1beta1Router := chi.NewRouter()
 		v1beta1Router.Get("/*", func(w http.ResponseWriter, r *http.Request) {

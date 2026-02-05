@@ -173,7 +173,7 @@ func (s *Server) Run(ctx context.Context) error {
 	)
 
 	// Create version negotiator with v1alpha1 as default (imagebuilder resources are v1alpha1)
-	negotiator := versioning.NewNegotiator(versioning.V1Alpha1)
+	negotiator := versioning.NewNegotiator(versioning.V1Alpha1, server.MetadataResolver)
 
 	// Create transport handler that implements ServerInterface
 	transportHandler := transport.NewTransportHandler(s.service, s.log)
