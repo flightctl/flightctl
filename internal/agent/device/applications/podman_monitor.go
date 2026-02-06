@@ -601,9 +601,19 @@ func (m *PodmanMonitor) resolveStatus(status string, inspectData []client.Podman
 	if initialStatus == StatusStop {
 		return StatusStopped
 	}
+
+	if len(inspectData) == 0 {
+		return initialStatus
+	}
+
+	state := inspectData[0].State
+
 	// podman events don't properly event exited in the case where the container exits 0.
-	if initialStatus == StatusDie || initialStatus == StatusDied {
-		if len(inspectData) > 0 && inspectData[0].State.ExitCode == 0 && inspectData[0].State.FinishedAt != "" {
+	if (initialStatus == StatusDie || initialStatus == StatusDied) && state.FinishedAt != "" {
+		if state.ExitCode == 0 {
+			if state.ExitSignal == int(syscall.SIGTERM) {
+				return StatusStopped
+			}
 			return StatusExited
 		}
 	}

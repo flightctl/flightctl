@@ -276,6 +276,9 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 	case isCompleted(total, exited, stopped):
 		newStatus = v1beta1.ApplicationStatusCompleted
 		summary.Status = v1beta1.ApplicationsSummaryStatusHealthy
+	case isStopped(total, stopped):
+		newStatus = v1beta1.ApplicationStatusError
+		summary.Status = v1beta1.ApplicationsSummaryStatusError
 	case isRunningHealthy(total, healthy, initializing, exited):
 		newStatus = v1beta1.ApplicationStatusRunning
 		summary.Status = v1beta1.ApplicationsSummaryStatusHealthy
@@ -316,6 +319,10 @@ func isUnknown(total, healthy, initializing int) bool {
 
 func isCompleted(total, completed, stopped int) bool {
 	return total > 0 && completed == total && stopped == 0
+}
+
+func isStopped(total, stopped int) bool {
+	return total > 0 && stopped == total
 }
 
 func isPreparing(total, healthy, initializing int) bool {
