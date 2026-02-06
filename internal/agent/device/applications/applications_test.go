@@ -320,6 +320,34 @@ func TestApplicationStatus(t *testing.T) {
 			expectedStatus:        v1beta1.ApplicationStatusError,
 			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusError,
 		},
+		{
+			name: "app with multiple workloads exited and some stopped",
+			workloads: []Workload{
+				{
+					Name:   "container1",
+					Status: StatusExited,
+				},
+				{
+					Name:   "container2",
+					Status: StatusExited,
+				},
+				{
+					Name:   "container3",
+					Status: StatusExited,
+				},
+				{
+					Name:   "container4",
+					Status: StatusStopped,
+				},
+				{
+					Name:   "container5",
+					Status: StatusStopped,
+				},
+			},
+			expectedReady:         "0/5",
+			expectedStatus:        v1beta1.ApplicationStatusError,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusError,
+		},
 	}
 
 	for _, tt := range tests {

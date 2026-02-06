@@ -276,16 +276,13 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 	case isCompleted(total, exited, stopped):
 		newStatus = v1beta1.ApplicationStatusCompleted
 		summary.Status = v1beta1.ApplicationsSummaryStatusHealthy
-	case isStopped(total, healthy, initializing, stopped):
-		newStatus = v1beta1.ApplicationStatusError
-		summary.Status = v1beta1.ApplicationsSummaryStatusError
 	case isRunningHealthy(total, healthy, initializing, exited):
 		newStatus = v1beta1.ApplicationStatusRunning
 		summary.Status = v1beta1.ApplicationsSummaryStatusHealthy
 	case isRunningDegraded(total, healthy, initializing):
 		newStatus = v1beta1.ApplicationStatusRunning
 		summary.Status = v1beta1.ApplicationsSummaryStatusDegraded
-	case isErrored(total, healthy, initializing, stopped):
+	case isErrored(total, healthy, initializing):
 		newStatus = v1beta1.ApplicationStatusError
 		summary.Status = v1beta1.ApplicationsSummaryStatusError
 	default:
@@ -321,10 +318,6 @@ func isCompleted(total, completed, stopped int) bool {
 	return total > 0 && completed == total && stopped == 0
 }
 
-func isStopped(total, healthy, initializing, stopped int) bool {
-	return total > 0 && stopped > 0 && healthy == 0 && initializing == 0
-}
-
 func isPreparing(total, healthy, initializing int) bool {
 	return total > 0 && healthy == 0 && initializing > 0
 }
@@ -337,6 +330,6 @@ func isRunningHealthy(total, healthy, initializing, exited int) bool {
 	return total > 0 && (healthy == total || healthy+exited == total) && initializing == 0
 }
 
-func isErrored(total, healthy, initializing, stopped int) bool {
-	return total > 0 && healthy == 0 && initializing == 0 && stopped == 0
+func isErrored(total, healthy, initializing int) bool {
+	return total > 0 && healthy == 0 && initializing == 0
 }
