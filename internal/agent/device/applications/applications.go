@@ -22,7 +22,7 @@ const (
 type StatusType string
 
 const (
-	StatusCreated StatusType = "created"
+	StatusCreate  StatusType = "create"
 	StatusInit    StatusType = "init"
 	StatusRunning StatusType = "start"
 	StatusStop    StatusType = "stop"
@@ -243,7 +243,7 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 	for _, workload := range a.workloads {
 		restarts += workload.Restarts
 		switch workload.Status {
-		case StatusInit, StatusCreated:
+		case StatusInit, StatusCreate:
 			initializing++
 		case StatusRunning:
 			healthy++
