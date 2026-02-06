@@ -52,7 +52,7 @@ func TestApplicationStatus(t *testing.T) {
 			name: "app single container preparing to start created",
 			workloads: []Workload{
 				{
-					Status: StatusCreated,
+					Status: StatusCreate,
 				},
 			},
 			expectedReady:         "0/1",
@@ -82,7 +82,7 @@ func TestApplicationStatus(t *testing.T) {
 			workloads: []Workload{
 				{
 					Name:   "container1",
-					Status: StatusCreated,
+					Status: StatusCreate,
 				},
 				{
 					Name:   "container2",

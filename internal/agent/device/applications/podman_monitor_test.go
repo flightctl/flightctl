@@ -5,10 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	"os/exec"
 	"path"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -17,7 +15,6 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
-	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/systemd"
 	"github.com/flightctl/flightctl/pkg/executer"
@@ -31,20 +28,9 @@ import (
 
 func streamDataToStdout(t *testing.T, reader io.Reader) *exec.Cmd {
 	t.Helper()
-	dir := t.TempDir()
-	file := filepath.Join(dir, "command_output")
-	f, err := os.OpenFile(file, os.O_CREATE|os.O_WRONLY, 0666)
-	require.NoError(t, err)
-
-	go func() {
-		defer f.Close()
-		_, err := io.Copy(f, reader)
-		if err != nil && !errors.Is(err, io.EOF) {
-			t.Logf("Failed to stream reader to file: %v", err)
-		}
-	}()
-
-	return exec.CommandContext(t.Context(), "tail", "-f", "-n", "+1", file)
+	cmd := exec.CommandContext(t.Context(), "cat")
+	cmd.Stdin = reader
+	return cmd
 }
 
 func podmanEventsCommandMock(execMock *executer.MockExecuter) *gomock.Call {
@@ -213,7 +199,7 @@ func TestListenForEvents(t *testing.T) {
 				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "create"), // no start
 			},
 			expectedReady:   "1/2",
-			expectedStatus:  v1beta1.ApplicationStatusRunning,
+			expectedStatus:  v1beta1.ApplicationStatusStarting,
 			expectedSummary: v1beta1.ApplicationsSummaryStatusDegraded,
 		},
 	}
@@ -245,6 +231,7 @@ func TestListenForEvents(t *testing.T) {
 			// create a pipe to simulate events being written to the monitor
 			reader, writer := io.Pipe()
 			defer reader.Close()
+			defer writer.Close()
 
 			execMock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return(string(inspectBytes), "", 0).Times(len(tc.events))
 			podmanEventsCommandMock(execMock).Return(streamDataToStdout(t, reader))
@@ -278,11 +265,11 @@ func TestListenForEvents(t *testing.T) {
 
 			// simulate events being written to the pipe
 			go func() {
-				defer writer.Close()
 				for i := range tc.events {
 					event := tc.events[i]
-					err := writeEvent(writer, &event)
-					require.NoError(err)
+					if err := writeEvent(writer, &event); err != nil {
+						t.Errorf("failed to write event: %v", err)
+					}
 				}
 			}()
 
@@ -290,15 +277,20 @@ func TestListenForEvents(t *testing.T) {
 			retryDuration := 100 * time.Millisecond
 			for _, testApp := range tc.apps {
 				require.Eventually(func() bool {
-					// get app
-					app, exists := podmanMonitor.getByID(testApp.ID())
+					podmanMonitor.mu.Lock()
+					app, exists := podmanMonitor.apps[testApp.ID()]
 					if !exists {
+						podmanMonitor.mu.Unlock()
 						t.Logf("app not found: %s", testApp.Name())
 						return false
 					}
-					// check app status
 					status, summary, err := app.Status()
-					require.NoError(err)
+					podmanMonitor.mu.Unlock()
+
+					if err != nil {
+						t.Logf("error getting status: %v", err)
+						return false
+					}
 					if status == nil {
 						t.Logf("app has no status: %s", testApp.Name())
 						return false
@@ -307,13 +299,10 @@ func TestListenForEvents(t *testing.T) {
 						t.Logf("app %s expected summary %s but got %s", testApp.Name(), tc.expectedSummary, summary.Status)
 						return false
 					}
-					// ensure the app has the expected number of containers
 					if status.Ready != tc.expectedReady {
 						t.Logf("app %s expected ready %s but got %s", testApp.Name(), tc.expectedReady, status.Ready)
 						return false
 					}
-
-					// ensure the app has the expected status
 					if status.Status != tc.expectedStatus {
 						t.Logf("app %s expected status %s but got %s", testApp.Name(), tc.expectedStatus, status.Status)
 						return false

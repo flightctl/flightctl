@@ -275,18 +275,6 @@ func (m *PodmanMonitor) QueueUpdate(app Application) error {
 	return nil
 }
 
-func (m *PodmanMonitor) getByID(appID string) (Application, bool) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	app, ok := m.apps[appID]
-	if ok {
-		return app, true
-	}
-
-	return nil, false
-}
-
 func (m *PodmanMonitor) addBatchTimeToCtx(ctx context.Context) context.Context {
 	m.mu.Lock()
 	defer m.mu.Unlock()
