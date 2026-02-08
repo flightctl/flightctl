@@ -145,8 +145,7 @@ FROM registry.redhat.io/rhel9/rhel-bootc:9.5
 RUN dnf -y config-manager --add-repo https://rpm.flightctl.io/flightctl-epel.repo && \
     dnf -y install flightctl-agent && \
     dnf -y clean all && \
-    systemctl enable flightctl-agent.service && \
-    systemctl mask bootc-fetch-apply-updates.timer
+    systemctl enable flightctl-agent.service
 
 # Optional: To enable podman-compose application support, uncomment below
 # RUN dnf -y install https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm && \
