@@ -210,6 +210,30 @@ func (s *imageBuildService) deleteRelatedImageExports(ctx context.Context, orgId
 	return nil
 }
 
+// cancelRelatedImageExports cancels all ImageExports that reference the given ImageBuild
+func (s *imageBuildService) cancelRelatedImageExports(ctx context.Context, orgId uuid.UUID, imageBuildName string, reason string) {
+	if s.imageExportService == nil {
+		return
+	}
+	fieldSelectorStr := fmt.Sprintf("spec.source.imageBuildRef=%s", imageBuildName)
+	exports, status := s.imageExportService.List(ctx, orgId, domain.ListImageExportsParams{
+		FieldSelector: lo.ToPtr(fieldSelectorStr),
+	})
+	if !IsStatusOK(status) {
+		s.log.WithError(fmt.Errorf("list ImageExports: %s", status.Message)).WithField("imageBuild", imageBuildName).Warn("Failed to list related ImageExports for cancel")
+		return
+	}
+	for _, export := range exports.Items {
+		exportName := lo.FromPtr(export.Metadata.Name)
+		s.log.WithField("imageBuild", imageBuildName).WithField("imageExport", exportName).Info("Canceling related ImageExport")
+		if _, err := s.imageExportService.CancelWithReason(ctx, orgId, exportName, reason); err != nil {
+			if !errors.Is(err, ErrNotCancelable) {
+				s.log.WithError(err).WithField("imageExport", exportName).Warn("Failed to cancel related ImageExport")
+			}
+		}
+	}
+}
+
 func (s *imageBuildService) Cancel(ctx context.Context, orgId uuid.UUID, name string) (*domain.ImageBuild, error) {
 	return s.CancelWithReason(ctx, orgId, name, "Build cancellation requested")
 }
@@ -305,6 +329,7 @@ func (s *imageBuildService) tryCancelImageBuild(ctx context.Context, orgId uuid.
 		}
 	}
 
+	s.cancelRelatedImageExports(ctx, orgId, name, reason)
 	s.log.WithField("orgId", orgId).WithField("name", name).WithField("reason", reason).WithField("targetState", targetReason).Info("ImageBuild cancellation requested")
 	return result, nil
 }
