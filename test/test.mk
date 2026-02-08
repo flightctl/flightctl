@@ -195,7 +195,10 @@ prepare-swtpm-certs:
 clean-swtpm-certs:
 	rm -rf $(TEMP_SWTPM_CERT_DIR)
 
-.PHONY: test run-test git-server-container e2e-agent-images push-e2e-agent-images
+clean-e2e-certs:
+	rm -rf bin/e2e-certs bin/.ssh
+
+.PHONY: test run-test git-server-container e2e-agent-images push-e2e-agent-images clean-e2e-certs
 
 $(REPORTS):
 	-mkdir -p $(REPORTS)

@@ -405,7 +405,7 @@ deb: bin/arm64 bin/amd64 bin/riscv64
 	ln -f -s packaging/debian debian
 	debuild -us -uc -b
 
-clean: clean-agent-vm clean-e2e-agent-images clean-quadlets clean-swtpm-certs
+clean: clean-agent-vm clean-e2e-agent-images clean-quadlets clean-swtpm-certs clean-e2e-certs
 	- kind delete cluster
 	- rm -rf ~/.flightctl
 	- rm -rf $(shell uname -m)
