@@ -85,7 +85,7 @@ The agent-vm target accepts multiple parameters:
 
 - VMNAME: the name of the VM to create (default: flightctl-device-default)
 - VMCPUS: the number of CPUs to allocate to the VM (default: 1)
-- VMRAM: the amount of memory to allocate to the VM (default: 512)
+- VMRAM: the amount of memory in MiB to allocate to the VM (default: 2048)
 - VMDISKSIZE: the disk size for the VM (default: 10G)
 - VMWAIT: the amount of minutes to wait on the console during first boot (default: 0)
 

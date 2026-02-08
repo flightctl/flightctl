@@ -1,5 +1,5 @@
 VMNAME ?= flightctl-device-default
-VMRAM ?= 512
+VMRAM ?= 2048
 VMCPUS ?= 1
 VMDISK = /var/lib/libvirt/images/$(VMNAME).qcow2
 VMDISKSIZE_DEFAULT := 10G
