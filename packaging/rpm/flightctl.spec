@@ -492,6 +492,29 @@ mkdir -p ~flightctl/.config/{containers/systemd,systemd/user}
 mkdir -p ~flightctl/.local
 chown -R flightctl:flightctl ~flightctl/{.config,.local}
 
+# Disable bootc automatic updates on bootc systems (automatically managed updates)
+# This masks the timer with a fallback when building in an env without an active systemd.
+# Always create the mask - bootc images will have the timer, non-bootc images won't care.
+if ! systemctl mask bootc-fetch-apply-updates.timer 2>/dev/null; then
+    # systemctl not available (e.g., during container image build), create mask manually
+    mkdir -p /etc/systemd/system
+    ln -sf /dev/null /etc/systemd/system/bootc-fetch-apply-updates.timer
+fi
+
+%postun agent
+# Restore bootc automatic-update timer only on full removal (not upgrade)
+if [ "$1" -eq 0 ]; then
+    # Try to unmask the timer via systemd first; fall back to removing only
+    # our own mask symlink (a symlink pointing to /dev/null).
+    if ! systemctl unmask bootc-fetch-apply-updates.timer 2>/dev/null; then
+        link_target="$(readlink /etc/systemd/system/bootc-fetch-apply-updates.timer 2>/dev/null || true)"
+        if [ "$link_target" = "/dev/null" ]; then
+            rm -f /etc/systemd/system/bootc-fetch-apply-updates.timer
+        fi
+    fi
+    loginctl disable-linger flightctl || :
+fi
+
 %files selinux
 %{_datadir}/selinux/packages/%{selinuxtype}/flightctl_agent.pp.bz2
 
