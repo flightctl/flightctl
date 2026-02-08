@@ -230,6 +230,52 @@ sudo podman manifest push --all \
     docker://${OCI_DISK_IMAGE_REPO}:${OCI_IMAGE_TAG}
 ```
 
+### Configuring devices to verify image signatures
+
+On the device, the Flight Control agent pulls OS images by invoking the **Podman CLI** (the `podman` binary) when applying updates; nothing else on the device performs those pulls. The agent does not verify image signatures itself—verification is enforced by Podman when it is configured with a signature policy. So you must configure the host so that when the agent runs `podman pull`, Podman requires a valid signature. Use the **system-wide** Podman configuration (the paths below), because that is what the Podman CLI uses when invoked by the agent process (typically running as root).
+
+#### OTA updates (agent-driven pulls)
+
+On every device that should only run signed OS images:
+
+1. **Deploy the public key** used for signing (for example, `signingkey.pub` from the key pair you generated when signing) to a path readable by the agent process (typically root), for example `/etc/pki/containers/os-image-signing.pub`.
+
+2. **Configure the registry to use Sigstore attachments** by adding or merging a file under the system-wide directory `/etc/containers/registries.d/` (for example `/etc/containers/registries.d/${OCI_REGISTRY}.yaml`):
+
+   ```yaml
+   docker:
+     ${OCI_REGISTRY}:
+       use-sigstore-attachments: true
+   ```
+
+   Replace `${OCI_REGISTRY}` with your registry (for example `quay.io`). This allows Podman to fetch and validate Sigstore signatures from the registry when the agent pulls.
+
+3. **Configure the signature policy** in the system-wide `/etc/containers/policy.json` so that images from your OS image repository require a Sigstore signature signed by your public key. Add or merge a `transports.docker` entry for your registry and namespace (repository prefix), for example:
+
+   ```json
+   {
+     "default": [{ "type": "insecureAcceptAnything" }],
+     "transports": {
+       "docker": {
+         "${OCI_REGISTRY}/your_org": [
+           {
+             "type": "sigstoreSigned",
+             "keyPath": "/etc/pki/containers/os-image-signing.pub"
+           }
+         ]
+       }
+     }
+   }
+   ```
+
+   Replace `${OCI_REGISTRY}/your_org` with the registry and namespace (or full repository) where your signed OS images are stored. The `default` entry is required; scope policies for other registries can be added as needed. After this is in place, `podman pull` (and thus the agent's OS update) will only succeed if the image is signed with the matching private key.
+
+You can bake this configuration and the public key into your OS image so that all devices built from it enforce verification, or deploy them via configuration management. For full details and other verification methods, see the [RHEL documentation on signing and verifying container images](https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/9/html/building_running_and_managing_containers/assembly_signing-container-images_building-running-and-managing-containers).
+
+#### Initial provisioning (disk image)
+
+Verification of the OS *disk* image (ISO, qcow2, vmdk) when first provisioning a device is done by the provisioning system that writes the image (for example, OpenShift Virtualization, VMware, or a bare-metal installer). Refer to that system's documentation for how to verify or allow only signed artifacts before writing the disk image to the device.
+
 ### Further References
 
 For further information and practical examples, refer to:
