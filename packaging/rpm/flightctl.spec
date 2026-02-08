@@ -467,7 +467,14 @@ loginctl enable-linger flightctl || :
 mkdir -p /home/flightctl/{.config,.local}
 chown -R flightctl:flightctl /home/flightctl/{.config,.local}
 
+# Disable bootc automatic updates on bootc systems (Flight Control manages updates)
+[ -f /usr/lib/systemd/system/bootc-fetch-apply-updates.timer ] && systemctl mask bootc-fetch-apply-updates.timer || true
+
 %postun agent
+# Restore bootc automatic-update timer only on full removal (not upgrade)
+if [ "$1" -eq 0 ]; then
+    [ -f /usr/lib/systemd/system/bootc-fetch-apply-updates.timer ] && systemctl unmask bootc-fetch-apply-updates.timer || true
+fi
 loginctl disable-linger flightctl || :
 
 %files selinux

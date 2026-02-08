@@ -128,7 +128,7 @@ sudo podman build -t ${OCI_IMAGE_REPO}:${OCI_IMAGE_TAG} .
 
 #### Using RHEL base images
 
-When using Flight Control with a RHEL 9 base image, you need to make a few changes to the `Containerfile`, specifically you need to disable RHEL's default automatic updates and use a different command to enable the EPEL repository in case you need `podman-compose`:
+When using Flight Control with a RHEL 9 base image, you need to enable the EPEL repository in case you need `podman-compose`.
 
 ```console
 FROM registry.redhat.io/rhel9/rhel-bootc:9.5
@@ -136,8 +136,7 @@ FROM registry.redhat.io/rhel9/rhel-bootc:9.5
 RUN dnf -y config-manager --add-repo https://rpm.flightctl.io/flightctl-epel.repo && \
     dnf -y install flightctl-agent && \
     dnf -y clean all && \
-    systemctl enable flightctl-agent.service && \
-    systemctl mask bootc-fetch-apply-updates.timer
+    systemctl enable flightctl-agent.service
 
 # Optional: To enable podman-compose application support, uncomment below
 # RUN dnf -y install https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm && \
