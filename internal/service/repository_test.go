@@ -33,7 +33,7 @@ func testRepositoryPatch(require *require.Assertions, patch domain.PatchRequest)
 	})
 	require.NoError(err)
 	repository := domain.Repository{
-		ApiVersion: "v1",
+		ApiVersion: "v1beta1",
 		Kind:       "Repository",
 		Metadata: domain.ObjectMeta{
 			Name:   lo.ToPtr("foo"),
@@ -264,7 +264,7 @@ func testOciRepositoryPatch(require *require.Assertions, patch domain.PatchReque
 	})
 	require.NoError(err)
 	repository := domain.Repository{
-		ApiVersion: "v1",
+		ApiVersion: "v1beta1",
 		Kind:       "Repository",
 		Metadata: domain.ObjectMeta{
 			Name:   lo.ToPtr("oci-repo"),
@@ -326,7 +326,7 @@ func TestOciRepositoryCreate(t *testing.T) {
 	require.NoError(err)
 
 	repository := domain.Repository{
-		ApiVersion: "v1",
+		ApiVersion: "v1beta1",
 		Kind:       "Repository",
 		Metadata: domain.ObjectMeta{
 			Name: lo.ToPtr("test-oci-repo"),
@@ -378,7 +378,7 @@ func TestOciRepositoryCreateWithoutCredentials(t *testing.T) {
 	require.NoError(err)
 
 	repository := domain.Repository{
-		ApiVersion: "v1",
+		ApiVersion: "v1beta1",
 		Kind:       "Repository",
 		Metadata: domain.ObjectMeta{
 			Name: lo.ToPtr("public-oci-repo"),
@@ -424,7 +424,7 @@ func TestGitRepositoryCreate(t *testing.T) {
 	require.NoError(err)
 
 	repository := domain.Repository{
-		ApiVersion: "v1",
+		ApiVersion: "v1beta1",
 		Kind:       "Repository",
 		Metadata: domain.ObjectMeta{
 			Name:   lo.ToPtr("test-git-repo"),
@@ -588,7 +588,7 @@ func TestSshRepositoryCreate(t *testing.T) {
 	require.NoError(err)
 
 	repository := domain.Repository{
-		ApiVersion: "v1",
+		ApiVersion: "v1beta1",
 		Kind:       "Repository",
 		Metadata: domain.ObjectMeta{
 			Name:   lo.ToPtr("test-ssh-repo"),
@@ -681,7 +681,7 @@ func TestHttpRepositoryCreate(t *testing.T) {
 	require.NoError(err)
 
 	repository := domain.Repository{
-		ApiVersion: "v1",
+		ApiVersion: "v1beta1",
 		Kind:       "Repository",
 		Metadata: domain.ObjectMeta{
 			Name:   lo.ToPtr("test-http-repo"),

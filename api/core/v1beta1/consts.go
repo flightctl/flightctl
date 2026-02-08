@@ -102,6 +102,8 @@ const (
 	OrganizationListKind   = "OrganizationList"
 	OrganizationIDQueryKey = "org_id"
 
+	StatusKind = "Status"
+
 	SystemKind           = "System"
 	SystemComponentDB    = "database"
 	SystemComponentQueue = "queue"
