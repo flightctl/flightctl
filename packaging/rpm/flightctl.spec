@@ -492,6 +492,17 @@ mkdir -p ~flightctl/.config/{containers/systemd,systemd/user}
 mkdir -p ~flightctl/.local
 chown -R flightctl:flightctl ~flightctl/{.config,.local}
 
+# Disable bootc automatic updates on bootc systems (flightctl manages updates)
+# Only masks the timer if it exists; silently succeeds otherwise
+systemctl mask --now bootc-fetch-apply-updates.timer 2>/dev/null || true
+
+%postun agent
+# Restore bootc automatic-update timer only on full removal (not upgrade)
+if [ "$1" -eq 0 ]; then
+    systemctl unmask bootc-fetch-apply-updates.timer 2>/dev/null || true
+    loginctl disable-linger flightctl || :
+fi
+
 %files selinux
 %{_datadir}/selinux/packages/%{selinuxtype}/flightctl_agent.pp.bz2
 
