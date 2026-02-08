@@ -49,10 +49,13 @@ const (
 	CatalogItemVisibilityPublished CatalogItemVisibility = "published"
 )
 
+// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
+type ApiVersion = string
+
 // Catalog defines model for Catalog.
 type Catalog struct {
 	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
-	ApiVersion string `json:"apiVersion"`
+	ApiVersion ApiVersion `json:"apiVersion"`
 
 	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.
 	Kind string `json:"kind"`
@@ -69,8 +72,8 @@ type Catalog struct {
 
 // CatalogItem CatalogItem represents an application template from a catalog. It provides default configuration values that can be customized when adding the application to a fleet.
 type CatalogItem struct {
-	// ApiVersion APIVersion defines the versioned schema of this representation of an object.
-	ApiVersion string `json:"apiVersion"`
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
+	ApiVersion ApiVersion `json:"apiVersion"`
 
 	// Kind Kind is a string value representing the REST resource this object represents.
 	Kind string `json:"kind"`
@@ -124,7 +127,7 @@ type CatalogItemDeprecation struct {
 // CatalogItemList CatalogItemList is a list of CatalogItems.
 type CatalogItemList struct {
 	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
-	ApiVersion string `json:"apiVersion"`
+	ApiVersion ApiVersion `json:"apiVersion"`
 
 	// Items List of CatalogItems.
 	Items []CatalogItem `json:"items"`
@@ -272,7 +275,7 @@ type CatalogItemVisibility string
 // CatalogList CatalogList is a list of Catalogs.
 type CatalogList struct {
 	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
-	ApiVersion string `json:"apiVersion"`
+	ApiVersion ApiVersion `json:"apiVersion"`
 
 	// Items List of Catalogs.
 	Items []Catalog `json:"items"`
@@ -309,6 +312,27 @@ type CatalogSpec struct {
 type CatalogStatus struct {
 	// Conditions Current state of the catalog source.
 	Conditions []externalRef0.Condition `json:"conditions"`
+}
+
+// Status Status is a return value for calls that don't return other objects.
+type Status struct {
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
+	ApiVersion ApiVersion `json:"apiVersion"`
+
+	// Code Suggested HTTP return code for this status, 0 if not set.
+	Code int32 `json:"code"`
+
+	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.
+	Kind string `json:"kind"`
+
+	// Message A human-readable description of the status of this operation.
+	Message string `json:"message"`
+
+	// Reason A machine-readable description of why this operation is in the "Failure" status. If this value is empty there is no information available. A Reason clarifies an HTTP status code but does not override it.
+	Reason string `json:"reason"`
+
+	// Status Status of the operation. One of: "Success" or "Failure". More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#spec-and-status.
+	Status string `json:"status"`
 }
 
 // ListCatalogsParams defines parameters for ListCatalogs.

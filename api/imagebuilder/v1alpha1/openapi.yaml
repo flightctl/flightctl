@@ -69,31 +69,31 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "429":
           description: Too Many Requests
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
     post:
       tags:
         - imagebuild
@@ -117,37 +117,37 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "409":
           description: Conflict
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "429":
           description: Too Many Requests
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
   /api/v1/imagebuilds/{name}:
     x-resource: imagebuilds
     get:
@@ -180,31 +180,31 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "404":
           description: Not Found
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "429":
           description: Too Many Requests
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
     delete:
       tags:
         - imagebuild
@@ -229,31 +229,31 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "404":
           description: Not Found
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "429":
           description: Too Many Requests
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
   /api/v1/imagebuilds/{name}/log:
     x-resource: imagebuilds/log
     get:
@@ -291,31 +291,31 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "404":
           description: Not Found
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "429":
           description: Too Many Requests
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
   /api/v1/imagebuilds/{name}/cancel:
     x-resource: imagebuilds/cancel
     post:
@@ -342,43 +342,43 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "404":
           description: Not Found
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "409":
           description: Conflict - Build not in cancelable state
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "429":
           description: Too Many Requests
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
   /api/v1/imageexports:
     x-resource: imageexports
     get:
@@ -420,31 +420,31 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "429":
           description: Too Many Requests
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
     post:
       tags:
         - imageexport
@@ -468,37 +468,37 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "409":
           description: Conflict
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "429":
           description: Too Many Requests
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
   /api/v1/imageexports/{name}:
     x-resource: imageexports
     get:
@@ -525,31 +525,31 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "404":
           description: Not Found
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "429":
           description: Too Many Requests
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
     delete:
       tags:
         - imageexport
@@ -574,31 +574,31 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "404":
           description: Not Found
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "429":
           description: Too Many Requests
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
   /api/v1/imageexports/{name}/cancel:
     x-resource: imageexports/cancel
     post:
@@ -625,43 +625,43 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "404":
           description: Not Found
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "409":
           description: Conflict - Export not in cancelable state
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "429":
           description: Too Many Requests
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
   /api/v1/imageexports/{name}/download:
     x-resource: imageexports/download
     get:
@@ -701,43 +701,43 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "404":
           description: Not Found
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "429":
           description: Too Many Requests
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "500":
           description: Internal Server Error
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
   /api/v1/imageexports/{name}/log:
     x-resource: imageexports/log
     get:
@@ -775,31 +775,31 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "404":
           description: Not Found
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "429":
           description: Too Many Requests
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
           content:
             application/json:
               schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
 components:
   securitySchemes:
     bearerAuth:
@@ -807,6 +807,13 @@ components:
     orgId:
       $ref: '../../core/v1beta1/openapi.yaml#/components/securitySchemes/orgId'
   schemas:
+    ApiVersion:
+      type: string
+      x-go-type: string
+      description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
+      enum:
+        - v1alpha1
+        - flightctl.io/v1alpha1
     ResourceKind:
       type: string
       enum: [ImageBuild, ImageExport]
@@ -816,8 +823,7 @@ components:
       description: ImageBuild represents a build request for a container image.
       properties:
         apiVersion:
-          type: string
-          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
+          $ref: '#/components/schemas/ApiVersion'
         kind:
           type: string
           description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
@@ -843,8 +849,7 @@ components:
       description: ImageBuildList is a list of ImageBuild resources.
       properties:
         apiVersion:
-          type: string
-          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
+          $ref: '#/components/schemas/ApiVersion'
         kind:
           type: string
           description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
@@ -1036,8 +1041,7 @@ components:
       description: ImageExport represents an export request to convert and push images to different formats.
       properties:
         apiVersion:
-          type: string
-          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
+          $ref: '#/components/schemas/ApiVersion'
         kind:
           type: string
           description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
@@ -1058,8 +1062,7 @@ components:
       description: ImageExportList is a list of ImageExport resources.
       properties:
         apiVersion:
-          type: string
-          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
+          $ref: '#/components/schemas/ApiVersion'
         kind:
           type: string
           description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
@@ -1203,3 +1206,32 @@ components:
         - ImageExportFormatPhasePushing
         - ImageExportFormatPhaseComplete
         - ImageExportFormatPhaseFailed
+    Status:
+      type: object
+      properties:
+        apiVersion:
+          $ref: '#/components/schemas/ApiVersion'
+        kind:
+          type: string
+          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
+        code:
+          type: integer
+          format: int32
+          description: Suggested HTTP return code for this status, 0 if not set.
+        message:
+          type: string
+          description: A human-readable description of the status of this operation.
+        reason:
+          type: string
+          description: A machine-readable description of why this operation is in the "Failure" status. If this value is empty there is no information available. A Reason clarifies an HTTP status code but does not override it.
+        status:
+          type: string
+          description: 'Status of the operation. One of: "Success" or "Failure". More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#spec-and-status.'
+      description: Status is a return value for calls that don't return other objects.
+      required:
+        - apiVersion
+        - kind
+        - status
+        - code
+        - reason
+        - message

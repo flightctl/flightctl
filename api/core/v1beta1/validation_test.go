@@ -2169,7 +2169,7 @@ func TestRepository_Validate_OciRepoSpec(t *testing.T) {
 			require.NoError(t, err)
 
 			repo := Repository{
-				ApiVersion: "v1",
+				ApiVersion: "v1beta1",
 				Kind:       "Repository",
 				Metadata: ObjectMeta{
 					Name: lo.ToPtr("test-oci-repo"),
@@ -2209,7 +2209,7 @@ func TestRepository_Validate_BackwardCompatibility(t *testing.T) {
 		require.NoError(t, err)
 
 		repo := Repository{
-			ApiVersion: "v1",
+			ApiVersion: "v1beta1",
 			Kind:       "Repository",
 			Metadata: ObjectMeta{
 				Name: lo.ToPtr("test-git-repo"),
@@ -2234,7 +2234,7 @@ func TestRepository_Validate_BackwardCompatibility(t *testing.T) {
 		require.NoError(t, err)
 
 		repo := Repository{
-			ApiVersion: "v1",
+			ApiVersion: "v1beta1",
 			Kind:       "Repository",
 			Metadata: ObjectMeta{
 				Name: lo.ToPtr("test-git-http-repo"),
@@ -2258,7 +2258,7 @@ func TestRepository_Validate_BackwardCompatibility(t *testing.T) {
 		require.NoError(t, err)
 
 		repo := Repository{
-			ApiVersion: "v1",
+			ApiVersion: "v1beta1",
 			Kind:       "Repository",
 			Metadata: ObjectMeta{
 				Name: lo.ToPtr("test-git-ssh-repo"),
@@ -2286,7 +2286,7 @@ func TestRepository_Validate_BackwardCompatibility(t *testing.T) {
 		require.NoError(t, err)
 
 		repo := Repository{
-			ApiVersion: "v1",
+			ApiVersion: "v1beta1",
 			Kind:       "Repository",
 			Metadata: ObjectMeta{
 				Name: lo.ToPtr("test-git-both-repo"),
@@ -2308,7 +2308,7 @@ func TestRepository_Validate_BackwardCompatibility(t *testing.T) {
 		require.NoError(t, err)
 
 		repo := Repository{
-			ApiVersion: "v1",
+			ApiVersion: "v1beta1",
 			Kind:       "Repository",
 			Metadata: ObjectMeta{
 				Name: lo.ToPtr("test-http-repo"),
