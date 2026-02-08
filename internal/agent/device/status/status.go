@@ -32,6 +32,8 @@ func NewManager(
 	return &StatusManager{
 		deviceName: deviceName,
 		device: &v1beta1.Device{
+			ApiVersion: v1beta1.DeviceAPIVersion,
+			Kind:       v1beta1.DeviceKind,
 			Metadata: v1beta1.ObjectMeta{
 				Name: &deviceName,
 			},

@@ -4,10 +4,15 @@ import (
 	"net/http"
 )
 
-// API Version constants
+// API group and version constants
 const (
+	APIGroup = "flightctl.io"
+
 	V1Alpha1 = "v1alpha1"
 	V1Beta1  = "v1beta1"
+
+	QualifiedV1Alpha1 = APIGroup + "/" + V1Alpha1
+	QualifiedV1Beta1  = APIGroup + "/" + V1Beta1
 )
 
 // API Header names

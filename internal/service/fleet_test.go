@@ -21,7 +21,7 @@ func verifyFleetPatchFailed(require *require.Assertions, status domain.Status) {
 
 func testFleetPatch(require *require.Assertions, patch domain.PatchRequest) (*domain.Fleet, domain.Fleet, domain.Status) {
 	fleet := domain.Fleet{
-		ApiVersion: "v1",
+		ApiVersion: "v1beta1",
 		Kind:       "Fleet",
 		Metadata: domain.ObjectMeta{
 			Name:   lo.ToPtr("foo"),
@@ -228,7 +228,7 @@ func TestFleetNonExistingResource(t *testing.T) {
 
 func createTestFleet(name string, owner *string) domain.Fleet {
 	return domain.Fleet{
-		ApiVersion: "v1",
+		ApiVersion: "v1beta1",
 		Kind:       "Fleet",
 		Metadata: domain.ObjectMeta{
 			Name:   lo.ToPtr(name),

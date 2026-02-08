@@ -58,7 +58,7 @@ func createTestEnrollmentRequest(t *testing.T, name string, status *domain.Enrol
 	testOrgId := uuid.New()
 	deviceStatus := domain.NewDeviceStatus()
 	enrollmentRequest := domain.EnrollmentRequest{
-		ApiVersion: "v1",
+		ApiVersion: "v1beta1",
 		Kind:       "EnrollmentRequest",
 		Metadata: domain.ObjectMeta{
 			Name:   lo.ToPtr(name),
@@ -116,7 +116,7 @@ func TestNotFoundReplaceEnrollmentRequestStatus(t *testing.T) {
 	ctx := context.Background()
 
 	invalidER := domain.EnrollmentRequest{
-		ApiVersion: "v1",
+		ApiVersion: "v1beta1",
 		Kind:       "EnrollmentRequest",
 		Metadata: domain.ObjectMeta{
 			Name: lo.ToPtr("NonExistingName"),
@@ -222,7 +222,7 @@ func TestApproveEnrollmentRequestUnsupportedIntegrity(t *testing.T) {
 
 	// Create an enrollment request
 	enrollmentRequest := domain.EnrollmentRequest{
-		ApiVersion: "v1",
+		ApiVersion: "v1beta1",
 		Kind:       "EnrollmentRequest",
 		Metadata: domain.ObjectMeta{
 			Name: lo.ToPtr("test-device-fingerprint-long"),
