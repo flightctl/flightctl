@@ -4169,6 +4169,7 @@ components:
       enum:
         - v1beta1
         - flightctl.io/v1beta1
+        - "" # to provide backward compatibility for older clients that are not setting the apiVersion field
     ResourceKind:
       type: string
       enum: [CertificateSigningRequest, EnrollmentRequest, Device, Fleet, Repository, ResourceSync, TemplateVersion, AuthProvider]
