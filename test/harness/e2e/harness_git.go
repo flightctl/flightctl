@@ -1,7 +1,6 @@
 package e2e
 
 import (
-	"encoding/base64"
 	"fmt"
 	"os"
 	"os/exec"
@@ -10,12 +9,12 @@ import (
 	"text/template"
 
 	"github.com/flightctl/flightctl/internal/domain"
-	"github.com/flightctl/flightctl/test/util"
+	"github.com/flightctl/flightctl/test/e2e/infra"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 )
 
-// sshKeyCacheData holds the cached SSH private key path to avoid repeated kubectl calls
+// sshKeyCacheData holds the cached SSH private key path
 type sshKeyCacheData struct {
 	path string
 	once sync.Once
@@ -25,53 +24,18 @@ type sshKeyCacheData struct {
 var sshKeyCache sshKeyCacheData
 
 // GetGitServerConfig returns the configuration for the e2e git server.
-// In KIND environments, it uses localhost:3222 (via port mappings).
-// In OCP environments, it dynamically discovers the node IP and NodePort.
+// The git server runs as a testcontainer managed by SatelliteServices.
 func (h *Harness) GetGitServerConfig() (GitServerConfig, error) {
-	host := getEnvOrDefault("E2E_GIT_SERVER_HOST", "")
-	port := getEnvOrDefaultInt("E2E_GIT_SERVER_PORT", 0)
+	satellite := infra.GetInfra(h.Context)
 
-	if host == "" || port == 0 {
-		ctx, err := GetContext()
-		if err != nil {
-			return GitServerConfig{}, fmt.Errorf("failed to get cluster context: %w", err)
-		}
-
-		switch ctx {
-		case util.KIND:
-			if host == "" {
-				host = "localhost"
-			}
-			if port == 0 {
-				port = 3222
-			}
-
-		case util.OCP:
-			if host == "" {
-				nodeIP, err := getNodeIP()
-				if err != nil {
-					return GitServerConfig{}, fmt.Errorf("failed to get node IP: %w", err)
-				}
-				host = nodeIP
-			}
-
-			if port == 0 {
-				nodePort, err := getServiceNodePort("e2e-git-server", util.E2E_NAMESPACE)
-				if err != nil {
-					return GitServerConfig{}, fmt.Errorf("failed to get git server NodePort: %w", err)
-				}
-				port = nodePort
-			}
-
-		default:
-			return GitServerConfig{}, fmt.Errorf("unsupported cluster context: %s", ctx)
-		}
+	if satellite.GitServerHost == "" || satellite.GitServerPort == 0 {
+		return GitServerConfig{}, fmt.Errorf("git server not started")
 	}
 
 	return GitServerConfig{
-		Host: host,
-		Port: port,
-		User: getEnvOrDefault("E2E_GIT_SERVER_USER", "user"),
+		Host: satellite.GitServerHost,
+		Port: satellite.GitServerPort,
+		User: "user",
 	}, nil
 }
 
@@ -440,88 +404,26 @@ func GetTestDataPath(relativePath string) string {
 	return filepath.Join("testdata", relativePath)
 }
 
-// getSSHPrivateKeyFromSecret retrieves the SSH private key from the e2e-git-ssh-keys Kubernetes Secret.
-// This is used when running on OpenShift where the key is mounted from a Secret rather than baked into the image.
-func getSSHPrivateKeyFromSecret() (string, error) {
-	encodedKey, err := getSecretData("e2e-git-ssh-keys", util.E2E_NAMESPACE, "id_rsa")
-	if err != nil {
-		return "", err
-	}
-
-	// The key is base64 encoded in the secret
-	decoded, err := base64.StdEncoding.DecodeString(encodedKey)
-	if err != nil {
-		return "", fmt.Errorf("failed to decode SSH key from secret: %w", err)
-	}
-
-	return string(decoded), nil
-}
-
-// getSSHPrivateKeyFromLocalFile retrieves the SSH private key from the local bin/.ssh/id_rsa file.
-// Note: ginkgo runs tests from the test package directory (e.g. resourcesync test runs from test/e2e/resourcesync/),
-// so navigate up to the project root.
-func getSSHPrivateKeyFromLocalFile() (string, error) {
-	keyPath := filepath.Join("..", "..", "..", "bin", ".ssh", "id_rsa")
-	absPath, err := filepath.Abs(keyPath)
-	if err != nil {
-		return "", fmt.Errorf("failed to get absolute path for SSH private key: %w", err)
-	}
-	content, err := os.ReadFile(absPath)
-	if err != nil {
-		return "", fmt.Errorf("SSH private key not found at %s: %w", absPath, err)
-	}
-	return string(content), nil
-}
-
 // GetSSHPrivateKeyPath returns the path to the SSH private key file.
+// Delegates to the infra package which manages the git server testcontainer.
 func GetSSHPrivateKeyPath() (string, error) {
 	sshKeyCache.once.Do(func() {
-		sshKeyCache.path, sshKeyCache.err = initSSHPrivateKeyPath()
+		sshKeyCache.path, sshKeyCache.err = infra.GetSSHPrivateKeyPath()
 	})
 	return sshKeyCache.path, sshKeyCache.err
 }
 
-// initSSHPrivateKeyPath initializes the SSH private key path by trying the Secret first,
-// then falling back to the local file. If the key comes from a Secret, it writes it to a temp file.
-func initSSHPrivateKeyPath() (string, error) {
-	keyContent, err := getSSHPrivateKeyFromSecret()
-	if err == nil && keyContent != "" {
-		logrus.Info("Using SSH private key from Kubernetes Secret")
-		// Write to a temp file since SSH commands require a file path
-		tempFile, err := os.CreateTemp("", "e2e-git-ssh-key-*")
-		if err != nil {
-			return "", fmt.Errorf("failed to create temp file for SSH key: %w", err)
-		}
-		if err := os.WriteFile(tempFile.Name(), []byte(keyContent), 0600); err != nil {
-			return "", fmt.Errorf("failed to write SSH key to temp file: %w", err)
-		}
-		tempFile.Close()
-		return tempFile.Name(), nil
-	}
-
-	keyPath := filepath.Join("..", "..", "..", "bin", ".ssh", "id_rsa")
-	absPath, err := filepath.Abs(keyPath)
-	if err != nil {
-		return "", fmt.Errorf("failed to get absolute path for SSH private key: %w", err)
-	}
-	if _, err := os.Stat(absPath); err != nil {
-		return "", fmt.Errorf("SSH private key not found at %s: %w", absPath, err)
-	}
-	logrus.Info("Using SSH private key from local file")
-	return absPath, nil
-}
-
 // GetSSHPrivateKey returns the SSH private key content.
-// It first tries to get the key from the Kubernetes Secret (for OpenShift deployments),
-// then falls back to the local bin/.ssh/id_rsa file (for local development).
 func GetSSHPrivateKey() (string, error) {
-	keyContent, err := getSSHPrivateKeyFromSecret()
-	if err == nil && keyContent != "" {
-		return keyContent, nil
+	keyPath, err := GetSSHPrivateKeyPath()
+	if err != nil {
+		return "", err
 	}
-
-	// Fall back to local file
-	return getSSHPrivateKeyFromLocalFile()
+	content, err := os.ReadFile(keyPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read SSH private key from %s: %w", keyPath, err)
+	}
+	return string(content), nil
 }
 
 // writeTemplatedFilesToDir is a helper that

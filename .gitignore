@@ -13,6 +13,7 @@ flightctl-*.rpm
 
 # All temporary files should be created here
 /.output/
+/output/
 
 # AI and IDE configurations
 /.claude/

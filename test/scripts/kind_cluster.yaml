@@ -9,9 +9,6 @@ kubeadmConfigPatches:
 nodes:
 - role: control-plane
   extraPortMappings:
-  - containerPort: 3222 # local git server for E2E testing
-    hostPort: 3222
-    protocol: TCP  
   - containerPort: 3443 # flightctl API
     hostPort: 3443
     protocol: TCP
@@ -24,9 +21,6 @@ nodes:
   - containerPort: 4480 # gateway HTTP
     hostPort: 4480
     protocol: TCP
-  - containerPort: 5000 # local registry for E2E testing
-    hostPort: 5000
-    protocol: TCP    
   - containerPort: 5432 # postgresql DB
     hostPort: 5432
     protocol: TCP
@@ -41,9 +35,6 @@ nodes:
     protocol: TCP
   - containerPort: 9001 # flightctl UI
     hostPort: 9001
-    protocol: TCP    
-  - containerPort: 9090 # Prometheus server
-    hostPort: 9090
     protocol: TCP
   - containerPort: 9464 # telemetry-gateway Prometheus
     hostPort: 9464

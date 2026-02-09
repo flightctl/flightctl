@@ -4,137 +4,228 @@ import (
 	"context"
 	"errors"
 
+	"github.com/flightctl/flightctl/test/e2e/infra"
 	"github.com/sirupsen/logrus"
-	rbacv1 "k8s.io/api/rbac/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/kubernetes"
 )
 
-func (h *Harness) CreateRole(ctx context.Context, kubernetesClient kubernetes.Interface, flightCtlNs string, role *rbacv1.Role) (*rbacv1.Role, error) {
+// CreateRole creates a role using the environment-appropriate RBAC provider.
+func (h *Harness) CreateRole(ctx context.Context, spec *infra.RoleSpec) error {
 	if ctx == nil {
-		return nil, errors.New("context cannot be nil")
+		return errors.New("context cannot be nil")
 	}
-	if role == nil {
-		return nil, errors.New("role parameter cannot be nil")
-	}
-	if flightCtlNs == "" {
-		return nil, errors.New("namespace cannot be empty")
+	if spec == nil {
+		return errors.New("spec cannot be nil")
 	}
 
-	role, err := kubernetesClient.RbacV1().Roles(flightCtlNs).Create(ctx, role, metav1.CreateOptions{})
-	return role, err
+	provider := h.GetRBACProvider()
+	if provider == nil {
+		return errors.New("RBAC provider not available")
+	}
+
+	return provider.CreateRole(ctx, spec)
 }
 
-func (h *Harness) UpdateRole(ctx context.Context, kubernetesClient kubernetes.Interface, flightCtlNs string, role *rbacv1.Role) (*rbacv1.Role, error) {
+// UpdateRole updates a role using the environment-appropriate RBAC provider.
+func (h *Harness) UpdateRole(ctx context.Context, spec *infra.RoleSpec) error {
 	if ctx == nil {
-		return nil, errors.New("context cannot be nil")
+		return errors.New("context cannot be nil")
 	}
-	if role == nil {
-		return nil, errors.New("role cannot be nil")
+	if spec == nil {
+		return errors.New("spec cannot be nil")
 	}
-	if flightCtlNs == "" {
-		return nil, errors.New("namespace cannot be empty")
+
+	provider := h.GetRBACProvider()
+	if provider == nil {
+		return errors.New("RBAC provider not available")
 	}
-	role, err := kubernetesClient.RbacV1().Roles(flightCtlNs).Update(ctx, role, metav1.UpdateOptions{})
-	return role, err
+
+	return provider.UpdateRole(ctx, spec)
 }
 
-func (h *Harness) CreateClusterRole(ctx context.Context, kubernetesClient kubernetes.Interface, clusterRole *rbacv1.ClusterRole) (*rbacv1.ClusterRole, error) {
+// DeleteRole deletes a role using the environment-appropriate RBAC provider.
+func (h *Harness) DeleteRole(ctx context.Context, namespace, name string) error {
 	if ctx == nil {
-		return nil, errors.New("context cannot be nil")
-	}
-	if clusterRole == nil {
-		return nil, errors.New("clusterRole cannot be nil")
+		return errors.New("context cannot be nil")
 	}
 
-	clusterRole, err := kubernetesClient.RbacV1().ClusterRoles().Create(ctx, clusterRole, metav1.CreateOptions{})
-	return clusterRole, err
+	provider := h.GetRBACProvider()
+	if provider == nil {
+		return errors.New("RBAC provider not available")
+	}
+
+	return provider.DeleteRole(ctx, namespace, name)
 }
 
-func (h *Harness) UpdateClusterRole(ctx context.Context, kubernetesClient kubernetes.Interface, clusterRole *rbacv1.ClusterRole) (*rbacv1.ClusterRole, error) {
+// CreateClusterRole creates a cluster role using the environment-appropriate RBAC provider.
+func (h *Harness) CreateClusterRole(ctx context.Context, spec *infra.RoleSpec) error {
 	if ctx == nil {
-		return nil, errors.New("context cannot be nil")
+		return errors.New("context cannot be nil")
 	}
-	if clusterRole == nil {
-		return nil, errors.New("clusterRole cannot be nil")
+	if spec == nil {
+		return errors.New("spec cannot be nil")
 	}
-	clusterRole, err := kubernetesClient.RbacV1().ClusterRoles().Update(ctx, clusterRole, metav1.UpdateOptions{})
-	return clusterRole, err
+
+	provider := h.GetRBACProvider()
+	if provider == nil {
+		return errors.New("RBAC provider not available")
+	}
+
+	return provider.CreateClusterRole(ctx, spec)
 }
 
-func (h *Harness) CreateClusterRoleBinding(ctx context.Context, kubernetesClient kubernetes.Interface, clusterRoleBinding *rbacv1.ClusterRoleBinding) (*rbacv1.ClusterRoleBinding, error) {
-
+// UpdateClusterRole updates a cluster role using the environment-appropriate RBAC provider.
+func (h *Harness) UpdateClusterRole(ctx context.Context, spec *infra.RoleSpec) error {
 	if ctx == nil {
-		return nil, errors.New("context cannot be nil")
+		return errors.New("context cannot be nil")
 	}
-	if clusterRoleBinding == nil {
-		return nil, errors.New("clusterRoleBinding cannot be nil")
+	if spec == nil {
+		return errors.New("spec cannot be nil")
 	}
 
-	clusterRoleBinding, err := kubernetesClient.RbacV1().ClusterRoleBindings().Create(ctx, clusterRoleBinding, metav1.CreateOptions{})
-	return clusterRoleBinding, err
+	provider := h.GetRBACProvider()
+	if provider == nil {
+		return errors.New("RBAC provider not available")
+	}
+
+	return provider.UpdateClusterRole(ctx, spec)
 }
 
-func (h *Harness) CreateRoleBinding(ctx context.Context, kubernetesClient kubernetes.Interface, flightCtlNs string, roleBinding *rbacv1.RoleBinding) (*rbacv1.RoleBinding, error) {
+// DeleteClusterRole deletes a cluster role using the environment-appropriate RBAC provider.
+func (h *Harness) DeleteClusterRole(ctx context.Context, name string) error {
 	if ctx == nil {
-		return nil, errors.New("context cannot be nil")
+		return errors.New("context cannot be nil")
 	}
-	if roleBinding == nil {
-		return nil, errors.New("roleBinding cannot be nil")
+
+	provider := h.GetRBACProvider()
+	if provider == nil {
+		return errors.New("RBAC provider not available")
 	}
-	if flightCtlNs == "" {
-		return nil, errors.New("namespace cannot be empty")
-	}
-	roleBinding, err := kubernetesClient.RbacV1().RoleBindings(flightCtlNs).Create(ctx, roleBinding, metav1.CreateOptions{})
-	return roleBinding, err
+
+	return provider.DeleteClusterRole(ctx, name)
 }
 
-func (h *Harness) CleanupRoles(ctx context.Context, kubernetesClient kubernetes.Interface, roles []string, roleBindings []string, flightCtlNs string) {
+// CreateRoleBinding creates a role binding using the environment-appropriate RBAC provider.
+func (h *Harness) CreateRoleBinding(ctx context.Context, spec *infra.RoleBindingSpec) error {
+	if ctx == nil {
+		return errors.New("context cannot be nil")
+	}
+	if spec == nil {
+		return errors.New("spec cannot be nil")
+	}
+
+	provider := h.GetRBACProvider()
+	if provider == nil {
+		return errors.New("RBAC provider not available")
+	}
+
+	return provider.CreateRoleBinding(ctx, spec)
+}
+
+// DeleteRoleBinding deletes a role binding using the environment-appropriate RBAC provider.
+func (h *Harness) DeleteRoleBinding(ctx context.Context, namespace, name string) error {
+	if ctx == nil {
+		return errors.New("context cannot be nil")
+	}
+
+	provider := h.GetRBACProvider()
+	if provider == nil {
+		return errors.New("RBAC provider not available")
+	}
+
+	return provider.DeleteRoleBinding(ctx, namespace, name)
+}
+
+// CreateClusterRoleBinding creates a cluster role binding using the environment-appropriate RBAC provider.
+func (h *Harness) CreateClusterRoleBinding(ctx context.Context, spec *infra.RoleBindingSpec) error {
+	if ctx == nil {
+		return errors.New("context cannot be nil")
+	}
+	if spec == nil {
+		return errors.New("spec cannot be nil")
+	}
+
+	provider := h.GetRBACProvider()
+	if provider == nil {
+		return errors.New("RBAC provider not available")
+	}
+
+	return provider.CreateClusterRoleBinding(ctx, spec)
+}
+
+// DeleteClusterRoleBinding deletes a cluster role binding using the environment-appropriate RBAC provider.
+func (h *Harness) DeleteClusterRoleBinding(ctx context.Context, name string) error {
+	if ctx == nil {
+		return errors.New("context cannot be nil")
+	}
+
+	provider := h.GetRBACProvider()
+	if provider == nil {
+		return errors.New("RBAC provider not available")
+	}
+
+	return provider.DeleteClusterRoleBinding(ctx, name)
+}
+
+// CreateNamespace creates a namespace using the environment-appropriate RBAC provider.
+func (h *Harness) CreateNamespace(ctx context.Context, name string, labels map[string]string) error {
+	if ctx == nil {
+		return errors.New("context cannot be nil")
+	}
+
+	provider := h.GetRBACProvider()
+	if provider == nil {
+		return errors.New("RBAC provider not available")
+	}
+
+	return provider.CreateNamespace(ctx, name, labels)
+}
+
+// DeleteNamespace deletes a namespace using the environment-appropriate RBAC provider.
+func (h *Harness) DeleteNamespace(ctx context.Context, name string) error {
+	if ctx == nil {
+		return errors.New("context cannot be nil")
+	}
+
+	provider := h.GetRBACProvider()
+	if provider == nil {
+		return errors.New("RBAC provider not available")
+	}
+
+	return provider.DeleteNamespace(ctx, name)
+}
+
+// CleanupRoles deletes multiple roles and role bindings.
+func (h *Harness) CleanupRoles(ctx context.Context, roles []string, roleBindings []string, namespace string) {
 	for _, role := range roles {
-		err := h.DeleteRole(ctx, kubernetesClient, flightCtlNs, role)
+		err := h.DeleteRole(ctx, namespace, role)
 		if err != nil {
-			logrus.Errorf("Failed to delete role %s: %v", role, err)
+			logrus.Debugf("Failed to delete role %s: %v", role, err)
 		} else {
 			logrus.Infof("Deleted role %s", role)
 		}
 	}
 	for _, roleBinding := range roleBindings {
-		err := h.DeleteRoleBinding(ctx, kubernetesClient, flightCtlNs, roleBinding)
+		err := h.DeleteRoleBinding(ctx, namespace, roleBinding)
 		if err != nil {
-			logrus.Errorf("Failed to delete role binding %s: %v", roleBinding, err)
+			logrus.Debugf("Failed to delete role binding %s: %v", roleBinding, err)
 		} else {
 			logrus.Infof("Deleted role binding %s", roleBinding)
 		}
 	}
 }
 
-func (h *Harness) CleanupClusterRoles(ctx context.Context, kubernetesClient kubernetes.Interface, clusterRoles []string, clusterRoleBindings []string) {
+// CleanupClusterRoles deletes multiple cluster roles and cluster role bindings.
+func (h *Harness) CleanupClusterRoles(ctx context.Context, clusterRoles []string, clusterRoleBindings []string) {
 	for _, clusterRole := range clusterRoles {
-		err := h.DeleteClusterRole(ctx, kubernetesClient, clusterRole)
+		err := h.DeleteClusterRole(ctx, clusterRole)
 		if err != nil {
-			logrus.Errorf("Failed to delete cluster role %s: %v", clusterRole, err)
+			logrus.Debugf("Failed to delete cluster role %s: %v", clusterRole, err)
 		}
 	}
 	for _, clusterRoleBinding := range clusterRoleBindings {
-		err := h.DeleteClusterRoleBinding(ctx, kubernetesClient, clusterRoleBinding)
+		err := h.DeleteClusterRoleBinding(ctx, clusterRoleBinding)
 		if err != nil {
-			logrus.Errorf("Failed to delete cluster role binding %s: %v", clusterRoleBinding, err)
+			logrus.Debugf("Failed to delete cluster role binding %s: %v", clusterRoleBinding, err)
 		}
 	}
-}
-
-func (h *Harness) DeleteRole(ctx context.Context, client kubernetes.Interface, namespace string, roleName string) error {
-	return client.RbacV1().Roles(namespace).Delete(ctx, roleName, metav1.DeleteOptions{})
-}
-
-func (h *Harness) DeleteClusterRole(ctx context.Context, client kubernetes.Interface, clusterRoleName string) error {
-	return client.RbacV1().ClusterRoles().Delete(ctx, clusterRoleName, metav1.DeleteOptions{})
-}
-
-func (h *Harness) DeleteRoleBinding(ctx context.Context, client kubernetes.Interface, namespace string, roleBindingName string) error {
-	return client.RbacV1().RoleBindings(namespace).Delete(ctx, roleBindingName, metav1.DeleteOptions{})
-}
-
-func (h *Harness) DeleteClusterRoleBinding(ctx context.Context, client kubernetes.Interface, clusterRoleBindingName string) error {
-	return client.RbacV1().ClusterRoleBindings().Delete(ctx, clusterRoleBindingName, metav1.DeleteOptions{})
 }
