@@ -1,13 +1,23 @@
-FROM registry.access.redhat.com/ubi9/go-toolset:1.24.6-1762373805 as build
+# FlightCtl ImageBuilder Worker
+# Build EL9: podman build --build-arg BUILD_IMAGE=registry.access.redhat.com/ubi9/go-toolset:1.24.6-1762373805 --build-arg RUNTIME_IMAGE=quay.io/flightctl/flightctl-base:el9-9.7-1762965531 --build-arg EL_VERSION=9 -f images/Containerfile.imagebuilder-worker -t flightctl-imagebuilder-worker-el9
+# Build EL10: podman build --build-arg BUILD_IMAGE=registry.access.redhat.com/ubi10/go-toolset:10.1-1770279878 --build-arg RUNTIME_IMAGE=quay.io/flightctl/flightctl-base:el10-10.1-1769518576 --build-arg EL_VERSION=10 -f images/Containerfile.imagebuilder-worker -t flightctl-imagebuilder-worker-el10
+
+
+ARG BUILD_IMAGE
+ARG RUNTIME_IMAGE
+ARG EL_VERSION
+ARG RHEM=false
+
+ARG RHEM=false
+
+
+FROM ${BUILD_IMAGE} as build
 WORKDIR /app
 
 # Switch to root for build operations
 USER 0
 
-RUN dnf install -y --installroot=/runtime-root --setopt=install_weak_deps=False --nodocs podman fuse-overlayfs
-
 # Copy dependencies first (most stable)
-COPY go.* ./
 COPY go.mod go.sum ./
 
 # Download dependencies (cached layer)
@@ -41,27 +51,16 @@ RUN --mount=type=cache,target=/opt/app-root/src/.cache/go-build \
     --mount=type=cache,target=/opt/app-root/src/go/pkg/mod \
     make build-imagebuilder-worker
 
-FROM quay.io/flightctl/flightctl-base:9.7-1762965531
-
-USER 0
-COPY --from=build /runtime-root/ /
-
+FROM ${RUNTIME_IMAGE}
 WORKDIR /app
-
 LABEL \
   com.redhat.component="flightctl-imagebuilder-worker-container" \
-  description="Flight Control ImageBuilder Worker for processing image build jobs" \
-  io.k8s.description="Flight Control ImageBuilder Worker for processing image build jobs" \
+  description="Flight Control image builder worker service" \
+  io.k8s.description="Flight Control image builder worker service" \
   io.k8s.display-name="Flight Control ImageBuilder Worker" \
-  name="flightctl-imagebuilder-worker" \
-  summary="Flight Control ImageBuilder Worker for processing image build jobs"
-
-# Configure podman storage to use native overlay (requires Kernel 5.11+)
-RUN mkdir -p /etc/containers && \
-    echo "[storage]" > /etc/containers/storage.conf && \
-    echo 'driver = "overlay"' >> /etc/containers/storage.conf
-# Copy the worker binary
+  name="flightctl-imagebuilder-worker-el${EL_VERSION}" \
+  summary="Flight Control image builder worker service (el${EL_VERSION})" \
+  os.id="el${EL_VERSION}"
 COPY --from=build /app/bin/flightctl-imagebuilder-worker .
 
-
-CMD ["./flightctl-imagebuilder-worker"]
+CMD ./flightctl-imagebuilder-worker

@@ -336,6 +336,13 @@ echo "Flight Control Observability Stack uninstalled."
     else
         APPLY_UI_OVERRIDE=""
     fi
+
+    # Generate images.yaml from template (default to cs9 flavor for backward compatibility)
+    FLAVOR=${FLAVOR:-cs9}
+    go run deploy/podman/render-image-config.go -flavor="${FLAVOR}" \
+        -template="deploy/podman/images.yaml.gotmpl" \
+        -output="deploy/podman/images.yaml"
+
     bin/flightctl-standalone render quadlets \
         --config deploy/podman/images.yaml \
         --flightctl-services-tag-override "${IMAGE_TAG}" \

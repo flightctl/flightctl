@@ -20,8 +20,8 @@ jobs:
     strategy:
       matrix:
         image:
-          - {name: 'git-server',   containerfile: 'test/scripts/Containerfile.gitserver'}
-          - {name: 'e2e-base',     containerfile: 'test/scripts/agent-images/Containerfile-e2e-base.local'}
+          - {name: 'git-server',   containerfile: 'test/scripts/Containerfile.gitserver', build_context: ''}
+          - {name: 'e2e-base',     containerfile: 'test/scripts/agent-images/base/Containerfile', build_context: 'variant-context=test/scripts/agent-images/base'}
     runs-on: "ubuntu-24.04"
     steps:
       - uses: actions/checkout@v4
@@ -78,7 +78,7 @@ jobs:
           build-args: |
             REGISTRY_ADDRESS=${{ env.REGISTRY_ADDRESS }}
           extra-args: |
-            --ulimit nofile=10000:10000
+            --ulimit nofile=10000:10000${{ matrix.image.build_context != '' && format(' --build-context {0}', matrix.image.build_context) || '' }}
           containerfiles: ${{ matrix.image.containerfile }}
           context: .
 
@@ -104,18 +104,18 @@ jobs:
     strategy:
       matrix:
         image:
-          - {name: 'e2e-v2',       containerfile: 'test/scripts/agent-images/Containerfile-e2e-v2.local'}
-          - {name: 'e2e-v3',       containerfile: 'test/scripts/agent-images/Containerfile-e2e-v3.local'}
-          - {name: 'e2e-v4',       containerfile: 'test/scripts/agent-images/Containerfile-e2e-v4.local'}
-          - {name: 'e2e-v5',       containerfile: 'test/scripts/agent-images/Containerfile-e2e-v5.local'}
-          - {name: 'e2e-v6',       containerfile: 'test/scripts/agent-images/Containerfile-e2e-v6.local'}
-          - {name: 'e2e-v7',       containerfile: 'test/scripts/agent-images/Containerfile-e2e-v7.local'}
-          - {name: 'e2e-v8',       containerfile: 'test/scripts/agent-images/Containerfile-e2e-v8.local'}
-          - {name: 'e2e-v9',       containerfile: 'test/scripts/agent-images/Containerfile-e2e-v9.local'}
-          - {name: 'e2e-v10',       containerfile: 'test/scripts/agent-images/Containerfile-e2e-10.local'}
-          - {name: 'sleep-app-v1', containerfile: 'test/scripts/agent-images/Containerfile-sleep-app-v1'}
-          - {name: 'sleep-app-v2', containerfile: 'test/scripts/agent-images/Containerfile-sleep-app-v2'}
-          - {name: 'sleep-app-v3', containerfile: 'test/scripts/agent-images/Containerfile-sleep-app-v3'}
+          - {name: 'e2e-v2',       containerfile: 'test/scripts/agent-images/variants/v2/Containerfile',  build_context: 'variant-context=test/scripts/agent-images/variants/v2'}
+          - {name: 'e2e-v3',       containerfile: 'test/scripts/agent-images/variants/v3/Containerfile',  build_context: 'variant-context=test/scripts/agent-images/variants/v3'}
+          - {name: 'e2e-v4',       containerfile: 'test/scripts/agent-images/variants/v4/Containerfile',  build_context: 'variant-context=test/scripts/agent-images/variants/v4'}
+          - {name: 'e2e-v5',       containerfile: 'test/scripts/agent-images/variants/v5/Containerfile',  build_context: 'variant-context=test/scripts/agent-images/variants/v5'}
+          - {name: 'e2e-v6',       containerfile: 'test/scripts/agent-images/variants/v6/Containerfile',  build_context: 'variant-context=test/scripts/agent-images/variants/v6'}
+          - {name: 'e2e-v7',       containerfile: 'test/scripts/agent-images/variants/v7/Containerfile',  build_context: 'variant-context=test/scripts/agent-images/variants/v7'}
+          - {name: 'e2e-v8',       containerfile: 'test/scripts/agent-images/variants/v8/Containerfile',  build_context: 'variant-context=test/scripts/agent-images/variants/v8'}
+          - {name: 'e2e-v9',       containerfile: 'test/scripts/agent-images/variants/v9/Containerfile',  build_context: 'variant-context=test/scripts/agent-images/variants/v9'}
+          - {name: 'e2e-v10',      containerfile: 'test/scripts/agent-images/variants/v10/Containerfile', build_context: 'variant-context=test/scripts/agent-images/variants/v10'}
+          - {name: 'sleep-app-v1', containerfile: 'test/scripts/agent-images/apps/Containerfile.sleep-app.v1', build_context: 'common=test/scripts/agent-images/common'}
+          - {name: 'sleep-app-v2', containerfile: 'test/scripts/agent-images/apps/Containerfile.sleep-app.v2', build_context: 'common=test/scripts/agent-images/common'}
+          - {name: 'sleep-app-v3', containerfile: 'test/scripts/agent-images/apps/Containerfile.sleep-app.v3', build_context: 'common=test/scripts/agent-images/common'}
     runs-on: "ubuntu-24.04"
     steps:
       - uses: actions/checkout@v4
@@ -177,7 +177,7 @@ jobs:
             io.flightctl.flightctl-${{ matrix.image.name }}.github.sha=${{ github.sha }}
             io.flightctl.flightctl-${{ matrix.image.name }}.github.ref_name=${{ github.ref_name }}
           extra-args: |
-            --ulimit nofile=10000:10000
+            --ulimit nofile=10000:10000${{ matrix.image.build_context != '' && format(' --build-context {0}', matrix.image.build_context) || '' }}
           containerfiles: ${{ matrix.image.containerfile }}
           context: .
 

@@ -26,6 +26,11 @@ on:
         description: "Image tag"
         required: true
         type: string
+      flavor:
+        description: "Container flavor (cs9 or cs10)"
+        required: false
+        type: string
+        default: "cs9"
 
 jobs:
   generate-matrix:
@@ -89,6 +94,7 @@ jobs:
           kind-config: test/scripts/kind_cluster.yaml
           display-summary: ${{ matrix.ginkgo_node == 1 }}
           wait: false
+          flavor: ${{ inputs.flavor }}
 
       # ========== DOWNLOAD E2E TEST ARTIFACTS ==========
       - name: Download test artifacts
