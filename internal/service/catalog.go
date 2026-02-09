@@ -138,6 +138,27 @@ func (h *ServiceHandler) PatchCatalogStatus(ctx context.Context, orgId uuid.UUID
 	return result, StoreErrorToApiStatus(err, false, domain.CatalogKind, &name)
 }
 
+func (h *ServiceHandler) ListAllCatalogItems(ctx context.Context, orgId uuid.UUID, params domain.ListAllCatalogItemsParams) (*domain.CatalogItemList, domain.Status) {
+	listParams, status := prepareListParams(params.Continue, params.LabelSelector, params.FieldSelector, params.Limit)
+	if status != domain.StatusOK() {
+		return nil, status
+	}
+
+	result, err := h.store.Catalog().ListAllItems(ctx, orgId, *listParams)
+	if err == nil {
+		return result, domain.StatusOK()
+	}
+
+	var se *selector.SelectorError
+
+	switch {
+	case selector.AsSelectorError(err, &se):
+		return nil, domain.StatusBadRequest(se.Error())
+	default:
+		return nil, domain.StatusInternalServerError(err.Error())
+	}
+}
+
 func (h *ServiceHandler) ListCatalogItems(ctx context.Context, orgId uuid.UUID, catalogName string, params domain.ListCatalogItemsParams) (*domain.CatalogItemList, domain.Status) {
 	listParams, status := prepareListParams(params.Continue, params.LabelSelector, nil, params.Limit)
 	if status != domain.StatusOK() {

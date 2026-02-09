@@ -107,6 +107,14 @@ func (h *TransportHandler) PatchCatalogStatus(w http.ResponseWriter, r *http.Req
 	h.SetResponse(w, apiResult, status)
 }
 
+// (GET /api/v1/catalogitems)
+func (h *TransportHandler) ListAllCatalogItems(w http.ResponseWriter, r *http.Request, params apiv1alpha1.ListAllCatalogItemsParams) {
+	domainParams := h.converter.Catalog().ListAllItemsParamsToDomain(params)
+	body, status := h.serviceHandler.ListAllCatalogItems(r.Context(), transport.OrgIDFromContext(r.Context()), domainParams)
+	apiResult := h.converter.Catalog().ItemListFromDomain(body)
+	h.SetResponse(w, apiResult, status)
+}
+
 // (GET /api/v1/catalogs/{name}/items)
 func (h *TransportHandler) ListCatalogItems(w http.ResponseWriter, r *http.Request, name string, params apiv1alpha1.ListCatalogItemsParams) {
 	domainParams := h.converter.Catalog().ListItemsParamsToDomain(params)

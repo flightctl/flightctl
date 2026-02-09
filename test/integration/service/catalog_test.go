@@ -568,6 +568,131 @@ var _ = Describe("Catalog Integration Tests", func() {
 		})
 	})
 
+	Context("Cross-catalog CatalogItem listing", func() {
+		It("should list items across all catalogs", func() {
+			// Create two catalogs
+			for _, name := range []string{"alpha-catalog", "beta-catalog"} {
+				catalog := api.Catalog{
+					Metadata: apiv1beta1.ObjectMeta{
+						Name: lo.ToPtr(name),
+					},
+					Spec: api.CatalogSpec{
+						DisplayName: lo.ToPtr(name),
+					},
+				}
+				_, status := suite.Handler.CreateCatalog(suite.Ctx, suite.OrgID, catalog)
+				Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
+			}
+
+			// Create items in each catalog
+			for _, catalogName := range []string{"alpha-catalog", "beta-catalog"} {
+				for _, itemName := range []string{"app-one", "app-two"} {
+					item := createValidCatalogItem(itemName)
+					_, status := suite.Handler.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
+					Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
+				}
+			}
+
+			// List all items across catalogs
+			result, status := suite.Handler.ListAllCatalogItems(suite.Ctx, suite.OrgID, api.ListAllCatalogItemsParams{})
+			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
+			Expect(result.Items).To(HaveLen(4))
+
+			// Verify order: (catalog_name, app_name) ASC
+			Expect(*result.Items[0].Metadata.Name).To(Equal("app-one"))
+			Expect(result.Items[0].Metadata.Catalog).To(Equal("alpha-catalog"))
+			Expect(*result.Items[1].Metadata.Name).To(Equal("app-two"))
+			Expect(result.Items[1].Metadata.Catalog).To(Equal("alpha-catalog"))
+			Expect(*result.Items[2].Metadata.Name).To(Equal("app-one"))
+			Expect(result.Items[2].Metadata.Catalog).To(Equal("beta-catalog"))
+			Expect(*result.Items[3].Metadata.Name).To(Equal("app-two"))
+			Expect(result.Items[3].Metadata.Catalog).To(Equal("beta-catalog"))
+		})
+
+		It("should paginate across catalogs", func() {
+			// Create two catalogs with items
+			for _, name := range []string{"cat-a", "cat-b"} {
+				catalog := api.Catalog{
+					Metadata: apiv1beta1.ObjectMeta{
+						Name: lo.ToPtr(name),
+					},
+					Spec: api.CatalogSpec{
+						DisplayName: lo.ToPtr(name),
+					},
+				}
+				_, status := suite.Handler.CreateCatalog(suite.Ctx, suite.OrgID, catalog)
+				Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
+
+				item := createValidCatalogItem("item-1")
+				_, status = suite.Handler.CreateCatalogItem(suite.Ctx, suite.OrgID, name, item)
+				Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
+			}
+
+			// Page 1: limit=1
+			limit := int32(1)
+			result, status := suite.Handler.ListAllCatalogItems(suite.Ctx, suite.OrgID, api.ListAllCatalogItemsParams{
+				Limit: &limit,
+			})
+			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
+			Expect(result.Items).To(HaveLen(1))
+			Expect(result.Items[0].Metadata.Catalog).To(Equal("cat-a"))
+			Expect(result.Metadata.Continue).NotTo(BeNil())
+			Expect(result.Metadata.RemainingItemCount).NotTo(BeNil())
+
+			// Page 2: use continue token
+			result, status = suite.Handler.ListAllCatalogItems(suite.Ctx, suite.OrgID, api.ListAllCatalogItemsParams{
+				Limit:    &limit,
+				Continue: result.Metadata.Continue,
+			})
+			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
+			Expect(result.Items).To(HaveLen(1))
+			Expect(result.Items[0].Metadata.Catalog).To(Equal("cat-b"))
+			Expect(result.Metadata.Continue).To(BeNil())
+		})
+
+		It("should filter by label selector across catalogs", func() {
+			// Create two catalogs
+			for _, name := range []string{"label-cat-a", "label-cat-b"} {
+				catalog := api.Catalog{
+					Metadata: apiv1beta1.ObjectMeta{
+						Name: lo.ToPtr(name),
+					},
+					Spec: api.CatalogSpec{
+						DisplayName: lo.ToPtr(name),
+					},
+				}
+				_, status := suite.Handler.CreateCatalog(suite.Ctx, suite.OrgID, catalog)
+				Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
+			}
+
+			// Create items with different labels
+			itemWithLabel := createValidCatalogItem("labeled-app")
+			itemWithLabel.Metadata.Labels = &map[string]string{"env": "prod"}
+			_, status := suite.Handler.CreateCatalogItem(suite.Ctx, suite.OrgID, "label-cat-a", itemWithLabel)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
+
+			itemWithoutLabel := createValidCatalogItem("unlabeled-app")
+			_, status = suite.Handler.CreateCatalogItem(suite.Ctx, suite.OrgID, "label-cat-b", itemWithoutLabel)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
+
+			// Filter by label
+			labelSelector := "env=prod"
+			result, status := suite.Handler.ListAllCatalogItems(suite.Ctx, suite.OrgID, api.ListAllCatalogItemsParams{
+				LabelSelector: &labelSelector,
+			})
+			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
+			Expect(result.Items).To(HaveLen(1))
+			Expect(*result.Items[0].Metadata.Name).To(Equal("labeled-app"))
+			Expect(result.Items[0].Metadata.Catalog).To(Equal("label-cat-a"))
+		})
+
+		It("should return empty list when no catalogs exist", func() {
+			result, status := suite.Handler.ListAllCatalogItems(suite.Ctx, suite.OrgID, api.ListAllCatalogItemsParams{})
+			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
+			Expect(result.Items).To(HaveLen(0))
+		})
+	})
+
 	Context("Catalog deletion with items", func() {
 		It("should prevent deletion of non-empty catalog", func() {
 			catalogName := "catalog-with-items"

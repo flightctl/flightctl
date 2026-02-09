@@ -19,6 +19,74 @@ tags:
   - name: catalog
     description: Operations on Catalog resources.
 paths:
+  /catalogitems:
+    x-resource: catalogitems
+    get:
+      tags:
+        - catalog
+      description: List CatalogItems across all Catalogs.
+      operationId: listAllCatalogItems
+      parameters:
+        - name: continue
+          in: query
+          description: An optional parameter to query more results from the server. The value of the parameter must match the value of the 'continue' field in the previous list response.
+          required: false
+          schema:
+            type: string
+        - name: labelSelector
+          in: query
+          description: A selector to restrict the list of returned objects by their labels. Defaults to everything.
+          schema:
+            type: string
+        - name: fieldSelector
+          in: query
+          description: A selector to restrict the list of returned objects by their fields, supporting operators like '=', '==', and '!=' (e.g., "key1=value1,key2!=value2").
+          schema:
+            type: string
+        - name: limit
+          in: query
+          description: The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
+          required: false
+          schema:
+            type: integer
+            format: int32
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatalogItemList'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
   /catalogs:
     x-resource: catalogs
     get:
