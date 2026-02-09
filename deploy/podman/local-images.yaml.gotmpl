@@ -1,0 +1,70 @@
+api:
+  image: flightctl-api-{{.Flavor}}
+  tag: latest
+periodic:
+  image: flightctl-periodic-{{.Flavor}}
+  tag: latest
+worker:
+  image: flightctl-worker-{{.Flavor}}
+  tag: latest
+alert-exporter:
+  image: flightctl-alert-exporter-{{.Flavor}}
+  tag: latest
+cli-artifacts:
+  image: flightctl-cli-artifacts-{{.Flavor}}
+  tag: latest
+alertmanager-proxy:
+  image: flightctl-alertmanager-proxy-{{.Flavor}}
+  tag: latest
+pam-issuer:
+  image: flightctl-pam-issuer-{{.Flavor}}
+  tag: latest
+db-setup:
+  image: flightctl-db-setup-{{.Flavor}}
+  tag: latest
+ui:
+  image: quay.io/flightctl/flightctl-ui
+  tag: latest
+db:
+{{- if or (eq .Flavor "rhel9") (eq .Flavor "rhel10") }}
+  image: registry.redhat.io/{{.Flavor}}/postgresql-16
+  tag: {{if eq .Flavor "rhel9"}}"9.7-1766414426"{{else}}"latest"{{end}}
+{{- else if eq .Flavor "cs10" }}
+  image: quay.io/sclorg/postgresql-16-c10s
+  tag: "20250214"
+{{- else }}
+  image: quay.io/sclorg/postgresql-16-c9s
+  tag: "20250214"
+{{- end }}
+kv:
+{{- if or (eq .Flavor "rhel9") (eq .Flavor "rhel10") }}
+  image: registry.redhat.io/{{.Flavor}}/redis-7
+  tag: {{if eq .Flavor "rhel9"}}"9.7-1766414358"{{else}}"latest"{{end}}
+{{- else if eq .Flavor "cs10" }}
+  image: quay.io/sclorg/redis-7-c10s
+  tag: "20250108"
+{{- else }}
+  image: docker.io/redis
+  tag: "7.4.1"
+{{- end }}
+alertmanager:
+  image: quay.io/prometheus/alertmanager
+  tag: v0.28.1
+imagebuilder-api:
+  image: flightctl-imagebuilder-api-{{.Flavor}}
+  tag: latest
+imagebuilder-worker:
+  image: flightctl-imagebuilder-worker-{{.Flavor}}
+  tag: latest
+grafana:
+  image: docker.io/grafana/grafana
+  tag: latest
+prometheus:
+  image: docker.io/prom/prometheus
+  tag: v2.13.1
+telemetry-gateway:
+  image: flightctl-telemetry-gateway-{{.Flavor}}
+  tag: latest
+userinfo-proxy:
+  image: flightctl-userinfo-proxy-{{.Flavor}}
+  tag: latest

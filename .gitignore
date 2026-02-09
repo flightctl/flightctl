@@ -11,6 +11,10 @@ flightctl-*.rpm
 /packaging/rpm/flightctl-*/
 **/*.test
 
+# Generated image configuration files (from templates)
+/deploy/podman/local-images.yaml
+/deploy/podman/images.yaml
+
 # All temporary files should be created here
 /.output/
 

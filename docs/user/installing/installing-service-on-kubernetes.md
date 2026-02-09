@@ -121,6 +121,41 @@ kubectl get pods -n flightctl
 
 ```
 
+## Container OS Compatibility
+
+Flight Control supports container images built for different CentOS Stream versions to ensure compatibility across diverse environments:
+
+- **CS9 (CentOS Stream 9)**: Default and recommended for most deployments
+- **CS10 (CentOS Stream 10)**: For environments requiring latest OS version
+
+### Selecting Container Flavors
+
+By default, Helm charts use CS9 container images. For specific OS compatibility requirements, you can configure the deployment to use CS10 images:
+
+```yaml
+# values.yaml
+global:
+  image:
+    tag: "cs10-latest"  # Use CS10 containers instead of default CS9
+
+# Or specify individual component tags
+api:
+  image:
+    tag: "cs10-latest"
+worker:
+  image:
+    tag: "cs10-latest"
+```
+
+### Cross-Version Compatibility
+
+The FLAVOR system enables testing and deployment scenarios like:
+
+- **RHEL 9 control plane + RHEL 10 agents**: Forward compatibility testing
+- **RHEL 10 control plane + RHEL 9 agents**: Backward compatibility support
+
+This ensures smooth migrations and mixed-environment deployments.
+
 #### Flight Control in ACM
 
 To install a released version of the Flight Control Service into the cluster, first ensure you have a `values.acm.yaml` file.

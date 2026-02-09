@@ -59,15 +59,26 @@ jobs:
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
         uses: ./.github/actions/compute-tag
 
-  build-images-and-charts:
+  build-images-and-charts-cs9:
     needs: compute-tag
     if: |
       needs.compute-tag.outputs.any_changed == 'true' &&
       (github.event_name != 'pull_request' || startsWith(github.base_ref, 'release-') || contains(github.event.pull_request.labels.*.name, 'run-e2e'))
     uses: ./.github/workflows/build-images-and-charts.yaml
+    with:
+      flavor: "cs9"
+
+  build-images-and-charts-cs10:
+    needs: compute-tag
+    if: |
+      needs.compute-tag.outputs.any_changed == 'true' &&
+      (github.event_name != 'pull_request' || startsWith(github.base_ref, 'release-') || contains(github.event.pull_request.labels.*.name, 'run-e2e'))
+    uses: ./.github/workflows/build-images-and-charts.yaml
+    with:
+      flavor: "cs10"
 
   build-flightctl-cli:
-    needs: [build-images-and-charts, compute-tag]
+    needs: [build-images-and-charts-cs9, compute-tag]
     if: |
       needs.compute-tag.outputs.any_changed == 'true' &&
       (github.event_name != 'pull_request' || startsWith(github.base_ref, 'release-') || contains(github.event.pull_request.labels.*.name, 'run-e2e'))
@@ -76,7 +87,7 @@ jobs:
       tag: ${{ needs.compute-tag.outputs.tag }}
     steps:
       - name: CLI built with backend job
-        run: echo "CLI artifact produced by build-images-and-charts"
+        run: echo "CLI artifact produced by build-images-and-charts-cs9"
 
   build-rpms:
     needs: compute-tag
@@ -175,7 +186,8 @@ jobs:
   e2e-tests:
     needs:
       - compute-tag
-      - build-images-and-charts
+      - build-images-and-charts-cs9
+      - build-images-and-charts-cs10
       - build-flightctl-cli
       - build-agent-images-unified
       - discover-e2e-tests
@@ -192,25 +204,30 @@ jobs:
             backend_type: helm
             label_filter: 'sanity && !agent'
             ginkgo_total_nodes: 1
+            flavor: cs9
           # Agent metrics
           ## CS9 Agent metrics
           - os_id: cs9-bootc
             backend_type: helm
             label_filter: 'sanity && agent && !slow'
             ginkgo_total_nodes: 2
+            flavor: cs9
           - os_id: cs9-bootc
             backend_type: helm
             label_filter: 'sanity && agent && slow'
             ginkgo_total_nodes: 1
+            flavor: cs9
           ## CS10 Agent metrics
           - os_id: cs10-bootc
             backend_type: helm
             label_filter: 'sanity && agent && !slow'
             ginkgo_total_nodes: 2
+            flavor: cs10
           - os_id: cs10-bootc
             backend_type: helm
             label_filter: 'sanity && agent && slow'
             ginkgo_total_nodes: 1
+            flavor: cs10
     uses: ./.github/workflows/run-e2e-tests.yaml
     with:
       os_id: ${{ matrix.os_id }}

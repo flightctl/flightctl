@@ -1,0 +1,24 @@
+# FlightCtl Base Image
+# Build EL9: podman build --build-arg BASE_IMAGE=registry.access.redhat.com/ubi9/ubi-minimal:9.7-1763362218 --build-arg EL_VERSION=9 -f images/Containerfile.base -t quay.io/flightctl/flightctl-base:el9-9.7-1762965531
+# Build EL10: podman build --build-arg BASE_IMAGE=registry.access.redhat.com/ubi10/ubi-minimal:10.1-1769677092 --build-arg EL_VERSION=10 -f images/Containerfile.base -t quay.io/flightctl/flightctl-base:el10-10.1-1769518576
+
+ARG BASE_IMAGE
+ARG EL_VERSION
+
+FROM ${BASE_IMAGE}
+
+# Install base packages - skip openssl-libs for EL10 as it's already included in UBI10-minimal
+RUN if [ "${EL_VERSION}" != "10" ]; then \
+        microdnf install -y tzdata openssl-libs && microdnf clean all; \
+    else \
+        microdnf install -y tzdata && microdnf clean all; \
+    fi
+
+LABEL \
+  com.redhat.component="flightctl-base-container" \
+  description="Flight Control base image with minimal runtime dependencies" \
+  io.k8s.description="Flight Control base image with minimal runtime dependencies" \
+  io.k8s.display-name="Flight Control Base" \
+  name="flightctl-base-el${EL_VERSION}" \
+  summary="Flight Control base image (el${EL_VERSION})" \
+  os.id="el${EL_VERSION}"

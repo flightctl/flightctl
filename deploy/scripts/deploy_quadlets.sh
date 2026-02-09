@@ -8,6 +8,20 @@ source "${SCRIPT_DIR}"/shared.sh
 
 echo "Starting Deployment"
 
+# Get FLAVOR (default to cs9 for backward compatibility)
+# Supported flavors: cs9, cs10, rhel9, rhel10
+FLAVOR=${FLAVOR:-cs9}
+echo "Using FLAVOR: $FLAVOR"
+
+# Render image configs from templates
+echo "Rendering image configurations with FLAVOR=$FLAVOR..."
+go run deploy/podman/render-image-config.go -flavor="$FLAVOR" \
+  -template="deploy/podman/local-images.yaml.gotmpl" \
+  -output="deploy/podman/local-images.yaml"
+go run deploy/podman/render-image-config.go -flavor="$FLAVOR" \
+  -template="deploy/podman/images.yaml.gotmpl" \
+  -output="deploy/podman/images.yaml"
+
 # Render quadlet files
 bin/flightctl-standalone render quadlets --config deploy/podman/local-images.yaml
 
