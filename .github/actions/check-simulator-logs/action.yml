@@ -1,0 +1,80 @@
+name: 'Check Simulator Logs'
+description: 'Scan simulator log output for level=error lines and fail if any are not whitelisted'
+
+inputs:
+  log-file:
+    description: 'Path to the simulator log file'
+    required: true
+  whitelist-file:
+    description: 'Path to the error whitelist file (regex patterns, one per line)'
+    required: false
+    default: '.github/actions/check-simulator-logs/error-whitelist.txt'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Check simulator logs for errors
+      shell: bash
+      env:
+        LOG_FILE: ${{ inputs.log-file }}
+        WHITELIST_FILE: ${{ inputs.whitelist-file }}
+      run: |
+        set -euo pipefail
+
+        if [ ! -f "${LOG_FILE}" ]; then
+          echo "ERROR: Log file not found: ${LOG_FILE}"
+          exit 1
+        fi
+
+        # Extract all error lines
+        error_lines=$(grep 'level=error' "${LOG_FILE}" || true)
+
+        if [ -z "${error_lines}" ]; then
+          echo "No errors found in simulator logs."
+          exit 0
+        fi
+
+        # Load whitelist patterns (skip comments and blank lines)
+        whitelist_patterns=()
+        if [ -f "${WHITELIST_FILE}" ]; then
+          while IFS= read -r line; do
+            # Skip comments and blank lines
+            [[ -z "${line}" || "${line}" =~ ^[[:space:]]*# ]] && continue
+            whitelist_patterns+=("${line}")
+          done < "${WHITELIST_FILE}"
+        fi
+
+        whitelisted_count=0
+        unwhitelisted_count=0
+        unwhitelisted_lines=""
+
+        while IFS= read -r error_line; do
+          matched=false
+          for pattern in "${whitelist_patterns[@]+"${whitelist_patterns[@]}"}"; do
+            if [[ "${error_line}" =~ ${pattern} ]]; then
+              matched=true
+              break
+            fi
+          done
+
+          if [ "${matched}" = true ]; then
+            whitelisted_count=$((whitelisted_count + 1))
+          else
+            unwhitelisted_count=$((unwhitelisted_count + 1))
+            unwhitelisted_lines="${unwhitelisted_lines}${error_line}"$'\n'
+          fi
+        done <<< "${error_lines}"
+
+        echo "=== Simulator Log Error Summary ==="
+        echo "Total error lines: $((whitelisted_count + unwhitelisted_count))"
+        echo "Whitelisted:       ${whitelisted_count}"
+        echo "Unwhitelisted:     ${unwhitelisted_count}"
+
+        if [ "${unwhitelisted_count}" -gt 0 ]; then
+          echo ""
+          echo "=== Unwhitelisted errors ==="
+          echo "${unwhitelisted_lines}"
+          echo ""
+          echo "To whitelist expected errors, add regex patterns to: ${WHITELIST_FILE}"
+          exit 1
+        fi
