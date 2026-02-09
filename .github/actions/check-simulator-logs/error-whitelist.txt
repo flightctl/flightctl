@@ -1,0 +1,9 @@
+# Whitelist of expected simulator error patterns (one regex per line).
+# Lines starting with # are comments. Blank lines are ignored.
+# Each line is matched as a bash regex against the full error log line.
+# Example:
+#   failed to push status
+#   device-[0-9]+: Syncing status: failed
+
+write file /etc/motd: operation not permitted
+Failed to list systemd jobs: systemctl list-jobs: context canceled
