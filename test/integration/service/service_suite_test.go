@@ -48,10 +48,10 @@ type ServiceTestSuite struct {
 	Handler service.Service
 	OrgID   uuid.UUID
 
-	// Private implementation details – not needed by tests
+	// Implementation details
 	cfg               *config.Config
 	dbName            string
-	db                *gorm.DB
+	DB                *gorm.DB
 	ctrl              *gomock.Controller
 	mockQueueProducer *queues.MockQueueProducer
 	workerClient      worker_client.WorkerClient
@@ -63,7 +63,7 @@ func (s *ServiceTestSuite) Setup() {
 	s.Ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
 	s.Log = testutil.InitLogsWithDebug()
 
-	s.Store, s.cfg, s.dbName, s.db = store.PrepareDBForUnitTests(s.Ctx, s.Log)
+	s.Store, s.cfg, s.dbName, s.DB = store.PrepareDBForUnitTests(s.Ctx, s.Log)
 
 	// Add a default admin mapped identity to the context for tests
 	// This is required by auth provider validation
@@ -116,7 +116,7 @@ func NewServiceTestSuite() *ServiceTestSuite {
 // SetDeviceLastSeen sets the lastSeen timestamp for a device directly in the database
 func (s *ServiceTestSuite) SetDeviceLastSeen(deviceName string, lastSeen time.Time) error {
 	orgId := store.NullOrgId
-	result := s.db.WithContext(s.Ctx).Model(&model.DeviceTimestamp{}).Where("org_id = ? AND name = ?", orgId, deviceName).Updates(map[string]interface{}{
+	result := s.DB.WithContext(s.Ctx).Model(&model.DeviceTimestamp{}).Where("org_id = ? AND name = ?", orgId, deviceName).Updates(map[string]interface{}{
 		"last_seen": lastSeen,
 	})
 	return result.Error
