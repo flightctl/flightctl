@@ -491,11 +491,6 @@ loginctl disable-linger flightctl || :
     %dir %{_sysconfdir}/flightctl/flightctl-api
     %dir %{_sysconfdir}/flightctl/flightctl-cli-artifacts
     %dir %{_sysconfdir}/flightctl/flightctl-pam-issuer
-    %dir %{_sysconfdir}/flightctl/flightctl-pam-issuer/userdb
-    %config(noreplace) %{_sysconfdir}/flightctl/flightctl-pam-issuer/userdb/group
-    %attr(0600,root,root) %config(noreplace) %{_sysconfdir}/flightctl/flightctl-pam-issuer/userdb/gshadow
-    %config(noreplace) %{_sysconfdir}/flightctl/flightctl-pam-issuer/userdb/passwd
-    %attr(0600,root,root) %config(noreplace) %{_sysconfdir}/flightctl/flightctl-pam-issuer/userdb/shadow
     %dir %{_sysconfdir}/flightctl/flightctl-db-migrate
     %dir %{_sysconfdir}/flightctl/flightctl-imagebuilder-api
     %dir %{_sysconfdir}/flightctl/flightctl-imagebuilder-worker
@@ -544,7 +539,6 @@ loginctl disable-linger flightctl || :
     %{_datadir}/flightctl/flightctl-alertmanager/alertmanager.yml
     %{_datadir}/flightctl/flightctl-alertmanager-proxy/env.template
     %{_datadir}/flightctl/flightctl-pam-issuer/config.yaml.template
-    %attr(0755,root,root) %{_datadir}/flightctl/flightctl-pam-issuer/migrate-userdb.sh
     %{_datadir}/flightctl/flightctl-alertmanager-proxy/config.yaml.template
     %{_datadir}/flightctl/flightctl-alert-exporter/config.yaml.template
     %{_datadir}/flightctl/flightctl-periodic/config.yaml.template
@@ -565,6 +559,7 @@ loginctl disable-linger flightctl || :
     %{_datadir}/containers/systemd/flightctl-kv*.container
     %{_datadir}/containers/systemd/flightctl-kv.volume
     %{_datadir}/containers/systemd/flightctl-pam-issuer.container
+    %{_datadir}/containers/systemd/flightctl-pam-issuer-etc.volume
     %{_datadir}/containers/systemd/flightctl-ui*.container
     %{_datadir}/containers/systemd/flightctl-ui-certs.volume
     %{_datadir}/containers/systemd/flightctl-imagebuilder*.container
