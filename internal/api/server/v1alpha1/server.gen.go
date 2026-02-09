@@ -18,6 +18,9 @@ const ServerUrlApiv1 = "/api/v1"
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
 
+	// (GET /catalogitems)
+	ListAllCatalogItems(w http.ResponseWriter, r *http.Request, params ListAllCatalogItemsParams)
+
 	// (GET /catalogs)
 	ListCatalogs(w http.ResponseWriter, r *http.Request, params ListCatalogsParams)
 
@@ -64,6 +67,11 @@ type ServerInterface interface {
 // Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
 
 type Unimplemented struct{}
+
+// (GET /catalogitems)
+func (_ Unimplemented) ListAllCatalogItems(w http.ResponseWriter, r *http.Request, params ListAllCatalogItemsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
 
 // (GET /catalogs)
 func (_ Unimplemented) ListCatalogs(w http.ResponseWriter, r *http.Request, params ListCatalogsParams) {
@@ -143,6 +151,57 @@ type ServerInterfaceWrapper struct {
 }
 
 type MiddlewareFunc func(http.Handler) http.Handler
+
+// ListAllCatalogItems operation middleware
+func (siw *ServerInterfaceWrapper) ListAllCatalogItems(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListAllCatalogItemsParams
+
+	// ------------- Optional query parameter "continue" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "continue", r.URL.Query(), &params.Continue)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "continue", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "labelSelector" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "labelSelector", r.URL.Query(), &params.LabelSelector)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "labelSelector", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "fieldSelector" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "fieldSelector", r.URL.Query(), &params.FieldSelector)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "fieldSelector", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "limit", r.URL.Query(), &params.Limit)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListAllCatalogItems(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
 
 // ListCatalogs operation middleware
 func (siw *ServerInterfaceWrapper) ListCatalogs(w http.ResponseWriter, r *http.Request) {
@@ -676,6 +735,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		ErrorHandlerFunc:   options.ErrorHandlerFunc,
 	}
 
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/catalogitems", wrapper.ListAllCatalogItems)
+	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/catalogs", wrapper.ListCatalogs)
 	})

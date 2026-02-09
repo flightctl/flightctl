@@ -28,6 +28,7 @@ type Catalog interface {
 	Count(ctx context.Context, orgId uuid.UUID, listParams ListParams) (int64, error)
 
 	// CatalogItem operations
+	ListAllItems(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*domain.CatalogItemList, error)
 	ListItems(ctx context.Context, orgId uuid.UUID, catalogName string, listParams ListParams) (*domain.CatalogItemList, error)
 	GetItem(ctx context.Context, orgId uuid.UUID, catalogName string, itemName string) (*domain.CatalogItem, error)
 	CreateItem(ctx context.Context, orgId uuid.UUID, catalogName string, item *domain.CatalogItem) (*domain.CatalogItem, error)
@@ -97,6 +98,19 @@ func (s *CatalogStore) InitialMigration(ctx context.Context) error {
 	// Migrate CatalogItem table
 	if err := db.AutoMigrate(&model.CatalogItem{}); err != nil {
 		return err
+	}
+
+	// Create GIN index for CatalogItem labels
+	if !db.Migrator().HasIndex(&model.CatalogItem{}, "idx_catalog_items_labels") {
+		if db.Dialector.Name() == "postgres" {
+			if err := db.Exec("CREATE INDEX idx_catalog_items_labels ON catalog_items USING GIN (labels)").Error; err != nil {
+				return err
+			}
+		} else {
+			if err := db.Migrator().CreateIndex(&model.CatalogItem{}, "Labels"); err != nil {
+				return err
+			}
+		}
 	}
 
 	return nil
@@ -198,6 +212,85 @@ func (s *CatalogStore) Count(ctx context.Context, orgId uuid.UUID, listParams Li
 	return catalogsCount, nil
 }
 
+func (s *CatalogStore) catalogItemLabelResolver() selector.Resolver {
+	resolver, err := selector.SelectorFieldResolver(&model.CatalogItem{})
+	if err != nil {
+		return selector.EmptyResolver{}
+	}
+	return resolver
+}
+
+func (s *CatalogStore) ListAllItems(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*domain.CatalogItemList, error) {
+	db := s.getDB(ctx)
+
+	var items []model.CatalogItem
+	var nextContinue *string
+	var numRemaining *int64
+
+	query := db.Model(&model.CatalogItem{}).Where("org_id = ?", orgId)
+
+	if listParams.FieldSelector != nil {
+		q, p, err := listParams.FieldSelector.Parse(ctx, s.catalogItemLabelResolver())
+		if err != nil {
+			return nil, err
+		}
+		query = query.Where(q, p...)
+	}
+
+	if listParams.LabelSelector != nil {
+		q, p, err := listParams.LabelSelector.Parse(ctx, selector.NewHiddenSelectorName("metadata.labels"), s.catalogItemLabelResolver())
+		if err != nil {
+			return nil, err
+		}
+		query = query.Where(q, p...)
+	}
+
+	query = query.Order("catalog_name ASC, app_name ASC")
+
+	if listParams.Limit > 0 {
+		if listParams.Continue != nil && len(listParams.Continue.Names) == 2 {
+			query = query.Where("(catalog_name, app_name) >= (?, ?)", listParams.Continue.Names[0], listParams.Continue.Names[1])
+		}
+		query = query.Limit(listParams.Limit + 1)
+	}
+
+	if err := query.Find(&items).Error; err != nil {
+		return nil, ErrorFromGormError(err)
+	}
+
+	if listParams.Limit > 0 && len(items) > listParams.Limit {
+		lastItem := items[listParams.Limit]
+		items = items[:listParams.Limit]
+
+		var numRemainingVal int64
+		if listParams.Continue != nil {
+			numRemainingVal = listParams.Continue.Count - int64(listParams.Limit)
+			if numRemainingVal < 1 {
+				numRemainingVal = 1
+			}
+		} else {
+			countQuery := db.Model(&model.CatalogItem{}).Where("org_id = ? AND (catalog_name, app_name) >= (?, ?)", orgId, lastItem.CatalogName, lastItem.AppName)
+			if listParams.FieldSelector != nil {
+				q, p, _ := listParams.FieldSelector.Parse(ctx, s.catalogItemLabelResolver())
+				countQuery = countQuery.Where(q, p...)
+			}
+			if listParams.LabelSelector != nil {
+				q, p, _ := listParams.LabelSelector.Parse(ctx, selector.NewHiddenSelectorName("metadata.labels"), s.catalogItemLabelResolver())
+				countQuery = countQuery.Where(q, p...)
+			}
+			if err := countQuery.Count(&numRemainingVal).Error; err != nil {
+				return nil, ErrorFromGormError(err)
+			}
+		}
+
+		nextContinue = BuildContinueString([]string{lastItem.CatalogName, lastItem.AppName}, numRemainingVal)
+		numRemaining = &numRemainingVal
+	}
+
+	result := model.CatalogItemsToApiResource(items, nextContinue, numRemaining)
+	return &result, nil
+}
+
 func (s *CatalogStore) ListItems(ctx context.Context, orgId uuid.UUID, catalogName string, listParams ListParams) (*domain.CatalogItemList, error) {
 	db := s.getDB(ctx)
 
@@ -218,7 +311,7 @@ func (s *CatalogStore) ListItems(ctx context.Context, orgId uuid.UUID, catalogNa
 
 	// Apply label selector if provided
 	if listParams.LabelSelector != nil {
-		q, p, err := listParams.LabelSelector.Parse(ctx, selector.NewHiddenSelectorName("metadata.labels"), selector.EmptyResolver{})
+		q, p, err := listParams.LabelSelector.Parse(ctx, selector.NewHiddenSelectorName("metadata.labels"), s.catalogItemLabelResolver())
 		if err != nil {
 			return nil, err
 		}
@@ -255,7 +348,7 @@ func (s *CatalogStore) ListItems(ctx context.Context, orgId uuid.UUID, catalogNa
 			// Count remaining items
 			countQuery := db.Model(&model.CatalogItem{}).Where("org_id = ? AND catalog_name = ? AND app_name >= ?", orgId, catalogName, lastItem.AppName)
 			if listParams.LabelSelector != nil {
-				q, p, _ := listParams.LabelSelector.Parse(ctx, selector.NewHiddenSelectorName("metadata.labels"), selector.EmptyResolver{})
+				q, p, _ := listParams.LabelSelector.Parse(ctx, selector.NewHiddenSelectorName("metadata.labels"), s.catalogItemLabelResolver())
 				countQuery = countQuery.Where(q, p...)
 			}
 			if err := countQuery.Count(&numRemainingVal).Error; err != nil {
