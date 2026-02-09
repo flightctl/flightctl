@@ -26,11 +26,17 @@ const (
 	imageExportTimeout   = 15 * time.Minute
 	processingTimeout    = 2 * time.Minute
 	failureTimeout       = 3 * time.Minute
-	repoAccessibleTime   = 1 * time.Minute
 	processingPollPeriod = 5 * time.Second
+	pollPeriodLong       = 10 * time.Second
 	vmBootTimeout        = 2 * time.Minute
 	cancelTimeout        = 1 * time.Minute
+	vmBootPollPeriod     = 5 * time.Second
+	agentServiceName     = "flightctl-agent"
+	labelEnvironment     = "environment"
+	imageBuildUsername   = "flightctl"
+)
 
+const (
 	// Source image (centos-bootc from quay.io)
 	sourceRegistry  = "quay.io"
 	sourceImageName = "centos-bootc/centos-bootc"
@@ -41,31 +47,21 @@ const (
 
 	// VM SSH port base for this test (use high port to avoid conflicts)
 	vmSSHPortBase = 22800
-
-	// Label keys for testing
-	labelEnvironment = "environment"
 )
 
 var _ = Describe("ImageBuild", Label("imagebuild"), func() {
-	Context("ImageBuild end-to-end workflow", Label("87335", "imagebuild", "slow"), func() {
-		It("should verify basic image build process - build, export, download, use in an agent", func() {
-			// Get harness directly - no shared package-level variable
-			harness := e2e.GetWorkerHarness()
-			Expect(harness).ToNot(BeNil())
-			Expect(harness.ImageBuilderClient).ToNot(BeNil(), "ImageBuilderClient must be available")
+	Context("ImageBuild end-to-end workflow", func() {
+		It("should verify basic image build process - build, export, download, use in an agent", Label("87335", "imagebuild", "slow"), func() {
+			Expect(workerHarness).ToNot(BeNil())
+			Expect(workerHarness.ImageBuilderClient).ToNot(BeNil(), "ImageBuilderClient must be available")
 
-			// Get test ID for unique resource names
-			testID := harness.GetTestIDFromContext()
-			registryAddress := harness.RegistryEndpoint()
+			testID := workerHarness.GetTestIDFromContext()
+			registryAddress := workerHarness.RegistryEndpoint()
 
-			// Resource names
 			sourceRepoName := fmt.Sprintf("source-repo-%s", testID)
 			destRepoName := fmt.Sprintf("dest-repo-%s", testID)
 			imageBuildName := fmt.Sprintf("test-build-%s", testID)
 			imageExportName := fmt.Sprintf("test-export-qcow2-%s", testID)
-
-			// Note: Resources are automatically cleaned up by AfterEach via CleanUpAllTestResources()
-			// All ImageBuilds, ImageExports, and Repositories created with test labels will be deleted
 
 			// ============================================================
 			// Step 1: Create repositories
@@ -73,11 +69,11 @@ var _ = Describe("ImageBuild", Label("imagebuild"), func() {
 
 			By("Step 1: Creating repositories")
 
-			_, err := resources.CreateOCIRepository(harness, sourceRepoName, sourceRegistry,
+			_, err := resources.CreateOCIRepository(workerHarness, sourceRepoName, sourceRegistry,
 				lo.ToPtr(api.Https), lo.ToPtr(api.Read), false, nil)
 			Expect(err).ToNot(HaveOccurred())
 
-			_, err = resources.CreateOCIRepository(harness, destRepoName, registryAddress,
+			_, err = resources.CreateOCIRepository(workerHarness, destRepoName, registryAddress,
 				lo.ToPtr(api.Https), lo.ToPtr(api.ReadWrite), true, nil)
 			Expect(err).ToNot(HaveOccurred())
 
@@ -87,12 +83,11 @@ var _ = Describe("ImageBuild", Label("imagebuild"), func() {
 
 			By("Step 2: Creating ImageBuild with SSH key user configuration")
 
-			sshPubKeyPath := filepath.Join("..", "..", "..", "bin", ".ssh", "id_rsa.pub")
+			sshPubKeyPath, err := e2e.GetSSHPublicKeyPath()
+			Expect(err).ToNot(HaveOccurred(), "Should get SSH public key path")
 			sshPubKeyBytes, err := os.ReadFile(sshPubKeyPath)
 			Expect(err).ToNot(HaveOccurred(), "Should be able to read SSH public key from %s", sshPubKeyPath)
 			sshPublicKey := strings.TrimSpace(string(sshPubKeyBytes))
-
-			const imageBuildUsername = "flightctl"
 
 			spec := e2e.NewImageBuildSpecWithUserConfig(
 				sourceRepoName,
@@ -106,65 +101,68 @@ var _ = Describe("ImageBuild", Label("imagebuild"), func() {
 				sshPublicKey,
 			)
 
-			_, err = harness.CreateImageBuildWithLabels(imageBuildName, spec, map[string]string{
+			createdBuild, err := workerHarness.CreateImageBuildWithLabels(imageBuildName, spec, map[string]string{
 				labelEnvironment: "production",
 			})
 			Expect(err).ToNot(HaveOccurred())
+			Expect(createdBuild).ToNot(BeNil())
+			Expect(createdBuild.Metadata).ToNot(BeNil())
+			Expect(createdBuild.Metadata.Name).ToNot(BeNil())
+			Expect(*createdBuild.Metadata.Name).To(Equal(imageBuildName), "Created ImageBuild should have expected name")
 
 			// Wait for the build to start processing
-			_, err = harness.WaitForImageBuildProcessing(imageBuildName, processingTimeout, processingPollPeriod)
+			_, err = workerHarness.WaitForImageBuildProcessing(imageBuildName, processingTimeout, processingPollPeriod)
 			Expect(err).ToNot(HaveOccurred(), "ImageBuild should start processing")
 
 			// Stream logs until build completes or times out
-			finalBuild, err := harness.WaitForImageBuildWithLogs(imageBuildName, imageBuildTimeout)
+			finalBuild, err := workerHarness.WaitForImageBuildWithLogs(imageBuildName, imageBuildTimeout)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(finalBuild).ToNot(BeNil())
 
 			// Verify ImageBuild status via client
-			verifiedBuild, err := harness.GetImageBuild(imageBuildName)
+			verifiedBuild, err := workerHarness.GetImageBuild(imageBuildName)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(verifiedBuild).ToNot(BeNil())
 			GinkgoWriter.Printf("ImageBuild %s status verified\n", imageBuildName)
 
 			// Assert the build completed successfully
-			reason, _ := harness.GetImageBuildConditionReason(imageBuildName)
+			reason, _ := workerHarness.GetImageBuildConditionReason(imageBuildName)
 			Expect(reason).To(Equal(string(imagebuilderapi.ImageBuildConditionReasonCompleted)),
 				"Expected ImageBuild to complete successfully")
 
 			// ============================================================
 			// Step 3: Build the image export
-			// Expected: Verify that the state of the image export is completed
 			// ============================================================
 
 			By("Step 3: Creating QCOW2 ImageExport from the ImageBuild")
 
 			exportSpec := e2e.NewImageExportSpec(imageBuildName, imagebuilderapi.ExportFormatTypeQCOW2)
 
-			imageExport, err := harness.CreateImageExport(imageExportName, exportSpec)
+			imageExport, err := workerHarness.CreateImageExport(imageExportName, exportSpec)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(imageExport).ToNot(BeNil())
-			// Wait for the export to start processing
-			_, err = harness.WaitForImageExportProcessing(imageExportName, processingTimeout, processingPollPeriod)
+			Expect(imageExport.Metadata).ToNot(BeNil())
+			Expect(imageExport.Metadata.Name).ToNot(BeNil())
+			Expect(*imageExport.Metadata.Name).To(Equal(imageExportName), "Created ImageExport should have expected name")
+
+			_, err = workerHarness.WaitForImageExportProcessing(imageExportName, processingTimeout, processingPollPeriod)
 			Expect(err).ToNot(HaveOccurred(), "ImageExport should start processing")
 
-			// Stream logs until export completes or times out
-			finalExport, err := harness.WaitForImageExportWithLogs(imageExportName, imageExportTimeout)
+			finalExport, err := workerHarness.WaitForImageExportWithLogs(imageExportName, imageExportTimeout)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(finalExport).ToNot(BeNil())
 
-			// Verify ImageExport status via client
-			verifiedExport, err := harness.GetImageExport(imageExportName)
+			verifiedExport, err := workerHarness.GetImageExport(imageExportName)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(verifiedExport).ToNot(BeNil())
 			GinkgoWriter.Printf("ImageExport %s status verified\n", imageExportName)
 
-			exportReason, _ := harness.GetImageExportConditionReason(imageExportName)
+			exportReason, _ := workerHarness.GetImageExportConditionReason(imageExportName)
 			Expect(exportReason).To(Equal(string(imagebuilderapi.ImageExportConditionReasonCompleted)),
 				"Expected ImageExport to complete successfully")
 
 			// ============================================================
 			// Step 4: Create a device using the disk image
-			// Expected: Download QCOW2, boot VM, verify agent is running
 			// ============================================================
 
 			By("Step 4: Downloading the QCOW2 artifact and creating a device")
@@ -175,7 +173,7 @@ var _ = Describe("ImageBuild", Label("imagebuild"), func() {
 
 			qcow2Path := filepath.Join(tempDir, "disk.qcow2")
 
-			body, contentLength, err := harness.DownloadImageExport(imageExportName)
+			body, contentLength, err := workerHarness.DownloadImageExport(imageExportName)
 			Expect(err).ToNot(HaveOccurred(), "Download should succeed")
 			Expect(body).ToNot(BeNil())
 			defer body.Close()
@@ -192,13 +190,10 @@ var _ = Describe("ImageBuild", Label("imagebuild"), func() {
 
 			GinkgoWriter.Printf("Downloaded QCOW2: %d bytes to %s\n", bytesWritten, qcow2Path)
 
-			// Boot VM with SSH key authentication
 			vmName := fmt.Sprintf("imagebuild-test-%s", testID)
 			sshPort := vmSSHPortBase + GinkgoParallelProcess()
-
-			// Use local SSH private key path for VM authentication
-			// Path is relative to test directory: test/e2e/imagebuild -> bin/.ssh/id_rsa
-			sshPrivateKeyPath := filepath.Join("..", "..", "..", "bin", ".ssh", "id_rsa")
+			sshPrivateKeyPath, err := e2e.GetSSHPrivateKeyPath()
+			Expect(err).ToNot(HaveOccurred(), "Should get SSH private key path")
 
 			testVM := vm.TestVM{
 				TestDir:           tempDir,
@@ -232,91 +227,70 @@ var _ = Describe("ImageBuild", Label("imagebuild"), func() {
 			GinkgoWriter.Printf("VM %s is running and SSH is ready!\n", vmName)
 
 			// ============================================================
-			// Step 5: Connect to the device using a console
-			// Expected: Verify flightctl-agent service is running
+			// Step 5: Verify flightctl-agent service is running
 			// ============================================================
 
 			By("Step 5: Verifying flightctl-agent service is running via console")
 
 			Eventually(func() (string, error) {
-				stdout, err := libvirtVM.RunSSH([]string{"sudo", "systemctl", "is-active", "flightctl-agent"}, nil)
-				if err != nil {
-					GinkgoWriter.Printf("flightctl-agent not ready yet: %v\n", err)
-					return "", err
-				}
-				return stdout.String(), nil
-			}, vmBootTimeout, 5*time.Second).Should(ContainSubstring("active"),
+				return getAgentServiceStatus(libvirtVM)
+			}, vmBootTimeout, vmBootPollPeriod).Should(ContainSubstring("active"),
 				"flightctl-agent service should be running")
 
 			GinkgoWriter.Printf("flightctl-agent service is running on VM %s\n", vmName)
 
 			// ============================================================
 			// Step 6: Get enrollment ID from agent logs
-			// Expected: Enrollment ID should appear in service logs
 			// ============================================================
 
 			By("Step 6: Getting enrollment ID from agent logs")
 
-			var enrollmentID string
+			enrollmentID := ""
 			Eventually(func() string {
-				stdout, err := libvirtVM.RunSSH([]string{"sudo", "journalctl", "-u", "flightctl-agent", "--no-pager"}, nil)
-				if err != nil {
-					GinkgoWriter.Printf("Failed to get agent logs: %v\n", err)
-					return ""
-				}
-				enrollmentID = testutil.GetEnrollmentIdFromText(stdout.String())
+				enrollmentID = getEnrollmentIDFromAgentLogs(libvirtVM)
 				return enrollmentID
-			}, vmBootTimeout, 5*time.Second).ShouldNot(BeEmpty(), "Enrollment ID should appear in agent logs")
+			}, vmBootTimeout, vmBootPollPeriod).ShouldNot(BeEmpty(), "Enrollment ID should appear in agent logs")
 
 			GinkgoWriter.Printf("Found enrollment ID: %s\n", enrollmentID)
 
 			// ============================================================
 			// Step 7: Wait for enrollment request on server
-			// Expected: Server should receive the enrollment request
 			// ============================================================
 
 			By("Step 7: Waiting for enrollment request on server")
 
-			enrollmentRequest := harness.WaitForEnrollmentRequest(enrollmentID)
+			enrollmentRequest := workerHarness.WaitForEnrollmentRequest(enrollmentID)
 			Expect(enrollmentRequest).ToNot(BeNil())
 			GinkgoWriter.Printf("Enrollment request received for device: %s\n", enrollmentID)
 
 			// ============================================================
 			// Step 8: Approve the enrollment request
-			// Expected: Enrollment should be approved successfully
 			// ============================================================
 
 			By("Step 8: Approving enrollment request")
 
-			harness.ApproveEnrollment(enrollmentID, harness.TestEnrollmentApproval())
+			workerHarness.ApproveEnrollment(enrollmentID, testutil.TestEnrollmentApproval())
 			GinkgoWriter.Printf("Enrollment approved for device: %s\n", enrollmentID)
 
 			// ============================================================
 			// Step 9: Wait for device to be online
-			// Expected: Device should report online status
 			// ============================================================
 
 			By("Step 9: Waiting for device to be online")
 
-			Eventually(func() string {
-				res, err := harness.GetDeviceWithStatusSummary(enrollmentID)
-				if err != nil {
-					return ""
-				}
-				return string(res)
-			}, vmBootTimeout, 5*time.Second).Should(Equal(string(api.DeviceSummaryStatusOnline)),
-				"Device should be online")
+			Eventually(workerHarness.GetDeviceWithStatusSummary, vmBootTimeout, vmBootPollPeriod).
+				WithArguments(enrollmentID).
+				Should(Equal(api.DeviceSummaryStatusOnline), "Device should be online")
 
 			GinkgoWriter.Printf("Device %s is online\n", enrollmentID)
 
 			// ============================================================
-			// Step 10: Open console to device using flightctl console
-			// Expected: Console session should work and allow command execution
+			// Step 10: Test flightctl console to device
 			// ============================================================
 
 			By("Step 10: Testing flightctl console to device")
 
-			consoleOutput, err := harness.RunConsoleCommand(enrollmentID, []string{"--notty"}, "hostname")
+			consoleOutput, err := workerHarness.RunConsoleCommand(enrollmentID, []string{"--notty"}, "hostname")
 			Expect(err).ToNot(HaveOccurred(), "Console command should succeed")
 			Expect(consoleOutput).ToNot(BeEmpty(), "Console should return hostname")
 			GinkgoWriter.Printf("Console output (hostname): %s\n", consoleOutput)
@@ -325,3 +299,31 @@ var _ = Describe("ImageBuild", Label("imagebuild"), func() {
 		})
 	})
 })
+
+// --- Helper functions (no Expect calls) ---
+
+func getAgentServiceStatus(libvirtVM vm.TestVMInterface) (string, error) {
+	if libvirtVM == nil {
+		GinkgoWriter.Printf("getAgentServiceStatus: VM is nil\n")
+		return "", nil
+	}
+	stdout, err := libvirtVM.RunSSH([]string{"sudo", "systemctl", "is-active", agentServiceName}, nil)
+	if err != nil {
+		GinkgoWriter.Printf("getAgentServiceStatus: %v\n", err)
+		return "", err
+	}
+	return stdout.String(), nil
+}
+
+func getEnrollmentIDFromAgentLogs(libvirtVM vm.TestVMInterface) string {
+	if libvirtVM == nil {
+		GinkgoWriter.Printf("getEnrollmentIDFromAgentLogs: VM is nil\n")
+		return ""
+	}
+	stdout, err := libvirtVM.RunSSH([]string{"sudo", "journalctl", "-u", agentServiceName, "--no-pager"}, nil)
+	if err != nil {
+		GinkgoWriter.Printf("getEnrollmentIDFromAgentLogs: %v\n", err)
+		return ""
+	}
+	return testutil.GetEnrollmentIdFromText(stdout.String())
+}
