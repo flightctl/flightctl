@@ -12,92 +12,75 @@ import (
 	"github.com/samber/lo"
 )
 
-var _ = Describe("ImageBuild", Label("imagebuild"), func() {
-	Context("ImageBuild wrong configurations", Label("87338", "imagebuild"), func() {
-		It("should fail with non-existing repository", func() {
-			harness := e2e.GetWorkerHarness()
-			Expect(harness).ToNot(BeNil())
-			Expect(harness.ImageBuilderClient).ToNot(BeNil(), "ImageBuilderClient must be available")
+// Error substrings used in wrong-configuration tests
+const (
+	errSubstrBadRequest = "400"
+	errSubstrNotFound   = "not found"
+	errSubstrRepository = "repository"
+	errSubstrValidation = "validation"
+	errSubstrInvalid    = "invalid"
+	errSubstrRequired   = "required"
+	errSubstrEmpty      = "empty"
+	errSubstrManifest   = "manifest"
+	errSubstrPull       = "pull"
+	errSubstrImage      = "image"
+)
 
-			testID := harness.GetTestIDFromContext()
+var _ = Describe("ImageBuild", Label("imagebuild"), func() {
+	Context("ImageBuild wrong configurations", func() {
+		It("should fail with non-existing repository", Label("87338", "imagebuild"), func() {
+			Expect(workerHarness).ToNot(BeNil())
+			Expect(workerHarness.ImageBuilderClient).ToNot(BeNil(), "ImageBuilderClient must be available")
+
+			testID := workerHarness.GetTestIDFromContext()
 
 			By("Step 1: Attempting to create ImageBuild with non-existing source repository")
 
 			imageBuildName := fmt.Sprintf("wrong-config-nonexist-repo-%s", testID)
 
-			// Use non-existing repository names
 			spec := e2e.NewImageBuildSpec(
-				"nonexistent-source-repo", // non-existing source repository
+				"nonexistent-source-repo",
 				sourceImageName,
 				sourceImageTag,
-				"nonexistent-dest-repo", // non-existing destination repository
+				"nonexistent-dest-repo",
 				destImageName,
 				testID,
 				imagebuilderapi.BindingTypeLate,
 			)
 
-			// Attempt to create the ImageBuild - should fail validation
-			_, err := harness.CreateImageBuild(imageBuildName, spec)
+			_, err := workerHarness.CreateImageBuild(imageBuildName, spec)
 
-			// The API should reject this with a validation error (400) since repos don't exist
-			// OR it will be created but fail during processing
-			if err != nil {
-				// Good - validation rejected it
-				GinkgoWriter.Printf("ImageBuild creation correctly rejected: %v\n", err)
-				Expect(err.Error()).To(Or(
-					ContainSubstring("400"),
-					ContainSubstring("not found"),
-					ContainSubstring("repository"),
-				), "Error should indicate repository validation failure")
-			} else {
-				// ImageBuild was created - it should fail during processing
-				defer func() {
-					_ = harness.DeleteImageBuild(imageBuildName)
-				}()
-
-				// Wait for it to fail
-				Eventually(func() string {
-					reason, _ := harness.GetImageBuildConditionReason(imageBuildName)
-					return reason
-				}, failureTimeout, processingPollPeriod).Should(
-					Equal(string(imagebuilderapi.ImageBuildConditionReasonFailed)),
-					"ImageBuild should fail due to non-existing repository")
-
-				_, message, _ := harness.GetImageBuildConditionReasonAndMessage(imageBuildName)
-				GinkgoWriter.Printf("ImageBuild failed as expected with message: %s\n", message)
-				Expect(message).To(ContainSubstring("repository"),
-					"Error message should mention repository issue")
-
-				// Cleanup
-				err = harness.DeleteImageBuild(imageBuildName)
-				Expect(err).ToNot(HaveOccurred())
-			}
+			Expect(err).To(HaveOccurred(), "ImageBuild creation should fail immediately with 400 for non-existing repository")
+			GinkgoWriter.Printf("ImageBuild creation correctly rejected: %v\n", err)
+			Expect(err.Error()).To(Or(
+				ContainSubstring(errSubstrBadRequest),
+				ContainSubstring(errSubstrNotFound),
+				ContainSubstring(errSubstrRepository),
+			), "Error should indicate repository validation failure (400)")
 
 			GinkgoWriter.Printf("Non-existing repository test passed\n")
 		})
 
-		It("should fail with wrong image name/tag for source", func() {
-			harness := e2e.GetWorkerHarness()
-			Expect(harness).ToNot(BeNil())
-			Expect(harness.ImageBuilderClient).ToNot(BeNil(), "ImageBuilderClient must be available")
+		It("should fail with wrong image name/tag for source", Label("87706", "imagebuild"), func() {
+			Expect(workerHarness).ToNot(BeNil())
+			Expect(workerHarness.ImageBuilderClient).ToNot(BeNil(), "ImageBuilderClient must be available")
 
-			testID := harness.GetTestIDFromContext()
-			registryAddress := harness.RegistryEndpoint()
+			testID := workerHarness.GetTestIDFromContext()
+			registryAddress := workerHarness.RegistryEndpoint()
 
-			// Create valid repositories first
 			sourceRepoName := fmt.Sprintf("wrong-src-repo-%s", testID)
 			destRepoName := fmt.Sprintf("wrong-dest-repo-%s", testID)
 
 			defer func() {
-				_, _ = resources.Delete(harness, resources.Repositories, destRepoName)
-				_, _ = resources.Delete(harness, resources.Repositories, sourceRepoName)
+				_, _ = resources.Delete(workerHarness, resources.Repositories, destRepoName)
+				_, _ = resources.Delete(workerHarness, resources.Repositories, sourceRepoName)
 			}()
 
-			_, err := resources.CreateOCIRepository(harness, sourceRepoName, sourceRegistry,
+			_, err := resources.CreateOCIRepository(workerHarness, sourceRepoName, sourceRegistry,
 				lo.ToPtr(api.Https), lo.ToPtr(api.Read), false, nil)
 			Expect(err).ToNot(HaveOccurred())
 
-			_, err = resources.CreateOCIRepository(harness, destRepoName, registryAddress,
+			_, err = resources.CreateOCIRepository(workerHarness, destRepoName, registryAddress,
 				lo.ToPtr(api.Https), lo.ToPtr(api.ReadWrite), true, nil)
 			Expect(err).ToNot(HaveOccurred())
 
@@ -105,75 +88,69 @@ var _ = Describe("ImageBuild", Label("imagebuild"), func() {
 
 			imageBuildName := fmt.Sprintf("wrong-config-bad-image-%s", testID)
 
-			// Use wrong/non-existent image name
 			spec := e2e.NewImageBuildSpec(
 				sourceRepoName,
-				"this-image-does-not-exist/invalid-image", // non-existent image name
-				"nonexistent-tag",                         // non-existent tag
+				"this-image-does-not-exist/invalid-image",
+				"nonexistent-tag",
 				destRepoName,
 				destImageName,
 				testID,
 				imagebuilderapi.BindingTypeLate,
 			)
 
-			imageBuild, err := harness.CreateImageBuild(imageBuildName, spec)
+			imageBuild, err := workerHarness.CreateImageBuild(imageBuildName, spec)
 			Expect(err).ToNot(HaveOccurred(), "ImageBuild should be created (validation happens at build time)")
 			Expect(imageBuild).ToNot(BeNil())
+			Expect(imageBuild.Metadata).ToNot(BeNil())
+			Expect(imageBuild.Metadata.Name).ToNot(BeNil())
+			Expect(*imageBuild.Metadata.Name).To(Equal(imageBuildName))
 
 			defer func() {
-				_ = harness.DeleteImageBuild(imageBuildName)
+				_ = workerHarness.DeleteImageBuild(imageBuildName)
 			}()
 
 			By("Waiting for ImageBuild to fail due to wrong image name/tag")
 
-			// Wait for it to fail - the build will fail when trying to pull the non-existent image
 			Eventually(func() string {
-				reason, _ := harness.GetImageBuildConditionReason(imageBuildName)
-				GinkgoWriter.Printf("ImageBuild %s state: %s\n", imageBuildName, reason)
-				return reason
+				return getImageBuildConditionReason(workerHarness, imageBuildName)
 			}, imageBuildTimeout, processingPollPeriod).Should(
 				Equal(string(imagebuilderapi.ImageBuildConditionReasonFailed)),
 				"ImageBuild should fail due to wrong image name/tag")
 
-			// Verify the error message indicates the image issue
-			_, message, err := harness.GetImageBuildConditionReasonAndMessage(imageBuildName)
+			_, message, err := workerHarness.GetImageBuildConditionReasonAndMessage(imageBuildName)
 			Expect(err).ToNot(HaveOccurred())
 			GinkgoWriter.Printf("ImageBuild failed with message: %s\n", message)
 
-			// The error should indicate something about the image not being found
-			// (manifest not found, image pull error, etc.)
 			Expect(message).To(Or(
-				ContainSubstring("manifest"),
-				ContainSubstring("not found"),
-				ContainSubstring("pull"),
-				ContainSubstring("image"),
+				ContainSubstring(errSubstrManifest),
+				ContainSubstring(errSubstrNotFound),
+				ContainSubstring(errSubstrPull),
+				ContainSubstring(errSubstrImage),
 			), "Error message should indicate image-related failure")
 
 			GinkgoWriter.Printf("Wrong image name/tag test passed\n")
 		})
 
-		It("should fail validation with invalid image reference format", func() {
-			harness := e2e.GetWorkerHarness()
-			Expect(harness).ToNot(BeNil())
-			Expect(harness.ImageBuilderClient).ToNot(BeNil(), "ImageBuilderClient must be available")
+		It("should fail validation with invalid image reference format", Label("87705", "imagebuild"), func() {
+			Expect(workerHarness).ToNot(BeNil())
+			Expect(workerHarness.ImageBuilderClient).ToNot(BeNil(), "ImageBuilderClient must be available")
 
-			testID := harness.GetTestIDFromContext()
-			registryAddress := harness.RegistryEndpoint()
+			testID := workerHarness.GetTestIDFromContext()
+			registryAddress := workerHarness.RegistryEndpoint()
 
-			// Create valid repositories first
 			sourceRepoName := fmt.Sprintf("invalid-ref-src-repo-%s", testID)
 			destRepoName := fmt.Sprintf("invalid-ref-dest-repo-%s", testID)
 
 			defer func() {
-				_, _ = resources.Delete(harness, resources.Repositories, destRepoName)
-				_, _ = resources.Delete(harness, resources.Repositories, sourceRepoName)
+				_, _ = resources.Delete(workerHarness, resources.Repositories, destRepoName)
+				_, _ = resources.Delete(workerHarness, resources.Repositories, sourceRepoName)
 			}()
 
-			_, err := resources.CreateOCIRepository(harness, sourceRepoName, sourceRegistry,
+			_, err := resources.CreateOCIRepository(workerHarness, sourceRepoName, sourceRegistry,
 				lo.ToPtr(api.Https), lo.ToPtr(api.Read), false, nil)
 			Expect(err).ToNot(HaveOccurred())
 
-			_, err = resources.CreateOCIRepository(harness, destRepoName, registryAddress,
+			_, err = resources.CreateOCIRepository(workerHarness, destRepoName, registryAddress,
 				lo.ToPtr(api.Https), lo.ToPtr(api.ReadWrite), true, nil)
 			Expect(err).ToNot(HaveOccurred())
 
@@ -181,37 +158,32 @@ var _ = Describe("ImageBuild", Label("imagebuild"), func() {
 
 			imageBuildName := fmt.Sprintf("wrong-config-invalid-ref-%s", testID)
 
-			// Use invalid characters in image name/tag (should fail validation)
 			spec := e2e.NewImageBuildSpec(
 				sourceRepoName,
 				sourceImageName,
 				sourceImageTag,
 				destRepoName,
-				"INVALID_IMAGE_NAME_WITH_UPPERCASE", // Invalid - image names should be lowercase
-				"invalid:tag:format",                // Invalid tag format (contains colon)
+				"INVALID_IMAGE_NAME_WITH_UPPERCASE",
+				"invalid:tag:format",
 				imagebuilderapi.BindingTypeLate,
 			)
 
-			// Attempt to create - should fail API validation
-			_, err = harness.CreateImageBuild(imageBuildName, spec)
+			_, err = workerHarness.CreateImageBuild(imageBuildName, spec)
 
 			if err != nil {
-				// Good - validation rejected it at API level
 				GinkgoWriter.Printf("ImageBuild creation correctly rejected: %v\n", err)
 				Expect(err.Error()).To(Or(
-					ContainSubstring("400"),
-					ContainSubstring("invalid"),
-					ContainSubstring("validation"),
+					ContainSubstring(errSubstrBadRequest),
+					ContainSubstring(errSubstrInvalid),
+					ContainSubstring(errSubstrValidation),
 				), "Error should indicate validation failure")
 			} else {
-				// If it was created, it should fail during processing
 				defer func() {
-					_ = harness.DeleteImageBuild(imageBuildName)
+					_ = workerHarness.DeleteImageBuild(imageBuildName)
 				}()
 
 				Eventually(func() string {
-					reason, _ := harness.GetImageBuildConditionReason(imageBuildName)
-					return reason
+					return getImageBuildConditionReason(workerHarness, imageBuildName)
 				}, failureTimeout, processingPollPeriod).Should(
 					Equal(string(imagebuilderapi.ImageBuildConditionReasonFailed)),
 					"ImageBuild should fail due to invalid reference format")
@@ -222,42 +194,42 @@ var _ = Describe("ImageBuild", Label("imagebuild"), func() {
 			GinkgoWriter.Printf("Invalid image reference format test passed\n")
 		})
 
-		It("should fail with empty required fields", func() {
-			harness := e2e.GetWorkerHarness()
-			Expect(harness).ToNot(BeNil())
-			Expect(harness.ImageBuilderClient).ToNot(BeNil(), "ImageBuilderClient must be available")
+		It("should fail with empty required fields", Label("87708", "imagebuild"), func() {
+			Expect(workerHarness).ToNot(BeNil())
+			Expect(workerHarness.ImageBuilderClient).ToNot(BeNil(), "ImageBuilderClient must be available")
 
-			testID := harness.GetTestIDFromContext()
+			testID := workerHarness.GetTestIDFromContext()
 
-			By("Step 4: Attempting to create ImageBuild with empty required fields")
-
-			imageBuildName := fmt.Sprintf("wrong-config-empty-fields-%s", testID)
-
-			// Use empty strings for required fields
-			spec := e2e.NewImageBuildSpec(
-				"", // empty source repository
-				"", // empty source image name
-				"", // empty source tag
-				"", // empty destination repository
-				"", // empty destination image name
-				"", // empty destination tag
-				imagebuilderapi.BindingTypeLate,
-			)
-
-			// Attempt to create - should fail API validation
-			_, err := harness.CreateImageBuild(imageBuildName, spec)
-
-			// This should definitely fail validation at API level
-			Expect(err).To(HaveOccurred(), "ImageBuild creation should fail with empty required fields")
-			GinkgoWriter.Printf("ImageBuild creation correctly rejected: %v\n", err)
-			Expect(err.Error()).To(Or(
-				ContainSubstring("400"),
-				ContainSubstring("required"),
-				ContainSubstring("empty"),
-				ContainSubstring("validation"),
-			), "Error should indicate validation failure for empty fields")
-
-			GinkgoWriter.Printf("Empty required fields test passed\n")
+			emptyFieldCases := []struct {
+				desc                               string
+				sourceRepo, sourceImage, sourceTag string
+				destRepo, destImage, destTag       string
+			}{
+				{"all fields empty", "", "", "", "", "", ""},
+				{"empty source repository", "", sourceImageName, sourceImageTag, "dest-repo", destImageName, testID},
+				{"empty source image name", "src-repo", "", sourceImageTag, "dest-repo", destImageName, testID},
+				{"empty source tag", "src-repo", sourceImageName, "", "dest-repo", destImageName, testID},
+				{"empty destination repository", "src-repo", sourceImageName, sourceImageTag, "", destImageName, testID},
+				{"empty destination image name", "src-repo", sourceImageName, sourceImageTag, "dest-repo", "", testID},
+				{"empty destination tag", "src-repo", sourceImageName, sourceImageTag, "dest-repo", destImageName, ""},
+			}
+			for i, tc := range emptyFieldCases {
+				By(tc.desc)
+				imageBuildName := fmt.Sprintf("wrong-config-empty-fields-%d-%s", i, testID)
+				spec := e2e.NewImageBuildSpec(
+					tc.sourceRepo, tc.sourceImage, tc.sourceTag,
+					tc.destRepo, tc.destImage, tc.destTag,
+					imagebuilderapi.BindingTypeLate,
+				)
+				_, err := workerHarness.CreateImageBuild(imageBuildName, spec)
+				Expect(err).To(HaveOccurred(), "ImageBuild creation should fail for %s", tc.desc)
+				Expect(err.Error()).To(Or(
+					ContainSubstring(errSubstrBadRequest),
+					ContainSubstring(errSubstrRequired),
+					ContainSubstring(errSubstrEmpty),
+					ContainSubstring(errSubstrValidation),
+				), "Error should indicate validation failure for %s", tc.desc)
+			}
 		})
 	})
 })
