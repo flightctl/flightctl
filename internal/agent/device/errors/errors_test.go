@@ -46,6 +46,7 @@ func TestFromStderr(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Logf("testing stderr: %q, exit code: %d", tc.stderr, tc.exitCode)
 			require := require.New(t)
 			err := FromStderr(tc.stderr, tc.exitCode)
 
