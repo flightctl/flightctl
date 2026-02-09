@@ -151,10 +151,10 @@ func (c *Catalog) GetStatusAsJson() ([]byte, error) {
 // CatalogItem represents a cached catalog item in the database.
 type CatalogItem struct {
 	OrgID       uuid.UUID                          `gorm:"type:uuid;primaryKey"`
-	CatalogName string                             `gorm:"primaryKey"`
-	AppName     string                             `gorm:"primaryKey"`
+	CatalogName string                             `gorm:"primaryKey" selector:"metadata.catalog"`
+	AppName     string                             `gorm:"primaryKey" selector:"metadata.name"`
 	Spec        *JSONField[domain.CatalogItemSpec] `gorm:"type:jsonb"`
-	Labels      JSONMap[string, string]            `gorm:"type:jsonb"`
+	Labels      JSONMap[string, string]            `gorm:"type:jsonb" selector:"metadata.labels,hidden,private"`
 	Annotations JSONMap[string, string]            `gorm:"type:jsonb"`
 	CreatedAt   time.Time
 	UpdatedAt   time.Time

@@ -501,6 +501,24 @@ func TestGetOptionsValidation(t *testing.T) {
 			args:        []string{"events"},
 			expectError: false,
 		},
+
+		// CatalogItem cross-catalog listing tests
+		{
+			name:        "catalogitems_without_catalog_lists_all",
+			args:        []string{"catalogitems"},
+			expectError: false,
+		},
+		{
+			name:        "catalogitems_with_catalog_flag",
+			args:        []string{"catalogitems"},
+			options:     &GetOptions{CatalogName: "my-catalog"},
+			expectError: false,
+		},
+		{
+			name:        "catalogitems_shortname_without_catalog",
+			args:        []string{"ci"},
+			expectError: false,
+		},
 	}
 
 	for _, tc := range tests {
@@ -527,6 +545,9 @@ func TestGetOptionsValidation(t *testing.T) {
 				}
 				if tc.options.LastSeen {
 					opts.LastSeen = tc.options.LastSeen
+				}
+				if tc.options.CatalogName != "" {
+					opts.CatalogName = tc.options.CatalogName
 				}
 			}
 

@@ -95,7 +95,14 @@ func (f *TableFormatter) formatList(w *tabwriter.Writer, data interface{}, optio
 	case strings.EqualFold(options.Kind, apiv1alpha1.CatalogKind):
 		return f.printCatalogsTable(w, data.(*apiclientv1alpha1.ListCatalogsResponse).JSON200.Items...)
 	case strings.EqualFold(options.Kind, apiv1alpha1.CatalogItemKind):
-		return f.printCatalogItemsTable(w, data.(*apiclientv1alpha1.ListCatalogItemsResponse).JSON200.Items...)
+		switch resp := data.(type) {
+		case *apiclientv1alpha1.ListAllCatalogItemsResponse:
+			return f.printCatalogItemsTable(w, resp.JSON200.Items...)
+		case *apiclientv1alpha1.ListCatalogItemsResponse:
+			return f.printCatalogItemsTable(w, resp.JSON200.Items...)
+		default:
+			return fmt.Errorf("unexpected response type for %s", options.Kind)
+		}
 	default:
 		return fmt.Errorf("unknown resource type %s", options.Kind)
 	}

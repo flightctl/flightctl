@@ -18,6 +18,7 @@ type CatalogConverter interface {
 
 	// Params conversions
 	ListParamsToDomain(apiv1alpha1.ListCatalogsParams) domain.ListCatalogsParams
+	ListAllItemsParamsToDomain(apiv1alpha1.ListAllCatalogItemsParams) domain.ListAllCatalogItemsParams
 	ListItemsParamsToDomain(apiv1alpha1.ListCatalogItemsParams) domain.ListCatalogItemsParams
 }
 
@@ -53,6 +54,10 @@ func (c *catalogConverter) ItemListFromDomain(l *domain.CatalogItemList) *apiv1a
 }
 
 func (c *catalogConverter) ListParamsToDomain(p apiv1alpha1.ListCatalogsParams) domain.ListCatalogsParams {
+	return p
+}
+
+func (c *catalogConverter) ListAllItemsParamsToDomain(p apiv1alpha1.ListAllCatalogItemsParams) domain.ListAllCatalogItemsParams {
 	return p
 }
 

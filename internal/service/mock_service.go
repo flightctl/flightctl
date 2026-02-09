@@ -871,6 +871,21 @@ func (mr *MockServiceMockRecorder) ListAllAuthProviders(ctx, params any) *gomock
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListAllAuthProviders", reflect.TypeOf((*MockService)(nil).ListAllAuthProviders), ctx, params)
 }
 
+// ListAllCatalogItems mocks base method.
+func (m *MockService) ListAllCatalogItems(ctx context.Context, orgId uuid.UUID, params domain.ListAllCatalogItemsParams) (*domain.CatalogItemList, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListAllCatalogItems", ctx, orgId, params)
+	ret0, _ := ret[0].(*domain.CatalogItemList)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// ListAllCatalogItems indicates an expected call of ListAllCatalogItems.
+func (mr *MockServiceMockRecorder) ListAllCatalogItems(ctx, orgId, params any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListAllCatalogItems", reflect.TypeOf((*MockService)(nil).ListAllCatalogItems), ctx, orgId, params)
+}
+
 // ListAuthProviders mocks base method.
 func (m *MockService) ListAuthProviders(ctx context.Context, orgId uuid.UUID, params domain.ListAuthProvidersParams) (*domain.AuthProviderList, domain.Status) {
 	m.ctrl.T.Helper()

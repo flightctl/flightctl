@@ -55,3 +55,4 @@ const (
 
 type ListCatalogsParams = v1alpha1.ListCatalogsParams
 type ListCatalogItemsParams = v1alpha1.ListCatalogItemsParams
+type ListAllCatalogItemsParams = v1alpha1.ListAllCatalogItemsParams

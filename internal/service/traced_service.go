@@ -589,6 +589,12 @@ func (t *TracedService) PatchCatalogStatus(ctx context.Context, orgId uuid.UUID,
 	endSpan(span, st)
 	return resp, st
 }
+func (t *TracedService) ListAllCatalogItems(ctx context.Context, orgId uuid.UUID, params domain.ListAllCatalogItemsParams) (*domain.CatalogItemList, domain.Status) {
+	ctx, span := startSpan(ctx, "ListAllCatalogItems")
+	resp, st := t.inner.ListAllCatalogItems(ctx, orgId, params)
+	endSpan(span, st)
+	return resp, st
+}
 func (t *TracedService) ListCatalogItems(ctx context.Context, orgId uuid.UUID, catalogName string, params domain.ListCatalogItemsParams) (*domain.CatalogItemList, domain.Status) {
 	ctx, span := startSpan(ctx, "ListCatalogItems")
 	resp, st := t.inner.ListCatalogItems(ctx, orgId, catalogName, params)
