@@ -16,6 +16,13 @@ import (
 	"github.com/flightctl/flightctl/pkg/log"
 )
 
+const (
+	defaultUserDBDir = "/userdb"
+	defaultEtcDir    = "/etc"
+)
+
+// main initializes configuration, logging, TLS, and tracing, starts the PAM OIDC issuer server and a user database sync goroutine, and waits for termination signals.
+// It loads or generates configuration, validates PAM OIDC issuer settings, loads the internal CA and server certificates, starts a TLS listener for the issuer, and ensures tracer shutdown on exit.
 func main() {
 	ctx := context.Background()
 
@@ -65,6 +72,16 @@ func main() {
 
 	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGQUIT)
 	defer cancel()
+
+	userdbDir := os.Getenv("USERDB_DIR")
+	if userdbDir == "" {
+		userdbDir = defaultUserDBDir
+	}
+	etcDir := os.Getenv("ETC_DIR")
+	if etcDir == "" {
+		etcDir = defaultEtcDir
+	}
+	go pam_issuer_server.RunUserDBSync(ctx, log, userdbDir, etcDir)
 
 	go func() {
 		listener, err := middleware.NewTLSListener(pamIssuerAddress, tlsConfig)
