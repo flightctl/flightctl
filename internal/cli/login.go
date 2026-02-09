@@ -527,28 +527,38 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 		return err
 	}
 
-	// Auto-select organization if enabled and user has access to only one
-	if response, err := c.ListOrganizationsWithResponse(ctx, &v1beta1.ListOrganizationsParams{}); err == nil && response.StatusCode() == http.StatusOK && response.JSON200 != nil {
+	// Auto-select organization
+	response, err := c.ListOrganizationsWithResponse(ctx, &v1beta1.ListOrganizationsParams{})
+	if err != nil {
+		return fmt.Errorf("failed to list organizations: %w", err)
+	}
 
-		if len(response.JSON200.Items) == 0 {
-			return fmt.Errorf("Unable to log in to the application\n\nYou do not have access to any organizations.\n\nPlease contact your administrator to be granted access to an organization.")
+	if response.StatusCode() != http.StatusOK {
+		return fmt.Errorf("failed to list organizations: status code %d", response.StatusCode())
+	}
+
+	if response.JSON200 == nil {
+		return fmt.Errorf("failed to list organizations: invalid response from server")
+	}
+
+	if len(response.JSON200.Items) == 0 {
+		return fmt.Errorf("Unable to log in to the application\n\nYou do not have access to any organizations.\n\nPlease contact your administrator to be granted access to an organization.")
+	}
+
+	org := response.JSON200.Items[0]
+	if org.Metadata.Name != nil {
+		orgName := *org.Metadata.Name
+		o.clientConfig.Organization = orgName
+
+		displayName := ""
+		if org.Spec != nil && org.Spec.DisplayName != nil {
+			displayName = *org.Spec.DisplayName
 		}
 
-		org := response.JSON200.Items[0]
-		if org.Metadata.Name != nil {
-			orgName := *org.Metadata.Name
-			o.clientConfig.Organization = orgName
-
-			displayName := ""
-			if org.Spec != nil && org.Spec.DisplayName != nil {
-				displayName = *org.Spec.DisplayName
-			}
-
-			if displayName != "" {
-				fmt.Printf("Auto-selected organization: %s %s\n", orgName, displayName)
-			} else {
-				fmt.Printf("Auto-selected organization: %s\n", orgName)
-			}
+		if displayName != "" {
+			fmt.Printf("Auto-selected organization: %s %s\n", orgName, displayName)
+		} else {
+			fmt.Printf("Auto-selected organization: %s\n", orgName)
 		}
 	}
 
