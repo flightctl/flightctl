@@ -175,19 +175,12 @@ func (m *MockDevice) ListDevicesByServiceCondition(ctx context.Context, orgId uu
 	return nil, nil
 }
 func (m *MockDevice) SetIntegrationTestCreateOrUpdateCallback(store.IntegrationTestCallback) {}
-func (m *MockDevice) PrepareDevicesAfterRestore(ctx context.Context) (int64, error) {
-	return 0, nil
-}
 func (m *MockDevice) RemoveConflictPausedAnnotation(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (int64, []string, error) {
 	return 0, nil, nil
 }
 
 func (m *MockDevice) SetOutOfDate(ctx context.Context, orgId uuid.UUID, owner string) error {
 	return nil
-}
-
-func (m *MockDevice) GetAllDeviceNames(ctx context.Context, orgId uuid.UUID) ([]string, error) {
-	return nil, nil
 }
 
 func (m *MockDevice) ProcessAwaitingReconnectAnnotation(ctx context.Context, orgId uuid.UUID, deviceName string, deviceReportedVersion *string) (bool, error) {

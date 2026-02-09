@@ -1,4 +1,6 @@
-package metrics
+//go:build linux
+
+package system
 
 import (
 	"context"
@@ -12,7 +14,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// SystemCollector implements NamedCollector and gathers system resource usage like CPU, memory, and disk.
+// SystemCollector gathers system resource usage (CPU, memory, disk). Linux only.
 type SystemCollector struct {
 	cpuGauge  prometheus.Gauge
 	memGauge  prometheus.Gauge
