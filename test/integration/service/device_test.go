@@ -8,7 +8,6 @@ import (
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/consts"
-	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
@@ -717,133 +716,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 		})
 	})
 
-	Context("PrepareDevicesAfterRestore", func() {
-		It("should emit SystemRestored event when restore preparation completes", func() {
-			// Create a test device first
-			deviceName := "restore-test-device"
-			device := &api.Device{
-				Metadata: api.ObjectMeta{
-					Name: lo.ToPtr(deviceName),
-				},
-				Spec: &api.DeviceSpec{
-					Os: &api.DeviceOsSpec{Image: "test-image"},
-				},
-			}
-
-			// Create the device through the service
-			createdDevice, status := suite.Handler.CreateDevice(suite.Ctx, suite.OrgID, *device)
-			Expect(status.Code).To(Equal(int32(201)))
-			Expect(createdDevice).ToNot(BeNil())
-
-			// Get initial event count
-			initialEvents, err := suite.Store.Event().List(suite.Ctx, suite.OrgID, store.ListParams{Limit: 1000})
-			Expect(err).ToNot(HaveOccurred())
-			initialEventCount := len(initialEvents.Items)
-
-			// Call PrepareDevicesAfterRestore (cast to concrete type to access the method)
-			serviceHandler, ok := suite.Handler.(*service.ServiceHandler)
-			Expect(ok).To(BeTrue(), "Handler should be a *ServiceHandler")
-
-			err = serviceHandler.PrepareDevicesAfterRestore(suite.Ctx)
-			Expect(err).ToNot(HaveOccurred())
-
-			// Check that SystemRestored event was created
-			finalEvents, err := suite.Store.Event().List(suite.Ctx, suite.OrgID, store.ListParams{Limit: 1000})
-			Expect(err).ToNot(HaveOccurred())
-
-			// Should have at least one more event than before
-			Expect(len(finalEvents.Items)).To(BeNumerically(">", initialEventCount))
-
-			// Find the SystemRestored event
-			var systemRestoredEvent *api.Event
-			for _, event := range finalEvents.Items {
-				if event.Reason == api.EventReasonSystemRestored {
-					systemRestoredEvent = &event
-					break
-				}
-			}
-
-			// Verify the SystemRestored event was created
-			Expect(systemRestoredEvent).ToNot(BeNil(), "SystemRestored event should be created")
-			Expect(systemRestoredEvent.Type).To(Equal(api.Normal))
-			Expect(systemRestoredEvent.InvolvedObject.Kind).To(Equal(api.SystemKind))
-			Expect(systemRestoredEvent.InvolvedObject.Name).To(Equal(api.SystemComponentDB))
-			Expect(systemRestoredEvent.Message).To(ContainSubstring("System restored successfully"))
-			Expect(systemRestoredEvent.Message).To(ContainSubstring("devices for post-restoration preparation"))
-		})
-
-		It("should be able to filter events by System kind", func() {
-			// Create a test device first to generate some non-system events
-			deviceName := "filter-test-device"
-			device := &api.Device{
-				Metadata: api.ObjectMeta{
-					Name: lo.ToPtr(deviceName),
-				},
-				Spec: &api.DeviceSpec{
-					Os: &api.DeviceOsSpec{Image: "test-image"},
-				},
-			}
-
-			// Create the device through the service (this will create Device events)
-			createdDevice, status := suite.Handler.CreateDevice(suite.Ctx, suite.OrgID, *device)
-			Expect(status.Code).To(Equal(int32(201)))
-			Expect(createdDevice).ToNot(BeNil())
-
-			// Call PrepareDevicesAfterRestore to create a System event
-			serviceHandler, ok := suite.Handler.(*service.ServiceHandler)
-			Expect(ok).To(BeTrue(), "Handler should be a *ServiceHandler")
-
-			err := serviceHandler.PrepareDevicesAfterRestore(suite.Ctx)
-			Expect(err).ToNot(HaveOccurred())
-
-			// Test filtering by System kind using the service ListEvents API
-			params := api.ListEventsParams{
-				FieldSelector: lo.ToPtr("involvedObject.kind=System"),
-				Limit:         lo.ToPtr(int32(100)),
-			}
-
-			eventList, status := suite.Handler.ListEvents(suite.Ctx, suite.OrgID, params)
-			Expect(status.Code).To(Equal(int32(200)))
-			Expect(eventList).ToNot(BeNil())
-
-			// Should have at least one System event (the SystemRestored event)
-			Expect(len(eventList.Items)).To(BeNumerically(">=", 1))
-
-			// Verify all returned events are System kind
-			for _, event := range eventList.Items {
-				Expect(event.InvolvedObject.Kind).To(Equal(api.SystemKind))
-			}
-
-			// Verify we can find the SystemRestored event in the filtered results
-			var systemRestoredEvent *api.Event
-			for _, event := range eventList.Items {
-				if event.Reason == api.EventReasonSystemRestored {
-					systemRestoredEvent = &event
-					break
-				}
-			}
-			Expect(systemRestoredEvent).ToNot(BeNil(), "SystemRestored event should be found when filtering by System kind")
-
-			// Test filtering by Device kind to ensure System events are excluded
-			deviceParams := api.ListEventsParams{
-				FieldSelector: lo.ToPtr("involvedObject.kind=Device"),
-				Limit:         lo.ToPtr(int32(100)),
-			}
-
-			deviceEventList, status := suite.Handler.ListEvents(suite.Ctx, suite.OrgID, deviceParams)
-			Expect(status.Code).To(Equal(int32(200)))
-			Expect(deviceEventList).ToNot(BeNil())
-
-			// Should have Device events but no System events
-			Expect(len(deviceEventList.Items)).To(BeNumerically(">=", 1))
-
-			// Verify all returned events are Device kind and no System events
-			for _, event := range deviceEventList.Items {
-				Expect(event.InvolvedObject.Kind).To(Equal(api.DeviceKind))
-				Expect(event.Reason).ToNot(Equal(api.EventReasonSystemRestored))
-			}
-		})
-	})
+	// PrepareDevicesAfterRestore tests have been moved to test/integration/restore/device_test.go
 
 	Context("Device Resume Operations", func() {
 		Describe("ResumeDevice", func() {
