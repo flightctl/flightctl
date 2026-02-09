@@ -52,6 +52,8 @@ Summary: Flight Control management agent
 
 Requires: flightctl-selinux = %{version}
 Requires: jq
+# This provides the newuidmap binary used by podman when running rootless containers.
+Requires: shadow-utils
 # Pin the greenboot package to 0.15.z until the following issue is resolved:
 # https://github.com/fedora-iot/greenboot-rs/issues/141
 Requires: greenboot >= 0.15.0
