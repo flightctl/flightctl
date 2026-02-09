@@ -56,8 +56,17 @@ kubectl create namespace flightctl-e2e      --context kind-kind 2>/dev/null || t
 # if we are only deploying the database, we don't need inject the server container
 if [ -z "$ONLY_DB" ]; then
 
+  # Detect whether we're using FLAVOR system or legacy naming
+  FLAVOR=${FLAVOR:-cs9}
   for suffix in periodic api worker alert-exporter alertmanager-proxy cli-artifacts db-setup telemetry-gateway imagebuilder-api imagebuilder-worker ; do
-    kind_load_image localhost/flightctl-${suffix}:latest
+    # Check if flavor-specific image exists (new system)
+    if podman image exists localhost/flightctl-${suffix}-${FLAVOR}:latest; then
+      echo "Loading flavor-specific image: localhost/flightctl-${suffix}-${FLAVOR}:latest"
+      kind_load_image localhost/flightctl-${suffix}-${FLAVOR}:latest
+    else
+      echo "Flavor-specific image not found, using legacy naming: localhost/flightctl-${suffix}:latest"
+      kind_load_image localhost/flightctl-${suffix}:latest
+    fi
   done
 
   kind_load_image "${KV_IMAGE}:${KV_VERSION}" keep-tar

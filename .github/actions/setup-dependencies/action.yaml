@@ -37,7 +37,7 @@ runs:
           sudo apt install -y make python3-pip podman podman-compose libvirt-dev libpam0g-dev
 
           curl -Lo protoc.zip "https://github.com/protocolbuffers/protobuf/releases/download/v3.14.0/protoc-3.14.0-linux-x86_64.zip"
-          sudo unzip -q protoc.zip bin/protoc -d /usr/local
+          sudo unzip -qo protoc.zip bin/protoc -d /usr/local
           sudo chmod a+x /usr/local/bin/protoc
           protoc --version
           rm -rf protoc.zip

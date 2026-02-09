@@ -23,6 +23,46 @@ To generate API code and mocks, use `make generate`  This requires installing mo
 
 `go install go.uber.org/mock/mockgen@v0.4.0`
 
+## Container Flavors (CS9/CS10 Support)
+
+FlightCtl supports building containers for multiple CentOS Stream versions to enable cross-version compatibility:
+
+### Building Containers
+
+```bash
+# Build all containers for both CS9 and CS10
+make build-containers
+
+# Build containers for specific flavor only
+FLAVOR=cs9 hack/publish_containers.sh build cs9   # CentOS Stream 9
+FLAVOR=cs10 hack/publish_containers.sh build cs10 # CentOS Stream 10
+```
+
+### Container Naming
+
+Containers are built with flavor-specific names:
+- **CS9**: `flightctl-api-cs9:latest`, `flightctl-worker-cs9:latest`, etc.
+- **CS10**: `flightctl-api-cs10:latest`, `flightctl-worker-cs10:latest`, etc.
+
+### Using Different Flavors
+
+```bash
+# Default deployment (uses CS9 for backward compatibility)
+make deploy
+
+# Deploy with CS10 containers
+FLAVOR=cs10 make deploy
+
+# Run specific flavor containers
+podman run -d --name flightctl-api -p 3443:3443 flightctl-api-cs10:latest
+```
+
+### Cross-Version Testing
+
+The FLAVOR system enables testing scenarios like:
+- **RHEL 9 backend + RHEL 10 agent**: Test forward compatibility
+- **RHEL 10 backend + RHEL 9 agent**: Test backward compatibility
+
 ## Running
 
 Note: If you are developing with podman on an arm64 system (i.e. M1/M2 Mac) change the postgresql

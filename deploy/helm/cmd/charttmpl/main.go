@@ -59,9 +59,16 @@ func runTemplate(in string, out string, templateData templateContext) {
 }
 
 func main() {
-	profileKey := "community"
+	// Get FLAVOR, default to cs9
+	flavor := os.Getenv("FLAVOR")
+	if flavor == "" {
+		flavor = "cs9"
+	}
+
+	// Construct profile key based on RHEM and FLAVOR
+	profileKey := "community-" + flavor
 	if os.Getenv("RHEM") != "" {
-		profileKey = "redhat"
+		profileKey = "redhat-" + flavor
 	}
 
 	// Multi-profile opts file

@@ -1,0 +1,103 @@
+# FlightCtl PAM Issuer
+# Build EL9: podman build --build-arg BUILD_IMAGE=registry.access.redhat.com/ubi9/go-toolset:1.24.6-1762373805 --build-arg RUNTIME_IMAGE=quay.io/flightctl/flightctl-base:el9-9.7-1762965531 --build-arg EL_VERSION=9 --build-arg PAM_BASE_URL=https://mirror.stream.centos.org/9-stream --build-arg PAM_PACKAGE_VERSION=1.5.1-24.el9 -f images/Containerfile.pam-issuer -t flightctl-pam-issuer-el9
+# Build EL10: podman build --build-arg BUILD_IMAGE=registry.access.redhat.com/ubi10/go-toolset:10.1-1770279878 --build-arg RUNTIME_IMAGE=quay.io/flightctl/flightctl-base:el10-10.1-1769518576 --build-arg EL_VERSION=10 --build-arg PAM_BASE_URL=https://mirror.stream.centos.org/10-stream --build-arg PAM_PACKAGE_VERSION=1.6.1-8.el10 -f images/Containerfile.pam-issuer -t flightctl-pam-issuer-el10
+
+# Global ARGs
+ARG BUILD_IMAGE
+ARG RUNTIME_IMAGE
+ARG EL_VERSION
+ARG PAM_BASE_URL
+ARG PAM_PACKAGE_VERSION
+ARG RHEM=false
+
+FROM ${BUILD_IMAGE} as build
+
+# Re-declare ARGs for this stage
+ARG EL_VERSION
+ARG PAM_BASE_URL
+ARG PAM_PACKAGE_VERSION
+WORKDIR /app
+
+# Switch to root for build operations
+USER 0
+
+# Install C development tools needed for CGO
+RUN dnf install -y gcc glibc-devel
+
+# Install matching PAM and pam-devel from CentOS mirror for build
+RUN dnf install -y ${PAM_BASE_URL}/BaseOS/x86_64/os/Packages/pam-${PAM_PACKAGE_VERSION}.x86_64.rpm && \
+    dnf install -y ${PAM_BASE_URL}/AppStream/x86_64/os/Packages/pam-devel-${PAM_PACKAGE_VERSION}.x86_64.rpm
+
+# Install runtime PAM libraries and sssd-client into a separate root for the final image
+RUN mkdir -p /runtime-root && \
+    dnf install -y --installroot=/runtime-root --releasever=${EL_VERSION} --setopt=install_weak_deps=False \
+        ${PAM_BASE_URL}/BaseOS/x86_64/os/Packages/pam-${PAM_PACKAGE_VERSION}.x86_64.rpm \
+        shadow-utils && \
+    mkdir -p /runtime-root/etc/yum.repos.d && \
+    echo -e "[centos-baseos]\nname=CentOS Stream ${EL_VERSION} - BaseOS\nbaseurl=${PAM_BASE_URL}/BaseOS/x86_64/os/\nenabled=1\ngpgcheck=0" > /runtime-root/etc/yum.repos.d/centos.repo && \
+    echo -e "[centos-appstream]\nname=CentOS Stream ${EL_VERSION} - AppStream\nbaseurl=${PAM_BASE_URL}/AppStream/x86_64/os/\nenabled=1\ngpgcheck=0" >> /runtime-root/etc/yum.repos.d/centos.repo && \
+    dnf install -y --installroot=/runtime-root --releasever=${EL_VERSION} --setopt=install_weak_deps=False \
+        sssd-client
+
+# Copy dependencies first (most stable)
+COPY go.mod go.sum ./
+
+# Download dependencies (cached layer)
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
+
+# Copy build tools and configs
+COPY Makefile .
+
+# Copy source code directories
+COPY ./api ./api
+COPY ./cmd ./cmd
+COPY ./deploy ./deploy
+COPY ./hack ./hack
+COPY ./internal ./internal
+COPY ./pkg ./pkg
+COPY ./test ./test
+
+ARG SOURCE_GIT_TAG
+ARG SOURCE_GIT_TREE_STATE
+ARG SOURCE_GIT_COMMIT
+# Convert ARGs to ENV so make can use them
+ENV SOURCE_GIT_TAG=${SOURCE_GIT_TAG}
+ENV SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE}
+ENV SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT}
+
+# Use BuildKit cache mounts for Go caching
+RUN --mount=type=cache,target=/opt/app-root/src/.cache/go-build \
+    --mount=type=cache,target=/opt/app-root/src/go/pkg/mod \
+    make build-pam-issuer
+
+FROM ${RUNTIME_IMAGE}
+
+# Re-declare ARGs for this stage
+ARG EL_VERSION
+
+WORKDIR /app
+LABEL \
+  com.redhat.component="flightctl-pam-issuer-container" \
+  description="Flight Control PAM-based OIDC issuer service" \
+  io.k8s.description="Flight Control PAM-based OIDC issuer service" \
+  io.k8s.display-name="Flight Control PAM Issuer" \
+  name="flightctl-pam-issuer-el${EL_VERSION}" \
+  summary="Flight Control PAM-based OIDC issuer service (el${EL_VERSION})" \
+  os.id="el${EL_VERSION}"
+
+# Copy PAM and sssd-client runtime from build stage for authentication
+USER 0
+# Copy entire runtime-root (contains pam, sssd-client, and all dependencies)
+COPY --from=build /runtime-root/ /
+
+# Copy custom PAM config for flightctl
+COPY --from=build /app/deploy/podman/flightctl-pam-issuer/pam-flightctl /etc/pam.d/flightctl
+
+COPY --from=build /app/bin/flightctl-pam-issuer .
+
+# Note: User database files (/etc/passwd, /etc/shadow, /etc/group) are managed
+# inside the container. Use a named volume mount for /etc to persist users across restarts.
+# For SSSD integration, mount /var/lib/sss/pipes from the host to connect to the host's SSSD daemon.
+
+CMD ["./flightctl-pam-issuer"]

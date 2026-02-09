@@ -5,7 +5,7 @@ global:
 
 api:
   image:
-    image:  localhost/flightctl-api
+    image:  localhost/flightctl-api-cs9
     tag: latest
   # Disable rate limiting for development
   rateLimit: null
@@ -15,18 +15,18 @@ api:
 cliArtifacts:
   enabled: true
   image:
-    image: localhost/flightctl-cli-artifacts
+    image: localhost/flightctl-cli-artifacts-cs9
     tag: latest
 worker:
   image:
-    image: localhost/flightctl-worker
+    image: localhost/flightctl-worker-cs9
     tag: latest
   env:
     GORM_TRACE_ENFORCE_FATAL: "true"
     GORM_TRACE_INCLUDE_QUERY_VARIABLES: "true"
 periodic:
   image:
-    image: localhost/flightctl-periodic
+    image: localhost/flightctl-periodic-cs9
     tag: latest
   env:
     GORM_TRACE_ENFORCE_FATAL: "true"
@@ -37,36 +37,36 @@ periodic:
         interval: 5s
 alertExporter:
   image:
-    image: localhost/flightctl-alert-exporter
+    image: localhost/flightctl-alert-exporter-cs9
     tag: latest
   env:
     GORM_TRACE_ENFORCE_FATAL: "true"
     GORM_TRACE_INCLUDE_QUERY_VARIABLES: "true"
 alertmanagerProxy:
   image:
-    image: localhost/flightctl-alertmanager-proxy
+    image: localhost/flightctl-alertmanager-proxy-cs9
     tag: latest
 ui:
   enabled: false
 
 dbSetup:
   image:
-    image: localhost/flightctl-db-setup
+    image: localhost/flightctl-db-setup-cs9
     tag: latest
 
 telemetryGateway:
   image:
-    image: localhost/flightctl-telemetry-gateway
+    image: localhost/flightctl-telemetry-gateway-cs9
     tag: latest
 
 imageBuilderApi:
   image:
-    image: localhost/flightctl-imagebuilder-api
+    image: localhost/flightctl-imagebuilder-api-cs9
     tag: latest
 
 imageBuilderWorker:
   image:
-    image: localhost/flightctl-imagebuilder-worker
+    image: localhost/flightctl-imagebuilder-worker-cs9
     tag: latest
 
 dev:

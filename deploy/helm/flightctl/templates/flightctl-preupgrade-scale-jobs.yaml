@@ -114,16 +114,24 @@ spec:
               echo "Pre-upgrade scale to zero started in namespace: ${NAMESPACE} (timeout=${TIMEOUT}s)"
               DEPLOYMENTS="{{- range $idx, $d := $deploymentsToScale -}}{{ if $idx }} {{ end }}{{ $d }}{{- end }}"
               for dep in ${DEPLOYMENTS}; do
-                echo "Scaling ${dep} to 0 replicas..."
-                oc scale deployment/${dep} -n "${NAMESPACE}" --replicas=0 || true
-                echo "Waiting for ${dep} to scale down..."
-                oc rollout status deployment/${dep} -n "${NAMESPACE}" --watch=true --timeout="${TIMEOUT}s" || true
-                status=$(oc get deployment ${dep} -n "${NAMESPACE}" -o jsonpath='{.status.replicas},{.status.readyReplicas},{.status.updatedReplicas}' 2>/dev/null || echo ",,")
-                set -- $(printf "%s" "$status" | tr ',' ' ')
-                replicas=${1:-0}
-                ready=${2:-0}
-                updated=${3:-0}
-                echo "${dep} status: replicas=${replicas}, ready=${ready}, updated=${updated}"
+                echo "Checking if deployment ${dep} exists..."
+                if oc get deployment ${dep} -n "${NAMESPACE}" >/dev/null 2>&1; then
+                  echo "Scaling ${dep} to 0 replicas..."
+                  if oc scale deployment/${dep} -n "${NAMESPACE}" --replicas=0; then
+                    echo "Waiting for ${dep} to scale down..."
+                    oc rollout status deployment/${dep} -n "${NAMESPACE}" --watch=true --timeout="${TIMEOUT}s" || echo "Warning: ${dep} scaling timeout, continuing..."
+                    status=$(oc get deployment ${dep} -n "${NAMESPACE}" -o jsonpath='{.status.replicas},{.status.readyReplicas},{.status.updatedReplicas}' 2>/dev/null || echo ",,")
+                    set -- $(printf "%s" "$status" | tr ',' ' ')
+                    replicas=${1:-0}
+                    ready=${2:-0}
+                    updated=${3:-0}
+                    echo "${dep} status: replicas=${replicas}, ready=${ready}, updated=${updated}"
+                  else
+                    echo "Warning: Failed to scale ${dep}, continuing..."
+                  fi
+                else
+                  echo "Deployment ${dep} does not exist, skipping..."
+                fi
               done
               echo "Scale-to-zero steps finished."
 {{- end }}
