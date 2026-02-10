@@ -24,7 +24,6 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/agent/device/systemd"
 	"github.com/flightctl/flightctl/internal/util"
-	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/samber/lo"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -33,7 +32,7 @@ import (
 // Agent is responsible for managing the applications, configuration and status of the device.
 type Agent struct {
 	name                   string
-	executer               executer.Executer
+	systemdClient          *client.Systemd
 	deviceWriter           fileio.Writer
 	statusManager          status.Manager
 	specManager            spec.Manager
@@ -62,7 +61,7 @@ type Agent struct {
 // NewAgent creates a new device agent.
 func NewAgent(
 	name string,
-	executer executer.Executer,
+	systemdClient *client.Systemd,
 	deviceWriter fileio.Writer,
 	statusManager status.Manager,
 	specManager spec.Manager,
@@ -87,7 +86,7 @@ func NewAgent(
 ) *Agent {
 	return &Agent{
 		name:                   name,
-		executer:               executer,
+		systemdClient:          systemdClient,
 		deviceWriter:           deviceWriter,
 		statusManager:          statusManager,
 		specManager:            specManager,
@@ -623,15 +622,11 @@ func (a *Agent) ReloadConfig(ctx context.Context, config *agent_config.Config) e
 // by greenboot after all required health checks in required.d/ pass.
 // Returns true if boot-complete.target is active, or if greenboot is not installed.
 func (a *Agent) isBootSuccessful(ctx context.Context) bool {
-	_, stderr, exitCode := a.executer.ExecuteWithContext(ctx, "systemctl", "is-active", "boot-complete.target")
-	if exitCode == 0 {
+	active, err := a.systemdClient.IsActive(ctx, "boot-complete.target")
+	if err != nil {
+		// Unit not found or other error — unexpected on systemd-based systems
+		a.log.Warnf("Failed to check boot-complete.target: %v", err)
 		return true
 	}
-	// Exit code 3 means the unit is inactive (greenboot hasn't finished yet)
-	if exitCode == 3 {
-		return false
-	}
-	// Any other exit code (e.g. unit not found) means greenboot is likely not installed
-	a.log.Debugf("systemctl is-active boot-complete.target failed (exit %d): %s", exitCode, stderr)
-	return true
+	return active
 }

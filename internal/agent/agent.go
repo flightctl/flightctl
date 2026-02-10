@@ -409,7 +409,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	// create agent
 	agent := device.NewAgent(
 		deviceName,
-		rootExecuter,
+		rootSystemdClient,
 		rootReadWriter,
 		statusManager,
 		specManager,
