@@ -11,6 +11,7 @@ import (
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"sigs.k8s.io/yaml"
 )
 
 var _ = Describe("Agent image and artifact pruning", func() {
@@ -208,27 +209,40 @@ var _ = Describe("Agent image and artifact pruning", func() {
 
 			enableProvider := pruningDropinProviderSpec("pruning-enable", defaultEnablePruningDropinPath, true)
 
-			By("verify Podman version supports artifacts")
-			_, err = harness.RunVMCommandWithEvidence(artifactDir, "vm_podman_version.txt", "podman --version")
+			By("apply a Device spec that references an image-backed application volume")
+			artifactSpec, err := e2e.BuildComposeWithImageVolumeSpec("my-inline", "docker-compose.yaml", composeInlineVolumeContent, "my-data", composeArtifactImageRef)
 			Expect(err).ToNot(HaveOccurred())
-
-			By("create a compose artifact (doc example)")
-			composeOut, err := harness.RunVMCommandWithEvidence(artifactDir, "vm_podman_artifact_add_ls.txt", podmanComposeArtifactCmd)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(composeOut).To(ContainSubstring("quay.io/my-org/my-compose-app.0"))
-
-			By("apply a Device spec that references the artifact (as app package)")
-			artifactSpec, err := e2e.BuildImageAppSpec("my-compose-app", v1beta1.AppTypeCompose, "quay.io/my-org/my-compose-app.0")
-			Expect(err).ToNot(HaveOccurred())
-			assertReferenceAbsent(harness, artifactDir, "vm_refs_cat_before_compose_artifact_app.txt", "quay.io/my-org/my-compose-app.0")
+			assertReferenceAbsent(harness, artifactDir, "vm_refs_cat_before_compose_artifact_app.txt", composeArtifactImageRef)
+			writeDeviceSpecYAMLEvidence(
+				artifactDir,
+				"host_device_spec_artifact_app.yaml",
+				deviceID,
+				[]v1beta1.ApplicationProviderSpec{artifactSpec},
+				nil,
+			)
 			updateDeviceApplicationsWithEvidence(harness, deviceID, artifactDir, "host_device_update_artifact_app.txt", "update device applications: my-compose-app", artifactSpec)
+			waitForUpdateConditionCompleted(harness, deviceID, "compose artifact/image application update")
 
 			By("remove the artifact reference from spec")
+			writeDeviceSpecYAMLEvidence(
+				artifactDir,
+				"host_device_spec_artifact_removed.yaml",
+				deviceID,
+				[]v1beta1.ApplicationProviderSpec{},
+				nil,
+			)
 			updateDeviceApplicationsWithEvidence(harness, deviceID, artifactDir, "host_device_update_artifact_removed.txt", "update device applications: empty")
 			waitForUpdateConditionCompleted(harness, deviceID, "artifact application removal update")
 
 			By("trigger a follow-up reconciliation to run prune again")
 			refreshEnableProvider := pruningDropinProviderSpec("pruning-enable-refresh", "/etc/flightctl/conf.d/61-enable-pruning.yaml", true)
+			writeDeviceSpecYAMLEvidence(
+				artifactDir,
+				"host_device_spec_refresh_pruning_dropin.yaml",
+				deviceID,
+				nil,
+				[]v1beta1.ConfigProviderSpec{enableProvider, refreshEnableProvider},
+			)
 			updateDeviceConfigWithEvidence(
 				harness,
 				deviceID,
@@ -242,12 +256,9 @@ var _ = Describe("Agent image and artifact pruning", func() {
 			registerPruningRefreshCleanup(harness, deviceID, artifactDir, enableProvider)
 
 			By("verify artifact pruned")
-			waitForReferencePresence(harness, "quay.io/my-org/my-compose-app.0", false, false)
+			waitForReferencePresence(harness, composeArtifactImageRef, true, false)
 			_, err = harness.RunVMCommandWithEvidence(artifactDir, "vm_refs_cat_artifact_after_removal.txt", "sudo cat /var/lib/flightctl/image-artifact-references.json")
 			Expect(err).ToNot(HaveOccurred())
-			artifactLSOut, err := harness.RunVMCommandWithEvidence(artifactDir, "vm_podman_artifact_ls.txt", "podman artifact ls")
-			Expect(err).ToNot(HaveOccurred())
-			Expect(artifactLSOut).ToNot(ContainSubstring("quay.io/my-org/my-compose-app.0"))
 
 			By("capture pruning evidence files and status")
 			Expect(harness.CaptureStandardEvidence(artifactDir, deviceID)).To(Succeed())
@@ -360,9 +371,10 @@ var _ = Describe("Agent image and artifact pruning", func() {
 })
 
 var (
-	nginxLatestImageRef    = canonicalImageRef(getEnvOrDefault("PRUNING_NGINX_LATEST_IMAGE", "quay.io/flightctl-tests/nginx:v1"))
-	nginxV125ImageRef      = getEnvOrDefault("PRUNING_NGINX_PREV_IMAGE", "quay.io/flightctl-tests/alpine:v1")
-	nginxLatestRefFragment = nginxLatestImageRef
+	nginxLatestImageRef     = canonicalImageRef(getEnvOrDefault("PRUNING_NGINX_LATEST_IMAGE", "quay.io/flightctl-tests/nginx:v1"))
+	nginxV125ImageRef       = getEnvOrDefault("PRUNING_NGINX_PREV_IMAGE", "quay.io/flightctl-tests/alpine:v1")
+	nginxLatestRefFragment  = nginxLatestImageRef
+	composeArtifactImageRef = strings.TrimSpace(getEnvOrDefault("PRUNING_COMPOSE_ARTIFACT_IMAGE", "quay.io/flightctl-tests/models/gpt2"))
 )
 
 // Inline quadlet container content for nginx.
@@ -402,8 +414,17 @@ const brokenContainerContent = `[Container]
 Image=quay.io/library/this-image-should-not-exist
 `
 
-// Podman command to create and list a compose artifact.
-const podmanComposeArtifactCmd = `printf '%s\n' 'version: "3.8"' 'services:' '  svc:' '    image: quay.io/library/nginx' '    ports:' '    - "8081:80"' > /tmp/podman-compose.yaml; podman artifact add quay.io/my-org/my-compose-app.0 /tmp/podman-compose.yaml; podman artifact ls`
+const composeInlineVolumeContent = `version: "3.8"
+services:
+  service1:
+    image: quay.io/flightctl-tests/alpine:v1
+    command: ["sleep", "infinity"]
+    volumes:
+      - my-data:/data
+volumes:
+  my-data:
+    external: true
+`
 
 const imageArtifactReferencesCmd = "sudo test -f /var/lib/flightctl/image-artifact-references.json && sudo cat /var/lib/flightctl/image-artifact-references.json || true"
 
@@ -798,6 +819,45 @@ func waitForReferencePresence(harness *e2e.Harness, reference string, imageRefMo
 		}))
 }
 
+func writeDeviceSpecYAMLEvidence(artifactDir, filename, deviceID string, apps []v1beta1.ApplicationProviderSpec, configs []v1beta1.ConfigProviderSpec) {
+	Expect(strings.TrimSpace(artifactDir)).ToNot(BeEmpty())
+	Expect(strings.TrimSpace(filename)).ToNot(BeEmpty())
+	Expect(strings.TrimSpace(deviceID)).ToNot(BeEmpty())
+
+	type metadata struct {
+		Name string `json:"name"`
+	}
+	type spec struct {
+		Applications *[]v1beta1.ApplicationProviderSpec `json:"applications,omitempty"`
+		Config       *[]v1beta1.ConfigProviderSpec      `json:"config,omitempty"`
+	}
+	type deviceSpec struct {
+		APIVersion string   `json:"apiVersion"`
+		Kind       string   `json:"kind"`
+		Metadata   metadata `json:"metadata"`
+		Spec       spec     `json:"spec"`
+	}
+
+	doc := deviceSpec{
+		APIVersion: "flightctl.io/v1beta1",
+		Kind:       "Device",
+		Metadata: metadata{
+			Name: deviceID,
+		},
+		Spec: spec{},
+	}
+	if apps != nil {
+		doc.Spec.Applications = &apps
+	}
+	if configs != nil {
+		doc.Spec.Config = &configs
+	}
+
+	out, err := yaml.Marshal(doc)
+	Expect(err).ToNot(HaveOccurred())
+	Expect(e2e.WriteEvidence(artifactDir, filename, "generated device spec yaml", string(out), nil)).To(Succeed())
+}
+
 func registerPruningRefreshCleanup(harness *e2e.Harness, deviceID, artifactDir string, enableProvider v1beta1.ConfigProviderSpec) {
 	requireHarnessAndDevice(harness, deviceID)
 	Expect(strings.TrimSpace(artifactDir)).ToNot(BeEmpty())
@@ -839,8 +899,8 @@ func waitForUpdateConditionCompleted(harness *e2e.Harness, deviceID, description
 		if updating.Reason != string(v1beta1.UpdateStateUpdated) && updating.Reason != string(v1beta1.UpdateStateError) {
 			return false
 		}
-		// Guard against stale "Updated" conditions by requiring the message to match desired renderedVersion.
-		if updating.Reason == string(v1beta1.UpdateStateUpdated) {
+		// Guard against stale status conditions by requiring the message to match desired renderedVersion.
+		if updating.Reason == string(v1beta1.UpdateStateUpdated) || updating.Reason == string(v1beta1.UpdateStateError) {
 			desired := desiredRenderedVersion(device)
 			if desired == "" {
 				return true
