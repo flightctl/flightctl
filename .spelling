@@ -278,6 +278,7 @@ config.yaml
 FQDN
 otel
 proxying
+flightctl-api
 flightctl-ui
 DeviceSpec
 rollouts
@@ -298,6 +299,13 @@ containerd
 prefetching
 prefetches
 networkless
+ServiceMonitor
+dashboards
+dashboarding
+scraping
+Prometheus
+Grafana
+Datadog
  - docs/user/installing/configuring-imagebuilder.md
  entitlement
  uncomment
@@ -425,14 +433,11 @@ alertmanager
 DeviceDisconnected
 DeviceCPUCritical
 programmatically
- - docs/user/using/standalone-observability.md
+ - docs/user/installing/deploying-observability-linux.md
 UserInfo
 Pre-configured
 is_superuser
 is_platform_auditor
-flightctl-api
-flightctl-kv
-IdPs
 - docs/user/installing/preparing-installation-on-linux.md
 Air-Gapped
 Backend
@@ -549,8 +554,6 @@ webserver
  - docs/user/installing/configuring-auth/auth-oidc.md
 CLI
 webserver
- - docs/user/references/components.md
-flightctl-api
 - docs/user/using/managing-repositories.md
 ImageBuild
 ImageExport
