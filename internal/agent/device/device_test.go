@@ -121,9 +121,8 @@ func TestSync(t *testing.T) {
 				mockLifecycleManager.EXPECT().Sync(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 				mockLifecycleManager.EXPECT().AfterUpdate(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 				mockSpecManager.EXPECT().CheckOsReconciliation(gomock.Any()).Return("", true, nil).AnyTimes()
-				mockSpecManager.EXPECT().VerifyBootedImage(gomock.Any()).Return(nil).AnyTimes()
-				// Mock grub2-editenv for boot success check
-				mockExec.EXPECT().Execute("grub2-editenv", "-", "list").Return("boot_success=1\n", "", 0).AnyTimes()
+				// Mock systemctl for boot success check
+				mockExec.EXPECT().Execute("systemctl", "is-active", "boot-complete.target").Return("active\n", "", 0).AnyTimes()
 				// OnAfterUpdating is called twice - once with error, once without during rollback
 				mockHookManager.EXPECT().OnAfterUpdating(ctx, current.Spec, desired.Spec, false).Return(nonRetryableHookError).AnyTimes()
 				mockHookManager.EXPECT().OnAfterUpdating(ctx, desired.Spec, current.Spec, false).Return(nil).AnyTimes()

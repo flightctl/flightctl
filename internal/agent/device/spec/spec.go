@@ -72,10 +72,6 @@ type Manager interface {
 	IsOSUpdatePending(ctx context.Context) (bool, error)
 	// CheckOsReconciliation checks if the booted OS image matches the desired OS image.
 	CheckOsReconciliation(ctx context.Context) (string, bool, error)
-	// VerifyBootedImage verifies that the actual booted OS image matches the desired spec.
-	// Returns an error if there's a mismatch (indicating an unexpected rollback).
-	// Skips verification if an upgrade is in progress.
-	VerifyBootedImage(ctx context.Context) error
 	// IsRollingBack returns true if the device is in a rollback state.
 	IsRollingBack(ctx context.Context) (bool, error)
 	// CreateRollback creates a rollback version of the current rendered spec.

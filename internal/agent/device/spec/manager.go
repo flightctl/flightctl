@@ -518,35 +518,6 @@ func (s *manager) CheckOsReconciliation(ctx context.Context) (string, bool, erro
 	return bootedOSImage, desired.Spec.Os.Image == osStatus.GetBootedImage(), nil
 }
 
-// VerifyBootedImage verifies that the actual booted OS image matches the desired spec.
-// This is a defensive check to detect unexpected rollbacks that happened outside
-// of the agent's control (e.g., greenboot rollback after spec was committed).
-// Returns nil if verification passes or if an upgrade is in progress.
-func (s *manager) VerifyBootedImage(ctx context.Context) error {
-	// Skip verification during active upgrade - mismatch is expected
-	if s.IsUpgrading() {
-		return nil
-	}
-
-	// Skip if no OS image is specified in desired spec
-	desiredImage := s.OSVersion(Desired)
-	if desiredImage == "" {
-		return nil
-	}
-
-	osStatus, err := s.osClient.Status(ctx)
-	if err != nil {
-		return fmt.Errorf("getting bootc status: %w", err)
-	}
-
-	bootedImage := osStatus.GetBootedImage()
-	if bootedImage != desiredImage {
-		return fmt.Errorf("booted OS image mismatch: running %q, expected %q - possible unexpected rollback", bootedImage, desiredImage)
-	}
-
-	return nil
-}
-
 func (s *manager) Status(ctx context.Context, status *v1beta1.DeviceStatus, _ ...status.CollectorOpt) error {
 	status.Config.RenderedVersion = s.cache.getRenderedVersion(Current)
 	return nil
