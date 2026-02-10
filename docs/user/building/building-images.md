@@ -236,6 +236,7 @@ RUN systemctl enable otelcol.service
 ```
 
 This configuration automatically:
+
 - Extracts the telemetry endpoint from the agent server URL in `config.yaml` (by replacing `agent-api` with `telemetry` and port `7443` with `4317`)
 - Extracts and decodes the CA certificate from `config.yaml`
 - Installs the OpenTelemetry Collector package

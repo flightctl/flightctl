@@ -1618,8 +1618,6 @@ The Flight Control Agent comes with a built-in set of rules defined in `/usr/lib
 
 You can set up monitors for device resources and define alerts when the utilization of these resources crosses a defined threshold. When the agent alerts the Flight Control service, the service sets the device status to "degraded" or "error" (depending on the severity level) and may suspend the rollout of updates and alarm the user as a result.
 
-<!-- Note this is not meant to replace an observability solution. If your use case requires streaming logs and metrics from devices into an observability stack and the device's network bandwidth allows this, see [Adding Device Observability](adding-device-observability.md) for ways to approach that. -->
-
 Resource monitors take the following parameters:
 
 | Parameter | Description |
