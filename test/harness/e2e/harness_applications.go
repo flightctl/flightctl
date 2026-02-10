@@ -182,8 +182,8 @@ func (h *Harness) WaitForRunningApplicationsCount(deviceId string, expectedCount
 	}, TIMEOUT, POLLING).Should(Equal(expectedCount))
 }
 
-// WaitForApplicationStatus waits for the device's ApplicationsSummary status to match the expected status
-func (h *Harness) WaitForApplicationStatus(deviceId string, expectedStatus v1beta1.ApplicationsSummaryStatusType) {
+// WaitForApplicationsSummaryStatus waits for the device's ApplicationsSummary status to match the expected status
+func (h *Harness) WaitForApplicationsSummaryStatus(deviceId string, expectedStatus v1beta1.ApplicationsSummaryStatusType) {
 	h.waitForApplicationsSummaryCondition(deviceId, string(expectedStatus), func(status v1beta1.ApplicationsSummaryStatusType) bool {
 		return status == expectedStatus
 	})
@@ -196,11 +196,16 @@ func (h *Harness) WaitForNoApplications(deviceId string) {
 
 // VerifyContainerRunning checks that podman shows containers running with the given image substring
 func (h *Harness) VerifyContainerRunning(imageSubstring string) {
-	Eventually(func() string {
+	Eventually(func() error {
 		stdout, err := h.VM.RunSSH([]string{"sudo", "podman", "ps", "--format", "{{.Image}}"}, nil)
-		Expect(err).ToNot(HaveOccurred())
-		return stdout.String()
-	}, TIMEOUT, POLLING).Should(ContainSubstring(imageSubstring))
+		if err != nil {
+			return err
+		}
+		if !strings.Contains(stdout.String(), imageSubstring) {
+			return fmt.Errorf("container with image %q not found in running containers: %s", imageSubstring, stdout.String())
+		}
+		return nil
+	}, TIMEOUT, POLLING).Should(Succeed())
 }
 
 // VerifyQuadletApplicationFolderExists checks that the application folder exists
@@ -221,60 +226,56 @@ func (h *Harness) VerifyQuadletApplicationFolderDeleted(appName string) {
 	}, TIMEOUT, POLLING).Should(Succeed())
 }
 
-// VerifyContainerCPULimitApplied checks that the CPU limit is properly applied to the container
-func (h *Harness) VerifyContainerCPULimitApplied() bool {
-	var result bool
+// VerifyQuadletPodmanArgs verifies that a quadlet file contains the expected PodmanArgs entry
+func (h *Harness) VerifyQuadletPodmanArgs(appName, flag, expectedValue string) {
+	appPath := fmt.Sprintf("%s/%s", QuadletUnitPath, appName)
+	expectedArg := fmt.Sprintf("PodmanArgs=%s %s", flag, expectedValue)
+
+	GinkgoWriter.Printf("Verifying quadlet file contains %q for app %s\n", expectedArg, appName)
+
 	Eventually(func() bool {
-		// Get the container ID first
-		idStdout, err := h.VM.RunSSH([]string{"sudo", "podman", "ps", "-q", "-l"}, nil)
+		// Find the .container file in the app directory
+		findStdout, err := h.VM.RunSSH([]string{"sudo", "find", appPath, "-name", "*.container", "-type", "f"}, nil)
 		if err != nil {
-			GinkgoWriter.Printf("Error getting container ID: %v\n", err)
-			return false
-		}
-		containerID := strings.TrimSpace(idStdout.String())
-		if containerID == "" {
-			GinkgoWriter.Println("No running container found")
+			GinkgoWriter.Printf("Error finding container file: %v\n", err)
 			return false
 		}
 
-		GinkgoWriter.Printf("Checking CPU limit for container %s\n", containerID)
+		containerFile := strings.TrimSpace(findStdout.String())
+		if containerFile == "" {
+			GinkgoWriter.Printf("No .container file found in %s\n", appPath)
+			return false
+		}
 
-		// Get CpuQuota
-		quotaStdout, err := h.VM.RunSSH([]string{"sudo", "podman", "inspect", "--format",
-			"{{.HostConfig.CpuQuota}}", containerID}, nil)
+		// Handle multiple files - take the first one
+		files := strings.Split(containerFile, "\n")
+		containerFile = strings.TrimSpace(files[0])
+
+		GinkgoWriter.Printf("Reading quadlet file: %s\n", containerFile)
+
+		// Read the container file contents
+		catStdout, err := h.VM.RunSSH([]string{"sudo", "cat", containerFile}, nil)
 		if err != nil {
-			GinkgoWriter.Printf("Error getting CPU quota: %v\n", err)
+			GinkgoWriter.Printf("Error reading container file: %v\n", err)
 			return false
 		}
-		cpuQuota := strings.TrimSpace(quotaStdout.String())
 
-		// Get CpuPeriod
-		periodStdout, err := h.VM.RunSSH([]string{"sudo", "podman", "inspect", "--format",
-			"{{.HostConfig.CpuPeriod}}", containerID}, nil)
-		if err != nil {
-			GinkgoWriter.Printf("Error getting CPU period: %v\n", err)
-			return false
-		}
-		cpuPeriod := strings.TrimSpace(periodStdout.String())
-
-		GinkgoWriter.Printf("Container CPU quota: %s, period: %s\n", cpuQuota, cpuPeriod)
-
-		// Verify that quota is set (non-zero) to confirm limit is applied
-		if cpuQuota != "0" && cpuQuota != "" {
-			GinkgoWriter.Printf("CPU limit is applied: quota=%s, period=%s\n", cpuQuota, cpuPeriod)
-			result = true
+		contents := catStdout.String()
+		if strings.Contains(contents, expectedArg) {
+			GinkgoWriter.Printf("Found expected PodmanArgs in quadlet file\n")
 			return true
 		}
 
+		GinkgoWriter.Printf("Expected %q not found in quadlet file contents:\n%s\n", expectedArg, contents)
 		return false
-	}, TIMEOUT, POLLING).Should(BeTrue(), "Expected CPU limit to be applied to container")
-	return result
+	}, TIMEOUT, POLLING).Should(BeTrue(), "Expected quadlet file to contain %q", expectedArg)
 }
 
 // GetContainerPorts returns the port mappings for running containers
 func (h *Harness) GetContainerPorts() (string, error) {
 	stdout, err := h.VM.RunSSH([]string{"sudo", "podman", "ps", "--format", "{{.Ports}}"}, nil)
 	if err != nil {
+		GinkgoWriter.Printf("Error getting container ports: %v\n", err)
 		return "", err
 	}
 	return stdout.String(), nil
