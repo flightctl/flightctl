@@ -19,9 +19,6 @@ RUN dnf -y config-manager --add-repo ${RPM_REPO_URL} && \
 # Enable Flight Control agent service
 RUN systemctl enable flightctl-agent.service
 
-# Disable automatic bootc updates (flightctl manages updates)
-RUN systemctl mask bootc-fetch-apply-updates.timer || true
-
 # Install VM and cloud tools (needed for both early and late binding)
 # afterburn provides cloud metadata support, open-vm-tools for VMware guest tools
 RUN dnf install -y open-vm-tools && dnf clean all
