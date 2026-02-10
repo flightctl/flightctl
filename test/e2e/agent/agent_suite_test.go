@@ -12,6 +12,7 @@ import (
 
 const TIMEOUT = "5m"
 const POLLING = "125ms"
+const LONGPOLLING = "500ms"
 const LONGTIMEOUT = "10m"
 const TENMINTIMEOUT = 10 * time.Minute
 const TENSECTIMEOUT = 10 * time.Second
