@@ -159,6 +159,94 @@ ADD config.yaml /etc/flightctl/
 > sudo podman login registry.redhat.io
 > ```
 
+#### Optional: Adding OpenTelemetry Collector to Devices
+
+To enable device telemetry collection and monitoring, add the OpenTelemetry Collector to your device image. The collector will send the configured metrics (e.g. the host CPU and memory) to the Flight Control Telemetry Gateway over a secure mTLS connection.
+
+Add the following snippet to your `Containerfile` after adding `config.yaml`:
+
+```console
+# Install OpenTelemetry Collector
+RUN dnf -y install opentelemetry-collector && \
+    dnf -y clean all
+
+# Extract telemetry endpoint and CA certificate from config.yaml
+RUN TELEMETRY_ENDPOINT=$(grep 'server:' /etc/flightctl/config.yaml | \
+      sed 's/.*server: *https:\/\///' | \
+      sed 's/agent-api\./telemetry./' | \
+      sed 's/:7443/:4317/') && \
+    mkdir -p /etc/otelcol/certs && \
+    grep 'certificate-authority-data:' /etc/flightctl/config.yaml | \
+      sed 's/.*certificate-authority-data: *//' | \
+      base64 -d > /etc/otelcol/certs/ca.crt && \
+    tee /etc/otelcol/config.yaml >/dev/null <<EOF
+receivers:
+  hostmetrics:
+    collection_interval: 10s
+    scrapers: { cpu: {}, memory: {} }
+exporters:
+  otlp:
+    endpoint: ${TELEMETRY_ENDPOINT}
+    tls:
+      ca_file: /etc/otelcol/certs/ca.crt
+      cert_file: /etc/otelcol/certs/otel.crt
+      key_file: /etc/otelcol/certs/otel.key
+service:
+  pipelines:
+    metrics:
+      receivers: [hostmetrics]
+      exporters: [otlp]
+EOF
+
+# Configure the Flight Control agent to provision certificates for mTLS connection to Telemetry Gateway
+RUN mkdir -p /etc/flightctl/certs.d && \
+    tee /etc/flightctl/certs.d/otel.yaml >/dev/null <<'EOF'
+- name: otel
+  provisioner:
+    type: csr
+    config:
+      signer: "flightctl.io/device-svc-client"
+      common-name: "otel-{{.DEVICE_ID}}"
+  storage:
+    type: filesystem
+    config:
+      cert-path: "/etc/otelcol/certs/otel.crt"
+      key-path: "/etc/otelcol/certs/otel.key"
+EOF
+
+# Create systemd unit that waits for certificates before starting
+RUN mkdir -p /usr/lib/systemd/system && \
+    tee /usr/lib/systemd/system/otelcol.service >/dev/null <<'EOF'
+[Unit]
+Description=OpenTelemetry Collector
+After=network-online.target flightctl-agent.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStartPre=/bin/sh -c 'for i in $(seq 1 120); do [ -s /etc/otelcol/certs/otel.crt ] && [ -s /etc/otelcol/certs/otel.key ] && exit 0; sleep 1; done; exit 1'
+ExecStart=/usr/bin/opentelemetry-collector --config=/etc/otelcol/config.yaml
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+RUN systemctl enable otelcol.service
+```
+
+This configuration automatically:
+- Extracts the telemetry endpoint from the agent server URL in `config.yaml` (by replacing `agent-api` with `telemetry` and port `7443` with `4317`)
+- Extracts and decodes the CA certificate from `config.yaml`
+- Installs the OpenTelemetry Collector package
+- Configures the Flight Control agent to automatically provision and renew the device certificate needed for mTLS
+- Collects CPU and memory metrics every 10 seconds
+- Sends metrics to the Telemetry Gateway over gRPC port 4317
+- Ensures the collector starts only after the agent has written the required certificates
+
+> [!NOTE]
+> The device certificate is automatically provisioned and renewed by the Flight Control agent. The systemd unit waits up to 2 minutes for the certificates to be available before starting the collector.
+
 ### Signing and Publishing the OS Image (bootc)
 
 There are several methods for signing container images. We will focus on signing with [Sigstore](https://www.sigstore.dev/) signatures using a private key. For other options, refer to the [RHEL](https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/9/html/building_running_and_managing_containers/assembly_signing-container-images_building-running-and-managing-containers) or [cosign](https://github.com/sigstore/cosign) documentations.
