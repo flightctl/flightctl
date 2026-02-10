@@ -72,6 +72,7 @@ Welcome to the Flight Control user documentation.
 * **[Building Images](building/building-images.md)** - How to build your own OS images and publish them to a container registry.
   * [Understanding OS Images and the Image Build Process](building/building-images.md#understanding-os-images-and-the-image-build-process)
   * [Building and Publishing OS Images and Disk Images](building/building-images.md#building-and-publishing-os-images-and-disk-images)
+    * [Adding OpenTelemetry Collector to Devices](building/building-images.md#optional-adding-opentelemetry-collector-to-devices)
   * [Considerations for Specific Target Platforms](building/building-images.md#considerations-for-specific-target-platforms)
     * [Red Hat OpenShift Virtualization](building/building-images.md#red-hat-openshift-virtualization)
     * [VMware vSphere](building/building-images.md#vmware-vsphere)
