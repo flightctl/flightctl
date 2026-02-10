@@ -121,8 +121,8 @@ func TestSync(t *testing.T) {
 				mockLifecycleManager.EXPECT().Sync(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 				mockLifecycleManager.EXPECT().AfterUpdate(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 				mockSpecManager.EXPECT().CheckOsReconciliation(gomock.Any()).Return("", true, nil).AnyTimes()
-				// Mock systemctl for boot success check
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "systemctl", "is-active", "boot-complete.target").Return("active\n", "", 0).AnyTimes()
+				// Mock systemctl for boot success check (via systemd client)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "is-active", "boot-complete.target").Return("active\n", "", 0).AnyTimes()
 				// OnAfterUpdating is called twice - once with error, once without during rollback
 				mockHookManager.EXPECT().OnAfterUpdating(ctx, current.Spec, desired.Spec, false).Return(nonRetryableHookError).AnyTimes()
 				mockHookManager.EXPECT().OnAfterUpdating(ctx, desired.Spec, current.Spec, false).Return(nil).AnyTimes()
@@ -187,6 +187,7 @@ func TestSync(t *testing.T) {
 			)
 
 			podmanClient := client.NewPodman(log, mockExec, readWriter, testutil.NewPollConfig())
+			systemdClient := client.NewSystemd(mockExec, v1beta1.RootUsername)
 			mockWatcher := spec.NewMockWatcher(ctrl)
 			var podmanFactory client.PodmanFactory = func(user v1beta1.Username) (*client.Podman, error) {
 				return podmanClient, nil
@@ -202,7 +203,7 @@ func TestSync(t *testing.T) {
 
 			agent := Agent{
 				log:                    log,
-				executer:               mockExec,
+				systemdClient:          systemdClient,
 				deviceWriter:           readWriter,
 				specManager:            mockSpecManager,
 				policyManager:          mockPolicyManager,
