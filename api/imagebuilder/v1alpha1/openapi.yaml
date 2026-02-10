@@ -814,6 +814,9 @@ components:
       enum:
         - v1alpha1
         - flightctl.io/v1alpha1
+      x-enum-varnames:
+        - ApiVersionV1alpha1
+        - ApiVersionFlightctlIoV1alpha1
     ResourceKind:
       type: string
       enum: [ImageBuild, ImageExport]
