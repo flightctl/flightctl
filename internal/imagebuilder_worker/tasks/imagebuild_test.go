@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
-	api "github.com/flightctl/flightctl/api/imagebuilder/v1beta1"
+	api "github.com/flightctl/flightctl/api/imagebuilder/v1alpha1"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
@@ -41,6 +41,7 @@ func (m *mockStore) Event() store.Event                                         
 func (m *mockStore) Checkpoint() store.Checkpoint                               { return nil }
 func (m *mockStore) Organization() store.Organization                           { return nil }
 func (m *mockStore) AuthProvider() store.AuthProvider                           { return nil }
+func (m *mockStore) Catalog() store.Catalog                                     { return nil }
 func (m *mockStore) RunMigrations(context.Context) error                        { return nil }
 func (m *mockStore) CheckHealth(context.Context) error                          { return nil }
 func (m *mockStore) Close() error                                               { return nil }

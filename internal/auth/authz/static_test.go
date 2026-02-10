@@ -129,7 +129,7 @@ func TestStaticAuthZ_CheckPermission(t *testing.T) {
 			name:     "operator can cancel imagebuilds",
 			roles:    []string{v1beta1.RoleOperator},
 			resource: "imagebuilds/cancel",
-			op:       "update",
+			op:       "create",
 			expected: true,
 		},
 		{
@@ -233,6 +233,14 @@ func TestStaticAuthZ_GetUserPermissions(t *testing.T) {
 					Operations: []string{"get", "list"},
 				},
 				{
+					Resource:   "catalogitems",
+					Operations: []string{"create", "delete", "get", "list", "patch", "update"},
+				},
+				{
+					Resource:   "catalogs",
+					Operations: []string{"create", "delete", "get", "list", "patch", "update"},
+				},
+				{
 					Resource:   "devices",
 					Operations: []string{"create", "delete", "get", "list", "patch", "update"},
 				},
@@ -246,7 +254,7 @@ func TestStaticAuthZ_GetUserPermissions(t *testing.T) {
 				},
 				{
 					Resource:   "imagebuilds/cancel",
-					Operations: []string{"update"},
+					Operations: []string{"create"},
 				},
 				{
 					Resource:   "imageexports",
@@ -254,7 +262,7 @@ func TestStaticAuthZ_GetUserPermissions(t *testing.T) {
 				},
 				{
 					Resource:   "imageexports/cancel",
-					Operations: []string{"update"},
+					Operations: []string{"create"},
 				},
 				{
 					Resource:   "imageexports/download",

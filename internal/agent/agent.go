@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	agent_config "github.com/flightctl/flightctl/internal/agent/config"
 	"github.com/flightctl/flightctl/internal/agent/device"
@@ -167,10 +168,10 @@ func (a *Agent) Run(ctx context.Context) error {
 	kubeClient := client.NewKube(a.log, rootExecuter, rootReadWriter)
 
 	// create helm client
-	helmClient := client.NewHelm(a.log, rootExecuter, rootReadWriter, a.config.DataDir)
+	helmClient := client.NewHelm(a.log, rootExecuter, rootReadWriter, a.config.DataDir, pollBackoff)
 
 	// create CRI client
-	criClient := client.NewCRI(a.log, rootExecuter, rootReadWriter)
+	criClient := client.NewCRI(a.log, rootExecuter, rootReadWriter, pollBackoff)
 
 	// create CLI clients
 	cliClients := client.NewCLIClients(
@@ -180,7 +181,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	)
 
 	// create systemd client
-	rootSystemdClient := client.NewSystemd(rootExecuter)
+	rootSystemdClient := client.NewSystemd(rootExecuter, v1beta1.RootUsername)
 
 	// create systemInfo manager
 	systemInfoManager := systeminfo.NewManager(
@@ -261,6 +262,9 @@ func (a *Agent) Run(ctx context.Context) error {
 		return err
 	}
 
+	// create pull config resolver
+	pullConfigResolver := dependency.NewPullConfigResolver(a.log, rwFactory)
+
 	// create application manager
 	applicationsManager := applications.NewManager(
 		a.log,
@@ -269,13 +273,14 @@ func (a *Agent) Run(ctx context.Context) error {
 		cliClients,
 		systemInfoManager,
 		systemdManagerFactory,
+		pullConfigResolver,
 	)
 
 	// register the application manager with the shutdown manager
 	shutdownManager.Register("applications", applicationsManager.Shutdown)
 
 	// create os manager
-	osManager := os.NewManager(a.log, osClient, rootReadWriter, rootPodmanClient)
+	osManager := os.NewManager(a.log, osClient, rootReadWriter, rootPodmanClient, pullConfigResolver)
 
 	// create prefetch manager
 	prefetchManager := dependency.NewPrefetchManager(
@@ -421,6 +426,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		osClient,
 		rootPodmanClient,
 		prefetchManager,
+		pullConfigResolver,
 		pruningManager,
 		backoff,
 		a.log,
@@ -508,7 +514,7 @@ func wipeCertificateAndRestart(ctx context.Context, identityProvider identity.Pr
 	}
 
 	// Restart the flightctl-agent service
-	systemdClient := client.NewSystemd(executer)
+	systemdClient := client.NewSystemd(executer, v1beta1.RootUsername)
 	if err := systemdClient.Restart(ctx, "flightctl-agent"); err != nil {
 		return fmt.Errorf("failed to restart flightctl-agent service: %w", err)
 	}

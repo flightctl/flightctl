@@ -17,34 +17,20 @@ The following Quadlet files have been created:
 1. **flightctl-pam-issuer.container**
    - Quadlet container definition for systemd
    - Manages the PAM issuer container lifecycle
-   - Mounts configuration, certificates, and secrets
+   - Mounts configuration, certificates, and user database (via named volume)
    - Publishes port 8444
-   - Depends on database, KV store, and init services
+   - Depends on certificate initialization service
 
-2. **flightctl-pam-issuer-init.container**
-   - Initialization container that templates configuration
-   - Runs once before the main container starts
-   - Processes `config.yaml.template` and `env.template`
+2. **flightctl-pam-issuer-etc.volume**
+   - Quadlet volume definition for the user database
+   - Same volume name as 1.0.0 `/etc` mount; mounted at `/userdb` and kept in sync with `/etc`
 
 3. **flightctl-pam-issuer-config/config.yaml.template**
    - Template for the PAM issuer configuration
    - Includes placeholders for:
-     - Database connection (hostname, port, name, user, SSL config)
-     - KV store connection
      - PAM OIDC issuer settings (address, issuer URL, client credentials, scopes, redirect URIs, PAM service)
 
-4. **flightctl-pam-issuer-config/env.template**
-   - Environment variable template
-   - Sets HOME=/root
-
-5. **flightctl-pam-issuer-config/init.sh**
-   - Initialization script executed by the init container
-   - Extracts values from `/etc/flightctl/service-config.yaml`
-   - Templates configuration files with actual values
-   - Handles both internal and external database configurations
-   - Converts comma-separated lists to YAML arrays
-
-6. **pam-flightctl**
+4. **pam-flightctl**
    - PAM service configuration file
    - Copied to `/etc/pam.d/flightctl` in the container
    - Configures PAM authentication modules

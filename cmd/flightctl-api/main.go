@@ -16,6 +16,7 @@ import (
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics/domain"
+	"github.com/flightctl/flightctl/internal/instrumentation/metrics/system"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/rendered"
@@ -138,7 +139,7 @@ func main() {
 			collectors = append(collectors, domain.NewResourceSyncCollector(ctx, store, log, cfg))
 		}
 		if cfg.Metrics.SystemCollector != nil && cfg.Metrics.SystemCollector.Enabled {
-			if systemMetricsCollector := metrics.NewSystemCollector(ctx, cfg); systemMetricsCollector != nil {
+			if systemMetricsCollector := system.NewSystemCollector(ctx, cfg); systemMetricsCollector != nil {
 				collectors = append(collectors, systemMetricsCollector)
 				defer func() {
 					if err := systemMetricsCollector.Shutdown(); err != nil {

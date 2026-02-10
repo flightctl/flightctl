@@ -6,9 +6,8 @@ import (
 	"strconv"
 	"time"
 
-	v1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
-	api "github.com/flightctl/flightctl/api/imagebuilder/v1beta1"
 	"github.com/flightctl/flightctl/internal/flterrors"
+	"github.com/flightctl/flightctl/internal/imagebuilder_api/domain"
 	flightctlstore "github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/google/uuid"
@@ -20,11 +19,11 @@ import (
 
 // ImageExportStore is the store interface for ImageExport resources
 type ImageExportStore interface {
-	Create(ctx context.Context, orgId uuid.UUID, imageExport *api.ImageExport) (*api.ImageExport, error)
-	Get(ctx context.Context, orgId uuid.UUID, name string) (*api.ImageExport, error)
-	List(ctx context.Context, orgId uuid.UUID, listParams flightctlstore.ListParams) (*api.ImageExportList, error)
-	Delete(ctx context.Context, orgId uuid.UUID, name string) (*api.ImageExport, error)
-	UpdateStatus(ctx context.Context, orgId uuid.UUID, imageExport *api.ImageExport) (*api.ImageExport, error)
+	Create(ctx context.Context, orgId uuid.UUID, imageExport *domain.ImageExport) (*domain.ImageExport, error)
+	Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.ImageExport, error)
+	List(ctx context.Context, orgId uuid.UUID, listParams flightctlstore.ListParams) (*domain.ImageExportList, error)
+	Delete(ctx context.Context, orgId uuid.UUID, name string) (*domain.ImageExport, error)
+	UpdateStatus(ctx context.Context, orgId uuid.UUID, imageExport *domain.ImageExport) (*domain.ImageExport, error)
 	UpdateLastSeen(ctx context.Context, orgId uuid.UUID, name string, timestamp time.Time) error
 	UpdateLogs(ctx context.Context, orgId uuid.UUID, name string, logs string) error
 	GetLogs(ctx context.Context, orgId uuid.UUID, name string) (string, error)
@@ -52,12 +51,12 @@ func (s *imageExportStore) InitialMigration(ctx context.Context) error {
 
 // Create creates a new ImageExport resource
 // If a transaction exists in the context (via WithTx), it will be used automatically
-func (s *imageExportStore) Create(ctx context.Context, orgId uuid.UUID, imageExport *api.ImageExport) (*api.ImageExport, error) {
+func (s *imageExportStore) Create(ctx context.Context, orgId uuid.UUID, imageExport *domain.ImageExport) (*domain.ImageExport, error) {
 	if imageExport == nil || imageExport.Metadata.Name == nil {
 		return nil, flterrors.ErrResourceNameIsNil
 	}
 
-	m, err := NewImageExportFromApiResource(imageExport)
+	m, err := NewImageExportFromDomain(imageExport)
 	if err != nil {
 		return nil, err
 	}
@@ -70,12 +69,12 @@ func (s *imageExportStore) Create(ctx context.Context, orgId uuid.UUID, imageExp
 	// Set initial status with Ready=False, Reason=Pending if status is nil or empty
 	if m.Status == nil || m.Status.Data.Conditions == nil || len(*m.Status.Data.Conditions) == 0 {
 		now := time.Now().UTC()
-		initialStatus := api.ImageExportStatus{
-			Conditions: &[]api.ImageExportCondition{
+		initialStatus := domain.ImageExportStatus{
+			Conditions: &[]domain.ImageExportCondition{
 				{
-					Type:               api.ImageExportConditionTypeReady,
-					Status:             v1beta1.ConditionStatusFalse,
-					Reason:             string(api.ImageExportConditionReasonPending),
+					Type:               domain.ImageExportConditionTypeReady,
+					Status:             domain.ConditionStatusFalse,
+					Reason:             string(domain.ImageExportConditionReasonPending),
 					Message:            "ImageExport created, waiting to be processed",
 					LastTransitionTime: now,
 				},
@@ -93,11 +92,11 @@ func (s *imageExportStore) Create(ctx context.Context, orgId uuid.UUID, imageExp
 		return nil, result.Error
 	}
 
-	return m.ToApiResource()
+	return m.ToDomain()
 }
 
 // Get retrieves an ImageExport resource by name
-func (s *imageExportStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*api.ImageExport, error) {
+func (s *imageExportStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.ImageExport, error) {
 	m := &ImageExport{}
 	result := s.db.WithContext(ctx).Where("org_id = ? AND name = ?", orgId, name).First(m)
 	if result.Error != nil {
@@ -107,11 +106,11 @@ func (s *imageExportStore) Get(ctx context.Context, orgId uuid.UUID, name string
 		return nil, result.Error
 	}
 
-	return m.ToApiResource()
+	return m.ToDomain()
 }
 
 // List retrieves a list of ImageExport resources
-func (s *imageExportStore) List(ctx context.Context, orgId uuid.UUID, listParams flightctlstore.ListParams) (*api.ImageExportList, error) {
+func (s *imageExportStore) List(ctx context.Context, orgId uuid.UUID, listParams flightctlstore.ListParams) (*domain.ImageExportList, error) {
 	var models []ImageExport
 	var nextContinue *string
 	var numRemaining *int64
@@ -143,7 +142,7 @@ func (s *imageExportStore) List(ctx context.Context, orgId uuid.UUID, listParams
 		models = models[:len(models)-1]
 	}
 
-	list, err := ImageExportsToApiResource(models, nextContinue, numRemaining)
+	list, err := ImageExportsToDomain(models, nextContinue, numRemaining)
 	if err != nil {
 		return nil, err
 	}
@@ -176,7 +175,7 @@ func (s *imageExportStore) calculateContinue(ctx context.Context, orgId uuid.UUI
 
 // Delete removes an ImageExport resource by name and returns the deleted resource
 // Delete is idempotent - returns (nil, nil) if the resource doesn't exist
-func (s *imageExportStore) Delete(ctx context.Context, orgId uuid.UUID, name string) (*api.ImageExport, error) {
+func (s *imageExportStore) Delete(ctx context.Context, orgId uuid.UUID, name string) (*domain.ImageExport, error) {
 	// Get the resource before deleting it
 	m := &ImageExport{}
 	result := s.db.WithContext(ctx).Where("org_id = ? AND name = ?", orgId, name).First(m)
@@ -188,8 +187,8 @@ func (s *imageExportStore) Delete(ctx context.Context, orgId uuid.UUID, name str
 		return nil, flightctlstore.ErrorFromGormError(result.Error)
 	}
 
-	// Convert to API resource before deleting
-	apiResource, err := m.ToApiResource()
+	// Convert to domain resource before deleting
+	domainResource, err := m.ToDomain()
 	if err != nil {
 		return nil, err
 	}
@@ -204,11 +203,11 @@ func (s *imageExportStore) Delete(ctx context.Context, orgId uuid.UUID, name str
 		return nil, nil
 	}
 
-	return apiResource, nil
+	return domainResource, nil
 }
 
 // UpdateStatus updates the status of an ImageExport resource
-func (s *imageExportStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, imageExport *api.ImageExport) (*api.ImageExport, error) {
+func (s *imageExportStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, imageExport *domain.ImageExport) (*domain.ImageExport, error) {
 	if imageExport == nil || imageExport.Metadata.Name == nil {
 		return nil, flterrors.ErrResourceNameIsNil
 	}
@@ -249,7 +248,7 @@ func (s *imageExportStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, im
 		return nil, flterrors.ErrNoRowsUpdated
 	}
 
-	return updated[0].ToApiResource()
+	return updated[0].ToDomain()
 }
 
 // UpdateLastSeen updates the last seen timestamp of an ImageExport resource

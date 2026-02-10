@@ -63,6 +63,7 @@ func TestSync(t *testing.T) {
 			mockPrefetchManager *dependency.MockPrefetchManager,
 			mockOSManager *os.MockManager,
 			mockPruningManager *imagepruning.MockManager,
+			mockPullConfigResolver *dependency.MockPullConfigResolver,
 		)
 	}{
 		{
@@ -87,7 +88,10 @@ func TestSync(t *testing.T) {
 				mockPrefetchManager *dependency.MockPrefetchManager,
 				mockOSManager *os.MockManager,
 				mockPruningManager *imagepruning.MockManager,
+				mockPullConfigResolver *dependency.MockPullConfigResolver,
 			) {
+				mockPullConfigResolver.EXPECT().BeforeUpdate(gomock.Any()).AnyTimes()
+				mockPullConfigResolver.EXPECT().Cleanup().AnyTimes()
 				nonRetryableHookError := errors.New("hook error")
 				// IsCriticalAlert is called at the start of each syncDeviceSpec call
 				mockResourceManager.EXPECT().IsCriticalAlert(gomock.Any()).Return(false).AnyTimes()
@@ -99,6 +103,7 @@ func TestSync(t *testing.T) {
 				mockSystemdManager.EXPECT().EnsurePatterns(gomock.Any()).Return(nil).AnyTimes()
 				mockPrefetchManager.EXPECT().RegisterOCICollector(gomock.Any()).AnyTimes()
 				mockSpecManager.EXPECT().IsOSUpdate().Return(false).AnyTimes()
+				mockSpecManager.EXPECT().IsOSUpdatePending(gomock.Any()).Return(false, nil).AnyTimes()
 				mockSpecManager.EXPECT().CheckPolicy(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 				// GetDesired, Read, and BeforeUpdate may be called multiple times if syncDeviceSpec is called again
@@ -109,8 +114,8 @@ func TestSync(t *testing.T) {
 				// Set specific expectations for calls that must happen with specific parameters
 				// Use AnyTimes() for flexibility since execution order may vary with error handling
 				mockPruningManager.EXPECT().RecordReferences(ctx, gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-				mockPrefetchManager.EXPECT().BeforeUpdate(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-				mockAppManager.EXPECT().BeforeUpdate(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+				mockPrefetchManager.EXPECT().BeforeUpdate(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+				mockAppManager.EXPECT().BeforeUpdate(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 				mockHookManager.EXPECT().OnBeforeUpdating(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 				mockHookManager.EXPECT().Sync(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 				mockLifecycleManager.EXPECT().Sync(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
@@ -132,6 +137,7 @@ func TestSync(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			// mocks
 			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
 			mockOSClient := os.NewMockClient(ctrl)
 			mockManagementClient := client.NewMockManagement(ctrl)
 			mockSystemInfoManager := systeminfo.NewMockManager(ctrl)
@@ -147,6 +153,7 @@ func TestSync(t *testing.T) {
 			mockPrefetchManager := dependency.NewMockPrefetchManager(ctrl)
 			mockOSManager := os.NewMockManager(ctrl)
 			mockPruningManager := imagepruning.NewMockManager(ctrl)
+			mockPullConfigResolver := dependency.NewMockPullConfigResolver(ctrl)
 			tc.setupMocks(
 				tc.current,
 				tc.desired,
@@ -165,6 +172,7 @@ func TestSync(t *testing.T) {
 				mockPrefetchManager,
 				mockOSManager,
 				mockPruningManager,
+				mockPullConfigResolver,
 			)
 
 			// setup
@@ -207,6 +215,7 @@ func TestSync(t *testing.T) {
 				prefetchManager:        mockPrefetchManager,
 				osManager:              mockOSManager,
 				pruningManager:         mockPruningManager,
+				pullConfigResolver:     mockPullConfigResolver,
 			}
 
 			// initial sync
@@ -286,6 +295,7 @@ func TestRollbackDevice(t *testing.T) {
 			require := require.New(t)
 			// mocks
 			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
 			mockOSClient := os.NewMockClient(ctrl)
 			mockManagementClient := client.NewMockManagement(ctrl)
 			tc.setupMocks(

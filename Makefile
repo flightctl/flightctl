@@ -405,7 +405,7 @@ deb: bin/arm64 bin/amd64 bin/riscv64
 	ln -f -s packaging/debian debian
 	debuild -us -uc -b
 
-clean: clean-agent-vm clean-e2e-agent-images clean-quadlets clean-swtpm-certs
+clean: clean-agent-vm clean-e2e-agent-images clean-quadlets clean-swtpm-certs clean-e2e-certs
 	- kind delete cluster
 	- rm -rf ~/.flightctl
 	- rm -rf $(shell uname -m)
@@ -425,8 +425,8 @@ clean-quadlets:
 
 # Use custom golangci-lint container with libvirt support
 LINT_IMAGE := flightctl-lint:latest
-LINT_CONTAINER := podman run --rm \
-	-v $(GOBASE):/app:Z \
+LINT_CONTAINER := podman run --rm --security-opt label=disable \
+	-v $(GOBASE):/app \
 	-v golangci-lint-cache:/root/.cache/golangci-lint \
 	-v go-build-cache:/root/.cache/go-build \
 	-v go-mod-cache:/go/pkg/mod \
@@ -458,12 +458,13 @@ rpmlint-ci:
 check-rpmlint:
 	@command -v rpmlint > /dev/null || (echo "rpmlint not found. Install with: sudo apt-get install rpmlint (Ubuntu/Debian) or sudo dnf install rpmlint (Fedora/RHEL)" && exit 1)
 
-.output/stamps/lint-openapi: api/core/v1beta1/openapi.yaml  api/imagebuilder/v1beta1/openapi.yaml .spectral.yaml
+.output/stamps/lint-openapi: api/core/v1beta1/openapi.yaml api/core/v1alpha1/openapi.yaml api/imagebuilder/v1alpha1/openapi.yaml .spectral.yaml
 	@mkdir -p .output/stamps
 	@echo "Linting OpenAPI specs"
-	podman run --rm -it -v $(shell pwd):/workdir:Z docker.io/stoplight/spectral:6.14.2 lint --ruleset=/workdir/.spectral.yaml --fail-severity=warn \
+	podman run --rm -it --security-opt label=disable -v $(shell pwd):/workdir docker.io/stoplight/spectral:6.14.2 lint --ruleset=/workdir/.spectral.yaml --fail-severity=warn \
 		/workdir/api/core/v1beta1/openapi.yaml \
-		/workdir/api/imagebuilder/v1beta1/openapi.yaml
+		/workdir/api/core/v1alpha1/openapi.yaml \
+		/workdir/api/imagebuilder/v1alpha1/openapi.yaml
 	@touch .output/stamps/lint-openapi
 
 .PHONY: lint-openapi
@@ -476,7 +477,7 @@ lint-helm:
 .output/stamps/lint-docs: $(wildcard docs/user/*.md)
 	@mkdir -p .output/stamps
 	@echo "Linting user documentation markdown files"
-	podman run --rm -v $(shell pwd):/workdir:Z docker.io/davidanson/markdownlint-cli2:v0.19.0 "docs/user/**/*.md"
+	podman run --rm --security-opt label=disable -v $(shell pwd):/workdir docker.io/davidanson/markdownlint-cli2:v0.19.0 "docs/user/**/*.md"
 	@touch .output/stamps/lint-docs
 
 .PHONY: lint-docs
@@ -499,7 +500,7 @@ lint-diagrams:
 .output/stamps/spellcheck-docs: $(wildcard docs/user/*.md)
 	@mkdir -p .output/stamps
 	@echo "Checking user documentation for spelling issues"
-	podman run --rm -v $(shell pwd):/workdir:Z docker.io/tmaier/markdown-spellcheck:latest --en-us --ignore-numbers --report "docs/user/**/*.md"
+	podman run --rm --security-opt label=disable -v $(shell pwd):/workdir docker.io/tmaier/markdown-spellcheck:latest --en-us --ignore-numbers --report "docs/user/**/*.md"
 	@touch .output/stamps/spellcheck-docs
 
 .PHONY: spellcheck-docs
@@ -508,7 +509,7 @@ spellcheck-docs: .output/stamps/spellcheck-docs
 .PHONY: fix-spelling
 fix-spelling:
 	@echo "Running markdown-spellcheck interactively to allow fixing spelling issues"
-	podman run --rm -it -v $(shell pwd):/workdir:Z docker.io/tmaier/markdown-spellcheck:latest --en-us --ignore-numbers "docs/user/**/*.md"
+	podman run --rm -it --security-opt label=disable -v $(shell pwd):/workdir docker.io/tmaier/markdown-spellcheck:latest --en-us --ignore-numbers "docs/user/**/*.md"
 
 # include the deployment targets
 include deploy/deploy.mk

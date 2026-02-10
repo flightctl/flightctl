@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"sort"
 	"strings"
 	"sync"
 	"syscall"
@@ -132,10 +133,38 @@ func (m *monitor) getApps() []Application {
 func (m *monitor) drainActions() []lifecycle.Action {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	actions := make([]lifecycle.Action, len(m.actions))
-	copy(actions, m.actions)
+	actions := reduceActions(m.actions)
 	m.actions = nil
 	return actions
+}
+
+// reduceActions deduplicates actions by app ID, keeping only the latest action
+// for each app. The result is sorted by original queue position.
+func reduceActions(actions []lifecycle.Action) []lifecycle.Action {
+	if len(actions) == 0 {
+		return actions
+	}
+
+	type actionState struct {
+		action lifecycle.Action
+		order  int
+	}
+
+	netEffect := make(map[string]*actionState)
+	for i, action := range actions {
+		netEffect[action.ID] = &actionState{action: action, order: i}
+	}
+
+	result := make([]lifecycle.Action, 0, len(netEffect))
+	for _, state := range netEffect {
+		result = append(result, state.action)
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return netEffect[result[i].ID].order < netEffect[result[j].ID].order
+	})
+
+	return result
 }
 
 func (m *monitor) Ensure(app Application) error {
@@ -163,21 +192,15 @@ func (m *monitor) Ensure(app Application) error {
 	return nil
 }
 
-func (m *monitor) canRemoveApp(app Application) bool {
-	_, ok := m.apps[app.ID()]
-	return ok || app.IsEmbedded()
-}
-
 func (m *monitor) Remove(app Application) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	// Always proceed with removal even if the app isn't tracked. After a reboot,
+	// in-memory state is cleared but workloads (helm releases, etc.) may still
+	// exist and need cleanup. The lifecycle handlers are idempotent and will
+	// handle the case where the workload doesn't exist.
 	appID := app.ID()
-	if !m.canRemoveApp(app) {
-		m.log.Errorf("%s application not found: %s", m.name, app.Name())
-		return nil
-	}
-
 	delete(m.apps, appID)
 
 	action := lifecycle.Action{

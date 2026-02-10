@@ -6,9 +6,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/flightctl/flightctl/api/core/v1beta1"
-	api "github.com/flightctl/flightctl/api/imagebuilder/v1beta1"
 	"github.com/flightctl/flightctl/internal/flterrors"
+	"github.com/flightctl/flightctl/internal/imagebuilder_api/domain"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util"
@@ -25,10 +24,10 @@ type ImageBuild struct {
 	model.Resource
 
 	// The desired state, stored as opaque JSON object.
-	Spec *model.JSONField[api.ImageBuildSpec] `gorm:"type:jsonb"`
+	Spec *model.JSONField[domain.ImageBuildSpec] `gorm:"type:jsonb"`
 
 	// The last reported state, stored as opaque JSON object.
-	Status *model.JSONField[api.ImageBuildStatus] `gorm:"type:jsonb"`
+	Status *model.JSONField[domain.ImageBuildStatus] `gorm:"type:jsonb"`
 
 	// Logs contains the last 500 lines of build logs for completed builds.
 	// This is separate from Status to keep the ImageBuild resource lightweight.
@@ -41,12 +40,12 @@ func (i ImageBuild) String() string {
 	return string(val)
 }
 
-func NewImageBuildFromApiResource(resource *api.ImageBuild) (*ImageBuild, error) {
+func NewImageBuildFromDomain(resource *domain.ImageBuild) (*ImageBuild, error) {
 	if resource == nil || resource.Metadata.Name == nil {
 		return &ImageBuild{}, nil
 	}
 
-	status := api.ImageBuildStatus{}
+	status := domain.ImageBuildStatus{}
 	if resource.Status != nil {
 		status = *resource.Status
 	}
@@ -73,45 +72,45 @@ func NewImageBuildFromApiResource(resource *api.ImageBuild) (*ImageBuild, error)
 }
 
 func ImageBuildAPIVersion() string {
-	return api.ImageBuildAPIVersion
+	return fmt.Sprintf("%s/%s", domain.APIGroup, domain.ImageBuildAPIVersion)
 }
 
-type ImageBuildAPIResourceOption func(*imageBuildAPIResourceOptions)
+type ImageBuildDomainOption func(*imageBuildDomainOptions)
 
-type imageBuildAPIResourceOptions struct {
-	imageExports []api.ImageExport
+type imageBuildDomainOptions struct {
+	imageExports []domain.ImageExport
 }
 
-func WithImageExports(imageExports []api.ImageExport) ImageBuildAPIResourceOption {
-	return func(o *imageBuildAPIResourceOptions) {
+func WithImageExports(imageExports []domain.ImageExport) ImageBuildDomainOption {
+	return func(o *imageBuildDomainOptions) {
 		o.imageExports = imageExports
 	}
 }
 
-func (i *ImageBuild) ToApiResource(opts ...ImageBuildAPIResourceOption) (*api.ImageBuild, error) {
+func (i *ImageBuild) ToDomain(opts ...ImageBuildDomainOption) (*domain.ImageBuild, error) {
 	if i == nil {
-		return &api.ImageBuild{}, nil
+		return &domain.ImageBuild{}, nil
 	}
 
-	options := imageBuildAPIResourceOptions{}
+	options := imageBuildDomainOptions{}
 	for _, opt := range opts {
 		opt(&options)
 	}
 
-	spec := api.ImageBuildSpec{}
+	spec := domain.ImageBuildSpec{}
 	if i.Spec != nil {
 		spec = i.Spec.Data
 	}
 
-	status := api.ImageBuildStatus{}
+	status := domain.ImageBuildStatus{}
 	if i.Status != nil {
 		status = i.Status.Data
 	}
 
-	result := &api.ImageBuild{
+	result := &domain.ImageBuild{
 		ApiVersion: ImageBuildAPIVersion(),
-		Kind:       string(api.ResourceKindImageBuild),
-		Metadata: v1beta1.ObjectMeta{
+		Kind:       string(domain.ResourceKindImageBuild),
+		Metadata: domain.ObjectMeta{
 			Name:              lo.ToPtr(i.Name),
 			CreationTimestamp: lo.ToPtr(i.CreatedAt.UTC()),
 			Labels:            lo.ToPtr(util.EnsureMap(i.Resource.Labels)),
@@ -132,27 +131,27 @@ func (i *ImageBuild) ToApiResource(opts ...ImageBuildAPIResourceOption) (*api.Im
 	return result, nil
 }
 
-func ImageBuildsToApiResource(imageBuilds []ImageBuild, cont *string, numRemaining *int64) (api.ImageBuildList, error) {
-	return ImageBuildsToApiResourceWithOptions(imageBuilds, cont, numRemaining, nil)
+func ImageBuildsToDomain(imageBuilds []ImageBuild, cont *string, numRemaining *int64) (domain.ImageBuildList, error) {
+	return ImageBuildsToDomainWithOptions(imageBuilds, cont, numRemaining, nil)
 }
 
-func ImageBuildsToApiResourceWithOptions(imageBuilds []ImageBuild, cont *string, numRemaining *int64, imageExportsMap map[string][]api.ImageExport) (api.ImageBuildList, error) {
-	imageBuildList := make([]api.ImageBuild, len(imageBuilds))
+func ImageBuildsToDomainWithOptions(imageBuilds []ImageBuild, cont *string, numRemaining *int64, imageExportsMap map[string][]domain.ImageExport) (domain.ImageBuildList, error) {
+	imageBuildList := make([]domain.ImageBuild, len(imageBuilds))
 	for i, imageBuild := range imageBuilds {
-		var apiOpts []ImageBuildAPIResourceOption
+		var domainOpts []ImageBuildDomainOption
 		if imageExportsMap != nil {
 			if exports, ok := imageExportsMap[imageBuild.Name]; ok && len(exports) > 0 {
-				apiOpts = append(apiOpts, WithImageExports(exports))
+				domainOpts = append(domainOpts, WithImageExports(exports))
 			}
 		}
-		apiResource, _ := imageBuild.ToApiResource(apiOpts...)
-		imageBuildList[i] = *apiResource
+		domainResource, _ := imageBuild.ToDomain(domainOpts...)
+		imageBuildList[i] = *domainResource
 	}
-	ret := api.ImageBuildList{
+	ret := domain.ImageBuildList{
 		ApiVersion: ImageBuildAPIVersion(),
-		Kind:       api.ImageBuildListKind,
+		Kind:       domain.ImageBuildListKind,
 		Items:      imageBuildList,
-		Metadata:   v1beta1.ListMeta{},
+		Metadata:   domain.ListMeta{},
 	}
 	if cont != nil {
 		ret.Metadata.Continue = cont
@@ -162,7 +161,7 @@ func ImageBuildsToApiResourceWithOptions(imageBuilds []ImageBuild, cont *string,
 }
 
 func (i *ImageBuild) GetKind() string {
-	return string(api.ResourceKindImageBuild)
+	return string(domain.ResourceKindImageBuild)
 }
 
 func (i *ImageBuild) HasNilSpec() bool {
@@ -201,10 +200,10 @@ type ImageExport struct {
 	model.Resource
 
 	// The desired state, stored as opaque JSON object.
-	Spec *model.JSONField[api.ImageExportSpec] `gorm:"type:jsonb"`
+	Spec *model.JSONField[domain.ImageExportSpec] `gorm:"type:jsonb"`
 
 	// The last reported state, stored as opaque JSON object.
-	Status *model.JSONField[api.ImageExportStatus] `gorm:"type:jsonb"`
+	Status *model.JSONField[domain.ImageExportStatus] `gorm:"type:jsonb"`
 
 	// Logs contains the last 500 lines of export logs for completed exports.
 	// This is separate from Status to keep the ImageExport resource lightweight.
@@ -217,12 +216,12 @@ func (i ImageExport) String() string {
 	return string(val)
 }
 
-func NewImageExportFromApiResource(resource *api.ImageExport) (*ImageExport, error) {
+func NewImageExportFromDomain(resource *domain.ImageExport) (*ImageExport, error) {
 	if resource == nil || resource.Metadata.Name == nil {
 		return &ImageExport{}, nil
 	}
 
-	status := api.ImageExportStatus{}
+	status := domain.ImageExportStatus{}
 	if resource.Status != nil {
 		status = *resource.Status
 	}
@@ -249,28 +248,28 @@ func NewImageExportFromApiResource(resource *api.ImageExport) (*ImageExport, err
 }
 
 func ImageExportAPIVersion() string {
-	return api.ImageExportAPIVersion
+	return fmt.Sprintf("%s/%s", domain.APIGroup, domain.ImageExportAPIVersion)
 }
 
-func (i *ImageExport) ToApiResource() (*api.ImageExport, error) {
+func (i *ImageExport) ToDomain() (*domain.ImageExport, error) {
 	if i == nil {
-		return &api.ImageExport{}, nil
+		return &domain.ImageExport{}, nil
 	}
 
-	spec := api.ImageExportSpec{}
+	spec := domain.ImageExportSpec{}
 	if i.Spec != nil {
 		spec = i.Spec.Data
 	}
 
-	status := api.ImageExportStatus{}
+	status := domain.ImageExportStatus{}
 	if i.Status != nil {
 		status = i.Status.Data
 	}
 
-	return &api.ImageExport{
+	return &domain.ImageExport{
 		ApiVersion: ImageExportAPIVersion(),
-		Kind:       string(api.ResourceKindImageExport),
-		Metadata: v1beta1.ObjectMeta{
+		Kind:       string(domain.ResourceKindImageExport),
+		Metadata: domain.ObjectMeta{
 			Name:              lo.ToPtr(i.Name),
 			CreationTimestamp: lo.ToPtr(i.CreatedAt.UTC()),
 			Labels:            lo.ToPtr(util.EnsureMap(i.Resource.Labels)),
@@ -284,17 +283,17 @@ func (i *ImageExport) ToApiResource() (*api.ImageExport, error) {
 	}, nil
 }
 
-func ImageExportsToApiResource(imageExports []ImageExport, cont *string, numRemaining *int64) (api.ImageExportList, error) {
-	imageExportList := make([]api.ImageExport, len(imageExports))
+func ImageExportsToDomain(imageExports []ImageExport, cont *string, numRemaining *int64) (domain.ImageExportList, error) {
+	imageExportList := make([]domain.ImageExport, len(imageExports))
 	for i, imageExport := range imageExports {
-		apiResource, _ := imageExport.ToApiResource()
-		imageExportList[i] = *apiResource
+		domainResource, _ := imageExport.ToDomain()
+		imageExportList[i] = *domainResource
 	}
-	ret := api.ImageExportList{
+	ret := domain.ImageExportList{
 		ApiVersion: ImageExportAPIVersion(),
-		Kind:       api.ImageExportListKind,
+		Kind:       domain.ImageExportListKind,
 		Items:      imageExportList,
-		Metadata:   v1beta1.ListMeta{},
+		Metadata:   domain.ListMeta{},
 	}
 	if cont != nil {
 		ret.Metadata.Continue = cont
@@ -304,7 +303,7 @@ func ImageExportsToApiResource(imageExports []ImageExport, cont *string, numRema
 }
 
 func (i *ImageExport) GetKind() string {
-	return string(api.ResourceKindImageExport)
+	return string(domain.ResourceKindImageExport)
 }
 
 func (i *ImageExport) HasNilSpec() bool {

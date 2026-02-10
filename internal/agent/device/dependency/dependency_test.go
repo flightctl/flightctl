@@ -267,7 +267,7 @@ func TestEnsureScheduled(t *testing.T) {
 			manager := NewPrefetchManager(log, podmanFactory, skopeoFactory, cliClients, rw, timeout, mockResourceManager, poll.Config{})
 
 			// register a collector that returns the test targets
-			manager.RegisterOCICollector(newTestOCICollector(func(ctx context.Context, current, desired *v1beta1.DeviceSpec) (*OCICollection, error) {
+			manager.RegisterOCICollector(newTestOCICollector(func(ctx context.Context, current, desired *v1beta1.DeviceSpec, _ ...OCICollectOpt) (*OCICollection, error) {
 				return &OCICollection{Targets: tt.targets}, nil
 			}))
 
@@ -429,7 +429,7 @@ func TestStatus(t *testing.T) {
 		},
 	}
 
-	manager.RegisterOCICollector(newTestOCICollector(func(ctx context.Context, current, desired *v1beta1.DeviceSpec) (*OCICollection, error) {
+	manager.RegisterOCICollector(newTestOCICollector(func(ctx context.Context, current, desired *v1beta1.DeviceSpec, _ ...OCICollectOpt) (*OCICollection, error) {
 		return &OCICollection{Targets: targets}, nil
 	}))
 
@@ -798,7 +798,7 @@ func TestBeforeUpdate(t *testing.T) {
 
 			// Register collectors
 			for _, collector := range tt.collectors {
-				manager.RegisterOCICollector(newTestOCICollector(func(ctx context.Context, current, desired *v1beta1.DeviceSpec) (*OCICollection, error) {
+				manager.RegisterOCICollector(newTestOCICollector(func(ctx context.Context, current, desired *v1beta1.DeviceSpec, _ ...OCICollectOpt) (*OCICollection, error) {
 					return collector()
 				}))
 			}
@@ -935,29 +935,18 @@ func TestPullSecretCleanup(t *testing.T) {
 	cliClients := client.NewCLIClients()
 	manager := NewPrefetchManager(log, podmanFactory, skopeoFactory, cliClients, rw, timeout, mockResourceManager, poll.Config{})
 
-	// simulate the complete lifecycle of pull secret cleanup
-	var cleanupCalls []string
-
-	// create multiple pull secrets to test comprehensive cleanup
-	appPullSecret := &client.PullConfig{
-		Path: "/tmp/app-auth.json",
-		Cleanup: func() {
-			cleanupCalls = append(cleanupCalls, "app-auth-cleanup")
-		},
-	}
-	appPullSecretProvider := client.NewPullConfigProvider(map[client.ConfigType]*client.PullConfig{
-		client.ConfigTypeContainerSecret: appPullSecret,
-	})
-
 	// simulate a collector that would be called by applications manager
-	appCollector := func(ctx context.Context, current, desired *v1beta1.DeviceSpec) (*OCICollection, error) {
+	// note: cleanup is now handled centrally by PullConfigResolver at the device level
+	appCollector := func(ctx context.Context, current, desired *v1beta1.DeviceSpec, _ ...OCICollectOpt) (*OCICollection, error) {
 		return &OCICollection{Targets: OCIPullTargetsByUser{
 			"": []OCIPullTarget{
 				{
 					Type:       OCITypePodmanImage,
 					Reference:  "registry.example.com/app:latest",
 					PullPolicy: v1beta1.PullIfNotPresent,
-					Configs:    appPullSecretProvider,
+					ClientOptsFn: func() []client.ClientOption {
+						return []client.ClientOption{client.WithPullSecret("/tmp/app-auth.json")}
+					},
 				},
 			},
 		}}, nil
@@ -980,9 +969,6 @@ func TestPullSecretCleanup(t *testing.T) {
 	err := manager.BeforeUpdate(ctx, current, desired)
 	require.ErrorIs(err, errors.ErrPrefetchNotReady)
 
-	// no cleanup
-	require.Empty(cleanupCalls)
-
 	// simulate successful pull completion
 	manager.setResult(imageRef{image: "registry.example.com/app:latest"}, nil)
 
@@ -993,9 +979,8 @@ func TestPullSecretCleanup(t *testing.T) {
 	err = manager.BeforeUpdate(ctx, current, desired)
 	require.NoError(err)
 
-	// ensure cleanup
+	// cleanup is now handled by PullConfigResolver at the device level
 	manager.Cleanup()
-	require.NotEmpty(cleanupCalls)
 }
 
 type taskState struct {
@@ -1005,14 +990,14 @@ type taskState struct {
 
 // testOCICollector is a test helper that implements OCICollector interface
 type testOCICollector struct {
-	collectFn func(ctx context.Context, current, desired *v1beta1.DeviceSpec) (*OCICollection, error)
+	collectFn func(ctx context.Context, current, desired *v1beta1.DeviceSpec, opts ...OCICollectOpt) (*OCICollection, error)
 }
 
-func (t *testOCICollector) CollectOCITargets(ctx context.Context, current, desired *v1beta1.DeviceSpec) (*OCICollection, error) {
-	return t.collectFn(ctx, current, desired)
+func (t *testOCICollector) CollectOCITargets(ctx context.Context, current, desired *v1beta1.DeviceSpec, opts ...OCICollectOpt) (*OCICollection, error) {
+	return t.collectFn(ctx, current, desired, opts...)
 }
 
-func newTestOCICollector(fn func(ctx context.Context, current, desired *v1beta1.DeviceSpec) (*OCICollection, error)) OCICollector {
+func newTestOCICollector(fn func(ctx context.Context, current, desired *v1beta1.DeviceSpec, opts ...OCICollectOpt) (*OCICollection, error)) OCICollector {
 	return &testOCICollector{collectFn: fn}
 }
 

@@ -105,6 +105,7 @@ require (
 
 require (
 	github.com/coreos/go-systemd/v22 v22.5.0
+	github.com/fsnotify/fsnotify v1.9.0
 	github.com/goccy/go-yaml v1.18.0
 	github.com/jackc/pgx/v5 v5.5.5
 	github.com/mattbaird/jsonpatch v0.0.0-20240118010651-0ba75a80ca38
@@ -115,6 +116,7 @@ require (
 	github.com/opencontainers/go-digest v1.0.0
 	github.com/opencontainers/image-spec v1.1.1
 	github.com/prometheus/client_model v0.6.2
+	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1
 	github.com/spf13/viper v1.20.1
 	go.opentelemetry.io/collector/consumer/consumererror v0.130.1
 	go.opentelemetry.io/otel/exporters/prometheus v0.59.1
@@ -190,7 +192,6 @@ require (
 	github.com/facette/natsort v0.0.0-20181210072756-2cd4dd1e2dcb // indirect
 	github.com/fatih/color v1.16.0 // indirect
 	github.com/foxboron/go-tpm-keyfiles v0.0.0-20250323135004-b31fac66206e // indirect
-	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.7.0 // indirect
 	github.com/go-git/gcfg v1.5.1-0.20230307220236-3a3c6141e376 // indirect
 	github.com/go-kit/log v0.2.1 // indirect

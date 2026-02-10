@@ -24,6 +24,7 @@ const (
 const (
 	RegularFileMode    os.FileMode = 0644 // Regular files
 	ExecutableFileMode os.FileMode = 0755 // Executable files and directories
+	ShadowFileMode     os.FileMode = 0600 // Shadow files (password hashes) - root only
 )
 
 type InstallAction struct {
@@ -47,6 +48,7 @@ type RendererConfig struct {
 	SystemdUnitOutputDir     string `mapstructure:"systemd-dir"`
 	BinOutputDir             string `mapstructure:"bin-dir"`
 	VarTmpOutputDir          string `mapstructure:"var-tmp-dir"`
+	VarLibOutputDir          string `mapstructure:"var-lib-dir"`
 
 	// Source directories for binary search
 	BinSourceDirs []string `mapstructure:"bin-source-dirs"`
@@ -69,6 +71,10 @@ type RendererConfig struct {
 	Alertmanager       ImageConfig `mapstructure:"alertmanager"`
 	ImagebuilderApi    ImageConfig `mapstructure:"imagebuilder-api"`
 	ImagebuilderWorker ImageConfig `mapstructure:"imagebuilder-worker"`
+	Grafana            ImageConfig `mapstructure:"grafana"`
+	Prometheus         ImageConfig `mapstructure:"prometheus"`
+	TelemetryGateway   ImageConfig `mapstructure:"telemetry-gateway"`
+	UserinfoProxy      ImageConfig `mapstructure:"userinfo-proxy"`
 }
 
 func NewRendererConfig() *RendererConfig {
@@ -79,6 +85,7 @@ func NewRendererConfig() *RendererConfig {
 		SystemdUnitOutputDir:     "/usr/lib/systemd/system",
 		BinOutputDir:             "/usr/bin",
 		VarTmpOutputDir:          "/var/tmp",
+		VarLibOutputDir:          "/var/lib",
 	}
 }
 
@@ -280,6 +287,8 @@ func (config *RendererConfig) ApplyFlightctlServicesTagOverride(log logrus.Field
 	config.DbSetup.Tag = tag
 	config.ImagebuilderApi.Tag = tag
 	config.ImagebuilderWorker.Tag = tag
+	config.TelemetryGateway.Tag = tag
+	config.UserinfoProxy.Tag = tag
 
 	if config.FlightctlUiTagOverride {
 		// For release builds, UI tag must be overridden

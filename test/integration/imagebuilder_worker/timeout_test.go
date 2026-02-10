@@ -8,7 +8,7 @@ import (
 	"time"
 
 	v1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
-	apiimagebuilder "github.com/flightctl/flightctl/api/imagebuilder/v1beta1"
+	apiimagebuilder "github.com/flightctl/flightctl/api/imagebuilder/v1alpha1"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/service"

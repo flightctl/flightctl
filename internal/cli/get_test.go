@@ -15,6 +15,7 @@ import (
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/cli/display"
+	"github.com/flightctl/flightctl/internal/client"
 )
 
 // fakeHTTPClient is a minimal HTTP client stub that returns the supplied
@@ -39,11 +40,11 @@ func newTestClient(t *testing.T, responses ...*http.Response) (*apiclient.Client
 	t.Helper()
 
 	fake := &fakeHTTPClient{responses: responses}
-	client, err := apiclient.NewClientWithResponses("http://example.com", apiclient.WithHTTPClient(fake))
+	c, err := apiclient.NewClientWithResponses("http://example.com", apiclient.WithHTTPClient(fake))
 	if err != nil {
 		t.Fatalf("failed to create test client: %v", err)
 	}
-	return client, fake
+	return c, fake
 }
 
 // makeDeviceListPage builds an *http.Response that contains a single page of a
@@ -55,14 +56,14 @@ func makeDeviceListPage(t *testing.T, numItems int, cont *string, remaining *int
 	for i := 0; i < numItems; i++ {
 		name := fmt.Sprintf("dev-%d", i)
 		items[i] = api.Device{
-			ApiVersion: "v1",
+			ApiVersion: "v1beta1",
 			Kind:       api.DeviceKind,
 			Metadata:   api.ObjectMeta{Name: &name},
 		}
 	}
 
 	body, err := json.Marshal(api.DeviceList{
-		ApiVersion: "v1",
+		ApiVersion: "v1beta1",
 		Kind:       api.DeviceListKind,
 		Items:      items,
 		Metadata: api.ListMeta{
@@ -165,7 +166,8 @@ func TestHandleListBatching(t *testing.T) {
 				responses = append(responses, makeDeviceListPage(t, numItems, continueToken, remaining))
 			}
 
-			clientWithResponses, fakeClient := newTestClient(t, responses...)
+			apiClient, fakeClient := newTestClient(t, responses...)
+			c := client.NewTestClient(apiClient)
 
 			opts := DefaultGetOptions()
 			opts.Output = testCase.output
@@ -173,7 +175,7 @@ func TestHandleListBatching(t *testing.T) {
 
 			ctx := context.Background()
 			fetcher := func() (interface{}, error) {
-				response, err := opts.getResourceList(ctx, clientWithResponses, DeviceKind)
+				response, err := opts.getResourceList(ctx, c, DeviceKind)
 				if err != nil {
 					return nil, err
 				}
@@ -499,6 +501,24 @@ func TestGetOptionsValidation(t *testing.T) {
 			args:        []string{"events"},
 			expectError: false,
 		},
+
+		// CatalogItem cross-catalog listing tests
+		{
+			name:        "catalogitems_without_catalog_lists_all",
+			args:        []string{"catalogitems"},
+			expectError: false,
+		},
+		{
+			name:        "catalogitems_with_catalog_flag",
+			args:        []string{"catalogitems"},
+			options:     &GetOptions{CatalogName: "my-catalog"},
+			expectError: false,
+		},
+		{
+			name:        "catalogitems_shortname_without_catalog",
+			args:        []string{"ci"},
+			expectError: false,
+		},
 	}
 
 	for _, tc := range tests {
@@ -525,6 +545,9 @@ func TestGetOptionsValidation(t *testing.T) {
 				}
 				if tc.options.LastSeen {
 					opts.LastSeen = tc.options.LastSeen
+				}
+				if tc.options.CatalogName != "" {
+					opts.CatalogName = tc.options.CatalogName
 				}
 			}
 

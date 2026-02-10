@@ -24,7 +24,8 @@ if [[ -z "$base_domain" ]]; then
     echo "ERROR: global.baseDomain is not set and HOST_FQDN is not available for defaulting" >&2
     exit 1
   fi
-  base_domain="${HOST_FQDN}"
+  # Normalize to lowercase (DNS is case-insensitive per RFC 1123)
+  base_domain="${HOST_FQDN,,}"
   echo "global.baseDomain not set, defaulting to host FQDN ($base_domain)"
 fi
 

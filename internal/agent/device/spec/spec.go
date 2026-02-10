@@ -67,6 +67,9 @@ type Manager interface {
 	IsUpgrading() bool
 	// IsOSUpdate returns true if an OS update is in progress by checking the current rendered spec.
 	IsOSUpdate() bool
+	// IsOSUpdatePending returns true if an OS update is specified but the device
+	// has not yet booted into the new image.
+	IsOSUpdatePending(ctx context.Context) (bool, error)
 	// CheckOsReconciliation checks if the booted OS image matches the desired OS image.
 	CheckOsReconciliation(ctx context.Context) (string, bool, error)
 	// IsRollingBack returns true if the device is in a rollback state.

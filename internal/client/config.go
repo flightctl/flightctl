@@ -21,6 +21,7 @@ import (
 	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
 	"github.com/flightctl/flightctl/api/versioning"
 	"github.com/flightctl/flightctl/internal/api/client"
+	v1alpha1client "github.com/flightctl/flightctl/internal/api/client/v1alpha1"
 	imagebuilderclient "github.com/flightctl/flightctl/internal/api/imagebuilder/client"
 	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/crypto"
@@ -349,7 +350,13 @@ func WithUserAgentHeader(component string) client.ClientOption {
 // It embeds *client.ClientWithResponses so all API methods are available directly.
 type Client struct {
 	*client.ClientWithResponses
+	v1alpha1  *v1alpha1client.ClientWithResponses
 	refresher *AccessTokenRefresher
+}
+
+// V1Alpha1 returns the v1alpha1 API client for alpha resources.
+func (c *Client) V1Alpha1() *v1alpha1client.ClientWithResponses {
+	return c.v1alpha1
 }
 
 // Start starts the token refresh loop if a refresher is configured.
@@ -364,6 +371,14 @@ func (c *Client) Start(ctx context.Context) {
 func (c *Client) Stop() {
 	if c.refresher != nil {
 		c.refresher.Stop()
+	}
+}
+
+// NewTestClient creates a Client for testing purposes with only the v1beta1 client.
+// This should only be used in tests.
+func NewTestClient(clientWithResponses *client.ClientWithResponses) *Client {
+	return &Client{
+		ClientWithResponses: clientWithResponses,
 	}
 }
 
@@ -392,7 +407,8 @@ func (c *ImageBuilderClient) Stop() {
 // If the config has a refresh token, a token refresher will be created and included in the client.
 // The refresher is not started automatically - call Start() to begin token refresh.
 func NewImageBuilderClientFromConfig(config *Config, configFilePath string, imageBuilderServer string, organization string, opts ...imagebuilderclient.ClientOption) (*ImageBuilderClient, error) {
-	httpClient, err := NewHTTPClientForServer(config, imageBuilderServer)
+	// ImageBuilder API uses v1alpha1
+	httpClient, err := NewHTTPClientForServer(config, imageBuilderServer, versioning.WithAPIVersion(versioning.V1Alpha1))
 	if err != nil {
 		return nil, fmt.Errorf("NewImageBuilderClientFromConfig: creating HTTP client %w", err)
 	}
@@ -490,8 +506,58 @@ func NewFromConfig(config *Config, configFilePath string, opts ...client.ClientO
 		return nil, err
 	}
 
+	// Create a separate http.Client for v1alpha1 with the correct API version header.
+	// The httpClient has its transport wrapped with v1beta1 versioning, so we need to
+	// unwrap the base transport and re-wrap it with v1alpha1 versioning.
+	v1alpha1HttpClient := &http.Client{
+		Timeout: httpClient.Timeout,
+	}
+	if vt, ok := httpClient.Transport.(interface{ UnwrapTransport() http.RoundTripper }); ok {
+		v1alpha1HttpClient.Transport = versioning.NewTransport(vt.UnwrapTransport(), versioning.WithAPIVersion(versioning.V1Alpha1))
+	} else {
+		v1alpha1HttpClient.Transport = versioning.NewTransport(httpClient.Transport, versioning.WithAPIVersion(versioning.V1Alpha1))
+	}
+	v1alpha1Opts := []v1alpha1client.ClientOption{v1alpha1client.WithHTTPClient(v1alpha1HttpClient)}
+	if config.AuthInfo.RefreshToken != "" {
+		v1alpha1Opts = append(v1alpha1Opts, v1alpha1client.WithRequestEditorFn(func(ctx context.Context, req *http.Request) error {
+			req.Header.Set(middleware.RequestIDHeader, reqid.NextRequestID())
+			accessToken := refresher.GetAccessToken()
+			if accessToken != "" {
+				req.Header.Set(common.AuthHeader, fmt.Sprintf("Bearer %s", accessToken))
+			}
+			return nil
+		}))
+	} else {
+		v1alpha1Opts = append(v1alpha1Opts, v1alpha1client.WithRequestEditorFn(func(ctx context.Context, req *http.Request) error {
+			req.Header.Set(middleware.RequestIDHeader, reqid.NextRequestID())
+			accessToken := config.AuthInfo.AccessToken
+			if config.AuthInfo.TokenToUse == TokenToUseIdToken {
+				accessToken = config.AuthInfo.IdToken
+			}
+			if accessToken != "" {
+				req.Header.Set(common.AuthHeader, fmt.Sprintf("Bearer %s", accessToken))
+			}
+			return nil
+		}))
+	}
+	// Add organization query param
+	v1alpha1Opts = append(v1alpha1Opts, v1alpha1client.WithRequestEditorFn(func(ctx context.Context, req *http.Request) error {
+		if config.Organization == "" {
+			return nil
+		}
+		q := req.URL.Query()
+		q.Set("org_id", config.Organization)
+		req.URL.RawQuery = q.Encode()
+		return nil
+	}))
+	v1alpha1ApiClient, err := v1alpha1client.NewClientWithResponses(JoinServerURL(config.Service.Server, v1alpha1client.ServerUrlApiv1), v1alpha1Opts...)
+	if err != nil {
+		return nil, err
+	}
+
 	return &Client{
 		ClientWithResponses: apiClient,
+		v1alpha1:            v1alpha1ApiClient,
 		refresher:           refresher,
 	}, nil
 }
@@ -526,7 +592,9 @@ func NewHTTPClientFromConfig(config *Config) (*http.Client, error) {
 // NewHTTPClientForServer returns a new HTTP Client from the given config,
 // using the specified server URL to derive the TLS ServerName for SNI.
 // This is important for OpenShift routes which use SNI-based routing.
-func NewHTTPClientForServer(config *Config, serverURL string) (*http.Client, error) {
+// Optional versioning.TransportOption can be passed to configure the API version header.
+// If no option is provided, it defaults to v1beta1.
+func NewHTTPClientForServer(config *Config, serverURL string, versionOpts ...versioning.TransportOption) (*http.Client, error) {
 	config = config.DeepCopy()
 	if err := config.Flatten(); err != nil {
 		return nil, err
@@ -573,7 +641,11 @@ func NewHTTPClientForServer(config *Config, serverURL string) (*http.Client, err
 	}
 
 	// Wrap transport with versioning to inject API version header (after HTTPOptions)
-	httpClient.Transport = versioning.NewTransport(httpClient.Transport, versioning.WithAPIV1Beta1())
+	// Default to v1beta1 if no version option is provided
+	if len(versionOpts) == 0 {
+		versionOpts = []versioning.TransportOption{versioning.WithAPIV1Beta1()}
+	}
+	httpClient.Transport = versioning.NewTransport(httpClient.Transport, versionOpts...)
 
 	return httpClient, nil
 }

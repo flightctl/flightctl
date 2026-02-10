@@ -8,6 +8,7 @@ import (
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
+	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -34,7 +35,7 @@ func setupTestEnv(t *testing.T) (*log.PrefixLogger, *client.Podman, fileio.ReadW
 	podman := client.NewPodman(log, mockExec, rw, util.NewPollConfig())
 
 	// Create the systemd unit directory for target file copying
-	require.NoError(t, rw.MkdirAll(lifecycle.QuadletTargetPath, fileio.DefaultDirectoryPermissions))
+	require.NoError(t, rw.MkdirAll(lifecycle.RootfulQuadletTargetPath, fileio.DefaultDirectoryPermissions))
 
 	return log, podman, rw, mockExec
 }
@@ -52,7 +53,7 @@ func setupEmbeddedQuadletApp(t *testing.T, rw fileio.ReadWriter, name string, fi
 
 // setupRealQuadletApp creates a real path quadlet app for remove testing
 func setupRealQuadletApp(t *testing.T, rw fileio.ReadWriter, name string, files map[string]string) {
-	realPath := filepath.Join(lifecycle.QuadletAppPath, name)
+	realPath := filepath.Join(lifecycle.RootfulQuadletAppPath, name)
 	require.NoError(t, rw.MkdirAll(realPath, fileio.DefaultDirectoryPermissions))
 
 	for filename, content := range files {
@@ -104,8 +105,8 @@ Image=nginx:latest
 `,
 			},
 			verifyFn: func(t *testing.T, rw fileio.ReadWriter, appName string) {
-				realPath := filepath.Join(lifecycle.QuadletAppPath, appName)
-				appID := client.NewComposeID(appName)
+				realPath := filepath.Join(lifecycle.RootfulQuadletAppPath, appName)
+				appID := lifecycle.GenerateAppID(appName, v1beta1.CurrentProcessUsername)
 
 				// Verify namespaced file exists
 				namespacedFile := filepath.Join(realPath, appID+"-web.container")
@@ -135,8 +136,8 @@ Network=app-net.network
 `,
 			},
 			verifyFn: func(t *testing.T, rw fileio.ReadWriter, appName string) {
-				realPath := filepath.Join(lifecycle.QuadletAppPath, appName)
-				appID := client.NewComposeID(appName)
+				realPath := filepath.Join(lifecycle.RootfulQuadletAppPath, appName)
+				appID := lifecycle.GenerateAppID(appName, v1beta1.CurrentProcessUsername)
 
 				// Verify all namespaced files exist
 				namespacedContainer := filepath.Join(realPath, appID+"-web.container")
@@ -199,7 +200,7 @@ func TestEmbeddedProvider_Remove(t *testing.T) {
 			},
 			verifyFn: func(t *testing.T, rw fileio.ReadWriter, appName string) {
 				// Verify real path is removed
-				realPath := filepath.Join(lifecycle.QuadletAppPath, appName)
+				realPath := filepath.Join(lifecycle.RootfulQuadletAppPath, appName)
 				verifyFilesNotExist(t, rw, []string{realPath})
 
 				// Verify embedded path still exists
@@ -419,7 +420,7 @@ func TestParseEmbeddedQuadlet(t *testing.T) {
 			}
 
 			// Call parseEmbeddedQuadlet
-			var providers []Provider
+			var providers []appProvider
 			ctx := context.Background()
 			err := parseEmbeddedQuadlet(ctx, logger, podman, rw, &providers, "2025-01-01T00:00:00Z")
 			require.NoError(t, err)
@@ -438,5 +439,194 @@ func TestParseEmbeddedQuadlet(t *testing.T) {
 				require.True(t, providerNames[expectedName], "expected provider not found: %s", expectedName)
 			}
 		})
+	}
+}
+
+func TestEmbeddedQuadletEnsureDependencies(t *testing.T) {
+	tests := []struct {
+		name           string
+		appName        string
+		files          map[string]string
+		commandChecker commandChecker
+		setupMocks     func(*executer.MockExecuter)
+		wantErr        error
+	}{
+		{
+			name:    "missing podman binary returns ErrAppDependency",
+			appName: "myapp",
+			files: map[string]string{
+				"web.container": "[Container]\nImage=nginx:latest\n",
+			},
+			commandChecker: func(cmd string) bool { return false },
+			wantErr:        errors.ErrAppDependency,
+		},
+		{
+			name:    "missing skopeo binary returns ErrAppDependency",
+			appName: "myapp",
+			files: map[string]string{
+				"web.container": "[Container]\nImage=nginx:latest\n",
+			},
+			commandChecker: func(cmd string) bool { return cmd == "podman" },
+			wantErr:        errors.ErrAppDependency,
+		},
+		{
+			name:    "podman binary available with valid version",
+			appName: "myapp",
+			files: map[string]string{
+				"web.container": "[Container]\nImage=nginx:latest\n",
+			},
+			commandChecker: func(cmd string) bool { return cmd == "podman" || cmd == "skopeo" },
+			setupMocks: func(mockExec *executer.MockExecuter) {
+				mockExec.EXPECT().
+					ExecuteWithContext(gomock.Any(), "podman", "--version").
+					Return("podman version 5.4.0", "", 0)
+			},
+			wantErr: nil,
+		},
+		{
+			name:    "podman version below minimum",
+			appName: "myapp",
+			files: map[string]string{
+				"web.container": "[Container]\nImage=nginx:latest\n",
+			},
+			commandChecker: func(cmd string) bool { return cmd == "podman" || cmd == "skopeo" },
+			setupMocks: func(mockExec *executer.MockExecuter) {
+				mockExec.EXPECT().
+					ExecuteWithContext(gomock.Any(), "podman", "--version").
+					Return("podman version 4.9.0", "", 0)
+			},
+			wantErr: errors.ErrAppDependency,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, podman, rw, mockExec := setupTestEnv(t)
+
+			setupEmbeddedQuadletApp(t, rw, tt.appName, tt.files)
+
+			if tt.setupMocks != nil {
+				tt.setupMocks(mockExec)
+			}
+
+			provider, err := newEmbedded(logger, podman, rw, tt.appName, v1beta1.AppTypeQuadlet, "2025-01-01T00:00:00Z", false)
+			require.NoError(t, err)
+
+			embeddedProv := provider.(*embeddedProvider)
+			if tt.commandChecker != nil {
+				handler := embeddedProv.handler.(*embeddedQuadletBehavior)
+				handler.commandChecker = tt.commandChecker
+			}
+
+			ctx := context.Background()
+			err = provider.EnsureDependencies(ctx)
+			if tt.wantErr != nil {
+				require.Error(t, err)
+				require.ErrorIs(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestEmbeddedComposeEnsureDependencies(t *testing.T) {
+	tests := []struct {
+		name           string
+		appName        string
+		files          map[string]string
+		commandChecker commandChecker
+		wantErr        error
+	}{
+		{
+			name:    "missing all binaries returns ErrAppDependency",
+			appName: "myapp",
+			files: map[string]string{
+				"docker-compose.yml": "version: '3'\nservices:\n  web:\n    image: nginx\n",
+			},
+			commandChecker: func(cmd string) bool { return false },
+			wantErr:        errors.ErrAppDependency,
+		},
+		{
+			name:    "missing podman binary returns ErrAppDependency",
+			appName: "myapp",
+			files: map[string]string{
+				"docker-compose.yml": "version: '3'\nservices:\n  web:\n    image: nginx\n",
+			},
+			commandChecker: func(cmd string) bool { return cmd == "docker-compose" || cmd == "skopeo" },
+			wantErr:        errors.ErrAppDependency,
+		},
+		{
+			name:    "missing compose binary returns ErrAppDependency",
+			appName: "myapp",
+			files: map[string]string{
+				"docker-compose.yml": "version: '3'\nservices:\n  web:\n    image: nginx\n",
+			},
+			commandChecker: func(cmd string) bool { return cmd == "podman" || cmd == "skopeo" },
+			wantErr:        errors.ErrAppDependency,
+		},
+		{
+			name:    "missing skopeo binary returns ErrAppDependency",
+			appName: "myapp",
+			files: map[string]string{
+				"docker-compose.yml": "version: '3'\nservices:\n  web:\n    image: nginx\n",
+			},
+			commandChecker: func(cmd string) bool { return cmd == "podman" || cmd == "docker-compose" },
+			wantErr:        errors.ErrAppDependency,
+		},
+		{
+			name:    "docker-compose binary available with all deps",
+			appName: "myapp",
+			files: map[string]string{
+				"docker-compose.yml": "version: '3'\nservices:\n  web:\n    image: nginx\n",
+			},
+			commandChecker: func(cmd string) bool { return cmd == "podman" || cmd == "docker-compose" || cmd == "skopeo" },
+			wantErr:        nil,
+		},
+		{
+			name:    "podman-compose binary available with all deps",
+			appName: "myapp",
+			files: map[string]string{
+				"docker-compose.yml": "version: '3'\nservices:\n  web:\n    image: nginx\n",
+			},
+			commandChecker: func(cmd string) bool { return cmd == "podman" || cmd == "podman-compose" || cmd == "skopeo" },
+			wantErr:        nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, podman, rw, _ := setupTestEnv(t)
+
+			setupEmbeddedComposeApp(t, rw, tt.appName, tt.files)
+
+			provider, err := newEmbedded(logger, podman, rw, tt.appName, v1beta1.AppTypeCompose, "2025-01-01T00:00:00Z", false)
+			require.NoError(t, err)
+
+			embeddedProv := provider.(*embeddedProvider)
+			if tt.commandChecker != nil {
+				handler := embeddedProv.handler.(*embeddedComposeBehavior)
+				handler.commandChecker = tt.commandChecker
+			}
+
+			ctx := context.Background()
+			err = provider.EnsureDependencies(ctx)
+			if tt.wantErr != nil {
+				require.Error(t, err)
+				require.ErrorIs(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
+func setupEmbeddedComposeApp(t *testing.T, rw fileio.ReadWriter, name string, files map[string]string) {
+	embeddedPath := filepath.Join(lifecycle.EmbeddedComposeAppPath, name)
+	require.NoError(t, rw.MkdirAll(embeddedPath, fileio.DefaultDirectoryPermissions))
+
+	for filename, content := range files {
+		filePath := filepath.Join(embeddedPath, filename)
+		require.NoError(t, rw.WriteFile(filePath, []byte(content), fileio.DefaultFilePermissions))
 	}
 }

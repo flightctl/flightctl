@@ -176,7 +176,7 @@ var _ = Describe("VM Agent behavior", func() {
 	})
 
 	Context("status", func() {
-		It("Device status tests", Label("75991", "sanity"), func() {
+		It("Device status tests", Label("75991", "sanity", "agent"), func() {
 			// Get harness directly - no shared package-level variable
 			harness := e2e.GetWorkerHarness()
 

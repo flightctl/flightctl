@@ -34,6 +34,13 @@ Exiting the health check with a non-zero status declares the boot as failed. The
 
 > If the system is not booted using `bootc`, the health check still runs, but no rollback is possible.
 
+### Third-Party Health Check Management
+
+Flight Control is designed to be the sole controller of OS rollback decisions. The `flightctl-configure-greenboot.service` runs before `greenboot-healthcheck.service` on every boot, automatically disabling third-party health checks (e.g., MicroShift) by setting `DISABLED_HEALTHCHECKS` in `/etc/greenboot/greenboot.conf`. Core greenboot scripts and Flight Control's own health checks are preserved.
+
+> [!WARNING]
+> Do not manually edit `DISABLED_HEALTHCHECKS` in `/etc/greenboot/greenboot.conf` it is replaced on every boot by `flightctl-configure-greenboot.service`.
+
 ## The `systemd` Journal Service Configuration
 
 The default `systemd` journal configuration stores data in volatile `/run/log/journal`, which does not persist across reboots. To monitor greenboot activities across boots, enable persistent storage:

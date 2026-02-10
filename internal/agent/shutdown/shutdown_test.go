@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/executer"
@@ -137,7 +138,7 @@ func TestIsShuttingDownViaSystemd(t *testing.T) {
 
 			mockReadWriter := fileio.NewMockReadWriter(ctrl)
 			mockExec := executer.NewMockExecuter(ctrl)
-			systemdClient := client.NewSystemd(mockExec)
+			systemdClient := client.NewSystemd(mockExec, v1beta1.RootUsername)
 
 			// Setup file existence mock
 			mockReadWriter.EXPECT().PathExists(shutdownScheduledPath).Return(tc.scheduledFileExists, tc.scheduledFileError)
@@ -214,7 +215,7 @@ func TestIsSystemShutdown(t *testing.T) {
 			defer ctrl.Finish()
 
 			mockExec := executer.NewMockExecuter(ctrl)
-			systemdClient := client.NewSystemd(mockExec)
+			systemdClient := client.NewSystemd(mockExec, v1beta1.RootUsername)
 
 			// Setup file system
 			tmpDir := t.TempDir()
@@ -256,7 +257,7 @@ func TestIsSystemShutdownScheduledFile(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockExec := executer.NewMockExecuter(ctrl)
-	systemdClient := client.NewSystemd(mockExec)
+	systemdClient := client.NewSystemd(mockExec, v1beta1.RootUsername)
 
 	// Setup file system
 	tmpDir := t.TempDir()

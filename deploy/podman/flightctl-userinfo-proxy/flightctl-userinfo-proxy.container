@@ -1,0 +1,29 @@
+[Unit]
+Description=Flight Control UserInfo Proxy for OAuth Integration
+After=flightctl-network.service
+Wants=flightctl-network.service
+PartOf=flightctl-observability.target
+
+[Container]
+Image={{ .UserinfoProxy.Image }}:{{ .UserinfoProxy.Tag }}
+Pull=missing
+
+ContainerName=flightctl-userinfo-proxy
+
+# Network configuration
+Network=flightctl.network
+
+# Environment variables loaded from file
+EnvironmentFile=/etc/flightctl/flightctl-userinfo-proxy/env
+
+# Security
+User=1001:1001
+
+[Service]
+Restart=on-failure
+RestartSec=10
+TimeoutStartSec=30
+ExecStartPre=/usr/bin/flightctl-standalone render template --input-file /usr/share/flightctl/flightctl-userinfo-proxy/env.template --output-file /etc/flightctl/flightctl-userinfo-proxy/env
+
+[Install]
+WantedBy=multi-user.target 

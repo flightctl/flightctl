@@ -130,6 +130,7 @@ type imageBuilderWorkerConfig struct {
 	LastSeenUpdateInterval   util.Duration `json:"lastSeenUpdateInterval,omitempty"`
 	ImageBuilderTimeout      util.Duration `json:"imageBuilderTimeout,omitempty"`
 	TimeoutCheckTaskInterval util.Duration `json:"timeoutCheckTaskInterval,omitempty"`
+	RPMRepoURL               string        `json:"rpmRepoUrl,omitempty"`
 }
 
 // NewDefaultImageBuilderWorkerConfig returns a default ImageBuilder worker configuration
@@ -143,6 +144,7 @@ func NewDefaultImageBuilderWorkerConfig() *imageBuilderWorkerConfig {
 		LastSeenUpdateInterval:   util.Duration(30 * time.Second),
 		ImageBuilderTimeout:      util.Duration(3 * time.Minute),
 		TimeoutCheckTaskInterval: util.Duration(1 * time.Minute),
+		RPMRepoURL:               "https://rpm.flightctl.io/flightctl-epel.repo",
 	}
 }
 

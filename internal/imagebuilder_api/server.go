@@ -9,8 +9,9 @@ import (
 	"net/http"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/imagebuilder/v1beta1"
+	api "github.com/flightctl/flightctl/api/imagebuilder/v1alpha1"
 	fcmiddleware "github.com/flightctl/flightctl/internal/api_server/middleware"
+	"github.com/flightctl/flightctl/internal/api_server/versioning"
 	"github.com/flightctl/flightctl/internal/auth"
 	"github.com/flightctl/flightctl/internal/auth/authn"
 	"github.com/flightctl/flightctl/internal/config"
@@ -171,9 +172,37 @@ func (s *Server) Run(ctx context.Context) error {
 		userAgentMiddleware,
 	)
 
-	// API routes with OpenAPI validation and auth
+	// Create version negotiator with v1alpha1 as default (imagebuilder resources are v1alpha1)
+	negotiator := versioning.NewNegotiator(versioning.V1Alpha1, server.MetadataResolver)
+
+	// Create transport handler that implements ServerInterface
+	transportHandler := transport.NewTransportHandler(s.service, s.log)
+
+	// Create v1alpha1 OpenAPI middleware
+	v1alpha1OapiMiddleware := oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapiOpts)
+
+	// Create v1alpha1 router with OpenAPI validation and auth
+	routerV1Alpha1 := versioning.NewRouter(versioning.RouterConfig{
+		Middlewares: []versioning.Middleware{v1alpha1OapiMiddleware},
+		RegisterRoutes: func(r chi.Router) {
+			server.HandlerFromMux(transportHandler, r)
+		},
+	})
+
+	// Create negotiated router with version-specific sub-routers
+	negotiatedRouter, err := versioning.NewNegotiatedRouter(
+		negotiator.NegotiateMiddleware,
+		map[versioning.Version]chi.Router{
+			versioning.V1Alpha1: routerV1Alpha1,
+		},
+		versioning.V1Alpha1,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create negotiated router: %w", err)
+	}
+
+	// API routes with version negotiation and auth
 	router.Group(func(r chi.Router) {
-		r.Use(oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapiOpts))
 		r.Use(authMiddlewares...)
 
 		// Add rate limiting if configured
@@ -195,11 +224,8 @@ func (s *Server) Run(ctx context.Context) error {
 			})
 		}
 
-		// Create transport handler that implements ServerInterface
-		transportHandler := transport.NewTransportHandler(s.service, s.log)
-
-		// Register routes from generated OpenAPI spec
-		server.HandlerFromMux(transportHandler, r)
+		// Mount the negotiated router for all API routes
+		r.Mount("/", negotiatedRouter)
 	})
 
 	// Health check endpoints (bypass OpenAPI + auth)

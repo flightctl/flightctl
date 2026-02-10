@@ -42,4 +42,7 @@ data:
         logLevel: {{ default "info" .Values.imageBuilderWorker.logLevel }}
         maxConcurrentBuilds: {{ default 2 .Values.imageBuilderWorker.maxConcurrentBuilds }}
         defaultTTL: {{ default "168h" .Values.imageBuilderWorker.defaultTTL }}
+        {{- if .Values.imageBuilderWorker.rpmRepoUrl }}
+        rpmRepoUrl: {{ .Values.imageBuilderWorker.rpmRepoUrl | quote }}
+        {{- end }}
 {{- end }}

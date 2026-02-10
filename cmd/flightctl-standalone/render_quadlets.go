@@ -34,6 +34,7 @@ func NewRenderQuadletsCommand() *cobra.Command {
 	cmd.Flags().StringVar(&config.SystemdUnitOutputDir, "systemd-dir", config.SystemdUnitOutputDir, "Systemd unit output directory")
 	cmd.Flags().StringVar(&config.BinOutputDir, "bin-dir", config.BinOutputDir, "Binary output directory")
 	cmd.Flags().StringVar(&config.VarTmpOutputDir, "var-tmp-dir", config.VarTmpOutputDir, "Var tmp output directory for builds/exports")
+	cmd.Flags().StringVar(&config.VarLibOutputDir, "var-lib-dir", config.VarLibOutputDir, "Var lib output directory for persistent data")
 	cmd.Flags().StringSliceVar(&config.BinSourceDirs, "bin-source-dirs", []string{"bin"}, "Directories to search for binaries (searched in order)")
 	cmd.Flags().StringVar(&config.FlightctlServicesTagOverride, "flightctl-services-tag-override", "", "Override image tags for all FlightCtl services")
 	cmd.Flags().BoolVar(&config.FlightctlUiTagOverride, "flightctl-ui-tag-override", false, "Apply tag override to UI service")

@@ -22,6 +22,9 @@ Volume=/etc/flightctl/pki/db:/root/.flightctl/certs/db:ro,z
 Volume=/var/tmp/flightctl-builds:/var/tmp/flightctl-builds:rw,z
 Volume=/var/tmp/flightctl-exports:/var/tmp/flightctl-exports:rw,z
 Volume=flightctl-worker-storage:/var/lib/containers
+# Optional: Mount RHEL entitlement certs for subscription-only repos (auto-detected if present).
+# On RHEL hosts with active subscription, uncomment to use host entitlements:
+# Volume=/etc/pki/entitlement:/etc/pki/entitlement:ro,z
 PodmanArgs=--privileged
 
 [Service]

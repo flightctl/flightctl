@@ -153,7 +153,7 @@ func (s *AgentServer) Run(ctx context.Context) error {
 
 // Custom logger that logs only responses with status >= 400
 func filteredLogger(log logrus.FieldLogger) func(next http.Handler) http.Handler {
-	formatter := middleware.DefaultLogFormatter{Logger: log}
+	formatter := fcmiddleware.ChiLogFormatterWithAPIVersionTag(log)
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -190,7 +190,7 @@ func addAgentContext(next http.Handler) http.Handler {
 
 // isEnrollmentRequest checks if the request is for enrollment-related operations
 func isEnrollmentRequest(r *http.Request) bool {
-	metadata := apimetaserver.GetEndpointMetadata(r)
+	metadata := apimetaserver.MetadataResolver.Resolve(r)
 	if metadata == nil {
 		return false
 	}
@@ -278,7 +278,7 @@ func (s *AgentServer) prepareHTTPHandler(ctx context.Context, serviceHandler ser
 	router.Use(middlewares...)
 
 	// Create versioning infrastructure
-	negotiator := versioning.NewNegotiator(versioning.V1Beta1)
+	negotiator := versioning.NewNegotiator(versioning.V1Beta1, apimetaserver.MetadataResolver)
 
 	// Create handler for agent API
 	handlerV1Beta1 := agenttransportv1beta1.NewAgentTransportHandler(serviceHandler, convertv1beta1.NewConverter(), s.ca, s.log)

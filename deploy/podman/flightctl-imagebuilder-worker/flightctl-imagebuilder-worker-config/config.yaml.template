@@ -30,3 +30,6 @@ imageBuilderWorker:
   logLevel: {{if .imagebuilderWorker.logLevel}}{{.imagebuilderWorker.logLevel}}{{else}}info{{end}}
   maxConcurrentBuilds: {{if .imagebuilderWorker.maxConcurrentBuilds}}{{.imagebuilderWorker.maxConcurrentBuilds}}{{else}}2{{end}}
   defaultTTL: {{if .imagebuilderWorker.defaultTTL}}{{.imagebuilderWorker.defaultTTL}}{{else}}168h{{end}}
+  {{- if .imagebuilderWorker.rpmRepoUrl}}
+  rpmRepoUrl: {{.imagebuilderWorker.rpmRepoUrl}}
+  {{- end}}

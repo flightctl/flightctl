@@ -4,7 +4,6 @@ import (
 	"net/http"
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
-	"github.com/flightctl/flightctl/internal/transport"
 )
 
 // AuthGetPermissions returns the list of available permissions for the authenticated user
@@ -15,10 +14,10 @@ func (h *TransportHandler) AuthGetPermissions(w http.ResponseWriter, r *http.Req
 	// Get all available permissions for the user
 	permissionList, err := h.authZ.GetUserPermissions(r.Context())
 	if err != nil {
-		transport.SetResponse(w, nil, api.StatusInternalServerError(err.Error()))
+		h.SetResponse(w, nil, api.StatusInternalServerError(err.Error()))
 		return
 	}
 
 	// Return response
-	transport.SetResponse(w, permissionList, api.StatusOK())
+	h.SetResponse(w, permissionList, api.StatusOK())
 }

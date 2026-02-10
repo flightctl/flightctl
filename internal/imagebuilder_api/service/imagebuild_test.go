@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
-	api "github.com/flightctl/flightctl/api/imagebuilder/v1beta1"
+	api "github.com/flightctl/flightctl/api/imagebuilder/v1alpha1"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -1038,10 +1038,10 @@ func TestCancelImageBuild_Pending(t *testing.T) {
 	require.NotNil(result.Status)
 	require.NotNil(result.Status.Conditions)
 
-	// Verify status is Canceling
+	// Verify status is Canceled (Pending resources go directly to Canceled, no active processing to stop)
 	readyCondition := api.FindImageBuildStatusCondition(*result.Status.Conditions, api.ImageBuildConditionTypeReady)
 	require.NotNil(readyCondition)
-	require.Equal(string(api.ImageBuildConditionReasonCanceling), readyCondition.Reason)
+	require.Equal(string(api.ImageBuildConditionReasonCanceled), readyCondition.Reason)
 }
 
 func TestCancelImageBuild_Building(t *testing.T) {
@@ -1272,8 +1272,8 @@ func TestCancelImageBuild_NoStatus(t *testing.T) {
 	require.NoError(err)
 	require.NotNil(result)
 
-	// Verify status is Canceling
+	// Verify status is Canceled (no status = Pending, which goes directly to Canceled)
 	readyCondition := api.FindImageBuildStatusCondition(*result.Status.Conditions, api.ImageBuildConditionTypeReady)
 	require.NotNil(readyCondition)
-	require.Equal(string(api.ImageBuildConditionReasonCanceling), readyCondition.Reason)
+	require.Equal(string(api.ImageBuildConditionReasonCanceled), readyCondition.Reason)
 }

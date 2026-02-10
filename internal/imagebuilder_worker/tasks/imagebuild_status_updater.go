@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/imagebuilder/v1beta1"
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/imagebuilder_api/domain"
 	imagebuilderapi "github.com/flightctl/flightctl/internal/imagebuilder_api/service"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/google/uuid"
@@ -17,7 +17,7 @@ import (
 
 // statusUpdateRequest represents a request to update the ImageBuild status
 type statusUpdateRequest struct {
-	Condition      *api.ImageBuildCondition
+	Condition      *domain.ImageBuildCondition
 	LastSeen       *time.Time
 	ImageReference *string
 	// done is closed when the update has been processed (used for terminal conditions)
@@ -109,7 +109,7 @@ func (u *statusUpdater) run(cfg *config.Config) {
 	defer ticker.Stop()
 
 	// Track pending updates
-	var pendingCondition *api.ImageBuildCondition
+	var pendingCondition *domain.ImageBuildCondition
 	var pendingImageReference *string
 	lastSeenUpdateTime := time.Now().UTC()
 
@@ -176,7 +176,7 @@ func (u *statusUpdater) run(cfg *config.Config) {
 // When cancelBuild() is called, only buildCtx is canceled - updaterCtx remains valid until
 // cleanupStatusUpdater() is called, which happens AFTER processImageBuild() returns.
 // This ensures we can still write the final status (e.g., Canceled) after the build is canceled.
-func (u *statusUpdater) updateStatus(condition *api.ImageBuildCondition, lastSeen *time.Time, imageReference *string) {
+func (u *statusUpdater) updateStatus(condition *domain.ImageBuildCondition, lastSeen *time.Time, imageReference *string) {
 	// Load current status from database
 	imageBuild, status := u.imageBuildService.Get(u.ctx, u.orgID, u.imageBuildName, false)
 	if imageBuild == nil || !imagebuilderapi.IsStatusOK(status) {
@@ -186,7 +186,7 @@ func (u *statusUpdater) updateStatus(condition *api.ImageBuildCondition, lastSee
 
 	// Initialize status if needed
 	if imageBuild.Status == nil {
-		imageBuild.Status = &api.ImageBuildStatus{}
+		imageBuild.Status = &domain.ImageBuildStatus{}
 	}
 
 	// Update LastSeen
@@ -197,18 +197,18 @@ func (u *statusUpdater) updateStatus(condition *api.ImageBuildCondition, lastSee
 	// Update condition if provided
 	if condition != nil {
 		if imageBuild.Status.Conditions == nil {
-			imageBuild.Status.Conditions = &[]api.ImageBuildCondition{}
+			imageBuild.Status.Conditions = &[]domain.ImageBuildCondition{}
 		}
 
 		// Check if current status is "Canceling" - don't overwrite with in-progress states
 		// Only allow transitioning to terminal states (Canceled, Failed, Completed)
 		skipConditionUpdate := false
-		currentCondition := api.FindImageBuildStatusCondition(*imageBuild.Status.Conditions, api.ImageBuildConditionTypeReady)
-		if currentCondition != nil && currentCondition.Reason == string(api.ImageBuildConditionReasonCanceling) {
+		currentCondition := domain.FindImageBuildStatusCondition(*imageBuild.Status.Conditions, domain.ImageBuildConditionTypeReady)
+		if currentCondition != nil && currentCondition.Reason == string(domain.ImageBuildConditionReasonCanceling) {
 			// Only allow terminal states to overwrite Canceling
-			if condition.Reason != string(api.ImageBuildConditionReasonCanceled) &&
-				condition.Reason != string(api.ImageBuildConditionReasonFailed) &&
-				condition.Reason != string(api.ImageBuildConditionReasonCompleted) {
+			if condition.Reason != string(domain.ImageBuildConditionReasonCanceled) &&
+				condition.Reason != string(domain.ImageBuildConditionReasonFailed) &&
+				condition.Reason != string(domain.ImageBuildConditionReasonCompleted) {
 				u.log.WithField("attemptedReason", condition.Reason).Info("Skipping condition update - build is being canceled")
 				skipConditionUpdate = true
 			}
@@ -216,16 +216,16 @@ func (u *statusUpdater) updateStatus(condition *api.ImageBuildCondition, lastSee
 
 		if !skipConditionUpdate {
 			// Use helper function to set condition, keeping ImageBuildCondition type
-			api.SetImageBuildStatusCondition(imageBuild.Status.Conditions, *condition)
+			domain.SetImageBuildStatusCondition(imageBuild.Status.Conditions, *condition)
 
 			// If build is completed, failed, or canceled, persist logs to DB and signal stream completion
-			if condition.Reason == string(api.ImageBuildConditionReasonCompleted) ||
-				condition.Reason == string(api.ImageBuildConditionReasonFailed) ||
-				condition.Reason == string(api.ImageBuildConditionReasonCanceled) {
+			if condition.Reason == string(domain.ImageBuildConditionReasonCompleted) ||
+				condition.Reason == string(domain.ImageBuildConditionReasonFailed) ||
+				condition.Reason == string(domain.ImageBuildConditionReasonCanceled) {
 				u.persistLogsToDB()
 				u.writeStreamCompleteMarker()
 				// Signal cancellation completion to the API (for cancel-then-delete flow)
-				if condition.Reason == string(api.ImageBuildConditionReasonCanceled) {
+				if condition.Reason == string(domain.ImageBuildConditionReasonCanceled) {
 					u.signalCanceled()
 				}
 			}
@@ -248,11 +248,11 @@ func (u *statusUpdater) updateStatus(condition *api.ImageBuildCondition, lastSee
 // For terminal conditions (Completed, Failed, Canceled), this blocks until the update is processed.
 // This ensures the final status is written before the caller returns and triggers cleanup.
 // Exported for testing purposes.
-func (u *statusUpdater) UpdateCondition(condition api.ImageBuildCondition) {
+func (u *statusUpdater) UpdateCondition(condition domain.ImageBuildCondition) {
 	// For terminal conditions, wait for the update to complete
-	isTerminal := condition.Reason == string(api.ImageBuildConditionReasonCompleted) ||
-		condition.Reason == string(api.ImageBuildConditionReasonFailed) ||
-		condition.Reason == string(api.ImageBuildConditionReasonCanceled)
+	isTerminal := condition.Reason == string(domain.ImageBuildConditionReasonCompleted) ||
+		condition.Reason == string(domain.ImageBuildConditionReasonFailed) ||
+		condition.Reason == string(domain.ImageBuildConditionReasonCanceled)
 
 	var done chan struct{}
 	if isTerminal {
@@ -350,6 +350,9 @@ func (u *statusUpdater) persistLogsToDB() {
 		logs += "\n"
 	}
 
+	// Sanitize logs to remove invalid UTF-8 sequences (PostgreSQL requires valid UTF-8)
+	logs = strings.ToValidUTF8(logs, "")
+
 	// Persist to DB using the service's UpdateLogs method
 	if logs != "" {
 		u.log.Debugf("Persisting %d lines of logs to DB", len(u.logBuffer))
@@ -367,7 +370,7 @@ func (u *statusUpdater) writeStreamCompleteMarker() {
 	}
 
 	key := u.getLogKey()
-	_, err := u.kvStore.StreamAdd(u.ctx, key, []byte(api.LogStreamCompleteMarker))
+	_, err := u.kvStore.StreamAdd(u.ctx, key, []byte(domain.LogStreamCompleteMarker))
 	if err != nil {
 		u.log.WithError(err).Warn("Failed to write stream complete marker to Redis")
 	}
@@ -441,12 +444,12 @@ func (u *statusUpdater) isStatusCanceling() bool {
 		return false
 	}
 
-	readyCondition := api.FindImageBuildStatusCondition(*imageBuild.Status.Conditions, api.ImageBuildConditionTypeReady)
+	readyCondition := domain.FindImageBuildStatusCondition(*imageBuild.Status.Conditions, domain.ImageBuildConditionTypeReady)
 	if readyCondition == nil {
 		return false
 	}
 
-	return readyCondition.Reason == string(api.ImageBuildConditionReasonCanceling)
+	return readyCondition.Reason == string(domain.ImageBuildConditionReasonCanceling)
 }
 
 // getImageBuildCancelStreamKey returns the Redis stream key for cancellation requests

@@ -101,7 +101,7 @@ func (m *PodmanMonitor) ensureMonitorForUser(ctx context.Context, username v1bet
 	var watcher podmanEventWatcher
 	watcher.Init(m.log, username, client, m.startTime)
 	if err := watcher.Watch(ctx, m.events); err != nil {
-		return err
+		return fmt.Errorf("initializing watcher: %w", err)
 	}
 
 	m.watchers[username] = &watcher
@@ -212,25 +212,15 @@ func (m *PodmanMonitor) Ensure(ctx context.Context, app Application) error {
 	return nil
 }
 
-// expects mutex to be held
-func (m *PodmanMonitor) canRemoveApp(app Application) bool {
-	_, ok := m.apps[app.ID()]
-	// embedded applications can adhere to slightly different lifecycles
-	// making it possible to remove an app that was never added.
-	return ok || app.IsEmbedded()
-}
-
 func (m *PodmanMonitor) QueueRemove(app Application) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	// Always proceed with removal even if the app isn't tracked. After a reboot,
+	// in-memory state is cleared but workloads (containers, pods, etc.) may still
+	// exist and need cleanup. The lifecycle handlers are idempotent and will
+	// handle the case where the workload doesn't exist.
 	appID := app.ID()
-	if !m.canRemoveApp(app) {
-		m.log.Errorf("Podman application not found: %s", app.Name())
-		// app is already removed
-		return nil
-	}
-
 	delete(m.apps, appID)
 	appName := app.Name()
 
@@ -273,18 +263,6 @@ func (m *PodmanMonitor) QueueUpdate(app Application) error {
 
 	m.actions = append(m.actions, action)
 	return nil
-}
-
-func (m *PodmanMonitor) getByID(appID string) (Application, bool) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	app, ok := m.apps[appID]
-	if ok {
-		return app, true
-	}
-
-	return nil, false
 }
 
 func (m *PodmanMonitor) addBatchTimeToCtx(ctx context.Context) context.Context {
@@ -365,9 +343,7 @@ func (m *PodmanMonitor) ExecuteActions(ctx context.Context) error {
 func (m *PodmanMonitor) drainActions() []lifecycle.Action {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	actions := make([]lifecycle.Action, len(m.actions))
-	copy(actions, m.actions)
-	// reset actions to ensure we don't execute the same actions again
+	actions := reduceActions(m.actions)
 	m.actions = nil
 	return actions
 }
@@ -657,11 +633,11 @@ func (e *podmanEventWatcher) Watch(ctx context.Context, events chan<- client.Pod
 
 func (e *podmanEventWatcher) listenForEvents(ctx context.Context, stdoutPipe io.ReadCloser, events chan<- client.PodmanEvent) {
 	// the pipe will be closed by calling cmd.Wait
-	defer e.log.Debugf("Done listening for podman events")
+	defer e.log.Debugf("Done listening for podman events for user %s", e.username)
 
 	scanner := bufio.NewScanner(stdoutPipe)
 	for scanner.Scan() {
-		e.log.Debugf("Received podman event: %s", scanner.Text())
+		e.log.Debugf("Received podman event for user %s: %s", e.username, scanner.Text())
 		select {
 		case <-ctx.Done():
 			return

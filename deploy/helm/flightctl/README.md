@@ -27,6 +27,8 @@ kubectl label namespace <namespace> \
 
 On OpenShift clusters, the chart automatically creates a SecurityContextConstraints (SCC) that grants the required permissions to the `flightctl-imagebuilder-worker` service account.
 
+For additional ImageBuilder Worker configuration options (custom RPM repositories, RHEL entitlement certificates), see the [ImageBuilder configuration documentation](../../../docs/user/installing/configuring-imagebuilder.md).
+
 If you don't need image building capabilities, you can disable the imagebuilder-worker:
 
 ```yaml

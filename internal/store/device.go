@@ -66,7 +66,6 @@ type Device interface {
 	SetServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition, callback ServiceConditionsCallback) error
 	OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error
 	GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*domain.RepositoryList, error)
-	PrepareDevicesAfterRestore(ctx context.Context) (int64, error)
 	RemoveConflictPausedAnnotation(ctx context.Context, orgId uuid.UUID, listParams ListParams) (int64, []string, error)
 	SetOutOfDate(ctx context.Context, orgId uuid.UUID, owner string) error
 	ListDisconnected(ctx context.Context, orgId uuid.UUID, listParams ListParams, cutoffTime time.Time) (*domain.DeviceList, error)
@@ -86,9 +85,6 @@ type Device interface {
 	// Used by tests
 	SetIntegrationTestCreateOrUpdateCallback(IntegrationTestCallback)
 	CountByOrgAndStatus(ctx context.Context, orgId *uuid.UUID, statusType DeviceStatusType, groupByFleet bool) ([]CountByOrgAndStatusResult, error)
-
-	// Used for restoration
-	GetAllDeviceNames(ctx context.Context, orgId uuid.UUID) ([]string, error)
 }
 type DeviceStore struct {
 	dbHandler    *gorm.DB
@@ -1290,51 +1286,6 @@ func (s *DeviceStore) CountByOrgAndStatus(ctx context.Context, orgId *uuid.UUID,
 	return results, nil
 }
 
-// PrepareDevicesAfterRestore sets the waitingForConnectionAfterRestore annotation
-// on all devices, clears their lastSeen timestamps, and sets status summary using efficient SQL
-func (s *DeviceStore) PrepareDevicesAfterRestore(ctx context.Context) (int64, error) {
-	db := s.getDB(ctx)
-
-	// Use raw SQL for efficient bulk update that preserves existing annotations
-	// and properly handles the status JSON structure using || operator for merging
-	sql := `
-        WITH updated_devices AS (
-		UPDATE devices 
-		SET 
-			annotations = COALESCE(annotations, '{}'::jsonb) || jsonb_build_object($1::text, 'true'),
-			status = CASE 
-				WHEN status IS NOT NULL THEN 
-					status || jsonb_build_object('summary', jsonb_build_object('status', $2::text, 'info', $3::text)) || jsonb_build_object('updated', jsonb_build_object('status', $6::text))
-				ELSE 
-					jsonb_build_object('summary', jsonb_build_object('status', $2::text, 'info', $3::text)) || jsonb_build_object('updated', jsonb_build_object('status', $6::text))
-			END,
-			resource_version = COALESCE(resource_version, 0) + 1
-		WHERE deleted_at IS NULL 
-			AND NOT (status->'lifecycle'->>'status') IN ($4, $5)
-			AND (annotations->>$1) IS DISTINCT FROM 'true'
-        RETURNING name, org_id)
-        UPDATE device_timestamps dt
-        SET last_seen = NULL
-		FROM updated_devices ud
-		WHERE dt.org_id = ud.org_id AND dt.name = ud.name
-	`
-
-	result := db.Exec(sql,
-		domain.DeviceAnnotationAwaitingReconnect,
-		domain.DeviceSummaryStatusAwaitingReconnect,
-		"Device has not reconnected since restore to confirm its current state.",
-		domain.DeviceLifecycleStatusDecommissioned,
-		domain.DeviceLifecycleStatusDecommissioning,
-		domain.DeviceUpdatedStatusUnknown,
-	)
-
-	if result.Error != nil {
-		return 0, ErrorFromGormError(result.Error)
-	}
-
-	return result.RowsAffected, nil
-}
-
 // RemoveConflictPausedAnnotation removes the conflictPaused annotation from all devices matching the selector
 // Returns the count of affected devices and their IDs
 func (s *DeviceStore) RemoveConflictPausedAnnotation(ctx context.Context, orgId uuid.UUID, listParams ListParams) (int64, []string, error) {
@@ -1376,21 +1327,4 @@ func (s *DeviceStore) RemoveConflictPausedAnnotation(ctx context.Context, orgId 
 	})
 
 	return affectedRows, deviceIDs, err
-}
-
-// GetAllDeviceNames returns all device names for a given organization
-// This is used for restoration to add awaiting reconnection keys
-func (s *DeviceStore) GetAllDeviceNames(ctx context.Context, orgId uuid.UUID) ([]string, error) {
-	var deviceNames []string
-
-	// Use raw SQL for efficiency - we only need the device names
-	err := s.getDB(ctx).Model(&model.Device{}).
-		Where("org_id = ? AND deleted_at IS NULL", orgId).
-		Pluck("name", &deviceNames).Error
-
-	if err != nil {
-		return nil, ErrorFromGormError(err)
-	}
-
-	return deviceNames, nil
 }

@@ -14,11 +14,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/flightctl/flightctl/api/core/v1beta1"
-	api "github.com/flightctl/flightctl/api/imagebuilder/v1beta1"
 	"github.com/flightctl/flightctl/internal/config"
-	"github.com/flightctl/flightctl/internal/domain"
+	coredomain "github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
+	"github.com/flightctl/flightctl/internal/imagebuilder_api/domain"
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/store"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	internalservice "github.com/flightctl/flightctl/internal/service"
@@ -54,19 +53,19 @@ var (
 
 // ImageExportService handles business logic for ImageExport resources
 type ImageExportService interface {
-	Create(ctx context.Context, orgId uuid.UUID, imageExport api.ImageExport) (*api.ImageExport, v1beta1.Status)
-	Get(ctx context.Context, orgId uuid.UUID, name string) (*api.ImageExport, v1beta1.Status)
-	List(ctx context.Context, orgId uuid.UUID, params api.ListImageExportsParams) (*api.ImageExportList, v1beta1.Status)
-	Delete(ctx context.Context, orgId uuid.UUID, name string) (*api.ImageExport, v1beta1.Status)
+	Create(ctx context.Context, orgId uuid.UUID, imageExport domain.ImageExport) (*domain.ImageExport, domain.Status)
+	Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.ImageExport, domain.Status)
+	List(ctx context.Context, orgId uuid.UUID, params domain.ListImageExportsParams) (*domain.ImageExportList, domain.Status)
+	Delete(ctx context.Context, orgId uuid.UUID, name string) (*domain.ImageExport, domain.Status)
 	// Cancel cancels an ImageExport. Returns ErrNotCancelable if not in cancelable state.
-	Cancel(ctx context.Context, orgId uuid.UUID, name string) (*api.ImageExport, error)
+	Cancel(ctx context.Context, orgId uuid.UUID, name string) (*domain.ImageExport, error)
 	// CancelWithReason cancels an ImageExport with a custom reason message (e.g., for timeout).
 	// Returns ErrNotCancelable if not in cancelable state.
-	CancelWithReason(ctx context.Context, orgId uuid.UUID, name string, reason string) (*api.ImageExport, error)
+	CancelWithReason(ctx context.Context, orgId uuid.UUID, name string, reason string) (*domain.ImageExport, error)
 	Download(ctx context.Context, orgId uuid.UUID, name string) (*ImageExportDownload, error)
-	GetLogs(ctx context.Context, orgId uuid.UUID, name string, follow bool) (LogStreamReader, string, v1beta1.Status)
+	GetLogs(ctx context.Context, orgId uuid.UUID, name string, follow bool) (LogStreamReader, string, domain.Status)
 	// Internal methods (not exposed via API)
-	UpdateStatus(ctx context.Context, orgId uuid.UUID, imageExport *api.ImageExport) (*api.ImageExport, error)
+	UpdateStatus(ctx context.Context, orgId uuid.UUID, imageExport *domain.ImageExport) (*domain.ImageExport, error)
 	UpdateLastSeen(ctx context.Context, orgId uuid.UUID, name string, timestamp time.Time) error
 	UpdateLogs(ctx context.Context, orgId uuid.UUID, name string, logs string) error
 }
@@ -105,7 +104,7 @@ func NewImageExportService(imageExportStore store.ImageExportStore, imageBuildSt
 	}
 }
 
-func (s *imageExportService) Create(ctx context.Context, orgId uuid.UUID, imageExport api.ImageExport) (*api.ImageExport, v1beta1.Status) {
+func (s *imageExportService) Create(ctx context.Context, orgId uuid.UUID, imageExport domain.ImageExport) (*domain.ImageExport, domain.Status) {
 	// Don't set fields that are managed by the service
 	imageExport.Status = nil
 	NilOutManagedObjectMetaProperties(&imageExport.Metadata)
@@ -119,20 +118,32 @@ func (s *imageExportService) Create(ctx context.Context, orgId uuid.UUID, imageE
 
 	// Set owner based on the source ImageBuild reference
 	sourceType, _ := imageExport.Spec.Source.Discriminator()
-	if sourceType == string(api.ImageExportSourceTypeImageBuild) {
+	if sourceType == string(domain.ImageExportSourceTypeImageBuild) {
 		source, _ := imageExport.Spec.Source.AsImageBuildRefSource()
-		imageExport.Metadata.Owner = util.SetResourceOwner(string(api.ResourceKindImageBuild), source.ImageBuildRef)
+		imageExport.Metadata.Owner = util.SetResourceOwner(string(domain.ResourceKindImageBuild), source.ImageBuildRef)
 	}
 
 	result, err := s.imageExportStore.Create(ctx, orgId, &imageExport)
 	if err != nil {
-		return result, StoreErrorToApiStatus(err, true, string(api.ResourceKindImageExport), imageExport.Metadata.Name)
+		return result, StoreErrorToApiStatus(err, true, string(domain.ResourceKindImageExport), imageExport.Metadata.Name)
+	}
+	// Clear any stale Redis keys from a previous resource with the same name
+	// This prevents old cancellation signals from affecting the new resource
+	if s.kvStore != nil && imageExport.Metadata.Name != nil {
+		name := *imageExport.Metadata.Name
+		cancelStreamKey := fmt.Sprintf("imageexport:cancel:%s:%s", orgId.String(), name)
+		if err := s.kvStore.Delete(ctx, cancelStreamKey); err != nil {
+			s.log.WithError(err).Debug("Failed to clear stale cancel stream key (may not exist)")
+		}
+		if err := s.kvStore.Delete(ctx, getCanceledStreamKey(orgId, name)); err != nil {
+			s.log.WithError(err).Debug("Failed to clear stale canceled stream key (may not exist)")
+		}
 	}
 
 	// Create event separately (no transaction)
-	var event *v1beta1.Event
+	var event *coredomain.Event
 	if result != nil && s.eventHandler != nil {
-		event = common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, true, v1beta1.ResourceKind(string(api.ResourceKindImageExport)), lo.FromPtr(result.Metadata.Name), nil, s.log, nil)
+		event = common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, true, coredomain.ResourceKind(string(domain.ResourceKindImageExport)), lo.FromPtr(result.Metadata.Name), nil, s.log, nil)
 		if event != nil {
 			s.eventHandler.CreateEvent(ctx, orgId, event)
 		}
@@ -146,15 +157,15 @@ func (s *imageExportService) Create(ctx context.Context, orgId uuid.UUID, imageE
 		}
 	}
 
-	return result, StoreErrorToApiStatus(nil, true, string(api.ResourceKindImageExport), imageExport.Metadata.Name)
+	return result, StoreErrorToApiStatus(nil, true, string(domain.ResourceKindImageExport), imageExport.Metadata.Name)
 }
 
-func (s *imageExportService) Get(ctx context.Context, orgId uuid.UUID, name string) (*api.ImageExport, v1beta1.Status) {
+func (s *imageExportService) Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.ImageExport, domain.Status) {
 	result, err := s.imageExportStore.Get(ctx, orgId, name)
-	return result, StoreErrorToApiStatus(err, false, string(api.ResourceKindImageExport), &name)
+	return result, StoreErrorToApiStatus(err, false, string(domain.ResourceKindImageExport), &name)
 }
 
-func (s *imageExportService) List(ctx context.Context, orgId uuid.UUID, params api.ListImageExportsParams) (*api.ImageExportList, v1beta1.Status) {
+func (s *imageExportService) List(ctx context.Context, orgId uuid.UUID, params domain.ListImageExportsParams) (*domain.ImageExportList, domain.Status) {
 	listParams, status := prepareListParams(params.Continue, params.LabelSelector, params.FieldSelector, params.Limit)
 	if !IsStatusOK(status) {
 		return nil, status
@@ -174,7 +185,7 @@ func (s *imageExportService) List(ctx context.Context, orgId uuid.UUID, params a
 	}
 }
 
-func (s *imageExportService) Delete(ctx context.Context, orgId uuid.UUID, name string) (*api.ImageExport, v1beta1.Status) {
+func (s *imageExportService) Delete(ctx context.Context, orgId uuid.UUID, name string) (*domain.ImageExport, domain.Status) {
 	// First, check if the export exists and is in a cancelable state
 	imageExport, err := s.imageExportStore.Get(ctx, orgId, name)
 	if err != nil {
@@ -182,7 +193,7 @@ func (s *imageExportService) Delete(ctx context.Context, orgId uuid.UUID, name s
 		if errors.Is(err, flterrors.ErrResourceNotFound) {
 			return nil, StatusOK()
 		}
-		return nil, StoreErrorToApiStatus(err, false, string(api.ResourceKindImageExport), &name)
+		return nil, StoreErrorToApiStatus(err, false, string(domain.ResourceKindImageExport), &name)
 	}
 
 	// Check if the export is in a cancelable state
@@ -206,14 +217,37 @@ func (s *imageExportService) Delete(ctx context.Context, orgId uuid.UUID, name s
 
 	// Proceed with delete
 	result, err := s.imageExportStore.Delete(ctx, orgId, name)
-	return result, StoreErrorToApiStatus(err, false, string(api.ResourceKindImageExport), &name)
+	return result, StoreErrorToApiStatus(err, false, string(domain.ResourceKindImageExport), &name)
 }
 
-func (s *imageExportService) Cancel(ctx context.Context, orgId uuid.UUID, name string) (*api.ImageExport, error) {
+func (s *imageExportService) Cancel(ctx context.Context, orgId uuid.UUID, name string) (*domain.ImageExport, error) {
 	return s.CancelWithReason(ctx, orgId, name, "Export cancellation requested")
 }
 
-func (s *imageExportService) CancelWithReason(ctx context.Context, orgId uuid.UUID, name string, reason string) (*api.ImageExport, error) {
+func (s *imageExportService) CancelWithReason(ctx context.Context, orgId uuid.UUID, name string, reason string) (*domain.ImageExport, error) {
+	const maxRetries = 3
+
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		result, err := s.tryCancelImageExport(ctx, orgId, name, reason)
+		if err == nil {
+			return result, nil
+		}
+
+		// Retry on version conflict (race condition with worker)
+		if errors.Is(err, flterrors.ErrNoRowsUpdated) {
+			s.log.WithField("name", name).WithField("attempt", attempt+1).Debug("Retrying cancel after version conflict")
+			continue
+		}
+
+		// Non-retryable error
+		return nil, err
+	}
+
+	return nil, fmt.Errorf("failed to cancel ImageExport after %d attempts due to concurrent modifications", maxRetries)
+}
+
+// tryCancelImageExport attempts to cancel an ImageExport once
+func (s *imageExportService) tryCancelImageExport(ctx context.Context, orgId uuid.UUID, name string, reason string) (*domain.ImageExport, error) {
 	// 1. Get current ImageExport
 	imageExport, err := s.imageExportStore.Get(ctx, orgId, name)
 	if err != nil {
@@ -227,52 +261,85 @@ func (s *imageExportService) CancelWithReason(ctx context.Context, orgId uuid.UU
 
 	// 3. Initialize status if needed
 	if imageExport.Status == nil {
-		imageExport.Status = &api.ImageExportStatus{}
+		imageExport.Status = &domain.ImageExportStatus{}
 	}
 	if imageExport.Status.Conditions == nil {
-		imageExport.Status.Conditions = &[]api.ImageExportCondition{}
+		imageExport.Status.Conditions = &[]domain.ImageExportCondition{}
 	}
 
-	// 4. Update status to Canceling
-	cancelingCondition := api.ImageExportCondition{
-		Type:               api.ImageExportConditionTypeReady,
-		Status:             v1beta1.ConditionStatusFalse,
-		Reason:             string(api.ImageExportConditionReasonCanceling),
+	// 4. Determine target state based on current state
+	// - Pending: go directly to Canceled (no active processing to stop)
+	// - Converting/Pushing: go to Canceling (worker will complete the cancellation)
+	currentState := getCurrentExportState(imageExport)
+	isPending := currentState == "" || currentState == string(domain.ImageExportConditionReasonPending)
+
+	var targetReason string
+	if isPending {
+		targetReason = string(domain.ImageExportConditionReasonCanceled)
+	} else {
+		targetReason = string(domain.ImageExportConditionReasonCanceling)
+	}
+
+	condition := domain.ImageExportCondition{
+		Type:               domain.ImageExportConditionTypeReady,
+		Status:             domain.ConditionStatusFalse,
+		Reason:             targetReason,
 		Message:            reason,
 		LastTransitionTime: time.Now().UTC(),
 	}
-	api.SetImageExportStatusCondition(imageExport.Status.Conditions, cancelingCondition)
+	domain.SetImageExportStatusCondition(imageExport.Status.Conditions, condition)
 
 	result, err := s.imageExportStore.UpdateStatus(ctx, orgId, imageExport)
 	if err != nil {
 		return nil, err
 	}
 
-	// 5. Write cancellation to Redis Stream (worker reads with blocking)
+	// 5. If we set to Canceling (active processing), write to Redis Stream
+	// If we set directly to Canceled, signal completion for cancel-then-delete flow
 	if s.kvStore != nil {
-		streamKey := fmt.Sprintf("imageexport:cancel:%s:%s", orgId.String(), name)
-		if _, err := s.kvStore.StreamAdd(ctx, streamKey, []byte("cancel")); err != nil {
-			s.log.WithError(err).Warn("Failed to write cancellation to Redis stream")
-			// Don't fail - status is already Canceling, worker can detect via DB check as fallback
-		}
-		// Set TTL on stream key (1 hour - same as logs)
-		if err := s.kvStore.SetExpire(ctx, streamKey, 1*time.Hour); err != nil {
-			s.log.WithError(err).Warn("Failed to set TTL on cancellation stream key")
+		if targetReason == string(domain.ImageExportConditionReasonCanceling) {
+			streamKey := fmt.Sprintf("imageexport:cancel:%s:%s", orgId.String(), name)
+			if _, err := s.kvStore.StreamAdd(ctx, streamKey, []byte("cancel")); err != nil {
+				s.log.WithError(err).Warn("Failed to write cancellation to Redis stream")
+			}
+			if err := s.kvStore.SetExpire(ctx, streamKey, 1*time.Hour); err != nil {
+				s.log.WithError(err).Warn("Failed to set TTL on cancellation stream key")
+			}
+		} else {
+			// Signal cancellation completion for cancel-then-delete flow
+			canceledStreamKey := getCanceledStreamKey(orgId, name)
+			if _, err := s.kvStore.StreamAdd(ctx, canceledStreamKey, []byte("canceled")); err != nil {
+				s.log.WithError(err).Warn("Failed to write cancellation completion signal to Redis")
+			} else if err := s.kvStore.SetExpire(ctx, canceledStreamKey, 5*time.Minute); err != nil {
+				s.log.WithError(err).Warn("Failed to set TTL on cancellation completion signal key")
+			}
 		}
 	}
 
-	s.log.WithField("orgId", orgId).WithField("name", name).WithField("reason", reason).Info("ImageExport cancellation requested")
+	s.log.WithField("orgId", orgId).WithField("name", name).WithField("reason", reason).WithField("targetState", targetReason).Info("ImageExport cancellation requested")
 	return result, nil
 }
 
+// getCurrentExportState returns the current state reason or empty string if none
+func getCurrentExportState(imageExport *domain.ImageExport) string {
+	if imageExport.Status == nil || imageExport.Status.Conditions == nil {
+		return ""
+	}
+	readyCondition := domain.FindImageExportStatusCondition(*imageExport.Status.Conditions, domain.ImageExportConditionTypeReady)
+	if readyCondition == nil {
+		return ""
+	}
+	return readyCondition.Reason
+}
+
 // isCancelableExportState checks if an ImageExport is in a state that can be canceled
-func isCancelableExportState(imageExport *api.ImageExport) bool {
+func isCancelableExportState(imageExport *domain.ImageExport) bool {
 	if imageExport.Status == nil || imageExport.Status.Conditions == nil {
 		// No status yet - treat as Pending, which is cancelable
 		return true
 	}
 
-	readyCondition := api.FindImageExportStatusCondition(*imageExport.Status.Conditions, api.ImageExportConditionTypeReady)
+	readyCondition := domain.FindImageExportStatusCondition(*imageExport.Status.Conditions, domain.ImageExportConditionTypeReady)
 	if readyCondition == nil {
 		// No Ready condition - treat as Pending
 		return true
@@ -281,10 +348,10 @@ func isCancelableExportState(imageExport *api.ImageExport) bool {
 	reason := readyCondition.Reason
 	// Anything NOT in a terminal state is cancelable
 	// Terminal states: Canceled, Canceling, Completed, Failed
-	return reason != string(api.ImageExportConditionReasonCanceled) &&
-		reason != string(api.ImageExportConditionReasonCanceling) &&
-		reason != string(api.ImageExportConditionReasonCompleted) &&
-		reason != string(api.ImageExportConditionReasonFailed)
+	return reason != string(domain.ImageExportConditionReasonCanceled) &&
+		reason != string(domain.ImageExportConditionReasonCanceling) &&
+		reason != string(domain.ImageExportConditionReasonCompleted) &&
+		reason != string(domain.ImageExportConditionReasonFailed)
 }
 
 // getCanceledStreamKey returns the Redis stream key for cancellation completion signals
@@ -294,7 +361,7 @@ func getCanceledStreamKey(orgId uuid.UUID, name string) string {
 
 // Internal methods (not exposed via API)
 
-func (s *imageExportService) UpdateStatus(ctx context.Context, orgId uuid.UUID, imageExport *api.ImageExport) (*api.ImageExport, error) {
+func (s *imageExportService) UpdateStatus(ctx context.Context, orgId uuid.UUID, imageExport *domain.ImageExport) (*domain.ImageExport, error) {
 	// Update status
 	result, err := s.imageExportStore.UpdateStatus(ctx, orgId, imageExport)
 	if err != nil {
@@ -302,15 +369,15 @@ func (s *imageExportService) UpdateStatus(ctx context.Context, orgId uuid.UUID, 
 	}
 
 	// Create event for status update
-	var event *v1beta1.Event
+	var event *coredomain.Event
 	if result != nil && result.Metadata.Name != nil && s.eventHandler != nil {
 		// Create a simple status update event since status is not in UpdatedFields enum
-		event = domain.GetBaseEvent(
+		event = coredomain.GetBaseEvent(
 			ctx,
-			v1beta1.ResourceKind(string(api.ResourceKindImageExport)),
+			coredomain.ResourceKind(string(domain.ResourceKindImageExport)),
 			*result.Metadata.Name,
-			domain.EventReasonResourceUpdated,
-			fmt.Sprintf("%s status was updated successfully.", string(api.ResourceKindImageExport)),
+			coredomain.EventReasonResourceUpdated,
+			fmt.Sprintf("%s status was updated successfully.", string(domain.ResourceKindImageExport)),
 			nil,
 		)
 		if event != nil {
@@ -322,10 +389,10 @@ func (s *imageExportService) UpdateStatus(ctx context.Context, orgId uuid.UUID, 
 	if result != nil && event != nil && s.queueProducer != nil {
 		// Check if Ready condition is True with reason Completed
 		if result.Status != nil && result.Status.Conditions != nil {
-			readyCondition := api.FindImageExportStatusCondition(*result.Status.Conditions, api.ImageExportConditionTypeReady)
+			readyCondition := domain.FindImageExportStatusCondition(*result.Status.Conditions, domain.ImageExportConditionTypeReady)
 			if readyCondition != nil &&
-				readyCondition.Status == v1beta1.ConditionStatusTrue &&
-				readyCondition.Reason == string(api.ImageExportConditionReasonCompleted) {
+				readyCondition.Status == domain.ConditionStatusTrue &&
+				readyCondition.Reason == string(domain.ImageExportConditionReasonCompleted) {
 				if err := s.enqueueImageExportEvent(ctx, orgId, event); err != nil {
 					s.log.WithError(err).WithField("orgId", orgId).WithField("name", *result.Metadata.Name).Error("failed to enqueue imageExport event")
 					// Don't fail the update if enqueue fails - the event can be retried later
@@ -363,7 +430,7 @@ func (s *imageExportService) Download(ctx context.Context, orgId uuid.UUID, name
 	if err != nil {
 		return nil, fmt.Errorf("failed to determine source type: %w", err)
 	}
-	if sourceType != string(api.ImageExportSourceTypeImageBuild) {
+	if sourceType != string(domain.ImageExportSourceTypeImageBuild) {
 		return nil, fmt.Errorf("unexpected source type: %q", sourceType)
 	}
 
@@ -468,7 +535,7 @@ func (s *imageExportService) Download(ctx context.Context, orgId uuid.UUID, name
 }
 
 // setupRepositoryReference creates a repository reference and configures authentication
-func (s *imageExportService) setupRepositoryReference(ctx context.Context, ociSpec *v1beta1.OciRepoSpec, imageName string, log logrus.FieldLogger) (*remote.Repository, string, string, error) {
+func (s *imageExportService) setupRepositoryReference(ctx context.Context, ociSpec *coredomain.OciRepoSpec, imageName string, log logrus.FieldLogger) (*remote.Repository, string, string, error) {
 	scheme := "https"
 	if ociSpec.Scheme != nil {
 		scheme = string(*ociSpec.Scheme)
@@ -557,7 +624,7 @@ func (s *imageExportService) fetchAndParseManifest(ctx context.Context, repoRef 
 }
 
 // createHTTPClient creates an HTTP client with TLS configuration
-func (s *imageExportService) createHTTPClient(ociSpec *v1beta1.OciRepoSpec) (*http.Client, error) {
+func (s *imageExportService) createHTTPClient(ociSpec *coredomain.OciRepoSpec) (*http.Client, error) {
 	tlsConfig := &tls.Config{
 		MinVersion: tls.VersionTLS12,
 	}
@@ -594,7 +661,7 @@ func (s *imageExportService) createHTTPClient(ociSpec *v1beta1.OciRepoSpec) (*ht
 }
 
 // addAuthenticationToRequest adds authentication headers to the request if needed
-func (s *imageExportService) addAuthenticationToRequest(ctx context.Context, req *http.Request, client *http.Client, scheme, registryHostname, repoName string, ociSpec *v1beta1.OciRepoSpec, log logrus.FieldLogger) error {
+func (s *imageExportService) addAuthenticationToRequest(ctx context.Context, req *http.Request, client *http.Client, scheme, registryHostname, repoName string, ociSpec *coredomain.OciRepoSpec, log logrus.FieldLogger) error {
 	if ociSpec.OciAuth == nil {
 		return nil
 	}
@@ -736,16 +803,16 @@ func (s *imageExportService) getRegistryToken(ctx context.Context, client *http.
 // validateImageExportForDownload validates that an ImageExport is ready for download.
 // This function does not perform any database calls.
 // Returns known error types that can be checked with errors.Is().
-func validateImageExportForDownload(imageExport *api.ImageExport) error {
+func validateImageExportForDownload(imageExport *domain.ImageExport) error {
 	// Validate Ready condition is True
 	if imageExport.Status == nil || imageExport.Status.Conditions == nil {
 		return ErrImageExportStatusNotReady
 	}
-	readyCondition := api.FindImageExportStatusCondition(*imageExport.Status.Conditions, api.ImageExportConditionTypeReady)
+	readyCondition := domain.FindImageExportStatusCondition(*imageExport.Status.Conditions, domain.ImageExportConditionTypeReady)
 	if readyCondition == nil {
 		return ErrImageExportReadyConditionNotFound
 	}
-	if readyCondition.Status != v1beta1.ConditionStatusTrue {
+	if readyCondition.Status != domain.ConditionStatusTrue {
 		return fmt.Errorf("%w (status: %s, reason: %s)", ErrImageExportNotReady, readyCondition.Status, readyCondition.Reason)
 	}
 
@@ -844,7 +911,7 @@ func parseWwwAuthenticate(header string) (realm, service string, err error) {
 
 // validate performs validation on an ImageExport resource
 // Returns validation errors (4xx) and internal errors (5xx) separately
-func (s *imageExportService) validate(ctx context.Context, orgId uuid.UUID, imageExport *api.ImageExport) ([]error, error) {
+func (s *imageExportService) validate(ctx context.Context, orgId uuid.UUID, imageExport *domain.ImageExport) ([]error, error) {
 	var errs []error
 
 	if lo.FromPtr(imageExport.Metadata.Name) == "" {
@@ -857,7 +924,7 @@ func (s *imageExportService) validate(ctx context.Context, orgId uuid.UUID, imag
 		errs = append(errs, errors.New("spec.source.type is required"))
 	} else {
 		switch sourceType {
-		case string(api.ImageExportSourceTypeImageBuild):
+		case string(domain.ImageExportSourceTypeImageBuild):
 			source, err := imageExport.Spec.Source.AsImageBuildRefSource()
 			if err != nil {
 				errs = append(errs, errors.New("invalid imageBuild source"))
@@ -897,7 +964,7 @@ func (s *imageExportService) validate(ctx context.Context, orgId uuid.UUID, imag
 }
 
 // enqueueImageExportEvent enqueues an event to the imagebuild-queue
-func (s *imageExportService) enqueueImageExportEvent(ctx context.Context, orgId uuid.UUID, event *v1beta1.Event) error {
+func (s *imageExportService) enqueueImageExportEvent(ctx context.Context, orgId uuid.UUID, event *coredomain.Event) error {
 	if event == nil {
 		return errors.New("event is nil")
 	}
@@ -935,7 +1002,7 @@ func (s *imageExportService) UpdateLogs(ctx context.Context, orgId uuid.UUID, na
 
 // GetLogs retrieves logs for an ImageExport
 // Returns a LogStreamReader for active exports (if follow=true) or logs string for completed exports
-func (s *imageExportService) GetLogs(ctx context.Context, orgId uuid.UUID, name string, follow bool) (LogStreamReader, string, v1beta1.Status) {
+func (s *imageExportService) GetLogs(ctx context.Context, orgId uuid.UUID, name string, follow bool) (LogStreamReader, string, domain.Status) {
 	// First, get the ImageExport to check its status
 	imageExport, status := s.Get(ctx, orgId, name)
 	if imageExport == nil || !IsStatusOK(status) {
@@ -945,10 +1012,10 @@ func (s *imageExportService) GetLogs(ctx context.Context, orgId uuid.UUID, name 
 	// Check if export is active (Converting or Pushing)
 	isActive := false
 	if imageExport.Status != nil && imageExport.Status.Conditions != nil {
-		readyCondition := api.FindImageExportStatusCondition(*imageExport.Status.Conditions, api.ImageExportConditionTypeReady)
+		readyCondition := domain.FindImageExportStatusCondition(*imageExport.Status.Conditions, domain.ImageExportConditionTypeReady)
 		if readyCondition != nil {
 			reason := readyCondition.Reason
-			if reason == string(api.ImageExportConditionReasonConverting) || reason == string(api.ImageExportConditionReasonPushing) {
+			if reason == string(domain.ImageExportConditionReasonConverting) || reason == string(domain.ImageExportConditionReasonPushing) {
 				isActive = true
 			}
 		}

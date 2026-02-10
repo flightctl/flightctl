@@ -48,6 +48,7 @@ type Agent struct {
 	osClient               os.Client
 	podmanClient           *client.Podman
 	prefetchManager        dependency.PrefetchManager
+	pullConfigResolver     dependency.PullConfigResolver
 	pruningManager         imagepruning.Manager
 
 	statusUpdateInterval util.Duration
@@ -76,6 +77,7 @@ func NewAgent(
 	osClient os.Client,
 	podmanClient *client.Podman,
 	prefetchManager dependency.PrefetchManager,
+	pullConfigResolver dependency.PullConfigResolver,
 	pruningManager imagepruning.Manager,
 	backoff wait.Backoff,
 	log *log.PrefixLogger,
@@ -99,6 +101,7 @@ func NewAgent(
 		osClient:               osClient,
 		podmanClient:           podmanClient,
 		prefetchManager:        prefetchManager,
+		pullConfigResolver:     pullConfigResolver,
 		pruningManager:         pruningManager,
 		backoff:                backoff,
 		log:                    log,
@@ -208,6 +211,7 @@ func (a *Agent) syncDeviceSpec(ctx context.Context) {
 		return
 	}
 
+	defer a.pullConfigResolver.Cleanup()
 	defer a.prefetchManager.Cleanup()
 
 	// skip status update if the device is in a steady state and not upgrading.
@@ -336,6 +340,8 @@ func (a *Agent) beforeUpdate(ctx context.Context, current, desired *v1beta1.Devi
 		}
 	}
 
+	a.pullConfigResolver.BeforeUpdate(desired.Spec)
+
 	a.prefetchManager.RegisterOCICollector(a.appManager)
 	if a.specManager.IsOSUpdate() {
 		a.prefetchManager.RegisterOCICollector(a.osManager)
@@ -351,11 +357,19 @@ func (a *Agent) beforeUpdate(ctx context.Context, current, desired *v1beta1.Devi
 		}
 	}
 
-	if err := a.prefetchManager.BeforeUpdate(ctx, current.Spec, desired.Spec); err != nil {
+	// Compute osUpdatePending once for both prefetch and app managers
+	osUpdatePending, err := a.specManager.IsOSUpdatePending(ctx)
+	if err != nil {
+		return fmt.Errorf("checking OS update pending: %w", err)
+	}
+
+	if err := a.prefetchManager.BeforeUpdate(ctx, current.Spec, desired.Spec,
+		dependency.WithOSUpdatePending(osUpdatePending)); err != nil {
 		return fmt.Errorf("%w: %w", errors.ErrComponentPrefetch, err)
 	}
 
-	if err := a.appManager.BeforeUpdate(ctx, desired.Spec); err != nil {
+	if err := a.appManager.BeforeUpdate(ctx, desired.Spec,
+		applications.WithOSUpdatePending(osUpdatePending)); err != nil {
 		return fmt.Errorf("%w: %w", errors.ErrComponentApplications, err)
 	}
 
@@ -543,6 +557,7 @@ func (a *Agent) handleSyncError(ctx context.Context, desired *v1beta1.Device, sy
 		conditionUpdate.Reason = string(v1beta1.UpdateStateError)
 		conditionUpdate.Message = log.Truncate(msg, status.MaxMessageLength)
 		conditionUpdate.Status = v1beta1.ConditionStatusFalse
+		a.pullConfigResolver.Cleanup()
 		a.prefetchManager.Cleanup()
 		a.log.Error(msg, se.Timestamp)
 	} else {

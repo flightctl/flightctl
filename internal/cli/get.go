@@ -9,9 +9,9 @@ import (
 	"slices"
 	"strings"
 
+	apiv1alpha1 "github.com/flightctl/flightctl/api/core/v1alpha1"
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
-	imagebuilderapi "github.com/flightctl/flightctl/api/imagebuilder/v1beta1"
-	apiclient "github.com/flightctl/flightctl/internal/api/client"
+	imagebuilderapi "github.com/flightctl/flightctl/api/imagebuilder/v1alpha1"
 	"github.com/flightctl/flightctl/internal/cli/display"
 	"github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/util"
@@ -35,6 +35,7 @@ const (
 
 	// Resource specific flags
 	FlagFleetName   = "fleetname"    // for templateversions
+	FlagCatalogName = "catalog"      // for catalogitems
 	FlagRendered    = "rendered"     // for a single device
 	FlagSummary     = "summary"      // for listing devices and fleets
 	FlagSummaryOnly = "summary-only" // for listing devices
@@ -57,6 +58,7 @@ type GetOptions struct {
 	Limit         int32
 	Continue      string
 	FleetName     string
+	CatalogName   string
 	Rendered      bool
 	Summary       bool
 	SummaryOnly   bool
@@ -72,6 +74,7 @@ func DefaultGetOptions() *GetOptions {
 		Limit:         0,
 		Continue:      "",
 		FleetName:     "",
+		CatalogName:   "",
 		Rendered:      false,
 		LastSeen:      false,
 		WithExports:   false,
@@ -123,6 +126,7 @@ func (o *GetOptions) Bind(fs *pflag.FlagSet) {
 	fs.Int32Var(&o.Limit, FlagLimit, o.Limit, "The maximum number of results returned in the list response. If the value is 0, then the result is not limited.")
 	fs.StringVar(&o.Continue, FlagContinue, o.Continue, "Query more results starting from the value of the 'continue' field in the previous response.")
 	fs.StringVar(&o.FleetName, FlagFleetName, o.FleetName, "Fleet name for accessing templateversions (use only when getting templateversions).")
+	fs.StringVar(&o.CatalogName, FlagCatalogName, o.CatalogName, "Catalog name for accessing catalogitems (use only when getting catalogitems).")
 	fs.BoolVar(&o.Rendered, FlagRendered, false, "Return the rendered device configuration that is presented to the device. Default output format is YAML.")
 	fs.BoolVarP(&o.Summary, FlagSummary, "s", false, "Display summary information.")
 	fs.BoolVar(&o.SummaryOnly, FlagSummaryOnly, false, "Display summary information only.")
@@ -137,6 +141,7 @@ var flagContextualRules = []FlagContextualRule{
 	{FlagRendered, []ResourceKind{DeviceKind}, []string{"single"}},
 	{FlagLastSeen, []ResourceKind{DeviceKind}, []string{"single"}},
 	{FlagFleetName, []ResourceKind{TemplateVersionKind}, []string{"any"}},
+	{FlagCatalogName, []ResourceKind{CatalogItemKind}, []string{"any"}},
 }
 
 func (o *GetOptions) hideHelpContextualFlags(fs *pflag.FlagSet) {
@@ -238,6 +243,7 @@ func (o *GetOptions) Validate(args []string) error {
 		func() error { return o.validateSummary(kind, names) },
 		func() error { return o.validateSummaryOnly(kind, names) },
 		func() error { return o.validateTemplateVersion(kind) },
+		func() error { return o.validateCatalogItem(kind) },
 		func() error { return o.validateOutputFormat() },
 		func() error { return o.validateRendered(kind, names) },
 		func() error { return o.validateSingleResourceRestrictions(kind, names) },
@@ -302,6 +308,10 @@ func (o *GetOptions) validateTemplateVersion(kind ResourceKind) error {
 	if kind == TemplateVersionKind && len(o.FleetName) == 0 {
 		return fmt.Errorf("a fleet name must be specified when getting a list of templateversions")
 	}
+	return nil
+}
+
+func (o *GetOptions) validateCatalogItem(kind ResourceKind) error {
 	return nil
 }
 
@@ -424,7 +434,7 @@ func (o *GetOptions) createMainAPIFetchers(ctx context.Context, kind ResourceKin
 	c.Start(ctx)
 
 	listFetcher := func() (interface{}, error) {
-		response, err := o.getResourceList(ctx, c.ClientWithResponses, kind)
+		response, err := o.getResourceList(ctx, c, kind)
 		if err != nil {
 			return nil, err
 		}
@@ -435,7 +445,7 @@ func (o *GetOptions) createMainAPIFetchers(ctx context.Context, kind ResourceKin
 	}
 
 	singleFetcher := func(name string) (interface{}, error) {
-		response, err := o.getSingleResource(ctx, c.ClientWithResponses, kind, name)
+		response, err := o.getSingleResource(ctx, c, kind, name)
 		if err != nil {
 			return nil, err
 		}
@@ -546,7 +556,7 @@ func (o *GetOptions) handleMultiple(ctx context.Context, formatter display.Outpu
 	return o.handleList(ctx, formatter, kind, listFetcher)
 }
 
-func (o *GetOptions) getSingleResource(ctx context.Context, c *apiclient.ClientWithResponses, kind ResourceKind, name string) (interface{}, error) {
+func (o *GetOptions) getSingleResource(ctx context.Context, c *client.Client, kind ResourceKind, name string) (interface{}, error) {
 	switch kind {
 	case DeviceKind:
 		if o.LastSeen {
@@ -564,6 +574,10 @@ func (o *GetOptions) getSingleResource(ctx context.Context, c *apiclient.ClientW
 		return c.GetFleetWithResponse(ctx, name, &params)
 	case TemplateVersionKind:
 		return GetTemplateVersion(ctx, c, o.FleetName, name)
+	case CatalogKind:
+		return c.V1Alpha1().GetCatalogWithResponse(ctx, name)
+	case CatalogItemKind:
+		return nil, fmt.Errorf("catalogitems cannot be retrieved individually; use 'get catalogitems --catalog <name>' to list items")
 	default:
 		return GetSingleResource(ctx, c, kind, name)
 	}
@@ -664,7 +678,7 @@ func (o *GetOptions) handleListWithFetcher(
 	return nil
 }
 
-func (o *GetOptions) getResourceList(ctx context.Context, c *apiclient.ClientWithResponses, kind ResourceKind) (interface{}, error) {
+func (o *GetOptions) getResourceList(ctx context.Context, c *client.Client, kind ResourceKind) (interface{}, error) {
 	switch kind {
 	case DeviceKind:
 		params := api.ListDevicesParams{
@@ -744,6 +758,30 @@ func (o *GetOptions) getResourceList(ctx context.Context, c *apiclient.ClientWit
 			Continue:      util.ToPtrWithNilDefault(o.Continue),
 		}
 		return c.ListAuthProvidersWithResponse(ctx, &params)
+	case CatalogKind:
+		params := apiv1alpha1.ListCatalogsParams{
+			LabelSelector: util.ToPtrWithNilDefault(o.LabelSelector),
+			FieldSelector: util.ToPtrWithNilDefault(o.FieldSelector),
+			Limit:         util.ToPtrWithNilDefault(o.Limit),
+			Continue:      util.ToPtrWithNilDefault(o.Continue),
+		}
+		return c.V1Alpha1().ListCatalogsWithResponse(ctx, &params)
+	case CatalogItemKind:
+		if len(o.CatalogName) == 0 {
+			params := apiv1alpha1.ListAllCatalogItemsParams{
+				LabelSelector: util.ToPtrWithNilDefault(o.LabelSelector),
+				FieldSelector: util.ToPtrWithNilDefault(o.FieldSelector),
+				Limit:         util.ToPtrWithNilDefault(o.Limit),
+				Continue:      util.ToPtrWithNilDefault(o.Continue),
+			}
+			return c.V1Alpha1().ListAllCatalogItemsWithResponse(ctx, &params)
+		}
+		params := apiv1alpha1.ListCatalogItemsParams{
+			LabelSelector: util.ToPtrWithNilDefault(o.LabelSelector),
+			Limit:         util.ToPtrWithNilDefault(o.Limit),
+			Continue:      util.ToPtrWithNilDefault(o.Continue),
+		}
+		return c.V1Alpha1().ListCatalogItemsWithResponse(ctx, o.CatalogName, &params)
 	default:
 		return nil, fmt.Errorf("unsupported resource kind: %s", kind)
 	}

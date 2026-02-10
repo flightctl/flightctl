@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	imagebuilderapi "github.com/flightctl/flightctl/api/imagebuilder/v1beta1"
+	"github.com/flightctl/flightctl/internal/imagebuilder_api/domain"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -73,7 +73,7 @@ func (r *redisLogStreamReader) ReadAll(ctx context.Context) (string, error) {
 	for _, entry := range entries {
 		logLine := string(entry.Value)
 		// Skip the completion marker - it's not actual log content
-		if logLine == imagebuilderapi.LogStreamCompleteMarker {
+		if logLine == domain.LogStreamCompleteMarker {
 			r.lastID = entry.ID
 			continue
 		}
@@ -128,10 +128,10 @@ func (r *redisLogStreamReader) Stream(ctx context.Context, w io.Writer) error {
 				logLine := string(entry.Value)
 				// Check for completion marker - stream is complete (orderly close)
 				// Forward the marker to the client so it knows the stream ended orderly
-				if logLine == imagebuilderapi.LogStreamCompleteMarker {
+				if logLine == domain.LogStreamCompleteMarker {
 					r.log.Debug("Stream complete marker received, forwarding to client and closing stream")
 					// Write the marker to the client so it can differentiate orderly vs abrupt close
-					if _, err := w.Write([]byte(imagebuilderapi.LogStreamCompleteMarker)); err != nil {
+					if _, err := w.Write([]byte(domain.LogStreamCompleteMarker)); err != nil {
 						return fmt.Errorf("failed to write completion marker: %w", err)
 					}
 					if flusher, ok := w.(http.Flusher); ok {

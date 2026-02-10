@@ -1,6 +1,9 @@
 package domain
 
-import v1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
+import (
+	v1alpha1 "github.com/flightctl/flightctl/api/core/v1alpha1"
+	v1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
+)
 
 // ========== API Group ==========
 
@@ -105,6 +108,16 @@ const (
 	ResourceSyncAPIVersion = v1beta1.ResourceSyncAPIVersion
 	ResourceSyncKind       = v1beta1.ResourceSyncKind
 	ResourceSyncListKind   = v1beta1.ResourceSyncListKind
+)
+
+// ========== Catalog ==========
+
+const (
+	CatalogAPIVersion   = v1alpha1.CatalogAPIVersion
+	CatalogKind         = v1alpha1.CatalogKind
+	CatalogListKind     = v1alpha1.CatalogListKind
+	CatalogItemKind     = v1alpha1.CatalogItemKind
+	CatalogItemListKind = v1alpha1.CatalogItemListKind
 )
 
 // ========== TemplateVersion ==========

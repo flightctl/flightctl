@@ -1,0 +1,37 @@
+database:
+{{- if eq .db.type "external"}}
+  hostname: {{.db.external.hostname}}
+  type: pgsql
+  port: {{.db.external.port}}
+  name: {{.db.external.name}}
+  {{- if .db.external.sslmode}}
+  sslmode: {{.db.external.sslmode}}
+  {{- end}}
+  {{- if or (eq .db.external.sslmode "verify-full") (eq .db.external.sslmode "verify-ca") }}
+  sslrootcert: /root/.flightctl/certs/db/ca.crt
+  {{- end }}
+  {{- if .db.external.useClientCertAuth }}
+  sslcert: /root/.flightctl/certs/db/client.crt
+  sslkey: /root/.flightctl/certs/db/client.key
+  {{- end }}
+{{- else}}
+  hostname: flightctl-db
+  type: pgsql
+  port: 5432
+  name: flightctl
+{{- end}}
+service: {}
+kv:
+  hostname: flightctl-kv
+  port: 6379
+telemetryGateway:
+  listen: { device: "0.0.0.0:4317" }
+  export: { prometheus: "0.0.0.0:9464" }
+{{- if .telemetryGateway.forward.endpoint }}
+  forward:
+    endpoint: {{.telemetryGateway.forward.endpoint}}
+    tls:
+      caFile: /etc/flightctl/flightctl-telemetry-gateway/forward/ca.crt
+      certFile: /etc/flightctl/flightctl-telemetry-gateway/forward/client.crt
+      keyFile: /etc/flightctl/flightctl-telemetry-gateway/forward/client.key
+{{- end}}

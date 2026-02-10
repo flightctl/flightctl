@@ -10,6 +10,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
 	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
@@ -66,7 +67,7 @@ func TestManager(t *testing.T) {
 			}),
 			desired: &v1beta1.DeviceSpec{},
 			setupMocks: func(mockExec *executer.MockExecuter, mockReadWriter *fileio.MockReadWriter, mockSystemdMgr *systemd.MockManager) {
-				id := client.NewComposeID("app-remove")
+				id := lifecycle.GenerateAppID("app-remove", v1beta1.CurrentProcessUsername)
 				gomock.InOrder(
 					// start current app (first AfterUpdate)
 					mockReadWriter.EXPECT().PathExists(gomock.Any()).Return(true, nil).AnyTimes(),
@@ -92,7 +93,7 @@ func TestManager(t *testing.T) {
 				{Content: compose2, Path: "podman-compose.yaml"},
 			}),
 			setupMocks: func(mockExec *executer.MockExecuter, mockReadWriter *fileio.MockReadWriter, mockSystemdMgr *systemd.MockManager) {
-				id := client.NewComposeID("app-update")
+				id := lifecycle.GenerateAppID("app-update", v1beta1.CurrentProcessUsername)
 				gomock.InOrder(
 					// start current app (first AfterUpdate)
 					mockReadWriter.EXPECT().PathExists(gomock.Any()).Return(true, nil).AnyTimes(),
@@ -121,8 +122,9 @@ func TestManager(t *testing.T) {
 				{Content: quadlet1, Path: "test-app.container"},
 			}, v1beta1.AppTypeQuadlet),
 			setupMocks: func(mockExec *executer.MockExecuter, mockReadWriter *fileio.MockReadWriter, mockSystemdMgr *systemd.MockManager) {
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "--version").Return("podman version 5.5", "", 0).AnyTimes()
 				mockReadQuadletFiles(mockReadWriter, quadlet1)
-				appID := client.NewComposeID("quadlet-new")
+				appID := lifecycle.GenerateAppID("quadlet-new", v1beta1.CurrentProcessUsername)
 				target := appID + "-flightctl-quadlet-app.target"
 				services := []string{appID + "-test-app.service"}
 
@@ -143,8 +145,9 @@ func TestManager(t *testing.T) {
 			}, v1beta1.AppTypeQuadlet),
 			desired: &v1beta1.DeviceSpec{},
 			setupMocks: func(mockExec *executer.MockExecuter, mockReadWriter *fileio.MockReadWriter, mockSystemdMgr *systemd.MockManager) {
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "--version").Return("podman version 5.5", "", 0).AnyTimes()
 				mockReadQuadletFiles(mockReadWriter, quadlet1)
-				appID := client.NewComposeID("quadlet-remove")
+				appID := lifecycle.GenerateAppID("quadlet-remove", v1beta1.CurrentProcessUsername)
 				target := appID + "-flightctl-quadlet-app.target"
 				services := []string{appID + "-test-app.service"}
 
@@ -176,9 +179,10 @@ func TestManager(t *testing.T) {
 				{Content: quadlet2, Path: "test-app.container"},
 			}, v1beta1.AppTypeQuadlet),
 			setupMocks: func(mockExec *executer.MockExecuter, mockReadWriter *fileio.MockReadWriter, mockSystemdMgr *systemd.MockManager) {
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "--version").Return("podman version 5.5", "", 0).AnyTimes()
 				mockReadQuadletFiles(mockReadWriter, quadlet1)
 				mockReadQuadletFiles(mockReadWriter, quadlet2)
-				appID := client.NewComposeID("quadlet-update")
+				appID := lifecycle.GenerateAppID("quadlet-update", v1beta1.CurrentProcessUsername)
 				target := appID + "-flightctl-quadlet-app.target"
 				services := []string{appID + "-test-app.service"}
 
@@ -282,7 +286,7 @@ func TestManager(t *testing.T) {
 			require.NoError(err)
 
 			for _, appName := range tc.wantAppNames {
-				id := client.NewComposeID(appName)
+				id := lifecycle.GenerateAppID(appName, v1beta1.CurrentProcessUsername)
 				log.Debugf("Checking for app: %v", manager.podmanMonitor.apps)
 				_, ok := manager.podmanMonitor.apps[id]
 				require.True(ok)
@@ -323,7 +327,7 @@ func TestManagerRemoveApplication(t *testing.T) {
 	})
 	desired := &v1beta1.DeviceSpec{}
 
-	id := client.NewComposeID("app-remove")
+	id := lifecycle.GenerateAppID("app-remove", v1beta1.CurrentProcessUsername)
 	gomock.InOrder(
 		// start current app
 		mockReadWriter.EXPECT().PathExists(gomock.Any()).Return(true, nil).AnyTimes(),
@@ -415,7 +419,7 @@ func mockExecPodmanEvents(mockExec *executer.MockExecuter, sinceTime time.Time) 
 
 func mockExecPodmanComposeUp(mockExec *executer.MockExecuter, name string, hasOverride, hasAgentOverride bool) *gomock.Call {
 	workDir := fmt.Sprintf("/etc/compose/manifests/%s", name)
-	id := client.NewComposeID(name)
+	id := lifecycle.GenerateAppID(name, v1beta1.CurrentProcessUsername)
 	args := []string{"compose", "-p", id, "-f", "docker-compose.yaml"}
 	if hasOverride {
 		args = append(args, "-f", "docker-compose.override.yaml")
@@ -436,7 +440,7 @@ func mockExecPodmanNetworkList(mockExec *executer.MockExecuter, name string) *go
 			[]string{
 				"network", "ls",
 				"--format", "{{.Network.ID}}",
-				"--filter", "label=com.docker.compose.project=" + client.NewComposeID(name),
+				"--filter", "label=com.docker.compose.project=" + lifecycle.GenerateAppID(name, v1beta1.CurrentProcessUsername),
 			},
 		).
 		Return("network123", "", 0)
@@ -451,7 +455,7 @@ func mockExecPodmanPodList(mockExec *executer.MockExecuter, name string) *gomock
 			[]string{
 				"ps", "-a",
 				"--format", "{{.Pod}}",
-				"--filter", "label=com.docker.compose.project=" + client.NewComposeID(name),
+				"--filter", "label=com.docker.compose.project=" + lifecycle.GenerateAppID(name, v1beta1.CurrentProcessUsername),
 			},
 		).
 		Return("pod123", "", 0)
@@ -497,7 +501,9 @@ func newTestDeviceWithApplicationType(t *testing.T, name string, details []testI
 		require.NoError(t, err)
 		quadletApp.AppType = appType
 		quadletApp.Name = lo.ToPtr(name)
+		require.NoError(t, err)
 		err = providerSpec.FromQuadletApplication(quadletApp)
+		require.NoError(t, err)
 	default:
 		t.Fatalf("unsupported app type for inline: %s", appType)
 	}
@@ -564,7 +570,7 @@ func mockExecSystemdListDependencies(mockSystemdMgr *systemd.MockManager, appID 
 }
 
 func mockExecQuadletPodmanNetworkList(mockExec *executer.MockExecuter, name string) *gomock.Call {
-	id := client.NewComposeID(name)
+	id := lifecycle.GenerateAppID(name, v1beta1.CurrentProcessUsername)
 	return mockExec.
 		EXPECT().
 		ExecuteWithContext(
@@ -581,7 +587,7 @@ func mockExecQuadletPodmanNetworkList(mockExec *executer.MockExecuter, name stri
 }
 
 func mockExecQuadletPodmanPodList(mockExec *executer.MockExecuter, name string) *gomock.Call {
-	id := client.NewComposeID(name)
+	id := lifecycle.GenerateAppID(name, v1beta1.CurrentProcessUsername)
 	return mockExec.
 		EXPECT().
 		ExecuteWithContext(
@@ -597,7 +603,7 @@ func mockExecQuadletPodmanPodList(mockExec *executer.MockExecuter, name string) 
 }
 
 func mockExecQuadletCleanup(mockExec *executer.MockExecuter, name string) {
-	id := client.NewComposeID(name)
+	id := lifecycle.GenerateAppID(name, v1beta1.CurrentProcessUsername)
 	mockExecQuadletPodmanNetworkList(mockExec, name)
 	mockExecQuadletPodmanPodList(mockExec, name)
 	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "stop", "--filter", "label=io.flightctl.quadlet.project="+id).Return("", "", 0)
@@ -748,14 +754,17 @@ func TestCollectOCITargetsErrorHandling(t *testing.T) {
 					return mockReadWriter, nil
 				}
 				mockClients := client.NewCLIClients()
+				mockPullConfigResolver := dependency.NewMockPullConfigResolver(ctrl)
+				mockPullConfigResolver.EXPECT().Options(gomock.Any()).Return(func() []client.ClientOption { return nil }).AnyTimes()
 				return &manager{
-					rwFactory:      rwFactory,
-					podmanMonitor:  NewPodmanMonitor(log, podmanFactory, systemdFactory, "", rwMockFactory),
-					podmanFactory:  podmanFactory,
-					clients:        mockClients,
-					log:            log,
-					ociTargetCache: provider.NewOCITargetCache(),
-					appDataCache:   provider.NewAppDataCache(),
+					rwFactory:          rwFactory,
+					podmanMonitor:      NewPodmanMonitor(log, podmanFactory, systemdFactory, "", rwMockFactory),
+					podmanFactory:      podmanFactory,
+					clients:            mockClients,
+					log:                log,
+					ociTargetCache:     provider.NewOCITargetCache(),
+					appDataCache:       provider.NewAppDataCache(),
+					pullConfigResolver: mockPullConfigResolver,
 				}
 			},
 			expectError:   false,
@@ -810,18 +819,21 @@ func TestCollectOCITargetsErrorHandling(t *testing.T) {
 					return mockReadWriter, nil
 				}
 				mockClients := client.NewCLIClients()
+				mockPullConfigResolver := dependency.NewMockPullConfigResolver(ctrl)
+				mockPullConfigResolver.EXPECT().Options(gomock.Any()).Return(func() []client.ClientOption { return nil }).AnyTimes()
 				return &manager{
-					rwFactory:      rwFactory,
-					podmanMonitor:  NewPodmanMonitor(log, podmanFactory, systemdFactory, "", rwMockFactory),
-					podmanFactory:  podmanFactory,
-					log:            log,
-					ociTargetCache: provider.NewOCITargetCache(),
-					appDataCache:   provider.NewAppDataCache(),
-					clients:        mockClients,
+					rwFactory:          rwFactory,
+					podmanMonitor:      NewPodmanMonitor(log, podmanFactory, systemdFactory, "", rwMockFactory),
+					podmanFactory:      podmanFactory,
+					log:                log,
+					ociTargetCache:     provider.NewOCITargetCache(),
+					appDataCache:       provider.NewAppDataCache(),
+					clients:            mockClients,
+					pullConfigResolver: mockPullConfigResolver,
 				}
 			},
 			expectError:   true,
-			errorContains: "collecting nested OCI targets",
+			errorContains: "extracting nested targets",
 			isRetryable:   false,
 		},
 	}
@@ -862,6 +874,224 @@ func TestCollectOCITargetsErrorHandling(t *testing.T) {
 					require.True(result.Requeue, "Expected Requeue=true, got false")
 					require.NotEmpty(result.Targets, "Expected base targets to be returned")
 				}
+			}
+		})
+	}
+}
+
+func TestVerifyProvidersDeferredDependencies(t *testing.T) {
+	tests := []struct {
+		name            string
+		osUpdatePending bool
+		setupProviders  func(ctrl *gomock.Controller) []provider.Provider
+		wantErr         bool
+		wantErrContains string
+	}{
+		{
+			name:            "os update pending - defers ErrAppDependency from Verify",
+			osUpdatePending: true,
+			setupProviders: func(ctrl *gomock.Controller) []provider.Provider {
+				mockProvider := provider.NewMockProvider(ctrl)
+				mockProvider.EXPECT().Name().Return("helm-app").AnyTimes()
+				mockProvider.EXPECT().Verify(gomock.Any()).Return(
+					fmt.Errorf("%w: helm binary not found", errors.ErrAppDependency))
+				return []provider.Provider{mockProvider}
+			},
+			wantErr: false,
+		},
+		{
+			name:            "no os update pending - ErrAppDependency from Verify returns error",
+			osUpdatePending: false,
+			setupProviders: func(ctrl *gomock.Controller) []provider.Provider {
+				mockProvider := provider.NewMockProvider(ctrl)
+				mockProvider.EXPECT().Name().Return("helm-app").AnyTimes()
+				mockProvider.EXPECT().Verify(gomock.Any()).Return(
+					fmt.Errorf("%w: helm binary not found", errors.ErrAppDependency))
+				return []provider.Provider{mockProvider}
+			},
+			wantErr:         true,
+			wantErrContains: "helm binary not found",
+		},
+		{
+			name:            "os update pending - one deferred, one succeeds",
+			osUpdatePending: true,
+			setupProviders: func(ctrl *gomock.Controller) []provider.Provider {
+				helmProvider := provider.NewMockProvider(ctrl)
+				helmProvider.EXPECT().Name().Return("helm-app").AnyTimes()
+				helmProvider.EXPECT().Verify(gomock.Any()).Return(
+					fmt.Errorf("%w: helm binary not found", errors.ErrAppDependency))
+
+				containerProvider := provider.NewMockProvider(ctrl)
+				containerProvider.EXPECT().Name().Return("container-app").AnyTimes()
+				containerProvider.EXPECT().Verify(gomock.Any()).Return(nil)
+
+				return []provider.Provider{helmProvider, containerProvider}
+			},
+			wantErr: false,
+		},
+		{
+			name:            "non-deferrable error - returns immediately",
+			osUpdatePending: true,
+			setupProviders: func(ctrl *gomock.Controller) []provider.Provider {
+				mockProvider := provider.NewMockProvider(ctrl)
+				mockProvider.EXPECT().Name().Return("helm-app").AnyTimes()
+				mockProvider.EXPECT().Verify(gomock.Any()).Return(
+					fmt.Errorf("critical error: invalid spec"))
+				return []provider.Provider{mockProvider}
+			},
+			wantErr:         true,
+			wantErrContains: "invalid spec",
+		},
+		{
+			name:            "all providers succeed",
+			osUpdatePending: false,
+			setupProviders: func(ctrl *gomock.Controller) []provider.Provider {
+				p1 := provider.NewMockProvider(ctrl)
+				p1.EXPECT().Name().Return("app1").AnyTimes()
+				p1.EXPECT().Verify(gomock.Any()).Return(nil)
+
+				p2 := provider.NewMockProvider(ctrl)
+				p2.EXPECT().Name().Return("app2").AnyTimes()
+				p2.EXPECT().Verify(gomock.Any()).Return(nil)
+
+				return []provider.Provider{p1, p2}
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require := require.New(t)
+
+			ctx := context.Background()
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			log := log.NewPrefixLogger("test")
+			log.SetLevel(logrus.DebugLevel)
+
+			providers := tt.setupProviders(ctrl)
+
+			m := &manager{
+				log:             log,
+				osUpdatePending: tt.osUpdatePending,
+			}
+
+			err := m.verifyProviders(ctx, providers)
+
+			if tt.wantErr {
+				require.Error(err)
+				if tt.wantErrContains != "" {
+					require.Contains(err.Error(), tt.wantErrContains)
+				}
+			} else {
+				require.NoError(err)
+			}
+		})
+	}
+}
+
+func TestCollectOCITargetsDeferredDependencies(t *testing.T) {
+	tests := []struct {
+		name            string
+		osUpdatePending bool
+		setupMocks      func(ctrl *gomock.Controller, mockExec *executer.MockExecuter)
+		wantErr         error
+	}{
+		{
+			name:            "os update pending - defers ErrAppDependency",
+			osUpdatePending: true,
+			setupMocks: func(ctrl *gomock.Controller, mockExec *executer.MockExecuter) {
+				mockExec.EXPECT().ExecuteWithContext(
+					gomock.Any(), "podman", "--version",
+				).Return("podman version 4.0.0", "", 0).AnyTimes()
+			},
+			wantErr: nil,
+		},
+		{
+			name:            "no os update pending - ErrAppDependency returns error",
+			osUpdatePending: false,
+			setupMocks: func(ctrl *gomock.Controller, mockExec *executer.MockExecuter) {
+				mockExec.EXPECT().ExecuteWithContext(
+					gomock.Any(), "podman", "--version",
+				).Return("podman version 4.0.0", "", 0).AnyTimes()
+			},
+			wantErr: errors.ErrAppDependency,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require := require.New(t)
+
+			ctx := context.Background()
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			log := log.NewPrefixLogger("test")
+			log.SetLevel(logrus.DebugLevel)
+
+			tempDir := t.TempDir()
+			readWriter := fileio.NewReadWriter(
+				fileio.NewReader(fileio.WithReaderRootDir(tempDir)),
+				fileio.NewWriter(fileio.WithWriterRootDir(tempDir)),
+			)
+
+			mockExec := executer.NewMockExecuter(ctrl)
+			mockPodmanClient := client.NewPodman(log, mockExec, readWriter, testutil.NewPollConfig())
+
+			if tt.setupMocks != nil {
+				tt.setupMocks(ctrl, mockExec)
+			}
+
+			var podmanFactory client.PodmanFactory = func(user v1beta1.Username) (*client.Podman, error) {
+				return mockPodmanClient, nil
+			}
+			var rwFactory fileio.ReadWriterFactory = func(username v1beta1.Username) (fileio.ReadWriter, error) {
+				return readWriter, nil
+			}
+
+			cliClients := client.NewCLIClients()
+			m := &manager{
+				log:            log,
+				podmanFactory:  podmanFactory,
+				rwFactory:      rwFactory,
+				clients:        cliClients,
+				ociTargetCache: provider.NewOCITargetCache(),
+				appDataCache:   provider.NewAppDataCache(),
+			}
+
+			var quadletApp v1beta1.QuadletApplication
+			err := quadletApp.FromInlineApplicationProviderSpec(v1beta1.InlineApplicationProviderSpec{
+				Inline: []v1beta1.ApplicationContent{
+					{
+						Content: lo.ToPtr(quadlet1),
+						Path:    "test-app.container",
+					},
+				},
+			})
+			require.NoError(err)
+			quadletApp.Name = lo.ToPtr("test-quadlet")
+			quadletApp.AppType = v1beta1.AppTypeQuadlet
+
+			var providerSpec v1beta1.ApplicationProviderSpec
+			err = providerSpec.FromQuadletApplication(quadletApp)
+			require.NoError(err)
+
+			desired := &v1beta1.DeviceSpec{
+				Applications: &[]v1beta1.ApplicationProviderSpec{providerSpec},
+			}
+
+			result, err := m.CollectOCITargets(ctx, &v1beta1.DeviceSpec{}, desired,
+				dependency.WithOSUpdatePending(tt.osUpdatePending))
+
+			if tt.wantErr != nil {
+				require.Error(err)
+				require.True(errors.Is(err, tt.wantErr))
+			} else {
+				require.NoError(err)
+				require.NotNil(result)
 			}
 		})
 	}

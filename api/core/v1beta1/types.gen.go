@@ -566,6 +566,9 @@ type AbsolutePath struct {
 	Path *string `json:"path,omitempty"`
 }
 
+// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
+type ApiVersion = string
+
 // AppType The type of the application.
 type AppType string
 
@@ -662,7 +665,7 @@ type ApplicationsSummaryStatusType string
 // AuthConfig defines model for AuthConfig.
 type AuthConfig struct {
 	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
-	ApiVersion string `json:"apiVersion"`
+	ApiVersion ApiVersion `json:"apiVersion"`
 
 	// DefaultProvider Name of the default authentication provider.
 	DefaultProvider *string `json:"defaultProvider,omitempty"`
@@ -730,7 +733,7 @@ type AuthPerUserOrganizationAssignmentType string
 // AuthProvider AuthProvider represents an authentication provider configuration supporting both OIDC and OAuth2.
 type AuthProvider struct {
 	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
-	ApiVersion string `json:"apiVersion"`
+	ApiVersion ApiVersion `json:"apiVersion"`
 
 	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.
 	Kind string `json:"kind"`
@@ -743,7 +746,7 @@ type AuthProvider struct {
 // AuthProviderList AuthProviderList is a list of auth providers.
 type AuthProviderList struct {
 	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
-	ApiVersion string `json:"apiVersion"`
+	ApiVersion ApiVersion `json:"apiVersion"`
 
 	// Items List of auth providers.
 	Items []AuthProvider `json:"items"`
@@ -821,7 +824,7 @@ type BatchSequence struct {
 // CertificateSigningRequest CertificateSigningRequest represents a request for a signed certificate from the CA.
 type CertificateSigningRequest struct {
 	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
-	ApiVersion string `json:"apiVersion"`
+	ApiVersion ApiVersion `json:"apiVersion"`
 
 	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.
 	Kind string `json:"kind"`
@@ -839,7 +842,7 @@ type CertificateSigningRequest struct {
 // CertificateSigningRequestList CertificateSigningRequestList is a list of CertificateSigningRequest.
 type CertificateSigningRequestList struct {
 	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
-	ApiVersion string `json:"apiVersion"`
+	ApiVersion ApiVersion `json:"apiVersion"`
 
 	// Items List of CertificateSigningRequest.
 	Items []CertificateSigningRequest `json:"items"`
@@ -894,9 +897,6 @@ type ComposeApplication struct {
 
 	// Name The application name must be 1–253 characters long, start with a letter or number, and contain no whitespace.
 	Name *string `json:"name,omitempty"`
-
-	// RunAs The username of the system user this application should be run under. This is not the same as the user within any containers of the application (if applicable). Defaults to the user that the agent runs as (generally root) if not specified.
-	RunAs Username `json:"runAs,omitempty"`
 
 	// Volumes List of application volumes.
 	Volumes *[]ApplicationVolume `json:"volumes,omitempty"`
@@ -1013,7 +1013,7 @@ type CustomDeviceInfo map[string]string
 // Device Device represents a physical device.
 type Device struct {
 	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
-	ApiVersion string `json:"apiVersion"`
+	ApiVersion ApiVersion `json:"apiVersion"`
 
 	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.
 	Kind string `json:"kind"`
@@ -1145,7 +1145,7 @@ type DeviceLifecycleStatusType string
 // DeviceList DeviceList is a list of Devices.
 type DeviceList struct {
 	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
-	ApiVersion string `json:"apiVersion"`
+	ApiVersion ApiVersion `json:"apiVersion"`
 
 	// Items List of Devices.
 	Items []Device `json:"items"`
@@ -1453,7 +1453,7 @@ type EnrollmentConfig struct {
 // EnrollmentRequest EnrollmentRequest represents a request for approval to enroll a device.
 type EnrollmentRequest struct {
 	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
-	ApiVersion string `json:"apiVersion"`
+	ApiVersion ApiVersion `json:"apiVersion"`
 
 	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.
 	Kind string `json:"kind"`
@@ -1495,7 +1495,7 @@ type EnrollmentRequestApprovalStatus struct {
 // EnrollmentRequestList EnrollmentRequestList is a list of EnrollmentRequest.
 type EnrollmentRequestList struct {
 	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
-	ApiVersion string `json:"apiVersion"`
+	ApiVersion ApiVersion `json:"apiVersion"`
 
 	// Items List of EnrollmentRequest.
 	Items []EnrollmentRequest `json:"items"`
@@ -1570,7 +1570,7 @@ type Event struct {
 	Actor string `json:"actor"`
 
 	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
-	ApiVersion string `json:"apiVersion"`
+	ApiVersion ApiVersion `json:"apiVersion"`
 
 	// Details Event-specific details, structured based on event type.
 	Details *EventDetails `json:"details,omitempty"`
@@ -1611,7 +1611,7 @@ type EventDetails struct {
 // EventList EventList is a list of Events.
 type EventList struct {
 	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
-	ApiVersion string `json:"apiVersion"`
+	ApiVersion ApiVersion `json:"apiVersion"`
 
 	// Items List of Events.
 	Items []Event `json:"items"`
@@ -1677,7 +1677,7 @@ type FileSpec struct {
 // Fleet Fleet represents a set of devices.
 type Fleet struct {
 	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
-	ApiVersion string `json:"apiVersion"`
+	ApiVersion ApiVersion `json:"apiVersion"`
 
 	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.
 	Kind string `json:"kind"`
@@ -1695,7 +1695,7 @@ type Fleet struct {
 // FleetList FleetList is a list of Fleets.
 type FleetList struct {
 	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
-	ApiVersion string `json:"apiVersion"`
+	ApiVersion ApiVersion `json:"apiVersion"`
 
 	// Items List of Fleets.
 	Items []Fleet `json:"items"`
@@ -2437,7 +2437,7 @@ type OpenShiftProviderSpecProviderType string
 // Organization defines model for Organization.
 type Organization struct {
 	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
-	ApiVersion string `json:"apiVersion"`
+	ApiVersion ApiVersion `json:"apiVersion"`
 
 	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.
 	Kind string `json:"kind"`
@@ -2452,7 +2452,7 @@ type Organization struct {
 // OrganizationList OrganizationList is a list of Organizations.
 type OrganizationList struct {
 	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
-	ApiVersion string `json:"apiVersion"`
+	ApiVersion ApiVersion `json:"apiVersion"`
 
 	// Items List of Organizations.
 	Items []Organization `json:"items"`
@@ -2549,7 +2549,7 @@ type RepoSpecType string
 // Repository Repository represents a Git repository or an HTTP endpoint.
 type Repository struct {
 	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
-	ApiVersion string `json:"apiVersion"`
+	ApiVersion ApiVersion `json:"apiVersion"`
 
 	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.
 	Kind string `json:"kind"`
@@ -2567,7 +2567,7 @@ type Repository struct {
 // RepositoryList RepositoryList is a list of Repositories.
 type RepositoryList struct {
 	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
-	ApiVersion string `json:"apiVersion"`
+	ApiVersion ApiVersion `json:"apiVersion"`
 
 	// Items List of repositories.
 	Items []Repository `json:"items"`
@@ -2628,7 +2628,7 @@ type ResourceMonitorSpec struct {
 // ResourceSync ResourceSync represents a reference to one or more files in a repository to sync to resource definitions.
 type ResourceSync struct {
 	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
-	ApiVersion string `json:"apiVersion"`
+	ApiVersion ApiVersion `json:"apiVersion"`
 
 	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.
 	Kind string `json:"kind"`
@@ -2664,7 +2664,7 @@ type ResourceSyncCompletedDetailsDetailType string
 // ResourceSyncList defines model for ResourceSyncList.
 type ResourceSyncList struct {
 	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
-	ApiVersion string `json:"apiVersion"`
+	ApiVersion ApiVersion `json:"apiVersion"`
 
 	// Items List of resourcesync.
 	Items []ResourceSync `json:"items"`
@@ -2771,7 +2771,7 @@ type SshConfig struct {
 // Status Status is a return value for calls that don't return other objects.
 type Status struct {
 	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
-	ApiVersion string `json:"apiVersion"`
+	ApiVersion ApiVersion `json:"apiVersion"`
 
 	// Code Suggested HTTP return code for this status, 0 if not set.
 	Code int32 `json:"code"`
@@ -2822,7 +2822,7 @@ type SystemdUnitStatus struct {
 // TemplateVersion TemplateVersion represents a version of a template.
 type TemplateVersion struct {
 	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
-	ApiVersion string `json:"apiVersion"`
+	ApiVersion ApiVersion `json:"apiVersion"`
 
 	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.
 	Kind string `json:"kind"`
@@ -2840,7 +2840,7 @@ type TemplateVersion struct {
 // TemplateVersionList TemplateVersionList is a list of TemplateVersions.
 type TemplateVersionList struct {
 	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
-	ApiVersion string `json:"apiVersion"`
+	ApiVersion ApiVersion `json:"apiVersion"`
 
 	// Items List of TemplateVersions.
 	Items []TemplateVersion `json:"items"`
@@ -4223,11 +4223,6 @@ func (t ComposeApplication) MarshalJSON() ([]byte, error) {
 		}
 	}
 
-	object["runAs"], err = json.Marshal(t.RunAs)
-	if err != nil {
-		return nil, fmt.Errorf("error marshaling 'runAs': %w", err)
-	}
-
 	if t.Volumes != nil {
 		object["volumes"], err = json.Marshal(t.Volumes)
 		if err != nil {
@@ -4267,13 +4262,6 @@ func (t *ComposeApplication) UnmarshalJSON(b []byte) error {
 		err = json.Unmarshal(raw, &t.Name)
 		if err != nil {
 			return fmt.Errorf("error reading 'name': %w", err)
-		}
-	}
-
-	if raw, found := object["runAs"]; found {
-		err = json.Unmarshal(raw, &t.RunAs)
-		if err != nil {
-			return fmt.Errorf("error reading 'runAs': %w", err)
 		}
 	}
 

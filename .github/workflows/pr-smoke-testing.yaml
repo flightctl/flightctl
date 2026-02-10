@@ -130,7 +130,13 @@ jobs:
 
       - name: Simulator run
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
-        run: bin/devicesimulator --config bin/agent/etc/flightctl/config.yaml --count 1 --stop-after 1m
+        run: bin/devicesimulator --config bin/agent/etc/flightctl/config.yaml --count 1 --stop-after 1m 2>&1 | tee simulator-smoke.log
+
+      - name: Check simulator logs
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+        uses: ./.github/actions/check-simulator-logs
+        with:
+          log-file: simulator-smoke.log
 
       - name: Collect and Upload Logs
         if: always() && steps.changed-files.outputs.any_changed == 'true'

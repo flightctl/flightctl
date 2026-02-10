@@ -41,20 +41,23 @@ func NewManager(
 	client Client,
 	readWriter fileio.ReadWriter,
 	podmanClient *client.Podman,
+	pullConfigResolver dependency.PullConfigResolver,
 ) Manager {
 	return &manager{
-		client:       client,
-		podmanClient: podmanClient,
-		readWriter:   readWriter,
-		log:          log,
+		client:             client,
+		podmanClient:       podmanClient,
+		readWriter:         readWriter,
+		pullConfigResolver: pullConfigResolver,
+		log:                log,
 	}
 }
 
 type manager struct {
-	client       Client
-	podmanClient *client.Podman
-	readWriter   fileio.ReadWriter
-	log          *log.PrefixLogger
+	client             Client
+	podmanClient       *client.Podman
+	readWriter         fileio.ReadWriter
+	pullConfigResolver dependency.PullConfigResolver
+	log                *log.PrefixLogger
 }
 
 func (m *manager) Status(ctx context.Context, status *v1beta1.DeviceStatus, _ ...status.CollectorOpt) error {
@@ -77,7 +80,7 @@ func (m *manager) BeforeUpdate(ctx context.Context, current, desired *v1beta1.De
 	return nil
 }
 
-func (m *manager) CollectOCITargets(ctx context.Context, current, desired *v1beta1.DeviceSpec) (*dependency.OCICollection, error) {
+func (m *manager) CollectOCITargets(ctx context.Context, current, desired *v1beta1.DeviceSpec, _ ...dependency.OCICollectOpt) (*dependency.OCICollection, error) {
 	if desired.Os == nil {
 		m.log.Debug("No OS spec to collect OCI targets from")
 		return &dependency.OCICollection{}, nil
@@ -105,21 +108,14 @@ func (m *manager) CollectOCITargets(ctx context.Context, current, desired *v1bet
 		return &dependency.OCICollection{}, nil
 	}
 
-	// resolve pull secret for authentication
-	configs := make(map[client.ConfigType]*client.PullConfig)
-	containerConfig, found, err := client.ResolvePullConfig(m.log, m.readWriter, desired, authPath)
-	if err != nil {
-		return nil, fmt.Errorf("resolving pull config: %w", err)
-	}
-	if found {
-		configs[client.ConfigTypeContainerSecret] = containerConfig
-	}
-
 	target := dependency.OCIPullTarget{
 		Type:       dependency.OCITypePodmanImage,
 		Reference:  osImage,
 		PullPolicy: v1beta1.PullIfNotPresent,
-		Configs:    client.NewPullConfigProvider(configs),
+		ClientOptsFn: m.pullConfigResolver.Options(dependency.PullConfigSpec{
+			Paths:    []string{authPath},
+			OptionFn: client.WithPullSecret,
+		}),
 	}
 
 	m.log.Debugf("Collected 1 OCI target from OS spec: %s", osImage)

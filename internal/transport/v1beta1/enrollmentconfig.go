@@ -12,5 +12,5 @@ func (h *TransportHandler) GetEnrollmentConfig(w http.ResponseWriter, r *http.Re
 	domainParams := h.converter.EnrollmentRequest().GetConfigParamsToDomain(params)
 	body, status := h.serviceHandler.GetEnrollmentConfig(r.Context(), transport.OrgIDFromContext(r.Context()), domainParams)
 	apiResult := h.converter.EnrollmentRequest().ConfigFromDomain(body)
-	transport.SetResponse(w, apiResult, status)
+	h.SetResponse(w, apiResult, status)
 }

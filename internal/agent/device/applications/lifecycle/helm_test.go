@@ -9,6 +9,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/test/util"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
@@ -41,7 +42,7 @@ func TestHelmHandler_Execute_Add(t *testing.T) {
 		wantErr        bool
 	}{
 		{
-			name: "success without kubeconfig",
+			name: "success with namespace creation",
 			action: &Action{
 				ID:   "my-namespace",
 				Name: "my-release",
@@ -49,26 +50,28 @@ func TestHelmHandler_Execute_Add(t *testing.T) {
 				Type: ActionAdd,
 				Spec: HelmSpec{Namespace: "my-namespace"},
 			},
-			kubeconfigPath: "",
+			kubeconfigPath: "/tmp/kubeconfig",
 			setupMock: func(mockExec *executer.MockExecuter, mockRW *fileio.MockReadWriter) {
 				gomock.InOrder(
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "helm", []string{
 						"version", "--short",
 					}).Return("v3.14.0", "", 0),
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "kubectl", []string{
-						"get", "namespace", "my-namespace",
+						"get", "namespace", "my-namespace", "--kubeconfig", "/tmp/kubeconfig",
 					}).Return("", "not found", 1),
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "kubectl", []string{
-						"create", "namespace", "my-namespace",
+						"create", "namespace", "my-namespace", "--kubeconfig", "/tmp/kubeconfig",
 					}).Return("", "", 0),
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "kubectl", []string{
 						"label", "namespace", "my-namespace",
-						"flightctl.io/managed-by=flightctl", "--overwrite",
+						"flightctl.io/managed-by=flightctl", "--overwrite", "--kubeconfig", "/tmp/kubeconfig",
 					}).Return("", "", 0),
+					mockRW.EXPECT().PathExists("/tmp/kubeconfig").Return(true, nil),
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "helm", []string{
 						"upgrade", "my-release", "/var/lib/flightctl/helm/charts/mychart-1.0.0",
 						"--install",
 						"--namespace", "my-namespace",
+						"--kubeconfig", "/tmp/kubeconfig",
 						"--atomic",
 						"--post-renderer", "/test/flightctl",
 						"--post-renderer-args", "helm-render",
@@ -129,19 +132,21 @@ func TestHelmHandler_Execute_Add(t *testing.T) {
 				Type: ActionAdd,
 				Spec: HelmSpec{Namespace: "existing-namespace"},
 			},
-			kubeconfigPath: "",
+			kubeconfigPath: "/tmp/kubeconfig",
 			setupMock: func(mockExec *executer.MockExecuter, mockRW *fileio.MockReadWriter) {
 				gomock.InOrder(
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "helm", []string{
 						"version", "--short",
 					}).Return("v3.14.0", "", 0),
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "kubectl", []string{
-						"get", "namespace", "existing-namespace",
+						"get", "namespace", "existing-namespace", "--kubeconfig", "/tmp/kubeconfig",
 					}).Return("existing-namespace   Active   5d", "", 0),
+					mockRW.EXPECT().PathExists("/tmp/kubeconfig").Return(true, nil),
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "helm", []string{
 						"upgrade", "my-release", "/var/lib/flightctl/helm/charts/mychart-1.0.0",
 						"--install",
 						"--namespace", "existing-namespace",
+						"--kubeconfig", "/tmp/kubeconfig",
 						"--atomic",
 						"--post-renderer", "/test/flightctl",
 						"--post-renderer-args", "helm-render",
@@ -161,26 +166,28 @@ func TestHelmHandler_Execute_Add(t *testing.T) {
 				Type: ActionAdd,
 				Spec: HelmSpec{},
 			},
-			kubeconfigPath: "",
+			kubeconfigPath: "/tmp/kubeconfig",
 			setupMock: func(mockExec *executer.MockExecuter, mockRW *fileio.MockReadWriter) {
 				gomock.InOrder(
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "helm", []string{
 						"version", "--short",
 					}).Return("v3.14.0", "", 0),
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "kubectl", []string{
-						"get", "namespace", "flightctl-my-release",
+						"get", "namespace", "flightctl-my-release", "--kubeconfig", "/tmp/kubeconfig",
 					}).Return("", "not found", 1),
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "kubectl", []string{
-						"create", "namespace", "flightctl-my-release",
+						"create", "namespace", "flightctl-my-release", "--kubeconfig", "/tmp/kubeconfig",
 					}).Return("", "", 0),
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "kubectl", []string{
 						"label", "namespace", "flightctl-my-release",
-						"flightctl.io/managed-by=flightctl", "--overwrite",
+						"flightctl.io/managed-by=flightctl", "--overwrite", "--kubeconfig", "/tmp/kubeconfig",
 					}).Return("", "", 0),
+					mockRW.EXPECT().PathExists("/tmp/kubeconfig").Return(true, nil),
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "helm", []string{
 						"upgrade", "my-release", "/var/lib/flightctl/helm/charts/mychart-1.0.0",
 						"--install",
 						"--namespace", "flightctl-my-release",
+						"--kubeconfig", "/tmp/kubeconfig",
 						"--atomic",
 						"--post-renderer", "/test/flightctl",
 						"--post-renderer-args", "helm-render",
@@ -200,26 +207,28 @@ func TestHelmHandler_Execute_Add(t *testing.T) {
 				Type: ActionAdd,
 				Spec: HelmSpec{Namespace: "my-namespace"},
 			},
-			kubeconfigPath: "",
+			kubeconfigPath: "/tmp/kubeconfig",
 			setupMock: func(mockExec *executer.MockExecuter, mockRW *fileio.MockReadWriter) {
 				gomock.InOrder(
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "helm", []string{
 						"version", "--short",
 					}).Return("v3.14.0", "", 0),
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "kubectl", []string{
-						"get", "namespace", "my-namespace",
+						"get", "namespace", "my-namespace", "--kubeconfig", "/tmp/kubeconfig",
 					}).Return("", "not found", 1),
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "kubectl", []string{
-						"create", "namespace", "my-namespace",
+						"create", "namespace", "my-namespace", "--kubeconfig", "/tmp/kubeconfig",
 					}).Return("", "", 0),
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "kubectl", []string{
 						"label", "namespace", "my-namespace",
-						"flightctl.io/managed-by=flightctl", "--overwrite",
+						"flightctl.io/managed-by=flightctl", "--overwrite", "--kubeconfig", "/tmp/kubeconfig",
 					}).Return("", "", 0),
+					mockRW.EXPECT().PathExists("/tmp/kubeconfig").Return(true, nil),
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "helm", []string{
 						"upgrade", "my-release", "/var/lib/flightctl/helm/charts/mychart-1.0.0",
 						"--install",
 						"--namespace", "my-namespace",
+						"--kubeconfig", "/tmp/kubeconfig",
 						"--atomic",
 						"--post-renderer", "/test/flightctl",
 						"--post-renderer-args", "helm-render",
@@ -239,7 +248,7 @@ func TestHelmHandler_Execute_Add(t *testing.T) {
 				Type: ActionAdd,
 				Spec: HelmSpec{Namespace: "my-namespace"},
 			},
-			kubeconfigPath: "",
+			kubeconfigPath: "/tmp/kubeconfig",
 			setupMock: func(mockExec *executer.MockExecuter, mockRW *fileio.MockReadWriter) {
 				mockRW.EXPECT().MkdirTemp("helm-plugins").Return("/tmp/helm-plugins-123", nil)
 				mockRW.EXPECT().MkdirAll("/tmp/helm-plugins-123/flightctl-postrenderer", fileio.DefaultDirectoryPermissions).Return(nil)
@@ -249,8 +258,9 @@ func TestHelmHandler_Execute_Add(t *testing.T) {
 					"version", "--short",
 				}).Return("v4.0.0", "", 0)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "kubectl", []string{
-					"get", "namespace", "my-namespace",
+					"get", "namespace", "my-namespace", "--kubeconfig", "/tmp/kubeconfig",
 				}).Return("my-namespace   Active   5d", "", 0)
+				mockRW.EXPECT().PathExists("/tmp/kubeconfig").Return(true, nil)
 				mockExec.EXPECT().ExecuteWithContextFromDir(
 					gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(),
 				).DoAndReturn(func(ctx context.Context, dir, cmd string, args []string, env ...string) (string, string, int) {
@@ -260,6 +270,8 @@ func TestHelmHandler_Execute_Add(t *testing.T) {
 					require.NotContains(t, args, "--atomic")
 					require.Contains(t, args, "--post-renderer")
 					require.Contains(t, args, "flightctl-postrenderer")
+					require.Contains(t, args, "--kubeconfig")
+					require.Contains(t, args, "/tmp/kubeconfig")
 					return "", "", 0
 				})
 			},
@@ -279,15 +291,19 @@ func TestHelmHandler_Execute_Add(t *testing.T) {
 
 			tc.setupMock(mockExec, mockReadWriter)
 
+			kubeOpts := []client.KubernetesOption{client.WithBinary("kubectl")}
+			if tc.kubeconfigPath != "" {
+				kubeOpts = append(kubeOpts, client.WithKubeconfigPath(tc.kubeconfigPath))
+			}
 			clients := &testCLIClients{
-				helm: client.NewHelm(logger, mockExec, mockReadWriter, "/var/lib/flightctl"),
-				kube: client.NewKube(logger, mockExec, mockReadWriter, client.WithBinary("kubectl")),
+				helm: client.NewHelm(logger, mockExec, mockReadWriter, "/var/lib/flightctl", util.NewPollConfig()),
+				kube: client.NewKube(logger, mockExec, mockReadWriter, kubeOpts...),
 			}
 			resolver := testExecutableResolver{path: "/test/flightctl"}
 			rwFactory := func(_ v1beta1.Username) (fileio.ReadWriter, error) {
 				return mockReadWriter, nil
 			}
-			handler := NewHelmHandler(logger, clients, tc.kubeconfigPath, resolver, rwFactory)
+			handler := NewHelmHandler(logger, clients, resolver, rwFactory)
 			err := handler.Execute(context.Background(), []Action{*tc.action})
 
 			if tc.wantErr {
@@ -308,22 +324,24 @@ func TestHelmHandler_Execute_Remove(t *testing.T) {
 		wantErr        bool
 	}{
 		{
-			name: "success without kubeconfig",
+			name: "success with kubeconfig removes release",
 			action: &Action{
 				ID:   "my-namespace",
 				Name: "my-release",
 				Type: ActionRemove,
 				Spec: HelmSpec{Namespace: "my-namespace"},
 			},
-			kubeconfigPath: "",
+			kubeconfigPath: "/tmp/kubeconfig",
 			setupMock: func(mockExec *executer.MockExecuter, mockRW *fileio.MockReadWriter) {
 				gomock.InOrder(
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "helm", []string{
 						"version", "--short",
 					}).Return("v3.14.0", "", 0),
+					mockRW.EXPECT().PathExists("/tmp/kubeconfig").Return(true, nil),
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "helm", []string{
 						"uninstall", "my-release",
 						"--namespace", "my-namespace",
+						"--kubeconfig", "/tmp/kubeconfig",
 						"--ignore-not-found",
 					}).Return("", "", 0),
 				)
@@ -363,15 +381,17 @@ func TestHelmHandler_Execute_Remove(t *testing.T) {
 				Type: ActionRemove,
 				Spec: HelmSpec{Namespace: "my-namespace"},
 			},
-			kubeconfigPath: "",
+			kubeconfigPath: "/tmp/kubeconfig",
 			setupMock: func(mockExec *executer.MockExecuter, mockRW *fileio.MockReadWriter) {
 				gomock.InOrder(
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "helm", []string{
 						"version", "--short",
 					}).Return("v3.14.0", "", 0),
+					mockRW.EXPECT().PathExists("/tmp/kubeconfig").Return(true, nil),
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "helm", []string{
 						"uninstall", "my-release",
 						"--namespace", "my-namespace",
+						"--kubeconfig", "/tmp/kubeconfig",
 						"--ignore-not-found",
 					}).Return("", "Error: release not found", 1),
 				)
@@ -392,15 +412,19 @@ func TestHelmHandler_Execute_Remove(t *testing.T) {
 
 			tc.setupMock(mockExec, mockReadWriter)
 
+			kubeOpts := []client.KubernetesOption{client.WithBinary("kubectl")}
+			if tc.kubeconfigPath != "" {
+				kubeOpts = append(kubeOpts, client.WithKubeconfigPath(tc.kubeconfigPath))
+			}
 			clients := &testCLIClients{
-				helm: client.NewHelm(logger, mockExec, mockReadWriter, "/var/lib/flightctl"),
-				kube: client.NewKube(logger, mockExec, mockReadWriter, client.WithBinary("kubectl")),
+				helm: client.NewHelm(logger, mockExec, mockReadWriter, "/var/lib/flightctl", util.NewPollConfig()),
+				kube: client.NewKube(logger, mockExec, mockReadWriter, kubeOpts...),
 			}
 			resolver := testExecutableResolver{path: "/test/flightctl"}
 			rwFactory := func(_ v1beta1.Username) (fileio.ReadWriter, error) {
 				return mockReadWriter, nil
 			}
-			handler := NewHelmHandler(logger, clients, tc.kubeconfigPath, resolver, rwFactory)
+			handler := NewHelmHandler(logger, clients, resolver, rwFactory)
 			err := handler.Execute(context.Background(), []Action{*tc.action})
 
 			if tc.wantErr {
@@ -421,7 +445,7 @@ func TestHelmHandler_Execute_Update(t *testing.T) {
 		wantErr        bool
 	}{
 		{
-			name: "success without kubeconfig",
+			name: "success with kubeconfig upgrades release",
 			action: &Action{
 				ID:   "my-namespace",
 				Name: "my-release",
@@ -429,16 +453,18 @@ func TestHelmHandler_Execute_Update(t *testing.T) {
 				Type: ActionUpdate,
 				Spec: HelmSpec{Namespace: "my-namespace"},
 			},
-			kubeconfigPath: "",
+			kubeconfigPath: "/tmp/kubeconfig",
 			setupMock: func(mockExec *executer.MockExecuter, mockRW *fileio.MockReadWriter) {
 				gomock.InOrder(
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "helm", []string{
 						"version", "--short",
 					}).Return("v3.14.0", "", 0),
+					mockRW.EXPECT().PathExists("/tmp/kubeconfig").Return(true, nil),
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "helm", []string{
 						"upgrade", "my-release", "/var/lib/flightctl/helm/charts/mychart-2.0.0",
 						"--install",
 						"--namespace", "my-namespace",
+						"--kubeconfig", "/tmp/kubeconfig",
 						"--atomic",
 						"--post-renderer", "/test/flightctl",
 						"--post-renderer-args", "helm-render",
@@ -489,16 +515,18 @@ func TestHelmHandler_Execute_Update(t *testing.T) {
 				Type: ActionUpdate,
 				Spec: HelmSpec{Namespace: "my-namespace"},
 			},
-			kubeconfigPath: "",
+			kubeconfigPath: "/tmp/kubeconfig",
 			setupMock: func(mockExec *executer.MockExecuter, mockRW *fileio.MockReadWriter) {
 				gomock.InOrder(
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "helm", []string{
 						"version", "--short",
 					}).Return("v3.14.0", "", 0),
+					mockRW.EXPECT().PathExists("/tmp/kubeconfig").Return(true, nil),
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "helm", []string{
 						"upgrade", "my-release", "/var/lib/flightctl/helm/charts/mychart-2.0.0",
 						"--install",
 						"--namespace", "my-namespace",
+						"--kubeconfig", "/tmp/kubeconfig",
 						"--atomic",
 						"--post-renderer", "/test/flightctl",
 						"--post-renderer-args", "helm-render",
@@ -523,15 +551,19 @@ func TestHelmHandler_Execute_Update(t *testing.T) {
 
 			tc.setupMock(mockExec, mockReadWriter)
 
+			kubeOpts := []client.KubernetesOption{client.WithBinary("kubectl")}
+			if tc.kubeconfigPath != "" {
+				kubeOpts = append(kubeOpts, client.WithKubeconfigPath(tc.kubeconfigPath))
+			}
 			clients := &testCLIClients{
-				helm: client.NewHelm(logger, mockExec, mockReadWriter, "/var/lib/flightctl"),
-				kube: client.NewKube(logger, mockExec, mockReadWriter, client.WithBinary("kubectl")),
+				helm: client.NewHelm(logger, mockExec, mockReadWriter, "/var/lib/flightctl", util.NewPollConfig()),
+				kube: client.NewKube(logger, mockExec, mockReadWriter, kubeOpts...),
 			}
 			resolver := testExecutableResolver{path: "/test/flightctl"}
 			rwFactory := func(_ v1beta1.Username) (fileio.ReadWriter, error) {
 				return mockReadWriter, nil
 			}
-			handler := NewHelmHandler(logger, clients, tc.kubeconfigPath, resolver, rwFactory)
+			handler := NewHelmHandler(logger, clients, resolver, rwFactory)
 			err := handler.Execute(context.Background(), []Action{*tc.action})
 
 			if tc.wantErr {
@@ -557,29 +589,33 @@ func TestHelmHandler_Execute_MultipleActions(t *testing.T) {
 			"version", "--short",
 		}).Return("v3.14.0", "", 0),
 		mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "kubectl", []string{
-			"get", "namespace", "ns1",
+			"get", "namespace", "ns1", "--kubeconfig", "/tmp/kubeconfig",
 		}).Return("", "not found", 1),
 		mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "kubectl", []string{
-			"create", "namespace", "ns1",
+			"create", "namespace", "ns1", "--kubeconfig", "/tmp/kubeconfig",
 		}).Return("", "", 0),
 		mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "kubectl", []string{
 			"label", "namespace", "ns1",
-			"flightctl.io/managed-by=flightctl", "--overwrite",
+			"flightctl.io/managed-by=flightctl", "--overwrite", "--kubeconfig", "/tmp/kubeconfig",
 		}).Return("", "", 0),
+		mockReadWriter.EXPECT().PathExists("/tmp/kubeconfig").Return(true, nil),
 		mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "helm", []string{
 			"upgrade", "app1", "/charts/app1",
 			"--install",
 			"--namespace", "ns1",
+			"--kubeconfig", "/tmp/kubeconfig",
 			"--atomic",
 			"--post-renderer", "/test/flightctl",
 			"--post-renderer-args", "helm-render",
 			"--post-renderer-args", "--app",
 			"--post-renderer-args", "ns1",
 		}).Return("", "", 0),
+		mockReadWriter.EXPECT().PathExists("/tmp/kubeconfig").Return(true, nil),
 		mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "helm", []string{
 			"upgrade", "app2", "/charts/app2",
 			"--install",
 			"--namespace", "ns2",
+			"--kubeconfig", "/tmp/kubeconfig",
 			"--atomic",
 			"--post-renderer", "/test/flightctl",
 			"--post-renderer-args", "helm-render",
@@ -589,14 +625,14 @@ func TestHelmHandler_Execute_MultipleActions(t *testing.T) {
 	)
 
 	clients := &testCLIClients{
-		helm: client.NewHelm(logger, mockExec, mockReadWriter, client.HelmChartsDir),
-		kube: client.NewKube(logger, mockExec, mockReadWriter, client.WithBinary("kubectl")),
+		helm: client.NewHelm(logger, mockExec, mockReadWriter, client.HelmChartsDir, util.NewPollConfig()),
+		kube: client.NewKube(logger, mockExec, mockReadWriter, client.WithBinary("kubectl"), client.WithKubeconfigPath("/tmp/kubeconfig")),
 	}
 	resolver := testExecutableResolver{path: "/test/flightctl"}
 	rwFactory := func(_ v1beta1.Username) (fileio.ReadWriter, error) {
 		return mockReadWriter, nil
 	}
-	handler := NewHelmHandler(logger, clients, "", resolver, rwFactory)
+	handler := NewHelmHandler(logger, clients, resolver, rwFactory)
 
 	actions := []Action{
 		{
@@ -633,14 +669,14 @@ func TestHelmHandler_Execute_UnsupportedActionType(t *testing.T) {
 	}).Return("v3.14.0", "", 0)
 
 	clients := &testCLIClients{
-		helm: client.NewHelm(logger, mockExec, mockReadWriter, client.HelmChartsDir),
-		kube: client.NewKube(logger, mockExec, mockReadWriter, client.WithBinary("kubectl")),
+		helm: client.NewHelm(logger, mockExec, mockReadWriter, client.HelmChartsDir, util.NewPollConfig()),
+		kube: client.NewKube(logger, mockExec, mockReadWriter, client.WithBinary("kubectl"), client.WithKubeconfigPath("/tmp/kubeconfig")),
 	}
 	resolver := testExecutableResolver{path: "/test/flightctl"}
 	rwFactory := func(_ v1beta1.Username) (fileio.ReadWriter, error) {
 		return mockReadWriter, nil
 	}
-	handler := NewHelmHandler(logger, clients, "", resolver, rwFactory)
+	handler := NewHelmHandler(logger, clients, resolver, rwFactory)
 
 	action := Action{
 		ID:   "ns1",

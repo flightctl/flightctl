@@ -1,0 +1,14 @@
+[Unit]
+Description=Configure greenboot for flightctl-managed rollback
+Before=greenboot-healthcheck.service
+After=local-fs.target
+DefaultDependencies=no
+ConditionPathExists=/usr/libexec/greenboot/greenboot
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/flightctl/configure-greenboot.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=greenboot-healthcheck.service

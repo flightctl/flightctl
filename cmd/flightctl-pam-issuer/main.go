@@ -16,6 +16,11 @@ import (
 	"github.com/flightctl/flightctl/pkg/log"
 )
 
+const (
+	defaultUserDBDir = "/userdb"
+	defaultEtcDir    = "/etc"
+)
+
 func main() {
 	ctx := context.Background()
 
@@ -65,6 +70,20 @@ func main() {
 
 	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGQUIT)
 	defer cancel()
+
+	userdbDir := os.Getenv("USERDB_DIR")
+	if userdbDir == "" {
+		userdbDir = defaultUserDBDir
+	}
+	etcDir := os.Getenv("ETC_DIR")
+	if etcDir == "" {
+		etcDir = defaultEtcDir
+	}
+	userdbEvents, err := pam_issuer_server.RunUserDBSync(ctx, log, userdbDir, etcDir)
+	if err != nil {
+		log.Warnf("userdb sync disabled: %v", err)
+	}
+	_ = userdbEvents
 
 	go func() {
 		listener, err := middleware.NewTLSListener(pamIssuerAddress, tlsConfig)

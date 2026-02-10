@@ -8,17 +8,28 @@ import (
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
+	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/samber/lo"
 )
 
+var composeBinaryDeps = []dependencyBins{
+	{variants: []string{"podman"}},
+	{variants: []string{"docker-compose", "podman-compose"}},
+	{variants: []string{"skopeo"}},
+}
+
+var _ Provider = (*composeProvider)(nil)
+var _ appProvider = (*composeProvider)(nil)
+
 type composeProvider struct {
-	log        *log.PrefixLogger
-	podman     *client.Podman
-	readWriter fileio.ReadWriter
-	spec       *ApplicationSpec
+	log            *log.PrefixLogger
+	podman         *client.Podman
+	readWriter     fileio.ReadWriter
+	commandChecker commandChecker
+	spec           *ApplicationSpec
 
 	imageRef      string
 	inlineContent []v1beta1.ApplicationContent
@@ -43,7 +54,7 @@ func newComposeProvider(
 	envVars := lo.FromPtr(composeApp.EnvVars)
 	volumes := composeApp.Volumes
 
-	user := composeApp.UserWithDefault()
+	user := v1beta1.CurrentProcessUsername
 	podman, err := podmanFactory(user)
 	if err != nil {
 		return nil, fmt.Errorf("creating podman client for user %s: %w", user, err)
@@ -57,12 +68,6 @@ func newComposeProvider(
 	providerType, err := composeApp.Type()
 	if err != nil {
 		return nil, fmt.Errorf("getting compose provider type: %w", err)
-	}
-
-	if cfg != nil && cfg.providerTypes != nil {
-		if _, exists := cfg.providerTypes[providerType]; !exists {
-			return nil, nil
-		}
 	}
 
 	var imageRef string
@@ -79,10 +84,6 @@ func newComposeProvider(
 			appName = imageRef
 		}
 
-		if err := ensureAppTypeFromImage(ctx, podman, v1beta1.AppTypeCompose, imageRef); err != nil {
-			return nil, fmt.Errorf("ensuring app type: %w", err)
-		}
-
 	case v1beta1.InlineApplicationProviderType:
 		inlineSpec, err := composeApp.AsInlineApplicationProviderSpec()
 		if err != nil {
@@ -91,7 +92,7 @@ func newComposeProvider(
 		inlineContent = inlineSpec.Inline
 	}
 
-	volumeManager, err := NewVolumeManager(log, appName, v1beta1.AppTypeCompose, volumes)
+	volumeManager, err := NewVolumeManager(log, appName, v1beta1.AppTypeCompose, user, volumes)
 	if err != nil {
 		return nil, err
 	}
@@ -99,14 +100,16 @@ func newComposeProvider(
 	appPath := filepath.Join(lifecycle.ComposeAppPath, appName)
 
 	p := &composeProvider{
-		log:           log,
-		podman:        podman,
-		readWriter:    readWriter,
-		imageRef:      imageRef,
-		inlineContent: inlineContent,
+		log:            log,
+		podman:         podman,
+		readWriter:     readWriter,
+		commandChecker: client.IsCommandAvailable,
+		imageRef:       imageRef,
+		inlineContent:  inlineContent,
 		spec: &ApplicationSpec{
 			Name:       appName,
-			ID:         client.NewComposeID(appName),
+			User:       user,
+			ID:         lifecycle.GenerateAppID(appName, user),
 			AppType:    v1beta1.AppTypeCompose,
 			Path:       appPath,
 			EnvVars:    envVars,
@@ -128,17 +131,29 @@ func (p *composeProvider) isImageBased() bool {
 	return p.imageRef != ""
 }
 
+func (p *composeProvider) EnsureDependencies(ctx context.Context) error {
+	if err := ensureDependenciesFromAppType(composeBinaryDeps, p.commandChecker); err != nil {
+		return err
+	}
+	if err := ensureDependenciesFromVolumes(ctx, p.podman, p.spec.ComposeApp.Volumes); err != nil {
+		return fmt.Errorf("%w: volume dependencies: %w", errors.ErrAppDependency, err)
+	}
+	return nil
+}
+
 func (p *composeProvider) Verify(ctx context.Context) error {
+	if err := p.EnsureDependencies(ctx); err != nil {
+		return err
+	}
+
+	if p.isImageBased() {
+		if err := ensureAppTypeFromImage(ctx, p.podman, v1beta1.AppTypeCompose, p.imageRef); err != nil {
+			return fmt.Errorf("ensuring app type: %w", err)
+		}
+	}
+
 	if err := validateEnvVars(p.spec.EnvVars); err != nil {
 		return fmt.Errorf("%w: validating env vars: %w", errors.ErrInvalidSpec, err)
-	}
-
-	if err := ensureDependenciesFromVolumes(ctx, p.podman, p.spec.ComposeApp.Volumes); err != nil {
-		return fmt.Errorf("%w: ensuring volume dependencies: %w", errors.ErrNoRetry, err)
-	}
-
-	if err := ensureDependenciesFromAppType([]string{"docker-compose", "podman-compose"}); err != nil {
-		return fmt.Errorf("%w: ensuring dependencies: %w", errors.ErrNoRetry, err)
 	}
 
 	if err := ensureImageVolumes(lo.FromPtr(p.spec.ComposeApp.Volumes)); err != nil {
@@ -247,4 +262,72 @@ func (p *composeProvider) ID() string {
 
 func (p *composeProvider) Spec() *ApplicationSpec {
 	return p.spec
+}
+
+func (p *composeProvider) collectOCITargets(ctx context.Context, configProvider dependency.PullConfigResolver) (dependency.OCIPullTargetsByUser, error) {
+	var targets dependency.OCIPullTargetsByUser
+	if p.imageRef != "" {
+		targets = targets.Add(p.spec.User, dependency.OCIPullTarget{
+			Type:         dependency.OCITypeAuto,
+			Reference:    p.imageRef,
+			PullPolicy:   v1beta1.PullIfNotPresent,
+			ClientOptsFn: containerPullOptions(configProvider),
+		})
+	} else {
+		composeSpec, err := client.ParseComposeFromSpec(p.inlineContent)
+		if err != nil {
+			return nil, fmt.Errorf("parsing compose spec: %w", err)
+		}
+		for _, svc := range composeSpec.Services {
+			if svc.Image != "" {
+				targets = targets.Add(p.spec.User, dependency.OCIPullTarget{
+					Type:         dependency.OCITypePodmanImage,
+					Reference:    svc.Image,
+					PullPolicy:   v1beta1.PullIfNotPresent,
+					ClientOptsFn: containerPullOptions(configProvider),
+				})
+			}
+		}
+	}
+	volTargets, err := extractVolumeTargets(p.spec.ComposeApp.Volumes, configProvider)
+	if err != nil {
+		return nil, fmt.Errorf("extracting compose volume targets: %w", err)
+	}
+	return targets.Add(p.spec.User, volTargets...), nil
+}
+
+func (p *composeProvider) extractNestedTargets(ctx context.Context, configProvider dependency.PullConfigResolver) (*AppData, error) {
+	if !p.isImageBased() {
+		return &AppData{}, nil
+	}
+
+	appData, err := extractAppDataFromOCITarget(ctx, p.podman, p.readWriter, p.spec.Name, p.imageRef, v1beta1.AppTypeCompose, configProvider)
+	if err != nil {
+		return nil, err
+	}
+	return appData, nil
+}
+
+func (p *composeProvider) parentIsAvailable(ctx context.Context) (string, string, bool, error) {
+	if !p.isImageBased() {
+		return "", "", true, nil
+	}
+
+	if p.podman.ImageExists(ctx, p.imageRef) {
+		digest, err := p.podman.ImageDigest(ctx, p.imageRef)
+		if err != nil {
+			return "", "", false, fmt.Errorf("getting image digest: %w", err)
+		}
+		return p.imageRef, digest, true, nil
+	}
+
+	if p.podman.ArtifactExists(ctx, p.imageRef) {
+		digest, err := p.podman.ArtifactDigest(ctx, p.imageRef)
+		if err != nil {
+			return "", "", false, fmt.Errorf("getting artifact digest: %w", err)
+		}
+		return p.imageRef, digest, true, nil
+	}
+
+	return p.imageRef, "", false, nil
 }

@@ -11,7 +11,8 @@ ARG USERNAME
 ARG AGENT_CONFIG_DEST_PATH=/etc/flightctl/config.yaml
 
 # Add Flight Control repository and install agent
-RUN dnf -y config-manager --add-repo https://rpm.flightctl.io/flightctl-epel.repo && \
+ARG RPM_REPO_URL
+RUN dnf -y config-manager --add-repo ${RPM_REPO_URL} && \
     dnf install -y flightctl-agent && \
     dnf clean all
 

@@ -22,14 +22,14 @@ func makeDeviceListResponse(t *testing.T, numItems int) *http.Response {
 	for i := 0; i < numItems; i++ {
 		name := fmt.Sprintf("machine-%d", i)
 		items[i] = api.Device{
-			ApiVersion: "v1",
+			ApiVersion: "v1beta1",
 			Kind:       api.DeviceKind,
 			Metadata:   api.ObjectMeta{Name: &name},
 		}
 	}
 
 	body, err := json.Marshal(api.DeviceList{
-		ApiVersion: "v1",
+		ApiVersion: "v1beta1",
 		Kind:       api.DeviceListKind,
 		Items:      items,
 	})

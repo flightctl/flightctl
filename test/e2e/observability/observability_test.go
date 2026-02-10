@@ -23,15 +23,17 @@ const (
 )
 
 var _ = Describe("Device observability", func() {
+	BeforeEach(func() {
+		ctxStr, err := e2e.GetContext()
+		if err != nil || ctxStr != util.KIND {
+			Skip("KIND context required for telemetry gateway metrics")
+		}
+	})
+
 	Context("telemetry gateway metrics", func() {
 		It("should export device host metrics via the telemetry gateway", Label("85040"), func() {
 			// Get harness directly - no shared package-level variable
 			harness := e2e.GetWorkerHarness()
-
-			ctxStr, err := e2e.GetContext()
-			if err != nil || (ctxStr != util.KIND && ctxStr != util.OCP) {
-				Skip("Kubernetes context required for telemetry gateway metrics")
-			}
 
 			By("verifying telemetry gateway configuration exports Prometheus metrics")
 			cfg, err := harness.GetConfigMapValue(telemetryGatewayNamespace, telemetryGatewayConfigMap, telemetryGatewayConfigPath)

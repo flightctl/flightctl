@@ -1,8 +1,0 @@
-[Unit]
-Description=Flight Control Full Observability Stack target
-Documentation=https://docs.flightctl.io/user/standalone-observability/
-Wants=flightctl-network.service flightctl-telemetry-gateway.target flightctl-prometheus.service flightctl-grafana.service flightctl-userinfo-proxy.service
-After=flightctl-network.service flightctl-telemetry-gateway.target flightctl-prometheus.service flightctl-grafana.service flightctl-userinfo-proxy.service
-
-[Install]
-WantedBy=multi-user.target 

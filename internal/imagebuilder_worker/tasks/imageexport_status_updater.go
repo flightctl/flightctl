@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/imagebuilder/v1beta1"
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/imagebuilder_api/domain"
 	imagebuilderapi "github.com/flightctl/flightctl/internal/imagebuilder_api/service"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/google/uuid"
@@ -17,7 +17,7 @@ import (
 
 // imageExportStatusUpdateRequest represents a request to update the ImageExport status
 type imageExportStatusUpdateRequest struct {
-	Condition      *api.ImageExportCondition
+	Condition      *domain.ImageExportCondition
 	LastSeen       *time.Time
 	ManifestDigest *string
 	// done is closed when the update has been processed (used for terminal conditions)
@@ -112,7 +112,7 @@ func (u *imageExportStatusUpdater) run(cfg *config.Config) {
 	ticker := time.NewTicker(updateInterval)
 	defer ticker.Stop()
 
-	var pendingCondition *api.ImageExportCondition
+	var pendingCondition *domain.ImageExportCondition
 	lastSeenUpdateTime := time.Now().UTC()
 
 	var lastOutputTime *time.Time
@@ -166,7 +166,7 @@ func (u *imageExportStatusUpdater) run(cfg *config.Config) {
 // When cancelExport() is called, only exportCtx is canceled - updaterCtx remains valid until
 // cleanupStatusUpdater() is called, which happens AFTER processImageExport() returns.
 // This ensures we can still write the final status (e.g., Canceled) after the export is canceled.
-func (u *imageExportStatusUpdater) updateStatus(condition *api.ImageExportCondition, lastSeen *time.Time, manifestDigest *string) {
+func (u *imageExportStatusUpdater) updateStatus(condition *domain.ImageExportCondition, lastSeen *time.Time, manifestDigest *string) {
 	imageExport, status := u.imageExportService.Get(u.ctx, u.orgID, u.imageExportName)
 	if imageExport == nil || !imagebuilderapi.IsStatusOK(status) {
 		u.log.WithField("status", status).Warn("Failed to load ImageExport for status update")
@@ -174,7 +174,7 @@ func (u *imageExportStatusUpdater) updateStatus(condition *api.ImageExportCondit
 	}
 
 	if imageExport.Status == nil {
-		imageExport.Status = &api.ImageExportStatus{}
+		imageExport.Status = &domain.ImageExportStatus{}
 	}
 
 	if lastSeen != nil {
@@ -183,34 +183,34 @@ func (u *imageExportStatusUpdater) updateStatus(condition *api.ImageExportCondit
 
 	if condition != nil {
 		if imageExport.Status.Conditions == nil {
-			imageExport.Status.Conditions = &[]api.ImageExportCondition{}
+			imageExport.Status.Conditions = &[]domain.ImageExportCondition{}
 		}
 
 		// Check if current status is "Canceling" - don't overwrite with in-progress states
 		// Only allow transitioning to terminal states (Canceled, Failed, Completed)
 		skipConditionUpdate := false
-		currentCondition := api.FindImageExportStatusCondition(*imageExport.Status.Conditions, api.ImageExportConditionTypeReady)
-		if currentCondition != nil && currentCondition.Reason == string(api.ImageExportConditionReasonCanceling) {
+		currentCondition := domain.FindImageExportStatusCondition(*imageExport.Status.Conditions, domain.ImageExportConditionTypeReady)
+		if currentCondition != nil && currentCondition.Reason == string(domain.ImageExportConditionReasonCanceling) {
 			// Only allow terminal states to overwrite Canceling
-			if condition.Reason != string(api.ImageExportConditionReasonCanceled) &&
-				condition.Reason != string(api.ImageExportConditionReasonFailed) &&
-				condition.Reason != string(api.ImageExportConditionReasonCompleted) {
+			if condition.Reason != string(domain.ImageExportConditionReasonCanceled) &&
+				condition.Reason != string(domain.ImageExportConditionReasonFailed) &&
+				condition.Reason != string(domain.ImageExportConditionReasonCompleted) {
 				u.log.WithField("attemptedReason", condition.Reason).Info("Skipping condition update - export is being canceled")
 				skipConditionUpdate = true
 			}
 		}
 
 		if !skipConditionUpdate {
-			api.SetImageExportStatusCondition(imageExport.Status.Conditions, *condition)
+			domain.SetImageExportStatusCondition(imageExport.Status.Conditions, *condition)
 
 			// If export is completed, failed, or canceled, persist logs to DB and signal stream completion
-			if condition.Reason == string(api.ImageExportConditionReasonCompleted) ||
-				condition.Reason == string(api.ImageExportConditionReasonFailed) ||
-				condition.Reason == string(api.ImageExportConditionReasonCanceled) {
+			if condition.Reason == string(domain.ImageExportConditionReasonCompleted) ||
+				condition.Reason == string(domain.ImageExportConditionReasonFailed) ||
+				condition.Reason == string(domain.ImageExportConditionReasonCanceled) {
 				u.persistLogsToDB()
 				u.writeStreamCompleteMarker()
 				// Signal cancellation completion so Delete API can proceed
-				if condition.Reason == string(api.ImageExportConditionReasonCanceled) {
+				if condition.Reason == string(domain.ImageExportConditionReasonCanceled) {
 					u.signalCanceled()
 				}
 			}
@@ -230,11 +230,11 @@ func (u *imageExportStatusUpdater) updateStatus(condition *api.ImageExportCondit
 // updateCondition sends a condition update request to the updater goroutine
 // For terminal conditions (Completed, Failed, Canceled), this blocks until the update is processed.
 // This ensures the final status is written before the caller returns and triggers cleanup.
-func (u *imageExportStatusUpdater) updateCondition(condition api.ImageExportCondition) {
+func (u *imageExportStatusUpdater) updateCondition(condition domain.ImageExportCondition) {
 	// For terminal conditions, wait for the update to complete
-	isTerminal := condition.Reason == string(api.ImageExportConditionReasonCompleted) ||
-		condition.Reason == string(api.ImageExportConditionReasonFailed) ||
-		condition.Reason == string(api.ImageExportConditionReasonCanceled)
+	isTerminal := condition.Reason == string(domain.ImageExportConditionReasonCompleted) ||
+		condition.Reason == string(domain.ImageExportConditionReasonFailed) ||
+		condition.Reason == string(domain.ImageExportConditionReasonCanceled)
 
 	req := newImageExportStatusUpdateRequest()
 	req.Condition = &condition
@@ -329,6 +329,9 @@ func (u *imageExportStatusUpdater) persistLogsToDB() {
 		logs += "\n"
 	}
 
+	// Sanitize logs to remove invalid UTF-8 sequences (PostgreSQL requires valid UTF-8)
+	logs = strings.ToValidUTF8(logs, "")
+
 	// Persist to DB using the service's UpdateLogs method
 	if logs != "" {
 		u.log.Debugf("Persisting %d lines of logs to DB", len(u.logBuffer))
@@ -346,7 +349,7 @@ func (u *imageExportStatusUpdater) writeStreamCompleteMarker() {
 	}
 
 	key := u.getLogKey()
-	_, err := u.kvStore.StreamAdd(u.ctx, key, []byte(api.LogStreamCompleteMarker))
+	_, err := u.kvStore.StreamAdd(u.ctx, key, []byte(domain.LogStreamCompleteMarker))
 	if err != nil {
 		u.log.WithError(err).Warn("Failed to write stream complete marker to Redis")
 	}
@@ -444,10 +447,10 @@ func (u *imageExportStatusUpdater) isStatusCanceling() bool {
 		return false
 	}
 
-	readyCondition := api.FindImageExportStatusCondition(*imageExport.Status.Conditions, api.ImageExportConditionTypeReady)
+	readyCondition := domain.FindImageExportStatusCondition(*imageExport.Status.Conditions, domain.ImageExportConditionTypeReady)
 	if readyCondition == nil {
 		return false
 	}
 
-	return readyCondition.Reason == string(api.ImageExportConditionReasonCanceling)
+	return readyCondition.Reason == string(domain.ImageExportConditionReasonCanceling)
 }

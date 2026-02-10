@@ -119,9 +119,9 @@ jobs:
     strategy:
       matrix:
         include:
-          - label_filter: 'sanity && !slow'
-          - label_filter: 'sanity && slow'
-          - label_filter: 'sanity && agent'
+          - label_filter: 'sanity && !agent'
+          - label_filter: 'sanity && agent && !slow'
+          - label_filter: 'sanity && agent && slow'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -186,18 +186,31 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # Non-Agent metrics
+          ## CS9
           - os_id: cs9-bootc
             backend_type: helm
-            label_filter: 'sanity && !slow'
-            ginkgo_total_nodes: 4
-          - os_id: cs9-bootc
-            backend_type: helm
+            label_filter: 'sanity && !agent'
             ginkgo_total_nodes: 1
-            label_filter: 'sanity && slow'
+          # Agent metrics
+          ## CS9 Agent metrics
+          - os_id: cs9-bootc
+            backend_type: helm
+            label_filter: 'sanity && agent && !slow'
+            ginkgo_total_nodes: 2
+          - os_id: cs9-bootc
+            backend_type: helm
+            label_filter: 'sanity && agent && slow'
+            ginkgo_total_nodes: 1
+          ## CS10 Agent metrics
           - os_id: cs10-bootc
             backend_type: helm
+            label_filter: 'sanity && agent && !slow'
+            ginkgo_total_nodes: 2
+          - os_id: cs10-bootc
+            backend_type: helm
+            label_filter: 'sanity && agent && slow'
             ginkgo_total_nodes: 1
-            label_filter: 'sanity && agent'
     uses: ./.github/workflows/run-e2e-tests.yaml
     with:
       os_id: ${{ matrix.os_id }}
