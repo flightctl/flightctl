@@ -39,6 +39,7 @@ Welcome to the Flight Control user documentation.
 **Using Flight Control** - How to manage individual and fleets of devices with Flight Control.
 
 * **[Using the CLI](using/cli/overview.md)** - How to use the Flight Control CLI
+
 * **[Provisioning Devices](using/provisioning-devices.md)** - How to provision a device with an OS image.
   * [Provisioning Physical Devices](using/provisioning-devices.md#provisioning-physical-devices)
   * [Provisioning on Red Hat OpenShift Virtualization](using/provisioning-devices.md#provisioning-on-red-hat-openshift-virtualization)
@@ -63,6 +64,7 @@ Welcome to the Flight Control user documentation.
 * **[Managing Image Builds and Exports](using/managing-image-builds.md)** - How to build and export OS images using the Flight Control API.
 * **Solving Specific Use Cases** - How to solve specific use cases in Flight Control.
   * [Auto-Registering Devices with MicroShift into ACM](using/registering-microshift-devices-acm.md)
+  * [Diagnosing Agent Issues](using/diagnosing-agent-issues.md)
   * [Adding Device Observability](using/device-observability.md)
 
 **Building for Flight Control** - How to build OS images and application packages compatible with Flight Control.
