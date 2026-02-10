@@ -98,9 +98,14 @@ func TestRunUserDBSync_copyInAndCopyBack(t *testing.T) {
 		t.Errorf("copy-in: etc/passwd = %q, want %q", data, passwdContent)
 	}
 
-	// Change etc/passwd; copy-back should persist to userdb
+	// Change etc/passwd using atomic write-then-rename, which is how Linux
+	// tools (useradd, usermod, chpasswd, etc.) actually modify these files.
 	newContent := []byte("root:x:0:0:root:/root:/bin/bash\nadmin:x:1000:1000:admin:/home/admin:/bin/bash\n")
-	if err := os.WriteFile(etcPasswd, newContent, 0600); err != nil {
+	tmpPasswd := etcPasswd + "+"
+	if err := os.WriteFile(tmpPasswd, newContent, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(tmpPasswd, etcPasswd); err != nil {
 		t.Fatal(err)
 	}
 	select {
