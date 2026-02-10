@@ -65,3 +65,19 @@ func getSecretData(secretName, namespace, key string) (string, error) {
 
 	return strings.TrimSpace(string(output)), nil
 }
+
+// GetOpenShiftToken returns the current OpenShift bearer token from oc.
+func (h *Harness) GetOpenShiftToken() (string, error) {
+	if h == nil {
+		return "", fmt.Errorf("harness is nil")
+	}
+	token, err := h.SH("oc", "whoami", "-t")
+	if err != nil {
+		return "", fmt.Errorf("failed to get openshift token from oc: %w", err)
+	}
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return "", fmt.Errorf("openshift token is empty")
+	}
+	return token, nil
+}
