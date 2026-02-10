@@ -221,8 +221,8 @@ func (a *Agent) syncDeviceSpec(ctx context.Context) {
 	// also ensures previous failed status is not overwritten.
 	if a.specManager.IsUpgrading() {
 		// Wait for greenboot to mark the boot as successful before committing the spec.
-		// This prevents committing a spec that could be rolled back by greenboot.
-		if !a.isBootSuccessful(ctx) {
+		// This only applies to OS updates — greenboot validates the new OS image, not config changes.
+		if a.specManager.IsOSUpdate() && !a.isBootSuccessful(ctx) {
 			a.log.Debug("Waiting for greenboot to mark boot as successful before upgrading spec")
 			return
 		}
