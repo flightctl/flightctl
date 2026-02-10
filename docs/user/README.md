@@ -25,6 +25,8 @@ Welcome to the Flight Control user documentation.
     * [Configuring Rate Limits on API Requests](installing/configuring-rate-limiting.md)
 
   * Monitoring the Flight Control Service
+    * [Deploying the Observability Stack on Kubernetes](installing/deploying-observability-kubernetes.md)
+    * [Deploying the Observability Stack on Linux](installing/deploying-observability-linux.md)
     * [Configuring Service Tracing](installing/configuring-service-tracing.md) (advanced)
 
   * Backing-up and Restoring the Flight Control Service
@@ -65,7 +67,6 @@ Welcome to the Flight Control user documentation.
 * **Solving Specific Use Cases** - How to solve specific use cases in Flight Control.
   * [Auto-Registering Devices with MicroShift into ACM](using/registering-microshift-devices-acm.md)
   * [Diagnosing Agent Issues](using/diagnosing-agent-issues.md)
-  * [Adding Device Observability](using/device-observability.md)
 
 **Building for Flight Control** - How to build OS images and application packages compatible with Flight Control.
 
