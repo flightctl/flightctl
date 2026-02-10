@@ -223,7 +223,7 @@ func (a *Agent) syncDeviceSpec(ctx context.Context) {
 	if a.specManager.IsUpgrading() {
 		// Wait for greenboot to mark the boot as successful before committing the spec.
 		// This prevents committing a spec that could be rolled back by greenboot.
-		if !a.isBootSuccessful() {
+		if !a.isBootSuccessful(ctx) {
 			a.log.Debug("Waiting for greenboot to mark boot as successful before upgrading spec")
 			return
 		}
@@ -622,8 +622,8 @@ func (a *Agent) ReloadConfig(ctx context.Context, config *agent_config.Config) e
 // by checking if boot-complete.target has been reached. This target is activated
 // by greenboot after all required health checks in required.d/ pass.
 // Returns true if boot-complete.target is active, or if greenboot is not installed.
-func (a *Agent) isBootSuccessful() bool {
-	_, stderr, exitCode := a.executer.Execute("systemctl", "is-active", "boot-complete.target")
+func (a *Agent) isBootSuccessful(ctx context.Context) bool {
+	_, stderr, exitCode := a.executer.ExecuteWithContext(ctx, "systemctl", "is-active", "boot-complete.target")
 	if exitCode == 0 {
 		return true
 	}
