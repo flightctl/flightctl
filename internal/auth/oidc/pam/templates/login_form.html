@@ -1,10 +1,59 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <title>Flight Control Login</title>
+    <title>{{.DisplayName}} Login</title>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" href="{{.FaviconSrc}}">
     <link rel="stylesheet" href="/auth/assets/patternfly.min.css">
+    {{if or .LightTheme .DarkTheme}}
+    <style>
+        {{if .LightTheme}}
+        :root {
+            {{if .LightTheme.BrandDefault}}
+            --pf-t--global--color--brand--default: {{.LightTheme.BrandDefault}};
+            {{end}}
+            {{if .LightTheme.BrandHover}}
+            --pf-t--global--color--brand--hover: {{.LightTheme.BrandHover}};
+            {{end}}
+            {{if .LightTheme.BrandClicked}}
+            --pf-t--global--color--brand--clicked: {{.LightTheme.BrandClicked}};
+            {{end}}
+            {{if .LightTheme.BackgroundSecondary}}
+            --pf-t--global--background--color--secondary--default: {{.LightTheme.BackgroundSecondary}};
+            {{end}}
+            {{if .LightTheme.BackgroundPrimary}}
+            --pf-t--global--background--color--primary--default: {{.LightTheme.BackgroundPrimary}};
+            {{end}}
+            {{if .LightTheme.TextColorRegular}}
+            --pf-t--global--text--color--regular: {{.LightTheme.TextColorRegular}};
+            {{end}}
+        }
+        {{end}}
+        {{if .DarkTheme}}
+        .pf-v6-theme-dark {
+            {{if .DarkTheme.BrandDefault}}
+            --pf-t--global--color--brand--default: {{.DarkTheme.BrandDefault}};
+            {{end}}
+            {{if .DarkTheme.BrandHover}}
+            --pf-t--global--color--brand--hover: {{.DarkTheme.BrandHover}};
+            {{end}}
+            {{if .DarkTheme.BrandClicked}}
+            --pf-t--global--color--brand--clicked: {{.DarkTheme.BrandClicked}};
+            {{end}}
+            {{if .DarkTheme.BackgroundSecondary}}
+            --pf-t--global--background--color--secondary--default: {{.DarkTheme.BackgroundSecondary}};
+            {{end}}
+            {{if .DarkTheme.BackgroundPrimary}}
+            --pf-t--global--background--color--primary--default: {{.DarkTheme.BackgroundPrimary}};
+            {{end}}
+            {{if .DarkTheme.TextColorRegular}}
+            --pf-t--global--text--color--regular: {{.DarkTheme.TextColorRegular}};
+            {{end}}
+        }
+        {{end}}
+    </style>
+    {{end}}
     <style>
         html, body {
             height: 100%;
@@ -17,6 +66,12 @@
             justify-content: center;
             min-height: 100vh;
             background-color: var(--pf-t--global--background--color--secondary--default);
+        }
+        .show-in-dark, .pf-v6-theme-dark .show-in-light {
+            display: none;
+        }
+        .pf-v6-theme-dark .show-in-dark {
+            display: revert;
         }
         #theme-toggle {
             position: fixed;
@@ -170,7 +225,8 @@
 
       <!-- Logo -->
       <div class="pf-v6-l-stack__item">
-        <img src="/auth/assets/flight-control-logo.svg" alt="Flight Control" style="height:80px">
+        <img id="brand-logo-light" class="show-in-light" src="{{.LightLogoSrc}}" alt="{{.DisplayName}}" style="height:80px">
+        <img id="brand-logo-dark" class="show-in-dark" src="{{.DarkLogoSrc}}" alt="{{.DisplayName}}" style="height:80px">
       </div>
 
       <!-- Login Card -->

@@ -554,3 +554,12 @@ func (h *Handler) ServeFlightControlLogo(w http.ResponseWriter, r *http.Request)
 		h.log.Errorf("Failed to write Flight Control logo response: %v", err)
 	}
 }
+
+// ServeFavicon serves the embedded Flight Control favicon PNG
+func (h *Handler) ServeFavicon(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	if _, err := w.Write(pam.FlightControlFavicon); err != nil {
+		h.log.Errorf("Failed to write favicon response: %v", err)
+	}
+}

@@ -10,7 +10,7 @@ import (
 	"crypto/hkdf"
 	"crypto/rand"
 	"crypto/sha256"
-	_ "embed"
+	"embed"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -44,9 +44,27 @@ var PatternFlyCSS string
 //go:embed templates/flight-control-logo.svg
 var FlightControlLogo string
 
-// LoginFormData represents the data used to populate the login form template
-// Currently empty as all authorization parameters are stored in encrypted cookie
+//go:embed templates/favicon.png
+var FlightControlFavicon []byte
+
+//go:embed templates/assets
+var FontAssets embed.FS
+
+// LoginFormData represents the data used to populate the login form template.
+// All fields are always populated with resolved values (defaults applied in Go code).
 type LoginFormData struct {
+	// DisplayName is the branded name shown in the title and heading
+	DisplayName string
+	// FaviconSrc is the favicon href. Typed as template.URL so html/template does not filter data: URIs.
+	FaviconSrc template.URL
+	// LightLogoSrc is the logo src for light mode. Typed as template.URL so html/template does not filter data: URIs.
+	LightLogoSrc template.URL
+	// DarkLogoSrc is the logo src for dark mode. Typed as template.URL so html/template does not filter data: URIs.
+	DarkLogoSrc template.URL
+	// LightTheme holds CSS color overrides for light mode (nil = no overrides)
+	LightTheme *config.ThemeColors
+	// DarkTheme holds CSS color overrides for dark mode (nil = no overrides)
+	DarkTheme *config.ThemeColors
 }
 
 // EncryptedAuthData represents encrypted authorization/session data stored in cookie
@@ -319,15 +337,17 @@ func NewPAMOIDCProviderWithAuthenticator(caClient *fccrypto.CAClient, config *co
 	}
 
 	loginFormTmpl := template.Must(template.New("loginForm").Parse(loginFormTemplate))
+	loginFormErrorTmpl := template.Must(template.New("loginFormError").Parse(loginFormErrorHTML))
 
 	return &PAMOIDCProvider{
-		jwtGenerator:      jwtGen,
-		config:            config,
-		pamAuthenticator:  pamAuth,
-		codeStore:         NewAuthorizationCodeStore(),
-		log:               logrus.New(),
-		loginFormTemplate: loginFormTmpl,
-		cookieKey:         cookieKey,
+		jwtGenerator:           jwtGen,
+		config:                 config,
+		pamAuthenticator:       pamAuth,
+		codeStore:              NewAuthorizationCodeStore(),
+		log:                    logrus.New(),
+		loginFormTemplate:      loginFormTmpl,
+		loginFormErrorTemplate: loginFormErrorTmpl,
+		cookieKey:              cookieKey,
 	}, nil
 }
 
@@ -1372,14 +1392,60 @@ func (s *PAMOIDCProvider) createEncryptedCookieAndReturnLoginForm(req *pamapi.Au
 	}, nil
 }
 
+const (
+	defaultDisplayName = "Flight Control"
+	defaultLogoSrc     = "/auth/assets/flight-control-logo.svg"
+	defaultFaviconSrc  = "/auth/assets/favicon.png"
+)
+
+// buildLoginFormData constructs the template data from the provider's branding config.
+// Defaults are applied here so the template never needs conditional logic for these values.
+func (s *PAMOIDCProvider) buildLoginFormData() LoginFormData {
+	data := LoginFormData{
+		DisplayName:  defaultDisplayName,
+		FaviconSrc:   template.URL(defaultFaviconSrc), //nolint:gosec // hardcoded constant, not user input
+		LightLogoSrc: template.URL(defaultLogoSrc),    //nolint:gosec // hardcoded constant, not user input
+		DarkLogoSrc:  template.URL(defaultLogoSrc),    //nolint:gosec // hardcoded constant, not user input
+	}
+	if s.config == nil || s.config.Branding == nil {
+		return data
+	}
+	if s.config.Branding.DisplayName != "" {
+		data.DisplayName = s.config.Branding.DisplayName
+	}
+	if s.config.Branding.FaviconDataUri != "" {
+		data.FaviconSrc = template.URL(s.config.Branding.FaviconDataUri) //nolint:gosec // admin-controlled branding config, validated at ingestion
+	}
+	if s.config.Branding.LightTheme != nil && s.config.Branding.LightTheme.LogoDataUri != "" {
+		data.LightLogoSrc = template.URL(s.config.Branding.LightTheme.LogoDataUri) //nolint:gosec // admin-controlled branding config, validated at ingestion
+	}
+	if s.config.Branding.DarkTheme != nil && s.config.Branding.DarkTheme.LogoDataUri != "" {
+		data.DarkLogoSrc = template.URL(s.config.Branding.DarkTheme.LogoDataUri) //nolint:gosec // admin-controlled branding config, validated at ingestion
+	}
+	data.LightTheme = s.config.Branding.LightTheme
+	data.DarkTheme = s.config.Branding.DarkTheme
+	return data
+}
+
 // GetLoginForm returns the HTML for the login form
 // Uses html/template to safely escape user input and prevent XSS attacks
 // All authorization parameters are stored in encrypted cookie, form doesn't need them
 func (s *PAMOIDCProvider) GetLoginForm() string {
+	data := s.buildLoginFormData()
 	var buf bytes.Buffer
-	if err := s.loginFormTemplate.Execute(&buf, LoginFormData{}); err != nil {
-		return loginFormErrorHTML
+	if err := s.loginFormTemplate.Execute(&buf, data); err != nil {
+		return s.renderErrorForm(data)
 	}
 
+	return buf.String()
+}
+
+// renderErrorForm renders the error template with branding data
+func (s *PAMOIDCProvider) renderErrorForm(data LoginFormData) string {
+	var buf bytes.Buffer
+	if err := s.loginFormErrorTemplate.Execute(&buf, data); err != nil {
+		// Last resort: return a minimal static error page
+		return `<!DOCTYPE html><html><head><title>Error</title></head><body><h1>Error</h1><p>Failed to generate login form. Please try again later.</p></body></html>`
+	}
 	return buf.String()
 }
