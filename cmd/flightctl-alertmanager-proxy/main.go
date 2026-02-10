@@ -28,6 +28,7 @@ import (
 	"github.com/flightctl/flightctl/internal/auth"
 	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/config"
+	insthttp "github.com/flightctl/flightctl/internal/instrumentation/http"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/org/cache"
 	"github.com/flightctl/flightctl/internal/service"
@@ -337,7 +338,11 @@ func main() {
 	router.Mount("/", proxy)
 
 	// Wrap router with OpenTelemetry handler to enable tracing spans
-	handler := otelhttp.NewHandler(router, "alertmanager-proxy-http-server")
+	routeAttrFn := insthttp.RouteMetricAttributes(router)
+	handler := otelhttp.NewHandler(router, "alertmanager-proxy-http-server",
+		otelhttp.WithSpanNameFormatter(insthttp.RouteSpanNameFormatter(router)),
+		otelhttp.WithMetricAttributesFn(insthttp.WithComponentAttribute(routeAttrFn, "alertmanager-proxy")),
+	)
 	// Create HTTPS server using FlightControl's TLS middleware
 	server := middleware.NewHTTPServer(handler, logger, proxyPort, cfg)
 
