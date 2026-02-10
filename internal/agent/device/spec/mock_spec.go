@@ -378,20 +378,6 @@ func (mr *MockManagerMockRecorder) Upgrade(ctx any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Upgrade", reflect.TypeOf((*MockManager)(nil).Upgrade), ctx)
 }
 
-// VerifyBootedImage mocks base method.
-func (m *MockManager) VerifyBootedImage(ctx context.Context) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "VerifyBootedImage", ctx)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// VerifyBootedImage indicates an expected call of VerifyBootedImage.
-func (mr *MockManagerMockRecorder) VerifyBootedImage(ctx any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "VerifyBootedImage", reflect.TypeOf((*MockManager)(nil).VerifyBootedImage), ctx)
-}
-
 // MockPriorityQueue is a mock of PriorityQueue interface.
 type MockPriorityQueue struct {
 	ctrl     *gomock.Controller

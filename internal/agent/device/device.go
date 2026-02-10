@@ -3,7 +3,6 @@ package device
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
@@ -158,19 +157,6 @@ func (a *Agent) syncDeviceSpec(ctx context.Context) {
 	}
 	if requeue {
 		a.log.Trace("Requeueing spec")
-		return
-	}
-
-	// Defensive check: verify the booted OS image matches what we expect.
-	// This catches unexpected rollbacks that occurred outside agent control (e.g. greenboot).
-	if err := a.specManager.VerifyBootedImage(ctx); err != nil {
-		a.log.Errorf("CRITICAL: %v", err)
-		if _, updateErr := a.statusManager.Update(ctx, status.SetDeviceSummary(v1beta1.DeviceSummaryStatus{
-			Status: v1beta1.DeviceSummaryStatusError,
-			Info:   lo.ToPtr(err.Error()),
-		})); updateErr != nil {
-			a.log.Warnf("Failed to update status: %v", updateErr)
-		}
 		return
 	}
 
@@ -632,21 +618,20 @@ func (a *Agent) ReloadConfig(ctx context.Context, config *agent_config.Config) e
 	return nil
 }
 
-// isBootSuccessful checks if greenboot has marked the current boot as successful.
-// Returns true if boot_success=1 is set in the GRUB environment, or if greenboot
-// is not installed (grub2-editenv not available).
+// isBootSuccessful checks if greenboot has marked the current boot as successful
+// by checking if boot-complete.target has been reached. This target is activated
+// by greenboot after all required health checks in required.d/ pass.
+// Returns true if boot-complete.target is active, or if greenboot is not installed.
 func (a *Agent) isBootSuccessful() bool {
-	stdout, stderr, exitCode := a.executer.Execute("grub2-editenv", "-", "list")
-	if exitCode != 0 {
-		// If grub2-editenv is not available, assume boot is successful
-		// (system may not have greenboot installed)
-		a.log.Debugf("grub2-editenv failed (exit %d): %s", exitCode, stderr)
+	_, stderr, exitCode := a.executer.Execute("systemctl", "is-active", "boot-complete.target")
+	if exitCode == 0 {
 		return true
 	}
-	for _, line := range strings.Split(stdout, "\n") {
-		if strings.TrimSpace(line) == "boot_success=1" {
-			return true
-		}
+	// Exit code 3 means the unit is inactive (greenboot hasn't finished yet)
+	if exitCode == 3 {
+		return false
 	}
-	return false
+	// Any other exit code (e.g. unit not found) means greenboot is likely not installed
+	a.log.Debugf("systemctl is-active boot-complete.target failed (exit %d): %s", exitCode, stderr)
+	return true
 }
