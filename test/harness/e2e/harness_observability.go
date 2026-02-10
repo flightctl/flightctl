@@ -2,10 +2,12 @@ package e2e
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -244,6 +246,96 @@ func (h *Harness) VerifyServiceExists(namespace, name string) error {
 		return fmt.Errorf("kubectl get svc %s/%s: %w: %s", namespace, name, err, strings.TrimSpace(string(out)))
 	}
 	return nil
+}
+
+// ResolveServiceNamespace resolves the first namespace containing a service.
+// The FLIGHTCTL_NS environment variable is checked first when set.
+func (h *Harness) ResolveServiceNamespace(serviceName string, namespaces []string) (string, error) {
+	if h == nil {
+		return "", fmt.Errorf("harness is nil")
+	}
+	if serviceName == "" {
+		return "", fmt.Errorf("service name is empty")
+	}
+
+	candidates := make([]string, 0, len(namespaces)+1)
+	if ns := strings.TrimSpace(os.Getenv("FLIGHTCTL_NS")); ns != "" {
+		candidates = append(candidates, ns)
+	}
+	candidates = append(candidates, namespaces...)
+
+	seen := map[string]bool{}
+	for _, ns := range candidates {
+		if ns == "" || seen[ns] {
+			continue
+		}
+		seen[ns] = true
+		if err := h.VerifyServiceExists(ns, serviceName); err == nil {
+			return ns, nil
+		}
+	}
+	return "", fmt.Errorf("unable to find service %q in namespaces: %v", serviceName, candidates)
+}
+
+// StartServiceAccess resolves, port-forwards and returns an HTTP client to a service.
+func (h *Harness) StartServiceAccess(serviceName string, namespaces []string, remotePort int, useTLS bool, timeout time.Duration) (string, *http.Client, func(), error) {
+	if h == nil {
+		return "", nil, nil, fmt.Errorf("harness is nil")
+	}
+	if serviceName == "" {
+		return "", nil, nil, fmt.Errorf("service name is empty")
+	}
+	if remotePort <= 0 {
+		return "", nil, nil, fmt.Errorf("invalid remote port: %d", remotePort)
+	}
+
+	namespace, err := h.ResolveServiceNamespace(serviceName, namespaces)
+	if err != nil {
+		return "", nil, nil, err
+	}
+
+	localPort, err := h.GetFreeLocalPort()
+	if err != nil {
+		return "", nil, nil, fmt.Errorf("failed to allocate local port: %w", err)
+	}
+
+	target := "svc/" + serviceName
+	cleanup, err := h.StartPortForwardWithCleanup(namespace, target, localPort, remotePort)
+	if err != nil {
+		return "", nil, nil, fmt.Errorf("failed to start port-forward for %s in namespace %s: %w", target, namespace, err)
+	}
+
+	scheme := "http"
+	transport := &http.Transport{}
+	if useTLS {
+		scheme = "https"
+		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} // #nosec G402 -- e2e test uses local ephemeral port-forward endpoint
+	}
+	if timeout <= 0 {
+		timeout = fiveSecondTimeout
+	}
+	baseURL := fmt.Sprintf("%s://127.0.0.1:%d", scheme, localPort)
+	client := &http.Client{
+		Timeout:   timeout,
+		Transport: transport,
+	}
+	return baseURL, client, cleanup, nil
+}
+
+// GetOpenShiftToken returns the current OpenShift bearer token from oc.
+func (h *Harness) GetOpenShiftToken() (string, error) {
+	if h == nil {
+		return "", fmt.Errorf("harness is nil")
+	}
+	token, err := h.SH("oc", "whoami", "-t")
+	if err != nil {
+		return "", fmt.Errorf("failed to get openshift token from oc: %w", err)
+	}
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return "", fmt.Errorf("openshift token is empty")
+	}
+	return token, nil
 }
 
 func parsePrometheusMetrics(body string) (map[string]*dto.MetricFamily, error) {
