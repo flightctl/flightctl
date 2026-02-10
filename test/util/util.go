@@ -86,6 +86,19 @@ func NewTestProvider(log logrus.FieldLogger) queues.Provider {
 	}
 }
 
+// GetConfigMapDataByJSONPath returns data from a ConfigMap using a jsonpath selector.
+func GetConfigMapDataByJSONPath(namespace, name, jsonPath string) (string, error) {
+	// #nosec G204 -- command args are fixed and controlled in test.
+	out, err := exec.Command("kubectl", "get", "configmap", name,
+		"-n", namespace,
+		"-o", jsonPath,
+	).CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("kubectl get configmap: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+	return string(out), nil
+}
+
 func (t *testProvider) NewQueueProducer(_ context.Context, _ string) (queues.QueueProducer, error) {
 	return t, nil
 }

@@ -36,7 +36,7 @@ var _ = Describe("Device observability", func() {
 			harness := e2e.GetWorkerHarness()
 
 			By("verifying telemetry gateway configuration exports Prometheus metrics")
-			cfg, err := harness.GetConfigMapValue(telemetryGatewayNamespace, telemetryGatewayConfigMap, telemetryGatewayConfigPath)
+			cfg, err := util.GetConfigMapDataByJSONPath(telemetryGatewayNamespace, telemetryGatewayConfigMap, telemetryGatewayConfigPath)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(cfg).To(ContainSubstring("prometheus"))
 			Expect(cfg).To(ContainSubstring("listen"))
