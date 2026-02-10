@@ -348,3 +348,41 @@ func NewMountVolume(name, mountPath string) (v1beta1.ApplicationVolume, error) {
 	err := volume.FromMountVolumeProviderSpec(mountVolumeProvider)
 	return volume, err
 }
+
+// BuildComposeWithImageVolumeSpec builds a compose ApplicationProviderSpec with inline compose content
+// and a single image-backed application volume.
+func BuildComposeWithImageVolumeSpec(appName, composePath, composeContent, volumeName, imageRef string) (v1beta1.ApplicationProviderSpec, error) {
+	volume := v1beta1.ApplicationVolume{
+		Name: volumeName,
+	}
+	if err := volume.FromImageVolumeProviderSpec(v1beta1.ImageVolumeProviderSpec{
+		Image: v1beta1.ImageVolumeSource{
+			Reference:  imageRef,
+			PullPolicy: lo.ToPtr(v1beta1.PullIfNotPresent),
+		},
+	}); err != nil {
+		return v1beta1.ApplicationProviderSpec{}, err
+	}
+
+	compose := v1beta1.ComposeApplication{
+		AppType: v1beta1.AppTypeCompose,
+		Name:    lo.ToPtr(appName),
+		Volumes: &[]v1beta1.ApplicationVolume{volume},
+	}
+	if err := compose.FromInlineApplicationProviderSpec(v1beta1.InlineApplicationProviderSpec{
+		Inline: []v1beta1.ApplicationContent{
+			{
+				Path:    composePath,
+				Content: lo.ToPtr(composeContent),
+			},
+		},
+	}); err != nil {
+		return v1beta1.ApplicationProviderSpec{}, err
+	}
+
+	var spec v1beta1.ApplicationProviderSpec
+	if err := spec.FromComposeApplication(compose); err != nil {
+		return v1beta1.ApplicationProviderSpec{}, err
+	}
+	return spec, nil
+}
