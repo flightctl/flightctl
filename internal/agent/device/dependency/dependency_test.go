@@ -200,7 +200,7 @@ func TestEnsureScheduled(t *testing.T) {
 			},
 		},
 		{
-			name: "pull always policy with existing artifact returns ready",
+			name: "pull always policy with existing artifact returns not ready",
 			targets: OCIPullTargetsByUser{
 				"": []OCIPullTarget{
 					{
@@ -216,9 +216,10 @@ func TestEnsureScheduled(t *testing.T) {
 				).Return("", "", 0)
 				mockResourceManager.EXPECT().IsCriticalAlert(gomock.Any()).Return(false).Times(1)
 			},
+			expectedError: errors.ErrPrefetchNotReady,
 		},
 		{
-			name: "pull always policy with existing image returns ready",
+			name: "pull always policy with existing image returns not ready",
 			targets: OCIPullTargetsByUser{
 				"": []OCIPullTarget{
 					{
@@ -234,6 +235,7 @@ func TestEnsureScheduled(t *testing.T) {
 				).Return("", "", 0)
 				mockResourceManager.EXPECT().IsCriticalAlert(gomock.Any()).Return(false).Times(1)
 			},
+			expectedError: errors.ErrPrefetchNotReady,
 		},
 	}
 
@@ -741,6 +743,7 @@ func TestBeforeUpdate(t *testing.T) {
 					gomock.Any(), "podman", []string{"artifact", "inspect", "quay.io/test/always-artifact:latest"},
 				).Return("", "", 0) // artifact exists, but PullAlways means we still need to pull
 			},
+			wantErr: errors.ErrPrefetchNotReady,
 		},
 		{
 			name: "pull always policy with existing image",
@@ -762,6 +765,29 @@ func TestBeforeUpdate(t *testing.T) {
 					gomock.Any(), "podman", []string{"image", "exists", testImageV1},
 				).Return("", "", 0) // image exists, but PullAlways means we still need to pull
 			},
+			wantErr: errors.ErrPrefetchNotReady,
+		},
+		{
+			name: "pull never policy with missing image returns error",
+			collectors: []func() (*OCICollection, error){
+				func() (*OCICollection, error) {
+					return &OCICollection{Targets: OCIPullTargetsByUser{
+						"": []OCIPullTarget{
+							{
+								Type:       OCITypePodmanImage,
+								Reference:  "quay.io/test/never-missing:latest",
+								PullPolicy: v1beta1.PullNever,
+							},
+						},
+					}}, nil
+				},
+			},
+			setupMocks: func(mockExec *executer.MockExecuter) {
+				mockExec.EXPECT().ExecuteWithContext(
+					gomock.Any(), "podman", []string{"image", "exists", "quay.io/test/never-missing:latest"},
+				).Return("", "", 1) // missing locally and PullNever forbids pulling
+			},
+			wantErr: fmt.Errorf("pullPolicy Never"),
 		},
 	}
 
