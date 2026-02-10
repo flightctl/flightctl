@@ -188,6 +188,35 @@ func kubernetesClient() (kubernetes.Interface, error) {
 	return iface, nil
 }
 
+// ResolveServiceNamespace resolves the first namespace containing a service.
+// The FLIGHTCTL_NS environment variable is checked first when set.
+func (h *Harness) ResolveServiceNamespace(serviceName string, namespaces []string) (string, error) {
+	if h == nil {
+		return "", fmt.Errorf("harness is nil")
+	}
+	if serviceName == "" {
+		return "", fmt.Errorf("service name is empty")
+	}
+
+	candidates := make([]string, 0, len(namespaces)+1)
+	if ns := strings.TrimSpace(os.Getenv("FLIGHTCTL_NS")); ns != "" {
+		candidates = append(candidates, ns)
+	}
+	candidates = append(candidates, namespaces...)
+
+	seen := map[string]bool{}
+	for _, ns := range candidates {
+		if ns == "" || seen[ns] {
+			continue
+		}
+		seen[ns] = true
+		if err := h.VerifyServiceExists(ns, serviceName); err == nil {
+			return ns, nil
+		}
+	}
+	return "", fmt.Errorf("unable to find service %q in namespaces: %v", serviceName, candidates)
+}
+
 // ReadPrimaryVMAgentLogs reads flightctl-agent journalctl logs from the primary VM
 func (h *Harness) ReadPrimaryVMAgentLogs(since string, unit string) (string, error) {
 	if h.VM == nil {
