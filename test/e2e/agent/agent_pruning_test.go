@@ -205,6 +205,7 @@ var _ = Describe("Agent image and artifact pruning", func() {
 			artifactDir, err := harness.SetupScenario(deviceID, "oci-artifact-pruning")
 			Expect(err).ToNot(HaveOccurred())
 			GinkgoWriter.Printf("Scenario: oci-artifact-pruning (artifactDir=%s)\n", artifactDir)
+			podmanCmd := resolveAgentPodmanCommand(harness, artifactDir)
 
 			enableProvider := pruningDropinProviderSpec("pruning-enable", defaultEnablePruningDropinPath, true)
 
@@ -213,14 +214,14 @@ var _ = Describe("Agent image and artifact pruning", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			By("create a compose artifact (doc example)")
-			composeOut, err := harness.RunVMCommandWithEvidence(artifactDir, "vm_podman_artifact_add_ls.txt", podmanComposeArtifactCmd)
+			composeOut, err := harness.RunVMCommandWithEvidence(artifactDir, "vm_podman_artifact_add_ls.txt", buildPodmanComposeArtifactCmd(podmanCmd))
 			Expect(err).ToNot(HaveOccurred())
-			Expect(composeOut).To(ContainSubstring("quay.io/my-org/my-compose-app.0"))
+			Expect(composeOut).To(ContainSubstring(composeArtifactReference))
 
 			By("apply a Device spec that references the artifact (as app package)")
-			artifactSpec, err := e2e.BuildImageAppSpec("my-compose-app", v1beta1.AppTypeCompose, "quay.io/my-org/my-compose-app.0")
+			artifactSpec, err := e2e.BuildImageAppSpec("my-compose-app", v1beta1.AppTypeCompose, composeArtifactReference)
 			Expect(err).ToNot(HaveOccurred())
-			assertReferenceAbsent(harness, artifactDir, "vm_refs_cat_before_compose_artifact_app.txt", "quay.io/my-org/my-compose-app.0")
+			assertReferenceAbsent(harness, artifactDir, "vm_refs_cat_before_compose_artifact_app.txt", composeArtifactReference)
 			updateDeviceApplicationsWithEvidence(harness, deviceID, artifactDir, "host_device_update_artifact_app.txt", "update device applications: my-compose-app", artifactSpec)
 
 			By("remove the artifact reference from spec")
@@ -242,12 +243,12 @@ var _ = Describe("Agent image and artifact pruning", func() {
 			registerPruningRefreshCleanup(harness, deviceID, artifactDir, enableProvider)
 
 			By("verify artifact pruned")
-			waitForReferencePresence(harness, "quay.io/my-org/my-compose-app.0", false, false)
+			waitForReferencePresence(harness, composeArtifactReference, false, false)
 			_, err = harness.RunVMCommandWithEvidence(artifactDir, "vm_refs_cat_artifact_after_removal.txt", "sudo cat /var/lib/flightctl/image-artifact-references.json")
 			Expect(err).ToNot(HaveOccurred())
-			artifactLSOut, err := harness.RunVMCommandWithEvidence(artifactDir, "vm_podman_artifact_ls.txt", "podman artifact ls")
+			artifactLSOut, err := harness.RunVMCommandWithEvidence(artifactDir, "vm_podman_artifact_ls.txt", fmt.Sprintf("%s artifact ls", podmanCmd))
 			Expect(err).ToNot(HaveOccurred())
-			Expect(artifactLSOut).ToNot(ContainSubstring("quay.io/my-org/my-compose-app.0"))
+			Expect(artifactLSOut).ToNot(ContainSubstring(composeArtifactReference))
 
 			By("capture pruning evidence files and status")
 			Expect(harness.CaptureStandardEvidence(artifactDir, deviceID)).To(Succeed())
@@ -402,8 +403,7 @@ const brokenContainerContent = `[Container]
 Image=quay.io/library/this-image-should-not-exist
 `
 
-// Podman command to create and list a compose artifact.
-const podmanComposeArtifactCmd = `printf '%s\n' 'version: "3.8"' 'services:' '  svc:' '    image: quay.io/library/nginx' '    ports:' '    - "8081:80"' > /tmp/podman-compose.yaml; podman artifact add quay.io/my-org/my-compose-app.0 /tmp/podman-compose.yaml; podman artifact ls`
+const composeArtifactReference = "quay.io/my-org/my-compose-app.0"
 
 const imageArtifactReferencesCmd = "sudo test -f /var/lib/flightctl/image-artifact-references.json && sudo cat /var/lib/flightctl/image-artifact-references.json || true"
 
@@ -796,6 +796,38 @@ func waitForReferencePresence(harness *e2e.Harness, reference string, imageRefMo
 			}
 			return !present
 		}))
+}
+
+func resolveAgentPodmanCommand(harness *e2e.Harness, artifactDir string) string {
+	Expect(harness).ToNot(BeNil())
+	Expect(strings.TrimSpace(artifactDir)).ToNot(BeEmpty())
+
+	userOut, err := harness.RunVMCommandWithEvidence(artifactDir, "vm_flightctl_agent_service_user.txt", "sudo systemctl show --property=User --value flightctl-agent 2>/dev/null || true")
+	Expect(err).ToNot(HaveOccurred())
+
+	agentUser := strings.TrimSpace(userOut)
+	if agentUser == "" || agentUser == "root" {
+		GinkgoWriter.Printf("Using root podman context for artifact operations (agentUser=%q)\n", agentUser)
+		return "sudo podman"
+	}
+
+	uidOut, err := harness.RunVMCommandWithEvidence(artifactDir, "vm_flightctl_agent_service_uid.txt", fmt.Sprintf("id -u %s", agentUser))
+	Expect(err).ToNot(HaveOccurred())
+	agentUID := strings.TrimSpace(uidOut)
+	Expect(agentUID).ToNot(BeEmpty())
+
+	GinkgoWriter.Printf("Using podman context for flightctl-agent service user=%q\n", agentUser)
+	return fmt.Sprintf("sudo -n -u %s -H env XDG_RUNTIME_DIR=/run/user/%s podman", agentUser, agentUID)
+}
+
+func buildPodmanComposeArtifactCmd(podmanCmd string) string {
+	Expect(strings.TrimSpace(podmanCmd)).ToNot(BeEmpty())
+	return fmt.Sprintf(
+		`printf '%%s\n' 'version: "3.8"' 'services:' '  svc:' '    image: quay.io/library/nginx' '    ports:' '    - "8081:80"' > /tmp/podman-compose.yaml; %s artifact add %s /tmp/podman-compose.yaml; %s artifact ls`,
+		podmanCmd,
+		composeArtifactReference,
+		podmanCmd,
+	)
 }
 
 func registerPruningRefreshCleanup(harness *e2e.Harness, deviceID, artifactDir string, enableProvider v1beta1.ConfigProviderSpec) {
