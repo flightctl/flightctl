@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"os"
 	"os/exec"
 	"syscall"
 )
@@ -22,10 +23,13 @@ func (e *commonExecuter) CommandContext(ctx context.Context, command string, arg
 	}
 
 	if e.uid >= 0 {
-		// When running as a different user, make sure the env is not inherited by setting it to a blank
-		// slice (if nil, it will be inherited).
+		// When running as a different user, make sure the env is not inherited (except for PATH).
 		if cmd.Env == nil {
 			cmd.Env = []string{}
+			// Preserve path if it exists for convenience when running commands that expect it set.
+			if path, ok := os.LookupEnv("PATH"); ok {
+				cmd.Env = append(cmd.Env, "PATH="+path)
+			}
 		}
 		if e.homeDir != "" {
 			// Forcefully override any existing HOME envvar if homeDir is set.
