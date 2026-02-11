@@ -67,8 +67,7 @@ func (h *Harness) CreateImageBuildWithLabels(name string, spec imagebuilderapi.I
 	}
 
 	if response.JSON201 == nil {
-		return nil, fmt.Errorf("failed to create ImageBuild %s: status=%d body=%s",
-			name, response.StatusCode(), string(response.Body))
+		return nil, newAPIError(response.StatusCode(), response.Body, "ImageBuild", name)
 	}
 
 	GinkgoWriter.Printf("Created ImageBuild: %s\n", name)
@@ -83,8 +82,7 @@ func (h *Harness) GetImageBuild(name string) (*imagebuilderapi.ImageBuild, error
 	}
 
 	if response.JSON200 == nil {
-		return nil, fmt.Errorf("ImageBuild %s not found: status=%d body=%s",
-			name, response.StatusCode(), string(response.Body))
+		return nil, newAPIError(response.StatusCode(), response.Body, "ImageBuild", name)
 	}
 
 	return response.JSON200, nil
@@ -98,8 +96,7 @@ func (h *Harness) DeleteImageBuild(name string) error {
 	}
 
 	if response.StatusCode() != 200 && response.StatusCode() != 404 {
-		return fmt.Errorf("failed to delete ImageBuild %s: status=%d body=%s",
-			name, response.StatusCode(), string(response.Body))
+		return newAPIError(response.StatusCode(), response.Body, "ImageBuild", name)
 	}
 
 	GinkgoWriter.Printf("Deleted ImageBuild: %s\n", name)
@@ -114,8 +111,7 @@ func (h *Harness) CancelImageBuild(name string) error {
 	}
 
 	if response.StatusCode() != 200 {
-		return fmt.Errorf("failed to cancel ImageBuild %s: status=%d body=%s",
-			name, response.StatusCode(), string(response.Body))
+		return newAPIError(response.StatusCode(), response.Body, "ImageBuild", name)
 	}
 
 	GinkgoWriter.Printf("Canceled ImageBuild: %s\n", name)
@@ -130,8 +126,7 @@ func (h *Harness) ListImageBuilds(params *imagebuilderapi.ListImageBuildsParams)
 	}
 
 	if response.JSON200 == nil {
-		return nil, fmt.Errorf("failed to list ImageBuilds: status=%d body=%s",
-			response.StatusCode(), string(response.Body))
+		return nil, newAPIError(response.StatusCode(), response.Body, "ImageBuildList", "")
 	}
 
 	return response.JSON200, nil
@@ -145,8 +140,7 @@ func (h *Harness) ListImageExports(params *imagebuilderapi.ListImageExportsParam
 	}
 
 	if response.JSON200 == nil {
-		return nil, fmt.Errorf("failed to list ImageExports: status=%d body=%s",
-			response.StatusCode(), string(response.Body))
+		return nil, newAPIError(response.StatusCode(), response.Body, "ImageExportList", "")
 	}
 
 	return response.JSON200, nil
@@ -212,8 +206,7 @@ func (h *Harness) StreamImageBuildLogsWithTimeout(name string, streamDuration ti
 
 	if response.StatusCode != 200 {
 		body, _ := io.ReadAll(response.Body)
-		return "", fmt.Errorf("failed to get log stream for ImageBuild %s: status=%d body=%s",
-			name, response.StatusCode, string(body))
+		return "", newAPIError(response.StatusCode, body, "ImageBuild", name)
 	}
 
 	// Read logs until context timeout
@@ -255,8 +248,7 @@ func (h *Harness) StreamImageExportLogsWithTimeout(name string, streamDuration t
 
 	if response.StatusCode != 200 {
 		body, _ := io.ReadAll(response.Body)
-		return "", fmt.Errorf("failed to get log stream for ImageExport %s: status=%d body=%s",
-			name, response.StatusCode, string(body))
+		return "", newAPIError(response.StatusCode, body, "ImageExport", name)
 	}
 
 	// Read logs until context timeout
@@ -504,8 +496,7 @@ func (h *Harness) WaitForImageBuildWithLogs(name string, timeout time.Duration) 
 
 	if response.StatusCode != 200 {
 		body, _ := io.ReadAll(response.Body)
-		return nil, fmt.Errorf("failed to get log stream for ImageBuild %s: status=%d body=%s",
-			name, response.StatusCode, string(body))
+		return nil, newAPIError(response.StatusCode, body, "ImageBuild", name)
 	}
 
 	// Handle streaming based on content type (matching CLI behavior)
@@ -669,8 +660,7 @@ func (h *Harness) CreateImageExport(name string, spec imagebuilderapi.ImageExpor
 	}
 
 	if response.JSON201 == nil {
-		return nil, fmt.Errorf("failed to create ImageExport %s: status=%d body=%s",
-			name, response.StatusCode(), string(response.Body))
+		return nil, newAPIError(response.StatusCode(), response.Body, "ImageExport", name)
 	}
 
 	GinkgoWriter.Printf("Created ImageExport: %s\n", name)
@@ -685,8 +675,7 @@ func (h *Harness) GetImageExport(name string) (*imagebuilderapi.ImageExport, err
 	}
 
 	if response.JSON200 == nil {
-		return nil, fmt.Errorf("ImageExport %s not found: status=%d body=%s",
-			name, response.StatusCode(), string(response.Body))
+		return nil, newAPIError(response.StatusCode(), response.Body, "ImageExport", name)
 	}
 
 	return response.JSON200, nil
@@ -700,8 +689,7 @@ func (h *Harness) DeleteImageExport(name string) error {
 	}
 
 	if response.StatusCode() != 200 && response.StatusCode() != 404 {
-		return fmt.Errorf("failed to delete ImageExport %s: status=%d body=%s",
-			name, response.StatusCode(), string(response.Body))
+		return newAPIError(response.StatusCode(), response.Body, "ImageExport", name)
 	}
 
 	GinkgoWriter.Printf("Deleted ImageExport: %s\n", name)
@@ -716,8 +704,7 @@ func (h *Harness) CancelImageExport(name string) error {
 	}
 
 	if response.StatusCode() != 200 {
-		return fmt.Errorf("failed to cancel ImageExport %s: status=%d body=%s",
-			name, response.StatusCode(), string(response.Body))
+		return newAPIError(response.StatusCode(), response.Body, "ImageExport", name)
 	}
 
 	GinkgoWriter.Printf("Canceled ImageExport: %s\n", name)
@@ -813,8 +800,7 @@ func (h *Harness) WaitForImageExportWithLogs(name string, timeout time.Duration)
 
 	if response.StatusCode != 200 {
 		body, _ := io.ReadAll(response.Body)
-		return nil, fmt.Errorf("failed to get log stream for ImageExport %s: status=%d body=%s",
-			name, response.StatusCode, string(body))
+		return nil, newAPIError(response.StatusCode, body, "ImageExport", name)
 	}
 
 	// Handle streaming based on content type (matching CLI behavior)
@@ -944,8 +930,7 @@ func (h *Harness) DownloadImageExport(name string) (io.ReadCloser, int64, error)
 	if response.StatusCode != 200 {
 		body, _ := io.ReadAll(response.Body)
 		response.Body.Close()
-		return nil, 0, fmt.Errorf("failed to download ImageExport %s: status=%d body=%s",
-			name, response.StatusCode, string(body))
+		return nil, 0, newAPIError(response.StatusCode, body, "ImageExport", name)
 	}
 
 	contentLength := response.ContentLength

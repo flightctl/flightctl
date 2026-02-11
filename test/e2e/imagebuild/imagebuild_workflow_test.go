@@ -232,8 +232,8 @@ var _ = Describe("ImageBuild", Label("imagebuild"), func() {
 
 			By("Step 5: Verifying flightctl-agent service is running via console")
 
-		Eventually(func() (string, error) {
-			return getAgentServiceStatus(libvirtVM)
+			Eventually(func() (string, error) {
+				return getAgentServiceStatus(libvirtVM)
 			}, vmBootTimeout, vmBootPollPeriod).Should(Equal("active"),
 				"flightctl-agent service should be running")
 
