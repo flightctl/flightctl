@@ -61,4 +61,8 @@ LABEL \
 COPY --from=build /app/bin/flightctl-db-migrate .
 COPY --from=build /app/deploy ./deploy
 
+# Ensure binary and scripts have execute permissions
+RUN chmod +x ./flightctl-db-migrate && \
+    chmod +x ./deploy/scripts/*.sh
+
 CMD ./flightctl-db-migrate
