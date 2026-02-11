@@ -104,6 +104,9 @@ case "$ACTION" in
                 -t "flightctl-${service}-el${EL_VERSION}:latest" \
                 -t "quay.io/flightctl/flightctl-${service}-el${EL_VERSION}:latest" \
                 -t "quay.io/flightctl/flightctl-${service}-el${EL_VERSION}:${SOURCE_GIT_TAG}" \
+                -t "flightctl-${service}-cs${EL_VERSION}:latest" \
+                -t "quay.io/flightctl/flightctl-${service}-cs${EL_VERSION}:latest" \
+                -t "quay.io/flightctl/flightctl-${service}-cs${EL_VERSION}:${SOURCE_GIT_TAG}" \
                 .
         done
 
@@ -118,15 +121,22 @@ case "$ACTION" in
 
             echo "Publishing ${local_image}..."
 
-            # Tag and push to registry with EL version suffix
+            # Tag and push to registry with both EL and CS version suffixes for compatibility
+            # EL naming (new)
             podman tag "${local_image}" "quay.io/flightctl/flightctl-${service}-el${EL_VERSION}:latest"
             podman tag "${local_image}" "quay.io/flightctl/flightctl-${service}-el${EL_VERSION}:${GIT_REF}"
+            # CS naming (backward compatibility)
+            podman tag "${local_image}" "quay.io/flightctl/flightctl-${service}-cs${EL_VERSION}:latest"
+            podman tag "${local_image}" "quay.io/flightctl/flightctl-${service}-cs${EL_VERSION}:${GIT_REF}"
 
+            # Push both naming conventions
             podman push "quay.io/flightctl/flightctl-${service}-el${EL_VERSION}:latest"
             podman push "quay.io/flightctl/flightctl-${service}-el${EL_VERSION}:${GIT_REF}"
+            podman push "quay.io/flightctl/flightctl-${service}-cs${EL_VERSION}:latest"
+            podman push "quay.io/flightctl/flightctl-${service}-cs${EL_VERSION}:${GIT_REF}"
         done
 
         echo "✓ Published all containers for EL${EL_VERSION}"
-        echo "Registry images: quay.io/flightctl/flightctl-*-el${EL_VERSION}:latest"
+        echo "Registry images: quay.io/flightctl/flightctl-*-el${EL_VERSION}:latest (and cs${EL_VERSION} for compatibility)"
         ;;
 esac
