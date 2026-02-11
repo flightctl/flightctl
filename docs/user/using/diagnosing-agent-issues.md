@@ -76,7 +76,7 @@ Renewal attempts happened recently (any outcome):
 sum(increase(flightctl_device_mgmt_cert_renewal_attempts_total[30m])) > 0
 ```
 
-Attempts increased, but NotAfter did not change in the same window:
+Attempts increased, but `NotAfter` did not change in the same window:
 
 ```sql
 (sum(increase(flightctl_device_mgmt_cert_renewal_attempts_total[30m])) > 0)
@@ -95,7 +95,7 @@ histogram_quantile(
 )
 ```
 
-Renewal failures in the last 30m:
+Renewal failures in the last 30 minutes:
 
 ```sql
 increase(flightctl_device_mgmt_cert_renewal_attempts_total{result="failure"}[30m]) > 0
@@ -144,7 +144,7 @@ All standard Go pprof handlers are exposed under the `/debug/pprof/` path.
 
 ### Capturing Profiles
 
-Collect a 10-second CPU profile:
+Collect a 10 second CPU profile:
 
 ```bash
 curl http://127.0.0.1:15689/debug/pprof/profile?seconds=10 > cpu.pprof
