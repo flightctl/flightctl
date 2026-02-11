@@ -59,5 +59,6 @@ LABEL \
   os.id="el${EL_VERSION}"
 
 COPY --from=build /app/bin/flightctl-db-migrate .
+COPY --from=build /app/deploy ./deploy
 
 CMD ./flightctl-db-migrate
