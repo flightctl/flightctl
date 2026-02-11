@@ -1,249 +1,366 @@
-# Deploying the Observability Stack on Kubernetes/OpenShift
+# Deploying an Observability Stack on OpenShift / Kubernetes
 
-This guide describes how to deploy and configure the observability stack for Flight Control on Kubernetes or OpenShift, including Prometheus for metric storage and Grafana for visualization.
+This guide describes how to deploy and configure an observability stack for Flight Control on OpenShift or other Kubernetes distributions.
 
 ## Overview
 
-Flight Control provides built-in device telemetry capabilities through the **Telemetry Gateway**, which is deployed by default with the Flight Control service. The Telemetry Gateway:
+The Flight Control service exports three categories of metrics:
 
-- Acts as the entry point for all device telemetry data
-- Terminates mTLS connections from devices and validates device certificates
-- Labels telemetry data with authenticated `device_id` and `org_id`
-- Exposes metrics for scraping by Prometheus or forwards data to upstream OTLP backends
+1. **Service metrics** are metrics about the Flight Control service itself such as
+    - system resource utilization metrics,
+    - API metrics,
+    - database metrics, and
+    - agent metrics.
+2. **Business metrics** are metrics about the objects managed by the Flight Control service such as
+    - device deployment, update, and health metrics,
+    - application deployment, update, and health metrics, and
+    - fleet rollout metrics.
+3. **Device and application metrics** are metrics collected from the devices and their application workloads.
 
-To store and visualize this telemetry data, along with Flight Control service metrics, you need to deploy an observability stack consisting of:
+The first two categories can be collected from the Flight Control API server, the third from the Flight Control Telemetry Gateway. The Telemetry Gateway
 
-- **Prometheus** - Time-series database for storing metrics
-- **Grafana** - Visualization and dashboarding platform
+- acts as the entry point for all device telemetry data,
+- terminates the OpenTelemetry mTLS connections from devices and validates the client certificates,
+- labels telemetry data with authenticated `device_id` and `org_id`, and
+- exposes metrics for scraping by Prometheus or forwards data to upstream OTLP backends.
 
-The Telemetry Gateway is automatically deployed with the Flight Control Helm chart with working default configuration, including:
+To store and visualize this telemetry data, you can deploy an observability stack as described in the following sections.
 
-- Server certificates provisioned and mounted
-- CA certificate for validating device client certificates
-- Device-facing OTLP gRPC listener on port 4317
-- Prometheus metrics export on port 9464
+## Deploying the Monitoring Stack
 
-## Prerequisites
+Prerequisites:
 
-- OpenShift 4.12 or later (or Kubernetes 1.25+)
-- Cluster administrator access
-- Flight Control already deployed via Helm chart
+- You have access to an OpenShift Kubernetes cluster (4.19+) with cluster admin permissions.
+- You have the Flight Control service deployed via Helm chart
+- You have `oc` of a matching version installed and are logged in to the OpenShift cluster.
 
-## Installing the Observability Stack
+Procedure:
 
-### Using Cluster Observability Operator (OpenShift)
+1. Install the Cluster Observability Operator from the Software Catalog:
 
-1. Install the Cluster Observability Operator from OperatorHub:
-
-   ```console
-   oc create -f - <<EOF
-   apiVersion: operators.coreos.com/v1alpha1
-   kind: Subscription
-   metadata:
-     name: cluster-observability-operator
-     namespace: openshift-operators
-   spec:
-     channel: development
-     name: cluster-observability-operator
-     source: redhat-operators
-     sourceNamespace: openshift-marketplace
-   EOF
-   ```
+    ```console
+    oc create -f - <<EOF
+    apiVersion: operators.coreos.com/v1alpha1
+    kind: Subscription
+    metadata:
+      name: cluster-observability-operator
+      namespace: openshift-operators
+    spec:
+      channel: stable
+      name: cluster-observability-operator
+      source: redhat-operators
+      sourceNamespace: openshift-marketplace
+    EOF
+    ```
 
 2. Wait for the operator to be ready:
 
-   ```console
-   oc wait --for=condition=Ready pod -l app.kubernetes.io/name=cluster-observability-operator -n openshift-operators --timeout=300s
-   ```
+    ```console
+    oc wait --for=jsonpath='{.status.phase}'=Succeeded \
+      csv -l operators.coreos.com/cluster-observability-operator.openshift-operators \
+      -n openshift-operators --timeout=300s
+    ```
 
-3. Create a `UIPlugin` custom resource to enable the Grafana dashboard integration:
+3. Create a `MonitoringStack` resource to deploy a Prometheus instance:
 
-   ```console
-   oc create -f - <<EOF
-   apiVersion: observability.openshift.io/v1alpha1
-   kind: UIPlugin
-   metadata:
-     name: flightctl-observability
-   spec:
-     type: Grafana
-     grafana:
-       datasources:
-         - name: FlightControl-Prometheus
-           type: prometheus
-           url: http://prometheus:9090
-           isDefault: true
-   EOF
-   ```
+    ```console
+    oc create -f - <<EOF
+    apiVersion: monitoring.rhobs/v1alpha1
+    kind: MonitoringStack
+    metadata:
+      name: flightctl-monitoring-stack
+      namespace: flightctl
+    spec:
+      alertmanagerConfig:
+        disabled: true
+      logLevel: info
+      prometheusConfig:
+        persistentVolumeClaim:
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 2Gi
+        replicas: 1
+      resourceSelector:
+        matchLabels:
+          app: flightctl-monitoring
+      retention: 365d
+    EOF
+    ```
 
-4. Access Grafana through the OpenShift console under **Observe → Dashboards**.
+4. Wait for Prometheus to be ready:
 
-### Using Prometheus Operator (Kubernetes)
+    ```console
+    oc wait --for=condition=Ready pod -l app.kubernetes.io/name=prometheus \
+      -n flightctl --timeout=300s
+    ```
 
-For vanilla Kubernetes deployments, use the Prometheus Operator:
+5. Configure Prometheus to scrape metrics from Flight Control components using ServiceMonitor resources:
 
-1. Install the Prometheus Operator:
-
-   ```console
-   kubectl apply -f https://raw.githubusercontent.com/prometheus-operator/prometheus-operator/main/bundle.yaml
-   ```
-
-2. Create a Prometheus instance:
-
-   ```yaml
-   apiVersion: monitoring.coreos.com/v1
-   kind: Prometheus
-   metadata:
-     name: flightctl-prometheus
-     namespace: <flightctl-namespace>
-   spec:
-     replicas: 1
-     retention: 30d
-     serviceAccountName: prometheus
-     serviceMonitorSelector:
-       matchLabels:
-         app: flightctl
-     resources:
-       requests:
-         memory: 2Gi
-         cpu: 500m
-   ```
-
-3. Install Grafana using Helm:
-
-   ```console
-   helm repo add grafana https://grafana.github.io/helm-charts
-   helm install grafana grafana/grafana \
-     --namespace <flightctl-namespace> \
-     --set persistence.enabled=true \
-     --set adminPassword=admin
-   ```
-
-### Verifying the Installation
-
-Verify that Prometheus is scraping Flight Control metrics:
-
-```console
-# Port-forward to Prometheus
-kubectl port-forward -n <flightctl-namespace> svc/prometheus 9090:9090
-
-# In another terminal, query targets
-curl http://localhost:9090/api/v1/targets | jq '.data.activeTargets[] | select(.labels.job | contains("flightctl"))'
-```
-
-## Configuring Prometheus Scraping
-
-Configure Prometheus to scrape metrics from Flight Control components using ServiceMonitor resources.
-
-### Scraping Flight Control API Metrics
-
-The Flight Control API exposes service-level metrics on port 9090 at the `/metrics` endpoint.
-
-Create a `ServiceMonitor` resource:
-
-```yaml
-apiVersion: monitoring.coreos.com/v1
-kind: ServiceMonitor
-metadata:
-  name: flightctl-api-metrics
-  namespace: <flightctl-namespace>
-  labels:
-    app: flightctl
-spec:
-  selector:
-    matchLabels:
-      flightctl.service: flightctl-api
-  endpoints:
-  - port: metrics
-    interval: 30s
-    path: /metrics
-```
-
-Apply it:
-
-```console
-kubectl apply -f servicemonitor-api.yaml
-```
-
-#### Available Service Metrics
-
-The Flight Control API exposes metrics including:
-
-- **HTTP metrics**: Request duration, status codes, request/response sizes
-- **System metrics**: CPU utilization, memory usage, disk I/O
-- **Database metrics**: Connection pool stats, query durations
-- **gRPC metrics**: RPC call durations and counts
+    ```console
+    oc create -f - <<EOF
+    apiVersion: monitoring.rhobs/v1
+    kind: ServiceMonitor
+    metadata:
+      name: flightctl-api
+      namespace: flightctl
+      labels:
+        app: flightctl-monitoring
+    spec:
+      selector:
+        matchLabels:
+          flightctl.service: flightctl-api
+      endpoints:
+        - port: metrics
+          path: /metrics
+          interval: 30s
+        - port: db-metrics
+          path: /metrics
+          interval: 30s
+    ---
+    apiVersion: monitoring.rhobs/v1
+    kind: ServiceMonitor
+    metadata:
+      name: flightctl-telemetry-gateway
+      namespace: flightctl
+      labels:
+        app: flightctl-monitoring
+    spec:
+      selector:
+        matchLabels:
+          flightctl.service: flightctl-telemetry-gateway
+      endpoints:
+      - port: metrics
+        interval: 30s
+        path: /metrics
+    EOF
+    ```
 
 For a complete reference, see [Metrics Configuration](../references/metrics.md).
 
-### Scraping Telemetry Gateway Metrics
+Verification:
 
-The Telemetry Gateway exposes device telemetry metrics on port 9464 at the `/metrics` endpoint.
+1. Verify that Prometheus is successfully scraping Flight Control metrics:
 
-Create a `ServiceMonitor` resource:
+    ```console
+    # Port-forward to Prometheus
+    oc port-forward -n flightctl svc/flightctl-monitoring-stack-prometheus 9090:9090 &
 
-```yaml
-apiVersion: monitoring.coreos.com/v1
-kind: ServiceMonitor
-metadata:
-  name: flightctl-telemetry-gateway-metrics
-  namespace: <flightctl-namespace>
-  labels:
-    app: flightctl
-spec:
-  selector:
-    matchLabels:
-      flightctl.service: flightctl-telemetry-gateway
-  endpoints:
-  - port: prometheus
-    interval: 30s
-    path: /metrics
-```
+    # Query active targets
+    curl -s http://localhost:9090/api/v1/targets | \
+      jq -r '.data.activeTargets[] | select(.labels.job | contains("flightctl")) | {job: .labels.job, health: .health}'
 
-Apply it:
+    # Clean up port-forward
+    pkill -f "port-forward.*prometheus"
+    ```
 
-```console
-kubectl apply -f servicemonitor-telemetry.yaml
-```
+You should see output showing healthy targets for both the API and Telemetry Gateway.
 
-#### Understanding Device Telemetry Metrics
+## Deploying Grafana for Visualization
 
-All device telemetry metrics include labels for filtering and aggregation:
+Now that Prometheus is collecting metrics, deploy Grafana to visualize them.
 
-- `device_id`: Unique device identifier
-- `org_id`: Organization/tenant identifier
-- Additional labels from the OpenTelemetry collector configuration
+Procedure:
 
-Example metrics:
+1. Install the Grafana Operator:
 
-- `system_cpu_utilization`: Device CPU usage percentage
-- `system_memory_usage`: Device memory consumption
-- `system_disk_io_bytes`: Disk I/O operations
+    ```console
+    oc create -f - <<EOF
+    apiVersion: operators.coreos.com/v1alpha1
+    kind: Subscription
+    metadata:
+      name: grafana-operator
+      namespace: openshift-operators
+    spec:
+      channel: v5
+      name: grafana-operator
+      source: community-operators
+      sourceNamespace: openshift-marketplace
+    EOF
+    ```
 
-#### Example Prometheus Queries
+2. Wait for the operator to be ready:
 
-Get CPU usage for a specific device:
+    ```console
+    oc wait --for=jsonpath='{.status.phase}'=Succeeded \
+      csv -l operators.coreos.com/grafana-operator.openshift-operators \
+      -n openshift-operators --timeout=300s
+    ```
 
-```promql
-system_cpu_utilization{device_id="my-device-123"}
-```
+3. Create a Grafana instance:
 
-Average CPU usage across all devices in an organization:
+    ```console
+    oc create -f - <<EOF
+    apiVersion: grafana.integreatly.org/v1beta1
+    kind: Grafana
+    metadata:
+      name: flightctl-grafana
+      namespace: flightctl
+      labels:
+        dashboards: flightctl
+    spec:
+      config:
+        log:
+          mode: console
+        security:
+          admin_user: admin
+          admin_password: admin
+      deployment:
+        spec:
+          template:
+            metadata:
+              labels:
+                app.kubernetes.io/name: grafana
+    EOF
+    ```
 
-```promql
-avg(system_cpu_utilization{org_id="default"})
-```
+4. Create a `NetworkPolicy` to allow the Grafana Operator to access the Grafana instance:
 
-Devices with high memory usage:
+    ```console
+    oc create -f - <<EOF
+    apiVersion: networking.k8s.io/v1
+    kind: NetworkPolicy
+    metadata:
+      name: allow-grafana-from-openshift-operators
+      namespace: flightctl
+    spec:
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/name: grafana
+      policyTypes:
+      - Ingress
+      ingress:
+      - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: openshift-operators
+        ports:
+          - protocol: TCP
+            port: 3000
+    EOF
+    ```
 
-```promql
-system_memory_usage{state="used"} / system_memory_limit > 0.9
-```
+5. Create a `GrafanaDatasource` pointing to the Prometheus instance:
+
+    ```console
+    oc create -f - <<EOF
+    apiVersion: grafana.integreatly.org/v1beta1
+    kind: GrafanaDatasource
+    metadata:
+      name: flightctl-monitoring
+      namespace: flightctl
+    spec:
+      allowCrossNamespaceImport: false
+      datasource:
+        access: proxy
+        isDefault: true
+        jsonData:
+          timeInterval: 5s
+          tlsSkipVerify: true
+        name: prometheus
+        type: prometheus
+        url: 'http://flightctl-monitoring-stack-prometheus.flightctl.svc.cluster.local:9090'
+      instanceSelector:
+        matchLabels:
+          dashboards: flightctl
+    EOF
+    ```
+
+6. Create a Route to access Grafana:
+
+    ```console
+    oc create route edge flightctl-grafana-route \
+      --service=flightctl-grafana-service \
+      --port=grafana \
+      -n flightctl
+    ```
+
+7. Get the Grafana URL:
+
+    ```console
+    echo "https://$(oc get route flightctl-grafana-route -n flightctl -o jsonpath='{.spec.host}')"
+    ```
+
+8. Access Grafana with username `admin` and password `admin`.
+
+## Deploying Grafana Dashboards
+
+The following procedure describes how to deploy your own Grafana dashboards, using the example Grafana dashboards in [`contrib/grafana-dashboards/`](https://github.com/flightctl/flightctl/tree/main/contrib/grafana-dashboards).
+
+Prerequisites:
+
+- Grafana is deployed and configured with the Prometheus data source (see previous section)
+
+Procedure:
+
+1. Download the dashboard JSON files from GitHub and create `ConfigMap`s:
+
+   ```console
+   curl -sLO https://raw.githubusercontent.com/flightctl/flightctl/main/contrib/grafana-dashboards/flightctl-api-dashboard.json
+   curl -sLO https://raw.githubusercontent.com/flightctl/flightctl/main/contrib/grafana-dashboards/flightctl-fleet-dashboard.json
+
+   oc create configmap flightctl-api-dashboard \
+     --from-file=flightctl-api-dashboard.json \
+     -n flightctl
+
+   oc create configmap flightctl-fleet-dashboard \
+     --from-file=flightctl-fleet-dashboard.json \
+     -n flightctl
+   ```
+
+2. Create `GrafanaDashboard` resources to import the dashboards:
+
+   ```console
+   oc create -f - <<EOF
+   apiVersion: grafana.integreatly.org/v1beta1
+   kind: GrafanaDashboard
+   metadata:
+     name: flightctl-api-dashboard
+     namespace: flightctl
+   spec:
+     instanceSelector:
+       matchLabels:
+         dashboards: flightctl
+     configMapRef:
+       name: flightctl-api-dashboard
+       key: flightctl-api-dashboard.json
+   ---
+   apiVersion: grafana.integreatly.org/v1beta1
+   kind: GrafanaDashboard
+   metadata:
+     name: flightctl-fleet-dashboard
+     namespace: flightctl
+   spec:
+     instanceSelector:
+       matchLabels:
+         dashboards: flightctl
+     configMapRef:
+       name: flightctl-fleet-dashboard
+       key: flightctl-fleet-dashboard.json
+   EOF
+   ```
+
+3. Wait for the dashboards to be synchronized:
+
+   ```console
+   oc wait --for=condition=Synchronized \
+     grafanadashboard/flightctl-api-dashboard \
+     grafanadashboard/flightctl-fleet-dashboard \
+     -n flightctl --timeout=60s
+   ```
+
+Verification:
+
+1. Access the Grafana UI using the URL from the previous section.
+
+2. Navigate to **Dashboards** in the left sidebar. You should see:
+   - **Flight Control API Dashboard** - Shows API server metrics, database performance, and agent connectivity
+   - **Flight Control Fleet Dashboard** - Shows device fleet health, rollout status, and application metrics
 
 ## Configuring Telemetry Gateway Forwarding (Optional)
 
 By default, the Telemetry Gateway exports metrics for local Prometheus scraping. You can optionally configure forwarding to send telemetry data to an upstream OTLP/gRPC backend.
-
-### When to Use Forwarding
 
 Use forwarding when you:
 
@@ -251,71 +368,30 @@ Use forwarding when you:
 - Want to centralize telemetry from multiple Flight Control deployments
 - Need to integrate with organization-wide monitoring systems
 
-You can configure both `export` and `forward` simultaneously. The gateway will:
+To configure forwarding with Mutual TLS (mTLS), follow the procedure below.
 
-- Export metrics locally for Prometheus scraping **and**
-- Forward the same data to the upstream OTLP endpoint
+**Note:** The steps below show manual certificate creation for testing. For production deployments, consider using [cert-manager](https://cert-manager.io/) to automatically generate and rotate certificates. cert-manager creates `kubernetes.io/tls` secrets that work directly with this configuration.
 
-### Basic Forwarding Configuration
+Procedure:
 
-Edit the Helm values file to add forwarding configuration:
-
-```yaml
-telemetryGateway:
-  forward:
-    endpoint: otlp.example.com:4317
-    tls:
-      insecureSkipTlsVerify: false
-```
-
-Create a secret with the upstream CA certificate:
-
-```console
-kubectl create secret generic telemetry-gateway-forward-ca \
-  --from-file=ca.crt=/path/to/upstream-ca.crt \
-  -n <flightctl-namespace>
-```
-
-Update the Helm values to mount the CA certificate:
-
-```yaml
-telemetryGateway:
-  forward:
-    endpoint: otlp.example.com:4317
-    tls:
-      insecureSkipTlsVerify: false
-      caFile: /etc/flightctl/flightctl-telemetry-gateway/forward/ca.crt
-  extraVolumes:
-    - name: forward-ca
-      secret:
-        secretName: telemetry-gateway-forward-ca
-  extraVolumeMounts:
-    - name: forward-ca
-      mountPath: /etc/flightctl/flightctl-telemetry-gateway/forward
-      readOnly: true
-```
-
-Then upgrade the Helm release:
-
-```console
-helm upgrade flightctl flightctl/flightctl -f values.yaml -n <flightctl-namespace>
-```
-
-### Forwarding with Mutual TLS (mTLS)
-
-If the upstream backend requires client certificate authentication:
-
-1. Create a secret with client certificates:
+1. Create TLS Secret with the client certificate and key for the Telemetry Gateway:
 
    ```console
-   kubectl create secret generic telemetry-gateway-forward-certs \
-     --from-file=ca.crt=/path/to/upstream-ca.crt \
-     --from-file=client.crt=/path/to/client-cert.crt \
-     --from-file=client.key=/path/to/client-key.key \
-     -n <flightctl-namespace>
+   oc create secret tls telemetry-gateway-forward-certs \
+     --cert=/path/to/client-cert.crt \
+     --key=/path/to/client-key.key \
+     -n flightctl
    ```
 
-2. Update Helm values:
+2. Create a ConfigMap with the upstream CA certificate:
+
+   ```console
+   oc create configmap telemetry-gateway-forward-ca \
+     --from-file=ca.crt=/path/to/upstream-ca.crt \
+     -n flightctl
+   ```
+
+3. Create a file called `values.yaml` with the following updated Telemetry Gateway parameters:
 
    ```yaml
    telemetryGateway:
@@ -323,41 +399,48 @@ If the upstream backend requires client certificate authentication:
        endpoint: otlp.example.com:4317
        tls:
          insecureSkipTlsVerify: false
-         caFile: /etc/flightctl/flightctl-telemetry-gateway/forward/ca.crt
-         certFile: /etc/flightctl/flightctl-telemetry-gateway/forward/client.crt
-         keyFile: /etc/flightctl/flightctl-telemetry-gateway/forward/client.key
+         caFile: /etc/flightctl/flightctl-telemetry-gateway/forward/ca/ca.crt
+         certFile: /etc/flightctl/flightctl-telemetry-gateway/forward/certs/tls.crt
+         keyFile: /etc/flightctl/flightctl-telemetry-gateway/forward/certs/tls.key
      extraVolumes:
        - name: forward-certs
          secret:
            secretName: telemetry-gateway-forward-certs
+       - name: forward-ca
+         configMap:
+           name: telemetry-gateway-forward-ca
      extraVolumeMounts:
        - name: forward-certs
-         mountPath: /etc/flightctl/flightctl-telemetry-gateway/forward
+         mountPath: /etc/flightctl/flightctl-telemetry-gateway/forward/certs
+         readOnly: true
+       - name: forward-ca
+         mountPath: /etc/flightctl/flightctl-telemetry-gateway/forward/ca
          readOnly: true
    ```
 
-3. Upgrade the Helm release:
+4. Upgrade the Helm release with the new parameters:
 
    ```console
-   helm upgrade flightctl flightctl/flightctl -f values.yaml -n <flightctl-namespace>
+   helm upgrade flightctl oci://quay.io/flightctl/charts/flightctl:${FC_VERSION} \
+     -n flightctl -f values.yaml --reuse-values
    ```
 
-### Verifying Forwarding
+   The `--reuse-values` flag preserves all existing configuration and only updates the values specified in `values.yaml`.
 
-Check the telemetry gateway logs to verify successful forwarding:
+Verification:
 
-```console
-kubectl logs -f deployment/flightctl-telemetry-gateway -n <flightctl-namespace>
-```
+1. Check the Telemetry Gateway logs to verify successful forwarding:
 
-Look for log entries indicating successful OTLP exports:
+    ```console
+    oc logs -f -n flightctl $YOUR_DEPLOYMENT/flightctl-telemetry-gateway
+    ```
 
-```json
-{"level":"info","msg":"Successfully forwarded metrics batch","endpoint":"otlp.example.com:4317","batch_size":100}
-```
+2. Look for log entries indicating successful OTLP exports:
+
+    ```json
+    {"level":"info","msg":"Successfully forwarded metrics batch","endpoint":"otlp.example.com:4317","batch_size":100}
+    ```
 
 ## Next Steps
 
 - **Add devices**: See [Adding OpenTelemetry Collector to Devices](../building/building-images.md#optional-adding-opentelemetry-collector-to-devices) to configure devices to send telemetry
-- **Create dashboards**: Import pre-built Grafana dashboards or create custom ones
-- **Configure alerts**: Set up alerting rules in Prometheus and Alertmanager (see [Alerts and Monitoring](../references/alerts.md))
