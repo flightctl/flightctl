@@ -1,0 +1,46 @@
+name: 'Wait for API Readiness'
+description: |
+  Waits for the FlightCtl API to become ready by polling the /readyz endpoint.
+  Retries with configurable attempts (default: 60) with 1-second intervals between attempts.
+
+inputs:
+  base-domain:
+    description: 'Base domain for the API endpoint'
+    required: true
+  retries:
+    description: 'Number of retry attempts (default: 60)'
+    required: false
+    default: '60'
+
+runs:
+  using: "composite"
+  steps:
+    - name: "Wait for API readiness"
+      shell: bash
+      env:
+        BASE_DOMAIN: ${{ inputs.base-domain }}
+        RETRIES: ${{ inputs.retries }}
+      run: |
+        for i in $(seq 1 $RETRIES); do
+            # Capture body + HTTP code; also capture curl errors
+            resp_and_code=$(curl -ksS "https://api.${BASE_DOMAIN}:3443/readyz" -w '\n%{http_code}' 2>&1) || true
+
+            http_code=$(printf '%s\n' "$resp_and_code" | tail -n1)
+            body=$(printf '%s\n' "$resp_and_code" | sed '$d')
+
+            # Print response body
+            printf '%s\n' "$body"
+
+            if [ "$http_code" -ge 200 ] && [ "$http_code" -lt 300 ]; then
+                echo "OK: API responded with $http_code on attempt $i" >&2
+                break
+            fi
+
+            echo "Attempt $i/$RETRIES failed (status $http_code), retrying...\n" >&2
+            sleep 1
+        done
+
+        if [ "$i" -eq "$RETRIES" ]; then
+            echo "ERROR: API did not return 2xx after $RETRIES attempts" >&2
+            exit 1
+        fi

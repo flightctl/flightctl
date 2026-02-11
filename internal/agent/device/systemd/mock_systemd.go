@@ -13,7 +13,8 @@ import (
 	context "context"
 	reflect "reflect"
 
-	v1alpha1 "github.com/flightctl/flightctl/api/v1alpha1"
+	v1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
+	client "github.com/flightctl/flightctl/internal/agent/client"
 	status "github.com/flightctl/flightctl/internal/agent/device/status"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -41,6 +42,36 @@ func (m *MockManager) EXPECT() *MockManagerMockRecorder {
 	return m.recorder
 }
 
+// AddExclusions mocks base method.
+func (m *MockManager) AddExclusions(serviceNames ...string) {
+	m.ctrl.T.Helper()
+	varargs := []any{}
+	for _, a := range serviceNames {
+		varargs = append(varargs, a)
+	}
+	m.ctrl.Call(m, "AddExclusions", varargs...)
+}
+
+// AddExclusions indicates an expected call of AddExclusions.
+func (mr *MockManagerMockRecorder) AddExclusions(serviceNames ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddExclusions", reflect.TypeOf((*MockManager)(nil).AddExclusions), serviceNames...)
+}
+
+// DaemonReload mocks base method.
+func (m *MockManager) DaemonReload(ctx context.Context) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DaemonReload", ctx)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DaemonReload indicates an expected call of DaemonReload.
+func (mr *MockManagerMockRecorder) DaemonReload(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DaemonReload", reflect.TypeOf((*MockManager)(nil).DaemonReload), ctx)
+}
+
 // EnsurePatterns mocks base method.
 func (m *MockManager) EnsurePatterns(arg0 []string) error {
 	m.ctrl.T.Helper()
@@ -55,8 +86,132 @@ func (mr *MockManagerMockRecorder) EnsurePatterns(arg0 any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "EnsurePatterns", reflect.TypeOf((*MockManager)(nil).EnsurePatterns), arg0)
 }
 
+// ListDependencies mocks base method.
+func (m *MockManager) ListDependencies(ctx context.Context, unit string) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListDependencies", ctx, unit)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListDependencies indicates an expected call of ListDependencies.
+func (mr *MockManagerMockRecorder) ListDependencies(ctx, unit any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListDependencies", reflect.TypeOf((*MockManager)(nil).ListDependencies), ctx, unit)
+}
+
+// ListUnitsByMatchPattern mocks base method.
+func (m *MockManager) ListUnitsByMatchPattern(ctx context.Context, matchPatterns []string) ([]client.SystemDUnitListEntry, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListUnitsByMatchPattern", ctx, matchPatterns)
+	ret0, _ := ret[0].([]client.SystemDUnitListEntry)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListUnitsByMatchPattern indicates an expected call of ListUnitsByMatchPattern.
+func (mr *MockManagerMockRecorder) ListUnitsByMatchPattern(ctx, matchPatterns any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListUnitsByMatchPattern", reflect.TypeOf((*MockManager)(nil).ListUnitsByMatchPattern), ctx, matchPatterns)
+}
+
+// Logs mocks base method.
+func (m *MockManager) Logs(ctx context.Context, options ...client.LogOptions) ([]string, error) {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx}
+	for _, a := range options {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "Logs", varargs...)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Logs indicates an expected call of Logs.
+func (mr *MockManagerMockRecorder) Logs(ctx any, options ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx}, options...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Logs", reflect.TypeOf((*MockManager)(nil).Logs), varargs...)
+}
+
+// RemoveExclusions mocks base method.
+func (m *MockManager) RemoveExclusions(serviceNames ...string) {
+	m.ctrl.T.Helper()
+	varargs := []any{}
+	for _, a := range serviceNames {
+		varargs = append(varargs, a)
+	}
+	m.ctrl.Call(m, "RemoveExclusions", varargs...)
+}
+
+// RemoveExclusions indicates an expected call of RemoveExclusions.
+func (mr *MockManagerMockRecorder) RemoveExclusions(serviceNames ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemoveExclusions", reflect.TypeOf((*MockManager)(nil).RemoveExclusions), serviceNames...)
+}
+
+// ResetFailed mocks base method.
+func (m *MockManager) ResetFailed(ctx context.Context, units ...string) error {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx}
+	for _, a := range units {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "ResetFailed", varargs...)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ResetFailed indicates an expected call of ResetFailed.
+func (mr *MockManagerMockRecorder) ResetFailed(ctx any, units ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx}, units...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResetFailed", reflect.TypeOf((*MockManager)(nil).ResetFailed), varargs...)
+}
+
+// Show mocks base method.
+func (m *MockManager) Show(ctx context.Context, unit string, options ...client.SystemdShowOptions) ([]string, error) {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, unit}
+	for _, a := range options {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "Show", varargs...)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Show indicates an expected call of Show.
+func (mr *MockManagerMockRecorder) Show(ctx, unit any, options ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx, unit}, options...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Show", reflect.TypeOf((*MockManager)(nil).Show), varargs...)
+}
+
+// Start mocks base method.
+func (m *MockManager) Start(ctx context.Context, units ...string) error {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx}
+	for _, a := range units {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "Start", varargs...)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Start indicates an expected call of Start.
+func (mr *MockManagerMockRecorder) Start(ctx any, units ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx}, units...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Start", reflect.TypeOf((*MockManager)(nil).Start), varargs...)
+}
+
 // Status mocks base method.
-func (m *MockManager) Status(arg0 context.Context, arg1 *v1alpha1.DeviceStatus, arg2 ...status.CollectorOpt) error {
+func (m *MockManager) Status(arg0 context.Context, arg1 *v1beta1.DeviceStatus, arg2 ...status.CollectorOpt) error {
 	m.ctrl.T.Helper()
 	varargs := []any{arg0, arg1}
 	for _, a := range arg2 {
@@ -72,4 +227,23 @@ func (mr *MockManagerMockRecorder) Status(arg0, arg1 any, arg2 ...any) *gomock.C
 	mr.mock.ctrl.T.Helper()
 	varargs := append([]any{arg0, arg1}, arg2...)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Status", reflect.TypeOf((*MockManager)(nil).Status), varargs...)
+}
+
+// Stop mocks base method.
+func (m *MockManager) Stop(ctx context.Context, units ...string) error {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx}
+	for _, a := range units {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "Stop", varargs...)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Stop indicates an expected call of Stop.
+func (mr *MockManagerMockRecorder) Stop(ctx any, units ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx}, units...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Stop", reflect.TypeOf((*MockManager)(nil).Stop), varargs...)
 }

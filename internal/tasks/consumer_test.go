@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/google/uuid"
@@ -15,23 +15,23 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func createTestEventWithDetails(kind api.ResourceKind, reason api.EventReason, name string, details *api.EventDetails) api.Event {
+func createTestEventWithDetails(kind domain.ResourceKind, reason domain.EventReason, name string, details *domain.EventDetails) domain.Event {
 	event := createTestEvent(kind, reason, name)
 	event.Details = details
 	return event
 }
 
-func createTestEventWithAnnotations(kind api.ResourceKind, reason api.EventReason, name string, annotations map[string]string) api.Event {
+func createTestEventWithAnnotations(kind domain.ResourceKind, reason domain.EventReason, name string, annotations map[string]string) domain.Event {
 	event := createTestEvent(kind, reason, name)
-	event.Metadata = api.ObjectMeta{
+	event.Metadata = domain.ObjectMeta{
 		Annotations: &annotations,
 	}
 	return event
 }
 
-func createResourceUpdatedDetails(t *testing.T, updatedFields ...api.ResourceUpdatedDetailsUpdatedFields) *api.EventDetails {
-	details := api.EventDetails{}
-	err := details.FromResourceUpdatedDetails(api.ResourceUpdatedDetails{
+func createResourceUpdatedDetails(t *testing.T, updatedFields ...domain.ResourceUpdatedDetailsUpdatedFields) *domain.EventDetails {
+	details := domain.EventDetails{}
+	err := details.FromResourceUpdatedDetails(domain.ResourceUpdatedDetails{
 		UpdatedFields: updatedFields,
 	})
 	if err != nil {
@@ -40,9 +40,9 @@ func createResourceUpdatedDetails(t *testing.T, updatedFields ...api.ResourceUpd
 	return &details
 }
 
-func createFleetRolloutStartedDetails(t *testing.T, strategy api.FleetRolloutStartedDetailsRolloutStrategy) *api.EventDetails {
-	details := api.EventDetails{}
-	err := details.FromFleetRolloutStartedDetails(api.FleetRolloutStartedDetails{
+func createFleetRolloutStartedDetails(t *testing.T, strategy domain.FleetRolloutStartedDetailsRolloutStrategy) *domain.EventDetails {
+	details := domain.EventDetails{}
+	err := details.FromFleetRolloutStartedDetails(domain.FleetRolloutStartedDetails{
 		RolloutStrategy: strategy,
 	})
 	if err != nil {
@@ -54,67 +54,67 @@ func createFleetRolloutStartedDetails(t *testing.T, strategy api.FleetRolloutSta
 func TestShouldRolloutFleet(t *testing.T) {
 	tests := []struct {
 		name     string
-		event    api.Event
+		event    domain.Event
 		expected bool
 	}{
 		{
 			name:     "DeviceUpdatedWithOwnerAndLabels",
-			event:    createTestEventWithDetails(api.DeviceKind, api.EventReasonResourceUpdated, "device1", createResourceUpdatedDetails(t, api.Owner, api.Labels)),
+			event:    createTestEventWithDetails(domain.DeviceKind, domain.EventReasonResourceUpdated, "device1", createResourceUpdatedDetails(t, domain.Owner, domain.Labels)),
 			expected: true,
 		},
 		{
 			name:     "DeviceUpdatedWithOwnerOnly",
-			event:    createTestEventWithDetails(api.DeviceKind, api.EventReasonResourceUpdated, "device1", createResourceUpdatedDetails(t, api.Owner)),
+			event:    createTestEventWithDetails(domain.DeviceKind, domain.EventReasonResourceUpdated, "device1", createResourceUpdatedDetails(t, domain.Owner)),
 			expected: true,
 		},
 		{
 			name:     "DeviceUpdatedWithLabelsOnly",
-			event:    createTestEventWithDetails(api.DeviceKind, api.EventReasonResourceUpdated, "device1", createResourceUpdatedDetails(t, api.Labels)),
+			event:    createTestEventWithDetails(domain.DeviceKind, domain.EventReasonResourceUpdated, "device1", createResourceUpdatedDetails(t, domain.Labels)),
 			expected: true,
 		},
 		{
 			name:     "DeviceUpdatedWithOtherFields",
-			event:    createTestEventWithDetails(api.DeviceKind, api.EventReasonResourceUpdated, "device1", createResourceUpdatedDetails(t, api.Spec)),
+			event:    createTestEventWithDetails(domain.DeviceKind, domain.EventReasonResourceUpdated, "device1", createResourceUpdatedDetails(t, domain.Spec)),
 			expected: false,
 		},
 		{
 			name:     "DeviceUpdatedNoDetails",
-			event:    createTestEvent(api.DeviceKind, api.EventReasonResourceUpdated, "device1"),
+			event:    createTestEvent(domain.DeviceKind, domain.EventReasonResourceUpdated, "device1"),
 			expected: false,
 		},
 		{
 			name:     "FleetRolloutBatchDispatched",
-			event:    createTestEvent(api.FleetKind, api.EventReasonFleetRolloutBatchDispatched, "fleet1"),
+			event:    createTestEvent(domain.FleetKind, domain.EventReasonFleetRolloutBatchDispatched, "fleet1"),
 			expected: true,
 		},
 		{
 			name:     "DeviceCreated",
-			event:    createTestEvent(api.DeviceKind, api.EventReasonResourceCreated, "device1"),
+			event:    createTestEvent(domain.DeviceKind, domain.EventReasonResourceCreated, "device1"),
 			expected: true,
 		},
 		{
 			name:     "FleetRolloutStartedImmediate",
-			event:    createTestEventWithDetails(api.FleetKind, api.EventReasonFleetRolloutStarted, "fleet1", createFleetRolloutStartedDetails(t, api.None)),
+			event:    createTestEventWithDetails(domain.FleetKind, domain.EventReasonFleetRolloutStarted, "fleet1", createFleetRolloutStartedDetails(t, domain.None)),
 			expected: true,
 		},
 		{
 			name:     "FleetRolloutStartedNotImmediate",
-			event:    createTestEventWithDetails(api.FleetKind, api.EventReasonFleetRolloutStarted, "fleet1", createFleetRolloutStartedDetails(t, "Batched")),
+			event:    createTestEventWithDetails(domain.FleetKind, domain.EventReasonFleetRolloutStarted, "fleet1", createFleetRolloutStartedDetails(t, "Batched")),
 			expected: false,
 		},
 		{
 			name:     "FleetRolloutStartedNoDetails",
-			event:    createTestEvent(api.FleetKind, api.EventReasonFleetRolloutStarted, "fleet1"),
+			event:    createTestEvent(domain.FleetKind, domain.EventReasonFleetRolloutStarted, "fleet1"),
 			expected: false,
 		},
 		{
 			name:     "FleetUpdated",
-			event:    createTestEvent(api.FleetKind, api.EventReasonResourceUpdated, "fleet1"),
+			event:    createTestEvent(domain.FleetKind, domain.EventReasonResourceUpdated, "fleet1"),
 			expected: false,
 		},
 		{
 			name:     "RepositoryUpdated",
-			event:    createTestEvent(api.RepositoryKind, api.EventReasonResourceUpdated, "repo1"),
+			event:    createTestEvent(domain.RepositoryKind, domain.EventReasonResourceUpdated, "repo1"),
 			expected: false,
 		},
 	}
@@ -131,52 +131,52 @@ func TestShouldRolloutFleet(t *testing.T) {
 func TestShouldReconcileDeviceOwnership(t *testing.T) {
 	tests := []struct {
 		name     string
-		event    api.Event
+		event    domain.Event
 		expected bool
 	}{
 		{
 			name:     "FleetUpdatedWithSelector",
-			event:    createTestEventWithDetails(api.FleetKind, api.EventReasonResourceUpdated, "fleet1", createResourceUpdatedDetails(t, api.SpecSelector)),
+			event:    createTestEventWithDetails(domain.FleetKind, domain.EventReasonResourceUpdated, "fleet1", createResourceUpdatedDetails(t, domain.SpecSelector)),
 			expected: true,
 		},
 		{
 			name:     "FleetUpdatedWithOtherFields",
-			event:    createTestEventWithDetails(api.FleetKind, api.EventReasonResourceUpdated, "fleet1", createResourceUpdatedDetails(t, api.SpecTemplate)),
+			event:    createTestEventWithDetails(domain.FleetKind, domain.EventReasonResourceUpdated, "fleet1", createResourceUpdatedDetails(t, domain.SpecTemplate)),
 			expected: false,
 		},
 		{
 			name:     "FleetUpdatedNoDetails",
-			event:    createTestEvent(api.FleetKind, api.EventReasonResourceUpdated, "fleet1"),
+			event:    createTestEvent(domain.FleetKind, domain.EventReasonResourceUpdated, "fleet1"),
 			expected: false,
 		},
 		{
 			name:     "FleetCreated",
-			event:    createTestEvent(api.FleetKind, api.EventReasonResourceCreated, "fleet1"),
+			event:    createTestEvent(domain.FleetKind, domain.EventReasonResourceCreated, "fleet1"),
 			expected: true,
 		},
 		{
 			name:     "FleetDeleted",
-			event:    createTestEvent(api.FleetKind, api.EventReasonResourceDeleted, "fleet1"),
+			event:    createTestEvent(domain.FleetKind, domain.EventReasonResourceDeleted, "fleet1"),
 			expected: true,
 		},
 		{
 			name:     "DeviceCreated",
-			event:    createTestEvent(api.DeviceKind, api.EventReasonResourceCreated, "device1"),
+			event:    createTestEvent(domain.DeviceKind, domain.EventReasonResourceCreated, "device1"),
 			expected: true,
 		},
 		{
 			name:     "DeviceUpdatedWithLabels",
-			event:    createTestEventWithDetails(api.DeviceKind, api.EventReasonResourceUpdated, "device1", createResourceUpdatedDetails(t, api.Labels)),
+			event:    createTestEventWithDetails(domain.DeviceKind, domain.EventReasonResourceUpdated, "device1", createResourceUpdatedDetails(t, domain.Labels)),
 			expected: true,
 		},
 		{
 			name:     "DeviceUpdatedWithOtherFields",
-			event:    createTestEventWithDetails(api.DeviceKind, api.EventReasonResourceUpdated, "device1", createResourceUpdatedDetails(t, api.Spec)),
+			event:    createTestEventWithDetails(domain.DeviceKind, domain.EventReasonResourceUpdated, "device1", createResourceUpdatedDetails(t, domain.Spec)),
 			expected: false,
 		},
 		{
 			name:     "RepositoryUpdated",
-			event:    createTestEvent(api.RepositoryKind, api.EventReasonResourceUpdated, "repo1"),
+			event:    createTestEvent(domain.RepositoryKind, domain.EventReasonResourceUpdated, "repo1"),
 			expected: false,
 		},
 	}
@@ -193,42 +193,42 @@ func TestShouldReconcileDeviceOwnership(t *testing.T) {
 func TestShouldValidateFleet(t *testing.T) {
 	tests := []struct {
 		name     string
-		event    api.Event
+		event    domain.Event
 		expected bool
 	}{
 		{
 			name:     "FleetUpdatedWithTemplate",
-			event:    createTestEventWithDetails(api.FleetKind, api.EventReasonResourceUpdated, "fleet1", createResourceUpdatedDetails(t, api.SpecTemplate)),
+			event:    createTestEventWithDetails(domain.FleetKind, domain.EventReasonResourceUpdated, "fleet1", createResourceUpdatedDetails(t, domain.SpecTemplate)),
 			expected: true,
 		},
 		{
 			name:     "FleetUpdatedWithOtherFields",
-			event:    createTestEventWithDetails(api.FleetKind, api.EventReasonResourceUpdated, "fleet1", createResourceUpdatedDetails(t, api.SpecSelector)),
+			event:    createTestEventWithDetails(domain.FleetKind, domain.EventReasonResourceUpdated, "fleet1", createResourceUpdatedDetails(t, domain.SpecSelector)),
 			expected: false,
 		},
 		{
 			name:     "FleetUpdatedNoDetails",
-			event:    createTestEvent(api.FleetKind, api.EventReasonResourceUpdated, "fleet1"),
+			event:    createTestEvent(domain.FleetKind, domain.EventReasonResourceUpdated, "fleet1"),
 			expected: false,
 		},
 		{
 			name:     "FleetCreated",
-			event:    createTestEvent(api.FleetKind, api.EventReasonResourceCreated, "fleet1"),
+			event:    createTestEvent(domain.FleetKind, domain.EventReasonResourceCreated, "fleet1"),
 			expected: true,
 		},
 		{
 			name:     "ReferencedRepositoryUpdated",
-			event:    createTestEvent(api.FleetKind, api.EventReasonReferencedRepositoryUpdated, "fleet1"),
+			event:    createTestEvent(domain.FleetKind, domain.EventReasonReferencedRepositoryUpdated, "fleet1"),
 			expected: true,
 		},
 		{
 			name:     "DeviceUpdated",
-			event:    createTestEvent(api.DeviceKind, api.EventReasonResourceUpdated, "device1"),
+			event:    createTestEvent(domain.DeviceKind, domain.EventReasonResourceUpdated, "device1"),
 			expected: false,
 		},
 		{
 			name:     "RepositoryUpdated",
-			event:    createTestEvent(api.RepositoryKind, api.EventReasonResourceUpdated, "repo1"),
+			event:    createTestEvent(domain.RepositoryKind, domain.EventReasonResourceUpdated, "repo1"),
 			expected: false,
 		},
 	}
@@ -245,63 +245,68 @@ func TestShouldValidateFleet(t *testing.T) {
 func TestShouldRenderDevice(t *testing.T) {
 	tests := []struct {
 		name     string
-		event    api.Event
+		event    domain.Event
 		expected bool
 	}{
 		{
 			name:     "ReferencedRepositoryUpdated",
-			event:    createTestEvent(api.DeviceKind, api.EventReasonReferencedRepositoryUpdated, "device1"),
+			event:    createTestEvent(domain.DeviceKind, domain.EventReasonReferencedRepositoryUpdated, "device1"),
 			expected: true,
 		},
 		{
 			name:     "DeviceCreated",
-			event:    createTestEvent(api.DeviceKind, api.EventReasonResourceUpdated, "device1"),
+			event:    createTestEvent(domain.DeviceKind, domain.EventReasonResourceUpdated, "device1"),
 			expected: false,
 		},
 		{
 			name:     "FleetRolloutDeviceSelected",
-			event:    createTestEvent(api.DeviceKind, api.EventReasonFleetRolloutDeviceSelected, "device1"),
+			event:    createTestEvent(domain.DeviceKind, domain.EventReasonFleetRolloutDeviceSelected, "device1"),
 			expected: true,
 		},
 		{
 			name:     "DeviceUpdatedWithSpecNoDelayAnnotation",
-			event:    createTestEventWithDetails(api.DeviceKind, api.EventReasonResourceUpdated, "device1", createResourceUpdatedDetails(t, api.Spec)),
+			event:    createTestEventWithDetails(domain.DeviceKind, domain.EventReasonResourceUpdated, "device1", createResourceUpdatedDetails(t, domain.Spec)),
 			expected: true,
 		},
 		{
 			name:     "DeviceUpdatedWithSpecDelayAnnotationTrue",
-			event:    createTestEventWithAnnotations(api.DeviceKind, api.EventReasonResourceUpdated, "device1", map[string]string{api.EventAnnotationDelayDeviceRender: "true"}),
+			event:    createTestEventWithAnnotations(domain.DeviceKind, domain.EventReasonResourceUpdated, "device1", map[string]string{domain.EventAnnotationDelayDeviceRender: "true"}),
 			expected: false,
 		},
 		{
 			name:     "DeviceUpdatedWithSpecDelayAnnotationFalse",
-			event:    createTestEventWithDetails(api.DeviceKind, api.EventReasonResourceUpdated, "device1", createResourceUpdatedDetails(t, api.Spec)),
+			event:    createTestEventWithDetails(domain.DeviceKind, domain.EventReasonResourceUpdated, "device1", createResourceUpdatedDetails(t, domain.Spec)),
 			expected: true,
 		},
 		{
 			name:     "DeviceUpdatedWithSpecDelayAnnotationOther",
-			event:    createTestEventWithDetails(api.DeviceKind, api.EventReasonResourceUpdated, "device1", createResourceUpdatedDetails(t, api.Spec)),
+			event:    createTestEventWithDetails(domain.DeviceKind, domain.EventReasonResourceUpdated, "device1", createResourceUpdatedDetails(t, domain.Spec)),
 			expected: true,
 		},
 		{
 			name:     "DeviceUpdatedWithSpecNoAnnotations",
-			event:    createTestEventWithDetails(api.DeviceKind, api.EventReasonResourceUpdated, "device1", createResourceUpdatedDetails(t, api.Spec)),
+			event:    createTestEventWithDetails(domain.DeviceKind, domain.EventReasonResourceUpdated, "device1", createResourceUpdatedDetails(t, domain.Spec)),
 			expected: true,
 		},
 		{
 			name:     "DeviceUpdatedWithoutSpec",
-			event:    createTestEventWithDetails(api.DeviceKind, api.EventReasonResourceUpdated, "device1", createResourceUpdatedDetails(t, api.Labels)),
+			event:    createTestEventWithDetails(domain.DeviceKind, domain.EventReasonResourceUpdated, "device1", createResourceUpdatedDetails(t, domain.Labels)),
 			expected: false,
 		},
 		{
 			name:     "FleetEvent",
-			event:    createTestEvent(api.FleetKind, api.EventReasonResourceUpdated, "fleet1"),
+			event:    createTestEvent(domain.FleetKind, domain.EventReasonResourceUpdated, "fleet1"),
 			expected: false,
 		},
 		{
 			name:     "RepositoryEvent",
-			event:    createTestEvent(api.RepositoryKind, api.EventReasonResourceUpdated, "repo1"),
+			event:    createTestEvent(domain.RepositoryKind, domain.EventReasonResourceUpdated, "repo1"),
 			expected: false,
+		},
+		{
+			name:     "DeviceDecommissioned",
+			event:    createTestEvent(domain.DeviceKind, domain.EventReasonDeviceDecommissioned, "device1"),
+			expected: true,
 		},
 	}
 
@@ -317,37 +322,37 @@ func TestShouldRenderDevice(t *testing.T) {
 func TestShouldUpdateRepositoryReferers(t *testing.T) {
 	tests := []struct {
 		name     string
-		event    api.Event
+		event    domain.Event
 		expected bool
 	}{
 		{
 			name:     "RepositoryUpdatedWithSpec",
-			event:    createTestEventWithDetails(api.RepositoryKind, api.EventReasonResourceUpdated, "repo1", createResourceUpdatedDetails(t, api.Spec)),
+			event:    createTestEventWithDetails(domain.RepositoryKind, domain.EventReasonResourceUpdated, "repo1", createResourceUpdatedDetails(t, domain.Spec)),
 			expected: true,
 		},
 		{
 			name:     "RepositoryUpdatedWithOtherFields",
-			event:    createTestEventWithDetails(api.RepositoryKind, api.EventReasonResourceUpdated, "repo1", createResourceUpdatedDetails(t, api.Labels)),
+			event:    createTestEventWithDetails(domain.RepositoryKind, domain.EventReasonResourceUpdated, "repo1", createResourceUpdatedDetails(t, domain.Labels)),
 			expected: false,
 		},
 		{
 			name:     "RepositoryUpdatedNoDetails",
-			event:    createTestEvent(api.RepositoryKind, api.EventReasonResourceUpdated, "repo1"),
+			event:    createTestEvent(domain.RepositoryKind, domain.EventReasonResourceUpdated, "repo1"),
 			expected: false,
 		},
 		{
 			name:     "RepositoryCreated",
-			event:    createTestEvent(api.RepositoryKind, api.EventReasonResourceCreated, "repo1"),
+			event:    createTestEvent(domain.RepositoryKind, domain.EventReasonResourceCreated, "repo1"),
 			expected: true,
 		},
 		{
 			name:     "FleetUpdated",
-			event:    createTestEvent(api.FleetKind, api.EventReasonResourceUpdated, "fleet1"),
+			event:    createTestEvent(domain.FleetKind, domain.EventReasonResourceUpdated, "fleet1"),
 			expected: false,
 		},
 		{
 			name:     "DeviceUpdated",
-			event:    createTestEvent(api.DeviceKind, api.EventReasonResourceUpdated, "device1"),
+			event:    createTestEvent(domain.DeviceKind, domain.EventReasonResourceUpdated, "device1"),
 			expected: false,
 		},
 	}
@@ -364,50 +369,50 @@ func TestShouldUpdateRepositoryReferers(t *testing.T) {
 func TestHasUpdatedFields(t *testing.T) {
 	tests := []struct {
 		name        string
-		details     *api.EventDetails
-		fields      []api.ResourceUpdatedDetailsUpdatedFields
+		details     *domain.EventDetails
+		fields      []domain.ResourceUpdatedDetailsUpdatedFields
 		expected    bool
 		description string
 	}{
 		{
 			name:        "HasMatchingField",
-			details:     createResourceUpdatedDetails(t, api.Spec, api.Labels),
-			fields:      []api.ResourceUpdatedDetailsUpdatedFields{api.Labels},
+			details:     createResourceUpdatedDetails(t, domain.Spec, domain.Labels),
+			fields:      []domain.ResourceUpdatedDetailsUpdatedFields{domain.Labels},
 			expected:    true,
 			description: "Should return true when details contain a matching field",
 		},
 		{
 			name:        "HasMultipleMatchingFields",
-			details:     createResourceUpdatedDetails(t, api.Spec, api.Labels, api.Owner),
-			fields:      []api.ResourceUpdatedDetailsUpdatedFields{api.Labels, api.Owner},
+			details:     createResourceUpdatedDetails(t, domain.Spec, domain.Labels, domain.Owner),
+			fields:      []domain.ResourceUpdatedDetailsUpdatedFields{domain.Labels, domain.Owner},
 			expected:    true,
 			description: "Should return true when details contain multiple matching fields",
 		},
 		{
 			name:        "NoMatchingFields",
-			details:     createResourceUpdatedDetails(t, api.Spec, api.Labels),
-			fields:      []api.ResourceUpdatedDetailsUpdatedFields{api.Owner},
+			details:     createResourceUpdatedDetails(t, domain.Spec, domain.Labels),
+			fields:      []domain.ResourceUpdatedDetailsUpdatedFields{domain.Owner},
 			expected:    false,
 			description: "Should return false when details contain no matching fields",
 		},
 		{
 			name:        "NilDetails",
 			details:     nil,
-			fields:      []api.ResourceUpdatedDetailsUpdatedFields{api.Labels},
+			fields:      []domain.ResourceUpdatedDetailsUpdatedFields{domain.Labels},
 			expected:    false,
 			description: "Should return false when details is nil",
 		},
 		{
 			name:        "EmptyFields",
-			details:     createResourceUpdatedDetails(t, api.Spec),
-			fields:      []api.ResourceUpdatedDetailsUpdatedFields{},
+			details:     createResourceUpdatedDetails(t, domain.Spec),
+			fields:      []domain.ResourceUpdatedDetailsUpdatedFields{},
 			expected:    false,
 			description: "Should return false when no fields are specified",
 		},
 		{
 			name:        "EmptyUpdatedFields",
 			details:     createResourceUpdatedDetails(t),
-			fields:      []api.ResourceUpdatedDetailsUpdatedFields{api.Spec},
+			fields:      []domain.ResourceUpdatedDetailsUpdatedFields{domain.Spec},
 			expected:    false,
 			description: "Should return false when details have no updated fields",
 		},
@@ -454,12 +459,12 @@ func TestDispatchTasks_WithNilMetrics(t *testing.T) {
 	orgId := uuid.New()
 	eventWithOrgId := worker_client.EventWithOrgId{
 		OrgId: orgId,
-		Event: api.Event{
-			InvolvedObject: api.ObjectReference{
-				Kind: string(api.RepositoryKind), // Repository events with this reason won't trigger tasks
+		Event: domain.Event{
+			InvolvedObject: domain.ObjectReference{
+				Kind: string(domain.RepositoryKind), // Repository events with this reason won't trigger tasks
 				Name: "test-repo",
 			},
-			Reason: api.EventReasonResourceDeleted, // This combination won't trigger any tasks
+			Reason: domain.EventReasonResourceDeleted, // This combination won't trigger any tasks
 		},
 	}
 	payload, err := json.Marshal(eventWithOrgId)
@@ -489,12 +494,12 @@ func TestDispatchTasks_WithNilMetrics_SuccessfulProcessing(t *testing.T) {
 	orgId := uuid.New()
 	eventWithOrgId := worker_client.EventWithOrgId{
 		OrgId: orgId,
-		Event: api.Event{
-			InvolvedObject: api.ObjectReference{
-				Kind: string(api.FleetKind), // Using FleetKind with ResourceUpdated won't trigger tasks
+		Event: domain.Event{
+			InvolvedObject: domain.ObjectReference{
+				Kind: string(domain.FleetKind), // Using FleetKind with ResourceUpdated won't trigger tasks
 				Name: "test-fleet",
 			},
-			Reason: api.EventReasonResourceUpdated,
+			Reason: domain.EventReasonResourceUpdated,
 		},
 	}
 	payload, err := json.Marshal(eventWithOrgId)

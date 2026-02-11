@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/policy"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -66,7 +66,7 @@ func newQueueManager(
 	}
 }
 
-func (m *queueManager) Add(ctx context.Context, device *v1alpha1.Device) {
+func (m *queueManager) Add(ctx context.Context, device *v1beta1.Device) {
 	if ctx.Err() != nil {
 		return
 	}
@@ -100,7 +100,7 @@ func (m *queueManager) Add(ctx context.Context, device *v1alpha1.Device) {
 
 	state := m.getOrCreateRequeueState(ctx, proposedVersion)
 	if m.shouldEnforceDelay(state) {
-		m.log.Debugf("Enforcing delay for version: %d", proposedVersion)
+		m.log.Debugf("Enforcing resync delay for version: %d", proposedVersion)
 	}
 
 	if m.hasExceededMaxRetries(state, proposedVersion) {
@@ -115,7 +115,7 @@ func (m *queueManager) Remove(version int64) {
 	m.queue.Remove(version)
 }
 
-func (m *queueManager) Next(ctx context.Context) (*v1alpha1.Device, bool) {
+func (m *queueManager) Next(ctx context.Context) (*v1beta1.Device, bool) {
 	if ctx.Err() != nil {
 		return nil, false
 	}
@@ -125,12 +125,12 @@ func (m *queueManager) Next(ctx context.Context) (*v1alpha1.Device, bool) {
 	}
 	version := item.Version
 
-	m.log.Debugf("Evaluating template version: %d", version)
+	m.log.Tracef("Evaluating template version: %d", version)
 	now := time.Now()
 	requeue := m.getOrCreateRequeueState(ctx, version)
 	if now.Before(requeue.nextAvailable) {
 		m.queue.Add(item)
-		m.log.Debugf("Template version %d requeue is currently in backoff. Available after: %s", version, requeue.nextAvailable.Format(time.RFC3339Nano))
+		m.log.Tracef("Template version %d requeue is currently in backoff. Available after: %s", version, requeue.nextAvailable.Format(time.RFC3339Nano))
 		return nil, false
 	}
 
@@ -161,7 +161,7 @@ func (m *queueManager) CheckPolicy(ctx context.Context, policyType policy.Type, 
 	requeue, exists := m.requeueLookup[v]
 	if !exists {
 		// this would be very unexpected so we would need to requeue the version
-		return fmt.Errorf("%w: policy check failed: not found: version: %d", errors.ErrRetryable, v)
+		return fmt.Errorf("%w: %w: not found: version: %d", errors.ErrRetryable, errors.ErrPolicyCheckFailed, v)
 	}
 	m.log.Debugf("Requeue state: %+v", requeue)
 
@@ -362,11 +362,11 @@ func (q *queue) Remove(version int64) {
 
 type Item struct {
 	Version int64
-	Spec    *v1alpha1.Device
+	Spec    *v1beta1.Device
 }
 
 // newItem creates a new queue item.
-func newItem(data *v1alpha1.Device) (*Item, error) {
+func newItem(data *v1beta1.Device) (*Item, error) {
 	version, err := stringToInt64(data.Version())
 	if err != nil {
 		return nil, err
@@ -410,10 +410,10 @@ func stringToInt64(s string) (int64, error) {
 	}
 	i, err := strconv.ParseInt(s, 10, 64)
 	if err != nil {
-		return 0, fmt.Errorf("convert string to int64: %w", err)
+		return 0, fmt.Errorf("%w: %w", errors.ErrInt64Conversion, err)
 	}
 	if i < 0 {
-		return 0, fmt.Errorf("version number cannot be negative: %d", i)
+		return 0, fmt.Errorf("%w: version number: %d", errors.ErrNegativeValue, i)
 	}
 	return i, nil
 }

@@ -20,7 +20,8 @@ ISO_URL="https://cloud.centos.org/centos/9-stream/x86_64/images/CentOS-Stream-Ge
 DISK_PATH="/var/lib/libvirt/images/${VM_NAME}.qcow2"
 DISK_PATH_SRC="/var/lib/libvirt/images/${VM_NAME}_src.qcow2"
 VIRT_BRIDGE="virbr0"         # Default libvirt bridge
-TIMEOUT_SECONDS=30
+TIMEOUT_SECONDS=60
+CHECK_INTERVAL=10
 USER="kni"
 USER_HOME="/home/${USER}"   # user $HOME in the vm
 SSH_PRIVATE_KEY_PATH="/home/${USER}/.ssh/id_rsa"
@@ -88,21 +89,49 @@ virt-install \
   --noautoconsole \
   --cloud-init disable=on,user-data=user-data.yaml
 
-# Wait for the VM to start
-echo "Waiting ${TIMEOUT_SECONDS} seconds for VM to start..."
-sleep ${TIMEOUT_SECONDS}
+# Wait for the VM to start and get IPs
+echo "Waiting for VM IPs to be available (timeout: ${TIMEOUT_SECONDS}s, checking every ${CHECK_INTERVAL}s)..."
+ELAPSED=0
+VM_DEFAULT_IP=""
+VM_IP=""
+
+while [ $ELAPSED -lt $TIMEOUT_SECONDS ]; do
+  # Get the VM interfaces
+  export INTERFACE_DEFAULT=$(sudo virsh domiflist ${VM_NAME} 2>/dev/null | grep default | awk '{print $1}')
+  export INTERFACE_BM=$(sudo virsh domiflist ${VM_NAME} 2>/dev/null | grep ${NETWORK_NAME} | awk '{print $1}')
+  
+  # Try to get the IPs
+  if [ -n "${INTERFACE_DEFAULT}" ]; then
+    VM_DEFAULT_IP=$(sudo virsh domifaddr ${VM_NAME} --interface ${INTERFACE_DEFAULT} 2>/dev/null | awk '/ipv4/ {print $4}' | cut -d'/' -f1)
+  fi
+  
+  if [ -n "${INTERFACE_BM}" ]; then
+    VM_IP=$(sudo virsh domifaddr ${VM_NAME} --interface ${INTERFACE_BM} 2>/dev/null | awk '/ipv4/ {print $4}' | cut -d'/' -f1)
+  fi
+  
+  # Check if both VM's IPs are available
+  if [ -n "${VM_DEFAULT_IP}" ] && [ -n "${VM_IP}" ]; then
+    echo "VM IPs are available!"
+    echo "VM DEFAULT IP: ${VM_DEFAULT_IP}"
+    echo "VM IP: ${VM_IP}"
+    break
+  fi
+  
+  echo "Waiting for VM IPs... (${ELAPSED}s/${TIMEOUT_SECONDS}s) - DEFAULT_IP: ${VM_DEFAULT_IP:-not available}, BM_IP: ${VM_IP:-not available}"
+  sleep ${CHECK_INTERVAL}
+  ELAPSED=$((ELAPSED + CHECK_INTERVAL))
+done
+
+# Check if we got the IPs
+if [ -z "${VM_DEFAULT_IP}" ] || [ -z "${VM_IP}" ]; then
+  echo "ERROR: Failed to get VM IPs within ${TIMEOUT_SECONDS} seconds"
+  echo "VM DEFAULT IP: ${VM_DEFAULT_IP:-not available}"
+  echo "VM IP: ${VM_IP:-not available}"
+  exit 1
+fi
 
 # Configure the VM
 echo "Provisioning the VM..."
-
-# Get the VM IPs
-export INTERFACE_DEFAULT=$(sudo virsh domiflist ${VM_NAME} | grep default | awk '{print $1}')
-VM_DEFAULT_IP=$(sudo virsh domifaddr ${VM_NAME} --interface ${INTERFACE_DEFAULT} | awk '/ipv4/ {print $4}' | cut -d'/' -f1)
-echo "VM DEFAULT IP: ${VM_DEFAULT_IP}"
-
-export INTERFACE_BM=$(sudo virsh domiflist ${VM_NAME} | grep ${NETWORK_NAME} | awk '{print $1}')
-VM_IP=$(sudo virsh domifaddr ${VM_NAME} --interface ${INTERFACE_BM} | awk '/ipv4/ {print $4}' | cut -d'/' -f1)
-echo "VM IP: ${VM_IP}"
 
 # Executing commands
 echo "Executing commands in the VM..."
@@ -110,9 +139,9 @@ echo "Executing commands in the VM..."
 ssh -i ${SSH_PRIVATE_KEY_PATH} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ${USER}@${VM_DEFAULT_IP} <<EOF
 
   # Install necessary packages
-  sudo dnf install -y epel-release libvirt libvirt-client virt-install swtpm \
+  sudo dnf install -y epel-release libvirt libvirt-client virt-install pam-devel swtpm wget \
                     make golang git \
-                    podman qemu-kvm sshpass
+                    podman qemu-kvm sshpass skopeo
   sudo dnf --enablerepo=crb install -y libvirt-devel
 
   # Install OpenShift client

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"net/http"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/service"
 	servicecommon "github.com/flightctl/flightctl/internal/service/common"
 	"github.com/google/uuid"
@@ -24,7 +24,7 @@ import (
 // being sent again, which is safe and intended. No persistent state is modified,
 // and the callbacks themselves are assumed to be idempotent or safely repeatable.
 
-func repositoryUpdate(ctx context.Context, orgId uuid.UUID, event api.Event, serviceHandler service.Service, log logrus.FieldLogger) error {
+func repositoryUpdate(ctx context.Context, orgId uuid.UUID, event domain.Event, serviceHandler service.Service, log logrus.FieldLogger) error {
 	logic := NewRepositoryUpdateLogic(log, serviceHandler, orgId, event)
 
 	if err := logic.HandleRepositoryUpdate(ctx); err != nil {
@@ -39,30 +39,30 @@ type RepositoryUpdateLogic struct {
 	log            logrus.FieldLogger
 	serviceHandler service.Service
 	orgId          uuid.UUID
-	event          api.Event
+	event          domain.Event
 }
 
-func NewRepositoryUpdateLogic(log logrus.FieldLogger, serviceHandler service.Service, orgId uuid.UUID, event api.Event) RepositoryUpdateLogic {
+func NewRepositoryUpdateLogic(log logrus.FieldLogger, serviceHandler service.Service, orgId uuid.UUID, event domain.Event) RepositoryUpdateLogic {
 	return RepositoryUpdateLogic{log: log, serviceHandler: serviceHandler, orgId: orgId, event: event}
 }
 
 func (t *RepositoryUpdateLogic) HandleRepositoryUpdate(ctx context.Context) error {
-	fleets, status := t.serviceHandler.GetRepositoryFleetReferences(ctx, t.event.InvolvedObject.Name)
+	fleets, status := t.serviceHandler.GetRepositoryFleetReferences(ctx, t.orgId, t.event.InvolvedObject.Name)
 	if status.Code != http.StatusOK {
 		return fmt.Errorf("fetching fleets: %s", status.Message)
 	}
 
 	for _, fleet := range fleets.Items {
-		t.serviceHandler.CreateEvent(ctx, servicecommon.GetReferencedRepositoryUpdatedEvent(ctx, api.FleetKind, *fleet.Metadata.Name, t.event.InvolvedObject.Name))
+		t.serviceHandler.CreateEvent(ctx, t.orgId, servicecommon.GetReferencedRepositoryUpdatedEvent(ctx, domain.FleetKind, *fleet.Metadata.Name, t.event.InvolvedObject.Name))
 	}
 
-	devices, status := t.serviceHandler.GetRepositoryDeviceReferences(ctx, t.event.InvolvedObject.Name)
+	devices, status := t.serviceHandler.GetRepositoryDeviceReferences(ctx, t.orgId, t.event.InvolvedObject.Name)
 	if status.Code != http.StatusOK {
 		return fmt.Errorf("fetching devices: %s", status.Message)
 	}
 
 	for _, device := range devices.Items {
-		t.serviceHandler.CreateEvent(ctx, servicecommon.GetReferencedRepositoryUpdatedEvent(ctx, api.DeviceKind, *device.Metadata.Name, t.event.InvolvedObject.Name))
+		t.serviceHandler.CreateEvent(ctx, t.orgId, servicecommon.GetReferencedRepositoryUpdatedEvent(ctx, domain.DeviceKind, *device.Metadata.Name, t.event.InvolvedObject.Name))
 	}
 
 	return nil

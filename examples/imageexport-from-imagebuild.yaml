@@ -1,0 +1,15 @@
+apiVersion: flightctl.io/v1alpha1
+kind: ImageExport
+metadata:
+  name: my-edge-export-from-build
+  labels:
+    environment: production
+    team: edge-platform
+spec:
+  # Source from an existing ImageBuild resource
+  # Note: The destination is automatically taken from the referenced ImageBuild
+  source:
+    type: imageBuild
+    imageBuildRef: my-edge-image-build-2
+  # Format to export the image to
+  format: qcow2

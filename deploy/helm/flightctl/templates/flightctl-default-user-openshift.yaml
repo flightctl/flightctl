@@ -1,0 +1,31 @@
+{{- if and (eq (include "flightctl.getEffectiveAuthType" .) "openshift") .Values.global.auth.openshift.createAdminUser }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: flightctl-admin
+  namespace: {{ .Release.Namespace }}
+  labels:
+    flightctl.service: flightctl
+    component: default-user
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: flightctl-admin-binding
+  namespace: {{ .Release.Namespace }}
+  labels:
+    flightctl.service: flightctl
+    component: default-user
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: flightctl-admin-{{ .Release.Namespace }}
+subjects:
+  - kind: ServiceAccount
+    name: flightctl-admin
+    namespace: {{ .Release.Namespace }}
+
+{{- end }}

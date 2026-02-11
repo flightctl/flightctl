@@ -15,7 +15,7 @@ source "${SCRIPT_DIR}"/functions
 IP=$(get_ext_ip)
 
 # Use external getopt for long options
-options=$(getopt -o adh --long only-db,db-size:,auth,help -n "$0" -- "$@")
+options=$(getopt -o adh --long only-db,db-size:,help -n "$0" -- "$@")
 eval set -- "$options"
 
 usage="[--only-db] [db-size=e2e|small-1k|medium-10k]"
@@ -44,7 +44,7 @@ while true; do
   esac
 done
 
-SQL_ARG="--set db.image.image=${SQL_IMAGE} --set db.image.tag=${SQL_VERSION}"
+SQL_ARG="--set db.builtin.image.image=${SQL_IMAGE} --set db.builtin.image.tag=${SQL_VERSION}"
 KV_ARG="--set kv.image.image=${KV_IMAGE} --set kv.image.tag=${KV_VERSION}"
 
 # helm expects the namespaces to exist, and creating namespaces
@@ -56,7 +56,7 @@ kubectl create namespace flightctl-e2e      --context kind-kind 2>/dev/null || t
 # if we are only deploying the database, we don't need inject the server container
 if [ -z "$ONLY_DB" ]; then
 
-  for suffix in periodic api worker alert-exporter alertmanager-proxy cli-artifacts db-setup telemetry-gateway ; do
+  for suffix in periodic api worker alert-exporter alertmanager-proxy cli-artifacts db-setup telemetry-gateway imagebuilder-api imagebuilder-worker ; do
     kind_load_image localhost/flightctl-${suffix}:latest
   done
 
@@ -79,30 +79,21 @@ fi
 kind_load_image "${SQL_IMAGE}:${SQL_VERSION}" keep-tar
 
 API_PORT=3443
-KEYCLOAK_PORT=8081
 GATEWAY_ARGS=""
 if [ "$GATEWAY" ]; then
   API_PORT=4443
-  KEYCLOAK_PORT=4480
   GATEWAY_ARGS="--set global.exposeServicesMethod=gateway --set global.gatewayClass=contour-gateway --set global.gatewayPorts.tls=4443 --set global.gatewayPorts.http=4480"
 fi
 
-AUTH_ARGS=""
-if [ "$AUTH" ]; then
-  AUTH_ARGS="--set global.auth.type=builtin"
-fi
-
-ORGS_ARGS=""
-if [ "$ORGS" ]; then
-  ORGS_ARGS="--set global.organizations.enabled=true"
-fi
+# Always deploy with Kubernetes auth
+AUTH_ARGS="--set global.auth.type=k8s"
 
 helm dependency build ./deploy/helm/flightctl
 
 helm upgrade --install --namespace flightctl-external \
                   --values ./deploy/helm/flightctl/values.dev.yaml \
                   --set global.baseDomain=${IP}.nip.io \
-                  ${ONLY_DB} ${DB_SIZE_PARAMS} ${AUTH_ARGS} ${SQL_ARG} ${GATEWAY_ARGS} ${KV_ARG} ${ORGS_ARGS} flightctl \
+                  ${ONLY_DB} ${DB_SIZE_PARAMS} ${AUTH_ARGS} ${SQL_ARG} ${GATEWAY_ARGS} ${KV_ARG} flightctl \
               ./deploy/helm/flightctl/ --kube-context kind-kind
 
 "${SCRIPT_DIR}"/wait_for_postgres.sh
@@ -120,44 +111,22 @@ if [ "$ONLY_DB" ]; then
   exit 0
 fi
 
-if [ "$AUTH" ]; then
-  kubectl rollout status statefulset keycloak-db -n flightctl-external -w --timeout=300s --context kind-kind
-  kubectl rollout status deployment keycloak -n flightctl-external -w --timeout=300s --context kind-kind
-fi
 
 kubectl rollout status deployment flightctl-api -n flightctl-external -w --timeout=300s
 
-LOGGED_IN=false
+# Set namespace for try_login to use correct service account
+export FLIGHTCTL_NS=flightctl-external
+
 # attempt to login, it could take some time for API to be stable
 for i in {1..60}; do
-  if [ "$AUTH" ]; then
-    PASS=$(kubectl get secret keycloak-demouser-secret -n flightctl-external -o json | jq -r '.data.password' | base64 -d)
-    if ./bin/flightctl login -k https://api.${IP}.nip.io:${API_PORT} -u demouser -p ${PASS}; then
-      LOGGED_IN=true
-      break
-    fi
-  else
-    if ./bin/flightctl login -k https://api.${IP}.nip.io:${API_PORT}; then
-      LOGGED_IN=true
-      break
-    fi
+  if try_login; then
+    break
+  fi
+  if [ $i -eq 60 ]; then
+    echo "Failed to login to the API after 60 attempts"
+    exit 1
   fi
   sleep 5
 done
 
-if [[ "${LOGGED_IN}" == "false" ]]; then
-  echo "Failed to login to the API"
-  exit 1
-fi
-
-org_id=$(./bin/flightctl get organizations | awk 'NR==2 {print $1}')
-./bin/flightctl config set-organization "$org_id"
-
-# Setup telemetry gateway certificates (non-blocking)
-if ! "${SCRIPT_DIR}"/setup_telemetry_gateway_certs.sh \
-  --sans "DNS:localhost,DNS:flightctl-telemetry-gateway.flightctl-external.svc,DNS:flightctl-telemetry-gateway.flightctl-external.svc.cluster.local,DNS:telemetry-gateway.${IP}.nip.io,IP:127.0.0.1" \
-  --yaml-helpers-path "./deploy/scripts/yaml_helpers.py" \
-  --force-rotate; then
-  echo "WARNING: Failed to setup telemetry gateway certificates. Deployment will continue without them."
-  echo "You can manually run the certificate setup later if needed."
-fi
+ensure_organization_set

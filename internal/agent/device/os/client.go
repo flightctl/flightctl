@@ -93,7 +93,6 @@ type dummy struct {
 }
 
 func (d *dummy) Status(ctx context.Context) (*Status, error) {
-	d.log.Warnf("Returning empty status from dummy client for unsupported OS")
 	return &Status{container.BootcHost{}}, nil
 }
 

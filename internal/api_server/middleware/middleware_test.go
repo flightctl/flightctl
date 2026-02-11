@@ -13,40 +13,14 @@ import (
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/crypto/signer"
 	"github.com/flightctl/flightctl/internal/flterrors"
+	"github.com/flightctl/flightctl/internal/identity"
 	"github.com/flightctl/flightctl/internal/org"
-	"github.com/flightctl/flightctl/internal/org/cache"
-	"github.com/flightctl/flightctl/internal/org/providers"
-	"github.com/flightctl/flightctl/internal/org/resolvers"
-	"github.com/flightctl/flightctl/internal/store/model"
+	orgmodel "github.com/flightctl/flightctl/internal/org/model"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 )
-
-type mockOrgStore struct {
-	t       *testing.T
-	wantID  uuid.UUID
-	respOrg *model.Organization
-	respErr error
-	called  bool
-}
-
-func (m *mockOrgStore) GetByID(_ context.Context, id uuid.UUID) (*model.Organization, error) {
-	if m.t != nil && m.wantID != uuid.Nil && m.wantID != id {
-		m.t.Errorf("unexpected id: got %v, want %v", id, m.wantID)
-	}
-	m.called = true
-	return m.respOrg, m.respErr
-}
-
-func (m *mockOrgStore) ListByExternalIDs(_ context.Context, ids []string) ([]*model.Organization, error) {
-	return nil, m.respErr
-}
-
-func (m *mockOrgStore) UpsertMany(_ context.Context, orgs []*model.Organization) ([]*model.Organization, error) {
-	return nil, m.respErr
-}
 
 // createCertWithOrgID returns an *x509.Certificate with the organization ID
 // stored in an extension identified by signer.OIDOrgID.
@@ -69,34 +43,129 @@ func contextWithCert(cert *x509.Certificate) context.Context {
 }
 
 // -----------------------------------------------------------------------------
-// Tests for the query extractor.
+// Tests for ExtractAndValidateOrg middleware.
 // -----------------------------------------------------------------------------
-func TestExtractOrgIDFromRequestQuery(t *testing.T) {
-	validID := uuid.New()
+func TestExtractAndValidateOrg(t *testing.T) {
+	orgID := uuid.New()
+	orgID2 := uuid.New()
 
 	cases := []struct {
-		name     string
-		rawQuery string
-		wantID   uuid.UUID
-		wantErr  bool
+		name               string
+		rawQuery           string
+		userOrgs           []*orgmodel.Organization
+		hasMappedIdentity  bool
+		wantMiddlewareErr  error
+		wantMiddlewareCode int
+		wantContextID      uuid.UUID
 	}{
-		{"no param returns default", "", org.DefaultID, false},
-		{"empty param returns default", "org_id=", org.DefaultID, false},
-		{"valid id", fmt.Sprintf("org_id=%s", validID), validID, false},
-		{"invalid uuid", "org_id=not-a-uuid", uuid.Nil, true},
+		{
+			name:               "no param with zero orgs returns no organizations error",
+			rawQuery:           "",
+			userOrgs:           []*orgmodel.Organization{},
+			hasMappedIdentity:  true,
+			wantMiddlewareErr:  flterrors.ErrNoOrganizations,
+			wantMiddlewareCode: http.StatusForbidden,
+		},
+		{
+			name:              "no param with single org uses that org",
+			rawQuery:          "",
+			userOrgs:          []*orgmodel.Organization{{ID: orgID, ExternalID: "user-org"}},
+			hasMappedIdentity: true,
+			wantContextID:     orgID,
+		},
+		{
+			name:     "no param with multiple orgs returns ambiguous error",
+			rawQuery: "",
+			userOrgs: []*orgmodel.Organization{
+				{ID: orgID, ExternalID: "user-org-1"},
+				{ID: orgID2, ExternalID: "user-org-2"},
+			},
+			hasMappedIdentity:  true,
+			wantMiddlewareErr:  flterrors.ErrAmbiguousOrganization,
+			wantMiddlewareCode: http.StatusBadRequest,
+		},
+		{
+			name:     "explicit org_id with multiple orgs succeeds",
+			rawQuery: fmt.Sprintf("org_id=%s", orgID),
+			userOrgs: []*orgmodel.Organization{
+				{ID: orgID, ExternalID: "user-org-1"},
+				{ID: orgID2, ExternalID: "user-org-2"},
+			},
+			hasMappedIdentity: true,
+			wantContextID:     orgID,
+		},
+		{
+			name:               "no mapped identity returns internal server error",
+			rawQuery:           "org_id=",
+			userOrgs:           nil,
+			hasMappedIdentity:  false,
+			wantMiddlewareErr:  flterrors.ErrNoMappedIdentity,
+			wantMiddlewareCode: http.StatusInternalServerError,
+		},
+		{
+			name:               "explicit org_id with empty user orgs returns forbidden",
+			rawQuery:           fmt.Sprintf("org_id=%s", orgID),
+			userOrgs:           []*orgmodel.Organization{},
+			hasMappedIdentity:  true,
+			wantMiddlewareErr:  flterrors.ErrNotOrgMember,
+			wantMiddlewareCode: http.StatusForbidden,
+		},
+		{
+			name:               "explicit org_id for org not in user orgs returns forbidden",
+			rawQuery:           fmt.Sprintf("org_id=%s", orgID2),
+			userOrgs:           []*orgmodel.Organization{{ID: orgID, ExternalID: "user-org"}},
+			hasMappedIdentity:  true,
+			wantMiddlewareErr:  flterrors.ErrNotOrgMember,
+			wantMiddlewareCode: http.StatusForbidden,
+		},
+		{
+			name:               "invalid uuid",
+			rawQuery:           "org_id=not-a-uuid",
+			userOrgs:           []*orgmodel.Organization{},
+			hasMappedIdentity:  true,
+			wantMiddlewareErr:  flterrors.ErrInvalidOrgID,
+			wantMiddlewareCode: http.StatusBadRequest,
+		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			r := httptest.NewRequest(http.MethodGet, "/?"+tc.rawQuery, nil)
-			got, err := extractOrgIDFromRequestQuery(r)
-			if tc.wantErr {
-				assert.Error(t, err)
-				assert.Equal(t, uuid.Nil, got)
-			} else {
-				assert.NoError(t, err)
-				assert.Equal(t, tc.wantID, got)
+
+			ctx := r.Context()
+			if tc.hasMappedIdentity {
+				mappedIdentity := identity.NewMappedIdentity(
+					"test-user", "test-uid", tc.userOrgs,
+					map[string][]string{}, false,
+					identity.NewIssuer("test", "test-issuer"),
+				)
+				ctx = context.WithValue(ctx, consts.MappedIdentityCtxKey, mappedIdentity)
+				r = r.WithContext(ctx)
 			}
+
+			var capturedOrgID uuid.UUID
+			testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				capturedOrgID, _ = util.GetOrgIdFromContext(r.Context())
+				w.WriteHeader(http.StatusOK)
+			})
+
+			logger := logrus.New()
+			logger.SetLevel(logrus.DebugLevel)
+			middleware := ExtractAndValidateOrg(QueryOrgIDExtractor, logger)
+
+			rr := httptest.NewRecorder()
+			middleware(testHandler).ServeHTTP(rr, r)
+
+			if tc.wantMiddlewareErr != nil {
+				assert.Equal(t, tc.wantMiddlewareCode, rr.Code)
+				assert.Contains(t, rr.Body.String(), tc.wantMiddlewareErr.Error(),
+					"expected response body to contain %q", tc.wantMiddlewareErr)
+				return
+			}
+
+			assert.Equal(t, http.StatusOK, rr.Code)
+			assert.Equal(t, tc.wantContextID, capturedOrgID,
+				"expected context org ID %s but got %s", tc.wantContextID, capturedOrgID)
 		})
 	}
 }
@@ -106,133 +175,50 @@ func TestExtractOrgIDFromRequestQuery(t *testing.T) {
 // -----------------------------------------------------------------------------
 func TestExtractOrgIDFromRequestCert(t *testing.T) {
 	validID := uuid.New()
+	orgEntity := &orgmodel.Organization{
+		ID:         validID,
+		ExternalID: validID.String(),
+	}
+
+	// Helper to create context with cert and mapped identity
+	contextWithCertAndOrg := func(cert *x509.Certificate, org *orgmodel.Organization) context.Context {
+		ctx := context.WithValue(context.Background(), consts.TLSPeerCertificateCtxKey, cert)
+		if org != nil {
+			mappedIdentity := identity.NewMappedIdentity("test-user", "test-uid", []*orgmodel.Organization{org}, map[string][]string{}, false, identity.NewIssuer("test", "test-issuer"))
+			ctx = context.WithValue(ctx, consts.MappedIdentityCtxKey, mappedIdentity)
+		}
+		return ctx
+	}
 
 	cases := []struct {
-		name    string
-		ctx     context.Context
-		wantID  uuid.UUID
-		wantErr bool
+		name        string
+		ctx         context.Context
+		wantID      uuid.UUID
+		wantPresent bool
+		wantErr     bool
 	}{
-		{"no certificate", context.Background(), org.DefaultID, false},
-		{"cert without extension", contextWithCert(&x509.Certificate{}), org.DefaultID, false},
-		{"cert with valid extension", contextWithCert(createCertWithOrgID(validID)), validID, false},
+		{"no certificate", context.Background(), uuid.Nil, false, true},
+		{"cert without extension", contextWithCert(&x509.Certificate{}), uuid.Nil, false, true},
+		{"cert with valid extension", contextWithCertAndOrg(createCertWithOrgID(validID), orgEntity), validID, true, false},
+		{"cert with default org id", contextWithCertAndOrg(createCertWithOrgID(org.DefaultID), orgEntity), org.DefaultID, true, false},
 		{"cert with invalid uuid", contextWithCert(func() *x509.Certificate {
 			encoded, _ := asn1.Marshal("not-a-uuid")
 			return &x509.Certificate{ExtraExtensions: []pkix.Extension{{Id: signer.OIDOrgID, Value: encoded}}}
-		}()), uuid.Nil, true},
+		}()), uuid.Nil, false, true},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			r := httptest.NewRequest(http.MethodGet, "/", nil).WithContext(tc.ctx)
-			got, err := extractOrgIDFromRequestCert(r)
+			got, present, err := extractOrgIDFromRequestCert(tc.ctx, r)
 			if tc.wantErr {
 				assert.Error(t, err)
+				assert.False(t, present)
 			} else {
 				assert.NoError(t, err)
+				assert.Equal(t, tc.wantPresent, present)
 			}
 			assert.Equal(t, tc.wantID, got)
-		})
-	}
-}
-
-// -----------------------------------------------------------------------------
-// Tests for AddOrgIDToCtx middleware. We focus on integration of the extractor
-// and the resolver plus context injection.
-// -----------------------------------------------------------------------------
-func TestAddOrgIDToCtx(t *testing.T) {
-	validID := uuid.New()
-
-	type storeResponse struct {
-		org *model.Organization
-		err error
-	}
-
-	cases := []struct {
-		name             string
-		extractor        func(*http.Request) (uuid.UUID, error)
-		storeResp        storeResponse
-		wantCode         int
-		wantCtxID        uuid.UUID
-		wantBodyContains string
-		expectNextCalled bool
-	}{
-		{
-			name:             "happy path",
-			extractor:        func(r *http.Request) (uuid.UUID, error) { return validID, nil },
-			storeResp:        storeResponse{org: &model.Organization{ID: validID}},
-			wantCode:         http.StatusTeapot,
-			wantCtxID:        validID,
-			expectNextCalled: true,
-		},
-		{
-			name:             "extractor error returns 400",
-			extractor:        func(r *http.Request) (uuid.UUID, error) { return uuid.Nil, fmt.Errorf("bad param") },
-			wantCode:         http.StatusBadRequest,
-			wantBodyContains: "bad param",
-		},
-		{
-			name:      "org not found returns 404",
-			extractor: func(r *http.Request) (uuid.UUID, error) { return validID, nil },
-			storeResp: storeResponse{err: flterrors.ErrResourceNotFound},
-			wantCode:  http.StatusNotFound,
-		},
-		{
-			name:             "resolver internal error returns 500",
-			extractor:        func(r *http.Request) (uuid.UUID, error) { return validID, nil },
-			storeResp:        storeResponse{err: fmt.Errorf("DB down")},
-			wantCode:         http.StatusInternalServerError,
-			wantBodyContains: "Failed to validate organization",
-		},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			storeMock := &mockOrgStore{t: t}
-			if tc.storeResp.org != nil || tc.storeResp.err != nil {
-				storeMock.respOrg = tc.storeResp.org
-				storeMock.respErr = tc.storeResp.err
-				storeMock.wantID = validID
-			}
-
-			orgCache := cache.NewOrganizationTTL(cache.DefaultTTL)
-			go orgCache.Start()
-			defer orgCache.Stop()
-			resolver := resolvers.NewExternalResolver(storeMock, orgCache, &providers.ClaimsProvider{}, logrus.New())
-			mw := AddOrgIDToCtx(resolver, tc.extractor)
-
-			var (
-				gotCtxID   uuid.UUID
-				nextCalled bool
-			)
-
-			next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				nextCalled = true
-				gotCtxID, _ = util.GetOrgIdFromContext(r.Context())
-				w.WriteHeader(http.StatusTeapot)
-			})
-
-			rr := httptest.NewRecorder()
-			mw(next).ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/", nil))
-
-			assert.Equal(t, tc.wantCode, rr.Code)
-
-			if tc.expectNextCalled {
-				assert.True(t, nextCalled, "next handler should be called")
-				assert.Equal(t, tc.wantCtxID, gotCtxID)
-			} else {
-				assert.False(t, nextCalled, "next handler should not be called")
-			}
-
-			if tc.wantBodyContains != "" {
-				assert.Contains(t, rr.Body.String(), tc.wantBodyContains)
-			}
-
-			if tc.storeResp.org != nil || tc.storeResp.err != nil {
-				assert.True(t, storeMock.called, "store mock should be called")
-			} else {
-				assert.False(t, storeMock.called, "store mock should not be called")
-			}
 		})
 	}
 }

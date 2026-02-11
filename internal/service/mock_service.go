@@ -14,9 +14,10 @@ import (
 	reflect "reflect"
 	time "time"
 
-	v1alpha1 "github.com/flightctl/flightctl/api/v1alpha1"
+	domain "github.com/flightctl/flightctl/internal/domain"
 	store "github.com/flightctl/flightctl/internal/store"
 	selector "github.com/flightctl/flightctl/internal/store/selector"
+	uuid "github.com/google/uuid"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -44,230 +45,317 @@ func (m *MockService) EXPECT() *MockServiceMockRecorder {
 }
 
 // ApproveEnrollmentRequest mocks base method.
-func (m *MockService) ApproveEnrollmentRequest(ctx context.Context, name string, approval v1alpha1.EnrollmentRequestApproval) (*v1alpha1.EnrollmentRequestApprovalStatus, v1alpha1.Status) {
+func (m *MockService) ApproveEnrollmentRequest(ctx context.Context, orgId uuid.UUID, name string, approval domain.EnrollmentRequestApproval) (*domain.EnrollmentRequestApprovalStatus, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ApproveEnrollmentRequest", ctx, name, approval)
-	ret0, _ := ret[0].(*v1alpha1.EnrollmentRequestApprovalStatus)
-	ret1, _ := ret[1].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "ApproveEnrollmentRequest", ctx, orgId, name, approval)
+	ret0, _ := ret[0].(*domain.EnrollmentRequestApprovalStatus)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // ApproveEnrollmentRequest indicates an expected call of ApproveEnrollmentRequest.
-func (mr *MockServiceMockRecorder) ApproveEnrollmentRequest(ctx, name, approval any) *gomock.Call {
+func (mr *MockServiceMockRecorder) ApproveEnrollmentRequest(ctx, orgId, name, approval any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ApproveEnrollmentRequest", reflect.TypeOf((*MockService)(nil).ApproveEnrollmentRequest), ctx, name, approval)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ApproveEnrollmentRequest", reflect.TypeOf((*MockService)(nil).ApproveEnrollmentRequest), ctx, orgId, name, approval)
 }
 
 // CountDevices mocks base method.
-func (m *MockService) CountDevices(ctx context.Context, params v1alpha1.ListDevicesParams, annotationSelector *selector.AnnotationSelector) (int64, v1alpha1.Status) {
+func (m *MockService) CountDevices(ctx context.Context, orgId uuid.UUID, params domain.ListDevicesParams, annotationSelector *selector.AnnotationSelector) (int64, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CountDevices", ctx, params, annotationSelector)
+	ret := m.ctrl.Call(m, "CountDevices", ctx, orgId, params, annotationSelector)
 	ret0, _ := ret[0].(int64)
-	ret1, _ := ret[1].(v1alpha1.Status)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // CountDevices indicates an expected call of CountDevices.
-func (mr *MockServiceMockRecorder) CountDevices(ctx, params, annotationSelector any) *gomock.Call {
+func (mr *MockServiceMockRecorder) CountDevices(ctx, orgId, params, annotationSelector any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountDevices", reflect.TypeOf((*MockService)(nil).CountDevices), ctx, params, annotationSelector)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountDevices", reflect.TypeOf((*MockService)(nil).CountDevices), ctx, orgId, params, annotationSelector)
 }
 
 // CountDevicesByLabels mocks base method.
-func (m *MockService) CountDevicesByLabels(ctx context.Context, params v1alpha1.ListDevicesParams, annotationSelector *selector.AnnotationSelector, groupBy []string) ([]map[string]any, v1alpha1.Status) {
+func (m *MockService) CountDevicesByLabels(ctx context.Context, orgId uuid.UUID, params domain.ListDevicesParams, annotationSelector *selector.AnnotationSelector, groupBy []string) ([]map[string]any, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CountDevicesByLabels", ctx, params, annotationSelector, groupBy)
+	ret := m.ctrl.Call(m, "CountDevicesByLabels", ctx, orgId, params, annotationSelector, groupBy)
 	ret0, _ := ret[0].([]map[string]any)
-	ret1, _ := ret[1].(v1alpha1.Status)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // CountDevicesByLabels indicates an expected call of CountDevicesByLabels.
-func (mr *MockServiceMockRecorder) CountDevicesByLabels(ctx, params, annotationSelector, groupBy any) *gomock.Call {
+func (mr *MockServiceMockRecorder) CountDevicesByLabels(ctx, orgId, params, annotationSelector, groupBy any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountDevicesByLabels", reflect.TypeOf((*MockService)(nil).CountDevicesByLabels), ctx, params, annotationSelector, groupBy)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountDevicesByLabels", reflect.TypeOf((*MockService)(nil).CountDevicesByLabels), ctx, orgId, params, annotationSelector, groupBy)
+}
+
+// CreateAuthProvider mocks base method.
+func (m *MockService) CreateAuthProvider(ctx context.Context, orgId uuid.UUID, authProvider domain.AuthProvider) (*domain.AuthProvider, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateAuthProvider", ctx, orgId, authProvider)
+	ret0, _ := ret[0].(*domain.AuthProvider)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// CreateAuthProvider indicates an expected call of CreateAuthProvider.
+func (mr *MockServiceMockRecorder) CreateAuthProvider(ctx, orgId, authProvider any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateAuthProvider", reflect.TypeOf((*MockService)(nil).CreateAuthProvider), ctx, orgId, authProvider)
+}
+
+// CreateCatalog mocks base method.
+func (m *MockService) CreateCatalog(ctx context.Context, orgId uuid.UUID, catalog domain.Catalog) (*domain.Catalog, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateCatalog", ctx, orgId, catalog)
+	ret0, _ := ret[0].(*domain.Catalog)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// CreateCatalog indicates an expected call of CreateCatalog.
+func (mr *MockServiceMockRecorder) CreateCatalog(ctx, orgId, catalog any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateCatalog", reflect.TypeOf((*MockService)(nil).CreateCatalog), ctx, orgId, catalog)
+}
+
+// CreateCatalogItem mocks base method.
+func (m *MockService) CreateCatalogItem(ctx context.Context, orgId uuid.UUID, catalogName string, item domain.CatalogItem) (*domain.CatalogItem, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateCatalogItem", ctx, orgId, catalogName, item)
+	ret0, _ := ret[0].(*domain.CatalogItem)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// CreateCatalogItem indicates an expected call of CreateCatalogItem.
+func (mr *MockServiceMockRecorder) CreateCatalogItem(ctx, orgId, catalogName, item any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateCatalogItem", reflect.TypeOf((*MockService)(nil).CreateCatalogItem), ctx, orgId, catalogName, item)
 }
 
 // CreateCertificateSigningRequest mocks base method.
-func (m *MockService) CreateCertificateSigningRequest(ctx context.Context, csr v1alpha1.CertificateSigningRequest) (*v1alpha1.CertificateSigningRequest, v1alpha1.Status) {
+func (m *MockService) CreateCertificateSigningRequest(ctx context.Context, orgId uuid.UUID, csr domain.CertificateSigningRequest) (*domain.CertificateSigningRequest, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CreateCertificateSigningRequest", ctx, csr)
-	ret0, _ := ret[0].(*v1alpha1.CertificateSigningRequest)
-	ret1, _ := ret[1].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "CreateCertificateSigningRequest", ctx, orgId, csr)
+	ret0, _ := ret[0].(*domain.CertificateSigningRequest)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // CreateCertificateSigningRequest indicates an expected call of CreateCertificateSigningRequest.
-func (mr *MockServiceMockRecorder) CreateCertificateSigningRequest(ctx, csr any) *gomock.Call {
+func (mr *MockServiceMockRecorder) CreateCertificateSigningRequest(ctx, orgId, csr any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateCertificateSigningRequest", reflect.TypeOf((*MockService)(nil).CreateCertificateSigningRequest), ctx, csr)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateCertificateSigningRequest", reflect.TypeOf((*MockService)(nil).CreateCertificateSigningRequest), ctx, orgId, csr)
 }
 
 // CreateDevice mocks base method.
-func (m *MockService) CreateDevice(ctx context.Context, device v1alpha1.Device) (*v1alpha1.Device, v1alpha1.Status) {
+func (m *MockService) CreateDevice(ctx context.Context, orgId uuid.UUID, device domain.Device) (*domain.Device, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CreateDevice", ctx, device)
-	ret0, _ := ret[0].(*v1alpha1.Device)
-	ret1, _ := ret[1].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "CreateDevice", ctx, orgId, device)
+	ret0, _ := ret[0].(*domain.Device)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // CreateDevice indicates an expected call of CreateDevice.
-func (mr *MockServiceMockRecorder) CreateDevice(ctx, device any) *gomock.Call {
+func (mr *MockServiceMockRecorder) CreateDevice(ctx, orgId, device any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateDevice", reflect.TypeOf((*MockService)(nil).CreateDevice), ctx, device)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateDevice", reflect.TypeOf((*MockService)(nil).CreateDevice), ctx, orgId, device)
 }
 
 // CreateEnrollmentRequest mocks base method.
-func (m *MockService) CreateEnrollmentRequest(ctx context.Context, er v1alpha1.EnrollmentRequest) (*v1alpha1.EnrollmentRequest, v1alpha1.Status) {
+func (m *MockService) CreateEnrollmentRequest(ctx context.Context, orgId uuid.UUID, er domain.EnrollmentRequest) (*domain.EnrollmentRequest, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CreateEnrollmentRequest", ctx, er)
-	ret0, _ := ret[0].(*v1alpha1.EnrollmentRequest)
-	ret1, _ := ret[1].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "CreateEnrollmentRequest", ctx, orgId, er)
+	ret0, _ := ret[0].(*domain.EnrollmentRequest)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // CreateEnrollmentRequest indicates an expected call of CreateEnrollmentRequest.
-func (mr *MockServiceMockRecorder) CreateEnrollmentRequest(ctx, er any) *gomock.Call {
+func (mr *MockServiceMockRecorder) CreateEnrollmentRequest(ctx, orgId, er any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateEnrollmentRequest", reflect.TypeOf((*MockService)(nil).CreateEnrollmentRequest), ctx, er)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateEnrollmentRequest", reflect.TypeOf((*MockService)(nil).CreateEnrollmentRequest), ctx, orgId, er)
 }
 
 // CreateEvent mocks base method.
-func (m *MockService) CreateEvent(ctx context.Context, event *v1alpha1.Event) {
+func (m *MockService) CreateEvent(ctx context.Context, orgId uuid.UUID, event *domain.Event) {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "CreateEvent", ctx, event)
+	m.ctrl.Call(m, "CreateEvent", ctx, orgId, event)
 }
 
 // CreateEvent indicates an expected call of CreateEvent.
-func (mr *MockServiceMockRecorder) CreateEvent(ctx, event any) *gomock.Call {
+func (mr *MockServiceMockRecorder) CreateEvent(ctx, orgId, event any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateEvent", reflect.TypeOf((*MockService)(nil).CreateEvent), ctx, event)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateEvent", reflect.TypeOf((*MockService)(nil).CreateEvent), ctx, orgId, event)
 }
 
 // CreateFleet mocks base method.
-func (m *MockService) CreateFleet(ctx context.Context, fleet v1alpha1.Fleet) (*v1alpha1.Fleet, v1alpha1.Status) {
+func (m *MockService) CreateFleet(ctx context.Context, orgId uuid.UUID, fleet domain.Fleet) (*domain.Fleet, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CreateFleet", ctx, fleet)
-	ret0, _ := ret[0].(*v1alpha1.Fleet)
-	ret1, _ := ret[1].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "CreateFleet", ctx, orgId, fleet)
+	ret0, _ := ret[0].(*domain.Fleet)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // CreateFleet indicates an expected call of CreateFleet.
-func (mr *MockServiceMockRecorder) CreateFleet(ctx, fleet any) *gomock.Call {
+func (mr *MockServiceMockRecorder) CreateFleet(ctx, orgId, fleet any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateFleet", reflect.TypeOf((*MockService)(nil).CreateFleet), ctx, fleet)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateFleet", reflect.TypeOf((*MockService)(nil).CreateFleet), ctx, orgId, fleet)
 }
 
 // CreateRepository mocks base method.
-func (m *MockService) CreateRepository(ctx context.Context, repo v1alpha1.Repository) (*v1alpha1.Repository, v1alpha1.Status) {
+func (m *MockService) CreateRepository(ctx context.Context, orgId uuid.UUID, repo domain.Repository) (*domain.Repository, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CreateRepository", ctx, repo)
-	ret0, _ := ret[0].(*v1alpha1.Repository)
-	ret1, _ := ret[1].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "CreateRepository", ctx, orgId, repo)
+	ret0, _ := ret[0].(*domain.Repository)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // CreateRepository indicates an expected call of CreateRepository.
-func (mr *MockServiceMockRecorder) CreateRepository(ctx, repo any) *gomock.Call {
+func (mr *MockServiceMockRecorder) CreateRepository(ctx, orgId, repo any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateRepository", reflect.TypeOf((*MockService)(nil).CreateRepository), ctx, repo)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateRepository", reflect.TypeOf((*MockService)(nil).CreateRepository), ctx, orgId, repo)
 }
 
 // CreateResourceSync mocks base method.
-func (m *MockService) CreateResourceSync(ctx context.Context, rs v1alpha1.ResourceSync) (*v1alpha1.ResourceSync, v1alpha1.Status) {
+func (m *MockService) CreateResourceSync(ctx context.Context, orgId uuid.UUID, rs domain.ResourceSync) (*domain.ResourceSync, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CreateResourceSync", ctx, rs)
-	ret0, _ := ret[0].(*v1alpha1.ResourceSync)
-	ret1, _ := ret[1].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "CreateResourceSync", ctx, orgId, rs)
+	ret0, _ := ret[0].(*domain.ResourceSync)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // CreateResourceSync indicates an expected call of CreateResourceSync.
-func (mr *MockServiceMockRecorder) CreateResourceSync(ctx, rs any) *gomock.Call {
+func (mr *MockServiceMockRecorder) CreateResourceSync(ctx, orgId, rs any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateResourceSync", reflect.TypeOf((*MockService)(nil).CreateResourceSync), ctx, rs)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateResourceSync", reflect.TypeOf((*MockService)(nil).CreateResourceSync), ctx, orgId, rs)
 }
 
 // CreateTemplateVersion mocks base method.
-func (m *MockService) CreateTemplateVersion(ctx context.Context, tv v1alpha1.TemplateVersion, immediateRollout bool) (*v1alpha1.TemplateVersion, v1alpha1.Status) {
+func (m *MockService) CreateTemplateVersion(ctx context.Context, orgId uuid.UUID, tv domain.TemplateVersion, immediateRollout bool) (*domain.TemplateVersion, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CreateTemplateVersion", ctx, tv, immediateRollout)
-	ret0, _ := ret[0].(*v1alpha1.TemplateVersion)
-	ret1, _ := ret[1].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "CreateTemplateVersion", ctx, orgId, tv, immediateRollout)
+	ret0, _ := ret[0].(*domain.TemplateVersion)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // CreateTemplateVersion indicates an expected call of CreateTemplateVersion.
-func (mr *MockServiceMockRecorder) CreateTemplateVersion(ctx, tv, immediateRollout any) *gomock.Call {
+func (mr *MockServiceMockRecorder) CreateTemplateVersion(ctx, orgId, tv, immediateRollout any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateTemplateVersion", reflect.TypeOf((*MockService)(nil).CreateTemplateVersion), ctx, tv, immediateRollout)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateTemplateVersion", reflect.TypeOf((*MockService)(nil).CreateTemplateVersion), ctx, orgId, tv, immediateRollout)
 }
 
 // DecommissionDevice mocks base method.
-func (m *MockService) DecommissionDevice(ctx context.Context, name string, decom v1alpha1.DeviceDecommission) (*v1alpha1.Device, v1alpha1.Status) {
+func (m *MockService) DecommissionDevice(ctx context.Context, orgId uuid.UUID, name string, decom domain.DeviceDecommission) (*domain.Device, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DecommissionDevice", ctx, name, decom)
-	ret0, _ := ret[0].(*v1alpha1.Device)
-	ret1, _ := ret[1].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "DecommissionDevice", ctx, orgId, name, decom)
+	ret0, _ := ret[0].(*domain.Device)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // DecommissionDevice indicates an expected call of DecommissionDevice.
-func (mr *MockServiceMockRecorder) DecommissionDevice(ctx, name, decom any) *gomock.Call {
+func (mr *MockServiceMockRecorder) DecommissionDevice(ctx, orgId, name, decom any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DecommissionDevice", reflect.TypeOf((*MockService)(nil).DecommissionDevice), ctx, name, decom)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DecommissionDevice", reflect.TypeOf((*MockService)(nil).DecommissionDevice), ctx, orgId, name, decom)
+}
+
+// DeleteAuthProvider mocks base method.
+func (m *MockService) DeleteAuthProvider(ctx context.Context, orgId uuid.UUID, name string) domain.Status {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteAuthProvider", ctx, orgId, name)
+	ret0, _ := ret[0].(domain.Status)
+	return ret0
+}
+
+// DeleteAuthProvider indicates an expected call of DeleteAuthProvider.
+func (mr *MockServiceMockRecorder) DeleteAuthProvider(ctx, orgId, name any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteAuthProvider", reflect.TypeOf((*MockService)(nil).DeleteAuthProvider), ctx, orgId, name)
+}
+
+// DeleteCatalog mocks base method.
+func (m *MockService) DeleteCatalog(ctx context.Context, orgId uuid.UUID, name string) domain.Status {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteCatalog", ctx, orgId, name)
+	ret0, _ := ret[0].(domain.Status)
+	return ret0
+}
+
+// DeleteCatalog indicates an expected call of DeleteCatalog.
+func (mr *MockServiceMockRecorder) DeleteCatalog(ctx, orgId, name any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteCatalog", reflect.TypeOf((*MockService)(nil).DeleteCatalog), ctx, orgId, name)
+}
+
+// DeleteCatalogItem mocks base method.
+func (m *MockService) DeleteCatalogItem(ctx context.Context, orgId uuid.UUID, catalogName, itemName string) domain.Status {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteCatalogItem", ctx, orgId, catalogName, itemName)
+	ret0, _ := ret[0].(domain.Status)
+	return ret0
+}
+
+// DeleteCatalogItem indicates an expected call of DeleteCatalogItem.
+func (mr *MockServiceMockRecorder) DeleteCatalogItem(ctx, orgId, catalogName, itemName any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteCatalogItem", reflect.TypeOf((*MockService)(nil).DeleteCatalogItem), ctx, orgId, catalogName, itemName)
 }
 
 // DeleteCertificateSigningRequest mocks base method.
-func (m *MockService) DeleteCertificateSigningRequest(ctx context.Context, name string) v1alpha1.Status {
+func (m *MockService) DeleteCertificateSigningRequest(ctx context.Context, orgId uuid.UUID, name string) domain.Status {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DeleteCertificateSigningRequest", ctx, name)
-	ret0, _ := ret[0].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "DeleteCertificateSigningRequest", ctx, orgId, name)
+	ret0, _ := ret[0].(domain.Status)
 	return ret0
 }
 
 // DeleteCertificateSigningRequest indicates an expected call of DeleteCertificateSigningRequest.
-func (mr *MockServiceMockRecorder) DeleteCertificateSigningRequest(ctx, name any) *gomock.Call {
+func (mr *MockServiceMockRecorder) DeleteCertificateSigningRequest(ctx, orgId, name any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteCertificateSigningRequest", reflect.TypeOf((*MockService)(nil).DeleteCertificateSigningRequest), ctx, name)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteCertificateSigningRequest", reflect.TypeOf((*MockService)(nil).DeleteCertificateSigningRequest), ctx, orgId, name)
 }
 
 // DeleteDevice mocks base method.
-func (m *MockService) DeleteDevice(ctx context.Context, name string) v1alpha1.Status {
+func (m *MockService) DeleteDevice(ctx context.Context, orgId uuid.UUID, name string) domain.Status {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DeleteDevice", ctx, name)
-	ret0, _ := ret[0].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "DeleteDevice", ctx, orgId, name)
+	ret0, _ := ret[0].(domain.Status)
 	return ret0
 }
 
 // DeleteDevice indicates an expected call of DeleteDevice.
-func (mr *MockServiceMockRecorder) DeleteDevice(ctx, name any) *gomock.Call {
+func (mr *MockServiceMockRecorder) DeleteDevice(ctx, orgId, name any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteDevice", reflect.TypeOf((*MockService)(nil).DeleteDevice), ctx, name)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteDevice", reflect.TypeOf((*MockService)(nil).DeleteDevice), ctx, orgId, name)
 }
 
 // DeleteEnrollmentRequest mocks base method.
-func (m *MockService) DeleteEnrollmentRequest(ctx context.Context, name string) v1alpha1.Status {
+func (m *MockService) DeleteEnrollmentRequest(ctx context.Context, orgId uuid.UUID, name string) domain.Status {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DeleteEnrollmentRequest", ctx, name)
-	ret0, _ := ret[0].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "DeleteEnrollmentRequest", ctx, orgId, name)
+	ret0, _ := ret[0].(domain.Status)
 	return ret0
 }
 
 // DeleteEnrollmentRequest indicates an expected call of DeleteEnrollmentRequest.
-func (mr *MockServiceMockRecorder) DeleteEnrollmentRequest(ctx, name any) *gomock.Call {
+func (mr *MockServiceMockRecorder) DeleteEnrollmentRequest(ctx, orgId, name any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteEnrollmentRequest", reflect.TypeOf((*MockService)(nil).DeleteEnrollmentRequest), ctx, name)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteEnrollmentRequest", reflect.TypeOf((*MockService)(nil).DeleteEnrollmentRequest), ctx, orgId, name)
 }
 
 // DeleteEventsOlderThan mocks base method.
-func (m *MockService) DeleteEventsOlderThan(ctx context.Context, cutoffTime time.Time) (int64, v1alpha1.Status) {
+func (m *MockService) DeleteEventsOlderThan(ctx context.Context, cutoffTime time.Time) (int64, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "DeleteEventsOlderThan", ctx, cutoffTime)
 	ret0, _ := ret[0].(int64)
-	ret1, _ := ret[1].(v1alpha1.Status)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -278,82 +366,187 @@ func (mr *MockServiceMockRecorder) DeleteEventsOlderThan(ctx, cutoffTime any) *g
 }
 
 // DeleteFleet mocks base method.
-func (m *MockService) DeleteFleet(ctx context.Context, name string) v1alpha1.Status {
+func (m *MockService) DeleteFleet(ctx context.Context, orgId uuid.UUID, name string) domain.Status {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DeleteFleet", ctx, name)
-	ret0, _ := ret[0].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "DeleteFleet", ctx, orgId, name)
+	ret0, _ := ret[0].(domain.Status)
 	return ret0
 }
 
 // DeleteFleet indicates an expected call of DeleteFleet.
-func (mr *MockServiceMockRecorder) DeleteFleet(ctx, name any) *gomock.Call {
+func (mr *MockServiceMockRecorder) DeleteFleet(ctx, orgId, name any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteFleet", reflect.TypeOf((*MockService)(nil).DeleteFleet), ctx, name)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteFleet", reflect.TypeOf((*MockService)(nil).DeleteFleet), ctx, orgId, name)
 }
 
 // DeleteRepository mocks base method.
-func (m *MockService) DeleteRepository(ctx context.Context, name string) v1alpha1.Status {
+func (m *MockService) DeleteRepository(ctx context.Context, orgId uuid.UUID, name string) domain.Status {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DeleteRepository", ctx, name)
-	ret0, _ := ret[0].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "DeleteRepository", ctx, orgId, name)
+	ret0, _ := ret[0].(domain.Status)
 	return ret0
 }
 
 // DeleteRepository indicates an expected call of DeleteRepository.
-func (mr *MockServiceMockRecorder) DeleteRepository(ctx, name any) *gomock.Call {
+func (mr *MockServiceMockRecorder) DeleteRepository(ctx, orgId, name any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteRepository", reflect.TypeOf((*MockService)(nil).DeleteRepository), ctx, name)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteRepository", reflect.TypeOf((*MockService)(nil).DeleteRepository), ctx, orgId, name)
 }
 
 // DeleteResourceSync mocks base method.
-func (m *MockService) DeleteResourceSync(ctx context.Context, name string) v1alpha1.Status {
+func (m *MockService) DeleteResourceSync(ctx context.Context, orgId uuid.UUID, name string) domain.Status {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DeleteResourceSync", ctx, name)
-	ret0, _ := ret[0].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "DeleteResourceSync", ctx, orgId, name)
+	ret0, _ := ret[0].(domain.Status)
 	return ret0
 }
 
 // DeleteResourceSync indicates an expected call of DeleteResourceSync.
-func (mr *MockServiceMockRecorder) DeleteResourceSync(ctx, name any) *gomock.Call {
+func (mr *MockServiceMockRecorder) DeleteResourceSync(ctx, orgId, name any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteResourceSync", reflect.TypeOf((*MockService)(nil).DeleteResourceSync), ctx, name)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteResourceSync", reflect.TypeOf((*MockService)(nil).DeleteResourceSync), ctx, orgId, name)
 }
 
 // DeleteTemplateVersion mocks base method.
-func (m *MockService) DeleteTemplateVersion(ctx context.Context, fleet, name string) v1alpha1.Status {
+func (m *MockService) DeleteTemplateVersion(ctx context.Context, orgId uuid.UUID, fleet, name string) domain.Status {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DeleteTemplateVersion", ctx, fleet, name)
-	ret0, _ := ret[0].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "DeleteTemplateVersion", ctx, orgId, fleet, name)
+	ret0, _ := ret[0].(domain.Status)
 	return ret0
 }
 
 // DeleteTemplateVersion indicates an expected call of DeleteTemplateVersion.
-func (mr *MockServiceMockRecorder) DeleteTemplateVersion(ctx, fleet, name any) *gomock.Call {
+func (mr *MockServiceMockRecorder) DeleteTemplateVersion(ctx, orgId, fleet, name any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteTemplateVersion", reflect.TypeOf((*MockService)(nil).DeleteTemplateVersion), ctx, fleet, name)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteTemplateVersion", reflect.TypeOf((*MockService)(nil).DeleteTemplateVersion), ctx, orgId, fleet, name)
+}
+
+// GetAuthConfig mocks base method.
+func (m *MockService) GetAuthConfig(ctx context.Context, authConfig *domain.AuthConfig) (*domain.AuthConfig, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAuthConfig", ctx, authConfig)
+	ret0, _ := ret[0].(*domain.AuthConfig)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// GetAuthConfig indicates an expected call of GetAuthConfig.
+func (mr *MockServiceMockRecorder) GetAuthConfig(ctx, authConfig any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAuthConfig", reflect.TypeOf((*MockService)(nil).GetAuthConfig), ctx, authConfig)
+}
+
+// GetAuthProvider mocks base method.
+func (m *MockService) GetAuthProvider(ctx context.Context, orgId uuid.UUID, name string) (*domain.AuthProvider, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAuthProvider", ctx, orgId, name)
+	ret0, _ := ret[0].(*domain.AuthProvider)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// GetAuthProvider indicates an expected call of GetAuthProvider.
+func (mr *MockServiceMockRecorder) GetAuthProvider(ctx, orgId, name any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAuthProvider", reflect.TypeOf((*MockService)(nil).GetAuthProvider), ctx, orgId, name)
+}
+
+// GetAuthProviderByAuthorizationUrl mocks base method.
+func (m *MockService) GetAuthProviderByAuthorizationUrl(ctx context.Context, orgId uuid.UUID, authorizationUrl string) (*domain.AuthProvider, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAuthProviderByAuthorizationUrl", ctx, orgId, authorizationUrl)
+	ret0, _ := ret[0].(*domain.AuthProvider)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// GetAuthProviderByAuthorizationUrl indicates an expected call of GetAuthProviderByAuthorizationUrl.
+func (mr *MockServiceMockRecorder) GetAuthProviderByAuthorizationUrl(ctx, orgId, authorizationUrl any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAuthProviderByAuthorizationUrl", reflect.TypeOf((*MockService)(nil).GetAuthProviderByAuthorizationUrl), ctx, orgId, authorizationUrl)
+}
+
+// GetAuthProviderByIssuerAndClientId mocks base method.
+func (m *MockService) GetAuthProviderByIssuerAndClientId(ctx context.Context, orgId uuid.UUID, issuer, clientId string) (*domain.AuthProvider, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAuthProviderByIssuerAndClientId", ctx, orgId, issuer, clientId)
+	ret0, _ := ret[0].(*domain.AuthProvider)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// GetAuthProviderByIssuerAndClientId indicates an expected call of GetAuthProviderByIssuerAndClientId.
+func (mr *MockServiceMockRecorder) GetAuthProviderByIssuerAndClientId(ctx, orgId, issuer, clientId any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAuthProviderByIssuerAndClientId", reflect.TypeOf((*MockService)(nil).GetAuthProviderByIssuerAndClientId), ctx, orgId, issuer, clientId)
+}
+
+// GetCatalog mocks base method.
+func (m *MockService) GetCatalog(ctx context.Context, orgId uuid.UUID, name string) (*domain.Catalog, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetCatalog", ctx, orgId, name)
+	ret0, _ := ret[0].(*domain.Catalog)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// GetCatalog indicates an expected call of GetCatalog.
+func (mr *MockServiceMockRecorder) GetCatalog(ctx, orgId, name any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCatalog", reflect.TypeOf((*MockService)(nil).GetCatalog), ctx, orgId, name)
+}
+
+// GetCatalogItem mocks base method.
+func (m *MockService) GetCatalogItem(ctx context.Context, orgId uuid.UUID, catalogName, itemName string) (*domain.CatalogItem, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetCatalogItem", ctx, orgId, catalogName, itemName)
+	ret0, _ := ret[0].(*domain.CatalogItem)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// GetCatalogItem indicates an expected call of GetCatalogItem.
+func (mr *MockServiceMockRecorder) GetCatalogItem(ctx, orgId, catalogName, itemName any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCatalogItem", reflect.TypeOf((*MockService)(nil).GetCatalogItem), ctx, orgId, catalogName, itemName)
+}
+
+// GetCatalogStatus mocks base method.
+func (m *MockService) GetCatalogStatus(ctx context.Context, orgId uuid.UUID, name string) (*domain.Catalog, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetCatalogStatus", ctx, orgId, name)
+	ret0, _ := ret[0].(*domain.Catalog)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// GetCatalogStatus indicates an expected call of GetCatalogStatus.
+func (mr *MockServiceMockRecorder) GetCatalogStatus(ctx, orgId, name any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCatalogStatus", reflect.TypeOf((*MockService)(nil).GetCatalogStatus), ctx, orgId, name)
 }
 
 // GetCertificateSigningRequest mocks base method.
-func (m *MockService) GetCertificateSigningRequest(ctx context.Context, name string) (*v1alpha1.CertificateSigningRequest, v1alpha1.Status) {
+func (m *MockService) GetCertificateSigningRequest(ctx context.Context, orgId uuid.UUID, name string) (*domain.CertificateSigningRequest, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetCertificateSigningRequest", ctx, name)
-	ret0, _ := ret[0].(*v1alpha1.CertificateSigningRequest)
-	ret1, _ := ret[1].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "GetCertificateSigningRequest", ctx, orgId, name)
+	ret0, _ := ret[0].(*domain.CertificateSigningRequest)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // GetCertificateSigningRequest indicates an expected call of GetCertificateSigningRequest.
-func (mr *MockServiceMockRecorder) GetCertificateSigningRequest(ctx, name any) *gomock.Call {
+func (mr *MockServiceMockRecorder) GetCertificateSigningRequest(ctx, orgId, name any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCertificateSigningRequest", reflect.TypeOf((*MockService)(nil).GetCertificateSigningRequest), ctx, name)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCertificateSigningRequest", reflect.TypeOf((*MockService)(nil).GetCertificateSigningRequest), ctx, orgId, name)
 }
 
 // GetCheckpoint mocks base method.
-func (m *MockService) GetCheckpoint(ctx context.Context, consumer, key string) ([]byte, v1alpha1.Status) {
+func (m *MockService) GetCheckpoint(ctx context.Context, consumer, key string) ([]byte, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetCheckpoint", ctx, consumer, key)
 	ret0, _ := ret[0].([]byte)
-	ret1, _ := ret[1].(v1alpha1.Status)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -364,11 +557,11 @@ func (mr *MockServiceMockRecorder) GetCheckpoint(ctx, consumer, key any) *gomock
 }
 
 // GetDatabaseTime mocks base method.
-func (m *MockService) GetDatabaseTime(ctx context.Context) (time.Time, v1alpha1.Status) {
+func (m *MockService) GetDatabaseTime(ctx context.Context) (time.Time, domain.Status) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetDatabaseTime", ctx)
 	ret0, _ := ret[0].(time.Time)
-	ret1, _ := ret[1].(v1alpha1.Status)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
@@ -379,842 +572,1022 @@ func (mr *MockServiceMockRecorder) GetDatabaseTime(ctx any) *gomock.Call {
 }
 
 // GetDevice mocks base method.
-func (m *MockService) GetDevice(ctx context.Context, name string) (*v1alpha1.Device, v1alpha1.Status) {
+func (m *MockService) GetDevice(ctx context.Context, orgId uuid.UUID, name string) (*domain.Device, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetDevice", ctx, name)
-	ret0, _ := ret[0].(*v1alpha1.Device)
-	ret1, _ := ret[1].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "GetDevice", ctx, orgId, name)
+	ret0, _ := ret[0].(*domain.Device)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // GetDevice indicates an expected call of GetDevice.
-func (mr *MockServiceMockRecorder) GetDevice(ctx, name any) *gomock.Call {
+func (mr *MockServiceMockRecorder) GetDevice(ctx, orgId, name any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDevice", reflect.TypeOf((*MockService)(nil).GetDevice), ctx, name)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDevice", reflect.TypeOf((*MockService)(nil).GetDevice), ctx, orgId, name)
 }
 
 // GetDeviceCompletionCounts mocks base method.
-func (m *MockService) GetDeviceCompletionCounts(ctx context.Context, owner, templateVersion string, updateTimeout *time.Duration) ([]v1alpha1.DeviceCompletionCount, v1alpha1.Status) {
+func (m *MockService) GetDeviceCompletionCounts(ctx context.Context, orgId uuid.UUID, owner, templateVersion string, updateTimeout *time.Duration) ([]domain.DeviceCompletionCount, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetDeviceCompletionCounts", ctx, owner, templateVersion, updateTimeout)
-	ret0, _ := ret[0].([]v1alpha1.DeviceCompletionCount)
-	ret1, _ := ret[1].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "GetDeviceCompletionCounts", ctx, orgId, owner, templateVersion, updateTimeout)
+	ret0, _ := ret[0].([]domain.DeviceCompletionCount)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // GetDeviceCompletionCounts indicates an expected call of GetDeviceCompletionCounts.
-func (mr *MockServiceMockRecorder) GetDeviceCompletionCounts(ctx, owner, templateVersion, updateTimeout any) *gomock.Call {
+func (mr *MockServiceMockRecorder) GetDeviceCompletionCounts(ctx, orgId, owner, templateVersion, updateTimeout any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDeviceCompletionCounts", reflect.TypeOf((*MockService)(nil).GetDeviceCompletionCounts), ctx, owner, templateVersion, updateTimeout)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDeviceCompletionCounts", reflect.TypeOf((*MockService)(nil).GetDeviceCompletionCounts), ctx, orgId, owner, templateVersion, updateTimeout)
 }
 
 // GetDeviceLastSeen mocks base method.
-func (m *MockService) GetDeviceLastSeen(ctx context.Context, name string) (*v1alpha1.DeviceLastSeen, v1alpha1.Status) {
+func (m *MockService) GetDeviceLastSeen(ctx context.Context, orgId uuid.UUID, name string) (*domain.DeviceLastSeen, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetDeviceLastSeen", ctx, name)
-	ret0, _ := ret[0].(*v1alpha1.DeviceLastSeen)
-	ret1, _ := ret[1].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "GetDeviceLastSeen", ctx, orgId, name)
+	ret0, _ := ret[0].(*domain.DeviceLastSeen)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // GetDeviceLastSeen indicates an expected call of GetDeviceLastSeen.
-func (mr *MockServiceMockRecorder) GetDeviceLastSeen(ctx, name any) *gomock.Call {
+func (mr *MockServiceMockRecorder) GetDeviceLastSeen(ctx, orgId, name any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDeviceLastSeen", reflect.TypeOf((*MockService)(nil).GetDeviceLastSeen), ctx, name)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDeviceLastSeen", reflect.TypeOf((*MockService)(nil).GetDeviceLastSeen), ctx, orgId, name)
 }
 
 // GetDeviceRepositoryRefs mocks base method.
-func (m *MockService) GetDeviceRepositoryRefs(ctx context.Context, name string) (*v1alpha1.RepositoryList, v1alpha1.Status) {
+func (m *MockService) GetDeviceRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*domain.RepositoryList, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetDeviceRepositoryRefs", ctx, name)
-	ret0, _ := ret[0].(*v1alpha1.RepositoryList)
-	ret1, _ := ret[1].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "GetDeviceRepositoryRefs", ctx, orgId, name)
+	ret0, _ := ret[0].(*domain.RepositoryList)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // GetDeviceRepositoryRefs indicates an expected call of GetDeviceRepositoryRefs.
-func (mr *MockServiceMockRecorder) GetDeviceRepositoryRefs(ctx, name any) *gomock.Call {
+func (mr *MockServiceMockRecorder) GetDeviceRepositoryRefs(ctx, orgId, name any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDeviceRepositoryRefs", reflect.TypeOf((*MockService)(nil).GetDeviceRepositoryRefs), ctx, name)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDeviceRepositoryRefs", reflect.TypeOf((*MockService)(nil).GetDeviceRepositoryRefs), ctx, orgId, name)
 }
 
 // GetDeviceStatus mocks base method.
-func (m *MockService) GetDeviceStatus(ctx context.Context, name string) (*v1alpha1.Device, v1alpha1.Status) {
+func (m *MockService) GetDeviceStatus(ctx context.Context, orgId uuid.UUID, name string) (*domain.Device, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetDeviceStatus", ctx, name)
-	ret0, _ := ret[0].(*v1alpha1.Device)
-	ret1, _ := ret[1].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "GetDeviceStatus", ctx, orgId, name)
+	ret0, _ := ret[0].(*domain.Device)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // GetDeviceStatus indicates an expected call of GetDeviceStatus.
-func (mr *MockServiceMockRecorder) GetDeviceStatus(ctx, name any) *gomock.Call {
+func (mr *MockServiceMockRecorder) GetDeviceStatus(ctx, orgId, name any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDeviceStatus", reflect.TypeOf((*MockService)(nil).GetDeviceStatus), ctx, name)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDeviceStatus", reflect.TypeOf((*MockService)(nil).GetDeviceStatus), ctx, orgId, name)
 }
 
 // GetDevicesSummary mocks base method.
-func (m *MockService) GetDevicesSummary(ctx context.Context, params v1alpha1.ListDevicesParams, annotationSelector *selector.AnnotationSelector) (*v1alpha1.DevicesSummary, v1alpha1.Status) {
+func (m *MockService) GetDevicesSummary(ctx context.Context, orgId uuid.UUID, params domain.ListDevicesParams, annotationSelector *selector.AnnotationSelector) (*domain.DevicesSummary, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetDevicesSummary", ctx, params, annotationSelector)
-	ret0, _ := ret[0].(*v1alpha1.DevicesSummary)
-	ret1, _ := ret[1].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "GetDevicesSummary", ctx, orgId, params, annotationSelector)
+	ret0, _ := ret[0].(*domain.DevicesSummary)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // GetDevicesSummary indicates an expected call of GetDevicesSummary.
-func (mr *MockServiceMockRecorder) GetDevicesSummary(ctx, params, annotationSelector any) *gomock.Call {
+func (mr *MockServiceMockRecorder) GetDevicesSummary(ctx, orgId, params, annotationSelector any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDevicesSummary", reflect.TypeOf((*MockService)(nil).GetDevicesSummary), ctx, params, annotationSelector)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDevicesSummary", reflect.TypeOf((*MockService)(nil).GetDevicesSummary), ctx, orgId, params, annotationSelector)
 }
 
 // GetEnrollmentConfig mocks base method.
-func (m *MockService) GetEnrollmentConfig(ctx context.Context, params v1alpha1.GetEnrollmentConfigParams) (*v1alpha1.EnrollmentConfig, v1alpha1.Status) {
+func (m *MockService) GetEnrollmentConfig(ctx context.Context, orgId uuid.UUID, params domain.GetEnrollmentConfigParams) (*domain.EnrollmentConfig, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetEnrollmentConfig", ctx, params)
-	ret0, _ := ret[0].(*v1alpha1.EnrollmentConfig)
-	ret1, _ := ret[1].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "GetEnrollmentConfig", ctx, orgId, params)
+	ret0, _ := ret[0].(*domain.EnrollmentConfig)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // GetEnrollmentConfig indicates an expected call of GetEnrollmentConfig.
-func (mr *MockServiceMockRecorder) GetEnrollmentConfig(ctx, params any) *gomock.Call {
+func (mr *MockServiceMockRecorder) GetEnrollmentConfig(ctx, orgId, params any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEnrollmentConfig", reflect.TypeOf((*MockService)(nil).GetEnrollmentConfig), ctx, params)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEnrollmentConfig", reflect.TypeOf((*MockService)(nil).GetEnrollmentConfig), ctx, orgId, params)
 }
 
 // GetEnrollmentRequest mocks base method.
-func (m *MockService) GetEnrollmentRequest(ctx context.Context, name string) (*v1alpha1.EnrollmentRequest, v1alpha1.Status) {
+func (m *MockService) GetEnrollmentRequest(ctx context.Context, orgId uuid.UUID, name string) (*domain.EnrollmentRequest, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetEnrollmentRequest", ctx, name)
-	ret0, _ := ret[0].(*v1alpha1.EnrollmentRequest)
-	ret1, _ := ret[1].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "GetEnrollmentRequest", ctx, orgId, name)
+	ret0, _ := ret[0].(*domain.EnrollmentRequest)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // GetEnrollmentRequest indicates an expected call of GetEnrollmentRequest.
-func (mr *MockServiceMockRecorder) GetEnrollmentRequest(ctx, name any) *gomock.Call {
+func (mr *MockServiceMockRecorder) GetEnrollmentRequest(ctx, orgId, name any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEnrollmentRequest", reflect.TypeOf((*MockService)(nil).GetEnrollmentRequest), ctx, name)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEnrollmentRequest", reflect.TypeOf((*MockService)(nil).GetEnrollmentRequest), ctx, orgId, name)
 }
 
 // GetEnrollmentRequestStatus mocks base method.
-func (m *MockService) GetEnrollmentRequestStatus(ctx context.Context, name string) (*v1alpha1.EnrollmentRequest, v1alpha1.Status) {
+func (m *MockService) GetEnrollmentRequestStatus(ctx context.Context, orgId uuid.UUID, name string) (*domain.EnrollmentRequest, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetEnrollmentRequestStatus", ctx, name)
-	ret0, _ := ret[0].(*v1alpha1.EnrollmentRequest)
-	ret1, _ := ret[1].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "GetEnrollmentRequestStatus", ctx, orgId, name)
+	ret0, _ := ret[0].(*domain.EnrollmentRequest)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // GetEnrollmentRequestStatus indicates an expected call of GetEnrollmentRequestStatus.
-func (mr *MockServiceMockRecorder) GetEnrollmentRequestStatus(ctx, name any) *gomock.Call {
+func (mr *MockServiceMockRecorder) GetEnrollmentRequestStatus(ctx, orgId, name any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEnrollmentRequestStatus", reflect.TypeOf((*MockService)(nil).GetEnrollmentRequestStatus), ctx, name)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEnrollmentRequestStatus", reflect.TypeOf((*MockService)(nil).GetEnrollmentRequestStatus), ctx, orgId, name)
 }
 
 // GetFleet mocks base method.
-func (m *MockService) GetFleet(ctx context.Context, name string, params v1alpha1.GetFleetParams) (*v1alpha1.Fleet, v1alpha1.Status) {
+func (m *MockService) GetFleet(ctx context.Context, orgId uuid.UUID, name string, params domain.GetFleetParams) (*domain.Fleet, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetFleet", ctx, name, params)
-	ret0, _ := ret[0].(*v1alpha1.Fleet)
-	ret1, _ := ret[1].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "GetFleet", ctx, orgId, name, params)
+	ret0, _ := ret[0].(*domain.Fleet)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // GetFleet indicates an expected call of GetFleet.
-func (mr *MockServiceMockRecorder) GetFleet(ctx, name, params any) *gomock.Call {
+func (mr *MockServiceMockRecorder) GetFleet(ctx, orgId, name, params any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetFleet", reflect.TypeOf((*MockService)(nil).GetFleet), ctx, name, params)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetFleet", reflect.TypeOf((*MockService)(nil).GetFleet), ctx, orgId, name, params)
 }
 
 // GetFleetRepositoryRefs mocks base method.
-func (m *MockService) GetFleetRepositoryRefs(ctx context.Context, name string) (*v1alpha1.RepositoryList, v1alpha1.Status) {
+func (m *MockService) GetFleetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*domain.RepositoryList, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetFleetRepositoryRefs", ctx, name)
-	ret0, _ := ret[0].(*v1alpha1.RepositoryList)
-	ret1, _ := ret[1].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "GetFleetRepositoryRefs", ctx, orgId, name)
+	ret0, _ := ret[0].(*domain.RepositoryList)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // GetFleetRepositoryRefs indicates an expected call of GetFleetRepositoryRefs.
-func (mr *MockServiceMockRecorder) GetFleetRepositoryRefs(ctx, name any) *gomock.Call {
+func (mr *MockServiceMockRecorder) GetFleetRepositoryRefs(ctx, orgId, name any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetFleetRepositoryRefs", reflect.TypeOf((*MockService)(nil).GetFleetRepositoryRefs), ctx, name)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetFleetRepositoryRefs", reflect.TypeOf((*MockService)(nil).GetFleetRepositoryRefs), ctx, orgId, name)
 }
 
 // GetFleetStatus mocks base method.
-func (m *MockService) GetFleetStatus(ctx context.Context, name string) (*v1alpha1.Fleet, v1alpha1.Status) {
+func (m *MockService) GetFleetStatus(ctx context.Context, orgId uuid.UUID, name string) (*domain.Fleet, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetFleetStatus", ctx, name)
-	ret0, _ := ret[0].(*v1alpha1.Fleet)
-	ret1, _ := ret[1].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "GetFleetStatus", ctx, orgId, name)
+	ret0, _ := ret[0].(*domain.Fleet)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // GetFleetStatus indicates an expected call of GetFleetStatus.
-func (mr *MockServiceMockRecorder) GetFleetStatus(ctx, name any) *gomock.Call {
+func (mr *MockServiceMockRecorder) GetFleetStatus(ctx, orgId, name any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetFleetStatus", reflect.TypeOf((*MockService)(nil).GetFleetStatus), ctx, name)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetFleetStatus", reflect.TypeOf((*MockService)(nil).GetFleetStatus), ctx, orgId, name)
 }
 
 // GetLatestTemplateVersion mocks base method.
-func (m *MockService) GetLatestTemplateVersion(ctx context.Context, fleet string) (*v1alpha1.TemplateVersion, v1alpha1.Status) {
+func (m *MockService) GetLatestTemplateVersion(ctx context.Context, orgId uuid.UUID, fleet string) (*domain.TemplateVersion, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetLatestTemplateVersion", ctx, fleet)
-	ret0, _ := ret[0].(*v1alpha1.TemplateVersion)
-	ret1, _ := ret[1].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "GetLatestTemplateVersion", ctx, orgId, fleet)
+	ret0, _ := ret[0].(*domain.TemplateVersion)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // GetLatestTemplateVersion indicates an expected call of GetLatestTemplateVersion.
-func (mr *MockServiceMockRecorder) GetLatestTemplateVersion(ctx, fleet any) *gomock.Call {
+func (mr *MockServiceMockRecorder) GetLatestTemplateVersion(ctx, orgId, fleet any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetLatestTemplateVersion", reflect.TypeOf((*MockService)(nil).GetLatestTemplateVersion), ctx, fleet)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetLatestTemplateVersion", reflect.TypeOf((*MockService)(nil).GetLatestTemplateVersion), ctx, orgId, fleet)
 }
 
 // GetRenderedDevice mocks base method.
-func (m *MockService) GetRenderedDevice(ctx context.Context, name string, params v1alpha1.GetRenderedDeviceParams) (*v1alpha1.Device, v1alpha1.Status) {
+func (m *MockService) GetRenderedDevice(ctx context.Context, orgId uuid.UUID, name string, params domain.GetRenderedDeviceParams) (*domain.Device, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetRenderedDevice", ctx, name, params)
-	ret0, _ := ret[0].(*v1alpha1.Device)
-	ret1, _ := ret[1].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "GetRenderedDevice", ctx, orgId, name, params)
+	ret0, _ := ret[0].(*domain.Device)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // GetRenderedDevice indicates an expected call of GetRenderedDevice.
-func (mr *MockServiceMockRecorder) GetRenderedDevice(ctx, name, params any) *gomock.Call {
+func (mr *MockServiceMockRecorder) GetRenderedDevice(ctx, orgId, name, params any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetRenderedDevice", reflect.TypeOf((*MockService)(nil).GetRenderedDevice), ctx, name, params)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetRenderedDevice", reflect.TypeOf((*MockService)(nil).GetRenderedDevice), ctx, orgId, name, params)
 }
 
 // GetRepository mocks base method.
-func (m *MockService) GetRepository(ctx context.Context, name string) (*v1alpha1.Repository, v1alpha1.Status) {
+func (m *MockService) GetRepository(ctx context.Context, orgId uuid.UUID, name string) (*domain.Repository, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetRepository", ctx, name)
-	ret0, _ := ret[0].(*v1alpha1.Repository)
-	ret1, _ := ret[1].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "GetRepository", ctx, orgId, name)
+	ret0, _ := ret[0].(*domain.Repository)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // GetRepository indicates an expected call of GetRepository.
-func (mr *MockServiceMockRecorder) GetRepository(ctx, name any) *gomock.Call {
+func (mr *MockServiceMockRecorder) GetRepository(ctx, orgId, name any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetRepository", reflect.TypeOf((*MockService)(nil).GetRepository), ctx, name)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetRepository", reflect.TypeOf((*MockService)(nil).GetRepository), ctx, orgId, name)
 }
 
 // GetRepositoryDeviceReferences mocks base method.
-func (m *MockService) GetRepositoryDeviceReferences(ctx context.Context, name string) (*v1alpha1.DeviceList, v1alpha1.Status) {
+func (m *MockService) GetRepositoryDeviceReferences(ctx context.Context, orgId uuid.UUID, name string) (*domain.DeviceList, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetRepositoryDeviceReferences", ctx, name)
-	ret0, _ := ret[0].(*v1alpha1.DeviceList)
-	ret1, _ := ret[1].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "GetRepositoryDeviceReferences", ctx, orgId, name)
+	ret0, _ := ret[0].(*domain.DeviceList)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // GetRepositoryDeviceReferences indicates an expected call of GetRepositoryDeviceReferences.
-func (mr *MockServiceMockRecorder) GetRepositoryDeviceReferences(ctx, name any) *gomock.Call {
+func (mr *MockServiceMockRecorder) GetRepositoryDeviceReferences(ctx, orgId, name any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetRepositoryDeviceReferences", reflect.TypeOf((*MockService)(nil).GetRepositoryDeviceReferences), ctx, name)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetRepositoryDeviceReferences", reflect.TypeOf((*MockService)(nil).GetRepositoryDeviceReferences), ctx, orgId, name)
 }
 
 // GetRepositoryFleetReferences mocks base method.
-func (m *MockService) GetRepositoryFleetReferences(ctx context.Context, name string) (*v1alpha1.FleetList, v1alpha1.Status) {
+func (m *MockService) GetRepositoryFleetReferences(ctx context.Context, orgId uuid.UUID, name string) (*domain.FleetList, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetRepositoryFleetReferences", ctx, name)
-	ret0, _ := ret[0].(*v1alpha1.FleetList)
-	ret1, _ := ret[1].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "GetRepositoryFleetReferences", ctx, orgId, name)
+	ret0, _ := ret[0].(*domain.FleetList)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // GetRepositoryFleetReferences indicates an expected call of GetRepositoryFleetReferences.
-func (mr *MockServiceMockRecorder) GetRepositoryFleetReferences(ctx, name any) *gomock.Call {
+func (mr *MockServiceMockRecorder) GetRepositoryFleetReferences(ctx, orgId, name any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetRepositoryFleetReferences", reflect.TypeOf((*MockService)(nil).GetRepositoryFleetReferences), ctx, name)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetRepositoryFleetReferences", reflect.TypeOf((*MockService)(nil).GetRepositoryFleetReferences), ctx, orgId, name)
 }
 
 // GetResourceSync mocks base method.
-func (m *MockService) GetResourceSync(ctx context.Context, name string) (*v1alpha1.ResourceSync, v1alpha1.Status) {
+func (m *MockService) GetResourceSync(ctx context.Context, orgId uuid.UUID, name string) (*domain.ResourceSync, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetResourceSync", ctx, name)
-	ret0, _ := ret[0].(*v1alpha1.ResourceSync)
-	ret1, _ := ret[1].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "GetResourceSync", ctx, orgId, name)
+	ret0, _ := ret[0].(*domain.ResourceSync)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // GetResourceSync indicates an expected call of GetResourceSync.
-func (mr *MockServiceMockRecorder) GetResourceSync(ctx, name any) *gomock.Call {
+func (mr *MockServiceMockRecorder) GetResourceSync(ctx, orgId, name any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetResourceSync", reflect.TypeOf((*MockService)(nil).GetResourceSync), ctx, name)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetResourceSync", reflect.TypeOf((*MockService)(nil).GetResourceSync), ctx, orgId, name)
 }
 
 // GetTemplateVersion mocks base method.
-func (m *MockService) GetTemplateVersion(ctx context.Context, fleet, name string) (*v1alpha1.TemplateVersion, v1alpha1.Status) {
+func (m *MockService) GetTemplateVersion(ctx context.Context, orgId uuid.UUID, fleet, name string) (*domain.TemplateVersion, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetTemplateVersion", ctx, fleet, name)
-	ret0, _ := ret[0].(*v1alpha1.TemplateVersion)
-	ret1, _ := ret[1].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "GetTemplateVersion", ctx, orgId, fleet, name)
+	ret0, _ := ret[0].(*domain.TemplateVersion)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // GetTemplateVersion indicates an expected call of GetTemplateVersion.
-func (mr *MockServiceMockRecorder) GetTemplateVersion(ctx, fleet, name any) *gomock.Call {
+func (mr *MockServiceMockRecorder) GetTemplateVersion(ctx, orgId, fleet, name any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetTemplateVersion", reflect.TypeOf((*MockService)(nil).GetTemplateVersion), ctx, fleet, name)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetTemplateVersion", reflect.TypeOf((*MockService)(nil).GetTemplateVersion), ctx, orgId, fleet, name)
+}
+
+// ListAllAuthProviders mocks base method.
+func (m *MockService) ListAllAuthProviders(ctx context.Context, params domain.ListAuthProvidersParams) (*domain.AuthProviderList, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListAllAuthProviders", ctx, params)
+	ret0, _ := ret[0].(*domain.AuthProviderList)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// ListAllAuthProviders indicates an expected call of ListAllAuthProviders.
+func (mr *MockServiceMockRecorder) ListAllAuthProviders(ctx, params any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListAllAuthProviders", reflect.TypeOf((*MockService)(nil).ListAllAuthProviders), ctx, params)
+}
+
+// ListAllCatalogItems mocks base method.
+func (m *MockService) ListAllCatalogItems(ctx context.Context, orgId uuid.UUID, params domain.ListAllCatalogItemsParams) (*domain.CatalogItemList, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListAllCatalogItems", ctx, orgId, params)
+	ret0, _ := ret[0].(*domain.CatalogItemList)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// ListAllCatalogItems indicates an expected call of ListAllCatalogItems.
+func (mr *MockServiceMockRecorder) ListAllCatalogItems(ctx, orgId, params any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListAllCatalogItems", reflect.TypeOf((*MockService)(nil).ListAllCatalogItems), ctx, orgId, params)
+}
+
+// ListAuthProviders mocks base method.
+func (m *MockService) ListAuthProviders(ctx context.Context, orgId uuid.UUID, params domain.ListAuthProvidersParams) (*domain.AuthProviderList, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListAuthProviders", ctx, orgId, params)
+	ret0, _ := ret[0].(*domain.AuthProviderList)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// ListAuthProviders indicates an expected call of ListAuthProviders.
+func (mr *MockServiceMockRecorder) ListAuthProviders(ctx, orgId, params any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListAuthProviders", reflect.TypeOf((*MockService)(nil).ListAuthProviders), ctx, orgId, params)
+}
+
+// ListCatalogItems mocks base method.
+func (m *MockService) ListCatalogItems(ctx context.Context, orgId uuid.UUID, catalogName string, params domain.ListCatalogItemsParams) (*domain.CatalogItemList, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListCatalogItems", ctx, orgId, catalogName, params)
+	ret0, _ := ret[0].(*domain.CatalogItemList)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// ListCatalogItems indicates an expected call of ListCatalogItems.
+func (mr *MockServiceMockRecorder) ListCatalogItems(ctx, orgId, catalogName, params any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListCatalogItems", reflect.TypeOf((*MockService)(nil).ListCatalogItems), ctx, orgId, catalogName, params)
+}
+
+// ListCatalogs mocks base method.
+func (m *MockService) ListCatalogs(ctx context.Context, orgId uuid.UUID, params domain.ListCatalogsParams) (*domain.CatalogList, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListCatalogs", ctx, orgId, params)
+	ret0, _ := ret[0].(*domain.CatalogList)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// ListCatalogs indicates an expected call of ListCatalogs.
+func (mr *MockServiceMockRecorder) ListCatalogs(ctx, orgId, params any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListCatalogs", reflect.TypeOf((*MockService)(nil).ListCatalogs), ctx, orgId, params)
 }
 
 // ListCertificateSigningRequests mocks base method.
-func (m *MockService) ListCertificateSigningRequests(ctx context.Context, params v1alpha1.ListCertificateSigningRequestsParams) (*v1alpha1.CertificateSigningRequestList, v1alpha1.Status) {
+func (m *MockService) ListCertificateSigningRequests(ctx context.Context, orgId uuid.UUID, params domain.ListCertificateSigningRequestsParams) (*domain.CertificateSigningRequestList, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListCertificateSigningRequests", ctx, params)
-	ret0, _ := ret[0].(*v1alpha1.CertificateSigningRequestList)
-	ret1, _ := ret[1].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "ListCertificateSigningRequests", ctx, orgId, params)
+	ret0, _ := ret[0].(*domain.CertificateSigningRequestList)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // ListCertificateSigningRequests indicates an expected call of ListCertificateSigningRequests.
-func (mr *MockServiceMockRecorder) ListCertificateSigningRequests(ctx, params any) *gomock.Call {
+func (mr *MockServiceMockRecorder) ListCertificateSigningRequests(ctx, orgId, params any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListCertificateSigningRequests", reflect.TypeOf((*MockService)(nil).ListCertificateSigningRequests), ctx, params)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListCertificateSigningRequests", reflect.TypeOf((*MockService)(nil).ListCertificateSigningRequests), ctx, orgId, params)
 }
 
 // ListDevices mocks base method.
-func (m *MockService) ListDevices(ctx context.Context, params v1alpha1.ListDevicesParams, annotationSelector *selector.AnnotationSelector) (*v1alpha1.DeviceList, v1alpha1.Status) {
+func (m *MockService) ListDevices(ctx context.Context, orgId uuid.UUID, params domain.ListDevicesParams, annotationSelector *selector.AnnotationSelector) (*domain.DeviceList, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListDevices", ctx, params, annotationSelector)
-	ret0, _ := ret[0].(*v1alpha1.DeviceList)
-	ret1, _ := ret[1].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "ListDevices", ctx, orgId, params, annotationSelector)
+	ret0, _ := ret[0].(*domain.DeviceList)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // ListDevices indicates an expected call of ListDevices.
-func (mr *MockServiceMockRecorder) ListDevices(ctx, params, annotationSelector any) *gomock.Call {
+func (mr *MockServiceMockRecorder) ListDevices(ctx, orgId, params, annotationSelector any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListDevices", reflect.TypeOf((*MockService)(nil).ListDevices), ctx, params, annotationSelector)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListDevices", reflect.TypeOf((*MockService)(nil).ListDevices), ctx, orgId, params, annotationSelector)
 }
 
 // ListDevicesByServiceCondition mocks base method.
-func (m *MockService) ListDevicesByServiceCondition(ctx context.Context, conditionType, conditionStatus string, listParams store.ListParams) (*v1alpha1.DeviceList, v1alpha1.Status) {
+func (m *MockService) ListDevicesByServiceCondition(ctx context.Context, orgId uuid.UUID, conditionType, conditionStatus string, listParams store.ListParams) (*domain.DeviceList, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListDevicesByServiceCondition", ctx, conditionType, conditionStatus, listParams)
-	ret0, _ := ret[0].(*v1alpha1.DeviceList)
-	ret1, _ := ret[1].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "ListDevicesByServiceCondition", ctx, orgId, conditionType, conditionStatus, listParams)
+	ret0, _ := ret[0].(*domain.DeviceList)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // ListDevicesByServiceCondition indicates an expected call of ListDevicesByServiceCondition.
-func (mr *MockServiceMockRecorder) ListDevicesByServiceCondition(ctx, conditionType, conditionStatus, listParams any) *gomock.Call {
+func (mr *MockServiceMockRecorder) ListDevicesByServiceCondition(ctx, orgId, conditionType, conditionStatus, listParams any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListDevicesByServiceCondition", reflect.TypeOf((*MockService)(nil).ListDevicesByServiceCondition), ctx, conditionType, conditionStatus, listParams)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListDevicesByServiceCondition", reflect.TypeOf((*MockService)(nil).ListDevicesByServiceCondition), ctx, orgId, conditionType, conditionStatus, listParams)
 }
 
 // ListDisconnectedDevices mocks base method.
-func (m *MockService) ListDisconnectedDevices(ctx context.Context, params v1alpha1.ListDevicesParams, cutoffTime time.Time) (*v1alpha1.DeviceList, v1alpha1.Status) {
+func (m *MockService) ListDisconnectedDevices(ctx context.Context, orgId uuid.UUID, params domain.ListDevicesParams, cutoffTime time.Time) (*domain.DeviceList, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListDisconnectedDevices", ctx, params, cutoffTime)
-	ret0, _ := ret[0].(*v1alpha1.DeviceList)
-	ret1, _ := ret[1].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "ListDisconnectedDevices", ctx, orgId, params, cutoffTime)
+	ret0, _ := ret[0].(*domain.DeviceList)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // ListDisconnectedDevices indicates an expected call of ListDisconnectedDevices.
-func (mr *MockServiceMockRecorder) ListDisconnectedDevices(ctx, params, cutoffTime any) *gomock.Call {
+func (mr *MockServiceMockRecorder) ListDisconnectedDevices(ctx, orgId, params, cutoffTime any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListDisconnectedDevices", reflect.TypeOf((*MockService)(nil).ListDisconnectedDevices), ctx, params, cutoffTime)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListDisconnectedDevices", reflect.TypeOf((*MockService)(nil).ListDisconnectedDevices), ctx, orgId, params, cutoffTime)
 }
 
 // ListDisruptionBudgetFleets mocks base method.
-func (m *MockService) ListDisruptionBudgetFleets(ctx context.Context) (*v1alpha1.FleetList, v1alpha1.Status) {
+func (m *MockService) ListDisruptionBudgetFleets(ctx context.Context, orgId uuid.UUID) (*domain.FleetList, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListDisruptionBudgetFleets", ctx)
-	ret0, _ := ret[0].(*v1alpha1.FleetList)
-	ret1, _ := ret[1].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "ListDisruptionBudgetFleets", ctx, orgId)
+	ret0, _ := ret[0].(*domain.FleetList)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // ListDisruptionBudgetFleets indicates an expected call of ListDisruptionBudgetFleets.
-func (mr *MockServiceMockRecorder) ListDisruptionBudgetFleets(ctx any) *gomock.Call {
+func (mr *MockServiceMockRecorder) ListDisruptionBudgetFleets(ctx, orgId any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListDisruptionBudgetFleets", reflect.TypeOf((*MockService)(nil).ListDisruptionBudgetFleets), ctx)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListDisruptionBudgetFleets", reflect.TypeOf((*MockService)(nil).ListDisruptionBudgetFleets), ctx, orgId)
 }
 
 // ListEnrollmentRequests mocks base method.
-func (m *MockService) ListEnrollmentRequests(ctx context.Context, params v1alpha1.ListEnrollmentRequestsParams) (*v1alpha1.EnrollmentRequestList, v1alpha1.Status) {
+func (m *MockService) ListEnrollmentRequests(ctx context.Context, orgId uuid.UUID, params domain.ListEnrollmentRequestsParams) (*domain.EnrollmentRequestList, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListEnrollmentRequests", ctx, params)
-	ret0, _ := ret[0].(*v1alpha1.EnrollmentRequestList)
-	ret1, _ := ret[1].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "ListEnrollmentRequests", ctx, orgId, params)
+	ret0, _ := ret[0].(*domain.EnrollmentRequestList)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // ListEnrollmentRequests indicates an expected call of ListEnrollmentRequests.
-func (mr *MockServiceMockRecorder) ListEnrollmentRequests(ctx, params any) *gomock.Call {
+func (mr *MockServiceMockRecorder) ListEnrollmentRequests(ctx, orgId, params any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEnrollmentRequests", reflect.TypeOf((*MockService)(nil).ListEnrollmentRequests), ctx, params)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEnrollmentRequests", reflect.TypeOf((*MockService)(nil).ListEnrollmentRequests), ctx, orgId, params)
 }
 
 // ListEvents mocks base method.
-func (m *MockService) ListEvents(ctx context.Context, params v1alpha1.ListEventsParams) (*v1alpha1.EventList, v1alpha1.Status) {
+func (m *MockService) ListEvents(ctx context.Context, orgId uuid.UUID, params domain.ListEventsParams) (*domain.EventList, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListEvents", ctx, params)
-	ret0, _ := ret[0].(*v1alpha1.EventList)
-	ret1, _ := ret[1].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "ListEvents", ctx, orgId, params)
+	ret0, _ := ret[0].(*domain.EventList)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // ListEvents indicates an expected call of ListEvents.
-func (mr *MockServiceMockRecorder) ListEvents(ctx, params any) *gomock.Call {
+func (mr *MockServiceMockRecorder) ListEvents(ctx, orgId, params any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEvents", reflect.TypeOf((*MockService)(nil).ListEvents), ctx, params)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEvents", reflect.TypeOf((*MockService)(nil).ListEvents), ctx, orgId, params)
 }
 
 // ListFleetRolloutDeviceSelection mocks base method.
-func (m *MockService) ListFleetRolloutDeviceSelection(ctx context.Context) (*v1alpha1.FleetList, v1alpha1.Status) {
+func (m *MockService) ListFleetRolloutDeviceSelection(ctx context.Context, orgId uuid.UUID) (*domain.FleetList, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListFleetRolloutDeviceSelection", ctx)
-	ret0, _ := ret[0].(*v1alpha1.FleetList)
-	ret1, _ := ret[1].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "ListFleetRolloutDeviceSelection", ctx, orgId)
+	ret0, _ := ret[0].(*domain.FleetList)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // ListFleetRolloutDeviceSelection indicates an expected call of ListFleetRolloutDeviceSelection.
-func (mr *MockServiceMockRecorder) ListFleetRolloutDeviceSelection(ctx any) *gomock.Call {
+func (mr *MockServiceMockRecorder) ListFleetRolloutDeviceSelection(ctx, orgId any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListFleetRolloutDeviceSelection", reflect.TypeOf((*MockService)(nil).ListFleetRolloutDeviceSelection), ctx)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListFleetRolloutDeviceSelection", reflect.TypeOf((*MockService)(nil).ListFleetRolloutDeviceSelection), ctx, orgId)
 }
 
 // ListFleets mocks base method.
-func (m *MockService) ListFleets(ctx context.Context, params v1alpha1.ListFleetsParams) (*v1alpha1.FleetList, v1alpha1.Status) {
+func (m *MockService) ListFleets(ctx context.Context, orgId uuid.UUID, params domain.ListFleetsParams) (*domain.FleetList, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListFleets", ctx, params)
-	ret0, _ := ret[0].(*v1alpha1.FleetList)
-	ret1, _ := ret[1].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "ListFleets", ctx, orgId, params)
+	ret0, _ := ret[0].(*domain.FleetList)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // ListFleets indicates an expected call of ListFleets.
-func (mr *MockServiceMockRecorder) ListFleets(ctx, params any) *gomock.Call {
+func (mr *MockServiceMockRecorder) ListFleets(ctx, orgId, params any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListFleets", reflect.TypeOf((*MockService)(nil).ListFleets), ctx, params)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListFleets", reflect.TypeOf((*MockService)(nil).ListFleets), ctx, orgId, params)
 }
 
 // ListLabels mocks base method.
-func (m *MockService) ListLabels(ctx context.Context, params v1alpha1.ListLabelsParams) (*v1alpha1.LabelList, v1alpha1.Status) {
+func (m *MockService) ListLabels(ctx context.Context, orgId uuid.UUID, params domain.ListLabelsParams) (*domain.LabelList, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListLabels", ctx, params)
-	ret0, _ := ret[0].(*v1alpha1.LabelList)
-	ret1, _ := ret[1].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "ListLabels", ctx, orgId, params)
+	ret0, _ := ret[0].(*domain.LabelList)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // ListLabels indicates an expected call of ListLabels.
-func (mr *MockServiceMockRecorder) ListLabels(ctx, params any) *gomock.Call {
+func (mr *MockServiceMockRecorder) ListLabels(ctx, orgId, params any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListLabels", reflect.TypeOf((*MockService)(nil).ListLabels), ctx, params)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListLabels", reflect.TypeOf((*MockService)(nil).ListLabels), ctx, orgId, params)
 }
 
 // ListOrganizations mocks base method.
-func (m *MockService) ListOrganizations(ctx context.Context) (*v1alpha1.OrganizationList, v1alpha1.Status) {
+func (m *MockService) ListOrganizations(ctx context.Context, params domain.ListOrganizationsParams) (*domain.OrganizationList, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListOrganizations", ctx)
-	ret0, _ := ret[0].(*v1alpha1.OrganizationList)
-	ret1, _ := ret[1].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "ListOrganizations", ctx, params)
+	ret0, _ := ret[0].(*domain.OrganizationList)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // ListOrganizations indicates an expected call of ListOrganizations.
-func (mr *MockServiceMockRecorder) ListOrganizations(ctx any) *gomock.Call {
+func (mr *MockServiceMockRecorder) ListOrganizations(ctx, params any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListOrganizations", reflect.TypeOf((*MockService)(nil).ListOrganizations), ctx)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListOrganizations", reflect.TypeOf((*MockService)(nil).ListOrganizations), ctx, params)
 }
 
 // ListRepositories mocks base method.
-func (m *MockService) ListRepositories(ctx context.Context, params v1alpha1.ListRepositoriesParams) (*v1alpha1.RepositoryList, v1alpha1.Status) {
+func (m *MockService) ListRepositories(ctx context.Context, orgId uuid.UUID, params domain.ListRepositoriesParams) (*domain.RepositoryList, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListRepositories", ctx, params)
-	ret0, _ := ret[0].(*v1alpha1.RepositoryList)
-	ret1, _ := ret[1].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "ListRepositories", ctx, orgId, params)
+	ret0, _ := ret[0].(*domain.RepositoryList)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // ListRepositories indicates an expected call of ListRepositories.
-func (mr *MockServiceMockRecorder) ListRepositories(ctx, params any) *gomock.Call {
+func (mr *MockServiceMockRecorder) ListRepositories(ctx, orgId, params any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListRepositories", reflect.TypeOf((*MockService)(nil).ListRepositories), ctx, params)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListRepositories", reflect.TypeOf((*MockService)(nil).ListRepositories), ctx, orgId, params)
 }
 
 // ListResourceSyncs mocks base method.
-func (m *MockService) ListResourceSyncs(ctx context.Context, params v1alpha1.ListResourceSyncsParams) (*v1alpha1.ResourceSyncList, v1alpha1.Status) {
+func (m *MockService) ListResourceSyncs(ctx context.Context, orgId uuid.UUID, params domain.ListResourceSyncsParams) (*domain.ResourceSyncList, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListResourceSyncs", ctx, params)
-	ret0, _ := ret[0].(*v1alpha1.ResourceSyncList)
-	ret1, _ := ret[1].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "ListResourceSyncs", ctx, orgId, params)
+	ret0, _ := ret[0].(*domain.ResourceSyncList)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // ListResourceSyncs indicates an expected call of ListResourceSyncs.
-func (mr *MockServiceMockRecorder) ListResourceSyncs(ctx, params any) *gomock.Call {
+func (mr *MockServiceMockRecorder) ListResourceSyncs(ctx, orgId, params any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListResourceSyncs", reflect.TypeOf((*MockService)(nil).ListResourceSyncs), ctx, params)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListResourceSyncs", reflect.TypeOf((*MockService)(nil).ListResourceSyncs), ctx, orgId, params)
 }
 
 // ListTemplateVersions mocks base method.
-func (m *MockService) ListTemplateVersions(ctx context.Context, fleet string, params v1alpha1.ListTemplateVersionsParams) (*v1alpha1.TemplateVersionList, v1alpha1.Status) {
+func (m *MockService) ListTemplateVersions(ctx context.Context, orgId uuid.UUID, fleet string, params domain.ListTemplateVersionsParams) (*domain.TemplateVersionList, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListTemplateVersions", ctx, fleet, params)
-	ret0, _ := ret[0].(*v1alpha1.TemplateVersionList)
-	ret1, _ := ret[1].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "ListTemplateVersions", ctx, orgId, fleet, params)
+	ret0, _ := ret[0].(*domain.TemplateVersionList)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // ListTemplateVersions indicates an expected call of ListTemplateVersions.
-func (mr *MockServiceMockRecorder) ListTemplateVersions(ctx, fleet, params any) *gomock.Call {
+func (mr *MockServiceMockRecorder) ListTemplateVersions(ctx, orgId, fleet, params any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListTemplateVersions", reflect.TypeOf((*MockService)(nil).ListTemplateVersions), ctx, fleet, params)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListTemplateVersions", reflect.TypeOf((*MockService)(nil).ListTemplateVersions), ctx, orgId, fleet, params)
 }
 
 // MarkDevicesRolloutSelection mocks base method.
-func (m *MockService) MarkDevicesRolloutSelection(ctx context.Context, params v1alpha1.ListDevicesParams, annotationSelector *selector.AnnotationSelector, limit *int) v1alpha1.Status {
+func (m *MockService) MarkDevicesRolloutSelection(ctx context.Context, orgId uuid.UUID, params domain.ListDevicesParams, annotationSelector *selector.AnnotationSelector, limit *int) domain.Status {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "MarkDevicesRolloutSelection", ctx, params, annotationSelector, limit)
-	ret0, _ := ret[0].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "MarkDevicesRolloutSelection", ctx, orgId, params, annotationSelector, limit)
+	ret0, _ := ret[0].(domain.Status)
 	return ret0
 }
 
 // MarkDevicesRolloutSelection indicates an expected call of MarkDevicesRolloutSelection.
-func (mr *MockServiceMockRecorder) MarkDevicesRolloutSelection(ctx, params, annotationSelector, limit any) *gomock.Call {
+func (mr *MockServiceMockRecorder) MarkDevicesRolloutSelection(ctx, orgId, params, annotationSelector, limit any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkDevicesRolloutSelection", reflect.TypeOf((*MockService)(nil).MarkDevicesRolloutSelection), ctx, params, annotationSelector, limit)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkDevicesRolloutSelection", reflect.TypeOf((*MockService)(nil).MarkDevicesRolloutSelection), ctx, orgId, params, annotationSelector, limit)
 }
 
 // OverwriteDeviceRepositoryRefs mocks base method.
-func (m *MockService) OverwriteDeviceRepositoryRefs(ctx context.Context, name string, repositoryNames ...string) v1alpha1.Status {
+func (m *MockService) OverwriteDeviceRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) domain.Status {
 	m.ctrl.T.Helper()
-	varargs := []any{ctx, name}
+	varargs := []any{ctx, orgId, name}
 	for _, a := range repositoryNames {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "OverwriteDeviceRepositoryRefs", varargs...)
-	ret0, _ := ret[0].(v1alpha1.Status)
+	ret0, _ := ret[0].(domain.Status)
 	return ret0
 }
 
 // OverwriteDeviceRepositoryRefs indicates an expected call of OverwriteDeviceRepositoryRefs.
-func (mr *MockServiceMockRecorder) OverwriteDeviceRepositoryRefs(ctx, name any, repositoryNames ...any) *gomock.Call {
+func (mr *MockServiceMockRecorder) OverwriteDeviceRepositoryRefs(ctx, orgId, name any, repositoryNames ...any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	varargs := append([]any{ctx, name}, repositoryNames...)
+	varargs := append([]any{ctx, orgId, name}, repositoryNames...)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OverwriteDeviceRepositoryRefs", reflect.TypeOf((*MockService)(nil).OverwriteDeviceRepositoryRefs), varargs...)
 }
 
 // OverwriteFleetRepositoryRefs mocks base method.
-func (m *MockService) OverwriteFleetRepositoryRefs(ctx context.Context, name string, repositoryNames ...string) v1alpha1.Status {
+func (m *MockService) OverwriteFleetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) domain.Status {
 	m.ctrl.T.Helper()
-	varargs := []any{ctx, name}
+	varargs := []any{ctx, orgId, name}
 	for _, a := range repositoryNames {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "OverwriteFleetRepositoryRefs", varargs...)
-	ret0, _ := ret[0].(v1alpha1.Status)
+	ret0, _ := ret[0].(domain.Status)
 	return ret0
 }
 
 // OverwriteFleetRepositoryRefs indicates an expected call of OverwriteFleetRepositoryRefs.
-func (mr *MockServiceMockRecorder) OverwriteFleetRepositoryRefs(ctx, name any, repositoryNames ...any) *gomock.Call {
+func (mr *MockServiceMockRecorder) OverwriteFleetRepositoryRefs(ctx, orgId, name any, repositoryNames ...any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	varargs := append([]any{ctx, name}, repositoryNames...)
+	varargs := append([]any{ctx, orgId, name}, repositoryNames...)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OverwriteFleetRepositoryRefs", reflect.TypeOf((*MockService)(nil).OverwriteFleetRepositoryRefs), varargs...)
 }
 
-// PatchCertificateSigningRequest mocks base method.
-func (m *MockService) PatchCertificateSigningRequest(ctx context.Context, name string, patch v1alpha1.PatchRequest) (*v1alpha1.CertificateSigningRequest, v1alpha1.Status) {
+// PatchAuthProvider mocks base method.
+func (m *MockService) PatchAuthProvider(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest) (*domain.AuthProvider, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "PatchCertificateSigningRequest", ctx, name, patch)
-	ret0, _ := ret[0].(*v1alpha1.CertificateSigningRequest)
-	ret1, _ := ret[1].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "PatchAuthProvider", ctx, orgId, name, patch)
+	ret0, _ := ret[0].(*domain.AuthProvider)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// PatchAuthProvider indicates an expected call of PatchAuthProvider.
+func (mr *MockServiceMockRecorder) PatchAuthProvider(ctx, orgId, name, patch any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PatchAuthProvider", reflect.TypeOf((*MockService)(nil).PatchAuthProvider), ctx, orgId, name, patch)
+}
+
+// PatchCatalog mocks base method.
+func (m *MockService) PatchCatalog(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest) (*domain.Catalog, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PatchCatalog", ctx, orgId, name, patch)
+	ret0, _ := ret[0].(*domain.Catalog)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// PatchCatalog indicates an expected call of PatchCatalog.
+func (mr *MockServiceMockRecorder) PatchCatalog(ctx, orgId, name, patch any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PatchCatalog", reflect.TypeOf((*MockService)(nil).PatchCatalog), ctx, orgId, name, patch)
+}
+
+// PatchCatalogStatus mocks base method.
+func (m *MockService) PatchCatalogStatus(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest) (*domain.Catalog, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PatchCatalogStatus", ctx, orgId, name, patch)
+	ret0, _ := ret[0].(*domain.Catalog)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// PatchCatalogStatus indicates an expected call of PatchCatalogStatus.
+func (mr *MockServiceMockRecorder) PatchCatalogStatus(ctx, orgId, name, patch any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PatchCatalogStatus", reflect.TypeOf((*MockService)(nil).PatchCatalogStatus), ctx, orgId, name, patch)
+}
+
+// PatchCertificateSigningRequest mocks base method.
+func (m *MockService) PatchCertificateSigningRequest(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest) (*domain.CertificateSigningRequest, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PatchCertificateSigningRequest", ctx, orgId, name, patch)
+	ret0, _ := ret[0].(*domain.CertificateSigningRequest)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // PatchCertificateSigningRequest indicates an expected call of PatchCertificateSigningRequest.
-func (mr *MockServiceMockRecorder) PatchCertificateSigningRequest(ctx, name, patch any) *gomock.Call {
+func (mr *MockServiceMockRecorder) PatchCertificateSigningRequest(ctx, orgId, name, patch any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PatchCertificateSigningRequest", reflect.TypeOf((*MockService)(nil).PatchCertificateSigningRequest), ctx, name, patch)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PatchCertificateSigningRequest", reflect.TypeOf((*MockService)(nil).PatchCertificateSigningRequest), ctx, orgId, name, patch)
 }
 
 // PatchDevice mocks base method.
-func (m *MockService) PatchDevice(ctx context.Context, name string, patch v1alpha1.PatchRequest) (*v1alpha1.Device, v1alpha1.Status) {
+func (m *MockService) PatchDevice(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest) (*domain.Device, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "PatchDevice", ctx, name, patch)
-	ret0, _ := ret[0].(*v1alpha1.Device)
-	ret1, _ := ret[1].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "PatchDevice", ctx, orgId, name, patch)
+	ret0, _ := ret[0].(*domain.Device)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // PatchDevice indicates an expected call of PatchDevice.
-func (mr *MockServiceMockRecorder) PatchDevice(ctx, name, patch any) *gomock.Call {
+func (mr *MockServiceMockRecorder) PatchDevice(ctx, orgId, name, patch any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PatchDevice", reflect.TypeOf((*MockService)(nil).PatchDevice), ctx, name, patch)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PatchDevice", reflect.TypeOf((*MockService)(nil).PatchDevice), ctx, orgId, name, patch)
 }
 
 // PatchDeviceStatus mocks base method.
-func (m *MockService) PatchDeviceStatus(ctx context.Context, name string, patch v1alpha1.PatchRequest) (*v1alpha1.Device, v1alpha1.Status) {
+func (m *MockService) PatchDeviceStatus(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest) (*domain.Device, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "PatchDeviceStatus", ctx, name, patch)
-	ret0, _ := ret[0].(*v1alpha1.Device)
-	ret1, _ := ret[1].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "PatchDeviceStatus", ctx, orgId, name, patch)
+	ret0, _ := ret[0].(*domain.Device)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // PatchDeviceStatus indicates an expected call of PatchDeviceStatus.
-func (mr *MockServiceMockRecorder) PatchDeviceStatus(ctx, name, patch any) *gomock.Call {
+func (mr *MockServiceMockRecorder) PatchDeviceStatus(ctx, orgId, name, patch any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PatchDeviceStatus", reflect.TypeOf((*MockService)(nil).PatchDeviceStatus), ctx, name, patch)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PatchDeviceStatus", reflect.TypeOf((*MockService)(nil).PatchDeviceStatus), ctx, orgId, name, patch)
 }
 
 // PatchEnrollmentRequest mocks base method.
-func (m *MockService) PatchEnrollmentRequest(ctx context.Context, name string, patch v1alpha1.PatchRequest) (*v1alpha1.EnrollmentRequest, v1alpha1.Status) {
+func (m *MockService) PatchEnrollmentRequest(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest) (*domain.EnrollmentRequest, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "PatchEnrollmentRequest", ctx, name, patch)
-	ret0, _ := ret[0].(*v1alpha1.EnrollmentRequest)
-	ret1, _ := ret[1].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "PatchEnrollmentRequest", ctx, orgId, name, patch)
+	ret0, _ := ret[0].(*domain.EnrollmentRequest)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // PatchEnrollmentRequest indicates an expected call of PatchEnrollmentRequest.
-func (mr *MockServiceMockRecorder) PatchEnrollmentRequest(ctx, name, patch any) *gomock.Call {
+func (mr *MockServiceMockRecorder) PatchEnrollmentRequest(ctx, orgId, name, patch any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PatchEnrollmentRequest", reflect.TypeOf((*MockService)(nil).PatchEnrollmentRequest), ctx, name, patch)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PatchEnrollmentRequest", reflect.TypeOf((*MockService)(nil).PatchEnrollmentRequest), ctx, orgId, name, patch)
 }
 
 // PatchFleet mocks base method.
-func (m *MockService) PatchFleet(ctx context.Context, name string, patch v1alpha1.PatchRequest) (*v1alpha1.Fleet, v1alpha1.Status) {
+func (m *MockService) PatchFleet(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest) (*domain.Fleet, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "PatchFleet", ctx, name, patch)
-	ret0, _ := ret[0].(*v1alpha1.Fleet)
-	ret1, _ := ret[1].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "PatchFleet", ctx, orgId, name, patch)
+	ret0, _ := ret[0].(*domain.Fleet)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // PatchFleet indicates an expected call of PatchFleet.
-func (mr *MockServiceMockRecorder) PatchFleet(ctx, name, patch any) *gomock.Call {
+func (mr *MockServiceMockRecorder) PatchFleet(ctx, orgId, name, patch any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PatchFleet", reflect.TypeOf((*MockService)(nil).PatchFleet), ctx, name, patch)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PatchFleet", reflect.TypeOf((*MockService)(nil).PatchFleet), ctx, orgId, name, patch)
 }
 
 // PatchRepository mocks base method.
-func (m *MockService) PatchRepository(ctx context.Context, name string, patch v1alpha1.PatchRequest) (*v1alpha1.Repository, v1alpha1.Status) {
+func (m *MockService) PatchRepository(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest) (*domain.Repository, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "PatchRepository", ctx, name, patch)
-	ret0, _ := ret[0].(*v1alpha1.Repository)
-	ret1, _ := ret[1].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "PatchRepository", ctx, orgId, name, patch)
+	ret0, _ := ret[0].(*domain.Repository)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // PatchRepository indicates an expected call of PatchRepository.
-func (mr *MockServiceMockRecorder) PatchRepository(ctx, name, patch any) *gomock.Call {
+func (mr *MockServiceMockRecorder) PatchRepository(ctx, orgId, name, patch any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PatchRepository", reflect.TypeOf((*MockService)(nil).PatchRepository), ctx, name, patch)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PatchRepository", reflect.TypeOf((*MockService)(nil).PatchRepository), ctx, orgId, name, patch)
 }
 
 // PatchResourceSync mocks base method.
-func (m *MockService) PatchResourceSync(ctx context.Context, name string, patch v1alpha1.PatchRequest) (*v1alpha1.ResourceSync, v1alpha1.Status) {
+func (m *MockService) PatchResourceSync(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest) (*domain.ResourceSync, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "PatchResourceSync", ctx, name, patch)
-	ret0, _ := ret[0].(*v1alpha1.ResourceSync)
-	ret1, _ := ret[1].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "PatchResourceSync", ctx, orgId, name, patch)
+	ret0, _ := ret[0].(*domain.ResourceSync)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // PatchResourceSync indicates an expected call of PatchResourceSync.
-func (mr *MockServiceMockRecorder) PatchResourceSync(ctx, name, patch any) *gomock.Call {
+func (mr *MockServiceMockRecorder) PatchResourceSync(ctx, orgId, name, patch any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PatchResourceSync", reflect.TypeOf((*MockService)(nil).PatchResourceSync), ctx, name, patch)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PatchResourceSync", reflect.TypeOf((*MockService)(nil).PatchResourceSync), ctx, orgId, name, patch)
+}
+
+// ReplaceAuthProvider mocks base method.
+func (m *MockService) ReplaceAuthProvider(ctx context.Context, orgId uuid.UUID, name string, authProvider domain.AuthProvider) (*domain.AuthProvider, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReplaceAuthProvider", ctx, orgId, name, authProvider)
+	ret0, _ := ret[0].(*domain.AuthProvider)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// ReplaceAuthProvider indicates an expected call of ReplaceAuthProvider.
+func (mr *MockServiceMockRecorder) ReplaceAuthProvider(ctx, orgId, name, authProvider any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceAuthProvider", reflect.TypeOf((*MockService)(nil).ReplaceAuthProvider), ctx, orgId, name, authProvider)
+}
+
+// ReplaceCatalog mocks base method.
+func (m *MockService) ReplaceCatalog(ctx context.Context, orgId uuid.UUID, name string, catalog domain.Catalog) (*domain.Catalog, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReplaceCatalog", ctx, orgId, name, catalog)
+	ret0, _ := ret[0].(*domain.Catalog)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// ReplaceCatalog indicates an expected call of ReplaceCatalog.
+func (mr *MockServiceMockRecorder) ReplaceCatalog(ctx, orgId, name, catalog any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceCatalog", reflect.TypeOf((*MockService)(nil).ReplaceCatalog), ctx, orgId, name, catalog)
+}
+
+// ReplaceCatalogItem mocks base method.
+func (m *MockService) ReplaceCatalogItem(ctx context.Context, orgId uuid.UUID, catalogName, itemName string, item domain.CatalogItem) (*domain.CatalogItem, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReplaceCatalogItem", ctx, orgId, catalogName, itemName, item)
+	ret0, _ := ret[0].(*domain.CatalogItem)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// ReplaceCatalogItem indicates an expected call of ReplaceCatalogItem.
+func (mr *MockServiceMockRecorder) ReplaceCatalogItem(ctx, orgId, catalogName, itemName, item any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceCatalogItem", reflect.TypeOf((*MockService)(nil).ReplaceCatalogItem), ctx, orgId, catalogName, itemName, item)
+}
+
+// ReplaceCatalogStatus mocks base method.
+func (m *MockService) ReplaceCatalogStatus(ctx context.Context, orgId uuid.UUID, name string, catalog domain.Catalog) (*domain.Catalog, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReplaceCatalogStatus", ctx, orgId, name, catalog)
+	ret0, _ := ret[0].(*domain.Catalog)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// ReplaceCatalogStatus indicates an expected call of ReplaceCatalogStatus.
+func (mr *MockServiceMockRecorder) ReplaceCatalogStatus(ctx, orgId, name, catalog any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceCatalogStatus", reflect.TypeOf((*MockService)(nil).ReplaceCatalogStatus), ctx, orgId, name, catalog)
 }
 
 // ReplaceCertificateSigningRequest mocks base method.
-func (m *MockService) ReplaceCertificateSigningRequest(ctx context.Context, name string, csr v1alpha1.CertificateSigningRequest) (*v1alpha1.CertificateSigningRequest, v1alpha1.Status) {
+func (m *MockService) ReplaceCertificateSigningRequest(ctx context.Context, orgId uuid.UUID, name string, csr domain.CertificateSigningRequest) (*domain.CertificateSigningRequest, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ReplaceCertificateSigningRequest", ctx, name, csr)
-	ret0, _ := ret[0].(*v1alpha1.CertificateSigningRequest)
-	ret1, _ := ret[1].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "ReplaceCertificateSigningRequest", ctx, orgId, name, csr)
+	ret0, _ := ret[0].(*domain.CertificateSigningRequest)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // ReplaceCertificateSigningRequest indicates an expected call of ReplaceCertificateSigningRequest.
-func (mr *MockServiceMockRecorder) ReplaceCertificateSigningRequest(ctx, name, csr any) *gomock.Call {
+func (mr *MockServiceMockRecorder) ReplaceCertificateSigningRequest(ctx, orgId, name, csr any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceCertificateSigningRequest", reflect.TypeOf((*MockService)(nil).ReplaceCertificateSigningRequest), ctx, name, csr)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceCertificateSigningRequest", reflect.TypeOf((*MockService)(nil).ReplaceCertificateSigningRequest), ctx, orgId, name, csr)
 }
 
 // ReplaceDevice mocks base method.
-func (m *MockService) ReplaceDevice(ctx context.Context, name string, device v1alpha1.Device, fieldsToUnset []string) (*v1alpha1.Device, v1alpha1.Status) {
+func (m *MockService) ReplaceDevice(ctx context.Context, orgId uuid.UUID, name string, device domain.Device, fieldsToUnset []string) (*domain.Device, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ReplaceDevice", ctx, name, device, fieldsToUnset)
-	ret0, _ := ret[0].(*v1alpha1.Device)
-	ret1, _ := ret[1].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "ReplaceDevice", ctx, orgId, name, device, fieldsToUnset)
+	ret0, _ := ret[0].(*domain.Device)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // ReplaceDevice indicates an expected call of ReplaceDevice.
-func (mr *MockServiceMockRecorder) ReplaceDevice(ctx, name, device, fieldsToUnset any) *gomock.Call {
+func (mr *MockServiceMockRecorder) ReplaceDevice(ctx, orgId, name, device, fieldsToUnset any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceDevice", reflect.TypeOf((*MockService)(nil).ReplaceDevice), ctx, name, device, fieldsToUnset)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceDevice", reflect.TypeOf((*MockService)(nil).ReplaceDevice), ctx, orgId, name, device, fieldsToUnset)
 }
 
 // ReplaceDeviceStatus mocks base method.
-func (m *MockService) ReplaceDeviceStatus(ctx context.Context, name string, device v1alpha1.Device) (*v1alpha1.Device, v1alpha1.Status) {
+func (m *MockService) ReplaceDeviceStatus(ctx context.Context, orgId uuid.UUID, name string, device domain.Device) (*domain.Device, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ReplaceDeviceStatus", ctx, name, device)
-	ret0, _ := ret[0].(*v1alpha1.Device)
-	ret1, _ := ret[1].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "ReplaceDeviceStatus", ctx, orgId, name, device)
+	ret0, _ := ret[0].(*domain.Device)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // ReplaceDeviceStatus indicates an expected call of ReplaceDeviceStatus.
-func (mr *MockServiceMockRecorder) ReplaceDeviceStatus(ctx, name, device any) *gomock.Call {
+func (mr *MockServiceMockRecorder) ReplaceDeviceStatus(ctx, orgId, name, device any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceDeviceStatus", reflect.TypeOf((*MockService)(nil).ReplaceDeviceStatus), ctx, name, device)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceDeviceStatus", reflect.TypeOf((*MockService)(nil).ReplaceDeviceStatus), ctx, orgId, name, device)
 }
 
 // ReplaceEnrollmentRequest mocks base method.
-func (m *MockService) ReplaceEnrollmentRequest(ctx context.Context, name string, er v1alpha1.EnrollmentRequest) (*v1alpha1.EnrollmentRequest, v1alpha1.Status) {
+func (m *MockService) ReplaceEnrollmentRequest(ctx context.Context, orgId uuid.UUID, name string, er domain.EnrollmentRequest) (*domain.EnrollmentRequest, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ReplaceEnrollmentRequest", ctx, name, er)
-	ret0, _ := ret[0].(*v1alpha1.EnrollmentRequest)
-	ret1, _ := ret[1].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "ReplaceEnrollmentRequest", ctx, orgId, name, er)
+	ret0, _ := ret[0].(*domain.EnrollmentRequest)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // ReplaceEnrollmentRequest indicates an expected call of ReplaceEnrollmentRequest.
-func (mr *MockServiceMockRecorder) ReplaceEnrollmentRequest(ctx, name, er any) *gomock.Call {
+func (mr *MockServiceMockRecorder) ReplaceEnrollmentRequest(ctx, orgId, name, er any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceEnrollmentRequest", reflect.TypeOf((*MockService)(nil).ReplaceEnrollmentRequest), ctx, name, er)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceEnrollmentRequest", reflect.TypeOf((*MockService)(nil).ReplaceEnrollmentRequest), ctx, orgId, name, er)
 }
 
 // ReplaceEnrollmentRequestStatus mocks base method.
-func (m *MockService) ReplaceEnrollmentRequestStatus(ctx context.Context, name string, er v1alpha1.EnrollmentRequest) (*v1alpha1.EnrollmentRequest, v1alpha1.Status) {
+func (m *MockService) ReplaceEnrollmentRequestStatus(ctx context.Context, orgId uuid.UUID, name string, er domain.EnrollmentRequest) (*domain.EnrollmentRequest, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ReplaceEnrollmentRequestStatus", ctx, name, er)
-	ret0, _ := ret[0].(*v1alpha1.EnrollmentRequest)
-	ret1, _ := ret[1].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "ReplaceEnrollmentRequestStatus", ctx, orgId, name, er)
+	ret0, _ := ret[0].(*domain.EnrollmentRequest)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // ReplaceEnrollmentRequestStatus indicates an expected call of ReplaceEnrollmentRequestStatus.
-func (mr *MockServiceMockRecorder) ReplaceEnrollmentRequestStatus(ctx, name, er any) *gomock.Call {
+func (mr *MockServiceMockRecorder) ReplaceEnrollmentRequestStatus(ctx, orgId, name, er any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceEnrollmentRequestStatus", reflect.TypeOf((*MockService)(nil).ReplaceEnrollmentRequestStatus), ctx, name, er)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceEnrollmentRequestStatus", reflect.TypeOf((*MockService)(nil).ReplaceEnrollmentRequestStatus), ctx, orgId, name, er)
 }
 
 // ReplaceFleet mocks base method.
-func (m *MockService) ReplaceFleet(ctx context.Context, name string, fleet v1alpha1.Fleet) (*v1alpha1.Fleet, v1alpha1.Status) {
+func (m *MockService) ReplaceFleet(ctx context.Context, orgId uuid.UUID, name string, fleet domain.Fleet) (*domain.Fleet, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ReplaceFleet", ctx, name, fleet)
-	ret0, _ := ret[0].(*v1alpha1.Fleet)
-	ret1, _ := ret[1].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "ReplaceFleet", ctx, orgId, name, fleet)
+	ret0, _ := ret[0].(*domain.Fleet)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // ReplaceFleet indicates an expected call of ReplaceFleet.
-func (mr *MockServiceMockRecorder) ReplaceFleet(ctx, name, fleet any) *gomock.Call {
+func (mr *MockServiceMockRecorder) ReplaceFleet(ctx, orgId, name, fleet any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceFleet", reflect.TypeOf((*MockService)(nil).ReplaceFleet), ctx, name, fleet)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceFleet", reflect.TypeOf((*MockService)(nil).ReplaceFleet), ctx, orgId, name, fleet)
 }
 
 // ReplaceFleetStatus mocks base method.
-func (m *MockService) ReplaceFleetStatus(ctx context.Context, name string, fleet v1alpha1.Fleet) (*v1alpha1.Fleet, v1alpha1.Status) {
+func (m *MockService) ReplaceFleetStatus(ctx context.Context, orgId uuid.UUID, name string, fleet domain.Fleet) (*domain.Fleet, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ReplaceFleetStatus", ctx, name, fleet)
-	ret0, _ := ret[0].(*v1alpha1.Fleet)
-	ret1, _ := ret[1].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "ReplaceFleetStatus", ctx, orgId, name, fleet)
+	ret0, _ := ret[0].(*domain.Fleet)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // ReplaceFleetStatus indicates an expected call of ReplaceFleetStatus.
-func (mr *MockServiceMockRecorder) ReplaceFleetStatus(ctx, name, fleet any) *gomock.Call {
+func (mr *MockServiceMockRecorder) ReplaceFleetStatus(ctx, orgId, name, fleet any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceFleetStatus", reflect.TypeOf((*MockService)(nil).ReplaceFleetStatus), ctx, name, fleet)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceFleetStatus", reflect.TypeOf((*MockService)(nil).ReplaceFleetStatus), ctx, orgId, name, fleet)
 }
 
 // ReplaceRepository mocks base method.
-func (m *MockService) ReplaceRepository(ctx context.Context, name string, repo v1alpha1.Repository) (*v1alpha1.Repository, v1alpha1.Status) {
+func (m *MockService) ReplaceRepository(ctx context.Context, orgId uuid.UUID, name string, repo domain.Repository) (*domain.Repository, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ReplaceRepository", ctx, name, repo)
-	ret0, _ := ret[0].(*v1alpha1.Repository)
-	ret1, _ := ret[1].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "ReplaceRepository", ctx, orgId, name, repo)
+	ret0, _ := ret[0].(*domain.Repository)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // ReplaceRepository indicates an expected call of ReplaceRepository.
-func (mr *MockServiceMockRecorder) ReplaceRepository(ctx, name, repo any) *gomock.Call {
+func (mr *MockServiceMockRecorder) ReplaceRepository(ctx, orgId, name, repo any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceRepository", reflect.TypeOf((*MockService)(nil).ReplaceRepository), ctx, name, repo)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceRepository", reflect.TypeOf((*MockService)(nil).ReplaceRepository), ctx, orgId, name, repo)
 }
 
 // ReplaceRepositoryStatusByError mocks base method.
-func (m *MockService) ReplaceRepositoryStatusByError(ctx context.Context, name string, repository v1alpha1.Repository, err error) (*v1alpha1.Repository, v1alpha1.Status) {
+func (m *MockService) ReplaceRepositoryStatusByError(ctx context.Context, orgId uuid.UUID, name string, repository domain.Repository, err error) (*domain.Repository, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ReplaceRepositoryStatusByError", ctx, name, repository, err)
-	ret0, _ := ret[0].(*v1alpha1.Repository)
-	ret1, _ := ret[1].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "ReplaceRepositoryStatusByError", ctx, orgId, name, repository, err)
+	ret0, _ := ret[0].(*domain.Repository)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // ReplaceRepositoryStatusByError indicates an expected call of ReplaceRepositoryStatusByError.
-func (mr *MockServiceMockRecorder) ReplaceRepositoryStatusByError(ctx, name, repository, err any) *gomock.Call {
+func (mr *MockServiceMockRecorder) ReplaceRepositoryStatusByError(ctx, orgId, name, repository, err any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceRepositoryStatusByError", reflect.TypeOf((*MockService)(nil).ReplaceRepositoryStatusByError), ctx, name, repository, err)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceRepositoryStatusByError", reflect.TypeOf((*MockService)(nil).ReplaceRepositoryStatusByError), ctx, orgId, name, repository, err)
 }
 
 // ReplaceResourceSync mocks base method.
-func (m *MockService) ReplaceResourceSync(ctx context.Context, name string, rs v1alpha1.ResourceSync) (*v1alpha1.ResourceSync, v1alpha1.Status) {
+func (m *MockService) ReplaceResourceSync(ctx context.Context, orgId uuid.UUID, name string, rs domain.ResourceSync) (*domain.ResourceSync, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ReplaceResourceSync", ctx, name, rs)
-	ret0, _ := ret[0].(*v1alpha1.ResourceSync)
-	ret1, _ := ret[1].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "ReplaceResourceSync", ctx, orgId, name, rs)
+	ret0, _ := ret[0].(*domain.ResourceSync)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // ReplaceResourceSync indicates an expected call of ReplaceResourceSync.
-func (mr *MockServiceMockRecorder) ReplaceResourceSync(ctx, name, rs any) *gomock.Call {
+func (mr *MockServiceMockRecorder) ReplaceResourceSync(ctx, orgId, name, rs any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceResourceSync", reflect.TypeOf((*MockService)(nil).ReplaceResourceSync), ctx, name, rs)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceResourceSync", reflect.TypeOf((*MockService)(nil).ReplaceResourceSync), ctx, orgId, name, rs)
 }
 
 // ReplaceResourceSyncStatus mocks base method.
-func (m *MockService) ReplaceResourceSyncStatus(ctx context.Context, name string, resourceSync v1alpha1.ResourceSync) (*v1alpha1.ResourceSync, v1alpha1.Status) {
+func (m *MockService) ReplaceResourceSyncStatus(ctx context.Context, orgId uuid.UUID, name string, resourceSync domain.ResourceSync) (*domain.ResourceSync, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ReplaceResourceSyncStatus", ctx, name, resourceSync)
-	ret0, _ := ret[0].(*v1alpha1.ResourceSync)
-	ret1, _ := ret[1].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "ReplaceResourceSyncStatus", ctx, orgId, name, resourceSync)
+	ret0, _ := ret[0].(*domain.ResourceSync)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // ReplaceResourceSyncStatus indicates an expected call of ReplaceResourceSyncStatus.
-func (mr *MockServiceMockRecorder) ReplaceResourceSyncStatus(ctx, name, resourceSync any) *gomock.Call {
+func (mr *MockServiceMockRecorder) ReplaceResourceSyncStatus(ctx, orgId, name, resourceSync any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceResourceSyncStatus", reflect.TypeOf((*MockService)(nil).ReplaceResourceSyncStatus), ctx, name, resourceSync)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceResourceSyncStatus", reflect.TypeOf((*MockService)(nil).ReplaceResourceSyncStatus), ctx, orgId, name, resourceSync)
 }
 
 // ResumeDevices mocks base method.
-func (m *MockService) ResumeDevices(ctx context.Context, request v1alpha1.DeviceResumeRequest) (v1alpha1.DeviceResumeResponse, v1alpha1.Status) {
+func (m *MockService) ResumeDevices(ctx context.Context, orgId uuid.UUID, request domain.DeviceResumeRequest) (domain.DeviceResumeResponse, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ResumeDevices", ctx, request)
-	ret0, _ := ret[0].(v1alpha1.DeviceResumeResponse)
-	ret1, _ := ret[1].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "ResumeDevices", ctx, orgId, request)
+	ret0, _ := ret[0].(domain.DeviceResumeResponse)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // ResumeDevices indicates an expected call of ResumeDevices.
-func (mr *MockServiceMockRecorder) ResumeDevices(ctx, request any) *gomock.Call {
+func (mr *MockServiceMockRecorder) ResumeDevices(ctx, orgId, request any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResumeDevices", reflect.TypeOf((*MockService)(nil).ResumeDevices), ctx, request)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResumeDevices", reflect.TypeOf((*MockService)(nil).ResumeDevices), ctx, orgId, request)
 }
 
 // SetCheckpoint mocks base method.
-func (m *MockService) SetCheckpoint(ctx context.Context, consumer, key string, value []byte) v1alpha1.Status {
+func (m *MockService) SetCheckpoint(ctx context.Context, consumer, key string, value []byte) domain.Status {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "SetCheckpoint", ctx, consumer, key, value)
-	ret0, _ := ret[0].(v1alpha1.Status)
+	ret0, _ := ret[0].(domain.Status)
 	return ret0
 }
 
@@ -1225,157 +1598,157 @@ func (mr *MockServiceMockRecorder) SetCheckpoint(ctx, consumer, key, value any) 
 }
 
 // SetDeviceServiceConditions mocks base method.
-func (m *MockService) SetDeviceServiceConditions(ctx context.Context, name string, conditions []v1alpha1.Condition) v1alpha1.Status {
+func (m *MockService) SetDeviceServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition) domain.Status {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SetDeviceServiceConditions", ctx, name, conditions)
-	ret0, _ := ret[0].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "SetDeviceServiceConditions", ctx, orgId, name, conditions)
+	ret0, _ := ret[0].(domain.Status)
 	return ret0
 }
 
 // SetDeviceServiceConditions indicates an expected call of SetDeviceServiceConditions.
-func (mr *MockServiceMockRecorder) SetDeviceServiceConditions(ctx, name, conditions any) *gomock.Call {
+func (mr *MockServiceMockRecorder) SetDeviceServiceConditions(ctx, orgId, name, conditions any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetDeviceServiceConditions", reflect.TypeOf((*MockService)(nil).SetDeviceServiceConditions), ctx, name, conditions)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetDeviceServiceConditions", reflect.TypeOf((*MockService)(nil).SetDeviceServiceConditions), ctx, orgId, name, conditions)
 }
 
 // SetOutOfDate mocks base method.
-func (m *MockService) SetOutOfDate(ctx context.Context, owner string) error {
+func (m *MockService) SetOutOfDate(ctx context.Context, orgId uuid.UUID, owner string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SetOutOfDate", ctx, owner)
+	ret := m.ctrl.Call(m, "SetOutOfDate", ctx, orgId, owner)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // SetOutOfDate indicates an expected call of SetOutOfDate.
-func (mr *MockServiceMockRecorder) SetOutOfDate(ctx, owner any) *gomock.Call {
+func (mr *MockServiceMockRecorder) SetOutOfDate(ctx, orgId, owner any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetOutOfDate", reflect.TypeOf((*MockService)(nil).SetOutOfDate), ctx, owner)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetOutOfDate", reflect.TypeOf((*MockService)(nil).SetOutOfDate), ctx, orgId, owner)
 }
 
 // UnmarkDevicesRolloutSelection mocks base method.
-func (m *MockService) UnmarkDevicesRolloutSelection(ctx context.Context, fleetName string) v1alpha1.Status {
+func (m *MockService) UnmarkDevicesRolloutSelection(ctx context.Context, orgId uuid.UUID, fleetName string) domain.Status {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UnmarkDevicesRolloutSelection", ctx, fleetName)
-	ret0, _ := ret[0].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "UnmarkDevicesRolloutSelection", ctx, orgId, fleetName)
+	ret0, _ := ret[0].(domain.Status)
 	return ret0
 }
 
 // UnmarkDevicesRolloutSelection indicates an expected call of UnmarkDevicesRolloutSelection.
-func (mr *MockServiceMockRecorder) UnmarkDevicesRolloutSelection(ctx, fleetName any) *gomock.Call {
+func (mr *MockServiceMockRecorder) UnmarkDevicesRolloutSelection(ctx, orgId, fleetName any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UnmarkDevicesRolloutSelection", reflect.TypeOf((*MockService)(nil).UnmarkDevicesRolloutSelection), ctx, fleetName)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UnmarkDevicesRolloutSelection", reflect.TypeOf((*MockService)(nil).UnmarkDevicesRolloutSelection), ctx, orgId, fleetName)
 }
 
 // UpdateCertificateSigningRequestApproval mocks base method.
-func (m *MockService) UpdateCertificateSigningRequestApproval(ctx context.Context, name string, csr v1alpha1.CertificateSigningRequest) (*v1alpha1.CertificateSigningRequest, v1alpha1.Status) {
+func (m *MockService) UpdateCertificateSigningRequestApproval(ctx context.Context, orgId uuid.UUID, name string, csr domain.CertificateSigningRequest) (*domain.CertificateSigningRequest, domain.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpdateCertificateSigningRequestApproval", ctx, name, csr)
-	ret0, _ := ret[0].(*v1alpha1.CertificateSigningRequest)
-	ret1, _ := ret[1].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "UpdateCertificateSigningRequestApproval", ctx, orgId, name, csr)
+	ret0, _ := ret[0].(*domain.CertificateSigningRequest)
+	ret1, _ := ret[1].(domain.Status)
 	return ret0, ret1
 }
 
 // UpdateCertificateSigningRequestApproval indicates an expected call of UpdateCertificateSigningRequestApproval.
-func (mr *MockServiceMockRecorder) UpdateCertificateSigningRequestApproval(ctx, name, csr any) *gomock.Call {
+func (mr *MockServiceMockRecorder) UpdateCertificateSigningRequestApproval(ctx, orgId, name, csr any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateCertificateSigningRequestApproval", reflect.TypeOf((*MockService)(nil).UpdateCertificateSigningRequestApproval), ctx, name, csr)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateCertificateSigningRequestApproval", reflect.TypeOf((*MockService)(nil).UpdateCertificateSigningRequestApproval), ctx, orgId, name, csr)
 }
 
 // UpdateDevice mocks base method.
-func (m *MockService) UpdateDevice(ctx context.Context, name string, device v1alpha1.Device, fieldsToUnset []string) (*v1alpha1.Device, error) {
+func (m *MockService) UpdateDevice(ctx context.Context, orgId uuid.UUID, name string, device domain.Device, fieldsToUnset []string) (*domain.Device, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpdateDevice", ctx, name, device, fieldsToUnset)
-	ret0, _ := ret[0].(*v1alpha1.Device)
+	ret := m.ctrl.Call(m, "UpdateDevice", ctx, orgId, name, device, fieldsToUnset)
+	ret0, _ := ret[0].(*domain.Device)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // UpdateDevice indicates an expected call of UpdateDevice.
-func (mr *MockServiceMockRecorder) UpdateDevice(ctx, name, device, fieldsToUnset any) *gomock.Call {
+func (mr *MockServiceMockRecorder) UpdateDevice(ctx, orgId, name, device, fieldsToUnset any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateDevice", reflect.TypeOf((*MockService)(nil).UpdateDevice), ctx, name, device, fieldsToUnset)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateDevice", reflect.TypeOf((*MockService)(nil).UpdateDevice), ctx, orgId, name, device, fieldsToUnset)
 }
 
 // UpdateDeviceAnnotations mocks base method.
-func (m *MockService) UpdateDeviceAnnotations(ctx context.Context, name string, annotations map[string]string, deleteKeys []string) v1alpha1.Status {
+func (m *MockService) UpdateDeviceAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) domain.Status {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpdateDeviceAnnotations", ctx, name, annotations, deleteKeys)
-	ret0, _ := ret[0].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "UpdateDeviceAnnotations", ctx, orgId, name, annotations, deleteKeys)
+	ret0, _ := ret[0].(domain.Status)
 	return ret0
 }
 
 // UpdateDeviceAnnotations indicates an expected call of UpdateDeviceAnnotations.
-func (mr *MockServiceMockRecorder) UpdateDeviceAnnotations(ctx, name, annotations, deleteKeys any) *gomock.Call {
+func (mr *MockServiceMockRecorder) UpdateDeviceAnnotations(ctx, orgId, name, annotations, deleteKeys any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateDeviceAnnotations", reflect.TypeOf((*MockService)(nil).UpdateDeviceAnnotations), ctx, name, annotations, deleteKeys)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateDeviceAnnotations", reflect.TypeOf((*MockService)(nil).UpdateDeviceAnnotations), ctx, orgId, name, annotations, deleteKeys)
 }
 
 // UpdateFleetAnnotations mocks base method.
-func (m *MockService) UpdateFleetAnnotations(ctx context.Context, name string, annotations map[string]string, deleteKeys []string) v1alpha1.Status {
+func (m *MockService) UpdateFleetAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) domain.Status {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpdateFleetAnnotations", ctx, name, annotations, deleteKeys)
-	ret0, _ := ret[0].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "UpdateFleetAnnotations", ctx, orgId, name, annotations, deleteKeys)
+	ret0, _ := ret[0].(domain.Status)
 	return ret0
 }
 
 // UpdateFleetAnnotations indicates an expected call of UpdateFleetAnnotations.
-func (mr *MockServiceMockRecorder) UpdateFleetAnnotations(ctx, name, annotations, deleteKeys any) *gomock.Call {
+func (mr *MockServiceMockRecorder) UpdateFleetAnnotations(ctx, orgId, name, annotations, deleteKeys any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateFleetAnnotations", reflect.TypeOf((*MockService)(nil).UpdateFleetAnnotations), ctx, name, annotations, deleteKeys)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateFleetAnnotations", reflect.TypeOf((*MockService)(nil).UpdateFleetAnnotations), ctx, orgId, name, annotations, deleteKeys)
 }
 
 // UpdateFleetConditions mocks base method.
-func (m *MockService) UpdateFleetConditions(ctx context.Context, name string, conditions []v1alpha1.Condition) v1alpha1.Status {
+func (m *MockService) UpdateFleetConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition) domain.Status {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpdateFleetConditions", ctx, name, conditions)
-	ret0, _ := ret[0].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "UpdateFleetConditions", ctx, orgId, name, conditions)
+	ret0, _ := ret[0].(domain.Status)
 	return ret0
 }
 
 // UpdateFleetConditions indicates an expected call of UpdateFleetConditions.
-func (mr *MockServiceMockRecorder) UpdateFleetConditions(ctx, name, conditions any) *gomock.Call {
+func (mr *MockServiceMockRecorder) UpdateFleetConditions(ctx, orgId, name, conditions any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateFleetConditions", reflect.TypeOf((*MockService)(nil).UpdateFleetConditions), ctx, name, conditions)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateFleetConditions", reflect.TypeOf((*MockService)(nil).UpdateFleetConditions), ctx, orgId, name, conditions)
 }
 
 // UpdateRenderedDevice mocks base method.
-func (m *MockService) UpdateRenderedDevice(ctx context.Context, name, renderedConfig, renderedApplications, specHash string) v1alpha1.Status {
+func (m *MockService) UpdateRenderedDevice(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash string) domain.Status {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpdateRenderedDevice", ctx, name, renderedConfig, renderedApplications, specHash)
-	ret0, _ := ret[0].(v1alpha1.Status)
+	ret := m.ctrl.Call(m, "UpdateRenderedDevice", ctx, orgId, name, renderedConfig, renderedApplications, specHash)
+	ret0, _ := ret[0].(domain.Status)
 	return ret0
 }
 
 // UpdateRenderedDevice indicates an expected call of UpdateRenderedDevice.
-func (mr *MockServiceMockRecorder) UpdateRenderedDevice(ctx, name, renderedConfig, renderedApplications, specHash any) *gomock.Call {
+func (mr *MockServiceMockRecorder) UpdateRenderedDevice(ctx, orgId, name, renderedConfig, renderedApplications, specHash any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateRenderedDevice", reflect.TypeOf((*MockService)(nil).UpdateRenderedDevice), ctx, name, renderedConfig, renderedApplications, specHash)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateRenderedDevice", reflect.TypeOf((*MockService)(nil).UpdateRenderedDevice), ctx, orgId, name, renderedConfig, renderedApplications, specHash)
 }
 
 // UpdateServerSideDeviceStatus mocks base method.
-func (m *MockService) UpdateServerSideDeviceStatus(ctx context.Context, name string) error {
+func (m *MockService) UpdateServerSideDeviceStatus(ctx context.Context, orgId uuid.UUID, name string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpdateServerSideDeviceStatus", ctx, name)
+	ret := m.ctrl.Call(m, "UpdateServerSideDeviceStatus", ctx, orgId, name)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // UpdateServerSideDeviceStatus indicates an expected call of UpdateServerSideDeviceStatus.
-func (mr *MockServiceMockRecorder) UpdateServerSideDeviceStatus(ctx, name any) *gomock.Call {
+func (mr *MockServiceMockRecorder) UpdateServerSideDeviceStatus(ctx, orgId, name any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateServerSideDeviceStatus", reflect.TypeOf((*MockService)(nil).UpdateServerSideDeviceStatus), ctx, name)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateServerSideDeviceStatus", reflect.TypeOf((*MockService)(nil).UpdateServerSideDeviceStatus), ctx, orgId, name)
 }
 
 // UpdateServiceSideDeviceStatus mocks base method.
-func (m *MockService) UpdateServiceSideDeviceStatus(ctx context.Context, device v1alpha1.Device) bool {
+func (m *MockService) UpdateServiceSideDeviceStatus(ctx context.Context, orgId uuid.UUID, device domain.Device) bool {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpdateServiceSideDeviceStatus", ctx, device)
+	ret := m.ctrl.Call(m, "UpdateServiceSideDeviceStatus", ctx, orgId, device)
 	ret0, _ := ret[0].(bool)
 	return ret0
 }
 
 // UpdateServiceSideDeviceStatus indicates an expected call of UpdateServiceSideDeviceStatus.
-func (mr *MockServiceMockRecorder) UpdateServiceSideDeviceStatus(ctx, device any) *gomock.Call {
+func (mr *MockServiceMockRecorder) UpdateServiceSideDeviceStatus(ctx, orgId, device any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateServiceSideDeviceStatus", reflect.TypeOf((*MockService)(nil).UpdateServiceSideDeviceStatus), ctx, device)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateServiceSideDeviceStatus", reflect.TypeOf((*MockService)(nil).UpdateServiceSideDeviceStatus), ctx, orgId, device)
 }

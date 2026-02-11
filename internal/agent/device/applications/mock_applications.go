@@ -13,7 +13,8 @@ import (
 	context "context"
 	reflect "reflect"
 
-	v1alpha1 "github.com/flightctl/flightctl/api/v1alpha1"
+	v1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
+	lifecycle "github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
 	provider "github.com/flightctl/flightctl/internal/agent/device/applications/provider"
 	dependency "github.com/flightctl/flightctl/internal/agent/device/dependency"
 	status "github.com/flightctl/flightctl/internal/agent/device/status"
@@ -57,10 +58,10 @@ func (mr *MockMonitorMockRecorder) Run(ctx any) *gomock.Call {
 }
 
 // Status mocks base method.
-func (m *MockMonitor) Status() []v1alpha1.DeviceApplicationStatus {
+func (m *MockMonitor) Status() []v1beta1.DeviceApplicationStatus {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Status")
-	ret0, _ := ret[0].([]v1alpha1.DeviceApplicationStatus)
+	ret0, _ := ret[0].([]v1beta1.DeviceApplicationStatus)
 	return ret0
 }
 
@@ -108,32 +109,42 @@ func (mr *MockManagerMockRecorder) AfterUpdate(ctx any) *gomock.Call {
 }
 
 // BeforeUpdate mocks base method.
-func (m *MockManager) BeforeUpdate(ctx context.Context, desired *v1alpha1.DeviceSpec) error {
+func (m *MockManager) BeforeUpdate(ctx context.Context, desired *v1beta1.DeviceSpec, opts ...UpdateOpt) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "BeforeUpdate", ctx, desired)
+	varargs := []any{ctx, desired}
+	for _, a := range opts {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "BeforeUpdate", varargs...)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // BeforeUpdate indicates an expected call of BeforeUpdate.
-func (mr *MockManagerMockRecorder) BeforeUpdate(ctx, desired any) *gomock.Call {
+func (mr *MockManagerMockRecorder) BeforeUpdate(ctx, desired any, opts ...any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BeforeUpdate", reflect.TypeOf((*MockManager)(nil).BeforeUpdate), ctx, desired)
+	varargs := append([]any{ctx, desired}, opts...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BeforeUpdate", reflect.TypeOf((*MockManager)(nil).BeforeUpdate), varargs...)
 }
 
 // CollectOCITargets mocks base method.
-func (m *MockManager) CollectOCITargets(ctx context.Context, current, desired *v1alpha1.DeviceSpec) ([]dependency.OCIPullTarget, error) {
+func (m *MockManager) CollectOCITargets(ctx context.Context, current, desired *v1beta1.DeviceSpec, opts ...dependency.OCICollectOpt) (*dependency.OCICollection, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CollectOCITargets", ctx, current, desired)
-	ret0, _ := ret[0].([]dependency.OCIPullTarget)
+	varargs := []any{ctx, current, desired}
+	for _, a := range opts {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "CollectOCITargets", varargs...)
+	ret0, _ := ret[0].(*dependency.OCICollection)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // CollectOCITargets indicates an expected call of CollectOCITargets.
-func (mr *MockManagerMockRecorder) CollectOCITargets(ctx, current, desired any) *gomock.Call {
+func (mr *MockManagerMockRecorder) CollectOCITargets(ctx, current, desired any, opts ...any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CollectOCITargets", reflect.TypeOf((*MockManager)(nil).CollectOCITargets), ctx, current, desired)
+	varargs := append([]any{ctx, current, desired}, opts...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CollectOCITargets", reflect.TypeOf((*MockManager)(nil).CollectOCITargets), varargs...)
 }
 
 // Ensure mocks base method.
@@ -179,7 +190,7 @@ func (mr *MockManagerMockRecorder) Shutdown(ctx, state any) *gomock.Call {
 }
 
 // Status mocks base method.
-func (m *MockManager) Status(arg0 context.Context, arg1 *v1alpha1.DeviceStatus, arg2 ...status.CollectorOpt) error {
+func (m *MockManager) Status(arg0 context.Context, arg1 *v1beta1.DeviceStatus, arg2 ...status.CollectorOpt) error {
 	m.ctrl.T.Helper()
 	varargs := []any{arg0, arg1}
 	for _, a := range arg2 {
@@ -234,6 +245,20 @@ func (m *MockApplication) EXPECT() *MockApplicationMockRecorder {
 	return m.recorder
 }
 
+// ActionSpec mocks base method.
+func (m *MockApplication) ActionSpec() lifecycle.ActionSpec {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ActionSpec")
+	ret0, _ := ret[0].(lifecycle.ActionSpec)
+	return ret0
+}
+
+// ActionSpec indicates an expected call of ActionSpec.
+func (mr *MockApplicationMockRecorder) ActionSpec() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ActionSpec", reflect.TypeOf((*MockApplication)(nil).ActionSpec))
+}
+
 // AddWorkload mocks base method.
 func (m *MockApplication) AddWorkload(Workload *Workload) {
 	m.ctrl.T.Helper()
@@ -247,10 +272,10 @@ func (mr *MockApplicationMockRecorder) AddWorkload(Workload any) *gomock.Call {
 }
 
 // AppType mocks base method.
-func (m *MockApplication) AppType() v1alpha1.AppType {
+func (m *MockApplication) AppType() v1beta1.AppType {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "AppType")
-	ret0, _ := ret[0].(v1alpha1.AppType)
+	ret0, _ := ret[0].(v1beta1.AppType)
 	return ret0
 }
 
@@ -258,6 +283,30 @@ func (m *MockApplication) AppType() v1alpha1.AppType {
 func (mr *MockApplicationMockRecorder) AppType() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AppType", reflect.TypeOf((*MockApplication)(nil).AppType))
+}
+
+// ClearWorkloads mocks base method.
+func (m *MockApplication) ClearWorkloads() {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "ClearWorkloads")
+}
+
+// ClearWorkloads indicates an expected call of ClearWorkloads.
+func (mr *MockApplicationMockRecorder) ClearWorkloads() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClearWorkloads", reflect.TypeOf((*MockApplication)(nil).ClearWorkloads))
+}
+
+// CopyWorkloadsFrom mocks base method.
+func (m *MockApplication) CopyWorkloadsFrom(other Application) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "CopyWorkloadsFrom", other)
+}
+
+// CopyWorkloadsFrom indicates an expected call of CopyWorkloadsFrom.
+func (mr *MockApplicationMockRecorder) CopyWorkloadsFrom(other any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CopyWorkloadsFrom", reflect.TypeOf((*MockApplication)(nil).CopyWorkloadsFrom), other)
 }
 
 // ID mocks base method.
@@ -331,11 +380,11 @@ func (mr *MockApplicationMockRecorder) RemoveWorkload(name any) *gomock.Call {
 }
 
 // Status mocks base method.
-func (m *MockApplication) Status() (*v1alpha1.DeviceApplicationStatus, v1alpha1.DeviceApplicationsSummaryStatus, error) {
+func (m *MockApplication) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.DeviceApplicationsSummaryStatus, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Status")
-	ret0, _ := ret[0].(*v1alpha1.DeviceApplicationStatus)
-	ret1, _ := ret[1].(v1alpha1.DeviceApplicationsSummaryStatus)
+	ret0, _ := ret[0].(*v1beta1.DeviceApplicationStatus)
+	ret1, _ := ret[1].(v1beta1.DeviceApplicationsSummaryStatus)
 	ret2, _ := ret[2].(error)
 	return ret0, ret1, ret2
 }
@@ -344,6 +393,20 @@ func (m *MockApplication) Status() (*v1alpha1.DeviceApplicationStatus, v1alpha1.
 func (mr *MockApplicationMockRecorder) Status() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Status", reflect.TypeOf((*MockApplication)(nil).Status))
+}
+
+// User mocks base method.
+func (m *MockApplication) User() v1beta1.Username {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "User")
+	ret0, _ := ret[0].(v1beta1.Username)
+	return ret0
+}
+
+// User indicates an expected call of User.
+func (mr *MockApplicationMockRecorder) User() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "User", reflect.TypeOf((*MockApplication)(nil).User))
 }
 
 // Volume mocks base method.
@@ -373,4 +436,18 @@ func (m *MockApplication) Workload(name string) (*Workload, bool) {
 func (mr *MockApplicationMockRecorder) Workload(name any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Workload", reflect.TypeOf((*MockApplication)(nil).Workload), name)
+}
+
+// Workloads mocks base method.
+func (m *MockApplication) Workloads() []Workload {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Workloads")
+	ret0, _ := ret[0].([]Workload)
+	return ret0
+}
+
+// Workloads indicates an expected call of Workloads.
+func (mr *MockApplicationMockRecorder) Workloads() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Workloads", reflect.TypeOf((*MockApplication)(nil).Workloads))
 }

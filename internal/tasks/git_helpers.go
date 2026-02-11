@@ -13,7 +13,7 @@ import (
 	"strings"
 
 	config_latest_types "github.com/coreos/ignition/v2/config/v3_4/types"
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/pkg/ignition"
 	"github.com/go-git/go-billy/v5"
 	"github.com/go-git/go-billy/v5/memfs"
@@ -32,9 +32,9 @@ import (
 var scpLikeUrlRegExp = regexp.MustCompile(`^(?:(?P<user>[^@]+)@)?(?P<host>[^:\s]+):(?:(?P<port>[0-9]{1,5}):)?(?P<path>[^\\].*)$`)
 
 // a function to clone a git repo, for mockable unit testing
-type cloneGitRepoFunc func(repo *api.Repository, revision *string, depth *int) (billy.Filesystem, string, error)
+type cloneGitRepoFunc func(repo *domain.Repository, revision *string, depth *int) (billy.Filesystem, string, error)
 
-func CloneGitRepo(repo *api.Repository, revision *string, depth *int) (billy.Filesystem, string, error) {
+func CloneGitRepo(repo *domain.Repository, revision *string, depth *int) (billy.Filesystem, string, error) {
 	storage := gitmemory.NewStorage()
 	mfs := memfs.New()
 	repoURL, err := repo.Spec.GetRepoURL()
@@ -87,26 +87,28 @@ func CloneGitRepo(repo *api.Repository, revision *string, depth *int) (billy.Fil
 
 // Read repository's ssh/http config and create transport.AuthMethod.
 // If no ssh/http config is defined a nil is returned.
-func GetAuth(repository *api.Repository) (transport.AuthMethod, error) {
-	_, err := repository.Spec.GetGenericRepoSpec()
-	if err == nil {
+func GetAuth(repository *domain.Repository) (transport.AuthMethod, error) {
+	gitSpec, err := repository.Spec.AsGitRepoSpec()
+	if err != nil {
+		// Not a Git repo spec, no auth
 		return nil, nil
 	}
-	sshSpec, err := repository.Spec.GetSshRepoSpec()
-	if err == nil {
+
+	// Handle SSH authentication
+	if gitSpec.SshConfig != nil {
 		var auth *gitssh.PublicKeys
-		if sshSpec.SshConfig.SshPrivateKey != nil {
-			sshPrivateKey, err := base64.StdEncoding.DecodeString(*sshSpec.SshConfig.SshPrivateKey)
+		if gitSpec.SshConfig.SshPrivateKey != nil {
+			sshPrivateKey, err := base64.StdEncoding.DecodeString(*gitSpec.SshConfig.SshPrivateKey)
 			if err != nil {
 				return nil, err
 			}
 
 			password := ""
-			if sshSpec.SshConfig.PrivateKeyPassphrase != nil {
-				password = *sshSpec.SshConfig.PrivateKeyPassphrase
+			if gitSpec.SshConfig.PrivateKeyPassphrase != nil {
+				password = *gitSpec.SshConfig.PrivateKeyPassphrase
 			}
 			user := ""
-			repoSubmatch := scpLikeUrlRegExp.FindStringSubmatch(sshSpec.Url)
+			repoSubmatch := scpLikeUrlRegExp.FindStringSubmatch(gitSpec.Url)
 			if len(repoSubmatch) > 1 {
 				user = repoSubmatch[1]
 			}
@@ -117,7 +119,7 @@ func GetAuth(repository *api.Repository) (transport.AuthMethod, error) {
 		}
 
 		// Configure host key verification
-		if sshSpec.SshConfig.SkipServerVerification != nil && *sshSpec.SshConfig.SkipServerVerification {
+		if gitSpec.SshConfig.SkipServerVerification != nil && *gitSpec.SshConfig.SkipServerVerification {
 			if auth == nil {
 				auth = &gitssh.PublicKeys{}
 			}
@@ -137,28 +139,36 @@ func GetAuth(repository *api.Repository) (transport.AuthMethod, error) {
 			}
 		}
 		return auth, nil
-	} else {
-		httpSpec, err := repository.Spec.GetHttpRepoSpec()
-		if err == nil {
-			if strings.HasPrefix(httpSpec.Url, "https") {
-				err := configureRepoHTTPSClient(httpSpec.HttpConfig)
-				if err != nil {
-					return nil, err
-				}
-			}
-			if httpSpec.HttpConfig.Username != nil && httpSpec.HttpConfig.Password != nil {
-				auth := &githttp.BasicAuth{
-					Username: *httpSpec.HttpConfig.Username,
-					Password: *httpSpec.HttpConfig.Password,
-				}
-				return auth, nil
+	}
+
+	// Handle HTTP authentication
+	if gitSpec.HttpConfig != nil {
+		if strings.HasPrefix(gitSpec.Url, "https") {
+			err := configureRepoHTTPSClient(*gitSpec.HttpConfig)
+			if err != nil {
+				return nil, err
 			}
 		}
+		if gitSpec.HttpConfig.Token != nil {
+			auth := &githttp.TokenAuth{
+				Token: *gitSpec.HttpConfig.Token,
+			}
+			return auth, nil
+		}
+		if gitSpec.HttpConfig.Username != nil && gitSpec.HttpConfig.Password != nil {
+			auth := &githttp.BasicAuth{
+				Username: *gitSpec.HttpConfig.Username,
+				Password: *gitSpec.HttpConfig.Password,
+			}
+			return auth, nil
+		}
 	}
+
+	// No auth config - public repository
 	return nil, nil
 }
 
-func configureRepoHTTPSClient(httpConfig api.HttpConfig) error {
+func configureRepoHTTPSClient(httpConfig domain.HttpConfig) error {
 	tlsConfig := tls.Config{} //nolint:gosec
 	if httpConfig.SkipServerVerification != nil {
 		tlsConfig.InsecureSkipVerify = *httpConfig.SkipServerVerification //nolint:gosec
@@ -254,7 +264,7 @@ func ConvertFileSystemToIgnition(mfs billy.Filesystem, path string) (*config_lat
 	return &ignition, nil
 }
 
-func CloneGitRepoToIgnition(repo *api.Repository, revision string, path string) (*config_latest_types.Config, string, error) {
+func CloneGitRepoToIgnition(repo *domain.Repository, revision string, path string) (*config_latest_types.Config, string, error) {
 	mfs, hash, err := CloneGitRepo(repo, &revision, nil)
 	if err != nil {
 		return nil, "", err
@@ -300,6 +310,6 @@ func addGitFileToIgnitionConfig(mfs billy.Filesystem, fullPath, ignPath string, 
 		return err
 	}
 
-	wrapper.SetFile(ignPath, fileContents, int(fileInfo.Mode()), false, nil, nil)
+	wrapper.SetFile(ignPath, fileContents, int(fileInfo.Mode()), false, "", "")
 	return nil
 }

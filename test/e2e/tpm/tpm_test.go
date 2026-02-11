@@ -27,7 +27,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	"github.com/flightctl/flightctl/test/login"
 	"github.com/flightctl/flightctl/test/util"
@@ -48,19 +48,19 @@ func isRealTPMDevice() bool {
 }
 
 // getExpectedTPMStatus returns the expected TPM integrity status based on hardware type
-func getExpectedTPMStatus() v1alpha1.DeviceIntegrityCheckStatusType {
+func getExpectedTPMStatus() v1beta1.DeviceIntegrityCheckStatusType {
 	if isRealTPMDevice() {
-		return v1alpha1.DeviceIntegrityCheckStatusVerified
+		return v1beta1.DeviceIntegrityCheckStatusVerified
 	}
-	return v1alpha1.DeviceIntegrityCheckStatusFailed
+	return v1beta1.DeviceIntegrityCheckStatusFailed
 }
 
 // getExpectedIntegrityStatus returns the expected overall integrity status based on hardware type
-func getExpectedIntegrityStatus() v1alpha1.DeviceIntegrityStatusSummaryType {
+func getExpectedIntegrityStatus() v1beta1.DeviceIntegrityStatusSummaryType {
 	if isRealTPMDevice() {
-		return v1alpha1.DeviceIntegrityStatusVerified
+		return v1beta1.DeviceIntegrityStatusVerified
 	}
-	return v1alpha1.DeviceIntegrityStatusFailed
+	return v1beta1.DeviceIntegrityStatusFailed
 }
 
 var _ = Describe("TPM Device Authentication", func() {
@@ -198,7 +198,7 @@ var _ = Describe("TPM Device Authentication", func() {
 
 			By(fmt.Sprintf("verifying TPM integrity verification reports %s status (%s TPM)", expectedStatus, tpmType))
 
-			var device *v1alpha1.Device
+			var device *v1beta1.Device
 			// Wait for integrity verification to complete
 			Eventually(func() bool {
 				// Refresh device status
@@ -268,13 +268,13 @@ var _ = Describe("TPM Device Authentication", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Add a simple inline config to trigger a rendered version update
-			testConfig := v1alpha1.ConfigProviderSpec{}
+			testConfig := v1beta1.ConfigProviderSpec{}
 			testFilePath := "/tmp/tpm-test-marker"
 			testFileContent := fmt.Sprintf("TPM test marker - %d", time.Now().Unix())
 
-			inlineConfig := v1alpha1.InlineConfigProviderSpec{
+			inlineConfig := v1beta1.InlineConfigProviderSpec{
 				Name: "tpm-test-config",
-				Inline: []v1alpha1.FileSpec{
+				Inline: []v1beta1.FileSpec{
 					{
 						Path:    testFilePath,
 						Content: testFileContent,
@@ -286,7 +286,7 @@ var _ = Describe("TPM Device Authentication", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Update device config and wait for it to be applied using TPM-signed communication
-			err = harness.UpdateDeviceConfigWithRetries(deviceId, []v1alpha1.ConfigProviderSpec{testConfig}, newRenderedVersion)
+			err = harness.UpdateDeviceConfigWithRetries(deviceId, []v1beta1.ConfigProviderSpec{testConfig}, newRenderedVersion)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Verify the configuration was actually applied to confirm TPM-signed communication worked

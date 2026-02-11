@@ -1,0 +1,30 @@
+[Unit]
+Description=Flight Control PAM OIDC Issuer server
+PartOf=flightctl.target
+After=flightctl-certs-init.service
+Wants=flightctl-certs-init.service
+
+[Container]
+ContainerName=flightctl-pam-issuer
+Image={{ .PamIssuer.Image }}:{{ .PamIssuer.Tag }}
+Pull=missing
+Network=flightctl.network
+AddHost=%H:host-gateway
+PublishPort=8444:8444
+Environment=HOME=/root
+Volume=/etc/flightctl/pki/flightctl-pam-issuer/server.crt:/root/.flightctl/certs/server.crt:ro,z
+Volume=/etc/flightctl/pki/flightctl-pam-issuer/server.key:/root/.flightctl/certs/server.key:ro,z
+Volume=/etc/flightctl/pki/flightctl-pam-issuer/token-signer.crt:/root/.flightctl/certs/client-signer.crt:ro,z
+Volume=/etc/flightctl/pki/flightctl-pam-issuer/token-signer.key:/root/.flightctl/certs/client-signer.key:ro,z
+# User database: same volume as 1.0.0 /etc (flightctl-pam-issuer-etc) mounted at /userdb; kept in sync with container's /etc.
+Volume=flightctl-pam-issuer-etc:/userdb:Z
+Volume=/etc/flightctl/flightctl-pam-issuer/config.yaml:/root/.flightctl/config.yaml:ro,z
+
+[Service]
+Restart=always
+RestartSec=30
+
+ExecStartPre=/usr/bin/flightctl-standalone render template --input-file /usr/share/flightctl/flightctl-pam-issuer/config.yaml.template --output-file /etc/flightctl/flightctl-pam-issuer/config.yaml
+
+[Install]
+WantedBy=flightctl.target

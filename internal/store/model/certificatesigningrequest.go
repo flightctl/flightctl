@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"strconv"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/samber/lo"
@@ -16,10 +16,10 @@ type CertificateSigningRequest struct {
 	Resource
 
 	// The desired state of the certificate signing request, stored as opaque JSON object.
-	Spec *JSONField[api.CertificateSigningRequestSpec] `gorm:"type:jsonb"`
+	Spec *JSONField[domain.CertificateSigningRequestSpec] `gorm:"type:jsonb"`
 
 	// The last reported state of the certificate signing request, stored as opaque JSON object.
-	Status *JSONField[api.CertificateSigningRequestStatus] `gorm:"type:jsonb"`
+	Status *JSONField[domain.CertificateSigningRequestStatus] `gorm:"type:jsonb"`
 }
 
 func (csr CertificateSigningRequest) String() string {
@@ -27,12 +27,12 @@ func (csr CertificateSigningRequest) String() string {
 	return string(val)
 }
 
-func NewCertificateSigningRequestFromApiResource(resource *api.CertificateSigningRequest) (*CertificateSigningRequest, error) {
+func NewCertificateSigningRequestFromApiResource(resource *domain.CertificateSigningRequest) (*CertificateSigningRequest, error) {
 	if resource == nil || resource.Metadata.Name == nil {
 		return &CertificateSigningRequest{}, nil
 	}
 
-	status := api.CertificateSigningRequestStatus{Conditions: []api.Condition{}}
+	status := domain.CertificateSigningRequestStatus{Conditions: []domain.Condition{}}
 	if resource.Status != nil {
 		status = *resource.Status
 	}
@@ -58,28 +58,28 @@ func NewCertificateSigningRequestFromApiResource(resource *api.CertificateSignin
 }
 
 func CertificateSigningRequestAPIVersion() string {
-	return fmt.Sprintf("%s/%s", api.APIGroup, api.CertificateSigningRequestAPIVersion)
+	return fmt.Sprintf("%s/%s", domain.APIGroup, domain.CertificateSigningRequestAPIVersion)
 }
 
-func (csr *CertificateSigningRequest) ToApiResource(opts ...APIResourceOption) (*api.CertificateSigningRequest, error) {
+func (csr *CertificateSigningRequest) ToApiResource(opts ...APIResourceOption) (*domain.CertificateSigningRequest, error) {
 	if csr == nil {
-		return &api.CertificateSigningRequest{}, nil
+		return &domain.CertificateSigningRequest{}, nil
 	}
 
-	spec := api.CertificateSigningRequestSpec{}
+	spec := domain.CertificateSigningRequestSpec{}
 	if csr.Spec != nil {
 		spec = csr.Spec.Data
 	}
 
-	status := api.CertificateSigningRequestStatus{Conditions: []api.Condition{}}
+	status := domain.CertificateSigningRequestStatus{Conditions: []domain.Condition{}}
 	if csr.Status != nil {
 		status = csr.Status.Data
 	}
 
-	return &api.CertificateSigningRequest{
+	return &domain.CertificateSigningRequest{
 		ApiVersion: CertificateSigningRequestAPIVersion(),
-		Kind:       api.CertificateSigningRequestKind,
-		Metadata: api.ObjectMeta{
+		Kind:       domain.CertificateSigningRequestKind,
+		Metadata: domain.ObjectMeta{
 			Name:              lo.ToPtr(csr.Name),
 			CreationTimestamp: lo.ToPtr(csr.CreatedAt.UTC()),
 			Labels:            lo.ToPtr(util.EnsureMap(csr.Resource.Labels)),
@@ -92,17 +92,17 @@ func (csr *CertificateSigningRequest) ToApiResource(opts ...APIResourceOption) (
 	}, nil
 }
 
-func CertificateSigningRequestsToApiResource(csrs []CertificateSigningRequest, cont *string, numRemaining *int64) (api.CertificateSigningRequestList, error) {
-	certificateSigningRequestList := make([]api.CertificateSigningRequest, len(csrs))
+func CertificateSigningRequestsToApiResource(csrs []CertificateSigningRequest, cont *string, numRemaining *int64) (domain.CertificateSigningRequestList, error) {
+	certificateSigningRequestList := make([]domain.CertificateSigningRequest, len(csrs))
 	for i, certificateSigningRequest := range csrs {
 		apiResource, _ := certificateSigningRequest.ToApiResource()
 		certificateSigningRequestList[i] = *apiResource
 	}
-	ret := api.CertificateSigningRequestList{
+	ret := domain.CertificateSigningRequestList{
 		ApiVersion: CertificateSigningRequestAPIVersion(),
-		Kind:       api.CertificateSigningRequestListKind,
+		Kind:       domain.CertificateSigningRequestListKind,
 		Items:      certificateSigningRequestList,
-		Metadata:   api.ListMeta{},
+		Metadata:   domain.ListMeta{},
 	}
 	if cont != nil {
 		ret.Metadata.Continue = cont
@@ -116,7 +116,7 @@ func CertificateSigningRequestPtrToCertificateSigningRequest(p *CertificateSigni
 }
 
 func (csr *CertificateSigningRequest) GetKind() string {
-	return api.CertificateSigningRequestKind
+	return domain.CertificateSigningRequestKind
 }
 
 func (csr *CertificateSigningRequest) HasNilSpec() bool {

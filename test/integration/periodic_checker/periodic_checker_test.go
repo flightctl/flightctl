@@ -115,7 +115,7 @@ var _ = Describe("Periodic", func() {
 		storeInst, cfg, dbName, _ = store.PrepareDBForUnitTests(ctx, log)
 
 		// Grab default org id from the database
-		orgs, err := storeInst.Organization().List(ctx)
+		orgs, err := storeInst.Organization().List(ctx, store.ListParams{})
 		Expect(err).ToNot(HaveOccurred())
 		if len(orgs) > 0 {
 			orgId = orgs[0].ID
@@ -136,9 +136,7 @@ var _ = Describe("Periodic", func() {
 
 		// Setup worker client and service handler
 		workerClient = worker_client.NewWorkerClient(queuePublisher, log)
-		orgResolver, err := testutil.NewOrgResolver(cfg, storeInst.Organization(), log)
-		Expect(err).ToNot(HaveOccurred())
-		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStore, nil, log, "", "", []string{}, orgResolver)
+		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStore, nil, log, "", "", []string{})
 
 		channelManager, err = periodic.NewChannelManager(periodic.ChannelManagerConfig{
 			Log: log,

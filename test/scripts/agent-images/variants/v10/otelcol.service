@@ -1,0 +1,30 @@
+[Unit]
+Description=OpenTelemetry Collector (device addon)
+Wants=network-online.target
+After=network-online.target flightctl-agent.service
+PartOf=flightctl-agent.service
+
+[Service]
+Type=simple
+PermissionsStartOnly=true
+Environment=OTELCOL_OPTIONS=--config=/etc/otelcol/config.yaml
+# Prepare script: parse agent config, write CA/env, wait for otel certs
+ExecStartPre=/usr/local/bin/prepare_otel_config.sh
+# Load overrides written by the script (OTELCOL_OPTIONS, OTEL_GATEWAY, etc)
+EnvironmentFile=-/etc/otelcol/otelcol.conf
+# Start otelcol with the resolved options
+ExecStart=/usr/bin/otelcol $OTELCOL_OPTIONS
+TimeoutStartSec=110s
+ExecReload=/bin/kill -HUP $MAINPID
+KillMode=mixed
+Restart=on-failure
+RestartSec=10s
+User=otelcol
+Group=otelcol
+
+[Install]
+WantedBy=multi-user.target
+
+
+
+

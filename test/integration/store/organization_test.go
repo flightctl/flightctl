@@ -4,8 +4,10 @@ import (
 	"context"
 
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/org"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
+	"github.com/flightctl/flightctl/internal/store/selector"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	testutil "github.com/flightctl/flightctl/test/util"
 	"github.com/google/uuid"
@@ -35,10 +37,11 @@ var _ = Describe("OrganizationStore Integration Tests", func() {
 
 	Context("Organization Store", func() {
 		It("Should create a default organization during initial migration", func() {
-			orgs, err := storeInst.Organization().List(ctx)
+			orgs, err := storeInst.Organization().List(ctx, store.ListParams{})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(orgs).To(HaveLen(1))
 			Expect(orgs[0].ID).To(Equal(store.NullOrgId))
+			Expect(orgs[0].ExternalID).To(Equal(org.DefaultExternalID))
 			Expect(orgs[0].DisplayName).To(Equal("Default"))
 		})
 
@@ -99,7 +102,7 @@ var _ = Describe("OrganizationStore Integration Tests", func() {
 			_, err = storeInst.Organization().Create(ctx, org2)
 			Expect(err).ToNot(HaveOccurred())
 
-			orgs, err := storeInst.Organization().List(ctx)
+			orgs, err := storeInst.Organization().List(ctx, store.ListParams{})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(orgs).To(HaveLen(3))
 
@@ -129,6 +132,43 @@ var _ = Describe("OrganizationStore Integration Tests", func() {
 
 			Expect(err).To(HaveOccurred())
 			Expect(createdOrg).To(BeNil())
+		})
+
+		It("Should support field selector", func() {
+
+			u1 := uuid.MustParse("00000000-0000-0000-0000-000000000011")
+			u2 := uuid.MustParse("00000000-0000-0000-0000-000000000022")
+			u3 := uuid.MustParse("00000000-0000-0000-0000-000000000033")
+			u4 := uuid.MustParse("00000000-0000-0000-0000-000000000044")
+
+			// Insert four orgs
+			_, err := storeInst.Organization().Create(ctx, &model.Organization{ID: u1, DisplayName: "Org-11", ExternalID: "ext-11"})
+			Expect(err).ToNot(HaveOccurred())
+			_, err = storeInst.Organization().Create(ctx, &model.Organization{ID: u2, DisplayName: "Org-22", ExternalID: "ext-22"})
+			Expect(err).ToNot(HaveOccurred())
+			_, err = storeInst.Organization().Create(ctx, &model.Organization{ID: u3, DisplayName: "Org-33", ExternalID: "ext-33"})
+			Expect(err).ToNot(HaveOccurred())
+			_, err = storeInst.Organization().Create(ctx, &model.Organization{ID: u4, DisplayName: "Org-44", ExternalID: "ext-44"})
+			Expect(err).ToNot(HaveOccurred())
+
+			// Filter to a subset: u2, u3, u4 (3 items)
+			fs, err := selector.NewFieldSelector("metadata.name in (\"" + u2.String() + "\",\"" + u3.String() + "\",\"" + u4.String() + "\")")
+			Expect(err).ToNot(HaveOccurred())
+
+			// List should return all matching items (no pagination)
+			list, err := storeInst.Organization().List(ctx, store.ListParams{FieldSelector: fs})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(len(list)).To(Equal(3))
+
+			// Verify all expected orgs are present
+			orgIDs := make(map[uuid.UUID]bool)
+			for _, org := range list {
+				orgIDs[org.ID] = true
+			}
+			Expect(orgIDs).To(HaveKey(u2))
+			Expect(orgIDs).To(HaveKey(u3))
+			Expect(orgIDs).To(HaveKey(u4))
+			Expect(orgIDs).ToNot(HaveKey(u1))
 		})
 	})
 })

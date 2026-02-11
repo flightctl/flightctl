@@ -18,7 +18,7 @@ func createAuthZMiddleware(authZ AuthZMiddleware) http.Handler {
 	}))
 }
 
-func createAuthNMiddleware(authN AuthNMiddleware) http.Handler {
+func createAuthNMiddleware(authN common.MultiAuthNMiddleware) http.Handler {
 	return CreateAuthNMiddleware(authN, logrus.New())(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -260,22 +260,24 @@ func TestAuthN(t *testing.T) {
 
 	for _, r := range authNRequests {
 		for _, tc := range testCases {
-			authNMock := NewMockAuthNMiddleware(ctrl)
+			authNMock := common.NewMockMultiAuthNMiddleware(ctrl)
 
 			if r.shouldSkipCheck || !tc.withToken {
-				authNMock.EXPECT().ValidateToken(gomock.Any(), gomock.Any()).Times(0)
+				authNMock.EXPECT().ValidateTokenAndGetProvider(gomock.Any(), gomock.Any()).Times(0)
 				if r.shouldSkipCheck {
 					authNMock.EXPECT().GetAuthToken(gomock.Any()).Times(0)
 				} else {
 					authNMock.EXPECT().GetAuthToken(gomock.Any()).Times(1).Return("", fmt.Errorf("err"))
 				}
 			} else {
-				authNMock.EXPECT().ValidateToken(gomock.Any(), gomock.Any()).Return(tc.tokenErr).Times(1)
 				authNMock.EXPECT().GetAuthToken(gomock.Any()).Times(1).Return("token", nil)
 				if tc.tokenErr != nil {
-					authNMock.EXPECT().GetIdentity(gomock.Any(), gomock.Any()).Times(0)
+					authNMock.EXPECT().ValidateTokenAndGetProvider(gomock.Any(), gomock.Any()).Return(nil, tc.tokenErr).Times(1)
 				} else {
-					authNMock.EXPECT().GetIdentity(gomock.Any(), "token").Return(&common.BaseIdentity{}, tc.identityErr).Times(1)
+					// Return a mock provider that will be used to get identity
+					providerMock := common.NewMockAuthNMiddleware(ctrl)
+					providerMock.EXPECT().GetIdentity(gomock.Any(), "token").Return(&common.BaseIdentity{}, tc.identityErr).Times(1)
+					authNMock.EXPECT().ValidateTokenAndGetProvider(gomock.Any(), gomock.Any()).Return(providerMock, nil).Times(1)
 				}
 			}
 			authNMiddleware := createAuthNMiddleware(authNMock)

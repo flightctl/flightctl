@@ -1,0 +1,88 @@
+name: Check Documentation Links
+
+on:
+  pull_request:
+    paths:
+      - 'docs/**/*.md'
+      - '.lycheeignore'
+      - '.github/workflows/check-doc-links.yml'
+  schedule:
+    # Run every Monday at 9 AM UTC
+    - cron: '0 9 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  link-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Restore lychee cache
+        uses: actions/cache@v4
+        with:
+          path: .lycheecache
+          key: cache-lychee-${{ github.sha }}
+          restore-keys: cache-lychee-
+
+      - name: Link Checker
+        id: lychee
+        uses: lycheeverse/lychee-action@v2
+        with:
+          # Check all markdown files in docs directory
+          args: --verbose --no-progress --cache --max-cache-age 1d --offline 'docs/**/*.md'
+          # Fail PRs with broken links, but not scheduled runs
+          fail: ${{ github.event_name == 'pull_request' }}
+          # Output format
+          format: markdown
+          # Output path
+          output: ./lychee/out.md
+          # Use GitHub token for API calls (avoids rate limiting)
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Comment on PR
+        if: |
+          github.event_name == 'pull_request' &&
+          steps.lychee.outputs.exit_code != 0
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const output = fs.readFileSync('./lychee/out.md', 'utf8');
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## 🔗 Link Check Results\n\n${output}\n\n---\n*Broken links detected in documentation. Please fix them before merging.*`
+            });
+
+      - name: Create Issue for Broken Links
+        if: |
+          github.event_name == 'schedule' &&
+          steps.lychee.outputs.exit_code != 0
+        uses: peter-evans/create-issue-from-file@v5
+        with:
+          title: 'Documentation: Broken Links Detected'
+          content-filepath: ./lychee/out.md
+          labels: |
+            documentation
+            broken-links
+            automated
+          assignees: ''
+
+      - name: Job Summary
+        if: always()
+        run: |
+          echo "## Link Check Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ -f lychee/out.md ]; then
+            cat lychee/out.md >> $GITHUB_STEP_SUMMARY
+          else
+            echo "✅ All links are valid!" >> $GITHUB_STEP_SUMMARY
+          fi

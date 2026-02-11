@@ -3,7 +3,7 @@ package configuration_test
 import (
 	"fmt"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -135,7 +135,7 @@ var _ = Describe("Inline configuration tests", func() {
 			Expect(stdout.String()).To(ContainSubstring(inlineContent))
 
 			By("Update device with inline config, add another inline config")
-			combinedConfigs := &[]v1alpha1.ConfigProviderSpec{validConfigsWithContent[0], validConfigsWithName2[0]}
+			combinedConfigs := &[]v1beta1.ConfigProviderSpec{validConfigsWithContent[0], validConfigsWithName2[0]}
 
 			newRenderedVersion, err = harness.PrepareNextDeviceVersion(deviceId)
 			Expect(err).ToNot(HaveOccurred())
@@ -231,63 +231,63 @@ var (
 
 // Create reusable FileSpecs
 var (
-	inlineConfig                    = newFileSpec(inlinePath, nil, nil, nil, "")
-	inlineConfigMode                = newFileSpec(inlinePath, inlineModePointer, nil, nil, "")
-	inlineConfigUser                = newFileSpec(inlinePath, inlineModePointer, &inlineUser, &inlineGroup, "")
-	inlineConfigContent             = newFileSpec(inlinePath1, inlineModePointer, &inlineUser, &inlineGroup, inlineContent)
-	inlineConfigPath2               = newFileSpec(inlinePath2, inlineModePointer, &inlineUser, &inlineGroup, inlineContent)
-	invalidnlineConfigNoPath        = newFileSpec("", inlineModePointer, &inlineUser, &inlineGroup, inlineContent)
-	invalidinlineConfigRelativePath = newFileSpec(relativePath, nil, nil, nil, "")
-	invalidInlineConfigInvalidMode  = newFileSpec(inlinePath, &invalidInlineMode, nil, nil, "")
+	inlineConfig                    = newFileSpec(inlinePath, nil, "", "", "")
+	inlineConfigMode                = newFileSpec(inlinePath, inlineModePointer, "", "", "")
+	inlineConfigUser                = newFileSpec(inlinePath, inlineModePointer, inlineUser, inlineGroup, "")
+	inlineConfigContent             = newFileSpec(inlinePath1, inlineModePointer, inlineUser, inlineGroup, inlineContent)
+	inlineConfigPath2               = newFileSpec(inlinePath2, inlineModePointer, inlineUser, inlineGroup, inlineContent)
+	invalidnlineConfigNoPath        = newFileSpec("", inlineModePointer, inlineUser, inlineGroup, inlineContent)
+	invalidinlineConfigRelativePath = newFileSpec(relativePath, nil, "", "", "")
+	invalidInlineConfigInvalidMode  = newFileSpec(inlinePath, &invalidInlineMode, "", "", "")
 )
 
 // Create InlineConfigProviderSpecs
 var (
-	validInlineConfig                  = newInlineConfigProviderSpec(inlineName1, []v1alpha1.FileSpec{inlineConfig})
-	validInlineConfigWithMode          = newInlineConfigProviderSpec(inlineName1, []v1alpha1.FileSpec{inlineConfigMode})
-	validInlineConfigWithUser          = newInlineConfigProviderSpec(inlineName1, []v1alpha1.FileSpec{inlineConfigUser})
-	validInlineConfigWithContent       = newInlineConfigProviderSpec(inlineName1, []v1alpha1.FileSpec{inlineConfigContent})
-	validInlineConfigWithPath2         = newInlineConfigProviderSpec(inlineName1, []v1alpha1.FileSpec{inlineConfigPath2})
-	validInlineConfigWithName2         = newInlineConfigProviderSpec(inlineName2, []v1alpha1.FileSpec{inlineConfigPath2})
-	validInlineConfigWith2Files        = newInlineConfigProviderSpec(inlineName2files, []v1alpha1.FileSpec{inlineConfigPath2, inlineConfigContent})
-	invalidInlineConfigWithoutPath     = newInlineConfigProviderSpec(invalidInlineName1, []v1alpha1.FileSpec{invalidnlineConfigNoPath})
-	invalidInlineConfigNoName          = newInlineConfigProviderSpec("", []v1alpha1.FileSpec{inlineConfig})
-	invalidInlineConfigRelativePath    = newInlineConfigProviderSpec(invalidInlineName1, []v1alpha1.FileSpec{invalidinlineConfigRelativePath})
-	invalidInlineConfigWithInvalidMode = newInlineConfigProviderSpec(invalidInlineName1, []v1alpha1.FileSpec{invalidInlineConfigInvalidMode})
+	validInlineConfig                  = newInlineConfigProviderSpec(inlineName1, []v1beta1.FileSpec{inlineConfig})
+	validInlineConfigWithMode          = newInlineConfigProviderSpec(inlineName1, []v1beta1.FileSpec{inlineConfigMode})
+	validInlineConfigWithUser          = newInlineConfigProviderSpec(inlineName1, []v1beta1.FileSpec{inlineConfigUser})
+	validInlineConfigWithContent       = newInlineConfigProviderSpec(inlineName1, []v1beta1.FileSpec{inlineConfigContent})
+	validInlineConfigWithPath2         = newInlineConfigProviderSpec(inlineName1, []v1beta1.FileSpec{inlineConfigPath2})
+	validInlineConfigWithName2         = newInlineConfigProviderSpec(inlineName2, []v1beta1.FileSpec{inlineConfigPath2})
+	validInlineConfigWith2Files        = newInlineConfigProviderSpec(inlineName2files, []v1beta1.FileSpec{inlineConfigPath2, inlineConfigContent})
+	invalidInlineConfigWithoutPath     = newInlineConfigProviderSpec(invalidInlineName1, []v1beta1.FileSpec{invalidnlineConfigNoPath})
+	invalidInlineConfigNoName          = newInlineConfigProviderSpec("", []v1beta1.FileSpec{inlineConfig})
+	invalidInlineConfigRelativePath    = newInlineConfigProviderSpec(invalidInlineName1, []v1beta1.FileSpec{invalidinlineConfigRelativePath})
+	invalidInlineConfigWithInvalidMode = newInlineConfigProviderSpec(invalidInlineName1, []v1beta1.FileSpec{invalidInlineConfigInvalidMode})
 )
 
-func UpdateDeviceConfig(harness *e2e.Harness, deviceId string, configs []v1alpha1.ConfigProviderSpec) error {
-	err := harness.UpdateDevice(deviceId, func(device *v1alpha1.Device) {
+func UpdateDeviceConfig(harness *e2e.Harness, deviceId string, configs []v1beta1.ConfigProviderSpec) error {
+	err := harness.UpdateDevice(deviceId, func(device *v1beta1.Device) {
 		device.Spec.Config = &configs
 		GinkgoWriter.Printf("Updating device with new config - deviceId: %s, config: %+v\n", deviceId, &device.Spec.Config)
 	})
 	return err
 }
 
-func getConfigurationFromInlineConfig(inlineConfig v1alpha1.InlineConfigProviderSpec) ([]v1alpha1.ConfigProviderSpec, error) {
-	var configItem = v1alpha1.ConfigProviderSpec{}
+func getConfigurationFromInlineConfig(inlineConfig v1beta1.InlineConfigProviderSpec) ([]v1beta1.ConfigProviderSpec, error) {
+	var configItem = v1beta1.ConfigProviderSpec{}
 	err := configItem.FromInlineConfigProviderSpec(inlineConfig)
 	if err != nil {
 		return nil, err
 	}
-	validConfigs := &[]v1alpha1.ConfigProviderSpec{configItem}
+	validConfigs := &[]v1beta1.ConfigProviderSpec{configItem}
 	return *validConfigs, nil
 }
 
 // Helper function to generate a FileSpec
-func newFileSpec(path string, mode *int, user *string, group *string, content string) v1alpha1.FileSpec {
-	return v1alpha1.FileSpec{
+func newFileSpec(path string, mode *int, user string, group string, content string) v1beta1.FileSpec {
+	return v1beta1.FileSpec{
 		Path:    path,
 		Mode:    mode,
-		User:    user,
+		User:    v1beta1.Username(user),
 		Group:   group,
 		Content: content,
 	}
 }
 
 // Helper function to generate InlineConfigProviderSpec
-func newInlineConfigProviderSpec(name string, files []v1alpha1.FileSpec) v1alpha1.InlineConfigProviderSpec {
-	return v1alpha1.InlineConfigProviderSpec{
+func newInlineConfigProviderSpec(name string, files []v1beta1.FileSpec) v1beta1.InlineConfigProviderSpec {
+	return v1beta1.InlineConfigProviderSpec{
 		Inline: files,
 		Name:   name,
 	}

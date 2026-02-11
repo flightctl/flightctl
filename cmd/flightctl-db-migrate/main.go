@@ -6,28 +6,30 @@ import (
 	"flag"
 
 	"github.com/flightctl/flightctl/internal/config"
-	"github.com/flightctl/flightctl/internal/instrumentation"
+	imagebuilderstore "github.com/flightctl/flightctl/internal/imagebuilder_api/store"
+	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
 
+// runImageBuildMigrations runs migrations for the ImageBuild store
+func runImageBuildMigrations(ctx context.Context, db *gorm.DB, log logrus.FieldLogger) error {
+	imageBuildStore := imagebuilderstore.NewStore(db, log.WithField("pkg", "imagebuild-migration"))
+	return imageBuildStore.RunMigrations(ctx)
+}
+
 // errDryRunComplete signals that migrations validated successfully in dry-run mode.
 var errDryRunComplete = errors.New("dry-run complete")
 
 func main() {
-	log := log.InitLogs()
-
 	cfg, err := config.LoadOrGenerate(config.ConfigFile())
 	if err != nil {
-		log.WithError(err).Fatal("reading configuration")
+		log.InitLogs().WithError(err).Fatal("reading configuration")
 	}
-	logLvl, err := logrus.ParseLevel(cfg.Service.LogLevel)
-	if err != nil {
-		logLvl = logrus.InfoLevel
-	}
-	log.SetLevel(logLvl)
+
+	log := log.InitLogs(cfg.Service.LogLevel)
 
 	dryRun := flag.Bool("dry-run", false, "Validate migrations without committing any changes")
 	flag.Parse()
@@ -45,7 +47,7 @@ func main() {
 
 	log.Infof("Using config: %s", cfg)
 
-	tracerShutdown := instrumentation.InitTracer(log, cfg, "flightctl-db-migrate")
+	tracerShutdown := tracing.InitTracer(log, cfg, "flightctl-db-migrate")
 	defer func() {
 		if err = tracerShutdown(ctx); err != nil {
 			log.WithError(err).Fatal("failed to shut down tracer")
@@ -84,6 +86,15 @@ func main() {
 		})).RunMigrations(ctx); err != nil {
 			return err // rollback
 		}
+
+		// Run ImageBuild migrations (separate store for imagebuilder-api)
+		if err = runImageBuildMigrations(ctx, tx, log.WithFields(logrus.Fields{
+			"pkg":     "imagebuild-migration-tx",
+			"dry_run": *dryRun,
+		})); err != nil {
+			return err // rollback
+		}
+
 		if *dryRun {
 			return errDryRunComplete // rollback but indicate success
 		}

@@ -1,0 +1,40 @@
+{{- if and .Values.imageBuilderWorker .Values.imageBuilderWorker.enabled }}
+{{- if eq (include "flightctl.enableOpenShiftExtensions" .) "true" }}
+---
+apiVersion: security.openshift.io/v1
+kind: SecurityContextConstraints
+metadata:
+  name: flightctl-imagebuilder-worker
+  labels:
+    flightctl.service: flightctl-imagebuilder-worker
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+  annotations:
+    description: "SecurityContextConstraints for flightctl-imagebuilder-worker. Allows privileged containers and hostPath volumes required for container-in-container builds."
+allowHostDirVolumePlugin: true
+allowHostIPC: false
+allowHostNetwork: false
+allowHostPID: false
+allowHostPorts: false
+allowPrivilegeEscalation: true
+allowPrivilegedContainer: true
+allowedCapabilities:
+  - SYS_ADMIN
+  - MKNOD
+  - SYS_CHROOT
+  - SETFCAP
+  - '*'
+defaultAddCapabilities: null
+fsGroup:
+  type: RunAsAny
+readOnlyRootFilesystem: false
+requiredDropCapabilities: null
+runAsUser:
+  type: RunAsAny
+seLinuxContext:
+  type: RunAsAny
+volumes:
+  - '*'
+users:
+  - system:serviceaccount:{{ default .Release.Namespace .Values.global.internalNamespace }}:flightctl-imagebuilder-worker
+{{- end }}
+{{- end }}

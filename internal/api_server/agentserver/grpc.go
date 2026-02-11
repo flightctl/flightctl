@@ -8,6 +8,7 @@ import (
 	"time"
 
 	pb "github.com/flightctl/flightctl/api/grpc/v1"
+	apiserver "github.com/flightctl/flightctl/internal/api_server"
 	"github.com/flightctl/flightctl/internal/api_server/middleware"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/console"
@@ -103,7 +104,7 @@ func (s *AgentGrpcServer) Close() {
 		}()
 		select {
 		case <-done:
-		case <-time.After(gracefulShutdownTimeout):
+		case <-time.After(apiserver.GracefulShutdownTimeout):
 			s.log.Warnf("gRPC graceful stop timeout. Forcing stop")
 			s.server.Stop()
 		}

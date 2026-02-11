@@ -35,6 +35,15 @@ func (caClient *CAClient) Config() *ca.Config {
 	return caClient.Cfg
 }
 
+func NewCAClient(cfg *ca.Config, caBackend CABackend) *CAClient {
+	ca := &CAClient{
+		caBackend: caBackend,
+		Cfg:       cfg,
+	}
+	ca.signers = signer.NewCASigners(ca)
+	return ca
+}
+
 // EnsureCA() tries to load or generate a CA and connect to it.
 // If the CA is successfully loaded or generated it returns a valid CA instance, a flag signifying
 // was it loaded or generated and a nil error.
@@ -195,7 +204,7 @@ func (caClient *CAClient) MakeClientCertificate(ctx context.Context, certFile, k
 	}
 
 	signReq, err := signer.NewSignRequest(
-		caClient.Cfg.ClientBootstrapSignerName,
+		caClient.Cfg.DeviceEnrollmentSignerName,
 		*x509CSR,
 		signer.WithExpirationSeconds(expiry),
 		signer.WithResourceName(subjectName),
@@ -256,6 +265,16 @@ func (caClient *CAClient) GetCABundleX509() []*x509.Certificate {
 }
 
 func (caClient *CAClient) GetCABundle() ([]byte, error) {
+	// If CABundleFile is configured, read it directly
+	if caClient.Cfg.InternalConfig.CABundleFile != "" {
+		caBundlePath := CertStorePath(caClient.Cfg.InternalConfig.CABundleFile, caClient.Cfg.InternalConfig.CertStore)
+		caBundleBytes, err := os.ReadFile(caBundlePath)
+		if err != nil {
+			return nil, fmt.Errorf("reading ca-bundle from %s: %w", caBundlePath, err)
+		}
+		return caBundleBytes, nil
+	}
+	// Fallback to using loaded certificates
 	certs := caClient.GetCABundleX509()
 	return oscrypto.EncodeCertificates(certs...)
 }

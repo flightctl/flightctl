@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/hook"
@@ -34,6 +34,7 @@ type Bootstrap struct {
 	hookManager       hook.Manager
 	systemInfoManager systeminfo.Manager
 	podmanClient      *client.Podman
+	systemdClient     *client.Systemd
 
 	lifecycle lifecycle.Initializer
 
@@ -57,6 +58,7 @@ func NewBootstrap(
 	systemInfoManager systeminfo.Manager,
 	managementMetricsCallback client.RPCMetricsCallback,
 	podmanClient *client.Podman,
+	systemdClient *client.Systemd,
 	identityProvider identity.Provider,
 	log *log.PrefixLogger,
 ) *Bootstrap {
@@ -72,6 +74,7 @@ func NewBootstrap(
 		systemInfoManager:         systemInfoManager,
 		managementMetricsCallback: managementMetricsCallback,
 		podmanClient:              podmanClient,
+		systemdClient:             systemdClient,
 		identityProvider:          identityProvider,
 		log:                       log,
 	}
@@ -111,8 +114,8 @@ func (b *Bootstrap) Initialize(ctx context.Context) error {
 
 	if err := b.ensureBootstrap(ctx); err != nil {
 		infoMsg := fmt.Sprintf("Bootstrap failed: %v", err)
-		_, updateErr := b.statusManager.Update(ctx, status.SetDeviceSummary(v1alpha1.DeviceSummaryStatus{
-			Status: v1alpha1.DeviceSummaryStatusError,
+		_, updateErr := b.statusManager.Update(ctx, status.SetDeviceSummary(v1beta1.DeviceSummaryStatus{
+			Status: v1beta1.DeviceSummaryStatusError,
 			Info:   lo.ToPtr(infoMsg),
 		}))
 		if updateErr != nil {
@@ -124,6 +127,14 @@ func (b *Bootstrap) Initialize(ctx context.Context) error {
 	}
 
 	b.updateStatus(ctx)
+
+	// Report connectivity status to systemd.
+	// This is visible via `systemctl status flightctl-agent` as StatusText.
+	if b.systemdClient != nil {
+		if err := b.systemdClient.SdNotify(ctx, "STATUS=Connected"); err != nil {
+			b.log.Errorf("Failed to notify systemd of connectivity status: %v", err)
+		}
+	}
 
 	// unset NOTIFY_SOCKET on successful bootstrap to prevent subprocesses from
 	// using it.
@@ -143,7 +154,7 @@ func (b *Bootstrap) ensureEnrollment(ctx context.Context) error {
 	status := b.statusManager.Get(ctx)
 	if status == nil {
 		b.log.Warn("Device status is nil, returning default status")
-		status = &v1alpha1.DeviceStatus{}
+		status = &v1beta1.DeviceStatus{}
 	}
 	if err := b.lifecycle.Initialize(ctx, status); err != nil {
 		return fmt.Errorf("failed to initialize lifecycle: %w", err)
@@ -153,24 +164,24 @@ func (b *Bootstrap) ensureEnrollment(ctx context.Context) error {
 }
 
 func (b *Bootstrap) updateStatus(ctx context.Context) {
-	_, updateErr := b.statusManager.Update(ctx, status.SetConfig(v1alpha1.DeviceConfigStatus{
+	_, updateErr := b.statusManager.Update(ctx, status.SetConfig(v1beta1.DeviceConfigStatus{
 		RenderedVersion: b.specManager.RenderedVersion(spec.Current),
 	}))
 	if updateErr != nil {
 		b.log.Warnf("Failed setting status: %v", updateErr)
 	}
 
-	updatingCondition := v1alpha1.Condition{
-		Type: v1alpha1.ConditionTypeDeviceUpdating,
+	updatingCondition := v1beta1.Condition{
+		Type: v1beta1.ConditionTypeDeviceUpdating,
 	}
 
 	if b.specManager.IsUpgrading() {
-		updatingCondition.Status = v1alpha1.ConditionStatusTrue
+		updatingCondition.Status = v1beta1.ConditionStatusTrue
 		// TODO: only set rebooting in case where we are actually rebooting
-		updatingCondition.Reason = string(v1alpha1.UpdateStateRebooting)
+		updatingCondition.Reason = string(v1beta1.UpdateStateRebooting)
 	} else {
-		updatingCondition.Status = v1alpha1.ConditionStatusFalse
-		updatingCondition.Reason = string(v1alpha1.UpdateStateUpdated)
+		updatingCondition.Status = v1beta1.ConditionStatusFalse
+		updatingCondition.Reason = string(v1beta1.UpdateStateUpdated)
 	}
 
 	updateErr = b.statusManager.UpdateCondition(ctx, updatingCondition)
@@ -227,8 +238,8 @@ func (b *Bootstrap) checkRollback(ctx context.Context) error {
 	// We rebooted without applying the new OS image - something potentially went wrong
 	b.log.Warnf("Booted OS image (%s) does not match the desired OS image (%s)", bootedOS, desiredOS)
 
-	_, updateErr := b.statusManager.Update(ctx, status.SetDeviceSummary(v1alpha1.DeviceSummaryStatus{
-		Status: v1alpha1.DeviceSummaryStatusError,
+	_, updateErr := b.statusManager.Update(ctx, status.SetDeviceSummary(v1beta1.DeviceSummaryStatus{
+		Status: v1beta1.DeviceSummaryStatusError,
 		Info:   lo.ToPtr(fmt.Sprintf("Booted image %s, expected %s", bootedOS, desiredOS)),
 	}))
 	if updateErr != nil {
@@ -253,10 +264,10 @@ func (b *Bootstrap) checkRollback(ctx context.Context) error {
 	}
 	b.log.Info("Spec rollback complete, resuming bootstrap")
 
-	updateErr = b.statusManager.UpdateCondition(ctx, v1alpha1.Condition{
-		Type:    v1alpha1.ConditionTypeDeviceUpdating,
-		Status:  v1alpha1.ConditionStatusTrue,
-		Reason:  string(v1alpha1.UpdateStateRollingBack),
+	updateErr = b.statusManager.UpdateCondition(ctx, v1beta1.Condition{
+		Type:    v1beta1.ConditionTypeDeviceUpdating,
+		Status:  v1beta1.ConditionStatusTrue,
+		Reason:  string(v1beta1.UpdateStateRollingBack),
 		Message: fmt.Sprintf("Device is rolling back to template version: %s", b.specManager.RenderedVersion(spec.Desired)),
 	})
 	if updateErr != nil {

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/kvstore"
@@ -52,9 +52,7 @@ func BenchmarkDeviceDisconnectedPoll(b *testing.B) {
 		mockQueueProducer.EXPECT().Enqueue(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 		kvStore, err := kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
 		require.NoError(err)
-		orgResolver, err := util.NewOrgResolver(cfg, dbStore.Organization(), log)
-		require.NoError(err)
-		serviceHandler := service.NewServiceHandler(dbStore, workerClient, kvStore, nil, log, "", "", []string{}, orgResolver)
+		serviceHandler := service.NewServiceHandler(dbStore, workerClient, kvStore, nil, log, "", "", []string{})
 
 		devices := generateMockDevices(deviceCount)
 		err = batchCreateDevices(ctx, db, devices, deviceCount)
@@ -82,7 +80,7 @@ func benchmarkUpdateSummaryStatusBatch(ctx context.Context, b *testing.B, log *l
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		b.StartTimer()
-		disconnected.Poll(ctx)
+		disconnected.Poll(ctx, store.NullOrgId)
 		b.StopTimer()
 
 		err := resetDeviceStatus(ctx, db, deviceNames)
@@ -94,9 +92,9 @@ func benchmarkUpdateSummaryStatusBatch(ctx context.Context, b *testing.B, log *l
 }
 
 func resetDeviceStatus(ctx context.Context, db *gorm.DB, deviceNames []string) error {
-	status := v1alpha1.NewDeviceStatus()
+	status := domain.NewDeviceStatus()
 	status.LastSeen = lo.ToPtr(time.Now().Add(-10 * time.Minute))
-	status.Summary.Status = v1alpha1.DeviceSummaryStatusOnline
+	status.Summary.Status = domain.DeviceSummaryStatusOnline
 	err := db.WithContext(ctx).Transaction(func(innerTx *gorm.DB) (err error) {
 		for _, name := range deviceNames {
 			result := innerTx.Model(&model.Device{}).Where("name = ?", name).Update("status", status)
@@ -112,17 +110,17 @@ func resetDeviceStatus(ctx context.Context, db *gorm.DB, deviceNames []string) e
 	return db.WithContext(ctx).Exec("VACUUM").Error
 }
 
-func generateMockDevices(count int) []v1alpha1.Device {
-	devices := make([]v1alpha1.Device, count)
-	status := v1alpha1.NewDeviceStatus()
+func generateMockDevices(count int) []domain.Device {
+	devices := make([]domain.Device, count)
+	status := domain.NewDeviceStatus()
 	status.LastSeen = lo.ToPtr(time.Now().Add(-10 * time.Minute))
-	status.Summary.Status = v1alpha1.DeviceSummaryStatusOnline
+	status.Summary.Status = domain.DeviceSummaryStatusOnline
 	for i := 0; i < count; i++ {
-		devices[i] = v1alpha1.Device{
-			Metadata: v1alpha1.ObjectMeta{
+		devices[i] = domain.Device{
+			Metadata: domain.ObjectMeta{
 				Name: lo.ToPtr(fmt.Sprintf("device-%d", i)),
 			},
-			Spec: &v1alpha1.DeviceSpec{},
+			Spec: &domain.DeviceSpec{},
 
 			Status: &status,
 		}
@@ -130,7 +128,7 @@ func generateMockDevices(count int) []v1alpha1.Device {
 	return devices
 }
 
-func batchCreateDevices(ctx context.Context, db *gorm.DB, devices []v1alpha1.Device, batchSize int) error {
+func batchCreateDevices(ctx context.Context, db *gorm.DB, devices []domain.Device, batchSize int) error {
 	for i := 0; i < len(devices); i += batchSize {
 		end := i + batchSize
 		if end > len(devices) {
@@ -144,7 +142,7 @@ func batchCreateDevices(ctx context.Context, db *gorm.DB, devices []v1alpha1.Dev
 	return nil
 }
 
-func batchCreateDeviceTransaction(ctx context.Context, db *gorm.DB, devices []v1alpha1.Device) error {
+func batchCreateDeviceTransaction(ctx context.Context, db *gorm.DB, devices []domain.Device) error {
 	return db.WithContext(ctx).Transaction(func(innerTx *gorm.DB) (err error) {
 		for _, device := range devices {
 			deviceCopy := device

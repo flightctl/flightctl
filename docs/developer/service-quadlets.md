@@ -181,6 +181,10 @@ This unified approach provides:
 - **Reduced complexity** by eliminating duplicate container variants
 - **Proven security model** following the same pattern used by internal database mode
 
+### Deployment Configuration
+
+The `deploy-quadlets` target deploys FlightControl services with authentication and organizations enabled by default.
+
 ## Local Deployment
 
 Deploy all services:
@@ -294,9 +298,26 @@ sudo podman logs flightctl-api
 
 The service Quadlets are also available to install via an RPM.  Installation steps for the latest release:
 
+Get dnf version:
+
+```bash
+dnf --version
+```
+
+Install with dnf 4:
+
 ```bash
 sudo dnf config-manager --add-repo https://rpm.flightctl.io/flightctl-epel.repo
 sudo dnf install -y flightctl-services
+sudo systemctl start flightctl.target
+sudo systemctl enable flightctl.target # To enable starting on reboot
+```
+
+Install with dnf 5:
+
+```bash
+sudo dnf config-manager addrepo --from-repofile=https://rpm.flightctl.io/flightctl-epel.repo
+dnf install -y flightctl-services
 sudo systemctl start flightctl.target
 sudo systemctl enable flightctl.target # To enable starting on reboot
 ```
@@ -322,8 +343,8 @@ The RPM upgrade process includes:
 > [!NOTE]
 > Database migration dry-run can be enabled/disabled by editing `/etc/flightctl/flightctl-services-install.conf` and setting `FLIGHTCTL_MIGRATION_DRY_RUN=1`. This is recommended to catch potential migration issues before they affect production.
 
-> [!NOTE] 
-> Downgrades are not supported. Be sure to back up your system before upgrading. If an upgrade fails, follow the [Flight Control Restore Operations](../user/restore.md).
+> [!NOTE]
+> Downgrades are not supported. Be sure to back up your system before upgrading. If an upgrade fails, follow the [Flight Control Restore Operations](../user/installing/performing-database-restore.md).
 
 ### Running the Services Container
 

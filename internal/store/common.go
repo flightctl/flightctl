@@ -2,15 +2,14 @@ package store
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"runtime/debug"
 	"strings"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/flterrors"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/store/selector"
+	"github.com/flightctl/flightctl/internal/store/storeutil"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -19,23 +18,22 @@ import (
 
 const retryIterations = 10
 
+// AuthProvider database constraint names
+const (
+	ConstraintAuthProviderOIDCUnique   = "idx_authproviders_oidc_unique"
+	ConstraintAuthProviderOAuth2Unique = "idx_authproviders_oauth2_unique"
+)
+
 type CreateOrUpdateMode string
 
 type EventCallbackCaller func(ctx context.Context, callbackEvent EventCallback, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error)
 
-type EventCallback func(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error)
+type EventCallback func(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error)
 
+// ErrorFromGormError translates well-known gorm errors into domain-specific errors.
+// Delegated to storeutil so that packages outside internal/store can reuse the logic.
 func ErrorFromGormError(err error) error {
-	switch {
-	case err == nil:
-		return nil
-	case errors.Is(err, gorm.ErrRecordNotFound), errors.Is(err, gorm.ErrForeignKeyViolated):
-		return flterrors.ErrResourceNotFound
-	case errors.Is(err, gorm.ErrDuplicatedKey):
-		return flterrors.ErrDuplicateName
-	default:
-		return err
-	}
+	return storeutil.ErrorFromGormError(err)
 }
 
 type StatusCount struct {
@@ -338,7 +336,7 @@ func SafeEventCallback(log logrus.FieldLogger, callback func()) {
 	callback()
 }
 
-func CallEventCallback(resourceKind api.ResourceKind, log logrus.FieldLogger) func(ctx context.Context, callbackEvent EventCallback, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
+func CallEventCallback(resourceKind domain.ResourceKind, log logrus.FieldLogger) func(ctx context.Context, callbackEvent EventCallback, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
 	return func(ctx context.Context, callbackEvent EventCallback, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
 		if callbackEvent == nil {
 			return

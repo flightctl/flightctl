@@ -4,11 +4,12 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
+	deviceerrors "github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/util/validation"
 )
 
-var ErrParsingImage = fmt.Errorf("unable to parse image reference into a valid bootc target")
+var ErrParsingImage = deviceerrors.ErrUnableToParseImageReference
 
 type BootcHost struct {
 	APIVersion string   `json:"apiVersion"`
@@ -58,7 +59,7 @@ type BootcClient interface {
 }
 
 // IsOsImageReconciled returns true if the booted image equals the target for the spec image.
-func IsOsImageReconciled(host *BootcHost, desiredSpec *v1alpha1.DeviceSpec) (bool, error) {
+func IsOsImageReconciled(host *BootcHost, desiredSpec *v1beta1.DeviceSpec) (bool, error) {
 	if desiredSpec.Os == nil {
 		return false, nil
 	}

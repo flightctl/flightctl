@@ -3,9 +3,11 @@ package applications
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strconv"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
 	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
@@ -20,7 +22,7 @@ const (
 type StatusType string
 
 const (
-	StatusCreated StatusType = "created"
+	StatusCreate  StatusType = "create"
 	StatusInit    StatusType = "init"
 	StatusRunning StatusType = "start"
 	StatusStop    StatusType = "stop"
@@ -36,7 +38,29 @@ func (c StatusType) String() string {
 
 type Monitor interface {
 	Run(ctx context.Context)
-	Status() []v1alpha1.DeviceApplicationStatus
+	Status() []v1beta1.DeviceApplicationStatus
+}
+
+// UpdateOpt configures application update behavior.
+type UpdateOpt func(*updateOpts)
+
+type updateOpts struct {
+	osUpdatePending bool
+}
+
+// WithOSUpdatePending indicates an OS update is pending.
+func WithOSUpdatePending(pending bool) UpdateOpt {
+	return func(o *updateOpts) {
+		o.osUpdatePending = pending
+	}
+}
+
+func applyUpdateOpts(opts ...UpdateOpt) updateOpts {
+	var o updateOpts
+	for _, opt := range opts {
+		opt(&o)
+	}
+	return o
 }
 
 // Manager coordinates the lifecycle of an application by interacting with its Provider
@@ -50,7 +74,7 @@ type Manager interface {
 	Update(ctx context.Context, provider provider.Provider) error
 	// BeforeUpdate is called prior to installing an application to ensure the
 	// application is valid and dependencies are met.
-	BeforeUpdate(ctx context.Context, desired *v1alpha1.DeviceSpec) error
+	BeforeUpdate(ctx context.Context, desired *v1beta1.DeviceSpec, opts ...UpdateOpt) error
 	// AfterUpdate is called after the application has been validated and is ready to be executed.
 	AfterUpdate(ctx context.Context) error
 	// Shutdown closes the manager according to the corresponding shutdown state
@@ -70,15 +94,23 @@ type Application interface {
 	// application type.
 	Name() string
 	// Type returns the application type.
-	AppType() v1alpha1.AppType
+	AppType() v1beta1.AppType
+	// User is the username that the app runs as.
+	User() v1beta1.Username
 	// Path returns the path to the application on the device.
 	Path() string
 	// Workload returns a workload by name.
 	Workload(name string) (*Workload, bool)
+	// Workloads returns a copy of all workloads.
+	Workloads() []Workload
 	// AddWorkload adds a workload to the application.
 	AddWorkload(Workload *Workload)
 	// RemoveWorkload removes a workload from the application.
 	RemoveWorkload(name string) bool
+	// ClearWorkloads removes all workloads from the application.
+	ClearWorkloads()
+	// CopyWorkloadsFrom copies workloads from another application.
+	CopyWorkloadsFrom(other Application)
 	// IsEmbedded returns true if the application is embedded.
 	IsEmbedded() bool
 	// Volume is a volume manager.
@@ -86,7 +118,9 @@ type Application interface {
 	// Status reports the status of an application using the name as defined by
 	// the user. In the case there is no name provided it will be populated
 	// according to the rules of the application type.
-	Status() (*v1alpha1.DeviceApplicationStatus, v1alpha1.DeviceApplicationsSummaryStatus, error)
+	Status() (*v1beta1.DeviceApplicationStatus, v1beta1.DeviceApplicationsSummaryStatus, error)
+	// ActionSpec returns the type-specific action configuration for this application.
+	ActionSpec() lifecycle.ActionSpec
 }
 
 // Workload represents an application workload tracked by a Monitor.
@@ -99,29 +133,58 @@ type Workload struct {
 }
 
 type application struct {
-	id        string
-	appType   v1alpha1.AppType
-	path      string
-	workloads []Workload
-	volume    provider.VolumeManager
-	status    *v1alpha1.DeviceApplicationStatus
-	embedded  bool
+	id         string
+	path       string
+	workloads  []Workload
+	volume     provider.VolumeManager
+	status     *v1beta1.DeviceApplicationStatus
+	actionSpec lifecycle.ActionSpec
 }
 
 // NewApplication creates a new application from an application provider.
-func NewApplication(provider provider.Provider) *application {
-	spec := provider.Spec()
+func NewApplication(p provider.Provider) *application {
+	spec := p.Spec()
 	return &application{
-		id:       spec.ID,
-		appType:  spec.AppType,
-		path:     spec.Path,
-		embedded: spec.Embedded,
-		status: &v1alpha1.DeviceApplicationStatus{
-			Name:   spec.Name,
-			Status: v1alpha1.ApplicationStatusUnknown,
+		id:   spec.ID,
+		path: spec.Path,
+		status: &v1beta1.DeviceApplicationStatus{
+			Name:     spec.Name,
+			Status:   v1beta1.ApplicationStatusUnknown,
+			Embedded: spec.Embedded,
+			AppType:  spec.AppType,
+			RunAs:    spec.User,
 		},
 		volume: spec.Volume,
 	}
+}
+
+// NewHelmApplication creates a new application with Helm-specific configuration.
+func NewHelmApplication(p provider.Provider) *application {
+	spec := p.Spec()
+
+	var namespace string
+	var valuesFiles []string
+	var providerValuesPath string
+
+	if spec.HelmApp != nil {
+		if spec.HelmApp.Namespace != nil {
+			namespace = *spec.HelmApp.Namespace
+		}
+		if spec.HelmApp.ValuesFiles != nil {
+			valuesFiles = slices.Clone(*spec.HelmApp.ValuesFiles)
+		}
+		if spec.HelmApp.Values != nil && len(*spec.HelmApp.Values) > 0 {
+			providerValuesPath = provider.GetHelmProviderValuesPath(spec.Name)
+		}
+	}
+
+	app := NewApplication(p)
+	app.actionSpec = lifecycle.HelmSpec{
+		Namespace:          namespace,
+		ValuesFiles:        valuesFiles,
+		ProviderValuesPath: providerValuesPath,
+	}
+	return app
 }
 
 func (a *application) ID() string {
@@ -132,8 +195,12 @@ func (a *application) Name() string {
 	return a.status.Name
 }
 
-func (a *application) AppType() v1alpha1.AppType {
-	return a.appType
+func (a *application) AppType() v1beta1.AppType {
+	return a.status.AppType
+}
+
+func (a *application) User() v1beta1.Username {
+	return a.status.RunAs
 }
 
 func (a *application) Workload(name string) (*Workload, bool) {
@@ -159,19 +226,37 @@ func (a *application) RemoveWorkload(name string) bool {
 	return false
 }
 
+func (a *application) Workloads() []Workload {
+	result := make([]Workload, len(a.workloads))
+	copy(result, a.workloads)
+	return result
+}
+
+func (a *application) ClearWorkloads() {
+	a.workloads = nil
+}
+
+func (a *application) CopyWorkloadsFrom(other Application) {
+	a.workloads = other.Workloads()
+}
+
+func (a *application) ActionSpec() lifecycle.ActionSpec {
+	return a.actionSpec
+}
+
 func (a *application) Path() string {
 	return a.path
 }
 
 func (a *application) IsEmbedded() bool {
-	return a.embedded
+	return a.status.Embedded
 }
 
 func (a *application) Volume() provider.VolumeManager {
 	return a.volume
 }
 
-func (a *application) Status() (*v1alpha1.DeviceApplicationStatus, v1alpha1.DeviceApplicationsSummaryStatus, error) {
+func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.DeviceApplicationsSummaryStatus, error) {
 	// TODO: revisit performance of this function
 	healthy := 0
 	initializing := 0
@@ -180,7 +265,7 @@ func (a *application) Status() (*v1alpha1.DeviceApplicationStatus, v1alpha1.Devi
 	for _, workload := range a.workloads {
 		restarts += workload.Restarts
 		switch workload.Status {
-		case StatusInit, StatusCreated:
+		case StatusInit, StatusCreate:
 			initializing++
 		case StatusRunning:
 			healthy++
@@ -190,36 +275,36 @@ func (a *application) Status() (*v1alpha1.DeviceApplicationStatus, v1alpha1.Devi
 	}
 
 	total := len(a.workloads)
-	var summary v1alpha1.DeviceApplicationsSummaryStatus
+	var summary v1beta1.DeviceApplicationsSummaryStatus
 	readyStatus := strconv.Itoa(healthy) + "/" + strconv.Itoa(total)
 
-	var newStatus v1alpha1.ApplicationStatusType
+	var newStatus v1beta1.ApplicationStatusType
 
 	// order is important
 	switch {
 	case isUnknown(total, healthy, initializing):
-		newStatus = v1alpha1.ApplicationStatusUnknown
-		summary.Status = v1alpha1.ApplicationsSummaryStatusUnknown
+		newStatus = v1beta1.ApplicationStatusUnknown
+		summary.Status = v1beta1.ApplicationsSummaryStatusUnknown
 	case isStarting(total, healthy, initializing):
-		newStatus = v1alpha1.ApplicationStatusStarting
-		summary.Status = v1alpha1.ApplicationsSummaryStatusDegraded
+		newStatus = v1beta1.ApplicationStatusStarting
+		summary.Status = v1beta1.ApplicationsSummaryStatusDegraded
 	case isPreparing(total, healthy, initializing):
-		newStatus = v1alpha1.ApplicationStatusPreparing
-		summary.Status = v1alpha1.ApplicationsSummaryStatusUnknown
+		newStatus = v1beta1.ApplicationStatusPreparing
+		summary.Status = v1beta1.ApplicationsSummaryStatusUnknown
 	case isCompleted(total, exited):
-		newStatus = v1alpha1.ApplicationStatusCompleted
-		summary.Status = v1alpha1.ApplicationsSummaryStatusHealthy
+		newStatus = v1beta1.ApplicationStatusCompleted
+		summary.Status = v1beta1.ApplicationsSummaryStatusHealthy
 	case isRunningHealthy(total, healthy, initializing, exited):
-		newStatus = v1alpha1.ApplicationStatusRunning
-		summary.Status = v1alpha1.ApplicationsSummaryStatusHealthy
+		newStatus = v1beta1.ApplicationStatusRunning
+		summary.Status = v1beta1.ApplicationsSummaryStatusHealthy
 	case isRunningDegraded(total, healthy, initializing):
-		newStatus = v1alpha1.ApplicationStatusRunning
-		summary.Status = v1alpha1.ApplicationsSummaryStatusDegraded
+		newStatus = v1beta1.ApplicationStatusRunning
+		summary.Status = v1beta1.ApplicationsSummaryStatusDegraded
 	case isErrored(total, healthy, initializing):
-		newStatus = v1alpha1.ApplicationStatusError
-		summary.Status = v1alpha1.ApplicationsSummaryStatusError
+		newStatus = v1beta1.ApplicationStatusError
+		summary.Status = v1beta1.ApplicationsSummaryStatusError
 	default:
-		summary.Status = v1alpha1.ApplicationsSummaryStatusUnknown
+		summary.Status = v1beta1.ApplicationsSummaryStatusUnknown
 		return nil, summary, fmt.Errorf("unknown application status: %d/%d/%d", total, healthy, initializing)
 	}
 

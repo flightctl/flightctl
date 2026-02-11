@@ -3,7 +3,7 @@ package tasks_test
 import (
 	"context"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/kvstore"
@@ -44,9 +44,7 @@ var _ = Describe("RepoUpdate", func() {
 		workerClient = worker_client.NewMockWorkerClient(ctrl)
 		kvStore, err := kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
 		Expect(err).ToNot(HaveOccurred())
-		orgResolver, err := testutil.NewOrgResolver(cfg, storeInst.Organization(), log)
-		Expect(err).ToNot(HaveOccurred())
-		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStore, nil, log, "", "", []string{}, orgResolver)
+		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStore, nil, log, "", "", []string{})
 
 		// Create 2 git config items, each to a different repo
 		err = testutil.CreateRepositories(ctx, 2, storeInst, orgId)

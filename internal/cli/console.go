@@ -9,9 +9,11 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
+	"strings"
 	"sync/atomic"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/samber/lo"
@@ -50,6 +52,11 @@ func NewConsoleCmd() *cobra.Command {
 		Use:   "console device/NAME [-- COMMAND [ARG...]]",
 		Short: "Connect a console to the remote device through the server.",
 		Args:  cobra.MinimumNArgs(1),
+		ValidArgsFunction: KindNameAutocomplete{
+			Options:            o,
+			AllowMultipleNames: false,
+			AllowedKinds:       []ResourceKind{DeviceKind},
+		}.ValidArgsFunction,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Split args at "--"
 			var flagArgs, passThroughArgs []string
@@ -108,10 +115,10 @@ func (o *ConsoleOptions) Complete(cmd *cobra.Command, args []string) error {
 }
 
 func (o *ConsoleOptions) Validate(args []string) error {
-	if len(args) != 1 {
-		return fmt.Errorf("single argument having the form device/NAME is required")
+	if len(args) > 2 {
+		return fmt.Errorf("arguments must be of the form 'device/NAME' or 'device NAME'")
 	}
-	kind, name, err := parseAndValidateKindName(args[0])
+	kind, name, err := parseAndValidateKindNameFromArgsSingle(args)
 	if err != nil {
 		return err
 	}
@@ -120,7 +127,7 @@ func (o *ConsoleOptions) Validate(args []string) error {
 		return fmt.Errorf("only devices can be connected to a console")
 	}
 
-	if len(name) == 0 {
+	if len(name) == 0 || name == "--" {
 		return fmt.Errorf("device name is required")
 	}
 
@@ -136,12 +143,15 @@ func (o *ConsoleOptions) Run(ctx context.Context, flagArgs, passThroughArgs []st
 		return fmt.Errorf("parsing config file: %w", err)
 	}
 
-	_, name, err := parseAndValidateKindName(flagArgs[0])
+	_, name, err := parseAndValidateKindNameFromArgsSingle(flagArgs)
 	if err != nil {
 		return err
 	}
 
-	o.analyzeResponseAndExit(ctx, name, o.connectViaWS(ctx, config, name, client.GetAccessToken(config, o.ConfigFilePath), passThroughArgs))
+	refresher := client.NewAccessTokenRefresher(config, o.ConfigFilePath, 8080)
+	refresher.Start(ctx)
+	accessToken := refresher.GetAccessToken()
+	o.analyzeResponseAndExit(ctx, name, o.connectViaWS(ctx, config, name, accessToken, passThroughArgs))
 
 	// unreachable
 	return nil
@@ -346,14 +356,41 @@ func (o *ConsoleOptions) connectViaWS(ctx context.Context, config *client.Config
 }
 
 func (o *ConsoleOptions) emitUpgradeFailureError(ctx context.Context, name string, origErr error) {
+	// Try to parse error message for HTTP status code and message
+	// Format: "websocket: bad handshake (409 Conflict): Device is decommissioned"
+	errStr := origErr.Error()
+	if strings.Contains(errStr, "bad handshake") {
+		// Extract status code and message from error string
+		re, err := regexp.Compile(`\((\d+)\s+([^)]+)\):\s*(.+)`)
+		if err == nil {
+			matches := re.FindStringSubmatch(errStr)
+			if len(matches) == 4 {
+				statusCode := matches[1]
+				statusText := matches[2]
+				message := matches[3]
+				// For known status codes, display a clean error message
+				if statusCode == "409" || statusCode == "401" || statusCode == "403" || statusCode == "404" || statusCode == "503" {
+					fmt.Fprintf(os.Stderr, "Error for device %s: %s\n", name, message)
+					return
+				}
+				// For other status codes, still show a cleaner message
+				fmt.Fprintf(os.Stderr, "Error for device %s (%s %s): %s\n", name, statusCode, statusText, message)
+				return
+			}
+		}
+	}
+
+	// Fallback: try to get device to extract better error message
 	c, err := o.BuildClient()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error creating client: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Error for device %s: %v\n", name, origErr)
 		return
 	}
+	c.Start(ctx)
+	defer c.Stop()
 	response, err := c.GetDeviceWithResponse(ctx, name)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error getting device %s: %v\n", name, err)
+		fmt.Fprintf(os.Stderr, "Error for device %s: %v\n", name, origErr)
 		return
 	}
 	if response != nil && response.StatusCode() != http.StatusOK {
@@ -373,7 +410,7 @@ func (o *ConsoleOptions) emitUpgradeFailureError(ctx context.Context, name strin
 			return
 		}
 	}
-	fmt.Fprintf(os.Stderr, "Unexpected error for device %s: %v\n", name, origErr)
+	fmt.Fprintf(os.Stderr, "Error for device %s: %v\n", name, origErr)
 }
 
 func (o *ConsoleOptions) analyzeResponseAndExit(ctx context.Context, name string, err error) {

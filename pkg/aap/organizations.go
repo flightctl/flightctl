@@ -1,7 +1,9 @@
 package aap
 
 import (
+	"context"
 	"fmt"
+	"net/url"
 )
 
 type AAPOrganization struct {
@@ -12,9 +14,17 @@ type AAPOrganization struct {
 type AAPOrganizationsResponse = AAPPaginatedResponse[AAPOrganization]
 
 // GET /api/gateway/v1/organizations/{organization_id}
-func (a *AAPGatewayClient) GetOrganization(token string, organizationID string) (*AAPOrganization, error) {
-	path := a.appendQueryParams(fmt.Sprintf("/api/gateway/v1/organizations/%s", organizationID))
-	result, err := get[AAPOrganization](a, path, token)
+func (a *AAPGatewayClient) GetOrganization(ctx context.Context, token string, organizationID string) (*AAPOrganization, error) {
+	path := fmt.Sprintf("/api/gateway/v1/organizations/%s", organizationID)
+
+	var query url.Values
+	if a.maxPageSize != nil {
+		query = url.Values{}
+		query.Set("page_size", fmt.Sprintf("%d", *a.maxPageSize))
+	}
+
+	endpoint := a.buildEndpoint(path, query)
+	result, err := get[AAPOrganization](a, ctx, endpoint, token)
 	if err != nil {
 		return nil, err
 	}
@@ -22,13 +32,27 @@ func (a *AAPGatewayClient) GetOrganization(token string, organizationID string) 
 }
 
 // GET /api/gateway/v1/organizations
-func (a *AAPGatewayClient) ListOrganizations(token string) ([]*AAPOrganization, error) {
-	path := a.appendQueryParams("/api/gateway/v1/organizations")
-	return getWithPagination[AAPOrganization](a, path, token)
+func (a *AAPGatewayClient) ListOrganizations(ctx context.Context, token string) ([]*AAPOrganization, error) {
+	var query url.Values
+	if a.maxPageSize != nil {
+		query = url.Values{}
+		query.Set("page_size", fmt.Sprintf("%d", *a.maxPageSize))
+	}
+
+	endpoint := a.buildEndpoint("/api/gateway/v1/organizations", query)
+	return getWithPagination[AAPOrganization](a, ctx, endpoint, token)
 }
 
 // GET /api/gateway/v1/users/{user_id}/organizations
-func (a *AAPGatewayClient) ListUserOrganizations(token string, userID string) ([]*AAPOrganization, error) {
-	path := a.appendQueryParams(fmt.Sprintf("/api/gateway/v1/users/%s/organizations", userID))
-	return getWithPagination[AAPOrganization](a, path, token)
+func (a *AAPGatewayClient) ListUserOrganizations(ctx context.Context, token string, userID string) ([]*AAPOrganization, error) {
+	path := fmt.Sprintf("/api/gateway/v1/users/%s/organizations", userID)
+
+	var query url.Values
+	if a.maxPageSize != nil {
+		query = url.Values{}
+		query.Set("page_size", fmt.Sprintf("%d", *a.maxPageSize))
+	}
+
+	endpoint := a.buildEndpoint(path, query)
+	return getWithPagination[AAPOrganization](a, ctx, endpoint, token)
 }

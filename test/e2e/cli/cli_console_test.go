@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/test/e2e/resources"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	"github.com/flightctl/flightctl/test/login"
@@ -37,17 +37,22 @@ var _ = Describe("CLI - device console", func() {
 		deviceID, _ = harness.EnrollAndWaitForOnlineStatus()
 	})
 
-	It("connects to a device and executes a simple command", Label("80483", "sanity"), func() {
+	AfterEach(func() {
+		harness := e2e.GetWorkerHarness()
+		harness.PrintAgentLogsIfFailed()
+	})
+
+	It("connects to a device and executes a simple command", Label("80483", "sanity", "agent"), func() {
 		// Get harness directly - no shared package-level variable
 		harness := e2e.GetWorkerHarness()
 
 		cs := harness.NewConsoleSession(deviceID)
-		cs.MustSend("ls")
-		cs.MustExpect(".*bin")
+		cs.MustSend("pwd")
+		cs.MustExpect("/var/lib/flightctl")
 		cs.Close()
 	})
 
-	It("supports multiple simultaneous console sessions", Label("81737", "sanity"), func() {
+	It("supports multiple simultaneous console sessions", Label("81737", "sanity", "agent"), func() {
 		// Get harness directly - no shared package-level variable
 		harness := e2e.GetWorkerHarness()
 
@@ -55,14 +60,14 @@ var _ = Describe("CLI - device console", func() {
 		cs2 := harness.NewConsoleSession(deviceID)
 
 		cs2.MustSend("pwd")
-		cs2.MustExpect("/")
+		cs2.MustExpect("/var/lib/flightctl")
 
-		cs1.MustSend("echo Session1 > /var/home/user/file.txt")
-		cs2.MustSend("cat /var/home/user/file.txt")
+		cs1.MustSend("echo Session1 > /tmp/file.txt")
+		cs2.MustSend("cat /tmp/file.txt")
 		cs2.MustExpect("Session1")
 
-		cs2.MustSend("echo Session2 >> /var/home/user/file.txt")
-		cs1.MustSend("cat /var/home/user/file.txt")
+		cs2.MustSend("echo Session2 >> /tmp/file.txt")
+		cs1.MustSend("cat /tmp/file.txt")
 		cs1.MustExpect("(?s).*Session1.*Session2.*")
 
 		cs1.Close()
@@ -77,12 +82,12 @@ var _ = Describe("CLI - device console", func() {
 		const expectedRenderedVersion = 2 + sessionsToOpen*2
 
 		// kick off an update
-		device, _, err := harness.WaitForBootstrapAndUpdateToVersion(deviceID, ":v4")
+		device, _, err := harness.WaitForBootstrapAndUpdateToVersion(deviceID, util.DeviceTags.V4)
 		Expect(err).ToNot(HaveOccurred())
-		Eventually(resources.GetJSONByName[*v1alpha1.Device]).
+		Eventually(resources.GetJSONByName[*v1beta1.Device]).
 			WithArguments(harness, resources.Devices, deviceID).
-			Should(WithTransform((*v1alpha1.Device).IsUpdating, BeTrue()))
-		Expect(device.Status.Summary.Status).To(Equal(v1alpha1.DeviceSummaryStatusOnline))
+			Should(WithTransform((*v1beta1.Device).IsUpdating, BeTrue()))
+		Expect(device.Status.Summary.Status).To(Equal(v1beta1.DeviceSummaryStatusOnline))
 
 		sessions := make([]*e2e.ConsoleSession, 0, sessionsToOpen)
 		for i := range sessionsToOpen {
@@ -95,16 +100,16 @@ var _ = Describe("CLI - device console", func() {
 		}
 
 		By("waiting for the update to finish")
-		util.EventuallySlow(resources.GetJSONByName[*v1alpha1.Device]).
+		util.EventuallySlow(resources.GetJSONByName[*v1beta1.Device]).
 			WithArguments(harness, resources.Devices, deviceID).
-			Should(WithTransform((*v1alpha1.Device).IsUpdatedToDeviceSpec, BeTrue()))
+			Should(WithTransform((*v1beta1.Device).IsUpdatedToDeviceSpec, BeTrue()))
 
 		// ensure applications become healthy
-		Eventually(resources.GetJSONByName[*v1alpha1.Device]).
+		Eventually(resources.GetJSONByName[*v1beta1.Device]).
 			WithArguments(harness, resources.Devices, deviceID).
-			Should(WithTransform(func(d *v1alpha1.Device) v1alpha1.ApplicationsSummaryStatusType {
+			Should(WithTransform(func(d *v1beta1.Device) v1beta1.ApplicationsSummaryStatusType {
 				return d.Status.ApplicationsSummary.Status
-			}, Equal(v1alpha1.ApplicationsSummaryStatusHealthy)))
+			}, Equal(v1beta1.ApplicationsSummaryStatusHealthy)))
 
 		currentRenderedVersion, err := harness.GetCurrentDeviceRenderedVersion(deviceID)
 		Expect(err).ToNot(HaveOccurred())
@@ -116,79 +121,17 @@ var _ = Describe("CLI - device console", func() {
 		Expect(out).To(ContainSubstring("not found"))
 	})
 
-	// Commenting since this feature is deprecated
-	// It("allows tuning spec-fetch-interval", Label("82538"), func() {
-	// 	// Get harness directly - no shared package-level variable
-	// 	harness := e2e.GetWorkerHarness()
-
-	// 	const (
-	// 		cfgFile              = "/etc/flightctl/config.yaml"
-	// 		specFetchKey         = "spec-fetch-interval"
-	// 		specFetchIntervalSec = 20
-	// 		rootPwd              = "user"
-	// 	)
-
-	// 	sendAsRoot := func(cs *e2e.ConsoleSession, cmd string) {
-	// 		cs.MustSend(fmt.Sprintf("echo '%s' | sudo -S %s", rootPwd, cmd))
-	// 	}
-
-	// 	cs := harness.NewConsoleSession(deviceID)
-
-	// 	// show current config & ensure the key is present
-	// 	sendAsRoot(cs, "cat "+cfgFile)
-	// 	cs.MustExpect(specFetchKey)
-
-	// 	// patch config
-	// 	sedExpr := fmt.Sprintf("sed -i -E 's/%s: .+m.+s/%s: 0m%ds/g' %s && cat %s", specFetchKey, specFetchKey,
-	// 		specFetchIntervalSec, cfgFile, cfgFile)
-	// 	sendAsRoot(cs, sedExpr)
-	// 	cs.MustExpect(fmt.Sprintf("%s: 0m%ds", specFetchKey, specFetchIntervalSec))
-	// 	sendAsRoot(cs, fmt.Sprintf("sh -c \"echo 'log-level: debug' >> %s\" && cat %s", cfgFile, cfgFile))
-	// 	cs.MustExpect("log-level: debug")
-
-	// 	sendAsRoot(cs, "systemctl restart flightctl-agent")
-	// 	cs.Close()
-
-	// 	By("waiting for publisher logs with the new interval")
-	// 	// Wait for the target log messages to appear
-	// 	opts := vm.JournalOpts{
-	// 		Unit:     "flightctl-agent",
-	// 		Since:    logLookbackDuration,
-	// 		LastBoot: true,
-	// 	}
-	// 	util.EventuallySlow(harness.VM.JournalLogs).
-	// 		WithArguments(opts).
-	// 		Should(And(
-	// 			ContainSubstring("No new template version from management service"),
-	// 			ContainSubstring("publisher.go"),
-	// 		))
-
-	// 	// Now validate the timing intervals
-	// 	logPattern := regexp.MustCompile(`.*time="([^"]+).*No new template version from management service.*publisher\.go.*"`)
-	// 	expectedInterval := time.Duration(specFetchIntervalSec) * time.Second
-	// 	Eventually(func() bool {
-	// 		logs, err := harness.VM.JournalLogs(vm.JournalOpts{
-	// 			Unit:     "flightctl-agent",
-	// 			Since:    logLookbackDuration,
-	// 			LastBoot: true,
-	// 		})
-	// 		Expect(err).ToNot(HaveOccurred())
-
-	// 		return validateTimestampIntervals(logs, logPattern, expectedInterval)
-	// 	}, 2*time.Minute, 10*time.Second).Should(BeTrue())
-	// })
-
 	It("recovers from image pull network disruption", Label("82541"), func() {
 		// Get harness directly - no shared package-level variable
 		harness := e2e.GetWorkerHarness()
 
 		const disruptionTime = 1 * time.Minute
-		_, _, err := harness.WaitForBootstrapAndUpdateToVersion(deviceID, ":v4")
+		_, _, err := harness.WaitForBootstrapAndUpdateToVersion(deviceID, util.DeviceTags.V4)
 		Expect(err).ToNot(HaveOccurred())
 
-		Eventually(resources.GetJSONByName[*v1alpha1.Device]).
+		Eventually(resources.GetJSONByName[*v1beta1.Device]).
 			WithArguments(harness, resources.Devices, deviceID).
-			Should(WithTransform((*v1alpha1.Device).IsUpdating, BeTrue()))
+			Should(WithTransform((*v1beta1.Device).IsUpdating, BeTrue()))
 
 		GinkgoWriter.Printf("Simulating network failure\n")
 		DeferCleanup(func() { _ = harness.FixNetworkFailure() })
@@ -201,19 +144,19 @@ var _ = Describe("CLI - device console", func() {
 			Should(ContainSubstring("Pulling image"))
 
 		GinkgoWriter.Printf("Simulating network disruption for %s\n", disruptionTime)
-		Consistently(resources.GetJSONByName[*v1alpha1.Device]).
+		Consistently(resources.GetJSONByName[*v1beta1.Device]).
 			WithTimeout(disruptionTime).
 			WithPolling(disruptionTime/10).
 			WithArguments(harness, resources.Devices, deviceID).
-			Should(WithTransform((*v1alpha1.Device).IsUpdating, BeTrue()))
+			Should(WithTransform((*v1beta1.Device).IsUpdating, BeTrue()))
 
 		err = harness.FixNetworkFailure()
 		Expect(err).ToNot(HaveOccurred())
 
 		GinkgoWriter.Printf("Network disruption fixed. Waiting for the device to finish updating\n")
-		util.EventuallySlow(resources.GetJSONByName[*v1alpha1.Device]).
+		util.EventuallySlow(resources.GetJSONByName[*v1beta1.Device]).
 			WithArguments(harness, resources.Devices, deviceID).
-			Should(WithTransform((*v1alpha1.Device).IsUpdatedToDeviceSpec, BeTrue()))
+			Should(WithTransform((*v1beta1.Device).IsUpdatedToDeviceSpec, BeTrue()))
 	})
 
 	It("recovers from image pull network connection error", Label("83029"), func() {
@@ -225,13 +168,13 @@ var _ = Describe("CLI - device console", func() {
 		err := harness.SimulateNetworkFailure()
 		Expect(err).ToNot(HaveOccurred())
 
-		_, _, err = harness.WaitForBootstrapAndUpdateToVersion(deviceID, ":v4")
+		_, _, err = harness.WaitForBootstrapAndUpdateToVersion(deviceID, util.DeviceTags.V4)
 		Expect(err).ToNot(HaveOccurred())
 
 		GinkgoWriter.Printf("Waiting for image pull activity\n")
-		Eventually(resources.GetJSONByName[*v1alpha1.Device]).
+		Eventually(resources.GetJSONByName[*v1beta1.Device]).
 			WithArguments(harness, resources.Devices, deviceID).
-			Should(WithTransform((*v1alpha1.Device).IsUpdating, BeTrue()))
+			Should(WithTransform((*v1beta1.Device).IsUpdating, BeTrue()))
 
 		util.EventuallySlow(harness.ReadPrimaryVMAgentLogs).
 			WithArguments(logLookbackDuration, util.FLIGHTCTL_AGENT_SERVICE).
@@ -254,12 +197,12 @@ var _ = Describe("CLI - device console", func() {
 		Expect(err).ToNot(HaveOccurred())
 
 		GinkgoWriter.Printf("Waiting for the device to finish updating\n")
-		util.EventuallySlow(resources.GetJSONByName[*v1alpha1.Device]).
+		util.EventuallySlow(resources.GetJSONByName[*v1beta1.Device]).
 			WithArguments(harness, resources.Devices, deviceID).
-			Should(WithTransform((*v1alpha1.Device).IsUpdatedToDeviceSpec, BeTrue()))
+			Should(WithTransform((*v1beta1.Device).IsUpdatedToDeviceSpec, BeTrue()))
 	})
 
-	It("provides console --help and auxiliary features", Label("81866", "sanity"), func() {
+	It("provides console --help and auxiliary features", Label("81866", "sanity", "agent"), func() {
 		// Get harness directly - no shared package-level variable
 		harness := e2e.GetWorkerHarness()
 
@@ -287,11 +230,15 @@ var _ = Describe("CLI - device console", func() {
 		Expect(err).ToNot(HaveOccurred())
 		Expect(out).To(ContainSubstring("/"))
 
-		By("generating a remote sos-report")
-		// "sos: command not found" when running "console device/{device} -- sos" in a non-interactive shell. a bug?
-		out, err = harness.RunConsoleCommand(deviceID, nil, "/usr/sbin/sos", "report", "--batch", "--quiet")
-		Expect(err).ToNot(HaveOccurred())
-		Expect(out).To(ContainSubstring("sos report has been generated"))
+		// TODO: By running this as an unconfined process with the new SELinux rules, it consumes too
+		// much memory for the e2e test instances which leads to OOM errors in e2e test. Disable for now
+		// and revisit later.
+
+		//By("generating a remote sos-report")
+		//// "sos: command not found" when running "console device/{device} -- sos" in a non-interactive shell. a bug?
+		//out, err = harness.RunConsoleCommand(deviceID, nil, "/usr/sbin/sos", "report", "--batch", "--quiet", "--preset", "minimal")
+		//Expect(err).ToNot(HaveOccurred())
+		//Expect(out).To(ContainSubstring("sos report has been generated"))
 
 		By("failing when required command args are missing")
 		out, err = harness.CLI("console", "--tty")

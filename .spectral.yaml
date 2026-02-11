@@ -4,13 +4,13 @@ extends:
 
 aliases:
   PathToResourceCollection:
-    - '$.paths[?(@property.match( "^/api/v1/[a-z]+$" ))]'
+    - '$.paths[?(@property.match( "^(/api/v[0-9]+[a-z0-9]*)?/[a-z]+$" ))]'
   PathToResource:
-    - '$.paths[?(@property.match( "^/api/v1/[a-z]+/{name}$" ))]'
+    - '$.paths[?(@property.match( "^(/api/v[0-9]+[a-z0-9]*)?/[a-z]+/{name}$" ))]'
   PathToStatusSubresource:
-    - '$.paths[?(@property.match( "^/api/v1/[a-z]+/{name}/status$" ))]'
+    - '$.paths[?(@property.match( "^(/api/v[0-9]+[a-z0-9]*)?/[a-z]+/{name}/status$" ))]'
   PathToApprovalSubresource:
-    - '$.paths[?(@property.match( "^/api/v1/[a-z]+/{name}/approval$" ))]'
+    - '$.paths[?(@property.match( "^(/api/v[0-9]+[a-z0-9]*)?/[a-z]+/{name}/approval$" ))]'
 
 rules:
   # Allow conditions of different resource kinds to have the same name.
@@ -27,7 +27,7 @@ rules:
     then:
       function: pattern
       functionOptions:
-        match: '^(/[a-z0-9/]+|/{name}|/{fleet})+$'
+        match: '^(/[a-z0-9/]+|/{name}|/{fleet}|/{catalog})+$'
 
   ## Allowed and required verbs
   collection-verbs-required:
@@ -464,6 +464,8 @@ rules:
       functionOptions:
         values:
         - '#/components/schemas/Status'
+        - '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
+        - '../v1beta1/openapi.yaml#/components/schemas/Status'
 
   # Components
   ## Component formatting and descriptions
@@ -507,11 +509,66 @@ rules:
       functionOptions:
         match: ".+\\.$"
 
+# Paths here mirror the OpenAPI spec where /api/v1 is defined in server URL, not in paths.
 overrides:
   - files:
-      - "**#/paths/~1api~1v1~1labels"
-      - "**#/paths/~1api~1v1~1events"
-      - "**#/paths/~1api~1v1~1enrollmentconfig"
-      - "**#/paths/~1api~1v1~1organizations"
+      - "**#/paths/~1labels"
+      - "**#/paths/~1events"
+      - "**#/paths/~1enrollmentconfig"
+      - "**#/paths/~1organizations"
+      - "**#/paths/~1imagepipelines"
+      - "**#/paths/~1catalogitems"
     rules:
       collection-verbs-required: off
+  # /version endpoint doesn't need 400 response (no query params)
+  - files:
+      - "**#/paths/~1version"
+    rules:
+      collection-verbs-required: off
+      responses-collection-get-required: off
+      responses-collection-get-allowed: off
+  # OIDC spec endpoints must follow OIDC specification standards
+  - files:
+      - "**#/paths/~1auth~1authorize"
+      - "**#/paths/~1auth~1login"
+      - "**#/paths/~1auth~1token"
+      - "**#/paths/~1auth~1%7Bprovidername%7D~1token"
+      - "**#/paths/~1auth~1userinfo"
+      - "**#/paths/~1auth~1.well-known~1openid-configuration"
+    rules:
+      query-is-camelcase: off
+      response-media-type-2xx: off
+      request-media-type-post-put: off
+      response-schema-4xx-5xx: off
+      paths-are-lowercase: off
+  # OIDC spec component names must follow OIDC/OAuth2 naming conventions
+  - files:
+      - "**#/components/schemas/JWKSResponse"
+      - "**#/components/schemas/OpenIDConfiguration"
+      - "**#/components/schemas/OIDCProviderSpec"
+    rules:
+      component-name-is-pascalcase: off
+  # OIDC spec components follow OAuth2/OIDC standards
+  - files:
+      - "**#/components/schemas/JWKSResponse"
+      - "**#/components/schemas/AuthProviderSpec"
+    rules:
+      properties-description-required: off
+  # ImageBuilder API doesn't require PUT/PATCH verbs
+  # Note: imagebuilder uses full paths (server URL is /)
+  - files:
+      - "**#/paths/~1api~1v1~1imagebuilds~1%7Bname%7D"
+      - "**#/paths/~1api~1v1~1imageexports~1%7Bname%7D"
+    rules:
+      resource-verbs-required: off
+  # Download endpoint returns binary data (application/octet-stream), not JSON
+  - files:
+      - "**#/paths/~1api~1v1~1imageexports~1%7Bname%7D~1download"
+    rules:
+      response-media-type-2xx: off
+  # Log endpoints return text/plain and text/event-stream, not JSON
+  - files:
+      - "**#/paths/~1api~1v1~1imagebuilds~1%7Bname%7D~1log"
+      - "**#/paths/~1api~1v1~1imageexports~1%7Bname%7D~1log"
+    rules:
+      response-media-type-2xx: off

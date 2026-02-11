@@ -5,7 +5,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/stretchr/testify/require"
 )
 
@@ -35,33 +36,33 @@ func TestIsOsImageReconciled(t *testing.T) {
 	testCases := []struct {
 		name           string
 		bootedImage    string
-		desiredOs      *v1alpha1.DeviceOsSpec
+		desiredOs      *v1beta1.DeviceOsSpec
 		expectedResult bool
 		expectedError  error
 	}{
 		{
 			name:           "booted and desired are the same",
 			bootedImage:    "quay.io/org/flightctl-device",
-			desiredOs:      &v1alpha1.DeviceOsSpec{Image: "quay.io/org/flightctl-device"},
+			desiredOs:      &v1beta1.DeviceOsSpec{Image: "quay.io/org/flightctl-device"},
 			expectedResult: true,
 		},
 		{
 			name:           "booted and desired have different tags",
 			bootedImage:    "quay.io/org/flightctl-device:v3",
-			desiredOs:      &v1alpha1.DeviceOsSpec{Image: "quay.io/org/flightctl-device:v9"},
+			desiredOs:      &v1beta1.DeviceOsSpec{Image: "quay.io/org/flightctl-device:v9"},
 			expectedResult: false,
 		},
 		{
 			name:           "booted and desired are the same after image parsed to target",
 			bootedImage:    "quay.io/org/flightctl-device@sha256:6cf77c2a98dd4df274d14834fab9424b6e96ef3ed3f49f792b27c163763f52b5",
-			desiredOs:      &v1alpha1.DeviceOsSpec{Image: "quay.io/org/flightctl-device:v3@sha256:6cf77c2a98dd4df274d14834fab9424b6e96ef3ed3f49f792b27c163763f52b5"},
+			desiredOs:      &v1beta1.DeviceOsSpec{Image: "quay.io/org/flightctl-device:v3@sha256:6cf77c2a98dd4df274d14834fab9424b6e96ef3ed3f49f792b27c163763f52b5"},
 			expectedResult: true,
 		},
 		{
 			name:          "desired image cannot be parsed",
 			bootedImage:   "quay.io/org/flightctl-device",
-			desiredOs:     &v1alpha1.DeviceOsSpec{Image: "_invalid"},
-			expectedError: ErrParsingImage,
+			desiredOs:     &v1beta1.DeviceOsSpec{Image: "_invalid"},
+			expectedError: errors.ErrUnableToParseImageReference,
 		},
 	}
 
@@ -69,7 +70,7 @@ func TestIsOsImageReconciled(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			testHost := &BootcHost{}
 			testHost.Status.Booted.Image.Image.Image = testCase.bootedImage
-			testSpec := &v1alpha1.DeviceSpec{Os: testCase.desiredOs}
+			testSpec := &v1beta1.DeviceSpec{Os: testCase.desiredOs}
 
 			reconciled, err := IsOsImageReconciled(testHost, testSpec)
 
@@ -95,7 +96,7 @@ func Test_imageToBootcTarget(t *testing.T) {
 		{
 			name:          "invalid image",
 			image:         "_invalid",
-			expectedError: ErrParsingImage,
+			expectedError: errors.ErrUnableToParseImageReference,
 		},
 		{
 			name:           "image with no tag or digest",

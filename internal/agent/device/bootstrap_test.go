@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/hook"
@@ -61,7 +61,7 @@ func TestInitialization(t *testing.T) {
 					mockExecutor.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "--version").Return("podman version 5.4.2", "", 0),
 					mockSpecManager.EXPECT().Ensure().Return(nil),
 					mockStatusManager.EXPECT().Collect(gomock.Any()).Return(nil),
-					mockStatusManager.EXPECT().Get(gomock.Any()).Return(&v1alpha1.DeviceStatus{}),
+					mockStatusManager.EXPECT().Get(gomock.Any()).Return(&v1beta1.DeviceStatus{}),
 					mockLifecycleInitializer.EXPECT().Initialize(gomock.Any(), gomock.Any()).Return(nil),
 					mockIdentityProvider.EXPECT().CreateManagementClient(gomock.Any(), gomock.Any()).Return(nil, nil),
 					mockStatusManager.EXPECT().SetClient(gomock.Any()),
@@ -93,7 +93,7 @@ func TestInitialization(t *testing.T) {
 					mockExecutor.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "--version").Return("podman version 5.4.2", "", 0),
 					mockSpecManager.EXPECT().Ensure().Return(nil),
 					mockStatusManager.EXPECT().Collect(gomock.Any()).Return(nil),
-					mockStatusManager.EXPECT().Get(gomock.Any()).Return(&v1alpha1.DeviceStatus{}),
+					mockStatusManager.EXPECT().Get(gomock.Any()).Return(&v1beta1.DeviceStatus{}),
 					mockLifecycleInitializer.EXPECT().Initialize(gomock.Any(), gomock.Any()).Return(nil),
 					mockIdentityProvider.EXPECT().CreateManagementClient(gomock.Any(), gomock.Any()).Return(nil, nil),
 					mockStatusManager.EXPECT().SetClient(gomock.Any()),
@@ -125,7 +125,7 @@ func TestInitialization(t *testing.T) {
 					mockExecutor.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "--version").Return("podman version 5.4.2", "", 0),
 					mockSpecManager.EXPECT().Ensure().Return(nil),
 					mockStatusManager.EXPECT().Collect(gomock.Any()).Return(nil),
-					mockStatusManager.EXPECT().Get(gomock.Any()).Return(&v1alpha1.DeviceStatus{}),
+					mockStatusManager.EXPECT().Get(gomock.Any()).Return(&v1beta1.DeviceStatus{}),
 					mockLifecycleInitializer.EXPECT().Initialize(gomock.Any(), gomock.Any()).Return(nil),
 					mockIdentityProvider.EXPECT().CreateManagementClient(gomock.Any(), gomock.Any()).Return(nil, nil),
 					mockStatusManager.EXPECT().SetClient(gomock.Any()),
@@ -157,6 +157,7 @@ func TestInitialization(t *testing.T) {
 
 			log := log.NewPrefixLogger("test")
 			podmanClient := client.NewPodman(log, mockExecutor, mockReadWriter, util.NewPollConfig())
+			systemdClient := client.NewSystemd(mockExecutor, v1beta1.RootUsername)
 
 			b := &Bootstrap{
 				statusManager:           mockStatusManager,
@@ -167,6 +168,7 @@ func TestInitialization(t *testing.T) {
 				managementServiceConfig: &baseclient.Config{},
 				systemInfoManager:       mockSystemInfoManager,
 				podmanClient:            podmanClient,
+				systemdClient:           systemdClient,
 				identityProvider:        mockIdentityProvider,
 				log:                     log,
 			}

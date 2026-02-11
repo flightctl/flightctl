@@ -12,11 +12,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	apiClient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/auth/common"
+	"github.com/flightctl/flightctl/internal/cli/display"
 	"github.com/flightctl/flightctl/internal/cli/login"
 	"github.com/flightctl/flightctl/internal/client"
+	"github.com/samber/lo"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
@@ -150,14 +152,16 @@ func formatTLSErrorForAuth(errorInfo TLSErrorInfo) string {
 type LoginOptions struct {
 	GlobalOptions
 	AccessToken        string
-	Web                bool
-	ClientId           string
+	Provider           string
 	InsecureSkipVerify bool
 	CAFile             string
 	AuthCAFile         string
+	CallbackPort       int
 	Username           string
 	Password           string
-	authConfig         *v1alpha1.AuthConfig
+	Web                bool
+	ShowProviders      bool
+	authConfig         *v1beta1.AuthConfig
 	authProvider       login.AuthProvider
 	clientConfig       *client.Config
 }
@@ -166,13 +170,15 @@ func DefaultLoginOptions() *LoginOptions {
 	return &LoginOptions{
 		GlobalOptions:      DefaultGlobalOptions(),
 		AccessToken:        "",
-		Web:                false,
-		ClientId:           "",
+		Provider:           "",
 		InsecureSkipVerify: false,
 		CAFile:             "",
 		AuthCAFile:         "",
+		CallbackPort:       8080,
 		Username:           "",
 		Password:           "",
+		Web:                false,
+		ShowProviders:      false,
 	}
 }
 
@@ -217,13 +223,15 @@ func (o *LoginOptions) Bind(fs *pflag.FlagSet) {
 	o.GlobalOptions.Bind(fs)
 
 	fs.StringVarP(&o.AccessToken, "token", "t", o.AccessToken, "Bearer token for authentication to the API server")
-	fs.BoolVarP(&o.Web, "web", "w", o.Web, "Login via browser")
-	fs.StringVarP(&o.ClientId, "client-id", "", o.ClientId, "ClientId to be used for OAuth2 requests")
+	fs.StringVarP(&o.Provider, "provider", "", o.Provider, "Name of the authentication provider to use")
 	fs.StringVarP(&o.CAFile, "certificate-authority", "", o.CAFile, "Path to a cert file for the certificate authority")
 	fs.StringVarP(&o.AuthCAFile, "auth-certificate-authority", "", o.AuthCAFile, "Path to a cert file for the auth certificate authority")
 	fs.BoolVarP(&o.InsecureSkipVerify, "insecure-skip-tls-verify", "k", o.InsecureSkipVerify, "If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure")
-	fs.StringVarP(&o.Username, "username", "u", o.Username, "Username for server")
-	fs.StringVarP(&o.Password, "password", "p", o.Password, "Password for server")
+	fs.IntVarP(&o.CallbackPort, "callback-port", "", o.CallbackPort, "Port to use for OAuth callback")
+	fs.StringVarP(&o.Username, "username", "u", o.Username, "Username for password flow authentication")
+	fs.StringVarP(&o.Password, "password", "p", o.Password, "Password for password flow authentication")
+	fs.BoolVarP(&o.Web, "web", "", o.Web, "Use web-based authorization code flow (default is password flow if username/password provided)")
+	fs.BoolVarP(&o.ShowProviders, "show-providers", "", o.ShowProviders, "List available authentication providers")
 }
 
 func (o *LoginOptions) Complete(cmd *cobra.Command, args []string) error {
@@ -251,117 +259,147 @@ func (o *LoginOptions) Init(args []string) error {
 	return nil
 }
 
+// validateShowProvidersExclusion ensures --show-providers is not used with other login options
+func (o *LoginOptions) validateShowProvidersExclusion() error {
+	if !o.ShowProviders {
+		return nil
+	}
+
+	conflicts := map[bool]string{
+		!login.StrIsEmpty(o.AccessToken):                               "--token",
+		!login.StrIsEmpty(o.Provider):                                  "--provider",
+		!login.StrIsEmpty(o.AuthCAFile):                                "--auth-certificate-authority",
+		!login.StrIsEmpty(o.Username) || !login.StrIsEmpty(o.Password): "--username or --password",
+		o.Web: "--web",
+	}
+
+	for condition, flag := range conflicts {
+		if condition {
+			return fmt.Errorf("--show-providers cannot be used with %s", flag)
+		}
+	}
+	return nil
+}
+
 func (o *LoginOptions) Validate(args []string) error {
 	if err := o.GlobalOptions.ValidateCmd(args); err != nil {
 		return err
 	}
 
-	// Validate authentication flag conflicts
-	if !login.StrIsEmpty(o.AccessToken) && (!login.StrIsEmpty(o.Username) || !login.StrIsEmpty(o.Password) || o.Web) {
-		return fmt.Errorf("--token cannot be used along with --username, --password or --web")
+	if err := o.validateShowProvidersExclusion(); err != nil {
+		return err
 	}
 
-	if o.Web && (!login.StrIsEmpty(o.Username) || !login.StrIsEmpty(o.Password) || !login.StrIsEmpty(o.AccessToken)) {
-		return fmt.Errorf("--web cannot be used along with --username, --password or --token")
-	}
-
-	if (!login.StrIsEmpty(o.Username) && login.StrIsEmpty(o.Password)) || (login.StrIsEmpty(o.Username) && !login.StrIsEmpty(o.Password)) {
-		return fmt.Errorf("both --username and --password need to be provided")
-	}
-
-	return nil
-}
-
-// ensureClientID sets a default ClientId when not provided based on auth type and flags
-func (o *LoginOptions) ensureClientID() {
-	if o.ClientId != "" {
-		return
-	}
-	switch o.authConfig.AuthType {
-	case common.AuthTypeK8s:
-		if o.Username != "" {
-			o.ClientId = "openshift-challenging-client"
-		} else {
-			o.ClientId = "openshift-cli-client"
+	// Validate mutual exclusion: --token cannot be used with --provider or --auth-certificate-authority
+	if !login.StrIsEmpty(o.AccessToken) {
+		if !login.StrIsEmpty(o.Provider) {
+			return fmt.Errorf("--token cannot be used with --provider")
 		}
-	case common.AuthTypeOIDC:
-		o.ClientId = "flightctl"
+		if !login.StrIsEmpty(o.AuthCAFile) {
+			return fmt.Errorf("--token cannot be used with --auth-certificate-authority")
+		}
+		if !login.StrIsEmpty(o.Username) || !login.StrIsEmpty(o.Password) {
+			return fmt.Errorf("--token cannot be used with --username or --password")
+		}
 	}
-}
 
-// createAuthProvider creates and assigns the auth provider from current config
-func (o *LoginOptions) createAuthProvider() error {
-	provider, err := client.CreateAuthProvider(client.AuthInfo{
-		AuthProvider: &client.AuthProviderConfig{
-			Name: o.authConfig.AuthType,
-			Config: map[string]string{
-				client.AuthUrlKey:      o.authConfig.AuthURL,
-				client.AuthCAFileKey:   o.AuthCAFile,
-				client.AuthClientIdKey: o.ClientId,
-			},
-		},
-		OrganizationsEnabled: o.authConfig.AuthOrganizationsConfig.Enabled,
-	}, o.InsecureSkipVerify)
-	if err != nil {
-		return fmt.Errorf("creating auth provider: %w", err)
+	// Validate username/password are provided together
+	if (!login.StrIsEmpty(o.Username) && login.StrIsEmpty(o.Password)) ||
+		(login.StrIsEmpty(o.Username) && !login.StrIsEmpty(o.Password)) {
+		return fmt.Errorf("--username and --password must be used together")
 	}
-	o.authProvider = provider
+
+	// Validate --web cannot be used with username/password
+	if o.Web && (!login.StrIsEmpty(o.Username) || !login.StrIsEmpty(o.Password)) {
+		return fmt.Errorf("--web cannot be used with --username or --password")
+	}
+
 	return nil
 }
 
-// setAuthProviderInClientConfig writes the provider info into the client config
-func (o *LoginOptions) setAuthProviderInClientConfig() {
-	o.clientConfig.AuthInfo.AuthProvider = &client.AuthProviderConfig{
-		Name: o.authConfig.AuthType,
-		Config: map[string]string{
-			client.AuthUrlKey:      o.authConfig.AuthURL,
-			client.AuthClientIdKey: o.ClientId,
-		},
+// getAuthProvider creates and returns the appropriate auth provider based on the authentication method
+func (o *LoginOptions) getAuthProvider(ctx context.Context) (login.AuthProvider, client.AuthInfo, error) {
+	// Get auth config with timeout-aware context for web-based auth
+	var err error
+	o.authConfig, err = o.getAuthConfig(ctx)
+	if err != nil {
+		return nil, client.AuthInfo{}, fmt.Errorf("failed to get auth info: %w", err)
 	}
+	if o.authConfig == nil || o.authConfig.Providers == nil || len(*o.authConfig.Providers) == 0 {
+		return nil, client.AuthInfo{}, fmt.Errorf("no authentication providers configured on the server")
+	}
+	// If token is provided, create token provider
+	if o.AccessToken != "" {
+		return login.NewTokenAuth(o.AccessToken), client.AuthInfo{
+			AccessToken: o.AccessToken,
+			TokenToUse:  client.TokenToUseAccessToken,
+		}, nil
+	}
+
+	// Create web-based auth provider from config
+	var providerName string = lo.FromPtr((*o.authConfig.Providers)[0].Metadata.Name)
+	if o.authConfig.DefaultProvider != nil {
+		providerName = lo.FromPtr(o.authConfig.DefaultProvider)
+	}
+	if o.Provider != "" {
+		providerName = o.Provider
+	}
+	var provider *v1beta1.AuthProvider
+	for _, p := range *o.authConfig.Providers {
+		if p.Metadata.Name != nil && *p.Metadata.Name == providerName {
+			provider = &p
+			break
+		}
+	}
+	if provider == nil {
+		availableProviders := lo.Map(*o.authConfig.Providers, func(p v1beta1.AuthProvider, _ int) string {
+			return *p.Metadata.Name
+		})
+		availableProvidersStr := strings.Join(availableProviders, ", ")
+		return nil, client.AuthInfo{}, fmt.Errorf("no auth provider found for name: %s. Available providers: %s", providerName, availableProvidersStr)
+	}
+
+	authInfo := client.AuthInfo{
+		AuthProvider: &client.AuthProviderConfig{
+			AuthProvider:       *provider,
+			CAFile:             o.AuthCAFile,
+			InsecureSkipVerify: o.InsecureSkipVerify,
+		},
+		OrganizationsEnabled: true,
+	}
+	authProvider, err := client.CreateAuthProviderWithCredentials(authInfo, o.InsecureSkipVerify, o.clientConfig.Service.Server, o.CallbackPort, o.Username, o.Password, o.Web)
+	if err != nil {
+		return nil, client.AuthInfo{}, fmt.Errorf("creating auth provider: %w", err)
+	}
+	return authProvider, authInfo, nil
 }
 
-// fetchToken retrieves an access token, handling Auth TLS prompts and retries as needed
-func (o *LoginOptions) fetchToken() (string, error) {
-	if o.AccessToken != "" {
-		return o.AccessToken, nil
-	}
+// fetchAuthInfo retrieves the auth info, handling Auth TLS prompts and retries as needed
+func (o *LoginOptions) fetchAuthInfo() (*login.AuthInfo, error) {
 
-	authInfo, err := o.authProvider.Auth(o.Web, o.Username, o.Password)
+	authInfo, err := o.authProvider.Auth()
 	if err != nil {
 		// Check if this is an Auth certificate issue
-		if o.authConfig != nil && o.authConfig.AuthURL != "" {
-			errorInfo := classifyTLSError(err)
-			if errorInfo.Type != TLSErrorUnknown {
-				// Offer interactive prompt to proceed insecurely
-				if o.shouldOfferInsecurePrompt() && o.promptUseInsecure(errorInfo) {
-					// enable insecure and recreate provider, then retry once
-					o.enableInsecure()
-					if err := o.createAuthProvider(); err != nil {
-						return "", fmt.Errorf("authentication failed\n%s", formatTLSErrorForAuth(errorInfo))
-					}
-					authInfo, err = o.authProvider.Auth(o.Web, o.Username, o.Password)
-				}
-				if err != nil {
-					authErrMsg := formatTLSErrorForAuth(errorInfo)
-					return "", fmt.Errorf("authentication failed\n%s", authErrMsg)
-				}
-			} else {
-				return "", err
+
+		errorInfo := classifyTLSError(err)
+		if errorInfo.Type != TLSErrorUnknown {
+			// Offer interactive prompt to proceed insecurely
+			if o.shouldOfferInsecurePrompt() && o.promptUseInsecure(errorInfo) {
+				// enable insecure and recreate provider, then retry once
+				o.enableInsecure()
+				o.authProvider.SetInsecureSkipVerify(true)
+				authInfo, err = o.authProvider.Auth()
 			}
+			if err != nil {
+				authErrMsg := formatTLSErrorForAuth(errorInfo)
+				return nil, fmt.Errorf("authentication failed\n%s", authErrMsg)
+			}
+
 		} else {
-			return "", err
+			return nil, err
 		}
 	}
-
-	token := authInfo.AccessToken
-	o.clientConfig.AuthInfo.AuthProvider.Config[client.AuthRefreshTokenKey] = authInfo.RefreshToken
-	if authInfo.ExpiresIn != nil {
-		o.clientConfig.AuthInfo.AuthProvider.Config[client.AuthAccessTokenExpiryKey] = time.Unix(time.Now().Unix()+*authInfo.ExpiresIn, 0).Format(time.RFC3339Nano)
-	}
-	if token == "" {
-		return "", fmt.Errorf("failed to retrieve auth token")
-	}
-	return token, nil
+	return &authInfo, nil
 }
 
 func (o *LoginOptions) getAbsAuthCAFile() (string, error) {
@@ -376,103 +414,150 @@ func (o *LoginOptions) getAbsAuthCAFile() (string, error) {
 }
 
 // validateTokenWithServer validates the token with the server, handling TLS prompts and a single retry
-func (o *LoginOptions) validateTokenWithServer(ctx context.Context, token string) error {
-	c, err := client.NewFromConfig(o.clientConfig, o.ConfigFilePath)
+func (o *LoginOptions) validateTokenWithServer(ctx context.Context, token string) (*apiClient.ClientWithResponses, error) {
+	// Create HTTP client without the GetAccessToken request editor to avoid potential deadlock
+	httpClient, err := client.NewHTTPClientFromConfig(o.clientConfig)
 	if err != nil {
-		return fmt.Errorf("creating client: %w", err)
+		return nil, fmt.Errorf("creating HTTP client: %w", err)
 	}
 
+	tokenEditor := apiClient.WithRequestEditorFn(func(ctx context.Context, req *http.Request) error {
+		req.Header.Set(common.AuthHeader, fmt.Sprintf("Bearer %s", token))
+		return nil
+	})
+	// Create API client with just the HTTP client and organization, no auto-token injection
+	c, err := apiClient.NewClientWithResponses(
+		client.JoinServerURL(o.clientConfig.Service.Server, apiClient.ServerUrlApiv1),
+		apiClient.WithHTTPClient(httpClient),
+		client.WithOrganization(o.clientConfig.Organization),
+		tokenEditor,
+		client.WithUserAgentHeader("flightctl-cli"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("creating client: %w", err)
+	}
+
+	// Add a 30-second timeout for the token validation call
+	timeoutCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
 	headerVal := "Bearer " + token
-	res, err := c.AuthValidateWithResponse(ctx, &v1alpha1.AuthValidateParams{Authorization: &headerVal})
+	res, err := c.AuthValidateWithResponse(timeoutCtx, &v1beta1.AuthValidateParams{Authorization: &headerVal})
 	if err != nil {
 		// Translate TLS errors during token validation and offer interactive prompt
 		errorInfo := classifyTLSError(err)
 		if errorInfo.Type != TLSErrorUnknown && o.shouldOfferInsecurePrompt() && !o.InsecureSkipVerify {
 			if o.promptUseInsecure(errorInfo) {
 				o.enableInsecure()
-				c, cerr := client.NewFromConfig(o.clientConfig, o.ConfigFilePath)
+				c, cerr := client.NewFromConfig(o.clientConfig, o.ConfigFilePath, client.WithUserAgentHeader("flightctl-cli"))
 				if cerr == nil {
-					res, err = c.AuthValidateWithResponse(ctx, &v1alpha1.AuthValidateParams{Authorization: &headerVal})
+					c.Start(ctx)
+					defer c.Stop()
+					res, err = c.AuthValidateWithResponse(ctx, &v1beta1.AuthValidateParams{Authorization: &headerVal})
 				}
 			}
 		}
 		if err != nil {
 			friendlyErr := getUserFriendlyTLSError(err)
-			return fmt.Errorf("validating token:\n%s", friendlyErr)
+			return nil, fmt.Errorf("validating token:\n%s", friendlyErr)
 		}
 	}
 	if err := validateHttpResponse(res.Body, res.StatusCode(), http.StatusOK); err != nil {
-		return err
+		return nil, err
 	}
-	return nil
+	return c, nil
 }
 
 func (o *LoginOptions) Run(ctx context.Context, args []string) error {
+	// Handle --show-providers flag
+	if o.ShowProviders {
+		return o.showProviders(ctx)
+	}
+
 	var (
 		authCAFile string
 		err        error
 	)
 
-	// Get auth config with timeout-aware context
-	o.authConfig, err = o.getAuthConfig(ctx)
+	// Get the appropriate auth provider (token-based or web-based)
+	o.authProvider, o.clientConfig.AuthInfo, err = o.getAuthProvider(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to get auth info: %w", err)
-	}
-	if o.authConfig == nil {
-		// auth disabled
-		fmt.Println("Auth is disabled")
-		if err := o.clientConfig.Persist(o.ConfigFilePath); err != nil {
-			return fmt.Errorf("persisting client config: %w", err)
-		}
-		return nil
-	}
-
-	// Set up ClientId if not provided
-	o.ensureClientID()
-
-	// Create auth provider
-	if err := o.createAuthProvider(); err != nil {
 		return err
 	}
-
-	// Validate auth provider
-	validateArgs := login.ValidateArgs{
+	err = o.authProvider.Validate(login.ValidateArgs{
 		ApiUrl:      o.clientConfig.Service.Server,
-		ClientId:    o.ClientId,
 		AccessToken: o.AccessToken,
-		Username:    o.Username,
-		Password:    o.Password,
-		Web:         o.Web,
+	})
+	if err != nil {
+		return fmt.Errorf("validating auth provider: %w", err)
 	}
-	if err := o.authProvider.Validate(validateArgs); err != nil {
-		return err
-	}
-
-	if o.AccessToken == "" && o.authConfig.AuthURL == "" {
-		fmt.Printf("You must obtain API token, then login via \"flightctl login %s --token=<token>\"\n", o.clientConfig.Service.Server)
-		return fmt.Errorf("must provide --token")
-	}
-
-	o.setAuthProviderInClientConfig()
 
 	// Retrieve token (or use provided)
-	token, err := o.fetchToken()
+	authInfo, err := o.fetchAuthInfo()
 	if err != nil {
 		return err
 	}
-	o.clientConfig.AuthInfo.Token = token
+	if authInfo.ExpiresIn != nil {
+		expiryTime := time.Now().Add(time.Duration(*authInfo.ExpiresIn) * time.Second)
+		o.clientConfig.AuthInfo.AccessTokenExpiry = expiryTime.Format(time.RFC3339Nano)
+	}
+	o.clientConfig.AuthInfo.AccessToken = authInfo.AccessToken
+	o.clientConfig.AuthInfo.RefreshToken = authInfo.RefreshToken
+	o.clientConfig.AuthInfo.IdToken = authInfo.IdToken
+	o.clientConfig.AuthInfo.TokenToUse = client.TokenToUseType(authInfo.TokenToUse)
 
-	// Resolve auth CA file path if provided
-	authCAFile, err = o.getAbsAuthCAFile()
-	if err != nil {
-		return err
+	// Resolve auth CA file path if provided (only for web-based auth)
+	if o.AccessToken == "" {
+		authCAFile, err = o.getAbsAuthCAFile()
+		if err != nil {
+			return err
+		}
+		if o.clientConfig.AuthInfo.AuthProvider != nil {
+			o.clientConfig.AuthInfo.AuthProvider.CAFile = authCAFile
+		}
 	}
-	o.clientConfig.AuthInfo.AuthProvider.Config[client.AuthCAFileKey] = authCAFile
+	token := authInfo.AccessToken
+	if authInfo.TokenToUse == login.TokenToUseIdToken {
+		token = authInfo.IdToken
+	}
 
 	// Validate token with API server (handles TLS prompt/retry)
-	if err := o.validateTokenWithServer(ctx, token); err != nil {
+	c, err := o.validateTokenWithServer(ctx, token)
+	if err != nil {
 		return err
 	}
+
+	// Auto-select organization if enabled and user has access to only one
+	if response, err := c.ListOrganizationsWithResponse(ctx, &v1beta1.ListOrganizationsParams{}); err == nil && response.StatusCode() == http.StatusOK && response.JSON200 != nil {
+
+		if len(response.JSON200.Items) == 0 {
+			return fmt.Errorf("no organizations found")
+		}
+
+		org := response.JSON200.Items[0]
+		if org.Metadata.Name != nil {
+			orgName := *org.Metadata.Name
+			o.clientConfig.Organization = orgName
+
+			displayName := ""
+			if org.Spec != nil && org.Spec.DisplayName != nil {
+				displayName = *org.Spec.DisplayName
+			}
+
+			if displayName != "" {
+				fmt.Printf("Auto-selected organization: %s %s\n", orgName, displayName)
+			} else {
+				fmt.Printf("Auto-selected organization: %s\n", orgName)
+			}
+		}
+	}
+
+	// Set imagebuilder service URL based on the main API server
+	imageBuilderService, err := deriveImageBuilderService(o.clientConfig.Service)
+	if err != nil {
+		return fmt.Errorf("deriving imagebuilder service: %w", err)
+	}
+	o.clientConfig.ImageBuilderService = imageBuilderService
 
 	if err := o.clientConfig.Persist(o.ConfigFilePath); err != nil {
 		return fmt.Errorf("persisting client config: %w", err)
@@ -482,7 +567,29 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 	return nil
 }
 
-func (o *LoginOptions) getAuthConfig(ctx context.Context) (*v1alpha1.AuthConfig, error) {
+// showProviders lists all available authentication providers
+func (o *LoginOptions) showProviders(ctx context.Context) error {
+	authConfig, err := o.getAuthConfig(ctx)
+	if err != nil {
+		return err
+	}
+
+	if authConfig == nil || authConfig.Providers == nil || len(*authConfig.Providers) == 0 {
+		fmt.Println("No authentication providers configured")
+		return nil
+	}
+
+	// Create formatter and display options (empty string defaults to table format)
+	formatter := display.NewFormatter("")
+	options := display.FormatOptions{
+		Kind:   v1beta1.AuthConfigKind,
+		Writer: os.Stdout,
+	}
+
+	return formatter.Format(authConfig, options)
+}
+
+func (o *LoginOptions) getAuthConfig(ctx context.Context) (*v1beta1.AuthConfig, error) {
 	httpClient, err := client.NewHTTPClientFromConfig(o.clientConfig)
 	if err != nil {
 		// Translate TLS configuration errors and optionally prompt to proceed insecurely
@@ -499,7 +606,11 @@ func (o *LoginOptions) getAuthConfig(ctx context.Context) (*v1alpha1.AuthConfig,
 			return nil, fmt.Errorf("failed to create http client:\n%s", friendlyErr)
 		}
 	}
-	c, err := apiClient.NewClientWithResponses(o.clientConfig.Service.Server, apiClient.WithHTTPClient(httpClient))
+
+	c, err := apiClient.NewClientWithResponses(
+		client.JoinServerURL(o.clientConfig.Service.Server, apiClient.ServerUrlApiv1),
+		apiClient.WithHTTPClient(httpClient),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("creating client: %w", err)
 	}
@@ -535,7 +646,10 @@ func (o *LoginOptions) getAuthConfig(ctx context.Context) (*v1alpha1.AuthConfig,
 				// retry once
 				httpClient, herr := client.NewHTTPClientFromConfig(o.clientConfig)
 				if herr == nil {
-					c, herr = apiClient.NewClientWithResponses(o.clientConfig.Service.Server, apiClient.WithHTTPClient(httpClient))
+					c, herr = apiClient.NewClientWithResponses(
+						client.JoinServerURL(o.clientConfig.Service.Server, apiClient.ServerUrlApiv1),
+						apiClient.WithHTTPClient(httpClient),
+					)
 					if herr == nil {
 						resp, err = c.AuthConfigWithResponse(ctx)
 					}
@@ -672,4 +786,44 @@ func (o *LoginOptions) validateURLFormat(urlStr string) error {
 	}
 
 	return nil
+}
+
+// deriveImageBuilderService derives the imagebuilder service configuration from the main API service.
+// For nodePort mode: uses the same host as the main API but on port 8445.
+// For route mode: uses imagebuilder-api.{domain} with standard ports (443 for https, 80 for http).
+func deriveImageBuilderService(mainService client.Service) (*client.Service, error) {
+	const defaultImageBuilderPort = "8445"
+
+	parsedUrl, err := url.Parse(mainService.Server)
+	if err != nil {
+		return nil, fmt.Errorf("parsing main service URL %q: %w", mainService.Server, err)
+	}
+
+	hostname := parsedUrl.Hostname()
+	port := parsedUrl.Port()
+
+	// Detect if we're using routes (no port or standard ports 80/443)
+	// For routes, use a different hostname: imagebuilder-api.{domain}
+	// For nodePort, use the same hostname with port 8445
+	var imageBuilderURL string
+	if port == "" || port == "443" || port == "80" {
+		// Route mode: replace "api." with "imagebuilder-api." in the hostname
+		if strings.HasPrefix(hostname, "api.") {
+			imageBuilderURL = parsedUrl.Scheme + "://" + strings.Replace(hostname, "api.", "imagebuilder-api.", 1)
+		} else {
+			// Fallback: if hostname doesn't start with "api.", append port 8445
+			imageBuilderURL = parsedUrl.Scheme + "://" + hostname + ":" + defaultImageBuilderPort
+		}
+	} else {
+		// NodePort mode: use the same host but with the imagebuilder port
+		imageBuilderURL = parsedUrl.Scheme + "://" + hostname + ":" + defaultImageBuilderPort
+	}
+
+	return &client.Service{
+		Server:                   imageBuilderURL,
+		TLSServerName:            mainService.TLSServerName,
+		CertificateAuthority:     mainService.CertificateAuthority,
+		CertificateAuthorityData: mainService.CertificateAuthorityData,
+		InsecureSkipVerify:       mainService.InsecureSkipVerify,
+	}, nil
 }

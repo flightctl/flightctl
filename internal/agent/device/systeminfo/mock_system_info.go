@@ -13,7 +13,7 @@ import (
 	context "context"
 	reflect "reflect"
 
-	v1alpha1 "github.com/flightctl/flightctl/api/v1alpha1"
+	v1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
 	status "github.com/flightctl/flightctl/internal/agent/device/status"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -84,19 +84,19 @@ func (mr *MockManagerMockRecorder) IsRebooted() *gomock.Call {
 }
 
 // RegisterCollector mocks base method.
-func (m *MockManager) RegisterCollector(ctx context.Context, name string, fn CollectorFn) {
+func (m *MockManager) RegisterCollector(ctx context.Context, key string, fn CollectorFn) {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "RegisterCollector", ctx, name, fn)
+	m.ctrl.Call(m, "RegisterCollector", ctx, key, fn)
 }
 
 // RegisterCollector indicates an expected call of RegisterCollector.
-func (mr *MockManagerMockRecorder) RegisterCollector(ctx, name, fn any) *gomock.Call {
+func (mr *MockManagerMockRecorder) RegisterCollector(ctx, key, fn any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RegisterCollector", reflect.TypeOf((*MockManager)(nil).RegisterCollector), ctx, name, fn)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RegisterCollector", reflect.TypeOf((*MockManager)(nil).RegisterCollector), ctx, key, fn)
 }
 
 // Status mocks base method.
-func (m *MockManager) Status(arg0 context.Context, arg1 *v1alpha1.DeviceStatus, arg2 ...status.CollectorOpt) error {
+func (m *MockManager) Status(arg0 context.Context, arg1 *v1beta1.DeviceStatus, arg2 ...status.CollectorOpt) error {
 	m.ctrl.T.Helper()
 	varargs := []any{arg0, arg1}
 	for _, a := range arg2 {

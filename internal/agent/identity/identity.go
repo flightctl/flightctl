@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
-	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	agent_config "github.com/flightctl/flightctl/internal/agent/config"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
@@ -77,11 +77,13 @@ type Provider interface {
 	// GenerateCSR creates a certificate signing request using this identity
 	GenerateCSR(deviceName string) ([]byte, error)
 	// ProveIdentity performs idempotent, provider-specific, identity verification.
-	ProveIdentity(ctx context.Context, enrollmentRequest *v1alpha1.EnrollmentRequest) error
+	ProveIdentity(ctx context.Context, enrollmentRequest *v1beta1.EnrollmentRequest) error
 	// StoreCertificate stores/persists the certificate received from enrollment.
 	StoreCertificate(certPEM []byte) error
 	// HasCertificate returns true if the provider has a certificate available
 	HasCertificate() bool
+	// GetCertificate returns the current certificate if installed
+	GetCertificate() ([]byte, error)
 	// CreateManagementClient creates a fully configured management client with this identity
 	CreateManagementClient(config *base_client.Config, metricsCallback client.RPCMetricsCallback) (client.Management, error)
 	// CreateGRPCClient creates a fully configured gRPC client with this identity
@@ -106,14 +108,15 @@ func NewProvider(
 
 	clientCertPath := config.ManagementService.GetClientCertificatePath()
 	clientKeyPath := config.ManagementService.GetClientKeyPath()
+	clientCSRPath := GetCSRPath(config.DataDir)
 
 	if tpmClient != nil {
 		log.Info("Using TPM-based identity provider")
-		return newTPMProvider(tpmClient, config, clientCertPath, rw, log)
+		return newTPMProvider(tpmClient, config, clientCertPath, clientCSRPath, rw, log)
 	}
 
 	log.Info("Using file-based identity provider")
-	return newFileProvider(clientKeyPath, clientCertPath, rw, log)
+	return newFileProvider(clientKeyPath, clientCertPath, clientCSRPath, rw, log)
 }
 
 // generateDeviceName creates a device name from a public key hash
@@ -123,4 +126,50 @@ func generateDeviceName(publicKey crypto.PublicKey) (string, error) {
 		return "", fmt.Errorf("failed to hash public key: %w", err)
 	}
 	return strings.ToLower(base32.HexEncoding.WithPadding(base32.NoPadding).EncodeToString(publicKeyHash)), nil
+}
+
+// GetCSRPath returns the standard path where CSRs are stored
+func GetCSRPath(dataDir string) string {
+	return filepath.Join(dataDir, agent_config.DefaultCertsDirName, agent_config.CSRFile)
+}
+
+func StoreCSR(rw fileio.ReadWriter, csrPath string, csr []byte) error {
+	if csr == nil {
+		// Delete the CSR file if it exists
+		exists, err := rw.PathExists(csrPath)
+		if err != nil {
+			return fmt.Errorf("checking CSR existence: %w", err)
+		}
+		if exists {
+			if err := rw.OverwriteAndWipe(csrPath); err != nil {
+				return fmt.Errorf("deleting CSR file: %w", err)
+			}
+		}
+		return nil
+	}
+	return rw.WriteFile(csrPath, csr, 0600)
+}
+
+func LoadCSR(rw fileio.ReadWriter, csrPath string) ([]byte, bool, error) {
+	exists, err := rw.PathExists(csrPath)
+	if err != nil {
+		return nil, false, fmt.Errorf("checking CSR existence: %w", err)
+	}
+	if !exists {
+		return nil, false, nil
+	}
+	csr, err := rw.ReadFile(csrPath)
+	if err != nil {
+		return nil, false, fmt.Errorf("reading CSR: %w", err)
+	}
+	return csr, true, nil
+}
+
+func hasCertificate(rw fileio.ReadWriter, certPath string, log *log.PrefixLogger) bool {
+	exists, err := rw.PathExists(certPath)
+	if err != nil {
+		log.Warnf("Failed to check certificate existence: %v", err)
+		return false
+	}
+	return exists
 }

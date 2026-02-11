@@ -1,4 +1,4 @@
--- FlightCtl Database User Setup Script
+-- Flight Control Database User Setup Script
 -- This script creates the database users with appropriate permissions for production deployments
 -- Environment variables that must be set before running:
 --   ${DB_NAME} - Database name (default: flightctl)
@@ -30,24 +30,30 @@ GRANT CONNECT ON DATABASE "${DB_NAME}" TO "${DB_APP_USER}";
 GRANT USAGE ON SCHEMA public TO "${DB_MIGRATION_USER}";
 GRANT USAGE ON SCHEMA public TO "${DB_APP_USER}";
 
--- Grant migration user minimum required privileges for schema migrations
+-- Grant migration user privileges for schema migrations
 -- Following the principle of least privilege, these are the specific privileges needed:
 -- 1. CREATE on schema - for creating tables, indexes, sequences, functions, and triggers
 -- 2. CREATE on database - for creating additional schemas if needed
--- Note: Migration user does NOT get data-plane permissions (SELECT, INSERT, UPDATE, DELETE)
--- for security reasons - migrations should only modify schema structure, not data
 GRANT CREATE ON SCHEMA public TO "${DB_MIGRATION_USER}";
 GRANT CREATE ON DATABASE "${DB_NAME}" TO "${DB_MIGRATION_USER}";
 
--- Grant additional privileges needed for schema operations only
--- Migration user should NOT have data-plane permissions (SELECT, INSERT, UPDATE, DELETE)
--- for security reasons - migrations only modify schema, not data
+-- Grant additional privileges needed for schema and post-migration operations
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO "${DB_MIGRATION_USER}";
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO "${DB_MIGRATION_USER}";
 
--- Grant migration user additional privileges for schema modifications
--- The CREATE privilege on schema allows creating, altering, and dropping tables, indexes, etc.
--- No additional ALTER/DROP privileges needed - these are handled by CREATE on schema
+-- Grant migration user data-plane permissions WITH GRANT OPTION
+-- This allows the migrator to grant these permissions to the application user
+-- after running migrations, enabling support for external databases without admin access
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public
+    TO "${DB_MIGRATION_USER}" WITH GRANT OPTION;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public
+    TO "${DB_MIGRATION_USER}" WITH GRANT OPTION;
+
+-- Ensure future tables also get WITH GRANT OPTION for migrator
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO "${DB_MIGRATION_USER}" WITH GRANT OPTION;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+    GRANT USAGE, SELECT ON SEQUENCES TO "${DB_MIGRATION_USER}" WITH GRANT OPTION;
 
 -- Grant application user limited privileges for data operations
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO "${DB_APP_USER}";

@@ -1,0 +1,12 @@
+apiVersion: flightctl.io/v1beta1
+kind: Fleet
+metadata:
+  name: resourcesync-test-fleet-2-{{.TestID}}
+spec:
+  selector:
+    matchLabels:
+      fleet: resourcesync-test-2-{{.TestID}}
+  template:
+    spec:
+      os:
+        image: quay.io/fedora/fedora-bootc:42

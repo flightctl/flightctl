@@ -10,3 +10,7 @@
   - path: /etc/firewalld/
     op: [created, updated, removed]
   run: firewall-cmd --reload
+- if:
+  - path: /etc/flightctl/conf.d/
+    op: [created, updated, removed]
+  run: /bin/sh -c 'kill -HUP ${FLIGHTCTL_AGENT_PID}'

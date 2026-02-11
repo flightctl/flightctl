@@ -6,23 +6,28 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
-	"maps"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
 	"time"
 
+	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
+	"github.com/flightctl/flightctl/api/versioning"
 	"github.com/flightctl/flightctl/internal/api/client"
+	v1alpha1client "github.com/flightctl/flightctl/internal/api/client/v1alpha1"
+	imagebuilderclient "github.com/flightctl/flightctl/internal/api/imagebuilder/client"
 	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/org"
 	"github.com/flightctl/flightctl/pkg/reqid"
+	"github.com/flightctl/flightctl/pkg/version"
 	"github.com/go-chi/chi/v5/middleware"
 	"golang.org/x/net/http2"
 	"google.golang.org/grpc"
@@ -36,16 +41,31 @@ import (
 const (
 	// TestRootDirEnvKey is the environment variable key used to set the file system root when testing.
 	TestRootDirEnvKey = "FLIGHTCTL_TEST_ROOT_DIR"
+
+	http2ReadIdleTimeout = 45 * time.Second
 )
 
 // HTTPClientOption is a functional option for configuring HTTP client behavior.
 type HTTPClientOption func(*http.Client) error
 
+// WithDisableRedirectFollowing returns a ClientOption that disables automatic redirect following
+func WithDisableRedirectFollowing() imagebuilderclient.ClientOption {
+	return func(c *imagebuilderclient.Client) error {
+		if httpClient, ok := c.Client.(*http.Client); ok {
+			httpClient.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+				return http.ErrUseLastResponse
+			}
+		}
+		return nil
+	}
+}
+
 // Config holds the information needed to connect to a Flight Control API server
 type Config struct {
-	Service      Service  `json:"service"`
-	AuthInfo     AuthInfo `json:"authentication"`
-	Organization string   `json:"organization,omitempty"`
+	Service             Service  `json:"service"`
+	ImageBuilderService *Service `json:"imageBuilderService,omitempty"`
+	AuthInfo            AuthInfo `json:"authentication"`
+	Organization        string   `json:"organization,omitempty"`
 
 	// HTTPOptions contains HTTP client configuration options
 	HTTPOptions []HTTPClientOption `json:"-"`
@@ -72,6 +92,13 @@ type Service struct {
 	InsecureSkipVerify       bool   `json:"insecureSkipVerify,omitempty"`
 }
 
+type TokenToUseType string
+
+const (
+	TokenToUseAccessToken TokenToUseType = "access"
+	TokenToUseIdToken     TokenToUseType = "id"
+)
+
 // AuthInfo contains information for authenticating Flight Control API clients.
 type AuthInfo struct {
 	// ClientCertificate is the path to a client cert file for TLS.
@@ -86,10 +113,22 @@ type AuthInfo struct {
 	// ClientKeyData contains PEM-encoded data from a client key file for TLS. Overrides ClientKey.
 	// +optional
 	ClientKeyData []byte `json:"client-key-data,omitempty" datapolicy:"security-key"`
-	// Bearer token for authentication
+	// AccessToken is the OAuth2/OIDC access token for API authentication
 	// +optional
-	Token string `json:"token,omitempty"`
-	// The authentication provider (i.e. k8s, OIDC)
+	AccessToken string `json:"access-token,omitempty"`
+	// AccessTokenExpiry is the expiration time of the access token (RFC3339 format)
+	// +optional
+	AccessTokenExpiry string `json:"access-token-expiry,omitempty"`
+	// RefreshToken is the OAuth2/OIDC refresh token for obtaining new access tokens
+	// +optional
+	RefreshToken string `json:"refresh-token,omitempty"`
+	// IdToken is the OIDC ID token containing user identity information
+	// +optional
+	IdToken string `json:"id-token,omitempty"`
+	// TokenToUse is the type of token to use for API authentication
+	// +optional
+	TokenToUse TokenToUseType `json:"token-to-use,omitempty"`
+	// The authentication provider (i.e. OIDC, AAP, OAuth2, OpenShift)
 	// +optional
 	AuthProvider *AuthProviderConfig `json:"auth-provider,omitempty"`
 	// Organizations indicates the configured IdP supports organizations.
@@ -98,10 +137,12 @@ type AuthInfo struct {
 }
 
 type AuthProviderConfig struct {
-	// Name is the name of the authentication provider
-	Name string `json:"name"`
-	// Config is a map of authentication provider-specific configuration
-	Config map[string]string `json:"config,omitempty"`
+	// AuthProvider is the authentication provider from the API
+	AuthProvider api.AuthProvider `json:"auth-provider"`
+	// CAFile is the path to a cert file for the certificate authority of the auth provider.
+	CAFile string `json:"ca-file,omitempty"`
+	// InsecureSkipVerify skips TLS verification when connecting to the auth provider
+	InsecureSkipVerify bool `json:"insecureSkipVerify,omitempty"`
 }
 
 func (c *Config) Equal(c2 *Config) bool {
@@ -111,7 +152,17 @@ func (c *Config) Equal(c2 *Config) bool {
 	if c == nil || c2 == nil {
 		return false
 	}
-	return c.Service.Equal(&c2.Service) && c.AuthInfo.Equal(&c2.AuthInfo)
+	// Compare ImageBuilderService pointer field
+	if c.ImageBuilderService == nil && c2.ImageBuilderService == nil {
+		// Both nil, continue with other fields
+	} else if c.ImageBuilderService == nil || c2.ImageBuilderService == nil {
+		// One nil, one not nil => not equal
+		return false
+	} else if !c.ImageBuilderService.Equal(c2.ImageBuilderService) {
+		// Both non-nil, use Equal method
+		return false
+	}
+	return c.Service.Equal(&c2.Service) && c.AuthInfo.Equal(&c2.AuthInfo) && c.Organization == c2.Organization
 }
 
 func (s *Service) Equal(s2 *Service) bool {
@@ -133,9 +184,25 @@ func (a *AuthInfo) Equal(a2 *AuthInfo) bool {
 	if a == nil || a2 == nil {
 		return false
 	}
+	// Compare AuthProvider presence and equality
+	if a.AuthProvider == nil && a2.AuthProvider == nil {
+		// Both nil, continue with other fields
+	} else if a.AuthProvider == nil || a2.AuthProvider == nil {
+		// One nil, one not nil => not equal
+		return false
+	} else if !a.AuthProvider.Equal(a2.AuthProvider) {
+		// Both non-nil, use Equal method
+		return false
+	}
 	return a.ClientCertificate == a2.ClientCertificate && a.ClientKey == a2.ClientKey &&
 		bytes.Equal(a.ClientCertificateData, a2.ClientCertificateData) &&
-		bytes.Equal(a.ClientKeyData, a2.ClientKeyData)
+		bytes.Equal(a.ClientKeyData, a2.ClientKeyData) &&
+		a.AccessToken == a2.AccessToken &&
+		a.AccessTokenExpiry == a2.AccessTokenExpiry &&
+		a.RefreshToken == a2.RefreshToken &&
+		a.IdToken == a2.IdToken &&
+		a.TokenToUse == a2.TokenToUse &&
+		a.OrganizationsEnabled == a2.OrganizationsEnabled
 }
 
 func (a *AuthProviderConfig) Equal(a2 *AuthProviderConfig) bool {
@@ -145,14 +212,23 @@ func (a *AuthProviderConfig) Equal(a2 *AuthProviderConfig) bool {
 	if a == nil || a2 == nil {
 		return false
 	}
-	return a.Name == a2.Name && maps.Equal(a.Config, a2.Config)
+
+	// Compare AuthProvider using YAML marshaling
+	a1Yaml, err1 := yaml.Marshal(a.AuthProvider)
+	a2Yaml, err2 := yaml.Marshal(a2.AuthProvider)
+	if err1 != nil || err2 != nil || !bytes.Equal(a1Yaml, a2Yaml) {
+		return false
+	}
+
+	return a.CAFile == a2.CAFile &&
+		a.InsecureSkipVerify == a2.InsecureSkipVerify
 }
 
 func (c *Config) DeepCopy() *Config {
 	if c == nil {
 		return nil
 	}
-	return &Config{
+	copied := &Config{
 		Service:      *c.Service.DeepCopy(),
 		AuthInfo:     *c.AuthInfo.DeepCopy(),
 		Organization: c.Organization,
@@ -160,6 +236,10 @@ func (c *Config) DeepCopy() *Config {
 		baseDir:      c.baseDir,
 		testRootDir:  c.testRootDir,
 	}
+	if c.ImageBuilderService != nil {
+		copied.ImageBuilderService = c.ImageBuilderService.DeepCopy()
+	}
+	return copied
 }
 
 func (s *Service) DeepCopy() *Service {
@@ -178,7 +258,9 @@ func (a *AuthInfo) DeepCopy() *AuthInfo {
 	a2 := *a
 	a2.ClientCertificateData = bytes.Clone(a.ClientCertificateData)
 	a2.ClientKeyData = bytes.Clone(a.ClientKeyData)
-	a2.AuthProvider = a.AuthProvider.DeepCopy()
+	if a.AuthProvider != nil {
+		a2.AuthProvider = a.AuthProvider.DeepCopy()
+	}
 	return &a2
 }
 
@@ -187,7 +269,6 @@ func (a *AuthProviderConfig) DeepCopy() *AuthProviderConfig {
 		return nil
 	}
 	a2 := *a
-	a2.Config = maps.Clone(a.Config)
 	return &a2
 }
 
@@ -243,30 +324,250 @@ func WithOrganization(orgID string) client.ClientOption {
 	return WithQueryParam("org_id", orgID)
 }
 
-// NewFromConfig returns a new Flight Control API client from the given config.
-func NewFromConfig(config *Config, configFilePath string, opts ...client.ClientOption) (*client.ClientWithResponses, error) {
+// WithHeader returns a ClientOption that appends a request editor which
+// sets the given HTTP header. If value is empty, the editor is a no-op
+// so callers can pass it unconditionally.
+func WithHeader(key, value string) client.ClientOption {
+	return client.WithRequestEditorFn(func(ctx context.Context, req *http.Request) error {
+		if value == "" {
+			return nil
+		}
+		req.Header.Set(key, value)
+		return nil
+	})
+}
 
+// WithUserAgentHeader returns a ClientOption that sets the User-Agent header.
+// The component parameter specifies the component name (e.g., "flightctl-cli")
+// to include in the User-Agent string.
+func WithUserAgentHeader(component string) client.ClientOption {
+	info := version.Get()
+	userAgent := fmt.Sprintf("%s/%s (%s/%s)", component, info.String(), runtime.GOOS, runtime.GOARCH)
+	return WithHeader("User-Agent", userAgent)
+}
+
+// Client wraps the Flight Control API client with token refresh capabilities.
+// It embeds *client.ClientWithResponses so all API methods are available directly.
+type Client struct {
+	*client.ClientWithResponses
+	v1alpha1  *v1alpha1client.ClientWithResponses
+	refresher *AccessTokenRefresher
+}
+
+// V1Alpha1 returns the v1alpha1 API client for alpha resources.
+func (c *Client) V1Alpha1() *v1alpha1client.ClientWithResponses {
+	return c.v1alpha1
+}
+
+// Start starts the token refresh loop if a refresher is configured.
+// The provided context is used as the parent context for the refresh loop.
+func (c *Client) Start(ctx context.Context) {
+	if c.refresher != nil {
+		c.refresher.Start(ctx)
+	}
+}
+
+// Stop stops the token refresh loop if a refresher is configured.
+func (c *Client) Stop() {
+	if c.refresher != nil {
+		c.refresher.Stop()
+	}
+}
+
+// NewTestClient creates a Client for testing purposes with only the v1beta1 client.
+// This should only be used in tests.
+func NewTestClient(clientWithResponses *client.ClientWithResponses) *Client {
+	return &Client{
+		ClientWithResponses: clientWithResponses,
+	}
+}
+
+// ImageBuilderClient wraps the imagebuilder API client with token refresh capabilities.
+type ImageBuilderClient struct {
+	*imagebuilderclient.ClientWithResponses
+	refresher *AccessTokenRefresher
+}
+
+// Start starts the token refresh loop if a refresher is configured.
+// The provided context is used as the parent context for the refresh loop.
+func (c *ImageBuilderClient) Start(ctx context.Context) {
+	if c.refresher != nil {
+		c.refresher.Start(ctx)
+	}
+}
+
+// Stop stops the token refresh loop if a refresher is configured.
+func (c *ImageBuilderClient) Stop() {
+	if c.refresher != nil {
+		c.refresher.Stop()
+	}
+}
+
+// NewImageBuilderClientFromConfig returns a new ImageBuilder API client from the given config.
+// If the config has a refresh token, a token refresher will be created and included in the client.
+// The refresher is not started automatically - call Start() to begin token refresh.
+func NewImageBuilderClientFromConfig(config *Config, configFilePath string, imageBuilderServer string, organization string, opts ...imagebuilderclient.ClientOption) (*ImageBuilderClient, error) {
+	// ImageBuilder API uses v1alpha1
+	httpClient, err := NewHTTPClientForServer(config, imageBuilderServer, versioning.WithAPIVersion(versioning.V1Alpha1))
+	if err != nil {
+		return nil, fmt.Errorf("NewImageBuilderClientFromConfig: creating HTTP client %w", err)
+	}
+
+	var refresher *AccessTokenRefresher
+	var ref imagebuilderclient.ClientOption
+
+	if config.AuthInfo.RefreshToken != "" {
+		refresher = NewAccessTokenRefresher(config, configFilePath, 8080)
+		ref = imagebuilderclient.WithRequestEditorFn(func(ctx context.Context, req *http.Request) error {
+			req.Header.Set(middleware.RequestIDHeader, reqid.NextRequestID())
+			accessToken := refresher.GetAccessToken()
+			if accessToken != "" {
+				req.Header.Set(common.AuthHeader, fmt.Sprintf("Bearer %s", accessToken))
+			}
+			return nil
+		})
+	} else {
+		ref = imagebuilderclient.WithRequestEditorFn(func(ctx context.Context, req *http.Request) error {
+			req.Header.Set(middleware.RequestIDHeader, reqid.NextRequestID())
+			accessToken := config.AuthInfo.AccessToken
+			if config.AuthInfo.TokenToUse == TokenToUseIdToken {
+				accessToken = config.AuthInfo.IdToken
+			}
+			if accessToken != "" {
+				req.Header.Set(common.AuthHeader, fmt.Sprintf("Bearer %s", accessToken))
+			}
+			return nil
+		})
+	}
+
+	orgEditor := imagebuilderclient.WithRequestEditorFn(func(ctx context.Context, req *http.Request) error {
+		if organization == "" {
+			return nil
+		}
+		q := req.URL.Query()
+		q.Set("org_id", organization)
+		req.URL.RawQuery = q.Encode()
+		return nil
+	})
+
+	defaultOpts := []imagebuilderclient.ClientOption{imagebuilderclient.WithHTTPClient(httpClient), ref, orgEditor}
+	defaultOpts = append(defaultOpts, opts...)
+	apiClient, err := imagebuilderclient.NewClientWithResponses(imageBuilderServer, defaultOpts...)
+	if err != nil {
+		return nil, err
+	}
+
+	return &ImageBuilderClient{
+		ClientWithResponses: apiClient,
+		refresher:           refresher,
+	}, nil
+}
+
+// NewFromConfig returns a new Flight Control API client from the given config.
+// If the config has a refresh token, a token refresher will be created and included in the client.
+// The refresher is not started automatically - call Start() to begin token refresh.
+func NewFromConfig(config *Config, configFilePath string, opts ...client.ClientOption) (*Client, error) {
 	httpClient, err := NewHTTPClientFromConfig(config)
 	if err != nil {
 		return nil, fmt.Errorf("NewFromConfig: creating HTTP client %w", err)
 	}
-	ref := client.WithRequestEditorFn(func(ctx context.Context, req *http.Request) error {
-		req.Header.Set(middleware.RequestIDHeader, reqid.NextRequestID())
-		accessToken := GetAccessToken(config, configFilePath)
-		if accessToken != "" {
-			req.Header.Set(common.AuthHeader, fmt.Sprintf("Bearer %s", accessToken))
-		}
-		return nil
-	})
+
+	var refresher *AccessTokenRefresher
+	var ref client.ClientOption
+
+	if config.AuthInfo.RefreshToken != "" {
+		refresher = NewAccessTokenRefresher(config, configFilePath, 8080)
+		ref = client.WithRequestEditorFn(func(ctx context.Context, req *http.Request) error {
+			req.Header.Set(middleware.RequestIDHeader, reqid.NextRequestID())
+			accessToken := refresher.GetAccessToken()
+			if accessToken != "" {
+				req.Header.Set(common.AuthHeader, fmt.Sprintf("Bearer %s", accessToken))
+			}
+			return nil
+		})
+	} else {
+		ref = client.WithRequestEditorFn(func(ctx context.Context, req *http.Request) error {
+			req.Header.Set(middleware.RequestIDHeader, reqid.NextRequestID())
+			accessToken := config.AuthInfo.AccessToken
+			if config.AuthInfo.TokenToUse == TokenToUseIdToken {
+				accessToken = config.AuthInfo.IdToken
+			}
+			if accessToken != "" {
+				req.Header.Set(common.AuthHeader, fmt.Sprintf("Bearer %s", accessToken))
+			}
+			return nil
+		})
+	}
+
 	defaultOpts := []client.ClientOption{client.WithHTTPClient(httpClient), ref, WithOrganization(config.Organization)}
 	defaultOpts = append(defaultOpts, opts...)
-	return client.NewClientWithResponses(config.Service.Server, defaultOpts...)
+	apiClient, err := client.NewClientWithResponses(JoinServerURL(config.Service.Server, client.ServerUrlApiv1), defaultOpts...)
+	if err != nil {
+		return nil, err
+	}
+
+	// Create a separate http.Client for v1alpha1 with the correct API version header.
+	// The httpClient has its transport wrapped with v1beta1 versioning, so we need to
+	// unwrap the base transport and re-wrap it with v1alpha1 versioning.
+	v1alpha1HttpClient := &http.Client{
+		Timeout: httpClient.Timeout,
+	}
+	if vt, ok := httpClient.Transport.(interface{ UnwrapTransport() http.RoundTripper }); ok {
+		v1alpha1HttpClient.Transport = versioning.NewTransport(vt.UnwrapTransport(), versioning.WithAPIVersion(versioning.V1Alpha1))
+	} else {
+		v1alpha1HttpClient.Transport = versioning.NewTransport(httpClient.Transport, versioning.WithAPIVersion(versioning.V1Alpha1))
+	}
+	v1alpha1Opts := []v1alpha1client.ClientOption{v1alpha1client.WithHTTPClient(v1alpha1HttpClient)}
+	if config.AuthInfo.RefreshToken != "" {
+		v1alpha1Opts = append(v1alpha1Opts, v1alpha1client.WithRequestEditorFn(func(ctx context.Context, req *http.Request) error {
+			req.Header.Set(middleware.RequestIDHeader, reqid.NextRequestID())
+			accessToken := refresher.GetAccessToken()
+			if accessToken != "" {
+				req.Header.Set(common.AuthHeader, fmt.Sprintf("Bearer %s", accessToken))
+			}
+			return nil
+		}))
+	} else {
+		v1alpha1Opts = append(v1alpha1Opts, v1alpha1client.WithRequestEditorFn(func(ctx context.Context, req *http.Request) error {
+			req.Header.Set(middleware.RequestIDHeader, reqid.NextRequestID())
+			accessToken := config.AuthInfo.AccessToken
+			if config.AuthInfo.TokenToUse == TokenToUseIdToken {
+				accessToken = config.AuthInfo.IdToken
+			}
+			if accessToken != "" {
+				req.Header.Set(common.AuthHeader, fmt.Sprintf("Bearer %s", accessToken))
+			}
+			return nil
+		}))
+	}
+	// Add organization query param
+	v1alpha1Opts = append(v1alpha1Opts, v1alpha1client.WithRequestEditorFn(func(ctx context.Context, req *http.Request) error {
+		if config.Organization == "" {
+			return nil
+		}
+		q := req.URL.Query()
+		q.Set("org_id", config.Organization)
+		req.URL.RawQuery = q.Encode()
+		return nil
+	}))
+	v1alpha1ApiClient, err := v1alpha1client.NewClientWithResponses(JoinServerURL(config.Service.Server, v1alpha1client.ServerUrlApiv1), v1alpha1Opts...)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Client{
+		ClientWithResponses: apiClient,
+		v1alpha1:            v1alpha1ApiClient,
+		refresher:           refresher,
+	}, nil
 }
 
 // NewFromConfigFile returns a new Flight Control API client using the config
 // read from the given file. Additional client options may be supplied and will
 // be appended after the defaults.
-func NewFromConfigFile(filename string, opts ...client.ClientOption) (*client.ClientWithResponses, error) {
+// If the config has a refresh token, a token refresher will be created and included in the client.
+// The refresher is not started automatically - call Start() to begin token refresh.
+func NewFromConfigFile(filename string, opts ...client.ClientOption) (*Client, error) {
 	config, err := ParseConfigFile(filename)
 	if err != nil {
 		return nil, err
@@ -274,8 +575,26 @@ func NewFromConfigFile(filename string, opts ...client.ClientOption) (*client.Cl
 	return NewFromConfig(config, filename, opts...)
 }
 
+// GetImageBuilderServer returns the imagebuilder server URL if configured, empty string otherwise.
+func (c *Config) GetImageBuilderServer() string {
+	if c.ImageBuilderService != nil && c.ImageBuilderService.Server != "" {
+		return c.ImageBuilderService.Server
+	}
+	return ""
+}
+
 // NewHTTPClientFromConfig returns a new HTTP Client from the given config.
+// It uses the config's Service.Server to derive the TLS ServerName for SNI.
 func NewHTTPClientFromConfig(config *Config) (*http.Client, error) {
+	return NewHTTPClientForServer(config, config.Service.Server)
+}
+
+// NewHTTPClientForServer returns a new HTTP Client from the given config,
+// using the specified server URL to derive the TLS ServerName for SNI.
+// This is important for OpenShift routes which use SNI-based routing.
+// Optional versioning.TransportOption can be passed to configure the API version header.
+// If no option is provided, it defaults to v1beta1.
+func NewHTTPClientForServer(config *Config, serverURL string, versionOpts ...versioning.TransportOption) (*http.Client, error) {
 	config = config.DeepCopy()
 	if err := config.Flatten(); err != nil {
 		return nil, err
@@ -283,16 +602,16 @@ func NewHTTPClientFromConfig(config *Config) (*http.Client, error) {
 
 	tlsServerName := config.Service.TLSServerName
 	if len(tlsServerName) == 0 {
-		u, err := url.Parse(config.Service.Server)
+		u, err := url.Parse(serverURL)
 		if err != nil {
-			return nil, fmt.Errorf("NewHTTPClientFromConfig: parsing server url: %w", err)
+			return nil, fmt.Errorf("NewHTTPClientForServer: parsing server url: %w", err)
 		}
 		tlsServerName = u.Hostname()
 	}
 
 	tlsConfig, err := CreateTLSConfigFromConfig(config)
 	if err != nil {
-		return nil, fmt.Errorf("NewHTTPClientFromConfig: creating TLS config: %w", err)
+		return nil, fmt.Errorf("NewHTTPClientForServer: creating TLS config: %w", err)
 	}
 	tlsConfig.ServerName = tlsServerName
 
@@ -304,20 +623,29 @@ func NewHTTPClientFromConfig(config *Config) (*http.Client, error) {
 	}
 
 	// Configure HTTP/2
-	err = http2.ConfigureTransport(transport)
+	t2, err := http2.ConfigureTransports(transport)
 	if err != nil {
-		return nil, fmt.Errorf("NewHTTPClientFromConfig: configuring HTTP/2 transport: %w", err)
+		return nil, fmt.Errorf("NewHTTPClientForServer: configuring HTTP/2 transport: %w", err)
 	}
-
+	if t2 != nil {
+		t2.ReadIdleTimeout = http2ReadIdleTimeout
+	}
 	httpClient := &http.Client{
 		Transport: transport,
 	}
 
 	for _, opt := range config.HTTPOptions {
 		if err = opt(httpClient); err != nil {
-			return nil, fmt.Errorf("NewHTTPClientFromConfig: applying HTTP option: %w", err)
+			return nil, fmt.Errorf("NewHTTPClientForServer: applying HTTP option: %w", err)
 		}
 	}
+
+	// Wrap transport with versioning to inject API version header (after HTTPOptions)
+	// Default to v1beta1 if no version option is provided
+	if len(versionOpts) == 0 {
+		versionOpts = []versioning.TransportOption{versioning.WithAPIV1Beta1()}
+	}
+	httpClient.Transport = versioning.NewTransport(httpClient.Transport, versionOpts...)
 
 	return httpClient, nil
 }
@@ -637,10 +965,26 @@ func resolvePath(path string, baseDir string) string {
 	return path
 }
 
+func unwrapTransport(rt http.RoundTripper) http.RoundTripper {
+	for {
+		u, ok := rt.(interface{ UnwrapTransport() http.RoundTripper })
+		if !ok {
+			return rt
+		}
+		rt = u.UnwrapTransport()
+	}
+}
+
 func resolveTransport(client *http.Client) (*http.Transport, error) {
-	transport, ok := client.Transport.(*http.Transport)
+	rt := client.Transport
+	if rt == nil {
+		rt = http.DefaultTransport
+	}
+	rt = unwrapTransport(rt)
+
+	transport, ok := rt.(*http.Transport)
 	if !ok {
-		return nil, fmt.Errorf("transport is an unknown type: %T", client.Transport)
+		return nil, fmt.Errorf("transport is an unknown type: %T", rt)
 	}
 
 	return transport.Clone(), nil
@@ -692,10 +1036,21 @@ func WithCachedTransport() HTTPClientOption {
 			}
 			cached = transport
 		}
-		if _, ok := client.Transport.(*http.Transport); !ok {
-			return fmt.Errorf("WithCachedTransport: transport is an unknown type: %T", client.Transport)
+
+		rt := client.Transport
+		if rt == nil {
+			rt = http.DefaultTransport
+		}
+		rt = unwrapTransport(rt)
+		if _, ok := rt.(*http.Transport); !ok {
+			return fmt.Errorf("WithCachedTransport: transport is an unknown type: %T", rt)
 		}
 		client.Transport = cached
 		return nil
 	}
+}
+
+// JoinServerURL joins a server base URL with a path, handling trailing slashes.
+func JoinServerURL(server, path string) string {
+	return strings.TrimSuffix(server, "/") + path
 }

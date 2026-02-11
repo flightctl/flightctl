@@ -5,17 +5,20 @@ import (
 	"testing"
 	"time"
 
+	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/config/ca"
+	"github.com/flightctl/flightctl/internal/consts"
 	icrypto "github.com/flightctl/flightctl/internal/crypto"
+	"github.com/flightctl/flightctl/internal/identity"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/worker_client"
-	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
 	testutil "github.com/flightctl/flightctl/test/util"
+	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/sirupsen/logrus"
@@ -43,11 +46,12 @@ type ServiceTestSuite struct {
 	Ctx     context.Context
 	Store   store.Store
 	Handler service.Service
+	OrgID   uuid.UUID
 
-	// Private implementation details – not needed by tests
+	// Implementation details
 	cfg               *config.Config
 	dbName            string
-	db                *gorm.DB
+	DB                *gorm.DB
 	ctrl              *gomock.Controller
 	mockQueueProducer *queues.MockQueueProducer
 	workerClient      worker_client.WorkerClient
@@ -57,9 +61,25 @@ type ServiceTestSuite struct {
 // Setup performs common initialization for service tests
 func (s *ServiceTestSuite) Setup() {
 	s.Ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
-	s.Log = flightlog.InitLogs()
+	s.Log = testutil.InitLogsWithDebug()
 
-	s.Store, s.cfg, s.dbName, s.db = store.PrepareDBForUnitTests(s.Ctx, s.Log)
+	s.Store, s.cfg, s.dbName, s.DB = store.PrepareDBForUnitTests(s.Ctx, s.Log)
+
+	// Add a default admin mapped identity to the context for tests
+	// This is required by auth provider validation
+	testOrg := &model.Organization{
+		ID:          store.NullOrgId,
+		ExternalID:  "test-org",
+		DisplayName: "Test Organization",
+	}
+	adminIdentity := &identity.MappedIdentity{
+		Username:      "test-admin",
+		UID:           uuid.New().String(),
+		Organizations: []*model.Organization{testOrg},
+		OrgRoles:      map[string][]string{"*": {string(api.RoleAdmin)}},
+		SuperAdmin:    true, // Super admin required for service tests
+	}
+	s.Ctx = context.WithValue(s.Ctx, consts.MappedIdentityCtxKey, adminIdentity)
 
 	s.ctrl = gomock.NewController(GinkgoT())
 	s.mockQueueProducer = queues.NewMockQueueProducer(s.ctrl)
@@ -75,9 +95,9 @@ func (s *ServiceTestSuite) Setup() {
 	s.caClient, _, err = icrypto.EnsureCA(caCfg)
 	Expect(err).ToNot(HaveOccurred())
 
-	orgResolver, err := testutil.NewOrgResolver(s.cfg, s.Store.Organization(), s.Log)
-	Expect(err).ToNot(HaveOccurred())
-	s.Handler = service.NewServiceHandler(s.Store, s.workerClient, kvStore, s.caClient, s.Log, "", "", []string{}, orgResolver)
+	s.Handler = service.NewServiceHandler(s.Store, s.workerClient, kvStore, s.caClient, s.Log, "", "", []string{})
+	// Default org for integration tests
+	s.OrgID = store.NullOrgId
 }
 
 // Teardown performs common cleanup for service tests
@@ -96,7 +116,7 @@ func NewServiceTestSuite() *ServiceTestSuite {
 // SetDeviceLastSeen sets the lastSeen timestamp for a device directly in the database
 func (s *ServiceTestSuite) SetDeviceLastSeen(deviceName string, lastSeen time.Time) error {
 	orgId := store.NullOrgId
-	result := s.db.WithContext(s.Ctx).Model(&model.DeviceTimestamp{}).Where("org_id = ? AND name = ?", orgId, deviceName).Updates(map[string]interface{}{
+	result := s.DB.WithContext(s.Ctx).Model(&model.DeviceTimestamp{}).Where("org_id = ? AND name = ?", orgId, deviceName).Updates(map[string]interface{}{
 		"last_seen": lastSeen,
 	})
 	return result.Error

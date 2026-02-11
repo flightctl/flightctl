@@ -7,8 +7,9 @@ import (
 	"regexp"
 	"strings"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/api/server"
+	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/sirupsen/logrus"
@@ -50,31 +51,38 @@ func stringToAction(s string) action {
 	return action(s)
 }
 
-func CreateAuthNMiddleware(authN AuthNMiddleware, log logrus.FieldLogger) func(http.Handler) http.Handler {
+func CreateAuthNMiddleware(multiAuth common.MultiAuthNMiddleware, log logrus.FieldLogger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		fn := func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.Path == "/api/v1/auth/config" {
+			// Skip authentication for public auth endpoints
+			if common.IsPublicAuthEndpoint(r.URL.Path) {
 				next.ServeHTTP(w, r)
 				return
 			}
-			authToken, err := authN.GetAuthToken(r)
+			authToken, err := multiAuth.GetAuthToken(r)
 			if err != nil {
 				log.WithError(err).Error("failed to get auth token")
 				writeResponse(w, api.StatusBadRequest("failed to get auth token"), log)
 				return
 			}
-			err = authN.ValidateToken(r.Context(), authToken)
+			log.Debugf("Auth middleware: got auth token (length: %d)", len(authToken))
+
+			// Use ValidateTokenAndGetProvider to ensure the same provider validates and creates identity
+			provider, err := multiAuth.ValidateTokenAndGetProvider(r.Context(), authToken)
 			if err != nil {
 				log.WithError(err).Error("failed to validate token")
 				writeResponse(w, api.StatusUnauthorized("failed to validate token"), log)
 				return
 			}
+			log.Debugf("Auth middleware: token validated successfully by provider")
+
 			ctx := context.WithValue(r.Context(), consts.TokenCtxKey, authToken)
-			identity, err := authN.GetIdentity(ctx, authToken)
+			identity, err := provider.GetIdentity(ctx, authToken)
 			if err != nil {
 				log.WithError(err).Error("failed to get identity")
 			} else {
 				ctx = context.WithValue(ctx, consts.IdentityCtxKey, identity)
+				log.Debugf("Auth middleware: set identity %s in context", identity.GetUsername())
 			}
 			next.ServeHTTP(w, r.WithContext(ctx))
 		}
@@ -91,7 +99,7 @@ func CreateAuthZMiddleware(authZ AuthZMiddleware, log logrus.FieldLogger) func(h
 			)
 
 			// First, try to get metadata from the API metadata registry using existing Chi context
-			if metadata, found := server.GetEndpointMetadata(r); found {
+			if metadata := server.MetadataResolver.Resolve(r); metadata != nil {
 				if metadata.Resource != "" && metadata.Action != "" {
 					resource = metadata.Resource
 					action = stringToAction(metadata.Action)
@@ -129,10 +137,21 @@ func CreateAuthZMiddleware(authZ AuthZMiddleware, log logrus.FieldLogger) func(h
 				return
 			}
 
-			if !isAllowed(r.Context(), authZ, log, resource, action, w) {
+			// Add HTTP request to context for authorization checks
+			ctx := context.WithValue(r.Context(), common.ContextKey("http_request"), r)
+
+			log.Debugf("AuthZMiddleware: checking authorization for path=%s, method=%s, resource=%s, action=%s",
+				r.URL.Path, r.Method, resource, action)
+
+			if !isAllowed(ctx, authZ, log, resource, action, w) {
 				// http.Error was called in isAllowed
+				log.Debugf("AuthZMiddleware: authorization denied for path=%s, method=%s, resource=%s, action=%s",
+					r.URL.Path, r.Method, resource, action)
 				return
 			}
+
+			log.Debugf("AuthZMiddleware: authorization granted for path=%s, method=%s, resource=%s, action=%s",
+				r.URL.Path, r.Method, resource, action)
 
 			// If authorized, proceed to the next handler
 			next.ServeHTTP(w, r)

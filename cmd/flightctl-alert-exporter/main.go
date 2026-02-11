@@ -7,10 +7,9 @@ import (
 	"github.com/flightctl/flightctl/internal/alert_exporter"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
-	"github.com/flightctl/flightctl/internal/instrumentation"
+	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/org/cache"
-	"github.com/flightctl/flightctl/internal/org/resolvers"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/util"
@@ -18,28 +17,21 @@ import (
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/google/uuid"
-	"github.com/sirupsen/logrus"
 )
 
 func main() {
 	ctx := context.Background()
 
-	log := log.InitLogs()
-	log.Println("Starting alert exporter")
-
 	cfg, err := config.LoadOrGenerate(config.ConfigFile())
 	if err != nil {
-		log.Fatalf("reading configuration: %v", err)
+		log.InitLogs().Fatalf("reading configuration: %v", err)
 	}
+
+	log := log.InitLogs(cfg.Service.LogLevel)
+	log.Println("Starting alert exporter")
 	log.Printf("Using config: %s", cfg)
 
-	logLvl, err := logrus.ParseLevel(cfg.Service.LogLevel)
-	if err != nil {
-		logLvl = logrus.InfoLevel
-	}
-	log.SetLevel(logLvl)
-
-	tracerShutdown := instrumentation.InitTracer(log, cfg, "flightctl-alert-exporter")
+	tracerShutdown := tracing.InitTracer(log, cfg, "flightctl-alert-exporter")
 	defer func() {
 		if err := tracerShutdown(ctx); err != nil {
 			log.Fatalf("failed to shut down tracer: %v", err)
@@ -83,28 +75,13 @@ func main() {
 	workerClient := worker_client.NewWorkerClient(publisher, log)
 
 	orgCache := cache.NewOrganizationTTL(cache.DefaultTTL)
-	go orgCache.Start()
+	go func() {
+		orgCache.Start(ctx)
+		log.Warn("Organization cache stopped unexpectedly")
+	}()
 	defer orgCache.Stop()
 
-	buildResolverOpts := resolvers.BuildResolverOptions{
-		Config: cfg,
-		Store:  store.Organization(),
-		Log:    log,
-		Cache:  orgCache,
-	}
-
-	if cfg.Auth != nil && cfg.Auth.AAP != nil {
-		membershipCache := cache.NewMembershipTTL(cache.DefaultTTL)
-		go membershipCache.Start()
-		defer membershipCache.Stop()
-		buildResolverOpts.MembershipCache = membershipCache
-	}
-
-	orgResolver, err := resolvers.BuildResolver(buildResolverOpts)
-	if err != nil {
-		log.Fatalf("failed to build organization resolver: %v", err)
-	}
-	serviceHandler := service.WrapWithTracing(service.NewServiceHandler(store, workerClient, kvStore, nil, log, "", "", []string{}, orgResolver))
+	serviceHandler := service.WrapWithTracing(service.NewServiceHandler(store, workerClient, kvStore, nil, log, "", "", []string{}))
 
 	server := alert_exporter.New(cfg, log)
 	if err := server.Run(ctx, serviceHandler); err != nil {

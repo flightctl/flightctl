@@ -6,8 +6,9 @@ import (
 	"sync"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/test/harness/e2e"
+	"github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo"
@@ -84,7 +85,7 @@ var _ = Describe("Rollout Policies", func() {
 			Expect(err).ToNot(HaveOccurred())
 			time.Sleep(30 * time.Second)
 
-			//Update fleet with template
+			// Update fleet with template
 			err = tc.harness.CreateOrUpdateTestFleet(fleetName, createFleetSpec(bsq1, lo.ToPtr(api.Percentage("50%")), deviceSpec))
 			Expect(err).ToNot(HaveOccurred())
 
@@ -164,7 +165,7 @@ var _ = Describe("Rollout Policies", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			By("Checking Disruption Budget by Grouping Devices")
-			err = tc.updateAppVersion("v2")
+			err = tc.updateAppVersion(util.SleepAppTags.V2)
 			Expect(err).ToNot(HaveOccurred())
 
 			deviceSpec, err = tc.createDeviceSpec()
@@ -269,7 +270,7 @@ var _ = Describe("Rollout Policies", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// update Name of app version in device spec to trigger a new rollout
-			err = tc.updateAppVersion("v2")
+			err = tc.updateAppVersion(util.SleepAppTags.V2)
 			Expect(err).ToNot(HaveOccurred())
 
 			deviceSpec, err = tc.createDeviceSpec()
@@ -328,7 +329,7 @@ var _ = Describe("Rollout Policies", func() {
 			tc.harness.WaitForBatchStart(fleetName, 1)
 
 			By("Updating the fleet template version during rollout")
-			err = tc.updateAppVersion("v2")
+			err = tc.updateAppVersion(util.SleepAppTags.V2)
 			Expect(err).ToNot(HaveOccurred())
 
 			deviceSpec, err = tc.createDeviceSpec()
@@ -524,37 +525,34 @@ func createDisruptionBudget(maxUnavailable, minAvailable int, groupBy []string) 
 
 // TestContext encapsulates common test setup and configuration
 type TestContext struct {
-	harness           *e2e.Harness
-	harnesses         []*e2e.Harness
-	deviceIDs         []string
-	applicationSpec   api.ApplicationProviderSpec
-	applicationConfig api.ImageApplicationProviderSpec
-	sleepAppImage     string
+	harness       *e2e.Harness
+	harnesses     []*e2e.Harness
+	deviceIDs     []string
+	composeApp    api.ComposeApplication
+	sleepAppImage string
 }
 
 func setupTestContext(ctx context.Context) *TestContext {
 	// Get harness directly - no shared package-level variable
 	harness := e2e.GetWorkerHarness()
 
-	extIP := harness.RegistryEndpoint()
-	sleepAppImage := fmt.Sprintf("%s/sleep-app:v1", extIP)
+	sleepAppImage := util.NewSleepAppImageReference(util.SleepAppTags.V1).String()
 
-	applicationConfig := api.ImageApplicationProviderSpec{
-		Image: sleepAppImage,
-	}
-
-	appType := api.AppType("compose")
-
-	applicationSpec := api.ApplicationProviderSpec{
+	composeApp := api.ComposeApplication{
 		Name:    lo.ToPtr("sleepapp"),
-		AppType: &appType,
+		AppType: api.AppTypeCompose,
+	}
+	err := composeApp.FromImageApplicationProviderSpec(api.ImageApplicationProviderSpec{
+		Image: sleepAppImage,
+	})
+	if err != nil {
+		panic(fmt.Sprintf("failed to set image on compose app: %v", err))
 	}
 
 	return &TestContext{
-		harness:           harness,
-		applicationSpec:   applicationSpec,
-		applicationConfig: applicationConfig,
-		sleepAppImage:     sleepAppImage,
+		harness:       harness,
+		composeApp:    composeApp,
+		sleepAppImage: sleepAppImage,
 	}
 }
 
@@ -614,20 +612,22 @@ func (tc *TestContext) setupFleetAndDevices(context context.Context, numDevices 
 }
 
 func (tc *TestContext) createDeviceSpec() (api.DeviceSpec, error) {
-	err := tc.applicationSpec.FromImageApplicationProviderSpec(tc.applicationConfig)
+	var appSpec api.ApplicationProviderSpec
+	err := appSpec.FromComposeApplication(tc.composeApp)
 	if err != nil {
 		return api.DeviceSpec{}, err
 	}
 
 	return api.DeviceSpec{
-		Applications: &[]api.ApplicationProviderSpec{tc.applicationSpec},
+		Applications: &[]api.ApplicationProviderSpec{appSpec},
 	}, nil
 }
 
 func (tc *TestContext) updateAppVersion(version string) error {
-	tc.applicationSpec.Name = lo.ToPtr(fmt.Sprintf("sleepapp-%s", version))
-	tc.applicationConfig.Image = fmt.Sprintf("%s/sleep-app:%s", tc.harness.RegistryEndpoint(), version)
-	return tc.applicationSpec.FromImageApplicationProviderSpec(tc.applicationConfig)
+	tc.composeApp.Name = lo.ToPtr(fmt.Sprintf("sleepapp-%s", version))
+	return tc.composeApp.FromImageApplicationProviderSpec(api.ImageApplicationProviderSpec{
+		Image: util.NewSleepAppImageReference(version).String(),
+	})
 }
 
 func (tc *TestContext) verifyAllDevicesUpdated(expectedCount int) error {
@@ -652,11 +652,11 @@ func (tc *TestContext) verifyAllDevicesUpdated(expectedCount int) error {
 			if app.Status != api.ApplicationStatusRunning {
 				return fmt.Errorf("device %s application %q is not running (status=%q)", deviceName, app.Name, app.Status)
 			}
-			if tc.applicationSpec.Name != nil && app.Name != *tc.applicationSpec.Name {
-				return fmt.Errorf("device %s application name is %q, expected %q", deviceName, app.Name, *tc.applicationSpec.Name)
+			if tc.composeApp.Name != nil && app.Name != *tc.composeApp.Name {
+				return fmt.Errorf("device %s application name is %q, expected %q", deviceName, app.Name, *tc.composeApp.Name)
 			}
 		}
 		return nil
-	}, "5m", "10s").Should(Succeed())
+	}, MEDIUMTIMEOUT, "10s").Should(Succeed())
 	return nil
 }

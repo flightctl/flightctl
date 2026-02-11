@@ -6,9 +6,10 @@ PartOf=flightctl.target
 
 [Container]
 ContainerName=flightctl-cli-artifacts
-Image=quay.io/flightctl/flightctl-cli-artifacts:latest
-Pull=newer
+Image={{ .CliArtifacts.Image }}:{{ .CliArtifacts.Tag }}
+Pull=missing
 Network=flightctl.network
+AddHost=%H:host-gateway
 EnvironmentFile=/etc/flightctl/flightctl-cli-artifacts/env
 Volume=flightctl-cli-artifacts-certs:/app/certs:ro,z
 Volume=/etc/flightctl/flightctl-cli-artifacts/nginx.conf:/etc/nginx/nginx.conf:ro,z
@@ -20,3 +21,5 @@ PublishPort=8090:8090
 [Service]
 Restart=always
 RestartSec=30
+
+ExecStartPre=/usr/bin/flightctl-standalone render template --input-file /usr/share/flightctl/flightctl-cli-artifacts/env.template --output-file /etc/flightctl/flightctl-cli-artifacts/env

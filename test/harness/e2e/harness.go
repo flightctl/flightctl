@@ -26,12 +26,6 @@ The harness enforces a strict VM pool pattern to ensure proper test isolation an
 5. AFTER SUITE:
    - VM cleanup is handled by make scripts after all tests complete
 
-REMOVED METHODS (violated VM pool pattern):
-- NewTestHarness() - Created VMs directly (removed)
-- NewTestHarnessWithoutVM() - Manual VM setup (removed)
-- AddVM() / AddMultipleVMs() - Created VMs outside pool (removed)
-- StartMultipleVMAndEnroll() - Created multiple VMs directly (removed)
-
 Example usage:
 ```go
 var _ = BeforeSuite(func() {
@@ -60,19 +54,21 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/creack/pty"
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/client"
 	service "github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/test/harness/e2e/vm"
 	"github.com/flightctl/flightctl/test/util"
-	"github.com/google/uuid"
+	"github.com/google/go-cmp/cmp"
 	. "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	. "github.com/onsi/gomega"
@@ -81,6 +77,8 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	"sigs.k8s.io/yaml"
 )
+
+const fiveSecondTimeout = 5 * time.Second
 
 const POLLING = "250ms"
 const POLLINGLONG = "1s"
@@ -109,15 +107,16 @@ type Harness struct {
 	// Git repository management
 	gitRepos   map[string]string // map of repo name to repo path
 	gitWorkDir string            // working directory for git operations
+
+	// clientWrapper stores the Client wrapper for token refresh management
+	clientWrapper *client.Client
 }
 
-// GitServerConfig holds configuration for the git server
-type GitServerConfig struct {
-	Host     string
-	Port     int
-	User     string
-	Password string
-	SSHKey   string // path to SSH private key if using key auth
+// ResourceTestConfig represents a test configuration for resource operations
+// with different success expectations per resource group
+type ResourceTestConfig struct {
+	Resources     []string
+	ShouldSucceed bool
 }
 
 // findTopLevelDir is unused but kept for potential future use
@@ -209,6 +208,50 @@ func (h *Harness) ReadClientConfig(filePath string) (*client.Config, error) {
 	return client.ParseConfigFile(filePath)
 }
 
+// RefreshClient recreates the FlightCtl API client from the config file.
+// This is useful after login when the config file has been updated with new authentication or organization information.
+func (h *Harness) RefreshClient() error {
+	baseDir, err := client.DefaultFlightctlClientConfigPath()
+	if err != nil {
+		return fmt.Errorf("failed to get client config path: %w", err)
+	}
+
+	c, err := client.NewFromConfigFile(baseDir)
+	if err != nil {
+		return fmt.Errorf("failed to recreate client: %w", err)
+	}
+	h.Client = c.ClientWithResponses
+	logrus.Infof("Refreshed FlightCtl API client from config file")
+	return nil
+}
+
+// ExtractAuthURL extracts the authentication URL from an AuthProvider based on its type
+func ExtractAuthURL(provider *v1beta1.AuthProvider) string {
+	if provider == nil {
+		return ""
+	}
+	providerType, _ := provider.Spec.Discriminator()
+	switch providerType {
+	case string(v1beta1.K8s):
+		if k8sSpec, err := provider.Spec.AsK8sProviderSpec(); err == nil {
+			return k8sSpec.ApiUrl
+		}
+	case string(v1beta1.Oidc):
+		if oidcSpec, err := provider.Spec.AsOIDCProviderSpec(); err == nil {
+			return oidcSpec.Issuer
+		}
+	case string(v1beta1.Aap):
+		if aapSpec, err := provider.Spec.AsAapProviderSpec(); err == nil {
+			return aapSpec.ApiUrl
+		}
+	case string(v1beta1.Oauth2):
+		if oauth2Spec, err := provider.Spec.AsOAuth2ProviderSpec(); err == nil {
+			return oauth2Spec.AuthorizationUrl
+		}
+	}
+	return ""
+}
+
 // MarkClientAccessTokenExpired updates the client configuration at the specified path by marking the token as expired
 // If no path is supplied, the default config path will be used
 func (h *Harness) MarkClientAccessTokenExpired(filePath string) error {
@@ -224,7 +267,7 @@ func (h *Harness) MarkClientAccessTokenExpired(filePath string) error {
 		return err
 	}
 	// expire the token by making setting the time to one minute ago
-	cfg.AuthInfo.AuthProvider.Config[client.AuthAccessTokenExpiryKey] = time.Now().Add(-1 * time.Minute).Format(time.RFC3339Nano)
+	cfg.AuthInfo.AccessTokenExpiry = time.Now().Add(-1 * time.Minute).Format(time.RFC3339Nano)
 	return cfg.Persist(filePath)
 }
 
@@ -268,8 +311,43 @@ func (h *Harness) Cleanup(printConsole bool) {
 	diffTime := time.Since(h.startTime)
 	fmt.Printf("Test took %s\n", diffTime)
 
+	// Stop the client wrapper if it exists
+	if h.clientWrapper != nil {
+		h.clientWrapper.Stop()
+	}
+
 	// Cancel the context to stop any blocking operations
 	h.ctxCancel()
+}
+
+// PrintAgentLogsIfFailed prints flightctl-agent journalctl logs from all boots if the current test failed.
+// This is useful for VM pool-based tests where Cleanup is not called and logs need to be captured on failure.
+func (h *Harness) PrintAgentLogsIfFailed() {
+	if !CurrentSpecReport().Failed() {
+		return
+	}
+
+	if h.VM == nil {
+		return
+	}
+
+	running, err := h.VM.IsRunning()
+	if err != nil || !running {
+		return
+	}
+
+	logrus.Infof("Test failed: %s", CurrentSpecReport().FullText())
+
+	stdout, _ := h.VM.RunSSH([]string{"sudo", "systemctl", "status", "flightctl-agent"}, nil)
+	logrus.Infof("systemctl status flightctl-agent:\n%s", stdout.String())
+
+	logrus.Infof("flightctl-agent logs (all boots):")
+	logs, err := h.ReadPrimaryVMAgentLogs("", util.FLIGHTCTL_AGENT_SERVICE)
+	if err != nil {
+		logrus.Errorf("Failed to read agent logs: %v", err)
+	} else {
+		logrus.Infof("%s", logs)
+	}
 }
 
 // GetServiceLogs returns the logs from the specified service using journalctl.
@@ -304,9 +382,9 @@ func (h *Harness) GetEnrollmentIDFromServiceLogs(serviceName string) string {
 	return enrollmentId
 }
 
-func (h *Harness) WaitForEnrollmentRequest(id string) *v1alpha1.EnrollmentRequest {
-	var enrollmentRequest *v1alpha1.EnrollmentRequest
-	Eventually(func() *v1alpha1.EnrollmentRequest {
+func (h *Harness) WaitForEnrollmentRequest(id string) *v1beta1.EnrollmentRequest {
+	var enrollmentRequest *v1beta1.EnrollmentRequest
+	Eventually(func() *v1beta1.EnrollmentRequest {
 		resp, _ := h.Client.GetEnrollmentRequestWithResponse(h.Context, id)
 		if resp != nil && resp.JSON200 != nil {
 			enrollmentRequest = resp.JSON200
@@ -316,7 +394,7 @@ func (h *Harness) WaitForEnrollmentRequest(id string) *v1alpha1.EnrollmentReques
 	return enrollmentRequest
 }
 
-func (h *Harness) ApproveEnrollment(id string, approval *v1alpha1.EnrollmentRequestApproval) {
+func (h *Harness) ApproveEnrollment(id string, approval *v1beta1.EnrollmentRequestApproval) {
 	Expect(approval).NotTo(BeNil())
 
 	logrus.Infof("Approving device enrollment: %s", id)
@@ -499,15 +577,28 @@ func updateResourceWithRetries(updateFunc func() error) {
 
 func checkForResourceChange[T any](resource T, lastResource string) string {
 	yamlData, err := yaml.Marshal(resource)
-	yamlString := string(yamlData)
 	Expect(err).ToNot(HaveOccurred())
-	if yamlString != lastResource {
-		GinkgoWriter.Println("")
-		GinkgoWriter.Println("======================= Resource change ========================== ")
-		GinkgoWriter.Println(yamlString)
-		GinkgoWriter.Println("================================================================== ")
+
+	current := string(yamlData)
+
+	if lastResource != "" && current != lastResource {
+		var prev any
+		var curr any
+
+		err = yaml.Unmarshal([]byte(lastResource), &prev)
+		Expect(err).ToNot(HaveOccurred())
+		err = yaml.Unmarshal(yamlData, &curr)
+		Expect(err).ToNot(HaveOccurred())
+
+		if d := cmp.Diff(prev, curr); d != "" {
+			GinkgoWriter.Println("")
+			GinkgoWriter.Println("==================== Resource change  ==================")
+			GinkgoWriter.Println(d)
+			GinkgoWriter.Println("==================================================================")
+		}
 	}
-	return yamlString
+
+	return current
 }
 
 func ensureResourceContents[T any](id string, description string, fetch func(string) (T, error), condition func(T) bool, timeout string) {
@@ -526,9 +617,11 @@ func ensureResourceContents[T any](id string, description string, fetch func(str
 
 func waitForResourceContents[T any](id string, description string, fetch func(string) (T, error), condition func(T) bool, timeout string) {
 	lastResourcePrint := ""
+	pollingRate := "500ms"
 
+	logrus.Infof("Waiting for condition: %q to be met - polling every %s, timeout=%s", description, pollingRate, timeout)
 	Eventually(func() error {
-		logrus.Infof("Waiting for condition: %q to be met", description)
+		logrus.Debugf("Waiting for condition: %q to be met", description)
 		resource, err := fetch(id)
 		Expect(err).NotTo(HaveOccurred())
 
@@ -538,10 +631,10 @@ func waitForResourceContents[T any](id string, description string, fetch func(st
 			return nil
 		}
 		return fmt.Errorf("resource: %s not updated", id)
-	}, timeout, "2s").Should(BeNil())
+	}, timeout, pollingRate).Should(BeNil())
 }
 
-func (h *Harness) EnrollAndWaitForOnlineStatus(labels ...map[string]string) (string, *v1alpha1.Device) {
+func (h *Harness) EnrollAndWaitForOnlineStatus(labels ...map[string]string) (string, *v1beta1.Device) {
 	deviceId := h.GetEnrollmentIDFromServiceLogs("flightctl-agent")
 	logrus.Infof("Enrollment ID found in flightctl-agent service logs: %s", deviceId)
 	Expect(deviceId).NotTo(BeNil())
@@ -565,34 +658,21 @@ func (h *Harness) EnrollAndWaitForOnlineStatus(labels ...map[string]string) (str
 	response, err := h.GetDeviceWithStatusSystem(deviceId)
 	Expect(err).NotTo(HaveOccurred())
 	device := response.JSON200
-	Expect(device.Status.Summary.Status).To(Equal(v1alpha1.DeviceSummaryStatusOnline))
+	Expect(device.Status.Summary.Status).To(Equal(v1beta1.DeviceSummaryStatusOnline))
 	Expect(*device.Status.Summary.Info).To(Equal(service.DeviceStatusInfoHealthy))
 	return deviceId, device
 }
-func (h *Harness) TestEnrollmentApproval(labels ...map[string]string) *v1alpha1.EnrollmentRequestApproval {
+func (h *Harness) TestEnrollmentApproval(labels ...map[string]string) *v1beta1.EnrollmentRequestApproval {
 	mergedLabels := map[string]string{"test-id": h.GetTestIDFromContext()}
 	for _, label := range labels {
 		for k, v := range label {
 			mergedLabels[k] = v
 		}
 	}
-	return &v1alpha1.EnrollmentRequestApproval{
+	return &v1beta1.EnrollmentRequestApproval{
 		Approved: true,
 		Labels:   &mergedLabels,
 	}
-}
-
-func (h *Harness) parseImageReference(image string) (string, string) {
-	// Split the image string by the colon to separate the repository and the tag.
-	parts := strings.Split(image, ":")
-
-	// The tag is the last part after the last colon.
-	tag := parts[len(parts)-1]
-
-	// The repository is composed of all parts before the last colon, joined back together with colons.
-	repo := strings.Join(parts[:len(parts)-1], ":")
-
-	return repo, tag
 }
 
 func (h *Harness) CleanUpAllTestResources() error {
@@ -756,43 +836,43 @@ func (h *Harness) GetResourcesByName(resourceType string, resourceName ...string
 }
 
 // Wrapper function for Device
-func (h *Harness) GetDeviceByYaml(deviceYaml string) v1alpha1.Device {
-	return getYamlResourceByFile[v1alpha1.Device](deviceYaml)
+func (h *Harness) GetDeviceByYaml(deviceYaml string) v1beta1.Device {
+	return getYamlResourceByFile[v1beta1.Device](deviceYaml)
 }
 
 // Wrapper function for Fleet
-func (h *Harness) GetFleetByYaml(fleetYaml string) v1alpha1.Fleet {
-	return getYamlResourceByFile[v1alpha1.Fleet](fleetYaml)
+func (h *Harness) GetFleetByYaml(fleetYaml string) v1beta1.Fleet {
+	return getYamlResourceByFile[v1beta1.Fleet](fleetYaml)
 }
 
 // Wrapper function for Repository
-func (h *Harness) GetRepositoryByYaml(repoYaml string) v1alpha1.Repository {
-	return getYamlResourceByFile[v1alpha1.Repository](repoYaml)
+func (h *Harness) GetRepositoryByYaml(repoYaml string) v1beta1.Repository {
+	return getYamlResourceByFile[v1beta1.Repository](repoYaml)
 }
 
 // Wrapper function for ResourceSync
-func (h *Harness) GetResourceSyncByYaml(rSyncYaml string) v1alpha1.ResourceSync {
-	return getYamlResourceByFile[v1alpha1.ResourceSync](rSyncYaml)
+func (h *Harness) GetResourceSyncByYaml(rSyncYaml string) v1beta1.ResourceSync {
+	return getYamlResourceByFile[v1beta1.ResourceSync](rSyncYaml)
 }
 
 // Wrapper function for EnrollmentRequest
-func (h *Harness) GetEnrollmentRequestByYaml(erYaml string) *v1alpha1.EnrollmentRequest {
-	return getYamlResourceByFile[*v1alpha1.EnrollmentRequest](erYaml)
+func (h *Harness) GetEnrollmentRequestByYaml(erYaml string) *v1beta1.EnrollmentRequest {
+	return getYamlResourceByFile[*v1beta1.EnrollmentRequest](erYaml)
 }
 
 // Wrapper function for CertificateSigningRequest
-func (h *Harness) GetCertificateSigningRequestByYaml(csrYaml string) v1alpha1.CertificateSigningRequest {
-	return getYamlResourceByFile[v1alpha1.CertificateSigningRequest](csrYaml)
+func (h *Harness) GetCertificateSigningRequestByYaml(csrYaml string) v1beta1.CertificateSigningRequest {
+	return getYamlResourceByFile[v1beta1.CertificateSigningRequest](csrYaml)
 }
 
 // Create a repository resource
-func (h *Harness) CreateRepository(repositorySpec v1alpha1.RepositorySpec, metadata v1alpha1.ObjectMeta) error {
+func (h *Harness) CreateRepository(repositorySpec v1beta1.RepositorySpec, metadata v1beta1.ObjectMeta) error {
 	// Add test label to metadata
 	h.addTestLabelToResource(&metadata)
 
-	var repository = v1alpha1.Repository{
-		ApiVersion: v1alpha1.RepositoryAPIVersion,
-		Kind:       v1alpha1.RepositoryKind,
+	var repository = v1beta1.Repository{
+		ApiVersion: v1beta1.RepositoryAPIVersion,
+		Kind:       v1beta1.RepositoryKind,
 
 		Metadata: metadata,
 		Spec:     repositorySpec,
@@ -802,10 +882,10 @@ func (h *Harness) CreateRepository(repositorySpec v1alpha1.RepositorySpec, metad
 }
 
 // ReplaceRepository ensures the specified repository exists and is updated to the appropriate values
-func (h *Harness) ReplaceRepository(repositorySpec v1alpha1.RepositorySpec, metadata v1alpha1.ObjectMeta) error {
-	var repository = v1alpha1.Repository{
-		ApiVersion: v1alpha1.RepositoryAPIVersion,
-		Kind:       v1alpha1.RepositoryKind,
+func (h *Harness) ReplaceRepository(repositorySpec v1beta1.RepositorySpec, metadata v1beta1.ObjectMeta) error {
+	var repository = v1beta1.Repository{
+		ApiVersion: v1beta1.RepositoryAPIVersion,
+		Kind:       v1beta1.RepositoryKind,
 
 		Metadata: metadata,
 		Spec:     repositorySpec,
@@ -846,7 +926,7 @@ func buildIPTablesCmd(ip, port string, remove bool) []string {
 }
 
 func (h *Harness) SimulateNetworkFailure() error {
-	context, err := getContext()
+	context, err := GetContext()
 	if err != nil {
 		return fmt.Errorf("failed to get the context: %w", err)
 	}
@@ -911,7 +991,7 @@ func (h *Harness) SimulateNetworkFailureForCLI(ip, port string) (func() error, e
 }
 
 func (h *Harness) FixNetworkFailure() error {
-	context, err := getContext()
+	context, err := GetContext()
 	if err != nil {
 		return fmt.Errorf("failed to get the context: %w", err)
 	}
@@ -972,11 +1052,63 @@ func (h *Harness) FixNetworkFailureForCLI(ip, port string) error {
 
 // CheckRunningContainers verifies the expected number of running containers on the VM.
 func (h *Harness) CheckRunningContainers() (string, error) {
-	out, err := h.VM.RunSSH([]string{"sudo", "podman", "ps", "|", "grep", "Up", "|", "wc", "-l"}, nil)
+	// Use a shell so the pipe is interpreted correctly.
+	cmd := "sudo podman ps --filter status=running --format '{{.Names}}' | wc -l"
+	out, err := h.VM.RunSSH(vmShellCommandArgs(cmd), nil)
 	if err != nil {
 		return "", err
 	}
 	return out.String(), nil
+}
+
+// StartPortForward starts a kubectl port-forward for a service or pod.
+func (h *Harness) StartPortForward(ctx context.Context, namespace, target string, localPort, remotePort int) (*exec.Cmd, <-chan error, error) {
+	// #nosec G204 -- command args are fixed and controlled in test.
+	cmd := exec.CommandContext(ctx, "kubectl", "port-forward",
+		"-n", namespace,
+		target,
+		fmt.Sprintf("%d:%d", localPort, remotePort),
+		"--address", "127.0.0.1",
+	)
+	cmd.Stdout = GinkgoWriter
+	cmd.Stderr = GinkgoWriter
+
+	if err := cmd.Start(); err != nil {
+		return nil, nil, err
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- cmd.Wait()
+	}()
+
+	return cmd, done, nil
+}
+
+// GetFreeLocalPort returns an available local TCP port.
+func (h *Harness) GetFreeLocalPort() (int, error) {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return 0, err
+	}
+	defer l.Close()
+	return l.Addr().(*net.TCPAddr).Port, nil
+}
+
+// GetOrganizationID returns the first organization ID from the API.
+func (h *Harness) GetOrganizationID() (string, error) {
+	resp, err := h.Client.ListOrganizationsWithResponse(h.Context, nil)
+	if err != nil {
+		return "", err
+	}
+	if resp.JSON200 == nil || len(resp.JSON200.Items) == 0 {
+		return "", fmt.Errorf("no organizations returned")
+	}
+	name := resp.JSON200.Items[0].Metadata.Name
+	if name == nil || *name == "" {
+		return "", fmt.Errorf("organization name is empty")
+	}
+	return *name, nil
 }
 
 func (h *Harness) CheckApplicationDirectoryExist(applicationName string) error {
@@ -989,7 +1121,7 @@ func (h *Harness) CheckApplicationComposeFileExist(applicationName string, Compo
 	return err
 }
 
-func (h Harness) CheckApplicationStatus(deviceId string, applicationName string) (v1alpha1.ApplicationStatusType, error) {
+func (h Harness) CheckApplicationStatus(deviceId string, applicationName string) (v1beta1.ApplicationStatusType, error) {
 	device, err := h.GetDevice(deviceId)
 	if err != nil {
 		return "", fmt.Errorf("failed to get device %s: %w", deviceId, err)
@@ -1044,26 +1176,40 @@ func (h *Harness) RunGetEvents(args ...string) (string, error) {
 	return h.CLI(allArgs...)
 }
 
-// ManageResource performs an operation ("apply", "delete", or "approve") on a specified resource.
+// ManageResource performs an operation ("apply", "delete", "approve" or "deny") on a specified resource.
 func (h *Harness) ManageResource(operation, resource string, args ...string) (string, error) {
 	switch operation {
 	case "apply":
 		return h.applyResourceWithTestLabels(resource)
+
 	case "delete":
-		if len(args) > 0 {
-			deleteArgs := append([]string{"delete", resource}, args...)
-			return h.CLI(deleteArgs...)
+		deleteArgs := []string{"delete"}
+		if resource != "" {
+			deleteArgs = append(deleteArgs, resource)
 		}
-		if len(args) == 0 {
-			return h.CLI("delete", resource)
-		}
-		err := h.CleanUpTestResources(resource)
-		if err != nil {
-			return "", fmt.Errorf("failed to clean up test resources: %w", err)
-		}
-		return "", nil
+		deleteArgs = append(deleteArgs, args...)
+		return h.CLI(deleteArgs...)
+
 	case "approve":
-		return h.CLI("approve", resource)
+		approveArgs := []string{"approve"}
+		if resource != "" {
+			approveArgs = append(approveArgs, resource)
+		}
+		approveArgs = append(approveArgs, args...)
+		return h.CLI(approveArgs...)
+
+	case "deny":
+		// If no resource and no extra args → call bare `flightctl deny`
+		if resource == "" && len(args) == 0 {
+			return h.CLI("deny")
+		}
+		denyArgs := []string{"deny"}
+		if resource != "" {
+			denyArgs = append(denyArgs, resource)
+		}
+		denyArgs = append(denyArgs, args...)
+		return h.CLI(denyArgs...)
+
 	default:
 		return "", fmt.Errorf("unsupported operation: %s", operation)
 	}
@@ -1128,7 +1274,7 @@ func (h *Harness) addTestLabelsToYAML(yamlContent string) (string, error) {
 	return string(modifiedDoc), nil
 }
 
-func conditionExists(conditions []v1alpha1.Condition, predicate func(condition *v1alpha1.Condition) bool) bool {
+func conditionExists(conditions []v1beta1.Condition, predicate func(condition *v1beta1.Condition) bool) bool {
 	for _, condition := range conditions {
 		if predicate(&condition) {
 			return true
@@ -1138,15 +1284,15 @@ func conditionExists(conditions []v1alpha1.Condition, predicate func(condition *
 }
 
 // ConditionExists checks if a specific condition exists for the device with the given type, status, and reason.
-func ConditionExists(d *v1alpha1.Device, condType v1alpha1.ConditionType, condStatus v1alpha1.ConditionStatus, condReason string) bool {
-	return conditionExists(d.Status.Conditions, func(condition *v1alpha1.Condition) bool {
+func ConditionExists(d *v1beta1.Device, condType v1beta1.ConditionType, condStatus v1beta1.ConditionStatus, condReason string) bool {
+	return conditionExists(d.Status.Conditions, func(condition *v1beta1.Condition) bool {
 		return condition.Type == condType && condition.Status == condStatus && condition.Reason == condReason
 	})
 }
 
 // ConditionStatusExists returns true if the specified type and status exists on the condition slice
-func ConditionStatusExists(conditions []v1alpha1.Condition, condType v1alpha1.ConditionType, status v1alpha1.ConditionStatus) bool {
-	return conditionExists(conditions, func(condition *v1alpha1.Condition) bool {
+func ConditionStatusExists(conditions []v1beta1.Condition, condType v1beta1.ConditionType, status v1beta1.ConditionStatus) bool {
+	return conditionExists(conditions, func(condition *v1beta1.Condition) bool {
 		return condition.Type == condType && condition.Status == status
 	})
 }
@@ -1183,7 +1329,7 @@ func (h *Harness) WaitForClusterRegistered(deviceId string, timeout time.Duratio
 
 		device := response.JSON200
 		// Check if device metadata is valid and matches the managed cluster name
-		if (device != nil && device.Metadata != v1alpha1.ObjectMeta{} && device.Metadata.Name != nil) {
+		if (device != nil && device.Metadata != v1beta1.ObjectMeta{} && device.Metadata.Name != nil) {
 			if strings.Contains(string(out), *device.Metadata.Name) {
 				return nil // Success: managed cluster is registered
 			}
@@ -1216,7 +1362,8 @@ func (h *Harness) WaitForFileInDevice(filePath string, timeout string, polling s
 	return h.VM.RunSSH([]string{"sudo", "bash", "-c", script}, nil)
 }
 
-func getContext() (string, error) {
+// GetContext returns the Kubernetes context (KIND or OCP) or an error
+func GetContext() (string, error) {
 	kubeContext, err := exec.Command("kubectl", "config", "current-context").Output()
 	if err != nil {
 		return "", fmt.Errorf("failed to get current kube context: %w", err)
@@ -1232,7 +1379,7 @@ func getContext() (string, error) {
 }
 
 func (h Harness) getRegistryEndpointInfo() (ip string, port string, err error) {
-	context, err := getContext()
+	context, err := GetContext()
 	if err != nil {
 		return "", "", fmt.Errorf("failed to get context: %w", err)
 	}
@@ -1284,42 +1431,10 @@ func (h Harness) getRegistryEndpointInfo() (ip string, port string, err error) {
 
 	return "", "", fmt.Errorf("unknown context")
 }
-func NewTestHarnessWithoutVM(ctx context.Context) (*Harness, error) {
-	startTime := time.Now()
 
-	baseDir, err := client.DefaultFlightctlClientConfigPath()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get client config path: %w", err)
-	}
-
-	c, err := client.NewFromConfigFile(baseDir)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create client: %w", err)
-	}
-
-	ctx, cancel := context.WithCancel(ctx)
-
-	k8sCluster, err := kubernetesClient()
-	if err != nil {
-		cancel()
-		return nil, fmt.Errorf("failed to get kubernetes cluster: %w", err)
-	}
-
-	// Create harness without VM first
-	return &Harness{
-		Client:    c,
-		Context:   ctx,
-		Cluster:   k8sCluster,
-		ctxCancel: cancel,
-		startTime: startTime,
-		VM:        nil,
-	}, nil
-
-}
-
-// NewTestHarnessWithVMPool creates a new test harness with VM pool management.
-// This centralizes the VM pool logic that was previously duplicated in individual tests.
-func NewTestHarnessWithVMPool(ctx context.Context, workerID int) (*Harness, error) {
+// newTestHarnessBase creates the base test harness with common setup.
+// This is used by both NewTestHarnessWithoutVM and NewTestHarnessWithVMPool.
+func newTestHarnessBase(ctx context.Context) (*Harness, error) {
 	startTime := time.Now()
 
 	baseDir, err := client.DefaultFlightctlClientConfigPath()
@@ -1343,24 +1458,43 @@ func NewTestHarnessWithVMPool(ctx context.Context, workerID int) (*Harness, erro
 	// Initialize git repository management
 	gitWorkDir := filepath.Join(GinkgoT().TempDir(), "git-repos")
 	err = os.MkdirAll(gitWorkDir, 0755)
-	Expect(err).ToNot(HaveOccurred())
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("failed to create git work directory: %w", err)
+	}
 
-	// Create harness without VM first
-	harness := &Harness{
-		Client:     c,
-		Context:    ctx,
-		Cluster:    k8sCluster,
-		ctxCancel:  cancel,
-		startTime:  startTime,
-		VM:         nil,
-		gitRepos:   make(map[string]string),
-		gitWorkDir: gitWorkDir,
+	c.Start(ctx)
+
+	return &Harness{
+		Client:        c.ClientWithResponses,
+		Context:       ctx,
+		Cluster:       k8sCluster,
+		ctxCancel:     cancel,
+		startTime:     startTime,
+		VM:            nil,
+		gitRepos:      make(map[string]string),
+		gitWorkDir:    gitWorkDir,
+		clientWrapper: c,
+	}, nil
+}
+
+// NewTestHarnessWithoutVM creates a new test harness without VM management.
+func NewTestHarnessWithoutVM(ctx context.Context) (*Harness, error) {
+	return newTestHarnessBase(ctx)
+}
+
+// NewTestHarnessWithVMPool creates a new test harness with VM pool management.
+// This centralizes the VM pool logic that was previously duplicated in individual tests.
+func NewTestHarnessWithVMPool(ctx context.Context, workerID int) (*Harness, error) {
+	harness, err := newTestHarnessBase(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	// Get VM from the pool (this should already exist from BeforeSuite)
 	_, err = harness.GetVMFromPool(workerID)
 	if err != nil {
-		cancel()
+		harness.ctxCancel()
 		return nil, fmt.Errorf("failed to get VM from pool: %w", err)
 	}
 
@@ -1382,9 +1516,9 @@ func (h *Harness) GetVMFromPool(workerID int) (vm.TestVMInterface, error) {
 	return testVM, nil
 }
 
-// SetupVMFromPoolAndStartAgent sets up a VM from the pool, reverts to pristine snapshot,
-// and starts the agent. This is useful for tests that use the VM pool pattern.
-func (h *Harness) SetupVMFromPoolAndStartAgent(workerID int) error {
+// SetupVMFromPool sets up a VM from the pool and reverts it to the pristine snapshot.
+// It does not start the agent.
+func (h *Harness) SetupVMFromPool(workerID int) error {
 	// Get VM from pool (created on-demand if needed)
 	testVM, err := h.GetVMFromPool(workerID)
 	if err != nil {
@@ -1401,10 +1535,32 @@ func (h *Harness) SetupVMFromPoolAndStartAgent(workerID int) error {
 		return fmt.Errorf("failed to wait for SSH: %w", err)
 	}
 
-	// Stop the agent to ensure clean state
-	if _, err := testVM.RunSSH([]string{"sudo", "systemctl", "restart", "flightctl-agent"}, nil); err != nil {
-		return fmt.Errorf("failed to stop flightctl-agent: %w", err)
+	// Clean any stale CSR from previous tests
+	_, err = testVM.RunSSH([]string{"sudo", "rm", "-f", "/var/lib/flightctl/certs/agent.csr"}, nil)
+	if err != nil {
+		logrus.Warnf("Failed to clean stale CSR: %v", err)
 	}
+
+	// Print agent files right after snapshot revert - should be empty/version 0
+	printAgentFilesForVM(testVM, "After Snapshot Revert")
+
+	return nil
+}
+
+// SetupVMFromPoolAndStartAgent sets up a VM from the pool, reverts to pristine snapshot,
+// and starts the agent. This is useful for tests that use the VM pool pattern.
+func (h *Harness) SetupVMFromPoolAndStartAgent(workerID int) error {
+	if err := h.SetupVMFromPool(workerID); err != nil {
+		return err
+	}
+	testVM := h.VM
+
+	// Start the agent after snapshot revert
+	GinkgoWriter.Printf("🔄 Starting flightctl-agent after snapshot revert\n")
+	if _, err := testVM.RunSSH([]string{"sudo", "systemctl", "start", "flightctl-agent"}, nil); err != nil {
+		return fmt.Errorf("failed to start flightctl-agent: %w", err)
+	}
+	GinkgoWriter.Printf("✅ flightctl-agent started successfully after snapshot revert\n")
 
 	return nil
 }
@@ -1441,16 +1597,16 @@ func (h *Harness) GetTestIDFromContext() string {
 }
 
 // StoreDeviceInTestContext stores device data in the test context for use within the same test
-func (h *Harness) StoreDeviceInTestContext(deviceId string, device *v1alpha1.Device) {
+func (h *Harness) StoreDeviceInTestContext(deviceId string, device *v1beta1.Device) {
 	ctx := context.WithValue(h.Context, util.DeviceIDKey, deviceId)
 	ctx = context.WithValue(ctx, util.DeviceKey, device)
 	h.Context = ctx
 }
 
 // GetDeviceFromTestContext retrieves device data from the test context
-func (h *Harness) GetDeviceFromTestContext() (string, *v1alpha1.Device, bool) {
+func (h *Harness) GetDeviceFromTestContext() (string, *v1beta1.Device, bool) {
 	deviceId, hasDeviceId := h.Context.Value(util.DeviceIDKey).(string)
-	device, hasDevice := h.Context.Value(util.DeviceKey).(*v1alpha1.Device)
+	device, hasDevice := h.Context.Value(util.DeviceKey).(*v1beta1.Device)
 	return deviceId, device, hasDeviceId && hasDevice
 }
 
@@ -1476,7 +1632,7 @@ func (h *Harness) GetTestDataFromContext(key string) (interface{}, bool) {
 }
 
 // addTestLabelToResource adds the test ID as a label to the resource metadata
-func (h *Harness) addTestLabelToResource(metadata *v1alpha1.ObjectMeta) {
+func (h *Harness) addTestLabelToResource(metadata *v1beta1.ObjectMeta) {
 	testID := h.GetTestIDFromContext()
 
 	if metadata.Labels == nil {
@@ -1515,7 +1671,7 @@ func (h *Harness) AddLabelsToYAML(yamlContent string, addLabels map[string]strin
 	return string(modifiedDoc), nil
 }
 
-func (h *Harness) addTestLabelToEnrollmentApprovalRequest(approval *v1alpha1.EnrollmentRequestApproval) {
+func (h *Harness) addTestLabelToEnrollmentApprovalRequest(approval *v1beta1.EnrollmentRequestApproval) {
 	testID := h.GetTestIDFromContext()
 
 	if approval.Labels == nil {
@@ -1526,7 +1682,7 @@ func (h *Harness) addTestLabelToEnrollmentApprovalRequest(approval *v1alpha1.Enr
 }
 
 // SetLabelsForResource sets labels on any resource while preserving the test-id label
-func (h *Harness) SetLabelsForResource(metadata *v1alpha1.ObjectMeta, labels map[string]string) {
+func (h *Harness) SetLabelsForResource(metadata *v1beta1.ObjectMeta, labels map[string]string) {
 	testID := h.GetTestIDFromContext()
 
 	metadata.Labels = &map[string]string{}
@@ -1542,29 +1698,18 @@ func (h *Harness) SetLabelsForResource(metadata *v1alpha1.ObjectMeta, labels map
 }
 
 // SetLabelsForDeviceMetadata sets labels on device metadata while preserving the test-id label
-func (h *Harness) SetLabelsForDeviceMetadata(metadata *v1alpha1.ObjectMeta, labels map[string]string) {
+func (h *Harness) SetLabelsForDeviceMetadata(metadata *v1beta1.ObjectMeta, labels map[string]string) {
 	h.SetLabelsForResource(metadata, labels)
 }
 
 // SetLabelsForFleetMetadata sets labels on fleet metadata while preserving the test-id label
-func (h *Harness) SetLabelsForFleetMetadata(metadata *v1alpha1.ObjectMeta, labels map[string]string) {
+func (h *Harness) SetLabelsForFleetMetadata(metadata *v1beta1.ObjectMeta, labels map[string]string) {
 	h.SetLabelsForResource(metadata, labels)
 }
 
 // SetLabelsForRepositoryMetadata sets labels on repository metadata while preserving the test-id label
-func (h *Harness) SetLabelsForRepositoryMetadata(metadata *v1alpha1.ObjectMeta, labels map[string]string) {
+func (h *Harness) SetLabelsForRepositoryMetadata(metadata *v1beta1.ObjectMeta, labels map[string]string) {
 	h.SetLabelsForResource(metadata, labels)
-}
-
-// GetGitServerConfig returns the configuration for the e2e git server
-func (h *Harness) GetGitServerConfig() GitServerConfig {
-	// Default configuration for the e2e git server
-	return GitServerConfig{
-		Host:     getEnvOrDefault("E2E_GIT_SERVER_HOST", "localhost"),
-		Port:     getEnvOrDefaultInt("E2E_GIT_SERVER_PORT", 3222),
-		User:     getEnvOrDefault("E2E_GIT_SERVER_USER", "user"),
-		Password: getEnvOrDefault("E2E_GIT_SERVER_PASSWORD", "user"),
-	}
 }
 
 func getEnvOrDefault(key, defaultValue string) string {
@@ -1583,303 +1728,12 @@ func getEnvOrDefaultInt(key string, defaultValue int) int {
 	return defaultValue
 }
 
-// CreateGitRepositoryOnServer creates a new Git repository on the e2e git server
-func (h *Harness) CreateGitRepositoryOnServer(repoName string) error {
-	if repoName == "" {
-		return fmt.Errorf("repository name cannot be empty")
-	}
-
-	config := h.GetGitServerConfig()
-
-	// Use SSH to create the repository on the git server
-	createCmd := fmt.Sprintf("create-repo %s", repoName)
-	err := h.runGitServerSSHCommand(config, createCmd)
-	if err != nil {
-		return fmt.Errorf("failed to create git repository %s: %w", repoName, err)
-	}
-
-	// Store the repository name for cleanup
-	h.gitRepos[repoName] = fmt.Sprintf("ssh://%s@%s:%d/home/user/repos/%s.git",
-		config.User, config.Host, config.Port, repoName)
-
-	logrus.Infof("Created git repository: %s on git server", repoName)
-	return nil
-}
-
-// DeleteGitRepositoryOnServer deletes a Git repository from the e2e git server
-func (h *Harness) DeleteGitRepositoryOnServer(repoName string) error {
-	if repoName == "" {
-		return fmt.Errorf("repository name cannot be empty")
-	}
-
-	config := h.GetGitServerConfig()
-
-	// Use SSH to delete the repository on the git server
-	deleteCmd := fmt.Sprintf("delete-repo %s", repoName)
-	err := h.runGitServerSSHCommand(config, deleteCmd)
-	if err != nil {
-		return fmt.Errorf("failed to delete git repository %s: %w", repoName, err)
-	}
-
-	// Remove from our tracking
-	delete(h.gitRepos, repoName)
-
-	logrus.Infof("Deleted git repository: %s from git server", repoName)
-	return nil
-}
-
-// runGitServerSSHCommand executes a command on the git server via SSH
-func (h *Harness) runGitServerSSHCommand(config GitServerConfig, command string) error {
-	// #nosec G204 -- This is test code with controlled inputs from GitServerConfig
-	sshCmd := exec.Command("sshpass", "-e", "ssh",
-		"-p", fmt.Sprintf("%d", config.Port),
-		"-o", "UserKnownHostsFile=/dev/null",
-		"-o", "StrictHostKeyChecking=no",
-		"-o", "PubkeyAuthentication=no",
-		"-o", "LogLevel=ERROR",
-		fmt.Sprintf("%s@%s", config.User, config.Host),
-		command)
-	sshCmd.Env = append(os.Environ(), fmt.Sprintf("SSHPASS=%s", config.Password))
-
-	output, err := sshCmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("SSH command failed: %w, output: %s", err, string(output))
-	}
-
-	logrus.Debugf("SSH command executed successfully: %s", command)
-	return nil
-}
-
-// CloneGitRepositoryFromServer clones a repository from the git server to a local working directory
-func (h *Harness) CloneGitRepositoryFromServer(repoName, localPath string) error {
-	if repoName == "" {
-		return fmt.Errorf("repository name cannot be empty")
-	}
-	if localPath == "" {
-		return fmt.Errorf("local path cannot be empty")
-	}
-
-	config := h.GetGitServerConfig()
-	repoURL := fmt.Sprintf("ssh://%s@%s:%d/home/user/repos/%s.git",
-		config.User, config.Host, config.Port, repoName)
-
-	// Create parent directory if it doesn't exist
-	if err := os.MkdirAll(filepath.Dir(localPath), 0755); err != nil {
-		return fmt.Errorf("failed to create parent directory: %w", err)
-	}
-
-	// Use sshpass for authentication when cloning
-	// #nosec G204 -- This is test code with controlled inputs from GitServerConfig
-	cloneCmd := exec.Command("sshpass", "-e", "git", "clone", repoURL, localPath)
-	cloneCmd.Env = append(os.Environ(),
-		"SSHPASS="+config.Password,
-		"GIT_SSH_COMMAND=sshpass -e ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -o PubkeyAuthentication=no")
-
-	if output, err := cloneCmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to clone repository %s to %s: %w, output: %s", repoURL, localPath, err, string(output))
-	}
-
-	logrus.Infof("Cloned git repository %s to %s", repoName, localPath)
-	return nil
-}
-
-// PushContentToGitServerRepo pushes content to a git repository on the server
-func (h *Harness) PushContentToGitServerRepo(repoName, filePath, content, commitMessage string) error {
-	if repoName == "" {
-		return fmt.Errorf("repository name cannot be empty")
-	}
-	if filePath == "" {
-		return fmt.Errorf("file path cannot be empty")
-	}
-	if commitMessage == "" {
-		commitMessage = "Add content via test harness"
-	}
-
-	// Create a temporary working directory
-	workDir := filepath.Join(h.gitWorkDir, "temp-"+uuid.New().String())
-	defer os.RemoveAll(workDir)
-
-	// Clone the repository
-	if err := h.CloneGitRepositoryFromServer(repoName, workDir); err != nil {
-		return fmt.Errorf("failed to clone repository for push: %w", err)
-	}
-
-	// Write content to file
-	fullFilePath := filepath.Join(workDir, filePath)
-	if err := os.MkdirAll(filepath.Dir(fullFilePath), 0755); err != nil {
-		return fmt.Errorf("failed to create directory for file: %w", err)
-	}
-
-	if err := os.WriteFile(fullFilePath, []byte(content), 0600); err != nil {
-		return fmt.Errorf("failed to write content to file: %w", err)
-	}
-
-	// Git operations with authentication
-	config := h.GetGitServerConfig()
-	gitEnv := append(os.Environ(),
-		"GIT_SSH_COMMAND=sshpass -e ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -o PubkeyAuthentication=no",
-		"SSHPASS="+config.Password,
-		"GIT_AUTHOR_NAME=Test Harness",
-		"GIT_AUTHOR_EMAIL=test@flightctl.dev",
-		"GIT_COMMITTER_NAME=Test Harness",
-		"GIT_COMMITTER_EMAIL=test@flightctl.dev",
-	)
-
-	gitCmds := [][]string{
-		{"git", "add", filePath},
-		{"git", "commit", "-m", commitMessage},
-		{"git", "push", "origin", "main"},
-	}
-
-	for _, gitCmd := range gitCmds {
-		// #nosec G204 -- This is test code with controlled git commands (add, commit, push)
-		cmd := exec.Command(gitCmd[0], gitCmd[1:]...)
-		cmd.Dir = workDir
-		cmd.Env = gitEnv
-
-		if output, err := cmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("failed to execute git command %v: %w, output: %s", gitCmd, err, string(output))
-		}
-	}
-
-	logrus.Infof("Pushed content to git repository %s, file: %s", repoName, filePath)
-	return nil
-}
-
-// CreateRepository creates a Repository resource pointing to the git server repository
-func (h *Harness) CreateGitRepository(repoName string, repositorySpec v1alpha1.RepositorySpec) error {
-	if repoName == "" {
-		return fmt.Errorf("repository name cannot be empty")
-	}
-
-	// First create the git repository on the server
-	if err := h.CreateGitRepositoryOnServer(repoName); err != nil {
-		return fmt.Errorf("failed to create git repository on server: %w", err)
-	}
-
-	// Create the Repository resource
-	repository := v1alpha1.Repository{
-		ApiVersion: v1alpha1.RepositoryAPIVersion,
-		Kind:       v1alpha1.RepositoryKind,
-		Metadata: v1alpha1.ObjectMeta{
-			Name: &repoName,
-		},
-		Spec: repositorySpec,
-	}
-
-	_, err := h.Client.CreateRepositoryWithResponse(h.Context, repository)
-	if err != nil {
-		// Clean up the git repository if Repository resource creation fails
-		if cleanupErr := h.DeleteGitRepositoryOnServer(repoName); cleanupErr != nil {
-			logrus.Errorf("failed to delete git repository %s: %v", repoName, cleanupErr)
-		}
-		return fmt.Errorf("failed to create Repository resource: %w", err)
-	}
-
-	logrus.Infof("Created Repository resource %s", repoName)
-	return nil
-}
-
-// UpdateGitServerRepository updates content in an existing git repository working directory
-func (h *Harness) UpdateGitServerRepository(repoName, filePath, content, commitMessage string) error {
-	if repoName == "" {
-		return fmt.Errorf("repository name cannot be empty")
-	}
-	if filePath == "" {
-		return fmt.Errorf("file path cannot be empty")
-	}
-	if commitMessage == "" {
-		commitMessage = "Update content via test harness"
-	}
-
-	return h.PushContentToGitServerRepo(repoName, filePath, content, commitMessage)
-}
-
-// CreateResourceSync creates a ResourceSync resource that points to a git repository
-func (h *Harness) CreateResourceSync(name, repoName string, spec v1alpha1.ResourceSyncSpec) error {
-	if name == "" {
-		return fmt.Errorf("ResourceSync name cannot be empty")
-	}
-	if repoName == "" {
-		return fmt.Errorf("repository name cannot be empty")
-	}
-
-	// Set the repository name in the spec if not already set
-	if spec.Repository == "" {
-		spec.Repository = repoName
-	}
-
-	resourceSync := v1alpha1.ResourceSync{
-		ApiVersion: v1alpha1.ResourceSyncAPIVersion,
-		Kind:       v1alpha1.ResourceSyncKind,
-		Metadata: v1alpha1.ObjectMeta{
-			Name: &name,
-		},
-		Spec: spec,
-	}
-
-	_, err := h.Client.CreateResourceSyncWithResponse(h.Context, resourceSync)
-	if err != nil {
-		return fmt.Errorf("failed to create ResourceSync: %w", err)
-	}
-
-	logrus.Infof("Created ResourceSync %s pointing to repository %s", name, repoName)
-	return nil
-}
-
-// ReplaceResourceSync replaces an existing ResourceSync resource
-func (h *Harness) ReplaceResourceSync(name, repoName string, spec v1alpha1.ResourceSyncSpec) error {
-	if name == "" {
-		return fmt.Errorf("ResourceSync name cannot be empty")
-	}
-	if repoName == "" {
-		return fmt.Errorf("repository name cannot be empty")
-	}
-
-	// Set the repository name in the spec if not already set
-	if spec.Repository == "" {
-		spec.Repository = repoName
-	}
-
-	resourceSync := v1alpha1.ResourceSync{
-		ApiVersion: v1alpha1.ResourceSyncAPIVersion,
-		Kind:       v1alpha1.ResourceSyncKind,
-		Metadata: v1alpha1.ObjectMeta{
-			Name: &name,
-		},
-		Spec: spec,
-	}
-
-	_, err := h.Client.ReplaceResourceSyncWithResponse(h.Context, name, resourceSync)
-	if err != nil {
-		return fmt.Errorf("failed to replace ResourceSync: %w", err)
-	}
-
-	logrus.Infof("Replaced ResourceSync %s pointing to repository %s", name, repoName)
-	return nil
-}
-
-// DeleteResourceSync deletes the specified ResourceSync
-func (h *Harness) DeleteResourceSync(name string) error {
-	if name == "" {
-		return fmt.Errorf("ResourceSync name cannot be empty")
-	}
-
-	_, err := h.Client.DeleteResourceSync(h.Context, name)
-	if err != nil {
-		return fmt.Errorf("failed to delete ResourceSync: %w", err)
-	}
-
-	logrus.Infof("Deleted ResourceSync %s", name)
-	return nil
-}
-
 // CreateFleetConfigInGitRepo creates a fleet configuration and pushes it to a git repository
-func (h *Harness) CreateFleetConfigInGitRepo(repoName, fleetName string, fleetSpec v1alpha1.FleetSpec) error {
-	fleet := v1alpha1.Fleet{
-		ApiVersion: v1alpha1.FleetAPIVersion,
-		Kind:       v1alpha1.FleetKind,
-		Metadata: v1alpha1.ObjectMeta{
+func (h *Harness) CreateFleetConfigInGitRepo(repoName, fleetName string, fleetSpec v1beta1.FleetSpec) error {
+	fleet := v1beta1.Fleet{
+		ApiVersion: v1beta1.FleetAPIVersion,
+		Kind:       v1beta1.FleetKind,
+		Metadata: v1beta1.ObjectMeta{
 			Name: &fleetName,
 		},
 		Spec: fleetSpec,
@@ -1897,11 +1751,11 @@ func (h *Harness) CreateFleetConfigInGitRepo(repoName, fleetName string, fleetSp
 }
 
 // CreateDeviceConfigInGitRepo creates a device configuration and pushes it to a git repository
-func (h *Harness) CreateDeviceConfigInGitRepo(repoName, deviceName string, deviceSpec v1alpha1.DeviceSpec) error {
-	device := v1alpha1.Device{
-		ApiVersion: v1alpha1.DeviceAPIVersion,
-		Kind:       v1alpha1.DeviceKind,
-		Metadata: v1alpha1.ObjectMeta{
+func (h *Harness) CreateDeviceConfigInGitRepo(repoName, deviceName string, deviceSpec v1beta1.DeviceSpec) error {
+	device := v1beta1.Device{
+		ApiVersion: v1beta1.DeviceAPIVersion,
+		Kind:       v1beta1.DeviceKind,
+		Metadata: v1beta1.ObjectMeta{
 			Name: &deviceName,
 		},
 		Spec: &deviceSpec,
@@ -1919,7 +1773,7 @@ func (h *Harness) CreateDeviceConfigInGitRepo(repoName, deviceName string, devic
 }
 
 // WaitForResourceSyncStatus waits for a ResourceSync to reach a specific status
-func (h *Harness) WaitForResourceSyncStatus(name string, expectedStatus v1alpha1.ConditionStatus, timeout string) error {
+func (h *Harness) WaitForResourceSyncStatus(name string, expectedStatus v1beta1.ConditionStatus, timeout string) error {
 	Eventually(func() error {
 		response, err := h.Client.GetResourceSyncWithResponse(h.Context, name)
 		if err != nil {
@@ -1984,7 +1838,7 @@ func (h *Harness) CleanupGitRepositories() error {
 }
 
 // CreateGitRepositoryWithContent creates a git repository with initial content
-func (h *Harness) CreateGitRepositoryWithContent(repoName, filePath, content string, repositorySpec v1alpha1.RepositorySpec) error {
+func (h *Harness) CreateGitRepositoryWithContent(repoName, filePath, content string, repositorySpec v1beta1.RepositorySpec) error {
 	// Create the git repository and Repository resource
 	if err := h.CreateGitRepository(repoName, repositorySpec); err != nil {
 		return fmt.Errorf("failed to create git repository: %w", err)
@@ -2001,6 +1855,28 @@ func (h *Harness) CreateGitRepositoryWithContent(repoName, filePath, content str
 		}
 	}
 
+	return nil
+}
+
+// ChangeK8sNamespace changes the current Kubernetes namespace
+func (h *Harness) ChangeK8sNamespace(namespace string) error {
+	if util.BinaryExistsOnPath("oc") {
+		// Use oc project for OpenShift
+		cmd := exec.Command("oc", "project", namespace)
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("failed to change namespace to %s: %v, output: %s", namespace, err, string(output))
+		}
+		GinkgoWriter.Printf("Changed namespace to %s using oc project\n", namespace)
+		return nil
+	}
+	// Use kubectl for regular Kubernetes
+	cmd := exec.Command("kubectl", "config", "set-context", "--current", "--namespace", namespace)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to change namespace to %s: %v, output: %s", namespace, err, string(output))
+	}
+	GinkgoWriter.Printf("Changed namespace to %s using kubectl\n", namespace)
 	return nil
 }
 
@@ -2066,11 +1942,11 @@ func (h *Harness) CreateResource(resourceType string) (string, string, []byte, e
 
 		// Remove resourceVersion before marshaling to avoid conflicts
 		switch resource := resource.(type) {
-		case *v1alpha1.Device:
+		case *v1beta1.Device:
 			resource.Metadata.ResourceVersion = nil
-		case *v1alpha1.Fleet:
+		case *v1beta1.Fleet:
 			resource.Metadata.ResourceVersion = nil
-		case *v1alpha1.Repository:
+		case *v1beta1.Repository:
 			resource.Metadata.ResourceVersion = nil
 		}
 
@@ -2148,6 +2024,19 @@ func ExecuteResourceOperations(ctx context.Context, harness *Harness, resourceTy
 	return nil
 }
 
+// TestResourceOperations tests multiple resource groups with different success expectations.
+// It iterates through testConfigs and calls ExecuteResourceOperations for each group.
+func TestResourceOperations(ctx context.Context, harness *Harness, operations []string, testConfigs []ResourceTestConfig, testLabels *map[string]string, namespace string) error {
+	GinkgoWriter.Println("Testing resource operations in namespace:", namespace)
+	for _, config := range testConfigs {
+		err := ExecuteResourceOperations(ctx, harness, config.Resources, config.ShouldSucceed, testLabels, namespace, operations)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // executeResourceOperation handles a single operation for a resource type
 func executeResourceOperation(harness *Harness, operation, resourceType string, resourceName *string, resourceData *[]byte, shouldSucceed bool, testLabels *map[string]string) error {
 	var output string
@@ -2196,8 +2085,8 @@ func validateResourceOperationResult(operationName, resourceType, output string,
 		if err == nil {
 			return fmt.Errorf("%s %s should fail but succeeded", operationName, resourceType)
 		}
-		if !strings.Contains(output, "403") {
-			return fmt.Errorf("%s %s should fail with error code 403, got: %s", operationName, resourceType, output)
+		if !strings.Contains(output, strconv.Itoa(util.HTTP_403_ERROR)) {
+			return fmt.Errorf("%s %s should fail with error code %s, got: %s", operationName, resourceType, strconv.Itoa(util.HTTP_403_ERROR), output)
 		}
 	}
 	return nil
@@ -2282,7 +2171,7 @@ func (h *Harness) GetAgentVersion() (string, error) {
 	}
 
 	output := stdout.String()
-	versionPrefix := "Flightctl Agent Version:"
+	versionPrefix := "Agent Version:"
 	if !strings.Contains(output, versionPrefix) {
 		return "", fmt.Errorf("agent version not found in output: %s", output)
 	}
@@ -2338,4 +2227,254 @@ func (h *Harness) getVersionByPrefix(output, prefix string) string {
 		}
 	}
 	return ""
+}
+
+// GetYAML returns the YAML output of a given resource name via Harness.CLI.
+// No test framework calls inside; returns (string, error).
+func (h *Harness) GetYAML(name string) (string, error) {
+	out, err := h.CLI("get", name, "-o", "yaml")
+	if err != nil {
+		return out, fmt.Errorf("get -o yaml failed for %s: %v\n%s", name, err, out)
+	}
+	return out, nil
+}
+
+// ApplyTempIfSuggested looks for "Your changes have been saved to:" in CLI output.
+// If found, it automatically applies the saved file to complete the edit flow.
+func (h *Harness) ApplyTempIfSuggested(out string, cliErr error) error {
+	if cliErr == nil {
+		return nil
+	}
+	lower := strings.ToLower(out)
+	if !strings.Contains(lower, "saved to:") {
+		return fmt.Errorf("edit failed without saved-temp-file hint: %v\n%s", cliErr, out)
+	}
+	re := regexp.MustCompile(`(?i)saved to:\s+(.+?)(?:\s*$|\n)`)
+	match := re.FindStringSubmatch(out)
+	if len(match) < 2 {
+		return fmt.Errorf("could not extract temp file path from output:\n%s", out)
+	}
+	tmpPath := match[1]
+
+	applyOut, applyErr := h.CLI("apply", "-f", tmpPath)
+	if applyErr != nil {
+		return fmt.Errorf("failed to apply saved temp file %s:\n%s", tmpPath, applyOut)
+	}
+	return nil
+}
+
+var (
+	editorOnce     sync.Once
+	editorPath     string
+	editorBuildErr error
+)
+
+func buildHeadlessEditor() (string, error) {
+	editorOnce.Do(func() {
+		src := `
+package main
+
+import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+
+	"sigs.k8s.io/yaml"
+)
+
+func firstNonSpace(b []byte) byte {
+	for _, c := range b {
+		if c != ' ' && c != '\t' && c != '\n' && c != '\r' {
+			return c
+		}
+	}
+	return 0
+}
+
+func ensureMap(m map[string]any, key string) map[string]any {
+	if v, ok := m[key]; ok {
+		if mm, ok := v.(map[string]any); ok {
+			return mm
+		}
+	}
+	n := map[string]any{}
+	m[key] = n
+	return n
+}
+
+func editJSON(buf []byte, marker string) ([]byte, error) {
+	var root map[string]any
+	if err := json.Unmarshal(buf, &root); err != nil {
+		return nil, err
+	}
+	md := ensureMap(root, "metadata")
+	labels := ensureMap(md, "labels")
+	labels["autotest-edit"] = marker
+	return json.MarshalIndent(root, "", "  ")
+}
+
+func editYAML(buf []byte, marker string) ([]byte, error) {
+	j, err := yaml.YAMLToJSON(buf)
+	if err != nil {
+		return nil, err
+	}
+	edited, err := editJSON(j, marker)
+	if err != nil {
+		return nil, err
+	}
+	y, err := yaml.JSONToYAML(edited)
+	if err != nil {
+		return nil, err
+	}
+	// YAML must not use tabs for indentation
+	y = bytes.ReplaceAll(y, []byte("\t"), []byte("  "))
+	return y, nil
+}
+
+func main() {
+	if len(os.Args) < 3 {
+		fmt.Fprintln(os.Stderr, "usage: editor <file> <marker>")
+		os.Exit(2)
+	}
+	path := os.Args[1]
+	marker := os.Args[2]
+
+	buf, err := os.ReadFile(path)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "read:", err)
+		os.Exit(1)
+	}
+	var out []byte
+	switch firstNonSpace(buf) {
+	case '{':
+		out, err = editJSON(buf, marker)
+	case 0:
+		err = errors.New("empty file")
+	default:
+		out, err = editYAML(buf, marker)
+	}
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "edit:", err)
+		os.Exit(1)
+	}
+	if err := os.WriteFile(path, out, 0600); err != nil {
+		fmt.Fprintln(os.Stderr, "write:", err)
+		os.Exit(1)
+	}
+}
+`
+		td, err := os.MkdirTemp("", "flightctl-editor-src-*")
+		if err != nil {
+			editorBuildErr = fmt.Errorf("mkdtemp: %w", err)
+			return
+		}
+		srcPath := filepath.Join(td, "main.go")
+		if err := os.WriteFile(srcPath, []byte(src), 0600); err != nil {
+			editorBuildErr = fmt.Errorf("write src: %w", err)
+			return
+		}
+		bin := filepath.Join(td, "flightctl-test-editor")
+		if runtime.GOOS == "windows" {
+			bin += ".exe"
+		}
+		cmd := exec.Command("go", "build", "-o", bin, srcPath)
+		cmd.Env = os.Environ()
+		if out, err := cmd.CombinedOutput(); err != nil {
+			editorBuildErr = fmt.Errorf("build editor failed: %v\n%s", err, string(out))
+			return
+		}
+		editorPath = bin
+	})
+	return editorPath, editorBuildErr
+}
+
+func (h *Harness) HeadlessEditorWrapper(marker string) (string, error) {
+	bin, err := buildHeadlessEditor()
+	if err != nil {
+		return "", err
+	}
+
+	dir, err := os.MkdirTemp("", "flightctl-editor-*")
+	if err != nil {
+		return "", fmt.Errorf("mkdtemp: %w", err)
+	}
+
+	wrapper := fmt.Sprintf(`#!/usr/bin/env sh
+set -eu
+exec %s "$1" %s
+`, shellQuote(bin), shellQuote(marker))
+
+	path := filepath.Join(dir, "fake_editor.sh")
+
+	// Write with 0600 (passes gosec G306), then chmod to 0700.
+	if err := os.WriteFile(path, []byte(wrapper), 0o600); err != nil {
+		return "", fmt.Errorf("write wrapper: %w", err)
+	}
+	if err := os.Chmod(path, 0o700); err != nil {
+		return "", fmt.Errorf("chmod wrapper: %w", err)
+	}
+	return path, nil
+}
+
+func shellQuote(s string) string {
+	if s == "" {
+		return "''"
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'"'"'`) + "'"
+}
+
+// EditWithRetry runs: flightctl edit -o <format> --editor <editor> <resource>
+// Retries briefly if the server responds with a Conflict (resourceVersion race).
+func (h *Harness) EditWithRetry(format, editor, resource string) (string, error) {
+	const tries = 5
+	for i := 1; i <= tries; i++ {
+		out, err := h.CLI("edit", "-o", format, "--editor", editor, resource)
+		// Let ApplyTempIfSuggested handle the saved-temp-file flow
+		if err2 := h.ApplyTempIfSuggested(out, err); err2 == nil {
+			return out, nil
+		} else {
+			// Detect 409 conflict and retry
+			if strings.Contains(out, `"reason":"Conflict"`) || (err != nil && strings.Contains(err.Error(), "Conflict")) {
+				time.Sleep(300 * time.Millisecond)
+				continue
+			}
+			return out, err2
+		}
+	}
+	// last attempt
+	out, err := h.CLI("edit", "-o", format, "--editor", editor, resource)
+	return out, h.ApplyTempIfSuggested(out, err)
+}
+
+// printAgentFilesForVM prints all agent files for debugging
+// This is a shared helper function used by harness and vm_pool.go
+func printAgentFilesForVM(vm vm.TestVMInterface, context string) {
+	fmt.Printf("🔍 [%s] Printing agent files:\n", context)
+
+	// Define agent file paths
+	agentFiles := map[string]string{
+		"current.json": "/var/lib/flightctl/current.json",
+		"desired.json": "/var/lib/flightctl/desired.json",
+		"agent secret": "/etc/flightctl/certs/agent.crt",
+	}
+
+	for fileType, filePath := range agentFiles {
+		fmt.Printf("📄 [%s] %s:\n", context, fileType)
+
+		// Regular file handling
+		stdout, err := vm.RunSSH([]string{"sudo", "cat", filePath}, nil)
+		if err != nil {
+			fmt.Printf("❌ [%s] Failed to read %s: %v\n", context, fileType, err)
+		} else {
+			content := stdout.String()
+			if content == "" {
+				fmt.Printf("📄 [%s] %s: (empty or does not exist)\n", context, fileType)
+			} else {
+				fmt.Printf("%s\n", content)
+			}
+		}
+		fmt.Printf("---\n")
+	}
 }

@@ -28,6 +28,7 @@ func NewFlightCtlCommand() *cobra.Command {
 	cmd.AddCommand(cli.NewCmdEdit())
 	cmd.AddCommand(cli.NewCmdDelete())
 	cmd.AddCommand(cli.NewCmdApprove())
+	cmd.AddCommand(cli.NewCmdCancel())
 	cmd.AddCommand(cli.NewCmdCSRConfig())
 	cmd.AddCommand(cli.NewCmdConfig())
 	cmd.AddCommand(cli.NewCmdDecommission())
@@ -39,6 +40,8 @@ func NewFlightCtlCommand() *cobra.Command {
 	cmd.AddCommand(cli.NewCmdCompletion())
 	cmd.AddCommand(cli.NewCmdEnrollmentConfig())
 	cmd.AddCommand(cli.NewCmdCertificate())
+	cmd.AddCommand(cli.NewCmdDownload())
+	cmd.AddCommand(cli.NewCmdLogs())
 
 	return cmd
 }

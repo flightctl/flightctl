@@ -7,12 +7,12 @@ import (
 	"syscall"
 
 	"github.com/ccoveille/go-safecast"
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 )
 
 type managedFile struct {
-	file     v1alpha1.FileSpec
+	file     v1beta1.FileSpec
 	exists   bool
 	size     int64
 	perms    os.FileMode
@@ -22,7 +22,7 @@ type managedFile struct {
 	writer   Writer
 }
 
-func newManagedFile(f v1alpha1.FileSpec, writer Writer) (ManagedFile, error) {
+func newManagedFile(f v1beta1.FileSpec, writer Writer) (ManagedFile, error) {
 	mf := &managedFile{
 		file:   f,
 		writer: writer,

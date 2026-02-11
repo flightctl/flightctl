@@ -7,6 +7,7 @@ import (
 	"encoding/asn1"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/flightctl/flightctl/internal/config/ca"
@@ -145,4 +146,19 @@ func BootstrapCNFromName(cfg *ca.Config, name string) string {
 		}
 	}
 	return cfg.ClientBootstrapCommonNamePrefix + name
+}
+
+// IsIssuedByAnySigner returns true if signer is non-nil and its name matches
+// one of the provided allowed signer names.
+func IsIssuedByAnySigner(signer Signer, allowed ...string) bool {
+	if signer == nil {
+		return false
+	}
+	return slices.Contains(allowed, signer.Name())
+}
+
+// IsDeviceManagementClientCertSigner returns true if the peer certificate signer
+// indicates a valid device management identity (initial management cert or renewal cert).
+func IsDeviceManagementClientCertSigner(cfg *ca.Config, signer Signer) bool {
+	return IsIssuedByAnySigner(signer, cfg.DeviceManagementSignerName, cfg.DeviceManagementRenewalSignerName)
 }

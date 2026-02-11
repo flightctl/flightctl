@@ -1,0 +1,92 @@
+community:
+  name: flightctl
+  description: A helm chart for FlightControl
+  home: https://github.com/flightctl/flightctl
+  icon: 'data:image/png;base64,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'
+  annotations:
+    name: FlightControl
+    provider: FlightControl
+    supportURL: https://github.com/flightctl/flightctl
+  images:
+    db:
+      image: quay.io/sclorg/postgresql-16-c9s
+      tag: "20250214"
+    kv:
+      image: quay.io/sclorg/redis-7-c9s
+      tag: "20250108"
+    alertmanager:
+      image: quay.io/prometheus/alertmanager
+      tag: "v0.28.1"
+    clusterCli:
+      image: quay.io/openshift/origin-cli
+      tag: "4.20.0"
+    api:
+      image: quay.io/flightctl/flightctl-api
+    cliArtifacts:
+      image: quay.io/flightctl/flightctl-cli-artifacts
+    worker:
+      image: quay.io/flightctl/flightctl-worker
+    periodic:
+      image: quay.io/flightctl/flightctl-periodic
+    alertExporter:
+      image: quay.io/flightctl/flightctl-alert-exporter
+    alertmanagerProxy:
+      image: quay.io/flightctl/flightctl-alertmanager-proxy
+    imageBuilderApi:
+      image: quay.io/flightctl/flightctl-imagebuilder-api
+    imageBuilderWorker:
+      image: quay.io/flightctl/flightctl-imagebuilder-worker
+    ui:
+      image: quay.io/flightctl/flightctl-ui
+    uiPlugin:
+      image: quay.io/flightctl/flightctl-ocp-ui
+    dbSetup:
+      image: quay.io/flightctl/flightctl-db-setup
+    telemetryGateway:
+      image: quay.io/flightctl/flightctl-telemetry-gateway
+redhat:
+  name: redhat-rhem
+  description: A helm chart for Red Hat Edge Manager
+  home: https://red.ht/rhem
+  icon: data:image/svg+xml;base64,PHN2ZyBlbmFibGUtYmFja2dyb3VuZD0ibmV3IDAgMCAxMDAgMTAwIiBoZWlnaHQ9IjEwMCIgdmlld0JveD0iMCAwIDEwMCAxMDAiIHdpZHRoPSIxMDAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHBhdGggZD0ibTY2LjcgNTUuOGM2LjYgMCAxNi4xLTEuNCAxNi4xLTkuMiAwLS42IDAtMS4yLS4yLTEuOGwtMy45LTE3Yy0uOS0zLjctMS43LTUuNC04LjMtOC43LTUuMS0yLjYtMTYuMi02LjktMTkuNS02LjktMy4xIDAtNCA0LTcuNiA0LTMuNSAwLTYuMS0yLjktOS40LTIuOS0zLjIgMC01LjIgMi4xLTYuOCA2LjYgMCAwLTQuNCAxMi41LTUgMTQuMy0uMS4zLS4xLjctLjEgMSAuMSA0LjcgMTkuMiAyMC42IDQ0LjcgMjAuNm0xNy4xLTZjLjkgNC4zLjkgNC44LjkgNS4zIDAgNy40LTguMyAxMS40LTE5LjEgMTEuNC0yNC42IDAtNDYuMS0xNC40LTQ2LjEtMjMuOSAwLTEuMy4zLTIuNi44LTMuOS04LjkuNS0yMC4zIDIuMS0yMC4zIDEyLjIgMCAxNi41IDM5LjIgMzYuOSA3MC4yIDM2LjkgMjMuOCAwIDI5LjgtMTAuNyAyOS44LTE5LjIgMC02LjctNS44LTE0LjMtMTYuMi0xOC44IiBmaWxsPSIjZWQxYzI0Ii8+PHBhdGggZD0ibTgzLjggNDkuOGMuOSA0LjMuOSA0LjguOSA1LjMgMCA3LjQtOC4zIDExLjQtMTkuMSAxMS40LTI0LjYgMC00Ni4xLTE0LjQtNDYuMS0yMy45IDAtMS4zLjMtMi42LjgtMy45bDEuOS00LjhjLS4xLjMtLjEuNy0uMSAxIDAgNC44IDE5LjEgMjAuNyA0NC43IDIwLjcgNi42IDAgMTYuMS0xLjQgMTYuMS05LjIgMC0uNiAwLTEuMi0uMi0xLjh6IiBmaWxsPSIjMDEwMTAxIi8+PC9zdmc+
+  annotations:
+    name: Red Hat Edge Manager
+    provider: Red Hat
+    supportURL: https://access.redhat.com/support
+  images:
+    db:
+      image: registry.redhat.io/rhel9/postgresql-16
+      tag: 9.7-1766414426
+    kv:
+      image: registry.redhat.io/rhel9/redis-7
+      tag: 9.7-1766414358
+    alertmanager:
+      image: registry.redhat.io/rhacm2/prometheus-alertmanager-rhel9
+      tag: v2.15.0-1
+    clusterCli:
+      image: registry.redhat.io/openshift4/ose-cli-rhel9
+      tag: v4.20.0
+    api:
+      image: registry.redhat.io/rhem/flightctl-api-rhel9
+    cliArtifacts:
+      image: registry.redhat.io/rhem/flightctl-cli-artifacts-rhel9
+    worker:
+      image: registry.redhat.io/rhem/flightctl-worker-rhel9
+    periodic:
+      image: registry.redhat.io/rhem/flightctl-periodic-rhel9
+    alertExporter:
+      image: registry.redhat.io/rhem/flightctl-alert-exporter-rhel9
+    alertmanagerProxy:
+      image: registry.redhat.io/rhem/flightctl-alertmanager-proxy-rhel9
+    imageBuilderApi:
+      image: registry.redhat.io/rhem/flightctl-imagebuilder-api-rhel9
+    imageBuilderWorker:
+      image: registry.redhat.io/rhem/flightctl-imagebuilder-worker-rhel9
+    ui:
+      image: registry.redhat.io/rhem/flightctl-ui-rhel9
+    uiPlugin:
+      image: registry.redhat.io/rhem/flightctl-ui-ocp-rhel9
+    dbSetup:
+      image: registry.redhat.io/rhem/flightctl-db-setup-rhel9
+    telemetryGateway:
+      image: registry.redhat.io/rhem/flightctl-telemetry-gateway-rhel9

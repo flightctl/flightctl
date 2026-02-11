@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"net/http"
 
-	apiclient "github.com/flightctl/flightctl/internal/api/client"
+	"github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -15,13 +15,15 @@ import (
 type DeleteOptions struct {
 	GlobalOptions
 
-	FleetName string
+	FleetName   string
+	CatalogName string
 }
 
 func DefaultDeleteOptions() *DeleteOptions {
 	return &DeleteOptions{
 		GlobalOptions: DefaultGlobalOptions(),
 		FleetName:     "",
+		CatalogName:   "",
 	}
 }
 
@@ -31,7 +33,7 @@ func NewCmdDelete() *cobra.Command {
 		Use:       "delete (TYPE NAME [NAME...] | TYPE/NAME)",
 		Short:     "Delete one or more resources by name.",
 		Args:      cobra.MinimumNArgs(1),
-		ValidArgs: getValidResourceKinds(),
+		ValidArgs: getValidPluralResourceKinds(),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := o.Complete(cmd, args); err != nil {
 				return err
@@ -53,6 +55,7 @@ func (o *DeleteOptions) Bind(fs *pflag.FlagSet) {
 	o.GlobalOptions.Bind(fs)
 
 	fs.StringVarP(&o.FleetName, "fleetname", "f", o.FleetName, "Fleet name for accessing templateversions.")
+	fs.StringVar(&o.CatalogName, "catalog", o.CatalogName, "Catalog name for accessing catalogitems.")
 }
 
 func (o *DeleteOptions) Complete(cmd *cobra.Command, args []string) error {
@@ -91,19 +94,32 @@ func (o *DeleteOptions) Validate(args []string) error {
 	if kind == TemplateVersionKind && len(o.FleetName) == 0 {
 		return fmt.Errorf("fleetname must be specified when deleting templateversions")
 	}
+	if kind == CatalogItemKind && len(o.CatalogName) == 0 {
+		return fmt.Errorf("--catalog must be specified when deleting catalogitems")
+	}
 	return nil
 }
 
 func (o *DeleteOptions) Run(ctx context.Context, args []string) error {
-	c, err := o.BuildClient()
-	if err != nil {
-		return fmt.Errorf("creating client: %w", err)
-	}
-
 	kind, name, err := parseAndValidateKindName(args[0])
 	if err != nil {
 		return err
 	}
+
+	// ImageBuild and ImageExport resources use a separate API server
+	if kind == ImageBuildKind {
+		return o.runImageBuildDelete(ctx, args, kind, name)
+	}
+	if kind == ImageExportKind {
+		return o.runImageExportDelete(ctx, args, kind, name)
+	}
+
+	c, err := o.BuildClient()
+	if err != nil {
+		return fmt.Errorf("creating client: %w", err)
+	}
+	c.Start(ctx)
+	defer c.Stop()
 
 	if len(args) == 1 {
 		response, err := o.deleteOne(ctx, c, kind, name)
@@ -122,7 +138,99 @@ func (o *DeleteOptions) Run(ctx context.Context, args []string) error {
 	return o.deleteMultiple(ctx, c, kind, names)
 }
 
-func (o *DeleteOptions) deleteMultiple(ctx context.Context, c *apiclient.ClientWithResponses, kind string, names []string) error {
+func (o *DeleteOptions) runImageBuildDelete(ctx context.Context, args []string, kind ResourceKind, name string) error {
+	ibClient, err := o.BuildImageBuilderClient()
+	if err != nil {
+		return fmt.Errorf("creating imagebuilder client: %w", err)
+	}
+	ibClient.Start(ctx)
+	defer ibClient.Stop()
+
+	if len(args) == 1 {
+		response, err := ibClient.DeleteImageBuildWithResponse(ctx, name)
+		if err != nil {
+			return err
+		}
+		if err := processDeletionReponse(response, nil, kind, name); err != nil {
+			return err
+		}
+		fmt.Printf("Deletion request for %s \"%s\" completed\n", kind, name)
+		return nil
+	}
+
+	names := args[1:]
+	return o.deleteMultipleImageBuilds(ctx, ibClient, kind, names)
+}
+
+func (o *DeleteOptions) deleteMultipleImageBuilds(ctx context.Context, c *client.ImageBuilderClient, kind ResourceKind, names []string) error {
+	var errorCount int
+
+	for _, name := range names {
+		response, deleteErr := c.DeleteImageBuildWithResponse(ctx, name)
+
+		processErr := processDeletionReponse(response, deleteErr, kind, name)
+		if processErr != nil {
+			fmt.Printf("Error: %v\n", processErr)
+			errorCount++
+		} else {
+			fmt.Printf("Deletion request for %s \"%s\" completed\n", kind, name)
+		}
+	}
+
+	if errorCount > 0 {
+		return fmt.Errorf("failed to delete %d %s(s)", errorCount, kind)
+	}
+
+	return nil
+}
+
+func (o *DeleteOptions) runImageExportDelete(ctx context.Context, args []string, kind ResourceKind, name string) error {
+	ibClient, err := o.BuildImageBuilderClient()
+	if err != nil {
+		return fmt.Errorf("creating imagebuilder client: %w", err)
+	}
+	ibClient.Start(ctx)
+	defer ibClient.Stop()
+
+	if len(args) == 1 {
+		response, err := ibClient.DeleteImageExportWithResponse(ctx, name)
+		if err != nil {
+			return err
+		}
+		if err := processDeletionReponse(response, nil, kind, name); err != nil {
+			return err
+		}
+		fmt.Printf("Deletion request for %s \"%s\" completed\n", kind, name)
+		return nil
+	}
+
+	names := args[1:]
+	return o.deleteMultipleImageExports(ctx, ibClient, kind, names)
+}
+
+func (o *DeleteOptions) deleteMultipleImageExports(ctx context.Context, c *client.ImageBuilderClient, kind ResourceKind, names []string) error {
+	var errorCount int
+
+	for _, name := range names {
+		response, deleteErr := c.DeleteImageExportWithResponse(ctx, name)
+
+		processErr := processDeletionReponse(response, deleteErr, kind, name)
+		if processErr != nil {
+			fmt.Printf("Error: %v\n", processErr)
+			errorCount++
+		} else {
+			fmt.Printf("Deletion request for %s \"%s\" completed\n", kind, name)
+		}
+	}
+
+	if errorCount > 0 {
+		return fmt.Errorf("failed to delete %d %s(s)", errorCount, kind)
+	}
+
+	return nil
+}
+
+func (o *DeleteOptions) deleteMultiple(ctx context.Context, c *client.Client, kind ResourceKind, names []string) error {
 	var errorCount int
 
 	for _, name := range names {
@@ -144,7 +252,7 @@ func (o *DeleteOptions) deleteMultiple(ctx context.Context, c *apiclient.ClientW
 	return nil
 }
 
-func (o *DeleteOptions) deleteOne(ctx context.Context, c *apiclient.ClientWithResponses, kind string, name string) (interface{}, error) {
+func (o *DeleteOptions) deleteOne(ctx context.Context, c *client.Client, kind ResourceKind, name string) (interface{}, error) {
 	var response interface{}
 	var err error
 
@@ -163,6 +271,12 @@ func (o *DeleteOptions) deleteOne(ctx context.Context, c *apiclient.ClientWithRe
 		response, err = c.DeleteResourceSyncWithResponse(ctx, name)
 	case CertificateSigningRequestKind:
 		response, err = c.DeleteCertificateSigningRequestWithResponse(ctx, name)
+	case AuthProviderKind:
+		response, err = c.DeleteAuthProviderWithResponse(ctx, name)
+	case CatalogKind:
+		response, err = c.V1Alpha1().DeleteCatalogWithResponse(ctx, name)
+	case CatalogItemKind:
+		response, err = c.V1Alpha1().DeleteCatalogItemWithResponse(ctx, o.CatalogName, name)
 	default:
 		return nil, fmt.Errorf("unsupported resource kind: %s", kind)
 	}
@@ -170,7 +284,7 @@ func (o *DeleteOptions) deleteOne(ctx context.Context, c *apiclient.ClientWithRe
 	return response, err
 }
 
-func processDeletionReponse(response interface{}, err error, kind string, name string) error {
+func processDeletionReponse(response interface{}, err error, kind ResourceKind, name string) error {
 	errorPrefix := fmt.Sprintf("deleting %s", kind)
 	if len(name) > 0 {
 		errorPrefix = fmt.Sprintf("deleting %s/%s", kind, name)

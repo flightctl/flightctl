@@ -18,9 +18,13 @@ bootc
 bootloader
 ca.crt
 CentOS
+cgroup
+cgroups
 checksum
 cleanup
 CLI
+cpu
+CPU
 ClickOps
 CNV
 config
@@ -52,7 +56,9 @@ HTTPS
 i.e.
 infos
 IP
+jq
 JSON-encoded
+JSONL
 JWT
 Keycloak
 Klusterlet
@@ -63,11 +69,14 @@ lifecycle
 lifecycle-bound
 linux
 macOS
+must-gather
+sosreport
 metadata
 microservices
 MicroShift
 mTLS
 namespace
+non-root
 NAT
 OCI
 OCI-compliant
@@ -99,6 +108,12 @@ RHACM
 RHEL
 rollbacks
 rollout
+redboot
+RunAs
+post-mortem
+150s
+pre-rollback
+red.d
 rootful
 runtime
 schemas
@@ -198,18 +213,129 @@ PEM
 NSING
 multiline
 localhost
- - docs/user/api-resources.md
+copr
+repo
+rpm
+podman
+Quickstart
+https
+timestamped
+SELinux
+dnf
+rpm.flightctl.io
+wildcards
+OAuth2
+RoleBindings
+ClusterRoles
+TokenReview
+userinfo
+resourcesyncs
+AuthProvider
+enrollmentrequests
+Auth0
+Azure
+Entra
+Okta
+Kind
+K3s
+corporate
+orgs
+LDAP
+SSO
+agent_version
+backend
+behaviour
+create_enrollmentrequest_duration_seconds
+create_certificate_signing_request_duration_seconds
+fleet_template_version
+gc
+get_enrollmentrequest_duration_seconds
+get_certificate_signing_request_duration_seconds
+get_rendered_device_spec_duration_seconds
+gibibytes
+goroutine
+Goroutine
+kibibytes
+loopback
+mebibytes
+mutex
+new_version
+old_version
+ORAS
+p95
+patch_device_status_duration_seconds
+pprof
+RFC3339
+RPC
+sos
+sudo
+ts
+update_device_status_duration_seconds
+v1.0.0
+P-256
+SHA-256
+config.yaml
+FQDN
+otel
+proxying
+flightctl-ui
+DeviceSpec
+rollouts
+reimplementing
+repurposed
+prefetch
+subcommand
+statefulsets
+daemonsets
+cronjobs
+imagebuilds
+imagebuild
+imageexport
+imageexports
+kubeconfig
+CRI
+containerd
+prefetching
+prefetches
+networkless
+ - docs/user/installing/configuring-imagebuilder.md
+ entitlement
+ uncomment
+ volume
+ builder-worker
+ ImageBuilder
+ air-gapped
+ builder-worker.container
+ imageBuilderWorker
+ bool
+ - docs/user/references/api-resources.md
+CertificateSigningRequest
+AuthConfig
+AuthProvider
+namespacing
 approvedBy
 creationTimestamp
 deletionTimestamp
 resourceVersion
+v1beta1
+v1alpha1
+1.x.x
+ImageBuild
+ImageExport
+ImageExports
+ImageBuilds
+ReadWrite
+ - docs/user/references/upgrade-compatibility.md
+v1betaX
+v1alphaX
+v1
  - docs/user/introduction.md
 emea
 hw-generation
 hw-model
 jetson
 orin
- - docs/user/getting-started.md
+ - docs/user/installing/installing-service-on-kubernetes.md
 demouser
 v3.15
 values.yaml
@@ -220,7 +346,7 @@ ui.flightctl.MY.DOMAIN
 openShiftApiUrl
 PVs
 k8s
- - docs/user/managing-devices.md
+ - docs/user/using/managing-devices.md
 AlertRules
 base32-encoded
 ClusterRole
@@ -241,19 +367,23 @@ unpackaged
 v3.4
 WorkDir
 10s
- - docs/user/managing-fleets.md
+ - docs/user/using/managing-fleets.md
 factory-berlinsite
 factory-madridsite
 GroupBy
 MinAvailable
 MaxUnavailable
 MultipleOwners
- - docs/user/building-images.md
+subfields
+namespaced
+ - docs/user/building/building-images.md
 usr
 iso
- - docs/user/registering-microshift-devices-acm.md
+ImageExport
+ImageBuild
+ - docs/user/using/registering-microshift-devices-acm.md
 klusterlet
- - docs/user/field-selectors.md
+ - docs/user/using/field-selectors.md
 DoesNotExist
 DoubleEquals
 GreaterThan
@@ -263,7 +393,8 @@ LessThanOrEquals
 NotContains
 NotEquals
 NotIn
- - docs/user/kubernetes-auth.md
+ - docs/user/installing/configuring-auth/auth-kubernetes.md
+global.apiUrl
 global.auth.type
 insecureSkipTlsVerify
 internalOpenShiftApiUrl
@@ -277,23 +408,21 @@ global.auth.k8s.externalApiToken
 global.auth.k8s.externalOpenShiftApiUrl
 caCert
 ClusterRoleBinding
- - docs/user/provisioning-devices.md
+values.yaml
+k8s
+ - docs/user/using/provisioning-devices.md
 cloud-config.yaml
-config.yaml
 datastore
 disk.vmdk
 iso
 ISOs
 yaml
- - docs/user/rollout-policies.md
-rollouts
-BatchSequence
- - docs/user/alerts.md
+ - docs/user/references/alerts.md
 alertmanager
 DeviceDisconnected
 DeviceCPUCritical
 programmatically
- - docs/user/standalone-observability.md
+ - docs/user/using/standalone-observability.md
 UserInfo
 Pre-configured
 is_superuser
@@ -301,7 +430,7 @@ is_platform_auditor
 flightctl-api
 flightctl-kv
 IdPs
-- docs/user/network-requirements.md
+- docs/user/installing/preparing-installation-on-linux.md
 Air-Gapped
 Backend
 dev
@@ -316,24 +445,22 @@ Redis
 registry.redhat.io
 TCP
 UserInfo
-- docs/user/database-migration.md
+- docs/user/installing/performing-database-migration.md
 CREATEDB
 CREATEROLE
 DDL
 quadlet
 misconfigured
-- docs/user/security-guidelines.md
+- docs/user/references/security-guidelines.md
 journald
 quadlets
 Sanitization
-SELinux
 SNI
-SSO
 VPN
-- docs/user/events.md
+- docs/user/references/events.md
 lifecycles
 Rollouts
-- docs/user/rate-limiting.md
+- docs/user/installing/configuring-rate-limiting.md
 1m
 1h
 authRequests
@@ -344,22 +471,22 @@ nginx
 rateLimit
 real_ip
 untrusted
- - docs/user/tpm-authentication.md
+ - docs/user/installing/configuring-device-attestation.md
 TN1330
 www.infineon.com
 cms
 optiga-embedded-security-solutions
-- docs/user/metrics.md
+- docs/user/references/metrics.md
 sloMax
 SLO
-- docs/user/postgresql-backup-strategy.md
+- docs/user/installing/performing-database-backup.md
 RPOs
 RPO
 Bitbucket
 GitLab
 GitHub
 Configs
-- docs/user/external-database.md
+- docs/user/installing/configuring-external-database.md
 JSONB
 pg_trgm
 gin_trgm_ops
@@ -385,10 +512,56 @@ SSL
 PL/pgSQL
 PL
 pgSQL
+PromQL
 values.yaml
 values.dev.yaml
 CN
 SAN
- - docs/user/service-observability.md
+quadlet
+DDL
+ - docs/user/installing/configuring-service-tracing.md
 https
 http
+ - docs/user/installing/configuring-auth/auth-pam.md
+clientId
+clientSecret
+redirectUris
+URIs
+PKCE
+SSSD
+nsswitch.conf
+NSSwitch
+PAM
+alice
+bob
+charlie
+MaxAge
+ - docs/user/installing/configuring-auth/auth-oauth2.md
+GitHub
+github.com
+clientId
+JWKS
+CLI
+webserver
+ - docs/user/installing/configuring-auth/auth-oidc.md
+CLI
+webserver
+ - docs/user/references/components.md
+flightctl-api
+- docs/user/using/managing-repositories.md
+ImageBuild
+ImageExport
+OCI
+IPv6
+- docs/user/using/managing-image-builds.md
+ImageBuild
+ImageExport
+OCI
+ReadWrite
+ImageBuilder
+ - docs/user/references/agent-architecture.md
+MCD-like
+jumphost-less
+ - docs/user/using/greenboot.md
+flightctl_agent_pre_rollback
+redboot-task-runner

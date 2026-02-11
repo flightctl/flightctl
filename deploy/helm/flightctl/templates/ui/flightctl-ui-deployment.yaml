@@ -1,0 +1,127 @@
+{{ if .Values.ui.enabled }}
+{{ $enableMulticlusterExtensions := (include "flightctl.enableMulticlusterExtensions" .)}}
+{{ $caCrt := default (include "flightctl.getAuthCaCrt" .) .Values.ui.auth.caCert }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: flightctl-ui
+  namespace: {{ .Release.Namespace }}
+  labels:
+    role: frontend
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+    flightctl.service: flightctl-ui
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      flightctl.service: flightctl-ui
+  template:
+    metadata:
+      creationTimestamp: null
+      labels:
+        flightctl.service: flightctl-ui
+        role: frontend
+        {{- include "flightctl.standardLabels" . | nindent 8 }}
+    spec:
+      {{- if .Values.global.imagePullSecretName }}
+      imagePullSecrets:
+        - name: {{ .Values.global.imagePullSecretName }}
+      {{- end }}
+      containers:
+        - env:
+          - name: API_PORT
+            value: '8080'
+          - name: FLIGHTCTL_SERVER
+            valueFrom:
+              configMapKeyRef:
+                name: flightctl-ui
+                key: FLIGHTCTL_SERVER
+          - name: FLIGHTCTL_SERVER_EXTERNAL
+            valueFrom:
+              configMapKeyRef:
+                name: flightctl-ui
+                key: FLIGHTCTL_SERVER_EXTERNAL
+          {{- if .Values.cliArtifacts.enabled }}
+          - name: FLIGHTCTL_CLI_ARTIFACTS_SERVER
+            valueFrom:
+              configMapKeyRef:
+                name: flightctl-ui
+                key: FLIGHTCTL_CLI_ARTIFACTS_SERVER
+          {{- end }}
+          {{- if .Values.alertmanagerProxy.enabled }}
+          - name: FLIGHTCTL_ALERTMANAGER_PROXY
+            valueFrom:
+              configMapKeyRef:
+                name: flightctl-ui
+                key: FLIGHTCTL_ALERTMANAGER_PROXY
+          {{- end }}
+          {{- if and .Values.imageBuilderApi .Values.imageBuilderApi.enabled }}
+          - name: FLIGHTCTL_IMAGEBUILDER_SERVER
+            valueFrom:
+              configMapKeyRef:
+                name: flightctl-ui
+                key: FLIGHTCTL_IMAGEBUILDER_SERVER
+          {{- end }}
+          {{- if eq $enableMulticlusterExtensions "true" }}
+          - name: TLS_KEY
+            value: /app/serving-cert/tls.key
+          - name: TLS_CERT
+            value: /app/serving-cert/tls.crt
+          - name: IS_OCP_PLUGIN
+            value: "true"
+          {{- end }}
+          - name: BASE_UI_URL
+            valueFrom:
+              configMapKeyRef:
+                name: flightctl-ui
+                key: BASE_UI_URL
+          - name: AUTH_INSECURE_SKIP_VERIFY
+            valueFrom:
+              configMapKeyRef:
+                name: flightctl-ui
+                key: AUTH_INSECURE_SKIP_VERIFY
+          - name: IS_RHEM
+            valueFrom:
+              configMapKeyRef:
+                name: flightctl-ui
+                key: IS_RHEM
+          {{- if eq $enableMulticlusterExtensions "true" }}
+          image: {{ .Values.ui.image.pluginImage }}:{{ default .Chart.AppVersion .Values.ui.image.tag }}
+          {{- else }}
+          image: {{ .Values.ui.image.image }}:{{ default .Chart.AppVersion .Values.ui.image.tag }}
+          {{- end }}
+          imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.ui.image.pullPolicy }}
+          name: flightctl-ui
+          ports:
+            - containerPort: 8080
+              protocol: TCP
+          volumeMounts:
+            - mountPath: /app/certs/ca.crt
+              name: ca-bundle
+              subPath: ca-bundle.crt
+            {{- if $caCrt }}
+            - mountPath: /app/certs/ca_auth.crt
+              name: flightctl-ui-certs
+              subPath: ca_auth.crt
+            {{- end }}
+            {{- if eq $enableMulticlusterExtensions "true" }}
+            - mountPath: /app/serving-cert
+              name: flightctl-ui-serving-cert
+            {{- end }}
+      restartPolicy: Always
+      volumes:
+        - name: ca-bundle
+          secret:
+            secretName: flightctl-ca-bundle
+        {{- if $caCrt }}
+        - name: flightctl-ui-certs
+          secret:
+            secretName: flightctl-ui-certs
+        {{- end }}
+        {{- if eq $enableMulticlusterExtensions "true" }}
+        - name: flightctl-ui-serving-cert
+          secret:
+            secretName: flightctl-ui-serving-cert
+            defaultMode: 420
+        {{- end }}
+{{ end }}

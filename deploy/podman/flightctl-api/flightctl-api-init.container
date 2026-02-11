@@ -1,17 +1,17 @@
 [Unit]
+Description=Flight Control API Initialization
 PartOf=flightctl.target
-After=flightctl-db-wait.service
-Wants=flightctl-db-wait.service
 
 [Container]
-Image=registry.access.redhat.com/ubi9/ubi-minimal
+Image=registry.access.redhat.com/ubi9/ubi-minimal:9.7-1763362218
 ContainerName=flightctl-api-init
+Pull=missing
 Network=flightctl.network
 Volume=/usr/share/flightctl/flightctl-api:/config-source:ro,z
 Volume=/usr/share/flightctl/init_utils.sh:/utils/init_utils.sh:ro,z
 Volume=/etc/flightctl/pki:/certs:rw,z
-Volume=/etc/flightctl/flightctl-api:/config-destination:rw,z
-Volume=/etc/flightctl/service-config.yaml:/service-config.yaml:rw,z
+Volume=/etc/flightctl/service-config.yaml:/service-config.yaml:ro,z
+EnvironmentFile=/run/flightctl/api_init_host.env
 Exec=/bin/sh /config-source/init.sh
 
 [Service]
@@ -19,6 +19,10 @@ Type=oneshot
 RemainAfterExit=true
 Restart=on-failure
 RestartSec=5s
+ExecStartPre=/usr/bin/mkdir -p /run/flightctl
+ExecStartPre=/bin/sh -c 'echo "HOST_FQDN=$(hostname -f || hostname)" > /run/flightctl/api_init_host.env'
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=flightctl.target

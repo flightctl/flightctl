@@ -1,0 +1,32 @@
+[Unit]
+Description=Flight Control Telemetry Gateway service
+After=flightctl-network.service flightctl-certs-init.service
+Wants=flightctl-network.service flightctl-certs-init.service
+PartOf=flightctl.target flightctl-observability.target
+
+[Container]
+Image={{ .TelemetryGateway.Image }}:{{ .TelemetryGateway.Tag }}
+Pull=missing
+
+ContainerName=flightctl-telemetry-gateway
+
+Volume=/etc/flightctl/flightctl-telemetry-gateway/config.yaml:/root/.flightctl/config.yaml:ro,z
+
+PublishPort=4317:4317/tcp
+PublishPort=9464:9464/tcp
+
+Network=flightctl.network
+AddHost=%H:host-gateway
+
+Volume=/etc/flightctl/pki/flightctl-telemetry-gateway/server.crt:/etc/telemetry-gateway/certs/server.crt:ro,z
+Volume=/etc/flightctl/pki/flightctl-telemetry-gateway/server.key:/etc/telemetry-gateway/certs/server.key:ro,z
+Volume=/etc/flightctl/pki/ca-bundle.crt:/etc/telemetry-gateway/certs/ca.crt:ro,z
+Volume=/etc/flightctl/pki/db:/root/.flightctl/certs/db:ro,z
+Volume=/etc/flightctl/flightctl-telemetry-gateway/forward:/etc/flightctl/flightctl-telemetry-gateway/forward:ro,z
+
+[Service]
+Restart=on-failure
+ExecStartPre=/usr/bin/flightctl-standalone render template --input-file /usr/share/flightctl/flightctl-telemetry-gateway/config.yaml.template --output-file /etc/flightctl/flightctl-telemetry-gateway/config.yaml
+
+[Install]
+WantedBy=multi-user.target

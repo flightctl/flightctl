@@ -6,18 +6,20 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"os/user"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
-	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
@@ -57,8 +59,9 @@ type vars struct {
 
 func setupVars(t *testing.T) *vars {
 	ctrl := gomock.NewController(t)
-	executor := &executer.CommonExecuter{}
+	executor := executer.NewCommonExecuter()
 	logger := log.NewPrefixLogger("console")
+	logger.SetLevel(logrus.DebugLevel)
 	mockGrpcClient := NewMockRouterServiceClient(ctrl)
 	mockStreamClient := NewMockRouterService_StreamClient(ctrl)
 	mockWatcher := spec.NewMockWatcher(ctrl)
@@ -74,6 +77,7 @@ func setupVars(t *testing.T) *vars {
 		controller: NewManager(
 			mockGrpcClient,
 			"mydevice",
+			lo.Must(user.Current()).Username,
 			executor,
 			mockWatcher,
 			logger),
@@ -84,8 +88,8 @@ func setupVars(t *testing.T) *vars {
 	return v
 }
 
-func sessionMetadata(t *testing.T, term string, initialDimensions *v1alpha1.TerminalSize, command *v1alpha1.DeviceCommand, tty bool) string {
-	metadata := v1alpha1.DeviceConsoleSessionMetadata{
+func sessionMetadata(t *testing.T, term string, initialDimensions *v1beta1.TerminalSize, command *v1beta1.DeviceCommand, tty bool) string {
+	metadata := v1beta1.DeviceConsoleSessionMetadata{
 		Term:              lo.Ternary(term != "", &term, nil),
 		InitialDimensions: initialDimensions,
 		Command:           command,
@@ -99,15 +103,15 @@ func sessionMetadata(t *testing.T, term string, initialDimensions *v1alpha1.Term
 	return string(b)
 }
 
-func deviceConsole(id string, sessionMetadata string) v1alpha1.DeviceConsole {
-	return v1alpha1.DeviceConsole{
+func deviceConsole(id string, sessionMetadata string) v1beta1.DeviceConsole {
+	return v1beta1.DeviceConsole{
 		SessionID:       id,
 		SessionMetadata: sessionMetadata,
 	}
 }
 
-func desiredSpec(consoles ...v1alpha1.DeviceConsole) *v1alpha1.DeviceSpec {
-	return &v1alpha1.DeviceSpec{
+func desiredSpec(consoles ...v1beta1.DeviceConsole) *v1beta1.DeviceSpec {
+	return &v1beta1.DeviceSpec{
 		Consoles: &consoles,
 	}
 }
@@ -178,7 +182,7 @@ func TestConsole(t *testing.T) {
 		v := setupVars(t)
 		sessionID := uuid.New().String()
 		consoleDef := deviceConsole(sessionID, sessionMetadata(t, "xterm", nil,
-			&v1alpha1.DeviceCommand{
+			&v1beta1.DeviceCommand{
 				Command: "echo",
 				Args: []string{
 					"hello world",
@@ -204,10 +208,11 @@ func TestConsole(t *testing.T) {
 		v := setupVars(t)
 		sessionID := uuid.New().String()
 		consoleDef := deviceConsole(sessionID, sessionMetadata(t, "xterm", nil,
-			&v1alpha1.DeviceCommand{
-				Command: "exit",
+			&v1beta1.DeviceCommand{
+				Command: "/bin/bash",
 				Args: []string{
-					"11",
+					"-c",
+					`exit 11`,
 				}},
 			false))
 
@@ -227,7 +232,7 @@ func TestConsole(t *testing.T) {
 		v := setupVars(t)
 		sessionID := uuid.New().String()
 		consoleDef := deviceConsole(sessionID, sessionMetadata(t, "xterm", nil,
-			&v1alpha1.DeviceCommand{
+			&v1beta1.DeviceCommand{
 				Command: "sed",
 				Args: []string{
 					"s/before/after/"},
@@ -255,13 +260,11 @@ func TestConsole(t *testing.T) {
 	t.Run("separate stdout and stderr without tty", func(t *testing.T) {
 		v := setupVars(t)
 		sessionID := uuid.New().String()
-		consoleDef := deviceConsole(sessionID, sessionMetadata(t, "xterm", nil, &v1alpha1.DeviceCommand{
-			Command: "echo",
-			Args: []string{"stdout",
-				";",
-				"echo",
-				"stderr",
-				">&2",
+		consoleDef := deviceConsole(sessionID, sessionMetadata(t, "xterm", nil, &v1beta1.DeviceCommand{
+			Command: "/bin/bash",
+			Args: []string{
+				"-c",
+				`echo stdout; echo stderr >&2`,
 			},
 		}, false))
 
@@ -286,7 +289,7 @@ func TestConsole(t *testing.T) {
 	t.Run("echo stdin with tty", func(t *testing.T) {
 		v := setupVars(t)
 		sessionID := uuid.New().String()
-		consoleDef := deviceConsole(sessionID, sessionMetadata(t, "xterm", &v1alpha1.TerminalSize{
+		consoleDef := deviceConsole(sessionID, sessionMetadata(t, "xterm", &v1beta1.TerminalSize{
 			Width:  256,
 			Height: 50,
 		}, nil, true))

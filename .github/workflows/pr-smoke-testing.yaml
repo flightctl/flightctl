@@ -7,6 +7,7 @@ on:
       - main
       - 'release-*'
   pull_request:
+  merge_group:
 
 permissions:
   contents: read
@@ -45,6 +46,13 @@ jobs:
             .github/**
             examples/**
             packaging/rpm/**
+
+      - name: Free Disk Space (Ubuntu)
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+          large-packages: false # disabling this will result in ~4.6 GB not freed, but will save 2-3 minutes of exec time
 
       - name: Setup all dependencies
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
@@ -122,7 +130,13 @@ jobs:
 
       - name: Simulator run
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
-        run: bin/devicesimulator --config bin/agent/etc/flightctl/config.yaml --count 1 --stop-after 1m
+        run: bin/devicesimulator --config bin/agent/etc/flightctl/config.yaml --count 1 --stop-after 1m 2>&1 | tee simulator-smoke.log
+
+      - name: Check simulator logs
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+        uses: ./.github/actions/check-simulator-logs
+        with:
+          log-file: simulator-smoke.log
 
       - name: Collect and Upload Logs
         if: always() && steps.changed-files.outputs.any_changed == 'true'

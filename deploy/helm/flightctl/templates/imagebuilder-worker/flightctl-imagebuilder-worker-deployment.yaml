@@ -1,0 +1,153 @@
+{{- if and .Values.imageBuilderWorker .Values.imageBuilderWorker.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    flightctl.service: flightctl-imagebuilder-worker
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+  name: flightctl-imagebuilder-worker
+  namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
+spec:
+  replicas: {{ default 1 .Values.imageBuilderWorker.replicas }}
+  selector:
+    matchLabels:
+      flightctl.service: flightctl-imagebuilder-worker
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        flightctl.service: flightctl-imagebuilder-worker
+        {{- include "flightctl.standardLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: flightctl-imagebuilder-worker
+      {{- if .Values.global.imagePullSecretName }}
+      imagePullSecrets:
+        - name: {{ .Values.global.imagePullSecretName }}
+      {{- end }}
+      initContainers:
+      {{- include "flightctl.databaseWaitInitContainer" (dict "context" . "userType" "app") | nindent 6 }}
+      {{- include "flightctl.migrationWaitInitContainer" (dict "context" . "timeout" 600) | nindent 6 }}
+      containers:
+        - name: flightctl-imagebuilder-worker
+          image: {{ .Values.imageBuilderWorker.image.image }}:{{ default .Chart.AppVersion .Values.imageBuilderWorker.image.tag }}
+          imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.imageBuilderWorker.image.pullPolicy }}
+          env:
+            - name: HOME
+              value: "/root"
+            - name: KV_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ default "flightctl-kv-secret" .Values.kv.passwordSecretName }}
+                  key: password
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "flightctl.dbAppUserSecret" . }}
+                  key: userPassword
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "flightctl.dbAppUserSecret" . }}
+                  key: user
+          volumeMounts:
+            - mountPath: /root/.flightctl/config.yaml
+              name: flightctl-imagebuilder-worker-config
+              subPath: config.yaml
+              readOnly: true
+            - mountPath: /root/.flightctl/certs/client-signer.crt
+              name: flightctl-client-signer
+              subPath: tls.crt
+              readOnly: true
+            - mountPath: /root/.flightctl/certs/client-signer.key
+              name: flightctl-client-signer
+              subPath: tls.key
+              readOnly: true
+            - mountPath: /root/.flightctl/certs/ca-bundle.crt
+              name: flightctl-ca-bundle
+              subPath: ca-bundle.crt
+              readOnly: true
+            - mountPath: /var/tmp/flightctl-builds
+              name: flightctl-builds
+              readOnly: false
+            - mountPath: /var/tmp/flightctl-exports
+              name: flightctl-exports
+              readOnly: false
+            - mountPath: /var/lib/containers
+              name: worker-storage
+              readOnly: false
+            # 1. SYSFS: Mandatory. Bypasses K8s read-only masks so bootc can validate privileges.
+            - mountPath: /sys
+              name: host-sys
+            
+            # 2. DEVICES: Gives access to /dev/loop-control and loop devices provided by Kind.
+            - mountPath: /dev
+              name: host-dev
+
+            # 3. MODULES: Allows osbuild to verify/load the loop module.
+            - mountPath: /lib/modules
+              name: host-modules
+              readOnly: true
+
+            # 4. ENTITLEMENT: Optional RHEL entitlement certs for subscription-only repos
+            {{- if .Values.imageBuilderWorker.entitlementCertsSecretName }}
+            - mountPath: /etc/pki/entitlement
+              name: entitlement-certs
+              readOnly: true
+            {{- end }}
+              
+            {{- include "flightctl.dbSslVolumeMounts" . | nindent 12 }}
+          {{- with .Values.imageBuilderWorker.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          terminationMessagePath: /tmp/termination-log
+          securityContext:
+            privileged: {{ default true .Values.imageBuilderWorker.privileged }}
+            capabilities:
+              add:
+                - SYS_ADMIN
+                - MKNOD
+                - SYS_CHROOT
+                - SETFCAP
+
+      restartPolicy: Always
+      volumes:
+        - name: flightctl-imagebuilder-worker-config
+          configMap:
+            name: flightctl-imagebuilder-worker-config
+        - name: flightctl-client-signer
+          secret:
+            secretName: flightctl-client-signer-ca
+        - name: flightctl-ca-bundle
+          secret:
+            secretName: flightctl-ca-bundle
+        - name: flightctl-builds
+          hostPath:
+            path: /var/tmp/flightctl-builds
+            type: DirectoryOrCreate
+        - name: flightctl-exports
+          hostPath:
+            path: /var/tmp/flightctl-exports
+            type: DirectoryOrCreate
+        - name: worker-storage
+          emptyDir: {}
+        - name: host-sys
+          hostPath:
+            path: /sys
+            type: Directory
+        - name: host-dev
+          hostPath:
+            path: /dev
+            type: Directory
+        - name: host-modules
+          hostPath:
+            path: /lib/modules
+            type: Directory
+        {{- if .Values.imageBuilderWorker.entitlementCertsSecretName }}
+        - name: entitlement-certs
+          secret:
+            secretName: {{ .Values.imageBuilderWorker.entitlementCertsSecretName }}
+        {{- end }}
+        {{- include "flightctl.dbSslVolumes" . | nindent 8 }}
+{{- end }}

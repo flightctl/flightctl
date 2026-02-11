@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	client "github.com/flightctl/flightctl/internal/api/client/agent"
 )
 
@@ -41,7 +41,7 @@ func (m *management) SetRPCMetricsCallback(cb RPCMetricsCallback) {
 }
 
 // UpdateDeviceStatus updates the status of the device with the given name.
-func (m *management) UpdateDeviceStatus(ctx context.Context, name string, device v1alpha1.Device, rcb ...client.RequestEditorFn) error {
+func (m *management) UpdateDeviceStatus(ctx context.Context, name string, device v1beta1.Device, rcb ...client.RequestEditorFn) error {
 	start := time.Now()
 	resp, err := m.client.ReplaceDeviceStatusWithResponse(ctx, name, device, rcb...)
 
@@ -63,7 +63,7 @@ func (m *management) UpdateDeviceStatus(ctx context.Context, name string, device
 	return nil
 }
 
-func (m *management) PatchDeviceStatus(ctx context.Context, name string, patch v1alpha1.PatchRequest, rcb ...client.RequestEditorFn) error {
+func (m *management) PatchDeviceStatus(ctx context.Context, name string, patch v1beta1.PatchRequest, rcb ...client.RequestEditorFn) error {
 	start := time.Now()
 	resp, err := m.client.PatchDeviceStatusWithApplicationJSONPatchPlusJSONBodyWithResponse(ctx, name, patch, rcb...)
 
@@ -89,7 +89,7 @@ func (m *management) PatchDeviceStatus(ctx context.Context, name string, patch v
 // and the response code. If the server returns a 200, the rendered device spec
 // is returned. If the server returns a 204, the rendered device spec is nil,
 // and the response code is returned which should be evaluated but the caller.
-func (m *management) GetRenderedDevice(ctx context.Context, name string, params *v1alpha1.GetRenderedDeviceParams, rcb ...client.RequestEditorFn) (*v1alpha1.Device, int, error) {
+func (m *management) GetRenderedDevice(ctx context.Context, name string, params *v1beta1.GetRenderedDeviceParams, rcb ...client.RequestEditorFn) (*v1beta1.Device, int, error) {
 	start := time.Now()
 
 	resp, err := m.client.GetRenderedDeviceWithResponse(ctx, name, params, rcb...)
@@ -133,7 +133,7 @@ func (m *management) GetRenderedDevice(ctx context.Context, name string, params 
 // CreateCertificateSigningRequest submits a new CSR to the management server for certificate approval.
 // It handles the initial CSR submission and returns the created CSR object with server-assigned metadata.
 // The CSR will be processed asynchronously by the server's certificate approval workflow.
-func (m *management) CreateCertificateSigningRequest(ctx context.Context, csr v1alpha1.CertificateSigningRequest, rcb ...client.RequestEditorFn) (*v1alpha1.CertificateSigningRequest, int, error) {
+func (m *management) CreateCertificateSigningRequest(ctx context.Context, csr v1beta1.CertificateSigningRequest, rcb ...client.RequestEditorFn) (*v1beta1.CertificateSigningRequest, int, error) {
 	start := time.Now()
 	resp, err := m.client.CreateCertificateSigningRequestWithResponse(ctx, csr, rcb...)
 
@@ -162,7 +162,7 @@ func (m *management) CreateCertificateSigningRequest(ctx context.Context, csr v1
 // GetCertificateSigningRequest retrieves the current status of a CSR from the management server.
 // This method is used to poll for CSR approval status and retrieve the issued certificate when ready.
 // The CSR status includes approval/denial state and the signed certificate when approved.
-func (m *management) GetCertificateSigningRequest(ctx context.Context, name string, rcb ...client.RequestEditorFn) (*v1alpha1.CertificateSigningRequest, int, error) {
+func (m *management) GetCertificateSigningRequest(ctx context.Context, name string, rcb ...client.RequestEditorFn) (*v1beta1.CertificateSigningRequest, int, error) {
 	start := time.Now()
 	resp, err := m.client.GetCertificateSigningRequestWithResponse(ctx, name, rcb...)
 

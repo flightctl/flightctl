@@ -2,12 +2,15 @@
 apiVersion: route.openshift.io/v1
 kind: Route
 metadata:
-  {{- if .Values.global.appCode }}
   labels:
-    external-exposed: "true"
-    paas.redhat.com/appcode: {{ .Values.global.appCode }}
-    shard: external
-  {{- end }}
+    {{- with .Values.global.additionalRouteLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+    {{- with .Values.cliArtifacts.additionalRouteLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+    flightctl.service: flightctl-cli-artifacts
   name: flightctl-cli-artifacts-route
   namespace: {{ .Release.Namespace }}
 spec:
@@ -18,9 +21,9 @@ spec:
   tls:
     termination: edge
     insecureEdgeTerminationPolicy: Redirect
-    {{- if (.Values.global.baseDomainTls).cert }}
-    certificate: {{ .Values.global.baseDomainTls.cert | quote }}
-    key: {{ .Values.global.baseDomainTls.key | quote }}
+    {{- if .Values.global.baseDomainTlsSecretName }}
+    externalCertificate:
+      name: {{ .Values.global.baseDomainTlsSecretName }}
     {{- end }}
   {{- end }}
   to:

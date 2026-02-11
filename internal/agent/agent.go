@@ -3,9 +3,9 @@ package agent
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"time"
 
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	agent_config "github.com/flightctl/flightctl/internal/agent/config"
 	"github.com/flightctl/flightctl/internal/agent/device"
@@ -16,21 +16,26 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/hook"
+	imagepruning "github.com/flightctl/flightctl/internal/agent/device/image_pruning"
 	"github.com/flightctl/flightctl/internal/agent/device/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/os"
 	"github.com/flightctl/flightctl/internal/agent/device/policy"
 	"github.com/flightctl/flightctl/internal/agent/device/resource"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
+	"github.com/flightctl/flightctl/internal/agent/device/spec/audit"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/agent/device/systemd"
 	"github.com/flightctl/flightctl/internal/agent/device/systeminfo"
+	systeminfocommon "github.com/flightctl/flightctl/internal/agent/device/systeminfo/common"
 	"github.com/flightctl/flightctl/internal/agent/identity"
+	"github.com/flightctl/flightctl/internal/agent/instrumentation"
 	"github.com/flightctl/flightctl/internal/agent/reload"
 	"github.com/flightctl/flightctl/internal/agent/shutdown"
 	"github.com/flightctl/flightctl/internal/tpm"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/poll"
+	"github.com/flightctl/flightctl/pkg/version"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 )
@@ -67,10 +72,17 @@ func (a *Agent) Run(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	// create file io writer and reader
-	deviceReadWriter := fileio.NewReadWriter(fileio.WithTestRootDir(a.config.GetTestRootDir()))
+	// start instrumentation early so startup paths are observable.
+	go instrumentation.NewAgentInstrumentation(a.log, a.config).Run(ctx)
 
-	tpmClient, err := a.tryLoadTPM(deviceReadWriter)
+	// create file io writer and reader
+	rwFactory := fileio.NewReadWriterFactory(a.config.GetTestRootDir())
+	rootReadWriter, err := rwFactory("")
+	if err != nil {
+		return fmt.Errorf("initialize root read/writer: %w", err)
+	}
+
+	tpmClient, err := a.tryLoadTPM(rootReadWriter)
 	if err != nil {
 		return fmt.Errorf("failed to initialize TPM client: %w", err)
 	}
@@ -78,7 +90,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	// create identity provider
 	identityProvider := identity.NewProvider(
 		tpmClient,
-		deviceReadWriter,
+		rootReadWriter,
 		a.config,
 		a.log,
 	)
@@ -92,12 +104,30 @@ func (a *Agent) Run(ctx context.Context) error {
 		return fmt.Errorf("failed to get device name: %w", err)
 	}
 
-	csr, err := identityProvider.GenerateCSR(deviceName)
+	clientCSRPath := identity.GetCSRPath(a.config.DataDir)
+
+	// Try to load persisted CSR first, generate a new one only if not found
+	csr, found, err := identity.LoadCSR(rootReadWriter, clientCSRPath)
 	if err != nil {
-		return fmt.Errorf("failed to generate CSR: %w", err)
+		return fmt.Errorf("failed to load CSR: %w", err)
 	}
 
-	executer := &executer.CommonExecuter{}
+	if !found {
+		a.log.Infof("No persisted CSR found, generating new CSR for enrollment")
+		csr, err = identityProvider.GenerateCSR(deviceName)
+		if err != nil {
+			return fmt.Errorf("failed to generate CSR: %w", err)
+		}
+
+		if err := identity.StoreCSR(rootReadWriter, clientCSRPath, csr); err != nil {
+			return fmt.Errorf("failed to store CSR: %w", err)
+		}
+		a.log.Infof("CSR generated and persisted successfully")
+	} else {
+		a.log.Infof("Using persisted CSR for enrollment")
+	}
+
+	rootExecuter := executer.NewCommonExecuter()
 
 	// create enrollment client
 	enrollmentClient, err := newEnrollmentClient(a.config, a.log)
@@ -118,24 +148,46 @@ func (a *Agent) Run(ctx context.Context) error {
 		BaseDelay:    10 * time.Second,
 		Factor:       1.5,
 		MaxSteps:     a.config.PullRetrySteps,
-		JitterFactor: 0.1,                                             // jitterFactor (10% jitter to prevent thundering herd)
-		Rand:         rand.New(rand.NewSource(time.Now().UnixNano())), //nolint:gosec
+		JitterFactor: 0.1,
 	}
 
 	// create os client
-	osClient := os.NewClient(a.log, executer)
+	osClient := os.NewClient(a.log, rootExecuter)
 
 	// create podman client
-	podmanClient := client.NewPodman(a.log, executer, deviceReadWriter, pollBackoff)
+	podmanClientFactory := client.NewPodmanFactory(a.log, pollBackoff, rwFactory)
+	rootPodmanClient, err := podmanClientFactory("")
+	if err != nil {
+		return err
+	}
+
+	// create skopeo client
+	skopeoClientFactory := client.NewSkopeoFactory(a.log, rwFactory)
+
+	// create kube client
+	kubeClient := client.NewKube(a.log, rootExecuter, rootReadWriter)
+
+	// create helm client
+	helmClient := client.NewHelm(a.log, rootExecuter, rootReadWriter, a.config.DataDir, pollBackoff)
+
+	// create CRI client
+	criClient := client.NewCRI(a.log, rootExecuter, rootReadWriter, pollBackoff)
+
+	// create CLI clients
+	cliClients := client.NewCLIClients(
+		client.WithKubeClient(kubeClient),
+		client.WithHelmClient(helmClient),
+		client.WithCRIClient(criClient),
+	)
 
 	// create systemd client
-	systemdClient := client.NewSystemd(executer)
+	rootSystemdClient := client.NewSystemd(rootExecuter, v1beta1.RootUsername)
 
 	// create systemInfo manager
 	systemInfoManager := systeminfo.NewManager(
 		a.log,
-		executer,
-		deviceReadWriter,
+		rootExecuter,
+		rootReadWriter,
 		a.config.DataDir,
 		a.config.SystemInfo,
 		a.config.SystemInfoCustom,
@@ -146,10 +198,10 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 
 	// create shutdown manager
-	shutdownManager := shutdown.NewManager(a.log, systemdClient, deviceReadWriter, gracefulShutdownTimeout, cancel)
+	shutdownManager := shutdown.NewManager(a.log, rootSystemdClient, rootReadWriter, gracefulShutdownTimeout, cancel)
 
 	if tpmClient != nil {
-		systemInfoManager.RegisterCollector(ctx, "tpmVendorInfo", tpmClient.VendorInfoCollector)
+		systemInfoManager.RegisterCollector(ctx, systeminfocommon.TPMVendorInfoKey, tpmClient.VendorInfoCollector)
 		defer func() {
 			if err = tpmClient.Close(); err != nil {
 				a.log.Errorf("Failed to close TPM client: %v", err)
@@ -162,19 +214,36 @@ func (a *Agent) Run(ctx context.Context) error {
 	policyManager := policy.NewManager(a.log)
 
 	deviceNotFoundHandler := func() error {
-		return wipeCertificateAndRestart(ctx, identityProvider, executer, a.log)
+		return wipeCertificateAndRestart(ctx, identityProvider, rootExecuter, a.log)
 	}
+
+	// create audit logger
+	auditLogger, err := audit.NewFileLogger(
+		&a.config.AuditLog,
+		rootReadWriter,
+		deviceName,
+		version.Get().String(),
+		a.log,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create audit logger: %w", err)
+	}
+	defer func() {
+		if err := auditLogger.Close(); err != nil {
+			a.log.Errorf("Failed to close audit logger: %v", err)
+		}
+	}()
 
 	// create spec manager
 	specManager := spec.NewManager(
 		deviceName,
 		a.config.DataDir,
 		policyManager,
-		deviceReadWriter,
+		rootReadWriter,
 		osClient,
-		a.config.SpecFetchInterval,
-		backoff,
+		pollBackoff,
 		deviceNotFoundHandler,
+		auditLogger,
 		a.log,
 	)
 
@@ -184,28 +253,46 @@ func (a *Agent) Run(ctx context.Context) error {
 	)
 
 	// create hook manager
-	hookManager := hook.NewManager(deviceReadWriter, executer, a.log)
+	hookManager := hook.NewManager(rootReadWriter, rootExecuter, a.log)
+
+	// create systemd manager
+	systemdManagerFactory := systemd.NewManagerFactory(a.log)
+	rootSystemdManager, err := systemdManagerFactory("")
+	if err != nil {
+		return err
+	}
+
+	// create pull config resolver
+	pullConfigResolver := dependency.NewPullConfigResolver(a.log, rwFactory)
 
 	// create application manager
 	applicationsManager := applications.NewManager(
 		a.log,
-		deviceReadWriter,
-		podmanClient,
+		rwFactory,
+		podmanClientFactory,
+		cliClients,
 		systemInfoManager,
-		systemdClient,
+		systemdManagerFactory,
+		pullConfigResolver,
 	)
 
 	// register the application manager with the shutdown manager
 	shutdownManager.Register("applications", applicationsManager.Shutdown)
 
-	// create systemd manager
-	systemdManager := systemd.NewManager(a.log, systemdClient)
-
 	// create os manager
-	osManager := os.NewManager(a.log, osClient, deviceReadWriter, podmanClient)
+	osManager := os.NewManager(a.log, osClient, rootReadWriter, rootPodmanClient, pullConfigResolver)
 
 	// create prefetch manager
-	prefetchManager := dependency.NewPrefetchManager(a.log, podmanClient, deviceReadWriter, a.config.PullTimeout)
+	prefetchManager := dependency.NewPrefetchManager(
+		a.log,
+		podmanClientFactory,
+		skopeoClientFactory,
+		cliClients,
+		rootReadWriter,
+		a.config.PullTimeout,
+		resourceManager,
+		pollBackoff,
+	)
 
 	// create status manager
 	statusManager := status.NewManager(
@@ -220,12 +307,12 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.config.ManagementService.GetClientCertificatePath(),
 		a.config.ManagementService.GetClientKeyPath(),
 		a.config.DataDir,
-		deviceReadWriter,
+		rootReadWriter,
 		enrollmentClient,
 		csr,
 		a.config.DefaultLabels,
 		statusManager,
-		systemdClient,
+		rootSystemdClient,
 		identityProvider,
 		backoff,
 		a.log,
@@ -233,7 +320,7 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	// register status exporters
 	statusManager.RegisterStatusExporter(applicationsManager)
-	statusManager.RegisterStatusExporter(systemdManager)
+	statusManager.RegisterStatusExporter(rootSystemdManager)
 	statusManager.RegisterStatusExporter(resourceManager)
 	statusManager.RegisterStatusExporter(osManager)
 	statusManager.RegisterStatusExporter(specManager)
@@ -241,14 +328,14 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	// create config controller
 	configController := config.NewController(
-		deviceReadWriter,
+		rootReadWriter,
 		a.log,
 	)
 
 	bootstrap := device.NewBootstrap(
 		deviceName,
-		executer,
-		deviceReadWriter,
+		rootExecuter,
+		rootReadWriter,
 		specManager,
 		statusManager,
 		hookManager,
@@ -256,7 +343,8 @@ func (a *Agent) Run(ctx context.Context) error {
 		&a.config.ManagementService.Config,
 		systemInfoManager,
 		a.config.GetManagementMetricsCallback(),
-		podmanClient,
+		rootPodmanClient,
+		rootSystemdClient,
 		identityProvider,
 		a.log,
 	)
@@ -267,22 +355,18 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 
 	// Initialize certificate manager
-	certManager, err := certmanager.NewManager(
+	certManager, err := certmanager.NewAgentCertManager(
 		ctx, a.log,
-		certmanager.WithBuiltins(
-			deviceName,
-			bootstrap.ManagementClient(),
-			deviceReadWriter,
-			a.config,
-			identity.NewExportableFactory(tpmClient, a.log),
-		),
+		a.config, deviceName,
+		bootstrap.ManagementClient(),
+		rootReadWriter,
+		identity.NewExportableFactory(tpmClient, a.log),
+		identityProvider,
+		statusManager,
+		systemInfoManager,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to initialize certificate manager: %w", err)
-	}
-
-	if err := certManager.Sync(ctx, a.config); err != nil {
-		a.log.Warnf("Failed to sync certificate manager: %v", err)
 	}
 
 	// create the gRPC client this must be done after bootstrap
@@ -291,37 +375,47 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.log.Warnf("Failed to create gRPC client: %v", err)
 	}
 
-	// create resource controller
-	resourceController := resource.NewController(
-		a.log,
-		resourceManager,
-	)
-
 	// create console manager
 	consoleManager := console.NewManager(
 		grpcClient,
 		deviceName,
-		executer,
+		console.ConsoleUser,
+		rootExecuter,
 		specManager.Watch(),
 		a.log,
 	)
 
 	applicationsController := applications.NewController(
-		podmanClient,
+		podmanClientFactory,
+		cliClients,
 		applicationsManager,
-		deviceReadWriter,
+		rwFactory,
 		a.log,
+		systemInfoManager.BootTime(),
+	)
+
+	// create image pruning manager
+	pruningManager := imagepruning.New(
+		podmanClientFactory,
+		rootPodmanClient,
+		cliClients,
+		specManager,
+		rwFactory,
+		rootReadWriter,
+		a.log,
+		a.config.ImagePruning,
+		a.config.DataDir,
 	)
 
 	// create agent
 	agent := device.NewAgent(
 		deviceName,
-		deviceReadWriter,
+		rootSystemdClient,
+		rootReadWriter,
 		statusManager,
 		specManager,
 		applicationsManager,
-		systemdManager,
-		a.config.SpecFetchInterval,
+		rootSystemdManager,
 		a.config.StatusUpdateInterval,
 		hookManager,
 		osManager,
@@ -329,11 +423,13 @@ func (a *Agent) Run(ctx context.Context) error {
 		lifecycleManager,
 		applicationsController,
 		configController,
-		resourceController,
+		resourceManager,
 		consoleManager,
 		osClient,
-		podmanClient,
+		rootPodmanClient,
 		prefetchManager,
+		pullConfigResolver,
+		pruningManager,
 		backoff,
 		a.log,
 	)
@@ -343,6 +439,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	reloadManager.Register(systemInfoManager.ReloadConfig)
 	reloadManager.Register(statusManager.ReloadCollect)
 	reloadManager.Register(certManager.Sync)
+	reloadManager.Register(pruningManager.ReloadConfig)
 
 	// agent is serial by default. only a small number of operations run async.
 	// device reconciliation, status updates, and spec application happen serially.
@@ -369,6 +466,11 @@ func (a *Agent) Run(ctx context.Context) error {
 	// fetching is async, but spec management remains serial in the main agent loop
 	go specManager.Publisher().Run(ctx)
 
+	// certManager runs certificate reconciliation asynchronously.
+	// It periodically syncs device certificates (issuance/renewal) and must not
+	// block the main agent loop or other long-running managers.
+	go certManager.Run(ctx)
+
 	// main agent loop: all critical work happens here serially
 	return agent.Run(ctx)
 }
@@ -377,12 +479,11 @@ func newEnrollmentClient(cfg *agent_config.Config, log *log.PrefixLogger) (clien
 	// Create infinite retry policy for enrollment requests using same config as management client
 	// but with infinite retries (MaxSteps: 0)
 	infiniteRetryConfig := poll.Config{
-		BaseDelay:    10 * time.Second,                                // baseDelay (same as management client)
-		Factor:       1.5,                                             // factor (same as management client)
-		MaxDelay:     1 * time.Minute,                                 // maxDelay (same as management client)
-		MaxSteps:     0,                                               // maxSteps (0 means infinite retries until context timeout)
-		JitterFactor: 0.1,                                             // jitterFactor (10% jitter to prevent thundering herd)
-		Rand:         rand.New(rand.NewSource(time.Now().UnixNano())), //nolint:gosec
+		BaseDelay:    10 * time.Second,
+		Factor:       1.5,
+		MaxDelay:     1 * time.Minute,
+		MaxSteps:     0,
+		JitterFactor: 0.1,
 	}
 
 	httpClient, err := client.NewFromConfig(&cfg.EnrollmentService.Config, log, client.WithHTTPRetry(infiniteRetryConfig))
@@ -415,7 +516,7 @@ func wipeCertificateAndRestart(ctx context.Context, identityProvider identity.Pr
 	}
 
 	// Restart the flightctl-agent service
-	systemdClient := client.NewSystemd(executer)
+	systemdClient := client.NewSystemd(executer, v1beta1.RootUsername)
 	if err := systemdClient.Restart(ctx, "flightctl-agent"); err != nil {
 		return fmt.Errorf("failed to restart flightctl-agent service: %w", err)
 	}

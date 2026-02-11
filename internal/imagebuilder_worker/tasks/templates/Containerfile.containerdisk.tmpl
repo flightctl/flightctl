@@ -1,0 +1,12 @@
+# Containerfile for building a containerdisk image for OpenShift Virt / KubeVirt
+# The resulting image contains the disk image at /disk/ with proper permissions
+
+ARG DISK_IMAGE_FILE=disk.qcow2
+
+FROM registry.access.redhat.com/ubi9/ubi:latest AS builder
+ARG DISK_IMAGE_FILE
+ADD --chown=107:107 ${DISK_IMAGE_FILE} /disk/
+RUN chmod 0440 /disk/*
+
+FROM scratch
+COPY --from=builder /disk/* /disk/

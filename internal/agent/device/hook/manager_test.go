@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/device/config"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/util"
@@ -29,8 +29,8 @@ func TestHookManager(t *testing.T) {
 	testCases := []struct {
 		name             string
 		hooks            map[string]string
-		current          *v1alpha1.DeviceSpec
-		desired          *v1alpha1.DeviceSpec
+		current          *v1beta1.DeviceSpec
+		desired          *v1beta1.DeviceSpec
 		rebooted         bool
 		expectedCommands []command
 	}{
@@ -139,7 +139,11 @@ const testHookRebootedCondition = `
 `
 
 func createTempHooksDir(t *testing.T, hooks map[string]string) fileio.ReadWriter {
-	readerWriter := fileio.NewReadWriter(fileio.WithTestRootDir(t.TempDir()))
+	tempDir := t.TempDir()
+	readerWriter := fileio.NewReadWriter(
+		fileio.NewReader(fileio.WithReaderRootDir(tempDir)),
+		fileio.NewWriter(fileio.WithWriterRootDir(tempDir)),
+	)
 
 	util.Must(readerWriter.MkdirAll("/usr/lib/flightctl/hooks.d/afterupdating", 0755))
 	util.Must(readerWriter.MkdirAll("/etc/flightctl/hooks.d/afterupdating", 0755))
@@ -158,10 +162,10 @@ func createTempHooksDir(t *testing.T, hooks map[string]string) fileio.ReadWriter
 	return readerWriter
 }
 
-func createDeviceSpec(require *require.Assertions, fileMap map[string]string) *v1alpha1.DeviceSpec {
-	files := []v1alpha1.FileSpec{}
+func createDeviceSpec(require *require.Assertions, fileMap map[string]string) *v1beta1.DeviceSpec {
+	files := []v1beta1.FileSpec{}
 	for path, data := range fileMap {
-		files = append(files, v1alpha1.FileSpec{
+		files = append(files, v1beta1.FileSpec{
 			Path:    path,
 			Content: data,
 		})
@@ -170,7 +174,7 @@ func createDeviceSpec(require *require.Assertions, fileMap map[string]string) *v
 	config, err := config.FilesToProviderSpec(files)
 	require.NoError(err)
 
-	return &v1alpha1.DeviceSpec{
+	return &v1beta1.DeviceSpec{
 		Config: config,
 	}
 }
@@ -179,7 +183,7 @@ func expectExecCalls(mockExecuter *executer.MockExecuter, expectedCommands []com
 	if len(expectedCommands) > 0 {
 		calls := make([]any, len(expectedCommands))
 		for i, e := range expectedCommands {
-			calls[i] = mockExecuter.EXPECT().ExecuteWithContextFromDir(gomock.Any(), "", e.command, e.args).DoAndReturn(
+			calls[i] = mockExecuter.EXPECT().ExecuteWithContextFromDir(gomock.Any(), "", e.command, e.args, gomock.Any()).DoAndReturn(
 				func(ctx context.Context, workingDir, command string, args []string, env ...string) (string, string, int) {
 					return "", "", 0
 				}).Return("", "", 0).Times(1)

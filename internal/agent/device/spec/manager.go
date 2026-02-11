@@ -7,16 +7,16 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/os"
 	"github.com/flightctl/flightctl/internal/agent/device/policy"
+	"github.com/flightctl/flightctl/internal/agent/device/spec/audit"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
-	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
-	"k8s.io/apimachinery/pkg/util/wait"
+	"github.com/flightctl/flightctl/pkg/poll"
 )
 
 var _ Manager = (*manager)(nil)
@@ -27,6 +27,7 @@ type manager struct {
 	desiredPath  string
 	rollbackPath string
 
+	deviceName       string
 	deviceReadWriter fileio.ReadWriter
 	osClient         os.Client
 	publisher        Publisher
@@ -34,8 +35,9 @@ type manager struct {
 	cache            *cache
 	queue            PriorityQueue
 	policyManager    policy.Manager
+	auditLogger      audit.Logger
 
-	lastConsumedDevice *v1alpha1.Device
+	lastConsumedDevice *v1beta1.Device
 	log                *log.PrefixLogger
 }
 
@@ -49,9 +51,9 @@ func NewManager(
 	policyManager policy.Manager,
 	deviceReadWriter fileio.ReadWriter,
 	osClient os.Client,
-	fetchInterval util.Duration,
-	backoff wait.Backoff,
+	pollConfig poll.Config,
 	deviceNotFoundHandler func() error,
+	auditLogger audit.Logger,
 	log *log.PrefixLogger,
 ) *manager {
 	cache := newCache(log)
@@ -68,10 +70,12 @@ func NewManager(
 		currentPath:      filepath.Join(dataDir, string(Current)+".json"),
 		desiredPath:      filepath.Join(dataDir, string(Desired)+".json"),
 		rollbackPath:     filepath.Join(dataDir, string(Rollback)+".json"),
+		deviceName:       deviceName,
 		deviceReadWriter: deviceReadWriter,
 		osClient:         osClient,
 		cache:            cache,
 		policyManager:    policyManager,
+		auditLogger:      auditLogger,
 		queue:            queue,
 		log:              log,
 	}
@@ -81,7 +85,7 @@ func NewManager(
 		lastKnownVersion = desired.Version()
 	}
 
-	pub := newPublisher(deviceName, time.Duration(fetchInterval), backoff, lastKnownVersion, deviceNotFoundHandler, log)
+	pub := newPublisher(deviceName, pollConfig, lastKnownVersion, deviceNotFoundHandler, log)
 	m.publisher = pub
 	m.watcher = pub.Watch()
 
@@ -89,24 +93,40 @@ func NewManager(
 }
 
 func (s *manager) Initialize(ctx context.Context) error {
-	// current
-	if err := s.write(Current, newVersionedDevice("0")); err != nil {
+	// Create all files during bootstrap - all use bootstrap reason
+	if err := s.write(ctx, Current, newVersionedDevice("0"), audit.ReasonBootstrap); err != nil {
 		return err
 	}
-	// desired
-	if err := s.write(Desired, newVersionedDevice("0")); err != nil {
+	if err := s.write(ctx, Desired, newVersionedDevice("0"), audit.ReasonBootstrap); err != nil {
 		return err
 	}
-	// rollback
-	if err := s.write(Rollback, newVersionedDevice("0")); err != nil {
+	if err := s.write(ctx, Rollback, newVersionedDevice("0"), audit.ReasonBootstrap); err != nil {
 		return err
 	}
 	// reconcile the initial spec even though its empty
 	s.queue.Add(ctx, newVersionedDevice("0"))
+
 	return nil
 }
 
 func (s *manager) Ensure() error {
+	// Check and recreate missing spec files.
+	// Distinguishes between first startup (bootstrap) and recovery from corruption.
+
+	// Determine if this is first startup by checking if ALL files are missing
+	allMissing := true
+	for _, specType := range []Type{Current, Desired, Rollback} {
+		exists, err := s.exists(specType)
+		if err != nil {
+			return err
+		}
+		if exists {
+			allMissing = false
+			break
+		}
+	}
+
+	// Create missing files with appropriate reason
 	for _, specType := range []Type{Current, Desired, Rollback} {
 		exists, err := s.exists(specType)
 		if err != nil {
@@ -114,8 +134,22 @@ func (s *manager) Ensure() error {
 		}
 
 		if !exists {
-			s.log.Warnf("Spec file does not exist %s. Resetting state to empty...", specType)
-			if err := s.write(specType, newVersionedDevice("0")); err != nil {
+			var reason audit.Reason
+			if allMissing {
+				// First startup - all files created during bootstrap
+				reason = audit.ReasonBootstrap
+				s.log.Infof("First startup: creating %s spec file", specType)
+			} else {
+				// File corruption recovery - use appropriate reason
+				if specType == Rollback {
+					reason = audit.ReasonInitialization
+				} else {
+					reason = audit.ReasonRecovery
+				}
+				s.log.Warnf("Spec file does not exist %s. Resetting state to empty...", specType)
+			}
+
+			if err := s.write(context.TODO(), specType, newVersionedDevice("0"), reason); err != nil {
 				return err
 			}
 		}
@@ -142,6 +176,7 @@ func (s *manager) Ensure() error {
 	// add the desired spec to the queue this ensures that the device will
 	// reconcile the desired spec on startup.
 	s.queue.Add(context.TODO(), desired)
+
 	return nil
 }
 
@@ -198,7 +233,7 @@ func (s *manager) Upgrade(ctx context.Context) error {
 			return err
 		}
 
-		if err := s.write(Current, desired); err != nil {
+		if err := s.write(ctx, Current, desired, audit.ReasonUpgrade); err != nil {
 			return err
 		}
 
@@ -225,6 +260,7 @@ func (s *manager) SetUpgradeFailed(version string) error {
 		return err
 	}
 	s.queue.SetFailed(versionInt)
+
 	return nil
 }
 
@@ -254,18 +290,18 @@ func (s *manager) CreateRollback(ctx context.Context) error {
 	// rollback is a basic copy of the current rendered spec
 	// which contains the rendered version and the OS image.
 	rollback := newVersionedDevice(current.Version())
-	rollback.Spec = &v1alpha1.DeviceSpec{
-		Os: &v1alpha1.DeviceOsSpec{Image: currentOSImage},
+	rollback.Spec = &v1beta1.DeviceSpec{
+		Os: &v1beta1.DeviceOsSpec{Image: currentOSImage},
 	}
 
-	if err := s.write(Rollback, rollback); err != nil {
+	if err := s.write(ctx, Rollback, rollback, audit.ReasonInitialization); err != nil {
 		return err
 	}
 	return nil
 }
 
 func (s *manager) ClearRollback() error {
-	return s.write(Rollback, newVersionedDevice(""))
+	return s.write(context.TODO(), Rollback, newVersionedDevice(""), audit.ReasonInitialization)
 }
 
 func (s *manager) Rollback(ctx context.Context, opts ...RollbackOption) error {
@@ -276,8 +312,10 @@ func (s *manager) Rollback(ctx context.Context, opts ...RollbackOption) error {
 		opt(cfg)
 	}
 
+	failedDesiredVersion := s.cache.getRenderedVersion(Desired)
+
 	if cfg.setFailed {
-		version, err := stringToInt64(s.cache.getRenderedVersion(Desired))
+		version, err := stringToInt64(failedDesiredVersion)
 		if err != nil {
 			return err
 		}
@@ -300,10 +338,13 @@ func (s *manager) Rollback(ctx context.Context, opts ...RollbackOption) error {
 
 	// rollback in-memory cache current == desired
 	s.cache.update(Desired, current)
+
+	s.logAudit(ctx, current, failedDesiredVersion, current.Version(), audit.ResultSuccess, audit.ReasonRollback, audit.TypeDesired)
+
 	return nil
 }
 
-func (s *manager) Read(specType Type) (*v1alpha1.Device, error) {
+func (s *manager) Read(specType Type) (*v1beta1.Device, error) {
 	filePath, err := s.pathFromType(specType)
 	if err != nil {
 		return nil, err
@@ -358,6 +399,14 @@ func (s *manager) consumeLatest(ctx context.Context) (bool, error) {
 			return false, fmt.Errorf("getting rendered version: %w", err)
 		}
 		if s.lastConsumedDevice.Version() != version {
+			// Check if this version is permanently failed
+			lastVersion, err := stringToInt64(s.lastConsumedDevice.Version())
+			if err != nil {
+				s.log.Warnf("Failed to parse last consumed device version %q: %v", s.lastConsumedDevice.Version(), err)
+			} else if s.queue.IsFailed(lastVersion) {
+				s.log.Debugf("Last consumed device version %s is permanently failed, skipping requeue", s.lastConsumedDevice.Version())
+				return false, nil
+			}
 			// In case of rollback we would like to consume again the last device
 			s.log.Debugf("Requeuing last consumed device. version: %s", s.lastConsumedDevice.Version())
 			s.queue.Add(ctx, s.lastConsumedDevice)
@@ -367,7 +416,7 @@ func (s *manager) consumeLatest(ctx context.Context) (bool, error) {
 	return consumed, nil
 }
 
-func (s *manager) GetDesired(ctx context.Context) (*v1alpha1.Device, bool, error) {
+func (s *manager) GetDesired(ctx context.Context) (*v1beta1.Device, bool, error) {
 	consumed, err := s.consumeLatest(ctx)
 	if err != nil {
 		return nil, false, err
@@ -379,8 +428,11 @@ func (s *manager) GetDesired(ctx context.Context) (*v1alpha1.Device, bool, error
 		if readErr != nil {
 			return nil, false, readErr
 		}
-		s.log.Debugf("Requeuing current desired spec from disk version: %s", desired.Version())
+		s.log.Tracef("Requeuing current desired spec from disk version: %s", desired.Version())
 		s.queue.Add(ctx, desired)
+		if s.lastConsumedDevice == nil {
+			s.lastConsumedDevice = desired
+		}
 	}
 
 	return s.getDeviceFromQueue(ctx)
@@ -389,7 +441,7 @@ func (s *manager) GetDesired(ctx context.Context) (*v1alpha1.Device, bool, error
 // getDeviceFromQueue retrieves the next desired device to reconcile.  Returns true
 // to signal requeue if no spec is available. If the spec is newer than the
 // current desired version it will be written to disk.
-func (s *manager) getDeviceFromQueue(ctx context.Context) (*v1alpha1.Device, bool,
+func (s *manager) getDeviceFromQueue(ctx context.Context) (*v1beta1.Device, bool,
 	error) {
 	desired, exists := s.queue.Next(ctx)
 	if !exists {
@@ -417,7 +469,7 @@ func (s *manager) getDeviceFromQueue(ctx context.Context) (*v1alpha1.Device, boo
 			s.log.Infof("Writing new desired rendered spec to disk version: %s", desired.Version())
 		}
 
-		if err := s.write(Desired, desired); err != nil {
+		if err := s.write(ctx, Desired, desired, audit.ReasonSync); err != nil {
 			return nil, false, err
 		}
 	}
@@ -426,12 +478,25 @@ func (s *manager) getDeviceFromQueue(ctx context.Context) (*v1alpha1.Device, boo
 }
 
 // isNewDesiredVersion returns true if this is the first time observing this desired version.
-func (s *manager) isNewDesiredVersion(desired *v1alpha1.Device) bool {
+func (s *manager) isNewDesiredVersion(desired *v1beta1.Device) bool {
 	return s.lastConsumedDevice == nil || s.lastConsumedDevice.Version() != desired.Version()
 }
 
 func (s *manager) IsOSUpdate() bool {
 	return s.cache.getOSVersion(Current) != s.cache.getOSVersion(Desired)
+}
+
+func (s *manager) IsOSUpdatePending(ctx context.Context) (bool, error) {
+	if !s.IsOSUpdate() {
+		return false, nil
+	}
+
+	_, isReconciled, err := s.CheckOsReconciliation(ctx)
+	if err != nil {
+		return false, err
+	}
+
+	return !isReconciled, nil
 }
 
 func (s *manager) CheckOsReconciliation(ctx context.Context) (string, bool, error) {
@@ -453,7 +518,7 @@ func (s *manager) CheckOsReconciliation(ctx context.Context) (string, bool, erro
 	return bootedOSImage, desired.Spec.Os.Image == osStatus.GetBootedImage(), nil
 }
 
-func (s *manager) Status(ctx context.Context, status *v1alpha1.DeviceStatus, _ ...status.CollectorOpt) error {
+func (s *manager) Status(ctx context.Context, status *v1beta1.DeviceStatus, _ ...status.CollectorOpt) error {
 	status.Config.RenderedVersion = s.cache.getRenderedVersion(Current)
 	return nil
 }
@@ -478,10 +543,24 @@ func (s *manager) Publisher() Publisher {
 	return s.publisher
 }
 
-func (s *manager) write(specType Type, device *v1alpha1.Device) error {
+func (s *manager) write(ctx context.Context, specType Type, device *v1beta1.Device, reason audit.Reason) error {
 	filePath, err := s.pathFromType(specType)
 	if err != nil {
 		return err
+	}
+
+	oldVersion := s.cache.getRenderedVersion(specType)
+	newVersion := device.Version()
+
+	// CRITICAL: Detect if rendered version is going backwards during upgrade.
+	// This should never happen and indicates a serious bug (e.g., unexpected rollback
+	// after spec was committed). The audit log will capture this transition.
+	if specType == Current && reason == audit.ReasonUpgrade {
+		oldV, errOld := stringToInt64(oldVersion)
+		newV, errNew := stringToInt64(newVersion)
+		if errOld == nil && errNew == nil && newV < oldV {
+			s.log.Errorf("CRITICAL: Rendered version going backwards during upgrade! %s -> %s - this should never happen", oldVersion, newVersion)
+		}
 	}
 
 	err = writeDeviceToFile(s.deviceReadWriter, device, filePath)
@@ -490,6 +569,23 @@ func (s *manager) write(specType Type, device *v1alpha1.Device) error {
 	}
 
 	s.cache.update(specType, device)
+
+	// Validate reason is provided
+	if reason == "" {
+		return fmt.Errorf("reason is required for writing %s spec", specType)
+	}
+
+	// Audit all disk writes
+	var auditType audit.Type
+	switch specType {
+	case Current:
+		auditType = audit.TypeCurrent
+	case Desired:
+		auditType = audit.TypeDesired
+	case Rollback:
+		auditType = audit.TypeRollback
+	}
+	s.logAudit(ctx, device, oldVersion, device.Version(), audit.ResultSuccess, reason, auditType)
 
 	return nil
 }
@@ -539,8 +635,8 @@ func (s *manager) pathFromType(specType Type) (string, error) {
 func readDeviceFromFile(
 	reader fileio.Reader,
 	filePath string,
-) (*v1alpha1.Device, error) {
-	var current v1alpha1.Device
+) (*v1beta1.Device, error) {
+	var current v1beta1.Device
 	renderedBytes, err := reader.ReadFile(filePath)
 	if err != nil {
 		if fileio.IsNotExist(err) {
@@ -558,7 +654,7 @@ func readDeviceFromFile(
 	return &current, nil
 }
 
-func writeDeviceToFile(writer fileio.Writer, device *v1alpha1.Device, filePath string) error {
+func writeDeviceToFile(writer fileio.Writer, device *v1beta1.Device, filePath string) error {
 	deviceBytes, err := json.Marshal(device)
 	if err != nil {
 		return err
@@ -569,12 +665,12 @@ func writeDeviceToFile(writer fileio.Writer, device *v1alpha1.Device, filePath s
 	return nil
 }
 
-func IsUpgrading(current *v1alpha1.Device, desired *v1alpha1.Device) bool {
+func IsUpgrading(current *v1beta1.Device, desired *v1beta1.Device) bool {
 	return current.Version() != desired.Version()
 }
 
 // IsRollback returns true if the version of the current spec is greater than the desired.
-func IsRollback(current *v1alpha1.Device, desired *v1alpha1.Device) bool {
+func IsRollback(current *v1beta1.Device, desired *v1beta1.Device) bool {
 	currentVersion, err := stringToInt64(current.Version())
 	if err != nil {
 		return false
@@ -584,6 +680,37 @@ func IsRollback(current *v1alpha1.Device, desired *v1alpha1.Device) bool {
 		return false
 	}
 	return currentVersion > desiredVersion
+}
+
+// logAudit logs an audit event for spec transitions. It extracts the fleet template
+// version from device annotations and handles nil device for bootstrap events.
+func (s *manager) logAudit(ctx context.Context, device *v1beta1.Device, oldVersion, newVersion string, result audit.Result, reason audit.Reason, auditType audit.Type) {
+	if s.auditLogger == nil {
+		return
+	}
+
+	// Extract fleet template version from device annotations
+	fleetTemplateVersion := ""
+	if device != nil && device.Metadata.Annotations != nil {
+		if version, exists := (*device.Metadata.Annotations)[v1beta1.DeviceAnnotationRenderedTemplateVersion]; exists {
+			fleetTemplateVersion = version
+		}
+	}
+
+	auditInfo := &audit.EventInfo{
+		Device:               s.deviceName,
+		OldVersion:           oldVersion,
+		NewVersion:           newVersion,
+		Result:               result,
+		Reason:               reason,
+		Type:                 auditType,
+		FleetTemplateVersion: fleetTemplateVersion,
+		StartTime:            time.Now(),
+	}
+
+	if err := s.auditLogger.LogEvent(ctx, auditInfo); err != nil {
+		s.log.Warnf("Failed to write %s audit log (%s->%s, reason=%s): %v", auditType, oldVersion, newVersion, reason, err)
+	}
 }
 
 type rollbackConfig struct {

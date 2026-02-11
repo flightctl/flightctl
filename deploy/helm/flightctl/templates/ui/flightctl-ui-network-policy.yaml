@@ -1,0 +1,23 @@
+{{ if .Values.ui.enabled }}
+{{ if and (eq (include "flightctl.enableMulticlusterExtensions" .) "false") (eq (include "flightctl.getServiceExposeMethod" .) "route") }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ui-from-router
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+    flightctl.service: flightctl-ui
+spec:
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          policy-group.network.openshift.io/ingress: ""
+  podSelector:
+    matchLabels:
+      role: frontend
+  policyTypes:
+  - Ingress
+{{ end }}
+{{ end }}

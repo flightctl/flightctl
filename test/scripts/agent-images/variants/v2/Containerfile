@@ -1,0 +1,20 @@
+# quay.io/flightctl/flightctl-device:v2
+#
+# Image built on top of base image which includes two dummy systemd services:
+#
+# * test-e2e-dummy which runs sleep 3600 for 1h
+# * test-e2e-crashing which runs /bin/false and attempts restart
+
+ARG BASE_IMAGE=quay.io/flightctl/flightctl-device:base
+
+FROM ${BASE_IMAGE}
+
+COPY --from=variant-context test-e2e-dummy.service /etc/systemd/system/
+COPY --from=variant-context test-e2e-crashing.service /etc/systemd/system/
+
+RUN systemctl enable test-e2e-dummy.service && \
+    systemctl enable test-e2e-crashing.service
+
+
+
+

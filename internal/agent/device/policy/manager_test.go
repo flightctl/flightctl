@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -21,17 +21,17 @@ func TestIsReady(t *testing.T) {
 	testCases := []struct {
 		name            string
 		timeZone        string
-		updateSchedule  *v1alpha1.UpdateSchedule
+		updateSchedule  *v1beta1.UpdateSchedule
 		currentTime     time.Time
 		expectedReady   bool
 		expectedNextRun time.Time
 	}{
 		{
 			name: "not ready: current time is before next run UTC",
-			updateSchedule: &v1alpha1.UpdateSchedule{
+			updateSchedule: &v1beta1.UpdateSchedule{
 				TimeZone:           lo.ToPtr("UTC"),
 				At:                 "0 12 * * *", // 12:00 pm
-				StartGraceDuration: lo.ToPtr("10m"),
+				StartGraceDuration: "10m",
 			},
 			currentTime:     time.Date(2024, 12, 20, 11, 5, 0, 0, time.UTC), // 11:05
 			expectedReady:   false,
@@ -39,10 +39,10 @@ func TestIsReady(t *testing.T) {
 		},
 		{
 			name: "not ready: outside grace period UTC",
-			updateSchedule: &v1alpha1.UpdateSchedule{
+			updateSchedule: &v1beta1.UpdateSchedule{
 				TimeZone:           lo.ToPtr("UTC"),
 				At:                 "0 12 * * *", // 12:00 pm
-				StartGraceDuration: lo.ToPtr("5m"),
+				StartGraceDuration: "5m",
 			},
 			currentTime:     time.Date(2024, 12, 20, 12, 6, 0, 0, time.UTC), // 12:06 - 5m = 12:01
 			expectedReady:   false,
@@ -50,10 +50,10 @@ func TestIsReady(t *testing.T) {
 		},
 		{
 			name: "ready: within grace period America/New_York",
-			updateSchedule: &v1alpha1.UpdateSchedule{
+			updateSchedule: &v1beta1.UpdateSchedule{
 				TimeZone:           lo.ToPtr("America/New_York"),
 				At:                 "0 12 * * *", // 12:00 pm
-				StartGraceDuration: lo.ToPtr("10m"),
+				StartGraceDuration: "10m",
 			},
 			currentTime:     time.Date(2024, 12, 20, 12, 6, 0, 0, nyLoc), // 12:06 - 10m = 11:56
 			expectedReady:   true,
@@ -61,10 +61,10 @@ func TestIsReady(t *testing.T) {
 		},
 		{
 			name: "ready: handles backward DST transition in America/New_York",
-			updateSchedule: &v1alpha1.UpdateSchedule{
+			updateSchedule: &v1beta1.UpdateSchedule{
 				TimeZone:           lo.ToPtr("America/New_York"),
 				At:                 "0 1 * * *", // 1:00 AM
-				StartGraceDuration: lo.ToPtr("60m"),
+				StartGraceDuration: "60m",
 			},
 			currentTime:     time.Date(2024, 11, 3, 1, 30, 0, 0, nyLoc), // 1:30 am during repeated hour
 			expectedReady:   true,
@@ -72,10 +72,10 @@ func TestIsReady(t *testing.T) {
 		},
 		{
 			name: "ready: grace period handles DST transition in Europe/Berlin",
-			updateSchedule: &v1alpha1.UpdateSchedule{
+			updateSchedule: &v1beta1.UpdateSchedule{
 				TimeZone:           lo.ToPtr("Europe/Berlin"),
 				At:                 "0 1 * * *", // 1:00 am
-				StartGraceDuration: lo.ToPtr("90m"),
+				StartGraceDuration: "90m",
 			},
 			// test time at 03:15 am, which falls within the grace period
 			// even though the 2 am hour was skipped due to DST.
@@ -85,10 +85,10 @@ func TestIsReady(t *testing.T) {
 		},
 		{
 			name: "ready: time equal to next",
-			updateSchedule: &v1alpha1.UpdateSchedule{
+			updateSchedule: &v1beta1.UpdateSchedule{
 				TimeZone:           lo.ToPtr("America/New_York"),
 				At:                 "0 12 * * *", // 12:00 pm
-				StartGraceDuration: lo.ToPtr("10m"),
+				StartGraceDuration: "10m",
 			},
 			currentTime:     time.Date(2024, 12, 20, 12, 0, 0, 0, nyLoc), // 12:00
 			expectedReady:   true,
@@ -96,10 +96,10 @@ func TestIsReady(t *testing.T) {
 		},
 		{
 			name: "not ready: current time equals grace period end",
-			updateSchedule: &v1alpha1.UpdateSchedule{
+			updateSchedule: &v1beta1.UpdateSchedule{
 				TimeZone:           lo.ToPtr("UTC"),
 				At:                 "0 12 * * *", // 12:00 pm
-				StartGraceDuration: lo.ToPtr("5m"),
+				StartGraceDuration: "5m",
 			},
 			currentTime:     time.Date(2024, 12, 20, 12, 5, 0, 0, time.UTC), // 12:05 (end of grace)
 			expectedReady:   true,
@@ -107,10 +107,10 @@ func TestIsReady(t *testing.T) {
 		},
 		{
 			name: "ready: equals grace period for 30-minute interval",
-			updateSchedule: &v1alpha1.UpdateSchedule{
+			updateSchedule: &v1beta1.UpdateSchedule{
 				TimeZone:           lo.ToPtr("UTC"),
 				At:                 "*/30 * * * *", // every 30 minutes
-				StartGraceDuration: lo.ToPtr("5m"),
+				StartGraceDuration: "5m",
 			},
 			currentTime:     time.Date(2024, 12, 20, 12, 35, 0, 0, time.UTC), // 12:35
 			expectedReady:   true,
@@ -118,10 +118,10 @@ func TestIsReady(t *testing.T) {
 		},
 		{
 			name: "ready: exactly at start of grace period",
-			updateSchedule: &v1alpha1.UpdateSchedule{
+			updateSchedule: &v1beta1.UpdateSchedule{
 				TimeZone:           lo.ToPtr("UTC"),
 				At:                 "0 12 * * *", // 12:00 pm
-				StartGraceDuration: lo.ToPtr("5m"),
+				StartGraceDuration: "5m",
 			},
 			currentTime:     time.Date(2024, 12, 20, 12, 0, 0, 0, time.UTC), // 12:00
 			expectedReady:   true,

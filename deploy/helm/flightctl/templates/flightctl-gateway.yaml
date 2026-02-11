@@ -1,4 +1,4 @@
-{{ if and (.Values.api.enabled) (eq (include "flightctl.getServiceExposeMethod" .) "gateway") }}
+{{ if eq (include "flightctl.getServiceExposeMethod" .) "gateway" }}
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
@@ -7,57 +7,41 @@ metadata:
   labels:
     {{- include "flightctl.standardLabels" . | nindent 4 }}
 spec:
-  gatewayClassName: {{ .Values.global.gatewayClass }}
+  gatewayClassName: {{ .Values.global.gateway.gatewayClassName }}
   listeners:
-  {{- if and (eq .Values.global.target "standalone") (eq .Values.global.auth.type "builtin") }}
-  - name: keycloak
-    hostname: auth.{{ include "flightctl.getBaseDomain" . }}
-    {{- if .Values.global.baseDomainTls.cert }}
-    port: {{ .Values.global.gatewayPorts.tls }}
-    protocol: HTTPS
-    tls:
-      mode: Terminate
-      certificateRefs:
-      - kind: Secret
-        name: gateway-cert
-    {{- else }}
-    port: {{ .Values.global.gatewayPorts.http }}
-    protocol: HTTP
-    {{- end }}
-  {{- end }}
   {{- if .Values.ui.enabled }}
   - name: ui
     hostname: ui.{{ include "flightctl.getBaseDomain" . }}
-    {{- if .Values.global.baseDomainTls.cert }}
-    port: {{ .Values.global.gatewayPorts.tls }}
+    {{- if .Values.global.baseDomainTlsSecretName }}
+    port: {{ .Values.global.gateway.ports.tls }}
     protocol: HTTPS
     tls:
       mode: Terminate
       certificateRefs:
       - kind: Secret
-        name: gateway-cert
+        name: {{ .Values.global.baseDomainTlsSecretName }}
     {{- else }}
-    port: {{ .Values.global.gatewayPorts.http }}
+    port: {{ .Values.global.gateway.ports.http }}
     protocol: HTTP
     {{- end }}
   - name: cli-artifacts
     hostname: cli-artifacts.{{ include "flightctl.getBaseDomain" . }}
-    {{- if .Values.global.baseDomainTls.cert }}
-    port: {{ .Values.global.gatewayPorts.tls }}
+    {{- if .Values.global.baseDomainTlsSecretName }}
+    port: {{ .Values.global.gateway.ports.tls }}
     protocol: HTTPS
     tls:
       mode: Terminate
       certificateRefs:
       - kind: Secret
-        name: gateway-cert
+        name: {{ .Values.global.baseDomainTlsSecretName }}
     {{- else }}
-    port: {{ .Values.global.gatewayPorts.http }}
+    port: {{ .Values.global.gateway.ports.http }}
     protocol: HTTP
     {{- end }}
   {{- end }}
   - name: api
     hostname: '*.{{ include "flightctl.getBaseDomain" . }}'
-    port: {{ .Values.global.gatewayPorts.tls }}
+    port: {{ .Values.global.gateway.ports.tls }}
     protocol: TLS
     tls:
       mode: Passthrough

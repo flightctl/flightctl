@@ -9,18 +9,21 @@ import (
 	"net/http"
 	"time"
 
-	agent "github.com/flightctl/flightctl/api/v1alpha1/agent"
-	server "github.com/flightctl/flightctl/internal/api/server/agent"
-	tlsmiddleware "github.com/flightctl/flightctl/internal/api_server/middleware"
+	agentv1beta1 "github.com/flightctl/flightctl/api/agent/v1beta1"
+	convertv1beta1 "github.com/flightctl/flightctl/internal/api/convert/v1beta1"
+	apimetaserver "github.com/flightctl/flightctl/internal/api/server"
+	agentserver "github.com/flightctl/flightctl/internal/api/server/agent"
+	apiserver "github.com/flightctl/flightctl/internal/api_server"
+	fcmiddleware "github.com/flightctl/flightctl/internal/api_server/middleware"
+	"github.com/flightctl/flightctl/internal/api_server/versioning"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/healthchecker"
 	"github.com/flightctl/flightctl/internal/kvstore"
-	"github.com/flightctl/flightctl/internal/org/resolvers"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
-	transport "github.com/flightctl/flightctl/internal/transport/agent"
+	agenttransportv1beta1 "github.com/flightctl/flightctl/internal/transport/agent/v1beta1"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/go-chi/chi/v5"
@@ -29,10 +32,6 @@ import (
 	"github.com/sirupsen/logrus"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"google.golang.org/grpc"
-)
-
-const (
-	gracefulShutdownTimeout = 5 * time.Second
 )
 
 type AgentServer struct {
@@ -44,7 +43,6 @@ type AgentServer struct {
 	queuesProvider  queues.Provider
 	tlsConfig       *tls.Config
 	agentGrpcServer *AgentGrpcServer
-	orgResolver     resolvers.Resolver
 	serviceHandler  service.Service
 	kvStore         kvstore.KVStore
 }
@@ -59,7 +57,6 @@ func New(
 	listener net.Listener,
 	queuesProvider queues.Provider,
 	tlsConfig *tls.Config,
-	orgResolver resolvers.Resolver,
 ) (*AgentServer, error) {
 	s := &AgentServer{
 		log:            log,
@@ -69,7 +66,6 @@ func New(
 		listener:       listener,
 		queuesProvider: queuesProvider,
 		tlsConfig:      tlsConfig,
-		orgResolver:    orgResolver,
 	}
 
 	if err := s.init(ctx); err != nil {
@@ -97,7 +93,7 @@ func (s *AgentServer) init(ctx context.Context) error {
 	workerClient := worker_client.NewWorkerClient(publisher, s.log)
 
 	s.serviceHandler = service.WrapWithTracing(
-		service.NewServiceHandler(s.store, workerClient, s.kvStore, s.ca, s.log, s.cfg.Service.AgentEndpointAddress, s.cfg.Service.BaseUIUrl, s.cfg.Service.TPMCAPaths, s.orgResolver))
+		service.NewServiceHandler(s.store, workerClient, s.kvStore, s.ca, s.log, s.cfg.Service.AgentEndpointAddress, s.cfg.Service.BaseUIUrl, s.cfg.Service.TPMCAPaths))
 
 	s.agentGrpcServer = NewAgentGrpcServer(s.log, s.cfg, s.serviceHandler)
 	return nil
@@ -124,25 +120,21 @@ func (s *AgentServer) GetGRPCServer() *AgentGrpcServer {
 	return s.agentGrpcServer
 }
 
-func oapiErrorHandler(w http.ResponseWriter, message string, statusCode int) {
-	http.Error(w, fmt.Sprintf("API Error: %s", message), statusCode)
-}
-
 func (s *AgentServer) Run(ctx context.Context) error {
 	s.log.Println("Starting Agent-side API server")
 
-	httpAPIHandler, err := s.prepareHTTPHandler(s.serviceHandler)
+	httpAPIHandler, err := s.prepareHTTPHandler(ctx, s.serviceHandler)
 	if err != nil {
 		return err
 	}
 
 	handler := grpcMuxHandlerFunc(s.agentGrpcServer.server, httpAPIHandler, s.log)
-	srv := tlsmiddleware.NewHTTPServerWithTLSContext(handler, s.log, s.cfg.Service.AgentEndpointAddress, s.cfg)
+	srv := fcmiddleware.NewHTTPServerWithTLSContext(handler, s.log, s.cfg.Service.AgentEndpointAddress, s.cfg)
 
 	go func() {
 		<-ctx.Done()
 		s.log.Println("Shutdown signal received:", ctx.Err())
-		ctxTimeout, cancel := context.WithTimeout(context.Background(), gracefulShutdownTimeout)
+		ctxTimeout, cancel := context.WithTimeout(context.Background(), apiserver.GracefulShutdownTimeout)
 		defer cancel()
 
 		srv.SetKeepAlivesEnabled(false)
@@ -161,7 +153,7 @@ func (s *AgentServer) Run(ctx context.Context) error {
 
 // Custom logger that logs only responses with status >= 400
 func filteredLogger(log logrus.FieldLogger) func(next http.Handler) http.Handler {
-	formatter := middleware.DefaultLogFormatter{Logger: log}
+	formatter := fcmiddleware.ChiLogFormatterWithAPIVersionTag(log)
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -196,57 +188,149 @@ func addAgentContext(next http.Handler) http.Handler {
 	})
 }
 
-func (s *AgentServer) prepareHTTPHandler(serviceHandler service.Service) (http.Handler, error) {
-	swagger, err := agent.GetSwagger()
-	if err != nil {
-		return nil, fmt.Errorf("prepareHTTPHandler: failed loading swagger spec: %w", err)
+// isEnrollmentRequest checks if the request is for enrollment-related operations
+func isEnrollmentRequest(r *http.Request) bool {
+	metadata := apimetaserver.MetadataResolver.Resolve(r)
+	if metadata == nil {
+		return false
 	}
-	// Skip server name validation
-	swagger.Servers = nil
 
-	oapiOpts := oapimiddleware.Options{
-		ErrorHandler: oapiErrorHandler,
+	// Enrollment requests are create/get on the enrollmentrequests resource.
+	if metadata.Resource == apimetaserver.API_RESOURCE_ENROLLMENTREQUESTS &&
+		(metadata.Action == apimetaserver.API_ACTION_CREATE || metadata.Action == apimetaserver.API_ACTION_GET) {
+		return true
+	}
+
+	return false
+}
+
+func (s *AgentServer) prepareHTTPHandler(ctx context.Context, serviceHandler service.Service) (http.Handler, error) {
+	// Create agent authentication middleware for device operations
+	agentAuthMiddleware := fcmiddleware.NewAgentAuthMiddleware(s.ca, s.log)
+	go agentAuthMiddleware.Start()
+
+	// Create enrollment authentication middleware for enrollment/bootstrap operations
+	enrollmentAuthMiddleware := fcmiddleware.NewEnrollmentAuthMiddleware(s.ca, s.log)
+	go enrollmentAuthMiddleware.Start()
+
+	// Create identity mapping middleware (handles both user and agent identities)
+	identityMapper := service.NewIdentityMapper(s.store, s.log)
+	go func() {
+		identityMapper.Start(ctx)
+		s.log.Warn("Identity mapper stopped unexpectedly")
+	}()
+	identityMappingMiddleware := fcmiddleware.NewIdentityMappingMiddleware(identityMapper, s.log)
+
+	// Create organization extraction and validation middleware once
+	orgMiddleware := fcmiddleware.ExtractAndValidateOrg(fcmiddleware.CertOrgIDExtractor, s.log)
+
+	// Create authentication routing middleware once
+	authRoutingMiddleware := func(next http.Handler) http.Handler {
+		// --- Create these handlers ONCE ---
+		// These are created when authRoutingMiddleware is called (at server setup),
+		// not when a request comes in.
+		enrollmentAuthHandler := enrollmentAuthMiddleware.AuthenticateEnrollment(next)
+		agentAuthHandler := agentAuthMiddleware.AuthenticateAgent(next)
+		// ------------------------------------
+
+		// Return the handler that will run on every request
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// This closure "captures" the handlers created above.
+
+			// Check if this is an enrollment request
+			if isEnrollmentRequest(r) {
+				// Route to the pre-built enrollment handler
+				enrollmentAuthHandler.ServeHTTP(w, r)
+				return
+			}
+
+			// For all other requests, route to the pre-built agent handler
+			agentAuthHandler.ServeHTTP(w, r)
+		})
+	}
+
+	// Create auth middlewares chain - flat and simple
+	authMiddlewares := []func(http.Handler) http.Handler{
+		authRoutingMiddleware,
+		identityMappingMiddleware.MapIdentityToDB,
+		orgMiddleware,
 	}
 
 	// request size limits should come before logging to prevent DoS attacks from filling logs
 	middlewares := [](func(http.Handler) http.Handler){
 		middleware.RequestSize(int64(s.cfg.Service.HttpMaxRequestSize)),
-		tlsmiddleware.RequestSizeLimiter(s.cfg.Service.HttpMaxUrlLength, s.cfg.Service.HttpMaxNumHeaders),
-		tlsmiddleware.RequestID,
-		tlsmiddleware.AddOrgIDToCtx(
-			s.orgResolver,
-			tlsmiddleware.CertOrgIDExtractor,
-		),
+		fcmiddleware.RequestSizeLimiter(s.cfg.Service.HttpMaxUrlLength, s.cfg.Service.HttpMaxNumHeaders),
+		fcmiddleware.SecurityHeaders,
+		fcmiddleware.RequestID,
+	}
+
+	// Add auth middlewares
+	middlewares = append(middlewares, authMiddlewares...)
+
+	// Add remaining middlewares
+	middlewares = append(middlewares, []func(http.Handler) http.Handler{
 		filteredLogger(s.log),
 		addAgentContext,
 		middleware.Recoverer,
-		oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapiOpts),
-	}
+	}...)
 
 	router := chi.NewRouter()
 	router.Use(middlewares...)
 
-	// Rate limiting middleware - applied before validation (only if configured)
-	// Note: Agent server doesn't need trusted proxy validation since it's mTLS
-	if s.cfg.Service.RateLimit != nil {
-		requests := 60        // Default requests limit
-		window := time.Minute // Default window
-		if s.cfg.Service.RateLimit.Requests > 0 {
-			requests = s.cfg.Service.RateLimit.Requests
-		}
-		if s.cfg.Service.RateLimit.Window > 0 {
-			window = time.Duration(s.cfg.Service.RateLimit.Window)
-		}
-		tlsmiddleware.InstallRateLimiter(router, tlsmiddleware.RateLimitOptions{
-			Requests:       requests,
-			Window:         window,
-			Message:        "Rate limit exceeded, please try again later",
-			TrustedProxies: []string{}, // No proxy headers for mTLS
-		})
+	// Create versioning infrastructure
+	negotiator := versioning.NewNegotiator(versioning.V1Beta1, apimetaserver.MetadataResolver)
+
+	// Create handler for agent API
+	handlerV1Beta1 := agenttransportv1beta1.NewAgentTransportHandler(serviceHandler, convertv1beta1.NewConverter(), s.ca, s.log)
+
+	// Create version-specific router with OpenAPI validation
+	agentV1Beta1Swagger, err := agentv1beta1.GetSwagger()
+	if err != nil {
+		return nil, fmt.Errorf("failed loading agent v1beta1 swagger spec: %w", err)
+	}
+	routerV1Beta1 := versioning.NewRouter(versioning.RouterConfig{
+		Middlewares: []versioning.Middleware{
+			oapimiddleware.OapiRequestValidatorWithOptions(agentV1Beta1Swagger, &oapimiddleware.Options{
+				ErrorHandler:          apiserver.OapiErrorHandler,
+				SilenceServersWarning: true,
+			}),
+		},
+		RegisterRoutes: func(r chi.Router) {
+			agentserver.HandlerFromMux(handlerV1Beta1, r)
+		},
+	})
+
+	// Create negotiated router for version routing
+	// Future versions (v1, v2, etc.) would add more entries here
+	negotiatedRouter, err := versioning.NewNegotiatedRouter(
+		negotiator.NegotiateMiddleware,
+		map[versioning.Version]chi.Router{
+			versioning.V1Beta1: routerV1Beta1,
+		},
+		versioning.V1Beta1,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create negotiated router: %w", err)
 	}
 
-	h := transport.NewAgentTransportHandler(serviceHandler, s.ca, s.log)
-	server.HandlerFromMux(h, router)
+	// Rate limiting middleware - applied before validation (only if configured and enabled)
+	rateLimit := func(r chi.Router) {
+		apiserver.ConfigureRateLimiterFromConfig(
+			r,
+			s.cfg.Service.RateLimit,
+			apiserver.RateLimitScopeGeneral,
+			// Agent server doesn't need trusted proxy validation since it's mTLS.
+			apiserver.WithNoTrustedProxies(),
+		)
+	}
+
+	// Versioned API endpoints at /api/v1
+	router.Route(agentserver.ServerUrlApiv1, func(r chi.Router) {
+		rateLimit(r)
+
+		// Negotiated API endpoints
+		r.Mount("/", negotiatedRouter)
+	})
 
 	return otelhttp.NewHandler(router, "agent-http-server"), nil
 }

@@ -6,9 +6,10 @@ import (
 	"fmt"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/util"
+	"github.com/google/uuid"
 )
 
 const (
@@ -22,7 +23,7 @@ var (
 	ErrUnknownApplicationType = errors.New("unknown application type")
 )
 
-func getOwnerFleet(device *api.Device) (string, bool, error) {
+func getOwnerFleet(device *domain.Device) (string, bool, error) {
 	if device.Metadata.Owner == nil {
 		return "", true, nil
 	}
@@ -32,27 +33,27 @@ func getOwnerFleet(device *api.Device) (string, bool, error) {
 		return "", false, err
 	}
 
-	if ownerType != api.FleetKind {
+	if ownerType != domain.FleetKind {
 		return "", false, nil
 	}
 
 	return ownerName, true, nil
 }
 
-func EmitInternalTaskFailedEvent(ctx context.Context, errorMessage string, originalEvent api.Event, serviceHandler service.Service) {
-	resourceKind := api.ResourceKind(originalEvent.InvolvedObject.Kind)
+func EmitInternalTaskFailedEvent(ctx context.Context, orgID uuid.UUID, errorMessage string, originalEvent domain.Event, serviceHandler service.Service) {
+	resourceKind := domain.ResourceKind(originalEvent.InvolvedObject.Kind)
 	resourceName := originalEvent.InvolvedObject.Name
 	reason := originalEvent.Reason
 	message := fmt.Sprintf("%s internal task failed: %s - %s.", resourceKind, reason, errorMessage)
-	event := api.GetBaseEvent(ctx,
+	event := domain.GetBaseEvent(ctx,
 		resourceKind,
 		resourceName,
-		api.EventReasonInternalTaskFailed,
+		domain.EventReasonInternalTaskFailed,
 		message,
 		nil)
 
-	details := api.EventDetails{}
-	if detailsErr := details.FromInternalTaskFailedDetails(api.InternalTaskFailedDetails{
+	details := domain.EventDetails{}
+	if detailsErr := details.FromInternalTaskFailedDetails(domain.InternalTaskFailedDetails{
 		ErrorMessage:  errorMessage,
 		RetryCount:    nil,
 		OriginalEvent: originalEvent,
@@ -61,5 +62,5 @@ func EmitInternalTaskFailedEvent(ctx context.Context, errorMessage string, origi
 	}
 
 	// Emit the event
-	serviceHandler.CreateEvent(ctx, event)
+	serviceHandler.CreateEvent(ctx, orgID, event)
 }

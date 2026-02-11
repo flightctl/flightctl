@@ -5,12 +5,15 @@ import (
 	"fmt"
 	"path/filepath"
 	"sort"
+	"strings"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/api/common"
+	"github.com/flightctl/flightctl/internal/quadlet"
 	"github.com/flightctl/flightctl/pkg/log"
 	"sigs.k8s.io/yaml"
 )
@@ -20,10 +23,12 @@ type Volume struct {
 	Name string
 	// ID is a unique internal idenfier used to create the actual volume
 	ID string
-	// Reference is a the reference used to populate the volume
+	// Reference is the reference used to populate the volume
 	Reference string
 	// Available is true if the volume has been created
 	Available bool
+	// ReclaimPolicy controls how the volume is handled when the application is removed
+	ReclaimPolicy v1beta1.ApplicationVolumeReclaimPolicy
 }
 
 type VolumeManager interface {
@@ -38,15 +43,21 @@ type VolumeManager interface {
 	// List returns all managed Volumes.
 	List() []*Volume
 	// Status populates the given DeviceApplicationStatus with volume status information.
-	Status(status *v1alpha1.DeviceApplicationStatus)
+	Status(status *v1beta1.DeviceApplicationStatus)
 	// UpdateStatus processes a Podman event and updates internal volume status as needed.
 	UpdateStatus(event *client.PodmanEvent)
+	// AddVolumes adds all specified volumes to the manager. An ID will be added if one does not exist
+	AddVolumes([]*Volume)
 }
 
 // NewVolumeManager returns a new VolumeManager.
-func NewVolumeManager(log *log.PrefixLogger, appName string, volumes *[]v1alpha1.ApplicationVolume) (VolumeManager, error) {
+func NewVolumeManager(log *log.PrefixLogger, appName string, appType v1beta1.AppType, user v1beta1.Username, volumes *[]v1beta1.ApplicationVolume) (VolumeManager, error) {
 	m := &volumeManager{
 		volumes: make(map[string]*Volume),
+		log:     log,
+		appName: appName,
+		appType: appType,
+		user:    user,
 	}
 
 	if volumes == nil {
@@ -54,17 +65,38 @@ func NewVolumeManager(log *log.PrefixLogger, appName string, volumes *[]v1alpha1
 	}
 
 	for _, v := range *volumes {
-		// TODO: image provider assumed
-		provider, err := v.AsImageVolumeProviderSpec()
+		volType, err := v.Type()
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("volume type: %w", err)
 		}
-		volID := client.ComposeVolumeName(appName, v.Name)
+		var image *v1beta1.ImageVolumeSource
+		switch volType {
+		case v1beta1.ImageApplicationVolumeProviderType:
+			provider, err := v.AsImageVolumeProviderSpec()
+			if err != nil {
+				return nil, err
+			}
+			image = &provider.Image
+		case v1beta1.ImageMountApplicationVolumeProviderType:
+			provider, err := v.AsImageMountVolumeProviderSpec()
+			if err != nil {
+				return nil, err
+			}
+			image = &provider.Image
+		case v1beta1.MountApplicationVolumeProviderType:
+			// nothing to manage
+			continue
+		default:
+			return nil, fmt.Errorf("%w: %s", errors.ErrUnsupportedVolumeType, volType)
+		}
+		volID := m.volumeID(v.Name, user)
+		policy := v.GetReclaimPolicy()
 		m.volumes[volID] = &Volume{
-			Name:      v.Name,
-			Reference: provider.Image.Reference,
-			ID:        volID,
-			Available: true, // TODO: event support is broken for volumes.  https://github.com/containers/podman/issues/26480
+			Name:          v.Name,
+			Reference:     image.Reference,
+			ID:            volID,
+			Available:     true, // TODO: event support is broken for volumes.  https://github.com/containers/podman/issues/26480
+			ReclaimPolicy: policy,
 		}
 	}
 	return m, nil
@@ -74,6 +106,18 @@ type volumeManager struct {
 	// volumes map is keyed from volume ID
 	volumes map[string]*Volume
 	log     *log.PrefixLogger
+	appName string
+	appType v1beta1.AppType
+	user    v1beta1.Username
+}
+
+func (m *volumeManager) volumeID(volName string, user v1beta1.Username) string {
+	switch m.appType {
+	case v1beta1.AppTypeQuadlet, v1beta1.AppTypeContainer:
+		return quadlet.NamespaceResource(lifecycle.GenerateAppID(m.appName, user), volName)
+	default:
+		return lifecycle.ComposeVolumeName(m.appName, volName, user)
+	}
 }
 
 func (m *volumeManager) Get(id string) (*Volume, bool) {
@@ -84,6 +128,9 @@ func (m *volumeManager) Get(id string) (*Volume, bool) {
 func (m *volumeManager) Add(volume *Volume) {
 	_, ok := m.volumes[volume.ID]
 	if !ok {
+		if volume.ReclaimPolicy == "" {
+			volume.ReclaimPolicy = v1beta1.Retain
+		}
 		m.volumes[volume.ID] = volume
 	}
 }
@@ -92,6 +139,9 @@ func (m *volumeManager) Update(volume *Volume) bool {
 	_, ok := m.volumes[volume.ID]
 	if !ok {
 		return false
+	}
+	if volume.ReclaimPolicy == "" {
+		volume.ReclaimPolicy = v1beta1.Retain
 	}
 	m.volumes[volume.ID] = volume
 	return true
@@ -121,14 +171,14 @@ func (m *volumeManager) List() []*Volume {
 	return result
 }
 
-func (m *volumeManager) Status(status *v1alpha1.DeviceApplicationStatus) {
-	volumes := make([]v1alpha1.ApplicationVolumeStatus, 0, len(m.volumes))
+func (m *volumeManager) Status(status *v1beta1.DeviceApplicationStatus) {
+	volumes := make([]v1beta1.ApplicationVolumeStatus, 0, len(m.volumes))
 	for _, vol := range m.List() {
 		if !vol.Available {
 			// only report obsereved status
 			continue
 		}
-		volumes = append(volumes, v1alpha1.ApplicationVolumeStatus{
+		volumes = append(volumes, v1beta1.ApplicationVolumeStatus{
 			Name:      vol.Name,
 			Reference: vol.Reference,
 		})
@@ -165,9 +215,23 @@ func (m *volumeManager) UpdateStatus(event *client.PodmanEvent) {
 	}
 }
 
+func (m *volumeManager) AddVolumes(volumes []*Volume) {
+	for _, volume := range volumes {
+		vol := volume
+		if vol.ID == "" {
+			vol.ID = m.volumeID(volume.Name, m.user)
+		}
+		if vol.ReclaimPolicy == "" {
+			vol.ReclaimPolicy = v1beta1.Retain
+		}
+		vol.Available = true // TODO: event support is broken for volumes.  https://github.com/containers/podman/issues/26480
+		m.volumes[vol.ID] = vol
+	}
+}
+
 // ensureDependenciesFromVolumes verifies all volume types are supported
 // and checks that Podman ≥ 5.5 is used for image backed volumes.
-func ensureDependenciesFromVolumes(ctx context.Context, podman *client.Podman, volumes *[]v1alpha1.ApplicationVolume) error {
+func ensureDependenciesFromVolumes(ctx context.Context, podman *client.Podman, volumes *[]v1beta1.ApplicationVolume) error {
 	if volumes == nil {
 		return nil
 	}
@@ -179,7 +243,7 @@ func ensureDependenciesFromVolumes(ctx context.Context, podman *client.Podman, v
 		}
 
 		switch vType {
-		case v1alpha1.ImageApplicationVolumeProviderType:
+		case v1beta1.ImageApplicationVolumeProviderType, v1beta1.ImageMountApplicationVolumeProviderType:
 			version, err := podman.Version(ctx)
 			if err != nil {
 				return fmt.Errorf("checking podman version: %w", err)
@@ -187,6 +251,9 @@ func ensureDependenciesFromVolumes(ctx context.Context, podman *client.Podman, v
 			if !version.GreaterOrEqual(5, 5) {
 				return fmt.Errorf("image volume support requires podman >= 5.5, found %d.%d", version.Major, version.Minor)
 			}
+		case v1beta1.MountApplicationVolumeProviderType:
+			// No dependencies for simple mounts
+			continue
 		default:
 			return fmt.Errorf("%w: %s", errors.ErrUnsupportedVolumeType, vType)
 		}
@@ -238,9 +305,44 @@ func ToLifecycleVolumes(volumes []*Volume) []lifecycle.Volume {
 	out := make([]lifecycle.Volume, len(volumes))
 	for i, vol := range volumes {
 		out[i] = lifecycle.Volume{
-			ID:        vol.ID,
-			Reference: vol.Reference,
+			ID:            vol.ID,
+			Reference:     vol.Reference,
+			ReclaimPolicy: vol.ReclaimPolicy,
 		}
 	}
 	return out
+}
+
+func extractQuadletVolumes(appID string, quadlets map[string]*common.QuadletReferences) []*Volume {
+	var volumes []*Volume
+	for name, quad := range quadlets {
+		// Only track volume's with images
+		if quad.Type != common.QuadletTypeVolume || quad.Image == nil {
+			continue
+		}
+		name = strings.TrimPrefix(name, fmt.Sprintf("%s-", appID))
+		volumes = append(volumes, &Volume{
+			Name:          name,
+			ID:            quadlet.VolumeName(quad.Name, quadlet.NamespaceResource(appID, name)),
+			Reference:     *quad.Image,
+			ReclaimPolicy: v1beta1.Retain,
+		})
+	}
+	return volumes
+}
+
+func extractQuadletVolumesFromSpec(appID string, contents []v1beta1.ApplicationContent) ([]*Volume, error) {
+	quadlets, err := client.ParseQuadletReferencesFromSpec(contents)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", errors.ErrParsingQuadletSpec, err)
+	}
+	return extractQuadletVolumes(appID, quadlets), nil
+}
+
+func extractQuadletVolumesFromDir(appID string, r fileio.Reader, path string) ([]*Volume, error) {
+	quadlets, err := client.ParseQuadletReferencesFromDir(r, path)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", errors.ErrParsingQuadletSpec, err)
+	}
+	return extractQuadletVolumes(appID, quadlets), nil
 }

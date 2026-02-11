@@ -3,22 +3,24 @@ package e2e
 import (
 	"fmt"
 	"strconv"
+	"time"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/types"
 	"github.com/sirupsen/logrus"
 )
 
-func (h *Harness) CreateFleetDeviceSpec(deviceImageTag string, additionalConfigs ...v1alpha1.ConfigProviderSpec) (v1alpha1.DeviceSpec, error) {
+func (h *Harness) CreateFleetDeviceSpec(deviceImageTag string, additionalConfigs ...v1beta1.ConfigProviderSpec) (v1beta1.DeviceSpec, error) {
 
-	var deviceSpec v1alpha1.DeviceSpec
+	var deviceSpec v1beta1.DeviceSpec
 
 	// Set Os.Image only if deviceImageTag is provided
 	if deviceImageTag != "" {
-		deviceSpec.Os = &v1alpha1.DeviceOsSpec{
-			Image: fmt.Sprintf("%s/flightctl-device:%s", h.RegistryEndpoint(), deviceImageTag),
+		deviceSpec.Os = &v1beta1.DeviceOsSpec{
+			Image: util.NewDeviceImageReference(deviceImageTag).String(),
 		}
 	}
 
@@ -30,8 +32,8 @@ func (h *Harness) CreateFleetDeviceSpec(deviceImageTag string, additionalConfigs
 	return deviceSpec, nil
 }
 
-func (h *Harness) WaitForFleetContents(fleetName string, description string, condition func(fleet *v1alpha1.Fleet) bool, timeout string) {
-	waitForResourceContents(fleetName, description, func(id string) (*v1alpha1.Fleet, error) {
+func (h *Harness) WaitForFleetContents(fleetName string, description string, condition func(fleet *v1beta1.Fleet) bool, timeout string) {
+	waitForResourceContents(fleetName, description, func(id string) (*v1beta1.Fleet, error) {
 		response, err := h.Client.GetFleetWithResponse(h.Context, id, nil)
 		Expect(err).NotTo(HaveOccurred())
 		if response.JSON200 == nil {
@@ -42,7 +44,7 @@ func (h *Harness) WaitForFleetContents(fleetName string, description string, con
 	}, condition, timeout)
 }
 
-func (h *Harness) GetFleet(fleetName string) (*v1alpha1.Fleet, error) {
+func (h *Harness) GetFleet(fleetName string) (*v1beta1.Fleet, error) {
 	response, err := h.Client.GetFleetWithResponse(h.Context, fleetName, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get fleet: %s %w", fleetName, err)
@@ -54,11 +56,11 @@ func (h *Harness) GetFleet(fleetName string) (*v1alpha1.Fleet, error) {
 }
 
 // Create a test fleet resource
-func (h *Harness) CreateOrUpdateTestFleet(testFleetName string, fleetSpecOrSelector interface{}, deviceSpec ...v1alpha1.DeviceSpec) error {
-	testFleet := v1alpha1.Fleet{
-		ApiVersion: v1alpha1.FleetAPIVersion,
-		Kind:       v1alpha1.FleetKind,
-		Metadata: v1alpha1.ObjectMeta{
+func (h *Harness) CreateOrUpdateTestFleet(testFleetName string, fleetSpecOrSelector interface{}, deviceSpec ...v1beta1.DeviceSpec) error {
+	testFleet := v1beta1.Fleet{
+		ApiVersion: v1beta1.FleetAPIVersion,
+		Kind:       v1beta1.FleetKind,
+		Metadata: v1beta1.ObjectMeta{
 			Name:   &testFleetName,
 			Labels: &map[string]string{},
 		},
@@ -68,20 +70,20 @@ func (h *Harness) CreateOrUpdateTestFleet(testFleetName string, fleetSpecOrSelec
 	h.addTestLabelToResource(&testFleet.Metadata)
 
 	switch spec := fleetSpecOrSelector.(type) {
-	case v1alpha1.FleetSpec:
+	case v1beta1.FleetSpec:
 		testFleet.Spec = spec
 
-	case v1alpha1.LabelSelector:
+	case v1beta1.LabelSelector:
 
 		if len(deviceSpec) == 0 {
 			return fmt.Errorf("DeviceSpec is required when using LabelSelector")
 		}
 
-		testFleet.Spec = v1alpha1.FleetSpec{
+		testFleet.Spec = v1beta1.FleetSpec{
 			Selector: &spec,
 			Template: struct {
-				Metadata *v1alpha1.ObjectMeta "json:\"metadata,omitempty\""
-				Spec     v1alpha1.DeviceSpec  "json:\"spec\""
+				Metadata *v1beta1.ObjectMeta "json:\"metadata,omitempty\""
+				Spec     v1beta1.DeviceSpec  "json:\"spec\""
 			}{
 				Spec: deviceSpec[0],
 			},
@@ -96,9 +98,9 @@ func (h *Harness) CreateOrUpdateTestFleet(testFleetName string, fleetSpecOrSelec
 }
 
 // Create a test fleet with a configuration
-func (h *Harness) CreateTestFleetWithConfig(testFleetName string, testFleetSelector v1alpha1.LabelSelector, configProviderSpec v1alpha1.ConfigProviderSpec) error {
-	var testFleetSpec = v1alpha1.DeviceSpec{
-		Config: &[]v1alpha1.ConfigProviderSpec{
+func (h *Harness) CreateTestFleetWithConfig(testFleetName string, testFleetSelector v1beta1.LabelSelector, configProviderSpec v1beta1.ConfigProviderSpec) error {
+	var testFleetSpec = v1beta1.DeviceSpec{
+		Config: &[]v1beta1.ConfigProviderSpec{
 			configProviderSpec,
 		},
 	}
@@ -115,25 +117,25 @@ func (h *Harness) DeleteFleet(testFleetName string) error {
 func HaveReason(expected string) types.GomegaMatcher {
 	return WithTransform(
 		// This part is checked by the compiler!
-		func(c v1alpha1.Condition) string { return c.Reason },
+		func(c v1beta1.Condition) string { return c.Reason },
 		Equal(expected),
 	)
 }
 
 // HaveStatus returns a type-safe Gomega matcher for the Condition's Status field.
-func HaveStatus(expected v1alpha1.ConditionStatus) types.GomegaMatcher {
+func HaveStatus(expected v1beta1.ConditionStatus) types.GomegaMatcher {
 	return WithTransform(
 		// This part is also checked by the compiler!
-		func(c v1alpha1.Condition) v1alpha1.ConditionStatus { return c.Status },
+		func(c v1beta1.Condition) v1beta1.ConditionStatus { return c.Status },
 		Equal(expected),
 	)
 }
 
 // cHaveType returns a type-safe Gomega matcher for the Condition's Type field.
-func cHaveType(expected v1alpha1.ConditionType) types.GomegaMatcher {
+func cHaveType(expected v1beta1.ConditionType) types.GomegaMatcher {
 	return WithTransform(
 		// This part is also checked by the compiler!
-		func(c v1alpha1.Condition) v1alpha1.ConditionType { return c.Type },
+		func(c v1beta1.Condition) v1beta1.ConditionType { return c.Type },
 		Equal(expected),
 	)
 }
@@ -143,9 +145,9 @@ func (h *Harness) WaitForFleetUpdateToFail(fleetName string) {
 	Eventually(h.GetRolloutStatus, LONGTIMEOUT, POLLING).
 		WithArguments(fleetName).
 		Should(SatisfyAll(
-			cHaveType(v1alpha1.ConditionTypeFleetRolloutInProgress),
-			HaveStatus(v1alpha1.ConditionStatusFalse),
-			HaveReason(v1alpha1.RolloutSuspendedReason),
+			cHaveType(v1beta1.ConditionTypeFleetRolloutInProgress),
+			HaveStatus(v1beta1.ConditionStatusFalse),
+			HaveReason(v1beta1.RolloutSuspendedReason),
 		), fmt.Sprintf("Timed out waiting for fleet %s update to fail", fleetName))
 
 }
@@ -173,7 +175,7 @@ func (h *Harness) WaitForBatchStart(fleetName string, batchNumber int) {
 			return -2
 		}
 
-		batchNumberStr, ok := (*annotations)[v1alpha1.FleetAnnotationBatchNumber]
+		batchNumberStr, ok := (*annotations)[v1beta1.FleetAnnotationBatchNumber]
 		if !ok {
 			GinkgoWriter.Printf("batch number not found in annotations - available annotations: %v\n", *annotations)
 			return -2
@@ -191,32 +193,32 @@ func (h *Harness) WaitForBatchStart(fleetName string, batchNumber int) {
 	}, LONGTIMEOUT, POLLINGLONG).Should(Equal(batchNumber))
 }
 
-func (h *Harness) GetRolloutStatus(fleetName string) (v1alpha1.Condition, error) {
+func (h *Harness) GetRolloutStatus(fleetName string) (v1beta1.Condition, error) {
 	response, err := h.Client.GetFleetWithResponse(h.Context, fleetName, nil)
 	if err != nil {
-		return v1alpha1.Condition{}, fmt.Errorf("failed to get fleet with response: %s", err)
+		return v1beta1.Condition{}, fmt.Errorf("failed to get fleet with response: %s", err)
 	}
 	fleet := response.JSON200
 
 	if fleet.Status == nil || fleet.Status.Conditions == nil {
-		return v1alpha1.Condition{}, fmt.Errorf("fleet status or conditions is nil")
+		return v1beta1.Condition{}, fmt.Errorf("fleet status or conditions is nil")
 	}
 
 	for _, condition := range fleet.Status.Conditions {
-		if condition.Type == v1alpha1.ConditionTypeFleetRolloutInProgress {
+		if condition.Type == v1beta1.ConditionTypeFleetRolloutInProgress {
 			return condition, nil
 		}
 	}
-	return v1alpha1.Condition{}, fmt.Errorf("fleet rollout condition not found")
+	return v1beta1.Condition{}, fmt.Errorf("fleet rollout condition not found")
 }
 
-func (h *Harness) UpdateFleetWithRetries(fleetName string, updateFunction func(*v1alpha1.Fleet)) {
+func (h *Harness) UpdateFleetWithRetries(fleetName string, updateFunction func(*v1beta1.Fleet)) {
 	updateResourceWithRetries(func() error {
 		return h.UpdateFleet(fleetName, updateFunction)
 	})
 }
 
-func (h *Harness) UpdateFleet(fleetName string, updateFunc func(*v1alpha1.Fleet)) error {
+func (h *Harness) UpdateFleet(fleetName string, updateFunc func(*v1beta1.Fleet)) error {
 	fleet, err := h.GetFleet(fleetName)
 	Expect(err).ToNot(HaveOccurred())
 
@@ -236,4 +238,26 @@ func (h *Harness) UpdateFleet(fleetName string, updateFunc func(*v1alpha1.Fleet)
 	}
 
 	return nil
+}
+
+func (h *Harness) FleetExists(fleetName string) bool {
+	resp, err := h.Client.GetFleetWithResponse(h.Context, fleetName, nil)
+	if err != nil {
+		return false
+	}
+	return resp.JSON200 != nil
+}
+
+func (h *Harness) WaitForFleetCount(params *v1beta1.ListFleetsParams, expectedCount int, timeout, polling time.Duration) {
+	Eventually(func() (int, error) {
+		resp, err := h.Client.ListFleetsWithResponse(h.Context, params)
+		if err != nil {
+			return 0, err
+		}
+		if resp.JSON200 == nil {
+			return 0, fmt.Errorf("unexpected nil response")
+		}
+		return len(resp.JSON200.Items), nil
+	}, timeout, polling).Should(Equal(expectedCount),
+		fmt.Sprintf("Expected %d fleets matching params", expectedCount))
 }

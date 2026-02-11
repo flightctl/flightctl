@@ -46,10 +46,6 @@ func NewRepositoryCollector(ctx context.Context, store store.Store, log logrus.F
 	return collector
 }
 
-func (c *RepositoryCollector) MetricsName() string {
-	return "repository"
-}
-
 func (c *RepositoryCollector) Describe(ch chan<- *prometheus.Desc) {
 	c.repositoriesGauge.Describe(ch)
 }

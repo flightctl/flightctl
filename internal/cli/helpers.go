@@ -3,13 +3,16 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"reflect"
+	"slices"
 	"strings"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
-	apiclient "github.com/flightctl/flightctl/internal/api/client"
+	api "github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/org"
 )
 
@@ -17,66 +20,141 @@ const (
 	NoneString = "<none>"
 )
 
+type ResourceKind string
+
 const (
-	CertificateSigningRequestKind = "certificatesigningrequest"
-	DeviceKind                    = "device"
-	EnrollmentRequestKind         = "enrollmentrequest"
-	EventKind                     = "event"
-	FleetKind                     = "fleet"
-	OrganizationKind              = "organization"
-	RepositoryKind                = "repository"
-	ResourceSyncKind              = "resourcesync"
-	TemplateVersionKind           = "templateversion"
+	InvalidKind                   ResourceKind = ""
+	CatalogKind                   ResourceKind = "catalog"
+	CatalogItemKind               ResourceKind = "catalogitem"
+	CertificateSigningRequestKind ResourceKind = "certificatesigningrequest"
+	DeviceKind                    ResourceKind = "device"
+	EnrollmentRequestKind         ResourceKind = "enrollmentrequest"
+	EventKind                     ResourceKind = "event"
+	AuthProviderKind              ResourceKind = "authprovider"
+	FleetKind                     ResourceKind = "fleet"
+	ImageBuildKind                ResourceKind = "imagebuild"
+	ImageExportKind               ResourceKind = "imageexport"
+	OrganizationKind              ResourceKind = "organization"
+	RepositoryKind                ResourceKind = "repository"
+	ResourceSyncKind              ResourceKind = "resourcesync"
+	TemplateVersionKind           ResourceKind = "templateversion"
 )
 
+func (r ResourceKind) String() string {
+	return string(r)
+}
+
+func (r ResourceKind) ToPlural() string {
+	return kindToPlural[r]
+}
+
+func ResourceKindFromString(kindLike string) (ResourceKind, error) {
+	kindLike = strings.ToLower(kindLike)
+	if _, ok := resourceKindSet[ResourceKind(kindLike)]; ok {
+		return ResourceKind(kindLike), nil
+	}
+	if kind, ok := pluralToKind[kindLike]; ok {
+		return kind, nil
+	}
+	if kind, ok := shortnameToKind[kindLike]; ok {
+		return kind, nil
+	}
+	return InvalidKind, fmt.Errorf("invalid resource kind: %s", kindLike)
+}
+
 var (
-	pluralKinds = map[string]string{
+	resourceKindSet = map[ResourceKind]struct{}{
+		CatalogKind:                   {},
+		CatalogItemKind:               {},
+		CertificateSigningRequestKind: {},
+		DeviceKind:                    {},
+		EnrollmentRequestKind:         {},
+		EventKind:                     {},
+		AuthProviderKind:              {},
+		FleetKind:                     {},
+		ImageBuildKind:                {},
+		ImageExportKind:               {},
+		OrganizationKind:              {},
+		RepositoryKind:                {},
+		ResourceSyncKind:              {},
+		TemplateVersionKind:           {},
+	}
+
+	validResourceKinds = slices.Collect(maps.Keys(resourceKindSet))
+
+	pluralToKind = map[string]ResourceKind{
+		"catalogs":                   CatalogKind,
+		"catalogitems":               CatalogItemKind,
+		"certificatesigningrequests": CertificateSigningRequestKind,
+		"devices":                    DeviceKind,
+		"enrollmentrequests":         EnrollmentRequestKind,
+		"events":                     EventKind,
+		"authproviders":              AuthProviderKind,
+		"fleets":                     FleetKind,
+		"imagebuilds":                ImageBuildKind,
+		"imageexports":               ImageExportKind,
+		"organizations":              OrganizationKind,
+		"repositories":               RepositoryKind,
+		"resourcesyncs":              ResourceSyncKind,
+		"templateversions":           TemplateVersionKind,
+	}
+
+	kindToPlural = map[ResourceKind]string{
+		CatalogKind:                   "catalogs",
+		CatalogItemKind:               "catalogitems",
 		CertificateSigningRequestKind: "certificatesigningrequests",
 		DeviceKind:                    "devices",
 		EnrollmentRequestKind:         "enrollmentrequests",
 		EventKind:                     "events",
+		AuthProviderKind:              "authproviders",
 		FleetKind:                     "fleets",
+		ImageBuildKind:                "imagebuilds",
+		ImageExportKind:               "imageexports",
 		OrganizationKind:              "organizations",
 		RepositoryKind:                "repositories",
 		ResourceSyncKind:              "resourcesyncs",
 		TemplateVersionKind:           "templateversions",
 	}
 
-	shortnameKinds = map[string]string{
-		CertificateSigningRequestKind: "csr",
-		DeviceKind:                    "dev",
-		EnrollmentRequestKind:         "er",
-		EventKind:                     "ev",
-		FleetKind:                     "flt",
-		OrganizationKind:              "org",
-		RepositoryKind:                "repo",
-		ResourceSyncKind:              "rs",
-		TemplateVersionKind:           "tv",
+	shortnameToKind = map[string]ResourceKind{
+		"cat":  CatalogKind,
+		"ci":   CatalogItemKind,
+		"csr":  CertificateSigningRequestKind,
+		"dev":  DeviceKind,
+		"er":   EnrollmentRequestKind,
+		"ev":   EventKind,
+		"ap":   AuthProviderKind,
+		"flt":  FleetKind,
+		"ib":   ImageBuildKind,
+		"ie":   ImageExportKind,
+		"org":  OrganizationKind,
+		"repo": RepositoryKind,
+		"rs":   ResourceSyncKind,
+		"tv":   TemplateVersionKind,
 	}
 )
 
-func getValidResourceKinds() []string {
-	resourceKinds := make([]string, len(pluralKinds))
+func getValidPluralResourceKinds() []string {
+	resourceKinds := make([]string, len(pluralToKind))
 	i := 0
-	for _, v := range pluralKinds {
+	for v := range pluralToKind {
 		resourceKinds[i] = v
 		i++
 	}
 	return resourceKinds
 }
 
-func parseAndValidateKindName(arg string) (string, string, error) {
-	kind, name, _ := strings.Cut(arg, "/")
-	kind = singular(kind)
-	kind = fullname(kind)
-	if _, ok := pluralKinds[kind]; !ok {
-		return "", "", fmt.Errorf("invalid resource kind: %s", kind)
+func parseAndValidateKindName(arg string) (ResourceKind, string, error) {
+	kindLike, name, _ := strings.Cut(arg, "/")
+	kind, err := ResourceKindFromString(kindLike)
+	if err != nil {
+		return "", "", err
 	}
 	return kind, name, nil
 }
 
 // parseAndValidateKindNameFromArgs handles both "kind/name" and "kind name [name ...]" formats
-func parseAndValidateKindNameFromArgs(args []string) (string, []string, error) {
+func parseAndValidateKindNameFromArgs(args []string) (ResourceKind, []string, error) {
 	if len(args) == 0 {
 		return "", nil, fmt.Errorf("no arguments provided")
 	}
@@ -102,11 +180,10 @@ func parseAndValidateKindNameFromArgs(args []string) (string, []string, error) {
 	}
 
 	// Handle TYPE NAME [NAME ...] format
-	kind := args[0]
-	kind = singular(kind)
-	kind = fullname(kind)
-	if _, ok := pluralKinds[kind]; !ok {
-		return "", nil, fmt.Errorf("invalid resource kind: %s", kind)
+	kindLike := args[0]
+	kind, err := ResourceKindFromString(kindLike)
+	if err != nil {
+		return "", nil, err
 	}
 
 	var names []string
@@ -117,11 +194,14 @@ func parseAndValidateKindNameFromArgs(args []string) (string, []string, error) {
 	return kind, names, nil
 }
 
-// parseAndValidateKindNameFromArgsSingle handles both "kind/name" and "kind name" formats
-// but only allows a single resource name (not multiple)
-func parseAndValidateKindNameFromArgsSingle(args []string) (string, string, error) {
+// parseAndValidateKindNameFromArgsOptionalSingle handles "kind", "kind/name" and "kind name" formats
+// but only allows at most a single resource name (not multiple)
+func parseAndValidateKindNameFromArgsOptionalSingle(args []string) (ResourceKind, string, error) {
 	if len(args) == 0 {
 		return "", "", fmt.Errorf("no arguments provided")
+	}
+	if len(args) > 2 {
+		return "", "", errors.New("resource must be specified in TYPE/NAME, or TYPE NAME format")
 	}
 
 	// Check if first argument contains a slash (TYPE/NAME format)
@@ -140,41 +220,35 @@ func parseAndValidateKindNameFromArgsSingle(args []string) (string, string, erro
 		return kind, name, nil
 	}
 
+	kindLike := args[0]
+	kind, err := ResourceKindFromString(kindLike)
+	if err != nil {
+		return "", "", err
+	}
+
+	name := ""
 	// Handle TYPE NAME format (single name only)
-	if len(args) != 2 {
+	if len(args) == 2 {
+		name = args[1]
+	}
+
+	return kind, name, nil
+}
+
+// parseAndValidateKindNameFromArgsSingle handles both "kind/name" and "kind name" formats
+// but only allows a single resource name (not multiple)
+func parseAndValidateKindNameFromArgsSingle(args []string) (ResourceKind, string, error) {
+	if len(args) > 2 {
+		return "", "", fmt.Errorf("exactly one resource name must be specified")
+	}
+	kind, name, err := parseAndValidateKindNameFromArgsOptionalSingle(args)
+	if err != nil {
+		return "", "", err
+	}
+	if len(name) == 0 {
 		return "", "", fmt.Errorf("exactly one resource name must be specified. Use 'TYPE NAME' format")
 	}
-
-	kind := args[0]
-	kind = singular(kind)
-	kind = fullname(kind)
-	if _, ok := pluralKinds[kind]; !ok {
-		return "", "", fmt.Errorf("invalid resource kind: %s", kind)
-	}
-
-	return kind, args[1], nil
-}
-
-func singular(kind string) string {
-	for singular, plural := range pluralKinds {
-		if kind == plural {
-			return singular
-		}
-	}
-	return kind
-}
-
-func plural(kind string) string {
-	return pluralKinds[kind]
-}
-
-func fullname(kind string) string {
-	for fullname, shortname := range shortnameKinds {
-		if kind == shortname {
-			return fullname
-		}
-	}
-	return kind
+	return kind, name, nil
 }
 
 func validateHttpResponse(responseBody []byte, statusCode int, expectedStatusCode int) error {
@@ -240,8 +314,7 @@ func responseField[T any](response interface{}, name string) (T, error) {
 }
 
 // GetSingleResource fetches a single resource by kind and name.
-// This function centralizes the resource fetching logic used by both get and edit commands.
-func GetSingleResource(ctx context.Context, c *apiclient.ClientWithResponses, kind, name string) (interface{}, error) {
+func GetSingleResource(ctx context.Context, c *client.Client, kind ResourceKind, name string) (interface{}, error) {
 	switch kind {
 	case DeviceKind:
 		return c.GetDeviceWithResponse(ctx, name)
@@ -256,23 +329,25 @@ func GetSingleResource(ctx context.Context, c *apiclient.ClientWithResponses, ki
 		return c.GetResourceSyncWithResponse(ctx, name)
 	case CertificateSigningRequestKind:
 		return c.GetCertificateSigningRequestWithResponse(ctx, name)
+	case AuthProviderKind:
+		return c.GetAuthProviderWithResponse(ctx, name)
 	default:
 		return nil, fmt.Errorf("unsupported resource kind: %s", kind)
 	}
 }
 
 // GetRenderedDevice fetches a rendered device configuration.
-func GetRenderedDevice(ctx context.Context, c *apiclient.ClientWithResponses, name string) (interface{}, error) {
+func GetRenderedDevice(ctx context.Context, c *client.Client, name string) (interface{}, error) {
 	return c.GetRenderedDeviceWithResponse(ctx, name, &api.GetRenderedDeviceParams{})
 }
 
 // GetLastSeenDevice fetches the last seen timestamp for a device.
-func GetLastSeenDevice(ctx context.Context, c *apiclient.ClientWithResponses, name string) (interface{}, error) {
+func GetLastSeenDevice(ctx context.Context, c *client.Client, name string) (interface{}, error) {
 	return c.GetDeviceLastSeenWithResponse(ctx, name)
 }
 
 // GetTemplateVersion fetches a template version with the specified fleet name.
-func GetTemplateVersion(ctx context.Context, c *apiclient.ClientWithResponses, fleetName, name string) (interface{}, error) {
+func GetTemplateVersion(ctx context.Context, c *client.Client, fleetName, name string) (interface{}, error) {
 	return c.GetTemplateVersionWithResponse(ctx, fleetName, name)
 }
 
@@ -316,6 +391,31 @@ func validateResponse(response interface{}) error {
 	}
 
 	if httpResponse.StatusCode != http.StatusOK && httpResponse.StatusCode != http.StatusNoContent {
+		if strings.Contains(httpResponse.Header.Get("Content-Type"), "json") {
+			var dest api.Status
+			if err := json.Unmarshal(responseBody, &dest); err != nil {
+				return fmt.Errorf("unmarshalling error: %w", err)
+			}
+			return fmt.Errorf("response status: %d, message: %s", httpResponse.StatusCode, dest.Message)
+		}
+		return fmt.Errorf("response status: %d", httpResponse.StatusCode)
+	}
+	return nil
+}
+
+// validateImageBuilderResponse validates an imagebuilder HTTP response and returns an error if the status is not OK.
+func validateImageBuilderResponse(response interface{}) error {
+	httpResponse, err := responseField[*http.Response](response, "HTTPResponse")
+	if err != nil {
+		return err
+	}
+
+	responseBody, err := responseField[[]byte](response, "Body")
+	if err != nil {
+		return err
+	}
+
+	if httpResponse.StatusCode != http.StatusOK && httpResponse.StatusCode != http.StatusCreated && httpResponse.StatusCode != http.StatusNoContent {
 		if strings.Contains(httpResponse.Header.Get("Content-Type"), "json") {
 			var dest api.Status
 			if err := json.Unmarshal(responseBody, &dest); err != nil {

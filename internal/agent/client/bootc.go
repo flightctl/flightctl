@@ -69,7 +69,7 @@ func (b *bootc) Switch(ctx context.Context, image string) error {
 		}
 		_, stderr, exitCode := b.executer.ExecuteWithContext(ctx, BootcCmd, args...)
 		if exitCode != 0 {
-			done <- fmt.Errorf("stage image: %w", errors.FromStderr(stderr, exitCode))
+			done <- fmt.Errorf("%w: %w", errors.ErrStageImage, errors.FromStderr(stderr, exitCode))
 			return
 		}
 		done <- nil
@@ -99,7 +99,7 @@ func (b *bootc) Apply(ctx context.Context) error {
 	args := []string{"upgrade", "--apply"}
 	_, stderr, exitCode := b.executer.ExecuteWithContext(ctx, BootcCmd, args...)
 	if exitCode != 0 && exitCode != 137 { // 137 is the exit code for SIGKILL and is expected during reboot 128 + SIGKILL (9)
-		return fmt.Errorf("apply image: %w", errors.FromStderr(stderr, exitCode))
+		return fmt.Errorf("%w: %w", errors.ErrApplyImage, errors.FromStderr(stderr, exitCode))
 	}
 	return nil
 }

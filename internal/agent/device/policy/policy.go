@@ -3,7 +3,7 @@ package policy
 import (
 	"context"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 )
 
 type Type string
@@ -14,6 +14,6 @@ const (
 )
 
 type Manager interface {
-	Sync(ctx context.Context, desired *v1alpha1.DeviceSpec) error
+	Sync(ctx context.Context, desired *v1beta1.DeviceSpec) error
 	IsReady(ctx context.Context, policyType Type) bool
 }

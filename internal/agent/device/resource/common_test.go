@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/stretchr/testify/require"
 )
@@ -18,8 +18,8 @@ func TestUpdateMonitor(t *testing.T) {
 	require := require.New(t)
 	tests := []struct {
 		name                  string
-		monitor               v1alpha1.ResourceMonitor
-		alerts                map[v1alpha1.ResourceAlertSeverityType]*Alert
+		monitor               v1beta1.ResourceMonitor
+		alerts                map[v1beta1.ResourceAlertSeverityType]*Alert
 		currentSampleInterval time.Duration
 		expectedUpdated       bool
 		alertRuleCount        int
@@ -49,10 +49,10 @@ func TestUpdateMonitor(t *testing.T) {
 			name:                  "update monitor remove alerts",
 			monitor:               newEmptyMonitor(require, 1*time.Second),
 			currentSampleInterval: 1 * time.Second,
-			alerts: map[v1alpha1.ResourceAlertSeverityType]*Alert{
-				v1alpha1.ResourceAlertSeverityTypeCritical: {
-					ResourceAlertRule: v1alpha1.ResourceAlertRule{
-						Severity: v1alpha1.ResourceAlertSeverityTypeCritical,
+			alerts: map[v1beta1.ResourceAlertSeverityType]*Alert{
+				v1beta1.ResourceAlertSeverityTypeCritical: {
+					ResourceAlertRule: v1beta1.ResourceAlertRule{
+						Severity: v1beta1.ResourceAlertSeverityTypeCritical,
 					},
 				},
 			},
@@ -65,9 +65,9 @@ func TestUpdateMonitor(t *testing.T) {
 			log := log.NewPrefixLogger("test")
 			updateIntervalCh := make(chan time.Duration, 1)
 
-			var alerts map[v1alpha1.ResourceAlertSeverityType]*Alert
+			var alerts map[v1beta1.ResourceAlertSeverityType]*Alert
 			if tt.alerts == nil {
-				alerts = make(map[v1alpha1.ResourceAlertSeverityType]*Alert)
+				alerts = make(map[v1beta1.ResourceAlertSeverityType]*Alert)
 			} else {
 				alerts = tt.alerts
 			}
@@ -91,7 +91,7 @@ func TestIsAlertFiring(t *testing.T) {
 		{
 			name: "usage percentage is below alert percentage",
 			alert: &Alert{
-				ResourceAlertRule: v1alpha1.ResourceAlertRule{
+				ResourceAlertRule: v1beta1.ResourceAlertRule{
 					Percentage: 2,
 					Duration:   "1s",
 				},
@@ -103,7 +103,7 @@ func TestIsAlertFiring(t *testing.T) {
 		{
 			name: "alert firing over duration",
 			alert: &Alert{
-				ResourceAlertRule: v1alpha1.ResourceAlertRule{
+				ResourceAlertRule: v1beta1.ResourceAlertRule{
 					Percentage: 1,
 					Duration:   "1h",
 				},
@@ -116,7 +116,7 @@ func TestIsAlertFiring(t *testing.T) {
 		{
 			name: "alert observed but below duration threshold",
 			alert: &Alert{
-				ResourceAlertRule: v1alpha1.ResourceAlertRule{
+				ResourceAlertRule: v1beta1.ResourceAlertRule{
 					Percentage: 80,
 					Duration:   "30m",
 				},
@@ -140,55 +140,55 @@ func TestUpdateAlerts(t *testing.T) {
 	require := require.New(t)
 	tests := []struct {
 		name            string
-		existingAlerts  map[v1alpha1.ResourceAlertSeverityType]*Alert
-		expectedAlerts  map[v1alpha1.ResourceAlertSeverityType]*Alert
+		existingAlerts  map[v1beta1.ResourceAlertSeverityType]*Alert
+		expectedAlerts  map[v1beta1.ResourceAlertSeverityType]*Alert
 		expectedUpdated bool
-		newRules        []v1alpha1.ResourceAlertRule
+		newRules        []v1beta1.ResourceAlertRule
 	}{
 		{
 			name: "new rules empty clear existing alerts",
-			existingAlerts: map[v1alpha1.ResourceAlertSeverityType]*Alert{
-				v1alpha1.ResourceAlertSeverityTypeCritical: {
-					ResourceAlertRule: v1alpha1.ResourceAlertRule{
+			existingAlerts: map[v1beta1.ResourceAlertSeverityType]*Alert{
+				v1beta1.ResourceAlertSeverityTypeCritical: {
+					ResourceAlertRule: v1beta1.ResourceAlertRule{
 						Percentage: 80,
 						Duration:   "1s",
 					},
 					duration: 1 * time.Second,
 				},
 			},
-			expectedAlerts:  map[v1alpha1.ResourceAlertSeverityType]*Alert{},
-			newRules:        []v1alpha1.ResourceAlertRule{},
+			expectedAlerts:  map[v1beta1.ResourceAlertSeverityType]*Alert{},
+			newRules:        []v1beta1.ResourceAlertRule{},
 			expectedUpdated: true,
 		},
 		{
 			name: "new rules remove an existing alerts",
-			existingAlerts: map[v1alpha1.ResourceAlertSeverityType]*Alert{
-				v1alpha1.ResourceAlertSeverityTypeCritical: {
-					ResourceAlertRule: v1alpha1.ResourceAlertRule{
+			existingAlerts: map[v1beta1.ResourceAlertSeverityType]*Alert{
+				v1beta1.ResourceAlertSeverityTypeCritical: {
+					ResourceAlertRule: v1beta1.ResourceAlertRule{
 						Percentage: 80,
 						Duration:   "1s",
 					},
 				},
-				v1alpha1.ResourceAlertSeverityTypeWarning: {
-					ResourceAlertRule: v1alpha1.ResourceAlertRule{
+				v1beta1.ResourceAlertSeverityTypeWarning: {
+					ResourceAlertRule: v1beta1.ResourceAlertRule{
 						Percentage: 40,
 						Duration:   "1h",
 					},
 				},
 			},
-			expectedAlerts: map[v1alpha1.ResourceAlertSeverityType]*Alert{
-				v1alpha1.ResourceAlertSeverityTypeWarning: {
-					ResourceAlertRule: v1alpha1.ResourceAlertRule{
-						Severity:   v1alpha1.ResourceAlertSeverityTypeWarning,
+			expectedAlerts: map[v1beta1.ResourceAlertSeverityType]*Alert{
+				v1beta1.ResourceAlertSeverityTypeWarning: {
+					ResourceAlertRule: v1beta1.ResourceAlertRule{
+						Severity:   v1beta1.ResourceAlertSeverityTypeWarning,
 						Percentage: 40,
 						Duration:   "1h",
 					},
 					duration: 1 * time.Hour,
 				},
 			},
-			newRules: []v1alpha1.ResourceAlertRule{
+			newRules: []v1beta1.ResourceAlertRule{
 				{
-					Severity:   v1alpha1.ResourceAlertSeverityTypeWarning,
+					Severity:   v1beta1.ResourceAlertSeverityTypeWarning,
 					Percentage: 40,
 					Duration:   "1h",
 				},
@@ -197,20 +197,20 @@ func TestUpdateAlerts(t *testing.T) {
 		},
 		{
 			name:           "new rules add an alert",
-			existingAlerts: map[v1alpha1.ResourceAlertSeverityType]*Alert{},
-			expectedAlerts: map[v1alpha1.ResourceAlertSeverityType]*Alert{
-				v1alpha1.ResourceAlertSeverityTypeWarning: {
-					ResourceAlertRule: v1alpha1.ResourceAlertRule{
-						Severity:   v1alpha1.ResourceAlertSeverityTypeWarning,
+			existingAlerts: map[v1beta1.ResourceAlertSeverityType]*Alert{},
+			expectedAlerts: map[v1beta1.ResourceAlertSeverityType]*Alert{
+				v1beta1.ResourceAlertSeverityTypeWarning: {
+					ResourceAlertRule: v1beta1.ResourceAlertRule{
+						Severity:   v1beta1.ResourceAlertSeverityTypeWarning,
 						Percentage: 40,
 						Duration:   "1h",
 					},
 					duration: 1 * time.Hour,
 				},
 			},
-			newRules: []v1alpha1.ResourceAlertRule{
+			newRules: []v1beta1.ResourceAlertRule{
 				{
-					Severity:   v1alpha1.ResourceAlertSeverityTypeWarning,
+					Severity:   v1beta1.ResourceAlertSeverityTypeWarning,
 					Percentage: 40,
 					Duration:   "1h",
 				},
@@ -219,27 +219,27 @@ func TestUpdateAlerts(t *testing.T) {
 		},
 		{
 			name: "new rules no change",
-			existingAlerts: map[v1alpha1.ResourceAlertSeverityType]*Alert{
-				v1alpha1.ResourceAlertSeverityTypeWarning: {
-					ResourceAlertRule: v1alpha1.ResourceAlertRule{
-						Severity:   v1alpha1.ResourceAlertSeverityTypeWarning,
+			existingAlerts: map[v1beta1.ResourceAlertSeverityType]*Alert{
+				v1beta1.ResourceAlertSeverityTypeWarning: {
+					ResourceAlertRule: v1beta1.ResourceAlertRule{
+						Severity:   v1beta1.ResourceAlertSeverityTypeWarning,
 						Percentage: 40,
 						Duration:   "1h",
 					},
 				},
 			},
-			expectedAlerts: map[v1alpha1.ResourceAlertSeverityType]*Alert{
-				v1alpha1.ResourceAlertSeverityTypeWarning: {
-					ResourceAlertRule: v1alpha1.ResourceAlertRule{
-						Severity:   v1alpha1.ResourceAlertSeverityTypeWarning,
+			expectedAlerts: map[v1beta1.ResourceAlertSeverityType]*Alert{
+				v1beta1.ResourceAlertSeverityTypeWarning: {
+					ResourceAlertRule: v1beta1.ResourceAlertRule{
+						Severity:   v1beta1.ResourceAlertSeverityTypeWarning,
 						Percentage: 40,
 						Duration:   "1h",
 					},
 				},
 			},
-			newRules: []v1alpha1.ResourceAlertRule{
+			newRules: []v1beta1.ResourceAlertRule{
 				{
-					Severity:   v1alpha1.ResourceAlertSeverityTypeWarning,
+					Severity:   v1beta1.ResourceAlertSeverityTypeWarning,
 					Percentage: 40,
 					Duration:   "1h",
 				},
@@ -261,44 +261,44 @@ func TestUpdateAlerts(t *testing.T) {
 	}
 }
 
-func newEmptyMonitor(require *require.Assertions, samplingInterval time.Duration) v1alpha1.ResourceMonitor {
-	monitorSpec := v1alpha1.CpuResourceMonitorSpec{
+func newEmptyMonitor(require *require.Assertions, samplingInterval time.Duration) v1beta1.ResourceMonitor {
+	monitorSpec := v1beta1.CpuResourceMonitorSpec{
 		SamplingInterval: samplingInterval.String(),
 		MonitorType:      CPUMonitorType,
-		AlertRules:       []v1alpha1.ResourceAlertRule{},
+		AlertRules:       []v1beta1.ResourceAlertRule{},
 	}
-	rm := v1alpha1.ResourceMonitor{}
+	rm := v1beta1.ResourceMonitor{}
 	err := rm.FromCpuResourceMonitorSpec(monitorSpec)
 	require.NoError(err)
 	return rm
 }
 
-func newMockCPUResourceMonitor(require *require.Assertions, samplingInterval time.Duration) v1alpha1.ResourceMonitor {
-	monitorSpec := v1alpha1.CpuResourceMonitorSpec{
+func newMockCPUResourceMonitor(require *require.Assertions, samplingInterval time.Duration) v1beta1.ResourceMonitor {
+	monitorSpec := v1beta1.CpuResourceMonitorSpec{
 		SamplingInterval: samplingInterval.String(),
 		MonitorType:      CPUMonitorType,
-		AlertRules: []v1alpha1.ResourceAlertRule{
+		AlertRules: []v1beta1.ResourceAlertRule{
 			{
-				Severity:    v1alpha1.ResourceAlertSeverityTypeCritical,
+				Severity:    v1beta1.ResourceAlertSeverityTypeCritical,
 				Percentage:  80,
 				Duration:    "20m",
 				Description: "Critical: CPU usage is above 80% for 20m",
 			},
 			{
-				Severity:    v1alpha1.ResourceAlertSeverityTypeWarning,
+				Severity:    v1beta1.ResourceAlertSeverityTypeWarning,
 				Percentage:  70,
 				Duration:    "10m",
 				Description: "Warning: CPU usage is above 70% for 10m",
 			},
 			{
-				Severity:    v1alpha1.ResourceAlertSeverityTypeInfo,
+				Severity:    v1beta1.ResourceAlertSeverityTypeInfo,
 				Percentage:  50,
 				Duration:    "1h",
 				Description: "Warning: CPU usage is above 50% for 1h",
 			},
 		},
 	}
-	rm := v1alpha1.ResourceMonitor{}
+	rm := v1beta1.ResourceMonitor{}
 	err := rm.FromCpuResourceMonitorSpec(monitorSpec)
 	require.NoError(err)
 	return rm

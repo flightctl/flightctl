@@ -1,0 +1,17 @@
+[Unit]
+Description=Flight Control Certificates Initialization
+PartOf=flightctl.target
+# The db service initializes configuration (.global.baseDomain) this service relies on
+After=flightctl-db.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=true
+Restart=on-failure
+RestartSec=5s
+ExecStart=/usr/share/flightctl/init_certs.sh
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=flightctl.target

@@ -8,7 +8,7 @@ GO_INTEGRATIONTEST_DIRS ?= ./test/integration/...
 GO_E2E_DIRS 			= ./test/e2e/...
 
 GO_UNITTEST_FLAGS 		 = $(GO_TESTING_FLAGS) $(GO_UNITTEST_DIRS)        -coverprofile=$(REPORTS)/unit-coverage.out
-GO_INTEGRATIONTEST_FLAGS = $(GO_TESTING_FLAGS) $(GO_INTEGRATIONTEST_DIRS) -coverprofile=$(REPORTS)/integration-coverage.out
+GO_INTEGRATIONTEST_FLAGS = $(GO_TESTING_FLAGS) $(if $(TEST_DIR),$(TEST_DIR),$(GO_INTEGRATIONTEST_DIRS)) $(if $(TESTS),-run $(TESTS)) -coverprofile=$(REPORTS)/integration-coverage.out
 
 # Common environment flags for test tracing enforcement
 ENV_TRACE_FLAGS = TRACE_TESTS=false GORM_TRACE_ENFORCE_FATAL=true GORM_TRACE_INCLUDE_QUERY_VARIABLES=true
@@ -17,6 +17,7 @@ ifeq ($(VERBOSE), true)
 	GO_TEST_FORMAT=standard-verbose
 	GO_UNITTEST_FLAGS += -v
 	GO_INTEGRATIONTEST_FLAGS += -v
+	ENV_TRACE_FLAGS += LOG_LEVEL=debug
 endif
 
 GO_TEST_FLAGS := 			 --format=$(GO_TEST_FORMAT) --junitfile $(REPORTS)/junit_unit_test.xml $(GOTEST_PUBLISH_FLAGS)
@@ -47,7 +48,7 @@ unit-test:
 	$(ENV_TRACE_FLAGS) $(MAKE) _unit_test TEST="$(or $(TEST),$(shell go list ./pkg/... ./internal/... ./cmd/...))"
 
 run-integration-test:
-	$(ENV_TRACE_FLAGS) $(MAKE) _integration_test TEST="$(or $(TEST),$(shell go list ./test/integration/...))"
+	$(ENV_TRACE_FLAGS) $(MAKE) _integration_test TEST="$(or $(TEST),$(shell go list $(if $(TEST_DIR),$(TEST_DIR),./test/integration/...)))"
 
 
 integration-test: export FLIGHTCTL_KV_PASSWORD=adminpass
@@ -113,14 +114,14 @@ _run_template_migration:
     test/scripts/run_migration.sh \
 	'
 
-deploy-e2e-extras: bin/.ssh/id_rsa.pub bin/e2e-certs/ca.pem git-server-container
+deploy-e2e-extras: bin/.ssh/id_rsa.pub bin/e2e-certs/ca.pem
 	test/scripts/deploy_e2e_extras_with_helm.sh
 
 deploy-e2e-ocp-test-vm:
 	sudo --preserve-env=VM_DISK_SIZE_INC test/scripts/create_vm_libvirt.sh ${KUBECONFIG_PATH}
 
 deploy-quadlets-vm:
-	sudo --preserve-env=VM_DISK_SIZE_INC --preserve-env=USER --preserve-env=REDHAT_USER --preserve-env=REDHAT_PASSWORD test/scripts/deploy_quadlets_rhel.sh
+	sudo --preserve-env=VM_DISK_SIZE_INC --preserve-env=USER --preserve-env=REDHAT_USER --preserve-env=REDHAT_PASSWORD --preserve-env=GIT_VERSION --preserve-env=BREW_BUILD_URL test/scripts/deploy_quadlets_rhel.sh
 
 clean-quadlets-vm:
 	@echo "Cleaning up quadlets-vm..."
@@ -130,30 +131,38 @@ clean-quadlets-vm:
 	@sudo rm -f /var/lib/libvirt/images/quadlets-vm_src.qcow2 2>/dev/null || true
 	@echo "quadlets-vm cleanup completed"
 
-prepare-e2e-test: deploy-e2e-extras bin/output/qcow2/disk.qcow2 build-e2e-containers
+bin/.e2e-agent-injected: bin/output/qcow2/disk.qcow2 bin/.e2e-agent-certs
+	QCOW=bin/output/qcow2/disk.qcow2 AGENT_DIR=bin/agent/etc/flightctl test/scripts/inject_agent_files_into_qcow.sh
+	touch bin/.e2e-agent-injected
+
+prepare-e2e-qcow-config: bin/.e2e-agent-injected
+
+prepare-e2e-test: RPM_MOCK_ROOT=centos-stream+epel-next-9-x86_64
+prepare-e2e-test: deploy-e2e-extras build-e2e-containers push-e2e-agent-images prepare-e2e-qcow-config
 	./test/scripts/prepare_cli.sh
 
 # Build E2E containers with Docker caching
-build-e2e-containers: git-server-container e2e-agent-images
+build-e2e-containers: e2e-agent-images git-server-container
 	@echo "Building E2E containers with Docker caching..."
 
 # Ensure git-server container is built with proper caching
 git-server-container: bin/e2e-certs/ca.pem
 	@echo "Building git-server container with Docker caching..."
 	test/scripts/prepare_git_server.sh
-	@if test/scripts/functions in_kind; then \
-		echo "Loading git-server into kind cluster..."; \
-		source test/scripts/functions && kind_load_image localhost/git-server:latest; \
-	fi
+	@bash -c 'source test/scripts/functions && in_kind && echo "Loading git-server into kind cluster..." && kind_load_image localhost/git-server:latest' || true
 
-# Build E2E agent images with proper caching
-e2e-agent-images: bin/.e2e-agent-images
+# Build E2E agent images with proper caching (offline build – no cert generation)
+# Sentinel file includes AGENT_OS_ID to ensure rebuilds when OS changes
+E2E_AGENT_IMAGES_SENTINEL := $(ROOT_DIR)/bin/.e2e-agent-images-$(AGENT_OS_ID)
+
+e2e-agent-images: $(E2E_AGENT_IMAGES_SENTINEL)
 	@echo "E2E agent images already built and up to date"
 
 in-cluster-e2e-test: prepare-e2e-test
 	$(MAKE) _e2e_test
 
-e2e-test: deploy bin/output/qcow2/disk.qcow2
+e2e-test: RPM_MOCK_ROOT=centos-stream+epel-next-9-x86_64
+e2e-test: deploy prepare-e2e-qcow-config
 	$(MAKE) _e2e_test
 
 # Run e2e tests with optional parallel execution
@@ -186,7 +195,10 @@ prepare-swtpm-certs:
 clean-swtpm-certs:
 	rm -rf $(TEMP_SWTPM_CERT_DIR)
 
-.PHONY: test run-test git-server-container
+clean-e2e-certs:
+	rm -rf bin/e2e-certs bin/.ssh
+
+.PHONY: test run-test git-server-container e2e-agent-images push-e2e-agent-images clean-e2e-certs
 
 $(REPORTS):
 	-mkdir -p $(REPORTS)

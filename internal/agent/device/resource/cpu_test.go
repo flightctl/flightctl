@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
@@ -16,8 +16,8 @@ func TestCPUMonitor(t *testing.T) {
 		name         string
 		prev         *CPUUsage
 		snapshots    []*CPUUsage
-		alertRules   []v1alpha1.ResourceAlertRule
-		expectFiring []v1alpha1.ResourceAlertSeverityType
+		alertRules   []v1beta1.ResourceAlertRule
+		expectFiring []v1beta1.ResourceAlertSeverityType
 		expectUsages []int64
 	}{
 		{
@@ -27,8 +27,8 @@ func TestCPUMonitor(t *testing.T) {
 				{User: 1005, System: 1005, Idle: 8090}, // prev -> 10%
 				{User: 1010, System: 1010, Idle: 8180}, // snapshot[0] -> 10%
 			},
-			alertRules: []v1alpha1.ResourceAlertRule{
-				{Severity: v1alpha1.ResourceAlertSeverityTypeWarning, Percentage: 11, Duration: "1ms"},
+			alertRules: []v1beta1.ResourceAlertRule{
+				{Severity: v1beta1.ResourceAlertSeverityTypeWarning, Percentage: 11, Duration: "1ms"},
 			},
 			expectFiring: nil,
 			expectUsages: []int64{10, 10},
@@ -40,10 +40,10 @@ func TestCPUMonitor(t *testing.T) {
 				{User: 1004, System: 1004, Idle: 8086}, // prev -> 9%
 				{User: 1008, System: 1008, Idle: 8172}, // snapshot[0] -> 9%
 			},
-			alertRules: []v1alpha1.ResourceAlertRule{
-				{Severity: v1alpha1.ResourceAlertSeverityTypeWarning, Percentage: 5, Duration: "1ms"},
+			alertRules: []v1beta1.ResourceAlertRule{
+				{Severity: v1beta1.ResourceAlertSeverityTypeWarning, Percentage: 5, Duration: "1ms"},
 			},
-			expectFiring: []v1alpha1.ResourceAlertSeverityType{v1alpha1.ResourceAlertSeverityTypeWarning},
+			expectFiring: []v1beta1.ResourceAlertSeverityType{v1beta1.ResourceAlertSeverityTypeWarning},
 			expectUsages: []int64{9, 9},
 		},
 		{
@@ -53,8 +53,8 @@ func TestCPUMonitor(t *testing.T) {
 				{User: 1010, System: 1010, Idle: 8080}, // prev -> 20%
 				{User: 1012, System: 1013, Idle: 8175}, // snapshot[0] -> 5% clear alert
 			},
-			alertRules: []v1alpha1.ResourceAlertRule{
-				{Severity: v1alpha1.ResourceAlertSeverityTypeWarning, Percentage: 11, Duration: "1ms"},
+			alertRules: []v1beta1.ResourceAlertRule{
+				{Severity: v1beta1.ResourceAlertSeverityTypeWarning, Percentage: 11, Duration: "1ms"},
 			},
 			expectFiring: nil,
 			expectUsages: []int64{20, 5},
@@ -66,8 +66,8 @@ func TestCPUMonitor(t *testing.T) {
 				{User: 1000, System: 1000, Idle: 8000}, // prev -> 0%
 				{User: 1000, System: 1000, Idle: 8000}, // snapshot[0] -> 0%
 			},
-			alertRules: []v1alpha1.ResourceAlertRule{
-				{Severity: v1alpha1.ResourceAlertSeverityTypeCritical, Percentage: 1, Duration: "1ms"},
+			alertRules: []v1beta1.ResourceAlertRule{
+				{Severity: v1beta1.ResourceAlertSeverityTypeCritical, Percentage: 1, Duration: "1ms"},
 			},
 			expectFiring: nil,
 			expectUsages: []int64{0, 0},
@@ -79,14 +79,14 @@ func TestCPUMonitor(t *testing.T) {
 				{User: 1030, System: 1030, Idle: 8040}, // prev -> 60%
 				{User: 1060, System: 1060, Idle: 8080}, // snapshot[0] -> 60%
 			},
-			alertRules: []v1alpha1.ResourceAlertRule{
-				{Severity: v1alpha1.ResourceAlertSeverityTypeWarning, Percentage: 20, Duration: "1ms"},
-				{Severity: v1alpha1.ResourceAlertSeverityTypeCritical, Percentage: 50, Duration: "1ms"},
+			alertRules: []v1beta1.ResourceAlertRule{
+				{Severity: v1beta1.ResourceAlertSeverityTypeWarning, Percentage: 20, Duration: "1ms"},
+				{Severity: v1beta1.ResourceAlertSeverityTypeCritical, Percentage: 50, Duration: "1ms"},
 			},
 			expectUsages: []int64{60, 60},
-			expectFiring: []v1alpha1.ResourceAlertSeverityType{
-				v1alpha1.ResourceAlertSeverityTypeWarning,
-				v1alpha1.ResourceAlertSeverityTypeCritical,
+			expectFiring: []v1beta1.ResourceAlertSeverityType{
+				v1beta1.ResourceAlertSeverityTypeWarning,
+				v1beta1.ResourceAlertSeverityTypeCritical,
 			},
 		},
 	}
@@ -102,7 +102,7 @@ func TestCPUMonitor(t *testing.T) {
 
 			cpuMonitor := &CPUMonitor{
 				log:       log,
-				alerts:    make(map[v1alpha1.ResourceAlertSeverityType]*Alert),
+				alerts:    make(map[v1beta1.ResourceAlertSeverityType]*Alert),
 				collector: collector,
 				prevUsage: tt.prev,
 			}
@@ -124,7 +124,7 @@ func TestCPUMonitor(t *testing.T) {
 				require.Equalf(expected, usage.UsedPercent, "sync %d: expected %d%% usage", i+1, expected)
 			}
 
-			var gotSeverities []v1alpha1.ResourceAlertSeverityType
+			var gotSeverities []v1beta1.ResourceAlertSeverityType
 			for _, alert := range cpuMonitor.Alerts() {
 				gotSeverities = append(gotSeverities, alert.Severity)
 			}

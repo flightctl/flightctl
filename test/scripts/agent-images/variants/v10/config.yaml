@@ -1,0 +1,26 @@
+receivers:
+  hostmetrics:
+    collection_interval: 10s
+    scrapers: { cpu: {}, memory: {} }
+  hostmetrics/disk:
+    collection_interval: 1m
+    scrapers: { disk: {}, filesystem: {} }
+
+processors:
+  batch: {}
+
+exporters:
+  otlp:
+    endpoint: ${OTEL_GATEWAY}
+    tls:
+      ca_file:   /etc/otelcol/certs/gateway-ca.crt
+      cert_file: /etc/otelcol/certs/otel.crt
+      key_file:  /etc/otelcol/certs/otel.key
+      insecure:  false
+
+service:
+  pipelines:
+    metrics:
+      receivers: [hostmetrics, hostmetrics/disk]
+      processors: [batch]
+      exporters: [otlp]

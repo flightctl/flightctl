@@ -1,15 +1,16 @@
 package validation
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
 
-	"github.com/flightctl/flightctl/internal/agent/device/errors"
+	deviceerrors "github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/api/common"
 )
 
-var ErrHardCodedContainerName = errors.New("hardcoded container_name")
+var ErrHardCodedContainerName = deviceerrors.New("hardcoded container_name")
 
 func isAtRoot(path string) bool {
 	return filepath.Base(path) == path
@@ -57,13 +58,19 @@ func ValidateComposePaths(paths []string) error {
 	return nil
 }
 
-// ValidateComposeSpec verifies the ComposeSpec for common issues
-func ValidateComposeSpec(spec *common.ComposeSpec) []error {
+// ValidateComposeSpec verifies the ComposeSpec for common issues. Images are validated with strict reference checking
+// unless overwritten with a SpecValidatorOpts
+func ValidateComposeSpec(spec *common.ComposeSpec, opts ...SpecValidatorOpts) []error {
+	validatorOpts := &specValidatorOpts{
+		imageValidationFn: ValidateOciImageReferenceStrict,
+	}
+	for _, opt := range opts {
+		opt(validatorOpts)
+	}
 	services := spec.Services
 	if len(services) == 0 {
 		return []error{fmt.Errorf("compose spec has no services")}
 	}
-
 	var errs []error
 	for name, service := range spec.Services {
 		containerName := service.ContainerName
@@ -74,7 +81,7 @@ func ValidateComposeSpec(spec *common.ComposeSpec) []error {
 		if image == "" {
 			errs = append(errs, fmt.Errorf("service %s is missing an image", name))
 		}
-		if err := ValidateOciImageReferenceStrict(&image, "services."+name+".image"); err != nil {
+		if err := validatorOpts.imageValidationFn(&image, "services."+name+".image"); err != nil {
 			errs = append(errs, err...)
 		}
 	}

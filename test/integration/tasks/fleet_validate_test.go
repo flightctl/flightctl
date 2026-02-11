@@ -5,7 +5,7 @@ import (
 	"slices"
 	"strings"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/kvstore"
@@ -56,14 +56,12 @@ var _ = Describe("FleetValidate", func() {
 		workerClient = worker_client.NewWorkerClient(producer, log)
 		kvStore, err := kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
 		Expect(err).ToNot(HaveOccurred())
-		orgResolver, err := testutil.NewOrgResolver(cfg, storeInst.Organization(), log)
-		Expect(err).ToNot(HaveOccurred())
-		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStore, nil, log, "", "", []string{}, orgResolver)
+		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStore, nil, log, "", "", []string{})
 
 		spec := api.RepositorySpec{}
-		err = spec.FromGenericRepoSpec(api.GenericRepoSpec{
+		err = spec.FromGitRepoSpec(api.GitRepoSpec{
 			Url:  "repo-url",
-			Type: "git",
+			Type: api.GitRepoSpecTypeGit,
 		})
 		Expect(err).ToNot(HaveOccurred())
 		repository = &api.Repository{
@@ -73,9 +71,9 @@ var _ = Describe("FleetValidate", func() {
 			Spec: spec,
 		}
 		specHttp := api.RepositorySpec{}
-		err = specHttp.FromGenericRepoSpec(api.GenericRepoSpec{
+		err = specHttp.FromHttpRepoSpec(api.HttpRepoSpec{
 			Url:  "http-repo-url",
-			Type: "http",
+			Type: api.HttpRepoSpecTypeHttp,
 		})
 		Expect(err).ToNot(HaveOccurred())
 		repositoryHttp := &api.Repository{

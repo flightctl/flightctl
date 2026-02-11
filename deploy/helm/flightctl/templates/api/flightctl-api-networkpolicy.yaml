@@ -1,11 +1,16 @@
-{{ if and (not (eq .Values.global.target "acm")) (eq (include "flightctl.getServiceExposeMethod" .) "route") }}
+{{ if and (eq (include "flightctl.enableMulticlusterExtensions" .) "false") (eq (include "flightctl.getServiceExposeMethod" .) "route") }}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: flightctl-api-from-ingress
   namespace:  {{ .Release.Namespace }}
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+    flightctl.service: flightctl-api
 spec:
   ingress:
+  - from:
+    - podSelector: {}
   - from:
     - namespaceSelector:
         matchLabels:

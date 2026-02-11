@@ -13,7 +13,7 @@ import (
 	context "context"
 	reflect "reflect"
 
-	v1alpha1 "github.com/flightctl/flightctl/api/v1alpha1"
+	v1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -41,17 +41,22 @@ func (m *MockPrefetchManager) EXPECT() *MockPrefetchManagerMockRecorder {
 }
 
 // BeforeUpdate mocks base method.
-func (m *MockPrefetchManager) BeforeUpdate(ctx context.Context, current, desired *v1alpha1.DeviceSpec) error {
+func (m *MockPrefetchManager) BeforeUpdate(ctx context.Context, current, desired *v1beta1.DeviceSpec, opts ...OCICollectOpt) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "BeforeUpdate", ctx, current, desired)
+	varargs := []any{ctx, current, desired}
+	for _, a := range opts {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "BeforeUpdate", varargs...)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // BeforeUpdate indicates an expected call of BeforeUpdate.
-func (mr *MockPrefetchManagerMockRecorder) BeforeUpdate(ctx, current, desired any) *gomock.Call {
+func (mr *MockPrefetchManagerMockRecorder) BeforeUpdate(ctx, current, desired any, opts ...any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BeforeUpdate", reflect.TypeOf((*MockPrefetchManager)(nil).BeforeUpdate), ctx, current, desired)
+	varargs := append([]any{ctx, current, desired}, opts...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BeforeUpdate", reflect.TypeOf((*MockPrefetchManager)(nil).BeforeUpdate), varargs...)
 }
 
 // Cleanup mocks base method.
@@ -116,16 +121,21 @@ func (m *MockOCICollector) EXPECT() *MockOCICollectorMockRecorder {
 }
 
 // CollectOCITargets mocks base method.
-func (m *MockOCICollector) CollectOCITargets(ctx context.Context, current, desired *v1alpha1.DeviceSpec) ([]OCIPullTarget, error) {
+func (m *MockOCICollector) CollectOCITargets(ctx context.Context, current, desired *v1beta1.DeviceSpec, opts ...OCICollectOpt) (*OCICollection, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CollectOCITargets", ctx, current, desired)
-	ret0, _ := ret[0].([]OCIPullTarget)
+	varargs := []any{ctx, current, desired}
+	for _, a := range opts {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "CollectOCITargets", varargs...)
+	ret0, _ := ret[0].(*OCICollection)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // CollectOCITargets indicates an expected call of CollectOCITargets.
-func (mr *MockOCICollectorMockRecorder) CollectOCITargets(ctx, current, desired any) *gomock.Call {
+func (mr *MockOCICollectorMockRecorder) CollectOCITargets(ctx, current, desired any, opts ...any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CollectOCITargets", reflect.TypeOf((*MockOCICollector)(nil).CollectOCITargets), ctx, current, desired)
+	varargs := append([]any{ctx, current, desired}, opts...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CollectOCITargets", reflect.TypeOf((*MockOCICollector)(nil).CollectOCITargets), varargs...)
 }

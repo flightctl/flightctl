@@ -5,13 +5,14 @@ import (
 	"crypto"
 	"fmt"
 
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
-	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	baseclient "github.com/flightctl/flightctl/internal/client"
 	fccrypto "github.com/flightctl/flightctl/pkg/crypto"
 	"github.com/flightctl/flightctl/pkg/log"
+	"k8s.io/client-go/util/cert"
 )
 
 var _ Provider = (*fileProvider)(nil)
@@ -20,6 +21,7 @@ type fileProvider struct {
 	deviceName     string
 	clientKeyPath  string
 	clientCertPath string
+	clientCSRPath  string
 	privateKey     crypto.PrivateKey
 	rw             fileio.ReadWriter
 	log            *log.PrefixLogger
@@ -29,12 +31,14 @@ type fileProvider struct {
 func newFileProvider(
 	clientKeyPath string,
 	clientCertPath string,
+	clientCSRPath string,
 	rw fileio.ReadWriter,
 	log *log.PrefixLogger,
 ) *fileProvider {
 	return &fileProvider{
 		clientKeyPath:  clientKeyPath,
 		clientCertPath: clientCertPath,
+		clientCSRPath:  clientCSRPath,
 		rw:             rw,
 		log:            log,
 	}
@@ -104,7 +108,7 @@ func (f *fileProvider) GenerateCSR(deviceName string) ([]byte, error) {
 	return fccrypto.MakeCSR(signer, deviceName)
 }
 
-func (f *fileProvider) ProveIdentity(ctx context.Context, enrollmentRequest *v1alpha1.EnrollmentRequest) error {
+func (f *fileProvider) ProveIdentity(ctx context.Context, enrollmentRequest *v1beta1.EnrollmentRequest) error {
 	// no-op for file provider since identity is proven by CSR signing with private key
 	return nil
 }
@@ -114,12 +118,32 @@ func (f *fileProvider) StoreCertificate(certPEM []byte) error {
 }
 
 func (f *fileProvider) HasCertificate() bool {
+	return hasCertificate(f.rw, f.clientCertPath, f.log)
+}
+
+func (f *fileProvider) GetCertificate() ([]byte, error) {
+	if f.clientCertPath == "" {
+		return nil, nil
+	}
+
 	exists, err := f.rw.PathExists(f.clientCertPath)
 	if err != nil {
-		f.log.Warnf("Failed to check certificate existence: %v", err)
-		return false
+		return nil, fmt.Errorf("checking certificate file %q: %w", f.clientCertPath, err)
 	}
-	return exists
+	if !exists {
+		return nil, nil
+	}
+
+	pemBytes, err := f.rw.ReadFile(f.clientCertPath)
+	if err != nil {
+		return nil, fmt.Errorf("reading certificate file %q: %w", f.clientCertPath, err)
+	}
+
+	if _, err := cert.ParseCertsPEM(pemBytes); err != nil {
+		return nil, fmt.Errorf("parsing certificate file %q: %w", f.clientCertPath, err)
+	}
+
+	return pemBytes, nil
 }
 
 func (f *fileProvider) CreateManagementClient(config *baseclient.Config, metricsCallback client.RPCMetricsCallback) (client.Management, error) {
@@ -133,13 +157,13 @@ func (f *fileProvider) CreateManagementClient(config *baseclient.Config, metrics
 		return nil, fmt.Errorf("management client certificate does not exist at %q - device needs re-enrollment", config.GetClientCertificatePath())
 	}
 
-	httpClient, err := client.NewFromConfig(config, f.log)
-	if err != nil {
-		return nil, fmt.Errorf("create management client: %w", err)
-	}
-
-	managementClient := client.NewManagement(httpClient, metricsCallback)
-	return managementClient, nil
+	return client.NewManagementDelegate(func() (client.Management, error) {
+		httpClient, err := client.NewFromConfig(config, f.log)
+		if err != nil {
+			return nil, fmt.Errorf("create management client: %w", err)
+		}
+		return client.NewManagement(httpClient, metricsCallback), nil
+	})
 }
 
 func (f *fileProvider) CreateGRPCClient(config *baseclient.Config) (grpc_v1.RouterServiceClient, error) {
@@ -165,6 +189,13 @@ func (f *fileProvider) WipeCredentials() error {
 		f.log.Infof("Wiping certificate file %s", f.clientCertPath)
 		if err := f.rw.OverwriteAndWipe(f.clientCertPath); err != nil {
 			errs = append(errs, fmt.Errorf("failed to wipe certificate file %s: %w", f.clientCertPath, err))
+		}
+	}
+
+	if f.clientCSRPath != "" {
+		f.log.Infof("Wiping CSR file %s", f.clientCSRPath)
+		if err := f.rw.OverwriteAndWipe(f.clientCSRPath); err != nil {
+			errs = append(errs, fmt.Errorf("failed to wipe CSR file %s: %w", f.clientCSRPath, err))
 		}
 	}
 

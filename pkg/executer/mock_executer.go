@@ -11,7 +11,6 @@ package executer
 
 import (
 	context "context"
-	os "os"
 	exec "os/exec"
 	reflect "reflect"
 
@@ -121,34 +120,4 @@ func (mr *MockExecuterMockRecorder) ExecuteWithContextFromDir(ctx, workingDir, c
 	mr.mock.ctrl.T.Helper()
 	varargs := append([]any{ctx, workingDir, command, args}, env...)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExecuteWithContextFromDir", reflect.TypeOf((*MockExecuter)(nil).ExecuteWithContextFromDir), varargs...)
-}
-
-// LookPath mocks base method.
-func (m *MockExecuter) LookPath(file string) (string, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "LookPath", file)
-	ret0, _ := ret[0].(string)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// LookPath indicates an expected call of LookPath.
-func (mr *MockExecuterMockRecorder) LookPath(file any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LookPath", reflect.TypeOf((*MockExecuter)(nil).LookPath), file)
-}
-
-// TempFile mocks base method.
-func (m *MockExecuter) TempFile(dir, pattern string) (*os.File, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "TempFile", dir, pattern)
-	ret0, _ := ret[0].(*os.File)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// TempFile indicates an expected call of TempFile.
-func (mr *MockExecuterMockRecorder) TempFile(dir, pattern any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TempFile", reflect.TypeOf((*MockExecuter)(nil).TempFile), dir, pattern)
 }

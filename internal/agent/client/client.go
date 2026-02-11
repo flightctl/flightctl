@@ -1,22 +1,21 @@
 package client
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"net/http"
 	"os/exec"
-	"strings"
+	"runtime"
 	"time"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	client "github.com/flightctl/flightctl/internal/api/client/agent"
 	baseclient "github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/container"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/poll"
 	"github.com/flightctl/flightctl/pkg/reqid"
+	"github.com/flightctl/flightctl/pkg/version"
 	"github.com/go-chi/chi/v5/middleware"
 )
 
@@ -42,26 +41,33 @@ func NewFromConfig(config *baseclient.Config, log *log.PrefixLogger, opts ...HTT
 
 	ref := client.WithRequestEditorFn(func(ctx context.Context, req *http.Request) error {
 		req.Header.Set(middleware.RequestIDHeader, reqid.NextRequestID())
+		for key, values := range options.httpHeaders {
+			for _, value := range values {
+				req.Header.Add(key, value)
+			}
+		}
 		return nil
 	})
-	return client.NewClientWithResponses(config.Service.Server, client.WithHTTPClient(httpClient), ref)
+	// Trim trailing slash to avoid double slash when appending /api/v1
+	serverURL := baseclient.JoinServerURL(config.Service.Server, client.ServerUrlApiv1)
+	return client.NewClientWithResponses(serverURL, client.WithHTTPClient(httpClient), ref)
 }
 
 // Management is the client interface for managing devices.
 type Management interface {
-	UpdateDeviceStatus(ctx context.Context, name string, device v1alpha1.Device, rcb ...client.RequestEditorFn) error
-	GetRenderedDevice(ctx context.Context, name string, params *v1alpha1.GetRenderedDeviceParams, rcb ...client.RequestEditorFn) (*v1alpha1.Device, int, error)
-	PatchDeviceStatus(ctx context.Context, name string, patch v1alpha1.PatchRequest, rcb ...client.RequestEditorFn) error
+	UpdateDeviceStatus(ctx context.Context, name string, device v1beta1.Device, rcb ...client.RequestEditorFn) error
+	GetRenderedDevice(ctx context.Context, name string, params *v1beta1.GetRenderedDeviceParams, rcb ...client.RequestEditorFn) (*v1beta1.Device, int, error)
+	PatchDeviceStatus(ctx context.Context, name string, patch v1beta1.PatchRequest, rcb ...client.RequestEditorFn) error
 	SetRPCMetricsCallback(cb RPCMetricsCallback)
-	CreateCertificateSigningRequest(ctx context.Context, csr v1alpha1.CertificateSigningRequest, rcb ...client.RequestEditorFn) (*v1alpha1.CertificateSigningRequest, int, error)
-	GetCertificateSigningRequest(ctx context.Context, name string, rcb ...client.RequestEditorFn) (*v1alpha1.CertificateSigningRequest, int, error)
+	CreateCertificateSigningRequest(ctx context.Context, csr v1beta1.CertificateSigningRequest, rcb ...client.RequestEditorFn) (*v1beta1.CertificateSigningRequest, int, error)
+	GetCertificateSigningRequest(ctx context.Context, name string, rcb ...client.RequestEditorFn) (*v1beta1.CertificateSigningRequest, int, error)
 }
 
 // Enrollment is client the interface for managing device enrollment.
 type Enrollment interface {
 	SetRPCMetricsCallback(cb RPCMetricsCallback)
-	CreateEnrollmentRequest(ctx context.Context, req v1alpha1.EnrollmentRequest, cb ...client.RequestEditorFn) (*v1alpha1.EnrollmentRequest, error)
-	GetEnrollmentRequest(ctx context.Context, id string, cb ...client.RequestEditorFn) (*v1alpha1.EnrollmentRequest, error)
+	CreateEnrollmentRequest(ctx context.Context, req v1beta1.EnrollmentRequest, cb ...client.RequestEditorFn) (*v1beta1.EnrollmentRequest, error)
+	GetEnrollmentRequest(ctx context.Context, id string, cb ...client.RequestEditorFn) (*v1beta1.EnrollmentRequest, error)
 }
 
 type Bootc interface {
@@ -81,112 +87,14 @@ func IsCommandAvailable(cmdName string) bool {
 	return err == nil
 }
 
-func IsComposeAvailable() bool {
-	for _, cmdName := range []string{"podman-compose", "docker-compose"} {
-		if IsCommandAvailable(cmdName) {
-			return true
-		}
-	}
-	return false
-}
-
-type PullSecret struct {
-	// Absolute path to the pull secret
-	Path string
-	// Cleanup function for temporary files, or no-op
-	Cleanup func()
-}
-
-// ResolvePullSecret returns the image pull secret path, preferring inline spec
-// auth then falling back to on disk.  Cleanup removes tmp files generated from
-// inline spec if found and is otherwise a no-op.
-func ResolvePullSecret(
-	log *log.PrefixLogger,
-	rw fileio.ReadWriter,
-	desired *v1alpha1.DeviceSpec,
-	authPath string,
-) (*PullSecret, bool, error) {
-	specContent, found, err := authFromSpec(log, desired, authPath)
-	if err != nil {
-		return nil, false, err
-	}
-	if found {
-		exists, err := rw.PathExists(authPath)
-		if err != nil {
-			return nil, false, err
-		}
-		if exists {
-			diskContent, err := rw.ReadFile(authPath)
-			if err != nil {
-				return nil, false, fmt.Errorf("reading existing auth file: %w", err)
-			}
-
-			if bytes.Equal(diskContent, specContent) {
-				log.Debugf("Using on-disk pull secret (identical to spec): %s", authPath)
-				return &PullSecret{Path: authPath, Cleanup: func() {}}, true, nil
-			}
-		}
-		path, cleanup, err := fileio.WriteTmpFile(rw, "os_auth_", "auth.json", specContent, 0600)
-		if err != nil {
-			return nil, false, fmt.Errorf("writing inline auth file: %w", err)
-		}
-		log.Debugf("Using inline auth from device spec")
-		return &PullSecret{Path: path, Cleanup: cleanup}, true, nil
-	}
-
-	exists, err := rw.PathExists(authPath)
-	if err != nil {
-		return nil, false, err
-	}
-	if exists {
-		log.Debugf("Using on-disk pull secret: %s", authPath)
-		return &PullSecret{Path: authPath, Cleanup: func() {}}, true, nil
-	}
-
-	return nil, false, nil
-}
-
-func authFromSpec(log *log.PrefixLogger, device *v1alpha1.DeviceSpec, authPath string) ([]byte, bool, error) {
-	if device.Config == nil {
-		return nil, false, nil
-	}
-
-	for _, provider := range *device.Config {
-		pType, err := provider.Type()
-		if err != nil {
-			return nil, false, fmt.Errorf("provider type: %v", err)
-		}
-		if pType != v1alpha1.InlineConfigProviderType {
-			// agent should only ever see inline config
-			log.Errorf("Invalid config provider type: %s", pType)
-			continue
-		}
-		spec, err := provider.AsInlineConfigProviderSpec()
-		if err != nil {
-			return nil, false, fmt.Errorf("convert inline config provider: %v", err)
-		}
-		for _, file := range spec.Inline {
-			if strings.TrimSpace(file.Path) == authPath {
-				// ensure content is properly decoded
-				contents, err := fileio.DecodeContent(file.Content, file.ContentEncoding)
-				if err != nil {
-					log.Errorf("decode content: %v", err)
-					continue
-				}
-				return contents, true, nil
-			}
-		}
-	}
-
-	return nil, false, nil
-}
-
 // ClientOption is a functional option for configuring the client.
 type ClientOption func(*clientOptions)
 
 type clientOptions struct {
-	pullSecretPath string
-	timeout        time.Duration
+	pullSecretPath       string
+	repositoryConfigPath string
+	criConfigPath        string
+	timeout              time.Duration
 }
 
 // WithPullSecret sets the path to the pull secret. If unset uses the default
@@ -194,6 +102,22 @@ type clientOptions struct {
 func WithPullSecret(path string) ClientOption {
 	return func(opts *clientOptions) {
 		opts.pullSecretPath = path
+	}
+}
+
+// WithRepositoryConfig sets the path to the Helm repository configuration file.
+// This is used for authenticating with HTTP-based Helm chart repositories.
+func WithRepositoryConfig(path string) ClientOption {
+	return func(opts *clientOptions) {
+		opts.repositoryConfigPath = path
+	}
+}
+
+// WithCRIConfig sets the path to the crictl configuration file.
+// This is used for configuring the CRI runtime endpoint.
+func WithCRIConfig(path string) ClientOption {
+	return func(opts *clientOptions) {
+		opts.criConfigPath = path
 	}
 }
 
@@ -210,11 +134,32 @@ type HTTPClientOption func(*httpClientOptions)
 
 type httpClientOptions struct {
 	retryConfig *poll.Config
+	httpHeaders http.Header
 }
 
 // WithHTTPRetry configures custom retry settings for the HTTP client
 func WithHTTPRetry(config poll.Config) HTTPClientOption {
 	return func(opts *httpClientOptions) {
 		opts.retryConfig = &config
+	}
+}
+
+// WithUserAgent returns an HTTPClientOption that sets the User-Agent header
+// for outgoing requests using the flightctl-agent version and runtime information.
+func WithUserAgent() HTTPClientOption {
+	return func(opts *httpClientOptions) {
+		info := version.Get()
+		userAgent := fmt.Sprintf("flightctl-agent/%s (%s/%s)", info.String(), runtime.GOOS, runtime.GOARCH)
+		WithHeader("User-Agent", userAgent)(opts)
+	}
+}
+
+// WithHeader returns an HTTPClientOption that sets the given HTTP header for outgoing requests.
+func WithHeader(key, value string) HTTPClientOption {
+	return func(opts *httpClientOptions) {
+		if opts.httpHeaders == nil {
+			opts.httpHeaders = http.Header{}
+		}
+		opts.httpHeaders.Add(key, value)
 	}
 }

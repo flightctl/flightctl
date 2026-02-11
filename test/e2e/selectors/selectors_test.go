@@ -3,7 +3,7 @@ package selectors
 import (
 	"fmt"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
@@ -43,8 +43,8 @@ func EntryCase(desc string, args []string, shouldMatch bool, expected string) te
 
 var _ = Describe("Field Selectors in Flight Control", func() {
 	var (
-		deviceInfo    v1alpha1.Device
-		deviceBInfo   v1alpha1.Device
+		deviceInfo    v1beta1.Device
+		deviceBInfo   v1beta1.Device
 		deviceAName   string
 		deviceBName   string
 		DeviceARegion string

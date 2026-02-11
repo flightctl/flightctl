@@ -4,211 +4,143 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
-	stderrs "errors"
 	"fmt"
 	"io"
 	"os/exec"
-	"strings"
+	"strconv"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/agent/device/systemd"
 	"github.com/flightctl/flightctl/pkg/log"
-	"github.com/samber/lo"
-	"github.com/sirupsen/logrus"
 )
 
 const (
 	expectedPodmanSigTermExitCode = 1
-	stopMonitorWaitDuration       = 5 * time.Second
+	quadletSystemdLabel           = "PODMAN_SYSTEMD_UNIT"
 )
 
 type PodmanMonitor struct {
-	mu       sync.Mutex
-	cmd      *exec.Cmd
-	cancelFn context.CancelFunc
-	running  bool
-	// listenerCloseChan is used to ensure that the event listening goroutine comes to completion
-	// during the stopMonitor invocation
-	listenerCloseChan chan struct{}
-	// lastEventTime tracks the timestamp at which the podman monitor should start listening to events for
-	lastEventTime string
-
+	mu sync.Mutex
 	// apps is a map of application ID to application.
-	apps    map[string]Application
-	actions []lifecycle.Action
+	apps                   map[string]Application
+	actions                []lifecycle.Action
+	startTime              time.Time
+	lastActionsSuccessTime time.Time
 
-	compose lifecycle.ActionHandler
-	client  *client.Podman
-	writer  fileio.Writer
+	handlers       map[v1beta1.AppType]lifecycle.ActionHandler
+	clientFactory  client.PodmanFactory
+	systemdFactory systemd.ManagerFactory
+	watchers       map[v1beta1.Username]*podmanEventWatcher
+	events         chan client.PodmanEvent
 
 	log *log.PrefixLogger
 }
 
 func NewPodmanMonitor(
 	log *log.PrefixLogger,
-	podman *client.Podman,
+	podmanFactory client.PodmanFactory,
+	systemdFactory systemd.ManagerFactory,
 	bootTime string,
-	writer fileio.Writer,
+	rwFactory fileio.ReadWriterFactory,
 ) *PodmanMonitor {
-	return &PodmanMonitor{
-		client:        podman,
-		compose:       lifecycle.NewCompose(log, writer, podman),
-		apps:          make(map[string]Application),
-		lastEventTime: bootTime,
-		log:           log,
-		writer:        writer,
+	// don't fail for this. This is being parsed purely for informational reasons in the event something fails
+	startTime, err := time.Parse(time.RFC3339, bootTime)
+	if err != nil {
+		log.Errorf("Failed to parse bootTime %q: %v", bootTime, err)
+		startTime = time.Now()
 	}
-}
-
-// hasApps returns true if there are applications to monitor
-func (m *PodmanMonitor) hasApps() bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return len(m.apps) > 0
+	return &PodmanMonitor{
+		clientFactory:  podmanFactory,
+		systemdFactory: systemdFactory,
+		handlers: map[v1beta1.AppType]lifecycle.ActionHandler{
+			v1beta1.AppTypeCompose: lifecycle.NewCompose(log, rwFactory, podmanFactory),
+			v1beta1.AppTypeQuadlet: lifecycle.NewQuadlet(log, rwFactory, systemdFactory, podmanFactory),
+		},
+		watchers:               make(map[v1beta1.Username]*podmanEventWatcher),
+		apps:                   make(map[string]Application),
+		startTime:              startTime,
+		lastActionsSuccessTime: startTime,
+		log:                    log,
+	}
 }
 
 // isRunning returns true if the monitor is currently running
-func (m *PodmanMonitor) isRunning() bool {
+func (m *PodmanMonitor) isRunning(username v1beta1.Username) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.running
-}
-func (m *PodmanMonitor) getLastEventTime() string {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.lastEventTime
+	_, ok := m.watchers[username]
+	return ok
 }
 
-// startMonitor starts the podman monitor if it's not already running
-func (m *PodmanMonitor) startMonitor(ctx context.Context) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.running {
-		m.log.Debug("Podman monitor is already running")
+func (m *PodmanMonitor) ensureMonitorForUser(ctx context.Context, username v1beta1.Username) error {
+	if _, ok := m.watchers[username]; ok {
+		m.log.Debugf("Podman monitor is already running for user %s", username)
 		return nil
 	}
-	m.log.Info("Starting podman monitor")
-	ctx, cancelFn := context.WithCancel(ctx)
+	m.log.Infof("Starting podman monitor for user %s", username)
 
-	// list of podman events to listen for
-	events := []string{"create", "init", "start", "stop", "die", "sync", "remove", "exited"}
-	since := m.lastEventTime
-	m.log.Debugf("Replaying podman events since: %s", since)
-	cmd := m.client.EventsSinceCmd(ctx, events, since)
+	if m.events == nil {
+		m.events = make(chan client.PodmanEvent)
+		go m.listenForEvents(ctx)
+	}
 
-	stdoutPipe, err := cmd.StdoutPipe()
+	client, err := m.clientFactory(username)
 	if err != nil {
-		cancelFn()
-		return fmt.Errorf("failed to get stdout pipe: %w", err)
+		return err
 	}
 
-	if err := cmd.Start(); err != nil {
-		cancelFn()
-		return fmt.Errorf("failed to start podman events: %w", err)
+	var watcher podmanEventWatcher
+	watcher.Init(m.log, username, client, m.startTime)
+	if err := watcher.Watch(ctx, m.events); err != nil {
+		return fmt.Errorf("initializing watcher: %w", err)
 	}
 
-	listenerChannel := make(chan struct{})
-	m.cancelFn = cancelFn
-	m.cmd = cmd
-	m.running = true
-	m.listenerCloseChan = listenerChannel
-
-	go func() {
-		defer close(listenerChannel)
-		m.listenForEvents(ctx, stdoutPipe)
-	}()
+	m.watchers[username] = &watcher
 
 	return nil
 }
 
-func waitForChannelWithTimeout(c <-chan struct{}, dur time.Duration) bool {
-	timer := time.NewTimer(dur)
-	defer timer.Stop()
-	select {
-	case <-c:
-		return true
-	case <-timer.C:
-		return false
-	}
-}
-
-// stopMonitor stops the podman monitor and records the stop time
-func (m *PodmanMonitor) stopMonitor() error {
-	m.mu.Lock()
-	if !m.running {
-		m.log.Debug("Podman monitor is already stopped")
-		m.mu.Unlock()
+func (m *PodmanMonitor) stopMonitorForUser(username v1beta1.Username) error {
+	watcher, ok := m.watchers[username]
+	if !ok {
+		m.log.Debugf("Podman monitor is already stopped for user %s", username)
 		return nil
 	}
-	cancelFn := m.cancelFn
-	cmd := m.cmd
-	listenerChan := m.listenerCloseChan
-	m.cmd = nil
-	m.cancelFn = nil
-	m.running = false
-	m.listenerCloseChan = nil
-	m.mu.Unlock()
-	if cmd == nil {
-		return nil
-	}
-	defer cancelFn()
+	delete(m.watchers, username)
 
-	// When a monitor is started, a separate goroutine is created to consume events from a stream
-	// To prevent unexpected errors from occurring in the reading routine, we attempt to let it
-	// gracefully exit before calling .Wait and cleaning up the commands resources
-	// see https://pkg.go.dev/os/exec#Cmd.StdoutPipe
-	m.log.Info("Stopping podman monitor")
-
-	killed := false
-	// send a graceful shutdown signal to the command
-	if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
-		m.log.Warnf("Failed to send SIGTERM to podman monitor: %v", err)
-		// If we fail to term our only option is to kill
-		cancelFn()
-		killed = true
-	}
-
-	// wait for our consuming goroutine to complete
-	if !waitForChannelWithTimeout(listenerChan, stopMonitorWaitDuration) {
-		timeoutMessage := "Timeout waiting for podman monitor reader to shutdown"
-		forceKilledMessage := fmt.Sprintf("%s after force killing the process", timeoutMessage)
-		message := timeoutMessage
-		logLevel := logrus.WarnLevel
-		if killed {
-			logLevel = logrus.ErrorLevel
-			message = forceKilledMessage
-		}
-		m.log.Log(logLevel, message)
-		if !killed {
-			cancelFn()
-			if !waitForChannelWithTimeout(listenerChan, stopMonitorWaitDuration) {
-				m.log.Error(forceKilledMessage)
-			}
-		}
-	}
-
-	// wait for the command to exit.
-	if err := cmd.Wait(); err != nil && !isExpectedShutdownError(err) {
-		return fmt.Errorf("unexpected error during podman monitor shutdown: %w", err)
-	}
-	m.log.Info("Podman monitor stopped")
-	return nil
+	return watcher.Stop()
 }
 
 // Stop stops the podman monitor without draining applications
 func (m *PodmanMonitor) Stop() error {
-	return m.stopMonitor()
+	var errs []error
+	for _, watcher := range m.watchers {
+		if err := watcher.Stop(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	m.watchers = nil
+	if m.events != nil {
+		close(m.events)
+	}
+	return errors.Join(errs...)
 }
 
 // Drain stops and removes all applications, then stops the monitor
 func (m *PodmanMonitor) Drain(ctx context.Context) error {
+	// Drain may be called as the result of an OS upgrade. Any applications added during that spec update
+	// may have "start" actions pending. Clear out any pending actions so that they can be replaced with "stops"
+	m.drainActions()
+
 	return m.drain(ctx)
 }
 
@@ -223,37 +155,13 @@ func (m *PodmanMonitor) getApps() []Application {
 	return apps
 }
 
-// isExpectedShutdownError determines if an error is expected during shutdown
-func isExpectedShutdownError(err error) bool {
-	if errors.IsContext(err) {
-		return true
-	}
-	var exitErr *exec.ExitError
-	if stderrs.As(err, &exitErr) {
-		if status, ok := exitErr.ProcessState.Sys().(syscall.WaitStatus); ok {
-			// when a SIGTERM is sent to the podman events process, it will output an exit code 1
-			// if a SIGKILL is sent, it will indicate that it was signaled via SIGKILL
-			if status.ExitStatus() == expectedPodmanSigTermExitCode {
-				return true
-			}
-			// if the process indicates a TERM or KILL signal then that was likely the agent and
-			// we shouldn't treat that as an error
-			if status.Signaled() {
-				signal := status.Signal()
-				return signal == syscall.SIGKILL || signal == syscall.SIGTERM
-			}
-		}
-	}
-	return false
-}
-
 func (m *PodmanMonitor) drain(ctx context.Context) error {
 	var errs []error
 
 	apps := m.getApps()
 	m.log.Infof("Draining %d applications", len(apps))
 	for _, app := range apps {
-		if err := m.Remove(app); err != nil {
+		if err := m.QueueRemove(app); err != nil {
 			errs = append(errs, err)
 		}
 	}
@@ -262,27 +170,21 @@ func (m *PodmanMonitor) drain(ctx context.Context) error {
 		errs = append(errs, err)
 	}
 
-	if len(errs) > 0 {
-		return errors.Join(errs...)
-	}
-
-	return nil
+	return errors.Join(errs...)
 }
 
 func (m *PodmanMonitor) Has(id string) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if _, ok := m.apps[id]; ok {
-		return true
-	}
-	return false
+	_, ok := m.apps[id]
+	return ok
 }
 
 // Ensures that and application is added to the monitor. if the application
 // is added for the first time an Add action is queued to be executed by the
 // lifecycle manager. so additional adds for the same app will be idempotent.
-func (m *PodmanMonitor) Ensure(app Application) error {
+func (m *PodmanMonitor) Ensure(ctx context.Context, app Application) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -298,6 +200,7 @@ func (m *PodmanMonitor) Ensure(app Application) error {
 	action := lifecycle.Action{
 		AppType:  app.AppType(),
 		Type:     lifecycle.ActionAdd,
+		User:     app.User(),
 		Name:     appName,
 		ID:       appID,
 		Path:     app.Path(),
@@ -309,34 +212,33 @@ func (m *PodmanMonitor) Ensure(app Application) error {
 	return nil
 }
 
-func (m *PodmanMonitor) Remove(app Application) error {
+func (m *PodmanMonitor) QueueRemove(app Application) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	// Always proceed with removal even if the app isn't tracked. After a reboot,
+	// in-memory state is cleared but workloads (containers, pods, etc.) may still
+	// exist and need cleanup. The lifecycle handlers are idempotent and will
+	// handle the case where the workload doesn't exist.
 	appID := app.ID()
-	if _, ok := m.apps[appID]; !ok {
-		m.log.Errorf("Podman application not found: %s", app.Name())
-		// app is already removed
-		return nil
-	}
-
 	delete(m.apps, appID)
 	appName := app.Name()
 
-	// currently we don't support removing embedded applications
 	action := lifecycle.Action{
 		AppType: app.AppType(),
 		Type:    lifecycle.ActionRemove,
 		Name:    appName,
+		User:    app.User(),
 		ID:      appID,
 		Volumes: provider.ToLifecycleVolumes(app.Volume().List()),
 	}
 
 	m.actions = append(m.actions, action)
+
 	return nil
 }
 
-func (m *PodmanMonitor) Update(app Application) error {
+func (m *PodmanMonitor) QueueUpdate(app Application) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -353,6 +255,7 @@ func (m *PodmanMonitor) Update(app Application) error {
 		AppType: app.AppType(),
 		Type:    lifecycle.ActionUpdate,
 		Name:    app.Name(),
+		User:    app.User(),
 		ID:      appID,
 		Path:    app.Path(),
 		Volumes: provider.ToLifecycleVolumes(app.Volume().List()),
@@ -362,38 +265,72 @@ func (m *PodmanMonitor) Update(app Application) error {
 	return nil
 }
 
-func (m *PodmanMonitor) getByID(appID string) (Application, bool) {
+func (m *PodmanMonitor) addBatchTimeToCtx(ctx context.Context) context.Context {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	return lifecycle.ContextWithBatchStartTime(ctx, m.lastActionsSuccessTime)
+}
 
-	app, ok := m.apps[appID]
-	if ok {
-		return app, true
+func (m *PodmanMonitor) updateLastSuccessTime(t time.Time) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.lastActionsSuccessTime = t
+}
+
+func normalizeActionAppType(appType v1beta1.AppType) v1beta1.AppType {
+	// utilize the quadlet handler for containers
+	if appType == v1beta1.AppTypeContainer {
+		return v1beta1.AppTypeQuadlet
 	}
-
-	return nil, false
+	return appType
 }
 
 func (m *PodmanMonitor) ExecuteActions(ctx context.Context) error {
+	ctx = m.addBatchTimeToCtx(ctx)
 	actions := m.drainActions()
+
+	groupedActions := make(map[v1beta1.AppType][]lifecycle.Action)
 	for i := range actions {
 		action := actions[i]
-		if action.AppType == v1alpha1.AppTypeCompose {
-			if err := m.compose.Execute(ctx, &action); err != nil {
-				// this error should result in a failed status for the revision
-				// and not retried.
-				return err
-			}
+		appType := normalizeActionAppType(action.AppType)
+		_, ok := m.handlers[appType]
+		if !ok {
+			return fmt.Errorf("%w: no action handler registered: %s", errors.ErrUnsupportedAppType, action.AppType)
+		}
+		groupedActions[appType] = append(groupedActions[appType], action)
+	}
+
+	for appType, actions := range groupedActions {
+		if err := m.handlers[appType].Execute(ctx, actions); err != nil {
+			return err
 		}
 	}
 
-	if m.hasApps() {
-		if err := m.startMonitor(ctx); err != nil {
-			return fmt.Errorf("failed to start podman monitor: %w", err)
-		}
-	} else {
-		if err := m.stopMonitor(); err != nil {
-			return fmt.Errorf("failed to stop podman monitor: %w", err)
+	m.updateLastSuccessTime(time.Now())
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for _, a := range actions {
+		switch a.Type {
+		case lifecycle.ActionAdd, lifecycle.ActionUpdate:
+			if err := m.ensureMonitorForUser(ctx, a.User); err != nil {
+				return fmt.Errorf("failed to start podman monitor: %w", err)
+			}
+		case lifecycle.ActionRemove:
+			// Stop the monitor for the app user if no other apps for that user are running.
+			user := a.User
+			exists := false
+			for _, app := range m.apps {
+				if app.User() == user {
+					exists = true
+				}
+			}
+			if !exists {
+				if err := m.stopMonitorForUser(user); err != nil {
+					return fmt.Errorf("failed to stop podman monitor for user %s: %w", user, err)
+				}
+			}
 		}
 	}
 
@@ -406,116 +343,70 @@ func (m *PodmanMonitor) ExecuteActions(ctx context.Context) error {
 func (m *PodmanMonitor) drainActions() []lifecycle.Action {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	actions := make([]lifecycle.Action, len(m.actions))
-	copy(actions, m.actions)
-	// reset actions to ensure we don't execute the same actions again
+	actions := reduceActions(m.actions)
 	m.actions = nil
 	return actions
 }
 
-func (m *PodmanMonitor) Status() ([]v1alpha1.DeviceApplicationStatus, v1alpha1.DeviceApplicationsSummaryStatus, error) {
+func (m *PodmanMonitor) Status() ([]AppStatusResult, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	var errs []error
-	var summary v1alpha1.DeviceApplicationsSummaryStatus
-	statuses := make([]v1alpha1.DeviceApplicationStatus, 0, len(m.apps))
-	var unstarted []string
+	results := make([]AppStatusResult, 0, len(m.apps))
+
 	for _, app := range m.apps {
 		appStatus, appSummary, err := app.Status()
 		if err != nil {
 			errs = append(errs, err)
 			continue
 		}
-		statuses = append(statuses, *appStatus)
-
-		// phases can get worse but not better
-		switch appSummary.Status {
-		case v1alpha1.ApplicationsSummaryStatusError:
-			summary.Status = v1alpha1.ApplicationsSummaryStatusError
-			summary.Info = nil
-		case v1alpha1.ApplicationsSummaryStatusDegraded:
-			// ensure we don't override Error status with Degraded
-			if summary.Status != v1alpha1.ApplicationsSummaryStatusError {
-				summary.Status = v1alpha1.ApplicationsSummaryStatusDegraded
-				summary.Info = nil
-			}
-		case v1alpha1.ApplicationsSummaryStatusHealthy:
-			// ensure we don't override Error or Degraded status with Healthy
-			if summary.Status != v1alpha1.ApplicationsSummaryStatusError && summary.Status != v1alpha1.ApplicationsSummaryStatusDegraded {
-				summary.Status = v1alpha1.ApplicationsSummaryStatusHealthy
-				summary.Info = nil
-			}
-		case v1alpha1.ApplicationsSummaryStatusUnknown:
-			unstarted = append(unstarted, app.Name())
-			if summary.Status != v1alpha1.ApplicationsSummaryStatusError {
-				summary.Status = v1alpha1.ApplicationsSummaryStatusDegraded
-				summary.Info = lo.ToPtr("Not started: " + strings.Join(unstarted, ", "))
-			}
-		default:
-			errs = append(errs, fmt.Errorf("unknown application summary status: %s", appSummary.Status))
-		}
-	}
-
-	if len(statuses) == 0 {
-		summary.Status = v1alpha1.ApplicationsSummaryStatusUnknown
+		results = append(results, AppStatusResult{
+			Status:  *appStatus,
+			Summary: appSummary,
+		})
 	}
 
 	if len(errs) > 0 {
-		return nil, summary, errors.Join(errs...)
+		return nil, errors.Join(errs...)
 	}
 
-	return statuses, summary, nil
+	return results, nil
 }
 
-func (m *PodmanMonitor) listenForEvents(ctx context.Context, stdoutPipe io.ReadCloser) {
-	// the pipe will be closed by calling cmd.Wait
-	defer m.log.Debugf("Done listening for podman events")
-
-	scanner := bufio.NewScanner(stdoutPipe)
-	for scanner.Scan() {
-		m.log.Debugf("Received podman event: %s", scanner.Text())
+func (m *PodmanMonitor) listenForEvents(ctx context.Context) {
+	for {
 		select {
 		case <-ctx.Done():
 			return
-		default:
-			m.handleEvent(ctx, scanner.Bytes())
+		case event := <-m.events:
+			m.handleEvent(ctx, event)
 		}
-	}
-	// scanner won't emit an io.EOF error if it encounters one
-	if err := scanner.Err(); err != nil {
-		m.log.Errorf("Error reading podman events: %v", err)
 	}
 }
 
-func (m *PodmanMonitor) handleEvent(ctx context.Context, data []byte) {
-	var event client.PodmanEvent
-	if err := json.Unmarshal(data, &event); err != nil {
-		m.log.Errorf("Failed to decode podman event: %s %v", string(data), err)
-		return
+func appIDFromEvent(event *client.PodmanEvent) string {
+	if appID, ok := event.Attributes[client.ComposeDockerProjectLabelKey]; ok {
+		return appID
 	}
-	eventTime := time.Unix(0, event.TimeNano).Format(time.RFC3339)
-	m.mu.Lock()
-	m.lastEventTime = eventTime
-	m.mu.Unlock()
-	m.log.Tracef("Received podman event: %q at %s", event.Type, eventTime)
-	// sync event means we are now in sync with the current state of the containers
-	if event.Type == "sync" {
-		m.log.Debugf("Received bootSync event : %v", event)
-		return
+	if appID, ok := event.Attributes[client.QuadletProjectLabelKey]; ok {
+		return appID
 	}
+	return ""
+}
 
-	projectName, ok := event.Attributes[client.ComposeDockerProjectLabelKey]
-	if !ok {
-		m.log.Debugf("Application name not found in event attributes: %v", event)
+func (m *PodmanMonitor) handleEvent(ctx context.Context, event client.PodmanEvent) {
+	appID := appIDFromEvent(&event)
+	if appID == "" {
+		m.log.Debugf("Application id not found in event attributes: %v", event)
 		return
 	}
 
 	m.mu.Lock()
-	app, ok := m.apps[projectName]
+	app, ok := m.apps[appID]
 	m.mu.Unlock()
 	if !ok {
-		m.log.Debugf("Application project not found: %s", projectName)
+		m.log.Debugf("Application not found: %s", appID)
 		return
 	}
 	m.updateAppStatus(ctx, app, &event)
@@ -532,31 +423,31 @@ func (m *PodmanMonitor) updateAppStatus(ctx context.Context, app Application, ev
 }
 
 func (m *PodmanMonitor) updateContainerStatus(ctx context.Context, app Application, event *client.PodmanEvent) {
-	inspectData, err := m.inspectContainer(ctx, event.ID)
-	if err != nil {
-		if errors.Is(err, errors.ErrNotFound) {
-			m.log.Debugf("Container %s not found; likely removed during app restart", event.ID)
-		} else {
-			m.log.Errorf("Failed to inspect container: %v", err)
-		}
+	appType := normalizeActionAppType(app.AppType())
+	switch appType {
+	case v1beta1.AppTypeCompose:
+		m.updateComposeContainerStatus(ctx, app, event)
+	case v1beta1.AppTypeQuadlet:
+		m.updateQuadletContainerStatus(ctx, app, event)
+	default:
+		m.log.Errorf("Cannot update container status for unknown app type: %s", appType)
 	}
+}
 
-	restarts, err := m.getContainerRestarts(inspectData)
-	if err != nil {
-		m.log.Errorf("Failed to get container restarts: %v", err)
+func isFinishedStatus(status StatusType) bool {
+	exitedStatuses := map[StatusType]struct {
+	}{
+		StatusRemove: {},
+		StatusDie:    {},
+		StatusDied:   {},
 	}
+	_, ok := exitedStatuses[status]
+	return ok
+}
 
+func (m *PodmanMonitor) updateApplicationStatus(app Application, event *client.PodmanEvent, status StatusType, restarts int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
-	status := m.resolveStatus(event.Status, inspectData)
-	if status == StatusRemove {
-		// remove existing container
-		if removed := app.RemoveWorkload(event.Name); removed {
-			m.log.Debugf("Removed container: %s", event.Name)
-		}
-		return
-	}
 
 	container, exists := app.Workload(event.Name)
 	if exists {
@@ -580,6 +471,83 @@ func (m *PodmanMonitor) updateContainerStatus(ctx context.Context, app Applicati
 	})
 }
 
+func (m *PodmanMonitor) updateQuadletContainerStatus(ctx context.Context, app Application, event *client.PodmanEvent) {
+	systemdUnit, ok := event.Attributes[quadletSystemdLabel]
+	if !ok {
+		m.log.Errorf("Could not find systemd unit label in event %v", event)
+		return
+	}
+
+	systemctl, err := m.systemdFactory(app.User())
+	if err != nil {
+		m.log.Errorf("Failed to create systemctl client for %s: %v", systemdUnit, err)
+		return
+	}
+	states, err := systemctl.Show(ctx, systemdUnit, client.WithShowLoadState())
+	if err != nil || len(states) == 0 {
+		m.log.Errorf("Could not show systemd unit: %s state: %v", systemdUnit, err)
+		return
+	}
+	state := states[0]
+	if v1beta1.SystemdLoadStateType(state) == v1beta1.SystemdLoadStateNotFound {
+		// likely from event replay
+		m.log.Debugf("Received event for an unloaded unit file: %s. Skipping processing event.", systemdUnit)
+		return
+	}
+
+	restarts, err := systemctl.Show(ctx, systemdUnit, client.WithShowRestarts())
+	if err != nil || len(restarts) == 0 {
+		m.log.Errorf("Could not show systemd unit: %s restarts: %v", systemdUnit, err)
+		// default to no restarts similar to how compose handles it.
+		restarts = []string{"0"}
+	}
+
+	restartCount, err := strconv.Atoi(restarts[0])
+	if err != nil {
+		m.log.Errorf("Could not parse systemd unit restarts: %v", err)
+	}
+
+	status := StatusType(event.Status)
+	if isFinishedStatus(status) && event.ContainerExitCode == 0 {
+		status = StatusExited
+	}
+	m.updateApplicationStatus(app, event, status, restartCount)
+}
+
+func (m *PodmanMonitor) updateComposeContainerStatus(ctx context.Context, app Application, event *client.PodmanEvent) {
+	client, err := m.clientFactory(app.User())
+	if err != nil {
+		m.log.Errorf("Failed to create podman client for %s: %v", app.Name(), err)
+		return
+	}
+	inspectData, err := m.inspectContainer(ctx, event.ID, client)
+	if err != nil {
+		if errors.Is(err, errors.ErrNotFound) {
+			m.log.Debugf("Container %s not found; likely removed during app restart", event.ID)
+		} else {
+			m.log.Errorf("Failed to inspect container: %v", err)
+		}
+	}
+
+	restarts, err := m.getContainerRestarts(inspectData)
+	if err != nil {
+		m.log.Errorf("Failed to get container restarts: %v", err)
+	}
+
+	status := m.resolveStatus(event.Status, inspectData)
+	if status == StatusRemove {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		// remove existing container
+		if removed := app.RemoveWorkload(event.Name); removed {
+			m.log.Debugf("Removed container: %s", event.Name)
+		}
+		return
+	}
+
+	m.updateApplicationStatus(app, event, status, restarts)
+}
+
 func (m *PodmanMonitor) getContainerRestarts(inspectData []client.PodmanInspect) (int, error) {
 	var restarts int
 	if len(inspectData) > 0 {
@@ -589,8 +557,8 @@ func (m *PodmanMonitor) getContainerRestarts(inspectData []client.PodmanInspect)
 	return restarts, nil
 }
 
-func (m *PodmanMonitor) inspectContainer(ctx context.Context, containerID string) ([]client.PodmanInspect, error) {
-	resp, err := m.client.Inspect(ctx, containerID)
+func (m *PodmanMonitor) inspectContainer(ctx context.Context, containerID string, podman *client.Podman) ([]client.PodmanInspect, error) {
+	resp, err := podman.Inspect(ctx, containerID)
 	if err != nil {
 		return nil, err
 	}
@@ -611,4 +579,136 @@ func (m *PodmanMonitor) resolveStatus(status string, inspectData []client.Podman
 		}
 	}
 	return initialStatus
+}
+
+type podmanEventWatcher struct {
+	log      *log.PrefixLogger
+	username v1beta1.Username
+	client   *client.Podman
+	// listenerCloseChan is used to ensure that the event listening goroutine comes to completion
+	// during the stopMonitor invocation
+	listenerCloseChan chan struct{}
+	// lastEventTime tracks the timestamp at which the podman monitor should start listening to events for
+	lastEventTime atomic.Pointer[time.Time]
+	cmd           *exec.Cmd
+	cancel        context.CancelFunc
+}
+
+func (e *podmanEventWatcher) Init(log *log.PrefixLogger, username v1beta1.Username, client *client.Podman, startTime time.Time) {
+	e.log = log
+	e.username = username
+	e.client = client
+	e.listenerCloseChan = make(chan struct{})
+	e.lastEventTime.Store(&startTime)
+}
+
+func (e *podmanEventWatcher) Watch(ctx context.Context, events chan<- client.PodmanEvent) error {
+	// list of podman events to listen for
+	eventsTypes := []string{"create", "init", "start", "stop", "die", "sync", "remove", "exited"}
+	e.log.Debugf("Replaying podman events for user %s since: %s", e.username, e.lastEventTime.Load())
+
+	ctx, e.cancel = context.WithCancel(ctx)
+
+	cmd := e.client.EventsSinceCmd(ctx, eventsTypes, e.lastEventTime.Load().Format(time.RFC3339))
+
+	stdoutPipe, err := cmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("failed to get stdout pipe: %w", err)
+	}
+
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("failed to start podman events: %w", err)
+	}
+
+	e.cmd = cmd
+	e.listenerCloseChan = make(chan struct{})
+
+	go func() {
+		defer close(e.listenerCloseChan)
+		e.listenForEvents(ctx, stdoutPipe, events)
+	}()
+
+	return nil
+}
+
+func (e *podmanEventWatcher) listenForEvents(ctx context.Context, stdoutPipe io.ReadCloser, events chan<- client.PodmanEvent) {
+	// the pipe will be closed by calling cmd.Wait
+	defer e.log.Debugf("Done listening for podman events for user %s", e.username)
+
+	scanner := bufio.NewScanner(stdoutPipe)
+	for scanner.Scan() {
+		e.log.Debugf("Received podman event for user %s: %s", e.username, scanner.Text())
+		select {
+		case <-ctx.Done():
+			return
+		default:
+			e.handleEvent(ctx, scanner.Bytes(), events)
+		}
+	}
+	// scanner won't emit an io.EOF error if it encounters one
+	if err := scanner.Err(); err != nil {
+		e.log.Errorf("Error reading podman events: %v", err)
+	}
+}
+
+func (e *podmanEventWatcher) handleEvent(ctx context.Context, data []byte, events chan<- client.PodmanEvent) {
+	var event client.PodmanEvent
+	if err := json.Unmarshal(data, &event); err != nil {
+		e.log.Errorf("Failed to decode podman event: %s %v", string(data), err)
+		return
+	}
+	eventTime := time.Unix(0, event.TimeNano)
+	e.lastEventTime.Store(&eventTime)
+	e.log.Tracef("Received podman event: %q at %s", event.Type, eventTime)
+	// sync event means we are now in sync with the current state of the containers
+	if event.Type == "sync" {
+		e.log.Debugf("Received bootSync event : %v", event)
+		return
+	}
+
+	select {
+	case <-ctx.Done():
+		return
+	case events <- event:
+		return
+	}
+}
+
+func (e *podmanEventWatcher) Stop() error {
+	if e.cmd == nil {
+		return nil
+	}
+
+	// When a monitor is started, a separate goroutine is created to consume events from a stream
+	// To prevent unexpected errors from occurring in the reading routine, we attempt to let it
+	// gracefully exit before calling .Wait and cleaning up the commands resources
+	// see https://pkg.go.dev/os/exec#Cmd.StdoutPipe
+	e.log.Info("Stopping podman monitor")
+
+	// send a graceful shutdown signal to the command
+	if err := e.cmd.Process.Signal(syscall.SIGTERM); err != nil {
+		e.log.Warnf("Failed to send SIGTERM to podman monitor: %v", err)
+	}
+
+	if e.cancel != nil {
+		e.cancel()
+	}
+
+	// wait for our consuming goroutine to complete
+	if !waitForChannelWithTimeout(e.listenerCloseChan, stopMonitorWaitDuration) {
+		e.log.Warn("Timeout waiting for podman monitor reader to shutdown")
+		if err := e.cmd.Process.Signal(syscall.SIGKILL); err != nil {
+			e.log.Warnf("Failed to send SIGKILL to podman monitor: %v", err)
+		}
+		if !waitForChannelWithTimeout(e.listenerCloseChan, stopMonitorWaitDuration) {
+			e.log.Error("Timeout waiting for podman monitor reader to shutdown after force killed")
+		}
+	}
+
+	// wait for the command to exit.
+	if err := e.cmd.Wait(); err != nil && !isExpectedShutdownError(err) {
+		return fmt.Errorf("unexpected error during podman monitor shutdown: %w", err)
+	}
+	e.log.Info("Podman monitor stopped")
+	return nil
 }

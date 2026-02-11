@@ -1,10 +1,10 @@
-{{- if or .Values.worker.enabled .Values.periodic.enabled }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: flightctl-known-hosts
   namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
 data:
   known_hosts: |-
 {{ default "" .Values.global.sshKnownHosts.data | nindent 4 }}
-{{- end }} 

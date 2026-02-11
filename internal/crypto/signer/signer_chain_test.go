@@ -140,7 +140,7 @@ func TestSignerChains(t *testing.T) {
 				subject := "foo"
 				csr := makeCSR(t, subject, orgID)
 				req, err := NewSignRequest(
-					cfg.ClientBootstrapSignerName,
+					cfg.DeviceEnrollmentSignerName,
 					*csr,
 					WithResourceName(subject),
 				)
@@ -166,7 +166,7 @@ func TestSignerChains(t *testing.T) {
 			build: func() (context.Context, SignRequest) {
 				fingerprint := "abcdef0123456789"
 				csr := makeCSR(t, fingerprint, orgID)
-				req, err := NewSignRequest(cfg.DeviceEnrollmentSignerName, *csr, WithResourceName(fingerprint))
+				req, err := NewSignRequest(cfg.DeviceManagementSignerName, *csr, WithResourceName(fingerprint))
 				if err != nil {
 					t.Fatalf("NewSignRequest: %v", err)
 				}
@@ -189,14 +189,14 @@ func TestSignerChains(t *testing.T) {
 			build: func() (context.Context, SignRequest) {
 				fingerprint := "abcdef0123456789"
 				csr := makeCSR(t, fingerprint, orgID)
-				req, err := NewSignRequest(cfg.DeviceEnrollmentSignerName, *csr, WithResourceName(fingerprint))
+				req, err := NewSignRequest(cfg.DeviceManagementSignerName, *csr, WithResourceName(fingerprint))
 				if err != nil {
 					t.Fatalf("NewSignRequest: %v", err)
 				}
 				// Simulate peer cert signed by bootstrap signer
 				peer := &x509.Certificate{}
 				// Inject signer name extension for bootstrap on the mock peer cert via ExtraExtensions
-				peer.ExtraExtensions = append(peer.ExtraExtensions, pkix.Extension{Id: OIDSignerName, Value: mustASN1(t, cfg.ClientBootstrapSignerName)})
+				peer.ExtraExtensions = append(peer.ExtraExtensions, pkix.Extension{Id: OIDSignerName, Value: mustASN1(t, cfg.DeviceEnrollmentSignerName)})
 				ctx := context.WithValue(withOrgCtx(orgID), consts.TLSPeerCertificateCtxKey, peer)
 				return ctx, req
 			},
@@ -207,7 +207,7 @@ func TestSignerChains(t *testing.T) {
 			build: func() (context.Context, SignRequest) {
 				fingerprint := "abcdef0123456789"
 				csr := makeCSR(t, fingerprint, orgID)
-				req, err := NewSignRequest(cfg.DeviceEnrollmentSignerName, *csr, WithResourceName(fingerprint))
+				req, err := NewSignRequest(cfg.DeviceManagementSignerName, *csr, WithResourceName(fingerprint))
 				if err != nil {
 					t.Fatalf("NewSignRequest: %v", err)
 				}
@@ -314,12 +314,26 @@ func TestSignerWrappers(t *testing.T) {
 		{
 			name: "restricted_prefix_enforced",
 			chainedSigner: func(baseFactory func(CA) Signer, ca CA) Signer {
-				restricted := &mockSigner{name: "restricted", ca: ca, restrictedPrefix: ca.Config().DeviceCommonNamePrefix}
-				restrictedMap := map[string]Signer{restricted.RestrictedPrefix(): restricted}
-				return WithSignerRestrictedPrefixes(restrictedMap, baseFactory(ca))
+				const restrictedPrefix = "restricted:"
+
+				restricted := &mockSigner{
+					name:             "restricted",
+					ca:               ca,
+					restrictedPrefix: restrictedPrefix,
+				}
+
+				restrictedPrefixes := map[string]map[string]struct{}{
+					restrictedPrefix: {
+						restricted.Name(): {},
+					},
+				}
+
+				// baseFactory(ca) is NOT in the allowed set, so Verify/Sign should fail
+				return WithSignerRestrictedPrefixes(restrictedPrefixes, baseFactory(ca))
 			},
 			build: func() (context.Context, SignRequest) {
-				cn := ca.Config().DeviceCommonNamePrefix + "abcdef0123456789"
+				const restrictedPrefix = "restricted:"
+				cn := restrictedPrefix + "abcdef0123456789"
 				csr := makeCSR(t, cn, orgID)
 				req, err := NewSignRequest(mockSignerName, *csr)
 				if err != nil {

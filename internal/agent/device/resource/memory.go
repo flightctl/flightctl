@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/pkg/log"
 )
 
@@ -21,7 +21,7 @@ var _ Monitor[MemoryUsage] = (*MemoryMonitor)(nil)
 
 type MemoryMonitor struct {
 	mu          sync.Mutex
-	alerts      map[v1alpha1.ResourceAlertSeverityType]*Alert
+	alerts      map[v1beta1.ResourceAlertSeverityType]*Alert
 	memInfoPath string
 
 	updateIntervalCh chan time.Duration
@@ -34,7 +34,7 @@ func NewMemoryMonitor(
 	log *log.PrefixLogger,
 ) *MemoryMonitor {
 	return &MemoryMonitor{
-		alerts:           make(map[v1alpha1.ResourceAlertSeverityType]*Alert),
+		alerts:           make(map[v1beta1.ResourceAlertSeverityType]*Alert),
 		updateIntervalCh: make(chan time.Duration, 1),
 		samplingInterval: DefaultSamplingInterval,
 		memInfoPath:      DefaultProcMemInfoPath,
@@ -61,17 +61,17 @@ func (m *MemoryMonitor) Run(ctx context.Context) {
 	}
 }
 
-func (m *MemoryMonitor) Update(monitor *v1alpha1.ResourceMonitor) (bool, error) {
+func (m *MemoryMonitor) Update(monitor *v1beta1.ResourceMonitor) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	return updateMonitor(m.log, monitor, &m.samplingInterval, m.alerts, m.updateIntervalCh)
 }
 
-func (m *MemoryMonitor) Alerts() []v1alpha1.ResourceAlertRule {
+func (m *MemoryMonitor) Alerts() []v1beta1.ResourceAlertRule {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	var firing []v1alpha1.ResourceAlertRule
+	var firing []v1beta1.ResourceAlertRule
 	for _, alert := range m.alerts {
 		if alert.IsFiring() {
 			firing = append(firing, alert.ResourceAlertRule)

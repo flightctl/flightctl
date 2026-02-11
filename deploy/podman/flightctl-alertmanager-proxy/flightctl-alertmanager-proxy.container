@@ -1,17 +1,21 @@
 [Unit]
 Description=Flight Control Alertmanager Proxy service
 PartOf=flightctl.target
-After=flightctl-alertmanager.service flightctl-alertmanager-proxy-init.service flightctl-db-wait.service flightctl-db-migrate.service 
-Wants=flightctl-alertmanager.service flightctl-alertmanager-proxy-init.service flightctl-db-wait.service flightctl-db-migrate.service 
+After=flightctl-alertmanager.service flightctl-db-wait.service flightctl-db-migrate.service flightctl-certs-init.service
+Wants=flightctl-alertmanager.service flightctl-db-wait.service flightctl-db-migrate.service flightctl-certs-init.service
 
 [Container]
 ContainerName=flightctl-alertmanager-proxy
-Image=quay.io/flightctl/flightctl-alertmanager-proxy:latest
-Pull=newer
+Image={{ .AlertmanagerProxy.Image }}:{{ .AlertmanagerProxy.Tag }}
+Pull=missing
 Network=flightctl.network
+AddHost=%H:host-gateway
 PublishPort=8443:8443
 EnvironmentFile=/etc/flightctl/flightctl-alertmanager-proxy/env
-Volume=/etc/flightctl/flightctl-api/config.yaml:/root/.flightctl/config.yaml:ro,z
+Volume=/etc/flightctl/flightctl-alertmanager-proxy/config.yaml:/root/.flightctl/config.yaml:ro,z
+Volume=/etc/flightctl/pki/flightctl-alertmanager-proxy/server.crt:/root/.flightctl/certs/server.crt:ro,z
+Volume=/etc/flightctl/pki/flightctl-alertmanager-proxy/server.key:/root/.flightctl/certs/server.key:ro,z
+Volume=/etc/flightctl/pki/db:/root/.flightctl/certs/db:ro,z
 Secret=flightctl-postgresql-user-password,type=env,target=DB_PASSWORD
 Environment=DB_USER=flightctl_app
 
@@ -19,5 +23,8 @@ Environment=DB_USER=flightctl_app
 Restart=always
 RestartSec=30
 
+ExecStartPre=/usr/bin/flightctl-standalone render template --input-file /usr/share/flightctl/flightctl-alertmanager-proxy/config.yaml.template --output-file /etc/flightctl/flightctl-alertmanager-proxy/config.yaml
+ExecStartPre=/usr/bin/flightctl-standalone render template --input-file /usr/share/flightctl/flightctl-alertmanager-proxy/env.template --output-file /etc/flightctl/flightctl-alertmanager-proxy/env
+
 [Install]
-WantedBy=flightctl.target 
+WantedBy=flightctl.target

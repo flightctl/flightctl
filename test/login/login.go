@@ -49,16 +49,16 @@ func LoginToAPIWithToken(harness *e2e.Harness) AuthMethod {
 			return AuthToken
 		}
 	}
-	return WithPassword(harness)
+	return WithK8Token(harness)
 }
 
-// WithPassword attempts to log in to the flightctl API with only the user/password flow.
+// WithK8Token attempts to log in to the flightctl API with only the user/password flow.
 // If auth is disabled then this is largely a noop. This method panics if login fails
-func WithPassword(harness *e2e.Harness) AuthMethod {
+func WithK8Token(harness *e2e.Harness) AuthMethod {
 	if !isAuthEnabled(harness) {
 		return AuthDisabled
 	}
-	authMethod, err := loginWithPassword(harness)
+	authMethod, err := loginWithK8Token(harness)
 	Expect(err).ToNot(HaveOccurred(), "Authentication was unsuccessful")
 	return authMethod
 }
@@ -71,8 +71,9 @@ func isAuthEnabled(harness *e2e.Harness) bool {
 }
 
 func isLoginSuccessful(cmdOutput string) bool {
-	return slices.Contains([]string{"auth is disabled", "login successful", "login successful."},
-		strings.ToLower(strings.TrimSpace(cmdOutput)))
+	out := strings.ToLower(cmdOutput)
+	return strings.Contains(out, "auth is disabled") ||
+		strings.Contains(out, "login successful")
 }
 
 func getActiveNamespaces(harness *e2e.Harness) []string {
@@ -105,26 +106,29 @@ func resolveFlightctlNamespace(harness *e2e.Harness) (string, error) {
 	return "", fmt.Errorf("unable to resolve flightctl namespace using well known namespaces %v", wellKnownNs)
 }
 
-func loginWithPassword(harness *e2e.Harness) (AuthMethod, error) {
+func loginWithK8Token(harness *e2e.Harness) (AuthMethod, error) {
 	namespace, err := resolveFlightctlNamespace(harness)
 	Expect(err).ToNot(HaveOccurred(), "error resolving flightctl namespace")
 	Expect(namespace).NotTo(BeEmpty(), "Unable to determine the namespace associated with the demo user")
 
-	secret, err := harness.Cluster.CoreV1().Secrets(namespace).Get(harness.Context, "keycloak-demouser-secret", metav1.GetOptions{})
-	Expect(err).ToNot(HaveOccurred(), "error getting user password")
-	password := secret.Data["password"]
-	Expect(password).ToNot(BeEmpty(), "Password of demouser should not be empty")
+	// Get Kubernetes service account token
+	token, err := harness.SH("kubectl", "-n", namespace, "create", "token", "flightctl-admin", "--context", "kind-kind")
+	if err != nil {
+		return AuthDisabled, fmt.Errorf("error creating service account token: %w", err)
+	}
+	token = strings.TrimSpace(token)
+	Expect(token).ToNot(BeEmpty(), "Token from 'kubectl create token' should not be empty")
 
-	// Retry login with the retrieved password
-	loginArgs := append(baseLoginArgs(), "-u", "demouser", "-p", string(password))
+	// Login with the retrieved token
+	loginArgs := append(baseLoginArgs(), "--token", token)
 	out, err := harness.CLI(loginArgs...)
 	if err != nil {
 		return AuthDisabled, fmt.Errorf("error executing login: %w", err)
 	}
 	if isLoginSuccessful(out) {
-		return AuthUsernamePassword, nil
+		return AuthToken, nil
 	}
-	return AuthDisabled, errors.New("failed to sign in with user name and password")
+	return AuthDisabled, errors.New("failed to sign in with token")
 }
 
 func loginWithOpenshiftToken(harness *e2e.Harness) error {
@@ -166,5 +170,13 @@ func LoginAsNonAdmin(harness *e2e.Harness, user string, password string, k8sCont
 	if method == AuthDisabled {
 		return errors.New("Login is disabled")
 	}
+
+	// Refresh the harness client to pick up the updated organization from the config file
+	// The login may have updated the organization context in the config
+	err = harness.RefreshClient()
+	if err != nil {
+		return fmt.Errorf("failed to refresh client after login: %w", err)
+	}
+
 	return nil
 }

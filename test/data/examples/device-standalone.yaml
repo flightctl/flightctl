@@ -1,4 +1,4 @@
-apiVersion: flightctl.io/v1alpha1
+apiVersion: flightctl.io/v1beta1
 kind: Device
 metadata:
   name: f68dfb5f5d2cdbb9339363b7f19f3ce269d75650bdc80004f1e04293a8ef9c4
@@ -11,7 +11,7 @@ spec:
     - name: base
       gitRef:
         repository: flightctl-demos
-        targetRevision: main
+        targetRevision: c5ff21b9a8116bb5daf72c8f07b67449c221b596
         path: /demos/basic-nginx-demo/configuration
     - name: motd-update
       inline:

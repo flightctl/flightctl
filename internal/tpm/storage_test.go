@@ -161,8 +161,10 @@ func TestFileStorageGetKey(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tmpDir := t.TempDir()
-			rw := fileio.NewReadWriter()
-			rw.SetRootdir(tmpDir)
+			rw := fileio.NewReadWriter(
+				fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+				fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+			)
 
 			storagePath := "tpm-storage.yaml"
 			logger := log.NewPrefixLogger("test")
@@ -331,8 +333,10 @@ func TestFileStorageStoreKey(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tmpDir := t.TempDir()
-			rw := fileio.NewReadWriter()
-			rw.SetRootdir(tmpDir)
+			rw := fileio.NewReadWriter(
+				fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+				fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+			)
 
 			storagePath := "tpm-storage.yaml"
 			logger := log.NewPrefixLogger("test")
@@ -453,8 +457,10 @@ func TestFileStorageGetPassword(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tmpDir := t.TempDir()
-			rw := fileio.NewReadWriter()
-			rw.SetRootdir(tmpDir)
+			rw := fileio.NewReadWriter(
+				fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+				fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+			)
 
 			storagePath := "tpm-storage.yaml"
 			logger := log.NewPrefixLogger("test")
@@ -557,8 +563,10 @@ func TestFileStorageStorePassword(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tmpDir := t.TempDir()
-			rw := fileio.NewReadWriter()
-			rw.SetRootdir(tmpDir)
+			rw := fileio.NewReadWriter(
+				fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+				fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+			)
 
 			storagePath := "tpm-storage.yaml"
 			logger := log.NewPrefixLogger("test")
@@ -658,8 +666,10 @@ func TestFileStorageClearPassword(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tmpDir := t.TempDir()
-			rw := fileio.NewReadWriter()
-			rw.SetRootdir(tmpDir)
+			rw := fileio.NewReadWriter(
+				fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+				fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+			)
 
 			storagePath := "tpm-storage.yaml"
 			logger := log.NewPrefixLogger("test")
@@ -687,8 +697,10 @@ func TestFileStorageClearPassword(t *testing.T) {
 
 func TestFileStorageClose(t *testing.T) {
 	tmpDir := t.TempDir()
-	rw := fileio.NewReadWriter()
-	rw.SetRootdir(tmpDir)
+	rw := fileio.NewReadWriter(
+		fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+		fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+	)
 
 	logger := log.NewPrefixLogger("test")
 	s := NewFileStorage(rw, "test-path", logger)

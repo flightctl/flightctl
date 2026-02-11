@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/executer"
@@ -14,7 +15,7 @@ import (
 
 func TestParseUtmpRecords(t *testing.T) {
 	t.Skip("Test disabled to avoid reading from actual run level path")
-	reader := fileio.NewReadWriter()
+	reader := fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter())
 	testData, err := reader.ReadFile(runlevelPath)
 	require.Nil(t, err)
 	l := log.NewPrefixLogger("test")
@@ -35,8 +36,10 @@ func TestParseUtmpRecords(t *testing.T) {
 
 func TestIsShuttingDownViaRunlevelWithTestData(t *testing.T) {
 	tmpDir := t.TempDir()
-	rw := fileio.NewReadWriter()
-	rw.SetRootdir(tmpDir)
+	rw := fileio.NewReadWriter(
+		fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+		fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+	)
 	testLogger := log.NewPrefixLogger("test")
 
 	// Write test data to a file
@@ -135,7 +138,7 @@ func TestIsShuttingDownViaSystemd(t *testing.T) {
 
 			mockReadWriter := fileio.NewMockReadWriter(ctrl)
 			mockExec := executer.NewMockExecuter(ctrl)
-			systemdClient := client.NewSystemd(mockExec)
+			systemdClient := client.NewSystemd(mockExec, v1beta1.RootUsername)
 
 			// Setup file existence mock
 			mockReadWriter.EXPECT().PathExists(shutdownScheduledPath).Return(tc.scheduledFileExists, tc.scheduledFileError)
@@ -212,12 +215,14 @@ func TestIsSystemShutdown(t *testing.T) {
 			defer ctrl.Finish()
 
 			mockExec := executer.NewMockExecuter(ctrl)
-			systemdClient := client.NewSystemd(mockExec)
+			systemdClient := client.NewSystemd(mockExec, v1beta1.RootUsername)
 
 			// Setup file system
 			tmpDir := t.TempDir()
-			rw := fileio.NewReadWriter()
-			rw.SetRootdir(tmpDir)
+			rw := fileio.NewReadWriter(
+				fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+				fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+			)
 
 			// Write utmp test data
 			if tc.utmpData != nil {
@@ -252,12 +257,14 @@ func TestIsSystemShutdownScheduledFile(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockExec := executer.NewMockExecuter(ctrl)
-	systemdClient := client.NewSystemd(mockExec)
+	systemdClient := client.NewSystemd(mockExec, v1beta1.RootUsername)
 
 	// Setup file system
 	tmpDir := t.TempDir()
-	rw := fileio.NewReadWriter()
-	rw.SetRootdir(tmpDir)
+	rw := fileio.NewReadWriter(
+		fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+		fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+	)
 
 	err := rw.WriteFile(shutdownScheduledPath, []byte{0x00}, 0600)
 	require.Nil(t, err)

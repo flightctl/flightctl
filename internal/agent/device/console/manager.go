@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
-	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/pkg/executer"
@@ -20,6 +20,7 @@ import (
 
 const (
 	cleanupDuration = 5 * time.Minute
+	ConsoleUser     = "flightctl-console"
 )
 
 type Manager struct {
@@ -27,6 +28,7 @@ type Manager struct {
 	log        *log.PrefixLogger
 	deviceName string
 	watcher    spec.Watcher
+	user       string
 
 	activeSessions   []*session
 	inactiveSessions []*session
@@ -42,6 +44,7 @@ type TerminalSize struct {
 func NewManager(
 	grpcClient grpc_v1.RouterServiceClient,
 	deviceName string,
+	user string,
 	executor executer.Executer,
 	watcher spec.Watcher,
 	log *log.PrefixLogger,
@@ -49,6 +52,7 @@ func NewManager(
 	return &Manager{
 		grpcClient: grpcClient,
 		deviceName: deviceName,
+		user:       user,
 		executor:   executor,
 		watcher:    watcher,
 		log:        log,
@@ -94,8 +98,8 @@ func (c *Manager) close(s *session) {
 	c.inactivate(s)
 }
 
-func (c *Manager) parseMetadata(metadata string) (*v1alpha1.DeviceConsoleSessionMetadata, error) {
-	var ret v1alpha1.DeviceConsoleSessionMetadata
+func (c *Manager) parseMetadata(metadata string) (*v1beta1.DeviceConsoleSessionMetadata, error) {
+	var ret v1beta1.DeviceConsoleSessionMetadata
 	err := json.Unmarshal([]byte(metadata), &ret)
 	if err != nil {
 		return nil, err
@@ -115,11 +119,12 @@ func (c *Manager) selectProtocol(requestedProtocols []string) (string, error) {
 	return "", fmt.Errorf("none of the protocols %v are supported", requestedProtocols)
 }
 
-func (c *Manager) start(ctx context.Context, dc v1alpha1.DeviceConsole) {
+func (c *Manager) start(ctx context.Context, dc v1beta1.DeviceConsole) {
 	s := &session{
 		id:       dc.SessionID,
 		executor: c.executor,
 		log:      c.log,
+		user:     c.user,
 	}
 	if !c.add(s) {
 		return
@@ -153,7 +158,7 @@ func (c *Manager) start(ctx context.Context, dc v1alpha1.DeviceConsole) {
 	s.run(ctx, sessionMetadata)
 }
 
-func (c *Manager) sync(ctx context.Context, desired *v1alpha1.DeviceSpec) {
+func (c *Manager) sync(ctx context.Context, desired *v1beta1.DeviceSpec) {
 	c.log.Debug("Syncing console status")
 	defer c.log.Debug("Finished syncing console status")
 
@@ -183,7 +188,7 @@ func (c *Manager) Run(ctx context.Context) {
 	}
 }
 
-func setSize(fd uintptr, size v1alpha1.TerminalSize) error {
+func setSize(fd uintptr, size v1beta1.TerminalSize) error {
 	winsize := &unix.Winsize{Row: size.Height, Col: size.Width}
 	return unix.IoctlSetWinsize(int(fd), unix.TIOCSWINSZ, winsize)
 }

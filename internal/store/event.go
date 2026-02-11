@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -15,22 +15,22 @@ import (
 type Event interface {
 	InitialMigration(ctx context.Context) error
 
-	Create(ctx context.Context, orgId uuid.UUID, event *api.Event) error
-	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.EventList, error)
+	Create(ctx context.Context, orgId uuid.UUID, event *domain.Event) error
+	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*domain.EventList, error)
 	DeleteOlderThan(ctx context.Context, cutoffTime time.Time) (int64, error)
 }
 
 type EventStore struct {
 	dbHandler    *gorm.DB
 	log          logrus.FieldLogger
-	genericStore *GenericStore[*model.Event, model.Event, api.Event, api.EventList]
+	genericStore *GenericStore[*model.Event, model.Event, domain.Event, domain.EventList]
 }
 
 // Make sure we conform to Event interface
 var _ Event = (*EventStore)(nil)
 
 func NewEvent(db *gorm.DB, log logrus.FieldLogger) Event {
-	genericStore := NewGenericStore[*model.Event, model.Event, api.Event, api.EventList](
+	genericStore := NewGenericStore[*model.Event, model.Event, domain.Event, domain.EventList](
 		db,
 		log,
 		model.NewEventFromApiResource,
@@ -54,13 +54,13 @@ func (s *EventStore) InitialMigration(ctx context.Context) error {
 	return nil
 }
 
-func (s *EventStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.Event) error {
+func (s *EventStore) Create(ctx context.Context, orgId uuid.UUID, resource *domain.Event) error {
 	m, _ := model.NewEventFromApiResource(resource)
 	m.OrgID = orgId
 	return s.getDB(ctx).Create(&m).Error
 }
 
-func (s *EventStore) List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.EventList, error) {
+func (s *EventStore) List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*domain.EventList, error) {
 	return s.genericStore.List(ctx, orgId, listParams)
 }
 

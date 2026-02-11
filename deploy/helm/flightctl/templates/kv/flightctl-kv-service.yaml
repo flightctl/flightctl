@@ -7,7 +7,7 @@ metadata:
   name: flightctl-kv
   namespace:  {{ default .Release.Namespace .Values.global.internalNamespace }}
 spec:
-  {{- if and .Values.global.nodePorts.kv (eq (include "flightctl.getServiceExposeMethod" .) "nodePort") }}
+  {{- if and (eq (include "flightctl.getServiceExposeMethod" .) "nodePort") .Values.dev.nodePorts.kv }}
   type: NodePort
   {{- end }}
   ports:

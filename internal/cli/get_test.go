@@ -12,9 +12,10 @@ import (
 	"strings"
 	"testing"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/cli/display"
+	"github.com/flightctl/flightctl/internal/client"
 )
 
 // fakeHTTPClient is a minimal HTTP client stub that returns the supplied
@@ -35,15 +36,15 @@ func (f *fakeHTTPClient) Do(_ *http.Request) (*http.Response, error) {
 
 // newTestClient wires the fake client into a ClientWithResponses instance and
 // returns both so the caller can assert on the number of calls.
-func newTestClient(t *testing.T, responses []*http.Response) (*apiclient.ClientWithResponses, *fakeHTTPClient) {
+func newTestClient(t *testing.T, responses ...*http.Response) (*apiclient.ClientWithResponses, *fakeHTTPClient) {
 	t.Helper()
 
 	fake := &fakeHTTPClient{responses: responses}
-	client, err := apiclient.NewClientWithResponses("http://example.com", apiclient.WithHTTPClient(fake))
+	c, err := apiclient.NewClientWithResponses("http://example.com", apiclient.WithHTTPClient(fake))
 	if err != nil {
 		t.Fatalf("failed to create test client: %v", err)
 	}
-	return client, fake
+	return c, fake
 }
 
 // makeDeviceListPage builds an *http.Response that contains a single page of a
@@ -55,14 +56,14 @@ func makeDeviceListPage(t *testing.T, numItems int, cont *string, remaining *int
 	for i := 0; i < numItems; i++ {
 		name := fmt.Sprintf("dev-%d", i)
 		items[i] = api.Device{
-			ApiVersion: "v1",
+			ApiVersion: "v1beta1",
 			Kind:       api.DeviceKind,
 			Metadata:   api.ObjectMeta{Name: &name},
 		}
 	}
 
 	body, err := json.Marshal(api.DeviceList{
-		ApiVersion: "v1",
+		ApiVersion: "v1beta1",
 		Kind:       api.DeviceListKind,
 		Items:      items,
 		Metadata: api.ListMeta{
@@ -165,15 +166,28 @@ func TestHandleListBatching(t *testing.T) {
 				responses = append(responses, makeDeviceListPage(t, numItems, continueToken, remaining))
 			}
 
-			clientWithResponses, fakeClient := newTestClient(t, responses)
+			apiClient, fakeClient := newTestClient(t, responses...)
+			c := client.NewTestClient(apiClient)
 
 			opts := DefaultGetOptions()
 			opts.Output = testCase.output
 			opts.Limit = testCase.limit
 
+			ctx := context.Background()
+			fetcher := func() (interface{}, error) {
+				response, err := opts.getResourceList(ctx, c, DeviceKind)
+				if err != nil {
+					return nil, err
+				}
+				if err := validateResponse(response); err != nil {
+					return nil, err
+				}
+				return response, nil
+			}
+
 			// Capture stdout to avoid polluting test output
 			_ = captureStdout(t, func() {
-				err := opts.handleList(context.Background(), display.NewFormatter(display.OutputFormat(opts.Output)), clientWithResponses, DeviceKind)
+				err := opts.handleList(ctx, display.NewFormatter(display.OutputFormat(opts.Output)), DeviceKind, fetcher)
 				if err != nil {
 					t.Fatalf("handleList returned unexpected error: %v", err)
 				}
@@ -190,7 +204,7 @@ func TestParseAndValidateKindNameFromArgs(t *testing.T) {
 	tests := []struct {
 		name          string
 		args          []string
-		expectedKind  string
+		expectedKind  ResourceKind
 		expectedNames []string
 		expectError   bool
 		errorContains string
@@ -460,6 +474,15 @@ func TestGetOptionsValidation(t *testing.T) {
 			errorContains: "'--rendered' can only be used when getting a single device",
 		},
 
+		// Last seen validation tests
+		{
+			name:          "last_seen_with_multiple_devices",
+			args:          []string{"device", "test1", "test2"},
+			options:       &GetOptions{LastSeen: true},
+			expectError:   true,
+			errorContains: "'--last-seen' can only be used when getting a single device",
+		},
+
 		// Single resource restriction tests
 		{
 			name:          "get_individual_event",
@@ -476,6 +499,24 @@ func TestGetOptionsValidation(t *testing.T) {
 		{
 			name:        "list_events_ok",
 			args:        []string{"events"},
+			expectError: false,
+		},
+
+		// CatalogItem cross-catalog listing tests
+		{
+			name:        "catalogitems_without_catalog_lists_all",
+			args:        []string{"catalogitems"},
+			expectError: false,
+		},
+		{
+			name:        "catalogitems_with_catalog_flag",
+			args:        []string{"catalogitems"},
+			options:     &GetOptions{CatalogName: "my-catalog"},
+			expectError: false,
+		},
+		{
+			name:        "catalogitems_shortname_without_catalog",
+			args:        []string{"ci"},
 			expectError: false,
 		},
 	}
@@ -501,6 +542,12 @@ func TestGetOptionsValidation(t *testing.T) {
 				}
 				if tc.options.Rendered {
 					opts.Rendered = tc.options.Rendered
+				}
+				if tc.options.LastSeen {
+					opts.LastSeen = tc.options.LastSeen
+				}
+				if tc.options.CatalogName != "" {
+					opts.CatalogName = tc.options.CatalogName
 				}
 			}
 

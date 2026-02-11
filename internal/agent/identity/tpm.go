@@ -11,8 +11,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/versioning"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	agent_config "github.com/flightctl/flightctl/internal/agent/config"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
@@ -24,6 +25,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
+	"k8s.io/client-go/util/cert"
 	certutil "k8s.io/client-go/util/cert"
 )
 
@@ -37,6 +39,7 @@ type tpmProvider struct {
 	deviceName      string
 	certificateData []byte
 	clientCertPath  string
+	clientCSRPath   string
 	rw              fileio.ReadWriter
 }
 
@@ -45,6 +48,7 @@ func newTPMProvider(
 	client tpm.Client,
 	config *agent_config.Config,
 	clientCertPath string,
+	clientCSRPath string,
 	rw fileio.ReadWriter,
 	log *log.PrefixLogger,
 ) *tpmProvider {
@@ -52,6 +56,7 @@ func newTPMProvider(
 		client:         client,
 		config:         config,
 		clientCertPath: clientCertPath,
+		clientCSRPath:  clientCSRPath,
 		rw:             rw,
 		log:            log,
 	}
@@ -122,15 +127,15 @@ func (t *tpmProvider) GenerateCSR(deviceName string) ([]byte, error) {
 }
 
 // isTPMVerificationNeeded checks if TPM verification is necessary for the enrollment request
-func (t *tpmProvider) isTPMVerificationNeeded(enrollmentRequest *v1alpha1.EnrollmentRequest) bool {
+func (t *tpmProvider) isTPMVerificationNeeded(enrollmentRequest *v1beta1.EnrollmentRequest) bool {
 	if enrollmentRequest.Status != nil {
-		if condition := v1alpha1.FindStatusCondition(enrollmentRequest.Status.Conditions, v1alpha1.ConditionTypeEnrollmentRequestTPMVerified); condition != nil {
+		if condition := v1beta1.FindStatusCondition(enrollmentRequest.Status.Conditions, v1beta1.ConditionTypeEnrollmentRequestTPMVerified); condition != nil {
 			// if verification of the request failed, do not perform any additional verification
-			if condition.Reason == v1alpha1.TPMVerificationFailedReason {
+			if condition.Reason == v1beta1.TPMVerificationFailedReason {
 				t.log.Debug("TPM verification failed, identity proof not allowed")
 				return false
 			}
-			if condition.Status == v1alpha1.ConditionStatusTrue {
+			if condition.Status == v1beta1.ConditionStatusTrue {
 				t.log.Debug("TPM already verified, skipping identity proof")
 				return false
 			}
@@ -210,7 +215,7 @@ func (t *tpmProvider) processChallenge(ctx context.Context, stream grpc_v1.Enrol
 	}
 }
 
-func (t *tpmProvider) ProveIdentity(ctx context.Context, enrollmentRequest *v1alpha1.EnrollmentRequest) error {
+func (t *tpmProvider) ProveIdentity(ctx context.Context, enrollmentRequest *v1beta1.EnrollmentRequest) error {
 	if !t.isTPMVerificationNeeded(enrollmentRequest) {
 		return nil
 	}
@@ -331,12 +336,40 @@ func (t *tpmProvider) StoreCertificate(certPEM []byte) error {
 }
 
 func (t *tpmProvider) HasCertificate() bool {
-	exists, err := t.rw.PathExists(t.clientCertPath)
-	if err != nil {
-		t.log.Warnf("Failed to check certificate existence: %v", err)
-		return false
+	return hasCertificate(t.rw, t.clientCertPath, t.log)
+}
+
+func (t *tpmProvider) GetCertificate() ([]byte, error) {
+	// Prefer in-memory cert if present (Initialize/StoreCertificate already loads it).
+	pemBytes := t.certificateData
+
+	// Fallback to disk if not in memory.
+	if len(pemBytes) == 0 {
+		if t.clientCertPath == "" {
+			return nil, nil
+		}
+
+		exists, err := t.rw.PathExists(t.clientCertPath)
+		if err != nil {
+			return nil, fmt.Errorf("checking certificate file %q: %w", t.clientCertPath, err)
+		}
+		if !exists {
+			return nil, nil
+		}
+
+		b, err := t.rw.ReadFile(t.clientCertPath)
+		if err != nil {
+			return nil, fmt.Errorf("reading certificate file %q: %w", t.clientCertPath, err)
+		}
+
+		if _, err := cert.ParseCertsPEM(b); err != nil {
+			return nil, fmt.Errorf("parsing certificate file %q: %w", t.clientCertPath, err)
+		}
+
+		pemBytes = b
 	}
-	return exists
+
+	return pemBytes, nil
 }
 
 func (t *tpmProvider) createCertificate() (*tls.Certificate, error) {
@@ -377,53 +410,62 @@ func normalizeManagementConfig(config *base_client.Config) (*base_client.Config,
 }
 
 func (t *tpmProvider) CreateManagementClient(config *base_client.Config, metricsCallback client.RPCMetricsCallback) (client.Management, error) {
-	tlsCert, err := t.createCertificate()
-	if err != nil {
-		return nil, err
-	}
-	tlsConfig := &tls.Config{
-		Certificates: []tls.Certificate{*tlsCert},
-		MinVersion:   tls.VersionTLS13,
-	}
-
-	configCopy, err := normalizeManagementConfig(config)
-	if err != nil {
-		return nil, fmt.Errorf("normalizing config: %w", err)
-	}
-	if configCopy.Service.CertificateAuthorityData != nil {
-		caCertPool := x509.NewCertPool()
-		caCertPool.AppendCertsFromPEM(configCopy.Service.CertificateAuthorityData)
-		tlsConfig.RootCAs = caCertPool
-	}
-
-	if configCopy.Service.TLSServerName != "" {
-		tlsConfig.ServerName = configCopy.Service.TLSServerName
-	} else {
-		u, err := url.Parse(configCopy.Service.Server)
-		if err == nil {
-			tlsConfig.ServerName = u.Hostname()
+	return client.NewManagementDelegate(func() (client.Management, error) {
+		tlsCert, err := t.createCertificate()
+		if err != nil {
+			return nil, err
 		}
-	}
-
-	httpClient := &http.Client{
-		Transport: &http.Transport{
-			TLSClientConfig: tlsConfig,
-		},
-	}
-
-	for _, opt := range configCopy.HTTPOptions {
-		if err = opt(httpClient); err != nil {
-			return nil, fmt.Errorf("applying HTTP option: %w", err)
+		tlsConfig := &tls.Config{
+			Certificates: []tls.Certificate{*tlsCert},
+			MinVersion:   tls.VersionTLS13,
 		}
-	}
 
-	clientWithResponses, err := agent_client.NewClientWithResponses(configCopy.Service.Server, agent_client.WithHTTPClient(httpClient))
-	if err != nil {
-		return nil, fmt.Errorf("creating client: %w", err)
-	}
+		configCopy, err := normalizeManagementConfig(config)
+		if err != nil {
+			return nil, fmt.Errorf("normalizing config: %w", err)
+		}
+		if configCopy.Service.CertificateAuthorityData != nil {
+			caCertPool := x509.NewCertPool()
+			caCertPool.AppendCertsFromPEM(configCopy.Service.CertificateAuthorityData)
+			tlsConfig.RootCAs = caCertPool
+		}
 
-	managementClient := client.NewManagement(clientWithResponses, metricsCallback)
-	return managementClient, nil
+		if configCopy.Service.TLSServerName != "" {
+			tlsConfig.ServerName = configCopy.Service.TLSServerName
+		} else {
+			u, err := url.Parse(configCopy.Service.Server)
+			if err == nil {
+				tlsConfig.ServerName = u.Hostname()
+			}
+		}
+
+		httpClient := &http.Client{
+			Transport: &http.Transport{
+				TLSClientConfig: tlsConfig,
+			},
+		}
+
+		for _, opt := range configCopy.HTTPOptions {
+			if err := opt(httpClient); err != nil {
+				return nil, fmt.Errorf("applying HTTP option: %w", err)
+			}
+		}
+
+		httpClient.Transport = versioning.NewTransport(httpClient.Transport, versioning.WithAPIV1Beta1())
+
+		// Trim trailing slash to avoid double slash when appending /api/v1
+		serverURL := base_client.JoinServerURL(configCopy.Service.Server, agent_client.ServerUrlApiv1)
+		clientWithResponses, err := agent_client.NewClientWithResponses(
+			serverURL,
+			agent_client.WithHTTPClient(httpClient),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("creating client: %w", err)
+		}
+
+		managementClient := client.NewManagement(clientWithResponses, metricsCallback)
+		return managementClient, nil
+	})
 }
 
 func (t *tpmProvider) CreateGRPCClient(config *base_client.Config) (grpc_v1.RouterServiceClient, error) {
@@ -456,6 +498,13 @@ func (t *tpmProvider) WipeCredentials() error {
 		t.log.Infof("Wiping certificate file %s", t.clientCertPath)
 		if err := t.rw.OverwriteAndWipe(t.clientCertPath); err != nil {
 			errs = append(errs, fmt.Errorf("failed to wipe certificate file %s: %w", t.clientCertPath, err))
+		}
+	}
+
+	if t.clientCSRPath != "" {
+		t.log.Infof("Wiping CSR file %s", t.clientCSRPath)
+		if err := t.rw.OverwriteAndWipe(t.clientCSRPath); err != nil {
+			errs = append(errs, fmt.Errorf("failed to wipe CSR file %s: %w", t.clientCSRPath, err))
 		}
 	}
 

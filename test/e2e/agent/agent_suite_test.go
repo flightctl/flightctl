@@ -2,6 +2,7 @@ package agent_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	testutil "github.com/flightctl/flightctl/test/util"
@@ -12,6 +13,9 @@ import (
 const TIMEOUT = "5m"
 const POLLING = "125ms"
 const LONGTIMEOUT = "10m"
+const TENMINTIMEOUT = 10 * time.Minute
+const TENSECTIMEOUT = 10 * time.Second
+const FIVESECTIMEOUT = 5 * time.Second
 
 // Define a type for messages.
 type Message string
@@ -68,6 +72,9 @@ var _ = AfterEach(func() {
 	// Get the harness and context directly - no shared variables needed
 	harness := e2e.GetWorkerHarness()
 	suiteCtx := e2e.GetWorkerContext()
+
+	// Print agent logs if test failed (logs from all boots via journalctl)
+	harness.PrintAgentLogsIfFailed()
 
 	// Clean up test resources BEFORE switching back to suite context
 	// This ensures we use the correct test ID for resource cleanup

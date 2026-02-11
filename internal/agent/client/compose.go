@@ -4,20 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"hash/crc32"
 	"maps"
 	"os"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/api/common"
-	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/samber/lo"
 )
 
@@ -203,7 +200,7 @@ func ParseComposeSpecFromDir(reader fileio.Reader, dir string) (*common.ComposeS
 
 // ParseComposeSpecFromSpec parses a Compose specification from a slice of inline application content,
 // as used in inline application providers.
-func ParseComposeFromSpec(contents []v1alpha1.ApplicationContent) (*common.ComposeSpec, error) {
+func ParseComposeFromSpec(contents []v1beta1.ApplicationContent) (*common.ComposeSpec, error) {
 	spec := &common.ComposeSpec{
 		Services: make(map[string]common.ComposeService),
 		Volumes:  make(map[string]common.ComposeVolume),
@@ -300,31 +297,4 @@ func mergeFileIntoSpec(filePath string, reader fileio.Reader, spec *common.Compo
 	maps.Copy(spec.Volumes, partial.Volumes)
 
 	return nil
-}
-
-// NewComposeID generates a deterministic, lowercase, DNS-compatible ID with a fixed-length hash suffix.
-func NewComposeID(input string) string {
-	const suffixLength = 6
-	id := SanitizePodmanLabel(input)
-	hashValue := crc32.ChecksumIEEE([]byte(id))
-	suffix := strconv.AppendUint(nil, uint64(hashValue), 10)
-	maxLength := validation.DNS1123MaxLength - suffixLength - 1
-	if len(id) > maxLength {
-		id = id[:maxLength]
-	}
-
-	var builder strings.Builder
-	builder.Grow(len(id) + 1 + suffixLength)
-
-	builder.WriteString(id)
-	builder.WriteByte('-')
-	builder.WriteString(string(suffix[:suffixLength]))
-
-	return builder.String()
-}
-
-// ComposeVolumeName generates a unique Compose-compatible volume name
-// based on the application and volume names.
-func ComposeVolumeName(appName, volumeName string) string {
-	return NewComposeID(appName + "-" + volumeName)
 }

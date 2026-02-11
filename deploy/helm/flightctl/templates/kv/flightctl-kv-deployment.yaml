@@ -1,4 +1,3 @@
-{{ if .Values.kv.enabled }}
 ---
 # ConfigMap for Redis configuration
 apiVersion: v1
@@ -6,6 +5,9 @@ kind: ConfigMap
 metadata:
   name: flightctl-kv-config
   namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+    flightctl.service: flightctl-kv
 data:
   redis.conf: |-
     bind 0.0.0.0 ::
@@ -63,7 +65,7 @@ spec:
             - name: REDIS_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: flightctl-kv-secret
+                  name: {{ default "flightctl-kv-secret" .Values.kv.passwordSecretName }}
                   key: password
           command:
             - "redis-server"
@@ -89,4 +91,3 @@ spec:
           configMap:
             name: flightctl-kv-config
             defaultMode: 0644
-{{ end }}

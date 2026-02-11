@@ -171,6 +171,15 @@ func (p *VMPool) createVMForWorker(workerID int) (vm.TestVMInterface, error) {
 	}
 
 	fmt.Printf("🔄 [VMPool] Worker %d: Creating pristine snapshot\n", workerID)
+
+	// Stop the agent before cleaning files to ensure it's not writing to /var/lib/flightctl
+	fmt.Printf("🔄 [VMPool] Worker %d: Stopping flightctl-agent before cleanup\n", workerID)
+	if _, err := newVM.RunSSH([]string{"sudo", "systemctl", "stop", "flightctl-agent"}, nil); err != nil {
+		// Log warning but don't fail - agent might not be running
+		fmt.Printf("⚠️  [VMPool] Worker %d: Warning - failed to stop flightctl-agent: %v (may not be running)\n", workerID, err)
+	}
+
+	// Clean up agent identity files in /var/lib/flightctl
 	_, err = newVM.RunSSH([]string{"sudo", "rm", "-rf", "/var/lib/flightctl/*"}, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to clean state before taking pristine snapshot: %w", err)
@@ -186,6 +195,19 @@ func (p *VMPool) createVMForWorker(workerID int) (vm.TestVMInterface, error) {
 		return nil, fmt.Errorf("failed to create pristine snapshot: %w", err)
 	}
 	fmt.Printf("✅ [VMPool] Worker %d: Pristine snapshot created successfully\n", workerID)
+
+	// Print agent files right after snapshot is taken - current and desired should not exist
+	fmt.Printf("🔍 [VMPool] Worker %d: Printing agent files after snapshot creation:\n", workerID)
+	printAgentFilesForVM(newVM, "After Snapshot Creation")
+
+	// Restart the agent after snapshot creation
+	fmt.Printf("🔄 [VMPool] Worker %d: Restarting flightctl-agent after snapshot creation\n", workerID)
+	if _, err := newVM.RunSSH([]string{"sudo", "systemctl", "restart", "flightctl-agent"}, nil); err != nil {
+		// Log warning but don't fail - agent service might have issues but VM is still usable
+		fmt.Printf("⚠️  [VMPool] Worker %d: Warning - failed to restart flightctl-agent: %v\n", workerID, err)
+	} else {
+		fmt.Printf("✅ [VMPool] Worker %d: flightctl-agent restarted successfully after snapshot creation\n", workerID)
+	}
 
 	// VM stays running - no shutdown
 	fmt.Printf("✅ [VMPool] Worker %d: VM setup completed, VM is running\n", workerID)

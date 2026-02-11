@@ -30,7 +30,11 @@ runs:
 
         log_files_collected=false
 
-        for deployment in flightctl-api flightctl-db flightctl-periodic flightctl-worker flightctl-alert-exporter; do
+        echo "::group::Cluster resources"
+        kubectl get all,configmaps,secrets --all-namespaces 
+        echo "::endgroup::"
+        
+        for deployment in flightctl-api flightctl-db flightctl-periodic flightctl-worker flightctl-alert-exporter flightctl-imagebuilder-api; do
           echo "Collecting logs for $deployment..."
           namespace=""
           if [[ "$deployment" == "flightctl-api" ]]; then
@@ -46,6 +50,16 @@ runs:
           fi
         done
 
+        for job in $(kubectl get jobs -n ${{ inputs.namespace-internal }} -l app=flightctl-db-migration -o jsonpath='{.items[*].metadata.name}'); do
+          echo "Collecting logs for job/$job..."
+          if kubectl logs "job/$job" -n ${{ inputs.namespace-internal }} --all-containers=true \
+              > ${{ inputs.log-directory }}/${job}_${timestamp}.log; then
+            log_files_collected=true
+          else
+            echo "Error collecting logs for $job"
+          fi
+        done 
+        
         for statefulset in flightctl-kv; do
           echo "Collecting logs for $statefulset..."
           if kubectl logs -n ${{ inputs.namespace-internal }} statefulset/$statefulset --all-containers=true \
@@ -55,6 +69,8 @@ runs:
             echo "Error collecting logs for $statefulset"
           fi
         done
+        
+        kubectl get all,configmaps,secrets --all-namespaces -o=yaml > ${{  inputs.log-directory }}/cluster_resources_${timestamp}.yaml
 
         if [[ "$log_files_collected" == false ]]; then
           echo "No log files were collected."

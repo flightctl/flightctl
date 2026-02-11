@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/store/selector"
 )
 
@@ -19,12 +19,14 @@ type selectorTest struct {
 
 func TestModelSchemaSelectors(t *testing.T) {
 	testSelectors := []selectorTest{
-		{"status", &api.DeviceStatus{}, deviceStatusSelectors},
-		{"status", &api.EnrollmentRequestStatus{}, enrollmentRequestStatusSelectors},
-		{"status", &api.CertificateSigningRequestStatus{}, certificateSigningRequestStatusSelectors},
-		{"spec", &api.FleetSpec{}, fleetSpecSelectors},
-		{"spec", &api.ResourceSyncSpec{}, resourceSyncSpecSelectors},
-		{"spec", &api.GenericRepoSpec{}, repositorySpecSelectors},
+		{"status", &domain.DeviceStatus{}, deviceStatusSelectors},
+		{"status", &domain.EnrollmentRequestStatus{}, enrollmentRequestStatusSelectors},
+		{"status", &domain.CertificateSigningRequestStatus{}, certificateSigningRequestStatusSelectors},
+		{"spec", &domain.FleetSpec{}, fleetSpecSelectors},
+		{"spec", &domain.ResourceSyncSpec{}, resourceSyncSpecSelectors},
+		{"spec", &domain.GitRepoSpec{}, repositorySpecSelectors},
+		// OCI repos support common selectors plus OCI-specific ones
+		{"spec", &domain.OciRepoSpec{}, ociRepositorySpecSelectors},
 	}
 
 	for _, test := range testSelectors {

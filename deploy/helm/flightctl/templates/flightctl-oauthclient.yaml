@@ -1,0 +1,16 @@
+{{- if eq (include "flightctl.getEffectiveAuthType" .) "openshift" }}
+apiVersion: oauth.openshift.io/v1
+kind: OAuthClient
+metadata:
+  name: {{ include "flightctl.getOpenShiftOAuthClientId" . }}
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+    flightctl.service: flightctl
+    component: oauth-client
+secret: {{ include "flightctl.getOpenShiftOAuthClientSecret" . | quote }}
+redirectURIs:
+  - "{{ include "flightctl.getUIUrl" . }}/callback"
+  - http://localhost:8080/callback
+grantMethod: auto
+{{- end }}
+

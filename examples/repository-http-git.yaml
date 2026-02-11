@@ -1,0 +1,11 @@
+apiVersion: flightctl.io/v1beta1
+kind: Repository
+metadata:
+  name: flightctl-http-git
+spec:
+  url: https://github.com/flightctl/flightctl.git
+  type: git
+  httpConfig:
+    username: myusername
+    password: mypassword
+    skipServerVerification: true

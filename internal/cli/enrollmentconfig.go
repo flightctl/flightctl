@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"os"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	fccrypto "github.com/flightctl/flightctl/pkg/crypto"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -79,6 +79,8 @@ func (o *EnrollmentConfigOptions) Run(ctx context.Context, args []string) error 
 	if err != nil {
 		return fmt.Errorf("creating client: %w", err)
 	}
+	c.Start(ctx)
+	defer c.Stop()
 
 	params := &api.GetEnrollmentConfigParams{}
 	if len(args) > 0 {

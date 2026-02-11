@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"net/http"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -38,6 +38,8 @@ func NewCmdResume() *cobra.Command {
 Examples:
   # Resume a specific device
   flightctl resume device/my-device
+	# or
+  flightctl resume device my-device
 
   # Resume all devices in conflictPaused state
   flightctl resume devices --all
@@ -56,7 +58,12 @@ Examples:
 
   # Resume devices with both label and field selectors
   flightctl resume devices --selector env=production --field-selector status.phase!=Pending`,
-		Args: cobra.ExactArgs(1),
+		Args: cobra.RangeArgs(1, 2),
+		ValidArgsFunction: KindNameAutocomplete{
+			Options:            o,
+			AllowMultipleNames: false,
+			AllowedKinds:       []ResourceKind{DeviceKind},
+		}.ValidArgsFunction,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := o.Complete(cmd, args); err != nil {
 				return err
@@ -93,22 +100,17 @@ func (o *ResumeOptions) Validate(args []string) error {
 		return err
 	}
 
+	kind, name, err := parseAndValidateKindNameFromArgsOptionalSingle(args)
+	if err != nil {
+		return err
+	}
+
+	if kind != DeviceKind {
+		return fmt.Errorf("kind must be Device")
+	}
+
 	// Handle bulk resume case (no specific device name)
-	if len(args) == 1 {
-		kind, name, err := parseAndValidateKindName(args[0])
-		if err != nil {
-			return err
-		}
-
-		if kind != DeviceKind {
-			return fmt.Errorf("kind must be Device")
-		}
-
-		// For bulk resume, name should be empty (plural form like "devices")
-		if name != "" {
-			return fmt.Errorf("for bulk resume, use 'devices' without a specific name, or specify a single device with 'device <name>' or 'device/<name>'")
-		}
-
+	if name == "" {
 		// Check for mutually exclusive flags
 		if o.All && (o.LabelSelector != "" || o.FieldSelector != "") {
 			return fmt.Errorf("--all flag cannot be used with selectors")
@@ -119,16 +121,6 @@ func (o *ResumeOptions) Validate(args []string) error {
 			return fmt.Errorf("at least one selector or --all flag is required when resuming multiple devices. Use --selector/-l, --field-selector, or --all flag")
 		}
 		return nil
-	}
-
-	// Handle single device case
-	kind, name, err := parseAndValidateKindNameFromArgsSingle(args)
-	if err != nil {
-		return err
-	}
-
-	if kind != DeviceKind {
-		return fmt.Errorf("kind must be Device")
 	}
 
 	// Store the device name for later use
@@ -153,29 +145,20 @@ func (o *ResumeOptions) Run(ctx context.Context, args []string) error {
 	if err != nil {
 		return fmt.Errorf("creating client: %w", err)
 	}
-
-	// Handle bulk resume case (no specific device name)
-	if len(args) == 1 {
-		_, name, err := parseAndValidateKindName(args[0])
-		if err != nil {
-			return err
-		}
-
-		// For bulk resume, name should be empty (plural form like "devices")
-		if name != "" {
-			return fmt.Errorf("for bulk resume, use 'devices' without a specific name, or specify a single device with 'device <name>' or 'device/<name>'")
-		}
-
-		return o.runBulkResume(ctx, c)
-	}
+	c.Start(ctx)
+	defer c.Stop()
 
 	// Handle single device case
-	_, name, err := parseAndValidateKindNameFromArgsSingle(args)
+	_, name, err := parseAndValidateKindNameFromArgsOptionalSingle(args)
 	if err != nil {
 		return err
 	}
 
-	return o.runSingleResume(ctx, c, name)
+	if len(name) == 0 {
+		return o.runBulkResume(ctx, c.ClientWithResponses)
+	}
+
+	return o.runSingleResume(ctx, c.ClientWithResponses, name)
 }
 
 func (o *ResumeOptions) runSingleResume(ctx context.Context, c *apiclient.ClientWithResponses, name string) error {

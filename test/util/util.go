@@ -5,17 +5,19 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/api/client"
 	agentclient "github.com/flightctl/flightctl/internal/api/client/agent"
 	apiserver "github.com/flightctl/flightctl/internal/api_server"
@@ -23,15 +25,20 @@ import (
 	"github.com/flightctl/flightctl/internal/api_server/middleware"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"
-	"github.com/flightctl/flightctl/internal/org/resolvers"
+	"github.com/flightctl/flightctl/internal/org"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
+	"github.com/flightctl/flightctl/internal/util"
+	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/types"
 	"github.com/sirupsen/logrus"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
 )
 
 const (
@@ -43,6 +50,14 @@ const (
 	serverCertName              = "server"
 	clientBootstrapCertName     = "client-enrollment"
 )
+
+// InitLogsWithDebug creates a logger with debug level if LOG_LEVEL=debug is set
+func InitLogsWithDebug() *logrus.Logger {
+	if logLevel := os.Getenv("LOG_LEVEL"); logLevel != "" {
+		return flightlog.InitLogs(logLevel)
+	}
+	return flightlog.InitLogs()
+}
 
 type testProvider struct {
 	queue       chan []byte
@@ -206,7 +221,7 @@ func IsAcmInstalled() (bool, bool, error) {
 }
 
 // NewTestApiServer creates a new test server and returns the server and the listener listening on localhost's next available port.
-func NewTestApiServer(log logrus.FieldLogger, cfg *config.Config, store store.Store, ca *crypto.CAClient, serverCerts *crypto.TLSCertificateConfig, queuesProvider queues.Provider, orgResolver resolvers.Resolver) (*apiserver.Server, net.Listener, error) {
+func NewTestApiServer(log logrus.FieldLogger, cfg *config.Config, store store.Store, ca *crypto.CAClient, serverCerts *crypto.TLSCertificateConfig, queuesProvider queues.Provider) (*apiserver.Server, net.Listener, error) {
 
 	// create a listener using the next available port
 	tlsConfig, _, err := crypto.TLSConfigForServer(ca.GetCABundleX509(), serverCerts)
@@ -220,11 +235,11 @@ func NewTestApiServer(log logrus.FieldLogger, cfg *config.Config, store store.St
 		return nil, nil, fmt.Errorf("NewTLSListener: error creating TLS certs: %w", err)
 	}
 
-	return apiserver.New(log, cfg, store, ca, listener, queuesProvider, nil, orgResolver), listener, nil
+	return apiserver.New(log, cfg, store, ca, listener, queuesProvider, nil), listener, nil
 }
 
 // NewTestAgentServer creates a new test server and returns the server and the listener listening on localhost's next available port.
-func NewTestAgentServer(ctx context.Context, log logrus.FieldLogger, cfg *config.Config, store store.Store, ca *crypto.CAClient, serverCerts *crypto.TLSCertificateConfig, queuesProvider queues.Provider, orgResolver resolvers.Resolver) (*agentserver.AgentServer, net.Listener, error) {
+func NewTestAgentServer(ctx context.Context, log logrus.FieldLogger, cfg *config.Config, store store.Store, ca *crypto.CAClient, serverCerts *crypto.TLSCertificateConfig, queuesProvider queues.Provider) (*agentserver.AgentServer, net.Listener, error) {
 	// create a listener using the next available port
 	_, tlsConfig, err := crypto.TLSConfigForServer(ca.GetCABundleX509(), serverCerts)
 	if err != nil {
@@ -237,7 +252,7 @@ func NewTestAgentServer(ctx context.Context, log logrus.FieldLogger, cfg *config
 		return nil, nil, fmt.Errorf("NewTestAgentServer: error creating TLS certs: %w", err)
 	}
 
-	agentServer, err := agentserver.New(ctx, log, cfg, store, ca, listener, queuesProvider, tlsConfig, orgResolver)
+	agentServer, err := agentserver.New(ctx, log, cfg, store, ca, listener, queuesProvider, tlsConfig)
 	if err != nil {
 		_ = listener.Close()
 		return nil, nil, fmt.Errorf("NewTestAgentServer: error creating agent server: %w", err)
@@ -295,7 +310,10 @@ func NewTestCerts(cfg *config.Config) (*crypto.CAClient, *crypto.TLSCertificateC
 		return nil, nil, nil, fmt.Errorf("NewTestCerts: Ensuring server certificate: %w", err)
 	}
 
-	enrollmentCerts, _, err := ca.EnsureClientCertificate(ctx, crypto.CertStorePath("client-enrollment.crt", cfg.Service.CertStore), crypto.CertStorePath("client-enrollment.key", cfg.Service.CertStore), clientBootstrapCertName, clientBootStrapValidityDays)
+	// Create enrollment certificate with organization ID extension
+	// Use the default organization ID for test certificates
+	orgCtx := util.WithOrganizationID(ctx, org.DefaultID)
+	enrollmentCerts, _, err := ca.EnsureClientCertificate(orgCtx, crypto.CertStorePath("client-enrollment.crt", cfg.Service.CertStore), crypto.CertStorePath("client-enrollment.key", cfg.Service.CertStore), clientBootstrapCertName, clientBootStrapValidityDays)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("NewTestCerts: Ensuring client enrollment certificate: %w", err)
 	}
@@ -357,35 +375,46 @@ func (c *TestOrgCache) Set(id uuid.UUID, org *model.Organization) {
 	c.orgs[id] = org
 }
 
-func NewOrgResolver(cfg *config.Config, orgStore resolvers.OrgStore, log logrus.FieldLogger) (resolvers.Resolver, error) {
-	orgCache := &TestOrgCache{
-		orgs: make(map[uuid.UUID]*model.Organization),
-	}
-	buildResolverOpts := resolvers.BuildResolverOptions{
-		Config: cfg,
-		Store:  orgStore,
-		Log:    log,
-		Cache:  orgCache,
-	}
-	return resolvers.BuildResolver(buildResolverOpts)
-}
-
-func TestEnrollmentApproval() *v1alpha1.EnrollmentRequestApproval {
-	return &v1alpha1.EnrollmentRequestApproval{
+func TestEnrollmentApproval() *v1beta1.EnrollmentRequestApproval {
+	return &v1beta1.EnrollmentRequestApproval{
 		Approved: true,
 		Labels:   &map[string]string{"label": "value"},
 	}
 }
 
-// TestTempEnv sets the environment variable key to value and returns a function that will reset the environment variable to its original value.
-func TestTempEnv(key, value string) func() {
-	originalValue, hadOriginalValue := os.LookupEnv(key)
-	os.Setenv(key, value)
+// TestTempEnv sets one or more environment variables and returns a cleanup
+// function that restores their original values.
+func TestTempEnv(kv ...string) func() {
+	if len(kv)%2 != 0 {
+		panic("TestTempEnv requires even number of arguments: key, value pairs")
+	}
+
+	type original struct {
+		key    string
+		value  string
+		exists bool
+	}
+
+	originals := make([]original, 0, len(kv)/2)
+
+	for i := 0; i < len(kv); i += 2 {
+		key, value := kv[i], kv[i+1]
+		origVal, exists := os.LookupEnv(key)
+		originals = append(originals, original{
+			key:    key,
+			value:  origVal,
+			exists: exists,
+		})
+		_ = os.Setenv(key, value)
+	}
+
 	return func() {
-		if hadOriginalValue {
-			os.Setenv(key, originalValue)
-		} else {
-			os.Unsetenv(key)
+		for _, o := range originals {
+			if o.exists {
+				_ = os.Setenv(o.key, o.value)
+			} else {
+				_ = os.Unsetenv(o.key)
+			}
 		}
 	}
 }
@@ -443,4 +472,58 @@ func RunTable[T any](cases []TestCase[T], runFunc func(T)) {
 
 func EventuallySlow(actual any) types.AsyncAssertion {
 	return Eventually(actual).WithTimeout(LONG_TIMEOUT).WithPolling(LONG_POLLING)
+}
+
+// CopyFile copies a file from src to dst, creating the destination directory if it does not exist.
+func CopyFile(src, dst string) error {
+	srcFile, err := os.Open(src)
+	if err != nil {
+		return fmt.Errorf("opening source file: %w", err)
+	}
+	defer srcFile.Close()
+
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return fmt.Errorf("creating destination directory: %w", err)
+	}
+
+	dstFile, err := os.Create(dst)
+	if err != nil {
+		return fmt.Errorf("creating destination file: %w", err)
+	}
+	defer dstFile.Close()
+
+	if _, err := io.Copy(dstFile, srcFile); err != nil {
+		return fmt.Errorf("copying file contents: %w", err)
+	}
+
+	return nil
+}
+
+// CreateTestNamespace creates a Kubernetes namespace with an org label.
+// If orgLabel is empty, it defaults to DefaultOrgLabel.
+func CreateTestNamespace(name string, orgLabel ...string) *corev1.Namespace {
+	orgLabelValue := DefaultOrgLabel
+	if len(orgLabel) > 0 && orgLabel[0] != "" {
+		orgLabelValue = orgLabel[0]
+	}
+	return &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: name,
+			Labels: map[string]string{
+				OrgLabelKey: orgLabelValue,
+			},
+		},
+	}
+}
+
+// DeleteNamespace deletes a Kubernetes namespace using the provided Kubernetes client.
+// It logs the deletion result using GinkgoWriter.
+func DeleteNamespace(ctx context.Context, client kubernetes.Interface, namespace string) error {
+	err := client.CoreV1().Namespaces().Delete(ctx, namespace, metav1.DeleteOptions{})
+	if err != nil {
+		GinkgoWriter.Printf("Warning: Failed to delete test namespace %s: %v\n", namespace, err)
+	} else {
+		GinkgoWriter.Printf("Deleted test namespace: %s\n", namespace)
+	}
+	return err
 }

@@ -1,4 +1,4 @@
-apiVersion: flightctl.io/v1alpha1
+apiVersion: flightctl.io/v1beta1
 kind: Fleet
 metadata:
   name: default
@@ -18,16 +18,22 @@ spec:
           - path: "/etc/motd"
             content: "This system is managed by flightctl."
             mode: 0600
+            user: _CURRENT_USER_
+            group: _CURRENT_GROUP_
           - path: "/etc/testdir/encoded"
             content: "VGhpcyB0ZXh0IGlzIGVuY29kZWQu"
             contentEncoding: base64
             mode: 01775
+            user: _CURRENT_USER_
+            group: _CURRENT_GROUP_
         - name: kubernetes-secret
           configType: KubernetesSecretProviderSpec
           secretRef:
             name: secret
             namespace: secret-namespace
             mountPath: /etc/secret/secretMountPath
+            user: _CURRENT_USER_
+            group: _CURRENT_GROUP_
       systemd:
         matchPatterns:
           - chronyd.service

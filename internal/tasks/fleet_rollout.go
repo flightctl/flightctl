@@ -9,8 +9,8 @@ import (
 	"strings"
 	"text/template"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/rollout"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store/selector"
@@ -41,16 +41,16 @@ import (
 //
 // This design ensures the task can be run repeatedly without side effects.
 
-func fleetRollout(ctx context.Context, orgId uuid.UUID, event api.Event, serviceHandler service.Service, log logrus.FieldLogger) error {
+func fleetRollout(ctx context.Context, orgId uuid.UUID, event domain.Event, serviceHandler service.Service, log logrus.FieldLogger) error {
 	logic := NewFleetRolloutsLogic(log, serviceHandler, orgId, event)
 	switch event.InvolvedObject.Kind {
-	case api.FleetKind:
+	case domain.FleetKind:
 		err := logic.RolloutFleet(ctx)
 		if err != nil {
 			log.Errorf("failed rolling out fleet %s/%s: %v", orgId, event.InvolvedObject.Name, err)
 		}
 		return err
-	case api.DeviceKind:
+	case domain.DeviceKind:
 		err := logic.RolloutDevice(ctx)
 		if err != nil {
 			log.Errorf("failed rolling out device %s/%s: %v", orgId, event.InvolvedObject.Name, err)
@@ -65,12 +65,12 @@ type FleetRolloutsLogic struct {
 	log            logrus.FieldLogger
 	serviceHandler service.Service
 	orgId          uuid.UUID
-	event          api.Event
+	event          domain.Event
 	itemsPerPage   int
 	owner          string
 }
 
-func NewFleetRolloutsLogic(log logrus.FieldLogger, serviceHandler service.Service, orgId uuid.UUID, event api.Event) FleetRolloutsLogic {
+func NewFleetRolloutsLogic(log logrus.FieldLogger, serviceHandler service.Service, orgId uuid.UUID, event domain.Event) FleetRolloutsLogic {
 	return FleetRolloutsLogic{
 		log:            log,
 		serviceHandler: serviceHandler,
@@ -85,43 +85,43 @@ func (f *FleetRolloutsLogic) SetItemsPerPage(items int) {
 }
 
 func (f FleetRolloutsLogic) RolloutFleet(ctx context.Context) error {
-	fleet, status := f.serviceHandler.GetFleet(ctx, f.event.InvolvedObject.Name, api.GetFleetParams{})
+	fleet, status := f.serviceHandler.GetFleet(ctx, f.orgId, f.event.InvolvedObject.Name, domain.GetFleetParams{})
 	if status.Code != http.StatusOK {
 		return fmt.Errorf("failed to get fleet %s/%s: %s", f.orgId, f.event.InvolvedObject.Name, status.Message)
 	}
 	f.log.Infof("Rolling out fleet %s/%s", f.orgId, f.event.InvolvedObject.Name)
 
-	templateVersion, status := f.serviceHandler.GetLatestTemplateVersion(ctx, f.event.InvolvedObject.Name)
+	templateVersion, status := f.serviceHandler.GetLatestTemplateVersion(ctx, f.orgId, f.event.InvolvedObject.Name)
 	if status.Code != http.StatusOK {
 		return fmt.Errorf("failed to get templateVersion: %s", status.Message)
 	}
 
 	failureCount := 0
-	owner := util.SetResourceOwner(api.FleetKind, f.event.InvolvedObject.Name)
+	owner := util.SetResourceOwner(domain.FleetKind, f.event.InvolvedObject.Name)
 	f.owner = *owner
 
-	listParams := api.ListDevicesParams{
+	listParams := domain.ListDevicesParams{
 		Limit:         lo.ToPtr(int32(ItemsPerPage)),
 		FieldSelector: lo.ToPtr(fmt.Sprintf("metadata.owner=%s", *owner)),
 	}
 	annotationFilter := []string{
-		api.MatchExpression{
-			Key:      api.DeviceAnnotationTemplateVersion,
-			Operator: api.NotIn,
+		domain.MatchExpression{
+			Key:      domain.DeviceAnnotationTemplateVersion,
+			Operator: domain.NotIn,
 			Values:   &[]string{lo.FromPtr(templateVersion.Metadata.Name)},
 		}.String(),
 	}
 	if fleet.Spec.RolloutPolicy != nil && fleet.Spec.RolloutPolicy.DeviceSelection != nil {
-		annotationFilter = append(annotationFilter, api.MatchExpression{
-			Key:      api.DeviceAnnotationSelectedForRollout,
-			Operator: api.Exists,
+		annotationFilter = append(annotationFilter, domain.MatchExpression{
+			Key:      domain.DeviceAnnotationSelectedForRollout,
+			Operator: domain.Exists,
 		}.String())
 	}
 	annotationSelector := selector.NewAnnotationSelectorOrDie(strings.Join(annotationFilter, ","))
 	delayDeviceRender := fleet.Spec.RolloutPolicy != nil && fleet.Spec.RolloutPolicy.DisruptionBudget != nil
 
 	for {
-		devices, status := f.serviceHandler.ListDevices(ctx, listParams, annotationSelector)
+		devices, status := f.serviceHandler.ListDevices(ctx, f.orgId, listParams, annotationSelector)
 		if status.Code != http.StatusOK {
 			// TODO: Retry when we have a mechanism that allows it
 			return fmt.Errorf("failed fetching devices: %s", status.Message)
@@ -154,7 +154,7 @@ func (f FleetRolloutsLogic) RolloutFleet(ctx context.Context) error {
 func (f FleetRolloutsLogic) RolloutDevice(ctx context.Context) error {
 	f.log.Infof("Rolling out device %s/%s", f.orgId, f.event.InvolvedObject.Name)
 
-	device, status := f.serviceHandler.GetDevice(ctx, f.event.InvolvedObject.Name)
+	device, status := f.serviceHandler.GetDevice(ctx, f.orgId, f.event.InvolvedObject.Name)
 	if status.Code != http.StatusOK {
 		return fmt.Errorf("failed to get device: %s", status.Message)
 	}
@@ -163,7 +163,7 @@ func (f FleetRolloutsLogic) RolloutDevice(ctx context.Context) error {
 		return nil
 	}
 
-	if api.IsStatusConditionTrue(device.Status.Conditions, api.ConditionTypeDeviceMultipleOwners) {
+	if domain.IsStatusConditionTrue(device.Status.Conditions, domain.ConditionTypeDeviceMultipleOwners) {
 		f.log.Errorf("Device %s has multiple owners, skipping rollout", f.event.InvolvedObject.Name)
 		return nil
 	}
@@ -177,12 +177,12 @@ func (f FleetRolloutsLogic) RolloutDevice(ctx context.Context) error {
 	}
 	f.owner = *device.Metadata.Owner
 
-	templateVersion, status := f.serviceHandler.GetLatestTemplateVersion(ctx, ownerName)
+	templateVersion, status := f.serviceHandler.GetLatestTemplateVersion(ctx, f.orgId, ownerName)
 	if status.Code != http.StatusOK {
 		return fmt.Errorf("failed to get templateVersion: %s", status.Message)
 	}
 
-	fleet, status := f.serviceHandler.GetFleet(ctx, ownerName, api.GetFleetParams{})
+	fleet, status := f.serviceHandler.GetFleet(ctx, f.orgId, ownerName, domain.GetFleetParams{})
 	if status.Code != http.StatusOK {
 		return fmt.Errorf("failed to get fleet: %s", status.Message)
 	}
@@ -199,23 +199,23 @@ func (f FleetRolloutsLogic) RolloutDevice(ctx context.Context) error {
 	return f.updateDeviceToFleetTemplate(ctx, device, templateVersion, delayDeviceRender)
 }
 
-func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, device *api.Device, templateVersion *api.TemplateVersion, delayDeviceRender bool) error {
+func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, device *domain.Device, templateVersion *domain.TemplateVersion, delayDeviceRender bool) error {
 	currentVersion := ""
 	if device.Metadata.Annotations != nil {
-		v, ok := (*device.Metadata.Annotations)[api.DeviceAnnotationTemplateVersion]
+		v, ok := (*device.Metadata.Annotations)[domain.DeviceAnnotationTemplateVersion]
 		if ok {
 			currentVersion = v
 		}
 	}
 	errs := []error{}
 
-	var osSpec *api.DeviceOsSpec
+	var osSpec *domain.DeviceOsSpec
 	if templateVersion.Status.Os != nil {
 		img, err := replaceParametersInString(templateVersion.Status.Os.Image, device)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("failed replacing parameters in OS image: %w", err))
 		} else {
-			osSpec = &api.DeviceOsSpec{Image: img}
+			osSpec = &domain.DeviceOsSpec{Image: img}
 		}
 	}
 
@@ -227,16 +227,16 @@ func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, dev
 
 	if len(errs) > 0 {
 		annotations := map[string]string{
-			api.DeviceAnnotationLastRolloutError: errors.Join(errs...).Error(),
+			domain.DeviceAnnotationLastRolloutError: errors.Join(errs...).Error(),
 		}
-		status := f.serviceHandler.UpdateDeviceAnnotations(ctx, *device.Metadata.Name, annotations, nil)
+		status := f.serviceHandler.UpdateDeviceAnnotations(ctx, f.orgId, *device.Metadata.Name, annotations, nil)
 		if status.Code != http.StatusOK {
 			errs = append(errs, service.ApiStatusToErr(status))
 		}
 		return fmt.Errorf("failed generating device spec for %s/%s: %w", f.orgId, *device.Metadata.Name, errors.Join(errs...))
 	}
 
-	newDeviceSpec := api.DeviceSpec{
+	newDeviceSpec := domain.DeviceSpec{
 		Config:       deviceConfig,
 		Os:           osSpec,
 		Systemd:      templateVersion.Status.Systemd,
@@ -250,7 +250,7 @@ func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, dev
 		return fmt.Errorf("failed validating device spec for %s/%s: %w", f.orgId, *device.Metadata.Name, errors.Join(errs...))
 	}
 
-	if currentVersion == *templateVersion.Metadata.Name && api.DeviceSpecsAreEqual(newDeviceSpec, *device.Spec) {
+	if currentVersion == *templateVersion.Metadata.Name && domain.DeviceSpecsAreEqual(newDeviceSpec, *device.Spec) {
 		f.log.Debugf("Not rolling out device %s/%s because it is already at templateVersion %s", f.orgId, *device.Metadata.Name, *templateVersion.Metadata.Name)
 		return nil
 	}
@@ -262,9 +262,9 @@ func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, dev
 	}
 
 	annotations := map[string]string{
-		api.DeviceAnnotationTemplateVersion: *templateVersion.Metadata.Name,
+		domain.DeviceAnnotationTemplateVersion: *templateVersion.Metadata.Name,
 	}
-	status := f.serviceHandler.UpdateDeviceAnnotations(ctx, *device.Metadata.Name, annotations, []string{api.DeviceAnnotationLastRolloutError})
+	status := f.serviceHandler.UpdateDeviceAnnotations(ctx, f.orgId, *device.Metadata.Name, annotations, []string{domain.DeviceAnnotationLastRolloutError})
 	if status.Code != http.StatusOK {
 		return fmt.Errorf("failed updating templateVersion annotation: %s", status.Message)
 	}
@@ -272,28 +272,34 @@ func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, dev
 	return err
 }
 
-func (f FleetRolloutsLogic) getDeviceApps(device *api.Device, templateVersion *api.TemplateVersion) (*[]api.ApplicationProviderSpec, []error) {
+func (f FleetRolloutsLogic) getDeviceApps(device *domain.Device, templateVersion *domain.TemplateVersion) (*[]domain.ApplicationProviderSpec, []error) {
 	if templateVersion.Status.Applications == nil {
 		return nil, nil
 	}
 
-	deviceApps := []api.ApplicationProviderSpec{}
+	deviceApps := []domain.ApplicationProviderSpec{}
 	appErrs := []error{}
 	for appIndex, appItem := range *templateVersion.Status.Applications {
-		var newAppItem *api.ApplicationProviderSpec
-		errs := []error{}
-		appType, err := appItem.Type()
+		var newAppItem *domain.ApplicationProviderSpec
+		var errs []error
+
+		appType, err := appItem.GetAppType()
 		if err != nil {
-			appErrs = append(errs, fmt.Errorf("failed getting type for app %d: %w", appIndex, err))
+			appErrs = append(appErrs, fmt.Errorf("failed to get app type for app %d: %w", appIndex, err))
 			continue
 		}
+
 		switch appType {
-		case api.ImageApplicationProviderType:
-			newAppItem, errs = f.replaceEnvVarValueParameters(device, appItem)
-		case api.InlineApplicationProviderType:
-			newAppItem, errs = f.replaceInlineApplicationParameters(device, appItem)
+		case domain.AppTypeContainer:
+			newAppItem, errs = f.replaceContainerApplicationParameters(device, appItem)
+		case domain.AppTypeHelm:
+			newAppItem, errs = f.replaceHelmApplicationParameters(device, appItem)
+		case domain.AppTypeCompose:
+			newAppItem, errs = f.replaceComposeApplicationParameters(device, appItem)
+		case domain.AppTypeQuadlet:
+			newAppItem, errs = f.replaceQuadletApplicationParameters(device, appItem)
 		default:
-			errs = append(errs, fmt.Errorf("unsupported type for app %d: %s", appIndex, appType))
+			errs = append(errs, fmt.Errorf("unsupported app type for app %d: %s", appIndex, appType))
 		}
 
 		appErrs = append(appErrs, errs...)
@@ -309,13 +315,12 @@ func (f FleetRolloutsLogic) getDeviceApps(device *api.Device, templateVersion *a
 	return &deviceApps, nil
 }
 
-func (f FleetRolloutsLogic) replaceEnvVarValueParameters(device *api.Device, app api.ApplicationProviderSpec) (*api.ApplicationProviderSpec, []error) {
-	if app.EnvVars == nil {
-		return &app, nil
+func replaceEnvVarsMap(device *domain.Device, envVars *map[string]string) (*map[string]string, []error) {
+	if envVars == nil {
+		return nil, nil
 	}
-
-	origEnvVars := *app.EnvVars
 	var errs []error
+	origEnvVars := *envVars
 	newEnvVars := make(map[string]string, len(origEnvVars))
 	for k, v := range origEnvVars {
 		newValue, err := replaceParametersInString(v, device)
@@ -325,25 +330,327 @@ func (f FleetRolloutsLogic) replaceEnvVarValueParameters(device *api.Device, app
 		}
 		newEnvVars[k] = newValue
 	}
+	return &newEnvVars, errs
+}
+
+func (f FleetRolloutsLogic) replaceContainerApplicationParameters(device *domain.Device, app domain.ApplicationProviderSpec) (*domain.ApplicationProviderSpec, []error) {
+	containerApp, err := app.AsContainerApplication()
+	if err != nil {
+		return nil, []error{fmt.Errorf("failed to convert to container application: %w", err)}
+	}
+	appName := lo.FromPtr(containerApp.Name)
+
+	var errs []error
+
+	containerApp.Image, err = replaceParametersInString(containerApp.Image, device)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("failed replacing parameters in image for app %s: %w", appName, err))
+	}
+
+	newEnvVars, envErrs := replaceEnvVarsMap(device, containerApp.EnvVars)
+	errs = append(errs, envErrs...)
+	containerApp.EnvVars = newEnvVars
+
+	if containerApp.Volumes != nil {
+		newVolumes, volErrs := f.replaceVolumeParameters(device, appName, *containerApp.Volumes)
+		errs = append(errs, volErrs...)
+		if len(volErrs) == 0 {
+			containerApp.Volumes = &newVolumes
+		}
+	}
 
 	if len(errs) > 0 {
 		return nil, errs
 	}
 
-	app.EnvVars = &newEnvVars
+	var newItem domain.ApplicationProviderSpec
+	if err := newItem.FromContainerApplication(containerApp); err != nil {
+		return nil, []error{fmt.Errorf("failed converting container application: %w", err)}
+	}
 
-	return &app, nil
+	return &newItem, nil
 }
 
-func (f FleetRolloutsLogic) getDeviceConfig(device *api.Device, templateVersion *api.TemplateVersion) (*[]api.ConfigProviderSpec, []error) {
+func (f FleetRolloutsLogic) replaceHelmApplicationParameters(device *domain.Device, app domain.ApplicationProviderSpec) (*domain.ApplicationProviderSpec, []error) {
+	helmApp, err := app.AsHelmApplication()
+	if err != nil {
+		return nil, []error{fmt.Errorf("failed to convert to helm application: %w", err)}
+	}
+	appName := lo.FromPtr(helmApp.Name)
+
+	var errs []error
+
+	helmApp.Image, err = replaceParametersInString(helmApp.Image, device)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("failed replacing parameters in image for app %s: %w", appName, err))
+	}
+
+	if len(errs) > 0 {
+		return nil, errs
+	}
+
+	var newItem domain.ApplicationProviderSpec
+	if err := newItem.FromHelmApplication(helmApp); err != nil {
+		return nil, []error{fmt.Errorf("failed converting helm application: %w", err)}
+	}
+
+	return &newItem, nil
+}
+
+func (f FleetRolloutsLogic) replaceComposeApplicationParameters(device *domain.Device, app domain.ApplicationProviderSpec) (*domain.ApplicationProviderSpec, []error) {
+	composeApp, err := app.AsComposeApplication()
+	if err != nil {
+		return nil, []error{fmt.Errorf("failed to convert to compose application: %w", err)}
+	}
+	appName := lo.FromPtr(composeApp.Name)
+
+	var errs []error
+
+	newEnvVars, envErrs := replaceEnvVarsMap(device, composeApp.EnvVars)
+	errs = append(errs, envErrs...)
+	composeApp.EnvVars = newEnvVars
+
+	if composeApp.Volumes != nil {
+		newVolumes, volErrs := f.replaceVolumeParameters(device, appName, *composeApp.Volumes)
+		errs = append(errs, volErrs...)
+		if len(volErrs) == 0 {
+			composeApp.Volumes = &newVolumes
+		}
+	}
+
+	providerType, err := composeApp.Type()
+	if err != nil {
+		return nil, []error{fmt.Errorf("failed getting provider type for compose app %s: %w", appName, err)}
+	}
+
+	switch providerType {
+	case domain.ImageApplicationProviderType:
+		imageSpec, err := composeApp.AsImageApplicationProviderSpec()
+		if err != nil {
+			return nil, []error{fmt.Errorf("failed to get image spec for compose app %s: %w", appName, err)}
+		}
+		imageSpec.Image, err = replaceParametersInString(imageSpec.Image, device)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("failed replacing parameters in image for app %s: %w", appName, err))
+		}
+		if len(errs) > 0 {
+			return nil, errs
+		}
+		if err := composeApp.FromImageApplicationProviderSpec(imageSpec); err != nil {
+			return nil, []error{fmt.Errorf("failed updating image spec for compose app %s: %w", appName, err)}
+		}
+
+	case domain.InlineApplicationProviderType:
+		inlineSpec, err := composeApp.AsInlineApplicationProviderSpec()
+		if err != nil {
+			return nil, []error{fmt.Errorf("failed to get inline spec for compose app %s: %w", appName, err)}
+		}
+		inlineErrs := f.replaceInlineContentParameters(device, appName, &inlineSpec)
+		errs = append(errs, inlineErrs...)
+		if len(errs) > 0 {
+			return nil, errs
+		}
+		if err := composeApp.FromInlineApplicationProviderSpec(inlineSpec); err != nil {
+			return nil, []error{fmt.Errorf("failed updating inline spec for compose app %s: %w", appName, err)}
+		}
+	}
+
+	var newItem domain.ApplicationProviderSpec
+	if err := newItem.FromComposeApplication(composeApp); err != nil {
+		return nil, []error{fmt.Errorf("failed converting compose application: %w", err)}
+	}
+
+	return &newItem, nil
+}
+
+func (f FleetRolloutsLogic) replaceQuadletApplicationParameters(device *domain.Device, app domain.ApplicationProviderSpec) (*domain.ApplicationProviderSpec, []error) {
+	quadletApp, err := app.AsQuadletApplication()
+	if err != nil {
+		return nil, []error{fmt.Errorf("failed to convert to quadlet application: %w", err)}
+	}
+	appName := lo.FromPtr(quadletApp.Name)
+
+	var errs []error
+
+	newEnvVars, envErrs := replaceEnvVarsMap(device, quadletApp.EnvVars)
+	errs = append(errs, envErrs...)
+	quadletApp.EnvVars = newEnvVars
+
+	if quadletApp.Volumes != nil {
+		newVolumes, volErrs := f.replaceVolumeParameters(device, appName, *quadletApp.Volumes)
+		errs = append(errs, volErrs...)
+		if len(volErrs) == 0 {
+			quadletApp.Volumes = &newVolumes
+		}
+	}
+
+	providerType, err := quadletApp.Type()
+	if err != nil {
+		return nil, []error{fmt.Errorf("failed getting provider type for quadlet app %s: %w", appName, err)}
+	}
+
+	switch providerType {
+	case domain.ImageApplicationProviderType:
+		imageSpec, err := quadletApp.AsImageApplicationProviderSpec()
+		if err != nil {
+			return nil, []error{fmt.Errorf("failed to get image spec for quadlet app %s: %w", appName, err)}
+		}
+		imageSpec.Image, err = replaceParametersInString(imageSpec.Image, device)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("failed replacing parameters in image for app %s: %w", appName, err))
+		}
+		if len(errs) > 0 {
+			return nil, errs
+		}
+		if err := quadletApp.FromImageApplicationProviderSpec(imageSpec); err != nil {
+			return nil, []error{fmt.Errorf("failed updating image spec for quadlet app %s: %w", appName, err)}
+		}
+
+	case domain.InlineApplicationProviderType:
+		inlineSpec, err := quadletApp.AsInlineApplicationProviderSpec()
+		if err != nil {
+			return nil, []error{fmt.Errorf("failed to get inline spec for quadlet app %s: %w", appName, err)}
+		}
+		inlineErrs := f.replaceInlineContentParameters(device, appName, &inlineSpec)
+		errs = append(errs, inlineErrs...)
+		if len(errs) > 0 {
+			return nil, errs
+		}
+		if err := quadletApp.FromInlineApplicationProviderSpec(inlineSpec); err != nil {
+			return nil, []error{fmt.Errorf("failed updating inline spec for quadlet app %s: %w", appName, err)}
+		}
+	}
+
+	var newItem domain.ApplicationProviderSpec
+	if err := newItem.FromQuadletApplication(quadletApp); err != nil {
+		return nil, []error{fmt.Errorf("failed converting quadlet application: %w", err)}
+	}
+
+	return &newItem, nil
+}
+
+func (f FleetRolloutsLogic) replaceInlineContentParameters(device *domain.Device, appName string, inlineSpec *domain.InlineApplicationProviderSpec) []error {
+	var errs []error
+	for fileIndex, file := range inlineSpec.Inline {
+		var decodedBytes []byte
+		var err error
+
+		inlineSpec.Inline[fileIndex].Path, err = replaceParametersInString(file.Path, device)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("failed replacing parameters in path for file %d in inline app %s: %w", fileIndex, appName, err))
+		}
+
+		content := lo.FromPtr(file.Content)
+		encoding := lo.FromPtr(file.ContentEncoding)
+		if encoding == domain.EncodingBase64 {
+			decodedBytes, err = base64.StdEncoding.DecodeString(content)
+			if err != nil {
+				errs = append(errs, fmt.Errorf("failed base64 decoding contents for file %d in inline app %s: %w", fileIndex, appName, err))
+				continue
+			}
+		} else {
+			decodedBytes = []byte(content)
+		}
+
+		contentsReplaced, err := replaceParametersInString(string(decodedBytes), device)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("failed replacing parameters in contents for file %d in inline app %s: %w", fileIndex, appName, err))
+			continue
+		}
+
+		if encoding == domain.EncodingBase64 {
+			contentsReplaced = base64.StdEncoding.EncodeToString([]byte(contentsReplaced))
+		}
+		inlineSpec.Inline[fileIndex].Content = &contentsReplaced
+	}
+	return errs
+}
+
+func (f FleetRolloutsLogic) replaceVolumeParameters(device *domain.Device, appName string, volumes []domain.ApplicationVolume) ([]domain.ApplicationVolume, []error) {
+	var errs []error
+	newVolumes := make([]domain.ApplicationVolume, 0, len(volumes))
+
+	for volIndex, vol := range volumes {
+		volType, err := vol.Type()
+		if err != nil {
+			errs = append(errs, fmt.Errorf("failed getting volume type for volume %d in app %s: %w", volIndex, appName, err))
+			continue
+		}
+
+		newVol := domain.ApplicationVolume{
+			Name:          vol.Name,
+			ReclaimPolicy: vol.ReclaimPolicy,
+		}
+
+		switch volType {
+		case domain.ImageApplicationVolumeProviderType:
+			imgSpec, err := vol.AsImageVolumeProviderSpec()
+			if err != nil {
+				errs = append(errs, fmt.Errorf("failed getting image volume spec for volume %d in app %s: %w", volIndex, appName, err))
+				continue
+			}
+
+			imgSpec.Image.Reference, err = replaceParametersInString(imgSpec.Image.Reference, device)
+			if err != nil {
+				errs = append(errs, fmt.Errorf("failed replacing parameters in image reference for volume %d in app %s: %w", volIndex, appName, err))
+				continue
+			}
+
+			if err := newVol.FromImageVolumeProviderSpec(imgSpec); err != nil {
+				errs = append(errs, fmt.Errorf("failed converting image volume spec for volume %d in app %s: %w", volIndex, appName, err))
+				continue
+			}
+
+		case domain.ImageMountApplicationVolumeProviderType:
+			imgMountSpec, err := vol.AsImageMountVolumeProviderSpec()
+			if err != nil {
+				errs = append(errs, fmt.Errorf("failed getting image mount volume spec for volume %d in app %s: %w", volIndex, appName, err))
+				continue
+			}
+
+			imgMountSpec.Image.Reference, err = replaceParametersInString(imgMountSpec.Image.Reference, device)
+			if err != nil {
+				errs = append(errs, fmt.Errorf("failed replacing parameters in image reference for volume %d in app %s: %w", volIndex, appName, err))
+				continue
+			}
+
+			if err := newVol.FromImageMountVolumeProviderSpec(imgMountSpec); err != nil {
+				errs = append(errs, fmt.Errorf("failed converting image mount volume spec for volume %d in app %s: %w", volIndex, appName, err))
+				continue
+			}
+
+		case domain.MountApplicationVolumeProviderType:
+			mountSpec, err := vol.AsMountVolumeProviderSpec()
+			if err != nil {
+				errs = append(errs, fmt.Errorf("failed getting mount volume spec for volume %d in app %s: %w", volIndex, appName, err))
+				continue
+			}
+
+			if err := newVol.FromMountVolumeProviderSpec(mountSpec); err != nil {
+				errs = append(errs, fmt.Errorf("failed converting mount volume spec for volume %d in app %s: %w", volIndex, appName, err))
+				continue
+			}
+
+		default:
+			errs = append(errs, fmt.Errorf("unsupported volume type %s for volume %d in app %s", volType, volIndex, appName))
+			continue
+		}
+
+		newVolumes = append(newVolumes, newVol)
+	}
+
+	return newVolumes, errs
+}
+
+func (f FleetRolloutsLogic) getDeviceConfig(device *domain.Device, templateVersion *domain.TemplateVersion) (*[]domain.ConfigProviderSpec, []error) {
 	if templateVersion.Status.Config == nil {
 		return nil, nil
 	}
 
-	deviceConfig := []api.ConfigProviderSpec{}
+	deviceConfig := []domain.ConfigProviderSpec{}
 	configErrs := []error{}
 	for _, configItem := range *templateVersion.Status.Config {
-		var newConfigItem *api.ConfigProviderSpec
+		var newConfigItem *domain.ConfigProviderSpec
 		errs := []error{}
 
 		configType, err := configItem.Type()
@@ -353,13 +660,13 @@ func (f FleetRolloutsLogic) getDeviceConfig(device *api.Device, templateVersion 
 		}
 
 		switch configType {
-		case api.GitConfigProviderType:
+		case domain.GitConfigProviderType:
 			newConfigItem, errs = f.replaceGitConfigParameters(device, configItem)
-		case api.KubernetesSecretProviderType:
+		case domain.KubernetesSecretProviderType:
 			newConfigItem, errs = f.replaceKubeSecretConfigParameters(device, configItem)
-		case api.InlineConfigProviderType:
+		case domain.InlineConfigProviderType:
 			newConfigItem, errs = f.replaceInlineConfigParameters(device, configItem)
-		case api.HttpConfigProviderType:
+		case domain.HttpConfigProviderType:
 			newConfigItem, errs = f.replaceHTTPConfigParameters(device, configItem)
 		default:
 			errs = append(errs, fmt.Errorf("%w: unsupported config type %q", ErrUnknownConfigName, configType))
@@ -378,7 +685,7 @@ func (f FleetRolloutsLogic) getDeviceConfig(device *api.Device, templateVersion 
 	return &deviceConfig, nil
 }
 
-func (f FleetRolloutsLogic) replaceGitConfigParameters(device *api.Device, configItem api.ConfigProviderSpec) (*api.ConfigProviderSpec, []error) {
+func (f FleetRolloutsLogic) replaceGitConfigParameters(device *domain.Device, configItem domain.ConfigProviderSpec) (*domain.ConfigProviderSpec, []error) {
 	gitSpec, err := configItem.AsGitConfigProviderSpec()
 	if err != nil {
 		return nil, []error{fmt.Errorf("failed to convert config to git config: %w", err)}
@@ -400,7 +707,7 @@ func (f FleetRolloutsLogic) replaceGitConfigParameters(device *api.Device, confi
 		return nil, errs
 	}
 
-	newConfigItem := api.ConfigProviderSpec{}
+	newConfigItem := domain.ConfigProviderSpec{}
 	err = newConfigItem.FromGitConfigProviderSpec(gitSpec)
 	if err != nil {
 		return nil, []error{fmt.Errorf("failed converting git config: %w", err)}
@@ -409,7 +716,7 @@ func (f FleetRolloutsLogic) replaceGitConfigParameters(device *api.Device, confi
 	return &newConfigItem, nil
 }
 
-func (f FleetRolloutsLogic) replaceKubeSecretConfigParameters(device *api.Device, configItem api.ConfigProviderSpec) (*api.ConfigProviderSpec, []error) {
+func (f FleetRolloutsLogic) replaceKubeSecretConfigParameters(device *domain.Device, configItem domain.ConfigProviderSpec) (*domain.ConfigProviderSpec, []error) {
 	secretSpec, err := configItem.AsKubernetesSecretProviderSpec()
 	if err != nil {
 		return nil, []error{fmt.Errorf("failed to convert config to kubernetes secret config: %w", err)}
@@ -436,7 +743,7 @@ func (f FleetRolloutsLogic) replaceKubeSecretConfigParameters(device *api.Device
 		return nil, errs
 	}
 
-	newConfigItem := api.ConfigProviderSpec{}
+	newConfigItem := domain.ConfigProviderSpec{}
 	err = newConfigItem.FromKubernetesSecretProviderSpec(secretSpec)
 	if err != nil {
 		return nil, []error{fmt.Errorf("failed converting git config: %w", err)}
@@ -445,7 +752,7 @@ func (f FleetRolloutsLogic) replaceKubeSecretConfigParameters(device *api.Device
 	return &newConfigItem, nil
 }
 
-func (f FleetRolloutsLogic) replaceInlineConfigParameters(device *api.Device, configItem api.ConfigProviderSpec) (*api.ConfigProviderSpec, []error) {
+func (f FleetRolloutsLogic) replaceInlineConfigParameters(device *domain.Device, configItem domain.ConfigProviderSpec) (*domain.ConfigProviderSpec, []error) {
 	inlineSpec, err := configItem.AsInlineConfigProviderSpec()
 	if err != nil {
 		return nil, []error{fmt.Errorf("failed to convert config to inline config: %w", err)}
@@ -463,7 +770,7 @@ func (f FleetRolloutsLogic) replaceInlineConfigParameters(device *api.Device, co
 		}
 
 		encoding := lo.FromPtr(file.ContentEncoding)
-		if encoding == api.EncodingBase64 {
+		if encoding == domain.EncodingBase64 {
 			decodedBytes, err = base64.StdEncoding.DecodeString(file.Content)
 			if err != nil {
 				errs = append(errs, fmt.Errorf("failed base64 decoding contents for file %d in inline config %s: %w", fileIndex, inlineSpec.Name, err))
@@ -479,7 +786,7 @@ func (f FleetRolloutsLogic) replaceInlineConfigParameters(device *api.Device, co
 			continue
 		}
 
-		if encoding == api.EncodingBase64 {
+		if encoding == domain.EncodingBase64 {
 			inlineSpec.Inline[fileIndex].Content = base64.StdEncoding.EncodeToString([]byte(contentsReplaced))
 		} else {
 			inlineSpec.Inline[fileIndex].Content = contentsReplaced
@@ -490,7 +797,7 @@ func (f FleetRolloutsLogic) replaceInlineConfigParameters(device *api.Device, co
 		return nil, errs
 	}
 
-	newConfigItem := api.ConfigProviderSpec{}
+	newConfigItem := domain.ConfigProviderSpec{}
 	err = newConfigItem.FromInlineConfigProviderSpec(inlineSpec)
 	if err != nil {
 		return nil, []error{fmt.Errorf("failed converting inline config: %w", err)}
@@ -499,67 +806,7 @@ func (f FleetRolloutsLogic) replaceInlineConfigParameters(device *api.Device, co
 	return &newConfigItem, nil
 }
 
-func (f FleetRolloutsLogic) replaceInlineApplicationParameters(device *api.Device, item api.ApplicationProviderSpec) (*api.ApplicationProviderSpec, []error) {
-	appName := lo.FromPtr(item.Name)
-	inlineSpec, err := item.AsInlineApplicationProviderSpec()
-	if err != nil {
-		return nil, []error{fmt.Errorf("failed to convert to inline application provider: %w", err)}
-	}
-
-	errs := []error{}
-	for fileIndex, file := range inlineSpec.Inline {
-		var decodedBytes []byte
-		var err error
-
-		inlineSpec.Inline[fileIndex].Path, err = replaceParametersInString(file.Path, device)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("failed replacing parameters in path for file %d in inline app %s: %w", fileIndex, appName, err))
-		}
-
-		content := lo.FromPtr(file.Content)
-		encoding := lo.FromPtr(file.ContentEncoding)
-		if encoding == api.EncodingBase64 {
-			decodedBytes, err = base64.StdEncoding.DecodeString(content)
-			if err != nil {
-				errs = append(errs, fmt.Errorf("failed base64 decoding contents for file %d in inline app %s: %w", fileIndex, appName, err))
-				continue
-			}
-		} else {
-			decodedBytes = []byte(content)
-		}
-
-		contentsReplaced, err := replaceParametersInString(string(decodedBytes), device)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("failed replacing parameters in contents for file %d in inline app %s: %w", fileIndex, appName, err))
-			continue
-		}
-
-		if encoding == api.EncodingBase64 {
-			contentsReplaced = base64.StdEncoding.EncodeToString([]byte(contentsReplaced))
-			inlineSpec.Inline[fileIndex].Content = &contentsReplaced
-		} else {
-			inlineSpec.Inline[fileIndex].Content = &contentsReplaced
-		}
-	}
-
-	if len(errs) > 0 {
-		return nil, errs
-	}
-
-	newItem := api.ApplicationProviderSpec{
-		Name:    &appName,
-		EnvVars: item.EnvVars,
-		AppType: item.AppType,
-	}
-	err = newItem.FromInlineApplicationProviderSpec(inlineSpec)
-	if err != nil {
-		return nil, []error{fmt.Errorf("failed converting inline application: %w", err)}
-	}
-
-	return &newItem, nil
-}
-
-func (f FleetRolloutsLogic) replaceHTTPConfigParameters(device *api.Device, configItem api.ConfigProviderSpec) (*api.ConfigProviderSpec, []error) {
+func (f FleetRolloutsLogic) replaceHTTPConfigParameters(device *domain.Device, configItem domain.ConfigProviderSpec) (*domain.ConfigProviderSpec, []error) {
 	httpSpec, err := configItem.AsHttpConfigProviderSpec()
 	if err != nil {
 		return nil, []error{fmt.Errorf("failed to convert config to http config: %w", err)}
@@ -584,7 +831,7 @@ func (f FleetRolloutsLogic) replaceHTTPConfigParameters(device *api.Device, conf
 		return nil, errs
 	}
 
-	newConfigItem := api.ConfigProviderSpec{}
+	newConfigItem := domain.ConfigProviderSpec{}
 	err = newConfigItem.FromHttpConfigProviderSpec(httpSpec)
 	if err != nil {
 		return nil, []error{fmt.Errorf("failed converting http config: %w", err)}
@@ -593,18 +840,18 @@ func (f FleetRolloutsLogic) replaceHTTPConfigParameters(device *api.Device, conf
 	return &newConfigItem, nil
 }
 
-func (f FleetRolloutsLogic) updateDeviceInStore(ctx context.Context, device *api.Device, newDeviceSpec *api.DeviceSpec, delayDeviceRender bool) error {
-	var status api.Status
+func (f FleetRolloutsLogic) updateDeviceInStore(ctx context.Context, device *domain.Device, newDeviceSpec *domain.DeviceSpec, delayDeviceRender bool) error {
+	var status domain.Status
 	for i := 0; i < 10; i++ {
 		if device.Metadata.Owner == nil || *device.Metadata.Owner != f.owner {
 			return fmt.Errorf("device owner changed, skipping rollout")
 		}
 		device.Spec = newDeviceSpec
 		newCtx := context.WithValue(ctx, consts.DelayDeviceRenderCtxKey, delayDeviceRender)
-		_, status = f.serviceHandler.ReplaceDevice(newCtx, *device.Metadata.Name, *device, nil)
+		_, status = f.serviceHandler.ReplaceDevice(newCtx, f.orgId, *device.Metadata.Name, *device, nil)
 		if status.Code != http.StatusOK {
 			if status.Code == http.StatusConflict {
-				device, status = f.serviceHandler.GetDevice(ctx, *device.Metadata.Name)
+				device, status = f.serviceHandler.GetDevice(ctx, f.orgId, *device.Metadata.Name)
 				if status.Code != http.StatusOK {
 					return fmt.Errorf("the device changed before we could update it, and we failed to fetch it again: %s", status.Message)
 				}
@@ -619,13 +866,13 @@ func (f FleetRolloutsLogic) updateDeviceInStore(ctx context.Context, device *api
 	return service.ApiStatusToErr(status)
 }
 
-func replaceParametersInString(s string, device *api.Device) (string, error) {
-	t, err := template.New("t").Option("missingkey=error").Funcs(api.GetGoTemplateFuncMap()).Parse(s)
+func replaceParametersInString(s string, device *domain.Device) (string, error) {
+	t, err := template.New("t").Option("missingkey=error").Funcs(domain.GetGoTemplateFuncMap()).Parse(s)
 	if err != nil {
 		return "", fmt.Errorf("invalid parameter syntax: %v", err)
 	}
 
-	output, err := api.ExecuteGoTemplateOnDevice(t, device)
+	output, err := domain.ExecuteGoTemplateOnDevice(t, device)
 	if err != nil {
 		return "", fmt.Errorf("cannot apply parameters, possibly because they access invalid fields: %w", err)
 	}

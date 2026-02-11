@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"strconv"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/samber/lo"
@@ -16,10 +16,10 @@ type EnrollmentRequest struct {
 	Resource
 
 	// The desired state of the enrollment request, stored as opaque JSON object.
-	Spec *JSONField[api.EnrollmentRequestSpec] `gorm:"type:jsonb"`
+	Spec *JSONField[domain.EnrollmentRequestSpec] `gorm:"type:jsonb"`
 
 	// The last reported state of the enrollment request, stored as opaque JSON object.
-	Status *JSONField[api.EnrollmentRequestStatus] `gorm:"type:jsonb"`
+	Status *JSONField[domain.EnrollmentRequestStatus] `gorm:"type:jsonb"`
 }
 
 func (e EnrollmentRequest) String() string {
@@ -27,12 +27,12 @@ func (e EnrollmentRequest) String() string {
 	return string(val)
 }
 
-func NewEnrollmentRequestFromApiResource(resource *api.EnrollmentRequest) (*EnrollmentRequest, error) {
+func NewEnrollmentRequestFromApiResource(resource *domain.EnrollmentRequest) (*EnrollmentRequest, error) {
 	if resource == nil || resource.Metadata.Name == nil {
 		return &EnrollmentRequest{}, nil
 	}
 
-	status := api.EnrollmentRequestStatus{Conditions: []api.Condition{}}
+	status := domain.EnrollmentRequestStatus{Conditions: []domain.Condition{}}
 	if resource.Status != nil {
 		status = *resource.Status
 	}
@@ -57,28 +57,28 @@ func NewEnrollmentRequestFromApiResource(resource *api.EnrollmentRequest) (*Enro
 }
 
 func EnrollmentRequestAPIVersion() string {
-	return fmt.Sprintf("%s/%s", api.APIGroup, api.EnrollmentRequestAPIVersion)
+	return fmt.Sprintf("%s/%s", domain.APIGroup, domain.EnrollmentRequestAPIVersion)
 }
 
-func (e *EnrollmentRequest) ToApiResource(opts ...APIResourceOption) (*api.EnrollmentRequest, error) {
+func (e *EnrollmentRequest) ToApiResource(opts ...APIResourceOption) (*domain.EnrollmentRequest, error) {
 	if e == nil {
-		return &api.EnrollmentRequest{}, nil
+		return &domain.EnrollmentRequest{}, nil
 	}
 
-	spec := api.EnrollmentRequestSpec{}
+	spec := domain.EnrollmentRequestSpec{}
 	if e.Spec != nil {
 		spec = e.Spec.Data
 	}
 
-	status := api.EnrollmentRequestStatus{Conditions: []api.Condition{}}
+	status := domain.EnrollmentRequestStatus{Conditions: []domain.Condition{}}
 	if e.Status != nil {
 		status = e.Status.Data
 	}
 
-	return &api.EnrollmentRequest{
+	return &domain.EnrollmentRequest{
 		ApiVersion: EnrollmentRequestAPIVersion(),
-		Kind:       api.EnrollmentRequestKind,
-		Metadata: api.ObjectMeta{
+		Kind:       domain.EnrollmentRequestKind,
+		Metadata: domain.ObjectMeta{
 			Name:              lo.ToPtr(e.Name),
 			CreationTimestamp: lo.ToPtr(e.CreatedAt.UTC()),
 			Labels:            lo.ToPtr(util.EnsureMap(e.Resource.Labels)),
@@ -90,17 +90,17 @@ func (e *EnrollmentRequest) ToApiResource(opts ...APIResourceOption) (*api.Enrol
 	}, nil
 }
 
-func EnrollmentRequestsToApiResource(ers []EnrollmentRequest, cont *string, numRemaining *int64) (api.EnrollmentRequestList, error) {
-	enrollmentRequestList := make([]api.EnrollmentRequest, len(ers))
+func EnrollmentRequestsToApiResource(ers []EnrollmentRequest, cont *string, numRemaining *int64) (domain.EnrollmentRequestList, error) {
+	enrollmentRequestList := make([]domain.EnrollmentRequest, len(ers))
 	for i, enrollmentRequest := range ers {
 		apiResource, _ := enrollmentRequest.ToApiResource()
 		enrollmentRequestList[i] = *apiResource
 	}
-	ret := api.EnrollmentRequestList{
+	ret := domain.EnrollmentRequestList{
 		ApiVersion: EnrollmentRequestAPIVersion(),
-		Kind:       api.EnrollmentRequestListKind,
+		Kind:       domain.EnrollmentRequestListKind,
 		Items:      enrollmentRequestList,
-		Metadata:   api.ListMeta{},
+		Metadata:   domain.ListMeta{},
 	}
 	if cont != nil {
 		ret.Metadata.Continue = cont
@@ -110,7 +110,7 @@ func EnrollmentRequestsToApiResource(ers []EnrollmentRequest, cont *string, numR
 }
 
 func (e *EnrollmentRequest) GetKind() string {
-	return api.EnrollmentRequestKind
+	return domain.EnrollmentRequestKind
 }
 
 func (e *EnrollmentRequest) HasNilSpec() bool {
@@ -124,6 +124,9 @@ func (e *EnrollmentRequest) HasSameSpecAs(otherResource any) bool {
 	}
 	if other == nil {
 		return false
+	}
+	if e.Spec == nil && other.Spec == nil {
+		return true
 	}
 	if (e.Spec == nil && other.Spec != nil) || (e.Spec != nil && other.Spec == nil) {
 		return false

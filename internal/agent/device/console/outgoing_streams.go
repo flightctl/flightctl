@@ -2,12 +2,15 @@ package console
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os/exec"
 	"sync"
+	"syscall"
 
 	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/samber/lo"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -121,7 +124,10 @@ func (o *outgoingStdStream) run(parentWg, childWg *sync.WaitGroup) {
 			o.send(buffer[:n])
 		}
 		if err != nil {
-			if err != io.EOF {
+			switch {
+			case err == io.EOF:
+			case errors.Is(err, syscall.EIO):
+			default:
 				o.log.Warnf("sending data: %v", err)
 			}
 			if n == 0 {
@@ -173,8 +179,9 @@ func (o *outgoingErrorStream) emit(err error) {
 		status.Details = &metav1.StatusDetails{
 			Causes: []metav1.StatusCause{
 				{
-					Type:    remotecommand.ExitCodeCauseType,
-					Message: fmt.Sprintf("%d", exitCode),
+					Type: remotecommand.ExitCodeCauseType,
+					// The client-go library expects the message to be a string representation of the exit code as unsigned
+					Message: fmt.Sprintf("%d", util.Abs(exitCode)),
 				},
 			},
 		}

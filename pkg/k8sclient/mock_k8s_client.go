@@ -15,6 +15,7 @@ import (
 
 	gomock "go.uber.org/mock/gomock"
 	v1 "k8s.io/api/core/v1"
+	v10 "k8s.io/api/rbac/v1"
 )
 
 // MockK8SClient is a mock of K8SClient interface.
@@ -53,6 +54,56 @@ func (m *MockK8SClient) GetSecret(ctx context.Context, namespace, name string) (
 func (mr *MockK8SClientMockRecorder) GetSecret(ctx, namespace, name any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSecret", reflect.TypeOf((*MockK8SClient)(nil).GetSecret), ctx, namespace, name)
+}
+
+// ListProjects mocks base method.
+func (m *MockK8SClient) ListProjects(ctx context.Context, token string, opts ...ListProjectsOption) ([]byte, error) {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, token}
+	for _, a := range opts {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "ListProjects", varargs...)
+	ret0, _ := ret[0].([]byte)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListProjects indicates an expected call of ListProjects.
+func (mr *MockK8SClientMockRecorder) ListProjects(ctx, token any, opts ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx, token}, opts...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListProjects", reflect.TypeOf((*MockK8SClient)(nil).ListProjects), varargs...)
+}
+
+// ListRoleBindings mocks base method.
+func (m *MockK8SClient) ListRoleBindings(ctx context.Context, namespace string) (*v10.RoleBindingList, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListRoleBindings", ctx, namespace)
+	ret0, _ := ret[0].(*v10.RoleBindingList)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListRoleBindings indicates an expected call of ListRoleBindings.
+func (mr *MockK8SClientMockRecorder) ListRoleBindings(ctx, namespace any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListRoleBindings", reflect.TypeOf((*MockK8SClient)(nil).ListRoleBindings), ctx, namespace)
+}
+
+// ListRoleBindingsForUser mocks base method.
+func (m *MockK8SClient) ListRoleBindingsForUser(ctx context.Context, namespace, username string) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListRoleBindingsForUser", ctx, namespace, username)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListRoleBindingsForUser indicates an expected call of ListRoleBindingsForUser.
+func (mr *MockK8SClientMockRecorder) ListRoleBindingsForUser(ctx, namespace, username any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListRoleBindingsForUser", reflect.TypeOf((*MockK8SClient)(nil).ListRoleBindingsForUser), ctx, namespace, username)
 }
 
 // PostCRD mocks base method.

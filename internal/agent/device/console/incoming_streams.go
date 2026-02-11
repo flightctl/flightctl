@@ -7,8 +7,8 @@ import (
 	"io"
 	"sync"
 
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
-	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/pkg/log"
 )
 
@@ -125,7 +125,7 @@ func newResizeStream(resizeFd uintptr, log *log.PrefixLogger) incomingStream {
 }
 
 func (r *resizeStream) handle(msg []byte) error {
-	var size v1alpha1.TerminalSize
+	var size v1beta1.TerminalSize
 	err := json.Unmarshal(msg, &size)
 	if err != nil {
 		r.log.Errorf("failed to unmarshal resize message: %v", err)

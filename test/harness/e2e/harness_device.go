@@ -5,14 +5,16 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	agentcfg "github.com/flightctl/flightctl/internal/agent/config"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/test/util"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -32,7 +34,7 @@ func (h *Harness) GetDeviceWithStatusSystem(enrollmentID string) (*apiclient.Get
 }
 
 // GetDeviceSystemInfo returns the device system info with proper error handling
-func (h *Harness) GetDeviceSystemInfo(deviceID string) *v1alpha1.DeviceSystemInfo {
+func (h *Harness) GetDeviceSystemInfo(deviceID string) *v1beta1.DeviceSystemInfo {
 	resp, err := h.GetDeviceWithStatusSystem(deviceID)
 	if err != nil || resp == nil || resp.JSON200 == nil || resp.JSON200.Status == nil {
 		return nil
@@ -40,7 +42,7 @@ func (h *Harness) GetDeviceSystemInfo(deviceID string) *v1alpha1.DeviceSystemInf
 	return &resp.JSON200.Status.SystemInfo
 }
 
-func (h *Harness) GetDeviceWithStatusSummary(enrollmentID string) (v1alpha1.DeviceSummaryStatusType, error) {
+func (h *Harness) GetDeviceWithStatusSummary(enrollmentID string) (v1beta1.DeviceSummaryStatusType, error) {
 	device, err := h.Client.GetDeviceWithResponse(h.Context, enrollmentID)
 	if err != nil {
 		return "", err
@@ -52,7 +54,7 @@ func (h *Harness) GetDeviceWithStatusSummary(enrollmentID string) (v1alpha1.Devi
 	return device.JSON200.Status.Summary.Status, nil
 }
 
-func (h *Harness) GetDeviceWithUpdateStatus(enrollmentID string) (v1alpha1.DeviceUpdatedStatusType, error) {
+func (h *Harness) GetDeviceWithUpdateStatus(enrollmentID string) (v1beta1.DeviceUpdatedStatusType, error) {
 	device, err := h.Client.GetDeviceWithResponse(h.Context, enrollmentID)
 	if err != nil {
 		return "", err
@@ -64,7 +66,7 @@ func (h *Harness) GetDeviceWithUpdateStatus(enrollmentID string) (v1alpha1.Devic
 	return device.JSON200.Status.Updated.Status, nil
 }
 
-func (h *Harness) UpdateDeviceWithRetries(deviceId string, updateFunction func(*v1alpha1.Device)) error {
+func (h *Harness) UpdateDeviceWithRetries(deviceId string, updateFunction func(*v1beta1.Device)) error {
 	// this needs to be changed so that we don't use Eventually as our polling mechanism so that we can simply return
 	// the underlying error if one exists
 	updateResourceWithRetries(func() error {
@@ -73,7 +75,7 @@ func (h *Harness) UpdateDeviceWithRetries(deviceId string, updateFunction func(*
 	return nil
 }
 
-func (h *Harness) UpdateDevice(deviceId string, updateFunction func(*v1alpha1.Device)) error {
+func (h *Harness) UpdateDevice(deviceId string, updateFunction func(*v1beta1.Device)) error {
 	response, err := h.Client.GetDeviceWithResponse(h.Context, deviceId)
 	if err != nil {
 		return err
@@ -107,21 +109,65 @@ func (h *Harness) UpdateDevice(deviceId string, updateFunction func(*v1alpha1.De
 	return nil
 }
 
+// IsDeviceUpdateObserved returns true if the device is updating or has already updated to the expected version.
+func IsDeviceUpdateObserved(device *v1beta1.Device, expectedVersion int) bool {
+	version, err := GetRenderedVersion(device)
+	if err != nil {
+		rendered := "<nil>"
+		if device != nil && device.Status != nil && device.Status.Config != (v1beta1.DeviceConfigStatus{}) {
+			rendered = device.Status.Config.RenderedVersion
+		}
+		GinkgoWriter.Printf("Failed to parse rendered version '%s': %v\n", rendered, err)
+		return false
+	}
+
+	if device == nil || device.Status == nil {
+		return false
+	}
+
+	// The update has already applied
+	if version == expectedVersion {
+		return true
+	}
+	cond := v1beta1.FindStatusCondition(device.Status.Conditions, v1beta1.ConditionTypeDeviceUpdating)
+	if cond == nil {
+		return false
+	}
+	// send another update if we're in this state
+	validReasons := []v1beta1.UpdateState{
+		v1beta1.UpdateStatePreparing,
+		v1beta1.UpdateStateReadyToUpdate,
+		v1beta1.UpdateStateApplyingUpdate,
+	}
+	return slices.Contains(validReasons, v1beta1.UpdateState(cond.Reason))
+}
+
 func (h *Harness) UpdateApplication(withRetries bool, deviceId string, appName string, appProvider any, envVars map[string]string) error {
 	logrus.Infof("UpdateApplication called with deviceId=%s, appName=%s, withRetries=%v", deviceId, appName, withRetries)
 
-	updateFunc := func(device *v1alpha1.Device) {
+	updateFunc := func(device *v1beta1.Device) {
 		logrus.Infof("Starting update for device: %s", *device.Metadata.Name)
-		var appSpec v1alpha1.ApplicationProviderSpec
-		var err error
 
+		// Build the ComposeApplication with name and envVars
+		composeApp := v1beta1.ComposeApplication{
+			AppType: v1beta1.AppTypeCompose,
+			Name:    &appName,
+		}
+
+		if envVars != nil {
+			logrus.Infof("Setting environment variables for app %s: %v", appName, envVars)
+			composeApp.EnvVars = &envVars
+		}
+
+		// Set the image/inline union on the ComposeApplication
+		var err error
 		switch spec := appProvider.(type) {
-		case v1alpha1.InlineApplicationProviderSpec:
+		case v1beta1.InlineApplicationProviderSpec:
 			logrus.Infof("Processing InlineApplicationProviderSpec for %s", appName)
-			err = appSpec.FromInlineApplicationProviderSpec(spec)
-		case v1alpha1.ImageApplicationProviderSpec:
+			err = composeApp.FromInlineApplicationProviderSpec(spec)
+		case v1beta1.ImageApplicationProviderSpec:
 			logrus.Infof("Processing ImageApplicationProviderSpec for %s", appName)
-			err = appSpec.FromImageApplicationProviderSpec(spec)
+			err = composeApp.FromImageApplicationProviderSpec(spec)
 		default:
 			logrus.Errorf("Unsupported application provider type: %T for %s", appProvider, appName)
 			return
@@ -132,23 +178,22 @@ func (h *Harness) UpdateApplication(withRetries bool, deviceId string, appName s
 			return
 		}
 
-		appSpec.Name = &appName
-		appType := v1alpha1.AppTypeCompose
-		appSpec.AppType = &appType
-
-		if envVars != nil {
-			logrus.Infof("Setting environment variables for app %s: %v", appName, envVars)
-			appSpec.EnvVars = &envVars
+		// Create the ApplicationProviderSpec from the ComposeApplication
+		var appSpec v1beta1.ApplicationProviderSpec
+		if err := appSpec.FromComposeApplication(composeApp); err != nil {
+			logrus.Errorf("Error creating ApplicationProviderSpec: %v", err)
+			return
 		}
 
 		if device.Spec.Applications == nil {
 			logrus.Infof("device.Spec.Applications is nil, initializing with app %s", appName)
-			device.Spec.Applications = &[]v1alpha1.ApplicationProviderSpec{appSpec}
+			device.Spec.Applications = &[]v1beta1.ApplicationProviderSpec{appSpec}
 			return
 		}
 
 		for i, a := range *device.Spec.Applications {
-			if a.Name != nil && *a.Name == appName {
+			existingName, _ := a.GetName()
+			if existingName != nil && *existingName == appName {
 				logrus.Infof("Updating existing application %s at index %d", appName, i)
 				(*device.Spec.Applications)[i] = appSpec
 				return
@@ -168,7 +213,245 @@ func (h *Harness) UpdateApplication(withRetries bool, deviceId string, appName s
 	return h.UpdateDevice(deviceId, updateFunc)
 }
 
-func (h *Harness) fetchDeviceContents(deviceId string) (*v1alpha1.Device, error) {
+// WaitForApplicationRunningStatus waits for a specific application on a device to reach the "Running" status with all
+// expected workloads running within a timeout.
+func (h *Harness) WaitForApplicationRunningStatus(deviceId string, applicationImage string) {
+	GinkgoWriter.Printf("Waiting for application running status (device=%s image=%s)\n", deviceId, applicationImage)
+	h.WaitForDeviceContents(deviceId, "status: Running",
+		func(device *v1beta1.Device) bool {
+			if device == nil || device.Status == nil || device.Status.Applications == nil {
+				return false
+			}
+			for _, application := range device.Status.Applications {
+				if application.Name == applicationImage && application.Status == v1beta1.ApplicationStatusRunning {
+					// ready indicates the number of workloads that are currently running compared to the number of expected
+					// workloads. Checks to see if "1/1" or "2/3" containers are ready
+					parts := strings.Split(application.Ready, "/")
+					if len(parts) != 2 {
+						return false
+					}
+					return parts[0] == parts[1]
+				}
+			}
+			return false
+		}, TIMEOUT)
+}
+
+// WaitForApplicationsSummaryNotHealthy waits until applications summary status is set and not Healthy.
+func (h *Harness) WaitForApplicationsSummaryNotHealthy(deviceID string) {
+	GinkgoWriter.Printf("Waiting for applications summary to become non-healthy (device=%s)\n", deviceID)
+	Expect(h).ToNot(BeNil())
+	Expect(strings.TrimSpace(deviceID)).ToNot(BeEmpty())
+
+	Eventually(func() bool {
+		response, err := h.GetDeviceWithStatusSystem(deviceID)
+		if err != nil || response == nil || response.JSON200 == nil {
+			return false
+		}
+		device := response.JSON200
+		if device.Status == nil {
+			return false
+		}
+		if device.Status.ApplicationsSummary.Status == "" {
+			return false
+		}
+		return device.Status.ApplicationsSummary.Status != v1beta1.ApplicationsSummaryStatusHealthy
+	}, TIMEOUT, POLLING).Should(BeTrue())
+}
+
+func (h *Harness) UpdateDeviceAndWait(deviceID string, updateFunc func(device *v1beta1.Device)) error {
+	GinkgoWriter.Printf("Preparing device update (device=%s)\n", deviceID)
+	newRenderedVersion, err := h.PrepareNextDeviceVersion(deviceID)
+	if err != nil {
+		return err
+	}
+
+	err = h.UpdateDeviceWithRetries(deviceID, updateFunc)
+	if err != nil {
+		return err
+	}
+
+	GinkgoWriter.Printf("Waiting for device to pick config (device=%s)\n", deviceID)
+	return h.WaitForDeviceNewRenderedVersion(deviceID, newRenderedVersion)
+}
+
+func (h *Harness) ExtractSingleContainerNameFromVM() (string, error) {
+	GinkgoWriter.Printf("Extracting container name from VM\n")
+	cmd := "sudo podman ps --format \"{{.Names}}\" | head -n 1"
+	containerName, err := h.VM.RunSSH(vmShellCommandArgs(cmd), nil)
+	if err != nil {
+		return "", err
+	}
+	containerNameString := ""
+	if containerName == nil {
+		GinkgoWriter.Printf("Container name output is nil for command: %s\n", cmd)
+	} else {
+		containerNameString = strings.Trim(containerName.String(), "\n")
+	}
+	if strings.TrimSpace(containerNameString) == "" {
+		_, _ = h.VM.RunSSH(vmShellCommandArgs("sudo podman ps -a --format '{{.Names}} {{.Status}}'"), nil)
+		return "", fmt.Errorf("no container name found (command=%q)", cmd)
+	}
+	GinkgoWriter.Printf("Found container name: %s\n", containerNameString)
+	return containerNameString, nil
+}
+
+func (h *Harness) VerifyContainerCount(count int) error {
+	GinkgoWriter.Printf("Verifying container count (expected=%d)\n", count)
+	out, err := h.CheckRunningContainers()
+	if err != nil {
+		return err
+	}
+	actualCount, err := strconv.Atoi(strings.TrimSpace(out))
+	if err != nil {
+		return fmt.Errorf("parsing container count from %q: %w", out, err)
+	}
+	if actualCount != count {
+		return fmt.Errorf("container count mismatch: expected %d, got %d", count, actualCount)
+	}
+	return nil
+}
+
+func (h *Harness) VerifyCommandOutputsSubstring(args []string, s string) error {
+	GinkgoWriter.Printf("Verifying command output contains substring: %s\n", s)
+	stdout, err := h.VM.RunSSH(args, nil)
+	if err != nil {
+		return err
+	}
+	if stdout == nil {
+		return errors.New("command output is nil")
+	}
+	if !strings.Contains(stdout.String(), s) {
+		return fmt.Errorf("command output missing substring %q: %s", s, stdout.String())
+	}
+	return nil
+}
+
+func (h *Harness) VerifyCommandLacksSubstring(args []string, s string) error {
+	GinkgoWriter.Printf("Verifying command output lacks substring: %s\n", s)
+	stdout, err := h.VM.RunSSH(args, nil)
+	if err != nil {
+		return err
+	}
+	if stdout == nil {
+		return errors.New("command output is nil")
+	}
+	if strings.Contains(stdout.String(), s) {
+		return fmt.Errorf("command output unexpectedly contains substring %q: %s", s, stdout.String())
+	}
+	return nil
+}
+
+type InlineContent struct {
+	Path    string
+	Content string
+}
+
+func BuildInlineAppSpec(appName string, appType v1beta1.AppType, contents []InlineContent) (v1beta1.ApplicationProviderSpec, error) {
+	inline := make([]v1beta1.ApplicationContent, 0, len(contents))
+	for _, c := range contents {
+		content := c.Content
+		inline = append(inline, v1beta1.ApplicationContent{
+			Path:    c.Path,
+			Content: &content,
+		})
+	}
+	return BuildAppSpec(appName, appType, v1beta1.InlineApplicationProviderSpec{Inline: inline})
+}
+
+func BuildImageAppSpec(appName string, appType v1beta1.AppType, image string) (v1beta1.ApplicationProviderSpec, error) {
+	return BuildAppSpec(appName, appType, v1beta1.ImageApplicationProviderSpec{Image: image})
+}
+
+func BuildAppSpec(appName string, appType v1beta1.AppType, provider any) (v1beta1.ApplicationProviderSpec, error) {
+	switch appType {
+	case v1beta1.AppTypeCompose:
+		app := v1beta1.ComposeApplication{
+			AppType: appType,
+			Name:    &appName,
+		}
+		if err := applyAppProvider(&app, provider); err != nil {
+			return v1beta1.ApplicationProviderSpec{}, err
+		}
+		var appSpec v1beta1.ApplicationProviderSpec
+		if err := appSpec.FromComposeApplication(app); err != nil {
+			return v1beta1.ApplicationProviderSpec{}, err
+		}
+		return appSpec, nil
+	case v1beta1.AppTypeQuadlet:
+		app := v1beta1.QuadletApplication{
+			AppType: appType,
+			Name:    &appName,
+		}
+		if err := applyAppProvider(&app, provider); err != nil {
+			return v1beta1.ApplicationProviderSpec{}, err
+		}
+		var appSpec v1beta1.ApplicationProviderSpec
+		if err := appSpec.FromQuadletApplication(app); err != nil {
+			return v1beta1.ApplicationProviderSpec{}, err
+		}
+		return appSpec, nil
+	case v1beta1.AppTypeContainer:
+		imageSpec, ok := provider.(v1beta1.ImageApplicationProviderSpec)
+		if !ok {
+			return v1beta1.ApplicationProviderSpec{}, fmt.Errorf("container app requires ImageApplicationProviderSpec")
+		}
+		app := v1beta1.ContainerApplication{
+			AppType: appType,
+			Name:    &appName,
+			Image:   imageSpec.Image,
+		}
+		var appSpec v1beta1.ApplicationProviderSpec
+		if err := appSpec.FromContainerApplication(app); err != nil {
+			return v1beta1.ApplicationProviderSpec{}, err
+		}
+		return appSpec, nil
+	case v1beta1.AppTypeHelm:
+		imageSpec, ok := provider.(v1beta1.ImageApplicationProviderSpec)
+		if !ok {
+			return v1beta1.ApplicationProviderSpec{}, fmt.Errorf("helm app requires ImageApplicationProviderSpec")
+		}
+		app := v1beta1.HelmApplication{
+			AppType: appType,
+			Name:    &appName,
+			Image:   imageSpec.Image,
+		}
+		var appSpec v1beta1.ApplicationProviderSpec
+		if err := appSpec.FromHelmApplication(app); err != nil {
+			return v1beta1.ApplicationProviderSpec{}, err
+		}
+		return appSpec, nil
+	default:
+		return v1beta1.ApplicationProviderSpec{}, fmt.Errorf("unsupported app type %s", appType)
+	}
+}
+
+func applyAppProvider(target any, provider any) error {
+	switch app := target.(type) {
+	case *v1beta1.ComposeApplication:
+		switch spec := provider.(type) {
+		case v1beta1.InlineApplicationProviderSpec:
+			return app.FromInlineApplicationProviderSpec(spec)
+		case v1beta1.ImageApplicationProviderSpec:
+			return app.FromImageApplicationProviderSpec(spec)
+		default:
+			return fmt.Errorf("unsupported application provider type %T", provider)
+		}
+	case *v1beta1.QuadletApplication:
+		switch spec := provider.(type) {
+		case v1beta1.InlineApplicationProviderSpec:
+			return app.FromInlineApplicationProviderSpec(spec)
+		case v1beta1.ImageApplicationProviderSpec:
+			return app.FromImageApplicationProviderSpec(spec)
+		default:
+			return fmt.Errorf("unsupported application provider type %T", provider)
+		}
+	default:
+		return fmt.Errorf("unsupported application target type %T", target)
+	}
+}
+
+func (h *Harness) fetchDeviceContents(deviceId string) (*v1beta1.Device, error) {
 	response, err := h.Client.GetDeviceWithResponse(h.Context, deviceId)
 	if err != nil {
 		return nil, err
@@ -180,55 +463,67 @@ func (h *Harness) fetchDeviceContents(deviceId string) (*v1alpha1.Device, error)
 	return response.JSON200, nil
 }
 
-func (h *Harness) WaitForDeviceContents(deviceId string, description string, condition func(*v1alpha1.Device) bool, timeout string) {
-	waitForResourceContents(deviceId, description, func(id string) (*v1alpha1.Device, error) {
+func (h *Harness) WaitForDeviceContents(deviceId string, description string, condition func(*v1beta1.Device) bool, timeout string) {
+	waitForResourceContents(deviceId, description, func(id string) (*v1beta1.Device, error) {
 		return h.fetchDeviceContents(id)
 	}, condition, timeout)
 }
 
 // EnsureDeviceContents ensures that the contents of the device match the specified condition for the entire timeout
-func (h *Harness) EnsureDeviceContents(deviceId string, description string, condition func(*v1alpha1.Device) bool, timeout string) {
-	ensureResourceContents(deviceId, description, func(id string) (*v1alpha1.Device, error) {
+func (h *Harness) EnsureDeviceContents(deviceId string, description string, condition func(*v1beta1.Device) bool, timeout string) {
+	ensureResourceContents(deviceId, description, func(id string) (*v1beta1.Device, error) {
 		return h.fetchDeviceContents(id)
 	}, condition, timeout)
 }
 
-func (h *Harness) WaitForBootstrapAndUpdateToVersion(deviceId string, version string) (*v1alpha1.Device, string, error) {
+func (h *Harness) WaitForBootstrapAndUpdateToVersion(deviceId string, version string) (*v1beta1.Device, util.ImageReference, error) {
+	var imageReference = util.ImageReference{}
 	// Check the device status right after bootstrap
 	response, err := h.GetDeviceWithStatusSystem(deviceId)
 	if err != nil {
-		return nil, "", err
+		return nil, imageReference, err
 	}
 	device := response.JSON200
-	if device.Status.Summary.Status != v1alpha1.DeviceSummaryStatusOnline {
-		return nil, "", fmt.Errorf("device: %q is not online", deviceId)
+	if device.Status.Summary.Status != v1beta1.DeviceSummaryStatusOnline {
+		return nil, imageReference, fmt.Errorf("device: %q is not online", deviceId)
 	}
 
-	var newImageReference string
-
-	err = h.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+	err = h.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
 		currentImage := device.Status.Os.Image
 		logrus.Infof("current image for %s is %s", deviceId, currentImage)
-		repo, _ := h.parseImageReference(currentImage)
-		newImageReference = repo + version
-		device.Spec.Os = &v1alpha1.DeviceOsSpec{Image: newImageReference}
+		imageReference, err = util.NewImageReferenceFromString(currentImage)
+		if err != nil {
+			logrus.Errorf("failed to parse image reference %s: %v", currentImage, err)
+			return
+		}
+		imageReference = imageReference.WithTag(version)
+		device.Spec.Os = &v1beta1.DeviceOsSpec{Image: imageReference.String()}
 		logrus.Infof("updating %s to image %s", deviceId, device.Spec.Os.Image)
 	})
 	if err != nil {
-		return nil, "", err
+		return nil, imageReference, err
 	}
 
-	return device, newImageReference, nil
+	return device, imageReference, nil
 }
 
 func (h *Harness) GetCurrentDeviceGeneration(deviceId string) (deviceRenderedVersionInt int64, err error) {
 	var deviceGeneration int64 = -1
 	logrus.Infof("Waiting for the device to be UpToDate")
 	h.WaitForDeviceContents(deviceId, "The device is UpToDate",
-		func(device *v1alpha1.Device) bool {
+		func(device *v1beta1.Device) bool {
+			if device == nil || device.Status == nil {
+				return false
+			}
+			if device.Status.Updated.Status == v1beta1.DeviceUpdatedStatusUpToDate {
+				if device.Metadata.Generation != nil {
+					deviceGeneration = *device.Metadata.Generation
+				}
+				return true
+			}
 			for _, condition := range device.Status.Conditions {
 				if condition.Type == "Updating" && condition.Reason == "Updated" && condition.Status == "False" &&
-					device.Status.Updated.Status == v1alpha1.DeviceUpdatedStatusUpToDate {
+					device.Status.Updated.Status == v1beta1.DeviceUpdatedStatusUpToDate {
 					deviceGeneration = *device.Metadata.Generation
 
 					return true
@@ -258,7 +553,7 @@ var (
 	InvalidRenderedVersionErr = fmt.Errorf("invalid rendered version")
 )
 
-func GetRenderedVersion(device *v1alpha1.Device) (int, error) {
+func GetRenderedVersion(device *v1beta1.Device) (int, error) {
 	if device == nil || device.Status == nil {
 		return -1, fmt.Errorf("invalid device: %+v", device)
 	}
@@ -278,10 +573,17 @@ func (h *Harness) GetCurrentDeviceRenderedVersion(deviceId string) (int, error) 
 
 	logrus.Infof("Waiting for the device to be UpToDate")
 	h.WaitForDeviceContents(deviceId, "The device is UpToDate",
-		func(device *v1alpha1.Device) bool {
+		func(device *v1beta1.Device) bool {
+			if device == nil || device.Status == nil {
+				return false
+			}
+			if device.Status.Updated.Status == v1beta1.DeviceUpdatedStatusUpToDate {
+				deviceRenderedVersion, renderedVersionError = GetRenderedVersion(device)
+				return !errors.Is(renderedVersionError, InvalidRenderedVersionErr)
+			}
 			for _, condition := range device.Status.Conditions {
 				if condition.Type == "Updating" && condition.Reason == "Updated" && condition.Status == "False" &&
-					device.Status.Updated.Status == v1alpha1.DeviceUpdatedStatusUpToDate {
+					device.Status.Updated.Status == v1beta1.DeviceUpdatedStatusUpToDate {
 					deviceRenderedVersion, renderedVersionError = GetRenderedVersion(device)
 					// try until we get a valid rendered version
 					return !errors.Is(renderedVersionError, InvalidRenderedVersionErr)
@@ -306,7 +608,7 @@ func (h *Harness) PrepareNextDeviceVersion(deviceId string) (int, error) {
 
 func (h *Harness) WaitForDeviceNewRenderedVersion(deviceId string, newRenderedVersionInt int) (err error) {
 	// Check that the device was already approved
-	Eventually(func() v1alpha1.DeviceSummaryStatusType {
+	Eventually(func() v1beta1.DeviceSummaryStatusType {
 		res, err := h.GetDeviceWithStatusSummary(deviceId)
 		Expect(err).ToNot(HaveOccurred())
 		return res
@@ -316,15 +618,44 @@ func (h *Harness) WaitForDeviceNewRenderedVersion(deviceId string, newRenderedVe
 	// Wait for the device to pickup the new config and report measurements on device status.
 	logrus.Infof("Waiting for the device to pick the config")
 	UpdateRenderedVersionSuccessMessage := fmt.Sprintf("%s %d", util.UpdateRenderedVersionSuccess.String(), newRenderedVersionInt)
+	seenUpdating := false
 	h.WaitForDeviceContents(deviceId, UpdateRenderedVersionSuccessMessage,
-		func(device *v1alpha1.Device) bool {
-			for _, condition := range device.Status.Conditions {
-				if condition.Type == "Updating" && condition.Reason == "Updated" && condition.Status == "False" &&
-					device.Status.Updated.Status == v1alpha1.DeviceUpdatedStatusUpToDate &&
-					device.Status.Config.RenderedVersion == strconv.Itoa(newRenderedVersionInt) {
-					return true
-				}
+		func(device *v1beta1.Device) bool {
+			if device == nil || device.Status == nil {
+				logrus.Warnf("Device %s or device status is nil, cannot check conditions", deviceId)
+				return false
 			}
+
+			if device.Status.Updated.Status == v1beta1.DeviceUpdatedStatusUpdating {
+				seenUpdating = true
+			}
+
+			// Primary success signal: desired rendered version is applied, regardless of summary state.
+			// Fleet-owned devices can momentarily report OutOfDate even after applying the target version.
+			currentRenderedVersion, parseErr := strconv.Atoi(device.Status.Config.RenderedVersion)
+			if parseErr == nil && currentRenderedVersion >= newRenderedVersionInt {
+				if currentRenderedVersion > newRenderedVersionInt {
+					logrus.Warnf("Device %s has rendered version %d, which is greater than %d", deviceId, currentRenderedVersion, newRenderedVersionInt)
+				}
+				return true
+			}
+
+			// Fail fast on terminal update failures only after we've seen active updating,
+			// to avoid tripping on initial OutOfDate before the update begins.
+			if seenUpdating && device.Status.Updated.Status == v1beta1.DeviceUpdatedStatusOutOfDate {
+				updatedInfo := ""
+				if device.Status.Updated.Info != nil {
+					updatedInfo = *device.Status.Updated.Info
+				}
+				Fail(fmt.Sprintf(
+					"Device %s failed to update to renderedVersion %d (current=%s): %s",
+					deviceId,
+					newRenderedVersionInt,
+					device.Status.Config.RenderedVersion,
+					updatedInfo,
+				))
+			}
+
 			return false
 		}, LONGTIMEOUT)
 
@@ -333,7 +664,7 @@ func (h *Harness) WaitForDeviceNewRenderedVersion(deviceId string, newRenderedVe
 
 func (h *Harness) WaitForDeviceNewGeneration(deviceId string, newGeneration int64) (err error) {
 	// Check that the device was already approved
-	Eventually(func() v1alpha1.DeviceSummaryStatusType {
+	Eventually(func() v1beta1.DeviceSummaryStatusType {
 		res, err := h.GetDeviceWithStatusSummary(deviceId)
 		Expect(err).ToNot(HaveOccurred())
 		return res
@@ -343,10 +674,10 @@ func (h *Harness) WaitForDeviceNewGeneration(deviceId string, newGeneration int6
 	// Wait for the device to pickup the new config and report measurements on device status.
 	logrus.Infof("Waiting for the device to pick the config")
 	h.WaitForDeviceContents(deviceId, fmt.Sprintf("Waiting fot the device generation %d", newGeneration),
-		func(device *v1alpha1.Device) bool {
+		func(device *v1beta1.Device) bool {
 			for _, condition := range device.Status.Conditions {
 				if condition.Type == "Updating" && condition.Reason == "Updated" && condition.Status == "False" &&
-					device.Status.Updated.Status == v1alpha1.DeviceUpdatedStatusUpToDate &&
+					device.Status.Updated.Status == v1beta1.DeviceUpdatedStatusUpToDate &&
 					newGeneration == *device.Metadata.Generation {
 					return true
 				}
@@ -358,8 +689,8 @@ func (h *Harness) WaitForDeviceNewGeneration(deviceId string, newGeneration int6
 }
 
 // GetDeviceConfig is a generic helper function to retrieve device configurations
-func GetDeviceConfig[T any](device *v1alpha1.Device, configType v1alpha1.ConfigProviderType,
-	asConfig func(v1alpha1.ConfigProviderSpec) (T, error)) (T, error) {
+func GetDeviceConfig[T any](device *v1beta1.Device, configType v1beta1.ConfigProviderType,
+	asConfig func(v1beta1.ConfigProviderSpec) (T, error)) (T, error) {
 
 	var config T
 	if device.Spec == nil || device.Spec.Config == nil {
@@ -390,9 +721,9 @@ func GetDeviceConfig[T any](device *v1alpha1.Device, configType v1alpha1.ConfigP
 }
 
 // Get InlineConfig
-func (h *Harness) GetDeviceInlineConfig(device *v1alpha1.Device, configName string) (v1alpha1.InlineConfigProviderSpec, error) {
-	return GetDeviceConfig(device, v1alpha1.InlineConfigProviderType,
-		func(c v1alpha1.ConfigProviderSpec) (v1alpha1.InlineConfigProviderSpec, error) {
+func (h *Harness) GetDeviceInlineConfig(device *v1beta1.Device, configName string) (v1beta1.InlineConfigProviderSpec, error) {
+	return GetDeviceConfig(device, v1beta1.InlineConfigProviderType,
+		func(c v1beta1.ConfigProviderSpec) (v1beta1.InlineConfigProviderSpec, error) {
 			inlineConfig, err := c.AsInlineConfigProviderSpec()
 			if err != nil {
 				return inlineConfig, fmt.Errorf("failed to cast config type: %w", err)
@@ -401,14 +732,14 @@ func (h *Harness) GetDeviceInlineConfig(device *v1alpha1.Device, configName stri
 				logrus.Infof("Inline configuration found %s", configName)
 				return inlineConfig, nil
 			}
-			return v1alpha1.InlineConfigProviderSpec{}, fmt.Errorf("inline config not found")
+			return v1beta1.InlineConfigProviderSpec{}, fmt.Errorf("inline config not found")
 		})
 }
 
 // Get GitConfig
-func (h *Harness) GetDeviceGitConfig(device *v1alpha1.Device, configName string) (v1alpha1.GitConfigProviderSpec, error) {
-	return GetDeviceConfig(device, v1alpha1.GitConfigProviderType,
-		func(c v1alpha1.ConfigProviderSpec) (v1alpha1.GitConfigProviderSpec, error) {
+func (h *Harness) GetDeviceGitConfig(device *v1beta1.Device, configName string) (v1beta1.GitConfigProviderSpec, error) {
+	return GetDeviceConfig(device, v1beta1.GitConfigProviderType,
+		func(c v1beta1.ConfigProviderSpec) (v1beta1.GitConfigProviderSpec, error) {
 			gitConfig, err := c.AsGitConfigProviderSpec()
 			if err != nil {
 				return gitConfig, fmt.Errorf("failed to cast config type: %w", err)
@@ -417,14 +748,14 @@ func (h *Harness) GetDeviceGitConfig(device *v1alpha1.Device, configName string)
 				logrus.Infof("Git configuration found %s", configName)
 				return gitConfig, nil
 			}
-			return v1alpha1.GitConfigProviderSpec{}, fmt.Errorf("git config not found")
+			return v1beta1.GitConfigProviderSpec{}, fmt.Errorf("git config not found")
 		})
 }
 
 // Get HttpConfig
-func (h *Harness) GetDeviceHttpConfig(device *v1alpha1.Device, configName string) (v1alpha1.HttpConfigProviderSpec, error) {
-	return GetDeviceConfig(device, v1alpha1.HttpConfigProviderType,
-		func(c v1alpha1.ConfigProviderSpec) (v1alpha1.HttpConfigProviderSpec, error) {
+func (h *Harness) GetDeviceHttpConfig(device *v1beta1.Device, configName string) (v1beta1.HttpConfigProviderSpec, error) {
+	return GetDeviceConfig(device, v1beta1.HttpConfigProviderType,
+		func(c v1beta1.ConfigProviderSpec) (v1beta1.HttpConfigProviderSpec, error) {
 			httpConfig, err := c.AsHttpConfigProviderSpec()
 			if err != nil {
 				return httpConfig, fmt.Errorf("failed to cast config type: %w", err)
@@ -433,12 +764,12 @@ func (h *Harness) GetDeviceHttpConfig(device *v1alpha1.Device, configName string
 				logrus.Infof("Http configuration found %s", configName)
 				return httpConfig, nil
 			}
-			return v1alpha1.HttpConfigProviderSpec{}, fmt.Errorf("http config not found")
+			return v1beta1.HttpConfigProviderSpec{}, fmt.Errorf("http config not found")
 		})
 }
 
 // Get an http config of a device resource
-func (h *Harness) GetDeviceOsImage(device *v1alpha1.Device) (image string, err error) {
+func (h *Harness) GetDeviceOsImage(device *v1beta1.Device) (image string, err error) {
 	if device.Spec == nil {
 		return "", fmt.Errorf("device spec is nil")
 	}
@@ -450,7 +781,7 @@ func (h *Harness) GetDeviceOsImage(device *v1alpha1.Device) (image string, err e
 }
 
 // Check that the device summary status is equal to the status input
-func (h *Harness) CheckDeviceStatus(deviceId string, status v1alpha1.DeviceSummaryStatusType) (*v1alpha1.Device, error) {
+func (h *Harness) CheckDeviceStatus(deviceId string, status v1beta1.DeviceSummaryStatusType) (*v1beta1.Device, error) {
 	response, err := h.GetDeviceWithStatusSystem(deviceId)
 	if err != nil {
 		return nil, err
@@ -470,7 +801,7 @@ func (h *Harness) CheckDeviceStatus(deviceId string, status v1alpha1.DeviceSumma
 }
 
 // Get device with response
-func (h *Harness) GetDevice(deviceId string) (*v1alpha1.Device, error) {
+func (h *Harness) GetDevice(deviceId string) (*v1beta1.Device, error) {
 	response, err := h.Client.GetDeviceWithResponse(h.Context, deviceId)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get device with response: %s", err)
@@ -479,14 +810,22 @@ func (h *Harness) GetDevice(deviceId string) (*v1alpha1.Device, error) {
 		return nil, fmt.Errorf("device response is nil")
 	}
 	if response.JSON200 == nil {
-		return nil, fmt.Errorf("device not found")
+		// Include HTTP status code in error for better debugging
+		statusCode := response.StatusCode()
+		if statusCode == util.HTTP_403_ERROR {
+			return nil, fmt.Errorf("device %s: permission denied (%s) - RBAC permissions may not have propagated yet", deviceId, strconv.Itoa(util.HTTP_403_ERROR))
+		}
+		if statusCode == util.HTTP_404_ERROR {
+			return nil, fmt.Errorf("device %s not found (%d)", deviceId, util.HTTP_404_ERROR)
+		}
+		return nil, fmt.Errorf("device %s not found (HTTP %d): %s", deviceId, statusCode, string(response.Body))
 	}
 	device := response.JSON200
 	return device, nil
 }
 
 func (h *Harness) SetLabelsForDevice(deviceId string, labels map[string]string) error {
-	return h.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+	return h.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
 		if len(labels) == 0 {
 			device.Metadata.Labels = nil
 			return
@@ -519,9 +858,9 @@ func (h *Harness) SetLabelsForDevicesByIndex(deviceIDs []string, labelsList []ma
 	return nil
 }
 
-func (h *Harness) GetSelectedDevicesForBatch(fleetName string) ([]*v1alpha1.Device, error) {
+func (h *Harness) GetSelectedDevicesForBatch(fleetName string) ([]*v1beta1.Device, error) {
 	labelSelector := fmt.Sprintf("fleet=%s", fleetName)
-	listDeviceParams := &v1alpha1.ListDevicesParams{
+	listDeviceParams := &v1beta1.ListDevicesParams{
 		LabelSelector: &labelSelector,
 	}
 	response, err := h.Client.ListDevicesWithResponse(h.Context, listDeviceParams)
@@ -533,7 +872,7 @@ func (h *Harness) GetSelectedDevicesForBatch(fleetName string) ([]*v1alpha1.Devi
 	}
 	devices := response.JSON200.Items
 
-	var result []*v1alpha1.Device
+	var result []*v1beta1.Device
 
 	for _, device := range devices {
 		annotations := device.Metadata.Annotations
@@ -549,9 +888,9 @@ func (h *Harness) GetSelectedDevicesForBatch(fleetName string) ([]*v1alpha1.Devi
 	return result, nil
 }
 
-func (h *Harness) GetUnavailableDevicesPerGroup(fleetName string, groupBy []string) (map[string][]*v1alpha1.Device, error) {
+func (h *Harness) GetUnavailableDevicesPerGroup(fleetName string, groupBy []string) (map[string][]*v1beta1.Device, error) {
 	labelSelector := fmt.Sprintf("fleet=%s", fleetName)
-	listDeviceParams := &v1alpha1.ListDevicesParams{
+	listDeviceParams := &v1beta1.ListDevicesParams{
 		LabelSelector: &labelSelector,
 	}
 
@@ -564,12 +903,12 @@ func (h *Harness) GetUnavailableDevicesPerGroup(fleetName string, groupBy []stri
 	}
 
 	devices := response.JSON200.Items
-	result := make(map[string][]*v1alpha1.Device)
+	result := make(map[string][]*v1beta1.Device)
 
 	for _, device := range devices {
 		// Check if device is unavailable
-		if device.Status != nil && (device.Status.Updated.Status == v1alpha1.DeviceUpdatedStatusUpdating ||
-			device.Status.Updated.Status == v1alpha1.DeviceUpdatedStatusUnknown) {
+		if device.Status != nil && (device.Status.Updated.Status == v1beta1.DeviceUpdatedStatusUpdating ||
+			device.Status.Updated.Status == v1beta1.DeviceUpdatedStatusUnknown) {
 			// Generate group key based on labels
 			groupKey := ""
 
@@ -588,7 +927,7 @@ func (h *Harness) GetUnavailableDevicesPerGroup(fleetName string, groupBy []stri
 
 			// Add device to the appropriate group
 			if _, exists := result[groupKey]; !exists {
-				result[groupKey] = []*v1alpha1.Device{}
+				result[groupKey] = []*v1beta1.Device{}
 			}
 			deviceCopy := device
 			result[groupKey] = append(result[groupKey], &deviceCopy)
@@ -598,9 +937,9 @@ func (h *Harness) GetUnavailableDevicesPerGroup(fleetName string, groupBy []stri
 	return result, nil
 }
 
-func (h *Harness) GetUpdatedDevices(fleetName string) ([]*v1alpha1.Device, error) {
+func (h *Harness) GetUpdatedDevices(fleetName string) ([]*v1beta1.Device, error) {
 	labelSelector := fmt.Sprintf("fleet=%s", fleetName)
-	listDeviceParams := &v1alpha1.ListDevicesParams{
+	listDeviceParams := &v1beta1.ListDevicesParams{
 		LabelSelector: &labelSelector,
 	}
 
@@ -613,11 +952,11 @@ func (h *Harness) GetUpdatedDevices(fleetName string) ([]*v1alpha1.Device, error
 	}
 
 	devices := response.JSON200.Items
-	var result []*v1alpha1.Device
+	var result []*v1beta1.Device
 
 	for _, device := range devices {
 		// Check if device has been updated
-		if device.Status != nil && device.Status.Updated.Status == v1alpha1.DeviceUpdatedStatusUpToDate {
+		if device.Status != nil && device.Status.Updated.Status == v1beta1.DeviceUpdatedStatusUpToDate {
 			deviceCopy := device
 			result = append(result, &deviceCopy)
 		}
@@ -626,8 +965,8 @@ func (h *Harness) GetUpdatedDevices(fleetName string) ([]*v1alpha1.Device, error
 	return result, nil
 }
 
-func (h *Harness) AddConfigToDeviceWithRetries(deviceId string, config v1alpha1.ConfigProviderSpec) error {
-	return h.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+func (h *Harness) AddConfigToDeviceWithRetries(deviceId string, config v1beta1.ConfigProviderSpec) error {
+	return h.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
 		specs := lo.FromPtr(device.Spec.Config)
 		specs = append(specs, config)
 		device.Spec.Config = &specs
@@ -640,8 +979,8 @@ func (h *Harness) AddConfigToDeviceWithRetries(deviceId string, config v1alpha1.
 
 // UpdateDeviceConfigWithRetries updates the configuration of a device with retries using the provided harness and config specs.
 // It applies the provided configuration and waits for the device to reach the specified rendered version.
-func (h *Harness) UpdateDeviceConfigWithRetries(deviceId string, configs []v1alpha1.ConfigProviderSpec, nextRenderedVersion int) error {
-	err := h.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+func (h *Harness) UpdateDeviceConfigWithRetries(deviceId string, configs []v1beta1.ConfigProviderSpec, nextRenderedVersion int) error {
+	err := h.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
 		device.Spec.Config = &configs
 		logrus.WithFields(logrus.Fields{
 			"deviceId": deviceId,
@@ -768,43 +1107,43 @@ func (h *Harness) EnableTPMForDevice() error {
 // SetupDeviceWithTPM prepares a device VM with TPM functionality enabled.
 // This handles the complete TPM setup process in the correct order.
 func (h *Harness) SetupDeviceWithTPM(workerID int) error {
-	// 1. Setup VM from pool (includes agent start)
-	err := h.SetupVMFromPoolAndStartAgent(workerID)
+	// Setup VM from pool without starting agent
+	err := h.SetupVMFromPool(workerID)
 	if err != nil {
 		return fmt.Errorf("failed to setup VM: %w", err)
 	}
 
-	// 2. Stop agent immediately to configure TPM first
-	err = h.StopFlightCtlAgent()
+	// Clean CSR from non-TPM agent start to avoid device ID mismatch
+	_, err = h.VM.RunSSH([]string{"sudo", "rm", "-f", "/var/lib/flightctl/certs/agent.csr"}, nil)
 	if err != nil {
-		return fmt.Errorf("failed to stop agent: %w", err)
+		logrus.Warnf("Failed to clean stale CSR: %v", err)
 	}
 
-	// 3. Wait for TPM hardware initialization
+	// Wait for TPM hardware initialization
 	err = h.WaitForTPMInitialization()
 	if err != nil {
 		return fmt.Errorf("TPM initialization failed: %w", err)
 	}
 
-	// 4. Verify TPM is functional
+	// Verify TPM is functional
 	err = h.VerifyTPMFunctionality()
 	if err != nil {
 		return fmt.Errorf("TPM verification failed: %w", err)
 	}
 
-	// 5. Configure agent for TPM
+	// Configure agent for TPM
 	err = h.EnableTPMForDevice()
 	if err != nil {
 		return fmt.Errorf("TPM configuration failed: %w", err)
 	}
 
-	// 6. Start agent with TPM configuration
+	// Start agent with TPM configuration
 	err = h.StartFlightCtlAgent()
 	if err != nil {
 		return fmt.Errorf("failed to start agent with TPM: %w", err)
 	}
 
-	// 7. Brief wait for agent to initialize with TPM
+	// Brief wait for agent to initialize with TPM
 	time.Sleep(10 * time.Second)
 
 	logrus.Info("Device TPM setup completed successfully")
@@ -813,7 +1152,7 @@ func (h *Harness) SetupDeviceWithTPM(workerID int) error {
 
 // VerifyEnrollmentTPMAttestationData checks for TPM attestation data in enrollment request SystemInfo
 // Returns error if no TPM attestation data is found
-func (h *Harness) VerifyEnrollmentTPMAttestationData(systemInfo v1alpha1.DeviceSystemInfo) error {
+func (h *Harness) VerifyEnrollmentTPMAttestationData(systemInfo v1beta1.DeviceSystemInfo) error {
 	// Look for TPM attestation data - check for either key name that might be used
 	_, hasAttestation := systemInfo.Get("attestation")
 	if !hasAttestation {
@@ -834,7 +1173,7 @@ func (h *Harness) VerifyEnrollmentTPMAttestationData(systemInfo v1alpha1.DeviceS
 // VerifyDeviceTPMAttestationData checks for TPM attestation data in device SystemInfo
 // Virtual TPM provides "tpmVendorInfo", real TPM provides "attestation"
 // Returns error if attestation data is missing or empty
-func (h *Harness) VerifyDeviceTPMAttestationData(device *v1alpha1.Device) error {
+func (h *Harness) VerifyDeviceTPMAttestationData(device *v1beta1.Device) error {
 	// Check for TPM vendor info in system info (virtual TPM provides tpmVendorInfo instead of full attestation)
 	tpmVendorInfo, hasTmpVendorInfo := device.Status.SystemInfo.Get("tpmVendorInfo")
 	if hasTmpVendorInfo {

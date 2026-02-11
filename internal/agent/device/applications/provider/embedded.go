@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
@@ -13,93 +13,118 @@ import (
 )
 
 type embeddedProvider struct {
-	podman     *client.Podman
-	readWriter fileio.ReadWriter
-	log        *log.PrefixLogger
-	spec       *ApplicationSpec
+	podman         *client.Podman
+	readWriter     fileio.ReadWriter
+	log            *log.PrefixLogger
+	commandChecker commandChecker
+	spec           *ApplicationSpec
+	handler        embeddedAppTypeHandler
 }
 
-func newEmbedded(log *log.PrefixLogger, podman *client.Podman, readWriter fileio.ReadWriter, name string, appType v1alpha1.AppType) (Provider, error) {
-	volumeManager, err := NewVolumeManager(log, name, nil)
+func newEmbeddedHandler(appType v1beta1.AppType, name string, rw fileio.ReadWriter, l *log.PrefixLogger, podman *client.Podman, bootTime string, installed bool, checker commandChecker) (embeddedAppTypeHandler, error) {
+	switch appType {
+	case v1beta1.AppTypeQuadlet:
+		return &embeddedQuadletBehavior{
+			name:           name,
+			rw:             rw,
+			log:            l,
+			bootTime:       bootTime,
+			installed:      installed,
+			podman:         podman,
+			commandChecker: checker,
+		}, nil
+	case v1beta1.AppTypeCompose:
+		return &embeddedComposeBehavior{
+			name:           name,
+			rw:             rw,
+			commandChecker: checker,
+		}, nil
+	default:
+		return nil, fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, appType)
+	}
+}
+
+func newEmbedded(log *log.PrefixLogger, podman *client.Podman, readWriter fileio.ReadWriter, name string, appType v1beta1.AppType, bootTime string, installed bool) (appProvider, error) {
+	checker := client.IsCommandAvailable
+	handler, err := newEmbeddedHandler(appType, name, readWriter, log, podman, bootTime, installed, checker)
+	if err != nil {
+		return nil, fmt.Errorf("constructing embedded app handler: %w", err)
+	}
+
+	volumeManager, err := NewVolumeManager(log, name, appType, v1beta1.CurrentProcessUsername, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	appPath, err := pathFromAppType(appType, name, true)
+	volumes, err := handler.Volumes()
 	if err != nil {
-		return nil, fmt.Errorf("getting app path: %w", err)
+		return nil, fmt.Errorf("listing volumes: %w", err)
 	}
+	volumeManager.AddVolumes(volumes)
 
 	return &embeddedProvider{
-		log:        log,
-		podman:     podman,
-		readWriter: readWriter,
+		log:            log,
+		podman:         podman,
+		readWriter:     readWriter,
+		commandChecker: checker,
+		handler:        handler,
 		spec: &ApplicationSpec{
 			Name:     name,
-			ID:       client.NewComposeID(name),
+			ID:       handler.ID(),
 			AppType:  appType,
+			User:     v1beta1.CurrentProcessUsername,
 			Embedded: true,
 			EnvVars:  make(map[string]string),
 			Volume:   volumeManager,
-			Path:     appPath,
+			Path:     handler.AppPath(),
+			bootTime: bootTime,
 		},
 	}, nil
 }
 
-func (p *embeddedProvider) OCITargets(pullSecret *client.PullSecret) ([]dependency.OCIPullTarget, error) {
-	switch p.spec.AppType {
-	case v1alpha1.AppTypeCompose:
-		spec, err := client.ParseComposeSpecFromDir(p.readWriter, p.spec.Path)
-		if err != nil {
-			return nil, fmt.Errorf("parsing compose spec: %w", err)
-		}
-		// extract images from service
-		var targets []dependency.OCIPullTarget
-		for _, svc := range spec.Services {
-			if svc.Image != "" {
-				targets = append(targets, dependency.OCIPullTarget{
-					Type:       dependency.OCITypeImage,
-					Reference:  svc.Image,
-					PullPolicy: v1alpha1.PullIfNotPresent,
-					PullSecret: pullSecret,
-				})
-			}
-		}
-
-		return targets, nil
-	default:
-		return nil, fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, p.spec.AppType)
-	}
-}
-
 func (p *embeddedProvider) Verify(ctx context.Context) error {
-	switch p.spec.AppType {
-	case v1alpha1.AppTypeCompose:
-		if err := ensureCompose(p.readWriter, p.spec.Path); err != nil {
-			return fmt.Errorf("ensuring compose: %w", err)
-		}
-	default:
-		return fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, p.spec.AppType)
+	return p.handler.Verify(ctx)
+}
+
+func (p *embeddedProvider) Name() string {
+	return p.spec.Name
+}
+
+func (p *embeddedProvider) ID() string {
+	return p.spec.ID
+}
+
+func (p *embeddedProvider) Spec() *ApplicationSpec {
+	return p.spec
+}
+
+func (p *embeddedProvider) Install(ctx context.Context) error {
+	return p.handler.Install(ctx)
+}
+
+func (p *embeddedProvider) Remove(ctx context.Context) error {
+	return p.handler.Remove(ctx)
+}
+
+func (p *embeddedProvider) EnsureDependencies(ctx context.Context) error {
+	return p.handler.EnsureDependencies(ctx)
+}
+
+func (p *embeddedProvider) collectOCITargets(ctx context.Context, configProvider dependency.PullConfigResolver) (dependency.OCIPullTargetsByUser, error) {
+	targets, err := p.handler.CollectOCITargets(ctx, configProvider)
+	if err != nil {
+		return nil, err
 	}
-	return nil
+	var result dependency.OCIPullTargetsByUser
+	return result.Add(v1beta1.CurrentProcessUsername, targets...), nil
 }
 
-func (e *embeddedProvider) Name() string {
-	return e.spec.Name
+func (p *embeddedProvider) extractNestedTargets(_ context.Context, _ dependency.PullConfigResolver) (*AppData, error) {
+	// Embedded apps don't have nested targets to extract
+	return &AppData{}, nil
 }
 
-func (e *embeddedProvider) Spec() *ApplicationSpec {
-	return e.spec
-}
-
-func (e *embeddedProvider) Install(ctx context.Context) error {
-	return nil
-}
-
-func (e *embeddedProvider) Update(ctx context.Context) error {
-	return nil
-}
-
-func (e *embeddedProvider) Remove(ctx context.Context) error {
-	return nil
+func (p *embeddedProvider) parentIsAvailable(_ context.Context) (string, string, bool, error) {
+	// Embedded apps have no parent artifact, always available
+	return "", "", true, nil
 }

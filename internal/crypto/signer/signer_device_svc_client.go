@@ -26,15 +26,22 @@ func (s *SignerDeviceSvcClient) Name() string {
 func (s *SignerDeviceSvcClient) Verify(ctx context.Context, request SignRequest) error {
 	cfg := s.ca.Config()
 
-	signer := s.ca.PeerCertificateSignerFromCtx(ctx)
+	peerSigner := s.ca.PeerCertificateSignerFromCtx(ctx)
 
 	got := "<nil>"
-	if signer != nil {
-		got = signer.Name()
+	if peerSigner != nil {
+		got = peerSigner.Name()
 	}
 
-	if signer == nil || signer.Name() != cfg.DeviceEnrollmentSignerName {
-		return fmt.Errorf("unexpected client certificate signer: expected %q, got %q", cfg.DeviceEnrollmentSignerName, got)
+	// Device-svc-client CSRs are only allowed from a device presenting a valid
+	// device-management client certificate (initial or renewal).
+	if peerSigner == nil || !IsDeviceManagementClientCertSigner(cfg, peerSigner) {
+		return fmt.Errorf(
+			"unexpected client certificate signer: expected %q or %q, got %q",
+			cfg.DeviceManagementSignerName,
+			cfg.DeviceManagementRenewalSignerName,
+			got,
+		)
 	}
 
 	peerCertificate, err := PeerCertificateFromCtx(ctx)
@@ -49,7 +56,11 @@ func (s *SignerDeviceSvcClient) Verify(ctx context.Context, request SignRequest)
 
 	x509CSR := request.X509()
 	if !strings.HasSuffix(x509CSR.Subject.CommonName, fmt.Sprintf("-%s", fingerprint)) {
-		return fmt.Errorf("CSR CommonName %q does not end with device fingerprint suffix -%s", x509CSR.Subject.CommonName, fingerprint)
+		return fmt.Errorf(
+			"CSR CommonName %q does not end with device fingerprint suffix -%s",
+			x509CSR.Subject.CommonName,
+			fingerprint,
+		)
 	}
 
 	return nil

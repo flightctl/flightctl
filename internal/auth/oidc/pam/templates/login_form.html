@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Flight Control Login</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 400px; 
+            margin: 50px auto; 
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .login-container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .form-group { margin-bottom: 20px; }
+        label { 
+            display: block; 
+            margin-bottom: 8px; 
+            font-weight: 500;
+            color: #333;
+        }
+        input[type="text"], input[type="password"] { 
+            width: 100%; 
+            padding: 12px; 
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 16px;
+            box-sizing: border-box;
+        }
+        input[type="text"]:focus, input[type="password"]:focus {
+            outline: none;
+            border-color: #007bff;
+            box-shadow: 0 0 0 2px rgba(0,123,255,0.25);
+        }
+        button { 
+            background: #007bff; 
+            color: white; 
+            padding: 12px 24px; 
+            border: none; 
+            border-radius: 4px;
+            cursor: pointer; 
+            font-size: 16px;
+            width: 100%;
+            transition: background-color 0.2s;
+        }
+        button:hover { background: #0056b3; }
+        button:active { background: #004085; }
+        .error { 
+            color: #dc3545; 
+            margin-top: 10px; 
+            padding: 8px;
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            border-radius: 4px;
+            display: none;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .header h1 {
+            color: #333;
+            margin: 0;
+            font-size: 24px;
+        }
+        .header p {
+            color: #666;
+            margin: 5px 0 0 0;
+            font-size: 14px;
+        }
+    </style>
+    <script>
+        function handleSubmit(event) {
+            event.preventDefault();
+            const form = event.target;
+            const formData = new FormData(form);
+            
+            // Show loading state
+            const button = form.querySelector('button');
+            const originalText = button.textContent;
+            button.textContent = 'Logging in...';
+            button.disabled = true;
+            
+            // Convert FormData to URLSearchParams for application/x-www-form-urlencoded
+            const params = new URLSearchParams(formData);
+            
+            // Submit form data
+            fetch('/api/v1/auth/login', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded'
+                },
+                body: params
+            })
+            .then(response => {
+                // Read the response text for both success and error
+                return response.text().then(text => ({
+                    ok: response.ok,
+                    text: text
+                }));
+            })
+            .then(result => {
+                if (result.ok) {
+                    // Successful login - redirect to the URL
+                    window.location.href = result.text;
+                } else {
+                    // Failed login - show error message from server
+                    // Try to parse as JSON first (OAuth2Error format), otherwise use plain text
+                    let errorMessage = result.text;
+                    try {
+                        const errorJson = JSON.parse(result.text);
+                        if (errorJson.error_description) {
+                            errorMessage = errorJson.error_description;
+                        } else if (errorJson.error) {
+                            errorMessage = errorJson.error;
+                        }
+                    } catch (e) {
+                        // Not JSON, use text as-is
+                    }
+                    showError(errorMessage);
+                }
+            })
+            .catch(error => {
+                showError('Login failed. Please check your credentials.');
+            })
+            .finally(() => {
+                button.textContent = originalText;
+                button.disabled = false;
+            });
+        }
+        
+        function showError(message) {
+            const errorDiv = document.querySelector('.error');
+            errorDiv.textContent = message;
+            errorDiv.style.display = 'block';
+        }
+    </script>
+</head>
+<body>
+    <div class="login-container">
+        <div class="header">
+            <h1>Flight Control</h1>
+            <p>Please sign in to continue</p>
+        </div>
+        
+        <form onsubmit="handleSubmit(event)">
+            <div class="form-group">
+                <label for="username">Username:</label>
+                <input type="text" id="username" name="username" required autocomplete="username">
+            </div>
+            
+            <div class="form-group">
+                <label for="password">Password:</label>
+                <input type="password" id="password" name="password" required autocomplete="current-password">
+            </div>
+            
+            <button type="submit">Sign In</button>
+            
+            <div class="error"></div>
+        </form>
+    </div>
+</body>
+</html>
+

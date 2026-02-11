@@ -8,15 +8,15 @@ import (
 	"io"
 	"net/http"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/domain"
 )
 
-func sendHTTPrequest(repoSpec api.RepositorySpec, repoURL string) ([]byte, error) {
+func sendHTTPrequest(repoSpec domain.RepositorySpec, repoURL string) ([]byte, error) {
 	req, err := http.NewRequest("GET", repoURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
-	repoHttpSpec, err := repoSpec.GetHttpRepoSpec()
+	repoHttpSpec, err := repoSpec.AsHttpRepoSpec()
 	if err != nil {
 		return nil, err
 	}
@@ -45,15 +45,21 @@ func sendHTTPrequest(repoSpec api.RepositorySpec, repoURL string) ([]byte, error
 	return body, nil
 }
 
-func buildHttpRepoRequestAuth(repoHttpSpec api.HttpRepoSpec, req *http.Request) (*http.Request, *tls.Config, error) {
+func buildHttpRepoRequestAuth(repoHttpSpec domain.HttpRepoSpec, req *http.Request) (*http.Request, *tls.Config, error) {
+	tlsConfig := &tls.Config{
+		MinVersion: tls.VersionTLS12,
+	}
+
+	// HttpConfig is optional - if not set, return default TLS config with no auth
+	if repoHttpSpec.HttpConfig == nil {
+		return req, tlsConfig, nil
+	}
+
 	if repoHttpSpec.HttpConfig.Username != nil && repoHttpSpec.HttpConfig.Password != nil {
 		req.SetBasicAuth(*repoHttpSpec.HttpConfig.Username, *repoHttpSpec.HttpConfig.Password)
 	}
 	if repoHttpSpec.HttpConfig.Token != nil {
 		req.Header.Set("Authorization", "Bearer "+*repoHttpSpec.HttpConfig.Token)
-	}
-	tlsConfig := &tls.Config{
-		MinVersion: tls.VersionTLS12,
 	}
 	if repoHttpSpec.HttpConfig.TlsCrt != nil && repoHttpSpec.HttpConfig.TlsKey != nil {
 		cert, err := base64.StdEncoding.DecodeString(*repoHttpSpec.HttpConfig.TlsCrt)

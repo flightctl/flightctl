@@ -1,0 +1,30 @@
+apiVersion: flightctl.io/v1beta1
+kind: Repository
+metadata:
+  name: quay-io
+spec:
+  type: oci
+  registry: quay.io
+  scheme: https
+  accessMode: Read
+  # Optional: Omit ociAuth for public registries that don't require authentication
+  # ociAuth:
+  #   authType: docker
+  #   username: your-username
+  #   password: your-password
+
+---
+# Example: OCI repository with credentials for pushing images
+apiVersion: flightctl.io/v1beta1
+kind: Repository
+metadata:
+  name: my-registry
+spec:
+  type: oci
+  registry: quay.io
+  scheme: https
+  accessMode: ReadWrite
+  ociAuth:
+    authType: docker
+    username: my-username
+    password: my-pass

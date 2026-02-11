@@ -10,7 +10,12 @@ import (
 
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/config/ca"
+	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/crypto"
+	"github.com/flightctl/flightctl/internal/identity"
+	"github.com/flightctl/flightctl/internal/org"
+	orgmodel "github.com/flightctl/flightctl/internal/org/model"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -101,21 +106,29 @@ func TestClientConfig(t *testing.T) {
 			name:           "local service",
 			server:         "https://localhost:3443",
 			serverName:     "",
-			serverWant:     "https://localhost:3443/",
+			serverWant:     "https://localhost:3443" + apiclient.ServerUrlApiv1 + "/",
 			serverNameWant: "localhost",
 		},
 		{
 			name:           "remote service",
 			server:         "https://api.flightctl.edge-devices.net/devicemanagement/",
 			serverName:     "flightctl.edge-devices.net",
-			serverWant:     "https://api.flightctl.edge-devices.net/devicemanagement/",
+			serverWant:     "https://api.flightctl.edge-devices.net/devicemanagement" + apiclient.ServerUrlApiv1 + "/",
 			serverNameWant: "flightctl.edge-devices.net",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := context.Background()
+			// Create context with dummy mapped identity for certificate signing
+			orgID := org.DefaultID
+			orgEntity := &orgmodel.Organization{
+				ID:         orgID,
+				ExternalID: orgID.String(),
+			}
+			mappedIdentity := identity.NewMappedIdentity("test-user", "test-uid", []*orgmodel.Organization{orgEntity}, map[string][]string{}, false, identity.NewIssuer("test", "test-issuer"))
+			ctx := context.WithValue(context.Background(), consts.MappedIdentityCtxKey, mappedIdentity)
+			ctx = util.WithOrganizationID(ctx, orgID)
 
 			testDirPath := t.TempDir()
 			configFile := filepath.Join(testDirPath, "client.yaml")
@@ -146,7 +159,17 @@ func TestClientConfig(t *testing.T) {
 			httpClient, ok := c.Client.(*http.Client)
 			require.True(ok)
 
-			httpTransport, ok := httpClient.Transport.(*http.Transport)
+			// Unwrap any transport wrappers to get the base http.Transport.
+			baseTransport := httpClient.Transport
+			for {
+				unwrapper, ok := baseTransport.(interface{ UnwrapTransport() http.RoundTripper })
+				if !ok {
+					break
+				}
+				baseTransport = unwrapper.UnwrapTransport()
+			}
+
+			httpTransport, ok := baseTransport.(*http.Transport)
 			require.True(ok)
 			require.Equal(tt.serverNameWant, httpTransport.TLSClientConfig.ServerName)
 			require.NotEmpty(httpTransport.TLSClientConfig.Certificates)

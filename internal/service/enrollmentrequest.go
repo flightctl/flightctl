@@ -9,12 +9,12 @@ import (
 	"strings"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
-	authcommon "github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/config/ca"
 	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/contextutil"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/crypto/signer"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service/common"
@@ -40,31 +40,31 @@ func (h *ServiceHandler) getTPMCAPool() *x509.CertPool {
 	return roots
 }
 
-func (h *ServiceHandler) verifyTPMEnrollmentRequest(er *api.EnrollmentRequest, name string) error {
+func (h *ServiceHandler) verifyTPMEnrollmentRequest(er *domain.EnrollmentRequest, name string) error {
 	csrBytes, isTPM := tpm.ParseTCGCSRBytes(er.Spec.Csr)
 	if !isTPM {
 		return fmt.Errorf("failed to parse TCG CSR")
 	}
 
 	trustedRoots := h.getTPMCAPool()
-	condition := api.Condition{
-		Type:   api.ConditionTypeEnrollmentRequestTPMVerified,
-		Status: api.ConditionStatusFalse,
+	condition := domain.Condition{
+		Type:   domain.ConditionTypeEnrollmentRequestTPMVerified,
+		Status: domain.ConditionStatusFalse,
 	}
 	if err := tpm.VerifyTCGCSRChainOfTrustWithRoots(csrBytes, trustedRoots); err != nil {
-		condition.Reason = api.TPMVerificationFailedReason
+		condition.Reason = domain.TPMVerificationFailedReason
 		condition.Message = err.Error()
 		h.log.Warnf("TPM verification failed for enrollment request %s: %v", name, err)
 	} else {
-		condition.Reason = api.TPMChallengeRequiredReason
+		condition.Reason = domain.TPMChallengeRequiredReason
 		condition.Message = "TPM chain of trust partially verified, activate credential challenge required"
 		h.log.Debugf("TPM chain partially verified for enrollment request %s, challenge required", name)
 	}
-	api.SetStatusCondition(&er.Status.Conditions, condition)
+	domain.SetStatusCondition(&er.Status.Conditions, condition)
 	return nil
 }
 
-func approveAndSignEnrollmentRequest(ctx context.Context, ca *crypto.CAClient, enrollmentRequest *api.EnrollmentRequest, approval *api.EnrollmentRequestApprovalStatus) error {
+func approveAndSignEnrollmentRequest(ctx context.Context, ca *crypto.CAClient, enrollmentRequest *domain.EnrollmentRequest, approval *domain.EnrollmentRequestApprovalStatus) error {
 	if enrollmentRequest == nil {
 		return errors.New("approveAndSignEnrollmentRequest: enrollmentRequest is nil")
 	}
@@ -80,12 +80,12 @@ func approveAndSignEnrollmentRequest(ctx context.Context, ca *crypto.CAClient, e
 	}
 
 	// preserve existing conditions when approving
-	existingConditions := []api.Condition{}
+	existingConditions := []domain.Condition{}
 	if enrollmentRequest.Status != nil && enrollmentRequest.Status.Conditions != nil {
 		existingConditions = enrollmentRequest.Status.Conditions
 	}
 
-	enrollmentRequest.Status = &api.EnrollmentRequestStatus{
+	enrollmentRequest.Status = &domain.EnrollmentRequestStatus{
 		Certificate: lo.ToPtr(string(certData)),
 		Conditions:  existingConditions,
 		Approval:    approval,
@@ -101,35 +101,35 @@ func approveAndSignEnrollmentRequest(ctx context.Context, ca *crypto.CAClient, e
 		}
 	}
 
-	condition := api.Condition{
-		Type:    api.ConditionTypeEnrollmentRequestApproved,
-		Status:  api.ConditionStatusTrue,
+	condition := domain.Condition{
+		Type:    domain.ConditionTypeEnrollmentRequestApproved,
+		Status:  domain.ConditionStatusTrue,
 		Reason:  "ManuallyApproved",
 		Message: "Approved by " + approval.ApprovedBy,
 	}
-	api.SetStatusCondition(&enrollmentRequest.Status.Conditions, condition)
+	domain.SetStatusCondition(&enrollmentRequest.Status.Conditions, condition)
 	return nil
 }
 
-func addStatusIfNeeded(enrollmentRequest *api.EnrollmentRequest) {
+func addStatusIfNeeded(enrollmentRequest *domain.EnrollmentRequest) {
 	if enrollmentRequest.Status == nil {
-		enrollmentRequest.Status = &api.EnrollmentRequestStatus{
+		enrollmentRequest.Status = &domain.EnrollmentRequestStatus{
 			Certificate: nil,
-			Conditions:  []api.Condition{},
+			Conditions:  []domain.Condition{},
 		}
 	}
 }
 
-func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, orgId uuid.UUID, enrollmentRequest *api.EnrollmentRequest) error {
-	deviceStatus := api.NewDeviceStatus()
-	deviceStatus.Lifecycle = api.DeviceLifecycleStatus{Status: "Enrolled"}
+func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, orgId uuid.UUID, enrollmentRequest *domain.EnrollmentRequest) error {
+	deviceStatus := domain.NewDeviceStatus()
+	deviceStatus.Lifecycle = domain.DeviceLifecycleStatus{Status: "Enrolled"}
 
 	// Check if TPM was verified during enrollment request creation
 	isTPMVerified := false
 	var tpmVerificationError string
 	if enrollmentRequest.Status != nil {
-		if condition := api.FindStatusCondition(enrollmentRequest.Status.Conditions, api.ConditionTypeEnrollmentRequestTPMVerified); condition != nil {
-			isTPMVerified = condition.Status == api.ConditionStatusTrue
+		if condition := domain.FindStatusCondition(enrollmentRequest.Status.Conditions, domain.ConditionTypeEnrollmentRequestTPMVerified); condition != nil {
+			isTPMVerified = condition.Status == domain.ConditionStatusTrue
 			if !isTPMVerified {
 				tpmVerificationError = condition.Message
 			}
@@ -139,16 +139,16 @@ func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, 
 	// always set device integrity status based on TPM verification result
 	now := time.Now()
 	if isTPMVerified {
-		deviceStatus.Integrity = api.DeviceIntegrityStatus{
-			Status:       api.DeviceIntegrityStatusVerified,
+		deviceStatus.Integrity = domain.DeviceIntegrityStatus{
+			Status:       domain.DeviceIntegrityStatusVerified,
 			Info:         lo.ToPtr("All integrity checks completed successfully"),
 			LastVerified: &now,
-			DeviceIdentity: &api.DeviceIntegrityCheckStatus{
-				Status: api.DeviceIntegrityCheckStatusVerified,
+			DeviceIdentity: &domain.DeviceIntegrityCheckStatus{
+				Status: domain.DeviceIntegrityCheckStatusVerified,
 				Info:   lo.ToPtr("Device identity verified through certificate chain"),
 			},
-			Tpm: &api.DeviceIntegrityCheckStatus{
-				Status: api.DeviceIntegrityCheckStatusVerified,
+			Tpm: &domain.DeviceIntegrityCheckStatus{
+				Status: domain.DeviceIntegrityCheckStatusVerified,
 				Info:   lo.ToPtr("TPM chain of trust verified"),
 			},
 		}
@@ -177,25 +177,37 @@ func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, 
 				}
 			}
 
-			deviceStatus.Integrity = api.DeviceIntegrityStatus{
-				Status:       api.DeviceIntegrityStatusFailed,
+			deviceStatus.Integrity = domain.DeviceIntegrityStatus{
+				Status:       domain.DeviceIntegrityStatusFailed,
 				Info:         lo.ToPtr("Integrity verification failed"),
 				LastVerified: &now,
-				DeviceIdentity: &api.DeviceIntegrityCheckStatus{
-					Status: api.DeviceIntegrityCheckStatusFailed,
+				DeviceIdentity: &domain.DeviceIntegrityCheckStatus{
+					Status: domain.DeviceIntegrityCheckStatusFailed,
 					Info:   lo.ToPtr(deviceIdentityMsg),
 				},
-				Tpm: &api.DeviceIntegrityCheckStatus{
-					Status: api.DeviceIntegrityCheckStatusFailed,
+				Tpm: &domain.DeviceIntegrityCheckStatus{
+					Status: domain.DeviceIntegrityCheckStatusFailed,
 					Info:   lo.ToPtr(tpmErrorMsg),
+				},
+			}
+		} else {
+			// Device enrolled without TPM - integrity verification not supported
+			deviceStatus.Integrity = domain.DeviceIntegrityStatus{
+				Status: domain.DeviceIntegrityStatusUnsupported,
+				Info:   lo.ToPtr("TPM not present or not enabled on this device"),
+				DeviceIdentity: &domain.DeviceIntegrityCheckStatus{
+					Status: domain.DeviceIntegrityCheckStatusUnsupported,
+				},
+				Tpm: &domain.DeviceIntegrityCheckStatus{
+					Status: domain.DeviceIntegrityCheckStatusUnsupported,
 				},
 			}
 		}
 	}
 
 	name := lo.FromPtr(enrollmentRequest.Metadata.Name)
-	apiResource := &api.Device{
-		Metadata: api.ObjectMeta{
+	apiResource := &domain.Device{
+		Metadata: domain.ObjectMeta{
 			Name: &name,
 		},
 		Status: &deviceStatus,
@@ -203,21 +215,21 @@ func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, 
 	if errs := apiResource.Validate(); len(errs) > 0 {
 		return fmt.Errorf("failed validating new device: %w", errors.Join(errs...))
 	}
-	if enrollmentRequest.Status.Approval != nil {
+	if enrollmentRequest.Status != nil && enrollmentRequest.Status.Approval != nil {
 		apiResource.Metadata.Labels = enrollmentRequest.Status.Approval.Labels
 	}
 
 	// Transfer awaitingReconnect annotation from enrollment request to device if present
 	if enrollmentRequest.Metadata.Annotations != nil {
-		if awaitingReconnect, exists := (*enrollmentRequest.Metadata.Annotations)[api.DeviceAnnotationAwaitingReconnect]; exists && awaitingReconnect == "true" {
+		if awaitingReconnect, exists := (*enrollmentRequest.Metadata.Annotations)[domain.DeviceAnnotationAwaitingReconnect]; exists && awaitingReconnect == "true" {
 			if apiResource.Metadata.Annotations == nil {
 				apiResource.Metadata.Annotations = &map[string]string{}
 			}
-			(*apiResource.Metadata.Annotations)[api.DeviceAnnotationAwaitingReconnect] = "true"
+			(*apiResource.Metadata.Annotations)[domain.DeviceAnnotationAwaitingReconnect] = "true"
 
 			// Set device status to awaiting reconnection
-			deviceStatus.Summary = api.DeviceSummaryStatus{
-				Status: api.DeviceSummaryStatusAwaitingReconnect,
+			deviceStatus.Summary = domain.DeviceSummaryStatus{
+				Status: domain.DeviceSummaryStatusAwaitingReconnect,
 				Info:   lo.ToPtr(common.DeviceStatusInfoAwaitingReconnect),
 			}
 			// Add awaiting reconnection key to KV store
@@ -234,13 +246,13 @@ func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, 
 	}
 	_ = common.UpdateServiceSideStatus(ctx, orgId, apiResource, h.store, h.log)
 
-	_, _, err := h.store.Device().CreateOrUpdate(ctx, orgId, apiResource, nil, false, func(ctx context.Context, before *api.Device, after *api.Device) error {
+	_, _, err := h.store.Device().CreateOrUpdate(ctx, orgId, apiResource, nil, false, func(ctx context.Context, before *domain.Device, after *domain.Device) error {
 		// Prevent overwriting existing devices during enrollment request approval
 		if before != nil {
 			return fmt.Errorf("device %s already exists and cannot be overwritten during enrollment request approval", *after.Metadata.Name)
 		}
 		return nil
-	}, func(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
+	}, func(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
 		// Only invoke callback on success
 		if err == nil {
 			h.callbackDeviceUpdated(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
@@ -249,8 +261,7 @@ func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, 
 	return err
 }
 
-func (h *ServiceHandler) CreateEnrollmentRequest(ctx context.Context, er api.EnrollmentRequest) (*api.EnrollmentRequest, api.Status) {
-	orgId := getOrgIdFromContext(ctx)
+func (h *ServiceHandler) CreateEnrollmentRequest(ctx context.Context, orgId uuid.UUID, er domain.EnrollmentRequest) (*domain.EnrollmentRequest, domain.Status) {
 	er.Status = nil
 	addStatusIfNeeded(&er)
 
@@ -262,25 +273,25 @@ func (h *ServiceHandler) CreateEnrollmentRequest(ctx context.Context, er api.Enr
 	// Check if knownRenderedVersion is provided and not "0", add awaitingReconnect annotation
 	if er.Spec.KnownRenderedVersion != nil && *er.Spec.KnownRenderedVersion != "" && *er.Spec.KnownRenderedVersion != "0" {
 		annotations := util.EnsureMap(lo.FromPtr(er.Metadata.Annotations))
-		annotations[api.DeviceAnnotationAwaitingReconnect] = "true"
+		annotations[domain.DeviceAnnotationAwaitingReconnect] = "true"
 		er.Metadata.Annotations = &annotations
 		h.log.Infof("Adding awaitingReconnect annotation for knownRenderedVersion: %s", *er.Spec.KnownRenderedVersion)
 	}
 
 	if errs := er.Validate(); len(errs) > 0 {
-		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
+		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
 	}
 
 	request, isTPM, err := newSignRequestFromEnrollment(h.ca.Cfg, &er)
 	if err != nil {
-		return nil, api.StatusBadRequest(err.Error())
+		return nil, domain.StatusBadRequest(err.Error())
 	}
 	if err := signer.Verify(ctx, h.ca, request); err != nil {
-		return nil, api.StatusBadRequest(err.Error())
+		return nil, domain.StatusBadRequest(err.Error())
 	}
 	if isTPM {
 		if err := h.verifyTPMEnrollmentRequest(&er, *er.Metadata.Name); err != nil {
-			return nil, api.StatusBadRequest(err.Error())
+			return nil, domain.StatusBadRequest(err.Error())
 		}
 	}
 	if _, isAgent := ctx.Value(consts.AgentCtxKey).(string); isAgent {
@@ -291,100 +302,92 @@ func (h *ServiceHandler) CreateEnrollmentRequest(ctx context.Context, er api.Enr
 
 	// Use fromAPI=false for internal requests to preserve annotations
 	result, err := h.store.EnrollmentRequest().CreateWithFromAPI(ctx, orgId, &er, false, h.callbackEnrollmentRequestUpdated)
-	return result, StoreErrorToApiStatus(err, true, api.EnrollmentRequestKind, er.Metadata.Name)
+	return result, StoreErrorToApiStatus(err, true, domain.EnrollmentRequestKind, er.Metadata.Name)
 }
 
-func (h *ServiceHandler) ListEnrollmentRequests(ctx context.Context, params api.ListEnrollmentRequestsParams) (*api.EnrollmentRequestList, api.Status) {
-	orgId := getOrgIdFromContext(ctx)
-
+func (h *ServiceHandler) ListEnrollmentRequests(ctx context.Context, orgId uuid.UUID, params domain.ListEnrollmentRequestsParams) (*domain.EnrollmentRequestList, domain.Status) {
 	listParams, status := prepareListParams(params.Continue, params.LabelSelector, params.FieldSelector, params.Limit)
-	if status != api.StatusOK() {
+	if status != domain.StatusOK() {
 		return nil, status
 	}
 
 	result, err := h.store.EnrollmentRequest().List(ctx, orgId, *listParams)
 	if err == nil {
-		return result, api.StatusOK()
+		return result, domain.StatusOK()
 	}
 
 	var se *selector.SelectorError
 
 	switch {
 	case selector.AsSelectorError(err, &se):
-		return nil, api.StatusBadRequest(se.Error())
+		return nil, domain.StatusBadRequest(se.Error())
 	default:
-		return nil, api.StatusInternalServerError(err.Error())
+		return nil, domain.StatusInternalServerError(err.Error())
 	}
 }
 
-func (h *ServiceHandler) GetEnrollmentRequest(ctx context.Context, name string) (*api.EnrollmentRequest, api.Status) {
-	orgId := getOrgIdFromContext(ctx)
-
+func (h *ServiceHandler) GetEnrollmentRequest(ctx context.Context, orgId uuid.UUID, name string) (*domain.EnrollmentRequest, domain.Status) {
 	if _, isAgent := ctx.Value(consts.AgentCtxKey).(string); isAgent {
 		if h.agentGate.Acquire(ctx, 1) == nil {
 			defer h.agentGate.Release(1)
 		}
 	}
 	result, err := h.store.EnrollmentRequest().Get(ctx, orgId, name)
-	return result, StoreErrorToApiStatus(err, false, api.EnrollmentRequestKind, &name)
+	return result, StoreErrorToApiStatus(err, false, domain.EnrollmentRequestKind, &name)
 }
 
-func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, name string, er api.EnrollmentRequest) (*api.EnrollmentRequest, api.Status) {
-	orgId := getOrgIdFromContext(ctx)
-
+func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, orgId uuid.UUID, name string, er domain.EnrollmentRequest) (*domain.EnrollmentRequest, domain.Status) {
 	// don't set fields that are managed by the service
 	er.Status = nil
 	addStatusIfNeeded(&er)
 	NilOutManagedObjectMetaProperties(&er.Metadata)
 
 	if errs := er.Validate(); len(errs) > 0 {
-		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
+		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
 	}
 	err := h.allowCreationOrUpdate(ctx, orgId, name)
 	if err != nil {
-		return nil, api.StatusBadRequest(err.Error())
+		return nil, domain.StatusBadRequest(err.Error())
 	}
 	if name != *er.Metadata.Name {
-		return nil, api.StatusBadRequest("resource name specified in metadata does not match name in path")
+		return nil, domain.StatusBadRequest("resource name specified in metadata does not match name in path")
 	}
 
 	request, isTPM, err := newSignRequestFromEnrollment(h.ca.Cfg, &er)
 	if err != nil {
-		return nil, api.StatusBadRequest(err.Error())
+		return nil, domain.StatusBadRequest(err.Error())
 	}
 	if err := signer.Verify(ctx, h.ca, request); err != nil {
-		return nil, api.StatusBadRequest(err.Error())
+		return nil, domain.StatusBadRequest(err.Error())
 	}
 	if isTPM {
 		if err := h.verifyTPMEnrollmentRequest(&er, name); err != nil {
-			return nil, api.StatusBadRequest(err.Error())
+			return nil, domain.StatusBadRequest(err.Error())
 		}
 	}
 
 	result, created, err := h.store.EnrollmentRequest().CreateOrUpdate(ctx, orgId, &er, h.callbackEnrollmentRequestUpdated)
-	return result, StoreErrorToApiStatus(err, created, api.EnrollmentRequestKind, &name)
+	return result, StoreErrorToApiStatus(err, created, domain.EnrollmentRequestKind, &name)
 }
 
 // Only metadata.labels and spec can be patched. If we try to patch other fields, HTTP 400 Bad Request is returned.
-func (h *ServiceHandler) PatchEnrollmentRequest(ctx context.Context, name string, patch api.PatchRequest) (*api.EnrollmentRequest, api.Status) {
-	orgId := getOrgIdFromContext(ctx)
-
+func (h *ServiceHandler) PatchEnrollmentRequest(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest) (*domain.EnrollmentRequest, domain.Status) {
 	currentObj, err := h.store.EnrollmentRequest().Get(ctx, orgId, name)
 	if err != nil {
-		return nil, StoreErrorToApiStatus(err, false, api.EnrollmentRequestKind, &name)
+		return nil, StoreErrorToApiStatus(err, false, domain.EnrollmentRequestKind, &name)
 	}
 
-	newObj := &api.EnrollmentRequest{}
-	err = ApplyJSONPatch(ctx, currentObj, newObj, patch, "/api/v1/enrollmentrequests/"+name)
+	newObj := &domain.EnrollmentRequest{}
+	err = ApplyJSONPatch(ctx, currentObj, newObj, patch, "/enrollmentrequests/"+name)
 	if err != nil {
-		return nil, api.StatusBadRequest(err.Error())
+		return nil, domain.StatusBadRequest(err.Error())
 	}
 
 	if errs := newObj.Validate(); len(errs) > 0 {
-		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
+		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
 	}
 	if errs := currentObj.ValidateUpdate(newObj); len(errs) > 0 {
-		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
+		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
 	}
 
 	NilOutManagedObjectMetaProperties(&newObj.Metadata)
@@ -392,67 +395,61 @@ func (h *ServiceHandler) PatchEnrollmentRequest(ctx context.Context, name string
 
 	request, isTPM, err := newSignRequestFromEnrollment(h.ca.Cfg, newObj)
 	if err != nil {
-		return nil, api.StatusBadRequest(err.Error())
+		return nil, domain.StatusBadRequest(err.Error())
 	}
 	if err := signer.Verify(ctx, h.ca, request); err != nil {
-		return nil, api.StatusBadRequest(err.Error())
+		return nil, domain.StatusBadRequest(err.Error())
 	}
 	if isTPM {
 		if err := h.verifyTPMEnrollmentRequest(newObj, name); err != nil {
-			return nil, api.StatusBadRequest(err.Error())
+			return nil, domain.StatusBadRequest(err.Error())
 		}
 	}
 
 	result, err := h.store.EnrollmentRequest().Update(ctx, orgId, newObj, h.callbackEnrollmentRequestUpdated)
-	return result, StoreErrorToApiStatus(err, false, api.EnrollmentRequestKind, &name)
+	return result, StoreErrorToApiStatus(err, false, domain.EnrollmentRequestKind, &name)
 }
 
-func (h *ServiceHandler) DeleteEnrollmentRequest(ctx context.Context, name string) api.Status {
-	orgId := getOrgIdFromContext(ctx)
-
+func (h *ServiceHandler) DeleteEnrollmentRequest(ctx context.Context, orgId uuid.UUID, name string) domain.Status {
 	exists, err := h.deviceExists(ctx, orgId, name)
 	if err != nil {
-		return StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
+		return StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 	}
 
 	if exists {
-		return api.StatusConflict(fmt.Sprintf("cannot delete ER %q: device exists", name))
+		return domain.StatusConflict(fmt.Sprintf("cannot delete ER %q: device exists", name))
 	}
 
 	err = h.store.EnrollmentRequest().Delete(ctx, orgId, name, h.callbackEnrollmentRequestDeleted)
-	return StoreErrorToApiStatus(err, false, api.EnrollmentRequestKind, &name)
+	return StoreErrorToApiStatus(err, false, domain.EnrollmentRequestKind, &name)
 }
 
-func (h *ServiceHandler) GetEnrollmentRequestStatus(ctx context.Context, name string) (*api.EnrollmentRequest, api.Status) {
-	orgId := getOrgIdFromContext(ctx)
-
+func (h *ServiceHandler) GetEnrollmentRequestStatus(ctx context.Context, orgId uuid.UUID, name string) (*domain.EnrollmentRequest, domain.Status) {
 	result, err := h.store.EnrollmentRequest().Get(ctx, orgId, name)
-	return result, StoreErrorToApiStatus(err, false, api.EnrollmentRequestKind, &name)
+	return result, StoreErrorToApiStatus(err, false, domain.EnrollmentRequestKind, &name)
 }
 
-func (h *ServiceHandler) ApproveEnrollmentRequest(ctx context.Context, name string, approval api.EnrollmentRequestApproval) (*api.EnrollmentRequestApprovalStatus, api.Status) {
-	orgId := getOrgIdFromContext(ctx)
-
+func (h *ServiceHandler) ApproveEnrollmentRequest(ctx context.Context, orgId uuid.UUID, name string, approval domain.EnrollmentRequestApproval) (*domain.EnrollmentRequestApprovalStatus, domain.Status) {
 	if errs := approval.Validate(); len(errs) > 0 {
-		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
+		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
 	}
 	enrollmentReq, err := h.store.EnrollmentRequest().Get(ctx, orgId, name)
 	if err != nil {
-		return nil, StoreErrorToApiStatus(err, false, api.EnrollmentRequestKind, &name)
+		return nil, StoreErrorToApiStatus(err, false, domain.EnrollmentRequestKind, &name)
 	}
 
 	approvalStatusToReturn := enrollmentReq.Status.Approval
 
 	// if the enrollment request was already approved we should not try to approve it one more time
 	if approval.Approved {
-		if api.IsStatusConditionTrue(enrollmentReq.Status.Conditions, api.ConditionTypeEnrollmentRequestApproved) {
-			return nil, api.StatusBadRequest("Enrollment request is already approved")
+		if domain.IsStatusConditionTrue(enrollmentReq.Status.Conditions, domain.ConditionTypeEnrollmentRequestApproved) {
+			return nil, domain.StatusBadRequest("Enrollment request is already approved")
 		}
 
-		identity, err := authcommon.GetIdentity(ctx)
-		if err != nil {
-			status := api.StatusInternalServerError(fmt.Sprintf("failed to retrieve user identity while approving enrollment request: %v", err))
-			h.CreateEvent(ctx, common.GetEnrollmentRequestApprovalFailedEvent(ctx, name, status, h.log))
+		identity, ok := contextutil.GetMappedIdentityFromContext(ctx)
+		if !ok {
+			status := domain.StatusInternalServerError("failed to retrieve user identity while approving enrollment request")
+			h.CreateEvent(ctx, orgId, common.GetEnrollmentRequestApprovalFailedEvent(ctx, name, status, h.log))
 			return nil, status
 		}
 
@@ -461,7 +458,7 @@ func (h *ServiceHandler) ApproveEnrollmentRequest(ctx context.Context, name stri
 			approvedBy = identity.GetUsername()
 		}
 
-		approvalStatus := api.EnrollmentRequestApprovalStatus{
+		approvalStatus := domain.EnrollmentRequestApprovalStatus{
 			Approved:   approval.Approved,
 			Labels:     approval.Labels,
 			ApprovedAt: time.Now(),
@@ -471,34 +468,32 @@ func (h *ServiceHandler) ApproveEnrollmentRequest(ctx context.Context, name stri
 
 		err = approveAndSignEnrollmentRequest(ctx, h.ca, enrollmentReq, &approvalStatus)
 		if err != nil {
-			status := api.StatusBadRequest(fmt.Sprintf("Error approving and signing enrollment request: %v", err.Error()))
-			h.CreateEvent(ctx, common.GetEnrollmentRequestApprovalFailedEvent(ctx, name, status, h.log))
+			status := domain.StatusBadRequest(fmt.Sprintf("Error approving and signing enrollment request: %v", err.Error()))
+			h.CreateEvent(ctx, orgId, common.GetEnrollmentRequestApprovalFailedEvent(ctx, name, status, h.log))
 			return nil, status
 		}
 
 		// in case of error we return 500 as it will be caused by creating device in db and not by problem with enrollment request
 		if err := h.createDeviceFromEnrollmentRequest(ctx, orgId, enrollmentReq); err != nil {
-			status := api.StatusInternalServerError(fmt.Sprintf("error creating device from enrollment request: %v", err))
-			h.CreateEvent(ctx, common.GetEnrollmentRequestApprovalFailedEvent(ctx, name, status, h.log))
+			status := domain.StatusInternalServerError(fmt.Sprintf("error creating device from enrollment request: %v", err))
+			h.CreateEvent(ctx, orgId, common.GetEnrollmentRequestApprovalFailedEvent(ctx, name, status, h.log))
 			return nil, status
 		}
 	}
 
 	// Update the enrollment request status using the specific approval callback
 	_, err = h.store.EnrollmentRequest().UpdateStatus(ctx, orgId, enrollmentReq, h.callbackEnrollmentRequestApproved)
-	return approvalStatusToReturn, StoreErrorToApiStatus(err, false, api.EnrollmentRequestKind, &name)
+	return approvalStatusToReturn, StoreErrorToApiStatus(err, false, domain.EnrollmentRequestKind, &name)
 }
 
-func (h *ServiceHandler) ReplaceEnrollmentRequestStatus(ctx context.Context, name string, er api.EnrollmentRequest) (*api.EnrollmentRequest, api.Status) {
-	orgId := getOrgIdFromContext(ctx)
-
+func (h *ServiceHandler) ReplaceEnrollmentRequestStatus(ctx context.Context, orgId uuid.UUID, name string, er domain.EnrollmentRequest) (*domain.EnrollmentRequest, domain.Status) {
 	addStatusIfNeeded(&er)
 
 	result, err := h.store.EnrollmentRequest().UpdateStatus(ctx, orgId, &er, h.callbackEnrollmentRequestUpdated)
-	return result, StoreErrorToApiStatus(err, false, api.EnrollmentRequestKind, &name)
+	return result, StoreErrorToApiStatus(err, false, domain.EnrollmentRequestKind, &name)
 }
 
-func newSignRequestFromEnrollment(cfg *ca.Config, er *api.EnrollmentRequest) (signer.SignRequest, bool, error) {
+func newSignRequestFromEnrollment(cfg *ca.Config, er *domain.EnrollmentRequest) (signer.SignRequest, bool, error) {
 	csrData, isTPM, err := tpm.NormalizeEnrollmentCSR(er.Spec.Csr)
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to normalize CSR: %w", err)
@@ -514,7 +509,7 @@ func newSignRequestFromEnrollment(cfg *ca.Config, er *api.EnrollmentRequest) (si
 		opts = append(opts, signer.WithResourceName(*er.Metadata.Name))
 	}
 
-	request, err := signer.NewSignRequestFromBytes(cfg.DeviceEnrollmentSignerName, csrData, opts...)
+	request, err := signer.NewSignRequestFromBytes(cfg.DeviceManagementSignerName, csrData, opts...)
 
 	if err != nil {
 		return nil, isTPM, err
@@ -545,16 +540,16 @@ func (h *ServiceHandler) deviceExists(ctx context.Context, orgId uuid.UUID, name
 }
 
 // callbackEnrollmentRequestUpdated is the enrollment request-specific callback that handles enrollment request events
-func (h *ServiceHandler) callbackEnrollmentRequestUpdated(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
+func (h *ServiceHandler) callbackEnrollmentRequestUpdated(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
 	h.eventHandler.HandleEnrollmentRequestUpdatedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
 }
 
 // callbackEnrollmentRequestDeleted is the enrollment request-specific callback that handles enrollment request deletion events
-func (h *ServiceHandler) callbackEnrollmentRequestDeleted(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
+func (h *ServiceHandler) callbackEnrollmentRequestDeleted(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
 	h.eventHandler.HandleGenericResourceDeletedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
 }
 
 // callbackEnrollmentRequestApproved is the enrollment request-specific callback that handles enrollment request approval events
-func (h *ServiceHandler) callbackEnrollmentRequestApproved(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
+func (h *ServiceHandler) callbackEnrollmentRequestApproved(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
 	h.eventHandler.HandleEnrollmentRequestApprovedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
 }

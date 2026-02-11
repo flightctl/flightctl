@@ -13,6 +13,7 @@ const (
 
 	//resource related
 	ApplyAction    = "apply"
+	DenyAction     = "deny"
 	DeviceResource = "Device"
 	RepoResource   = "Repository"
 	ErResource     = "EnrollmentRequest"
@@ -52,6 +53,13 @@ const (
 	SHORT_POLLING    = "250ms"
 	TIMEOUT_5M       = "5m"
 	LONGTIMEOUT      = "10m"
+
+	HTTP_403_ERROR = 403
+	HTTP_404_ERROR = 404
+
+	DefaultOrgLabel = "flightctl"
+	OrgLabelEnvVar  = "FLIGHTCTL_ORG_LABEL"
+	OrgLabelKey     = "io.flightctl/instance"
 )
 
 var ResourceTypes = [...]string{

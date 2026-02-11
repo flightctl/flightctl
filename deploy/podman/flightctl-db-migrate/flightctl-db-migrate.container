@@ -6,14 +6,15 @@ Wants=flightctl-db-wait.service flightctl-db-users-init.service
 
 [Container]
 ContainerName=flightctl-db-migrate
-Image=quay.io/flightctl/flightctl-db-setup:latest
+Image={{ .DbSetup.Image }}:{{ .DbSetup.Tag }}
 Network=flightctl.network
+AddHost=%H:host-gateway
 AutoUpdate=none
 Environment=DB_MIGRATION_USER=flightctl_migrator
 Secret=flightctl-postgresql-migrator-password,type=env,target=DB_PASSWORD
 Secret=flightctl-postgresql-migrator-password,type=env,target=DB_MIGRATION_PASSWORD
-Volume=/etc/flightctl/flightctl-api/config.yaml:/root/.flightctl/config.yaml:ro,z
-Volume=/etc/flightctl/service-config.yaml:/etc/flightctl/service-config.yaml:ro,z
+Volume=/etc/flightctl/flightctl-db-migrate/config.yaml:/root/.flightctl/config.yaml:ro,z
+Volume=/etc/flightctl/pki/db:/root/.flightctl/certs/db:ro,z
 Exec=/usr/local/bin/flightctl-db-migrate
 
 [Service]

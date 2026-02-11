@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"math/rand"
+	"math/rand/v2"
 	"net"
 	"net/http"
 	"os"
@@ -17,7 +17,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent"
 	agent_config "github.com/flightctl/flightctl/internal/agent/config"
 	"github.com/flightctl/flightctl/internal/agent/device/lifecycle"
@@ -67,8 +67,6 @@ func printUsage() {
 }
 
 func main() {
-	log := flightlog.InitLogs()
-
 	configFile := pflag.String("config", defaultConfigFilePath(), "path of the agent configuration template")
 	dataDir := pflag.String("data-dir", defaultDataDir(), "directory for storing simulator data")
 	labels := pflag.StringArray("label", []string{}, "label applied to simulated devices, in the format key=value")
@@ -107,13 +105,12 @@ func main() {
 		}
 	}
 
-	logLvl, err := logrus.ParseLevel(*logLevel)
-	if err != nil {
+	log := flightlog.InitLogs(*logLevel)
+	if log == nil {
 		fmt.Fprintf(os.Stderr, "Invalid log level: %s\n\n", *logLevel)
 		printUsage()
 		os.Exit(1)
 	}
-	log.SetLevel(logLvl)
 
 	// Disable console banner for all simulated agents
 	if err := os.Setenv("FLIGHTCTL_DISABLE_CONSOLE_BANNER", "true"); err != nil {
@@ -138,7 +135,7 @@ func main() {
 
 	formattedLables := formatLabels(labels)
 
-	agentConfigTemplate := createAgentConfigTemplate(*dataDir, *configFile, logLvl.String())
+	agentConfigTemplate := createAgentConfigTemplate(*dataDir, *configFile, *logLevel)
 
 	log.Infoln("starting device simulator")
 	defer log.Infoln("device simulator stopped")
@@ -165,8 +162,11 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	serviceClient.Start(ctx)
+	defer serviceClient.Stop()
+
 	// Create simulator fleet configuration
-	if err := createSimulatorFleet(ctx, serviceClient, log); err != nil {
+	if err := createSimulatorFleet(ctx, serviceClient.ClientWithResponses, log); err != nil {
 		log.Warnf("Failed to create simulator fleet: %v", err)
 	}
 
@@ -202,7 +202,7 @@ func main() {
 		agents:          agents,
 		agentFolders:    agentsFolders,
 		log:             log,
-		serviceClient:   serviceClient,
+		serviceClient:   serviceClient.ClientWithResponses,
 		formattedLabels: formattedLables,
 		sem:             sem,
 		jitterDuration:  jitterDuration,
@@ -474,7 +474,7 @@ func approveAgent(ctx context.Context, log *logrus.Logger, serviceClient *apiCli
 		resp, err := serviceClient.ApproveEnrollmentRequestWithResponse(
 			ctx,
 			enrollmentId,
-			v1alpha1.EnrollmentRequestApproval{
+			v1beta1.EnrollmentRequestApproval{
 				Approved: true,
 				Labels:   labels,
 			})
@@ -615,7 +615,7 @@ func createSimulatorFleet(ctx context.Context, serviceClient *apiClient.ClientWi
 	fleetName := "simulator-disk-monitoring"
 
 	// Check if fleet already exists
-	response, err := serviceClient.GetFleetWithResponse(ctx, fleetName, &v1alpha1.GetFleetParams{})
+	response, err := serviceClient.GetFleetWithResponse(ctx, fleetName, &v1beta1.GetFleetParams{})
 	if err == nil && response.HTTPResponse != nil && response.HTTPResponse.StatusCode == 200 {
 		log.Infof("Fleet %s already exists, skipping creation", fleetName)
 		return nil
@@ -630,7 +630,7 @@ func createSimulatorFleet(ctx context.Context, serviceClient *apiClient.ClientWi
 		return fmt.Errorf("reading fleet YAML file %s: %w", fleetYAMLPath, err)
 	}
 
-	var fleet v1alpha1.Fleet
+	var fleet v1beta1.Fleet
 	if err := yaml.Unmarshal(fleetYAMLData, &fleet); err != nil {
 		return fmt.Errorf("unmarshaling fleet YAML: %w", err)
 	}
@@ -647,10 +647,10 @@ func createSimulatorFleet(ctx context.Context, serviceClient *apiClient.ClientWi
 		return fmt.Errorf("creating fleet: %w", err)
 	}
 
-	if createResponse.HTTPResponse != nil && createResponse.HTTPResponse.StatusCode >= 200 && createResponse.HTTPResponse.StatusCode < 300 {
+	if createResponse.StatusCode() >= 200 && createResponse.StatusCode() < 300 {
 		log.Infof("Successfully created fleet: %s", fleetName)
 		return nil
 	}
 
-	return fmt.Errorf("failed to create fleet: status %d, body: %s", createResponse.HTTPResponse.StatusCode, string(createResponse.Body))
+	return fmt.Errorf("failed to create fleet: status %d, body: %s", createResponse.StatusCode(), string(createResponse.Body))
 }

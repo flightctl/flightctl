@@ -10,14 +10,12 @@ import (
 	"net/url"
 
 	jsonpatch "github.com/evanphx/json-patch"
-	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
-	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/getkin/kin-openapi/openapi3filter"
 	"github.com/getkin/kin-openapi/routers/gorillamux"
-	"github.com/google/uuid"
 )
 
 const (
@@ -32,7 +30,18 @@ func IsInternalRequest(ctx context.Context) bool {
 	return false
 }
 
-func NilOutManagedObjectMetaProperties(om *api.ObjectMeta) {
+func NilOutManagedObjectMetaProperties(om *domain.ObjectMeta) {
+	if om == nil {
+		return
+	}
+	om.Generation = nil
+	om.Owner = nil
+	om.Annotations = nil
+	om.CreationTimestamp = nil
+	om.DeletionTimestamp = nil
+}
+
+func NilOutManagedCatalogItemMetaProperties(om *domain.CatalogItemMeta) {
 	if om == nil {
 		return
 	}
@@ -44,7 +53,7 @@ func NilOutManagedObjectMetaProperties(om *api.ObjectMeta) {
 }
 
 func validateAgainstSchema(ctx context.Context, obj []byte, objPath string) error {
-	swagger, err := api.GetSwagger()
+	swagger, err := domain.GetSwagger()
 	if err != nil {
 		return err
 	}
@@ -79,7 +88,7 @@ func validateAgainstSchema(ctx context.Context, obj []byte, objPath string) erro
 	return openapi3filter.ValidateRequest(ctx, requestValidationInput)
 }
 
-func ApplyJSONPatch[T any](ctx context.Context, obj T, newObj T, patchRequest api.PatchRequest, objPath string) error {
+func ApplyJSONPatch[T any](ctx context.Context, obj T, newObj T, patchRequest domain.PatchRequest, objPath string) error {
 	patch, err := json.Marshal(patchRequest)
 	if err != nil {
 		return err
@@ -125,6 +134,8 @@ var badRequestErrors = map[error]bool{
 var conflictErrors = map[error]bool{
 	flterrors.ErrUpdatingResourceWithOwnerNotAllowed: true,
 	flterrors.ErrDuplicateName:                       true,
+	flterrors.ErrDuplicateOIDCProvider:               true,
+	flterrors.ErrDuplicateOAuth2Provider:             true,
 	flterrors.ErrNoRowsUpdated:                       true,
 	flterrors.ErrResourceVersionConflict:             true,
 	flterrors.ErrResourceOwnerIsNil:                  true,
@@ -132,39 +143,32 @@ var conflictErrors = map[error]bool{
 	flterrors.ErrInvalidTemplateVersion:              true,
 	flterrors.ErrNoRenderedVersion:                   true,
 	flterrors.ErrDecommission:                        true,
+	flterrors.ErrResourceNotEmpty:                    true,
 }
 
-func StoreErrorToApiStatus(err error, created bool, kind string, name *string) api.Status {
+func StoreErrorToApiStatus(err error, created bool, kind string, name *string) domain.Status {
 	if err == nil {
 		if created {
-			return api.StatusCreated()
+			return domain.StatusCreated()
 		}
-		return api.StatusOK()
+		return domain.StatusOK()
 	}
 
 	switch {
 	case errors.Is(err, flterrors.ErrResourceNotFound):
-		return api.StatusResourceNotFound(kind, util.DefaultIfNil(name, "none"))
+		return domain.StatusResourceNotFound(kind, util.DefaultIfNil(name, "none"))
 	case badRequestErrors[err]:
-		return api.StatusBadRequest(err.Error())
+		return domain.StatusBadRequest(err.Error())
 	case conflictErrors[err]:
-		return api.StatusResourceVersionConflict(err.Error())
+		return domain.StatusResourceVersionConflict(err.Error())
 	default:
-		return api.StatusInternalServerError(err.Error())
+		return domain.StatusInternalServerError(err.Error())
 	}
 }
 
-func ApiStatusToErr(status api.Status) error {
+func ApiStatusToErr(status domain.Status) error {
 	if status.Code >= 200 && status.Code < 300 {
 		return nil
 	}
 	return errors.New(status.Message)
-}
-
-// Extracts organization ID from context with fallback to default
-func getOrgIdFromContext(ctx context.Context) uuid.UUID {
-	if orgId, ok := util.GetOrgIdFromContext(ctx); ok {
-		return orgId
-	}
-	return store.NullOrgId
 }

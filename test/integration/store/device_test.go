@@ -7,8 +7,9 @@ import (
 	"testing"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
@@ -437,30 +438,32 @@ var _ = Describe("DeviceStore create", func() {
 					},
 				})
 
-				imageApp := &api.ImageApplicationProviderSpec{
-					Image:   "quay.io/flightctl/test-app:latest",
+				imageComposeApp := api.ComposeApplication{
+					Name:    lo.ToPtr("test-image-app"),
+					AppType: api.AppTypeCompose,
 					Volumes: &[]api.ApplicationVolume{imageVolume},
 				}
-				imageAppItem := api.ApplicationProviderSpec{
-					AppType: lo.ToPtr(api.AppTypeCompose),
-					Name:    lo.ToPtr("test-image-app"),
-				}
-				_ = imageAppItem.FromImageApplicationProviderSpec(*imageApp)
+				_ = imageComposeApp.FromImageApplicationProviderSpec(api.ImageApplicationProviderSpec{
+					Image: "quay.io/flightctl/test-app:latest",
+				})
+				var imageAppItem api.ApplicationProviderSpec
+				_ = imageAppItem.FromComposeApplication(imageComposeApp)
 
-				inlineApp := &api.InlineApplicationProviderSpec{
+				inlineComposeApp := api.ComposeApplication{
+					Name:    lo.ToPtr("test-inline-app"),
+					AppType: api.AppTypeCompose,
+					Volumes: &[]api.ApplicationVolume{imageVolume}, // Reuse the same volume
+				}
+				_ = inlineComposeApp.FromInlineApplicationProviderSpec(api.InlineApplicationProviderSpec{
 					Inline: []api.ApplicationContent{
 						{
 							Path:    "docker-compose.yaml",
 							Content: lo.ToPtr("version: '3'\nservices:\n  test:\n    image: alpine\n"),
 						},
 					},
-					Volumes: &[]api.ApplicationVolume{imageVolume}, // Reuse the same volume
-				}
-				inlineAppItem := api.ApplicationProviderSpec{
-					AppType: lo.ToPtr(api.AppTypeCompose),
-					Name:    lo.ToPtr("test-inline-app"),
-				}
-				_ = inlineAppItem.FromInlineApplicationProviderSpec(*inlineApp)
+				})
+				var inlineAppItem api.ApplicationProviderSpec
+				_ = inlineAppItem.FromComposeApplication(inlineComposeApp)
 
 				// Create resource monitors (union types)
 				cpuMonitor := api.ResourceMonitor{}
@@ -1009,22 +1012,28 @@ var _ = Describe("DeviceStore create", func() {
 			})
 			Expect(err).ToNot(HaveOccurred())
 
+			// Create compose application with env vars
+			testComposeApp := api.ComposeApplication{
+				Name:    lo.ToPtr("test-app"),
+				AppType: api.AppTypeCompose,
+				EnvVars: &map[string]string{
+					"ENV1": "value1",
+					"ENV2": "value2",
+					"ENV3": "value3",
+				},
+			}
+			_ = testComposeApp.FromImageApplicationProviderSpec(api.ImageApplicationProviderSpec{
+				Image: "quay.io/test/app:v1",
+			})
+			var testAppSpec api.ApplicationProviderSpec
+			_ = testAppSpec.FromComposeApplication(testComposeApp)
+
 			originalSpec := api.DeviceSpec{
 				Os: &api.DeviceOsSpec{
 					Image: "quay.io/test/os:v1.0.0",
 				},
-				Config: &[]api.ConfigProviderSpec{gitConfig, inlineConfig},
-				Applications: &[]api.ApplicationProviderSpec{
-					{
-						Name:    lo.ToPtr("test-app"),
-						AppType: lo.ToPtr(api.AppTypeCompose),
-						EnvVars: &map[string]string{
-							"ENV1": "value1",
-							"ENV2": "value2",
-							"ENV3": "value3",
-						},
-					},
-				},
+				Config:       &[]api.ConfigProviderSpec{gitConfig, inlineConfig},
+				Applications: &[]api.ApplicationProviderSpec{testAppSpec},
 				UpdatePolicy: &api.DeviceUpdatePolicySpec{
 					DownloadSchedule: &api.UpdateSchedule{
 						At:       "0 2 * * *",
@@ -1055,26 +1064,31 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Test: Specs should be equal after database round-trip
-			Expect(api.DeviceSpecsAreEqual(originalSpec, *retrieved.Spec)).To(BeTrue(),
+			Expect(domain.DeviceSpecsAreEqual(originalSpec, *retrieved.Spec)).To(BeTrue(),
 				"DeviceSpec should be equal after database round-trip")
 
 			// Test: Create equivalent spec with different map ordering
+			equivComposeApp := api.ComposeApplication{
+				Name:    lo.ToPtr("test-app"),
+				AppType: api.AppTypeCompose,
+				EnvVars: &map[string]string{
+					"ENV3": "value3", // Different key order
+					"ENV1": "value1",
+					"ENV2": "value2",
+				},
+			}
+			_ = equivComposeApp.FromImageApplicationProviderSpec(api.ImageApplicationProviderSpec{
+				Image: "quay.io/test/app:v1",
+			})
+			var equivAppSpec api.ApplicationProviderSpec
+			_ = equivAppSpec.FromComposeApplication(equivComposeApp)
+
 			equivalentSpec := api.DeviceSpec{
 				Os: &api.DeviceOsSpec{
 					Image: "quay.io/test/os:v1.0.0",
 				},
-				Config: &[]api.ConfigProviderSpec{gitConfig, inlineConfig},
-				Applications: &[]api.ApplicationProviderSpec{
-					{
-						Name:    lo.ToPtr("test-app"),
-						AppType: lo.ToPtr(api.AppTypeCompose),
-						EnvVars: &map[string]string{
-							"ENV3": "value3", // Different key order
-							"ENV1": "value1",
-							"ENV2": "value2",
-						},
-					},
-				},
+				Config:       &[]api.ConfigProviderSpec{gitConfig, inlineConfig},
+				Applications: &[]api.ApplicationProviderSpec{equivAppSpec},
 				UpdatePolicy: &api.DeviceUpdatePolicySpec{
 					DownloadSchedule: &api.UpdateSchedule{
 						At:       "0 2 * * *",
@@ -1084,7 +1098,7 @@ var _ = Describe("DeviceStore create", func() {
 			}
 
 			// Test: Specs should be equal despite different map ordering
-			Expect(api.DeviceSpecsAreEqual(originalSpec, equivalentSpec)).To(BeTrue(),
+			Expect(domain.DeviceSpecsAreEqual(originalSpec, equivalentSpec)).To(BeTrue(),
 				"DeviceSpecs should be equal despite different map key ordering")
 
 			// Test: JSON serialization consistency
@@ -1117,7 +1131,7 @@ var _ = Describe("DeviceStore create", func() {
 			differentSpec := originalSpec
 			differentSpec.Config = &[]api.ConfigProviderSpec{differentConfig}
 
-			Expect(api.DeviceSpecsAreEqual(originalSpec, differentSpec)).To(BeFalse(),
+			Expect(domain.DeviceSpecsAreEqual(originalSpec, differentSpec)).To(BeFalse(),
 				"DeviceSpecs with different configs should not be equal")
 
 			// Test: nil vs empty slice differences
@@ -1127,7 +1141,7 @@ var _ = Describe("DeviceStore create", func() {
 			emptySliceSpec := originalSpec
 			emptySliceSpec.Applications = &[]api.ApplicationProviderSpec{}
 
-			Expect(api.DeviceSpecsAreEqual(nilSliceSpec, emptySliceSpec)).To(BeFalse(),
+			Expect(domain.DeviceSpecsAreEqual(nilSliceSpec, emptySliceSpec)).To(BeFalse(),
 				"DeviceSpecs with nil vs empty slice should not be equal")
 		})
 
@@ -1183,7 +1197,7 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Test: FleetSpecs should be equal after database round-trip
-			Expect(api.FleetSpecsAreEqual(originalFleetSpec, retrieved.Spec)).To(BeTrue(),
+			Expect(domain.FleetSpecsAreEqual(originalFleetSpec, retrieved.Spec)).To(BeTrue(),
 				"FleetSpec should be equal after database round-trip")
 
 			// Test: Create equivalent spec with different map ordering
@@ -1220,7 +1234,7 @@ var _ = Describe("DeviceStore create", func() {
 			}
 
 			// Test: FleetSpecs should be equal despite map ordering differences
-			Expect(api.FleetSpecsAreEqual(originalFleetSpec, equivalentFleetSpec)).To(BeTrue(),
+			Expect(domain.FleetSpecsAreEqual(originalFleetSpec, equivalentFleetSpec)).To(BeTrue(),
 				"FleetSpecs should be equal despite different map key ordering")
 
 			// Test: Different rollout policies should not be equal
@@ -1231,7 +1245,7 @@ var _ = Describe("DeviceStore create", func() {
 				},
 			}
 
-			Expect(api.FleetSpecsAreEqual(originalFleetSpec, differentFleetSpec)).To(BeFalse(),
+			Expect(domain.FleetSpecsAreEqual(originalFleetSpec, differentFleetSpec)).To(BeFalse(),
 				"FleetSpecs with different rollout policies should not be equal")
 		})
 
@@ -1289,404 +1303,6 @@ var _ = Describe("DeviceStore create", func() {
 			}
 		})
 
-		It("PrepareDevicesAfterRestore sets annotation, clears lastSeen, and sets status", func() {
-			// Create a fresh test device to avoid resource version conflicts
-			testDeviceName := "restore-test-device"
-			testDevice := &api.Device{
-				Metadata: api.ObjectMeta{
-					Name: lo.ToPtr(testDeviceName),
-					Annotations: &map[string]string{
-						"existing-annotation": "existing-value",
-					},
-				},
-				Spec: &api.DeviceSpec{
-					Os: &api.DeviceOsSpec{Image: "test-image"},
-				},
-				Status: &api.DeviceStatus{
-					LastSeen: lo.ToPtr(time.Now()),
-					Summary: api.DeviceSummaryStatus{
-						Status: api.DeviceSummaryStatusOnline,
-						Info:   lo.ToPtr("Device is online"),
-					},
-					Conditions:   []api.Condition{},
-					Applications: []api.DeviceApplicationStatus{},
-					ApplicationsSummary: api.DeviceApplicationsSummaryStatus{
-						Status: api.ApplicationsSummaryStatusUnknown,
-					},
-					Config: api.DeviceConfigStatus{
-						RenderedVersion: "test-version",
-					},
-					Integrity: api.DeviceIntegrityStatus{
-						Status: api.DeviceIntegrityStatusUnknown,
-					},
-					Resources: api.DeviceResourceStatus{
-						Cpu:    api.DeviceResourceStatusUnknown,
-						Disk:   api.DeviceResourceStatusUnknown,
-						Memory: api.DeviceResourceStatusUnknown,
-					},
-					Updated: api.DeviceUpdatedStatus{
-						Status: api.DeviceUpdatedStatusUnknown,
-					},
-					Lifecycle: api.DeviceLifecycleStatus{
-						Status: api.DeviceLifecycleStatusUnknown,
-					},
-				},
-			}
-
-			// Create the test device (using fromAPI: false to preserve annotations for testing)
-			createdDevice, created, err := devStore.CreateOrUpdate(ctx, orgId, testDevice, nil, false, nil, callback)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(createdDevice).ToNot(BeNil())
-			Expect(created).To(BeTrue())
-
-			// Verify initial state
-			Expect(createdDevice.Status.LastSeen.IsZero()).To(BeFalse())
-			Expect(createdDevice.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusOnline))
-
-			// Execute: Run PrepareDevicesAfterRestore
-			devicesUpdated, err := devStore.PrepareDevicesAfterRestore(ctx)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(devicesUpdated).To(BeNumerically(">=", int64(1))) // Should update at least our test device
-
-			// Verify: Check that the test device has been updated correctly
-			device, err := devStore.Get(ctx, orgId, testDeviceName)
-			Expect(err).ToNot(HaveOccurred())
-
-			// Check that restoration annotation was added
-			Expect(device.Metadata.Annotations).ToNot(BeNil())
-			annotations := *device.Metadata.Annotations
-			Expect(annotations[api.DeviceAnnotationAwaitingReconnect]).To(Equal("true"))
-
-			// Check that existing annotation was preserved
-			Expect(annotations["existing-annotation"]).To(Equal("existing-value"))
-
-			// Check that lastSeen was cleared (should be nil)
-			Expect(device.Status).ToNot(BeNil())
-			Expect(device.Status.LastSeen).To(BeNil())
-
-			// Check that status summary was set to waiting for connection
-			Expect(device.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusAwaitingReconnect))
-			Expect(device.Status.Summary.Info).ToNot(BeNil())
-			Expect(*device.Status.Summary.Info).To(Equal("Device has not reconnected since restore to confirm its current state."))
-
-			// Check that updated status was set to unknown
-			Expect(device.Status.Updated.Status).To(Equal(api.DeviceUpdatedStatusUnknown))
-
-			// Check that other status fields were preserved
-			Expect(device.Status.Config.RenderedVersion).To(Equal("test-version"))
-
-			// Check that last_seen column was cleared using GetLastSeen method
-			lastSeen, err := devStore.GetLastSeen(ctx, orgId, testDeviceName)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(lastSeen).To(BeNil(), "last_seen column should be cleared after PrepareDevicesAfterRestore")
-		})
-
-		It("PrepareDevicesAfterRestore handles devices with no existing status", func() {
-			// Create a device with no status
-			deviceName := "test-device-no-status"
-			device := api.Device{
-				Metadata: api.ObjectMeta{
-					Name: lo.ToPtr(deviceName),
-				},
-				Spec: &api.DeviceSpec{
-					Os: &api.DeviceOsSpec{Image: "test-image"},
-				},
-				Status: nil, // No status
-			}
-
-			_, created, err := devStore.CreateOrUpdate(ctx, orgId, &device, nil, true, nil, callback)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(created).To(BeTrue())
-
-			// Execute: Run PrepareDevicesAfterRestore
-			devicesUpdated, err := devStore.PrepareDevicesAfterRestore(ctx)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(devicesUpdated).To(BeNumerically(">=", int64(1))) // Should update at least our new device
-
-			// Verify: Check that the device was updated correctly
-			updatedDevice, err := devStore.Get(ctx, orgId, deviceName)
-			Expect(err).ToNot(HaveOccurred())
-
-			// Check that restoration annotation was added
-			Expect(updatedDevice.Metadata.Annotations).ToNot(BeNil())
-			annotations := *updatedDevice.Metadata.Annotations
-			Expect(annotations[api.DeviceAnnotationAwaitingReconnect]).To(Equal("true"))
-
-			// Check that status was created with proper summary
-			Expect(updatedDevice.Status).ToNot(BeNil())
-			Expect(updatedDevice.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusAwaitingReconnect))
-			Expect(updatedDevice.Status.Summary.Info).ToNot(BeNil())
-			Expect(*updatedDevice.Status.Summary.Info).To(Equal("Device has not reconnected since restore to confirm its current state."))
-
-			// Check that updated status was set to unknown
-			Expect(updatedDevice.Status.Updated.Status).To(Equal(api.DeviceUpdatedStatusUnknown))
-
-			// Check that lastSeen is nil (not set)
-			Expect(updatedDevice.Status.LastSeen).To(BeNil())
-		})
-
-		It("PrepareDevicesAfterRestore excludes decommissioned and decommissioning devices", func() {
-			// Create a decommissioning device
-			decommissioningDeviceName := "decommissioning-device"
-			decommissioningDevice := api.Device{
-				Metadata: api.ObjectMeta{
-					Name: lo.ToPtr(decommissioningDeviceName),
-					Annotations: &map[string]string{
-						"existing-annotation": "existing-value",
-					},
-				},
-				Spec: &api.DeviceSpec{
-					Os: &api.DeviceOsSpec{Image: "test-image"},
-					Decommissioning: &api.DeviceDecommission{
-						Target: api.DeviceDecommissionTargetTypeUnenroll,
-					},
-				},
-				Status: &api.DeviceStatus{
-					LastSeen: lo.ToPtr(time.Now()),
-					Summary: api.DeviceSummaryStatus{
-						Status: api.DeviceSummaryStatusOnline,
-						Info:   lo.ToPtr("Device is online"),
-					},
-					Lifecycle: api.DeviceLifecycleStatus{
-						Status: api.DeviceLifecycleStatusDecommissioning,
-					},
-					Conditions:   []api.Condition{},
-					Applications: []api.DeviceApplicationStatus{},
-					ApplicationsSummary: api.DeviceApplicationsSummaryStatus{
-						Status: api.ApplicationsSummaryStatusUnknown,
-					},
-					Config: api.DeviceConfigStatus{
-						RenderedVersion: "test-version",
-					},
-					Integrity: api.DeviceIntegrityStatus{
-						Status: api.DeviceIntegrityStatusUnknown,
-					},
-					Resources: api.DeviceResourceStatus{
-						Cpu:    api.DeviceResourceStatusUnknown,
-						Disk:   api.DeviceResourceStatusUnknown,
-						Memory: api.DeviceResourceStatusUnknown,
-					},
-					Updated: api.DeviceUpdatedStatus{
-						Status: api.DeviceUpdatedStatusUnknown,
-					},
-				},
-			}
-
-			// Create a decommissioned device
-			decommissionedDeviceName := "decommissioned-device"
-			decommissionedDevice := api.Device{
-				Metadata: api.ObjectMeta{
-					Name: lo.ToPtr(decommissionedDeviceName),
-					Annotations: &map[string]string{
-						"existing-annotation": "existing-value",
-					},
-				},
-				Spec: &api.DeviceSpec{
-					Os: &api.DeviceOsSpec{Image: "test-image"},
-					Decommissioning: &api.DeviceDecommission{
-						Target: api.DeviceDecommissionTargetTypeUnenroll,
-					},
-				},
-				Status: &api.DeviceStatus{
-					LastSeen: lo.ToPtr(time.Now()),
-					Summary: api.DeviceSummaryStatus{
-						Status: api.DeviceSummaryStatusOnline,
-						Info:   lo.ToPtr("Device is online"),
-					},
-					Lifecycle: api.DeviceLifecycleStatus{
-						Status: api.DeviceLifecycleStatusDecommissioned,
-					},
-					Conditions:   []api.Condition{},
-					Applications: []api.DeviceApplicationStatus{},
-					ApplicationsSummary: api.DeviceApplicationsSummaryStatus{
-						Status: api.ApplicationsSummaryStatusUnknown,
-					},
-					Config: api.DeviceConfigStatus{
-						RenderedVersion: "test-version",
-					},
-					Integrity: api.DeviceIntegrityStatus{
-						Status: api.DeviceIntegrityStatusUnknown,
-					},
-					Resources: api.DeviceResourceStatus{
-						Cpu:    api.DeviceResourceStatusUnknown,
-						Disk:   api.DeviceResourceStatusUnknown,
-						Memory: api.DeviceResourceStatusUnknown,
-					},
-					Updated: api.DeviceUpdatedStatus{
-						Status: api.DeviceUpdatedStatusUnknown,
-					},
-				},
-			}
-
-			// Create a normal device that should be updated
-			normalDeviceName := "normal-device"
-			normalDevice := api.Device{
-				Metadata: api.ObjectMeta{
-					Name: lo.ToPtr(normalDeviceName),
-					Annotations: &map[string]string{
-						"existing-annotation": "existing-value",
-					},
-				},
-				Spec: &api.DeviceSpec{
-					Os: &api.DeviceOsSpec{Image: "test-image"},
-				},
-				Status: &api.DeviceStatus{
-					LastSeen: lo.ToPtr(time.Now()),
-					Summary: api.DeviceSummaryStatus{
-						Status: api.DeviceSummaryStatusOnline,
-						Info:   lo.ToPtr("Device is online"),
-					},
-					Lifecycle: api.DeviceLifecycleStatus{
-						Status: api.DeviceLifecycleStatusEnrolled,
-					},
-					Conditions:   []api.Condition{},
-					Applications: []api.DeviceApplicationStatus{},
-					ApplicationsSummary: api.DeviceApplicationsSummaryStatus{
-						Status: api.ApplicationsSummaryStatusUnknown,
-					},
-					Config: api.DeviceConfigStatus{
-						RenderedVersion: "test-version",
-					},
-					Integrity: api.DeviceIntegrityStatus{
-						Status: api.DeviceIntegrityStatusUnknown,
-					},
-					Resources: api.DeviceResourceStatus{
-						Cpu:    api.DeviceResourceStatusUnknown,
-						Disk:   api.DeviceResourceStatusUnknown,
-						Memory: api.DeviceResourceStatusUnknown,
-					},
-					Updated: api.DeviceUpdatedStatus{
-						Status: api.DeviceUpdatedStatusUnknown,
-					},
-				},
-			}
-
-			// Create all devices
-			_, created, err := devStore.CreateOrUpdate(ctx, orgId, &decommissioningDevice, nil, false, nil, callback)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(created).To(BeTrue())
-
-			setLastSeen(db, orgId, decommissioningDeviceName, *decommissioningDevice.Status.LastSeen)
-
-			_, created, err = devStore.CreateOrUpdate(ctx, orgId, &decommissionedDevice, nil, false, nil, callback)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(created).To(BeTrue())
-
-			setLastSeen(db, orgId, decommissionedDeviceName, *decommissionedDevice.Status.LastSeen)
-
-			_, created, err = devStore.CreateOrUpdate(ctx, orgId, &normalDevice, nil, false, nil, callback)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(created).To(BeTrue())
-
-			setLastSeen(db, orgId, normalDeviceName, *normalDevice.Status.LastSeen)
-
-			// Execute: Run PrepareDevicesAfterRestore
-			devicesUpdated, err := devStore.PrepareDevicesAfterRestore(ctx)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(devicesUpdated).To(BeNumerically(">=", int64(1))) // Should update at least the normal device
-
-			// Verify: Check that decommissioning device was NOT updated
-			decommissioningDeviceAfter, err := devStore.Get(ctx, orgId, decommissioningDeviceName)
-			Expect(err).ToNot(HaveOccurred())
-
-			// Should NOT have the awaitingReconnect annotation
-			Expect(decommissioningDeviceAfter.Metadata.Annotations).ToNot(BeNil())
-			annotations := *decommissioningDeviceAfter.Metadata.Annotations
-			Expect(annotations[api.DeviceAnnotationAwaitingReconnect]).To(BeEmpty(), "Decommissioning device should NOT have awaitingReconnect annotation")
-
-			// Should preserve existing annotation
-			Expect(annotations["existing-annotation"]).To(Equal("existing-value"))
-
-			// Should NOT have lastSeen cleared
-			decommissioningLastSeen, err := devStore.GetLastSeen(ctx, orgId, decommissioningDeviceName)
-			Expect(err).ToNot(HaveOccurred())
-
-			Expect(decommissioningLastSeen).ToNot(BeNil())
-			Expect(decommissioningLastSeen.IsZero()).To(BeFalse(), "Decommissioning device should NOT have lastSeen cleared")
-
-			// Should NOT have status summary changed
-			Expect(decommissioningDeviceAfter.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusOnline), "Decommissioning device should NOT have status summary changed")
-
-			// Verify: Check that decommissioned device was NOT updated
-			decommissionedDeviceAfter, err := devStore.Get(ctx, orgId, decommissionedDeviceName)
-			Expect(err).ToNot(HaveOccurred())
-
-			// Should NOT have the awaitingReconnect annotation
-			Expect(decommissionedDeviceAfter.Metadata.Annotations).ToNot(BeNil())
-			annotations = *decommissionedDeviceAfter.Metadata.Annotations
-			Expect(annotations[api.DeviceAnnotationAwaitingReconnect]).To(BeEmpty(), "Decommissioned device should NOT have awaitingReconnect annotation")
-
-			// Should preserve existing annotation
-			Expect(annotations["existing-annotation"]).To(Equal("existing-value"))
-
-			// Should NOT have lastSeen cleared
-			decommissionedLastSeen, err := devStore.GetLastSeen(ctx, orgId, decommissionedDeviceName)
-			Expect(err).ToNot(HaveOccurred())
-
-			Expect(decommissionedLastSeen).ToNot(BeNil())
-			Expect(decommissionedLastSeen.IsZero()).To(BeFalse(), "Decommissioned device should NOT have lastSeen cleared")
-
-			// Should NOT have status summary changed
-			Expect(decommissionedDeviceAfter.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusOnline), "Decommissioned device should NOT have status summary changed")
-
-			// Verify: Check that normal device WAS updated
-			normalDeviceAfter, err := devStore.Get(ctx, orgId, normalDeviceName)
-			Expect(err).ToNot(HaveOccurred())
-
-			// Should have the awaitingReconnect annotation
-			Expect(normalDeviceAfter.Metadata.Annotations).ToNot(BeNil())
-			annotations = *normalDeviceAfter.Metadata.Annotations
-			Expect(annotations[api.DeviceAnnotationAwaitingReconnect]).To(Equal("true"), "Normal device SHOULD have awaitingReconnect annotation")
-
-			// Should preserve existing annotation
-			Expect(annotations["existing-annotation"]).To(Equal("existing-value"))
-
-			// Should have lastSeen cleared
-			normalLastSeen, err := devStore.GetLastSeen(ctx, orgId, normalDeviceName)
-			Expect(err).ToNot(HaveOccurred())
-
-			Expect(normalLastSeen).To(BeNil(), "Normal device SHOULD have lastSeen cleared")
-
-			// Should have status summary changed to awaiting reconnect
-			Expect(normalDeviceAfter.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusAwaitingReconnect), "Normal device SHOULD have status summary changed to AwaitingReconnect")
-			Expect(normalDeviceAfter.Status.Summary.Info).ToNot(BeNil())
-			Expect(*normalDeviceAfter.Status.Summary.Info).To(Equal("Device has not reconnected since restore to confirm its current state."))
-		})
-
-		It("PrepareDevicesAfterRestore properly clears last_seen column", func() {
-			// Create a test device with last_seen set
-			deviceName := "last-seen-column-test"
-			device := &api.Device{
-				Metadata: api.ObjectMeta{Name: lo.ToPtr(deviceName)},
-				Spec:     &api.DeviceSpec{Os: &api.DeviceOsSpec{Image: "test-image"}},
-				Status: &api.DeviceStatus{
-					LastSeen: lo.ToPtr(time.Now()),
-					Summary:  api.DeviceSummaryStatus{Status: api.DeviceSummaryStatusOnline},
-				},
-			}
-
-			// Create the device
-			_, created, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, false, nil, callback)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(created).To(BeTrue())
-
-			setLastSeen(db, orgId, deviceName, *device.Status.LastSeen)
-
-			// Verify initial state - last_seen column should have a value
-			lastSeenBefore, err := devStore.GetLastSeen(ctx, orgId, deviceName)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(lastSeenBefore).ToNot(BeNil(), "last_seen column should have a value initially")
-
-			// Execute: Run PrepareDevicesAfterRestore
-			devicesUpdated, err := devStore.PrepareDevicesAfterRestore(ctx)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(devicesUpdated).To(BeNumerically(">=", int64(1)))
-
-			// Verify: Check that last_seen column was cleared
-			lastSeenAfter, err := devStore.GetLastSeen(ctx, orgId, deviceName)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(lastSeenAfter).To(BeNil(), "last_seen column should be cleared after PrepareDevicesAfterRestore")
-		})
 	})
 
 	Context("Healthcheck", func() {

@@ -12,7 +12,7 @@ runs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.23'
+          go-version: '1.24.6'
 
       - name: Enable KVM group perms
         shell: bash
@@ -22,7 +22,7 @@ runs:
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-          sudo apt update -y
+          sudo apt update -y 
           sudo apt install -y libvirt-clients libvirt-daemon-system libvirt-daemon \
                               virtinst bridge-utils qemu-system-x86 qemu-kvm \
                               swtpm apparmor-utils
@@ -34,7 +34,7 @@ runs:
         run: |
           echo "::group::Installing general dependencies"
           sudo apt update -y # fix broken repo cache
-          sudo apt install -y make python3-pip podman podman-compose libvirt-dev
+          sudo apt install -y make python3-pip podman podman-compose libvirt-dev libpam0g-dev
 
           curl -Lo protoc.zip "https://github.com/protocolbuffers/protobuf/releases/download/v3.14.0/protoc-3.14.0-linux-x86_64.zip"
           sudo unzip -q protoc.zip bin/protoc -d /usr/local

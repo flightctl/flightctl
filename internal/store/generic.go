@@ -6,7 +6,8 @@ import (
 	"reflect"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/google/uuid"
@@ -21,10 +22,10 @@ type IntegrationTestCallback func()
 // GenericStore provides generic CRUD operations for resources
 // P is a pointer to a model, for example: *model.Device
 // M is the model, for example: model.Device
-// A is the API resource, for example: api.Device
-// AL is the API list, for example: api.DeviceList
+// A is the API resource, for example: domain.Device
+// AL is the API list, for example: domain.DeviceList
 type Model interface {
-	model.CertificateSigningRequest | model.Device | model.EnrollmentRequest | model.Fleet | model.Repository | model.ResourceSync | model.TemplateVersion | model.Event
+	model.AuthProvider | model.Catalog | model.CertificateSigningRequest | model.Device | model.EnrollmentRequest | model.Fleet | model.Repository | model.ResourceSync | model.TemplateVersion | model.Event
 }
 type extInt[M any] interface {
 	model.ResourceInterface
@@ -172,7 +173,7 @@ func (s *GenericStore[P, M, A, AL]) createResource(ctx context.Context, resource
 	result := s.getDB(ctx).Create(resource)
 	if result.Error != nil {
 		err := ErrorFromGormError(result.Error)
-		return err == flterrors.ErrDuplicateName, err
+		return err == flterrors.ErrDuplicateName || err == flterrors.ErrDuplicateOIDCProvider || err == flterrors.ErrDuplicateOAuth2Provider, err
 	}
 	return false, nil
 }
@@ -180,9 +181,18 @@ func (s *GenericStore[P, M, A, AL]) createResource(ctx context.Context, resource
 func (s *GenericStore[P, M, A, AL]) updateResource(ctx context.Context, fromAPI bool, existing, resource P, fieldsToUnset []string) (bool, error) {
 	hasOwner := len(lo.FromPtr(existing.GetOwner())) != 0
 
+	// TODO: Move ownership validation checks to the service layer. The store layer should
+	// focus on data access, while authorization and business rules belong in the service layer.
+	// This allows resource sync to update resources it owns, but ideally this should be
+	// handled in service.ReplaceFleet() by checking ownership before calling the store.
+	allowResourceSyncUpdate := false
+	if rs, ok := ctx.Value(consts.ResourceSyncRequestCtxKey).(bool); ok && rs {
+		allowResourceSyncUpdate = true
+	}
+
 	sameSpec := resource.HasSameSpecAs(existing)
 	if !sameSpec {
-		if fromAPI && hasOwner {
+		if fromAPI && hasOwner && !allowResourceSyncUpdate {
 			// Don't let the user update the spec if it has an owner
 			return false, flterrors.ErrUpdatingResourceWithOwnerNotAllowed
 		}
@@ -192,7 +202,7 @@ func (s *GenericStore[P, M, A, AL]) updateResource(ctx context.Context, fromAPI 
 	}
 
 	// Don't let the user update a fleet's labels if it has an owner
-	if fromAPI && hasOwner && resource.GetKind() == api.FleetKind {
+	if fromAPI && hasOwner && !allowResourceSyncUpdate && resource.GetKind() == domain.FleetKind {
 		sameLabels := reflect.DeepEqual(existing.GetLabels(), resource.GetLabels())
 		if !sameLabels {
 			return false, flterrors.ErrUpdatingResourceWithOwnerNotAllowed
@@ -207,7 +217,7 @@ func (s *GenericStore[P, M, A, AL]) updateResource(ctx context.Context, fromAPI 
 	resource.SetResourceVersion(lo.ToPtr(lo.FromPtr(existing.GetResourceVersion()) + 1))
 
 	selectFields := []string{"spec"}
-	if resource.GetKind() == api.DeviceKind {
+	if resource.GetKind() == domain.DeviceKind {
 		selectFields = append(selectFields, "alias")
 	}
 	selectFields = append(selectFields, resource.GetNonNilFieldsFromResource()...)
@@ -227,6 +237,25 @@ func (s *GenericStore[P, M, A, AL]) updateResource(ctx context.Context, fromAPI 
 	if result.RowsAffected == 0 {
 		return true, flterrors.ErrNoRowsUpdated
 	}
+
+	// Merge preserved fields from existing into resource
+	// Fields that are nil in resource weren't included in the update (not in selectFields),
+	// so they're preserved from existing. Copy them to resource so the returned model
+	// accurately reflects the database state.
+	// However, don't preserve fields that are explicitly being unset via fieldsToUnset.
+	if resource.GetOwner() == nil && !lo.Contains(fieldsToUnset, "owner") {
+		resource.SetOwner(existing.GetOwner())
+	}
+	// Preserve annotations if they were nil (not updated)
+	// When fromAPI=true, annotations are set to nil in createOrUpdate to preserve existing ones
+	// When fromAPI=false, if annotations are nil, they weren't updated, so preserve from existing
+	if resource.GetAnnotations() == nil && !lo.Contains(fieldsToUnset, "annotations") {
+		resource.SetAnnotations(existing.GetAnnotations())
+	}
+	if resource.GetLabels() == nil && !lo.Contains(fieldsToUnset, "labels") {
+		resource.SetLabels(existing.GetLabels())
+	}
+
 	return false, nil
 }
 

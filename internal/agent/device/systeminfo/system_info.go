@@ -17,6 +17,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
+	"github.com/flightctl/flightctl/internal/agent/device/systeminfo/common"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/version"
@@ -39,40 +40,6 @@ const (
 	SystemFileName = "system.json"
 	// HardwareMapFileName is the name of the file where the hardware map is stored.
 	HardwareMapFileName = "hardware-map.yaml"
-
-	// Info key constants for system information collection
-	hostnameKey     = "hostname"
-	architectureKey = "architecture"
-	kernelKey       = "kernel"
-
-	// CPU info keys
-	cpuCoresKey      = "cpuCores"
-	cpuProcessorsKey = "cpuProcessors"
-	cpuModelKey      = "cpuModel"
-
-	// GPU info keys
-	gpuKey = "gpu"
-
-	// Memory info keys
-	memoryTotalKbKey = "memoryTotalKb"
-
-	// Network info keys
-	netInterfaceDefaultKey = "netInterfaceDefault"
-	netIPDefaultKey        = "netIpDefault"
-	netMACDefaultKey       = "netMacDefault"
-
-	// BIOS info keys
-	biosVendorKey  = "biosVendor"
-	biosVersionKey = "biosVersion"
-
-	// System info keys
-	productNameKey   = "productName"
-	productSerialKey = "productSerial"
-	productUUIDKey   = "productUuid"
-
-	// Distribution info keys
-	distroNameKey    = "distroName"
-	distroVersionKey = "distroVersion"
 )
 
 type Manager interface {
@@ -83,7 +50,7 @@ type Manager interface {
 	// BootTime returns the time the system was booted
 	BootTime() string
 	// RegisterCollector registers a system info collector
-	RegisterCollector(ctx context.Context, name string, fn CollectorFn)
+	RegisterCollector(ctx context.Context, key string, fn CollectorFn)
 	status.Exporter
 }
 
@@ -441,26 +408,28 @@ func collectionOptsFromInfoKeys(infoKeys []string) ([]CollectOpt, error) {
 
 	for _, key := range infoKeys {
 		switch key {
-		case cpuCoresKey, cpuProcessorsKey, cpuModelKey:
+		case common.CPUCoresKey, common.CPUProcessorsKey, common.CPUModelKey:
 			opts = append(opts, withCollector(collectorCPU, collectCPUFunc))
-		case gpuKey:
+		case common.GPUKey:
 			opts = append(opts, withCollector(collectorGPU, collectGPUFunc))
-		case memoryTotalKbKey:
+		case common.MemoryTotalKbKey:
 			opts = append(opts, withCollector(collectorMemory, collectMemoryFunc))
-		case netInterfaceDefaultKey, netIPDefaultKey, netMACDefaultKey:
+		case common.NetInterfaceDefaultKey, common.NetIPDefaultKey, common.NetMACDefaultKey:
 			opts = append(opts, withCollector(collectorNetwork, collectNetworkFunc))
-		case biosVendorKey, biosVersionKey:
+		case common.BIOSVendorKey, common.BIOSVersionKey:
 			opts = append(opts, withCollector(collectorBIOS, collectBIOSFunc))
-		case productNameKey, productSerialKey, productUUIDKey:
+		case common.ProductNameKey, common.ProductSerialKey, common.ProductUUIDKey:
 			opts = append(opts, withCollector(collectorSystem, collectSystemFunc))
-		case kernelKey:
+		case common.KernelKey:
 			opts = append(opts, withCollector(collectorKernel, collectKernelFunc))
-		case distroNameKey, distroVersionKey:
+		case common.DistroNameKey, common.DistroVersionKey:
 			opts = append(opts, withCollector(collectorDistribution, collectDistributionFunc))
-		case hostnameKey, architectureKey:
+		case common.HostnameKey, common.ArchitectureKey:
 			// No specific collector needed - hostname and architecture are always collected
 		default:
-			errs = append(errs, fmt.Errorf("unknown key: %q", key))
+			if !common.IsKnownKey(key) {
+				errs = append(errs, fmt.Errorf("unknown key: %q", key))
+			}
 		}
 	}
 
@@ -553,10 +522,10 @@ func Collect(ctx context.Context, log *log.PrefixLogger, exec executer.Executer,
 
 // SupportedInfoKeys is a map of supported info keys to their corresponding functions.
 var SupportedInfoKeys = map[string]func(info *Info) string{
-	hostnameKey:     func(i *Info) string { return i.Hostname },
-	architectureKey: func(i *Info) string { return i.Architecture },
-	kernelKey:       func(i *Info) string { return i.Kernel },
-	distroNameKey: func(i *Info) string {
+	common.HostnameKey:     func(i *Info) string { return i.Hostname },
+	common.ArchitectureKey: func(i *Info) string { return i.Architecture },
+	common.KernelKey:       func(i *Info) string { return i.Kernel },
+	common.DistroNameKey: func(i *Info) string {
 		if i.Distribution == nil {
 			return ""
 		}
@@ -568,7 +537,7 @@ var SupportedInfoKeys = map[string]func(info *Info) string{
 		}
 		return ""
 	},
-	distroVersionKey: func(i *Info) string {
+	common.DistroVersionKey: func(i *Info) string {
 		if i.Distribution == nil {
 			return ""
 		}
@@ -580,43 +549,43 @@ var SupportedInfoKeys = map[string]func(info *Info) string{
 		}
 		return ""
 	},
-	productNameKey: func(i *Info) string {
+	common.ProductNameKey: func(i *Info) string {
 		if i.Hardware.System != nil {
 			return i.Hardware.System.ProductName
 		}
 		return ""
 	},
-	productSerialKey: func(i *Info) string {
+	common.ProductSerialKey: func(i *Info) string {
 		if i.Hardware.System != nil {
 			return i.Hardware.System.SerialNumber
 		}
 		return ""
 	},
-	productUUIDKey: func(i *Info) string {
+	common.ProductUUIDKey: func(i *Info) string {
 		if i.Hardware.System != nil {
 			return i.Hardware.System.UUID
 		}
 		return ""
 	},
-	biosVendorKey: func(i *Info) string {
+	common.BIOSVendorKey: func(i *Info) string {
 		if i.Hardware.BIOS != nil {
 			return i.Hardware.BIOS.Vendor
 		}
 		return ""
 	},
-	biosVersionKey: func(i *Info) string {
+	common.BIOSVersionKey: func(i *Info) string {
 		if i.Hardware.BIOS != nil {
 			return i.Hardware.BIOS.Version
 		}
 		return ""
 	},
-	netInterfaceDefaultKey: func(i *Info) string {
+	common.NetInterfaceDefaultKey: func(i *Info) string {
 		if i.Hardware.Network != nil && i.Hardware.Network.DefaultRoute != nil {
 			return i.Hardware.Network.DefaultRoute.Interface
 		}
 		return ""
 	},
-	netIPDefaultKey: func(i *Info) string {
+	common.NetIPDefaultKey: func(i *Info) string {
 		if i.Hardware.Network == nil || i.Hardware.Network.DefaultRoute == nil {
 			return ""
 		}
@@ -640,7 +609,7 @@ var SupportedInfoKeys = map[string]func(info *Info) string{
 		}
 		return ""
 	},
-	netMACDefaultKey: func(i *Info) string {
+	common.NetMACDefaultKey: func(i *Info) string {
 		if i.Hardware.Network == nil || i.Hardware.Network.DefaultRoute == nil {
 			return ""
 		}
@@ -652,7 +621,7 @@ var SupportedInfoKeys = map[string]func(info *Info) string{
 		}
 		return ""
 	},
-	gpuKey: func(i *Info) string {
+	common.GPUKey: func(i *Info) string {
 		if len(i.Hardware.GPU) == 0 {
 			return ""
 		}
@@ -663,25 +632,25 @@ var SupportedInfoKeys = map[string]func(info *Info) string{
 		}
 		return strings.Join(parts, ".")
 	},
-	memoryTotalKbKey: func(i *Info) string {
+	common.MemoryTotalKbKey: func(i *Info) string {
 		if i.Hardware.Memory == nil || i.Hardware.Memory.TotalKB <= 0 {
 			return ""
 		}
 		return fmt.Sprintf("%d", i.Hardware.Memory.TotalKB)
 	},
-	cpuCoresKey: func(i *Info) string {
+	common.CPUCoresKey: func(i *Info) string {
 		if i.Hardware.CPU != nil {
 			return fmt.Sprintf("%d", i.Hardware.CPU.TotalCores)
 		}
 		return ""
 	},
-	cpuProcessorsKey: func(i *Info) string {
+	common.CPUProcessorsKey: func(i *Info) string {
 		if i.Hardware.CPU != nil {
 			return fmt.Sprintf("%d", len(i.Hardware.CPU.Processors))
 		}
 		return ""
 	},
-	cpuModelKey: func(i *Info) string {
+	common.CPUModelKey: func(i *Info) string {
 		if i.Hardware.CPU != nil && len(i.Hardware.CPU.Processors) > 0 {
 			return i.Hardware.CPU.Processors[0].Model
 		}
@@ -700,31 +669,30 @@ func getSystemInfoMap(ctx context.Context, log *log.PrefixLogger, info *Info, in
 			return infoMap
 		}
 
-		formatFn, exists := SupportedInfoKeys[key]
-		if !exists {
-			log.Errorf("Unsupported system info key: %s", key)
+		if formatFn, exists := SupportedInfoKeys[key]; exists {
+			val := formatFn(info)
+			if val == "" {
+				log.Debugf("SystemInfo key returned an empty value: %s", key)
+			}
+			infoMap[key] = val
+		} else if collectorfn, ok := collectors[key]; ok {
+			_, alreadyExists := infoMap[key]
+			if alreadyExists {
+				log.Warnf("SystemInfo collector already populated: %s is %s", key, infoMap[key])
+			} else {
+				val := collectorfn(ctx)
+				trimmed := strings.TrimSpace(val)
+				reg, _ := regexp.Compile("[^a-zA-Z0-9 .:_/@+-]+")
+				sanitizedval := reg.ReplaceAllString(trimmed, "")
+				infoMap[key] = sanitizedval
+			}
+		} else {
+			// Best-effort: key may be conditionally unavailable (e.g. hardware/config dependent),
+			// or provided by a runtime-registered collector that is not registered yet.
+			log.Debugf("SystemInfo key not available yet: %s", key)
 			continue
 		}
-		val := formatFn(info)
-		if val == "" {
-			log.Debugf("SystemInfo key returned an empty value: %s", key)
-		}
-		infoMap[key] = val
 	}
-
-	for key, collectorfn := range collectors {
-		_, alreadyExists := infoMap[key]
-		if alreadyExists {
-			log.Warnf("SystemInfo collector already populated: %s is %s", key, infoMap[key])
-		} else {
-			val := collectorfn(ctx)
-			trimmed := strings.TrimSpace(val)
-			reg, _ := regexp.Compile("[^a-zA-Z0-9]+")
-			sanitizedval := reg.ReplaceAllString(trimmed, "")
-			infoMap[key] = sanitizedval
-		}
-	}
-
 	return infoMap
 }
 

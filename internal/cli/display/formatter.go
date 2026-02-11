@@ -22,6 +22,7 @@ type FormatOptions struct {
 	Summary     bool
 	SummaryOnly bool
 	Wide        bool
+	WithExports bool
 	Writer      io.Writer
 }
 

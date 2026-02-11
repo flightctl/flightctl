@@ -1,24 +1,29 @@
 [Unit]
 Description=Flight Control API server
 PartOf=flightctl.target
-After=flightctl-db-wait.service flightctl-db-migrate.service flightctl-kv.service flightctl-api-init.service
-Wants=flightctl-db-wait.service flightctl-db-migrate.service flightctl-kv.service flightctl-api-init.service
+After=flightctl-db-wait.service flightctl-db-migrate.service flightctl-kv.service flightctl-api-init.service flightctl-certs-init.service
+Wants=flightctl-db-wait.service flightctl-db-migrate.service flightctl-kv.service flightctl-api-init.service flightctl-certs-init.service
 
 [Container]
 ContainerName=flightctl-api
-Image=quay.io/flightctl/flightctl-api:latest
-Pull=newer
+Image={{ .Api.Image }}:{{ .Api.Tag }}
+Pull=missing
 Network=flightctl.network
+AddHost=%H:host-gateway
 EnvironmentFile=/etc/flightctl/flightctl-api/env
 Secret=flightctl-postgresql-user-password,type=env,target=DB_PASSWORD
 Secret=flightctl-kv-password,type=env,target=KV_PASSWORD
 Environment=DB_USER=flightctl_app
 
-
 PublishPort=3443:3443
 PublishPort=7443:7443
-Volume=/etc/flightctl/pki:/root/.flightctl/certs:rw,z
+Volume=/etc/flightctl/pki/flightctl-api/server.crt:/root/.flightctl/certs/server.crt:ro,z
+Volume=/etc/flightctl/pki/flightctl-api/server.key:/root/.flightctl/certs/server.key:ro,z
+Volume=/etc/flightctl/pki/flightctl-api/client-signer.crt:/root/.flightctl/certs/client-signer.crt:ro,z
+Volume=/etc/flightctl/pki/flightctl-api/client-signer.key:/root/.flightctl/certs/client-signer.key:ro,z
+Volume=/etc/flightctl/pki/ca-bundle.crt:/root/.flightctl/certs/ca-bundle.crt:ro,z
 Volume=/etc/flightctl/flightctl-api/config.yaml:/root/.flightctl/config.yaml:ro,z
+Volume=/etc/flightctl/pki/db:/root/.flightctl/certs/db:ro,z
 
 Ulimit=nofile=300000:300000
 
@@ -26,6 +31,9 @@ Ulimit=nofile=300000:300000
 Restart=always
 RestartSec=30
 LimitNOFILE=300000
+
+ExecStartPre=/usr/bin/flightctl-standalone render template --input-file /usr/share/flightctl/flightctl-api/config.yaml.template --output-file /etc/flightctl/flightctl-api/config.yaml
+ExecStartPre=/usr/bin/flightctl-standalone render template --input-file /usr/share/flightctl/flightctl-api/env.template --output-file /etc/flightctl/flightctl-api/env
 
 [Install]
 WantedBy=flightctl.target

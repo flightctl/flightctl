@@ -10,6 +10,9 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/domain"
+	"github.com/flightctl/flightctl/internal/flterrors"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel/trace"
 	"gorm.io/driver/postgres"
@@ -17,7 +20,6 @@ import (
 	"gorm.io/gorm/logger"
 	"gorm.io/plugin/opentelemetry/tracing"
 	"gorm.io/plugin/prometheus"
-	"k8s.io/klog/v2"
 )
 
 func InitDB(cfg *config.Config, log *logrus.Logger) (*gorm.DB, error) {
@@ -28,16 +30,27 @@ func InitMigrationDB(cfg *config.Config, log *logrus.Logger) (*gorm.DB, error) {
 	return initDBWithUser(cfg, log, cfg.Database.MigrationUser, cfg.Database.MigrationPassword)
 }
 
-func initDBWithUser(cfg *config.Config, log *logrus.Logger, user string, password config.SecureString) (*gorm.DB, error) {
+func initDBWithUser(cfg *config.Config, log *logrus.Logger, user string, password domain.SecureString) (*gorm.DB, error) {
 	var dia gorm.Dialector
 
 	if cfg.Database.Type != "pgsql" {
 		errString := fmt.Sprintf("failed to connect database %s: only PostgreSQL is supported", cfg.Database.Type)
-		klog.Fatal(errString)
+		log.Fatal(errString)
 		return nil, errors.New(errString)
 	}
 	dsn := createDSN(cfg, user, password)
-	dia = postgres.Open(dsn)
+	baseDia := postgres.Open(dsn)
+
+	// Wrap the dialector to intercept error translation
+	// postgres.Open returns *postgres.Dialector (pointer type)
+	if pgDialector, ok := baseDia.(*postgres.Dialector); ok {
+		dia = &constraintAwareDialector{Dialector: *pgDialector}
+		log.Debug("Successfully wrapped postgres dialector with constraint-aware translator")
+	} else {
+		// Fallback if not postgres dialector (shouldn't happen)
+		log.Warningf("Could not wrap dialector (type: %T), using default", baseDia)
+		dia = baseDia
+	}
 
 	newLogger := logger.New(
 		log,
@@ -50,9 +63,13 @@ func initDBWithUser(cfg *config.Config, log *logrus.Logger, user string, passwor
 		},
 	)
 
-	newDB, err := gorm.Open(dia, &gorm.Config{Logger: newLogger, TranslateError: true})
+	// TranslateError: true will use our wrapped dialector's Translate method
+	newDB, err := gorm.Open(dia, &gorm.Config{
+		Logger:         newLogger,
+		TranslateError: true,
+	})
 	if err != nil {
-		klog.Fatalf("failed to connect database: %v", err)
+		log.Fatalf("failed to connect database: %v", err)
 		return nil, err
 	}
 
@@ -65,13 +82,13 @@ func initDBWithUser(cfg *config.Config, log *logrus.Logger, user string, passwor
 	}))
 
 	if err != nil {
-		klog.Fatalf("Failed to register prometheus exporter: %v", err)
+		log.Fatalf("Failed to register prometheus exporter: %v", err)
 		return nil, err
 	}
 
 	sqlDB, err := newDB.DB()
 	if err != nil {
-		klog.Fatalf("failed to configure connections: %v", err)
+		log.Fatalf("failed to configure connections: %v", err)
 		return nil, err
 	}
 	sqlDB.SetMaxIdleConns(10)
@@ -79,14 +96,14 @@ func initDBWithUser(cfg *config.Config, log *logrus.Logger, user string, passwor
 
 	var serverVersion string
 	if res := newDB.Raw("SHOW server_version").Scan(&serverVersion); res.Error != nil {
-		klog.Warningf("could not read PostgreSQL version (continuing): %v", res.Error)
+		log.Warningf("could not read PostgreSQL version (continuing): %v", res.Error)
 	} else {
-		klog.Infof("PostgreSQL server_version: %s", serverVersion)
+		log.Debugf("PostgreSQL server_version: %s", serverVersion)
 	}
 
 	if cfg.Tracing != nil && cfg.Tracing.Enabled {
 		if err = newDB.Use(NewTraceContextEnforcer()); err != nil {
-			klog.Fatalf("failed to register OpenTelemetry GORM plugin: %v", err)
+			log.Fatalf("failed to register OpenTelemetry GORM plugin: %v", err)
 			return nil, err
 		}
 	}
@@ -100,14 +117,14 @@ func initDBWithUser(cfg *config.Config, log *logrus.Logger, user string, passwor
 	}
 
 	if err = newDB.Use(tracing.NewPlugin(traceOpts...)); err != nil {
-		klog.Fatalf("failed to register OpenTelemetry GORM plugin: %v", err)
+		log.Fatalf("failed to register OpenTelemetry GORM plugin: %v", err)
 		return nil, err
 	}
 
 	return newDB, nil
 }
 
-func createDSN(cfg *config.Config, user string, password config.SecureString) string {
+func createDSN(cfg *config.Config, user string, password domain.SecureString) string {
 	dsn := fmt.Sprintf("host=%s user=%s password=%s port=%d",
 		cfg.Database.Hostname,
 		user,
@@ -198,4 +215,32 @@ func isBypassSpanCheck(ctx context.Context) bool {
 	val := ctx.Value(bypassSpanCheckKey{})
 	bypass, _ := val.(bool)
 	return bypass
+}
+
+// constraintAwareDialector wraps postgres.Dialector to intercept error translation
+// By embedding postgres.Dialector, all its methods are promoted to constraintAwareDialector
+// We only override Translate() to check for specific constraints
+type constraintAwareDialector struct {
+	postgres.Dialector
+}
+
+// Verify at compile-time that constraintAwareDialector implements gorm.Dialector
+var _ gorm.Dialector = (*constraintAwareDialector)(nil)
+
+// Translate intercepts PostgreSQL errors to check for specific authprovider constraints
+func (d *constraintAwareDialector) Translate(err error) error {
+	// Check for PostgreSQL-specific constraint violations first
+	if pgErr, ok := err.(*pgconn.PgError); ok {
+
+		// Check for specific authprovider constraints BEFORE default translation
+		switch pgErr.ConstraintName {
+		case ConstraintAuthProviderOIDCUnique:
+			return flterrors.ErrDuplicateOIDCProvider
+		case ConstraintAuthProviderOAuth2Unique:
+			return flterrors.ErrDuplicateOAuth2Provider
+		}
+	}
+
+	// Fall back to default postgres dialector translation for all other errors
+	return d.Dialector.Translate(err)
 }

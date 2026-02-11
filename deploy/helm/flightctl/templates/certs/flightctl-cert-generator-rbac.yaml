@@ -1,0 +1,108 @@
+{{- $certMethod := include "flightctl.getCertificateGenerationMethod" . }}
+{{- if eq $certMethod "builtin" }}
+---
+# ServiceAccount for the openssl-based certificate generator Job
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: flightctl-cert-generator
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-10"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+
+---
+# Role with minimal permissions for certificate generation
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: flightctl-cert-generator
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-10"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+rules:
+  # Permissions to create and update certificate secrets
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create", "get", "patch", "update"]
+  # Permissions to create and update CA bundle ConfigMap
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["create", "get", "patch", "update"]
+
+---
+# RoleBinding to grant permissions to the ServiceAccount
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: flightctl-cert-generator
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-10"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: flightctl-cert-generator
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: flightctl-cert-generator
+
+{{- if and .Values.global.internalNamespace (ne .Values.global.internalNamespace .Release.Namespace) }}
+---
+# Role with permissions for certificate generation in internal namespace
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: flightctl-cert-generator
+  namespace: {{ .Values.global.internalNamespace }}
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-10"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+rules:
+  # Permissions to create and update certificate secrets
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create", "get", "patch", "update"]
+  # Permissions to create and update CA bundle ConfigMap
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["create", "get", "patch", "update"]
+
+---
+# RoleBinding to grant permissions to the ServiceAccount in internal namespace
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: flightctl-cert-generator
+  namespace: {{ .Values.global.internalNamespace }}
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-10"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: flightctl-cert-generator
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: flightctl-cert-generator
+{{- end }}
+{{- end }}

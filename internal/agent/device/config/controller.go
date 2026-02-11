@@ -6,7 +6,8 @@ import (
 	"fmt"
 	"io/fs"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
+	deviceerrors "github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/log"
 )
@@ -29,24 +30,24 @@ func NewController(
 	}
 }
 
-func (c *Controller) Sync(ctx context.Context, current, desired *v1alpha1.DeviceSpec) error {
+func (c *Controller) Sync(ctx context.Context, current, desired *v1beta1.DeviceSpec) error {
 	c.log.Debug("Syncing device configuration")
 	defer c.log.Debug("Finished syncing device configuration")
 
 	desiredFiles, err := ProviderSpecToFiles(desired.Config)
 	if err != nil {
-		return fmt.Errorf("convert desired config to files: %w", err)
+		return fmt.Errorf("%w: %w", deviceerrors.ErrConvertDesiredConfigToFiles, err)
 	}
 
 	currentFiles, err := ProviderSpecToFiles(current.Config)
 	if err != nil {
-		return fmt.Errorf("convert current config to files: %w", err)
+		return fmt.Errorf("%w: %w", deviceerrors.ErrConvertCurrentConfigToFiles, err)
 	}
 
 	return c.ensureConfigFiles(currentFiles, desiredFiles)
 }
 
-func computeRemoval(currentFileList, desiredFileList []v1alpha1.FileSpec) []string {
+func computeRemoval(currentFileList, desiredFileList []v1beta1.FileSpec) []string {
 	desiredFiles := getFilePaths(desiredFileList)
 	result := []string{}
 	desiredMap := make(map[string]bool)
@@ -65,9 +66,9 @@ func computeRemoval(currentFileList, desiredFileList []v1alpha1.FileSpec) []stri
 	return result
 }
 
-func (c *Controller) ensureConfigFiles(currentFiles, desiredFiles []v1alpha1.FileSpec) error {
+func (c *Controller) ensureConfigFiles(currentFiles, desiredFiles []v1beta1.FileSpec) error {
 	if err := c.removeObsoleteFiles(currentFiles, desiredFiles); err != nil {
-		return fmt.Errorf("failed to remove obsolete files: %w", err)
+		return fmt.Errorf("%w: %w", deviceerrors.ErrFailedToRemoveObsoleteFiles, err)
 	}
 
 	if len(desiredFiles) == 0 {
@@ -84,7 +85,7 @@ func (c *Controller) ensureConfigFiles(currentFiles, desiredFiles []v1alpha1.Fil
 }
 
 // removeObsoleteFiles removes files that are present in the currentFiles but not in the desiredFiles.
-func (c *Controller) removeObsoleteFiles(currentFiles, desiredFiles []v1alpha1.FileSpec) error {
+func (c *Controller) removeObsoleteFiles(currentFiles, desiredFiles []v1beta1.FileSpec) error {
 	removeFiles := computeRemoval(currentFiles, desiredFiles)
 	for _, file := range removeFiles {
 		if len(file) == 0 {
@@ -92,13 +93,13 @@ func (c *Controller) removeObsoleteFiles(currentFiles, desiredFiles []v1alpha1.F
 		}
 		c.log.Debugf("Deleting file: %s", file)
 		if err := c.deviceWriter.RemoveFile(file); err != nil {
-			return fmt.Errorf("deleting files failed: %w", err)
+			return fmt.Errorf("%w: %w", deviceerrors.ErrDeletingFilesFailed, err)
 		}
 	}
 	return nil
 }
 
-func (c *Controller) writeFiles(files []v1alpha1.FileSpec) error {
+func (c *Controller) writeFiles(files []v1beta1.FileSpec) error {
 	for _, file := range files {
 		managedFile, err := c.deviceWriter.CreateManagedFile(file)
 		if err != nil {
@@ -128,7 +129,7 @@ func (c *Controller) writeFiles(files []v1alpha1.FileSpec) error {
 	return nil
 }
 
-func getFilePaths(currentFileList []v1alpha1.FileSpec) []string {
+func getFilePaths(currentFileList []v1beta1.FileSpec) []string {
 	result := make([]string, len(currentFileList))
 	for i, f := range currentFileList {
 		result[i] = f.Path
@@ -137,9 +138,9 @@ func getFilePaths(currentFileList []v1alpha1.FileSpec) []string {
 }
 
 // ProviderSpecToFiles converts a list of ConfigProviderSpecs to a list of FileSpecs.
-func ProviderSpecToFiles(configs *[]v1alpha1.ConfigProviderSpec) ([]v1alpha1.FileSpec, error) {
+func ProviderSpecToFiles(configs *[]v1beta1.ConfigProviderSpec) ([]v1beta1.FileSpec, error) {
 	if configs == nil || len(*configs) == 0 {
-		return []v1alpha1.FileSpec{}, nil
+		return []v1beta1.FileSpec{}, nil
 	}
 
 	configItem := (*configs)[0]
@@ -151,13 +152,13 @@ func ProviderSpecToFiles(configs *[]v1alpha1.ConfigProviderSpec) ([]v1alpha1.Fil
 	return desiredProvider.Inline, nil
 }
 
-func FilesToProviderSpec(files []v1alpha1.FileSpec) (*[]v1alpha1.ConfigProviderSpec, error) {
-	var provider v1alpha1.ConfigProviderSpec
-	err := provider.FromInlineConfigProviderSpec(v1alpha1.InlineConfigProviderSpec{
+func FilesToProviderSpec(files []v1beta1.FileSpec) (*[]v1beta1.ConfigProviderSpec, error) {
+	var provider v1beta1.ConfigProviderSpec
+	err := provider.FromInlineConfigProviderSpec(v1beta1.InlineConfigProviderSpec{
 		Inline: files,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("inline config: %w", err)
 	}
-	return &[]v1alpha1.ConfigProviderSpec{provider}, nil
+	return &[]v1beta1.ConfigProviderSpec{provider}, nil
 }

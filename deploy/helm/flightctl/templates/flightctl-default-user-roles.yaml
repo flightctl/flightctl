@@ -1,9 +1,9 @@
-{{ if eq .Values.global.target "acm" }}
 apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
+kind: ClusterRole
 metadata:
-  name: flightctl-admin
-  namespace: {{ default .Release.Namespace .Values.global.auth.k8s.rbacNs }}
+  name: flightctl-admin-{{ .Release.Namespace }}
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
 rules:
   - verbs:
       - '*'
@@ -14,10 +14,11 @@ rules:
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
+kind: ClusterRole
 metadata:
-  name: flightctl-viewer
-  namespace: {{ default .Release.Namespace .Values.global.auth.k8s.rbacNs }}
+  name: flightctl-viewer-{{ .Release.Namespace }}
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
 rules:
   - verbs:
       - get
@@ -28,13 +29,26 @@ rules:
       - devices
       - fleets
       - resourcesyncs
+      - organizations
+      - imagebuilds
+      - imageexports
+  # Viewer can view logs but NOT download
+  - verbs:
+      - get
+    apiGroups:
+      - flightctl.io
+    resources:
+      - imagebuilds/log
+      - imageexports/log
+  # Note: imageexports/download is intentionally NOT included for viewer role
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
+kind: ClusterRole
 metadata:
-  name: flightctl-operator
-  namespace: {{ default .Release.Namespace .Values.global.auth.k8s.rbacNs }}
+  name: flightctl-operator-{{ .Release.Namespace }}
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
 rules:
   - verbs:
       - get
@@ -49,6 +63,9 @@ rules:
       - devices
       - fleets
       - resourcesyncs
+      - repositories
+      - imagebuilds
+      - imageexports
   - verbs:
       - get
     apiGroups:
@@ -56,14 +73,26 @@ rules:
     resources:
       - devices/console
       - devices/lastseen
+      - imagebuilds/log
+      - imageexports/log
+      - imageexports/download
+  # Cancel operations for image builds/exports (PUT maps to update verb)
+  - verbs:
+      - create
+    apiGroups:
+      - flightctl.io
+    resources:
+      - imagebuilds/cancel
+      - imageexports/cancel
   - verbs:
       - get
       - list
     apiGroups:
       - flightctl.io
     resources:
-      - repositories
       - fleets/templateversions
+      - alerts
+      - organizations
   # Device lifecycle actions (granular subresource approach)
   - verbs:
       - update  # Standard Kubernetes verb for resume action
@@ -75,10 +104,11 @@ rules:
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
+kind: ClusterRole
 metadata:
-  name: flightctl-installer
-  namespace: {{ default .Release.Namespace .Values.global.auth.k8s.rbacNs }}
+  name: flightctl-installer-{{ .Release.Namespace }}
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
 rules:
   - verbs:
       - get
@@ -87,8 +117,11 @@ rules:
       - flightctl.io
     resources:
       - enrollmentrequests
+      - organizations
+      - imagebuilds
+      - imageexports
   - verbs:
-      - post
+      - update  # API uses PUT for approval endpoint
     apiGroups:
       - flightctl.io
     resources:
@@ -97,8 +130,15 @@ rules:
       - get
       - list
       - create
+      - update
     apiGroups:
       - flightctl.io
     resources:
       - certificatesigningrequests
-{{ end }}
+  # Installer can download image exports for installation
+  - verbs:
+      - get
+    apiGroups:
+      - flightctl.io
+    resources:
+      - imageexports/download

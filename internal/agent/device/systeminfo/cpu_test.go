@@ -17,8 +17,10 @@ var cpuinfoX86 []byte
 func TestCollectCPUInfoARM(t *testing.T) {
 	require := require.New(t)
 	tmpDir := t.TempDir()
-	rw := fileio.NewReadWriter()
-	rw.SetRootdir(tmpDir)
+	rw := fileio.NewReadWriter(
+		fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+		fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+	)
 
 	err := rw.MkdirAll("proc", fileio.DefaultDirectoryPermissions)
 	require.NoError(err)
@@ -42,8 +44,10 @@ func TestCollectCPUInfoARM(t *testing.T) {
 func TestCollectCPUInfoX86(t *testing.T) {
 	require := require.New(t)
 	tmpDir := t.TempDir()
-	rw := fileio.NewReadWriter()
-	rw.SetRootdir(tmpDir)
+	rw := fileio.NewReadWriter(
+		fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+		fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+	)
 
 	err := rw.MkdirAll("proc", fileio.DefaultDirectoryPermissions)
 	require.NoError(err)

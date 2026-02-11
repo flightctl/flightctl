@@ -8,6 +8,7 @@ on:
     tags:
       - '*'
   pull_request:
+  merge_group:
 
 jobs:
   setup:
@@ -66,7 +67,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: 1.23
+          go-version: 1.24.6
 
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -190,7 +191,7 @@ jobs:
 
   publish:
     name: Publish Binaries
-    if: ${{ github.event_name != 'pull_request' }}
+    if: ${{ github.event_name != 'pull_request' && github.event_name != 'merge_group' }}
     runs-on: ubuntu-latest
     needs: verify
     permissions:
@@ -212,8 +213,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          OLD_RELEASE=$(gh release list --json 'tagName' --jq 'any(.[]; .tagName == "latest")')
-          if [ $OLD_RELEASE == 'true' ]; then
+          if gh release view latest >/dev/null 2>&1; then
             # if there is a release already we only update the binaries
             # otherwise a new release will trigger an rpm build from packit
             gh release upload latest --clobber release/*

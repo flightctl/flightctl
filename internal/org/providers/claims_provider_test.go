@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/flightctl/flightctl/internal/auth/common"
+	"github.com/flightctl/flightctl/internal/identity"
 	"github.com/flightctl/flightctl/internal/org"
 )
 
@@ -27,8 +28,19 @@ func (m *mockTokenIdentity) GetUID() string {
 	return ""
 }
 
-func (m *mockTokenIdentity) GetGroups() []string {
-	return []string{}
+func (m *mockTokenIdentity) GetOrganizations() []common.ReportedOrganization {
+	return []common.ReportedOrganization{}
+}
+
+func (m *mockTokenIdentity) GetIssuer() *identity.Issuer {
+	return nil
+}
+
+func (m *mockTokenIdentity) IsSuperAdmin() bool {
+	return false
+}
+
+func (m *mockTokenIdentity) SetSuperAdmin(bool) {
 }
 
 func TestClaimsProvider_GetUserOrganizations(t *testing.T) {

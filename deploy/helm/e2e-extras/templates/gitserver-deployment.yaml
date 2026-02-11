@@ -21,14 +21,17 @@ spec:
         - name: container-reg
           image: {{ .Values.gitserver.image }}
           ports:
-            - containerPort: 22
+            - containerPort: 2222
               protocol: TCP
           imagePullPolicy: IfNotPresent
-          #TODO(make sure the container works with this security context in openshift)
-          #securityContext:
-          #  allowPrivilegeEscalation: true
-          #  capabilities:
-          #    add:
-          #    - NET_BIND_SERVICE
-          #    - SYS_CHROOT
+          volumeMounts:
+            - name: ssh-authorized-keys
+              mountPath: /etc/ssh/authorized_keys/user
+              subPath: id_rsa.pub
+              readOnly: true
+      volumes:
+        - name: ssh-authorized-keys
+          secret:
+            secretName: e2e-git-ssh-keys
+            defaultMode: 0644
       restartPolicy: Always

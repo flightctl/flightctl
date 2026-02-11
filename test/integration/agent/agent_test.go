@@ -1,20 +1,27 @@
 package agent
 
 import (
+	"bytes"
 	"context"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"io/fs"
 	"net/http"
 	"os"
+	"os/user"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ccoveille/go-safecast"
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/device/certmanager/provider"
 	"github.com/flightctl/flightctl/internal/crypto/signer"
+	"github.com/flightctl/flightctl/internal/org"
+	"github.com/flightctl/flightctl/pkg/certmanager"
 	fccrypto "github.com/flightctl/flightctl/pkg/crypto"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/flightctl/flightctl/test/harness"
@@ -83,11 +90,11 @@ var _ = Describe("Device Agent behavior", func() {
 				approveEnrollment(h, deviceName, testutil.TestEnrollmentApproval())
 
 				// verify that the enrollment request is marked as approved
-				er, err := h.Client.GetEnrollmentRequestWithResponse(h.Context, deviceName)
-				Expect(err).ToNot(HaveOccurred())
-				Expect(er.JSON200.Status.Conditions).ToNot(BeEmpty())
+				er, status := h.ServiceHandler.GetEnrollmentRequest(h.AuthenticatedContext(h.Context), org.DefaultID, deviceName)
+				Expect(status.Code).To(BeEquivalentTo(200))
+				Expect(er.Status.Conditions).ToNot(BeEmpty())
 
-				Expect(v1alpha1.IsStatusConditionTrue(er.JSON200.Status.Conditions, "Approved")).To(BeTrue())
+				Expect(v1beta1.IsStatusConditionTrue(er.Status.Conditions, "Approved")).To(BeTrue())
 
 			})
 
@@ -148,9 +155,9 @@ var _ = Describe("Device Agent behavior", func() {
 					secondSecretKey: secondSecretValue,
 				}
 				mockSecret(h.GetMockK8sClient(), secrets)
-				resp, err := h.Client.CreateFleetWithResponse(h.Context, getTestFleet("fleet.yaml"))
-				Expect(err).ToNot(HaveOccurred())
-				Expect(resp.HTTPResponse.StatusCode).To(Equal(http.StatusCreated))
+				fleet := getTestFleet("fleet.yaml")
+				_, status := h.ServiceHandler.CreateFleet(h.AuthenticatedContext(h.Context), org.DefaultID, fleet)
+				Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 				approval := testutil.TestEnrollmentApproval()
 				approval.Labels = &map[string]string{"fleet": "default"}
 
@@ -187,6 +194,109 @@ var _ = Describe("Device Agent behavior", func() {
 			})
 		})
 
+		When("rotating the device management certificate", func() {
+			It("renews the cert and switches to the renewal signer", func(ctx context.Context) {
+				const (
+					mgmtCertTTLSecondsEnv         = "FLIGHTCTL_TEST_MGMT_CERT_EXPIRY_SECONDS"
+					mgmtCertRenewBeforeSecondsEnv = "FLIGHTCTL_TEST_MGMT_CERT_RENEW_BEFORE_SECONDS"
+					agentCertRelPath              = "var/lib/flightctl/certs/agent.crt"
+
+					// Keep the test fast:
+					// - cert lifetime: 10m
+					// - renewBefore: 10m-1s => renewal condition becomes true almost immediately
+					testCertTTLSeconds     = 10 * 60
+					testRenewBeforeSeconds = testCertTTLSeconds - 1
+
+					expectedRenewalSignerName = "flightctl.io/device-management-renewal"
+
+					// Issuance time jitter only (avoid flakes).
+					ttlTolerance = 10 * time.Second
+				)
+
+				defer testutil.TestTempEnv(
+					mgmtCertTTLSecondsEnv, strconv.Itoa(testCertTTLSeconds),
+					mgmtCertRenewBeforeSecondsEnv, strconv.Itoa(testRenewBeforeSeconds),
+				)()
+
+				// Enroll device and wait until the agent fetches its initial cert.
+				dev := enrollAndWaitForDevice(h, testutil.TestEnrollmentApproval())
+				deviceName := lo.FromPtr(dev.Metadata.Name)
+				Eventually(h.AgentDownloadedCertificate, TIMEOUT, POLLING).Should(BeTrue())
+
+				// Sanity: enrollment approved and server returned an initial certificate.
+				er, status := h.ServiceHandler.GetEnrollmentRequest(
+					h.AuthenticatedContext(h.Context),
+					org.DefaultID,
+					deviceName,
+				)
+				Expect(status.Code).To(BeEquivalentTo(200))
+				Expect(v1beta1.IsStatusConditionTrue(er.Status.Conditions, "Approved")).To(BeTrue())
+				Expect(er.Status.Certificate).ToNot(BeNil())
+
+				// Assert TTL override took effect (~10m).
+				initialCertPEM := lo.FromPtr(er.Status.Certificate)
+				initialCert, err := fccrypto.ParsePEMCertificate([]byte(initialCertPEM))
+				Expect(err).ToNot(HaveOccurred())
+
+				expectedTTL := time.Duration(testCertTTLSeconds) * time.Second
+				actualTTL := initialCert.NotAfter.Sub(initialCert.NotBefore)
+				Expect(actualTTL).To(BeNumerically(">", expectedTTL-ttlTolerance))
+				Expect(actualTTL).To(BeNumerically("<", expectedTTL+ttlTolerance))
+
+				agentCertPath := filepath.Join(h.TestDirPath, agentCertRelPath)
+				GinkgoWriter.Printf("Waiting for device %s to renew certificate (path=%s)\n", deviceName, agentCertPath)
+
+				// Wait until the on-disk agent cert is renewed (signer-name extension flips).
+				var renewedCert *x509.Certificate
+				Eventually(func() string {
+					agentCertPEM, err := os.ReadFile(agentCertPath)
+					Expect(err).ToNot(HaveOccurred())
+
+					agentCert, err := fccrypto.ParsePEMCertificate(agentCertPEM)
+					Expect(err).ToNot(HaveOccurred())
+					renewedCert = agentCert
+
+					signerName, err := signer.GetSignerNameExtension(agentCert)
+					Expect(err).ToNot(HaveOccurred())
+					return signerName
+				}, TIMEOUT, POLLING).Should(Equal(expectedRenewalSignerName))
+
+				// Expected status values are derived from the renewed cert.
+				Expect(renewedCert.SerialNumber).ToNot(BeNil())
+
+				serialBytes := renewedCert.SerialNumber.Bytes()
+				Expect(serialBytes).ToNot(BeEmpty())
+
+				serialHex := make([]byte, 0, len(serialBytes)*3-1)
+				for i, v := range serialBytes {
+					if i > 0 {
+						serialHex = append(serialHex, ':')
+					}
+					serialHex = append(serialHex, fmt.Sprintf("%02X", v)...)
+				}
+				expectedRenewedSerial := string(serialHex)
+				expectedNotAfter := renewedCert.NotAfter.UTC().Format(time.RFC3339)
+
+				// Verify device status reflects the renewed cert (serial + notAfter).
+				GinkgoWriter.Printf("Waiting for device %s systemInfo fields to update\n", deviceName)
+
+				Eventually(func() []string {
+					dev, status := h.ServiceHandler.GetDevice(
+						h.AuthenticatedContext(h.Context),
+						org.DefaultID,
+						deviceName,
+					)
+					Expect(status.Code).To(BeEquivalentTo(200))
+
+					props := dev.Status.SystemInfo.AdditionalProperties
+					return []string{
+						props["managementCertSerial"],
+						props["managementCertNotAfter"],
+					}
+				}, TIMEOUT, POLLING).Should(Equal([]string{expectedRenewedSerial, expectedNotAfter}))
+			})
+		})
+
 		When("provisioning a CSR-managed certificate", func() {
 			It("auto-issues cert and writes files; validates CN and extensions", func(ctx context.Context) {
 				const (
@@ -209,19 +319,19 @@ var _ = Describe("Device Agent behavior", func() {
 				storageRaw, err := json.Marshal(storageCfg)
 				Expect(err).ToNot(HaveOccurred())
 
-				certcfg := provider.CertificateConfig{
+				certcfg := certmanager.CertificateConfig{
 					Name: certCNPrefix,
-					Provisioner: provider.ProvisionerConfig{
+					Provisioner: certmanager.ProvisionerConfig{
 						Type:   provider.ProvisionerTypeCSR,
 						Config: csrRaw,
 					},
-					Storage: provider.StorageConfig{
+					Storage: certmanager.StorageConfig{
 						Type:   provider.StorageTypeFilesystem,
 						Config: storageRaw,
 					},
 				}
 
-				cfgBytes, err := yaml.Marshal([]provider.CertificateConfig{certcfg})
+				cfgBytes, err := yaml.Marshal([]certmanager.CertificateConfig{certcfg})
 				Expect(err).ToNot(HaveOccurred())
 
 				certsYaml := filepath.Join(h.TestDirPath, "etc", "flightctl", "certs.yaml")
@@ -232,13 +342,13 @@ var _ = Describe("Device Agent behavior", func() {
 				deviceName := lo.FromPtr(dev.Metadata.Name)
 
 				// wait for CSR to be created by agent
-				var csr v1alpha1.CertificateSigningRequest
+				var csr v1beta1.CertificateSigningRequest
 				Eventually(func() bool {
-					resp, err := h.Client.ListCertificateSigningRequestsWithResponse(h.Context, &v1alpha1.ListCertificateSigningRequestsParams{})
-					if err != nil || resp.JSON200 == nil {
+					list, status := h.ServiceHandler.ListCertificateSigningRequests(h.AuthenticatedContext(h.Context), org.DefaultID, v1beta1.ListCertificateSigningRequestsParams{})
+					if status.Code != int32(200) || list == nil {
 						return false
 					}
-					for _, item := range resp.JSON200.Items {
+					for _, item := range list.Items {
 						if item.Spec.SignerName == certSignerName && item.Metadata.Name != nil {
 							name := lo.FromPtr(item.Metadata.Name)
 							if strings.HasPrefix(name, certCNPrefix+"-") && item.Status != nil && item.Status.Certificate != nil {
@@ -280,52 +390,50 @@ var _ = Describe("Device Agent behavior", func() {
 	})
 })
 
-func assertRestResponse(expectedCode int, resp *http.Response, body []byte) {
-	if resp.StatusCode != expectedCode {
-		fmt.Printf("REST call returned %d: %s\n", resp.StatusCode, body)
-	}
-	Expect(resp.StatusCode).To(Equal(expectedCode))
-}
-
-func enrollAndWaitForDevice(h *harness.TestHarness, approval *v1alpha1.EnrollmentRequestApproval) *v1alpha1.Device {
+func enrollAndWaitForDevice(h *harness.TestHarness, approval *v1beta1.EnrollmentRequestApproval) *v1beta1.Device {
 	deviceName := ""
 	Eventually(getEnrollmentDeviceName, TIMEOUT, POLLING).WithArguments(h, &deviceName).Should(BeTrue())
 	approveEnrollment(h, deviceName, approval)
 
 	// verify that the device is created
-	dev, err := h.Client.GetDeviceWithResponse(h.Context, deviceName)
-	Expect(err).ToNot(HaveOccurred())
-	assertRestResponse(200, dev.HTTPResponse, dev.Body)
-	return dev.JSON200
+	dev, status := h.ServiceHandler.GetDevice(h.AuthenticatedContext(h.Context), org.DefaultID, deviceName)
+	Expect(status.Code).To(BeEquivalentTo(200))
+	return dev
 }
 
-func approveEnrollment(h *harness.TestHarness, deviceName string, approval *v1alpha1.EnrollmentRequestApproval) {
+func approveEnrollment(h *harness.TestHarness, deviceName string, approval *v1beta1.EnrollmentRequestApproval) {
 	Expect(approval).NotTo(BeNil())
 	GinkgoWriter.Printf("Approving device enrollment: %s\n", deviceName)
-	resp, err := h.Client.ApproveEnrollmentRequestWithResponse(h.Context, deviceName, *approval)
-	Expect(err).ToNot(HaveOccurred())
-	assertRestResponse(200, resp.HTTPResponse, resp.Body)
+
+	// Approve
+	_, status := h.ServiceHandler.ApproveEnrollmentRequest(h.AuthenticatedContext(h.Context), org.DefaultID, deviceName, *approval)
+	Expect(status.Code).To(BeEquivalentTo(200))
 }
 
 func getEnrollmentDeviceName(h *harness.TestHarness, deviceName *string) bool {
-	listResp, err := h.Client.ListEnrollmentRequestsWithResponse(h.Context, &v1alpha1.ListEnrollmentRequestsParams{})
-	Expect(err).ToNot(HaveOccurred())
-	assertRestResponse(200, listResp.HTTPResponse, listResp.Body)
+	list, status := h.ServiceHandler.ListEnrollmentRequests(h.AuthenticatedContext(h.Context), org.DefaultID, v1beta1.ListEnrollmentRequestsParams{})
+	Expect(status.Code).To(BeEquivalentTo(200))
 
-	if len(listResp.JSON200.Items) == 0 {
+	if list == nil || len(list.Items) == 0 {
 		return false
 	}
 
-	Expect(*listResp.JSON200.Items[0].Metadata.Name).ToNot(BeEmpty())
-	*deviceName = *listResp.JSON200.Items[0].Metadata.Name
+	Expect(*list.Items[0].Metadata.Name).ToNot(BeEmpty())
+	*deviceName = *list.Items[0].Metadata.Name
+
 	return true
 }
 
-func getTestFleet(fleetYaml string) v1alpha1.Fleet {
+func getTestFleet(fleetYaml string) v1beta1.Fleet {
 	fleetBytes, err := os.ReadFile(filepath.Join("testdata", fleetYaml))
 	Expect(err).ToNot(HaveOccurred())
 
-	var fleet v1alpha1.Fleet
+	u, err := user.Current()
+	Expect(err).ToNot(HaveOccurred())
+	fleetBytes = bytes.ReplaceAll(fleetBytes, []byte("_CURRENT_USER_"), []byte(u.Username))
+	fleetBytes = bytes.ReplaceAll(fleetBytes, []byte("_CURRENT_GROUP_"), []byte("'"+u.Gid+"'"))
+
+	var fleet v1beta1.Fleet
 	err = yaml.Unmarshal(fleetBytes, &fleet)
 	Expect(err).ToNot(HaveOccurred())
 

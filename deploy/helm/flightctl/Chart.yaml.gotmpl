@@ -1,0 +1,14 @@
+apiVersion: v2
+name: {{ .Name }}
+description: {{ .Description }}
+home: {{ .Home }}
+type: application
+version: 0.1.0
+appVersion: "latest" # this is replaced at packaging with the hash of the image release
+icon: {{ .Icon }}
+annotations:
+  charts.openshift.io/archs: x86_64
+  charts.openshift.io/name: {{ .Annotations.Name }}
+  charts.openshift.io/provider: {{ .Annotations.Provider }}
+  charts.openshift.io/supportURL: {{ .Annotations.SupportURL }}
+kubeVersion: '>= 1.32.0-0'

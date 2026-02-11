@@ -27,9 +27,11 @@ type Store interface {
 	TemplateVersion() TemplateVersion
 	Repository() Repository
 	ResourceSync() ResourceSync
+	Catalog() Catalog
 	Event() Event
 	Checkpoint() Checkpoint
 	Organization() Organization
+	AuthProvider() AuthProvider
 	RunMigrations(context.Context) error
 	CheckHealth(context.Context) error
 	Close() error
@@ -43,9 +45,11 @@ type DataStore struct {
 	templateVersion           TemplateVersion
 	repository                Repository
 	resourceSync              ResourceSync
+	catalog                   Catalog
 	event                     Event
 	checkpoint                Checkpoint
 	organization              Organization
+	authProvider              AuthProvider
 
 	db *gorm.DB
 }
@@ -59,9 +63,11 @@ func NewStore(db *gorm.DB, log logrus.FieldLogger) Store {
 		templateVersion:           NewTemplateVersion(db, log),
 		repository:                NewRepository(db, log),
 		resourceSync:              NewResourceSync(db, log),
+		catalog:                   NewCatalog(db, log),
 		event:                     NewEvent(db, log),
 		checkpoint:                NewCheckpoint(db, log),
 		organization:              NewOrganization(db),
+		authProvider:              NewAuthProvider(db, log),
 		db:                        db,
 	}
 }
@@ -94,6 +100,10 @@ func (s *DataStore) ResourceSync() ResourceSync {
 	return s.resourceSync
 }
 
+func (s *DataStore) Catalog() Catalog {
+	return s.catalog
+}
+
 func (s *DataStore) Event() Event {
 	return s.event
 }
@@ -104,6 +114,10 @@ func (s *DataStore) Checkpoint() Checkpoint {
 
 func (s *DataStore) Organization() Organization {
 	return s.organization
+}
+
+func (s *DataStore) AuthProvider() AuthProvider {
+	return s.authProvider
 }
 
 // CheckHealth verifies database connectivity and ensures the instance is not in recovery.
@@ -172,6 +186,9 @@ func (s *DataStore) RunMigrations(ctx context.Context) error {
 	if err := s.ResourceSync().InitialMigration(ctx); err != nil {
 		return err
 	}
+	if err := s.Catalog().InitialMigration(ctx); err != nil {
+		return err
+	}
 	if err := s.Event().InitialMigration(ctx); err != nil {
 		return err
 	}
@@ -179,6 +196,9 @@ func (s *DataStore) RunMigrations(ctx context.Context) error {
 		return err
 	}
 	if err := s.Organization().InitialMigration(ctx); err != nil {
+		return err
+	}
+	if err := s.AuthProvider().InitialMigration(ctx); err != nil {
 		return err
 	}
 	return s.customizeMigration(ctx)

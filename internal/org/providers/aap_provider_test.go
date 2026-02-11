@@ -7,6 +7,7 @@ import (
 
 	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/identity"
 	"github.com/flightctl/flightctl/internal/org"
 	"github.com/flightctl/flightctl/pkg/aap"
 	"github.com/stretchr/testify/require"
@@ -26,8 +27,12 @@ func (m *mockAAPIdentity) GetUID() string {
 	return m.userID
 }
 
-func (m *mockAAPIdentity) GetGroups() []string {
-	return []string{}
+func (m *mockAAPIdentity) GetOrganizations() []common.ReportedOrganization {
+	return []common.ReportedOrganization{}
+}
+
+func (m *mockAAPIdentity) GetIssuer() *identity.Issuer {
+	return nil
 }
 
 func (m *mockAAPIdentity) IsSuperuser() bool {
@@ -36,6 +41,13 @@ func (m *mockAAPIdentity) IsSuperuser() bool {
 
 func (m *mockAAPIdentity) IsPlatformAuditor() bool {
 	return m.platformAuditor
+}
+
+func (m *mockAAPIdentity) IsSuperAdmin() bool {
+	return false
+}
+
+func (m *mockAAPIdentity) SetSuperAdmin(bool) {
 }
 
 type mockAAPClient struct {
@@ -52,28 +64,28 @@ type mockAAPClient struct {
 	userTeamsErr error
 }
 
-func (m *mockAAPClient) GetOrganization(token string, organizationID string) (*aap.AAPOrganization, error) {
+func (m *mockAAPClient) GetOrganization(ctx context.Context, token string, organizationID string) (*aap.AAPOrganization, error) {
 	if m.organizationErr != nil {
 		return nil, m.organizationErr
 	}
 	return m.organization, nil
 }
 
-func (m *mockAAPClient) ListUserTeams(token string, userID string) ([]*aap.AAPTeam, error) {
+func (m *mockAAPClient) ListUserTeams(ctx context.Context, token string, userID string) ([]*aap.AAPTeam, error) {
 	if m.userTeamsErr != nil {
 		return nil, m.userTeamsErr
 	}
 	return m.userTeams, nil
 }
 
-func (m *mockAAPClient) ListOrganizations(token string) ([]*aap.AAPOrganization, error) {
+func (m *mockAAPClient) ListOrganizations(ctx context.Context, token string) ([]*aap.AAPOrganization, error) {
 	if m.allOrganizationsErr != nil {
 		return nil, m.allOrganizationsErr
 	}
 	return m.allOrganizations, nil
 }
 
-func (m *mockAAPClient) ListUserOrganizations(token string, userID string) ([]*aap.AAPOrganization, error) {
+func (m *mockAAPClient) ListUserOrganizations(ctx context.Context, token string, userID string) ([]*aap.AAPOrganization, error) {
 	if m.userOrganizationsErr != nil {
 		return nil, m.userOrganizationsErr
 	}

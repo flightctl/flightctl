@@ -1,0 +1,59 @@
+# /etc/grafana/grafana.ini
+[server]
+http_port = 3000
+# http_addr = 0.0.0.0 # Default
+root_url = {{if .grafana.protocol}}{{.grafana.protocol}}{{else}}http{{end}}://{{.global.baseDomain}}:3000
+
+# HTTPS Configuration
+protocol = {{if .grafana.protocol}}{{.grafana.protocol}}{{else}}http{{end}}
+cert_file = /etc/grafana/certs/server.crt
+cert_key = /etc/grafana/certs/server.key
+
+[paths]
+data = /var/lib/grafana
+logs = /var/log/grafana
+plugins = /var/lib/grafana/plugins
+provisioning = /etc/grafana/provisioning/
+
+[auth.anonymous]
+# set to true if you want to allow anonymous users to view dashboards
+enabled = false
+
+[auth.basic]
+# set to true if you want to use basic authentication
+enabled = true
+
+[users]
+# default admin user, default password is "admin"
+default_theme = dark
+
+[security]
+admin_user = {{if .grafana.localAdminUser}}{{.grafana.localAdminUser}}{{else}}admin{{end}}
+admin_password = {{if .grafana.localAdminPassword}}{{.grafana.localAdminPassword}}{{else}}defaultadmin{{end}}
+
+
+[session]
+provider = file
+
+[metrics]
+# Enable internal Grafana metrics, can be scraped by Prometheus
+enabled = true
+
+[auth]
+disable_login_form = {{if .grafana.oauth.enabled}}{{.grafana.oauth.enabled}}{{else}}false{{end}}
+
+
+[auth.generic_oauth]
+enabled = {{if .grafana.oauth.enabled}}{{.grafana.oauth.enabled}}{{else}}false{{end}}
+name = Flightctl SSO
+allow_sign_up = true
+client_id = {{.grafana.oauth.clientId}}
+auth_url = {{.grafana.oauth.authUrl}}
+token_url = {{.grafana.oauth.tokenUrl}}
+api_url = {{.grafana.oauth.apiUrl}}
+scopes = {{if .grafana.oauth.scopes}}{{.grafana.oauth.scopes}}{{else}}read{{end}}
+role_attribute_path = (contains(roles[*], 'grafana-admin') || contains(roles[*], 'Admin')) && 'Admin' ||  (contains(roles[*], 'grafana-editor') || contains(roles[*], 'Editor')) && 'Editor' ||  'Viewer'
+tls_skip_verify_insecure = {{if .grafana.insecureSkipTlsVerify}}{{.grafana.insecureSkipTlsVerify}}{{else}}false{{end}}
+
+[plugins]
+allow_loading_unsigned_plugins = {{.grafana.allowedUnsignedPlugins}}

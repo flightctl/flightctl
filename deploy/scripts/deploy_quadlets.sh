@@ -6,32 +6,10 @@ set -eo pipefail
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 source "${SCRIPT_DIR}"/shared.sh
 
-# Function to switch container images from quay.io to locally built ones for development
-switch_to_local_images() {
-    echo "Switching container images to locally built ones for development..."
-    local services=("api" "worker" "periodic" "alert-exporter" "alertmanager-proxy" "cli-artifacts" "db-migrate" "db-wait" "db-users-init")
-
-    for service in "${services[@]}"; do
-        container_file="${QUADLET_FILES_OUTPUT_DIR}/flightctl-${service}.container"
-        if [[ -f "$container_file" ]] && grep -q "Image=quay.io/flightctl/" "$container_file"; then
-            sed -i 's|Image=quay.io/flightctl/flightctl-\([^:][^:]*\):latest|Image=flightctl-\1:latest|' "$container_file"
-            echo "Updated $container_file to use local image"
-        else
-            echo "Skipping $container_file (not found or no matching image reference)"
-        fi
-    done
-}
-
 echo "Starting Deployment"
 
-# Run installation script
-if ! deploy/scripts/install.sh; then
-    echo "Error: Installation failed"
-    exit 1
-fi
-
-# Switch to locally built container images for development
-switch_to_local_images
+# Render quadlet files
+bin/flightctl-standalone render quadlets --config deploy/podman/local-images.yaml
 
 echo "Ensuring secrets are available..."
 # Always ensure secrets exist before starting services
@@ -40,7 +18,7 @@ if ! "${CONFIG_READONLY_DIR}/init_host.sh"; then
     exit 1
 fi
 
-echo "Starting all FlightCtl services via target..."
+echo "Starting all Flight Control services via target..."
 start_service "flightctl.target"
 
 echo "Waiting for services to initialize..."
@@ -133,7 +111,7 @@ done
 
 echo "Deployment completed successfully!"
 echo ""
-echo "FlightCtl services are running:"
+echo "Flight Control services are running:"
 for service in ${ALL_SERVICES}; do
     # Extract a human-readable name from the service name
     service_name=$(echo "$service" | sed 's/flightctl-//g' | sed 's/\.service//g' | sed 's/-/ /g' | sed 's/\b\w/\u&/g')

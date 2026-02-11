@@ -105,8 +105,10 @@ func TestGetDefaultRouteIPv4(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			require := require.New(t)
 			tmpDir := t.TempDir()
-			rw := fileio.NewReadWriter()
-			rw.SetRootdir(tmpDir)
+			rw := fileio.NewReadWriter(
+				fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+				fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+			)
 
 			logger := log.NewPrefixLogger("test")
 			logger.SetLevel(logrus.TraceLevel)
@@ -187,8 +189,10 @@ func TestGetDefaultRouteIPv6(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			require := require.New(t)
 			tmpDir := t.TempDir()
-			rw := fileio.NewReadWriter()
-			rw.SetRootdir(tmpDir)
+			rw := fileio.NewReadWriter(
+				fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+				fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+			)
 
 			logger := log.NewPrefixLogger("test")
 			logger.SetLevel(logrus.TraceLevel)
@@ -265,8 +269,10 @@ func TestGetDefaultRoute(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			require := require.New(t)
 			tmpDir := t.TempDir()
-			rw := fileio.NewReadWriter()
-			rw.SetRootdir(tmpDir)
+			rw := fileio.NewReadWriter(
+				fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+				fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+			)
 
 			logger := log.NewPrefixLogger("test")
 			logger.SetLevel(logrus.TraceLevel)

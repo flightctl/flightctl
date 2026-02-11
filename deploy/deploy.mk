@@ -18,7 +18,12 @@ cluster: bin/e2e-certs/ca.pem
 clean-cluster:
 	kind delete cluster
 
+ifndef SKIP_BUILD
 deploy: cluster build-containers build-cli deploy-helm prepare-agent-config
+else
+deploy: cluster deploy-helm prepare-agent-config
+	@echo "Skipping container and CLI builds (SKIP_BUILD is set)"
+endif
 
 redeploy-api: flightctl-api-container
 	test/scripts/redeploy.sh api
@@ -38,7 +43,13 @@ redeploy-alertmanager-proxy: flightctl-alertmanager-proxy-container
 redeploy-telemetry-gateway: flightctl-telemetry-gateway-container
 	test/scripts/redeploy.sh telemetry-gateway
 
-deploy-helm: flightctl-api-container flightctl-db-setup-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-alertmanager-proxy-container flightctl-multiarch-cli-container flightctl-telemetry-gateway-container
+redeploy-imagebuilder-worker: flightctl-imagebuilder-worker-container
+	test/scripts/redeploy.sh imagebuilder-worker
+
+ifndef SKIP_BUILD
+deploy-helm: flightctl-api-container flightctl-db-setup-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-alertmanager-proxy-container flightctl-imagebuilder-api-container flightctl-imagebuilder-worker-container flightctl-multiarch-cli-container flightctl-telemetry-gateway-container
+endif
+deploy-helm:
 	kubectl config set-context kind-kind
 	test/scripts/install_helm.sh
 	test/scripts/deploy_with_helm.sh --db-size $(DB_SIZE)
@@ -61,7 +72,10 @@ deploy-alertmanager:
 deploy-alertmanager-proxy:
 	sudo -E deploy/scripts/deploy_quadlet_service.sh alertmanager-proxy
 
-deploy-quadlets: build-containers
+# Can set the SKIP_BUILD variable to skip the build step and use existing containers
+deploy-quadlets:
+ifndef SKIP_BUILD
+	$(MAKE) build-containers
 	@echo "Copying containers from user to root context for systemd services..."
 	podman save flightctl-api:latest | sudo podman load
 	podman save flightctl-db-setup:latest | sudo podman load
@@ -70,6 +84,13 @@ deploy-quadlets: build-containers
 	podman save flightctl-alert-exporter:latest | sudo podman load
 	podman save flightctl-cli-artifacts:latest | sudo podman load
 	podman save flightctl-alertmanager-proxy:latest | sudo podman load
+	podman save flightctl-pam-issuer:latest | sudo podman load
+	podman save flightctl-imagebuilder-api:latest | sudo podman load
+	podman save flightctl-imagebuilder-worker:latest | sudo podman load
+	podman save flightctl-userinfo-proxy:latest | sudo podman load
+	podman save flightctl-telemetry-gateway:latest | sudo podman load
+endif
+	$(MAKE) build-standalone
 	sudo -E deploy/scripts/deploy_quadlets.sh
 
 kill-db:

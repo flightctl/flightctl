@@ -4,13 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"math/rand"
+	"math/rand/v2"
 	"net/http"
 	"strings"
 	"testing"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/alert_exporter"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
@@ -71,9 +71,7 @@ var _ = Describe("Alert Exporter", func() {
 		mockProducer.EXPECT().Enqueue(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 		kvStore, err := kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
 		Expect(err).ToNot(HaveOccurred())
-		orgResolver, err := testutil.NewOrgResolver(cfg, storeInst.Organization(), log)
-		Expect(err).ToNot(HaveOccurred())
-		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStore, nil, log, "", "", []string{}, orgResolver)
+		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStore, nil, log, "", "", []string{})
 		checkpointManager = alert_exporter.NewCheckpointManager(log, serviceHandler)
 		eventProcessor = alert_exporter.NewEventProcessor(log, serviceHandler)
 		alertSender = alert_exporter.NewAlertSender(log, cfg.Alertmanager.Hostname, cfg.Alertmanager.Port, cfg)
@@ -397,7 +395,7 @@ var _ = Describe("Alert Exporter", func() {
 				Metadata:       api.ObjectMeta{Name: lo.ToPtr("test-event-nil-timestamp")},
 				// CreationTimestamp is nil
 			}
-			serviceHandler.CreateEvent(ctx, ev)
+			serviceHandler.CreateEvent(ctx, store.NullOrgId, ev)
 
 			// Create event with empty object name
 			ev2 := &api.Event{
@@ -408,7 +406,7 @@ var _ = Describe("Alert Exporter", func() {
 					CreationTimestamp: lo.ToPtr(time.Now()),
 				},
 			}
-			serviceHandler.CreateEvent(ctx, ev2)
+			serviceHandler.CreateEvent(ctx, store.NullOrgId, ev2)
 
 			// Create valid event
 			createEvent(ctx, serviceHandler, api.EventReasonDeviceDiskWarning, api.DeviceKind, "valid-device")
@@ -560,9 +558,9 @@ func createEvent(ctx context.Context, handler service.Service, reason api.EventR
 	ev := &api.Event{
 		Reason:         reason,
 		InvolvedObject: api.ObjectReference{Kind: kind, Name: name},
-		Metadata:       api.ObjectMeta{Name: lo.ToPtr(fmt.Sprintf("test-event-%d", rand.Int63()))}, //nolint:gosec
+		Metadata:       api.ObjectMeta{Name: lo.ToPtr(fmt.Sprintf("test-event-%d", rand.Int64()))}, //nolint:gosec
 	}
-	handler.CreateEvent(ctx, ev)
+	handler.CreateEvent(ctx, store.NullOrgId, ev)
 }
 
 type AlertmanagerAlert struct {

@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"reflect"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -25,9 +25,14 @@ func DefaultDenyOptions() *DenyOptions {
 func NewCmdDeny() *cobra.Command {
 	o := DefaultDenyOptions()
 	cmd := &cobra.Command{
-		Use:   "deny csr/NAME",
+		Use:   "deny csr/NAME [or] csr NAME",
 		Short: "Deny a certificate signing request.",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.RangeArgs(1, 2),
+		ValidArgsFunction: KindNameAutocomplete{
+			Options:            o,
+			AllowMultipleNames: false,
+			AllowedKinds:       []ResourceKind{CertificateSigningRequestKind},
+		}.ValidArgsFunction,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := o.Complete(cmd, args); err != nil {
 				return err
@@ -62,7 +67,7 @@ func (o *DenyOptions) Validate(args []string) error {
 		return err
 	}
 
-	kind, name, err := parseAndValidateKindName(args[0])
+	kind, name, err := parseAndValidateKindNameFromArgsSingle(args)
 	if err != nil {
 		return err
 	}
@@ -83,8 +88,10 @@ func (o *DenyOptions) Run(ctx context.Context, args []string) error {
 	if err != nil {
 		return fmt.Errorf("creating client: %w", err)
 	}
+	c.Start(ctx)
+	defer c.Stop()
 
-	kind, name, err := parseAndValidateKindName(args[0])
+	kind, name, err := parseAndValidateKindNameFromArgsSingle(args)
 	if err != nil {
 		return err
 	}
@@ -125,7 +132,7 @@ func (o *DenyOptions) Run(ctx context.Context, args []string) error {
 	return processDenyReponse(response, err, kind, name)
 }
 
-func processDenyReponse(response interface{}, err error, kind string, name string) error {
+func processDenyReponse(response interface{}, err error, kind ResourceKind, name string) error {
 	errorPrefix := fmt.Sprintf("denying %s/%s", kind, name)
 	if err != nil {
 		return fmt.Errorf("%s: %w", errorPrefix, err)

@@ -4,22 +4,20 @@ import (
 	"context"
 	"crypto/x509"
 	"fmt"
+
+	"github.com/flightctl/flightctl/internal/flterrors"
 )
 
-const signerDeviceEnrollmentExpiryDays int32 = 365
+const DefaultDeviceEnrollmentExpirySeconds int32 = 60 * 60 * 24 * 365 // 1 year
 
 type SignerDeviceEnrollment struct {
 	name string
 	ca   CA
 }
 
-func NewSignerDeviceEnrollment(CAClient CA) Signer {
+func NewDeviceEnrollment(CAClient CA) Signer {
 	cfg := CAClient.Config()
 	return &SignerDeviceEnrollment{name: cfg.DeviceEnrollmentSignerName, ca: CAClient}
-}
-
-func (s *SignerDeviceEnrollment) RestrictedPrefix() string {
-	return s.ca.Config().DeviceCommonNamePrefix
 }
 
 func (s *SignerDeviceEnrollment) Name() string {
@@ -27,24 +25,15 @@ func (s *SignerDeviceEnrollment) Name() string {
 }
 
 func (s *SignerDeviceEnrollment) Verify(ctx context.Context, request SignRequest) error {
-	cfg := s.ca.Config()
-
-	// Check if the client presented a peer certificate during the mTLS handshake.
-	// If no peer certificate was presented, we allow the request to proceed without additional signer checks.
+	// We are about to expose CreateCertificateSigningRequest to agents.
+	// Currently, there is no code in the agent that handles this flow for issuing bootstrap certificates.
+	// For safety, we do not allow client certificates (issued by the system) to request bootstrap certificates at this time.
+	// This restriction will stay in place until we analyze and design proper support for allowing other client certificates
+	// to issue bootstrap certificates safely.
 	if _, err := PeerCertificateFromCtx(ctx); err == nil {
-		signer := s.ca.PeerCertificateSignerFromCtx(ctx)
-
-		got := "<nil>"
-		if signer != nil {
-			got = signer.Name()
-		}
-
-		// Enforce that if a client certificate was presented, it must be signed by the expected bootstrap signer.
-		// This ensures only bootstrap client certificates can be used to perform device enrollment.
-		if signer == nil || signer.Name() != cfg.ClientBootstrapSignerName {
-			return fmt.Errorf("unexpected client certificate signer: expected %q, got %q", cfg.ClientBootstrapSignerName, got)
-		}
+		return fmt.Errorf("bootstrap certificates cannot be requested using client certificates issued by the system")
 	}
+
 	return nil
 }
 
@@ -55,34 +44,25 @@ func (s *SignerDeviceEnrollment) Sign(ctx context.Context, request SignRequest) 
 		return nil, fmt.Errorf("request is missing metadata.name")
 	}
 
-	// Parse the CSR (for TCG CSRs, the service layer provides the embedded standard CSR)
+	// the CN will need the enrollment prefix applied;
+	// if the certificate is being renewed, the name will have an existing prefix.
+	// we do not touch in this case.
+
 	x509CSR := request.X509()
-	supplied, err := CNFromDeviceFingerprint(cfg, x509CSR.Subject.CommonName)
+	u := x509CSR.Subject.CommonName
 
-	if err != nil {
-		return nil, fmt.Errorf("invalid CN supplied in CSR: %w", err)
+	// Once we move all prefixes/name formation to the client this can become a simple
+	if BootstrapCNFromName(cfg, u) != BootstrapCNFromName(cfg, *request.ResourceName()) {
+		return nil, fmt.Errorf("%w - CN %s Metadata %s mismatch", flterrors.ErrSignCert, u, *request.ResourceName())
 	}
 
-	desired, err := CNFromDeviceFingerprint(cfg, *request.ResourceName())
-	if err != nil {
-		return nil, fmt.Errorf("error setting CN in CSR: %w", err)
+	// Create a copy to modify the CN
+	x509CSR.Subject.CommonName = BootstrapCNFromName(cfg, u)
+
+	expiry := DefaultDeviceEnrollmentExpirySeconds
+	if request.ExpirationSeconds() != nil {
+		expiry = *request.ExpirationSeconds()
 	}
 
-	if desired != supplied {
-		return nil, fmt.Errorf("attempt to supply a fake CN, possible identity theft, csr: %s, metadata %s", supplied, desired)
-	}
-
-	x509CSR.Subject.CommonName = desired
-
-	expirySeconds := signerDeviceEnrollmentExpiryDays * 24 * 60 * 60
-	if request.ExpirationSeconds() != nil && *request.ExpirationSeconds() < expirySeconds {
-		expirySeconds = *request.ExpirationSeconds()
-	}
-
-	return s.ca.IssueRequestedClientCertificate(
-		ctx,
-		&x509CSR,
-		int(expirySeconds),
-		WithExtension(OIDDeviceFingerprint, x509CSR.Subject.CommonName),
-	)
+	return s.ca.IssueRequestedClientCertificate(ctx, &x509CSR, int(expiry))
 }

@@ -4,7 +4,8 @@ import (
 	"io/fs"
 	"os"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/pkg/userutil"
 )
 
 const (
@@ -24,8 +25,6 @@ type ManagedFile interface {
 }
 
 type Writer interface {
-	// SetRootdir sets the root directory for the writer, useful for testing
-	SetRootdir(path string)
 	// PathFor returns the full path for the given filePath, prepending the rootDir if set
 	// This is useful for testing to ensure that the file is written to the correct location
 	PathFor(filePath string) string
@@ -35,23 +34,28 @@ type Writer interface {
 	RemoveFile(file string) error
 	// RemoveAll removes the file or directory at the given path
 	RemoveAll(path string) error
+	// Rename renames (moves) oldpath to newpath
+	Rename(oldpath, newpath string) error
 	// RemoveContents removes all files and subdirectories within the given path,
 	// but leaves the directory itself intact. It is a no-op if the path does not exist.
 	RemoveContents(path string) error
+	// CreateFile creates or opens the file at the given path, ensuring that it is owned by the correct user.
+	CreateFile(path string, flag int, perm fs.FileMode) (*os.File, error)
 	// MkdirAll creates a directory at the given path with the specified permissions.
 	MkdirAll(path string, perm fs.FileMode) error
 	// MkdirTemp creates a temporary directory with the given prefix and returns its path.
 	MkdirTemp(prefix string) (string, error)
 	// CopyFile copies a file from src to dst, creating the destination directory if it does not exist.
 	CopyFile(src, dst string) error
+	// CopyDir recursively copies a directory from src to dst, preserving file permissions.
+	CopyDir(src, dst string, opts ...CopyDirOption) error
 	// CreateManagedFile creates a managed file with the given spec.
-	CreateManagedFile(file v1alpha1.FileSpec) (ManagedFile, error)
+	CreateManagedFile(file v1beta1.FileSpec) (ManagedFile, error)
 	// OverwriteAndWipe overwrites the file at the given path with zeros and then deletes it.
 	OverwriteAndWipe(file string) error
 }
 
 type Reader interface {
-	SetRootdir(path string)
 	PathFor(filePath string) string
 	ReadFile(filePath string) ([]byte, error)
 	ReadDir(dirPath string) ([]fs.DirEntry, error)
@@ -64,39 +68,45 @@ type ReadWriter interface {
 }
 
 type readWriter struct {
-	*reader
-	*writer
+	Reader
+	Writer
 }
 
-func NewReadWriter(opts ...Option) ReadWriter {
-	rw := &readWriter{
-		reader: NewReader(),
-		writer: NewWriter(),
+type ReadWriterFactory func(username v1beta1.Username) (ReadWriter, error)
+
+func NewReadWriterFactory(rootDir string) ReadWriterFactory {
+	return func(username v1beta1.Username) (ReadWriter, error) {
+		writerOptions := []WriterOption{
+			WithWriterRootDir(rootDir),
+		}
+
+		if !username.IsCurrentProcessUser() {
+			uid, gid, _, err := userutil.LookupUser(username)
+			if err != nil {
+				return nil, err
+			}
+			writerOptions = append(writerOptions,
+				WithUID(uid),
+				WithGID(gid),
+			)
+		}
+
+		return NewReadWriter(
+			NewReader(WithReaderRootDir(rootDir)),
+			NewWriter(writerOptions...),
+		), nil
 	}
-	for _, opt := range opts {
-		opt(rw)
-	}
-	return rw
 }
 
-func (rw *readWriter) SetRootdir(path string) {
-	rw.reader.SetRootdir(path)
-	rw.writer.SetRootdir(path)
+func NewReadWriter(reader Reader, writer Writer) ReadWriter {
+	return &readWriter{
+		Reader: reader,
+		Writer: writer,
+	}
 }
 
 func (rw *readWriter) PathFor(path string) string {
-	return rw.writer.PathFor(path)
-}
-
-type Option func(*readWriter)
-
-// WithTestRootDir sets the root directory for the reader and writer, useful for testing.
-func WithTestRootDir(testRootDir string) Option {
-	return func(rw *readWriter) {
-		if testRootDir != "" {
-			rw.SetRootdir(testRootDir)
-		}
-	}
+	return rw.Writer.PathFor(path)
 }
 
 type fileOptions struct {

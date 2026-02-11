@@ -9,7 +9,7 @@ import (
 	"slices"
 	"strings"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/cli/display"
 	"github.com/flightctl/flightctl/pkg/version"
@@ -34,6 +34,7 @@ const (
 
 	errReadingVersion = "Could not read server version"
 	errUnmarshalling  = "Could not unmarshal server response"
+	errNotLoggedIn    = "You must log in to view the server version. Please use the 'login' command to authenticate before proceeding"
 )
 
 func DefaultVersionOptions() *VersionOptions {
@@ -117,6 +118,8 @@ func (o *VersionOptions) Run(ctx context.Context, args []string) error {
 	var serverVersion *api.Version
 	c, err := o.BuildClient()
 	if err == nil {
+		c.Start(ctx)
+		defer c.Stop()
 		var response *apiclient.GetVersionResponse
 		response, err = c.GetVersionWithResponse(ctx)
 		serverVersion, err = o.processResponse(response, err)
@@ -156,7 +159,14 @@ func (o *VersionOptions) Run(ctx context.Context, args []string) error {
 
 	// Don't treat it as error if the server cannot be reached, just print the message.
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "%s\n", err.Error())
+		if _, statErr := os.Stat(o.ConfigFilePath); os.IsNotExist(statErr) {
+			if o.Output == "" {
+				fmt.Printf("%s: %s\n", serviceVersionTitle, errReadingVersion)
+			}
+			fmt.Fprintf(os.Stderr, "%s\n", errNotLoggedIn)
+		} else {
+			fmt.Fprintf(os.Stderr, "%s\n", err.Error())
+		}
 	}
 	return nil
 }

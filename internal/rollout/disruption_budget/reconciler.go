@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store/selector"
@@ -25,7 +25,7 @@ const (
 )
 
 type Reconciler interface {
-	Reconcile(ctx context.Context)
+	Reconcile(ctx context.Context, orgID uuid.UUID)
 }
 
 type reconciler struct {
@@ -84,25 +84,25 @@ func collectDeviceBudgetCounts(counts []map[string]any, groupBy []string) ([]*gr
 	return ret, nil
 }
 
-func (r *reconciler) getFleetCounts(ctx context.Context, _ uuid.UUID, fleet *api.Fleet) ([]*groupCounts, error) {
+func (r *reconciler) getFleetCounts(ctx context.Context, orgId uuid.UUID, fleet *domain.Fleet) ([]*groupCounts, error) {
 	groupBy := lo.FromPtr(fleet.Spec.RolloutPolicy.DisruptionBudget.GroupBy)
 
-	listParams := api.ListDevicesParams{
-		FieldSelector: lo.ToPtr(fmt.Sprintf("metadata.owner=%s", util.ResourceOwner(api.FleetKind, lo.FromPtr(fleet.Metadata.Name)))),
+	listParams := domain.ListDevicesParams{
+		FieldSelector: lo.ToPtr(fmt.Sprintf("metadata.owner=%s", util.ResourceOwner(domain.FleetKind, lo.FromPtr(fleet.Metadata.Name)))),
 	}
-	counts, status := r.serviceHandler.CountDevicesByLabels(ctx, listParams, nil, groupBy)
+	counts, status := r.serviceHandler.CountDevicesByLabels(ctx, orgId, listParams, nil, groupBy)
 	if status.Code != http.StatusOK {
 		return nil, service.ApiStatusToErr(status)
 	}
 	return collectDeviceBudgetCounts(counts, groupBy)
 }
 
-func (r *reconciler) reconcileSelectionDevices(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet, key map[string]any, numToRender int) error {
+func (r *reconciler) reconcileSelectionDevices(ctx context.Context, orgId uuid.UUID, fleet *domain.Fleet, key map[string]any, numToRender int) error {
 	annotations := lo.FromPtr(fleet.Metadata.Annotations)
 	if annotations == nil {
 		return fmt.Errorf("annotations don't exist")
 	}
-	templateVersionName, exists := annotations[api.FleetAnnotationTemplateVersion]
+	templateVersionName, exists := annotations[domain.FleetAnnotationTemplateVersion]
 	if !exists {
 		return fmt.Errorf("template version doesn't exist")
 	}
@@ -112,19 +112,19 @@ func (r *reconciler) reconcileSelectionDevices(ctx context.Context, orgId uuid.U
 	// is equal to the expected template version but the annotation 'device-controller/renderedTemplateVersion'
 	// should not equal to the template version.
 	annotationSelector := selector.NewAnnotationSelectorOrDie(strings.Join([]string{
-		api.MatchExpression{
-			Key:      api.DeviceAnnotationTemplateVersion,
-			Operator: api.In,
+		domain.MatchExpression{
+			Key:      domain.DeviceAnnotationTemplateVersion,
+			Operator: domain.In,
 			Values:   lo.ToPtr([]string{templateVersionName}),
 		}.String(),
-		api.MatchExpression{
-			Key:      api.DeviceAnnotationRenderedTemplateVersion,
-			Operator: api.NotIn,
+		domain.MatchExpression{
+			Key:      domain.DeviceAnnotationRenderedTemplateVersion,
+			Operator: domain.NotIn,
 			Values:   lo.ToPtr([]string{templateVersionName}),
 		}.String(),
 	}, ","))
-	listParams := api.ListDevicesParams{
-		FieldSelector: lo.ToPtr(fmt.Sprintf("metadata.owner=%s", util.ResourceOwner(api.FleetKind, lo.FromPtr(fleet.Metadata.Name)))),
+	listParams := domain.ListDevicesParams{
+		FieldSelector: lo.ToPtr(fmt.Sprintf("metadata.owner=%s", util.ResourceOwner(domain.FleetKind, lo.FromPtr(fleet.Metadata.Name)))),
 	}
 	if len(key) > 0 {
 		// The list of labels is converted to MatchExpressions.  In case that the label does not exist
@@ -133,14 +133,14 @@ func (r *reconciler) reconcileSelectionDevices(ctx context.Context, orgId uuid.U
 		for k, v := range key {
 			switch val := v.(type) {
 			case nil:
-				labelSelectorParts = append(labelSelectorParts, api.MatchExpression{
+				labelSelectorParts = append(labelSelectorParts, domain.MatchExpression{
 					Key:      k,
-					Operator: api.DoesNotExist,
+					Operator: domain.DoesNotExist,
 				}.String())
 			case string:
-				labelSelectorParts = append(labelSelectorParts, api.MatchExpression{
+				labelSelectorParts = append(labelSelectorParts, domain.MatchExpression{
 					Key:      k,
-					Operator: api.In,
+					Operator: domain.In,
 					Values:   lo.ToPtr([]string{val}),
 				}.String())
 			default:
@@ -152,13 +152,13 @@ func (r *reconciler) reconcileSelectionDevices(ctx context.Context, orgId uuid.U
 	remaining := lo.Ternary(numToRender > 0, numToRender, math.MaxInt)
 	for {
 		listParams.Limit = lo.ToPtr(int32(math.Min(float64(remaining), float64(maxItemsToRender))))
-		devices, status := r.serviceHandler.ListDevices(ctx, listParams, annotationSelector)
+		devices, status := r.serviceHandler.ListDevices(ctx, orgId, listParams, annotationSelector)
 		if status.Code != http.StatusOK {
 			return service.ApiStatusToErr(status)
 		}
 		for _, d := range devices.Items {
 			r.log.Infof("%v/%s: sending device to rendering", orgId, lo.FromPtr(d.Metadata.Name))
-			r.serviceHandler.CreateEvent(ctx, common.GetFleetRolloutDeviceSelectedEvent(ctx, lo.FromPtr(d.Metadata.Name), lo.FromPtr(fleet.Metadata.Name), templateVersionName))
+			r.serviceHandler.CreateEvent(ctx, orgId, common.GetFleetRolloutDeviceSelectedEvent(ctx, lo.FromPtr(d.Metadata.Name), lo.FromPtr(fleet.Metadata.Name), templateVersionName))
 		}
 		remaining = remaining - len(devices.Items)
 		if devices.Metadata.Continue == nil || remaining == 0 {
@@ -169,7 +169,7 @@ func (r *reconciler) reconcileSelectionDevices(ctx context.Context, orgId uuid.U
 	return nil
 }
 
-func (r *reconciler) reconcileFleet(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet) error {
+func (r *reconciler) reconcileFleet(ctx context.Context, orgId uuid.UUID, fleet *domain.Fleet) error {
 	r.log.Infof("disruption budget: starting reconciling fleet %v/%s", orgId, lo.FromPtr(fleet.Metadata.Name))
 	defer r.log.Infof("disruption budget: finished reconciling fleet %v/%s", orgId, lo.FromPtr(fleet.Metadata.Name))
 
@@ -207,14 +207,8 @@ func (r *reconciler) reconcileFleet(ctx context.Context, orgId uuid.UUID, fleet 
 	return nil
 }
 
-func (r *reconciler) Reconcile(ctx context.Context) {
-	orgId, ok := util.GetOrgIdFromContext(ctx)
-	if !ok {
-		r.log.Error("No organization ID found in context")
-		return
-	}
-
-	fleetList, status := r.serviceHandler.ListDisruptionBudgetFleets(ctx)
+func (r *reconciler) Reconcile(ctx context.Context, orgID uuid.UUID) {
+	fleetList, status := r.serviceHandler.ListDisruptionBudgetFleets(ctx, orgID)
 	if status.Code != http.StatusOK {
 		r.log.WithError(service.ApiStatusToErr(status)).Error("Failed to query disruption budget fleets")
 		return
@@ -225,12 +219,12 @@ func (r *reconciler) Reconcile(ctx context.Context) {
 		if annotations == nil {
 			continue
 		}
-		_, exists := annotations[api.FleetAnnotationTemplateVersion]
+		_, exists := annotations[domain.FleetAnnotationTemplateVersion]
 		if !exists {
 			continue
 		}
-		if err := r.reconcileFleet(ctx, orgId, fleet); err != nil {
-			r.log.WithError(err).Errorf("reconcile fleet %v/%s", orgId, lo.FromPtr(fleet.Metadata.Name))
+		if err := r.reconcileFleet(ctx, orgID, fleet); err != nil {
+			r.log.WithError(err).Errorf("reconcile fleet %v/%s", orgID, lo.FromPtr(fleet.Metadata.Name))
 		}
 	}
 }

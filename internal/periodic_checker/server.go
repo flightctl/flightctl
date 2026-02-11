@@ -3,7 +3,6 @@ package periodic
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"os"
 	"os/signal"
 	"sync"
@@ -14,7 +13,6 @@ import (
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/org/cache"
-	"github.com/flightctl/flightctl/internal/org/resolvers"
 	"github.com/flightctl/flightctl/internal/rendered"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
@@ -73,7 +71,7 @@ func (s *Server) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	defer queuePublisher.Close()
+	defer queuePublisher.Close() // Close publisher on server shutdown
 
 	workerClient := worker_client.NewWorkerClient(queuePublisher, s.log)
 	if err = rendered.Bus.Initialize(ctx, kvStore, queuesProvider, time.Duration(s.cfg.Service.RenderedWaitTimeout), s.log); err != nil {
@@ -81,31 +79,16 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 
 	orgCache := cache.NewOrganizationTTL(cache.DefaultTTL)
-	go orgCache.Start()
+	go func() {
+		orgCache.Start(ctx)
+		s.log.Warn("Organization cache stopped unexpectedly")
+	}()
 	defer orgCache.Stop()
 
-	buildResolverOpts := resolvers.BuildResolverOptions{
-		Config: s.cfg,
-		Store:  s.store.Organization(),
-		Log:    s.log,
-		Cache:  orgCache,
-	}
-
-	if s.cfg.Auth != nil && s.cfg.Auth.AAP != nil {
-		membershipCache := cache.NewMembershipTTL(cache.DefaultTTL)
-		go membershipCache.Start()
-		defer membershipCache.Stop()
-		buildResolverOpts.MembershipCache = membershipCache
-	}
-
-	orgResolver, err := resolvers.BuildResolver(buildResolverOpts)
-	if err != nil {
-		return err
-	}
-	serviceHandler := service.WrapWithTracing(service.NewServiceHandler(s.store, workerClient, kvStore, nil, s.log, "", "", []string{}, orgResolver))
+	serviceHandler := service.WrapWithTracing(service.NewServiceHandler(s.store, workerClient, kvStore, nil, s.log, "", "", []string{}))
 
 	// Initialize the task executors
-	periodicTaskExecutors := InitializeTaskExecutors(s.log, serviceHandler, s.cfg, queuesProvider, nil)
+	periodicTaskExecutors := InitializeTaskExecutors(s.log, serviceHandler, s.cfg, queuesProvider, workerClient, nil)
 
 	// Create channel manager for task distribution
 	channelManagerConfig := ChannelManagerConfig{
@@ -138,14 +121,14 @@ func (s *Server) Run(ctx context.Context) error {
 	publisherConfig := PeriodicTaskPublisherConfig{
 		Log:            s.log,
 		OrgService:     serviceHandler,
-		TasksMetadata:  periodicTasks,
+		TasksMetadata:  MergeTasksWithConfig(s.cfg),
 		ChannelManager: channelManager,
+		WorkerClient:   workerClient,
 		TaskBackoff: &poll.Config{
 			BaseDelay:    100 * time.Millisecond,
 			Factor:       3,
 			MaxDelay:     10 * time.Second,
 			JitterFactor: 0.1,
-			Rand:         rand.New(rand.NewSource(time.Now().UnixNano())), //nolint:gosec
 		},
 	}
 	periodicTaskPublisher, err := NewPeriodicTaskPublisher(publisherConfig)

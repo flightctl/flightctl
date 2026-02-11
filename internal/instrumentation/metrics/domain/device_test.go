@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
@@ -61,6 +61,14 @@ func (m *MockStore) Organization() store.Organization {
 	return nil
 }
 
+func (m *MockStore) AuthProvider() store.AuthProvider {
+	return nil
+}
+
+func (m *MockStore) Catalog() store.Catalog {
+	return nil
+}
+
 func (m *MockStore) RunMigrations(context.Context) error {
 	return nil
 }
@@ -78,11 +86,11 @@ type MockDevice struct {
 	results []store.CountByOrgAndStatusResult
 }
 
-func (m *MockDevice) GetWithoutServiceConditions(ctx context.Context, orgId uuid.UUID, name string) (*api.Device, error) {
+func (m *MockDevice) GetWithoutServiceConditions(ctx context.Context, orgId uuid.UUID, name string) (*domain.Device, error) {
 	return nil, nil
 }
 
-func (m *MockDevice) ListDisconnected(ctx context.Context, orgId uuid.UUID, listParams store.ListParams, cutoffTime time.Time) (*api.DeviceList, error) {
+func (m *MockDevice) ListDisconnected(ctx context.Context, orgId uuid.UUID, listParams store.ListParams, cutoffTime time.Time) (*domain.DeviceList, error) {
 	return nil, nil
 }
 
@@ -100,37 +108,37 @@ func (m *MockDevice) CountByOrgAndStatus(ctx context.Context, orgId *uuid.UUID, 
 
 // Implement other required methods with empty implementations
 func (m *MockDevice) InitialMigration(ctx context.Context) error { return nil }
-func (m *MockDevice) Create(ctx context.Context, orgId uuid.UUID, device *api.Device, callback store.EventCallback) (*api.Device, error) {
+func (m *MockDevice) Create(ctx context.Context, orgId uuid.UUID, device *domain.Device, callback store.EventCallback) (*domain.Device, error) {
 	return nil, nil
 }
-func (m *MockDevice) Update(ctx context.Context, orgId uuid.UUID, device *api.Device, fieldsToUnset []string, fromAPI bool, validationCallback store.DeviceStoreValidationCallback, callback store.EventCallback) (*api.Device, error) {
+func (m *MockDevice) Update(ctx context.Context, orgId uuid.UUID, device *domain.Device, fieldsToUnset []string, fromAPI bool, validationCallback store.DeviceStoreValidationCallback, callback store.EventCallback) (*domain.Device, error) {
 	return nil, nil
 }
-func (m *MockDevice) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *api.Device, fieldsToUnset []string, fromAPI bool, validationCallback store.DeviceStoreValidationCallback, callback store.EventCallback) (*api.Device, bool, error) {
+func (m *MockDevice) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *domain.Device, fieldsToUnset []string, fromAPI bool, validationCallback store.DeviceStoreValidationCallback, callback store.EventCallback) (*domain.Device, bool, error) {
 	return nil, false, nil
 }
-func (m *MockDevice) Get(ctx context.Context, orgId uuid.UUID, name string) (*api.Device, error) {
+func (m *MockDevice) Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.Device, error) {
 	return nil, nil
 }
-func (m *MockDevice) List(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (*api.DeviceList, error) {
+func (m *MockDevice) List(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (*domain.DeviceList, error) {
 	return nil, nil
 }
 func (m *MockDevice) Count(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (int64, error) {
 	return 0, nil
 }
-func (m *MockDevice) Summary(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (*api.DevicesSummary, error) {
+func (m *MockDevice) Summary(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (*domain.DevicesSummary, error) {
 	return nil, nil
 }
-func (m *MockDevice) Labels(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (api.LabelList, error) {
+func (m *MockDevice) Labels(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (domain.LabelList, error) {
 	return nil, nil
 }
 func (m *MockDevice) Delete(ctx context.Context, orgId uuid.UUID, name string, callback store.EventCallback) (bool, error) {
 	return true, nil
 }
-func (m *MockDevice) UpdateStatus(ctx context.Context, orgId uuid.UUID, device *api.Device, callbackEvent store.EventCallback) (*api.Device, error) {
+func (m *MockDevice) UpdateStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device, callbackEvent store.EventCallback) (*domain.Device, error) {
 	return nil, nil
 }
-func (m *MockDevice) GetRendered(ctx context.Context, orgId uuid.UUID, name string, knownRenderedVersion *string, consoleGrpcEndpoint string) (*api.Device, error) {
+func (m *MockDevice) GetRendered(ctx context.Context, orgId uuid.UUID, name string, knownRenderedVersion *string, consoleGrpcEndpoint string) (*domain.Device, error) {
 	return nil, nil
 }
 func (m *MockDevice) UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) error {
@@ -139,13 +147,13 @@ func (m *MockDevice) UpdateAnnotations(ctx context.Context, orgId uuid.UUID, nam
 func (m *MockDevice) UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash string) (string, error) {
 	return "", nil
 }
-func (m *MockDevice) SetServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition, callback store.ServiceConditionsCallback) error {
+func (m *MockDevice) SetServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition, callback store.ServiceConditionsCallback) error {
 	return nil
 }
 func (m *MockDevice) OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error {
 	return nil
 }
-func (m *MockDevice) GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*api.RepositoryList, error) {
+func (m *MockDevice) GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*domain.RepositoryList, error) {
 	return nil, nil
 }
 func (m *MockDevice) UnmarkRolloutSelection(ctx context.Context, orgId uuid.UUID, fleetName string) error {
@@ -154,32 +162,25 @@ func (m *MockDevice) UnmarkRolloutSelection(ctx context.Context, orgId uuid.UUID
 func (m *MockDevice) MarkRolloutSelection(ctx context.Context, orgId uuid.UUID, listParams store.ListParams, limit *int) error {
 	return nil
 }
-func (m *MockDevice) CompletionCounts(ctx context.Context, orgId uuid.UUID, owner string, templateVersion string, updateTimeout *time.Duration) ([]api.DeviceCompletionCount, error) {
+func (m *MockDevice) CompletionCounts(ctx context.Context, orgId uuid.UUID, owner string, templateVersion string, updateTimeout *time.Duration) ([]domain.DeviceCompletionCount, error) {
 	return nil, nil
 }
 func (m *MockDevice) CountByLabels(ctx context.Context, orgId uuid.UUID, listParams store.ListParams, groupBy []string) ([]map[string]any, error) {
 	return nil, nil
 }
-func (m *MockDevice) UpdateSummaryStatusBatch(ctx context.Context, orgId uuid.UUID, deviceNames []string, status api.DeviceSummaryStatusType, statusInfo string) error {
+func (m *MockDevice) UpdateSummaryStatusBatch(ctx context.Context, orgId uuid.UUID, deviceNames []string, status domain.DeviceSummaryStatusType, statusInfo string) error {
 	return nil
 }
-func (m *MockDevice) ListDevicesByServiceCondition(ctx context.Context, orgId uuid.UUID, conditionType string, conditionStatus string, listParams store.ListParams) (*api.DeviceList, error) {
+func (m *MockDevice) ListDevicesByServiceCondition(ctx context.Context, orgId uuid.UUID, conditionType string, conditionStatus string, listParams store.ListParams) (*domain.DeviceList, error) {
 	return nil, nil
 }
 func (m *MockDevice) SetIntegrationTestCreateOrUpdateCallback(store.IntegrationTestCallback) {}
-func (m *MockDevice) PrepareDevicesAfterRestore(ctx context.Context) (int64, error) {
-	return 0, nil
-}
 func (m *MockDevice) RemoveConflictPausedAnnotation(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (int64, []string, error) {
 	return 0, nil, nil
 }
 
 func (m *MockDevice) SetOutOfDate(ctx context.Context, orgId uuid.UUID, owner string) error {
 	return nil
-}
-
-func (m *MockDevice) GetAllDeviceNames(ctx context.Context, orgId uuid.UUID) ([]string, error) {
-	return nil, nil
 }
 
 func (m *MockDevice) ProcessAwaitingReconnectAnnotation(ctx context.Context, orgId uuid.UUID, deviceName string, deviceReportedVersion *string) (bool, error) {
@@ -213,9 +214,6 @@ func TestDeviceCollectorWithGroupByFleet(t *testing.T) {
 
 	// Test that the collector implements the required interfaces
 	var _ prometheus.Collector = collector
-
-	// Test MetricsName
-	assert.Equal(t, "device", collector.MetricsName())
 
 	// Test that metrics are collected
 	ch := make(chan prometheus.Metric, 100)
@@ -264,9 +262,6 @@ func TestDeviceCollectorWithoutGroupByFleet(t *testing.T) {
 
 	// Test that the collector implements the required interfaces
 	var _ prometheus.Collector = collector
-
-	// Test MetricsName
-	assert.Equal(t, "device", collector.MetricsName())
 
 	// Test that metrics are collected
 	ch := make(chan prometheus.Metric, 100)

@@ -10,18 +10,24 @@ import (
 	"strings"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	corev1alpha1 "github.com/flightctl/flightctl/api/core/v1alpha1"
+	corev1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
+	convertv1alpha1 "github.com/flightctl/flightctl/internal/api/convert/v1alpha1"
+	convertv1beta1 "github.com/flightctl/flightctl/internal/api/convert/v1beta1"
 	"github.com/flightctl/flightctl/internal/api/server"
+	serverv1alpha1 "github.com/flightctl/flightctl/internal/api/server/v1alpha1"
 	fcmiddleware "github.com/flightctl/flightctl/internal/api_server/middleware"
+	"github.com/flightctl/flightctl/internal/api_server/versioning"
 	"github.com/flightctl/flightctl/internal/auth"
+	"github.com/flightctl/flightctl/internal/auth/authn"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/console"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/kvstore"
-	"github.com/flightctl/flightctl/internal/org/resolvers"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
-	"github.com/flightctl/flightctl/internal/transport"
+	transportv1alpha1 "github.com/flightctl/flightctl/internal/transport/v1alpha1"
+	transportv1beta1 "github.com/flightctl/flightctl/internal/transport/v1beta1"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/getkin/kin-openapi/openapi3"
@@ -35,18 +41,14 @@ import (
 // customTransportHandler wraps the transport handler to exclude the auth validate endpoint
 // since it's handled separately with stricter rate limiting
 type customTransportHandler struct {
-	*transport.TransportHandler
+	*transportv1beta1.TransportHandler
 }
 
 // AuthValidate is overridden to return 404 for this handler
 // since the auth validate endpoint is handled separately
-func (c *customTransportHandler) AuthValidate(w http.ResponseWriter, r *http.Request, params api.AuthValidateParams) {
+func (c *customTransportHandler) AuthValidate(w http.ResponseWriter, r *http.Request, params corev1beta1.AuthValidateParams) {
 	http.NotFound(w, r)
 }
-
-const (
-	gracefulShutdownTimeout = 5 * time.Second
-)
 
 type Server struct {
 	log                logrus.FieldLogger
@@ -56,8 +58,7 @@ type Server struct {
 	listener           net.Listener
 	queuesProvider     queues.Provider
 	consoleEndpointReg console.InternalSessionRegistration
-	orgResolver        resolvers.Resolver
-	authN              auth.AuthNMiddleware
+	authN              *authn.MultiAuth
 	authZ              auth.AuthZMiddleware
 }
 
@@ -70,7 +71,6 @@ func New(
 	listener net.Listener,
 	queuesProvider queues.Provider,
 	consoleEndpointReg console.InternalSessionRegistration,
-	orgResolver resolvers.Resolver,
 ) *Server {
 	return &Server{
 		log:                log,
@@ -80,12 +80,7 @@ func New(
 		listener:           listener,
 		queuesProvider:     queuesProvider,
 		consoleEndpointReg: consoleEndpointReg,
-		orgResolver:        orgResolver,
 	}
-}
-
-func oapiErrorHandler(w http.ResponseWriter, message string, statusCode int) {
-	http.Error(w, fmt.Sprintf("API Error: %s", message), statusCode)
 }
 
 // If we got back multiple errors of the format:
@@ -129,7 +124,7 @@ func oapiMultiErrorHandler(errs openapi3.MultiError) (int, error) {
 		}
 	}
 
-	if allMatchFormat && longestPathErrorIndex >= 0 {
+	if allMatchFormat && longestPathError != nil {
 		shortErrorMessages = append(shortErrorMessages[:longestPathErrorIndex], shortErrorMessages[longestPathErrorIndex+1:]...)
 		response := fmt.Errorf("%d API errors found. The most relevant is likely:\n%s\nOther errors found were:\n%s",
 			len(errs),
@@ -155,27 +150,61 @@ func (s *Server) Run(ctx context.Context) error {
 	workerClient := worker_client.NewWorkerClient(publisher, s.log)
 
 	s.log.Println("Initializing API server")
-	swagger, err := api.GetSwagger()
-	if err != nil {
-		return fmt.Errorf("failed loading swagger spec: %w", err)
-	}
-	// Skip server name validation
-	swagger.Servers = nil
 
-	oapiOpts := oapimiddleware.Options{
-		ErrorHandler:      oapiErrorHandler,
-		MultiErrorHandler: oapiMultiErrorHandler,
-	}
+	// Create service handler and wrap with tracing
+	baseServiceHandler := service.NewServiceHandler(
+		s.store, workerClient, kvStore, s.ca, s.log, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl, s.cfg.Service.TPMCAPaths)
+	serviceHandler := service.WrapWithTracing(baseServiceHandler)
 
-	s.authN, s.authZ, err = auth.InitAuth(s.cfg, s.log, s.orgResolver)
+	// Initialize auth with traced service handler for OIDC provider access
+	authN, err := auth.InitMultiAuth(s.cfg, s.log, serviceHandler)
 	if err != nil {
 		return fmt.Errorf("failed initializing auth: %w", err)
+	}
+	s.authN = authN
+
+	// Create auth proxies (token and userinfo)
+	authTokenProxy := service.NewAuthTokenProxy(authN)
+	authUserInfoProxy := service.NewAuthUserInfoProxy(authN)
+
+	// Start auth provider loader
+	go func() {
+		if err := authN.Start(ctx); err != nil {
+			s.log.Errorf("Failed to start auth provider loader: %v", err)
+			return
+		}
+		s.log.Warn("Auth provider loader stopped unexpectedly")
+	}()
+
+	s.authZ, err = auth.InitMultiAuthZ(s.cfg, s.log)
+	if err != nil {
+		return fmt.Errorf("failed initializing authZ: %w", err)
+	}
+
+	// Start multiAuthZ to initialize cache lifecycle management
+	if multiAuthZ, ok := s.authZ.(*auth.MultiAuthZ); ok {
+		multiAuthZ.Start(ctx)
+		s.log.Debug("Started MultiAuthZ with context-based cache lifecycle")
 	}
 
 	router := chi.NewRouter()
 
+	// Create identity mapping middleware
+	identityMapper := service.NewIdentityMapper(s.store, s.log)
+	go func() {
+		identityMapper.Start(ctx)
+		s.log.Warn("Identity mapper stopped unexpectedly")
+	}()
+	identityMappingMiddleware := fcmiddleware.NewIdentityMappingMiddleware(identityMapper, s.log)
+
+	// Create organization extraction and validation middleware once
+	orgMiddleware := fcmiddleware.ExtractAndValidateOrg(fcmiddleware.QueryOrgIDExtractor, s.log)
+	userAgentMiddleware := fcmiddleware.UserAgentLogger(s.log)
+
 	authMiddewares := []func(http.Handler) http.Handler{
 		auth.CreateAuthNMiddleware(s.authN, s.log),
+		identityMappingMiddleware.MapIdentityToDB,
+		orgMiddleware,
 		auth.CreateAuthZMiddleware(s.authZ, s.log),
 	}
 
@@ -184,52 +213,120 @@ func (s *Server) Run(ctx context.Context) error {
 	router.Use(
 		middleware.RequestSize(int64(s.cfg.Service.HttpMaxRequestSize)),
 		fcmiddleware.RequestSizeLimiter(s.cfg.Service.HttpMaxUrlLength, s.cfg.Service.HttpMaxNumHeaders),
+		fcmiddleware.SecurityHeaders,
 		fcmiddleware.RequestID,
 		fcmiddleware.AddEventMetadataToCtx,
-		fcmiddleware.AddOrgIDToCtx(
-			s.orgResolver,
-			fcmiddleware.QueryOrgIDExtractor,
-		),
-		middleware.Logger,
+		fcmiddleware.ChiLoggerWithAPIVersionTag(),
 		middleware.Recoverer,
+		userAgentMiddleware,
 	)
 
-	serviceHandler := service.WrapWithTracing(service.NewServiceHandler(
-		s.store, workerClient, kvStore, s.ca, s.log, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl, s.cfg.Service.TPMCAPaths, s.orgResolver))
+	// Create version negotiator with v1beta1 as default
+	negotiator := versioning.NewNegotiator(versioning.V1Beta1, server.MetadataResolver)
+
+	// Create v1beta1 transport handler
+	handlerV1Beta1 := transportv1beta1.NewTransportHandler(
+		serviceHandler, convertv1beta1.NewConverter(),
+		s.authN, authTokenProxy, authUserInfoProxy, s.authZ,
+	)
+
+	// Create v1beta1 router with OpenAPI validation
+	v1beta1Swagger, err := corev1beta1.GetSwagger()
+	if err != nil {
+		return fmt.Errorf("failed loading v1beta1 swagger spec: %w", err)
+	}
+	v1beta1OapiMiddleware := oapimiddleware.OapiRequestValidatorWithOptions(v1beta1Swagger, &oapimiddleware.Options{
+		ErrorHandler:          OapiErrorHandler,
+		MultiErrorHandler:     oapiMultiErrorHandler,
+		SilenceServersWarning: true, // Suppress Host header mismatch warnings
+	})
+
+	routerV1Beta1 := versioning.NewRouter(versioning.RouterConfig{
+		Middlewares: []versioning.Middleware{v1beta1OapiMiddleware},
+		RegisterRoutes: func(r chi.Router) {
+			server.HandlerFromMux(&customTransportHandler{handlerV1Beta1}, r)
+		},
+	})
+
+	// Create v1alpha1 router with OpenAPI validation (for alpha-stage resources like Catalog)
+	v1alpha1Swagger, err := corev1alpha1.GetSwagger()
+	if err != nil {
+		return fmt.Errorf("failed loading v1alpha1 swagger spec: %w", err)
+	}
+	v1alpha1OapiMiddleware := oapimiddleware.OapiRequestValidatorWithOptions(v1alpha1Swagger, &oapimiddleware.Options{
+		ErrorHandler:          OapiErrorHandler,
+		MultiErrorHandler:     oapiMultiErrorHandler,
+		SilenceServersWarning: true,
+	})
+
+	// Create v1alpha1 transport handler for alpha-stage resources (Catalog)
+	handlerV1Alpha1 := transportv1alpha1.NewTransportHandler(
+		serviceHandler, convertv1alpha1.NewConverter(),
+	)
+
+	routerV1Alpha1 := versioning.NewRouter(versioning.RouterConfig{
+		Middlewares: []versioning.Middleware{v1alpha1OapiMiddleware},
+		RegisterRoutes: func(r chi.Router) {
+			serverv1alpha1.HandlerFromMux(handlerV1Alpha1, r)
+		},
+	})
+
+	// Create negotiated router with version-specific sub-routers
+	negotiatedRouter, err := versioning.NewNegotiatedRouter(
+		negotiator.NegotiateMiddleware,
+		map[versioning.Version]chi.Router{
+			versioning.V1Beta1:  routerV1Beta1,
+			versioning.V1Alpha1: routerV1Alpha1,
+		},
+		versioning.V1Beta1,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create negotiated router: %w", err)
+	}
 
 	// a group is a new mux copy, with its own copy of the middleware stack
 	// this one handles the OpenAPI handling of the service (excluding auth validate endpoint)
-	router.Group(func(r chi.Router) {
-		//NOTE(majopela): keeping metrics middleware separate from the rest of the middleware stack
-		// to avoid issues with websocket connections
-		r.Use(oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapiOpts))
-		r.Use(authMiddewares...)
-		// Add general rate limiting (only if configured)
-		if s.cfg.Service.RateLimit != nil {
-			trustedProxies := s.cfg.Service.RateLimit.TrustedProxies
-			requests := 60        // Default requests limit
-			window := time.Minute // Default window
-			if s.cfg.Service.RateLimit.Requests > 0 {
-				requests = s.cfg.Service.RateLimit.Requests
-			}
-			if s.cfg.Service.RateLimit.Window > 0 {
-				window = time.Duration(s.cfg.Service.RateLimit.Window)
-			}
-			fcmiddleware.InstallRateLimiter(r, fcmiddleware.RateLimitOptions{
-				Requests:       requests,
-				Window:         window,
-				Message:        "Rate limit exceeded, please try again later",
-				TrustedProxies: trustedProxies,
-			})
-		}
+	// Versioned API endpoints at /api/v1
+	router.Route(server.ServerUrlApiv1, func(r chi.Router) {
+		// Add general rate limiting (only if configured and enabled)
+		ConfigureRateLimiterFromConfig(
+			r,
+			s.cfg.Service.RateLimit,
+			RateLimitScopeGeneral,
+		)
 
-		h := transport.NewTransportHandler(serviceHandler, s.authN)
+		// Auth middlewares (shared by all versions)
+		r.Use(authMiddewares...)
+
+		// Auth validate with stricter rate limiting (separate group)
+		// This ensures it gets all the necessary middleware with stricter rate limiting
+		r.Group(func(r chi.Router) {
+			// Add conditional middleware
+			r.Use(v1beta1OapiMiddleware)
+			r.Use(identityMappingMiddleware.MapIdentityToDB) // Map identity to DB objects AFTER authentication
+			ConfigureRateLimiterFromConfig(
+				r,
+				s.cfg.Service.RateLimit,
+				RateLimitScopeAuth,
+			)
+
+			wrapper := &server.ServerInterfaceWrapper{
+				Handler:            handlerV1Beta1,
+				HandlerMiddlewares: nil,
+				ErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
+					OapiErrorHandler(w, err.Error(), http.StatusBadRequest)
+				},
+			}
+			r.Get("/auth/validate", wrapper.AuthValidate)
+		})
 
 		// Register all other endpoints with general rate limiting (already applied at router level)
-		// Create a custom handler that excludes the auth validate endpoint
-		customHandler := &customTransportHandler{h}
-		server.HandlerFromMux(customHandler, r)
+		// Negotiated API endpoints
+		r.Mount("/", negotiatedRouter)
 	})
+
+	// Backward-compatible /corev1beta1/version endpoint (redirects to same handler as /corev1beta1/v1/version)
+	router.Get("/api/version", handlerV1Beta1.GetVersion)
 
 	// health endpoints: bypass OpenAPI + auth, but keep global safety middlewares
 	router.Group(func(r chi.Router) {
@@ -241,69 +338,20 @@ func (s *Server) Run(ctx context.Context) error {
 		}
 	})
 
-	// Register auth validate endpoint with stricter rate limiting (outside main API group)
-	// This ensures it gets all the necessary middleware with stricter rate limiting
-	router.Group(func(r chi.Router) {
-		// Add conditional middleware
-		r.Use(oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapiOpts))
-		r.Use(authMiddewares...)
-
-		// Add auth-specific rate limiting (only if configured)
-		if s.cfg.Service.RateLimit != nil {
-			trustedProxies := s.cfg.Service.RateLimit.TrustedProxies
-			authRequests := 10      // Default auth requests limit
-			authWindow := time.Hour // Default auth window
-			if s.cfg.Service.RateLimit.AuthRequests > 0 {
-				authRequests = s.cfg.Service.RateLimit.AuthRequests
-			}
-			if s.cfg.Service.RateLimit.AuthWindow > 0 {
-				authWindow = time.Duration(s.cfg.Service.RateLimit.AuthWindow)
-			}
-			fcmiddleware.InstallRateLimiter(r, fcmiddleware.RateLimitOptions{
-				Requests:       authRequests,
-				Window:         authWindow,
-				Message:        "Login rate limit exceeded, please try again later",
-				TrustedProxies: trustedProxies,
-			})
-		}
-
-		h := transport.NewTransportHandler(serviceHandler, s.authN)
-		// Use the wrapper to handle the AuthValidate method signature
-		wrapper := &server.ServerInterfaceWrapper{
-			Handler:            h,
-			HandlerMiddlewares: nil,
-			ErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
-				oapiErrorHandler(w, err.Error(), http.StatusBadRequest)
-			},
-		}
-		r.Get("/api/v1/auth/validate", wrapper.AuthValidate)
-	})
-
 	// ws handling
 	router.Group(func(r chi.Router) {
 		r.Use(fcmiddleware.CreateRouteExistsMiddleware(r))
 		r.Use(authMiddewares...)
-		// Add websocket rate limiting (only if configured)
-		if s.cfg.Service.RateLimit != nil {
-			trustedProxies := s.cfg.Service.RateLimit.TrustedProxies
-			requests := 60        // Default requests limit
-			window := time.Minute // Default window
-			if s.cfg.Service.RateLimit.Requests > 0 {
-				requests = s.cfg.Service.RateLimit.Requests
-			}
-			if s.cfg.Service.RateLimit.Window > 0 {
-				window = time.Duration(s.cfg.Service.RateLimit.Window)
-			}
-			fcmiddleware.InstallRateLimiter(r, fcmiddleware.RateLimitOptions{
-				Requests:       requests,
-				Window:         window,
-				Message:        "Rate limit exceeded, please try again later",
-				TrustedProxies: trustedProxies,
-			})
-		}
+		r.Use(identityMappingMiddleware.MapIdentityToDB) // Map identity to DB objects AFTER authentication
+		// Add websocket rate limiting (only if configured and enabled)
+		ConfigureRateLimiterFromConfig(
+			r,
+			s.cfg.Service.RateLimit,
+			RateLimitScopeGeneral,
+		)
 
 		consoleSessionManager := console.NewConsoleSessionManager(serviceHandler, s.log, s.consoleEndpointReg)
-		ws := transport.NewWebsocketHandler(s.ca, s.log, consoleSessionManager)
+		ws := transportv1beta1.NewWebsocketHandler(s.ca, s.log, consoleSessionManager)
 		ws.RegisterRoutes(r)
 	})
 
@@ -313,11 +361,12 @@ func (s *Server) Run(ctx context.Context) error {
 	go func() {
 		<-ctx.Done()
 		s.log.Println("Shutdown signal received:", ctx.Err())
-		ctxTimeout, cancel := context.WithTimeout(context.Background(), gracefulShutdownTimeout)
+		ctxTimeout, cancel := context.WithTimeout(context.Background(), GracefulShutdownTimeout)
 		defer cancel()
 
 		srv.SetKeepAlivesEnabled(false)
 		_ = srv.Shutdown(ctxTimeout)
+		identityMapper.Stop()
 		kvStore.Close()
 		s.queuesProvider.Stop()
 		s.queuesProvider.Wait()

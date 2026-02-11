@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
-	"strings"
+	"os/user"
 	"sync"
 	"time"
 
 	"github.com/creack/pty"
+	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
-	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 )
@@ -22,6 +22,19 @@ type session struct {
 	streamClient      grpc_v1.RouterService_StreamClient
 	executor          executer.Executer
 	inactiveTimestamp time.Time
+	user              string
+}
+
+func (s *session) getHomedir() (string, error) {
+	// It is best to look this up each time it is needed since it can change dynamically at runtime.
+	u, err := user.Lookup(s.user)
+	if err != nil {
+		return "", fmt.Errorf("failed to lookup console user %s: %w", s.user, err)
+	}
+	if u.HomeDir == "" {
+		return "", fmt.Errorf("home dir is not set for user %s", s.user)
+	}
+	return u.HomeDir, nil
 }
 
 func (s *session) close() error {
@@ -37,20 +50,40 @@ func (s *session) close() error {
 }
 
 func (s *session) buildBashCommand(ctx context.Context, metadata *api.DeviceConsoleSessionMetadata) *exec.Cmd {
-	var args []string
+	args := []string{
+		"sudo",
+		"-u", s.user,
+	}
 
 	if metadata.TTY {
-		args = append(args, "-i", "-l")
+		args = append(args, "--login")
+	} else {
+		args = append(args, "--non-interactive")
 	}
 
 	if metadata.Command != nil && metadata.Command.Command != "" {
-		args = append(args, "-c", strings.Join(append([]string{metadata.Command.Command}, metadata.Command.Args...), " "))
+		args = append(args, "--")
+		args = append(args, metadata.Command.Command)
+		args = append(args, metadata.Command.Args...)
 	}
 
-	ret := s.executor.CommandContext(ctx, "/bin/bash", args...)
+	ret := s.executor.CommandContext(ctx, args[0], args[1:]...)
 
 	if metadata.Term != nil {
 		ret.Env = append(ret.Env, "TERM="+*metadata.Term)
+	}
+
+	h, err := s.getHomedir()
+	if err == nil {
+		ret.Dir = h
+		ret.Env = append(ret.Env, "HOME="+h)
+	}
+
+	// Normally we want all subprocesses to have this flag set to true so the child process dies with
+	// the agent, but the kernel does not permit us to do this if the process is run in a separate
+	// session/pty like we are doing here.
+	if ret.SysProcAttr != nil {
+		ret.SysProcAttr.Setpgid = false
 	}
 
 	return ret
@@ -118,7 +151,7 @@ func (s *session) run(ctx context.Context, metadata *api.DeviceConsoleSessionMet
 	defer cancel()
 	iStreams, oStreams, err := s.initialize(ctx, cancel, metadata)
 	if err != nil {
-		s.log.WithError(err).Error("initializing console session")
+		s.log.WithError(err).Errorf("initializing console session")
 		return
 	}
 	var wg sync.WaitGroup

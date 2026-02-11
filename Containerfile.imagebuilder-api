@@ -1,0 +1,52 @@
+FROM registry.access.redhat.com/ubi9/go-toolset:1.24.6-1762373805 as build
+WORKDIR /app
+
+# Switch to root for build operations
+USER 0
+
+# Copy dependencies first (most stable)
+COPY go.mod go.sum ./
+
+# Download dependencies (cached layer)
+RUN --mount=type=cache,target=/opt/app-root/src/go/pkg/mod \
+    go mod download
+
+# Copy build tools and configs
+COPY Makefile .
+
+# Copy source code directories
+COPY ./api ./api
+COPY ./cmd ./cmd
+COPY ./deploy ./deploy
+COPY ./hack ./hack
+COPY ./internal ./internal
+COPY ./pkg ./pkg
+COPY ./test ./test
+
+# Define version info ARGs right before build
+ARG SOURCE_GIT_TAG
+ARG SOURCE_GIT_TREE_STATE
+ARG SOURCE_GIT_COMMIT
+
+# Convert ARGs to ENV so make can use them
+ENV SOURCE_GIT_TAG=${SOURCE_GIT_TAG}
+ENV SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE}
+ENV SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT}
+
+# Use BuildKit cache mounts for Go caching
+RUN --mount=type=cache,target=/opt/app-root/src/.cache/go-build \
+    --mount=type=cache,target=/opt/app-root/src/go/pkg/mod \
+    make build-imagebuilder-api
+
+FROM quay.io/flightctl/flightctl-base:9.7-1762965531
+WORKDIR /app
+LABEL \
+  com.redhat.component="flightctl-imagebuilder-api-container" \
+  description="Flight Control ImageBuilder API server" \
+  io.k8s.description="Flight Control ImageBuilder API server" \
+  io.k8s.display-name="Flight Control ImageBuilder API Server" \
+  name="flightctl-imagebuilder-api" \
+  summary="Flight Control ImageBuilder API server"
+COPY --from=build /app/bin/flightctl-imagebuilder-api .
+
+CMD ./flightctl-imagebuilder-api

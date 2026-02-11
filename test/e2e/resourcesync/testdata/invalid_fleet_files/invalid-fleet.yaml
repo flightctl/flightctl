@@ -1,0 +1,13 @@
+apiVersion: flightctl.io/v1beta1
+kind: Fleet
+metadata:
+  name: resourcesync-test-invalid-fleet-{{.TestID}}
+spec:
+  selector:
+    matchLabels:
+      fleet: resourcesync-invalid-{{.TestID}}
+  template:
+    spec:
+      os:
+        # Invalid OCI image reference - starts with underscore which fails validation
+        image: _invalid/image:latest

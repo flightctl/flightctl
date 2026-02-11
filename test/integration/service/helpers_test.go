@@ -6,24 +6,18 @@ import (
 	"fmt"
 	"strings"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	fcrypto "github.com/flightctl/flightctl/pkg/crypto"
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo"
 )
-
-// AnyPtr is a helper function to create *interface{} from any value, reducing verbosity
-// in patch operations and other places where Go requires *interface{}
-func AnyPtr(v interface{}) *interface{} {
-	return &v
-}
 
 // NewLabelPatch creates a patch request to add a single label
 func NewLabelPatch(key, value string) api.PatchRequest {
 	return api.PatchRequest{{
 		Op:    "add",
 		Path:  fmt.Sprintf("/metadata/labels/%s", key),
-		Value: AnyPtr(value),
+		Value: value,
 	}}
 }
 
@@ -32,7 +26,7 @@ func NewReplaceLabelPatch(key, value string) api.PatchRequest {
 	return api.PatchRequest{{
 		Op:    "replace",
 		Path:  fmt.Sprintf("/metadata/labels/%s", key),
-		Value: AnyPtr(value),
+		Value: value,
 	}}
 }
 
@@ -44,11 +38,11 @@ func NewMultiLabelPatch(addLabels map[string]string, replaceLabels map[string]st
 		patch = append(patch, struct {
 			Op    api.PatchRequestOp `json:"op"`
 			Path  string             `json:"path"`
-			Value *interface{}       `json:"value,omitempty"`
+			Value interface{}        `json:"value,omitempty"`
 		}{
 			Op:    "add",
 			Path:  fmt.Sprintf("/metadata/labels/%s", key),
-			Value: AnyPtr(value),
+			Value: value,
 		})
 	}
 
@@ -56,11 +50,11 @@ func NewMultiLabelPatch(addLabels map[string]string, replaceLabels map[string]st
 		patch = append(patch, struct {
 			Op    api.PatchRequestOp `json:"op"`
 			Path  string             `json:"path"`
-			Value *interface{}       `json:"value,omitempty"`
+			Value interface{}        `json:"value,omitempty"`
 		}{
 			Op:    "replace",
 			Path:  fmt.Sprintf("/metadata/labels/%s", key),
-			Value: AnyPtr(value),
+			Value: value,
 		})
 	}
 
@@ -93,7 +87,7 @@ func IsStatusSuccessful(status *api.Status) bool {
 func CreateTestCSR() api.CertificateSigningRequest {
 	name, csrData := GenerateDeviceNameAndCSR()
 	return api.CertificateSigningRequest{
-		ApiVersion: "v1alpha1",
+		ApiVersion: "v1beta1",
 		Kind:       "CertificateSigningRequest",
 		Metadata: api.ObjectMeta{
 			Name: lo.ToPtr(name),
@@ -114,7 +108,7 @@ func CreateTestCSR() api.CertificateSigningRequest {
 func CreateTestER() api.EnrollmentRequest {
 	name, csrData := GenerateDeviceNameAndCSR()
 	return api.EnrollmentRequest{
-		ApiVersion: "v1alpha1",
+		ApiVersion: "v1beta1",
 		Kind:       "EnrollmentRequest",
 		Metadata: api.ObjectMeta{
 			Name: lo.ToPtr(name),

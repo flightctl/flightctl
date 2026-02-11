@@ -5,11 +5,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
+	"slices"
 	"strings"
 	"time"
 
+	api "github.com/flightctl/flightctl/api/core/v1beta1"
+	authprovider "github.com/flightctl/flightctl/internal/auth/provider"
 	"github.com/flightctl/flightctl/internal/config/ca"
+	"github.com/flightctl/flightctl/internal/org"
 	"github.com/flightctl/flightctl/internal/util"
 	"sigs.k8s.io/yaml"
 )
@@ -19,21 +22,24 @@ const (
 )
 
 type Config struct {
-	Database         *dbConfig               `json:"database,omitempty"`
-	Service          *svcConfig              `json:"service,omitempty"`
-	KV               *kvConfig               `json:"kv,omitempty"`
-	Alertmanager     *alertmanagerConfig     `json:"alertmanager,omitempty"`
-	Auth             *authConfig             `json:"auth,omitempty"`
-	Metrics          *metricsConfig          `json:"metrics,omitempty"`
-	CA               *ca.Config              `json:"ca,omitempty"`
-	Tracing          *tracingConfig          `json:"tracing,omitempty"`
-	GitOps           *gitOpsConfig           `json:"gitOps,omitempty"`
-	Periodic         *periodicConfig         `json:"periodic,omitempty"`
-	Organizations    *organizationsConfig    `json:"organizations,omitempty"`
-	TelemetryGateway *telemetryGatewayConfig `json:"telemetrygateway,omitempty"`
+	Database            *dbConfig                  `json:"database,omitempty"`
+	Service             *svcConfig                 `json:"service,omitempty"`
+	ImageBuilderService *ImageBuilderServiceConfig `json:"imageBuilderService,omitempty"`
+	ImageBuilderWorker  *imageBuilderWorkerConfig  `json:"imageBuilderWorker,omitempty"`
+	KV                  *kvConfig                  `json:"kv,omitempty"`
+	Alertmanager        *alertmanagerConfig        `json:"alertmanager,omitempty"`
+	Auth                *authConfig                `json:"auth,omitempty"`
+	Metrics             *metricsConfig             `json:"metrics,omitempty"`
+	CA                  *ca.Config                 `json:"ca,omitempty"`
+	Tracing             *tracingConfig             `json:"tracing,omitempty"`
+	GitOps              *gitOpsConfig              `json:"gitOps,omitempty"`
+	Periodic            *periodicConfig            `json:"periodic,omitempty"`
+	Organizations       *organizationsConfig       `json:"organizations,omitempty"`
+	TelemetryGateway    *telemetryGatewayConfig    `json:"telemetrygateway,omitempty"`
 }
 
 type RateLimitConfig struct {
+	Enabled      bool          `json:"enabled,omitempty"`      // Enable/disable rate limiting
 	Requests     int           `json:"requests,omitempty"`     // max requests per window
 	Window       util.Duration `json:"window,omitempty"`       // e.g. "1m" for one minute
 	AuthRequests int           `json:"authRequests,omitempty"` // max auth requests per window
@@ -44,15 +50,15 @@ type RateLimitConfig struct {
 }
 
 type dbConfig struct {
-	Type     string       `json:"type,omitempty"`
-	Hostname string       `json:"hostname,omitempty"`
-	Port     uint         `json:"port,omitempty"`
-	Name     string       `json:"name,omitempty"`
-	User     string       `json:"user,omitempty"`
-	Password SecureString `json:"password,omitempty"`
+	Type     string           `json:"type,omitempty"`
+	Hostname string           `json:"hostname,omitempty"`
+	Port     uint             `json:"port,omitempty"`
+	Name     string           `json:"name,omitempty"`
+	User     string           `json:"user,omitempty"`
+	Password api.SecureString `json:"password,omitempty"`
 	// Migration user configuration for schema changes
-	MigrationUser     string       `json:"migrationUser,omitempty"`
-	MigrationPassword SecureString `json:"migrationPassword,omitempty"`
+	MigrationUser     string           `json:"migrationUser,omitempty"`
+	MigrationPassword api.SecureString `json:"migrationPassword,omitempty"`
 	// SSL configuration
 	SSLMode     string `json:"sslmode,omitempty"`
 	SSLCert     string `json:"sslcert,omitempty"`
@@ -86,20 +92,88 @@ type svcConfig struct {
 	RenderedWaitTimeout    util.Duration    `json:"renderedWaitTimeout,omitempty"`
 	RateLimit              *RateLimitConfig `json:"rateLimit,omitempty"`
 	TPMCAPaths             []string         `json:"tpmCAPaths,omitempty"`
-	HealthChecks           *healthChecks    `json:"healthChecks,omitempty"`
+	HealthChecks           *HealthChecks    `json:"healthChecks,omitempty"`
 }
 
-type healthChecks struct {
+// HealthChecks holds health check endpoint configuration.
+type HealthChecks struct {
 	Enabled          bool          `json:"enabled,omitempty"`
 	ReadinessPath    string        `json:"readinessPath,omitempty"`
 	LivenessPath     string        `json:"livenessPath,omitempty"`
 	ReadinessTimeout util.Duration `json:"readinessTimeout,omitempty"`
 }
 
+type ImageBuilderServiceConfig struct {
+	Address               string           `json:"address,omitempty"`
+	LogLevel              string           `json:"logLevel,omitempty"`
+	TLSCertFile           string           `json:"tlsCertFile,omitempty"`
+	TLSKeyFile            string           `json:"tlsKeyFile,omitempty"`
+	InsecureSkipTlsVerify bool             `json:"insecureSkipTlsVerify,omitempty"`
+	HttpReadTimeout       util.Duration    `json:"httpReadTimeout,omitempty"`
+	HttpReadHeaderTimeout util.Duration    `json:"httpReadHeaderTimeout,omitempty"`
+	HttpWriteTimeout      util.Duration    `json:"httpWriteTimeout,omitempty"`
+	HttpIdleTimeout       util.Duration    `json:"httpIdleTimeout,omitempty"`
+	HttpMaxNumHeaders     int              `json:"httpMaxNumHeaders,omitempty"`
+	HttpMaxUrlLength      int              `json:"httpMaxUrlLength,omitempty"`
+	HttpMaxRequestSize    int              `json:"httpMaxRequestSize,omitempty"`
+	RateLimit             *RateLimitConfig `json:"rateLimit,omitempty"`
+	HealthChecks          *HealthChecks    `json:"healthChecks,omitempty"`
+	DeleteCancelTimeout   util.Duration    `json:"deleteCancelTimeout,omitempty"`
+}
+
+type imageBuilderWorkerConfig struct {
+	LogLevel                 string        `json:"logLevel,omitempty"`
+	MaxConcurrentBuilds      int           `json:"maxConcurrentBuilds,omitempty"`
+	DefaultTTL               util.Duration `json:"defaultTTL,omitempty"`
+	PodmanImage              string        `json:"podmanImage,omitempty"`
+	BootcImageBuilderImage   string        `json:"bootcImageBuilderImage,omitempty"`
+	LastSeenUpdateInterval   util.Duration `json:"lastSeenUpdateInterval,omitempty"`
+	ImageBuilderTimeout      util.Duration `json:"imageBuilderTimeout,omitempty"`
+	TimeoutCheckTaskInterval util.Duration `json:"timeoutCheckTaskInterval,omitempty"`
+	RPMRepoURL               string        `json:"rpmRepoUrl,omitempty"`
+}
+
+// NewDefaultImageBuilderWorkerConfig returns a default ImageBuilder worker configuration
+func NewDefaultImageBuilderWorkerConfig() *imageBuilderWorkerConfig {
+	return &imageBuilderWorkerConfig{
+		LogLevel:                 "info",
+		MaxConcurrentBuilds:      2,
+		DefaultTTL:               util.Duration(7 * 24 * time.Hour),
+		PodmanImage:              "quay.io/podman/stable:v5.7.1",
+		BootcImageBuilderImage:   "quay.io/centos-bootc/bootc-image-builder@sha256:773019f6b11766ca48170a4a7bf898be4268f3c2acfd0ec1db612408b3092a90",
+		LastSeenUpdateInterval:   util.Duration(30 * time.Second),
+		ImageBuilderTimeout:      util.Duration(3 * time.Minute),
+		TimeoutCheckTaskInterval: util.Duration(1 * time.Minute),
+		RPMRepoURL:               "https://rpm.flightctl.io/flightctl-epel.repo",
+	}
+}
+
+// NewDefaultImageBuilderServiceConfig returns a default ImageBuilder service configuration
+func NewDefaultImageBuilderServiceConfig() *ImageBuilderServiceConfig {
+	return &ImageBuilderServiceConfig{
+		Address:               ":8445",
+		LogLevel:              "info",
+		HttpReadTimeout:       util.Duration(5 * time.Minute),
+		HttpReadHeaderTimeout: util.Duration(5 * time.Minute),
+		HttpWriteTimeout:      util.Duration(5 * time.Minute),
+		HttpIdleTimeout:       util.Duration(5 * time.Minute),
+		HttpMaxNumHeaders:     32,
+		HttpMaxUrlLength:      2000,
+		HttpMaxRequestSize:    50 * 1024 * 1024, // 50MB
+		DeleteCancelTimeout:   util.Duration(30 * time.Second),
+		HealthChecks: &HealthChecks{
+			Enabled:          true,
+			ReadinessPath:    "/readyz",
+			LivenessPath:     "/healthz",
+			ReadinessTimeout: util.Duration(2 * time.Second),
+		},
+	}
+}
+
 type kvConfig struct {
-	Hostname string       `json:"hostname,omitempty"`
-	Port     uint         `json:"port,omitempty"`
-	Password SecureString `json:"password,omitempty"`
+	Hostname string           `json:"hostname,omitempty"`
+	Port     uint             `json:"port,omitempty"`
+	Password api.SecureString `json:"password,omitempty"`
 }
 
 type alertmanagerConfig struct {
@@ -111,27 +185,49 @@ type alertmanagerConfig struct {
 }
 
 type authConfig struct {
-	K8s                   *k8sAuth  `json:"k8s,omitempty"`
-	OIDC                  *oidcAuth `json:"oidc,omitempty"`
-	AAP                   *aapAuth  `json:"aap,omitempty"`
-	CACert                string    `json:"caCert,omitempty"`
-	InsecureSkipTlsVerify bool      `json:"insecureSkipTlsVerify,omitempty"`
+	K8s                     *api.K8sProviderSpec       `json:"k8s,omitempty"`
+	OpenShift               *api.OpenShiftProviderSpec `json:"openshift,omitempty"`
+	OIDC                    *api.OIDCProviderSpec      `json:"oidc,omitempty"`
+	OAuth2                  *api.OAuth2ProviderSpec    `json:"oauth2,omitempty"`
+	AAP                     *api.AapProviderSpec       `json:"aap,omitempty"`
+	CACert                  string                     `json:"caCert,omitempty"`
+	InsecureSkipTlsVerify   bool                       `json:"insecureSkipTlsVerify,omitempty"`
+	PAMOIDCIssuer           *PAMOIDCIssuer             `json:"pamOidcIssuer,omitempty"`           // this is the issuer implementation configuration
+	DynamicProviderCacheTTL util.Duration              `json:"dynamicProviderCacheTTL,omitempty"` // TTL for dynamic auth provider cache (default: 5s)
 }
 
-type k8sAuth struct {
-	ApiUrl                  string `json:"apiUrl,omitempty"`
-	ExternalOpenShiftApiUrl string `json:"externalOpenShiftApiUrl,omitempty"`
-	RBACNs                  string `json:"rbacNs,omitempty"`
-}
-
-type oidcAuth struct {
-	OIDCAuthority         string `json:"oidcAuthority,omitempty"`
-	ExternalOIDCAuthority string `json:"externalOidcAuthority,omitempty"`
-}
-
-type aapAuth struct {
-	ApiUrl         string `json:"apiUrl,omitempty"`
-	ExternalApiUrl string `json:"externalApiUrl,omitempty"`
+// PAMOIDCIssuer represents an OIDC issuer that uses Linux PAM for authentication
+type PAMOIDCIssuer struct {
+	// Address is the listen address for the PAM issuer service (e.g., ":8444")
+	Address string `json:"address,omitempty"`
+	// Issuer is the base URL for the OIDC issuer (e.g., "https://flightctl.example.com")
+	Issuer string `json:"issuer,omitempty"`
+	// ClientID is the OAuth2 client ID for this issuer
+	ClientID string `json:"clientId,omitempty"`
+	// ClientSecret is the OAuth2 client secret for this issuer
+	ClientSecret string `json:"clientSecret,omitempty"`
+	// Scopes are the supported OAuth2 scopes
+	Scopes []string `json:"scopes,omitempty"`
+	// RedirectURIs are the allowed redirect URIs for OAuth2 flows
+	RedirectURIs []string `json:"redirectUris,omitempty"`
+	// PAMService is the PAM service name to use for authentication (default: "flightctl")
+	PAMService string `json:"pamService" validate:"required"`
+	// AllowPublicClientWithoutPKCE allows public clients (no client secret) to skip PKCE
+	// SECURITY WARNING: This should only be enabled for testing or backward compatibility
+	// Default: false (PKCE required for public clients per OAuth 2.0 Security BCP)
+	AllowPublicClientWithoutPKCE bool `json:"allowPublicClientWithoutPKCE,omitempty"`
+	// AccessTokenExpiration is the expiration duration for access tokens and ID tokens
+	// Default: 1 hour
+	AccessTokenExpiration util.Duration `json:"accessTokenExpiration,omitempty"`
+	// RefreshTokenExpiration is the expiration duration for refresh tokens
+	// Default: 7 days
+	RefreshTokenExpiration util.Duration `json:"refreshTokenExpiration,omitempty"`
+	// PendingSessionCookieMaxAge is the MaxAge duration for pending session cookies
+	// Default: 10 minutes
+	PendingSessionCookieMaxAge util.Duration `json:"pendingSessionCookieMaxAge,omitempty"`
+	// AuthenticatedSessionCookieMaxAge is the MaxAge duration for authenticated session cookies
+	// Default: 30 minutes
+	AuthenticatedSessionCookieMaxAge util.Duration `json:"authenticatedSessionCookieMaxAge,omitempty"`
 }
 
 type metricsConfig struct {
@@ -195,8 +291,21 @@ type gitOpsConfig struct {
 	IgnoreResourceUpdates []string `json:"ignoreResourceUpdates,omitempty"`
 }
 
+type periodicTaskScheduleConfig struct {
+	Interval util.Duration `json:"interval,omitempty"`
+}
+
+type periodicTaskConfig struct {
+	Schedule periodicTaskScheduleConfig `json:"schedule,omitempty"`
+}
+
+type periodicTasksConfig struct {
+	ResourceSync periodicTaskConfig `json:"resourceSync,omitempty"`
+}
+
 type periodicConfig struct {
-	Consumers int `json:"consumers,omitempty"`
+	Consumers int                 `json:"consumers,omitempty"`
+	Tasks     periodicTasksConfig `json:"tasks,omitempty"`
 }
 
 type organizationsConfig struct {
@@ -247,6 +356,91 @@ func WithTracingEnabled() ConfigOption {
 	}
 }
 
+func WithOIDCAuth(issuer, clientId string, enabled bool) ConfigOption {
+	return func(c *Config) {
+		if c.Auth == nil {
+			c.Auth = &authConfig{
+				DynamicProviderCacheTTL: util.Duration(5 * time.Second),
+			}
+		}
+		c.Auth.OIDC = &api.OIDCProviderSpec{
+			Issuer:       issuer,
+			ClientId:     clientId,
+			Enabled:      &enabled,
+			ProviderType: api.Oidc,
+		}
+	}
+}
+
+func WithOAuth2Auth(authorizationUrl, tokenUrl, userinfoUrl, issuer, clientId string, enabled bool) ConfigOption {
+
+	return func(c *Config) {
+		if c.Auth == nil {
+			c.Auth = &authConfig{
+				DynamicProviderCacheTTL: util.Duration(5 * time.Second),
+			}
+		}
+		c.Auth.OAuth2 = &api.OAuth2ProviderSpec{
+			AuthorizationUrl: authorizationUrl,
+			TokenUrl:         tokenUrl,
+			UserinfoUrl:      userinfoUrl,
+			Issuer:           &issuer,
+			ClientId:         clientId,
+			Enabled:          &enabled,
+			ProviderType:     api.Oauth2,
+		}
+	}
+}
+
+func WithK8sAuth(apiUrl, rbacNs string) ConfigOption {
+	return func(c *Config) {
+		if c.Auth == nil {
+			c.Auth = &authConfig{
+				DynamicProviderCacheTTL: util.Duration(5 * time.Second),
+			}
+		}
+		enabled := true
+		c.Auth.K8s = &api.K8sProviderSpec{
+			ApiUrl:       apiUrl,
+			RbacNs:       &rbacNs,
+			ProviderType: api.K8s,
+			Enabled:      &enabled,
+		}
+	}
+}
+
+func WithAAPAuth(apiUrl, externalApiUrl string) ConfigOption {
+	return func(c *Config) {
+		if c.Auth == nil {
+			c.Auth = &authConfig{
+				DynamicProviderCacheTTL: util.Duration(5 * time.Second),
+			}
+		}
+		enabled := true
+		c.Auth.AAP = &api.AapProviderSpec{
+			ApiUrl:       apiUrl,
+			ProviderType: api.Aap,
+			Enabled:      &enabled,
+		}
+	}
+}
+
+func WithPAMOIDCIssuer(issuer, clientId, clientSecret, pamService string) ConfigOption {
+	return func(c *Config) {
+		if c.Auth == nil {
+			c.Auth = &authConfig{
+				DynamicProviderCacheTTL: util.Duration(5 * time.Second),
+			}
+		}
+		c.Auth.PAMOIDCIssuer = &PAMOIDCIssuer{
+			Issuer:       issuer,
+			ClientID:     clientId,
+			ClientSecret: clientSecret,
+			PAMService:   pamService,
+		}
+	}
+}
+
 func ConfigDir() string {
 	return filepath.Join(util.MustString(os.UserHomeDir), "."+appName)
 }
@@ -282,7 +476,7 @@ func NewDefault(opts ...ConfigOption) *Config {
 			BaseUrl:                "https://localhost:3443",
 			BaseAgentEndpointUrl:   "https://localhost:7443",
 			ServerCertName:         "server",
-			ServerCertValidityDays: 365,
+			ServerCertValidityDays: 730,
 			LogLevel:               "info",
 			HttpReadTimeout:        util.Duration(5 * time.Minute),
 			HttpReadHeaderTimeout:  util.Duration(5 * time.Minute),
@@ -295,7 +489,7 @@ func NewDefault(opts ...ConfigOption) *Config {
 			EventRetentionPeriod:   util.Duration(7 * 24 * time.Hour), // 1 week
 			AlertPollingInterval:   util.Duration(1 * time.Minute),
 			RenderedWaitTimeout:    util.Duration(2 * time.Minute),
-			HealthChecks: &healthChecks{
+			HealthChecks: &HealthChecks{
 				Enabled:          true,
 				ReadinessPath:    "/readyz",
 				LivenessPath:     "/healthz",
@@ -303,6 +497,8 @@ func NewDefault(opts ...ConfigOption) *Config {
 			},
 			// Rate limiting is disabled by default - set RateLimit to enable
 		},
+		ImageBuilderService: NewDefaultImageBuilderServiceConfig(),
+		ImageBuilderWorker:  NewDefaultImageBuilderWorkerConfig(),
 		KV: &kvConfig{
 			Hostname: "localhost",
 			Port:     6379,
@@ -371,6 +567,9 @@ func NewDefault(opts ...ConfigOption) *Config {
 				"/metadata/resourceVersion",
 			},
 		},
+		Auth: &authConfig{
+			DynamicProviderCacheTTL: util.Duration(5 * time.Second),
+		},
 	}
 	c.CA = ca.NewDefault(CertificateDir())
 	// CA certs are stored in the same location as Server Certs by default
@@ -415,65 +614,180 @@ func Load(cfgFile string) (*Config, error) {
 		return nil, fmt.Errorf("decoding config: %v", err)
 	}
 
+	applyEnvVarOverrides(c)
+	if err := applyAuthDefaults(c); err != nil {
+		return nil, fmt.Errorf("applying auth defaults: %w", err)
+	}
+
+	return c, nil
+}
+
+func applyEnvVarOverrides(c *Config) {
 	if kvPass := os.Getenv("KV_PASSWORD"); kvPass != "" {
-		c.KV.Password = SecureString(kvPass)
+		c.KV.Password = api.SecureString(kvPass)
 	}
 	if dbUser := os.Getenv("DB_USER"); dbUser != "" {
 		c.Database.User = dbUser
 	}
 	if dbPass := os.Getenv("DB_PASSWORD"); dbPass != "" {
-		c.Database.Password = SecureString(dbPass)
+		c.Database.Password = api.SecureString(dbPass)
 	}
 	if dbMigrationUser := os.Getenv("DB_MIGRATION_USER"); dbMigrationUser != "" {
 		c.Database.MigrationUser = dbMigrationUser
 	}
 	if dbMigrationPass := os.Getenv("DB_MIGRATION_PASSWORD"); dbMigrationPass != "" {
-		c.Database.MigrationPassword = SecureString(dbMigrationPass)
+		c.Database.MigrationPassword = api.SecureString(dbMigrationPass)
 	}
-	// Handle rate limit environment variables - create config if env vars are set
-	rateLimitRequests := os.Getenv("RATE_LIMIT_REQUESTS")
-	rateLimitWindow := os.Getenv("RATE_LIMIT_WINDOW")
-	authRateLimitRequests := os.Getenv("AUTH_RATE_LIMIT_REQUESTS")
-	authRateLimitWindow := os.Getenv("AUTH_RATE_LIMIT_WINDOW")
-	trustedProxies := os.Getenv("RATE_LIMIT_TRUSTED_PROXIES")
+}
 
-	if rateLimitRequests != "" || rateLimitWindow != "" || authRateLimitRequests != "" || authRateLimitWindow != "" || trustedProxies != "" {
-		// Create rate limit config if it doesn't exist
-		if c.Service.RateLimit == nil {
-			c.Service.RateLimit = &RateLimitConfig{}
-		}
-
-		if rateLimitRequests != "" {
-			if requests, err := strconv.Atoi(rateLimitRequests); err == nil {
-				c.Service.RateLimit.Requests = requests
-			}
-		}
-		if rateLimitWindow != "" {
-			if window, err := time.ParseDuration(rateLimitWindow); err == nil {
-				c.Service.RateLimit.Window = util.Duration(window)
-			}
-		}
-		if authRateLimitRequests != "" {
-			if requests, err := strconv.Atoi(authRateLimitRequests); err == nil {
-				c.Service.RateLimit.AuthRequests = requests
-			}
-		}
-		if authRateLimitWindow != "" {
-			if window, err := time.ParseDuration(authRateLimitWindow); err == nil {
-				c.Service.RateLimit.AuthWindow = util.Duration(window)
-			}
-		}
-		if trustedProxies != "" {
-			// Split by comma and trim whitespace
-			proxies := strings.Split(trustedProxies, ",")
-			for i, proxy := range proxies {
-				proxies[i] = strings.TrimSpace(proxy)
-			}
-			c.Service.RateLimit.TrustedProxies = proxies
-		}
+func applyAuthDefaults(c *Config) error {
+	if c.Auth == nil {
+		return nil
 	}
 
-	return c, nil
+	applyAuthProviderEnabledDefaults(c.Auth)
+	applyPAMOIDCIssuerDefaults(c)
+	applyOIDCClientDefaults(c)
+	applyOpenShiftDefaults(c)
+	if err := applyOAuth2Defaults(c); err != nil {
+		return err
+	}
+	return nil
+}
+
+func applyAuthProviderEnabledDefaults(auth *authConfig) {
+	if auth.OIDC != nil && auth.OIDC.Enabled == nil {
+		enabled := true
+		auth.OIDC.Enabled = &enabled
+	}
+	if auth.OpenShift != nil && auth.OpenShift.Enabled == nil {
+		enabled := true
+		auth.OpenShift.Enabled = &enabled
+	}
+	if auth.K8s != nil && auth.K8s.Enabled == nil {
+		enabled := true
+		auth.K8s.Enabled = &enabled
+	}
+	if auth.OAuth2 != nil && auth.OAuth2.Enabled == nil {
+		enabled := true
+		auth.OAuth2.Enabled = &enabled
+	}
+	if auth.AAP != nil && auth.AAP.Enabled == nil {
+		enabled := true
+		auth.AAP.Enabled = &enabled
+	}
+}
+
+func applyPAMOIDCIssuerDefaults(c *Config) {
+	if c.Auth.PAMOIDCIssuer == nil {
+		return
+	}
+
+	if c.Auth.PAMOIDCIssuer.PAMService == "" {
+		c.Auth.PAMOIDCIssuer.PAMService = "flightctl"
+	}
+	if c.Auth.PAMOIDCIssuer.Issuer == "" {
+		c.Auth.PAMOIDCIssuer.Issuer = c.Service.BaseUrl
+	}
+	if c.Auth.PAMOIDCIssuer.ClientID == "" {
+		c.Auth.PAMOIDCIssuer.ClientID = "flightctl-client"
+	}
+	if len(c.Auth.PAMOIDCIssuer.Scopes) == 0 {
+		c.Auth.PAMOIDCIssuer.Scopes = []string{"openid", "profile", "email", "roles"}
+	}
+	if len(c.Auth.PAMOIDCIssuer.RedirectURIs) == 0 {
+		applyPAMOIDCIssuerRedirectURIDefaults(c)
+	}
+	if c.Auth.PAMOIDCIssuer.AccessTokenExpiration == 0 {
+		c.Auth.PAMOIDCIssuer.AccessTokenExpiration = util.Duration(1 * time.Hour)
+	}
+	if c.Auth.PAMOIDCIssuer.RefreshTokenExpiration == 0 {
+		c.Auth.PAMOIDCIssuer.RefreshTokenExpiration = util.Duration(7 * 24 * time.Hour)
+	}
+	if c.Auth.PAMOIDCIssuer.PendingSessionCookieMaxAge == 0 {
+		c.Auth.PAMOIDCIssuer.PendingSessionCookieMaxAge = util.Duration(10 * time.Minute)
+	}
+	if c.Auth.PAMOIDCIssuer.AuthenticatedSessionCookieMaxAge == 0 {
+		c.Auth.PAMOIDCIssuer.AuthenticatedSessionCookieMaxAge = util.Duration(30 * time.Minute)
+	}
+}
+
+func applyPAMOIDCIssuerRedirectURIDefaults(c *Config) {
+	base := c.Service.BaseUIUrl
+	if base == "" {
+		base = c.Service.BaseUrl
+	}
+	if base != "" {
+		c.Auth.PAMOIDCIssuer.RedirectURIs = []string{strings.TrimSuffix(base, "/") + "/callback"}
+	}
+}
+
+func applyOIDCClientDefaults(c *Config) {
+	if c.Auth.OIDC == nil {
+		return
+	}
+
+	if c.Auth.OIDC.ClientId == "" {
+		c.Auth.OIDC.ClientId = "flightctl-client"
+	}
+	if c.Auth.OIDC.Issuer == "" {
+		c.Auth.OIDC.Issuer = c.Service.BaseUrl
+	}
+	if c.Auth.OIDC.UsernameClaim == nil {
+		c.Auth.OIDC.UsernameClaim = &[]string{"preferred_username"}
+	}
+
+	applyOIDCRoleAssignmentDefaults(c.Auth.OIDC)
+	applyOIDCOrganizationAssignmentDefaults(c.Auth.OIDC)
+}
+
+func applyOIDCRoleAssignmentDefaults(oidc *api.OIDCProviderSpec) {
+	if _, err := oidc.RoleAssignment.Discriminator(); err != nil {
+		dynamicRoleAssignment := api.AuthDynamicRoleAssignment{
+			Type:      api.AuthDynamicRoleAssignmentTypeDynamic,
+			ClaimPath: []string{"groups"},
+		}
+		_ = oidc.RoleAssignment.FromAuthDynamicRoleAssignment(dynamicRoleAssignment)
+	}
+}
+
+func applyOIDCOrganizationAssignmentDefaults(oidc *api.OIDCProviderSpec) {
+	if _, err := oidc.OrganizationAssignment.Discriminator(); err != nil {
+		staticAssignment := api.AuthStaticOrganizationAssignment{
+			OrganizationName: org.DefaultExternalID,
+			Type:             api.AuthStaticOrganizationAssignmentTypeStatic,
+		}
+		_ = oidc.OrganizationAssignment.FromAuthStaticOrganizationAssignment(staticAssignment)
+	}
+}
+
+func applyOpenShiftDefaults(c *Config) {
+	if c.Auth.OpenShift == nil {
+		return
+	}
+
+	// Use authorizationUrl as issuer if issuer is not provided
+	if c.Auth.OpenShift.Issuer == nil || *c.Auth.OpenShift.Issuer == "" {
+		if c.Auth.OpenShift.AuthorizationUrl != nil {
+			c.Auth.OpenShift.Issuer = c.Auth.OpenShift.AuthorizationUrl
+		}
+	}
+}
+
+func applyOAuth2Defaults(c *Config) error {
+	if c.Auth.OAuth2 == nil {
+		return nil
+	}
+
+	// Infer introspection configuration if not provided
+	if c.Auth.OAuth2.Introspection == nil {
+		introspection, err := authprovider.InferOAuth2IntrospectionConfig(*c.Auth.OAuth2)
+		if err != nil {
+			return fmt.Errorf("failed to infer OAuth2 introspection configuration: %w", err)
+		}
+		c.Auth.OAuth2.Introspection = introspection
+	}
+	return nil
 }
 
 func Save(cfg *Config, cfgFile string) error {
@@ -521,13 +835,132 @@ func Validate(cfg *Config) error {
 			return fmt.Errorf("readinessPath and livenessPath must not be identical")
 		}
 	}
+
+	if cfg.ImageBuilderService != nil && cfg.ImageBuilderService.HealthChecks != nil && cfg.ImageBuilderService.HealthChecks.Enabled {
+		hc := cfg.ImageBuilderService.HealthChecks
+		if strings.TrimSpace(hc.ReadinessPath) == "" {
+			return fmt.Errorf("imageBuilderService.healthChecks.readinessPath must be non-empty")
+		}
+		if !strings.HasPrefix(hc.ReadinessPath, "/") {
+			return fmt.Errorf("imageBuilderService.healthChecks.readinessPath must start with '/'")
+		}
+		if strings.TrimSpace(hc.LivenessPath) == "" {
+			return fmt.Errorf("imageBuilderService.healthChecks.livenessPath must be non-empty")
+		}
+		if !strings.HasPrefix(hc.LivenessPath, "/") {
+			return fmt.Errorf("imageBuilderService.healthChecks.livenessPath must start with '/'")
+		}
+		if hc.ReadinessTimeout <= 0 {
+			return fmt.Errorf("imageBuilderService.healthChecks.readinessTimeout must be greater than 0")
+		}
+		if hc.ReadinessPath == hc.LivenessPath {
+			return fmt.Errorf("imageBuilderService.healthChecks.readinessPath and livenessPath must not be identical")
+		}
+	}
+
+	if cfg.ImageBuilderWorker != nil {
+		if time.Duration(cfg.ImageBuilderWorker.TimeoutCheckTaskInterval) <= 0 {
+			return fmt.Errorf("imageBuilderWorker.timeoutCheckTaskInterval must be greater than 0")
+		}
+	}
+
+	// Validate OIDC and OAuth2 provider role assignments
+	if cfg.Auth != nil {
+		if cfg.Auth.OIDC != nil {
+			if err := validateAuthProviderRoleAssignment(cfg.Auth.OIDC.RoleAssignment, string(api.Oidc)); err != nil {
+				return err
+			}
+		}
+		if cfg.Auth.OAuth2 != nil {
+			if err := validateAuthProviderRoleAssignment(cfg.Auth.OAuth2.RoleAssignment, string(api.Oauth2)); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+func validateAuthProviderRoleAssignment(roleAssignment api.AuthRoleAssignment, providerType string) error {
+	discriminator, err := roleAssignment.Discriminator()
+	if err != nil {
+		// No role assignment configured, which is valid
+		return nil
+	}
+
+	if discriminator != string(api.AuthStaticRoleAssignmentTypeStatic) {
+		// Only validate static role assignments
+		return nil
+	}
+
+	staticAssignment, err := roleAssignment.AsAuthStaticRoleAssignment()
+	if err != nil {
+		return fmt.Errorf("%s provider: invalid static role assignment: %w", providerType, err)
+	}
+
+	// Validate that all roles are in KnownExternalRoles
+	for i, role := range staticAssignment.Roles {
+		if role == "" {
+			return fmt.Errorf("%s provider: role at index %d cannot be empty", providerType, i)
+		}
+		if !slices.Contains(api.KnownExternalRoles, role) {
+			return fmt.Errorf("%s provider: role at index %d is not a valid role: %s (must be one of: %v)", providerType, i, role, api.KnownExternalRoles)
+		}
+	}
+
 	return nil
 }
 
 func (cfg *Config) String() string {
-	contents, err := json.Marshal(cfg)
+	// Create a sanitized copy to avoid mutating the original config
+	sanitized := cfg.sanitizeForLogging()
+	contents, err := json.Marshal(sanitized)
 	if err != nil {
 		return "<error>"
 	}
 	return string(contents)
+}
+
+// sanitizeForLogging creates a copy of the config with sensitive fields redacted
+func (cfg *Config) sanitizeForLogging() *Config {
+	if cfg == nil {
+		return nil
+	}
+
+	// Create a deep copy by marshaling and unmarshaling
+	// This is safe because SecureString already handles redaction in MarshalJSON
+	cfgJSON, err := json.Marshal(cfg)
+	if err != nil {
+		return cfg
+	}
+
+	var sanitized Config
+	if err := json.Unmarshal(cfgJSON, &sanitized); err != nil {
+		return cfg
+	}
+
+	// Redact client secrets in all auth providers
+	if sanitized.Auth != nil {
+		if sanitized.Auth.OIDC != nil && sanitized.Auth.OIDC.ClientSecret != nil {
+			redacted := "[REDACTED]"
+			sanitized.Auth.OIDC.ClientSecret = &redacted
+		}
+		if sanitized.Auth.OAuth2 != nil && sanitized.Auth.OAuth2.ClientSecret != nil {
+			redacted := "[REDACTED]"
+			sanitized.Auth.OAuth2.ClientSecret = &redacted
+		}
+		if sanitized.Auth.OpenShift != nil && sanitized.Auth.OpenShift.ClientSecret != nil {
+			redacted := "[REDACTED]"
+			sanitized.Auth.OpenShift.ClientSecret = &redacted
+		}
+		if sanitized.Auth.AAP != nil && sanitized.Auth.AAP.ClientSecret != nil {
+			redacted := "[REDACTED]"
+			sanitized.Auth.AAP.ClientSecret = &redacted
+		}
+		if sanitized.Auth.PAMOIDCIssuer != nil && sanitized.Auth.PAMOIDCIssuer.ClientSecret != "" {
+			sanitized.Auth.PAMOIDCIssuer.ClientSecret = "[REDACTED]"
+		}
+	}
+
+	return &sanitized
 }

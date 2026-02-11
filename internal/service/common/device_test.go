@@ -5,9 +5,10 @@ import (
 	"testing"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -16,20 +17,20 @@ func TestComputeDeviceStatusChanges_DeviceUpdateFailed(t *testing.T) {
 	orgId := uuid.New()
 
 	// Create a device with an update error condition
-	deviceWithError := &api.Device{
-		Metadata: api.ObjectMeta{
+	deviceWithError := &domain.Device{
+		Metadata: domain.ObjectMeta{
 			Name: lo.ToPtr("test-device"),
 		},
-		Status: &api.DeviceStatus{
-			Updated: api.DeviceUpdatedStatus{
-				Status: api.DeviceUpdatedStatusOutOfDate,
+		Status: &domain.DeviceStatus{
+			Updated: domain.DeviceUpdatedStatus{
+				Status: domain.DeviceUpdatedStatusOutOfDate,
 				Info:   lo.ToPtr("Device could not be updated to the fleet's latest device spec: update failed"),
 			},
-			Conditions: []api.Condition{
+			Conditions: []domain.Condition{
 				{
-					Type:    api.ConditionTypeDeviceUpdating,
-					Status:  api.ConditionStatusFalse,
-					Reason:  string(api.UpdateStateError),
+					Type:    domain.ConditionTypeDeviceUpdating,
+					Status:  domain.ConditionStatusFalse,
+					Reason:  string(domain.UpdateStateError),
 					Message: "update failed",
 				},
 			},
@@ -37,26 +38,26 @@ func TestComputeDeviceStatusChanges_DeviceUpdateFailed(t *testing.T) {
 	}
 
 	// Create a device without an update error condition
-	deviceWithoutError := &api.Device{
-		Metadata: api.ObjectMeta{
+	deviceWithoutError := &domain.Device{
+		Metadata: domain.ObjectMeta{
 			Name: lo.ToPtr("test-device"),
 		},
-		Status: &api.DeviceStatus{
-			Updated: api.DeviceUpdatedStatus{
-				Status: api.DeviceUpdatedStatusOutOfDate,
+		Status: &domain.DeviceStatus{
+			Updated: domain.DeviceUpdatedStatus{
+				Status: domain.DeviceUpdatedStatusOutOfDate,
 				Info:   lo.ToPtr("Device has not been updated to the latest device spec."),
 			},
 		},
 	}
 
 	// Create an old device with UpToDate status for comparison
-	oldDevice := &api.Device{
-		Metadata: api.ObjectMeta{
+	oldDevice := &domain.Device{
+		Metadata: domain.ObjectMeta{
 			Name: lo.ToPtr("test-device"),
 		},
-		Status: &api.DeviceStatus{
-			Updated: api.DeviceUpdatedStatus{
-				Status: api.DeviceUpdatedStatusUpToDate,
+		Status: &domain.DeviceStatus{
+			Updated: domain.DeviceUpdatedStatus{
+				Status: domain.DeviceUpdatedStatusUpToDate,
 				Info:   lo.ToPtr("Device was updated to the latest device spec."),
 			},
 		},
@@ -65,13 +66,13 @@ func TestComputeDeviceStatusChanges_DeviceUpdateFailed(t *testing.T) {
 	// Test case 1: Device with update error should emit DeviceUpdateFailed event
 	updates := ComputeDeviceStatusChanges(ctx, oldDevice, deviceWithError, orgId, nil)
 	assert.Len(t, updates, 1)
-	assert.Equal(t, api.EventReasonDeviceUpdateFailed, updates[0].Reason)
+	assert.Equal(t, domain.EventReasonDeviceUpdateFailed, updates[0].Reason)
 	assert.Contains(t, updates[0].Details, "update failed")
 
 	// Test case 2: Device without update error should emit DeviceContentOutOfDate event
 	updates = ComputeDeviceStatusChanges(ctx, oldDevice, deviceWithoutError, orgId, nil)
 	assert.Len(t, updates, 1)
-	assert.Equal(t, api.EventReasonDeviceContentOutOfDate, updates[0].Reason)
+	assert.Equal(t, domain.EventReasonDeviceContentOutOfDate, updates[0].Reason)
 	assert.Contains(t, updates[0].Details, "has not been updated")
 }
 
@@ -80,33 +81,33 @@ func TestComputeDeviceStatusChanges_StatusTransition(t *testing.T) {
 	orgId := uuid.New()
 
 	// Create old device with UpToDate status
-	oldDevice := &api.Device{
-		Metadata: api.ObjectMeta{
+	oldDevice := &domain.Device{
+		Metadata: domain.ObjectMeta{
 			Name: lo.ToPtr("test-device"),
 		},
-		Status: &api.DeviceStatus{
-			Updated: api.DeviceUpdatedStatus{
-				Status: api.DeviceUpdatedStatusUpToDate,
+		Status: &domain.DeviceStatus{
+			Updated: domain.DeviceUpdatedStatus{
+				Status: domain.DeviceUpdatedStatusUpToDate,
 				Info:   lo.ToPtr("Device was updated to the latest device spec."),
 			},
 		},
 	}
 
 	// Create new device with OutOfDate status and update error
-	newDevice := &api.Device{
-		Metadata: api.ObjectMeta{
+	newDevice := &domain.Device{
+		Metadata: domain.ObjectMeta{
 			Name: lo.ToPtr("test-device"),
 		},
-		Status: &api.DeviceStatus{
-			Updated: api.DeviceUpdatedStatus{
-				Status: api.DeviceUpdatedStatusOutOfDate,
+		Status: &domain.DeviceStatus{
+			Updated: domain.DeviceUpdatedStatus{
+				Status: domain.DeviceUpdatedStatusOutOfDate,
 				Info:   lo.ToPtr("Device could not be updated to the fleet's latest device spec: update failed"),
 			},
-			Conditions: []api.Condition{
+			Conditions: []domain.Condition{
 				{
-					Type:    api.ConditionTypeDeviceUpdating,
-					Status:  api.ConditionStatusFalse,
-					Reason:  string(api.UpdateStateError),
+					Type:    domain.ConditionTypeDeviceUpdating,
+					Status:  domain.ConditionStatusFalse,
+					Reason:  string(domain.UpdateStateError),
 					Message: "update failed",
 				},
 			},
@@ -116,7 +117,7 @@ func TestComputeDeviceStatusChanges_StatusTransition(t *testing.T) {
 	// Test transition from UpToDate to OutOfDate with error
 	updates := ComputeDeviceStatusChanges(ctx, oldDevice, newDevice, orgId, nil)
 	assert.Len(t, updates, 1)
-	assert.Equal(t, api.EventReasonDeviceUpdateFailed, updates[0].Reason)
+	assert.Equal(t, domain.EventReasonDeviceUpdateFailed, updates[0].Reason)
 	assert.Contains(t, updates[0].Details, "update failed")
 }
 
@@ -136,14 +137,14 @@ func TestUpdateServerSideDeviceStatus_PostRestoreState(t *testing.T) {
 		hasResourceErrors       bool
 		hasResourceDegradations bool
 		isRebooting             bool
-		expectedStatus          api.DeviceSummaryStatusType
+		expectedStatus          domain.DeviceSummaryStatusType
 		expectedInfo            string
 	}{
 		{
 			name:                  "Post-restore state: annotation=true, lastSeen=zero, should be AwaitingReconnect",
 			hasAwaitingAnnotation: true,
 			lastSeenTime:          time.Time{}, // Zero time (cleared by restore)
-			expectedStatus:        api.DeviceSummaryStatusAwaitingReconnect,
+			expectedStatus:        domain.DeviceSummaryStatusAwaitingReconnect,
 			expectedInfo:          DeviceStatusInfoAwaitingReconnect,
 		},
 		{
@@ -151,7 +152,7 @@ func TestUpdateServerSideDeviceStatus_PostRestoreState(t *testing.T) {
 			hasAwaitingAnnotation: true,
 			lastSeenTime:          time.Time{}, // Zero time
 			hasResourceErrors:     true,
-			expectedStatus:        api.DeviceSummaryStatusAwaitingReconnect, // Should override resource errors
+			expectedStatus:        domain.DeviceSummaryStatusAwaitingReconnect, // Should override resource errors
 			expectedInfo:          DeviceStatusInfoAwaitingReconnect,
 		},
 		{
@@ -159,7 +160,7 @@ func TestUpdateServerSideDeviceStatus_PostRestoreState(t *testing.T) {
 			hasAwaitingAnnotation:   true,
 			lastSeenTime:            time.Time{}, // Zero time
 			hasResourceDegradations: true,
-			expectedStatus:          api.DeviceSummaryStatusAwaitingReconnect, // Should override resource degradations
+			expectedStatus:          domain.DeviceSummaryStatusAwaitingReconnect, // Should override resource degradations
 			expectedInfo:            DeviceStatusInfoAwaitingReconnect,
 		},
 		{
@@ -167,20 +168,20 @@ func TestUpdateServerSideDeviceStatus_PostRestoreState(t *testing.T) {
 			hasAwaitingAnnotation: true,
 			lastSeenTime:          time.Time{}, // Zero time
 			isRebooting:           true,
-			expectedStatus:        api.DeviceSummaryStatusAwaitingReconnect, // Should override rebooting
+			expectedStatus:        domain.DeviceSummaryStatusAwaitingReconnect, // Should override rebooting
 			expectedInfo:          DeviceStatusInfoAwaitingReconnect,
 		},
 		{
 			name:                  "Without awaiting annotation: should be disconnected due to zero lastSeen",
 			hasAwaitingAnnotation: false,
-			lastSeenTime:          time.Time{},                    // Zero time
-			expectedStatus:        api.DeviceSummaryStatusUnknown, // Should be disconnected
+			lastSeenTime:          time.Time{},                       // Zero time
+			expectedStatus:        domain.DeviceSummaryStatusUnknown, // Should be disconnected
 		},
 		{
 			name:                  "With awaiting annotation but recent lastSeen: should still be AwaitingReconnect",
 			hasAwaitingAnnotation: true,
 			lastSeenTime:          time.Now(), // Recent time
-			expectedStatus:        api.DeviceSummaryStatusAwaitingReconnect,
+			expectedStatus:        domain.DeviceSummaryStatusAwaitingReconnect,
 			expectedInfo:          DeviceStatusInfoAwaitingReconnect,
 		},
 	}
@@ -190,50 +191,50 @@ func TestUpdateServerSideDeviceStatus_PostRestoreState(t *testing.T) {
 			// Setup device with post-restore state
 			annotations := make(map[string]string)
 			if tt.hasAwaitingAnnotation {
-				annotations[api.DeviceAnnotationAwaitingReconnect] = "true"
+				annotations[domain.DeviceAnnotationAwaitingReconnect] = "true"
 			}
 
-			device := &api.Device{
-				Metadata: api.ObjectMeta{
+			device := &domain.Device{
+				Metadata: domain.ObjectMeta{
 					Name:        lo.ToPtr("test-device"),
 					Annotations: &annotations,
 				},
-				Status: &api.DeviceStatus{
+				Status: &domain.DeviceStatus{
 					LastSeen: func() *time.Time {
 						if tt.lastSeenTime.IsZero() {
 							return nil
 						}
 						return lo.ToPtr(tt.lastSeenTime)
 					}(),
-					Summary: api.DeviceSummaryStatus{
-						Status: api.DeviceSummaryStatusOnline, // Initial status (will be overridden)
+					Summary: domain.DeviceSummaryStatus{
+						Status: domain.DeviceSummaryStatusOnline, // Initial status (will be overridden)
 						Info:   lo.ToPtr("Initial info"),
 					},
-					Resources: api.DeviceResourceStatus{
-						Cpu:    api.DeviceResourceStatusHealthy,
-						Memory: api.DeviceResourceStatusHealthy,
-						Disk:   api.DeviceResourceStatusHealthy,
+					Resources: domain.DeviceResourceStatus{
+						Cpu:    domain.DeviceResourceStatusHealthy,
+						Memory: domain.DeviceResourceStatusHealthy,
+						Disk:   domain.DeviceResourceStatusHealthy,
 					},
-					Conditions: []api.Condition{},
+					Conditions: []domain.Condition{},
 				},
 			}
 
 			// Set up resource errors/degradations if needed
 			if tt.hasResourceErrors {
-				device.Status.Resources.Cpu = api.DeviceResourceStatusCritical
+				device.Status.Resources.Cpu = domain.DeviceResourceStatusCritical
 			}
 			if tt.hasResourceDegradations {
-				device.Status.Resources.Memory = api.DeviceResourceStatusWarning
+				device.Status.Resources.Memory = domain.DeviceResourceStatusWarning
 			}
 
 			// Set up rebooting condition if needed
 			if tt.isRebooting {
-				rebootCondition := api.Condition{
-					Type:   api.ConditionTypeDeviceUpdating,
-					Status: api.ConditionStatusTrue,
-					Reason: string(api.UpdateStateRebooting),
+				rebootCondition := domain.Condition{
+					Type:   domain.ConditionTypeDeviceUpdating,
+					Status: domain.ConditionStatusTrue,
+					Reason: string(domain.UpdateStateRebooting),
 				}
-				api.SetStatusCondition(&device.Status.Conditions, rebootCondition)
+				domain.SetStatusCondition(&device.Status.Conditions, rebootCondition)
 			}
 
 			// Call the function under test
@@ -251,6 +252,147 @@ func TestUpdateServerSideDeviceStatus_PostRestoreState(t *testing.T) {
 			// Verify changed flag is correct
 			expectedChanged := initialStatus != tt.expectedStatus
 			assert.Equal(t, expectedChanged, changed, "Changed flag should be correct")
+		})
+	}
+}
+
+func TestUpdateServerSideApplicationStatus_PreservesDeviceStatus(t *testing.T) {
+	tests := []struct {
+		name                string
+		deviceSummaryStatus domain.ApplicationsSummaryStatusType
+		deviceSummaryInfo   string
+		appStatus           domain.ApplicationStatusType
+		expectedStatus      domain.ApplicationsSummaryStatusType
+		expectedInfo        string
+	}{
+		{
+			name:                "Preserves Degraded status from device",
+			deviceSummaryStatus: domain.ApplicationsSummaryStatusDegraded,
+			deviceSummaryInfo:   "app1 is in status Degraded",
+			appStatus:           domain.ApplicationStatusRunning,
+			expectedStatus:      domain.ApplicationsSummaryStatusDegraded,
+			expectedInfo:        "app1 is in status Degraded",
+		},
+		{
+			name:                "Preserves Error status from device",
+			deviceSummaryStatus: domain.ApplicationsSummaryStatusError,
+			deviceSummaryInfo:   "app1 is in status Error",
+			appStatus:           domain.ApplicationStatusError,
+			expectedStatus:      domain.ApplicationsSummaryStatusError,
+			expectedInfo:        "app1 is in status Error",
+		},
+		{
+			name:                "Preserves Healthy status from device",
+			deviceSummaryStatus: domain.ApplicationsSummaryStatusHealthy,
+			deviceSummaryInfo:   "",
+			appStatus:           domain.ApplicationStatusRunning,
+			expectedStatus:      domain.ApplicationsSummaryStatusHealthy,
+			expectedInfo:        "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			device := &domain.Device{
+				Metadata: domain.ObjectMeta{
+					Name: lo.ToPtr("test-device"),
+				},
+				Status: &domain.DeviceStatus{
+					LastSeen: lo.ToPtr(time.Now()),
+					ApplicationsSummary: domain.DeviceApplicationsSummaryStatus{
+						Status: tt.deviceSummaryStatus,
+						Info:   lo.ToPtr(tt.deviceSummaryInfo),
+					},
+					Applications: []domain.DeviceApplicationStatus{
+						{Name: "app1", Status: tt.appStatus},
+					},
+				},
+			}
+
+			updateServerSideApplicationStatus(device)
+
+			assert.Equal(t, tt.expectedStatus, device.Status.ApplicationsSummary.Status, "Status should be preserved from device")
+			if tt.expectedInfo != "" {
+				assert.NotNil(t, device.Status.ApplicationsSummary.Info)
+				assert.Equal(t, tt.expectedInfo, *device.Status.ApplicationsSummary.Info, "Info should be preserved from device")
+			}
+		})
+	}
+}
+
+func TestUpdateServerSideDeviceUpdatedStatus_OsImageMismatch(t *testing.T) {
+	ctx := context.Background()
+	orgId := uuid.New()
+	log := logrus.NewEntry(logrus.StandardLogger())
+
+	tests := []struct {
+		name           string
+		specOsImage    string
+		statusOsImage  string
+		expectedStatus domain.DeviceUpdatedStatusType
+		expectMismatch bool
+	}{
+		{
+			name:           "matching OS images remains UpToDate",
+			specOsImage:    "quay.io/flightctl/device:v7",
+			statusOsImage:  "quay.io/flightctl/device:v7",
+			expectedStatus: domain.DeviceUpdatedStatusUpToDate,
+		},
+		{
+			name:           "mismatching OS images overrides to OutOfDate",
+			specOsImage:    "quay.io/flightctl/device:v7",
+			statusOsImage:  "quay.io/flightctl/device:base",
+			expectedStatus: domain.DeviceUpdatedStatusOutOfDate,
+			expectMismatch: true,
+		},
+		{
+			name:           "no spec OS image remains UpToDate",
+			specOsImage:    "",
+			statusOsImage:  "quay.io/flightctl/device:base",
+			expectedStatus: domain.DeviceUpdatedStatusUpToDate,
+		},
+		{
+			name:           "no status OS image remains UpToDate",
+			specOsImage:    "quay.io/flightctl/device:v7",
+			statusOsImage:  "",
+			expectedStatus: domain.DeviceUpdatedStatusUpToDate,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			annotations := map[string]string{
+				domain.DeviceAnnotationRenderedVersion: "4",
+			}
+			device := &domain.Device{
+				Metadata: domain.ObjectMeta{
+					Name:        lo.ToPtr("test-device"),
+					Annotations: &annotations,
+				},
+				Spec: &domain.DeviceSpec{},
+				Status: &domain.DeviceStatus{
+					LastSeen: lo.ToPtr(time.Now()),
+					Updated: domain.DeviceUpdatedStatus{
+						Status: domain.DeviceUpdatedStatusUpToDate,
+					},
+					Config: domain.DeviceConfigStatus{
+						RenderedVersion: "4",
+					},
+					Os: domain.DeviceOsStatus{
+						Image: tt.statusOsImage,
+					},
+				},
+			}
+			if tt.specOsImage != "" {
+				device.Spec.Os = &domain.DeviceOsSpec{Image: tt.specOsImage}
+			}
+
+			updateServerSideDeviceUpdatedStatus(device, ctx, nil, log, orgId)
+
+			assert.Equal(t, tt.expectedStatus, device.Status.Updated.Status)
+			if tt.expectMismatch {
+				assert.Contains(t, *device.Status.Updated.Info, "OS image mismatch")
+			}
 		})
 	}
 }

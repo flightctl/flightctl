@@ -3,7 +3,7 @@ package store
 import (
 	"context"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
@@ -14,16 +14,16 @@ import (
 type Repository interface {
 	InitialMigration(ctx context.Context) error
 
-	Create(ctx context.Context, orgId uuid.UUID, repository *api.Repository, eventCallback EventCallback) (*api.Repository, error)
-	Update(ctx context.Context, orgId uuid.UUID, repository *api.Repository, eventCallback EventCallback) (*api.Repository, error)
-	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, repository *api.Repository, eventCallback EventCallback) (*api.Repository, bool, error)
-	Get(ctx context.Context, orgId uuid.UUID, name string) (*api.Repository, error)
-	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.RepositoryList, error)
+	Create(ctx context.Context, orgId uuid.UUID, repository *domain.Repository, eventCallback EventCallback) (*domain.Repository, error)
+	Update(ctx context.Context, orgId uuid.UUID, repository *domain.Repository, eventCallback EventCallback) (*domain.Repository, error)
+	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, repository *domain.Repository, eventCallback EventCallback) (*domain.Repository, bool, error)
+	Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.Repository, error)
+	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*domain.RepositoryList, error)
 	Delete(ctx context.Context, orgId uuid.UUID, name string, eventCallback EventCallback) error
-	UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.Repository, eventCallback EventCallback) (*api.Repository, error)
+	UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.Repository, eventCallback EventCallback) (*domain.Repository, error)
 
-	GetFleetRefs(ctx context.Context, orgId uuid.UUID, name string) (*api.FleetList, error)
-	GetDeviceRefs(ctx context.Context, orgId uuid.UUID, name string) (*api.DeviceList, error)
+	GetFleetRefs(ctx context.Context, orgId uuid.UUID, name string) (*domain.FleetList, error)
+	GetDeviceRefs(ctx context.Context, orgId uuid.UUID, name string) (*domain.DeviceList, error)
 
 	// Used by domain metrics
 	Count(ctx context.Context, orgId uuid.UUID, listParams ListParams) (int64, error)
@@ -33,7 +33,7 @@ type Repository interface {
 type RepositoryStore struct {
 	dbHandler           *gorm.DB
 	log                 logrus.FieldLogger
-	genericStore        *GenericStore[*model.Repository, model.Repository, api.Repository, api.RepositoryList]
+	genericStore        *GenericStore[*model.Repository, model.Repository, domain.Repository, domain.RepositoryList]
 	eventCallbackCaller EventCallbackCaller
 }
 
@@ -41,14 +41,14 @@ type RepositoryStore struct {
 var _ Repository = (*RepositoryStore)(nil)
 
 func NewRepository(db *gorm.DB, log logrus.FieldLogger) Repository {
-	genericStore := NewGenericStore[*model.Repository, model.Repository, api.Repository, api.RepositoryList](
+	genericStore := NewGenericStore[*model.Repository, model.Repository, domain.Repository, domain.RepositoryList](
 		db,
 		log,
 		model.NewRepositoryFromApiResource,
 		(*model.Repository).ToApiResource,
 		model.RepositoriesToApiResource,
 	)
-	return &RepositoryStore{dbHandler: db, log: log, genericStore: genericStore, eventCallbackCaller: CallEventCallback(api.RepositoryKind, log)}
+	return &RepositoryStore{dbHandler: db, log: log, genericStore: genericStore, eventCallbackCaller: CallEventCallback(domain.RepositoryKind, log)}
 }
 
 func (s *RepositoryStore) getDB(ctx context.Context) *gorm.DB {
@@ -91,30 +91,30 @@ func (s *RepositoryStore) InitialMigration(ctx context.Context) error {
 	return nil
 }
 
-func (s *RepositoryStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.Repository, eventCallback EventCallback) (*api.Repository, error) {
+func (s *RepositoryStore) Create(ctx context.Context, orgId uuid.UUID, resource *domain.Repository, eventCallback EventCallback) (*domain.Repository, error) {
 	repo, err := s.genericStore.Create(ctx, orgId, resource)
 	s.eventCallbackCaller(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), nil, repo, true, err)
 	return repo, err
 }
 
-func (s *RepositoryStore) Update(ctx context.Context, orgId uuid.UUID, resource *api.Repository, eventCallback EventCallback) (*api.Repository, error) {
+func (s *RepositoryStore) Update(ctx context.Context, orgId uuid.UUID, resource *domain.Repository, eventCallback EventCallback) (*domain.Repository, error) {
 	newRepo, oldRepo, err := s.genericStore.Update(ctx, orgId, resource, nil, true, nil)
 	s.eventCallbackCaller(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), oldRepo, newRepo, false, err)
 	return newRepo, err
 }
 
-func (s *RepositoryStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.Repository, eventCallback EventCallback) (*api.Repository, bool, error) {
+func (s *RepositoryStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *domain.Repository, eventCallback EventCallback) (*domain.Repository, bool, error) {
 	newRepo, oldRepo, created, err := s.genericStore.CreateOrUpdate(ctx, orgId, resource, nil, true, nil)
 	s.eventCallbackCaller(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), oldRepo, newRepo, created, err)
 
 	return newRepo, created, err
 }
 
-func (s *RepositoryStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*api.Repository, error) {
+func (s *RepositoryStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.Repository, error) {
 	return s.genericStore.Get(ctx, orgId, name)
 }
 
-func (s *RepositoryStore) List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.RepositoryList, error) {
+func (s *RepositoryStore) List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*domain.RepositoryList, error) {
 	return s.genericStore.List(ctx, orgId, listParams)
 }
 
@@ -149,13 +149,27 @@ func (s *RepositoryStore) GetInternal(ctx context.Context, orgId uuid.UUID, name
 	return &repository, nil
 }
 
-func (s *RepositoryStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.Repository, eventCallback EventCallback) (*api.Repository, error) {
+func (s *RepositoryStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.Repository, eventCallback EventCallback) (*domain.Repository, error) {
+	// Get the old resource to compare conditions
+	var oldRepository *domain.Repository
+	existingResource, err := s.Get(ctx, orgId, lo.FromPtr(resource.Metadata.Name))
+	if err == nil && existingResource != nil {
+		oldRepository = existingResource
+	}
+
+	// Update the status
 	newRepo, err := s.genericStore.UpdateStatus(ctx, orgId, resource)
-	s.eventCallbackCaller(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), resource, newRepo, false, err)
+	if err != nil {
+		return newRepo, err
+	}
+
+	// Call the event callback to emit condition-specific events
+	s.eventCallbackCaller(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), oldRepository, newRepo, false, err)
+
 	return newRepo, err
 }
 
-func (s *RepositoryStore) GetFleetRefs(ctx context.Context, orgId uuid.UUID, name string) (*api.FleetList, error) {
+func (s *RepositoryStore) GetFleetRefs(ctx context.Context, orgId uuid.UUID, name string) (*domain.FleetList, error) {
 	repository := model.Repository{Resource: model.Resource{OrgID: orgId, Name: name}}
 	var fleets []model.Fleet
 	err := s.getDB(ctx).Model(&repository).Association("Fleets").Find(&fleets)
@@ -166,7 +180,7 @@ func (s *RepositoryStore) GetFleetRefs(ctx context.Context, orgId uuid.UUID, nam
 	return &fleetList, nil
 }
 
-func (s *RepositoryStore) GetDeviceRefs(ctx context.Context, orgId uuid.UUID, name string) (*api.DeviceList, error) {
+func (s *RepositoryStore) GetDeviceRefs(ctx context.Context, orgId uuid.UUID, name string) (*domain.DeviceList, error) {
 	repository := model.Repository{Resource: model.Resource{OrgID: orgId, Name: name}}
 	var devices []model.Device
 	err := s.getDB(ctx).Model(&repository).Association("Devices").Find(&devices)

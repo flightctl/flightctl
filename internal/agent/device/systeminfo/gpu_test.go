@@ -58,8 +58,10 @@ func TestLoadPCIMappings(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			tmpDir := t.TempDir()
-			rw := fileio.NewReadWriter()
-			rw.SetRootdir(tmpDir)
+			rw := fileio.NewReadWriter(
+				fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+				fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+			)
 			err := rw.WriteFile(HardwareMapFileName, hardwareMapBytes, fileio.DefaultFilePermissions)
 			require.NoError(err)
 

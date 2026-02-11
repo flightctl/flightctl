@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"time"
 
-	apiclient "github.com/flightctl/flightctl/internal/api/client"
+	imagebuilderclient "github.com/flightctl/flightctl/internal/api/imagebuilder/client"
 	client "github.com/flightctl/flightctl/internal/client"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -91,9 +91,29 @@ func (o *GlobalOptions) ValidateCmd(args []string) error {
 
 // BuildClient constructs a FlightCTL API client using configuration derived
 // from the global options (config file path, organization override, etc.).
-func (o *GlobalOptions) BuildClient() (*apiclient.ClientWithResponses, error) {
+// The returned client includes a token refresher if a refresh token is configured.
+// Call Start() on the client to begin token refresh, and Stop() to clean up.
+func (o *GlobalOptions) BuildClient() (*client.Client, error) {
 	organization := o.GetEffectiveOrganization()
-	return client.NewFromConfigFile(o.ConfigFilePath, client.WithOrganization(organization))
+	return client.NewFromConfigFile(o.ConfigFilePath, client.WithOrganization(organization), client.WithUserAgentHeader("flightctl-cli"))
+}
+
+// BuildImageBuilderClient constructs an ImageBuilder API client using configuration
+// derived from the global options. Returns an error if the imagebuilder service
+// is not configured.
+func (o *GlobalOptions) BuildImageBuilderClient(opts ...imagebuilderclient.ClientOption) (*client.ImageBuilderClient, error) {
+	config, err := client.ParseConfigFile(o.ConfigFilePath)
+	if err != nil {
+		return nil, err
+	}
+
+	imageBuilderServer := config.GetImageBuilderServer()
+	if imageBuilderServer == "" {
+		return nil, fmt.Errorf("imagebuilder service is not configured. Please configure 'imageBuilderService.server' in your client config")
+	}
+
+	organization := o.GetEffectiveOrganization()
+	return client.NewImageBuilderClientFromConfig(config, o.ConfigFilePath, imageBuilderServer, organization, opts...)
 }
 
 // GetEffectiveOrganization returns the organization ID to use for API requests.
