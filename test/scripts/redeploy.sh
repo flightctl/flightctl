@@ -34,7 +34,7 @@ case $IMAGE in
         ;;
 
 
-    *) echo "Usage: $0 <api|worker|periodic|alert-exporter|alertmanager-proxy|telemetry-gateway|imagebuilder-worker|iamgebuilder-api>"
+    *) echo "Usage: $0 <api|worker|periodic|alert-exporter|alertmanager-proxy|telemetry-gateway|imagebuilder-worker|imagebuilder-api>"
        exit 1
 esac
 
