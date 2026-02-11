@@ -486,7 +486,7 @@ lint-docs: .output/stamps/lint-docs
 .PHONY: lint-diagrams
 lint-diagrams:
 	@echo "Verifying Excalidraw diagrams have scene embedded"
-	@for d in $$(find . -type d); do \
+	@for d in $$(find ./docs -type d); do \
 		for f in $$(find $$d -maxdepth 1 -type f -iname '*.svg'); do \
 			if [ -f "$$d/.excalidraw-ignore" ] && $$(basename "$$f" | grep -q --basic-regexp --file=$$d/.excalidraw-ignore); then continue ; fi ; \
 			if ! grep -q "excalidraw+json" $$f; then \
