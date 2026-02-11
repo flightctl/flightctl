@@ -172,6 +172,16 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-dnf-
 
+      - name: Set runtime image
+        id: runtime-image
+        run: |
+          # Set runtime image based on service type
+          if [[ "${{ matrix.image }}" == "cli-artifacts" || "${{ matrix.image }}" == "db-setup" ]]; then
+            echo "runtime_image=registry.access.redhat.com/ubi9/ubi-minimal:9.7-1763362218" >> "$GITHUB_OUTPUT"
+          else
+            echo "runtime_image=quay.io/flightctl/flightctl-base:el9-9.7-1762965531" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Build
         id: build
         uses: redhat-actions/buildah-build@v2
@@ -188,9 +198,14 @@ jobs:
             SOURCE_GIT_TAG=${{ steps.version-vars.outputs.git_tag }}
             SOURCE_GIT_TREE_STATE=${{ steps.version-vars.outputs.git_tree_state }}
             SOURCE_GIT_COMMIT=${{ steps.version-vars.outputs.git_commit }}
+            BUILD_IMAGE=registry.access.redhat.com/ubi9/go-toolset:1.24.6-1762373805
+            RUNTIME_IMAGE=${{ steps.runtime-image.outputs.runtime_image }}
+            EL_VERSION=9
+            PAM_BASE_URL=https://mirror.stream.centos.org/9-stream
+            PAM_PACKAGE_VERSION=1.5.1-24.el9
           extra-args: |
             --ulimit nofile=10000:10000
-          containerfiles: images/Containerfile.${{ matrix.image }}-cs9
+          containerfiles: images/Containerfile.${{ matrix.image }}
           context: .
 
       - name: Validate FIPS
