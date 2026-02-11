@@ -1,87 +1,164 @@
-# Deploying the Observability Stack on Linux
+# Deploying an Observability Stack on RHEL / Linux
 
-This guide describes how to deploy and configure the observability stack for Flight Control on RHEL or other Linux distributions using Podman.
+This guide describes how to deploy and configure an observability stack for Flight Control on RHEL or other RPM-based Linux distributions.
 
 ## Overview
 
-Flight Control provides built-in device telemetry capabilities through the **Telemetry Gateway**, which is deployed by default with the Flight Control service. The Telemetry Gateway:
+The Flight Control service exports three categories of metrics:
 
-- Acts as the entry point for all device telemetry data
-- Terminates mTLS connections from devices and validates device certificates
-- Labels telemetry data with authenticated `device_id` and `org_id`
-- Exposes metrics for scraping by Prometheus or forwards data to upstream OTLP backends
+1. **Service metrics** are metrics about the Flight Control service itself such as
+    - system resource utilization metrics,
+    - API metrics,
+    - database metrics, and
+    - agent metrics.
+2. **Business metrics** are metrics about the objects managed by the Flight Control service such as
+    - device deployment, update, and health metrics,
+    - application deployment, update, and health metrics, and
+    - fleet rollout metrics.
+3. **Device and application metrics** are metrics collected from the devices and their application workloads.
 
-To store and visualize this telemetry data, along with Flight Control service metrics, you need to deploy an observability stack consisting of:
+The first two categories can be collected from the Flight Control API server, the third from the Flight Control Telemetry Gateway. The Telemetry Gateway
 
-- **Prometheus** - Time-series database for storing metrics
-- **Grafana** - Visualization and dashboarding platform
+- acts as the entry point for all device telemetry data,
+- terminates the OpenTelemetry mTLS connections from devices and validates the client certificates,
+- labels telemetry data with authenticated `device_id` and `org_id`, and
+- exposes metrics for scraping by Prometheus or forwards data to upstream OTLP backends.
 
-The Telemetry Gateway is automatically deployed with the `flightctl-services` RPM with working default configuration, including:
+To store and visualize this telemetry data, you can deploy an observability stack as described in the following sections.
 
-- Server certificates provisioned and mounted
-- CA certificate for validating device client certificates
-- Device-facing OTLP gRPC listener on port 4317
-- Prometheus metrics export on port 9464
+## Deploying the Observability Stack
 
-## Prerequisites
+Prerequisites:
 
-- RHEL 9.2 or later (or compatible Linux distribution)
-- Flight Control services already installed via `flightctl-services` RPM
-- Podman 4.4 or later
-- SELinux in enforcing mode (recommended)
+- You are logged in to the host machine running RHEL 9.7 or later (or compatible Linux distribution)
+- Flight Control services are installed via the `flightctl-services` RPM package
 
-## Installing the Observability Stack
+Procedure:
 
-Install the `flightctl-observability` RPM package:
+1. Install the `flightctl-observability` RPM package:
 
-```console
-sudo dnf install flightctl-observability
-```
+   ```console
+   sudo dnf install -y flightctl-observability
+   ```
 
-The package includes:
+2. Copy the Prometheus data source configuration to the Grafana provisioning directory:
 
-- Prometheus configuration and container
-- Grafana configuration and container
-- UserInfo proxy for authentication
-- Systemd quadlet files for all components
-- Pre-configured dashboards for Flight Control
+   ```console
+   sudo cp /usr/share/flightctl/flightctl-grafana/grafana-datasources.yaml \
+     /etc/flightctl/flightctl-grafana/provisioning/datasources/
+   sudo chmod 644 /etc/flightctl/flightctl-grafana/provisioning/datasources/grafana-datasources.yaml
+   ```
 
-## Starting the Observability Services
+3. Copy the dashboard provider configuration to the Grafana provisioning directory:
 
-Start and enable the observability stack:
+   ```console
+   sudo cp /usr/share/flightctl/flightctl-grafana/grafana-dashboards.yaml \
+     /etc/flightctl/flightctl-grafana/provisioning/dashboards/
+   sudo chmod 644 /etc/flightctl/flightctl-grafana/provisioning/dashboards/grafana-dashboards.yaml
+   ```
 
-```console
-sudo systemctl daemon-reload
-sudo systemctl enable --now flightctl-observability.target
-```
+4. Download the example dashboard JSON files from GitHub:
 
-Verify all services are running:
+   ```console
+   curl -sLO https://raw.githubusercontent.com/flightctl/flightctl/main/contrib/grafana-dashboards/flightctl-api-dashboard.json
+   curl -sLO https://raw.githubusercontent.com/flightctl/flightctl/main/contrib/grafana-dashboards/flightctl-fleet-dashboard.json
+   ```
 
-```console
-sudo systemctl status flightctl-observability.target
-```
+5. Copy the dashboard files to the Grafana provisioning directory:
 
-You should see the following services in active (running) state:
+   ```console
+   sudo cp flightctl-api-dashboard.json /etc/flightctl/flightctl-grafana/provisioning/dashboards/flightctl/
+   sudo cp flightctl-fleet-dashboard.json /etc/flightctl/flightctl-grafana/provisioning/dashboards/flightctl/
+   sudo chmod 644 /etc/flightctl/flightctl-grafana/provisioning/dashboards/flightctl/*.json
+   ```
 
-- `flightctl-prometheus.service`
-- `flightctl-grafana.service`
-- `flightctl-userinfo-proxy.service`
+6. Ensure the Grafana container is configured to mount the dashboards directory. Check if the mount exists:
 
-## Accessing Grafana
+   ```console
+   systemctl cat flightctl-grafana.service | grep "dashboards"
+   ```
 
-Grafana is accessible at `https://<your-host>:3000` using automatically generated TLS certificates.
+   If the volume mount is missing, add it by creating a drop-in configuration:
 
-Default ports:
+   ```console
+   sudo mkdir -p /etc/containers/systemd/flightctl-grafana.container.d
+   sudo tee /etc/containers/systemd/flightctl-grafana.container.d/10-dashboards.conf > /dev/null <<EOF
+   [Container]
+   Volume=/etc/flightctl/flightctl-grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro,z
+   EOF
+   ```
 
-- **Grafana**: 3000 (HTTPS)
-- **Prometheus**: 9090 (HTTP, localhost only)
-- **UserInfo Proxy**: 8888 (HTTP, localhost only)
+7. Start and enable the observability stack:
 
-The `flightctl-observability` package automatically generates self-signed TLS certificates for Grafana during installation. These certificates include Subject Alternative Names (SANs) for the hostname, IP addresses, and common internal names.
+   ```console
+   sudo systemctl daemon-reload
+   sudo systemctl enable --now flightctl-observability.target
+   ```
 
-**Note**: Since the certificates are self-signed, your browser will show a security warning on first access. You can safely proceed or install the Flight Control CA certificate (`/etc/flightctl/pki/ca/ca.crt`) in your browser's trust store.
+Verification:
 
-By default, Grafana uses local authentication with username `admin` and password `admin`. You should change the default password after first login or configure authentication as described in the next section.
+1. Verify all services are running:
+
+   ```console
+   sudo systemctl status flightctl-observability.target
+   ```
+
+   You should see the following services in active (running) state:
+   - `flightctl-prometheus.service`
+   - `flightctl-grafana.service`
+   - `flightctl-userinfo-proxy.service`
+
+2. Verify that Prometheus is successfully scraping Flight Control metrics:
+
+   ```console
+   sudo podman exec flightctl-prometheus wget -qO- http://localhost:9090/api/v1/targets 2>/dev/null | \
+     jq -r '.data.activeTargets[] | select(.labels.job | contains("flightctl")) | {job: .labels.job, health: .health}'
+   ```
+
+   You should see output showing healthy targets for both the API and Telemetry Gateway.
+
+3. Access the Grafana UI at `https://<your-host>:3000` with username `admin` and password `admin`.
+
+4. Navigate to **Dashboards** in the left sidebar. You should see:
+   - **Flight Control API Dashboard** - Shows API server metrics, database performance, and agent connectivity
+   - **Flight Control Fleet Dashboard** - Shows device fleet health, rollout status, and application metrics
+
+Troubleshooting:
+
+1. **Services not starting** - Check service status and logs:
+
+   ```console
+   sudo systemctl status flightctl-prometheus.service
+   sudo journalctl -u flightctl-prometheus.service -n 50
+   ```
+
+   Common issues:
+   - **SELinux denials**: Check `ausearch -m avc -ts recent` for denials
+   - **Port conflicts**: Ensure ports 3000, 9090, 8888 are available
+   - **Storage permissions**: Verify `/var/lib/prometheus` and `/var/lib/grafana` have correct ownership
+
+2. **Cannot access Grafana** - Verify the service is running and check firewall rules:
+
+   ```console
+   sudo systemctl status flightctl-grafana.service
+   sudo firewall-cmd --list-ports
+   sudo firewall-cmd --add-port=3000/tcp --permanent
+   sudo firewall-cmd --reload
+   curl -k https://localhost:3000
+   ```
+
+3. **Prometheus not scraping metrics** - Verify the configuration and check targets:
+
+   ```console
+   cat /etc/flightctl/flightctl-prometheus/prometheus.yml
+   ```
+
+   Check Prometheus targets and verify Flight Control services are running:
+
+   ```console
+   sudo podman exec flightctl-prometheus wget -qO- http://localhost:9090/api/v1/targets 2>/dev/null | jq .
+   sudo systemctl status flightctl.target
+   ```
 
 ## Configuring Grafana Authentication
 
@@ -186,67 +263,9 @@ These directories are automatically created with correct ownership and SELinux c
 
 To preserve data across system reboots, ensure these directories are backed up regularly.
 
-## Configuring Prometheus Scraping
-
-The `flightctl-observability` package includes a pre-configured Prometheus configuration at `/etc/flightctl/flightctl-prometheus/prometheus.yml` that automatically scrapes:
-
-- **Flight Control API metrics** at `flightctl-api:9090/metrics`
-- **Telemetry Gateway metrics** at `flightctl-telemetry-gateway:9464/metrics`
-
-No additional configuration is required for basic setup.
-
-### Available Service Metrics
-
-The Flight Control API exposes metrics including:
-
-- **HTTP metrics**: Request duration, status codes, request/response sizes
-- **System metrics**: CPU utilization, memory usage, disk I/O
-- **Database metrics**: Connection pool stats, query durations
-- **gRPC metrics**: RPC call durations and counts
-
-For a complete reference, see [Metrics Configuration](../references/metrics.md).
-
-### Understanding Device Telemetry Metrics
-
-All device telemetry metrics include labels for filtering and aggregation:
-
-- `device_id`: Unique device identifier
-- `org_id`: Organization/tenant identifier
-- Additional labels from the OpenTelemetry collector configuration
-
-Example metrics:
-
-- `system_cpu_utilization`: Device CPU usage percentage
-- `system_memory_usage`: Device memory consumption
-- `system_disk_io_bytes`: Disk I/O operations
-
-### Example Prometheus Queries
-
-Access Prometheus at `http://localhost:9090` and run queries:
-
-Get CPU usage for a specific device:
-
-```promql
-system_cpu_utilization{device_id="my-device-123"}
-```
-
-Average CPU usage across all devices in an organization:
-
-```promql
-avg(system_cpu_utilization{org_id="default"})
-```
-
-Devices with high memory usage:
-
-```promql
-system_memory_usage{state="used"} / system_memory_limit > 0.9
-```
-
 ## Configuring Telemetry Gateway Forwarding (Optional)
 
 By default, the Telemetry Gateway exports metrics for local Prometheus scraping. You can optionally configure forwarding to send telemetry data to an upstream OTLP/gRPC backend.
-
-### When to Use Forwarding
 
 Use forwarding when you:
 
@@ -254,126 +273,59 @@ Use forwarding when you:
 - Want to centralize telemetry from multiple Flight Control deployments
 - Need to integrate with organization-wide monitoring systems
 
-You can configure both `export` and `forward` simultaneously. The gateway will:
+To configure forwarding with Mutual TLS (mTLS), follow the procedure below.
 
-- Export metrics locally for Prometheus scraping **and**
-- Forward the same data to the upstream OTLP endpoint
+Procedure:
 
-### Basic Forwarding Configuration
+1. Place the client certificate and key in the forward directory:
 
-1. Edit `/etc/flightctl/service-config.yaml`:
-
-   ```yaml
-   telemetryGateway:
-     forward:
-       endpoint: otlp.example.com:4317
+   ```console
+   sudo install -o root -g root -m 644 /path/to/client-cert.crt \
+     /etc/flightctl/flightctl-telemetry-gateway/forward/client.crt
+   sudo install -o root -g root -m 600 /path/to/client-key.key \
+     /etc/flightctl/flightctl-telemetry-gateway/forward/client.key
    ```
 
 2. Place the upstream CA certificate:
 
    ```console
-   sudo mkdir -p /etc/flightctl/flightctl-telemetry-gateway/forward
-   sudo cp /path/to/upstream-ca.crt /etc/flightctl/flightctl-telemetry-gateway/forward/ca.crt
-   sudo chown root:root /etc/flightctl/flightctl-telemetry-gateway/forward/ca.crt
-   sudo chmod 644 /etc/flightctl/flightctl-telemetry-gateway/forward/ca.crt
+   sudo install -o root -g root -m 644 /path/to/upstream-ca.crt \
+     /etc/flightctl/flightctl-telemetry-gateway/forward/ca.crt
    ```
 
-3. Restart the telemetry gateway:
+3. Edit `/etc/flightctl/service-config.yaml` to configure the forwarding endpoint:
+
+   ```yaml
+   telemetryGateway:
+     forward:
+       endpoint: otlp.example.com:4317
+       tls:
+         insecureSkipTlsVerify: false
+         caFile: /etc/flightctl/flightctl-telemetry-gateway/forward/ca.crt
+         certFile: /etc/flightctl/flightctl-telemetry-gateway/forward/client.crt
+         keyFile: /etc/flightctl/flightctl-telemetry-gateway/forward/client.key
+   ```
+
+4. Restart the telemetry gateway:
 
    ```console
    sudo systemctl restart flightctl-telemetry-gateway.service
    ```
 
-### Forwarding with Mutual TLS (mTLS)
+Verification:
 
-If the upstream backend requires client certificate authentication, place all certificates in the forward directory:
-
-```console
-sudo cp /path/to/upstream-ca.crt /etc/flightctl/flightctl-telemetry-gateway/forward/ca.crt
-sudo cp /path/to/client-cert.crt /etc/flightctl/flightctl-telemetry-gateway/forward/client.crt
-sudo cp /path/to/client-key.key /etc/flightctl/flightctl-telemetry-gateway/forward/client.key
-sudo chown root:root /etc/flightctl/flightctl-telemetry-gateway/forward/*
-sudo chmod 644 /etc/flightctl/flightctl-telemetry-gateway/forward/*.crt
-sudo chmod 600 /etc/flightctl/flightctl-telemetry-gateway/forward/*.key
-```
-
-Restart the service:
-
-```console
-sudo systemctl restart flightctl-telemetry-gateway.service
-```
-
-### Verifying Forwarding
-
-Check the telemetry gateway logs to verify successful forwarding:
-
-```console
-sudo journalctl -u flightctl-telemetry-gateway.service -f
-```
-
-Look for log entries indicating successful OTLP exports:
-
-```json
-{"level":"info","msg":"Successfully forwarded metrics batch","endpoint":"otlp.example.com:4317","batch_size":100}
-```
-
-## Troubleshooting
-
-### Services Not Starting
-
-Check service status and logs:
-
-```console
-sudo systemctl status flightctl-prometheus.service
-sudo journalctl -u flightctl-prometheus.service -n 50
-```
-
-Common issues:
-
-- **SELinux denials**: Check `ausearch -m avc -ts recent` for denials
-- **Port conflicts**: Ensure ports 3000, 9090, 8888 are available
-- **Storage permissions**: Verify `/var/lib/prometheus` and `/var/lib/grafana` have correct ownership
-
-### Cannot Access Grafana
-
-1. Verify the service is running:
+1. Check the telemetry gateway logs to verify successful forwarding:
 
    ```console
-   sudo systemctl status flightctl-grafana.service
+   sudo journalctl -u flightctl-telemetry-gateway.service -f
    ```
 
-2. Check firewall rules:
+2. Look for log entries indicating successful OTLP exports:
 
-   ```console
-   sudo firewall-cmd --list-ports
-   sudo firewall-cmd --add-port=3000/tcp --permanent
-   sudo firewall-cmd --reload
-   ```
-
-3. Verify network connectivity:
-
-   ```console
-   curl -k https://localhost:3000
-   ```
-
-### Prometheus Not Scraping Metrics
-
-1. Verify the configuration:
-
-   ```console
-   cat /etc/flightctl/flightctl-prometheus/prometheus.yml
-   ```
-
-2. Check Prometheus targets at `http://localhost:9090/targets`
-
-3. Verify Flight Control services are running:
-
-   ```console
-   sudo systemctl status flightctl.target
+   ```json
+   {"level":"info","msg":"Successfully forwarded metrics batch","endpoint":"otlp.example.com:4317","batch_size":100}
    ```
 
 ## Next Steps
 
 - **Add devices**: See [Adding OpenTelemetry Collector to Devices](../building/building-images.md#optional-adding-opentelemetry-collector-to-devices) to configure devices to send telemetry
-- **Create dashboards**: Import pre-built Grafana dashboards or create custom ones
-- **Configure alerts**: Set up alerting rules in Prometheus and Alertmanager (see [Alerts and Monitoring](../references/alerts.md))
