@@ -23,6 +23,7 @@ type sshKeyCacheData struct {
 }
 
 var sshKeyCache sshKeyCacheData
+var sshPublicKeyCache sshKeyCacheData
 
 // GetGitServerConfig returns the configuration for the e2e git server.
 // In KIND environments, it uses localhost:3222 (via port mappings).
@@ -479,6 +480,56 @@ func GetSSHPrivateKeyPath() (string, error) {
 		sshKeyCache.path, sshKeyCache.err = initSSHPrivateKeyPath()
 	})
 	return sshKeyCache.path, sshKeyCache.err
+}
+
+// getSSHPublicKeyFromSecret retrieves the SSH public key from the e2e-git-ssh-keys Kubernetes Secret.
+func getSSHPublicKeyFromSecret() (string, error) {
+	encodedKey, err := getSecretData("e2e-git-ssh-keys", util.E2E_NAMESPACE, "id_rsa.pub")
+	if err != nil {
+		return "", err
+	}
+	decoded, err := base64.StdEncoding.DecodeString(encodedKey)
+	if err != nil {
+		return "", fmt.Errorf("failed to decode SSH public key from secret: %w", err)
+	}
+	return string(decoded), nil
+}
+
+// initSSHPublicKeyPath initializes the SSH public key path by trying the Secret first,
+// then falling back to the local file. If the key comes from a Secret, it writes it to a temp file.
+func initSSHPublicKeyPath() (string, error) {
+	keyContent, err := getSSHPublicKeyFromSecret()
+	if err == nil && keyContent != "" {
+		logrus.Info("Using SSH public key from Kubernetes Secret")
+		tempFile, err := os.CreateTemp("", "e2e-git-ssh-key-pub-*")
+		if err != nil {
+			return "", fmt.Errorf("failed to create temp file for SSH public key: %w", err)
+		}
+		if err := os.WriteFile(tempFile.Name(), []byte(keyContent), 0600); err != nil {
+			return "", fmt.Errorf("failed to write SSH public key to temp file: %w", err)
+		}
+		tempFile.Close()
+		return tempFile.Name(), nil
+	}
+
+	keyPath := filepath.Join("..", "..", "..", "bin", ".ssh", "id_rsa.pub")
+	absPath, err := filepath.Abs(keyPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to get absolute path for SSH public key: %w", err)
+	}
+	if _, err := os.Stat(absPath); err != nil {
+		return "", fmt.Errorf("SSH public key not found at %s: %w", absPath, err)
+	}
+	logrus.Info("Using SSH public key from local file")
+	return absPath, nil
+}
+
+// GetSSHPublicKeyPath returns the path to the SSH public key file.
+func GetSSHPublicKeyPath() (string, error) {
+	sshPublicKeyCache.once.Do(func() {
+		sshPublicKeyCache.path, sshPublicKeyCache.err = initSSHPublicKeyPath()
+	})
+	return sshPublicKeyCache.path, sshPublicKeyCache.err
 }
 
 // initSSHPrivateKeyPath initializes the SSH private key path by trying the Secret first,

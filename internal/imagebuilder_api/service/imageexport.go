@@ -466,13 +466,13 @@ func (s *imageExportService) Download(ctx context.Context, orgId uuid.UUID, name
 	}
 
 	// Setup repository reference and authentication
-	repoRef, scheme, registryHostname, err := s.setupRepositoryReference(ctx, &ociSpec, imageBuild.Spec.Destination.ImageName, log)
+	repoRef, scheme, registryHostname, err := s.setupRepositoryReference(ctx, &ociSpec, imageBuild.Spec.Destination.ImageName)
 	if err != nil {
 		return nil, err
 	}
 
 	// Fetch and parse manifest
-	manifest, err := s.fetchAndParseManifest(ctx, repoRef, manifestDigestStr, log)
+	manifest, err := s.fetchAndParseManifest(ctx, repoRef, manifestDigestStr)
 	if err != nil {
 		return nil, err
 	}
@@ -504,7 +504,7 @@ func (s *imageExportService) Download(ctx context.Context, orgId uuid.UUID, name
 	log.WithFields(logrus.Fields{"blobURL": blobURLStr, "layerDigest": layerDigestStr}).Debug("Constructed blob URL")
 
 	// Create HTTP client with TLS configuration
-	httpClient, err := s.createHTTPClient(&ociSpec)
+	httpClient, err := s.createBlobFetchHTTPClient(&ociSpec)
 	if err != nil {
 		log.WithError(err).Error("Failed to create HTTP client")
 		return nil, fmt.Errorf("failed to create HTTP client: %w", err)
@@ -519,7 +519,7 @@ func (s *imageExportService) Download(ctx context.Context, orgId uuid.UUID, name
 	}
 
 	// Add authentication if available
-	if err := s.addAuthenticationToRequest(ctx, getReq, httpClient, scheme, registryHostname, imageBuild.Spec.Destination.ImageName, &ociSpec, log); err != nil {
+	if err := s.addAuthenticationToRequest(ctx, getReq, httpClient, scheme, registryHostname, imageBuild.Spec.Destination.ImageName, &ociSpec); err != nil {
 		return nil, err
 	}
 
@@ -531,11 +531,11 @@ func (s *imageExportService) Download(ctx context.Context, orgId uuid.UUID, name
 
 	log.WithFields(logrus.Fields{"blobURL": blobURLStr, "statusCode": getResp.StatusCode}).Debug("Received GET response")
 
-	return s.handleBlobResponse(getResp, blobURLStr, log)
+	return s.handleBlobResponse(getResp, blobURLStr)
 }
 
 // setupRepositoryReference creates a repository reference and configures authentication
-func (s *imageExportService) setupRepositoryReference(ctx context.Context, ociSpec *coredomain.OciRepoSpec, imageName string, log logrus.FieldLogger) (*remote.Repository, string, string, error) {
+func (s *imageExportService) setupRepositoryReference(ctx context.Context, ociSpec *coredomain.OciRepoSpec, imageName string) (*remote.Repository, string, string, error) {
 	scheme := "https"
 	if ociSpec.Scheme != nil {
 		scheme = string(*ociSpec.Scheme)
@@ -543,88 +543,83 @@ func (s *imageExportService) setupRepositoryReference(ctx context.Context, ociSp
 	registryHostname := ociSpec.Registry
 	destRef := fmt.Sprintf("%s/%s", registryHostname, imageName)
 
-	log.WithFields(logrus.Fields{
+	s.log.WithFields(logrus.Fields{
 		"destRef": destRef, "scheme": scheme, "registryHostname": registryHostname,
 		"imageName": imageName,
 	}).Debug("Creating repository reference")
 
 	repoRef, err := remote.NewRepository(destRef)
 	if err != nil {
-		log.WithError(err).WithField("destRef", destRef).Error("Failed to create repository reference")
+		s.log.WithError(err).WithField("destRef", destRef).Error("Failed to create repository reference")
 		return nil, "", "", fmt.Errorf("failed to create repository reference: %w", err)
 	}
 
-	// Set up authentication if credentials are provided
-	if ociSpec.OciAuth != nil {
-		dockerAuth, err := ociSpec.OciAuth.AsDockerAuth()
-		if err == nil && dockerAuth.Username != "" && dockerAuth.Password != "" {
-			repoRef.Client = &auth.Client{
-				Credential: auth.StaticCredential(registryHostname, auth.Credential{
-					Username: dockerAuth.Username,
-					Password: dockerAuth.Password,
-				}),
-			}
-			log.WithFields(logrus.Fields{"registryHostname": registryHostname, "username": dockerAuth.Username}).Debug("Configured authentication for repository")
-		}
-	} else {
-		log.Debug("No authentication configured for repository")
+	// Create client with TLS configuration and optional authentication
+	repoRef.Client, err = s.createRepositoryClient(ociSpec, registryHostname)
+	if err != nil {
+		s.log.WithError(err).Error("Failed to create repository client")
+		return nil, "", "", fmt.Errorf("failed to create repository client: %w", err)
 	}
 
 	return repoRef, scheme, registryHostname, nil
 }
 
 // fetchAndParseManifest fetches and parses the OCI manifest
-func (s *imageExportService) fetchAndParseManifest(ctx context.Context, repoRef *remote.Repository, manifestDigestStr string, log logrus.FieldLogger) (*ocispec.Manifest, error) {
+func (s *imageExportService) fetchAndParseManifest(ctx context.Context, repoRef *remote.Repository, manifestDigestStr string) (*ocispec.Manifest, error) {
 	manifestDigest, err := digest.Parse(manifestDigestStr)
 	if err != nil {
-		log.WithError(err).WithField("manifestDigest", manifestDigestStr).Error("Failed to parse manifest digest")
+		s.log.WithError(err).WithField("manifestDigest", manifestDigestStr).Error("Failed to parse manifest digest")
 		return nil, fmt.Errorf("%w: %w", ErrInvalidManifestDigest, err)
 	}
 
 	// Try to resolve the manifest reference using the digest
-	log.WithField("manifestDigest", manifestDigestStr).Debug("Attempting to resolve manifest")
+	s.log.WithField("manifestDigest", manifestDigestStr).Debug("Attempting to resolve manifest")
 	manifestDesc, err := repoRef.Resolve(ctx, manifestDigestStr)
 	if err != nil {
-		log.WithError(err).WithField("manifestDigest", manifestDigestStr).Warn("Failed to resolve manifest, will try Fetch directly")
+		s.log.WithError(err).WithField("manifestDigest", manifestDigestStr).Warn("Failed to resolve manifest, will try Fetch directly")
 		manifestDesc = ocispec.Descriptor{
 			Digest:    manifestDigest,
 			MediaType: ocispec.MediaTypeImageManifest,
 		}
 	} else {
-		log.WithFields(logrus.Fields{"manifestDigest": manifestDigestStr, "mediaType": manifestDesc.MediaType, "size": manifestDesc.Size}).Debug("Successfully resolved manifest")
+		s.log.WithFields(logrus.Fields{"manifestDigest": manifestDigestStr, "mediaType": manifestDesc.MediaType, "size": manifestDesc.Size}).Debug("Successfully resolved manifest")
 	}
 
 	// Fetch manifest
-	log.WithFields(logrus.Fields{"manifestDigest": manifestDigestStr, "mediaType": manifestDesc.MediaType}).Debug("Fetching manifest")
+	s.log.WithFields(logrus.Fields{"manifestDigest": manifestDigestStr, "mediaType": manifestDesc.MediaType}).Debug("Fetching manifest")
 	manifestReader, err := repoRef.Fetch(ctx, manifestDesc)
 	if err != nil {
-		log.WithError(err).WithFields(logrus.Fields{"manifestDigest": manifestDigestStr, "mediaType": manifestDesc.MediaType}).Error("Failed to fetch manifest from external service")
+		s.log.WithError(err).WithFields(logrus.Fields{"manifestDigest": manifestDigestStr, "mediaType": manifestDesc.MediaType}).Error("Failed to fetch manifest from external service")
 		return nil, fmt.Errorf("%w: failed to fetch manifest: %w", ErrExternalServiceUnavailable, err)
 	}
 	defer manifestReader.Close()
 
 	manifestBytes, err := io.ReadAll(manifestReader)
 	if err != nil {
-		log.WithError(err).WithField("manifestDigest", manifestDigestStr).Error("Failed to read manifest")
+		s.log.WithError(err).WithField("manifestDigest", manifestDigestStr).Error("Failed to read manifest")
 		return nil, fmt.Errorf("failed to read manifest: %w", err)
 	}
 
-	log.WithFields(logrus.Fields{"manifestDigest": manifestDigestStr, "manifestSize": len(manifestBytes)}).Debug("Read manifest bytes")
+	s.log.WithFields(logrus.Fields{"manifestDigest": manifestDigestStr, "manifestSize": len(manifestBytes)}).Debug("Read manifest bytes")
 
 	// Parse manifest
 	var manifest ocispec.Manifest
 	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
-		log.WithError(err).WithField("manifestDigest", manifestDigestStr).Error("Failed to parse manifest JSON")
+		s.log.WithError(err).WithField("manifestDigest", manifestDigestStr).Error("Failed to parse manifest JSON")
 		return nil, fmt.Errorf("failed to parse manifest: %w", err)
 	}
 
-	log.WithFields(logrus.Fields{"manifestDigest": manifestDigestStr, "layerCount": len(manifest.Layers), "mediaType": manifest.MediaType}).Debug("Parsed manifest")
+	s.log.WithFields(logrus.Fields{"manifestDigest": manifestDigestStr, "layerCount": len(manifest.Layers), "mediaType": manifest.MediaType}).Debug("Parsed manifest")
 
 	return &manifest, nil
 }
 
-// createHTTPClient creates an HTTP client with TLS configuration
-func (s *imageExportService) createHTTPClient(ociSpec *coredomain.OciRepoSpec) (*http.Client, error) {
+// createTLSTransport creates an HTTP transport with TLS configuration
+func (s *imageExportService) createTLSTransport(ociSpec *coredomain.OciRepoSpec) (*http.Transport, error) {
+	// Clone the default transport to preserve default settings (timeouts, connection pooling, etc.)
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+
+	// Configure TLS
 	tlsConfig := &tls.Config{
 		MinVersion: tls.VersionTLS12,
 	}
@@ -634,34 +629,73 @@ func (s *imageExportService) createHTTPClient(ociSpec *coredomain.OciRepoSpec) (
 	if ociSpec.CaCrt != nil {
 		ca, err := base64.StdEncoding.DecodeString(*ociSpec.CaCrt)
 		if err != nil {
-			return nil, fmt.Errorf("createHTTPClient: decode CA: %w", err)
+			return nil, fmt.Errorf("createTLSTransport: decode CA: %w", err)
 		}
 		rootCAs, err := x509.SystemCertPool()
 		if err != nil {
-			return nil, fmt.Errorf("createHTTPClient: system cert pool: %w", err)
+			return nil, fmt.Errorf("createTLSTransport: system cert pool: %w", err)
 		}
 		if rootCAs == nil {
 			rootCAs = x509.NewCertPool()
 		}
 		if !rootCAs.AppendCertsFromPEM(ca) {
-			return nil, fmt.Errorf("createHTTPClient: failed to append CA certificates from PEM")
+			return nil, fmt.Errorf("createTLSTransport: failed to append CA certificates from PEM")
 		}
 		tlsConfig.RootCAs = rootCAs
 	}
+	transport.TLSClientConfig = tlsConfig
+
+	return transport, nil
+}
+
+// createBlobFetchHTTPClient creates an HTTP client with TLS configuration for blob fetching (disables redirect following)
+func (s *imageExportService) createBlobFetchHTTPClient(ociSpec *coredomain.OciRepoSpec) (*http.Client, error) {
+	transport, err := s.createTLSTransport(ociSpec)
+	if err != nil {
+		return nil, err
+	}
 
 	return &http.Client{
-		Timeout: 30 * time.Second,
-		Transport: &http.Transport{
-			TLSClientConfig: tlsConfig,
-		},
+		Timeout:   30 * time.Second,
+		Transport: transport,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
 	}, nil
 }
 
+// createRepositoryClient creates a remote.Client with TLS configuration and optional authentication
+func (s *imageExportService) createRepositoryClient(ociSpec *coredomain.OciRepoSpec, registryHostname string) (remote.Client, error) {
+	transport, err := s.createTLSTransport(ociSpec)
+	if err != nil {
+		return nil, err
+	}
+
+	httpClient := &http.Client{
+		Timeout:   30 * time.Second,
+		Transport: transport,
+	}
+
+	// If credentials are provided, wrap in auth.Client
+	if ociSpec.OciAuth != nil {
+		dockerAuth, err := ociSpec.OciAuth.AsDockerAuth()
+		if err == nil && dockerAuth.Username != "" && dockerAuth.Password != "" {
+			s.log.WithFields(logrus.Fields{"registryHostname": registryHostname, "username": dockerAuth.Username}).Debug("Configured authentication for repository")
+			return &auth.Client{
+				Client: httpClient,
+				Credential: auth.StaticCredential(registryHostname, auth.Credential{
+					Username: dockerAuth.Username,
+					Password: dockerAuth.Password,
+				}),
+			}, nil
+		}
+	}
+
+	return httpClient, nil
+}
+
 // addAuthenticationToRequest adds authentication headers to the request if needed
-func (s *imageExportService) addAuthenticationToRequest(ctx context.Context, req *http.Request, client *http.Client, scheme, registryHostname, repoName string, ociSpec *coredomain.OciRepoSpec, log logrus.FieldLogger) error {
+func (s *imageExportService) addAuthenticationToRequest(ctx context.Context, req *http.Request, client *http.Client, scheme, registryHostname, repoName string, ociSpec *coredomain.OciRepoSpec) error {
 	if ociSpec.OciAuth == nil {
 		return nil
 	}
@@ -671,31 +705,31 @@ func (s *imageExportService) addAuthenticationToRequest(ctx context.Context, req
 		return nil
 	}
 
-	log.WithFields(logrus.Fields{"registryHostname": registryHostname, "repoName": repoName}).Debug("Getting registry token for authentication")
+	s.log.WithFields(logrus.Fields{"registryHostname": registryHostname, "repoName": repoName}).Debug("Getting registry token for authentication")
 	token, err := s.getRegistryToken(ctx, client, scheme, registryHostname, repoName, dockerAuth.Username, dockerAuth.Password)
 	if err != nil {
-		log.WithError(err).WithField("registryHostname", registryHostname).Error("Failed to get registry token from external service")
+		s.log.WithError(err).WithField("registryHostname", registryHostname).Error("Failed to get registry token from external service")
 		return fmt.Errorf("%w: failed to get registry token: %w", ErrExternalServiceUnavailable, err)
 	}
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
-		log.WithField("hasToken", true).Debug("Added bearer token to GET request")
+		s.log.WithField("hasToken", true).Debug("Added bearer token to GET request")
 	}
 
 	return nil
 }
 
 // handleBlobResponse handles the HTTP response from the blob endpoint
-func (s *imageExportService) handleBlobResponse(resp *http.Response, blobURL string, log logrus.FieldLogger) (*ImageExportDownload, error) {
+func (s *imageExportService) handleBlobResponse(resp *http.Response, blobURL string) (*ImageExportDownload, error) {
 	// Handle redirect (3xx)
 	if resp.StatusCode >= 300 && resp.StatusCode < 400 {
 		resp.Body.Close()
 		redirectURL := resp.Header.Get("Location")
 		if redirectURL == "" {
-			log.WithField("statusCode", resp.StatusCode).Error("Redirect response missing Location header")
+			s.log.WithField("statusCode", resp.StatusCode).Error("Redirect response missing Location header")
 			return nil, errors.New("redirect response missing Location header")
 		}
-		log.WithFields(logrus.Fields{"statusCode": resp.StatusCode, "redirectURL": redirectURL}).Info("Returning redirect response")
+		s.log.WithFields(logrus.Fields{"statusCode": resp.StatusCode, "redirectURL": redirectURL}).Info("Returning redirect response")
 		return &ImageExportDownload{
 			RedirectURL: redirectURL,
 			StatusCode:  resp.StatusCode,
@@ -705,7 +739,7 @@ func (s *imageExportService) handleBlobResponse(resp *http.Response, blobURL str
 	// Handle 200 OK - stream blob content
 	if resp.StatusCode == http.StatusOK {
 		contentLength := resp.Header.Get("Content-Length")
-		log.WithFields(logrus.Fields{"blobURL": blobURL, "statusCode": resp.StatusCode, "contentLength": contentLength}).Info("Successfully fetched blob, returning stream")
+		s.log.WithFields(logrus.Fields{"blobURL": blobURL, "statusCode": resp.StatusCode, "contentLength": contentLength}).Info("Successfully fetched blob, returning stream")
 		return &ImageExportDownload{
 			BlobReader: resp.Body,
 			Headers:    resp.Header,
@@ -715,7 +749,7 @@ func (s *imageExportService) handleBlobResponse(resp *http.Response, blobURL str
 
 	// Handle unexpected status codes
 	resp.Body.Close()
-	log.WithFields(logrus.Fields{"blobURL": blobURL, "statusCode": resp.StatusCode}).Error("Unexpected status code from external service")
+	s.log.WithFields(logrus.Fields{"blobURL": blobURL, "statusCode": resp.StatusCode}).Error("Unexpected status code from external service")
 	return nil, fmt.Errorf("%w: unexpected status code from blob endpoint: %d", ErrExternalServiceUnavailable, resp.StatusCode)
 }
 

@@ -34,10 +34,10 @@ runs:
         kubectl get all,configmaps,secrets --all-namespaces 
         echo "::endgroup::"
         
-        for deployment in flightctl-api flightctl-db flightctl-periodic flightctl-worker flightctl-alert-exporter flightctl-imagebuilder-api; do
+        for deployment in flightctl-api flightctl-db flightctl-periodic flightctl-worker flightctl-alert-exporter flightctl-imagebuilder-api flightctl-kv; do
           echo "Collecting logs for $deployment..."
           namespace=""
-          if [[ "$deployment" == "flightctl-api" ]]; then
+          if [[ "$deployment" == "flightctl-api" || "$deployment" == "flightctl-imagebuilder-api" ]]; then
             namespace="${{ inputs.namespace-external }}"
           else
             namespace="${{ inputs.namespace-internal }}"
@@ -59,16 +59,6 @@ runs:
             echo "Error collecting logs for $job"
           fi
         done 
-        
-        for statefulset in flightctl-kv; do
-          echo "Collecting logs for $statefulset..."
-          if kubectl logs -n ${{ inputs.namespace-internal }} statefulset/$statefulset --all-containers=true \
-             > ${{ inputs.log-directory }}/${statefulset}_${timestamp}.log; then
-            log_files_collected=true
-          else
-            echo "Error collecting logs for $statefulset"
-          fi
-        done
         
         kubectl get all,configmaps,secrets --all-namespaces -o=yaml > ${{  inputs.log-directory }}/cluster_resources_${timestamp}.yaml
 

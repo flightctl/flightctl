@@ -10,6 +10,8 @@ const (
 	Repository                = "repository"
 	ResourceSync              = "resourcesync"
 	CertificateSigningRequest = "certificatesigningrequest"
+	ImageBuild                = "imagebuild"
+	ImageExport               = "imageexport"
 
 	//resource related
 	ApplyAction    = "apply"
@@ -63,6 +65,8 @@ const (
 )
 
 var ResourceTypes = [...]string{
+	ImageExport, // Delete ImageExports before ImageBuilds (ImageExports reference ImageBuilds)
+	ImageBuild,
 	ResourceSync,
 	Fleet,
 	Device,
