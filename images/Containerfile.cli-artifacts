@@ -60,4 +60,7 @@ LABEL \
 
 COPY --from=build /app/bin/flightctl .
 
+# Ensure binary has execute permissions
+RUN chmod +x ./flightctl
+
 CMD ./flightctl

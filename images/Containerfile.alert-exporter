@@ -63,4 +63,7 @@ LABEL \
   os.id="el${EL_VERSION}"
 COPY --from=build /app/bin/flightctl-alert-exporter .
 
+# Ensure binary has execute permissions
+RUN chmod +x ./flightctl-alert-exporter
+
 CMD ./flightctl-alert-exporter

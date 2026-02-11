@@ -63,4 +63,7 @@ LABEL \
   os.id="el${EL_VERSION}"
 COPY --from=build /app/bin/flightctl-telemetry-gateway .
 
+# Ensure binary has execute permissions
+RUN chmod +x ./flightctl-telemetry-gateway
+
 CMD ./flightctl-telemetry-gateway

@@ -63,4 +63,7 @@ LABEL \
   os.id="el${EL_VERSION}"
 COPY --from=build /app/bin/flightctl-imagebuilder-worker .
 
+# Ensure binary has execute permissions
+RUN chmod +x ./flightctl-imagebuilder-worker
+
 CMD ./flightctl-imagebuilder-worker

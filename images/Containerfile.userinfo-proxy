@@ -63,4 +63,7 @@ LABEL \
   os.id="el${EL_VERSION}"
 COPY --from=build /app/bin/flightctl-userinfo-proxy .
 
+# Ensure binary has execute permissions
+RUN chmod +x ./flightctl-userinfo-proxy
+
 CMD ./flightctl-userinfo-proxy

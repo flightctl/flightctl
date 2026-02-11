@@ -96,6 +96,9 @@ COPY --from=build /app/deploy/podman/flightctl-pam-issuer/pam-flightctl /etc/pam
 
 COPY --from=build /app/bin/flightctl-pam-issuer .
 
+# Ensure binary has execute permissions
+RUN chmod +x ./flightctl-pam-issuer
+
 # Note: User database files (/etc/passwd, /etc/shadow, /etc/group) are managed
 # inside the container. Use a named volume mount for /etc to persist users across restarts.
 # For SSSD integration, mount /var/lib/sss/pipes from the host to connect to the host's SSSD daemon.
