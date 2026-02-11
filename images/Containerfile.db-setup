@@ -63,11 +63,11 @@ LABEL \
   summary="Flight Control database setup and migration tool (el${EL_VERSION})" \
   os.id="el${EL_VERSION}"
 
-COPY --from=build /app/bin/flightctl-db-migrate .
+COPY --from=build /app/bin/flightctl-db-migrate /usr/local/bin/flightctl-db-migrate
 COPY --from=build /app/deploy ./deploy
 
 # Ensure binary and scripts have execute permissions
-RUN chmod +x ./flightctl-db-migrate && \
+RUN chmod +x /usr/local/bin/flightctl-db-migrate && \
     chmod +x ./deploy/scripts/*.sh
 
-CMD ./flightctl-db-migrate
+CMD /usr/local/bin/flightctl-db-migrate
