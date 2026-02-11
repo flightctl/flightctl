@@ -705,21 +705,20 @@ func (c *Consumer) loginToRegistry(
 		return nil
 	}
 
-	// Validate username to prevent command injection
-	// Username should not contain shell metacharacters that could be used for injection
-	// Allow alphanumeric, dots, hyphens, underscores, @, and $ (for email-style and system usernames)
-	// Block dangerous patterns like command substitution, pipes, and other shell operators
-	if strings.ContainsAny(username, ";|&`(){}[]<>\"'\\\n\r\t") {
-		return fmt.Errorf("invalid username: contains unsafe characters")
+	// Validate username: only block control characters that could break line-based protocols.
+	// Shell metacharacters (|, ;, &, etc.) are safe here because exec.CommandContext
+	// passes arguments directly via execve (no shell involved).
+	if strings.ContainsAny(username, "\x00\n\r") {
+		return fmt.Errorf("invalid username: contains control characters")
 	}
 	if len(username) > 256 {
 		return fmt.Errorf("invalid username: exceeds maximum length of 256 characters")
 	}
 
-	// Validate registryHostname to prevent command injection
-	// Registry hostname should not contain shell metacharacters that could be used for injection
-	if strings.ContainsAny(registryHostname, ";|&`(){}[]<>\"'\\\n\r\t") {
-		return fmt.Errorf("invalid registry hostname: contains unsafe characters")
+	// Validate registryHostname: only block control characters that could break line-based protocols.
+	// Shell metacharacters are safe here because exec.CommandContext uses execve (no shell).
+	if strings.ContainsAny(registryHostname, "\x00\n\r") {
+		return fmt.Errorf("invalid registry hostname: contains control characters")
 	}
 	if len(registryHostname) > 256 {
 		return fmt.Errorf("invalid registry hostname: exceeds maximum length of 256 characters")
