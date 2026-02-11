@@ -232,9 +232,9 @@ var _ = Describe("ImageBuild", Label("imagebuild"), func() {
 
 			By("Step 5: Verifying flightctl-agent service is running via console")
 
-			Eventually(func() (string, error) {
-				return getAgentServiceStatus(libvirtVM)
-			}, vmBootTimeout, vmBootPollPeriod).Should(ContainSubstring("active"),
+		Eventually(func() (string, error) {
+			return getAgentServiceStatus(libvirtVM)
+			}, vmBootTimeout, vmBootPollPeriod).Should(Equal("active"),
 				"flightctl-agent service should be running")
 
 			GinkgoWriter.Printf("flightctl-agent service is running on VM %s\n", vmName)
@@ -312,7 +312,7 @@ func getAgentServiceStatus(libvirtVM vm.TestVMInterface) (string, error) {
 		GinkgoWriter.Printf("getAgentServiceStatus: %v\n", err)
 		return "", err
 	}
-	return stdout.String(), nil
+	return strings.TrimSpace(stdout.String()), nil
 }
 
 func getEnrollmentIDFromAgentLogs(libvirtVM vm.TestVMInterface) string {
