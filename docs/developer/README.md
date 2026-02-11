@@ -34,8 +34,8 @@ FlightCtl supports building containers for multiple CentOS Stream versions to en
 make build-containers
 
 # Build containers for specific flavor only
-FLAVOR=cs9 hack/publish_containers.sh build cs9   # CentOS Stream 9
-FLAVOR=cs10 hack/publish_containers.sh build cs10 # CentOS Stream 10
+FLAVOR=cs9 hack/publish_containers.sh build 9   # CentOS Stream 9
+FLAVOR=cs10 hack/publish_containers.sh build 10 # CentOS Stream 10
 ```
 
 ### Container Naming
