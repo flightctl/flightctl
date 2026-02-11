@@ -49,6 +49,11 @@ RUN --mount=type=cache,target=/opt/app-root/src/.cache/go-build \
 
 FROM ${RUNTIME_IMAGE}
 WORKDIR /app
+
+# Install PostgreSQL client tools needed for migration scripts
+ARG EL_VERSION
+RUN microdnf install -y postgresql && microdnf clean all
+
 LABEL \
   com.redhat.component="flightctl-db-setup-container" \
   description="Flight Control database setup and migration tool" \
