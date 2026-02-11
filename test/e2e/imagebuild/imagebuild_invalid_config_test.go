@@ -1,7 +1,9 @@
 package imagebuild_test
 
 import (
+	"errors"
 	"fmt"
+	"net/http"
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	imagebuilderapi "github.com/flightctl/flightctl/api/imagebuilder/v1alpha1"
@@ -10,20 +12,6 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo"
-)
-
-// Error substrings used in wrong-configuration tests
-const (
-	errSubstrBadRequest = "400"
-	errSubstrNotFound   = "not found"
-	errSubstrRepository = "repository"
-	errSubstrValidation = "validation"
-	errSubstrInvalid    = "invalid"
-	errSubstrRequired   = "required"
-	errSubstrEmpty      = "empty"
-	errSubstrManifest   = "manifest"
-	errSubstrPull       = "pull"
-	errSubstrImage      = "image"
 )
 
 var _ = Describe("ImageBuild", Label("imagebuild"), func() {
@@ -50,13 +38,17 @@ var _ = Describe("ImageBuild", Label("imagebuild"), func() {
 
 			_, err := workerHarness.CreateImageBuild(imageBuildName, spec)
 
-			Expect(err).To(HaveOccurred(), "ImageBuild creation should fail immediately with 400 for non-existing repository")
+			Expect(err).To(HaveOccurred(), "ImageBuild creation should fail immediately for non-existing repository")
 			GinkgoWriter.Printf("ImageBuild creation correctly rejected: %v\n", err)
-			Expect(err.Error()).To(Or(
-				ContainSubstring(errSubstrBadRequest),
-				ContainSubstring(errSubstrNotFound),
-				ContainSubstring(errSubstrRepository),
-			), "Error should indicate repository validation failure (400)")
+
+			var apiErr *e2e.APIError
+			Expect(errors.As(err, &apiErr)).To(BeTrue(), "error should be an APIError")
+			Expect(apiErr.StatusCode).To(Equal(http.StatusBadRequest), "should be a 400 Bad Request")
+			Expect(apiErr.Status).ToNot(BeNil(), "API status body should be present")
+			Expect(apiErr.Status.Message).To(And(
+				ContainSubstring(`Repository "nonexistent-source-repo" not found`),
+				ContainSubstring(`Repository "nonexistent-dest-repo" not found`),
+			), "API error message should indicate both repositories were not found")
 
 			GinkgoWriter.Printf("Non-existing repository test passed\n")
 		})
@@ -121,12 +113,9 @@ var _ = Describe("ImageBuild", Label("imagebuild"), func() {
 			Expect(err).ToNot(HaveOccurred())
 			GinkgoWriter.Printf("ImageBuild failed with message: %s\n", message)
 
-			Expect(message).To(Or(
-				ContainSubstring(errSubstrManifest),
-				ContainSubstring(errSubstrNotFound),
-				ContainSubstring(errSubstrPull),
-				ContainSubstring(errSubstrImage),
-			), "Error message should indicate image-related failure")
+			Expect(message).To(
+				ContainSubstring("this-image-does-not-exist/invalid-image"),
+				"Error message should reference the non-existent image name")
 
 			GinkgoWriter.Printf("Wrong image name/tag test passed\n")
 		})
@@ -172,11 +161,16 @@ var _ = Describe("ImageBuild", Label("imagebuild"), func() {
 
 			if err != nil {
 				GinkgoWriter.Printf("ImageBuild creation correctly rejected: %v\n", err)
-				Expect(err.Error()).To(Or(
-					ContainSubstring(errSubstrBadRequest),
-					ContainSubstring(errSubstrInvalid),
-					ContainSubstring(errSubstrValidation),
-				), "Error should indicate validation failure")
+				var apiErr *e2e.APIError
+				Expect(errors.As(err, &apiErr)).To(BeTrue(), "error should be an APIError")
+				Expect(apiErr.StatusCode).To(Equal(http.StatusBadRequest), "should be a 400 Bad Request")
+				Expect(apiErr.Status).ToNot(BeNil(), "API status body should be present")
+				Expect(apiErr.Status.Message).To(And(
+					ContainSubstring("spec.destination.imageName"),
+					ContainSubstring("must match OCI repository name format"),
+					ContainSubstring("spec.destination.imageTag"),
+					ContainSubstring("must match OCI tag format"),
+				), "API error message should indicate invalid image name and tag format")
 			} else {
 				defer func() {
 					_ = workerHarness.DeleteImageBuild(imageBuildName)
@@ -204,14 +198,22 @@ var _ = Describe("ImageBuild", Label("imagebuild"), func() {
 				desc                               string
 				sourceRepo, sourceImage, sourceTag string
 				destRepo, destImage, destTag       string
+				expectedMsg                        string
 			}{
-				{"all fields empty", "", "", "", "", "", ""},
-				{"empty source repository", "", sourceImageName, sourceImageTag, "dest-repo", destImageName, testID},
-				{"empty source image name", "src-repo", "", sourceImageTag, "dest-repo", destImageName, testID},
-				{"empty source tag", "src-repo", sourceImageName, "", "dest-repo", destImageName, testID},
-				{"empty destination repository", "src-repo", sourceImageName, sourceImageTag, "", destImageName, testID},
-				{"empty destination image name", "src-repo", sourceImageName, sourceImageTag, "dest-repo", "", testID},
-				{"empty destination tag", "src-repo", sourceImageName, sourceImageTag, "dest-repo", destImageName, ""},
+				{"all fields empty", "", "", "", "", "", "",
+					"spec.source.repository is required"},
+				{"empty source repository", "", sourceImageName, sourceImageTag, "dest-repo", destImageName, testID,
+					"spec.source.repository is required"},
+				{"empty source image name", "src-repo", "", sourceImageTag, "dest-repo", destImageName, testID,
+					"spec.source.imageName: Required value"},
+				{"empty source tag", "src-repo", sourceImageName, "", "dest-repo", destImageName, testID,
+					"spec.source.imageTag: Required value"},
+				{"empty destination repository", "src-repo", sourceImageName, sourceImageTag, "", destImageName, testID,
+					"spec.destination.repository is required"},
+				{"empty destination image name", "src-repo", sourceImageName, sourceImageTag, "dest-repo", "", testID,
+					"spec.destination.imageName: Required value"},
+				{"empty destination tag", "src-repo", sourceImageName, sourceImageTag, "dest-repo", destImageName, "",
+					"spec.destination.imageTag: Required value"},
 			}
 			for i, tc := range emptyFieldCases {
 				By(tc.desc)
@@ -223,12 +225,13 @@ var _ = Describe("ImageBuild", Label("imagebuild"), func() {
 				)
 				_, err := workerHarness.CreateImageBuild(imageBuildName, spec)
 				Expect(err).To(HaveOccurred(), "ImageBuild creation should fail for %s", tc.desc)
-				Expect(err.Error()).To(Or(
-					ContainSubstring(errSubstrBadRequest),
-					ContainSubstring(errSubstrRequired),
-					ContainSubstring(errSubstrEmpty),
-					ContainSubstring(errSubstrValidation),
-				), "Error should indicate validation failure for %s", tc.desc)
+				var apiErr *e2e.APIError
+				Expect(errors.As(err, &apiErr)).To(BeTrue(), "error should be an APIError for %s", tc.desc)
+				Expect(apiErr.StatusCode).To(Equal(http.StatusBadRequest),
+					"should be a 400 Bad Request for %s", tc.desc)
+				Expect(apiErr.Status).ToNot(BeNil(), "API status body should be present for %s", tc.desc)
+				Expect(apiErr.Status.Message).To(ContainSubstring(tc.expectedMsg),
+					"API error message should contain %q for %s", tc.expectedMsg, tc.desc)
 			}
 		})
 	})
