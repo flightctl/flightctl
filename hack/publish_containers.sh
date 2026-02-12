@@ -83,7 +83,7 @@ case "$ACTION" in
             # via Go module and build cache. Container layer caching is not currently configured.
 
             # Determine runtime image based on service type
-            if [[ "$service" == "cli-artifacts" ]]; then
+            if [[ "$service" == "cli-artifacts" || "$service" == "db-setup" ]]; then
                 SERVICE_RUNTIME_IMAGE="$MINIMAL_IMAGE"
             else
                 SERVICE_RUNTIME_IMAGE="$RUNTIME_IMAGE"
