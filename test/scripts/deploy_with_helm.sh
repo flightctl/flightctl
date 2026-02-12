@@ -74,19 +74,16 @@ kubectl create namespace flightctl-e2e      --context kind-kind 2>/dev/null || t
 # if we are only deploying the database, we don't need inject the server container
 if [ -z "$ONLY_DB" ]; then
 
-  # Detect whether we're using EL or CS flavor system or legacy naming
+  # Load required EL-versioned images (no fallback to avoid helm chart mismatches)
   for suffix in periodic api worker alert-exporter alertmanager-proxy cli-artifacts db-setup telemetry-gateway imagebuilder-api imagebuilder-worker ; do
-    # Check for EL naming first (preferred new system)
+    # Check for EL naming (required for helm charts)
     if podman image exists localhost/flightctl-${suffix}-el${EL_VERSION}:latest; then
       echo "Loading EL-versioned image: localhost/flightctl-${suffix}-el${EL_VERSION}:latest"
       kind_load_image localhost/flightctl-${suffix}-el${EL_VERSION}:latest
-    # Check for CS naming (transition compatibility)
-    elif podman image exists localhost/flightctl-${suffix}-${FLAVOR}:latest; then
-      echo "Loading CS-versioned image: localhost/flightctl-${suffix}-${FLAVOR}:latest"
-      kind_load_image localhost/flightctl-${suffix}-${FLAVOR}:latest
     else
-      echo "Flavor-specific image not found, using legacy naming: localhost/flightctl-${suffix}:latest"
-      kind_load_image localhost/flightctl-${suffix}:latest
+      echo "ERROR: Required image not found: localhost/flightctl-${suffix}-el${EL_VERSION}:latest"
+      echo "This image is needed for helm deployment. Ensure containers were built successfully."
+      exit 1
     fi
   done
 
