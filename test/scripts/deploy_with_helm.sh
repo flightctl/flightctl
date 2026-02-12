@@ -9,19 +9,22 @@ DB_SIZE_PARAMS=
 # Database image selection based on FLAVOR
 FLAVOR=${FLAVOR:-cs9}
 case "${FLAVOR}" in
-    cs9)
+    cs9|el9|9)
+        EL_VERSION="9"
         SQL_VERSION=${SQL_VERSION:-"latest"}
         SQL_IMAGE=${SQL_IMAGE:-"quay.io/sclorg/postgresql-16-c9s"}
         KV_VERSION=${KV_VERSION:-"7.4.1"}
         KV_IMAGE=${KV_IMAGE:-"quay.io/sclorg/redis-7-c9s"}
         ;;
-    cs10)
+    cs10|el10|10)
+        EL_VERSION="10"
         SQL_VERSION=${SQL_VERSION:-"latest"}
         SQL_IMAGE=${SQL_IMAGE:-"quay.io/sclorg/postgresql-16-c10s"}
         KV_VERSION=${KV_VERSION:-"7.4.1"}
         KV_IMAGE=${KV_IMAGE:-"quay.io/sclorg/redis-7-c10s"}
         ;;
     *)
+        EL_VERSION="9"
         SQL_VERSION=${SQL_VERSION:-"latest"}
         SQL_IMAGE=${SQL_IMAGE:-"quay.io/sclorg/postgresql-16-c9s"}
         KV_VERSION=${KV_VERSION:-"7.4.1"}
@@ -74,12 +77,15 @@ kubectl create namespace flightctl-e2e      --context kind-kind 2>/dev/null || t
 # if we are only deploying the database, we don't need inject the server container
 if [ -z "$ONLY_DB" ]; then
 
-  # Detect whether we're using FLAVOR system or legacy naming
-  FLAVOR=${FLAVOR:-cs9}
+  # Detect whether we're using EL or CS flavor system or legacy naming
   for suffix in periodic api worker alert-exporter alertmanager-proxy cli-artifacts db-setup telemetry-gateway imagebuilder-api imagebuilder-worker ; do
-    # Check if flavor-specific image exists (new system)
-    if podman image exists localhost/flightctl-${suffix}-${FLAVOR}:latest; then
-      echo "Loading flavor-specific image: localhost/flightctl-${suffix}-${FLAVOR}:latest"
+    # Check for EL naming first (preferred new system)
+    if podman image exists localhost/flightctl-${suffix}-el${EL_VERSION}:latest; then
+      echo "Loading EL-versioned image: localhost/flightctl-${suffix}-el${EL_VERSION}:latest"
+      kind_load_image localhost/flightctl-${suffix}-el${EL_VERSION}:latest
+    # Check for CS naming (transition compatibility)
+    elif podman image exists localhost/flightctl-${suffix}-${FLAVOR}:latest; then
+      echo "Loading CS-versioned image: localhost/flightctl-${suffix}-${FLAVOR}:latest"
       kind_load_image localhost/flightctl-${suffix}-${FLAVOR}:latest
     else
       echo "Flavor-specific image not found, using legacy naming: localhost/flightctl-${suffix}:latest"

@@ -3,15 +3,16 @@ set -euo pipefail
 
 # Usage: publish_containers.sh <action> <flavor>
 # Actions: build, publish
-# Flavor: cs9, cs10, 9, 10 (both formats supported)
+# Flavor: cs9, cs10, 9, 10, el9, el10 (all formats supported for transition)
 
 if [[ $# -ne 2 ]]; then
     echo "Usage: $0 <action> <flavor>"
     echo "Actions: build, publish"
-    echo "Flavor: cs9, cs10, 9, 10 (both formats supported)"
+    echo "Flavor: cs9, cs10, 9, 10, el9, el10 (all formats supported)"
     echo "Examples:"
     echo "  $0 build cs9   # Build containers for EL9"
     echo "  $0 build 9     # Build containers for EL9 (alternative)"
+    echo "  $0 build el9   # Build containers for EL9 (preferred)"
     echo "  $0 publish cs10 # Publish containers for EL10"
     exit 1
 fi
@@ -19,14 +20,12 @@ fi
 ACTION="$1"
 FLAVOR_PARAM="$2"
 
-# Convert flavor parameter to EL version (support both cs9/cs10 and 9/10 formats)
+# Convert flavor parameter to EL version (support all transition formats)
 case "$FLAVOR_PARAM" in
-    cs9) EL_VERSION="9" ;;
-    cs10) EL_VERSION="10" ;;
-    9) EL_VERSION="9" ;;
-    10) EL_VERSION="10" ;;
+    cs9|9|el9) EL_VERSION="9" ;;
+    cs10|10|el10) EL_VERSION="10" ;;
     *)
-        echo "Error: Invalid flavor '$FLAVOR_PARAM'. Must be 'cs9', 'cs10', '9', or '10'"
+        echo "Error: Invalid flavor '$FLAVOR_PARAM'. Must be 'cs9', 'cs10', '9', '10', 'el9', or 'el10'"
         exit 1
         ;;
 esac
@@ -109,8 +108,8 @@ case "$ACTION" in
                 -t "quay.io/flightctl/flightctl-${service}-el${EL_VERSION}:latest" \
                 -t "quay.io/flightctl/flightctl-${service}-el${EL_VERSION}:${SOURCE_GIT_TAG}" \
                 -t "flightctl-${service}-cs${EL_VERSION}:latest" \
-                -t "quay.io/flightctl/flightctl-${service}-cs${EL_VERSION}:latest" \
-                -t "quay.io/flightctl/flightctl-${service}-cs${EL_VERSION}:${SOURCE_GIT_TAG}" \
+                -t "localhost/flightctl-${service}-cs${EL_VERSION}:latest" \
+                -t "localhost/flightctl-${service}-el${EL_VERSION}:latest" \
                 .
         done
 
@@ -125,11 +124,11 @@ case "$ACTION" in
 
             echo "Publishing ${local_image}..."
 
-            # Tag and push to registry with both EL and CS version suffixes for compatibility
-            # EL naming (new)
+            # Tag and push to registry with EL naming (primary) and CS naming (backward compatibility)
+            # EL naming (new standard)
             podman tag "${local_image}" "quay.io/flightctl/flightctl-${service}-el${EL_VERSION}:latest"
             podman tag "${local_image}" "quay.io/flightctl/flightctl-${service}-el${EL_VERSION}:${GIT_REF}"
-            # CS naming (backward compatibility)
+            # CS naming (temporary backward compatibility)
             podman tag "${local_image}" "quay.io/flightctl/flightctl-${service}-cs${EL_VERSION}:latest"
             podman tag "${local_image}" "quay.io/flightctl/flightctl-${service}-cs${EL_VERSION}:${GIT_REF}"
 
@@ -141,6 +140,7 @@ case "$ACTION" in
         done
 
         echo "✓ Published all containers for EL${EL_VERSION}"
-        echo "Registry images: quay.io/flightctl/flightctl-*-el${EL_VERSION}:latest (and cs${EL_VERSION} for compatibility)"
+        echo "Registry images: quay.io/flightctl/flightctl-*-el${EL_VERSION}:latest (primary)"
+        echo "                quay.io/flightctl/flightctl-*-cs${EL_VERSION}:latest (compatibility)"
         ;;
 esac
