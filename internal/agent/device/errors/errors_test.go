@@ -29,6 +29,14 @@ func TestFromStderr(t *testing.T) {
 			expectedIs:  ErrImageNotFound,
 		},
 		{
+			name:        "image not found disguised as unauthorized case insensitive",
+			stderr:      "Error: initializing source docker://quay.io/kenosborn/does-not-exist:v1: Reading manifest v1 in quay.io/kenosborn/does-not-exist: unauthorized: access to the requested resource is not authorized",
+			exitCode:    125,
+			expectedErr: &stderrError{wrapped: ErrImageNotFound, reason: "manifest unknown", code: 125, stderr: "Error: initializing source docker://quay.io/kenosborn/does-not-exist:v1: Reading manifest v1 in quay.io/kenosborn/does-not-exist: unauthorized: access to the requested resource is not authorized"},
+			expectedMsg: "image not found: code: 125: Error: initializing source docker://quay.io/kenosborn/does-not-exist:v1: Reading manifest v1 in quay.io/kenosborn/does-not-exist: unauthorized: access to the requested resource is not authorized",
+			expectedIs:  ErrImageNotFound,
+		},
+		{
 			name:        "actual unauthorized",
 			stderr:      "unauthorized: access to the requested resource is not authorized",
 			exitCode:    125,
