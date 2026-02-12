@@ -1,41 +1,45 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Usage: publish_containers.sh <action> <el_version>
+# Usage: publish_containers.sh <action> <flavor>
 # Actions: build, publish
-# EL Version: 9, 10
+# Flavor: cs9, cs10, 9, 10 (both formats supported)
 
 if [[ $# -ne 2 ]]; then
-    echo "Usage: $0 <action> <el_version>"
+    echo "Usage: $0 <action> <flavor>"
     echo "Actions: build, publish"
-    echo "EL Version: 9, 10"
+    echo "Flavor: cs9, cs10, 9, 10 (both formats supported)"
     echo "Examples:"
-    echo "  $0 build 9     # Build containers for EL9"
-    echo "  $0 publish 10  # Publish containers for EL10"
+    echo "  $0 build cs9   # Build containers for EL9"
+    echo "  $0 build 9     # Build containers for EL9 (alternative)"
+    echo "  $0 publish cs10 # Publish containers for EL10"
     exit 1
 fi
 
 ACTION="$1"
-EL_VERSION="$2"
+FLAVOR_PARAM="$2"
+
+# Convert flavor parameter to EL version (support both cs9/cs10 and 9/10 formats)
+case "$FLAVOR_PARAM" in
+    cs9) EL_VERSION="9" ;;
+    cs10) EL_VERSION="10" ;;
+    9) EL_VERSION="9" ;;
+    10) EL_VERSION="10" ;;
+    *)
+        echo "Error: Invalid flavor '$FLAVOR_PARAM'. Must be 'cs9', 'cs10', '9', or '10'"
+        exit 1
+        ;;
+esac
 
 # Container services to build/publish
 CONTAINER_SERVICES="api pam-issuer worker periodic alert-exporter cli-artifacts userinfo-proxy telemetry-gateway alertmanager-proxy db-setup imagebuilder-api imagebuilder-worker"
 
-# Validate inputs
+# Validate action
 case "$ACTION" in
     build|publish)
         ;;
     *)
         echo "Error: Invalid action '$ACTION'. Must be 'build' or 'publish'"
-        exit 1
-        ;;
-esac
-
-case "$EL_VERSION" in
-    9|10)
-        ;;
-    *)
-        echo "Error: Invalid EL version '$EL_VERSION'. Must be '9' or '10'"
         exit 1
         ;;
 esac

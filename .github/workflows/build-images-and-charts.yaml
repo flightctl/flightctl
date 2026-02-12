@@ -79,25 +79,17 @@ jobs:
             local flavor=$1
             echo "Building containers for flavor: $flavor"
 
-            # Convert cs9/cs10 to 9/10 for new ARG-based script
-            local el_version
-            case "$flavor" in
-              cs9) el_version="9" ;;
-              cs10) el_version="10" ;;
-              *) el_version="$flavor" ;;  # fallback for direct EL version
-            esac
-
             # Check if the new flavor-aware script exists and supports build command
             if [ -f "hack/publish_containers.sh" ] && grep -q "build)" "hack/publish_containers.sh" 2>/dev/null; then
-              echo "Using new ARG-based build script with EL version: $el_version"
-              if FLAVOR=$flavor hack/publish_containers.sh build $el_version; then
-                echo "✓ New build script succeeded for EL version: $el_version"
+              echo "Using new flavor-aware build script..."
+              if FLAVOR=$flavor hack/publish_containers.sh build $flavor; then
+                echo "✓ New build script succeeded for flavor: $flavor"
                 return 0
               else
-                echo "✗ New build script failed for EL version: $el_version"
+                echo "✗ New build script failed for flavor: $flavor"
               fi
             else
-              echo "New ARG-based script not available, skipping to fallbacks..."
+              echo "New flavor-aware script not available, skipping to fallbacks..."
             fi
 
             echo "Attempting fallback build with make..."
