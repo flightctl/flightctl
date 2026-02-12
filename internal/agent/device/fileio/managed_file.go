@@ -41,7 +41,8 @@ func (m *managedFile) initExistingFileMetadata() error {
 		if os.IsNotExist(err) {
 			return nil
 		}
-		return fmt.Errorf("stat file %w: %w", errors.WithElement(path), err)
+		pathErr := err.(*os.PathError)
+		return fmt.Errorf("%s %w: %w", pathErr.Op, errors.WithElement(pathErr.Path), pathErr.Err)
 	}
 	if fileInfo.IsDir() {
 		return fmt.Errorf("%w: %s", errors.ErrPathIsDir, path)
@@ -80,7 +81,8 @@ func (m *managedFile) isUpToDate() (bool, error) {
 	}
 	currentContent, err := os.ReadFile(m.writer.PathFor(m.Path()))
 	if err != nil {
-		return false, fmt.Errorf("reading file %w: %w", errors.WithElement(m.writer.PathFor(m.Path())), err)
+		pathErr := err.(*os.PathError)
+		return false, fmt.Errorf("%s %w: %w", pathErr.Op, errors.WithElement(pathErr.Path), pathErr.Err)
 	}
 	if !bytes.Equal(currentContent, m.contents) {
 		return false, nil
@@ -88,7 +90,8 @@ func (m *managedFile) isUpToDate() (bool, error) {
 
 	fileInfo, err := os.Stat(m.writer.PathFor(m.Path()))
 	if err != nil {
-		return false, fmt.Errorf("stat file %w: %w", errors.WithElement(m.writer.PathFor(m.Path())), err)
+		pathErr := err.(*os.PathError)
+		return false, fmt.Errorf("%s %w: %w", pathErr.Op, errors.WithElement(pathErr.Path), pathErr.Err)
 	}
 	stat, ok := fileInfo.Sys().(*syscall.Stat_t)
 	if !ok {
