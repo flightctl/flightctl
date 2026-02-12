@@ -547,6 +547,17 @@ func IsTimeoutError(err error) bool {
 
 // FromStderr converts stderr output from a command into an error type.
 func FromStderr(stderr string, exitCode int) error {
+	// Special case for image not found disguised as unauthorized
+	if strings.Contains(stderr, "unauthorized") &&
+		(strings.Contains(stderr, "manifest unknown") || strings.Contains(stderr, "reading manifest")) {
+		return &stderrError{
+			wrapped: ErrImageNotFound,
+			reason:  "manifest unknown", // Keep reason consistent
+			code:    exitCode,
+			stderr:  stderr,
+		}
+	}
+
 	for check, err := range stderrKeywords {
 		if strings.Contains(stderr, check) {
 			return &stderrError{
