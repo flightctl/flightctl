@@ -116,14 +116,14 @@ func (c *Controller) writeFiles(files []v1beta1.FileSpec) error {
 			return err
 		}
 		if err := managedFile.Write(); err != nil {
-			c.log.Warnf("Failed to write file %s: %v", file.Path, err)
+			c.log.Warnf("Failed to write file %v: %v", deviceerrors.WithElement(file.Path), err)
 			// in order to create clearer error in status in case we fail in temp file creation
 			// we don't want to return temp filename but rather change the error message to return given file path
 			var pathErr *fs.PathError
 			if errors.As(err, &pathErr) {
 				return fmt.Errorf("write file %w: %w", deviceerrors.WithElement(file.Path), pathErr.Err)
 			}
-			return err
+			return fmt.Errorf("write file %w: %w", deviceerrors.WithElement(file.Path), err)
 		}
 	}
 	return nil

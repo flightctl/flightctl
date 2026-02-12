@@ -2,13 +2,14 @@ package fileio
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"syscall"
 
 	"github.com/ccoveille/go-safecast"
 	"github.com/flightctl/flightctl/api/core/v1beta1"
-	"github.com/flightctl/flightctl/internal/agent/device/errors"
+	deviceerrors "github.com/flightctl/flightctl/internal/agent/device/errors"
 )
 
 type managedFile struct {
@@ -41,10 +42,15 @@ func (m *managedFile) initExistingFileMetadata() error {
 		if os.IsNotExist(err) {
 			return nil
 		}
-		return fmt.Errorf("stat file %w: %w", errors.WithElement(path), err)
+		var pathErr *os.PathError
+		if errors.As(err, &pathErr) {
+			// this removes the redundant duplication of the file path in the error message, which is already included in the error chain
+			return fmt.Errorf("%s %w: %w", pathErr.Op, deviceerrors.WithElement(m.Path()), pathErr.Err)
+		}
+		return fmt.Errorf("%w: %w", deviceerrors.WithElement(m.Path()), err)
 	}
 	if fileInfo.IsDir() {
-		return fmt.Errorf("%w: %s", errors.ErrPathIsDir, path)
+		return fmt.Errorf("%w: %s", deviceerrors.ErrPathIsDir, path)
 	}
 	m.exists = true
 	m.size = fileInfo.Size()
@@ -80,7 +86,12 @@ func (m *managedFile) isUpToDate() (bool, error) {
 	}
 	currentContent, err := os.ReadFile(m.writer.PathFor(m.Path()))
 	if err != nil {
-		return false, fmt.Errorf("reading file %w: %w", errors.WithElement(m.writer.PathFor(m.Path())), err)
+		var pathErr *os.PathError
+		if errors.As(err, &pathErr) {
+			// this removes the redundant duplication of the file path in the error message, which is already included in the error chain
+			return false, fmt.Errorf("%s %w: %w", pathErr.Op, deviceerrors.WithElement(m.Path()), pathErr.Err)
+		}
+		return false, fmt.Errorf("%w: %w", deviceerrors.WithElement(m.Path()), err)
 	}
 	if !bytes.Equal(currentContent, m.contents) {
 		return false, nil
@@ -88,7 +99,12 @@ func (m *managedFile) isUpToDate() (bool, error) {
 
 	fileInfo, err := os.Stat(m.writer.PathFor(m.Path()))
 	if err != nil {
-		return false, fmt.Errorf("stat file %w: %w", errors.WithElement(m.writer.PathFor(m.Path())), err)
+		var pathErr *os.PathError
+		if errors.As(err, &pathErr) {
+			// this removes the redundant duplication of the file path in the error message, which is already included in the error chain
+			return false, fmt.Errorf("%s %w: %w", pathErr.Op, deviceerrors.WithElement(m.Path()), pathErr.Err)
+		}
+		return false, fmt.Errorf("%w: %w", deviceerrors.WithElement(m.Path()), err)
 	}
 	stat, ok := fileInfo.Sys().(*syscall.Stat_t)
 	if !ok {

@@ -17,7 +17,7 @@ import (
 	"strings"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
-	"github.com/flightctl/flightctl/internal/agent/device/errors"
+	deviceerrors "github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/google/renameio"
 )
 
@@ -479,10 +479,10 @@ func (w *writer) CreateManagedFile(file v1beta1.FileSpec) (ManagedFile, error) {
 
 func (w *writer) OverwriteAndWipe(file string) error {
 	if err := w.overwriteFileWithRandomData(file); err != nil {
-		return fmt.Errorf("could not overwrite file %w with random data: %w", errors.WithElement(file), err)
+		return fmt.Errorf("could not overwrite file %w with random data: %w", deviceerrors.WithElement(file), err)
 	}
 	if err := w.RemoveFile(file); err != nil {
-		return fmt.Errorf("could not remove file %w: %w", errors.WithElement(file), err)
+		return fmt.Errorf("could not remove file %w: %w", deviceerrors.WithElement(file), err)
 	}
 	return nil
 }
@@ -517,7 +517,7 @@ func (w *writer) overwriteFileWithRandomData(file string) error {
 func writeFileAtomically(fpath string, b []byte, dirMode, fileMode os.FileMode, uid, gid int) error {
 	dir := filepath.Dir(fpath)
 	if err := os.MkdirAll(dir, dirMode); err != nil {
-		return fmt.Errorf("failed to create directory %w: %w", errors.WithElement(dir), err)
+		return fmt.Errorf("failed to create directory %w: %w", deviceerrors.WithElement(dir), err)
 	}
 	t, err := renameio.TempFile(dir, fpath)
 	if err != nil {
@@ -592,15 +592,15 @@ func groupToGID(group string) (int, error) {
 func getUserIdentity() (int, int, error) {
 	currentUser, err := user.Current()
 	if err != nil {
-		return 0, 0, fmt.Errorf("%w: %w", errors.ErrFailedRetrievingCurrentUser, err)
+		return 0, 0, fmt.Errorf("%w: %w", deviceerrors.ErrFailedRetrievingCurrentUser, err)
 	}
 	gid, err := strconv.Atoi(currentUser.Gid)
 	if err != nil {
-		return 0, 0, fmt.Errorf("%w to int: %w", errors.ErrFailedConvertingGID, err)
+		return 0, 0, fmt.Errorf("%w to int: %w", deviceerrors.ErrFailedConvertingGID, err)
 	}
 	uid, err := strconv.Atoi(currentUser.Uid)
 	if err != nil {
-		return 0, 0, fmt.Errorf("%w to int: %w", errors.ErrFailedConvertingUID, err)
+		return 0, 0, fmt.Errorf("%w to int: %w", deviceerrors.ErrFailedConvertingUID, err)
 	}
 	return uid, gid, nil
 }
@@ -608,7 +608,7 @@ func getUserIdentity() (int, int, error) {
 func lookupUID(username string) (int, error) {
 	osUser, err := user.Lookup(username)
 	if err != nil {
-		return 0, fmt.Errorf("%w for username %s: %w", errors.ErrFailedToRetrieveUserID, username, err)
+		return 0, fmt.Errorf("%w for username %s: %w", deviceerrors.ErrFailedToRetrieveUserID, username, err)
 	}
 	uid, _ := strconv.Atoi(osUser.Uid)
 	return uid, nil
@@ -617,7 +617,7 @@ func lookupUID(username string) (int, error) {
 func lookupGID(group string) (int, error) {
 	osGroup, err := user.LookupGroup(group)
 	if err != nil {
-		return 0, fmt.Errorf("%w for group %v: %w", errors.ErrFailedToRetrieveGroupID, group, err)
+		return 0, fmt.Errorf("%w for group %v: %w", deviceerrors.ErrFailedToRetrieveGroupID, group, err)
 	}
 	gid, _ := strconv.Atoi(osGroup.Gid)
 	return gid, nil
@@ -648,7 +648,7 @@ func DecodeContent(content string, encoding *v1beta1.EncodingType) ([]byte,
 func WriteTmpFile(rw ReadWriter, prefix, filename string, content []byte, perm os.FileMode) (path string, cleanup func(), err error) {
 	tmpDir, err := rw.MkdirTemp(prefix)
 	if err != nil {
-		return "", nil, fmt.Errorf("%w: %w", errors.ErrCreatingTmpDir, err)
+		return "", nil, fmt.Errorf("%w: %w", deviceerrors.ErrCreatingTmpDir, err)
 	}
 
 	tmpPath := filepath.Join(tmpDir, filename)
@@ -708,7 +708,7 @@ func UnpackTar(writer Writer, tarPath, destDir string) error {
 				perm = DefaultDirectoryPermissions
 			}
 			if err := writer.MkdirAll(destPath, perm); err != nil {
-				return fmt.Errorf("creating directory %w: %w", errors.WithElement(destPath), err)
+				return fmt.Errorf("creating directory %w: %w", deviceerrors.WithElement(destPath), err)
 			}
 		case tar.TypeReg:
 			if perm == 0 {
@@ -719,13 +719,13 @@ func UnpackTar(writer Writer, tarPath, destDir string) error {
 			}
 			destFile, err := writer.CreateFile(destPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, perm)
 			if err != nil {
-				return fmt.Errorf("creating file %w: %w", errors.WithElement(destPath), err)
+				return fmt.Errorf("creating file %w: %w", deviceerrors.WithElement(destPath), err)
 			}
 			// Use LimitReader to prevent decompression bombs
 			limitedReader := io.LimitReader(tarReader, header.Size)
 			if _, err := io.Copy(destFile, limitedReader); err != nil { // #nosec G110
 				destFile.Close()
-				return fmt.Errorf("writing file %w: %w", errors.WithElement(destPath), err)
+				return fmt.Errorf("writing file %w: %w", deviceerrors.WithElement(destPath), err)
 			}
 			destFile.Close()
 		}
