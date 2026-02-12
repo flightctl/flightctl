@@ -165,6 +165,7 @@ func (s *Server) Run(ctx context.Context) error {
 		middleware.RequestSize(int64(s.cfg.ImageBuilderService.HttpMaxRequestSize)),
 		fcmiddleware.RequestSizeLimiter(s.cfg.ImageBuilderService.HttpMaxUrlLength, s.cfg.ImageBuilderService.HttpMaxNumHeaders),
 		fcmiddleware.SecurityHeaders,
+		fcmiddleware.ContentSecurityPolicy(fcmiddleware.StrictCSP),
 		fcmiddleware.RequestID,
 		fcmiddleware.AddEventMetadataToCtx,
 		middleware.Logger,
