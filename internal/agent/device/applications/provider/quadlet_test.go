@@ -756,7 +756,7 @@ Requires=db.service network.target
 Before=services.pod
 
 [Install]
-WantedBy=multi-user.target default.target
+WantedBy=default.target
 
 [Container]
 Image=base.image
@@ -838,7 +838,7 @@ Image=vol-base.image
 					require.Contains(t, contentStr, "chronyd.service")
 					require.Contains(t, contentStr, "myapp-services.pod")
 					// Install section
-					require.Contains(t, contentStr, "multi-user.target")
+					require.Contains(t, contentStr, "default.target")
 					// Container section - all reference types
 					require.Contains(t, contentStr, "myapp-base.image")
 					require.Contains(t, contentStr, "myapp-app-net.network")
@@ -2050,7 +2050,7 @@ func TestGenerateQuadlet(t *testing.T) {
 				require.Contains(t, contentStr, "Restart=on-failure")
 				require.Contains(t, contentStr, "RestartSec=60")
 				require.Contains(t, contentStr, "[Install]")
-				require.Contains(t, contentStr, "WantedBy=multi-user.target default.target")
+				require.Contains(t, contentStr, "WantedBy=default.target")
 			},
 		},
 	}

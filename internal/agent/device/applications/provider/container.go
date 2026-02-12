@@ -249,7 +249,7 @@ func generateQuadlet(ctx context.Context, podman *client.Podman, rw fileio.ReadW
 
 	unit.Add("Service", "Restart", "on-failure").
 		Add("Service", "RestartSec", "60").
-		Add("Install", "WantedBy", "multi-user.target default.target")
+		Add("Install", "WantedBy", "default.target")
 
 	for _, vol := range lo.FromPtr(spec.Volumes) {
 		volType, err := vol.Type()
