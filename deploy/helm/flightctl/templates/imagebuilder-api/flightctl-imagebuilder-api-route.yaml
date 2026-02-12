@@ -13,7 +13,7 @@ metadata:
     {{- end }}
     {{- include "flightctl.standardLabels" . | nindent 4 }}
     flightctl.service: flightctl-imagebuilder-api
-  name: flightctl-imagebuilder-api-route
+  name: flightctl-imagebuilder-api
   namespace: {{ .Release.Namespace }}
 spec:
   host: imagebuilder-api.{{ include "flightctl.getBaseDomain" . }}

@@ -11,7 +11,7 @@ metadata:
     {{- end }}
     {{- include "flightctl.standardLabels" . | nindent 4 }}
     flightctl.service: flightctl-api
-  name: flightctl-api-route
+  name: flightctl-api
   namespace: {{ .Release.Namespace }}
 spec:
   host: api.{{ include "flightctl.getBaseDomain" . }}
