@@ -52,7 +52,7 @@ WORKDIR /app
 
 # Install PostgreSQL client tools needed for migration scripts
 ARG EL_VERSION
-RUN microdnf install -y postgresql && microdnf clean all
+RUN microdnf install -y postgresql gettext && microdnf clean all
 
 LABEL \
   com.redhat.component="flightctl-db-setup-container" \
