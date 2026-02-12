@@ -3,12 +3,11 @@ Description=Flight Control Key Value service
 
 [Container]
 ContainerName=flightctl-kv
-Image=docker.io/redis:7.4.1
+Image=quay.io/sclorg/redis-7-c9s:20250108
 Pull=missing
-Exec=/bin/sh -c 'redis-server /usr/local/etc/redis/redis.conf --requirepass $${KV_PASSWORD}'
+Exec=/bin/sh -c 'redis-server /etc/redis/redis.conf --requirepass $${KV_PASSWORD}'
 Secret=flightctl-kv-password,type=env,target=KV_PASSWORD
-Volume=/usr/share/flightctl/flightctl-kv/redis.conf:/usr/local/etc/redis/redis.conf
-
+Volume=/usr/share/flightctl/flightctl-kv/redis.conf:/etc/redis/redis.conf:ro,Z
 PublishPort=6379:6379
 
 [Service]

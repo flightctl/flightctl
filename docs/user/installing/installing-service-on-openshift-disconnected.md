@@ -35,7 +35,7 @@ oc image mirror quay.io/openshift/origin-cli:4.20.0 ${LOCAL_REGISTRY}/openshift/
 
 oc image mirror quay.io/sclorg/postgresql-16-c9s:20250214 ${LOCAL_REGISTRY}/sclorg/postgresql-16-c9s:20250214
 
-oc image mirror docker.io/redis:7.4.1 ${LOCAL_REGISTRY}/redis:7.4.1
+oc image mirror quay.io/sclorg/redis-7-c9s:20250108 ${LOCAL_REGISTRY}/sclorg/redis-7-c9s:20250108
 ```
 
 ## Configuring image repository mirroring
@@ -62,9 +62,6 @@ spec:
   - source: quay.io/openshift/origin-cli
     mirrors:
     - ${LOCAL_REGISTRY}/openshift/origin-cli
-  - source: docker.io/redis
-    mirrors:
-    - ${LOCAL_REGISTRY}/redis
 EOF
 ```
 
