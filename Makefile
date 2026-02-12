@@ -141,8 +141,8 @@ help:
 .PHONY: publish
 publish: build-containers
 	@echo "Publishing containers for CS9 and CS10..."
-	hack/publish_containers.sh publish 9
-	hack/publish_containers.sh publish 10
+	hack/publish_containers.sh publish cs9
+	hack/publish_containers.sh publish cs10
 
 generate:
 	go generate -v $(shell go list ./... | grep -v -e api/grpc)
@@ -225,19 +225,13 @@ build-standalone: bin
 # Build all containers for both CS9 and CS10
 build-containers: go.mod go.sum $(GO_FILES)
 	@echo "Building all containers for CS9 and CS10..."
-	hack/publish_containers.sh build 9
-	hack/publish_containers.sh build 10
+	hack/publish_containers.sh build cs9
+	hack/publish_containers.sh build cs10
 	@echo "All containers built successfully"
 
 build-containers-ci: go.mod go.sum $(GO_FILES)
 	@echo "Building containers for CI (single flavor to conserve resources)..."
-	FLAVOR=$${FLAVOR:-cs9}; \
-	case "$$FLAVOR" in \
-		cs9) EL_VERSION=9 ;; \
-		cs10) EL_VERSION=10 ;; \
-		*) EL_VERSION="$$FLAVOR" ;; \
-	esac; \
-	hack/publish_containers.sh build $$EL_VERSION
+	FLAVOR=$${FLAVOR:-cs9} hack/publish_containers.sh build $${FLAVOR:-cs9}
 	@echo "Containers built successfully for flavor: $${FLAVOR:-cs9}"
 
 .PHONY: build-containers build-containers-ci
@@ -258,8 +252,8 @@ login:
 push-containers: login
 	@echo "--- Pushing all containers to registry ---"
 	@echo "Using new flavor-specific publish script..."
-	hack/publish_containers.sh publish 9
-	hack/publish_containers.sh publish 10
+	hack/publish_containers.sh publish cs9
+	hack/publish_containers.sh publish cs10
 
 # A convenience target to run the full CI process.
 ci-build: build-containers push-containers
