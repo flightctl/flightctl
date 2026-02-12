@@ -43,6 +43,50 @@ func contextWithCert(cert *x509.Certificate) context.Context {
 }
 
 // -----------------------------------------------------------------------------
+// Tests for SecurityHeaders middleware.
+// -----------------------------------------------------------------------------
+func TestSecurityHeaders(t *testing.T) {
+	handler := SecurityHeaders(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/", nil))
+
+	assert.Equal(t, http.StatusOK, rr.Code)
+	assert.Equal(t, "max-age=31536000; includeSubDomains", rr.Header().Get("Strict-Transport-Security"))
+	assert.Equal(t, "nosniff", rr.Header().Get("X-Content-Type-Options"))
+	assert.Equal(t, "DENY", rr.Header().Get("X-Frame-Options"))
+}
+
+// -----------------------------------------------------------------------------
+// Tests for ContentSecurityPolicy middleware.
+// -----------------------------------------------------------------------------
+func TestContentSecurityPolicy(t *testing.T) {
+	cases := []struct {
+		name   string
+		policy string
+	}{
+		{"strict CSP", StrictCSP},
+		{"PAM issuer CSP", PAMIssuerCSP},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			handler := ContentSecurityPolicy(tc.policy)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+			}))
+
+			rr := httptest.NewRecorder()
+			handler.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/", nil))
+
+			assert.Equal(t, http.StatusOK, rr.Code)
+			assert.Equal(t, tc.policy, rr.Header().Get("Content-Security-Policy"))
+		})
+	}
+}
+
+// -----------------------------------------------------------------------------
 // Tests for ExtractAndValidateOrg middleware.
 // -----------------------------------------------------------------------------
 func TestExtractAndValidateOrg(t *testing.T) {
