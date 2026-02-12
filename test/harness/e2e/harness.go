@@ -2044,22 +2044,28 @@ func (h *Harness) CreateResource(resourceType string) (string, string, []byte, e
 	}
 }
 
-// GetDefaultK8sContext returns the a K8s context with default in its name
-func (h *Harness) GetDefaultK8sContext() (string, error) {
+// GetDefaultK8sAdminContext returns a K8s context whose name contains both "default" and "admin" (e.g. kubeadmin). No fallback.
+func (h *Harness) GetDefaultK8sAdminContext() (string, error) {
 	cmd := exec.Command("kubectl", "config", "get-contexts", "-o", "name")
 	output, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("failed to get contexts: %v", err)
 	}
 
-	contexts := strings.Split(strings.TrimSpace(string(output)), "\n")
-	for _, context := range contexts {
-		if strings.Contains(context, "default") {
-			GinkgoWriter.Printf("🔍 [DEBUG] Found default context: %s\n", context)
-			return context, nil
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	for _, name := range lines {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		hasDefault := strings.Contains(name, "default")
+		hasAdmin := strings.Contains(strings.ToLower(name), "admin")
+		if hasDefault && hasAdmin {
+			GinkgoWriter.Printf("🔍 [DEBUG] Found default+admin context: %s\n", name)
+			return name, nil
 		}
 	}
-	return "", fmt.Errorf("no context with 'default' in name found")
+	return "", fmt.Errorf("no context with both 'default' and 'admin' in name found")
 }
 
 // GetK8sApiEndpoint returns the API endpoint for a given K8s context
