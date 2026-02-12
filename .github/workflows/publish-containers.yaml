@@ -176,7 +176,7 @@ jobs:
         id: runtime-image
         run: |
           # Set runtime image based on service type
-          if [[ "${{ matrix.image }}" == "cli-artifacts" || "${{ matrix.image }}" == "db-setup" ]]; then
+          if [[ "${{ matrix.image }}" == "cli-artifacts" ]]; then
             echo "runtime_image=registry.access.redhat.com/ubi9/ubi-minimal:9.7-1763362218" >> "$GITHUB_OUTPUT"
           else
             echo "runtime_image=quay.io/flightctl/flightctl-base:el9-9.7-1762965531" >> "$GITHUB_OUTPUT"
