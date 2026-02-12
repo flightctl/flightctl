@@ -11,11 +11,11 @@ And can be triggered from the top-level makefile with: `make e2e-agent-images`
 The `AGENT_OS_ID` parameter controls which OS flavor to build:
 
 ```bash
-# Build for default OS (cs9-bootc)
+# Build for default OS (el9-bootc)
 make e2e-agent-images
 
 # Build for specific OS
-AGENT_OS_ID=cs10-bootc make e2e-agent-images
+AGENT_OS_ID=el10-bootc make e2e-agent-images
 ```
 
 ## Build Process
@@ -24,24 +24,24 @@ The script is a wrapper that delegates to the modular build system:
 1. **Base image**: Built using `scripts/build.sh --base`
 2. **Variants and qcow2**: Built using `scripts/build_and_qcow2.sh`
 
-The build process automatically handles different OS flavors (cs9-bootc, cs10-bootc)
+The build process automatically handles different OS flavors (el9-bootc, el10-bootc)
 and RPM source detection (local, COPR, or Brew registry).
 
 ## OS Flavors and Tagging
 
 The build system supports multiple OS flavors defined in `flavors/` directory:
 
-- **cs9-bootc** - Based on CentOS Stream 9 bootc (default)
-- **cs10-bootc** - Based on CentOS Stream 10 bootc
+- **el9-bootc** - Based on CentOS Stream 9 bootc (default)
+- **el10-bootc** - Based on CentOS Stream 10 bootc
 
 ### Building Different Flavors
 
 ```bash
-# Build cs9-bootc images (default)
+# Build el9-bootc images (default)
 ./scripts/build.sh --base
 
-# Build cs10-bootc images
-AGENT_OS_ID=cs10-bootc ./scripts/build.sh --base
+# Build el10-bootc images
+AGENT_OS_ID=el10-bootc ./scripts/build.sh --base
 ```
 
 ### Image Tagging
@@ -49,17 +49,17 @@ AGENT_OS_ID=cs10-bootc ./scripts/build.sh --base
 Images are tagged with OS flavor identifiers for easy selection:
 
 **Base Images:**
-- `quay.io/flightctl/flightctl-device:base-cs9-bootc-${TAG}` (canonical)
-- `quay.io/flightctl/flightctl-device:base-cs10-bootc-${TAG}` (canonical)
+- `quay.io/flightctl/flightctl-device:base-el9-bootc-${TAG}` (canonical)
+- `quay.io/flightctl/flightctl-device:base-el10-bootc-${TAG}` (canonical)
 - `quay.io/flightctl/flightctl-device:base` (latest flavor)
-- `quay.io/flightctl/flightctl-device:base-cs9-bootc`
+- `quay.io/flightctl/flightctl-device:base-el9-bootc`
 - `quay.io/flightctl/flightctl-device:base-${TAG}`
 
 **Variant Images:**
-- `quay.io/flightctl/flightctl-device:v2-cs9-bootc-${TAG}`
-- `quay.io/flightctl/flightctl-device:v2-cs10-bootc-${TAG}`
+- `quay.io/flightctl/flightctl-device:v2-el9-bootc-${TAG}`
+- `quay.io/flightctl/flightctl-device:v2-el10-bootc-${TAG}`
 - `quay.io/flightctl/flightctl-device:v2` (latest flavor)
-- `quay.io/flightctl/flightctl-device:v2-cs9-bootc`
+- `quay.io/flightctl/flightctl-device:v2-el9-bootc`
 
 This allows selecting specific OS versions in deployment configurations.
 
@@ -75,8 +75,8 @@ agent-images/
 ├── apps/                  # Application images (Containerfile.<app-name>.<version>)
 ├── common/                # Shared files used by variants/apps
 ├── flavors/               # OS flavor configurations (.conf files)
-│   ├── cs9-bootc.conf
-│   └── cs10-bootc.conf
+│   ├── el9-bootc.conf
+│   └── el10-bootc.conf
 ├── scripts/               # Build automation scripts
 │   ├── build.sh           # Main build script (base, variants, apps)
 │   ├── build_and_qcow2.sh # Orchestrates parallel builds
@@ -106,9 +106,9 @@ Each image is tagged with multiple tags for flexibility:
 
 | Tag Pattern               | Example                                             |
 |---------------------------|-----------------------------------------------------|
-| `<name>-${OS_ID}-${TAG}`  | `quay.io/flightctl/flightctl-device:base-cs9-bootc-v0.5.0` |
+| `<name>-${OS_ID}-${TAG}`  | `quay.io/flightctl/flightctl-device:base-el9-bootc-v0.5.0` |
 | `<name>`                  | `quay.io/flightctl/flightctl-device:base`           |
-| `<name>-${OS_ID}`         | `quay.io/flightctl/flightctl-device:base-cs9-bootc` |
+| `<name>-${OS_ID}`         | `quay.io/flightctl/flightctl-device:base-el9-bootc` |
 | `<name>-${TAG}`           | `quay.io/flightctl/flightctl-device:base-v0.5.0`    |
 
 Where `<name>` is `base`, `v2`, `v3`, etc.

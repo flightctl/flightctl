@@ -4,7 +4,7 @@ on:
   workflow_call:
     inputs:
       os_id:
-        description: "OS identifier for agent (e.g., cs9-bootc, cs10-bootc)"
+        description: "OS identifier for agent (e.g., el9-bootc, el10-bootc)"
         required: true
         type: string
       backend_type:
@@ -27,10 +27,10 @@ on:
         required: true
         type: string
       flavor:
-        description: "Container flavor (cs9 or cs10)"
+        description: "Container flavor (el9 or el10)"
         required: false
         type: string
-        default: "cs9"
+        default: "el9"
 
 jobs:
   generate-matrix:

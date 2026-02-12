@@ -29,7 +29,7 @@ db:
 {{- if or (eq .Flavor "rhel9") (eq .Flavor "rhel10") }}
   image: registry.redhat.io/{{.Flavor}}/postgresql-16
   tag: {{if eq .Flavor "rhel9"}}"9.7-1766414426"{{else}}"latest"{{end}}
-{{- else if eq .Flavor "cs10" }}
+{{- else if eq .Flavor "el10" }}
   image: quay.io/sclorg/postgresql-16-c10s
   tag: "20250214"
 {{- else }}
@@ -40,7 +40,7 @@ kv:
 {{- if or (eq .Flavor "rhel9") (eq .Flavor "rhel10") }}
   image: registry.redhat.io/{{.Flavor}}/redis-7
   tag: {{if eq .Flavor "rhel9"}}"9.7-1766414358"{{else}}"latest"{{end}}
-{{- else if eq .Flavor "cs10" }}
+{{- else if eq .Flavor "el10" }}
   image: quay.io/sclorg/redis-7-c10s
   tag: "20250108"
 {{- else }}

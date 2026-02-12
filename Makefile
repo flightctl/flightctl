@@ -42,8 +42,8 @@ RPM_MOCK_ROOT_DEFAULT = centos-stream+epel-next-9-x86_64
 VERBOSE ?= false
 
 # Multi-OS container support
-OS_ID ?= cs9
-FLAVOR ?= cs9
+OS_ID ?= el9
+FLAVOR ?= el9
 
 SOURCE_GIT_TAG ?=$(shell $(ROOT_DIR)/hack/current-version)
 SOURCE_GIT_TREE_STATE ?=$(shell ( ( [ ! -d "$(ROOT_DIR)/.git/" ] || git -C $(ROOT_DIR) diff --quiet ) && echo 'clean' ) || echo 'dirty')
@@ -119,7 +119,7 @@ help:
 	@echo ""
 	@echo "Container Targets:"
 	@echo "    build-containers:    build all FlightCtl containers for both CS9 and CS10"
-	@echo "    build-containers-ci: build containers for single flavor (FLAVOR env var, defaults to cs9)"
+	@echo "    build-containers-ci: build containers for single flavor (FLAVOR env var, defaults to el9)"
 	@echo "    publish:             build and publish all containers to registry"
 	@echo ""
 	@echo "CI/CD Targets:"
@@ -141,8 +141,8 @@ help:
 .PHONY: publish
 publish: build-containers
 	@echo "Publishing containers for CS9 and CS10..."
-	hack/publish_containers.sh publish cs9
-	hack/publish_containers.sh publish cs10
+	hack/publish_containers.sh publish el9
+	hack/publish_containers.sh publish el10
 
 generate:
 	go generate -v $(shell go list ./... | grep -v -e api/grpc)
@@ -225,14 +225,14 @@ build-standalone: bin
 # Build all containers for both CS9 and CS10
 build-containers: go.mod go.sum $(GO_FILES)
 	@echo "Building all containers for CS9 and CS10..."
-	hack/publish_containers.sh build cs9
-	hack/publish_containers.sh build cs10
+	hack/publish_containers.sh build el9
+	hack/publish_containers.sh build el10
 	@echo "All containers built successfully"
 
 build-containers-ci: go.mod go.sum $(GO_FILES)
 	@echo "Building containers for CI (single flavor to conserve resources)..."
-	FLAVOR=$${FLAVOR:-cs9} hack/publish_containers.sh build $${FLAVOR:-cs9}
-	@echo "Containers built successfully for flavor: $${FLAVOR:-cs9}"
+	FLAVOR=$${FLAVOR:-el9} hack/publish_containers.sh build $${FLAVOR:-el9}
+	@echo "Containers built successfully for flavor: $${FLAVOR:-el9}"
 
 .PHONY: build-containers build-containers-ci
 
@@ -252,8 +252,8 @@ login:
 push-containers: login
 	@echo "--- Pushing all containers to registry ---"
 	@echo "Using new flavor-specific publish script..."
-	hack/publish_containers.sh publish cs9
-	hack/publish_containers.sh publish cs10
+	hack/publish_containers.sh publish el9
+	hack/publish_containers.sh publish el10
 
 # A convenience target to run the full CI process.
 ci-build: build-containers push-containers
@@ -279,31 +279,31 @@ clean-containers:
 	- podman rmi flightctl-imagebuilder-api:latest || true
 	- podman rmi flightctl-imagebuilder-worker:latest || true
 	# CS9 flavor names
-	- podman rmi flightctl-api-cs9:latest || true
-	- podman rmi flightctl-pam-issuer-cs9:latest || true
-	- podman rmi flightctl-db-setup-cs9:latest || true
-	- podman rmi flightctl-worker-cs9:latest || true
-	- podman rmi flightctl-periodic-cs9:latest || true
-	- podman rmi flightctl-alert-exporter-cs9:latest || true
-	- podman rmi flightctl-alertmanager-proxy-cs9:latest || true
-	- podman rmi flightctl-cli-artifacts-cs9:latest || true
-	- podman rmi flightctl-userinfo-proxy-cs9:latest || true
-	- podman rmi flightctl-telemetry-gateway-cs9:latest || true
-	- podman rmi flightctl-imagebuilder-api-cs9:latest || true
-	- podman rmi flightctl-imagebuilder-worker-cs9:latest || true
+	- podman rmi flightctl-api-el9:latest || true
+	- podman rmi flightctl-pam-issuer-el9:latest || true
+	- podman rmi flightctl-db-setup-el9:latest || true
+	- podman rmi flightctl-worker-el9:latest || true
+	- podman rmi flightctl-periodic-el9:latest || true
+	- podman rmi flightctl-alert-exporter-el9:latest || true
+	- podman rmi flightctl-alertmanager-proxy-el9:latest || true
+	- podman rmi flightctl-cli-artifacts-el9:latest || true
+	- podman rmi flightctl-userinfo-proxy-el9:latest || true
+	- podman rmi flightctl-telemetry-gateway-el9:latest || true
+	- podman rmi flightctl-imagebuilder-api-el9:latest || true
+	- podman rmi flightctl-imagebuilder-worker-el9:latest || true
 	# CS10 flavor names
-	- podman rmi flightctl-api-cs10:latest || true
-	- podman rmi flightctl-pam-issuer-cs10:latest || true
-	- podman rmi flightctl-db-setup-cs10:latest || true
-	- podman rmi flightctl-worker-cs10:latest || true
-	- podman rmi flightctl-periodic-cs10:latest || true
-	- podman rmi flightctl-alert-exporter-cs10:latest || true
-	- podman rmi flightctl-alertmanager-proxy-cs10:latest || true
-	- podman rmi flightctl-cli-artifacts-cs10:latest || true
-	- podman rmi flightctl-userinfo-proxy-cs10:latest || true
-	- podman rmi flightctl-telemetry-gateway-cs10:latest || true
-	- podman rmi flightctl-imagebuilder-api-cs10:latest || true
-	- podman rmi flightctl-imagebuilder-worker-cs10:latest || true
+	- podman rmi flightctl-api-el10:latest || true
+	- podman rmi flightctl-pam-issuer-el10:latest || true
+	- podman rmi flightctl-db-setup-el10:latest || true
+	- podman rmi flightctl-worker-el10:latest || true
+	- podman rmi flightctl-periodic-el10:latest || true
+	- podman rmi flightctl-alert-exporter-el10:latest || true
+	- podman rmi flightctl-alertmanager-proxy-el10:latest || true
+	- podman rmi flightctl-cli-artifacts-el10:latest || true
+	- podman rmi flightctl-userinfo-proxy-el10:latest || true
+	- podman rmi flightctl-telemetry-gateway-el10:latest || true
+	- podman rmi flightctl-imagebuilder-api-el10:latest || true
+	- podman rmi flightctl-imagebuilder-worker-el10:latest || true
 
 bundle-containers:
 	test/scripts/agent-images/scripts/bundle.sh \

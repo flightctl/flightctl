@@ -131,7 +131,7 @@ jobs:
         with:
           tag: ${{ needs.build-baseline.outputs.git_tag }}
           base-domain: ${{ steps.get-ip.outputs.base-domain }}
-          flavor: cs9
+          flavor: el9
 
       - name: "[BASELINE] Check deployment"
         run: kubectl get pods --all-namespaces
@@ -170,7 +170,7 @@ jobs:
       - name: "[BASELINE] Download simulator"
         uses: actions/download-artifact@v4
         with:
-          name: devicesimulator-cs9-${{ needs.build-baseline.outputs.cli_git_tag }}
+          name: devicesimulator-el9-${{ needs.build-baseline.outputs.cli_git_tag }}
           path: bin-baseline-sim
 
       - name: "[BASELINE] Run simulator"
@@ -203,7 +203,7 @@ jobs:
       - name: "[HEAD] Download CLI"
         uses: actions/download-artifact@v4
         with:
-          name: flightctl-linux-amd64-cs9-${{ needs.build-pr.outputs.cli_git_tag }}
+          name: flightctl-linux-amd64-el9-${{ needs.build-pr.outputs.cli_git_tag }}
           path: bin-pr
 
       - name: "[HEAD] Setup CLI"
@@ -280,7 +280,7 @@ jobs:
       - name: "[HEAD] Download simulator"
         uses: actions/download-artifact@v4
         with:
-          name: devicesimulator-cs9-${{ needs.build-pr.outputs.cli_git_tag }}
+          name: devicesimulator-el9-${{ needs.build-pr.outputs.cli_git_tag }}
           path: bin-pr-sim
 
       - name: "[HEAD] Run simulator"
