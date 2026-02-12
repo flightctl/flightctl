@@ -271,7 +271,7 @@ func (p *composeProvider) collectOCITargets(ctx context.Context, configProvider 
 			Type:         dependency.OCITypeAuto,
 			Reference:    p.imageRef,
 			PullPolicy:   v1beta1.PullIfNotPresent,
-			ClientOptsFn: containerPullOptions(configProvider),
+			ClientOptsFn: containerPullOptions(configProvider, p.spec.User),
 		})
 	} else {
 		composeSpec, err := client.ParseComposeFromSpec(p.inlineContent)
@@ -284,12 +284,12 @@ func (p *composeProvider) collectOCITargets(ctx context.Context, configProvider 
 					Type:         dependency.OCITypePodmanImage,
 					Reference:    svc.Image,
 					PullPolicy:   v1beta1.PullIfNotPresent,
-					ClientOptsFn: containerPullOptions(configProvider),
+					ClientOptsFn: containerPullOptions(configProvider, p.spec.User),
 				})
 			}
 		}
 	}
-	volTargets, err := extractVolumeTargets(p.spec.ComposeApp.Volumes, configProvider)
+	volTargets, err := extractVolumeTargets(p.spec.ComposeApp.Volumes, configProvider, p.spec.User)
 	if err != nil {
 		return nil, fmt.Errorf("extracting compose volume targets: %w", err)
 	}
@@ -301,7 +301,7 @@ func (p *composeProvider) extractNestedTargets(ctx context.Context, configProvid
 		return &AppData{}, nil
 	}
 
-	appData, err := extractAppDataFromOCITarget(ctx, p.podman, p.readWriter, p.spec.Name, p.imageRef, v1beta1.AppTypeCompose, configProvider)
+	appData, err := extractAppDataFromOCITarget(ctx, p.podman, p.readWriter, p.spec.Name, p.imageRef, v1beta1.AppTypeCompose, p.spec.User, configProvider)
 	if err != nil {
 		return nil, err
 	}
