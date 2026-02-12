@@ -12,7 +12,6 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/log"
-	"github.com/samber/lo"
 )
 
 const (
@@ -166,7 +165,7 @@ func writeInlineContentToPath(rw fileio.ReadWriter, appPath string, contents []v
 		return fmt.Errorf("creating directory: %w", err)
 	}
 	for _, content := range contents {
-		contentBytes, err := fileio.DecodeContent(lo.FromPtr(content.Content), content.ContentEncoding)
+		contentBytes, err := content.ContentsDecoded()
 		if err != nil {
 			return fmt.Errorf("decoding application content: %w", err)
 		}

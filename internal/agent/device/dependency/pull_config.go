@@ -75,16 +75,19 @@ func (r *pullConfigResolver) BeforeUpdate(desired *v1beta1.DeviceSpec) {
 	}
 
 	for path, cached := range r.resolved {
-		newContent, found := r.authFromSpec(desired, path)
+		newFile := r.authFromSpec(desired, path)
 
 		// exists only on disk
-		if !found && cached.inlineContent == nil {
+		if newFile == nil && cached.inlineContent == nil {
 			continue
 		}
 
 		// exists inline in the spec
-		if found && bytes.Equal(newContent, cached.inlineContent) {
-			continue
+		if newFile != nil {
+			content, err := newFile.ContentsDecoded()
+			if err == nil && bytes.Equal(content, cached.inlineContent) {
+				continue
+			}
 		}
 
 		if cached.cleanup != nil {
@@ -127,21 +130,28 @@ func (r *pullConfigResolver) Options(specs ...PullConfigSpec) ClientOptsFn {
 }
 
 func (r *pullConfigResolver) resolve(configPath string) (*resolvedConfig, bool) {
-	rootRW, err := r.rwFactory(v1beta1.CurrentProcessUsername)
-	if err != nil {
-		r.log.Warnf("Failed to create read/writer: %v", err)
-		return nil, false
-	}
+	specFile := r.authFromSpec(r.desired, configPath)
+	if specFile != nil {
+		readWriter, err := r.rwFactory(specFile.User)
+		if err != nil {
+			r.log.Warnf("Failed to create read/writer for user %s: %v", specFile.User, err)
+			return nil, false
+		}
 
-	specContent, found := r.authFromSpec(r.desired, configPath)
-	if found {
-		exists, err := rootRW.PathExists(configPath)
+		exists, err := readWriter.PathExists(configPath)
 		if err != nil {
 			r.log.Warnf("Failed to check path exists: %v", err)
 			return nil, false
 		}
+
+		specContent, err := specFile.ContentsDecoded()
+		if err != nil {
+			r.log.Warnf("Failed to decode config file %s contents: %v", specFile.Path, err)
+			return nil, false
+		}
+
 		if exists {
-			diskContent, err := rootRW.ReadFile(configPath)
+			diskContent, err := readWriter.ReadFile(configPath)
 			if err != nil {
 				r.log.Warnf("Failed to read existing config file: %v", err)
 				return nil, false
@@ -157,7 +167,7 @@ func (r *pullConfigResolver) resolve(configPath string) (*resolvedConfig, bool) 
 			}
 		}
 
-		path, cleanup, err := fileio.WriteTmpFile(rootRW, "config_", "config", specContent, 0600)
+		path, cleanup, err := fileio.WriteTmpFile(readWriter, "config_", "config", specContent, 0600)
 		if err != nil {
 			r.log.Warnf("Failed to write temp config file: %v", err)
 			return nil, false
@@ -170,6 +180,11 @@ func (r *pullConfigResolver) resolve(configPath string) (*resolvedConfig, bool) 
 		}, true
 	}
 
+	rootRW, err := r.rwFactory(v1beta1.CurrentProcessUsername)
+	if err != nil {
+		r.log.Warnf("Failed to create root read/writer: %v", err)
+		return nil, false
+	}
 	exists, err := rootRW.PathExists(configPath)
 	if err != nil {
 		r.log.Warnf("Failed to check path exists: %v", err)
@@ -187,9 +202,9 @@ func (r *pullConfigResolver) resolve(configPath string) (*resolvedConfig, bool) 
 	return nil, false
 }
 
-func (r *pullConfigResolver) authFromSpec(device *v1beta1.DeviceSpec, authPath string) ([]byte, bool) {
+func (r *pullConfigResolver) authFromSpec(device *v1beta1.DeviceSpec, authPath string) *v1beta1.FileSpec {
 	if device == nil || device.Config == nil {
-		return nil, false
+		return nil
 	}
 
 	for _, provider := range *device.Config {
@@ -206,17 +221,12 @@ func (r *pullConfigResolver) authFromSpec(device *v1beta1.DeviceSpec, authPath s
 		}
 		for _, file := range spec.Inline {
 			if file.Path == authPath {
-				contents, err := fileio.DecodeContent(file.Content, file.ContentEncoding)
-				if err != nil {
-					r.log.Warnf("Failed to decode content for %s: %v", authPath, err)
-					continue
-				}
-				return contents, true
+				return &file
 			}
 		}
 	}
 
-	return nil, false
+	return nil
 }
 
 func (r *pullConfigResolver) Cleanup() {
