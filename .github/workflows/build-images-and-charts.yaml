@@ -82,7 +82,13 @@ jobs:
             # Check if the new flavor-aware script exists and supports build command
             if [ -f "hack/publish_containers.sh" ] && grep -q "build)" "hack/publish_containers.sh" 2>/dev/null; then
               echo "Using new flavor-aware build script..."
-              if FLAVOR=$flavor hack/publish_containers.sh build $flavor; then
+              # Convert cs9/cs10 to 9/10 for the new script if needed
+              script_flavor="$flavor"
+              case "$flavor" in
+                cs9) script_flavor="9" ;;
+                cs10) script_flavor="10" ;;
+              esac
+              if FLAVOR=$flavor hack/publish_containers.sh build $script_flavor; then
                 echo "✓ New build script succeeded for flavor: $flavor"
                 return 0
               else

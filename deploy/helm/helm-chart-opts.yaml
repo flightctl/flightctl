@@ -1,4 +1,4 @@
-community-cs9:
+community-el9:
   name: flightctl
   description: A helm chart for FlightControl
   home: https://github.com/flightctl/flightctl
@@ -21,30 +21,30 @@ community-cs9:
       image: quay.io/openshift/origin-cli
       tag: "4.20.0"
     api:
-      image: quay.io/flightctl/flightctl-api-cs9
+      image: quay.io/flightctl/flightctl-api-el9
     cliArtifacts:
-      image: quay.io/flightctl/flightctl-cli-artifacts-cs9
+      image: quay.io/flightctl/flightctl-cli-artifacts-el9
     worker:
-      image: quay.io/flightctl/flightctl-worker-cs9
+      image: quay.io/flightctl/flightctl-worker-el9
     periodic:
-      image: quay.io/flightctl/flightctl-periodic-cs9
+      image: quay.io/flightctl/flightctl-periodic-el9
     alertExporter:
-      image: quay.io/flightctl/flightctl-alert-exporter-cs9
+      image: quay.io/flightctl/flightctl-alert-exporter-el9
     alertmanagerProxy:
-      image: quay.io/flightctl/flightctl-alertmanager-proxy-cs9
+      image: quay.io/flightctl/flightctl-alertmanager-proxy-el9
     imageBuilderApi:
-      image: quay.io/flightctl/flightctl-imagebuilder-api-cs9
+      image: quay.io/flightctl/flightctl-imagebuilder-api-el9
     imageBuilderWorker:
-      image: quay.io/flightctl/flightctl-imagebuilder-worker-cs9
+      image: quay.io/flightctl/flightctl-imagebuilder-worker-el9
     ui:
-      image: quay.io/flightctl/flightctl-ui-cs9
+      image: quay.io/flightctl/flightctl-ui-el9
     uiPlugin:
-      image: quay.io/flightctl/flightctl-ocp-ui-cs9
+      image: quay.io/flightctl/flightctl-ocp-ui-el9
     dbSetup:
-      image: quay.io/flightctl/flightctl-db-setup-cs9
+      image: quay.io/flightctl/flightctl-db-setup-el9
     telemetryGateway:
-      image: quay.io/flightctl/flightctl-telemetry-gateway-cs9
-community-cs10:
+      image: quay.io/flightctl/flightctl-telemetry-gateway-el9
+community-el10:
   name: flightctl
   description: A helm chart for FlightControl
   home: https://github.com/flightctl/flightctl
@@ -67,29 +67,29 @@ community-cs10:
       image: quay.io/openshift/origin-cli
       tag: "4.20.0"
     api:
-      image: quay.io/flightctl/flightctl-api-cs10
+      image: quay.io/flightctl/flightctl-api-el10
     cliArtifacts:
-      image: quay.io/flightctl/flightctl-cli-artifacts-cs10
+      image: quay.io/flightctl/flightctl-cli-artifacts-el10
     worker:
-      image: quay.io/flightctl/flightctl-worker-cs10
+      image: quay.io/flightctl/flightctl-worker-el10
     periodic:
-      image: quay.io/flightctl/flightctl-periodic-cs10
+      image: quay.io/flightctl/flightctl-periodic-el10
     alertExporter:
-      image: quay.io/flightctl/flightctl-alert-exporter-cs10
+      image: quay.io/flightctl/flightctl-alert-exporter-el10
     alertmanagerProxy:
-      image: quay.io/flightctl/flightctl-alertmanager-proxy-cs10
+      image: quay.io/flightctl/flightctl-alertmanager-proxy-el10
     imageBuilderApi:
-      image: quay.io/flightctl/flightctl-imagebuilder-api-cs10
+      image: quay.io/flightctl/flightctl-imagebuilder-api-el10
     imageBuilderWorker:
-      image: quay.io/flightctl/flightctl-imagebuilder-worker-cs10
+      image: quay.io/flightctl/flightctl-imagebuilder-worker-el10
     ui:
-      image: quay.io/flightctl/flightctl-ui-cs10
+      image: quay.io/flightctl/flightctl-ui-el10
     uiPlugin:
-      image: quay.io/flightctl/flightctl-ocp-ui-cs10
+      image: quay.io/flightctl/flightctl-ocp-ui-el10
     dbSetup:
-      image: quay.io/flightctl/flightctl-db-setup-cs10
+      image: quay.io/flightctl/flightctl-db-setup-el10
     telemetryGateway:
-      image: quay.io/flightctl/flightctl-telemetry-gateway-cs10
+      image: quay.io/flightctl/flightctl-telemetry-gateway-el10
 redhat-cs9:
   name: redhat-rhem
   description: A helm chart for Red Hat Edge Manager
