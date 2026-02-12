@@ -11,7 +11,7 @@ metadata:
     {{- end }}
     {{- include "flightctl.standardLabels" . | nindent 4 }}
     flightctl.service: flightctl-api
-  name: flightctl-api-route-agent
+  name: flightctl-agent-api
   namespace: {{ .Release.Namespace }}
 spec:
   host: agent-api.{{ include "flightctl.getBaseDomain" . }}
