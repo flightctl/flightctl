@@ -13,15 +13,15 @@ case "${FLAVOR}" in
         EL_VERSION="9"
         SQL_VERSION=${SQL_VERSION:-"latest"}
         SQL_IMAGE=${SQL_IMAGE:-"quay.io/sclorg/postgresql-16-c9s"}
-        KV_VERSION=${KV_VERSION:-"latest"}
-        KV_IMAGE=${KV_IMAGE:-"quay.io/sclorg/redis-7-c9s"}
+        KV_VERSION=${KV_VERSION:-"7.4.1"}
+        KV_IMAGE=${KV_IMAGE:-"docker.io/redis"}
         ;;
     el10)
         EL_VERSION="10"
         SQL_VERSION=${SQL_VERSION:-"latest"}
         SQL_IMAGE=${SQL_IMAGE:-"quay.io/sclorg/postgresql-16-c10s"}
-        KV_VERSION=${KV_VERSION:-"latest"}
-        KV_IMAGE=${KV_IMAGE:-"quay.io/sclorg/redis-7-c10s"}
+        KV_VERSION=${KV_VERSION:-"7.4.1"}
+        KV_IMAGE=${KV_IMAGE:-"docker.io/redis"}
         ;;
     *)
         echo "Error: Invalid flavor '${FLAVOR}'. Must be 'el9' or 'el10'"
