@@ -438,6 +438,10 @@ func (e *Element) Error() string {
 func GetElement(err error) string {
 	var elem *Element
 	if errors.As(err, &elem) {
+		const maxLength = 64
+		if len(elem.Value) > maxLength {
+			return "..." + elem.Value[len(elem.Value)-maxLength:]
+		}
 		return elem.Value
 	}
 	return ""
