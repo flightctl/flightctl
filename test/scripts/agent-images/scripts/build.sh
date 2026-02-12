@@ -8,7 +8,7 @@ BASE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 IMAGE_REPO="${IMAGE_REPO:-quay.io/flightctl/flightctl-device}"
 CACHE_IMAGE_REPO="${CACHE_IMAGE_REPO:-quay.io/flightctl-tests/flightctl-device-cache}"
 APP_REPO="${APP_REPO:-quay.io/flightctl}"
-AGENT_OS_ID="${AGENT_OS_ID:-cs9-bootc}"
+AGENT_OS_ID="${AGENT_OS_ID:-el9-bootc}"
 VARIANTS="${VARIANTS:-v2 v3 v4 v5 v6 v7 v8 v9 v10 v11}"
 
 SOURCE_GIT_TAG="${SOURCE_GIT_TAG:-$(${ROOT_DIR}/hack/current-version)}"

@@ -7,8 +7,8 @@ if [[ $(id -u) != 0 ]] && [[ "${BUILDAH_ISOLATION:-}" != "chroot" ]] && [[ -z "$
     exec buildah unshare "$0" "$@"
 fi
 
-# Default to CS9 if OS_ID not specified
-OS_ID=${OS_ID:-cs9}
+# Default to EL9 if OS_ID not specified
+OS_ID=${OS_ID:-el9}
 
 # Source flavor configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -42,8 +42,8 @@ mountdir=$(buildah mount $container)
 echo "Installing base packages for release $UBI_RELEASE_VER"
 # Clear cache and force refresh for clean package downloads
 dnf clean all --installroot $mountdir
-# Skip openssl-libs for CS10 due to package header issues - UBI10-micro already includes it
-if [[ "$OS_ID" == "cs10" ]]; then
+# Skip openssl-libs for EL10 due to package header issues - UBI10-micro already includes it
+if [[ "$OS_ID" == "el10" ]]; then
     dnf install \
         --installroot $mountdir \
         --releasever $UBI_RELEASE_VER \

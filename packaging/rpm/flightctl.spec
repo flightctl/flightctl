@@ -337,8 +337,8 @@ echo "Flight Control Observability Stack uninstalled."
         APPLY_UI_OVERRIDE=""
     fi
 
-    # Generate images.yaml from template (default to cs9 flavor for backward compatibility)
-    FLAVOR=${FLAVOR:-cs9}
+    # Generate images.yaml from template (default to el9 flavor for consistency)
+    FLAVOR=${FLAVOR:-el9}
     go run deploy/podman/render-image-config.go -flavor="${FLAVOR}" \
         -template="deploy/podman/images.yaml.gotmpl" \
         -output="deploy/podman/images.yaml"

@@ -1,6 +1,6 @@
 # Environment variables for agent image builds
 AGENT_IMAGE_OUTPUT ?= push
-AGENT_OS_ID ?= cs9-bootc
+AGENT_OS_ID ?= el9-bootc
 APP_BUNDLE := $(ROOT_DIR)/bin/app-images-bundle.tar
 AGENT_BUNDLE_DIR := $(ROOT_DIR)/bin/agent-artifacts
 AGENT_BUNDLE := $(AGENT_BUNDLE_DIR)/agent-images-bundle-$(AGENT_OS_ID).tar

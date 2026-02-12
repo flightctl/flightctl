@@ -132,8 +132,8 @@ Run both services locally:
 # Build containers (builds all flavors: CS9 and CS10)
 make build-containers
 
-# Run with podman (using desired flavor, e.g., cs9 or cs10)
-FLAVOR=${FLAVOR:-cs9}  # Default to cs9, or set FLAVOR=cs10
+# Run with podman (using desired flavor, e.g., el9 or el10)
+FLAVOR=${FLAVOR:-el9}  # Default to el9, or set FLAVOR=el10
 podman run -d --name flightctl-api -p 3443:3443 flightctl-api-${FLAVOR}:latest
 podman run -d --name flightctl-pam-issuer -p 8444:8444 flightctl-pam-issuer-${FLAVOR}:latest
 ```

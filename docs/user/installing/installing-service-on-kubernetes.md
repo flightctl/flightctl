@@ -136,15 +136,15 @@ By default, Helm charts use CS9 container images. For specific OS compatibility 
 # values.yaml
 global:
   image:
-    tag: "cs10-latest"  # Use CS10 containers instead of default CS9
+    tag: "el10-latest"  # Use EL10 containers instead of default EL9
 
 # Or specify individual component tags
 api:
   image:
-    tag: "cs10-latest"
+    tag: "el10-latest"
 worker:
   image:
-    tag: "cs10-latest"
+    tag: "el10-latest"
 ```
 
 ### Cross-Version Compatibility

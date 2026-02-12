@@ -3,29 +3,28 @@ set -euo pipefail
 
 # Usage: publish_containers.sh <action> <flavor>
 # Actions: build, publish
-# Flavor: cs9, cs10, 9, 10, el9, el10 (all formats supported for transition)
+# Flavor: el9, el10
 
 if [[ $# -ne 2 ]]; then
     echo "Usage: $0 <action> <flavor>"
     echo "Actions: build, publish"
-    echo "Flavor: cs9, cs10, 9, 10, el9, el10 (all formats supported)"
+    echo "Flavor: el9, el10"
     echo "Examples:"
-    echo "  $0 build cs9   # Build containers for EL9"
-    echo "  $0 build 9     # Build containers for EL9 (alternative)"
-    echo "  $0 build el9   # Build containers for EL9 (preferred)"
-    echo "  $0 publish cs10 # Publish containers for EL10"
+    echo "  $0 build el9   # Build containers for EL9"
+    echo "  $0 build el10  # Build containers for EL10"
+    echo "  $0 publish el9 # Publish containers for EL9"
     exit 1
 fi
 
 ACTION="$1"
 FLAVOR_PARAM="$2"
 
-# Convert flavor parameter to EL version (support all transition formats)
+# Only accept el9 and el10 flavors
 case "$FLAVOR_PARAM" in
-    cs9|9|el9) EL_VERSION="9" ;;
-    cs10|10|el10) EL_VERSION="10" ;;
+    el9) EL_FLAVOR="el9"; EL_VERSION="9" ;;
+    el10) EL_FLAVOR="el10"; EL_VERSION="10" ;;
     *)
-        echo "Error: Invalid flavor '$FLAVOR_PARAM'. Must be 'cs9', 'cs10', '9', '10', 'el9', or 'el10'"
+        echo "Error: Invalid flavor '$FLAVOR_PARAM'. Must be 'el9' or 'el10'"
         exit 1
         ;;
 esac
@@ -51,7 +50,7 @@ SOURCE_GIT_TAG=${SOURCE_GIT_TAG:-$(${ROOT_DIR}/hack/current-version)}
 
 case "$ACTION" in
     build)
-        echo "Building FlightCtl containers for EL${EL_VERSION}..."
+        echo "Building FlightCtl containers for ${EL_FLAVOR}..."
 
         # Base images are pre-built and pushed to quay.io/flightctl/flightctl-base:el9-* and el10-*
         # No need to build them during container build process
@@ -76,7 +75,7 @@ case "$ACTION" in
 
         # Build containers using ARG-based containerfiles
         for service in $CONTAINER_SERVICES; do
-            echo "Building flightctl-${service}-el${EL_VERSION}..."
+            echo "Building flightctl-${service}-${EL_FLAVOR}..."
 
             # Determine cache flags
             CACHE_FLAGS=""
@@ -104,43 +103,34 @@ case "$ACTION" in
                 --build-arg SOURCE_GIT_TREE_STATE="${SOURCE_GIT_TREE_STATE:-clean}" \
                 --build-arg SOURCE_GIT_COMMIT="${SOURCE_GIT_COMMIT:-${GIT_REF}}" \
                 -f "images/Containerfile.${service}" \
-                -t "flightctl-${service}-el${EL_VERSION}:latest" \
-                -t "quay.io/flightctl/flightctl-${service}-el${EL_VERSION}:latest" \
-                -t "quay.io/flightctl/flightctl-${service}-el${EL_VERSION}:${SOURCE_GIT_TAG}" \
-                -t "flightctl-${service}-cs${EL_VERSION}:latest" \
-                -t "localhost/flightctl-${service}-cs${EL_VERSION}:latest" \
-                -t "localhost/flightctl-${service}-el${EL_VERSION}:latest" \
+                -t "flightctl-${service}-${EL_FLAVOR}:latest" \
+                -t "quay.io/flightctl/flightctl-${service}-${EL_FLAVOR}:latest" \
+                -t "quay.io/flightctl/flightctl-${service}-${EL_FLAVOR}:${SOURCE_GIT_TAG}" \
+                -t "localhost/flightctl-${service}-${EL_FLAVOR}:latest" \
                 .
         done
 
-        echo "✓ Built all containers for EL${EL_VERSION}"
+        echo "✓ Built all containers for ${EL_FLAVOR}"
         ;;
 
     publish)
-        echo "Publishing FlightCtl containers for EL${EL_VERSION} to registry..."
+        echo "Publishing FlightCtl containers for ${EL_FLAVOR} to registry..."
 
         for service in $CONTAINER_SERVICES; do
-            local_image="flightctl-${service}-el${EL_VERSION}:latest"
+            local_image="flightctl-${service}-${EL_FLAVOR}:latest"
 
             echo "Publishing ${local_image}..."
 
-            # Tag and push to registry with EL naming (primary) and CS naming (backward compatibility)
-            # EL naming (new standard)
-            podman tag "${local_image}" "quay.io/flightctl/flightctl-${service}-el${EL_VERSION}:latest"
-            podman tag "${local_image}" "quay.io/flightctl/flightctl-${service}-el${EL_VERSION}:${GIT_REF}"
-            # CS naming (temporary backward compatibility)
-            podman tag "${local_image}" "quay.io/flightctl/flightctl-${service}-cs${EL_VERSION}:latest"
-            podman tag "${local_image}" "quay.io/flightctl/flightctl-${service}-cs${EL_VERSION}:${GIT_REF}"
+            # Tag and push to registry with EL naming only
+            podman tag "${local_image}" "quay.io/flightctl/flightctl-${service}-${EL_FLAVOR}:latest"
+            podman tag "${local_image}" "quay.io/flightctl/flightctl-${service}-${EL_FLAVOR}:${GIT_REF}"
 
-            # Push both naming conventions
-            podman push "quay.io/flightctl/flightctl-${service}-el${EL_VERSION}:latest"
-            podman push "quay.io/flightctl/flightctl-${service}-el${EL_VERSION}:${GIT_REF}"
-            podman push "quay.io/flightctl/flightctl-${service}-cs${EL_VERSION}:latest"
-            podman push "quay.io/flightctl/flightctl-${service}-cs${EL_VERSION}:${GIT_REF}"
+            # Push EL naming only
+            podman push "quay.io/flightctl/flightctl-${service}-${EL_FLAVOR}:latest"
+            podman push "quay.io/flightctl/flightctl-${service}-${EL_FLAVOR}:${GIT_REF}"
         done
 
-        echo "✓ Published all containers for EL${EL_VERSION}"
-        echo "Registry images: quay.io/flightctl/flightctl-*-el${EL_VERSION}:latest (primary)"
-        echo "                quay.io/flightctl/flightctl-*-cs${EL_VERSION}:latest (compatibility)"
+        echo "✓ Published all containers for ${EL_FLAVOR}"
+        echo "Registry images: quay.io/flightctl/flightctl-*-${EL_FLAVOR}:latest"
         ;;
 esac

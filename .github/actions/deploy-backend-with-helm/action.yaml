@@ -41,9 +41,9 @@ inputs:
     required: false
     default: 'true'
   flavor:
-    description: 'Container flavor (cs9 or cs10)'
+    description: 'Container flavor (el9 or el10)'
     required: false
-    default: 'cs9'
+    default: 'el9'
 
 runs:
   using: "composite"
