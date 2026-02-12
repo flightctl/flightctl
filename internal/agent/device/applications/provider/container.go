@@ -193,9 +193,9 @@ func (p *containerProvider) collectOCITargets(ctx context.Context, configProvide
 		Type:         dependency.OCITypePodmanImage,
 		Reference:    p.spec.ContainerApp.Image,
 		PullPolicy:   v1beta1.PullIfNotPresent,
-		ClientOptsFn: containerPullOptions(configProvider),
+		ClientOptsFn: containerPullOptions(configProvider, p.spec.User),
 	})
-	volTargets, err := extractVolumeTargets(p.spec.ContainerApp.Volumes, configProvider)
+	volTargets, err := extractVolumeTargets(p.spec.ContainerApp.Volumes, configProvider, p.spec.User)
 	if err != nil {
 		return nil, fmt.Errorf("extracting container volume targets: %w", err)
 	}
