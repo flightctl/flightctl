@@ -17,6 +17,16 @@ type StructuredError struct {
 	Timestamp  time.Time
 }
 
+// truncateElement truncates an element value to 64 characters for use in structured error messages.
+// This ensures device status messages comply with API constraints while preserving the end of the path.
+func truncateElement(element string) string {
+	const maxLength = 64
+	if len(element) > maxLength {
+		return "..." + element[len(element)-maxLength:]
+	}
+	return element
+}
+
 // FormatError extracts phase and component from the error chain.
 func FormatError(err error) *StructuredError {
 	phase, rest := splitWrapped(err)
@@ -26,7 +36,7 @@ func FormatError(err error) *StructuredError {
 	return &StructuredError{
 		Phase:      phase,
 		Component:  component,
-		Element:    GetElement(err),
+		Element:    truncateElement(GetElement(err)),
 		StatusCode: statusCode,
 		Category:   inferCategory(statusCode),
 		Timestamp:  time.Now(),
