@@ -108,6 +108,60 @@ func TestValidateStandaloneConfig_MultipleErrors(t *testing.T) {
 	assert.Contains(t, allErrors, "auth")
 }
 
+func TestNormalizeStandaloneConfig(t *testing.T) {
+	testCases := []struct {
+		name               string
+		baseDomain         string
+		expectedBaseDomain string
+	}{
+		{
+			name:               "lowercase unchanged",
+			baseDomain:         "example.com",
+			expectedBaseDomain: "example.com",
+		},
+		{
+			name:               "uppercase hostname",
+			baseDomain:         "rhel9-GA",
+			expectedBaseDomain: "rhel9-ga",
+		},
+		{
+			name:               "mixed case FQDN",
+			baseDomain:         "MyHost.Example.COM",
+			expectedBaseDomain: "myhost.example.com",
+		},
+		{
+			name:               "all uppercase",
+			baseDomain:         "MYHOST",
+			expectedBaseDomain: "myhost",
+		},
+		{
+			name:               "already lowercase hostname",
+			baseDomain:         "my-host",
+			expectedBaseDomain: "my-host",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			config := &standalone.Config{
+				Global: standalone.GlobalConfig{
+					BaseDomain: tc.baseDomain,
+					Auth: standalone.AuthConfig{
+						Type: standalone.AuthTypeNone,
+					},
+				},
+			}
+
+			NormalizeStandaloneConfig(config)
+			assert.Equal(t, tc.expectedBaseDomain, config.Global.BaseDomain)
+
+			// After normalization, validation should pass
+			errs := ValidateStandaloneConfig(config)
+			assert.Empty(t, errs, "expected no validation error after normalizing %q", tc.baseDomain)
+		})
+	}
+}
+
 func TestValidateFQDN(t *testing.T) {
 	testCases := []struct {
 		name    string
@@ -205,6 +259,24 @@ func TestValidateFQDN(t *testing.T) {
 		{
 			name:    "double dot",
 			fqdn:    "example..com",
+			wantErr: true,
+			errMsg:  "Invalid value",
+		},
+		{
+			name:    "uppercase letters in hostname",
+			fqdn:    "rhel9-GA",
+			wantErr: true,
+			errMsg:  "Invalid value",
+		},
+		{
+			name:    "mixed case FQDN",
+			fqdn:    "MyHost.Example.COM",
+			wantErr: true,
+			errMsg:  "Invalid value",
+		},
+		{
+			name:    "all uppercase hostname",
+			fqdn:    "MYHOST",
 			wantErr: true,
 			errMsg:  "Invalid value",
 		},

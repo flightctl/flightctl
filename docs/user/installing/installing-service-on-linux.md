@@ -2,6 +2,31 @@
 
 Containerized Flight Control services can be installed on a Fedora or RHEL host by running [Podman quadlet systemd units](https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html).
 
+## Prerequisites
+
+The system hostname is used as the default `baseDomain` for Flight Control services. It must be a valid DNS name:
+
+- Only lowercase letters, digits, and hyphens (e.g. `my-host`, `flightctl.example.com`)
+- Must start and end with a letter or digit (not a hyphen)
+- Must not be an IP address
+
+> [!NOTE]
+> Uppercase letters in the hostname (e.g. `rhel9-GA`) are automatically normalized to lowercase. However, other invalid characters such as underscores will cause service startup failures.
+
+To check your hostname:
+
+```bash
+hostname -f
+```
+
+To rename a host with an invalid hostname:
+
+```bash
+sudo hostnamectl set-hostname <valid-hostname>
+```
+
+Alternatively, you can set `global.baseDomain` explicitly in `/etc/flightctl/service-config.yaml` to override the system hostname.
+
 ## Installing the RPM
 
 Services rpm files are hosted at [rpm.flightctl.io](https://rpm.flightctl.io/).  To install the latest release of flightctl-services enable the repo and install the rpm package.
