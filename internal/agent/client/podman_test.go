@@ -2,8 +2,10 @@ package client
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
+	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -11,6 +13,68 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
+
+func TestPodman_PullImage(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	log := log.NewPrefixLogger("test")
+	mockExec := executer.NewMockExecuter(ctrl)
+	readWriter := fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter())
+	backoff := poll.Config{}
+	podman := NewPodman(log, mockExec, readWriter, backoff)
+
+	testCases := []struct {
+		name          string
+		image         string
+		setupMock     func(*executer.MockExecuter)
+		expectedError string
+	}{
+		{
+			name:  "successful pull",
+			image: "quay.io/flightctl/flightctl-agent:latest",
+			setupMock: func(mock *executer.MockExecuter) {
+				mock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"pull", "quay.io/flightctl/flightctl-agent:latest"}).
+					Return("some output", "", 0)
+			},
+			expectedError: "",
+		},
+		{
+			name:  "image not found disguised as unauthorized",
+			image: "quay.io/flightctl/non-existent-image:latest",
+			setupMock: func(mock *executer.MockExecuter) {
+				stderr := "Error: initializing source docker://quay.io/flightctl/non-existent-image:latest: reading manifest latest in quay.io/flightctl/non-existent-image: unauthorized: access to the requested resource is not authorized"
+				mock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"pull", "quay.io/flightctl/non-existent-image:latest"}).
+					Return("", stderr, 125)
+			},
+			expectedError: "pull image: image not found: code: 125",
+		},
+		{
+			name:  "ambiguous unauthorized error",
+			image: "quay.io/flightctl/private-image:latest",
+			setupMock: func(mock *executer.MockExecuter) {
+				stderr := "Error: pulling image \"quay.io/flightctl/private-image:latest\": unable to pull image: Source image rejected: unauthorized"
+				mock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"pull", "quay.io/flightctl/private-image:latest"}).
+					Return("", stderr, 125)
+			},
+			expectedError: "pull image: unauthorized: image pull failed due to invalid credentials or a non-existent image. details: code: 125",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.setupMock(mockExec)
+			_, err := podman.Pull(context.Background(), tc.image)
+			if tc.expectedError != "" {
+				require.Error(err)
+				require.Contains(err.Error(), tc.expectedError)
+			} else {
+				require.NoError(err)
+			}
+		})
+	}
+}
 
 func TestPodman_ListImages(t *testing.T) {
 	require := require.New(t)

@@ -37,12 +37,11 @@ func TestFromStderr(t *testing.T) {
 			expectedIs:  ErrImageNotFound,
 		},
 		{
-			name:        "actual unauthorized",
+			name:        "ambiguous unauthorized",
 			stderr:      "unauthorized: access to the requested resource is not authorized",
 			exitCode:    125,
-			expectedErr: &stderrError{wrapped: ErrAuthenticationFailed, reason: "unauthorized", code: 125, stderr: "unauthorized: access to the requested resource is not authorized"},
-			expectedMsg: "authentication failed: code: 125: unauthorized: access to the requested resource is not authorized",
-			expectedIs:  ErrAuthenticationFailed,
+			expectedErr: fmt.Errorf("unauthorized: check credentials and image path. details: code: 125: unauthorized: access to the requested resource is not authorized"),
+			expectedMsg: "unauthorized: check credentials and image path. details: code: 125: unauthorized: access to the requested resource is not authorized",
 		},
 		{
 			name:        "manifest unknown",

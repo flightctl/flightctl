@@ -213,7 +213,6 @@ var (
 	stderrKeywords = map[string]error{
 		// authentication
 		"authentication required": ErrAuthenticationFailed,
-		"unauthorized":            ErrAuthenticationFailed,
 		"access denied":           ErrAuthenticationFailed,
 		// not found
 		"not found":        ErrNotFound,
@@ -549,14 +548,17 @@ func IsTimeoutError(err error) bool {
 func FromStderr(stderr string, exitCode int) error {
 	lowerStderr := strings.ToLower(stderr)
 	// Special case for image not found disguised as unauthorized
-	if strings.Contains(lowerStderr, "unauthorized") &&
-		(strings.Contains(lowerStderr, "manifest unknown") || strings.Contains(lowerStderr, "reading manifest")) {
-		return &stderrError{
-			wrapped: ErrImageNotFound,
-			reason:  "manifest unknown", // Keep reason consistent
-			code:    exitCode,
-			stderr:  stderr,
+	if strings.Contains(lowerStderr, "unauthorized") {
+		if strings.Contains(lowerStderr, "manifest unknown") || strings.Contains(lowerStderr, "reading manifest") {
+			return &stderrError{
+				wrapped: ErrImageNotFound,
+				reason:  "manifest unknown", // Keep reason consistent
+				code:    exitCode,
+				stderr:  stderr,
+			}
 		}
+		// we return a more descriptive generic error.
+		return fmt.Errorf("unauthorized: image pull failed due to invalid credentials or a non-existent image. details: code: %d: %s", exitCode, stderr)
 	}
 
 	for check, err := range stderrKeywords {
