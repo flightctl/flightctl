@@ -57,7 +57,7 @@ var _ = Describe("RBAC Authorization Tests", Label("rbac", "authorization"), fun
 		suiteCtx = e2e.GetWorkerContext()
 
 		// Get the default K8s context
-		defaultK8sContext, err = harness.GetDefaultK8sContext()
+		defaultK8sContext, err = harness.GetDefaultK8sAdminContext()
 		Expect(err).ToNot(HaveOccurred(), "Failed to get default K8s context")
 		k8sApiEndpoint, err = harness.GetK8sApiEndpoint(suiteCtx, defaultK8sContext)
 		Expect(err).ToNot(HaveOccurred(), "Failed to get Kubernetes API endpoint")
@@ -390,12 +390,17 @@ func createViewRoleBinding(ctx context.Context, harness *e2e.Harness, userName, 
 	GinkgoWriter.Printf("Granted %s view role in namespace: %s\n", userName, namespace)
 }
 
-// changeNamespaceAndLoginAsNonAdmin changes the Kubernetes namespace and logs in as a non-admin user.
+// changeNamespaceAndLoginAsNonAdmin changes the Kubernetes namespace, logs in as a non-admin user, and sets the current org to the one that corresponds to the namespace.
 func changeNamespaceAndLoginAsNonAdmin(harness *e2e.Harness, namespace, userName, k8sContext, k8sApiEndpoint string) {
 	err := harness.ChangeK8sNamespace(namespace)
 	Expect(err).ToNot(HaveOccurred(), fmt.Sprintf("Failed to change namespace to %s", namespace))
 	err = login.LoginAsNonAdmin(harness, userName, userName, k8sContext, k8sApiEndpoint)
 	Expect(err).ToNot(HaveOccurred())
+	// Use the org that corresponds to this namespace (e.g. OpenShift project -> org with matching externalId)
+	org, err := harness.GetOrganizationIDForNamespace(namespace)
+	Expect(err).ToNot(HaveOccurred(), fmt.Sprintf("Failed to get organization for namespace %s", namespace))
+	err = harness.SetCurrentOrganization(org)
+	Expect(err).ToNot(HaveOccurred(), fmt.Sprintf("Failed to set current organization to %s", org))
 }
 
 // createRoleAndBinding creates a role and role binding in the specified namespace.
