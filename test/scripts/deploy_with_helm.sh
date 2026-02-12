@@ -7,16 +7,16 @@ DB_SIZE_PARAMS=
 # If using images from a private registry, specify a path to a Kubernetes Secret yaml for your pull secret (in the flightctl-internal namespace)
 # IMAGE_PULL_SECRET_PATH=
 # Database image selection based on FLAVOR
-FLAVOR=${FLAVOR:-cs9}
+FLAVOR=${FLAVOR:-el9}
 case "${FLAVOR}" in
-    cs9|el9|9)
+    el9)
         EL_VERSION="9"
         SQL_VERSION=${SQL_VERSION:-"latest"}
         SQL_IMAGE=${SQL_IMAGE:-"quay.io/sclorg/postgresql-16-c9s"}
         KV_VERSION=${KV_VERSION:-"7.4.1"}
         KV_IMAGE=${KV_IMAGE:-"quay.io/sclorg/redis-7-c9s"}
         ;;
-    cs10|el10|10)
+    el10)
         EL_VERSION="10"
         SQL_VERSION=${SQL_VERSION:-"latest"}
         SQL_IMAGE=${SQL_IMAGE:-"quay.io/sclorg/postgresql-16-c10s"}
@@ -24,11 +24,8 @@ case "${FLAVOR}" in
         KV_IMAGE=${KV_IMAGE:-"quay.io/sclorg/redis-7-c10s"}
         ;;
     *)
-        EL_VERSION="9"
-        SQL_VERSION=${SQL_VERSION:-"latest"}
-        SQL_IMAGE=${SQL_IMAGE:-"quay.io/sclorg/postgresql-16-c9s"}
-        KV_VERSION=${KV_VERSION:-"7.4.1"}
-        KV_IMAGE=${KV_IMAGE:-"docker.io/redis"}
+        echo "Error: Invalid flavor '${FLAVOR}'. Must be 'el9' or 'el10'"
+        exit 1
         ;;
 esac
 

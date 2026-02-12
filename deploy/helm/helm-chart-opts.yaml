@@ -90,7 +90,7 @@ community-el10:
       image: quay.io/flightctl/flightctl-db-setup-el10
     telemetryGateway:
       image: quay.io/flightctl/flightctl-telemetry-gateway-el10
-redhat-cs9:
+redhat-el9:
   name: redhat-rhem
   description: A helm chart for Red Hat Edge Manager
   home: https://red.ht/rhem
@@ -136,7 +136,7 @@ redhat-cs9:
       image: registry.redhat.io/rhem/flightctl-db-setup-rhel9
     telemetryGateway:
       image: registry.redhat.io/rhem/flightctl-telemetry-gateway-rhel9
-redhat-cs10:
+redhat-el10:
   name: redhat-rhem
   description: A helm chart for Red Hat Edge Manager
   home: https://red.ht/rhem

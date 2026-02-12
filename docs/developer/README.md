@@ -30,31 +30,31 @@ FlightCtl supports building containers for multiple CentOS Stream versions to en
 ### Building Containers
 
 ```bash
-# Build all containers for both CS9 and CS10
+# Build all containers for both EL9 and EL10
 make build-containers
 
 # Build containers for specific flavor only
-FLAVOR=cs9 hack/publish_containers.sh build 9   # CentOS Stream 9
-FLAVOR=cs10 hack/publish_containers.sh build 10 # CentOS Stream 10
+FLAVOR=el9 hack/publish_containers.sh build el9   # Enterprise Linux 9
+FLAVOR=el10 hack/publish_containers.sh build el10 # Enterprise Linux 10
 ```
 
 ### Container Naming
 
 Containers are built with flavor-specific names:
-- **CS9**: `flightctl-api-cs9:latest`, `flightctl-worker-cs9:latest`, etc.
-- **CS10**: `flightctl-api-cs10:latest`, `flightctl-worker-cs10:latest`, etc.
+- **EL9**: `flightctl-api-el9:latest`, `flightctl-worker-el9:latest`, etc.
+- **EL10**: `flightctl-api-el10:latest`, `flightctl-worker-el10:latest`, etc.
 
 ### Using Different Flavors
 
 ```bash
-# Default deployment (uses CS9 for backward compatibility)
+# Default deployment (uses EL9)
 make deploy
 
-# Deploy with CS10 containers
-FLAVOR=cs10 make deploy
+# Deploy with EL10 containers
+FLAVOR=el10 make deploy
 
 # Run specific flavor containers
-podman run -d --name flightctl-api -p 3443:3443 flightctl-api-cs10:latest
+podman run -d --name flightctl-api -p 3443:3443 flightctl-api-el10:latest
 ```
 
 ### Cross-Version Testing

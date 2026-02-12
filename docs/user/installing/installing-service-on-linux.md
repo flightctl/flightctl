@@ -66,7 +66,7 @@ The RPM packages automatically select appropriate container versions based on yo
 make build-containers
 
 # Build specific flavor
-FLAVOR=cs10 make build-containers
+FLAVOR=el10 make build-containers
 ```
 
 ## Configure Authentication

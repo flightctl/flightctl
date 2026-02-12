@@ -43,9 +43,9 @@ jobs:
     strategy:
       matrix:
         include:
-          - os_id: cs9-bootc
+          - os_id: el9-bootc
             rpm_mock_root: centos-stream+epel-next-9-x86_64
-          - os_id: cs10-bootc
+          - os_id: el10-bootc
             rpm_mock_root: epel-10-x86_64
     uses: ./.github/workflows/build-rpms.yaml
     with:
@@ -57,9 +57,9 @@ jobs:
     strategy:
       matrix:
         include:
-          - os_id: cs9-bootc
+          - os_id: el9-bootc
             rpm_suffix: centos-stream+epel-next-9-x86_64
-          - os_id: cs10-bootc
+          - os_id: el10-bootc
             rpm_suffix: epel-10-x86_64
     uses: ./.github/workflows/build-agent-images.yaml
     with:

@@ -59,16 +59,25 @@ func runTemplate(in string, out string, templateData templateContext) {
 }
 
 func main() {
-	// Get FLAVOR, default to cs9
+	// Get FLAVOR, default to el9 for consistency
 	flavor := os.Getenv("FLAVOR")
 	if flavor == "" {
-		flavor = "cs9"
+		flavor = "el9"
 	}
 
-	// Construct profile key based on RHEM and FLAVOR
-	profileKey := "community-" + flavor
+	// Validate flavor is el9 or el10
+	profileFlavor := flavor
+	switch flavor {
+	case "el9", "el10":
+		// Valid flavors, use as-is
+	default:
+		log.Fatalf("Invalid flavor '%s'. Must be 'el9' or 'el10'", flavor)
+	}
+
+	// Construct profile key based on RHEM and FLAVOR - all use el9/el10 now
+	profileKey := "community-" + profileFlavor
 	if os.Getenv("RHEM") != "" {
-		profileKey = "redhat-" + flavor
+		profileKey = "redhat-" + profileFlavor // Use el9/el10 for redhat profiles too
 	}
 
 	// Multi-profile opts file

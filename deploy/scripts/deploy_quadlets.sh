@@ -8,9 +8,9 @@ source "${SCRIPT_DIR}"/shared.sh
 
 echo "Starting Deployment"
 
-# Get FLAVOR (default to cs9 for backward compatibility)
-# Supported flavors: cs9, cs10, rhel9, rhel10
-FLAVOR=${FLAVOR:-cs9}
+# Get FLAVOR (default to el9 for consistency)
+# Supported flavors: el9, el10, rhel9, rhel10
+FLAVOR=${FLAVOR:-el9}
 echo "Using FLAVOR: $FLAVOR"
 
 # Render image configs from templates

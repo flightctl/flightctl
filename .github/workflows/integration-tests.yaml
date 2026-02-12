@@ -48,14 +48,9 @@ jobs:
           echo "Building db-migrator image tagged with commit: ${COMMIT_SHA}"
 
           # Build the db-setup container with configurable FLAVOR (defaults to CS9 for backward compatibility)
-          FLAVOR=${FLAVOR:-cs9}
-          # Convert cs9/cs10 to 9/10 for the new script if needed
-          script_flavor="$FLAVOR"
-          case "$FLAVOR" in
-            cs9) script_flavor="9" ;;
-            cs10) script_flavor="10" ;;
-          esac
-          sudo hack/publish_containers.sh build ${script_flavor}
+          FLAVOR=${FLAVOR:-el9}
+          # Script now accepts el9/el10 directly
+          sudo hack/publish_containers.sh build ${FLAVOR}
 
           # Tag the FLAVOR-specific db-setup image with the commit SHA for migration
           sudo podman tag "flightctl-db-setup-${FLAVOR}:latest" "flightctl-db-setup:${COMMIT_SHA}"

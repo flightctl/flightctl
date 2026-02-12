@@ -18,7 +18,7 @@ cluster: bin/e2e-certs/ca.pem
 clean-cluster:
 	kind delete cluster
 
-deploy: FLAVOR ?= cs9
+deploy: FLAVOR ?= el9
 ifndef SKIP_BUILD
 deploy: cluster build-containers build-cli deploy-helm prepare-agent-config
 else
@@ -26,35 +26,35 @@ deploy: cluster deploy-helm prepare-agent-config
 	@echo "Skipping container and CLI builds (SKIP_BUILD is set)"
 endif
 
-redeploy-api: FLAVOR ?= cs9
+redeploy-api: FLAVOR ?= el9
 redeploy-api: build-containers
 	test/scripts/redeploy.sh api
 
-redeploy-worker: FLAVOR ?= cs9
+redeploy-worker: FLAVOR ?= el9
 redeploy-worker: build-containers
 	test/scripts/redeploy.sh worker
 
-redeploy-periodic: FLAVOR ?= cs9
+redeploy-periodic: FLAVOR ?= el9
 redeploy-periodic: build-containers
 	test/scripts/redeploy.sh periodic
 
-redeploy-alert-exporter: FLAVOR ?= cs9
+redeploy-alert-exporter: FLAVOR ?= el9
 redeploy-alert-exporter: build-containers
 	test/scripts/redeploy.sh alert-exporter
 
-redeploy-alertmanager-proxy: FLAVOR ?= cs9
+redeploy-alertmanager-proxy: FLAVOR ?= el9
 redeploy-alertmanager-proxy: build-containers
 	test/scripts/redeploy.sh alertmanager-proxy
 
-redeploy-telemetry-gateway: FLAVOR ?= cs9
+redeploy-telemetry-gateway: FLAVOR ?= el9
 redeploy-telemetry-gateway: build-containers
 	test/scripts/redeploy.sh telemetry-gateway
 
-redeploy-imagebuilder-worker: FLAVOR ?= cs9
+redeploy-imagebuilder-worker: FLAVOR ?= el9
 redeploy-imagebuilder-worker: build-containers
 	test/scripts/redeploy.sh imagebuilder-worker
 
-deploy-helm: FLAVOR ?= cs9
+deploy-helm: FLAVOR ?= el9
 ifndef SKIP_BUILD
 deploy-helm: build-containers build-cli
 endif
@@ -84,7 +84,7 @@ deploy-alertmanager-proxy:
 	sudo -E deploy/scripts/deploy_quadlet_service.sh alertmanager-proxy
 
 # Can set the SKIP_BUILD variable to skip the build step and use existing containers
-deploy-quadlets: FLAVOR ?= cs9
+deploy-quadlets: FLAVOR ?= el9
 deploy-quadlets:
 ifndef SKIP_BUILD
 	$(MAKE) build-containers

@@ -13,7 +13,7 @@ type TemplateData struct {
 
 func main() {
 	var (
-		flavor       = flag.String("flavor", "cs9", "Container flavor (cs9 or cs10)")
+		flavor       = flag.String("flavor", "el9", "Container flavor (el9 or el10)")
 		templateFile = flag.String("template", "", "Path to template file")
 		outputFile   = flag.String("output", "", "Path to output file")
 	)
@@ -24,7 +24,7 @@ func main() {
 	}
 
 	// Validate flavor
-	validFlavors := []string{"cs9", "cs10", "rhel9", "rhel10"}
+	validFlavors := []string{"el9", "el10", "rhel9", "rhel10"}
 	isValid := false
 	for _, valid := range validFlavors {
 		if *flavor == valid {
@@ -33,7 +33,7 @@ func main() {
 		}
 	}
 	if !isValid {
-		log.Fatalf("Invalid flavor '%s'. Must be one of: cs9, cs10, rhel9, rhel10", *flavor)
+		log.Fatalf("Invalid flavor '%s'. Must be one of: el9, el10, rhel9, rhel10", *flavor)
 	}
 
 	// Read template
