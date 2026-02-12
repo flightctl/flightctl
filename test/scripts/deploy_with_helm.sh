@@ -6,10 +6,28 @@ ONLY_DB=
 DB_SIZE_PARAMS=
 # If using images from a private registry, specify a path to a Kubernetes Secret yaml for your pull secret (in the flightctl-internal namespace)
 # IMAGE_PULL_SECRET_PATH=
-SQL_VERSION=${SQL_VERSION:-"latest"}
-SQL_IMAGE=${SQL_IMAGE:-"quay.io/sclorg/postgresql-16-c9s"}
-KV_VERSION=${KV_VERSION:-"7.4.1"}
-KV_IMAGE=${KV_IMAGE:-"docker.io/redis"}
+# Database image selection based on FLAVOR
+FLAVOR=${FLAVOR:-cs9}
+case "${FLAVOR}" in
+    cs9)
+        SQL_VERSION=${SQL_VERSION:-"latest"}
+        SQL_IMAGE=${SQL_IMAGE:-"quay.io/sclorg/postgresql-16-c9s"}
+        KV_VERSION=${KV_VERSION:-"7.4.1"}
+        KV_IMAGE=${KV_IMAGE:-"quay.io/sclorg/redis-7-c9s"}
+        ;;
+    cs10)
+        SQL_VERSION=${SQL_VERSION:-"latest"}
+        SQL_IMAGE=${SQL_IMAGE:-"quay.io/sclorg/postgresql-16-c10s"}
+        KV_VERSION=${KV_VERSION:-"7.4.1"}
+        KV_IMAGE=${KV_IMAGE:-"quay.io/sclorg/redis-7-c10s"}
+        ;;
+    *)
+        SQL_VERSION=${SQL_VERSION:-"latest"}
+        SQL_IMAGE=${SQL_IMAGE:-"quay.io/sclorg/postgresql-16-c9s"}
+        KV_VERSION=${KV_VERSION:-"7.4.1"}
+        KV_IMAGE=${KV_IMAGE:-"docker.io/redis"}
+        ;;
+esac
 
 source "${SCRIPT_DIR}"/functions
 IP=$(get_ext_ip)
