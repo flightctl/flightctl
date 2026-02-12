@@ -121,7 +121,7 @@ func (c *Controller) writeFiles(files []v1beta1.FileSpec) error {
 			// we don't want to return temp filename but rather change the error message to return given file path
 			var pathErr *fs.PathError
 			if errors.As(err, &pathErr) {
-				return fmt.Errorf("write file %s: %w", file.Path, pathErr.Err)
+				return fmt.Errorf("write file %w: %w", deviceerrors.WithElement(file.Path), pathErr.Err)
 			}
 			return err
 		}

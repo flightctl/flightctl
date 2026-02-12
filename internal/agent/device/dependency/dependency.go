@@ -384,7 +384,7 @@ func (m *prefetchManager) processTarget(ctx context.Context, target imageRef) {
 	retries := 0
 	for {
 		if ctx.Err() != nil {
-			m.setResult(target, fmt.Errorf("pulling oci target %s: %w", target, ctx.Err()))
+			m.setResult(target, fmt.Errorf("pulling oci target %w: %w", errors.WithElement(target.image), ctx.Err()))
 			m.log.Warnf("Context error pulling oci target: %s", target)
 			return
 		}
@@ -409,7 +409,7 @@ func (m *prefetchManager) processTarget(ctx context.Context, target imageRef) {
 					return
 				}
 			}
-			m.setResult(target, fmt.Errorf("pulling oci target %s: %w", target, err))
+			m.setResult(target, fmt.Errorf("pulling oci target %w: %w", errors.WithElement(target.image), err))
 			return
 		}
 		// success
