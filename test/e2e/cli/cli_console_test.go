@@ -52,7 +52,7 @@ var _ = Describe("CLI - device console", func() {
 		cs.Close()
 	})
 
-	It("supports multiple simultaneous console sessions", Label("81737", "sanity", "agent"), func() {
+	It("supports multiple simultaneous console sessions", Label("81737", "agent"), func() {
 		// Get harness directly - no shared package-level variable
 		harness := e2e.GetWorkerHarness()
 
