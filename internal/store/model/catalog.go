@@ -9,6 +9,7 @@ import (
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
+	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
@@ -158,6 +159,34 @@ type CatalogItem struct {
 	Annotations JSONMap[string, string]            `gorm:"type:jsonb"`
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
+}
+
+// ResolveSelector implements selector.SelectorResolver for spec.category and spec.type.
+func (ci *CatalogItem) ResolveSelector(name selector.SelectorName) (*selector.SelectorField, error) {
+	switch name.String() {
+	case "spec.category":
+		return &selector.SelectorField{
+			Type:      selector.String,
+			FieldName: "spec->>'category'",
+			FieldType: "jsonb",
+		}, nil
+	case "spec.type":
+		return &selector.SelectorField{
+			Type:      selector.String,
+			FieldName: "spec->>'type'",
+			FieldType: "jsonb",
+		}, nil
+	default:
+		return nil, nil
+	}
+}
+
+// ListSelectors implements selector.SelectorResolver.
+func (ci *CatalogItem) ListSelectors() selector.SelectorNameSet {
+	return selector.NewSelectorFieldNameSet().Add(
+		selector.NewSelectorName("spec.category"),
+		selector.NewSelectorName("spec.type"),
+	)
 }
 
 func (ci *CatalogItem) String() string {
