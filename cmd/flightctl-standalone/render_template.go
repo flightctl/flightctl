@@ -88,6 +88,15 @@ func (o *RenderTemplateOptions) completeConfig(data map[string]interface{}) erro
 		fmt.Fprintf(os.Stderr, "global.baseDomain not set, defaulting to system hostname FQDN (%s)\n", hostname)
 	}
 
+	// Normalize baseDomain to lowercase (DNS is case-insensitive per RFC 1123).
+	// This covers both explicit values from service-config.yaml and hostname defaults.
+	baseDomain, _ = global["baseDomain"].(string)
+	normalized := strings.ToLower(baseDomain)
+	if normalized != baseDomain {
+		global["baseDomain"] = normalized
+		fmt.Fprintf(os.Stderr, "global.baseDomain normalized to lowercase: %s -> %s\n", baseDomain, normalized)
+	}
+
 	// Inject AAP OAuth client_id if file exists
 	auth, ok := global["auth"].(map[string]interface{})
 	if !ok {
@@ -164,6 +173,7 @@ func (o *RenderTemplateOptions) validateConfig(data map[string]interface{}) erro
 		return fmt.Errorf("failed to unmarshal config for validation: %w", err)
 	}
 
+	validation.NormalizeStandaloneConfig(&config)
 	if errs := validation.ValidateStandaloneConfig(&config); len(errs) > 0 {
 		errMsgs := make([]string, len(errs))
 		for i, err := range errs {
