@@ -531,7 +531,7 @@ func (m *prefetchManager) setError(target imageRef, err error) {
 func (m *prefetchManager) Schedule(ctx context.Context, targets OCIPullTargetsByUser) error {
 	for user, target := range targets.Iter() {
 		ref := imageRef{image: target.Reference, owner: user}
-		if err := m.schedule(ctx, ref, target.Type, target.ClientOptsFn); err != nil {
+		if err := m.schedule(ctx, ref, target.Type, target.PullPolicy, target.ClientOptsFn); err != nil {
 			return fmt.Errorf("prefetch schedule: %w", err)
 		}
 	}
@@ -539,8 +539,8 @@ func (m *prefetchManager) Schedule(ctx context.Context, targets OCIPullTargetsBy
 	return nil
 }
 
-func (m *prefetchManager) schedule(ctx context.Context, target imageRef, ociType OCIType, clientOptsFn ClientOptsFn) error {
-	needsQueue, err := m.prepareTask(ctx, target, ociType, clientOptsFn)
+func (m *prefetchManager) schedule(ctx context.Context, target imageRef, ociType OCIType, pullPolicy v1beta1.ImagePullPolicy, clientOptsFn ClientOptsFn) error {
+	needsQueue, err := m.prepareTask(ctx, target, ociType, pullPolicy, clientOptsFn)
 	if err != nil {
 		return err
 	}
@@ -564,7 +564,7 @@ func (m *prefetchManager) schedule(ctx context.Context, target imageRef, ociType
 	}
 }
 
-func (m *prefetchManager) prepareTask(ctx context.Context, target imageRef, ociType OCIType, clientOptsFn ClientOptsFn) (bool, error) {
+func (m *prefetchManager) prepareTask(ctx context.Context, target imageRef, ociType OCIType, pullPolicy v1beta1.ImagePullPolicy, clientOptsFn ClientOptsFn) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -602,21 +602,34 @@ func (m *prefetchManager) prepareTask(ctx context.Context, target imageRef, ociT
 		return false, fmt.Errorf("invalid oci type %s", ociType)
 	}
 
-	if targetExists {
-		m.log.Debugf("Scheduled prefetch target already exists: %s", target)
+	switch pullPolicy {
+	case v1beta1.PullNever:
+		if !targetExists {
+			return false, fmt.Errorf("%w: pullPolicy Never but target is not present locally: %s", errors.ErrNoRetry, target)
+		}
 		m.tasks[target] = &prefetchTask{
 			ociType: ociType,
 			done:    true,
-			err:     nil,
 		}
 		return false, nil
+	case v1beta1.PullAlways:
+		// Always pull, even if it already exists locally.
+	default:
+		// IfNotPresent and any unknown value: skip if already local.
+		if targetExists {
+			m.log.Debugf("Scheduled prefetch target already exists: %s", target)
+			m.tasks[target] = &prefetchTask{
+				ociType: ociType,
+				done:    true,
+			}
+			return false, nil
+		}
 	}
 
-	task := &prefetchTask{
+	m.tasks[target] = &prefetchTask{
 		ociType:      ociType,
 		clientOptsFn: clientOptsFn,
 	}
-	m.tasks[target] = task
 	return true, nil
 }
 
