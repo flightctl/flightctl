@@ -88,6 +88,9 @@ if [ -z "$ONLY_DB" ]; then
   done
 
   kind_load_image "${KV_IMAGE}:${KV_VERSION}" keep-tar
+
+  # Load cert-generator image for helm pre-upgrade hooks
+  kind_load_image "quay.io/openshift/origin-cli:4.20.0" keep-tar
 fi
 
 if [ ! -z "$IMAGE_PULL_SECRET_PATH" ]; then
