@@ -156,7 +156,10 @@ flightctl get devices --org project-b
 
 ## Troubleshooting
 
-**Error: no organizations found**  
+**Unable to log in to the application**  
+> You do not have access to any organizations.
+> Please contact your administrator to be granted access to an organization.
+
 Make sure the user has a RoleBinding attached to the **view** role in at least one organization (namespace) and that the namespace has the right label.
 
 **403 error when performing actions on flightctl resources**  
