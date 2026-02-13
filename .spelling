@@ -536,6 +536,15 @@ alice
 bob
 charlie
 MaxAge
+PatternFly
+PF6
+URI
+displayName
+Favicon
+favicon
+SVG
+PNG
+v6
  - docs/user/installing/configuring-auth/auth-oauth2.md
 GitHub
 github.com
