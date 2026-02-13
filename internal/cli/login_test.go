@@ -1,3 +1,11 @@
+package cli
+
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
+
 func TestEnsureURLScheme(t *testing.T) {
 	testCases := []struct {
 		name     string
@@ -39,7 +47,7 @@ func TestEnsureURLScheme(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			actual := ensureURLScheme(tc.input)
-			assert.Equal(t, tc.expected, actual)
+			require.Equal(t, tc.expected, actual)
 		})
 	}
 }
