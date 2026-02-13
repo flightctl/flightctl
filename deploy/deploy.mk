@@ -56,7 +56,7 @@ redeploy-imagebuilder-worker: build-containers
 
 deploy-helm: FLAVOR ?= el9
 ifndef SKIP_BUILD
-deploy-helm: build-containers-ci build-cli
+deploy-helm: build-containers build-cli
 endif
 deploy-helm:
 	@echo "Deploying helm charts with FLAVOR=$(FLAVOR)"
