@@ -87,7 +87,7 @@ jobs:
           path: |
             bin/dnf-cache
             bin/osbuild-cache
-          key: ${{ runner.os }}-bootc-cache-smoke-${{ hashFiles('test/scripts/agent-images/Containerfile-e2e-base.local') }}
+          key: ${{ runner.os }}-bootc-cache-smoke-${{ hashFiles('test/scripts/agent-images/base/Containerfile') }}
           restore-keys: |
             ${{ runner.os }}-bootc-cache-smoke-
 

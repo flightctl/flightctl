@@ -4,7 +4,7 @@ on:
   workflow_call:
     inputs:
       os_id:
-        description: "OS identifier for agent (e.g., cs9-bootc, cs10-bootc)"
+        description: "OS identifier for agent (e.g., el9-bootc, el10-bootc)"
         required: true
         type: string
       backend_type:
@@ -26,6 +26,11 @@ on:
         description: "Image tag"
         required: true
         type: string
+      flavor:
+        description: "Container flavor (el9 or el10)"
+        required: false
+        type: string
+        default: "el9"
 
 jobs:
   generate-matrix:
@@ -89,6 +94,7 @@ jobs:
           kind-config: test/scripts/kind_cluster.yaml
           display-summary: ${{ matrix.ginkgo_node == 1 }}
           wait: false
+          flavor: ${{ inputs.flavor }}
 
       # ========== DOWNLOAD E2E TEST ARTIFACTS ==========
       - name: Download test artifacts
