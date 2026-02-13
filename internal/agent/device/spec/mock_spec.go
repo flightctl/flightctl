@@ -319,6 +319,22 @@ func (mr *MockManagerMockRecorder) Rollback(ctx any, opts ...any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Rollback", reflect.TypeOf((*MockManager)(nil).Rollback), varargs...)
 }
 
+// RollbackFailureInfo mocks base method.
+func (m *MockManager) RollbackFailureInfo() (string, string, bool) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RollbackFailureInfo")
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(string)
+	ret2, _ := ret[2].(bool)
+	return ret0, ret1, ret2
+}
+
+// RollbackFailureInfo indicates an expected call of RollbackFailureInfo.
+func (mr *MockManagerMockRecorder) RollbackFailureInfo() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RollbackFailureInfo", reflect.TypeOf((*MockManager)(nil).RollbackFailureInfo))
+}
+
 // SetClient mocks base method.
 func (m *MockManager) SetClient(client client.Management) {
 	m.ctrl.T.Helper()
@@ -332,17 +348,17 @@ func (mr *MockManagerMockRecorder) SetClient(client any) *gomock.Call {
 }
 
 // SetUpgradeFailed mocks base method.
-func (m *MockManager) SetUpgradeFailed(version string) error {
+func (m *MockManager) SetUpgradeFailed(version, message string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SetUpgradeFailed", version)
+	ret := m.ctrl.Call(m, "SetUpgradeFailed", version, message)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // SetUpgradeFailed indicates an expected call of SetUpgradeFailed.
-func (mr *MockManagerMockRecorder) SetUpgradeFailed(version any) *gomock.Call {
+func (mr *MockManagerMockRecorder) SetUpgradeFailed(version, message any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetUpgradeFailed", reflect.TypeOf((*MockManager)(nil).SetUpgradeFailed), version)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetUpgradeFailed", reflect.TypeOf((*MockManager)(nil).SetUpgradeFailed), version, message)
 }
 
 // Status mocks base method.

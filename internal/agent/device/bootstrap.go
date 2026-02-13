@@ -168,13 +168,20 @@ func (b *Bootstrap) updateStatus(ctx context.Context) {
 		Type: v1beta1.ConditionTypeDeviceUpdating,
 	}
 
-	if b.specManager.IsUpgrading() {
+	switch {
+	case b.specManager.IsUpgrading():
 		updatingCondition.Status = v1beta1.ConditionStatusTrue
 		// TODO: only set rebooting in case where we are actually rebooting
 		updatingCondition.Reason = string(v1beta1.UpdateStateRebooting)
-	} else {
+	default:
 		updatingCondition.Status = v1beta1.ConditionStatusFalse
 		updatingCondition.Reason = string(v1beta1.UpdateStateUpdated)
+
+		// If an update failed and triggered a rollback, report the error
+		if failedVersion, failedReason, ok := b.specManager.RollbackFailureInfo(); ok {
+			updatingCondition.Reason = string(v1beta1.UpdateStateError)
+			updatingCondition.Message = fmt.Sprintf("Update to version %s failed, rolled back: %s", failedVersion, failedReason)
+		}
 	}
 
 	_, updateErr := b.statusManager.Update(ctx,

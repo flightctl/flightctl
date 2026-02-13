@@ -130,8 +130,13 @@ func (a *Agent) sync(ctx context.Context, current, desired *v1beta1.Device) erro
 		}
 	}
 
-	if err := a.syncDevice(ctx, current, desired); err != nil {
-		return fmt.Errorf("%w: %w", errors.ErrPhaseApplyingUpdate, err)
+	err := a.syncDevice(ctx, current, desired, withRollbackCleanup(spec.IsOSRollback(current, desired)))
+	if err != nil {
+		if errors.Is(err, errors.ErrRollbackCleanup) {
+			a.log.Warnf("Some cleanup operations errored during rollback: %v", err)
+		} else {
+			return fmt.Errorf("%w: %w", errors.ErrPhaseApplyingUpdate, err)
+		}
 	}
 
 	if err := a.afterUpdate(ctx, current.Spec, desired.Spec); err != nil {
@@ -188,7 +193,7 @@ func (a *Agent) syncDeviceSpec(ctx context.Context) {
 		// non retryable error fails version
 		if !errors.IsRetryable(syncErr) {
 			a.log.Errorf("Marking template version %v as failed: %v", desired.Version(), syncErr)
-			if err := a.specManager.SetUpgradeFailed(desired.Version()); err != nil {
+			if err := a.specManager.SetUpgradeFailed(desired.Version(), errors.FormatError(syncErr).Message()); err != nil {
 				a.log.Errorf("Failed to set upgrade failed: %v", err)
 			}
 		}
@@ -409,7 +414,24 @@ func (a *Agent) beforeUpdate(ctx context.Context, current, desired *v1beta1.Devi
 	return nil
 }
 
-func (a *Agent) syncDevice(ctx context.Context, current, desired *v1beta1.Device) error {
+type syncDeviceConfig struct {
+	isRollbackCleanup bool
+}
+
+type syncDeviceOpt func(*syncDeviceConfig)
+
+func withRollbackCleanup(enabled bool) syncDeviceOpt {
+	return func(c *syncDeviceConfig) {
+		c.isRollbackCleanup = enabled
+	}
+}
+
+func (a *Agent) syncDevice(ctx context.Context, current, desired *v1beta1.Device, opts ...syncDeviceOpt) error {
+	cfg := &syncDeviceConfig{}
+	for _, opt := range opts {
+		opt(cfg)
+	}
+
 	if a.specManager.IsUpgrading() {
 		updateErr := a.statusManager.UpdateCondition(ctx, v1beta1.Condition{
 			Type:    v1beta1.ConditionTypeDeviceUpdating,
@@ -422,30 +444,49 @@ func (a *Agent) syncDevice(ctx context.Context, current, desired *v1beta1.Device
 		}
 	}
 
-	if err := a.applicationsController.Sync(ctx, current.Spec, desired.Spec); err != nil {
-		return fmt.Errorf("%w: %w", errors.ErrComponentApplications, err)
+	var errs []error
+
+	handle := func(errType, err error) error {
+		if err == nil {
+			return nil
+		}
+		wrapped := fmt.Errorf("%w: %w", errType, err)
+		if cfg.isRollbackCleanup {
+			errs = append(errs, fmt.Errorf("%w: %w", errors.ErrRollbackCleanup, wrapped))
+			return nil
+		}
+		return wrapped
 	}
 
-	if err := a.hookManager.Sync(current.Spec, desired.Spec); err != nil {
-		return fmt.Errorf("%w: %w", errors.ErrComponentHooks, err)
+	if err := handle(errors.ErrComponentApplications,
+		a.applicationsController.Sync(ctx, current.Spec, desired.Spec)); err != nil {
+		return err
 	}
 
-	if err := a.configController.Sync(ctx, current.Spec, desired.Spec); err != nil {
-		return fmt.Errorf("%w: %w", errors.ErrComponentConfig, err)
+	if err := handle(errors.ErrComponentHooks,
+		a.hookManager.Sync(current.Spec, desired.Spec)); err != nil {
+		return err
 	}
 
-	if err := a.systemdControllerSync(ctx, desired.Spec); err != nil {
-		return fmt.Errorf("%w: %w", errors.ErrComponentSystemd, err)
+	if err := handle(errors.ErrComponentConfig,
+		a.configController.Sync(ctx, current.Spec, desired.Spec)); err != nil {
+		return err
 	}
 
-	if err := a.lifecycleManager.Sync(ctx, current.Spec, desired.Spec); err != nil {
-		return fmt.Errorf("%w: %w", errors.ErrComponentLifecycle, err)
+	if err := handle(errors.ErrComponentSystemd,
+		a.systemdControllerSync(ctx, desired.Spec)); err != nil {
+		return err
+	}
+
+	if err := handle(errors.ErrComponentLifecycle,
+		a.lifecycleManager.Sync(ctx, current.Spec, desired.Spec)); err != nil {
+		return err
 	}
 
 	// NOTE: policy manager is reconciled early in sync() so that the agent
 	// can correct for an invalid policy.
 
-	return nil
+	return errors.Join(errs...)
 }
 
 func (a *Agent) systemdControllerSync(_ context.Context, desired *v1beta1.DeviceSpec) error {
@@ -478,9 +519,11 @@ func (a *Agent) afterUpdate(ctx context.Context, current, desired *v1beta1.Devic
 	}
 
 	// execute after update for os first so that the activation of the spec is
-	// after the os is updated.This happens because the os update requires a
+	// after the os is updated. This happens because the os update requires a
 	// reboot so the lower blocks are not executed until after reboot.
-	if !isOSReconciled && a.specManager.IsOSUpdate() {
+	// We check HasOSImage(desired) instead of IsOSUpdate() because during rollback,
+	// specManager.Rollback() has already modified the cache so IsOSUpdate() returns false.
+	if !isOSReconciled && spec.HasOSImage(desired) {
 		if err = a.afterUpdateOS(ctx, desired); err != nil {
 			a.log.Errorf("Error executing OS: %v", err)
 			return err

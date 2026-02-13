@@ -61,8 +61,12 @@ type Manager interface {
 	// Upgrade updates the current rendered spec to the desired rendered spec
 	// and resets the rollback spec.
 	Upgrade(ctx context.Context) error
-	// SetUpgradeFailed marks the desired rendered spec as failed.
-	SetUpgradeFailed(version string) error
+	// SetUpgradeFailed marks the desired rendered spec as failed and persists
+	// the failure info in rollback.json for reporting after reboot.
+	SetUpgradeFailed(version, message string) error
+	// RollbackFailureInfo returns the failed version and error message from
+	// rollback.json if the device rolled back due to an upgrade failure.
+	RollbackFailureInfo() (version, message string, ok bool)
 	// IsUpdating returns true if the device is in the process of reconciling the desired spec.
 	IsUpgrading() bool
 	// IsOSUpdate returns true if an OS update is in progress by checking the current rendered spec.
@@ -193,4 +197,23 @@ func newVersionedDevice(version string) *v1beta1.Device {
 	}
 	deice.Spec = &v1beta1.DeviceSpec{}
 	return deice
+}
+
+// HasOSImage returns true if the spec has an OS image defined.
+func HasOSImage(spec *v1beta1.DeviceSpec) bool {
+	return spec != nil && spec.Os != nil && spec.Os.Image != ""
+}
+
+// IsOSRollback returns true if this is a rollback that involves an OS image change.
+func IsOSRollback(current, desired *v1beta1.Device) bool {
+	if !IsRollback(current, desired) {
+		return false
+	}
+	if current.Spec == nil || desired.Spec == nil {
+		return false
+	}
+	if current.Spec.Os == nil || desired.Spec.Os == nil {
+		return false
+	}
+	return current.Spec.Os.Image != desired.Spec.Os.Image
 }
