@@ -225,6 +225,28 @@ func (h *Harness) RefreshClient() error {
 	return nil
 }
 
+// SetCurrentOrganization sets the organization in the client config file and refreshes the harness client.
+// Call after changing namespace/login so subsequent API calls use this org.
+func (h *Harness) SetCurrentOrganization(org string) error {
+	if org == "" {
+		return nil
+	}
+	configPath, err := client.DefaultFlightctlClientConfigPath()
+	if err != nil {
+		return fmt.Errorf("failed to get client config path: %w", err)
+	}
+	cfg, err := client.ParseConfigFile(configPath)
+	if err != nil {
+		return fmt.Errorf("failed to parse config: %w", err)
+	}
+	cfg.Organization = org
+	if err := cfg.Persist(configPath); err != nil {
+		return fmt.Errorf("failed to persist config with organization %q: %w", org, err)
+	}
+	GinkgoWriter.Printf("Set current organization to: %s\n", org)
+	return h.RefreshClient()
+}
+
 // ExtractAuthURL extracts the authentication URL from an AuthProvider based on its type
 func ExtractAuthURL(provider *v1beta1.AuthProvider) string {
 	if provider == nil {
@@ -1111,6 +1133,29 @@ func (h *Harness) GetOrganizationID() (string, error) {
 	return *name, nil
 }
 
+// GetOrganizationIDForNamespace returns the organization ID whose Spec.ExternalId matches the given namespace (e.g. OpenShift project).
+// If none match, returns an error so callers can fall back to GetOrganizationID() if desired.
+func (h *Harness) GetOrganizationIDForNamespace(namespace string) (string, error) {
+	if namespace == "" {
+		return "", fmt.Errorf("namespace is empty")
+	}
+	resp, err := h.Client.ListOrganizationsWithResponse(h.Context, nil)
+	if err != nil {
+		return "", err
+	}
+	if resp.JSON200 == nil {
+		return "", fmt.Errorf("no organizations response")
+	}
+	for _, org := range resp.JSON200.Items {
+		if org.Spec != nil && org.Spec.ExternalId != nil && *org.Spec.ExternalId == namespace {
+			if org.Metadata.Name != nil && *org.Metadata.Name != "" {
+				return *org.Metadata.Name, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("no organization found with externalId (namespace) %q", namespace)
+}
+
 func (h *Harness) CheckApplicationDirectoryExist(applicationName string) error {
 	_, err := h.VM.RunSSH([]string{"test", "-d", "/etc/compose/manifests/" + applicationName}, nil)
 	return err
@@ -1961,22 +2006,28 @@ func (h *Harness) CreateResource(resourceType string) (string, string, []byte, e
 	}
 }
 
-// GetDefaultK8sContext returns the a K8s context with default in its name
-func (h *Harness) GetDefaultK8sContext() (string, error) {
+// GetDefaultK8sAdminContext returns a K8s context whose name contains both "default" and "admin" (e.g. kubeadmin). No fallback.
+func (h *Harness) GetDefaultK8sAdminContext() (string, error) {
 	cmd := exec.Command("kubectl", "config", "get-contexts", "-o", "name")
 	output, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("failed to get contexts: %v", err)
 	}
 
-	contexts := strings.Split(strings.TrimSpace(string(output)), "\n")
-	for _, context := range contexts {
-		if strings.Contains(context, "default") {
-			GinkgoWriter.Printf("🔍 [DEBUG] Found default context: %s\n", context)
-			return context, nil
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	for _, name := range lines {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		hasDefault := strings.Contains(name, "default")
+		hasAdmin := strings.Contains(strings.ToLower(name), "admin")
+		if hasDefault && hasAdmin {
+			GinkgoWriter.Printf("🔍 [DEBUG] Found default+admin context: %s\n", name)
+			return name, nil
 		}
 	}
-	return "", fmt.Errorf("no context with 'default' in name found")
+	return "", fmt.Errorf("no context with both 'default' and 'admin' in name found")
 }
 
 // GetK8sApiEndpoint returns the API endpoint for a given K8s context
