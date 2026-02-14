@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	fcmiddleware "github.com/flightctl/flightctl/internal/api_server/middleware"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/sirupsen/logrus"
 )
@@ -41,7 +42,13 @@ func main() {
 
 	config := loadConfig(logger)
 
-	http.HandleFunc("/userinfo", makeUserInfoHandler(config, logger))
+	mux := http.NewServeMux()
+	mux.HandleFunc("/userinfo", makeUserInfoHandler(config, logger))
+
+	// Wrap with security headers
+	handler := fcmiddleware.SecurityHeaders(
+		fcmiddleware.ContentSecurityPolicy(fcmiddleware.StrictCSP)(mux),
+	)
 
 	logger.Infof("Starting UserInfo proxy server on port %s", config.ListenPort)
 	logger.Infof("Proxying to upstream: %s", config.UpstreamURL)
@@ -50,6 +57,7 @@ func main() {
 	// Create server with proper timeouts to prevent DoS attacks
 	server := &http.Server{
 		Addr:              ":" + config.ListenPort,
+		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second, // Time to read request headers
 		ReadTimeout:       30 * time.Second, // Time to read entire request
 		WriteTimeout:      30 * time.Second, // Time to write response

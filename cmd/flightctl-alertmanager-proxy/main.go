@@ -295,6 +295,7 @@ func main() {
 	router := chi.NewRouter()
 	router.Use(chimiddleware.RequestSize(int64(cfg.Service.HttpMaxRequestSize)))
 	router.Use(middleware.RequestSizeLimiter(cfg.Service.HttpMaxUrlLength, cfg.Service.HttpMaxNumHeaders))
+	router.Use(middleware.SecurityHeaders)
 	router.Use(chimiddleware.RequestID)
 	router.Use(chimiddleware.Recoverer)
 

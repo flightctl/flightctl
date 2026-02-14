@@ -129,6 +129,8 @@ func (s *Server) Run(ctx context.Context) error {
 
 	// Global middleware (applies to ALL routes including static assets)
 	router.Use(
+		fcmiddleware.SecurityHeaders,
+		fcmiddleware.ContentSecurityPolicy(fcmiddleware.PAMIssuerCSP),
 		middleware.RequestID,
 		middleware.Logger,
 		middleware.Recoverer,
