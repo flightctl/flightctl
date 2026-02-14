@@ -83,7 +83,7 @@ grafana:
   localAdminPassword:
   rootUrl:
   insecureSkipTlsVerify:
-  protocol:
+  protocol: https
   allowedUnsignedPlugins:
 
 prometheus:

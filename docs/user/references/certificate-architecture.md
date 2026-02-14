@@ -68,9 +68,14 @@ Generation controlled by `global.generateCertificates` in Helm `values.yaml`: `a
 | `/etc/flightctl/pki/flightctl-pam-issuer/token-signer.key` | PAM Issuer Token Signer CA key |
 | `/etc/flightctl/pki/flightctl-pam-issuer/server.crt`   | PAM Issuer server cert          |
 | `/etc/flightctl/pki/flightctl-pam-issuer/server.key`   | PAM Issuer server key           |
-
-> [!NOTE]
-> In standalone deployments, the API server certificate is shared across services. The telemetry gateway uses a separate installation process; see [Standalone Observability](../using/standalone-observability.md) for details.
+| `/etc/flightctl/pki/flightctl-telemetry-gateway/server.crt` | Telemetry gateway cert      |
+| `/etc/flightctl/pki/flightctl-telemetry-gateway/server.key` | Telemetry gateway key       |
+| `/etc/flightctl/pki/flightctl-grafana/server.crt`      | Grafana server cert             |
+| `/etc/flightctl/pki/flightctl-grafana/server.key`      | Grafana server key              |
+| `/etc/flightctl/pki/flightctl-prometheus/server.crt`   | Prometheus server cert          |
+| `/etc/flightctl/pki/flightctl-prometheus/server.key`   | Prometheus server key           |
+| `/etc/flightctl/pki/flightctl-userinfo-proxy/server.crt` | UserInfo proxy cert           |
+| `/etc/flightctl/pki/flightctl-userinfo-proxy/server.key` | UserInfo proxy key            |
 
 Generation controlled by `global.generateCertificates` in `service-config.yaml`: `builtin` or `none`
 
@@ -153,4 +158,4 @@ For database backup procedures, see [Performing Database Backup](../installing/p
 * [Installing the Agent](../installing/installing-agent.md)
 * [Installing on Kubernetes](../installing/installing-service-on-kubernetes.md)
 * [Installing on Linux](../installing/installing-service-on-linux.md)
-* [Device Observability](../using/device-observability.md)
+* [Deploying the Observability Stack on Linux](../installing/deploying-observability-linux.md)
