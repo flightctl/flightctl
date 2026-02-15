@@ -141,11 +141,11 @@ jobs:
             echo "bundle-images target not found, falling back to direct save"
             echo "Getting list of loaded flightctl images with flavor $FLAVOR and tag: $TAG"
             # Try flavor-specific images first (new naming)
-            mapfile -t loaded_images < <(podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/flightctl-.*-${FLAVOR}:${TAG}")
+            mapfile -t loaded_images < <(podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/flightctl-.*-${FLAVOR}:${TAG}" || true)
             # Fallback to non-flavor images (legacy naming) if no flavor-specific images found
             if [ ${#loaded_images[@]} -eq 0 ]; then
               echo "No flavor-specific images found, trying legacy naming pattern..."
-              mapfile -t loaded_images < <(podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/flightctl-.*:${TAG}" | grep -v "\-el[0-9]")
+              mapfile -t loaded_images < <(podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/flightctl-.*:${TAG}" | grep -v "\-el[0-9]" || true)
             fi
             echo "Creating bundle with ${#loaded_images[@]} images:"
             printf '  %s\n' "${loaded_images[@]}"
@@ -171,22 +171,27 @@ jobs:
           set -euo pipefail
           echo "::group::Listing images in bundle"
           # Try flavor-specific images first (new naming)
-          IMAGES=$(podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/flightctl-.*-${FLAVOR}:${TAG}" | sort)
+          IMAGES=$(podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/flightctl-.*-${FLAVOR}:${TAG}" | sort || true)
           # Fallback to non-flavor images (legacy naming) if no flavor-specific images found
           if [ -z "$IMAGES" ]; then
             echo "No flavor-specific images found, listing legacy naming pattern..."
-            IMAGES=$(podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/flightctl-.*:${TAG}" | grep -v "\-el[0-9]" | sort)
+            IMAGES=$(podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/flightctl-.*:${TAG}" | grep -v "\-el[0-9]" | sort || true)
           fi
           echo "$IMAGES"
           echo "::endgroup::"
 
           # Save for summary
-          {
-            echo "images<<EOF"
-            echo "$IMAGES"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
-          echo "count=$(echo "$IMAGES" | wc -l)" >> "$GITHUB_OUTPUT"
+          if [ -n "$IMAGES" ]; then
+            {
+              echo "images<<EOF"
+              echo "$IMAGES"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+            echo "count=$(echo "$IMAGES" | wc -l)" >> "$GITHUB_OUTPUT"
+          else
+            echo "images=" >> "$GITHUB_OUTPUT"
+            echo "count=0" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Upload images bundle
         uses: actions/upload-artifact@v4
