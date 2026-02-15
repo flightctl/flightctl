@@ -180,7 +180,7 @@ runs:
 
         # Execute with --debug for verbose output if waiting
         if [ "${WAIT}" == "true" ]; then
-          eval "${HELM_CMD} --debug"
+          eval "${HELM_CMD} --timeout 8m --debug"
         else
           eval "${HELM_CMD}"
         fi
