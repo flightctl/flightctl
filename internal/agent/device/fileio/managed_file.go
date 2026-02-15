@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"syscall"
 
@@ -42,7 +43,7 @@ func (m *managedFile) initExistingFileMetadata() error {
 		if os.IsNotExist(err) {
 			return nil
 		}
-		var pathErr *os.PathError
+		var pathErr *fs.PathError
 		if errors.As(err, &pathErr) {
 			// this removes the redundant duplication of the file path in the error message, which is already included in the error chain
 			return fmt.Errorf("%s %w: %w", pathErr.Op, deviceerrors.WithElement(m.Path()), pathErr.Err)
@@ -86,7 +87,7 @@ func (m *managedFile) isUpToDate() (bool, error) {
 	}
 	currentContent, err := os.ReadFile(m.writer.PathFor(m.Path()))
 	if err != nil {
-		var pathErr *os.PathError
+		var pathErr *fs.PathError
 		if errors.As(err, &pathErr) {
 			// this removes the redundant duplication of the file path in the error message, which is already included in the error chain
 			return false, fmt.Errorf("%s %w: %w", pathErr.Op, deviceerrors.WithElement(m.Path()), pathErr.Err)
@@ -99,7 +100,7 @@ func (m *managedFile) isUpToDate() (bool, error) {
 
 	fileInfo, err := os.Stat(m.writer.PathFor(m.Path()))
 	if err != nil {
-		var pathErr *os.PathError
+		var pathErr *fs.PathError
 		if errors.As(err, &pathErr) {
 			// this removes the redundant duplication of the file path in the error message, which is already included in the error chain
 			return false, fmt.Errorf("%s %w: %w", pathErr.Op, deviceerrors.WithElement(m.Path()), pathErr.Err)

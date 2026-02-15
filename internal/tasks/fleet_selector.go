@@ -254,19 +254,19 @@ func (f FleetSelectorMatchingLogic) processFleetSelectorUpdate(ctx context.Conte
 	var stats ProcessingStats
 
 	// Case 2: Handle devices previously owned by this fleet but no longer match
-	devicesProcessed, errors := f.handleOrphanedDevices(ctx, fleet, allFleetsFetcher)
+	devicesProcessed, numErrors := f.handleOrphanedDevices(ctx, fleet, allFleetsFetcher)
 	stats.TotalDevicesProcessed += devicesProcessed
-	stats.TotalErrors += errors
+	stats.TotalErrors += numErrors
 
 	// Case 3: Handle devices now matching this fleet that have no owner or multipleowners condition
-	devicesProcessed, errors = f.handleDevicesMatchingFleet(ctx, fleet, allFleetsFetcher)
+	devicesProcessed, numErrors = f.handleDevicesMatchingFleet(ctx, fleet, allFleetsFetcher)
 	stats.TotalDevicesProcessed += devicesProcessed
-	stats.TotalErrors += errors
+	stats.TotalErrors += numErrors
 
 	// Case 4: Re-examine all devices with multipleowners condition set
-	devicesProcessed, errors = f.handleDevicesWithMultipleOwnersCondition(ctx, allFleetsFetcher)
+	devicesProcessed, numErrors = f.handleDevicesWithMultipleOwnersCondition(ctx, allFleetsFetcher)
 	stats.TotalDevicesProcessed += devicesProcessed
-	stats.TotalErrors += errors
+	stats.TotalErrors += numErrors
 
 	return stats
 }
@@ -280,7 +280,7 @@ func (f FleetSelectorMatchingLogic) clearFleetOwnershipFromDevices(ctx context.C
 		Limit:         lo.ToPtr(f.itemsPerPage),
 	}
 
-	errors := 0
+	numErrors := 0
 	for {
 		devices, status := f.serviceHandler.ListDevices(ctx, f.orgId, listParams, nil)
 		if status.Code != http.StatusOK {
@@ -292,13 +292,13 @@ func (f FleetSelectorMatchingLogic) clearFleetOwnershipFromDevices(ctx context.C
 			allFleets, err := allFleetsFetcher()
 			if err != nil {
 				f.log.Errorf("failed to fetch all fleets: %v", err)
-				errors++
+				numErrors++
 				continue
 			}
 			err = f.recomputeDeviceOwnership(ctx, &device, allFleets)
 			if err != nil {
 				f.log.Errorf("failed to recompute ownership for device %s/%s: %v", f.orgId, *device.Metadata.Name, err)
-				errors++
+				numErrors++
 			}
 		}
 
@@ -311,10 +311,10 @@ func (f FleetSelectorMatchingLogic) clearFleetOwnershipFromDevices(ctx context.C
 	// Also re-examine devices with multipleowners condition since fleet deletion
 	// might resolve multiple owner conflicts
 	_, multipleOwnersErrors := f.handleDevicesWithMultipleOwnersCondition(ctx, allFleetsFetcher)
-	errors += multipleOwnersErrors
+	numErrors += multipleOwnersErrors
 
-	if errors != 0 {
-		return fmt.Errorf("failed to recompute ownership for %d devices", errors)
+	if numErrors != 0 {
+		return fmt.Errorf("failed to recompute ownership for %d devices", numErrors)
 	}
 	return nil
 }
@@ -329,18 +329,18 @@ func (f FleetSelectorMatchingLogic) handleDevicesMatchingFleet(ctx context.Conte
 		Limit:         lo.ToPtr(f.itemsPerPage),
 	}
 
-	devicesProcessed, errors := 0, 0
+	devicesProcessed, numErrors := 0, 0
 	for {
 		// Check for context cancellation in long-running loops
 		if ctx.Err() != nil {
 			f.log.Warnf("Context cancelled during matching fleet devices processing, stopping early. Processed %d devices so far", devicesProcessed)
-			return devicesProcessed, errors
+			return devicesProcessed, numErrors
 		}
 
 		devices, status := f.serviceHandler.ListDevices(ctx, f.orgId, listParams, nil)
 		if status.Code != http.StatusOK {
 			f.log.Errorf("Critical system error: failed to list devices matching fleet: %s", status.Message)
-			errors++
+			numErrors++
 			break
 		}
 
@@ -348,7 +348,7 @@ func (f FleetSelectorMatchingLogic) handleDevicesMatchingFleet(ctx context.Conte
 			// Check for context cancellation in long-running loops
 			if ctx.Err() != nil {
 				f.log.Warnf("Context cancelled during device processing, stopping early. Processed %d devices so far", devicesProcessed)
-				return devicesProcessed, errors
+				return devicesProcessed, numErrors
 			}
 
 			// Get the device's current owner for comparison
@@ -366,8 +366,8 @@ func (f FleetSelectorMatchingLogic) handleDevicesMatchingFleet(ctx context.Conte
 			allFleets, err := allFleetsFetcher()
 			if err != nil {
 				f.log.Errorf("Critical system error: failed to fetch all fleets while processing device %s: %v", lo.FromPtr(device.Metadata.Name), err)
-				errors++
-				return devicesProcessed, errors
+				numErrors++
+				return devicesProcessed, numErrors
 			}
 			err = f.recomputeDeviceOwnership(ctx, &device, allFleets)
 			if err != nil {
@@ -376,7 +376,7 @@ func (f FleetSelectorMatchingLogic) handleDevicesMatchingFleet(ctx context.Conte
 					lo.FromPtr(device.Metadata.Labels),
 					currentOwner,
 					err)
-				errors++
+				numErrors++
 				continue
 			}
 
@@ -403,7 +403,7 @@ func (f FleetSelectorMatchingLogic) handleDevicesMatchingFleet(ctx context.Conte
 		listParams.Continue = devices.Metadata.Continue
 	}
 
-	return devicesProcessed, errors
+	return devicesProcessed, numErrors
 }
 
 // hasLabels returns true if the device has labels assigned to it
@@ -621,18 +621,18 @@ func (f FleetSelectorMatchingLogic) handleOrphanedDevices(ctx context.Context, f
 		FieldSelector: lo.ToPtr(fmt.Sprintf("metadata.owner=%s", *util.SetResourceOwner(domain.FleetKind, f.event.InvolvedObject.Name))),
 	}
 
-	devicesProcessed, errors := 0, 0
+	devicesProcessed, numErrors := 0, 0
 	for {
 		// Check for context cancellation in long-running loops
 		if ctx.Err() != nil {
 			f.log.Warnf("Context cancelled during orphaned devices processing, stopping early. Processed %d devices so far", devicesProcessed)
-			return devicesProcessed, errors
+			return devicesProcessed, numErrors
 		}
 
 		devices, status := f.serviceHandler.ListDevices(ctx, f.orgId, listParams, nil)
 		if status.Code != http.StatusOK {
 			f.log.Errorf("Critical system error: failed to list orphaned devices: %s", status.Message)
-			errors++
+			numErrors++
 			break
 		}
 
@@ -640,7 +640,7 @@ func (f FleetSelectorMatchingLogic) handleOrphanedDevices(ctx context.Context, f
 			// Check for context cancellation in long-running loops
 			if ctx.Err() != nil {
 				f.log.Warnf("Context cancelled during device processing, stopping early. Processed %d devices so far", devicesProcessed)
-				return devicesProcessed, errors
+				return devicesProcessed, numErrors
 			}
 
 			devicesProcessed++
@@ -648,7 +648,7 @@ func (f FleetSelectorMatchingLogic) handleOrphanedDevices(ctx context.Context, f
 			allFleets, err := allFleetsFetcher()
 			if err != nil {
 				f.log.Errorf("Critical system error: failed to fetch all fleets while processing orphaned device %s: %v", lo.FromPtr(device.Metadata.Name), err)
-				return devicesProcessed, errors + 1
+				return devicesProcessed, numErrors + 1
 			}
 			err = f.recomputeDeviceOwnership(ctx, &device, allFleets)
 			if err != nil {
@@ -657,7 +657,7 @@ func (f FleetSelectorMatchingLogic) handleOrphanedDevices(ctx context.Context, f
 					lo.FromPtr(device.Metadata.Labels),
 					lo.FromPtr(device.Metadata.Owner),
 					err)
-				errors++
+				numErrors++
 			}
 		}
 
@@ -667,13 +667,13 @@ func (f FleetSelectorMatchingLogic) handleOrphanedDevices(ctx context.Context, f
 		listParams.Continue = devices.Metadata.Continue
 	}
 
-	return devicesProcessed, errors
+	return devicesProcessed, numErrors
 }
 
 func (f FleetSelectorMatchingLogic) handleDevicesWithMultipleOwnersCondition(ctx context.Context, allFleetsFetcher func() ([]domain.Fleet, error)) (int, int) {
 	f.log.Infof("Re-examining all devices with multipleowners condition")
 
-	devicesProcessed, errors := 0, 0
+	devicesProcessed, numErrors := 0, 0
 
 	// Use store-level pagination - start with empty continue
 	listParams := store.ListParams{Limit: int(f.itemsPerPage)}
@@ -682,14 +682,14 @@ func (f FleetSelectorMatchingLogic) handleDevicesWithMultipleOwnersCondition(ctx
 		// Check for context cancellation in long-running loops
 		if ctx.Err() != nil {
 			f.log.Warnf("Context cancelled during multiple owners condition processing, stopping early. Processed %d devices so far", devicesProcessed)
-			return devicesProcessed, errors
+			return devicesProcessed, numErrors
 		}
 
 		// Use the specialized service method for querying by service condition
 		devices, status := f.serviceHandler.ListDevicesByServiceCondition(ctx, f.orgId, string(domain.ConditionTypeDeviceMultipleOwners), string(domain.ConditionStatusTrue), listParams)
 		if status.Code != http.StatusOK {
 			f.log.Errorf("Critical system error: failed to list devices with multiple owners condition: %s", status.Message)
-			return devicesProcessed, errors + 1
+			return devicesProcessed, numErrors + 1
 		}
 
 		if len(devices.Items) == 0 {
@@ -700,7 +700,7 @@ func (f FleetSelectorMatchingLogic) handleDevicesWithMultipleOwnersCondition(ctx
 			// Check for context cancellation in long-running loops
 			if ctx.Err() != nil {
 				f.log.Warnf("Context cancelled during device processing, stopping early. Processed %d devices so far", devicesProcessed)
-				return devicesProcessed, errors
+				return devicesProcessed, numErrors
 			}
 
 			// Get the device's current state for comparison
@@ -719,7 +719,7 @@ func (f FleetSelectorMatchingLogic) handleDevicesWithMultipleOwnersCondition(ctx
 			allFleets, err := allFleetsFetcher()
 			if err != nil {
 				f.log.Errorf("Critical system error: failed to fetch all fleets while processing device with multiple owners condition %s: %v", lo.FromPtr(device.Metadata.Name), err)
-				errors++
+				numErrors++
 				continue
 			}
 			err = f.recomputeDeviceOwnership(ctx, &device, allFleets)
@@ -729,7 +729,7 @@ func (f FleetSelectorMatchingLogic) handleDevicesWithMultipleOwnersCondition(ctx
 					lo.FromPtr(device.Metadata.Labels),
 					currentOwner,
 					err)
-				errors++
+				numErrors++
 				continue
 			}
 
@@ -761,12 +761,12 @@ func (f FleetSelectorMatchingLogic) handleDevicesWithMultipleOwnersCondition(ctx
 		nextContinue, err := store.ParseContinueString(devices.Metadata.Continue)
 		if err != nil {
 			f.log.Errorf("Failed to parse continue token: %v", err)
-			errors++
+			numErrors++
 			break
 		}
 		listParams.Continue = nextContinue
 	}
 
 	f.log.Infof("Re-examined %d devices with multipleowners condition", devicesProcessed)
-	return devicesProcessed, errors
+	return devicesProcessed, numErrors
 }
