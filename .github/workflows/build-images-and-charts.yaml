@@ -98,7 +98,13 @@ jobs:
           else
             echo "bundle-images target not found, falling back to direct save"
             echo "Getting list of loaded flightctl images with flavor $FLAVOR and tag: $TAG"
-            mapfile -t loaded_images < <(podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/flightctl-.*:${FLAVOR}-${TAG}")
+            # Try flavor-in-tag images first (new naming pattern)
+            mapfile -t loaded_images < <(podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/flightctl-.*:${FLAVOR}-${TAG}" || true)
+            # Fallback to non-flavor images (legacy naming) if no flavor-specific images found
+            if [ ${#loaded_images[@]} -eq 0 ]; then
+              echo "No flavor-in-tag images found, trying legacy naming pattern..."
+              mapfile -t loaded_images < <(podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/flightctl-.*:${TAG}" | grep -v "\-el[0-9]" || true)
+            fi
             echo "Creating bundle with ${#loaded_images[@]} images:"
             printf '  %s\n' "${loaded_images[@]}"
             if [ ${#loaded_images[@]} -gt 0 ]; then
@@ -124,7 +130,13 @@ jobs:
         run: |
           set -euo pipefail
           echo "::group::Listing images in bundle"
-          IMAGES=$(podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/flightctl-.*:${FLAVOR}-${TAG}" | sort)
+          # Try flavor-in-tag images first (new naming pattern)
+          IMAGES=$(podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/flightctl-.*:${FLAVOR}-${TAG}" | sort || true)
+          # Fallback to non-flavor images (legacy naming) if no flavor-specific images found
+          if [ -z "$IMAGES" ]; then
+            echo "No flavor-in-tag images found, listing legacy naming pattern..."
+            IMAGES=$(podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/flightctl-.*:${TAG}" | grep -v "\-el[0-9]" | sort || true)
+          fi
           echo "$IMAGES"
           echo "::endgroup::"
 
