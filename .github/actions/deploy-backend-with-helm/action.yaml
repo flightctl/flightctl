@@ -153,7 +153,8 @@ runs:
         EXTRA_ARGS=""
         for f in ${ADDITIONAL_VALUES_FILES}; do [ -f "$f" ] && EXTRA_ARGS+=" --values $f"; done
         [ -n "${AUTH_TYPE}" ] && EXTRA_ARGS+=" --set global.auth.type=${AUTH_TYPE}"
-        # Explicitly set dbSetup image tag to ensure init containers use correct image
+        # Explicitly set dbSetup image name and tag for flavor compatibility
+        EXTRA_ARGS+=" --set dbSetup.image.image=quay.io/flightctl/flightctl-db-setup-${{ inputs.flavor }}"
         EXTRA_ARGS+=" --set dbSetup.image.tag=${{ steps.compute-tags.outputs.git_tag }}"
 
         # Build the helm command
