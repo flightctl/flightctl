@@ -77,11 +77,11 @@ jobs:
           if [ "$FLAVOR" = "el9" ] && make -n build-containers-ci >/dev/null 2>&1; then
             echo "Using make build-containers-ci for el9"
             make -j4 build-containers-ci
-          elif [ -f "hack/publish_containers.sh" ]; then
-            echo "Using hack/publish_containers.sh build $FLAVOR"
-            hack/publish_containers.sh build "$FLAVOR"
+          elif [ "$FLAVOR" = "el10" ] && [ -f "hack/publish_containers.sh" ] && grep -q "build)" "hack/publish_containers.sh" 2>/dev/null; then
+            echo "Using hack/publish_containers.sh build el10"
+            hack/publish_containers.sh build el10
           else
-            echo "Using legacy make build-containers"
+            echo "Using legacy make build-containers (builds both flavors)"
             make build-containers
           fi
           echo "::endgroup::"
