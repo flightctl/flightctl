@@ -201,30 +201,28 @@ var _ = Describe("VM Agent behavior during updates", func() {
 				},
 			}
 
-			// Apply each spec in quick succession, just waiting for the device to register that it
-			// has acknowledged it should update
-			currentVersion := initialVersion
+			// Build the device spec progressively and update through harness device-spec helpers,
+			// matching automation behavior.
+			deviceSpecConfig := make([]v1beta1.ConfigProviderSpec, 0, len(configFactories))
 			for i, factory := range configFactories {
 				specVersion := i + 1
-				By(fmt.Sprintf("Applying spec: %d", specVersion))
+				By(fmt.Sprintf("Applying spec update: %d", specVersion))
 				var configProviderSpec v1beta1.ConfigProviderSpec
 				err := factory(&configProviderSpec)
 				Expect(err).ToNot(HaveOccurred())
-				err = harness.AddConfigToDeviceWithRetries(deviceId, configProviderSpec)
+				deviceSpecConfig = append(deviceSpecConfig, configProviderSpec)
+
+				nextRenderedVersion, err := harness.PrepareNextDeviceVersion(deviceId)
+				Expect(err).NotTo(HaveOccurred())
+				err = harness.UpdateDeviceConfigWithRetries(deviceId, deviceSpecConfig, nextRenderedVersion)
 				Expect(err).ToNot(HaveOccurred())
-				expectedVersion := currentVersion + 1
-				desc := fmt.Sprintf("Updating to desired renderedVersion: %d", expectedVersion)
-				By(fmt.Sprintf("Waiting for update %d to be picked up", specVersion))
-				harness.WaitForDeviceContents(deviceId, desc, func(device *v1beta1.Device) bool {
-					return e2e.IsDeviceUpdateObserved(device, expectedVersion)
-				}, TIMEOUT)
-				currentVersion = expectedVersion
 			}
 
 			By(fmt.Sprintf("applying all defined specs, the end version should indicate %d updates were applied", len(configFactories)))
 			expectedVersion := initialVersion + len(configFactories)
-			err = harness.WaitForDeviceNewRenderedVersion(deviceId, expectedVersion)
+			finalVersion, err := harness.GetCurrentDeviceRenderedVersion(deviceId)
 			Expect(err).NotTo(HaveOccurred())
+			Expect(finalVersion).To(Equal(expectedVersion))
 		})
 		It("Should rollback when updating to a broken image", Label("82481", "sanity", "agent"), func() {
 			Skip("Test temporarily disabled, re-enable after EDM-3264 is fixed")
