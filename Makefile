@@ -264,7 +264,7 @@ rebuild-containers: clean-containers build-containers
 
 # Clean only containers (preserve cluster and other artifacts)
 clean-containers:
-	@echo "Cleaning containers for both legacy and flavor-specific names..."
+	@echo "Cleaning containers for both legacy and flavor-in-tag names..."
 	# Legacy names for backward compatibility
 	- podman rmi flightctl-api:latest || true
 	- podman rmi flightctl-pam-issuer:latest || true
@@ -278,7 +278,7 @@ clean-containers:
 	- podman rmi flightctl-telemetry-gateway:latest || true
 	- podman rmi flightctl-imagebuilder-api:latest || true
 	- podman rmi flightctl-imagebuilder-worker:latest || true
-	# CS9 flavor names
+	# Old flavor-in-name approach (for cleanup during transition)
 	- podman rmi flightctl-api-el9:latest || true
 	- podman rmi flightctl-pam-issuer-el9:latest || true
 	- podman rmi flightctl-db-setup-el9:latest || true
@@ -291,7 +291,6 @@ clean-containers:
 	- podman rmi flightctl-telemetry-gateway-el9:latest || true
 	- podman rmi flightctl-imagebuilder-api-el9:latest || true
 	- podman rmi flightctl-imagebuilder-worker-el9:latest || true
-	# CS10 flavor names
 	- podman rmi flightctl-api-el10:latest || true
 	- podman rmi flightctl-pam-issuer-el10:latest || true
 	- podman rmi flightctl-db-setup-el10:latest || true
@@ -304,6 +303,33 @@ clean-containers:
 	- podman rmi flightctl-telemetry-gateway-el10:latest || true
 	- podman rmi flightctl-imagebuilder-api-el10:latest || true
 	- podman rmi flightctl-imagebuilder-worker-el10:latest || true
+	# New flavor-in-tag approach
+	- podman rmi flightctl-api:el9-latest || true
+	- podman rmi flightctl-pam-issuer:el9-latest || true
+	- podman rmi flightctl-db-setup:el9-latest || true
+	- podman rmi flightctl-worker:el9-latest || true
+	- podman rmi flightctl-periodic:el9-latest || true
+	- podman rmi flightctl-alert-exporter:el9-latest || true
+	- podman rmi flightctl-alertmanager-proxy:el9-latest || true
+	- podman rmi flightctl-cli-artifacts:el9-latest || true
+	- podman rmi flightctl-userinfo-proxy:el9-latest || true
+	- podman rmi flightctl-telemetry-gateway:el9-latest || true
+	- podman rmi flightctl-imagebuilder-api:el9-latest || true
+	- podman rmi flightctl-imagebuilder-worker:el9-latest || true
+	- podman rmi flightctl-api:el10-latest || true
+	- podman rmi flightctl-pam-issuer:el10-latest || true
+	- podman rmi flightctl-db-setup:el10-latest || true
+	- podman rmi flightctl-worker:el10-latest || true
+	- podman rmi flightctl-periodic:el10-latest || true
+	- podman rmi flightctl-alert-exporter:el10-latest || true
+	- podman rmi flightctl-alertmanager-proxy:el10-latest || true
+	- podman rmi flightctl-cli-artifacts:el10-latest || true
+	- podman rmi flightctl-userinfo-proxy:el10-latest || true
+	- podman rmi flightctl-telemetry-gateway:el10-latest || true
+	- podman rmi flightctl-imagebuilder-api:el10-latest || true
+	- podman rmi flightctl-imagebuilder-worker:el10-latest || true
+	# Clean any images with git commit tags
+	- podman images --format "{{.Repository}}:{{.Tag}}" | grep "flightctl.*:el[0-9]*-" | xargs -r podman rmi || true
 
 bundle-containers:
 	test/scripts/agent-images/scripts/bundle.sh \

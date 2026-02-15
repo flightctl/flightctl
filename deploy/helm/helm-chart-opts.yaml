@@ -21,29 +21,29 @@ community-el9:
       image: quay.io/openshift/origin-cli
       tag: "4.20.0"
     api:
-      image: quay.io/flightctl/flightctl-api-el9
+      image: quay.io/flightctl/flightctl-api
     cliArtifacts:
-      image: quay.io/flightctl/flightctl-cli-artifacts-el9
+      image: quay.io/flightctl/flightctl-cli-artifacts
     worker:
-      image: quay.io/flightctl/flightctl-worker-el9
+      image: quay.io/flightctl/flightctl-worker
     periodic:
-      image: quay.io/flightctl/flightctl-periodic-el9
+      image: quay.io/flightctl/flightctl-periodic
     alertExporter:
-      image: quay.io/flightctl/flightctl-alert-exporter-el9
+      image: quay.io/flightctl/flightctl-alert-exporter
     alertmanagerProxy:
-      image: quay.io/flightctl/flightctl-alertmanager-proxy-el9
+      image: quay.io/flightctl/flightctl-alertmanager-proxy
     imageBuilderApi:
-      image: quay.io/flightctl/flightctl-imagebuilder-api-el9
+      image: quay.io/flightctl/flightctl-imagebuilder-api
     imageBuilderWorker:
-      image: quay.io/flightctl/flightctl-imagebuilder-worker-el9
+      image: quay.io/flightctl/flightctl-imagebuilder-worker
     ui:
-      image: quay.io/flightctl/flightctl-ui-el9
+      image: quay.io/flightctl/flightctl-ui
     uiPlugin:
-      image: quay.io/flightctl/flightctl-ocp-ui-el9
+      image: quay.io/flightctl/flightctl-ocp-ui
     dbSetup:
       image: quay.io/flightctl/flightctl-db-setup
     telemetryGateway:
-      image: quay.io/flightctl/flightctl-telemetry-gateway-el9
+      image: quay.io/flightctl/flightctl-telemetry-gateway
 community-el10:
   name: flightctl
   description: A helm chart for FlightControl
@@ -67,29 +67,29 @@ community-el10:
       image: quay.io/openshift/origin-cli
       tag: "4.20.0"
     api:
-      image: quay.io/flightctl/flightctl-api-el10
+      image: quay.io/flightctl/flightctl-api
     cliArtifacts:
-      image: quay.io/flightctl/flightctl-cli-artifacts-el10
+      image: quay.io/flightctl/flightctl-cli-artifacts
     worker:
-      image: quay.io/flightctl/flightctl-worker-el10
+      image: quay.io/flightctl/flightctl-worker
     periodic:
-      image: quay.io/flightctl/flightctl-periodic-el10
+      image: quay.io/flightctl/flightctl-periodic
     alertExporter:
-      image: quay.io/flightctl/flightctl-alert-exporter-el10
+      image: quay.io/flightctl/flightctl-alert-exporter
     alertmanagerProxy:
-      image: quay.io/flightctl/flightctl-alertmanager-proxy-el10
+      image: quay.io/flightctl/flightctl-alertmanager-proxy
     imageBuilderApi:
-      image: quay.io/flightctl/flightctl-imagebuilder-api-el10
+      image: quay.io/flightctl/flightctl-imagebuilder-api
     imageBuilderWorker:
-      image: quay.io/flightctl/flightctl-imagebuilder-worker-el10
+      image: quay.io/flightctl/flightctl-imagebuilder-worker
     ui:
-      image: quay.io/flightctl/flightctl-ui-el10
+      image: quay.io/flightctl/flightctl-ui
     uiPlugin:
-      image: quay.io/flightctl/flightctl-ocp-ui-el10
+      image: quay.io/flightctl/flightctl-ocp-ui
     dbSetup:
       image: quay.io/flightctl/flightctl-db-setup
     telemetryGateway:
-      image: quay.io/flightctl/flightctl-telemetry-gateway-el10
+      image: quay.io/flightctl/flightctl-telemetry-gateway
 redhat-el9:
   name: redhat-rhem
   description: A helm chart for Red Hat Edge Manager
@@ -113,29 +113,29 @@ redhat-el9:
       image: registry.redhat.io/openshift4/ose-cli-rhel9
       tag: v4.20.0
     api:
-      image: registry.redhat.io/rhem/flightctl-api-rhel9
+      image: registry.redhat.io/rhem/flightctl-api
     cliArtifacts:
-      image: registry.redhat.io/rhem/flightctl-cli-artifacts-rhel9
+      image: registry.redhat.io/rhem/flightctl-cli-artifacts
     worker:
-      image: registry.redhat.io/rhem/flightctl-worker-rhel9
+      image: registry.redhat.io/rhem/flightctl-worker
     periodic:
-      image: registry.redhat.io/rhem/flightctl-periodic-rhel9
+      image: registry.redhat.io/rhem/flightctl-periodic
     alertExporter:
-      image: registry.redhat.io/rhem/flightctl-alert-exporter-rhel9
+      image: registry.redhat.io/rhem/flightctl-alert-exporter
     alertmanagerProxy:
-      image: registry.redhat.io/rhem/flightctl-alertmanager-proxy-rhel9
+      image: registry.redhat.io/rhem/flightctl-alertmanager-proxy
     imageBuilderApi:
-      image: registry.redhat.io/rhem/flightctl-imagebuilder-api-rhel9
+      image: registry.redhat.io/rhem/flightctl-imagebuilder-api
     imageBuilderWorker:
-      image: registry.redhat.io/rhem/flightctl-imagebuilder-worker-rhel9
+      image: registry.redhat.io/rhem/flightctl-imagebuilder-worker
     ui:
-      image: registry.redhat.io/rhem/flightctl-ui-rhel9
+      image: registry.redhat.io/rhem/flightctl-ui
     uiPlugin:
-      image: registry.redhat.io/rhem/flightctl-ui-ocp-rhel9
+      image: registry.redhat.io/rhem/flightctl-ui-ocp
     dbSetup:
       image: registry.redhat.io/rhem/flightctl-db-setup
     telemetryGateway:
-      image: registry.redhat.io/rhem/flightctl-telemetry-gateway-rhel9
+      image: registry.redhat.io/rhem/flightctl-telemetry-gateway
 redhat-el10:
   name: redhat-rhem
   description: A helm chart for Red Hat Edge Manager
@@ -159,26 +159,26 @@ redhat-el10:
       image: registry.redhat.io/openshift4/ose-cli-rhel10
       tag: v4.20.0
     api:
-      image: registry.redhat.io/rhem/flightctl-api-rhel10
+      image: registry.redhat.io/rhem/flightctl-api
     cliArtifacts:
-      image: registry.redhat.io/rhem/flightctl-cli-artifacts-rhel10
+      image: registry.redhat.io/rhem/flightctl-cli-artifacts
     worker:
-      image: registry.redhat.io/rhem/flightctl-worker-rhel10
+      image: registry.redhat.io/rhem/flightctl-worker
     periodic:
-      image: registry.redhat.io/rhem/flightctl-periodic-rhel10
+      image: registry.redhat.io/rhem/flightctl-periodic
     alertExporter:
-      image: registry.redhat.io/rhem/flightctl-alert-exporter-rhel10
+      image: registry.redhat.io/rhem/flightctl-alert-exporter
     alertmanagerProxy:
-      image: registry.redhat.io/rhem/flightctl-alertmanager-proxy-rhel10
+      image: registry.redhat.io/rhem/flightctl-alertmanager-proxy
     imageBuilderApi:
-      image: registry.redhat.io/rhem/flightctl-imagebuilder-api-rhel10
+      image: registry.redhat.io/rhem/flightctl-imagebuilder-api
     imageBuilderWorker:
-      image: registry.redhat.io/rhem/flightctl-imagebuilder-worker-rhel10
+      image: registry.redhat.io/rhem/flightctl-imagebuilder-worker
     ui:
-      image: registry.redhat.io/rhem/flightctl-ui-rhel10
+      image: registry.redhat.io/rhem/flightctl-ui
     uiPlugin:
-      image: registry.redhat.io/rhem/flightctl-ui-ocp-rhel10
+      image: registry.redhat.io/rhem/flightctl-ui-ocp
     dbSetup:
       image: registry.redhat.io/rhem/flightctl-db-setup
     telemetryGateway:
-      image: registry.redhat.io/rhem/flightctl-telemetry-gateway-rhel10
+      image: registry.redhat.io/rhem/flightctl-telemetry-gateway
