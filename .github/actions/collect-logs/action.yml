@@ -34,7 +34,7 @@ runs:
         kubectl get all,configmaps,secrets --all-namespaces 
         echo "::endgroup::"
         
-        for deployment in flightctl-api flightctl-db flightctl-periodic flightctl-worker flightctl-alert-exporter flightctl-imagebuilder-api flightctl-kv; do
+        for deployment in flightctl-api flightctl-db flightctl-periodic flightctl-worker flightctl-alert-exporter flightctl-imagebuilder-api; do
           echo "Collecting logs for $deployment..."
           namespace=""
           if [[ "$deployment" == "flightctl-api" || "$deployment" == "flightctl-imagebuilder-api" ]]; then
@@ -42,11 +42,16 @@ runs:
           else
             namespace="${{ inputs.namespace-internal }}"
           fi
-          if kubectl logs -n $namespace deployment/$deployment --all-containers=true \
-             > ${{ inputs.log-directory }}/${deployment}_${timestamp}.log; then
-            log_files_collected=true
+          # Check if deployment exists before collecting logs
+          if kubectl get deployment/$deployment -n $namespace >/dev/null 2>&1; then
+            if kubectl logs -n $namespace deployment/$deployment --all-containers=true \
+               > ${{ inputs.log-directory }}/${deployment}_${timestamp}.log 2>/dev/null; then
+              log_files_collected=true
+            else
+              echo "Error collecting logs for $deployment"
+            fi
           else
-            echo "Error collecting logs for $deployment"
+            echo "Deployment $deployment not found in namespace $namespace, skipping"
           fi
         done
 
@@ -59,7 +64,22 @@ runs:
             echo "Error collecting logs for $job"
           fi
         done 
-        
+
+        for statefulset in flightctl-kv; do
+          echo "Collecting logs for $statefulset..."
+          # Check if statefulset exists before collecting logs
+          if kubectl get statefulset/$statefulset -n ${{ inputs.namespace-internal }} >/dev/null 2>&1; then
+            if kubectl logs -n ${{ inputs.namespace-internal }} statefulset/$statefulset --all-containers=true \
+               > ${{ inputs.log-directory }}/${statefulset}_${timestamp}.log 2>/dev/null; then
+              log_files_collected=true
+            else
+              echo "Error collecting logs for $statefulset"
+            fi
+          else
+            echo "StatefulSet $statefulset not found in namespace ${{ inputs.namespace-internal }}, skipping"
+          fi
+        done
+
         kubectl get all,configmaps,secrets --all-namespaces -o=yaml > ${{  inputs.log-directory }}/cluster_resources_${timestamp}.yaml
 
         if [[ "$log_files_collected" == false ]]; then
