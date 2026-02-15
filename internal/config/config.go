@@ -131,6 +131,8 @@ type imageBuilderWorkerConfig struct {
 	ImageBuilderTimeout      util.Duration `json:"imageBuilderTimeout,omitempty"`
 	TimeoutCheckTaskInterval util.Duration `json:"timeoutCheckTaskInterval,omitempty"`
 	RPMRepoURL               string        `json:"rpmRepoUrl,omitempty"`
+	RPMRepoAdd               *bool         `json:"rpmRepoAdd,omitempty"`
+	RPMRepoEnable            string        `json:"rpmRepoEnable,omitempty"`
 }
 
 // NewDefaultImageBuilderWorkerConfig returns a default ImageBuilder worker configuration

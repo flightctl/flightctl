@@ -89,10 +89,25 @@ spec:
               name: host-modules
               readOnly: true
 
-            # 4. ENTITLEMENT: Optional RHEL entitlement certs for subscription-only repos
+            # 4. RHEL: Optional mounts for subscription-only repos
             {{- if .Values.imageBuilderWorker.entitlementCertsSecretName }}
             - mountPath: /etc/pki/entitlement
               name: entitlement-certs
+              readOnly: true
+            {{- end }}
+            {{- if .Values.imageBuilderWorker.yumReposSecretName }}
+            - mountPath: /etc/yum.repos.d
+              name: yum-repos
+              readOnly: true
+            {{- end }}
+            {{- if .Values.imageBuilderWorker.rhsmSecretName }}
+            - mountPath: /etc/rhsm
+              name: rhsm
+              readOnly: true
+            {{- end }}
+            {{- if .Values.imageBuilderWorker.rhsmCaSecretName }}
+            - mountPath: /etc/rhsm/ca
+              name: rhsm-ca
               readOnly: true
             {{- end }}
               
@@ -148,6 +163,21 @@ spec:
         - name: entitlement-certs
           secret:
             secretName: {{ .Values.imageBuilderWorker.entitlementCertsSecretName }}
+        {{- end }}
+        {{- if .Values.imageBuilderWorker.yumReposSecretName }}
+        - name: yum-repos
+          secret:
+            secretName: {{ .Values.imageBuilderWorker.yumReposSecretName }}
+        {{- end }}
+        {{- if .Values.imageBuilderWorker.rhsmSecretName }}
+        - name: rhsm
+          secret:
+            secretName: {{ .Values.imageBuilderWorker.rhsmSecretName }}
+        {{- end }}
+        {{- if .Values.imageBuilderWorker.rhsmCaSecretName }}
+        - name: rhsm-ca
+          secret:
+            secretName: {{ .Values.imageBuilderWorker.rhsmCaSecretName }}
         {{- end }}
         {{- include "flightctl.dbSslVolumes" . | nindent 8 }}
 {{- end }}
