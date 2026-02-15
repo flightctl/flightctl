@@ -59,26 +59,22 @@ jobs:
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
         uses: ./.github/actions/compute-tag
 
-  build-images-and-charts-el9:
+  build-images-and-charts:
     needs: compute-tag
     if: |
       needs.compute-tag.outputs.any_changed == 'true' &&
       (github.event_name != 'pull_request' || startsWith(github.base_ref, 'release-') || contains(github.event.pull_request.labels.*.name, 'run-e2e'))
+    strategy:
+      matrix:
+        include:
+          - flavor: el9
+          - flavor: el10
     uses: ./.github/workflows/build-images-and-charts.yaml
     with:
-      flavor: "el9"
-
-  build-images-and-charts-el10:
-    needs: compute-tag
-    if: |
-      needs.compute-tag.outputs.any_changed == 'true' &&
-      (github.event_name != 'pull_request' || startsWith(github.base_ref, 'release-') || contains(github.event.pull_request.labels.*.name, 'run-e2e'))
-    uses: ./.github/workflows/build-images-and-charts.yaml
-    with:
-      flavor: "el10"
+      flavor: ${{ matrix.flavor }}
 
   build-flightctl-cli:
-    needs: [build-images-and-charts-el9, compute-tag]
+    needs: [build-images-and-charts, compute-tag]
     if: |
       needs.compute-tag.outputs.any_changed == 'true' &&
       (github.event_name != 'pull_request' || startsWith(github.base_ref, 'release-') || contains(github.event.pull_request.labels.*.name, 'run-e2e'))
@@ -87,7 +83,7 @@ jobs:
       tag: ${{ needs.compute-tag.outputs.tag }}
     steps:
       - name: CLI built with backend job
-        run: echo "CLI artifact produced by build-images-and-charts-el9"
+        run: echo "CLI artifact produced by build-images-and-charts matrix job"
 
   build-rpms:
     needs: compute-tag
@@ -186,8 +182,7 @@ jobs:
   e2e-tests:
     needs:
       - compute-tag
-      - build-images-and-charts-el9
-      - build-images-and-charts-el10
+      - build-images-and-charts
       - build-flightctl-cli
       - build-agent-images-unified
       - discover-e2e-tests
@@ -198,36 +193,46 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Non-Agent metrics
-          ## EL9
+          # Non-Agent metrics (backend only, no cross-version needed)
           - os_id: el9-bootc
             backend_type: helm
             label_filter: 'sanity && !agent'
             ginkgo_total_nodes: 1
-            flavor: el9
-          # Agent metrics
-          ## EL9 Agent metrics
+            backend_flavor: el9
+
+          # Same-version Agent metrics
           - os_id: el9-bootc
             backend_type: helm
             label_filter: 'sanity && agent && !slow'
             ginkgo_total_nodes: 2
-            flavor: el9
+            backend_flavor: el9
           - os_id: el9-bootc
             backend_type: helm
             label_filter: 'sanity && agent && slow'
             ginkgo_total_nodes: 1
-            flavor: el9
-          ## EL10 Agent metrics
+            backend_flavor: el9
           - os_id: el10-bootc
             backend_type: helm
             label_filter: 'sanity && agent && !slow'
             ginkgo_total_nodes: 2
-            flavor: el10
+            backend_flavor: el10
           - os_id: el10-bootc
             backend_type: helm
             label_filter: 'sanity && agent && slow'
             ginkgo_total_nodes: 1
-            flavor: el10
+            backend_flavor: el10
+
+          # Cross-version Agent metrics (test compatibility)
+          - os_id: el9-bootc
+            backend_type: helm
+            label_filter: 'sanity && agent && !slow'
+            ginkgo_total_nodes: 1
+            backend_flavor: el10
+          - os_id: el10-bootc
+            backend_type: helm
+            label_filter: 'sanity && agent && !slow'
+            ginkgo_total_nodes: 1
+            backend_flavor: el9
     uses: ./.github/workflows/run-e2e-tests.yaml
     with:
       os_id: ${{ matrix.os_id }}
@@ -235,6 +240,7 @@ jobs:
       ginkgo_total_nodes: ${{ matrix.ginkgo_total_nodes }}
       ginkgo_label_filter: ${{ matrix.label_filter }}
       tag: ${{ needs.compute-tag.outputs.tag }}
+      flavor: ${{ matrix.backend_flavor }}
 
   e2e:
     runs-on: ubuntu-latest

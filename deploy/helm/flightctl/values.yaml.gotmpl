@@ -140,7 +140,7 @@ db:
         # -- CPU resource requests for database pod
         cpu: "512m"
         # -- Memory resource requests for database pod
-        memory: "512Mi" 
+        memory: "512Mi"
     # -- File system group ID for database pod security context
     fsGroup: ""
     # -- Additional labels for DB PVCs.
@@ -295,7 +295,7 @@ alertmanagerProxy:
     tag: "{{ .Images.alertmanagerProxy.Tag }}"
     # -- Image pull policy for Alertmanager proxy container
     pullPolicy: ""
-  
+
 # -- ImageBuilder API Configuration
 imageBuilderApi:
   # -- Enable imagebuilder API service
@@ -397,10 +397,10 @@ dbSetup:
     # Default sleep interval between connection attempts
     sleep: 2
   migration:
-    # -- Number of retries for the migration Job on failure 
+    # -- Number of retries for the migration Job on failure
     backoffLimit: 2147483647
     # -- Maximum runtime in seconds for the migration Job (0 = no deadline)
-    activeDeadlineSeconds: 1500  # 25 minutes - must be longer than helm timeout (20m) to avoid conflicts
+    activeDeadlineSeconds: 0
 
 # -- Upgrade hooks
 upgradeHooks:
