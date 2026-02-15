@@ -129,6 +129,7 @@ jobs:
         id: bundle-images
         env:
           TAG: ${{ steps.compute-tag.outputs.git_tag }}
+          FLAVOR: ${{ inputs.flavor || 'el9' }}
         run: |
           set -euo pipefail
           echo "::group::Creating images bundle"
@@ -138,8 +139,8 @@ jobs:
             make bundle-images
           else
             echo "bundle-images target not found, falling back to direct save"
-            echo "Getting list of loaded flightctl images with tag: $TAG"
-            mapfile -t loaded_images < <(podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/flightctl-.*:${TAG}")
+            echo "Getting list of loaded flightctl images with flavor $FLAVOR and tag: $TAG"
+            mapfile -t loaded_images < <(podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/flightctl-.*-${FLAVOR}:${TAG}")
             echo "Creating bundle with ${#loaded_images[@]} images:"
             printf '  %s\n' "${loaded_images[@]}"
             podman save --format docker-archive -o "${BUNDLE_FILE}" -m "${loaded_images[@]}"
@@ -153,14 +154,15 @@ jobs:
         id: list-images
         env:
           TAG: ${{ steps.compute-tag.outputs.git_tag }}
+          FLAVOR: ${{ inputs.flavor || 'el9' }}
           BUNDLE_FILE: ${{ steps.bundle-images.outputs.bundle_file }}
         run: |
           set -euo pipefail
           echo "::group::Listing images in bundle"
-          IMAGES=$(podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/flightctl-.*:${TAG}" | sort)
+          IMAGES=$(podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/flightctl-.*-${FLAVOR}:${TAG}" | sort)
           echo "$IMAGES"
           echo "::endgroup::"
-          
+
           # Save for summary
           {
             echo "images<<EOF"
