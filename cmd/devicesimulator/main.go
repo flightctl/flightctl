@@ -122,7 +122,7 @@ func main() {
 			}
 
 			log.Infoln("running agents")
-			runAgents(ctx, log, agents, flightctlClient)
+			runAgents(ctx, log, agents)
 		},
 	}
 
@@ -223,7 +223,7 @@ func getServersFromClient(configPath string) (string, string, error) {
 	return context.Service.Server, context.Service.Server, nil
 }
 
-func runAgents(ctx context.Context, log logr.Logger, agents []*agent.Agent, flightctlClient *client.Client) {
+func runAgents(ctx context.Context, log logr.Logger, agents []*agent.Agent) {
 	wg := new(sync.WaitGroup)
 	wg.Add(len(agents))
 
@@ -243,12 +243,12 @@ func runAgents(ctx context.Context, log logr.Logger, agents []*agent.Agent, flig
 				log.Error(err, "agent run failed")
 			}
 		}(a)
-		go approveAgent(ctx, flightctlClient, log, a)
+		go approveAgent(ctx, log, a)
 	}
 	wg.Wait()
 }
 
-func approveAgent(ctx context.Context, client *client.Client, log logr.Logger, agent *agent.Agent) {
+func approveAgent(ctx context.Context, log logr.Logger, agent *agent.Agent) {
 	log = log.WithName(agent.GetLogPrefix())
 
 	// wait for the agent to create the enrollment request
@@ -259,6 +259,13 @@ func approveAgent(ctx context.Context, client *client.Client, log logr.Logger, a
 		if !errors.Is(err, context.Canceled) {
 			log.Errorf("error waiting for enrollment request: %v", err)
 		}
+		return
+	}
+
+	cfgFile := cfg.GetString("config")
+	client, err := client.NewFromConfigFile(cfgFile)
+	if err != nil {
+		log.Errorf("creating management client: %v", err)
 		return
 	}
 
