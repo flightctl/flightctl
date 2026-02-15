@@ -1,78 +1,68 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Check if we're running in rootless mode and not already in unshare
-if [[ $(id -u) != 0 ]] && [[ "${BUILDAH_ISOLATION:-}" != "chroot" ]] && [[ -z "${_CONTAINERS_USERNS_CONFIGURED:-}" ]]; then
-    echo "Running in rootless mode, executing within buildah unshare..."
-    exec buildah unshare "$0" "$@"
-fi
-
-# Default to EL9 if OS_ID not specified
+# Default to el9 if OS_ID not specified
 OS_ID=${OS_ID:-el9}
 
-# Source flavor configuration
+# Convert cs9/cs10 to el9/el10 for compatibility
+case "$OS_ID" in
+    cs9) OS_ID="el9" ;;
+    cs10) OS_ID="el10" ;;
+    el9|el10) ;; # Already correct format
+    *)
+        echo "Error: Invalid OS_ID '$OS_ID'. Must be 'el9', 'el10', 'cs9', or 'cs10'"
+        exit 1
+        ;;
+esac
+
+# Get script directory and change to repo root
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(dirname "$SCRIPT_DIR")"
-FLAVOR_FILE="$ROOT_DIR/images/flavors/${OS_ID}.conf"
+cd "$ROOT_DIR"
 
-if [[ ! -f "$FLAVOR_FILE" ]]; then
-    echo "Error: Flavor configuration not found: $FLAVOR_FILE"
-    echo "Available flavors:"
-    ls -1 "$ROOT_DIR/images/flavors/" | sed 's/.conf$//' | sed 's/^/  /'
-    exit 1
-fi
+# Set base image and version info based on OS_ID (matching publish_containers.sh)
+case "$OS_ID" in
+    el9)
+        BASE_IMAGE="registry.access.redhat.com/ubi9/ubi-minimal:9.7-1763362218"
+        EL_VERSION="9"
+        BASE_TAG="9.7-1763362218"
+        ;;
+    el10)
+        BASE_IMAGE="registry.access.redhat.com/ubi10/ubi-minimal:10.1-1769677092"
+        EL_VERSION="10"
+        BASE_TAG="10.1-1769677092"
+        ;;
+esac
 
-# Load flavor configuration
-source "$FLAVOR_FILE"
-
-echo "Building base image for OS: $OS_ID (version $OS_VERSION)"
+echo "Building base image for $OS_ID using Containerfile.base"
+echo "Base image: $BASE_IMAGE"
 
 IMAGE_REPO=${IMAGE_REPO:-quay.io/flightctl/flightctl-base}
 
+# Get architecture for tagging
 arch=$(uname -m)
 case $arch in
     x86_64) arch=amd64;;
     aarch64) arch=arm64;;
 esac
 
-echo "Creating base image from $UBI_BASE_MICRO:$BASE_IMAGE_TAG"
-container=$(buildah from $UBI_BASE_MICRO:$BASE_IMAGE_TAG)
+# Create tags (matching the old script naming)
+ARCH_TAG="$OS_ID-$arch-$BASE_TAG"
+COMMON_TAG="$OS_ID-$BASE_TAG"
 
-mountdir=$(buildah mount $container)
-echo "Installing base packages for release $UBI_RELEASE_VER"
-# Clear cache and force refresh for clean package downloads
-dnf clean all --installroot $mountdir
-# Skip openssl-libs for EL10 due to package header issues - UBI10-micro already includes it
-if [[ "$OS_ID" == "el10" ]]; then
-    dnf install \
-        --installroot $mountdir \
-        --releasever $UBI_RELEASE_VER \
-        --setopt install_weak_deps=false \
-        --setopt keepcache=false \
-        --refresh \
-        --nodocs --nogpgcheck -y \
-        tzdata
-else
-    dnf install \
-        --installroot $mountdir \
-        --releasever $UBI_RELEASE_VER \
-        --setopt install_weak_deps=false \
-        --setopt keepcache=false \
-        --refresh \
-        --nodocs --nogpgcheck -y \
-        openssl-libs tzdata
-fi
-dnf clean all \
-    --installroot $mountdir
-buildah umount $container
+echo "Building with podman using Containerfile.base..."
+podman build \
+    -f images/Containerfile.base \
+    --build-arg BASE_IMAGE="$BASE_IMAGE" \
+    --build-arg EL_VERSION="$EL_VERSION" \
+    -t "$IMAGE_REPO:$ARCH_TAG" \
+    -t "$IMAGE_REPO:$COMMON_TAG" \
+    .
 
-# Create both architecture-specific and common tags with OS flavor
-ARCH_TAG="$OS_ID-$arch-$BASE_IMAGE_TAG"
-COMMON_TAG="$OS_ID-$BASE_IMAGE_TAG"
-
-echo "Committing container with tags:"
+echo "✓ Built base image with tags:"
 echo "  - $IMAGE_REPO:$ARCH_TAG (architecture-specific)"
 echo "  - $IMAGE_REPO:$COMMON_TAG (common)"
-
-buildah commit $container $IMAGE_REPO:$ARCH_TAG
-buildah tag $IMAGE_REPO:$ARCH_TAG $IMAGE_REPO:$COMMON_TAG
+echo ""
+echo "To push to registry:"
+echo "  podman push $IMAGE_REPO:$ARCH_TAG"
+echo "  podman push $IMAGE_REPO:$COMMON_TAG"
