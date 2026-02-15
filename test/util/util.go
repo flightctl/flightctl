@@ -540,3 +540,50 @@ func DeleteNamespace(ctx context.Context, client kubernetes.Interface, namespace
 	}
 	return err
 }
+
+// ValidateStructuredError checks that a structured error message contains the expected
+// phase, component, and at least one of the given status messages. The message is expected
+// to start with a timestamp in brackets in the agent's format ("YYYY-MM-DD HH:MM:SS").
+func ValidateStructuredError(msg, phase, component string, statusMsgs ...string) error {
+	var errs []string
+
+	closeBracket := strings.Index(msg, "]")
+	if !strings.HasPrefix(msg, "[") || closeBracket < 1 {
+		errs = append(errs, "missing timestamp in brackets")
+	} else if !parseStructuredErrorTimestamp(msg[1:closeBracket]) {
+		errs = append(errs, fmt.Sprintf("invalid timestamp %q", msg[1:closeBracket]))
+	}
+
+	if !strings.Contains(msg, "While "+phase) {
+		errs = append(errs, fmt.Sprintf("missing phase 'While %s'", phase))
+	}
+
+	if !strings.Contains(msg, component) {
+		errs = append(errs, fmt.Sprintf("missing component %q", component))
+	}
+
+	if len(statusMsgs) > 0 {
+		found := false
+		for _, sm := range statusMsgs {
+			if strings.Contains(msg, sm) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			errs = append(errs, fmt.Sprintf("missing status message, expected one of %v", statusMsgs))
+		}
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("structured error validation failed for %q: %s", msg, strings.Join(errs, "; "))
+	}
+	return nil
+}
+
+// parseStructuredErrorTimestamp validates the timestamp format used by the agent in structured
+// error messages (internal/agent/device/errors/structured.go): "2006-01-02 15:04:05".
+func parseStructuredErrorTimestamp(s string) bool {
+	_, err := time.Parse("2006-01-02 15:04:05", strings.TrimSpace(s))
+	return err == nil
+}

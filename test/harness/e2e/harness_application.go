@@ -47,6 +47,11 @@ func (h *Harness) UpdateDeviceAndWaitForRenderedVersion(deviceID string, updateF
 	return h.WaitForDeviceNewRenderedVersion(deviceID, newRenderedVersion)
 }
 
+// ClearDeviceApplications is a device update callback that removes all applications from the device spec.
+func ClearDeviceApplications(device *v1beta1.Device) {
+	device.Spec.Applications = &[]v1beta1.ApplicationProviderSpec{}
+}
+
 // SetDeviceApplications sets device.Spec.Applications and waits for the new rendered version.
 func (h *Harness) SetDeviceApplications(deviceID string, apps *[]v1beta1.ApplicationProviderSpec) error {
 	return h.UpdateDeviceAndWaitForRenderedVersion(deviceID, func(device *v1beta1.Device) {
