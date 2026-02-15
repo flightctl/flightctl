@@ -46,7 +46,7 @@ esac
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(dirname "$SCRIPT_DIR")"
 GIT_REF=$(git rev-parse --short HEAD)
-SOURCE_GIT_TAG=${SOURCE_GIT_TAG:-$(${ROOT_DIR}/hack/current-version)}
+SOURCE_GIT_TAG=${SOURCE_GIT_TAG:-$("${ROOT_DIR}"/hack/current-version)}
 
 case "$ACTION" in
     build)
@@ -77,8 +77,6 @@ case "$ACTION" in
         for service in $CONTAINER_SERVICES; do
             echo "Building flightctl-${service}-${EL_FLAVOR}..."
 
-            # Determine cache flags
-            CACHE_FLAGS=""
             # Note: GitHub Actions cache is handled by the main build-images-and-charts workflow
             # via Go module and build cache. Container layer caching is not currently configured.
 
@@ -97,8 +95,8 @@ case "$ACTION" in
                 BUILD_ARGS="$BUILD_ARGS --build-arg PAM_BASE_URL=${PAM_BASE_URL} --build-arg PAM_PACKAGE_VERSION=${PAM_PACKAGE_VERSION}"
             fi
 
-            podman build $CACHE_FLAGS \
-                $BUILD_ARGS \
+            # shellcheck disable=SC2086
+            podman build $BUILD_ARGS \
                 --build-arg SOURCE_GIT_TAG="${SOURCE_GIT_TAG}" \
                 --build-arg SOURCE_GIT_TREE_STATE="${SOURCE_GIT_TREE_STATE:-clean}" \
                 --build-arg SOURCE_GIT_COMMIT="${SOURCE_GIT_COMMIT:-${GIT_REF}}" \
