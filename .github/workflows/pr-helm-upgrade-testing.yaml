@@ -267,11 +267,21 @@ jobs:
           fi
           echo "Using chart file: $CHART_FILE"
           # Use flavor-in-tag approach (matching base image pattern)
+          IMAGE_TAG="el9-${PR_GIT_TAG}"
           echo "=== Starting helm upgrade ==="
           helm upgrade flightctl "${CHART_FILE}" \
             --namespace flightctl-external \
             --reuse-values \
-            --set dbSetup.image.tag="el9-${PR_GIT_TAG}" \
+            --set dbSetup.image.tag="${IMAGE_TAG}" \
+            --set api.image.tag="${IMAGE_TAG}" \
+            --set worker.image.tag="${IMAGE_TAG}" \
+            --set periodic.image.tag="${IMAGE_TAG}" \
+            --set alertExporter.image.tag="${IMAGE_TAG}" \
+            --set alertmanagerProxy.image.tag="${IMAGE_TAG}" \
+            --set cliArtifacts.image.tag="${IMAGE_TAG}" \
+            --set telemetryGateway.image.tag="${IMAGE_TAG}" \
+            --set imageBuilderApi.image.tag="${IMAGE_TAG}" \
+            --set imageBuilderWorker.image.tag="${IMAGE_TAG}" \
             --debug --wait # for the deployment complete (including readiness probes passing)
 
       - name: "[HEAD] Show cluster state after failed upgrade"
