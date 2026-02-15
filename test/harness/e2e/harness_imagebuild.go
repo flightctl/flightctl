@@ -8,8 +8,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
+	"syscall"
 	"path/filepath"
 	"strings"
 	"time"
@@ -36,6 +38,24 @@ var (
 	// ErrLogStreamUnexpectedClose indicates the stream closed without completion marker
 	ErrLogStreamUnexpectedClose = errors.New("log stream closed unexpectedly")
 )
+
+// maxStreamRetries is the number of times to retry a log stream connection on transient errors.
+const maxStreamRetries = 3
+
+// isTransientStreamError returns true if the error is a transient network/TLS error
+// that is likely to succeed on retry (e.g. tls: bad record MAC on long-lived connections).
+func isTransientStreamError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, syscall.ECONNRESET) ||
+		errors.Is(err, syscall.EPIPE) ||
+		errors.Is(err, net.ErrClosed) {
+		return true
+	}
+	// tls.alert is unexported so there is no sentinel to use with errors.Is
+	return strings.Contains(err.Error(), "tls: bad record MAC")
+}
 
 // CreateImageBuild creates an ImageBuild resource with the given name and spec.
 func (h *Harness) CreateImageBuild(name string, spec imagebuilderapi.ImageBuildSpec) (*imagebuilderapi.ImageBuild, error) {
@@ -476,46 +496,64 @@ func (h *Harness) getImageBuildReadyCondition(imageBuild *imagebuilderapi.ImageB
 // WaitForImageBuildWithLogs streams logs for an ImageBuild until completion or timeout.
 // Caller should first call WaitForImageBuildProcessing to ensure the build has started.
 // Returns the final ImageBuild resource and any error.
+// Transient stream errors (e.g. TLS connection issues) are retried automatically.
 func (h *Harness) WaitForImageBuildWithLogs(name string, timeout time.Duration) (*imagebuilderapi.ImageBuild, error) {
 	GinkgoWriter.Printf("Streaming logs for ImageBuild %s (timeout: %v)\n", name, timeout)
 
-	// Create a context with timeout for log streaming
 	ctx, cancel := context.WithTimeout(h.Context, timeout)
 	defer cancel()
 
-	// Start streaming logs with follow=true
+	for attempt := range maxStreamRetries {
+		if ctx.Err() != nil {
+			return nil, fmt.Errorf("ImageBuild %s: %w: %w", name, ErrLogStreamTimeout, ctx.Err())
+		}
+
+		if attempt > 0 {
+			GinkgoWriter.Printf("Retrying log stream for ImageBuild %s (attempt %d/%d)\n", name, attempt+1, maxStreamRetries)
+			select {
+			case <-time.After(2 * time.Second):
+			case <-ctx.Done():
+				return nil, fmt.Errorf("ImageBuild %s: %w: %w", name, ErrLogStreamTimeout, ctx.Err())
+			}
+		}
+
+		err := h.streamImageBuildLogs(ctx, name)
+		if err == nil {
+			break
+		}
+		if !isTransientStreamError(err) || attempt == maxStreamRetries-1 {
+			return nil, err
+		}
+		GinkgoWriter.Printf("Transient stream error for ImageBuild %s, will retry: %v\n", name, err)
+	}
+
+	// Log stream ended, return the final ImageBuild state
+	// Caller is responsible for asserting the final status
+	return h.GetImageBuild(name)
+}
+
+// streamImageBuildLogs opens a log stream connection and reads logs until completion or error.
+func (h *Harness) streamImageBuildLogs(ctx context.Context, name string) error {
 	params := &imagebuilderapi.GetImageBuildLogParams{
 		Follow: lo.ToPtr(true),
 	}
 
 	response, err := h.ImageBuilderClient.GetImageBuildLog(ctx, name, params)
 	if err != nil {
-		return nil, fmt.Errorf("failed to start log stream for ImageBuild %s: %w", name, err)
+		return fmt.Errorf("failed to start log stream for ImageBuild %s: %w", name, err)
 	}
 	defer response.Body.Close()
 
 	if response.StatusCode != 200 {
 		body, _ := io.ReadAll(response.Body)
-		return nil, newAPIError(response.StatusCode, body, "ImageBuild", name)
+		return newAPIError(response.StatusCode, body, "ImageBuild", name)
 	}
 
-	// Handle streaming based on content type (matching CLI behavior)
 	contentType := response.Header.Get("Content-Type")
 	if strings.Contains(contentType, "text/event-stream") {
-		// SSE streaming format
-		if err := h.handleSSELogStream(ctx, name, response.Body); err != nil {
-			return nil, err
-		}
-	} else {
-		// Plain text format
-		if err := h.handlePlainTextLogStream(ctx, name, response.Body); err != nil {
-			return nil, err
-		}
+		return h.handleSSELogStream(ctx, name, response.Body)
 	}
-
-	// Log stream ended, return the final ImageBuild state
-	// Caller is responsible for asserting the final status
-	return h.GetImageBuild(name)
+	return h.handlePlainTextLogStream(ctx, name, response.Body)
 }
 
 // GetImageBuildConditionReason returns the current condition reason for an ImageBuild.
@@ -780,45 +818,63 @@ func (h *Harness) WaitForImageExportProcessing(name string, timeout, polling tim
 }
 
 // WaitForImageExportWithLogs streams logs for an ImageExport until completion or timeout.
+// Transient stream errors (e.g. TLS connection issues) are retried automatically.
 func (h *Harness) WaitForImageExportWithLogs(name string, timeout time.Duration) (*imagebuilderapi.ImageExport, error) {
 	GinkgoWriter.Printf("Streaming logs for ImageExport %s (timeout: %v)\n", name, timeout)
 
-	// Create a context with timeout for log streaming
 	ctx, cancel := context.WithTimeout(h.Context, timeout)
 	defer cancel()
 
-	// Start streaming logs with follow=true
+	for attempt := range maxStreamRetries {
+		if ctx.Err() != nil {
+			return nil, fmt.Errorf("ImageExport %s: %w: %w", name, ErrLogStreamTimeout, ctx.Err())
+		}
+
+		if attempt > 0 {
+			GinkgoWriter.Printf("Retrying log stream for ImageExport %s (attempt %d/%d)\n", name, attempt+1, maxStreamRetries)
+			select {
+			case <-time.After(2 * time.Second):
+			case <-ctx.Done():
+				return nil, fmt.Errorf("ImageExport %s: %w: %w", name, ErrLogStreamTimeout, ctx.Err())
+			}
+		}
+
+		err := h.streamImageExportLogs(ctx, name)
+		if err == nil {
+			break
+		}
+		if !isTransientStreamError(err) || attempt == maxStreamRetries-1 {
+			return nil, err
+		}
+		GinkgoWriter.Printf("Transient stream error for ImageExport %s, will retry: %v\n", name, err)
+	}
+
+	// Log stream ended, return the final ImageExport state
+	return h.GetImageExport(name)
+}
+
+// streamImageExportLogs opens a log stream connection and reads logs until completion or error.
+func (h *Harness) streamImageExportLogs(ctx context.Context, name string) error {
 	params := &imagebuilderapi.GetImageExportLogParams{
 		Follow: lo.ToPtr(true),
 	}
 
 	response, err := h.ImageBuilderClient.GetImageExportLog(ctx, name, params)
 	if err != nil {
-		return nil, fmt.Errorf("failed to start log stream for ImageExport %s: %w", name, err)
+		return fmt.Errorf("failed to start log stream for ImageExport %s: %w", name, err)
 	}
 	defer response.Body.Close()
 
 	if response.StatusCode != 200 {
 		body, _ := io.ReadAll(response.Body)
-		return nil, newAPIError(response.StatusCode, body, "ImageExport", name)
+		return newAPIError(response.StatusCode, body, "ImageExport", name)
 	}
 
-	// Handle streaming based on content type (matching CLI behavior)
 	contentType := response.Header.Get("Content-Type")
 	if strings.Contains(contentType, "text/event-stream") {
-		// SSE streaming format - reuse the ImageBuild SSE handler with ImageExport prefix
-		if err := h.handleImageExportSSELogStream(ctx, name, response.Body); err != nil {
-			return nil, err
-		}
-	} else {
-		// Plain text format
-		if err := h.handleImageExportPlainTextLogStream(ctx, name, response.Body); err != nil {
-			return nil, err
-		}
+		return h.handleImageExportSSELogStream(ctx, name, response.Body)
 	}
-
-	// Log stream ended, return the final ImageExport state
-	return h.GetImageExport(name)
+	return h.handleImageExportPlainTextLogStream(ctx, name, response.Body)
 }
 
 // handleImageExportSSELogStream processes Server-Sent Events log stream for ImageExport.

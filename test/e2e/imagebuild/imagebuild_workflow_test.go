@@ -33,7 +33,7 @@ const (
 	vmBootPollPeriod     = 5 * time.Second
 	agentServiceName     = "flightctl-agent"
 	labelEnvironment     = "environment"
-	imageBuildUsername   = "flightctl"
+	imageBuildUsername   = "flightctl-ssh-user"
 )
 
 const (
