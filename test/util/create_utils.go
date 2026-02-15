@@ -535,3 +535,22 @@ func CreateTestOrganizationAssignment() api.AuthOrganizationAssignment {
 	}
 	return assignment
 }
+
+func BuildInlineConfigSpec(name, filePath, content, user string) (api.ConfigProviderSpec, error) {
+	if name == "" || filePath == "" {
+		return api.ConfigProviderSpec{}, fmt.Errorf("name and path must not be empty")
+	}
+	fileSpec := api.FileSpec{
+		Path:    filePath,
+		Content: content,
+	}
+	if user != "" {
+		fileSpec.User = api.Username(user)
+	}
+	var provider api.ConfigProviderSpec
+	err := provider.FromInlineConfigProviderSpec(api.InlineConfigProviderSpec{
+		Name:   name,
+		Inline: []api.FileSpec{fileSpec},
+	})
+	return provider, err
+}

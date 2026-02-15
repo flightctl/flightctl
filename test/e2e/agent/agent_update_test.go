@@ -372,8 +372,10 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Updating the device with a policy that won't trigger should prevent an update from occurring")
+			inlineCfg, cfgErr := newInlineConfigVersion(expectedVersion)
+			Expect(cfgErr).NotTo(HaveOccurred())
 			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
-				device.Spec.Config = &[]v1beta1.ConfigProviderSpec{newInlineConfigVersion(expectedVersion)}
+				device.Spec.Config = &[]v1beta1.ConfigProviderSpec{inlineCfg}
 				device.Spec.UpdatePolicy = &v1beta1.DeviceUpdatePolicySpec{
 					UpdateSchedule: &v1beta1.UpdateSchedule{
 						At:                 wontUpdatePolicy,
@@ -419,11 +421,13 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			By("applying another spec, the update should be applied quickly")
+			inlineCfg, cfgErr = newInlineConfigVersion(expectedVersion)
+			Expect(cfgErr).NotTo(HaveOccurred())
 			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
 				// change the spec to update every minute so that we don't have to wait as long
 				device.Spec.UpdatePolicy.UpdateSchedule.At = everyMinuteExpression
 				device.Spec.UpdatePolicy.DownloadSchedule.At = everyMinuteExpression
-				device.Spec.Config = &[]v1beta1.ConfigProviderSpec{newInlineConfigVersion(expectedVersion)}
+				device.Spec.Config = &[]v1beta1.ConfigProviderSpec{inlineCfg}
 			})
 			Expect(err).ToNot(HaveOccurred())
 			// eventually the next update should be applied
@@ -433,10 +437,12 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			expectedVersion++
 			inTwoMinutes = inNMinutes(2)
 			By("applying an immediate download policy and an eventual update policy, the process should stall at updating")
+			inlineCfg, cfgErr = newInlineConfigVersion(expectedVersion)
+			Expect(cfgErr).NotTo(HaveOccurred())
 			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
 				device.Spec.UpdatePolicy.UpdateSchedule.At = inTwoMinutes
 				device.Spec.UpdatePolicy.DownloadSchedule.At = everyMinuteExpression
-				device.Spec.Config = &[]v1beta1.ConfigProviderSpec{newInlineConfigVersion(expectedVersion)}
+				device.Spec.Config = &[]v1beta1.ConfigProviderSpec{inlineCfg}
 			})
 			Expect(err).ToNot(HaveOccurred())
 			harness.WaitForDeviceContents(deviceId, "status should indicate that we are blocked by updating", func(device *v1beta1.Device) bool {
@@ -471,9 +477,9 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			// Malformed XML — should cause firewall reload hook to fail
 			// ------------------------------------------------------------------
 			By(fmt.Sprintf("Applying malformed XML to %s", badZoneFile))
-			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
-				device.Spec.Config = &[]v1beta1.ConfigProviderSpec{newInlineConfigForPath("bad-zone", badZoneFile, "<invalid")}
-			})
+			badZoneCfg, cfgErr := util.BuildInlineConfigSpec("bad-zone", badZoneFile, "<invalid", "")
+			Expect(cfgErr).NotTo(HaveOccurred())
+			err = harness.UpdateDeviceWithRetries(deviceId, e2e.SetDeviceConfig(badZoneCfg))
 			Expect(err).NotTo(HaveOccurred())
 			stdout, err = harness.VM.RunSSH([]string{"sudo", "cat", "/var/lib/flightctl/current.json"}, nil)
 			Expect(err).NotTo(HaveOccurred())
@@ -495,9 +501,9 @@ var _ = Describe("VM Agent behavior during updates", func() {
 				GinkgoWriter.Printf("Applying update %d\n", i)
 				path := fmt.Sprintf("%s/rapid-%d.json", firewallZonesDir, i)
 				name := fmt.Sprintf("rapid-%d", i)
-				err := harness.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
-					device.Spec.Config = &[]v1beta1.ConfigProviderSpec{newInlineConfigForPath(name, path, name)}
-				})
+				rapidCfg, cfgErr := util.BuildInlineConfigSpec(name, path, name, "")
+				Expect(cfgErr).NotTo(HaveOccurred())
+				err := harness.UpdateDeviceWithRetries(deviceId, e2e.SetDeviceConfig(rapidCfg))
 				Expect(err).NotTo(HaveOccurred())
 			}
 			By("Verifying the last file remains after rapid updates")
@@ -517,12 +523,13 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			// Conflicting inline configs targeting the same path
 			// ------------------------------------------------------------------
 			By("Applying two inline configs that write to the same file path - through UpdateDevice")
-			cfg1 := newInlineConfigForPath("c1", conflictFile, "cfg1")
-			cfg2 := newInlineConfigForPath("c2", conflictFile, "cfg2")
+			cfg1, cfgErr := util.BuildInlineConfigSpec("c1", conflictFile, "cfg1", "")
+			Expect(cfgErr).NotTo(HaveOccurred())
+			cfg2, cfgErr := util.BuildInlineConfigSpec("c2", conflictFile, "cfg2", "")
+			Expect(cfgErr).NotTo(HaveOccurred())
 
-			Expect(harness.UpdateDevice(deviceId, func(device *v1beta1.Device) {
-				device.Spec.Config = &[]v1beta1.ConfigProviderSpec{cfg1, cfg2}
-			})).To(MatchError(ContainSubstring("must be unique")))
+			err = harness.UpdateDevice(deviceId, e2e.SetDeviceConfig(cfg1, cfg2))
+			Expect(err).To(MatchError(ContainSubstring("must be unique")))
 
 		})
 
@@ -542,32 +549,7 @@ var flightDemosHttpRepoConfig = v1beta1.HttpConfigProviderSpec{
 	Name: "flightctl-demos-cfg",
 }
 
-func newInlineConfigVersion(version int) v1beta1.ConfigProviderSpec {
-	configCopy := inlineConfig
-	configCopy.Content = fmt.Sprintf("%s %d", configCopy.Content, version)
-	cfg := v1beta1.InlineConfigProviderSpec{
-		Inline: []v1beta1.FileSpec{configCopy},
-		Name:   validInlineConfig.Name,
-	}
-	var provider v1beta1.ConfigProviderSpec
-	err := provider.FromInlineConfigProviderSpec(cfg)
-	Expect(err).NotTo(HaveOccurred())
-	return provider
-}
-
-// newInlineConfigForPath creates a ConfigProviderSpec with inline configuration for the specified path
-func newInlineConfigForPath(name string, path string, content string) v1beta1.ConfigProviderSpec {
-	var inlineConfig = v1beta1.FileSpec{
-		Content: content,
-		Mode:    modePointer,
-		Path:    path,
-	}
-	cfg := v1beta1.InlineConfigProviderSpec{
-		Inline: []v1beta1.FileSpec{inlineConfig},
-		Name:   name,
-	}
-	var provider v1beta1.ConfigProviderSpec
-	err := provider.FromInlineConfigProviderSpec(cfg)
-	Expect(err).NotTo(HaveOccurred())
-	return provider
+func newInlineConfigVersion(version int) (v1beta1.ConfigProviderSpec, error) {
+	content := fmt.Sprintf("%s %d", inlineConfig.Content, version)
+	return util.BuildInlineConfigSpec(validInlineConfig.Name, inlineConfig.Path, content, "")
 }

@@ -142,6 +142,28 @@ func IsDeviceUpdateObserved(device *v1beta1.Device, expectedVersion int) bool {
 	return slices.Contains(validReasons, v1beta1.UpdateState(cond.Reason))
 }
 
+// SetDeviceConfig returns a device update callback that replaces the device config with the given specs.
+func SetDeviceConfig(configs ...v1beta1.ConfigProviderSpec) func(*v1beta1.Device) {
+	return func(device *v1beta1.Device) {
+		device.Spec.Config = &configs
+	}
+}
+
+// IsDeviceUpToDate returns true if the device status indicates it is up to date.
+func IsDeviceUpToDate(device *v1beta1.Device) bool {
+	return device != nil && device.Status != nil &&
+		device.Status.Updated.Status == v1beta1.DeviceUpdatedStatusUpToDate
+}
+
+// IsUpdatingConditionCleared returns true if the device has no Updating condition in error state (Reason != "Error").
+func IsUpdatingConditionCleared(device *v1beta1.Device) bool {
+	if device == nil || device.Status == nil {
+		return false
+	}
+	cond := v1beta1.FindStatusCondition(device.Status.Conditions, v1beta1.ConditionTypeDeviceUpdating)
+	return cond == nil || cond.Reason != "Error"
+}
+
 func (h *Harness) UpdateDeviceAndWait(deviceID string, updateFunc func(device *v1beta1.Device)) error {
 	GinkgoWriter.Printf("Preparing device update (device=%s)\n", deviceID)
 	newRenderedVersion, err := h.PrepareNextDeviceVersion(deviceID)
