@@ -73,15 +73,12 @@ jobs:
           set -euo pipefail
           echo "::group::Building backend containers for flavor: $FLAVOR"
 
-          # Use new target if available, fallback to script directly for old branches
+          # Use new target if available, fallback to legacy for old branches
           if make -n build-containers-ci >/dev/null 2>&1; then
             echo "Using make build-containers-ci"
             make -j4 build-containers-ci
-          elif [ -f "hack/publish_containers.sh" ]; then
-            echo "Using hack/publish_containers.sh directly"
-            hack/publish_containers.sh build $FLAVOR
           else
-            echo "Fallback to legacy make build-containers"
+            echo "Using legacy make build-containers (main branch compatibility)"
             make build-containers
           fi
           echo "::endgroup::"
