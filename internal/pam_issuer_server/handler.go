@@ -554,3 +554,21 @@ func (h *Handler) ServeFlightControlLogo(w http.ResponseWriter, r *http.Request)
 		h.log.Errorf("Failed to write Flight Control logo response: %v", err)
 	}
 }
+
+// ServeLoginJS serves the embedded login page JavaScript
+func (h *Handler) ServeLoginJS(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	if _, err := w.Write([]byte(pam.LoginJS)); err != nil {
+		h.log.Errorf("Failed to write login JS response: %v", err)
+	}
+}
+
+// ServeLoginCSS serves the embedded login page CSS stylesheet
+func (h *Handler) ServeLoginCSS(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/css; charset=utf-8")
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	if _, err := w.Write([]byte(pam.LoginCSS)); err != nil {
+		h.log.Errorf("Failed to write login CSS response: %v", err)
+	}
+}
