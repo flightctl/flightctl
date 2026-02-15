@@ -40,9 +40,10 @@ FLAVOR=el10 hack/publish_containers.sh build el10 # Enterprise Linux 10
 
 ### Container Naming
 
-Containers are built with flavor-specific names:
-- **EL9**: `flightctl-api-el9:latest`, `flightctl-worker-el9:latest`, etc.
-- **EL10**: `flightctl-api-el10:latest`, `flightctl-worker-el10:latest`, etc.
+Containers use flavor-in-tag naming (consistent with base image pattern):
+- **EL9**: `flightctl-api:el9-latest`, `flightctl-worker:el9-v1.2.3`, etc.
+- **EL10**: `flightctl-api:el10-latest`, `flightctl-worker:el10-v1.2.3`, etc.
+- **Base images**: `flightctl-base:el9-9.7-1762965531`, `flightctl-base:el10-10.1-1769518576`
 
 ### Using Different Flavors
 
@@ -54,7 +55,7 @@ make deploy
 FLAVOR=el10 make deploy
 
 # Run specific flavor containers
-podman run -d --name flightctl-api -p 3443:3443 flightctl-api-el10:latest
+podman run -d --name flightctl-api -p 3443:3443 flightctl-api:el10-latest
 ```
 
 ### Cross-Version Testing

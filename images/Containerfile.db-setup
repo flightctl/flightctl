@@ -1,6 +1,6 @@
 # FlightCtl Database Setup
-# Build EL9: podman build --build-arg BUILD_IMAGE=registry.access.redhat.com/ubi9/go-toolset:1.24.6-1762373805 --build-arg RUNTIME_IMAGE=registry.access.redhat.com/ubi9/ubi-minimal:9.7-1763362218 --build-arg EL_VERSION=9 -f images/Containerfile.db-setup -t flightctl-db-setup-el9
-# Build EL10: podman build --build-arg BUILD_IMAGE=registry.access.redhat.com/ubi10/go-toolset:10.1-1770279878 --build-arg RUNTIME_IMAGE=registry.access.redhat.com/ubi10/ubi-minimal:10.1-1769677092 --build-arg EL_VERSION=10 -f images/Containerfile.db-setup -t flightctl-db-setup-el10
+# Build EL9: podman build --build-arg BUILD_IMAGE=registry.access.redhat.com/ubi9/go-toolset:1.24.6-1762373805 --build-arg RUNTIME_IMAGE=registry.access.redhat.com/ubi9/ubi-minimal:9.7-1763362218 --build-arg EL_VERSION=9 -f images/Containerfile.db-setup -t flightctl-db-setup:el9-latest
+# Build EL10: podman build --build-arg BUILD_IMAGE=registry.access.redhat.com/ubi10/go-toolset:10.1-1770279878 --build-arg RUNTIME_IMAGE=registry.access.redhat.com/ubi10/ubi-minimal:10.1-1769677092 --build-arg EL_VERSION=10 -f images/Containerfile.db-setup -t flightctl-db-setup:el10-latest
 
 ARG BUILD_IMAGE
 ARG RUNTIME_IMAGE

@@ -103,10 +103,12 @@ case "$ACTION" in
                 --build-arg SOURCE_GIT_TREE_STATE="${SOURCE_GIT_TREE_STATE:-clean}" \
                 --build-arg SOURCE_GIT_COMMIT="${SOURCE_GIT_COMMIT:-${GIT_REF}}" \
                 -f "images/Containerfile.${service}" \
-                -t "flightctl-${service}-${EL_FLAVOR}:latest" \
-                -t "quay.io/flightctl/flightctl-${service}-${EL_FLAVOR}:latest" \
-                -t "quay.io/flightctl/flightctl-${service}-${EL_FLAVOR}:${SOURCE_GIT_TAG}" \
-                -t "localhost/flightctl-${service}-${EL_FLAVOR}:latest" \
+                -t "flightctl-${service}:${EL_FLAVOR}-latest" \
+                -t "flightctl-${service}:${EL_FLAVOR}-${SOURCE_GIT_TAG}" \
+                -t "quay.io/flightctl/flightctl-${service}:${EL_FLAVOR}-latest" \
+                -t "quay.io/flightctl/flightctl-${service}:${EL_FLAVOR}-${SOURCE_GIT_TAG}" \
+                -t "localhost/flightctl-${service}:${EL_FLAVOR}-latest" \
+                -t "localhost/flightctl-${service}:${EL_FLAVOR}-${SOURCE_GIT_TAG}" \
                 .
         done
 
@@ -117,17 +119,17 @@ case "$ACTION" in
         echo "Publishing FlightCtl containers for ${EL_FLAVOR} to registry..."
 
         for service in $CONTAINER_SERVICES; do
-            local_image="flightctl-${service}-${EL_FLAVOR}:latest"
+            local_image="flightctl-${service}:${EL_FLAVOR}-latest"
 
             echo "Publishing ${local_image}..."
 
-            # Tag and push to registry with EL naming only
-            podman tag "${local_image}" "quay.io/flightctl/flightctl-${service}-${EL_FLAVOR}:latest"
-            podman tag "${local_image}" "quay.io/flightctl/flightctl-${service}-${EL_FLAVOR}:${GIT_REF}"
+            # Tag and push to registry with flavor-in-tag approach (matching base image pattern)
+            podman tag "${local_image}" "quay.io/flightctl/flightctl-${service}:${EL_FLAVOR}-latest"
+            podman tag "${local_image}" "quay.io/flightctl/flightctl-${service}:${EL_FLAVOR}-${GIT_REF}"
 
-            # Push EL naming only
-            podman push "quay.io/flightctl/flightctl-${service}-${EL_FLAVOR}:latest"
-            podman push "quay.io/flightctl/flightctl-${service}-${EL_FLAVOR}:${GIT_REF}"
+            # Push with new flavor-in-tag naming (consistent with base image approach)
+            podman push "quay.io/flightctl/flightctl-${service}:${EL_FLAVOR}-latest"
+            podman push "quay.io/flightctl/flightctl-${service}:${EL_FLAVOR}-${GIT_REF}"
         done
 
         echo "✓ Published all containers for ${EL_FLAVOR}"
