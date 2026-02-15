@@ -145,7 +145,7 @@ jobs:
             # Fallback to non-flavor images (legacy naming) if no flavor-specific images found
             if [ ${#loaded_images[@]} -eq 0 ]; then
               echo "No flavor-specific images found, trying legacy naming pattern..."
-              mapfile -t loaded_images < <(podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/flightctl-.*:${TAG}" | grep -v -- "-el[0-9]")
+              mapfile -t loaded_images < <(podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/flightctl-.*:${TAG}" | grep -v "\-el[0-9]")
             fi
             echo "Creating bundle with ${#loaded_images[@]} images:"
             printf '  %s\n' "${loaded_images[@]}"
@@ -175,7 +175,7 @@ jobs:
           # Fallback to non-flavor images (legacy naming) if no flavor-specific images found
           if [ -z "$IMAGES" ]; then
             echo "No flavor-specific images found, listing legacy naming pattern..."
-            IMAGES=$(podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/flightctl-.*:${TAG}" | grep -v -- "-el[0-9]" | sort)
+            IMAGES=$(podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/flightctl-.*:${TAG}" | grep -v "\-el[0-9]" | sort)
           fi
           echo "$IMAGES"
           echo "::endgroup::"
