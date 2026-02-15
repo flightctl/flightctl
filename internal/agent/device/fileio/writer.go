@@ -545,7 +545,7 @@ func writeFileAtomically(fpath string, b []byte, dirMode, fileMode os.FileMode, 
 
 // This is essentially ResolveNodeUidAndGid() from Ignition; XXX should dedupe
 func getFileOwnership(file v1beta1.FileSpec) (int, int, error) {
-	uid, gid := 0, 0 // default to root
+	uid, gid := -1, -1 // default to not changing ownership
 	var err error
 	user := file.User
 	if !user.IsCurrentProcessUser() {
