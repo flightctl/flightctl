@@ -72,7 +72,18 @@ jobs:
         run: |
           set -euo pipefail
           echo "::group::Building backend containers for flavor: $FLAVOR"
-          make -j4 build-containers-ci
+
+          # Use new target if available, fallback to script directly for old branches
+          if make -n build-containers-ci >/dev/null 2>&1; then
+            echo "Using make build-containers-ci"
+            make -j4 build-containers-ci
+          elif [ -f "hack/publish_containers.sh" ]; then
+            echo "Using hack/publish_containers.sh directly"
+            hack/publish_containers.sh build $FLAVOR
+          else
+            echo "Fallback to legacy make build-containers"
+            make build-containers
+          fi
           echo "::endgroup::"
 
       - name: Bundle images
