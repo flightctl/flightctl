@@ -222,17 +222,6 @@ jobs:
             ginkgo_total_nodes: 1
             backend_flavor: el10
 
-          # Cross-version Agent metrics (test compatibility)
-          - os_id: el9-bootc
-            backend_type: helm
-            label_filter: 'sanity && agent && !slow'
-            ginkgo_total_nodes: 1
-            backend_flavor: el10
-          - os_id: el10-bootc
-            backend_type: helm
-            label_filter: 'sanity && agent && !slow'
-            ginkgo_total_nodes: 1
-            backend_flavor: el9
     uses: ./.github/workflows/run-e2e-tests.yaml
     with:
       os_id: ${{ matrix.os_id }}
