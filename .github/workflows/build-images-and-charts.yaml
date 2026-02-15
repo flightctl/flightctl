@@ -68,61 +68,11 @@ jobs:
           GITHUB_ACTIONS: true
           REGISTRY: quay.io
           REGISTRY_OWNER: flightctl
+          FLAVOR: ${{ inputs.flavor || 'el9' }}
         run: |
           set -euo pipefail
-
-          echo "::group::Building backend containers"
-          FLAVOR="${{ inputs.flavor || 'el9' }}"
-
-          # Function to attempt build with multiple fallback strategies
-          build_containers() {
-            local flavor=$1
-            echo "Building containers for flavor: $flavor"
-
-            # Check if the new flavor-aware script exists and supports build command
-            if [ -f "hack/publish_containers.sh" ] && grep -q "build)" "hack/publish_containers.sh" 2>/dev/null; then
-              echo "Using new flavor-aware build script..."
-              # Script now accepts el9/el10 directly
-              if hack/publish_containers.sh build $flavor; then
-                echo "✓ New build script succeeded for flavor: $flavor"
-                return 0
-              else
-                echo "✗ New build script failed for flavor: $flavor"
-              fi
-            else
-              echo "New flavor-aware script not available, skipping to fallbacks..."
-            fi
-
-            echo "Attempting fallback build with make..."
-            if make build-containers-ci FLAVOR=$flavor 2>/dev/null; then
-              echo "✓ Fallback build succeeded for flavor: $flavor"
-              return 0
-            else
-              echo "✗ Fallback build failed, trying legacy approach..."
-            fi
-
-            # Try legacy build approach for old branches
-            echo "Attempting legacy build approach..."
-            if make build-containers 2>/dev/null; then
-              echo "✓ Legacy build approach succeeded"
-              # Create flavor-specific tags from legacy images for compatibility
-              SERVICES="api pam-issuer worker periodic alert-exporter cli-artifacts userinfo-proxy telemetry-gateway alertmanager-proxy db-setup imagebuilder-api imagebuilder-worker"
-              for service in $SERVICES; do
-                if podman image exists flightctl-${service}:latest 2>/dev/null; then
-                  echo "Tagging legacy image: flightctl-${service}:latest -> flightctl-${service}-${flavor}:latest"
-                  podman tag flightctl-${service}:latest flightctl-${service}-${flavor}:latest || echo "Failed to tag ${service}, continuing..."
-                else
-                  echo "Legacy image flightctl-${service}:latest not found, skipping..."
-                fi
-              done
-              return 0
-            else
-              echo "✗ All build approaches failed"
-              return 1
-            fi
-          }
-
-          build_containers "$FLAVOR" || echo "Build failed but continuing to allow other steps to complete..."
+          echo "::group::Building backend containers for flavor: $FLAVOR"
+          make -j4 build-containers-ci
           echo "::endgroup::"
 
       - name: Bundle images
@@ -140,19 +90,15 @@ jobs:
           else
             echo "bundle-images target not found, falling back to direct save"
             echo "Getting list of loaded flightctl images with flavor $FLAVOR and tag: $TAG"
-            # Try flavor-in-tag images first (new naming pattern)
-            mapfile -t loaded_images < <(podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/flightctl-.*:${FLAVOR}-${TAG}" || true)
-            # Fallback to non-flavor images (legacy naming) if no flavor-specific images found
-            if [ ${#loaded_images[@]} -eq 0 ]; then
-              echo "No flavor-in-tag images found, trying legacy naming pattern..."
-              mapfile -t loaded_images < <(podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/flightctl-.*:${TAG}" | grep -v "\-el[0-9]" || true)
-            fi
+            mapfile -t loaded_images < <(podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/flightctl-.*:${FLAVOR}-${TAG}")
             echo "Creating bundle with ${#loaded_images[@]} images:"
             printf '  %s\n' "${loaded_images[@]}"
             if [ ${#loaded_images[@]} -gt 0 ]; then
               podman save --format docker-archive -o "${BUNDLE_FILE}" -m "${loaded_images[@]}"
             else
               echo "Error: No images found matching pattern for flavor $FLAVOR and tag $TAG"
+              echo "Available images:"
+              podman images --format "{{.Repository}}:{{.Tag}}" | grep "flightctl" || true
               exit 1
             fi
           fi
@@ -170,13 +116,7 @@ jobs:
         run: |
           set -euo pipefail
           echo "::group::Listing images in bundle"
-          # Try flavor-in-tag images first (new naming pattern)
-          IMAGES=$(podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/flightctl-.*:${FLAVOR}-${TAG}" | sort || true)
-          # Fallback to non-flavor images (legacy naming) if no flavor-specific images found
-          if [ -z "$IMAGES" ]; then
-            echo "No flavor-in-tag images found, listing legacy naming pattern..."
-            IMAGES=$(podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/flightctl-.*:${TAG}" | grep -v "\-el[0-9]" | sort || true)
-          fi
+          IMAGES=$(podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/flightctl-.*:${FLAVOR}-${TAG}" | sort)
           echo "$IMAGES"
           echo "::endgroup::"
 
