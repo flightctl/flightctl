@@ -55,8 +55,8 @@ FROM ${RUNTIME_IMAGE}
 WORKDIR /app
 LABEL \
   com.redhat.component="flightctl-imagebuilder-worker-container" \
-  description="Flight Control image builder worker service" \
-  io.k8s.description="Flight Control image builder worker service" \
+  description="Flight Control ImageBuilder Worker for processing image build jobs" \
+  io.k8s.description="Flight Control ImageBuilder Worker for processing image build jobs" \
   io.k8s.display-name="Flight Control ImageBuilder Worker" \
   name="flightctl-imagebuilder-worker-el${EL_VERSION}" \
   summary="Flight Control image builder worker service (el${EL_VERSION})" \

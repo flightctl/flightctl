@@ -8,9 +8,6 @@ ARG RUNTIME_IMAGE
 ARG EL_VERSION
 ARG RHEM=false
 
-ARG RHEM=false
-
-
 FROM ${BUILD_IMAGE} as build
 WORKDIR /app
 

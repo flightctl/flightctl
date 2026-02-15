@@ -55,11 +55,11 @@ FROM ${RUNTIME_IMAGE}
 WORKDIR /app
 LABEL \
   com.redhat.component="flightctl-userinfo-proxy-container" \
-  description="Flight Control userinfo proxy service" \
-  io.k8s.description="Flight Control userinfo proxy service" \
+  description="Flight Control UserInfo proxy for Grafana authentication" \
+  io.k8s.description="Flight Control UserInfo proxy for Grafana authentication" \
   io.k8s.display-name="Flight Control UserInfo Proxy" \
   name="flightctl-userinfo-proxy-el${EL_VERSION}" \
-  summary="Flight Control userinfo proxy service (el${EL_VERSION})" \
+  summary="Flight Control UserInfo proxy service (el${EL_VERSION})" \
   os.id="el${EL_VERSION}"
 COPY --from=build /app/bin/flightctl-userinfo-proxy .
 
