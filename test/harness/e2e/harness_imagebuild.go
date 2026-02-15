@@ -11,9 +11,9 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"syscall"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
@@ -39,8 +39,12 @@ var (
 	ErrLogStreamUnexpectedClose = errors.New("log stream closed unexpectedly")
 )
 
-// maxStreamRetries is the number of times to retry a log stream connection on transient errors.
-const maxStreamRetries = 3
+const (
+	// maxStreamRetries is the number of times to retry a log stream connection on transient errors.
+	maxStreamRetries = 3
+	// streamRetryDelay is the delay between log stream retry attempts.
+	streamRetryDelay = 2 * time.Second
+)
 
 // isTransientStreamError returns true if the error is a transient network/TLS error
 // that is likely to succeed on retry (e.g. tls: bad record MAC on long-lived connections).
@@ -511,7 +515,7 @@ func (h *Harness) WaitForImageBuildWithLogs(name string, timeout time.Duration) 
 		if attempt > 0 {
 			GinkgoWriter.Printf("Retrying log stream for ImageBuild %s (attempt %d/%d)\n", name, attempt+1, maxStreamRetries)
 			select {
-			case <-time.After(2 * time.Second):
+			case <-time.After(streamRetryDelay):
 			case <-ctx.Done():
 				return nil, fmt.Errorf("ImageBuild %s: %w: %w", name, ErrLogStreamTimeout, ctx.Err())
 			}
@@ -833,7 +837,7 @@ func (h *Harness) WaitForImageExportWithLogs(name string, timeout time.Duration)
 		if attempt > 0 {
 			GinkgoWriter.Printf("Retrying log stream for ImageExport %s (attempt %d/%d)\n", name, attempt+1, maxStreamRetries)
 			select {
-			case <-time.After(2 * time.Second):
+			case <-time.After(streamRetryDelay):
 			case <-ctx.Done():
 				return nil, fmt.Errorf("ImageExport %s: %w: %w", name, ErrLogStreamTimeout, ctx.Err())
 			}
@@ -1154,63 +1158,65 @@ func (h *Harness) KillImageBuilderWorkerPods() error {
 	return nil
 }
 
-// UpdateImageBuilderWorkerConfig updates the imagebuilder-worker config using the provided
-// modifier function and restarts the worker pods to apply the change.
-func (h *Harness) UpdateImageBuilderWorkerConfig(modifier func(*config.Config)) error {
+// getImageBuilderWorkerConfig reads the current worker config and its configmap from the cluster.
+func (h *Harness) getImageBuilderWorkerConfig() (*config.Config, *corev1.ConfigMap, error) {
 	_, namespace, err := h.getImageBuilderWorkerPods()
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
+
 	configMapName := "flightctl-imagebuilder-worker-config"
-
-	GinkgoWriter.Printf("Updating imagebuilder-worker config in configmap %s/%s\n", namespace, configMapName)
-
-	// Get current configmap using Kubernetes client
 	cm, err := h.Cluster.CoreV1().ConfigMaps(namespace).Get(h.Context, configMapName, metav1.GetOptions{})
 	if err != nil {
-		return fmt.Errorf("failed to get configmap: %w", err)
+		return nil, nil, fmt.Errorf("failed to get configmap: %w", err)
 	}
 
-	// Get the config.yaml data
 	configYAML, ok := cm.Data["config.yaml"]
 	if !ok {
-		return fmt.Errorf("config.yaml not found in configmap %s", configMapName)
+		return nil, nil, fmt.Errorf("config.yaml not found in configmap %s", configMapName)
 	}
 
-	// Print config before change
-	GinkgoWriter.Printf("Config BEFORE change:\n%s\n", configYAML)
-
-	// Parse the YAML config using the shared config type
 	var cfg config.Config
 	if err := yaml.Unmarshal([]byte(configYAML), &cfg); err != nil {
-		return fmt.Errorf("failed to parse config YAML: %w", err)
+		return nil, nil, fmt.Errorf("failed to parse config YAML: %w", err)
 	}
 
-	// Initialize ImageBuilderWorker if nil
 	if cfg.ImageBuilderWorker == nil {
 		cfg.ImageBuilderWorker = config.NewDefaultImageBuilderWorkerConfig()
 	}
 
+	return &cfg, cm, nil
+}
+
+// UpdateImageBuilderWorkerConfig updates the imagebuilder-worker config using the provided
+// modifier function and restarts the worker pods to apply the change.
+func (h *Harness) UpdateImageBuilderWorkerConfig(modifier func(*config.Config)) error {
+	cfg, cm, err := h.getImageBuilderWorkerConfig()
+	if err != nil {
+		return err
+	}
+
+	GinkgoWriter.Printf("Config BEFORE change:\n%+v\n", cfg.ImageBuilderWorker)
+
 	// Apply the modifier function
-	modifier(&cfg)
+	modifier(cfg)
 
 	// Marshal back to YAML
-	updatedConfig, err := yaml.Marshal(&cfg)
+	updatedConfig, err := yaml.Marshal(cfg)
 	if err != nil {
 		return fmt.Errorf("failed to marshal updated config: %w", err)
 	}
 
-	// Print config after change
 	GinkgoWriter.Printf("Config AFTER change:\n%s\n", string(updatedConfig))
 
 	// Update the configmap
 	cm.Data["config.yaml"] = string(updatedConfig)
-	_, err = h.Cluster.CoreV1().ConfigMaps(namespace).Update(h.Context, cm, metav1.UpdateOptions{})
+	_, err = h.Cluster.CoreV1().ConfigMaps(cm.Namespace).Update(h.Context, cm, metav1.UpdateOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to update configmap: %w", err)
 	}
 
-	GinkgoWriter.Printf("Updated configmap %s/%s\n", namespace, configMapName)
+	GinkgoWriter.Printf("Updated configmap %s/%s\n", cm.Namespace, cm.Name)
 
 	// Restart the worker pods to pick up the new config
 	if err := h.KillImageBuilderWorkerPods(); err != nil {
@@ -1224,6 +1230,15 @@ func (h *Harness) UpdateImageBuilderWorkerConfig(modifier func(*config.Config)) 
 
 	GinkgoWriter.Printf("Successfully updated imagebuilder-worker config\n")
 	return nil
+}
+
+// GetMaxConcurrentBuilds reads the current maxConcurrentBuilds value from the worker configmap.
+func (h *Harness) GetMaxConcurrentBuilds() (int, error) {
+	cfg, _, err := h.getImageBuilderWorkerConfig()
+	if err != nil {
+		return 0, err
+	}
+	return cfg.ImageBuilderWorker.MaxConcurrentBuilds, nil
 }
 
 // SetMaxConcurrentBuilds updates the maxConcurrentBuilds setting in the worker config
