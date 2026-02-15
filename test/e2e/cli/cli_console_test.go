@@ -2,6 +2,7 @@ package cli_test
 
 import (
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
@@ -163,9 +164,12 @@ var _ = Describe("CLI - device console", func() {
 		// Get harness directly - no shared package-level variable
 		harness := e2e.GetWorkerHarness()
 
+		expectedRenderedVersion, err := harness.PrepareNextDeviceVersion(deviceID)
+		Expect(err).ToNot(HaveOccurred())
+
 		GinkgoWriter.Printf("Simulating network failure\n")
 		DeferCleanup(func() { _ = harness.FixNetworkFailure() })
-		err := harness.SimulateNetworkFailure()
+		err = harness.SimulateNetworkFailure()
 		Expect(err).ToNot(HaveOccurred())
 
 		_, _, err = harness.WaitForBootstrapAndUpdateToVersion(deviceID, util.DeviceTags.V4)
@@ -196,10 +200,19 @@ var _ = Describe("CLI - device console", func() {
 		err = harness.FixNetworkFailure()
 		Expect(err).ToNot(HaveOccurred())
 
-		GinkgoWriter.Printf("Waiting for the device to finish updating\n")
+		GinkgoWriter.Printf("Waiting for the device to finish updating (renderedVersion >= %d)\n", expectedRenderedVersion)
 		util.EventuallySlow(resources.GetJSONByName[*v1beta1.Device]).
 			WithArguments(harness, resources.Devices, deviceID).
-			Should(WithTransform((*v1beta1.Device).IsUpdatedToDeviceSpec, BeTrue()))
+			Should(WithTransform(func(device *v1beta1.Device) bool {
+				if device == nil || device.Status == nil {
+					return false
+				}
+				renderedVersion, parseErr := strconv.Atoi(device.Status.Config.RenderedVersion)
+				if parseErr != nil {
+					return false
+				}
+				return renderedVersion >= expectedRenderedVersion
+			}, BeTrue()))
 	})
 
 	It("provides console --help and auxiliary features", Label("81866", "sanity", "agent"), func() {
