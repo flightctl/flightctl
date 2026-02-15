@@ -39,28 +39,61 @@ imagebuilderWorker:
   rpmRepoUrl: "https://your-internal-mirror.example.com/flightctl.repo"
 ```
 
-## RHEL Entitlement Certificates
+## RHEL Configuration
 
-If your image builds need to access RHEL subscription-only repositories (e.g., when using RHEL base images or Red Hat packages), you need to provide entitlement certificates.
-
-The ImageBuilder Worker automatically detects entitlement certificates mounted at `/etc/pki/entitlement` and makes them available during builds.
+When running with a RHEL subscription, you can install the `flightctl-agent` package directly from a subscription-managed repository instead of adding an external repo URL.
 
 ### Kubernetes (Helm)
+
+The imagebuilder worker pod needs access to RHEL subscription data. This requires creating secrets from a RHEL host and mounting them into the pod.
+
+> **Important**: The RHSM CA certificate (`/etc/rhsm/ca/redhat-uep.pem`) is required for `dnf` to verify the SSL certificate of `cdn.redhat.com`. It is provided via a dedicated `rhsmCaSecretName` secret mounted at `/etc/rhsm/ca`.
+
+#### Preparing the yum repo configuration
+
+Before creating the `rhel-yum-repos` secret, the `redhat.repo` file must be sanitized. The host's `/etc/yum.repos.d/redhat.repo` contains subscription-specific entitlement certificate paths (e.g., `/etc/pki/entitlement/1234567890-key.pem`) that will not match the file names once mounted inside the pod.
+
+Replace all entitlement key/cert paths with the generic names used by the mounted secret:
+
+```bash
+# Create a working copy
+cp /etc/yum.repos.d/redhat.repo /tmp/redhat.repo
+
+# Replace host-specific entitlement cert paths with generic names
+sed -i \
+  -e 's|/etc/pki/entitlement/[0-9]*-key.pem|/etc/pki/entitlement/entitlement-key.pem|g' \
+  -e 's|/etc/pki/entitlement/[0-9]*.pem|/etc/pki/entitlement/entitlement.pem|g' \
+  /tmp/redhat.repo
+```
+
+Use this sanitized file when creating the `rhel-yum-repos` secret below.
 
 #### On OpenShift
 
 OpenShift clusters with RHEL entitlements have certificates available in the `etc-pki-entitlement` secret in the `openshift-config-managed` namespace.
 
-##### Step 1: Copy the entitlement secret to your namespace
+##### Step 1: Create the required secrets
 
 ```bash
-# Get the current namespace
-NAMESPACE=$(kubectl config view --minify -o jsonpath='{..namespace}')
+# Set the flightctl release namespace
+NAMESPACE=flightctl
 
-# Copy the secret
-kubectl get secret etc-pki-entitlement -n openshift-config-managed -o yaml | \
+# Copy the entitlement secret from OpenShift
+oc get secret etc-pki-entitlement -n openshift-config-managed -o yaml | \
   sed "s/namespace: openshift-config-managed/namespace: ${NAMESPACE}/" | \
-  kubectl apply -f -
+  oc apply -f -
+
+# Create secret for yum repos (using sanitized redhat.repo from the step above)
+oc create secret generic rhel-yum-repos -n ${NAMESPACE} \
+  --from-file=redhat.repo=/tmp/redhat.repo
+
+# Create secret for subscription manager config
+oc create secret generic rhel-rhsm -n ${NAMESPACE} \
+  --from-file=/etc/rhsm/
+
+# Create secret for RHSM CA certificates
+oc create secret generic rhel-rhsm-ca -n ${NAMESPACE} \
+  --from-file=/etc/rhsm/ca/
 ```
 
 ##### Step 2: Configure the Helm chart
@@ -68,24 +101,33 @@ kubectl get secret etc-pki-entitlement -n openshift-config-managed -o yaml | \
 ```yaml
 imageBuilderWorker:
   entitlementCertsSecretName: "etc-pki-entitlement"
+  yumReposSecretName: "rhel-yum-repos"
+  rhsmSecretName: "rhel-rhsm"
+  rhsmCaSecretName: "rhel-rhsm-ca"
+  rpmRepoAdd: false
+  rpmRepoEnable: "edge-manager-1.0-for-rhel-9-x86_64-rpms"
 ```
 
 #### On Other Kubernetes Distributions
 
-##### Step 1: Create a secret from your entitlement certificates
+##### Step 1: Create the required secrets from a RHEL host
 
 ```bash
 # From a RHEL host with active subscription
 kubectl create secret generic rhel-entitlement \
   --from-file=/etc/pki/entitlement/
-```
 
-Or create the secret from individual certificate files:
+# Create secret for yum repos (using sanitized redhat.repo from the preparation step above)
+kubectl create secret generic rhel-yum-repos \
+  --from-file=redhat.repo=/tmp/redhat.repo
 
-```bash
-kubectl create secret generic rhel-entitlement \
-  --from-file=entitlement.pem=/path/to/entitlement.pem \
-  --from-file=entitlement-key.pem=/path/to/entitlement-key.pem
+# Create secret for subscription manager config
+kubectl create secret generic rhel-rhsm \
+  --from-file=/etc/rhsm/
+
+# Create secret for RHSM CA certificates
+kubectl create secret generic rhel-rhsm-ca \
+  --from-file=/etc/rhsm/ca/
 ```
 
 ##### Step 2: Configure the Helm chart
@@ -93,25 +135,47 @@ kubectl create secret generic rhel-entitlement \
 ```yaml
 imageBuilderWorker:
   entitlementCertsSecretName: "rhel-entitlement"
+  yumReposSecretName: "rhel-yum-repos"
+  rhsmSecretName: "rhel-rhsm"
+  rhsmCaSecretName: "rhel-rhsm-ca"
+  rpmRepoAdd: false
+  rpmRepoEnable: "edge-manager-1.0-for-rhel-9-x86_64-rpms"
 ```
+
+- `rpmRepoAdd: false` disables the `rpmRepoAddUrl` step, which is not required since the pod has the relevant repositories mounted from the host.
+- `rpmRepoEnable` tells `dnf install` to enable the specified subscription-managed repository via `--enablerepo`.
 
 ### Podman Quadlet
 
-On RHEL hosts with an active subscription, the entitlement certificates are already available at `/etc/pki/entitlement`.
+#### Step 1: Mount host subscription data
 
-#### Step 1: Enable the volume mount
-
-Edit `/etc/flightctl/flightctl-imagebuilder-worker/flightctl-imagebuilder-worker.container` and uncomment the entitlement volume line:
+Edit `/usr/share/containers/systemd/flightctl-imagebuilder-worker.container` and add the following volume mounts:
 
 ```ini
 [Container]
 # ... other settings ...
 Volume=/etc/pki/entitlement:/etc/pki/entitlement:ro,z
+Volume=/etc/yum.repos.d:/etc/yum.repos.d:ro,z
+Volume=/etc/rhsm/:/etc/rhsm/:ro,z
 ```
 
-#### Step 2: Restart the service
+#### Step 2: Configure RPM repository settings
+
+Edit `/etc/flightctl/service-config.yaml`:
+
+```yaml
+imagebuilderWorker:
+  rpmRepoAdd: false
+  rpmRepoEnable: "edge-manager-1.0-for-rhel-9-x86_64-rpms"
+```
+
+- `rpmRepoAdd: false` disables the `rpmRepoAddUrl` step, which is not required since the host running the flightctl services is expected to already have the relevant repositories configured.
+- `rpmRepoEnable` tells `dnf install` to enable the specified subscription-managed repository via `--enablerepo`.
+
+#### Step 3: Restart the service
 
 ```bash
+sudo systemctl daemon-reload
 sudo systemctl restart flightctl-imagebuilder-worker.service
 ```
 
@@ -123,7 +187,12 @@ sudo systemctl restart flightctl-imagebuilder-worker.service
 |-----------|------|---------|-------------|
 | `imageBuilderWorker.enabled` | bool | `true` | Enable ImageBuilder Worker service |
 | `imageBuilderWorker.rpmRepoUrl` | string | `""` | Custom RPM repository URL for flightctl-agent package. If empty, uses the default public repository. |
-| `imageBuilderWorker.entitlementCertsSecretName` | string | `""` | Kubernetes secret containing RHEL entitlement certificates. The secret contents are mounted at `/etc/pki/entitlement`. |
+| `imageBuilderWorker.rpmRepoAdd` | bool | `true` | Whether to add the RPM repository via `dnf config-manager --add-repo`. Set to `false` for downstream/subscription-managed repos. |
+| `imageBuilderWorker.rpmRepoEnable` | string | `""` | RPM repository name to enable via `--enablerepo` during `dnf install`. Only used if non-empty. |
+| `imageBuilderWorker.entitlementCertsSecretName` | string | `""` | Kubernetes secret containing RHEL entitlement certificates, mounted at `/etc/pki/entitlement`. |
+| `imageBuilderWorker.yumReposSecretName` | string | `""` | Kubernetes secret containing yum repository configuration files, mounted at `/etc/yum.repos.d`. |
+| `imageBuilderWorker.rhsmSecretName` | string | `""` | Kubernetes secret containing RHEL subscription manager configuration, mounted at `/etc/rhsm`. |
+| `imageBuilderWorker.rhsmCaSecretName` | string | `""` | Kubernetes secret containing RHSM CA certificates (e.g., `redhat-uep.pem`), mounted at `/etc/rhsm/ca`. Required for `dnf` to verify the SSL certificate of `cdn.redhat.com`. |
 | `imageBuilderWorker.logLevel` | string | `"info"` | Log level for the worker |
 | `imageBuilderWorker.maxConcurrentBuilds` | int | `2` | Maximum number of concurrent image builds |
 | `imageBuilderWorker.defaultTTL` | string | `"168h"` | Default time-to-live for build resources |
@@ -138,7 +207,9 @@ imagebuilderWorker:
   logLevel: info
   maxConcurrentBuilds: 2
   defaultTTL: 168h
-  rpmRepoUrl: ""  # Custom RPM repository URL (optional)
+  rpmRepoUrl: ""      # Custom RPM repository URL (optional)
+  rpmRepoAdd: true    # Set to false for downstream/subscription-managed repos
+  rpmRepoEnable: ""   # RPM repo name for --enablerepo (optional)
 ```
 
 ## Troubleshooting

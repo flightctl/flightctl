@@ -290,15 +290,34 @@ type containerfileBuildArgs struct {
 	AgentConfigDestPath string
 	Username            string
 	HasUserConfig       bool
-	RPMRepoURL          string
+	RPMRepoAdd          bool
+	RPMRepoAddURL       string
+	RPMRepoEnable       string
 }
 
-// getRPMRepoURL returns the RPM repo URL from config, falling back to default if not configured
-func (c *Consumer) getRPMRepoURL() string {
+// getRPMRepoAdd returns whether to add the RPM repo via dnf config-manager --add-repo.
+// Defaults to true (upstream behavior) when not explicitly configured.
+func (c *Consumer) getRPMRepoAdd() bool {
+	if c.cfg != nil && c.cfg.ImageBuilderWorker != nil && c.cfg.ImageBuilderWorker.RPMRepoAdd != nil {
+		return *c.cfg.ImageBuilderWorker.RPMRepoAdd
+	}
+	return true
+}
+
+// getRPMRepoAddURL returns the RPM repo URL to add, falling back to default if not configured
+func (c *Consumer) getRPMRepoAddURL() string {
 	if c.cfg != nil && c.cfg.ImageBuilderWorker != nil && c.cfg.ImageBuilderWorker.RPMRepoURL != "" {
 		return c.cfg.ImageBuilderWorker.RPMRepoURL
 	}
 	return config.NewDefaultImageBuilderWorkerConfig().RPMRepoURL
+}
+
+// getRPMRepoEnable returns the RPM repo name to enable via --enablerepo, or empty string
+func (c *Consumer) getRPMRepoEnable() string {
+	if c.cfg != nil && c.cfg.ImageBuilderWorker != nil {
+		return c.cfg.ImageBuilderWorker.RPMRepoEnable
+	}
+	return ""
 }
 
 // EnrollmentCredentialGenerator is an interface for generating enrollment credentials
@@ -407,7 +426,9 @@ func (c *Consumer) generateContainerfileWithGenerator(
 		EarlyBinding:        isEarlyBinding,
 		AgentConfigDestPath: agentConfigPath,
 		HasUserConfig:       hasUserConfig,
-		RPMRepoURL:          c.getRPMRepoURL(),
+		RPMRepoAdd:          c.getRPMRepoAdd(),
+		RPMRepoAddURL:       c.getRPMRepoAddURL(),
+		RPMRepoEnable:       c.getRPMRepoEnable(),
 	}
 
 	result := &ContainerfileResult{
@@ -917,7 +938,9 @@ func (c *Consumer) buildImageWithPodman(
 		"--build-arg", fmt.Sprintf("HAS_USER_CONFIG=%t", args.HasUserConfig),
 		"--build-arg", fmt.Sprintf("USERNAME=%s", args.Username),
 		"--build-arg", fmt.Sprintf("AGENT_CONFIG_DEST_PATH=%s", args.AgentConfigDestPath),
-		"--build-arg", fmt.Sprintf("RPM_REPO_URL=%s", args.RPMRepoURL),
+		"--build-arg", fmt.Sprintf("RPM_REPO_ADD=%t", args.RPMRepoAdd),
+		"--build-arg", fmt.Sprintf("RPM_REPO_ADD_URL=%s", args.RPMRepoAddURL),
+		"--build-arg", fmt.Sprintf("RPM_REPO_ENABLE=%s", args.RPMRepoEnable),
 	)
 
 	// Mount entitlement certs into the build if available (for RHEL subscription repos)
