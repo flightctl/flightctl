@@ -140,10 +140,21 @@ jobs:
           else
             echo "bundle-images target not found, falling back to direct save"
             echo "Getting list of loaded flightctl images with flavor $FLAVOR and tag: $TAG"
+            # Try flavor-specific images first (new naming)
             mapfile -t loaded_images < <(podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/flightctl-.*-${FLAVOR}:${TAG}")
+            # Fallback to non-flavor images (legacy naming) if no flavor-specific images found
+            if [ ${#loaded_images[@]} -eq 0 ]; then
+              echo "No flavor-specific images found, trying legacy naming pattern..."
+              mapfile -t loaded_images < <(podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/flightctl-.*:${TAG}" | grep -v -- "-el[0-9]")
+            fi
             echo "Creating bundle with ${#loaded_images[@]} images:"
             printf '  %s\n' "${loaded_images[@]}"
-            podman save --format docker-archive -o "${BUNDLE_FILE}" -m "${loaded_images[@]}"
+            if [ ${#loaded_images[@]} -gt 0 ]; then
+              podman save --format docker-archive -o "${BUNDLE_FILE}" -m "${loaded_images[@]}"
+            else
+              echo "Error: No images found matching pattern for flavor $FLAVOR and tag $TAG"
+              exit 1
+            fi
           fi
 
           echo "Bundle created: $(ls -lh ${BUNDLE_FILE})"
@@ -159,7 +170,13 @@ jobs:
         run: |
           set -euo pipefail
           echo "::group::Listing images in bundle"
+          # Try flavor-specific images first (new naming)
           IMAGES=$(podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/flightctl-.*-${FLAVOR}:${TAG}" | sort)
+          # Fallback to non-flavor images (legacy naming) if no flavor-specific images found
+          if [ -z "$IMAGES" ]; then
+            echo "No flavor-specific images found, listing legacy naming pattern..."
+            IMAGES=$(podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/flightctl-.*:${TAG}" | grep -v -- "-el[0-9]" | sort)
+          fi
           echo "$IMAGES"
           echo "::endgroup::"
 
