@@ -193,12 +193,23 @@ jobs:
           merge-multiple: true
 
       - name: "[HEAD] Load images"
+        env:
+          PR_GIT_TAG: ${{ needs.build-pr.outputs.git_tag }}
         run: |
           set -euo pipefail
           echo "Loading PR branch backend images into kind"
-          kind load image-archive artifacts-pr/flightctl-images-bundle.tar
+          # Image bundle file (artifact name is flavor-specific, but file inside is fixed)
+          BUNDLE_FILE="artifacts-pr/flightctl-images-bundle.tar"
+          if [[ ! -f "$BUNDLE_FILE" ]]; then
+            echo "Image bundle not found at $BUNDLE_FILE. Available files:"
+            find artifacts-pr -name "*.tar" || true
+            ls -la artifacts-pr/
+            exit 1
+          fi
+          echo "Using bundle file: $BUNDLE_FILE"
+          kind load image-archive "${BUNDLE_FILE}"
           echo "PR images loaded successfully"
-          rm -f artifacts-pr/flightctl-images-bundle.tar
+          rm -f "${BUNDLE_FILE}"
 
       - name: "[HEAD] Download CLI"
         uses: actions/download-artifact@v4
@@ -214,9 +225,19 @@ jobs:
           bin-pr/flightctl version
 
       - name: "[HEAD] Helm diff"
+        env:
+          PR_GIT_TAG: ${{ needs.build-pr.outputs.git_tag }}
         run: |
           set -euo pipefail
+          # Find the chart file (artifact name is flavor-specific, but file inside is fixed)
           CHART_FILE="artifacts-pr/flightctl-chart.tgz"
+          if [[ ! -f "$CHART_FILE" ]]; then
+            echo "Chart file not found at $CHART_FILE. Available files:"
+            find artifacts-pr -name "*.tgz" || true
+            ls -la artifacts-pr/
+            exit 1
+          fi
+          echo "Using chart file: $CHART_FILE"
           helm diff upgrade flightctl "${CHART_FILE}" \
             --namespace flightctl-external \
             --reuse-values \
@@ -236,7 +257,15 @@ jobs:
         env:
           PR_GIT_TAG: ${{ needs.build-pr.outputs.git_tag }}
         run: |
+          # Chart file (artifact name is flavor-specific, but file inside is fixed)
           CHART_FILE="artifacts-pr/flightctl-chart.tgz"
+          if [[ ! -f "$CHART_FILE" ]]; then
+            echo "Chart file not found at $CHART_FILE. Available files:"
+            find artifacts-pr -name "*.tgz" || true
+            ls -la artifacts-pr/
+            exit 1
+          fi
+          echo "Using chart file: $CHART_FILE"
           # Use flavor-in-tag approach (matching base image pattern)
           echo "=== Starting helm upgrade ==="
           helm upgrade flightctl "${CHART_FILE}" \
@@ -325,7 +354,15 @@ jobs:
         env:
           PR_GIT_TAG: ${{ needs.build-pr.outputs.git_tag }}
         run: |
+          # Chart file (artifact name is flavor-specific, but file inside is fixed)
           CHART_FILE="artifacts-pr/flightctl-chart.tgz"
+          if [[ ! -f "$CHART_FILE" ]]; then
+            echo "Chart file not found at $CHART_FILE. Available files:"
+            find artifacts-pr -name "*.tgz" || true
+            ls -la artifacts-pr/
+            exit 1
+          fi
+          echo "Using chart file: $CHART_FILE"
 
           helm upgrade flightctl "${CHART_FILE}" \
             --namespace flightctl-external \
