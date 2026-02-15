@@ -224,6 +224,14 @@ jobs:
             --output=dyff \
             --debug
 
+      - name: "[HEAD] Show cluster state before upgrade"
+        run: |
+          echo "=== Pre-upgrade cluster state ==="
+          kubectl get pods --all-namespaces --show-labels | grep -E "(flightctl|cert-generator|upgrade)" || echo "No matching pods"
+          kubectl get jobs --all-namespaces --show-labels | grep -E "(flightctl|cert-generator|upgrade)" || echo "No matching jobs"
+          kubectl get serviceaccounts --all-namespaces | grep -E "(flightctl|cert-generator|upgrade)" || echo "No matching serviceaccounts"
+          echo "=== End pre-upgrade state ==="
+
       - name: "[HEAD] Helm upgrade"
         env:
           PR_GIT_TAG: ${{ needs.build-pr.outputs.git_tag }}
@@ -231,6 +239,7 @@ jobs:
           CHART_FILE="artifacts-pr/flightctl-chart.tgz"
           # Use values files with image overrides
           # Explicitly set dbSetup image tag to ensure init containers use correct image
+          echo "=== Starting helm upgrade ==="
           helm upgrade flightctl "${CHART_FILE}" \
             --namespace flightctl-external \
             --reuse-values \
@@ -238,6 +247,17 @@ jobs:
             --set dbSetup.image.tag="${PR_GIT_TAG}" \
             --timeout 20m \
             --debug --wait # for the deployment complete (including readiness probes passing)
+
+      - name: "[HEAD] Show cluster state after failed upgrade"
+        if: failure()
+        run: |
+          echo "=== Post-failure cluster state ==="
+          kubectl get pods --all-namespaces --show-labels | grep -E "(flightctl|cert-generator|upgrade)" || echo "No matching pods"
+          kubectl get jobs --all-namespaces --show-labels | grep -E "(flightctl|cert-generator|upgrade)" || echo "No matching jobs"
+          kubectl describe jobs --all-namespaces | grep -A30 -B5 -E "(flightctl|cert-generator|upgrade)" || echo "No job details"
+          echo "=== Checking for stuck resources ==="
+          kubectl get events --all-namespaces --sort-by='.lastTimestamp' | tail -20
+          echo "=== End post-failure state ==="
 
       - name: "[HEAD] Wait for API readiness after upgrade"
         uses: ./.github/actions/wait-for-api-readiness
