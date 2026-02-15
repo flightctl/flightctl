@@ -382,9 +382,9 @@ clusterCli:
 # -- Database Setup Configuration
 dbSetup:
   image:
-    # -- Database setup container image
-    image: quay.io/flightctl/flightctl-db-setup-el9
-    # -- Database setup image tag
+    # -- Database setup container image (flavor specified in tag)
+    image: quay.io/flightctl/flightctl-db-setup
+    # -- Database setup image tag (includes flavor prefix, e.g., "el9-v1.0.0")
     tag: ""
     # -- Image pull policy for database setup container
     pullPolicy: ""
