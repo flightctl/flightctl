@@ -266,9 +266,20 @@ jobs:
             exit 1
           fi
           echo "Using chart file: $CHART_FILE"
-          # Use flavor-in-tag approach (matching base image pattern)
-          IMAGE_TAG="el9-${PR_GIT_TAG}"
-          echo "=== Starting helm upgrade ==="
+
+          # Auto-detect if flavor-prefixed images exist (same logic as deploy-backend-with-helm action)
+          BASELINE_TAG="${PR_GIT_TAG}"
+          FLAVOR_TAG="el9-${BASELINE_TAG}"
+
+          # Check if flavor-prefixed images exist by looking for API image (always present)
+          if docker exec kind-control-plane crictl images | grep -q "flightctl-api.*:${FLAVOR_TAG}"; then
+            echo "Found flavor-prefixed images, using: ${FLAVOR_TAG}"
+            IMAGE_TAG="${FLAVOR_TAG}"
+          else
+            echo "No flavor-prefixed images found, using baseline tag: ${BASELINE_TAG}"
+            IMAGE_TAG="${BASELINE_TAG}"
+          fi
+          echo "=== Starting helm upgrade with image tag: ${IMAGE_TAG} ==="
           helm upgrade flightctl "${CHART_FILE}" \
             --namespace flightctl-external \
             --reuse-values \
