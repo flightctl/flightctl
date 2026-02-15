@@ -1,0 +1,146 @@
+// Dark/light theme: user preference > system preference
+var ThemeManager = (function() {
+    var DARK_CLASS = 'pf-v6-theme-dark';
+    var STORAGE_KEY = 'flightctl/theme';
+    var mq = window.matchMedia('(prefers-color-scheme: dark)');
+
+    function isDark() {
+        return document.documentElement.classList.contains(DARK_CLASS);
+    }
+
+    function applyTheme(dark) {
+        if (dark) {
+            document.documentElement.classList.add(DARK_CLASS);
+        } else {
+            document.documentElement.classList.remove(DARK_CLASS);
+        }
+        updateToggleIcon();
+    }
+
+    function getResolvedTheme() {
+        try {
+            var stored = localStorage.getItem(STORAGE_KEY);
+            if (stored === 'dark') return true;
+            if (stored === 'light') return false;
+        } catch (e) { /* SecurityError - storage unavailable */ }
+        return mq.matches;
+    }
+
+    function toggle() {
+        var nowDark = !isDark();
+        try { localStorage.setItem(STORAGE_KEY, nowDark ? 'dark' : 'light'); } catch (e) { /* ignore */ }
+        applyTheme(nowDark);
+    }
+
+    function updateToggleIcon() {
+        var btn = document.getElementById('theme-toggle');
+        if (!btn) return;
+        // Show sun icon in dark mode (click to go light), moon icon in light mode (click to go dark)
+        if (isDark()) {
+            btn.setAttribute('aria-label', 'Switch to light theme');
+            btn.innerHTML = '<svg class="pf-v6-svg" viewBox="0 0 512 512" fill="currentColor" aria-hidden="true"><path d="M256 160c-52.9 0-96 43.1-96 96s43.1 96 96 96 96-43.1 96-96-43.1-96-96-96zm246.4 80.5l-94.7-47.3 33.5-100.4c4.5-13.6-8.4-26.5-21.9-21.9l-100.4 33.5-47.4-94.8c-6.4-12.8-24.6-12.8-31 0l-47.3 94.7L92.7 70.8c-13.6-4.5-26.5 8.4-21.9 21.9l33.5 100.4-94.7 47.4c-12.8 6.4-12.8 24.6 0 31l94.7 47.3-33.5 100.5c-4.5 13.6 8.4 26.5 21.9 21.9l100.4-33.5 47.3 94.7c6.4 12.8 24.6 12.8 31 0l47.3-94.7 100.4 33.5c13.6 4.5 26.5-8.4 21.9-21.9l-33.5-100.4 94.7-47.3c12.8-6.4 12.8-24.6 0-31z"/></svg>';
+        } else {
+            btn.setAttribute('aria-label', 'Switch to dark theme');
+            btn.innerHTML = '<svg class="pf-v6-svg" viewBox="0 0 512 512" fill="currentColor" aria-hidden="true"><path d="M283.211 512c78.962 0 151.079-35.925 198.857-94.792 7.068-8.708-.639-21.43-11.562-19.35-124.203 23.654-238.262-71.576-238.262-196.954 0-72.222 38.662-138.635 101.498-174.394 9.686-5.512 7.25-20.197-3.756-22.23A258.156 258.156 0 0 0 283.211 0c-141.309 0-256 114.511-256 256 0 141.309 114.511 256 256 256z"/></svg>';
+        }
+    }
+
+    // Apply initial theme
+    applyTheme(getResolvedTheme());
+
+    // Listen for system preference changes (only applies when user hasn't set a manual preference)
+    mq.addEventListener('change', function(e) {
+        var stored;
+        try { stored = localStorage.getItem(STORAGE_KEY); } catch (err) { /* ignore */ }
+        if (!stored || stored === 'system') {
+            applyTheme(e.matches);
+        }
+    });
+
+    return { toggle: toggle, updateToggleIcon: updateToggleIcon };
+})();
+
+function handleSubmit(event) {
+    event.preventDefault();
+    var form = event.target;
+    var formData = new FormData(form);
+
+    // Hide any previous error
+    var alertDiv = document.getElementById('login-error');
+    alertDiv.classList.add('login-hidden');
+
+    // Show loading state
+    var button = form.querySelector('button[type="submit"]');
+    var originalText = button.textContent;
+    button.textContent = 'Logging in...';
+    button.disabled = true;
+    button.classList.add('pf-m-in-progress');
+
+    // Convert FormData to URLSearchParams for application/x-www-form-urlencoded
+    var params = new URLSearchParams(formData);
+
+    // Submit form data
+    fetch('/api/v1/auth/login', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded'
+        },
+        body: params
+    })
+    .then(function(response) {
+        return response.text().then(function(text) {
+            return { ok: response.ok, text: text };
+        });
+    })
+    .then(function(result) {
+        if (result.ok) {
+            // Successful login - redirect to the URL
+            window.location.href = result.text;
+        } else {
+            // Failed login - show error message from server
+            var errorMessage = result.text;
+            try {
+                var errorJson = JSON.parse(result.text);
+                if (errorJson.error_description) {
+                    errorMessage = errorJson.error_description;
+                } else if (errorJson.error) {
+                    errorMessage = errorJson.error;
+                }
+            } catch (e) {
+                // Not JSON, use text as-is
+            }
+            showError(errorMessage);
+        }
+    })
+    .catch(function() {
+        showError('Login failed. Please check your credentials.');
+    })
+    .finally(function() {
+        button.textContent = originalText;
+        button.disabled = false;
+        button.classList.remove('pf-m-in-progress');
+    });
+}
+
+function showError(message) {
+    var alertDiv = document.getElementById('login-error');
+    var alertMsg = document.getElementById('login-error-message');
+    alertMsg.textContent = message;
+    alertDiv.classList.remove('login-hidden');
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    ThemeManager.updateToggleIcon();
+
+    var form = document.querySelector('.pf-v6-c-form');
+    if (form) {
+        form.addEventListener('submit', handleSubmit);
+    }
+
+    var themeToggle = document.getElementById('theme-toggle');
+    if (themeToggle) {
+        themeToggle.addEventListener('click', function() {
+            ThemeManager.toggle();
+        });
+    }
+});

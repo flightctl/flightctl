@@ -199,8 +199,8 @@ func extractOrgIDFromRequestCert(ctx context.Context, r *http.Request) (uuid.UUI
 const (
 	// StrictCSP is the strictest CSP for JSON-only API servers.
 	StrictCSP = "default-src 'none'; frame-ancestors 'none'"
-	// PAMIssuerCSP allows the inline scripts/styles and assets needed by the login page.
-	PAMIssuerCSP = "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'self'"
+	// PAMIssuerCSP allows the scripts, styles, and assets needed by the login page.
+	PAMIssuerCSP = "default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'self'"
 )
 
 // SecurityHeaders adds security headers to all HTTP responses.

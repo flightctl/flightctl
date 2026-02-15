@@ -160,6 +160,8 @@ func (s *Server) Run(ctx context.Context) error {
 	// Static assets for login UI -- rate limited, but bypass OpenAPI validation
 	router.Get("/auth/assets/patternfly.min.css", handler.ServePatternFlyCSS)
 	router.Get("/auth/assets/flight-control-logo.svg", handler.ServeFlightControlLogo)
+	router.Get("/auth/assets/login.js", handler.ServeLoginJS)
+	router.Get("/auth/assets/login.css", handler.ServeLoginCSS)
 
 	// API routes with OpenAPI validation
 	router.Group(func(r chi.Router) {
