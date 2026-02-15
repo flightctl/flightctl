@@ -110,22 +110,26 @@ jobs:
           echo "Downloaded test artifacts:"
           tree test-artifacts
 
-          # Stage agent bundle
+          # Stage agent bundle (fix path - artifact contains the file with bin/agent-artifacts prefix)
           mkdir -p bin/agent-artifacts
-          if [ ! -f "test-artifacts/agent-images-bundle-${{ inputs.os_id }}.tar" ]; then
-            echo "ERROR: Agent bundle not found"
+          if [ ! -f "test-artifacts/bin/agent-artifacts/agent-images-bundle-${{ inputs.os_id }}.tar" ]; then
+            echo "ERROR: Agent bundle not found at expected path"
+            echo "Available files:"
+            find test-artifacts -name "*.tar" || true
             exit 1
           fi
-          mv "test-artifacts/agent-images-bundle-${{ inputs.os_id }}.tar" bin/agent-artifacts/
+          mv "test-artifacts/bin/agent-artifacts/agent-images-bundle-${{ inputs.os_id }}.tar" bin/agent-artifacts/
           echo "✓ Agent bundle: bin/agent-artifacts/agent-images-bundle-${{ inputs.os_id }}.tar"
 
-          # Stage qcow2
+          # Stage qcow2 (fix path - artifact contains the file with bin/output/qcow2 prefix)
           mkdir -p bin/output/qcow2
-          if [ ! -f "test-artifacts/disk.qcow2" ]; then
-            echo "ERROR: QCOW2 image not found"
+          if [ ! -f "test-artifacts/bin/output/qcow2/disk.qcow2" ]; then
+            echo "ERROR: QCOW2 image not found at expected path"
+            echo "Available files:"
+            find test-artifacts -name "*.qcow2" || true
             exit 1
           fi
-          mv "test-artifacts/disk.qcow2" bin/output/qcow2/
+          mv "test-artifacts/bin/output/qcow2/disk.qcow2" bin/output/qcow2/
           echo "✓ QCOW2 image: bin/output/qcow2/disk.qcow2"
 
           # Cleanup
