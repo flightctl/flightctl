@@ -33,3 +33,9 @@ imageBuilderWorker:
   {{- if .imagebuilderWorker.rpmRepoUrl}}
   rpmRepoUrl: {{.imagebuilderWorker.rpmRepoUrl}}
   {{- end}}
+  {{- if or (eq (printf "%v" .imagebuilderWorker.rpmRepoAdd) "true") (eq (printf "%v" .imagebuilderWorker.rpmRepoAdd) "false")}}
+  rpmRepoAdd: {{.imagebuilderWorker.rpmRepoAdd}}
+  {{- end}}
+  {{- if .imagebuilderWorker.rpmRepoEnable}}
+  rpmRepoEnable: {{.imagebuilderWorker.rpmRepoEnable}}
+  {{- end}}
