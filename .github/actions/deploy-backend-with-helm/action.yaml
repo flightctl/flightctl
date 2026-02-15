@@ -154,18 +154,29 @@ runs:
         for f in ${ADDITIONAL_VALUES_FILES}; do [ -f "$f" ] && EXTRA_ARGS+=" --values $f"; done
         [ -n "${AUTH_TYPE}" ] && EXTRA_ARGS+=" --set global.auth.type=${AUTH_TYPE}"
 
-        # Set flavor-prefixed tags for all services (new approach: flavor-in-tag)
-        FLAVOR_TAG="${{ inputs.flavor }}-${{ steps.compute-tags.outputs.git_tag }}"
-        EXTRA_ARGS+=" --set dbSetup.image.tag=${FLAVOR_TAG}"
-        EXTRA_ARGS+=" --set api.image.tag=${FLAVOR_TAG}"
-        EXTRA_ARGS+=" --set worker.image.tag=${FLAVOR_TAG}"
-        EXTRA_ARGS+=" --set periodic.image.tag=${FLAVOR_TAG}"
-        EXTRA_ARGS+=" --set alertExporter.image.tag=${FLAVOR_TAG}"
-        EXTRA_ARGS+=" --set alertmanagerProxy.image.tag=${FLAVOR_TAG}"
-        EXTRA_ARGS+=" --set cliArtifacts.image.tag=${FLAVOR_TAG}"
-        EXTRA_ARGS+=" --set telemetryGateway.image.tag=${FLAVOR_TAG}"
-        EXTRA_ARGS+=" --set imageBuilderApi.image.tag=${FLAVOR_TAG}"
-        EXTRA_ARGS+=" --set imageBuilderWorker.image.tag=${FLAVOR_TAG}"
+        # Detect if images have flavor prefixes and set tags accordingly
+        BASELINE_TAG="${{ steps.compute-tags.outputs.git_tag }}"
+        FLAVOR_TAG="${{ inputs.flavor }}-${BASELINE_TAG}"
+
+        # Check if flavor-prefixed images exist by looking for API image (always present)
+        if docker exec kind-control-plane crictl images | grep -q "flightctl-api.*:${FLAVOR_TAG}"; then
+          echo "Found flavor-prefixed images, using: ${FLAVOR_TAG}"
+          IMAGE_TAG="${FLAVOR_TAG}"
+        else
+          echo "No flavor-prefixed images found, using baseline tag: ${BASELINE_TAG}"
+          IMAGE_TAG="${BASELINE_TAG}"
+        fi
+
+        EXTRA_ARGS+=" --set dbSetup.image.tag=${IMAGE_TAG}"
+        EXTRA_ARGS+=" --set api.image.tag=${IMAGE_TAG}"
+        EXTRA_ARGS+=" --set worker.image.tag=${IMAGE_TAG}"
+        EXTRA_ARGS+=" --set periodic.image.tag=${IMAGE_TAG}"
+        EXTRA_ARGS+=" --set alertExporter.image.tag=${IMAGE_TAG}"
+        EXTRA_ARGS+=" --set alertmanagerProxy.image.tag=${IMAGE_TAG}"
+        EXTRA_ARGS+=" --set cliArtifacts.image.tag=${IMAGE_TAG}"
+        EXTRA_ARGS+=" --set telemetryGateway.image.tag=${IMAGE_TAG}"
+        EXTRA_ARGS+=" --set imageBuilderApi.image.tag=${IMAGE_TAG}"
+        EXTRA_ARGS+=" --set imageBuilderWorker.image.tag=${IMAGE_TAG}"
 
         # Build the helm command
         HELM_CMD="helm install flightctl artifacts/flightctl-chart.tgz"
@@ -218,12 +229,19 @@ runs:
         echo "Available images in kind:"
         docker exec kind-control-plane crictl images | grep flightctl || echo "No flightctl images found"
         echo ""
-        echo "Image references being used by helm:"
-        EXPECTED_TAG="${{ inputs.flavor }}-${{ steps.compute-tags.outputs.git_tag }}"
-        echo "- Expected flavor tag: ${EXPECTED_TAG}"
-        echo "- api.image.tag=${EXPECTED_TAG}"
-        echo "- alertExporter.image.tag=${EXPECTED_TAG}"
-        echo "- worker.image.tag=${EXPECTED_TAG}"
+        echo "Image tag detection results:"
+        BASELINE_TAG="${{ steps.compute-tags.outputs.git_tag }}"
+        FLAVOR_TAG="${{ inputs.flavor }}-${BASELINE_TAG}"
+        echo "- Baseline tag: ${BASELINE_TAG}"
+        echo "- Flavor tag: ${FLAVOR_TAG}"
+        if docker exec kind-control-plane crictl images | grep -q "flightctl-api.*:${FLAVOR_TAG}"; then
+          echo "- Detection: Found flavor-prefixed images, using ${FLAVOR_TAG}"
+          USED_TAG="${FLAVOR_TAG}"
+        else
+          echo "- Detection: No flavor-prefixed images found, using ${BASELINE_TAG}"
+          USED_TAG="${BASELINE_TAG}"
+        fi
+        echo "- Final image tags: api.image.tag=${USED_TAG}"
         echo ""
         echo "Helm release status:"
         helm list --all-namespaces
