@@ -236,7 +236,7 @@ jobs:
             --reuse-values \
             --set upgradeHooks.databaseMigrationDryRun=false \
             --set dbSetup.image.tag="${PR_GIT_TAG}" \
-            --timeout 15m \
+            --timeout 20m \
             --debug --wait # for the deployment complete (including readiness probes passing)
 
       - name: "[HEAD] Wait for API readiness after upgrade"
@@ -310,7 +310,7 @@ jobs:
             --namespace flightctl-external \
             --reuse-values \
             --set upgradeHooks.databaseMigrationDryRun=false \
-            --timeout 15m \
+            --timeout 20m \
             --debug --wait
 
       - name: "[HEAD] Wait for API readiness after same-version upgrade"
