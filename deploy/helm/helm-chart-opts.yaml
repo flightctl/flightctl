@@ -41,7 +41,7 @@ community-el9:
     uiPlugin:
       image: quay.io/flightctl/flightctl-ocp-ui-el9
     dbSetup:
-      image: quay.io/flightctl/flightctl-db-setup-el9
+      image: quay.io/flightctl/flightctl-db-setup
     telemetryGateway:
       image: quay.io/flightctl/flightctl-telemetry-gateway-el9
 community-el10:
@@ -87,7 +87,7 @@ community-el10:
     uiPlugin:
       image: quay.io/flightctl/flightctl-ocp-ui-el10
     dbSetup:
-      image: quay.io/flightctl/flightctl-db-setup-el10
+      image: quay.io/flightctl/flightctl-db-setup
     telemetryGateway:
       image: quay.io/flightctl/flightctl-telemetry-gateway-el10
 redhat-el9:
@@ -133,7 +133,7 @@ redhat-el9:
     uiPlugin:
       image: registry.redhat.io/rhem/flightctl-ui-ocp-rhel9
     dbSetup:
-      image: registry.redhat.io/rhem/flightctl-db-setup-rhel9
+      image: registry.redhat.io/rhem/flightctl-db-setup
     telemetryGateway:
       image: registry.redhat.io/rhem/flightctl-telemetry-gateway-rhel9
 redhat-el10:
@@ -179,6 +179,6 @@ redhat-el10:
     uiPlugin:
       image: registry.redhat.io/rhem/flightctl-ui-ocp-rhel10
     dbSetup:
-      image: registry.redhat.io/rhem/flightctl-db-setup-rhel10
+      image: registry.redhat.io/rhem/flightctl-db-setup
     telemetryGateway:
       image: registry.redhat.io/rhem/flightctl-telemetry-gateway-rhel10

@@ -382,9 +382,9 @@ clusterCli:
 # -- Database Setup Configuration
 dbSetup:
   image:
-    # -- Database setup container image
+    # -- Database setup container image (flavor specified in tag)
     image: {{ .Images.dbSetup.Image }}
-    # -- Database setup image tag
+    # -- Database setup image tag (includes flavor prefix, e.g., "el9-v1.0.0")
     tag: ""
     # -- Image pull policy for database setup container
     pullPolicy: ""
