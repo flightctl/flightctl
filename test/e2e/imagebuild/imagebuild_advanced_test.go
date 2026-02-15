@@ -37,7 +37,14 @@ var _ = Describe("ImageBuild", Label("imagebuild"), func() {
 			// ============================================================
 
 			By(fmt.Sprintf("Step 1: Setting maxConcurrentBuilds to %d", maxConcurrent))
-			err := workerHarness.SetMaxConcurrentBuilds(maxConcurrent)
+			originalMaxConcurrent, err := workerHarness.GetMaxConcurrentBuilds()
+			Expect(err).ToNot(HaveOccurred(), "Should get current maxConcurrentBuilds")
+			defer func() {
+				By(fmt.Sprintf("Restoring maxConcurrentBuilds to %d", originalMaxConcurrent))
+				restoreErr := workerHarness.SetMaxConcurrentBuilds(originalMaxConcurrent)
+				Expect(restoreErr).ToNot(HaveOccurred(), "Should restore maxConcurrentBuilds")
+			}()
+			err = workerHarness.SetMaxConcurrentBuilds(maxConcurrent)
 			Expect(err).ToNot(HaveOccurred(), "Should set maxConcurrentBuilds")
 
 			// ============================================================
