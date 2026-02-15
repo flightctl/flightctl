@@ -154,8 +154,18 @@ runs:
         for f in ${ADDITIONAL_VALUES_FILES}; do [ -f "$f" ] && EXTRA_ARGS+=" --values $f"; done
         [ -n "${AUTH_TYPE}" ] && EXTRA_ARGS+=" --set global.auth.type=${AUTH_TYPE}"
 
-        # Set flavor-prefixed tag (new approach: flavor-in-tag, matching base image pattern)
-        EXTRA_ARGS+=" --set dbSetup.image.tag=${{ inputs.flavor }}-${{ steps.compute-tags.outputs.git_tag }}"
+        # Set flavor-prefixed tags for all services (new approach: flavor-in-tag)
+        FLAVOR_TAG="${{ inputs.flavor }}-${{ steps.compute-tags.outputs.git_tag }}"
+        EXTRA_ARGS+=" --set dbSetup.image.tag=${FLAVOR_TAG}"
+        EXTRA_ARGS+=" --set api.image.tag=${FLAVOR_TAG}"
+        EXTRA_ARGS+=" --set worker.image.tag=${FLAVOR_TAG}"
+        EXTRA_ARGS+=" --set periodic.image.tag=${FLAVOR_TAG}"
+        EXTRA_ARGS+=" --set alertExporter.image.tag=${FLAVOR_TAG}"
+        EXTRA_ARGS+=" --set alertmanagerProxy.image.tag=${FLAVOR_TAG}"
+        EXTRA_ARGS+=" --set cliArtifacts.image.tag=${FLAVOR_TAG}"
+        EXTRA_ARGS+=" --set telemetryGateway.image.tag=${FLAVOR_TAG}"
+        EXTRA_ARGS+=" --set imageBuilderApi.image.tag=${FLAVOR_TAG}"
+        EXTRA_ARGS+=" --set imageBuilderWorker.image.tag=${FLAVOR_TAG}"
 
         # Build the helm command
         HELM_CMD="helm install flightctl artifacts/flightctl-chart.tgz"
@@ -180,10 +190,37 @@ runs:
 
         # Execute with --debug for verbose output if waiting
         if [ "${WAIT}" == "true" ]; then
-          eval "${HELM_CMD} --timeout 8m --debug"
+          eval "${HELM_CMD} --debug"
         else
           eval "${HELM_CMD}"
         fi
+
+    - name: "Debug deployment failures"
+      if: failure()
+      shell: bash
+      run: |
+        echo "=== DEBUGGING DEPLOYMENT FAILURE ==="
+        echo "Cluster state:"
+        kubectl get pods --all-namespaces --show-labels | grep flightctl || echo "No flightctl pods found"
+        echo ""
+        echo "Failed deployments:"
+        kubectl get deployments --all-namespaces --show-labels | grep flightctl || echo "No flightctl deployments found"
+        echo ""
+        echo "Pod events for non-ready pods:"
+        kubectl get pods --all-namespaces -l 'flightctl.service' --field-selector status.phase!=Running -o name 2>/dev/null | while read pod; do
+          if [ -n "$pod" ]; then
+            echo "=== Events for $pod ==="
+            kubectl describe "$pod" | tail -20
+            echo ""
+          fi
+        done
+        echo ""
+        echo "Available images in kind:"
+        docker exec kind-control-plane crictl images | grep flightctl || echo "No flightctl images found"
+        echo ""
+        echo "Helm release status:"
+        helm list --all-namespaces
+        echo "=== END DEBUGGING ==="
 
     - name: "Wait for API readiness"
       if: inputs.wait == 'true'
