@@ -210,13 +210,20 @@ runs:
         kubectl get pods --all-namespaces -l 'flightctl.service' --field-selector status.phase!=Running -o name 2>/dev/null | while read pod; do
           if [ -n "$pod" ]; then
             echo "=== Events for $pod ==="
-            kubectl describe "$pod" | tail -20
+            kubectl describe "$pod" 2>/dev/null | tail -20 || echo "Pod not found or already deleted"
             echo ""
           fi
         done
         echo ""
         echo "Available images in kind:"
         docker exec kind-control-plane crictl images | grep flightctl || echo "No flightctl images found"
+        echo ""
+        echo "Image references being used by helm:"
+        EXPECTED_TAG="${{ inputs.flavor }}-${{ steps.compute-tags.outputs.git_tag }}"
+        echo "- Expected flavor tag: ${EXPECTED_TAG}"
+        echo "- api.image.tag=${EXPECTED_TAG}"
+        echo "- alertExporter.image.tag=${EXPECTED_TAG}"
+        echo "- worker.image.tag=${EXPECTED_TAG}"
         echo ""
         echo "Helm release status:"
         helm list --all-namespaces
