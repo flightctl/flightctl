@@ -223,6 +223,46 @@ runs:
 
           echo "DEBUG: Images now in kind after bundle load:"
           docker exec kind-control-plane crictl images | grep flightctl || echo "❌ No flightctl images found after bundle load!"
+
+          # CRITICAL FIX: Published artifacts have flavor-prefixed tags, but deployment expects baseline tags
+          # Create baseline tags from the loaded flavor-prefixed images
+          echo "🏗️  CRITICAL FIX: Creating baseline tags from published flavor-prefixed images..."
+          TAG="${{ steps.compute-tags.outputs.git_tag }}"
+          FLAVOR="${{ inputs.flavor }}"
+
+          # Get images that were just loaded (they have flavor prefix)
+          echo "Searching for loaded images with pattern: flightctl-.*:${FLAVOR}-"
+          mapfile -t loaded_images < <(docker exec kind-control-plane crictl images --no-trunc | grep "flightctl" | grep "${FLAVOR}-" | awk '{print $1":"$2}' || true)
+
+          echo "Found ${#loaded_images[@]} flavor-prefixed images to retag:"
+          for image in "${loaded_images[@]}"; do
+            repo="${image%:*}"
+            flavor_tag="${image#*:}"
+            baseline_tag="${flavor_tag#${FLAVOR}-}"  # Remove flavor prefix
+            baseline_image="${repo}:${baseline_tag}"
+
+            echo "  Creating baseline tag: ${image} → ${baseline_image}"
+            # Pull image from kind, retag, and push back
+            docker exec kind-control-plane ctr -n k8s.io images tag "${image}" "${baseline_image}" || true
+          done
+
+          echo "✅ Baseline tags created for deployment compatibility"
+
+          echo "DEBUG: Verifying baseline tags were created:"
+          echo "Expected baseline images for deployment:"
+          expected_services="api db-setup worker periodic alert-exporter alertmanager-proxy cli-artifacts"
+          for service in $expected_services; do
+            expected_baseline="quay.io/flightctl/flightctl-${service}:${TAG}"
+            echo "  Expected: ${expected_baseline}"
+            if docker exec kind-control-plane crictl images | grep -q "flightctl-${service}" && docker exec kind-control-plane crictl images | grep -q " ${TAG} "; then
+              echo "    ✅ Found baseline tag"
+            else
+              echo "    ❌ Missing baseline tag"
+            fi
+          done
+
+          echo "DEBUG: All images now in kind after baseline tag creation:"
+          docker exec kind-control-plane crictl images | grep flightctl | head -20
         else
           echo "❌ No bundle found, attempting fallback to individual local images..."
           # Load individual images built locally
