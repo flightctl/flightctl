@@ -41,10 +41,10 @@ func (m *managedFile) initExistingFileMetadata() error {
 		if os.IsNotExist(err) {
 			return nil
 		}
-		return err
+		return fmt.Errorf("%w %w: %w", errors.ErrReadingPath, errors.WithElement(path), err)
 	}
 	if fileInfo.IsDir() {
-		return fmt.Errorf("%w: %s", errors.ErrPathIsDir, path)
+		return fmt.Errorf("%w %w", errors.ErrPathIsDir, errors.WithElement(path))
 	}
 	m.exists = true
 	m.size = fileInfo.Size()
@@ -57,18 +57,18 @@ func (m *managedFile) decodeFile() error {
 	}
 	contents, err := m.file.ContentsDecoded()
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: %w", err, errors.WithElement(m.Path()))
 	}
 	m.contents = contents
 
 	m.uid, m.gid, err = getFileOwnership(m.file)
 	if err != nil {
-		return fmt.Errorf("failed to retrieve file ownership for file %q: %w", m.Path(), err)
+		return fmt.Errorf("failed to retrieve file ownership for file %w: %w", errors.WithElement(m.Path()), err)
 	}
 
 	m.perms, err = intToFileMode(m.file.Mode)
 	if err != nil {
-		return fmt.Errorf("failed to retrieve file permissions for file %q: %w", m.Path(), err)
+		return fmt.Errorf("failed to retrieve file permissions for file %w: %w", errors.WithElement(m.Path()), err)
 	}
 
 	return nil
@@ -80,7 +80,7 @@ func (m *managedFile) isUpToDate() (bool, error) {
 	}
 	currentContent, err := os.ReadFile(m.writer.PathFor(m.Path()))
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("%w: %w", err, errors.WithElement(m.Path()))
 	}
 	if !bytes.Equal(currentContent, m.contents) {
 		return false, nil
@@ -88,7 +88,7 @@ func (m *managedFile) isUpToDate() (bool, error) {
 
 	fileInfo, err := os.Stat(m.writer.PathFor(m.Path()))
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("%w: %w", err, errors.WithElement(m.Path()))
 	}
 	stat, ok := fileInfo.Sys().(*syscall.Stat_t)
 	if !ok {
@@ -97,12 +97,12 @@ func (m *managedFile) isUpToDate() (bool, error) {
 
 	uid, err := safecast.ToUint32(m.uid)
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("converting uid %d for file %w: %w", m.uid, errors.WithElement(m.Path()), err)
 	}
 
 	gid, err := safecast.ToUint32(m.gid)
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("converting gid %d for file %w: %w", m.gid, errors.WithElement(m.Path()), err)
 	}
 
 	// compare file ownership
@@ -149,13 +149,13 @@ func (m *managedFile) Write() error {
 
 	mode, err := intToFileMode(m.file.Mode)
 	if err != nil {
-		return fmt.Errorf("failed to retrieve file permissions for file %q: %w", m.Path(), err)
+		return fmt.Errorf("failed to retrieve file permissions for file %w: %w", errors.WithElement(m.Path()), err)
 	}
 
 	// set chown if file information is provided
 	uid, gid, err := getFileOwnership(m.file)
 	if err != nil {
-		return fmt.Errorf("failed to retrieve file ownership for file %q: %w", m.Path(), err)
+		return fmt.Errorf("failed to retrieve file ownership for file %w: %w", errors.WithElement(m.Path()), err)
 	}
 
 	return m.writer.WriteFile(m.Path(), m.contents, mode, WithGid(gid), WithUid(uid))
