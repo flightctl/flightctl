@@ -21,26 +21,80 @@ runs:
         BASE_DOMAIN: ${{ inputs.base-domain }}
         RETRIES: ${{ inputs.retries }}
       run: |
+        echo "=== WAITING FOR API READINESS ==="
+        echo "Endpoint: https://api.${BASE_DOMAIN}:3443/readyz"
+        echo "Max retries: $RETRIES"
+        echo ""
+
         for i in $(seq 1 $RETRIES); do
+            # Show detailed debugging every 10 seconds
+            if [ $((i % 10)) -eq 1 ] || [ $i -eq 1 ]; then
+                echo ""
+                echo "=== ATTEMPT $i/$RETRIES - CLUSTER DEBUG INFO ==="
+                echo "--- FlightCtl Pods Status ---"
+                kubectl get pods -n flightctl-external -o wide --sort-by='.metadata.name' || echo "No external pods"
+                kubectl get pods -n flightctl-internal -o wide --sort-by='.metadata.name' || echo "No internal pods"
+
+                echo ""
+                echo "--- FlightCtl Deployments Status ---"
+                kubectl get deployments -n flightctl-external -o wide || echo "No external deployments"
+                kubectl get deployments -n flightctl-internal -o wide || echo "No internal deployments"
+
+                echo ""
+                echo "--- Recent Events (last 3) ---"
+                kubectl get events -n flightctl-external --sort-by='.lastTimestamp' | tail -3 || echo "No external events"
+                kubectl get events -n flightctl-internal --sort-by='.lastTimestamp' | tail -3 || echo "No internal events"
+
+                # Show logs from failed/pending pods
+                echo ""
+                echo "--- Failed/Pending Pod Details ---"
+                for ns in flightctl-external flightctl-internal; do
+                    for pod in $(kubectl get pods -n $ns --field-selector=status.phase!=Running,status.phase!=Succeeded -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || true); do
+                        if [ -n "$pod" ]; then
+                            echo "=== Pod $pod in $ns ==="
+                            kubectl describe pod $pod -n $ns | tail -10 || echo "Failed to describe $pod"
+                        fi
+                    done
+                done
+                echo "=== END DEBUG INFO ==="
+                echo ""
+            fi
+
             # Capture body + HTTP code; also capture curl errors
             resp_and_code=$(curl -ksS "https://api.${BASE_DOMAIN}:3443/readyz" -w '\n%{http_code}' 2>&1) || true
 
             http_code=$(printf '%s\n' "$resp_and_code" | tail -n1)
             body=$(printf '%s\n' "$resp_and_code" | sed '$d')
 
-            # Print response body
-            printf '%s\n' "$body"
+            # Print response body (only if not empty and not a connection error)
+            if [ -n "$body" ] && [ "$body" != "curl: (7) Failed to connect"* ]; then
+                printf '[%d] API Response: %s\n' "$i" "$body"
+            fi
 
             if [ "$http_code" -ge 200 ] && [ "$http_code" -lt 300 ]; then
-                echo "OK: API responded with $http_code on attempt $i" >&2
+                echo ""
+                echo "✅ SUCCESS: API responded with $http_code on attempt $i" >&2
+                echo "=== FINAL CLUSTER STATE ==="
+                kubectl get pods -n flightctl-external -o wide || echo "No external pods"
+                kubectl get pods -n flightctl-internal -o wide || echo "No internal pods"
                 break
             fi
 
-            echo "Attempt $i/$RETRIES failed (status $http_code), retrying...\n" >&2
+            printf '[%d] HTTP %s, retrying in 1s...\n' "$i" "$http_code" >&2
             sleep 1
         done
 
         if [ "$i" -eq "$RETRIES" ]; then
-            echo "ERROR: API did not return 2xx after $RETRIES attempts" >&2
+            echo ""
+            echo "❌ ERROR: API did not return 2xx after $RETRIES attempts" >&2
+            echo ""
+            echo "=== FINAL FAILURE DEBUGGING ==="
+            echo "--- All FlightCtl Resources ---"
+            kubectl get all -n flightctl-external -o wide || echo "No external resources"
+            kubectl get all -n flightctl-internal -o wide || echo "No internal resources"
+            echo ""
+            echo "--- All Recent Events ---"
+            kubectl get events -n flightctl-external --sort-by='.lastTimestamp' | tail -10 || echo "No external events"
+            kubectl get events -n flightctl-internal --sort-by='.lastTimestamp' | tail -10 || echo "No internal events"
             exit 1
         fi
