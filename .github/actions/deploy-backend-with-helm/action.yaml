@@ -112,7 +112,7 @@ runs:
         mkdir -p artifacts
         BUNDLE_FILE="artifacts/flightctl-images-bundle.tar"
 
-        echo "Creating local image bundle..."
+        echo "Creating local image bundle with baseline tags for E2E compatibility..."
         # Get list of locally built flightctl images with flavor prefix
         mapfile -t flavor_images < <(podman images --format "{{.Repository}}:{{.Tag}}" | grep "flightctl-.*:${FLAVOR}-" | grep -E "(latest|${TAG})" || true)
 
@@ -121,8 +121,7 @@ runs:
           exit 1
         fi
 
-        # Create baseline tags (without flavor prefix) for deployment compatibility
-        echo "Creating baseline tags for deployment compatibility..."
+        # Create baseline tags (what deployment expects) and bundle only those
         baseline_images=()
         for image in "${flavor_images[@]}"; do
           repo="${image%:*}"
@@ -130,16 +129,14 @@ runs:
           baseline_tag="${flavor_tag#${FLAVOR}-}"  # Remove flavor prefix
           baseline_image="${repo}:${baseline_tag}"
 
-          echo "  Tagging ${image} -> ${baseline_image}"
+          echo "  Creating baseline tag: ${baseline_image}"
           podman tag "$image" "$baseline_image"
           baseline_images+=("$baseline_image")
         done
 
-        # Bundle both flavor-prefixed and baseline-tagged images
-        all_images=("${flavor_images[@]}" "${baseline_images[@]}")
-        echo "Bundling ${#all_images[@]} images (${#flavor_images[@]} flavor + ${#baseline_images[@]} baseline):"
-        printf '  %s\n' "${all_images[@]}"
-        podman save --format docker-archive -o "$BUNDLE_FILE" "${all_images[@]}"
+        echo "Bundling ${#baseline_images[@]} baseline-tagged images for deployment:"
+        printf '  %s\n' "${baseline_images[@]}"
+        podman save --format docker-archive -o "$BUNDLE_FILE" "${baseline_images[@]}"
 
         echo "Local image bundle created: $(ls -lh $BUNDLE_FILE)"
         echo "::endgroup::"
@@ -235,35 +232,22 @@ runs:
             exit 1
           fi
 
-          # Create baseline tags (without flavor prefix) for deployment compatibility
-          echo "Creating baseline tags for deployment compatibility..."
+          # Create and load baseline tags (what deployment expects)
+          echo "Creating baseline tags for E2E deployment compatibility..."
+          baseline_images=()
           for image in "${flavor_images[@]}"; do
             repo="${image%:*}"
             flavor_tag="${image#*:}"
             baseline_tag="${flavor_tag#${FLAVOR}-}"  # Remove flavor prefix
             baseline_image="${repo}:${baseline_tag}"
 
-            echo "  Tagging ${image} -> ${baseline_image}"
+            echo "  Creating and loading baseline tag: ${baseline_image}"
             podman tag "$image" "$baseline_image"
+            kind load docker-image "$baseline_image"
+            baseline_images+=("$baseline_image")
           done
 
-          # Load both flavor-prefixed and baseline-tagged images
-          all_images=("${flavor_images[@]}")
-          for image in "${flavor_images[@]}"; do
-            repo="${image%:*}"
-            flavor_tag="${image#*:}"
-            baseline_tag="${flavor_tag#${FLAVOR}-}"
-            baseline_image="${repo}:${baseline_tag}"
-            all_images+=("$baseline_image")
-          done
-
-          echo "Loading ${#all_images[@]} individual images (${#flavor_images[@]} flavor + ${#flavor_images[@]} baseline):"
-          for image in "${all_images[@]}"; do
-            echo "  Loading: $image"
-            kind load docker-image "$image"
-          done
-
-          echo "Backend images loaded successfully from local builds"
+          echo "Loaded ${#baseline_images[@]} baseline-tagged images for deployment"
         fi
 
     - name: Clean up backend bundle files
@@ -309,51 +293,53 @@ runs:
         kubectl create namespace "${NAMESPACE_INTERNAL}" || true
         ( kubectl get pods --all-namespaces -w | sed 's/^/[cluster] /' ) &
 
-        # Check if this is an upgrade scenario
-        if helm list -n "${NAMESPACE_EXTERNAL}" | grep -q "flightctl"; then
-          echo "Found existing FlightCtl installation, will uninstall and reinstall for E2E testing"
-          echo "This ensures clean state and avoids pre-upgrade hook image pull issues"
+        # Always ensure clean state for E2E testing to avoid upgrade hook issues
+        echo "Preparing clean installation environment for E2E testing..."
 
-          # Uninstall existing release
+        # Check for existing installations and clean up
+        if helm list -A | grep -q "flightctl"; then
+          echo "Found existing FlightCtl installation, cleaning up..."
           helm uninstall flightctl -n "${NAMESPACE_EXTERNAL}" --wait --timeout=5m || true
-
-          # Clean up namespaces to ensure fresh state
-          kubectl delete namespace "${NAMESPACE_EXTERNAL}" --timeout=60s || true
-          kubectl delete namespace "${NAMESPACE_INTERNAL}" --timeout=60s || true
-
-          # Wait for namespaces to be fully deleted
-          echo "Waiting for namespaces to be fully cleaned up..."
-          while kubectl get namespace "${NAMESPACE_EXTERNAL}" 2>/dev/null; do
-            echo "  Still waiting for ${NAMESPACE_EXTERNAL} to be deleted..."
-            sleep 5
-          done
-          while kubectl get namespace "${NAMESPACE_INTERNAL}" 2>/dev/null; do
-            echo "  Still waiting for ${NAMESPACE_INTERNAL} to be deleted..."
-            sleep 5
-          done
-
-          # Recreate namespaces
-          kubectl create namespace "${NAMESPACE_INTERNAL}"
-          echo "Clean installation prepared"
+        else
+          echo "No existing FlightCtl installation found"
         fi
+
+        # Always clean up namespaces to ensure fresh state
+        echo "Cleaning up namespaces to ensure fresh state..."
+        kubectl delete namespace "${NAMESPACE_EXTERNAL}" --timeout=60s || true
+        kubectl delete namespace "${NAMESPACE_INTERNAL}" --timeout=60s || true
+
+        # Wait for namespaces to be fully deleted
+        echo "Waiting for namespaces to be fully cleaned up..."
+        for ns in "${NAMESPACE_EXTERNAL}" "${NAMESPACE_INTERNAL}"; do
+          timeout=60
+          while kubectl get namespace "$ns" 2>/dev/null && [ $timeout -gt 0 ]; do
+            echo "  Still waiting for $ns to be deleted... (${timeout}s remaining)"
+            sleep 5
+            timeout=$((timeout - 5))
+          done
+          if kubectl get namespace "$ns" 2>/dev/null; then
+            echo "  Warning: $ns still exists after timeout, forcing deletion..."
+            kubectl delete namespace "$ns" --force --grace-period=0 || true
+          fi
+        done
+
+        # Recreate namespaces
+        kubectl create namespace "${NAMESPACE_INTERNAL}"
+        echo "Clean installation environment ready"
 
         # Build optional args
         EXTRA_ARGS=""
         for f in ${ADDITIONAL_VALUES_FILES}; do [ -f "$f" ] && EXTRA_ARGS+=" --values $f"; done
         [ -n "${AUTH_TYPE}" ] && EXTRA_ARGS+=" --set global.auth.type=${AUTH_TYPE}"
 
-        # Auto-detect image tag format for backward compatibility
-        BASELINE_TAG="${{ steps.compute-tags.outputs.git_tag }}"
-        FLAVOR_TAG="${{ inputs.flavor }}-${BASELINE_TAG}"
+        # Use baseline tags for E2E testing (consistent with our image loading)
+        IMAGE_TAG="${{ steps.compute-tags.outputs.git_tag }}"
+        echo "Using baseline image tag for E2E testing: ${IMAGE_TAG}"
 
-        # Check if flavor-prefixed images exist by looking for API image (always present)
-        if docker exec kind-control-plane crictl images | grep -q "flightctl-api.*:${FLAVOR_TAG}"; then
-          echo "Found flavor-prefixed images, using: ${FLAVOR_TAG}"
-          IMAGE_TAG="${FLAVOR_TAG}"
-        else
-          echo "No flavor-prefixed images found, using baseline tag: ${BASELINE_TAG}"
-          IMAGE_TAG="${BASELINE_TAG}"
-        fi
+        # Debug: Show what images are available in kind
+        echo "Available FlightCtl images in kind cluster:"
+        docker exec kind-control-plane crictl images | grep "flightctl" || echo "No flightctl images found"
 
         # Set tags for ALL services including dbSetup (critical for init containers)
         EXTRA_ARGS+=" --set dbSetup.image.tag=${IMAGE_TAG}"
@@ -418,12 +404,13 @@ runs:
         # Summary of deployment approach
         echo ""
         echo "=== DEPLOYMENT SUMMARY ==="
-        echo "- Deployment type: Clean install (any existing release uninstalled first)"
+        echo "- Deployment type: Clean install (ensures fresh state)"
         if [ "${{ steps.download-images.outcome }}" == "failure" ]; then
-          echo "- Used LOCAL FALLBACK builds (artifacts not available)"
+          echo "- Source: LOCAL FALLBACK builds (artifacts not available)"
+          echo "- Image tags: Baseline format for E2E compatibility"
           echo "- Image pull policy: IfNotPresent"
         else
-          echo "- Used PUBLISHED ARTIFACTS from workflow"
+          echo "- Source: PUBLISHED ARTIFACTS from workflow"
           echo "- Image pull policy: default"
         fi
         echo "- Image tag: ${IMAGE_TAG}"
@@ -453,19 +440,18 @@ runs:
         echo "Available images in kind:"
         docker exec kind-control-plane crictl images | grep flightctl || echo "No flightctl images found"
         echo ""
-        echo "Image tag detection results:"
-        BASELINE_TAG="${{ steps.compute-tags.outputs.git_tag }}"
-        FLAVOR_TAG="${{ inputs.flavor }}-${BASELINE_TAG}"
-        echo "- Baseline tag: ${BASELINE_TAG}"
-        echo "- Flavor tag: ${FLAVOR_TAG}"
-        if docker exec kind-control-plane crictl images | grep -q "flightctl-api.*:${FLAVOR_TAG}"; then
-          echo "- Detection: Found flavor-prefixed images, using ${FLAVOR_TAG}"
-          USED_TAG="${FLAVOR_TAG}"
-        else
-          echo "- Detection: No flavor-prefixed images found, using ${BASELINE_TAG}"
-          USED_TAG="${BASELINE_TAG}"
-        fi
-        echo "- Final image tags: api.image.tag=${USED_TAG}"
+        echo "Expected image tag: ${{ steps.compute-tags.outputs.git_tag }}"
+        echo "Flavor: ${{ inputs.flavor }}"
+        echo ""
+        echo "Key images expected by deployment:"
+        for service in api db-setup worker periodic alert-exporter; do
+          expected_image="quay.io/flightctl/flightctl-${service}:${{ steps.compute-tags.outputs.git_tag }}"
+          if docker exec kind-control-plane crictl images | grep -q "${expected_image}"; then
+            echo "  ✅ ${expected_image}"
+          else
+            echo "  ❌ ${expected_image}"
+          fi
+        done
         echo ""
         echo "Helm release status:"
         helm list --all-namespaces
