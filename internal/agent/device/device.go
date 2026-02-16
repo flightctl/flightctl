@@ -120,16 +120,16 @@ func (a *Agent) Run(ctx context.Context) error {
 func (a *Agent) sync(ctx context.Context, current, desired *v1beta1.Device) error {
 	if !spec.IsRollback(current, desired) {
 		if err := a.beforeUpdate(ctx, current, desired); err != nil {
-			return fmt.Errorf("%w: %w", errors.ErrPhasePreparing, err)
+			return errors.Join(errors.ErrPhasePreparing, err)
 		}
 	}
 
 	if err := a.syncDevice(ctx, current, desired); err != nil {
-		return fmt.Errorf("%w: %w", errors.ErrPhaseApplyingUpdate, err)
+		return errors.Join(errors.ErrPhaseApplyingUpdate, err)
 	}
 
 	if err := a.afterUpdate(ctx, current.Spec, desired.Spec); err != nil {
-		return fmt.Errorf("%w: %w", errors.ErrPhaseActivatingConfig, err)
+		return errors.Join(errors.ErrPhaseActivatingConfig, err)
 	}
 
 	return nil
@@ -314,11 +314,11 @@ func (a *Agent) statusUpdate(ctx context.Context) {
 
 func (a *Agent) beforeUpdate(ctx context.Context, current, desired *v1beta1.Device) error {
 	if err := a.resourceManager.BeforeUpdate(ctx, desired.Spec); err != nil {
-		return fmt.Errorf("%w: %w", errors.ErrComponentResources, err)
+		return errors.Join(errors.ErrComponentResources, err)
 	}
 
 	if err := a.specManager.CheckPolicy(ctx, policy.Download, desired.Version()); err != nil {
-		return fmt.Errorf("%w: %w", errors.ErrComponentDownloadPolicy, err)
+		return errors.Join(errors.ErrComponentDownloadPolicy, err)
 	}
 
 	// the agent is validating the desired device spec and downloading
@@ -352,19 +352,19 @@ func (a *Agent) beforeUpdate(ctx context.Context, current, desired *v1beta1.Devi
 	}
 
 	if err := a.prefetchManager.BeforeUpdate(ctx, current.Spec, desired.Spec); err != nil {
-		return fmt.Errorf("%w: %w", errors.ErrComponentPrefetch, err)
+		return errors.Join(errors.ErrComponentPrefetch, err)
 	}
 
 	if err := a.appManager.BeforeUpdate(ctx, desired.Spec); err != nil {
-		return fmt.Errorf("%w: %w", errors.ErrComponentApplications, err)
+		return errors.Join(errors.ErrComponentApplications, err)
 	}
 
 	if err := a.hookManager.OnBeforeUpdating(ctx, current.Spec, desired.Spec); err != nil {
-		return fmt.Errorf("%w: %w", errors.ErrComponentHooks, err)
+		return errors.Join(errors.ErrComponentHooks, err)
 	}
 
 	if err := a.specManager.CheckPolicy(ctx, policy.Update, desired.Version()); err != nil {
-		return fmt.Errorf("%w: %w", errors.ErrComponentUpdatePolicy, err)
+		return errors.Join(errors.ErrComponentUpdatePolicy, err)
 	}
 
 	// the agent has validated the desired spec, downloaded all dependencies,
@@ -399,23 +399,23 @@ func (a *Agent) syncDevice(ctx context.Context, current, desired *v1beta1.Device
 	}
 
 	if err := a.applicationsController.Sync(ctx, current.Spec, desired.Spec); err != nil {
-		return fmt.Errorf("%w: %w", errors.ErrComponentApplications, err)
+		return errors.Join(errors.ErrComponentApplications, err)
 	}
 
 	if err := a.hookManager.Sync(current.Spec, desired.Spec); err != nil {
-		return fmt.Errorf("%w: %w", errors.ErrComponentHooks, err)
+		return errors.Join(errors.ErrComponentHooks, err)
 	}
 
 	if err := a.configController.Sync(ctx, current.Spec, desired.Spec); err != nil {
-		return fmt.Errorf("%w: %w", errors.ErrComponentConfig, err)
+		return errors.Join(errors.ErrComponentConfig, err)
 	}
 
 	if err := a.systemdControllerSync(ctx, desired.Spec); err != nil {
-		return fmt.Errorf("%w: %w", errors.ErrComponentSystemd, err)
+		return errors.Join(errors.ErrComponentSystemd, err)
 	}
 
 	if err := a.lifecycleManager.Sync(ctx, current.Spec, desired.Spec); err != nil {
-		return fmt.Errorf("%w: %w", errors.ErrComponentLifecycle, err)
+		return errors.Join(errors.ErrComponentLifecycle, err)
 	}
 
 	// NOTE: policy manager is reconciled early in sync() so that the agent
@@ -537,7 +537,6 @@ func (a *Agent) handleSyncError(ctx context.Context, desired *v1beta1.Device, sy
 		Type: v1beta1.ConditionTypeDeviceUpdating,
 	}
 
-	se := errors.FormatError(syncErr)
 	if !errors.IsRetryable(syncErr) {
 		msg := fmt.Sprintf("Failed to update to renderedVersion: %s: %v", version, syncErr)
 		conditionUpdate.Reason = string(v1beta1.UpdateStateError)
@@ -551,10 +550,6 @@ func (a *Agent) handleSyncError(ctx context.Context, desired *v1beta1.Device, sy
 		conditionUpdate.Message = log.Truncate(msg, status.MaxMessageLength)
 		conditionUpdate.Status = v1beta1.ConditionStatusTrue
 		a.log.Warn(msg)
-	}
-
-	if !se.Is(errors.ErrImagePull) {
-		conditionUpdate.Message = se.Message()
 	}
 
 	if err := a.statusManager.UpdateCondition(ctx, conditionUpdate); err != nil {
