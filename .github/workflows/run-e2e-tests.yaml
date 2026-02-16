@@ -83,50 +83,6 @@ jobs:
           echo "base_domain=${IP}.nip.io" >> "$GITHUB_OUTPUT"
           echo "Computed base domain: ${IP}.nip.io"
 
-      # ========== DOWNLOAD AND LOAD BACKEND IMAGES ==========
-      - name: Download backend artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: flightctl-images-bundle-${{ inputs.flavor }}-${{ inputs.tag }}
-          path: backend-artifacts
-
-      - name: Load backend images
-        env:
-          FLAVOR: ${{ inputs.flavor }}
-          TAG: ${{ inputs.tag }}
-        run: |
-          set -euo pipefail
-          echo "Loading backend images into kind"
-          echo "=== DEBUGGING ARTIFACT STRUCTURE ==="
-          echo "Contents of current directory:"
-          ls -la . || true
-          echo "Contents of backend-artifacts directory:"
-          ls -la backend-artifacts/ || true
-          echo "All .tar files in backend-artifacts:"
-          find backend-artifacts -name "*.tar" || true
-          echo "All files recursively in backend-artifacts:"
-          find backend-artifacts -type f || true
-          echo "=== END DEBUGGING ==="
-
-          # Image bundle file (artifact name is flavor-specific, but file inside is fixed)
-          BUNDLE_FILE="backend-artifacts/flightctl-images-bundle.tar"
-          if [[ ! -f "$BUNDLE_FILE" ]]; then
-            echo "Image bundle not found at expected path: $BUNDLE_FILE"
-            echo "Trying to find any .tar file to use..."
-            FOUND_TAR=$(find backend-artifacts -name "*.tar" | head -1)
-            if [[ -n "$FOUND_TAR" ]]; then
-              echo "Found alternative tar file: $FOUND_TAR"
-              BUNDLE_FILE="$FOUND_TAR"
-            else
-              echo "No .tar files found in backend-artifacts/"
-              exit 1
-            fi
-          fi
-          echo "Using bundle file: $BUNDLE_FILE"
-          kind load image-archive "${BUNDLE_FILE}"
-          echo "Backend images loaded successfully"
-          rm -f "${BUNDLE_FILE}"
-
       # ========== DEPLOY BACKEND WITH HELM ==========
       - name: Deploy backend with Helm
         uses: ./.github/actions/deploy-backend-with-helm
