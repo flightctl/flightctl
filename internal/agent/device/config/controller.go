@@ -93,7 +93,7 @@ func (c *Controller) removeObsoleteFiles(currentFiles, desiredFiles []v1beta1.Fi
 		}
 		c.log.Debugf("Deleting file: %s", file)
 		if err := c.deviceWriter.RemoveFile(file); err != nil {
-			return fmt.Errorf("%w: %w", deviceerrors.ErrDeletingFilesFailed, err)
+			return fmt.Errorf("%w %w: %w", deviceerrors.ErrDeletingFilesFailed, deviceerrors.WithElement(file), err)
 		}
 	}
 	return nil
@@ -103,17 +103,17 @@ func (c *Controller) writeFiles(files []v1beta1.FileSpec) error {
 	for _, file := range files {
 		managedFile, err := c.deviceWriter.CreateManagedFile(file)
 		if err != nil {
-			return err
+			return fmt.Errorf("creating managed file %w: %w", deviceerrors.WithElement(file.Path), err)
 		}
 		upToDate, err := managedFile.IsUpToDate()
 		if err != nil {
-			return err
+			return fmt.Errorf("checking if file is up to date %w: %w", deviceerrors.WithElement(file.Path), err)
 		}
 		if upToDate {
 			continue
 		}
 		if _, err = managedFile.Exists(); err != nil {
-			return err
+			return fmt.Errorf("checking if file exists %w: %w", deviceerrors.WithElement(file.Path), err)
 		}
 		if err := managedFile.Write(); err != nil {
 			c.log.Warnf("Failed to write file %s: %v", file.Path, err)
@@ -121,9 +121,9 @@ func (c *Controller) writeFiles(files []v1beta1.FileSpec) error {
 			// we don't want to return temp filename but rather change the error message to return given file path
 			var pathErr *fs.PathError
 			if errors.As(err, &pathErr) {
-				return fmt.Errorf("write file %s: %w", file.Path, pathErr.Err)
+				return fmt.Errorf("write file %w: %w", deviceerrors.WithElement(file.Path), pathErr.Err)
 			}
-			return err
+			return fmt.Errorf("write file %w: %w", deviceerrors.WithElement(file.Path), err)
 		}
 	}
 	return nil
