@@ -352,40 +352,58 @@ runs:
         NAMESPACE_INTERNAL: ${{ inputs.namespace-internal }}
         WAIT: ${{ inputs.wait }}
       run: |
+        echo "🚀 STARTING DEPLOY STEP - DEBUG CHECKPOINT 1"
+        echo "Environment variables:"
+        echo "  BASE_DOMAIN: ${BASE_DOMAIN}"
+        echo "  NAMESPACE_EXTERNAL: ${NAMESPACE_EXTERNAL}"
+        echo "  NAMESPACE_INTERNAL: ${NAMESPACE_INTERNAL}"
+        echo "  WAIT: ${WAIT}"
+        echo "  ADDITIONAL_VALUES_FILES: ${ADDITIONAL_VALUES_FILES}"
+        echo "  AUTH_TYPE: ${AUTH_TYPE}"
+
         set -euo pipefail
+        echo "🚀 DEBUG CHECKPOINT 2 - pipefail enabled"
 
         kubectl create namespace "${NAMESPACE_INTERNAL}" || true
+        echo "🚀 DEBUG CHECKPOINT 3 - namespace created"
+
         ( kubectl get pods --all-namespaces -w | sed 's/^/[cluster] /' ) &
+        echo "🚀 DEBUG CHECKPOINT 4 - pod watcher started"
 
         # AGGRESSIVE cleanup to ensure 100% clean state for E2E testing
         echo "=== AGGRESSIVE CLEANUP FOR E2E TESTING ==="
+        echo "🚀 DEBUG CHECKPOINT 5 - starting cleanup"
+
+        # Temporarily disable pipefail for cleanup operations that are expected to fail
+        set +e
+        echo "🚀 DEBUG CHECKPOINT 6 - pipefail disabled for cleanup"
 
         # List what's currently deployed for debugging
         echo "Current helm releases:"
-        helm list -A || true
+        helm list -A
 
         # Nuclear option: uninstall ALL flightctl releases from ALL namespaces
         echo "Removing ALL FlightCtl installations from ALL namespaces..."
-        helm list -A -q | grep -i flightctl | xargs -r -I {} helm uninstall {} -A --ignore-not-found --timeout=2m || true
+        helm list -A -q | grep -i flightctl | xargs -r -I {} helm uninstall {} -A --ignore-not-found --timeout=2m
 
         # Also try specific namespace cleanup
-        helm uninstall flightctl -n "${NAMESPACE_EXTERNAL}" --ignore-not-found --timeout=2m || true
-        helm uninstall flightctl -n "${NAMESPACE_INTERNAL}" --ignore-not-found --timeout=2m || true
+        helm uninstall flightctl -n "${NAMESPACE_EXTERNAL}" --ignore-not-found --timeout=2m
+        helm uninstall flightctl -n "${NAMESPACE_INTERNAL}" --ignore-not-found --timeout=2m
 
         # Nuclear option: delete ALL flightctl resources
         echo "Deleting ALL FlightCtl resources from ALL namespaces..."
-        kubectl delete all,secrets,configmaps,pvc,pv -l "app.kubernetes.io/name=flightctl" -A --ignore-not-found --force --grace-period=0 || true
-        kubectl delete all,secrets,configmaps,pvc,pv -l "flightctl.service" -A --ignore-not-found --force --grace-period=0 || true
+        kubectl delete all,secrets,configmaps,pvc,pv -l "app.kubernetes.io/name=flightctl" -A --ignore-not-found --force --grace-period=0
+        kubectl delete all,secrets,configmaps,pvc,pv -l "flightctl.service" -A --ignore-not-found --force --grace-period=0
 
         # Nuclear option: delete namespaces with extreme prejudice
         echo "Nuclear deletion of FlightCtl namespaces..."
         for ns in "${NAMESPACE_EXTERNAL}" "${NAMESPACE_INTERNAL}"; do
-          kubectl delete namespace "$ns" --ignore-not-found --force --grace-period=0 --timeout=10s || true
+          kubectl delete namespace "$ns" --ignore-not-found --force --grace-period=0 --timeout=10s
           # If it still exists, patch it to remove finalizers and force delete
           if kubectl get namespace "$ns" 2>/dev/null; then
             echo "Namespace $ns still exists, applying nuclear deletion..."
-            kubectl patch namespace "$ns" -p '{"metadata":{"finalizers":[]}}' --type=merge || true
-            kubectl delete namespace "$ns" --force --grace-period=0 || true
+            kubectl patch namespace "$ns" -p '{"metadata":{"finalizers":[]}}' --type=merge
+            kubectl delete namespace "$ns" --force --grace-period=0
           fi
         done
 
@@ -395,11 +413,15 @@ runs:
 
         # Verify clean state
         echo "Verifying clean state:"
-        helm list -A || true
+        helm list -A
         kubectl get namespace | grep flightctl || echo "No flightctl namespaces found (good!)"
 
         # Recreate internal namespace fresh
-        kubectl create namespace "${NAMESPACE_INTERNAL}" || true
+        kubectl create namespace "${NAMESPACE_INTERNAL}"
+
+        # Re-enable pipefail for the rest of the script
+        set -e
+        echo "🚀 DEBUG CHECKPOINT 7 - cleanup complete, pipefail re-enabled"
         echo "=== NUCLEAR CLEANUP COMPLETE - GUARANTEED CLEAN STATE ==="
 
         echo "🔍 DEBUG: Script reached post-cleanup, proceeding to helm preparation..."
