@@ -59,13 +59,19 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        
+
         if [ -n "${{ inputs.tag }}" ]; then
           echo "Using provided tag: ${{ inputs.tag }}"
-          echo "git_tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          TAG="${{ inputs.tag }}"
+          echo "git_tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+          # Also set helm_tag (normalize by dropping leading v, replace ~ with -)
+          HELM_TAG=$(echo "${TAG#v}" | sed 's/~/-/g')
+          echo "helm_tag=${HELM_TAG}" >> "$GITHUB_OUTPUT"
         else
-          echo "Using computed git_tag: ${{ steps.compute-tags-git.outputs.git_tag }}"
+          echo "Using computed tags from git action"
           echo "git_tag=${{ steps.compute-tags-git.outputs.git_tag }}" >> "$GITHUB_OUTPUT"
+          echo "helm_tag=${{ steps.compute-tags-git.outputs.helm_tag }}" >> "$GITHUB_OUTPUT"
         fi
 
     # ========== DOWNLOAD BACKEND ARTIFACTS ==========
@@ -93,6 +99,41 @@ runs:
         name: flightctl-linux-amd64-${{ inputs.flavor }}-${{ steps.compute-tags.outputs.git_tag }}
         path: artifacts
 
+    # ========== DEBUG: CHECK DOWNLOAD OUTCOMES ==========
+    - name: Debug download outcomes and artifacts
+      shell: bash
+      run: |
+        echo "=== DOWNLOAD OUTCOMES DEBUG ==="
+        echo "Images download outcome: ${{ steps.download-images.outcome }}"
+        echo "Chart download outcome: ${{ steps.download-chart.outcome }}"
+        echo "CLI download outcome: ${{ steps.download-cli.outcome }}"
+        echo ""
+        echo "Available artifacts:"
+        ls -la artifacts/ 2>/dev/null || echo "No artifacts directory found"
+        echo ""
+        echo "Artifacts directory contents by type:"
+        find artifacts/ -name "flightctl-images-bundle*" 2>/dev/null || echo "No image bundle found"
+        find artifacts/ -name "flightctl-chart*" 2>/dev/null || echo "No chart found"
+        find artifacts/ -name "flightctl-linux-amd64*" 2>/dev/null || echo "No CLI binary found"
+        echo ""
+        echo "Which fallback builds will trigger?"
+        if [ "${{ steps.download-images.outcome }}" == "failure" ]; then
+          echo "❌ Image fallback build WILL trigger"
+        else
+          echo "✅ Image fallback build will NOT trigger"
+        fi
+        if [ "${{ steps.download-chart.outcome }}" == "failure" ]; then
+          echo "❌ Chart fallback build WILL trigger"
+        else
+          echo "✅ Chart fallback build will NOT trigger"
+        fi
+        if [ "${{ steps.download-cli.outcome }}" == "failure" ]; then
+          echo "❌ CLI fallback build WILL trigger"
+        else
+          echo "✅ CLI fallback build will NOT trigger"
+        fi
+        echo "========================"
+
     # ========== FALLBACK: BUILD LOCAL ARTIFACTS IF DOWNLOADS FAILED ==========
     - name: Build local containers if artifacts not available
       if: steps.download-images.outcome == 'failure'
@@ -100,12 +141,30 @@ runs:
       env:
         FLAVOR: ${{ inputs.flavor }}
       run: |
-        set -euo pipefail
         echo "::group::Building local containers for $FLAVOR"
-        echo "Image bundle download failed, building containers locally..."
+        echo "❌ Image bundle download failed (outcome: ${{ steps.download-images.outcome }}), building containers locally..."
 
-        # Build all containers for the specified flavor
+        # Check workspace state before building
+        echo "Checking workspace state before container build..."
+        df -h  # Check disk space
+        echo "Ensuring clean Go module state..."
+        go mod tidy
+
+        # Build containers with explicit error handling
+        set -euo pipefail
+        echo "Building containers for flavor: $FLAVOR"
         hack/publish_containers.sh build "$FLAVOR"
+
+        # Verify some key images were built
+        echo "Verifying container builds..."
+        expected_images="flightctl-api flightctl-worker flightctl-db-setup"
+        for img in $expected_images; do
+          if podman images --format "{{.Repository}}" | grep -q "$img"; then
+            echo "✅ Found $img image"
+          else
+            echo "❌ WARNING: $img image not found after build"
+          fi
+        done
 
         # Create image bundle locally
         TAG="${{ steps.compute-tags.outputs.git_tag }}"
@@ -147,42 +206,77 @@ runs:
       env:
         FLAVOR: ${{ inputs.flavor }}
       run: |
-        set -euo pipefail
         echo "::group::Building local helm chart for $FLAVOR"
-        echo "Helm chart download failed, building chart locally..."
+        echo "❌ Helm chart download failed (outcome: ${{ steps.download-chart.outcome }}), building chart locally..."
 
         mkdir -p artifacts
 
         # Generate chart with correct flavor
+        echo "Generating chart templates for FLAVOR=$FLAVOR..."
         cd deploy/helm
         FLAVOR="$FLAVOR" go run cmd/charttmpl/main.go
         cd ../..
 
-        # Build and package chart
+        # Build and package chart with error checking
         TAG="${{ steps.compute-tags.outputs.helm_tag }}"
+        echo "Building chart with tag: $TAG"
+
+        set -euo pipefail
+        echo "Building helm dependencies..."
         helm dependency build ./deploy/helm/flightctl
+
+        echo "Packaging helm chart..."
         helm package ./deploy/helm/flightctl --version "$TAG" --app-version "v$TAG"
 
         # Move to expected location
         GENERATED_FILE="flightctl-${TAG}.tgz"
-        mv "$GENERATED_FILE" "artifacts/flightctl-chart.tgz"
+        if [ ! -f "$GENERATED_FILE" ]; then
+          echo "❌ ERROR: Expected chart file not found: $GENERATED_FILE"
+          echo "Available files:"
+          ls -la *.tgz 2>/dev/null || echo "No .tgz files found"
+          exit 1
+        fi
 
-        echo "Local helm chart built: $(ls -lh artifacts/flightctl-chart.tgz)"
+        mv "$GENERATED_FILE" "artifacts/flightctl-chart.tgz"
+        echo "✅ Local helm chart built: $(ls -lh artifacts/flightctl-chart.tgz)"
         echo "::endgroup::"
 
     - name: Build local CLI if artifact not available
       if: steps.download-cli.outcome == 'failure'
       shell: bash
       run: |
-        set -euo pipefail
         echo "::group::Building local CLI binary"
-        echo "CLI download failed, building locally..."
+        echo "❌ CLI download failed (outcome: ${{ steps.download-cli.outcome }}), building locally..."
 
+        # Check if workspace is clean before building
+        echo "Checking workspace state before CLI build..."
+        if [ -d "bin" ]; then
+          echo "bin/ directory exists, cleaning old CLI binary..."
+          rm -f bin/flightctl
+        fi
+
+        # Ensure we have a clean Go module state
+        echo "Ensuring clean Go module state..."
+        go mod tidy
+
+        # Build CLI with explicit error handling
+        echo "Building CLI binary..."
+        set -euo pipefail
         make build-cli
+
+        # Verify the build worked
+        if [ ! -f "bin/flightctl" ]; then
+          echo "❌ ERROR: CLI build completed but binary not found at bin/flightctl"
+          echo "Contents of bin/ directory:"
+          ls -la bin/ || echo "bin/ directory not found"
+          exit 1
+        fi
+
+        # Copy to artifacts
         mkdir -p artifacts
         cp bin/flightctl artifacts/flightctl-linux-amd64
 
-        echo "Local CLI built: $(ls -lh artifacts/flightctl-linux-amd64)"
+        echo "✅ Local CLI built successfully: $(ls -lh artifacts/flightctl-linux-amd64)"
         echo "::endgroup::"
 
     - name: Setup CLI binary
@@ -190,9 +284,31 @@ runs:
       run: |
         set -euo pipefail
         mkdir -p bin
-        mv artifacts/flightctl-linux-amd64 bin/flightctl
-        chmod +x bin/flightctl
-        echo "CLI binary ready at bin/flightctl"
+
+        # Check if CLI artifact exists before trying to move it
+        if [ -f "artifacts/flightctl-linux-amd64" ]; then
+          mv artifacts/flightctl-linux-amd64 bin/flightctl
+          chmod +x bin/flightctl
+          echo "✅ CLI binary ready at bin/flightctl (from artifacts)"
+        else
+          echo "❌ CLI artifact not found in artifacts/"
+          echo "Available artifacts:"
+          ls -la artifacts/ || echo "No artifacts directory"
+
+          echo "CLI download outcome: ${{ steps.download-cli.outcome }}"
+          if [ "${{ steps.download-cli.outcome }}" == "failure" ]; then
+            echo "CLI download failed, but fallback build should have created the binary"
+            if [ -f "bin/flightctl" ]; then
+              echo "✅ CLI binary ready at bin/flightctl (from fallback build)"
+            else
+              echo "❌ ERROR: CLI binary not found after fallback build failed"
+              exit 1
+            fi
+          else
+            echo "❌ ERROR: CLI download succeeded but artifact file missing"
+            exit 1
+          fi
+        fi
 
     # ========== INITIALIZE KIND CLUSTER ==========
     - name: Create kind cluster
