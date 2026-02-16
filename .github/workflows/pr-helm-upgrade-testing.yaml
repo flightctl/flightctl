@@ -211,6 +211,44 @@ jobs:
           echo "PR images loaded successfully"
           rm -f "${BUNDLE_FILE}"
 
+      - name: "[HEAD] Create baseline tags for deployment compatibility"
+        env:
+          PR_GIT_TAG: ${{ needs.build-pr.outputs.git_tag }}
+          FLAVOR: el9
+        run: |
+          set -euo pipefail
+          echo "Creating baseline tags from flavor-prefixed images for deployment compatibility"
+
+          # Get list of loaded FlightCtl images with flavor prefix
+          flavor_images=($(docker exec kind-control-plane crictl images | grep "^quay.io/flightctl/flightctl-" | grep ":${FLAVOR}-" | awk '{print $1":"$2}' || true))
+
+          if [ ${#flavor_images[@]} -eq 0 ]; then
+            echo "No flavor-prefixed images found, skipping baseline tag creation"
+            exit 0
+          fi
+
+          echo "Found ${#flavor_images[@]} flavor-prefixed images:"
+          printf '%s\n' "${flavor_images[@]}"
+          echo ""
+
+          # Create baseline tags by removing flavor prefix
+          for image in "${flavor_images[@]}"; do
+            repo="${image%:*}"
+            flavor_tag="${image#*:}"
+            baseline_tag="${flavor_tag#${FLAVOR}-}"  # Remove flavor prefix
+            baseline_image="${repo}:${baseline_tag}"
+
+            echo "Creating baseline tag: ${image} → ${baseline_image}"
+            docker exec kind-control-plane ctr -n k8s.io images tag "$image" "$baseline_image" || {
+              echo "Warning: Failed to tag $image as $baseline_image"
+              continue
+            }
+          done
+
+          echo ""
+          echo "Baseline tag creation completed"
+          echo "Images now available for both flavor-prefixed and baseline tag references"
+
       - name: "[HEAD] Download CLI"
         uses: actions/download-artifact@v4
         with:
@@ -267,18 +305,9 @@ jobs:
           fi
           echo "Using chart file: $CHART_FILE"
 
-          # Auto-detect image tag format for backward compatibility (same as deploy-backend-with-helm)
-          BASELINE_TAG="${PR_GIT_TAG}"
-          FLAVOR_TAG="el9-${BASELINE_TAG}"
-
-          # Check if flavor-prefixed images exist by looking for API image (always present)
-          if docker exec kind-control-plane crictl images | grep -q "flightctl-api.*:${IMAGE_TAG}"; then
-            echo "Found flavor-prefixed images, using: ${IMAGE_TAG}"
-            IMAGE_TAG="${IMAGE_TAG}"
-          else
-            echo "No flavor-prefixed images found, using baseline tag: ${BASELINE_TAG}"
-            IMAGE_TAG="${BASELINE_TAG}"
-          fi
+          # Use baseline tag since we create baseline tags from flavor-prefixed images
+          IMAGE_TAG="${PR_GIT_TAG}"
+          echo "Using baseline image tag for deployment: ${IMAGE_TAG}"
 
           # Start migration monitoring in background
           (
@@ -449,7 +478,7 @@ jobs:
           helm upgrade flightctl "${CHART_FILE}" \
             --namespace flightctl-external \
             --reuse-values \
-            --set dbSetup.image.tag="el9-${PR_GIT_TAG}" \
+            --set dbSetup.image.tag="${PR_GIT_TAG}" \
             --debug --wait
 
       - name: "[HEAD] Wait for API readiness after same-version upgrade"
