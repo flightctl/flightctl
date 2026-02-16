@@ -370,10 +370,14 @@ runs:
           for service in $expected_services; do
             expected_baseline="quay.io/flightctl/flightctl-${service}:${TAG}"
             echo "  Expected: ${expected_baseline}"
-            if docker exec kind-control-plane crictl images | grep -q "flightctl-${service}" && docker exec kind-control-plane crictl images | grep -q " ${TAG} "; then
+            # Fix: Check for both service name AND tag in the same line
+            if docker exec kind-control-plane crictl images | grep -q "flightctl-${service}.*${TAG}"; then
               echo "    ✅ Found baseline tag"
             else
               echo "    ❌ Missing baseline tag"
+              # Debug: show what we actually found
+              echo "    Available images for ${service}:"
+              docker exec kind-control-plane crictl images | grep "flightctl-${service}" || echo "      None found"
             fi
           done
 
@@ -747,8 +751,8 @@ runs:
         for service in api db-setup worker periodic alert-exporter alertmanager-proxy; do
           image_name="quay.io/flightctl/flightctl-${service}"
           tag="${{ steps.compute-tags.outputs.git_tag }}"
-          # crictl images shows repo and tag in separate columns, so search both parts
-          if docker exec kind-control-plane crictl images | grep -q "flightctl-${service}" && docker exec kind-control-plane crictl images | grep -q "${tag}"; then
+          # Fix: Check for both service name AND tag in the same line
+          if docker exec kind-control-plane crictl images | grep -q "flightctl-${service}.*${tag}"; then
             echo "  ✅ ${image_name}:${tag}"
           else
             echo "  ❌ ${image_name}:${tag} (MISSING)"
