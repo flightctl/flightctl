@@ -230,6 +230,45 @@ type PAMOIDCIssuer struct {
 	// AuthenticatedSessionCookieMaxAge is the MaxAge duration for authenticated session cookies
 	// Default: 30 minutes
 	AuthenticatedSessionCookieMaxAge util.Duration `json:"authenticatedSessionCookieMaxAge,omitempty"`
+	// Branding configures the login UI appearance (logo, display name, colors)
+	// If nil, the default Flight Control branding is used
+	Branding *LoginBranding `json:"branding,omitempty"`
+}
+
+// LoginBranding configures the visual branding of the PAM issuer login UI
+type LoginBranding struct {
+	// DisplayName is used in the page title ("<DisplayName> Login") and card heading
+	// Default: "Flight Control"
+	DisplayName string `json:"displayName,omitempty"`
+	// FaviconDataUri is a data URI for a custom favicon (e.g. "data:image/png;base64,...").
+	// If not set, the default embedded Flight Control favicon is used.
+	FaviconDataUri string `json:"faviconDataUri,omitempty"`
+	// DarkTheme overrides PatternFly CSS variables and logo for dark mode
+	DarkTheme *ThemeColors `json:"darkTheme,omitempty"`
+	// LightTheme overrides PatternFly CSS variables and logo for light mode
+	LightTheme *ThemeColors `json:"lightTheme,omitempty"`
+}
+
+// ThemeColors defines PatternFly v6 semantic token overrides for a specific theme (light or dark).
+// Each color field maps to a PF6 semantic CSS custom property.
+// See https://www.patternfly.org/tokens/all-patternfly-tokens for the full token list.
+type ThemeColors struct {
+	// LogoDataUri is a data URI for a custom logo (e.g. "data:image/svg+xml;base64,...").
+	// Use different logos per theme (e.g. dark text on light backgrounds, white text on dark backgrounds).
+	// If not set, the default embedded Flight Control logo is used.
+	LogoDataUri string `json:"logoDataUri,omitempty"`
+	// BrandDefault overrides --pf-t--global--color--brand--default (primary brand color for buttons, links)
+	BrandDefault string `json:"brandDefault,omitempty"`
+	// BrandHover overrides --pf-t--global--color--brand--hover (brand color on hover/focus)
+	BrandHover string `json:"brandHover,omitempty"`
+	// BrandClicked overrides --pf-t--global--color--brand--clicked (brand color on click/active)
+	BrandClicked string `json:"brandClicked,omitempty"`
+	// BackgroundPrimary overrides --pf-t--global--background--color--primary--default (card/surface background)
+	BackgroundPrimary string `json:"backgroundPrimary,omitempty"`
+	// BackgroundSecondary overrides --pf-t--global--background--color--secondary--default (page background)
+	BackgroundSecondary string `json:"backgroundSecondary,omitempty"`
+	// TextColorRegular overrides --pf-t--global--text--color--regular (primary text color)
+	TextColorRegular string `json:"textColorRegular,omitempty"`
 }
 
 type metricsConfig struct {

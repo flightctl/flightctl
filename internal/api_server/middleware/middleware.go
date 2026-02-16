@@ -200,7 +200,8 @@ const (
 	// StrictCSP is the strictest CSP for JSON-only API servers.
 	StrictCSP = "default-src 'none'; frame-ancestors 'none'"
 	// PAMIssuerCSP allows the scripts, styles, and assets needed by the login page.
-	PAMIssuerCSP = "default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'self'"
+	// img-src includes 'data:' to support custom branding logos and favicons supplied as data URIs.
+	PAMIssuerCSP = "default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'self'"
 )
 
 // SecurityHeaders adds security headers to all HTTP responses.

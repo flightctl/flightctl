@@ -22,7 +22,7 @@ var ThemeManager = (function() {
             var stored = localStorage.getItem(STORAGE_KEY);
             if (stored === 'dark') return true;
             if (stored === 'light') return false;
-        } catch (e) { /* SecurityError - storage unavailable */ }
+        } catch (e) { /* SecurityError – storage unavailable */ }
         return mq.matches;
     }
 
