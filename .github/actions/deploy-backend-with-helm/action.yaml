@@ -504,7 +504,11 @@ runs:
 
         # Nuclear option: uninstall ALL flightctl releases from ALL namespaces
         echo "Removing ALL FlightCtl installations from ALL namespaces..."
-        helm list -A -q | grep -i flightctl | xargs -r -I {} helm uninstall {} -A --ignore-not-found --timeout=2m
+        # Get releases with their namespaces and uninstall each from specific namespace
+        helm list -A -o json | jq -r '.[] | select(.name | test("flightctl")) | "\(.name) \(.namespace)"' | while read release namespace; do
+          echo "Uninstalling $release from namespace $namespace"
+          helm uninstall "$release" -n "$namespace" --ignore-not-found --timeout=2m || true
+        done
 
         # Also try specific namespace cleanup
         helm uninstall flightctl -n "${NAMESPACE_EXTERNAL}" --ignore-not-found --timeout=2m
