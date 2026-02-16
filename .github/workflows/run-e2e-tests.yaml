@@ -83,6 +83,33 @@ jobs:
           echo "base_domain=${IP}.nip.io" >> "$GITHUB_OUTPUT"
           echo "Computed base domain: ${IP}.nip.io"
 
+      # ========== DOWNLOAD AND LOAD BACKEND IMAGES ==========
+      - name: Download backend artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: flightctl-images-bundle-${{ inputs.flavor }}-${{ inputs.tag }}
+          path: backend-artifacts
+
+      - name: Load backend images
+        env:
+          FLAVOR: ${{ inputs.flavor }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          echo "Loading backend images into kind"
+          # Image bundle file (artifact name is flavor-specific, but file inside is fixed)
+          BUNDLE_FILE="backend-artifacts/flightctl-images-bundle.tar"
+          if [[ ! -f "$BUNDLE_FILE" ]]; then
+            echo "Image bundle not found at $BUNDLE_FILE. Available files:"
+            find backend-artifacts -name "*.tar" || true
+            ls -la backend-artifacts/
+            exit 1
+          fi
+          echo "Using bundle file: $BUNDLE_FILE"
+          kind load image-archive "${BUNDLE_FILE}"
+          echo "Backend images loaded successfully"
+          rm -f "${BUNDLE_FILE}"
+
       # ========== DEPLOY BACKEND WITH HELM ==========
       - name: Deploy backend with Helm
         uses: ./.github/actions/deploy-backend-with-helm
