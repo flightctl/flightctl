@@ -17,6 +17,7 @@ import (
 	"github.com/flightctl/flightctl/internal/auth/oidc/pam"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"
+	"github.com/go-chi/chi/v5"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 )
@@ -546,7 +547,8 @@ func (h *Handler) ServePatternFlyCSS(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// ServeFlightControlLogo serves the embedded Flight Control logo SVG
+// ServeFlightControlLogo serves the embedded Flight Control logo SVG.
+// Custom logos are served via ServeBrandingAsset at /auth/branding/{filename}.
 func (h *Handler) ServeFlightControlLogo(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "image/svg+xml")
 	w.Header().Set("Cache-Control", "public, max-age=86400")
@@ -564,21 +566,86 @@ func (h *Handler) ServeLoginJS(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// ServeLoginCSS renders and serves the login page CSS with branding overrides applied.
+// ServeLoginCSS serves the static login page CSS (cacheable, no longer templated).
 func (h *Handler) ServeLoginCSS(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/css; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-cache")
-	renderedCSS := h.pamProvider.GetLoginCSS()
-	if _, err := w.Write([]byte(renderedCSS)); err != nil {
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	css := h.pamProvider.GetLoginCSS()
+	if _, err := w.Write([]byte(css)); err != nil {
 		h.log.Errorf("Failed to write login CSS response: %v", err)
 	}
 }
 
-// ServeFavicon serves the embedded Flight Control favicon PNG
+// ServeFavicon serves the favicon, using custom branding if available.
 func (h *Handler) ServeFavicon(w http.ResponseWriter, r *http.Request) {
+	assets := h.pamProvider.GetBrandingAssets()
+	if assets != nil && assets.FaviconBytes != nil {
+		w.Header().Set("Content-Type", assets.FaviconMIME)
+		w.Header().Set("Cache-Control", "public, max-age=86400")
+		if _, err := w.Write(assets.FaviconBytes); err != nil {
+			h.log.Errorf("Failed to write custom favicon response: %v", err)
+		}
+		return
+	}
 	w.Header().Set("Content-Type", "image/png")
 	w.Header().Set("Cache-Control", "public, max-age=86400")
 	if _, err := w.Write(pam.FlightControlFavicon); err != nil {
 		h.log.Errorf("Failed to write favicon response: %v", err)
 	}
+}
+
+// ServeBrandingAsset serves CSS and image files from the pre-loaded branding assets.
+// Only files that were loaded at startup are served; the filename is validated against
+// the known asset names (no filesystem access at request time = no path traversal).
+func (h *Handler) ServeBrandingAsset(w http.ResponseWriter, r *http.Request) {
+	filename := chi.URLParam(r, "filename")
+	if filename == "" {
+		http.NotFound(w, r)
+		return
+	}
+
+	assets := h.pamProvider.GetBrandingAssets()
+	if assets == nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	// Check CSS files
+	for _, css := range assets.CSSFiles {
+		if css.Name == filename {
+			w.Header().Set("Content-Type", "text/css; charset=utf-8")
+			w.Header().Set("Cache-Control", "public, max-age=86400")
+			if _, err := w.Write(css.Content); err != nil {
+				h.log.Errorf("Failed to write branding CSS %q: %v", filename, err)
+			}
+			return
+		}
+	}
+
+	// Check image assets by comparing the expected filename from the URL path
+	switch {
+	case assets.FaviconBytes != nil && "/auth/branding/"+filename == assets.FaviconPath:
+		w.Header().Set("Content-Type", assets.FaviconMIME)
+		w.Header().Set("Cache-Control", "public, max-age=86400")
+		if _, err := w.Write(assets.FaviconBytes); err != nil {
+			h.log.Errorf("Failed to write branding favicon: %v", err)
+		}
+		return
+	case assets.LightLogoBytes != nil && "/auth/branding/"+filename == assets.LightLogoPath:
+		w.Header().Set("Content-Type", assets.LightLogoMIME)
+		w.Header().Set("Cache-Control", "public, max-age=86400")
+		if _, err := w.Write(assets.LightLogoBytes); err != nil {
+			h.log.Errorf("Failed to write branding light logo: %v", err)
+		}
+		return
+	case assets.DarkLogoBytes != nil && "/auth/branding/"+filename == assets.DarkLogoPath:
+		w.Header().Set("Content-Type", assets.DarkLogoMIME)
+		w.Header().Set("Cache-Control", "public, max-age=86400")
+		if _, err := w.Write(assets.DarkLogoBytes); err != nil {
+			h.log.Errorf("Failed to write branding dark logo: %v", err)
+		}
+		return
+	}
+
+	http.NotFound(w, r)
 }

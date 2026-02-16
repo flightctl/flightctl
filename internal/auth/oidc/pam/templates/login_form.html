@@ -7,7 +7,8 @@
     <link rel="icon" href="{{.FaviconSrc}}">
     <link rel="stylesheet" href="/auth/assets/patternfly.min.css">
     <link rel="stylesheet" href="/auth/assets/login.css">
-</head>
+{{range .BrandingCSSPaths}}    <link rel="stylesheet" href="{{.}}">
+{{end}}</head>
 <body>
   <button id="theme-toggle" class="pf-v6-c-button pf-m-plain" type="button"></button>
   <div id="login-page">

@@ -19,6 +19,7 @@ Volume=/etc/flightctl/pki/flightctl-pam-issuer/token-signer.key:/root/.flightctl
 # User database: same volume as 1.0.0 /etc (flightctl-pam-issuer-etc) mounted at /userdb; kept in sync with container's /etc.
 Volume=flightctl-pam-issuer-etc:/userdb:Z
 Volume=/etc/flightctl/flightctl-pam-issuer/config.yaml:/root/.flightctl/config.yaml:ro,z
+Volume=/etc/flightctl/branding:/etc/flightctl/branding:ro,z
 
 [Service]
 Restart=always

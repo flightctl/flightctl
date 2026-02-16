@@ -165,6 +165,7 @@ func (s *Server) Run(ctx context.Context) error {
 	router.Get("/auth/assets/login.js", handler.ServeLoginJS)
 	router.Get("/auth/assets/login.css", handler.ServeLoginCSS)
 	router.Get("/auth/assets/favicon.png", handler.ServeFavicon)
+	router.Get("/auth/branding/{filename}", handler.ServeBrandingAsset)
 
 	// Font assets referenced by patternfly.min.css via relative url(assets/...).
 	// The CSS is served at /auth/assets/patternfly.min.css so relative paths

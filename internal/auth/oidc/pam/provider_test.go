@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
+	"os"
 	"os/user"
 	"strings"
 	"testing"
@@ -896,7 +897,7 @@ func parseLoginForm(rawHTML string) *html.Node {
 	return doc
 }
 
-var _ = Describe("Login Form Branding", func() {
+var _ = Describe("Login Form Branding (drop-in directory)", func() {
 	var (
 		mockAuth *MockAuthenticator
 		caClient *fccrypto.CAClient
@@ -919,10 +920,12 @@ var _ = Describe("Login Form Branding", func() {
 			ClientSecret: "test-secret",
 			RedirectURIs: []string{"https://example.com/callback"},
 			PAMService:   "test",
+			DisplayName:  "Flight Control",
+			BrandingDir:  "", // empty = no branding directory
 		}
 	}
 
-	Context("Default branding (no branding config)", func() {
+	Context("Default branding (no branding directory)", func() {
 		It("should use Flight Control defaults", func() {
 			cfg := baseConfig()
 			provider, err := NewPAMOIDCProviderWithAuthenticator(caClient, cfg, mockAuth)
@@ -948,17 +951,55 @@ var _ = Describe("Login Form Branding", func() {
 			darkLogo := findNodeByID(doc, "brand-logo-dark")
 			Expect(darkLogo).ToNot(BeNil(), "expected #brand-logo-dark element")
 			Expect(getAttr(darkLogo, "src")).To(Equal("/auth/assets/flight-control-logo.svg"))
+		})
+	})
 
-			Expect(rawHTML).NotTo(ContainSubstring("--pf-t--global--color--brand--default"))
+	Context("Non-existent branding directory", func() {
+		It("should fall back to defaults", func() {
+			cfg := baseConfig()
+			cfg.BrandingDir = "/nonexistent/path/branding"
+			provider, err := NewPAMOIDCProviderWithAuthenticator(caClient, cfg, mockAuth)
+			Expect(err).ToNot(HaveOccurred())
+			defer provider.Close()
+
+			rawHTML := provider.GetLoginForm()
+			doc := parseLoginForm(rawHTML)
+
+			titleNode := findNode(doc, "title")
+			Expect(titleNode).ToNot(BeNil())
+			Expect(getTextContent(titleNode)).To(Equal("Flight Control Login"))
+		})
+	})
+
+	Context("Empty branding directory", func() {
+		It("should fall back to defaults", func() {
+			brandingDir := GinkgoT().TempDir()
+			cfg := baseConfig()
+			cfg.BrandingDir = brandingDir
+			provider, err := NewPAMOIDCProviderWithAuthenticator(caClient, cfg, mockAuth)
+			Expect(err).ToNot(HaveOccurred())
+			defer provider.Close()
+
+			rawHTML := provider.GetLoginForm()
+			doc := parseLoginForm(rawHTML)
+
+			titleNode := findNode(doc, "title")
+			Expect(titleNode).ToNot(BeNil())
+			Expect(getTextContent(titleNode)).To(Equal("Flight Control Login"))
+
+			assets := provider.GetBrandingAssets()
+			Expect(assets).ToNot(BeNil())
+			Expect(assets.CSSFiles).To(BeEmpty())
+			Expect(assets.FaviconBytes).To(BeNil())
+			Expect(assets.LightLogoBytes).To(BeNil())
+			Expect(assets.DarkLogoBytes).To(BeNil())
 		})
 	})
 
 	Context("Custom display name", func() {
 		It("should use the configured display name in title and heading", func() {
 			cfg := baseConfig()
-			cfg.Branding = &config.LoginBranding{
-				DisplayName: "ACME Corp",
-			}
+			cfg.DisplayName = "ACME Corp"
 			provider, err := NewPAMOIDCProviderWithAuthenticator(caClient, cfg, mockAuth)
 			Expect(err).ToNot(HaveOccurred())
 			defer provider.Close()
@@ -976,19 +1017,62 @@ var _ = Describe("Login Form Branding", func() {
 		})
 	})
 
-	Context("Custom logo data URI per theme", func() {
-		It("should use per-theme logo data URIs", func() {
+	Context("Single CSS file", func() {
+		It("should include the CSS file as a branding stylesheet link", func() {
+			brandingDir := GinkgoT().TempDir()
+			cssContent := `:root { --pf-t--global--color--brand--default: #0066cc; }`
+			Expect(os.WriteFile(brandingDir+"/branding.css", []byte(cssContent), 0600)).To(Succeed())
+
 			cfg := baseConfig()
-			lightURI := "data:image/svg+xml;base64,PHN2Zy8+light"
-			darkURI := "data:image/svg+xml;base64,PHN2Zy8+dark"
-			cfg.Branding = &config.LoginBranding{
-				LightTheme: &config.ThemeColors{
-					LogoDataUri: lightURI,
-				},
-				DarkTheme: &config.ThemeColors{
-					LogoDataUri: darkURI,
-				},
-			}
+			cfg.BrandingDir = brandingDir
+			provider, err := NewPAMOIDCProviderWithAuthenticator(caClient, cfg, mockAuth)
+			Expect(err).ToNot(HaveOccurred())
+			defer provider.Close()
+
+			rawHTML := provider.GetLoginForm()
+			Expect(rawHTML).To(ContainSubstring(`href="/auth/branding/branding.css"`))
+
+			assets := provider.GetBrandingAssets()
+			Expect(assets.CSSFiles).To(HaveLen(1))
+			Expect(assets.CSSFiles[0].Name).To(Equal("branding.css"))
+			Expect(string(assets.CSSFiles[0].Content)).To(Equal(cssContent))
+		})
+	})
+
+	Context("Multiple CSS files (ordering)", func() {
+		It("should sort CSS files lexicographically", func() {
+			brandingDir := GinkgoT().TempDir()
+			Expect(os.WriteFile(brandingDir+"/02-colors.css", []byte("/* colors */"), 0600)).To(Succeed())
+			Expect(os.WriteFile(brandingDir+"/01-base.css", []byte("/* base */"), 0600)).To(Succeed())
+			Expect(os.WriteFile(brandingDir+"/03-overrides.css", []byte("/* overrides */"), 0600)).To(Succeed())
+
+			cfg := baseConfig()
+			cfg.BrandingDir = brandingDir
+			provider, err := NewPAMOIDCProviderWithAuthenticator(caClient, cfg, mockAuth)
+			Expect(err).ToNot(HaveOccurred())
+			defer provider.Close()
+
+			assets := provider.GetBrandingAssets()
+			Expect(assets.CSSFiles).To(HaveLen(3))
+			Expect(assets.CSSFiles[0].Name).To(Equal("01-base.css"))
+			Expect(assets.CSSFiles[1].Name).To(Equal("02-colors.css"))
+			Expect(assets.CSSFiles[2].Name).To(Equal("03-overrides.css"))
+
+			rawHTML := provider.GetLoginForm()
+			Expect(rawHTML).To(ContainSubstring(`href="/auth/branding/01-base.css"`))
+			Expect(rawHTML).To(ContainSubstring(`href="/auth/branding/02-colors.css"`))
+			Expect(rawHTML).To(ContainSubstring(`href="/auth/branding/03-overrides.css"`))
+		})
+	})
+
+	Context("Custom logos", func() {
+		It("should use custom light and dark logos", func() {
+			brandingDir := GinkgoT().TempDir()
+			Expect(os.WriteFile(brandingDir+"/logo-light.svg", []byte("<svg>light</svg>"), 0600)).To(Succeed())
+			Expect(os.WriteFile(brandingDir+"/logo-dark.svg", []byte("<svg>dark</svg>"), 0600)).To(Succeed())
+
+			cfg := baseConfig()
+			cfg.BrandingDir = brandingDir
 			provider, err := NewPAMOIDCProviderWithAuthenticator(caClient, cfg, mockAuth)
 			Expect(err).ToNot(HaveOccurred())
 			defer provider.Close()
@@ -997,22 +1081,24 @@ var _ = Describe("Login Form Branding", func() {
 			doc := parseLoginForm(rawHTML)
 
 			lightLogo := findNodeByID(doc, "brand-logo-light")
-			Expect(lightLogo).ToNot(BeNil(), "expected #brand-logo-light element")
-			Expect(getAttr(lightLogo, "src")).To(Equal(lightURI))
+			Expect(lightLogo).ToNot(BeNil())
+			Expect(getAttr(lightLogo, "src")).To(Equal("/auth/branding/logo-light.svg"))
 
 			darkLogo := findNodeByID(doc, "brand-logo-dark")
-			Expect(darkLogo).ToNot(BeNil(), "expected #brand-logo-dark element")
-			Expect(getAttr(darkLogo, "src")).To(Equal(darkURI))
+			Expect(darkLogo).ToNot(BeNil())
+			Expect(getAttr(darkLogo, "src")).To(Equal("/auth/branding/logo-dark.svg"))
+
+			assets := provider.GetBrandingAssets()
+			Expect(string(assets.LightLogoBytes)).To(Equal("<svg>light</svg>"))
+			Expect(string(assets.DarkLogoBytes)).To(Equal("<svg>dark</svg>"))
 		})
 
 		It("should fall back to default logo when only one theme has a logo", func() {
+			brandingDir := GinkgoT().TempDir()
+			Expect(os.WriteFile(brandingDir+"/logo-dark.svg", []byte("<svg>dark</svg>"), 0600)).To(Succeed())
+
 			cfg := baseConfig()
-			darkURI := "data:image/svg+xml;base64,PHN2Zy8+dark"
-			cfg.Branding = &config.LoginBranding{
-				DarkTheme: &config.ThemeColors{
-					LogoDataUri: darkURI,
-				},
-			}
+			cfg.BrandingDir = brandingDir
 			provider, err := NewPAMOIDCProviderWithAuthenticator(caClient, cfg, mockAuth)
 			Expect(err).ToNot(HaveOccurred())
 			defer provider.Close()
@@ -1026,17 +1112,18 @@ var _ = Describe("Login Form Branding", func() {
 
 			darkLogo := findNodeByID(doc, "brand-logo-dark")
 			Expect(darkLogo).ToNot(BeNil())
-			Expect(getAttr(darkLogo, "src")).To(Equal(darkURI))
+			Expect(getAttr(darkLogo, "src")).To(Equal("/auth/branding/logo-dark.svg"))
 		})
 	})
 
-	Context("Custom favicon data URI", func() {
-		It("should use the configured favicon data URI", func() {
+	Context("Custom favicon", func() {
+		It("should use the custom favicon from the branding directory", func() {
+			brandingDir := GinkgoT().TempDir()
+			faviconData := []byte{0x89, 0x50, 0x4E, 0x47} // PNG header bytes
+			Expect(os.WriteFile(brandingDir+"/favicon.png", faviconData, 0600)).To(Succeed())
+
 			cfg := baseConfig()
-			faviconURI := "data:image/png;base64,iVBORw0KGgoAAAANS"
-			cfg.Branding = &config.LoginBranding{
-				FaviconDataUri: faviconURI,
-			}
+			cfg.BrandingDir = brandingDir
 			provider, err := NewPAMOIDCProviderWithAuthenticator(caClient, cfg, mockAuth)
 			Expect(err).ToNot(HaveOccurred())
 			defer provider.Close()
@@ -1045,95 +1132,25 @@ var _ = Describe("Login Form Branding", func() {
 			doc := parseLoginForm(rawHTML)
 
 			faviconLink := findNodeByAttr(doc, "link", "rel", "icon")
-			Expect(faviconLink).ToNot(BeNil(), "expected <link rel=\"icon\"> element")
-			Expect(getAttr(faviconLink, "href")).To(Equal(faviconURI))
+			Expect(faviconLink).ToNot(BeNil())
+			Expect(getAttr(faviconLink, "href")).To(Equal("/auth/branding/favicon.png"))
+
+			assets := provider.GetBrandingAssets()
+			Expect(assets.FaviconBytes).To(Equal(faviconData))
+			Expect(assets.FaviconMIME).To(Equal("image/png"))
 		})
 	})
 
-	Context("Light theme color overrides", func() {
-		It("should inject CSS variable overrides in :root scope", func() {
+	Context("Mixed overrides", func() {
+		It("should handle CSS, logos, and favicon together", func() {
+			brandingDir := GinkgoT().TempDir()
+			Expect(os.WriteFile(brandingDir+"/branding.css", []byte("/* custom */"), 0600)).To(Succeed())
+			Expect(os.WriteFile(brandingDir+"/logo-light.svg", []byte("<svg/>"), 0600)).To(Succeed())
+			Expect(os.WriteFile(brandingDir+"/favicon.ico", []byte("icon"), 0600)).To(Succeed())
+
 			cfg := baseConfig()
-			cfg.Branding = &config.LoginBranding{
-				LightTheme: &config.ThemeColors{
-					BrandDefault:        "#0066cc",
-					BrandHover:          "#004499",
-					BrandClicked:        "#004499",
-					BackgroundSecondary: "#f0f0f0",
-					BackgroundPrimary:   "#ffffff",
-					TextColorRegular:    "#333333",
-				},
-			}
-			provider, err := NewPAMOIDCProviderWithAuthenticator(caClient, cfg, mockAuth)
-			Expect(err).ToNot(HaveOccurred())
-			defer provider.Close()
-
-			css := provider.GetLoginCSS()
-			Expect(css).To(ContainSubstring("--pf-t--global--color--brand--default: #0066cc"))
-			Expect(css).To(ContainSubstring("--pf-t--global--color--brand--hover: #004499"))
-			Expect(css).To(ContainSubstring("--pf-t--global--color--brand--clicked: #004499"))
-			Expect(css).To(ContainSubstring("--pf-t--global--background--color--secondary--default: #f0f0f0"))
-			Expect(css).To(ContainSubstring("--pf-t--global--background--color--primary--default: #ffffff"))
-			Expect(css).To(ContainSubstring("--pf-t--global--text--color--regular: #333333"))
-		})
-	})
-
-	Context("Dark theme color overrides", func() {
-		It("should inject CSS variable overrides in .pf-v6-theme-dark scope", func() {
-			cfg := baseConfig()
-			cfg.Branding = &config.LoginBranding{
-				DarkTheme: &config.ThemeColors{
-					BrandDefault:        "#4da6ff",
-					BrandHover:          "#3d96ef",
-					BackgroundSecondary: "#1a1a2e",
-				},
-			}
-			provider, err := NewPAMOIDCProviderWithAuthenticator(caClient, cfg, mockAuth)
-			Expect(err).ToNot(HaveOccurred())
-			defer provider.Close()
-
-			css := provider.GetLoginCSS()
-			Expect(css).To(ContainSubstring(".pf-v6-theme-dark"))
-			Expect(css).To(ContainSubstring("--pf-t--global--color--brand--default: #4da6ff"))
-			Expect(css).To(ContainSubstring("--pf-t--global--color--brand--hover: #3d96ef"))
-			Expect(css).NotTo(ContainSubstring("--pf-t--global--color--brand--clicked"))
-			Expect(css).To(ContainSubstring("--pf-t--global--background--color--secondary--default: #1a1a2e"))
-		})
-	})
-
-	Context("Partial config (display name only, no themes)", func() {
-		It("should not emit CSS override block", func() {
-			cfg := baseConfig()
-			cfg.Branding = &config.LoginBranding{
-				DisplayName: "My Company",
-			}
-			provider, err := NewPAMOIDCProviderWithAuthenticator(caClient, cfg, mockAuth)
-			Expect(err).ToNot(HaveOccurred())
-			defer provider.Close()
-
-			rawHTML := provider.GetLoginForm()
-			doc := parseLoginForm(rawHTML)
-
-			titleNode := findNode(doc, "title")
-			Expect(titleNode).ToNot(BeNil())
-			Expect(getTextContent(titleNode)).To(Equal("My Company Login"))
-
-			css := provider.GetLoginCSS()
-			Expect(css).NotTo(ContainSubstring("--pf-t--global--color--brand--default"))
-		})
-	})
-
-	Context("Both light and dark themes", func() {
-		It("should emit overrides for both scopes", func() {
-			cfg := baseConfig()
-			cfg.Branding = &config.LoginBranding{
-				DisplayName: "Branded App",
-				LightTheme: &config.ThemeColors{
-					BrandDefault: "#0066cc",
-				},
-				DarkTheme: &config.ThemeColors{
-					BrandDefault: "#4da6ff",
-				},
-			}
+			cfg.DisplayName = "Branded App"
+			cfg.BrandingDir = brandingDir
 			provider, err := NewPAMOIDCProviderWithAuthenticator(caClient, cfg, mockAuth)
 			Expect(err).ToNot(HaveOccurred())
 			defer provider.Close()
@@ -1145,10 +1162,75 @@ var _ = Describe("Login Form Branding", func() {
 			Expect(titleNode).ToNot(BeNil())
 			Expect(getTextContent(titleNode)).To(Equal("Branded App Login"))
 
+			Expect(rawHTML).To(ContainSubstring(`href="/auth/branding/branding.css"`))
+
+			lightLogo := findNodeByID(doc, "brand-logo-light")
+			Expect(lightLogo).ToNot(BeNil())
+			Expect(getAttr(lightLogo, "src")).To(Equal("/auth/branding/logo-light.svg"))
+
+			faviconLink := findNodeByAttr(doc, "link", "rel", "icon")
+			Expect(faviconLink).ToNot(BeNil())
+			Expect(getAttr(faviconLink, "href")).To(Equal("/auth/branding/favicon.ico"))
+		})
+	})
+
+	Context("Size limit enforcement", func() {
+		It("should reject CSS files exceeding 256KB", func() {
+			brandingDir := GinkgoT().TempDir()
+			bigCSS := make([]byte, 257*1024) // 257 KB
+			for i := range bigCSS {
+				bigCSS[i] = 'a'
+			}
+			Expect(os.WriteFile(brandingDir+"/huge.css", bigCSS, 0600)).To(Succeed())
+
+			cfg := baseConfig()
+			cfg.BrandingDir = brandingDir
+			_, err := NewPAMOIDCProviderWithAuthenticator(caClient, cfg, mockAuth)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("exceeds maximum size"))
+		})
+
+		It("should reject image files exceeding 1MB", func() {
+			brandingDir := GinkgoT().TempDir()
+			bigImg := make([]byte, 1024*1024+1) // 1 MB + 1 byte
+			Expect(os.WriteFile(brandingDir+"/logo-light.png", bigImg, 0600)).To(Succeed())
+
+			cfg := baseConfig()
+			cfg.BrandingDir = brandingDir
+			_, err := NewPAMOIDCProviderWithAuthenticator(caClient, cfg, mockAuth)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("exceeds maximum size"))
+		})
+	})
+
+	Context("GetCSSByName", func() {
+		It("should return CSS content by filename", func() {
+			brandingDir := GinkgoT().TempDir()
+			cssContent := `body { color: red; }`
+			Expect(os.WriteFile(brandingDir+"/custom.css", []byte(cssContent), 0600)).To(Succeed())
+
+			cfg := baseConfig()
+			cfg.BrandingDir = brandingDir
+			provider, err := NewPAMOIDCProviderWithAuthenticator(caClient, cfg, mockAuth)
+			Expect(err).ToNot(HaveOccurred())
+			defer provider.Close()
+
+			assets := provider.GetBrandingAssets()
+			Expect(assets.GetCSSByName("custom.css")).To(Equal([]byte(cssContent)))
+			Expect(assets.GetCSSByName("nonexistent.css")).To(BeNil())
+		})
+	})
+
+	Context("Static login CSS", func() {
+		It("should return static CSS without template directives", func() {
+			cfg := baseConfig()
+			provider, err := NewPAMOIDCProviderWithAuthenticator(caClient, cfg, mockAuth)
+			Expect(err).ToNot(HaveOccurred())
+			defer provider.Close()
+
 			css := provider.GetLoginCSS()
-			Expect(css).To(ContainSubstring("--pf-t--global--color--brand--default: #0066cc"))
-			Expect(css).To(ContainSubstring(".pf-v6-theme-dark"))
-			Expect(css).To(ContainSubstring("--pf-t--global--color--brand--default: #4da6ff"))
+			Expect(css).To(ContainSubstring("#login-page"))
+			Expect(css).NotTo(ContainSubstring("{{"))
 		})
 	})
 })

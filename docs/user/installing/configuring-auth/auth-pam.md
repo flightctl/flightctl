@@ -109,66 +109,119 @@ auth:
 
 ### Login UI Branding
 
-The PAM issuer login page can be customized with your own branding. All branding options are configured under `auth.pamOidcIssuer.branding` in the service configuration file.
+The PAM issuer login page can be customized with your own branding. Drop CSS files, logos, or a favicon into `/etc/flightctl/branding/` and restart the service -- no configuration changes required.
 
-#### Branding Parameters
+#### Quick Start: Change Colors with CSS Only
 
-| Parameter | PF6 Semantic Token | Description | Default |
-|-----------|-------------------|-------------|---------|
-| `branding.displayName` | — | Name shown in the page title ("&lt;displayName&gt; Login") | `Flight Control` |
-| `branding.faviconDataUri` | — | Favicon [data URI](https://developer.mozilla.org/en-US/docs/Web/HTTP/URIs/Schemes/data) (e.g. `data:image/png;base64,...`) | Built-in Flight Control icon |
-| `branding.lightTheme.logoDataUri` | — | Logo [data URI](https://developer.mozilla.org/en-US/docs/Web/HTTP/URIs/Schemes/data) for light mode (e.g. `data:image/svg+xml;base64,...`). Use a dark-text logo variant. | Built-in Flight Control logo |
-| `branding.lightTheme.brandDefault` | `--pf-t--global--color--brand--default` | Primary brand color (buttons, links) | PatternFly default |
-| `branding.lightTheme.brandHover` | `--pf-t--global--color--brand--hover` | Brand color on hover/focus | PatternFly default |
-| `branding.lightTheme.brandClicked` | `--pf-t--global--color--brand--clicked` | Brand color on click/active | PatternFly default |
-| `branding.lightTheme.backgroundPrimary` | `--pf-t--global--background--color--primary--default` | Card/surface background color | PatternFly default |
-| `branding.lightTheme.backgroundSecondary` | `--pf-t--global--background--color--secondary--default` | Page background color | PatternFly default |
-| `branding.lightTheme.textColorRegular` | `--pf-t--global--text--color--regular` | Primary text color | PatternFly default |
-| `branding.darkTheme.logoDataUri` | — | Logo data URI for dark mode. Use a light-text/white logo variant. | Built-in Flight Control logo |
-| `branding.darkTheme.brandDefault` | `--pf-t--global--color--brand--default` | Primary brand color (buttons, links) | PatternFly default |
-| `branding.darkTheme.brandHover` | `--pf-t--global--color--brand--hover` | Brand color on hover/focus | PatternFly default |
-| `branding.darkTheme.brandClicked` | `--pf-t--global--color--brand--clicked` | Brand color on click/active | PatternFly default |
-| `branding.darkTheme.backgroundPrimary` | `--pf-t--global--background--color--primary--default` | Card/surface background color | PatternFly default |
-| `branding.darkTheme.backgroundSecondary` | `--pf-t--global--background--color--secondary--default` | Page background color | PatternFly default |
-| `branding.darkTheme.textColorRegular` | `--pf-t--global--text--color--regular` | Primary text color | PatternFly default |
+1. Create the branding directory (if it doesn't exist):
 
-Each color field maps directly to a [PatternFly v6 semantic token](https://www.patternfly.org/tokens/all-patternfly-tokens). Only the tokens you specify are overridden; all others keep their PatternFly defaults. Logos are per-theme so you can use appropriate light/dark variants.
+   ```bash
+   sudo mkdir -p /etc/flightctl/branding
+   ```
 
-#### Example: Custom Branding
+2. Add a CSS file:
+
+   ```bash
+   cat <<'EOF' | sudo tee /etc/flightctl/branding/branding.css
+   :root {
+       --pf-t--global--color--brand--default: #0066cc;
+       --pf-t--global--color--brand--hover: #004499;
+   }
+   EOF
+   ```
+
+3. Restart the PAM issuer:
+
+   ```bash
+   sudo systemctl restart flightctl-pam-issuer
+   ```
+
+That's it. The login page now uses your brand color. No changes to `service-config.yaml` are needed.
+
+#### How It Works
+
+The PAM issuer looks for branding assets in `/etc/flightctl/branding/` at startup. All files are optional -- any file you don't provide falls back to the embedded Flight Control default (logo, favicon, PatternFly styling). The server reads the directory once at startup; restart the service to apply changes.
+
+#### Drop-in Directory Structure
+
+```
+/etc/flightctl/branding/
+  branding.css          # CSS overrides (any *.css files are loaded)
+  logo-light.svg        # Light-theme logo (or .png)
+  logo-dark.svg         # Dark-theme logo (or .png)
+  favicon.png           # Custom favicon (or .ico)
+```
+
+#### File Naming Conventions
+
+Filenames are matched case-insensitively against exact base names (the part before the extension). For example, `logo-light.svg` and `Logo-Light.PNG` both match, but `logo-light-v2.svg` does not.
+
+| Filename | Description |
+|----------|-------------|
+| `*.css` | CSS override files. Multiple files are loaded in lexicographic order (e.g., `01-colors.css` before `02-layout.css`). |
+| `logo-light.<ext>` | Logo for light mode. Use a dark-text variant so it's visible on light backgrounds. SVG or PNG recommended. |
+| `logo-dark.<ext>` | Logo for dark mode. Use a light/white-text variant. SVG or PNG recommended. |
+| `favicon.<ext>` | Custom favicon. PNG or ICO format. |
+
+#### Size Limits
+
+- CSS files: 256 KB each
+- Image files (logos, favicon): 1 MB each
+
+#### Commonly Used PatternFly v6 CSS Tokens
+
+The login page uses [PatternFly v6](https://www.patternfly.org/tokens/all-patternfly-tokens). Override these CSS variables in your branding CSS to change colors and styling. Only the tokens you set are changed; all others keep their PatternFly defaults.
+
+| CSS Variable | What It Controls |
+|-------------|-----------------|
+| `--pf-t--global--color--brand--default` | Primary brand color (buttons, links) |
+| `--pf-t--global--color--brand--hover` | Brand color on hover |
+| `--pf-t--global--color--brand--clicked` | Brand color on click/active |
+| `--pf-t--global--background--color--primary--default` | Page background |
+| `--pf-t--global--background--color--secondary--default` | Card/form background |
+| `--pf-t--global--text--color--regular` | Body text color |
+| `--pf-t--global--text--color--on-brand--default` | Text on brand-colored backgrounds |
+| `--pf-t--global--border--color--default` | Default border color |
+| `--pf-t--global--font--family--body` | Body font family |
+
+For dark-theme overrides, scope your variables inside `.pf-v6-theme-dark`:
+
+```css
+.pf-v6-theme-dark {
+    --pf-t--global--color--brand--default: #4da6ff;
+}
+```
+
+#### Optional: Changing the Display Name or Branding Directory
+
+By default, `displayName` is **"Flight Control"** and `brandingDir` is **`/etc/flightctl/branding`**. You only need to add these to `service-config.yaml` if you want to change them:
 
 ```yaml
 auth:
   pamOidcIssuer:
-    branding:
-      displayName: "ACME Corp"
-      faviconDataUri: "data:image/png;base64,<FAVICON_PNG>"
-      lightTheme:
-        logoDataUri: "data:image/svg+xml;base64,<DARK_TEXT_LOGO>"
-        brandDefault: "#0066cc"
-        brandHover: "#004499"
-        brandClicked: "#004499"
-        backgroundSecondary: "#f0f0f0"
-      darkTheme:
-        logoDataUri: "data:image/svg+xml;base64,<WHITE_TEXT_LOGO>"
-        brandDefault: "#4da6ff"
-        brandHover: "#3d96ef"
-        brandClicked: "#3d96ef"
-        backgroundSecondary: "#1a1a2e"
+    displayName: "ACME Corp"       # Shown in the page title ("<displayName> Login")
+    brandingDir: "/custom/path"    # Only if using a non-default path
 ```
 
-#### Generating Data URIs for Logos and Favicon
-
-To convert an SVG or PNG file into a data URI for the `logoDataUri` or `faviconDataUri` fields:
+#### Full Example: Custom Logos, Favicon, and CSS
 
 ```bash
-# For SVG logos
-echo "data:image/svg+xml;base64,$(base64 -w0 logo.svg)"
+# Create branding directory
+sudo mkdir -p /etc/flightctl/branding
 
-# For PNG logos or favicon
-echo "data:image/png;base64,$(base64 -w0 logo.png)"
+# Copy logos (use exact filenames)
+sudo cp my-logo-dark-text.svg /etc/flightctl/branding/logo-light.svg
+sudo cp my-logo-white-text.svg /etc/flightctl/branding/logo-dark.svg
+
+# Copy favicon
+sudo cp my-favicon.png /etc/flightctl/branding/favicon.png
+
+# Copy CSS overrides
+sudo cp my-branding.css /etc/flightctl/branding/branding.css
+
+# Restart the PAM issuer to apply changes
+sudo systemctl restart flightctl-pam-issuer
 ```
-
-Copy the output and paste it as the `logoDataUri` or `faviconDataUri` value. Use a dark-text logo for `lightTheme` and a light/white-text logo for `darkTheme`. If no logo is configured for a theme, the default Flight Control logo is used. If no favicon is configured, the default Flight Control icon is used.
 
 ### Default Configuration
 

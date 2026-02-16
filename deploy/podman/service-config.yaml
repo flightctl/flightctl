@@ -52,31 +52,13 @@ global:
         - roles
         - offline_access
       pamService: flightctl
-      branding:
-        # Display name shown in the login page title ("<displayName> Login")
-        # Default: "Flight Control"
-        displayName:
-        # Favicon data URI (e.g. "data:image/png;base64,..."). Default: built-in Flight Control icon
-        faviconDataUri:
-        # PatternFly v6 semantic token overrides for light theme
-        # See https://www.patternfly.org/tokens/all-patternfly-tokens
-        lightTheme:
-          logoDataUri:         # Logo data URI for light mode (e.g. "data:image/svg+xml;base64,...")
-          brandDefault:        # --pf-t--global--color--brand--default (buttons, links)
-          brandHover:          # --pf-t--global--color--brand--hover
-          brandClicked:        # --pf-t--global--color--brand--clicked
-          backgroundPrimary:   # --pf-t--global--background--color--primary--default (card background)
-          backgroundSecondary: # --pf-t--global--background--color--secondary--default (page background)
-          textColorRegular:    # --pf-t--global--text--color--regular
-        # PatternFly v6 semantic token overrides for dark theme
-        darkTheme:
-          logoDataUri:         # Logo data URI for dark mode
-          brandDefault:        # --pf-t--global--color--brand--default
-          brandHover:          # --pf-t--global--color--brand--hover
-          brandClicked:        # --pf-t--global--color--brand--clicked
-          backgroundPrimary:   # --pf-t--global--background--color--primary--default
-          backgroundSecondary: # --pf-t--global--background--color--secondary--default
-          textColorRegular:    # --pf-t--global--text--color--regular
+      # Display name shown in the login page title ("<displayName> Login")
+      # Default: "Flight Control"
+      displayName:
+      # Path to a drop-in directory containing branding assets (CSS, logos, favicon).
+      # All files are optional. See docs/user/installing/configuring-auth/auth-pam.md
+      # Default: "/etc/flightctl/branding"
+      brandingDir:
 
 db:
   name: flightctl

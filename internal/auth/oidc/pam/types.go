@@ -23,7 +23,7 @@ type PAMOIDCProvider struct {
 	log                    Logger
 	loginFormTemplate      *template.Template
 	loginFormErrorTemplate *template.Template
-	loginCSSTemplate       *template.Template
+	brandingAssets         *BrandingAssets
 	cookieKey              []byte // AES-256 key for encrypting pending auth cookies
 }
 

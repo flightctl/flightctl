@@ -48,60 +48,9 @@ auth:
     pendingSessionCookieMaxAge: {{if .global.auth.pamOidcIssuer.pendingSessionCookieMaxAge}}{{.global.auth.pamOidcIssuer.pendingSessionCookieMaxAge}}{{else}}10m{{end}}
     authenticatedSessionCookieMaxAge: {{if .global.auth.pamOidcIssuer.authenticatedSessionCookieMaxAge}}{{.global.auth.pamOidcIssuer.authenticatedSessionCookieMaxAge}}{{else}}30m{{end}}
     cookieHttpOnly: {{if .global.auth.pamOidcIssuer.cookieHttpOnly}}{{.global.auth.pamOidcIssuer.cookieHttpOnly}}{{else}}true{{end}}
-{{- if .global.auth.pamOidcIssuer.branding}}
-    branding:
-{{- if .global.auth.pamOidcIssuer.branding.displayName}}
-      displayName: {{.global.auth.pamOidcIssuer.branding.displayName}}
+{{- if .global.auth.pamOidcIssuer.displayName}}
+    displayName: {{.global.auth.pamOidcIssuer.displayName}}
 {{- end}}
-{{- if .global.auth.pamOidcIssuer.branding.faviconDataUri}}
-      faviconDataUri: {{.global.auth.pamOidcIssuer.branding.faviconDataUri}}
-{{- end}}
-{{- if .global.auth.pamOidcIssuer.branding.lightTheme}}
-      lightTheme:
-{{- if .global.auth.pamOidcIssuer.branding.lightTheme.logoDataUri}}
-        logoDataUri: {{.global.auth.pamOidcIssuer.branding.lightTheme.logoDataUri}}
-{{- end}}
-{{- if .global.auth.pamOidcIssuer.branding.lightTheme.brandDefault}}
-        brandDefault: "{{.global.auth.pamOidcIssuer.branding.lightTheme.brandDefault}}"
-{{- end}}
-{{- if .global.auth.pamOidcIssuer.branding.lightTheme.brandHover}}
-        brandHover: "{{.global.auth.pamOidcIssuer.branding.lightTheme.brandHover}}"
-{{- end}}
-{{- if .global.auth.pamOidcIssuer.branding.lightTheme.brandClicked}}
-        brandClicked: "{{.global.auth.pamOidcIssuer.branding.lightTheme.brandClicked}}"
-{{- end}}
-{{- if .global.auth.pamOidcIssuer.branding.lightTheme.backgroundPrimary}}
-        backgroundPrimary: "{{.global.auth.pamOidcIssuer.branding.lightTheme.backgroundPrimary}}"
-{{- end}}
-{{- if .global.auth.pamOidcIssuer.branding.lightTheme.backgroundSecondary}}
-        backgroundSecondary: "{{.global.auth.pamOidcIssuer.branding.lightTheme.backgroundSecondary}}"
-{{- end}}
-{{- if .global.auth.pamOidcIssuer.branding.lightTheme.textColorRegular}}
-        textColorRegular: "{{.global.auth.pamOidcIssuer.branding.lightTheme.textColorRegular}}"
-{{- end}}
-{{- end}}
-{{- if .global.auth.pamOidcIssuer.branding.darkTheme}}
-      darkTheme:
-{{- if .global.auth.pamOidcIssuer.branding.darkTheme.logoDataUri}}
-        logoDataUri: {{.global.auth.pamOidcIssuer.branding.darkTheme.logoDataUri}}
-{{- end}}
-{{- if .global.auth.pamOidcIssuer.branding.darkTheme.brandDefault}}
-        brandDefault: "{{.global.auth.pamOidcIssuer.branding.darkTheme.brandDefault}}"
-{{- end}}
-{{- if .global.auth.pamOidcIssuer.branding.darkTheme.brandHover}}
-        brandHover: "{{.global.auth.pamOidcIssuer.branding.darkTheme.brandHover}}"
-{{- end}}
-{{- if .global.auth.pamOidcIssuer.branding.darkTheme.brandClicked}}
-        brandClicked: "{{.global.auth.pamOidcIssuer.branding.darkTheme.brandClicked}}"
-{{- end}}
-{{- if .global.auth.pamOidcIssuer.branding.darkTheme.backgroundPrimary}}
-        backgroundPrimary: "{{.global.auth.pamOidcIssuer.branding.darkTheme.backgroundPrimary}}"
-{{- end}}
-{{- if .global.auth.pamOidcIssuer.branding.darkTheme.backgroundSecondary}}
-        backgroundSecondary: "{{.global.auth.pamOidcIssuer.branding.darkTheme.backgroundSecondary}}"
-{{- end}}
-{{- if .global.auth.pamOidcIssuer.branding.darkTheme.textColorRegular}}
-        textColorRegular: "{{.global.auth.pamOidcIssuer.branding.darkTheme.textColorRegular}}"
-{{- end}}
-{{- end}}
+{{- if .global.auth.pamOidcIssuer.brandingDir}}
+    brandingDir: {{.global.auth.pamOidcIssuer.brandingDir}}
 {{- end}}
