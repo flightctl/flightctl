@@ -296,7 +296,7 @@ spec:
 If your device relies on containers from a private repository, [authentication credentials](https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/9/html-single/using_image_mode_for_rhel_to_build_deploy_and_manage_operating_systems/index#configuring-container-pull-secrets_managing-users-groups-ssh-key-and-secrets-in-image-mode-for-rhel) (pull secrets) must be placed in the appropriate system paths.
 
 * **OS Image:** Uses `/etc/ostree/auth.json`
-* **Container Images:** Uses the system default for Podman, `/root/.config/containers/auth.json`
+* **Container Images:** Uses the system default for Podman, `~/.config/containers/auth.json`. You will need an `auth.json` file for each user that needs to pull from a private repo. When deploying `quadlet` or `container` apps, the `runAs` configuration determines which user needs the credentials.
 
 #### Auth File Format
 
