@@ -206,7 +206,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: junit-results-${{ steps.compute-hash.outputs.hash }}-node-${{ matrix.ginkgo_node }}
+          name: junit-results-${{ inputs.os_id }}-${{ inputs.flavor }}-${{ steps.compute-hash.outputs.hash }}-node-${{ matrix.ginkgo_node }}
           path: reports/junit_e2e_test.xml
           if-no-files-found: warn
           overwrite: true
@@ -218,4 +218,4 @@ jobs:
         with:
           namespace-external: 'flightctl-external'
           namespace-internal: 'flightctl-internal'
-          log-directory: 'e2e-logs-${{ steps.compute-hash.outputs.hash }}-node-${{ matrix.ginkgo_node }}-logs'
+          log-directory: 'e2e-logs-${{ inputs.os_id }}-${{ inputs.flavor }}-${{ steps.compute-hash.outputs.hash }}-node-${{ matrix.ginkgo_node }}-logs'
