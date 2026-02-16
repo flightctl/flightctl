@@ -52,6 +52,6 @@ LABEL \
   name="flightctl-cli-artifacts-el${EL_VERSION}" \
   summary="Container image exposing multi-arch Flight Control CLI binaries over HTTP (el${EL_VERSION})"
 
-COPY --from=build /app/bin/flightctl .
+COPY --chmod=0755 --from=build /app/bin/flightctl .
 
 CMD ./flightctl

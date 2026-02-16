@@ -51,6 +51,6 @@ LABEL \
   io.k8s.display-name="Flight Control ImageBuilder API" \
   name="flightctl-imagebuilder-api-el${EL_VERSION}" \
   summary="Flight Control ImageBuilder API server (el${EL_VERSION})"
-COPY --from=build /app/bin/flightctl-imagebuilder-api .
+COPY --chmod=0755 --from=build /app/bin/flightctl-imagebuilder-api .
 
 CMD ./flightctl-imagebuilder-api

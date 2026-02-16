@@ -57,7 +57,7 @@ LABEL \
   name="flightctl-db-setup-el${EL_VERSION}" \
   summary="Flight Control Database Setup Tools (el${EL_VERSION})"
 
-COPY --from=build /app/bin/flightctl-db-migrate /usr/local/bin/flightctl-db-migrate
+COPY --chmod=0755 --from=build /app/bin/flightctl-db-migrate /usr/local/bin/flightctl-db-migrate
 COPY --from=build /app/deploy ./deploy
 
 CMD /usr/local/bin/flightctl-db-migrate

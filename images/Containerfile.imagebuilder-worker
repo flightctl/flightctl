@@ -51,6 +51,6 @@ LABEL \
   io.k8s.display-name="Flight Control ImageBuilder Worker" \
   name="flightctl-imagebuilder-worker-el${EL_VERSION}" \
   summary="Flight Control image builder worker service (el${EL_VERSION})"
-COPY --from=build /app/bin/flightctl-imagebuilder-worker .
+COPY --chmod=0755 --from=build /app/bin/flightctl-imagebuilder-worker .
 
 CMD ./flightctl-imagebuilder-worker

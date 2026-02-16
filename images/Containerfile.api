@@ -51,6 +51,6 @@ LABEL \
   io.k8s.display-name="Flight Control API Server" \
   name="flightctl-api-el${EL_VERSION}" \
   summary="Flight Control Edge management API server (el${EL_VERSION})"
-COPY --from=build /app/bin/flightctl-api .
+COPY --chmod=0755 --from=build /app/bin/flightctl-api .
 
 CMD ./flightctl-api
