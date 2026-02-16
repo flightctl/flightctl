@@ -402,10 +402,29 @@ runs:
         kubectl create namespace "${NAMESPACE_INTERNAL}" || true
         echo "=== NUCLEAR CLEANUP COMPLETE - GUARANTEED CLEAN STATE ==="
 
+        echo "🔍 DEBUG: Script reached post-cleanup, proceeding to helm preparation..."
+
         # Build optional args
         EXTRA_ARGS=""
-        for f in ${ADDITIONAL_VALUES_FILES}; do [ -f "$f" ] && EXTRA_ARGS+=" --values $f"; done
-        [ -n "${AUTH_TYPE}" ] && EXTRA_ARGS+=" --set global.auth.type=${AUTH_TYPE}"
+        echo "🔍 DEBUG: Building additional values files..."
+        for f in ${ADDITIONAL_VALUES_FILES}; do
+          if [ -f "$f" ]; then
+            EXTRA_ARGS+=" --values $f"
+            echo "  Added values file: $f"
+          else
+            echo "  Values file not found: $f"
+          fi
+        done
+
+        echo "🔍 DEBUG: Checking auth type..."
+        if [ -n "${AUTH_TYPE}" ]; then
+          EXTRA_ARGS+=" --set global.auth.type=${AUTH_TYPE}"
+          echo "  Added auth type: ${AUTH_TYPE}"
+        else
+          echo "  No auth type specified"
+        fi
+
+        echo "🔍 DEBUG: EXTRA_ARGS built: ${EXTRA_ARGS}"
 
         echo "=== STARTING HELM DEPLOYMENT ==="
         echo "Nuclear cleanup complete, verified clean state"
@@ -464,19 +483,37 @@ runs:
           echo "Using published images - keeping default imagePullPolicy"
         fi
 
+        echo "🔍 DEBUG: Looking for helm chart file..."
+        echo "Available artifacts:"
+        ls -la artifacts/ || echo "No artifacts directory found"
+
         # Find the actual chart file (artifact contains original filename)
         CHART_FILE=$(find artifacts/ -name "flightctl-chart.tgz" | head -n1)
         if [ -z "$CHART_FILE" ]; then
-          echo "ERROR: flightctl-chart.tgz not found in artifacts"
+          echo "❌ ERROR: flightctl-chart.tgz not found in artifacts"
+          echo "Contents of artifacts directory:"
+          find artifacts/ -type f || echo "No files found"
           exit 1
         fi
-        echo "Using chart file: $CHART_FILE"
+        echo "✅ Using chart file: $CHART_FILE (size: $(ls -lh "$CHART_FILE"))"
+
+        echo "🔍 DEBUG: Building helm command..."
 
         # Build the helm command
         HELM_CMD="helm install flightctl $CHART_FILE"
         HELM_CMD+=" --namespace ${NAMESPACE_EXTERNAL}"
         HELM_CMD+=" --create-namespace"
-        HELM_CMD+=" --values deploy/helm/flightctl/values.nodeport.yaml"
+
+        # Check if values file exists
+        if [ -f "deploy/helm/flightctl/values.nodeport.yaml" ]; then
+          HELM_CMD+=" --values deploy/helm/flightctl/values.nodeport.yaml"
+          echo "✅ Using values file: deploy/helm/flightctl/values.nodeport.yaml"
+        else
+          echo "❌ Warning: deploy/helm/flightctl/values.nodeport.yaml not found"
+          echo "Available files in deploy/helm/flightctl/:"
+          ls -la deploy/helm/flightctl/ || echo "Directory not found"
+        fi
+
         HELM_CMD+=' --set global.baseDomain="${BASE_DOMAIN}"'
         HELM_CMD+=" --set global.internalNamespace=${NAMESPACE_INTERNAL}"
         HELM_CMD+=" --set ui.enabled=false"
@@ -484,7 +521,12 @@ runs:
 
         if [ "${WAIT}" == "true" ]; then
           HELM_CMD+=" --wait"
+          echo "✅ Wait enabled - will wait for deployment completion"
+        else
+          echo "⏭️  Wait disabled - will not wait for deployment completion"
         fi
+
+        echo "🔍 DEBUG: Final helm command: ${HELM_CMD}"
 
         # Output command for summary (with literal ${BASE_DOMAIN} for local reproduction)
         {
