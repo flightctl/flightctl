@@ -497,6 +497,7 @@ runs:
         # Temporarily disable pipefail for cleanup operations that are expected to fail
         set +e
         echo "🚀 DEBUG CHECKPOINT 6 - pipefail disabled for cleanup"
+        echo "🔍 DEBUG: About to start helm cleanup operations..."
 
         # List what's currently deployed for debugging
         echo "Current helm releases:"
@@ -504,10 +505,12 @@ runs:
 
         # Nuclear option: uninstall ALL flightctl releases from ALL namespaces
         echo "Removing ALL FlightCtl installations from ALL namespaces..."
-        # Get releases with their namespaces and uninstall each from specific namespace
-        helm list -A -o json | jq -r '.[] | select(.name | test("flightctl")) | "\(.name) \(.namespace)"' | while read release namespace; do
-          echo "Uninstalling $release from namespace $namespace"
-          helm uninstall "$release" -n "$namespace" --ignore-not-found --timeout=2m || true
+        # Use simple text parsing instead of jq to avoid dependencies
+        helm list -A | grep -i flightctl | awk '{print $1" "$2}' | while read release namespace; do
+          if [ -n "$release" ] && [ -n "$namespace" ]; then
+            echo "Uninstalling $release from namespace $namespace"
+            helm uninstall "$release" -n "$namespace" --ignore-not-found --timeout=2m || true
+          fi
         done
 
         # Also try specific namespace cleanup
@@ -547,6 +550,7 @@ runs:
         set -e
         echo "🚀 DEBUG CHECKPOINT 7 - cleanup complete, pipefail re-enabled"
         echo "=== NUCLEAR CLEANUP COMPLETE - GUARANTEED CLEAN STATE ==="
+        echo "🔍 DEBUG: Cleanup completed successfully, script continuing..."
 
         echo "🔍 DEBUG: Script reached post-cleanup, proceeding to helm preparation..."
 
@@ -683,8 +687,10 @@ runs:
 
         # Execute with detailed logging and error handling
         echo "=== EXECUTING HELM INSTALL ==="
+        echo "🚀 DEBUG CHECKPOINT 8 - About to execute helm install"
         echo "Command: ${HELM_CMD}"
         echo "Wait enabled: ${WAIT}"
+        echo "🔍 DEBUG: Script reached helm execution phase successfully"
 
         set +e  # Allow command to fail so we can debug
         if [ "${WAIT}" == "true" ]; then
