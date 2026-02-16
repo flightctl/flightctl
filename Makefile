@@ -42,7 +42,6 @@ RPM_MOCK_ROOT_DEFAULT = centos-stream+epel-next-9-x86_64
 VERBOSE ?= false
 
 # Multi-OS container support
-OS_ID ?= el9
 FLAVOR ?= el9
 
 SOURCE_GIT_TAG ?=$(shell $(ROOT_DIR)/hack/current-version)
@@ -118,7 +117,7 @@ help:
 	@echo "    rpm/deb:         generate rpm or debian packages"
 	@echo ""
 	@echo "Container Targets:"
-	@echo "    build-containers:    build all FlightCtl containers for both CS9 and CS10"
+	@echo "    build-containers:    build all FlightCtl containers for both el9 and el10"
 	@echo "    build-containers-ci: build containers for single flavor (FLAVOR env var, defaults to el9)"
 	@echo "    publish:             build and publish all containers to registry"
 	@echo ""
@@ -140,7 +139,7 @@ help:
 
 .PHONY: publish
 publish: build-containers
-	@echo "Publishing containers for CS9 and CS10..."
+	@echo "Publishing containers for el9 and el10..."
 	hack/publish_containers.sh publish el9
 	hack/publish_containers.sh publish el10
 
@@ -222,19 +221,80 @@ build-devicesimulator: bin
 build-standalone: bin
 	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-standalone
 
-# Build all containers for both CS9 and CS10
+# Build all containers for both el9 and el10
 build-containers: go.mod go.sum $(GO_FILES)
-	@echo "Building all containers for CS9 and CS10..."
+	@echo "Building all containers for el9 and el10..."
 	hack/publish_containers.sh build el9
 	hack/publish_containers.sh build el10
 	@echo "All containers built successfully"
 
 build-containers-ci: go.mod go.sum $(GO_FILES)
 	@echo "Building containers for CI (single flavor to conserve resources)..."
-	FLAVOR=$${FLAVOR:-el9} hack/publish_containers.sh build $${FLAVOR:-el9}
-	@echo "Containers built successfully for flavor: $${FLAVOR:-el9}"
+	hack/publish_containers.sh build $(FLAVOR)
+	@echo "Containers built successfully for flavor: $(FLAVOR)"
 
-.PHONY: build-containers build-containers-ci
+# Individual container targets - FLAVOR-aware
+# These use the unified script approach but build single services
+flightctl-api-container: go.mod go.sum $(GO_FILES)
+	@echo "Building flightctl-api for FLAVOR=$(FLAVOR)"
+	@$(MAKE) --no-print-directory _build-single-container SERVICE=api
+
+flightctl-pam-issuer-container: go.mod go.sum $(GO_FILES)
+	@echo "Building flightctl-pam-issuer for FLAVOR=$(FLAVOR)"
+	@$(MAKE) --no-print-directory _build-single-container SERVICE=pam-issuer
+
+flightctl-db-setup-container: go.mod go.sum $(GO_FILES)
+	@echo "Building flightctl-db-setup for FLAVOR=$(FLAVOR)"
+	@$(MAKE) --no-print-directory _build-single-container SERVICE=db-setup
+
+flightctl-worker-container: go.mod go.sum $(GO_FILES)
+	@echo "Building flightctl-worker for FLAVOR=$(FLAVOR)"
+	@$(MAKE) --no-print-directory _build-single-container SERVICE=worker
+
+flightctl-periodic-container: go.mod go.sum $(GO_FILES)
+	@echo "Building flightctl-periodic for FLAVOR=$(FLAVOR)"
+	@$(MAKE) --no-print-directory _build-single-container SERVICE=periodic
+
+flightctl-alert-exporter-container: go.mod go.sum $(GO_FILES)
+	@echo "Building flightctl-alert-exporter for FLAVOR=$(FLAVOR)"
+	@$(MAKE) --no-print-directory _build-single-container SERVICE=alert-exporter
+
+flightctl-alertmanager-proxy-container: go.mod go.sum $(GO_FILES)
+	@echo "Building flightctl-alertmanager-proxy for FLAVOR=$(FLAVOR)"
+	@$(MAKE) --no-print-directory _build-single-container SERVICE=alertmanager-proxy
+
+flightctl-cli-artifacts-container: go.mod go.sum $(GO_FILES)
+	@echo "Building flightctl-cli-artifacts for FLAVOR=$(FLAVOR)"
+	@$(MAKE) --no-print-directory _build-single-container SERVICE=cli-artifacts
+
+flightctl-userinfo-proxy-container: go.mod go.sum $(GO_FILES)
+	@echo "Building flightctl-userinfo-proxy for FLAVOR=$(FLAVOR)"
+	@$(MAKE) --no-print-directory _build-single-container SERVICE=userinfo-proxy
+
+flightctl-telemetry-gateway-container: go.mod go.sum $(GO_FILES)
+	@echo "Building flightctl-telemetry-gateway for FLAVOR=$(FLAVOR)"
+	@$(MAKE) --no-print-directory _build-single-container SERVICE=telemetry-gateway
+
+flightctl-imagebuilder-api-container: go.mod go.sum $(GO_FILES)
+	@echo "Building flightctl-imagebuilder-api for FLAVOR=$(FLAVOR)"
+	@$(MAKE) --no-print-directory _build-single-container SERVICE=imagebuilder-api
+
+flightctl-imagebuilder-worker-container: go.mod go.sum $(GO_FILES)
+	@echo "Building flightctl-imagebuilder-worker for FLAVOR=$(FLAVOR)"
+	@$(MAKE) --no-print-directory _build-single-container SERVICE=imagebuilder-worker
+
+# Helper target for building individual containers
+_build-single-container:
+	@if [ -z "$(SERVICE)" ]; then echo "Error: SERVICE parameter required"; exit 1; fi
+	@./hack/build_single_container.sh $(FLAVOR) $(SERVICE)
+
+.PHONY: build-containers build-containers-ci \
+        flightctl-api-container flightctl-pam-issuer-container flightctl-db-setup-container \
+        flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container \
+        flightctl-alertmanager-proxy-container flightctl-cli-artifacts-container \
+        flightctl-userinfo-proxy-container flightctl-telemetry-gateway-container \
+        flightctl-imagebuilder-api-container flightctl-imagebuilder-worker-container \
+        _build-single-container
 
 # --- Registry Operations ---
 # The login target expects REGISTRY_USER via environment variable and

@@ -65,14 +65,8 @@ func main() {
 		flavor = "el9"
 	}
 
-	// Validate flavor is el9 or el10
+	// Use flavor as-is - validation happens during profile lookup
 	profileFlavor := flavor
-	switch flavor {
-	case "el9", "el10":
-		// Valid flavors, use as-is
-	default:
-		log.Fatalf("Invalid flavor '%s'. Must be 'el9' or 'el10'", flavor)
-	}
 
 	// Construct profile key based on RHEM and FLAVOR - all use el9/el10 now
 	profileKey := "community-" + profileFlavor

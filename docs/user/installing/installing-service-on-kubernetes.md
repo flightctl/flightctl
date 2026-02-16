@@ -125,12 +125,12 @@ kubectl get pods -n flightctl
 
 Flight Control supports container images built for different CentOS Stream versions to ensure compatibility across diverse environments:
 
-- **CS9 (CentOS Stream 9)**: Default and recommended for most deployments
-- **CS10 (CentOS Stream 10)**: For environments requiring latest OS version
+- **EL9 (Enterprise Linux 9)**: Default and recommended for most deployments
+- **EL10 (Enterprise Linux 10)**: For environments requiring latest OS version
 
 ### Selecting Container Flavors
 
-By default, Helm charts use CS9 container images. For specific OS compatibility requirements, you can configure the deployment to use CS10 images:
+By default, Helm charts use EL9 container images. For specific OS compatibility requirements, you can configure the deployment to use EL10 images:
 
 ```yaml
 # values.yaml

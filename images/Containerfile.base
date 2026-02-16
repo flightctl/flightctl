@@ -20,5 +20,4 @@ LABEL \
   io.k8s.description="Flight Control base image with minimal runtime dependencies" \
   io.k8s.display-name="Flight Control Base" \
   name="flightctl-base-el${EL_VERSION}" \
-  summary="Flight Control base image (el${EL_VERSION})" \
-  os.id="el${EL_VERSION}"
+  summary="Flight Control base image (el${EL_VERSION})"

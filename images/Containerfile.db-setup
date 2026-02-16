@@ -1,11 +1,6 @@
-# FlightCtl Database Setup
-# Build EL9: podman build --build-arg BUILD_IMAGE=registry.access.redhat.com/ubi9/go-toolset:1.24.6-1762373805 --build-arg RUNTIME_IMAGE=registry.access.redhat.com/ubi9/ubi-minimal:9.7-1763362218 --build-arg EL_VERSION=9 -f images/Containerfile.db-setup -t flightctl-db-setup:el9-latest
-# Build EL10: podman build --build-arg BUILD_IMAGE=registry.access.redhat.com/ubi10/go-toolset:10.1-1770279878 --build-arg RUNTIME_IMAGE=registry.access.redhat.com/ubi10/ubi-minimal:10.1-1769677092 --build-arg EL_VERSION=10 -f images/Containerfile.db-setup -t flightctl-db-setup:el10-latest
-
 ARG BUILD_IMAGE
 ARG RUNTIME_IMAGE
 ARG EL_VERSION
-ARG RHEM=false
 
 FROM ${BUILD_IMAGE} as build
 WORKDIR /app
@@ -60,14 +55,9 @@ LABEL \
   io.k8s.description="Flight Control database setup and migration tool" \
   io.k8s.display-name="Flight Control Database Setup" \
   name="flightctl-db-setup-el${EL_VERSION}" \
-  summary="Flight Control database setup and migration tool (el${EL_VERSION})" \
-  os.id="el${EL_VERSION}"
+  summary="Flight Control Database Setup Tools (el${EL_VERSION})"
 
 COPY --from=build /app/bin/flightctl-db-migrate /usr/local/bin/flightctl-db-migrate
 COPY --from=build /app/deploy ./deploy
-
-# Ensure binary and scripts have execute permissions
-RUN chmod +x /usr/local/bin/flightctl-db-migrate && \
-    chmod +x ./deploy/scripts/*.sh
 
 CMD /usr/local/bin/flightctl-db-migrate
