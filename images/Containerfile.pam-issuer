@@ -88,7 +88,7 @@ COPY --from=build /runtime-root/ /
 # Copy custom PAM config for flightctl
 COPY --from=build /app/deploy/podman/flightctl-pam-issuer/pam-flightctl /etc/pam.d/flightctl
 
-COPY --from=build /app/bin/flightctl-pam-issuer .
+COPY --chmod=0755 --from=build /app/bin/flightctl-pam-issuer .
 
 # Note: User database files (/etc/passwd, /etc/shadow, /etc/group) are managed
 # inside the container. Use a named volume mount for /etc to persist users across restarts.

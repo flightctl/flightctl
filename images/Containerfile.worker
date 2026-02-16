@@ -51,6 +51,6 @@ LABEL \
   io.k8s.display-name="Flight Control Worker" \
   name="flightctl-worker-el${EL_VERSION}" \
   summary="Flight Control Edge management service, async job worker (el${EL_VERSION})"
-COPY --from=build /app/bin/flightctl-worker .
+COPY --chmod=0755 --from=build /app/bin/flightctl-worker .
 
 CMD ./flightctl-worker

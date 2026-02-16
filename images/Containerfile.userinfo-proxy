@@ -51,6 +51,6 @@ LABEL \
   io.k8s.display-name="Flight Control UserInfo Proxy" \
   name="flightctl-userinfo-proxy-el${EL_VERSION}" \
   summary="Flight Control UserInfo proxy service (el${EL_VERSION})"
-COPY --from=build /app/bin/flightctl-userinfo-proxy .
+COPY --chmod=0755 --from=build /app/bin/flightctl-userinfo-proxy .
 
 CMD ./flightctl-userinfo-proxy
