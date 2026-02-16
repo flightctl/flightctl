@@ -219,11 +219,20 @@ jobs:
 
       - name: Build helm charts
         id: build-charts
+        env:
+          FLAVOR: ${{ inputs.flavor || 'el9' }}
         run: |
           set -euo pipefail
           TAG="${{ steps.compute-tag.outputs.helm_tag }}"
 
-          echo "::group::Building helm charts"
+          echo "::group::Building helm charts for flavor: $FLAVOR"
+
+          # Generate chart templates and values with correct flavor
+          echo "Generating chart templates for $FLAVOR..."
+          cd deploy/helm
+          FLAVOR=$FLAVOR go run cmd/charttmpl/main.go
+          cd ../..
+
           helm dependency build ./deploy/helm/flightctl
           helm package ./deploy/helm/flightctl \
             --version "$TAG" \
