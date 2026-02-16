@@ -564,11 +564,21 @@ func (h *Handler) ServeLoginJS(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// ServeLoginCSS serves the embedded login page CSS stylesheet
+// ServeLoginCSS renders and serves the login page CSS with branding overrides applied.
 func (h *Handler) ServeLoginCSS(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/css; charset=utf-8")
-	w.Header().Set("Cache-Control", "public, max-age=86400")
-	if _, err := w.Write([]byte(pam.LoginCSS)); err != nil {
+	w.Header().Set("Cache-Control", "no-cache")
+	renderedCSS := h.pamProvider.GetLoginCSS()
+	if _, err := w.Write([]byte(renderedCSS)); err != nil {
 		h.log.Errorf("Failed to write login CSS response: %v", err)
+	}
+}
+
+// ServeFavicon serves the embedded Flight Control favicon PNG
+func (h *Handler) ServeFavicon(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	if _, err := w.Write(pam.FlightControlFavicon); err != nil {
+		h.log.Errorf("Failed to write favicon response: %v", err)
 	}
 }
