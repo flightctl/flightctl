@@ -268,8 +268,36 @@ runs:
       run: |
         set -euo pipefail
 
-        kubectl create namespace "${NAMESPACE_INTERNAL}"
+        kubectl create namespace "${NAMESPACE_INTERNAL}" || true
         ( kubectl get pods --all-namespaces -w | sed 's/^/[cluster] /' ) &
+
+        # Check if this is an upgrade scenario
+        if helm list -n "${NAMESPACE_EXTERNAL}" | grep -q "flightctl"; then
+          echo "Found existing FlightCtl installation, will uninstall and reinstall for E2E testing"
+          echo "This ensures clean state and avoids pre-upgrade hook image pull issues"
+
+          # Uninstall existing release
+          helm uninstall flightctl -n "${NAMESPACE_EXTERNAL}" --wait --timeout=5m || true
+
+          # Clean up namespaces to ensure fresh state
+          kubectl delete namespace "${NAMESPACE_EXTERNAL}" --timeout=60s || true
+          kubectl delete namespace "${NAMESPACE_INTERNAL}" --timeout=60s || true
+
+          # Wait for namespaces to be fully deleted
+          echo "Waiting for namespaces to be fully cleaned up..."
+          while kubectl get namespace "${NAMESPACE_EXTERNAL}" 2>/dev/null; do
+            echo "  Still waiting for ${NAMESPACE_EXTERNAL} to be deleted..."
+            sleep 5
+          done
+          while kubectl get namespace "${NAMESPACE_INTERNAL}" 2>/dev/null; do
+            echo "  Still waiting for ${NAMESPACE_INTERNAL} to be deleted..."
+            sleep 5
+          done
+
+          # Recreate namespaces
+          kubectl create namespace "${NAMESPACE_INTERNAL}"
+          echo "Clean installation prepared"
+        fi
 
         # Build optional args
         EXTRA_ARGS=""
@@ -352,6 +380,7 @@ runs:
         # Summary of deployment approach
         echo ""
         echo "=== DEPLOYMENT SUMMARY ==="
+        echo "- Deployment type: Clean install (any existing release uninstalled first)"
         if [ "${{ steps.download-images.outcome }}" == "failure" ]; then
           echo "- Used LOCAL FALLBACK builds (artifacts not available)"
           echo "- Image pull policy: IfNotPresent"
@@ -439,8 +468,11 @@ runs:
           echo "kind create cluster --config ${KIND_CONFIG}"
           echo "kind load image-archive artifacts/flightctl-images-bundle.tar"
           echo ""
-          echo "# Deploy"
+          echo "# Deploy (clean install)"
           echo 'source ./test/scripts/functions && export BASE_DOMAIN=$(get_ext_ip).nip.io'
+          echo "# Clean up any existing installation first"
+          echo "helm uninstall flightctl -n ${NAMESPACE_EXTERNAL} --wait || true"
+          echo "kubectl delete namespace ${NAMESPACE_EXTERNAL} ${NAMESPACE_INTERNAL} --timeout=60s || true"
           echo "kubectl create namespace ${NAMESPACE_INTERNAL}"
           echo "${HELM_CMD}"
           echo '```'
