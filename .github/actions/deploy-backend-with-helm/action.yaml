@@ -505,13 +505,8 @@ runs:
 
         # Nuclear option: uninstall ALL flightctl releases from ALL namespaces
         echo "Removing ALL FlightCtl installations from ALL namespaces..."
-        # Use simple text parsing instead of jq to avoid dependencies
-        helm list -A | grep -i flightctl | awk '{print $1" "$2}' | while read release namespace; do
-          if [ -n "$release" ] && [ -n "$namespace" ]; then
-            echo "Uninstalling $release from namespace $namespace"
-            helm uninstall "$release" -n "$namespace" --ignore-not-found --timeout=2m || true
-          fi
-        done
+        # Simple fix: just remove the invalid -A flag from helm uninstall
+        helm list -A -q | grep -i flightctl | xargs -r -I {} helm uninstall {} --ignore-not-found --timeout=2m
 
         # Also try specific namespace cleanup
         helm uninstall flightctl -n "${NAMESPACE_EXTERNAL}" --ignore-not-found --timeout=2m
