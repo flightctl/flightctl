@@ -267,22 +267,32 @@ jobs:
           fi
           echo "Using chart file: $CHART_FILE"
 
-          # Use flavor-prefixed tags (consistent with flavor-in-tag naming convention)
-          FLAVOR_TAG="el9-${PR_GIT_TAG}"
-          echo "=== Starting helm upgrade with flavor tag: ${FLAVOR_TAG} ==="
+          # Auto-detect image tag format for backward compatibility (same as deploy-backend-with-helm)
+          BASELINE_TAG="${PR_GIT_TAG}"
+          FLAVOR_TAG="el9-${BASELINE_TAG}"
+
+          # Check if flavor-prefixed images exist by looking for API image (always present)
+          if docker exec kind-control-plane crictl images | grep -q "flightctl-api.*:${IMAGE_TAG}"; then
+            echo "Found flavor-prefixed images, using: ${IMAGE_TAG}"
+            IMAGE_TAG="${IMAGE_TAG}"
+          else
+            echo "No flavor-prefixed images found, using baseline tag: ${BASELINE_TAG}"
+            IMAGE_TAG="${BASELINE_TAG}"
+          fi
+          echo "=== Starting helm upgrade with image tag: ${IMAGE_TAG} ==="
           helm upgrade flightctl "${CHART_FILE}" \
             --namespace flightctl-external \
             --reuse-values \
-            --set dbSetup.image.tag="${FLAVOR_TAG}" \
-            --set api.image.tag="${FLAVOR_TAG}" \
-            --set worker.image.tag="${FLAVOR_TAG}" \
-            --set periodic.image.tag="${FLAVOR_TAG}" \
-            --set alertExporter.image.tag="${FLAVOR_TAG}" \
-            --set alertmanagerProxy.image.tag="${FLAVOR_TAG}" \
-            --set cliArtifacts.image.tag="${FLAVOR_TAG}" \
-            --set telemetryGateway.image.tag="${FLAVOR_TAG}" \
-            --set imageBuilderApi.image.tag="${FLAVOR_TAG}" \
-            --set imageBuilderWorker.image.tag="${FLAVOR_TAG}" \
+            --set dbSetup.image.tag="${IMAGE_TAG}" \
+            --set api.image.tag="${IMAGE_TAG}" \
+            --set worker.image.tag="${IMAGE_TAG}" \
+            --set periodic.image.tag="${IMAGE_TAG}" \
+            --set alertExporter.image.tag="${IMAGE_TAG}" \
+            --set alertmanagerProxy.image.tag="${IMAGE_TAG}" \
+            --set cliArtifacts.image.tag="${IMAGE_TAG}" \
+            --set telemetryGateway.image.tag="${IMAGE_TAG}" \
+            --set imageBuilderApi.image.tag="${IMAGE_TAG}" \
+            --set imageBuilderWorker.image.tag="${IMAGE_TAG}" \
             --debug --wait # for the deployment complete (including readiness probes passing)
 
       - name: "[HEAD] Show cluster state after failed upgrade"
