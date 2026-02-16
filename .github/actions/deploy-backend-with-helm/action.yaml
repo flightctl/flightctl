@@ -113,17 +113,33 @@ runs:
         BUNDLE_FILE="artifacts/flightctl-images-bundle.tar"
 
         echo "Creating local image bundle..."
-        # Get list of locally built flightctl images
-        mapfile -t images < <(podman images --format "{{.Repository}}:{{.Tag}}" | grep "flightctl-.*:${FLAVOR}-" | grep -E "(latest|${TAG})" || true)
+        # Get list of locally built flightctl images with flavor prefix
+        mapfile -t flavor_images < <(podman images --format "{{.Repository}}:{{.Tag}}" | grep "flightctl-.*:${FLAVOR}-" | grep -E "(latest|${TAG})" || true)
 
-        if [ ${#images[@]} -eq 0 ]; then
+        if [ ${#flavor_images[@]} -eq 0 ]; then
           echo "ERROR: No local flightctl images found for flavor $FLAVOR"
           exit 1
         fi
 
-        echo "Bundling ${#images[@]} images:"
-        printf '  %s\n' "${images[@]}"
-        podman save --format docker-archive -o "$BUNDLE_FILE" "${images[@]}"
+        # Create baseline tags (without flavor prefix) for deployment compatibility
+        echo "Creating baseline tags for deployment compatibility..."
+        baseline_images=()
+        for image in "${flavor_images[@]}"; do
+          repo="${image%:*}"
+          flavor_tag="${image#*:}"
+          baseline_tag="${flavor_tag#${FLAVOR}-}"  # Remove flavor prefix
+          baseline_image="${repo}:${baseline_tag}"
+
+          echo "  Tagging ${image} -> ${baseline_image}"
+          podman tag "$image" "$baseline_image"
+          baseline_images+=("$baseline_image")
+        done
+
+        # Bundle both flavor-prefixed and baseline-tagged images
+        all_images=("${flavor_images[@]}" "${baseline_images[@]}")
+        echo "Bundling ${#all_images[@]} images (${#flavor_images[@]} flavor + ${#baseline_images[@]} baseline):"
+        printf '  %s\n' "${all_images[@]}"
+        podman save --format docker-archive -o "$BUNDLE_FILE" "${all_images[@]}"
 
         echo "Local image bundle created: $(ls -lh $BUNDLE_FILE)"
         echo "::endgroup::"
@@ -209,18 +225,40 @@ runs:
           # Load individual images built locally
           TAG="${{ steps.compute-tags.outputs.git_tag }}"
 
-          # Get list of locally built flightctl images
-          mapfile -t images < <(podman images --format "{{.Repository}}:{{.Tag}}" | grep "flightctl-.*:${FLAVOR}-" | grep -E "(latest|${TAG})" || true)
+          # Get list of locally built flightctl images with flavor prefix
+          mapfile -t flavor_images < <(podman images --format "{{.Repository}}:{{.Tag}}" | grep "flightctl-.*:${FLAVOR}-" | grep -E "(latest|${TAG})" || true)
 
-          if [ ${#images[@]} -eq 0 ]; then
+          if [ ${#flavor_images[@]} -eq 0 ]; then
             echo "ERROR: No local flightctl images found for loading into kind"
             echo "Available local images:"
             podman images --format "{{.Repository}}:{{.Tag}}" | grep "flightctl" || echo "No flightctl images found"
             exit 1
           fi
 
-          echo "Loading ${#images[@]} individual images:"
-          for image in "${images[@]}"; do
+          # Create baseline tags (without flavor prefix) for deployment compatibility
+          echo "Creating baseline tags for deployment compatibility..."
+          for image in "${flavor_images[@]}"; do
+            repo="${image%:*}"
+            flavor_tag="${image#*:}"
+            baseline_tag="${flavor_tag#${FLAVOR}-}"  # Remove flavor prefix
+            baseline_image="${repo}:${baseline_tag}"
+
+            echo "  Tagging ${image} -> ${baseline_image}"
+            podman tag "$image" "$baseline_image"
+          done
+
+          # Load both flavor-prefixed and baseline-tagged images
+          all_images=("${flavor_images[@]}")
+          for image in "${flavor_images[@]}"; do
+            repo="${image%:*}"
+            flavor_tag="${image#*:}"
+            baseline_tag="${flavor_tag#${FLAVOR}-}"
+            baseline_image="${repo}:${baseline_tag}"
+            all_images+=("$baseline_image")
+          done
+
+          echo "Loading ${#all_images[@]} individual images (${#flavor_images[@]} flavor + ${#flavor_images[@]} baseline):"
+          for image in "${all_images[@]}"; do
             echo "  Loading: $image"
             kind load docker-image "$image"
           done
