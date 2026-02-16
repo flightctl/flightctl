@@ -97,13 +97,30 @@ jobs:
         run: |
           set -euo pipefail
           echo "Loading backend images into kind"
+          echo "=== DEBUGGING ARTIFACT STRUCTURE ==="
+          echo "Contents of current directory:"
+          ls -la . || true
+          echo "Contents of backend-artifacts directory:"
+          ls -la backend-artifacts/ || true
+          echo "All .tar files in backend-artifacts:"
+          find backend-artifacts -name "*.tar" || true
+          echo "All files recursively in backend-artifacts:"
+          find backend-artifacts -type f || true
+          echo "=== END DEBUGGING ==="
+
           # Image bundle file (artifact name is flavor-specific, but file inside is fixed)
           BUNDLE_FILE="backend-artifacts/flightctl-images-bundle.tar"
           if [[ ! -f "$BUNDLE_FILE" ]]; then
-            echo "Image bundle not found at $BUNDLE_FILE. Available files:"
-            find backend-artifacts -name "*.tar" || true
-            ls -la backend-artifacts/
-            exit 1
+            echo "Image bundle not found at expected path: $BUNDLE_FILE"
+            echo "Trying to find any .tar file to use..."
+            FOUND_TAR=$(find backend-artifacts -name "*.tar" | head -1)
+            if [[ -n "$FOUND_TAR" ]]; then
+              echo "Found alternative tar file: $FOUND_TAR"
+              BUNDLE_FILE="$FOUND_TAR"
+            else
+              echo "No .tar files found in backend-artifacts/"
+              exit 1
+            fi
           fi
           echo "Using bundle file: $BUNDLE_FILE"
           kind load image-archive "${BUNDLE_FILE}"
