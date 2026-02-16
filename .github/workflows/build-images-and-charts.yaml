@@ -73,8 +73,24 @@ jobs:
           set -euo pipefail
           echo "::group::Building backend containers for flavor: $FLAVOR"
 
-          # Use data-driven build script that automatically selects the best method
-          ./hack/build_containers_ci.sh "$FLAVOR"
+          # Use data-driven build script if available, otherwise fallback to direct methods
+          if [ -f "./hack/build_containers_ci.sh" ]; then
+            echo "Using data-driven build script..."
+            ./hack/build_containers_ci.sh "$FLAVOR"
+          else
+            echo "Data-driven script not found, using fallback build methods..."
+            # Fallback: Try different build approaches
+            if [ -f "hack/publish_containers.sh" ] && grep -q "build)" "hack/publish_containers.sh" 2>/dev/null; then
+              echo "Using hack/publish_containers.sh build for $FLAVOR"
+              hack/publish_containers.sh build "$FLAVOR"
+            elif make -n build-containers-ci >/dev/null 2>&1; then
+              echo "Using make build-containers-ci for $FLAVOR"
+              make -j4 build-containers-ci FLAVOR="$FLAVOR"
+            else
+              echo "Using fallback: make build-containers"
+              make build-containers FLAVOR="$FLAVOR"
+            fi
+          fi
           echo "::endgroup::"
 
       - name: Bundle images
