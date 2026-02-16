@@ -400,7 +400,8 @@ dbSetup:
     # -- Number of retries for the migration Job on failure
     backoffLimit: 2147483647
     # -- Maximum runtime in seconds for the migration Job (0 = no deadline)
-    activeDeadlineSeconds: 0
+    # Set to 10 minutes to prevent Helm hook timeouts during dry-run migrations
+    activeDeadlineSeconds: 600
 
 # -- Upgrade hooks
 upgradeHooks:
