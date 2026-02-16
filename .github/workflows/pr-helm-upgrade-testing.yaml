@@ -253,7 +253,7 @@ jobs:
           kubectl get serviceaccounts --all-namespaces | grep -E "(flightctl|cert-generator|upgrade)" || echo "No matching serviceaccounts"
           echo "=== End pre-upgrade state ==="
 
-      - name: "[HEAD] Helm upgrade"
+      - name: "[HEAD] Helm upgrade with migration monitoring"
         env:
           PR_GIT_TAG: ${{ needs.build-pr.outputs.git_tag }}
         run: |
@@ -279,8 +279,55 @@ jobs:
             echo "No flavor-prefixed images found, using baseline tag: ${BASELINE_TAG}"
             IMAGE_TAG="${BASELINE_TAG}"
           fi
+
+          # Start migration monitoring in background
+          (
+            echo "=== Starting migration job monitoring ==="
+            sleep 5  # Give helm a moment to start
+
+            MONITOR_COUNT=0
+            while [ $MONITOR_COUNT -lt 40 ]; do  # Monitor for up to 20 minutes (40 * 30s)
+              echo "=== Migration Monitor Check $((MONITOR_COUNT + 1)) at $(date) ==="
+
+              # Show migration jobs
+              echo "--- Migration Jobs ---"
+              kubectl get jobs -n flightctl-internal --show-labels | grep -E "(migration|dryrun)" || echo "No migration jobs found"
+
+              # Show migration job details if any exist
+              MIGRATION_JOBS=$(kubectl get jobs -n flightctl-internal -o name | grep -E "(migration|dryrun)" || true)
+              if [ -n "$MIGRATION_JOBS" ]; then
+                for job in $MIGRATION_JOBS; do
+                  echo "--- Job Details: $job ---"
+                  kubectl describe "$job" -n flightctl-internal | tail -15 || true
+
+                  # Show pod logs if available
+                  echo "--- Job Pod Logs: $job ---"
+                  JOB_PODS=$(kubectl get pods -n flightctl-internal --selector=job-name=$(basename "$job") -o name 2>/dev/null || true)
+                  if [ -n "$JOB_PODS" ]; then
+                    for pod in $JOB_PODS; do
+                      echo "--- Pod logs: $pod ---"
+                      kubectl logs "$pod" -n flightctl-internal --tail=10 2>/dev/null || echo "No logs available"
+                    done
+                  fi
+                done
+              fi
+
+              # Show hook resources
+              echo "--- Pre-upgrade Hook Resources ---"
+              kubectl get pods,jobs -n flightctl-internal --show-labels | grep -E "(hook|upgrade)" || echo "No hook resources found"
+
+              sleep 30
+              MONITOR_COUNT=$((MONITOR_COUNT + 1))
+            done
+            echo "=== Migration monitoring completed ==="
+          ) &
+          MONITOR_PID=$!
+
           echo "=== Starting helm upgrade with image tag: ${IMAGE_TAG} ==="
-          helm upgrade flightctl "${CHART_FILE}" \
+          echo "Migration monitoring started with PID: $MONITOR_PID"
+
+          # Run helm upgrade with timeout handling
+          if timeout 20m helm upgrade flightctl "${CHART_FILE}" \
             --namespace flightctl-external \
             --reuse-values \
             --set dbSetup.image.tag="${IMAGE_TAG}" \
@@ -293,7 +340,23 @@ jobs:
             --set telemetryGateway.image.tag="${IMAGE_TAG}" \
             --set imageBuilderApi.image.tag="${IMAGE_TAG}" \
             --set imageBuilderWorker.image.tag="${IMAGE_TAG}" \
-            --debug --wait # for the deployment complete (including readiness probes passing)
+            --debug --wait; then
+            echo "=== Helm upgrade completed successfully ==="
+          else
+            EXIT_CODE=$?
+            echo "=== Helm upgrade failed with exit code $EXIT_CODE ==="
+
+            # Show final state for debugging
+            echo "=== Final Migration State ==="
+            kubectl get jobs,pods -n flightctl-internal --show-labels | grep -E "(migration|dryrun|hook)" || echo "No migration resources found"
+
+            # Kill monitoring process
+            kill $MONITOR_PID 2>/dev/null || true
+            exit $EXIT_CODE
+          fi
+
+          # Kill monitoring process on success
+          kill $MONITOR_PID 2>/dev/null || true
 
       - name: "[HEAD] Show cluster state after failed upgrade"
         if: failure()
