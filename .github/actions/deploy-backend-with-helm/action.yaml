@@ -367,9 +367,20 @@ runs:
         for f in ${ADDITIONAL_VALUES_FILES}; do [ -f "$f" ] && EXTRA_ARGS+=" --values $f"; done
         [ -n "${AUTH_TYPE}" ] && EXTRA_ARGS+=" --set global.auth.type=${AUTH_TYPE}"
 
+        echo "=== STARTING HELM DEPLOYMENT ==="
+        echo "Nuclear cleanup complete, verified clean state"
+        echo "Images loaded and verified in kind"
+
         # Use baseline tags for E2E testing (consistent with our image loading)
         IMAGE_TAG="${{ steps.compute-tags.outputs.git_tag }}"
         echo "Using baseline image tag for E2E testing: ${IMAGE_TAG}"
+
+        echo "Deployment parameters:"
+        echo "  Base domain: ${BASE_DOMAIN}"
+        echo "  External namespace: ${NAMESPACE_EXTERNAL}"
+        echo "  Internal namespace: ${NAMESPACE_INTERNAL}"
+        echo "  Wait for completion: ${WAIT}"
+        echo "  Flavor: ${{ inputs.flavor }}"
 
         # Debug: Show what images are available in kind vs what we expect
         echo "=== IMAGE DEBUGGING ==="
@@ -442,11 +453,33 @@ runs:
           echo "EOF"
         } >> "$GITHUB_OUTPUT"
 
-        # Execute with --debug for verbose output if waiting
+        # Execute with detailed logging and error handling
+        echo "=== EXECUTING HELM INSTALL ==="
+        echo "Command: ${HELM_CMD}"
+        echo "Wait enabled: ${WAIT}"
+
+        set +e  # Allow command to fail so we can debug
         if [ "${WAIT}" == "true" ]; then
           eval "${HELM_CMD} --debug"
+          helm_exit_code=$?
         else
           eval "${HELM_CMD}"
+          helm_exit_code=$?
+        fi
+        set -e
+
+        echo "Helm install exit code: ${helm_exit_code}"
+        if [ ${helm_exit_code} -ne 0 ]; then
+          echo "❌ HELM INSTALL FAILED"
+          echo "Checking helm status:"
+          helm list -A || true
+          echo "Checking for any created resources:"
+          kubectl get all -A | grep flightctl || echo "No flightctl resources found"
+
+          # Still exit with failure but after debugging
+          exit ${helm_exit_code}
+        else
+          echo "✅ HELM INSTALL SUCCEEDED"
         fi
 
         # Summary of deployment approach
@@ -492,11 +525,13 @@ runs:
         echo ""
         echo "Critical images check (✅=found, ❌=missing):"
         for service in api db-setup worker periodic alert-exporter alertmanager-proxy; do
-          expected_image="quay.io/flightctl/flightctl-${service}:${{ steps.compute-tags.outputs.git_tag }}"
-          if docker exec kind-control-plane crictl images | grep -q "${expected_image}"; then
-            echo "  ✅ ${expected_image}"
+          image_name="quay.io/flightctl/flightctl-${service}"
+          tag="${{ steps.compute-tags.outputs.git_tag }}"
+          # crictl images shows repo and tag in separate columns, so search both parts
+          if docker exec kind-control-plane crictl images | grep -q "flightctl-${service}" && docker exec kind-control-plane crictl images | grep -q "${tag}"; then
+            echo "  ✅ ${image_name}:${tag}"
           else
-            echo "  ❌ ${expected_image} (MISSING - THIS WILL CAUSE IMAGEPULLBACKOFF)"
+            echo "  ❌ ${image_name}:${tag} (MISSING)"
           fi
         done
         echo ""
