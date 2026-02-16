@@ -1,16 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Default to el9 if OS_ID not specified
-OS_ID=${OS_ID:-el9}
+# Default to el9 if FLAVOR not specified
+FLAVOR=${FLAVOR:-el9}
 
-# Convert cs9/cs10 to el9/el10 for compatibility
-case "$OS_ID" in
-    cs9) OS_ID="el9" ;;
-    cs10) OS_ID="el10" ;;
-    el9|el10) ;; # Already correct format
+# Validate FLAVOR parameter
+case "$FLAVOR" in
+    el9|el10) ;; # Valid values
     *)
-        echo "Error: Invalid OS_ID '$OS_ID'. Must be 'el9', 'el10', 'cs9', or 'cs10'"
+        echo "Error: Invalid FLAVOR '$FLAVOR'. Must be 'el9' or 'el10'"
         exit 1
         ;;
 esac
@@ -20,8 +18,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(dirname "$SCRIPT_DIR")"
 cd "$ROOT_DIR"
 
-# Set base image and version info based on OS_ID (matching publish_containers.sh)
-case "$OS_ID" in
+# Set base image and version info based on FLAVOR (matching publish_containers.sh)
+case "$FLAVOR" in
     el9)
         BASE_IMAGE="registry.access.redhat.com/ubi9/ubi-minimal:9.7-1763362218"
         EL_VERSION="9"
@@ -34,7 +32,7 @@ case "$OS_ID" in
         ;;
 esac
 
-echo "Building base image for $OS_ID using Containerfile.base"
+echo "Building base image for $FLAVOR using Containerfile.base"
 echo "Base image: $BASE_IMAGE"
 
 IMAGE_REPO=${IMAGE_REPO:-quay.io/flightctl/flightctl-base}
@@ -47,8 +45,8 @@ case $arch in
 esac
 
 # Create tags (matching the old script naming)
-ARCH_TAG="$OS_ID-$arch-$BASE_TAG"
-COMMON_TAG="$OS_ID-$BASE_TAG"
+ARCH_TAG="$FLAVOR-$arch-$BASE_TAG"
+COMMON_TAG="$FLAVOR-$BASE_TAG"
 
 echo "Building with podman using Containerfile.base..."
 podman build \

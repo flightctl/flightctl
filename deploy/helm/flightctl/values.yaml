@@ -125,7 +125,7 @@ db:
     masterUserSecretName: ""
     image:
       # -- PostgreSQL container image
-      image: quay.io/sclorg/postgresql-16-c9s
+      image: quay.io/sclorg/postgresql-16-c10s
       # -- PostgreSQL image tag
       tag: "20250214"
       # -- Image pull policy for database container
@@ -165,7 +165,7 @@ db:
 kv:
   image:
     # -- Redis container image
-    image: quay.io/sclorg/redis-7-c9s
+    image: quay.io/sclorg/redis-7-c10s
     # -- Redis image tag
     tag: "20250108"
     # -- Image pull policy for Redis container

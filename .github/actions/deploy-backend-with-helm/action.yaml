@@ -107,7 +107,18 @@ runs:
       run: |
         set -euo pipefail
         echo "Loading backend service images into kind"
-        kind load image-archive artifacts/flightctl-images-bundle.tar
+        echo "Available artifacts:"
+        ls -la artifacts/
+
+        # Find the actual bundle file (artifact contains original filename)
+        BUNDLE_FILE=$(find artifacts/ -name "flightctl-images-bundle.tar" | head -n1)
+        if [ -z "$BUNDLE_FILE" ]; then
+          echo "ERROR: flightctl-images-bundle.tar not found in artifacts"
+          exit 1
+        fi
+
+        echo "Loading bundle: $BUNDLE_FILE"
+        kind load image-archive "$BUNDLE_FILE"
         echo "Backend images loaded successfully"
 
     - name: Clean up backend bundle files
@@ -116,7 +127,11 @@ runs:
         set -euo pipefail
         echo "::group::Cleaning up backend bundle files"
         echo "Removing backend bundle (no longer needed after loading into kind)..."
-        rm artifacts/flightctl-images-bundle.tar
+        BUNDLE_FILE=$(find artifacts/ -name "flightctl-images-bundle.tar" | head -n1)
+        if [ -n "$BUNDLE_FILE" ]; then
+          rm "$BUNDLE_FILE"
+          echo "Removed: $BUNDLE_FILE"
+        fi
         df -h
         echo "::endgroup::"
 
@@ -179,8 +194,16 @@ runs:
         EXTRA_ARGS+=" --set imageBuilderApi.image.tag=${IMAGE_TAG}"
         EXTRA_ARGS+=" --set imageBuilderWorker.image.tag=${IMAGE_TAG}"
 
+        # Find the actual chart file (artifact contains original filename)
+        CHART_FILE=$(find artifacts/ -name "flightctl-chart.tgz" | head -n1)
+        if [ -z "$CHART_FILE" ]; then
+          echo "ERROR: flightctl-chart.tgz not found in artifacts"
+          exit 1
+        fi
+        echo "Using chart file: $CHART_FILE"
+
         # Build the helm command
-        HELM_CMD="helm install flightctl artifacts/flightctl-chart.tgz"
+        HELM_CMD="helm install flightctl $CHART_FILE"
         HELM_CMD+=" --namespace ${NAMESPACE_EXTERNAL}"
         HELM_CMD+=" --create-namespace"
         HELM_CMD+=" --values deploy/helm/flightctl/values.nodeport.yaml"
@@ -281,7 +304,7 @@ runs:
           echo ""
           echo "# Create kind cluster and load images"
           echo "kind create cluster --config ${KIND_CONFIG}"
-          echo "kind load image-archive bin/flightctl-images-bundle.tar"
+          echo "kind load image-archive artifacts/flightctl-images-bundle.tar"
           echo ""
           echo "# Deploy"
           echo 'source ./test/scripts/functions && export BASE_DOMAIN=$(get_ext_ip).nip.io'

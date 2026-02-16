@@ -1,15 +1,6 @@
-# FlightCtl UserInfo Proxy
-# Build EL9: podman build --build-arg BUILD_IMAGE=registry.access.redhat.com/ubi9/go-toolset:1.24.6-1762373805 --build-arg RUNTIME_IMAGE=quay.io/flightctl/flightctl-base:el9-9.7-1762965531 --build-arg EL_VERSION=9 -f images/Containerfile.userinfo-proxy -t flightctl-userinfo-proxy-el9
-# Build EL10: podman build --build-arg BUILD_IMAGE=registry.access.redhat.com/ubi10/go-toolset:10.1-1770279878 --build-arg RUNTIME_IMAGE=quay.io/flightctl/flightctl-base:el10-10.1-1769518576 --build-arg EL_VERSION=10 -f images/Containerfile.userinfo-proxy -t flightctl-userinfo-proxy-el10
-
-
 ARG BUILD_IMAGE
 ARG RUNTIME_IMAGE
 ARG EL_VERSION
-ARG RHEM=false
-
-ARG RHEM=false
-
 
 FROM ${BUILD_IMAGE} as build
 WORKDIR /app
@@ -59,11 +50,7 @@ LABEL \
   io.k8s.description="Flight Control UserInfo proxy for Grafana authentication" \
   io.k8s.display-name="Flight Control UserInfo Proxy" \
   name="flightctl-userinfo-proxy-el${EL_VERSION}" \
-  summary="Flight Control UserInfo proxy service (el${EL_VERSION})" \
-  os.id="el${EL_VERSION}"
+  summary="Flight Control UserInfo proxy service (el${EL_VERSION})"
 COPY --from=build /app/bin/flightctl-userinfo-proxy .
-
-# Ensure binary has execute permissions
-RUN chmod +x ./flightctl-userinfo-proxy
 
 CMD ./flightctl-userinfo-proxy

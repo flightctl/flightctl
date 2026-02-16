@@ -23,7 +23,7 @@ To generate API code and mocks, use `make generate`  This requires installing mo
 
 `go install go.uber.org/mock/mockgen@v0.4.0`
 
-## Container Flavors (CS9/CS10 Support)
+## Container Flavors (EL9/EL10 Support)
 
 FlightCtl supports building containers for multiple CentOS Stream versions to enable cross-version compatibility:
 

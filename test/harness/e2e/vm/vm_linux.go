@@ -640,7 +640,7 @@ func (v *VMInLibvirt) performRevertOperation(name string) error {
 		return fmt.Errorf("failed to revert to snapshot %s: %w", name, err)
 	}
 
-	// Wait for SSH to be ready after snapshot reversion (critical for CS10 bootc)
+	// Wait for SSH to be ready after snapshot reversion (critical for el10 bootc)
 	logrus.Infof("Waiting for VM SSH to be ready after snapshot reversion...")
 	err = v.WaitForSSHToBeReady()
 	if err != nil {
