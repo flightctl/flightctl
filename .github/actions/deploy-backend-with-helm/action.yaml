@@ -293,40 +293,25 @@ runs:
         kubectl create namespace "${NAMESPACE_INTERNAL}" || true
         ( kubectl get pods --all-namespaces -w | sed 's/^/[cluster] /' ) &
 
-        # Always ensure clean state for E2E testing to avoid upgrade hook issues
-        echo "Preparing clean installation environment for E2E testing..."
+        # Force clean state for E2E testing - always uninstall first to avoid upgrade hooks
+        echo "=== ENFORCING CLEAN INSTALL FOR E2E ==="
 
-        # Check for existing installations and clean up
-        if helm list -A | grep -q "flightctl"; then
-          echo "Found existing FlightCtl installation, cleaning up..."
-          helm uninstall flightctl -n "${NAMESPACE_EXTERNAL}" --wait --timeout=5m || true
-        else
-          echo "No existing FlightCtl installation found"
-        fi
+        # Uninstall any existing release (ignore errors if not found)
+        echo "Removing any existing FlightCtl installation..."
+        helm uninstall flightctl -n "${NAMESPACE_EXTERNAL}" --ignore-not-found --wait --timeout=5m || true
+        helm uninstall flightctl -A --ignore-not-found || true  # Clean up any release in any namespace
 
-        # Always clean up namespaces to ensure fresh state
-        echo "Cleaning up namespaces to ensure fresh state..."
-        kubectl delete namespace "${NAMESPACE_EXTERNAL}" --timeout=60s || true
-        kubectl delete namespace "${NAMESPACE_INTERNAL}" --timeout=60s || true
+        # Force delete namespaces immediately
+        echo "Force deleting namespaces for clean state..."
+        kubectl delete namespace "${NAMESPACE_EXTERNAL}" "${NAMESPACE_INTERNAL}" --ignore-not-found --timeout=30s --force --grace-period=0 || true
 
-        # Wait for namespaces to be fully deleted
-        echo "Waiting for namespaces to be fully cleaned up..."
-        for ns in "${NAMESPACE_EXTERNAL}" "${NAMESPACE_INTERNAL}"; do
-          timeout=60
-          while kubectl get namespace "$ns" 2>/dev/null && [ $timeout -gt 0 ]; do
-            echo "  Still waiting for $ns to be deleted... (${timeout}s remaining)"
-            sleep 5
-            timeout=$((timeout - 5))
-          done
-          if kubectl get namespace "$ns" 2>/dev/null; then
-            echo "  Warning: $ns still exists after timeout, forcing deletion..."
-            kubectl delete namespace "$ns" --force --grace-period=0 || true
-          fi
-        done
+        # Brief wait and recreate
+        echo "Waiting 10 seconds before recreating namespaces..."
+        sleep 10
 
-        # Recreate namespaces
-        kubectl create namespace "${NAMESPACE_INTERNAL}"
-        echo "Clean installation environment ready"
+        # Recreate internal namespace (external created by helm install --create-namespace)
+        kubectl create namespace "${NAMESPACE_INTERNAL}" || true
+        echo "=== CLEAN INSTALL ENVIRONMENT READY ==="
 
         # Build optional args
         EXTRA_ARGS=""
