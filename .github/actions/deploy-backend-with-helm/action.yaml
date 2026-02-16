@@ -444,6 +444,7 @@ runs:
       shell: bash
       env:
         IMAGE_TAG: ${{ steps.compute-tags.outputs.git_tag }}
+        NAMESPACE_EXTERNAL: ${{ inputs.namespace-external }}
         NAMESPACE_INTERNAL: ${{ inputs.namespace-internal }}
         KIND_CONFIG: ${{ inputs.kind-config }}
         RUN_ID: ${{ github.run_id }}
