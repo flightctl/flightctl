@@ -27,7 +27,7 @@ jobs:
 
       - name: Restore bootc-image-builder cache
         id: cache-bootc-restore
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: |
             bin/dnf-cache
@@ -173,7 +173,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Save caches
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: |
             bin/dnf-cache
