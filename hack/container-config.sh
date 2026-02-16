@@ -18,19 +18,45 @@ load_flavor_config() {
         return 1
     fi
 
-    # Read the config file and find the matching flavor
-    local config_line
-    config_line=$(grep "^${flavor}:" "$config_file" 2>/dev/null)
+    # Source the config file and check if flavor variable exists
+    # shellcheck disable=SC1090
+    source "$config_file"
 
-    if [[ -z "$config_line" ]]; then
-        echo "Error: Flavor '$flavor' not found in configuration" >&2
-        echo "Available flavors:" >&2
-        get_available_flavors >&2
+    # Get the configuration for the specified flavor
+    local config_value
+    case "$flavor" in
+        el9)
+            config_value="$el9"
+            EL_VERSION="9"
+            ;;
+        el10)
+            config_value="$el10"
+            EL_VERSION="10"
+            ;;
+        *)
+            echo "Error: Flavor '$flavor' not found in configuration" >&2
+            echo "Available flavors:" >&2
+            get_available_flavors >&2
+            return 1
+            ;;
+    esac
+
+    if [[ -z "$config_value" ]]; then
+        echo "Error: No configuration found for flavor '$flavor'" >&2
         return 1
     fi
 
-    # Parse the colon-separated configuration
-    IFS=':' read -r EL_FLAVOR EL_VERSION BUILD_IMAGE RUNTIME_IMAGE MINIMAL_IMAGE PAM_BASE_URL PAM_PACKAGE_VERSION <<< "$config_line"
+    # Parse the comma-separated configuration
+    IFS=',' read -r BUILD_IMAGE RUNTIME_IMAGE MINIMAL_IMAGE PAM_BASE_URL PAM_PACKAGE_VERSION <<< "$config_value"
+
+    # Set flavor name
+    EL_FLAVOR="$flavor"
+
+    # Validate that we got valid values
+    if [[ -z "$BUILD_IMAGE" || -z "$RUNTIME_IMAGE" || -z "$MINIMAL_IMAGE" ]]; then
+        echo "Error: Failed to load complete configuration for flavor '$flavor'" >&2
+        return 1
+    fi
 
     # Export variables for use in calling scripts
     export EL_FLAVOR EL_VERSION BUILD_IMAGE RUNTIME_IMAGE MINIMAL_IMAGE PAM_BASE_URL PAM_PACKAGE_VERSION
@@ -47,7 +73,8 @@ get_available_flavors() {
         return 1
     fi
 
-    grep '^[a-z]' "$config_file" | grep -v '^#' | cut -d':' -f1 | sort
+    # Extract flavor names from variable assignments
+    grep '^[a-z]' "$config_file" | cut -d'=' -f1 | sort
 }
 
 # Validate that a flavor exists
