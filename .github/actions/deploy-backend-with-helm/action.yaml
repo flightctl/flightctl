@@ -70,22 +70,107 @@ runs:
 
     # ========== DOWNLOAD BACKEND ARTIFACTS ==========
     - name: Download backend images bundle
+      id: download-images
+      continue-on-error: true
       uses: actions/download-artifact@v4
       with:
         name: flightctl-images-bundle-${{ inputs.flavor }}-${{ steps.compute-tags.outputs.git_tag }}
         path: artifacts
 
     - name: Download helm chart
+      id: download-chart
+      continue-on-error: true
       uses: actions/download-artifact@v4
       with:
         name: helm-chart-${{ inputs.flavor }}-${{ steps.compute-tags.outputs.git_tag }}
         path: artifacts
 
     - name: Download CLI binary
+      id: download-cli
+      continue-on-error: true
       uses: actions/download-artifact@v4
       with:
         name: flightctl-linux-amd64-${{ inputs.flavor }}-${{ steps.compute-tags.outputs.git_tag }}
         path: artifacts
+
+    # ========== FALLBACK: BUILD LOCAL ARTIFACTS IF DOWNLOADS FAILED ==========
+    - name: Build local containers if artifacts not available
+      if: steps.download-images.outcome == 'failure'
+      shell: bash
+      env:
+        FLAVOR: ${{ inputs.flavor }}
+      run: |
+        set -euo pipefail
+        echo "::group::Building local containers for $FLAVOR"
+        echo "Image bundle download failed, building containers locally..."
+
+        # Build all containers for the specified flavor
+        hack/publish_containers.sh build "$FLAVOR"
+
+        # Create image bundle locally
+        TAG="${{ steps.compute-tags.outputs.git_tag }}"
+        mkdir -p artifacts
+        BUNDLE_FILE="artifacts/flightctl-images-bundle.tar"
+
+        echo "Creating local image bundle..."
+        # Get list of locally built flightctl images
+        mapfile -t images < <(podman images --format "{{.Repository}}:{{.Tag}}" | grep "flightctl-.*:${FLAVOR}-" | grep -E "(latest|${TAG})" || true)
+
+        if [ ${#images[@]} -eq 0 ]; then
+          echo "ERROR: No local flightctl images found for flavor $FLAVOR"
+          exit 1
+        fi
+
+        echo "Bundling ${#images[@]} images:"
+        printf '  %s\n' "${images[@]}"
+        podman save --format docker-archive -o "$BUNDLE_FILE" "${images[@]}"
+
+        echo "Local image bundle created: $(ls -lh $BUNDLE_FILE)"
+        echo "::endgroup::"
+
+    - name: Build local helm chart if artifact not available
+      if: steps.download-chart.outcome == 'failure'
+      shell: bash
+      env:
+        FLAVOR: ${{ inputs.flavor }}
+      run: |
+        set -euo pipefail
+        echo "::group::Building local helm chart for $FLAVOR"
+        echo "Helm chart download failed, building chart locally..."
+
+        mkdir -p artifacts
+
+        # Generate chart with correct flavor
+        cd deploy/helm
+        FLAVOR="$FLAVOR" go run cmd/charttmpl/main.go
+        cd ../..
+
+        # Build and package chart
+        TAG="${{ steps.compute-tags.outputs.helm_tag }}"
+        helm dependency build ./deploy/helm/flightctl
+        helm package ./deploy/helm/flightctl --version "$TAG" --app-version "v$TAG"
+
+        # Move to expected location
+        GENERATED_FILE="flightctl-${TAG}.tgz"
+        mv "$GENERATED_FILE" "artifacts/flightctl-chart.tgz"
+
+        echo "Local helm chart built: $(ls -lh artifacts/flightctl-chart.tgz)"
+        echo "::endgroup::"
+
+    - name: Build local CLI if artifact not available
+      if: steps.download-cli.outcome == 'failure'
+      shell: bash
+      run: |
+        set -euo pipefail
+        echo "::group::Building local CLI binary"
+        echo "CLI download failed, building locally..."
+
+        make build-cli
+        mkdir -p artifacts
+        cp bin/flightctl artifacts/flightctl-linux-amd64
+
+        echo "Local CLI built: $(ls -lh artifacts/flightctl-linux-amd64)"
+        echo "::endgroup::"
 
     - name: Setup CLI binary
       shell: bash
@@ -104,22 +189,44 @@ runs:
     # ========== LOAD IMAGES INTO KIND ==========
     - name: Load backend images into kind
       shell: bash
+      env:
+        FLAVOR: ${{ inputs.flavor }}
       run: |
         set -euo pipefail
         echo "Loading backend service images into kind"
         echo "Available artifacts:"
-        ls -la artifacts/
+        ls -la artifacts/ || echo "No artifacts directory"
 
         # Find the actual bundle file (artifact contains original filename)
-        BUNDLE_FILE=$(find artifacts/ -name "flightctl-images-bundle.tar" | head -n1)
-        if [ -z "$BUNDLE_FILE" ]; then
-          echo "ERROR: flightctl-images-bundle.tar not found in artifacts"
-          exit 1
-        fi
+        BUNDLE_FILE=$(find artifacts/ -name "flightctl-images-bundle.tar" 2>/dev/null | head -n1)
 
-        echo "Loading bundle: $BUNDLE_FILE"
-        kind load image-archive "$BUNDLE_FILE"
-        echo "Backend images loaded successfully"
+        if [ -n "$BUNDLE_FILE" ] && [ -f "$BUNDLE_FILE" ]; then
+          echo "Loading bundle: $BUNDLE_FILE"
+          kind load image-archive "$BUNDLE_FILE"
+          echo "Backend images loaded successfully from bundle"
+        else
+          echo "No bundle found, loading individual local images..."
+          # Load individual images built locally
+          TAG="${{ steps.compute-tags.outputs.git_tag }}"
+
+          # Get list of locally built flightctl images
+          mapfile -t images < <(podman images --format "{{.Repository}}:{{.Tag}}" | grep "flightctl-.*:${FLAVOR}-" | grep -E "(latest|${TAG})" || true)
+
+          if [ ${#images[@]} -eq 0 ]; then
+            echo "ERROR: No local flightctl images found for loading into kind"
+            echo "Available local images:"
+            podman images --format "{{.Repository}}:{{.Tag}}" | grep "flightctl" || echo "No flightctl images found"
+            exit 1
+          fi
+
+          echo "Loading ${#images[@]} individual images:"
+          for image in "${images[@]}"; do
+            echo "  Loading: $image"
+            kind load docker-image "$image"
+          done
+
+          echo "Backend images loaded successfully from local builds"
+        fi
 
     - name: Clean up backend bundle files
       shell: bash
@@ -127,8 +234,8 @@ runs:
         set -euo pipefail
         echo "::group::Cleaning up backend bundle files"
         echo "Removing backend bundle (no longer needed after loading into kind)..."
-        BUNDLE_FILE=$(find artifacts/ -name "flightctl-images-bundle.tar" | head -n1)
-        if [ -n "$BUNDLE_FILE" ]; then
+        BUNDLE_FILE=$(find artifacts/ -name "flightctl-images-bundle.tar" 2>/dev/null | head -n1)
+        if [ -n "$BUNDLE_FILE" ] && [ -f "$BUNDLE_FILE" ]; then
           rm "$BUNDLE_FILE"
           echo "Removed: $BUNDLE_FILE"
         fi
@@ -194,6 +301,18 @@ runs:
         EXTRA_ARGS+=" --set imageBuilderApi.image.tag=${IMAGE_TAG}"
         EXTRA_ARGS+=" --set imageBuilderWorker.image.tag=${IMAGE_TAG}"
 
+        # Set image pull policy to use local images when artifacts were not available
+        if [ "${{ steps.download-images.outcome }}" == "failure" ]; then
+          echo "Using local images - setting imagePullPolicy to IfNotPresent"
+          EXTRA_ARGS+=" --set global.imagePullPolicy=IfNotPresent"
+          EXTRA_ARGS+=" --set db.builtin.image.pullPolicy=IfNotPresent"
+          EXTRA_ARGS+=" --set kv.image.pullPolicy=IfNotPresent"
+          EXTRA_ARGS+=" --set alertmanager.image.pullPolicy=IfNotPresent"
+          EXTRA_ARGS+=" --set clusterCli.image.pullPolicy=IfNotPresent"
+        else
+          echo "Using published images - keeping default imagePullPolicy"
+        fi
+
         # Find the actual chart file (artifact contains original filename)
         CHART_FILE=$(find artifacts/ -name "flightctl-chart.tgz" | head -n1)
         if [ -z "$CHART_FILE" ]; then
@@ -229,6 +348,20 @@ runs:
         else
           eval "${HELM_CMD}"
         fi
+
+        # Summary of deployment approach
+        echo ""
+        echo "=== DEPLOYMENT SUMMARY ==="
+        if [ "${{ steps.download-images.outcome }}" == "failure" ]; then
+          echo "- Used LOCAL FALLBACK builds (artifacts not available)"
+          echo "- Image pull policy: IfNotPresent"
+        else
+          echo "- Used PUBLISHED ARTIFACTS from workflow"
+          echo "- Image pull policy: default"
+        fi
+        echo "- Image tag: ${IMAGE_TAG}"
+        echo "- Flavor: ${{ inputs.flavor }}"
+        echo "=========================="
 
     - name: "Debug deployment failures"
       if: failure()
