@@ -60,4 +60,7 @@ LABEL \
 COPY --chmod=0755 --from=build /app/bin/flightctl-db-migrate /usr/local/bin/flightctl-db-migrate
 COPY --from=build /app/deploy ./deploy
 
+# Ensure migration script has execute permissions
+RUN chmod +x /app/deploy/scripts/migration-setup.sh
+
 CMD /usr/local/bin/flightctl-db-migrate
