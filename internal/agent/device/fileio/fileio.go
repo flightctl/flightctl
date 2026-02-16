@@ -1,6 +1,7 @@
 package fileio
 
 import (
+	"fmt"
 	"io/fs"
 	"os"
 
@@ -83,7 +84,7 @@ func NewReadWriterFactory(rootDir string) ReadWriterFactory {
 		if !username.IsCurrentProcessUser() {
 			uid, gid, _, err := userutil.LookupUser(username)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("failed to lookup user %s: %w", username, err)
 			}
 			writerOptions = append(writerOptions,
 				WithUID(uid),
