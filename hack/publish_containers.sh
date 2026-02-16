@@ -3,12 +3,18 @@ set -euo pipefail
 
 # Usage: publish_containers.sh <action> <flavor>
 # Actions: build, publish
-# Flavor: el9, el10
+# Flavor: Any flavor defined in container-flavors.conf
+
+# Get script directory and load configuration functions
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=hack/container-config.sh
+source "${SCRIPT_DIR}/container-config.sh"
 
 if [[ $# -ne 2 ]]; then
     echo "Usage: $0 <action> <flavor>"
     echo "Actions: build, publish"
-    echo "Flavor: el9, el10"
+    echo "Available flavors:"
+    get_available_flavors | sed 's/^/  /'
     echo "Examples:"
     echo "  $0 build el9   # Build containers for EL9"
     echo "  $0 build el10  # Build containers for EL10"
@@ -19,15 +25,14 @@ fi
 ACTION="$1"
 FLAVOR_PARAM="$2"
 
-# Only accept el9 and el10 flavors
-case "$FLAVOR_PARAM" in
-    el9) EL_FLAVOR="el9"; EL_VERSION="9" ;;
-    el10) EL_FLAVOR="el10"; EL_VERSION="10" ;;
-    *)
-        echo "Error: Invalid flavor '$FLAVOR_PARAM'. Must be 'el9' or 'el10'"
-        exit 1
-        ;;
-esac
+# Validate and load flavor configuration
+if ! validate_flavor "$FLAVOR_PARAM"; then
+    exit 1
+fi
+
+if ! load_flavor_config "$FLAVOR_PARAM"; then
+    exit 1
+fi
 
 # Container services to build/publish
 CONTAINER_SERVICES="api pam-issuer worker periodic alert-exporter cli-artifacts userinfo-proxy telemetry-gateway alertmanager-proxy db-setup imagebuilder-api imagebuilder-worker"
@@ -52,26 +57,13 @@ case "$ACTION" in
     build)
         echo "Building FlightCtl containers for ${EL_FLAVOR}..."
 
-        # Base images are pre-built and pushed to quay.io/flightctl/flightctl-base:el9-* and el10-*
+        # Base images are pre-built and pushed to quay.io/flightctl/flightctl-base
         # No need to build them during container build process
 
-        # Set images and version-specific parameters based on EL_VERSION
-        case "$EL_VERSION" in
-            9)
-                BUILD_IMAGE="registry.access.redhat.com/ubi9/go-toolset:1.24.6-1762373805"
-                RUNTIME_IMAGE="quay.io/flightctl/flightctl-base:el9-9.7-1762965531"
-                MINIMAL_IMAGE="registry.access.redhat.com/ubi9/ubi-minimal:9.7-1763362218"
-                PAM_BASE_URL="https://mirror.stream.centos.org/9-stream"
-                PAM_PACKAGE_VERSION="1.5.1-24.el9"
-                ;;
-            10)
-                BUILD_IMAGE="registry.access.redhat.com/ubi10/go-toolset:10.1-1770279878"
-                RUNTIME_IMAGE="quay.io/flightctl/flightctl-base:el10-10.1-1769518576"
-                MINIMAL_IMAGE="registry.access.redhat.com/ubi10/ubi-minimal:10.1-1769677092"
-                PAM_BASE_URL="https://mirror.stream.centos.org/10-stream"
-                PAM_PACKAGE_VERSION="1.6.1-8.el10"
-                ;;
-        esac
+        # Image and version-specific parameters are loaded from container-flavors.conf
+        # Variables available: EL_FLAVOR, EL_VERSION, BUILD_IMAGE, RUNTIME_IMAGE, MINIMAL_IMAGE, PAM_BASE_URL, PAM_PACKAGE_VERSION
+        echo "Using configuration: BUILD_IMAGE=${BUILD_IMAGE}"
+        echo "                    RUNTIME_IMAGE=${RUNTIME_IMAGE}"
 
         # Build containers using ARG-based containerfiles
         for service in $CONTAINER_SERVICES; do
