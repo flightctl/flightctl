@@ -9,6 +9,7 @@ This document describes how to use Flight Control's PAM Issuer, a built-in OpenI
 - [Prerequisites](#prerequisites)
 - [User Management](#user-management)
   - [Adding Users to PAM Issuer](#adding-users-to-pam-issuer)
+- [Login UI Branding](#login-ui-branding)
 - [Security Considerations](#security-considerations)
 
 ## Overview
@@ -105,6 +106,69 @@ auth:
 | `refreshTokenExpiration` | Expiration duration for refresh tokens (e.g., `168h`, `720h`) | `168h` |
 | `pendingSessionCookieMaxAge` | MaxAge duration for pending session cookies (e.g., `10m`, `15m`) | `10m` |
 | `authenticatedSessionCookieMaxAge` | MaxAge duration for authenticated session cookies (e.g., `30m`, `1h`) | `30m` |
+
+### Login UI Branding
+
+The PAM issuer login page can be customized with your own branding. All branding options are configured under `auth.pamOidcIssuer.branding` in the service configuration file.
+
+#### Branding Parameters
+
+| Parameter | PF6 Semantic Token | Description | Default |
+|-----------|-------------------|-------------|---------|
+| `branding.displayName` | — | Name shown in the page title ("&lt;displayName&gt; Login") | `Flight Control` |
+| `branding.faviconDataUri` | — | Favicon [data URI](https://developer.mozilla.org/en-US/docs/Web/HTTP/URIs/Schemes/data) (e.g. `data:image/png;base64,...`) | Built-in Flight Control icon |
+| `branding.lightTheme.logoDataUri` | — | Logo [data URI](https://developer.mozilla.org/en-US/docs/Web/HTTP/URIs/Schemes/data) for light mode (e.g. `data:image/svg+xml;base64,...`). Use a dark-text logo variant. | Built-in Flight Control logo |
+| `branding.lightTheme.brandDefault` | `--pf-t--global--color--brand--default` | Primary brand color (buttons, links) | PatternFly default |
+| `branding.lightTheme.brandHover` | `--pf-t--global--color--brand--hover` | Brand color on hover/focus | PatternFly default |
+| `branding.lightTheme.brandClicked` | `--pf-t--global--color--brand--clicked` | Brand color on click/active | PatternFly default |
+| `branding.lightTheme.backgroundPrimary` | `--pf-t--global--background--color--primary--default` | Card/surface background color | PatternFly default |
+| `branding.lightTheme.backgroundSecondary` | `--pf-t--global--background--color--secondary--default` | Page background color | PatternFly default |
+| `branding.lightTheme.textColorRegular` | `--pf-t--global--text--color--regular` | Primary text color | PatternFly default |
+| `branding.darkTheme.logoDataUri` | — | Logo data URI for dark mode. Use a light-text/white logo variant. | Built-in Flight Control logo |
+| `branding.darkTheme.brandDefault` | `--pf-t--global--color--brand--default` | Primary brand color (buttons, links) | PatternFly default |
+| `branding.darkTheme.brandHover` | `--pf-t--global--color--brand--hover` | Brand color on hover/focus | PatternFly default |
+| `branding.darkTheme.brandClicked` | `--pf-t--global--color--brand--clicked` | Brand color on click/active | PatternFly default |
+| `branding.darkTheme.backgroundPrimary` | `--pf-t--global--background--color--primary--default` | Card/surface background color | PatternFly default |
+| `branding.darkTheme.backgroundSecondary` | `--pf-t--global--background--color--secondary--default` | Page background color | PatternFly default |
+| `branding.darkTheme.textColorRegular` | `--pf-t--global--text--color--regular` | Primary text color | PatternFly default |
+
+Each color field maps directly to a [PatternFly v6 semantic token](https://www.patternfly.org/tokens/all-patternfly-tokens). Only the tokens you specify are overridden; all others keep their PatternFly defaults. Logos are per-theme so you can use appropriate light/dark variants.
+
+#### Example: Custom Branding
+
+```yaml
+auth:
+  pamOidcIssuer:
+    branding:
+      displayName: "ACME Corp"
+      faviconDataUri: "data:image/png;base64,<FAVICON_PNG>"
+      lightTheme:
+        logoDataUri: "data:image/svg+xml;base64,<DARK_TEXT_LOGO>"
+        brandDefault: "#0066cc"
+        brandHover: "#004499"
+        brandClicked: "#004499"
+        backgroundSecondary: "#f0f0f0"
+      darkTheme:
+        logoDataUri: "data:image/svg+xml;base64,<WHITE_TEXT_LOGO>"
+        brandDefault: "#4da6ff"
+        brandHover: "#3d96ef"
+        brandClicked: "#3d96ef"
+        backgroundSecondary: "#1a1a2e"
+```
+
+#### Generating Data URIs for Logos and Favicon
+
+To convert an SVG or PNG file into a data URI for the `logoDataUri` or `faviconDataUri` fields:
+
+```bash
+# For SVG logos
+echo "data:image/svg+xml;base64,$(base64 -w0 logo.svg)"
+
+# For PNG logos or favicon
+echo "data:image/png;base64,$(base64 -w0 logo.png)"
+```
+
+Copy the output and paste it as the `logoDataUri` or `faviconDataUri` value. Use a dark-text logo for `lightTheme` and a light/white-text logo for `darkTheme`. If no logo is configured for a theme, the default Flight Control logo is used. If no favicon is configured, the default Flight Control icon is used.
 
 ### Default Configuration
 

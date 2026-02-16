@@ -1,9 +1,10 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <title>Flight Control Login</title>
+    <title>{{.DisplayName}} Login</title>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" href="{{.FaviconSrc}}">
     <link rel="stylesheet" href="/auth/assets/patternfly.min.css">
     <link rel="stylesheet" href="/auth/assets/login.css">
 </head>
@@ -14,7 +15,8 @@
 
       <!-- Logo -->
       <div class="pf-v6-l-stack__item">
-        <img class="login-logo" src="/auth/assets/flight-control-logo.svg" alt="Flight Control">
+        <img id="brand-logo-light" class="show-in-light brand-logo" src="{{.LightLogoSrc}}" alt="{{.DisplayName}}">
+        <img id="brand-logo-dark" class="show-in-dark brand-logo" src="{{.DarkLogoSrc}}" alt="{{.DisplayName}}">
       </div>
 
       <!-- Login Card -->

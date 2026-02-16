@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"net"
 	"net/http"
 	"strconv"
@@ -11,6 +12,7 @@ import (
 
 	pamapi "github.com/flightctl/flightctl/api/pam-issuer/v1beta1"
 	fcmiddleware "github.com/flightctl/flightctl/internal/api_server/middleware"
+	pam "github.com/flightctl/flightctl/internal/auth/oidc/pam"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/go-chi/chi/v5"
@@ -162,6 +164,16 @@ func (s *Server) Run(ctx context.Context) error {
 	router.Get("/auth/assets/flight-control-logo.svg", handler.ServeFlightControlLogo)
 	router.Get("/auth/assets/login.js", handler.ServeLoginJS)
 	router.Get("/auth/assets/login.css", handler.ServeLoginCSS)
+	router.Get("/auth/assets/favicon.png", handler.ServeFavicon)
+
+	// Font assets referenced by patternfly.min.css via relative url(assets/...).
+	// The CSS is served at /auth/assets/patternfly.min.css so relative paths
+	// resolve to /auth/assets/assets/{fonts,pficon}/...
+	fontFS, err := fs.Sub(pam.FontAssets, "templates")
+	if err != nil {
+		return fmt.Errorf("failed to load font assets: %w", err)
+	}
+	router.Handle("/auth/assets/assets/*", http.StripPrefix("/auth/assets/", http.FileServer(http.FS(fontFS))))
 
 	// API routes with OpenAPI validation
 	router.Group(func(r chi.Router) {
