@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"os/user"
+	"strings"
 	"testing"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo"
+	"golang.org/x/net/html"
 )
 
 // MockAuthenticator is a mock implementation of the Authenticator interface for testing
@@ -812,6 +814,341 @@ var _ = Describe("PAM Issuer Unit Tests", func() {
 				Expect(ok).To(BeTrue())
 				Expect(oauth2Err.Code).To(Equal(pamapi.InvalidClient))
 			})
+		})
+	})
+})
+
+// --- HTML parsing helpers for branding tests ---
+
+// findNodeByAttr traverses the HTML tree and returns the first element with the given tag name and attribute key=val.
+func findNodeByAttr(n *html.Node, tag, key, val string) *html.Node {
+	if n.Type == html.ElementNode && n.Data == tag {
+		for _, a := range n.Attr {
+			if a.Key == key && a.Val == val {
+				return n
+			}
+		}
+	}
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		if found := findNodeByAttr(c, tag, key, val); found != nil {
+			return found
+		}
+	}
+	return nil
+}
+
+// findNodeByID traverses the HTML tree and returns the first node with the given id attribute.
+func findNodeByID(n *html.Node, id string) *html.Node {
+	if n.Type == html.ElementNode {
+		for _, a := range n.Attr {
+			if a.Key == "id" && a.Val == id {
+				return n
+			}
+		}
+	}
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		if found := findNodeByID(c, id); found != nil {
+			return found
+		}
+	}
+	return nil
+}
+
+// findNode traverses the HTML tree and returns the first node matching the tag name.
+func findNode(n *html.Node, tag string) *html.Node {
+	if n.Type == html.ElementNode && n.Data == tag {
+		return n
+	}
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		if found := findNode(c, tag); found != nil {
+			return found
+		}
+	}
+	return nil
+}
+
+// getAttr returns the value of the named attribute on a node.
+func getAttr(n *html.Node, key string) string {
+	for _, a := range n.Attr {
+		if a.Key == key {
+			return a.Val
+		}
+	}
+	return ""
+}
+
+// getTextContent returns the recursive text content of a node.
+func getTextContent(n *html.Node) string {
+	if n.Type == html.TextNode {
+		return n.Data
+	}
+	var sb strings.Builder
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		sb.WriteString(getTextContent(c))
+	}
+	return sb.String()
+}
+
+// parseLoginForm parses the HTML returned by GetLoginForm and returns the document node.
+func parseLoginForm(rawHTML string) *html.Node {
+	doc, err := html.Parse(strings.NewReader(rawHTML))
+	ExpectWithOffset(1, err).ToNot(HaveOccurred(), "failed to parse login form HTML")
+	return doc
+}
+
+var _ = Describe("Login Form Branding", func() {
+	var (
+		mockAuth *MockAuthenticator
+		caClient *fccrypto.CAClient
+	)
+
+	BeforeEach(func() {
+		mockAuth = &MockAuthenticator{}
+
+		cfg := ca.NewDefault(GinkgoT().TempDir())
+		var err error
+		caClient, _, err = fccrypto.EnsureCA(cfg)
+		Expect(err).ToNot(HaveOccurred())
+	})
+
+	baseConfig := func() *config.PAMOIDCIssuer {
+		return &config.PAMOIDCIssuer{
+			Issuer:       "https://test.example.com",
+			Scopes:       []string{"openid"},
+			ClientID:     "test-client",
+			ClientSecret: "test-secret",
+			RedirectURIs: []string{"https://example.com/callback"},
+			PAMService:   "test",
+		}
+	}
+
+	Context("Default branding (no branding config)", func() {
+		It("should use Flight Control defaults", func() {
+			cfg := baseConfig()
+			provider, err := NewPAMOIDCProviderWithAuthenticator(caClient, cfg, mockAuth)
+			Expect(err).ToNot(HaveOccurred())
+			defer provider.Close()
+
+			rawHTML := provider.GetLoginForm()
+			doc := parseLoginForm(rawHTML)
+
+			titleNode := findNode(doc, "title")
+			Expect(titleNode).ToNot(BeNil(), "expected <title> element")
+			Expect(getTextContent(titleNode)).To(Equal("Flight Control Login"))
+
+			faviconLink := findNodeByAttr(doc, "link", "rel", "icon")
+			Expect(faviconLink).ToNot(BeNil(), "expected <link rel=\"icon\"> element")
+			Expect(getAttr(faviconLink, "href")).To(Equal("/auth/assets/favicon.png"))
+
+			lightLogo := findNodeByID(doc, "brand-logo-light")
+			Expect(lightLogo).ToNot(BeNil(), "expected #brand-logo-light element")
+			Expect(getAttr(lightLogo, "src")).To(Equal("/auth/assets/flight-control-logo.svg"))
+			Expect(getAttr(lightLogo, "alt")).To(Equal("Flight Control"))
+
+			darkLogo := findNodeByID(doc, "brand-logo-dark")
+			Expect(darkLogo).ToNot(BeNil(), "expected #brand-logo-dark element")
+			Expect(getAttr(darkLogo, "src")).To(Equal("/auth/assets/flight-control-logo.svg"))
+
+			Expect(rawHTML).NotTo(ContainSubstring("--pf-t--global--color--brand--default"))
+		})
+	})
+
+	Context("Custom display name", func() {
+		It("should use the configured display name in title and heading", func() {
+			cfg := baseConfig()
+			cfg.Branding = &config.LoginBranding{
+				DisplayName: "ACME Corp",
+			}
+			provider, err := NewPAMOIDCProviderWithAuthenticator(caClient, cfg, mockAuth)
+			Expect(err).ToNot(HaveOccurred())
+			defer provider.Close()
+
+			rawHTML := provider.GetLoginForm()
+			doc := parseLoginForm(rawHTML)
+
+			titleNode := findNode(doc, "title")
+			Expect(titleNode).ToNot(BeNil())
+			Expect(getTextContent(titleNode)).To(Equal("ACME Corp Login"))
+
+			logo := findNodeByID(doc, "brand-logo-light")
+			Expect(logo).ToNot(BeNil())
+			Expect(getAttr(logo, "alt")).To(Equal("ACME Corp"))
+		})
+	})
+
+	Context("Custom logo data URI per theme", func() {
+		It("should use per-theme logo data URIs", func() {
+			cfg := baseConfig()
+			lightURI := "data:image/svg+xml;base64,PHN2Zy8+light"
+			darkURI := "data:image/svg+xml;base64,PHN2Zy8+dark"
+			cfg.Branding = &config.LoginBranding{
+				LightTheme: &config.ThemeColors{
+					LogoDataUri: lightURI,
+				},
+				DarkTheme: &config.ThemeColors{
+					LogoDataUri: darkURI,
+				},
+			}
+			provider, err := NewPAMOIDCProviderWithAuthenticator(caClient, cfg, mockAuth)
+			Expect(err).ToNot(HaveOccurred())
+			defer provider.Close()
+
+			rawHTML := provider.GetLoginForm()
+			doc := parseLoginForm(rawHTML)
+
+			lightLogo := findNodeByID(doc, "brand-logo-light")
+			Expect(lightLogo).ToNot(BeNil(), "expected #brand-logo-light element")
+			Expect(getAttr(lightLogo, "src")).To(Equal(lightURI))
+
+			darkLogo := findNodeByID(doc, "brand-logo-dark")
+			Expect(darkLogo).ToNot(BeNil(), "expected #brand-logo-dark element")
+			Expect(getAttr(darkLogo, "src")).To(Equal(darkURI))
+		})
+
+		It("should fall back to default logo when only one theme has a logo", func() {
+			cfg := baseConfig()
+			darkURI := "data:image/svg+xml;base64,PHN2Zy8+dark"
+			cfg.Branding = &config.LoginBranding{
+				DarkTheme: &config.ThemeColors{
+					LogoDataUri: darkURI,
+				},
+			}
+			provider, err := NewPAMOIDCProviderWithAuthenticator(caClient, cfg, mockAuth)
+			Expect(err).ToNot(HaveOccurred())
+			defer provider.Close()
+
+			rawHTML := provider.GetLoginForm()
+			doc := parseLoginForm(rawHTML)
+
+			lightLogo := findNodeByID(doc, "brand-logo-light")
+			Expect(lightLogo).ToNot(BeNil())
+			Expect(getAttr(lightLogo, "src")).To(Equal("/auth/assets/flight-control-logo.svg"))
+
+			darkLogo := findNodeByID(doc, "brand-logo-dark")
+			Expect(darkLogo).ToNot(BeNil())
+			Expect(getAttr(darkLogo, "src")).To(Equal(darkURI))
+		})
+	})
+
+	Context("Custom favicon data URI", func() {
+		It("should use the configured favicon data URI", func() {
+			cfg := baseConfig()
+			faviconURI := "data:image/png;base64,iVBORw0KGgoAAAANS"
+			cfg.Branding = &config.LoginBranding{
+				FaviconDataUri: faviconURI,
+			}
+			provider, err := NewPAMOIDCProviderWithAuthenticator(caClient, cfg, mockAuth)
+			Expect(err).ToNot(HaveOccurred())
+			defer provider.Close()
+
+			rawHTML := provider.GetLoginForm()
+			doc := parseLoginForm(rawHTML)
+
+			faviconLink := findNodeByAttr(doc, "link", "rel", "icon")
+			Expect(faviconLink).ToNot(BeNil(), "expected <link rel=\"icon\"> element")
+			Expect(getAttr(faviconLink, "href")).To(Equal(faviconURI))
+		})
+	})
+
+	Context("Light theme color overrides", func() {
+		It("should inject CSS variable overrides in :root scope", func() {
+			cfg := baseConfig()
+			cfg.Branding = &config.LoginBranding{
+				LightTheme: &config.ThemeColors{
+					BrandDefault:        "#0066cc",
+					BrandHover:          "#004499",
+					BrandClicked:        "#004499",
+					BackgroundSecondary: "#f0f0f0",
+					BackgroundPrimary:   "#ffffff",
+					TextColorRegular:    "#333333",
+				},
+			}
+			provider, err := NewPAMOIDCProviderWithAuthenticator(caClient, cfg, mockAuth)
+			Expect(err).ToNot(HaveOccurred())
+			defer provider.Close()
+
+			css := provider.GetLoginCSS()
+			Expect(css).To(ContainSubstring("--pf-t--global--color--brand--default: #0066cc"))
+			Expect(css).To(ContainSubstring("--pf-t--global--color--brand--hover: #004499"))
+			Expect(css).To(ContainSubstring("--pf-t--global--color--brand--clicked: #004499"))
+			Expect(css).To(ContainSubstring("--pf-t--global--background--color--secondary--default: #f0f0f0"))
+			Expect(css).To(ContainSubstring("--pf-t--global--background--color--primary--default: #ffffff"))
+			Expect(css).To(ContainSubstring("--pf-t--global--text--color--regular: #333333"))
+		})
+	})
+
+	Context("Dark theme color overrides", func() {
+		It("should inject CSS variable overrides in .pf-v6-theme-dark scope", func() {
+			cfg := baseConfig()
+			cfg.Branding = &config.LoginBranding{
+				DarkTheme: &config.ThemeColors{
+					BrandDefault:        "#4da6ff",
+					BrandHover:          "#3d96ef",
+					BackgroundSecondary: "#1a1a2e",
+				},
+			}
+			provider, err := NewPAMOIDCProviderWithAuthenticator(caClient, cfg, mockAuth)
+			Expect(err).ToNot(HaveOccurred())
+			defer provider.Close()
+
+			css := provider.GetLoginCSS()
+			Expect(css).To(ContainSubstring(".pf-v6-theme-dark"))
+			Expect(css).To(ContainSubstring("--pf-t--global--color--brand--default: #4da6ff"))
+			Expect(css).To(ContainSubstring("--pf-t--global--color--brand--hover: #3d96ef"))
+			Expect(css).NotTo(ContainSubstring("--pf-t--global--color--brand--clicked"))
+			Expect(css).To(ContainSubstring("--pf-t--global--background--color--secondary--default: #1a1a2e"))
+		})
+	})
+
+	Context("Partial config (display name only, no themes)", func() {
+		It("should not emit CSS override block", func() {
+			cfg := baseConfig()
+			cfg.Branding = &config.LoginBranding{
+				DisplayName: "My Company",
+			}
+			provider, err := NewPAMOIDCProviderWithAuthenticator(caClient, cfg, mockAuth)
+			Expect(err).ToNot(HaveOccurred())
+			defer provider.Close()
+
+			rawHTML := provider.GetLoginForm()
+			doc := parseLoginForm(rawHTML)
+
+			titleNode := findNode(doc, "title")
+			Expect(titleNode).ToNot(BeNil())
+			Expect(getTextContent(titleNode)).To(Equal("My Company Login"))
+
+			css := provider.GetLoginCSS()
+			Expect(css).NotTo(ContainSubstring("--pf-t--global--color--brand--default"))
+		})
+	})
+
+	Context("Both light and dark themes", func() {
+		It("should emit overrides for both scopes", func() {
+			cfg := baseConfig()
+			cfg.Branding = &config.LoginBranding{
+				DisplayName: "Branded App",
+				LightTheme: &config.ThemeColors{
+					BrandDefault: "#0066cc",
+				},
+				DarkTheme: &config.ThemeColors{
+					BrandDefault: "#4da6ff",
+				},
+			}
+			provider, err := NewPAMOIDCProviderWithAuthenticator(caClient, cfg, mockAuth)
+			Expect(err).ToNot(HaveOccurred())
+			defer provider.Close()
+
+			rawHTML := provider.GetLoginForm()
+			doc := parseLoginForm(rawHTML)
+
+			titleNode := findNode(doc, "title")
+			Expect(titleNode).ToNot(BeNil())
+			Expect(getTextContent(titleNode)).To(Equal("Branded App Login"))
+
+			css := provider.GetLoginCSS()
+			Expect(css).To(ContainSubstring("--pf-t--global--color--brand--default: #0066cc"))
+			Expect(css).To(ContainSubstring(".pf-v6-theme-dark"))
+			Expect(css).To(ContainSubstring("--pf-t--global--color--brand--default: #4da6ff"))
 		})
 	})
 })
