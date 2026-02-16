@@ -176,7 +176,7 @@ func (s *FleetStore) Get(ctx context.Context, orgId uuid.UUID, name string, opts
 
 func (s *FleetStore) addStatusSummary(ctx context.Context, orgId uuid.UUID, fleetName string, summary *domain.DevicesSummary) error {
 	fs, err := selector.NewFieldSelectorFromMap(
-		map[string]string{"metadata.owner": util.ResourceOwner(domain.FleetKind, fleetName)})
+		map[string]string{"owner": util.ResourceOwner(domain.FleetKind, fleetName)})
 	if err != nil {
 		return err
 	}
