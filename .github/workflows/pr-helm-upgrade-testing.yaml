@@ -345,6 +345,39 @@ jobs:
           done
 
           echo ""
+          echo "=== CRITICAL: ENSURE DB-SETUP MIGRATION IMAGE EXISTS ==="
+          # The migration job specifically needs db-setup with the PR tag
+          # Ensure this critical image exists as baseline tag
+          db_setup_pr_image="quay.io/flightctl/flightctl-db-setup:${PR_GIT_TAG}"
+          db_setup_flavor_image="quay.io/flightctl/flightctl-db-setup:${FLAVOR}-${PR_GIT_TAG}"
+
+          echo "Checking for critical migration image: ${db_setup_pr_image}"
+          temp_check=$(mktemp)
+          docker exec kind-control-plane crictl images > "$temp_check" 2>/dev/null || true
+
+          if grep -q "${db_setup_pr_image}" "$temp_check" 2>/dev/null; then
+            echo "✅ Migration image already exists: ${db_setup_pr_image}"
+          else
+            echo "❌ Migration image missing: ${db_setup_pr_image}"
+            echo "Attempting to create from flavor image: ${db_setup_flavor_image}"
+
+            if grep -q "${db_setup_flavor_image}" "$temp_check" 2>/dev/null; then
+              echo "Found flavor image, creating baseline tag..."
+              if docker exec kind-control-plane ctr -n k8s.io images tag "${db_setup_flavor_image}" "${db_setup_pr_image}"; then
+                echo "✅ CRITICAL FIX: Created missing migration image: ${db_setup_pr_image}"
+              else
+                echo "❌ CRITICAL ERROR: Failed to create migration image: ${db_setup_pr_image}"
+              fi
+            else
+              echo "❌ CRITICAL ERROR: Flavor image also missing: ${db_setup_flavor_image}"
+              echo "Available db-setup images:"
+              grep "db-setup" "$temp_check" 2>/dev/null || echo "No db-setup images found!"
+            fi
+          fi
+
+          rm -f "$temp_check" 2>/dev/null || true
+
+          echo ""
           echo "✅ Baseline tag creation completed"
           echo ""
           echo "=== VERIFICATION ==="
