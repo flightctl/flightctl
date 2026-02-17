@@ -703,7 +703,6 @@ runs:
         echo "PWD: $(pwd)"
         echo "USER: $(whoami)"
         echo "PATH: $PATH"
-        echo "KUBECONFIG: $KUBECONFIG"
 
         echo "*** PRE-EXECUTION KUBECTL CHECK ***"
         kubectl cluster-info || echo "KUBECTL CLUSTER-INFO FAILED"
