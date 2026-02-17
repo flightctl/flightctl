@@ -481,8 +481,17 @@ runs:
         WAIT: ${{ inputs.wait }}
       run: |
         echo "*** DEPLOY STEP STARTED ***"
-        echo "NAMESPACE_EXTERNAL: ${NAMESPACE_EXTERNAL}"
-        echo "NAMESPACE_INTERNAL: ${NAMESPACE_INTERNAL}"
+        echo "*** ENVIRONMENT VARIABLES ***"
+        echo "NAMESPACE_EXTERNAL: '${NAMESPACE_EXTERNAL}'"
+        echo "NAMESPACE_INTERNAL: '${NAMESPACE_INTERNAL}'"
+        echo "BASE_DOMAIN: '${BASE_DOMAIN}'"
+        echo "ADDITIONAL_VALUES_FILES: '${ADDITIONAL_VALUES_FILES}'"
+        echo "AUTH_TYPE: '${AUTH_TYPE}'"
+        echo "WAIT: '${WAIT}'"
+        echo "*** CHECKING REQUIRED VARIABLES ***"
+        test -n "${NAMESPACE_EXTERNAL}" || { echo "ERROR: NAMESPACE_EXTERNAL is empty"; exit 1; }
+        test -n "${NAMESPACE_INTERNAL}" || { echo "ERROR: NAMESPACE_INTERNAL is empty"; exit 1; }
+        test -n "${BASE_DOMAIN}" || { echo "ERROR: BASE_DOMAIN is empty"; exit 1; }
 
         set -euo pipefail
         echo "*** PIPEFAIL ENABLED ***"
@@ -491,18 +500,44 @@ runs:
         echo "*** NAMESPACE CREATED ***"
 
         echo "*** STARTING CLEANUP ***"
+        echo "*** PRE-CLEANUP STATE ***"
+        helm list -A || echo "NO HELM RELEASES"
+        kubectl get namespaces | grep flightctl || echo "NO FLIGHTCTL NAMESPACES"
 
         set +e
-        echo "*** HELM UNINSTALL EXTERNAL ***"
-        helm uninstall flightctl -n "${NAMESPACE_EXTERNAL}" --ignore-not-found --timeout=30s 2>/dev/null || true
-        echo "*** HELM UNINSTALL INTERNAL ***"
-        helm uninstall flightctl -n "${NAMESPACE_INTERNAL}" --ignore-not-found --timeout=30s 2>/dev/null || true
-        echo "*** DELETE NAMESPACES ***"
-        kubectl delete namespace "${NAMESPACE_EXTERNAL}" --ignore-not-found --timeout=30s 2>/dev/null || true
-        kubectl delete namespace "${NAMESPACE_INTERNAL}" --ignore-not-found --timeout=30s 2>/dev/null || true
-        echo "*** RECREATE NAMESPACE ***"
-        sleep 3
-        kubectl create namespace "${NAMESPACE_INTERNAL}" 2>/dev/null || true
+        echo "*** HELM UNINSTALL EXTERNAL NAMESPACE ***"
+        helm uninstall flightctl -n "${NAMESPACE_EXTERNAL}" --ignore-not-found --timeout=30s
+        uninstall_external_exit=$?
+        echo "HELM UNINSTALL EXTERNAL EXIT CODE: $uninstall_external_exit"
+
+        echo "*** HELM UNINSTALL INTERNAL NAMESPACE ***"
+        helm uninstall flightctl -n "${NAMESPACE_INTERNAL}" --ignore-not-found --timeout=30s
+        uninstall_internal_exit=$?
+        echo "HELM UNINSTALL INTERNAL EXIT CODE: $uninstall_internal_exit"
+
+        echo "*** DELETE EXTERNAL NAMESPACE ***"
+        kubectl delete namespace "${NAMESPACE_EXTERNAL}" --ignore-not-found --timeout=30s
+        delete_external_exit=$?
+        echo "DELETE EXTERNAL NAMESPACE EXIT CODE: $delete_external_exit"
+
+        echo "*** DELETE INTERNAL NAMESPACE ***"
+        kubectl delete namespace "${NAMESPACE_INTERNAL}" --ignore-not-found --timeout=30s
+        delete_internal_exit=$?
+        echo "DELETE INTERNAL NAMESPACE EXIT CODE: $delete_internal_exit"
+
+        echo "*** WAITING FOR CLEANUP TO COMPLETE ***"
+        sleep 5
+
+        echo "*** RECREATE INTERNAL NAMESPACE ***"
+        kubectl create namespace "${NAMESPACE_INTERNAL}"
+        create_exit=$?
+        echo "CREATE NAMESPACE EXIT CODE: $create_exit"
+
+        echo "*** POST-CLEANUP STATE ***"
+        helm list -A || echo "NO HELM RELEASES AFTER CLEANUP"
+        kubectl get namespaces | grep flightctl || echo "NO FLIGHTCTL NAMESPACES AFTER CLEANUP"
+        kubectl get namespace "${NAMESPACE_INTERNAL}" || echo "INTERNAL NAMESPACE NOT FOUND AFTER CREATION"
+
         set -e
         echo "*** CLEANUP FINISHED ***"
 
@@ -584,66 +619,158 @@ runs:
         ls -la artifacts/ || echo "No artifacts directory found"
 
         echo "*** FINDING CHART FILE ***"
+        echo "*** ARTIFACTS DIRECTORY CONTENTS:"
+        ls -la artifacts/ || echo "No artifacts directory"
+        echo "*** SEARCHING FOR CHART FILE:"
+        find artifacts/ -name "flightctl-chart.tgz" || echo "No chart file found by find"
         CHART_FILE=$(find artifacts/ -name "flightctl-chart.tgz" | head -n1)
         if [ -z "$CHART_FILE" ]; then
-          echo "ERROR: flightctl-chart.tgz not found"
+          echo "*** ERROR: flightctl-chart.tgz not found ***"
+          echo "*** ALL FILES IN ARTIFACTS:"
           find artifacts/ -type f || echo "No artifacts found"
           exit 1
         fi
-        echo "*** CHART FILE: $CHART_FILE ***"
+        echo "*** CHART FILE FOUND: $CHART_FILE ***"
+        echo "*** CHART FILE INFO:"
+        ls -la "$CHART_FILE"
+        echo "*** CHART FILE IS READABLE:"
+        test -r "$CHART_FILE" && echo "YES" || echo "NO"
 
         echo "*** BUILDING HELM COMMAND ***"
+        echo "*** CHECKING HELM AVAILABILITY ***"
+        which helm || echo "HELM NOT FOUND IN PATH"
+        helm version || echo "HELM VERSION FAILED"
+
+        echo "*** CHECKING NAMESPACES ***"
+        kubectl get namespace "${NAMESPACE_EXTERNAL}" || echo "EXTERNAL NAMESPACE MISSING"
+        kubectl get namespace "${NAMESPACE_INTERNAL}" || echo "INTERNAL NAMESPACE MISSING"
 
         # Build the helm command
+        echo "*** STEP 1: BASE COMMAND ***"
         HELM_CMD="helm install flightctl $CHART_FILE"
-        HELM_CMD+=" --namespace ${NAMESPACE_EXTERNAL}"
-        HELM_CMD+=" --create-namespace"
+        echo "HELM_CMD after base: $HELM_CMD"
 
-        echo "*** CHECKING VALUES FILE ***"
+        echo "*** STEP 2: ADDING NAMESPACE ***"
+        HELM_CMD+=" --namespace ${NAMESPACE_EXTERNAL}"
+        echo "HELM_CMD after namespace: $HELM_CMD"
+
+        echo "*** STEP 3: ADDING CREATE-NAMESPACE ***"
+        HELM_CMD+=" --create-namespace"
+        echo "HELM_CMD after create-namespace: $HELM_CMD"
+
+        echo "*** STEP 4: CHECKING VALUES FILE ***"
         if [ -f "deploy/helm/flightctl/values.nodeport.yaml" ]; then
           HELM_CMD+=" --values deploy/helm/flightctl/values.nodeport.yaml"
-          echo "*** VALUES FILE FOUND ***"
+          echo "*** VALUES FILE FOUND AND ADDED ***"
+          echo "*** VALUES FILE CONTENT:"
+          head -10 "deploy/helm/flightctl/values.nodeport.yaml" || echo "FAILED TO READ VALUES FILE"
         else
           echo "*** VALUES FILE NOT FOUND ***"
+          echo "*** CHECKING DEPLOY DIRECTORY:"
+          ls -la deploy/helm/flightctl/ || echo "DEPLOY DIRECTORY NOT FOUND"
         fi
+        echo "HELM_CMD after values: $HELM_CMD"
 
+        echo "*** STEP 5: ADDING GLOBAL SETTINGS ***"
         HELM_CMD+=' --set global.baseDomain="${BASE_DOMAIN}"'
+        echo "HELM_CMD after baseDomain: $HELM_CMD"
         HELM_CMD+=" --set global.internalNamespace=${NAMESPACE_INTERNAL}"
+        echo "HELM_CMD after internalNamespace: $HELM_CMD"
         HELM_CMD+=" --set ui.enabled=false"
-        HELM_CMD+="${EXTRA_ARGS}"
+        echo "HELM_CMD after ui.enabled: $HELM_CMD"
 
+        echo "*** STEP 6: ADDING EXTRA ARGS ***"
+        echo "EXTRA_ARGS value: '$EXTRA_ARGS'"
+        HELM_CMD+="${EXTRA_ARGS}"
+        echo "HELM_CMD after extra args: $HELM_CMD"
+
+        echo "*** STEP 7: ADDING WAIT FLAG ***"
         if [ "${WAIT}" == "true" ]; then
           HELM_CMD+=" --wait"
-          echo "✅ Wait enabled - will wait for deployment completion"
+          echo "*** WAIT FLAG ADDED ***"
         else
-          echo "⏭️  Wait disabled - will not wait for deployment completion"
+          echo "*** WAIT FLAG NOT ADDED ***"
         fi
+        echo "HELM_CMD after wait: $HELM_CMD"
 
-        echo "*** FINAL HELM COMMAND: ${HELM_CMD} ***"
+        echo "*** FINAL HELM COMMAND BUILT: ${HELM_CMD} ***"
+        echo "*** COMMAND LENGTH: ${#HELM_CMD} characters ***"
 
         echo "helm_cmd=${HELM_CMD}" >> "$GITHUB_OUTPUT" || true
 
         echo "*** EXECUTING HELM INSTALL NOW ***"
+        echo "*** PRE-EXECUTION ENVIRONMENT CHECK ***"
+        echo "PWD: $(pwd)"
+        echo "USER: $(whoami)"
+        echo "PATH: $PATH"
+        echo "KUBECONFIG: $KUBECONFIG"
+
+        echo "*** PRE-EXECUTION KUBECTL CHECK ***"
+        kubectl cluster-info || echo "KUBECTL CLUSTER-INFO FAILED"
+        kubectl get nodes || echo "KUBECTL GET NODES FAILED"
+
+        echo "*** PRE-EXECUTION HELM CHECK ***"
+        helm list -A || echo "HELM LIST FAILED"
+
+        echo "*** TESTING HELM COMMAND SYNTAX ***"
+        if [ "${WAIT}" == "true" ]; then
+          TEST_CMD="${HELM_CMD} --debug --timeout=15m --dry-run"
+        else
+          TEST_CMD="${HELM_CMD} --timeout=10m --dry-run"
+        fi
+        echo "*** DRY-RUN COMMAND: $TEST_CMD ***"
 
         set +e
+        echo "*** RUNNING DRY-RUN FIRST ***"
+        eval "$TEST_CMD" 2>&1 | head -50
+        dry_run_exit_code=$?
+        echo "*** DRY-RUN EXIT CODE: $dry_run_exit_code ***"
+
+        if [ $dry_run_exit_code -ne 0 ]; then
+          echo "*** DRY-RUN FAILED - ABORTING ***"
+          echo "*** HELM LIST AFTER DRY-RUN FAILURE ***"
+          helm list -A || true
+          echo "*** KUBECTL GET ALL ***"
+          kubectl get all -A | head -20 || true
+          exit $dry_run_exit_code
+        fi
+
+        echo "*** DRY-RUN SUCCEEDED - PROCEEDING WITH ACTUAL INSTALL ***"
+
         if [ "${WAIT}" == "true" ]; then
           echo "*** RUNNING WITH WAIT AND DEBUG ***"
-          eval "${HELM_CMD} --debug --timeout=15m"
+          echo "*** ACTUAL COMMAND: ${HELM_CMD} --debug --timeout=15m ***"
+          eval "${HELM_CMD} --debug --timeout=15m" 2>&1 | tee helm-install.log
           helm_exit_code=$?
         else
           echo "*** RUNNING WITHOUT WAIT ***"
-          eval "${HELM_CMD} --timeout=10m"
+          echo "*** ACTUAL COMMAND: ${HELM_CMD} --timeout=10m ***"
+          eval "${HELM_CMD} --timeout=10m" 2>&1 | tee helm-install.log
           helm_exit_code=$?
         fi
         set -e
 
         echo "*** HELM EXIT CODE: ${helm_exit_code} ***"
+        echo "*** POST-EXECUTION HELM LIST ***"
+        helm list -A || true
+        echo "*** POST-EXECUTION KUBECTL GET ALL ***"
+        kubectl get all -A | head -30 || true
+
         if [ ${helm_exit_code} -ne 0 ]; then
           echo "*** HELM INSTALL FAILED ***"
+          echo "*** HELM INSTALL LOG (last 50 lines): ***"
+          tail -50 helm-install.log || echo "NO HELM LOG FILE"
+          echo "*** FINAL HELM LIST ***"
           helm list -A || true
+          echo "*** FINAL KUBECTL STATUS ***"
+          kubectl get pods -A | head -20 || true
           exit ${helm_exit_code}
         else
           echo "*** HELM INSTALL SUCCEEDED ***"
+          echo "*** SUCCESS - HELM LIST ***"
+          helm list -A || true
+          echo "*** SUCCESS - KUBECTL GET PODS ***"
+          kubectl get pods -A || true
         fi
 
         # Summary of deployment approach
