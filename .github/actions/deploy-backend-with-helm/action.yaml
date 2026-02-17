@@ -628,11 +628,11 @@ runs:
         set +e
         if [ "${WAIT}" == "true" ]; then
           echo "*** RUNNING WITH WAIT AND DEBUG ***"
-          eval "${HELM_CMD} --debug"
+          eval "${HELM_CMD} --debug --timeout=15m"
           helm_exit_code=$?
         else
           echo "*** RUNNING WITHOUT WAIT ***"
-          eval "${HELM_CMD}"
+          eval "${HELM_CMD} --timeout=10m"
           helm_exit_code=$?
         fi
         set -e
