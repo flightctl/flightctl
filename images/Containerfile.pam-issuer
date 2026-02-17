@@ -21,6 +21,7 @@ USER 0
 # (e.g. new glibc published before glibc-common syncs), causing unresolvable
 # dependency errors. --nobest falls back to the installed versions when the
 # best candidates can't be resolved.
+# Cache bust: force rebuild to use --nobest flag
 RUN dnf install -y --nobest gcc glibc-devel
 
 # Install matching PAM and pam-devel from CentOS mirror for build
