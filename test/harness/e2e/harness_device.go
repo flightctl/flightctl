@@ -545,6 +545,83 @@ func (h *Harness) WaitForDeviceNewRenderedVersion(deviceId string, newRenderedVe
 	return nil
 }
 
+// WaitForDeviceNewRenderedVersionWithReboot waits for the device to reach the target rendered version
+// after an update that causes a reboot.
+// Use only when the update triggers a device reboot. Otherwise, use WaitForDeviceNewRenderedVersion.
+func (h *Harness) WaitForDeviceNewRenderedVersionWithReboot(deviceId string, newRenderedVersionInt int) (err error) {
+	Eventually(func() v1beta1.DeviceSummaryStatusType {
+		res, err := h.GetDeviceWithStatusSummary(deviceId)
+		Expect(err).ToNot(HaveOccurred())
+		return res
+	}, LONGTIMEOUT, POLLING).ShouldNot(BeEmpty())
+	logrus.Infof("The device %s was approved", deviceId)
+
+	const specVisibleTimeout = "2m"
+	logrus.Infof("Waiting for the device to acknowledge the new spec (up to %s)", specVisibleTimeout)
+	h.WaitForDeviceContents(deviceId, "device has acknowledged the update (Updating or OutOfDate)",
+		func(device *v1beta1.Device) bool {
+			if device == nil || device.Status == nil {
+				return false
+			}
+			currentRenderedVersion, parseErr := strconv.Atoi(device.Status.Config.RenderedVersion)
+			if parseErr == nil && currentRenderedVersion >= newRenderedVersionInt {
+				return true
+			}
+			if device.Status.Updated.Status == v1beta1.DeviceUpdatedStatusUpdating ||
+				device.Status.Updated.Status == v1beta1.DeviceUpdatedStatusOutOfDate {
+				return true
+			}
+			cond := v1beta1.FindStatusCondition(device.Status.Conditions, v1beta1.ConditionTypeDeviceUpdating)
+			if cond != nil && cond.Status == v1beta1.ConditionStatusTrue {
+				return true
+			}
+			return false
+		}, specVisibleTimeout)
+
+	logrus.Infof("Waiting for the device to reach renderedVersion %d (with reboot)", newRenderedVersionInt)
+	successMsg := fmt.Sprintf("%s %d", util.UpdateRenderedVersionSuccess.String(), newRenderedVersionInt)
+	seenUpdating := false
+	h.WaitForDeviceContents(deviceId, successMsg,
+		func(device *v1beta1.Device) bool {
+			if device == nil || device.Status == nil {
+				return false
+			}
+			// Transitional: rebooting or unknown — keep waiting, never fail.
+			if device.Status.Updated.Status == v1beta1.DeviceUpdatedStatusUnknown {
+				return false
+			}
+			if device.Status.Summary.Status == v1beta1.DeviceSummaryStatusRebooting ||
+				device.Status.Summary.Status == v1beta1.DeviceSummaryStatusUnknown {
+				return false
+			}
+			if device.Status.Updated.Status == v1beta1.DeviceUpdatedStatusUpdating {
+				seenUpdating = true
+			}
+			cond := v1beta1.FindStatusCondition(device.Status.Conditions, v1beta1.ConditionTypeDeviceUpdating)
+			if cond != nil && cond.Status == v1beta1.ConditionStatusTrue {
+				seenUpdating = true
+			}
+			currentRenderedVersion, parseErr := strconv.Atoi(device.Status.Config.RenderedVersion)
+			if parseErr == nil && currentRenderedVersion >= newRenderedVersionInt {
+				return true
+			}
+			// Fail only when device is OutOfDate and has not reached target version (terminal failure).
+			if seenUpdating && device.Status.Updated.Status == v1beta1.DeviceUpdatedStatusOutOfDate {
+				updatedInfo := ""
+				if device.Status.Updated.Info != nil {
+					updatedInfo = *device.Status.Updated.Info
+				}
+				Fail(fmt.Sprintf(
+					"Device %s failed to update to renderedVersion %d (current=%s): %s",
+					deviceId, newRenderedVersionInt, device.Status.Config.RenderedVersion, updatedInfo,
+				))
+			}
+			return false
+		}, LONGTIMEOUT)
+
+	return nil
+}
+
 func (h *Harness) WaitForDeviceNewGeneration(deviceId string, newGeneration int64) (err error) {
 	// Check that the device was already approved
 	Eventually(func() v1beta1.DeviceSummaryStatusType {
