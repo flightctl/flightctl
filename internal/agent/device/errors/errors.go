@@ -122,7 +122,6 @@ var (
 	ErrCreateCertificateSigningRequest = errors.New("failed to create certificate signing request")
 
 	// resource monitoring
-	ErrCriticalResourceAlert = errors.New("critical resource alert")
 	ErrCriticalAlertsFiring  = errors.New("critical alerts firing")
 
 	// policy errors
@@ -297,8 +296,7 @@ var (
 		ErrOCICollectorNotReady:   codes.FailedPrecondition,
 
 		// resource exhausted
-		ErrCriticalResourceAlert:  codes.ResourceExhausted,
-		ErrCriticalAlertsFiring:   codes.ResourceExhausted,
+		ErrCriticalAlertsFiring:   codes.Resource_exhausted,
 
 		// permission denied
 		ErrReadingRenderedSpec: codes.PermissionDenied,

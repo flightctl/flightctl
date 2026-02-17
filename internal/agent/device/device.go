@@ -327,12 +327,12 @@ func (a *Agent) statusUpdate(ctx context.Context) {
 }
 
 func (a *Agent) beforeUpdate(ctx context.Context, current, desired *v1beta1.Device) error {
-	if a.resourceManager.IsCriticalAlert(resource.CPUMonitorType) || a.resourceManager.IsCriticalAlert(resource.MemoryMonitorType) {
-		return errors.ErrCriticalAlertsFiring
-	}
-
 	if err := a.resourceManager.BeforeUpdate(ctx, desired.Spec); err != nil {
 		return fmt.Errorf("%w: %w", errors.ErrComponentResources, err)
+	}
+
+	if a.resourceManager.IsCriticalAlert(resource.CPUMonitorType) || a.resourceManager.IsCriticalAlert(resource.MemoryMonitorType) {
+		return errors.ErrCriticalAlertsFiring
 	}
 
 	if err := a.specManager.CheckPolicy(ctx, policy.Download, desired.Version()); err != nil {
