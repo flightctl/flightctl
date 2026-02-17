@@ -250,7 +250,6 @@ func (o *LoginOptions) Complete(cmd *cobra.Command, args []string) error {
 
 func (o *LoginOptions) Init(args []string) error {
 	var err error
-	// Use trimmed URL for client config to handle whitespace
 	trimmedURL := strings.TrimSpace(args[0])
 	serverURL := ensureURLScheme(trimmedURL)
 	o.clientConfig, err = o.getClientConfig(serverURL)
