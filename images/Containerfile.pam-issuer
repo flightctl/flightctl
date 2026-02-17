@@ -16,7 +16,12 @@ WORKDIR /app
 # Switch to root for build operations
 USER 0
 
-# Note: gcc and glibc-devel are pre-installed in the go-toolset base image
+# Install/upgrade C development tools needed for CGO.
+# --nobest: UBI repos may temporarily have inconsistent glibc versions
+# (e.g. new glibc published before glibc-common syncs), causing unresolvable
+# dependency errors. --nobest falls back to the installed versions when the
+# best candidates can't be resolved.
+RUN dnf install -y --nobest gcc glibc-devel
 
 # Install matching PAM and pam-devel from CentOS mirror for build
 RUN dnf install -y ${PAM_BASE_URL}/BaseOS/x86_64/os/Packages/pam-${PAM_PACKAGE_VERSION}.x86_64.rpm && \
