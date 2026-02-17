@@ -75,16 +75,83 @@ jobs:
         with:
           setup_kvm: yes
 
+      - name: Post-setup verification
+        run: |
+          echo "*** E2E: POST-SETUP VERIFICATION ***"
+          echo "*** E2E: CHECKING GO VERSION ***"
+          go version || echo "GO NOT AVAILABLE"
+          echo "*** E2E: CHECKING DOCKER ***"
+          docker version || echo "DOCKER NOT AVAILABLE"
+          docker info || echo "DOCKER INFO FAILED"
+          echo "*** E2E: CHECKING KIND ***"
+          kind version || echo "KIND NOT AVAILABLE"
+          echo "*** E2E: CHECKING KUBECTL ***"
+          kubectl version --client || echo "KUBECTL NOT AVAILABLE"
+          echo "*** E2E: CHECKING HELM ***"
+          helm version || echo "HELM NOT AVAILABLE"
+          echo "*** E2E: POST-SETUP VERIFICATION COMPLETE ***"
+
       - name: Compute base domain
         id: base-domain
         run: |
+          echo "*** E2E: STARTING BASE DOMAIN COMPUTATION ***"
+          echo "*** E2E: CHECKING NETWORK CONNECTIVITY ***"
+          ping -c 1 1.1.1.1 || echo "PING TO 1.1.1.1 FAILED"
+
+          echo "*** E2E: CHECKING IP ROUTE ***"
+          ip route get 1.1.1.1 || { echo "IP ROUTE FAILED"; exit 1; }
+
+          echo "*** E2E: EXTRACTING IP ADDRESS ***"
           IP=$(ip route get 1.1.1.1 | grep -oP 'src \K\S+')
+          echo "*** E2E: EXTRACTED IP: '$IP' ***"
+
+          if [ -z "$IP" ]; then
+            echo "*** E2E: ERROR - IP EXTRACTION FAILED ***"
+            echo "*** E2E: IP ROUTE OUTPUT: ***"
+            ip route get 1.1.1.1
+            exit 1
+          fi
+
+          BASE_DOMAIN="${IP}.nip.io"
+          echo "*** E2E: COMPUTED BASE DOMAIN: '$BASE_DOMAIN' ***"
+
           echo "ip=${IP}" >> "$GITHUB_OUTPUT"
-          echo "base_domain=${IP}.nip.io" >> "$GITHUB_OUTPUT"
-          echo "Computed base domain: ${IP}.nip.io"
+          echo "base_domain=${BASE_DOMAIN}" >> "$GITHUB_OUTPUT"
+          echo "*** E2E: BASE DOMAIN COMPUTATION COMPLETE ***"
 
       # ========== DEPLOY BACKEND WITH HELM ==========
+      - name: Pre-deployment validation
+        run: |
+          echo "*** E2E: PRE-DEPLOYMENT VALIDATION ***"
+          echo "*** E2E: VALIDATING INPUTS ***"
+          echo "tag: '${{ inputs.tag }}'"
+          echo "base-domain: '${{ steps.base-domain.outputs.base_domain }}'"
+          echo "flavor: '${{ inputs.flavor }}'"
+          echo "ginkgo_node: '${{ matrix.ginkgo_node }}'"
+          echo "display-summary: '${{ matrix.ginkgo_node == 1 }}'"
+
+          echo "*** E2E: CHECKING REQUIRED FILES ***"
+          echo "Kind config file:"
+          ls -la test/scripts/kind_cluster.yaml || echo "KIND CONFIG NOT FOUND"
+          if [ -f test/scripts/kind_cluster.yaml ]; then
+            echo "*** E2E: KIND CONFIG CONTENT ***"
+            cat test/scripts/kind_cluster.yaml
+          fi
+
+          echo "E2E values file:"
+          ls -la deploy/helm/flightctl/values.e2e.yaml || echo "E2E VALUES FILE NOT FOUND"
+          if [ -f deploy/helm/flightctl/values.e2e.yaml ]; then
+            echo "*** E2E: VALUES FILE CONTENT ***"
+            head -20 deploy/helm/flightctl/values.e2e.yaml
+          fi
+
+          echo "*** E2E: CHECKING WORKING DIRECTORY ***"
+          pwd
+          ls -la . | head -10
+          echo "*** E2E: PRE-DEPLOYMENT VALIDATION COMPLETE ***"
+
       - name: Deploy backend with Helm
+        id: deploy-backend
         uses: ./.github/actions/deploy-backend-with-helm
         with:
           tag: ${{ inputs.tag }}
@@ -96,9 +163,40 @@ jobs:
           wait: false
           flavor: ${{ inputs.flavor }}
 
+      - name: Post-deployment verification
+        run: |
+          echo "*** E2E: POST-DEPLOYMENT VERIFICATION ***"
+          echo "*** E2E: CHECKING HELM RELEASES ***"
+          helm list -A || echo "HELM LIST FAILED"
+
+          echo "*** E2E: CHECKING CLUSTER STATE ***"
+          kubectl get nodes || echo "GET NODES FAILED"
+          kubectl get namespaces | grep flightctl || echo "NO FLIGHTCTL NAMESPACES"
+
+          echo "*** E2E: CHECKING FLIGHTCTL PODS ***"
+          kubectl get pods -A | grep flightctl || echo "NO FLIGHTCTL PODS"
+
+          echo "*** E2E: CHECKING FLIGHTCTL SERVICES ***"
+          kubectl get services -A | grep flightctl || echo "NO FLIGHTCTL SERVICES"
+
+          echo "*** E2E: CHECKING KIND CLUSTER ***"
+          kind get clusters || echo "NO KIND CLUSTERS"
+
+          echo "*** E2E: POST-DEPLOYMENT VERIFICATION COMPLETE ***"
+
       # ========== DOWNLOAD E2E TEST ARTIFACTS ==========
+      - name: Debug E2E artifact download parameters
+        run: |
+          echo "*** E2E: ARTIFACT DOWNLOAD PARAMETERS ***"
+          echo "os_id: '${{ inputs.os_id }}'"
+          echo "tag: '${{ inputs.tag }}'"
+          echo "pattern: 'agent-*-${{ inputs.os_id }}-${{ inputs.tag }}'"
+          echo "*** E2E: ARTIFACT DOWNLOAD PARAMETERS COMPLETE ***"
+
       - name: Download test artifacts
+        id: download-test-artifacts
         uses: actions/download-artifact@v4
+        continue-on-error: true
         with:
           pattern: agent-*-${{ inputs.os_id }}-${{ inputs.tag }}
           path: test-artifacts
@@ -106,9 +204,23 @@ jobs:
 
       - name: Stage test artifacts
         run: |
+          echo "*** E2E: STAGING TEST ARTIFACTS ***"
+          echo "*** E2E: DOWNLOAD OUTCOME: ${{ steps.download-test-artifacts.outcome }} ***"
+
+          if [ "${{ steps.download-test-artifacts.outcome }}" != "success" ]; then
+            echo "*** E2E: ARTIFACT DOWNLOAD FAILED ***"
+            echo "*** E2E: CHECKING WORKSPACE ***"
+            ls -la . || true
+            echo "*** E2E: NO ARTIFACTS AVAILABLE FOR STAGING ***"
+            exit 1
+          fi
+
           set -euo pipefail
-          echo "Downloaded test artifacts:"
-          tree test-artifacts
+          echo "*** E2E: ARTIFACT DOWNLOAD SUCCEEDED ***"
+          echo "*** E2E: DOWNLOADED TEST ARTIFACTS ***"
+          ls -la test-artifacts || echo "NO TEST-ARTIFACTS DIRECTORY"
+          tree test-artifacts || echo "TREE FAILED - USING LS"
+          find test-artifacts -type f || echo "NO FILES IN TEST-ARTIFACTS"
 
           # Stage agent bundle
           mkdir -p bin/agent-artifacts
@@ -154,6 +266,25 @@ jobs:
           make prepare-e2e-test
 
       # ========== RUN E2E TESTS ==========
+      - name: Pre-test validation
+        run: |
+          echo "*** E2E: PRE-TEST VALIDATION ***"
+          echo "*** E2E: CHECKING CLUSTER READINESS ***"
+          kubectl get nodes || echo "NO CLUSTER NODES"
+          kubectl get pods -A | grep flightctl || echo "NO FLIGHTCTL PODS"
+
+          echo "*** E2E: CHECKING TEST ENVIRONMENT ***"
+          echo "ginkgo_label_filter: '${{ inputs.ginkgo_label_filter }}'"
+          echo "ginkgo_node: '${{ matrix.ginkgo_node }}'"
+          echo "ginkgo_node_count: '${{ inputs.ginkgo_node_count }}'"
+
+          echo "*** E2E: CHECKING TEST BINARIES ***"
+          ls -la bin/ || echo "NO BIN DIRECTORY"
+          ls -la bin/agent-artifacts/ || echo "NO AGENT ARTIFACTS"
+          ls -la bin/output/qcow2/ || echo "NO QCOW2 IMAGES"
+
+          echo "*** E2E: PRE-TEST VALIDATION COMPLETE ***"
+
       - name: Restore Go cache
         uses: actions/cache/restore@v4
         with:
@@ -167,10 +298,11 @@ jobs:
       - name: Compute label filter hash
         id: compute-hash
         run: |
+          echo "*** E2E: COMPUTING LABEL FILTER HASH ***"
           HASH=$(printf '%s' "${{ inputs.ginkgo_label_filter }}" | sha256sum | cut -c1-8)
           echo "hash=${HASH}" >> "$GITHUB_OUTPUT"
-          echo "Label filter: ${{ inputs.ginkgo_label_filter }}"
-          echo "Hash: ${HASH}"
+          echo "*** E2E: Label filter: '${{ inputs.ginkgo_label_filter }}' ***"
+          echo "*** E2E: Hash: ${HASH} ***"
 
       - name: Download test discovery
         uses: actions/download-artifact@v4
