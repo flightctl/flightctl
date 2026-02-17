@@ -383,7 +383,7 @@ runs:
           done
 
           echo "DEBUG: All images now in kind after baseline tag creation:"
-          docker exec kind-control-plane crictl images | grep flightctl | head -20
+          docker exec kind-control-plane crictl images | grep flightctl | { head -20 || true; }
         else
           echo "❌ No bundle found, attempting fallback to individual local images..."
           # Load individual images built locally
