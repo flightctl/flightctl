@@ -587,8 +587,8 @@ runs:
         docker exec kind-control-plane crictl images | grep "flightctl" || echo "❌ No flightctl images found in kind!"
 
         echo ""
-        echo "ALL images in kind cluster:"
-        docker exec kind-control-plane crictl images | head -15
+        echo "ALL images in kind cluster (first 15):"
+        docker exec kind-control-plane crictl images | { head -15 || true; }
 
         # Set tags for ALL services including dbSetup (critical for init containers)
         EXTRA_ARGS+=" --set dbSetup.image.tag=${IMAGE_TAG}"
