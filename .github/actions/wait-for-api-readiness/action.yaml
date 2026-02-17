@@ -122,26 +122,39 @@ runs:
             # Enhanced curl with verbose TLS debugging
             echo "[${elapsed}s] Attempt $i/$RETRIES: Testing API readiness..."
 
-            # First try with detailed SSL debugging for FIPS/TLS issues
+            # Enhanced curl with SIGPIPE-safe debugging
             if [ $((i % 15)) -eq 1 ] || [ $elapsed -gt 60 ]; then
                 echo "--- Detailed TLS/FIPS Debug (attempt $i) ---"
-                resp_and_code=$(curl -ksS --connect-timeout 5 --max-time 10 \
-                    --trace-ascii /dev/stderr \
+                # SIGPIPE-safe approach: capture to temp file instead of pipes
+                temp_debug=$(mktemp)
+                if curl -ksS --connect-timeout 5 --max-time 10 \
                     --write-out '\nHTTP_CODE:%{http_code}\nTOTAL_TIME:%{time_total}\nCONNECT_TIME:%{time_connect}\nTLS_TIME:%{time_appconnect}' \
-                    "https://api.${BASE_DOMAIN}:3443/readyz" 2>&1) || true
+                    "https://api.${BASE_DOMAIN}:3443/readyz" 2>"$temp_debug" || true; then
+                    resp_and_code=$(cat "$temp_debug" 2>/dev/null || echo "")
+                else
+                    resp_and_code=$(cat "$temp_debug" 2>/dev/null || echo "curl_failed")
+                fi
+                rm -f "$temp_debug" 2>/dev/null || true
             else
                 # Regular request
                 resp_and_code=$(curl -ksS --connect-timeout 3 --max-time 8 \
                     --write-out '\nHTTP_CODE:%{http_code}' \
-                    "https://api.${BASE_DOMAIN}:3443/readyz" 2>&1) || true
+                    "https://api.${BASE_DOMAIN}:3443/readyz" 2>&1 || echo "curl_failed")
             fi
 
-            # Parse response
-            http_code=$(printf '%s\n' "$resp_and_code" | grep "HTTP_CODE:" | cut -d: -f2 2>/dev/null || echo "000")
-            connect_time=$(printf '%s\n' "$resp_and_code" | grep "CONNECT_TIME:" | cut -d: -f2 2>/dev/null || echo "")
-            tls_time=$(printf '%s\n' "$resp_and_code" | grep "TLS_TIME:" | cut -d: -f2 2>/dev/null || echo "")
-            total_time=$(printf '%s\n' "$resp_and_code" | grep "TOTAL_TIME:" | cut -d: -f2 2>/dev/null || echo "")
-            body=$(printf '%s\n' "$resp_and_code" | grep -v -E "(HTTP_CODE:|CONNECT_TIME:|TLS_TIME:|TOTAL_TIME:|^\* |^> |^< )" | head -5)
+            # SIGPIPE-safe parsing
+            set +e  # Disable exit on error for parsing
+            http_code=$(printf '%s\n' "$resp_and_code" 2>/dev/null | grep "HTTP_CODE:" 2>/dev/null | head -1 | cut -d: -f2 2>/dev/null || echo "000")
+            connect_time=$(printf '%s\n' "$resp_and_code" 2>/dev/null | grep "CONNECT_TIME:" 2>/dev/null | head -1 | cut -d: -f2 2>/dev/null || echo "")
+            tls_time=$(printf '%s\n' "$resp_and_code" 2>/dev/null | grep "TLS_TIME:" 2>/dev/null | head -1 | cut -d: -f2 2>/dev/null || echo "")
+            total_time=$(printf '%s\n' "$resp_and_code" 2>/dev/null | grep "TOTAL_TIME:" 2>/dev/null | head -1 | cut -d: -f2 2>/dev/null || echo "")
+
+            # Extract response body, avoiding SIGPIPE with head/grep
+            body_temp=$(mktemp)
+            printf '%s\n' "$resp_and_code" 2>/dev/null | grep -v -E "(HTTP_CODE:|CONNECT_TIME:|TLS_TIME:|TOTAL_TIME:|^\* |^> |^< )" 2>/dev/null > "$body_temp" || true
+            body=$(head -5 "$body_temp" 2>/dev/null || echo "")
+            rm -f "$body_temp" 2>/dev/null || true
+            set -e  # Re-enable exit on error
 
             # Enhanced response logging
             timing_info=""
