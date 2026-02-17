@@ -41,57 +41,9 @@ Procedure:
    sudo dnf install -y flightctl-observability
    ```
 
-2. Copy the Prometheus data source configuration to the Grafana provisioning directory:
+2. Start and enable the observability stack:
 
    ```console
-   sudo cp /usr/share/flightctl/flightctl-grafana/grafana-datasources.yaml \
-     /etc/flightctl/flightctl-grafana/provisioning/datasources/
-   sudo chmod 644 /etc/flightctl/flightctl-grafana/provisioning/datasources/grafana-datasources.yaml
-   ```
-
-3. Copy the dashboard provider configuration to the Grafana provisioning directory:
-
-   ```console
-   sudo cp /usr/share/flightctl/flightctl-grafana/grafana-dashboards.yaml \
-     /etc/flightctl/flightctl-grafana/provisioning/dashboards/
-   sudo chmod 644 /etc/flightctl/flightctl-grafana/provisioning/dashboards/grafana-dashboards.yaml
-   ```
-
-4. Download the example dashboard JSON files from GitHub:
-
-   ```console
-   curl -sLO https://raw.githubusercontent.com/flightctl/flightctl/main/contrib/grafana-dashboards/flightctl-api-dashboard.json
-   curl -sLO https://raw.githubusercontent.com/flightctl/flightctl/main/contrib/grafana-dashboards/flightctl-fleet-dashboard.json
-   ```
-
-5. Copy the dashboard files to the Grafana provisioning directory:
-
-   ```console
-   sudo cp flightctl-api-dashboard.json /etc/flightctl/flightctl-grafana/provisioning/dashboards/flightctl/
-   sudo cp flightctl-fleet-dashboard.json /etc/flightctl/flightctl-grafana/provisioning/dashboards/flightctl/
-   sudo chmod 644 /etc/flightctl/flightctl-grafana/provisioning/dashboards/flightctl/*.json
-   ```
-
-6. Ensure the Grafana container is configured to mount the dashboards directory. Check if the mount exists:
-
-   ```console
-   systemctl cat flightctl-grafana.service | grep "dashboards"
-   ```
-
-   If the volume mount is missing, add it by creating a drop-in configuration:
-
-   ```console
-   sudo mkdir -p /etc/containers/systemd/flightctl-grafana.container.d
-   sudo tee /etc/containers/systemd/flightctl-grafana.container.d/10-dashboards.conf > /dev/null <<EOF
-   [Container]
-   Volume=/etc/flightctl/flightctl-grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro,z
-   EOF
-   ```
-
-7. Start and enable the observability stack:
-
-   ```console
-   sudo systemctl daemon-reload
    sudo systemctl enable --now flightctl-observability.target
    ```
 
@@ -137,17 +89,7 @@ Troubleshooting:
    - **Port conflicts**: Ensure ports 3000, 9090, 8888 are available
    - **Storage permissions**: Verify `/var/lib/prometheus` and `/var/lib/grafana` have correct ownership
 
-2. **Cannot access Grafana** - Verify the service is running and check firewall rules:
-
-   ```console
-   sudo systemctl status flightctl-grafana.service
-   sudo firewall-cmd --list-ports
-   sudo firewall-cmd --add-port=3000/tcp --permanent
-   sudo firewall-cmd --reload
-   curl -k https://localhost:3000
-   ```
-
-3. **Prometheus not scraping metrics** - Verify the configuration and check targets:
+2. **Prometheus not scraping metrics** - Verify the configuration and check targets:
 
    ```console
    cat /etc/flightctl/flightctl-prometheus/prometheus.yml
