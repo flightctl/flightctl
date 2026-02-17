@@ -121,6 +121,11 @@ Prometheus for metric storage and Grafana for visualization.
 %{_datadir}/flightctl/flightctl-grafana/grafana-datasources.yaml
 %{_datadir}/flightctl/flightctl-grafana/grafana-dashboards.yaml
 
+# Grafana provisioning files installed directly to /etc
+%config(noreplace) /etc/flightctl/flightctl-grafana/provisioning/datasources/grafana-datasources.yaml
+%config(noreplace) /etc/flightctl/flightctl-grafana/provisioning/dashboards/grafana-dashboards.yaml
+%config(noreplace) /etc/flightctl/flightctl-grafana/provisioning/dashboards/flightctl/*.json
+
 # Prometheus static configuration
 %{_datadir}/flightctl/flightctl-prometheus/prometheus.yml
 
@@ -166,15 +171,6 @@ echo "Note: Observability stack can be installed independently of other Flight C
 %post observability
 # This script runs AFTER the files have been installed onto the system.
 echo "Running post-install actions for Flight Control Observability Stack..."
-
-# Create necessary directories on the host if they don't already exist.
-/usr/bin/mkdir -p /etc/flightctl/flightctl-grafana/provisioning/datasources
-/usr/bin/mkdir -p /etc/flightctl/flightctl-grafana/provisioning/alerting
-/usr/bin/mkdir -p /etc/flightctl/flightctl-grafana/provisioning/dashboards/flightctl
-/usr/bin/mkdir -p /etc/flightctl/flightctl-grafana/certs
-/usr/bin/mkdir -p /etc/flightctl/flightctl-prometheus
-/usr/bin/mkdir -p /var/lib/prometheus
-/usr/bin/mkdir -p /var/lib/grafana
 
 # Set ownership for persistent data directories
 chown 65534:65534 /var/lib/prometheus
