@@ -73,7 +73,7 @@ jobs:
           set -euo pipefail
           echo "::group::Building backend containers for flavor: $FLAVOR"
           echo "Using data-driven build script..."
-          ./hack/build_containers_ci.sh "$FLAVOR"
+          bash hack/build_containers_ci.sh "$FLAVOR"
           echo "::endgroup::"
 
       - name: Bundle images
