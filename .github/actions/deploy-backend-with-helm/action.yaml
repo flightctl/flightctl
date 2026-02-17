@@ -383,7 +383,7 @@ runs:
           done
 
           echo "DEBUG: All images now in kind after baseline tag creation:"
-          docker exec kind-control-plane crictl images | grep flightctl | { head -20 || true; }
+          docker exec kind-control-plane crictl images | grep flightctl
         else
           echo "❌ No bundle found, attempting fallback to individual local images..."
           # Load individual images built locally
@@ -394,7 +394,7 @@ runs:
 
           # Debug: show ALL local images first
           echo "DEBUG: All local images:"
-          podman images --format "{{.Repository}}:{{.Tag}}" | head -20
+          podman images --format "{{.Repository}}:{{.Tag}}"
 
           # Get list of locally built flightctl images with flavor prefix
           echo "DEBUG: Searching for flavor-prefixed images..."
@@ -587,8 +587,8 @@ runs:
         docker exec kind-control-plane crictl images | grep "flightctl" || echo "❌ No flightctl images found in kind!"
 
         echo ""
-        echo "ALL images in kind cluster (first 15):"
-        docker exec kind-control-plane crictl images | { head -15 || true; }
+        echo "ALL images in kind cluster:"
+        docker exec kind-control-plane crictl images
 
         # Set tags for ALL services including dbSetup (critical for init containers)
         EXTRA_ARGS+=" --set dbSetup.image.tag=${IMAGE_TAG}"
@@ -663,7 +663,7 @@ runs:
           HELM_CMD+=" --values deploy/helm/flightctl/values.nodeport.yaml"
           echo "*** VALUES FILE FOUND AND ADDED ***"
           echo "*** VALUES FILE CONTENT:"
-          head -10 "deploy/helm/flightctl/values.nodeport.yaml" || echo "FAILED TO READ VALUES FILE"
+          cat "deploy/helm/flightctl/values.nodeport.yaml" || echo "FAILED TO READ VALUES FILE"
         else
           echo "*** VALUES FILE NOT FOUND ***"
           echo "*** CHECKING DEPLOY DIRECTORY:"
@@ -721,7 +721,7 @@ runs:
 
         set +e
         echo "*** RUNNING DRY-RUN FIRST ***"
-        eval "$TEST_CMD" 2>&1 | head -50
+        eval "$TEST_CMD" 2>&1
         dry_run_exit_code=$?
         echo "*** DRY-RUN EXIT CODE: $dry_run_exit_code ***"
 
@@ -730,7 +730,7 @@ runs:
           echo "*** HELM LIST AFTER DRY-RUN FAILURE ***"
           helm list -A || true
           echo "*** KUBECTL GET ALL ***"
-          kubectl get all -A | head -20 || true
+          kubectl get all -A || true
           exit $dry_run_exit_code
         fi
 
@@ -753,7 +753,7 @@ runs:
         echo "*** POST-EXECUTION HELM LIST ***"
         helm list -A || true
         echo "*** POST-EXECUTION KUBECTL GET ALL ***"
-        kubectl get all -A | head -30 || true
+        kubectl get all -A || true
 
         if [ ${helm_exit_code} -ne 0 ]; then
           echo "*** HELM INSTALL FAILED ***"
@@ -762,7 +762,7 @@ runs:
           echo "*** FINAL HELM LIST ***"
           helm list -A || true
           echo "*** FINAL KUBECTL STATUS ***"
-          kubectl get pods -A | head -20 || true
+          kubectl get pods -A || true
           exit ${helm_exit_code}
         else
           echo "*** HELM INSTALL SUCCEEDED ***"
