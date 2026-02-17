@@ -1,7 +1,6 @@
 reviews:
   auto_review:
-    # Set to true to ensure CodeRabbit reviews PRs even if they are in 'Draft' status.
-    # Bots often create PRs as drafts first, which CodeRabbit ignores by default.
+    # Draft PRs are excluded from automatic reviews.
     drafts: false
 
     # Ensure this list does NOT contain your bot's username.
@@ -13,7 +12,7 @@ reviews:
 
     # If your bot uses specific keywords in the title (like "WIP" or "Experimental"),
     # ensure they are not listed here, as this will cause CodeRabbit to skip the review.
-    ignore_title_keywords:
+    ignore_title_keywords: []
 
     # Ensure automatic reviews are globally enabled for the repository.
     enabled: true
