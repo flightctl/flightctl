@@ -472,35 +472,31 @@ runs:
         NAMESPACE_INTERNAL: ${{ inputs.namespace-internal }}
         WAIT: ${{ inputs.wait }}
       run: |
-        echo "🚀 STARTING DEPLOY STEP - DEBUG CHECKPOINT 1"
-        echo "Environment variables:"
-        echo "  BASE_DOMAIN: ${BASE_DOMAIN}"
-        echo "  NAMESPACE_EXTERNAL: ${NAMESPACE_EXTERNAL}"
-        echo "  NAMESPACE_INTERNAL: ${NAMESPACE_INTERNAL}"
-        echo "  WAIT: ${WAIT}"
-        echo "  ADDITIONAL_VALUES_FILES: ${ADDITIONAL_VALUES_FILES}"
-        echo "  AUTH_TYPE: ${AUTH_TYPE}"
+        echo "*** DEPLOY STEP STARTED ***"
+        echo "NAMESPACE_EXTERNAL: ${NAMESPACE_EXTERNAL}"
+        echo "NAMESPACE_INTERNAL: ${NAMESPACE_INTERNAL}"
 
         set -euo pipefail
-        echo "🚀 DEBUG CHECKPOINT 2 - pipefail enabled"
+        echo "*** PIPEFAIL ENABLED ***"
 
         kubectl create namespace "${NAMESPACE_INTERNAL}" || true
-        echo "🚀 DEBUG CHECKPOINT 3 - namespace created"
+        echo "*** NAMESPACE CREATED ***"
 
-        ( kubectl get pods --all-namespaces -w | sed 's/^/[cluster] /' ) &
-        echo "🚀 DEBUG CHECKPOINT 4 - pod watcher started"
+        echo "*** STARTING CLEANUP ***"
 
-        # Simple cleanup - no fancy stuff
-        echo "=== SIMPLE CLEANUP ==="
         set +e
-        helm uninstall flightctl -n "${NAMESPACE_EXTERNAL}" --ignore-not-found --timeout=30s 2>/dev/null
-        helm uninstall flightctl -n "${NAMESPACE_INTERNAL}" --ignore-not-found --timeout=30s 2>/dev/null
-        kubectl delete namespace "${NAMESPACE_EXTERNAL}" --ignore-not-found --timeout=30s 2>/dev/null
-        kubectl delete namespace "${NAMESPACE_INTERNAL}" --ignore-not-found --timeout=30s 2>/dev/null
-        sleep 5
+        echo "*** HELM UNINSTALL EXTERNAL ***"
+        helm uninstall flightctl -n "${NAMESPACE_EXTERNAL}" --ignore-not-found --timeout=30s 2>/dev/null || true
+        echo "*** HELM UNINSTALL INTERNAL ***"
+        helm uninstall flightctl -n "${NAMESPACE_INTERNAL}" --ignore-not-found --timeout=30s 2>/dev/null || true
+        echo "*** DELETE NAMESPACES ***"
+        kubectl delete namespace "${NAMESPACE_EXTERNAL}" --ignore-not-found --timeout=30s 2>/dev/null || true
+        kubectl delete namespace "${NAMESPACE_INTERNAL}" --ignore-not-found --timeout=30s 2>/dev/null || true
+        echo "*** RECREATE NAMESPACE ***"
+        sleep 3
         kubectl create namespace "${NAMESPACE_INTERNAL}" 2>/dev/null || true
         set -e
-        echo "=== CLEANUP COMPLETE ==="
+        echo "*** CLEANUP FINISHED ***"
 
         echo "REACHED HELM PREPARATION SUCCESSFULLY"
 
@@ -579,31 +575,28 @@ runs:
         echo "Available artifacts:"
         ls -la artifacts/ || echo "No artifacts directory found"
 
-        # Find the actual chart file (artifact contains original filename)
+        echo "*** FINDING CHART FILE ***"
         CHART_FILE=$(find artifacts/ -name "flightctl-chart.tgz" | head -n1)
         if [ -z "$CHART_FILE" ]; then
-          echo "❌ ERROR: flightctl-chart.tgz not found in artifacts"
-          echo "Contents of artifacts directory:"
-          find artifacts/ -type f || echo "No files found"
+          echo "ERROR: flightctl-chart.tgz not found"
+          find artifacts/ -type f || echo "No artifacts found"
           exit 1
         fi
-        echo "✅ Using chart file: $CHART_FILE (size: $(ls -lh "$CHART_FILE"))"
+        echo "*** CHART FILE: $CHART_FILE ***"
 
-        echo "🔍 DEBUG: Building helm command..."
+        echo "*** BUILDING HELM COMMAND ***"
 
         # Build the helm command
         HELM_CMD="helm install flightctl $CHART_FILE"
         HELM_CMD+=" --namespace ${NAMESPACE_EXTERNAL}"
         HELM_CMD+=" --create-namespace"
 
-        # Check if values file exists
+        echo "*** CHECKING VALUES FILE ***"
         if [ -f "deploy/helm/flightctl/values.nodeport.yaml" ]; then
           HELM_CMD+=" --values deploy/helm/flightctl/values.nodeport.yaml"
-          echo "✅ Using values file: deploy/helm/flightctl/values.nodeport.yaml"
+          echo "*** VALUES FILE FOUND ***"
         else
-          echo "❌ Warning: deploy/helm/flightctl/values.nodeport.yaml not found"
-          echo "Available files in deploy/helm/flightctl/:"
-          ls -la deploy/helm/flightctl/ || echo "Directory not found"
+          echo "*** VALUES FILE NOT FOUND ***"
         fi
 
         HELM_CMD+=' --set global.baseDomain="${BASE_DOMAIN}"'
@@ -618,40 +611,31 @@ runs:
           echo "⏭️  Wait disabled - will not wait for deployment completion"
         fi
 
-        echo "🔍 DEBUG: Final helm command: ${HELM_CMD}"
+        echo "*** FINAL HELM COMMAND: ${HELM_CMD} ***"
 
-        # Output command for summary (with literal ${BASE_DOMAIN} for local reproduction)
-        {
-          echo "helm_cmd<<EOF"
-          echo "${HELM_CMD}"
-          echo "EOF"
-        } >> "$GITHUB_OUTPUT"
+        echo "helm_cmd=${HELM_CMD}" >> "$GITHUB_OUTPUT" || true
 
-        echo "*** ABOUT TO EXECUTE HELM INSTALL ***"
-        echo "Command: ${HELM_CMD}"
+        echo "*** EXECUTING HELM INSTALL NOW ***"
 
-        set +e  # Allow command to fail so we can debug
+        set +e
         if [ "${WAIT}" == "true" ]; then
+          echo "*** RUNNING WITH WAIT AND DEBUG ***"
           eval "${HELM_CMD} --debug"
           helm_exit_code=$?
         else
+          echo "*** RUNNING WITHOUT WAIT ***"
           eval "${HELM_CMD}"
           helm_exit_code=$?
         fi
         set -e
 
-        echo "Helm install exit code: ${helm_exit_code}"
+        echo "*** HELM EXIT CODE: ${helm_exit_code} ***"
         if [ ${helm_exit_code} -ne 0 ]; then
-          echo "❌ HELM INSTALL FAILED"
-          echo "Checking helm status:"
+          echo "*** HELM INSTALL FAILED ***"
           helm list -A || true
-          echo "Checking for any created resources:"
-          kubectl get all -A | grep flightctl || echo "No flightctl resources found"
-
-          # Still exit with failure but after debugging
           exit ${helm_exit_code}
         else
-          echo "✅ HELM INSTALL SUCCEEDED"
+          echo "*** HELM INSTALL SUCCEEDED ***"
         fi
 
         # Summary of deployment approach
