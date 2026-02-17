@@ -16,8 +16,7 @@ WORKDIR /app
 # Switch to root for build operations
 USER 0
 
-# Install C development tools needed for CGO
-RUN dnf install -y --allowerasing gcc glibc-devel
+# Note: gcc and glibc-devel are pre-installed in the go-toolset base image
 
 # Install matching PAM and pam-devel from CentOS mirror for build
 RUN dnf install -y ${PAM_BASE_URL}/BaseOS/x86_64/os/Packages/pam-${PAM_PACKAGE_VERSION}.x86_64.rpm && \
