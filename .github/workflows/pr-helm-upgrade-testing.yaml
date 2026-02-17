@@ -224,28 +224,43 @@ jobs:
 
           echo "=== DEBUGGING IMAGE SEARCH ==="
           echo "All images in kind cluster:"
-          docker exec kind-control-plane crictl images | head -20
+          # SIGPIPE-safe: capture to temp file first
+          temp_images=$(mktemp)
+          docker exec kind-control-plane crictl images > "$temp_images" 2>/dev/null || true
+          head -20 "$temp_images" 2>/dev/null || echo "Failed to list images"
 
           echo ""
           echo "FlightCtl images in kind cluster:"
-          docker exec kind-control-plane crictl images | grep "flightctl" || echo "❌ NO FLIGHTCTL IMAGES FOUND!"
+          grep "flightctl" "$temp_images" 2>/dev/null || echo "❌ NO FLIGHTCTL IMAGES FOUND!"
 
           echo ""
           echo "Search pattern 1: ^quay.io/flightctl/flightctl-"
-          docker exec kind-control-plane crictl images | grep "^quay.io/flightctl/flightctl-" || echo "❌ No images match base pattern"
+          grep "^quay.io/flightctl/flightctl-" "$temp_images" 2>/dev/null || echo "❌ No images match base pattern"
 
           echo ""
           echo "Search pattern 2: :${FLAVOR}-"
-          docker exec kind-control-plane crictl images | grep ":${FLAVOR}-" || echo "❌ No images match flavor pattern"
+          grep ":${FLAVOR}-" "$temp_images" 2>/dev/null || echo "❌ No images match flavor pattern"
 
           echo ""
           echo "Combined search (what the script looks for):"
-          docker exec kind-control-plane crictl images | grep "^quay.io/flightctl/flightctl-" | grep ":${FLAVOR}-" || echo "❌ No images match combined pattern"
+          grep "^quay.io/flightctl/flightctl-" "$temp_images" 2>/dev/null | grep ":${FLAVOR}-" 2>/dev/null || echo "❌ No images match combined pattern"
 
           # Get list of loaded FlightCtl images with flavor prefix
           echo ""
           echo "=== ATTEMPTING TO FIND FLAVOR-PREFIXED IMAGES ==="
-          flavor_images=($(docker exec kind-control-plane crictl images | grep "^quay.io/flightctl/flightctl-" | grep ":${FLAVOR}-" | awk '{print $1":"$2}' || true))
+          # SIGPIPE-safe: reuse temp file and create flavor_images array safely
+          flavor_images=()
+          while IFS= read -r line; do
+            if [[ "$line" =~ ^quay\.io/flightctl/flightctl-.*:${FLAVOR}-.* ]]; then
+              image_name=$(echo "$line" | awk '{print $1":"$2}' 2>/dev/null || echo "")
+              if [[ -n "$image_name" ]]; then
+                flavor_images+=("$image_name")
+              fi
+            fi
+          done < "$temp_images"
+
+          # Clean up temp file
+          rm -f "$temp_images" 2>/dev/null || true
 
           echo "flavor_images array length: ${#flavor_images[@]}"
           if [ ${#flavor_images[@]} -gt 0 ]; then
@@ -260,22 +275,36 @@ jobs:
             echo "=== COMPREHENSIVE IMAGE ANALYSIS ==="
 
             echo "All quay.io/flightctl images (any tag):"
-            docker exec kind-control-plane crictl images | grep "quay.io/flightctl" || echo "None found"
+            # SIGPIPE-safe: get fresh image list
+            temp_images2=$(mktemp)
+            docker exec kind-control-plane crictl images > "$temp_images2" 2>/dev/null || true
+            grep "quay.io/flightctl" "$temp_images2" 2>/dev/null || echo "None found"
 
             echo ""
             echo "Images with expected tag pattern (${PR_GIT_TAG}):"
-            docker exec kind-control-plane crictl images | grep "${PR_GIT_TAG}" || echo "None found"
+            grep "${PR_GIT_TAG}" "$temp_images2" 2>/dev/null || echo "None found"
 
             echo ""
             echo "Let's try to find ANY flightctl-db-setup image:"
-            docker exec kind-control-plane crictl images | grep "db-setup" || echo "No db-setup images found"
+            grep "db-setup" "$temp_images2" 2>/dev/null || echo "No db-setup images found"
 
             echo ""
             echo "=== WORKAROUND: CREATE MISSING BASELINE TAGS ==="
             echo "Searching for images that should have baseline tags..."
 
-            # Try to find non-flavor images that need baseline tags
-            baseline_candidates=($(docker exec kind-control-plane crictl images | grep "quay.io/flightctl/flightctl-.*:${PR_GIT_TAG}" | awk '{print $1":"$2}' || true))
+            # SIGPIPE-safe: find baseline candidates
+            baseline_candidates=()
+            while IFS= read -r line; do
+              if [[ "$line" =~ quay\.io/flightctl/flightctl-.*:${PR_GIT_TAG} ]]; then
+                image_name=$(echo "$line" | awk '{print $1":"$2}' 2>/dev/null || echo "")
+                if [[ -n "$image_name" ]]; then
+                  baseline_candidates+=("$image_name")
+                fi
+              fi
+            done < "$temp_images2"
+
+            # Clean up temp file
+            rm -f "$temp_images2" 2>/dev/null || true
 
             if [ ${#baseline_candidates[@]} -gt 0 ]; then
               echo "Found ${#baseline_candidates[@]} baseline candidates:"
@@ -320,18 +349,24 @@ jobs:
           echo ""
           echo "=== VERIFICATION ==="
           echo "Verifying baseline tags were created:"
+          # SIGPIPE-safe verification
+          temp_verify=$(mktemp)
+          docker exec kind-control-plane crictl images > "$temp_verify" 2>/dev/null || true
+
           for image in "${flavor_images[@]}"; do
             repo="${image%:*}"
             flavor_tag="${image#*:}"
             baseline_tag="${flavor_tag#${FLAVOR}-}"  # Remove flavor prefix
             baseline_image="${repo}:${baseline_tag}"
 
-            if docker exec kind-control-plane crictl images | grep -q "${baseline_image}"; then
+            if grep -q "${baseline_image}" "$temp_verify" 2>/dev/null; then
               echo "✅ Verified: ${baseline_image}"
             else
               echo "❌ Missing: ${baseline_image}"
             fi
           done
+
+          rm -f "$temp_verify" 2>/dev/null || true
 
           echo ""
           echo "Images now available for both flavor-prefixed and baseline tag references"
