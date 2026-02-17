@@ -20,6 +20,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // createCertWithOrgID returns an *x509.Certificate with the organization ID
@@ -201,18 +202,104 @@ func TestExtractAndValidateOrg(t *testing.T) {
 			middleware(testHandler).ServeHTTP(rr, r)
 
 			if tc.wantMiddlewareErr != nil {
-				assert.Equal(t, tc.wantMiddlewareCode, rr.Code)
-				assert.Contains(t, rr.Body.String(), tc.wantMiddlewareErr.Error(),
-					"expected response body to contain %q", tc.wantMiddlewareErr)
+				require.Equal(t, tc.wantMiddlewareCode, rr.Code)
+				require.Equal(t, "application/json", rr.Header().Get("Content-Type"))
+				expectedReason := reasonForOrgError(tc.wantMiddlewareErr)
+				expectedBody := fmt.Sprintf(`{"code":%d,"message":"%s","reason":"%s"}`, tc.wantMiddlewareCode, tc.wantMiddlewareErr.Error(), expectedReason)
+				require.JSONEq(t, expectedBody, rr.Body.String())
 				return
 			}
 
-			assert.Equal(t, http.StatusOK, rr.Code)
-			assert.Equal(t, tc.wantContextID, capturedOrgID,
+			require.Equal(t, http.StatusOK, rr.Code)
+			require.Equal(t, tc.wantContextID, capturedOrgID,
 				"expected context org ID %s but got %s", tc.wantContextID, capturedOrgID)
 		})
 	}
 }
+
+// -----------------------------------------------------------------------------
+// Tests for RequestSizeLimiter middleware.
+// -----------------------------------------------------------------------------
+
+func TestRequestSizeLimiter(t *testing.T) {
+	cases := []struct {
+		name           string
+		url            string
+		numHeaders     int
+		maxURLLength   int
+		maxNumHeaders  int
+		wantCode       int
+		wantReason     string
+		wantMessage    string
+		handlerInvoked bool
+	}{
+		{
+			name:           "valid request",
+			url:            "/valid",
+			numHeaders:     5,
+			maxURLLength:   10,
+			maxNumHeaders:  10,
+			handlerInvoked: true,
+		},
+		{
+			name:          "url too long",
+			url:           "/this-is-too-long",
+			numHeaders:    5,
+			maxURLLength:  10,
+			maxNumHeaders: 10,
+			wantCode:      http.StatusRequestURITooLong,
+			wantReason:    "RequestURITooLong",
+			wantMessage:   "URL too long, exceeds 10 characters",
+		},
+		{
+			name:          "too many headers",
+			url:           "/valid",
+			numHeaders:    15,
+			maxURLLength:  10,
+			maxNumHeaders: 10,
+			wantCode:      http.StatusRequestHeaderFieldsTooLarge,
+			wantReason:    "RequestHeaderFieldsTooLarge",
+			wantMessage:   "request has too many headers, exceeds 10",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+
+			// Given
+			r := httptest.NewRequest(http.MethodGet, tc.url, nil)
+			for i := 0; i < tc.numHeaders; i++ {
+				r.Header.Set(fmt.Sprintf("X-Test-Header-%d", i), "value")
+			}
+			w := httptest.NewRecorder()
+
+			handlerInvoked := false
+			testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				handlerInvoked = true
+				w.WriteHeader(http.StatusOK)
+			})
+
+			middleware := RequestSizeLimiter(tc.maxURLLength, tc.maxNumHeaders)
+
+			// When
+			middleware(testHandler).ServeHTTP(w, r)
+
+			// Then
+			if tc.handlerInvoked {
+				require.True(handlerInvoked)
+				require.Equal(http.StatusOK, w.Code)
+			} else {
+				require.False(handlerInvoked)
+				require.Equal(tc.wantCode, w.Code)
+				require.Equal("application/json", w.Header().Get("Content-Type"))
+				expectedBody := fmt.Sprintf(`{"code":%d,"message":"%s","reason":"%s"}`, tc.wantCode, tc.wantMessage, tc.wantReason)
+				require.JSONEq(expectedBody, w.Body.String())
+			}
+		})
+	}
+}
+
 
 // -----------------------------------------------------------------------------
 // Tests for the certificate extractor.
