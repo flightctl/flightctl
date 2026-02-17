@@ -73,6 +73,8 @@ jobs:
           set -euo pipefail
           echo "::group::Building backend containers for flavor: $FLAVOR"
           echo "Using data-driven build script..."
+          echo "pwd: " `pwd`
+          ls -l ./hack/build_containers_ci.sh
           ./hack/build_containers_ci.sh "$FLAVOR"
           echo "::endgroup::"
 
