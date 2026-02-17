@@ -340,6 +340,9 @@ func (m *prefetchManager) BeforeUpdate(ctx context.Context, current, desired *v1
 	m.mu.Unlock()
 
 	if len(newTargets) > 0 {
+		if m.resourceManager.IsCriticalAlert(resource.DiskMonitorType) {
+			return fmt.Errorf("%w: insufficient disk storage space, please clear storage", errors.ErrCriticalResourceAlert)
+		}
 		m.log.Debugf("Scheduling %d new targets for prefetch", len(newTargets))
 		if err := m.Schedule(ctx, newTargets); err != nil {
 			return fmt.Errorf("%w: %w", errors.ErrSchedulingPrefetchTargets, err)
@@ -356,7 +359,7 @@ func (m *prefetchManager) BeforeUpdate(ctx context.Context, current, desired *v1
 		return errors.ErrPrefetchNotReady
 	}
 
-	return m.resourceManager.BeforeUpdate(ctx)
+	return nil
 }
 
 func (m *prefetchManager) checkReady(ctx context.Context) error {

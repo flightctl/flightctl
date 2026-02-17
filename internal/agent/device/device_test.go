@@ -95,7 +95,7 @@ func TestSync(t *testing.T) {
 					mockSpecManager.EXPECT().Read(spec.Current).Return(current, nil),
 					mockSpecManager.EXPECT().IsUpgrading().Return(true),
 					mockResourceManager.EXPECT().BeforeUpdate(gomock.Any(), gomock.Any()).Return(nil),
-					mockResourceManager.EXPECT().IsCriticalAlert(resource.CPUMonitorType).Return(true),
+					mockResourceManager.EXPECT().GetFiringCriticalAlerts(resource.CPUMonitorType).Return([]v1beta1.ResourceAlertRule{{}}),
 					mockManagementClient.EXPECT().UpdateDeviceStatus(gomock.Any(), deviceName, gomock.Any()).Return(nil),
 				)
 
@@ -133,8 +133,8 @@ func TestSync(t *testing.T) {
 					mockSpecManager.EXPECT().Read(spec.Current).Return(current, nil),
 					mockSpecManager.EXPECT().IsUpgrading().Return(true),
 					mockResourceManager.EXPECT().BeforeUpdate(gomock.Any(), gomock.Any()).Return(nil),
-					mockResourceManager.EXPECT().IsCriticalAlert(resource.CPUMonitorType).Return(false),
-					mockResourceManager.EXPECT().IsCriticalAlert(resource.MemoryMonitorType).Return(true),
+					mockResourceManager.EXPECT().GetFiringCriticalAlerts(resource.CPUMonitorType).Return(nil),
+					mockResourceManager.EXPECT().GetFiringCriticalAlerts(resource.MemoryMonitorType).Return([]v1beta1.ResourceAlertRule{{}}),
 					mockManagementClient.EXPECT().UpdateDeviceStatus(gomock.Any(), deviceName, gomock.Any()).Return(nil),
 				)
 
@@ -169,9 +169,9 @@ func TestSync(t *testing.T) {
 			) {
 				mockPullConfigResolver.EXPECT().BeforeUpdate(gomock.Any()).AnyTimes()
 				mockPullConfigResolver.EXPECT().Cleanup().AnyTimes()
-				// IsCriticalAlert is called at the start of each syncDeviceSpec call
-				mockResourceManager.EXPECT().IsCriticalAlert(resource.CPUMonitorType).Return(false).AnyTimes()
-				mockResourceManager.EXPECT().IsCriticalAlert(resource.MemoryMonitorType).Return(false).AnyTimes()
+				// GetFiringCriticalAlerts is called at the start of each syncDeviceSpec call
+				mockResourceManager.EXPECT().GetFiringCriticalAlerts(resource.CPUMonitorType).Return(nil).AnyTimes()
+				mockResourceManager.EXPECT().GetFiringCriticalAlerts(resource.MemoryMonitorType).Return(nil).AnyTimes()
 				// Set flexible expectations for methods called multiple times or in different contexts
 				// These are called but may not be in the exact InOrder sequence due to error handling
 				mockSpecManager.EXPECT().IsUpgrading().Return(true).AnyTimes()
@@ -228,8 +228,8 @@ func TestSync(t *testing.T) {
 				mockPullConfigResolver.EXPECT().BeforeUpdate(gomock.Any()).AnyTimes()
 				mockPullConfigResolver.EXPECT().Cleanup().AnyTimes()
 				nonRetryableHookError := errors.New("hook error")
-				// IsCriticalAlert is called at the start of each syncDeviceSpec call
-				mockResourceManager.EXPECT().IsCriticalAlert(gomock.Any()).Return(false).AnyTimes()
+				// GetFiringCriticalAlerts is called at the start of each syncDeviceSpec call
+				mockResourceManager.EXPECT().GetFiringCriticalAlerts(gomock.Any()).Return(nil).AnyTimes()
 				// Set flexible expectations for methods called multiple times or in different contexts
 				// These are called but may not be in the exact InOrder sequence due to error handling
 				mockSpecManager.EXPECT().IsUpgrading().Return(true).AnyTimes()

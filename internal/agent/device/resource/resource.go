@@ -32,6 +32,7 @@ type Manager interface {
 	Alerts() *Alerts
 	BeforeUpdate(ctx context.Context, desired *v1beta1.DeviceSpec) error
 	IsCriticalAlert(monitorType MonitorType) bool
+	GetFiringCriticalAlerts(monitorType MonitorType) []v1beta1.ResourceAlertRule
 	status.Exporter
 }
 
@@ -245,6 +246,34 @@ func (m *ResourceManager) isCriticalAlert(monitorType MonitorType) bool {
 	return false
 }
 
+// GetFiringCriticalAlerts returns all firing critical alerts for a given monitor type.
+func (m *ResourceManager) GetFiringCriticalAlerts(monitorType MonitorType) []v1beta1.ResourceAlertRule {
+	alerts := m.Alerts()
+
+	var alertList []v1beta1.ResourceAlertRule
+
+	switch monitorType {
+	case DiskMonitorType:
+		alertList = alerts.DiskUsage
+	case CPUMonitorType:
+		alertList = alerts.CPUUsage
+	case MemoryMonitorType:
+		alertList = alerts.MemoryUsage
+	default:
+		m.log.Warnf("Unknown monitor type: %s", monitorType)
+		return nil
+	}
+
+	criticalAlerts := []v1beta1.ResourceAlertRule{}
+	for _, alert := range alertList {
+		if alert.Severity == v1beta1.ResourceAlertSeverityTypeCritical {
+			criticalAlerts = append(criticalAlerts, alert)
+		}
+	}
+
+	return criticalAlerts
+}
+
 // Sync applies resource monitor configuration from the desired spec.
 func (m *ResourceManager) sync(ctx context.Context, desired *v1beta1.DeviceSpec) error {
 	if ctx.Err() != nil {
@@ -395,6 +424,18 @@ func getHighestSeverityResourceStatusFromAlerts(resource string, alerts []v1beta
 	}
 
 	return highestSeverity, info
+}
+
+func FormatAlerts(alerts []v1beta1.ResourceAlertRule, monitorType MonitorType) string {
+	var msgs []string
+	for _, alert := range alerts {
+		msg := fmt.Sprintf("%s usage is above %d%% for more than %s", monitorType, alert.Percentage, alert.Duration)
+		if alert.Description != "" {
+			msg = fmt.Sprintf("%s: %s", monitorType, alert.Description)
+		}
+		msgs = append(msgs, msg)
+	}
+	return strings.Join(msgs, ", ")
 }
 
 func defaultCPUResourceMonitor() (*v1beta1.ResourceMonitor, error) {

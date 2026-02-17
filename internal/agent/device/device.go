@@ -331,8 +331,11 @@ func (a *Agent) beforeUpdate(ctx context.Context, current, desired *v1beta1.Devi
 		return fmt.Errorf("%w: %w", errors.ErrComponentResources, err)
 	}
 
-	if a.resourceManager.IsCriticalAlert(resource.CPUMonitorType) || a.resourceManager.IsCriticalAlert(resource.MemoryMonitorType) {
-		return errors.ErrCriticalResourceAlert
+	if alerts := a.resourceManager.GetFiringCriticalAlerts(resource.CPUMonitorType); len(alerts) > 0 {
+		return fmt.Errorf("%w: %s", errors.ErrCriticalResourceAlert, resource.FormatAlerts(alerts, resource.CPUMonitorType))
+	}
+	if alerts := a.resourceManager.GetFiringCriticalAlerts(resource.MemoryMonitorType); len(alerts) > 0 {
+		return fmt.Errorf("%w: %s", errors.ErrCriticalResourceAlert, resource.FormatAlerts(alerts, resource.MemoryMonitorType))
 	}
 
 	if err := a.specManager.CheckPolicy(ctx, policy.Download, desired.Version()); err != nil {
