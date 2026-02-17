@@ -13,7 +13,8 @@ GITHUB_ACTIONS ?= false
 # --- Cache Configuration ---
 # Always use caching with localhost defaults for local builds
 # In CI, REGISTRY and REGISTRY_OWNER will be overridden
-CACHE_FLAGS_TEMPLATE := --cache-from=$(REGISTRY)/$(REGISTRY_OWNER)/%
+# CACHE_FLAGS_TEMPLATE := --cache-from=$(REGISTRY)/$(REGISTRY_OWNER)/%
+CACHE_FLAGS_TEMPLATE :=
 
 # Function to generate cache flags for a specific image
 # Only returns cache flags if GITHUB_ACTIONS is true
