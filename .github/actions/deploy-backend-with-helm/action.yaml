@@ -58,10 +58,11 @@ runs:
       id: compute-tags
       shell: bash
       run: |
+        echo "*** SET GIT TAG STEP STARTED ***"
         set -euo pipefail
 
         if [ -n "${{ inputs.tag }}" ]; then
-          echo "Using provided tag: ${{ inputs.tag }}"
+          echo "*** USING PROVIDED TAG: ${{ inputs.tag }} ***"
           TAG="${{ inputs.tag }}"
           echo "git_tag=${TAG}" >> "$GITHUB_OUTPUT"
 
@@ -451,14 +452,21 @@ runs:
     - name: Setup dependencies
       uses: ./.github/actions/setup-dependencies
 
+    - name: Debug checkpoint after setup
+      shell: bash
+      run: echo "*** SETUP DEPENDENCIES COMPLETED ***"
+
     - name: Generate helm charts with correct flavor
       shell: bash
       env:
         FLAVOR: ${{ inputs.flavor }}
       run: |
+        echo "*** GENERATE STEP STARTED ***"
+        echo "FLAVOR=${FLAVOR}"
         set -euo pipefail
-        echo "Generating helm charts with FLAVOR=${FLAVOR}"
+        echo "*** ABOUT TO RUN MAKE GENERATE ***"
         make generate
+        echo "*** MAKE GENERATE COMPLETED ***"
 
     # ========== DEPLOY BACKEND ==========
     - name: Deploy FlightCtl backend with Helm
