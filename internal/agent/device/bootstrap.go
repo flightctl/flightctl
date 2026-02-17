@@ -168,12 +168,11 @@ func (b *Bootstrap) updateStatus(ctx context.Context) {
 		Type: v1beta1.ConditionTypeDeviceUpdating,
 	}
 
-	switch {
-	case b.specManager.IsUpgrading():
+	if b.specManager.IsUpgrading() {
 		updatingCondition.Status = v1beta1.ConditionStatusTrue
 		// TODO: only set rebooting in case where we are actually rebooting
 		updatingCondition.Reason = string(v1beta1.UpdateStateRebooting)
-	default:
+	} else {
 		updatingCondition.Status = v1beta1.ConditionStatusFalse
 		updatingCondition.Reason = string(v1beta1.UpdateStateUpdated)
 

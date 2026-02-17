@@ -130,13 +130,11 @@ func (a *Agent) sync(ctx context.Context, current, desired *v1beta1.Device) erro
 		}
 	}
 
-	err := a.syncDevice(ctx, current, desired, withRollbackCleanup(spec.IsOSRollback(current, desired)))
-	if err != nil {
-		if errors.Is(err, errors.ErrRollbackCleanup) {
-			a.log.Warnf("Some cleanup operations errored during rollback: %v", err)
-		} else {
+	if err := a.syncDevice(ctx, current, desired); err != nil {
+		if !spec.IsOSRollback(current, desired) {
 			return fmt.Errorf("%w: %w", errors.ErrPhaseApplyingUpdate, err)
 		}
+		a.log.Warnf("Rolling back produced issues: %v. Continuing with OS Rollback", err)
 	}
 
 	if err := a.afterUpdate(ctx, current.Spec, desired.Spec); err != nil {
@@ -414,24 +412,11 @@ func (a *Agent) beforeUpdate(ctx context.Context, current, desired *v1beta1.Devi
 	return nil
 }
 
-type syncDeviceConfig struct {
-	isRollbackCleanup bool
+func (a *Agent) allowSyncAll(current, desired *v1beta1.Device) bool {
+	return spec.IsOSRollback(current, desired)
 }
 
-type syncDeviceOpt func(*syncDeviceConfig)
-
-func withRollbackCleanup(enabled bool) syncDeviceOpt {
-	return func(c *syncDeviceConfig) {
-		c.isRollbackCleanup = enabled
-	}
-}
-
-func (a *Agent) syncDevice(ctx context.Context, current, desired *v1beta1.Device, opts ...syncDeviceOpt) error {
-	cfg := &syncDeviceConfig{}
-	for _, opt := range opts {
-		opt(cfg)
-	}
-
+func (a *Agent) syncDevice(ctx context.Context, current, desired *v1beta1.Device) error {
 	if a.specManager.IsUpgrading() {
 		updateErr := a.statusManager.UpdateCondition(ctx, v1beta1.Condition{
 			Type:    v1beta1.ConditionTypeDeviceUpdating,
@@ -444,47 +429,45 @@ func (a *Agent) syncDevice(ctx context.Context, current, desired *v1beta1.Device
 		}
 	}
 
+	// In some instances it's better to allow all syncs to be executed (i.e. OS rollback)
+	syncAll := a.allowSyncAll(current, desired)
 	var errs []error
-
-	handle := func(errType, err error) error {
+	handleErr := func(componentErr, err error) error {
 		if err == nil {
 			return nil
 		}
-		wrapped := fmt.Errorf("%w: %w", errType, err)
-		if cfg.isRollbackCleanup {
-			errs = append(errs, fmt.Errorf("%w: %w", errors.ErrRollbackCleanup, wrapped))
+		err = fmt.Errorf("%w: %w", componentErr, err)
+		if syncAll {
+			errs = append(errs, err)
 			return nil
 		}
-		return wrapped
+		return err
 	}
 
-	if err := handle(errors.ErrComponentApplications,
+	if err := handleErr(errors.ErrComponentApplications,
 		a.applicationsController.Sync(ctx, current.Spec, desired.Spec)); err != nil {
 		return err
 	}
 
-	if err := handle(errors.ErrComponentHooks,
+	if err := handleErr(errors.ErrComponentHooks,
 		a.hookManager.Sync(current.Spec, desired.Spec)); err != nil {
 		return err
 	}
 
-	if err := handle(errors.ErrComponentConfig,
+	if err := handleErr(errors.ErrComponentConfig,
 		a.configController.Sync(ctx, current.Spec, desired.Spec)); err != nil {
 		return err
 	}
 
-	if err := handle(errors.ErrComponentSystemd,
+	if err := handleErr(errors.ErrComponentSystemd,
 		a.systemdControllerSync(ctx, desired.Spec)); err != nil {
 		return err
 	}
 
-	if err := handle(errors.ErrComponentLifecycle,
+	if err := handleErr(errors.ErrComponentLifecycle,
 		a.lifecycleManager.Sync(ctx, current.Spec, desired.Spec)); err != nil {
 		return err
 	}
-
-	// NOTE: policy manager is reconciled early in sync() so that the agent
-	// can correct for an invalid policy.
 
 	return errors.Join(errs...)
 }

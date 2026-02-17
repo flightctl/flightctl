@@ -132,7 +132,6 @@ func TestInitialization(t *testing.T) {
 					mockSpecManager.EXPECT().IsOSUpdate().Return(false),
 					mockSystemInfoManager.EXPECT().IsRebooted().Return(false),
 					mockSpecManager.EXPECT().IsUpgrading().Return(false),
-					mockSpecManager.EXPECT().IsUpgrading().Return(false),
 					mockSpecManager.EXPECT().RollbackFailureInfo().Return("", "", false),
 					mockSpecManager.EXPECT().RenderedVersion(spec.Current).Return("2"),
 					mockStatusManager.EXPECT().Update(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil),

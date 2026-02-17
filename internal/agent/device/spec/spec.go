@@ -209,10 +209,7 @@ func IsOSRollback(current, desired *v1beta1.Device) bool {
 	if !IsRollback(current, desired) {
 		return false
 	}
-	if current.Spec == nil || desired.Spec == nil {
-		return false
-	}
-	if current.Spec.Os == nil || desired.Spec.Os == nil {
+	if !HasOSImage(current.Spec) || !HasOSImage(desired.Spec) {
 		return false
 	}
 	return current.Spec.Os.Image != desired.Spec.Os.Image
