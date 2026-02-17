@@ -478,9 +478,7 @@ func createMockPodmanEvent(name string, username v1beta1.Username, service, stat
 			"io.podman.compose.version":               "1.0.6",
 		},
 	}
-	if exitCode != 0 {
-		event.ContainerExitCode = exitCode
-	}
+	event.ContainerExitCode = lo.ToPtr(exitCode)
 	return event
 }
 
