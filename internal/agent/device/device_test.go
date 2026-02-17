@@ -133,7 +133,7 @@ func TestSync(t *testing.T) {
 					mockSpecManager.EXPECT().Read(spec.Current).Return(current, nil),
 					mockSpecManager.EXPECT().IsUpgrading().Return(true),
 					mockResourceManager.EXPECT().BeforeUpdate(gomock.Any(), gomock.Any()).Return(nil),
-					mockResourceManager.EXPECT().IsCriticalAlert(resource.CP_MonitorType).Return(false),
+					mockResourceManager.EXPECT().IsCriticalAlert(resource.CPUMonitorType).Return(false),
 					mockResourceManager.EXPECT().IsCriticalAlert(resource.MemoryMonitorType).Return(true),
 					mockManagementClient.EXPECT().UpdateDeviceStatus(gomock.Any(), deviceName, gomock.Any()).Return(nil),
 				)

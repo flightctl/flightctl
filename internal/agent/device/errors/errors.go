@@ -122,7 +122,7 @@ var (
 	ErrCreateCertificateSigningRequest = errors.New("failed to create certificate signing request")
 
 	// resource monitoring
-	ErrCriticalAlertsFiring  = errors.New("critical alerts firing")
+	ErrCriticalResourceAlert  = errors.New("critical resource alerts firing")
 
 	// policy errors
 	ErrInt64Conversion   = errors.New("convert string to int64")
@@ -296,7 +296,7 @@ var (
 		ErrOCICollectorNotReady:   codes.FailedPrecondition,
 
 		// resource exhausted
-		ErrCriticalAlertsFiring:   codes.Resource_exhausted,
+		ErrCriticalResourceAlert:   codes.Resource_exhausted,
 
 		// permission denied
 		ErrReadingRenderedSpec: codes.PermissionDenied,
@@ -480,7 +480,7 @@ func IsRetryable(err error) bool {
 		return true
 	case errors.Is(err, ErrDownloadPolicyNotReady), errors.Is(err, ErrUpdatePolicyNotReady):
 		return true
-	case errors.Is(err, ErrCriticalAlertsFiring):
+	case errors.Is(err, ErrCriticalResourceAlert):
 		return true
 	case errors.Is(err, ErrPrefetchNotReady), errors.Is(err, ErrOCICollectorNotReady):
 		return true

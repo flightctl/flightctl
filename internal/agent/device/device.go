@@ -199,7 +199,7 @@ func (a *Agent) syncDeviceSpec(ctx context.Context) {
 			return
 		}
 
-		if errors.Is(syncErr, errors.ErrCriticalAlertsFiring) {
+		if errors.Is(syncErr, errors.ErrCriticalResourceAlert) {
 			a.log.Warnf("Requeuing version %s due to critical alerts: %s", desired.Version(), syncErr.Error())
 			a.handleSyncError(ctx, desired, syncErr)
 			return
@@ -338,7 +338,7 @@ func (a *Agent) beforeUpdate(ctx context.Context, current, desired *v1beta1.Devi
 	}
 
 	if a.resourceManager.IsCriticalAlert(resource.CPUMonitorType) || a.resourceManager.IsCriticalAlert(resource.MemoryMonitorType) {
-		return errors.ErrCriticalAlertsFiring
+		return errors.ErrCriticalResourceAlert
 	}
 
 	if err := a.specManager.CheckPolicy(ctx, policy.Download, desired.Version()); err != nil {
