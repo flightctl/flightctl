@@ -345,9 +345,6 @@ For more detailed configuration options, see the [Values](#values) section below
 | imageBuilderWorker.rhsmCaSecretName | string | `""` | Secret name containing RHSM CA certificates, mounted at /etc/rhsm/ca |
 | imageBuilderWorker.rhsmSecretName | string | `""` | Secret name containing RHEL subscription manager configuration, mounted at /etc/rhsm |
 | imageBuilderWorker.yumReposSecretName | string | `""` | Secret name containing yum repository configuration files, mounted at /etc/yum.repos.d |
-| imageBuilderWorker.rhsmCaSecretName | string | `""` | Secret name containing RHSM CA certificates, mounted at /etc/rhsm/ca |
-| imageBuilderWorker.rhsmSecretName | string | `""` | Secret name containing RHEL subscription manager configuration, mounted at /etc/rhsm |
-| imageBuilderWorker.yumReposSecretName | string | `""` | Secret name containing yum repository configuration files, mounted at /etc/yum.repos.d |
 | kv | object | `{"fsGroup":"","image":{"image":"quay.io/sclorg/redis-7-c9s","pullPolicy":"","tag":"20250108"},"loglevel":"warning","maxmemory":"1gb","maxmemoryPolicy":"allkeys-lru","passwordSecretName":""}` | Key-Value Store Configuration |
 | kv.fsGroup | string | `""` | File system group ID for Redis pod security context |
 | kv.image.image | string | `"quay.io/sclorg/redis-7-c9s"` | Redis container image |
