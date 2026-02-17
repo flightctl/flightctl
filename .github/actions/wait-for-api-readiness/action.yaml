@@ -21,80 +21,203 @@ runs:
         BASE_DOMAIN: ${{ inputs.base-domain }}
         RETRIES: ${{ inputs.retries }}
       run: |
-        echo "=== WAITING FOR API READINESS ==="
+        echo "=== STARTING API READINESS CHECK ==="
         echo "Endpoint: https://api.${BASE_DOMAIN}:3443/readyz"
-        echo "Max retries: $RETRIES"
+        echo "Max retries: $RETRIES seconds (1 attempt per second)"
+        echo "Start time: $(date '+%Y-%m-%d %H:%M:%S UTC')"
+        echo "Timeout after: ${RETRIES}s"
         echo ""
 
+        # Initial system state for baseline
+        echo "=== INITIAL SYSTEM STATE ==="
+        echo "--- Node Resources ---"
+        kubectl top nodes 2>/dev/null || echo "Metrics not available"
+        echo "--- Cluster Version ---"
+        kubectl version --short 2>/dev/null || kubectl version 2>/dev/null || echo "Version check failed"
+        echo "--- Network Test ---"
+        nslookup "api.${BASE_DOMAIN}" || echo "DNS resolution failed"
+        echo ""
+
+        # Initialize timing tracking
+        start_time=$(date +%s)
+        last_detail_time=$start_time
+
         for i in $(seq 1 $RETRIES); do
-            # Show detailed debugging every 10 seconds
-            if [ $((i % 10)) -eq 1 ] || [ $i -eq 1 ]; then
-                echo ""
-                echo "=== ATTEMPT $i/$RETRIES - CLUSTER DEBUG INFO ==="
-                echo "--- FlightCtl Pods Status ---"
-                kubectl get pods -n flightctl-external -o wide --sort-by='.metadata.name' || echo "No external pods"
-                kubectl get pods -n flightctl-internal -o wide --sort-by='.metadata.name' || echo "No internal pods"
+            current_time=$(date +%s)
+            elapsed=$((current_time - start_time))
 
+            # Enhanced debugging every 5 seconds instead of 10, with more detail
+            if [ $((i % 5)) -eq 1 ] || [ $i -eq 1 ] || [ $elapsed -gt 30 ]; then
+                detail_elapsed=$((current_time - last_detail_time))
                 echo ""
-                echo "--- FlightCtl Deployments Status ---"
-                kubectl get deployments -n flightctl-external -o wide || echo "No external deployments"
-                kubectl get deployments -n flightctl-internal -o wide || echo "No internal deployments"
+                echo "=== DETAILED CHECK: ATTEMPT $i/$RETRIES (${elapsed}s elapsed, ${detail_elapsed}s since last detail) ==="
 
-                echo ""
-                echo "--- Recent Events ---"
-                kubectl get events -n flightctl-external --sort-by='.lastTimestamp' || echo "No external events"
-                kubectl get events -n flightctl-internal --sort-by='.lastTimestamp' || echo "No internal events"
+                echo "--- System Resources ---"
+                echo "Memory usage:"
+                free -h 2>/dev/null || echo "Memory info unavailable"
+                echo "Disk usage:"
+                df -h / 2>/dev/null || echo "Disk info unavailable"
 
-                # Show logs from failed/pending pods
-                echo ""
-                echo "--- Failed/Pending Pod Details ---"
+                echo "--- Kubernetes Resources ---"
+                kubectl top pods -n flightctl-external 2>/dev/null || echo "Pod metrics unavailable"
+                kubectl top pods -n flightctl-internal 2>/dev/null || echo "Pod metrics unavailable"
+
+                echo "--- FlightCtl Pod Status (Detailed) ---"
+                kubectl get pods -n flightctl-external -o wide --sort-by='.metadata.name' | grep -E "(NAME|flightctl)" || echo "No external pods"
+                kubectl get pods -n flightctl-internal -o wide --sort-by='.metadata.name' | grep -E "(NAME|flightctl)" || echo "No internal pods"
+
+                echo "--- Deployment Readiness ---"
+                kubectl get deployments -n flightctl-external -o wide | grep -E "(NAME|flightctl)" || echo "No external deployments"
+                kubectl get deployments -n flightctl-internal -o wide | grep -E "(NAME|flightctl)" || echo "No internal deployments"
+
+                echo "--- Service Status ---"
+                kubectl get svc -n flightctl-external -o wide | grep -E "(NAME|flightctl)" || echo "No external services"
+                kubectl get svc -n flightctl-internal -o wide | grep -E "(NAME|flightctl)" || echo "No internal services"
+
+                echo "--- ReplicaSet Status ---"
+                kubectl get rs -n flightctl-external -o wide | grep -E "(NAME|flightctl)" || echo "No external replicasets"
+                kubectl get rs -n flightctl-internal -o wide | grep -E "(NAME|flightctl)" || echo "No internal replicasets"
+
+                echo "--- Recent Events (Last 30 lines) ---"
+                kubectl get events -n flightctl-external --sort-by='.lastTimestamp' --field-selector type!=Normal | tail -30 || echo "No external warning events"
+                kubectl get events -n flightctl-internal --sort-by='.lastTimestamp' --field-selector type!=Normal | tail -30 || echo "No internal warning events"
+
+                # Enhanced container logs for non-running pods
+                echo "--- Non-Running Pod Analysis ---"
                 for ns in flightctl-external flightctl-internal; do
-                    for pod in $(kubectl get pods -n $ns --field-selector=status.phase!=Running,status.phase!=Succeeded -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || true); do
-                        if [ -n "$pod" ]; then
-                            echo "=== Pod $pod in $ns ==="
-                            kubectl describe pod $pod -n $ns || echo "Failed to describe $pod"
-                        fi
-                    done
+                    failing_pods=$(kubectl get pods -n $ns --field-selector=status.phase!=Running,status.phase!=Succeeded -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || true)
+                    if [ -n "$failing_pods" ]; then
+                        for pod in $failing_pods; do
+                            echo "=== FAILING POD: $pod in $ns ==="
+                            kubectl describe pod $pod -n $ns | head -50 || echo "Failed to describe $pod"
+                            echo "--- Last 20 lines of logs ---"
+                            kubectl logs $pod -n $ns --tail=20 --previous 2>/dev/null || kubectl logs $pod -n $ns --tail=20 2>/dev/null || echo "No logs for $pod"
+                        done
+                    fi
                 done
-                echo "=== END DEBUG INFO ==="
+
+                # API-specific container logs (even if running, may show initialization issues)
+                echo "--- FlightCtl API Pod Logs (for FIPS/TLS issues) ---"
+                for ns in flightctl-external flightctl-internal; do
+                    api_pods=$(kubectl get pods -n $ns -l 'app.kubernetes.io/name=flightctl,flightctl.service=flightctl-api' -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || true)
+                    if [ -n "$api_pods" ]; then
+                        for pod in $api_pods; do
+                            echo "=== API POD LOGS: $pod in $ns ==="
+                            kubectl logs $pod -n $ns --tail=50 --since=60s 2>/dev/null | grep -E "(error|Error|ERROR|warn|Warn|WARN|fips|FIPS|tls|TLS|cert|Cert|CERT|timeout|Timeout|TIMEOUT)" || echo "No relevant log entries in last 60s"
+                        done
+                    fi
+                done
+
+                echo "--- Network Connectivity Tests ---"
+                echo "Testing API endpoint connectivity:"
+                nc -zv "api.${BASE_DOMAIN}" 3443 2>&1 || echo "Port 3443 not reachable"
+                echo "Testing cluster DNS:"
+                nslookup kubernetes.default.svc.cluster.local 2>/dev/null || echo "Cluster DNS issue"
+
+                last_detail_time=$current_time
+                echo "=== END DETAILED CHECK (attempt $i) ==="
                 echo ""
             fi
 
-            # Capture body + HTTP code; also capture curl errors
-            resp_and_code=$(curl -ksS "https://api.${BASE_DOMAIN}:3443/readyz" -w '\n%{http_code}' 2>&1) || true
+            # Enhanced curl with verbose TLS debugging
+            echo "[${elapsed}s] Attempt $i/$RETRIES: Testing API readiness..."
 
-            http_code=$(printf '%s\n' "$resp_and_code" | tail -n1)
-            body=$(printf '%s\n' "$resp_and_code" | sed '$d')
-
-            # Print response body (only if not empty and not a connection error)
-            if [ -n "$body" ] && [ "$body" != "curl: (7) Failed to connect"* ]; then
-                printf '[%d] API Response: %s\n' "$i" "$body"
+            # First try with detailed SSL debugging for FIPS/TLS issues
+            if [ $((i % 15)) -eq 1 ] || [ $elapsed -gt 60 ]; then
+                echo "--- Detailed TLS/FIPS Debug (attempt $i) ---"
+                resp_and_code=$(curl -ksS --connect-timeout 5 --max-time 10 \
+                    --trace-ascii /dev/stderr \
+                    --write-out '\nHTTP_CODE:%{http_code}\nTOTAL_TIME:%{time_total}\nCONNECT_TIME:%{time_connect}\nTLS_TIME:%{time_appconnect}' \
+                    "https://api.${BASE_DOMAIN}:3443/readyz" 2>&1) || true
+            else
+                # Regular request
+                resp_and_code=$(curl -ksS --connect-timeout 3 --max-time 8 \
+                    --write-out '\nHTTP_CODE:%{http_code}' \
+                    "https://api.${BASE_DOMAIN}:3443/readyz" 2>&1) || true
             fi
 
+            # Parse response
+            http_code=$(printf '%s\n' "$resp_and_code" | grep "HTTP_CODE:" | cut -d: -f2 2>/dev/null || echo "000")
+            connect_time=$(printf '%s\n' "$resp_and_code" | grep "CONNECT_TIME:" | cut -d: -f2 2>/dev/null || echo "")
+            tls_time=$(printf '%s\n' "$resp_and_code" | grep "TLS_TIME:" | cut -d: -f2 2>/dev/null || echo "")
+            total_time=$(printf '%s\n' "$resp_and_code" | grep "TOTAL_TIME:" | cut -d: -f2 2>/dev/null || echo "")
+            body=$(printf '%s\n' "$resp_and_code" | grep -v -E "(HTTP_CODE:|CONNECT_TIME:|TLS_TIME:|TOTAL_TIME:|^\* |^> |^< )" | head -5)
+
+            # Enhanced response logging
+            timing_info=""
+            if [ -n "$total_time" ]; then
+                timing_info=" (${total_time}s total"
+                [ -n "$connect_time" ] && timing_info="${timing_info}, ${connect_time}s connect"
+                [ -n "$tls_time" ] && timing_info="${timing_info}, ${tls_time}s TLS"
+                timing_info="${timing_info})"
+            fi
+
+            if [ -n "$body" ] && [ "$body" != *"Failed to connect"* ] && [ "$body" != *"Connection refused"* ]; then
+                printf '[%ds] Response (HTTP %s%s): %s\n' "$elapsed" "$http_code" "$timing_info" "$body"
+            elif [ "$http_code" != "000" ]; then
+                printf '[%ds] HTTP %s%s (no body)\n' "$elapsed" "$http_code" "$timing_info"
+            else
+                printf '[%ds] Connection failed%s: %s\n' "$elapsed" "$timing_info" "$(echo "$resp_and_code" | head -1)"
+            fi
+
+            # Success check
             if [ "$http_code" -ge 200 ] && [ "$http_code" -lt 300 ]; then
                 echo ""
-                echo "✅ SUCCESS: API responded with $http_code on attempt $i" >&2
-                echo "=== FINAL CLUSTER STATE ==="
-                kubectl get pods -n flightctl-external -o wide || echo "No external pods"
-                kubectl get pods -n flightctl-internal -o wide || echo "No internal pods"
+                echo "✅ SUCCESS: API responded with HTTP $http_code on attempt $i (${elapsed}s total)" >&2
+                echo "=== FINAL SUCCESSFUL STATE ==="
+                kubectl get pods -n flightctl-external -o wide | grep -E "(NAME|flightctl)" || echo "No external pods"
+                kubectl get pods -n flightctl-internal -o wide | grep -E "(NAME|flightctl)" || echo "No internal pods"
+                echo "End time: $(date '+%Y-%m-%d %H:%M:%S UTC')"
                 break
             fi
 
-            printf '[%d] HTTP %s, retrying in 1s...\n' "$i" "$http_code" >&2
+            # Progress indicator for long waits
+            if [ $((i % 30)) -eq 0 ]; then
+                printf '\n[%ds] Still waiting... (attempt %d/%d, HTTP %s)\n' "$elapsed" "$i" "$RETRIES" "$http_code"
+            fi
+
             sleep 1
         done
 
         if [ "$i" -eq "$RETRIES" ]; then
+            final_time=$(date +%s)
+            total_elapsed=$((final_time - start_time))
             echo ""
-            echo "❌ ERROR: API did not return 2xx after $RETRIES attempts" >&2
+            echo "❌ FAILURE: API did not respond with 2xx after $RETRIES attempts (${total_elapsed}s total)" >&2
             echo ""
-            echo "=== FINAL FAILURE DEBUGGING ==="
+            echo "=== COMPREHENSIVE FAILURE ANALYSIS ==="
+
+            echo "--- Timeline Summary ---"
+            echo "Start: $(date -d @$start_time '+%Y-%m-%d %H:%M:%S UTC')"
+            echo "End: $(date -d @$final_time '+%Y-%m-%d %H:%M:%S UTC')"
+            echo "Duration: ${total_elapsed} seconds"
+
+            echo "--- Final System State ---"
+            kubectl top nodes 2>/dev/null || echo "Node metrics unavailable"
+            kubectl top pods -A 2>/dev/null | head -20 || echo "Pod metrics unavailable"
+
             echo "--- All FlightCtl Resources ---"
-            kubectl get all -n flightctl-external -o wide || echo "No external resources"
-            kubectl get all -n flightctl-internal -o wide || echo "No internal resources"
-            echo ""
-            echo "--- All Recent Events ---"
-            kubectl get events -n flightctl-external --sort-by='.lastTimestamp' || echo "No external events"
-            kubectl get events -n flightctl-internal --sort-by='.lastTimestamp' || echo "No internal events"
+            kubectl get all -n flightctl-external -o wide | grep -E "(NAME|flightctl)" || echo "No external resources"
+            kubectl get all -n flightctl-internal -o wide | grep -E "(NAME|flightctl)" || echo "No internal resources"
+
+            echo "--- All FlightCtl Events ---"
+            kubectl get events -n flightctl-external --sort-by='.lastTimestamp' | tail -50 || echo "No external events"
+            kubectl get events -n flightctl-internal --sort-by='.lastTimestamp' | tail -50 || echo "No internal events"
+
+            echo "--- Final API Logs ---"
+            for ns in flightctl-external flightctl-internal; do
+                api_pods=$(kubectl get pods -n $ns -l 'app.kubernetes.io/name=flightctl,flightctl.service=flightctl-api' -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || true)
+                if [ -n "$api_pods" ]; then
+                    for pod in $api_pods; do
+                        echo "=== FINAL LOGS: $pod in $ns ==="
+                        kubectl logs $pod -n $ns --tail=100 2>/dev/null || echo "No logs available"
+                    done
+                fi
+            done
+
+            echo "--- Final Network Test ---"
+            nc -zv "api.${BASE_DOMAIN}" 3443 2>&1 || echo "Final port test failed"
+
+            echo "=== END FAILURE ANALYSIS ==="
             exit 1
         fi
