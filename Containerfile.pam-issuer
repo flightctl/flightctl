@@ -7,7 +7,7 @@ WORKDIR /app
 USER 0
 
 # Install C development tools needed for CGO
-RUN dnf install -y gcc glibc-devel
+RUN dnf install -y --nobest gcc glibc-devel
 
 # Install matching PAM and pam-devel from CentOS mirror for build
 RUN dnf install -y https://mirror.stream.centos.org/9-stream/BaseOS/x86_64/os/Packages/pam-1.5.1-24.el9.x86_64.rpm && \
