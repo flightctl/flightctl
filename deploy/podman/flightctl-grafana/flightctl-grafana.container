@@ -22,6 +22,9 @@ Volume=/etc/flightctl/flightctl-grafana/grafana.ini:/etc/grafana/grafana.ini:ro,
 # Mount directory for data source provisioning
 Volume=/etc/flightctl/flightctl-grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro,z
 
+# Mount directory for dashboard provisioning
+Volume=/etc/flightctl/flightctl-grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro,z
+
 # Mount directory for TLS certificates (if using HTTPS)
 Volume=/etc/flightctl/pki/flightctl-grafana:/etc/grafana/certs:ro,z
 
