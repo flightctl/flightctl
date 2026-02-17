@@ -151,6 +151,9 @@ func (a *Agent) syncDeviceSpec(ctx context.Context) {
 
 	desired, requeue, err := a.specManager.GetDesired(ctx)
 	if err != nil {
+		if a.recoverMissingSpec(err) {
+			return
+		}
 		a.log.Errorf("Failed to get desired spec: %v", err)
 		return
 	}
@@ -163,6 +166,9 @@ func (a *Agent) syncDeviceSpec(ctx context.Context) {
 
 	current, err := a.specManager.Read(spec.Current)
 	if err != nil {
+		if a.recoverMissingSpec(err) {
+			return
+		}
 		a.log.Errorf("Failed to get current spec: %v", err)
 		return
 	}
@@ -254,6 +260,20 @@ func (a *Agent) syncDeviceSpec(ctx context.Context) {
 		a.log.Warnf("Pruning completed with errors: %v", err)
 		// Don't return error - pruning failures must not block reconciliation
 	}
+}
+
+// recoverMissingSpec checks if the error is due to a missing spec file and
+// attempts to recover by calling Ensure(). Returns true if recovery was
+// attempted, signaling the caller to return and let the next tick proceed.
+func (a *Agent) recoverMissingSpec(err error) bool {
+	if !errors.Is(err, errors.ErrMissingRenderedSpec) {
+		return false
+	}
+	a.log.Warnf("Spec file missing, recovering: %v", err)
+	if ensureErr := a.specManager.Ensure(); ensureErr != nil {
+		a.log.Errorf("Failed to recover spec files: %v", ensureErr)
+	}
+	return true
 }
 
 func (a *Agent) rollbackDevice(ctx context.Context, current, desired *v1beta1.Device, syncFn func(context.Context, *v1beta1.Device, *v1beta1.Device) error) error {

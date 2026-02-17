@@ -393,6 +393,54 @@ func TestRollbackDevice(t *testing.T) {
 	}
 }
 
+func TestSyncRecoverMissingSpec(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	testCases := []struct {
+		name       string
+		setupMocks func(mockSpecManager *spec.MockManager)
+	}{
+		{
+			name: "GetDesired returns ErrMissingRenderedSpec triggers recovery",
+			setupMocks: func(mockSpecManager *spec.MockManager) {
+				mockSpecManager.EXPECT().GetDesired(ctx).Return(nil, false, errors.ErrMissingRenderedSpec)
+				mockSpecManager.EXPECT().Ensure().Return(nil)
+			},
+		},
+		{
+			name: "Read current returns ErrMissingRenderedSpec triggers recovery",
+			setupMocks: func(mockSpecManager *spec.MockManager) {
+				desired := newVersionedDevice("1")
+				mockSpecManager.EXPECT().GetDesired(ctx).Return(desired, false, nil)
+				mockSpecManager.EXPECT().Read(spec.Current).Return(nil, errors.ErrMissingRenderedSpec)
+				mockSpecManager.EXPECT().Ensure().Return(nil)
+			},
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			mockSpecManager := spec.NewMockManager(ctrl)
+			tc.setupMocks(mockSpecManager)
+
+			log := log.NewPrefixLogger("test")
+			log.SetLevel(logrus.DebugLevel)
+
+			agent := Agent{
+				log:         log,
+				specManager: mockSpecManager,
+			}
+
+			// syncDeviceSpec should recover without panicking
+			agent.syncDeviceSpec(ctx)
+			// gomock verifies Ensure() was called exactly once
+		})
+	}
+}
+
 func newVersionedDevice(version string) *v1beta1.Device {
 	device := &v1beta1.Device{
 		Metadata: v1beta1.ObjectMeta{
