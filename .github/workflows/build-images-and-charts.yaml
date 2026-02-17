@@ -107,21 +107,50 @@ jobs:
           else
             echo "bundle-images target not found, falling back to direct save"
             echo "Getting list of loaded flightctl images with flavor $FLAVOR and tag: $TAG"
+
+            # Debug: Show all flightctl images before searching
+            echo "DEBUG: All flightctl images available:"
+            podman images --format "{{.Repository}}:{{.Tag}}" | grep "flightctl" | sort || echo "No flightctl images found"
+            echo ""
+
             # Try flavor-in-tag images first (new naming pattern)
+            echo "DEBUG: Searching for flavor-in-tag pattern: quay\.io/flightctl/flightctl-.*:${FLAVOR}-${TAG}"
             mapfile -t loaded_images < <(podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/flightctl-.*:${FLAVOR}-${TAG}" || true)
+
+            # If no exact flavor-tag match, try broader flavor pattern
+            if [ ${#loaded_images[@]} -eq 0 ]; then
+              echo "No exact flavor-tag images found, trying broader flavor pattern..."
+              echo "DEBUG: Searching for broader flavor pattern: quay\.io/flightctl/flightctl-.*:${FLAVOR}-"
+              mapfile -t loaded_images < <(podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/flightctl-.*:${FLAVOR}-" || true)
+            fi
+
             # Fallback to non-flavor images (legacy naming) if no flavor-specific images found
             if [ ${#loaded_images[@]} -eq 0 ]; then
-              echo "No flavor-in-tag images found, trying legacy naming pattern..."
+              echo "No flavor-prefixed images found, trying legacy naming pattern..."
+              echo "DEBUG: Searching for legacy pattern: quay\.io/flightctl/flightctl-.*:${TAG} (excluding flavor suffixes)"
               mapfile -t loaded_images < <(podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/flightctl-.*:${TAG}" | grep -v "\-el[0-9]" || true)
+
+              # CRITICAL: If using legacy images, add flavor prefixes for CI compatibility
+              if [ ${#loaded_images[@]} -gt 0 ]; then
+                echo "WARNING: Using legacy images without flavor prefixes. Creating flavor-prefixed tags for CI compatibility..."
+                for image in "${loaded_images[@]}"; do
+                  flavor_image="${image%:*}:${FLAVOR}-${TAG}"
+                  echo "  Creating flavor tag: ${image} -> ${flavor_image}"
+                  podman tag "$image" "$flavor_image" || echo "Warning: Failed to tag $image"
+                done
+                # Re-search for the newly created flavor-prefixed images
+                mapfile -t loaded_images < <(podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/flightctl-.*:${FLAVOR}-${TAG}" || true)
+              fi
             fi
+
             echo "Creating bundle with ${#loaded_images[@]} images:"
             printf '  %s\n' "${loaded_images[@]}"
             if [ ${#loaded_images[@]} -gt 0 ]; then
               podman save --format docker-archive -o "${BUNDLE_FILE}" -m "${loaded_images[@]}"
             else
-              echo "Error: No images found matching pattern for flavor $FLAVOR and tag $TAG"
-              echo "Available images:"
-              podman images --format "{{.Repository}}:{{.Tag}}" | grep "flightctl" || true
+              echo "Error: No images found matching any pattern for flavor $FLAVOR and tag $TAG"
+              echo "Available flightctl images:"
+              podman images --format "{{.Repository}}:{{.Tag}}" | grep "flightctl" || echo "No flightctl images at all!"
               exit 1
             fi
           fi
@@ -139,13 +168,22 @@ jobs:
         run: |
           set -euo pipefail
           echo "::group::Listing images in bundle"
-          # Try flavor-in-tag images first (new naming pattern)
+          # Try exact flavor-tag match first
           IMAGES=$(podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/flightctl-.*:${FLAVOR}-${TAG}" | sort || true)
+
+          # Try broader flavor pattern if no exact match
+          if [ -z "$IMAGES" ]; then
+            echo "No exact flavor-tag images found, trying broader flavor pattern..."
+            IMAGES=$(podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/flightctl-.*:${FLAVOR}-" | sort || true)
+          fi
+
           # Fallback to non-flavor images (legacy naming) if no flavor-specific images found
           if [ -z "$IMAGES" ]; then
-            echo "No flavor-in-tag images found, listing legacy naming pattern..."
+            echo "No flavor-prefixed images found, listing legacy naming pattern..."
             IMAGES=$(podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/flightctl-.*:${TAG}" | grep -v "\-el[0-9]" | sort || true)
           fi
+
+          echo "Images that will be bundled:"
           echo "$IMAGES"
           echo "::endgroup::"
 
