@@ -70,15 +70,8 @@ if [[ "$SERVICE" == "pam-issuer" ]]; then
 fi
 
 # Build the container
-# Add --no-cache for pam-issuer to avoid glibc conflict in cached layers
-NO_CACHE_FLAG=""
-if [[ "$SERVICE" == "pam-issuer" ]]; then
-    NO_CACHE_FLAG="--no-cache"
-    echo "Using --no-cache for PAM issuer to avoid glibc conflicts in cached layers"
-fi
-
 # shellcheck disable=SC2086
-podman build $BUILD_ARGS $NO_CACHE_FLAG \
+podman build $BUILD_ARGS \
     --build-arg SOURCE_GIT_TAG="${SOURCE_GIT_TAG}" \
     --build-arg SOURCE_GIT_TREE_STATE="${SOURCE_GIT_TREE_STATE:-clean}" \
     --build-arg SOURCE_GIT_COMMIT="${SOURCE_GIT_COMMIT:-${GIT_REF}}" \
