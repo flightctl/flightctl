@@ -13,15 +13,14 @@ GITHUB_ACTIONS ?= false
 # --- Cache Configuration ---
 # Always use caching with localhost defaults for local builds
 # In CI, REGISTRY and REGISTRY_OWNER will be overridden
-# CACHE_FLAGS_TEMPLATE := --cache-from=$(REGISTRY)/$(REGISTRY_OWNER)/%
-CACHE_FLAGS_TEMPLATE :=
+CACHE_FLAGS_TEMPLATE := --cache-from=$(REGISTRY)/$(REGISTRY_OWNER)/%
 
 # Function to generate cache flags for a specific image
 # Only returns cache flags if GITHUB_ACTIONS is true
 # Skip cache for pam-issuer to avoid glibc conflict in cached layers
  ifeq ($(GITHUB_ACTIONS),true)
  define CACHE_FLAGS_FOR_IMAGE
- $(if $(filter flightctl-pam-issuer,$(1)),,$(subst %,$(1),$(CACHE_FLAGS_TEMPLATE)))
+ $(subst %,$(1),$(CACHE_FLAGS_TEMPLATE))
  endef
  else
  define CACHE_FLAGS_FOR_IMAGE
