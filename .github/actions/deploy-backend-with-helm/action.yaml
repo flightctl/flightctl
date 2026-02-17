@@ -490,86 +490,33 @@ runs:
         ( kubectl get pods --all-namespaces -w | sed 's/^/[cluster] /' ) &
         echo "🚀 DEBUG CHECKPOINT 4 - pod watcher started"
 
-        # AGGRESSIVE cleanup to ensure 100% clean state for E2E testing
-        echo "=== AGGRESSIVE CLEANUP FOR E2E TESTING ==="
-        echo "🚀 DEBUG CHECKPOINT 5 - starting cleanup"
-
-        # Temporarily disable pipefail for cleanup operations that are expected to fail
+        # Simple cleanup - no fancy stuff
+        echo "=== SIMPLE CLEANUP ==="
         set +e
-        echo "🚀 DEBUG CHECKPOINT 6 - pipefail disabled for cleanup"
-        echo "🔍 DEBUG: About to start helm cleanup operations..."
-
-        # List what's currently deployed for debugging
-        echo "Current helm releases:"
-        helm list -A
-
-        # Nuclear option: uninstall ALL flightctl releases from ALL namespaces
-        echo "Removing ALL FlightCtl installations from ALL namespaces..."
-        # Simple fix: just remove the invalid -A flag from helm uninstall
-        helm list -A -q | grep -i flightctl | xargs -r -I {} helm uninstall {} --ignore-not-found --timeout=2m
-
-        # Also try specific namespace cleanup
-        helm uninstall flightctl -n "${NAMESPACE_EXTERNAL}" --ignore-not-found --timeout=2m
-        helm uninstall flightctl -n "${NAMESPACE_INTERNAL}" --ignore-not-found --timeout=2m
-
-        # Nuclear option: delete ALL flightctl resources
-        echo "Deleting ALL FlightCtl resources from ALL namespaces..."
-        kubectl delete all,secrets,configmaps,pvc,pv -l "app.kubernetes.io/name=flightctl" -A --ignore-not-found --force --grace-period=0
-        kubectl delete all,secrets,configmaps,pvc,pv -l "flightctl.service" -A --ignore-not-found --force --grace-period=0
-
-        # Nuclear option: delete namespaces with extreme prejudice
-        echo "Nuclear deletion of FlightCtl namespaces..."
-        for ns in "${NAMESPACE_EXTERNAL}" "${NAMESPACE_INTERNAL}"; do
-          kubectl delete namespace "$ns" --ignore-not-found --force --grace-period=0 --timeout=10s
-          # If it still exists, patch it to remove finalizers and force delete
-          if kubectl get namespace "$ns" 2>/dev/null; then
-            echo "Namespace $ns still exists, applying nuclear deletion..."
-            kubectl patch namespace "$ns" -p '{"metadata":{"finalizers":[]}}' --type=merge
-            kubectl delete namespace "$ns" --force --grace-period=0
-          fi
-        done
-
-        # Wait for complete cleanup
-        echo "Waiting 15 seconds for complete cleanup..."
-        sleep 15
-
-        # Verify clean state
-        echo "Verifying clean state:"
-        helm list -A
-        kubectl get namespace | grep flightctl || echo "No flightctl namespaces found (good!)"
-
-        # Recreate internal namespace fresh
-        kubectl create namespace "${NAMESPACE_INTERNAL}"
-
-        # Re-enable pipefail for the rest of the script
+        helm uninstall flightctl -n "${NAMESPACE_EXTERNAL}" --ignore-not-found --timeout=30s 2>/dev/null
+        helm uninstall flightctl -n "${NAMESPACE_INTERNAL}" --ignore-not-found --timeout=30s 2>/dev/null
+        kubectl delete namespace "${NAMESPACE_EXTERNAL}" --ignore-not-found --timeout=30s 2>/dev/null
+        kubectl delete namespace "${NAMESPACE_INTERNAL}" --ignore-not-found --timeout=30s 2>/dev/null
+        sleep 5
+        kubectl create namespace "${NAMESPACE_INTERNAL}" 2>/dev/null || true
         set -e
-        echo "🚀 DEBUG CHECKPOINT 7 - cleanup complete, pipefail re-enabled"
-        echo "=== NUCLEAR CLEANUP COMPLETE - GUARANTEED CLEAN STATE ==="
-        echo "🔍 DEBUG: Cleanup completed successfully, script continuing..."
+        echo "=== CLEANUP COMPLETE ==="
 
-        echo "🔍 DEBUG: Script reached post-cleanup, proceeding to helm preparation..."
+        echo "REACHED HELM PREPARATION SUCCESSFULLY"
 
-        # Build optional args
+        # Build optional args - simplified
         EXTRA_ARGS=""
-        echo "🔍 DEBUG: Building additional values files..."
-        for f in ${ADDITIONAL_VALUES_FILES}; do
-          if [ -f "$f" ]; then
-            EXTRA_ARGS+=" --values $f"
-            echo "  Added values file: $f"
-          else
-            echo "  Values file not found: $f"
-          fi
-        done
-
-        echo "🔍 DEBUG: Checking auth type..."
+        if [ -n "${ADDITIONAL_VALUES_FILES}" ]; then
+          for f in ${ADDITIONAL_VALUES_FILES}; do
+            if [ -f "$f" ]; then
+              EXTRA_ARGS+=" --values $f"
+            fi
+          done
+        fi
         if [ -n "${AUTH_TYPE}" ]; then
           EXTRA_ARGS+=" --set global.auth.type=${AUTH_TYPE}"
-          echo "  Added auth type: ${AUTH_TYPE}"
-        else
-          echo "  No auth type specified"
         fi
-
-        echo "🔍 DEBUG: EXTRA_ARGS built: ${EXTRA_ARGS}"
+        echo "EXTRA_ARGS: ${EXTRA_ARGS}"
 
         echo "=== STARTING HELM DEPLOYMENT ==="
         echo "Nuclear cleanup complete, verified clean state"
@@ -680,12 +627,8 @@ runs:
           echo "EOF"
         } >> "$GITHUB_OUTPUT"
 
-        # Execute with detailed logging and error handling
-        echo "=== EXECUTING HELM INSTALL ==="
-        echo "🚀 DEBUG CHECKPOINT 8 - About to execute helm install"
+        echo "*** ABOUT TO EXECUTE HELM INSTALL ***"
         echo "Command: ${HELM_CMD}"
-        echo "Wait enabled: ${WAIT}"
-        echo "🔍 DEBUG: Script reached helm execution phase successfully"
 
         set +e  # Allow command to fail so we can debug
         if [ "${WAIT}" == "true" ]; then
