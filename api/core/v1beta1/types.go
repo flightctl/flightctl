@@ -1,5 +1,10 @@
 package v1beta1
 
+import (
+	"encoding/base64"
+	"fmt"
+)
+
 type DeviceCommand struct {
 	Command string   `json:"command,omitempty"`
 	Args    []string `json:"args,omitempty"`
@@ -67,4 +72,35 @@ func (a QuadletApplication) RunAsWithDefault() Username {
 
 func (a ComposeApplication) RunAsWithDefault() Username {
 	return CurrentProcessUsername
+}
+
+// decodeContents decodes the content based on the encoding type and returns the
+// decoded content as a byte slice.
+func decodeContents(content string, encoding *EncodingType) ([]byte,
+	error) {
+	if encoding == nil || *encoding == "plain" {
+		return []byte(content), nil
+	}
+
+	switch *encoding {
+	case "base64":
+		decoded, err := base64.StdEncoding.DecodeString(content)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode base64 content: %w", err)
+		}
+		return decoded, nil
+	default:
+		return nil, fmt.Errorf("unsupported content encoding: %q", *encoding)
+	}
+}
+
+func (f *FileSpec) ContentsDecoded() ([]byte, error) {
+	return decodeContents(f.Content, f.ContentEncoding)
+}
+
+func (a *ApplicationContent) ContentsDecoded() ([]byte, error) {
+	if a.Content == nil {
+		return nil, nil
+	}
+	return decodeContents(*a.Content, a.ContentEncoding)
 }

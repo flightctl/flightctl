@@ -130,7 +130,7 @@ func (e *embeddedQuadletBehavior) CollectOCITargets(_ context.Context, configPro
 	}
 	var targets []dependency.OCIPullTarget
 	for _, ref := range refs {
-		targets = append(targets, extractQuadletTargets(ref, configProvider)...)
+		targets = append(targets, extractQuadletTargets(ref, configProvider, v1beta1.CurrentProcessUsername)...)
 	}
 	return targets, nil
 }
@@ -188,7 +188,7 @@ func (e *embeddedComposeBehavior) CollectOCITargets(_ context.Context, configPro
 				Type:         dependency.OCITypePodmanImage,
 				Reference:    svc.Image,
 				PullPolicy:   v1beta1.PullIfNotPresent,
-				ClientOptsFn: containerPullOptions(configProvider),
+				ClientOptsFn: containerPullOptions(configProvider, v1beta1.CurrentProcessUsername),
 			})
 		}
 	}

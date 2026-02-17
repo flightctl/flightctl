@@ -127,18 +127,17 @@ func (s *Server) Run(ctx context.Context) error {
 
 	router := chi.NewRouter()
 
-	// Add middlewares
+	// Global middleware (applies to ALL routes including static assets)
 	router.Use(
+		fcmiddleware.SecurityHeaders,
+		fcmiddleware.ContentSecurityPolicy(fcmiddleware.PAMIssuerCSP),
 		middleware.RequestID,
 		middleware.Logger,
 		middleware.Recoverer,
 		middleware.Timeout(60*time.Second),
 	)
 
-	// OpenAPI validation middleware
-	router.Use(oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapiOpts))
-
-	// Add rate limiting (only if configured and enabled)
+	// Rate limiting (applies to ALL routes including static assets)
 	// Uses OAuth2-compliant error format (RFC 6749 Section 5.2)
 	if s.cfg.Service.RateLimit != nil && s.cfg.Service.RateLimit.Enabled {
 		trustedProxies := s.cfg.Service.RateLimit.TrustedProxies
@@ -158,8 +157,17 @@ func (s *Server) Run(ctx context.Context) error {
 		})
 	}
 
-	// Register PAM issuer handler
-	pamapi.HandlerFromMux(handler, router)
+	// Static assets for login UI -- rate limited, but bypass OpenAPI validation
+	router.Get("/auth/assets/patternfly.min.css", handler.ServePatternFlyCSS)
+	router.Get("/auth/assets/flight-control-logo.svg", handler.ServeFlightControlLogo)
+	router.Get("/auth/assets/login.js", handler.ServeLoginJS)
+	router.Get("/auth/assets/login.css", handler.ServeLoginCSS)
+
+	// API routes with OpenAPI validation
+	router.Group(func(r chi.Router) {
+		r.Use(oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapiOpts))
+		pamapi.HandlerFromMux(handler, r)
+	})
 
 	// Wrap with OpenTelemetry
 	httpHandler := otelhttp.NewHandler(router, "pam-issuer")

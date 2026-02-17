@@ -227,12 +227,13 @@ func (s *Systemd) ShowByMatchPattern(ctx context.Context, matchPatterns []string
 }
 
 // ListDependencies returns the list of units that the specified unit depends on.
-// Uses `systemctl list-dependencies --plain` to get a flat list of dependencies.
+// Uses `systemctl list-dependencies --plain --full` to get a flat list of dependencies.
+// The --full flag prevents systemd from truncating long unit names.
 func (s *Systemd) ListDependencies(ctx context.Context, unit string) ([]string, error) {
 	ctx, cancel := context.WithTimeout(ctx, defaultSystemctlTimeout)
 	defer cancel()
 
-	command, args := s.createArgs("list-dependencies", "--plain", "--no-pager", unit)
+	command, args := s.createArgs("list-dependencies", "--plain", "--no-pager", "--full", unit)
 	stdout, stderr, exitCode := s.exec.ExecuteWithContext(ctx, command, args...)
 	if exitCode != 0 {
 		return nil, fmt.Errorf("list-dependencies for %s: %w", unit, errors.FromStderr(stderr, exitCode))

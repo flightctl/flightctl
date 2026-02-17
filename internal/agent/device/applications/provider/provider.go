@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"os"
+	"os/user"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -86,20 +87,30 @@ type ApplicationSpec struct {
 	QuadletApp   *v1beta1.QuadletApplication
 }
 
-const (
-	pullAuthPath = "/root/.config/containers/auth.json"
-)
+func pullAuthPathForUser(username v1beta1.Username) string {
+	u, err := user.Lookup(username.WithDefault(v1beta1.RootUsername).String())
+	// If we have an error it is because the user doesn't exist or the homedir isn't set, in which
+	// case there is no pull auth file that could be present so just ignore it.
+	if err == nil && len(u.HomeDir) > 0 {
+		return filepath.Join(u.HomeDir, ".config/containers/auth.json")
+	}
+	return ""
+}
 
 // containerPullOptions returns a lazy function for resolving container pull options.
 // Resolver may be nil when extracting metadata from already-pulled images (e.g., image pruning).
-func containerPullOptions(resolver dependency.PullConfigResolver) dependency.ClientOptsFn {
+func containerPullOptions(resolver dependency.PullConfigResolver, username v1beta1.Username) dependency.ClientOptsFn {
 	if resolver == nil {
 		return nil
 	}
-	return resolver.Options(dependency.PullConfigSpec{
-		Paths:    []string{pullAuthPath},
-		OptionFn: client.WithPullSecret,
-	})
+	authPath := pullAuthPathForUser(username)
+	if len(authPath) > 0 {
+		return resolver.Options(dependency.PullConfigSpec{
+			Paths:    []string{authPath},
+			OptionFn: client.WithPullSecret,
+		})
+	}
+	return resolver.Options()
 }
 
 // CollectOpt is a functional option for CollectOCITargets.
@@ -867,6 +878,7 @@ func extractAppDataFromOCITarget(
 	appName string,
 	imageRef string,
 	appType v1beta1.AppType,
+	username v1beta1.Username,
 	resolver dependency.PullConfigResolver,
 ) (*AppData, error) {
 	tmpAppPath, err := readWriter.MkdirTemp("app_temp")
@@ -930,7 +942,7 @@ func extractAppDataFromOCITarget(
 					Type:         dependency.OCITypePodmanImage,
 					Reference:    svc.Image,
 					PullPolicy:   v1beta1.PullIfNotPresent,
-					ClientOptsFn: containerPullOptions(resolver),
+					ClientOptsFn: containerPullOptions(resolver, username),
 				})
 			}
 		}
@@ -961,7 +973,7 @@ func extractAppDataFromOCITarget(
 
 		// extract images
 		for _, quad := range spec {
-			targets = append(targets, extractQuadletTargets(quad, resolver)...)
+			targets = append(targets, extractQuadletTargets(quad, resolver, username)...)
 		}
 
 	default:
@@ -1139,14 +1151,14 @@ func validateEnvVars(envVars map[string]string) error {
 	return nil
 }
 
-func extractQuadletTargets(quad *common.QuadletReferences, resolver dependency.PullConfigResolver) []dependency.OCIPullTarget {
+func extractQuadletTargets(quad *common.QuadletReferences, resolver dependency.PullConfigResolver, username v1beta1.Username) []dependency.OCIPullTarget {
 	var targets []dependency.OCIPullTarget
 	if quad.Image != nil && !quadlet.IsImageReference(*quad.Image) {
 		targets = append(targets, dependency.OCIPullTarget{
 			Type:         dependency.OCITypePodmanImage,
 			Reference:    *quad.Image,
 			PullPolicy:   v1beta1.PullIfNotPresent,
-			ClientOptsFn: containerPullOptions(resolver),
+			ClientOptsFn: containerPullOptions(resolver, username),
 		})
 	}
 	for _, image := range quad.MountImages {
@@ -1155,14 +1167,14 @@ func extractQuadletTargets(quad *common.QuadletReferences, resolver dependency.P
 				Type:         dependency.OCITypePodmanImage,
 				Reference:    image,
 				PullPolicy:   v1beta1.PullIfNotPresent,
-				ClientOptsFn: containerPullOptions(resolver),
+				ClientOptsFn: containerPullOptions(resolver, username),
 			})
 		}
 	}
 	return targets
 }
 
-func extractVolumeTargets(vols *[]v1beta1.ApplicationVolume, resolver dependency.PullConfigResolver) ([]dependency.OCIPullTarget, error) {
+func extractVolumeTargets(vols *[]v1beta1.ApplicationVolume, resolver dependency.PullConfigResolver, username v1beta1.Username) ([]dependency.OCIPullTarget, error) {
 	var targets []dependency.OCIPullTarget
 	if vols == nil {
 		return targets, nil
@@ -1201,7 +1213,7 @@ func extractVolumeTargets(vols *[]v1beta1.ApplicationVolume, resolver dependency
 			Type:         ociType,
 			Reference:    source.Reference,
 			PullPolicy:   policy,
-			ClientOptsFn: containerPullOptions(resolver),
+			ClientOptsFn: containerPullOptions(resolver, username),
 		})
 	}
 

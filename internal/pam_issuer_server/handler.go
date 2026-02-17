@@ -3,6 +3,8 @@
 package pam_issuer_server
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -21,15 +23,16 @@ import (
 
 // Handler implements the PAM issuer API handlers
 type Handler struct {
-	log         logrus.FieldLogger
-	cfg         *config.Config
-	pamProvider *pam.PAMOIDCProvider
-	cancel      context.CancelFunc
-	wg          sync.WaitGroup
-	closeOnce   sync.Once
-	isRunning   bool
-	isClosed    bool
-	mu          sync.Mutex
+	log          logrus.FieldLogger
+	cfg          *config.Config
+	pamProvider  *pam.PAMOIDCProvider
+	cancel       context.CancelFunc
+	wg           sync.WaitGroup
+	closeOnce    sync.Once
+	isRunning    bool
+	isClosed     bool
+	mu           sync.Mutex
+	cssGzipBytes []byte // pre-compressed PatternFly CSS
 }
 
 // NewHandler creates a new PAM issuer handler
@@ -47,10 +50,24 @@ func NewHandler(
 		return nil, fmt.Errorf("failed to create PAM OIDC provider: %w", err)
 	}
 
+	// Pre-compress PatternFly CSS for gzip-capable clients
+	var cssGzBuf bytes.Buffer
+	gzw, err := gzip.NewWriterLevel(&cssGzBuf, gzip.BestCompression)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create gzip writer: %w", err)
+	}
+	if _, err := gzw.Write([]byte(pam.PatternFlyCSS)); err != nil {
+		return nil, fmt.Errorf("failed to gzip PatternFly CSS: %w", err)
+	}
+	if err := gzw.Close(); err != nil {
+		return nil, fmt.Errorf("failed to finalize gzip PatternFly CSS: %w", err)
+	}
+
 	h := &Handler{
-		log:         log,
-		cfg:         cfg,
-		pamProvider: pamProvider,
+		log:          log,
+		cfg:          cfg,
+		pamProvider:  pamProvider,
+		cssGzipBytes: cssGzBuf.Bytes(),
 	}
 
 	return h, nil
@@ -507,4 +524,51 @@ func (h *Handler) AuthJWKS(w http.ResponseWriter, r *http.Request) {
 		Keys: v1Jwks.Keys,
 	}
 	writeJSON(w, http.StatusOK, &jwks)
+}
+
+// ServePatternFlyCSS serves the embedded PatternFly CSS stylesheet.
+// When the client supports gzip, the pre-compressed version is served (~145 KB vs ~1.6 MB).
+func (h *Handler) ServePatternFlyCSS(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/css; charset=utf-8")
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	w.Header().Set("Vary", "Accept-Encoding")
+
+	if strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
+		w.Header().Set("Content-Encoding", "gzip")
+		if _, err := w.Write(h.cssGzipBytes); err != nil {
+			h.log.Errorf("Failed to write gzipped PatternFly CSS response: %v", err)
+		}
+		return
+	}
+
+	if _, err := w.Write([]byte(pam.PatternFlyCSS)); err != nil {
+		h.log.Errorf("Failed to write PatternFly CSS response: %v", err)
+	}
+}
+
+// ServeFlightControlLogo serves the embedded Flight Control logo SVG
+func (h *Handler) ServeFlightControlLogo(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "image/svg+xml")
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	if _, err := w.Write([]byte(pam.FlightControlLogo)); err != nil {
+		h.log.Errorf("Failed to write Flight Control logo response: %v", err)
+	}
+}
+
+// ServeLoginJS serves the embedded login page JavaScript
+func (h *Handler) ServeLoginJS(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	if _, err := w.Write([]byte(pam.LoginJS)); err != nil {
+		h.log.Errorf("Failed to write login JS response: %v", err)
+	}
+}
+
+// ServeLoginCSS serves the embedded login page CSS stylesheet
+func (h *Handler) ServeLoginCSS(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/css; charset=utf-8")
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	if _, err := w.Write([]byte(pam.LoginCSS)); err != nil {
+		h.log.Errorf("Failed to write login CSS response: %v", err)
+	}
 }

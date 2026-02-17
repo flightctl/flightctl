@@ -317,6 +317,8 @@ echo "Flight Control Observability Stack uninstalled."
     mkdir -p %{buildroot}%{_sysusersdir}
     install -Dpm 0644 packaging/rpm/sysusers.d/flightctl.conf %{buildroot}%{_sysusersdir}/flightctl.conf
 
+    install -Dpm 0440 packaging/rpm/sudoers.d/flightctl %{buildroot}/etc/sudoers.d/flightctl
+
     # flightctl-services sub-package steps
     # Use the flightctl-standalone render quadlets command to generate quadlet files with the correct image tags.
     #
@@ -438,6 +440,7 @@ fi
     /usr/lib/systemd/system/flightctl-configure-greenboot.service
     /usr/share/sosreport/flightctl.py
     %{_sysusersdir}/flightctl.conf
+    /etc/sudoers.d/*
 
 %post agent
 # Enable the greenboot configuration service (runs before greenboot-healthcheck.service)

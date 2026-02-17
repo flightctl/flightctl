@@ -102,7 +102,8 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 
 	// Create auth provider service for dynamic provider loading
-	authProviderService := internalservice.NewAuthProviderServiceHandler(s.mainStore, s.log)
+	// Wrap with tracing to ensure GORM operations have proper tracing context
+	authProviderService := internalservice.WrapWithTracing(internalservice.NewAuthProviderServiceHandler(s.mainStore, s.log))
 
 	// Initialize auth (same as api_server)
 	authN, err := auth.InitMultiAuth(s.cfg, s.log, authProviderService)
@@ -165,6 +166,7 @@ func (s *Server) Run(ctx context.Context) error {
 		middleware.RequestSize(int64(s.cfg.ImageBuilderService.HttpMaxRequestSize)),
 		fcmiddleware.RequestSizeLimiter(s.cfg.ImageBuilderService.HttpMaxUrlLength, s.cfg.ImageBuilderService.HttpMaxNumHeaders),
 		fcmiddleware.SecurityHeaders,
+		fcmiddleware.ContentSecurityPolicy(fcmiddleware.StrictCSP),
 		fcmiddleware.RequestID,
 		fcmiddleware.AddEventMetadataToCtx,
 		middleware.Logger,

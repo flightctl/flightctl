@@ -1,0 +1,34 @@
+html, body {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+}
+#login-page {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    background-color: var(--pf-t--global--background--color--secondary--default);
+}
+#login-page > .pf-v6-l-stack {
+    align-items: center;
+}
+#login-page .login-logo {
+    height: 80px;
+}
+#login-page .pf-v6-c-card {
+    width: 400px;
+}
+.login-hidden {
+    display: none;
+}
+#theme-toggle {
+    position: fixed;
+    top: var(--pf-t--global--spacer--md);
+    right: var(--pf-t--global--spacer--md);
+    z-index: 100;
+}
+#theme-toggle .pf-v6-svg {
+    width: 1em;
+    height: 1em;
+}

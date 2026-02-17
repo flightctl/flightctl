@@ -28,8 +28,16 @@ var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 			harness := e2e.GetWorkerHarness()
 
 			By("Update the device image to one containing an embedded hook")
-			_, err := harness.CheckDeviceStatus(deviceId, v1beta1.DeviceSummaryStatusOnline)
-			Expect(err).ToNot(HaveOccurred())
+			// Wait for device to be online with SystemInfo populated.
+			// In production environments, hook loading with long paths may cause temporary
+			// delays in status reporting, so we wait for the device to be ready.
+			var device *v1beta1.Device
+			Eventually(func() error {
+				var err error
+				device, err = harness.CheckDeviceStatus(deviceId, v1beta1.DeviceSummaryStatusOnline)
+				return err
+			}, TIMEOUT, POLLING).Should(Succeed(), "Device should be online with SystemInfo populated")
+			Expect(device).ToNot(BeNil())
 
 			nextRenderedVersion, err := harness.PrepareNextDeviceVersion(deviceId)
 			Expect(err).ToNot(HaveOccurred())

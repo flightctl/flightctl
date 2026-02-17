@@ -38,6 +38,18 @@ var loginFormTemplate string
 //go:embed templates/login_form_error.html
 var loginFormErrorHTML string
 
+//go:embed templates/patternfly.min.css
+var PatternFlyCSS string
+
+//go:embed templates/flight-control-logo.svg
+var FlightControlLogo string
+
+//go:embed templates/login.js
+var LoginJS string
+
+//go:embed templates/login.css
+var LoginCSS string
+
 // LoginFormData represents the data used to populate the login form template
 // Currently empty as all authorization parameters are stored in encrypted cookie
 type LoginFormData struct {
