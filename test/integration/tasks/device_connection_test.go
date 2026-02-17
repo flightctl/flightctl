@@ -24,21 +24,21 @@ import (
 	"gorm.io/gorm"
 )
 
-var _ = Describe("DeviceDisconnected", func() {
+var _ = Describe("DeviceConnection", func() {
 	var (
-		log              *logrus.Logger
-		ctx              context.Context
-		orgId            uuid.UUID
-		deviceStore      store.Device
-		storeInst        store.Store
-		serviceHandler   service.Service
-		cfg              *config.Config
-		dbName           string
-		db               *gorm.DB
-		workerClient     *worker_client.MockWorkerClient
-		ctrl             *gomock.Controller
-		disconnectedTask *tasks.DeviceDisconnected
-		kvStore          kvstore.KVStore
+		log            *logrus.Logger
+		ctx            context.Context
+		orgId          uuid.UUID
+		deviceStore    store.Device
+		storeInst      store.Store
+		serviceHandler service.Service
+		cfg            *config.Config
+		dbName         string
+		db             *gorm.DB
+		workerClient   *worker_client.MockWorkerClient
+		ctrl           *gomock.Controller
+		connectionTask *tasks.DeviceConnection
+		kvStore        kvstore.KVStore
 	)
 
 	BeforeEach(func() {
@@ -54,7 +54,7 @@ var _ = Describe("DeviceDisconnected", func() {
 		workerClient = worker_client.NewMockWorkerClient(ctrl)
 		Expect(err).ToNot(HaveOccurred())
 		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStore, nil, log, "", "", []string{})
-		disconnectedTask = tasks.NewDeviceDisconnected(log, serviceHandler)
+		connectionTask = tasks.NewDeviceConnection(log, serviceHandler)
 	})
 
 	// Helper function to set device lastSeen directly in the database
@@ -75,7 +75,7 @@ var _ = Describe("DeviceDisconnected", func() {
 
 	Context("when there are no devices", func() {
 		It("should complete successfully without errors", func() {
-			disconnectedTask.Poll(ctx, orgId)
+			connectionTask.Poll(ctx, orgId)
 			// Should not panic or error
 		})
 	})
@@ -104,7 +104,7 @@ var _ = Describe("DeviceDisconnected", func() {
 		})
 
 		It("should not mark connected devices as unknown", func() {
-			disconnectedTask.Poll(ctx, orgId)
+			connectionTask.Poll(ctx, orgId)
 
 			// Check that all devices remain online
 			for i := 1; i <= 3; i++ {
@@ -143,7 +143,7 @@ var _ = Describe("DeviceDisconnected", func() {
 
 		It("should mark disconnected devices as unknown", func() {
 			workerClient.EXPECT().EmitEvent(gomock.Any(), gomock.Any(), gomock.Any()).Times(3)
-			disconnectedTask.Poll(ctx, orgId)
+			connectionTask.Poll(ctx, orgId)
 
 			// Check that all devices are marked as unknown
 			for i := 1; i <= 3; i++ {
@@ -205,7 +205,7 @@ var _ = Describe("DeviceDisconnected", func() {
 
 		It("should only mark disconnected devices as unknown", func() {
 			workerClient.EXPECT().EmitEvent(gomock.Any(), gomock.Any(), gomock.Any()).Times(3)
-			disconnectedTask.Poll(ctx, orgId)
+			connectionTask.Poll(ctx, orgId)
 
 			// Check connected devices remain online
 			for i := 1; i <= 2; i++ {
@@ -251,7 +251,7 @@ var _ = Describe("DeviceDisconnected", func() {
 
 		It("should handle devices at the disconnection threshold correctly", func() {
 			workerClient.EXPECT().EmitEvent(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
-			disconnectedTask.Poll(ctx, orgId)
+			connectionTask.Poll(ctx, orgId)
 
 			device, err := deviceStore.Get(ctx, orgId, "threshold-device")
 			Expect(err).ToNot(HaveOccurred())
@@ -296,7 +296,7 @@ var _ = Describe("DeviceDisconnected", func() {
 
 		It("should use field selector to efficiently query only disconnected devices", func() {
 			workerClient.EXPECT().EmitEvent(gomock.Any(), gomock.Any(), gomock.Any()).Times(1)
-			disconnectedTask.Poll(ctx, orgId)
+			connectionTask.Poll(ctx, orgId)
 
 			// Recent device should remain online
 			recentDevice, err := deviceStore.Get(ctx, orgId, "recent-device")

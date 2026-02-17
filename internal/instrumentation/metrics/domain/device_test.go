@@ -90,7 +90,7 @@ func (m *MockDevice) GetWithoutServiceConditions(ctx context.Context, orgId uuid
 	return nil, nil
 }
 
-func (m *MockDevice) ListDisconnected(ctx context.Context, orgId uuid.UUID, listParams store.ListParams, cutoffTime time.Time) (*domain.DeviceList, error) {
+func (m *MockDevice) ListConnectivityChanged(ctx context.Context, orgId uuid.UUID, listParams store.ListParams, cutoffTime time.Time) (*domain.DeviceList, error) {
 	return nil, nil
 }
 
