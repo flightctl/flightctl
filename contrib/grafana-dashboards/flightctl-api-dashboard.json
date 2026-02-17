@@ -1,4 +1,14 @@
 {
+  "__inputs": [
+    {
+      "name": "DS_PROMETHEUS",
+      "label": "Prometheus",
+      "description": "",
+      "type": "datasource",
+      "pluginId": "prometheus",
+      "pluginName": "Prometheus"
+    }
+  ],
   "annotations": {
     "list": [
       {
@@ -24,7 +34,7 @@
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
-  "id": 1,
+  "id": null,
   "links": [],
   "panels": [
     {
@@ -48,7 +58,7 @@
         "content": "# Flight Control API",
         "mode": "markdown"
       },
-      "pluginVersion": "12.1.0",
+      "pluginVersion": "12.3.3",
       "title": "",
       "type": "text"
     },
@@ -80,12 +90,13 @@
             },
             "insertNulls": false,
             "lineInterpolation": "linear",
-            "lineWidth": 1,
+            "lineWidth": 2,
             "pointSize": 5,
             "scaleDistribution": {
               "type": "linear"
             },
             "showPoints": "never",
+            "showValues": false,
             "spanNulls": true,
             "stacking": {
               "group": "A",
@@ -102,7 +113,7 @@
             "steps": [
               {
                 "color": "green",
-                "value": 0
+                "value": null
               },
               {
                 "color": "red",
@@ -152,7 +163,7 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "12.1.0",
+      "pluginVersion": "12.3.3",
       "targets": [
         {
           "datasource": {
@@ -160,7 +171,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.99, sum(rate({__name__=\"http.server.request.duration_seconds_bucket\", \"http.response.status_code\"=~\"2..\"}[$__rate_interval])) by (le))",
+          "expr": "histogram_quantile(0.99, sum(rate(http_server_request_duration_seconds_bucket{http_response_status_code=~\"2..\"}[$__rate_interval])) by (le)) * 1000",
           "hide": false,
           "instant": false,
           "legendFormat": "OK (p99)",
@@ -169,24 +180,11 @@
         },
         {
           "datasource": {
-            "type": "graphite",
-            "uid": "000000001"
-          },
-          "editorMode": "code",
-          "expr": "sum(rate({__name__=\"http.server.request.duration_seconds_sum\", \"http.response.status_code\"=~\"4..|5..\"}[$__rate_interval]))\n/\nsum(rate({__name__=\"http.server.request.duration_seconds_count\", \"http.response.status_code\"=~\"4..|5..\"}[$__rate_interval]))",
-          "hide": true,
-          "legendFormat": "Error",
-          "range": true,
-          "refId": "Error",
-          "target": "alias(movingAverage(statsd.fakesite.timers.ads_timer.upper_25, 5), 'Errors')"
-        },
-        {
-          "datasource": {
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.99, sum(rate({__name__=\"http.server.request.duration_seconds_bucket\", \"http.response.status_code\"=~\"4..|5..\"}[$__rate_interval])) by (le))",
+          "expr": "histogram_quantile(0.99, sum(rate(http_server_request_duration_seconds_bucket{http_response_status_code=~\"4..|5..\"}[$__rate_interval])) by (le)) * 1000",
           "hide": false,
           "instant": false,
           "legendFormat": "Error (p99)",
@@ -225,12 +223,13 @@
             },
             "insertNulls": false,
             "lineInterpolation": "linear",
-            "lineWidth": 1,
+            "lineWidth": 2,
             "pointSize": 5,
             "scaleDistribution": {
               "type": "linear"
             },
             "showPoints": "never",
+            "showValues": false,
             "spanNulls": true,
             "stacking": {
               "group": "A",
@@ -246,7 +245,7 @@
             "steps": [
               {
                 "color": "green",
-                "value": 0
+                "value": null
               },
               {
                 "color": "red",
@@ -296,7 +295,7 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "12.1.0",
+      "pluginVersion": "12.3.3",
       "targets": [
         {
           "datasource": {
@@ -304,7 +303,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum(rate({__name__=\"http.server.request.duration_seconds_count\"}[$__rate_interval]))",
+          "expr": "sum(rate(http_server_request_duration_seconds_count[$__rate_interval]))",
           "legendFormat": "Requests/s",
           "range": true,
           "refId": "A"
@@ -347,6 +346,7 @@
               "type": "linear"
             },
             "showPoints": "always",
+            "showValues": false,
             "spanNulls": false,
             "stacking": {
               "group": "A",
@@ -363,7 +363,7 @@
             "steps": [
               {
                 "color": "green",
-                "value": 0
+                "value": null
               },
               {
                 "color": "red",
@@ -428,7 +428,7 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "12.1.0",
+      "pluginVersion": "12.3.3",
       "targets": [
         {
           "datasource": {
@@ -436,7 +436,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "round(sum(increase({__name__=\"http.server.request.duration_seconds_count\", \"http.response.status_code\"=~\"4..\"}[$__rate_interval])))",
+          "expr": "round(sum(increase(http_server_request_duration_seconds_count{http_response_status_code=~\"4..\"}[$__rate_interval])))",
           "hide": false,
           "instant": false,
           "legendFormat": "code 4xx",
@@ -449,7 +449,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "round(sum(increase({__name__=\"http.server.request.duration_seconds_count\", \"http.response.status_code\"=~\"5..\"}[$__rate_interval])))",
+          "expr": "round(sum(increase(http_server_request_duration_seconds_count{http_response_status_code=~\"5..\"}[$__rate_interval])))",
           "hide": false,
           "instant": false,
           "interval": "",
@@ -489,12 +489,13 @@
             },
             "insertNulls": false,
             "lineInterpolation": "linear",
-            "lineWidth": 1,
+            "lineWidth": 2,
             "pointSize": 5,
             "scaleDistribution": {
               "type": "linear"
             },
             "showPoints": "never",
+            "showValues": false,
             "spanNulls": true,
             "stacking": {
               "group": "A",
@@ -512,7 +513,7 @@
             "steps": [
               {
                 "color": "green",
-                "value": 0
+                "value": null
               },
               {
                 "color": "red",
@@ -526,38 +527,44 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "Errors"
+              "options": "CPU"
             },
             "properties": [
               {
                 "id": "color",
                 "value": {
-                  "fixedColor": "#E24D42",
+                  "fixedColor": "green",
                   "mode": "fixed"
                 }
               }
             ]
           },
           {
-            "__systemRef": "hideSeriesFrom",
             "matcher": {
-              "id": "byNames",
-              "options": {
-                "mode": "exclude",
-                "names": [
-                  "CPU load"
-                ],
-                "prefix": "All except:",
-                "readOnly": true
-              }
+              "id": "byName",
+              "options": "Memory"
             },
             "properties": [
               {
-                "id": "custom.hideFrom",
+                "id": "color",
                 "value": {
-                  "legend": false,
-                  "tooltip": false,
-                  "viz": true
+                  "fixedColor": "blue",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Disk"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#b086b1",
+                  "mode": "fixed"
                 }
               }
             ]
@@ -566,7 +573,7 @@
       },
       "gridPos": {
         "h": 9,
-        "w": 3,
+        "w": 12,
         "x": 12,
         "y": 11
       },
@@ -586,7 +593,7 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "12.1.0",
+      "pluginVersion": "12.3.3",
       "targets": [
         {
           "datasource": {
@@ -598,318 +605,50 @@
           "expr": "flightctl_cpu_utilization",
           "instant": false,
           "interval": "",
-          "legendFormat": "CPU load",
+          "legendFormat": "CPU",
           "range": true,
           "refId": "A"
-        }
-      ],
-      "title": "SATURATION (CPU)",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "barWidthFactor": 0.6,
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            },
-            "insertNulls": false,
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "auto",
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "mappings": [],
-          "max": 1,
-          "min": 0,
-          "thresholds": {
-            "mode": "percentage",
-            "steps": [
-              {
-                "color": "green",
-                "value": 0
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          },
-          "unit": "percentunit"
         },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 9,
-        "w": 3,
-        "x": 15,
-        "y": 11
-      },
-      "id": 6,
-      "options": {
-        "legend": {
-          "calcs": [
-            "mean"
-          ],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "hideZeros": false,
-          "mode": "single",
-          "sort": "none"
-        }
-      },
-      "pluginVersion": "12.1.0",
-      "targets": [
         {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
           "editorMode": "code",
           "expr": "flightctl_memory_utilization",
+          "hide": false,
+          "instant": false,
           "legendFormat": "Memory",
           "range": true,
-          "refId": "A"
-        }
-      ],
-      "title": "SATURATION (Memory)",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "barWidthFactor": 0.6,
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            },
-            "insertNulls": false,
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "auto",
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "mappings": [],
-          "max": 1,
-          "min": 0,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": 0
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          },
-          "unit": "percentunit"
+          "refId": "B"
         },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 9,
-        "w": 3,
-        "x": 18,
-        "y": 11
-      },
-      "id": 8,
-      "options": {
-        "legend": {
-          "calcs": [
-            "mean"
-          ],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "hideZeros": false,
-          "mode": "single",
-          "sort": "none"
-        }
-      },
-      "pluginVersion": "12.1.0",
-      "targets": [
         {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
           "editorMode": "code",
           "expr": "flightctl_disk_utilization",
+          "hide": false,
+          "instant": false,
           "legendFormat": "Disk",
           "range": true,
-          "refId": "A"
+          "refId": "C"
         }
       ],
-      "title": "SATURATION (Disk)",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "barWidthFactor": 0.6,
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            },
-            "insertNulls": false,
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "auto",
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "mappings": [],
-          "max": 1,
-          "min": 0,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": 0
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          },
-          "unit": "percentunit"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 9,
-        "w": 3,
-        "x": 21,
-        "y": 11
-      },
-      "id": 7,
-      "options": {
-        "legend": {
-          "calcs": [
-            "mean"
-          ],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "hideZeros": false,
-          "mode": "single",
-          "sort": "none"
-        }
-      },
-      "pluginVersion": "12.1.0",
-      "targets": [
-        {
-          "editorMode": "code",
-          "expr": "process_open_fds{container=\"flightctl-api\"} / process_max_fds{container=\"flightctl-api\"} ",
-          "legendFormat": "Open File Descriptors",
-          "range": true,
-          "refId": "A"
-        }
-      ],
-      "title": "SATURATION (FDs)",
+      "title": "SATURATION",
       "type": "timeseries"
     }
   ],
   "preload": false,
   "refresh": "",
-  "schemaVersion": 41,
+  "schemaVersion": 42,
   "tags": [],
   "templating": {
     "list": []
   },
   "time": {
-    "from": "now-24h",
+    "from": "now-1h",
     "to": "now"
   },
   "timepicker": {
@@ -927,6 +666,6 @@
   },
   "timezone": "browser",
   "title": "Flight Control API Dashboard",
-  "uid": "000000109",
-  "version": 7
+  "uid": "flightctl-api",
+  "version": 1
 }
