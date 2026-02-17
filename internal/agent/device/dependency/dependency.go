@@ -297,6 +297,9 @@ func (m *prefetchManager) isTargetsChanged(seenTargets map[imageRef]struct{}) bo
 }
 
 func (m *prefetchManager) BeforeUpdate(ctx context.Context, current, desired *v1beta1.DeviceSpec, opts ...OCICollectOpt) error {
+	if err := m.resourceManager.BeforeUpdate(ctx); err != nil {
+		return err
+	}
 	m.log.Debug("Collecting OCI targets from all dependency sources")
 
 	allTargets := make(OCIPullTargetsByUser)

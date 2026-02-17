@@ -36,7 +36,6 @@ var (
 	ErrComponentLifecycle      = errors.New("lifecycle")
 	ErrComponentOS             = errors.New("os")
 	ErrComponentOSReconciled   = errors.New("os reconciliation")
-	ErrCriticalResourceAlert   = errors.New("critical resource alerts are firing")
 
 	// bootstrap
 	ErrEnrollmentRequestFailed = errors.New("enrollment request failed")
@@ -197,8 +196,9 @@ var (
 	ErrDoesNotExist       = os.ErrNotExist
 	ErrReadOnlyFileSystem = syscall.EROFS
 	ErrNoSpaceLeft        = syscall.ENOSPC
-	ErrDiskFull           = errors.New("disk full")
-	ErrFailedToDecode     = errors.New("failed to decode")
+	ErrDiskFull              = errors.New("disk full")
+	ErrCriticalResourceAlert = errors.New("critical resource alerts are firing")
+	ErrFailedToDecode        = errors.New("failed to decode")
 	ErrFailedToParse      = errors.New("failed to parse")
 	ErrNoSuchFile         = errors.New("no such file")
 	ErrNonRetryable       = errors.New("non-retryable")
@@ -377,8 +377,9 @@ var (
 		ErrPermissionDenied:   codes.PermissionDenied,
 		ErrReadOnlyFileSystem: codes.PermissionDenied,
 		ErrNoSpaceLeft:        codes.ResourceExhausted,
-		ErrDiskFull:           codes.ResourceExhausted,
-		ErrFailedToDecode:     codes.InvalidArgument,
+		ErrDiskFull:              codes.ResourceExhausted,
+		ErrCriticalResourceAlert: codes.ResourceExhausted,
+		ErrFailedToDecode:        codes.InvalidArgument,
 		ErrFailedToParse:      codes.InvalidArgument,
 		ErrDoesNotExist:       codes.NotFound,
 		ErrNoSuchFile:         codes.NotFound,
@@ -581,19 +582,4 @@ func ToCode(err error) codes.Code {
 	}
 
 	return codes.Unknown
-}
-
-// CriticalAlertsFiringError is a custom error type for critical alerts.
-type CriticalAlertsFiringError struct {
-}
-
-// Error implements the error interface.
-func (e *CriticalAlertsFiringError) Error() string {
-	return "critical alerts are firing"
-}
-
-// Is returns true if the error is a CriticalAlertsFiringError.
-func (e *CriticalAlertsFiringError) Is(target error) bool {
-	_, ok := target.(*CriticalAlertsFiringError)
-	return ok
 }
