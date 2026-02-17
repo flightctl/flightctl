@@ -716,6 +716,19 @@ runs:
         echo "*** PRE-EXECUTION HELM CHECK ***"
         helm list -A || echo "HELM LIST FAILED"
 
+        echo "*** SETTING FLAVOR-SPECIFIC TIMEOUTS ***"
+        # EL10 requires longer timeout due to FIPS 140-3 enhanced TLS initialization and slower migrations
+        # EL10: 25m with wait, 20m without wait (FIPS database migrations, TLS validation, container startup delays)
+        # EL9:  15m with wait, 10m without wait (Standard requirements)
+        if [ "${{ inputs.flavor }}" == "el10" ]; then
+          HELM_TIMEOUT_WITH_WAIT="25m"
+          HELM_TIMEOUT_WITHOUT_WAIT="20m"
+        else
+          HELM_TIMEOUT_WITH_WAIT="15m"
+          HELM_TIMEOUT_WITHOUT_WAIT="10m"
+        fi
+        echo "*** FLAVOR ${{ inputs.flavor }}: TIMEOUT_WITH_WAIT=${HELM_TIMEOUT_WITH_WAIT}, TIMEOUT_WITHOUT_WAIT=${HELM_TIMEOUT_WITHOUT_WAIT} ***"
+
         echo "*** TESTING HELM COMMAND SYNTAX ***"
         if [ "${WAIT}" == "true" ]; then
           TEST_CMD="${HELM_CMD} --debug --timeout=${HELM_TIMEOUT_WITH_WAIT} --dry-run"
@@ -740,17 +753,6 @@ runs:
         fi
 
         echo "*** DRY-RUN SUCCEEDED - PROCEEDING WITH ACTUAL INSTALL ***"
-
-        # EL10 requires longer timeout due to FIPS 140-3 enhanced TLS initialization and slower migrations
-        # EL10: 25m with wait, 20m without wait (FIPS database migrations, TLS validation, container startup delays)
-        # EL9:  15m with wait, 10m without wait (Standard requirements)
-        if [ "${{ inputs.flavor }}" == "el10" ]; then
-          HELM_TIMEOUT_WITH_WAIT="25m"
-          HELM_TIMEOUT_WITHOUT_WAIT="20m"
-        else
-          HELM_TIMEOUT_WITH_WAIT="15m"
-          HELM_TIMEOUT_WITHOUT_WAIT="10m"
-        fi
 
         if [ "${WAIT}" == "true" ]; then
           echo "*** RUNNING WITH WAIT AND DEBUG ***"
