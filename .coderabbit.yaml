@@ -1,0 +1,19 @@
+reviews:
+  auto_review:
+    # Set to true to ensure CodeRabbit reviews PRs even if they are in 'Draft' status.
+    # Bots often create PRs as drafts first, which CodeRabbit ignores by default.
+    drafts: false
+
+    # Ensure this list does NOT contain your bot's username.
+    # If you have an existing list, remove the bot's name from it.
+    # Username matching is exact and case-sensitive.
+    # For GitHub bots, the username usually includes the '[bot]' suffix.
+    ignore_usernames:
+      - packit-as-a-service
+
+    # If your bot uses specific keywords in the title (like "WIP" or "Experimental"),
+    # ensure they are not listed here, as this will cause CodeRabbit to skip the review.
+    ignore_title_keywords:
+
+    # Ensure automatic reviews are globally enabled for the repository.
+    enabled: true
