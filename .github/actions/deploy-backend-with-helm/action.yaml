@@ -464,8 +464,8 @@ runs:
         echo "*** GENERATE STEP STARTED ***"
         echo "FLAVOR=${FLAVOR}"
         set -euo pipefail
-        echo "*** ABOUT TO RUN MAKE GENERATE ***"
-        make generate
+        echo "*** ABOUT TO RUN MAKE GENERATE WITH FLAVOR=${FLAVOR} ***"
+        FLAVOR=${FLAVOR} make generate
         echo "*** MAKE GENERATE COMPLETED ***"
 
     # ========== DEPLOY BACKEND ==========
