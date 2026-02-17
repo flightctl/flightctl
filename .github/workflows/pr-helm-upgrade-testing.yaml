@@ -460,9 +460,10 @@ jobs:
           fi
           echo "Using chart file: $CHART_FILE"
 
-          # Use baseline tag since we create baseline tags from flavor-prefixed images
-          IMAGE_TAG="${PR_GIT_TAG}"
-          echo "Using baseline image tag for deployment: ${IMAGE_TAG}"
+          # Use flavor-prefixed tags since only flavor-prefixed images exist
+          # (not baseline tags as originally assumed)
+          IMAGE_TAG="${FLAVOR}-${PR_GIT_TAG}"
+          echo "Using flavor-prefixed image tag for Helm upgrade: ${IMAGE_TAG}"
 
           # Start migration monitoring in background
           (
@@ -633,7 +634,7 @@ jobs:
           helm upgrade flightctl "${CHART_FILE}" \
             --namespace flightctl-external \
             --reuse-values \
-            --set dbSetup.image.tag="${PR_GIT_TAG}" \
+            --set dbSetup.image.tag="${FLAVOR}-${PR_GIT_TAG}" \
             --debug --wait
 
       - name: "[HEAD] Wait for API readiness after same-version upgrade"
