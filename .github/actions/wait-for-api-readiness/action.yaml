@@ -41,9 +41,9 @@ runs:
                 kubectl get deployments -n flightctl-internal -o wide || echo "No internal deployments"
 
                 echo ""
-                echo "--- Recent Events (last 3) ---"
-                kubectl get events -n flightctl-external --sort-by='.lastTimestamp' | tail -3 || echo "No external events"
-                kubectl get events -n flightctl-internal --sort-by='.lastTimestamp' | tail -3 || echo "No internal events"
+                echo "--- Recent Events ---"
+                kubectl get events -n flightctl-external --sort-by='.lastTimestamp' || echo "No external events"
+                kubectl get events -n flightctl-internal --sort-by='.lastTimestamp' || echo "No internal events"
 
                 # Show logs from failed/pending pods
                 echo ""
@@ -52,7 +52,7 @@ runs:
                     for pod in $(kubectl get pods -n $ns --field-selector=status.phase!=Running,status.phase!=Succeeded -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || true); do
                         if [ -n "$pod" ]; then
                             echo "=== Pod $pod in $ns ==="
-                            kubectl describe pod $pod -n $ns | tail -10 || echo "Failed to describe $pod"
+                            kubectl describe pod $pod -n $ns || echo "Failed to describe $pod"
                         fi
                     done
                 done
@@ -94,7 +94,7 @@ runs:
             kubectl get all -n flightctl-internal -o wide || echo "No internal resources"
             echo ""
             echo "--- All Recent Events ---"
-            kubectl get events -n flightctl-external --sort-by='.lastTimestamp' | tail -10 || echo "No external events"
-            kubectl get events -n flightctl-internal --sort-by='.lastTimestamp' | tail -10 || echo "No internal events"
+            kubectl get events -n flightctl-external --sort-by='.lastTimestamp' || echo "No external events"
+            kubectl get events -n flightctl-internal --sort-by='.lastTimestamp' || echo "No internal events"
             exit 1
         fi
