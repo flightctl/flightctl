@@ -558,6 +558,10 @@ jobs:
         uses: ./.github/actions/wait-for-api-readiness
         with:
           base-domain: ${{ steps.get-ip.outputs.base-domain }}
+          # EL10 requires longer timeout due to FIPS 140-3 enhanced TLS initialization
+          # EL10: 180s (FIPS 140-3 with TLS 1.2 EMS mandatory, enhanced key validation, CI load)
+          # EL9:  60s  (Standard TLS requirements)
+          retries: ${{ matrix.flavor == 'el10' && '180' || '60' }}
 
       - name: "[HEAD] Check deployment"
         run: |
@@ -641,6 +645,10 @@ jobs:
         uses: ./.github/actions/wait-for-api-readiness
         with:
           base-domain: ${{ steps.get-ip.outputs.base-domain }}
+          # EL10 requires longer timeout due to FIPS 140-3 enhanced TLS initialization
+          # EL10: 180s (FIPS 140-3 with TLS 1.2 EMS mandatory, enhanced key validation, CI load)
+          # EL9:  60s  (Standard TLS requirements)
+          retries: ${{ matrix.flavor == 'el10' && '180' || '60' }}
 
       - name: "[HEAD] Validate versions"
         env:
