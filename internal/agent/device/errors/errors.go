@@ -123,6 +123,7 @@ var (
 
 	// resource monitoring
 	ErrCriticalResourceAlert = errors.New("critical resource alert")
+	ErrCriticalAlertsFiring  = errors.New("critical alerts firing")
 
 	// policy errors
 	ErrInt64Conversion   = errors.New("convert string to int64")
@@ -296,7 +297,8 @@ var (
 		ErrOCICollectorNotReady:   codes.FailedPrecondition,
 
 		// resource exhausted
-		ErrCriticalResourceAlert: codes.ResourceExhausted,
+		ErrCriticalResourceAlert:  codes.ResourceExhausted,
+		ErrCriticalAlertsFiring:   codes.ResourceExhausted,
 
 		// permission denied
 		ErrReadingRenderedSpec: codes.PermissionDenied,
@@ -479,6 +481,8 @@ func IsRetryable(err error) bool {
 	case errors.Is(err, ErrNetwork):
 		return true
 	case errors.Is(err, ErrDownloadPolicyNotReady), errors.Is(err, ErrUpdatePolicyNotReady):
+		return true
+	case errors.Is(err, ErrCriticalAlertsFiring):
 		return true
 	case errors.Is(err, ErrPrefetchNotReady), errors.Is(err, ErrOCICollectorNotReady):
 		return true

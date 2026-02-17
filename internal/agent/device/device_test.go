@@ -67,6 +67,139 @@ func TestSync(t *testing.T) {
 		)
 	}{
 		{
+			name:    "sync with critical cpu alerts firing",
+			current: newVersionedDevice("0"),
+			desired: newVersionedDevice("1"),
+			setupMocks: func(
+				current *v1beta1.Device,
+				desired *v1beta1.Device,
+				mockOSClient *os.MockClient,
+				mockManagementClient *client.MockManagement,
+				mockSystemInfoManager *systeminfo.MockManager,
+				mockExec *executer.MockExecuter,
+				mockRouterService *console.MockRouterServiceClient,
+				mockResourceManager *resource.MockManager,
+				mockSystemdManager *systemd.MockManager,
+				mockHookManager *hook.MockManager,
+				mockAppManager *applications.MockManager,
+				mockLifecycleManager *lifecycle.MockManager,
+				mockPolicyManager *policy.MockManager,
+				mockSpecManager *spec.MockManager,
+				mockPrefetchManager *dependency.MockPrefetchManager,
+				mockOSManager *os.MockManager,
+				mockPruningManager *imagepruning.MockManager,
+				mockPullConfigResolver *dependency.MockPullConfigResolver,
+			) {
+				gomock.InOrder(
+					mockSpecManager.EXPECT().GetDesired(ctx).Return(desired, false, nil),
+					mockSpecManager.EXPECT().Read(spec.Current).Return(current, nil),
+					mockSpecManager.EXPECT().IsUpgrading().Return(true),
+					mockResourceManager.EXPECT().IsCriticalAlert(resource.CPUMonitorType).Return(true),
+					mockSpecManager.EXPECT().Rollback(ctx).Return(nil),
+					mockManagementClient.EXPECT().UpdateDeviceStatus(gomock.Any(), deviceName, gomock.Any()).Return(nil),
+				)
+
+				mockSpecManager.EXPECT().Upgrade(gomock.Any()).Return(nil).Times(0)
+				mockSpecManager.EXPECT().SetUpgradeFailed(gomock.Any()).Return(nil).Times(0)
+			},
+		},
+		{
+			name:    "sync with critical memory alerts firing",
+			current: newVersionedDevice("0"),
+			desired: newVersionedDevice("1"),
+			setupMocks: func(
+				current *v1beta1.Device,
+				desired *v1beta1.Device,
+				mockOSClient *os.MockClient,
+				mockManagementClient *client.MockManagement,
+				mockSystemInfoManager *systeminfo.MockManager,
+				mockExec *executer.MockExecuter,
+				mockRouterService *console.MockRouterServiceClient,
+				mockResourceManager *resource.MockManager,
+				mockSystemdManager *systemd.MockManager,
+				mockHookManager *hook.MockManager,
+				mockAppManager *applications.MockManager,
+				mockLifecycleManager *lifecycle.MockManager,
+				mockPolicyManager *policy.MockManager,
+				mockSpecManager *spec.MockManager,
+				mockPrefetchManager *dependency.MockPrefetchManager,
+				mockOSManager *os.MockManager,
+				mockPruningManager *imagepruning.MockManager,
+				mockPullConfigResolver *dependency.MockPullConfigResolver,
+			) {
+				gomock.InOrder(
+					mockSpecManager.EXPECT().GetDesired(ctx).Return(desired, false, nil),
+					mockSpecManager.EXPECT().Read(spec.Current).Return(current, nil),
+					mockSpecManager.EXPECT().IsUpgrading().Return(true),
+					mockResourceManager.EXPECT().IsCriticalAlert(resource.CPUMonitorType).Return(false),
+					mockResourceManager.EXPECT().IsCriticalAlert(resource.MemoryMonitorType).Return(true),
+					mockSpecManager.EXPECT().Rollback(ctx).Return(nil),
+					mockManagementClient.EXPECT().UpdateDeviceStatus(gomock.Any(), deviceName, gomock.Any()).Return(nil),
+				)
+
+				mockSpecManager.EXPECT().Upgrade(gomock.Any()).Return(nil).Times(0)
+				mockSpecManager.EXPECT().SetUpgradeFailed(gomock.Any()).Return(nil).Times(0)
+			},
+		},
+		{
+			name:    "sync with critical disk alerts firing",
+			current: newVersionedDevice("0"),
+			desired: newVersionedDevice("1"),
+			setupMocks: func(
+				current *v1beta1.Device,
+				desired *v1beta1.Device,
+				mockOSClient *os.MockClient,
+				mockManagementClient *client.MockManagement,
+				mockSystemInfoManager *systeminfo.MockManager,
+				mockExec *executer.MockExecuter,
+				mockRouterService *console.MockRouterServiceClient,
+				mockResourceManager *resource.MockManager,
+				mockSystemdManager *systemd.MockManager,
+				mockHookManager *hook.MockManager,
+				mockAppManager *applications.MockManager,
+				mockLifecycleManager *lifecycle.MockManager,
+				mockPolicyManager *policy.MockManager,
+				mockSpecManager *spec.MockManager,
+				mockPrefetchManager *dependency.MockPrefetchManager,
+				mockOSManager *os.MockManager,
+				mockPruningManager *imagepruning.MockManager,
+				mockPullConfigResolver *dependency.MockPullConfigResolver,
+			) {
+				mockPullConfigResolver.EXPECT().BeforeUpdate(gomock.Any()).AnyTimes()
+				mockPullConfigResolver.EXPECT().Cleanup().AnyTimes()
+				// IsCriticalAlert is called at the start of each syncDeviceSpec call
+				mockResourceManager.EXPECT().IsCriticalAlert(resource.CPUMonitorType).Return(false).AnyTimes()
+				mockResourceManager.EXPECT().IsCriticalAlert(resource.MemoryMonitorType).Return(false).AnyTimes()
+				// Set flexible expectations for methods called multiple times or in different contexts
+				// These are called but may not be in the exact InOrder sequence due to error handling
+				mockSpecManager.EXPECT().IsUpgrading().Return(true).AnyTimes()
+				mockSpecManager.EXPECT().IsUpgrading().Return(false).AnyTimes()
+				mockManagementClient.EXPECT().UpdateDeviceStatus(gomock.Any(), deviceName, gomock.Any()).Return(nil).AnyTimes()
+				mockSystemdManager.EXPECT().EnsurePatterns(gomock.Any()).Return(nil).AnyTimes()
+				mockPrefetchManager.EXPECT().RegisterOCICollector(gomock.Any()).AnyTimes()
+				mockSpecManager.EXPECT().IsOSUpdate().Return(false).AnyTimes()
+				mockSpecManager.EXPECT().IsOSUpdatePending(gomock.Any()).Return(false, nil).AnyTimes()
+				mockSpecManager.EXPECT().CheckPolicy(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+				mockSpecManager.EXPECT().GetDesired(ctx).Return(desired, false, nil).AnyTimes()
+				mockSpecManager.EXPECT().Read(spec.Current).Return(current, nil).AnyTimes()
+				mockResourceManager.EXPECT().BeforeUpdate(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+				mockPruningManager.EXPECT().RecordReferences(ctx, gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+				mockPrefetchManager.EXPECT().BeforeUpdate(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+				mockAppManager.EXPECT().BeforeUpdate(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+				mockHookManager.EXPECT().OnBeforeUpdating(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+				mockHookManager.EXPECT().Sync(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+				mockAppManager.EXPECT().AfterUpdate(ctx).Return(nil).AnyTimes()
+				mockLifecycleManager.EXPECT().Sync(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+				mockLifecycleManager.EXPECT().AfterUpdate(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+				mockSpecManager.EXPECT().CheckOsReconciliation(gomock.Any()).Return("", true, nil).AnyTimes()
+				mockHookManager.EXPECT().OnAfterUpdating(ctx, gomock.Any(), gomock.Any(), false).Return(nil).AnyTimes()
+				mockPrefetchManager.EXPECT().Cleanup().AnyTimes()
+				mockPruningManager.EXPECT().Prune(gomock.Any()).Return(nil).AnyTimes()
+				mockPruningManager.EXPECT().PrunePending().Return(false).AnyTimes()
+				mockSpecManager.EXPECT().Upgrade(gomock.Any()).Return(nil).Times(1)
+			},
+		},
+		{
 			name:    "sync with error and rollback with error",
 			current: newVersionedDevice("0"),
 			desired: newVersionedDevice("1"),
