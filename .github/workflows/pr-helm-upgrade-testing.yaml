@@ -512,7 +512,12 @@ jobs:
           echo "Migration monitoring started with PID: $MONITOR_PID"
 
           # Run helm upgrade with timeout handling
-          if timeout 20m helm upgrade flightctl "${CHART_FILE}" \
+          # EL10 requires longer timeout due to FIPS 140-3 enhanced TLS initialization and slower migrations
+          # EL10: 30m (FIPS database migrations, TLS validation, container startup delays)
+          # EL9:  20m (Standard requirements)
+          HELM_TIMEOUT="${{ matrix.flavor == 'el10' && '30m' || '20m' }}"
+          echo "Using Helm timeout: $HELM_TIMEOUT for flavor ${{ matrix.flavor }}"
+          if timeout "$HELM_TIMEOUT" helm upgrade flightctl "${CHART_FILE}" \
             --namespace flightctl-external \
             --reuse-values \
             --set dbSetup.image.tag="${IMAGE_TAG}" \

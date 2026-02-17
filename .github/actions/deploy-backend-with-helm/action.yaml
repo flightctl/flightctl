@@ -718,11 +718,11 @@ runs:
 
         echo "*** TESTING HELM COMMAND SYNTAX ***"
         if [ "${WAIT}" == "true" ]; then
-          TEST_CMD="${HELM_CMD} --debug --timeout=15m --dry-run"
+          TEST_CMD="${HELM_CMD} --debug --timeout=${HELM_TIMEOUT_WITH_WAIT} --dry-run"
         else
-          TEST_CMD="${HELM_CMD} --timeout=10m --dry-run"
+          TEST_CMD="${HELM_CMD} --timeout=${HELM_TIMEOUT_WITHOUT_WAIT} --dry-run"
         fi
-        echo "*** DRY-RUN COMMAND: $TEST_CMD ***"
+        echo "*** DRY-RUN COMMAND: $TEST_CMD (flavor: ${{ inputs.flavor }}) ***"
 
         set +e
         echo "*** RUNNING DRY-RUN FIRST ***"
@@ -741,15 +741,26 @@ runs:
 
         echo "*** DRY-RUN SUCCEEDED - PROCEEDING WITH ACTUAL INSTALL ***"
 
+        # EL10 requires longer timeout due to FIPS 140-3 enhanced TLS initialization and slower migrations
+        # EL10: 25m with wait, 20m without wait (FIPS database migrations, TLS validation, container startup delays)
+        # EL9:  15m with wait, 10m without wait (Standard requirements)
+        if [ "${{ inputs.flavor }}" == "el10" ]; then
+          HELM_TIMEOUT_WITH_WAIT="25m"
+          HELM_TIMEOUT_WITHOUT_WAIT="20m"
+        else
+          HELM_TIMEOUT_WITH_WAIT="15m"
+          HELM_TIMEOUT_WITHOUT_WAIT="10m"
+        fi
+
         if [ "${WAIT}" == "true" ]; then
           echo "*** RUNNING WITH WAIT AND DEBUG ***"
-          echo "*** ACTUAL COMMAND: ${HELM_CMD} --debug --timeout=15m ***"
-          eval "${HELM_CMD} --debug --timeout=15m" 2>&1 | tee helm-install.log
+          echo "*** ACTUAL COMMAND: ${HELM_CMD} --debug --timeout=${HELM_TIMEOUT_WITH_WAIT} (flavor: ${{ inputs.flavor }}) ***"
+          eval "${HELM_CMD} --debug --timeout=${HELM_TIMEOUT_WITH_WAIT}" 2>&1 | tee helm-install.log
           helm_exit_code=$?
         else
           echo "*** RUNNING WITHOUT WAIT ***"
-          echo "*** ACTUAL COMMAND: ${HELM_CMD} --timeout=10m ***"
-          eval "${HELM_CMD} --timeout=10m" 2>&1 | tee helm-install.log
+          echo "*** ACTUAL COMMAND: ${HELM_CMD} --timeout=${HELM_TIMEOUT_WITHOUT_WAIT} (flavor: ${{ inputs.flavor }}) ***"
+          eval "${HELM_CMD} --timeout=${HELM_TIMEOUT_WITHOUT_WAIT}" 2>&1 | tee helm-install.log
           helm_exit_code=$?
         fi
         set -e
