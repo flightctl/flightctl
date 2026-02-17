@@ -36,6 +36,8 @@ var (
 	ErrComponentLifecycle      = errors.New("lifecycle")
 	ErrComponentOS             = errors.New("os")
 	ErrComponentOSReconciled   = errors.New("os reconciliation")
+	ErrCriticalAlertsFiring    = errors.New("critical alerts are firing")
+	ErrCriticalResourceAlert   = errors.New("critical resource alerts are firing")
 
 	// bootstrap
 	ErrEnrollmentRequestFailed = errors.New("enrollment request failed")
@@ -120,9 +122,6 @@ var (
 
 	// Certificate management errors
 	ErrCreateCertificateSigningRequest = errors.New("failed to create certificate signing request")
-
-	// resource monitoring
-	ErrCriticalResourceAlert  = errors.New("critical resource alerts firing")
 
 	// policy errors
 	ErrInt64Conversion   = errors.New("convert string to int64")
@@ -294,9 +293,6 @@ var (
 		ErrUpdatePolicyNotReady:   codes.FailedPrecondition,
 		ErrPrefetchNotReady:       codes.FailedPrecondition,
 		ErrOCICollectorNotReady:   codes.FailedPrecondition,
-
-		// resource exhausted
-		ErrCriticalResourceAlert:   codes.Resource_exhausted,
 
 		// permission denied
 		ErrReadingRenderedSpec: codes.PermissionDenied,
@@ -479,8 +475,6 @@ func IsRetryable(err error) bool {
 	case errors.Is(err, ErrNetwork):
 		return true
 	case errors.Is(err, ErrDownloadPolicyNotReady), errors.Is(err, ErrUpdatePolicyNotReady):
-		return true
-	case errors.Is(err, ErrCriticalResourceAlert):
 		return true
 	case errors.Is(err, ErrPrefetchNotReady), errors.Is(err, ErrOCICollectorNotReady):
 		return true

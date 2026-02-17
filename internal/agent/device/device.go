@@ -199,14 +199,8 @@ func (a *Agent) syncDeviceSpec(ctx context.Context) {
 			return
 		}
 
-		if errors.Is(syncErr, errors.ErrCriticalResourceAlert) {
-			a.log.Warnf("Requeuing version %s due to critical alerts: %s", desired.Version(), syncErr.Error())
-			a.handleSyncError(ctx, desired, syncErr)
-			return
-		}
-
 		// Policy may defer update; in all cases, warn and roll back to the previous renderedVersion.
-		if errors.Is(syncErr, errors.ErrUpdatePolicyNotReady) || errors.Is(syncErr, errors.ErrDownloadPolicyNotReady) {
+		if errors.Is(syncErr, errors.ErrUpdatePolicyNotReady) || errors.Is(syncErr, errors.ErrDownloadPolicyNotReady) || errors.Is(syncErr, errors.ErrCriticalResourceAlert) {
 			a.log.Warnf("Requeuing version %s: %s", current.Version(), syncErr.Error())
 		} else {
 			a.log.Warnf("Attempting to rollback to previous renderedVersion: %s", current.Version())
