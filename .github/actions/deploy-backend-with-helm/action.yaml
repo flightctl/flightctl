@@ -590,17 +590,22 @@ runs:
         echo "ALL images in kind cluster:"
         docker exec kind-control-plane crictl images
 
-        # Set tags for ALL services including dbSetup (critical for init containers)
-        EXTRA_ARGS+=" --set dbSetup.image.tag=${IMAGE_TAG}"
-        EXTRA_ARGS+=" --set api.image.tag=${IMAGE_TAG}"
-        EXTRA_ARGS+=" --set worker.image.tag=${IMAGE_TAG}"
-        EXTRA_ARGS+=" --set periodic.image.tag=${IMAGE_TAG}"
-        EXTRA_ARGS+=" --set alertExporter.image.tag=${IMAGE_TAG}"
-        EXTRA_ARGS+=" --set alertmanagerProxy.image.tag=${IMAGE_TAG}"
-        EXTRA_ARGS+=" --set cliArtifacts.image.tag=${IMAGE_TAG}"
-        EXTRA_ARGS+=" --set telemetryGateway.image.tag=${IMAGE_TAG}"
-        EXTRA_ARGS+=" --set imageBuilderApi.image.tag=${IMAGE_TAG}"
-        EXTRA_ARGS+=" --set imageBuilderWorker.image.tag=${IMAGE_TAG}"
+        # Set flavor-prefixed tags for ALL services including dbSetup (critical for init containers)
+        # Images are built with flavor prefixes (e.g., el9-v1.2.0-..., el10-v1.2.0-...)
+        # but deployment expects them with flavor prefix for correct image resolution
+        FLAVORED_IMAGE_TAG="${{ inputs.flavor }}-${IMAGE_TAG}"
+        echo "Using flavor-prefixed image tag for Helm deployment: ${FLAVORED_IMAGE_TAG}"
+
+        EXTRA_ARGS+=" --set dbSetup.image.tag=${FLAVORED_IMAGE_TAG}"
+        EXTRA_ARGS+=" --set api.image.tag=${FLAVORED_IMAGE_TAG}"
+        EXTRA_ARGS+=" --set worker.image.tag=${FLAVORED_IMAGE_TAG}"
+        EXTRA_ARGS+=" --set periodic.image.tag=${FLAVORED_IMAGE_TAG}"
+        EXTRA_ARGS+=" --set alertExporter.image.tag=${FLAVORED_IMAGE_TAG}"
+        EXTRA_ARGS+=" --set alertmanagerProxy.image.tag=${FLAVORED_IMAGE_TAG}"
+        EXTRA_ARGS+=" --set cliArtifacts.image.tag=${FLAVORED_IMAGE_TAG}"
+        EXTRA_ARGS+=" --set telemetryGateway.image.tag=${FLAVORED_IMAGE_TAG}"
+        EXTRA_ARGS+=" --set imageBuilderApi.image.tag=${FLAVORED_IMAGE_TAG}"
+        EXTRA_ARGS+=" --set imageBuilderWorker.image.tag=${FLAVORED_IMAGE_TAG}"
 
         # Set image pull policy to use local images when artifacts were not available
         if [ "${{ steps.download-images.outcome }}" == "failure" ]; then
