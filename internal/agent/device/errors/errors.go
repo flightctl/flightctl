@@ -36,7 +36,6 @@ var (
 	ErrComponentLifecycle      = errors.New("lifecycle")
 	ErrComponentOS             = errors.New("os")
 	ErrComponentOSReconciled   = errors.New("os reconciliation")
-	ErrCriticalAlertsFiring    = errors.New("critical alerts are firing")
 	ErrCriticalResourceAlert   = errors.New("critical resource alerts are firing")
 
 	// bootstrap
@@ -582,4 +581,19 @@ func ToCode(err error) codes.Code {
 	}
 
 	return codes.Unknown
+}
+
+// CriticalAlertsFiringError is a custom error type for critical alerts.
+type CriticalAlertsFiringError struct {
+}
+
+// Error implements the error interface.
+func (e *CriticalAlertsFiringError) Error() string {
+	return "critical alerts are firing"
+}
+
+// Is returns true if the error is a CriticalAlertsFiringError.
+func (e *CriticalAlertsFiringError) Is(target error) bool {
+	_, ok := target.(*CriticalAlertsFiringError)
+	return ok
 }
