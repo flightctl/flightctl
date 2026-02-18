@@ -29,7 +29,7 @@ type PeriodicTaskType string
 const (
 	PeriodicTaskTypeRepositoryTester       PeriodicTaskType = "repository-tester"
 	PeriodicTaskTypeResourceSync           PeriodicTaskType = "resource-sync"
-	PeriodicTaskTypeDeviceConnection       PeriodicTaskType = "device-connection"
+	PeriodicTaskTypeDeviceDisconnected     PeriodicTaskType = "device-disconnected"
 	PeriodicTaskTypeRolloutDeviceSelection PeriodicTaskType = "rollout-device-selection"
 	PeriodicTaskTypeDisruptionBudget       PeriodicTaskType = "disruption-budget"
 	PeriodicTaskTypeEventCleanup           PeriodicTaskType = "event-cleanup"
@@ -44,7 +44,7 @@ type PeriodicTaskMetadata struct {
 var periodicTasks = map[PeriodicTaskType]PeriodicTaskMetadata{
 	PeriodicTaskTypeRepositoryTester:       {Interval: 2 * time.Minute, SystemWide: false},
 	PeriodicTaskTypeResourceSync:           {Interval: 2 * time.Minute, SystemWide: false},
-	PeriodicTaskTypeDeviceConnection:       {Interval: tasks.DeviceConnectionPollingInterval, SystemWide: false},
+	PeriodicTaskTypeDeviceDisconnected:     {Interval: tasks.DeviceDisconnectedPollingInterval, SystemWide: false},
 	PeriodicTaskTypeRolloutDeviceSelection: {Interval: device_selection.RolloutDeviceSelectionInterval, SystemWide: false},
 	PeriodicTaskTypeDisruptionBudget:       {Interval: disruption_budget.DisruptionBudgetReconcilationInterval, SystemWide: false},
 	PeriodicTaskTypeEventCleanup:           {Interval: tasks.EventCleanupPollingInterval, SystemWide: true},
@@ -115,15 +115,15 @@ func (e *ResourceSyncExecutor) Execute(ctx context.Context, log logrus.FieldLogg
 	resourceSync.Poll(taskCtx, orgId)
 }
 
-type DeviceConnectionExecutor struct {
+type DeviceDisconnectedExecutor struct {
 	log            logrus.FieldLogger
 	serviceHandler service.Service
 }
 
-func (e *DeviceConnectionExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgId uuid.UUID) {
-	taskCtx := createTaskContext(ctx, PeriodicTaskTypeDeviceConnection)
-	deviceConnection := tasks.NewDeviceConnection(e.log, e.serviceHandler)
-	deviceConnection.Poll(taskCtx, orgId)
+func (e *DeviceDisconnectedExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgId uuid.UUID) {
+	taskCtx := createTaskContext(ctx, PeriodicTaskTypeDeviceDisconnected)
+	deviceDisconnected := tasks.NewDeviceDisconnected(e.log, e.serviceHandler)
+	deviceDisconnected.Poll(taskCtx, orgId)
 }
 
 type RolloutDeviceSelectionExecutor struct {
@@ -192,8 +192,8 @@ func InitializeTaskExecutors(log logrus.FieldLogger, serviceHandler service.Serv
 			log:                   log.WithField("pkg", "resource-sync"),
 			ignoreResourceUpdates: cfg.GitOps.IgnoreResourceUpdates,
 		},
-		PeriodicTaskTypeDeviceConnection: &DeviceConnectionExecutor{
-			log:            log.WithField("pkg", "device-connection"),
+		PeriodicTaskTypeDeviceDisconnected: &DeviceDisconnectedExecutor{
+			log:            log.WithField("pkg", "device-disconnected"),
 			serviceHandler: serviceHandler,
 		},
 		PeriodicTaskTypeRolloutDeviceSelection: &RolloutDeviceSelectionExecutor{

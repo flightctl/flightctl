@@ -22,6 +22,8 @@ cgroup
 cgroups
 checksum
 cleanup
+el9
+el10
 CLI
 cpu
 CPU
@@ -278,7 +280,6 @@ config.yaml
 FQDN
 otel
 proxying
-flightctl-api
 flightctl-ui
 DeviceSpec
 rollouts
@@ -299,13 +300,6 @@ containerd
 prefetching
 prefetches
 networkless
-ServiceMonitor
-dashboards
-dashboarding
-scraping
-Prometheus
-Grafana
-Datadog
  - docs/user/installing/configuring-imagebuilder.md
  entitlement
  uncomment
@@ -433,11 +427,14 @@ alertmanager
 DeviceDisconnected
 DeviceCPUCritical
 programmatically
- - docs/user/installing/deploying-observability-linux.md
+ - docs/user/using/standalone-observability.md
 UserInfo
 Pre-configured
 is_superuser
 is_platform_auditor
+flightctl-api
+flightctl-kv
+IdPs
 - docs/user/installing/preparing-installation-on-linux.md
 Air-Gapped
 Backend
@@ -544,27 +541,6 @@ alice
 bob
 charlie
 MaxAge
-FreeIPA
-pam_sss
-pam_sss.so
-sssd-client
-sssd_pam
-getent
-gidNumber
-pamtester
-NSS
-quadlet
-POSIX
-SO_PEERCRED
-CentOS
-RHEL
-lookups
-pre-configured
-IdP
-proxy_child
-unix_chkpwd
-sssd_pam.log
-x
  - docs/user/installing/configuring-auth/auth-oauth2.md
 GitHub
 github.com
@@ -575,6 +551,8 @@ webserver
  - docs/user/installing/configuring-auth/auth-oidc.md
 CLI
 webserver
+ - docs/user/references/components.md
+flightctl-api
 - docs/user/using/managing-repositories.md
 ImageBuild
 ImageExport

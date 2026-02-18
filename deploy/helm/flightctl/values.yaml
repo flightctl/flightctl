@@ -140,7 +140,7 @@ db:
         # -- CPU resource requests for database pod
         cpu: "512m"
         # -- Memory resource requests for database pod
-        memory: "512Mi" 
+        memory: "512Mi"
     # -- File system group ID for database pod security context
     fsGroup: ""
     # -- Additional labels for DB PVCs.
@@ -237,7 +237,7 @@ api:
 # -- CLI Artifacts Configuration
 cliArtifacts:
   # -- Enable CLI artifacts service
-  enabled: true
+  enabled: false
   image:
     # -- CLI artifacts container image
     image: quay.io/flightctl/flightctl-cli-artifacts
@@ -295,7 +295,7 @@ alertmanagerProxy:
     tag: ""
     # -- Image pull policy for Alertmanager proxy container
     pullPolicy: ""
-  
+
 # -- ImageBuilder API Configuration
 imageBuilderApi:
   # -- Enable imagebuilder API service
@@ -382,9 +382,9 @@ clusterCli:
 # -- Database Setup Configuration
 dbSetup:
   image:
-    # -- Database setup container image
+    # -- Database setup container image (flavor specified in tag)
     image: quay.io/flightctl/flightctl-db-setup
-    # -- Database setup image tag
+    # -- Database setup image tag (includes flavor prefix, e.g., "el9-v1.0.0")
     tag: ""
     # -- Image pull policy for database setup container
     pullPolicy: ""
@@ -397,7 +397,7 @@ dbSetup:
     # Default sleep interval between connection attempts
     sleep: 2
   migration:
-    # -- Number of retries for the migration Job on failure 
+    # -- Number of retries for the migration Job on failure
     backoffLimit: 2147483647
     # -- Maximum runtime in seconds for the migration Job (0 = no deadline)
     activeDeadlineSeconds: 0

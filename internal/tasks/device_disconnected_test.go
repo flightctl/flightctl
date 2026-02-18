@@ -26,8 +26,8 @@ import (
 
 // Note: Running this benchmark will require a database connection. You can use `make deploy` to deploy a database`
 //
-// go test  -v -benchmem -run=^$ -timeout 30m -bench ^BenchmarkDeviceConnectionPoll$ github.com/flightctl/flightctl/internal/tasks
-func BenchmarkDeviceConnectionPoll(b *testing.B) {
+// go test  -v -benchmem -run=^$ -timeout 30m -bench ^BenchmarkDeviceDisconnectedPoll$ github.com/flightctl/flightctl/internal/tasks
+func BenchmarkDeviceDisconnectedPoll(b *testing.B) {
 	ctx := context.Background()
 	log := log.InitLogs()
 	s := util.InitTracerForTests()
@@ -38,7 +38,7 @@ func BenchmarkDeviceConnectionPoll(b *testing.B) {
 	}()
 
 	ctx, span := tracing.StartSpan(ctx,
-		"flightctl/tasks", "BenchmarkDeviceConnectionPoll")
+		"flightctl/tasks", "BenchmarkDeviceDisconnectedPoll")
 	defer span.End()
 
 	require := require.New(b)
@@ -76,11 +76,11 @@ func BenchmarkDeviceConnectionPoll(b *testing.B) {
 }
 
 func benchmarkUpdateSummaryStatusBatch(ctx context.Context, b *testing.B, log *logrus.Logger, db *gorm.DB, serviceHandler service.Service, deviceNames []string) error {
-	connection := NewDeviceConnection(log, serviceHandler)
+	disconnected := NewDeviceDisconnected(log, serviceHandler)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		b.StartTimer()
-		connection.Poll(ctx, store.NullOrgId)
+		disconnected.Poll(ctx, store.NullOrgId)
 		b.StopTimer()
 
 		err := resetDeviceStatus(ctx, db, deviceNames)

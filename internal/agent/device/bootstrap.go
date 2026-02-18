@@ -164,6 +164,13 @@ func (b *Bootstrap) ensureEnrollment(ctx context.Context) error {
 }
 
 func (b *Bootstrap) updateStatus(ctx context.Context) {
+	_, updateErr := b.statusManager.Update(ctx, status.SetConfig(v1beta1.DeviceConfigStatus{
+		RenderedVersion: b.specManager.RenderedVersion(spec.Current),
+	}))
+	if updateErr != nil {
+		b.log.Warnf("Failed setting status: %v", updateErr)
+	}
+
 	updatingCondition := v1beta1.Condition{
 		Type: v1beta1.ConditionTypeDeviceUpdating,
 	}
@@ -177,12 +184,7 @@ func (b *Bootstrap) updateStatus(ctx context.Context) {
 		updatingCondition.Reason = string(v1beta1.UpdateStateUpdated)
 	}
 
-	_, updateErr := b.statusManager.Update(ctx,
-		status.SetConfig(v1beta1.DeviceConfigStatus{
-			RenderedVersion: b.specManager.RenderedVersion(spec.Current),
-		}),
-		status.SetCondition(updatingCondition),
-	)
+	updateErr = b.statusManager.UpdateCondition(ctx, updatingCondition)
 	if updateErr != nil {
 		b.log.Warnf("Failed setting status: %v", updateErr)
 	}

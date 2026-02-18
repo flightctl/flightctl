@@ -12,26 +12,26 @@ import (
 )
 
 const (
-	// DeviceConnectionPollingInterval is the interval at which the device connection status task runs (disconnection and reconnection).
-	DeviceConnectionPollingInterval = 2 * time.Minute
-	DeviceConnectionTaskName        = "device-connection"
+	// DeviceDisconnectedPollingInterval is the interval at which the device liveness task runs.
+	DeviceDisconnectedPollingInterval = 2 * time.Minute
+	DeviceDisconnectedTaskName        = "device-disconnected"
 )
 
-type DeviceConnection struct {
+type DeviceDisconnected struct {
 	log            logrus.FieldLogger
 	serviceHandler service.Service
 }
 
-func NewDeviceConnection(log logrus.FieldLogger, serviceHandler service.Service) *DeviceConnection {
-	return &DeviceConnection{
+func NewDeviceDisconnected(log logrus.FieldLogger, serviceHandler service.Service) *DeviceDisconnected {
+	return &DeviceDisconnected{
 		log:            log,
 		serviceHandler: serviceHandler,
 	}
 }
 
-// Poll checks the status of devices and updates connection state (e.g. disconnection and reconnection) based on device liveness.
-func (t *DeviceConnection) Poll(ctx context.Context, orgID uuid.UUID) {
-	t.log.Info("Running DeviceConnection Polling")
+// Poll checks the status of devices and updates the status to unknown if the device has not reported in the last DeviceDisconnectedTimeout.
+func (t *DeviceDisconnected) Poll(ctx context.Context, orgID uuid.UUID) {
+	t.log.Info("Running DeviceDisconnected Polling")
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -47,11 +47,11 @@ func (t *DeviceConnection) Poll(ctx context.Context, orgID uuid.UUID) {
 	for {
 		// Check for context cancellation in long-running loops
 		if ctx.Err() != nil {
-			t.log.Warnf("Context cancelled during device connection status processing, stopping early. Processed %d devices so far", totalProcessed)
+			t.log.Warnf("Context cancelled during device disconnection processing, stopping early. Processed %d devices so far", totalProcessed)
 			return
 		}
 
-		devices, status := t.serviceHandler.ListConnectivityChangedDevices(ctx, orgID, listParams, cutoffTime)
+		devices, status := t.serviceHandler.ListDisconnectedDevices(ctx, orgID, listParams, cutoffTime)
 		if status.Code != 200 {
 			t.log.Errorf("Failed to list devices: %s", status.Message)
 			return
@@ -62,7 +62,7 @@ func (t *DeviceConnection) Poll(ctx context.Context, orgID uuid.UUID) {
 			break
 		}
 
-		t.log.Infof("Processing %d devices for connection status (page total: %d)", len(devices.Items), totalProcessed+len(devices.Items))
+		t.log.Infof("Processing %d devices for disconnection status (page total: %d)", len(devices.Items), totalProcessed+len(devices.Items))
 
 		for _, device := range devices.Items {
 			// Check for context cancellation in long-running loops
@@ -78,7 +78,7 @@ func (t *DeviceConnection) Poll(ctx context.Context, orgID uuid.UUID) {
 				continue
 			}
 
-			t.log.Debugf("Successfully updated device %s connection status", *device.Metadata.Name)
+			t.log.Debugf("Successfully updated device %s to disconnected status", *device.Metadata.Name)
 		}
 
 		totalProcessed += len(devices.Items)
@@ -90,6 +90,6 @@ func (t *DeviceConnection) Poll(ctx context.Context, orgID uuid.UUID) {
 	}
 
 	if totalProcessed > 0 {
-		t.log.Infof("Completed processing %d devices for connection status", totalProcessed)
+		t.log.Infof("Completed processing %d devices for disconnection status", totalProcessed)
 	}
 }

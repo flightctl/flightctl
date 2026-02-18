@@ -38,7 +38,6 @@ jobs:
         id: changed-files
         uses: tj-actions/changed-files@v46
         with:
-          since_last_remote_commit: 'true'
           files_ignore: |
             .spelling
             README.md
@@ -87,7 +86,7 @@ jobs:
           path: |
             bin/dnf-cache
             bin/osbuild-cache
-          key: ${{ runner.os }}-bootc-cache-smoke-${{ hashFiles('test/scripts/agent-images/Containerfile-e2e-base.local') }}
+          key: ${{ runner.os }}-bootc-cache-smoke-${{ hashFiles('test/scripts/agent-images/base/Containerfile') }}
           restore-keys: |
             ${{ runner.os }}-bootc-cache-smoke-
 

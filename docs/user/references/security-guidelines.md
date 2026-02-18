@@ -204,11 +204,9 @@ For detailed rate limiting configuration and reverse proxy setup, see [Rate Limi
 
 - **User API**: Port 3443 (HTTPS)
 - **Agent API**: Port 7443 (mTLS)
-- **Telemetry Gateway**: Port 4317 (gRPC/mTLS - device telemetry)
 - **Database**: Port 5432 (TLS)
 - **Redis**: Port 6379 (TLS)
 - **Monitoring**: Port 15690 (Prometheus metrics)
-- **Grafana**: Port 3000 (HTTPS - observability dashboards)
 
 ### Network Security Features
 

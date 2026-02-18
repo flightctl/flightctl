@@ -101,7 +101,7 @@ func (h *ServiceHandler) ListDevices(ctx context.Context, orgId uuid.UUID, param
 	}
 }
 
-func (h *ServiceHandler) ListConnectivityChangedDevices(ctx context.Context, orgId uuid.UUID, params domain.ListDevicesParams, cutoffTime time.Time) (*domain.DeviceList, domain.Status) {
+func (h *ServiceHandler) ListDisconnectedDevices(ctx context.Context, orgId uuid.UUID, params domain.ListDevicesParams, cutoffTime time.Time) (*domain.DeviceList, domain.Status) {
 	storeParams, status := convertDeviceListParams(params, nil)
 	if status.Code != http.StatusOK {
 		return nil, status
@@ -129,7 +129,7 @@ func (h *ServiceHandler) ListConnectivityChangedDevices(ctx context.Context, org
 		return nil, domain.StatusBadRequest("limit cannot be negative")
 	}
 
-	result, err := h.store.Device().ListConnectivityChanged(ctx, orgId, *storeParams, cutoffTime)
+	result, err := h.store.Device().ListDisconnected(ctx, orgId, *storeParams, cutoffTime)
 	if err == nil {
 		return result, domain.StatusOK()
 	}

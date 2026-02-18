@@ -25,8 +25,6 @@ Welcome to the Flight Control user documentation.
     * [Configuring Rate Limits on API Requests](installing/configuring-rate-limiting.md)
 
   * Monitoring the Flight Control Service
-    * [Deploying the Observability Stack on Kubernetes](installing/deploying-observability-kubernetes.md)
-    * [Deploying the Observability Stack on Linux](installing/deploying-observability-linux.md)
     * [Configuring Service Tracing](installing/configuring-service-tracing.md) (advanced)
 
   * Backing-up and Restoring the Flight Control Service
@@ -41,7 +39,6 @@ Welcome to the Flight Control user documentation.
 **Using Flight Control** - How to manage individual and fleets of devices with Flight Control.
 
 * **[Using the CLI](using/cli/overview.md)** - How to use the Flight Control CLI
-
 * **[Provisioning Devices](using/provisioning-devices.md)** - How to provision a device with an OS image.
   * [Provisioning Physical Devices](using/provisioning-devices.md#provisioning-physical-devices)
   * [Provisioning on Red Hat OpenShift Virtualization](using/provisioning-devices.md#provisioning-on-red-hat-openshift-virtualization)
@@ -66,14 +63,13 @@ Welcome to the Flight Control user documentation.
 * **[Managing Image Builds and Exports](using/managing-image-builds.md)** - How to build and export OS images using the Flight Control API.
 * **Solving Specific Use Cases** - How to solve specific use cases in Flight Control.
   * [Auto-Registering Devices with MicroShift into ACM](using/registering-microshift-devices-acm.md)
-  * [Diagnosing Agent Issues](using/diagnosing-agent-issues.md)
+  * [Adding Device Observability](using/device-observability.md)
 
 **Building for Flight Control** - How to build OS images and application packages compatible with Flight Control.
 
 * **[Building Images](building/building-images.md)** - How to build your own OS images and publish them to a container registry.
   * [Understanding OS Images and the Image Build Process](building/building-images.md#understanding-os-images-and-the-image-build-process)
   * [Building and Publishing OS Images and Disk Images](building/building-images.md#building-and-publishing-os-images-and-disk-images)
-    * [Adding OpenTelemetry Collector to Devices](building/building-images.md#optional-adding-opentelemetry-collector-to-devices)
   * [Considerations for Specific Target Platforms](building/building-images.md#considerations-for-specific-target-platforms)
     * [Red Hat OpenShift Virtualization](building/building-images.md#red-hat-openshift-virtualization)
     * [VMware vSphere](building/building-images.md#vmware-vsphere)

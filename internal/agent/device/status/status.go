@@ -258,13 +258,6 @@ func SetConfig(configStatus v1beta1.DeviceConfigStatus) UpdateStatusFn {
 	}
 }
 
-func SetCondition(condition v1beta1.Condition) UpdateStatusFn {
-	return func(status *v1beta1.DeviceStatus) error {
-		v1beta1.SetStatusCondition(&status.Conditions, condition)
-		return nil
-	}
-}
-
 func SetOSImage(osStatus v1beta1.DeviceOsStatus) UpdateStatusFn {
 	return func(status *v1beta1.DeviceStatus) error {
 		status.Os.Image = osStatus.Image

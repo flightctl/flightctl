@@ -17,6 +17,11 @@ on:
         required: false
         type: string
         default: ""
+      flavor:
+        description: "Container flavor to build (el9 or el10)"
+        required: false
+        type: string
+        default: "el9"
     outputs:
       git_tag:
         description: "Computed git tag for artifacts"
@@ -24,6 +29,9 @@ on:
       cli_git_tag:
         description: "Computed git tag from CLI build"
         value: ${{ jobs.build-cli.outputs.git_tag }}
+      helm_tag:
+        description: "Computed helm tag (without v prefix)"
+        value: ${{ jobs.build-helm-charts.outputs.helm_tag }}
 
 jobs:
   build-backend-containers:
@@ -63,17 +71,34 @@ jobs:
           GITHUB_ACTIONS: true
           REGISTRY: quay.io
           REGISTRY_OWNER: flightctl
+          FLAVOR: ${{ inputs.flavor || 'el9' }}
         run: |
           set -euo pipefail
-          
-          echo "::group::Building backend containers"
-          make -j4 build-containers
+          echo "::group::Building backend containers for flavor: $FLAVOR"
+          # Data-driven script exists in current branch but may not exist in baseline checkouts
+          if [[ -f "hack/build_containers_ci.sh" ]]; then
+            echo "Using data-driven build script..."
+            bash hack/build_containers_ci.sh "$FLAVOR"
+          else
+            echo "Data-driven script not found (baseline checkout), using fallback make targets..."
+            if make -n build-containers-ci >/dev/null 2>&1; then
+              echo "Using make build-containers-ci for $FLAVOR"
+              make -j4 build-containers-ci FLAVOR="$FLAVOR"
+            elif make -n build-containers >/dev/null 2>&1; then
+              echo "Using fallback: make build-containers"
+              make build-containers FLAVOR="$FLAVOR"
+            else
+              echo "Error: No suitable build method found"
+              exit 1
+            fi
+          fi
           echo "::endgroup::"
 
       - name: Bundle images
         id: bundle-images
         env:
           TAG: ${{ steps.compute-tag.outputs.git_tag }}
+          FLAVOR: ${{ inputs.flavor || 'el9' }}
         run: |
           set -euo pipefail
           echo "::group::Creating images bundle"
@@ -83,11 +108,53 @@ jobs:
             make bundle-images
           else
             echo "bundle-images target not found, falling back to direct save"
-            echo "Getting list of loaded flightctl images with tag: $TAG"
-            mapfile -t loaded_images < <(podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/flightctl-.*:${TAG}")
+            echo "Getting list of loaded flightctl images with flavor $FLAVOR and tag: $TAG"
+
+            # Debug: Show all flightctl images before searching
+            echo "DEBUG: All flightctl images available:"
+            podman images --format "{{.Repository}}:{{.Tag}}" | grep "flightctl" | sort || echo "No flightctl images found"
+            echo ""
+
+            # Try flavor-in-tag images first (new naming pattern)
+            echo "DEBUG: Searching for flavor-in-tag pattern: quay\.io/flightctl/flightctl-.*:${FLAVOR}-${TAG}"
+            mapfile -t loaded_images < <(podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/flightctl-.*:${FLAVOR}-${TAG}" || true)
+
+            # If no exact flavor-tag match, try broader flavor pattern
+            if [ ${#loaded_images[@]} -eq 0 ]; then
+              echo "No exact flavor-tag images found, trying broader flavor pattern..."
+              echo "DEBUG: Searching for broader flavor pattern: quay\.io/flightctl/flightctl-.*:${FLAVOR}-"
+              mapfile -t loaded_images < <(podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/flightctl-.*:${FLAVOR}-" || true)
+            fi
+
+            # Fallback to non-flavor images (legacy naming) if no flavor-specific images found
+            if [ ${#loaded_images[@]} -eq 0 ]; then
+              echo "No flavor-prefixed images found, trying legacy naming pattern..."
+              echo "DEBUG: Searching for legacy pattern: quay\.io/flightctl/flightctl-.*:${TAG} (excluding flavor suffixes)"
+              mapfile -t loaded_images < <(podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/flightctl-.*:${TAG}" | grep -v "\-el[0-9]" || true)
+
+              # CRITICAL: If using legacy images, add flavor prefixes for CI compatibility
+              if [ ${#loaded_images[@]} -gt 0 ]; then
+                echo "WARNING: Using legacy images without flavor prefixes. Creating flavor-prefixed tags for CI compatibility..."
+                for image in "${loaded_images[@]}"; do
+                  flavor_image="${image%:*}:${FLAVOR}-${TAG}"
+                  echo "  Creating flavor tag: ${image} -> ${flavor_image}"
+                  podman tag "$image" "$flavor_image" || echo "Warning: Failed to tag $image"
+                done
+                # Re-search for the newly created flavor-prefixed images
+                mapfile -t loaded_images < <(podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/flightctl-.*:${FLAVOR}-${TAG}" || true)
+              fi
+            fi
+
             echo "Creating bundle with ${#loaded_images[@]} images:"
             printf '  %s\n' "${loaded_images[@]}"
-            podman save --format docker-archive -o "${BUNDLE_FILE}" -m "${loaded_images[@]}"
+            if [ ${#loaded_images[@]} -gt 0 ]; then
+              podman save --format docker-archive -o "${BUNDLE_FILE}" -m "${loaded_images[@]}"
+            else
+              echo "Error: No images found matching any pattern for flavor $FLAVOR and tag $TAG"
+              echo "Available flightctl images:"
+              podman images --format "{{.Repository}}:{{.Tag}}" | grep "flightctl" || echo "No flightctl images at all!"
+              exit 1
+            fi
           fi
 
           echo "Bundle created: $(ls -lh ${BUNDLE_FILE})"
@@ -98,26 +165,47 @@ jobs:
         id: list-images
         env:
           TAG: ${{ steps.compute-tag.outputs.git_tag }}
+          FLAVOR: ${{ inputs.flavor || 'el9' }}
           BUNDLE_FILE: ${{ steps.bundle-images.outputs.bundle_file }}
         run: |
           set -euo pipefail
           echo "::group::Listing images in bundle"
-          IMAGES=$(podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/flightctl-.*:${TAG}" | sort)
+          # Try exact flavor-tag match first
+          IMAGES=$(podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/flightctl-.*:${FLAVOR}-${TAG}" | sort || true)
+
+          # Try broader flavor pattern if no exact match
+          if [ -z "$IMAGES" ]; then
+            echo "No exact flavor-tag images found, trying broader flavor pattern..."
+            IMAGES=$(podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/flightctl-.*:${FLAVOR}-" | sort || true)
+          fi
+
+          # Fallback to non-flavor images (legacy naming) if no flavor-specific images found
+          if [ -z "$IMAGES" ]; then
+            echo "No flavor-prefixed images found, listing legacy naming pattern..."
+            IMAGES=$(podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/flightctl-.*:${TAG}" | grep -v "\-el[0-9]" | sort || true)
+          fi
+
+          echo "Images that will be bundled:"
           echo "$IMAGES"
           echo "::endgroup::"
-          
+
           # Save for summary
-          {
-            echo "images<<EOF"
-            echo "$IMAGES"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
-          echo "count=$(echo "$IMAGES" | wc -l)" >> "$GITHUB_OUTPUT"
+          if [ -n "$IMAGES" ]; then
+            {
+              echo "images<<EOF"
+              echo "$IMAGES"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+            echo "count=$(echo "$IMAGES" | wc -l)" >> "$GITHUB_OUTPUT"
+          else
+            echo "images=" >> "$GITHUB_OUTPUT"
+            echo "count=0" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Upload images bundle
         uses: actions/upload-artifact@v4
         with:
-          name: flightctl-images-bundle-${{ steps.compute-tag.outputs.git_tag }}
+          name: flightctl-images-bundle-${{ inputs.flavor || 'el9' }}-${{ steps.compute-tag.outputs.git_tag }}
           path: ${{ steps.bundle-images.outputs.bundle_file }}
           compression-level: 1
           if-no-files-found: error
@@ -155,6 +243,8 @@ jobs:
 
   build-helm-charts:
     runs-on: ubuntu-24.04
+    outputs:
+      helm_tag: ${{ steps.compute-tag.outputs.helm_tag }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -170,15 +260,24 @@ jobs:
 
       - name: Build helm charts
         id: build-charts
+        env:
+          FLAVOR: ${{ inputs.flavor || 'el9' }}
         run: |
           set -euo pipefail
           TAG="${{ steps.compute-tag.outputs.helm_tag }}"
-          
-          echo "::group::Building helm charts"
+
+          echo "::group::Building helm charts for flavor: $FLAVOR"
+
+          # Generate chart templates and values with correct flavor
+          echo "Generating chart templates for $FLAVOR..."
+          cd deploy/helm
+          FLAVOR=$FLAVOR go run cmd/charttmpl/main.go
+          cd ../..
+
           helm dependency build ./deploy/helm/flightctl
           helm package ./deploy/helm/flightctl \
             --version "$TAG" \
-            --app-version "v$TAG"
+            --app-version "$FLAVOR-v$TAG"
           
           # Rename to consistent name for easier consumption
           GENERATED_FILE="flightctl-${TAG}.tgz"
@@ -192,7 +291,7 @@ jobs:
       - name: Upload helm chart artifact
         uses: actions/upload-artifact@v4
         with:
-          name: helm-chart-${{ steps.compute-tag.outputs.git_tag }}
+          name: helm-chart-${{ inputs.flavor || 'el9' }}-${{ steps.compute-tag.outputs.git_tag }}
           path: ${{ steps.build-charts.outputs.chart_file }}
           compression-level: 0
           if-no-files-found: error
@@ -236,7 +335,7 @@ jobs:
       - name: Upload CLI binary
         uses: actions/upload-artifact@v4
         with:
-          name: flightctl-linux-amd64-${{ steps.compute-tag.outputs.git_tag }}
+          name: flightctl-linux-amd64-${{ inputs.flavor || 'el9' }}-${{ steps.compute-tag.outputs.git_tag }}
           path: flightctl-linux-amd64
           compression-level: 0
           if-no-files-found: error
@@ -287,7 +386,7 @@ jobs:
       - name: Upload simulator binary
         uses: actions/upload-artifact@v4
         with:
-          name: devicesimulator-${{ steps.compute-tag.outputs.git_tag }}
+          name: devicesimulator-${{ inputs.flavor || 'el9' }}-${{ steps.compute-tag.outputs.helm_tag }}
           path: bin/devicesimulator
           compression-level: 0
           if-no-files-found: error

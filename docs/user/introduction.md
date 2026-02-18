@@ -16,8 +16,9 @@ Features and use cases Flight Control aims to support:
 * Container or VM workloads on Podman using docker-compose or Quadlets, Kubernetes services on MicroShift using kustomize or Helm.
 * Agent-based architecture, allowing:
   * scalable and robust management under adverse networking conditions (agent "calls home" when the device has connectivity),
-  * autonomous and safe OTA updates (agent downloads and verifies assets before updating, then transactionally updates or rolls back), and
-  * timely yet resource-unintensive monitoring of devices and applications (agent notifies service on update progress and alarms).
+  * autonomous and safe OTA updates (agent downloads and verifies assets before updating, then transactionally updates or rolls back),
+  * timely yet resource-unintensive monitoring of devices and applications (agent notifies service on update progress and alarms), and
+  * cross-version compatibility (service supports CentOS Stream 9 and 10 containers for diverse deployment environments).
 * A secure yet friction-free device lifecycle (enrollment, certificate rotation, attestation, and decommissioning) based on hardware root-of-trust.
 * Pluggable identity/authentication providers (initially Keycloak / Generic OIDC Providers and OpenShift Authentication API)
 * Pluggable authorization providers (initially SpiceDB and Kubernetes RBAC)

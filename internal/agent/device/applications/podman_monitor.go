@@ -167,7 +167,7 @@ func (m *PodmanMonitor) drain(ctx context.Context) error {
 		}
 	}
 
-	if err := m.executeActions(ctx, true); err != nil {
+	if err := m.ExecuteActions(ctx); err != nil {
 		errs = append(errs, err)
 	}
 
@@ -286,12 +286,7 @@ func normalizeActionAppType(appType v1beta1.AppType) v1beta1.AppType {
 	return appType
 }
 
-// ExecuteActions executes all queued actions.
 func (m *PodmanMonitor) ExecuteActions(ctx context.Context) error {
-	return m.executeActions(ctx, false)
-}
-
-func (m *PodmanMonitor) executeActions(ctx context.Context, systemShutdown bool) error {
 	ctx = m.addBatchTimeToCtx(ctx)
 	actions := m.drainActions()
 
@@ -299,12 +294,6 @@ func (m *PodmanMonitor) executeActions(ctx context.Context, systemShutdown bool)
 	for i := range actions {
 		action := actions[i]
 		appType := normalizeActionAppType(action.AppType)
-
-		if systemShutdown && appType == v1beta1.AppTypeQuadlet {
-			m.log.Debugf("System shutdown: skipping quadlet action for %s", action.Name)
-			continue
-		}
-
 		_, ok := m.handlers[appType]
 		if !ok {
 			return fmt.Errorf("%w: no action handler registered: %s", errors.ErrUnsupportedAppType, action.AppType)

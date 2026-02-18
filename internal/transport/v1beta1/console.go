@@ -67,7 +67,7 @@ func (h *WebsocketHandler) HandleDeviceConsole(w http.ResponseWriter, r *http.Re
 		h.log.Errorf("timed out waiting for protocol for device: %s", deviceName)
 		http.Error(w,
 			fmt.Sprintf("timed out waiting for protocol for device: %s", deviceName),
-			http.StatusGatewayTimeout)
+			http.StatusInternalServerError)
 		return
 	}
 

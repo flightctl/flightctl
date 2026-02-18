@@ -2,10 +2,10 @@
 [server]
 http_port = 3000
 # http_addr = 0.0.0.0 # Default
-root_url = {{if .grafana.protocol}}{{.grafana.protocol}}{{else}}https{{end}}://{{.global.baseDomain}}:3000
+root_url = {{if .grafana.protocol}}{{.grafana.protocol}}{{else}}http{{end}}://{{.global.baseDomain}}:3000
 
 # HTTPS Configuration
-protocol = {{if .grafana.protocol}}{{.grafana.protocol}}{{else}}https{{end}}
+protocol = {{if .grafana.protocol}}{{.grafana.protocol}}{{else}}http{{end}}
 cert_file = /etc/grafana/certs/server.crt
 cert_key = /etc/grafana/certs/server.key
 
@@ -29,7 +29,7 @@ default_theme = dark
 
 [security]
 admin_user = {{if .grafana.localAdminUser}}{{.grafana.localAdminUser}}{{else}}admin{{end}}
-admin_password = {{if .grafana.localAdminPassword}}{{.grafana.localAdminPassword}}{{else}}admin{{end}}
+admin_password = {{if .grafana.localAdminPassword}}{{.grafana.localAdminPassword}}{{else}}defaultadmin{{end}}
 
 
 [session]

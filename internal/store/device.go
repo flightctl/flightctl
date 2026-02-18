@@ -68,7 +68,7 @@ type Device interface {
 	GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*domain.RepositoryList, error)
 	RemoveConflictPausedAnnotation(ctx context.Context, orgId uuid.UUID, listParams ListParams) (int64, []string, error)
 	SetOutOfDate(ctx context.Context, orgId uuid.UUID, owner string) error
-	ListConnectivityChanged(ctx context.Context, orgId uuid.UUID, listParams ListParams, cutoffTime time.Time) (*domain.DeviceList, error)
+	ListDisconnected(ctx context.Context, orgId uuid.UUID, listParams ListParams, cutoffTime time.Time) (*domain.DeviceList, error)
 	GetWithoutServiceConditions(ctx context.Context, orgId uuid.UUID, name string) (*domain.Device, error)
 
 	// Used only by rollout
@@ -404,21 +404,17 @@ func (s *DeviceStore) List(ctx context.Context, orgId uuid.UUID, listParams List
 	return s.genericStore.List(ctx, orgId, listParams)
 }
 
-func (s *DeviceStore) ListConnectivityChanged(ctx context.Context, orgId uuid.UUID, listParams ListParams, cutoffTime time.Time) (*domain.DeviceList, error) {
+func (s *DeviceStore) ListDisconnected(ctx context.Context, orgId uuid.UUID, listParams ListParams, cutoffTime time.Time) (*domain.DeviceList, error) {
 	var nextContinue *string
 	var numRemaining *int64
 	var devices []model.DeviceWithTimestamp
 	queryStr := `SELECT d.*, dt.last_seen
           FROM devices d, device_timestamps dt
-          WHERE d.org_id = ? AND d.deleted_at is NULL AND d.name = dt.name AND d.org_id = dt.org_id AND ((dt.last_seen < ? AND d.status->'summary'->>'status' != ?)
-          OR (dt.last_seen >= ? AND d.status->'summary'->>'status' = ?))`
+          WHERE d.org_id = ? AND d.deleted_at is NULL AND d.name = dt.name AND d.org_id = dt.org_id AND dt.last_seen < ? `
 
 	args := []interface{}{
 		orgId,
 		cutoffTime,
-		domain.DeviceSummaryStatusUnknown,
-		cutoffTime,
-		domain.DeviceSummaryStatusUnknown,
 	}
 
 	if listParams.Continue != nil && len(listParams.Continue.Names) == 1 {

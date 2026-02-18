@@ -54,9 +54,9 @@ graph TB
             ALERT_PROXY[Alertmanager Proxy<br/>:8443]
             ALERT_EXPORTER[Alert Exporter<br/>:8081]
             GRAFANA[Grafana<br/>:3000]
-            TELEMETRY_GW[Telemetry Gateway<br/>:4317 gRPC<br/>:9464 Prometheus]
+            OTEL[OpenTelemetry<br/>:4317 gRPC<br/>:4318 HTTP]
             JAEGER[Jaeger<br/>:16686]
-            USERINFO[UserInfo Proxy<br/>:8888]
+            USERINFO[UserInfo Proxy<br/>:8080]
         end
     end
 
@@ -102,11 +102,8 @@ graph TB
 
     %% External Access to Observability
     USERS -.->|"HTTPS<br/>Port 8443"| ALERT_PROXY
-    USERS -.->|"HTTPS<br/>Port 3000"| GRAFANA
-
-    %% Agent Telemetry
-    AGENTS -.->|"gRPC/mTLS<br/>Port 4317"| TELEMETRY_GW
-    TELEMETRY_GW --> PROMETHEUS
+    USERS -.->|"HTTP<br/>Port 3000"| GRAFANA
+    USERS -.->|"gRPC :4317<br/>HTTP :4318"| OTEL
 
     %% Styling
     classDef external fill:#e1f5fe,stroke:#0277bd,stroke-width:2px
@@ -120,8 +117,8 @@ graph TB
     class LB_USER,LB_AGENT dmz
     class API,WORKER,PERIODIC,UI,CLI_ARTIFACTS service
     class DB,KV data
-    class PROMETHEUS,ALERTMANAGER,ALERT_PROXY,ALERT_EXPORTER,GRAFANA,TELEMETRY_GW,JAEGER,USERINFO observability
-    class AUTH auth
+    class PROMETHEUS,ALERTMANAGER,ALERT_PROXY,ALERT_EXPORTER,GRAFANA,OTEL,JAEGER,USERINFO observability
+    class KEYCLOAK auth
 ```
 
 ### Diagram Legend
@@ -165,10 +162,10 @@ graph TB
 - **Port 9093** (TCP) - **HTTP** - Alertmanager (internal)
 - **Port 8443** (TCP) - **HTTPS** - Alertmanager proxy (authenticated access)
 - **Port 8081** (TCP) - **HTTP** - Alert exporter metrics (internal)
-- **Port 3000** (TCP) - **HTTPS** - Grafana dashboard (when enabled)
-- **Port 4317** (TCP) - **gRPC** - Telemetry Gateway (device telemetry via mTLS)
-- **Port 9464** (TCP) - **HTTP** - Telemetry Gateway Prometheus metrics (internal)
-- **Port 8888** (TCP) - **HTTP** - UserInfo proxy (internal, AAP integration)
+- **Port 3000** (TCP) - **HTTP** - Grafana dashboard (when enabled)
+- **Port 4317** (TCP) - **gRPC** - OpenTelemetry collector (gRPC)
+- **Port 4318** (TCP) - **HTTP** - OpenTelemetry collector (HTTP)
+- **Port 8080** (TCP) - **HTTP** - UserInfo proxy (internal, AAP integration)
 
 ### Additional Services
 
@@ -179,21 +176,11 @@ graph TB
 
 ### Agent-to-Service Communication
 
-#### Management Communication
-
 - **Source**: Flight Control agents on managed devices
 - **Destination**: Flight Control API server port 7443
 - **Protocol**: HTTPS with mutual TLS (mTLS)
 - **Direction**: Outbound from agents, inbound to service
 - **Frequency**: Periodic (default: every 60 seconds)
-
-#### Telemetry Communication
-
-- **Source**: Flight Control agents on managed devices (when telemetry is configured)
-- **Destination**: Telemetry Gateway port 4317
-- **Protocol**: gRPC with mutual TLS (mTLS)
-- **Direction**: Outbound from agents, inbound to service
-- **Frequency**: Periodic (configurable in device OpenTelemetry collector)
 
 ### User-to-Service Communication
 
@@ -249,9 +236,10 @@ ACCEPT tcp port 8444 from trusted networks/users
 #### Required for Observability (if externally accessible)
 
 ```text
-ACCEPT tcp port 8443 from trusted networks/users (Alertmanager proxy - HTTPS)
-ACCEPT tcp port 3000 from trusted networks/users (Grafana - HTTPS)
-ACCEPT tcp port 4317 from any (Telemetry Gateway - devices send telemetry via mTLS)
+ACCEPT tcp port 8443 from trusted networks/users (Alertmanager proxy)
+ACCEPT tcp port 3000 from trusted networks/users (Grafana)
+ACCEPT tcp port 4317 from monitoring systems (OpenTelemetry gRPC)
+ACCEPT tcp port 4318 from monitoring systems (OpenTelemetry HTTP)
 ```
 
 #### Optional for Development/Testing
@@ -286,7 +274,6 @@ ACCEPT tcp port 80 to container registries (if using insecure registries)
 
 ```text
 ACCEPT tcp port 7443 to Flight Control service
-ACCEPT tcp port 4317 to Flight Control service (telemetry, if configured)
 ACCEPT tcp port 443 to container registries (for OS and app image pulls)
 ACCEPT tcp port 53 to DNS servers
 ```
@@ -480,27 +467,22 @@ telnet api.flightctl.example.com 3443
 | Prometheus | 9090  | HTTP | Internal | Metrics |
 | Alertmanager | 9093  | HTTP | Internal | Alerting |
 | Alertmanager Proxy | 8443  | HTTPS | External | Authenticated alerts |
-| Grafana | 3000  | HTTPS | External | Dashboards |
-| Telemetry Gateway | 4317  | gRPC/mTLS | External | Device telemetry |
-| Telemetry Gateway | 9464  | HTTP | Internal | Prometheus metrics |
+| Grafana | 3000  | HTTP | External | Dashboards |
+| OTel Collector | 4317  | gRPC | External | Telemetry |
+| OTel Collector | 4318  | HTTP | External | Telemetry |
 | CLI Artifacts | 8090  | HTTP/HTTPS | External | CLI downloads |
 | Alert Exporter | 8081  | HTTP | Internal | Metrics |
-| UserInfo Proxy | 8888  | HTTP | Internal | AAP integration |
+| UserInfo Proxy | 8080  | HTTP | Internal | AAP integration |
 | Jaeger | 16686 | HTTP | Internal | Tracing (dev) |
 
 ## Summary
 
 This document provides comprehensive network requirements for Flight Control. The key points are:
 
-1. **Agent communication** requires:
-   - Port 7443 (HTTPS/mTLS) for management operations
-   - Port 4317 (gRPC/mTLS) for telemetry (when configured)
+1. **Agent communication** requires port 7443 (HTTPS/mTLS) to be accessible from device networks
 2. **User access** requires port 3443 (HTTPS) for API and appropriate UI ports
 3. **Internal services** use various ports that should be restricted to internal networks
 4. **External dependencies** require outbound HTTPS access to container registries and auth providers
-5. **Monitoring and observability** services have additional port requirements:
-   - Port 3000 for Grafana dashboards (HTTPS)
-   - Port 8443 for Alertmanager proxy (HTTPS)
-   - Port 4317 for device telemetry ingestion (gRPC/mTLS)
+5. **Monitoring and observability** services have additional port requirements
 
 For specific deployment configurations, adjust firewall rules and load balancer settings according to your environment's security requirements.

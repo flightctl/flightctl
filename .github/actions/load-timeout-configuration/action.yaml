@@ -1,0 +1,102 @@
+name: 'Load Timeout Configuration'
+description: 'Loads timeout values from helm-chart-opts.yaml based on flavor'
+
+inputs:
+  flavor:
+    description: 'Container flavor (el9 or el10)'
+    required: true
+  timeout-type:
+    description: 'Type of timeout to load (apiReadiness, helmUpgrade.withWait, helmUpgrade.withoutWait, helmUpgrade.prUpgrade)'
+    required: true
+
+outputs:
+  timeout:
+    description: 'The timeout value from helm chart configuration'
+    value: ${{ steps.load-timeout.outputs.timeout }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Load timeout configuration
+      id: load-timeout
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        CHART_OPTS_FILE="deploy/helm/helm-chart-opts.yaml"
+        FLAVOR_KEY="community-${{ inputs.flavor }}"
+        TIMEOUT_PATH=".${FLAVOR_KEY}.timeouts.${{ inputs.timeout-type }}"
+
+        echo "Loading timeout configuration:"
+        echo "  Flavor: ${{ inputs.flavor }}"
+        echo "  Type: ${{ inputs.timeout-type }}"
+        echo "  Chart file: $CHART_OPTS_FILE"
+        echo "  YQ path: $TIMEOUT_PATH"
+
+        # Define default timeouts for baseline builds that don't have helm-chart-opts.yaml
+        # Use a simple case statement since bash arrays don't handle dotted keys reliably
+        TIMEOUT_VALUE=""
+
+        if [ ! -f "$CHART_OPTS_FILE" ]; then
+          echo "Chart options file not found: $CHART_OPTS_FILE (baseline build)"
+          echo "Using default timeout for ${{ inputs.timeout-type }}"
+
+          case "${{ inputs.timeout-type }}" in
+            "apiReadiness")
+              TIMEOUT_VALUE="60"
+              ;;
+            "helmUpgrade.withWait")
+              TIMEOUT_VALUE="15m"
+              ;;
+            "helmUpgrade.withoutWait")
+              TIMEOUT_VALUE="10m"
+              ;;
+            "helmUpgrade.prUpgrade")
+              TIMEOUT_VALUE="20m"
+              ;;
+            *)
+              echo "WARNING: Unknown timeout type '${{ inputs.timeout-type }}', using 60s"
+              TIMEOUT_VALUE="60"
+              ;;
+          esac
+        else
+          # Extract timeout value using yq
+          TIMEOUT_VALUE=$(yq eval "$TIMEOUT_PATH" "$CHART_OPTS_FILE" 2>/dev/null || echo "null")
+
+          # Use default if timeout not found in configuration
+          if [ "$TIMEOUT_VALUE" == "null" ] || [ -z "$TIMEOUT_VALUE" ]; then
+            echo "Timeout '${{ inputs.timeout-type }}' not found in $CHART_OPTS_FILE for flavor '${{ inputs.flavor }}'"
+            echo "Using default timeout for ${{ inputs.timeout-type }}"
+
+            case "${{ inputs.timeout-type }}" in
+              "apiReadiness")
+                TIMEOUT_VALUE="300"  # 5 minutes for E2E tests that use wait:false
+                ;;
+              "helmUpgrade.withWait")
+                TIMEOUT_VALUE="15m"
+                ;;
+              "helmUpgrade.withoutWait")
+                TIMEOUT_VALUE="10m"
+                ;;
+              "helmUpgrade.prUpgrade")
+                TIMEOUT_VALUE="20m"
+                ;;
+              *)
+                echo "WARNING: Unknown timeout type '${{ inputs.timeout-type }}', using 300s"
+                TIMEOUT_VALUE="300"
+                ;;
+            esac
+          else
+            echo "Loaded timeout: $TIMEOUT_VALUE (from $CHART_OPTS_FILE)"
+          fi
+        fi
+
+        # Validate we have a timeout value
+        if [ -z "$TIMEOUT_VALUE" ]; then
+          echo "ERROR: No timeout value determined for '${{ inputs.timeout-type }}'"
+          echo "This should not happen - using fallback value of 60"
+          TIMEOUT_VALUE="60"
+        fi
+
+        echo "Final timeout: $TIMEOUT_VALUE"
+        echo "timeout=$TIMEOUT_VALUE" >> "$GITHUB_OUTPUT"

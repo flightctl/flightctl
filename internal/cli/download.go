@@ -18,8 +18,6 @@ import (
 type DownloadOptions struct {
 	GlobalOptions
 	Output string
-	Kind   ResourceKind
-	Name   string
 }
 
 // downloadResult holds the successful download stream and metadata
@@ -39,14 +37,11 @@ func DefaultDownloadOptions() *DownloadOptions {
 func NewCmdDownload() *cobra.Command {
 	o := DefaultDownloadOptions()
 	cmd := &cobra.Command{
-		Use:   "download (TYPE/NAME | TYPE NAME) OUTPUT_FILE",
-		Short: "Download a resource artifact",
-		Long:  "Download a resource artifact. Currently supports imageexport resources.",
-		Args:  cobra.RangeArgs(2, 3),
-		Example: `  flightctl download imageexport/my-export ./artifact.qcow2
-  flightctl download imageexport my-export ./artifact.qcow2
-  flightctl download ie/my-export ./artifact.qcow2
-  flightctl download ie my-export ./artifact.qcow2`,
+		Use:     "download TYPE/NAME OUTPUT_FILE",
+		Short:   "Download a resource artifact",
+		Long:    "Download a resource artifact. Currently supports imageexport resources.",
+		Args:    cobra.ExactArgs(2),
+		Example: "  flightctl download imageexport/my-export ./artifact.qcow2",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := o.Complete(cmd, args); err != nil {
 				return err
@@ -73,25 +68,35 @@ func (o *DownloadOptions) Complete(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	o.Output = args[len(args)-1]
+	// Set output file from second argument
+	if len(args) >= 2 {
+		o.Output = args[1]
+	}
 
 	return nil
 }
 
 func (o *DownloadOptions) Validate(args []string) error {
-	resourceArgs := args[:len(args)-1]
-	kind, name, err := parseResourceArgs(resourceArgs)
+	if len(args) < 1 {
+		return fmt.Errorf("resource type/name is required")
+	}
+
+	// Parse resource type/name
+	parts := strings.Split(args[0], "/")
+	if len(parts) != 2 {
+		return fmt.Errorf("resource must be in format TYPE/NAME (e.g., imageexport/my-export)")
+	}
+
+	kind, err := ResourceKindFromString(parts[0])
 	if err != nil {
-		return err
+		return fmt.Errorf("invalid resource type: %s", parts[0])
 	}
 
 	if kind != ImageExportKind {
 		return fmt.Errorf("unsupported resource type: %s (only 'imageexport' is supported)", kind)
 	}
 
-	o.Kind = kind
-	o.Name = name
-
+	// Validate output file
 	if o.Output == "" {
 		return fmt.Errorf("output file path is required")
 	}
@@ -100,23 +105,29 @@ func (o *DownloadOptions) Validate(args []string) error {
 }
 
 func (o *DownloadOptions) Run(ctx context.Context, args []string) error {
+	// Parse resource type/name
+	parts := strings.Split(args[0], "/")
+	kind, err := ResourceKindFromString(parts[0])
+	if err != nil {
+		return fmt.Errorf("invalid resource type: %s", parts[0])
+	}
+	name := parts[1]
+
+	// Check if file exists and prompt for overwrite before starting download
 	if err := o.checkFileExists(); err != nil {
 		return err
 	}
 
-	var (
-		result *downloadResult
-		err    error
-	)
+	var result *downloadResult
 
-	switch o.Kind {
+	switch kind {
 	case ImageExportKind:
-		result, err = o.downloadImageExport(ctx, o.Name)
+		result, err = o.downloadImageExport(ctx, name)
 		if err != nil {
 			return err
 		}
 	default:
-		return fmt.Errorf("unsupported resource type: %s", o.Kind)
+		return fmt.Errorf("unsupported resource type: %s", kind)
 	}
 
 	if result.closeFunc != nil {
