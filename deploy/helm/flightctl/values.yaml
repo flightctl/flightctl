@@ -237,7 +237,7 @@ api:
 # -- CLI Artifacts Configuration
 cliArtifacts:
   # -- Enable CLI artifacts service
-  enabled: true
+  enabled: false
   image:
     # -- CLI artifacts container image
     image: quay.io/flightctl/flightctl-cli-artifacts
