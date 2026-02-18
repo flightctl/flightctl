@@ -375,3 +375,27 @@ function ensure_organization_set() {
     fi
     return 0
 }
+
+# check_registry waits for a registry to become available
+# Arguments:
+#   $1 - registry endpoint (host:port)
+#   $2 - timeout in seconds (default: 30)
+function check_registry() {
+    local endpoint="$1"
+    local timeout="${2:-30}"
+
+    echo "Checking registry availability at ${endpoint}..."
+    local CURL_ARGS="-f --connect-timeout 5 --insecure"
+
+    for ((i=0; i<timeout; i++)); do
+        echo "Attempting connection... (${i}s/${timeout}s)"
+        if curl ${CURL_ARGS} "https://${endpoint}/v2/" 2>&1; then
+            echo "Registry is available"
+            return 0
+        fi
+        sleep 1
+    done
+
+    echo "Error: Registry unavailable after ${timeout}s"
+    return 1
+}

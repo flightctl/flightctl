@@ -1,6 +1,7 @@
 global:
   nodePorts:
     registry: 5000
+    privateRegistry: 5002
     gitserver: 3222
     prometheus: 9090
     jaegerUi: 16686

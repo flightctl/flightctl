@@ -1,0 +1,12 @@
+[Unit]
+Description=Worker container with multiple volumes
+
+[Container]
+Image=worker-image.image
+Pod=app.pod
+Volume=data.volume:/mnt/data
+Volume=dummy.volume:/mnt/dummy:ro
+Exec=sh -c "echo 'Worker container started.' && touch /mnt/data/worker-file-$(date +%%s) && echo 'Files in data volume:' && ls -l /mnt/data && echo 'Files in dummy volume:' && ls -l /mnt/dummy && sleep infinity"
+
+[Install]
+WantedBy=default.target

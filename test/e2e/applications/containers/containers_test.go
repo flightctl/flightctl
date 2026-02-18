@@ -40,19 +40,19 @@ var _ = Describe("Single Container Applications", Ordered, func() {
 
 		var err error
 		defaultAppSpec, err = e2e.NewContainerApplicationSpec(
-			containerAppName, nginxImage, defaultPorts,
+			containerAppName, nginxImage, "", defaultPorts,
 			lo.ToPtr(defaultCPU), lo.ToPtr(defaultMemory), nil,
 		)
 		Expect(err).ToNot(HaveOccurred())
 
 		lowMemoryAppSpec, err = e2e.NewContainerApplicationSpec(
-			containerAppName, nginxImage, defaultPorts,
+			containerAppName, nginxImage, "", defaultPorts,
 			lo.ToPtr(defaultCPU), lo.ToPtr(lowMemory), nil,
 		)
 		Expect(err).ToNot(HaveOccurred())
 
 		secondAppSpec, err = e2e.NewContainerApplicationSpec(
-			containerAppName2, nginxImage, secondPorts,
+			containerAppName2, nginxImage, "", secondPorts,
 			lo.ToPtr(defaultCPU), lo.ToPtr(defaultMemory), nil,
 		)
 		Expect(err).ToNot(HaveOccurred())

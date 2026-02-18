@@ -26,6 +26,9 @@ nodes:
     protocol: TCP
   - containerPort: 5000 # local registry for E2E testing
     hostPort: 5000
+    protocol: TCP
+  - containerPort: 5002 # private registry for E2E testing (requires auth)
+    hostPort: 5002
     protocol: TCP    
   - containerPort: 5432 # postgresql DB
     hostPort: 5432

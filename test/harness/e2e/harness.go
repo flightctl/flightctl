@@ -49,6 +49,7 @@ import (
 	"bytes"
 	"context"
 	cryptorand "crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"net"
@@ -75,6 +76,7 @@ import (
 	"github.com/onsi/gomega"
 	. "github.com/onsi/gomega"
 	"github.com/sirupsen/logrus"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 	"sigs.k8s.io/yaml"
@@ -492,6 +494,35 @@ func (h *Harness) RegistryEndpoint() string {
 	ep := os.Getenv("REGISTRY_ENDPOINT")
 	Expect(ep).NotTo(BeEmpty(), "REGISTRY_ENDPOINT environment variable must be set")
 	return ep
+}
+
+// PrivateRegistryEndpoint returns the private registry endpoint (port 5002).
+func (h *Harness) PrivateRegistryEndpoint() string {
+	publicEp := h.RegistryEndpoint()
+	host, _, err := net.SplitHostPort(publicEp)
+	if err != nil {
+		host = publicEp
+	}
+	return net.JoinHostPort(host, "5002")
+}
+
+// GetRegistryAuth retrieves the e2e registry authentication credentials from the cluster.
+func (h *Harness) GetRegistryAuth() (username, password string, err error) {
+	secret, err := h.Cluster.CoreV1().Secrets("flightctl-e2e").Get(h.Context, "e2e-registry-auth", metav1.GetOptions{})
+	if err != nil {
+		return "", "", fmt.Errorf("failed to get registry auth secret: %w", err)
+	}
+	return string(secret.Data["username"]), string(secret.Data["password"]), nil
+}
+
+// BuildAuthJSON creates an auth.json content string for the given registries.
+func (h *Harness) BuildAuthJSON(username, password string, registries ...string) string {
+	auth := base64.StdEncoding.EncodeToString([]byte(username + ":" + password))
+	auths := make([]string, 0, len(registries))
+	for _, registry := range registries {
+		auths = append(auths, fmt.Sprintf(`"%s":{"auth":"%s"}`, registry, auth))
+	}
+	return fmt.Sprintf(`{"auths":{%s}}`, strings.Join(auths, ","))
 }
 
 func (h *Harness) setArgsInCmd(cmd *exec.Cmd, args ...string) {
