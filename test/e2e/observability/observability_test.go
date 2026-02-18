@@ -61,7 +61,7 @@ var _ = Describe("Device observability", func() {
 			Expect(err).ToNot(HaveOccurred())
 			_, _, err = harness.WaitForBootstrapAndUpdateToVersion(deviceId, util.DeviceTags.V10)
 			Expect(err).ToNot(HaveOccurred())
-			err = harness.WaitForDeviceNewRenderedVersion(deviceId, nextRenderedVersion)
+			err = harness.WaitForDeviceNewRenderedVersionWithReboot(deviceId, nextRenderedVersion)
 			Expect(err).ToNot(HaveOccurred())
 
 			By("waiting for otelcol to be running on the device")
