@@ -755,6 +755,8 @@ runs:
 
     - name: "Execute Helm deployment"
       shell: bash
+      env:
+        WAIT: ${{ inputs.wait }}
       run: |
         set -euo pipefail
 
