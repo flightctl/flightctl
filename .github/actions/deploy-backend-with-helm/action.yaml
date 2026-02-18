@@ -602,7 +602,8 @@ runs:
         EXTRA_ARGS+=" --set periodic.image.tag=${FLAVORED_IMAGE_TAG}"
         EXTRA_ARGS+=" --set alertExporter.image.tag=${FLAVORED_IMAGE_TAG}"
         EXTRA_ARGS+=" --set alertmanagerProxy.image.tag=${FLAVORED_IMAGE_TAG}"
-        EXTRA_ARGS+=" --set cliArtifacts.image.tag=${FLAVORED_IMAGE_TAG}"
+        # CLI artifacts images are flavor-neutral, use baseline tag
+        EXTRA_ARGS+=" --set cliArtifacts.image.tag=${IMAGE_TAG}"
         EXTRA_ARGS+=" --set telemetryGateway.image.tag=${FLAVORED_IMAGE_TAG}"
         EXTRA_ARGS+=" --set imageBuilderApi.image.tag=${FLAVORED_IMAGE_TAG}"
         EXTRA_ARGS+=" --set imageBuilderWorker.image.tag=${FLAVORED_IMAGE_TAG}"
