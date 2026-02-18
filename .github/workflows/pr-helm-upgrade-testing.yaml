@@ -515,8 +515,12 @@ jobs:
           # EL10 requires longer timeout due to FIPS 140-3 enhanced TLS initialization and slower migrations
           # EL10: 30m (FIPS database migrations, TLS validation, container startup delays)
           # EL9:  20m (Standard requirements)
-          HELM_TIMEOUT="${{ matrix.flavor == 'el10' && '30m' || '20m' }}"
-          echo "Using Helm timeout: $HELM_TIMEOUT for flavor ${{ matrix.flavor }}"
+          if [ "$FLAVOR" == "el10" ]; then
+            HELM_TIMEOUT="30m"
+          else
+            HELM_TIMEOUT="20m"
+          fi
+          echo "Using Helm timeout: $HELM_TIMEOUT for flavor $FLAVOR"
           if timeout "$HELM_TIMEOUT" helm upgrade flightctl "${CHART_FILE}" \
             --namespace flightctl-external \
             --reuse-values \
@@ -566,7 +570,7 @@ jobs:
           # EL10 requires longer timeout due to FIPS 140-3 enhanced TLS initialization
           # EL10: 180s (FIPS 140-3 with TLS 1.2 EMS mandatory, enhanced key validation, CI load)
           # EL9:  60s  (Standard TLS requirements)
-          retries: ${{ matrix.flavor == 'el10' && '180' || '60' }}
+          retries: ${{ env.FLAVOR == 'el10' && '180' || '60' }}
 
       - name: "[HEAD] Check deployment"
         run: |
@@ -653,7 +657,7 @@ jobs:
           # EL10 requires longer timeout due to FIPS 140-3 enhanced TLS initialization
           # EL10: 180s (FIPS 140-3 with TLS 1.2 EMS mandatory, enhanced key validation, CI load)
           # EL9:  60s  (Standard TLS requirements)
-          retries: ${{ matrix.flavor == 'el10' && '180' || '60' }}
+          retries: ${{ env.FLAVOR == 'el10' && '180' || '60' }}
 
       - name: "[HEAD] Validate versions"
         env:
