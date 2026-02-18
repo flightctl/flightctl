@@ -199,6 +199,7 @@ func (r *pullConfigResolver) resolve(configPath string) (*resolvedConfig, bool) 
 		}, true
 	}
 
+	r.log.Debugf("No config found for path: %s (not in spec, not on disk)", configPath)
 	return nil, false
 }
 

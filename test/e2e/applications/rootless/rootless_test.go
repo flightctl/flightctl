@@ -56,9 +56,9 @@ var _ = Describe("Rootless applications", Label("rootless"), func() {
 		var err error
 
 		By("Container app type: deploy with runAs flightctl and verify user path and podman")
-		containerApp, err := e2e.NewContainerApplicationSpecWithRunAs(
-			rootlessAppContainerRootless, rootlessNginxImage,
-			[]v1beta1.ApplicationPort{"8083:80"}, nil, nil, nil, flightctlUser)
+		containerApp, err := e2e.NewContainerApplicationSpec(
+			rootlessAppContainerRootless, rootlessNginxImage, flightctlUser,
+			[]v1beta1.ApplicationPort{"8083:80"}, nil, nil, nil)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(harness.SetDeviceApplications(deviceID, &[]v1beta1.ApplicationProviderSpec{containerApp})).ToNot(HaveOccurred())
 		Expect(harness.WaitForApplicationStatus(deviceID, rootlessAppContainerRootless, v1beta1.ApplicationStatusRunning, testutil.TIMEOUT, testutil.POLLING)).ToNot(HaveOccurred())
@@ -98,9 +98,9 @@ var _ = Describe("Rootless applications", Label("rootless"), func() {
 		harness.VerifyQuadletApplicationFolderDeletedAt(rootlessAppNewRootful, e2e.QuadletUnitPath)
 
 		By("Mixed: add rootful container app and verify rootless quadlet and rootful container run simultaneously")
-		containerRootful, err := e2e.NewContainerApplicationSpec(rootlessAppContainerMulti, rootlessNginxImage, []v1beta1.ApplicationPort{"8082:80"}, nil, nil, nil)
+		containerRootful, err := e2e.NewContainerApplicationSpec(rootlessAppContainerMulti, rootlessNginxImage, "", []v1beta1.ApplicationPort{"8082:80"}, nil, nil, nil)
 		Expect(err).ToNot(HaveOccurred())
-		Expect(harness.UpdateDeviceAndWaitForRenderedVersion(deviceID, func(d *v1beta1.Device) {
+		Expect(harness.UpdateDeviceAndWaitForVersion(deviceID, func(d *v1beta1.Device) {
 			if d.Spec.Applications == nil {
 				d.Spec.Applications = &[]v1beta1.ApplicationProviderSpec{}
 			}

@@ -74,7 +74,8 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			By("Wait for the reported application running status in the device")
-			harness.WaitForApplicationRunningStatus(deviceId, imageName)
+			err = harness.WaitForApplicationStatus(deviceId, imageName, v1beta1.ApplicationStatusRunning, util.LONG_TIMEOUT, util.POLLING)
+			Expect(err).ToNot(HaveOccurred())
 
 			By("Check the general device application status")
 			// Re-fetch the device to get the current status after the application is running
@@ -120,7 +121,8 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			By("Wait for the application running status")
-			harness.WaitForApplicationRunningStatus(deviceId, imageName)
+			err = harness.WaitForApplicationStatus(deviceId, imageName, v1beta1.ApplicationStatusRunning, util.LONG_TIMEOUT, util.POLLING)
+			Expect(err).ToNot(HaveOccurred())
 
 			By("Check that the new application containers are running")
 			err = harness.VerifyContainerCount(ExpectedNumSleepAppV2V3Containers)
@@ -187,7 +189,8 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			By("Wait for the application running status")
-			harness.WaitForApplicationRunningStatus(deviceId, imageName)
+			err = harness.WaitForApplicationStatus(deviceId, imageName, v1beta1.ApplicationStatusRunning, util.LONG_TIMEOUT, util.POLLING)
+			Expect(err).ToNot(HaveOccurred())
 
 			By("Check that the new application containers are running")
 			err = harness.VerifyContainerCount(ExpectedNumSleepAppV2V3Containers)
@@ -219,7 +222,8 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 				device.Spec.Applications = &[]v1beta1.ApplicationProviderSpec{appSpec}
 			})
 			Expect(err).ToNot(HaveOccurred())
-			harness.WaitForApplicationRunningStatus(deviceId, imageName)
+			err = harness.WaitForApplicationStatus(deviceId, imageName, v1beta1.ApplicationStatusRunning, util.LONG_TIMEOUT, util.POLLING)
+			Expect(err).ToNot(HaveOccurred())
 
 			err = harness.VerifyContainerCount(ExpectedNumSleepAppV2V3Containers)
 			Expect(err).ToNot(HaveOccurred())
@@ -268,7 +272,8 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			Expect(stdout.String()).To(ContainSubstring(inlineAppComposeYaml))
 
 			By("Wait for the inline app to report running status")
-			harness.WaitForApplicationRunningStatus(deviceId, inlineAppName)
+			err = harness.WaitForApplicationStatus(deviceId, inlineAppName, v1beta1.ApplicationStatusRunning, util.LONG_TIMEOUT, util.POLLING)
+			Expect(err).ToNot(HaveOccurred())
 
 			By(fmt.Sprintf("Ensure %d/%d containers are up", containerAmount, containerAmount))
 			stdout, err = harness.VM.RunSSH([]string{"sudo", "podman", "ps", "--format", "\"{{.Image}}\""}, nil)
