@@ -277,7 +277,7 @@ jobs:
           helm dependency build ./deploy/helm/flightctl
           helm package ./deploy/helm/flightctl \
             --version "$TAG" \
-            --app-version "$TAG"
+            --app-version "$FLAVOR-v$TAG"
           
           # Rename to consistent name for easier consumption
           GENERATED_FILE="flightctl-${TAG}.tgz"
