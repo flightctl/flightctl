@@ -72,8 +72,23 @@ jobs:
         run: |
           set -euo pipefail
           echo "::group::Building backend containers for flavor: $FLAVOR"
-          echo "Using data-driven build script..."
-          bash hack/build_containers_ci.sh "$FLAVOR"
+          # Data-driven script exists in current branch but may not exist in baseline checkouts
+          if [[ -f "hack/build_containers_ci.sh" ]]; then
+            echo "Using data-driven build script..."
+            bash hack/build_containers_ci.sh "$FLAVOR"
+          else
+            echo "Data-driven script not found (baseline checkout), using fallback make targets..."
+            if make -n build-containers-ci >/dev/null 2>&1; then
+              echo "Using make build-containers-ci for $FLAVOR"
+              make -j4 build-containers-ci FLAVOR="$FLAVOR"
+            elif make -n build-containers >/dev/null 2>&1; then
+              echo "Using fallback: make build-containers"
+              make build-containers FLAVOR="$FLAVOR"
+            else
+              echo "Error: No suitable build method found"
+              exit 1
+            fi
+          fi
           echo "::endgroup::"
 
       - name: Bundle images
