@@ -544,6 +544,27 @@ alice
 bob
 charlie
 MaxAge
+FreeIPA
+pam_sss
+pam_sss.so
+sssd-client
+sssd_pam
+getent
+gidNumber
+pamtester
+NSS
+quadlet
+POSIX
+SO_PEERCRED
+CentOS
+RHEL
+lookups
+pre-configured
+IdP
+proxy_child
+unix_chkpwd
+sssd_pam.log
+x
  - docs/user/installing/configuring-auth/auth-oauth2.md
 GitHub
 github.com
