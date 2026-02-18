@@ -25,12 +25,16 @@ echo -e "\033[32mBuilding app images using build.sh --apps\033[m"
 # Create bundle tar using the modular bundle.sh script
 echo -e "\033[32mBundling app images\033[m"
 BUNDLE_TAR="${ROOT_DIR}/bin/app-images-bundle.tar"
-"${SCRIPT_DIR}/scripts/bundle.sh" --filter "label=io.flightctl.e2e.component=app" --filter "reference=${APP_REPO}/sleep-app:*" --output-path "${BUNDLE_TAR}"
+"${SCRIPT_DIR}/scripts/bundle.sh" --filter "label=io.flightctl.e2e.component=app" --output-path "${BUNDLE_TAR}"
 
-# Push images if requested using the modular upload-images.sh script
+# Push artifacts if requested
 if [ "${PUSH_IMAGES:-false}" = "true" ]; then
   echo -e "\033[32mPushing app images to registry\033[m"
   "${SCRIPT_DIR}/scripts/upload-images.sh" "${BUNDLE_TAR}"
+  echo -e "\033[32mPushing charts to registry\033[m"
+  "${SCRIPT_DIR}/scripts/upload-charts.sh"
+  echo -e "\033[32mPushing quadlets to registry\033[m"
+  "${SCRIPT_DIR}/scripts/upload-quadlets.sh"
 else
   echo -e "\033[33mSkipping push (PUSH_IMAGES=${PUSH_IMAGES:-false})\033[m"
 fi
