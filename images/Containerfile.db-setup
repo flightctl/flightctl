@@ -1,4 +1,8 @@
-FROM registry.access.redhat.com/ubi9/go-toolset:1.24.6-1762373805 as build
+ARG BUILD_IMAGE
+ARG RUNTIME_IMAGE
+ARG EL_VERSION
+
+FROM ${BUILD_IMAGE} as build
 WORKDIR /app
 
 # Switch to root for build operations
@@ -36,17 +40,27 @@ ENV SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT}
 # Use BuildKit cache mounts for Go caching
 RUN --mount=type=cache,target=/opt/app-root/src/.cache/go-build \
     --mount=type=cache,target=/opt/app-root/src/go/pkg/mod \
-    make build-imagebuilder-api
+    make build-db-migrate
 
-FROM quay.io/flightctl/flightctl-base:9.7-1762965531
+FROM ${RUNTIME_IMAGE}
 WORKDIR /app
-LABEL \
-  com.redhat.component="flightctl-imagebuilder-api-container" \
-  description="Flight Control ImageBuilder API server" \
-  io.k8s.description="Flight Control ImageBuilder API server" \
-  io.k8s.display-name="Flight Control ImageBuilder API Server" \
-  name="flightctl-imagebuilder-api" \
-  summary="Flight Control ImageBuilder API server"
-COPY --from=build /app/bin/flightctl-imagebuilder-api .
 
-CMD ./flightctl-imagebuilder-api
+# Install PostgreSQL client tools needed for migration scripts
+ARG EL_VERSION
+RUN microdnf install -y postgresql gettext && microdnf clean all
+
+LABEL \
+  com.redhat.component="flightctl-db-setup-container" \
+  description="Flight Control database setup and migration tool" \
+  io.k8s.description="Flight Control database setup and migration tool" \
+  io.k8s.display-name="Flight Control Database Setup" \
+  name="flightctl-db-setup-el${EL_VERSION}" \
+  summary="Flight Control Database Setup Tools (el${EL_VERSION})"
+
+COPY --chmod=0755 --from=build /app/bin/flightctl-db-migrate /usr/local/bin/flightctl-db-migrate
+COPY --from=build /app/deploy ./deploy
+
+# Ensure migration script has execute permissions
+RUN chmod +x /app/deploy/scripts/migration-setup.sh
+
+CMD /usr/local/bin/flightctl-db-migrate

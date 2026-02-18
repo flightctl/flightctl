@@ -8,7 +8,7 @@ on:
         required: true
         type: string
       os_id:
-        description: "Agent Image OS ID (cs9-bootc / cs10-bootc)"
+        description: "Agent Image OS ID (el9-bootc / el10-bootc)"
         required: true
         type: string
       tag:

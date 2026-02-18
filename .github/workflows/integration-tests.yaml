@@ -47,11 +47,13 @@ jobs:
           COMMIT_SHA="${{ github.sha }}"
           echo "Building db-migrator image tagged with commit: ${COMMIT_SHA}"
 
-          # Build the db-setup container with commit tag
-          sudo make flightctl-db-setup-container
+          # Build the db-setup container with configurable FLAVOR (defaults to el9)
+          FLAVOR=${FLAVOR:-el9}
+          # Script now accepts el9/el10 directly
+          sudo hack/publish_containers.sh build ${FLAVOR}
 
-          # Tag the image with the commit SHA
-          sudo podman tag flightctl-db-setup:latest "flightctl-db-setup:${COMMIT_SHA}"
+          # Tag the db-setup image with the commit SHA for migration (using new flavor-in-tag naming)
+          sudo podman tag "flightctl-db-setup:${FLAVOR}-latest" "flightctl-db-setup:${COMMIT_SHA}"
 
           echo "MIGRATION_IMAGE=flightctl-db-setup:${COMMIT_SHA}" >> "$GITHUB_ENV"
 

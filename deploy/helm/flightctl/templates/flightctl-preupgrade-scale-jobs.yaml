@@ -111,21 +111,90 @@ spec:
               set -euo pipefail
               NAMESPACE={{ default .Release.Namespace .Values.global.internalNamespace }}
               TIMEOUT={{ default 120 .Values.upgradeHooks.scaleDown.timeoutSeconds }}
-              echo "Pre-upgrade scale to zero started in namespace: ${NAMESPACE} (timeout=${TIMEOUT}s)"
+              echo "=== PRE-UPGRADE SCALE-DOWN DEBUG ==="
+              echo "Namespace: ${NAMESPACE}"
+              echo "Timeout: ${TIMEOUT}s"
+              echo "Deployments to scale: {{- range $idx, $d := $deploymentsToScale -}}{{ if $idx }} {{ end }}{{ $d }}{{- end }}"
+
+              # Show initial cluster state
+              echo ""
+              echo "=== INITIAL STATE ==="
+              oc get deployments -n "${NAMESPACE}" -o wide || echo "Failed to get deployments"
+              oc get pods -n "${NAMESPACE}" -o wide || echo "Failed to get pods"
+
               DEPLOYMENTS="{{- range $idx, $d := $deploymentsToScale -}}{{ if $idx }} {{ end }}{{ $d }}{{- end }}"
               for dep in ${DEPLOYMENTS}; do
-                echo "Scaling ${dep} to 0 replicas..."
-                oc scale deployment/${dep} -n "${NAMESPACE}" --replicas=0 || true
-                echo "Waiting for ${dep} to scale down..."
-                oc rollout status deployment/${dep} -n "${NAMESPACE}" --watch=true --timeout="${TIMEOUT}s" || true
-                status=$(oc get deployment ${dep} -n "${NAMESPACE}" -o jsonpath='{.status.replicas},{.status.readyReplicas},{.status.updatedReplicas}' 2>/dev/null || echo ",,")
-                set -- $(printf "%s" "$status" | tr ',' ' ')
-                replicas=${1:-0}
-                ready=${2:-0}
-                updated=${3:-0}
-                echo "${dep} status: replicas=${replicas}, ready=${ready}, updated=${updated}"
+                echo ""
+                echo "=== PROCESSING ${dep} ==="
+                echo "Checking if deployment ${dep} exists..."
+
+                if oc get deployment ${dep} -n "${NAMESPACE}" >/dev/null 2>&1; then
+                  # Show initial state
+                  echo "Initial state of ${dep}:"
+                  oc get deployment ${dep} -n "${NAMESPACE}" -o wide
+                  oc get pods -n "${NAMESPACE}" -l app=${dep} || echo "No pods with label app=${dep}"
+
+                  echo "Scaling ${dep} to 0 replicas..."
+                  if oc scale deployment/${dep} -n "${NAMESPACE}" --replicas=0; then
+                    echo "Scale command succeeded, waiting for rollout..."
+
+                    # Monitor with detailed logging
+                    start_time=$(date +%s)
+                    while true; do
+                      current_time=$(date +%s)
+                      elapsed=$((current_time - start_time))
+
+                      if [ $elapsed -ge $TIMEOUT ]; then
+                        echo "TIMEOUT: ${dep} did not scale down in ${TIMEOUT}s"
+                        break
+                      fi
+
+                      # Get current status
+                      status=$(oc get deployment ${dep} -n "${NAMESPACE}" -o jsonpath='{.status.replicas},{.status.readyReplicas},{.status.updatedReplicas},{.status.availableReplicas}' 2>/dev/null || echo ",,,")
+                      set -- $(printf "%s" "$status" | tr ',' ' ')
+                      replicas=${1:-0}
+                      ready=${2:-0}
+                      updated=${3:-0}
+                      available=${4:-0}
+
+                      echo "[${elapsed}s] ${dep}: replicas=${replicas}, ready=${ready}, updated=${updated}, available=${available}"
+
+                      # Check if fully scaled down
+                      if [ "${replicas:-0}" = "0" ] && [ "${ready:-0}" = "0" ] && [ "${available:-0}" = "0" ]; then
+                        echo "SUCCESS: ${dep} fully scaled down"
+                        break
+                      fi
+
+                      # Show pod states if still scaling
+                      if [ $((elapsed % 20)) -eq 0 ]; then
+                        echo "Current pods for ${dep}:"
+                        oc get pods -n "${NAMESPACE}" -l app=${dep} -o wide || echo "No pods"
+                        echo "Recent events:"
+                        oc get events -n "${NAMESPACE}" --field-selector involvedObject.name=${dep} --sort-by='.lastTimestamp' | tail -3 || echo "No events"
+                      fi
+
+                      sleep 2
+                    done
+
+                    # Final status check
+                    echo "Final status of ${dep}:"
+                    oc get deployment ${dep} -n "${NAMESPACE}" -o wide || echo "Failed to get deployment"
+                    oc get pods -n "${NAMESPACE}" -l app=${dep} -o wide || echo "No pods"
+
+                  else
+                    echo "ERROR: Failed to scale ${dep}"
+                    oc get deployment ${dep} -n "${NAMESPACE}" -o yaml || echo "Failed to get deployment details"
+                  fi
+                else
+                  echo "Deployment ${dep} does not exist, skipping..."
+                fi
               done
-              echo "Scale-to-zero steps finished."
+
+              echo ""
+              echo "=== FINAL STATE ==="
+              oc get deployments -n "${NAMESPACE}" -o wide || echo "Failed to get deployments"
+              oc get pods -n "${NAMESPACE}" -o wide || echo "Failed to get pods"
+              echo "=== SCALE-DOWN COMPLETE ==="
 {{- end }}
 
 

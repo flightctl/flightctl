@@ -1,0 +1,56 @@
+ARG BUILD_IMAGE
+ARG RUNTIME_IMAGE
+ARG EL_VERSION
+
+FROM ${BUILD_IMAGE} as build
+WORKDIR /app
+
+# Switch to root for build operations
+USER 0
+
+# Copy dependencies first (most stable)
+COPY go.mod go.sum ./
+
+# Download dependencies (cached layer)
+RUN --mount=type=cache,target=/opt/app-root/src/go/pkg/mod \
+    go mod download
+
+# Copy build tools and configs
+COPY Makefile .
+
+# Copy source code directories
+COPY ./api ./api
+COPY ./cmd ./cmd
+COPY ./deploy ./deploy
+COPY ./hack ./hack
+COPY ./internal ./internal
+COPY ./pkg ./pkg
+COPY ./test ./test
+
+# Define version info ARGs right before build
+ARG SOURCE_GIT_TAG
+ARG SOURCE_GIT_TREE_STATE
+ARG SOURCE_GIT_COMMIT
+
+# Convert ARGs to ENV so make can use them
+ENV SOURCE_GIT_TAG=${SOURCE_GIT_TAG}
+ENV SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE}
+ENV SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT}
+
+# Use BuildKit cache mounts for Go caching
+RUN --mount=type=cache,target=/opt/app-root/src/.cache/go-build \
+    --mount=type=cache,target=/opt/app-root/src/go/pkg/mod \
+    make build-periodic
+
+FROM ${RUNTIME_IMAGE}
+WORKDIR /app
+LABEL \
+  com.redhat.component="flightctl-periodic-container" \
+  description="Flight Control periodic task service" \
+  io.k8s.description="Flight Control periodic task service" \
+  io.k8s.display-name="Flight Control Periodic Service" \
+  name="flightctl-periodic-el${EL_VERSION}" \
+  summary="Flight Control Edge management service, periodic job worker (el${EL_VERSION})"
+COPY --chmod=0755 --from=build /app/bin/flightctl-periodic .
+
+CMD ./flightctl-periodic

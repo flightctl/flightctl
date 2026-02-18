@@ -1,11 +1,14 @@
-FROM registry.access.redhat.com/ubi9/go-toolset:1.24.6-1762373805 as build
+ARG BUILD_IMAGE
+ARG RUNTIME_IMAGE
+ARG EL_VERSION
+
+FROM ${BUILD_IMAGE} as build
 WORKDIR /app
 
 # Switch to root for build operations
 USER 0
 
 # Copy dependencies first (most stable)
-COPY go.* ./
 COPY go.mod go.sum ./
 
 # Download dependencies (cached layer)
@@ -37,17 +40,17 @@ ENV SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT}
 # Use BuildKit cache mounts for Go caching
 RUN --mount=type=cache,target=/opt/app-root/src/.cache/go-build \
     --mount=type=cache,target=/opt/app-root/src/go/pkg/mod \
-    make build-alertmanager-proxy
+    make build-imagebuilder-worker
 
-FROM quay.io/flightctl/flightctl-base:9.7-1762965531
+FROM ${RUNTIME_IMAGE}
 WORKDIR /app
 LABEL \
-  com.redhat.component="flightctl-alertmanager-proxy-container" \
-  description="Flight Control Edge management service, alertmanager proxy" \
-  io.k8s.description="Flight Control Edge management service, alertmanager proxy" \
-  io.k8s.display-name="Flight Control Alertmanager Proxy" \
-  name="flightctl-alertmanager-proxy" \
-  summary="Flight Control Edge management service, alertmanager proxy"
-COPY --from=build /app/bin/flightctl-alertmanager-proxy .
-EXPOSE 8443
-CMD ./flightctl-alertmanager-proxy
+  com.redhat.component="flightctl-imagebuilder-worker-container" \
+  description="Flight Control ImageBuilder Worker for processing image build jobs" \
+  io.k8s.description="Flight Control ImageBuilder Worker for processing image build jobs" \
+  io.k8s.display-name="Flight Control ImageBuilder Worker" \
+  name="flightctl-imagebuilder-worker-el${EL_VERSION}" \
+  summary="Flight Control image builder worker service (el${EL_VERSION})"
+COPY --chmod=0755 --from=build /app/bin/flightctl-imagebuilder-worker .
+
+CMD ./flightctl-imagebuilder-worker

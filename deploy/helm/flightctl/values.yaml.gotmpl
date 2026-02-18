@@ -140,7 +140,7 @@ db:
         # -- CPU resource requests for database pod
         cpu: "512m"
         # -- Memory resource requests for database pod
-        memory: "512Mi" 
+        memory: "512Mi"
     # -- File system group ID for database pod security context
     fsGroup: ""
     # -- Additional labels for DB PVCs.
@@ -205,7 +205,7 @@ api:
     # -- API server container image
     image: {{ .Images.api.Image }}
     # -- API server image tag (leave empty to use chart appVersion)
-    tag: ""
+    tag: "{{ .Images.api.Tag }}"
     # -- Image pull policy for API server container
     pullPolicy: ""
   # Rate limiting configuration - enabled by default for production
@@ -242,7 +242,7 @@ cliArtifacts:
     # -- CLI artifacts container image
     image: {{ .Images.cliArtifacts.Image }}
     # -- CLI artifacts image tag
-    tag: ""
+    tag: "{{ .Images.cliArtifacts.Tag }}"
     # -- Image pull policy for CLI artifacts container
     pullPolicy: ""
   # -- Additional labels for CLI Artifacts routes.
@@ -254,7 +254,7 @@ worker:
     # -- Worker container image
     image: {{ .Images.worker.Image }}
     # -- Worker image tag
-    tag: ""
+    tag: "{{ .Images.worker.Tag }}"
     # -- Image pull policy for worker container
     pullPolicy: ""
   # -- Allow flightctl-worker to access secrets at the cluster level for embedding in device configs
@@ -266,7 +266,7 @@ periodic:
     # -- Periodic container image
     image: {{ .Images.periodic.Image }}
     # -- Periodic image tag
-    tag: ""
+    tag: "{{ .Images.periodic.Tag }}"
     # -- Image pull policy for periodic container
     pullPolicy: ""
   # -- Number of periodic consumers
@@ -280,7 +280,7 @@ alertExporter:
     # -- Alert exporter container image
     image: {{ .Images.alertExporter.Image }}
     # -- Alert exporter image tag
-    tag: ""
+    tag: "{{ .Images.alertExporter.Tag }}"
     # -- Image pull policy for alert exporter container
     pullPolicy: ""
 
@@ -292,10 +292,10 @@ alertmanagerProxy:
     # -- Alertmanager proxy container image
     image: {{ .Images.alertmanagerProxy.Image }}
     # -- Alertmanager proxy image tag
-    tag: ""
+    tag: "{{ .Images.alertmanagerProxy.Tag }}"
     # -- Image pull policy for Alertmanager proxy container
     pullPolicy: ""
-  
+
 # -- ImageBuilder API Configuration
 imageBuilderApi:
   # -- Enable imagebuilder API service
@@ -304,7 +304,7 @@ imageBuilderApi:
     # -- ImageBuilder API container image
     image: {{ .Images.imageBuilderApi.Image }}
     # -- ImageBuilder API image tag
-    tag: ""
+    tag: "{{ .Images.imageBuilderApi.Tag }}"
     # -- Image pull policy for ImageBuilder API container
     pullPolicy: ""
 
@@ -318,7 +318,7 @@ imageBuilderWorker:
     # -- ImageBuilder Worker container image
     image: {{ .Images.imageBuilderWorker.Image }}
     # -- ImageBuilder Worker image tag
-    tag: ""
+    tag: "{{ .Images.imageBuilderWorker.Tag }}"
     # -- Image pull policy for ImageBuilder Worker container
     pullPolicy: ""
   # -- Log level for the imagebuilder worker
@@ -343,7 +343,7 @@ telemetryGateway:
     # -- Telemetry gateway container image
     image: {{ .Images.telemetryGateway.Image }}
     # -- Telemetry gateway image tag
-    tag: ""
+    tag: "{{ .Images.telemetryGateway.Tag }}"
     # -- Image pull policy for Telemetry gateway container
     pullPolicy: ""
   additionalRouteLabels: null
@@ -358,7 +358,7 @@ ui:
     # -- UI Plugin container image
     pluginImage: {{ .Images.uiPlugin.Image }}
     # -- UI container image tag
-    tag: ""
+    tag: "{{ .Images.ui.Tag }}"
     # -- Image pull policy for UI container
     pullPolicy: ""
   auth:
@@ -382,9 +382,9 @@ clusterCli:
 # -- Database Setup Configuration
 dbSetup:
   image:
-    # -- Database setup container image
+    # -- Database setup container image (flavor specified in tag)
     image: {{ .Images.dbSetup.Image }}
-    # -- Database setup image tag
+    # -- Database setup image tag (includes flavor prefix, e.g., "el9-v1.0.0")
     tag: ""
     # -- Image pull policy for database setup container
     pullPolicy: ""
@@ -397,7 +397,7 @@ dbSetup:
     # Default sleep interval between connection attempts
     sleep: 2
   migration:
-    # -- Number of retries for the migration Job on failure 
+    # -- Number of retries for the migration Job on failure
     backoffLimit: 2147483647
     # -- Maximum runtime in seconds for the migration Job (0 = no deadline)
     activeDeadlineSeconds: 0

@@ -113,6 +113,7 @@ jobs:
     strategy:
       matrix:
         image: ['api', 'pam-issuer', 'periodic', 'worker', 'cli-artifacts', 'alert-exporter', 'alertmanager-proxy', 'userinfo-proxy', 'db-setup', 'telemetry-gateway', 'imagebuilder-api', 'imagebuilder-worker']
+        flavor: ['el9', 'el10']
     needs: [generate-tags]
     runs-on: "ubuntu-24.04"
     steps:
@@ -146,6 +147,37 @@ jobs:
           echo "  SOURCE_GIT_TREE_STATE: ${SOURCE_GIT_TREE_STATE}"
           echo "  SOURCE_GIT_COMMIT: ${SOURCE_GIT_COMMIT}"
 
+      - name: Load flavor configuration
+        id: flavor-config
+        run: |
+          set -euo pipefail
+          echo "Loading configuration for flavor: ${{ matrix.flavor }}"
+
+          # Source the container configuration functions
+          source ./hack/container-config.sh
+
+          # Load the flavor configuration
+          if ! load_flavor_config "${{ matrix.flavor }}"; then
+            echo "Failed to load flavor configuration for ${{ matrix.flavor }}"
+            exit 1
+          fi
+
+          # Set outputs for use in subsequent steps
+          {
+            echo "el_version=${EL_VERSION}"
+            echo "build_image=${BUILD_IMAGE}"
+            echo "runtime_image=${RUNTIME_IMAGE}"
+            echo "minimal_image=${MINIMAL_IMAGE}"
+            echo "pam_base_url=${PAM_BASE_URL}"
+            echo "pam_package_version=${PAM_PACKAGE_VERSION}"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "Loaded flavor configuration:"
+          echo "  EL_VERSION: ${EL_VERSION}"
+          echo "  BUILD_IMAGE: ${BUILD_IMAGE}"
+          echo "  RUNTIME_IMAGE: ${RUNTIME_IMAGE}"
+          echo "  MINIMAL_IMAGE: ${MINIMAL_IMAGE}"
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
         with:
@@ -158,8 +190,9 @@ jobs:
           path: |
             ~/.cache/go-build
             ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          key: ${{ runner.os }}-go-${{ matrix.flavor }}-${{ hashFiles('**/go.sum') }}
           restore-keys: |
+            ${{ runner.os }}-go-${{ matrix.flavor }}-
             ${{ runner.os }}-go-
 
       - name: Cache DNF packages
@@ -168,16 +201,50 @@ jobs:
           path: |
             /var/cache/dnf
             /var/lib/dnf
-          key: ${{ runner.os }}-dnf-${{ matrix.image }}
+          key: ${{ runner.os }}-dnf-${{ matrix.flavor }}-${{ matrix.image }}
           restore-keys: |
+            ${{ runner.os }}-dnf-${{ matrix.flavor }}-
             ${{ runner.os }}-dnf-
+
+      - name: Set runtime image
+        id: runtime-image
+        run: |
+          # Set runtime image based on service type and flavor configuration
+          if [[ "${{ matrix.image }}" == "cli-artifacts" || "${{ matrix.image }}" == "db-setup" ]]; then
+            echo "runtime_image=${{ steps.flavor-config.outputs.minimal_image }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "runtime_image=${{ steps.flavor-config.outputs.runtime_image }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Generate flavored tags
+        id: flavored-tags
+        run: |
+          set -euo pipefail
+
+          # Get baseline tags from generate-tags job
+          baseline_tags="${{ needs.generate-tags.outputs.image_tags }}"
+          echo "Baseline tags: $baseline_tags"
+
+          # Convert space-separated tags to array and add flavor prefix
+          flavored_tags=()
+          for tag in $baseline_tags; do
+            # Add flavor prefix to each tag
+            flavored_tags+=("${{ matrix.flavor }}-${tag}")
+          done
+
+          # Convert array back to space-separated string
+          flavored_tags_str=$(printf " %s" "${flavored_tags[@]}")
+          flavored_tags_str=${flavored_tags_str:1}  # Remove leading space
+
+          echo "Flavored tags: $flavored_tags_str"
+          echo "tags=${flavored_tags_str}" >> "$GITHUB_OUTPUT"
 
       - name: Build
         id: build
         uses: redhat-actions/buildah-build@v2
         with:
           image: flightctl-${{ matrix.image }}
-          tags: ${{ needs.generate-tags.outputs.image_tags }}
+          tags: ${{ steps.flavored-tags.outputs.tags }}
           labels: |
             io.flightctl.flightctl-${{ matrix.image }}.github.repository=${{ github.repository }}
             io.flightctl.flightctl-${{ matrix.image }}.github.actor=${{ github.actor }}
@@ -188,10 +255,41 @@ jobs:
             SOURCE_GIT_TAG=${{ steps.version-vars.outputs.git_tag }}
             SOURCE_GIT_TREE_STATE=${{ steps.version-vars.outputs.git_tree_state }}
             SOURCE_GIT_COMMIT=${{ steps.version-vars.outputs.git_commit }}
+            BUILD_IMAGE=${{ steps.flavor-config.outputs.build_image }}
+            RUNTIME_IMAGE=${{ steps.runtime-image.outputs.runtime_image }}
+            EL_VERSION=${{ steps.flavor-config.outputs.el_version }}
+            PAM_BASE_URL=${{ steps.flavor-config.outputs.pam_base_url }}
+            PAM_PACKAGE_VERSION=${{ steps.flavor-config.outputs.pam_package_version }}
           extra-args: |
             --ulimit nofile=10000:10000
-          containerfiles: Containerfile.${{ matrix.image }}
+          containerfiles: images/Containerfile.${{ matrix.image }}
           context: .
+
+      - name: Debug CLI artifacts build
+        if: matrix.image == 'cli-artifacts'
+        run: |
+          echo "=== DEBUG: CLI ARTIFACTS BUILD VERIFICATION ==="
+          echo "Matrix flavor: ${{ matrix.flavor }}"
+          echo "Matrix image: ${{ matrix.image }}"
+          echo "Build output image: ${{ steps.build.outputs.image }}"
+          echo "Build output tags: ${{ steps.build.outputs.tags }}"
+          echo "Flavored tags: ${{ steps.flavored-tags.outputs.tags }}"
+          echo ""
+          echo "=== VERIFYING LOCAL IMAGE EXISTS ==="
+          podman images | grep flightctl-cli-artifacts || echo "No cli-artifacts images found locally"
+          echo ""
+          echo "=== CHECKING SPECIFIC TAGS ==="
+          TAGS=(${{ steps.build.outputs.tags }})
+          for tag in "${TAGS[@]}"; do
+            echo "Checking tag: $tag"
+            if podman image exists "${{ steps.build.outputs.image }}:${tag}"; then
+              echo "✅ Image exists: ${{ steps.build.outputs.image }}:${tag}"
+              podman inspect "${{ steps.build.outputs.image }}:${tag}" --format '{{.Created}} {{.Size}}' || true
+            else
+              echo "❌ Image missing: ${{ steps.build.outputs.image }}:${tag}"
+            fi
+          done
+          echo "=== END CLI ARTIFACTS BUILD DEBUG ==="
 
       - name: Validate FIPS
         id: fips
@@ -209,3 +307,25 @@ jobs:
           registry: ${{ env.QUAY_ORG }}
           username: ${{ secrets.QUAY_FLIGHTCTL_INFRA_ROBOT_USERNAME }}
           password: ${{ secrets.QUAY_FLIGHTCTL_INFRA_ROBOT_PASSWORD }}
+
+      - name: Debug CLI artifacts push
+        if: matrix.image == 'cli-artifacts'
+        run: |
+          echo "=== DEBUG: CLI ARTIFACTS PUSH VERIFICATION ==="
+          echo "Push digest: ${{ steps.push.outputs.digest }}"
+          echo "Push registry-path: ${{ steps.push.outputs.registry-path }}"
+          echo "Push registry-paths: ${{ steps.push.outputs.registry-paths }}"
+          echo ""
+          echo "=== VERIFYING REMOTE IMAGE ACCESSIBILITY ==="
+          TAGS=(${{ steps.build.outputs.tags }})
+          for tag in "${TAGS[@]}"; do
+            registry_path="${{ env.QUAY_ORG }}/${{ steps.build.outputs.image }}:${tag}"
+            echo "Checking remote accessibility: $registry_path"
+            if podman pull "$registry_path" 2>/dev/null; then
+              echo "✅ Successfully pulled: $registry_path"
+              podman rmi "$registry_path" >/dev/null 2>&1 || true
+            else
+              echo "❌ Failed to pull: $registry_path"
+            fi
+          done
+          echo "=== END CLI ARTIFACTS PUSH DEBUG ==="

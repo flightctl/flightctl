@@ -101,8 +101,8 @@ _run_template_migration:
 	    echo "##################################################"; \
 	    echo "No MIGRATION_IMAGE provided; building a fresh one ..."; \
 	    echo "##################################################"; \
-	    $(MAKE) --no-print-directory -B flightctl-db-setup-container; \
-	    img="flightctl-db-setup:latest"; \
+	    FLAVOR=$$FLAVOR $(MAKE) --no-print-directory build-containers; \
+	    img="flightctl-db-setup:$$FLAVOR-latest"; \
 	    if ! sudo podman image exists "$$img"; then \
 	      echo "Error: build did not produce $$img" >&2; exit 1; \
 	    fi; \
@@ -137,7 +137,8 @@ bin/.e2e-agent-injected: bin/output/qcow2/disk.qcow2 bin/.e2e-agent-certs
 
 prepare-e2e-qcow-config: bin/.e2e-agent-injected
 
-prepare-e2e-test: RPM_MOCK_ROOT=centos-stream+epel-next-9-x86_64
+prepare-e2e-test: RPM_MOCK_ROOT=$(shell if [ "$(FLAVOR)" = "el10" ]; then echo "epel-10-x86_64"; else echo "centos-stream+epel-next-9-x86_64"; fi)
+prepare-e2e-test: AGENT_OS_ID=$(FLAVOR)-bootc
 prepare-e2e-test: deploy-e2e-extras build-e2e-containers push-e2e-agent-images prepare-e2e-qcow-config
 	./test/scripts/prepare_cli.sh
 
@@ -166,10 +167,11 @@ e2e-test: deploy prepare-e2e-qcow-config
 	$(MAKE) _e2e_test
 
 # Run e2e tests with optional parallel execution
+# Set FLAVOR to control backend container flavor (el9 or el10, defaults to el9)
 # Set GINKGO_PROCS to control number of parallel processes (defaults to number of CPU cores)
 # Set GINKGO_OUTPUT_INTERCEPTOR_MODE to control parallel output (defaults to "dup" for full output)
-# Example: make run-e2e-test GO_E2E_DIRS=test/e2e/agent GINKGO_PROCS=4
-# Example: make run-e2e-test GO_E2E_DIRS=test/e2e/agent GINKGO_OUTPUT_INTERCEPTOR_MODE=swap
+# Example: make run-e2e-test FLAVOR=el10 GO_E2E_DIRS=test/e2e/agent GINKGO_PROCS=4
+# Example: make run-e2e-test FLAVOR=el9 GO_E2E_DIRS=test/e2e/agent GINKGO_OUTPUT_INTERCEPTOR_MODE=swap
 run-e2e-test:
 	$(ENV_TRACE_FLAGS) $(MAKE) _e2e_test
 

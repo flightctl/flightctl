@@ -640,8 +640,12 @@ func (v *VMInLibvirt) performRevertOperation(name string) error {
 		return fmt.Errorf("failed to revert to snapshot %s: %w", name, err)
 	}
 
-	// Wait a moment for the VM to stabilize after revert
-	time.Sleep(2 * time.Second)
+	// Wait for SSH to be ready after snapshot reversion (critical for el10 bootc)
+	logrus.Infof("Waiting for VM SSH to be ready after snapshot reversion...")
+	err = v.WaitForSSHToBeReady()
+	if err != nil {
+		return fmt.Errorf("SSH not ready after snapshot reversion: %w", err)
+	}
 
 	// Ensure console stream is properly established after revert
 	if err := v.EnsureConsoleStream(); err != nil {
@@ -649,6 +653,7 @@ func (v *VMInLibvirt) performRevertOperation(name string) error {
 		// Don't fail the revert operation, just log the warning
 	}
 
+	// Now that SSH is ready, verify the revert was successful
 	err = v.verifyRevert()
 	if err != nil {
 		return fmt.Errorf("failed to verify revert: %w", err)

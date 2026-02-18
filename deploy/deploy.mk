@@ -18,6 +18,7 @@ cluster: bin/e2e-certs/ca.pem
 clean-cluster:
 	kind delete cluster
 
+deploy: FLAVOR ?= el9
 ifndef SKIP_BUILD
 deploy: cluster build-containers build-cli deploy-helm prepare-agent-config
 else
@@ -25,35 +26,44 @@ deploy: cluster deploy-helm prepare-agent-config
 	@echo "Skipping container and CLI builds (SKIP_BUILD is set)"
 endif
 
-redeploy-api: flightctl-api-container
+redeploy-api: FLAVOR ?= el9
+redeploy-api: build-containers
 	test/scripts/redeploy.sh api
 
-redeploy-worker: flightctl-worker-container
+redeploy-worker: FLAVOR ?= el9
+redeploy-worker: build-containers
 	test/scripts/redeploy.sh worker
 
-redeploy-periodic: flightctl-periodic-container
+redeploy-periodic: FLAVOR ?= el9
+redeploy-periodic: build-containers
 	test/scripts/redeploy.sh periodic
 
-redeploy-alert-exporter: flightctl-alert-exporter-container
+redeploy-alert-exporter: FLAVOR ?= el9
+redeploy-alert-exporter: build-containers
 	test/scripts/redeploy.sh alert-exporter
 
-redeploy-alertmanager-proxy: flightctl-alertmanager-proxy-container
+redeploy-alertmanager-proxy: FLAVOR ?= el9
+redeploy-alertmanager-proxy: build-containers
 	test/scripts/redeploy.sh alertmanager-proxy
 
-redeploy-telemetry-gateway: flightctl-telemetry-gateway-container
+redeploy-telemetry-gateway: FLAVOR ?= el9
+redeploy-telemetry-gateway: build-containers
 	test/scripts/redeploy.sh telemetry-gateway
 
-redeploy-imagebuilder-worker: flightctl-imagebuilder-worker-container
+redeploy-imagebuilder-worker: FLAVOR ?= el9
+redeploy-imagebuilder-worker: build-containers
 	test/scripts/redeploy.sh imagebuilder-worker
 
 redeploy-imagebuilder-api: flightctl-imagebuilder-api-container
 	test/scripts/redeploy.sh imagebuilder-api
 
-
+deploy-helm: FLAVOR ?= el9
 ifndef SKIP_BUILD
-deploy-helm: flightctl-api-container flightctl-db-setup-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-alertmanager-proxy-container flightctl-imagebuilder-api-container flightctl-imagebuilder-worker-container flightctl-multiarch-cli-container flightctl-telemetry-gateway-container
+deploy-helm: build-containers build-cli
 endif
 deploy-helm:
+	@echo "Deploying helm charts with FLAVOR=$(FLAVOR)"
+	FLAVOR=$(FLAVOR) make generate
 	kubectl config set-context kind-kind
 	test/scripts/install_helm.sh
 	test/scripts/deploy_with_helm.sh --db-size $(DB_SIZE)
@@ -77,25 +87,58 @@ deploy-alertmanager-proxy:
 	sudo -E deploy/scripts/deploy_quadlet_service.sh alertmanager-proxy
 
 # Can set the SKIP_BUILD variable to skip the build step and use existing containers
+deploy-quadlets: FLAVOR ?= el9
 deploy-quadlets:
 ifndef SKIP_BUILD
 	$(MAKE) build-containers
-	@echo "Copying containers from user to root context for systemd services..."
-	podman save flightctl-api:latest | sudo podman load
-	podman save flightctl-db-setup:latest | sudo podman load
-	podman save flightctl-worker:latest | sudo podman load
-	podman save flightctl-periodic:latest | sudo podman load
-	podman save flightctl-alert-exporter:latest | sudo podman load
-	podman save flightctl-cli-artifacts:latest | sudo podman load
-	podman save flightctl-alertmanager-proxy:latest | sudo podman load
-	podman save flightctl-pam-issuer:latest | sudo podman load
-	podman save flightctl-imagebuilder-api:latest | sudo podman load
-	podman save flightctl-imagebuilder-worker:latest | sudo podman load
-	podman save flightctl-userinfo-proxy:latest | sudo podman load
-	podman save flightctl-telemetry-gateway:latest | sudo podman load
+	@echo "Copying containers from user to root context for systemd services (FLAVOR=$(FLAVOR))..."
+	# Check if flavor-specific images exist (new system) or fall back to old naming
+	@if podman image exists flightctl-api-$(FLAVOR):latest; then \
+		echo "Using flavor-specific container images..."; \
+		podman save flightctl-api-$(FLAVOR):latest | sudo podman load; \
+		podman save flightctl-db-setup-$(FLAVOR):latest | sudo podman load; \
+		podman save flightctl-worker-$(FLAVOR):latest | sudo podman load; \
+		podman save flightctl-periodic-$(FLAVOR):latest | sudo podman load; \
+		podman save flightctl-alert-exporter-$(FLAVOR):latest | sudo podman load; \
+		podman save flightctl-cli-artifacts-$(FLAVOR):latest | sudo podman load; \
+		podman save flightctl-alertmanager-proxy-$(FLAVOR):latest | sudo podman load; \
+		podman save flightctl-pam-issuer-$(FLAVOR):latest | sudo podman load; \
+		podman save flightctl-imagebuilder-api-$(FLAVOR):latest | sudo podman load; \
+		podman save flightctl-imagebuilder-worker-$(FLAVOR):latest | sudo podman load; \
+		podman save flightctl-userinfo-proxy-$(FLAVOR):latest | sudo podman load; \
+		podman save flightctl-telemetry-gateway-$(FLAVOR):latest | sudo podman load; \
+		echo "Creating local alias tags for quadlet compatibility..."; \
+		sudo podman tag flightctl-api-$(FLAVOR):latest flightctl-api:latest; \
+		sudo podman tag flightctl-db-setup-$(FLAVOR):latest flightctl-db-setup:latest; \
+		sudo podman tag flightctl-worker-$(FLAVOR):latest flightctl-worker:latest; \
+		sudo podman tag flightctl-periodic-$(FLAVOR):latest flightctl-periodic:latest; \
+		sudo podman tag flightctl-alert-exporter-$(FLAVOR):latest flightctl-alert-exporter:latest; \
+		sudo podman tag flightctl-cli-artifacts-$(FLAVOR):latest flightctl-cli-artifacts:latest; \
+		sudo podman tag flightctl-alertmanager-proxy-$(FLAVOR):latest flightctl-alertmanager-proxy:latest; \
+		sudo podman tag flightctl-pam-issuer-$(FLAVOR):latest flightctl-pam-issuer:latest; \
+		sudo podman tag flightctl-imagebuilder-api-$(FLAVOR):latest flightctl-imagebuilder-api:latest; \
+		sudo podman tag flightctl-imagebuilder-worker-$(FLAVOR):latest flightctl-imagebuilder-worker:latest; \
+		sudo podman tag flightctl-userinfo-proxy-$(FLAVOR):latest flightctl-userinfo-proxy:latest; \
+		sudo podman tag flightctl-telemetry-gateway-$(FLAVOR):latest flightctl-telemetry-gateway:latest; \
+	else \
+		echo "Flavor-specific images not found, using legacy container naming (old system)..."; \
+		podman save flightctl-api:latest | sudo podman load; \
+		podman save flightctl-db-setup:latest | sudo podman load; \
+		podman save flightctl-worker:latest | sudo podman load; \
+		podman save flightctl-periodic:latest | sudo podman load; \
+		podman save flightctl-alert-exporter:latest | sudo podman load; \
+		podman save flightctl-cli-artifacts:latest | sudo podman load; \
+		podman save flightctl-alertmanager-proxy:latest | sudo podman load; \
+		podman save flightctl-pam-issuer:latest | sudo podman load; \
+		podman save flightctl-imagebuilder-api:latest | sudo podman load; \
+		podman save flightctl-imagebuilder-worker:latest | sudo podman load; \
+		podman save flightctl-userinfo-proxy:latest | sudo podman load; \
+		podman save flightctl-telemetry-gateway:latest | sudo podman load; \
+		echo "Legacy images already have correct names for quadlets, no tagging needed."; \
+	fi
 endif
 	$(MAKE) build-standalone
-	sudo -E deploy/scripts/deploy_quadlets.sh
+	sudo FLAVOR=$(FLAVOR) -E deploy/scripts/deploy_quadlets.sh
 
 kill-db:
 	sudo systemctl stop flightctl-db.service

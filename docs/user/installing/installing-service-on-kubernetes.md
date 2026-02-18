@@ -315,4 +315,348 @@ If you need to access your service using the `flightctl` CLI, find and click the
 
 ## Installing with Advanced Cluster Management
 
-## Installing with Ansible Automation Platform
+Flight Control can be deployed alongside Advanced Cluster Management (ACM) for enhanced multi-cluster management capabilities.
+
+### Prerequisites
+
+- Advanced Cluster Management installed and configured
+- Access to an OpenShift cluster with ACM
+- Cluster admin permissions
+
+### Flight Control in ACM
+
+To install a released version of the Flight Control Service into the cluster, first ensure you have a `values.acm.yaml` file.
+
+If you are not running helm from the base directory of this repository, you can find it at `deploy/helm/flightctl/values.acm.yaml`, otherwise you will need to create it.
+
+Then run the following command, making sure to specify the correct path to `values.acm.yaml`:
+
+```console
+helm upgrade --install --version=<version-to-install> \
+    --namespace flightctl --create-namespace \
+    flightctl oci://quay.io/flightctl/charts/flightctl \
+    --values deploy/helm/flightctl/values.acm.yaml
+
+```
+
+Optionally, you may change the deployed UI version adding `--set ui.image.tag=<ui-version-to-install>`.
+Available versions can be found in [quay.io](https://quay.io/repository/flightctl/flightctl-ocp-ui?tab=tags)
+Verify your Flight Control Service is up and running:
+
+```console
+kubectl get pods -n flightctl
+
+```
+
+After deploying the Flight Control ACM UI plugin, it needs to be manually enabled. Open your OpenShift Console -> Home -> Overview -> Status card -> Dynamic plugins and enable the Flight Control ACM UI plugin.
+After enabling the plugin, you will need to wait for the Console operator to rollout a new deployment.
+
+## Container OS Compatibility
+
+Flight Control supports container images built for different CentOS Stream versions to ensure compatibility across diverse environments:
+
+- **EL9 (Enterprise Linux 9)**: Default and recommended for most deployments
+- **EL10 (Enterprise Linux 10)**: For environments requiring latest OS version
+
+### Selecting Container Flavors
+
+By default, Helm charts use EL9 container images. For specific OS compatibility requirements, you can configure the deployment to use EL10 images:
+
+```yaml
+# values.yaml
+global:
+  image:
+    tag: "el10-latest"  # Use EL10 containers instead of default EL9
+
+# Or specify individual component tags
+api:
+  image:
+    tag: "el10-latest"
+worker:
+  image:
+    tag: "el10-latest"
+```
+
+### Cross-Version Compatibility
+
+The FLAVOR system enables testing and deployment scenarios like:
+
+- **RHEL 9 control plane + RHEL 10 agents**: Forward compatibility testing
+- **RHEL 10 control plane + RHEL 9 agents**: Backward compatibility support
+
+This ensures smooth migrations and mixed-environment deployments.
+
+## Gathering deployment information
+
+After the helm install command succeeded, it will print out a block of helpful information.
+It will look similar to:
+
+```console
+Thank you for installing Flight Control.
+
+
+You can access the Flight Control UI at <UI_URL>
+You can access the Flight Control API at <API_URL>
+
+You can login using the following CLI command:
+   
+    flightctl login <API_URL> --insecure-skip-tls-verify --web
+
+```
+
+Lets store the API_URL as environment variable for later use.
+
+```console
+FC_API_URL=<API_URL>
+
+```
+
+For managing ongoing Flight Control deployments including upgrades and monitoring, refer to the [Helm Chart Documentation](https://github.com/flightctl/flightctl/blob/main/deploy/helm/flightctl/README.md).
+
+## Installing the Flight Control CLI
+
+In a terminal, select the appropriate Flight Control CLI binary for your OS (linux or darwin) and CPU architecture (amd64 or arm64), for example:
+
+```console
+FC_CLI_BINARY=flightctl-linux-amd64
+
+```
+
+Download the `flightctl` binary to your machine:
+
+```console
+$ curl -LO https://github.com/flightctl/flightctl/releases/latest/download/${FC_CLI_BINARY}
+
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+100 29.9M  100 29.9M    0     0  5965k      0  0:00:05  0:00:05 --:--:-- 7341k
+```
+
+Verify the downloaded binary has the correct checksum:
+
+```console
+$ echo "$(curl -L -s https://github.com/flightctl/flightctl/releases/download/latest/${FC_CLI_BINARY}-sha256.txt)  ${FC_CLI_BINARY}" | shasum --check
+
+flightctl-linux-amd64: OK
+```
+
+If the checksum is correct, rename it to `flightctl` and make it executable:
+
+```console
+mv "${FC_CLI_BINARY}" flightctl && chmod +x flightctl
+
+```
+
+Finally, move it into a location within your shell's search path.
+
+## Logging into the Flight Control Service from the CLI
+
+### Standalone deployment
+
+Retrieve the password for the "demouser" account that's been automatically generated for you during installation:
+
+```console
+FC_PASS=$(kubectl get secret/keycloak-demouser-secret -n $FC_NAMESPACE -o=jsonpath='{.data.password}' | base64 -d)
+
+```
+
+Headless login:
+
+```console
+flightctl login ${FC_API_URL} -u demouser -p ${FC_PASS}
+
+```
+
+> 📌 For headless login to work, the OIDC provider of your choice needs to have Direct Access grant enabled
+
+Login using web browser:
+
+```console
+flightctl login ${FC_API_URL} --web
+
+```
+
+### ACM deployment
+
+Login using a user token:
+
+```console
+flightctl login ${FC_API_URL} -t $(oc whoami -t)
+
+```
+
+> 📌 You can also login with your ACM login credentials using the `--web` or `--username` and `--password` flags
+
+### Certificate Configuration and Troubleshooting
+
+The CLI uses the host's certificate authority (CA) pool to verify the Flight Control service's identity. If certificate verification fails, the CLI prints the underlying error message. The tips below cover common cases and may not apply to every environment; if they don’t help, verify the API URL and certificate chain or contact your administrator.
+
+#### Common Certificate Issues
+
+#### Certificate Not Trusted
+
+If you see "Cause: certificate not trusted", the server uses a custom certificate authority:
+
+```console
+flightctl login ${FC_API_URL} --certificate-authority=/path/to/ca.crt
+```
+
+#### Self-Signed Certificates
+
+For self-signed certificates, you can either:
+
+```console
+flightctl login ${FC_API_URL} --insecure-skip-tls-verify
+```
+
+or provide the certificate as a CA:
+
+```console
+flightctl login ${FC_API_URL} --certificate-authority=<path_to_ca_crt>
+```
+
+#### Hostname Mismatch
+
+If the certificate hostname doesn't match the URL, verify you're using the correct API endpoint. The error message will show valid hostnames for the certificate.
+
+#### OAuth Certificate Issues
+
+When OAuth endpoints use different certificates than the main API, use the dedicated OAuth CA flag:
+
+```console
+flightctl login ${FC_API_URL} --auth-certificate-authority=<path_to_oauth-ca_crt>
+```
+
+#### Certificate Flags Reference
+
+| Flag | Purpose |
+|------|---------|
+| `--certificate-authority=<path>` | Specify CA certificate for API endpoints |
+| `--auth-certificate-authority=<path>` | Specify CA certificate for OAuth endpoints |
+| `--insecure-skip-tls-verify` | Skip all certificate verification |
+
+## Building a Bootable Container Image including the Flight Control Agent
+
+Next, we will use [Podman](https://github.com/containers/podman) to build a [bootable container image (bootc)](https://bootc-dev.github.io/bootc/) that includes the Flight Control Agent binary and configuration. The configuration contains the connection details and credentials required by the agent to discover the service and send an enrollment request to the service.
+
+Retrieve the agent configuration with enrollment credentials by running:
+
+```console
+flightctl certificate request --signer=enrollment --expiration=365d --output=embedded > agentconfig.yaml
+```
+
+The returned `agentconfig.yaml` should look similar to this:
+
+```console
+$ cat agentconfig.yaml
+enrollment-service:
+  service:
+    server: https://agent-api.flightctl.127.0.0.1.nip.io:7443
+    certificate-authority-data: LS0tLS1CRUdJTiBD...
+  authentication:
+    client-certificate-data: LS0tLS1CRUdJTiBD...
+    client-key-data: LS0tLS1CRUdJTiBF...
+  enrollment-ui-endpoint: https://ui.flightctl.127.0.0.1.nip.io:8081
+```
+
+Create a `Containerfile` with the following content:
+
+```console
+$ cat Containerfile
+
+FROM quay.io/centos-bootc/centos-bootc:stream9
+
+RUN dnf -y config-manager --add-repo https://rpm.flightctl.io/flightctl-epel.repo && \
+    dnf -y install flightctl-agent; \
+    dnf -y clean all; \
+    systemctl enable flightctl-agent.service
+
+# Optional: to enable podman-compose application support uncomment below”
+# RUN dnf -y install epel-release epel-next-release && \
+#    dnf -y install podman-compose && \
+#    systemctl enable podman.service
+
+ADD agentconfig.yaml /etc/flightctl/config.yaml
+```
+
+Note this is a regular `Containerfile` that you're used to from Docker/Podman, with the difference that the base image referenced in the `FROM` directive is bootable. This means you can use standard container build tools and workflows.
+
+For example, as a user of Quay who has the privileges to push images into the `quay.io/${YOUR_QUAY_ORG}/centos-bootc-flightctl` repository, build the bootc image like this:
+
+```console
+sudo podman build -t quay.io/${YOUR_QUAY_ORG}/centos-bootc-flightctl:v1 .
+
+```
+
+Log in to your Quay account:
+
+```console
+$ sudo podman login quay.io
+
+Username: ******
+Password: ******
+Login Succeeded!
+```
+
+Push your bootc image to Quay:
+
+```console
+sudo podman push quay.io/${YOUR_QUAY_ORG}/centos-bootc-flightctl:v1
+
+```
+
+## Provisioning a Device with a Bootable Container Image
+
+A bootc image is a file system image, i.e. it contains the files to be written into an existing file system, but not the disk layout and the file system itself. To provision a device, you need to generate a full disk image containing the bootc image.
+
+Use the [`bootc-image-builder`](https://github.com/osbuild/bootc-image-builder) tool to generate that disk image as follows:
+
+```console
+mkdir -p output && \
+  sudo podman run --rm -it --privileged --pull=newer --security-opt label=type:unconfined_t \
+    -v ${PWD}/output:/output -v /var/lib/containers/storage:/var/lib/containers/storage \
+    quay.io/centos-bootc/bootc-image-builder:latest \
+    --type raw quay.io/${YOUR_QUAY_ORG}/centos-bootc-flightctl:v1
+```
+
+Once `bootc-image-builder` completes, you'll find the raw disk image under `output/image/disk.raw`. Now you can flash this image to a device using standard tools like [arm-image-installer](https://docs.fedoraproject.org/en-US/iot/physical-device-setup/#_scripted_image_transfer_with_arm_image_installer), [Etcher](https://etcher.balena.io/), or [`dd`](https://docs.fedoraproject.org/en-US/iot/physical-device-setup/#_manual_image_transfer_with_dd).
+
+For other image types like QCoW2 or VMDK or ways to install via USB stick or network, see [Building Images](../building/building-images.md).
+
+## Enrolling a Device
+
+When the Flight Control Agent first starts, it sends an enrollment request to the Flight Control Service. You can see the list of requests pending approval with:
+
+```console
+$ flightctl get enrollmentrequests
+
+NAME                                                  APPROVAL  APPROVER  APPROVED LABELS
+54shovu028bvj6stkovjcvovjgo0r48618khdd5huhdjfn6raskg  Pending   <none>    <none>    
+```
+
+You can approve an enrollment request and optionally add labels to the device:
+
+```console
+$ flightctl approve -l region=eu-west-1 -l site=factory-berlin er/54shovu028bvj6stkovjcvovjgo0r48618khdd5huhdjfn6raskg
+
+Success.
+
+$ flightctl get enrollmentrequests
+
+NAME                                                  APPROVAL  APPROVER  APPROVED LABELS
+54shovu028bvj6stkovjcvovjgo0r48618khdd5huhdjfn6raskg  Approved  demouser  region=eu-west-1,site=factory-berlin
+```
+
+After the enrollment completes, you can find the device in the list of devices:
+
+```console
+$ flightctl get devices
+
+NAME                                                  OWNER   SYSTEM  UPDATED     APPLICATIONS
+54shovu028bvj6stkovjcvovjgo0r48618khdd5huhdjfn6raskg  <none>  Online  Up-to-date  <none>
+```
+
+## Where to go from here
+
+Now that you have a Flight Control-managed device, refer to [Managing Devices](../using/managing-devices.md) and [Managing Fleets](../using/managing-fleets.md) for how to configure and update individual or fleets of devices.
