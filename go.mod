@@ -87,7 +87,7 @@ require (
 	k8s.io/client-go v1.5.2
 	k8s.io/klog/v2 v2.130.1
 	k8s.io/kubectl v0.0.0-00010101000000-000000000000
-	libvirt.org/go/libvirt v1.10003.0
+	libvirt.org/go/libvirt v1.11010.0
 	sigs.k8s.io/yaml v1.5.0
 )
 
