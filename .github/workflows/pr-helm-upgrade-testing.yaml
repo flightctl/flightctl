@@ -53,6 +53,7 @@ jobs:
         id: changed-files
         uses: tj-actions/changed-files@v46
         with:
+          since_last_remote_commit: 'true'
           files_ignore: |
             .spelling
             README.md
@@ -131,7 +132,6 @@ jobs:
           tag: ${{ needs.build-baseline.outputs.git_tag }}
           base-domain: ${{ steps.get-ip.outputs.base-domain }}
           flavor: el9
-          wait: true
 
       - name: "[BASELINE] Check deployment"
         run: kubectl get pods --all-namespaces
@@ -170,7 +170,7 @@ jobs:
       - name: "[BASELINE] Download simulator"
         uses: actions/download-artifact@v4
         with:
-          name: devicesimulator-el9-${{ needs.build-baseline.outputs.cli_git_tag }}
+          name: devicesimulator-${{ needs.build-baseline.outputs.cli_git_tag }}
           path: bin-baseline-sim
 
       - name: "[BASELINE] Run simulator"
@@ -193,222 +193,17 @@ jobs:
           merge-multiple: true
 
       - name: "[HEAD] Load images"
-        env:
-          PR_GIT_TAG: ${{ needs.build-pr.outputs.git_tag }}
         run: |
           set -euo pipefail
           echo "Loading PR branch backend images into kind"
-          # Image bundle file (artifact name is flavor-specific, but file inside is fixed)
-          BUNDLE_FILE="artifacts-pr/flightctl-images-bundle.tar"
-          if [[ ! -f "$BUNDLE_FILE" ]]; then
-            echo "Image bundle not found at $BUNDLE_FILE. Available files:"
-            find artifacts-pr -name "*.tar" || true
-            ls -la artifacts-pr/
-            exit 1
-          fi
-          echo "Using bundle file: $BUNDLE_FILE"
-          kind load image-archive "${BUNDLE_FILE}"
+          kind load image-archive artifacts-pr/flightctl-images-bundle.tar
           echo "PR images loaded successfully"
-          rm -f "${BUNDLE_FILE}"
-
-      - name: "[HEAD] Create baseline tags for deployment compatibility"
-        env:
-          PR_GIT_TAG: ${{ needs.build-pr.outputs.git_tag }}
-          FLAVOR: el9
-        run: |
-          set -euo pipefail
-          echo "=== BASELINE TAG CREATION DEBUG ==="
-          echo "Creating baseline tags from flavor-prefixed images for deployment compatibility"
-          echo "FLAVOR: ${FLAVOR}"
-          echo "PR_GIT_TAG: ${PR_GIT_TAG}"
-          echo ""
-
-          echo "=== DEBUGGING IMAGE SEARCH ==="
-          echo "All images in kind cluster:"
-          # SIGPIPE-safe: capture to temp file first
-          temp_images=$(mktemp)
-          docker exec kind-control-plane crictl images > "$temp_images" 2>/dev/null || true
-          head -20 "$temp_images" 2>/dev/null || echo "Failed to list images"
-
-          echo ""
-          echo "FlightCtl images in kind cluster:"
-          grep "flightctl" "$temp_images" 2>/dev/null || echo "❌ NO FLIGHTCTL IMAGES FOUND!"
-
-          echo ""
-          echo "Search pattern 1: ^quay.io/flightctl/flightctl-"
-          grep "^quay.io/flightctl/flightctl-" "$temp_images" 2>/dev/null || echo "❌ No images match base pattern"
-
-          echo ""
-          echo "Search pattern 2: :${FLAVOR}-"
-          grep ":${FLAVOR}-" "$temp_images" 2>/dev/null || echo "❌ No images match flavor pattern"
-
-          echo ""
-          echo "Combined search (what the script looks for):"
-          grep "^quay.io/flightctl/flightctl-" "$temp_images" 2>/dev/null | grep ":${FLAVOR}-" 2>/dev/null || echo "❌ No images match combined pattern"
-
-          # Get list of loaded FlightCtl images with flavor prefix
-          echo ""
-          echo "=== ATTEMPTING TO FIND FLAVOR-PREFIXED IMAGES ==="
-          # SIGPIPE-safe: reuse temp file and create flavor_images array safely
-          flavor_images=()
-          while IFS= read -r line; do
-            if [[ "$line" =~ ^quay\.io/flightctl/flightctl-.*:${FLAVOR}-.* ]]; then
-              image_name=$(echo "$line" | awk '{print $1":"$2}' 2>/dev/null || echo "")
-              if [[ -n "$image_name" ]]; then
-                flavor_images+=("$image_name")
-              fi
-            fi
-          done < "$temp_images"
-
-          # Clean up temp file
-          rm -f "$temp_images" 2>/dev/null || true
-
-          echo "flavor_images array length: ${#flavor_images[@]}"
-          if [ ${#flavor_images[@]} -gt 0 ]; then
-            echo "Found flavor images:"
-            printf '  %s\n' "${flavor_images[@]}"
-          fi
-
-          if [ ${#flavor_images[@]} -eq 0 ]; then
-            echo ""
-            echo "❌ CRITICAL: No flavor-prefixed images found!"
-            echo ""
-            echo "=== COMPREHENSIVE IMAGE ANALYSIS ==="
-
-            echo "All quay.io/flightctl images (any tag):"
-            # SIGPIPE-safe: get fresh image list
-            temp_images2=$(mktemp)
-            docker exec kind-control-plane crictl images > "$temp_images2" 2>/dev/null || true
-            grep "quay.io/flightctl" "$temp_images2" 2>/dev/null || echo "None found"
-
-            echo ""
-            echo "Images with expected tag pattern (${PR_GIT_TAG}):"
-            grep "${PR_GIT_TAG}" "$temp_images2" 2>/dev/null || echo "None found"
-
-            echo ""
-            echo "Let's try to find ANY flightctl-db-setup image:"
-            grep "db-setup" "$temp_images2" 2>/dev/null || echo "No db-setup images found"
-
-            echo ""
-            echo "=== WORKAROUND: CREATE MISSING BASELINE TAGS ==="
-            echo "Searching for images that should have baseline tags..."
-
-            # SIGPIPE-safe: find baseline candidates
-            baseline_candidates=()
-            while IFS= read -r line; do
-              if [[ "$line" =~ quay\.io/flightctl/flightctl-.*:${PR_GIT_TAG} ]]; then
-                image_name=$(echo "$line" | awk '{print $1":"$2}' 2>/dev/null || echo "")
-                if [[ -n "$image_name" ]]; then
-                  baseline_candidates+=("$image_name")
-                fi
-              fi
-            done < "$temp_images2"
-
-            # Clean up temp file
-            rm -f "$temp_images2" 2>/dev/null || true
-
-            if [ ${#baseline_candidates[@]} -gt 0 ]; then
-              echo "Found ${#baseline_candidates[@]} baseline candidates:"
-              printf '  %s\n' "${baseline_candidates[@]}"
-              echo "✅ These images are already properly tagged - no action needed"
-            else
-              echo "No baseline candidates found either"
-              echo ""
-              echo "=== FINAL ATTEMPT: FIND ANY RELEVANT IMAGES ==="
-              docker exec kind-control-plane crictl images | grep -E "(flightctl|${PR_GIT_TAG})" || echo "No relevant images found at all"
-            fi
-
-            echo ""
-            echo "❌ SKIPPING baseline tag creation due to no flavor-prefixed images"
-            echo "This will likely cause migration job ImagePullBackOff errors"
-            exit 0
-          fi
-
-          echo "✅ Found ${#flavor_images[@]} flavor-prefixed images:"
-          printf '%s\n' "${flavor_images[@]}"
-          echo ""
-
-          # Create baseline tags by removing flavor prefix
-          echo "=== CREATING BASELINE TAGS ==="
-          for image in "${flavor_images[@]}"; do
-            repo="${image%:*}"
-            flavor_tag="${image#*:}"
-            baseline_tag="${flavor_tag#${FLAVOR}-}"  # Remove flavor prefix
-            baseline_image="${repo}:${baseline_tag}"
-
-            echo "Creating baseline tag: ${image} → ${baseline_image}"
-            if docker exec kind-control-plane ctr -n k8s.io images tag "$image" "$baseline_image"; then
-              echo "✅ Successfully tagged: ${baseline_image}"
-            else
-              echo "❌ Failed to tag $image as $baseline_image"
-              continue
-            fi
-          done
-
-          echo ""
-          echo "=== CRITICAL: ENSURE DB-SETUP MIGRATION IMAGE EXISTS ==="
-          # The migration job specifically needs db-setup with the PR tag
-          # Ensure this critical image exists as baseline tag
-          db_setup_pr_image="quay.io/flightctl/flightctl-db-setup:${PR_GIT_TAG}"
-          db_setup_flavor_image="quay.io/flightctl/flightctl-db-setup:${FLAVOR}-${PR_GIT_TAG}"
-
-          echo "Checking for critical migration image: ${db_setup_pr_image}"
-          temp_check=$(mktemp)
-          docker exec kind-control-plane crictl images > "$temp_check" 2>/dev/null || true
-
-          if grep -q "${db_setup_pr_image}" "$temp_check" 2>/dev/null; then
-            echo "✅ Migration image already exists: ${db_setup_pr_image}"
-          else
-            echo "❌ Migration image missing: ${db_setup_pr_image}"
-            echo "Attempting to create from flavor image: ${db_setup_flavor_image}"
-
-            if grep -q "${db_setup_flavor_image}" "$temp_check" 2>/dev/null; then
-              echo "Found flavor image, creating baseline tag..."
-              if docker exec kind-control-plane ctr -n k8s.io images tag "${db_setup_flavor_image}" "${db_setup_pr_image}"; then
-                echo "✅ CRITICAL FIX: Created missing migration image: ${db_setup_pr_image}"
-              else
-                echo "❌ CRITICAL ERROR: Failed to create migration image: ${db_setup_pr_image}"
-              fi
-            else
-              echo "❌ CRITICAL ERROR: Flavor image also missing: ${db_setup_flavor_image}"
-              echo "Available db-setup images:"
-              grep "db-setup" "$temp_check" 2>/dev/null || echo "No db-setup images found!"
-            fi
-          fi
-
-          rm -f "$temp_check" 2>/dev/null || true
-
-          echo ""
-          echo "✅ Baseline tag creation completed"
-          echo ""
-          echo "=== VERIFICATION ==="
-          echo "Verifying baseline tags were created:"
-          # SIGPIPE-safe verification
-          temp_verify=$(mktemp)
-          docker exec kind-control-plane crictl images > "$temp_verify" 2>/dev/null || true
-
-          for image in "${flavor_images[@]}"; do
-            repo="${image%:*}"
-            flavor_tag="${image#*:}"
-            baseline_tag="${flavor_tag#${FLAVOR}-}"  # Remove flavor prefix
-            baseline_image="${repo}:${baseline_tag}"
-
-            if grep -q "${baseline_image}" "$temp_verify" 2>/dev/null; then
-              echo "✅ Verified: ${baseline_image}"
-            else
-              echo "❌ Missing: ${baseline_image}"
-            fi
-          done
-
-          rm -f "$temp_verify" 2>/dev/null || true
-
-          echo ""
-          echo "Images now available for both flavor-prefixed and baseline tag references"
+          rm -f artifacts-pr/flightctl-images-bundle.tar
 
       - name: "[HEAD] Download CLI"
         uses: actions/download-artifact@v4
         with:
-          name: flightctl-linux-amd64-el9-${{ needs.build-pr.outputs.cli_git_tag }}
+          name: flightctl-linux-amd64-${{ needs.build-pr.outputs.cli_git_tag }}
           path: bin-pr
 
       - name: "[HEAD] Setup CLI"
@@ -419,19 +214,9 @@ jobs:
           bin-pr/flightctl version
 
       - name: "[HEAD] Helm diff"
-        env:
-          PR_GIT_TAG: ${{ needs.build-pr.outputs.git_tag }}
         run: |
           set -euo pipefail
-          # Find the chart file (artifact name is flavor-specific, but file inside is fixed)
           CHART_FILE="artifacts-pr/flightctl-chart.tgz"
-          if [[ ! -f "$CHART_FILE" ]]; then
-            echo "Chart file not found at $CHART_FILE. Available files:"
-            find artifacts-pr -name "*.tgz" || true
-            ls -la artifacts-pr/
-            exit 1
-          fi
-          echo "Using chart file: $CHART_FILE"
           helm diff upgrade flightctl "${CHART_FILE}" \
             --namespace flightctl-external \
             --reuse-values \
@@ -439,172 +224,19 @@ jobs:
             --output=dyff \
             --debug
 
-      - name: "[HEAD] Show cluster state before upgrade"
+      - name: "[HEAD] Helm upgrade"
         run: |
-          echo "=== Pre-upgrade cluster state ==="
-          kubectl get pods --all-namespaces --show-labels | grep -E "(flightctl|cert-generator|upgrade)" || echo "No matching pods"
-          kubectl get jobs --all-namespaces --show-labels | grep -E "(flightctl|cert-generator|upgrade)" || echo "No matching jobs"
-          kubectl get serviceaccounts --all-namespaces | grep -E "(flightctl|cert-generator|upgrade)" || echo "No matching serviceaccounts"
-          echo "=== End pre-upgrade state ==="
-
-      - name: "[HEAD] Load Helm upgrade timeout configuration"
-        id: helm-upgrade-timeout
-        uses: ./.github/actions/load-timeout-configuration
-        with:
-          flavor: ${{ env.FLAVOR }}
-          timeout-type: helmUpgrade.prUpgrade
-
-      - name: "[HEAD] Helm upgrade with migration monitoring"
-        env:
-          PR_GIT_TAG: ${{ needs.build-pr.outputs.git_tag }}
-          FLAVOR: el9
-        run: |
-          # Chart file (artifact name is flavor-specific, but file inside is fixed)
           CHART_FILE="artifacts-pr/flightctl-chart.tgz"
-          if [[ ! -f "$CHART_FILE" ]]; then
-            echo "Chart file not found at $CHART_FILE. Available files:"
-            find artifacts-pr -name "*.tgz" || true
-            ls -la artifacts-pr/
-            exit 1
-          fi
-          echo "Using chart file: $CHART_FILE"
-
-          # Use flavor-prefixed tags since only flavor-prefixed images exist
-          # (not baseline tags as originally assumed)
-          IMAGE_TAG="${FLAVOR}-${PR_GIT_TAG}"
-          echo "Using flavor-prefixed image tag for Helm upgrade: ${IMAGE_TAG}"
-
-          # Start migration monitoring in background
-          (
-            echo "=== Starting migration job monitoring ==="
-            sleep 5  # Give helm a moment to start
-
-            MONITOR_COUNT=0
-            while [ $MONITOR_COUNT -lt 40 ]; do  # Monitor for up to 20 minutes (40 * 30s)
-              echo "=== Migration Monitor Check $((MONITOR_COUNT + 1)) at $(date) ==="
-
-              # Show migration jobs
-              echo "--- Migration Jobs ---"
-              kubectl get jobs -n flightctl-internal --show-labels | grep -E "(migration|dryrun)" || echo "No migration jobs found"
-
-              # Show migration job details if any exist
-              MIGRATION_JOBS=$(kubectl get jobs -n flightctl-internal -o name | grep -E "(migration|dryrun)" || true)
-              if [ -n "$MIGRATION_JOBS" ]; then
-                for job in $MIGRATION_JOBS; do
-                  echo "--- Job Details: $job ---"
-                  kubectl describe "$job" -n flightctl-internal | tail -15 || true
-
-                  # Show pod logs if available
-                  echo "--- Job Pod Logs: $job ---"
-                  JOB_PODS=$(kubectl get pods -n flightctl-internal --selector=job-name=$(basename "$job") -o name 2>/dev/null || true)
-                  if [ -n "$JOB_PODS" ]; then
-                    for pod in $JOB_PODS; do
-                      echo "--- Pod logs: $pod ---"
-                      kubectl logs "$pod" -n flightctl-internal --tail=10 2>/dev/null || echo "No logs available"
-                    done
-                  fi
-                done
-              fi
-
-              # Show hook resources
-              echo "--- Pre-upgrade Hook Resources ---"
-              kubectl get pods,jobs -n flightctl-internal --show-labels | grep -E "(hook|upgrade)" || echo "No hook resources found"
-
-              sleep 30
-              MONITOR_COUNT=$((MONITOR_COUNT + 1))
-            done
-            echo "=== Migration monitoring completed ==="
-          ) &
-          MONITOR_PID=$!
-
-          echo "=== Starting helm upgrade with image tag: ${IMAGE_TAG} ==="
-          echo "Migration monitoring started with PID: $MONITOR_PID"
-
-          # Use timeout value loaded from helm chart configuration
-          HELM_TIMEOUT="${{ steps.helm-upgrade-timeout.outputs.timeout }}"
-          echo "Using Helm upgrade timeout: $HELM_TIMEOUT for flavor $FLAVOR (from helm chart configuration)"
-
-          echo "=== DEBUG: VERIFYING IMAGES BEFORE HELM UPGRADE ==="
-          echo "Image tag being used: ${IMAGE_TAG}"
-          echo "Flavor: $FLAVOR"
-          echo ""
-
-          # Check critical images
-          CRITICAL_IMAGES=(
-            "quay.io/flightctl/flightctl-api:${IMAGE_TAG}"
-            "quay.io/flightctl/flightctl-cli-artifacts:${IMAGE_TAG}"
-            "quay.io/flightctl/flightctl-db-setup:${IMAGE_TAG}"
-          )
-
-          for img in "${CRITICAL_IMAGES[@]}"; do
-            echo "Checking image: $img"
-            if docker exec kind-control-plane crictl images | grep -q "${img}"; then
-              echo "✅ Image available in kind: $img"
-            else
-              echo "❌ Image missing in kind: $img"
-            fi
-          done
-
-          echo ""
-          echo "=== AVAILABLE FLIGHTCTL IMAGES IN KIND ==="
-          docker exec kind-control-plane crictl images | grep "quay.io/flightctl" | head -10 || echo "No flightctl images found"
-          echo "=== END DEBUG ==="
-          echo ""
-          if timeout "$HELM_TIMEOUT" helm upgrade flightctl "${CHART_FILE}" \
+          # Use values files with image overrides
+          helm upgrade flightctl "${CHART_FILE}" \
             --namespace flightctl-external \
             --reuse-values \
-            --set dbSetup.image.tag="${IMAGE_TAG}" \
-            --set api.image.tag="${IMAGE_TAG}" \
-            --set worker.image.tag="${IMAGE_TAG}" \
-            --set periodic.image.tag="${IMAGE_TAG}" \
-            --set alertExporter.image.tag="${IMAGE_TAG}" \
-            --set alertmanagerProxy.image.tag="${IMAGE_TAG}" \
-            --set cliArtifacts.image.tag="${IMAGE_TAG}" \
-            --set telemetryGateway.image.tag="${IMAGE_TAG}" \
-            --set imageBuilderApi.image.tag="${IMAGE_TAG}" \
-            --set imageBuilderWorker.image.tag="${IMAGE_TAG}" \
-            --debug --wait; then
-            echo "=== Helm upgrade completed successfully ==="
-          else
-            EXIT_CODE=$?
-            echo "=== Helm upgrade failed with exit code $EXIT_CODE ==="
-
-            # Show final state for debugging
-            echo "=== Final Migration State ==="
-            kubectl get jobs,pods -n flightctl-internal --show-labels | grep -E "(migration|dryrun|hook)" || echo "No migration resources found"
-
-            # Kill monitoring process
-            kill $MONITOR_PID 2>/dev/null || true
-            exit $EXIT_CODE
-          fi
-
-          # Kill monitoring process on success
-          kill $MONITOR_PID 2>/dev/null || true
-
-      - name: "[HEAD] Show cluster state after failed upgrade"
-        if: failure()
-        run: |
-          echo "=== Post-failure cluster state ==="
-          kubectl get pods --all-namespaces --show-labels | grep -E "(flightctl|cert-generator|upgrade)" || echo "No matching pods"
-          kubectl get jobs --all-namespaces --show-labels | grep -E "(flightctl|cert-generator|upgrade)" || echo "No matching jobs"
-          kubectl describe jobs --all-namespaces | grep -A30 -B5 -E "(flightctl|cert-generator|upgrade)" || echo "No job details"
-          echo "=== Checking for stuck resources ==="
-          kubectl get events --all-namespaces --sort-by='.lastTimestamp' | tail -20
-          echo "=== End post-failure state ==="
-
-      - name: "[HEAD] Load API readiness timeout configuration"
-        id: api-timeout-1
-        uses: ./.github/actions/load-timeout-configuration
-        with:
-          flavor: ${{ env.FLAVOR }}
-          timeout-type: apiReadiness
+            --debug --wait # for the deployment complete (including readiness probes passing)
 
       - name: "[HEAD] Wait for API readiness after upgrade"
         uses: ./.github/actions/wait-for-api-readiness
         with:
           base-domain: ${{ steps.get-ip.outputs.base-domain }}
-          # Timeout loaded from helm-chart-opts.yaml based on flavor
-          retries: ${{ steps.api-timeout-1.outputs.timeout }}
 
       - name: "[HEAD] Check deployment"
         run: |
@@ -641,7 +273,7 @@ jobs:
       - name: "[HEAD] Download simulator"
         uses: actions/download-artifact@v4
         with:
-          name: devicesimulator-el9-${{ needs.build-pr.outputs.cli_git_tag }}
+          name: devicesimulator-${{ needs.build-pr.outputs.cli_git_tag }}
           path: bin-pr-sim
 
       - name: "[HEAD] Run simulator"
@@ -665,39 +297,18 @@ jobs:
           log-file: simulator-compat.log
 
       - name: "[HEAD] Helm upgrade - to the same version"
-        env:
-          PR_GIT_TAG: ${{ needs.build-pr.outputs.git_tag }}
-          FLAVOR: el9
         run: |
-          # Chart file (artifact name is flavor-specific, but file inside is fixed)
           CHART_FILE="artifacts-pr/flightctl-chart.tgz"
-          if [[ ! -f "$CHART_FILE" ]]; then
-            echo "Chart file not found at $CHART_FILE. Available files:"
-            find artifacts-pr -name "*.tgz" || true
-            ls -la artifacts-pr/
-            exit 1
-          fi
-          echo "Using chart file: $CHART_FILE"
 
           helm upgrade flightctl "${CHART_FILE}" \
             --namespace flightctl-external \
             --reuse-values \
-            --set dbSetup.image.tag="${FLAVOR}-${PR_GIT_TAG}" \
             --debug --wait
-
-      - name: "[HEAD] Load API readiness timeout configuration (second check)"
-        id: api-timeout-2
-        uses: ./.github/actions/load-timeout-configuration
-        with:
-          flavor: ${{ env.FLAVOR }}
-          timeout-type: apiReadiness
 
       - name: "[HEAD] Wait for API readiness after same-version upgrade"
         uses: ./.github/actions/wait-for-api-readiness
         with:
           base-domain: ${{ steps.get-ip.outputs.base-domain }}
-          # Timeout loaded from helm-chart-opts.yaml based on flavor
-          retries: ${{ steps.api-timeout-2.outputs.timeout }}
 
       - name: "[HEAD] Validate versions"
         env:

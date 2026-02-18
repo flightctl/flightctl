@@ -58,258 +58,43 @@ runs:
       id: compute-tags
       shell: bash
       run: |
-        echo "*** SET GIT TAG STEP STARTED ***"
         set -euo pipefail
-
+        
         if [ -n "${{ inputs.tag }}" ]; then
-          echo "*** USING PROVIDED TAG: ${{ inputs.tag }} ***"
-          TAG="${{ inputs.tag }}"
-          echo "git_tag=${TAG}" >> "$GITHUB_OUTPUT"
-
-          # Also set helm_tag (normalize by dropping leading v, replace ~ with -)
-          HELM_TAG=$(echo "${TAG#v}" | sed 's/~/-/g')
-          echo "helm_tag=${HELM_TAG}" >> "$GITHUB_OUTPUT"
+          echo "Using provided tag: ${{ inputs.tag }}"
+          echo "git_tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
         else
-          echo "Using computed tags from git action"
+          echo "Using computed git_tag: ${{ steps.compute-tags-git.outputs.git_tag }}"
           echo "git_tag=${{ steps.compute-tags-git.outputs.git_tag }}" >> "$GITHUB_OUTPUT"
-          echo "helm_tag=${{ steps.compute-tags-git.outputs.helm_tag }}" >> "$GITHUB_OUTPUT"
         fi
 
     # ========== DOWNLOAD BACKEND ARTIFACTS ==========
     - name: Download backend images bundle
-      id: download-images
-      continue-on-error: true
       uses: actions/download-artifact@v4
       with:
         name: flightctl-images-bundle-${{ inputs.flavor }}-${{ steps.compute-tags.outputs.git_tag }}
         path: artifacts
 
     - name: Download helm chart
-      id: download-chart
-      continue-on-error: true
       uses: actions/download-artifact@v4
       with:
         name: helm-chart-${{ inputs.flavor }}-${{ steps.compute-tags.outputs.git_tag }}
         path: artifacts
 
     - name: Download CLI binary
-      id: download-cli
-      continue-on-error: true
       uses: actions/download-artifact@v4
       with:
         name: flightctl-linux-amd64-${{ inputs.flavor }}-${{ steps.compute-tags.outputs.git_tag }}
         path: artifacts
-
-    # ========== DEBUG: CHECK DOWNLOAD OUTCOMES ==========
-    - name: Debug download outcomes and artifacts
-      shell: bash
-      run: |
-        echo "=== DOWNLOAD OUTCOMES DEBUG ==="
-        echo "Images download outcome: ${{ steps.download-images.outcome }}"
-        echo "Chart download outcome: ${{ steps.download-chart.outcome }}"
-        echo "CLI download outcome: ${{ steps.download-cli.outcome }}"
-        echo ""
-        echo "Available artifacts:"
-        ls -la artifacts/ 2>/dev/null || echo "No artifacts directory found"
-        echo ""
-        echo "Artifacts directory contents by type:"
-        find artifacts/ -name "flightctl-images-bundle*" 2>/dev/null || echo "No image bundle found"
-        find artifacts/ -name "flightctl-chart*" 2>/dev/null || echo "No chart found"
-        find artifacts/ -name "flightctl-linux-amd64*" 2>/dev/null || echo "No CLI binary found"
-        echo ""
-        echo "Which fallback builds will trigger?"
-        if [ "${{ steps.download-images.outcome }}" == "failure" ]; then
-          echo "❌ Image fallback build WILL trigger"
-        else
-          echo "✅ Image fallback build will NOT trigger"
-        fi
-        if [ "${{ steps.download-chart.outcome }}" == "failure" ]; then
-          echo "❌ Chart fallback build WILL trigger"
-        else
-          echo "✅ Chart fallback build will NOT trigger"
-        fi
-        if [ "${{ steps.download-cli.outcome }}" == "failure" ]; then
-          echo "❌ CLI fallback build WILL trigger"
-        else
-          echo "✅ CLI fallback build will NOT trigger"
-        fi
-        echo "========================"
-
-    # ========== FALLBACK: BUILD LOCAL ARTIFACTS IF DOWNLOADS FAILED ==========
-    - name: Build local containers if artifacts not available
-      if: steps.download-images.outcome == 'failure'
-      shell: bash
-      env:
-        FLAVOR: ${{ inputs.flavor }}
-      run: |
-        echo "::group::Building local containers for $FLAVOR"
-        echo "❌ Image bundle download failed (outcome: ${{ steps.download-images.outcome }}), building containers locally..."
-
-        # Check workspace state before building
-        echo "Checking workspace state before container build..."
-        df -h  # Check disk space
-        echo "Ensuring clean Go module state..."
-        go mod tidy
-
-        # Build containers with explicit error handling
-        set -euo pipefail
-        echo "Building containers for flavor: $FLAVOR"
-        hack/publish_containers.sh build "$FLAVOR"
-
-        # Verify some key images were built
-        echo "Verifying container builds..."
-        expected_images="flightctl-api flightctl-worker flightctl-db-setup"
-        for img in $expected_images; do
-          if podman images --format "{{.Repository}}" | grep -q "$img"; then
-            echo "✅ Found $img image"
-          else
-            echo "❌ WARNING: $img image not found after build"
-          fi
-        done
-
-        # Create image bundle locally
-        TAG="${{ steps.compute-tags.outputs.git_tag }}"
-        mkdir -p artifacts
-        BUNDLE_FILE="artifacts/flightctl-images-bundle.tar"
-
-        echo "Creating local image bundle with baseline tags for E2E compatibility..."
-        # Get list of locally built flightctl images with flavor prefix
-        mapfile -t flavor_images < <(podman images --format "{{.Repository}}:{{.Tag}}" | grep "flightctl-.*:${FLAVOR}-" | grep -E "(latest|${TAG})" || true)
-
-        if [ ${#flavor_images[@]} -eq 0 ]; then
-          echo "ERROR: No local flightctl images found for flavor $FLAVOR"
-          exit 1
-        fi
-
-        # Create baseline tags (what deployment expects) and bundle only those
-        baseline_images=()
-        for image in "${flavor_images[@]}"; do
-          repo="${image%:*}"
-          flavor_tag="${image#*:}"
-          baseline_tag="${flavor_tag#${FLAVOR}-}"  # Remove flavor prefix
-          baseline_image="${repo}:${baseline_tag}"
-
-          echo "  Creating baseline tag: ${baseline_image}"
-          podman tag "$image" "$baseline_image"
-          baseline_images+=("$baseline_image")
-        done
-
-        echo "Bundling ${#baseline_images[@]} baseline-tagged images for deployment:"
-        printf '  %s\n' "${baseline_images[@]}"
-        podman save --format docker-archive -o "$BUNDLE_FILE" "${baseline_images[@]}"
-
-        echo "Local image bundle created: $(ls -lh $BUNDLE_FILE)"
-        echo "::endgroup::"
-
-    - name: Build local helm chart if artifact not available
-      if: steps.download-chart.outcome == 'failure'
-      shell: bash
-      env:
-        FLAVOR: ${{ inputs.flavor }}
-      run: |
-        echo "::group::Building local helm chart for $FLAVOR"
-        echo "❌ Helm chart download failed (outcome: ${{ steps.download-chart.outcome }}), building chart locally..."
-
-        mkdir -p artifacts
-
-        # Generate chart with correct flavor
-        echo "Generating chart templates for FLAVOR=$FLAVOR..."
-        cd deploy/helm
-        FLAVOR="$FLAVOR" go run cmd/charttmpl/main.go
-        cd ../..
-
-        # Build and package chart with error checking
-        TAG="${{ steps.compute-tags.outputs.helm_tag }}"
-        echo "Building chart with tag: $TAG"
-
-        set -euo pipefail
-        echo "Building helm dependencies..."
-        helm dependency build ./deploy/helm/flightctl
-
-        echo "Packaging helm chart..."
-        helm package ./deploy/helm/flightctl --version "$TAG" --app-version "v$TAG"
-
-        # Move to expected location
-        GENERATED_FILE="flightctl-${TAG}.tgz"
-        if [ ! -f "$GENERATED_FILE" ]; then
-          echo "❌ ERROR: Expected chart file not found: $GENERATED_FILE"
-          echo "Available files:"
-          ls -la *.tgz 2>/dev/null || echo "No .tgz files found"
-          exit 1
-        fi
-
-        mv "$GENERATED_FILE" "artifacts/flightctl-chart.tgz"
-        echo "✅ Local helm chart built: $(ls -lh artifacts/flightctl-chart.tgz)"
-        echo "::endgroup::"
-
-    - name: Build local CLI if artifact not available
-      if: steps.download-cli.outcome == 'failure'
-      shell: bash
-      run: |
-        echo "::group::Building local CLI binary"
-        echo "❌ CLI download failed (outcome: ${{ steps.download-cli.outcome }}), building locally..."
-
-        # Check if workspace is clean before building
-        echo "Checking workspace state before CLI build..."
-        if [ -d "bin" ]; then
-          echo "bin/ directory exists, cleaning old CLI binary..."
-          rm -f bin/flightctl
-        fi
-
-        # Ensure we have a clean Go module state
-        echo "Ensuring clean Go module state..."
-        go mod tidy
-
-        # Build CLI with explicit error handling
-        echo "Building CLI binary..."
-        set -euo pipefail
-        make build-cli
-
-        # Verify the build worked
-        if [ ! -f "bin/flightctl" ]; then
-          echo "❌ ERROR: CLI build completed but binary not found at bin/flightctl"
-          echo "Contents of bin/ directory:"
-          ls -la bin/ || echo "bin/ directory not found"
-          exit 1
-        fi
-
-        # Copy to artifacts
-        mkdir -p artifacts
-        cp bin/flightctl artifacts/flightctl-linux-amd64
-
-        echo "✅ Local CLI built successfully: $(ls -lh artifacts/flightctl-linux-amd64)"
-        echo "::endgroup::"
 
     - name: Setup CLI binary
       shell: bash
       run: |
         set -euo pipefail
         mkdir -p bin
-
-        # Check if CLI artifact exists before trying to move it
-        if [ -f "artifacts/flightctl-linux-amd64" ]; then
-          mv artifacts/flightctl-linux-amd64 bin/flightctl
-          chmod +x bin/flightctl
-          echo "✅ CLI binary ready at bin/flightctl (from artifacts)"
-        else
-          echo "❌ CLI artifact not found in artifacts/"
-          echo "Available artifacts:"
-          ls -la artifacts/ || echo "No artifacts directory"
-
-          echo "CLI download outcome: ${{ steps.download-cli.outcome }}"
-          if [ "${{ steps.download-cli.outcome }}" == "failure" ]; then
-            echo "CLI download failed, but fallback build should have created the binary"
-            if [ -f "bin/flightctl" ]; then
-              echo "✅ CLI binary ready at bin/flightctl (from fallback build)"
-            else
-              echo "❌ ERROR: CLI binary not found after fallback build failed"
-              exit 1
-            fi
-          else
-            echo "❌ ERROR: CLI download succeeded but artifact file missing"
-            exit 1
-          fi
-        fi
+        mv artifacts/flightctl-linux-amd64 bin/flightctl
+        chmod +x bin/flightctl
+        echo "CLI binary ready at bin/flightctl"
 
     # ========== INITIALIZE KIND CLUSTER ==========
     - name: Create kind cluster
@@ -319,121 +104,11 @@ runs:
     # ========== LOAD IMAGES INTO KIND ==========
     - name: Load backend images into kind
       shell: bash
-      env:
-        FLAVOR: ${{ inputs.flavor }}
       run: |
         set -euo pipefail
-        echo "=== LOADING BACKEND IMAGES INTO KIND ==="
-        echo "Artifact download outcome: ${{ steps.download-images.outcome }}"
-        echo "Available artifacts:"
-        ls -la artifacts/ || echo "No artifacts directory"
-
-        # Find the actual bundle file (artifact contains original filename)
-        BUNDLE_FILE=$(find artifacts/ -name "flightctl-images-bundle.tar" 2>/dev/null | head -n1)
-
-        if [ -n "$BUNDLE_FILE" ] && [ -f "$BUNDLE_FILE" ]; then
-          echo "✅ Found bundle: $BUNDLE_FILE"
-          echo "Bundle size: $(ls -lh "$BUNDLE_FILE")"
-          echo "Loading bundle into kind..."
-          kind load image-archive "$BUNDLE_FILE"
-          echo "✅ Backend images loaded successfully from bundle"
-
-          echo "DEBUG: Images now in kind after bundle load:"
-          docker exec kind-control-plane crictl images | grep flightctl || echo "❌ No flightctl images found after bundle load!"
-
-          # CRITICAL FIX: Published artifacts have flavor-prefixed tags, but deployment expects baseline tags
-          # Create baseline tags from the loaded flavor-prefixed images
-          echo "🏗️  CRITICAL FIX: Creating baseline tags from published flavor-prefixed images..."
-          TAG="${{ steps.compute-tags.outputs.git_tag }}"
-          FLAVOR="${{ inputs.flavor }}"
-
-          # Get images that were just loaded (they have flavor prefix)
-          echo "Searching for loaded images with pattern: flightctl-.*:${FLAVOR}-"
-          mapfile -t loaded_images < <(docker exec kind-control-plane crictl images --no-trunc | grep "flightctl" | grep "${FLAVOR}-" | awk '{print $1":"$2}' || true)
-
-          echo "Found ${#loaded_images[@]} flavor-prefixed images to retag:"
-          for image in "${loaded_images[@]}"; do
-            repo="${image%:*}"
-            flavor_tag="${image#*:}"
-            baseline_tag="${flavor_tag#${FLAVOR}-}"  # Remove flavor prefix
-            baseline_image="${repo}:${baseline_tag}"
-
-            echo "  Creating baseline tag: ${image} → ${baseline_image}"
-            # Pull image from kind, retag, and push back
-            docker exec kind-control-plane ctr -n k8s.io images tag "${image}" "${baseline_image}" || true
-          done
-
-          echo "✅ Baseline tags created for deployment compatibility"
-
-          echo "DEBUG: Verifying baseline tags were created:"
-          echo "Expected baseline images for deployment:"
-          expected_services="api db-setup worker periodic alert-exporter alertmanager-proxy cli-artifacts"
-          for service in $expected_services; do
-            expected_baseline="quay.io/flightctl/flightctl-${service}:${TAG}"
-            echo "  Expected: ${expected_baseline}"
-            # Fix: Check for both service name AND tag in the same line
-            if docker exec kind-control-plane crictl images | grep -q "flightctl-${service}.*${TAG}"; then
-              echo "    ✅ Found baseline tag"
-            else
-              echo "    ❌ Missing baseline tag"
-              # Debug: show what we actually found
-              echo "    Available images for ${service}:"
-              docker exec kind-control-plane crictl images | grep "flightctl-${service}" || echo "      None found"
-            fi
-          done
-
-          echo "DEBUG: All images now in kind after baseline tag creation:"
-          docker exec kind-control-plane crictl images | grep flightctl
-        else
-          echo "❌ No bundle found, attempting fallback to individual local images..."
-          # Load individual images built locally
-          TAG="${{ steps.compute-tags.outputs.git_tag }}"
-
-          echo "🔍 FALLBACK: Searching for local images with pattern: flightctl-.*:${FLAVOR}-*"
-          echo "Expected tag components: FLAVOR=${FLAVOR}, TAG=${TAG}"
-
-          # Debug: show ALL local images first
-          echo "DEBUG: All local images:"
-          podman images --format "{{.Repository}}:{{.Tag}}"
-
-          # Get list of locally built flightctl images with flavor prefix
-          echo "DEBUG: Searching for flavor-prefixed images..."
-          mapfile -t flavor_images < <(podman images --format "{{.Repository}}:{{.Tag}}" | grep "flightctl-.*:${FLAVOR}-" | grep -E "(latest|${TAG})" || true)
-
-          echo "DEBUG: Found ${#flavor_images[@]} flavor-prefixed images:"
-          printf '  %s\n' "${flavor_images[@]}"
-
-          if [ ${#flavor_images[@]} -eq 0 ]; then
-            echo "❌ ERROR: No local flightctl images found for loading into kind"
-            echo "Available local flightctl images:"
-            podman images --format "{{.Repository}}:{{.Tag}}" | grep "flightctl" || echo "No flightctl images found"
-            echo "Available ALL images:"
-            podman images
-            exit 1
-          fi
-
-          # Create and load baseline tags (what deployment expects)
-          echo "🏗️  Creating baseline tags for E2E deployment compatibility..."
-          baseline_images=()
-          for image in "${flavor_images[@]}"; do
-            repo="${image%:*}"
-            flavor_tag="${image#*:}"
-            baseline_tag="${flavor_tag#${FLAVOR}-}"  # Remove flavor prefix
-            baseline_image="${repo}:${baseline_tag}"
-
-            echo "  Creating baseline tag: ${image} → ${baseline_image}"
-            podman tag "$image" "$baseline_image"
-
-            echo "  Loading into kind: ${baseline_image}"
-            kind load docker-image "$baseline_image"
-            baseline_images+=("$baseline_image")
-          done
-
-          echo "✅ Loaded ${#baseline_images[@]} baseline-tagged images for deployment"
-
-          echo "DEBUG: Images now in kind after individual load:"
-          docker exec kind-control-plane crictl images | grep flightctl || echo "❌ No flightctl images found after individual load!"
-        fi
+        echo "Loading backend service images into kind"
+        kind load image-archive artifacts/flightctl-images-bundle.tar
+        echo "Backend images loaded successfully"
 
     - name: Clean up backend bundle files
       shell: bash
@@ -441,32 +116,31 @@ runs:
         set -euo pipefail
         echo "::group::Cleaning up backend bundle files"
         echo "Removing backend bundle (no longer needed after loading into kind)..."
-        BUNDLE_FILE=$(find artifacts/ -name "flightctl-images-bundle.tar" 2>/dev/null | head -n1)
-        if [ -n "$BUNDLE_FILE" ] && [ -f "$BUNDLE_FILE" ]; then
-          rm "$BUNDLE_FILE"
-          echo "Removed: $BUNDLE_FILE"
-        fi
+        rm artifacts/flightctl-images-bundle.tar
         df -h
         echo "::endgroup::"
 
-    - name: Setup dependencies
-      uses: ./.github/actions/setup-dependencies
+    # ========== LOAD TIMEOUT CONFIGURATION ==========
+    - name: "Load API readiness timeout configuration"
+      id: api-readiness-timeout
+      uses: ./.github/actions/load-timeout-configuration
+      with:
+        flavor: ${{ inputs.flavor }}
+        timeout-type: apiReadiness
 
-    - name: Debug checkpoint after setup
-      shell: bash
-      run: echo "*** SETUP DEPENDENCIES COMPLETED ***"
+    - name: "Load Helm timeout with wait configuration"
+      id: helm-timeout-with-wait
+      uses: ./.github/actions/load-timeout-configuration
+      with:
+        flavor: ${{ inputs.flavor }}
+        timeout-type: helmUpgrade.withWait
 
-    - name: Generate helm charts with correct flavor
-      shell: bash
-      env:
-        FLAVOR: ${{ inputs.flavor }}
-      run: |
-        echo "*** GENERATE STEP STARTED ***"
-        echo "FLAVOR=${FLAVOR}"
-        set -euo pipefail
-        echo "*** ABOUT TO RUN MAKE GENERATE WITH FLAVOR=${FLAVOR} ***"
-        FLAVOR=${FLAVOR} make generate
-        echo "*** MAKE GENERATE COMPLETED ***"
+    - name: "Load Helm timeout without wait configuration"
+      id: helm-timeout-without-wait
+      uses: ./.github/actions/load-timeout-configuration
+      with:
+        flavor: ${{ inputs.flavor }}
+        timeout-type: helmUpgrade.withoutWait
 
     # ========== DEPLOY BACKEND ==========
     - name: Deploy FlightCtl backend with Helm
@@ -479,437 +153,65 @@ runs:
         NAMESPACE_EXTERNAL: ${{ inputs.namespace-external }}
         NAMESPACE_INTERNAL: ${{ inputs.namespace-internal }}
         WAIT: ${{ inputs.wait }}
+        HELM_TIMEOUT_WITH_WAIT: ${{ steps.helm-timeout-with-wait.outputs.timeout }}
+        HELM_TIMEOUT_WITHOUT_WAIT: ${{ steps.helm-timeout-without-wait.outputs.timeout }}
       run: |
-        echo "*** DEPLOY STEP STARTED ***"
-        echo "*** ENVIRONMENT VARIABLES ***"
-        echo "NAMESPACE_EXTERNAL: '${NAMESPACE_EXTERNAL}'"
-        echo "NAMESPACE_INTERNAL: '${NAMESPACE_INTERNAL}'"
-        echo "BASE_DOMAIN: '${BASE_DOMAIN}'"
-        echo "ADDITIONAL_VALUES_FILES: '${ADDITIONAL_VALUES_FILES}'"
-        echo "AUTH_TYPE: '${AUTH_TYPE}'"
-        echo "WAIT: '${WAIT}'"
-        echo "*** CHECKING REQUIRED VARIABLES ***"
-        test -n "${NAMESPACE_EXTERNAL}" || { echo "ERROR: NAMESPACE_EXTERNAL is empty"; exit 1; }
-        test -n "${NAMESPACE_INTERNAL}" || { echo "ERROR: NAMESPACE_INTERNAL is empty"; exit 1; }
-        test -n "${BASE_DOMAIN}" || { echo "ERROR: BASE_DOMAIN is empty"; exit 1; }
-
         set -euo pipefail
-        echo "*** PIPEFAIL ENABLED ***"
 
-        kubectl create namespace "${NAMESPACE_INTERNAL}" || true
-        echo "*** NAMESPACE CREATED ***"
-
-        echo "*** STARTING CLEANUP ***"
-        echo "*** PRE-CLEANUP STATE ***"
-        helm list -A || echo "NO HELM RELEASES"
-        kubectl get namespaces | grep flightctl || echo "NO FLIGHTCTL NAMESPACES"
-
-        set +e
-        echo "*** HELM UNINSTALL EXTERNAL NAMESPACE ***"
-        helm uninstall flightctl -n "${NAMESPACE_EXTERNAL}" --ignore-not-found --timeout=30s
-        uninstall_external_exit=$?
-        echo "HELM UNINSTALL EXTERNAL EXIT CODE: $uninstall_external_exit"
-
-        echo "*** HELM UNINSTALL INTERNAL NAMESPACE ***"
-        helm uninstall flightctl -n "${NAMESPACE_INTERNAL}" --ignore-not-found --timeout=30s
-        uninstall_internal_exit=$?
-        echo "HELM UNINSTALL INTERNAL EXIT CODE: $uninstall_internal_exit"
-
-        echo "*** DELETE EXTERNAL NAMESPACE ***"
-        kubectl delete namespace "${NAMESPACE_EXTERNAL}" --ignore-not-found --timeout=30s
-        delete_external_exit=$?
-        echo "DELETE EXTERNAL NAMESPACE EXIT CODE: $delete_external_exit"
-
-        echo "*** DELETE INTERNAL NAMESPACE ***"
-        kubectl delete namespace "${NAMESPACE_INTERNAL}" --ignore-not-found --timeout=30s
-        delete_internal_exit=$?
-        echo "DELETE INTERNAL NAMESPACE EXIT CODE: $delete_internal_exit"
-
-        echo "*** WAITING FOR CLEANUP TO COMPLETE ***"
-        sleep 5
-
-        echo "*** RECREATE INTERNAL NAMESPACE ***"
         kubectl create namespace "${NAMESPACE_INTERNAL}"
-        create_exit=$?
-        echo "CREATE NAMESPACE EXIT CODE: $create_exit"
+        ( kubectl get pods --all-namespaces -w | sed 's/^/[cluster] /' ) &
 
-        echo "*** POST-CLEANUP STATE ***"
-        helm list -A || echo "NO HELM RELEASES AFTER CLEANUP"
-        kubectl get namespaces | grep flightctl || echo "NO FLIGHTCTL NAMESPACES AFTER CLEANUP"
-        kubectl get namespace "${NAMESPACE_INTERNAL}" || echo "INTERNAL NAMESPACE NOT FOUND AFTER CREATION"
-
-        set -e
-        echo "*** CLEANUP FINISHED ***"
-
-        echo "REACHED HELM PREPARATION SUCCESSFULLY"
-
-        # Build optional args - simplified
+        # Build optional args
         EXTRA_ARGS=""
-        if [ -n "${ADDITIONAL_VALUES_FILES}" ]; then
-          for f in ${ADDITIONAL_VALUES_FILES}; do
-            if [ -f "$f" ]; then
-              EXTRA_ARGS+=" --values $f"
-            fi
-          done
-        fi
-        if [ -n "${AUTH_TYPE}" ]; then
-          EXTRA_ARGS+=" --set global.auth.type=${AUTH_TYPE}"
-        fi
-        echo "EXTRA_ARGS: ${EXTRA_ARGS}"
-
-        echo "=== STARTING HELM DEPLOYMENT ==="
-        echo "Nuclear cleanup complete, verified clean state"
-        echo "Images loaded and verified in kind"
-
-        # Use baseline tags for E2E testing (consistent with our image loading)
-        IMAGE_TAG="${{ steps.compute-tags.outputs.git_tag }}"
-        echo "Using baseline image tag for E2E testing: ${IMAGE_TAG}"
-
-        echo "Deployment parameters:"
-        echo "  Base domain: ${BASE_DOMAIN}"
-        echo "  External namespace: ${NAMESPACE_EXTERNAL}"
-        echo "  Internal namespace: ${NAMESPACE_INTERNAL}"
-        echo "  Wait for completion: ${WAIT}"
-        echo "  Flavor: ${{ inputs.flavor }}"
-
-        # Debug: Show what images are available in kind vs what we expect
-        echo "=== IMAGE DEBUGGING ==="
-        echo "Expected image tag: ${IMAGE_TAG}"
-        echo "Expected FlightCtl images in kind cluster:"
-        expected_services="api db-setup worker periodic alert-exporter alertmanager-proxy cli-artifacts telemetry-gateway imagebuilder-api imagebuilder-worker"
-        for service in $expected_services; do
-          expected_image="quay.io/flightctl/flightctl-${service}:${IMAGE_TAG}"
-          echo "  Expected: ${expected_image}"
-        done
-
-        echo ""
-        echo "ACTUAL FlightCtl images in kind cluster:"
-        docker exec kind-control-plane crictl images | grep "flightctl" || echo "❌ No flightctl images found in kind!"
-
-        echo ""
-        echo "ALL images in kind cluster:"
-        docker exec kind-control-plane crictl images
-
-        # Set flavor-prefixed tags for ALL services including dbSetup (critical for init containers)
-        # Images are built with flavor prefixes (e.g., el9-v1.2.0-..., el10-v1.2.0-...)
-        # but deployment expects them with flavor prefix for correct image resolution
-        FLAVORED_IMAGE_TAG="${{ inputs.flavor }}-${IMAGE_TAG}"
-        echo "Using flavor-prefixed image tag for Helm deployment: ${FLAVORED_IMAGE_TAG}"
-
-        # Most services use flavor-prefixed tags
-        EXTRA_ARGS+=" --set dbSetup.image.tag=${FLAVORED_IMAGE_TAG}"
-        EXTRA_ARGS+=" --set api.image.tag=${FLAVORED_IMAGE_TAG}"
-        EXTRA_ARGS+=" --set worker.image.tag=${FLAVORED_IMAGE_TAG}"
-        EXTRA_ARGS+=" --set periodic.image.tag=${FLAVORED_IMAGE_TAG}"
-        EXTRA_ARGS+=" --set alertExporter.image.tag=${FLAVORED_IMAGE_TAG}"
-        EXTRA_ARGS+=" --set alertmanagerProxy.image.tag=${FLAVORED_IMAGE_TAG}"
-        EXTRA_ARGS+=" --set telemetryGateway.image.tag=${FLAVORED_IMAGE_TAG}"
-        EXTRA_ARGS+=" --set imageBuilderApi.image.tag=${FLAVORED_IMAGE_TAG}"
-        EXTRA_ARGS+=" --set imageBuilderWorker.image.tag=${FLAVORED_IMAGE_TAG}"
-
-        # CLI artifacts special handling: baseline builds don't have flavor-aware publishing
-        # so they publish with baseline tags only
-        echo "Checking CLI artifacts image availability..."
-        if timeout 15s podman pull "quay.io/flightctl/flightctl-cli-artifacts:${FLAVORED_IMAGE_TAG}" >/dev/null 2>&1; then
-          echo "✅ Using flavor-prefixed CLI artifacts: ${FLAVORED_IMAGE_TAG}"
-          CLI_ARTIFACTS_TAG="${FLAVORED_IMAGE_TAG}"
-          podman rmi "quay.io/flightctl/flightctl-cli-artifacts:${FLAVORED_IMAGE_TAG}" >/dev/null 2>&1 || true
-        elif timeout 15s podman pull "quay.io/flightctl/flightctl-cli-artifacts:${IMAGE_TAG}" >/dev/null 2>&1; then
-          echo "✅ Using baseline CLI artifacts tag: ${IMAGE_TAG}"
-          CLI_ARTIFACTS_TAG="${IMAGE_TAG}"
-          podman rmi "quay.io/flightctl/flightctl-cli-artifacts:${IMAGE_TAG}" >/dev/null 2>&1 || true
-        else
-          echo "❌ Neither flavor-prefixed nor baseline CLI artifacts image found, using flavor-prefixed as fallback"
-          CLI_ARTIFACTS_TAG="${FLAVORED_IMAGE_TAG}"
-        fi
-
-        EXTRA_ARGS+=" --set cliArtifacts.image.tag=${CLI_ARTIFACTS_TAG}"
-        echo "CLI artifacts image tag: ${CLI_ARTIFACTS_TAG}"
-
-        # Set image pull policy to use local images when artifacts were not available
-        if [ "${{ steps.download-images.outcome }}" == "failure" ]; then
-          echo "Using local images - setting imagePullPolicy to IfNotPresent"
-          EXTRA_ARGS+=" --set global.imagePullPolicy=IfNotPresent"
-          EXTRA_ARGS+=" --set db.builtin.image.pullPolicy=IfNotPresent"
-          EXTRA_ARGS+=" --set kv.image.pullPolicy=IfNotPresent"
-          EXTRA_ARGS+=" --set alertmanager.image.pullPolicy=IfNotPresent"
-          EXTRA_ARGS+=" --set clusterCli.image.pullPolicy=IfNotPresent"
-        else
-          echo "Using published images - keeping default imagePullPolicy"
-        fi
-
-
-        echo "🔍 DEBUG: Looking for helm chart file..."
-        echo "Available artifacts:"
-        ls -la artifacts/ || echo "No artifacts directory found"
-
-        echo "*** FINDING CHART FILE ***"
-        echo "*** ARTIFACTS DIRECTORY CONTENTS:"
-        ls -la artifacts/ || echo "No artifacts directory"
-        echo "*** SEARCHING FOR CHART FILE:"
-        find artifacts/ -name "flightctl-chart.tgz" || echo "No chart file found by find"
-        CHART_FILE=$(find artifacts/ -name "flightctl-chart.tgz" | head -n1)
-        if [ -z "$CHART_FILE" ]; then
-          echo "*** ERROR: flightctl-chart.tgz not found ***"
-          echo "*** ALL FILES IN ARTIFACTS:"
-          find artifacts/ -type f || echo "No artifacts found"
-          exit 1
-        fi
-        echo "*** CHART FILE FOUND: $CHART_FILE ***"
-        echo "*** CHART FILE INFO:"
-        ls -la "$CHART_FILE"
-        echo "*** CHART FILE IS READABLE:"
-        test -r "$CHART_FILE" && echo "YES" || echo "NO"
-
-        echo "*** BUILDING HELM COMMAND ***"
-        echo "*** CHECKING HELM AVAILABILITY ***"
-        which helm || echo "HELM NOT FOUND IN PATH"
-        helm version || echo "HELM VERSION FAILED"
-
-        echo "*** CHECKING NAMESPACES ***"
-        kubectl get namespace "${NAMESPACE_EXTERNAL}" || echo "EXTERNAL NAMESPACE MISSING"
-        kubectl get namespace "${NAMESPACE_INTERNAL}" || echo "INTERNAL NAMESPACE MISSING"
+        for f in ${ADDITIONAL_VALUES_FILES}; do [ -f "$f" ] && EXTRA_ARGS+=" --values $f"; done
+        [ -n "${AUTH_TYPE}" ] && EXTRA_ARGS+=" --set global.auth.type=${AUTH_TYPE}"
 
         # Build the helm command
-        echo "*** STEP 1: BASE COMMAND ***"
-        HELM_CMD="helm install flightctl $CHART_FILE"
-        echo "HELM_CMD after base: $HELM_CMD"
-
-        echo "*** STEP 2: ADDING NAMESPACE ***"
+        HELM_CMD="helm install flightctl artifacts/flightctl-chart.tgz"
         HELM_CMD+=" --namespace ${NAMESPACE_EXTERNAL}"
-        echo "HELM_CMD after namespace: $HELM_CMD"
-
-        echo "*** STEP 3: ADDING CREATE-NAMESPACE ***"
         HELM_CMD+=" --create-namespace"
-        echo "HELM_CMD after create-namespace: $HELM_CMD"
-
-        echo "*** STEP 4: CHECKING VALUES FILE ***"
-        if [ -f "deploy/helm/flightctl/values.nodeport.yaml" ]; then
-          HELM_CMD+=" --values deploy/helm/flightctl/values.nodeport.yaml"
-          echo "*** VALUES FILE FOUND AND ADDED ***"
-          echo "*** VALUES FILE CONTENT:"
-          cat "deploy/helm/flightctl/values.nodeport.yaml" || echo "FAILED TO READ VALUES FILE"
-        else
-          echo "*** VALUES FILE NOT FOUND ***"
-          echo "*** CHECKING DEPLOY DIRECTORY:"
-          ls -la deploy/helm/flightctl/ || echo "DEPLOY DIRECTORY NOT FOUND"
-        fi
-        echo "HELM_CMD after values: $HELM_CMD"
-
-        echo "*** STEP 5: ADDING GLOBAL SETTINGS ***"
+        HELM_CMD+=" --values deploy/helm/flightctl/values.nodeport.yaml"
         HELM_CMD+=' --set global.baseDomain="${BASE_DOMAIN}"'
-        echo "HELM_CMD after baseDomain: $HELM_CMD"
         HELM_CMD+=" --set global.internalNamespace=${NAMESPACE_INTERNAL}"
-        echo "HELM_CMD after internalNamespace: $HELM_CMD"
         HELM_CMD+=" --set ui.enabled=false"
-        echo "HELM_CMD after ui.enabled: $HELM_CMD"
-
-        echo "*** STEP 6: ADDING EXTRA ARGS ***"
-        echo "EXTRA_ARGS value: '$EXTRA_ARGS'"
         HELM_CMD+="${EXTRA_ARGS}"
-        echo "HELM_CMD after extra args: $HELM_CMD"
 
-        echo "*** STEP 7: ADDING WAIT FLAG ***"
         if [ "${WAIT}" == "true" ]; then
           HELM_CMD+=" --wait"
-          echo "*** WAIT FLAG ADDED ***"
-        else
-          echo "*** WAIT FLAG NOT ADDED ***"
-        fi
-        echo "HELM_CMD after wait: $HELM_CMD"
-
-        echo "*** FINAL HELM COMMAND BUILT: ${HELM_CMD} ***"
-        echo "*** COMMAND LENGTH: ${#HELM_CMD} characters ***"
-
-        echo "helm_cmd=${HELM_CMD}" >> "$GITHUB_OUTPUT" || true
-
-        echo "*** EXECUTING HELM INSTALL NOW ***"
-        echo "*** PRE-EXECUTION ENVIRONMENT CHECK ***"
-        echo "PWD: $(pwd)"
-        echo "USER: $(whoami)"
-        echo "PATH: $PATH"
-
-        echo "*** PRE-EXECUTION KUBECTL CHECK ***"
-        kubectl cluster-info || echo "KUBECTL CLUSTER-INFO FAILED"
-        kubectl get nodes || echo "KUBECTL GET NODES FAILED"
-
-        echo "*** PRE-EXECUTION HELM CHECK ***"
-        helm list -A || echo "HELM LIST FAILED"
-
-        echo "*** SETTING FLAVOR-SPECIFIC TIMEOUTS ***"
-        echo "*** LOADING TIMEOUT CONFIGURATION FOR FLAVOR: ${{ inputs.flavor }} ***"
-
-    - name: "Load Helm timeout with wait"
-      id: helm-timeout-with-wait
-      uses: ./.github/actions/load-timeout-configuration
-      with:
-        flavor: ${{ inputs.flavor }}
-        timeout-type: helmUpgrade.withWait
-
-    - name: "Load Helm timeout without wait"
-      id: helm-timeout-without-wait
-      uses: ./.github/actions/load-timeout-configuration
-      with:
-        flavor: ${{ inputs.flavor }}
-        timeout-type: helmUpgrade.withoutWait
-
-    - name: "Execute Helm deployment"
-      shell: bash
-      env:
-        WAIT: ${{ inputs.wait }}
-      run: |
-        set -euo pipefail
-
-        # Set timeout variables from loaded configuration
-        HELM_TIMEOUT_WITH_WAIT="${{ steps.helm-timeout-with-wait.outputs.timeout }}"
-        HELM_TIMEOUT_WITHOUT_WAIT="${{ steps.helm-timeout-without-wait.outputs.timeout }}"
-
-        echo "*** FLAVOR ${{ inputs.flavor }}: TIMEOUT_WITH_WAIT=${HELM_TIMEOUT_WITH_WAIT}, TIMEOUT_WITHOUT_WAIT=${HELM_TIMEOUT_WITHOUT_WAIT} (from helm chart configuration) ***"
-
-        echo "*** TESTING HELM COMMAND SYNTAX ***"
-        if [ "${WAIT}" == "true" ]; then
-          TEST_CMD="${HELM_CMD} --debug --timeout=${HELM_TIMEOUT_WITH_WAIT} --dry-run"
-        else
-          TEST_CMD="${HELM_CMD} --timeout=${HELM_TIMEOUT_WITHOUT_WAIT} --dry-run"
-        fi
-        echo "*** DRY-RUN COMMAND: $TEST_CMD (flavor: ${{ inputs.flavor }}) ***"
-
-        set +e
-        echo "*** RUNNING DRY-RUN FIRST ***"
-        eval "$TEST_CMD" 2>&1
-        dry_run_exit_code=$?
-        echo "*** DRY-RUN EXIT CODE: $dry_run_exit_code ***"
-
-        if [ $dry_run_exit_code -ne 0 ]; then
-          echo "*** DRY-RUN FAILED - ABORTING ***"
-          echo "*** HELM LIST AFTER DRY-RUN FAILURE ***"
-          helm list -A || true
-          echo "*** KUBECTL GET ALL ***"
-          kubectl get all -A || true
-          exit $dry_run_exit_code
         fi
 
-        echo "*** DRY-RUN SUCCEEDED - PROCEEDING WITH ACTUAL INSTALL ***"
+        # Output command for summary (with literal ${BASE_DOMAIN} for local reproduction)
+        {
+          echo "helm_cmd<<EOF"
+          echo "${HELM_CMD}"
+          echo "EOF"
+        } >> "$GITHUB_OUTPUT"
+
+        # Execute with flavor-aware timeouts and debug output
+        echo "*** FLAVOR ${{ inputs.flavor }}: Using timeout configuration ***"
+        echo "  HELM_TIMEOUT_WITH_WAIT=${HELM_TIMEOUT_WITH_WAIT}"
+        echo "  HELM_TIMEOUT_WITHOUT_WAIT=${HELM_TIMEOUT_WITHOUT_WAIT}"
 
         if [ "${WAIT}" == "true" ]; then
-          echo "*** RUNNING WITH WAIT AND DEBUG ***"
-          echo "*** ACTUAL COMMAND: ${HELM_CMD} --debug --timeout=${HELM_TIMEOUT_WITH_WAIT} (flavor: ${{ inputs.flavor }}) ***"
-          eval "${HELM_CMD} --debug --timeout=${HELM_TIMEOUT_WITH_WAIT}" 2>&1 | tee helm-install.log
-          helm_exit_code=$?
+          echo "*** Executing with wait and debug (timeout: ${HELM_TIMEOUT_WITH_WAIT}) ***"
+          eval "${HELM_CMD} --debug --timeout=${HELM_TIMEOUT_WITH_WAIT}"
         else
-          echo "*** RUNNING WITHOUT WAIT ***"
-          echo "*** ACTUAL COMMAND: ${HELM_CMD} --timeout=${HELM_TIMEOUT_WITHOUT_WAIT} (flavor: ${{ inputs.flavor }}) ***"
-          eval "${HELM_CMD} --timeout=${HELM_TIMEOUT_WITHOUT_WAIT}" 2>&1 | tee helm-install.log
-          helm_exit_code=$?
+          echo "*** Executing without wait (timeout: ${HELM_TIMEOUT_WITHOUT_WAIT}) ***"
+          eval "${HELM_CMD} --timeout=${HELM_TIMEOUT_WITHOUT_WAIT}"
         fi
-        set -e
-
-        echo "*** HELM EXIT CODE: ${helm_exit_code} ***"
-        echo "*** POST-EXECUTION HELM LIST ***"
-        helm list -A || true
-        echo "*** POST-EXECUTION KUBECTL GET ALL ***"
-        kubectl get all -A || true
-
-        if [ ${helm_exit_code} -ne 0 ]; then
-          echo "*** HELM INSTALL FAILED ***"
-          echo "*** HELM INSTALL LOG (last 50 lines): ***"
-          tail -50 helm-install.log || echo "NO HELM LOG FILE"
-          echo "*** FINAL HELM LIST ***"
-          helm list -A || true
-          echo "*** FINAL KUBECTL STATUS ***"
-          kubectl get pods -A || true
-          exit ${helm_exit_code}
-        else
-          echo "*** HELM INSTALL SUCCEEDED ***"
-          echo "*** SUCCESS - HELM LIST ***"
-          helm list -A || true
-          echo "*** SUCCESS - KUBECTL GET PODS ***"
-          kubectl get pods -A || true
-        fi
-
-        # Summary of deployment approach
-        echo ""
-        echo "=== DEPLOYMENT SUMMARY ==="
-        echo "- Deployment type: Clean install (ensures fresh state)"
-        if [ "${{ steps.download-images.outcome }}" == "failure" ]; then
-          echo "- Source: LOCAL FALLBACK builds (artifacts not available)"
-          echo "- Image tags: Baseline format for E2E compatibility"
-          echo "- Image pull policy: IfNotPresent"
-        else
-          echo "- Source: PUBLISHED ARTIFACTS from workflow"
-          echo "- Image pull policy: default"
-        fi
-        echo "- Image tag: ${IMAGE_TAG}"
-        echo "- Flavor: ${{ inputs.flavor }}"
-        echo "=========================="
-
-    - name: "Debug deployment failures"
-      if: failure()
-      shell: bash
-      run: |
-        echo "=== DEBUGGING DEPLOYMENT FAILURE ==="
-        echo "Cluster state:"
-        kubectl get pods --all-namespaces --show-labels | grep flightctl || echo "No flightctl pods found"
-        echo ""
-        echo "Failed deployments:"
-        kubectl get deployments --all-namespaces --show-labels | grep flightctl || echo "No flightctl deployments found"
-        echo ""
-        echo "Pod events for non-ready pods:"
-        kubectl get pods --all-namespaces -l 'flightctl.service' --field-selector status.phase!=Running -o name 2>/dev/null | while read pod; do
-          if [ -n "$pod" ]; then
-            echo "=== Events for $pod ==="
-            kubectl describe "$pod" 2>/dev/null | tail -20 || echo "Pod not found or already deleted"
-            echo ""
-          fi
-        done
-        echo ""
-        echo "=== DEPLOYMENT FAILURE DEBUG ==="
-        echo "Expected tag: ${{ steps.compute-tags.outputs.git_tag }}"
-        echo "Flavor: ${{ inputs.flavor }}"
-        echo "Artifact download outcome: ${{ steps.download-images.outcome }}"
-        echo ""
-        echo "Critical images check (✅=found, ❌=missing):"
-        for service in api db-setup worker periodic alert-exporter alertmanager-proxy; do
-          image_name="quay.io/flightctl/flightctl-${service}"
-          tag="${{ steps.compute-tags.outputs.git_tag }}"
-          # Fix: Use a more robust check that accounts for crictl output format
-          # crictl images format: IMAGE_NAME spaces TAG spaces IMAGE_ID spaces SIZE
-          if docker exec kind-control-plane crictl images | grep "flightctl-${service}" | grep -q "${tag}"; then
-            echo "  ✅ ${image_name}:${tag}"
-          else
-            echo "  ❌ ${image_name}:${tag} (MISSING)"
-          fi
-        done
-        echo ""
-        echo "ALL FlightCtl images in kind:"
-        docker exec kind-control-plane crictl images | grep flightctl || echo "❌ NO FLIGHTCTL IMAGES FOUND"
-        echo ""
-        echo "Helm release status:"
-        helm list --all-namespaces
-        echo "=== END DEBUGGING ==="
-
-    - name: "Load API readiness timeout configuration"
-      if: inputs.wait == 'true'
-      id: api-timeout
-      uses: ./.github/actions/load-timeout-configuration
-      with:
-        flavor: ${{ inputs.flavor }}
-        timeout-type: apiReadiness
 
     - name: "Wait for API readiness"
       if: inputs.wait == 'true'
       uses: ./.github/actions/wait-for-api-readiness
       with:
         base-domain: ${{ inputs.base-domain }}
-        # Timeout loaded from helm-chart-opts.yaml based on flavor
-        retries: ${{ steps.api-timeout.outputs.timeout }}
+        retries: ${{ steps.api-readiness-timeout.outputs.timeout }}
 
     - name: Generate deployment summary
       if: inputs.display-summary == 'true'
       shell: bash
       env:
         IMAGE_TAG: ${{ steps.compute-tags.outputs.git_tag }}
-        NAMESPACE_EXTERNAL: ${{ inputs.namespace-external }}
         NAMESPACE_INTERNAL: ${{ inputs.namespace-internal }}
         KIND_CONFIG: ${{ inputs.kind-config }}
         RUN_ID: ${{ github.run_id }}
@@ -927,18 +229,15 @@ runs:
           echo '```bash'
           echo "# Download artifacts"
           echo "mkdir -p bin artifacts"
-          echo "gh run download ${RUN_ID} -n flightctl-images-bundle-${{ inputs.flavor }}-${IMAGE_TAG} -D bin"
-          echo "gh run download ${RUN_ID} -n helm-chart-${{ inputs.flavor }}-${IMAGE_TAG} -D artifacts"
+          echo "gh run download ${RUN_ID} -n flightctl-images-bundle-${IMAGE_TAG} -D bin"
+          echo "gh run download ${RUN_ID} -n helm-chart-${IMAGE_TAG} -D artifacts"
           echo ""
           echo "# Create kind cluster and load images"
           echo "kind create cluster --config ${KIND_CONFIG}"
-          echo "kind load image-archive artifacts/flightctl-images-bundle.tar"
+          echo "kind load image-archive bin/flightctl-images-bundle.tar"
           echo ""
-          echo "# Deploy (clean install)"
+          echo "# Deploy"
           echo 'source ./test/scripts/functions && export BASE_DOMAIN=$(get_ext_ip).nip.io'
-          echo "# Clean up any existing installation first"
-          echo "helm uninstall flightctl -n ${NAMESPACE_EXTERNAL} --wait || true"
-          echo "kubectl delete namespace ${NAMESPACE_EXTERNAL} ${NAMESPACE_INTERNAL} --timeout=60s || true"
           echo "kubectl create namespace ${NAMESPACE_INTERNAL}"
           echo "${HELM_CMD}"
           echo '```'
