@@ -45,8 +45,8 @@ community-el9:
     telemetryGateway:
       image: quay.io/flightctl/flightctl-telemetry-gateway
   timeouts:
-    # API readiness timeout for EL9 (standard TLS requirements)
-    apiReadiness: 60
+    # API readiness timeout for EL9 (increased for E2E tests using wait:false)
+    apiReadiness: 300
     # Helm deployment timeouts for EL9
     helmUpgrade:
       withWait: "15m"

@@ -70,7 +70,7 @@ runs:
 
             case "${{ inputs.timeout-type }}" in
               "apiReadiness")
-                TIMEOUT_VALUE="60"
+                TIMEOUT_VALUE="300"  # 5 minutes for E2E tests that use wait:false
                 ;;
               "helmUpgrade.withWait")
                 TIMEOUT_VALUE="15m"
@@ -82,8 +82,8 @@ runs:
                 TIMEOUT_VALUE="20m"
                 ;;
               *)
-                echo "WARNING: Unknown timeout type '${{ inputs.timeout-type }}', using 60s"
-                TIMEOUT_VALUE="60"
+                echo "WARNING: Unknown timeout type '${{ inputs.timeout-type }}', using 300s"
+                TIMEOUT_VALUE="300"
                 ;;
             esac
           else
