@@ -89,7 +89,11 @@ func syncProviders(
 		log.Debugf("Removing application: %s", p.Name())
 		if err := manager.Remove(ctx, p); err != nil {
 			log.Warnf("Failed to remove application %s: %v", p.Name(), err)
-			errs = append(errs, fmt.Errorf("removing: %w: %w", errors.WithElement(p.Name()), err))
+			// Missing dependencies is acceptable for removed applications. If the spec defines removing a helm application
+			// at the same time that it changes OSs to one that does not have helm app support, then we accept it without failure
+			if !errors.Is(err, errors.ErrAppDependency) {
+				errs = append(errs, fmt.Errorf("removing: %w: %w", errors.WithElement(p.Name()), err))
+			}
 		}
 	}
 

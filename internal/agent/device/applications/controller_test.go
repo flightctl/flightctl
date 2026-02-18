@@ -391,6 +391,62 @@ func TestSyncProviders_ContinueOnError(t *testing.T) {
 			},
 			expectedErrors: 2,
 		},
+		{
+			name: "remove with ErrAppDependency is ignored",
+			currentProvs: func(ctrl *gomock.Controller) []provider.Provider {
+				return []provider.Provider{
+					newMockProviderForSync(ctrl, "helm-app", "Helm App"),
+				}
+			},
+			desiredProvs: func(ctrl *gomock.Controller) []provider.Provider { return nil },
+			setupMocks: func(mockManager *MockManager) {
+				mockManager.EXPECT().Remove(gomock.Any(), gomock.Any()).Return(errors.ErrAppDependency)
+			},
+			expectedErrors: 0,
+		},
+		{
+			name: "remove with wrapped ErrAppDependency is ignored",
+			currentProvs: func(ctrl *gomock.Controller) []provider.Provider {
+				return []provider.Provider{
+					newMockProviderForSync(ctrl, "helm-app", "Helm App"),
+				}
+			},
+			desiredProvs: func(ctrl *gomock.Controller) []provider.Provider { return nil },
+			setupMocks: func(mockManager *MockManager) {
+				mockManager.EXPECT().Remove(gomock.Any(), gomock.Any()).Return(fmt.Errorf("remove failed: %w", errors.ErrAppDependency))
+			},
+			expectedErrors: 0,
+		},
+		{
+			name:         "ensure with ErrAppDependency still fails",
+			currentProvs: func(ctrl *gomock.Controller) []provider.Provider { return nil },
+			desiredProvs: func(ctrl *gomock.Controller) []provider.Provider {
+				return []provider.Provider{
+					newMockProviderForSync(ctrl, "helm-app", "Helm App"),
+				}
+			},
+			setupMocks: func(mockManager *MockManager) {
+				mockManager.EXPECT().Ensure(gomock.Any(), gomock.Any()).Return(errors.ErrAppDependency)
+			},
+			expectedErrors: 1,
+		},
+		{
+			name: "multiple removes mixed dependency and other errors",
+			currentProvs: func(ctrl *gomock.Controller) []provider.Provider {
+				return []provider.Provider{
+					newMockProviderForSync(ctrl, "helm-app", "Helm App"),
+					newMockProviderForSync(ctrl, "compose-app", "Compose App"),
+				}
+			},
+			desiredProvs: func(ctrl *gomock.Controller) []provider.Provider { return nil },
+			setupMocks: func(mockManager *MockManager) {
+				gomock.InOrder(
+					mockManager.EXPECT().Remove(gomock.Any(), gomock.Any()).Return(errors.ErrAppDependency),
+					mockManager.EXPECT().Remove(gomock.Any(), gomock.Any()).Return(errors.ErrRemovingApplication),
+				)
+			},
+			expectedErrors: 1,
+		},
 	}
 
 	for _, tt := range tests {
