@@ -1,0 +1,53 @@
+name: 'Load Timeout Configuration'
+description: 'Loads timeout values from helm-chart-opts.yaml based on flavor'
+
+inputs:
+  flavor:
+    description: 'Container flavor (el9 or el10)'
+    required: true
+  timeout-type:
+    description: 'Type of timeout to load (apiReadiness, helmUpgrade.withWait, helmUpgrade.withoutWait, helmUpgrade.prUpgrade)'
+    required: true
+
+outputs:
+  timeout:
+    description: 'The timeout value from helm chart configuration'
+    value: ${{ steps.load-timeout.outputs.timeout }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Load timeout configuration
+      id: load-timeout
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        CHART_OPTS_FILE="deploy/helm/helm-chart-opts.yaml"
+        FLAVOR_KEY="community-${{ inputs.flavor }}"
+        TIMEOUT_PATH=".${FLAVOR_KEY}.timeouts.${{ inputs.timeout-type }}"
+
+        echo "Loading timeout configuration:"
+        echo "  Flavor: ${{ inputs.flavor }}"
+        echo "  Type: ${{ inputs.timeout-type }}"
+        echo "  Chart file: $CHART_OPTS_FILE"
+        echo "  YQ path: $TIMEOUT_PATH"
+
+        if [ ! -f "$CHART_OPTS_FILE" ]; then
+          echo "ERROR: Chart options file not found: $CHART_OPTS_FILE"
+          exit 1
+        fi
+
+        # Extract timeout value using yq
+        TIMEOUT_VALUE=$(yq eval "$TIMEOUT_PATH" "$CHART_OPTS_FILE")
+
+        # Validate timeout value
+        if [ "$TIMEOUT_VALUE" == "null" ]; then
+          echo "ERROR: Failed to load timeout '${{ inputs.timeout-type }}' for flavor '${{ inputs.flavor }}'"
+          echo "Available configuration:"
+          yq eval ".${FLAVOR_KEY}.timeouts" "$CHART_OPTS_FILE" || echo "No timeouts configuration found for ${{ inputs.flavor }}"
+          exit 1
+        fi
+
+        echo "Loaded timeout: $TIMEOUT_VALUE (from $CHART_OPTS_FILE)"
+        echo "timeout=$TIMEOUT_VALUE" >> "$GITHUB_OUTPUT"

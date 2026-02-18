@@ -250,28 +250,10 @@ jobs:
       # ========== PREP E2E ENV ==========
       - name: Load API readiness timeout configuration
         id: api-timeout
-        run: |
-          set -euo pipefail
-
-          CHART_OPTS_FILE="deploy/helm/helm-chart-opts.yaml"
-          FLAVOR_KEY="community-${{ inputs.flavor }}"
-
-          if [ ! -f "$CHART_OPTS_FILE" ]; then
-            echo "ERROR: Chart options file not found: $CHART_OPTS_FILE"
-            exit 1
-          fi
-
-          # Extract API readiness timeout using yq
-          API_READINESS_TIMEOUT=$(yq eval ".${FLAVOR_KEY}.timeouts.apiReadiness" "$CHART_OPTS_FILE")
-
-          # Validate timeout value
-          if [ "$API_READINESS_TIMEOUT" == "null" ]; then
-            echo "ERROR: Failed to load API readiness timeout for flavor ${{ inputs.flavor }}"
-            exit 1
-          fi
-
-          echo "API readiness timeout for ${{ inputs.flavor }}: ${API_READINESS_TIMEOUT}s (from $CHART_OPTS_FILE)"
-          echo "timeout=${API_READINESS_TIMEOUT}" >> "$GITHUB_OUTPUT"
+        uses: ./.github/actions/load-timeout-configuration
+        with:
+          flavor: ${{ inputs.flavor }}
+          timeout-type: apiReadiness
 
       - name: Wait for API readiness
         uses: ./.github/actions/wait-for-api-readiness

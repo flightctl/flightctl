@@ -446,6 +446,13 @@ jobs:
           kubectl get serviceaccounts --all-namespaces | grep -E "(flightctl|cert-generator|upgrade)" || echo "No matching serviceaccounts"
           echo "=== End pre-upgrade state ==="
 
+      - name: "[HEAD] Load Helm upgrade timeout configuration"
+        id: helm-upgrade-timeout
+        uses: ./.github/actions/load-timeout-configuration
+        with:
+          flavor: ${{ env.FLAVOR }}
+          timeout-type: helmUpgrade.prUpgrade
+
       - name: "[HEAD] Helm upgrade with migration monitoring"
         env:
           PR_GIT_TAG: ${{ needs.build-pr.outputs.git_tag }}
@@ -512,25 +519,9 @@ jobs:
           echo "=== Starting helm upgrade with image tag: ${IMAGE_TAG} ==="
           echo "Migration monitoring started with PID: $MONITOR_PID"
 
-          # Load Helm upgrade timeout from helm-chart-opts.yaml based on flavor
-          CHART_OPTS_FILE="deploy/helm/helm-chart-opts.yaml"
-          FLAVOR_KEY="community-${FLAVOR}"
-
-          if [ ! -f "$CHART_OPTS_FILE" ]; then
-            echo "ERROR: Chart options file not found: $CHART_OPTS_FILE"
-            exit 1
-          fi
-
-          # Extract PR upgrade timeout using yq
-          HELM_TIMEOUT=$(yq eval ".${FLAVOR_KEY}.timeouts.helmUpgrade.prUpgrade" "$CHART_OPTS_FILE")
-
-          # Validate timeout value
-          if [ "$HELM_TIMEOUT" == "null" ]; then
-            echo "ERROR: Failed to load PR upgrade timeout for flavor ${FLAVOR}"
-            exit 1
-          fi
-
-          echo "Using Helm upgrade timeout: $HELM_TIMEOUT for flavor $FLAVOR (from $CHART_OPTS_FILE)"
+          # Use timeout value loaded from helm chart configuration
+          HELM_TIMEOUT="${{ steps.helm-upgrade-timeout.outputs.timeout }}"
+          echo "Using Helm upgrade timeout: $HELM_TIMEOUT for flavor $FLAVOR (from helm chart configuration)"
           if timeout "$HELM_TIMEOUT" helm upgrade flightctl "${CHART_FILE}" \
             --namespace flightctl-external \
             --reuse-values \
@@ -575,28 +566,10 @@ jobs:
 
       - name: "[HEAD] Load API readiness timeout configuration"
         id: api-timeout-1
-        run: |
-          set -euo pipefail
-
-          CHART_OPTS_FILE="deploy/helm/helm-chart-opts.yaml"
-          FLAVOR_KEY="community-${FLAVOR}"
-
-          if [ ! -f "$CHART_OPTS_FILE" ]; then
-            echo "ERROR: Chart options file not found: $CHART_OPTS_FILE"
-            exit 1
-          fi
-
-          # Extract API readiness timeout using yq
-          API_READINESS_TIMEOUT=$(yq eval ".${FLAVOR_KEY}.timeouts.apiReadiness" "$CHART_OPTS_FILE")
-
-          # Validate timeout value
-          if [ "$API_READINESS_TIMEOUT" == "null" ]; then
-            echo "ERROR: Failed to load API readiness timeout for flavor ${FLAVOR}"
-            exit 1
-          fi
-
-          echo "API readiness timeout for ${FLAVOR}: ${API_READINESS_TIMEOUT}s (from $CHART_OPTS_FILE)"
-          echo "timeout=${API_READINESS_TIMEOUT}" >> "$GITHUB_OUTPUT"
+        uses: ./.github/actions/load-timeout-configuration
+        with:
+          flavor: ${{ env.FLAVOR }}
+          timeout-type: apiReadiness
 
       - name: "[HEAD] Wait for API readiness after upgrade"
         uses: ./.github/actions/wait-for-api-readiness
@@ -686,28 +659,10 @@ jobs:
 
       - name: "[HEAD] Load API readiness timeout configuration (second check)"
         id: api-timeout-2
-        run: |
-          set -euo pipefail
-
-          CHART_OPTS_FILE="deploy/helm/helm-chart-opts.yaml"
-          FLAVOR_KEY="community-${FLAVOR}"
-
-          if [ ! -f "$CHART_OPTS_FILE" ]; then
-            echo "ERROR: Chart options file not found: $CHART_OPTS_FILE"
-            exit 1
-          fi
-
-          # Extract API readiness timeout using yq
-          API_READINESS_TIMEOUT=$(yq eval ".${FLAVOR_KEY}.timeouts.apiReadiness" "$CHART_OPTS_FILE")
-
-          # Validate timeout value
-          if [ "$API_READINESS_TIMEOUT" == "null" ]; then
-            echo "ERROR: Failed to load API readiness timeout for flavor ${FLAVOR}"
-            exit 1
-          fi
-
-          echo "API readiness timeout for ${FLAVOR}: ${API_READINESS_TIMEOUT}s (from $CHART_OPTS_FILE)"
-          echo "timeout=${API_READINESS_TIMEOUT}" >> "$GITHUB_OUTPUT"
+        uses: ./.github/actions/load-timeout-configuration
+        with:
+          flavor: ${{ env.FLAVOR }}
+          timeout-type: apiReadiness
 
       - name: "[HEAD] Wait for API readiness after same-version upgrade"
         uses: ./.github/actions/wait-for-api-readiness
