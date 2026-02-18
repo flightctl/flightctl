@@ -1,0 +1,13 @@
+[Unit]
+Description=Flight Control API Initialization
+PartOf=flightctl.target
+After=flightctl-certs-init.service
+Wants=flightctl-certs-init.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=true
+ExecStart=-/usr/bin/flightctl-standalone aap create-oauth-application
+
+[Install]
+WantedBy=flightctl.target

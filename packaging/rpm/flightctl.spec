@@ -526,8 +526,6 @@ chown -R flightctl:flightctl /home/flightctl/{.config,.local}
     %dir %attr(0755,root,root) %{_var}/tmp/flightctl-exports
     %{_datadir}/flightctl/flightctl-api/config.yaml.template
     %{_datadir}/flightctl/flightctl-api/env.template
-    %attr(0755,root,root) %{_datadir}/flightctl/flightctl-api/init.sh
-    %attr(0755,root,root) %{_datadir}/flightctl/flightctl-api/create_aap_application.sh
     %attr(0755,root,root) %{_datadir}/flightctl/flightctl-db/enable-superuser.sh
     %{_datadir}/flightctl/flightctl-kv/redis.conf
     %{_datadir}/flightctl/flightctl-ui/env.template
@@ -549,7 +547,7 @@ chown -R flightctl:flightctl /home/flightctl/{.config,.local}
     %{_datadir}/flightctl/flightctl-telemetry-gateway/config.yaml.template
 
     # Quadlet files (excluding observability components which are in separate packages)
-    %{_datadir}/containers/systemd/flightctl-api*.container
+    %{_datadir}/containers/systemd/flightctl-api.container
     %{_datadir}/containers/systemd/flightctl-worker.container
     %{_datadir}/containers/systemd/flightctl-periodic.container
     %{_datadir}/containers/systemd/flightctl-alert*.container
@@ -582,6 +580,7 @@ chown -R flightctl:flightctl /home/flightctl/{.config,.local}
     # Files mounted to lib dir
     /usr/lib/systemd/system/flightctl.target
     /usr/lib/systemd/system/flightctl-certs-init.service
+    /usr/lib/systemd/system/flightctl-api-init.service
 
     # Files mounted to bin dir
     %attr(0755,root,root) %{_bindir}/flightctl-services-must-gather
