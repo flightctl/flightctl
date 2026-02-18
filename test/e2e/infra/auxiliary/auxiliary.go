@@ -27,6 +27,11 @@ type Services struct {
 	RegistryHost string
 	RegistryPort string
 
+	PrivateRegistryURL          string
+	PrivateRegistryPort         string
+	PrivateRegistryAuthUsername string
+	PrivateRegistryAuthPassword string
+
 	GitServerURL  string
 	GitServerHost string
 	GitServerPort int
@@ -46,10 +51,11 @@ type Services struct {
 	JaegerPort         string
 	JaegerOTLPEndpoint string
 
-	registry   testcontainers.Container
-	gitServer  testcontainers.Container
-	prometheus testcontainers.Container
-	jaeger     testcontainers.Container
+	registry        testcontainers.Container
+	privateRegistry testcontainers.Container
+	gitServer       testcontainers.Container
+	prometheus      testcontainers.Container
+	jaeger          testcontainers.Container
 
 	network        string
 	reuse          bool
@@ -100,8 +106,14 @@ func StartServices(ctx context.Context, services []Service) (*Services, error) {
 				if err := s.UploadImages(); err != nil {
 					return nil, fmt.Errorf("failed to upload images: %w", err)
 				}
+				if err := s.UploadCharts(); err != nil {
+					return nil, fmt.Errorf("failed to upload charts: %w", err)
+				}
+				if err := s.UploadQuadlets(); err != nil {
+					return nil, fmt.Errorf("failed to upload quadlets: %w", err)
+				}
 			} else {
-				logrus.Info("Skipping image bundle upload (registry container was reused)")
+				logrus.Info("Skipping artifact upload (registry container was reused)")
 			}
 		case ServiceGitServer:
 			if err := s.startGitServer(ctx); err != nil {
@@ -150,6 +162,12 @@ func StopServices(services []Service) error {
 		logrus.Infof("Stopping aux container %s", name)
 		if err := podmanRemove(name); err != nil {
 			logrus.Warnf("Could not remove %s: %v", name, err)
+		}
+		if svc == ServiceRegistry {
+			logrus.Infof("Stopping satellite container %s", privateRegistryContainerName)
+			if err := podmanRemove(privateRegistryContainerName); err != nil {
+				logrus.Warnf("Could not remove %s: %v", privateRegistryContainerName, err)
+			}
 		}
 	}
 	return nil

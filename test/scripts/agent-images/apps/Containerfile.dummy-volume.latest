@@ -1,0 +1,11 @@
+FROM scratch
+
+COPY apps/dummy-volume-files/file1.txt /file1.txt
+COPY apps/dummy-volume-files/file2.txt /file2.txt
+COPY apps/dummy-volume-files/file3.txt /file3.txt
+
+WORKDIR /
+
+LABEL app="dummy-volume" \
+      version="latest" \
+      description="Dummy volume image for quadlet testing"

@@ -118,7 +118,7 @@ var _ = Describe("Rootless applications", Label("rootless"), func() {
 		By("Mixed: add rootful container app and verify rootless quadlet and rootful container run simultaneously")
 		containerRootful, err := e2e.NewContainerApplicationSpec(rootlessAppContainerMulti, rootlessNginxImage, []v1beta1.ApplicationPort{"8082:80"}, nil, nil, nil)
 		Expect(err).ToNot(HaveOccurred())
-		Expect(harness.UpdateDeviceAndWaitForRenderedVersion(deviceID, func(d *v1beta1.Device) {
+		Expect(harness.UpdateDeviceAndWaitForVersion(deviceID, func(d *v1beta1.Device) {
 			if d.Spec.Applications == nil {
 				d.Spec.Applications = &[]v1beta1.ApplicationProviderSpec{}
 			}
