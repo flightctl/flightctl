@@ -99,44 +99,6 @@ helm upgrade \
 * Before major upgrades, back up the database and configuration to ensure a clean restore point.
 * **Preview the diff before upgrading** with the [Helm diff plugin](https://github.com/databus23/helm-diff).
 
-### Flavor-Aware Timeout Configuration
-
-FlightCtl uses flavor-specific timeout configurations to accommodate different deployment environments:
-
-- **EL9**: Standard timeouts optimized for regular deployments
-- **EL10**: Extended timeouts to accommodate FIPS 140-3 enhanced TLS requirements
-
-Timeout configurations are automatically applied based on the container flavor and are defined in `deploy/helm/helm-chart-opts.yaml`:
-
-```yaml
-# Example timeout configurations
-community-el9:
-  timeouts:
-    apiReadiness: 60        # API readiness timeout in retries
-    helmUpgrade:
-      withWait: "15m"       # Helm upgrade with --wait
-      withoutWait: "10m"    # Helm upgrade without --wait
-      prUpgrade: "20m"      # PR upgrade testing
-
-community-el10:
-  timeouts:
-    apiReadiness: 180       # Extended for FIPS TLS handshakes
-    helmUpgrade:
-      withWait: "25m"       # Extended for slower initialization
-      withoutWait: "20m"
-      prUpgrade: "30m"
-```
-
-These timeouts are automatically loaded by GitHub Actions workflows using the `load-timeout-configuration` action.
-
-### Container Flavor Support
-
-FlightCtl supports multiple container flavors (EL9/EL10) with flavor-aware image tagging:
-
-- **Flavor-prefixed images**: `flightctl-api:el9-v1.0.0`, `flightctl-worker:el10-v1.0.0`
-- **Flavor-specific base images**: Uses appropriate base images for each Enterprise Linux version
-- **Automatic flavor detection**: CI/CD workflows automatically apply the correct flavor configuration
-
 ### Rollbacks
 
 Use rollbacks to revert to a previously successful revision if an upgrade causes issues. Use `helm history` to identify the target revision, then roll back if needed.
