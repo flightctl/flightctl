@@ -596,16 +596,35 @@ runs:
         FLAVORED_IMAGE_TAG="${{ inputs.flavor }}-${IMAGE_TAG}"
         echo "Using flavor-prefixed image tag for Helm deployment: ${FLAVORED_IMAGE_TAG}"
 
+        # Most services use flavor-prefixed tags
         EXTRA_ARGS+=" --set dbSetup.image.tag=${FLAVORED_IMAGE_TAG}"
         EXTRA_ARGS+=" --set api.image.tag=${FLAVORED_IMAGE_TAG}"
         EXTRA_ARGS+=" --set worker.image.tag=${FLAVORED_IMAGE_TAG}"
         EXTRA_ARGS+=" --set periodic.image.tag=${FLAVORED_IMAGE_TAG}"
         EXTRA_ARGS+=" --set alertExporter.image.tag=${FLAVORED_IMAGE_TAG}"
         EXTRA_ARGS+=" --set alertmanagerProxy.image.tag=${FLAVORED_IMAGE_TAG}"
-        EXTRA_ARGS+=" --set cliArtifacts.image.tag=${FLAVORED_IMAGE_TAG}"
         EXTRA_ARGS+=" --set telemetryGateway.image.tag=${FLAVORED_IMAGE_TAG}"
         EXTRA_ARGS+=" --set imageBuilderApi.image.tag=${FLAVORED_IMAGE_TAG}"
         EXTRA_ARGS+=" --set imageBuilderWorker.image.tag=${FLAVORED_IMAGE_TAG}"
+
+        # CLI artifacts special handling: baseline builds don't have flavor-aware publishing
+        # so they publish with baseline tags only
+        echo "Checking CLI artifacts image availability..."
+        if timeout 15s podman pull "quay.io/flightctl/flightctl-cli-artifacts:${FLAVORED_IMAGE_TAG}" >/dev/null 2>&1; then
+          echo "✅ Using flavor-prefixed CLI artifacts: ${FLAVORED_IMAGE_TAG}"
+          CLI_ARTIFACTS_TAG="${FLAVORED_IMAGE_TAG}"
+          podman rmi "quay.io/flightctl/flightctl-cli-artifacts:${FLAVORED_IMAGE_TAG}" >/dev/null 2>&1 || true
+        elif timeout 15s podman pull "quay.io/flightctl/flightctl-cli-artifacts:${IMAGE_TAG}" >/dev/null 2>&1; then
+          echo "✅ Using baseline CLI artifacts tag: ${IMAGE_TAG}"
+          CLI_ARTIFACTS_TAG="${IMAGE_TAG}"
+          podman rmi "quay.io/flightctl/flightctl-cli-artifacts:${IMAGE_TAG}" >/dev/null 2>&1 || true
+        else
+          echo "❌ Neither flavor-prefixed nor baseline CLI artifacts image found, using flavor-prefixed as fallback"
+          CLI_ARTIFACTS_TAG="${FLAVORED_IMAGE_TAG}"
+        fi
+
+        EXTRA_ARGS+=" --set cliArtifacts.image.tag=${CLI_ARTIFACTS_TAG}"
+        echo "CLI artifacts image tag: ${CLI_ARTIFACTS_TAG}"
 
         # Set image pull policy to use local images when artifacts were not available
         if [ "${{ steps.download-images.outcome }}" == "failure" ]; then
@@ -619,41 +638,6 @@ runs:
           echo "Using published images - keeping default imagePullPolicy"
         fi
 
-        echo "=== DEBUG: VERIFYING CLI ARTIFACTS IMAGE AVAILABILITY ==="
-        CLI_ARTIFACTS_IMAGE="quay.io/flightctl/flightctl-cli-artifacts:${FLAVORED_IMAGE_TAG}"
-        echo "Expected CLI artifacts image: ${CLI_ARTIFACTS_IMAGE}"
-        echo ""
-
-        # Check if using local images
-        if [ "${{ steps.download-images.outcome }}" == "failure" ]; then
-          echo "Checking local CLI artifacts image availability..."
-          if podman image exists "flightctl-cli-artifacts:${FLAVORED_IMAGE_TAG}"; then
-            echo "✅ Local CLI artifacts image exists: flightctl-cli-artifacts:${FLAVORED_IMAGE_TAG}"
-            podman inspect "flightctl-cli-artifacts:${FLAVORED_IMAGE_TAG}" --format '{{.Id}} {{.Created}} {{.Size}}' || true
-          else
-            echo "❌ Local CLI artifacts image missing: flightctl-cli-artifacts:${FLAVORED_IMAGE_TAG}"
-            echo "Available local flightctl-cli-artifacts images:"
-            podman images | grep flightctl-cli-artifacts || echo "None found"
-          fi
-        else
-          echo "Checking remote CLI artifacts image availability..."
-          if timeout 30s podman pull "${CLI_ARTIFACTS_IMAGE}" >/dev/null 2>&1; then
-            echo "✅ Remote CLI artifacts image accessible: ${CLI_ARTIFACTS_IMAGE}"
-            podman inspect "${CLI_ARTIFACTS_IMAGE}" --format '{{.Id}} {{.Created}} {{.Size}}' || true
-            podman rmi "${CLI_ARTIFACTS_IMAGE}" >/dev/null 2>&1 || true  # Cleanup
-          else
-            echo "❌ Remote CLI artifacts image inaccessible: ${CLI_ARTIFACTS_IMAGE}"
-            echo "Attempting to check if image exists with different tags..."
-            # Try to check available tags for cli-artifacts
-            timeout 10s curl -s "https://quay.io/api/v1/repository/flightctl/flightctl-cli-artifacts/tag/" | jq -r '.tags[]?.name' | head -10 || echo "Failed to check available tags"
-          fi
-        fi
-
-        echo "=== HELM VALUES THAT WILL BE USED ==="
-        echo "cliArtifacts.image.tag = ${FLAVORED_IMAGE_TAG}"
-        echo "global.imagePullPolicy = $(echo ${EXTRA_ARGS} | grep -o 'global.imagePullPolicy=[^[:space:]]*' | cut -d= -f2 || echo 'default')"
-        echo "=== END CLI ARTIFACTS DEBUG ==="
-        echo ""
 
         echo "🔍 DEBUG: Looking for helm chart file..."
         echo "Available artifacts:"
