@@ -1,0 +1,52 @@
+name: Weekly Flake Analysis (flightctl)
+
+on:
+  schedule:
+    - cron: '0 9 * * 1'  # Monday 9am UTC
+  workflow_dispatch:
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Analyze flakes
+        id: flakes
+        uses: sk-ilya/flakectl@904c731a0e31d3a5e475fbbc6075fb38ee39b6c3 # main
+        with:
+          repo: flightctl/flightctl
+          branch: main
+          lookback-days: '7'
+          workflow: pr-e2e-testing.yaml
+          skip-jobs: e2e # a job that aggregates results
+          context: >-
+            This repo uses Ginkgo with numeric test labels (e.g. [78753]).
+            The e2e-test jobs run on ephemeral VMs. The 'e2e' job is an
+            aggregation job that just reports results from upstream jobs -- skip it,
+            focus on the actual test jobs that contain root causes.
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flaky-test-report
+          path: |
+            ${{ steps.flakes.outputs.report }}
+            ${{ steps.flakes.outputs.results }}
+
+      - name: Notify Slack
+        if: success()
+        env:
+          FLAKES_SUMMARY: ${{ steps.flakes.outputs.summary }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          SUMMARY=$(cat summary.txt 2>/dev/null || printf "%s" "$FLAKES_SUMMARY")
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          curl -sf -X POST "$SLACK_WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -d "$(jq -n \
+              --arg repo "flightctl/flightctl" \
+              --arg short_summary "$SUMMARY" \
+              --arg report_link "$RUN_URL" \
+              '{repo: $repo, short_summary: $short_summary, report_link: $report_link}')"
+        shell: bash
