@@ -522,6 +522,33 @@ jobs:
           # Use timeout value loaded from helm chart configuration
           HELM_TIMEOUT="${{ steps.helm-upgrade-timeout.outputs.timeout }}"
           echo "Using Helm upgrade timeout: $HELM_TIMEOUT for flavor $FLAVOR (from helm chart configuration)"
+
+          echo "=== DEBUG: VERIFYING IMAGES BEFORE HELM UPGRADE ==="
+          echo "Image tag being used: ${IMAGE_TAG}"
+          echo "Flavor: $FLAVOR"
+          echo ""
+
+          # Check critical images
+          CRITICAL_IMAGES=(
+            "quay.io/flightctl/flightctl-api:${IMAGE_TAG}"
+            "quay.io/flightctl/flightctl-cli-artifacts:${IMAGE_TAG}"
+            "quay.io/flightctl/flightctl-db-setup:${IMAGE_TAG}"
+          )
+
+          for img in "${CRITICAL_IMAGES[@]}"; do
+            echo "Checking image: $img"
+            if docker exec kind-control-plane crictl images | grep -q "${img}"; then
+              echo "✅ Image available in kind: $img"
+            else
+              echo "❌ Image missing in kind: $img"
+            fi
+          done
+
+          echo ""
+          echo "=== AVAILABLE FLIGHTCTL IMAGES IN KIND ==="
+          docker exec kind-control-plane crictl images | grep "quay.io/flightctl" | head -10 || echo "No flightctl images found"
+          echo "=== END DEBUG ==="
+          echo ""
           if timeout "$HELM_TIMEOUT" helm upgrade flightctl "${CHART_FILE}" \
             --namespace flightctl-external \
             --reuse-values \

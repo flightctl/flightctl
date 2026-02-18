@@ -82,6 +82,44 @@ runs:
                 kubectl get events -n flightctl-external --sort-by='.lastTimestamp' --field-selector type!=Normal | tail -30 || echo "No external warning events"
                 kubectl get events -n flightctl-internal --sort-by='.lastTimestamp' --field-selector type!=Normal | tail -30 || echo "No internal warning events"
 
+                # CLI artifacts specific debugging
+                echo "--- CLI Artifacts Pod Analysis ---"
+                for ns in flightctl-external flightctl-internal; do
+                    cli_pods=$(kubectl get pods -n $ns -l 'app.kubernetes.io/name=flightctl,flightctl.service=flightctl-cli-artifacts' -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || true)
+                    if [ -n "$cli_pods" ]; then
+                        for pod in $cli_pods; do
+                            echo "=== CLI ARTIFACTS POD: $pod in $ns ==="
+                            kubectl get pod $pod -n $ns -o wide 2>/dev/null || echo "Failed to get pod info"
+                            echo "--- Pod Events ---"
+                            kubectl describe pod $pod -n $ns | grep -A10 -B2 "Events:" || echo "No events found"
+                            echo "--- Pod Status ---"
+                            kubectl get pod $pod -n $ns -o jsonpath='{.status.phase}: {.status.message}' 2>/dev/null || echo "No status info"
+                            echo ""
+                            echo "--- Container Status ---"
+                            kubectl get pod $pod -n $ns -o jsonpath='{range .status.containerStatuses[*]}{.name}: {.state}{"\n"}{end}' 2>/dev/null || echo "No container status"
+                            echo "--- Pod Logs ---"
+                            kubectl logs $pod -n $ns --tail=30 2>/dev/null || echo "No logs available for $pod"
+                        done
+                    else
+                        echo "No CLI artifacts pods found in $ns"
+                        # Check if deployment exists but has no pods
+                        kubectl get deployment -n $ns -l 'app.kubernetes.io/name=flightctl,flightctl.service=flightctl-cli-artifacts' 2>/dev/null || echo "No CLI artifacts deployment in $ns"
+                    fi
+                done
+
+                echo "--- CLI Artifacts Deployment Status ---"
+                for ns in flightctl-external flightctl-internal; do
+                    echo "Checking CLI artifacts deployment in $ns..."
+                    if kubectl get deployment flightctl-cli-artifacts -n $ns >/dev/null 2>&1; then
+                        echo "=== CLI ARTIFACTS DEPLOYMENT: flightctl-cli-artifacts in $ns ==="
+                        kubectl describe deployment flightctl-cli-artifacts -n $ns | head -30 || echo "Failed to describe deployment"
+                        echo "--- Deployment YAML ---"
+                        kubectl get deployment flightctl-cli-artifacts -n $ns -o yaml | grep -A5 -B5 "image:" || echo "No image info found"
+                    else
+                        echo "No flightctl-cli-artifacts deployment found in $ns"
+                    fi
+                done
+
                 # Enhanced container logs for non-running pods
                 echo "--- Non-Running Pod Analysis ---"
                 for ns in flightctl-external flightctl-internal; do

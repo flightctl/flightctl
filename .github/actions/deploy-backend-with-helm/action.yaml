@@ -619,6 +619,42 @@ runs:
           echo "Using published images - keeping default imagePullPolicy"
         fi
 
+        echo "=== DEBUG: VERIFYING CLI ARTIFACTS IMAGE AVAILABILITY ==="
+        CLI_ARTIFACTS_IMAGE="quay.io/flightctl/flightctl-cli-artifacts:${FLAVORED_IMAGE_TAG}"
+        echo "Expected CLI artifacts image: ${CLI_ARTIFACTS_IMAGE}"
+        echo ""
+
+        # Check if using local images
+        if [ "${{ steps.download-images.outcome }}" == "failure" ]; then
+          echo "Checking local CLI artifacts image availability..."
+          if podman image exists "flightctl-cli-artifacts:${FLAVORED_IMAGE_TAG}"; then
+            echo "✅ Local CLI artifacts image exists: flightctl-cli-artifacts:${FLAVORED_IMAGE_TAG}"
+            podman inspect "flightctl-cli-artifacts:${FLAVORED_IMAGE_TAG}" --format '{{.Id}} {{.Created}} {{.Size}}' || true
+          else
+            echo "❌ Local CLI artifacts image missing: flightctl-cli-artifacts:${FLAVORED_IMAGE_TAG}"
+            echo "Available local flightctl-cli-artifacts images:"
+            podman images | grep flightctl-cli-artifacts || echo "None found"
+          fi
+        else
+          echo "Checking remote CLI artifacts image availability..."
+          if timeout 30s podman pull "${CLI_ARTIFACTS_IMAGE}" >/dev/null 2>&1; then
+            echo "✅ Remote CLI artifacts image accessible: ${CLI_ARTIFACTS_IMAGE}"
+            podman inspect "${CLI_ARTIFACTS_IMAGE}" --format '{{.Id}} {{.Created}} {{.Size}}' || true
+            podman rmi "${CLI_ARTIFACTS_IMAGE}" >/dev/null 2>&1 || true  # Cleanup
+          else
+            echo "❌ Remote CLI artifacts image inaccessible: ${CLI_ARTIFACTS_IMAGE}"
+            echo "Attempting to check if image exists with different tags..."
+            # Try to check available tags for cli-artifacts
+            timeout 10s curl -s "https://quay.io/api/v1/repository/flightctl/flightctl-cli-artifacts/tag/" | jq -r '.tags[]?.name' | head -10 || echo "Failed to check available tags"
+          fi
+        fi
+
+        echo "=== HELM VALUES THAT WILL BE USED ==="
+        echo "cliArtifacts.image.tag = ${FLAVORED_IMAGE_TAG}"
+        echo "global.imagePullPolicy = $(echo ${EXTRA_ARGS} | grep -o 'global.imagePullPolicy=[^[:space:]]*' | cut -d= -f2 || echo 'default')"
+        echo "=== END CLI ARTIFACTS DEBUG ==="
+        echo ""
+
         echo "🔍 DEBUG: Looking for helm chart file..."
         echo "Available artifacts:"
         ls -la artifacts/ || echo "No artifacts directory found"

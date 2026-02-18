@@ -265,6 +265,32 @@ jobs:
           containerfiles: images/Containerfile.${{ matrix.image }}
           context: .
 
+      - name: Debug CLI artifacts build
+        if: matrix.image == 'cli-artifacts'
+        run: |
+          echo "=== DEBUG: CLI ARTIFACTS BUILD VERIFICATION ==="
+          echo "Matrix flavor: ${{ matrix.flavor }}"
+          echo "Matrix image: ${{ matrix.image }}"
+          echo "Build output image: ${{ steps.build.outputs.image }}"
+          echo "Build output tags: ${{ steps.build.outputs.tags }}"
+          echo "Flavored tags: ${{ steps.flavored-tags.outputs.tags }}"
+          echo ""
+          echo "=== VERIFYING LOCAL IMAGE EXISTS ==="
+          podman images | grep flightctl-cli-artifacts || echo "No cli-artifacts images found locally"
+          echo ""
+          echo "=== CHECKING SPECIFIC TAGS ==="
+          TAGS=(${{ steps.build.outputs.tags }})
+          for tag in "${TAGS[@]}"; do
+            echo "Checking tag: $tag"
+            if podman image exists "${{ steps.build.outputs.image }}:${tag}"; then
+              echo "✅ Image exists: ${{ steps.build.outputs.image }}:${tag}"
+              podman inspect "${{ steps.build.outputs.image }}:${tag}" --format '{{.Created}} {{.Size}}' || true
+            else
+              echo "❌ Image missing: ${{ steps.build.outputs.image }}:${tag}"
+            fi
+          done
+          echo "=== END CLI ARTIFACTS BUILD DEBUG ==="
+
       - name: Validate FIPS
         id: fips
         run: |
@@ -281,3 +307,25 @@ jobs:
           registry: ${{ env.QUAY_ORG }}
           username: ${{ secrets.QUAY_FLIGHTCTL_INFRA_ROBOT_USERNAME }}
           password: ${{ secrets.QUAY_FLIGHTCTL_INFRA_ROBOT_PASSWORD }}
+
+      - name: Debug CLI artifacts push
+        if: matrix.image == 'cli-artifacts'
+        run: |
+          echo "=== DEBUG: CLI ARTIFACTS PUSH VERIFICATION ==="
+          echo "Push digest: ${{ steps.push.outputs.digest }}"
+          echo "Push registry-path: ${{ steps.push.outputs.registry-path }}"
+          echo "Push registry-paths: ${{ steps.push.outputs.registry-paths }}"
+          echo ""
+          echo "=== VERIFYING REMOTE IMAGE ACCESSIBILITY ==="
+          TAGS=(${{ steps.build.outputs.tags }})
+          for tag in "${TAGS[@]}"; do
+            registry_path="${{ env.QUAY_ORG }}/${{ steps.build.outputs.image }}:${tag}"
+            echo "Checking remote accessibility: $registry_path"
+            if podman pull "$registry_path" 2>/dev/null; then
+              echo "✅ Successfully pulled: $registry_path"
+              podman rmi "$registry_path" >/dev/null 2>&1 || true
+            else
+              echo "❌ Failed to pull: $registry_path"
+            fi
+          done
+          echo "=== END CLI ARTIFACTS PUSH DEBUG ==="

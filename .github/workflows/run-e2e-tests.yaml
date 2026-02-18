@@ -255,6 +255,37 @@ jobs:
           flavor: ${{ inputs.flavor }}
           timeout-type: apiReadiness
 
+      - name: Debug deployment status before API wait
+        run: |
+          echo "=== DEBUG: DEPLOYMENT STATUS BEFORE API READINESS CHECK ==="
+          echo "Flavor: ${{ inputs.flavor }}"
+          echo "Base domain: ${{ steps.base-domain.outputs.base_domain }}"
+          echo "API timeout retries: ${{ steps.api-timeout.outputs.timeout }}"
+          echo ""
+
+          echo "=== NAMESPACE STATUS ==="
+          kubectl get namespaces | grep flightctl || echo "No flightctl namespaces"
+          echo ""
+
+          echo "=== DEPLOYMENT STATUS ==="
+          for ns in flightctl-external flightctl-internal; do
+            echo "--- Deployments in $ns ---"
+            kubectl get deployments -n $ns -o wide 2>/dev/null || echo "No deployments in $ns"
+          done
+          echo ""
+
+          echo "=== CLI ARTIFACTS SPECIFIC STATUS ==="
+          for ns in flightctl-external flightctl-internal; do
+            if kubectl get deployment flightctl-cli-artifacts -n $ns >/dev/null 2>&1; then
+              echo "=== CLI ARTIFACTS DEPLOYMENT in $ns ==="
+              kubectl get deployment flightctl-cli-artifacts -n $ns -o wide
+              kubectl describe deployment flightctl-cli-artifacts -n $ns | head -20
+              echo "--- CLI Artifacts Pods ---"
+              kubectl get pods -n $ns -l 'flightctl.service=flightctl-cli-artifacts' -o wide || echo "No CLI artifacts pods"
+            fi
+          done
+          echo "=== END DEBUG ==="
+
       - name: Wait for API readiness
         uses: ./.github/actions/wait-for-api-readiness
         with:
