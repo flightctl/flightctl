@@ -6,7 +6,7 @@ func servicesManifest(config *RendererConfig) []InstallAction {
 	return []InstallAction{
 		// API service
 		{Action: ActionCopyFile, Source: "deploy/podman/flightctl-api/flightctl-api.container", Destination: filepath.Join(config.QuadletFilesOutputDir, "flightctl-api.container"), Template: true, Mode: RegularFileMode},
-		{Action: ActionCopyFile, Source: "deploy/podman/flightctl-api/flightctl-api-init.container", Destination: filepath.Join(config.QuadletFilesOutputDir, "flightctl-api-init.container"), Template: false, Mode: RegularFileMode},
+		{Action: ActionCopyFile, Source: "deploy/podman/flightctl-api/flightctl-api-init.service", Destination: filepath.Join(config.SystemdUnitOutputDir, "flightctl-api-init.service"), Template: false, Mode: RegularFileMode},
 		{Action: ActionCopyDir, Source: "deploy/podman/flightctl-api/flightctl-api-config/", Destination: filepath.Join(config.ReadOnlyConfigOutputDir, "flightctl-api/"), Template: false, Mode: RegularFileMode},
 
 		// Periodic service
