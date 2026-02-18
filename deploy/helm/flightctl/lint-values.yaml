@@ -1,3 +1,5 @@
 global:
   baseDomain: flightctl.github.io
   exposeServicesMethod: route
+kv:
+  command: "redis-server"

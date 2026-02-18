@@ -39,19 +39,24 @@ jobs:
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
         uses: ./.github/actions/setup-dependencies
 
+      - name: Build flavorctl
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+        run: go build -o bin/flavorctl ./hack/cmd/flavorctl
+
       - name: Build db-migrator image
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
         run: |
           set -euo pipefail
-          # Get the current commit SHA for tagging
           COMMIT_SHA="${{ github.sha }}"
           echo "Building db-migrator image tagged with commit: ${COMMIT_SHA}"
 
-          # Build the db-setup container with commit tag
-          sudo make flightctl-db-setup-container
+          FLAVOR=el9
+          for svc in api pam-issuer worker periodic alert-exporter cli-artifacts userinfo-proxy telemetry-gateway alertmanager-proxy db-setup imagebuilder-api imagebuilder-worker; do
+            sudo FLAVORCTL=bin/flavorctl ./hack/build_single_container.sh ${FLAVOR} ${svc}
+          done
 
-          # Tag the image with the commit SHA
-          sudo podman tag flightctl-db-setup:latest "flightctl-db-setup:${COMMIT_SHA}"
+          # Tag the db-setup image with the commit SHA for migration (using new flavor-in-tag naming)
+          sudo podman tag "flightctl-db-setup:${FLAVOR}-latest" "flightctl-db-setup:${COMMIT_SHA}"
 
           echo "MIGRATION_IMAGE=flightctl-db-setup:${COMMIT_SHA}" >> "$GITHUB_ENV"
 

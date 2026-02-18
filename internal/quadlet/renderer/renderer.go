@@ -36,8 +36,9 @@ type InstallAction struct {
 }
 
 type ImageConfig struct {
-	Image string `mapstructure:"image"`
-	Tag   string `mapstructure:"tag"`
+	Image   string `mapstructure:"image"`
+	Tag     string `mapstructure:"tag"`
+	Command string `mapstructure:"command"`
 }
 
 type RendererConfig struct {
@@ -75,6 +76,9 @@ type RendererConfig struct {
 	Prometheus         ImageConfig `mapstructure:"prometheus"`
 	TelemetryGateway   ImageConfig `mapstructure:"telemetry-gateway"`
 	UserinfoProxy      ImageConfig `mapstructure:"userinfo-proxy"`
+
+	// Minimal image for init containers and lightweight services
+	MinimalImage ImageConfig `mapstructure:"minimal-image"`
 }
 
 func NewRendererConfig() *RendererConfig {

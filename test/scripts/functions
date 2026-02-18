@@ -39,8 +39,8 @@ kind_load_image() {
   else
     echo "Saving ${image} to ${tar_filename}..."
 
-    # If the image is not local we may need to pull it first
-    if [[ "${image}" != localhost* ]]; then
+    # Pull only if the image is not already available locally
+    if ! podman image exists "${image}"; then
       podman pull "${image}"
     fi
 

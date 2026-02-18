@@ -203,6 +203,14 @@
           "type": ["object", "null"],
           "description": "Additional labels for PVCs.",
           "additionalProperties": { "type": "string" }
+        },
+        "minimalImage": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "image": { "type": "string" },
+            "tag": { "type": "string" }
+          }
         }
       }
     },
@@ -293,8 +301,9 @@
             "pullPolicy": { "type": "string", "description": "Image pull policy for Redis container" }
           }
         },
-        "passwordSecretName": { "type": "string", "description": "Secret containing password for Redis password (leave empty for auto-generation)" },
-        "loglevel": { "type": "string", "enum": ["debug", "verbose", "notice", "warning"], "description": "Redis log level (debug, verbose, notice, warning)" },
+        "command": { "type": "string", "description": "Server command (redis-server or valkey-server)" },
+        "passwordSecretName": { "type": "string", "description": "Secret containing password for KV password (leave empty for auto-generation)" },
+        "loglevel": { "type": "string", "enum": ["debug", "verbose", "notice", "warning"], "description": "KV log level (debug, verbose, notice, warning)" },
         "fsGroup": { "type": "string", "description": "File system group ID for Redis pod security context" },
         "maxmemory": { "type": "string", "description": "Maximum memory usage for Redis" },
         "maxmemoryPolicy": {

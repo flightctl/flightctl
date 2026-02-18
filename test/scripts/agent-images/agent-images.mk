@@ -1,6 +1,6 @@
 # Environment variables for agent image builds
 AGENT_IMAGE_OUTPUT ?= push
-AGENT_OS_ID ?= cs9-bootc
+AGENT_OS_ID := $(shell $(FLAVORCTL) get $(FLAVOR) test.agent_os_id)
 APP_BUNDLE := $(ROOT_DIR)/bin/app-images-bundle.tar
 AGENT_BUNDLE_DIR := $(ROOT_DIR)/bin/agent-artifacts
 AGENT_BUNDLE := $(AGENT_BUNDLE_DIR)/agent-images-bundle-$(AGENT_OS_ID).tar
@@ -8,11 +8,11 @@ AGENT_BUNDLE := $(AGENT_BUNDLE_DIR)/agent-images-bundle-$(AGENT_OS_ID).tar
 bin/output/qcow2/disk.qcow2: $(E2E_AGENT_IMAGES_SENTINEL)
 
 # Build + bundle artifacts (no push)
-$(E2E_AGENT_IMAGES_SENTINEL): | bin
+$(E2E_AGENT_IMAGES_SENTINEL): $(FLAVORCTL) | bin
 	@if [ ! -f "$(AGENT_BUNDLE)" ]; then \
 		$(MAKE) bin/.rpm; \
 		BUILD_TYPE=$(BUILD_TYPE) BREW_BUILD_URL=$(BREW_BUILD_URL) SOURCE_GIT_TAG=$(SOURCE_GIT_TAG) SOURCE_GIT_TREE_STATE=$(SOURCE_GIT_TREE_STATE) SOURCE_GIT_COMMIT=$(SOURCE_GIT_COMMIT) \
-			AGENT_OS_ID=$(AGENT_OS_ID) PUSH_IMAGES=false ARTIFACTS_OUTPUT_DIR=$(AGENT_BUNDLE_DIR) $(ROOT_DIR)/test/scripts/agent-images/create_agent_images.sh; \
+			FLAVOR=$(FLAVOR) FLAVORCTL=$(FLAVORCTL) PUSH_IMAGES=false ARTIFACTS_OUTPUT_DIR=$(AGENT_BUNDLE_DIR) $(ROOT_DIR)/test/scripts/agent-images/create_agent_images.sh; \
 	else \
 		echo "Device bundle already exists at $(AGENT_BUNDLE)"; \
 	fi

@@ -49,20 +49,21 @@ redeploy-imagebuilder-worker: flightctl-imagebuilder-worker-container
 redeploy-imagebuilder-api: flightctl-imagebuilder-api-container
 	test/scripts/redeploy.sh imagebuilder-api
 
-
 ifndef SKIP_BUILD
-deploy-helm: flightctl-api-container flightctl-db-setup-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-alertmanager-proxy-container flightctl-imagebuilder-api-container flightctl-imagebuilder-worker-container flightctl-multiarch-cli-container flightctl-telemetry-gateway-container
+deploy-helm: build-containers build-cli
 endif
-deploy-helm:
+deploy-helm: $(FLAVORCTL)
+	@echo "Deploying helm charts with FLAVOR=$(FLAVOR)"
+	FLAVOR=$(FLAVOR) make generate
 	kubectl config set-context kind-kind
 	test/scripts/install_helm.sh
-	test/scripts/deploy_with_helm.sh --db-size $(DB_SIZE)
+	FLAVOR=$(FLAVOR) FLAVORCTL=$(FLAVORCTL) test/scripts/deploy_with_helm.sh --db-size $(DB_SIZE)
 
 prepare-agent-config:
 	test/scripts/agent-images/prepare_agent_config.sh --status-update-interval $(STATUS_UPDATE_INTERVAL) --spec-fetch-interval $(SPEC_FETCH_INTERVAL)
 
-deploy-db-helm: cluster
-	test/scripts/deploy_with_helm.sh --only-db
+deploy-db-helm: cluster $(FLAVORCTL)
+	FLAVOR=$(FLAVOR) FLAVORCTL=$(FLAVORCTL) test/scripts/deploy_with_helm.sh --only-db
 
 deploy-db:
 	sudo -E deploy/scripts/deploy_quadlet_service.sh db
@@ -76,26 +77,21 @@ deploy-alertmanager:
 deploy-alertmanager-proxy:
 	sudo -E deploy/scripts/deploy_quadlet_service.sh alertmanager-proxy
 
+QUADLET_SERVICES := api db-setup worker periodic alert-exporter cli-artifacts \
+	alertmanager-proxy pam-issuer imagebuilder-api imagebuilder-worker \
+	userinfo-proxy telemetry-gateway
+
 # Can set the SKIP_BUILD variable to skip the build step and use existing containers
-deploy-quadlets:
+deploy-quadlets: $(FLAVORCTL)
 ifndef SKIP_BUILD
-	$(MAKE) build-containers
-	@echo "Copying containers from user to root context for systemd services..."
-	podman save flightctl-api:latest | sudo podman load
-	podman save flightctl-db-setup:latest | sudo podman load
-	podman save flightctl-worker:latest | sudo podman load
-	podman save flightctl-periodic:latest | sudo podman load
-	podman save flightctl-alert-exporter:latest | sudo podman load
-	podman save flightctl-cli-artifacts:latest | sudo podman load
-	podman save flightctl-alertmanager-proxy:latest | sudo podman load
-	podman save flightctl-pam-issuer:latest | sudo podman load
-	podman save flightctl-imagebuilder-api:latest | sudo podman load
-	podman save flightctl-imagebuilder-worker:latest | sudo podman load
-	podman save flightctl-userinfo-proxy:latest | sudo podman load
-	podman save flightctl-telemetry-gateway:latest | sudo podman load
+	$(MAKE) build-containers FLAVOR=$(FLAVOR)
+	@echo "Copying containers from user to root context for systemd services (FLAVOR=$(FLAVOR))..."
+	@for svc in $(QUADLET_SERVICES); do \
+		podman save quay.io/flightctl/flightctl-$${svc}:$(FLAVOR)-latest | sudo podman load; \
+	done
 endif
 	$(MAKE) build-standalone
-	sudo -E deploy/scripts/deploy_quadlets.sh
+	sudo FLAVOR=$(FLAVOR) FLAVORCTL=$(FLAVORCTL) FLAVOR_OVERLAYS=$(FLAVOR_OVERLAYS) -E deploy/scripts/deploy_quadlets.sh
 
 kill-db:
 	sudo systemctl stop flightctl-db.service

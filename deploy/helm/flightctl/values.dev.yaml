@@ -2,32 +2,20 @@ global:
   auth:
     type: "none"
   internalNamespace: flightctl-internal
+  imagePullPolicy: IfNotPresent
 
 api:
-  image:
-    image:  localhost/flightctl-api
-    tag: latest
-  # Disable rate limiting for development
   rateLimit: null
   env:
     GORM_TRACE_ENFORCE_FATAL: "true"
     GORM_TRACE_INCLUDE_QUERY_VARIABLES: "true"
 cliArtifacts:
   enabled: true
-  image:
-    image: localhost/flightctl-cli-artifacts
-    tag: latest
 worker:
-  image:
-    image: localhost/flightctl-worker
-    tag: latest
   env:
     GORM_TRACE_ENFORCE_FATAL: "true"
     GORM_TRACE_INCLUDE_QUERY_VARIABLES: "true"
 periodic:
-  image:
-    image: localhost/flightctl-periodic
-    tag: latest
   env:
     GORM_TRACE_ENFORCE_FATAL: "true"
     GORM_TRACE_INCLUDE_QUERY_VARIABLES: "true"
@@ -36,38 +24,11 @@ periodic:
       schedule:
         interval: 5s
 alertExporter:
-  image:
-    image: localhost/flightctl-alert-exporter
-    tag: latest
   env:
     GORM_TRACE_ENFORCE_FATAL: "true"
     GORM_TRACE_INCLUDE_QUERY_VARIABLES: "true"
-alertmanagerProxy:
-  image:
-    image: localhost/flightctl-alertmanager-proxy
-    tag: latest
 ui:
   enabled: false
-
-dbSetup:
-  image:
-    image: localhost/flightctl-db-setup
-    tag: latest
-
-telemetryGateway:
-  image:
-    image: localhost/flightctl-telemetry-gateway
-    tag: latest
-
-imageBuilderApi:
-  image:
-    image: localhost/flightctl-imagebuilder-api
-    tag: latest
-
-imageBuilderWorker:
-  image:
-    image: localhost/flightctl-imagebuilder-worker
-    tag: latest
 
 dev:
   exposeServicesMethod: "nodePort"

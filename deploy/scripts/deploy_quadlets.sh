@@ -8,8 +8,15 @@ source "${SCRIPT_DIR}"/shared.sh
 
 echo "Starting Deployment"
 
+FLAVOR=${FLAVOR:-el9}
+: "${FLAVORCTL:=bin/flavorctl}"
+echo "Using FLAVOR: $FLAVOR"
+
+echo "Generating image configurations with FLAVOR=$FLAVOR..."
+${FLAVORCTL} merged-images "$FLAVOR" quadlets > deploy/podman/images.yaml
+
 # Render quadlet files
-bin/flightctl-standalone render quadlets --config deploy/podman/local-images.yaml
+bin/flightctl-standalone render quadlets --config deploy/podman/images.yaml
 
 echo "Ensuring secrets are available..."
 # Always ensure secrets exist before starting services
@@ -54,18 +61,21 @@ timeout --foreground 120s bash -c '
     done
 '
 
+KV_COMMAND=$(${FLAVORCTL} get "$FLAVOR" images.kv.command)
+KV_CLI="${KV_COMMAND%-server}-cli"
+
 # Wait for key-value service
-timeout --foreground 60s bash -c '
+timeout --foreground 60s bash -c "
     while true; do
-        if podman ps --quiet --filter "name=flightctl-kv" | grep -q . && \
-           podman exec flightctl-kv redis-cli ping >/dev/null 2>&1; then
-            echo "Key-value service is ready"
+        if podman ps --quiet --filter 'name=flightctl-kv' | grep -q . && \
+           podman exec flightctl-kv ${KV_CLI} ping >/dev/null 2>&1; then
+            echo 'Key-value service is ready'
             break
         fi
-        echo "Waiting for key-value service..."
+        echo 'Waiting for key-value service...'
         sleep 2
     done
-'
+"
 
 echo "Waiting for all services to be fully ready..."
 # Get all services from flightctl.target

@@ -1,20 +1,15 @@
 #!/usr/bin/env bash
 set -x -eo pipefail
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
-METHOD=install
 ONLY_DB=
 DB_SIZE_PARAMS=
-# If using images from a private registry, specify a path to a Kubernetes Secret yaml for your pull secret (in the flightctl-internal namespace)
-# IMAGE_PULL_SECRET_PATH=
-SQL_VERSION=${SQL_VERSION:-"latest"}
-SQL_IMAGE=${SQL_IMAGE:-"quay.io/sclorg/postgresql-16-c9s"}
-KV_VERSION=${KV_VERSION:-"7.4.1"}
-KV_IMAGE=${KV_IMAGE:-"docker.io/redis"}
+FLAVOR=${FLAVOR:-el9}
+ROOT_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+: "${FLAVORCTL:=${ROOT_DIR}/bin/flavorctl}"
 
 source "${SCRIPT_DIR}"/functions
 IP=$(get_ext_ip)
 
-# Use external getopt for long options
 options=$(getopt -o adh --long only-db,db-size:,help -n "$0" -- "$@")
 eval set -- "$options"
 
@@ -26,17 +21,12 @@ while true; do
     -h|--help) echo "Usage: $0 $usage"; exit 0 ;;
     --db-size)
       db_size=$2
-      if [ "$db_size" == "e2e" ]; then
-        DB_SIZE_PARAMS=""
-      elif [ "$db_size" == "small-1k" ]; then
-        DB_SIZE_PARAMS="--set db.resources.requests.cpu=1 --set db.resources.requests.memory=1Gi --set db.resources.limits.cpu=8 --set db.resources.limits.memory=64Gi"
-      elif [ "$db_size" == "medium-10k" ]; then
-        DB_SIZE_PARAMS="--set db.resources.requests.cpu=4 --set db.resources.requests.memory=8Gi --set db.resources.limits.cpu=20 --set db.resources.limits.memory=128Gi"
-      else
-        echo "Wrong parameter to --db-size flag: $db_size"
-        echo "Usage: $0 $usage"
-        exit 1
-      fi
+      case "$db_size" in
+        e2e) DB_SIZE_PARAMS="" ;;
+        small-1k) DB_SIZE_PARAMS="--set db.resources.requests.cpu=1 --set db.resources.requests.memory=1Gi --set db.resources.limits.cpu=8 --set db.resources.limits.memory=64Gi" ;;
+        medium-10k) DB_SIZE_PARAMS="--set db.resources.requests.cpu=4 --set db.resources.requests.memory=8Gi --set db.resources.limits.cpu=20 --set db.resources.limits.memory=128Gi" ;;
+        *) echo "Wrong parameter to --db-size flag: $db_size"; echo "Usage: $0 $usage"; exit 1 ;;
+      esac
       shift 2
       ;;
     --) shift; break ;;
@@ -44,57 +34,63 @@ while true; do
   esac
 done
 
-SQL_ARG="--set db.builtin.image.image=${SQL_IMAGE} --set db.builtin.image.tag=${SQL_VERSION}"
-KV_ARG="--set kv.image.image=${KV_IMAGE} --set kv.image.tag=${KV_VERSION}"
+# charttmpl generates values.yaml with correct images per flavor.
+# We only need flavorctl here to know which third-party images to preload into kind.
+SQL_IMAGE=$(${FLAVORCTL} get "${FLAVOR}" images.db.image)
+SQL_TAG=$(${FLAVORCTL} get "${FLAVOR}" images.db.tag)
+KV_IMAGE=$(${FLAVORCTL} get "${FLAVOR}" images.kv.image)
+KV_TAG=$(${FLAVORCTL} get "${FLAVOR}" images.kv.tag)
 
-# helm expects the namespaces to exist, and creating namespaces
-# inside the helm charts is not recommended.
 kubectl create namespace flightctl-external --context kind-kind 2>/dev/null || true
 kubectl create namespace flightctl-internal --context kind-kind 2>/dev/null || true
 kubectl create namespace flightctl-e2e      --context kind-kind 2>/dev/null || true
 
-# if we are only deploying the database, we don't need inject the server container
-if [ -z "$ONLY_DB" ]; then
-
-  for suffix in periodic api worker alert-exporter alertmanager-proxy cli-artifacts db-setup telemetry-gateway imagebuilder-api imagebuilder-worker ; do
-    kind_load_image localhost/flightctl-${suffix}:latest
-  done
-
-  kind_load_image "${KV_IMAGE}:${KV_VERSION}" keep-tar
-fi
-
-if [ ! -z "$IMAGE_PULL_SECRET_PATH" ]; then
-  PULL_SECRET_NAME=$(cat "$IMAGE_PULL_SECRET_PATH" | yq .metadata.name)
-  PULL_SECRET_NAMESPACE=$(cat "$IMAGE_PULL_SECRET_PATH" | yq .metadata.namespace)
-
+PULL_SECRET_ARG=""
+if [ -n "$IMAGE_PULL_SECRET_PATH" ]; then
+  PULL_SECRET_NAME=$(yq .metadata.name "$IMAGE_PULL_SECRET_PATH")
+  PULL_SECRET_NAMESPACE=$(yq .metadata.namespace "$IMAGE_PULL_SECRET_PATH")
   if [ "$PULL_SECRET_NAMESPACE" != "flightctl-internal" ]; then
     echo "Namespace for IMAGE_PULL_SECRET_PATH must be flightctl-internal"
     exit 1
   fi
-
-  SQL_ARG="$SQL_ARG --set global.imagePullSecretName=${PULL_SECRET_NAME}"
+  PULL_SECRET_ARG="--set global.imagePullSecretName=${PULL_SECRET_NAME}"
   kubectl apply -f "$IMAGE_PULL_SECRET_PATH"
 fi
 
-kind_load_image "${SQL_IMAGE}:${SQL_VERSION}" keep-tar
+# Preload third-party images into kind (not built locally)
+kind_load_image "${SQL_IMAGE}:${SQL_TAG}" keep-tar
 
-API_PORT=3443
-GATEWAY_ARGS=""
-if [ "$GATEWAY" ]; then
-  API_PORT=4443
-  GATEWAY_ARGS="--set global.exposeServicesMethod=gateway --set global.gatewayClass=contour-gateway --set global.gatewayPorts.tls=4443 --set global.gatewayPorts.http=4480"
+if [ -z "$ONLY_DB" ]; then
+  for suffix in periodic api worker alert-exporter alertmanager-proxy cli-artifacts db-setup telemetry-gateway imagebuilder-api imagebuilder-worker ; do
+    quay_image="quay.io/flightctl/flightctl-${suffix}:${FLAVOR}-latest"
+    if ! podman image exists "${quay_image}"; then
+      echo "ERROR: Required image not found: ${quay_image}"
+      echo "Ensure containers were built with: make build-containers FLAVOR=${FLAVOR}"
+      exit 1
+    fi
+    kind_load_image "${quay_image}"
+  done
+
+  kind_load_image "${KV_IMAGE}:${KV_TAG}" keep-tar
+
+  CLUSTER_CLI_IMAGE=$(${FLAVORCTL} get "${FLAVOR}" helm.images.cluster-cli.image)
+  CLUSTER_CLI_TAG=$(${FLAVORCTL} get "${FLAVOR}" helm.images.cluster-cli.tag)
+  kind_load_image "${CLUSTER_CLI_IMAGE}:${CLUSTER_CLI_TAG}" keep-tar
 fi
 
-# Always deploy with Kubernetes auth
-AUTH_ARGS="--set global.auth.type=k8s"
+GATEWAY_ARGS=""
+if [ "$GATEWAY" ]; then
+  GATEWAY_ARGS="--set global.exposeServicesMethod=gateway --set global.gatewayClass=contour-gateway --set global.gatewayPorts.tls=4443 --set global.gatewayPorts.http=4480"
+fi
 
 helm dependency build ./deploy/helm/flightctl
 
 helm upgrade --install --namespace flightctl-external \
-                  --values ./deploy/helm/flightctl/values.dev.yaml \
-                  --set global.baseDomain=${IP}.nip.io \
-                  ${ONLY_DB} ${DB_SIZE_PARAMS} ${AUTH_ARGS} ${SQL_ARG} ${GATEWAY_ARGS} ${KV_ARG} flightctl \
-              ./deploy/helm/flightctl/ --kube-context kind-kind
+    --values ./deploy/helm/flightctl/values.dev.yaml \
+    --set global.baseDomain=${IP}.nip.io \
+    --set global.auth.type=k8s \
+    ${ONLY_DB} ${DB_SIZE_PARAMS} ${PULL_SECRET_ARG} ${GATEWAY_ARGS} \
+    flightctl ./deploy/helm/flightctl/ --kube-context kind-kind
 
 "${SCRIPT_DIR}"/wait_for_postgres.sh
 

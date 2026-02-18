@@ -8,7 +8,7 @@ BASE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 IMAGE_REPO="${IMAGE_REPO:-quay.io/flightctl/flightctl-device}"
 CACHE_IMAGE_REPO="${CACHE_IMAGE_REPO:-quay.io/flightctl-tests/flightctl-device-cache}"
 APP_REPO="${APP_REPO:-quay.io/flightctl}"
-AGENT_OS_ID="${AGENT_OS_ID:-cs9-bootc}"
+FLAVOR="${FLAVOR:-el9}"
 VARIANTS="${VARIANTS:-v2 v3 v4 v5 v6 v7 v8 v9 v10 v11}"
 
 SOURCE_GIT_TAG="${SOURCE_GIT_TAG:-$(${ROOT_DIR}/hack/current-version)}"
@@ -90,7 +90,7 @@ echo "Build configuration:"
 echo "  BUILD_BASE: ${BUILD_BASE}"
 echo "  BUILD_VARIANTS: ${BUILD_VARIANTS}"
 echo "  BUILD_APPS: ${BUILD_APPS}"
-echo "  AGENT_OS_ID: ${AGENT_OS_ID}"
+echo "  FLAVOR: ${FLAVOR}"
 echo "  TAG: ${TAG}"
 echo "  IMAGE_REPO: ${IMAGE_REPO}"
 echo "  APP_REPO: ${APP_REPO}"
@@ -101,21 +101,16 @@ echo "  CACHE_TTL: ${CACHE_TTL}"
 
 cd "$ROOT_DIR"
 
-flavor_conf="${BASE_DIR}/flavors/${AGENT_OS_ID}.conf"
+: "${FLAVORCTL:=${ROOT_DIR}/bin/flavorctl}"
 
-if [ ! -f "${flavor_conf}" ]; then
-  echo "[ERROR] Flavor configuration not found: ${flavor_conf}" >&2
-  exit 1
-fi
+AGENT_OS_ID=$(${FLAVORCTL} get "${FLAVOR}" test.agent_os_id)
+DEVICE_BASE_IMAGE=$(${FLAVORCTL} get "${FLAVOR}" test.agent.device_base_image)
+ENABLE_CRB=$(${FLAVORCTL} get "${FLAVOR}" test.agent.enable_crb)
+EPEL_NEXT=$(${FLAVORCTL} get "${FLAVOR}" test.agent.epel_next)
 
-# shellcheck source=/dev/null
-source "${flavor_conf}"
-: "${OS_ID:?OS_ID must be set in flavor conf}"
-: "${DEVICE_BASE_IMAGE:?DEVICE_BASE_IMAGE must be set in flavor conf}"
-
-base_img_canonical="${IMAGE_REPO}:base-${OS_ID}-${TAG}"
+base_img_canonical="${IMAGE_REPO}:base-${AGENT_OS_ID}-${TAG}"
 base_img_plain="${IMAGE_REPO}:base"
-base_img_os="${IMAGE_REPO}:base-${OS_ID}"
+base_img_os="${IMAGE_REPO}:base-${AGENT_OS_ID}"
 base_img_ver="${IMAGE_REPO}:base-${TAG}"
 
 variants_list="${VARIANTS}"
@@ -137,14 +132,16 @@ fi
 echo "  Variants to build: ${variants_list:-none}"
 
   if [ "${BUILD_BASE}" = "true" ]; then
-    echo -e "\033[32m[${OS_ID}] Building base ${base_img_canonical}\033[m"
+    echo -e "\033[32m[${AGENT_OS_ID}] Building base ${base_img_canonical}\033[m"
 
     podman build "${PODMAN_BUILD_FLAGS[@]}" ${PODMAN_BUILD_EXTRA_FLAGS} \
       "${CACHE_FLAGS[@]}" \
       --log-level "${PODMAN_LOG_LEVEL}" \
       --build-context "project-bin=${ROOT_DIR}/bin" \
       --build-context "variant-context=${BASE_DIR}/base"\
-      --build-arg-file "${flavor_conf}" \
+      --build-arg DEVICE_BASE_IMAGE="${DEVICE_BASE_IMAGE}" \
+      --build-arg ENABLE_CRB="${ENABLE_CRB}" \
+      --build-arg EPEL_NEXT="${EPEL_NEXT}" \
       --build-arg SOURCE_GIT_TAG="${SOURCE_GIT_TAG}" \
       --build-arg SOURCE_GIT_TREE_STATE="${SOURCE_GIT_TREE_STATE}" \
       --build-arg SOURCE_GIT_COMMIT="${SOURCE_GIT_COMMIT}" \
@@ -165,7 +162,7 @@ echo "  Variants to build: ${variants_list:-none}"
       echo "        Run with --base first or ensure base image exists." >&2
       exit 1
     fi
-    echo -e "\033[32m[${OS_ID}] Building variants: ${variants_list}\033[m"
+    echo -e "\033[32m[${AGENT_OS_ID}] Building variants: ${variants_list}\033[m"
 
     # Join build flags into strings for safe interpolation in xargs
     PODMAN_BUILD_FLAGS_JOINED=""
@@ -184,15 +181,15 @@ echo "  Variants to build: ${variants_list:-none}"
 
     EXTRA_FLAGS="${PODMAN_BUILD_EXTRA_FLAGS:-}"
 
-    export IMAGE_REPO TAG OS_ID BASE_DIR ROOT_DIR base_img_canonical PODMAN_BUILD_FLAGS_JOINED EXTRA_FLAGS CACHE_FLAGS_JOINED
+    export IMAGE_REPO TAG AGENT_OS_ID BASE_DIR ROOT_DIR base_img_canonical PODMAN_BUILD_FLAGS_JOINED EXTRA_FLAGS CACHE_FLAGS_JOINED
     printf '%s\n' ${variants_list} | xargs -n1 -P "${JOBS}" -I {} bash -lc '\
       set -euo pipefail; \
-      v_img_canonical="${IMAGE_REPO}:{}-'"${OS_ID}"'-'"${TAG}"'"; \
+      v_img_canonical="${IMAGE_REPO}:{}-'"${AGENT_OS_ID}"'-'"${TAG}"'"; \
       v_img_plain="${IMAGE_REPO}:{}"; \
-      v_img_os="${IMAGE_REPO}:{}-'"${OS_ID}"'"; \
+      v_img_os="${IMAGE_REPO}:{}-'"${AGENT_OS_ID}"'"; \
       v_img_ver="${IMAGE_REPO}:{}-'"${TAG}"'"; \
       prefix() { while IFS= read -r line; do printf "[%s]\t%s\n" "$v_img_canonical" "$line"; done; }; \
-      printf "\033[32m['"${OS_ID}"'] Building variant %s\033[m\n" "$v_img_canonical" | prefix; \
+      printf "\033[32m['"${AGENT_OS_ID}"'] Building variant %s\033[m\n" "$v_img_canonical" | prefix; \
       podman build '"${PODMAN_BUILD_FLAGS_JOINED}"' --pull=never '"${EXTRA_FLAGS}"' '"${CACHE_FLAGS_JOINED}"' \
         --build-context "project-root='"${ROOT_DIR}"'" \
         --build-context "variant-context='"${BASE_DIR}"'/variants/{}" \

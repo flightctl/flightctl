@@ -9,6 +9,10 @@ metadata:
     {{- include "flightctl.standardLabels" . | nindent 4 }}
     flightctl.service: flightctl-db-migration
     security.level: high-privilege
+  annotations:
+    helm.sh/hook: pre-upgrade,pre-install
+    helm.sh/hook-weight: "-20"
+    helm.sh/hook-delete-policy: before-hook-creation
 
 ---
 # ServiceAccounts for internal namespace services
@@ -42,6 +46,10 @@ metadata:
     {{- include "flightctl.standardLabels" . | nindent 4 }}
     flightctl.service: flightctl-db-admin
     security.level: superuser-privilege
+  annotations:
+    helm.sh/hook: pre-upgrade,pre-install
+    helm.sh/hook-weight: "-19"
+    helm.sh/hook-delete-policy: before-hook-creation
 rules:
 - apiGroups: [""]
   resources: ["secrets"]
@@ -59,6 +67,10 @@ metadata:
     {{- include "flightctl.standardLabels" . | nindent 4 }}
     flightctl.service: flightctl-db-migration
     security.level: schema-privilege
+  annotations:
+    helm.sh/hook: pre-upgrade,pre-install
+    helm.sh/hook-weight: "-19"
+    helm.sh/hook-delete-policy: before-hook-creation
 rules:
 - apiGroups: [""]
   resources: ["secrets"]
@@ -76,6 +88,10 @@ metadata:
     {{- include "flightctl.standardLabels" . | nindent 4 }}
     flightctl.service: flightctl-db-migration
     security.level: superuser-privilege
+  annotations:
+    helm.sh/hook: pre-upgrade,pre-install
+    helm.sh/hook-weight: "-18"
+    helm.sh/hook-delete-policy: before-hook-creation
 subjects:
 - kind: ServiceAccount
   name: flightctl-db-migration
@@ -96,6 +112,10 @@ metadata:
     {{- include "flightctl.standardLabels" . | nindent 4 }}
     flightctl.service: flightctl-db-migration
     security.level: schema-privilege
+  annotations:
+    helm.sh/hook: pre-upgrade,pre-install
+    helm.sh/hook-weight: "-18"
+    helm.sh/hook-delete-policy: before-hook-creation
 subjects:
 - kind: ServiceAccount
   name: flightctl-db-migration

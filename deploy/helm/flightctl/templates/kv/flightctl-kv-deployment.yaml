@@ -68,7 +68,7 @@ spec:
                   name: {{ default "flightctl-kv-secret" .Values.kv.passwordSecretName }}
                   key: password
           command:
-            - "redis-server"
+            - {{ .Values.kv.command | quote }}
             - "/etc/redis/redis.conf"
             - "--requirepass"
             - "$(REDIS_PASSWORD)"

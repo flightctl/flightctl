@@ -1,11 +1,14 @@
-FROM registry.access.redhat.com/ubi9/go-toolset:1.24.6-1762373805 as build
+ARG BUILD_IMAGE
+ARG RUNTIME_IMAGE
+ARG EL_VERSION
+
+FROM ${BUILD_IMAGE} as build
 WORKDIR /app
 
 # Switch to root for build operations
 USER 0
 
 # Copy dependencies first (most stable)
-COPY go.* ./
 COPY go.mod go.sum ./
 
 # Download dependencies (cached layer)
@@ -39,16 +42,16 @@ RUN --mount=type=cache,target=/opt/app-root/src/.cache/go-build \
     --mount=type=cache,target=/opt/app-root/src/go/pkg/mod \
     make build-userinfo-proxy
 
-FROM quay.io/flightctl/flightctl-base:9.7-1762965531
+FROM ${RUNTIME_IMAGE}
 WORKDIR /app
 LABEL \
   com.redhat.component="flightctl-userinfo-proxy-container" \
   description="Flight Control UserInfo proxy for Grafana authentication" \
   io.k8s.description="Flight Control UserInfo proxy for Grafana authentication" \
   io.k8s.display-name="Flight Control UserInfo Proxy" \
-  name="flightctl-userinfo-proxy" \
-  summary="Flight Control UserInfo proxy for Grafana authentication"
-COPY --from=build /app/bin/flightctl-userinfo-proxy .
+  name="flightctl-userinfo-proxy-el${EL_VERSION}" \
+  summary="Flight Control UserInfo proxy service (el${EL_VERSION})"
+COPY --chmod=0755 --from=build /app/bin/flightctl-userinfo-proxy .
 
 EXPOSE 8080
 

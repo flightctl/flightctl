@@ -1,11 +1,13 @@
-FROM registry.access.redhat.com/ubi9/go-toolset:1.24.6-1762373805 as builder
+ARG BUILD_IMAGE
+ARG RUNTIME_IMAGE
+
+FROM ${BUILD_IMAGE} as builder
 WORKDIR /app
 
 # Switch to root for build operations
 USER 0
 
 # Copy dependencies first (most stable)
-COPY go.* ./
 COPY go.mod go.sum ./
 
 # Download dependencies (cached layer)
@@ -46,7 +48,7 @@ RUN --mount=type=cache,target=/opt/app-root/src/.cache/go-build \
     --mount=type=cache,target=/opt/app-root/src/go/pkg/mod \
     make build-multiarch-clis
 
-FROM registry.access.redhat.com/ubi9/ubi-minimal:9.7-1763362218
+FROM ${RUNTIME_IMAGE}
 # Use BuildKit cache mounts for dnf package caching
 RUN --mount=type=cache,target=/var/cache/dnf \
     --mount=type=cache,target=/var/lib/dnf \

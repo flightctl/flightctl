@@ -41,6 +41,12 @@ RPM_MOCK_ROOT_DEFAULT = centos-stream+epel-next-9-x86_64
 
 VERBOSE ?= false
 
+# Multi-OS container support
+FLAVOR ?= el9
+FLAVOR_OVERLAYS ?=
+export FLAVOR_OVERLAYS
+FLAVORCTL = $(ROOT_DIR)/bin/flavorctl
+
 SOURCE_GIT_TAG ?=$(shell $(ROOT_DIR)/hack/current-version)
 SOURCE_GIT_TREE_STATE ?=$(shell ( ( [ ! -d "$(ROOT_DIR)/.git/" ] || git -C $(ROOT_DIR) diff --quiet ) && echo 'clean' ) || echo 'dirty')
 SOURCE_GIT_COMMIT ?=$(shell git -C $(ROOT_DIR) rev-parse --short "HEAD^{commit}" 2>/dev/null || echo "unknown")
@@ -113,10 +119,13 @@ help:
 	@echo "    clean-quadlets:  clean up all systemd services and quadlet files"
 	@echo "    rpm/deb:         generate rpm or debian packages"
 	@echo ""
+	@echo "Container Targets:"
+	@echo "    build-containers:      build all FlightCtl containers for FLAVOR (defaults to el9)"
+	@echo ""
 	@echo "CI/CD Targets:"
 	@echo "    login:           login to container registry (requires REGISTRY_USER env var)"
-	@echo "    push-containers: push all containers to registry"
-	@echo "    ci-build:        full CI build and push process"
+	@echo "    push-containers:       login + push containers to registry"
+	@echo "    build-push-containers: build + login + push (combines the above)"
 	@echo ""
 	@echo "Environment Variables for CI:"
 	@echo "    REGISTRY:        container registry (default: localhost)"
@@ -128,10 +137,6 @@ help:
 	@echo "Caching Strategy:"
 	@echo "    Uses GitHub Actions cache (type=gha) for CI builds"
 	@echo "    Cache flags only added when GITHUB_ACTIONS=true"
-
-.PHONY: publish
-publish: build-containers
-	hack/publish_containers.sh
 
 generate:
 	go generate -v $(shell go list ./... | grep -v -e api/grpc)
@@ -211,93 +216,62 @@ build-devicesimulator: bin
 build-standalone: bin
 	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-standalone
 
-# Container builds - Environment-aware caching
-flightctl-api-container: Containerfile.api go.mod go.sum $(GO_FILES)
-	podman build $(call CACHE_FLAGS_FOR_IMAGE,flightctl-api) \
-		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
-		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \
-		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
-		-f Containerfile.api -t flightctl-api:latest -t quay.io/flightctl/flightctl-api:$(SOURCE_GIT_TAG)
+$(FLAVORCTL): hack/cmd/flavorctl/main.go hack/pkg/flavors/flavors.go hack/flavors.yaml | bin
+	go build -o $@ ./hack/cmd/flavorctl
 
-flightctl-pam-issuer-container: Containerfile.pam-issuer go.mod go.sum $(GO_FILES)
-	podman build $(call CACHE_FLAGS_FOR_IMAGE,flightctl-pam-issuer) \
-		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
-		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \
-		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
-		-f Containerfile.pam-issuer -t flightctl-pam-issuer:latest -t quay.io/flightctl/flightctl-pam-issuer:$(SOURCE_GIT_TAG)
+CONTAINER_SERVICES := api pam-issuer worker periodic alert-exporter cli-artifacts userinfo-proxy telemetry-gateway alertmanager-proxy db-setup imagebuilder-api imagebuilder-worker
 
-flightctl-db-setup-container: Containerfile.db-setup deploy/scripts/setup_database_users.sh deploy/scripts/setup_database_users.sql
-	podman build $(call CACHE_FLAGS_FOR_IMAGE,flightctl-db-setup) \
-		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
-		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \
-		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
-		-f Containerfile.db-setup \
-		-t flightctl-db-setup:latest -t quay.io/flightctl/flightctl-db-setup:$(SOURCE_GIT_TAG) .
+# Build all containers for FLAVOR (defaults to el9)
+build-containers: $(FLAVORCTL) go.mod go.sum $(GO_FILES)
+	@for svc in $(CONTAINER_SERVICES); do \
+		FLAVORCTL=$(FLAVORCTL) ./hack/build_single_container.sh $(FLAVOR) $$svc; \
+	done
 
-flightctl-worker-container: Containerfile.worker go.mod go.sum $(GO_FILES)
-	podman build $(call CACHE_FLAGS_FOR_IMAGE,flightctl-worker) \
-		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
-		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \
-		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
-		-f Containerfile.worker -t flightctl-worker:latest -t quay.io/flightctl/flightctl-worker:$(SOURCE_GIT_TAG)
+# Individual container targets - FLAVOR-aware
+CONTAINER_PREREQS := $(FLAVORCTL) go.mod go.sum $(GO_FILES)
 
-flightctl-periodic-container: Containerfile.periodic go.mod go.sum $(GO_FILES)
-	podman build $(call CACHE_FLAGS_FOR_IMAGE,flightctl-periodic) \
-		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
-		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \
-		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
-		-f Containerfile.periodic -t flightctl-periodic:latest -t quay.io/flightctl/flightctl-periodic:$(SOURCE_GIT_TAG)
+flightctl-api-container: $(CONTAINER_PREREQS)
+	@FLAVORCTL=$(FLAVORCTL) ./hack/build_single_container.sh $(FLAVOR) api
 
-flightctl-alert-exporter-container: Containerfile.alert-exporter go.mod go.sum $(GO_FILES)
-	podman build $(call CACHE_FLAGS_FOR_IMAGE,flightctl-alert-exporter) \
-		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
-		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \
-		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
-		-f Containerfile.alert-exporter -t flightctl-alert-exporter:latest -t quay.io/flightctl/flightctl-alert-exporter:$(SOURCE_GIT_TAG)
+flightctl-pam-issuer-container: $(CONTAINER_PREREQS)
+	@FLAVORCTL=$(FLAVORCTL) ./hack/build_single_container.sh $(FLAVOR) pam-issuer
 
-flightctl-alertmanager-proxy-container: Containerfile.alertmanager-proxy go.mod go.sum $(GO_FILES)
-	podman build $(call CACHE_FLAGS_FOR_IMAGE,flightctl-alertmanager-proxy) \
-		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
-		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \
-		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
-		-f Containerfile.alertmanager-proxy -t flightctl-alertmanager-proxy:latest -t quay.io/flightctl/flightctl-alertmanager-proxy:$(SOURCE_GIT_TAG)
+flightctl-db-setup-container: $(CONTAINER_PREREQS)
+	@FLAVORCTL=$(FLAVORCTL) ./hack/build_single_container.sh $(FLAVOR) db-setup
 
-flightctl-multiarch-cli-container: Containerfile.cli-artifacts go.mod go.sum $(GO_FILES)
-	podman build $(call CACHE_FLAGS_FOR_IMAGE,flightctl-cli-artifacts) \
-		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
-		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \
-		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
-		-f Containerfile.cli-artifacts -t flightctl-cli-artifacts:latest -t quay.io/flightctl/flightctl-cli-artifacts:$(SOURCE_GIT_TAG)
+flightctl-worker-container: $(CONTAINER_PREREQS)
+	@FLAVORCTL=$(FLAVORCTL) ./hack/build_single_container.sh $(FLAVOR) worker
 
-flightctl-userinfo-proxy-container: Containerfile.userinfo-proxy go.mod go.sum $(GO_FILES)
-	podman build $(call CACHE_FLAGS_FOR_IMAGE,flightctl-userinfo-proxy) \
-		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
-		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \
-		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
-		-f Containerfile.userinfo-proxy -t flightctl-userinfo-proxy:latest -t quay.io/flightctl/flightctl-userinfo-proxy:$(SOURCE_GIT_TAG)
+flightctl-periodic-container: $(CONTAINER_PREREQS)
+	@FLAVORCTL=$(FLAVORCTL) ./hack/build_single_container.sh $(FLAVOR) periodic
 
-flightctl-telemetry-gateway-container: Containerfile.telemetry-gateway go.mod go.sum $(GO_FILES)
-	podman build $(call CACHE_FLAGS_FOR_IMAGE,flightctl-telemetry-gateway) \
-		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
-		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \
-		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
-		-f Containerfile.telemetry-gateway -t flightctl-telemetry-gateway:latest -t quay.io/flightctl/flightctl-telemetry-gateway:$(SOURCE_GIT_TAG)
+flightctl-alert-exporter-container: $(CONTAINER_PREREQS)
+	@FLAVORCTL=$(FLAVORCTL) ./hack/build_single_container.sh $(FLAVOR) alert-exporter
 
-flightctl-imagebuilder-api-container: Containerfile.imagebuilder-api go.mod go.sum $(GO_FILES)
-	podman build $(call CACHE_FLAGS_FOR_IMAGE,flightctl-imagebuilder-api) \
-		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
-		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \
-		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
-		-f Containerfile.imagebuilder-api -t flightctl-imagebuilder-api:latest -t quay.io/flightctl/flightctl-imagebuilder-api:$(SOURCE_GIT_TAG)
+flightctl-alertmanager-proxy-container: $(CONTAINER_PREREQS)
+	@FLAVORCTL=$(FLAVORCTL) ./hack/build_single_container.sh $(FLAVOR) alertmanager-proxy
 
-flightctl-imagebuilder-worker-container: Containerfile.imagebuilder-worker go.mod go.sum $(GO_FILES)
-	podman build $(call CACHE_FLAGS_FOR_IMAGE,flightctl-imagebuilder-worker) \
-		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
-		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \
-		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
-		-f Containerfile.imagebuilder-worker -t flightctl-imagebuilder-worker:latest -t quay.io/flightctl/flightctl-imagebuilder-worker:$(SOURCE_GIT_TAG)
+flightctl-cli-artifacts-container: $(CONTAINER_PREREQS)
+	@FLAVORCTL=$(FLAVORCTL) ./hack/build_single_container.sh $(FLAVOR) cli-artifacts
 
-.PHONY: flightctl-api-container flightctl-pam-issuer-container flightctl-db-setup-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-alertmanager-proxy-container flightctl-multiarch-cli-container flightctl-userinfo-proxy-container flightctl-telemetry-gateway-container flightctl-imagebuilder-api-container flightctl-imagebuilder-worker-container
+flightctl-userinfo-proxy-container: $(CONTAINER_PREREQS)
+	@FLAVORCTL=$(FLAVORCTL) ./hack/build_single_container.sh $(FLAVOR) userinfo-proxy
+
+flightctl-telemetry-gateway-container: $(CONTAINER_PREREQS)
+	@FLAVORCTL=$(FLAVORCTL) ./hack/build_single_container.sh $(FLAVOR) telemetry-gateway
+
+flightctl-imagebuilder-api-container: $(CONTAINER_PREREQS)
+	@FLAVORCTL=$(FLAVORCTL) ./hack/build_single_container.sh $(FLAVOR) imagebuilder-api
+
+flightctl-imagebuilder-worker-container: $(CONTAINER_PREREQS)
+	@FLAVORCTL=$(FLAVORCTL) ./hack/build_single_container.sh $(FLAVOR) imagebuilder-worker
+
+.PHONY: build-containers \
+        flightctl-api-container flightctl-pam-issuer-container flightctl-db-setup-container \
+        flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container \
+        flightctl-alertmanager-proxy-container flightctl-cli-artifacts-container \
+        flightctl-userinfo-proxy-container flightctl-telemetry-gateway-container \
+        flightctl-imagebuilder-api-container flightctl-imagebuilder-worker-container
 
 # --- Registry Operations ---
 # The login target expects REGISTRY_USER via environment variable and
@@ -311,44 +285,19 @@ login:
 	@echo "Piping password to podman login for user $(REGISTRY_USER)..."
 	@cat /dev/stdin | podman login -u "$(REGISTRY_USER)" --password-stdin $(REGISTRY)
 
-# Push all containers to registry
-push-containers: login
-	@echo "--- Pushing all containers to registry ---"
-	podman push flightctl-api:latest
-	podman push flightctl-pam-issuer:latest
-	podman push flightctl-db-setup:latest
-	podman push flightctl-worker:latest
-	podman push flightctl-periodic:latest
-	podman push flightctl-alert-exporter:latest
-	podman push flightctl-alertmanager-proxy:latest
-	podman push flightctl-cli-artifacts:latest
-	podman push flightctl-userinfo-proxy:latest
-	podman push flightctl-telemetry-gateway:latest
-	podman push flightctl-imagebuilder-api:latest
+# Push all containers to registry for FLAVOR
+push-containers: login $(FLAVORCTL)
+	FLAVORCTL=$(FLAVORCTL) hack/push_containers.sh $(FLAVOR)
 
-# A convenience target to run the full CI process.
-ci-build: build-containers push-containers
-	@echo "--- CI Build & Push Complete ---"
+build-push-containers: build-containers push-containers
 
 # Force rebuild all containers
 rebuild-containers: clean-containers build-containers
 
 # Clean only containers (preserve cluster and other artifacts)
 clean-containers:
-	- podman rmi flightctl-api:latest || true
-	- podman rmi flightctl-pam-issuer:latest || true
-	- podman rmi flightctl-db-setup:latest || true
-	- podman rmi flightctl-worker:latest || true
-	- podman rmi flightctl-periodic:latest || true
-	- podman rmi flightctl-alert-exporter:latest || true
-	- podman rmi flightctl-alertmanager-proxy:latest || true
-	- podman rmi flightctl-cli-artifacts:latest || true
-	- podman rmi flightctl-userinfo-proxy:latest || true
-	- podman rmi flightctl-telemetry-gateway:latest || true
-	- podman rmi flightctl-imagebuilder-api:latest || true
-	- podman rmi flightctl-imagebuilder-worker:latest || true
-
-build-containers: flightctl-api-container flightctl-pam-issuer-container flightctl-db-setup-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-alertmanager-proxy-container flightctl-multiarch-cli-container flightctl-userinfo-proxy-container flightctl-telemetry-gateway-container flightctl-imagebuilder-api-container flightctl-imagebuilder-worker-container
+	@echo "Removing all flightctl container images..."
+	-podman images --filter "reference=*flightctl-*" --format "{{.ID}}" | sort -u | xargs -r podman rmi -f 2>/dev/null || true
 
 bundle-containers:
 	test/scripts/agent-images/scripts/bundle.sh \
@@ -421,7 +370,7 @@ clean-quadlets:
 	sudo deploy/scripts/clean_quadlets.sh
 
 
-.PHONY: tools flightctl-api-container flightctl-pam-issuer-container flightctl-db-setup-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-userinfo-proxy-container flightctl-telemetry-gateway-container
+.PHONY: tools
 
 # Use custom golangci-lint container with libvirt support
 LINT_IMAGE := flightctl-lint:latest
@@ -435,9 +384,9 @@ LINT_CONTAINER := podman run --rm --security-opt label=disable \
 .PHONY: tools
 tools:
 
-.output/stamps/lint-image: Containerfile.lint go.mod go.sum
+.output/stamps/lint-image: images/Containerfile.lint go.mod go.sum
 	@mkdir -p .output/stamps
-	podman build -f Containerfile.lint -t $(LINT_IMAGE)
+	podman build -f images/Containerfile.lint -t $(LINT_IMAGE) .
 	@touch .output/stamps/lint-image
 
 .PHONY: lint

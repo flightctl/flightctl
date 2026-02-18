@@ -134,8 +134,9 @@ make flightctl-api-container
 make flightctl-pam-issuer-container
 
 # Run with podman
-podman run -d --name flightctl-api -p 3443:3443 flightctl-api:latest
-podman run -d --name flightctl-pam-issuer -p 8444:8444 flightctl-pam-issuer:latest
+FLAVOR=${FLAVOR:-el9}
+podman run -d --name flightctl-api -p 3443:3443 flightctl-api:${FLAVOR}-latest
+podman run -d --name flightctl-pam-issuer -p 8444:8444 flightctl-pam-issuer:${FLAVOR}-latest
 ```
 
 ### Kubernetes Deployment

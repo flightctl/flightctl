@@ -4,7 +4,7 @@ on:
   workflow_call:
     inputs:
       os_id:
-        description: "OS identifier for agent (e.g., cs9-bootc, cs10-bootc)"
+        description: "OS identifier for agent (e.g., el9-bootc, el10-bootc)"
         required: true
         type: string
       backend_type:
@@ -24,6 +24,10 @@ on:
         default: "sanity"
       tag:
         description: "Image tag"
+        required: true
+        type: string
+      flavor:
+        description: "Container flavor (el9 or el10)"
         required: true
         type: string
 
@@ -89,6 +93,7 @@ jobs:
           kind-config: test/scripts/kind_cluster.yaml
           display-summary: ${{ matrix.ginkgo_node == 1 }}
           wait: false
+          flavor: ${{ inputs.flavor }}
 
       # ========== DOWNLOAD E2E TEST ARTIFACTS ==========
       - name: Download test artifacts
@@ -130,10 +135,20 @@ jobs:
           df -h
 
       # ========== PREP E2E ENV ==========
+      - name: Build flavorctl
+        run: go build -o bin/flavorctl ./hack/cmd/flavorctl
+
+      - name: Load API readiness timeout
+        id: api-timeout
+        run: |
+          TIMEOUT=$(bin/flavorctl get "${{ inputs.flavor }}" helm.timeouts.apiReadiness)
+          echo "timeout=${TIMEOUT}" >> "$GITHUB_OUTPUT"
+
       - name: Wait for API readiness
         uses: ./.github/actions/wait-for-api-readiness
         with:
           base-domain: ${{ steps.base-domain.outputs.base_domain }}
+          retries: ${{ steps.api-timeout.outputs.timeout }}
 
       - name: Prepare E2E environment
         env:
@@ -163,8 +178,6 @@ jobs:
         run: |
           HASH=$(printf '%s' "${{ inputs.ginkgo_label_filter }}" | sha256sum | cut -c1-8)
           echo "hash=${HASH}" >> "$GITHUB_OUTPUT"
-          echo "Label filter: ${{ inputs.ginkgo_label_filter }}"
-          echo "Hash: ${HASH}"
 
       - name: Download test discovery
         uses: actions/download-artifact@v4
@@ -200,7 +213,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: junit-results-${{ steps.compute-hash.outputs.hash }}-node-${{ matrix.ginkgo_node }}
+          name: junit-results-${{ inputs.os_id }}-${{ inputs.flavor }}-${{ steps.compute-hash.outputs.hash }}-node-${{ matrix.ginkgo_node }}
           path: reports/junit_e2e_test.xml
           if-no-files-found: warn
           overwrite: true
@@ -212,4 +225,4 @@ jobs:
         with:
           namespace-external: 'flightctl-external'
           namespace-internal: 'flightctl-internal'
-          log-directory: 'e2e-logs-${{ steps.compute-hash.outputs.hash }}-node-${{ matrix.ginkgo_node }}-logs'
+          log-directory: 'e2e-logs-${{ inputs.os_id }}-${{ inputs.flavor }}-${{ steps.compute-hash.outputs.hash }}-node-${{ matrix.ginkgo_node }}-logs'

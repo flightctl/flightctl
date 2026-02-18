@@ -3,13 +3,14 @@ set -ex
 
 # Wrapper script that handles RPM source detection and calls build.sh and build_and_qcow2.sh
 # Behavior matches create_agent_images.sh but uses build.sh and build_and_qcow2.sh internally
-# Note: all images are built as root, to use in a non-root context, import with podman load -i bin/agent-images/agent-images-bundle-cs9-bootc.tar
+# Note: all images are built as root, to use in a non-root context, import with podman load -i bin/agent-images/agent-images-bundle-el9-bootc.tar
 
 
 BUILD_TYPE=${BUILD_TYPE:-bootc}
 PARALLEL_JOBS="${PARALLEL_JOBS:-4}"
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 ROOT_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+: "${FLAVORCTL:=${ROOT_DIR}/bin/flavorctl}"
 
 source "${SCRIPT_DIR}/../functions"
 
@@ -34,9 +35,9 @@ export JOBS="${PARALLEL_JOBS}"
 # Handle v7 variant based on OS and RHOCP access
 # Only auto-detect if user hasn't explicitly set EXCLUDE_VARIANTS
 if [ -z "${EXCLUDE_VARIANTS+x}" ]; then
-    if [ "${AGENT_OS_ID:-cs9-bootc}" = "cs10-bootc" ]; then
+    if [ "${FLAVOR:-el9}" = "el10" ]; then
         export EXCLUDE_VARIANTS="v7"
-        echo "cs10: v7 excluded (no MicroShift for cs10)"
+        echo "el10: v7 excluded (no MicroShift for el10)"
     elif has_rhocp_access; then
         export EXCLUDE_VARIANTS=""
         echo "RHOCP access available, enabling v7"
@@ -48,11 +49,11 @@ fi
 
 # Determine OS suffix based on flavor
 get_os_suffix() {
-    local flavor="${1:-cs9-bootc}"
-    case "${flavor}" in
-        cs9*)  echo ".el9" ;;
-        cs10*) echo ".el10" ;;
-        *)     echo "" ;;
+    local f="${1:-el9}"
+    case "${f}" in
+        el9)  echo ".el9" ;;
+        el10) echo ".el10" ;;
+        *)    echo "" ;;
     esac
 }
 
@@ -107,7 +108,7 @@ elif [ -n "${FLIGHTCTL_RPM:-}" ]; then
 
     # Append OS suffix if versioned
     if [ "${RPM_COPR_PACKAGE}" != "flightctl-agent" ]; then
-        OS_SUFFIX=$(get_os_suffix "${AGENT_OS_ID}")
+        OS_SUFFIX=$(get_os_suffix "${FLAVOR}")
         RPM_COPR_PACKAGE="${RPM_COPR_PACKAGE}${OS_SUFFIX}"
     fi
 
@@ -131,25 +132,19 @@ export TAG
 # Calculate registry endpoint for pushing (if not already set)
 export REGISTRY_ENDPOINT
 
-# Determine OS_ID strictly from AGENT_OS_ID (single source of truth)
-AGENT_OS_ID="${AGENT_OS_ID:-cs9-bootc}"
-case "${AGENT_OS_ID}" in
-    cs9*)  OS_ID="cs9-bootc" ;;
-    cs10*) OS_ID="cs10-bootc" ;;
-    *)     OS_ID="${AGENT_OS_ID}" ;;
-esac
+FLAVOR="${FLAVOR:-el9}"
+AGENT_OS_ID=$(${FLAVORCTL} get "${FLAVOR}" test.agent_os_id)
 
-# Export so downstream scripts see the selected flavor
+export FLAVOR
 export AGENT_OS_ID
-export OS_ID
 
 build_base() {
     echo "Building base image with PODMAN_BUILD_EXTRA_FLAGS: ${PODMAN_BUILD_EXTRA_FLAGS}"
-    sudo AGENT_OS_ID="${AGENT_OS_ID}" "${SCRIPT_DIR}/scripts/build.sh" --base
+    sudo FLAVOR="${FLAVOR}" FLAVORCTL="${FLAVORCTL}" "${SCRIPT_DIR}/scripts/build.sh" --base
 }
 
 build_variants_and_qcow2() {
-    echo "Building variants, bundle, and qcow2 for OS_ID=${OS_ID}"
+    echo "Building variants, bundle, and qcow2 for AGENT_OS_ID=${AGENT_OS_ID}"
     echo "Registry endpoint for push: ${REGISTRY_ENDPOINT}"
 
     # Only push if PUSH_IMAGES is set to true
@@ -159,19 +154,19 @@ build_variants_and_qcow2() {
     fi
 
     local skip_qcow="false"
-    if qcow_is_up_to_date "${OS_ID}"; then
-        echo -e "\033[32mqcow2 artifact for ${OS_ID} is up to date, skipping rebuild\033[m"
+    if qcow_is_up_to_date "${AGENT_OS_ID}"; then
+        echo -e "\033[32mqcow2 artifact for ${AGENT_OS_ID} is up to date, skipping rebuild\033[m"
         skip_qcow="true"
     fi
 
-    SKIP_QCOW_BUILD="${skip_qcow}" "${SCRIPT_DIR}/scripts/build_and_qcow2.sh" --os-id ${OS_ID} ${PUSH_ARG}
+    SKIP_QCOW_BUILD="${skip_qcow}" "${SCRIPT_DIR}/scripts/build_and_qcow2.sh" --os-id ${AGENT_OS_ID} ${PUSH_ARG}
 
     # Fix permissions on artifacts
     sudo chown -R "${USER}:$(id -gn "${USER}")" "${ROOT_DIR}/artifacts" || true
 
     # Move qcow2 to bin/output like original script
-    OUTPUT_DIR="${OUTPUT_DIR:-${ROOT_DIR}/bin/output/agent-qcow2-${OS_ID}}"
-    QCOW_SRC="${ROOT_DIR}/bin/output/agent-qcow2-${OS_ID}/qcow2/disk.qcow2"
+    OUTPUT_DIR="${OUTPUT_DIR:-${ROOT_DIR}/bin/output/agent-qcow2-${AGENT_OS_ID}}"
+    QCOW_SRC="${ROOT_DIR}/bin/output/agent-qcow2-${AGENT_OS_ID}/qcow2/disk.qcow2"
     QCOW_DST="${ROOT_DIR}/bin/output/qcow2/disk.qcow2"
     if [ -f "${QCOW_SRC}" ]; then
         mkdir -p "${ROOT_DIR}/bin/output/qcow2"
