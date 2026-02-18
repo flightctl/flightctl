@@ -44,6 +44,15 @@ community-el9:
       image: quay.io/flightctl/flightctl-db-setup
     telemetryGateway:
       image: quay.io/flightctl/flightctl-telemetry-gateway
+  timeouts:
+    # API readiness timeout for EL9 (standard TLS requirements)
+    apiReadiness: 60
+    # Helm deployment timeouts for EL9
+    helmUpgrade:
+      withWait: "15m"
+      withoutWait: "10m"
+      # PR upgrade testing timeout (includes migration time)
+      prUpgrade: "20m"
 community-el10:
   name: flightctl
   description: A helm chart for FlightControl
@@ -90,6 +99,15 @@ community-el10:
       image: quay.io/flightctl/flightctl-db-setup
     telemetryGateway:
       image: quay.io/flightctl/flightctl-telemetry-gateway
+  timeouts:
+    # API readiness timeout for EL10 (FIPS 140-3 enhanced TLS initialization)
+    apiReadiness: 180
+    # Helm deployment timeouts for EL10 (FIPS database migrations, TLS validation, container startup delays)
+    helmUpgrade:
+      withWait: "25m"
+      withoutWait: "20m"
+      # PR upgrade testing timeout (includes FIPS migration time)
+      prUpgrade: "30m"
 redhat-el9:
   name: redhat-rhem
   description: A helm chart for Red Hat Edge Manager

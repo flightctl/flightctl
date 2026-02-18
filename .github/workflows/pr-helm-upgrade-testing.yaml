@@ -512,16 +512,25 @@ jobs:
           echo "=== Starting helm upgrade with image tag: ${IMAGE_TAG} ==="
           echo "Migration monitoring started with PID: $MONITOR_PID"
 
-          # Run helm upgrade with timeout handling
-          # EL10 requires longer timeout due to FIPS 140-3 enhanced TLS initialization and slower migrations
-          # EL10: 30m (FIPS database migrations, TLS validation, container startup delays)
-          # EL9:  20m (Standard requirements)
-          if [ "$FLAVOR" == "el10" ]; then
-            HELM_TIMEOUT="30m"
-          else
-            HELM_TIMEOUT="20m"
+          # Load Helm upgrade timeout from helm-chart-opts.yaml based on flavor
+          CHART_OPTS_FILE="deploy/helm/helm-chart-opts.yaml"
+          FLAVOR_KEY="community-${FLAVOR}"
+
+          if [ ! -f "$CHART_OPTS_FILE" ]; then
+            echo "ERROR: Chart options file not found: $CHART_OPTS_FILE"
+            exit 1
           fi
-          echo "Using Helm timeout: $HELM_TIMEOUT for flavor $FLAVOR"
+
+          # Extract PR upgrade timeout using yq
+          HELM_TIMEOUT=$(yq eval ".${FLAVOR_KEY}.timeouts.helmUpgrade.prUpgrade" "$CHART_OPTS_FILE")
+
+          # Validate timeout value
+          if [ "$HELM_TIMEOUT" == "null" ]; then
+            echo "ERROR: Failed to load PR upgrade timeout for flavor ${FLAVOR}"
+            exit 1
+          fi
+
+          echo "Using Helm upgrade timeout: $HELM_TIMEOUT for flavor $FLAVOR (from $CHART_OPTS_FILE)"
           if timeout "$HELM_TIMEOUT" helm upgrade flightctl "${CHART_FILE}" \
             --namespace flightctl-external \
             --reuse-values \
@@ -564,14 +573,37 @@ jobs:
           kubectl get events --all-namespaces --sort-by='.lastTimestamp' | tail -20
           echo "=== End post-failure state ==="
 
+      - name: "[HEAD] Load API readiness timeout configuration"
+        id: api-timeout-1
+        run: |
+          set -euo pipefail
+
+          CHART_OPTS_FILE="deploy/helm/helm-chart-opts.yaml"
+          FLAVOR_KEY="community-${FLAVOR}"
+
+          if [ ! -f "$CHART_OPTS_FILE" ]; then
+            echo "ERROR: Chart options file not found: $CHART_OPTS_FILE"
+            exit 1
+          fi
+
+          # Extract API readiness timeout using yq
+          API_READINESS_TIMEOUT=$(yq eval ".${FLAVOR_KEY}.timeouts.apiReadiness" "$CHART_OPTS_FILE")
+
+          # Validate timeout value
+          if [ "$API_READINESS_TIMEOUT" == "null" ]; then
+            echo "ERROR: Failed to load API readiness timeout for flavor ${FLAVOR}"
+            exit 1
+          fi
+
+          echo "API readiness timeout for ${FLAVOR}: ${API_READINESS_TIMEOUT}s (from $CHART_OPTS_FILE)"
+          echo "timeout=${API_READINESS_TIMEOUT}" >> "$GITHUB_OUTPUT"
+
       - name: "[HEAD] Wait for API readiness after upgrade"
         uses: ./.github/actions/wait-for-api-readiness
         with:
           base-domain: ${{ steps.get-ip.outputs.base-domain }}
-          # EL10 requires longer timeout due to FIPS 140-3 enhanced TLS initialization
-          # EL10: 180s (FIPS 140-3 with TLS 1.2 EMS mandatory, enhanced key validation, CI load)
-          # EL9:  60s  (Standard TLS requirements)
-          retries: ${{ env.FLAVOR == 'el10' && '180' || '60' }}
+          # Timeout loaded from helm-chart-opts.yaml based on flavor
+          retries: ${{ steps.api-timeout-1.outputs.timeout }}
 
       - name: "[HEAD] Check deployment"
         run: |
@@ -652,14 +684,37 @@ jobs:
             --set dbSetup.image.tag="${FLAVOR}-${PR_GIT_TAG}" \
             --debug --wait
 
+      - name: "[HEAD] Load API readiness timeout configuration (second check)"
+        id: api-timeout-2
+        run: |
+          set -euo pipefail
+
+          CHART_OPTS_FILE="deploy/helm/helm-chart-opts.yaml"
+          FLAVOR_KEY="community-${FLAVOR}"
+
+          if [ ! -f "$CHART_OPTS_FILE" ]; then
+            echo "ERROR: Chart options file not found: $CHART_OPTS_FILE"
+            exit 1
+          fi
+
+          # Extract API readiness timeout using yq
+          API_READINESS_TIMEOUT=$(yq eval ".${FLAVOR_KEY}.timeouts.apiReadiness" "$CHART_OPTS_FILE")
+
+          # Validate timeout value
+          if [ "$API_READINESS_TIMEOUT" == "null" ]; then
+            echo "ERROR: Failed to load API readiness timeout for flavor ${FLAVOR}"
+            exit 1
+          fi
+
+          echo "API readiness timeout for ${FLAVOR}: ${API_READINESS_TIMEOUT}s (from $CHART_OPTS_FILE)"
+          echo "timeout=${API_READINESS_TIMEOUT}" >> "$GITHUB_OUTPUT"
+
       - name: "[HEAD] Wait for API readiness after same-version upgrade"
         uses: ./.github/actions/wait-for-api-readiness
         with:
           base-domain: ${{ steps.get-ip.outputs.base-domain }}
-          # EL10 requires longer timeout due to FIPS 140-3 enhanced TLS initialization
-          # EL10: 180s (FIPS 140-3 with TLS 1.2 EMS mandatory, enhanced key validation, CI load)
-          # EL9:  60s  (Standard TLS requirements)
-          retries: ${{ env.FLAVOR == 'el10' && '180' || '60' }}
+          # Timeout loaded from helm-chart-opts.yaml based on flavor
+          retries: ${{ steps.api-timeout-2.outputs.timeout }}
 
       - name: "[HEAD] Validate versions"
         env:

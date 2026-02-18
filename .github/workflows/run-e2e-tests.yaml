@@ -248,14 +248,37 @@ jobs:
           df -h
 
       # ========== PREP E2E ENV ==========
+      - name: Load API readiness timeout configuration
+        id: api-timeout
+        run: |
+          set -euo pipefail
+
+          CHART_OPTS_FILE="deploy/helm/helm-chart-opts.yaml"
+          FLAVOR_KEY="community-${{ inputs.flavor }}"
+
+          if [ ! -f "$CHART_OPTS_FILE" ]; then
+            echo "ERROR: Chart options file not found: $CHART_OPTS_FILE"
+            exit 1
+          fi
+
+          # Extract API readiness timeout using yq
+          API_READINESS_TIMEOUT=$(yq eval ".${FLAVOR_KEY}.timeouts.apiReadiness" "$CHART_OPTS_FILE")
+
+          # Validate timeout value
+          if [ "$API_READINESS_TIMEOUT" == "null" ]; then
+            echo "ERROR: Failed to load API readiness timeout for flavor ${{ inputs.flavor }}"
+            exit 1
+          fi
+
+          echo "API readiness timeout for ${{ inputs.flavor }}: ${API_READINESS_TIMEOUT}s (from $CHART_OPTS_FILE)"
+          echo "timeout=${API_READINESS_TIMEOUT}" >> "$GITHUB_OUTPUT"
+
       - name: Wait for API readiness
         uses: ./.github/actions/wait-for-api-readiness
         with:
           base-domain: ${{ steps.base-domain.outputs.base_domain }}
-          # EL10 requires longer timeout due to FIPS 140-3 enhanced TLS initialization
-          # EL10: 180s (3min - FIPS 140-3 with TLS 1.2 EMS mandatory, enhanced key validation, CI load)
-          # EL9:  60s  (Standard TLS requirements)
-          retries: ${{ inputs.flavor == 'el10' && '180' || '60' }}
+          # Timeout loaded from helm-chart-opts.yaml based on flavor
+          retries: ${{ steps.api-timeout.outputs.timeout }}
 
       - name: Prepare E2E environment
         env:
