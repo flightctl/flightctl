@@ -69,22 +69,49 @@ runs:
         fi
 
     # ========== DOWNLOAD BACKEND ARTIFACTS ==========
-    - name: Download backend images bundle
+    - name: Download backend images bundle (flavor-prefixed)
+      id: download-images-flavored
       uses: actions/download-artifact@v4
+      continue-on-error: true
       with:
         name: flightctl-images-bundle-${{ inputs.flavor }}-${{ steps.compute-tags.outputs.git_tag }}
         path: artifacts
 
-    - name: Download helm chart
+    - name: Download backend images bundle (legacy fallback)
+      if: steps.download-images-flavored.outcome != 'success'
       uses: actions/download-artifact@v4
+      with:
+        name: flightctl-images-bundle-${{ steps.compute-tags.outputs.git_tag }}
+        path: artifacts
+
+    - name: Download helm chart (flavor-prefixed)
+      id: download-chart-flavored
+      uses: actions/download-artifact@v4
+      continue-on-error: true
       with:
         name: helm-chart-${{ inputs.flavor }}-${{ steps.compute-tags.outputs.git_tag }}
         path: artifacts
 
-    - name: Download CLI binary
+    - name: Download helm chart (legacy fallback)
+      if: steps.download-chart-flavored.outcome != 'success'
       uses: actions/download-artifact@v4
       with:
+        name: helm-chart-${{ steps.compute-tags.outputs.git_tag }}
+        path: artifacts
+
+    - name: Download CLI binary (flavor-prefixed)
+      id: download-cli-flavored
+      uses: actions/download-artifact@v4
+      continue-on-error: true
+      with:
         name: flightctl-linux-amd64-${{ inputs.flavor }}-${{ steps.compute-tags.outputs.git_tag }}
+        path: artifacts
+
+    - name: Download CLI binary (legacy fallback)
+      if: steps.download-cli-flavored.outcome != 'success'
+      uses: actions/download-artifact@v4
+      with:
+        name: flightctl-linux-amd64-${{ steps.compute-tags.outputs.git_tag }}
         path: artifacts
 
     - name: Setup CLI binary
@@ -92,6 +119,22 @@ runs:
       run: |
         set -euo pipefail
         mkdir -p bin
+
+        echo "*** ARTIFACT COORDINATION DEBUG ***"
+        echo "Expected flavor-prefixed artifacts:"
+        echo "  Images: flightctl-images-bundle-${{ inputs.flavor }}-${{ steps.compute-tags.outputs.git_tag }}"
+        echo "  Chart: helm-chart-${{ inputs.flavor }}-${{ steps.compute-tags.outputs.git_tag }}"
+        echo "  CLI: flightctl-linux-amd64-${{ inputs.flavor }}-${{ steps.compute-tags.outputs.git_tag }}"
+        echo ""
+        echo "Download outcomes:"
+        echo "  Images flavored: ${{ steps.download-images-flavored.outcome }}"
+        echo "  Chart flavored: ${{ steps.download-chart-flavored.outcome }}"
+        echo "  CLI flavored: ${{ steps.download-cli-flavored.outcome }}"
+        echo ""
+        echo "Artifacts directory contents:"
+        ls -la artifacts/
+        echo "*** END ARTIFACT COORDINATION DEBUG ***"
+
         mv artifacts/flightctl-linux-amd64 bin/flightctl
         chmod +x bin/flightctl
         echo "CLI binary ready at bin/flightctl"
