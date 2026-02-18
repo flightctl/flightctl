@@ -6,6 +6,9 @@ import (
 	"net/url"
 )
 
+// DefaultOrganizationID is the org ID reserved for the default / system organization within AAP
+const DefaultOrganizationID = 1
+
 type AAPOrganization struct {
 	ID   int    `json:"id"`
 	Name string `json:"name"`
