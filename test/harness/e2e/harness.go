@@ -81,6 +81,9 @@ import (
 
 const fiveSecondTimeout = 5 * time.Second
 
+// setupSnapshotRestoreTimeout is the maximum time allowed for VM snapshot restore in BeforeEach.
+const setupSnapshotRestoreTimeout = 10 * time.Minute
+
 const POLLING = "250ms"
 const POLLINGLONG = "1s"
 const TIMEOUT = "5m"
@@ -1536,8 +1539,22 @@ func (h *Harness) GetVMFromPool(workerID int) (vm.TestVMInterface, error) {
 }
 
 // SetupVMFromPool sets up a VM from the pool and reverts it to the pristine snapshot.
-// It does not start the agent.
+// It does not start the agent. The operation is bounded by setupSnapshotRestoreTimeout (10 minutes).
 func (h *Harness) SetupVMFromPool(workerID int) error {
+	done := make(chan error, 1)
+	go func() {
+		done <- h.setupVMFromPoolNoTimeout(workerID)
+	}()
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(setupSnapshotRestoreTimeout):
+		return fmt.Errorf("snapshot restore timed out after %v", setupSnapshotRestoreTimeout)
+	}
+}
+
+// setupVMFromPoolNoTimeout performs the actual VM pool setup and snapshot revert (no timeout).
+func (h *Harness) setupVMFromPoolNoTimeout(workerID int) error {
 	// Get VM from pool (created on-demand if needed)
 	testVM, err := h.GetVMFromPool(workerID)
 	if err != nil {
