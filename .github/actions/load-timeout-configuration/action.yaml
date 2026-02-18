@@ -34,18 +34,31 @@ runs:
         echo "  YQ path: $TIMEOUT_PATH"
 
         # Define default timeouts for baseline builds that don't have helm-chart-opts.yaml
-        declare -A DEFAULT_TIMEOUTS
-        DEFAULT_TIMEOUTS["apiReadiness"]="60"
-        DEFAULT_TIMEOUTS["helmUpgrade.withWait"]="15m"
-        DEFAULT_TIMEOUTS["helmUpgrade.withoutWait"]="10m"
-        DEFAULT_TIMEOUTS["helmUpgrade.prUpgrade"]="20m"
-
+        # Use a simple case statement since bash arrays don't handle dotted keys reliably
         TIMEOUT_VALUE=""
 
         if [ ! -f "$CHART_OPTS_FILE" ]; then
           echo "Chart options file not found: $CHART_OPTS_FILE (baseline build)"
           echo "Using default timeout for ${{ inputs.timeout-type }}"
-          TIMEOUT_VALUE="${DEFAULT_TIMEOUTS[${{ inputs.timeout-type }}]:-60}"
+
+          case "${{ inputs.timeout-type }}" in
+            "apiReadiness")
+              TIMEOUT_VALUE="60"
+              ;;
+            "helmUpgrade.withWait")
+              TIMEOUT_VALUE="15m"
+              ;;
+            "helmUpgrade.withoutWait")
+              TIMEOUT_VALUE="10m"
+              ;;
+            "helmUpgrade.prUpgrade")
+              TIMEOUT_VALUE="20m"
+              ;;
+            *)
+              echo "WARNING: Unknown timeout type '${{ inputs.timeout-type }}', using 60s"
+              TIMEOUT_VALUE="60"
+              ;;
+          esac
         else
           # Extract timeout value using yq
           TIMEOUT_VALUE=$(yq eval "$TIMEOUT_PATH" "$CHART_OPTS_FILE" 2>/dev/null || echo "null")
@@ -54,7 +67,25 @@ runs:
           if [ "$TIMEOUT_VALUE" == "null" ] || [ -z "$TIMEOUT_VALUE" ]; then
             echo "Timeout '${{ inputs.timeout-type }}' not found in $CHART_OPTS_FILE for flavor '${{ inputs.flavor }}'"
             echo "Using default timeout for ${{ inputs.timeout-type }}"
-            TIMEOUT_VALUE="${DEFAULT_TIMEOUTS[${{ inputs.timeout-type }}]:-60}"
+
+            case "${{ inputs.timeout-type }}" in
+              "apiReadiness")
+                TIMEOUT_VALUE="60"
+                ;;
+              "helmUpgrade.withWait")
+                TIMEOUT_VALUE="15m"
+                ;;
+              "helmUpgrade.withoutWait")
+                TIMEOUT_VALUE="10m"
+                ;;
+              "helmUpgrade.prUpgrade")
+                TIMEOUT_VALUE="20m"
+                ;;
+              *)
+                echo "WARNING: Unknown timeout type '${{ inputs.timeout-type }}', using 60s"
+                TIMEOUT_VALUE="60"
+                ;;
+            esac
           else
             echo "Loaded timeout: $TIMEOUT_VALUE (from $CHART_OPTS_FILE)"
           fi
