@@ -79,7 +79,7 @@ jobs:
         run: go mod tidy
 
       - name: Cache Go modules
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cache/go-build
@@ -89,7 +89,7 @@ jobs:
             ${{ runner.os }}-go-
 
       - name: Cache DNF packages
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             /var/cache/dnf
