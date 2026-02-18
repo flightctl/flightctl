@@ -622,6 +622,76 @@ func (h *Harness) WaitForDeviceNewRenderedVersionWithReboot(deviceId string, new
 	return nil
 }
 
+// UpdateDeviceAndWaitForVersion updates the device and waits for the new rendered version
+func (h *Harness) UpdateDeviceAndWaitForVersion(deviceID string, updateFunc func(device *v1beta1.Device)) error {
+	newRenderedVersion, err := h.PrepareNextDeviceVersion(deviceID)
+	if err != nil {
+		return fmt.Errorf("failed to prepare next device version: %w", err)
+	}
+
+	err = h.UpdateDeviceWithRetries(deviceID, updateFunc)
+	if err != nil {
+		return fmt.Errorf("failed to update device: %w", err)
+	}
+
+	GinkgoWriter.Printf("Waiting for device to pick up config version %d\n", newRenderedVersion)
+	err = h.WaitForDeviceNewRenderedVersion(deviceID, newRenderedVersion)
+	if err != nil {
+		return fmt.Errorf("failed to wait for new rendered version: %w", err)
+	}
+
+	return nil
+}
+
+// UpdateDeviceAndWaitForFailure updates a device and waits for the update to fail with an error.
+// If expectedMessageSubstrings are provided, it verifies that the error message contains at least one of them.
+func (h *Harness) UpdateDeviceAndWaitForFailure(deviceID string, updateFunc func(device *v1beta1.Device), expectedMessageSubstrings ...string) error {
+	err := h.UpdateDeviceWithRetries(deviceID, updateFunc)
+	if err != nil {
+		return fmt.Errorf("failed to update device: %w", err)
+	}
+
+	description := "update should fail with error"
+	if len(expectedMessageSubstrings) > 0 {
+		description = fmt.Sprintf("update should fail with error containing one of: %v", expectedMessageSubstrings)
+	}
+
+	h.WaitForDeviceContents(deviceID, description,
+		func(device *v1beta1.Device) bool {
+			if device == nil || device.Status == nil {
+				return false
+			}
+			if !ConditionExists(device, v1beta1.ConditionTypeDeviceUpdating,
+				v1beta1.ConditionStatusFalse, string(v1beta1.UpdateStateError)) {
+				return false
+			}
+			if len(expectedMessageSubstrings) == 0 {
+				return true
+			}
+			cond := v1beta1.FindStatusCondition(device.Status.Conditions, v1beta1.ConditionTypeDeviceUpdating)
+			if cond == nil {
+				return false
+			}
+			for _, substring := range expectedMessageSubstrings {
+				if strings.Contains(cond.Message, substring) {
+					return true
+				}
+			}
+			return false
+		}, LONGTIMEOUT)
+
+	h.WaitForDeviceContents(deviceID, "device should be out of date but online after failed update",
+		func(device *v1beta1.Device) bool {
+			if device == nil || device.Status == nil {
+				return false
+			}
+			return device.Status.Updated.Status == v1beta1.DeviceUpdatedStatusOutOfDate &&
+				device.Status.Summary.Status == v1beta1.DeviceSummaryStatusOnline
+		}, LONGTIMEOUT)
+
+	return nil
+}
+
 func (h *Harness) WaitForDeviceNewGeneration(deviceId string, newGeneration int64) (err error) {
 	// Check that the device was already approved
 	Eventually(func() v1beta1.DeviceSummaryStatusType {

@@ -48,6 +48,7 @@ type versionTags struct {
 	V9   string
 	V10  string
 	V11  string
+	V12  string
 	Base string
 }
 
@@ -63,6 +64,7 @@ var DeviceTags = versionTags{
 	V9:   "v9",
 	V10:  "v10",
 	V11:  "v11",
+	V12:  "v12",
 	Base: "base",
 }
 

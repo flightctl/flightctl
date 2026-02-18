@@ -168,6 +168,10 @@ ssh -i ${SSH_PRIVATE_KEY_PATH} -o StrictHostKeyChecking=no -o UserKnownHostsFile
   echo "Cloning $REMOTE_URL to $USER_HOME/..."
   git clone $REMOTE_URL $USER_HOME/flightctl
 
+  # Install Helm
+  echo "Installing Helm..."
+  $USER_HOME/flightctl/test/scripts/install_helm.sh
+
   # Enable libvirtd service
   sudo systemctl enable --now libvirtd
 
