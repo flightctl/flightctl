@@ -204,7 +204,7 @@ jobs:
       - name: "[HEAD] Download CLI"
         uses: actions/download-artifact@v4
         with:
-          name: flightctl-linux-amd64-${{ needs.build-pr.outputs.cli_git_tag }}
+          name: flightctl-linux-amd64-${{ env.FLAVOR }}-${{ needs.build-pr.outputs.cli_git_tag }}
           path: bin-pr
 
       - name: "[HEAD] Setup CLI"
