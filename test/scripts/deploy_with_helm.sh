@@ -8,8 +8,8 @@ DB_SIZE_PARAMS=
 # IMAGE_PULL_SECRET_PATH=
 SQL_VERSION=${SQL_VERSION:-"latest"}
 SQL_IMAGE=${SQL_IMAGE:-"quay.io/sclorg/postgresql-16-c9s"}
-KV_VERSION=${KV_VERSION:-"7.4.1"}
-KV_IMAGE=${KV_IMAGE:-"docker.io/redis"}
+KV_VERSION=${KV_VERSION:-"20250108"}
+KV_IMAGE=${KV_IMAGE:-"quay.io/sclorg/redis-7-c9s"}
 
 source "${SCRIPT_DIR}"/functions
 IP=$(get_ext_ip)
@@ -44,8 +44,8 @@ while true; do
   esac
 done
 
-SQL_ARG="--set db.builtin.image.image=${SQL_IMAGE} --set db.builtin.image.tag=${SQL_VERSION}"
-KV_ARG="--set kv.image.image=${KV_IMAGE} --set kv.image.tag=${KV_VERSION}"
+SQL_ARG="--set db.builtin.image.image=${SQL_IMAGE} --set-string db.builtin.image.tag=${SQL_VERSION}"
+KV_ARG="--set kv.image.image=${KV_IMAGE} --set-string kv.image.tag=${KV_VERSION}"
 
 # helm expects the namespaces to exist, and creating namespaces
 # inside the helm charts is not recommended.
