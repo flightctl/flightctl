@@ -1140,7 +1140,7 @@ func quadletAppPath(appName string, user v1beta1.Username) (string, error) {
 	} else {
 		_, _, homeDir, err := userutil.LookupUser(user)
 		if err != nil {
-			return "", fmt.Errorf("failed to lookup user %s: %w", user, err)
+			return "", err
 		}
 		return filepath.Join(homeDir, ".config/containers/systemd", appName), nil
 	}

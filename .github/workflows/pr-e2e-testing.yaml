@@ -47,7 +47,6 @@ jobs:
         id: changed-files
         uses: tj-actions/changed-files@v46
         with:
-          since_last_remote_commit: 'true'
           files_ignore: |
             .spelling
             README.md
@@ -64,7 +63,14 @@ jobs:
     if: |
       needs.compute-tag.outputs.any_changed == 'true' &&
       (github.event_name != 'pull_request' || startsWith(github.base_ref, 'release-') || contains(github.event.pull_request.labels.*.name, 'run-e2e'))
+    strategy:
+      matrix:
+        include:
+          - flavor: el9
+          - flavor: el10
     uses: ./.github/workflows/build-images-and-charts.yaml
+    with:
+      flavor: ${{ matrix.flavor }}
 
   build-flightctl-cli:
     needs: [build-images-and-charts, compute-tag]
@@ -76,7 +82,7 @@ jobs:
       tag: ${{ needs.compute-tag.outputs.tag }}
     steps:
       - name: CLI built with backend job
-        run: echo "CLI artifact produced by build-images-and-charts"
+        run: echo "CLI artifact produced by build-images-and-charts matrix job"
 
   build-rpms:
     needs: compute-tag
@@ -100,9 +106,9 @@ jobs:
     strategy:
       matrix:
         include:
-          - os_id: cs9-bootc
+          - os_id: el9-bootc
             rpm_suffix: centos-stream+epel-next-9-x86_64
-          - os_id: cs10-bootc
+          - os_id: el10-bootc
             rpm_suffix: epel-10-x86_64
     uses: ./.github/workflows/build-agent-images.yaml
     with:
@@ -186,31 +192,35 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Non-Agent metrics
-          ## CS9
-          - os_id: cs9-bootc
+          # Non-Agent metrics (backend only, no cross-version needed)
+          - os_id: el9-bootc
             backend_type: helm
             label_filter: 'sanity && !agent'
             ginkgo_total_nodes: 1
-          # Agent metrics
-          ## CS9 Agent metrics
-          - os_id: cs9-bootc
+            backend_flavor: el9
+
+          # Same-version Agent metrics
+          - os_id: el9-bootc
             backend_type: helm
             label_filter: 'sanity && agent && !slow'
             ginkgo_total_nodes: 2
-          - os_id: cs9-bootc
+            backend_flavor: el9
+          - os_id: el9-bootc
             backend_type: helm
             label_filter: 'sanity && agent && slow'
             ginkgo_total_nodes: 1
-          ## CS10 Agent metrics
-          - os_id: cs10-bootc
+            backend_flavor: el9
+          - os_id: el10-bootc
             backend_type: helm
             label_filter: 'sanity && agent && !slow'
             ginkgo_total_nodes: 2
-          - os_id: cs10-bootc
+            backend_flavor: el10
+          - os_id: el10-bootc
             backend_type: helm
             label_filter: 'sanity && agent && slow'
             ginkgo_total_nodes: 1
+            backend_flavor: el10
+
     uses: ./.github/workflows/run-e2e-tests.yaml
     with:
       os_id: ${{ matrix.os_id }}
@@ -218,6 +228,7 @@ jobs:
       ginkgo_total_nodes: ${{ matrix.ginkgo_total_nodes }}
       ginkgo_label_filter: ${{ matrix.label_filter }}
       tag: ${{ needs.compute-tag.outputs.tag }}
+      flavor: ${{ matrix.backend_flavor }}
 
   e2e:
     runs-on: ubuntu-latest

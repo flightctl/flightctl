@@ -55,8 +55,7 @@ var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 			})
 			Expect(err).ToNot(HaveOccurred())
 
-			// OS image update triggers reboot; use reboot-aware wait (Unknown/Rebooting treated as in-progress).
-			err = harness.WaitForDeviceNewRenderedVersionWithReboot(deviceId, nextRenderedVersion)
+			err = harness.WaitForDeviceNewRenderedVersion(deviceId, nextRenderedVersion)
 			Expect(err).ToNot(HaveOccurred())
 
 			By("Add an inline configuration for sshd")
@@ -165,8 +164,7 @@ var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 			})
 			Expect(err).ToNot(HaveOccurred())
 
-			// OS image update triggers reboot; use reboot-aware wait.
-			err = harness.WaitForDeviceNewRenderedVersionWithReboot(deviceId, nextRenderedVersion)
+			err = harness.WaitForDeviceNewRenderedVersion(deviceId, nextRenderedVersion)
 			Expect(err).ToNot(HaveOccurred())
 
 			By("Check that in the device logs the hooks were triggered")

@@ -1,8 +1,6 @@
 package client
 
 import (
-	"fmt"
-
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/userutil"
@@ -14,7 +12,7 @@ func ExecuterForUser(username v1beta1.Username) (executer.Executer, error) {
 	if !username.IsCurrentProcessUser() {
 		uid, gid, homeDir, err := userutil.LookupUser(username)
 		if err != nil {
-			return nil, fmt.Errorf("failed to lookup user %s: %w", username, err)
+			return nil, err
 		}
 		execOpts = append(execOpts,
 			executer.WithHomeDir(homeDir),

@@ -1,4 +1,8 @@
-FROM registry.access.redhat.com/ubi9/go-toolset:1.24.6-1762373805 as build
+ARG BUILD_IMAGE
+ARG RUNTIME_IMAGE
+ARG EL_VERSION
+
+FROM ${BUILD_IMAGE} as build
 WORKDIR /app
 
 # Switch to root for build operations
@@ -36,17 +40,17 @@ ENV SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT}
 # Use BuildKit cache mounts for Go caching
 RUN --mount=type=cache,target=/opt/app-root/src/.cache/go-build \
     --mount=type=cache,target=/opt/app-root/src/go/pkg/mod \
-    make build-api
+    make build-imagebuilder-api
 
-FROM quay.io/flightctl/flightctl-base:9.7-1762965531
+FROM ${RUNTIME_IMAGE}
 WORKDIR /app
 LABEL \
-  com.redhat.component="flightctl-api-container" \
-  description="Flight Control Edge management API server" \
-  io.k8s.description="Flight Control Edge management API server" \
-  io.k8s.display-name="Flight Control API Server" \
-  name="flightctl-api" \
-  summary="Flight Control Edge management API server"
-COPY --from=build /app/bin/flightctl-api .
+  com.redhat.component="flightctl-imagebuilder-api-container" \
+  description="Flight Control image builder API service" \
+  io.k8s.description="Flight Control image builder API service" \
+  io.k8s.display-name="Flight Control ImageBuilder API" \
+  name="flightctl-imagebuilder-api-el${EL_VERSION}" \
+  summary="Flight Control ImageBuilder API server (el${EL_VERSION})"
+COPY --chmod=0755 --from=build /app/bin/flightctl-imagebuilder-api .
 
-CMD ./flightctl-api
+CMD ./flightctl-imagebuilder-api

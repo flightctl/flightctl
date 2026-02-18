@@ -965,11 +965,24 @@ func (s *imageExportService) validate(ctx context.Context, orgId uuid.UUID, imag
 			} else if source.ImageBuildRef == "" {
 				errs = append(errs, errors.New("spec.source.imageBuildRef is required for imageBuild source type"))
 			} else {
-				validationErrs, err := s.validateSourceImageBuild(ctx, orgId, source.ImageBuildRef)
-				if err != nil {
-					return nil, err
+				// Check that the referenced ImageBuild exists
+				imageBuild, err := s.imageBuildStore.Get(ctx, orgId, source.ImageBuildRef)
+				if errors.Is(err, flterrors.ErrResourceNotFound) {
+					errs = append(errs, fmt.Errorf("spec.source.imageBuildRef: ImageBuild %q not found", source.ImageBuildRef))
+				} else if err != nil {
+					return nil, fmt.Errorf("failed to get ImageBuild %q: %w", source.ImageBuildRef, err)
+				} else {
+					// Validate that the ImageBuild has a destination configured
+					if imageBuild.Spec.Destination.Repository == "" {
+						errs = append(errs, fmt.Errorf("spec.source.imageBuildRef: ImageBuild %q does not have a destination repository configured", source.ImageBuildRef))
+					}
+					if imageBuild.Spec.Destination.ImageName == "" {
+						errs = append(errs, fmt.Errorf("spec.source.imageBuildRef: ImageBuild %q does not have a destination imageName configured", source.ImageBuildRef))
+					}
+					if imageBuild.Spec.Destination.ImageTag == "" {
+						errs = append(errs, fmt.Errorf("spec.source.imageBuildRef: ImageBuild %q does not have a destination imageTag configured", source.ImageBuildRef))
+					}
 				}
-				errs = append(errs, validationErrs...)
 			}
 		default:
 			errs = append(errs, errors.New("spec.source.type must be 'imageBuild'"))
@@ -979,40 +992,6 @@ func (s *imageExportService) validate(ctx context.Context, orgId uuid.UUID, imag
 	// Validate formats
 	if imageExport.Spec.Format == "" {
 		errs = append(errs, errors.New("spec.format is required"))
-	}
-
-	return errs, nil
-}
-
-func (s *imageExportService) validateSourceImageBuild(ctx context.Context, orgId uuid.UUID, imageBuildRef string) ([]error, error) {
-	var errs []error
-
-	imageBuild, err := s.imageBuildStore.Get(ctx, orgId, imageBuildRef)
-	if errors.Is(err, flterrors.ErrResourceNotFound) {
-		return []error{fmt.Errorf("spec.source.imageBuildRef: ImageBuild %q not found", imageBuildRef)}, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("failed to get ImageBuild %q: %w", imageBuildRef, err)
-	}
-
-	buildState := getCurrentBuildState(imageBuild)
-	switch buildState {
-	case string(domain.ImageBuildConditionReasonFailed):
-		errs = append(errs, fmt.Errorf("spec.source.imageBuildRef: ImageBuild %q is in Failed state", imageBuildRef))
-	case string(domain.ImageBuildConditionReasonCanceled):
-		errs = append(errs, fmt.Errorf("spec.source.imageBuildRef: ImageBuild %q is in Canceled state", imageBuildRef))
-	case string(domain.ImageBuildConditionReasonCanceling):
-		errs = append(errs, fmt.Errorf("spec.source.imageBuildRef: ImageBuild %q is in Canceling state", imageBuildRef))
-	}
-
-	if imageBuild.Spec.Destination.Repository == "" {
-		errs = append(errs, fmt.Errorf("spec.source.imageBuildRef: ImageBuild %q does not have a destination repository configured", imageBuildRef))
-	}
-	if imageBuild.Spec.Destination.ImageName == "" {
-		errs = append(errs, fmt.Errorf("spec.source.imageBuildRef: ImageBuild %q does not have a destination imageName configured", imageBuildRef))
-	}
-	if imageBuild.Spec.Destination.ImageTag == "" {
-		errs = append(errs, fmt.Errorf("spec.source.imageBuildRef: ImageBuild %q does not have a destination imageTag configured", imageBuildRef))
 	}
 
 	return errs, nil

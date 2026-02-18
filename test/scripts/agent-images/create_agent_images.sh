@@ -3,7 +3,7 @@ set -ex
 
 # Wrapper script that handles RPM source detection and calls build.sh and build_and_qcow2.sh
 # Behavior matches create_agent_images.sh but uses build.sh and build_and_qcow2.sh internally
-# Note: all images are built as root, to use in a non-root context, import with podman load -i bin/agent-images/agent-images-bundle-cs9-bootc.tar
+# Note: all images are built as root, to use in a non-root context, import with podman load -i bin/agent-images/agent-images-bundle-el9-bootc.tar
 
 
 BUILD_TYPE=${BUILD_TYPE:-bootc}
@@ -34,9 +34,9 @@ export JOBS="${PARALLEL_JOBS}"
 # Handle v7 variant based on OS and RHOCP access
 # Only auto-detect if user hasn't explicitly set EXCLUDE_VARIANTS
 if [ -z "${EXCLUDE_VARIANTS+x}" ]; then
-    if [ "${AGENT_OS_ID:-cs9-bootc}" = "cs10-bootc" ]; then
+    if [ "${AGENT_OS_ID:-el9-bootc}" = "el10-bootc" ]; then
         export EXCLUDE_VARIANTS="v7"
-        echo "cs10: v7 excluded (no MicroShift for cs10)"
+        echo "el10: v7 excluded (no MicroShift for el10)"
     elif has_rhocp_access; then
         export EXCLUDE_VARIANTS=""
         echo "RHOCP access available, enabling v7"
@@ -48,10 +48,10 @@ fi
 
 # Determine OS suffix based on flavor
 get_os_suffix() {
-    local flavor="${1:-cs9-bootc}"
+    local flavor="${1:-el9-bootc}"
     case "${flavor}" in
-        cs9*)  echo ".el9" ;;
-        cs10*) echo ".el10" ;;
+        el9*)  echo ".el9" ;;
+        el10*) echo ".el10" ;;
         *)     echo "" ;;
     esac
 }
@@ -132,10 +132,10 @@ export TAG
 export REGISTRY_ENDPOINT
 
 # Determine OS_ID strictly from AGENT_OS_ID (single source of truth)
-AGENT_OS_ID="${AGENT_OS_ID:-cs9-bootc}"
+AGENT_OS_ID="${AGENT_OS_ID:-el9-bootc}"
 case "${AGENT_OS_ID}" in
-    cs9*)  OS_ID="cs9-bootc" ;;
-    cs10*) OS_ID="cs10-bootc" ;;
+    el9*)  OS_ID="el9-bootc" ;;
+    el10*) OS_ID="el10-bootc" ;;
     *)     OS_ID="${AGENT_OS_ID}" ;;
 esac
 

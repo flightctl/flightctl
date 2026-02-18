@@ -7,24 +7,6 @@ scrape_configs:
     static_configs:
       - targets: ['localhost:9090'] # Prometheus scrapes itself (for its own internal metrics)
 
-  - job_name: 'flightctl-api'
-    static_configs:
-      - targets: ['flightctl-api:15690']  # API service metrics
-    relabel_configs:
-      - source_labels: [__address__]
-        regex: '([^:]+)(?::\d+)?'
-        target_label: instance
-        replacement: '$1'
-
-  - job_name: 'flightctl-api-db'
-    static_configs:
-      - targets: ['flightctl-api:15691']  # API database metrics
-    relabel_configs:
-      - source_labels: [__address__]
-        regex: '([^:]+)(?::\d+)?'
-        target_label: instance
-        replacement: '$1'
-
   - job_name: 'flightctl-telemetry-gateway'
     static_configs:
       - targets: ['flightctl-telemetry-gateway:9464'] # Telemetry gateway for Flight Control metrics

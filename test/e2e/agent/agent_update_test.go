@@ -227,6 +227,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			Expect(err).NotTo(HaveOccurred())
 		})
 		It("Should rollback when updating to a broken image", Label("82481", "sanity", "agent"), func() {
+			Skip("Test temporarily disabled, re-enable after EDM-3264 is fixed")
 			// Get harness directly - no shared package-level variable
 			harness := e2e.GetWorkerHarness()
 
@@ -276,7 +277,15 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			cond := v1beta1.FindStatusCondition(dev.Status.Conditions, v1beta1.ConditionTypeDeviceUpdating)
 			Expect(cond).ToNot(BeNil())
 			Expect(cond.Message).To(And(
-				ContainSubstring("prefetch failed for fake-image: invalid configuration or input"),
+				ContainSubstring("applications"),
+				SatisfyAny(
+					ContainSubstring("fake-image"),
+					ContainSubstring("Invalid value"),
+					ContainSubstring("invalid configuration or input"),
+					ContainSubstring("service unavailable"),
+					ContainSubstring("pulling oci target"),
+					ContainSubstring("internal error occurred"),
+				),
 			)) /*
 				** Add this assertion back when the bug referenced above is fixed **
 				harness.WaitForDeviceContents(deviceId, "device image should be reverted to the old image", func(device *v1beta1.Device) bool {

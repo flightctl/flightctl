@@ -51,7 +51,7 @@ type Service interface {
 	UpdateServiceSideDeviceStatus(ctx context.Context, orgId uuid.UUID, device domain.Device) bool
 	SetOutOfDate(ctx context.Context, orgId uuid.UUID, owner string) error
 	UpdateServerSideDeviceStatus(ctx context.Context, orgId uuid.UUID, name string) error
-	ListConnectivityChangedDevices(ctx context.Context, orgId uuid.UUID, params domain.ListDevicesParams, cutoffTime time.Time) (*domain.DeviceList, domain.Status)
+	ListDisconnectedDevices(ctx context.Context, orgId uuid.UUID, params domain.ListDevicesParams, cutoffTime time.Time) (*domain.DeviceList, domain.Status)
 
 	// EnrollmentConfig
 	GetEnrollmentConfig(ctx context.Context, orgId uuid.UUID, params domain.GetEnrollmentConfigParams) (*domain.EnrollmentConfig, domain.Status)
