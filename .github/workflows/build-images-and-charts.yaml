@@ -29,6 +29,9 @@ on:
       cli_git_tag:
         description: "Computed git tag from CLI build"
         value: ${{ jobs.build-cli.outputs.git_tag }}
+      helm_tag:
+        description: "Computed helm tag (without v prefix)"
+        value: ${{ jobs.build-helm-charts.outputs.helm_tag }}
 
 jobs:
   build-backend-containers:
@@ -240,6 +243,8 @@ jobs:
 
   build-helm-charts:
     runs-on: ubuntu-24.04
+    outputs:
+      helm_tag: ${{ steps.compute-tag.outputs.helm_tag }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -381,7 +386,7 @@ jobs:
       - name: Upload simulator binary
         uses: actions/upload-artifact@v4
         with:
-          name: devicesimulator-${{ inputs.flavor || 'el9' }}-${{ steps.compute-tag.outputs.git_tag }}
+          name: devicesimulator-${{ inputs.flavor || 'el9' }}-${{ steps.compute-tag.outputs.helm_tag }}
           path: bin/devicesimulator
           compression-level: 0
           if-no-files-found: error
