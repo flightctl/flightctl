@@ -253,9 +253,9 @@ jobs:
         with:
           base-domain: ${{ steps.base-domain.outputs.base_domain }}
           # EL10 requires longer timeout due to FIPS 140-3 enhanced TLS initialization
-          # EL10: 900s (15min - FIPS 140-3 with TLS 1.2 EMS mandatory, enhanced key validation, CI load)
+          # EL10: 180s (3min - FIPS 140-3 with TLS 1.2 EMS mandatory, enhanced key validation, CI load)
           # EL9:  60s  (Standard TLS requirements)
-          retries: ${{ inputs.flavor == 'el10' && '900' || '60' }}
+          retries: ${{ inputs.flavor == 'el10' && '180' || '60' }}
 
       - name: Prepare E2E environment
         env:

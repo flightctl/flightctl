@@ -449,6 +449,7 @@ jobs:
       - name: "[HEAD] Helm upgrade with migration monitoring"
         env:
           PR_GIT_TAG: ${{ needs.build-pr.outputs.git_tag }}
+          FLAVOR: el9
         run: |
           # Chart file (artifact name is flavor-specific, but file inside is fixed)
           CHART_FILE="artifacts-pr/flightctl-chart.tgz"
@@ -633,6 +634,7 @@ jobs:
       - name: "[HEAD] Helm upgrade - to the same version"
         env:
           PR_GIT_TAG: ${{ needs.build-pr.outputs.git_tag }}
+          FLAVOR: el9
         run: |
           # Chart file (artifact name is flavor-specific, but file inside is fixed)
           CHART_FILE="artifacts-pr/flightctl-chart.tgz"
