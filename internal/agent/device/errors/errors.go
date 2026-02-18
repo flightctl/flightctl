@@ -480,6 +480,8 @@ func IsRetryable(err error) bool {
 		return true
 	case errors.Is(err, ErrDownloadPolicyNotReady), errors.Is(err, ErrUpdatePolicyNotReady):
 		return true
+	case errors.Is(err, ErrCriticalResourceAlert):
+		return true
 	case errors.Is(err, ErrPrefetchNotReady), errors.Is(err, ErrOCICollectorNotReady):
 		return true
 	case errors.Is(err, ErrNoContent):

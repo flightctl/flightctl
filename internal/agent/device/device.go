@@ -199,8 +199,9 @@ func (a *Agent) syncDeviceSpec(ctx context.Context) {
 			return
 		}
 
-		// Policy may defer update; in all cases, warn and roll back to the previous renderedVersion.
-		if errors.Is(syncErr, errors.ErrUpdatePolicyNotReady) || errors.Is(syncErr, errors.ErrDownloadPolicyNotReady) {
+		// Policy or critical resource alerts may defer update; in all cases, warn and roll back to the previous renderedVersion.
+		if errors.Is(syncErr, errors.ErrUpdatePolicyNotReady) || errors.Is(syncErr, errors.ErrDownloadPolicyNotReady) ||
+			errors.Is(syncErr, errors.ErrCriticalResourceAlert) {
 			a.log.Warnf("Requeuing version %s: %s", current.Version(), syncErr.Error())
 		} else {
 			a.log.Warnf("Attempting to rollback to previous renderedVersion: %s", current.Version())
@@ -329,6 +330,15 @@ func (a *Agent) statusUpdate(ctx context.Context) {
 func (a *Agent) beforeUpdate(ctx context.Context, current, desired *v1beta1.Device) error {
 	if err := a.resourceManager.BeforeUpdate(ctx, desired.Spec); err != nil {
 		return fmt.Errorf("%w: %w", errors.ErrComponentResources, err)
+	}
+
+	if a.resourceManager.IsCriticalAlert(resource.CPUMonitorType) {
+		return fmt.Errorf("%w: %w", errors.ErrComponentResources,
+			fmt.Errorf("%w: %w", errors.WithElement("CPU"), errors.ErrCriticalResourceAlert))
+	}
+	if a.resourceManager.IsCriticalAlert(resource.MemoryMonitorType) {
+		return fmt.Errorf("%w: %w", errors.ErrComponentResources,
+			fmt.Errorf("%w: %w", errors.WithElement("Memory"), errors.ErrCriticalResourceAlert))
 	}
 
 	if err := a.specManager.CheckPolicy(ctx, policy.Download, desired.Version()); err != nil {
