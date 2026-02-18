@@ -23,6 +23,7 @@ env:
   REGISTRY_OWNER: flightctl
   REGISTRY_OWNER_TESTS: flightctl-tests
   GITHUB_ACTIONS: true
+  FLAVOR: el9
 
 jobs:
   check-override:
@@ -131,7 +132,7 @@ jobs:
         with:
           tag: ${{ needs.build-baseline.outputs.git_tag }}
           base-domain: ${{ steps.get-ip.outputs.base-domain }}
-          flavor: el9
+          flavor: ${{ env.FLAVOR }}
 
       - name: "[BASELINE] Check deployment"
         run: kubectl get pods --all-namespaces
@@ -170,7 +171,7 @@ jobs:
       - name: "[BASELINE] Download simulator"
         uses: actions/download-artifact@v4
         with:
-          name: devicesimulator-${{ needs.build-baseline.outputs.cli_git_tag }}
+          name: devicesimulator-${{ env.FLAVOR }}-${{ needs.build-baseline.outputs.helm_tag }}
           path: bin-baseline-sim
 
       - name: "[BASELINE] Run simulator"
@@ -273,7 +274,7 @@ jobs:
       - name: "[HEAD] Download simulator"
         uses: actions/download-artifact@v4
         with:
-          name: devicesimulator-${{ needs.build-pr.outputs.cli_git_tag }}
+          name: devicesimulator-${{ env.FLAVOR }}-${{ needs.build-pr.outputs.helm_tag }}
           path: bin-pr-sim
 
       - name: "[HEAD] Run simulator"
