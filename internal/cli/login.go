@@ -250,14 +250,23 @@ func (o *LoginOptions) Complete(cmd *cobra.Command, args []string) error {
 
 func (o *LoginOptions) Init(args []string) error {
 	var err error
-	// Use trimmed URL for client config to handle whitespace
 	trimmedURL := strings.TrimSpace(args[0])
-	o.clientConfig, err = o.getClientConfig(trimmedURL)
+	serverURL := ensureURLScheme(trimmedURL)
+	o.clientConfig, err = o.getClientConfig(serverURL)
 	if err != nil {
 		return err
 	}
 	return nil
 }
+
+// ensureURLScheme ensures that the given server URL has a scheme. If not, it defaults to https.
+func ensureURLScheme(serverURL string) string {
+	if serverURL != "" && !strings.HasPrefix(serverURL, "http://") && !strings.HasPrefix(serverURL, "https://") {
+		return "https://" + serverURL
+	}
+	return serverURL
+}
+
 
 // validateShowProvidersExclusion ensures --show-providers is not used with other login options
 func (o *LoginOptions) validateShowProvidersExclusion() error {
