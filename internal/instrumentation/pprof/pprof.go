@@ -116,8 +116,14 @@ func (p *PprofServer) Run(ctx context.Context, options ...PprofOption) error {
 		IdleTimeout:       httpIdleTimeout,
 	}
 
+	serveCtx, serveCancel := context.WithCancel(ctx)
+	shutdownDone := make(chan struct{})
 	go func() {
-		<-ctx.Done()
+		defer close(shutdownDone)
+		<-serveCtx.Done()
+		if ctx.Err() == nil {
+			return
+		}
 		if p.log != nil {
 			p.log.WithError(ctx.Err()).Info("pprof: shutdown signal received")
 		}
@@ -134,11 +140,13 @@ func (p *PprofServer) Run(ctx context.Context, options ...PprofOption) error {
 		p.log.Infof("pprof server listening on http://%s/debug/pprof/", addr)
 	}
 
+	var serveErr error
 	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		return err
+		serveErr = err
 	}
-
-	return nil
+	serveCancel()
+	<-shutdownDone
+	return serveErr
 }
 
 // capSeconds ensures the handler always runs with a bounded "seconds":
