@@ -25,11 +25,13 @@ func RequestSizeLimiter(maxURLLength int, maxNumHeaders int) func(http.Handler) 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if len(r.URL.String()) > maxURLLength {
-				http.Error(w, fmt.Sprintf("URL too long, exceeds %d characters", maxURLLength), http.StatusRequestURITooLong)
+				err := fmt.Errorf("URL too long, exceeds %d characters", maxURLLength)
+				WriteJSONError(w, http.StatusRequestURITooLong, "RequestURITooLong", err)
 				return
 			}
 			if len(r.Header) > maxNumHeaders {
-				http.Error(w, fmt.Sprintf("Request has too many headers, exceeds %d", maxNumHeaders), http.StatusRequestHeaderFieldsTooLarge)
+				err := fmt.Errorf("request has too many headers, exceeds %d", maxNumHeaders)
+				WriteJSONError(w, http.StatusRequestHeaderFieldsTooLarge, "RequestHeaderFieldsTooLarge", err)
 				return
 			}
 
@@ -104,14 +106,14 @@ func ExtractAndValidateOrg(extractor OrgIDExtractor, logger logrus.FieldLogger) 
 
 			mappedIdentity, ok := contextutil.GetMappedIdentityFromContext(ctx)
 			if !ok {
-				http.Error(w, flterrors.ErrNoMappedIdentity.Error(), http.StatusInternalServerError)
+				WriteJSONError(w, http.StatusInternalServerError, "InternalServerError", flterrors.ErrNoMappedIdentity)
 				return
 			}
 
 			orgID, err := resolveOrgID(ctx, r, extractor, mappedIdentity)
 			if err != nil {
 				reqLogger.Debugf("ExtractAndValidateOrg: error resolving org: %v", err)
-				http.Error(w, err.Error(), statusForOrgError(err))
+				WriteJSONError(w, statusForOrgError(err), reasonForOrgError(err), err)
 				return
 			}
 
@@ -161,6 +163,18 @@ func statusForOrgError(err error) int {
 		return http.StatusBadRequest
 	}
 	return http.StatusBadRequest
+}
+
+func reasonForOrgError(err error) string {
+	switch err {
+	case flterrors.ErrNoOrganizations, flterrors.ErrNotOrgMember:
+		return "Forbidden"
+	case flterrors.ErrAmbiguousOrganization:
+		return "AmbiguousOrganization"
+	case flterrors.ErrInvalidOrgID:
+		return "InvalidOrgID"
+	}
+	return "BadRequest"
 }
 
 func extractOrgIDFromRequestQuery(ctx context.Context, r *http.Request) (uuid.UUID, bool, error) {
