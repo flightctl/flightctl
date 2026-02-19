@@ -166,7 +166,7 @@ func main() {
 	defer serviceClient.Stop()
 
 	// Create simulator fleet configuration
-	if err := createSimulatorFleet(ctx, serviceClient.ClientWithResponses, log); err != nil {
+	if err := createSimulatorFleet(ctx, serviceClient.ClientWithResponses, log, cfg); err != nil {
 		log.Warnf("Failed to create simulator fleet: %v", err)
 	}
 
@@ -206,6 +206,7 @@ func main() {
 		formattedLabels: formattedLables,
 		sem:             sem,
 		jitterDuration:  jitterDuration,
+		cfg:             cfg,
 	}
 	for i := range *numDevices {
 		if err := sem.Acquire(ctx, 1); err != nil {
@@ -237,7 +238,7 @@ func launchAgent(ctx context.Context, i int, params agentLaunchParams) {
 	// leave the agent process running in the background
 	// when the agent is approved, we return and release the semaphore to allow other agents to onboard
 	go startAgent(ctx, params.agents[i], params.log, i)
-	approveAgent(ctx, params.log, params.serviceClient, params.agentFolders[i], params.formattedLabels)
+	approveAgent(ctx, params.log, params.serviceClient, params.agentFolders[i], params.formattedLabels, params.cfg)
 }
 
 func reportVersion(versionFormat *string) error {
@@ -346,6 +347,7 @@ type agentLaunchParams struct {
 	formattedLabels *map[string]string
 	sem             *semaphore.Weighted
 	jitterDuration  time.Duration
+	cfg             *baseclient.Config
 }
 
 func createAgents(agentCfg createAgentsConfig) ([]*agent.Agent, []string) {
@@ -452,7 +454,20 @@ func createAgents(agentCfg createAgentsConfig) ([]*agent.Agent, []string) {
 	return agents, agentsFolders
 }
 
-func approveAgent(ctx context.Context, log *logrus.Logger, serviceClient *apiClient.ClientWithResponses, agentDir string, labels *map[string]string) {
+// withOrganization is a request editor function that adds the organization ID to the request query parameters.
+func withOrganization(orgID string) apiClient.RequestEditorFn {
+	return func(ctx context.Context, req *http.Request) error {
+		if orgID == "" {
+			return nil
+		}
+		q := req.URL.Query()
+		q.Set("org_id", orgID)
+		req.URL.RawQuery = q.Encode()
+		return nil
+	}
+}
+
+func approveAgent(ctx context.Context, log *logrus.Logger, serviceClient *apiClient.ClientWithResponses, agentDir string, labels *map[string]string, cfg *baseclient.Config) {
 	enrollmentId := ""
 	err := wait.PollUntilContextTimeout(ctx, 5*time.Second, 5*time.Minute, false, func(ctx context.Context) (bool, error) {
 		log.Infof("Approving device enrollment if exists for agent %s", filepath.Base(agentDir))
@@ -477,7 +492,8 @@ func approveAgent(ctx context.Context, log *logrus.Logger, serviceClient *apiCli
 			v1beta1.EnrollmentRequestApproval{
 				Approved: true,
 				Labels:   labels,
-			})
+			},
+			withOrganization(cfg.Organization))
 		if err != nil {
 			log.Errorf("Error approving device %s enrollment: %v", enrollmentId, err)
 			return false, nil
@@ -611,11 +627,11 @@ func setupTPMLinks(agentDir string, log *logrus.Logger) {
 	}
 }
 
-func createSimulatorFleet(ctx context.Context, serviceClient *apiClient.ClientWithResponses, log *logrus.Logger) error {
+func createSimulatorFleet(ctx context.Context, serviceClient *apiClient.ClientWithResponses, log *logrus.Logger, cfg *baseclient.Config) error {
 	fleetName := "simulator-disk-monitoring"
 
 	// Check if fleet already exists
-	response, err := serviceClient.GetFleetWithResponse(ctx, fleetName, &v1beta1.GetFleetParams{})
+	response, err := serviceClient.GetFleetWithResponse(ctx, fleetName, &v1beta1.GetFleetParams{}, withOrganization(cfg.Organization))
 	if err == nil && response.HTTPResponse != nil && response.HTTPResponse.StatusCode == 200 {
 		log.Infof("Fleet %s already exists, skipping creation", fleetName)
 		return nil
@@ -642,7 +658,7 @@ func createSimulatorFleet(ctx context.Context, serviceClient *apiClient.ClientWi
 	}
 
 	// Create the fleet
-	createResponse, err := serviceClient.ReplaceFleetWithBodyWithResponse(ctx, fleetName, "application/json", bytes.NewReader(fleetJSON))
+	createResponse, err := serviceClient.ReplaceFleetWithBodyWithResponse(ctx, fleetName, "application/json", bytes.NewReader(fleetJSON), withOrganization(cfg.Organization))
 	if err != nil {
 		return fmt.Errorf("creating fleet: %w", err)
 	}
