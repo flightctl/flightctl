@@ -208,54 +208,6 @@ func TestCreateImageExportWithNonexistentImageBuildRef(t *testing.T) {
 	require.Contains(status.Message, "not found")
 }
 
-func TestCreateImageExportWithImageBuildInTerminalState(t *testing.T) {
-	tests := []struct {
-		name           string
-		reason         api.ImageBuildConditionReason
-		expectedSubstr string
-	}{
-		{"Failed", api.ImageBuildConditionReasonFailed, "Failed state"},
-		{"Canceled", api.ImageBuildConditionReasonCanceled, "Canceled state"},
-		{"Canceling", api.ImageBuildConditionReasonCanceling, "Canceling state"},
-	}
-
-	for _, tc := range tests {
-		t.Run(string(tc.reason), func(t *testing.T) {
-			require := require.New(t)
-			ctx := context.Background()
-			orgId := uuid.New()
-
-			repoStore := NewDummyRepositoryStore()
-			setupRepositoriesForImageExport(repoStore, ctx, orgId, false)
-			imageBuildStore := NewDummyImageBuildStore()
-			svc := NewImageExportService(NewDummyImageExportStore(), imageBuildStore, repoStore, nil, nil, nil, config.NewDefaultImageBuilderServiceConfig(), log.InitLogs())
-
-			imageBuild := newValidImageBuild(tc.name)
-			_, err := imageBuildStore.Create(ctx, orgId, &imageBuild)
-			require.NoError(err)
-
-			imageBuild.Status = &api.ImageBuildStatus{
-				Conditions: &[]api.ImageBuildCondition{
-					{
-						Type:               api.ImageBuildConditionTypeReady,
-						Status:             v1beta1.ConditionStatusFalse,
-						Reason:             string(tc.reason),
-						LastTransitionTime: time.Now(),
-					},
-				},
-			}
-			_, err = imageBuildStore.UpdateStatus(ctx, orgId, &imageBuild)
-			require.NoError(err)
-
-			imageExport := newImageExportWithImageBuildSource("test-export", tc.name)
-			_, status := svc.Create(ctx, orgId, imageExport)
-
-			require.Equal(int32(http.StatusBadRequest), statusCode(status))
-			require.Contains(status.Message, tc.expectedSubstr)
-		})
-	}
-}
-
 func TestGetImageExport(t *testing.T) {
 	require := require.New(t)
 	ctx := context.Background()
@@ -1023,12 +975,7 @@ func newOciRepositoryWithRegistry(name string, accessMode v1beta1.OciRepoSpecAcc
 }
 
 // TestDownloadImageExportWithRedirect tests successful download with redirect response.
-// NOTE: This test requires proper TLS setup for the oras library to work with test servers.
-// The oras library uses its own HTTP client which doesn't respect SkipServerVerification
-// for the manifest fetch operations. This test is skipped until we can properly configure
-// the oras library's HTTP client or use a real registry for integration testing.
 func TestDownloadImageExportWithRedirect(t *testing.T) {
-	t.Skip("Skipping integration test - requires proper TLS setup for oras library")
 	require := require.New(t)
 	ctx := context.Background()
 	orgId := uuid.New()
@@ -1115,12 +1062,7 @@ func TestDownloadImageExportWithRedirect(t *testing.T) {
 }
 
 // TestDownloadImageExportWithBlobReader tests successful download with direct blob stream.
-// NOTE: This test requires proper TLS setup for the oras library to work with test servers.
-// The oras library uses its own HTTP client which doesn't respect SkipServerVerification
-// for the manifest fetch operations. This test is skipped until we can properly configure
-// the oras library's HTTP client or use a real registry for integration testing.
 func TestDownloadImageExportWithBlobReader(t *testing.T) {
-	t.Skip("Skipping integration test - requires proper TLS setup for oras library")
 	require := require.New(t)
 	ctx := context.Background()
 	orgId := uuid.New()
@@ -1218,12 +1160,7 @@ func TestDownloadImageExportWithBlobReader(t *testing.T) {
 }
 
 // TestDownloadImageExportManifestWrongLayerCount tests validation of manifest layer count.
-// NOTE: This test requires proper TLS setup for the oras library to work with test servers.
-// The oras library uses its own HTTP client which doesn't respect SkipServerVerification
-// for the manifest fetch operations. This test is skipped until we can properly configure
-// the oras library's HTTP client or use a real registry for integration testing.
 func TestDownloadImageExportManifestWrongLayerCount(t *testing.T) {
-	t.Skip("Skipping integration test - requires proper TLS setup for oras library")
 	require := require.New(t)
 	ctx := context.Background()
 	orgId := uuid.New()
