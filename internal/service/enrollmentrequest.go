@@ -218,6 +218,16 @@ func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, 
 	if enrollmentRequest.Status != nil && enrollmentRequest.Status.Approval != nil {
 		apiResource.Metadata.Labels = enrollmentRequest.Status.Approval.Labels
 	}
+	// Apply default alias from annotation when approval did not set alias
+	labels := util.EnsureMap(lo.FromPtr(apiResource.Metadata.Labels))
+	if alias, has := labels["alias"]; !has || strings.TrimSpace(alias) == "" {
+		if enrollmentRequest.Metadata.Annotations != nil {
+			if defaultAlias, ok := (*enrollmentRequest.Metadata.Annotations)[domain.EnrollmentRequestAnnotationDefaultAlias]; ok && strings.TrimSpace(defaultAlias) != "" {
+				labels["alias"] = defaultAlias
+			}
+		}
+	}
+	apiResource.Metadata.Labels = &labels
 
 	// Transfer awaitingReconnect annotation from enrollment request to device if present
 	if enrollmentRequest.Metadata.Annotations != nil {
@@ -277,6 +287,8 @@ func (h *ServiceHandler) CreateEnrollmentRequest(ctx context.Context, orgId uuid
 		er.Metadata.Annotations = &annotations
 		h.log.Infof("Adding awaitingReconnect annotation for knownRenderedVersion: %s", *er.Spec.KnownRenderedVersion)
 	}
+
+	applyDefaultAliasAnnotation(h, &er)
 
 	if errs := er.Validate(); len(errs) > 0 {
 		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
@@ -342,6 +354,8 @@ func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, orgId uui
 	addStatusIfNeeded(&er)
 	NilOutManagedObjectMetaProperties(&er.Metadata)
 
+	applyDefaultAliasAnnotation(h, &er)
+
 	if errs := er.Validate(); len(errs) > 0 {
 		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
 	}
@@ -367,7 +381,28 @@ func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, orgId uui
 	}
 
 	result, created, err := h.store.EnrollmentRequest().CreateOrUpdate(ctx, orgId, &er, h.callbackEnrollmentRequestUpdated)
-	return result, StoreErrorToApiStatus(err, created, domain.EnrollmentRequestKind, &name)
+	if err != nil {
+		return nil, StoreErrorToApiStatus(err, created, domain.EnrollmentRequestKind, &name)
+	}
+	// Persist server-set default-alias annotation via UpdateAnnotations (CreateOrUpdate with fromAPI=true preserves existing annotations).
+	if len(h.defaultAliasKeys) > 0 && er.Spec.DeviceStatus != nil {
+		alias := common.ComputeDefaultAlias(er.Spec.DeviceStatus.SystemInfo, h.defaultAliasKeys)
+		var setAnnots map[string]string
+		var deleteKeys []string
+		if alias != "" {
+			setAnnots = map[string]string{domain.EnrollmentRequestAnnotationDefaultAlias: alias}
+		} else {
+			deleteKeys = []string{domain.EnrollmentRequestAnnotationDefaultAlias}
+		}
+		if updateErr := h.store.EnrollmentRequest().UpdateAnnotations(ctx, orgId, name, setAnnots, deleteKeys, h.callbackEnrollmentRequestUpdated); updateErr != nil {
+			return nil, StoreErrorToApiStatus(updateErr, false, domain.EnrollmentRequestKind, &name)
+		}
+		result, err = h.store.EnrollmentRequest().Get(ctx, orgId, name)
+		if err != nil {
+			return nil, StoreErrorToApiStatus(err, false, domain.EnrollmentRequestKind, &name)
+		}
+	}
+	return result, StoreErrorToApiStatus(nil, created, domain.EnrollmentRequestKind, &name)
 }
 
 // Only metadata.labels and spec can be patched. If we try to patch other fields, HTTP 400 Bad Request is returned.
@@ -392,6 +427,8 @@ func (h *ServiceHandler) PatchEnrollmentRequest(ctx context.Context, orgId uuid.
 
 	NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
+
+	applyDefaultAliasAnnotation(h, newObj)
 
 	request, isTPM, err := newSignRequestFromEnrollment(h.ca.Cfg, newObj)
 	if err != nil {
@@ -491,6 +528,22 @@ func (h *ServiceHandler) ReplaceEnrollmentRequestStatus(ctx context.Context, org
 
 	result, err := h.store.EnrollmentRequest().UpdateStatus(ctx, orgId, &er, h.callbackEnrollmentRequestUpdated)
 	return result, StoreErrorToApiStatus(err, false, domain.EnrollmentRequestKind, &name)
+}
+
+// applyDefaultAliasAnnotation sets or clears the default-alias annotation on the enrollment request
+// when defaultAliasKeys is configured and deviceStatus.systemInfo is present.
+func applyDefaultAliasAnnotation(h *ServiceHandler, er *domain.EnrollmentRequest) {
+	if len(h.defaultAliasKeys) == 0 || er.Spec.DeviceStatus == nil {
+		return
+	}
+	alias := common.ComputeDefaultAlias(er.Spec.DeviceStatus.SystemInfo, h.defaultAliasKeys)
+	annotations := util.EnsureMap(lo.FromPtr(er.Metadata.Annotations))
+	if alias != "" {
+		annotations[domain.EnrollmentRequestAnnotationDefaultAlias] = alias
+	} else {
+		delete(annotations, domain.EnrollmentRequestAnnotationDefaultAlias)
+	}
+	er.Metadata.Annotations = &annotations
 }
 
 func newSignRequestFromEnrollment(cfg *ca.Config, er *domain.EnrollmentRequest) (signer.SignRequest, bool, error) {

@@ -42,7 +42,7 @@ func New(
 	ca *crypto.CAClient,
 ) *Worker {
 	// Create service handler for internal operations (enrollment credential generation)
-	serviceHandler := service.NewServiceHandler(mainStore, nil, kvStore, ca, log.WithField("component", "service"), cfg.Service.BaseAgentEndpointUrl, cfg.Service.BaseUIUrl, nil)
+	serviceHandler := service.NewServiceHandler(mainStore, nil, kvStore, ca, log.WithField("component", "service"), cfg.Service.BaseAgentEndpointUrl, cfg.Service.BaseUIUrl, nil, nil)
 
 	return &Worker{
 		cfg:            cfg,

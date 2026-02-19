@@ -203,3 +203,138 @@ func TestConfig_String_HandlesNilClientSecrets(t *testing.T) {
 		t.Error("Should handle nil client secrets gracefully")
 	}
 }
+
+func TestValidateDefaultAliasKeys(t *testing.T) {
+	tests := []struct {
+		name    string
+		cfg     *Config
+		wantErr bool
+	}{
+		{
+			name:    "nil service",
+			cfg:     &Config{},
+			wantErr: false,
+		},
+		{
+			name: "empty defaultAliasKeys",
+			cfg: &Config{
+				Service: &svcConfig{
+					DefaultAliasKeys: []string{},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid keys - hostname and fixed field",
+			cfg: &Config{
+				Service: &svcConfig{
+					DefaultAliasKeys: []string{"hostname", "architecture"},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid customInfo key",
+			cfg: &Config{
+				Service: &svcConfig{
+					DefaultAliasKeys: []string{"customInfo.mykey", "customInfo.foo_bar"},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "empty key in list",
+			cfg: &Config{
+				Service: &svcConfig{
+					DefaultAliasKeys: []string{"hostname", "", "architecture"},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "customInfo with empty suffix",
+			cfg: &Config{
+				Service: &svcConfig{
+					DefaultAliasKeys: []string{"customInfo."},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "customInfo with invalid suffix - starts with dash",
+			cfg: &Config{
+				Service: &svcConfig{
+					DefaultAliasKeys: []string{"customInfo.-invalid"},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "customInfo with invalid suffix - invalid chars",
+			cfg: &Config{
+				Service: &svcConfig{
+					DefaultAliasKeys: []string{"customInfo.bad@key"},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "additionalProperties key with invalid chars",
+			cfg: &Config{
+				Service: &svcConfig{
+					DefaultAliasKeys: []string{"host@name"},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "additionalProperties key with space",
+			cfg: &Config{
+				Service: &svcConfig{
+					DefaultAliasKeys: []string{"product serial"},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "valid additionalProperties-style key with underscore",
+			cfg: &Config{
+				Service: &svcConfig{
+					DefaultAliasKeys: []string{"product_serial", "hostname"},
+				},
+			},
+			wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := Validate(tt.cfg)
+			if tt.wantErr {
+				if err == nil {
+					t.Error("Validate() expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Errorf("Validate() unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestNewDefault_ServiceDefaultAliasKeys(t *testing.T) {
+	cfg := NewDefault()
+	if cfg.Service == nil {
+		t.Fatal("NewDefault() Service should not be nil")
+	}
+	want := []string{"hostname"}
+	if len(cfg.Service.DefaultAliasKeys) != len(want) {
+		t.Errorf("DefaultAliasKeys length: got %d, want %d", len(cfg.Service.DefaultAliasKeys), len(want))
+	}
+	for i := range want {
+		if i >= len(cfg.Service.DefaultAliasKeys) || cfg.Service.DefaultAliasKeys[i] != want[i] {
+			t.Errorf("DefaultAliasKeys[%d]: got %v, want %q", i, cfg.Service.DefaultAliasKeys, want)
+			break
+		}
+	}
+}

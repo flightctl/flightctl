@@ -81,7 +81,7 @@ func main() {
 	}()
 	defer orgCache.Stop()
 
-	serviceHandler := service.WrapWithTracing(service.NewServiceHandler(store, workerClient, kvStore, nil, log, "", "", []string{}))
+	serviceHandler := service.WrapWithTracing(service.NewServiceHandler(store, workerClient, kvStore, nil, log, "", "", []string{}, nil))
 
 	server := alert_exporter.New(cfg, log)
 	if err := server.Run(ctx, serviceHandler); err != nil {
