@@ -283,7 +283,7 @@ func generateTemplateVersionName(fleet *domain.Fleet) string {
 	hashStr := hex.EncodeToString(hash[:])[:hashLen]
 
 	maxPrefix := validation.DNS1123MaxLength - 1 - hashLen - 1 - len(genStr)
-	prefix := name[:maxPrefix]
+	prefix := strings.TrimRight(name[:maxPrefix], "-.")
 
 	return prefix + "-" + hashStr + "-" + genStr
 }
