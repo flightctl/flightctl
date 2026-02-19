@@ -3,10 +3,12 @@ package tasks
 import (
 	"context"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/service"
+	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -99,4 +101,71 @@ func TestFleetValidateLogic_CreateNewTemplateVersionIfFleetValid_ImmediateRollou
 			assert.Equal(t, tt.expectedImmediate, capturedImmediateRollout, tt.description)
 		})
 	}
+}
+
+func TestGenerateTemplateVersionName(t *testing.T) {
+	require := require.New(t)
+
+	makeFleet := func(name string, generation int64) *domain.Fleet {
+		return &domain.Fleet{
+			Metadata: domain.ObjectMeta{
+				Name:       &name,
+				Generation: &generation,
+			},
+		}
+	}
+
+	tests := []struct {
+		name       string
+		fleetName  string
+		generation int64
+	}{
+		{
+			name:       "short name uses simple form",
+			fleetName:  "my-fleet",
+			generation: 1,
+		},
+		{
+			name:       "max name that fits simple form",
+			fleetName:  strings.Repeat("a", 251),
+			generation: 1,
+		},
+		{
+			name:       "253-char name at generation 1 uses hash form",
+			fleetName:  strings.Repeat("a", 253),
+			generation: 1,
+		},
+		{
+			name:       "253-char name at large generation",
+			fleetName:  strings.Repeat("a", 253),
+			generation: 9999999999,
+		},
+		{
+			name:       "240-char name at generation exceeding simple form",
+			fleetName:  strings.Repeat("b", 240),
+			generation: 99999999999999,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fleet := makeFleet(tt.fleetName, tt.generation)
+			result := generateTemplateVersionName(fleet)
+			require.LessOrEqual(len(result), validation.DNS1123MaxLength,
+				"generated name %q has %d chars, exceeds %d", result, len(result), validation.DNS1123MaxLength)
+		})
+	}
+
+	t.Run("different long names produce different results", func(t *testing.T) {
+		nameA := strings.Repeat("a", 253)
+		nameB := strings.Repeat("a", 252) + "b"
+		fleetA := makeFleet(nameA, 1)
+		fleetB := makeFleet(nameB, 1)
+		require.NotEqual(generateTemplateVersionName(fleetA), generateTemplateVersionName(fleetB))
+	})
+
+	t.Run("short name preserves simple format", func(t *testing.T) {
+		fleet := makeFleet("my-fleet", 5)
+		require.Equal("my-fleet-5", generateTemplateVersionName(fleet))
+	})
 }

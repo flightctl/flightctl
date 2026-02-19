@@ -2,13 +2,17 @@ package tasks
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/util"
+	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -259,6 +263,27 @@ func (t *FleetValidateLogic) validateHttpProviderConfig(ctx context.Context, con
 	return &httpConfigProviderSpec.Name, &httpConfigProviderSpec.HttpRef.Repository, nil
 }
 
+const hashLen = 8
+
+// generateTemplateVersionName produces a DNS-compatible TemplateVersion name from a Fleet.
+// For short fleet names, it uses the simple form: {fleetName}-{generation}.
+// For long fleet names where the simple form would exceed the DNS subdomain limit,
+// it truncates the name and inserts a hash of the full name to preserve uniqueness:
+// {truncatedName}-{hash}-{generation}.
 func generateTemplateVersionName(fleet *domain.Fleet) string {
-	return fmt.Sprintf("%s-%d", *fleet.Metadata.Name, *fleet.Metadata.Generation)
+	name := *fleet.Metadata.Name
+	genStr := strconv.FormatInt(*fleet.Metadata.Generation, 10)
+
+	simple := name + "-" + genStr
+	if len(simple) <= validation.DNS1123MaxLength {
+		return simple
+	}
+
+	hash := sha256.Sum256([]byte(name))
+	hashStr := hex.EncodeToString(hash[:])[:hashLen]
+
+	maxPrefix := validation.DNS1123MaxLength - 1 - hashLen - 1 - len(genStr)
+	prefix := name[:maxPrefix]
+
+	return prefix + "-" + hashStr + "-" + genStr
 }
