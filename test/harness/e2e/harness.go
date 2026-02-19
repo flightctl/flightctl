@@ -48,6 +48,7 @@ var _ = BeforeEach(func() {
 import (
 	"bytes"
 	"context"
+	cryptorand "crypto/rand"
 	"fmt"
 	"io"
 	"net"
@@ -681,6 +682,11 @@ func (h *Harness) TestEnrollmentApproval(labels ...map[string]string) *v1beta1.E
 }
 
 func (h *Harness) CleanUpAllTestResources() error {
+	if h.VM != nil {
+		if err := h.StopFlightCtlAgent(); err != nil {
+			logrus.Warnf("Failed to stop agent before cleanup: %v", err)
+		}
+	}
 	return h.CleanUpTestResources(util.ResourceTypes[:]...)
 }
 
@@ -1569,6 +1575,18 @@ func (h *Harness) setupVMFromPoolNoTimeout(workerID int) error {
 	// Wait for SSH to be ready
 	if err := testVM.WaitForSSHToBeReady(); err != nil {
 		return fmt.Errorf("failed to wait for SSH: %w", err)
+	}
+
+	// Reseed the VM's entropy pool with host-generated random bytes.
+	// After a snapshot revert the kernel CSPRNG state is identical to the
+	// snapshot, which can cause the agent to generate the same private key
+	// (and therefore the same device name) across different test runs.
+	entropy := make([]byte, 512)
+	if _, err := cryptorand.Read(entropy); err != nil {
+		return fmt.Errorf("failed to generate entropy on host: %w", err)
+	}
+	if _, err := testVM.RunSSH([]string{"sudo", "dd", "of=/dev/urandom", "bs=512", "count=1"}, bytes.NewBuffer(entropy)); err != nil {
+		logrus.Warnf("Failed to reseed VM entropy: %v", err)
 	}
 
 	// Clean any stale CSR from previous tests

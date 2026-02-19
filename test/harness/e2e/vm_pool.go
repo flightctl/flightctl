@@ -200,16 +200,9 @@ func (p *VMPool) createVMForWorker(workerID int) (vm.TestVMInterface, error) {
 	fmt.Printf("🔍 [VMPool] Worker %d: Printing agent files after snapshot creation:\n", workerID)
 	printAgentFilesForVM(newVM, "After Snapshot Creation")
 
-	// Restart the agent after snapshot creation
-	fmt.Printf("🔄 [VMPool] Worker %d: Restarting flightctl-agent after snapshot creation\n", workerID)
-	if _, err := newVM.RunSSH([]string{"sudo", "systemctl", "restart", "flightctl-agent"}, nil); err != nil {
-		// Log warning but don't fail - agent service might have issues but VM is still usable
-		fmt.Printf("⚠️  [VMPool] Worker %d: Warning - failed to restart flightctl-agent: %v\n", workerID, err)
-	} else {
-		fmt.Printf("✅ [VMPool] Worker %d: flightctl-agent restarted successfully after snapshot creation\n", workerID)
-	}
-
 	// VM stays running - no shutdown
+	// The agent is intentionally left stopped; the first test to use this VM
+	// will revert to the pristine snapshot and start the agent itself.
 	fmt.Printf("✅ [VMPool] Worker %d: VM setup completed, VM is running\n", workerID)
 	return newVM, nil
 }
