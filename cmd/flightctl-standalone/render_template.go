@@ -4,10 +4,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"strings"
 
-	"github.com/flightctl/flightctl/internal/config/standalone"
+	standaloneconfig "github.com/flightctl/flightctl/internal/config/standalone"
+	"github.com/flightctl/flightctl/internal/quadlet/renderer"
+	"github.com/flightctl/flightctl/internal/standalone"
 	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/flightctl/flightctl/pkg/template"
 	"github.com/spf13/cobra"
@@ -32,7 +33,7 @@ func NewRenderTemplateCommand() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&opts.Config, "config", "/etc/flightctl/service-config.yaml", "Path to the service configuration file")
+	cmd.Flags().StringVar(&opts.Config, "config", renderer.DefaultServiceConfigPath, "Path to the service configuration file")
 	cmd.Flags().StringVar(&opts.InputFile, "input-file", "", "Input template file to render")
 	cmd.Flags().StringVar(&opts.OutputFile, "output-file", "", "Output file path")
 
@@ -80,7 +81,7 @@ func (o *RenderTemplateOptions) completeConfig(data map[string]interface{}) erro
 	// Default baseDomain if empty
 	baseDomain, _ := global["baseDomain"].(string)
 	if baseDomain == "" {
-		hostname, err := o.getHostnameFQDN()
+		hostname, err := standalone.GetHostnameFQDN()
 		if err != nil {
 			return fmt.Errorf("failed to get hostname for baseDomain default: %w", err)
 		}
@@ -99,7 +100,7 @@ func (o *RenderTemplateOptions) completeConfig(data map[string]interface{}) erro
 		return nil
 	}
 
-	clientIDFile := "/etc/flightctl/pki/aap-client-id"
+	clientIDFile := renderer.DefaultAAPClientIDPath
 	clientIDData, err := os.ReadFile(clientIDFile)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -124,34 +125,6 @@ func (o *RenderTemplateOptions) completeConfig(data map[string]interface{}) erro
 	return nil
 }
 
-func (o *RenderTemplateOptions) getHostnameFQDN() (string, error) {
-	// Try "hostname -f" first for FQDN
-	cmd := exec.Command("hostname", "-f")
-	output, err := cmd.Output()
-	if err == nil && len(output) > 0 {
-		hostname := strings.TrimSpace(string(output))
-		if hostname != "" {
-			// Normalize to lowercase (DNS is case-insensitive per RFC 1123)
-			return strings.ToLower(hostname), nil
-		}
-	}
-
-	// Fallback to "hostname" (short name)
-	cmd = exec.Command("hostname")
-	output, err = cmd.Output()
-	if err != nil {
-		return "", fmt.Errorf("failed to execute hostname command: %w", err)
-	}
-
-	hostname := strings.TrimSpace(string(output))
-	if hostname == "" {
-		return "", fmt.Errorf("hostname command returned empty value")
-	}
-
-	// Normalize to lowercase (DNS is case-insensitive per RFC 1123)
-	return strings.ToLower(hostname), nil
-}
-
 func (o *RenderTemplateOptions) validateConfig(data map[string]interface{}) error {
 	// Marshal the map back to YAML and unmarshal to standalone.Config for validation
 	configData, err := yaml.Marshal(data)
@@ -159,7 +132,7 @@ func (o *RenderTemplateOptions) validateConfig(data map[string]interface{}) erro
 		return fmt.Errorf("failed to marshal config for validation: %w", err)
 	}
 
-	var config standalone.Config
+	var config standaloneconfig.Config
 	if err := yaml.Unmarshal(configData, &config); err != nil {
 		return fmt.Errorf("failed to unmarshal config for validation: %w", err)
 	}

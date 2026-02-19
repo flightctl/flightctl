@@ -19,6 +19,7 @@ global:
       tokenUrl:
       clientId:
       clientSecret:
+      token:
       scopes:
         - read
         - write
