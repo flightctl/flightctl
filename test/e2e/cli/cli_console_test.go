@@ -63,10 +63,14 @@ var _ = Describe("CLI - device console", func() {
 		cs2.MustExpect("/var/lib/flightctl")
 
 		cs1.MustSend("echo Session1 > /tmp/file.txt")
+		cs1.MustExpect(`.*flightctl-console@.*\$`)
+
 		cs2.MustSend("cat /tmp/file.txt")
 		cs2.MustExpect("Session1")
 
 		cs2.MustSend("echo Session2 >> /tmp/file.txt")
+		cs2.MustExpect(`.*flightctl-console@.*\$`)
+
 		cs1.MustSend("cat /tmp/file.txt")
 		cs1.MustExpect("(?s).*Session1.*Session2.*")
 
