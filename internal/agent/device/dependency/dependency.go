@@ -249,9 +249,14 @@ func (m *prefetchManager) Run(ctx context.Context) {
 	m.log.Debug("Prefetch manager started")
 	defer m.log.Debug("Prefetch manager stopped")
 
-	go m.worker(ctx)
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		m.worker(ctx)
+	}()
 
-	<-ctx.Done()
+	wg.Wait()
 }
 
 func (m *prefetchManager) worker(ctx context.Context) {
