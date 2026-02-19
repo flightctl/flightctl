@@ -34,6 +34,7 @@ type Manager struct {
 	inactiveSessions []*session
 	executor         executer.Executer
 	mu               sync.Mutex
+	sessionWg        sync.WaitGroup
 }
 
 type TerminalSize struct {
@@ -165,7 +166,11 @@ func (c *Manager) sync(ctx context.Context, desired *v1beta1.DeviceSpec) {
 	desiredConsoles := desired.GetConsoles()
 
 	for _, d := range desiredConsoles {
-		go c.start(ctx, d)
+		c.sessionWg.Add(1)
+		go func() {
+			defer c.sessionWg.Done()
+			c.start(ctx, d)
+		}()
 	}
 }
 
@@ -182,6 +187,7 @@ func (c *Manager) Run(ctx context.Context) {
 		desired, err := c.watcher.Pop()
 		if err != nil {
 			c.log.Warnf("failed to pop from spec watcher: %v", err)
+			c.sessionWg.Wait()
 			return
 		}
 		c.sync(ctx, desired.Spec)
