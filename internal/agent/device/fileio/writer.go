@@ -5,7 +5,6 @@ import (
 	"bufio"
 	"compress/gzip"
 	"crypto/rand"
-	"encoding/base64"
 	"fmt"
 	"io"
 	"io/fs"
@@ -621,26 +620,6 @@ func lookupGID(group string) (int, error) {
 	}
 	gid, _ := strconv.Atoi(osGroup.Gid)
 	return gid, nil
-}
-
-// DecodeContents decodes the content based on the encoding type and returns the
-// decoded content as a byte slice.
-func DecodeContent(content string, encoding *v1beta1.EncodingType) ([]byte,
-	error) {
-	if encoding == nil || *encoding == "plain" {
-		return []byte(content), nil
-	}
-
-	switch *encoding {
-	case "base64":
-		decoded, err := base64.StdEncoding.DecodeString(content)
-		if err != nil {
-			return nil, fmt.Errorf("failed to decode base64 content: %w", err)
-		}
-		return decoded, nil
-	default:
-		return nil, fmt.Errorf("unsupported content encoding: %q", *encoding)
-	}
 }
 
 // WriteTmpFile writes the given content to a temporary file with the specified name prefix.

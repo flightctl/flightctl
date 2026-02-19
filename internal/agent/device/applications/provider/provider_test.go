@@ -231,7 +231,7 @@ func TestExtractQuadletTargets(t *testing.T) {
 			mockResolver := dependency.NewMockPullConfigResolver(ctrl)
 			tt.setupMocks(mockResolver)
 
-			targets := extractQuadletTargets(tt.quad, mockResolver)
+			targets := extractQuadletTargets(tt.quad, mockResolver, v1beta1.CurrentProcessUsername)
 
 			require.Equal(tt.expectedCount, len(targets), "unexpected number of targets")
 

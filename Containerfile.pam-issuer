@@ -6,8 +6,12 @@ WORKDIR /app
 # Switch to root for build operations
 USER 0
 
-# Install C development tools needed for CGO
-RUN dnf install -y gcc glibc-devel
+# Install/upgrade C development tools needed for CGO.
+# --nobest: UBI repos may temporarily have inconsistent glibc versions
+# (e.g. new glibc published before glibc-common syncs), causing unresolvable
+# dependency errors. --nobest falls back to the installed versions when the
+# best candidates can't be resolved.
+RUN dnf install -y --nobest gcc glibc-devel
 
 # Install matching PAM and pam-devel from CentOS mirror for build
 RUN dnf install -y https://mirror.stream.centos.org/9-stream/BaseOS/x86_64/os/Packages/pam-1.5.1-24.el9.x86_64.rpm && \

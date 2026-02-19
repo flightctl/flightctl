@@ -362,7 +362,7 @@ var _ = Describe("VM Agent behavior", func() {
 			Expect(err).ToNot(HaveOccurred())
 			_, _, err = harness.WaitForBootstrapAndUpdateToVersion(deviceId, util.DeviceTags.V9)
 			Expect(err).ToNot(HaveOccurred())
-			err = harness.WaitForDeviceNewRenderedVersion(deviceId, nextRenderedVersion)
+			err = harness.WaitForDeviceNewRenderedVersionWithReboot(deviceId, nextRenderedVersion)
 			Expect(err).ToNot(HaveOccurred())
 
 			By("Reload the flight agent")

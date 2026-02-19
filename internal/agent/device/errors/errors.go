@@ -103,7 +103,8 @@ var (
 	ErrInvalidPath = errors.New("invalid path")
 
 	// images
-	ErrImageNotFound = errors.New("image not found")
+	ErrImageNotFound     = errors.New("image not found")
+	ErrImageUnauthorized = errors.New("image unauthorized")
 
 	// policy
 	ErrDownloadPolicyNotReady = errors.New("download policy not ready")
@@ -213,7 +214,7 @@ var (
 	stderrKeywords = map[string]error{
 		// authentication
 		"authentication required": ErrAuthenticationFailed,
-		"unauthorized":            ErrAuthenticationFailed,
+		"unauthorized":            ErrImageUnauthorized,
 		"access denied":           ErrAuthenticationFailed,
 		// not found
 		"not found":        ErrNotFound,
@@ -238,6 +239,7 @@ var (
 	ErrorTypeToCode = map[error]codes.Code{
 		// authentication
 		ErrAuthenticationFailed: codes.Unauthenticated,
+		ErrImageUnauthorized:    codes.PermissionDenied,
 
 		// not found / filesystem
 		ErrNotFound:            codes.NotFound,
@@ -478,6 +480,8 @@ func IsRetryable(err error) bool {
 		return true
 	case errors.Is(err, ErrDownloadPolicyNotReady), errors.Is(err, ErrUpdatePolicyNotReady):
 		return true
+	case errors.Is(err, ErrCriticalResourceAlert):
+		return true
 	case errors.Is(err, ErrPrefetchNotReady), errors.Is(err, ErrOCICollectorNotReady):
 		return true
 	case errors.Is(err, ErrNoContent):
@@ -505,6 +509,8 @@ func IsRetryable(err error) bool {
 		return false
 	case errors.Is(err, ErrKubeconfigNotFound):
 		return true
+	case errors.Is(err, ErrImageUnauthorized):
+		return false
 	default:
 		// this will need to be updated as we identify more errors that are
 		// retryable but for now we will fail the update.

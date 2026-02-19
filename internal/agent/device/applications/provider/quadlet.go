@@ -331,7 +331,7 @@ func (p *quadletProvider) collectOCITargets(ctx context.Context, configProvider 
 			Type:         dependency.OCITypeAuto,
 			Reference:    p.imageRef,
 			PullPolicy:   v1beta1.PullIfNotPresent,
-			ClientOptsFn: containerPullOptions(configProvider),
+			ClientOptsFn: containerPullOptions(configProvider, p.spec.User),
 		})
 	} else {
 		quadletSpec, err := client.ParseQuadletReferencesFromSpec(p.inlineContent)
@@ -339,10 +339,10 @@ func (p *quadletProvider) collectOCITargets(ctx context.Context, configProvider 
 			return nil, fmt.Errorf("parsing quadlet spec: %w", err)
 		}
 		for _, quad := range quadletSpec {
-			targets = targets.Add(p.spec.User, extractQuadletTargets(quad, configProvider)...)
+			targets = targets.Add(p.spec.User, extractQuadletTargets(quad, configProvider, p.spec.User)...)
 		}
 	}
-	volTargets, err := extractVolumeTargets(p.spec.QuadletApp.Volumes, configProvider)
+	volTargets, err := extractVolumeTargets(p.spec.QuadletApp.Volumes, configProvider, p.spec.User)
 	if err != nil {
 		return nil, fmt.Errorf("extracting quadlet volume targets: %w", err)
 	}
@@ -354,7 +354,7 @@ func (p *quadletProvider) extractNestedTargets(ctx context.Context, configProvid
 		return &AppData{}, nil
 	}
 
-	appData, err := extractAppDataFromOCITarget(ctx, p.podman, p.readWriter, p.spec.Name, p.imageRef, v1beta1.AppTypeQuadlet, configProvider)
+	appData, err := extractAppDataFromOCITarget(ctx, p.podman, p.readWriter, p.spec.Name, p.imageRef, v1beta1.AppTypeQuadlet, p.spec.User, configProvider)
 	if err != nil {
 		return nil, err
 	}
@@ -1140,7 +1140,7 @@ func quadletAppPath(appName string, user v1beta1.Username) (string, error) {
 	} else {
 		_, _, homeDir, err := userutil.LookupUser(user)
 		if err != nil {
-			return "", err
+			return "", fmt.Errorf("failed to lookup user %s: %w", user, err)
 		}
 		return filepath.Join(homeDir, ".config/containers/systemd", appName), nil
 	}

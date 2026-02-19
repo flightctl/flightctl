@@ -100,8 +100,8 @@ func TestGetElement(t *testing.T) {
 	}{
 		{
 			name:     "extracts element from direct wrap",
-			err:      fmt.Errorf("creating directory %w: %w", WithElement("/var/lib/myapp"), ErrPermissionDenied),
-			expected: "/var/lib/myapp",
+			err:      fmt.Errorf("creating directory %w: %w", WithElement("/var/lib/myapp/making/sure/the/string/is/longer/than/64/characters"), ErrPermissionDenied),
+			expected: "/var/lib/myapp/making/sure/the/string/is/longer/than/64/characters",
 		},
 		{
 			name:     "extracts element from nested chain",
@@ -151,6 +151,11 @@ func TestFormatErrorWithElement(t *testing.T) {
 			err: fmt.Errorf("%w: %w", ErrPhasePreparing,
 				fmt.Errorf("%w: %w", ErrComponentApplications, ErrNetwork)),
 			expectedElement: "",
+		},
+		{
+			name:            "truncates long element path in structured error",
+			err:             fmt.Errorf("creating directory %w: %w", WithElement("/var/lib/myapp/making/sure/the/string/is/longer/than/64/characters"), ErrPermissionDenied),
+			expectedElement: "..." + "ar/lib/myapp/making/sure/the/string/is/longer/than/64/characters",
 		},
 	}
 

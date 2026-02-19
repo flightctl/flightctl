@@ -331,9 +331,16 @@ func TestPullConfigResolver_AuthFromSpec(t *testing.T) {
 			resolver := NewPullConfigResolver(testLog, rwFactory).(*pullConfigResolver)
 			resolver.BeforeUpdate(tt.deviceSpec)
 
-			auth, found := resolver.authFromSpec(tt.deviceSpec, tt.authPath)
-			require.Equal(tt.expectedFound, found)
-			require.Equal(tt.expectedAuth, string(auth))
+			authFile := resolver.authFromSpec(tt.deviceSpec, tt.authPath)
+			t.Logf("authFile: %v", authFile)
+			if tt.expectedFound {
+				require.NotNil(authFile)
+				auth, err := authFile.ContentsDecoded()
+				require.NoError(err)
+				require.Equal(tt.expectedAuth, string(auth))
+			} else {
+				require.Nil(authFile)
+			}
 		})
 	}
 }

@@ -21,6 +21,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/systemd"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/samber/lo"
 )
 
 const (
@@ -166,7 +167,7 @@ func (m *PodmanMonitor) drain(ctx context.Context) error {
 		}
 	}
 
-	if err := m.ExecuteActions(ctx); err != nil {
+	if err := m.executeActions(ctx, true); err != nil {
 		errs = append(errs, err)
 	}
 
@@ -285,7 +286,12 @@ func normalizeActionAppType(appType v1beta1.AppType) v1beta1.AppType {
 	return appType
 }
 
+// ExecuteActions executes all queued actions.
 func (m *PodmanMonitor) ExecuteActions(ctx context.Context) error {
+	return m.executeActions(ctx, false)
+}
+
+func (m *PodmanMonitor) executeActions(ctx context.Context, systemShutdown bool) error {
 	ctx = m.addBatchTimeToCtx(ctx)
 	actions := m.drainActions()
 
@@ -293,6 +299,12 @@ func (m *PodmanMonitor) ExecuteActions(ctx context.Context) error {
 	for i := range actions {
 		action := actions[i]
 		appType := normalizeActionAppType(action.AppType)
+
+		if systemShutdown && appType == v1beta1.AppTypeQuadlet {
+			m.log.Debugf("System shutdown: skipping quadlet action for %s", action.Name)
+			continue
+		}
+
 		_, ok := m.handlers[appType]
 		if !ok {
 			return fmt.Errorf("%w: no action handler registered: %s", errors.ErrUnsupportedAppType, action.AppType)
@@ -508,7 +520,7 @@ func (m *PodmanMonitor) updateQuadletContainerStatus(ctx context.Context, app Ap
 	}
 
 	status := StatusType(event.Status)
-	if isFinishedStatus(status) && event.ContainerExitCode == 0 {
+	if isFinishedStatus(status) && lo.FromPtrOr(event.ContainerExitCode, -1) == 0 {
 		status = StatusExited
 	}
 	m.updateApplicationStatus(app, event, status, restartCount)

@@ -121,6 +121,21 @@ func (s *Systemd) Enable(ctx context.Context, name string) error {
 	return nil
 }
 
+// IsActive checks if a systemd unit is currently active.
+// Returns true if the unit is active, false otherwise.
+func (s *Systemd) IsActive(ctx context.Context, name string) (bool, error) {
+	command, args := s.createArgs("is-active", name)
+	_, stderr, exitCode := s.exec.ExecuteWithContext(ctx, command, args...)
+	if exitCode == 0 {
+		return true, nil
+	}
+	// Exit code 3 means the unit is inactive — this is not an error
+	if exitCode == 3 {
+		return false, nil
+	}
+	return false, fmt.Errorf("is-active systemd unit %s: %w", name, errors.FromStderr(stderr, exitCode))
+}
+
 func (s *Systemd) DaemonReload(ctx context.Context) error {
 	command, args := s.createArgs("daemon-reload")
 	_, stderr, exitCode := s.exec.ExecuteWithContext(ctx, command, args...)
@@ -212,12 +227,13 @@ func (s *Systemd) ShowByMatchPattern(ctx context.Context, matchPatterns []string
 }
 
 // ListDependencies returns the list of units that the specified unit depends on.
-// Uses `systemctl list-dependencies --plain` to get a flat list of dependencies.
+// Uses `systemctl list-dependencies --plain --full` to get a flat list of dependencies.
+// The --full flag prevents systemd from truncating long unit names.
 func (s *Systemd) ListDependencies(ctx context.Context, unit string) ([]string, error) {
 	ctx, cancel := context.WithTimeout(ctx, defaultSystemctlTimeout)
 	defer cancel()
 
-	command, args := s.createArgs("list-dependencies", "--plain", "--no-pager", unit)
+	command, args := s.createArgs("list-dependencies", "--plain", "--no-pager", "--full", unit)
 	stdout, stderr, exitCode := s.exec.ExecuteWithContext(ctx, command, args...)
 	if exitCode != 0 {
 		return nil, fmt.Errorf("list-dependencies for %s: %w", unit, errors.FromStderr(stderr, exitCode))

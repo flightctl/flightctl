@@ -12,13 +12,6 @@ type flightctl_agent_var_log_t;
 type flightctl_agent_tmp_t;
 type flightctl_agent_custom_info_exec_t;
 
-# We generally use fedora when building images because of the packit tool, but unfortunately it
-# contains some newer types not yet available in centos stream. Defining them in one's own policy is
-# the recommended workaround, see https://fedoraproject.org/wiki/SELinux/IndependentPolicy#Backwards_compatibility.
-ifndef(`cgroup_type', `
-  attribute cgroup_type;
-')
-
 gen_require(`
     type install_t, install_exec_t;
     type hostname_t, hostname_exec_t;
@@ -31,6 +24,7 @@ gen_require(`
     type firewalld_t;
     type node_t;
     type unconfined_t, unconfined_service_t;
+    type shell_exec_t;
     type tpm_device_t;
 
     attribute domain;
@@ -51,8 +45,9 @@ files_read_all_chr_files(flightctl_agent_t)
 
 domtrans_pattern(flightctl_agent_t, install_exec_t, install_t)
 domtrans_pattern(flightctl_agent_t, hostname_exec_t, hostname_t)
+# Allow the agent to transition to unconfined for shell sessions (e.g. the console)
+domtrans_pattern(flightctl_agent_t, shell_exec_t, unconfined_t)
 container_runtime_domtrans(flightctl_agent_t)
-
 
 # Allow the agent to run subprocesses as unconfined_t only for that subprocess. This allows us to
 # run things like the 'sos' binary which requires a ton of privileges without having to give them
@@ -71,6 +66,8 @@ allow flightctl_agent_t self:capability { dac_override chown fowner fsetid kill 
 allow flightctl_agent_t self:capability2 { mac_admin mac_override };
 allow flightctl_agent_t self:cap_userns { kill };
 allow flightctl_agent_t self:process { fork signal sigchld execmem setfscreate getsched setsched setpgid setcap setrlimit };
+# Allow the agent to write kernel keys
+allow flightctl_agent_t self:key write;
 
 
 ## System information access  ##

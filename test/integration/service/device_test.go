@@ -2,7 +2,6 @@ package service_test
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"time"
 
@@ -1384,103 +1383,118 @@ var _ = Describe("Device LastSeen Integration Tests", func() {
 	Context("Device field selector tests", func() {
 		It("should filter devices by lastSeen field selector", func() {
 			ctx := context.WithValue(suite.Ctx, consts.InternalRequestCtxKey, true)
-			// Create test devices with different lastSeen timestamps
+			deviceStore := suite.Store.Device()
+			// Create test devices for ListConnectivityChangedDevices: returns devices that need
+			// connection status update (reconnected: lastSeen >= cutoff and status Unknown;
+			// disconnected: lastSeen < cutoff and status not Unknown).
+			// Use store.Get + UpdateStatus (like test/integration/tasks/device_connection_test.go)
+			// so status is set directly without ReplaceDeviceStatus recomputing it from LastSeen.
 			testId := uuid.New().String()
 
-			// Device 1: Recent lastSeen (should be included in recent filter)
+			recentTime := time.Now()
+			oldTime := time.Now().Add(-2 * time.Hour)
+			cutoffTime := time.Now().Add(-1 * time.Hour)
+
+			// Device 1: After cutoff, Unknown → should be returned (reconnected)
 			device1Name := "field-selector-test-1-" + testId
 			device1 := api.Device{
-				Metadata: api.ObjectMeta{
-					Name: lo.ToPtr(device1Name),
-				},
-				Spec: &api.DeviceSpec{
-					Os: &api.DeviceOsSpec{
-						Image: "quay.io/fedora/fedora-coreos:stable",
-					},
-				},
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(device1Name)},
+				Spec:     &api.DeviceSpec{Os: &api.DeviceOsSpec{Image: "quay.io/fedora/fedora-coreos:stable"}},
 			}
 			_, status := suite.Handler.CreateDevice(ctx, suite.OrgID, device1)
 			Expect(status.Code).To(Equal(int32(201)))
-
-			// Set up times first to avoid timing issues
-			recentTime := time.Now()
-			oldTime := time.Now().Add(-2 * time.Hour)
-
-			// Set device1 with recent lastSeen directly in the database
 			err := suite.SetDeviceLastSeen(device1Name, recentTime)
 			Expect(err).ToNot(HaveOccurred())
+			dev1, err := deviceStore.Get(ctx, suite.OrgID, device1Name)
+			Expect(err).ToNot(HaveOccurred())
+			dev1.Status.Summary.Status = api.DeviceSummaryStatusUnknown
+			_, err = deviceStore.UpdateStatus(ctx, suite.OrgID, dev1, nil)
+			Expect(err).ToNot(HaveOccurred())
 
-			// Device 2: Old lastSeen (should be excluded from recent filter)
+			// Device 2: Before cutoff, Unknown → should not be returned
 			device2Name := "field-selector-test-2-" + testId
 			device2 := api.Device{
-				Metadata: api.ObjectMeta{
-					Name: lo.ToPtr(device2Name),
-				},
-				Spec: &api.DeviceSpec{
-					Os: &api.DeviceOsSpec{
-						Image: "quay.io/fedora/fedora-coreos:stable",
-					},
-				},
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(device2Name)},
+				Spec:     &api.DeviceSpec{Os: &api.DeviceOsSpec{Image: "quay.io/fedora/fedora-coreos:stable"}},
 			}
 			_, status = suite.Handler.CreateDevice(ctx, suite.OrgID, device2)
 			Expect(status.Code).To(Equal(int32(201)))
-
-			// Set device2 with old lastSeen directly in the database
 			err = suite.SetDeviceLastSeen(device2Name, oldTime)
 			Expect(err).ToNot(HaveOccurred())
+			dev2, err := deviceStore.Get(ctx, suite.OrgID, device2Name)
+			Expect(err).ToNot(HaveOccurred())
+			dev2.Status.Summary.Status = api.DeviceSummaryStatusUnknown
+			_, err = deviceStore.UpdateStatus(ctx, suite.OrgID, dev2, nil)
+			Expect(err).ToNot(HaveOccurred())
 
-			// Debug: Verify the devices were actually created with the correct lastSeen values
-			device1LastSeen, status1 := suite.Handler.GetDeviceLastSeen(ctx, suite.OrgID, device1Name)
-			Expect(status1.Code).To(Equal(int32(200)))
-			device2LastSeen, status2 := suite.Handler.GetDeviceLastSeen(ctx, suite.OrgID, device2Name)
-			Expect(status2.Code).To(Equal(int32(200)))
+			// Device 3: After cutoff, Online → should not be returned
+			device3Name := "field-selector-test-3-" + testId
+			device3 := api.Device{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(device3Name)},
+				Spec:     &api.DeviceSpec{Os: &api.DeviceOsSpec{Image: "quay.io/fedora/fedora-coreos:stable"}},
+			}
+			_, status = suite.Handler.CreateDevice(ctx, suite.OrgID, device3)
+			Expect(status.Code).To(Equal(int32(201)))
+			err = suite.SetDeviceLastSeen(device3Name, recentTime)
+			Expect(err).ToNot(HaveOccurred())
+			dev3, err := deviceStore.Get(ctx, suite.OrgID, device3Name)
+			Expect(err).ToNot(HaveOccurred())
+			dev3.Status.Summary.Status = api.DeviceSummaryStatusOnline
+			dev3.Status.Updated.Status = api.DeviceUpdatedStatusUpToDate
+			dev3.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusHealthy
+			_, err = deviceStore.UpdateStatus(ctx, suite.OrgID, dev3, nil)
+			Expect(err).ToNot(HaveOccurred())
 
-			fmt.Printf("DEBUG: Device1 actual lastSeen: %v\n", device1LastSeen)
-			fmt.Printf("DEBUG: Device2 actual lastSeen: %v\n", device2LastSeen)
-
-			// Test field selector: get devices with lastSeen after 1 hour ago
-			cutoffTime := time.Now().Add(-1 * time.Hour)
-
-			// Debug: Print the actual times and field selector
-			fmt.Printf("DEBUG: recentTime = %s\n", recentTime.Format(time.RFC3339))
-			fmt.Printf("DEBUG: oldTime = %s\n", oldTime.Format(time.RFC3339))
-			fmt.Printf("DEBUG: cutoffTime = %s\n", cutoffTime.Format(time.RFC3339))
+			// Device 4: Before cutoff, Online → should be returned (disconnected)
+			device4Name := "field-selector-test-4-" + testId
+			device4 := api.Device{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(device4Name)},
+				Spec:     &api.DeviceSpec{Os: &api.DeviceOsSpec{Image: "quay.io/fedora/fedora-coreos:stable"}},
+			}
+			_, status = suite.Handler.CreateDevice(ctx, suite.OrgID, device4)
+			Expect(status.Code).To(Equal(int32(201)))
+			err = suite.SetDeviceLastSeen(device4Name, oldTime)
+			Expect(err).ToNot(HaveOccurred())
+			dev4, err := deviceStore.Get(ctx, suite.OrgID, device4Name)
+			Expect(err).ToNot(HaveOccurred())
+			dev4.Status.Summary.Status = api.DeviceSummaryStatusOnline
+			dev4.Status.Updated.Status = api.DeviceUpdatedStatusUpToDate
+			dev4.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusHealthy
+			_, err = deviceStore.UpdateStatus(ctx, suite.OrgID, dev4, nil)
+			Expect(err).ToNot(HaveOccurred())
 
 			params := api.ListDevicesParams{
 				Limit: lo.ToPtr(int32(100)),
 			}
 
-			deviceList, status := suite.Handler.ListDisconnectedDevices(ctx, suite.OrgID, params, cutoffTime)
+			deviceList, status := suite.Handler.ListConnectivityChangedDevices(ctx, suite.OrgID, params, cutoffTime)
 			Expect(status.Code).To(Equal(int32(200)))
 			Expect(deviceList).ToNot(BeNil())
 
-			// Debug: Print all found devices and their lastSeen values
-			fmt.Printf("DEBUG: Found %d devices\n", len(deviceList.Items))
-			for i, device := range deviceList.Items {
-				if device.Metadata.Name != nil {
-					lastSeenStr := "nil"
-					if device.Status != nil && device.Status.LastSeen != nil {
-						lastSeenStr = device.Status.LastSeen.Format(time.RFC3339)
-					}
-					fmt.Printf("DEBUG: Device %d: name=%s, lastSeen=%s\n", i, *device.Metadata.Name, lastSeenStr)
-				}
-			}
-
-			// Should find device1 (recent) but not device2 (old)
 			foundDevice1 := false
 			foundDevice2 := false
+			foundDevice3 := false
+			foundDevice4 := false
 			for _, device := range deviceList.Items {
-				if device.Metadata.Name != nil && *device.Metadata.Name == device1Name {
-					foundDevice1 = true
+				if device.Metadata.Name == nil {
+					continue
 				}
-				if device.Metadata.Name != nil && *device.Metadata.Name == device2Name {
+				switch *device.Metadata.Name {
+				case device1Name:
+					foundDevice1 = true
+				case device2Name:
 					foundDevice2 = true
+				case device3Name:
+					foundDevice3 = true
+				case device4Name:
+					foundDevice4 = true
 				}
 			}
 
-			fmt.Printf("DEBUG: foundDevice1=%t, foundDevice2=%t\n", foundDevice1, foundDevice2)
-			Expect(foundDevice1).To(BeFalse(), "Device with recent lastSeen should not be found")
-			Expect(foundDevice2).To(BeTrue(), "Device with old lastSeen should be found")
+			Expect(foundDevice1).To(BeTrue(), "Device 1 (After, Unknown) should be returned (reconnected)")
+			Expect(foundDevice2).To(BeFalse(), "Device 2 (Before, Unknown) should not be returned")
+			Expect(foundDevice3).To(BeFalse(), "Device 3 (After, Online) should not be returned")
+			Expect(foundDevice4).To(BeTrue(), "Device 4 (Before, Online) should be returned (disconnected)")
 		})
 
 		It("should handle field selector with non-existent lastSeen values", func() {
@@ -1508,7 +1522,7 @@ var _ = Describe("Device LastSeen Integration Tests", func() {
 				Limit: lo.ToPtr(int32(100)),
 			}
 
-			deviceList, status := suite.Handler.ListDisconnectedDevices(suite.Ctx, suite.OrgID, params, cutoffTime)
+			deviceList, status := suite.Handler.ListConnectivityChangedDevices(suite.Ctx, suite.OrgID, params, cutoffTime)
 			Expect(status.Code).To(Equal(int32(200)))
 			Expect(deviceList).ToNot(BeNil())
 

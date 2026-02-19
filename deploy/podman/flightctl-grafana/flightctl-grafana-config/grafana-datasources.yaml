@@ -4,6 +4,7 @@ apiVersion: 1
 datasources:
   - name: Prometheus
     type: prometheus
+    uid: prometheus
     access: proxy
     # Access Prometheus via its container name within the 'flightctl' network
     url: http://flightctl-prometheus:9090

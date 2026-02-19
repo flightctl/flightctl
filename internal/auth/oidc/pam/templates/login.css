@@ -1,0 +1,95 @@
+{{- if or .LightTheme .DarkTheme -}}
+{{- if .LightTheme -}}
+:root {
+{{- if .LightTheme.BrandDefault}}
+    --pf-t--global--color--brand--default: {{.LightTheme.BrandDefault}};
+{{- end}}
+{{- if .LightTheme.BrandHover}}
+    --pf-t--global--color--brand--hover: {{.LightTheme.BrandHover}};
+{{- end}}
+{{- if .LightTheme.BrandClicked}}
+    --pf-t--global--color--brand--clicked: {{.LightTheme.BrandClicked}};
+{{- end}}
+{{- if .LightTheme.BackgroundSecondary}}
+    --pf-t--global--background--color--secondary--default: {{.LightTheme.BackgroundSecondary}};
+{{- end}}
+{{- if .LightTheme.BackgroundPrimary}}
+    --pf-t--global--background--color--primary--default: {{.LightTheme.BackgroundPrimary}};
+{{- end}}
+{{- if .LightTheme.TextColorRegular}}
+    --pf-t--global--text--color--regular: {{.LightTheme.TextColorRegular}};
+{{- end}}
+}
+{{- end}}
+{{- if .DarkTheme}}
+.pf-v6-theme-dark {
+{{- if .DarkTheme.BrandDefault}}
+    --pf-t--global--color--brand--default: {{.DarkTheme.BrandDefault}};
+{{- end}}
+{{- if .DarkTheme.BrandHover}}
+    --pf-t--global--color--brand--hover: {{.DarkTheme.BrandHover}};
+{{- end}}
+{{- if .DarkTheme.BrandClicked}}
+    --pf-t--global--color--brand--clicked: {{.DarkTheme.BrandClicked}};
+{{- end}}
+{{- if .DarkTheme.BackgroundSecondary}}
+    --pf-t--global--background--color--secondary--default: {{.DarkTheme.BackgroundSecondary}};
+{{- end}}
+{{- if .DarkTheme.BackgroundPrimary}}
+    --pf-t--global--background--color--primary--default: {{.DarkTheme.BackgroundPrimary}};
+{{- end}}
+{{- if .DarkTheme.TextColorRegular}}
+    --pf-t--global--text--color--regular: {{.DarkTheme.TextColorRegular}};
+{{- end}}
+}
+{{- end}}
+{{- end}}
+
+html, body {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+}
+
+#login-page {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    background-color: var(--pf-t--global--background--color--secondary--default);
+}
+
+#login-page > .pf-v6-l-stack {
+    align-items: center;
+}
+
+#login-page .pf-v6-c-card {
+    width: 400px;
+}
+
+.brand-logo {
+    height: 80px;
+}
+
+.login-hidden {
+    display: none;
+}
+
+.show-in-dark, .pf-v6-theme-dark .show-in-light {
+    display: none;
+}
+
+.pf-v6-theme-dark .show-in-dark {
+    display: revert;
+}
+
+#theme-toggle {
+    position: fixed;
+    top: var(--pf-t--global--spacer--md);
+    right: var(--pf-t--global--spacer--md);
+    z-index: 100;
+}
+#theme-toggle .pf-v6-svg {
+    width: 1em;
+    height: 1em;
+}

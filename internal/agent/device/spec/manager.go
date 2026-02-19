@@ -550,6 +550,18 @@ func (s *manager) write(ctx context.Context, specType Type, device *v1beta1.Devi
 	}
 
 	oldVersion := s.cache.getRenderedVersion(specType)
+	newVersion := device.Version()
+
+	// CRITICAL: Detect if rendered version is going backwards during upgrade.
+	// This should never happen and indicates a serious bug (e.g., unexpected rollback
+	// after spec was committed). The audit log will capture this transition.
+	if specType == Current && reason == audit.ReasonUpgrade {
+		oldV, errOld := stringToInt64(oldVersion)
+		newV, errNew := stringToInt64(newVersion)
+		if errOld == nil && errNew == nil && newV < oldV {
+			s.log.Errorf("CRITICAL: Rendered version going backwards during upgrade! %s -> %s - this should never happen", oldVersion, newVersion)
+		}
+	}
 
 	err = writeDeviceToFile(s.deviceReadWriter, device, filePath)
 	if err != nil {

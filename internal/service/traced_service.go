@@ -115,9 +115,9 @@ func (t *TracedService) ListDevices(ctx context.Context, orgId uuid.UUID, params
 	return resp, st
 }
 
-func (t *TracedService) ListDisconnectedDevices(ctx context.Context, orgId uuid.UUID, params domain.ListDevicesParams, cutoffTime time.Time) (*domain.DeviceList, domain.Status) {
-	ctx, span := startSpan(ctx, "ListDisconnectedDevices")
-	resp, st := t.inner.ListDisconnectedDevices(ctx, orgId, params, cutoffTime)
+func (t *TracedService) ListConnectivityChangedDevices(ctx context.Context, orgId uuid.UUID, params domain.ListDevicesParams, cutoffTime time.Time) (*domain.DeviceList, domain.Status) {
+	ctx, span := startSpan(ctx, "ListConnectivityChangedDevices")
+	resp, st := t.inner.ListConnectivityChangedDevices(ctx, orgId, params, cutoffTime)
 	endSpan(span, st)
 	return resp, st
 }

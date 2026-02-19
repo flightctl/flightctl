@@ -296,7 +296,7 @@ spec:
 If your device relies on containers from a private repository, [authentication credentials](https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/9/html-single/using_image_mode_for_rhel_to_build_deploy_and_manage_operating_systems/index#configuring-container-pull-secrets_managing-users-groups-ssh-key-and-secrets-in-image-mode-for-rhel) (pull secrets) must be placed in the appropriate system paths.
 
 * **OS Image:** Uses `/etc/ostree/auth.json`
-* **Container Images:** Uses the system default for Podman, `/root/.config/containers/auth.json`
+* **Container Images:** Uses the system default for Podman, `~/.config/containers/auth.json`. You will need an `auth.json` file for each user that needs to pull from a private repo. When deploying `quadlet` or `container` apps, the `runAs` configuration determines which user needs the credentials.
 
 #### Auth File Format
 
@@ -1617,8 +1617,6 @@ The Flight Control Agent comes with a built-in set of rules defined in `/usr/lib
 ## Monitoring Device Resources
 
 You can set up monitors for device resources and define alerts when the utilization of these resources crosses a defined threshold. When the agent alerts the Flight Control service, the service sets the device status to "degraded" or "error" (depending on the severity level) and may suspend the rollout of updates and alarm the user as a result.
-
-<!-- Note this is not meant to replace an observability solution. If your use case requires streaming logs and metrics from devices into an observability stack and the device's network bandwidth allows this, see [Adding Device Observability](adding-device-observability.md) for ways to approach that. -->
 
 Resource monitors take the following parameters:
 

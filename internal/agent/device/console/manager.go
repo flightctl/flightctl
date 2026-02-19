@@ -20,6 +20,7 @@ import (
 
 const (
 	cleanupDuration = 5 * time.Minute
+	ConsoleUser     = "flightctl-console"
 )
 
 type Manager struct {
@@ -27,6 +28,7 @@ type Manager struct {
 	log        *log.PrefixLogger
 	deviceName string
 	watcher    spec.Watcher
+	user       string
 
 	activeSessions   []*session
 	inactiveSessions []*session
@@ -42,6 +44,7 @@ type TerminalSize struct {
 func NewManager(
 	grpcClient grpc_v1.RouterServiceClient,
 	deviceName string,
+	user string,
 	executor executer.Executer,
 	watcher spec.Watcher,
 	log *log.PrefixLogger,
@@ -49,6 +52,7 @@ func NewManager(
 	return &Manager{
 		grpcClient: grpcClient,
 		deviceName: deviceName,
+		user:       user,
 		executor:   executor,
 		watcher:    watcher,
 		log:        log,
@@ -120,6 +124,7 @@ func (c *Manager) start(ctx context.Context, dc v1beta1.DeviceConsole) {
 		id:       dc.SessionID,
 		executor: c.executor,
 		log:      c.log,
+		user:     c.user,
 	}
 	if !c.add(s) {
 		return

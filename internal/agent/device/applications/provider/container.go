@@ -193,9 +193,9 @@ func (p *containerProvider) collectOCITargets(ctx context.Context, configProvide
 		Type:         dependency.OCITypePodmanImage,
 		Reference:    p.spec.ContainerApp.Image,
 		PullPolicy:   v1beta1.PullIfNotPresent,
-		ClientOptsFn: containerPullOptions(configProvider),
+		ClientOptsFn: containerPullOptions(configProvider, p.spec.User),
 	})
-	volTargets, err := extractVolumeTargets(p.spec.ContainerApp.Volumes, configProvider)
+	volTargets, err := extractVolumeTargets(p.spec.ContainerApp.Volumes, configProvider, p.spec.User)
 	if err != nil {
 		return nil, fmt.Errorf("extracting container volume targets: %w", err)
 	}
@@ -249,7 +249,7 @@ func generateQuadlet(ctx context.Context, podman *client.Podman, rw fileio.ReadW
 
 	unit.Add("Service", "Restart", "on-failure").
 		Add("Service", "RestartSec", "60").
-		Add("Install", "WantedBy", "multi-user.target default.target")
+		Add("Install", "WantedBy", "default.target")
 
 	for _, vol := range lo.FromPtr(spec.Volumes) {
 		volType, err := vol.Type()

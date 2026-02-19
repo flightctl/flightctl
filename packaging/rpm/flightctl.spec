@@ -52,12 +52,11 @@ Summary: Flight Control management agent
 
 Requires: flightctl-selinux = %{version}
 Requires: jq
-# This provides the newuidmap binary used by podman when running rootless containers.
-Requires: shadow-utils
 # Pin the greenboot package to 0.15.z until the following issue is resolved:
 # https://github.com/fedora-iot/greenboot-rs/issues/141
 Requires: greenboot >= 0.15.0
 Requires: greenboot < 0.16.0
+Requires: sudo
 
 %description agent
 The flightctl-agent package provides the management agent for the Flight Control fleet management service.
@@ -122,6 +121,11 @@ Prometheus for metric storage and Grafana for visualization.
 %{_datadir}/flightctl/flightctl-grafana/grafana-datasources.yaml
 %{_datadir}/flightctl/flightctl-grafana/grafana-dashboards.yaml
 
+# Grafana provisioning files installed directly to /etc
+%config(noreplace) /etc/flightctl/flightctl-grafana/provisioning/datasources/grafana-datasources.yaml
+%config(noreplace) /etc/flightctl/flightctl-grafana/provisioning/dashboards/grafana-dashboards.yaml
+%config(noreplace) /etc/flightctl/flightctl-grafana/provisioning/dashboards/flightctl/*.json
+
 # Prometheus static configuration
 %{_datadir}/flightctl/flightctl-prometheus/prometheus.yml
 
@@ -167,15 +171,6 @@ echo "Note: Observability stack can be installed independently of other Flight C
 %post observability
 # This script runs AFTER the files have been installed onto the system.
 echo "Running post-install actions for Flight Control Observability Stack..."
-
-# Create necessary directories on the host if they don't already exist.
-/usr/bin/mkdir -p /etc/flightctl/flightctl-grafana/provisioning/datasources
-/usr/bin/mkdir -p /etc/flightctl/flightctl-grafana/provisioning/alerting
-/usr/bin/mkdir -p /etc/flightctl/flightctl-grafana/provisioning/dashboards/flightctl
-/usr/bin/mkdir -p /etc/flightctl/flightctl-grafana/certs
-/usr/bin/mkdir -p /etc/flightctl/flightctl-prometheus
-/usr/bin/mkdir -p /var/lib/prometheus
-/usr/bin/mkdir -p /var/lib/grafana
 
 # Set ownership for persistent data directories
 chown 65534:65534 /var/lib/prometheus
@@ -315,6 +310,11 @@ echo "Flight Control Observability Stack uninstalled."
 
     install -Dpm 0644 packaging/flightctl-services-install.conf %{buildroot}%{_sysconfdir}/flightctl/flightctl-services-install.conf
 
+    mkdir -p %{buildroot}%{_sysusersdir}
+    install -Dpm 0644 packaging/rpm/sysusers.d/flightctl.conf %{buildroot}%{_sysusersdir}/flightctl.conf
+
+    install -Dpm 0440 packaging/rpm/sudoers.d/flightctl %{buildroot}/etc/sudoers.d/flightctl
+
     # flightctl-services sub-package steps
     # Use the flightctl-standalone render quadlets command to generate quadlet files with the correct image tags.
     #
@@ -435,6 +435,8 @@ fi
     /usr/libexec/flightctl/configure-greenboot.sh
     /usr/lib/systemd/system/flightctl-configure-greenboot.service
     /usr/share/sosreport/flightctl.py
+    %{_sysusersdir}/flightctl.conf
+    /etc/sudoers.d/*
 
 %post agent
 # Enable the greenboot configuration service (runs before greenboot-healthcheck.service)
@@ -464,13 +466,11 @@ rm -rf /usr/share/sosreport
 
 # We want a regular user to run applications with as there are several issues around system users
 # and running quadlet applications.
-id -u flightctl || useradd --home-dir /home/flightctl --create-home --user-group flightctl
-loginctl enable-linger flightctl || :
+id -u flightctl 2>/dev/null || useradd --home-dir /home/flightctl --create-home --user-group flightctl
+# This enables lingering for the user with a fallback when building in an env without an active systemd.
+loginctl enable-linger flightctl || (mkdir -p /var/lib/systemd/linger/ && touch /var/lib/systemd/linger/flightctl)
 mkdir -p /home/flightctl/{.config,.local}
 chown -R flightctl:flightctl /home/flightctl/{.config,.local}
-
-%postun agent
-loginctl disable-linger flightctl || :
 
 %files selinux
 %{_datadir}/selinux/packages/%{selinuxtype}/flightctl_agent.pp.bz2

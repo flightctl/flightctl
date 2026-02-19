@@ -32,6 +32,7 @@ import (
 // Agent is responsible for managing the applications, configuration and status of the device.
 type Agent struct {
 	name                   string
+	systemdClient          *client.Systemd
 	deviceWriter           fileio.Writer
 	statusManager          status.Manager
 	specManager            spec.Manager
@@ -60,6 +61,7 @@ type Agent struct {
 // NewAgent creates a new device agent.
 func NewAgent(
 	name string,
+	systemdClient *client.Systemd,
 	deviceWriter fileio.Writer,
 	statusManager status.Manager,
 	specManager spec.Manager,
@@ -84,6 +86,7 @@ func NewAgent(
 ) *Agent {
 	return &Agent{
 		name:                   name,
+		systemdClient:          systemdClient,
 		deviceWriter:           deviceWriter,
 		statusManager:          statusManager,
 		specManager:            specManager,
@@ -196,8 +199,9 @@ func (a *Agent) syncDeviceSpec(ctx context.Context) {
 			return
 		}
 
-		// Policy may defer update; in all cases, warn and roll back to the previous renderedVersion.
-		if errors.Is(syncErr, errors.ErrUpdatePolicyNotReady) || errors.Is(syncErr, errors.ErrDownloadPolicyNotReady) {
+		// Policy or critical resource alerts may defer update; in all cases, warn and roll back to the previous renderedVersion.
+		if errors.Is(syncErr, errors.ErrUpdatePolicyNotReady) || errors.Is(syncErr, errors.ErrDownloadPolicyNotReady) ||
+			errors.Is(syncErr, errors.ErrCriticalResourceAlert) {
 			a.log.Warnf("Requeuing version %s: %s", current.Version(), syncErr.Error())
 		} else {
 			a.log.Warnf("Attempting to rollback to previous renderedVersion: %s", current.Version())
@@ -217,6 +221,13 @@ func (a *Agent) syncDeviceSpec(ctx context.Context) {
 	// skip status update if the device is in a steady state and not upgrading.
 	// also ensures previous failed status is not overwritten.
 	if a.specManager.IsUpgrading() {
+		// Wait for greenboot to mark the boot as successful before committing the spec.
+		// This only applies to OS updates — greenboot validates the new OS image, not config changes.
+		if a.specManager.IsOSUpdate() && !a.isBootSuccessful(ctx) {
+			a.log.Debug("Waiting for greenboot to mark boot as successful before upgrading spec")
+			return
+		}
+
 		// reconciliation is a success, upgrade the current spec
 		// This updates the spec files to reflect that all managers have successfully applied the changes
 		if err := a.specManager.Upgrade(ctx); err != nil {
@@ -319,6 +330,15 @@ func (a *Agent) statusUpdate(ctx context.Context) {
 func (a *Agent) beforeUpdate(ctx context.Context, current, desired *v1beta1.Device) error {
 	if err := a.resourceManager.BeforeUpdate(ctx, desired.Spec); err != nil {
 		return fmt.Errorf("%w: %w", errors.ErrComponentResources, err)
+	}
+
+	if a.resourceManager.IsCriticalAlert(resource.CPUMonitorType) {
+		return fmt.Errorf("%w: %w", errors.ErrComponentResources,
+			fmt.Errorf("%w: %w", errors.WithElement("CPU"), errors.ErrCriticalResourceAlert))
+	}
+	if a.resourceManager.IsCriticalAlert(resource.MemoryMonitorType) {
+		return fmt.Errorf("%w: %w", errors.ErrComponentResources,
+			fmt.Errorf("%w: %w", errors.WithElement("Memory"), errors.ErrCriticalResourceAlert))
 	}
 
 	if err := a.specManager.CheckPolicy(ctx, policy.Download, desired.Version()); err != nil {
@@ -605,4 +625,18 @@ func (a *Agent) ReloadConfig(ctx context.Context, config *agent_config.Config) e
 		a.log.Level(config.LogLevel)
 	}
 	return nil
+}
+
+// isBootSuccessful checks if greenboot has marked the current boot as successful
+// by checking if boot-complete.target has been reached. This target is activated
+// by greenboot after all required health checks in required.d/ pass.
+// Returns true if boot-complete.target is active, or if greenboot is not installed.
+func (a *Agent) isBootSuccessful(ctx context.Context) bool {
+	active, err := a.systemdClient.IsActive(ctx, "boot-complete.target")
+	if err != nil {
+		// Unit not found or other error — unexpected on systemd-based systems
+		a.log.Warnf("Failed to check boot-complete.target: %v", err)
+		return true
+	}
+	return active
 }

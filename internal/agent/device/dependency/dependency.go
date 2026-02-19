@@ -375,7 +375,7 @@ func (m *prefetchManager) checkReady(ctx context.Context) error {
 			if errors.IsRetryable(task.err) {
 				pending = append(pending, fmt.Sprintf("%s retrying: %v", image, task.err))
 			} else {
-				return task.err
+				return fmt.Errorf("%w: %w", errors.WithElement(image.image), task.err)
 			}
 			continue
 		}
@@ -415,7 +415,7 @@ func (m *prefetchManager) processTarget(ctx context.Context, target imageRef) {
 	retries := 0
 	for {
 		if ctx.Err() != nil {
-			m.setResult(target, fmt.Errorf("pulling oci target %s: %w", target, ctx.Err()))
+			m.setResult(target, fmt.Errorf("pulling oci target %w: %w", errors.WithElement(target.image), ctx.Err()))
 			m.log.Warnf("Context error pulling oci target: %s", target)
 			return
 		}
@@ -423,7 +423,7 @@ func (m *prefetchManager) processTarget(ctx context.Context, target imageRef) {
 			if errors.IsRetryable(err) {
 				retries++
 				m.log.Warnf("Retrying prefetch for %s (attempt %d): %v", target, retries+1, err)
-				m.setError(target, err)
+				m.setError(target, fmt.Errorf("%w: %w", errors.WithElement(target.image), err))
 
 				// cleanup file system from partial layer pulls
 				if err := m.cleanupPartialLayers(ctx, target.owner); err != nil {
@@ -440,7 +440,7 @@ func (m *prefetchManager) processTarget(ctx context.Context, target imageRef) {
 					return
 				}
 			}
-			m.setResult(target, fmt.Errorf("pulling oci target %s: %w", target, err))
+			m.setResult(target, fmt.Errorf("pulling oci target %w: %w", errors.WithElement(target.image), err))
 			return
 		}
 		// success
@@ -532,7 +532,7 @@ func (m *prefetchManager) Schedule(ctx context.Context, targets OCIPullTargetsBy
 	for user, target := range targets.Iter() {
 		ref := imageRef{image: target.Reference, owner: user}
 		if err := m.schedule(ctx, ref, target.Type, target.ClientOptsFn); err != nil {
-			return fmt.Errorf("prefetch schedule: %w", err)
+			return fmt.Errorf("prefetch schedule %w: %w", errors.WithElement(target.Reference), err)
 		}
 	}
 
@@ -554,13 +554,13 @@ func (m *prefetchManager) schedule(ctx context.Context, target imageRef, ociType
 	select {
 	case <-ctx.Done():
 		m.removeTask(target)
-		return fmt.Errorf("failed to enqueue target %s: %w", target, ctx.Err())
+		return fmt.Errorf("failed to enqueue target %w: %w", errors.WithElement(target.image), ctx.Err())
 	case m.queue <- target:
 		return nil
 	case <-timer.C:
 		m.log.Warnf("Prefetch schedule failed for: %s: buffer full", target)
 		m.removeTask(target)
-		return fmt.Errorf("%w: buffer full", errors.ErrPrefetchNotReady)
+		return fmt.Errorf("%w %w: buffer full", errors.ErrPrefetchNotReady, errors.WithElement(target.image))
 	}
 }
 

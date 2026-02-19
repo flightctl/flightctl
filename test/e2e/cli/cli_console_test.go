@@ -37,17 +37,22 @@ var _ = Describe("CLI - device console", func() {
 		deviceID, _ = harness.EnrollAndWaitForOnlineStatus()
 	})
 
+	AfterEach(func() {
+		harness := e2e.GetWorkerHarness()
+		harness.PrintAgentLogsIfFailed()
+	})
+
 	It("connects to a device and executes a simple command", Label("80483", "sanity", "agent"), func() {
 		// Get harness directly - no shared package-level variable
 		harness := e2e.GetWorkerHarness()
 
 		cs := harness.NewConsoleSession(deviceID)
 		cs.MustSend("pwd")
-		cs.MustExpect("/root")
+		cs.MustExpect("/var/lib/flightctl")
 		cs.Close()
 	})
 
-	It("supports multiple simultaneous console sessions", Label("81737", "sanity", "agent"), func() {
+	It("supports multiple simultaneous console sessions", Label("81737", "agent"), func() {
 		// Get harness directly - no shared package-level variable
 		harness := e2e.GetWorkerHarness()
 
@@ -55,14 +60,18 @@ var _ = Describe("CLI - device console", func() {
 		cs2 := harness.NewConsoleSession(deviceID)
 
 		cs2.MustSend("pwd")
-		cs2.MustExpect("/root")
+		cs2.MustExpect("/var/lib/flightctl")
 
-		cs1.MustSend("echo Session1 > /var/home/user/file.txt")
-		cs2.MustSend("cat /var/home/user/file.txt")
+		cs1.MustSend("echo Session1 > /tmp/file.txt")
+		cs1.MustExpect(`.*flightctl-console@.*\$`)
+
+		cs2.MustSend("cat /tmp/file.txt")
 		cs2.MustExpect("Session1")
 
-		cs2.MustSend("echo Session2 >> /var/home/user/file.txt")
-		cs1.MustSend("cat /var/home/user/file.txt")
+		cs2.MustSend("echo Session2 >> /tmp/file.txt")
+		cs2.MustExpect(`.*flightctl-console@.*\$`)
+
+		cs1.MustSend("cat /tmp/file.txt")
 		cs1.MustExpect("(?s).*Session1.*Session2.*")
 
 		cs1.Close()
@@ -115,68 +124,6 @@ var _ = Describe("CLI - device console", func() {
 		Expect(err).To(HaveOccurred())
 		Expect(out).To(ContainSubstring("not found"))
 	})
-
-	// Commenting since this feature is deprecated
-	// It("allows tuning spec-fetch-interval", Label("82538"), func() {
-	// 	// Get harness directly - no shared package-level variable
-	// 	harness := e2e.GetWorkerHarness()
-
-	// 	const (
-	// 		cfgFile              = "/etc/flightctl/config.yaml"
-	// 		specFetchKey         = "spec-fetch-interval"
-	// 		specFetchIntervalSec = 20
-	// 		rootPwd              = "user"
-	// 	)
-
-	// 	sendAsRoot := func(cs *e2e.ConsoleSession, cmd string) {
-	// 		cs.MustSend(fmt.Sprintf("echo '%s' | sudo -S %s", rootPwd, cmd))
-	// 	}
-
-	// 	cs := harness.NewConsoleSession(deviceID)
-
-	// 	// show current config & ensure the key is present
-	// 	sendAsRoot(cs, "cat "+cfgFile)
-	// 	cs.MustExpect(specFetchKey)
-
-	// 	// patch config
-	// 	sedExpr := fmt.Sprintf("sed -i -E 's/%s: .+m.+s/%s: 0m%ds/g' %s && cat %s", specFetchKey, specFetchKey,
-	// 		specFetchIntervalSec, cfgFile, cfgFile)
-	// 	sendAsRoot(cs, sedExpr)
-	// 	cs.MustExpect(fmt.Sprintf("%s: 0m%ds", specFetchKey, specFetchIntervalSec))
-	// 	sendAsRoot(cs, fmt.Sprintf("sh -c \"echo 'log-level: debug' >> %s\" && cat %s", cfgFile, cfgFile))
-	// 	cs.MustExpect("log-level: debug")
-
-	// 	sendAsRoot(cs, "systemctl restart flightctl-agent")
-	// 	cs.Close()
-
-	// 	By("waiting for publisher logs with the new interval")
-	// 	// Wait for the target log messages to appear
-	// 	opts := vm.JournalOpts{
-	// 		Unit:     "flightctl-agent",
-	// 		Since:    logLookbackDuration,
-	// 		LastBoot: true,
-	// 	}
-	// 	util.EventuallySlow(harness.VM.JournalLogs).
-	// 		WithArguments(opts).
-	// 		Should(And(
-	// 			ContainSubstring("No new template version from management service"),
-	// 			ContainSubstring("publisher.go"),
-	// 		))
-
-	// 	// Now validate the timing intervals
-	// 	logPattern := regexp.MustCompile(`.*time="([^"]+).*No new template version from management service.*publisher\.go.*"`)
-	// 	expectedInterval := time.Duration(specFetchIntervalSec) * time.Second
-	// 	Eventually(func() bool {
-	// 		logs, err := harness.VM.JournalLogs(vm.JournalOpts{
-	// 			Unit:     "flightctl-agent",
-	// 			Since:    logLookbackDuration,
-	// 			LastBoot: true,
-	// 		})
-	// 		Expect(err).ToNot(HaveOccurred())
-
-	// 		return validateTimestampIntervals(logs, logPattern, expectedInterval)
-	// 	}, 2*time.Minute, 10*time.Second).Should(BeTrue())
-	// })
 
 	It("recovers from image pull network disruption", Label("82541"), func() {
 		// Get harness directly - no shared package-level variable

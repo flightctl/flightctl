@@ -48,6 +48,7 @@ var _ = BeforeEach(func() {
 import (
 	"bytes"
 	"context"
+	cryptorand "crypto/rand"
 	"fmt"
 	"io"
 	"net"
@@ -64,6 +65,7 @@ import (
 	"github.com/creack/pty"
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
+	imagebuilderclient "github.com/flightctl/flightctl/internal/api/imagebuilder/client"
 	"github.com/flightctl/flightctl/internal/client"
 	service "github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/test/harness/e2e/vm"
@@ -79,6 +81,9 @@ import (
 )
 
 const fiveSecondTimeout = 5 * time.Second
+
+// setupSnapshotRestoreTimeout is the maximum time allowed for VM snapshot restore in BeforeEach.
+const setupSnapshotRestoreTimeout = 10 * time.Minute
 
 const POLLING = "250ms"
 const POLLINGLONG = "1s"
@@ -96,11 +101,12 @@ const (
 )
 
 type Harness struct {
-	Client    *apiclient.ClientWithResponses
-	Context   context.Context
-	Cluster   kubernetes.Interface
-	ctxCancel context.CancelFunc
-	startTime time.Time
+	Client             *apiclient.ClientWithResponses
+	ImageBuilderClient *imagebuilderclient.ClientWithResponses
+	Context            context.Context
+	Cluster            kubernetes.Interface
+	ctxCancel          context.CancelFunc
+	startTime          time.Time
 
 	VM vm.TestVMInterface
 
@@ -676,6 +682,11 @@ func (h *Harness) TestEnrollmentApproval(labels ...map[string]string) *v1beta1.E
 }
 
 func (h *Harness) CleanUpAllTestResources() error {
+	if h.VM != nil {
+		if err := h.StopFlightCtlAgent(); err != nil {
+			logrus.Warnf("Failed to stop agent before cleanup: %v", err)
+		}
+	}
 	return h.CleanUpTestResources(util.ResourceTypes[:]...)
 }
 
@@ -1447,6 +1458,22 @@ func newTestHarnessBase(ctx context.Context) (*Harness, error) {
 		return nil, fmt.Errorf("failed to create client: %w", err)
 	}
 
+	// Parse config to get imagebuilder server URL
+	config, err := client.ParseConfigFile(baseDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse config file: %w", err)
+	}
+
+	// Create imagebuilder client - server must be configured
+	imageBuilderServer := config.GetImageBuilderServer()
+	if imageBuilderServer == "" {
+		return nil, fmt.Errorf("imagebuilder server URL not configured in client config")
+	}
+	ibClientWrapper, err := client.NewImageBuilderClientFromConfig(config, baseDir, imageBuilderServer, config.Organization)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create imagebuilder client: %w", err)
+	}
+	ibClient := ibClientWrapper.ClientWithResponses
 	ctx, cancel := context.WithCancel(ctx)
 
 	k8sCluster, err := kubernetesClient()
@@ -1466,15 +1493,16 @@ func newTestHarnessBase(ctx context.Context) (*Harness, error) {
 	c.Start(ctx)
 
 	return &Harness{
-		Client:        c.ClientWithResponses,
-		Context:       ctx,
-		Cluster:       k8sCluster,
-		ctxCancel:     cancel,
-		startTime:     startTime,
-		VM:            nil,
-		gitRepos:      make(map[string]string),
-		gitWorkDir:    gitWorkDir,
-		clientWrapper: c,
+		Client:             c.ClientWithResponses,
+		ImageBuilderClient: ibClient,
+		Context:            ctx,
+		Cluster:            k8sCluster,
+		ctxCancel:          cancel,
+		startTime:          startTime,
+		VM:                 nil,
+		gitRepos:           make(map[string]string),
+		gitWorkDir:         gitWorkDir,
+		clientWrapper:      c,
 	}, nil
 }
 
@@ -1517,8 +1545,22 @@ func (h *Harness) GetVMFromPool(workerID int) (vm.TestVMInterface, error) {
 }
 
 // SetupVMFromPool sets up a VM from the pool and reverts it to the pristine snapshot.
-// It does not start the agent.
+// It does not start the agent. The operation is bounded by setupSnapshotRestoreTimeout (10 minutes).
 func (h *Harness) SetupVMFromPool(workerID int) error {
+	done := make(chan error, 1)
+	go func() {
+		done <- h.setupVMFromPoolNoTimeout(workerID)
+	}()
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(setupSnapshotRestoreTimeout):
+		return fmt.Errorf("snapshot restore timed out after %v", setupSnapshotRestoreTimeout)
+	}
+}
+
+// setupVMFromPoolNoTimeout performs the actual VM pool setup and snapshot revert (no timeout).
+func (h *Harness) setupVMFromPoolNoTimeout(workerID int) error {
 	// Get VM from pool (created on-demand if needed)
 	testVM, err := h.GetVMFromPool(workerID)
 	if err != nil {
@@ -1533,6 +1575,18 @@ func (h *Harness) SetupVMFromPool(workerID int) error {
 	// Wait for SSH to be ready
 	if err := testVM.WaitForSSHToBeReady(); err != nil {
 		return fmt.Errorf("failed to wait for SSH: %w", err)
+	}
+
+	// Reseed the VM's entropy pool with host-generated random bytes.
+	// After a snapshot revert the kernel CSPRNG state is identical to the
+	// snapshot, which can cause the agent to generate the same private key
+	// (and therefore the same device name) across different test runs.
+	entropy := make([]byte, 512)
+	if _, err := cryptorand.Read(entropy); err != nil {
+		return fmt.Errorf("failed to generate entropy on host: %w", err)
+	}
+	if _, err := testVM.RunSSH([]string{"sudo", "dd", "of=/dev/urandom", "bs=512", "count=1"}, bytes.NewBuffer(entropy)); err != nil {
+		logrus.Warnf("Failed to reseed VM entropy: %v", err)
 	}
 
 	// Clean any stale CSR from previous tests
