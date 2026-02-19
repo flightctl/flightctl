@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 
@@ -28,9 +29,8 @@ func NewAAPCommand() *cobra.Command {
 		Use:   "aap [command]",
 		Short: "AAP integration commands",
 		Long:  "Commands for integrating with Ansible Automation Platform (AAP)",
-		Run: func(cmd *cobra.Command, args []string) {
-			_ = cmd.Help()
-			os.Exit(0)
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return cmd.Help()
 		},
 	}
 
@@ -74,6 +74,8 @@ func (o *CreateAAPApplicationOptions) Run() error {
 	if _, err := os.Stat(o.OutputFile); err == nil {
 		logger.Infof("AAP OAuth client_id file already exists at %s - skipping creation", o.OutputFile)
 		return nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("failed to check if output file exists: %w", err)
 	}
 
 	configData, err := os.ReadFile(o.Config)
@@ -123,7 +125,7 @@ func (o *CreateAAPApplicationOptions) Run() error {
 	}
 
 	if aapConfig.Token == "" {
-		return fmt.Errorf("AAP token is not configured, skipping AAP application creation")
+		return fmt.Errorf("AAP token is required but not configured")
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
