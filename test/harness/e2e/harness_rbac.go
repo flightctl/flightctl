@@ -3,7 +3,10 @@ package e2e
 import (
 	"context"
 	"errors"
+	"fmt"
 
+	"github.com/flightctl/flightctl/internal/client"
+	. "github.com/onsi/ginkgo/v2"
 	"github.com/sirupsen/logrus"
 	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -137,4 +140,49 @@ func (h *Harness) DeleteRoleBinding(ctx context.Context, client kubernetes.Inter
 
 func (h *Harness) DeleteClusterRoleBinding(ctx context.Context, client kubernetes.Interface, clusterRoleBindingName string) error {
 	return client.RbacV1().ClusterRoleBindings().Delete(ctx, clusterRoleBindingName, metav1.DeleteOptions{})
+}
+
+// SetCurrentOrganization sets the organization in the client config file and refreshes the harness client.
+// Call after changing namespace/login so subsequent API calls use this org.
+func (h *Harness) SetCurrentOrganization(org string) error {
+	if org == "" {
+		return nil
+	}
+	configPath, err := client.DefaultFlightctlClientConfigPath()
+	if err != nil {
+		return fmt.Errorf("failed to get client config path: %w", err)
+	}
+	cfg, err := client.ParseConfigFile(configPath)
+	if err != nil {
+		return fmt.Errorf("failed to parse config: %w", err)
+	}
+	cfg.Organization = org
+	if err := cfg.Persist(configPath); err != nil {
+		return fmt.Errorf("failed to persist config with organization %q: %w", org, err)
+	}
+	GinkgoWriter.Printf("Set current organization to: %s\n", org)
+	return h.RefreshClient()
+}
+
+// GetOrganizationIDForNamespace returns the organization ID whose Spec.ExternalId matches the given namespace (e.g. OpenShift project).
+// If none match, returns an error so callers can fall back to GetOrganizationID() if desired.
+func (h *Harness) GetOrganizationIDForNamespace(namespace string) (string, error) {
+	if namespace == "" {
+		return "", fmt.Errorf("namespace is empty")
+	}
+	resp, err := h.Client.ListOrganizationsWithResponse(h.Context, nil)
+	if err != nil {
+		return "", err
+	}
+	if resp.JSON200 == nil {
+		return "", fmt.Errorf("no organizations response")
+	}
+	for _, org := range resp.JSON200.Items {
+		if org.Spec != nil && org.Spec.ExternalId != nil && *org.Spec.ExternalId == namespace {
+			if org.Metadata.Name != nil && *org.Metadata.Name != "" {
+				return *org.Metadata.Name, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("no organization found with externalId (namespace) %q", namespace)
 }
