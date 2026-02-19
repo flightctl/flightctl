@@ -145,6 +145,11 @@ func TestGenerateTemplateVersionName(t *testing.T) {
 			fleetName:  strings.Repeat("b", 240),
 			generation: 99999999999999,
 		},
+		{
+			name:       "name with dot at truncation boundary",
+			fleetName:  strings.Repeat("a", 241) + "." + strings.Repeat("a", 11),
+			generation: 1,
+		},
 	}
 
 	for _, tt := range tests {
@@ -153,6 +158,8 @@ func TestGenerateTemplateVersionName(t *testing.T) {
 			result := generateTemplateVersionName(fleet)
 			require.LessOrEqual(len(result), validation.DNS1123MaxLength,
 				"generated name %q has %d chars, exceeds %d", result, len(result), validation.DNS1123MaxLength)
+			errs := validation.ValidateResourceName(&result)
+			require.Empty(errs, "generated name %q is not a valid DNS subdomain: %v", result, errs)
 		})
 	}
 
