@@ -156,6 +156,11 @@ func (s *Server) Run(ctx context.Context) error {
 		s.store, workerClient, kvStore, s.ca, s.log, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl, s.cfg.Service.TPMCAPaths)
 	serviceHandler := service.WrapWithTracing(baseServiceHandler)
 
+	// Wait for OIDC provider to be ready
+	if err := auth.WaitForOIDCProvider(ctx, s.log, s.cfg); err != nil {
+		return fmt.Errorf("failed to wait for OIDC provider: %w", err)
+	}
+
 	// Initialize auth with traced service handler for OIDC provider access
 	authN, err := auth.InitMultiAuth(s.cfg, s.log, serviceHandler)
 	if err != nil {

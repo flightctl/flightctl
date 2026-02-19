@@ -345,9 +345,23 @@ func (p *AuthTokenProxy) proxyTokenRequest(ctx context.Context, providerConfig *
 	}
 
 	// Make the request using the shared HTTP client
-	resp, err := p.httpClient.Do(req)
+	var resp *http.Response
+	for i := 0; i < 5; i++ {
+		resp, err = p.httpClient.Do(req)
+		if err == nil {
+			break
+		}
+		p.authN.GetLogger().Errorf("Token proxy: request failed (attempt %d): %v", i+1, err)
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(time.Second):
+		}
+		// we need to copy the body for the retry
+		req.Body = io.NopCloser(strings.NewReader(encodedBody))
+	}
 	if err != nil {
-		p.authN.GetLogger().Errorf("Token proxy: request failed: %v", err)
+		p.authN.GetLogger().Errorf("Token proxy: request failed after all retries: %v", err)
 		return nil, fmt.Errorf("failed to send token request: %w", err)
 	}
 	defer resp.Body.Close()
