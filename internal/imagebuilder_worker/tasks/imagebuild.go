@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	_ "embed"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"os"
@@ -712,6 +713,33 @@ ignore_chown_errors = "true"
 	}, nil
 }
 
+// writeCACertDir writes a base64-encoded CA certificate to the directory structure
+// expected by podman's --cert-dir flag: <baseDir>/certs/<registryHostname>/ca.crt.
+// Returns the cert-dir path to pass to podman, or "" if no CA cert is configured.
+func writeCACertDir(caCrt *string, baseDir string, registryHostname string) (string, error) {
+	if caCrt == nil || *caCrt == "" {
+		return "", nil
+	}
+
+	ca, err := base64.StdEncoding.DecodeString(*caCrt)
+	if err != nil {
+		return "", fmt.Errorf("failed to decode CA certificate: %w", err)
+	}
+
+	certDir := filepath.Join(baseDir, "certs")
+	registryCertDir := filepath.Join(certDir, registryHostname)
+	if err := os.MkdirAll(registryCertDir, 0700); err != nil {
+		return "", fmt.Errorf("failed to create cert directory: %w", err)
+	}
+
+	certPath := filepath.Join(registryCertDir, "ca.crt")
+	if err := os.WriteFile(certPath, ca, 0600); err != nil {
+		return "", fmt.Errorf("failed to write CA certificate: %w", err)
+	}
+
+	return certDir, nil
+}
+
 // loginToRegistry logs into a registry using podman login with stdin
 // This is used for push operations where authfile doesn't work reliably
 func (c *Consumer) loginToRegistry(
@@ -720,6 +748,7 @@ func (c *Consumer) loginToRegistry(
 	registryHostname string,
 	username string,
 	password string,
+	certDir string,
 	log logrus.FieldLogger,
 ) error {
 	if username == "" || password == "" {
@@ -748,10 +777,15 @@ func (c *Consumer) loginToRegistry(
 	log.WithField("registry", registryHostname).Debug("Logging into registry with podman login")
 
 	// Run podman login inside the container with stdin
-	// Format: podman exec -i <container> podman login -u <username> -p <password> <registry>
+	// Format: podman exec -i <container> podman login -u <username> --password-stdin [--cert-dir <dir>] <registry>
 	// username and registryHostname are validated above to prevent command injection
-	//nolint:gosec // G204: Inputs are validated above to prevent command injection. exec.CommandContext uses separate arguments (not shell), making this safe.
-	loginCmd := exec.CommandContext(ctx, "podman", "exec", "-i", podmanWorker.ContainerName, "podman", "login", "-u", username, "--password-stdin", registryHostname)
+	loginArgs := []string{"exec", "-i", podmanWorker.ContainerName, "podman", "login", "-u", username, "--password-stdin"}
+	if certDir != "" {
+		loginArgs = append(loginArgs, "--cert-dir", certDir)
+	}
+	loginArgs = append(loginArgs, registryHostname)
+	// G204: Inputs are validated above to prevent command injection. exec.CommandContext uses separate arguments (not shell), making this safe.
+	loginCmd := exec.CommandContext(ctx, "podman", loginArgs...)
 
 	// Write password to stdin
 	loginCmd.Stdin = strings.NewReader(password)
@@ -884,12 +918,18 @@ func (c *Consumer) buildImageWithPodman(
 	// ociSpec.Registry is already the hostname (no scheme)
 	sourceRegistryHostname := ociSpec.Registry
 
+	// Write CA certificate for source registry if configured
+	sourceCertDir, err := writeCACertDir(ociSpec.CaCrt, podmanWorker.TmpDir, sourceRegistryHostname)
+	if err != nil {
+		return fmt.Errorf("failed to write source registry CA certificate: %w", err)
+	}
+
 	// Login to source registry using podman login with stdin
 	// This is used to pull the base image during build
 	if ociSpec.OciAuth != nil {
 		dockerAuth, err := ociSpec.OciAuth.AsDockerAuth()
 		if err == nil && dockerAuth.Username != "" && dockerAuth.Password != "" {
-			if err := c.loginToRegistry(ctx, podmanWorker, sourceRegistryHostname, dockerAuth.Username, dockerAuth.Password, log); err != nil {
+			if err := c.loginToRegistry(ctx, podmanWorker, sourceRegistryHostname, dockerAuth.Username, dockerAuth.Password, sourceCertDir, log); err != nil {
 				return fmt.Errorf("failed to login to source registry: %w", err)
 			}
 		}
@@ -928,6 +968,10 @@ func (c *Consumer) buildImageWithPodman(
 	} else if ociSpec.SkipServerVerification != nil && *ociSpec.SkipServerVerification {
 		podmanBuildArgs = append(podmanBuildArgs, "--tls-verify=false")
 		log.Debug("Using --tls-verify=false due to source SkipServerVerification")
+	}
+
+	if sourceCertDir != "" {
+		podmanBuildArgs = append(podmanBuildArgs, "--cert-dir", sourceCertDir)
 	}
 
 	podmanBuildArgs = append(podmanBuildArgs,
@@ -993,12 +1037,18 @@ func (c *Consumer) pushImageWithPodman(
 	destRegistryHostname := ociSpec.Registry
 	imageRef := fmt.Sprintf("%s/%s:%s", destRegistryHostname, spec.Destination.ImageName, spec.Destination.ImageTag)
 
+	// Write CA certificate for destination registry if configured
+	destCertDir, err := writeCACertDir(ociSpec.CaCrt, podmanWorker.TmpDir, destRegistryHostname)
+	if err != nil {
+		return "", fmt.Errorf("failed to write destination registry CA certificate: %w", err)
+	}
+
 	// Login to registry using podman login with stdin
 	// This is more reliable than authfile for push operations
 	if ociSpec.OciAuth != nil {
 		dockerAuth, err := ociSpec.OciAuth.AsDockerAuth()
 		if err == nil && dockerAuth.Username != "" && dockerAuth.Password != "" {
-			if err := c.loginToRegistry(ctx, podmanWorker, destRegistryHostname, dockerAuth.Username, dockerAuth.Password, log); err != nil {
+			if err := c.loginToRegistry(ctx, podmanWorker, destRegistryHostname, dockerAuth.Username, dockerAuth.Password, destCertDir, log); err != nil {
 				return "", fmt.Errorf("failed to login to destination registry: %w", err)
 			}
 		}
@@ -1021,6 +1071,10 @@ func (c *Consumer) pushImageWithPodman(
 	} else if ociSpec.SkipServerVerification != nil && *ociSpec.SkipServerVerification {
 		pushArgs = append(pushArgs, "--tls-verify=false")
 		log.Debug("Using --tls-verify=false due to SkipServerVerification")
+	}
+
+	if destCertDir != "" {
+		pushArgs = append(pushArgs, "--cert-dir", destCertDir)
 	}
 
 	pushArgs = append(pushArgs, imageRef)
