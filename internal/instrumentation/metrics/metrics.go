@@ -128,8 +128,14 @@ func (m *MetricsServer) Run(ctx context.Context, options ...MetricsServerOption)
 		IdleTimeout:       httpIdleTimeout,
 	}
 
+	serveCtx, serveCancel := context.WithCancel(ctx)
+	shutdownDone := make(chan struct{})
 	go func() {
-		<-ctx.Done()
+		defer close(shutdownDone)
+		<-serveCtx.Done()
+		if ctx.Err() == nil {
+			return
+		}
 		if m.log != nil {
 			m.log.WithError(ctx.Err()).Info("metrics: shutdown signal received")
 		}
@@ -146,10 +152,13 @@ func (m *MetricsServer) Run(ctx context.Context, options ...MetricsServerOption)
 		m.log.Infof("metrics server listening on http://%s/metrics/", opts.addr)
 	}
 
+	var serveErr error
 	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		return err
+		serveErr = err
 	}
-	return nil
+	serveCancel()
+	<-shutdownDone
+	return serveErr
 }
 
 func defaultMetricsServerOptions() metricsServerOptions {

@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
@@ -72,8 +73,17 @@ func (a *Agent) Run(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	var wg sync.WaitGroup
+	startAsync := func(fn func(context.Context)) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			fn(ctx)
+		}()
+	}
+
 	// start instrumentation early so startup paths are observable.
-	go instrumentation.NewAgentInstrumentation(a.log, a.config).Run(ctx)
+	startAsync(instrumentation.NewAgentInstrumentation(a.log, a.config).Run)
 
 	// create file io writer and reader
 	rwFactory := fileio.NewReadWriterFactory(a.config.GetTestRootDir())
@@ -444,35 +454,23 @@ func (a *Agent) Run(ctx context.Context) error {
 	// agent is serial by default. only a small number of operations run async.
 	// device reconciliation, status updates, and spec application happen serially.
 
-	// async to handle OS signals (SIGTERM, SIGINT) for graceful shutdown
-	go shutdownManager.Run(ctx)
-
-	// async to watch config file changes without blocking reconciliation
-	go reloadManager.Run(ctx)
-
-	// async monitors for various resources (cpu, memory, disk)
-	// monitoring must not be blocked by other operations to detect resource changes promptly
-	go resourceManager.Run(ctx)
-
-	// async to pre-pull container images without blocking the main loop
-	// image pulls can take minutes and should not delay device reconciliation
-	go prefetchManager.Run(ctx)
-
-	// async to handle bidirectional gRPC streams for remote shell access
-	// must run independently to maintain persistent console connections
-	go consoleManager.Run(ctx)
-
-	// publisher is async to poll management server for spec updates at regular intervals
-	// fetching is async, but spec management remains serial in the main agent loop
-	go specManager.Publisher().Run(ctx)
-
-	// certManager runs certificate reconciliation asynchronously.
-	// It periodically syncs device certificates (issuance/renewal) and must not
-	// block the main agent loop or other long-running managers.
-	go certManager.Run(ctx)
+	startAsync(shutdownManager.Run)
+	startAsync(reloadManager.Run)
+	startAsync(resourceManager.Run)
+	startAsync(prefetchManager.Run)
+	startAsync(consoleManager.Run)
+	startAsync(specManager.Publisher().Run)
+	startAsync(certManager.Run)
 
 	// main agent loop: all critical work happens here serially
-	return agent.Run(ctx)
+	err = agent.Run(ctx)
+
+	// wait for all async goroutines to finish before returning so that
+	// callers (e.g. integration tests) can rely on full cleanup.
+	cancel()
+	wg.Wait()
+
+	return err
 }
 
 func newEnrollmentClient(cfg *agent_config.Config, log *log.PrefixLogger) (client.Enrollment, error) {

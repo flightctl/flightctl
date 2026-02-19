@@ -68,11 +68,19 @@ func (m *ResourceManager) Run(ctx context.Context) {
 	m.log.Debug("Starting resource manager")
 	defer m.log.Debug("Resource manager stopped")
 
-	go m.diskMonitor.Run(ctx)
-	go m.cpuMonitor.Run(ctx)
-	go m.memoryMonitor.Run(ctx)
+	var wg sync.WaitGroup
+	start := func(run func(context.Context)) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			run(ctx)
+		}()
+	}
+	start(m.diskMonitor.Run)
+	start(m.cpuMonitor.Run)
+	start(m.memoryMonitor.Run)
 
-	<-ctx.Done()
+	wg.Wait()
 }
 
 func (m *ResourceManager) Update(monitor *v1beta1.ResourceMonitor) (bool, error) {
