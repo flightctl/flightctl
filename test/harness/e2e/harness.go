@@ -1558,6 +1558,28 @@ func NewTestHarnessWithVMPool(ctx context.Context, workerID int) (*Harness, erro
 	return harness, nil
 }
 
+// NewTestHarnessWithFreshVMFromPool creates a harness with a fresh VM from the pool.
+// Fresh VMs use full disk copies instead of overlays and don't use snapshots.
+// The VM is managed by the pool but provides completely clean state for each test.
+func NewTestHarnessWithFreshVMFromPool(ctx context.Context, workerID int) (*Harness, error) {
+	harness, err := newTestHarnessBase(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// Get fresh VM from the pool
+	testVM, err := SetupFreshVMForWorker(workerID, os.TempDir(), 2233)
+	if err != nil {
+		harness.ctxCancel()
+		return nil, fmt.Errorf("failed to get fresh VM from pool for worker %d: %w", workerID, err)
+	}
+
+	// Set the VM in the harness
+	harness.VM = testVM
+
+	return harness, nil
+}
+
 // GetVMFromPool retrieves a VM from the pool for the given worker ID.
 // VMs are created on-demand if they don't already exist in the pool.
 func (h *Harness) GetVMFromPool(workerID int) (vm.TestVMInterface, error) {

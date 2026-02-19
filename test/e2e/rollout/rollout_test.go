@@ -3,6 +3,7 @@ package rollout_test
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"sync"
 	"time"
 
@@ -14,7 +15,7 @@ import (
 	"github.com/samber/lo"
 )
 
-var _ = Describe("Rollout Policies", func() {
+var _ = Describe("Rollout Policies", Label("rollout"), func() {
 	var (
 		ctx context.Context
 		tc  *TestContext
@@ -83,7 +84,10 @@ var _ = Describe("Rollout Policies", func() {
 
 			deviceSpec, err := tc.createDeviceSpec()
 			Expect(err).ToNot(HaveOccurred())
-			time.Sleep(30 * time.Second)
+
+			// Wait for devices to stabilize after enrollment
+			waitDuration, _ := time.ParseDuration(DEVICEWAITTIME)
+			time.Sleep(waitDuration)
 
 			// Update fleet with template
 			err = tc.harness.CreateOrUpdateTestFleet(fleetName, createFleetSpec(bsq1, lo.ToPtr(api.Percentage("50%")), deviceSpec))
@@ -436,14 +440,36 @@ var _ = Describe("Rollout Policies", func() {
 			err = tc.harness.CreateOrUpdateTestFleet(fleetName, createFleetSpec(updatedBatchSequence, lo.ToPtr(api.Percentage(SuccessThreshold)), deviceSpec))
 			Expect(err).ToNot(HaveOccurred())
 
-			By("Waiting for the first batch of the new flow to complete")
-			tc.harness.WaitForBatchStart(fleetName, 0)
+			By("Waiting for the first batch of the new flow to start and verifying Paris device is selected")
+			// Poll quickly to catch batch 0 before it completes and verify Paris is selected
+			Eventually(func() error {
+				// Get current batch number
+				batchNumber, err := tc.getCurrentBatchNumber(ctx, fleetName)
+				if err != nil {
+					return err
+				}
 
-			// Verify the Paris device is updated first in the new flow
-			selectedDevices, err := tc.harness.GetSelectedDevicesForBatch(fleetName)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(len(selectedDevices)).To(Equal(1))
-			Expect((*selectedDevices[0].Metadata.Labels)[labelSite]).To(Equal(siteParis))
+				// Only check when we're exactly at batch 0
+				if batchNumber != 0 {
+					return fmt.Errorf("batch 0 already completed, now at batch %d", batchNumber)
+				}
+
+				// Now get selected devices for batch 0
+				selectedDevices, err := tc.harness.GetSelectedDevicesForBatch(fleetName)
+				if err != nil {
+					return fmt.Errorf("failed to get selected devices: %w", err)
+				}
+				if len(selectedDevices) != 1 {
+					return fmt.Errorf("expected 1 selected device, got %d", len(selectedDevices))
+				}
+
+				// Verify the Paris device is selected
+				site := (*selectedDevices[0].Metadata.Labels)[labelSite]
+				if site != siteParis {
+					return fmt.Errorf("expected Paris device, got %s", site)
+				}
+				return nil
+			}, LONGTIMEOUT, FASTPOLLING).Should(Succeed())
 
 		})
 	})
@@ -486,7 +512,7 @@ func rolloutDeviceSelection(b api.BatchSequence) *api.RolloutDeviceSelection {
 func createFleetSpec(b api.BatchSequence, threshold *api.Percentage, testFleetSpec api.DeviceSpec) api.FleetSpec {
 	return api.FleetSpec{
 		RolloutPolicy: &api.RolloutPolicy{
-			DefaultUpdateTimeout: lo.ToPtr("90s"),
+			DefaultUpdateTimeout: lo.ToPtr(DEFAULTUPDATETIMEOUT),
 			DeviceSelection:      rolloutDeviceSelection(b),
 			SuccessThreshold:     threshold,
 		},
@@ -567,6 +593,7 @@ func (tc *TestContext) setupFleetAndDevices(context context.Context, numDevices 
 	tc.harnesses = make([]*e2e.Harness, numDevices)
 
 	// Use goroutines to set up devices concurrently
+	GinkgoWriter.Printf("Creating %d device VMs in parallel...\n", numDevices)
 	var wg sync.WaitGroup
 	errChan := make(chan error, numDevices)
 
@@ -576,23 +603,33 @@ func (tc *TestContext) setupFleetAndDevices(context context.Context, numDevices 
 			defer GinkgoRecover()
 			defer wg.Done()
 			testID := tc.harness.GetTestIDFromContext()
-			GinkgoWriter.Printf("Test ID: %s\n", testID)
+			GinkgoWriter.Printf("📦 [VM %d] Starting creation (Test ID: %s)\n", index+1, testID)
 
-			vmHarness, err := e2e.NewTestHarnessWithVMPool(context, 1000+index)
+			// Use fresh VMs from pool (no snapshots, overlay disks, 1GB RAM)
+			// This avoids snapshot revert issues while still using pool management
+			vmHarness, err := e2e.NewTestHarnessWithFreshVMFromPool(context, 1000+index)
 			if err != nil {
-				errChan <- err
+				errChan <- fmt.Errorf("VM %d: %w", index+1, err)
 				return
 			}
 
 			// Set the test context to inherit the same test ID as the main harness
 			vmHarness.SetTestContext(tc.harness.GetTestContext())
 			testID = vmHarness.GetTestIDFromContext()
-			GinkgoWriter.Printf("Test ID: %s\n", testID)
+			GinkgoWriter.Printf("✅ [VM %d] Created successfully (Test ID: %s)\n", index+1, testID)
 			tc.harnesses[index] = vmHarness
+
 			labels := labelsList[index]
 			labels["fleet"] = fleetName
-			deviceID, _ := vmHarness.EnrollAndWaitForOnlineStatus(labels)
+
+			GinkgoWriter.Printf("🔄 [VM %d] Enrolling device...\n", index+1)
+			deviceID, device := vmHarness.EnrollAndWaitForOnlineStatus(labels)
+			if device == nil {
+				errChan <- fmt.Errorf("VM %d: failed to enroll - device is nil", index+1)
+				return
+			}
 			tc.deviceIDs[index] = deviceID
+			GinkgoWriter.Printf("✅ [VM %d] Enrolled successfully (ID: %s)\n", index+1, deviceID)
 
 		}(i)
 	}
@@ -608,6 +645,7 @@ func (tc *TestContext) setupFleetAndDevices(context context.Context, numDevices 
 		}
 	}
 
+	GinkgoWriter.Printf("✅ All %d devices created and enrolled successfully\n", numDevices)
 	return nil
 }
 
@@ -657,6 +695,35 @@ func (tc *TestContext) verifyAllDevicesUpdated(expectedCount int) error {
 			}
 		}
 		return nil
-	}, MEDIUMTIMEOUT, "10s").Should(Succeed())
+	}, MEDIUMTIMEOUT, POLLINGINTERVAL).Should(Succeed())
 	return nil
+}
+
+// getCurrentBatchNumber retrieves the current batch number from fleet annotations
+func (tc *TestContext) getCurrentBatchNumber(ctx context.Context, fleetName string) (int, error) {
+	response, err := tc.harness.Client.GetFleetWithResponse(ctx, fleetName, nil)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get fleet: %w", err)
+	}
+	if response == nil || response.JSON200 == nil {
+		return 0, fmt.Errorf("fleet response is nil")
+	}
+
+	fleet := response.JSON200
+	annotations := fleet.Metadata.Annotations
+	if annotations == nil {
+		return 0, fmt.Errorf("fleet annotations are nil")
+	}
+
+	batchNumberStr, ok := (*annotations)[api.FleetAnnotationBatchNumber]
+	if !ok {
+		return 0, fmt.Errorf("batch number annotation not found")
+	}
+
+	batchNumber, err := strconv.Atoi(batchNumberStr)
+	if err != nil {
+		return 0, fmt.Errorf("failed to parse batch number: %w", err)
+	}
+
+	return batchNumber, nil
 }

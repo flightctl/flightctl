@@ -153,6 +153,10 @@ func (h *Harness) WaitForFleetUpdateToFail(fleetName string) {
 }
 
 func (h *Harness) WaitForBatchStart(fleetName string, batchNumber int) {
+	var lastLoggedBatch int = -3
+	var lastMissingLog time.Time
+	// Poll more frequently (250ms) so we catch batch N before the controller advances to the next batch.
+	// Accept batch N or higher since the reconciler may race through empty batches quickly.
 	Eventually(func() int {
 		response, err := h.Client.GetFleetWithResponse(h.Context, fleetName, nil)
 		if err != nil {
@@ -171,13 +175,15 @@ func (h *Harness) WaitForBatchStart(fleetName string, batchNumber int) {
 
 		annotations := fleet.Metadata.Annotations
 		if annotations == nil {
-			GinkgoWriter.Printf("annotations are nil\n")
 			return -2
 		}
 
 		batchNumberStr, ok := (*annotations)[v1beta1.FleetAnnotationBatchNumber]
 		if !ok {
-			GinkgoWriter.Printf("batch number not found in annotations - available annotations: %v\n", *annotations)
+			if time.Since(lastMissingLog) >= 5*time.Second {
+				GinkgoWriter.Printf("batch number not found in annotations (will keep polling) - available: %v\n", *annotations)
+				lastMissingLog = time.Now()
+			}
 			return -2
 		}
 
@@ -187,10 +193,16 @@ func (h *Harness) WaitForBatchStart(fleetName string, batchNumber int) {
 			return -2
 		}
 
-		GinkgoWriter.Printf("Current batch number: %d, waiting for  %d\n", batchNumberInt, batchNumber)
+		if batchNumberInt < batchNumber && batchNumberInt != lastLoggedBatch {
+			GinkgoWriter.Printf("Current batch number: %d, waiting for at least %d\n", batchNumberInt, batchNumber)
+			lastLoggedBatch = batchNumberInt
+		} else if batchNumberInt > batchNumber && lastLoggedBatch != batchNumberInt {
+			GinkgoWriter.Printf("Batch %d already completed, now at batch %d\n", batchNumber, batchNumberInt)
+			lastLoggedBatch = batchNumberInt
+		}
 
 		return batchNumberInt
-	}, LONGTIMEOUT, POLLINGLONG).Should(Equal(batchNumber))
+	}, LONGTIMEOUT, POLLING).Should(BeNumerically(">=", batchNumber))
 }
 
 func (h *Harness) GetRolloutStatus(fleetName string) (v1beta1.Condition, error) {
