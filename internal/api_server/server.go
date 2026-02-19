@@ -153,7 +153,7 @@ func (s *Server) Run(ctx context.Context) error {
 
 	// Create service handler and wrap with tracing
 	baseServiceHandler := service.NewServiceHandler(
-		s.store, workerClient, kvStore, s.ca, s.log, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl, s.cfg.Service.TPMCAPaths)
+		s.store, workerClient, kvStore, s.ca, s.log, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl, s.cfg.Service.TPMCAPaths, s.cfg.Service.DefaultAliasKeys)
 	serviceHandler := service.WrapWithTracing(baseServiceHandler)
 
 	// Initialize auth with traced service handler for OIDC provider access

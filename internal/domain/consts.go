@@ -44,9 +44,10 @@ const DeviceQueryConsoleSessionMetadata = v1beta1.DeviceQueryConsoleSessionMetad
 // ========== EnrollmentRequest ==========
 
 const (
-	EnrollmentRequestAPIVersion = v1beta1.EnrollmentRequestAPIVersion
-	EnrollmentRequestKind       = v1beta1.EnrollmentRequestKind
-	EnrollmentRequestListKind   = v1beta1.EnrollmentRequestListKind
+	EnrollmentRequestAPIVersion               = v1beta1.EnrollmentRequestAPIVersion
+	EnrollmentRequestKind                     = v1beta1.EnrollmentRequestKind
+	EnrollmentRequestListKind                  = v1beta1.EnrollmentRequestListKind
+	EnrollmentRequestAnnotationDefaultAlias   = v1beta1.EnrollmentRequestAnnotationDefaultAlias
 )
 
 // ========== Fleet ==========

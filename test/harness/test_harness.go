@@ -253,7 +253,7 @@ func NewTestHarness(ctx context.Context, testDirPath string, goRoutineErrorHandl
 		return nil, fmt.Errorf("NewTestHarness: failed to create queue publisher: %w", err)
 	}
 	workerClient := worker_client.NewWorkerClient(publisher, serverLog)
-	serviceHandler := service.NewServiceHandler(store, workerClient, kvStore, ca, serverLog, "", "", []string{})
+	serviceHandler := service.NewServiceHandler(store, workerClient, kvStore, ca, serverLog, "", "", []string{}, nil)
 
 	testHarness := &TestHarness{
 		agentConfig:           cfg,

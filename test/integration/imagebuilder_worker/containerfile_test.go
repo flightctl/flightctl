@@ -144,7 +144,7 @@ var _ = Describe("Containerfile Generation", func() {
 		Expect(err).ToNot(HaveOccurred())
 
 		// Create service handler for enrollment credential generation
-		serviceHandler = service.NewServiceHandler(mainStoreInst, nil, nil, caClient, log, "https://api.example.com", "https://ui.example.com", []string{})
+		serviceHandler = service.NewServiceHandler(mainStoreInst, nil, nil, caClient, log, "https://api.example.com", "https://ui.example.com", []string{}, nil)
 	})
 
 	AfterEach(func() {

@@ -78,7 +78,7 @@ func (s *Server) Run(ctx context.Context) error {
 	defer orgCache.Stop()
 
 	serviceHandler := service.WrapWithTracing(
-		service.NewServiceHandler(s.store, workerClient, kvStore, nil, s.log, "", "", []string{}))
+		service.NewServiceHandler(s.store, workerClient, kvStore, nil, s.log, "", "", []string{}, nil))
 
 	if err = tasks.LaunchConsumers(ctx, s.queuesProvider, serviceHandler, s.k8sClient, kvStore, 1, 1, s.workerMetrics); err != nil {
 		s.log.WithError(err).Error("failed to launch consumers")
