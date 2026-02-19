@@ -55,7 +55,7 @@ container_runtime_domtrans(flightctl_agent_t)
 domtrans_pattern(flightctl_agent_t, bin_t, unconfined_t)
 domtrans_pattern(flightctl_agent_t, systemd_systemctl_exec_t, unconfined_t)
 # Also give the agent the ability to kill such managed subprocessses
-allow flightctl_agent_t unconfined_t:process sigkill;
+allow flightctl_agent_t unconfined_t:process {signal sigkill};
 # Allow dbus to write back to the agent
 allow system_dbusd_t flightctl_agent_t:fifo_file write;
 
