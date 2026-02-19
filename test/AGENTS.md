@@ -20,7 +20,7 @@ Defined in **test/test.mk** (included from root Makefile). Coverage reports go t
   - **Full flow (deploy + e2e):** `make e2e-test` – deploys cluster, builds e2e agent images, prepares qcow2, runs e2e.  
   - **Cluster already up:** `make in-cluster-e2e-test` – skips deploy, runs e2e.  
   - **Filter:** `GO_E2E_DIRS=test/e2e/agent`, `GINKGO_FOCUS="description"`, `GINKGO_PROCS=N`.  
-  - Some e2e suites (e.g. quadlets) need a quadlet-capable VM; see `test/e2e/quadlets/README.md` and `test/e2e/tpm/README.md`.
+  - Some e2e suites (e.g. quadlets) need a quadlet-capable VM; see `test/e2e/quadlets/README.md` and `test/e2e/tpm/README.md`. Rollout tests use multiple VMs and have higher RAM requirements; see `test/e2e/rollout/README.md`.
 
 ## E2E layout and harness
 

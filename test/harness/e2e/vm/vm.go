@@ -33,6 +33,7 @@ type TestVM struct {
 	hasCloudInit      bool
 	cloudInitArgs     string
 	MemoryFilePath    string // Path for external snapshot memory file
+	MemoryMiB         int    // VM memory in MiB; 0 means use default (2048)
 	DiskSizeGB        int
 }
 
