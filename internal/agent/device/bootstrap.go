@@ -175,6 +175,12 @@ func (b *Bootstrap) updateStatus(ctx context.Context) {
 	} else {
 		updatingCondition.Status = v1beta1.ConditionStatusFalse
 		updatingCondition.Reason = string(v1beta1.UpdateStateUpdated)
+
+		// If an update failed and triggered a rollback, report the error
+		if failedVersion, failedReason, ok := b.specManager.RollbackFailureInfo(); ok {
+			updatingCondition.Reason = string(v1beta1.UpdateStateError)
+			updatingCondition.Message = fmt.Sprintf("Update to version %s failed, rolled back: %s", failedVersion, failedReason)
+		}
 	}
 
 	_, updateErr := b.statusManager.Update(ctx,

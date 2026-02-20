@@ -77,81 +77,82 @@ func (m *manager) validateProviderDeps(ctx context.Context, p provider.Provider)
 	return nil
 }
 
-func (m *manager) Ensure(ctx context.Context, provider provider.Provider) error {
-	if err := m.validateProviderDeps(ctx, provider); err != nil {
-		return err
-	}
-	appType := provider.Spec().AppType
-	switch appType {
-	case v1beta1.AppTypeCompose, v1beta1.AppTypeQuadlet, v1beta1.AppTypeContainer:
-		if m.podmanMonitor.Has(provider.Spec().ID) {
-			return nil
-		}
-		if err := provider.Install(ctx); err != nil {
-			return fmt.Errorf("%w: %w", errors.ErrInstallingApplication, err)
-		}
-		return m.podmanMonitor.Ensure(ctx, NewApplication(provider))
-	case v1beta1.AppTypeHelm:
-		if m.kubernetesMonitor.Has(provider.Spec().ID) {
-			return nil
-		}
-		if err := provider.Install(ctx); err != nil {
-			return fmt.Errorf("%w: %w", errors.ErrInstallingApplication, err)
-		}
-		return m.kubernetesMonitor.Ensure(NewHelmApplication(provider))
-	default:
-		return fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, appType)
-	}
-}
-
-func (m *manager) Remove(ctx context.Context, provider provider.Provider) error {
-	if err := provider.Remove(ctx); err != nil {
-		return fmt.Errorf("%w: %w", errors.ErrRemovingApplication, err)
-	}
-
-	// If dependencies are missing (e.g., kubernetes unavailable for helm apps),
-	// we can't queue the monitor action. The important cleanup already happened
-	// via provider.Remove() above, so we log and continue for idempotent removal.
-	if err := m.validateProviderDeps(ctx, provider); err != nil {
-		m.log.Warnf("Skipping monitor removal action for %s: %v", provider.Name(), err)
+func (m *manager) Ensure(ctx context.Context, p provider.Provider) error {
+	if m.isMonitored(p) {
 		return nil
 	}
+	if err := p.Install(ctx); err != nil {
+		return fmt.Errorf("%w: %w", errors.ErrInstallingApplication, err)
+	}
+	return m.queueMonitorEnsure(ctx, p)
+}
 
-	appType := provider.Spec().AppType
-	switch appType {
+func (m *manager) Remove(ctx context.Context, p provider.Provider) error {
+	if err := p.Remove(ctx); err != nil {
+		return fmt.Errorf("%w: %w", errors.ErrRemovingApplication, err)
+	}
+	return m.queueMonitorRemove(ctx, p)
+}
+
+func (m *manager) Update(ctx context.Context, p provider.Provider) error {
+	if err := p.Remove(ctx); err != nil {
+		return fmt.Errorf("%w: %w", errors.ErrRemovingApplication, err)
+	}
+	if err := p.Install(ctx); err != nil {
+		return fmt.Errorf("%w: %w", errors.ErrInstallingApplication, err)
+	}
+	return m.queueMonitorUpdate(ctx, p)
+}
+
+func (m *manager) isMonitored(p provider.Provider) bool {
+	switch p.Spec().AppType {
 	case v1beta1.AppTypeCompose, v1beta1.AppTypeQuadlet, v1beta1.AppTypeContainer:
-		return m.podmanMonitor.QueueRemove(NewApplication(provider))
+		return m.podmanMonitor.Has(p.Spec().ID)
 	case v1beta1.AppTypeHelm:
-		return m.kubernetesMonitor.Remove(NewHelmApplication(provider))
+		return m.kubernetesMonitor.Has(p.Spec().ID)
+	}
+	return false
+}
+
+func (m *manager) queueMonitorEnsure(ctx context.Context, p provider.Provider) error {
+	if err := m.validateProviderDeps(ctx, p); err != nil {
+		return err
+	}
+	switch p.Spec().AppType {
+	case v1beta1.AppTypeCompose, v1beta1.AppTypeQuadlet, v1beta1.AppTypeContainer:
+		return m.podmanMonitor.Ensure(ctx, NewApplication(p))
+	case v1beta1.AppTypeHelm:
+		return m.kubernetesMonitor.Ensure(NewHelmApplication(p))
 	default:
-		return fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, appType)
+		return fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, p.Spec().AppType)
 	}
 }
 
-func (m *manager) Update(ctx context.Context, provider provider.Provider) error {
-	if err := m.validateProviderDeps(ctx, provider); err != nil {
+func (m *manager) queueMonitorUpdate(ctx context.Context, p provider.Provider) error {
+	if err := m.validateProviderDeps(ctx, p); err != nil {
 		return err
 	}
-	appType := provider.Spec().AppType
-	switch appType {
+	switch p.Spec().AppType {
 	case v1beta1.AppTypeCompose, v1beta1.AppTypeQuadlet, v1beta1.AppTypeContainer:
-		if err := provider.Remove(ctx); err != nil {
-			return fmt.Errorf("%w: %w", errors.ErrRemovingApplication, err)
-		}
-		if err := provider.Install(ctx); err != nil {
-			return fmt.Errorf("%w: %w", errors.ErrInstallingApplication, err)
-		}
-		return m.podmanMonitor.QueueUpdate(NewApplication(provider))
+		return m.podmanMonitor.QueueUpdate(NewApplication(p))
 	case v1beta1.AppTypeHelm:
-		if err := provider.Remove(ctx); err != nil {
-			return fmt.Errorf("%w: %w", errors.ErrRemovingApplication, err)
-		}
-		if err := provider.Install(ctx); err != nil {
-			return fmt.Errorf("%w: %w", errors.ErrInstallingApplication, err)
-		}
-		return m.kubernetesMonitor.Update(NewHelmApplication(provider))
+		return m.kubernetesMonitor.Update(NewHelmApplication(p))
 	default:
-		return fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, appType)
+		return fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, p.Spec().AppType)
+	}
+}
+
+func (m *manager) queueMonitorRemove(ctx context.Context, p provider.Provider) error {
+	if err := m.validateProviderDeps(ctx, p); err != nil {
+		return err
+	}
+	switch p.Spec().AppType {
+	case v1beta1.AppTypeCompose, v1beta1.AppTypeQuadlet, v1beta1.AppTypeContainer:
+		return m.podmanMonitor.QueueRemove(NewApplication(p))
+	case v1beta1.AppTypeHelm:
+		return m.kubernetesMonitor.Remove(NewHelmApplication(p))
+	default:
+		return fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, p.Spec().AppType)
 	}
 }
 

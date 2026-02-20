@@ -655,6 +655,7 @@ func TestCreateRollback(t *testing.T) {
 		currentSpec, err := createTestDeviceBytes(currentImage)
 		require.NoError(err)
 		mockReadWriter.EXPECT().ReadFile(currentPath).Return(currentSpec, nil)
+		mockReadWriter.EXPECT().ReadFile(rollbackPath).Return(nil, specErr)
 
 		mockReadWriter.EXPECT().WriteFile(rollbackPath, gomock.Any(), gomock.Any()).Return(specErr)
 
@@ -668,6 +669,7 @@ func TestCreateRollback(t *testing.T) {
 		currentSpec, err := createTestDeviceBytes(currentImage)
 		require.NoError(err)
 		mockReadWriter.EXPECT().ReadFile(currentPath).Return(currentSpec, nil)
+		mockReadWriter.EXPECT().ReadFile(rollbackPath).Return(nil, specErr)
 
 		rollbackSpec, err := createTestDeviceBytes(currentImage)
 		require.NoError(err)
@@ -689,6 +691,7 @@ func TestCreateRollback(t *testing.T) {
 		bootcHost := createTestBootcHost(bootedImage)
 		osStatus := os.Status{BootcHost: *bootcHost}
 		mockOSClient.EXPECT().Status(ctx).Return(&osStatus, nil)
+		mockReadWriter.EXPECT().ReadFile(rollbackPath).Return(nil, specErr)
 
 		rollbackSpec, err := createTestDeviceBytes(bootedImage)
 		require.NoError(err)
@@ -710,6 +713,7 @@ func TestCreateRollback(t *testing.T) {
 		bootcHost := createTestBootcHost(bootedImage)
 		osStatus := os.Status{BootcHost: *bootcHost}
 		mockOSClient.EXPECT().Status(ctx).Return(&osStatus, nil)
+		mockReadWriter.EXPECT().ReadFile(rollbackPath).Return(nil, specErr)
 
 		rollbackSpec, err := createTestDeviceBytes(bootedImage)
 		require.NoError(err)

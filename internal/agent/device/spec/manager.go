@@ -21,6 +21,11 @@ import (
 
 var _ Manager = (*manager)(nil)
 
+const (
+	annotationFailedVersion = "agent/failedVersion"
+	annotationFailedReason  = "agent/failedReason"
+)
+
 // manager is responsible for managing the rendered device spec.
 type manager struct {
 	currentPath  string
@@ -173,6 +178,15 @@ func (s *manager) Ensure() error {
 	s.cache.update(Desired, desired)
 	s.cache.update(Rollback, rollback)
 
+	// load persisted failed version from rollback.json to prevent infinite rollback loops
+	if failedVersion, _, ok := s.getFailedVersionInfo(rollback); ok {
+		versionInt, err := stringToInt64(failedVersion)
+		if err == nil {
+			s.queue.SetFailed(versionInt)
+			s.log.Infof("Loaded failed version %s from rollback spec", failedVersion)
+		}
+	}
+
 	// add the desired spec to the queue this ensures that the device will
 	// reconcile the desired spec on startup.
 	s.queue.Add(context.TODO(), desired)
@@ -254,14 +268,28 @@ func (s *manager) Upgrade(ctx context.Context) error {
 	return nil
 }
 
-func (s *manager) SetUpgradeFailed(version string) error {
+func (s *manager) SetUpgradeFailed(version, message string) error {
 	versionInt, err := stringToInt64(version)
 	if err != nil {
 		return err
 	}
 	s.queue.SetFailed(versionInt)
 
-	return nil
+	rollback, err := s.Read(Rollback)
+	if err != nil {
+		s.log.Debugf("No rollback spec to update with failure info: %v", err)
+		return nil
+	}
+
+	annotations := rollback.Metadata.Annotations
+	if annotations == nil {
+		annotations = &map[string]string{}
+		rollback.Metadata.Annotations = annotations
+	}
+	(*annotations)[annotationFailedVersion] = version
+	(*annotations)[annotationFailedReason] = message
+
+	return s.write(context.Background(), Rollback, rollback, audit.ReasonRollback)
 }
 
 func (s *manager) IsUpgrading() bool {
@@ -294,6 +322,19 @@ func (s *manager) CreateRollback(ctx context.Context) error {
 		Os: &v1beta1.DeviceOsSpec{Image: currentOSImage},
 	}
 
+	// preserve failure annotations from existing rollback spec if present
+	if existingRollback, err := s.Read(Rollback); err == nil {
+		if failedVersion, failedReason, ok := s.getFailedVersionInfo(existingRollback); ok {
+			annotations := rollback.Metadata.Annotations
+			if annotations == nil {
+				annotations = &map[string]string{}
+				rollback.Metadata.Annotations = annotations
+			}
+			(*annotations)[annotationFailedVersion] = failedVersion
+			(*annotations)[annotationFailedReason] = failedReason
+		}
+	}
+
 	if err := s.write(ctx, Rollback, rollback, audit.ReasonInitialization); err != nil {
 		return err
 	}
@@ -302,6 +343,24 @@ func (s *manager) CreateRollback(ctx context.Context) error {
 
 func (s *manager) ClearRollback() error {
 	return s.write(context.TODO(), Rollback, newVersionedDevice(""), audit.ReasonInitialization)
+}
+
+func (s *manager) getFailedVersionInfo(device *v1beta1.Device) (version, message string, ok bool) {
+	if device == nil || device.Metadata.Annotations == nil {
+		return "", "", false
+	}
+	annotations := *device.Metadata.Annotations
+	version, vOk := annotations[annotationFailedVersion]
+	message, mOk := annotations[annotationFailedReason]
+	return version, message, vOk && mOk
+}
+
+func (s *manager) RollbackFailureInfo() (version, message string, ok bool) {
+	rollback, err := s.Read(Rollback)
+	if err != nil {
+		return "", "", false
+	}
+	return s.getFailedVersionInfo(rollback)
 }
 
 func (s *manager) Rollback(ctx context.Context, opts ...RollbackOption) error {

@@ -23,6 +23,7 @@ var (
 	ErrPhasePreparing        = errors.New("before update")
 	ErrPhaseApplyingUpdate   = errors.New("sync device")
 	ErrPhaseActivatingConfig = errors.New("after update")
+	ErrRollbackCleanup       = errors.New("rollback cleanup")
 
 	// components - used to wrap errors indicating which component failed
 	ErrComponentResources      = errors.New("resources")
