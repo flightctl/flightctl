@@ -9,6 +9,18 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation/field"
 )
 
+// NormalizeStandaloneConfig canonicalizes config values in-place.
+// DNS names are case-insensitive per RFC 1123, so baseDomain is lowercased
+// to ensure consistent behavior across certificates, service URLs, and TLS verification.
+func NormalizeStandaloneConfig(config *standalone.Config) {
+	if config == nil {
+		return
+	}
+	config.Global.BaseDomain = strings.ToLower(config.Global.BaseDomain)
+}
+
+// ValidateStandaloneConfig validates the standalone service configuration.
+// Callers should call NormalizeStandaloneConfig first to canonicalize values.
 func ValidateStandaloneConfig(config *standalone.Config) []error {
 	if config == nil {
 		return []error{fmt.Errorf("config cannot be nil")}
