@@ -13,6 +13,34 @@ The Command Line Tools page offers two CLI tools:
 
 2. Choose the CLI (flightctl or flightctl-restore), then pick the archive for your OS and architecture. Click the file to download it.
 
+## Download from the CLI artifacts service (without the web console)
+
+You can download the CLI directly from the CLI artifacts service.
+
+**Note:** Set `<CLI_ARTIFACTS_URL>` based on your deployment:
+
+- Standalone (Quadlet/Podman): `https://BASE_DOMAIN:8090`
+- OpenShift (Route): `https://cli-artifacts.BASE_DOMAIN`
+- Kubernetes/OpenShift (node port): `http://BASE_DOMAIN:PORT` or `https://BASE_DOMAIN:PORT`
+
+The service root returns a JSON index listing the available archives and checksum files:
+
+  ```bash
+  curl -k "<CLI_ARTIFACTS_URL>/"
+  ```
+
+Each artifact entry includes `os`, `arch`, and `filename`. The download URL pattern is:
+
+  ```text
+  <CLI_ARTIFACTS_URL>/<arch>/<os>/<filename>
+  ```
+
+For example, to download the Linux `arm64` archive:
+
+  ```bash
+  curl -k -O "<CLI_ARTIFACTS_URL>/arm64/linux/flightctl-linux-arm64.tar.gz"
+  ```
+
 ## Installation
 
 The steps below apply to `flightctl`; for `flightctl-restore`, use the same steps with the `flightctl-restore` binary (or `flightctl-restore.exe` on Windows).
