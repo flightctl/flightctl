@@ -3,6 +3,7 @@ package e2e
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/sirupsen/logrus"
 	rbacv1 "k8s.io/api/rbac/v1"
@@ -137,4 +138,79 @@ func (h *Harness) DeleteRoleBinding(ctx context.Context, client kubernetes.Inter
 
 func (h *Harness) DeleteClusterRoleBinding(ctx context.Context, client kubernetes.Interface, clusterRoleBindingName string) error {
 	return client.RbacV1().ClusterRoleBindings().Delete(ctx, clusterRoleBindingName, metav1.DeleteOptions{})
+}
+
+func (h *Harness) GetClientAccessToken() (string, error) {
+	if h == nil {
+		return "", fmt.Errorf("harness is nil")
+	}
+	cfg, err := h.ReadClientConfig("")
+	if err != nil {
+		return "", fmt.Errorf("failed to read client config: %w", err)
+	}
+	if cfg == nil {
+		return "", fmt.Errorf("client config is nil")
+	}
+	if cfg.AuthInfo.AccessToken == "" {
+		return "", fmt.Errorf("access token is empty")
+	}
+	return cfg.AuthInfo.AccessToken, nil
+}
+
+func (h *Harness) ResolveClusterLoginContext(ctx context.Context) (string, string, error) {
+	if h == nil {
+		return "", "", fmt.Errorf("harness is nil")
+	}
+	if ctx == nil {
+		return "", "", fmt.Errorf("context is nil")
+	}
+
+	defaultK8sContext, err := h.GetDefaultK8sContext()
+	if err != nil {
+		return "", "", fmt.Errorf("failed to get default k8s context: %w", err)
+	}
+	k8sAPIEndpoint, err := h.GetK8sApiEndpoint(ctx, defaultK8sContext)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to get k8s api endpoint for context %q: %w", defaultK8sContext, err)
+	}
+
+	return defaultK8sContext, k8sAPIEndpoint, nil
+}
+
+func (h *Harness) RestoreK8sContext(ctx context.Context, k8sContext string) error {
+	if h == nil {
+		return fmt.Errorf("harness is nil")
+	}
+	if ctx == nil {
+		return fmt.Errorf("context is nil")
+	}
+	if k8sContext == "" {
+		return fmt.Errorf("k8s context is empty")
+	}
+	_, err := h.ChangeK8sContext(ctx, k8sContext)
+	if err != nil {
+		return fmt.Errorf("failed to restore k8s context %q: %w", k8sContext, err)
+	}
+	return nil
+}
+
+func (h *Harness) ResolveOrganizationAndClientToken() (string, string, error) {
+	if h == nil {
+		return "", "", fmt.Errorf("harness is nil")
+	}
+
+	orgID, err := h.GetOrganizationID()
+	if err != nil {
+		return "", "", fmt.Errorf("failed to resolve organization id: %w", err)
+	}
+	if orgID == "" {
+		return "", "", fmt.Errorf("organization id is empty")
+	}
+
+	token, err := h.GetClientAccessToken()
+	if err != nil {
+		return "", "", fmt.Errorf("failed to resolve client access token: %w", err)
+	}
+
+	return orgID, token, nil
 }
