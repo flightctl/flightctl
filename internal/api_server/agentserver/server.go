@@ -20,6 +20,7 @@ import (
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/healthchecker"
+	insthttp "github.com/flightctl/flightctl/internal/instrumentation/http"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
@@ -333,7 +334,11 @@ func (s *AgentServer) prepareHTTPHandler(ctx context.Context, serviceHandler ser
 		r.Mount("/", negotiatedRouter)
 	})
 
-	return otelhttp.NewHandler(router, "agent-http-server"), nil
+	routeAttrFn := insthttp.RouteMetricAttributes(router)
+	return otelhttp.NewHandler(router, "agent-http-server",
+		otelhttp.WithSpanNameFormatter(insthttp.RouteSpanNameFormatter(router)),
+		otelhttp.WithMetricAttributesFn(insthttp.WithComponentAttribute(routeAttrFn, "agent")),
+	), nil
 }
 
 // grpcMuxHandlerFunc dispatches requests to the gRPC server or the HTTP handler based on the request headers

@@ -40,22 +40,24 @@ Note: This collector uses OpenTelemetry under the hood and follows standard HTTP
 
 **Metrics:**
 
-The HTTP collector automatically generates standard OpenTelemetry HTTP server metrics, which typically include:
+The HTTP collector exports the OpenTelemetry HTTP server metrics exactly as they are emitted by the Prometheus exporter (unit suffixes included). Each metric is provided as a histogram with `_bucket`, `_count`, and `_sum` series:
 
-- `http_server_duration`: HTTP request duration histograms with labels for method, route, and status code
-- `http_server_request_size`: HTTP request size histograms  
-- `http_server_response_size`: HTTP response size histograms
+- `http_server_request_duration_seconds`: HTTP request duration (seconds)
+- `http_server_request_body_size_bytes`: HTTP request body size (bytes)  
+- `http_server_response_body_size_bytes`: HTTP response body size (bytes)
 
 **Labels:** All HTTP metrics include labels that allow you to filter and aggregate data by different dimensions. These labels follow standard OpenTelemetry semantic conventions:
 
 - `http_method`: HTTP request method
-- `http_scheme`: HTTP scheme  
+- `http_route`: The matched route pattern (e.g., `/api/v1/devices/{name}`)
+- `http_scheme`: URL scheme
 - `http_status_code`: HTTP response status code
-- `net_host_name`: Network host name
-- `net_host_port`: Network host port
-- `net_protocol_name`: Network protocol name
-- `net_protocol_version`: Network protocol version
-- `service_name`: Flight Control service name
+- `server_address`: Server domain name or IP address
+- `server_port`: Server port number
+- `net_protocol_name`: Application layer protocol
+- `net_protocol_version`: Version of the application layer protocol
+- `service_name`: Service name from OpenTelemetry resource attributes
+- `http_component`: Logical HTTP component (`api`, `agent`, `alertmanager-proxy`, `pam-issuer`)
 
 **Configuration:**
 

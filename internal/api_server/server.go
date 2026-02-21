@@ -23,6 +23,7 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/console"
 	"github.com/flightctl/flightctl/internal/crypto"
+	insthttp "github.com/flightctl/flightctl/internal/instrumentation/http"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
@@ -356,7 +357,11 @@ func (s *Server) Run(ctx context.Context) error {
 		ws.RegisterRoutes(r)
 	})
 
-	handler := otelhttp.NewHandler(router, "http-server")
+	routeAttrFn := insthttp.RouteMetricAttributes(router)
+	handler := otelhttp.NewHandler(router, "http-server",
+		otelhttp.WithSpanNameFormatter(insthttp.RouteSpanNameFormatter(router)),
+		otelhttp.WithMetricAttributesFn(insthttp.WithComponentAttribute(routeAttrFn, "api")),
+	)
 	srv := fcmiddleware.NewHTTPServer(handler, s.log, s.cfg.Service.Address, s.cfg)
 
 	go func() {
