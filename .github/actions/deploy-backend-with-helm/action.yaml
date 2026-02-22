@@ -120,20 +120,7 @@ runs:
         set -euo pipefail
         mkdir -p bin
 
-        echo "*** ARTIFACT COORDINATION DEBUG ***"
-        echo "Expected flavor-prefixed artifacts:"
-        echo "  Images: flightctl-images-bundle-${{ inputs.flavor }}-${{ steps.compute-tags.outputs.git_tag }}"
-        echo "  Chart: helm-chart-${{ inputs.flavor }}-${{ steps.compute-tags.outputs.git_tag }}"
-        echo "  CLI: flightctl-linux-amd64-${{ inputs.flavor }}-${{ steps.compute-tags.outputs.git_tag }}"
-        echo ""
-        echo "Download outcomes:"
-        echo "  Images flavored: ${{ steps.download-images-flavored.outcome }}"
-        echo "  Chart flavored: ${{ steps.download-chart-flavored.outcome }}"
-        echo "  CLI flavored: ${{ steps.download-cli-flavored.outcome }}"
-        echo ""
-        echo "Artifacts directory contents:"
         ls -la artifacts/
-        echo "*** END ARTIFACT COORDINATION DEBUG ***"
 
         mv artifacts/flightctl-linux-amd64 bin/flightctl
         chmod +x bin/flightctl
@@ -230,16 +217,13 @@ runs:
           echo "EOF"
         } >> "$GITHUB_OUTPUT"
 
-        # Execute with flavor-aware timeouts and debug output
-        echo "*** FLAVOR ${{ inputs.flavor }}: Using timeout configuration ***"
-        echo "  HELM_TIMEOUT_WITH_WAIT=${HELM_TIMEOUT_WITH_WAIT}"
-        echo "  HELM_TIMEOUT_WITHOUT_WAIT=${HELM_TIMEOUT_WITHOUT_WAIT}"
+        # Execute with flavor-aware timeouts
+        echo "HELM_TIMEOUT_WITH_WAIT=${HELM_TIMEOUT_WITH_WAIT}"
+        echo "HELM_TIMEOUT_WITHOUT_WAIT=${HELM_TIMEOUT_WITHOUT_WAIT}"
 
         if [ "${WAIT}" == "true" ]; then
-          echo "*** Executing with wait and debug (timeout: ${HELM_TIMEOUT_WITH_WAIT}) ***"
           eval "${HELM_CMD} --debug --timeout=${HELM_TIMEOUT_WITH_WAIT}"
         else
-          echo "*** Executing without wait (timeout: ${HELM_TIMEOUT_WITHOUT_WAIT}) ***"
           eval "${HELM_CMD} --timeout=${HELM_TIMEOUT_WITHOUT_WAIT}"
         fi
 
