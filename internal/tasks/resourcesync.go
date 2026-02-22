@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
@@ -27,6 +28,7 @@ const ResourceSyncTaskName = "resourcesync"
 type ResourceSync struct {
 	log                   logrus.FieldLogger
 	serviceHandler        service.Service
+	cfg                   *config.Config
 	ignoreResourceUpdates []string
 }
 
@@ -35,10 +37,11 @@ type GenericResourceMap map[string]interface{}
 var validFileExtensions = []string{"json", "yaml", "yml"}
 var supportedResources = []string{domain.FleetKind}
 
-func NewResourceSync(serviceHandler service.Service, log logrus.FieldLogger, ignoreResourceUpdates []string) *ResourceSync {
+func NewResourceSync(serviceHandler service.Service, log logrus.FieldLogger, cfg *config.Config, ignoreResourceUpdates []string) *ResourceSync {
 	return &ResourceSync{
 		log:                   log,
 		serviceHandler:        serviceHandler,
+		cfg:                   cfg,
 		ignoreResourceUpdates: ignoreResourceUpdates,
 	}
 }
@@ -301,7 +304,7 @@ func NeedsSyncToHash(rs *domain.ResourceSync, hash string) bool {
 func (r *ResourceSync) parseAndValidateResources(rs *domain.ResourceSync, repo *domain.Repository, gitCloneRepo cloneGitRepoFunc) ([]GenericResourceMap, error) {
 	path := rs.Spec.Path
 	revision := rs.Spec.TargetRevision
-	mfs, hash, err := gitCloneRepo(repo, &revision, lo.ToPtr(1))
+	mfs, hash, err := gitCloneRepo(repo, &revision, lo.ToPtr(1), r.cfg)
 	domain.SetStatusConditionByError(&rs.Status.Conditions, domain.ConditionTypeResourceSyncAccessible, "accessible", "failed to clone repository", err)
 	if err != nil {
 		return nil, err

@@ -16,7 +16,7 @@ func TestResourceSync_GetRepositoryAndValidateAccess_NilResourceSync(t *testing.
 	var serviceHandler service.Service
 	log := logrus.New()
 
-	resourceSync := NewResourceSync(serviceHandler, log, nil)
+	resourceSync := NewResourceSync(serviceHandler, log, nil, nil)
 
 	// Test with nil ResourceSync
 	testOrgId := uuid.New()
@@ -32,7 +32,7 @@ func TestResourceSync_ParseFleetsFromResources_ValidResources(t *testing.T) {
 	var serviceHandler service.Service
 	log := logrus.New()
 
-	resourceSync := NewResourceSync(serviceHandler, log, nil)
+	resourceSync := NewResourceSync(serviceHandler, log, nil, nil)
 
 	// Create valid resources
 	resources := []GenericResourceMap{
@@ -72,7 +72,7 @@ func TestResourceSync_ParseFleetsFromResources_InvalidResources(t *testing.T) {
 	var serviceHandler service.Service
 	log := logrus.New()
 
-	resourceSync := NewResourceSync(serviceHandler, log, nil)
+	resourceSync := NewResourceSync(serviceHandler, log, nil, nil)
 
 	// Create invalid resources
 	resources := []GenericResourceMap{
@@ -345,7 +345,7 @@ func TestResourceSync_WithIgnoredFields(t *testing.T) {
 	log := logrus.New()
 
 	ignorePaths := []string{"metadata/labels/environment", "status"}
-	resourceSync := NewResourceSync(serviceHandler, log, ignorePaths)
+	resourceSync := NewResourceSync(serviceHandler, log, nil, ignorePaths)
 
 	// Create resources with fields that should be ignored
 	resources := []GenericResourceMap{
