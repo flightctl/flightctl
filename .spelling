@@ -38,6 +38,7 @@ e.g.
 ECDSA
 EnrollmentRequest
 EnrollmentRequests
+Envoy
 env
 EPEL
 FIDO
@@ -122,6 +123,7 @@ Skopeo
 spec
 specs
 SpiceDB
+subdomains
 substring
 systemd
 targetRevision
@@ -306,6 +308,10 @@ scraping
 Prometheus
 Grafana
 Datadog
+CRDs
+wildcard
+Istio
+subdomain
  - docs/user/installing/configuring-imagebuilder.md
  entitlement
  uncomment
@@ -357,6 +363,8 @@ ui.flightctl.MY.DOMAIN
 openShiftApiUrl
 PVs
 k8s
+v1.35
+flightcontrol
  - docs/user/using/managing-devices.md
 AlertRules
 base32-encoded
@@ -448,6 +456,7 @@ LoadBalancer
 passthrough
 nodePort
 NodePort
+NodePorts
 OTel
 Redis
 registry.redhat.io
