@@ -14,6 +14,7 @@ import (
 	config_latest "github.com/coreos/ignition/v2/config/v3_4"
 	config_latest_types "github.com/coreos/ignition/v2/config/v3_4/types"
 	"github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service"
@@ -44,8 +45,8 @@ import (
 // This design ensures the task can be retried safely, detects mid-write inconsistencies,
 // and avoids unnecessary reprocessing when the output is already up to date.
 
-func deviceRender(ctx context.Context, orgId uuid.UUID, event domain.Event, serviceHandler service.Service, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore, log logrus.FieldLogger) error {
-	logic := NewDeviceRenderLogic(log, serviceHandler, k8sClient, kvStore, orgId, event)
+func deviceRender(ctx context.Context, orgId uuid.UUID, event domain.Event, serviceHandler service.Service, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore, cfg *config.Config, log logrus.FieldLogger) error {
+	logic := NewDeviceRenderLogic(log, serviceHandler, k8sClient, kvStore, cfg, orgId, event)
 	if event.InvolvedObject.Kind == domain.DeviceKind {
 		err := logic.RenderDevice(ctx)
 		if err != nil {
@@ -64,6 +65,7 @@ type DeviceRenderLogic struct {
 	serviceHandler  service.Service
 	k8sClient       k8sclient.K8SClient
 	kvStore         kvstore.KVStore
+	cfg             *config.Config
 	orgId           uuid.UUID
 	event           domain.Event
 	ownerFleet      *string
@@ -72,8 +74,8 @@ type DeviceRenderLogic struct {
 	applications    *[]domain.ApplicationProviderSpec
 }
 
-func NewDeviceRenderLogic(log logrus.FieldLogger, serviceHandler service.Service, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore, orgId uuid.UUID, event domain.Event) DeviceRenderLogic {
-	return DeviceRenderLogic{log: log, serviceHandler: serviceHandler, k8sClient: k8sClient, kvStore: kvStore, orgId: orgId, event: event}
+func NewDeviceRenderLogic(log logrus.FieldLogger, serviceHandler service.Service, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore, cfg *config.Config, orgId uuid.UUID, event domain.Event) DeviceRenderLogic {
+	return DeviceRenderLogic{log: log, serviceHandler: serviceHandler, k8sClient: k8sClient, kvStore: kvStore, cfg: cfg, orgId: orgId, event: event}
 }
 
 func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
@@ -337,7 +339,7 @@ func (t *DeviceRenderLogic) renderGitConfig(ctx context.Context, configItem *dom
 
 	// If the device is not part of a fleet, just clone from git into ignition
 	if t.ownerFleet == nil {
-		ignition, _, err = CloneGitRepoToIgnition(repo, gitSpec.GitRef.TargetRevision, gitSpec.GitRef.Path)
+		ignition, _, err = CloneGitRepoToIgnition(repo, gitSpec.GitRef.TargetRevision, gitSpec.GitRef.Path, t.cfg)
 		if err != nil {
 			return &gitSpec.Name, &gitSpec.GitRef.Repository, fmt.Errorf("failed cloning specified git repository %s/%s: %w", t.orgId, gitSpec.GitRef.Repository, err)
 		}
@@ -649,7 +651,7 @@ func (t *DeviceRenderLogic) cloneCachedGitRepoToIgnition(ctx context.Context, re
 	}
 
 	// We clone from git and get ignition with no mount path prefix (i.e., set to "/")
-	ign, hash, err := CloneGitRepoToIgnition(repo, revisionToClone, path)
+	ign, hash, err := CloneGitRepoToIgnition(repo, revisionToClone, path, t.cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed cloning git: %w", err)
 	}

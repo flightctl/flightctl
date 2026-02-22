@@ -33,9 +33,52 @@ type Config struct {
 	CA                  *ca.Config                 `json:"ca,omitempty"`
 	Tracing             *tracingConfig             `json:"tracing,omitempty"`
 	GitOps              *gitOpsConfig              `json:"gitOps,omitempty"`
+	CryptoPolicy        *CryptoPolicyConfig        `json:"cryptoPolicy,omitempty"`
 	Periodic            *periodicConfig            `json:"periodic,omitempty"`
 	Organizations       *organizationsConfig       `json:"organizations,omitempty"`
 	TelemetryGateway    *telemetryGatewayConfig    `json:"telemetrygateway,omitempty"`
+}
+
+// CryptoPolicyConfig contains cryptographic policy configuration for all protocols.
+type CryptoPolicyConfig struct {
+	// ForceFIPSMode explicitly enables or disables FIPS-compliant algorithms globally.
+	// If nil, FIPS mode is auto-detected at runtime from system configuration.
+	// If true, FIPS-compliant algorithms are used regardless of system FIPS mode.
+	// If false, library defaults are used even if system is in FIPS mode.
+	ForceFIPSMode *bool `json:"forceFipsMode,omitempty"`
+
+	SSH *SSHCryptoConfig `json:"ssh,omitempty"`
+}
+
+// SSHCryptoConfig contains configuration for SSH crypto algorithms used when
+// accessing Git repositories over SSH or other SSH connections.
+type SSHCryptoConfig struct {
+	// KeyExchangeAlgorithms specifies allowed key exchange algorithms for SSH connections.
+	// If empty, defaults are selected based on FIPS mode detection.
+	// Example FIPS-compliant values: ["ecdh-sha2-nistp256", "ecdh-sha2-nistp384", "diffie-hellman-group14-sha256"]
+	KeyExchangeAlgorithms []string `json:"keyExchangeAlgorithms,omitempty"`
+
+	// Ciphers specifies allowed ciphers (encryption algorithms) for SSH connections.
+	// If empty, defaults are selected based on FIPS mode detection.
+	// Note: In SSH, "ciphers" refer to encryption algorithms only, unlike TLS cipher suites
+	// which bundle key exchange, encryption, and MAC together.
+	// Example FIPS-compliant values: ["aes128-gcm@openssh.com", "aes256-gcm@openssh.com"]
+	Ciphers []string `json:"ciphers,omitempty"`
+
+	// MACs specifies allowed MAC (Message Authentication Code) algorithms for SSH connections.
+	// If empty, defaults are selected based on FIPS mode detection.
+	// Example FIPS-compliant values: ["hmac-sha2-256-etm@openssh.com", "hmac-sha2-512-etm@openssh.com"]
+	MACs []string `json:"macs,omitempty"`
+
+	// HostKeyAlgorithms specifies allowed host key algorithms.
+	// If empty, defaults are selected based on FIPS mode detection.
+	// Example FIPS-compliant values: ["ecdsa-sha2-nistp256", "rsa-sha2-256", "rsa-sha2-512"]
+	HostKeyAlgorithms []string `json:"hostKeyAlgorithms,omitempty"`
+
+	// ForceFIPSMode explicitly enables or disables FIPS-compliant algorithms for SSH only.
+	// If nil, inherits from CryptoPolicyConfig.ForceFIPSMode.
+	// This allows SSH-specific override of the global FIPS setting.
+	ForceFIPSMode *bool `json:"forceFipsMode,omitempty"`
 }
 
 type RateLimitConfig struct {
@@ -678,6 +721,29 @@ func applyEnvVarOverrides(c *Config) {
 	}
 	if dbMigrationPass := os.Getenv("DB_MIGRATION_PASSWORD"); dbMigrationPass != "" {
 		c.Database.MigrationPassword = api.SecureString(dbMigrationPass)
+	}
+	// CRYPTO_FORCE_FIPS environment variable sets the global crypto policy FIPS mode.
+	// This overrides auto-detection and applies to all cryptographic protocols.
+	// Valid values: "true", "1" (enable), "false", "0" (disable)
+	// Invalid values are ignored with a warning, allowing auto-detection to proceed.
+	if cryptoForceFIPS := os.Getenv("CRYPTO_FORCE_FIPS"); cryptoForceFIPS != "" {
+		var forceFIPS *bool
+		switch cryptoForceFIPS {
+		case "true", "1":
+			t := true
+			forceFIPS = &t
+		case "false", "0":
+			f := false
+			forceFIPS = &f
+		default:
+			fmt.Fprintf(os.Stderr, "Warning: Invalid CRYPTO_FORCE_FIPS value %q (expected: true/1/false/0), ignoring and using auto-detection\n", cryptoForceFIPS)
+		}
+		if forceFIPS != nil {
+			if c.CryptoPolicy == nil {
+				c.CryptoPolicy = &CryptoPolicyConfig{}
+			}
+			c.CryptoPolicy.ForceFIPSMode = forceFIPS
+		}
 	}
 }
 
