@@ -245,6 +245,15 @@ func (o *LoginOptions) Complete(cmd *cobra.Command, args []string) error {
 	if o.ConfigFilePath != defaultConfigPath {
 		fmt.Printf("Using a non-default configuration file path: %s (Default: %s)\n", o.ConfigFilePath, defaultConfigPath)
 	}
+
+	if len(args) > 0 {
+		trimmedURL := strings.TrimSpace(args[0])
+		if !strings.Contains(trimmedURL, "://") {
+			trimmedURL = "https://" + trimmedURL
+		}
+		args[0] = trimmedURL
+	}
+
 	return nil
 }
 
