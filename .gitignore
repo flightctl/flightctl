@@ -25,3 +25,4 @@ flightctl-*.rpm
 /.cursor/
 /.serena/
 CLAUDE.md
+# Trigger helm upgrade test after branch cleanup
