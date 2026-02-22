@@ -1,0 +1,21 @@
+{{- if and (.Values.ui.enabled) (eq (include "flightctl.getServiceExposeMethod" .) "gateway") }}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: flightctl-ui
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+    flightctl.service: flightctl-ui
+spec:
+  parentRefs:
+    - name: flightctl-gateway
+      sectionName: ui
+  hostnames:
+    - ui.{{ include "flightctl.getBaseDomain" . }}
+  rules:
+    - backendRefs:
+      - name: flightctl-ui
+        port: 8080
+{{ end }}
