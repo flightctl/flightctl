@@ -80,7 +80,7 @@ func (s *Server) Run(ctx context.Context) error {
 	serviceHandler := service.WrapWithTracing(
 		service.NewServiceHandler(s.store, workerClient, kvStore, nil, s.log, "", "", []string{}))
 
-	if err = tasks.LaunchConsumers(ctx, s.queuesProvider, serviceHandler, s.k8sClient, kvStore, 1, 1, s.workerMetrics); err != nil {
+	if err = tasks.LaunchConsumers(ctx, s.queuesProvider, serviceHandler, s.k8sClient, kvStore, s.cfg, 1, 1, s.workerMetrics); err != nil {
 		s.log.WithError(err).Error("failed to launch consumers")
 		return err
 	}
