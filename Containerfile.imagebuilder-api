@@ -49,4 +49,4 @@ LABEL \
   summary="Flight Control ImageBuilder API server"
 COPY --from=build /app/bin/flightctl-imagebuilder-api .
 
-CMD ./flightctl-imagebuilder-api
+CMD ["./flightctl-imagebuilder-api"]
