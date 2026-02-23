@@ -251,6 +251,59 @@ jobs:
             ~/go/pkg/mod
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
 
+  build-restore:
+    runs-on: ubuntu-24.04
+    outputs:
+      git_tag: ${{ steps.compute-tag.outputs.git_tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ inputs.repository }}
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Compute tag
+        id: compute-tag
+        uses: ./.github/actions/compute-tag
+
+      - name: Restore Go cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Build restore binary
+        run: |
+          set -euo pipefail
+          echo "::group::Building restore binary"
+          make build-restore
+          cp bin/flightctl-restore flightctl-restore-linux-amd64
+          echo "::endgroup::"
+
+      - name: Upload restore binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: flightctl-restore-linux-amd64-${{ steps.compute-tag.outputs.git_tag }}
+          path: flightctl-restore-linux-amd64
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Save Go cache
+        uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+
   build-simulator:
     runs-on: ubuntu-24.04
     steps:

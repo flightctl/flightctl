@@ -571,6 +571,11 @@ func (h *Harness) GetFlightctlPath() string {
 	return flightctlPath()
 }
 
+// GetFlightctlRestorePath returns the path to the flightctl-restore binary (same directory as the CLI).
+func (h *Harness) GetFlightctlRestorePath() string {
+	return filepath.Join(util.GetTopLevelDir(), "bin", "flightctl-restore")
+}
+
 func (h *Harness) CLI(args ...string) (string, error) {
 	return h.CLIWithStdin("", args...)
 }
