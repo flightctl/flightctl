@@ -50,4 +50,4 @@ LABEL \
   summary="Flight Control Edge management service, alertmanager proxy"
 COPY --from=build /app/bin/flightctl-alertmanager-proxy .
 EXPOSE 8443
-CMD ./flightctl-alertmanager-proxy
+CMD ["./flightctl-alertmanager-proxy"]

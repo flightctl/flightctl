@@ -52,4 +52,4 @@ COPY --from=build /app/bin/flightctl-userinfo-proxy .
 
 EXPOSE 8080
 
-CMD ./flightctl-userinfo-proxy
+CMD ["./flightctl-userinfo-proxy"]
