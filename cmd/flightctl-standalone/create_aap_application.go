@@ -133,7 +133,6 @@ func (o *CreateAAPApplicationOptions) Run() error {
 
 	client, err := standalone.CreateAAPClient(standalone.CreateAAPClientOptions{
 		AAPConfig:       aapConfig,
-		BaseDomain:      config.Global.BaseDomain,
 		InsecureSkipTLS: config.Global.Auth.InsecureSkipTlsVerify,
 		CACertFile:      o.CACertFile,
 		Logger:          logger,
