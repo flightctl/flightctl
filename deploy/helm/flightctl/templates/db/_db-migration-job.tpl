@@ -190,29 +190,11 @@ spec:
         - -c
         - |
           set -eo pipefail
-          echo "=== Starting database migrations ==="
-          echo "Migration type: {{ if $isDryRun }}DRY-RUN{{ else }}FULL MIGRATION{{ end }}"
-          echo "Timestamp: $(date)"
-          echo "Job timeout: {{ $ctx.Values.dbSetup.migration.activeDeadlineSeconds | int }} seconds"
-
-          # Show environment info
-          echo "=== Environment Info ==="
-          echo "HOME: $HOME"
-          echo "DB_USER: $DB_USER"
-          echo "Migration user: $DB_MIGRATION_USER"
-          echo "App user: $DB_APP_USER"
-
-          # Copy config file to a writable location
+          echo Running database migrations..."
           echo "=== Preparing configuration ==="
           mkdir -p /tmp/.flightctl
           cp /root/.flightctl/config.yaml /tmp/.flightctl/config.yaml
           export HOME=/tmp
-          echo "Configuration copied to $HOME/.flightctl/"
-
-          # Show what we're about to run
-          echo "=== Starting migration command ==="
-          echo "Command: /usr/local/bin/flightctl-db-migrate{{ if $isDryRun }} --dry-run{{ end }}"
-          echo "Starting at: $(date)"
 
           # Run with progress monitoring
           /usr/local/bin/flightctl-db-migrate{{ if $isDryRun }} --dry-run{{ end }} &
@@ -229,9 +211,9 @@ spec:
           MIGRATE_EXIT_CODE=$?
 
           if [ $MIGRATE_EXIT_CODE -eq 0 ]; then
-            echo "=== Migration completed successfully at $(date) ==="
+            echo "Migration completed successfully at $(date) ==="
           else
-            echo "=== Migration failed with exit code $MIGRATE_EXIT_CODE at $(date) ==="
+            echo "Migration failed with exit code $MIGRATE_EXIT_CODE at $(date) ==="
             exit $MIGRATE_EXIT_CODE
           fi
 
