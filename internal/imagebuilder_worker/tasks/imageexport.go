@@ -393,6 +393,11 @@ func (c *Consumer) executeExport(
 		return "", cleanup, fmt.Errorf("failed to initialize podman storage: %w", err)
 	}
 
+	// Step 2.6: Install CA certificate for source registry if configured
+	if err := installCACertInWorker(ctx, exportSource.OciRepoSpec.CaCrt, worker.ContainerName, registryHostname, log); err != nil {
+		return "", cleanup, fmt.Errorf("failed to install CA cert for source registry: %w", err)
+	}
+
 	// Step 3: Login to registry if credentials are provided
 	if exportSource.OciRepoSpec.OciAuth != nil {
 		dockerAuth, err := exportSource.OciRepoSpec.OciAuth.AsDockerAuth()

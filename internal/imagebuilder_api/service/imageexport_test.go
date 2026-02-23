@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"crypto/tls"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,6 +17,7 @@ import (
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	api "github.com/flightctl/flightctl/api/imagebuilder/v1alpha1"
 	"github.com/flightctl/flightctl/internal/config"
+	coredomain "github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -1503,4 +1506,110 @@ func TestCancelImageExport_NoStatus(t *testing.T) {
 	readyCondition := api.FindImageExportStatusCondition(*result.Status.Conditions, api.ImageExportConditionTypeReady)
 	require.NotNil(readyCondition)
 	require.Equal(string(api.ImageExportConditionReasonCanceled), readyCondition.Reason)
+}
+
+func TestCreateTLSConfig_Default(t *testing.T) {
+	require := require.New(t)
+	ociSpec := &coredomain.OciRepoSpec{Registry: "registry.example.com"}
+
+	cfg, err := createTLSConfig(ociSpec)
+	require.NoError(err)
+	require.NotNil(cfg)
+	require.Equal(uint16(tls.VersionTLS12), cfg.MinVersion)
+	require.False(cfg.InsecureSkipVerify)
+	require.Nil(cfg.RootCAs)
+}
+
+func TestCreateTLSConfig_SkipVerification(t *testing.T) {
+	require := require.New(t)
+	ociSpec := &coredomain.OciRepoSpec{
+		Registry:               "registry.example.com",
+		SkipServerVerification: lo.ToPtr(true),
+	}
+
+	cfg, err := createTLSConfig(ociSpec)
+	require.NoError(err)
+	require.True(cfg.InsecureSkipVerify)
+	require.Nil(cfg.RootCAs)
+}
+
+func TestCreateTLSConfig_SkipVerificationFalse(t *testing.T) {
+	require := require.New(t)
+	ociSpec := &coredomain.OciRepoSpec{
+		Registry:               "registry.example.com",
+		SkipServerVerification: lo.ToPtr(false),
+	}
+
+	cfg, err := createTLSConfig(ociSpec)
+	require.NoError(err)
+	require.False(cfg.InsecureSkipVerify)
+}
+
+func TestCreateTLSConfig_CaCrt(t *testing.T) {
+	require := require.New(t)
+	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	defer ts.Close()
+
+	caPEM := ts.TLS.Certificates[0].Certificate[0]
+	pemBlock := fmt.Sprintf("-----BEGIN CERTIFICATE-----\n%s\n-----END CERTIFICATE-----\n",
+		base64.StdEncoding.EncodeToString(caPEM))
+	encoded := base64.StdEncoding.EncodeToString([]byte(pemBlock))
+
+	ociSpec := &coredomain.OciRepoSpec{
+		Registry: "registry.example.com",
+		CaCrt:    &encoded,
+	}
+
+	cfg, err := createTLSConfig(ociSpec)
+	require.NoError(err)
+	require.NotNil(cfg.RootCAs)
+	require.False(cfg.InsecureSkipVerify)
+}
+
+func TestCreateTLSConfig_BothCaCrtAndSkipVerification(t *testing.T) {
+	require := require.New(t)
+	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	defer ts.Close()
+
+	caPEM := ts.TLS.Certificates[0].Certificate[0]
+	pemBlock := fmt.Sprintf("-----BEGIN CERTIFICATE-----\n%s\n-----END CERTIFICATE-----\n",
+		base64.StdEncoding.EncodeToString(caPEM))
+	encoded := base64.StdEncoding.EncodeToString([]byte(pemBlock))
+
+	ociSpec := &coredomain.OciRepoSpec{
+		Registry:               "registry.example.com",
+		SkipServerVerification: lo.ToPtr(true),
+		CaCrt:                  &encoded,
+	}
+
+	cfg, err := createTLSConfig(ociSpec)
+	require.NoError(err)
+	require.True(cfg.InsecureSkipVerify)
+	require.NotNil(cfg.RootCAs)
+}
+
+func TestCreateTLSConfig_InvalidBase64(t *testing.T) {
+	require := require.New(t)
+	invalid := "not-valid-base64!!!"
+	ociSpec := &coredomain.OciRepoSpec{
+		Registry: "registry.example.com",
+		CaCrt:    &invalid,
+	}
+
+	_, err := createTLSConfig(ociSpec)
+	require.Error(err)
+	require.Contains(err.Error(), "decode CA certificate")
+}
+
+func TestCreateTLSConfig_InvalidPEM(t *testing.T) {
+	require := require.New(t)
+	notPEM := base64.StdEncoding.EncodeToString([]byte("this is not a PEM certificate"))
+	ociSpec := &coredomain.OciRepoSpec{
+		Registry: "registry.example.com",
+		CaCrt:    &notPEM,
+	}
+
+	_, err := createTLSConfig(ociSpec)
+	require.Error(err)
+	require.Contains(err.Error(), "failed to append CA certificates")
 }
