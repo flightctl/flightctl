@@ -263,26 +263,26 @@ func (t *FleetValidateLogic) validateHttpProviderConfig(ctx context.Context, con
 	return &httpConfigProviderSpec.Name, &httpConfigProviderSpec.HttpRef.Repository, nil
 }
 
-const hashLen = 8
+const (
+	hashLen          = 8
+	maxGenerationLen = 19 // max decimal digits in int64
+)
 
-// generateTemplateVersionName produces a DNS-compatible TemplateVersion name from a Fleet.
-// For short fleet names, it uses the simple form: {fleetName}-{generation}.
-// For long fleet names where the simple form would exceed the DNS subdomain limit,
-// it truncates the name and inserts a hash of the full name to preserve uniqueness:
-// {truncatedName}-{hash}-{generation}.
+// generateTemplateVersionName returns {name}-{gen} for short fleet names, or
+// {truncatedName}-{hash}-{gen} for long ones to stay within DNS1123MaxLength.
+// Reserves 20 chars for the generation suffix so the format is stable.
 func generateTemplateVersionName(fleet *domain.Fleet) string {
 	name := *fleet.Metadata.Name
 	genStr := strconv.FormatInt(*fleet.Metadata.Generation, 10)
 
-	simple := name + "-" + genStr
-	if len(simple) <= validation.DNS1123MaxLength {
-		return simple
+	if len(name)+1+maxGenerationLen <= validation.DNS1123MaxLength {
+		return name + "-" + genStr
 	}
 
 	hash := sha256.Sum256([]byte(name))
 	hashStr := hex.EncodeToString(hash[:])[:hashLen]
 
-	maxPrefix := validation.DNS1123MaxLength - 1 - hashLen - 1 - len(genStr)
+	maxPrefix := validation.DNS1123MaxLength - 1 - hashLen - 1 - maxGenerationLen
 	prefix := strings.TrimRight(name[:maxPrefix], "-.")
 
 	return prefix + "-" + hashStr + "-" + genStr
