@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -93,6 +94,7 @@ type svcConfig struct {
 	RateLimit              *RateLimitConfig `json:"rateLimit,omitempty"`
 	TPMCAPaths             []string         `json:"tpmCAPaths,omitempty"`
 	HealthChecks           *HealthChecks    `json:"healthChecks,omitempty"`
+	DefaultAliasKeys       []string         `json:"defaultAliasKeys,omitempty"`
 }
 
 // HealthChecks holds health check endpoint configuration.
@@ -536,6 +538,7 @@ func NewDefault(opts ...ConfigOption) *Config {
 				LivenessPath:     "/healthz",
 				ReadinessTimeout: util.Duration(2 * time.Second),
 			},
+			DefaultAliasKeys: []string{"hostname"},
 			// Rate limiting is disabled by default - set RateLimit to enable
 		},
 		ImageBuilderService: NewDefaultImageBuilderServiceConfig(),
@@ -905,6 +908,10 @@ func Validate(cfg *Config) error {
 		}
 	}
 
+	if err := validateDefaultAliasKeys(cfg.Service); err != nil {
+		return err
+	}
+
 	// Validate OIDC and OAuth2 provider role assignments
 	if cfg.Auth != nil {
 		if cfg.Auth.OIDC != nil {
@@ -919,6 +926,32 @@ func Validate(cfg *Config) error {
 		}
 	}
 
+	return nil
+}
+
+// defaultAliasKeyRegex matches a valid key for fixed fields and additionalProperties (Kubernetes label-like: alphanumeric, optionally with - _ . in the middle).
+// The same pattern is used for the suffix of customInfo.<key>.
+var defaultAliasKeyRegex = regexp.MustCompile(`^[a-zA-Z0-9]([-a-zA-Z0-9_.]*[a-zA-Z0-9])?$`)
+
+func validateDefaultAliasKeys(svc *svcConfig) error {
+	if svc == nil || len(svc.DefaultAliasKeys) == 0 {
+		return nil
+	}
+	const customInfoPrefix = "customInfo."
+	for i, key := range svc.DefaultAliasKeys {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			return fmt.Errorf("defaultAliasKeys[%d]: key cannot be empty", i)
+		}
+		if strings.HasPrefix(key, customInfoPrefix) {
+			suffix := key[len(customInfoPrefix):]
+			if suffix == "" || !defaultAliasKeyRegex.MatchString(suffix) {
+				return fmt.Errorf("defaultAliasKeys[%d]: customInfo key suffix must be a valid label-like token (e.g. [a-zA-Z0-9]([-a-zA-Z0-9_.]*[a-zA-Z0-9])?)", i)
+			}
+		} else if !defaultAliasKeyRegex.MatchString(key) {
+			return fmt.Errorf("defaultAliasKeys[%d]: key must be a valid label-like token for fixed fields and additionalProperties (e.g. hostname, architecture)", i)
+		}
+	}
 	return nil
 }
 

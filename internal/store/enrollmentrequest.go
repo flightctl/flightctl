@@ -2,10 +2,12 @@ package store
 
 import (
 	"context"
+	"strings"
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store/model"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -23,6 +25,7 @@ type EnrollmentRequest interface {
 	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*domain.EnrollmentRequestList, error)
 	Delete(ctx context.Context, orgId uuid.UUID, name string, callbackEvent EventCallback) error
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, enrollmentrequest *domain.EnrollmentRequest, callbackEvent EventCallback) (*domain.EnrollmentRequest, error)
+	UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string, eventCallback EventCallback) error
 }
 
 type EnrollmentRequestStore struct {
@@ -115,6 +118,40 @@ func (s *EnrollmentRequestStore) CreateOrUpdate(ctx context.Context, orgId uuid.
 	newEr, oldEr, created, err := s.genericStore.CreateOrUpdate(ctx, orgId, resource, nil, true, nil)
 	s.eventCallbackCaller(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), oldEr, newEr, created, err)
 	return newEr, created, err
+}
+
+func (s *EnrollmentRequestStore) UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string, eventCallback EventCallback) error {
+	existingRecord := model.EnrollmentRequest{Resource: model.Resource{OrgID: orgId, Name: name}}
+	result := s.getDB(ctx).Take(&existingRecord)
+	if result.Error != nil {
+		return ErrorFromGormError(result.Error)
+	}
+	existingAnnotations := util.EnsureMap(existingRecord.Annotations)
+	newAnnotations := util.MergeLabels(existingAnnotations, annotations)
+	for _, deleteKey := range deleteKeys {
+		delete(newAnnotations, deleteKey)
+	}
+	err := retryUpdate(func() (bool, error) {
+		return s.updateAnnotations(ctx, existingRecord, newAnnotations)
+	})
+	oldEr := &domain.EnrollmentRequest{Metadata: domain.ObjectMeta{Annotations: &existingAnnotations}}
+	newEr := &domain.EnrollmentRequest{Metadata: domain.ObjectMeta{Annotations: &newAnnotations}}
+	s.eventCallbackCaller(ctx, eventCallback, orgId, name, oldEr, newEr, false, err)
+	return err
+}
+
+func (s *EnrollmentRequestStore) updateAnnotations(ctx context.Context, existingRecord model.EnrollmentRequest, newAnnotations map[string]string) (bool, error) {
+	result := s.getDB(ctx).Model(&existingRecord).Where("resource_version = ?", lo.FromPtr(existingRecord.ResourceVersion)).Updates(map[string]interface{}{
+		"annotations":      model.MakeJSONMap(newAnnotations),
+		"resource_version": gorm.Expr("resource_version + 1"),
+	})
+	if err := ErrorFromGormError(result.Error); err != nil {
+		return strings.Contains(err.Error(), "deadlock"), err
+	}
+	if result.RowsAffected == 0 {
+		return true, flterrors.ErrNoRowsUpdated
+	}
+	return false, nil
 }
 
 func (s *EnrollmentRequestStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.EnrollmentRequest, error) {

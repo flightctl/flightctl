@@ -202,7 +202,7 @@ var _ = Describe("Rollout disruption budget test", func() {
 		kvStore, err := kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
 		Expect(err).ToNot(HaveOccurred())
 
-		serviceHandler = service.NewServiceHandler(storeInst, mockWorkerClient, kvStore, nil, log, "", "", []string{})
+		serviceHandler = service.NewServiceHandler(storeInst, mockWorkerClient, kvStore, nil, log, "", "", []string{}, nil)
 		capturedEvents = make([]api.Event, 0)
 	})
 	AfterEach(func() {

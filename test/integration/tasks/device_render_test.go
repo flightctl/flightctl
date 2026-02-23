@@ -100,7 +100,7 @@ var _ = Describe("DeviceRender", func() {
 		var err error
 		kvStoreInst, err = kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
 		Expect(err).ToNot(HaveOccurred())
-		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStoreInst, nil, log, "", "", []string{})
+		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStoreInst, nil, log, "", "", []string{}, nil)
 
 		// Initialize queues provider and rendered.Bus for successful device rendering
 		// Only initialize once (singleton pattern), subsequent calls are no-ops

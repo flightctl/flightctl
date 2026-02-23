@@ -236,7 +236,7 @@ func main() {
 	defer orgCache.Stop()
 
 	// Create service handler for auth provider access
-	baseServiceHandler := service.NewServiceHandler(dataStore, nil, nil, nil, logger, "", "", nil)
+	baseServiceHandler := service.NewServiceHandler(dataStore, nil, nil, nil, logger, "", "", nil, nil)
 	serviceHandler := service.WrapWithTracing(baseServiceHandler)
 
 	// Initialize auth system

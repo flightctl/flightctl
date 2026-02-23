@@ -346,7 +346,7 @@ var _ = Describe("Rollout batch sequence test", func() {
 		publisher.EXPECT().Enqueue(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 		kvStore, err := kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
 		Expect(err).ToNot(HaveOccurred())
-		serviceHandler = service.NewServiceHandler(storeInst, mockWorkerClient, kvStore, nil, log, "", "", []string{})
+		serviceHandler = service.NewServiceHandler(storeInst, mockWorkerClient, kvStore, nil, log, "", "", []string{}, nil)
 	})
 	AfterEach(func() {
 		store.DeleteTestDB(ctx, log, cfg, storeInst, dbName)

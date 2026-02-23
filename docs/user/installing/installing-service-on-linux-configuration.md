@@ -16,6 +16,19 @@ Note - this is currently a subset of all configuration options.
 | --------- | ---- | :------: | ----------- |
 | `auth` | `AuthConfig` | | Authentication configuration for the Flight Control service. |
 | `organizations` | `OrganizationsConfig` | | Organization support configuration. Default: organizations disabled |
+| `defaultAliasKeys` | `[]string` | | Ordered list of keys used to compute a default device alias from enrollment request system info. When set, the first non-empty value from the device's `status.systemInfo` is used as the device alias when approving an enrollment request that does not specify an alias. Default: `["hostname"]`. Set to an empty list to disable. See [Default device alias](#default-device-alias). |
+
+### Default device alias
+
+When `defaultAliasKeys` is non-empty, the service computes a default alias for each enrollment request from the device's reported system information. On approval, if the approval does not set an alias label, the device's `metadata.labels["alias"]` is set to this computed value.
+
+Each key in `defaultAliasKeys` can be:
+
+- **Fixed fields:** `architecture`, `bootID`, `operatingSystem`, `agentVersion`
+- **Additional properties:** any key from system info (for example, `hostname`, `productSerial`, `kernel`)
+- **Custom info:** `customInfo.<key>` for a value from user-defined device scripts (the suffix after `customInfo.` must be a valid label-like token)
+
+Keys are evaluated in order; the first non-empty value is used. The result is sanitized for use as a Kubernetes label value (length and character rules). The default configuration uses `["hostname"]`. Set the list to empty to disable the default alias.
 
 ### Auth Configuration
 

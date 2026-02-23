@@ -37,6 +37,8 @@ const (
 	// When this annotation is present, it means that the device has been selected for rollout in a batch
 	DeviceAnnotationSelectedForRollout = "fleet-controller/selectedForRollout"
 	DeviceAnnotationLastRolloutError   = "fleet-controller/lastRolloutError"
+	// EnrollmentRequestAnnotationDefaultAlias is set on enrollment requests with the computed default device alias (from defaultAliasKeys). On approval, this value is applied as metadata.labels["alias"] if alias is not set in approval labels.
+	EnrollmentRequestAnnotationDefaultAlias = "device-controller/defaultAlias"
 
 	// TODO: make configurable
 	// DeviceDisconnectedTimeout is the duration after which a device is considered to be not reporting and set to unknown status.

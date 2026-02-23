@@ -119,7 +119,7 @@ var _ = Describe("RepoTester", func() {
 		workerClient := worker_client.NewWorkerClient(publisher, log)
 		kvStore, err := kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
 		Expect(err).ToNot(HaveOccurred())
-		serviceHandler = service.NewServiceHandler(stores, workerClient, kvStore, nil, log, "", "", []string{})
+		serviceHandler = service.NewServiceHandler(stores, workerClient, kvStore, nil, log, "", "", []string{}, nil)
 		repotestr = tasks.NewRepoTester(log, serviceHandler, func(repository *api.Repository) tasks.TypeSpecificRepoTester {
 			return &MockRepoTester{}
 		})

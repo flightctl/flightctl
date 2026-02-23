@@ -55,11 +55,13 @@ type ServiceTestSuite struct {
 	ctrl              *gomock.Controller
 	mockQueueProducer *queues.MockQueueProducer
 	workerClient      worker_client.WorkerClient
+	kvStore           kvstore.KVStore
 	caClient          *icrypto.CAClient
 }
 
 // Setup performs common initialization for service tests
 func (s *ServiceTestSuite) Setup() {
+	var err error
 	s.Ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
 	s.Log = testutil.InitLogsWithDebug()
 
@@ -86,7 +88,7 @@ func (s *ServiceTestSuite) Setup() {
 	s.workerClient = worker_client.NewWorkerClient(s.mockQueueProducer, s.Log)
 	s.mockQueueProducer.EXPECT().Enqueue(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
-	kvStore, err := kvstore.NewKVStore(s.Ctx, s.Log, "localhost", 6379, "adminpass")
+	s.kvStore, err = kvstore.NewKVStore(s.Ctx, s.Log, "localhost", 6379, "adminpass")
 	Expect(err).ToNot(HaveOccurred())
 
 	// Setup CA for CSR tests
@@ -95,7 +97,7 @@ func (s *ServiceTestSuite) Setup() {
 	s.caClient, _, err = icrypto.EnsureCA(caCfg)
 	Expect(err).ToNot(HaveOccurred())
 
-	s.Handler = service.NewServiceHandler(s.Store, s.workerClient, kvStore, s.caClient, s.Log, "", "", []string{})
+	s.Handler = service.NewServiceHandler(s.Store, s.workerClient, s.kvStore, s.caClient, s.Log, "", "", []string{}, nil)
 	// Default org for integration tests
 	s.OrgID = store.NullOrgId
 }
