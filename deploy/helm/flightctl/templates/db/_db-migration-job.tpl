@@ -190,7 +190,7 @@ spec:
         - -c
         - |
           set -eo pipefail
-          echo Running database migrations..."
+          echo "Running database migrations..."
           echo "=== Preparing configuration ==="
           mkdir -p /tmp/.flightctl
           cp /root/.flightctl/config.yaml /tmp/.flightctl/config.yaml
@@ -207,8 +207,10 @@ spec:
           done
 
           # Wait for completion and get exit code
+          set +e  # Temporarily disable -e to capture exit code
           wait $MIGRATE_PID
           MIGRATE_EXIT_CODE=$?
+          set -e  # Re-enable -e
 
           if [ $MIGRATE_EXIT_CODE -eq 0 ]; then
             echo "Migration completed successfully at $(date) ==="
