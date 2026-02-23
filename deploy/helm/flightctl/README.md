@@ -426,3 +426,4 @@ Please read the [contributing guidelines](https://github.com/flightctl/flightctl
 ## License
 
 This project is licensed under the Apache License 2.0 - see the [LICENSE](https://github.com/flightctl/flightctl/blob/main/LICENSE) file for details.
+# Trigger CI rebuild with minimalImage fixes
