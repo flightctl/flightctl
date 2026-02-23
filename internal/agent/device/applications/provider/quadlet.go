@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/csv"
 	"fmt"
+	"io/fs"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/agent/device/systemd"
 	"github.com/flightctl/flightctl/internal/api/common"
 	"github.com/flightctl/flightctl/internal/quadlet"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -193,14 +195,8 @@ func (p *quadletProvider) Verify(ctx context.Context) error {
 		return fmt.Errorf("%w: validating env vars: %w", errors.ErrInvalidSpec, err)
 	}
 
-	if !p.spec.User.IsRootUser() && !p.spec.User.IsCurrentProcessUser() {
-		_, _, homeDir, err := userutil.LookupUser(p.spec.User)
-		if err != nil {
-			return fmt.Errorf("%w: application user %s does not exist: %w", errors.ErrNoRetry, p.spec.User, err)
-		}
-		if homeDir == "" {
-			return fmt.Errorf("%w: application user %s does not have a home dir set", errors.ErrNoRetry, p.spec.User)
-		}
+	if err := validateQuadletUser(p.spec.User, p.readWriter); err != nil {
+		return fmt.Errorf("%w: application user %s is not valid: %w", errors.ErrNoRetry, p.spec.User, err)
 	}
 
 	if err := ensureImageVolumes(lo.FromPtr(p.spec.QuadletApp.Volumes)); err != nil {
@@ -243,6 +239,33 @@ func (p *quadletProvider) Verify(ctx context.Context) error {
 		return fmt.Errorf("%w: verifying quadlet: %w", errors.ErrNoRetry, err)
 	}
 
+	return nil
+}
+
+func validateQuadletUser(username v1beta1.Username, rw fileio.ReadWriter) error {
+	// No validation necessary for root user
+	if username.IsCurrentProcessUser() || username.IsRootUser() {
+		return nil
+	}
+
+	_, _, homeDir, err := userutil.LookupUser(username)
+	if err != nil {
+		return fmt.Errorf("application user %s does not exist: %w", username, err)
+	}
+	if homeDir == "" {
+		return fmt.Errorf("application user %s does not have a home dir set", username)
+	}
+
+	lingerUsers, err := rw.ReadDir(systemd.LingerDir)
+	if err != nil {
+		return fmt.Errorf("failed to read linger directory entries: %w", err)
+	}
+	hasUser := slices.ContainsFunc(lingerUsers, func(e fs.DirEntry) bool {
+		return e.Name() == username.String()
+	})
+	if !hasUser {
+		return fmt.Errorf("user %s is running rootless quadlets but does not have lingering enabled, please enable", username)
+	}
 	return nil
 }
 
