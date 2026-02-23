@@ -253,12 +253,12 @@ For more detailed configuration options, see the [Values](#values) section below
 | clusterCli.image.image | string | `"quay.io/openshift/origin-cli"` | Cluster CLI container image |
 | clusterCli.image.pullPolicy | string | `""` | Image pull policy for cluster CLI container |
 | clusterCli.image.tag | string | `"4.20.0"` | Cluster CLI image tag |
-| db | object | `{"builtin":{"additionalPVCLabels":null,"applicationUserSecretName":"","fsGroup":"","image":{"image":"quay.io/sclorg/postgresql-16-c9s","pullPolicy":"","tag":"20250214"},"masterUserSecretName":"","maxConnections":200,"migrationUserSecretName":"","resources":{"requests":{"cpu":"512m","memory":"512Mi"}},"storage":{"size":"60Gi"}},"external":{"applicationUserSecretName":"","hostname":"","migrationUserSecretName":"","port":5432,"sslmode":"","tlsConfigMapName":"","tlsSecretName":""},"name":"flightctl","type":"builtin"}` | Database Configuration |
-| db.builtin | object | `{"additionalPVCLabels":null,"applicationUserSecretName":"","fsGroup":"","image":{"image":"quay.io/sclorg/postgresql-16-c9s","pullPolicy":"","tag":"20250214"},"masterUserSecretName":"","maxConnections":200,"migrationUserSecretName":"","resources":{"requests":{"cpu":"512m","memory":"512Mi"}},"storage":{"size":"60Gi"}}` | Settings for builtin DB |
+| db | object | `{"builtin":{"additionalPVCLabels":null,"applicationUserSecretName":"","fsGroup":"","image":{"image":"quay.io/sclorg/postgresql-16-c10s","pullPolicy":"","tag":"20250214"},"masterUserSecretName":"","maxConnections":200,"migrationUserSecretName":"","resources":{"requests":{"cpu":"512m","memory":"512Mi"}},"storage":{"size":"60Gi"}},"external":{"applicationUserSecretName":"","hostname":"","migrationUserSecretName":"","port":5432,"sslmode":"","tlsConfigMapName":"","tlsSecretName":""},"name":"flightctl","type":"builtin"}` | Database Configuration |
+| db.builtin | object | `{"additionalPVCLabels":null,"applicationUserSecretName":"","fsGroup":"","image":{"image":"quay.io/sclorg/postgresql-16-c10s","pullPolicy":"","tag":"20250214"},"masterUserSecretName":"","maxConnections":200,"migrationUserSecretName":"","resources":{"requests":{"cpu":"512m","memory":"512Mi"}},"storage":{"size":"60Gi"}}` | Settings for builtin DB |
 | db.builtin.additionalPVCLabels | string | `nil` | Additional labels for DB PVCs. |
 | db.builtin.applicationUserSecretName | string | `""` | Database application user secret name containing username/password. If not provided, the secret will be generated |
 | db.builtin.fsGroup | string | `""` | File system group ID for database pod security context |
-| db.builtin.image.image | string | `"quay.io/sclorg/postgresql-16-c9s"` | PostgreSQL container image |
+| db.builtin.image.image | string | `"quay.io/sclorg/postgresql-16-c10s"` | PostgreSQL container image |
 | db.builtin.image.pullPolicy | string | `""` | Image pull policy for database container |
 | db.builtin.image.tag | string | `"20250214"` | PostgreSQL image tag |
 | db.builtin.masterUserSecretName | string | `""` | Database master/admin secret name containing username/password. If not provided, the secret will be generated |
@@ -323,9 +323,9 @@ For more detailed configuration options, see the [Values](#values) section below
 | global.imagePullPolicy | string | `"IfNotPresent"` | Image pull policy for all containers |
 | global.imagePullSecretName | string | `""` | Name of the secret that holds image pull secret for accessing private container registries |
 | global.internalNamespace | string | `""` | A separate Namespace to which non-user-facing components should be deployed for increased security isolation. |
-| global.minimalImage | object | `{"image":"registry.access.redhat.com/ubi9-micro","tag":"9.7-1762965531"}` | Minimal container image configuration for init containers and test pods |
-| global.minimalImage.image | string | `"registry.access.redhat.com/ubi9-micro"` | Minimal container image |
-| global.minimalImage.tag | string | `"9.7-1762965531"` | Minimal container image tag |
+| global.minimalImage | object | `{"image":"registry.access.redhat.com/ubi10-micro","tag":"10.0-1"}` | Minimal container image configuration for init containers and test pods |
+| global.minimalImage.image | string | `"registry.access.redhat.com/ubi10-micro"` | Minimal container image |
+| global.minimalImage.tag | string | `"10.0-1"` | Minimal container image tag |
 | global.multiclusterEngineNamespace | string | `"multicluster-engine"` | Namespace where MultiCluster Engine is installed. Used for creating discovery ConfigMap and RBAC bindings. |
 | global.sshKnownHosts.data | string | `""` | SSH known hosts file content for Git repository host key verification. |
 | global.storageClassName | string | `""` | Storage class name for the PVCs. Keep empty to use the default storage class. |
@@ -348,11 +348,11 @@ For more detailed configuration options, see the [Values](#values) section below
 | imageBuilderWorker.rhsmCaSecretName | string | `""` | Secret name containing RHSM CA certificates, mounted at /etc/rhsm/ca |
 | imageBuilderWorker.rhsmSecretName | string | `""` | Secret name containing RHEL subscription manager configuration, mounted at /etc/rhsm |
 | imageBuilderWorker.yumReposSecretName | string | `""` | Secret name containing yum repository configuration files, mounted at /etc/yum.repos.d |
-| kv | object | `{"fsGroup":"","image":{"image":"quay.io/sclorg/redis-7-c9s","pullPolicy":"","tag":"20250108"},"loglevel":"warning","maxmemory":"1gb","maxmemoryPolicy":"allkeys-lru","passwordSecretName":""}` | Key-Value Store Configuration |
+| kv | object | `{"fsGroup":"","image":{"image":"quay.io/sclorg/valkey-8-c10s","pullPolicy":"","tag":"20260218"},"loglevel":"warning","maxmemory":"1gb","maxmemoryPolicy":"allkeys-lru","passwordSecretName":""}` | Key-Value Store Configuration |
 | kv.fsGroup | string | `""` | File system group ID for Redis pod security context |
-| kv.image.image | string | `"quay.io/sclorg/redis-7-c9s"` | Redis container image |
+| kv.image.image | string | `"quay.io/sclorg/valkey-8-c10s"` | Redis container image |
 | kv.image.pullPolicy | string | `""` | Image pull policy for Redis container |
-| kv.image.tag | string | `"20250108"` | Redis image tag |
+| kv.image.tag | string | `"20260218"` | Redis image tag |
 | kv.loglevel | string | `"warning"` | Redis log level (debug, verbose, notice, warning) |
 | kv.maxmemory | string | `"1gb"` | Maximum memory usage for Redis |
 | kv.maxmemoryPolicy | string | `"allkeys-lru"` | Redis memory eviction policy |

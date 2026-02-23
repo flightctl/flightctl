@@ -102,6 +102,9 @@ community-el10:
       image: quay.io/flightctl/flightctl-db-setup
     telemetryGateway:
       image: quay.io/flightctl/flightctl-telemetry-gateway
+    minimalImage:
+      image: registry.access.redhat.com/ubi10-micro
+      tag: "10.0-1"
   timeouts:
     # API readiness timeout for EL10 (FIPS 140-3 enhanced TLS initialization)
     apiReadiness: 180
@@ -157,6 +160,9 @@ redhat-el9:
       image: registry.redhat.io/rhem/flightctl-db-setup
     telemetryGateway:
       image: registry.redhat.io/rhem/flightctl-telemetry-gateway
+    minimalImage:
+      image: registry.redhat.io/rhel9/ubi9-micro
+      tag: "9.7"
 redhat-el10:
   name: redhat-rhem
   description: A helm chart for Red Hat Edge Manager
@@ -203,3 +209,6 @@ redhat-el10:
       image: registry.redhat.io/rhem/flightctl-db-setup
     telemetryGateway:
       image: registry.redhat.io/rhem/flightctl-telemetry-gateway
+    minimalImage:
+      image: registry.redhat.io/rhel10/ubi10-micro
+      tag: "latest"
