@@ -637,10 +637,12 @@ func (c *Consumer) loginToRegistryForExport(
 	// Build podman login command arguments
 	loginArgs := []string{"login", "-u", username, "--password-stdin"}
 
-	// Skip TLS verification if requested
-	if ociRepoSpec != nil && ociRepoSpec.SkipServerVerification != nil && *ociRepoSpec.SkipServerVerification {
+	if ociRepoSpec != nil && ociRepoSpec.Scheme != nil && *ociRepoSpec.Scheme == coredomain.OciRepoSchemeHttp {
 		loginArgs = append(loginArgs, "--tls-verify=false")
-		log.Debug("Using --tls-verify=false for podman login")
+		log.Debug("Using --tls-verify=false for HTTP registry login")
+	} else if ociRepoSpec != nil && ociRepoSpec.SkipServerVerification != nil && *ociRepoSpec.SkipServerVerification {
+		loginArgs = append(loginArgs, "--tls-verify=false")
+		log.Debug("Using --tls-verify=false due to SkipServerVerification for login")
 	}
 
 	loginArgs = append(loginArgs, registryHostname)
@@ -676,10 +678,12 @@ func (c *Consumer) pullSourceImage(ctx context.Context, worker *privilegedPodman
 	// Build podman pull command
 	pullArgs := []string{"pull"}
 
-	// Skip TLS verification if requested
-	if ociRepoSpec != nil && ociRepoSpec.SkipServerVerification != nil && *ociRepoSpec.SkipServerVerification {
+	if ociRepoSpec != nil && ociRepoSpec.Scheme != nil && *ociRepoSpec.Scheme == coredomain.OciRepoSchemeHttp {
 		pullArgs = append(pullArgs, "--tls-verify=false")
-		log.Debug("Using --tls-verify=false for podman pull")
+		log.Debug("Using --tls-verify=false for HTTP registry pull")
+	} else if ociRepoSpec != nil && ociRepoSpec.SkipServerVerification != nil && *ociRepoSpec.SkipServerVerification {
+		pullArgs = append(pullArgs, "--tls-verify=false")
+		log.Debug("Using --tls-verify=false due to SkipServerVerification for pull")
 	}
 
 	pullArgs = append(pullArgs, bootcImageRef)
