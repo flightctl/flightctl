@@ -49,4 +49,4 @@ LABEL \
   name="flightctl-periodic" \
   summary="Flight Control Edge management service, periodic job worker"
 COPY --from=build /app/bin/flightctl-periodic .
-CMD ./flightctl-periodic
+CMD ["./flightctl-periodic"]

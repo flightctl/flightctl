@@ -49,4 +49,4 @@ LABEL \
   name="flightctl-alert-exporter" \
   summary="Flight Control Edge management service, alert exporter"
 COPY --from=build /app/bin/flightctl-alert-exporter .
-CMD ./flightctl-alert-exporter
+CMD ["./flightctl-alert-exporter"]

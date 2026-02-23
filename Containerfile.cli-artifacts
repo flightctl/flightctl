@@ -56,11 +56,10 @@ RUN --mount=type=cache,target=/var/cache/dnf \
 ENV USER_UID=1001 \
     USER_NAME=server \
     HOME=/home/server \
-    NGINX_CONF_PATH=/etc/nginx/nginx.conf \
-    ENTRYPOINT_PATH=/usr/local/bin/entrypoint.sh
+    NGINX_CONF_PATH=/etc/nginx/nginx.conf
 
 COPY --from=builder /app/packaging/containers/cli-artifacts/nginx.conf ${NGINX_CONF_PATH}
-COPY --chmod=0755 --from=builder /app/packaging/containers/cli-artifacts/entrypoint.sh ${ENTRYPOINT_PATH}
+COPY --chmod=0755 --from=builder /app/packaging/containers/cli-artifacts/entrypoint.sh /usr/local/bin/entrypoint.sh
 
 USER root
 
@@ -94,4 +93,4 @@ LABEL \
   summary="Container image exposing multi-arch Flight Control CLI binaries over HTTP"
 EXPOSE 8090
 
-ENTRYPOINT ${ENTRYPOINT_PATH}
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
