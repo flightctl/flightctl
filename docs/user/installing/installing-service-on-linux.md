@@ -59,15 +59,7 @@ Flight Control containers are built for different CentOS Stream versions to ensu
 - **EL9 containers**: Default, compatible with RHEL 9, CentOS Stream 9, and Fedora
 - **EL10 containers**: Available for RHEL 10, CentOS Stream 10 environments
 
-The RPM packages automatically select appropriate container versions based on your host OS. When building from source, you can choose container flavors using:
-
-```bash
-# Build EL9 containers (default)
-make build-containers
-
-# Build specific flavor
-FLAVOR=el10 make build-containers
-```
+The RPM packages automatically select appropriate container versions based on your host OS.
 
 ## Configure Authentication
 

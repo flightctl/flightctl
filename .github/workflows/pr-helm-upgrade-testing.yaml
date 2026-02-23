@@ -221,6 +221,8 @@ jobs:
           helm diff upgrade flightctl "${CHART_FILE}" \
             --namespace flightctl-external \
             --reuse-values \
+            --set global.minimalImage.image=registry.access.redhat.com/ubi9-micro \
+            --set global.minimalImage.tag=9.7-1762965531 \
             --dry-run=server \
             --output=dyff \
             --debug
@@ -232,6 +234,8 @@ jobs:
           helm upgrade flightctl "${CHART_FILE}" \
             --namespace flightctl-external \
             --reuse-values \
+            --set global.minimalImage.image=registry.access.redhat.com/ubi9-micro \
+            --set global.minimalImage.tag=9.7-1762965531 \
             --debug --wait # for the deployment complete (including readiness probes passing)
 
       - name: "[HEAD] Wait for API readiness after upgrade"
@@ -304,6 +308,8 @@ jobs:
           helm upgrade flightctl "${CHART_FILE}" \
             --namespace flightctl-external \
             --reuse-values \
+            --set global.minimalImage.image=registry.access.redhat.com/ubi9-micro \
+            --set global.minimalImage.tag=9.7-1762965531 \
             --debug --wait
 
       - name: "[HEAD] Wait for API readiness after same-version upgrade"

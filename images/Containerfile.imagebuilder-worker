@@ -53,4 +53,5 @@ LABEL \
   summary="Flight Control image builder worker service (el${EL_VERSION})"
 COPY --chmod=0755 --from=build /app/bin/flightctl-imagebuilder-worker .
 
-CMD ./flightctl-imagebuilder-worker
+
+CMD ["./flightctl-imagebuilder-worker"]

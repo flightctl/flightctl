@@ -63,4 +63,4 @@ COPY --from=build /app/deploy ./deploy
 # Ensure migration script has execute permissions
 RUN chmod +x /app/deploy/scripts/migration-setup.sh
 
-CMD /usr/local/bin/flightctl-db-migrate
+CMD ["./deploy/scripts/setup_database_users.sh"]
