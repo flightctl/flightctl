@@ -119,19 +119,21 @@ func TestGenerateTemplateVersionName(t *testing.T) {
 		name       string
 		fleetName  string
 		generation int64
+		expected   string // if non-empty, assert exact match
 	}{
 		{
 			name:       "short name uses simple form",
 			fleetName:  "my-fleet",
-			generation: 1,
+			generation: 5,
+			expected:   "my-fleet-5",
 		},
 		{
 			name:       "max name that fits simple form",
-			fleetName:  strings.Repeat("a", 251),
+			fleetName:  strings.Repeat("a", 233),
 			generation: 1,
 		},
 		{
-			name:       "253-char name at generation 1 uses hash form",
+			name:       "253-char name at generation 1",
 			fleetName:  strings.Repeat("a", 253),
 			generation: 1,
 		},
@@ -141,7 +143,17 @@ func TestGenerateTemplateVersionName(t *testing.T) {
 			generation: 9999999999,
 		},
 		{
-			name:       "240-char name at generation exceeding simple form",
+			name:       "253-char different name for uniqueness check",
+			fleetName:  strings.Repeat("a", 252) + "b",
+			generation: 1,
+		},
+		{
+			name:       "253-char name at generation 999 for stability check",
+			fleetName:  strings.Repeat("a", 253),
+			generation: 999,
+		},
+		{
+			name:       "240-char name at large generation",
 			fleetName:  strings.Repeat("b", 240),
 			generation: 99999999999999,
 		},
@@ -152,27 +164,26 @@ func TestGenerateTemplateVersionName(t *testing.T) {
 		},
 	}
 
+	results := make(map[string]string)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			fleet := makeFleet(tt.fleetName, tt.generation)
-			result := generateTemplateVersionName(fleet)
+			result := generateTemplateVersionName(makeFleet(tt.fleetName, tt.generation))
+			results[tt.name] = result
 			require.LessOrEqual(len(result), validation.DNS1123MaxLength,
 				"generated name %q has %d chars, exceeds %d", result, len(result), validation.DNS1123MaxLength)
 			errs := validation.ValidateResourceName(&result)
 			require.Empty(errs, "generated name %q is not a valid DNS subdomain: %v", result, errs)
+			if tt.expected != "" {
+				require.Equal(tt.expected, result)
+			}
 		})
 	}
 
-	t.Run("different long names produce different results", func(t *testing.T) {
-		nameA := strings.Repeat("a", 253)
-		nameB := strings.Repeat("a", 252) + "b"
-		fleetA := makeFleet(nameA, 1)
-		fleetB := makeFleet(nameB, 1)
-		require.NotEqual(generateTemplateVersionName(fleetA), generateTemplateVersionName(fleetB))
-	})
+	require.NotEqual(results["253-char name at generation 1"], results["253-char different name for uniqueness check"],
+		"different long names should produce different results")
 
-	t.Run("short name preserves simple format", func(t *testing.T) {
-		fleet := makeFleet("my-fleet", 5)
-		require.Equal("my-fleet-5", generateTemplateVersionName(fleet))
-	})
+	r1 := results["253-char name at generation 1"]
+	r2 := results["253-char name at generation 999 for stability check"]
+	require.Equal(r1[:strings.LastIndex(r1, "-")], r2[:strings.LastIndex(r2, "-")],
+		"hash form prefix should be stable across generations")
 }
