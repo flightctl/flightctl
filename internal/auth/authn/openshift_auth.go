@@ -208,7 +208,7 @@ func (o *OpenShiftAuth) GetIdentity(ctx context.Context, token string) (common.I
 	// Get roles per project
 	orgRoles := make(map[string][]string)
 	for _, project := range projects {
-		roles, err := o.getRolesForUserInProject(ctx, project, username)
+		roles, err := o.getRolesForUserInProject(ctx, project, username, review.Status.User.Groups)
 		if err != nil {
 			o.log.WithError(err).WithField("project", project).Warn("Failed to get roles for project")
 			continue
@@ -342,8 +342,8 @@ func (o *OpenShiftAuth) getProjectsForUser(ctx context.Context, token string) ([
 }
 
 // getRolesForUserInProject gets roles from RoleBindings in a project
-func (o *OpenShiftAuth) getRolesForUserInProject(ctx context.Context, project, username string) ([]string, error) {
-	roles, err := o.k8sClient.ListRoleBindingsForUser(ctx, project, username)
+func (o *OpenShiftAuth) getRolesForUserInProject(ctx context.Context, project, username string, groups []string) ([]string, error) {
+	roles, err := o.k8sClient.ListRoleBindingsForUser(ctx, project, username, groups)
 	if err != nil {
 		return nil, err
 	}

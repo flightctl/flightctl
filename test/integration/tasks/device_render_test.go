@@ -53,7 +53,7 @@ func (m *mockK8sClient) ListProjects(ctx context.Context, token string, opts ...
 	return nil, nil
 }
 
-func (m *mockK8sClient) ListRoleBindingsForUser(ctx context.Context, namespace, username string) ([]string, error) {
+func (m *mockK8sClient) ListRoleBindingsForUser(ctx context.Context, namespace, username string, groups []string) ([]string, error) {
 	return nil, nil
 }
 
