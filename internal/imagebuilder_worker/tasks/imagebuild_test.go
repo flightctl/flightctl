@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
@@ -407,42 +405,28 @@ func TestGenerateContainerfile_WithoutUserConfiguration(t *testing.T) {
 	require.Nil(t, result.Publickey)
 }
 
-func TestWriteCACertDir(t *testing.T) {
-	tmpDir := t.TempDir()
-	caPEM := "-----BEGIN CERTIFICATE-----\nTESTCA\n-----END CERTIFICATE-----"
-	encoded := base64.StdEncoding.EncodeToString([]byte(caPEM))
-
-	certDir, err := writeCACertDir(&encoded, tmpDir, "registry.example.com:5000")
+func TestInstallCACertInWorker_NilCaCrt(t *testing.T) {
+	err := installCACertInWorker(context.Background(), nil, "fake-container", "registry.example.com", log.InitLogs())
 	require.NoError(t, err)
-	require.Equal(t, filepath.Join(tmpDir, "certs"), certDir)
-
-	written, err := os.ReadFile(filepath.Join(certDir, "registry.example.com:5000", "ca.crt"))
-	require.NoError(t, err)
-	require.Equal(t, caPEM, string(written))
 }
 
-func TestWriteCACertDir_NilCaCrt(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	certDir, err := writeCACertDir(nil, tmpDir, "registry.example.com")
-	require.NoError(t, err)
-	require.Empty(t, certDir)
-}
-
-func TestWriteCACertDir_EmptyCaCrt(t *testing.T) {
-	tmpDir := t.TempDir()
+func TestInstallCACertInWorker_EmptyCaCrt(t *testing.T) {
 	empty := ""
-
-	certDir, err := writeCACertDir(&empty, tmpDir, "registry.example.com")
+	err := installCACertInWorker(context.Background(), &empty, "fake-container", "registry.example.com", log.InitLogs())
 	require.NoError(t, err)
-	require.Empty(t, certDir)
 }
 
-func TestWriteCACertDir_InvalidBase64(t *testing.T) {
-	tmpDir := t.TempDir()
+func TestInstallCACertInWorker_InvalidBase64(t *testing.T) {
 	invalid := "not-valid-base64!!!"
-
-	_, err := writeCACertDir(&invalid, tmpDir, "registry.example.com")
+	err := installCACertInWorker(context.Background(), &invalid, "fake-container", "registry.example.com", log.InitLogs())
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "failed to decode CA certificate")
+}
+
+func TestInstallCACertInWorker_ValidBase64FailsWithoutContainer(t *testing.T) {
+	caPEM := "-----BEGIN CERTIFICATE-----\nTESTCA\n-----END CERTIFICATE-----"
+	encoded := base64.StdEncoding.EncodeToString([]byte(caPEM))
+	err := installCACertInWorker(context.Background(), &encoded, "nonexistent-container", "registry.example.com", log.InitLogs())
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "failed to create cert dir in container")
 }
