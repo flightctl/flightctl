@@ -44,6 +44,9 @@ community-el9:
       image: quay.io/flightctl/flightctl-db-setup
     telemetryGateway:
       image: quay.io/flightctl/flightctl-telemetry-gateway
+    minimalImage:
+      image: registry.access.redhat.com/ubi9-micro
+      tag: "9.7-1762965531"
   timeouts:
     # API readiness timeout for EL9 (increased for E2E tests using wait:false)
     apiReadiness: 300
