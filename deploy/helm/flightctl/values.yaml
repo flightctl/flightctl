@@ -108,9 +108,9 @@ global:
   # -- Minimal container image configuration for init containers and test pods
   minimalImage:
     # -- Minimal container image
-    image: registry.access.redhat.com/ubi10-micro
+    image: registry.access.redhat.com/ubi9-micro
     # -- Minimal container image tag
-    tag: "10.0-1"
+    tag: "9.7-1762965531"
 
 # -- Component specific parameters
 # This section provides individual parameters for each component
@@ -131,7 +131,7 @@ db:
     masterUserSecretName: ""
     image:
       # -- PostgreSQL container image
-      image: quay.io/sclorg/postgresql-16-c10s
+      image: quay.io/sclorg/postgresql-16-c9s
       # -- PostgreSQL image tag
       tag: "20250214"
       # -- Image pull policy for database container
@@ -171,9 +171,9 @@ db:
 kv:
   image:
     # -- Redis container image
-    image: quay.io/sclorg/valkey-8-c10s
+    image: quay.io/sclorg/redis-7-c9s
     # -- Redis image tag
-    tag: "20260218"
+    tag: "20250108"
     # -- Image pull policy for Redis container
     pullPolicy: ""
   # -- Secret containing password for Redis password (leave empty for auto-generation)
