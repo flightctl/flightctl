@@ -783,6 +783,7 @@ func (c *Consumer) loginToRegistry(
 	registryHostname string,
 	username string,
 	password string,
+	ociSpec *coredomain.OciRepoSpec,
 	log logrus.FieldLogger,
 ) error {
 	if username == "" || password == "" {
@@ -810,11 +811,17 @@ func (c *Consumer) loginToRegistry(
 
 	log.WithField("registry", registryHostname).Debug("Logging into registry with podman login")
 
-	// Run podman login inside the container with stdin
-	// Format: podman exec -i <container> podman login -u <username> --password-stdin <registry>
-	// CA certs are installed in /etc/containers/certs.d/ (picked up automatically)
-	// username and registryHostname are validated above to prevent command injection
-	loginArgs := []string{"exec", "-i", podmanWorker.ContainerName, "podman", "login", "-u", username, "--password-stdin", registryHostname}
+	loginArgs := []string{"exec", "-i", podmanWorker.ContainerName, "podman", "login", "-u", username, "--password-stdin"}
+
+	if ociSpec != nil && ociSpec.Scheme != nil && *ociSpec.Scheme == coredomain.OciRepoSchemeHttp {
+		loginArgs = append(loginArgs, "--tls-verify=false")
+		log.Debug("Using --tls-verify=false for HTTP registry login")
+	} else if ociSpec != nil && ociSpec.SkipServerVerification != nil && *ociSpec.SkipServerVerification {
+		loginArgs = append(loginArgs, "--tls-verify=false")
+		log.Debug("Using --tls-verify=false due to SkipServerVerification for login")
+	}
+
+	loginArgs = append(loginArgs, registryHostname)
 	// G204: Inputs are validated above to prevent command injection. exec.CommandContext uses separate arguments (not shell), making this safe.
 	loginCmd := exec.CommandContext(ctx, "podman", loginArgs...)
 
@@ -954,7 +961,7 @@ func (c *Consumer) buildImageWithPodman(
 	if ociSpec.OciAuth != nil {
 		dockerAuth, err := ociSpec.OciAuth.AsDockerAuth()
 		if err == nil && dockerAuth.Username != "" && dockerAuth.Password != "" {
-			if err := c.loginToRegistry(ctx, podmanWorker, sourceRegistryHostname, dockerAuth.Username, dockerAuth.Password, log); err != nil {
+			if err := c.loginToRegistry(ctx, podmanWorker, sourceRegistryHostname, dockerAuth.Username, dockerAuth.Password, ociSpec, log); err != nil {
 				return fmt.Errorf("failed to login to source registry: %w", err)
 			}
 		}
@@ -1063,7 +1070,7 @@ func (c *Consumer) pushImageWithPodman(
 	if ociSpec.OciAuth != nil {
 		dockerAuth, err := ociSpec.OciAuth.AsDockerAuth()
 		if err == nil && dockerAuth.Username != "" && dockerAuth.Password != "" {
-			if err := c.loginToRegistry(ctx, podmanWorker, destRegistryHostname, dockerAuth.Username, dockerAuth.Password, log); err != nil {
+			if err := c.loginToRegistry(ctx, podmanWorker, destRegistryHostname, dockerAuth.Username, dockerAuth.Password, ociSpec, log); err != nil {
 				return "", fmt.Errorf("failed to login to destination registry: %w", err)
 			}
 		}

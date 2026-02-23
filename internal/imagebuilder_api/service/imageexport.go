@@ -580,6 +580,11 @@ func (s *imageExportService) setupRepositoryReference(ctx context.Context, ociSp
 
 	repoRef.Client = authClient
 
+	if ociSpec.Scheme != nil && *ociSpec.Scheme == coredomain.OciRepoSchemeHttp {
+		repoRef.PlainHTTP = true
+		log.Debug("Using PlainHTTP for HTTP registry")
+	}
+
 	return repoRef, scheme, registryHostname, nil
 }
 
