@@ -176,7 +176,7 @@ func (o *K8sAuthN) GetIdentity(ctx context.Context, token string) (common.Identi
 	var roles []string
 	if o.spec.RbacNs != nil && *o.spec.RbacNs != "" {
 		var err error
-		roles, err = o.k8sClient.ListRoleBindingsForUser(ctx, *o.spec.RbacNs, review.Status.User.Username)
+		roles, err = o.k8sClient.ListRoleBindingsForUser(ctx, *o.spec.RbacNs, review.Status.User.Username, review.Status.User.Groups)
 		if err != nil {
 			logrus.WithError(err).WithField("namespace", *o.spec.RbacNs).Warn("Failed to list role bindings")
 			roles = []string{}

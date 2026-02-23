@@ -92,18 +92,18 @@ func (mr *MockK8SClientMockRecorder) ListRoleBindings(ctx, namespace any) *gomoc
 }
 
 // ListRoleBindingsForUser mocks base method.
-func (m *MockK8SClient) ListRoleBindingsForUser(ctx context.Context, namespace, username string) ([]string, error) {
+func (m *MockK8SClient) ListRoleBindingsForUser(ctx context.Context, namespace, username string, groups []string) ([]string, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListRoleBindingsForUser", ctx, namespace, username)
+	ret := m.ctrl.Call(m, "ListRoleBindingsForUser", ctx, namespace, username, groups)
 	ret0, _ := ret[0].([]string)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // ListRoleBindingsForUser indicates an expected call of ListRoleBindingsForUser.
-func (mr *MockK8SClientMockRecorder) ListRoleBindingsForUser(ctx, namespace, username any) *gomock.Call {
+func (mr *MockK8SClientMockRecorder) ListRoleBindingsForUser(ctx, namespace, username, groups any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListRoleBindingsForUser", reflect.TypeOf((*MockK8SClient)(nil).ListRoleBindingsForUser), ctx, namespace, username)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListRoleBindingsForUser", reflect.TypeOf((*MockK8SClient)(nil).ListRoleBindingsForUser), ctx, namespace, username, groups)
 }
 
 // PostCRD mocks base method.
