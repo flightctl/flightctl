@@ -8,7 +8,7 @@ get_config_dir() {
 
 # Load flavor configuration from config file
 # Usage: load_flavor_config <flavor>
-# Sets: EL_FLAVOR, EL_VERSION, BUILD_IMAGE, RUNTIME_IMAGE, MINIMAL_IMAGE, PAM_BASE_URL, PAM_PACKAGE_VERSION
+# Sets: EL_FLAVOR, EL_VERSION, BUILD_IMAGE, RUNTIME_IMAGE, MINIMAL_IMAGE, PACKAGE_MINIMAL_IMAGE, PAM_BASE_URL, PAM_PACKAGE_VERSION
 load_flavor_config() {
     local flavor="$1"
     local config_file="$(get_config_dir)/container-flavors.conf"
@@ -47,19 +47,19 @@ load_flavor_config() {
     fi
 
     # Parse the comma-separated configuration
-    IFS=',' read -r BUILD_IMAGE RUNTIME_IMAGE MINIMAL_IMAGE PAM_BASE_URL PAM_PACKAGE_VERSION <<< "$config_value"
+    IFS=',' read -r BUILD_IMAGE RUNTIME_IMAGE MINIMAL_IMAGE PACKAGE_MINIMAL_IMAGE PAM_BASE_URL PAM_PACKAGE_VERSION <<< "$config_value"
 
     # Set flavor name
     EL_FLAVOR="$flavor"
 
     # Validate that we got valid values
-    if [[ -z "$BUILD_IMAGE" || -z "$RUNTIME_IMAGE" || -z "$MINIMAL_IMAGE" ]]; then
+    if [[ -z "$BUILD_IMAGE" || -z "$RUNTIME_IMAGE" || -z "$MINIMAL_IMAGE" || -z "$PACKAGE_MINIMAL_IMAGE" ]]; then
         echo "Error: Failed to load complete configuration for flavor '$flavor'" >&2
         return 1
     fi
 
     # Export variables for use in calling scripts
-    export EL_FLAVOR EL_VERSION BUILD_IMAGE RUNTIME_IMAGE MINIMAL_IMAGE PAM_BASE_URL PAM_PACKAGE_VERSION
+    export EL_FLAVOR EL_VERSION BUILD_IMAGE RUNTIME_IMAGE MINIMAL_IMAGE PACKAGE_MINIMAL_IMAGE PAM_BASE_URL PAM_PACKAGE_VERSION
 
     echo "Loaded configuration for $EL_FLAVOR (EL$EL_VERSION)"
 }

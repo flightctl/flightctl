@@ -56,7 +56,7 @@ echo "Building flightctl-${SERVICE}-${EL_FLAVOR}..."
 
 # Determine runtime image based on service type
 if [[ "$SERVICE" == "cli-artifacts" || "$SERVICE" == "db-setup" ]]; then
-    SERVICE_RUNTIME_IMAGE="$MINIMAL_IMAGE"
+    SERVICE_RUNTIME_IMAGE="$PACKAGE_MINIMAL_IMAGE"
 else
     SERVICE_RUNTIME_IMAGE="$RUNTIME_IMAGE"
 fi
