@@ -141,7 +141,7 @@ allow flightctl_agent_t install_t:process2 { nnp_transition nosuid_transition };
 
 # Terminal and PTY access for console sessions
 term_use_all_terms(flightctl_agent_t)
-allow flightctl_agent_t ptmx_t:chr_file { create read write open ioctl getattr setattr };
+allow flightctl_agent_t ptmx_t:chr_file { create read write lock open ioctl getattr setattr };
 allow flightctl_agent_t devpts_t:chr_file { create read write append open getattr ioctl setattr };
 allow flightctl_agent_t devpts_t:filesystem associate;
 
