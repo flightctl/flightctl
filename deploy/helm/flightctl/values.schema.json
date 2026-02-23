@@ -203,6 +203,15 @@
           "type": ["object", "null"],
           "description": "Additional labels for PVCs.",
           "additionalProperties": { "type": "string" }
+        },
+        "minimalImage": {
+          "type": "object",
+          "description": "Minimal container image for init containers and test pods",
+          "additionalProperties": false,
+          "properties": {
+            "image": { "type": "string", "description": "Minimal container image" },
+            "tag": { "type": "string", "description": "Minimal container image tag" }
+          }
         }
       }
     },

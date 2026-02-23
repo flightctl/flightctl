@@ -1,3 +1,6 @@
 global:
   baseDomain: flightctl.github.io
   exposeServicesMethod: route
+  minimalImage:
+    image: registry.access.redhat.com/ubi9-micro
+    tag: "9.7-1762965531"

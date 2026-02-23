@@ -105,6 +105,12 @@ global:
   additionalRouteLabels: null
   # -- Additional labels for PVCs.
   additionalPVCLabels: null
+  # -- Minimal container image configuration for init containers and test pods
+  minimalImage:
+    # -- Minimal container image
+    image: {{ .Images.minimalImage.Image }}
+    # -- Minimal container image tag
+    tag: "{{ .Images.minimalImage.Tag }}"
 
 # -- Component specific parameters
 # This section provides individual parameters for each component
