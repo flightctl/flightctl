@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"net/url"
 	"os"
 
 	standaloneconfig "github.com/flightctl/flightctl/internal/config/standalone"
@@ -19,7 +20,6 @@ type OAuthApplicationCreator interface {
 
 type CreateAAPClientOptions struct {
 	AAPConfig       *standaloneconfig.AAPConfig
-	BaseDomain      string
 	InsecureSkipTLS bool
 	CACertFile      string
 	Logger          logrus.FieldLogger
@@ -58,7 +58,7 @@ func buildTLSConfig(opts CreateAAPClientOptions) (*tls.Config, error) {
 			tlsConfig.RootCAs = caCertPool
 			opts.Logger.Infof("Using CA certificate from %s", opts.CACertFile)
 		} else if opts.CACertFile != renderer.DefaultAuthCACertPath {
-			opts.Logger.Warnf("configured CA cert file not found: %s - using system CAs", opts.CACertFile)
+			opts.Logger.Warnf("Configured CA cert file not found: %s - using system CAs", opts.CACertFile)
 		}
 	}
 
@@ -95,8 +95,11 @@ func CreateAAPApplication(ctx context.Context, opts CreateAAPApplicationOptions)
 }
 
 func buildOAuthApplicationRequest(baseDomain string, appName string, organization int) *aap.AAPOAuthApplicationRequest {
-	redirectURIs := fmt.Sprintf("https://%s:443/callback http://127.0.0.1/callback", baseDomain)
-	appURL := fmt.Sprintf("https://%s:443", baseDomain)
+	appURL := url.URL{Scheme: "https", Host: baseDomain + ":443"}
+	callbackURL := url.URL{Scheme: "https", Host: baseDomain + ":443", Path: "/callback"}
+	// local callback url is used by the cli
+	localCallbackURL := url.URL{Scheme: "http", Host: "127.0.0.1", Path: "/callback"}
+	redirectURIs := callbackURL.String() + " " + localCallbackURL.String()
 
 	return &aap.AAPOAuthApplicationRequest{
 		Name:                   appName,
@@ -104,7 +107,7 @@ func buildOAuthApplicationRequest(baseDomain string, appName string, organizatio
 		AuthorizationGrantType: "authorization-code",
 		ClientType:             "public",
 		RedirectURIs:           redirectURIs,
-		AppURL:                 appURL,
+		AppURL:                 appURL.String(),
 	}
 }
 
