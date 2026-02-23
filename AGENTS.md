@@ -21,10 +21,12 @@ Flight Control is a service for declarative management of fleets of edge devices
 - **Build:** `make build` (requires Go ≥1.23, podman, and other deps; see [docs/developer/README.md](docs/developer/README.md)).
 - **Generate API/client code and mocks:** `make generate` (requires mockgen: `go install go.uber.org/mock/mockgen@v0.4.0`).
 - **Proto generation:** `make generate-proto` for `api/grpc/`.
-- **Unit tests:** `make unit-test` (requires gotestsum: `go install gotest.tools/gotestsum@latest`).
+- **Unit tests:** `make unit-test` (requires gotestsum: `go install gotest.tools/gotestsum@latest`). Avoid `make test`; prefer `make unit-test` (and `make integration-test` separately if needed). When verifying changes, first run unit tests on the specific files changed, then run `make unit-test` for the full suite.
 - **Integration tests:** `make integration-test` (starts DB/KV/alertmanager via deploy targets).
 - **E2E tests:** `make e2e-test` or `make in-cluster-e2e-test`; see [test/AGENTS.md](test/AGENTS.md).
-- **Lint:** `make lint`, `make lint-openapi`, `make lint-docs`, `make lint-helm`.
+- **Lint:** `make lint` (do not invoke golangci-lint directly; `make lint` installs and configures it automatically), `make lint-openapi`, `make lint-docs`, `make lint-helm`.
+- **Code formatting:** Format Go imports with `gci write --skip-generated -s standard -s default .` (required for `make lint` to pass). Import order: standard library, then all other imports.
+- **Cleanup:** `make clean` (containers and volumes), `make clean-all` (full cleanup including `bin/`).
 
 ## Running locally
 
@@ -43,7 +45,8 @@ Flight Control is a service for declarative management of fleets of edge devices
 
 1. **Keep docs up to date** – If you change behavior, APIs, or workflows, update the relevant docs in `docs/user/` or `docs/developer/` and run `make lint-docs` (and `make spellcheck-docs` for user docs).
 2. **Add test coverage** – New or changed code should include or extend unit tests (and integration tests where appropriate). Prefer table-driven tests and existing patterns; see [test/AGENTS.md](test/AGENTS.md) and [internal/agent/AGENTS.md](internal/agent/AGENTS.md) for agent code.
-3. **Run unit and integration tests** – Before committing, run `make unit-test` and `make integration-test` (integration tests require Podman; they start DB/KV/Alertmanager automatically). Fix any failures before pushing.
+3. **Run lint** – Run `make lint` before committing and fix any issues.
+4. **Run unit and integration tests** – Before committing, run `make unit-test` and `make integration-test` (integration tests require Podman; they start DB/KV/Alertmanager automatically). Fix any failures before pushing.
 
 ## Pointers to area-specific guidance
 
