@@ -1,4 +1,7 @@
-FROM registry.access.redhat.com/ubi9/go-toolset:1.24.6-1762373805 as builder
+ARG BUILD_IMAGE
+ARG RUNTIME_IMAGE
+
+FROM ${BUILD_IMAGE} as builder
 WORKDIR /app
 
 # Switch to root for build operations
@@ -45,7 +48,6 @@ RUN --mount=type=cache,target=/opt/app-root/src/.cache/go-build \
     --mount=type=cache,target=/opt/app-root/src/go/pkg/mod \
     make build-multiarch-clis
 
-ARG RUNTIME_IMAGE
 FROM ${RUNTIME_IMAGE}
 # Use BuildKit cache mounts for dnf package caching
 RUN --mount=type=cache,target=/var/cache/dnf \

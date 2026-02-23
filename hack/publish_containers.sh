@@ -74,7 +74,7 @@ case "$ACTION" in
 
             # Determine runtime image based on service type
             if [[ "$service" == "cli-artifacts" || "$service" == "db-setup" ]]; then
-                SERVICE_RUNTIME_IMAGE="$MINIMAL_IMAGE"
+                SERVICE_RUNTIME_IMAGE="$PACKAGE_MINIMAL_IMAGE"
             else
                 SERVICE_RUNTIME_IMAGE="$RUNTIME_IMAGE"
             fi
