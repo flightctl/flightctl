@@ -77,7 +77,7 @@ type RendererConfig struct {
 	UserinfoProxy      ImageConfig `mapstructure:"userinfo-proxy"`
 
 	// Minimal image for init containers and lightweight services
-	MinimalImage       ImageConfig `mapstructure:"minimal-image"`
+	MinimalImage ImageConfig `mapstructure:"minimal-image"`
 }
 
 func NewRendererConfig() *RendererConfig {
