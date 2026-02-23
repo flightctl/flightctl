@@ -13,7 +13,6 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/quadlet"
 	"github.com/flightctl/flightctl/pkg/log"
-	"github.com/flightctl/flightctl/pkg/userutil"
 	"github.com/samber/lo"
 )
 
@@ -114,14 +113,8 @@ func (p *containerProvider) Verify(ctx context.Context) error {
 		return fmt.Errorf("%w: validating env vars: %w", errors.ErrInvalidSpec, err)
 	}
 
-	if !p.spec.User.IsRootUser() && !p.spec.User.IsCurrentProcessUser() {
-		_, _, homeDir, err := userutil.LookupUser(p.spec.User)
-		if err != nil {
-			return fmt.Errorf("%w: application user %s does not exist: %w", errors.ErrNoRetry, p.spec.User, err)
-		}
-		if homeDir == "" {
-			return fmt.Errorf("%w: application user %s does not have a home dir set", errors.ErrNoRetry, p.spec.User)
-		}
+	if err := validateQuadletUser(p.spec.User, p.readWriter); err != nil {
+		return fmt.Errorf("%w: application user %s is not valid: %w", errors.ErrNoRetry, p.spec.User, err)
 	}
 
 	for _, vol := range lo.FromPtr(p.spec.ContainerApp.Volumes) {
