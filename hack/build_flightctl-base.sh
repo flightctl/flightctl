@@ -13,24 +13,27 @@ case "$FLAVOR" in
         ;;
 esac
 
-# Get script directory and change to repo root
+# Get script directory and load configuration functions
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=hack/container-config.sh
+source "${SCRIPT_DIR}/container-config.sh"
+
 ROOT_DIR="$(dirname "$SCRIPT_DIR")"
 cd "$ROOT_DIR"
 
-# Set base image and version info based on FLAVOR (matching publish_containers.sh)
-case "$FLAVOR" in
-    el9)
-        BASE_IMAGE="registry.access.redhat.com/ubi9/ubi-minimal:9.7-1763362218"
-        EL_VERSION="9"
-        BASE_TAG="9.7-1763362218"
-        ;;
-    el10)
-        BASE_IMAGE="registry.access.redhat.com/ubi10/ubi-minimal:10.1-1769677092"
-        EL_VERSION="10"
-        BASE_TAG="10.1-1769677092"
-        ;;
-esac
+# Validate and load flavor configuration
+if ! validate_flavor "$FLAVOR"; then
+    exit 1
+fi
+
+if ! load_flavor_config "$FLAVOR"; then
+    exit 1
+fi
+
+# Use MINIMAL_IMAGE from config as BASE_IMAGE
+BASE_IMAGE="$MINIMAL_IMAGE"
+# Extract tag from the image for naming
+BASE_TAG="${MINIMAL_IMAGE##*:}"
 
 echo "Building base image for $FLAVOR using Containerfile.base"
 echo "Base image: $BASE_IMAGE"

@@ -464,7 +464,7 @@ After=flightctl-db.service
 Wants=flightctl-db.service
 
 [Container]
-Image=registry.access.redhat.com/ubi9/ubi-minimal
+Image={{ .MinimalImage.Image }}:{{ .MinimalImage.Tag }}
 ContainerName=flightctl-myservice-init
 Network=flightctl.network
 Volume=/usr/share/flightctl/flightctl-myservice:/config-source:ro,z
