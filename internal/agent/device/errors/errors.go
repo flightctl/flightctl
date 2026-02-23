@@ -232,7 +232,8 @@ var (
 		// container image resolution
 		"short-name resolution enforced": ErrImageShortName,
 		// no such object
-		"no such object": ErrNotFound,
+		"no such object":          ErrNotFound,
+		"no space left on device": ErrNoSpaceLeft,
 	}
 
 	// errorTypeToCode maps error types from stderrKeywords to status codes.
