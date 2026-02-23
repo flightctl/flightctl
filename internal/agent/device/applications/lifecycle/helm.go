@@ -316,8 +316,6 @@ func (h *HelmHandler) createPluginDir() (string, func(), error) {
 name: %s
 version: 1.0.0
 type: postrenderer/v1
-usage: "Post-renderer that injects flightctl app labels"
-description: "Wraps flightctl-agent helm-render to inject app labels into manifests"
 runtime: subprocess
 runtimeConfig:
   platformCommand:
