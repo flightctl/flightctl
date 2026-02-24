@@ -79,7 +79,12 @@ jobs:
         run: |
           set -euo pipefail
           echo "::group::Building backend containers for flavor: $FLAVOR"
-          make -j4 build-containers-single FLAVOR="$FLAVOR"
+          echo "Current working directory: $(pwd)"
+          echo "Checking if Makefile exists: $(test -f Makefile && echo 'YES' || echo 'NO')"
+          echo "Available make targets containing 'containers':"
+          make help | grep containers || echo "No container targets found"
+          echo "Making build-containers-single with FLAVOR=$FLAVOR"
+          make build-containers-single FLAVOR="$FLAVOR"
           echo "::endgroup::"
 
       - name: Bundle images
