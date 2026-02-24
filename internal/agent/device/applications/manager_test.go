@@ -81,6 +81,7 @@ func TestManager(t *testing.T) {
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "rm", "--filter", "label=com.docker.compose.project="+id).Return("", "", 0),
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "pod", "rm", "pod123").Return("", "", 0),
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "network", "rm", "network123").Return("", "", 0),
+					mockExecComposePodmanVolumeList(mockExec, "app-remove"),
 				)
 			},
 		},
@@ -107,6 +108,7 @@ func TestManager(t *testing.T) {
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "rm", "--filter", "label=com.docker.compose.project="+id).Return("", "", 0),
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "pod", "rm", "pod123").Return("", "", 0),
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "network", "rm", "network123").Return("", "", 0),
+					mockExecComposePodmanVolumeList(mockExec, "app-update"),
 
 					// start desired app (monitor already running, no new podman events command)
 					mockReadWriter.EXPECT().PathExists(gomock.Any()).Return(true, nil).AnyTimes(),
@@ -343,6 +345,7 @@ func TestManagerRemoveApplication(t *testing.T) {
 		mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "rm", "--filter", "label=com.docker.compose.project="+id).Return("", "", 0),
 		mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "pod", "rm", "pod123").Return("", "", 0),
 		mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "network", "rm", "network123").Return("", "", 0),
+		mockExecComposePodmanVolumeList(mockExec, "app-remove"),
 		// Monitor stops during second AfterUpdate when no apps remain (no mock needed)
 	)
 
@@ -459,6 +462,22 @@ func mockExecPodmanPodList(mockExec *executer.MockExecuter, name string) *gomock
 			},
 		).
 		Return("pod123", "", 0)
+}
+
+func mockExecComposePodmanVolumeList(mockExec *executer.MockExecuter, name string) *gomock.Call {
+	id := lifecycle.GenerateAppID(name, v1beta1.CurrentProcessUsername)
+	return mockExec.
+		EXPECT().
+		ExecuteWithContext(
+			gomock.Any(),
+			"podman",
+			[]string{
+				"volume", "ls",
+				"--format", "json",
+				"--filter", "label=com.docker.compose.project=" + id,
+			},
+		).
+		Return("[]", "", 0)
 }
 
 type testInlineDetails struct {
@@ -602,12 +621,30 @@ func mockExecQuadletPodmanPodList(mockExec *executer.MockExecuter, name string) 
 		Return("", "", 0)
 }
 
+func mockExecQuadletPodmanVolumeList(mockExec *executer.MockExecuter, name string) *gomock.Call {
+	id := lifecycle.GenerateAppID(name, v1beta1.CurrentProcessUsername)
+	return mockExec.
+		EXPECT().
+		ExecuteWithContext(
+			gomock.Any(),
+			"podman",
+			[]string{
+				"volume", "ls",
+				"--format", "json",
+				"--filter", "label=io.flightctl.quadlet.project=" + id,
+				"--filter", "name=" + id + "-*",
+			},
+		).
+		Return("[]", "", 0)
+}
+
 func mockExecQuadletCleanup(mockExec *executer.MockExecuter, name string) {
 	id := lifecycle.GenerateAppID(name, v1beta1.CurrentProcessUsername)
 	mockExecQuadletPodmanNetworkList(mockExec, name)
 	mockExecQuadletPodmanPodList(mockExec, name)
 	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "stop", "--filter", "label=io.flightctl.quadlet.project="+id).Return("", "", 0)
 	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "rm", "--filter", "label=io.flightctl.quadlet.project="+id).Return("", "", 0)
+	mockExecQuadletPodmanVolumeList(mockExec, name)
 }
 
 func mockReadQuadletFiles(mockReadWriter *fileio.MockReadWriter, quadletContent string) {

@@ -605,6 +605,97 @@ func TestQuadlet_remove(t *testing.T) {
 			},
 			wantErr: true,
 		},
+		{
+			name: "removes image-backed volumes on app removal",
+			action: Action{
+				Name: "test-app",
+				ID:   "app-img-vol",
+			},
+			setupMocks: func(mockSystemdMgr *systemd.MockManager, mockRW *fileio.MockReadWriter, mockExec *executer.MockExecuter) {
+				mockSystemdMgr.EXPECT().ListDependencies(gomock.Any(), "app-img-vol-flightctl-quadlet-app.target").Return([]string{"app-img-vol-web.service"}, nil)
+				mockSystemdMgr.EXPECT().Stop(gomock.Any(), "app-img-vol-flightctl-quadlet-app.target").Return(nil)
+				mockSystemdMgr.EXPECT().Stop(gomock.Any(), "app-img-vol-web.service").Return(nil)
+				mockSystemdMgr.EXPECT().ListUnitsByMatchPattern(gomock.Any(), []string{"app-img-vol-web.service"}).
+					Return([]client.SystemDUnitListEntry{{Unit: "app-img-vol-web.service", LoadState: "loaded"}}, nil)
+				mockSystemdMgr.EXPECT().ResetFailed(gomock.Any(), "app-img-vol-web.service").Return(nil)
+
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("stop")).Return("", "", 0).AnyTimes()
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("rm")).Return("", "", 0).AnyTimes()
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("ps")).Return("", "", 0).AnyTimes()
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("network")).Return("", "", 0).AnyTimes()
+
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "ls")).
+					Return(`[{"Name":"app-img-vol-html"},{"Name":"app-img-vol-data"}]`, "", 0)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "inspect", "app-img-vol-html", "--format", "{{.Driver}}")).
+					Return("image", "", 0)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "inspect", "app-img-vol-data", "--format", "{{.Driver}}")).
+					Return("local", "", 0)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "rm", "app-img-vol-html")).
+					Return("", "", 0)
+			},
+			wantErr: false,
+		},
+		{
+			name: "no image-backed volumes to remove",
+			action: Action{
+				Name: "test-app",
+				ID:   "app-no-vol",
+			},
+			setupMocks: func(mockSystemdMgr *systemd.MockManager, mockRW *fileio.MockReadWriter, mockExec *executer.MockExecuter) {
+				mockSystemdMgr.EXPECT().ListDependencies(gomock.Any(), "app-no-vol-flightctl-quadlet-app.target").Return([]string{}, nil)
+
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("stop")).Return("", "", 0).AnyTimes()
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("rm")).Return("", "", 0).AnyTimes()
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("ps")).Return("", "", 0).AnyTimes()
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("network")).Return("", "", 0).AnyTimes()
+
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "ls")).
+					Return("[]", "", 0)
+			},
+			wantErr: false,
+		},
+		{
+			name: "skips non-image volumes during cleanup",
+			action: Action{
+				Name: "test-app",
+				ID:   "app-local-vol",
+			},
+			setupMocks: func(mockSystemdMgr *systemd.MockManager, mockRW *fileio.MockReadWriter, mockExec *executer.MockExecuter) {
+				mockSystemdMgr.EXPECT().ListDependencies(gomock.Any(), "app-local-vol-flightctl-quadlet-app.target").Return([]string{}, nil)
+
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("stop")).Return("", "", 0).AnyTimes()
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("rm")).Return("", "", 0).AnyTimes()
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("ps")).Return("", "", 0).AnyTimes()
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("network")).Return("", "", 0).AnyTimes()
+
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "ls")).
+					Return(`[{"Name":"app-local-vol-data"}]`, "", 0)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "inspect", "app-local-vol-data", "--format", "{{.Driver}}")).
+					Return("local", "", 0)
+			},
+			wantErr: false,
+		},
+		{
+			name: "volume inspect failure is non-fatal",
+			action: Action{
+				Name: "test-app",
+				ID:   "app-inspect-fail",
+			},
+			setupMocks: func(mockSystemdMgr *systemd.MockManager, mockRW *fileio.MockReadWriter, mockExec *executer.MockExecuter) {
+				mockSystemdMgr.EXPECT().ListDependencies(gomock.Any(), "app-inspect-fail-flightctl-quadlet-app.target").Return([]string{}, nil)
+
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("stop")).Return("", "", 0).AnyTimes()
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("rm")).Return("", "", 0).AnyTimes()
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("ps")).Return("", "", 0).AnyTimes()
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("network")).Return("", "", 0).AnyTimes()
+
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "ls")).
+					Return(`[{"Name":"app-inspect-fail-gone"}]`, "", 0)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "inspect", "app-inspect-fail-gone", "--format", "{{.Driver}}")).
+					Return("", "Error: no such volume", 1)
+			},
+			wantErr: false,
+		},
 	}
 
 	for _, tc := range testCases {
