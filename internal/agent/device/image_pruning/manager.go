@@ -1254,6 +1254,9 @@ func (m *manager) removeEligibleArtifacts(ctx context.Context, eligibleArtifacts
 // removeEligibleCRIImages removes the list of eligible CRI images.
 // It returns the count of successfully removed images, the list of successfully removed image references, and any error encountered.
 // Errors during individual removals are logged but don't stop the process.
+// After helm uninstall, removal may fail with "image is in use" while the
+// kubelet is still terminating containers. These are retried on the next
+// upgrade cycle or cleaned up by kubelet image GC.
 func (m *manager) removeEligibleCRIImages(ctx context.Context, eligibleImages []ImageRef) (int, []ImageRef, error) {
 	var removedCount int
 	var removedRefs []ImageRef
