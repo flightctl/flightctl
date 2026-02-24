@@ -123,10 +123,37 @@ function get_endpoint_host() {
     esac
 }
 
+# Dynamically discover route name by searching for a pattern with optional exclusion
+function find_route_name() {
+    local pattern=$1
+    local exclude_pattern=${2:-}
+    local route_name
+    # Try to find route matching the pattern in the flightctl namespace
+    # Returns empty string if routes don't exist (e.g., in kind) or pattern not found
+    # Exclusion filter is applied BEFORE head to ensure correct route is selected
+    if [[ -n "$exclude_pattern" ]]; then
+        route_name=$(kubectl get route -n "${FLIGHTCTL_NS}" ${KUBECTL_ARGS} -o name 2>/dev/null | grep -i "${pattern}" | grep -v -i "${exclude_pattern}" | head -n 1 | sed 's|route.route.openshift.io/||' || true)
+    else
+        route_name=$(kubectl get route -n "${FLIGHTCTL_NS}" ${KUBECTL_ARGS} -o name 2>/dev/null | grep -i "${pattern}" | head -n 1 | sed 's|route.route.openshift.io/||' || true)
+    fi
+    echo "${route_name}"
+}
+
 function get_endpoints() {
-  export FLIGHTCTL_API_ENDPOINT=${FLIGHTCTL_API_ENDPOINT:-https://$(get_endpoint_host "flightctl-api-route")}
-  export FLIGHTCTL_AGENT_ENDPOINT=${FLIGHTCTL_AGENT_ENDPOINT:-https://$(get_endpoint_host "flightctl-api-route-agent")}
-  export FLIGHTCTL_UI_ENDPOINT=${FLIGHTCTL_UI_ENDPOINT:-https://$(get_endpoint_host "flightctl-ui")}
+  # Dynamically discover route names, fallback to common variations if not found
+  # For API route: find routes with "flightctl-api" but exclude those with "agent"
+  local api_route=$(find_route_name "flightctl-api" "agent")
+  local agent_route=$(find_route_name "agent")
+  local ui_route=$(find_route_name "flightctl-ui")
+
+  # Fallback to hardcoded names if dynamic discovery fails (for kind or other non-route environments)
+  api_route=${api_route:-flightctl-api-route}
+  agent_route=${agent_route:-flightctl-api-route-agent}
+  ui_route=${ui_route:-flightctl-ui}
+
+  export FLIGHTCTL_API_ENDPOINT=${FLIGHTCTL_API_ENDPOINT:-https://$(get_endpoint_host "${api_route}")}
+  export FLIGHTCTL_AGENT_ENDPOINT=${FLIGHTCTL_AGENT_ENDPOINT:-https://$(get_endpoint_host "${agent_route}")}
+  export FLIGHTCTL_UI_ENDPOINT=${FLIGHTCTL_UI_ENDPOINT:-https://$(get_endpoint_host "${ui_route}")}
 }
 
 function get_token() {
