@@ -3,6 +3,7 @@ package tasks
 import (
 	"context"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/flightctl/flightctl/internal/domain"
@@ -97,6 +98,52 @@ func TestFleetValidateLogic_CreateNewTemplateVersionIfFleetValid_ImmediateRollou
 			// Assert
 			require.NoError(t, err)
 			assert.Equal(t, tt.expectedImmediate, capturedImmediateRollout, tt.description)
+		})
+	}
+}
+
+func TestGenerateTemplateVersionName(t *testing.T) {
+	require := require.New(t)
+
+	makeFleet := func(name string, generation int64) *domain.Fleet {
+		return &domain.Fleet{
+			Metadata: domain.ObjectMeta{
+				Name:       &name,
+				Generation: &generation,
+			},
+		}
+	}
+
+	tests := []struct {
+		name       string
+		fleetName  string
+		generation int64
+		expected   string
+	}{
+		{
+			name:       "generation 1",
+			fleetName:  "my-fleet",
+			generation: 1,
+			expected:   "v1",
+		},
+		{
+			name:       "large generation",
+			fleetName:  "my-fleet",
+			generation: 9999999999,
+			expected:   "v9999999999",
+		},
+		{
+			name:       "253-char fleet name",
+			fleetName:  strings.Repeat("a", 253),
+			generation: 42,
+			expected:   "v42",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := generateTemplateVersionName(makeFleet(tt.fleetName, tt.generation))
+			require.Equal(tt.expected, result)
 		})
 	}
 }

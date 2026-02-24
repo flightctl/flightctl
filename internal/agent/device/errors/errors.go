@@ -232,7 +232,8 @@ var (
 		// container image resolution
 		"short-name resolution enforced": ErrImageShortName,
 		// no such object
-		"no such object": ErrNotFound,
+		"no such object":          ErrNotFound,
+		"no space left on device": ErrNoSpaceLeft,
 	}
 
 	// errorTypeToCode maps error types from stderrKeywords to status codes.
@@ -271,7 +272,6 @@ var (
 		ErrInvalidSpec:        codes.InvalidArgument,
 
 		// internal errors
-		ErrAppDependency:            codes.Internal,
 		ErrParseAppType:             codes.Internal,
 		ErrActionTypeNotFound:       codes.Internal,
 		ErrInvalidSpecType:          codes.Internal,
@@ -289,6 +289,7 @@ var (
 		ErrUnsupportedFilesystemOperation: codes.Unimplemented,
 
 		// failed precondition
+		ErrAppDependency:          codes.FailedPrecondition,
 		ErrAppLabel:               codes.FailedPrecondition,
 		ErrDownloadPolicyNotReady: codes.FailedPrecondition,
 		ErrUpdatePolicyNotReady:   codes.FailedPrecondition,

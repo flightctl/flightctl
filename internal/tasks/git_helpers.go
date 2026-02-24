@@ -13,7 +13,9 @@ import (
 	"strings"
 
 	config_latest_types "github.com/coreos/ignition/v2/config/v3_4/types"
+	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/domain"
+	sshcrypto "github.com/flightctl/flightctl/internal/ssh"
 	"github.com/flightctl/flightctl/pkg/ignition"
 	"github.com/go-git/go-billy/v5"
 	"github.com/go-git/go-billy/v5/memfs"
@@ -32,9 +34,9 @@ import (
 var scpLikeUrlRegExp = regexp.MustCompile(`^(?:(?P<user>[^@]+)@)?(?P<host>[^:\s]+):(?:(?P<port>[0-9]{1,5}):)?(?P<path>[^\\].*)$`)
 
 // a function to clone a git repo, for mockable unit testing
-type cloneGitRepoFunc func(repo *domain.Repository, revision *string, depth *int) (billy.Filesystem, string, error)
+type cloneGitRepoFunc func(repo *domain.Repository, revision *string, depth *int, cfg *config.Config) (billy.Filesystem, string, error)
 
-func CloneGitRepo(repo *domain.Repository, revision *string, depth *int) (billy.Filesystem, string, error) {
+func CloneGitRepo(repo *domain.Repository, revision *string, depth *int, cfg *config.Config) (billy.Filesystem, string, error) {
 	storage := gitmemory.NewStorage()
 	mfs := memfs.New()
 	repoURL, err := repo.Spec.GetRepoURL()
@@ -47,7 +49,7 @@ func CloneGitRepo(repo *domain.Repository, revision *string, depth *int) (billy.
 	if depth != nil {
 		opts.Depth = *depth
 	}
-	auth, err := GetAuth(repo)
+	auth, err := GetAuth(repo, cfg)
 	if err != nil {
 		return nil, "", err
 	}
@@ -85,9 +87,55 @@ func CloneGitRepo(repo *domain.Repository, revision *string, depth *int) (billy.
 	return mfs, hash, nil
 }
 
+// sshAuthWrapper wraps an SSH auth method to apply additional crypto settings
+type sshAuthWrapper struct {
+	wrapped        transport.AuthMethod
+	cryptoSettings sshcrypto.SSHCryptoSettings
+}
+
+func (w *sshAuthWrapper) Name() string {
+	return w.wrapped.Name()
+}
+
+func (w *sshAuthWrapper) String() string {
+	return w.wrapped.String()
+}
+
+func (w *sshAuthWrapper) ClientConfig() (*ssh.ClientConfig, error) {
+	// Get the base config from the wrapped auth method
+	sshAuth, ok := w.wrapped.(interface {
+		ClientConfig() (*ssh.ClientConfig, error)
+	})
+	if !ok {
+		return nil, fmt.Errorf("wrapped auth does not support ClientConfig()")
+	}
+
+	cfg, err := sshAuth.ClientConfig()
+	if err != nil {
+		return nil, err
+	}
+
+	// Apply crypto settings to the config
+	w.cryptoSettings.ApplyCryptoSettingsToClientConfig(cfg)
+	return cfg, nil
+}
+
+// wrapAuthWithCryptoSettings wraps an auth method to apply SSH crypto settings
+func wrapAuthWithCryptoSettings(auth transport.AuthMethod, settings sshcrypto.SSHCryptoSettings) transport.AuthMethod {
+	// If no settings are configured, return the auth as-is
+	if len(settings.KeyExchanges) == 0 && len(settings.Ciphers) == 0 && len(settings.MACs) == 0 {
+		return auth
+	}
+
+	return &sshAuthWrapper{
+		wrapped:        auth,
+		cryptoSettings: settings,
+	}
+}
+
 // Read repository's ssh/http config and create transport.AuthMethod.
 // If no ssh/http config is defined a nil is returned.
-func GetAuth(repository *domain.Repository) (transport.AuthMethod, error) {
+func GetAuth(repository *domain.Repository, cfg *config.Config) (transport.AuthMethod, error) {
 	gitSpec, err := repository.Spec.AsGitRepoSpec()
 	if err != nil {
 		// Not a Git repo spec, no auth
@@ -138,6 +186,16 @@ func GetAuth(repository *domain.Repository) (transport.AuthMethod, error) {
 				auth.HostKeyCallbackHelper = gitssh.HostKeyCallbackHelper{HostKeyCallback: callback}
 			}
 		}
+
+		// Apply SSH crypto algorithm configuration for FIPS compliance
+		if auth != nil {
+			cryptoSettings := sshcrypto.GetSSHCryptoSettings(cfg)
+			// Set HostKeyAlgorithms directly on the auth struct
+			auth.HostKeyAlgorithms = cryptoSettings.HostKeyAlgorithms
+			// Wrap the auth to apply additional crypto settings
+			return wrapAuthWithCryptoSettings(auth, cryptoSettings), nil
+		}
+
 		return auth, nil
 	}
 
@@ -264,8 +322,8 @@ func ConvertFileSystemToIgnition(mfs billy.Filesystem, path string) (*config_lat
 	return &ignition, nil
 }
 
-func CloneGitRepoToIgnition(repo *domain.Repository, revision string, path string) (*config_latest_types.Config, string, error) {
-	mfs, hash, err := CloneGitRepo(repo, &revision, nil)
+func CloneGitRepoToIgnition(repo *domain.Repository, revision string, path string, cfg *config.Config) (*config_latest_types.Config, string, error) {
+	mfs, hash, err := CloneGitRepo(repo, &revision, nil, cfg)
 	if err != nil {
 		return nil, "", err
 	}

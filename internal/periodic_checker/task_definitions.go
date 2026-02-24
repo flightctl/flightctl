@@ -104,14 +104,18 @@ func (e *RepositoryTesterExecutor) Execute(ctx context.Context, log logrus.Field
 }
 
 type ResourceSyncExecutor struct {
-	serviceHandler        service.Service
-	log                   logrus.FieldLogger
-	ignoreResourceUpdates []string
+	serviceHandler service.Service
+	log            logrus.FieldLogger
+	cfg            *config.Config
 }
 
 func (e *ResourceSyncExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgId uuid.UUID) {
 	taskCtx := createTaskContext(ctx, PeriodicTaskTypeResourceSync)
-	resourceSync := tasks.NewResourceSync(e.serviceHandler, e.log, e.ignoreResourceUpdates)
+	var ignoreResourceUpdates []string
+	if e.cfg != nil && e.cfg.GitOps != nil {
+		ignoreResourceUpdates = e.cfg.GitOps.IgnoreResourceUpdates
+	}
+	resourceSync := tasks.NewResourceSync(e.serviceHandler, e.log, e.cfg, ignoreResourceUpdates)
 	resourceSync.Poll(taskCtx, orgId)
 }
 
@@ -188,9 +192,9 @@ func InitializeTaskExecutors(log logrus.FieldLogger, serviceHandler service.Serv
 			serviceHandler: serviceHandler,
 		},
 		PeriodicTaskTypeResourceSync: &ResourceSyncExecutor{
-			serviceHandler:        serviceHandler,
-			log:                   log.WithField("pkg", "resource-sync"),
-			ignoreResourceUpdates: cfg.GitOps.IgnoreResourceUpdates,
+			serviceHandler: serviceHandler,
+			log:            log.WithField("pkg", "resource-sync"),
+			cfg:            cfg,
 		},
 		PeriodicTaskTypeDeviceConnection: &DeviceConnectionExecutor{
 			log:            log.WithField("pkg", "device-connection"),
