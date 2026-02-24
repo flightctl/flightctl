@@ -8,7 +8,6 @@ import (
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/service"
-	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -119,71 +118,32 @@ func TestGenerateTemplateVersionName(t *testing.T) {
 		name       string
 		fleetName  string
 		generation int64
-		expected   string // if non-empty, assert exact match
+		expected   string
 	}{
 		{
-			name:       "short name uses simple form",
+			name:       "generation 1",
 			fleetName:  "my-fleet",
-			generation: 5,
-			expected:   "my-fleet-5",
-		},
-		{
-			name:       "max name that fits simple form",
-			fleetName:  strings.Repeat("a", 233),
 			generation: 1,
+			expected:   "v1",
 		},
 		{
-			name:       "253-char name at generation 1",
-			fleetName:  strings.Repeat("a", 253),
-			generation: 1,
-		},
-		{
-			name:       "253-char name at large generation",
-			fleetName:  strings.Repeat("a", 253),
+			name:       "large generation",
+			fleetName:  "my-fleet",
 			generation: 9999999999,
+			expected:   "v9999999999",
 		},
 		{
-			name:       "253-char different name for uniqueness check",
-			fleetName:  strings.Repeat("a", 252) + "b",
-			generation: 1,
-		},
-		{
-			name:       "253-char name at generation 999 for stability check",
+			name:       "253-char fleet name",
 			fleetName:  strings.Repeat("a", 253),
-			generation: 999,
-		},
-		{
-			name:       "240-char name at large generation",
-			fleetName:  strings.Repeat("b", 240),
-			generation: 99999999999999,
-		},
-		{
-			name:       "name with dot at truncation boundary",
-			fleetName:  strings.Repeat("a", 241) + "." + strings.Repeat("a", 11),
-			generation: 1,
+			generation: 42,
+			expected:   "v42",
 		},
 	}
 
-	results := make(map[string]string)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := generateTemplateVersionName(makeFleet(tt.fleetName, tt.generation))
-			results[tt.name] = result
-			require.LessOrEqual(len(result), validation.DNS1123MaxLength,
-				"generated name %q has %d chars, exceeds %d", result, len(result), validation.DNS1123MaxLength)
-			errs := validation.ValidateResourceName(&result)
-			require.Empty(errs, "generated name %q is not a valid DNS subdomain: %v", result, errs)
-			if tt.expected != "" {
-				require.Equal(tt.expected, result)
-			}
+			require.Equal(tt.expected, result)
 		})
 	}
-
-	require.NotEqual(results["253-char name at generation 1"], results["253-char different name for uniqueness check"],
-		"different long names should produce different results")
-
-	r1 := results["253-char name at generation 1"]
-	r2 := results["253-char name at generation 999 for stability check"]
-	require.Equal(r1[:strings.LastIndex(r1, "-")], r2[:strings.LastIndex(r2, "-")],
-		"hash form prefix should be stable across generations")
 }
