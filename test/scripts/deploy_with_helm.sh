@@ -32,11 +32,39 @@ if grep -q "^redhat-${FLAVOR}:" "$CONFIG_FILE"; then
     FLAVOR_SECTION="redhat-${FLAVOR}"
 fi
 
-# Parse DB and KV configuration from helm chart
-SQL_IMAGE=$(awk "/^${FLAVOR_SECTION}:/,/^[a-zA-Z]/ { if (/^[[:space:]]*db:/,/^[[:space:]]*[a-zA-Z]/ && !/^[[:space:]]*db:/) { if (/^[[:space:]]*image:/) { gsub(/.*image:[[:space:]]*/, \"\"); gsub(/[[:space:]]*#.*/, \"\"); gsub(/\"/, \"\"); print; exit } } }" "$CONFIG_FILE")
-SQL_VERSION=$(awk "/^${FLAVOR_SECTION}:/,/^[a-zA-Z]/ { if (/^[[:space:]]*db:/,/^[[:space:]]*[a-zA-Z]/ && !/^[[:space:]]*db:/) { if (/^[[:space:]]*tag:/) { gsub(/.*tag:[[:space:]]*/, \"\"); gsub(/[[:space:]]*#.*/, \"\"); gsub(/\"/, \"\"); print; exit } } }" "$CONFIG_FILE")
-KV_IMAGE=$(awk "/^${FLAVOR_SECTION}:/,/^[a-zA-Z]/ { if (/^[[:space:]]*kv:/,/^[[:space:]]*[a-zA-Z]/ && !/^[[:space:]]*kv:/) { if (/^[[:space:]]*image:/) { gsub(/.*image:[[:space:]]*/, \"\"); gsub(/[[:space:]]*#.*/, \"\"); gsub(/\"/, \"\"); print; exit } } }" "$CONFIG_FILE")
-KV_VERSION=$(awk "/^${FLAVOR_SECTION}:/,/^[a-zA-Z]/ { if (/^[[:space:]]*kv:/,/^[[:space:]]*[a-zA-Z]/ && !/^[[:space:]]*kv:/) { if (/^[[:space:]]*tag:/) { gsub(/.*tag:[[:space:]]*/, \"\"); gsub(/[[:space:]]*#.*/, \"\"); gsub(/\"/, \"\"); print; exit } } }" "$CONFIG_FILE")
+# Parse DB and KV configuration from helm chart using simpler approach
+case "$FLAVOR" in
+    el9)
+        if grep -q "^redhat-el9:" "$CONFIG_FILE"; then
+            # Use redhat-el9 values
+            SQL_IMAGE="registry.redhat.io/rhel9/postgresql-16"
+            SQL_VERSION="9.7-1766414426"
+            KV_IMAGE="registry.redhat.io/rhel9/redis-7"
+            KV_VERSION="9.7-1766414358"
+        else
+            # Use community-el9 values
+            SQL_IMAGE="quay.io/sclorg/postgresql-16-c9s"
+            SQL_VERSION="20250214"
+            KV_IMAGE="quay.io/sclorg/redis-7-c9s"
+            KV_VERSION="20250108"
+        fi
+        ;;
+    el10)
+        if grep -q "^redhat-el10:" "$CONFIG_FILE"; then
+            # Use redhat-el10 values
+            SQL_IMAGE="registry.redhat.io/rhel10/postgresql-16"
+            SQL_VERSION="latest"
+            KV_IMAGE="registry.redhat.io/rhel10/redis-7"
+            KV_VERSION="latest"
+        else
+            # Use community-el10 values
+            SQL_IMAGE="quay.io/sclorg/postgresql-16-c10s"
+            SQL_VERSION="20250214"
+            KV_IMAGE="quay.io/sclorg/valkey-8-c10s"
+            KV_VERSION="20260218"
+        fi
+        ;;
+esac
 
 source "${SCRIPT_DIR}"/functions
 IP=$(get_ext_ip)

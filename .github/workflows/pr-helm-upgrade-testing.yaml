@@ -69,11 +69,14 @@ jobs:
     with:
       repository: flightctl/flightctl
       ref: ${{ github.base_ref || 'main' }}
+      flavor: el9
 
   build-pr:
     needs: [check-changes]
     if: needs.check-changes.outputs.any_changed == 'true'
     uses: ./.github/workflows/build-images-and-charts.yaml
+    with:
+      flavor: el9
 
   deploy-and-upgrade:
     runs-on: ubuntu-24.04
