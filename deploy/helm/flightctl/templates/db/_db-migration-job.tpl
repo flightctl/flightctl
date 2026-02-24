@@ -196,28 +196,23 @@ spec:
           cp /root/.flightctl/config.yaml /tmp/.flightctl/config.yaml
           export HOME=/tmp
 
-          # Run with progress monitoring
-          /usr/local/bin/flightctl-db-migrate{{ if $isDryRun }} --dry-run{{ end }} &
-          MIGRATE_PID=$!
+          # Run migration with progress monitoring
+          {
+            /usr/local/bin/flightctl-db-migrate{{ if $isDryRun }} --dry-run{{ end }} &
+            MIGRATE_PID=$!
 
-          # Monitor progress every 30 seconds
-          while kill -0 $MIGRATE_PID 2>/dev/null; do
-            echo "Migration still running at $(date)..."
-            sleep 30
-          done
+            # Monitor progress every 30 seconds
+            while kill -0 $MIGRATE_PID 2>/dev/null; do
+              echo "Migration still running at $(date)..."
+              sleep 30
+            done
 
-          # Wait for completion and get exit code
-          set +e  # Temporarily disable -e to capture exit code
-          wait $MIGRATE_PID
-          MIGRATE_EXIT_CODE=$?
-          set -e  # Re-enable -e
-
-          if [ $MIGRATE_EXIT_CODE -eq 0 ]; then
-            echo "Migration completed successfully at $(date) ==="
-          else
-            echo "Migration failed with exit code $MIGRATE_EXIT_CODE at $(date) ==="
-            exit $MIGRATE_EXIT_CODE
-          fi
+            # Wait for completion - this will naturally exit with migration's exit code
+            wait $MIGRATE_PID
+          } && echo "Migration completed successfully at $(date) ===" || {
+            echo "Migration failed at $(date) ==="
+            exit 1
+          }
 
           {{- if not $isDryRun }}
           # Grant permissions on all existing tables to the application user
