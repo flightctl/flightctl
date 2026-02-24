@@ -67,7 +67,7 @@ deploy-helm:
 	FLAVOR=$(FLAVOR) make generate
 	kubectl config set-context kind-kind
 	test/scripts/install_helm.sh
-	test/scripts/deploy_with_helm.sh --db-size $(DB_SIZE)
+	FLAVOR=$(FLAVOR) test/scripts/deploy_with_helm.sh --db-size $(DB_SIZE)
 
 prepare-agent-config:
 	test/scripts/agent-images/prepare_agent_config.sh --status-update-interval $(STATUS_UPDATE_INTERVAL) --spec-fetch-interval $(SPEC_FETCH_INTERVAL)
