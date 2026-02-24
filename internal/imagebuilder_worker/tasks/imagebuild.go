@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -753,7 +754,8 @@ func installCACertInWorker(ctx context.Context, caCrt *string, containerName str
 		return fmt.Errorf("failed to decode CA certificate: %w", err)
 	}
 
-	certDir := fmt.Sprintf("/etc/containers/certs.d/%s", registryHostname)
+	parsed, _ := url.Parse("dummy://" + registryHostname)
+	certDir := fmt.Sprintf("/etc/containers/certs.d/%s", parsed.Host)
 
 	mkdirCmd := exec.CommandContext(ctx, "podman", "exec", containerName, "mkdir", "-p", certDir)
 	if out, err := mkdirCmd.CombinedOutput(); err != nil {

@@ -666,7 +666,7 @@ func (r *Repository) Validate() []error {
 			allErrs = append(allErrs, fmt.Errorf("invalid OCI repository spec: %w", err))
 			return allErrs
 		}
-		allErrs = append(allErrs, validation.ValidateHostIPOrFQDNWithOptionalPort(&ociRepoSpec.Registry, "spec.registry")...)
+		allErrs = append(allErrs, validation.ValidateOciRegistryAddress(&ociRepoSpec.Registry, "spec.registry")...)
 		if ociRepoSpec.OciAuth != nil {
 			dockerAuth, err := ociRepoSpec.OciAuth.AsDockerAuth()
 			if err != nil {

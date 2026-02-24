@@ -40,6 +40,13 @@ const (
 	// Examples: "localhost", "quay.io", "192.168.1.1:5000", "[::1]:5000"
 	HostIPOrFQDNWithOptionalPortFmt string = `(` + HostnameOrFQDNFmt + `|` + ipv4Fmt + `|` + ipv6Fmt + `)(` + portFmt + `)?`
 	HostIPOrFQDNWithOptionalPortMax int    = 269 // IPv6 max ~45 + brackets + port
+
+	// OCI registries may include a path prefix (e.g., Red Hat Satellite 6 exposes registries
+	// at satellite.example.com/org-product-repo). Each path segment is alphanumeric with
+	// hyphens, underscores, and dots allowed.
+	ociRegistryPathSegmentFmt string = `[a-zA-Z0-9][a-zA-Z0-9._-]*`
+	OciRegistryAddressFmt     string = HostIPOrFQDNWithOptionalPortFmt + `(/` + ociRegistryPathSegmentFmt + `)*`
+	OciRegistryAddressMax     int    = HostIPOrFQDNWithOptionalPortMax + 256 // host:port max + generous path allowance
 )
 
 var (
@@ -48,6 +55,7 @@ var (
 	HostnameOrFQDNRegexp                 = regexp.MustCompile("^" + HostnameOrFQDNFmt + "$")
 	HostnameOrFQDNWithOptionalPortRegexp = regexp.MustCompile("^" + HostnameOrFQDNWithOptionalPortFmt + "$")
 	HostIPOrFQDNWithOptionalPortRegexp   = regexp.MustCompile("^" + HostIPOrFQDNWithOptionalPortFmt + "$")
+	OciRegistryAddressRegexp             = regexp.MustCompile("^" + OciRegistryAddressFmt + "$")
 )
 
 func ValidateGenericName(name *string, path string) []error {
@@ -102,36 +110,50 @@ func ValidateHostIPOrFQDNWithOptionalPort(name *string, path string) []error {
 	if name == nil || *name == "" {
 		return errs
 	}
+	return append(errs, validateHostPortDetails(*name, path)...)
+}
 
-	value := *name
+// ValidateOciRegistryAddress validates an OCI registry address: host with optional port
+// and optional path prefix (e.g., satellite.example.com/org-product-repo).
+func ValidateOciRegistryAddress(name *string, path string) []error {
+	errs := ValidateString(name, path, 1, OciRegistryAddressMax, OciRegistryAddressRegexp, OciRegistryAddressFmt, "quay.io", "192.168.1.1:5000", "satellite.example.com/path")
+	if name == nil || *name == "" {
+		return errs
+	}
+	hostPort := *name
+	if idx := strings.Index(hostPort, "/"); idx != -1 {
+		hostPort = hostPort[:idx]
+	}
+	return append(errs, validateHostPortDetails(hostPort, path)...)
+}
+
+// validateHostPortDetails validates port range, IPv6 format, and hostname label lengths
+// for a host:port string (no path component).
+func validateHostPortDetails(value string, path string) []error {
+	var errs []error
 	var host, portStr string
 
-	// Handle IPv6 in brackets: [::1]:5000
 	if strings.HasPrefix(value, "[") {
 		closeBracket := strings.Index(value, "]")
 		if closeBracket == -1 {
 			errs = append(errs, field.Invalid(fieldPathFor(path), value, "invalid IPv6 address format"))
 			return errs
 		}
-		host = value[1:closeBracket] // Extract IP without brackets
+		host = value[1:closeBracket]
 		rest := value[closeBracket+1:]
 		if strings.HasPrefix(rest, ":") {
 			portStr = rest[1:]
 		}
-		// Validate IPv6
 		if net.ParseIP(host) == nil {
 			errs = append(errs, field.Invalid(fieldPathFor(path), value, "invalid IPv6 address"))
 		}
 	} else if idx := strings.LastIndex(value, ":"); idx != -1 && strings.Count(value, ":") == 1 {
-		// IPv4 or hostname with port (single colon)
 		host = value[:idx]
 		portStr = value[idx+1:]
 	} else {
-		// No port
 		host = value
 	}
 
-	// Validate port range if present
 	if portStr != "" {
 		port, err := strconv.Atoi(portStr)
 		if err != nil || port < 1 || port > 65535 {
@@ -139,13 +161,10 @@ func ValidateHostIPOrFQDNWithOptionalPort(name *string, path string) []error {
 		}
 	}
 
-	// Validate IPv4 if it looks like one
 	if net.ParseIP(host) != nil {
-		// Valid IP address, no further validation needed
 		return errs
 	}
 
-	// Otherwise validate as hostname/FQDN - check label lengths
 	for _, label := range strings.Split(host, ".") {
 		if len(label) > dns1123LabelMaxLength {
 			errs = append(errs, field.Invalid(fieldPathFor(path), label, fmt.Sprintf("must have at most %d characters", dns1123LabelMaxLength)))

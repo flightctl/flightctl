@@ -4405,7 +4405,7 @@ components:
       properties:
         registry:
           type: string
-          description: 'The OCI registry hostname, FQDN, or IP address with optional port (e.g., quay.io, registry.redhat.io, myregistry.com:5000, 192.168.1.1:5000, [::1]:5000).'
+          description: 'The OCI registry hostname, FQDN, or IP address with optional port and optional path prefix (e.g., quay.io, registry.redhat.io, myregistry.com:5000, 192.168.1.1:5000, [::1]:5000, satellite.example.com/org-product-repo).'
         scheme:
           type: string
           description: 'URL scheme for connecting to the registry.'

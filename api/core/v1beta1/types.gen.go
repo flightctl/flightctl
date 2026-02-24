@@ -2370,7 +2370,7 @@ type OciRepoSpec struct {
 	// OciAuth Authentication for OCI registries.
 	OciAuth *OciAuth `json:"ociAuth,omitempty"`
 
-	// Registry The OCI registry hostname, FQDN, or IP address with optional port (e.g., quay.io, registry.redhat.io, myregistry.com:5000, 192.168.1.1:5000, [::1]:5000).
+	// Registry The OCI registry hostname, FQDN, or IP address with optional port and optional path prefix (e.g., quay.io, registry.redhat.io, myregistry.com:5000, 192.168.1.1:5000, [::1]:5000, satellite.example.com/org-product-repo).
 	Registry string `json:"registry"`
 
 	// Scheme URL scheme for connecting to the registry.

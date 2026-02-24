@@ -204,14 +204,13 @@ func (r *OciRepoTester) TestAccess(repository *domain.Repository) error {
 		return fmt.Errorf("failed to get OCI repo spec: %w", err)
 	}
 
-	// Build the OCI registry v2 API URL from hostname/FQDN
 	scheme := "https"
 	if ociSpec.Scheme != nil {
 		scheme = string(*ociSpec.Scheme)
 	}
-	baseURL := &url.URL{
-		Scheme: scheme,
-		Host:   ociSpec.Registry,
+	baseURL, err := url.Parse(fmt.Sprintf("%s://%s", scheme, ociSpec.Registry))
+	if err != nil {
+		return fmt.Errorf("invalid registry address %q: %w", ociSpec.Registry, err)
 	}
 	v2URL := baseURL.JoinPath("/v2/").String()
 

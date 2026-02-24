@@ -116,6 +116,78 @@ func TestValidateSystemdUnitPattern(t *testing.T) {
 	}
 }
 
+func TestValidateOciRegistryAddress(t *testing.T) {
+	assert := assert.New(t)
+
+	goodValues := []string{
+		// Host-only
+		"localhost",
+		"quay.io",
+		"registry.redhat.io",
+		"my-registry.example.com",
+		// Host with port
+		"localhost:5000",
+		"quay.io:443",
+		"registry.example.com:8080",
+		// IPv4
+		"192.168.1.1",
+		"192.168.1.1:5000",
+		// IPv6
+		"[::1]",
+		"[::1]:5000",
+		"[2001:db8::1]:5000",
+		// Host with path (Satellite 6 style)
+		"satellite.example.com/org-product-repo",
+		"satellite.example.com:5000/org-product-repo",
+		"satellite.example.com/default_organization-custom_product-custom_repo",
+		// Multi-segment paths
+		"satellite.example.com/org/product/repo",
+		"satellite.example.com:443/org/product",
+		// Path segments with dots, underscores, hyphens
+		"registry.example.com/my.path",
+		"registry.example.com/my_path",
+		"registry.example.com/my-path",
+		"registry.example.com/A-Mixed.Case_Path",
+		// IPv4 with path
+		"192.168.1.1:5000/some-path",
+		// IPv6 with path
+		"[::1]:5000/some-path",
+	}
+	for _, val := range goodValues {
+		assert.Empty(ValidateOciRegistryAddress(&val, "good.registry"), fmt.Sprintf("value: %q", val))
+	}
+
+	badValues := []string{
+		"",
+		// Trailing slash (empty segment)
+		"quay.io/",
+		"quay.io/path/",
+		// Double slash (empty segment)
+		"quay.io//path",
+		// Path segment starting with non-alphanumeric
+		"quay.io/-bad",
+		"quay.io/.bad",
+		"quay.io/_bad",
+		// Spaces
+		"bad host.com/path",
+		"quay.io/bad path",
+		// Scheme included (not allowed)
+		"https://quay.io",
+		"https://quay.io/path",
+		// Special characters not in allowed set
+		"quay.io/path%20encoded",
+		"quay.io/path@special",
+		"quay.io/path?query",
+		"quay.io/path#fragment",
+	}
+	for _, val := range badValues {
+		assert.NotEmpty(ValidateOciRegistryAddress(&val, "bad.registry"), fmt.Sprintf("value: %q", val))
+	}
+
+	// Nil input is valid (optional field)
+	assert.Empty(ValidateOciRegistryAddress(nil, "nil.registry"))
+}
+
 func TestValidateOciImageReferenceWithTemplates(t *testing.T) {
 	assert := assert.New(t)
 
