@@ -13,3 +13,4 @@ For more information, please refer to:
 <br><br>
 
 [![Watch the demo](docs/images/demo-thumbnail.png)](https://www.youtube.com/watch?v=WzNG_uWnmzk)
+

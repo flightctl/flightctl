@@ -72,7 +72,7 @@ runs:
 
         if [ "${unwhitelisted_count}" -gt 0 ]; then
           echo ""
-          echo "Unwhitelisted errors:"
+          echo "=== Unwhitelisted errors ==="
           echo "${unwhitelisted_lines}"
           echo ""
           echo "To whitelist expected errors, add regex patterns to: ${WHITELIST_FILE}"

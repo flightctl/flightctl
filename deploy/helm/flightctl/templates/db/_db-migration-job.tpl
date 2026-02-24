@@ -192,6 +192,7 @@ spec:
           set -eo pipefail
           echo "Running database migrations..."
 
+          # Copy config file to a writable location
           mkdir -p /tmp/.flightctl
           cp /root/.flightctl/config.yaml /tmp/.flightctl/config.yaml
           export HOME=/tmp
