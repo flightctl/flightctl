@@ -48,7 +48,7 @@ SOURCE_GIT_TAG=${SOURCE_GIT_TAG:-$("${ROOT_DIR}"/hack/current-version)}
 
 echo "Building flightctl-${SERVICE} for ${EL_FLAVOR}..."
 
-# Image and version-specific parameters are loaded from container-flavors.conf
+# Image and version-specific parameters are loaded from deploy/helm/helm-chart-opts.yaml
 # Variables available: EL_FLAVOR, EL_VERSION, BUILD_IMAGE, RUNTIME_IMAGE, MINIMAL_IMAGE, PAM_BASE_URL, PAM_PACKAGE_VERSION
 echo "Using configuration: BUILD_IMAGE=${BUILD_IMAGE}"
 

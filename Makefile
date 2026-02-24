@@ -119,7 +119,7 @@ help:
 	@echo ""
 	@echo "Container Targets:"
 	@echo "    build-containers:    build all FlightCtl containers for both el9 and el10"
-	@echo "    build-containers-ci: build containers for single flavor (FLAVOR env var, defaults to el9)"
+	@echo "    build-containers-single: build containers for single flavor (FLAVOR env var, defaults to el9)"
 	@echo "    publish:             build and publish all containers to registry"
 	@echo ""
 	@echo "CI/CD Targets:"
@@ -229,8 +229,8 @@ build-containers: go.mod go.sum $(GO_FILES)
 	hack/publish_containers.sh build el10
 	@echo "All containers built successfully"
 
-build-containers-ci: go.mod go.sum $(GO_FILES)
-	@echo "Building containers for CI (single flavor to conserve resources)..."
+build-containers-single: go.mod go.sum $(GO_FILES)
+	@echo "Building containers for single flavor: $(FLAVOR)"
 	hack/publish_containers.sh build $(FLAVOR)
 	@echo "Containers built successfully for flavor: $(FLAVOR)"
 
@@ -289,7 +289,7 @@ _build-single-container:
 	@if [ -z "$(SERVICE)" ]; then echo "Error: SERVICE parameter required"; exit 1; fi
 	@./hack/build_single_container.sh $(FLAVOR) $(SERVICE)
 
-.PHONY: build-containers build-containers-ci \
+.PHONY: build-containers build-containers-single \
         flightctl-api-container flightctl-pam-issuer-container flightctl-db-setup-container \
         flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container \
         flightctl-alertmanager-proxy-container flightctl-cli-artifacts-container \

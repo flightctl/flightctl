@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Usage: publish_containers.sh <action> <flavor>
 # Actions: build, publish
-# Flavor: Any flavor defined in container-flavors.conf
+# Flavor: Any flavor defined in deploy/helm/helm-chart-opts.yaml
 
 # Get script directory and load configuration functions
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -47,59 +47,16 @@ case "$ACTION" in
         ;;
 esac
 
-# Get script directory and source git information
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT_DIR="$(dirname "$SCRIPT_DIR")"
+# Get git information for publish action
 GIT_REF=$(git rev-parse --short HEAD)
-SOURCE_GIT_TAG=${SOURCE_GIT_TAG:-$("${ROOT_DIR}"/hack/current-version)}
 
 case "$ACTION" in
     build)
         echo "Building FlightCtl containers for ${EL_FLAVOR}..."
 
-        # Base images are pre-built and pushed to quay.io/flightctl/flightctl-base
-        # No need to build them during container build process
-
-        # Image and version-specific parameters are loaded from container-flavors.conf
-        # Variables available: EL_FLAVOR, EL_VERSION, BUILD_IMAGE, RUNTIME_IMAGE, MINIMAL_IMAGE, PAM_BASE_URL, PAM_PACKAGE_VERSION
-        echo "Using configuration: BUILD_IMAGE=${BUILD_IMAGE}"
-        echo "                    RUNTIME_IMAGE=${RUNTIME_IMAGE}"
-
-        # Build containers using ARG-based containerfiles
+        # Build each service using the single container build script
         for service in $CONTAINER_SERVICES; do
-            echo "Building flightctl-${service}-${EL_FLAVOR}..."
-
-            # Note: GitHub Actions cache is handled by the main build-images-and-charts workflow
-            # via Go module and build cache. Container layer caching is not currently configured.
-
-            # Determine runtime image based on service type
-            if [[ "$service" == "cli-artifacts" || "$service" == "db-setup" ]]; then
-                SERVICE_RUNTIME_IMAGE="$PACKAGE_MINIMAL_IMAGE"
-            else
-                SERVICE_RUNTIME_IMAGE="$RUNTIME_IMAGE"
-            fi
-
-            # Build with appropriate ARGs
-            BUILD_ARGS="--build-arg BUILD_IMAGE=${BUILD_IMAGE} --build-arg RUNTIME_IMAGE=${SERVICE_RUNTIME_IMAGE} --build-arg EL_VERSION=${EL_VERSION}"
-
-            # Add PAM-specific ARGs for pam-issuer
-            if [[ "$service" == "pam-issuer" ]]; then
-                BUILD_ARGS="$BUILD_ARGS --build-arg PAM_BASE_URL=${PAM_BASE_URL} --build-arg PAM_PACKAGE_VERSION=${PAM_PACKAGE_VERSION}"
-            fi
-
-            # shellcheck disable=SC2086
-            podman build $BUILD_ARGS \
-                --build-arg SOURCE_GIT_TAG="${SOURCE_GIT_TAG}" \
-                --build-arg SOURCE_GIT_TREE_STATE="${SOURCE_GIT_TREE_STATE:-clean}" \
-                --build-arg SOURCE_GIT_COMMIT="${SOURCE_GIT_COMMIT:-${GIT_REF}}" \
-                -f "images/Containerfile.${service}" \
-                -t "flightctl-${service}:${EL_FLAVOR}-latest" \
-                -t "flightctl-${service}:${EL_FLAVOR}-${SOURCE_GIT_TAG}" \
-                -t "quay.io/flightctl/flightctl-${service}:${EL_FLAVOR}-latest" \
-                -t "quay.io/flightctl/flightctl-${service}:${EL_FLAVOR}-${SOURCE_GIT_TAG}" \
-                -t "localhost/flightctl-${service}:${EL_FLAVOR}-latest" \
-                -t "localhost/flightctl-${service}:${EL_FLAVOR}-${SOURCE_GIT_TAG}" \
-                .
+            "${SCRIPT_DIR}/build_single_container.sh" "${EL_FLAVOR}" "${service}"
         done
 
         echo "✓ Built all containers for ${EL_FLAVOR}"

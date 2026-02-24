@@ -8,7 +8,7 @@ WORKDIR /app
 USER 0
 
 # Copy dependencies first (most stable)
-COPY go.mod go.sum ./
+COPY go.* ./
 
 # Download dependencies (cached layer)
 RUN --mount=type=cache,target=/opt/app-root/src/go/pkg/mod \

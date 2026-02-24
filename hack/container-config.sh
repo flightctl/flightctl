@@ -6,31 +6,56 @@ get_config_dir() {
     echo "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 }
 
-# Load flavor configuration from config file
+# Parse YAML value from helm chart config (without requiring yq)
+parse_helm_config_value() {
+    local config_file="$1"
+    local flavor_section="$2"
+    local key_path="$3"
+
+    # Extract the flavor section and then find the key
+    awk "
+        /^${flavor_section}:/ { in_section=1; next }
+        /^[a-zA-Z]/ && in_section { in_section=0 }
+        in_section && /${key_path}:/ {
+            gsub(/.*${key_path}:[[:space:]]*/, \"\")
+            gsub(/[[:space:]]*#.*/, \"\")
+            gsub(/\"/, \"\")
+            print
+            exit
+        }
+    " "$config_file"
+}
+
+# Load flavor configuration from helm chart config
 # Usage: load_flavor_config <flavor>
-# Sets: EL_FLAVOR, EL_VERSION, BUILD_IMAGE, RUNTIME_IMAGE, MINIMAL_IMAGE, PACKAGE_MINIMAL_IMAGE, PAM_BASE_URL, PAM_PACKAGE_VERSION
+# Sets: EL_FLAVOR, EL_VERSION, BUILD_IMAGE, RUNTIME_IMAGE, MINIMAL_IMAGE, PACKAGE_MINIMAL_IMAGE, PAM_BASE_URL, PAM_PACKAGE_VERSION, RPM_MOCK_ROOT
 load_flavor_config() {
     local flavor="$1"
-    local config_file="$(get_config_dir)/container-flavors.conf"
+    local config_file="$(get_config_dir)/../deploy/helm/helm-chart-opts.yaml"
 
     if [[ ! -f "$config_file" ]]; then
-        echo "Error: Configuration file not found: $config_file" >&2
+        echo "Error: Helm configuration file not found: $config_file" >&2
         return 1
     fi
 
-    # Source the config file and check if flavor variable exists
-    # shellcheck disable=SC1090
-    source "$config_file"
-
-    # Get the configuration for the specified flavor
-    local config_value
+    # Determine flavor section and version
+    # Check for redhat flavor first, then fall back to community
+    local flavor_section
     case "$flavor" in
         el9)
-            config_value="$el9"
+            if grep -q "^redhat-el9:" "$config_file"; then
+                flavor_section="redhat-el9"
+            else
+                flavor_section="community-el9"
+            fi
             EL_VERSION="9"
             ;;
         el10)
-            config_value="$el10"
+            if grep -q "^redhat-el10:" "$config_file"; then
+                flavor_section="redhat-el10"
+            else
+                flavor_section="community-el10"
+            fi
             EL_VERSION="10"
             ;;
         *)
@@ -41,13 +66,18 @@ load_flavor_config() {
             ;;
     esac
 
-    if [[ -z "$config_value" ]]; then
-        echo "Error: No configuration found for flavor '$flavor'" >&2
-        return 1
-    fi
+    # Parse configuration values from helm config
+    BUILD_IMAGE=$(parse_helm_config_value "$config_file" "$flavor_section" "buildImage")
+    RUNTIME_IMAGE=$(parse_helm_config_value "$config_file" "$flavor_section" "runtimeImage")
+    PACKAGE_MINIMAL_IMAGE=$(parse_helm_config_value "$config_file" "$flavor_section" "packageMinimalImage")
+    PAM_BASE_URL=$(parse_helm_config_value "$config_file" "$flavor_section" "pamBaseUrl")
+    PAM_PACKAGE_VERSION=$(parse_helm_config_value "$config_file" "$flavor_section" "pamPackageVersion")
+    RPM_MOCK_ROOT=$(parse_helm_config_value "$config_file" "$flavor_section" "rpmMockRoot")
 
-    # Parse the comma-separated configuration
-    IFS=',' read -r BUILD_IMAGE RUNTIME_IMAGE MINIMAL_IMAGE PACKAGE_MINIMAL_IMAGE PAM_BASE_URL PAM_PACKAGE_VERSION <<< "$config_value"
+    # Get minimal image (combines image and tag)
+    local minimal_image_base=$(parse_helm_config_value "$config_file" "$flavor_section" "image")
+    local minimal_image_tag=$(parse_helm_config_value "$config_file" "$flavor_section" "tag")
+    MINIMAL_IMAGE="${minimal_image_base}:${minimal_image_tag}"
 
     # Set flavor name
     EL_FLAVOR="$flavor"
@@ -55,26 +85,31 @@ load_flavor_config() {
     # Validate that we got valid values
     if [[ -z "$BUILD_IMAGE" || -z "$RUNTIME_IMAGE" || -z "$MINIMAL_IMAGE" || -z "$PACKAGE_MINIMAL_IMAGE" ]]; then
         echo "Error: Failed to load complete configuration for flavor '$flavor'" >&2
+        echo "BUILD_IMAGE=$BUILD_IMAGE"
+        echo "RUNTIME_IMAGE=$RUNTIME_IMAGE"
+        echo "MINIMAL_IMAGE=$MINIMAL_IMAGE"
+        echo "PACKAGE_MINIMAL_IMAGE=$PACKAGE_MINIMAL_IMAGE"
         return 1
     fi
 
     # Export variables for use in calling scripts
-    export EL_FLAVOR EL_VERSION BUILD_IMAGE RUNTIME_IMAGE MINIMAL_IMAGE PACKAGE_MINIMAL_IMAGE PAM_BASE_URL PAM_PACKAGE_VERSION
+    export EL_FLAVOR EL_VERSION BUILD_IMAGE RUNTIME_IMAGE MINIMAL_IMAGE PACKAGE_MINIMAL_IMAGE PAM_BASE_URL PAM_PACKAGE_VERSION RPM_MOCK_ROOT
 
     echo "Loaded configuration for $EL_FLAVOR (EL$EL_VERSION)"
 }
 
-# Get list of available flavors from config file
+# Get list of available flavors from helm chart config
 get_available_flavors() {
-    local config_file="$(get_config_dir)/container-flavors.conf"
+    local config_file="$(get_config_dir)/../deploy/helm/helm-chart-opts.yaml"
 
     if [[ ! -f "$config_file" ]]; then
-        echo "Error: Configuration file not found: $config_file" >&2
+        echo "Error: Helm configuration file not found: $config_file" >&2
         return 1
     fi
 
-    # Extract flavor names from variable assignments
-    grep '^[a-z]' "$config_file" | cut -d'=' -f1 | sort
+    # Extract flavor names from community-* and redhat-* sections and strip prefixes
+    (grep '^community-' "$config_file" | cut -d':' -f1 | sed 's/community-//'; \
+     grep '^redhat-' "$config_file" | cut -d':' -f1 | sed 's/redhat-//') | sort -u
 }
 
 # Validate that a flavor exists

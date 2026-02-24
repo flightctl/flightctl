@@ -47,6 +47,13 @@ community-el9:
     minimalImage:
       image: registry.access.redhat.com/ubi9-micro
       tag: "9.7-1762965531"
+  buildImages:
+    buildImage: registry.access.redhat.com/ubi9/go-toolset:1.24.6-1762373805
+    runtimeImage: quay.io/flightctl/flightctl-base:el9-9.7-1762965531
+    packageMinimalImage: registry.access.redhat.com/ubi9/ubi-minimal:9.7-1763362218
+    pamBaseUrl: https://mirror.stream.centos.org/9-stream
+    pamPackageVersion: 1.5.1-24.el9
+    rpmMockRoot: centos-stream+epel-next-9-x86_64
   timeouts:
     # API readiness timeout for EL9 (increased for E2E tests using wait:false)
     apiReadiness: 300
@@ -105,6 +112,13 @@ community-el10:
     minimalImage:
       image: registry.access.redhat.com/ubi10-micro
       tag: "10.0-1"
+  buildImages:
+    buildImage: registry.access.redhat.com/ubi10/go-toolset:10.1-1770279878
+    runtimeImage: quay.io/flightctl/flightctl-base:el10-10.1-1769518576
+    packageMinimalImage: registry.access.redhat.com/ubi10/ubi-minimal:10.1-1769677092
+    pamBaseUrl: https://mirror.stream.centos.org/10-stream
+    pamPackageVersion: 1.6.1-8.el10
+    rpmMockRoot: epel-10-x86_64
   timeouts:
     # API readiness timeout for EL10 (FIPS 140-3 enhanced TLS initialization)
     apiReadiness: 180
@@ -163,6 +177,13 @@ redhat-el9:
     minimalImage:
       image: registry.redhat.io/rhel9/ubi9-micro
       tag: "9.7"
+  buildImages:
+    buildImage: registry.redhat.io/ubi9/go-toolset:1.24.6
+    runtimeImage: registry.redhat.io/rhem/flightctl-base:el9
+    packageMinimalImage: registry.redhat.io/rhel9/ubi-minimal:9.7
+    pamBaseUrl: https://mirror.stream.centos.org/9-stream
+    pamPackageVersion: 1.5.1-24.el9
+    rpmMockRoot: centos-stream+epel-next-9-x86_64
 redhat-el10:
   name: redhat-rhem
   description: A helm chart for Red Hat Edge Manager
@@ -212,3 +233,10 @@ redhat-el10:
     minimalImage:
       image: registry.redhat.io/rhel10/ubi10-micro
       tag: "latest"
+  buildImages:
+    buildImage: registry.redhat.io/ubi10/go-toolset:10.1
+    runtimeImage: registry.redhat.io/rhem/flightctl-base:el10
+    packageMinimalImage: registry.redhat.io/rhel10/ubi-minimal:latest
+    pamBaseUrl: https://mirror.stream.centos.org/10-stream
+    pamPackageVersion: 1.6.1-8.el10
+    rpmMockRoot: epel-10-x86_64

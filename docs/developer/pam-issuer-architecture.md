@@ -44,8 +44,8 @@ The PAM issuer service has been separated into its own independent microservice 
 
 **Build**:
 ```bash
-make build-pam-issuer          # Build binary
-make build-containers             # Build all containers (el9 and el10)
+make build-pam-issuer                    # Build binary
+make flightctl-pam-issuer-container      # Build container (current flavor)
 ```
 
 ### 2. Main API Server (`cmd/flightctl-api`)
@@ -64,8 +64,8 @@ make build-containers             # Build all containers (el9 and el10)
 
 **Build**:
 ```bash
-make build-api          # Build binary (any platform)
-make build-containers        # Build all containers (el9 and el10)
+make build-api                    # Build binary (any platform)
+make flightctl-api-container      # Build container (current flavor)
 ```
 
 ### 3. API Package (`api/pam-issuer/v1beta1`)
@@ -129,10 +129,10 @@ Run both services locally:
 ### Container Deployment
 
 ```bash
-# Build containers (builds all flavors: el9 and el10)
-make build-containers
+# Build specific containers you need
+make flightctl-api-container flightctl-pam-issuer-container
 
-# Run with podman (using desired flavor, e.g., el9 or el10)
+# Run with podman (using current flavor)
 FLAVOR=${FLAVOR:-el9}  # Default to el9, or set FLAVOR=el10
 podman run -d --name flightctl-api -p 3443:3443 flightctl-api-${FLAVOR}:latest
 podman run -d --name flightctl-pam-issuer -p 8444:8444 flightctl-pam-issuer-${FLAVOR}:latest

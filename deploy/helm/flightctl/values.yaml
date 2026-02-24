@@ -105,12 +105,6 @@ global:
   additionalRouteLabels: null
   # -- Additional labels for PVCs.
   additionalPVCLabels: null
-  # -- Minimal container image configuration for init containers and test pods
-  minimalImage:
-    # -- Minimal container image
-    image: registry.access.redhat.com/ubi9-micro
-    # -- Minimal container image tag
-    tag: "9.7-1762965531"
 
 # -- Component specific parameters
 # This section provides individual parameters for each component

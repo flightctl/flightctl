@@ -6,28 +6,37 @@ ONLY_DB=
 DB_SIZE_PARAMS=
 # If using images from a private registry, specify a path to a Kubernetes Secret yaml for your pull secret (in the flightctl-internal namespace)
 # IMAGE_PULL_SECRET_PATH=
-# Database image selection based on FLAVOR
-FLAVOR=${FLAVOR:-el9}
-case "${FLAVOR}" in
-    el9)
-        EL_VERSION="9"
-        SQL_VERSION=${SQL_VERSION:-"latest"}
-        SQL_IMAGE=${SQL_IMAGE:-"quay.io/sclorg/postgresql-16-c9s"}
-        KV_VERSION=${KV_VERSION:-"7.4.1"}
-        KV_IMAGE=${KV_IMAGE:-"docker.io/redis"}
-        ;;
-    el10)
-        EL_VERSION="10"
-        SQL_VERSION=${SQL_VERSION:-"latest"}
-        SQL_IMAGE=${SQL_IMAGE:-"quay.io/sclorg/postgresql-16-c10s"}
-        KV_VERSION=${KV_VERSION:-"7.4.1"}
-        KV_IMAGE=${KV_IMAGE:-"docker.io/redis"}
-        ;;
-    *)
-        echo "Error: Invalid flavor '${FLAVOR}'. Must be 'el9' or 'el10'"
-        exit 1
-        ;;
-esac
+
+# Load container configuration functions
+# shellcheck source=../../hack/container-config.sh
+source "${SCRIPT_DIR}/../../hack/container-config.sh"
+
+# Use FLAVOR parameter (required)
+FLAVOR="${FLAVOR:?FLAVOR environment variable is required}"
+
+# Validate and load flavor configuration from helm chart
+if ! validate_flavor "$FLAVOR"; then
+    exit 1
+fi
+
+if ! load_flavor_config "$FLAVOR"; then
+    exit 1
+fi
+
+# Get database and KV configuration from helm chart config
+CONFIG_FILE="${SCRIPT_DIR}/../../deploy/helm/helm-chart-opts.yaml"
+
+# Determine flavor section (redhat vs community)
+FLAVOR_SECTION="community-${FLAVOR}"
+if grep -q "^redhat-${FLAVOR}:" "$CONFIG_FILE"; then
+    FLAVOR_SECTION="redhat-${FLAVOR}"
+fi
+
+# Parse DB and KV configuration from helm chart
+SQL_IMAGE=$(awk "/^${FLAVOR_SECTION}:/,/^[a-zA-Z]/ { if (/^[[:space:]]*db:/,/^[[:space:]]*[a-zA-Z]/ && !/^[[:space:]]*db:/) { if (/^[[:space:]]*image:/) { gsub(/.*image:[[:space:]]*/, \"\"); gsub(/[[:space:]]*#.*/, \"\"); gsub(/\"/, \"\"); print; exit } } }" "$CONFIG_FILE")
+SQL_VERSION=$(awk "/^${FLAVOR_SECTION}:/,/^[a-zA-Z]/ { if (/^[[:space:]]*db:/,/^[[:space:]]*[a-zA-Z]/ && !/^[[:space:]]*db:/) { if (/^[[:space:]]*tag:/) { gsub(/.*tag:[[:space:]]*/, \"\"); gsub(/[[:space:]]*#.*/, \"\"); gsub(/\"/, \"\"); print; exit } } }" "$CONFIG_FILE")
+KV_IMAGE=$(awk "/^${FLAVOR_SECTION}:/,/^[a-zA-Z]/ { if (/^[[:space:]]*kv:/,/^[[:space:]]*[a-zA-Z]/ && !/^[[:space:]]*kv:/) { if (/^[[:space:]]*image:/) { gsub(/.*image:[[:space:]]*/, \"\"); gsub(/[[:space:]]*#.*/, \"\"); gsub(/\"/, \"\"); print; exit } } }" "$CONFIG_FILE")
+KV_VERSION=$(awk "/^${FLAVOR_SECTION}:/,/^[a-zA-Z]/ { if (/^[[:space:]]*kv:/,/^[[:space:]]*[a-zA-Z]/ && !/^[[:space:]]*kv:/) { if (/^[[:space:]]*tag:/) { gsub(/.*tag:[[:space:]]*/, \"\"); gsub(/[[:space:]]*#.*/, \"\"); gsub(/\"/, \"\"); print; exit } } }" "$CONFIG_FILE")
 
 source "${SCRIPT_DIR}"/functions
 IP=$(get_ext_ip)
@@ -74,21 +83,15 @@ kubectl create namespace flightctl-e2e      --context kind-kind 2>/dev/null || t
 # if we are only deploying the database, we don't need inject the server container
 if [ -z "$ONLY_DB" ]; then
 
-  # Load required flavor-in-tag images (new naming approach)
+  # Load required flavor-in-tag images
   for suffix in periodic api worker alert-exporter alertmanager-proxy cli-artifacts db-setup telemetry-gateway imagebuilder-api imagebuilder-worker ; do
-    # Check for flavor-in-tag naming (required for helm charts)
-    if podman image exists localhost/flightctl-${suffix}:el${EL_VERSION}-latest; then
-      echo "Loading flavor-in-tag image: localhost/flightctl-${suffix}:el${EL_VERSION}-latest"
-      kind_load_image localhost/flightctl-${suffix}:el${EL_VERSION}-latest
-    elif podman image exists localhost/flightctl-${suffix}-el${EL_VERSION}:latest; then
-      # Fallback to old flavor-in-name for transition compatibility
-      echo "Loading legacy EL-versioned image: localhost/flightctl-${suffix}-el${EL_VERSION}:latest"
-      kind_load_image localhost/flightctl-${suffix}-el${EL_VERSION}:latest
-    else
-      echo "ERROR: Required image not found in either flavor-in-tag (localhost/flightctl-${suffix}:el${EL_VERSION}-latest) or legacy format (localhost/flightctl-${suffix}-el${EL_VERSION}:latest)"
+    echo "Loading flavor-in-tag image: localhost/flightctl-${suffix}:el${EL_VERSION}-latest"
+    if ! podman image exists localhost/flightctl-${suffix}:el${EL_VERSION}-latest; then
+      echo "ERROR: Required image not found: localhost/flightctl-${suffix}:el${EL_VERSION}-latest"
       echo "This image is needed for helm deployment. Ensure containers were built successfully."
       exit 1
     fi
+    kind_load_image localhost/flightctl-${suffix}:el${EL_VERSION}-latest
   done
 
   kind_load_image "${KV_IMAGE}:${KV_VERSION}" keep-tar

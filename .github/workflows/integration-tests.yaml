@@ -16,6 +16,8 @@ permissions:
 jobs:
   integration-tests:
     runs-on: "ubuntu-24.04"
+    env:
+      FLAVOR: "el9"
     steps:
       - name: Checkout current commit
         uses: actions/checkout@v4
@@ -47,8 +49,7 @@ jobs:
           COMMIT_SHA="${{ github.sha }}"
           echo "Building db-migrator image tagged with commit: ${COMMIT_SHA}"
 
-          # Build the db-setup container with configurable FLAVOR (defaults to el9)
-          FLAVOR=${FLAVOR:-el9}
+          # Build the db-setup container with flavor: ${FLAVOR}
           # Script now accepts el9/el10 directly
           sudo hack/publish_containers.sh build ${FLAVOR}
 

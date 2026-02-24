@@ -28,9 +28,8 @@ on:
         type: string
       flavor:
         description: "Container flavor (el9 or el10)"
-        required: false
+        required: true
         type: string
-        default: "el9"
 
 jobs:
   generate-matrix:
@@ -159,7 +158,6 @@ jobs:
       - name: Download test artifacts
         id: download-test-artifacts
         uses: actions/download-artifact@v4
-        continue-on-error: true
         with:
           pattern: agent-*-${{ inputs.os_id }}-${{ inputs.tag }}
           path: test-artifacts
@@ -167,12 +165,6 @@ jobs:
 
       - name: Stage test artifacts
         run: |
-          if [ "${{ steps.download-test-artifacts.outcome }}" != "success" ]; then
-            echo "ARTIFACT DOWNLOAD FAILED"
-            ls -la . || true
-            exit 1
-          fi
-
           set -euo pipefail
           ls -la test-artifacts || echo "NO TEST-ARTIFACTS DIRECTORY"
           tree test-artifacts || echo "TREE FAILED - USING LS"
@@ -180,19 +172,11 @@ jobs:
 
           # Stage agent bundle
           mkdir -p bin/agent-artifacts
-          if [ ! -f "test-artifacts/agent-images-bundle-${{ inputs.os_id }}.tar" ]; then
-            echo "ERROR: Agent bundle not found"
-            exit 1
-          fi
           mv "test-artifacts/agent-images-bundle-${{ inputs.os_id }}.tar" bin/agent-artifacts/
           echo "✓ Agent bundle: bin/agent-artifacts/agent-images-bundle-${{ inputs.os_id }}.tar"
 
           # Stage qcow2
           mkdir -p bin/output/qcow2
-          if [ ! -f "test-artifacts/disk.qcow2" ]; then
-            echo "ERROR: QCOW2 image not found"
-            exit 1
-          fi
           mv "test-artifacts/disk.qcow2" bin/output/qcow2/
           echo "✓ QCOW2 image: bin/output/qcow2/disk.qcow2"
 
@@ -204,20 +188,11 @@ jobs:
           df -h
 
       # ========== PREP E2E ENV ==========
-      - name: Load API readiness timeout configuration
-        id: api-timeout
-        uses: ./.github/actions/load-timeout-configuration
-        with:
-          flavor: ${{ inputs.flavor }}
-          timeout-type: apiReadiness
-
-
       - name: Wait for API readiness
         uses: ./.github/actions/wait-for-api-readiness
         with:
           base-domain: ${{ steps.base-domain.outputs.base_domain }}
-          # Timeout loaded from helm-chart-opts.yaml based on flavor
-          retries: ${{ steps.api-timeout.outputs.timeout }}
+          retries: 300
 
       - name: Prepare E2E environment
         env:
@@ -232,19 +207,6 @@ jobs:
           make prepare-e2e-test
 
       # ========== RUN E2E TESTS ==========
-      - name: Pre-test validation
-        run: |
-          kubectl get nodes || echo "NO CLUSTER NODES"
-          kubectl get pods -A | grep flightctl || echo "NO FLIGHTCTL PODS"
-
-          echo "ginkgo_label_filter: '${{ inputs.ginkgo_label_filter }}'"
-          echo "ginkgo_node: '${{ matrix.ginkgo_node }}'"
-          echo "ginkgo_node_count: '${{ inputs.ginkgo_node_count }}'"
-
-          ls -la bin/ || echo "NO BIN DIRECTORY"
-          ls -la bin/agent-artifacts/ || echo "NO AGENT ARTIFACTS"
-          ls -la bin/output/qcow2/ || echo "NO QCOW2 IMAGES"
-
       - name: Restore Go cache
         uses: actions/cache/restore@v4
         with:
@@ -260,6 +222,7 @@ jobs:
         run: |
           HASH=$(printf '%s' "${{ inputs.ginkgo_label_filter }}" | sha256sum | cut -c1-8)
           echo "hash=${HASH}" >> "$GITHUB_OUTPUT"
+          echo "Label filter: ${{ inputs.ginkgo_label_filter }}"
 
       - name: Download test discovery
         uses: actions/download-artifact@v4
