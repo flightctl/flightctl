@@ -82,18 +82,21 @@ Note: On fresh installs, migrations run as a regular Job (not a hook).
 Basic upgrade command:
 
 ```bash
-helm upgrade my-flightctl oci://quay.io/flightctl/charts/flightctl
+helm upgrade --reset-then-reuse-values my-flightctl oci://quay.io/flightctl/charts/flightctl
 ```
 
 Upgrade to a specific chart version:
 
 ```bash
 helm upgrade \
+  --reset-then-reuse-values \
   --version <new-version> \
   my-flightctl oci://quay.io/flightctl/charts/flightctl
 ```
 
 **Best Practices:**
+
+* Use `--reset-then-reuse-values` for upgrades to avoid configuration compatibility issues between chart versions.
 
 * Consider `--atomic` so Helm waits and **automatically rolls back** if the upgrade fails.
 * Before major upgrades, back up the database and configuration to ensure a clean restore point.

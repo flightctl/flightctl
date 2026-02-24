@@ -31,7 +31,7 @@ spec:
       {{- include "flightctl.databaseWaitInitContainer" (dict "context" . "userType" "app") | nindent 6 }}
       {{- include "flightctl.migrationWaitInitContainer" (dict "context" . "timeout" 600) | nindent 6 }}
       - name: init-certs
-        image: "{{ .Values.global.minimalImage.image | default "registry.access.redhat.com/ubi9-micro" }}:{{ .Values.global.minimalImage.tag | default "9.7-1762965531" }}"
+        image: "{{- if .Images }}{{ .Images.minimalImage.Image }}:{{ .Images.minimalImage.Tag }}{{- else }}registry.access.redhat.com/ubi9-micro:9.7-1762965531{{- end }}"
         command:
           - /bin/sh
           - -c

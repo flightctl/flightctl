@@ -223,6 +223,7 @@ build-standalone: bin
 	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-standalone
 
 # Build all containers for both el9 and el10
+# Uses community images by default. Set FORCE_COMMUNITY_IMAGES=false to use Red Hat registry
 build-containers: go.mod go.sum $(GO_FILES)
 	@echo "Building all containers for el9 and el10..."
 	hack/publish_containers.sh build el9

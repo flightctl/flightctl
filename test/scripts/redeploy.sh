@@ -5,6 +5,7 @@ SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 source "${SCRIPT_DIR}"/functions
 
 IMAGE=${1}
+FLAVOR=${FLAVOR:-el9}
 OC=${OC:=oc}
 
 case $IMAGE in
@@ -38,7 +39,7 @@ case $IMAGE in
        exit 1
 esac
 
-podman tag flightctl-${IMAGE}:latest localhost/flightctl-${IMAGE}:latest
+podman tag flightctl-${IMAGE}:${FLAVOR}-latest localhost/flightctl-${IMAGE}:latest
 kind_load_image localhost/flightctl-${IMAGE}:latest
 
 # switch for api worker and periodic handling, we need to kill the pods to reload

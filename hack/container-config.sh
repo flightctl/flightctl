@@ -28,6 +28,7 @@ parse_helm_config_value() {
 
 # Load flavor configuration from helm chart config
 # Usage: load_flavor_config <flavor>
+# Environment: Set FORCE_COMMUNITY_IMAGES=false to use Red Hat registry images (requires authentication)
 # Sets: EL_FLAVOR, EL_VERSION, BUILD_IMAGE, RUNTIME_IMAGE, MINIMAL_IMAGE, PACKAGE_MINIMAL_IMAGE, PAM_BASE_URL, PAM_PACKAGE_VERSION, RPM_MOCK_ROOT
 load_flavor_config() {
     local flavor="$1"
@@ -39,22 +40,22 @@ load_flavor_config() {
     fi
 
     # Determine flavor section and version
-    # Check for redhat flavor first, then fall back to community
+    # Use FORCE_COMMUNITY_IMAGES=false to use Red Hat registry images (requires authentication)
     local flavor_section
     case "$flavor" in
         el9)
-            if grep -q "^redhat-el9:" "$config_file"; then
-                flavor_section="redhat-el9"
-            else
+            if [[ "${FORCE_COMMUNITY_IMAGES:-true}" == "true" ]] || ! grep -q "^redhat-el9:" "$config_file"; then
                 flavor_section="community-el9"
+            else
+                flavor_section="redhat-el9"
             fi
             EL_VERSION="9"
             ;;
         el10)
-            if grep -q "^redhat-el10:" "$config_file"; then
-                flavor_section="redhat-el10"
-            else
+            if [[ "${FORCE_COMMUNITY_IMAGES:-true}" == "true" ]] || ! grep -q "^redhat-el10:" "$config_file"; then
                 flavor_section="community-el10"
+            else
+                flavor_section="redhat-el10"
             fi
             EL_VERSION="10"
             ;;
@@ -95,7 +96,7 @@ load_flavor_config() {
     # Export variables for use in calling scripts
     export EL_FLAVOR EL_VERSION BUILD_IMAGE RUNTIME_IMAGE MINIMAL_IMAGE PACKAGE_MINIMAL_IMAGE PAM_BASE_URL PAM_PACKAGE_VERSION RPM_MOCK_ROOT
 
-    echo "Loaded configuration for $EL_FLAVOR (EL$EL_VERSION)"
+    echo "Loaded configuration for $EL_FLAVOR (EL$EL_VERSION) using $flavor_section"
 }
 
 # Get list of available flavors from helm chart config

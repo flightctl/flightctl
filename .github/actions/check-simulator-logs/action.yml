@@ -65,7 +65,7 @@ runs:
           fi
         done <<< "${error_lines}"
 
-        echo "Simulator Log Error Summary:"
+        echo "=== Simulator Log Error Summary ==="
         echo "Total error lines: $((whitelisted_count + unwhitelisted_count))"
         echo "Whitelisted:       ${whitelisted_count}"
         echo "Unwhitelisted:     ${unwhitelisted_count}"
