@@ -58,7 +58,7 @@ if [[ -n "${DISCOVERY_ONLY}" ]]; then
     exit 0
 fi
 
-API_ENDPOINT=https://$(get_endpoint_host flightctl-api-route)
+API_ENDPOINT=https://$(get_endpoint_host flightctl-api)
 export API_ENDPOINT
 REGISTRY_ENDPOINT=$(registry_address)
 export REGISTRY_ENDPOINT
