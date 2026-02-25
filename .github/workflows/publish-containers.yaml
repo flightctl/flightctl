@@ -190,7 +190,7 @@ jobs:
             SOURCE_GIT_COMMIT=${{ steps.version-vars.outputs.git_commit }}
           extra-args: |
             --ulimit nofile=10000:10000
-          containerfiles: Containerfile.${{ matrix.image }}
+          containerfiles: images/el9/Containerfile.${{ matrix.image }}
           context: .
 
       - name: Validate FIPS

@@ -8,7 +8,6 @@ ARG SOURCE_GIT_COMMIT
 USER 0
 
 # Copy dependencies first (most stable)
-COPY go.* ./
 COPY go.mod go.sum ./
 
 # Download dependencies (cached layer)
