@@ -2,6 +2,7 @@ package vm
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -14,6 +15,7 @@ import (
 )
 
 const sshWaitTimeout time.Duration = 60 * time.Second
+const sshCommandTimeout time.Duration = 60 * time.Second
 
 type TestVM struct {
 	TestDir           string
@@ -122,7 +124,8 @@ func (v *TestVM) getSSHAuthMethods() ([]ssh.AuthMethod, error) {
 	return []ssh.AuthMethod{ssh.Password(v.SSHPassword)}, nil
 }
 
-func (v *TestVM) SSHCommandWithUser(inputArgs []string, user string) *exec.Cmd {
+// sshCommandWithUserContext creates an SSH command with a context (internal helper)
+func (v *TestVM) sshCommandWithUserContext(ctx context.Context, inputArgs []string, user string) *exec.Cmd {
 	sshDestination := user + "@localhost"
 	port := strconv.Itoa(v.SSHPort)
 
@@ -137,11 +140,11 @@ func (v *TestVM) SSHCommandWithUser(inputArgs []string, user string) *exec.Cmd {
 	if v.SSHPrivateKeyPath != "" {
 		// Key-based authentication
 		sshArgs = append([]string{"-i", v.SSHPrivateKeyPath, "-o", "PasswordAuthentication=no"}, sshArgs...)
-		cmd = exec.Command("ssh", append(sshArgs, inputArgs...)...) // #nosec G204 - test code with controlled inputs
+		cmd = exec.CommandContext(ctx, "ssh", append(sshArgs, inputArgs...)...) // #nosec G204 - test code with controlled inputs
 	} else {
 		// Password-based authentication with sshpass
 		sshArgs = append([]string{"-o", "PubkeyAuthentication=no"}, sshArgs...)
-		cmd = exec.Command("sshpass", append([]string{"-p", v.SSHPassword, "ssh"}, append(sshArgs, inputArgs...)...)...) // #nosec G204 - test code with controlled inputs
+		cmd = exec.CommandContext(ctx, "sshpass", append([]string{"-p", v.SSHPassword, "ssh"}, append(sshArgs, inputArgs...)...)...) // #nosec G204 - test code with controlled inputs
 	}
 
 	if len(inputArgs) == 0 {
@@ -152,6 +155,10 @@ func (v *TestVM) SSHCommandWithUser(inputArgs []string, user string) *exec.Cmd {
 	return cmd
 }
 
+func (v *TestVM) SSHCommandWithUser(inputArgs []string, user string) *exec.Cmd {
+	return v.sshCommandWithUserContext(context.Background(), inputArgs, user)
+}
+
 // RunSSH runs a command over ssh or starts an interactive ssh connection if no command is provided
 func (v *TestVM) SSHCommand(inputArgs []string) *exec.Cmd {
 
@@ -159,7 +166,10 @@ func (v *TestVM) SSHCommand(inputArgs []string) *exec.Cmd {
 }
 
 func (v *TestVM) RunSSHWithUser(inputArgs []string, stdin *bytes.Buffer, user string) (*bytes.Buffer, error) {
-	cmd := v.SSHCommandWithUser(inputArgs, user)
+	ctx, cancel := context.WithTimeout(context.Background(), sshCommandTimeout)
+	defer cancel()
+
+	cmd := v.sshCommandWithUserContext(ctx, inputArgs, user)
 	var stderr bytes.Buffer
 	var stdout bytes.Buffer
 	cmd.Stderr = &stderr
@@ -170,6 +180,10 @@ func (v *TestVM) RunSSHWithUser(inputArgs []string, stdin *bytes.Buffer, user st
 	cmd.Stdout = &stdout
 	err := cmd.Run()
 	if err != nil {
+		// Check if it was a timeout
+		if ctx.Err() == context.DeadlineExceeded {
+			return nil, fmt.Errorf("ssh command timed out after %v: %w, stderr: %s, stdout: %s", sshCommandTimeout, err, stderr.String(), stdout.String())
+		}
 		return nil, fmt.Errorf("failed to run ssh command: %w, stderr: %s, stdout: %s", err, stderr.String(), stdout.String())
 	}
 
