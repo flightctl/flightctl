@@ -156,8 +156,94 @@ flavor_vars=$(${flavor_vars_script} "${FLAVOR_NAME}" 2>/dev/null || {
   exit 1
 })
 
-# Source the generated variables
-eval "${flavor_vars}"
+# Parse flavor variables safely (instead of using eval)
+parse_flavor_vars() {
+  local line
+  local var_name
+  local var_value
+
+  # Initialize expected variables with defaults
+  OS_ID=""
+  DEVICE_BASE_IMAGE=""
+  ENABLE_CRB=0
+  EPEL_NEXT=0
+
+  # Parse each line safely
+  while IFS= read -r line; do
+    # Skip empty lines and comments
+    [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
+
+    # Match variable assignment pattern: VAR_NAME="value" or VAR_NAME=value
+    if [[ "$line" =~ ^([A-Z_]+)=(.*)$ ]]; then
+      var_name="${BASH_REMATCH[1]}"
+      var_value="${BASH_REMATCH[2]}"
+
+      # Remove surrounding quotes if present
+      if [[ "$var_value" =~ ^\"(.*)\"$ ]]; then
+        var_value="${BASH_REMATCH[1]}"
+      fi
+
+      # Validate value doesn't contain suspicious characters
+      if [[ "$var_value" =~ [';|&$`()'] ]]; then
+        echo "[ERROR] Variable value contains suspicious characters: $var_name=$var_value" >&2
+        return 1
+      fi
+
+      # Only allow expected variables
+      case "$var_name" in
+        OS_ID)
+          OS_ID="$var_value"
+          ;;
+        DEVICE_BASE_IMAGE)
+          DEVICE_BASE_IMAGE="$var_value"
+          ;;
+        ENABLE_CRB)
+          # Validate numeric value
+          if [[ "$var_value" =~ ^[0-9]+$ ]]; then
+            ENABLE_CRB="$var_value"
+          else
+            echo "[ERROR] Invalid value for ENABLE_CRB: $var_value" >&2
+            return 1
+          fi
+          ;;
+        EPEL_NEXT)
+          # Validate numeric value
+          if [[ "$var_value" =~ ^[0-9]+$ ]]; then
+            EPEL_NEXT="$var_value"
+          else
+            echo "[ERROR] Invalid value for EPEL_NEXT: $var_value" >&2
+            return 1
+          fi
+          ;;
+        *)
+          echo "[ERROR] Unexpected variable in flavor configuration: $var_name" >&2
+          return 1
+          ;;
+      esac
+    else
+      # Reject lines that don't match expected format
+      echo "[ERROR] Invalid line format in flavor configuration: $line" >&2
+      return 1
+    fi
+  done <<< "$flavor_vars"
+
+  # Create temporary build arg file for container builds
+  flavor_conf=$(mktemp)
+  trap "rm -f ${flavor_conf}" EXIT
+
+  cat > "$flavor_conf" <<EOF
+OS_ID=${OS_ID}
+DEVICE_BASE_IMAGE=${DEVICE_BASE_IMAGE}
+ENABLE_CRB=${ENABLE_CRB}
+EPEL_NEXT=${EPEL_NEXT}
+EOF
+
+  # Export the validated variables
+  export OS_ID DEVICE_BASE_IMAGE ENABLE_CRB EPEL_NEXT flavor_conf
+}
+
+# Parse flavor variables safely
+parse_flavor_vars
 
 # Validate required variables are set
 : "${OS_ID:?OS_ID must be set in flavor configuration}"

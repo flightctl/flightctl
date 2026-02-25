@@ -52,8 +52,8 @@ type ImageNameTag struct {
 type AgentImagesConfig struct {
 	OsId            string `yaml:"osId,omitempty"`
 	DeviceBaseImage string `yaml:"deviceBaseImage,omitempty"`
-	EnableCrb       bool   `yaml:"enableCrb,omitempty"`
-	EpelNext        bool   `yaml:"epelNext,omitempty"`
+	EnableCrb       *bool  `yaml:"enableCrb,omitempty"`
+	EpelNext        *bool  `yaml:"epelNext,omitempty"`
 }
 
 // TimeoutsConfig represents various timeout configurations

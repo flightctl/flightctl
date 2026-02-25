@@ -3,6 +3,7 @@ package flavors
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 )
@@ -78,7 +79,7 @@ community-el10:
 		t.Errorf("Expected osId 'cs9-bootc', got '%s'", el9.AgentImages.OsId)
 	}
 
-	if el9.AgentImages.EnableCrb != false {
+	if el9.AgentImages.EnableCrb == nil || *el9.AgentImages.EnableCrb != false {
 		t.Errorf("Expected EnableCrb false, got %v", el9.AgentImages.EnableCrb)
 	}
 
@@ -114,7 +115,7 @@ community-el10:
 	}
 
 	// Should have overridden EnableCrb
-	if el10.AgentImages.EnableCrb != true {
+	if el10.AgentImages.EnableCrb == nil || *el10.AgentImages.EnableCrb != true {
 		t.Errorf("Expected EnableCrb true, got %v", el10.AgentImages.EnableCrb)
 	}
 
@@ -330,6 +331,31 @@ flavor-a:
   _inherit: flavor-b
   name: A
 flavor-b:
+  _inherit: flavor-a
+  name: B
+`
+
+	err := os.WriteFile(flavorsFile, []byte(testYAML), 0600)
+	if err != nil {
+		t.Fatalf("Failed to create test flavors file: %v", err)
+	}
+
+	_, err = LoadFlavors(flavorsFile, "")
+	if err == nil {
+		t.Error("Expected error for circular inheritance")
+	}
+}
+
+func TestMissingParentError(t *testing.T) {
+	// Create a temporary test flavors file with missing parent flavor
+	tempDir := t.TempDir()
+	flavorsFile := filepath.Join(tempDir, "test-flavors.yaml")
+
+	testYAML := `
+flavor-a:
+  _inherit: flavor-b
+  name: A
+flavor-b:
   _inherit: non-existent
   name: B
 `
@@ -439,7 +465,7 @@ downstream-flavor:
 		t.Errorf("Expected overridden API tag 'custom-v1.0', got '%s'", apiTag)
 	}
 
-	// Check that worker image still exists from original (override didn't specify it)
+	// Check that worker image remains unchanged (override specifies same worker image)
 	workerImage, workerTag, found := simpleFlavor.GetFlavorImageTag("worker")
 	if !found {
 		t.Error("Worker image not found in overridden simple-flavor")
@@ -597,14 +623,182 @@ flavor-c:
 	}
 
 	// Check that flavor-c was added
-	found := false
-	for _, name := range overriddenNames {
-		if name == "flavor-c" {
-			found = true
-			break
+	if !slices.Contains(overriddenNames, "flavor-c") {
+		t.Error("Override flavor 'flavor-c' not found in overridden list")
+	}
+}
+
+func TestDeepCopyInheritance(t *testing.T) {
+	// Test that mergeFlavorConfigs performs deep copy of maps
+	parent := &FlavorConfig{
+		Name: "parent",
+		Annotations: map[string]string{
+			"parent-key": "parent-value",
+		},
+		Images: map[string]ImageConfig{
+			"api": {
+				Image: "parent/api",
+				Tag:   "v1.0",
+			},
+		},
+	}
+
+	child := &FlavorConfig{
+		Name: "child",
+		Annotations: map[string]string{
+			"child-key": "child-value",
+		},
+		Images: map[string]ImageConfig{
+			"api": {
+				Image: "child/api",
+				Tag:   "v2.0",
+			},
+			"worker": {
+				Image: "child/worker",
+				Tag:   "v1.0",
+			},
+		},
+	}
+
+	// Store original parent values for comparison
+	originalParentAnnotations := make(map[string]string)
+	for k, v := range parent.Annotations {
+		originalParentAnnotations[k] = v
+	}
+	originalParentImages := make(map[string]ImageConfig)
+	for k, v := range parent.Images {
+		originalParentImages[k] = v
+	}
+
+	// Merge child into parent
+	result := mergeFlavorConfigs(parent, child)
+
+	// Verify the result has correct merged values
+	if result.Name != "child" {
+		t.Errorf("Expected name 'child', got '%s'", result.Name)
+	}
+
+	// Check annotations are merged
+	if result.Annotations["parent-key"] != "parent-value" {
+		t.Error("Parent annotation not preserved")
+	}
+	if result.Annotations["child-key"] != "child-value" {
+		t.Error("Child annotation not merged")
+	}
+
+	// Check images are merged
+	if result.Images["api"].Image != "child/api" {
+		t.Errorf("Expected merged API image 'child/api', got '%s'", result.Images["api"].Image)
+	}
+	if result.Images["worker"].Image != "child/worker" {
+		t.Error("Child worker image not added")
+	}
+
+	// CRITICAL TEST: Verify parent maps are not modified (deep copy worked)
+	if len(parent.Annotations) != len(originalParentAnnotations) {
+		t.Error("Parent annotations map was modified (should be deep copied)")
+	}
+	for k, v := range originalParentAnnotations {
+		if parent.Annotations[k] != v {
+			t.Errorf("Parent annotation '%s' was modified from '%s' to '%s'", k, v, parent.Annotations[k])
 		}
 	}
-	if !found {
-		t.Error("Override flavor 'flavor-c' not found in overridden list")
+
+	if len(parent.Images) != len(originalParentImages) {
+		t.Error("Parent images map was modified (should be deep copied)")
+	}
+	for k, v := range originalParentImages {
+		if parent.Images[k] != v {
+			t.Errorf("Parent image '%s' was modified", k)
+		}
+	}
+
+	// Verify child key not in parent
+	if _, exists := parent.Annotations["child-key"]; exists {
+		t.Error("Child annotation was added to parent map (deep copy failed)")
+	}
+	if _, exists := parent.Images["worker"]; exists {
+		t.Error("Child image was added to parent map (deep copy failed)")
+	}
+}
+
+func TestPointerBooleanInheritance(t *testing.T) {
+	// Test that pointer boolean fields properly handle inheritance
+	// Parent has EnableCrb=true, EpelNext=false
+	enableCrbTrue := true
+	epelNextFalse := false
+	parent := &FlavorConfig{
+		Name: "parent",
+		AgentImages: AgentImagesConfig{
+			OsId:      "parent-os",
+			EnableCrb: &enableCrbTrue,
+			EpelNext:  &epelNextFalse,
+		},
+	}
+
+	// Test 1: Child explicitly sets EnableCrb=false, omits EpelNext (should inherit)
+	enableCrbFalse := false
+	child1 := &FlavorConfig{
+		Name: "child1",
+		AgentImages: AgentImagesConfig{
+			EnableCrb: &enableCrbFalse, // Explicitly set to false
+			// EpelNext is nil - should inherit from parent
+		},
+	}
+
+	result1 := mergeFlavorConfigs(parent, child1)
+
+	// Verify EnableCrb was overridden to false
+	if result1.AgentImages.EnableCrb == nil || *result1.AgentImages.EnableCrb != false {
+		t.Errorf("Expected EnableCrb to be explicitly false, got %v", result1.AgentImages.EnableCrb)
+	}
+
+	// Verify EpelNext was inherited from parent (false)
+	if result1.AgentImages.EpelNext == nil || *result1.AgentImages.EpelNext != false {
+		t.Errorf("Expected EpelNext to be inherited as false, got %v", result1.AgentImages.EpelNext)
+	}
+
+	// Test 2: Child omits both fields (should inherit both)
+	child2 := &FlavorConfig{
+		Name: "child2",
+		AgentImages: AgentImagesConfig{
+			OsId: "child-os",
+			// Both EnableCrb and EpelNext are nil - should inherit from parent
+		},
+	}
+
+	result2 := mergeFlavorConfigs(parent, child2)
+
+	// Verify both fields were inherited from parent
+	if result2.AgentImages.EnableCrb == nil || *result2.AgentImages.EnableCrb != true {
+		t.Errorf("Expected EnableCrb to be inherited as true, got %v", result2.AgentImages.EnableCrb)
+	}
+	if result2.AgentImages.EpelNext == nil || *result2.AgentImages.EpelNext != false {
+		t.Errorf("Expected EpelNext to be inherited as false, got %v", result2.AgentImages.EpelNext)
+	}
+
+	// Verify OsId was overridden
+	if result2.AgentImages.OsId != "child-os" {
+		t.Errorf("Expected OsId to be overridden to 'child-os', got '%s'", result2.AgentImages.OsId)
+	}
+
+	// Test 3: Child explicitly sets both fields
+	epelNextTrue := true
+	child3 := &FlavorConfig{
+		Name: "child3",
+		AgentImages: AgentImagesConfig{
+			EnableCrb: &enableCrbFalse, // Explicitly false
+			EpelNext:  &epelNextTrue,   // Explicitly true
+		},
+	}
+
+	result3 := mergeFlavorConfigs(parent, child3)
+
+	// Verify both fields were explicitly set by child
+	if result3.AgentImages.EnableCrb == nil || *result3.AgentImages.EnableCrb != false {
+		t.Errorf("Expected EnableCrb to be explicitly false, got %v", result3.AgentImages.EnableCrb)
+	}
+	if result3.AgentImages.EpelNext == nil || *result3.AgentImages.EpelNext != true {
+		t.Errorf("Expected EpelNext to be explicitly true, got %v", result3.AgentImages.EpelNext)
 	}
 }

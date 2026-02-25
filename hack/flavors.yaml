@@ -88,14 +88,14 @@ community-el10:
 
   # Build configuration overrides for el10
   buildImages:
-    goToolset: registry.access.redhat.com/ubi10/go-toolset:1.24.6-latest
-    ubiMinimal: registry.access.redhat.com/ubi10/ubi-minimal:latest
+    goToolset: registry.access.redhat.com/ubi10/go-toolset:1.24.6-1770726582
+    ubiMinimal: registry.access.redhat.com/ubi10/ubi-minimal:10.1-1770726582
     base:
       image: quay.io/flightctl/flightctl-base
-      tag: "10-latest"
+      tag: "10.1-1770726582"
       minimalImage:
         image: registry.access.redhat.com/ubi10/ubi-micro
-        tag: "latest"
+        tag: "10.1-1770726582"
 
   # Service images overrides for el10
   images:
@@ -196,23 +196,23 @@ redhat-el10:
 
   # Build configuration overrides for el10
   buildImages:
-    goToolset: registry.access.redhat.com/ubi10/go-toolset:1.24.6-latest
-    ubiMinimal: registry.access.redhat.com/ubi10/ubi-minimal:latest
+    goToolset: registry.access.redhat.com/ubi10/go-toolset:1.24.6-1770726582
+    ubiMinimal: registry.access.redhat.com/ubi10/ubi-minimal:10.1-1770726582
     base:
       image: registry.redhat.io/rhel10/flightctl-base
-      tag: "latest"
+      tag: "10.1-1770726582"
       minimalImage:
         image: registry.access.redhat.com/ubi10/ubi-micro
-        tag: "latest"
+        tag: "10.1-1770726582"
 
   # Service images overrides for el10
   images:
     db:
       image: registry.redhat.io/rhel10/postgresql-16
-      tag: latest
+      tag: "10.1-1770726582"
     kv:
       image: registry.redhat.io/rhel10/redis-7
-      tag: latest
+      tag: "10.1-1770726582"
 
   # Agent image configuration for el10
   agentImages:

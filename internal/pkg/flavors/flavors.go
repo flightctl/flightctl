@@ -93,6 +93,15 @@ func ListFlavors(flavorsFile, overrideFile string) ([]string, error) {
 
 // processFlavorInheritance resolves inheritance for a flavor
 func processFlavorInheritance(name string, rawFlavor *FlavorConfigRaw, allFlavors FlavorsMap) (*FlavorConfig, error) {
+	return processFlavorInheritanceWithStack(name, rawFlavor, allFlavors, make(map[string]bool))
+}
+
+func processFlavorInheritanceWithStack(name string, rawFlavor *FlavorConfigRaw, allFlavors FlavorsMap, visited map[string]bool) (*FlavorConfig, error) {
+	// Check for circular inheritance
+	if visited[name] {
+		return nil, fmt.Errorf("circular inheritance detected involving flavor %s", name)
+	}
+
 	if rawFlavor.Inherit == "" {
 		// No inheritance, return as-is
 		return &rawFlavor.FlavorConfig, nil
@@ -104,11 +113,17 @@ func processFlavorInheritance(name string, rawFlavor *FlavorConfigRaw, allFlavor
 		return nil, fmt.Errorf("parent flavor %s not found for flavor %s", rawFlavor.Inherit, name)
 	}
 
+	// Add current flavor to visited set
+	visited[name] = true
+
 	// Recursively process parent (in case it also inherits)
-	processedParent, err := processFlavorInheritance(rawFlavor.Inherit, parent, allFlavors)
+	processedParent, err := processFlavorInheritanceWithStack(rawFlavor.Inherit, parent, allFlavors, visited)
 	if err != nil {
 		return nil, err
 	}
+
+	// Remove current flavor from visited set (backtrack)
+	delete(visited, name)
 
 	// Merge parent with current flavor
 	result := mergeFlavorConfigs(processedParent, &rawFlavor.FlavorConfig)
@@ -122,7 +137,41 @@ func mergeFlavorConfigs(parent, child *FlavorConfig) *FlavorConfig {
 	// Copy parent first
 	*result = *parent
 
+	// Deep copy map fields to avoid shared references
+	deepCopyMaps(result, parent)
+
 	// Override with child values where they exist
+	mergeBasicFields(result, child)
+	mergeAnnotations(result, child)
+	mergeBuildImages(result, child)
+	mergeImages(result, child)
+	mergeAgentImages(result, child)
+	mergeTimeouts(result, child)
+
+	return result
+}
+
+// deepCopyMaps creates new maps to avoid shared references
+func deepCopyMaps(result, parent *FlavorConfig) {
+	// Copy Annotations
+	if parent.Annotations != nil {
+		result.Annotations = make(map[string]string)
+		for k, v := range parent.Annotations {
+			result.Annotations[k] = v
+		}
+	}
+
+	// Copy Images
+	if parent.Images != nil {
+		result.Images = make(map[string]ImageConfig)
+		for k, v := range parent.Images {
+			result.Images[k] = v
+		}
+	}
+}
+
+// mergeBasicFields merges basic string fields
+func mergeBasicFields(result, child *FlavorConfig) {
 	if child.Name != "" {
 		result.Name = child.Name
 	}
@@ -135,16 +184,22 @@ func mergeFlavorConfigs(parent, child *FlavorConfig) *FlavorConfig {
 	if child.Icon != "" {
 		result.Icon = child.Icon
 	}
+}
 
-	// Merge annotations
-	if result.Annotations == nil {
-		result.Annotations = make(map[string]string)
+// mergeAnnotations merges annotation maps
+func mergeAnnotations(result, child *FlavorConfig) {
+	if child.Annotations != nil {
+		if result.Annotations == nil {
+			result.Annotations = make(map[string]string)
+		}
+		for k, v := range child.Annotations {
+			result.Annotations[k] = v
+		}
 	}
-	for k, v := range child.Annotations {
-		result.Annotations[k] = v
-	}
+}
 
-	// Merge build images
+// mergeBuildImages merges build image configuration
+func mergeBuildImages(result, child *FlavorConfig) {
 	if child.BuildImages.GoToolset != "" {
 		result.BuildImages.GoToolset = child.BuildImages.GoToolset
 	}
@@ -163,41 +218,51 @@ func mergeFlavorConfigs(parent, child *FlavorConfig) *FlavorConfig {
 	if child.BuildImages.Base.MinimalImage.Tag != "" {
 		result.BuildImages.Base.MinimalImage.Tag = child.BuildImages.Base.MinimalImage.Tag
 	}
+}
 
-	// Merge images
-	if result.Images == nil {
-		result.Images = make(map[string]ImageConfig)
-	}
-	for k, v := range child.Images {
-		if existing, exists := result.Images[k]; exists {
-			// Merge individual image config
-			merged := existing
-			if v.Image != "" {
-				merged.Image = v.Image
+// mergeImages merges service image configurations
+func mergeImages(result, child *FlavorConfig) {
+	if child.Images != nil {
+		if result.Images == nil {
+			result.Images = make(map[string]ImageConfig)
+		}
+		for k, v := range child.Images {
+			if existing, exists := result.Images[k]; exists {
+				// Merge individual image config
+				merged := existing
+				if v.Image != "" {
+					merged.Image = v.Image
+				}
+				if v.Tag != "" {
+					merged.Tag = v.Tag
+				}
+				result.Images[k] = merged
+			} else {
+				result.Images[k] = v
 			}
-			if v.Tag != "" {
-				merged.Tag = v.Tag
-			}
-			result.Images[k] = merged
-		} else {
-			result.Images[k] = v
 		}
 	}
+}
 
-	// Override agent images where specified
+// mergeAgentImages merges agent image configuration with pointer boolean handling
+func mergeAgentImages(result, child *FlavorConfig) {
 	if child.AgentImages.OsId != "" {
 		result.AgentImages.OsId = child.AgentImages.OsId
 	}
 	if child.AgentImages.DeviceBaseImage != "" {
 		result.AgentImages.DeviceBaseImage = child.AgentImages.DeviceBaseImage
 	}
-	// For boolean fields, we need to check if they were explicitly set
-	// This is a limitation of Go - we can't distinguish between false and unset
-	// For now, we'll always take the child value
-	result.AgentImages.EnableCrb = child.AgentImages.EnableCrb
-	result.AgentImages.EpelNext = child.AgentImages.EpelNext
+	// Handle pointer boolean fields properly - nil means inherit from parent
+	if child.AgentImages.EnableCrb != nil {
+		result.AgentImages.EnableCrb = child.AgentImages.EnableCrb
+	}
+	if child.AgentImages.EpelNext != nil {
+		result.AgentImages.EpelNext = child.AgentImages.EpelNext
+	}
+}
 
-	// Override timeouts where specified
+// mergeTimeouts merges timeout configurations
+func mergeTimeouts(result, child *FlavorConfig) {
 	if child.Timeouts.DB != 0 {
 		result.Timeouts.DB = child.Timeouts.DB
 	}
@@ -207,8 +272,6 @@ func mergeFlavorConfigs(parent, child *FlavorConfig) *FlavorConfig {
 	if child.Timeouts.Migration != 0 {
 		result.Timeouts.Migration = child.Timeouts.Migration
 	}
-
-	return result
 }
 
 // GetFlavorImageTag returns the image and tag for a specific service in a flavor
