@@ -247,9 +247,9 @@ func TestGetBuildImageReference(t *testing.T) {
 	}
 
 	tests := []struct {
-		imageName    string
-		expectedRef  string
-		expectError  bool
+		imageName   string
+		expectedRef string
+		expectError bool
 	}{
 		{"goToolset", "registry.example.com/go:1.24", false},
 		{"ubiMinimal", "registry.example.com/ubi:minimal", false},
