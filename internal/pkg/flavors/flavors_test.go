@@ -45,7 +45,7 @@ community-el10:
     enableCrb: true
 `
 
-	err := os.WriteFile(flavorsFile, []byte(testYAML), 0644)
+	err := os.WriteFile(flavorsFile, []byte(testYAML), 0600)
 	if err != nil {
 		t.Fatalf("Failed to create test flavors file: %v", err)
 	}
@@ -159,7 +159,7 @@ test-flavor:
       tag: v1.0.0
 `
 
-	err := os.WriteFile(flavorsFile, []byte(testYAML), 0644)
+	err := os.WriteFile(flavorsFile, []byte(testYAML), 0600)
 	if err != nil {
 		t.Fatalf("Failed to create test flavors file: %v", err)
 	}
@@ -194,7 +194,7 @@ flavor-c:
   name: C
 `
 
-	err := os.WriteFile(flavorsFile, []byte(testYAML), 0644)
+	err := os.WriteFile(flavorsFile, []byte(testYAML), 0600)
 	if err != nil {
 		t.Fatalf("Failed to create test flavors file: %v", err)
 	}
@@ -334,7 +334,7 @@ flavor-b:
   name: B
 `
 
-	err := os.WriteFile(flavorsFile, []byte(testYAML), 0644)
+	err := os.WriteFile(flavorsFile, []byte(testYAML), 0600)
 	if err != nil {
 		t.Fatalf("Failed to create test flavors file: %v", err)
 	}
@@ -391,12 +391,12 @@ downstream-flavor:
 `
 
 	// Write test files
-	err := os.WriteFile(flavorsFile, []byte(baseFlavorsYAML), 0644)
+	err := os.WriteFile(flavorsFile, []byte(baseFlavorsYAML), 0600)
 	if err != nil {
 		t.Fatalf("Failed to create test flavors file: %v", err)
 	}
 
-	err = os.WriteFile(overrideFile, []byte(overrideFlavorsYAML), 0644)
+	err = os.WriteFile(overrideFile, []byte(overrideFlavorsYAML), 0600)
 	if err != nil {
 		t.Fatalf("Failed to create test override file: %v", err)
 	}
@@ -509,12 +509,12 @@ test-flavor:
       tag: v2.0
 `
 
-	err := os.WriteFile(flavorsFile, []byte(baseFlavors), 0644)
+	err := os.WriteFile(flavorsFile, []byte(baseFlavors), 0600)
 	if err != nil {
 		t.Fatalf("Failed to create test flavors file: %v", err)
 	}
 
-	err = os.WriteFile(overrideFile, []byte(overrideFlavors), 0644)
+	err = os.WriteFile(overrideFile, []byte(overrideFlavors), 0600)
 	if err != nil {
 		t.Fatalf("Failed to create test override file: %v", err)
 	}
@@ -566,12 +566,12 @@ flavor-c:
   name: C
 `
 
-	err := os.WriteFile(flavorsFile, []byte(baseFlavors), 0644)
+	err := os.WriteFile(flavorsFile, []byte(baseFlavors), 0600)
 	if err != nil {
 		t.Fatalf("Failed to create test flavors file: %v", err)
 	}
 
-	err = os.WriteFile(overrideFile, []byte(overrideFlavors), 0644)
+	err = os.WriteFile(overrideFile, []byte(overrideFlavors), 0600)
 	if err != nil {
 		t.Fatalf("Failed to create test override file: %v", err)
 	}
