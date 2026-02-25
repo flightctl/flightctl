@@ -69,7 +69,7 @@ Verification:
 
    You should see output showing healthy targets for both the API and Telemetry Gateway.
 
-3. Access the Grafana UI at `https://<your-host>:3000` with username `admin` and password `admin`.
+3. Access the Grafana UI at `https://<your-host>:3000` with username `admin` and password `admin` (note that older installations used the default password `defaultadmin`).
 
 4. Navigate to **Dashboards** in the left sidebar. You should see:
    - **Flight Control API Dashboard** - Shows API server metrics, database performance, and agent connectivity
