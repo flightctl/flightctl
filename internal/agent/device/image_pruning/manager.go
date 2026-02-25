@@ -27,6 +27,8 @@ var _ Manager = (*manager)(nil)
 const (
 	// ReferencesFileName is the name of the file that stores image and artifact references
 	ReferencesFileName = "image-artifact-references.json"
+	// PruneRetryTimeout is how long we keep requesting prune after removal failures before giving up.
+	PruneRetryTimeout = 5 * time.Minute
 )
 
 // RefType constants for tracking what pulled each image
@@ -51,8 +53,10 @@ type Manager interface {
 	// This is called when the agent receives a SIGHUP signal to reload configuration.
 	ReloadConfig(ctx context.Context, cfg *config.Config) error
 
-	// PrunePending indicates whether a prune operation is pending due to config change.
+	// PrunePending indicates whether a prune operation is pending (should run in the next cycle).
 	PrunePending() bool
+	// RequestPrune marks that prune should run in the next reconcile cycle and records the timestamp for retry timeout.
+	RequestPrune()
 }
 
 // ImagePruningConfig holds configuration for image pruning operations.
@@ -72,6 +76,7 @@ type manager struct {
 	config              atomic.Pointer[ImagePruningConfig]
 	dataDir             string
 	prunePending        atomic.Bool
+	prunePendingSince   atomic.Pointer[time.Time] // when prune was first requested (for retry timeout); nil if not set
 }
 
 // New creates a new pruning manager instance.
@@ -109,10 +114,42 @@ func New(
 	return ret
 }
 
+// RequestPrune marks that prune should run in the next reconcile cycle and records the timestamp for retry timeout.
+func (m *manager) RequestPrune() {
+	if !lo.FromPtr(m.config.Load().Enabled) {
+		return
+	}
+	m.prunePending.Store(true)
+	m.prunePendingSince.Store(lo.ToPtr(time.Now()))
+}
+
+func (m *manager) resetPruneRequest() {
+	m.prunePending.Store(false)
+	m.prunePendingSince.Store(nil)
+}
+
 // Prune removes unused container images and OCI artifacts after successful spec reconciliation.
 // It preserves images required for current and desired operations.
+// Prune runs only when prune is marked pending (RequestPrune or ReloadConfig); on entry the pending flag
+// is cleared if the retry timeout has passed. On exit the pending flag is cleared if there were no removal failures.
 func (m *manager) Prune(ctx context.Context) error {
-	m.prunePending.Store(false)
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if !m.prunePending.Load() {
+		return nil
+	}
+	since := m.prunePendingSince.Load()
+	if since != nil && time.Since(*since) > PruneRetryTimeout {
+		m.resetPruneRequest()
+	}
+	var hasRemovalErrors bool
+	defer func() {
+		if !hasRemovalErrors {
+			m.resetPruneRequest()
+		}
+	}()
+
 	if !lo.FromPtr(m.config.Load().Enabled) {
 		m.log.Debug("Image pruning is disabled, skipping")
 		return nil
@@ -138,28 +175,29 @@ func (m *manager) Prune(ctx context.Context) error {
 			len(eligible.Images), len(eligible.Artifacts), len(eligible.CRI), len(eligible.Helm))
 
 		// Remove eligible items by type, tracking which ones were successfully removed
-		removedImages, removedImageRefs, err := m.removeEligibleImages(ctx, eligible.Images)
+		removedImages, removedImageRefs, hasImageRemovalErrors, err := m.removeEligibleImages(ctx, eligible.Images)
 		if err != nil {
 			m.log.Warnf("Error during podman image removal: %v", err)
 		}
 		allRemovedRefs = append(allRemovedRefs, removedImageRefs...)
 
-		removedArtifacts, removedArtifactRefs, err := m.removeEligibleArtifacts(ctx, eligible.Artifacts)
+		removedArtifacts, removedArtifactRefs, hasArtifactRemovalErrors, err := m.removeEligibleArtifacts(ctx, eligible.Artifacts)
 		if err != nil {
 			m.log.Warnf("Error during artifact removal: %v", err)
 		}
 		allRemovedRefs = append(allRemovedRefs, removedArtifactRefs...)
 
-		removedCRI, removedCRIRefs, err := m.removeEligibleCRIImages(ctx, eligible.CRI)
+		removedCRI, removedCRIRefs, hasCriRemovalErrors, err := m.removeEligibleCRIImages(ctx, eligible.CRI)
 		if err != nil {
 			m.log.Warnf("Error during CRI image removal: %v", err)
 		}
 		allRemovedRefs = append(allRemovedRefs, removedCRIRefs...)
 
-		removedHelm, removedHelmRefs, err := m.removeEligibleHelmCharts(eligible.Helm)
+		removedHelm, removedHelmRefs, hasHelmRemovalErrors, err := m.removeEligibleHelmCharts(eligible.Helm)
 		if err != nil {
 			m.log.Warnf("Error during helm chart removal: %v", err)
 		}
+		hasRemovalErrors = hasImageRemovalErrors || hasArtifactRemovalErrors || hasCriRemovalErrors || hasHelmRemovalErrors
 		allRemovedRefs = append(allRemovedRefs, removedHelmRefs...)
 
 		m.log.Infof("Pruning complete: removed %d/%d podman images, %d/%d artifacts, %d/%d CRI images, %d/%d helm charts",
@@ -208,13 +246,17 @@ func (m *manager) ReloadConfig(ctx context.Context, cfg *config.Config) error {
 	}
 
 	prev := m.config.Swap(&cfg.ImagePruning)
-
+	prevEnabled := lo.FromPtr(prev.Enabled)
+	enabled := lo.FromPtr(cfg.ImagePruning.Enabled)
 	// Update the config with the new values
-	if lo.FromPtr(cfg.ImagePruning.Enabled) && !lo.FromPtr(prev.Enabled) {
-		m.prunePending.Store(true)
+	switch {
+	case enabled && !prevEnabled:
+		m.RequestPrune()
+	case !enabled:
+		m.resetPruneRequest()
 	}
 
-	m.log.Infof("Image pruning config reloaded: enabled=%v", lo.FromPtr(cfg.ImagePruning.Enabled))
+	m.log.Infof("Image pruning config reloaded: enabled=%v", enabled)
 	return nil
 }
 
@@ -1170,9 +1212,9 @@ func (m *manager) checkRefExists(ctx context.Context, ref ImageRef) bool {
 }
 
 // removeEligibleImages removes the list of eligible images from Podman storage.
-// It returns the count of successfully removed images, the list of successfully removed image references, and any error encountered.
-// Errors during individual removals are logged but don't stop the process.
-func (m *manager) removeEligibleImages(ctx context.Context, eligibleImages []ImageRef) (int, []ImageRef, error) {
+// Image does not exist is not considered a failure. Errors during individual removals are logged but don't stop the process.
+// Returns the count of removed images, removed refs, whether there were any removal failures, and an error only if all removals failed.
+func (m *manager) removeEligibleImages(ctx context.Context, eligibleImages []ImageRef) (int, []ImageRef, bool, error) {
 	var removedCount int
 	var removedRefs []ImageRef
 	var removalErrors []error
@@ -1180,7 +1222,7 @@ func (m *manager) removeEligibleImages(ctx context.Context, eligibleImages []Ima
 	for _, ref := range eligibleImages {
 		podmanClient, err := m.podmanClientFactory(ref.Owner)
 		if err != nil {
-			return 0, nil, fmt.Errorf("constructing podman client: %w", err)
+			return 0, nil, false, fmt.Errorf("constructing podman client: %w", err)
 		}
 		// Check if image exists before attempting removal
 		imageExists := podmanClient.ImageExists(ctx, ref.Image)
@@ -1199,7 +1241,7 @@ func (m *manager) removeEligibleImages(ctx context.Context, eligibleImages []Ima
 
 	// Return error only if all removals failed
 	if len(removalErrors) == len(eligibleImages) && len(eligibleImages) > 0 {
-		return removedCount, removedRefs, fmt.Errorf("all image removals failed: %d errors", len(removalErrors))
+		return removedCount, removedRefs, true, fmt.Errorf("all image removals failed: %d errors", len(removalErrors))
 	}
 
 	// Log summary if there were any failures
@@ -1207,13 +1249,12 @@ func (m *manager) removeEligibleImages(ctx context.Context, eligibleImages []Ima
 		m.log.Warnf("Image pruning completed with %d failures out of %d attempts", len(removalErrors), len(eligibleImages))
 	}
 
-	return removedCount, removedRefs, nil
+	return removedCount, removedRefs, len(removalErrors) > 0, nil
 }
 
 // removeEligibleArtifacts removes the list of eligible artifacts from Podman storage.
-// It returns the count of successfully removed artifacts, the list of successfully removed artifact references, and any error encountered.
-// Errors during individual removals are logged but don't stop the process.
-func (m *manager) removeEligibleArtifacts(ctx context.Context, eligibleArtifacts []ImageRef) (int, []ImageRef, error) {
+// "Artifact does not exist" is not considered a failure. Returns an error if any erase fails so the caller can retry via PrunePending.
+func (m *manager) removeEligibleArtifacts(ctx context.Context, eligibleArtifacts []ImageRef) (int, []ImageRef, bool, error) {
 	var removedCount int
 	var removedRefs []ImageRef
 	var removalErrors []error
@@ -1221,7 +1262,7 @@ func (m *manager) removeEligibleArtifacts(ctx context.Context, eligibleArtifacts
 	for _, ref := range eligibleArtifacts {
 		podmanClient, err := m.podmanClientFactory(ref.Owner)
 		if err != nil {
-			return 0, nil, fmt.Errorf("constructing podman client: %w", err)
+			return 0, nil, false, fmt.Errorf("constructing podman client: %w", err)
 		}
 		// Check if artifact exists before attempting removal
 		artifactExists := podmanClient.ArtifactExists(ctx, ref.Image)
@@ -1240,7 +1281,7 @@ func (m *manager) removeEligibleArtifacts(ctx context.Context, eligibleArtifacts
 
 	// Return error only if all removals failed
 	if len(removalErrors) == len(eligibleArtifacts) && len(eligibleArtifacts) > 0 {
-		return removedCount, removedRefs, fmt.Errorf("all artifact removals failed: %d errors", len(removalErrors))
+		return removedCount, removedRefs, true, fmt.Errorf("all artifact removals failed: %d errors", len(removalErrors))
 	}
 
 	// Log summary if there were any failures
@@ -1248,7 +1289,7 @@ func (m *manager) removeEligibleArtifacts(ctx context.Context, eligibleArtifacts
 		m.log.Warnf("Artifact pruning completed with %d failures out of %d attempts", len(removalErrors), len(eligibleArtifacts))
 	}
 
-	return removedCount, removedRefs, nil
+	return removedCount, removedRefs, len(removalErrors) > 0, nil
 }
 
 // removeEligibleCRIImages removes the list of eligible CRI images.
@@ -1257,7 +1298,7 @@ func (m *manager) removeEligibleArtifacts(ctx context.Context, eligibleArtifacts
 // After helm uninstall, removal may fail with "image is in use" while the
 // kubelet is still terminating containers. These are retried on the next
 // upgrade cycle or cleaned up by kubelet image GC.
-func (m *manager) removeEligibleCRIImages(ctx context.Context, eligibleImages []ImageRef) (int, []ImageRef, error) {
+func (m *manager) removeEligibleCRIImages(ctx context.Context, eligibleImages []ImageRef) (int, []ImageRef, bool, error) {
 	var removedCount int
 	var removedRefs []ImageRef
 	var removalErrors []error
@@ -1279,7 +1320,7 @@ func (m *manager) removeEligibleCRIImages(ctx context.Context, eligibleImages []
 
 	// Return error only if all removals failed
 	if len(removalErrors) == len(eligibleImages) && len(eligibleImages) > 0 {
-		return removedCount, removedRefs, fmt.Errorf("all CRI image removals failed: %d errors", len(removalErrors))
+		return removedCount, removedRefs, true, fmt.Errorf("all CRI image removals failed: %d errors", len(removalErrors))
 	}
 
 	// Log summary if there were any failures
@@ -1287,13 +1328,13 @@ func (m *manager) removeEligibleCRIImages(ctx context.Context, eligibleImages []
 		m.log.Warnf("CRI image pruning completed with %d failures out of %d attempts", len(removalErrors), len(eligibleImages))
 	}
 
-	return removedCount, removedRefs, nil
+	return removedCount, removedRefs, len(removalErrors) > 0, nil
 }
 
 // removeEligibleHelmCharts removes the list of eligible Helm charts from the cache.
-// It returns the count of successfully removed charts, the list of successfully removed chart references, and any error encountered.
-// Errors during individual removals are logged but don't stop the process.
-func (m *manager) removeEligibleHelmCharts(eligibleCharts []ImageRef) (int, []ImageRef, error) {
+// Chart not in cache or not resolved is not considered a failure. Errors during individual removals are logged but don't stop the process.
+// Returns the count of removed charts, removed refs, whether there were any removal failures, and an error only if all removals failed.
+func (m *manager) removeEligibleHelmCharts(eligibleCharts []ImageRef) (int, []ImageRef, bool, error) {
 	var removedCount int
 	var removedRefs []ImageRef
 	var removalErrors []error
@@ -1322,7 +1363,7 @@ func (m *manager) removeEligibleHelmCharts(eligibleCharts []ImageRef) (int, []Im
 
 	// Return error only if all removals failed
 	if len(removalErrors) == len(eligibleCharts) && len(eligibleCharts) > 0 {
-		return removedCount, removedRefs, fmt.Errorf("all Helm chart removals failed: %d errors", len(removalErrors))
+		return removedCount, removedRefs, true, fmt.Errorf("all Helm chart removals failed: %d errors", len(removalErrors))
 	}
 
 	// Log summary if there were any failures
@@ -1330,5 +1371,5 @@ func (m *manager) removeEligibleHelmCharts(eligibleCharts []ImageRef) (int, []Im
 		m.log.Warnf("Helm chart pruning completed with %d failures out of %d attempts", len(removalErrors), len(eligibleCharts))
 	}
 
-	return removedCount, removedRefs, nil
+	return removedCount, removedRefs, len(removalErrors) > 0, nil
 }

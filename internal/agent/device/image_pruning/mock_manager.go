@@ -96,3 +96,15 @@ func (mr *MockManagerMockRecorder) ReloadConfig(ctx, cfg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReloadConfig", reflect.TypeOf((*MockManager)(nil).ReloadConfig), ctx, cfg)
 }
+
+// RequestPrune mocks base method.
+func (m *MockManager) RequestPrune() {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "RequestPrune")
+}
+
+// RequestPrune indicates an expected call of RequestPrune.
+func (mr *MockManagerMockRecorder) RequestPrune() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RequestPrune", reflect.TypeOf((*MockManager)(nil).RequestPrune))
+}
