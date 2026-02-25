@@ -112,20 +112,45 @@ spec:
               NAMESPACE={{ default .Release.Namespace .Values.global.internalNamespace }}
               TIMEOUT={{ default 120 .Values.upgradeHooks.scaleDown.timeoutSeconds }}
               echo "Pre-upgrade scale to zero started in namespace: ${NAMESPACE} (timeout=${TIMEOUT}s)"
+
               DEPLOYMENTS="{{- range $idx, $d := $deploymentsToScale -}}{{ if $idx }} {{ end }}{{ $d }}{{- end }}"
               for dep in ${DEPLOYMENTS}; do
-                echo "Scaling ${dep} to 0 replicas..."
-                oc scale deployment/${dep} -n "${NAMESPACE}" --replicas=0 || true
-                echo "Waiting for ${dep} to scale down..."
-                oc rollout status deployment/${dep} -n "${NAMESPACE}" --watch=true --timeout="${TIMEOUT}s" || true
-                status=$(oc get deployment ${dep} -n "${NAMESPACE}" -o jsonpath='{.status.replicas},{.status.readyReplicas},{.status.updatedReplicas}' 2>/dev/null || echo ",,")
-                set -- $(printf "%s" "$status" | tr ',' ' ')
-                replicas=${1:-0}
-                ready=${2:-0}
-                updated=${3:-0}
-                echo "${dep} status: replicas=${replicas}, ready=${ready}, updated=${updated}"
+                if oc get deployment ${dep} -n "${NAMESPACE}" >/dev/null 2>&1; then
+                  echo "Scaling ${dep} to 0 replicas..."
+                  if oc scale deployment/${dep} -n "${NAMESPACE}" --replicas=0; then
+                    # Wait for scale-down
+                    start_time=$(date +%s)
+                    while true; do
+                      current_time=$(date +%s)
+                      elapsed=$((current_time - start_time))
+
+                      if [ $elapsed -ge $TIMEOUT ]; then
+                        echo "TIMEOUT: ${dep} did not scale down in ${TIMEOUT}s"
+                        break
+                      fi
+
+                      # Check if fully scaled down
+                      status=$(oc get deployment ${dep} -n "${NAMESPACE}" -o jsonpath='{.status.replicas},{.status.readyReplicas},{.status.updatedReplicas},{.status.availableReplicas}' 2>/dev/null || echo ",,,")
+                      set -- $(printf "%s" "$status" | tr ',' ' ')
+                      replicas=${1:-0}
+                      ready=${2:-0}
+                      available=${4:-0}
+
+                      if [ "${replicas:-0}" = "0" ] && [ "${ready:-0}" = "0" ] && [ "${available:-0}" = "0" ]; then
+                        echo "Successfully scaled down ${dep}"
+                        break
+                      fi
+
+                      sleep 2
+                    done
+                  else
+                    echo "ERROR: Failed to scale ${dep}"
+                    exit 1
+                  fi
+                else
+                  echo "Deployment ${dep} does not exist, skipping"
+                fi
               done
-              echo "Scale-to-zero steps finished."
 {{- end }}
 
 

@@ -75,6 +75,9 @@ type RendererConfig struct {
 	Prometheus         ImageConfig `mapstructure:"prometheus"`
 	TelemetryGateway   ImageConfig `mapstructure:"telemetry-gateway"`
 	UserinfoProxy      ImageConfig `mapstructure:"userinfo-proxy"`
+
+	// Minimal image for init containers and lightweight services
+	MinimalImage ImageConfig `mapstructure:"minimal-image"`
 }
 
 func NewRendererConfig() *RendererConfig {

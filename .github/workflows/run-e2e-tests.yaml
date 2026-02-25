@@ -4,7 +4,7 @@ on:
   workflow_call:
     inputs:
       os_id:
-        description: "OS identifier for agent (e.g., cs9-bootc, cs10-bootc)"
+        description: "OS identifier for agent (e.g., el9-bootc, el10-bootc)"
         required: true
         type: string
       backend_type:
@@ -24,6 +24,10 @@ on:
         default: "sanity"
       tag:
         description: "Image tag"
+        required: true
+        type: string
+      flavor:
+        description: "Container flavor (el9 or el10)"
         required: true
         type: string
 
@@ -70,16 +74,60 @@ jobs:
         with:
           setup_kvm: yes
 
+      - name: Post-setup verification
+        run: |
+          go version || echo "GO NOT AVAILABLE"
+          docker version || echo "DOCKER NOT AVAILABLE"
+          docker info || echo "DOCKER INFO FAILED"
+          kind version || echo "KIND NOT AVAILABLE"
+          kubectl version --client || echo "KUBECTL NOT AVAILABLE"
+          helm version || echo "HELM NOT AVAILABLE"
+
       - name: Compute base domain
         id: base-domain
         run: |
+          ping -c 1 1.1.1.1 || echo "PING TO 1.1.1.1 FAILED"
+          ip route get 1.1.1.1 || { echo "IP ROUTE FAILED"; exit 1; }
+
           IP=$(ip route get 1.1.1.1 | grep -oP 'src \K\S+')
+
+          if [ -z "$IP" ]; then
+            echo "ERROR - IP EXTRACTION FAILED"
+            echo "IP ROUTE OUTPUT:"
+            ip route get 1.1.1.1
+            exit 1
+          fi
+
+          BASE_DOMAIN="${IP}.nip.io"
           echo "ip=${IP}" >> "$GITHUB_OUTPUT"
-          echo "base_domain=${IP}.nip.io" >> "$GITHUB_OUTPUT"
-          echo "Computed base domain: ${IP}.nip.io"
+          echo "base_domain=${BASE_DOMAIN}" >> "$GITHUB_OUTPUT"
 
       # ========== DEPLOY BACKEND WITH HELM ==========
+      - name: Pre-deployment validation
+        run: |
+          echo "tag: '${{ inputs.tag }}'"
+          echo "base-domain: '${{ steps.base-domain.outputs.base_domain }}'"
+          echo "flavor: '${{ inputs.flavor }}'"
+          echo "ginkgo_node: '${{ matrix.ginkgo_node }}'"
+          echo "display-summary: '${{ matrix.ginkgo_node == 1 }}'"
+
+          echo "Kind config file:"
+          ls -la test/scripts/kind_cluster.yaml || echo "KIND CONFIG NOT FOUND"
+          if [ -f test/scripts/kind_cluster.yaml ]; then
+            cat test/scripts/kind_cluster.yaml
+          fi
+
+          echo "E2E values file:"
+          ls -la deploy/helm/flightctl/values.e2e.yaml || echo "E2E VALUES FILE NOT FOUND"
+          if [ -f deploy/helm/flightctl/values.e2e.yaml ]; then
+            head -20 deploy/helm/flightctl/values.e2e.yaml
+          fi
+
+          pwd
+          ls -la . | head -10
+
       - name: Deploy backend with Helm
+        id: deploy-backend
         uses: ./.github/actions/deploy-backend-with-helm
         with:
           tag: ${{ inputs.tag }}
@@ -89,9 +137,26 @@ jobs:
           kind-config: test/scripts/kind_cluster.yaml
           display-summary: ${{ matrix.ginkgo_node == 1 }}
           wait: false
+          flavor: ${{ inputs.flavor }}
+
+      - name: Post-deployment verification
+        run: |
+          helm list -A || echo "HELM LIST FAILED"
+          kubectl get nodes || echo "GET NODES FAILED"
+          kubectl get namespaces | grep flightctl || echo "NO FLIGHTCTL NAMESPACES"
+          kubectl get pods -A | grep flightctl || echo "NO FLIGHTCTL PODS"
+          kubectl get services -A | grep flightctl || echo "NO FLIGHTCTL SERVICES"
+          kind get clusters || echo "NO KIND CLUSTERS"
 
       # ========== DOWNLOAD E2E TEST ARTIFACTS ==========
+      - name: Debug E2E artifact download parameters
+        run: |
+          echo "os_id: '${{ inputs.os_id }}'"
+          echo "tag: '${{ inputs.tag }}'"
+          echo "pattern: 'agent-*-${{ inputs.os_id }}-${{ inputs.tag }}'"
+
       - name: Download test artifacts
+        id: download-test-artifacts
         uses: actions/download-artifact@v4
         with:
           pattern: agent-*-${{ inputs.os_id }}-${{ inputs.tag }}
@@ -101,24 +166,17 @@ jobs:
       - name: Stage test artifacts
         run: |
           set -euo pipefail
-          echo "Downloaded test artifacts:"
-          tree test-artifacts
+          ls -la test-artifacts || echo "NO TEST-ARTIFACTS DIRECTORY"
+          tree test-artifacts || echo "TREE FAILED - USING LS"
+          find test-artifacts -type f || echo "NO FILES IN TEST-ARTIFACTS"
 
           # Stage agent bundle
           mkdir -p bin/agent-artifacts
-          if [ ! -f "test-artifacts/agent-images-bundle-${{ inputs.os_id }}.tar" ]; then
-            echo "ERROR: Agent bundle not found"
-            exit 1
-          fi
           mv "test-artifacts/agent-images-bundle-${{ inputs.os_id }}.tar" bin/agent-artifacts/
           echo "✓ Agent bundle: bin/agent-artifacts/agent-images-bundle-${{ inputs.os_id }}.tar"
 
           # Stage qcow2
           mkdir -p bin/output/qcow2
-          if [ ! -f "test-artifacts/disk.qcow2" ]; then
-            echo "ERROR: QCOW2 image not found"
-            exit 1
-          fi
           mv "test-artifacts/disk.qcow2" bin/output/qcow2/
           echo "✓ QCOW2 image: bin/output/qcow2/disk.qcow2"
 
@@ -134,6 +192,7 @@ jobs:
         uses: ./.github/actions/wait-for-api-readiness
         with:
           base-domain: ${{ steps.base-domain.outputs.base_domain }}
+          retries: 300
 
       - name: Prepare E2E environment
         env:
@@ -164,7 +223,6 @@ jobs:
           HASH=$(printf '%s' "${{ inputs.ginkgo_label_filter }}" | sha256sum | cut -c1-8)
           echo "hash=${HASH}" >> "$GITHUB_OUTPUT"
           echo "Label filter: ${{ inputs.ginkgo_label_filter }}"
-          echo "Hash: ${HASH}"
 
       - name: Download test discovery
         uses: actions/download-artifact@v4
@@ -200,7 +258,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: junit-results-${{ steps.compute-hash.outputs.hash }}-node-${{ matrix.ginkgo_node }}
+          name: junit-results-${{ inputs.os_id }}-${{ inputs.flavor }}-${{ steps.compute-hash.outputs.hash }}-node-${{ matrix.ginkgo_node }}
           path: reports/junit_e2e_test.xml
           if-no-files-found: warn
           overwrite: true
@@ -212,4 +270,4 @@ jobs:
         with:
           namespace-external: 'flightctl-external'
           namespace-internal: 'flightctl-internal'
-          log-directory: 'e2e-logs-${{ steps.compute-hash.outputs.hash }}-node-${{ matrix.ginkgo_node }}-logs'
+          log-directory: 'e2e-logs-${{ inputs.os_id }}-${{ inputs.flavor }}-${{ steps.compute-hash.outputs.hash }}-node-${{ matrix.ginkgo_node }}-logs'

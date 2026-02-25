@@ -52,6 +52,15 @@ or by checking the running containers with
 sudo podman ps
 ```
 
+## Container OS Compatibility
+
+Flight Control containers are built for different CentOS Stream versions to ensure compatibility with your host environment:
+
+- **EL9 containers**: Default, compatible with RHEL 9, CentOS Stream 9, and Fedora
+- **EL10 containers**: Available for RHEL 10, CentOS Stream 10 environments
+
+The RPM packages automatically select appropriate container versions based on your host OS.
+
 ## Configure Authentication
 
 Before accessing Flight Control (via the UI or CLI), you need to configure authentication for the service. By default, the deployment includes an OIDC provider called [PAM Issuer](configuring-auth/auth-pam.md).

@@ -3,7 +3,7 @@ Description=Flight Control API Initialization
 PartOf=flightctl.target
 
 [Container]
-Image=registry.access.redhat.com/ubi9/ubi-minimal:9.7-1763362218
+Image={{ .MinimalImage.Image }}:{{ .MinimalImage.Tag }}
 ContainerName=flightctl-api-init
 Pull=missing
 Network=flightctl.network

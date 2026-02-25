@@ -6,10 +6,65 @@ ONLY_DB=
 DB_SIZE_PARAMS=
 # If using images from a private registry, specify a path to a Kubernetes Secret yaml for your pull secret (in the flightctl-internal namespace)
 # IMAGE_PULL_SECRET_PATH=
-SQL_VERSION=${SQL_VERSION:-"latest"}
-SQL_IMAGE=${SQL_IMAGE:-"quay.io/sclorg/postgresql-16-c9s"}
-KV_VERSION=${KV_VERSION:-"7.4.1"}
-KV_IMAGE=${KV_IMAGE:-"docker.io/redis"}
+
+# Load container configuration functions
+# shellcheck source=../../hack/container-config.sh
+source "${SCRIPT_DIR}/../../hack/container-config.sh"
+
+# Use FLAVOR parameter (required)
+FLAVOR="${FLAVOR:?FLAVOR environment variable is required}"
+
+# Validate and load flavor configuration from helm chart
+if ! validate_flavor "$FLAVOR"; then
+    exit 1
+fi
+
+if ! load_flavor_config "$FLAVOR"; then
+    exit 1
+fi
+
+# Get database and KV configuration from helm chart config
+CONFIG_FILE="${SCRIPT_DIR}/../../deploy/helm/helm-chart-opts.yaml"
+
+# Determine flavor section (redhat vs community)
+FLAVOR_SECTION="community-${FLAVOR}"
+if grep -q "^redhat-${FLAVOR}:" "$CONFIG_FILE"; then
+    FLAVOR_SECTION="redhat-${FLAVOR}"
+fi
+
+# Parse DB and KV configuration from helm chart using simpler approach
+case "$FLAVOR" in
+    el9)
+        if grep -q "^redhat-el9:" "$CONFIG_FILE"; then
+            # Use redhat-el9 values
+            SQL_IMAGE="registry.redhat.io/rhel9/postgresql-16"
+            SQL_VERSION="9.7-1766414426"
+            KV_IMAGE="registry.redhat.io/rhel9/redis-7"
+            KV_VERSION="9.7-1766414358"
+        else
+            # Use community-el9 values
+            SQL_IMAGE="quay.io/sclorg/postgresql-16-c9s"
+            SQL_VERSION="20250214"
+            KV_IMAGE="quay.io/sclorg/redis-7-c9s"
+            KV_VERSION="20250108"
+        fi
+        ;;
+    el10)
+        if grep -q "^redhat-el10:" "$CONFIG_FILE"; then
+            # Use redhat-el10 values
+            SQL_IMAGE="registry.redhat.io/rhel10/postgresql-16"
+            SQL_VERSION="latest"
+            KV_IMAGE="registry.redhat.io/rhel10/redis-7"
+            KV_VERSION="latest"
+        else
+            # Use community-el10 values
+            SQL_IMAGE="quay.io/sclorg/postgresql-16-c10s"
+            SQL_VERSION="20250214"
+            KV_IMAGE="quay.io/sclorg/valkey-8-c10s"
+            KV_VERSION="20260218"
+        fi
+        ;;
+esac
 
 source "${SCRIPT_DIR}"/functions
 IP=$(get_ext_ip)
@@ -56,11 +111,21 @@ kubectl create namespace flightctl-e2e      --context kind-kind 2>/dev/null || t
 # if we are only deploying the database, we don't need inject the server container
 if [ -z "$ONLY_DB" ]; then
 
+  # Load required flavor-in-tag images
   for suffix in periodic api worker alert-exporter alertmanager-proxy cli-artifacts db-setup telemetry-gateway imagebuilder-api imagebuilder-worker ; do
-    kind_load_image localhost/flightctl-${suffix}:latest
+    echo "Loading flavor-in-tag image: localhost/flightctl-${suffix}:el${EL_VERSION}-latest"
+    if ! podman image exists localhost/flightctl-${suffix}:el${EL_VERSION}-latest; then
+      echo "ERROR: Required image not found: localhost/flightctl-${suffix}:el${EL_VERSION}-latest"
+      echo "This image is needed for helm deployment. Ensure containers were built successfully."
+      exit 1
+    fi
+    kind_load_image localhost/flightctl-${suffix}:el${EL_VERSION}-latest
   done
 
   kind_load_image "${KV_IMAGE}:${KV_VERSION}" keep-tar
+
+  # Load cert-generator image for helm pre-upgrade hooks
+  kind_load_image "quay.io/openshift/origin-cli:4.20.0" keep-tar
 fi
 
 if [ ! -z "$IMAGE_PULL_SECRET_PATH" ]; then

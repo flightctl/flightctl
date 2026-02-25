@@ -6,7 +6,7 @@ global:
 api:
   image:
     image:  localhost/flightctl-api
-    tag: latest
+    tag: el9-latest
   # Disable rate limiting for development
   rateLimit: null
   env:
@@ -16,18 +16,18 @@ cliArtifacts:
   enabled: true
   image:
     image: localhost/flightctl-cli-artifacts
-    tag: latest
+    tag: el9-latest
 worker:
   image:
     image: localhost/flightctl-worker
-    tag: latest
+    tag: el9-latest
   env:
     GORM_TRACE_ENFORCE_FATAL: "true"
     GORM_TRACE_INCLUDE_QUERY_VARIABLES: "true"
 periodic:
   image:
     image: localhost/flightctl-periodic
-    tag: latest
+    tag: el9-latest
   env:
     GORM_TRACE_ENFORCE_FATAL: "true"
     GORM_TRACE_INCLUDE_QUERY_VARIABLES: "true"
@@ -38,36 +38,36 @@ periodic:
 alertExporter:
   image:
     image: localhost/flightctl-alert-exporter
-    tag: latest
+    tag: el9-latest
   env:
     GORM_TRACE_ENFORCE_FATAL: "true"
     GORM_TRACE_INCLUDE_QUERY_VARIABLES: "true"
 alertmanagerProxy:
   image:
     image: localhost/flightctl-alertmanager-proxy
-    tag: latest
+    tag: el9-latest
 ui:
   enabled: false
 
 dbSetup:
   image:
     image: localhost/flightctl-db-setup
-    tag: latest
+    tag: el9-latest
 
 telemetryGateway:
   image:
     image: localhost/flightctl-telemetry-gateway
-    tag: latest
+    tag: el9-latest
 
 imageBuilderApi:
   image:
     image: localhost/flightctl-imagebuilder-api
-    tag: latest
+    tag: el9-latest
 
 imageBuilderWorker:
   image:
     image: localhost/flightctl-imagebuilder-worker
-    tag: latest
+    tag: el9-latest
 
 dev:
   exposeServicesMethod: "nodePort"

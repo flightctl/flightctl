@@ -68,7 +68,11 @@ spec:
                   name: {{ default "flightctl-kv-secret" .Values.kv.passwordSecretName }}
                   key: password
           command:
+{{- if contains "valkey" .Values.kv.image.image }}
+            - "valkey-server"
+{{- else }}
             - "redis-server"
+{{- end }}
             - "/etc/redis/redis.conf"
             - "--requirepass"
             - "$(REDIS_PASSWORD)"

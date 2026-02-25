@@ -82,18 +82,21 @@ Note: On fresh installs, migrations run as a regular Job (not a hook).
 Basic upgrade command:
 
 ```bash
-helm upgrade my-flightctl oci://quay.io/flightctl/charts/flightctl
+helm upgrade --reset-then-reuse-values my-flightctl oci://quay.io/flightctl/charts/flightctl
 ```
 
 Upgrade to a specific chart version:
 
 ```bash
 helm upgrade \
+  --reset-then-reuse-values \
   --version <new-version> \
   my-flightctl oci://quay.io/flightctl/charts/flightctl
 ```
 
 **Best Practices:**
+
+* Use `--reset-then-reuse-values` for upgrades to avoid configuration compatibility issues between chart versions.
 
 * Consider `--atomic` so Helm waits and **automatically rolls back** if the upgrade fails.
 * Before major upgrades, back up the database and configuration to ensure a clean restore point.
@@ -277,11 +280,11 @@ For more detailed configuration options, see the [Values](#values) section below
 | db.name | string | `"flightctl"` | Database name for Flight Control |
 | db.type | string | `"builtin"` | Type of database to use. Can be 'builtin' or 'external'. Only PostgreSQL DB is supported. |
 | dbSetup | object | `{"image":{"image":"quay.io/flightctl/flightctl-db-setup","pullPolicy":"","tag":""},"migration":{"activeDeadlineSeconds":0,"backoffLimit":2147483647},"wait":{"sleep":2,"timeout":60}}` | Database Setup Configuration |
-| dbSetup.image.image | string | `"quay.io/flightctl/flightctl-db-setup"` | Database setup container image |
+| dbSetup.image.image | string | `"quay.io/flightctl/flightctl-db-setup"` | Database setup container image (flavor specified in tag) |
 | dbSetup.image.pullPolicy | string | `""` | Image pull policy for database setup container |
-| dbSetup.image.tag | string | `""` | Database setup image tag |
+| dbSetup.image.tag | string | `""` | Database setup image tag (includes flavor prefix, e.g., "el9-v1.0.0") |
 | dbSetup.migration.activeDeadlineSeconds | int | `0` | Maximum runtime in seconds for the migration Job (0 = no deadline) |
-| dbSetup.migration.backoffLimit | int | `2147483647` | Number of retries for the migration Job on failure  |
+| dbSetup.migration.backoffLimit | int | `2147483647` | Number of retries for the migration Job on failure |
 | dbSetup.wait.sleep | int | `2` | Seconds to sleep between database connection attempts Default sleep interval between connection attempts |
 | dbSetup.wait.timeout | int | `60` | Seconds to wait for database readiness before failing Default timeout for database wait (can be overridden per deployment) |
 | global.additionalPVCLabels | string | `nil` | Additional labels for PVCs. |

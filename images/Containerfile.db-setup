@@ -1,11 +1,14 @@
-FROM registry.access.redhat.com/ubi9/go-toolset:1.24.6-1762373805 as build
+ARG BUILD_IMAGE
+ARG RUNTIME_IMAGE
+ARG EL_VERSION
+
+FROM ${BUILD_IMAGE} as build
 WORKDIR /app
 
 # Switch to root for build operations
 USER 0
 
 # Copy dependencies first (most stable)
-COPY go.* ./
 COPY go.mod go.sum ./
 
 # Download dependencies (cached layer)
@@ -37,16 +40,27 @@ ENV SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT}
 # Use BuildKit cache mounts for Go caching
 RUN --mount=type=cache,target=/opt/app-root/src/.cache/go-build \
     --mount=type=cache,target=/opt/app-root/src/go/pkg/mod \
-    make build-telemetry-gateway
+    make build-db-migrate
 
-FROM quay.io/flightctl/flightctl-base:9.7-1762965531
+FROM ${RUNTIME_IMAGE}
 WORKDIR /app
+
+# Install PostgreSQL client tools needed for migration scripts
+ARG EL_VERSION
+RUN microdnf install -y postgresql gettext && microdnf clean all
+
 LABEL \
-  com.redhat.component="flightctl-telemetry-gateway-container" \
-  description="Flight Control Edge management service, telemetry gateway" \
-  io.k8s.description="Flight Control Edge management service, telemetry gateway" \
-  io.k8s.display-name="Flight Control telemetry gateway" \
-  name="flightctl-telemetry-gateway" \
-  summary="Flight Control Edge management service, telemetry gateway"
-COPY --from=build /app/bin/flightctl-telemetry-gateway .
-CMD ./flightctl-telemetry-gateway
+  com.redhat.component="flightctl-db-setup-container" \
+  description="Flight Control database setup and migration tool" \
+  io.k8s.description="Flight Control database setup and migration tool" \
+  io.k8s.display-name="Flight Control Database Setup" \
+  name="flightctl-db-setup-el${EL_VERSION}" \
+  summary="Flight Control Database Setup Tools (el${EL_VERSION})"
+
+COPY --chmod=0755 --from=build /app/bin/flightctl-db-migrate /usr/local/bin/flightctl-db-migrate
+COPY --from=build /app/deploy ./deploy
+
+# Ensure migration script has execute permissions
+RUN chmod +x /app/deploy/scripts/migration-setup.sh
+
+CMD ["./deploy/scripts/setup_database_users.sh"]

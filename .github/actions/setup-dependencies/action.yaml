@@ -42,7 +42,7 @@ runs:
           protoc --version
           rm -rf protoc.zip
           echo "::endgroup::"
-      
+
       - name: Install bubblewrap for unit tests
         shell: bash
         if: ${{ inputs.unit_tests == 'true' }}
