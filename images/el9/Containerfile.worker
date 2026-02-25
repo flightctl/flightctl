@@ -5,7 +5,6 @@ WORKDIR /app
 USER 0
 
 # Copy dependencies first (most stable)
-COPY go.* ./
 COPY go.mod go.sum ./
 
 # Download dependencies (cached layer)
