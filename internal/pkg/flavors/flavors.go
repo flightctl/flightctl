@@ -51,6 +51,11 @@ func LoadFlavors(flavorsFile, overrideFile string) (map[string]*FlavorConfig, er
 	// Process inheritance
 	processedFlavors := make(map[string]*FlavorConfig)
 	for name, rawFlavor := range rawFlavors {
+		// Check for nil flavor entry
+		if rawFlavor == nil {
+			return nil, fmt.Errorf("flavor %s has nil configuration in YAML", name)
+		}
+
 		processed, err := processFlavorInheritance(name, rawFlavor, rawFlavors)
 		if err != nil {
 			return nil, fmt.Errorf("failed to process flavor %s: %w", name, err)
@@ -97,6 +102,11 @@ func processFlavorInheritance(name string, rawFlavor *FlavorConfigRaw, allFlavor
 }
 
 func processFlavorInheritanceWithStack(name string, rawFlavor *FlavorConfigRaw, allFlavors FlavorsMap, visited map[string]bool) (*FlavorConfig, error) {
+	// Check for nil rawFlavor entry
+	if rawFlavor == nil {
+		return nil, fmt.Errorf("flavor %s has nil configuration", name)
+	}
+
 	// Check for circular inheritance
 	if visited[name] {
 		return nil, fmt.Errorf("circular inheritance detected involving flavor %s", name)
@@ -111,6 +121,11 @@ func processFlavorInheritanceWithStack(name string, rawFlavor *FlavorConfigRaw, 
 	parent, exists := allFlavors[rawFlavor.Inherit]
 	if !exists {
 		return nil, fmt.Errorf("parent flavor %s not found for flavor %s", rawFlavor.Inherit, name)
+	}
+
+	// Check for nil parent flavor entry
+	if parent == nil {
+		return nil, fmt.Errorf("parent flavor %s has nil configuration (referenced by flavor %s)", rawFlavor.Inherit, name)
 	}
 
 	// Add current flavor to visited set

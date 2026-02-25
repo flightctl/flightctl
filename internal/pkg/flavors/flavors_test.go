@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -800,5 +801,47 @@ func TestPointerBooleanInheritance(t *testing.T) {
 	}
 	if result3.AgentImages.EpelNext == nil || *result3.AgentImages.EpelNext != true {
 		t.Errorf("Expected EpelNext to be explicitly true, got %v", result3.AgentImages.EpelNext)
+	}
+}
+
+func TestNilFlavorEntryHandling(t *testing.T) {
+	// Test that nil flavor entries are properly detected and rejected
+
+	// Create a FlavorsMap with a nil entry
+	rawFlavors := make(map[string]*FlavorConfigRaw)
+	rawFlavors["valid-flavor"] = &FlavorConfigRaw{
+		FlavorConfig: FlavorConfig{
+			Name: "Valid Flavor",
+		},
+	}
+	rawFlavors["nil-flavor"] = nil // This should cause an error
+
+	// Test processFlavorInheritance directly with nil rawFlavor
+	_, err := processFlavorInheritance("nil-test", nil, rawFlavors)
+	if err == nil {
+		t.Error("Expected error when processFlavorInheritance called with nil rawFlavor")
+	}
+	expectedMsg := "flavor nil-test has nil configuration"
+	if !strings.Contains(err.Error(), expectedMsg) {
+		t.Errorf("Expected error message to contain '%s', got '%s'", expectedMsg, err.Error())
+	}
+
+	// Test with nil parent flavor
+	rawFlavorsWithNilParent := make(map[string]*FlavorConfigRaw)
+	rawFlavorsWithNilParent["child"] = &FlavorConfigRaw{
+		Inherit: "nil-parent",
+		FlavorConfig: FlavorConfig{
+			Name: "Child Flavor",
+		},
+	}
+	rawFlavorsWithNilParent["nil-parent"] = nil
+
+	_, err = processFlavorInheritance("child", rawFlavorsWithNilParent["child"], rawFlavorsWithNilParent)
+	if err == nil {
+		t.Error("Expected error when parent flavor is nil")
+	}
+	expectedParentMsg := "parent flavor nil-parent has nil configuration (referenced by flavor child)"
+	if !strings.Contains(err.Error(), expectedParentMsg) {
+		t.Errorf("Expected error message to contain '%s', got '%s'", expectedParentMsg, err.Error())
 	}
 }
