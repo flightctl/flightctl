@@ -18,7 +18,12 @@ func NewListCommand(flavorsFile, overrideFile *string) *cobra.Command {
 			if overrideFile != nil && *overrideFile != "" {
 				override = *overrideFile
 			}
-			flavorNames, err := flavors.ListFlavors(*flavorsFile, override)
+
+			flavorsPath := ""
+			if flavorsFile != nil {
+				flavorsPath = *flavorsFile
+			}
+			flavorNames, err := flavors.ListFlavors(flavorsPath, override)
 			if err != nil {
 				return err
 			}

@@ -17,7 +17,12 @@ func NewValidateCommand(flavorsFile, overrideFile *string) *cobra.Command {
 			if overrideFile != nil && *overrideFile != "" {
 				override = *overrideFile
 			}
-			allFlavors, err := flavors.LoadFlavors(*flavorsFile, override)
+
+			flavorsPath := ""
+			if flavorsFile != nil {
+				flavorsPath = *flavorsFile
+			}
+			allFlavors, err := flavors.LoadFlavors(flavorsPath, override)
 			if err != nil {
 				return fmt.Errorf("validation failed: %w", err)
 			}

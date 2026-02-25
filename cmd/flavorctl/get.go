@@ -23,7 +23,12 @@ func NewGetCommand(flavorsFile, overrideFile *string) *cobra.Command {
 			if overrideFile != nil && *overrideFile != "" {
 				override = *overrideFile
 			}
-			flavor, err := flavors.GetFlavor(flavorName, *flavorsFile, override)
+
+			flavorsPath := ""
+			if flavorsFile != nil {
+				flavorsPath = *flavorsFile
+			}
+			flavor, err := flavors.GetFlavor(flavorName, flavorsPath, override)
 			if err != nil {
 				return err
 			}
