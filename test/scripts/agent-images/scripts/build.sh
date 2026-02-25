@@ -9,6 +9,7 @@ IMAGE_REPO="${IMAGE_REPO:-quay.io/flightctl/flightctl-device}"
 CACHE_IMAGE_REPO="${CACHE_IMAGE_REPO:-quay.io/flightctl-tests/flightctl-device-cache}"
 APP_REPO="${APP_REPO:-quay.io/flightctl}"
 AGENT_OS_ID="${AGENT_OS_ID:-cs9-bootc}"
+FLAVOR_TYPE="${FLAVOR_TYPE:-community}"
 VARIANTS="${VARIANTS:-v2 v3 v4 v5 v6 v7 v8 v9 v10 v11}"
 
 SOURCE_GIT_TAG="${SOURCE_GIT_TAG:-$(${ROOT_DIR}/hack/current-version)}"
@@ -91,6 +92,7 @@ echo "  BUILD_BASE: ${BUILD_BASE}"
 echo "  BUILD_VARIANTS: ${BUILD_VARIANTS}"
 echo "  BUILD_APPS: ${BUILD_APPS}"
 echo "  AGENT_OS_ID: ${AGENT_OS_ID}"
+echo "  FLAVOR_TYPE: ${FLAVOR_TYPE}"
 echo "  TAG: ${TAG}"
 echo "  IMAGE_REPO: ${IMAGE_REPO}"
 echo "  APP_REPO: ${APP_REPO}"
@@ -101,17 +103,65 @@ echo "  CACHE_TTL: ${CACHE_TTL}"
 
 cd "$ROOT_DIR"
 
-flavor_conf="${BASE_DIR}/flavors/${AGENT_OS_ID}.conf"
-
-if [ ! -f "${flavor_conf}" ]; then
-  echo "[ERROR] Flavor configuration not found: ${flavor_conf}" >&2
+# Load flavor configuration using centralized flavor handling
+flavor_vars_script="${ROOT_DIR}/hack/get-flavor-vars.sh"
+if [ ! -f "${flavor_vars_script}" ]; then
+  echo "[ERROR] Flavor variables script not found: ${flavor_vars_script}" >&2
   exit 1
 fi
 
-# shellcheck source=/dev/null
-source "${flavor_conf}"
-: "${OS_ID:?OS_ID must be set in flavor conf}"
-: "${DEVICE_BASE_IMAGE:?DEVICE_BASE_IMAGE must be set in flavor conf}"
+# Determine flavor name from AGENT_OS_ID and FLAVOR_TYPE
+case "${AGENT_OS_ID}" in
+  cs9-bootc)
+    case "${FLAVOR_TYPE}" in
+      community) FLAVOR_NAME="community-el9" ;;
+      redhat) FLAVOR_NAME="redhat-el9" ;;
+      *)
+        echo "[ERROR] Unknown FLAVOR_TYPE: ${FLAVOR_TYPE}" >&2
+        echo "        Supported values: community, redhat" >&2
+        exit 1
+        ;;
+    esac
+    ;;
+  cs10-bootc)
+    case "${FLAVOR_TYPE}" in
+      community) FLAVOR_NAME="community-el10" ;;
+      redhat) FLAVOR_NAME="redhat-el10" ;;
+      *)
+        echo "[ERROR] Unknown FLAVOR_TYPE: ${FLAVOR_TYPE}" >&2
+        echo "        Supported values: community, redhat" >&2
+        exit 1
+        ;;
+    esac
+    ;;
+  *)
+    echo "[ERROR] Unknown AGENT_OS_ID: ${AGENT_OS_ID}" >&2
+    echo "        Supported values: cs9-bootc, cs10-bootc" >&2
+    exit 1
+    ;;
+esac
+
+# Allow direct flavor name override
+if [ -n "${FLAVOR_NAME_OVERRIDE:-}" ]; then
+  FLAVOR_NAME="${FLAVOR_NAME_OVERRIDE}"
+fi
+
+echo "Loading flavor configuration for: ${FLAVOR_NAME}"
+
+# Load flavor variables
+flavor_vars=$(${flavor_vars_script} "${FLAVOR_NAME}" 2>/dev/null || {
+  echo "[ERROR] Failed to load flavor configuration for ${FLAVOR_NAME}" >&2
+  echo "        Available flavors:" >&2
+  ${ROOT_DIR}/bin/flavorctl list 2>/dev/null || echo "        (flavorctl not available)" >&2
+  exit 1
+})
+
+# Source the generated variables
+eval "${flavor_vars}"
+
+# Validate required variables are set
+: "${OS_ID:?OS_ID must be set in flavor configuration}"
+: "${DEVICE_BASE_IMAGE:?DEVICE_BASE_IMAGE must be set in flavor configuration}"
 
 base_img_canonical="${IMAGE_REPO}:base-${OS_ID}-${TAG}"
 base_img_plain="${IMAGE_REPO}:base"

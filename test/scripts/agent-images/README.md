@@ -29,19 +29,32 @@ and RPM source detection (local, COPR, or Brew registry).
 
 ## OS Flavors and Tagging
 
-The build system supports multiple OS flavors defined in `flavors/` directory:
+The build system supports multiple OS flavors defined in the centralized `hack/flavors.yaml` configuration:
 
 - **cs9-bootc** - Based on CentOS Stream 9 bootc (default)
 - **cs10-bootc** - Based on CentOS Stream 10 bootc
 
+Flavor configurations are managed through the `flavorctl` tool and loaded dynamically during builds.
+
 ### Building Different Flavors
 
+Use the `AGENT_OS_ID` and `FLAVOR_TYPE` environment variables:
+
 ```bash
-# Build cs9-bootc images (default)
+# Build cs9-bootc community images (default)
 ./scripts/build.sh --base
 
-# Build cs10-bootc images
+# Build cs10-bootc community images
 AGENT_OS_ID=cs10-bootc ./scripts/build.sh --base
+
+# Build cs9-bootc redhat images
+FLAVOR_TYPE=redhat ./scripts/build.sh --base
+
+# Build cs10-bootc redhat images
+AGENT_OS_ID=cs10-bootc FLAVOR_TYPE=redhat ./scripts/build.sh --base
+
+# Or specify flavor directly
+FLAVOR_NAME_OVERRIDE=redhat-el9 ./scripts/build.sh --base
 ```
 
 ### Image Tagging
@@ -74,9 +87,6 @@ agent-images/
 │   ├── v2/, v3/, ..., v10/   # Each contains Containerfile and variant-specific files
 ├── apps/                  # Application images (Containerfile.<app-name>.<version>)
 ├── common/                # Shared files used by variants/apps
-├── flavors/               # OS flavor configurations (.conf files)
-│   ├── cs9-bootc.conf
-│   └── cs10-bootc.conf
 ├── scripts/               # Build automation scripts
 │   ├── build.sh           # Main build script (base, variants, apps)
 │   ├── build_and_qcow2.sh # Orchestrates parallel builds
