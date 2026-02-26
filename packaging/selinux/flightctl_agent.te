@@ -24,7 +24,7 @@ gen_require(`
     type firewalld_t;
     type node_t;
     type unconfined_t, unconfined_service_t;
-    type shell_exec_t;
+    type shell_exec_t, sudo_exec_t;
     type tpm_device_t;
 
     attribute domain;
@@ -47,6 +47,8 @@ domtrans_pattern(flightctl_agent_t, install_exec_t, install_t)
 domtrans_pattern(flightctl_agent_t, hostname_exec_t, hostname_t)
 # Allow the agent to transition to unconfined for shell sessions (e.g. the console)
 domtrans_pattern(flightctl_agent_t, shell_exec_t, unconfined_t)
+# Allow the agent to transition to unconfined when running commands via sudo.
+domtrans_pattern(flightctl_agent_t, sudo_exec_t, unconfined_t)
 container_runtime_domtrans(flightctl_agent_t)
 
 # Allow the agent to run subprocesses as unconfined_t only for that subprocess. This allows us to
