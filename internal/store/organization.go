@@ -51,21 +51,22 @@ func (s *OrganizationStore) InitialMigration(ctx context.Context) error {
 		return err
 	}
 
+	// Fix for EDM-2751: Use ON CONFLICT to prevent race conditions during concurrent migrations.
+	// Multiple processes may attempt to create the default organization simultaneously.
+	// Using ON CONFLICT DO NOTHING makes this operation idempotent and race-safe.
 	return db.Transaction(func(tx *gorm.DB) error {
-		var count int64
-		if err := tx.Model(&model.Organization{}).Count(&count).Error; err != nil {
-			return err
+		defaultOrg := &model.Organization{
+			ID:          org.DefaultID,
+			ExternalID:  org.DefaultExternalID,
+			DisplayName: org.DefaultDisplayName,
 		}
 
-		// If there are no organizations, create a default one
-		if count == 0 {
-			if err := tx.Create(&model.Organization{
-				ID:          org.DefaultID,
-				ExternalID:  org.DefaultExternalID,
-				DisplayName: org.DefaultDisplayName,
-			}).Error; err != nil {
-				return err
-			}
+		// Insert with ON CONFLICT DO NOTHING to handle concurrent creation attempts
+		if err := tx.Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "id"}},
+			DoNothing: true,
+		}).Create(defaultOrg).Error; err != nil {
+			return err
 		}
 
 		return nil
