@@ -18,7 +18,7 @@ import (
 
 const (
 	promQueryEndpointPath    = "/api/v1/query"
-	promBackendProbeQuery    = "1"
+	promBackendProbeQuery    = "vector(1)"
 	promBackendProbeTimeout  = 10 * time.Second
 	promBackendProbeInterval = 250 * time.Millisecond
 )
@@ -144,7 +144,20 @@ func (h *Harness) PromQuery(baseURL, query string) (PromQueryResponse, error) {
 
 // PromQueryWithToken executes a Prometheus query against a base URL with optional bearer token.
 func (h *Harness) PromQueryWithToken(baseURL, query, bearerToken string) (PromQueryResponse, error) {
+	client := &http.Client{Timeout: fiveSecondTimeout}
+	return h.promQueryWithTokenUsingClient(client, baseURL, query, bearerToken)
+}
+
+// PromQueryWithClientToken executes a Prometheus query using a provided HTTP client.
+func (h *Harness) PromQueryWithClientToken(client *http.Client, baseURL, query, bearerToken string) (PromQueryResponse, error) {
+	return h.promQueryWithTokenUsingClient(client, baseURL, query, bearerToken)
+}
+
+func (h *Harness) promQueryWithTokenUsingClient(client *http.Client, baseURL, query, bearerToken string) (PromQueryResponse, error) {
 	var parsed PromQueryResponse
+	if client == nil {
+		return parsed, fmt.Errorf("http client cannot be nil")
+	}
 	if baseURL == "" {
 		return parsed, fmt.Errorf("baseURL cannot be empty")
 	}
@@ -152,7 +165,6 @@ func (h *Harness) PromQueryWithToken(baseURL, query, bearerToken string) (PromQu
 		return parsed, fmt.Errorf("query cannot be empty")
 	}
 
-	client := &http.Client{Timeout: fiveSecondTimeout}
 	req, err := http.NewRequest(http.MethodGet, baseURL+promQueryEndpointPath, nil)
 	if err != nil {
 		return parsed, err
@@ -393,12 +405,21 @@ func (h *Harness) StartServiceAccess(serviceName string, namespaces []string, re
 // StartFirstAvailableBackendAccess starts access to the first available backend from a candidate list.
 // If a backend requires auth, an OpenShift token is returned.
 func (h *Harness) StartFirstAvailableBackendAccess(backends []ServiceAccessBackend, timeout time.Duration) (string, *http.Client, string, func(), ServiceAccessBackend, error) {
+	return h.StartFirstAvailableBackendAccessWithQuery(backends, promBackendProbeQuery, timeout)
+}
+
+// StartFirstAvailableBackendAccessWithQuery starts access to the first available backend from a candidate list.
+// Backend readiness is validated by running the provided Prometheus query.
+func (h *Harness) StartFirstAvailableBackendAccessWithQuery(backends []ServiceAccessBackend, query string, timeout time.Duration) (string, *http.Client, string, func(), ServiceAccessBackend, error) {
 	var selected ServiceAccessBackend
 	if h == nil {
 		return "", nil, "", nil, selected, fmt.Errorf("harness is nil")
 	}
 	if len(backends) == 0 {
 		return "", nil, "", nil, selected, fmt.Errorf("no backend candidates provided")
+	}
+	if strings.TrimSpace(query) == "" {
+		return "", nil, "", nil, selected, fmt.Errorf("backend readiness query cannot be empty")
 	}
 
 	var lookupErrors []string
@@ -418,7 +439,7 @@ func (h *Harness) StartFirstAvailableBackendAccess(backends []ServiceAccessBacke
 			}
 		}
 
-		if err := h.waitForPrometheusBackendReady(baseURL, token); err != nil {
+		if err := h.waitForPrometheusBackendReady(client, baseURL, token, query); err != nil {
 			lookupErrors = append(lookupErrors, fmt.Sprintf("%s: %v", backend.ServiceName, err))
 			cleanup()
 			continue
@@ -430,15 +451,18 @@ func (h *Harness) StartFirstAvailableBackendAccess(backends []ServiceAccessBacke
 	return "", nil, "", nil, selected, fmt.Errorf("unable to resolve backend from known candidates: %v", lookupErrors)
 }
 
-func (h *Harness) waitForPrometheusBackendReady(baseURL, bearerToken string) error {
+func (h *Harness) waitForPrometheusBackendReady(client *http.Client, baseURL, bearerToken, query string) error {
 	if h == nil {
 		return fmt.Errorf("harness is nil")
+	}
+	if client == nil {
+		return fmt.Errorf("http client is nil")
 	}
 
 	deadline := time.Now().Add(promBackendProbeTimeout)
 	var lastErr error
 	for time.Now().Before(deadline) {
-		_, lastErr = h.PromQueryWithToken(baseURL, promBackendProbeQuery, bearerToken)
+		_, lastErr = h.promQueryWithTokenUsingClient(client, baseURL, query, bearerToken)
 		if lastErr == nil {
 			return nil
 		}
