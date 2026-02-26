@@ -1144,6 +1144,42 @@ func TestBuildAppSummaryInfo(t *testing.T) {
 	}
 }
 
+func TestAggregateAppStatusesDeterministicOrder(t *testing.T) {
+	require := require.New(t)
+
+	makeResult := func(name string, summaryStatus v1beta1.ApplicationsSummaryStatusType) AppStatusResult {
+		return AppStatusResult{
+			Status:  v1beta1.DeviceApplicationStatus{Name: name},
+			Summary: v1beta1.DeviceApplicationsSummaryStatus{Status: summaryStatus},
+		}
+	}
+
+	// Same logical set of apps in two different input orders (simulating non-deterministic map iteration).
+	resultsOrder1 := []AppStatusResult{
+		makeResult("nginx-multi-port-server", v1beta1.ApplicationsSummaryStatusError),
+		makeResult("app-multi-file-artifact-with-image-ref", v1beta1.ApplicationsSummaryStatusDegraded),
+	}
+	resultsOrder2 := []AppStatusResult{
+		makeResult("app-multi-file-artifact-with-image-ref", v1beta1.ApplicationsSummaryStatusDegraded),
+		makeResult("nginx-multi-port-server", v1beta1.ApplicationsSummaryStatusError),
+	}
+
+	statuses1, summary1 := aggregateAppStatuses(resultsOrder1)
+	statuses2, summary2 := aggregateAppStatuses(resultsOrder2)
+
+	require.Len(statuses1, 2)
+	require.Len(statuses2, 2)
+	require.Equal(summary1.Status, summary2.Status)
+	require.NotNil(summary1.Info)
+	require.NotNil(summary2.Info)
+	require.Equal(*summary1.Info, *summary2.Info, "summary Info must be identical regardless of input order")
+
+	// Summary lists errored apps first (sorted by name), then degraded apps (sorted by name).
+	// Here: one error (nginx-multi-port-server), one degraded (app-multi-file-artifact-with-image-ref).
+	expectedInfo := "nginx-multi-port-server is in status Error, app-multi-file-artifact-with-image-ref is in status Degraded"
+	require.Equal(expectedInfo, *summary1.Info, "info must be deterministic: errored then degraded, each sorted by app name")
+}
+
 func TestReduceActions(t *testing.T) {
 	tests := []struct {
 		name     string
