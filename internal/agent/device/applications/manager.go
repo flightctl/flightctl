@@ -3,6 +3,7 @@ package applications
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
@@ -245,6 +246,9 @@ func aggregateAppStatuses(results []AppStatusResult) ([]v1beta1.DeviceApplicatio
 			Status: v1beta1.ApplicationsSummaryStatusNoApplications,
 		}
 	}
+
+	// Sort by app name so status.Applications and summary.Info are deterministic; results order comes from map iteration.
+	sort.Slice(results, func(i, j int) bool { return results[i].Status.Name < results[j].Status.Name })
 
 	statuses := make([]v1beta1.DeviceApplicationStatus, 0, len(results))
 	var overallStatus v1beta1.ApplicationsSummaryStatusType
