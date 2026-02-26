@@ -130,9 +130,16 @@ func (s *OrganizationStore) UpsertMany(ctx context.Context, orgs []*model.Organi
 			return nil, errors.New("display_name is required")
 		}
 	}
-	// On conflict, do nothing (keep existing record)
-	if err := db.Clauses(clause.Expr{
-		SQL: "ON CONFLICT (external_id) WHERE external_id <> '' DO NOTHING",
+	// Fix for EDM-2751: Handle conflicts on both id (primary key) and external_id (unique index)
+	// to prevent race conditions when multiple processes create the same organizations simultaneously.
+	// This ensures idempotent batch creation of organizations (e.g., super admin organizations).
+	if err := db.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "id"}},
+		DoNothing: true,
+	}, clause.OnConflict{
+		Columns:   []clause.Column{{Name: "external_id"}},
+		Where:     clause.Where{Exprs: []clause.Expression{clause.Expr{SQL: "external_id <> ''"}}},
+		DoNothing: true,
 	}).Create(orgs).Error; err != nil {
 		return nil, err
 	}
