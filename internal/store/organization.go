@@ -51,9 +51,6 @@ func (s *OrganizationStore) InitialMigration(ctx context.Context) error {
 		return err
 	}
 
-	// Fix for EDM-2751: Use ON CONFLICT to prevent race conditions during concurrent migrations.
-	// Multiple processes may attempt to create the default organization simultaneously.
-	// Using ON CONFLICT DO NOTHING makes this operation idempotent and race-safe.
 	return db.Transaction(func(tx *gorm.DB) error {
 		defaultOrg := &model.Organization{
 			ID:          org.DefaultID,
@@ -61,7 +58,6 @@ func (s *OrganizationStore) InitialMigration(ctx context.Context) error {
 			DisplayName: org.DefaultDisplayName,
 		}
 
-		// Insert with ON CONFLICT DO NOTHING to handle concurrent creation attempts
 		if err := tx.Clauses(clause.OnConflict{
 			Columns:   []clause.Column{{Name: "id"}},
 			DoNothing: true,
@@ -130,14 +126,6 @@ func (s *OrganizationStore) UpsertMany(ctx context.Context, orgs []*model.Organi
 			return nil, errors.New("display_name is required")
 		}
 	}
-	// Fix for EDM-2751: Handle conflicts on external_id (unique index) to prevent race conditions
-	// when multiple processes create the same organizations simultaneously.
-	// Since external_id is required and uniquely identifies an organization, this ensures
-	// idempotent batch creation of organizations (e.g., super admin organizations).
-	//
-	// Note: GORM and PostgreSQL support only ONE ON CONFLICT clause per INSERT statement.
-	// Using external_id (the natural unique identifier) is sufficient because in race scenarios,
-	// conflicting rows will have identical IDs and external_ids.
 	if err := db.Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "external_id"}},
 		Where:     clause.Where{Exprs: []clause.Expression{clause.Expr{SQL: "external_id <> ''"}}},
@@ -145,8 +133,6 @@ func (s *OrganizationStore) UpsertMany(ctx context.Context, orgs []*model.Organi
 	}).Create(orgs).Error; err != nil {
 		return nil, err
 	}
-	// Now retrieve all the organizations (both newly created and existing ones)
-	// by their external IDs to return the actual database records
 	externalIDs := make([]string, len(orgs))
 	for i, org := range orgs {
 		externalIDs[i] = org.ExternalID

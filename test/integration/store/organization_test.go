@@ -171,12 +171,7 @@ var _ = Describe("OrganizationStore Integration Tests", func() {
 			Expect(orgIDs).ToNot(HaveKey(u1))
 		})
 
-		// Regression test for EDM-2751: Race condition during first-time initialization
 		It("Should prevent race condition when creating default organization on empty table (EDM-2751)", func() {
-			// This test verifies the fix for EDM-2751 where multiple concurrent processes
-			// attempting to create the FIRST default organization would cause duplicate key errors.
-			// This simulates a clean Helm deployment where multiple pods start simultaneously.
-
 			// Create a fresh database with organizations table but NO default organization
 			freshCtx := testutil.StartSpecTracerForGinkgo(suiteCtx)
 			freshLog := flightlog.InitLogs()
