@@ -259,54 +259,41 @@ var _ = Describe("OrganizationStore Integration Tests", func() {
 			Expect(orgs[0].DisplayName).To(Equal("Default"))
 		})
 
-		// Additional test: Verify InitialMigration is idempotent on already-initialized database
-		It("Should handle concurrent InitialMigration calls on initialized database", func() {
-			// This test verifies idempotency - calling InitialMigration multiple times
-			// on an already-initialized database should not cause errors.
-
-			// Run InitialMigration concurrently on the existing database (already has default org)
-			const numConcurrentCalls = 10
-			errChan := make(chan error, numConcurrentCalls)
-
-			for i := 0; i < numConcurrentCalls; i++ {
-				go func() {
-					err := storeInst.Organization().InitialMigration(ctx)
-					errChan <- err
-				}()
-			}
-
-			// Collect all errors
-			errors := make([]error, 0, numConcurrentCalls)
-			for i := 0; i < numConcurrentCalls; i++ {
-				err := <-errChan
-				if err != nil {
-					errors = append(errors, err)
+		// Table-driven test for InitialMigration idempotency on already-initialized database
+		DescribeTable("InitialMigration idempotency on initialized database",
+			func(parallel bool, runs int) {
+				errChan := make(chan error, runs)
+				run := func() {
+					errChan <- storeInst.Organization().InitialMigration(ctx)
 				}
-			}
 
-			// Verify no errors occurred
-			Expect(errors).To(BeEmpty(), "InitialMigration should be idempotent")
+				if parallel {
+					// Execute concurrently
+					for i := 0; i < runs; i++ {
+						go run()
+					}
+				} else {
+					// Execute sequentially
+					for i := 0; i < runs; i++ {
+						run()
+					}
+				}
 
-			// Verify still only one default organization exists
-			orgs, err := storeInst.Organization().List(ctx, store.ListParams{})
-			Expect(err).ToNot(HaveOccurred())
-			Expect(orgs).To(HaveLen(1), "Should still have exactly one default organization")
-			Expect(orgs[0].ID).To(Equal(store.NullOrgId))
-			Expect(orgs[0].ExternalID).To(Equal(org.DefaultExternalID))
-			Expect(orgs[0].DisplayName).To(Equal("Default"))
-		})
+				// Collect and verify no errors occurred
+				for i := 0; i < runs; i++ {
+					Expect(<-errChan).ToNot(HaveOccurred(), "InitialMigration should be idempotent")
+				}
 
-		// Additional test: Verify InitialMigration is idempotent
-		It("Should be idempotent when called multiple times sequentially", func() {
-			// Call InitialMigration again on the existing database
-			err := storeInst.Organization().InitialMigration(ctx)
-			Expect(err).ToNot(HaveOccurred(), "InitialMigration should be idempotent")
-
-			// Verify still only one default organization
-			orgs, err := storeInst.Organization().List(ctx, store.ListParams{})
-			Expect(err).ToNot(HaveOccurred())
-			Expect(orgs).To(HaveLen(1), "Should still have exactly one default organization")
-			Expect(orgs[0].ID).To(Equal(store.NullOrgId))
-		})
+				// Verify still only one default organization exists
+				orgs, err := storeInst.Organization().List(ctx, store.ListParams{})
+				Expect(err).ToNot(HaveOccurred())
+				Expect(orgs).To(HaveLen(1), "Should still have exactly one default organization")
+				Expect(orgs[0].ID).To(Equal(store.NullOrgId))
+				Expect(orgs[0].ExternalID).To(Equal(org.DefaultExternalID))
+				Expect(orgs[0].DisplayName).To(Equal("Default"))
+			},
+			Entry("concurrent calls", true, 10),
+			Entry("sequential calls", false, 1),
+		)
 	})
 })
