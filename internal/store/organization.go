@@ -130,20 +130,21 @@ func (s *OrganizationStore) UpsertMany(ctx context.Context, orgs []*model.Organi
 			return nil, errors.New("display_name is required")
 		}
 	}
-	// Fix for EDM-2751: Handle conflicts on both id (primary key) and external_id (unique index)
-	// to prevent race conditions when multiple processes create the same organizations simultaneously.
-	// This ensures idempotent batch creation of organizations (e.g., super admin organizations).
+	// Fix for EDM-2751: Handle conflicts on external_id (unique index) to prevent race conditions
+	// when multiple processes create the same organizations simultaneously.
+	// Since external_id is required and uniquely identifies an organization, this ensures
+	// idempotent batch creation of organizations (e.g., super admin organizations).
+	//
+	// Note: GORM and PostgreSQL support only ONE ON CONFLICT clause per INSERT statement.
+	// Using external_id (the natural unique identifier) is sufficient because in race scenarios,
+	// conflicting rows will have identical IDs and external_ids.
 	if err := db.Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "id"}},
-		DoNothing: true,
-	}, clause.OnConflict{
 		Columns:   []clause.Column{{Name: "external_id"}},
 		Where:     clause.Where{Exprs: []clause.Expression{clause.Expr{SQL: "external_id <> ''"}}},
 		DoNothing: true,
 	}).Create(orgs).Error; err != nil {
 		return nil, err
 	}
-
 	// Now retrieve all the organizations (both newly created and existing ones)
 	// by their external IDs to return the actual database records
 	externalIDs := make([]string, len(orgs))
