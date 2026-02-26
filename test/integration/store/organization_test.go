@@ -210,7 +210,7 @@ var _ = Describe("OrganizationStore Integration Tests", func() {
 
 			// Manually create the organizations table structure WITHOUT running InitialMigration
 			db := freshGormDb.WithContext(freshCtx)
-			err := db.AutoMigrate(&model.Organization{})
+			err = db.AutoMigrate(&model.Organization{})
 			Expect(err).ToNot(HaveOccurred())
 
 			// Create the external_id unique index
