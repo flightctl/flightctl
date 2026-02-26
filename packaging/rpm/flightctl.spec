@@ -466,11 +466,11 @@ rm -rf /usr/share/sosreport
 
 # We want a regular user to run applications with as there are several issues around system users
 # and running quadlet applications.
-id -u flightctl 2>/dev/null || useradd --home-dir /home/flightctl --create-home --user-group flightctl
+id -u flightctl 2>/dev/null || useradd --create-home --user-group flightctl
 # This enables lingering for the user with a fallback when building in an env without an active systemd.
 loginctl enable-linger flightctl || (mkdir -p /var/lib/systemd/linger/ && touch /var/lib/systemd/linger/flightctl)
-mkdir -p /home/flightctl/{.config,.local}
-chown -R flightctl:flightctl /home/flightctl/{.config,.local}
+mkdir -p ~flightctl/{.config,.local}
+chown -R flightctl:flightctl ~flightctl/{.config,.local}
 
 %files selinux
 %{_datadir}/selinux/packages/%{selinuxtype}/flightctl_agent.pp.bz2
