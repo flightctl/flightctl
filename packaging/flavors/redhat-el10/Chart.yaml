@@ -1,0 +1,10 @@
+# Helm chart overrides for redhat-el10 flavor
+# This file contains redhat-el10 specific chart metadata and configurations
+
+# Chart metadata
+# annotations:
+#   redhat.edition: "true"
+#   target.platform: "rhel10"
+#   security.compliance: "fips-140-3"
+
+# Red Hat EL10 specific configurations would go here

@@ -1,0 +1,57 @@
+# Image configuration for redhat-el10 flavor
+# Used by flightctl-standalone render quadlets and helm chart values
+
+api:
+  image: registry.redhat.io/flightctl/flightctl-api
+  tag: latest
+periodic:
+  image: registry.redhat.io/flightctl/flightctl-periodic
+  tag: latest
+worker:
+  image: registry.redhat.io/flightctl/flightctl-worker
+  tag: latest
+alert-exporter:
+  image: registry.redhat.io/flightctl/flightctl-alert-exporter
+  tag: latest
+cli-artifacts:
+  image: registry.redhat.io/flightctl/flightctl-cli-artifacts
+  tag: latest
+alertmanager-proxy:
+  image: registry.redhat.io/flightctl/flightctl-alertmanager-proxy
+  tag: latest
+pam-issuer:
+  image: registry.redhat.io/flightctl/flightctl-pam-issuer
+  tag: latest
+ui:
+  image: registry.redhat.io/flightctl/flightctl-ui
+  tag: latest
+db-setup:
+  image: registry.redhat.io/flightctl/flightctl-db-setup
+  tag: latest
+db:
+  image: registry.redhat.io/rhel10/postgresql-16
+  tag: "latest"
+kv:
+  image: registry.redhat.io/rhel10/redis-7
+  tag: "latest"
+alertmanager:
+  image: registry.redhat.io/openshift4/ose-prometheus-alertmanager
+  tag: latest
+imagebuilder-api:
+  image: registry.redhat.io/flightctl/flightctl-imagebuilder-api
+  tag: latest
+imagebuilder-worker:
+  image: registry.redhat.io/flightctl/flightctl-imagebuilder-worker
+  tag: latest
+grafana:
+  image: registry.redhat.io/rhel10/grafana
+  tag: latest
+prometheus:
+  image: registry.redhat.io/openshift4/ose-prometheus
+  tag: latest
+telemetry-gateway:
+  image: registry.redhat.io/flightctl/flightctl-telemetry-gateway
+  tag: latest
+userinfo-proxy:
+  image: registry.redhat.io/flightctl/flightctl-userinfo-proxy
+  tag: latest
