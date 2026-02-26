@@ -254,12 +254,12 @@ func (s *manager) Upgrade(ctx context.Context) error {
 	return nil
 }
 
-func (s *manager) SetUpgradeFailed(version string) error {
+func (s *manager) SetUpgradeFailed(version string, specHash string) error {
 	versionInt, err := stringToInt64(version)
 	if err != nil {
 		return err
 	}
-	s.queue.SetFailed(versionInt)
+	s.queue.SetFailed(versionInt, specHash)
 
 	return nil
 }
@@ -303,7 +303,6 @@ func (s *manager) CreateRollback(ctx context.Context) error {
 func (s *manager) ClearRollback() error {
 	return s.write(context.TODO(), Rollback, newVersionedDevice(""), audit.ReasonInitialization)
 }
-
 func (s *manager) Rollback(ctx context.Context, opts ...RollbackOption) error {
 	cfg := &rollbackConfig{}
 
@@ -313,6 +312,7 @@ func (s *manager) Rollback(ctx context.Context, opts ...RollbackOption) error {
 	}
 
 	failedDesiredVersion := s.cache.getRenderedVersion(Desired)
+	failedDesiredSpecHash := s.cache.getSpecHash(Desired)
 
 	if cfg.setFailed {
 		version, err := stringToInt64(failedDesiredVersion)
@@ -320,7 +320,7 @@ func (s *manager) Rollback(ctx context.Context, opts ...RollbackOption) error {
 			return err
 		}
 		// set the desired spec as failed
-		s.queue.SetFailed(version)
+		s.queue.SetFailed(version, failedDesiredSpecHash)
 	}
 
 	// rollback on disk state current == desired
@@ -399,11 +399,11 @@ func (s *manager) consumeLatest(ctx context.Context) (bool, error) {
 			return false, fmt.Errorf("getting rendered version: %w", err)
 		}
 		if s.lastConsumedDevice.Version() != version {
-			// Check if this version is permanently failed
+			// Check if this version or spec hash is permanently failed
 			lastVersion, err := stringToInt64(s.lastConsumedDevice.Version())
 			if err != nil {
 				s.log.Warnf("Failed to parse last consumed device version %q: %v", s.lastConsumedDevice.Version(), err)
-			} else if s.queue.IsFailed(lastVersion) {
+			} else if s.queue.IsFailed(lastVersion, s.lastConsumedDevice.SpecHash()) {
 				s.log.Debugf("Last consumed device version %s is permanently failed, skipping requeue", s.lastConsumedDevice.Version())
 				return false, nil
 			}
@@ -611,7 +611,8 @@ func (s *manager) getRenderedVersion() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if s.queue.IsFailed(version) {
+	desiredSpecHash := s.cache.getSpecHash(Desired)
+	if s.queue.IsFailed(version, desiredSpecHash) {
 		return desiredRenderedVersion, nil
 	}
 	return s.cache.getRenderedVersion(Current), nil

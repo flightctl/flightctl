@@ -188,7 +188,7 @@ func (a *Agent) syncDeviceSpec(ctx context.Context) {
 		// non retryable error fails version
 		if !errors.IsRetryable(syncErr) {
 			a.log.Errorf("Marking template version %v as failed: %v", desired.Version(), syncErr)
-			if err := a.specManager.SetUpgradeFailed(desired.Version()); err != nil {
+			if err := a.specManager.SetUpgradeFailed(desired.Version(), desired.SpecHash()); err != nil {
 				a.log.Errorf("Failed to set upgrade failed: %v", err)
 			}
 		}

@@ -887,7 +887,7 @@ func TestRollback(t *testing.T) {
 			if tc.wantSetFailed {
 				version, err := stringToInt64(tc.desiredVersion)
 				require.NoError(err)
-				require.True(s.queue.IsFailed(version))
+				require.True(s.queue.IsFailed(version, ""))
 			}
 		})
 	}
@@ -1217,7 +1217,7 @@ func Test_getVersion(t *testing.T) {
 			if tt.desiredIsFailed {
 				isFailed = true
 			}
-			mockPriorityQueue.EXPECT().IsFailed(gomock.Any()).Return(isFailed)
+			mockPriorityQueue.EXPECT().IsFailed(gomock.Any(), gomock.Any()).Return(isFailed)
 			renderedVersion, err := s.getRenderedVersion()
 			require.NoError(err)
 			require.Equal(tt.expectedVersion, renderedVersion)

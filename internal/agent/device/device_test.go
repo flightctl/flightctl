@@ -127,7 +127,7 @@ func TestSync(t *testing.T) {
 				mockHookManager.EXPECT().OnAfterUpdating(ctx, current.Spec, desired.Spec, false).Return(nonRetryableHookError).AnyTimes()
 				mockHookManager.EXPECT().OnAfterUpdating(ctx, desired.Spec, current.Spec, false).Return(nil).AnyTimes()
 				mockAppManager.EXPECT().AfterUpdate(ctx).Return(nil).AnyTimes()
-				mockSpecManager.EXPECT().SetUpgradeFailed(desired.Version()).Return(nil).AnyTimes()
+				mockSpecManager.EXPECT().SetUpgradeFailed(desired.Version(), desired.SpecHash()).Return(nil).AnyTimes()
 				mockSpecManager.EXPECT().Rollback(ctx).Return(nil).AnyTimes()
 				mockPrefetchManager.EXPECT().Cleanup().AnyTimes()
 				// Upgrade should NOT be called when sync fails, but allow it for flexibility
