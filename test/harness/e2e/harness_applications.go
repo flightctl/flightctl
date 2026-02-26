@@ -353,7 +353,8 @@ func NewMountVolume(name, mountPath string) (v1beta1.ApplicationVolume, error) {
 // and a single image-backed application volume.
 func BuildComposeWithImageVolumeSpec(appName, composePath, composeContent, volumeName, imageRef string) (v1beta1.ApplicationProviderSpec, error) {
 	volume := v1beta1.ApplicationVolume{
-		Name: volumeName,
+		Name:          volumeName,
+		ReclaimPolicy: lo.ToPtr(v1beta1.Retain),
 	}
 	if err := volume.FromImageVolumeProviderSpec(v1beta1.ImageVolumeProviderSpec{
 		Image: v1beta1.ImageVolumeSource{

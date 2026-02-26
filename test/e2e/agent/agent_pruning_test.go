@@ -374,7 +374,7 @@ var (
 	nginxLatestImageRef     = canonicalImageRef(getEnvOrDefault("PRUNING_NGINX_LATEST_IMAGE", "quay.io/flightctl-tests/nginx:v1"))
 	nginxV125ImageRef       = getEnvOrDefault("PRUNING_NGINX_PREV_IMAGE", "quay.io/flightctl-tests/alpine:v1")
 	nginxLatestRefFragment  = nginxLatestImageRef
-	composeArtifactImageRef = strings.TrimSpace(getEnvOrDefault("PRUNING_COMPOSE_ARTIFACT_IMAGE", "quay.io/flightctl-tests/models/gpt2"))
+	composeArtifactImageRef = strings.TrimSpace(getEnvOrDefault("PRUNING_COMPOSE_ARTIFACT_IMAGE", "ghcr.io/homebrew/core/sqlite:3.50.2"))
 )
 
 // Inline quadlet container content for nginx.
