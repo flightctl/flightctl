@@ -180,11 +180,15 @@ var _ = Describe("OrganizationStore Integration Tests", func() {
 			result, err := storeInst.Organization().UpsertMany(ctx, orgsToUpsert)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(result).To(HaveLen(2))
-			Expect(result[0].ID).ToNot(Equal(uuid.Nil))
-			Expect(result[0].ExternalID).To(Equal("upsert-ext-1"))
-			Expect(result[0].DisplayName).To(Equal("Upsert Org 1"))
-			Expect(result[1].ExternalID).To(Equal("upsert-ext-2"))
-			Expect(result[1].DisplayName).To(Equal("Upsert Org 2"))
+			byExternalID := make(map[string]*model.Organization)
+			for _, o := range result {
+				byExternalID[o.ExternalID] = o
+			}
+			Expect(byExternalID).To(HaveKey("upsert-ext-1"))
+			Expect(byExternalID).To(HaveKey("upsert-ext-2"))
+			Expect(byExternalID["upsert-ext-1"].ID).ToNot(Equal(uuid.Nil))
+			Expect(byExternalID["upsert-ext-1"].DisplayName).To(Equal("Upsert Org 1"))
+			Expect(byExternalID["upsert-ext-2"].DisplayName).To(Equal("Upsert Org 2"))
 
 			// Second call: same external IDs (conflict). ON CONFLICT DO NOTHING must succeed without SQL error.
 			// Returns existing rows from DB, not the new payload.
@@ -195,14 +199,18 @@ var _ = Describe("OrganizationStore Integration Tests", func() {
 			resultAgain, err := storeInst.Organization().UpsertMany(ctx, orgsAgain)
 			Expect(err).ToNot(HaveOccurred(), "UpsertMany on conflict must not error (EDM-3438)")
 			Expect(resultAgain).To(HaveLen(2))
+			byExternalIDAgain := make(map[string]*model.Organization)
+			for _, o := range resultAgain {
+				byExternalIDAgain[o.ExternalID] = o
+			}
 			// Still the original display names (DO NOTHING = no update)
-			Expect(resultAgain[0].DisplayName).To(Equal("Upsert Org 1"))
-			Expect(resultAgain[0].ExternalID).To(Equal("upsert-ext-1"))
-			Expect(resultAgain[1].DisplayName).To(Equal("Upsert Org 2"))
-			Expect(resultAgain[1].ExternalID).To(Equal("upsert-ext-2"))
+			Expect(byExternalIDAgain["upsert-ext-1"].DisplayName).To(Equal("Upsert Org 1"))
+			Expect(byExternalIDAgain["upsert-ext-1"].ExternalID).To(Equal("upsert-ext-1"))
+			Expect(byExternalIDAgain["upsert-ext-2"].DisplayName).To(Equal("Upsert Org 2"))
+			Expect(byExternalIDAgain["upsert-ext-2"].ExternalID).To(Equal("upsert-ext-2"))
 			// Same IDs as first result
-			Expect(resultAgain[0].ID).To(Equal(result[0].ID))
-			Expect(resultAgain[1].ID).To(Equal(result[1].ID))
+			Expect(byExternalIDAgain["upsert-ext-1"].ID).To(Equal(byExternalID["upsert-ext-1"].ID))
+			Expect(byExternalIDAgain["upsert-ext-2"].ID).To(Equal(byExternalID["upsert-ext-2"].ID))
 		})
 
 		It("Should prevent race condition when creating default organization on empty table (EDM-2751)", func() {
