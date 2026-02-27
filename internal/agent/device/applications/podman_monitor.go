@@ -495,13 +495,13 @@ func (m *PodmanMonitor) updateQuadletContainerStatus(ctx context.Context, app Ap
 		m.log.Errorf("Failed to create systemctl client for %s: %v", systemdUnit, err)
 		return
 	}
-	states, err := systemctl.Show(ctx, systemdUnit, client.WithShowLoadState())
-	if err != nil || len(states) == 0 {
+	states, err := systemctl.Show(ctx, systemdUnit, client.WithShowLoadState(), client.WithShowActiveState(), client.WithShowSubState())
+	if err != nil || len(states) < 3 {
 		m.log.Errorf("Could not show systemd unit: %s state: %v", systemdUnit, err)
 		return
 	}
-	state := states[0]
-	if v1beta1.SystemdLoadStateType(state) == v1beta1.SystemdLoadStateNotFound {
+	loadState, activeState, subState := v1beta1.SystemdLoadStateType(states[0]), v1beta1.SystemdActiveStateType(states[1]), v1beta1.SystemdSubStateType(states[2])
+	if loadState == v1beta1.SystemdLoadStateNotFound {
 		// likely from event replay
 		m.log.Debugf("Received event for an unloaded unit file: %s. Skipping processing event.", systemdUnit)
 		return
@@ -521,7 +521,11 @@ func (m *PodmanMonitor) updateQuadletContainerStatus(ctx context.Context, app Ap
 
 	status := StatusType(event.Status)
 	if isFinishedStatus(status) && lo.FromPtrOr(event.ContainerExitCode, -1) == 0 {
-		status = StatusExited
+		if activeState == v1beta1.SystemdActiveStateInactive && subState == v1beta1.SystemdSubStateExited {
+			status = StatusExited
+		} else {
+			status = StatusStopped
+		}
 	}
 	m.updateApplicationStatus(app, event, status, restartCount)
 }

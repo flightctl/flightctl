@@ -100,6 +100,44 @@ func TestListenForEvents(t *testing.T) {
 			expectedSummary: v1beta1.ApplicationsSummaryStatusDegraded,
 		},
 		{
+			name: "single app multiple containers started then all manually stopped",
+			apps: []Application{
+				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
+			},
+			events: []client.PodmanEvent{
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "init"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "create"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "start"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "init"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "create"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "start"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "stop"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "stop"),
+			},
+			expectedReady:   "0/2",
+			expectedStatus:  v1beta1.ApplicationStatusStopped,
+			expectedSummary: v1beta1.ApplicationsSummaryStatusError,
+		},
+		{
+			name: "single app multiple containers started then all complete successfully",
+			apps: []Application{
+				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
+			},
+			events: []client.PodmanEvent{
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "init"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "create"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "start"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "init"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "create"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "start"),
+				mockPodmanEvent("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "died", 0, "exited"),
+				mockPodmanEvent("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "died", 0, "exited"),
+			},
+			expectedReady:   "0/2",
+			expectedStatus:  v1beta1.ApplicationStatusCompleted,
+			expectedSummary: v1beta1.ApplicationsSummaryStatusHealthy,
+		},
+		{
 			name: "single app start then die",
 			apps: []Application{
 				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
@@ -254,6 +292,26 @@ func TestListenForEvents(t *testing.T) {
 
 			podmanMonitor.handlers[v1beta1.AppTypeCompose] = mockComposeHandler
 			podmanMonitor.handlers[v1beta1.AppTypeQuadlet] = mockQuadletHandler
+
+			systemdMgr.EXPECT().Show(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, unit string, opts ...client.SystemdShowOptions) ([]string, error) {
+				args := systemd.ShowOptionsToString(opts)
+				if strings.Contains(args, "ActiveState") {
+					for _, event := range tc.events {
+						if event.Attributes[quadletSystemdLabel] == unit {
+							if event.Status == "died" && event.ContainerExitCode != nil && *event.ContainerExitCode == 0 {
+								subState, ok := event.Attributes["subState"]
+								if ok && subState == "exited" {
+									return []string{"loaded", "inactive", "exited"}, nil
+								}
+								return []string{"loaded", "inactive", "dead"}, nil
+							}
+						}
+					}
+					return []string{"loaded", "active", "running"}, nil
+				}
+				return []string{"not-found"}, nil
+			}).AnyTimes()
+			systemdMgr.EXPECT().Show(gomock.Any(), gomock.Any(), gomock.Any()).Return([]string{"0"}, nil).AnyTimes()
 
 			// add test apps to the monitor
 			for _, testApp := range tc.apps {
@@ -449,6 +507,12 @@ func writeEvent(writer io.WriteCloser, event *client.PodmanEvent) error {
 	eventBytes = append(eventBytes, '\n')
 	_, err = writer.Write(eventBytes)
 	return err
+}
+
+func mockPodmanEvent(name string, username v1beta1.Username, service, status string, exitCode int, subState string) client.PodmanEvent {
+	event := createMockPodmanEvent(name, username, service, status, exitCode)
+	event.Attributes["subState"] = subState
+	return event
 }
 
 func mockPodmanEventSuccess(name string, username v1beta1.Username, service, status string) client.PodmanEvent {
