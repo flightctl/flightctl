@@ -130,6 +130,7 @@ type Workload struct {
 	Name     string
 	Status   StatusType
 	Restarts int
+	ExitCode *int
 }
 
 type application struct {
@@ -262,6 +263,7 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 	initializing := 0
 	restarts := 0
 	exited := 0
+	failed := 0
 	for _, workload := range a.workloads {
 		restarts += workload.Restarts
 		switch workload.Status {
@@ -270,7 +272,11 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 		case StatusRunning:
 			healthy++
 		case StatusExited:
-			exited++
+			if workload.ExitCode != nil && *workload.ExitCode == 0 {
+				exited++
+			} else {
+				failed++
+			}
 		}
 	}
 
@@ -300,7 +306,7 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 	case isRunningDegraded(total, healthy, initializing):
 		newStatus = v1beta1.ApplicationStatusRunning
 		summary.Status = v1beta1.ApplicationsSummaryStatusDegraded
-	case isErrored(total, healthy, initializing):
+	case isErrored(total, healthy, initializing, failed):
 		newStatus = v1beta1.ApplicationStatusError
 		summary.Status = v1beta1.ApplicationsSummaryStatusError
 	default:
@@ -348,6 +354,6 @@ func isRunningHealthy(total, healthy, initializing, exited int) bool {
 	return total > 0 && (healthy == total || healthy+exited == total) && initializing == 0
 }
 
-func isErrored(total, healthy, initializing int) bool {
-	return total > 0 && healthy == 0 && initializing == 0
+func isErrored(total, healthy, initializing, failed int) bool {
+	return (total > 0 && healthy == 0 && initializing == 0) || failed > 0
 }

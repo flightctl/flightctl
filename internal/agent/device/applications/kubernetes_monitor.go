@@ -246,6 +246,7 @@ func (m *KubernetesMonitor) removeWorkload(app Application, pod *kubernetesPod) 
 func (m *KubernetesMonitor) updatePodStatus(app Application, pod *kubernetesPod) {
 	status := m.mapPodPhaseToStatus(pod)
 	restarts := m.getPodRestartCount(pod)
+	exitCode := m.getPodExitCode(pod)
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -253,6 +254,7 @@ func (m *KubernetesMonitor) updatePodStatus(app Application, pod *kubernetesPod)
 	workload, exists := app.Workload(pod.Metadata.Name)
 	if exists {
 		workload.Status = status
+		workload.ExitCode = exitCode
 		if pod.Metadata.UID != workload.ID {
 			workload.ID = pod.Metadata.UID
 			workload.Restarts = restarts
@@ -268,6 +270,7 @@ func (m *KubernetesMonitor) updatePodStatus(app Application, pod *kubernetesPod)
 		Name:     pod.Metadata.Name,
 		Status:   status,
 		Restarts: restarts,
+		ExitCode: exitCode,
 	})
 }
 
@@ -329,4 +332,21 @@ func (m *KubernetesMonitor) getPodRestartCount(pod *kubernetesPod) int {
 		total += cs.RestartCount
 	}
 	return total
+}
+
+func (m *KubernetesMonitor) getPodExitCode(pod *kubernetesPod) *int {
+	if pod.Status.Phase != podPhaseSucceeded && pod.Status.Phase != podPhaseFailed {
+		return nil
+	}
+
+	exitCode := 0
+	for _, cs := range pod.Status.ContainerStatuses {
+		if cs.State.Terminated != nil {
+			if cs.State.Terminated.ExitCode != 0 {
+				return &cs.State.Terminated.ExitCode
+			}
+			exitCode = cs.State.Terminated.ExitCode
+		}
+	}
+	return &exitCode
 }
