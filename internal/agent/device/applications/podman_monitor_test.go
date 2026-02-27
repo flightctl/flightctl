@@ -202,6 +202,22 @@ func TestListenForEvents(t *testing.T) {
 			expectedStatus:  v1beta1.ApplicationStatusStarting,
 			expectedSummary: v1beta1.ApplicationsSummaryStatusDegraded,
 		},
+		{
+			name: "single app stopped gracefully then dies with exit 0",
+			apps: []Application{
+				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
+			},
+			events: []client.PodmanEvent{
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "init"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "create"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "start"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "stop"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "die"),
+			},
+			expectedReady:   "0/1",
+			expectedStatus:  v1beta1.ApplicationStatusError,
+			expectedSummary: v1beta1.ApplicationsSummaryStatusError,
+		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
