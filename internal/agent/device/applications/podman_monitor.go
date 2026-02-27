@@ -25,8 +25,7 @@ import (
 )
 
 const (
-	expectedPodmanSigTermExitCode = 1
-	quadletSystemdLabel           = "PODMAN_SYSTEMD_UNIT"
+	quadletSystemdLabel = "PODMAN_SYSTEMD_UNIT"
 )
 
 type PodmanMonitor struct {
@@ -464,6 +463,10 @@ func (m *PodmanMonitor) updateApplicationStatus(app Application, event *client.P
 	container, exists := app.Workload(event.Name)
 	if exists {
 		// update existing container
+		if status == StatusExited && container.Status == StatusStop {
+			// container was manually stopped, don't mark it as exited.
+			status = StatusStop
+		}
 		container.Status = status
 		// restarts can only increase
 		if restarts > container.Restarts {
