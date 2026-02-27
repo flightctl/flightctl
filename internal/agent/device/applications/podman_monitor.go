@@ -463,6 +463,10 @@ func (m *PodmanMonitor) updateApplicationStatus(app Application, event *client.P
 
 	container, exists := app.Workload(event.Name)
 	if exists {
+		// do not override a stopped status with a generic exited status
+		if container.Status == StatusStopped && status == StatusExited {
+			return
+		}
 		// update existing container
 		container.Status = status
 		// restarts can only increase
@@ -520,7 +524,9 @@ func (m *PodmanMonitor) updateQuadletContainerStatus(ctx context.Context, app Ap
 	}
 
 	status := StatusType(event.Status)
-	if isFinishedStatus(status) && lo.FromPtrOr(event.ContainerExitCode, -1) == 0 {
+	if status == StatusStop {
+		status = StatusStopped
+	} else if isFinishedStatus(status) && lo.FromPtrOr(event.ContainerExitCode, -1) == 0 {
 		status = StatusExited
 	}
 	m.updateApplicationStatus(app, event, status, restartCount)
@@ -584,6 +590,9 @@ func (m *PodmanMonitor) inspectContainer(ctx context.Context, containerID string
 
 func (m *PodmanMonitor) resolveStatus(status string, inspectData []client.PodmanInspect) StatusType {
 	initialStatus := StatusType(status)
+	if initialStatus == StatusStop {
+		return StatusStopped
+	}
 	// podman events don't properly event exited in the case where the container exits 0.
 	if initialStatus == StatusDie || initialStatus == StatusDied {
 		if len(inspectData) > 0 && inspectData[0].State.ExitCode == 0 && inspectData[0].State.FinishedAt != "" {

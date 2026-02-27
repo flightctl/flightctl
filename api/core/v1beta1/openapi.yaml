@@ -5522,14 +5522,14 @@ components:
         - "ApplicationsSummaryStatusNoApplications"
     ApplicationStatusType:
       type: string
-      description: Status of a single application on the device.
       enum:
-        - "Preparing"
-        - "Starting"
-        - "Running"
-        - "Error"
-        - "Unknown"
-        - "Completed"
+        - Unknown
+        - Preparing
+        - Starting
+        - Running
+        - Completed
+        - Stopped
+        - Error
       x-enum-varnames:
         - "ApplicationStatusPreparing"
         - "ApplicationStatusStarting"
