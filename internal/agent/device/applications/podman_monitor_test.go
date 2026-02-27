@@ -49,6 +49,39 @@ func TestListenForEvents(t *testing.T) {
 		events           []client.PodmanEvent
 	}{
 		{
+			name: "single app completed successfully",
+			apps: []Application{
+				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
+			},
+			events: []client.PodmanEvent{
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "init"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "create"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "start"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "died"),
+			},
+			expectedReady:    "0/1",
+			expectedStatus:   v1beta1.ApplicationStatusCompleted,
+			expectedSummary:  v1beta1.ApplicationsSummaryStatusHealthy,
+			expectedRestarts: 3,
+		},
+		{
+			name: "single app manual stop then died exit 0",
+			apps: []Application{
+				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
+			},
+			events: []client.PodmanEvent{
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "init"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "create"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "start"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "stop"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "died"),
+			},
+			expectedReady:    "0/1",
+			expectedStatus:   v1beta1.ApplicationStatusError,
+			expectedSummary:  v1beta1.ApplicationsSummaryStatusError,
+			expectedRestarts: 3,
+		},
+		{
 			name: "single app start",
 			apps: []Application{
 				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
@@ -221,25 +254,25 @@ func TestListenForEvents(t *testing.T) {
 			mockQuadletHandler := lifecycle.NewMockActionHandler(ctrl)
 			mockComposeHandler.EXPECT().Execute(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 			mockQuadletHandler.EXPECT().Execute(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-			
-						var testInspect []client.PodmanInspect
-						restartsPerContainer := 3
-						testInspect = append(testInspect, mockPodmanInspect(restartsPerContainer))
-						inspectBytes, err := json.Marshal(testInspect)
-						require.NoError(err)
-			
-						// create a pipe to simulate events being written to the monitor
-						reader, writer := io.Pipe()
-						defer reader.Close()
-						defer writer.Close()
-			
-						execMock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return(string(inspectBytes), "", 0).Times(len(tc.events))
-						podmanEventsCommandMock(execMock).Return(streamDataToStdout(t, reader))
-			
-						podman := client.NewPodman(log, execMock, rw, util.NewPollConfig())
-						systemdMgr := systemd.NewMockManager(ctrl)
-						systemdMgr.EXPECT().AddExclusions(gomock.Any()).AnyTimes()
-						systemdMgr.EXPECT().RemoveExclusions(gomock.Any()).AnyTimes()
+
+			var testInspect []client.PodmanInspect
+			restartsPerContainer := 3
+			testInspect = append(testInspect, mockPodmanInspect(restartsPerContainer))
+			inspectBytes, err := json.Marshal(testInspect)
+			require.NoError(err)
+
+			// create a pipe to simulate events being written to the monitor
+			reader, writer := io.Pipe()
+			defer reader.Close()
+			defer writer.Close()
+
+			execMock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return(string(inspectBytes), "", 0).Times(len(tc.events))
+			podmanEventsCommandMock(execMock).Return(streamDataToStdout(t, reader))
+
+			podman := client.NewPodman(log, execMock, rw, util.NewPollConfig())
+			systemdMgr := systemd.NewMockManager(ctrl)
+			systemdMgr.EXPECT().AddExclusions(gomock.Any()).AnyTimes()
+			systemdMgr.EXPECT().RemoveExclusions(gomock.Any()).AnyTimes()
 
 			var podmanFactory client.PodmanFactory = func(user v1beta1.Username) (*client.Podman, error) {
 				return podman, nil

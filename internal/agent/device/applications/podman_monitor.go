@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
-	"slices"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -464,6 +463,12 @@ func (m *PodmanMonitor) updateApplicationStatus(app Application, event *client.P
 
 	container, exists := app.Workload(event.Name)
 	if exists {
+		if status == StatusExited && container.Status == StatusStop {
+			// This is a graceful shutdown after a stop signal.
+			// Don't mark it as completed. Keep it as stopped.
+			status = StatusStop
+		}
+
 		// update existing container
 		container.Status = status
 		// restarts can only increase
@@ -588,10 +593,6 @@ func (m *PodmanMonitor) resolveStatus(status string, inspectData []client.Podman
 	// podman events don't properly event exited in the case where the container exits 0.
 	if initialStatus == StatusDie || initialStatus == StatusDied {
 		if len(inspectData) > 0 && inspectData[0].State.ExitCode == 0 && inspectData[0].State.FinishedAt != "" {
-			// differentiate between a container that was stopped and one that completed
-			if inspectData[0].Config.StopSignal != 0 || slices.Contains(inspectData[0].State.ExitCommand, "podman") && slices.Contains(inspectData[0].State.ExitCommand, "stop") {
-				return StatusStopped
-			}
 			return StatusExited
 		}
 	}
