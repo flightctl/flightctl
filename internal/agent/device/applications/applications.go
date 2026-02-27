@@ -30,6 +30,7 @@ const (
 	StatusDied    StatusType = "died"
 	StatusRemove  StatusType = "remove"
 	StatusExited  StatusType = "exited"
+	StatusStopped StatusType = "stopped"
 )
 
 func (c StatusType) String() string {
@@ -262,6 +263,7 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 	initializing := 0
 	restarts := 0
 	exited := 0
+	stopped := 0
 	for _, workload := range a.workloads {
 		restarts += workload.Restarts
 		switch workload.Status {
@@ -271,6 +273,8 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 			healthy++
 		case StatusExited:
 			exited++
+		case StatusStopped, StatusStop:
+			stopped++
 		}
 	}
 
@@ -285,6 +289,9 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 	case isUnknown(total, healthy, initializing):
 		newStatus = v1beta1.ApplicationStatusUnknown
 		summary.Status = v1beta1.ApplicationsSummaryStatusUnknown
+	case isStopped(stopped):
+		newStatus = v1beta1.ApplicationStatusStopped
+		summary.Status = v1beta1.ApplicationsSummaryStatusDegraded
 	case isStarting(total, healthy, initializing):
 		newStatus = v1beta1.ApplicationStatusStarting
 		summary.Status = v1beta1.ApplicationsSummaryStatusDegraded
@@ -330,6 +337,10 @@ func isStarting(total, healthy, initializing int) bool {
 
 func isUnknown(total, healthy, initializing int) bool {
 	return total == 0 && healthy == 0 && initializing == 0
+}
+
+func isStopped(stopped int) bool {
+	return stopped > 0
 }
 
 func isCompleted(total, completed int) bool {

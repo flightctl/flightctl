@@ -224,6 +224,18 @@ func TestApplicationStatus(t *testing.T) {
 			expectedStatus:        v1beta1.ApplicationStatusCompleted,
 			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusHealthy,
 		},
+		{
+			name: "app with single container has been stopped",
+			workloads: []Workload{
+				{
+					Name:   "container1",
+					Status: StatusStopped,
+				},
+			},
+			expectedReady:         "0/1",
+			expectedStatus:        v1beta1.ApplicationStatusStopped,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusDegraded,
+		},
 	}
 
 	for _, tt := range tests {

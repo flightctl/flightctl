@@ -520,8 +520,8 @@ func (m *PodmanMonitor) updateQuadletContainerStatus(ctx context.Context, app Ap
 	}
 
 	status := StatusType(event.Status)
-	if isFinishedStatus(status) && lo.FromPtrOr(event.ContainerExitCode, -1) == 0 {
-		status = StatusExited
+	if isFinishedStatus(status) {
+		status = resolveExitCodeStatus(lo.FromPtrOr(event.ContainerExitCode, -1))
 	}
 	m.updateApplicationStatus(app, event, status, restartCount)
 }
@@ -546,7 +546,7 @@ func (m *PodmanMonitor) updateComposeContainerStatus(ctx context.Context, app Ap
 		m.log.Errorf("Failed to get container restarts: %v", err)
 	}
 
-	status := m.resolveStatus(event.Status, inspectData)
+	status := m.resolveComposeStatus(event.Status, inspectData)
 	if status == StatusRemove {
 		m.mu.Lock()
 		defer m.mu.Unlock()
@@ -582,15 +582,28 @@ func (m *PodmanMonitor) inspectContainer(ctx context.Context, containerID string
 	return inspectData, nil
 }
 
-func (m *PodmanMonitor) resolveStatus(status string, inspectData []client.PodmanInspect) StatusType {
+func (m *PodmanMonitor) resolveComposeStatus(status string, inspectData []client.PodmanInspect) StatusType {
 	initialStatus := StatusType(status)
-	// podman events don't properly event exited in the case where the container exits 0.
-	if initialStatus == StatusDie || initialStatus == StatusDied {
-		if len(inspectData) > 0 && inspectData[0].State.ExitCode == 0 && inspectData[0].State.FinishedAt != "" {
-			return StatusExited
+	if isFinishedStatus(initialStatus) {
+		exitCode := -1
+		if len(inspectData) > 0 {
+			exitCode = inspectData[0].State.ExitCode
 		}
+		return resolveExitCodeStatus(exitCode)
 	}
+
 	return initialStatus
+}
+
+func resolveExitCodeStatus(exitCode int) StatusType {
+	switch exitCode {
+	case 143, 137: // SIGTERM, SIGKILL
+		return StatusStopped
+	case 0:
+		return StatusExited
+	default:
+		return StatusDied
+	}
 }
 
 type podmanEventWatcher struct {
