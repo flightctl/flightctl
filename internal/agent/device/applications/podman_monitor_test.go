@@ -97,12 +97,28 @@ func TestListenForEvents(t *testing.T) {
 			},
 			expectedReady:   "1/2",
 			expectedStatus:  v1beta1.ApplicationStatusRunning,
-			expectedSummary: v1beta1.ApplicationsSummaryStatusDegraded,
-		},
-		{
-			name: "single app start then die",
-			apps: []Application{
-				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
+					expectedSummary:  v1beta1.ApplicationsSummaryStatusDegraded,
+					},
+					{
+						name: "single app all containers died with exit code 0",
+						apps: []Application{
+							createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
+						},
+						events: []client.PodmanEvent{
+							mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "init"),
+							mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "create"),
+							mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "start"),
+							mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "died"),
+						},
+						expectedReady:    "0/1",
+						expectedStatus:   v1beta1.ApplicationStatusError,
+						expectedSummary:  v1beta1.ApplicationsSummaryStatusError,
+						expectedRestarts: 3,
+					},
+					{
+						name: "single app start then die",
+						apps: []Application{
+							createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
 			},
 			events: []client.PodmanEvent{
 				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "init"),

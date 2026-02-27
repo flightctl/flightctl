@@ -517,12 +517,10 @@ func (m *PodmanMonitor) updateQuadletContainerStatus(ctx context.Context, app Ap
 	restartCount, err := strconv.Atoi(restarts[0])
 	if err != nil {
 		m.log.Errorf("Could not parse systemd unit restarts: %v", err)
+		return
 	}
 
 	status := StatusType(event.Status)
-	if isFinishedStatus(status) && lo.FromPtrOr(event.ContainerExitCode, -1) == 0 {
-		status = StatusExited
-	}
 	m.updateApplicationStatus(app, event, status, restartCount)
 }
 
@@ -587,7 +585,7 @@ func (m *PodmanMonitor) resolveStatus(status string, inspectData []client.Podman
 	// podman events don't properly event exited in the case where the container exits 0.
 	if initialStatus == StatusDie || initialStatus == StatusDied {
 		if len(inspectData) > 0 && inspectData[0].State.ExitCode == 0 && inspectData[0].State.FinishedAt != "" {
-			return StatusExited
+			return StatusDied
 		}
 	}
 	return initialStatus
