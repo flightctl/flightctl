@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"slices"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -495,13 +496,13 @@ func (m *PodmanMonitor) updateQuadletContainerStatus(ctx context.Context, app Ap
 		m.log.Errorf("Failed to create systemctl client for %s: %v", systemdUnit, err)
 		return
 	}
-	states, err := systemctl.Show(ctx, systemdUnit, client.WithShowLoadState(), client.WithShowActiveState(), client.WithShowSubState())
-	if err != nil || len(states) < 3 {
+	states, err := systemctl.Show(ctx, systemdUnit, client.WithShowLoadState())
+	if err != nil || len(states) == 0 {
 		m.log.Errorf("Could not show systemd unit: %s state: %v", systemdUnit, err)
 		return
 	}
-	loadState, activeState, subState := v1beta1.SystemdLoadStateType(states[0]), v1beta1.SystemdActiveStateType(states[1]), v1beta1.SystemdSubStateType(states[2])
-	if loadState == v1beta1.SystemdLoadStateNotFound {
+	state := states[0]
+	if v1beta1.SystemdLoadStateType(state) == v1beta1.SystemdLoadStateNotFound {
 		// likely from event replay
 		m.log.Debugf("Received event for an unloaded unit file: %s. Skipping processing event.", systemdUnit)
 		return
@@ -521,11 +522,7 @@ func (m *PodmanMonitor) updateQuadletContainerStatus(ctx context.Context, app Ap
 
 	status := StatusType(event.Status)
 	if isFinishedStatus(status) && lo.FromPtrOr(event.ContainerExitCode, -1) == 0 {
-		if activeState == v1beta1.SystemdActiveStateInactive && subState == v1beta1.SystemdSubStateExited {
-			status = StatusExited
-		} else {
-			status = StatusStopped
-		}
+		status = StatusExited
 	}
 	m.updateApplicationStatus(app, event, status, restartCount)
 }
@@ -591,6 +588,10 @@ func (m *PodmanMonitor) resolveStatus(status string, inspectData []client.Podman
 	// podman events don't properly event exited in the case where the container exits 0.
 	if initialStatus == StatusDie || initialStatus == StatusDied {
 		if len(inspectData) > 0 && inspectData[0].State.ExitCode == 0 && inspectData[0].State.FinishedAt != "" {
+			// differentiate between a container that was stopped and one that completed
+			if inspectData[0].Config.StopSignal != 0 || slices.Contains(inspectData[0].State.ExitCommand, "podman") && slices.Contains(inspectData[0].State.ExitCommand, "stop") {
+				return StatusStopped
+			}
 			return StatusExited
 		}
 	}

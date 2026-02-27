@@ -40,23 +40,25 @@ type PodmanInspect struct {
 
 // ContainerState represents the container state part of the podman inspect output
 type PodmanContainerState struct {
-	OciVersion  string `json:"OciVersion"`
-	Status      string `json:"Status"`
-	Running     bool   `json:"Running"`
-	Paused      bool   `json:"Paused"`
-	Restarting  bool   `json:"Restarting"`
-	OOMKilled   bool   `json:"OOMKilled"`
-	Dead        bool   `json:"Dead"`
-	Pid         int    `json:"Pid"`
-	ExitCode    int    `json:"ExitCode"`
-	Error       string `json:"Error"`
-	StartedAt   string `json:"StartedAt"`
-	FinishedAt  string `json:"FinishedAt"`
-	Healthcheck string `json:"Healthcheck"`
+	OciVersion   string    `json:"OciVersion"`
+	Status       string    `json:"Status"`
+	Running      bool      `json:"Running"`
+	Paused       bool      `json:"Paused"`
+	Restarting   bool      `json:"Restarting"`
+	OOMKilled    bool      `json:"OOMKilled"`
+	Dead         bool      `json:"Dead"`
+	Pid          int       `json:"Pid"`
+	ExitCode     int       `json:"ExitCode"`
+	Error        string    `json:"Error"`
+	StartedAt    string    `json:"StartedAt"`
+	FinishedAt   string    `json:"FinishedAt"`
+	Healthcheck  string    `json:"Healthcheck"`
+	ExitCommand  []string  `json:"ExitCommand"`
 }
 
 type PodmanContainerConfig struct {
-	Labels map[string]string `json:"Labels"`
+	Labels     map[string]string `json:"Labels"`
+	StopSignal int               `json:"StopSignal"`
 }
 
 // ArtifactInspect represents the structure of artifact inspect output
