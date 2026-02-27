@@ -463,6 +463,12 @@ func (m *PodmanMonitor) updateApplicationStatus(app Application, event *client.P
 
 	container, exists := app.Workload(event.Name)
 	if exists {
+		// if a container was manually stopped, a subsequent "died" event with exit code 0
+		// should not override the status to "exited".
+		if container.Status == StatusStop && status == StatusExited {
+			return
+		}
+
 		// update existing container
 		container.Status = status
 		// restarts can only increase
@@ -519,10 +525,22 @@ func (m *PodmanMonitor) updateQuadletContainerStatus(ctx context.Context, app Ap
 		m.log.Errorf("Could not parse systemd unit restarts: %v", err)
 	}
 
-	status := StatusType(event.Status)
-	if isFinishedStatus(status) && lo.FromPtrOr(event.ContainerExitCode, -1) == 0 {
-		status = StatusExited
+	// inspect container to get more detailed state
+	client, err := m.clientFactory(app.User())
+	if err != nil {
+		m.log.Errorf("Failed to create podman client for %s: %v", app.Name(), err)
+		return
 	}
+	inspectData, err := m.inspectContainer(ctx, event.ID, client)
+	if err != nil {
+		if errors.Is(err, errors.ErrNotFound) {
+			m.log.Debugf("Container %s not found; likely removed during app restart", event.ID)
+		} else {
+			m.log.Errorf("Failed to inspect container: %v", err)
+		}
+	}
+
+	status := m.resolveStatus(event.Status, inspectData)
 	m.updateApplicationStatus(app, event, status, restartCount)
 }
 
