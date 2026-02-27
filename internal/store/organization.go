@@ -127,9 +127,9 @@ func (s *OrganizationStore) UpsertMany(ctx context.Context, orgs []*model.Organi
 		}
 	}
 	if err := db.Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "external_id"}},
-		Where:     clause.Where{Exprs: []clause.Expression{clause.Expr{SQL: "external_id <> ''"}}},
-		DoNothing: true,
+		Columns:     []clause.Column{{Name: "external_id"}},
+		TargetWhere: clause.Where{Exprs: []clause.Expression{clause.Expr{SQL: "external_id <> ''"}}},
+		DoNothing:   true,
 	}).Create(orgs).Error; err != nil {
 		return nil, err
 	}

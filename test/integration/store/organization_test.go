@@ -171,6 +171,40 @@ var _ = Describe("OrganizationStore Integration Tests", func() {
 			Expect(orgIDs).ToNot(HaveKey(u1))
 		})
 
+		It("Should upsert organizations with ON CONFLICT DO NOTHING and return existing rows", func() {
+			// First call: insert new orgs via UpsertMany
+			orgsToUpsert := []*model.Organization{
+				{DisplayName: "Upsert Org 1", ExternalID: "upsert-ext-1"},
+				{DisplayName: "Upsert Org 2", ExternalID: "upsert-ext-2"},
+			}
+			result, err := storeInst.Organization().UpsertMany(ctx, orgsToUpsert)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(result).To(HaveLen(2))
+			Expect(result[0].ID).ToNot(Equal(uuid.Nil))
+			Expect(result[0].ExternalID).To(Equal("upsert-ext-1"))
+			Expect(result[0].DisplayName).To(Equal("Upsert Org 1"))
+			Expect(result[1].ExternalID).To(Equal("upsert-ext-2"))
+			Expect(result[1].DisplayName).To(Equal("Upsert Org 2"))
+
+			// Second call: same external IDs (conflict). ON CONFLICT DO NOTHING must succeed without SQL error.
+			// Returns existing rows from DB, not the new payload.
+			orgsAgain := []*model.Organization{
+				{DisplayName: "Different Name 1", ExternalID: "upsert-ext-1"},
+				{DisplayName: "Different Name 2", ExternalID: "upsert-ext-2"},
+			}
+			resultAgain, err := storeInst.Organization().UpsertMany(ctx, orgsAgain)
+			Expect(err).ToNot(HaveOccurred(), "UpsertMany on conflict must not error (EDM-3438)")
+			Expect(resultAgain).To(HaveLen(2))
+			// Still the original display names (DO NOTHING = no update)
+			Expect(resultAgain[0].DisplayName).To(Equal("Upsert Org 1"))
+			Expect(resultAgain[0].ExternalID).To(Equal("upsert-ext-1"))
+			Expect(resultAgain[1].DisplayName).To(Equal("Upsert Org 2"))
+			Expect(resultAgain[1].ExternalID).To(Equal("upsert-ext-2"))
+			// Same IDs as first result
+			Expect(resultAgain[0].ID).To(Equal(result[0].ID))
+			Expect(resultAgain[1].ID).To(Equal(result[1].ID))
+		})
+
 		It("Should prevent race condition when creating default organization on empty table (EDM-2751)", func() {
 			// Create a fresh database with organizations table but NO default organization
 			freshCtx := testutil.StartSpecTracerForGinkgo(suiteCtx)
