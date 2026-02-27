@@ -32,6 +32,7 @@ const (
 	ApplicationStatusPreparing ApplicationStatusType = "Preparing"
 	ApplicationStatusRunning   ApplicationStatusType = "Running"
 	ApplicationStatusStarting  ApplicationStatusType = "Starting"
+	ApplicationStatusStopped   ApplicationStatusType = "Stopped"
 	ApplicationStatusUnknown   ApplicationStatusType = "Unknown"
 )
 

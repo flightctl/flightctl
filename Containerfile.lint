@@ -8,6 +8,7 @@ RUN apt-get update && apt-get install -y \
     swtpm \
     libssl-dev \
     libpam0g-dev \
+    uidmap \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy go.mod and go.sum to download dependencies
