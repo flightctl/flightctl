@@ -25,8 +25,9 @@ const (
 	StatusCreate  StatusType = "create"
 	StatusInit    StatusType = "init"
 	StatusRunning StatusType = "start"
-	StatusStop    StatusType = "stop"
-	StatusDie     StatusType = "die" // docker only
+	StatusStop     StatusType = "stop"
+	StatusStopped  StatusType = "stopped"
+	StatusDie      StatusType = "die" // docker only
 	StatusDied    StatusType = "died"
 	StatusRemove  StatusType = "remove"
 	StatusExited  StatusType = "exited"
@@ -262,6 +263,7 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 	initializing := 0
 	restarts := 0
 	exited := 0
+	stopped := 0
 	for _, workload := range a.workloads {
 		restarts += workload.Restarts
 		switch workload.Status {
@@ -271,6 +273,8 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 			healthy++
 		case StatusExited:
 			exited++
+		case StatusStopped:
+			stopped++
 		}
 	}
 

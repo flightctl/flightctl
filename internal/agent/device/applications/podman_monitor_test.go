@@ -34,7 +34,7 @@ func streamDataToStdout(t *testing.T, reader io.Reader) *exec.Cmd {
 }
 
 func podmanEventsCommandMock(execMock *executer.MockExecuter) *gomock.Call {
-	return execMock.EXPECT().CommandContext(gomock.Any(), "podman", "events", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any())
+	return execMock.EXPECT().CommandContext(gomock.Any(), "podman", "events", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any())
 }
 
 func TestListenForEvents(t *testing.T) {
@@ -188,6 +188,20 @@ func TestListenForEvents(t *testing.T) {
 			expectedSummary: v1beta1.ApplicationsSummaryStatusHealthy,
 		},
 		{
+			name: "single app stopped then died with exit code 0",
+			apps: []Application{
+				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
+			},
+			events: []client.PodmanEvent{
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "start"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "stop"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "die"),
+			},
+			expectedReady:   "0/1",
+			expectedStatus:  v1beta1.ApplicationStatusError,
+			expectedSummary: v1beta1.ApplicationsSummaryStatusError,
+		},
+		{
 			name: "app only creates container no start",
 			apps: []Application{
 				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
@@ -201,7 +215,7 @@ func TestListenForEvents(t *testing.T) {
 			expectedReady:   "1/2",
 			expectedStatus:  v1beta1.ApplicationStatusStarting,
 			expectedSummary: v1beta1.ApplicationsSummaryStatusDegraded,
-		},
+		}
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -380,7 +394,7 @@ func TestApplicationAddRemove(t *testing.T) {
 			expectedName:   "app__-260528",
 			action:         "add",
 			expectedExists: true,
-		},
+		}
 	}
 
 	// Execute test cases
@@ -611,7 +625,7 @@ func TestPodmanMonitorMultipleAddRemoveCycles(t *testing.T) {
 	require.Equal(0, len(podmanMonitor.apps))
 
 	// 2. Add two applications
-	err := podmanMonitor.Ensure(t.Context(), app1)
+	err = podmanMonitor.Ensure(t.Context(), app1)
 	require.NoError(err)
 	err = podmanMonitor.Ensure(t.Context(), app2)
 	require.NoError(err)
@@ -888,7 +902,8 @@ func TestPodmanMonitorStatusAggregation(t *testing.T) {
 	}{
 		{
 			name:           "no apps returns NoApplications",
-			apps:           []Application{},
+			apps:           []Application{}
+,
 			workloads:      map[string][]Workload{},
 			expectedStatus: v1beta1.ApplicationsSummaryStatusNoApplications,
 			expectedInfo:   nil,
@@ -1000,7 +1015,7 @@ func TestPodmanMonitorStatusAggregation(t *testing.T) {
 			},
 			expectedStatus: v1beta1.ApplicationsSummaryStatusDegraded,
 			expectedInfo:   lo.ToPtr("degraded-app is in status Degraded"),
-		},
+		}
 	}
 
 	for _, tc := range testCases {
@@ -1126,7 +1141,7 @@ func TestBuildAppSummaryInfo(t *testing.T) {
 			degradedApps: []string{},
 			maxLen:       4,
 			expectedInfo: lo.ToPtr("a..."),
-		},
+		}
 	}
 
 	for _, tc := range testCases {
@@ -1242,7 +1257,7 @@ func TestReduceActions(t *testing.T) {
 				{ID: "app1", Type: lifecycle.ActionRemove, Name: "App 1"},
 				{ID: "app2", Type: lifecycle.ActionRemove, Name: "App 2"},
 			},
-		},
+		}
 	}
 
 	for _, tt := range tests {
@@ -1281,5 +1296,64 @@ func TestReduceActions_Consistency(t *testing.T) {
 		}
 		require.Equal([]string{"z", "m", "a", "f"}, ids,
 			"ordering should be consistent on iteration %d", i)
+	}
+}
+
+func TestResolveStatus(t *testing.T) {
+	require := require.New(t)
+	log := log.NewPrefixLogger("test")
+	m := NewPodmanMonitor(log, nil, nil, "", nil)
+
+	testCases := []struct {
+		name          string
+		eventStatus   string
+		inspectData   []client.PodmanInspect
+		currentStatus StatusType
+		expected      StatusType
+	}{
+		{
+			name:        "stop event should result in stopped status",
+			eventStatus: "stop",
+			expected:    StatusStopped,
+		},
+		{
+			name:        "die event with exit 0 and finishedat should result in exited",
+			eventStatus: "die",
+			inspectData: []client.PodmanInspect{
+				{State: client.PodmanContainerState{ExitCode: 0, FinishedAt: "some-time"}},
+			},
+			currentStatus: StatusRunning,
+			expected:      StatusExited,
+		},
+		{
+			name:        "die event with exit 0 and finishedat but already stopped should remain stopped",
+			eventStatus: "die",
+			inspectData: []client.PodmanInspect{
+				{State: client.PodmanContainerState{ExitCode: 0, FinishedAt: "some-time"}},
+			},
+			currentStatus: StatusStopped,
+			expected:      StatusStopped,
+		},
+		{
+			name:        "die event with non-zero exit code should be die status",
+			eventStatus: "die",
+			inspectData: []client.PodmanInspect{
+				{State: client.PodmanContainerState{ExitCode: 1, FinishedAt: "some-time"}},
+			},
+			currentStatus: StatusRunning,
+			expected:      StatusDie,
+		},
+		{
+			name:        "other status should pass through",
+			eventStatus: "start",
+			expected:    StatusRunning,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			status := m.resolveStatus(tc.eventStatus, tc.inspectData, tc.currentStatus)
+			require.Equal(tc.expected, status)
+		})
 	}
 }
