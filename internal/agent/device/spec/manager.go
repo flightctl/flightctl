@@ -126,32 +126,43 @@ func (s *manager) Ensure() error {
 		}
 	}
 
-	// Create missing files with appropriate reason
+	// Check if any individual file is missing
+	anyMissing := false
 	for _, specType := range []Type{Current, Desired, Rollback} {
 		exists, err := s.exists(specType)
 		if err != nil {
 			return err
 		}
-
 		if !exists {
+			anyMissing = true
+		}
+	}
+
+	// If any file is missing, reset ALL files to version "0".
+	// This ensures the agent never tries to reason about partial state.
+	if anyMissing {
+		for _, specType := range []Type{Current, Desired, Rollback} {
 			var reason audit.Reason
 			if allMissing {
-				// First startup - all files created during bootstrap
 				reason = audit.ReasonBootstrap
 				s.log.Infof("First startup: creating %s spec file", specType)
 			} else {
-				// File corruption recovery - use appropriate reason
 				if specType == Rollback {
 					reason = audit.ReasonInitialization
 				} else {
 					reason = audit.ReasonRecovery
 				}
-				s.log.Warnf("Spec file does not exist %s. Resetting state to empty...", specType)
+				s.log.Warnf("Spec file missing, resetting all specs to empty...")
 			}
 
 			if err := s.write(context.TODO(), specType, newVersionedDevice("0"), reason); err != nil {
 				return err
 			}
+		}
+
+		// Reset publisher version so the next poll fetches the latest spec.
+		if !allMissing {
+			s.publisher.ResetVersion("0")
 		}
 	}
 

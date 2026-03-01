@@ -481,28 +481,28 @@ func TestRollbackDevice(t *testing.T) {
 	}
 }
 
-func TestSyncRecoverMissingSpec(t *testing.T) {
+func TestSyncHandleMissingSpec(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	testCases := []struct {
 		name       string
-		setupMocks func(mockSpecManager *spec.MockManager)
+		setupMocks func(mockSpecManager *spec.MockManager, mockStatusManager *status.MockManager)
 	}{
 		{
-			name: "GetDesired returns ErrMissingRenderedSpec triggers recovery",
-			setupMocks: func(mockSpecManager *spec.MockManager) {
+			name: "GetDesired returns ErrMissingRenderedSpec triggers fatal exit",
+			setupMocks: func(mockSpecManager *spec.MockManager, mockStatusManager *status.MockManager) {
 				mockSpecManager.EXPECT().GetDesired(ctx).Return(nil, false, errors.ErrMissingRenderedSpec)
-				mockSpecManager.EXPECT().Ensure().Return(nil)
+				mockStatusManager.EXPECT().Update(ctx, gomock.Any()).Return(nil, nil)
 			},
 		},
 		{
-			name: "Read current returns ErrMissingRenderedSpec triggers recovery",
-			setupMocks: func(mockSpecManager *spec.MockManager) {
+			name: "Read current returns ErrMissingRenderedSpec triggers fatal exit",
+			setupMocks: func(mockSpecManager *spec.MockManager, mockStatusManager *status.MockManager) {
 				desired := newVersionedDevice("1")
 				mockSpecManager.EXPECT().GetDesired(ctx).Return(desired, false, nil)
 				mockSpecManager.EXPECT().Read(spec.Current).Return(nil, errors.ErrMissingRenderedSpec)
-				mockSpecManager.EXPECT().Ensure().Return(nil)
+				mockStatusManager.EXPECT().Update(ctx, gomock.Any()).Return(nil, nil)
 			},
 		},
 	}
@@ -512,19 +512,24 @@ func TestSyncRecoverMissingSpec(t *testing.T) {
 			defer ctrl.Finish()
 
 			mockSpecManager := spec.NewMockManager(ctrl)
-			tc.setupMocks(mockSpecManager)
+			mockStatusManager := status.NewMockManager(ctrl)
+			tc.setupMocks(mockSpecManager, mockStatusManager)
 
-			log := log.NewPrefixLogger("test")
-			log.SetLevel(logrus.DebugLevel)
+			logger := log.NewPrefixLogger("test")
+			logger.SetLevel(logrus.DebugLevel)
+
+			// Intercept log.Fatalf so os.Exit is not called during tests
+			fatalCalled := false
+			logger.ExitFunc = func(int) { fatalCalled = true }
 
 			agent := Agent{
-				log:         log,
-				specManager: mockSpecManager,
+				log:           logger,
+				specManager:   mockSpecManager,
+				statusManager: mockStatusManager,
 			}
 
-			// syncDeviceSpec should recover without panicking
 			agent.syncDeviceSpec(ctx)
-			// gomock verifies Ensure() was called exactly once
+			require.True(t, fatalCalled, "expected log.Fatalf to be called")
 		})
 	}
 }

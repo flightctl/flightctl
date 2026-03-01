@@ -151,7 +151,7 @@ func (a *Agent) syncDeviceSpec(ctx context.Context) {
 
 	desired, requeue, err := a.specManager.GetDesired(ctx)
 	if err != nil {
-		if a.recoverMissingSpec(err) {
+		if a.handleMissingSpec(ctx, err) {
 			return
 		}
 		a.log.Errorf("Failed to get desired spec: %v", err)
@@ -166,7 +166,7 @@ func (a *Agent) syncDeviceSpec(ctx context.Context) {
 
 	current, err := a.specManager.Read(spec.Current)
 	if err != nil {
-		if a.recoverMissingSpec(err) {
+		if a.handleMissingSpec(ctx, err) {
 			return
 		}
 		a.log.Errorf("Failed to get current spec: %v", err)
@@ -263,17 +263,23 @@ func (a *Agent) syncDeviceSpec(ctx context.Context) {
 	}
 }
 
-// recoverMissingSpec checks if the error is due to a missing spec file and
-// attempts to recover by calling Ensure(). Returns true if recovery was
-// attempted, signaling the caller to return and let the next tick proceed.
-func (a *Agent) recoverMissingSpec(err error) bool {
+// handleMissingSpec checks if the error is due to a missing spec file. If so,
+// it pushes an error status to the server and terminates the process so that
+// systemd restarts the agent. On restart, Ensure() resets all specs to "0".
+func (a *Agent) handleMissingSpec(ctx context.Context, err error) bool {
 	if !errors.Is(err, errors.ErrMissingRenderedSpec) {
 		return false
 	}
-	a.log.Warnf("Spec file missing, recovering: %v", err)
-	if ensureErr := a.specManager.Ensure(); ensureErr != nil {
-		a.log.Errorf("Failed to recover spec files: %v", ensureErr)
+	msg := fmt.Sprintf("Spec file missing at runtime: %v", err)
+	a.log.Errorf("%s", msg)
+	_, updateErr := a.statusManager.Update(ctx, status.SetDeviceSummary(v1beta1.DeviceSummaryStatus{
+		Status: v1beta1.DeviceSummaryStatusError,
+		Info:   lo.ToPtr(msg),
+	}))
+	if updateErr != nil {
+		a.log.Warnf("Failed to push error status before exit: %v", updateErr)
 	}
+	a.log.Fatalf("Exiting due to missing spec file; systemd will restart the agent")
 	return true
 }
 
