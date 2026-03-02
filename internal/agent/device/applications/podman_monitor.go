@@ -457,7 +457,7 @@ func isFinishedStatus(status StatusType) bool {
 	return ok
 }
 
-func (m *PodmanMonitor) updateApplicationStatus(app Application, event *client.PodmanEvent, status StatusType, restarts int, exitCode *int) {
+func (m *PodmanMonitor) updateApplicationStatus(app Application, event *client.PodmanEvent, status StatusType, restarts int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -465,7 +465,6 @@ func (m *PodmanMonitor) updateApplicationStatus(app Application, event *client.P
 	if exists {
 		// update existing container
 		container.Status = status
-		container.ExitCode = exitCode
 		// restarts can only increase
 		if restarts > container.Restarts {
 			container.Restarts = restarts
@@ -481,7 +480,6 @@ func (m *PodmanMonitor) updateApplicationStatus(app Application, event *client.P
 		Name:     event.Name,
 		Status:   status,
 		Restarts: restarts,
-		ExitCode: exitCode,
 	})
 }
 
@@ -521,11 +519,18 @@ func (m *PodmanMonitor) updateQuadletContainerStatus(ctx context.Context, app Ap
 		m.log.Errorf("Could not parse systemd unit restarts: %v", err)
 	}
 
+	var currentStatus StatusType
+	if workload, exists := app.Workload(event.Name); exists {
+		currentStatus = workload.Status
+	}
+
 	status := StatusType(event.Status)
 	if isFinishedStatus(status) && lo.FromPtrOr(event.ContainerExitCode, -1) == 0 {
-		status = StatusExited
+		if currentStatus != StatusStop {
+			status = StatusExited
+		}
 	}
-	m.updateApplicationStatus(app, event, status, restartCount, event.ContainerExitCode)
+	m.updateApplicationStatus(app, event, status, restartCount)
 }
 
 func (m *PodmanMonitor) updateComposeContainerStatus(ctx context.Context, app Application, event *client.PodmanEvent) {
@@ -548,12 +553,12 @@ func (m *PodmanMonitor) updateComposeContainerStatus(ctx context.Context, app Ap
 		m.log.Errorf("Failed to get container restarts: %v", err)
 	}
 
-	var exitCode *int
-	if len(inspectData) > 0 {
-		exitCode = &inspectData[0].State.ExitCode
+	var currentStatus StatusType
+	if workload, exists := app.Workload(event.Name); exists {
+		currentStatus = workload.Status
 	}
 
-	status := m.resolveStatus(event.Status, inspectData)
+	status := m.resolveStatus(event.Status, inspectData, currentStatus)
 	if status == StatusRemove {
 		m.mu.Lock()
 		defer m.mu.Unlock()
@@ -564,7 +569,7 @@ func (m *PodmanMonitor) updateComposeContainerStatus(ctx context.Context, app Ap
 		return
 	}
 
-	m.updateApplicationStatus(app, event, status, restarts, exitCode)
+	m.updateApplicationStatus(app, event, status, restarts)
 }
 
 func (m *PodmanMonitor) getContainerRestarts(inspectData []client.PodmanInspect) (int, error) {
@@ -589,12 +594,17 @@ func (m *PodmanMonitor) inspectContainer(ctx context.Context, containerID string
 	return inspectData, nil
 }
 
-func (m *PodmanMonitor) resolveStatus(status string, inspectData []client.PodmanInspect) StatusType {
+func (m *PodmanMonitor) resolveStatus(status string, inspectData []client.PodmanInspect, currentWorkloadStatus StatusType) StatusType {
 	initialStatus := StatusType(status)
 	// podman events don't properly event exited in the case where the container exits 0.
 	if initialStatus == StatusDie || initialStatus == StatusDied {
-		if len(inspectData) > 0 && inspectData[0].State.ExitCode == 0 && inspectData[0].State.FinishedAt != "" {
-			return StatusExited
+		if len(inspectData) > 0 && inspectData[0].State.ExitCode == 0 {
+			if currentWorkloadStatus == StatusStop {
+				return initialStatus
+			}
+			if inspectData[0].State.FinishedAt != "" {
+				return StatusExited
+			}
 		}
 	}
 	return initialStatus

@@ -47,8 +47,6 @@ func TestListenForEvents(t *testing.T) {
 		expectedStatus   v1beta1.ApplicationStatusType
 		expectedSummary  v1beta1.ApplicationsSummaryStatusType
 		events           []client.PodmanEvent
-		oomKilled        bool
-		exitCode         int
 	}{
 		{
 			name: "single app start",
@@ -63,20 +61,6 @@ func TestListenForEvents(t *testing.T) {
 			expectedReady:    "1/1",
 			expectedStatus:   v1beta1.ApplicationStatusRunning,
 			expectedSummary:  v1beta1.ApplicationsSummaryStatusHealthy,
-			expectedRestarts: 0,
-		},
-		{
-			name: "single app oomkilled exit code 0",
-			apps: []Application{
-				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
-			},
-			events: []client.PodmanEvent{
-				mockPodmanEventError("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "die", 0),
-			},
-			oomKilled:        true,
-			expectedReady:    "0/1",
-			expectedStatus:   v1beta1.ApplicationStatusError,
-			expectedSummary:  v1beta1.ApplicationsSummaryStatusError,
 			expectedRestarts: 0,
 		},
 		{
@@ -111,7 +95,6 @@ func TestListenForEvents(t *testing.T) {
 				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "start"),
 				mockPodmanEventError("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "died", 137),
 			},
-			exitCode:        137,
 			expectedReady:   "1/2",
 			expectedStatus:  v1beta1.ApplicationStatusRunning,
 			expectedSummary: v1beta1.ApplicationsSummaryStatusDegraded,
@@ -241,7 +224,7 @@ func TestListenForEvents(t *testing.T) {
 
 			var testInspect []client.PodmanInspect
 			restartsPerContainer := 3
-			testInspect = append(testInspect, mockPodmanInspect(restartsPerContainer, tc.oomKilled, tc.exitCode))
+			testInspect = append(testInspect, mockPodmanInspect(restartsPerContainer))
 			inspectBytes, err := json.Marshal(testInspect)
 			require.NoError(err)
 
@@ -499,14 +482,9 @@ func createMockPodmanEvent(name string, username v1beta1.Username, service, stat
 	return event
 }
 
-func mockPodmanInspect(restarts int, oomKilled bool, exitCode int) client.PodmanInspect {
+func mockPodmanInspect(restarts int) client.PodmanInspect {
 	return client.PodmanInspect{
 		Restarts: restarts,
-		State: client.PodmanContainerState{
-			OOMKilled:  oomKilled,
-			ExitCode:   exitCode,
-			FinishedAt: time.Now().String(),
-		},
 	}
 }
 
@@ -600,7 +578,7 @@ func TestPodmanMonitorMultipleAddRemoveCycles(t *testing.T) {
 		return mockPodmanClient, nil
 	}
 	var systemdFactory systemd.ManagerFactory = func(user v1beta1.Username) (systemd.Manager, error) {
-		return systemd.NewMockManager(ctrl), nil
+		return systemd.NewMockManager(ctrl),
 	}
 	var rwFactory fileio.ReadWriterFactory = func(username v1beta1.Username) (fileio.ReadWriter, error) {
 		return readWriter, nil
@@ -633,7 +611,7 @@ func TestPodmanMonitorMultipleAddRemoveCycles(t *testing.T) {
 	require.Equal(0, len(podmanMonitor.apps))
 
 	// 2. Add two applications
-	err := podmanMonitor.Ensure(t.Context(), app1)
+	err = podmanMonitor.Ensure(t.Context(), app1)
 	require.NoError(err)
 	err = podmanMonitor.Ensure(t.Context(), app2)
 	require.NoError(err)
@@ -741,7 +719,7 @@ func TestPodmanMonitorHandlerSelection(t *testing.T) {
 		return mockPodmanClient, nil
 	}
 	var systemdFactory systemd.ManagerFactory = func(user v1beta1.Username) (systemd.Manager, error) {
-		return systemd.NewMockManager(ctrl), nil
+		return systemd.NewMockManager(ctrl),
 	}
 	var rwFactory fileio.ReadWriterFactory = func(username v1beta1.Username) (fileio.ReadWriter, error) {
 		return readWriter, nil
@@ -775,7 +753,7 @@ func TestPodmanMonitorHandlerSelection(t *testing.T) {
 	quadletApp := createTestApplicationWithType(require, "quadlet-app", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername, v1beta1.AppTypeQuadlet)
 
 	// Ensure both apps
-	err := podmanMonitor.Ensure(t.Context(), composeApp)
+	err = podmanMonitor.Ensure(t.Context(), composeApp)
 	require.NoError(err)
 	err = podmanMonitor.Ensure(t.Context(), quadletApp)
 	require.NoError(err)
@@ -844,7 +822,7 @@ func TestPodmanMonitorDrainSkipsQuadletActions(t *testing.T) {
 		return mockPodmanClient, nil
 	}
 	var systemdFactory systemd.ManagerFactory = func(user v1beta1.Username) (systemd.Manager, error) {
-		return systemd.NewMockManager(ctrl), nil
+		return systemd.NewMockManager(ctrl),
 	}
 	var rwFactory fileio.ReadWriterFactory = func(username v1beta1.Username) (fileio.ReadWriter, error) {
 		return readWriter, nil
@@ -875,7 +853,7 @@ func TestPodmanMonitorDrainSkipsQuadletActions(t *testing.T) {
 	quadletApp := createTestApplicationWithType(require, "quadlet-app", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername, v1beta1.AppTypeQuadlet)
 	containerApp := createTestApplicationWithType(require, "container-app", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername, v1beta1.AppTypeContainer)
 
-	err := podmanMonitor.Ensure(t.Context(), composeApp)
+	err = podmanMonitor.Ensure(t.Context(), composeApp)
 	require.NoError(err)
 	err = podmanMonitor.Ensure(t.Context(), quadletApp)
 	require.NoError(err)
@@ -1304,4 +1282,251 @@ func TestReduceActions_Consistency(t *testing.T) {
 		require.Equal([]string{"z", "m", "a", "f"}, ids,
 			"ordering should be consistent on iteration %d", i)
 	}
+}
+
+func TestListenForEvents_ManualStop(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	log := log.NewPrefixLogger("test")
+	log.SetLevel(logrus.DebugLevel)
+	tmpDir := t.TempDir()
+	rw := fileio.NewReadWriter(
+		fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+		fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+	)
+	execMock := executer.NewMockExecuter(ctrl)
+
+	mockComposeHandler := lifecycle.NewMockActionHandler(ctrl)
+	mockQuadletHandler := lifecycle.NewMockActionHandler(ctrl)
+	mockComposeHandler.EXPECT().Execute(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	mockQuadletHandler.EXPECT().Execute(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+
+	// create a pipe to simulate events being written to the monitor
+	reader, writer := io.Pipe()
+	defer reader.Close()
+	defer writer.Close()
+	
+    // Mocks for different inspect calls
+	inspectBytesStart, err := json.Marshal([]client.PodmanInspect{mockPodmanInspect(0)})
+	require.NoError(err)
+	inspectBytesStop, err := json.Marshal([]client.PodmanInspect{mockPodmanInspect(0)})
+	require.NoError(err)
+	inspectBytesDie, err := json.Marshal([]client.PodmanInspect{{
+		Restarts: 0,
+		State: client.PodmanContainerState{
+			ExitCode:   0,
+			FinishedAt: time.Now().String(),
+		},
+	}})
+	require.NoError(err)
+
+    // The inspect will be called for each event
+	execMock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return(string(inspectBytesStart), "", 0)
+	execMock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return(string(inspectBytesStop), "", 0)
+	execMock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return(string(inspectBytesDie), "", 0)
+
+	podmanEventsCommandMock(execMock).Return(streamDataToStdout(t, reader))
+
+	podman := client.NewPodman(log, execMock, rw, util.NewPollConfig())
+	systemdMgr := systemd.NewMockManager(ctrl)
+	systemdMgr.EXPECT().AddExclusions(gomock.Any()).AnyTimes()
+	systemdMgr.EXPECT().RemoveExclusions(gomock.Any()).AnyTimes()
+
+	var podmanFactory client.PodmanFactory = func(user v1beta1.Username) (*client.Podman, error) {
+		return podman, nil
+	}
+	var systemdFactory systemd.ManagerFactory = func(user v1beta1.Username) (systemd.Manager, error) {
+		return systemdMgr, nil
+	}
+	var rwFactory fileio.ReadWriterFactory = func(username v1beta1.Username) (fileio.ReadWriter, error) {
+		return rw, nil
+	}
+	podmanMonitor := NewPodmanMonitor(log, podmanFactory, systemdFactory, "", rwFactory)
+
+	podmanMonitor.handlers[v1beta1.AppTypeCompose] = mockComposeHandler
+	podmanMonitor.handlers[v1beta1.AppTypeQuadlet] = mockQuadletHandler
+
+	testApp := createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername)
+	err = podmanMonitor.Ensure(t.Context(), testApp)
+	require.NoError(err)
+	err = podmanMonitor.ExecuteActions(t.Context())
+	require.NoError(err)
+
+	events := []client.PodmanEvent{
+		mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "start"),
+		mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "stop"),
+		mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "die"),
+	}
+
+	go func() {
+		for i := range events {
+			event := events[i]
+			if err := writeEvent(writer, &event); err != nil {
+				t.Errorf("failed to write event: %v", err)
+			}
+		}
+	}()
+
+	timeoutDuration := 5 * time.Second
+	retryDuration := 100 * time.Millisecond
+
+	require.Eventually(func() bool {
+		podmanMonitor.mu.Lock()
+		app, exists := podmanMonitor.apps[testApp.ID()]
+		if !exists {
+			podmanMonitor.mu.Unlock()
+			t.Logf("app not found: %s", testApp.Name())
+			return false
+		}
+		status, summary, err := app.Status()
+		podmanMonitor.mu.Unlock()
+
+		if err != nil {
+			t.Logf("error getting status: %v", err)
+			return false
+		}
+		if status == nil {
+			t.Logf("app has no status: %s", testApp.Name())
+			return false
+		}
+
+		if v1beta1.ApplicationsSummaryStatusError != summary.Status {
+			t.Logf("app %s expected summary %s but got %s", testApp.Name(), v1beta1.ApplicationsSummaryStatusError, summary.Status)
+			return false
+		}
+		if "0/1" != status.Ready {
+			t.Logf("app %s expected ready %s but got %s", testApp.Name(), "0/1", status.Ready)
+			return false
+		}
+		if v1beta1.ApplicationStatusError != status.Status {
+			t.Logf("app %s expected status %s but got %s", testApp.Name(), v1beta1.ApplicationStatusError, status.Status)
+			return false
+		}
+
+		return true
+	}, timeoutDuration, retryDuration, "data was not processed in time")
+}
+
+func TestListenForEvents_CompletedContainer(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	log := log.NewPrefixLogger("test")
+	log.SetLevel(logrus.DebugLevel)
+	tmpDir := t.TempDir()
+	rw := fileio.NewReadWriter(
+		fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+		fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+	)
+	execMock := executer.NewMockExecuter(ctrl)
+
+	mockComposeHandler := lifecycle.NewMockActionHandler(ctrl)
+	mockQuadletHandler := lifecycle.NewMockActionHandler(ctrl)
+	mockComposeHandler.EXPECT().Execute(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	mockQuadletHandler.EXPECT().Execute(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+
+	reader, writer := io.Pipe()
+	defer reader.Close()
+	defer writer.Close()
+	
+	inspectBytesDie, err := json.Marshal([]client.PodmanInspect{{
+		Restarts: 0,
+		State: client.PodmanContainerState{
+			ExitCode:   0,
+			FinishedAt: time.Now().String(),
+		},
+	}})
+	require.NoError(err)
+
+	execMock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return(string(inspectBytesDie), "", 0).AnyTimes()
+
+	podmanEventsCommandMock(execMock).Return(streamDataToStdout(t, reader))
+
+	podman := client.NewPodman(log, execMock, rw, util.NewPollConfig())
+	systemdMgr := systemd.NewMockManager(ctrl)
+	systemdMgr.EXPECT().AddExclusions(gomock.Any()).AnyTimes()
+	systemdMgr.EXPECT().RemoveExclusions(gomock.Any()).AnyTimes()
+
+	var podmanFactory client.PodmanFactory = func(user v1beta1.Username) (*client.Podman, error) {
+		return podman, nil
+	}
+	var systemdFactory systemd.ManagerFactory = func(user v1beta1.Username) (systemd.Manager, error) {
+		return systemdMgr, nil
+	}
+	var rwFactory fileio.ReadWriterFactory = func(username v1beta1.Username) (fileio.ReadWriter, error) {
+		return rw, nil
+	}
+	podmanMonitor := NewPodmanMonitor(log, podmanFactory, systemdFactory, "", rwFactory)
+
+	podmanMonitor.handlers[v1beta1.AppTypeCompose] = mockComposeHandler
+	podmanMonitor.handlers[v1beta1.AppTypeQuadlet] = mockQuadletHandler
+
+	testApp := createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername)
+	err = podmanMonitor.Ensure(t.Context(), testApp)
+	require.NoError(err)
+	err = podmanMonitor.ExecuteActions(t.Context())
+	require.NoError(err)
+    
+    // Add workload to simulate container was running
+	testApp.AddWorkload(&Workload{
+		ID:       "container-id",
+		Name:     "app1-service-1-container",
+		Status:   StatusRunning,
+		Restarts: 0,
+	})
+
+	events := []client.PodmanEvent{
+		mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "die"),
+	}
+
+	go func() {
+		for i := range events {
+			event := events[i]
+			if err := writeEvent(writer, &event); err != nil {
+				t.Errorf("failed to write event: %v", err)
+			}
+		}
+	}()
+
+	timeoutDuration := 5 * time.Second
+	retryDuration := 100 * time.Millisecond
+
+	require.Eventually(func() bool {
+		podmanMonitor.mu.Lock()
+		app, exists := podmanMonitor.apps[testApp.ID()]
+		if !exists {
+			podmanMonitor.mu.Unlock()
+			t.Logf("app not found: %s", testApp.Name())
+			return false
+		}
+		status, summary, err := app.Status()
+		podmanMonitor.mu.Unlock()
+
+		if err != nil {
+			t.Logf("error getting status: %v", err)
+			return false
+		}
+		if status == nil {
+			t.Logf("app has no status: %s", testApp.Name())
+			return false
+		}
+
+		if v1beta1.ApplicationsSummaryStatusHealthy != summary.Status {
+			t.Logf("app %s expected summary %s but got %s", testApp.Name(), v1beta1.ApplicationsSummaryStatusHealthy, summary.Status)
+			return false
+		}
+		if "1/1" != status.Ready {
+			t.Logf("app %s expected ready %s but got %s", testApp.Name(), "1/1", status.Ready)
+			return false
+		}
+		if v1beta1.ApplicationStatusCompleted != status.Status {
+			t.Logf("app %s expected status %s but got %s", testApp.Name(), v1beta1.ApplicationStatusCompleted, status.Status)
+			return false
+		}
+
+		return true
+	}, timeoutDuration, retryDuration, "data was not processed in time")
 }
