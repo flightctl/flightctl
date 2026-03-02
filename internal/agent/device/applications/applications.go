@@ -30,7 +30,6 @@ const (
 	StatusDied    StatusType = "died"
 	StatusRemove  StatusType = "remove"
 	StatusExited  StatusType = "exited"
-	StatusStopped StatusType = "stopped"
 )
 
 func (c StatusType) String() string {
@@ -126,26 +125,28 @@ type Application interface {
 
 // Workload represents an application workload tracked by a Monitor.
 type Workload struct {
-	ID       string
-	Image    string
-	Name     string
-	Status   StatusType
-	Restarts int
+	ID            string
+	Image         string
+	Name          string
+	Status        StatusType
+	Restarts      int
+	RestartPolicy string
 }
 
 type application struct {
-	id         string
-	path       string
-	workloads  []Workload
-	volume     provider.VolumeManager
-	status     *v1beta1.DeviceApplicationStatus
-	actionSpec lifecycle.ActionSpec
+	id              string
+	path            string
+	workloads       []Workload
+	restartPolicies map[string]string
+	volume          provider.VolumeManager
+	status          *v1beta1.DeviceApplicationStatus
+	actionSpec      lifecycle.ActionSpec
 }
 
 // NewApplication creates a new application from an application provider.
 func NewApplication(p provider.Provider) *application {
 	spec := p.Spec()
-	return &application{
+	app := &application{
 		id:   spec.ID,
 		path: spec.Path,
 		status: &v1beta1.DeviceApplicationStatus{
@@ -155,8 +156,19 @@ func NewApplication(p provider.Provider) *application {
 			AppType:  spec.AppType,
 			RunAs:    spec.User,
 		},
-		volume: spec.Volume,
+		volume:          spec.Volume,
+		restartPolicies: make(map[string]string),
 	}
+
+	if cp, ok := p.(provider.ComposeProvider); ok {
+		if composeSpec := cp.GetComposeSpec(); composeSpec != nil {
+			for serviceName, service := range composeSpec.Services {
+				app.restartPolicies[serviceName] = service.Restart
+			}
+		}
+	}
+
+	return app
 }
 
 // NewHelmApplication creates a new application with Helm-specific configuration.
@@ -214,6 +226,9 @@ func (a *application) Workload(name string) (*Workload, bool) {
 }
 
 func (a *application) AddWorkload(workload *Workload) {
+	if policy, ok := a.restartPolicies[workload.Name]; ok {
+		workload.RestartPolicy = policy
+	}
 	a.workloads = append(a.workloads, *workload)
 }
 
@@ -272,9 +287,12 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 		case StatusRunning:
 			healthy++
 		case StatusExited:
-			exited++
-		case StatusStopped:
-			stopped++
+			switch workload.RestartPolicy {
+			case "always", "on-failure", "unless-stopped":
+				stopped++
+			default: // "no", ""
+				exited++
+			}
 		}
 	}
 
@@ -298,13 +316,12 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 	case isCompleted(total, exited):
 		newStatus = v1beta1.ApplicationStatusCompleted
 		summary.Status = v1beta1.ApplicationsSummaryStatusHealthy
-	case isStopped(total, exited, stopped):
-		newStatus = v1beta1.ApplicationStatusError
-		summary.Status = v1beta1.ApplicationsSummaryStatusError
-		summary.Info = "Application stopped"
 	case isRunningHealthy(total, healthy, initializing, exited):
 		newStatus = v1beta1.ApplicationStatusRunning
 		summary.Status = v1beta1.ApplicationsSummaryStatusHealthy
+	case isDegraded(stopped):
+		newStatus = v1beta1.ApplicationStatusRunning
+		summary.Status = v1beta1.ApplicationsSummaryStatusDegraded
 	case isRunningDegraded(total, healthy, initializing):
 		newStatus = v1beta1.ApplicationStatusRunning
 		summary.Status = v1beta1.ApplicationsSummaryStatusDegraded
@@ -344,14 +361,12 @@ func isCompleted(total, completed int) bool {
 	return total > 0 && completed == total
 }
 
-func isStopped(total, exited, stopped int) bool {
-	return total > 0 && (exited+stopped) == total && stopped > 0
-}
-
 func isPreparing(total, healthy, initializing int) bool {
 	return total > 0 && healthy == 0 && initializing > 0
 }
-
+func isDegraded(stopped int) bool {
+	return stopped > 0
+}
 func isRunningDegraded(total, healthy, initializing int) bool {
 	return total != healthy && healthy > 0 && initializing == 0
 }

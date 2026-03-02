@@ -46,6 +46,13 @@ type Provider interface {
 	EnsureDependencies(ctx context.Context) error
 }
 
+// ComposeProvider extends the Provider interface for compose-based applications.
+type ComposeProvider interface {
+	Provider
+	// GetComposeSpec returns the parsed compose specification.
+	GetComposeSpec() *common.ComposeSpec
+}
+
 type appProvider interface {
 	Provider
 

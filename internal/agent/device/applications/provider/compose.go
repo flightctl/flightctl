@@ -21,8 +21,7 @@ var composeBinaryDeps = []dependencyBins{
 	{variants: []string{"skopeo"}},
 }
 
-var _ Provider = (*composeProvider)(nil)
-var _ appProvider = (*composeProvider)(nil)
+var _ ComposeProvider = (*composeProvider)(nil)
 
 type composeProvider struct {
 	log            *log.PrefixLogger
@@ -30,6 +29,7 @@ type composeProvider struct {
 	readWriter     fileio.ReadWriter
 	commandChecker commandChecker
 	spec           *ApplicationSpec
+	composeSpec    *common.ComposeSpec
 
 	imageRef      string
 	inlineContent []v1beta1.ApplicationContent
@@ -72,6 +72,7 @@ func newComposeProvider(
 
 	var imageRef string
 	var inlineContent []v1beta1.ApplicationContent
+	var composeSpec *common.ComposeSpec
 
 	switch providerType {
 	case v1beta1.ImageApplicationProviderType:
@@ -90,6 +91,12 @@ func newComposeProvider(
 			return nil, fmt.Errorf("getting compose inline provider: %w", err)
 		}
 		inlineContent = inlineSpec.Inline
+		// Parse from inline content now
+		spec, err := client.ParseComposeFromSpec(inlineContent)
+		if err != nil {
+			return nil, fmt.Errorf("parsing inline compose spec: %w", err)
+		}
+		composeSpec = spec
 	}
 
 	volumeManager, err := NewVolumeManager(log, appName, v1beta1.AppTypeCompose, user, volumes)
@@ -116,17 +123,28 @@ func newComposeProvider(
 			ComposeApp: &composeApp,
 			Volume:     volumeManager,
 		},
+		composeSpec: composeSpec,
 	}
 
 	if cfg != nil && cfg.appDataCache != nil {
 		if cachedData, found := cfg.appDataCache[appName]; found {
 			p.AppData = cachedData
+			if cachedData.TmpPath != "" {
+				spec, err := client.ParseComposeSpecFromDir(readWriter, cachedData.TmpPath)
+				if err != nil {
+					return nil, fmt.Errorf("parsing compose spec from cached app data: %w", err)
+				}
+				p.composeSpec = spec
+			}
 		}
 	}
 
 	return p, nil
 }
 
+func (p *composeProvider) GetComposeSpec() *common.ComposeSpec {
+	return p.composeSpec
+}
 func (p *composeProvider) isImageBased() bool {
 	return p.imageRef != ""
 }

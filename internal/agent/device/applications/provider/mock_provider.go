@@ -14,6 +14,7 @@ import (
 	reflect "reflect"
 
 	dependency "github.com/flightctl/flightctl/internal/agent/device/dependency"
+	common "github.com/flightctl/flightctl/internal/api/common"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -136,6 +137,141 @@ func (m *MockProvider) Verify(ctx context.Context) error {
 func (mr *MockProviderMockRecorder) Verify(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Verify", reflect.TypeOf((*MockProvider)(nil).Verify), ctx)
+}
+
+// MockComposeProvider is a mock of ComposeProvider interface.
+type MockComposeProvider struct {
+	ctrl     *gomock.Controller
+	recorder *MockComposeProviderMockRecorder
+}
+
+// MockComposeProviderMockRecorder is the mock recorder for MockComposeProvider.
+type MockComposeProviderMockRecorder struct {
+	mock *MockComposeProvider
+}
+
+// NewMockComposeProvider creates a new mock instance.
+func NewMockComposeProvider(ctrl *gomock.Controller) *MockComposeProvider {
+	mock := &MockComposeProvider{ctrl: ctrl}
+	mock.recorder = &MockComposeProviderMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockComposeProvider) EXPECT() *MockComposeProviderMockRecorder {
+	return m.recorder
+}
+
+// EnsureDependencies mocks base method.
+func (m *MockComposeProvider) EnsureDependencies(ctx context.Context) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "EnsureDependencies", ctx)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// EnsureDependencies indicates an expected call of EnsureDependencies.
+func (mr *MockComposeProviderMockRecorder) EnsureDependencies(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "EnsureDependencies", reflect.TypeOf((*MockComposeProvider)(nil).EnsureDependencies), ctx)
+}
+
+// GetComposeSpec mocks base method.
+func (m *MockComposeProvider) GetComposeSpec() *common.ComposeSpec {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetComposeSpec")
+	ret0, _ := ret[0].(*common.ComposeSpec)
+	return ret0
+}
+
+// GetComposeSpec indicates an expected call of GetComposeSpec.
+func (mr *MockComposeProviderMockRecorder) GetComposeSpec() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetComposeSpec", reflect.TypeOf((*MockComposeProvider)(nil).GetComposeSpec))
+}
+
+// ID mocks base method.
+func (m *MockComposeProvider) ID() string {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ID")
+	ret0, _ := ret[0].(string)
+	return ret0
+}
+
+// ID indicates an expected call of ID.
+func (mr *MockComposeProviderMockRecorder) ID() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ID", reflect.TypeOf((*MockComposeProvider)(nil).ID))
+}
+
+// Install mocks base method.
+func (m *MockComposeProvider) Install(ctx context.Context) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Install", ctx)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Install indicates an expected call of Install.
+func (mr *MockComposeProviderMockRecorder) Install(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Install", reflect.TypeOf((*MockComposeProvider)(nil).Install), ctx)
+}
+
+// Name mocks base method.
+func (m *MockComposeProvider) Name() string {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Name")
+	ret0, _ := ret[0].(string)
+	return ret0
+}
+
+// Name indicates an expected call of Name.
+func (mr *MockComposeProviderMockRecorder) Name() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Name", reflect.TypeOf((*MockComposeProvider)(nil).Name))
+}
+
+// Remove mocks base method.
+func (m *MockComposeProvider) Remove(ctx context.Context) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Remove", ctx)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Remove indicates an expected call of Remove.
+func (mr *MockComposeProviderMockRecorder) Remove(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Remove", reflect.TypeOf((*MockComposeProvider)(nil).Remove), ctx)
+}
+
+// Spec mocks base method.
+func (m *MockComposeProvider) Spec() *ApplicationSpec {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Spec")
+	ret0, _ := ret[0].(*ApplicationSpec)
+	return ret0
+}
+
+// Spec indicates an expected call of Spec.
+func (mr *MockComposeProviderMockRecorder) Spec() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Spec", reflect.TypeOf((*MockComposeProvider)(nil).Spec))
+}
+
+// Verify mocks base method.
+func (m *MockComposeProvider) Verify(ctx context.Context) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Verify", ctx)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Verify indicates an expected call of Verify.
+func (mr *MockComposeProviderMockRecorder) Verify(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Verify", reflect.TypeOf((*MockComposeProvider)(nil).Verify), ctx)
 }
 
 // MockappProvider is a mock of appProvider interface.
