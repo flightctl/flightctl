@@ -1,6 +1,6 @@
-# Helm chart overrides for redhat-el9 flavor
-# This file is optional - if present, it replaces deploy/helm/flightctl/Chart.yaml
-# If absent, the original Chart.yaml remains authoritative
+# Helm chart value overrides for redhat-el9 flavor
+# This file is optional - if present, values are merged into generated Chart.yaml
+# If absent, the generated Chart.yaml remains unmodified
 
 annotations:
   redhat.edition: "true"
