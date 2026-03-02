@@ -96,7 +96,11 @@ func applyFlavorChartOverride(profileKey string) {
 
 	// Check if flavor Chart.yaml exists
 	if _, err := os.Stat(flavorChartPath); os.IsNotExist(err) {
-		// No flavor override, use generated Chart.yaml as-is
+		// Red Hat flavors must have Chart.yaml files, community flavors are optional
+		if distro == "redhat" {
+			log.Fatalf("Red Hat flavor Chart.yaml missing: %s - Red Hat flavors require chart overrides", flavorChartPath)
+		}
+		// No flavor override for community, use generated Chart.yaml as-is
 		return
 	}
 
