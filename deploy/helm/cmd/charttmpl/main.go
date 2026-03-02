@@ -59,6 +59,24 @@ func runTemplate(in string, out string, templateData templateContext) {
 	}
 }
 
+// deepMergeMaps recursively merges src into dst, preserving nested map structures
+func deepMergeMaps(dst, src map[string]interface{}) {
+	for key, srcValue := range src {
+		if dstValue, exists := dst[key]; exists {
+			// Both dst and src have this key - check if both are maps
+			if dstMap, dstIsMap := dstValue.(map[string]interface{}); dstIsMap {
+				if srcMap, srcIsMap := srcValue.(map[string]interface{}); srcIsMap {
+					// Both are maps - recursively merge
+					deepMergeMaps(dstMap, srcMap)
+					continue
+				}
+			}
+		}
+		// Either key doesn't exist in dst, or one/both values aren't maps - overwrite
+		dst[key] = srcValue
+	}
+}
+
 func applyFlavorChartOverride(profileKey string) {
 	// Get distro and release version from environment
 	distro := os.Getenv("DISTRO")
@@ -104,10 +122,8 @@ func applyFlavorChartOverride(profileKey string) {
 		log.Fatalf("parsing flavor chart %s: %v", flavorChartPath, err)
 	}
 
-	// Merge flavor overrides into generated chart
-	for key, value := range flavorOverrides {
-		generatedChart[key] = value
-	}
+	// Deep merge flavor overrides into generated chart (preserves nested maps like annotations)
+	deepMergeMaps(generatedChart, flavorOverrides)
 
 	// Write back the merged chart
 	mergedBytes, err := yaml.Marshal(generatedChart)
