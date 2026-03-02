@@ -74,7 +74,7 @@ func applyFlavorChartOverride(profileKey string) {
 
 	// Construct flavor path
 	flavorName := distro + "-" + relver
-	flavorChartPath := filepath.Join("packaging", "flavors", flavorName, "Chart.yaml")
+	flavorChartPath := filepath.Join("..", "..", "packaging", "flavors", flavorName, "Chart.yaml")
 
 	// Check if flavor Chart.yaml exists
 	if _, err := os.Stat(flavorChartPath); os.IsNotExist(err) {
