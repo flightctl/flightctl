@@ -99,6 +99,11 @@ var Extensions = map[string]string{
 	BuildExtension:     BuildGroup,
 }
 
+// GetUnitName returns the systemd unit name for a container.
+func GetUnitName(appName, containerName string) string {
+	return fmt.Sprintf("%s.%s.service", appName, containerName)
+}
+
 // templateParts parses systemd template unit naming conventions from the given filename.
 // It returns the unit name prefix, instance name, and a boolean indicating whether the filename
 // represents a template unit. For example, "foo@bar.container" returns ("foo", "bar", true),
