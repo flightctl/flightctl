@@ -426,24 +426,24 @@ clean-quadlets:
 # Use custom golangci-lint container with libvirt support
 LINT_IMAGE := flightctl-lint:latest
 LINT_CONTAINER := podman run --rm --security-opt label=disable \
-	-v $(GOBASE):/app \
-	-v golangci-lint-cache:/root/.cache/golangci-lint \
-	-v go-build-cache:/root/.cache/go-build \
-	-v go-mod:/go/pkg/mod \
-	-w /app --user 0 $(LINT_IMAGE)
+        -v $(GOBASE):/app \
+        -v $(GOBASE)/.cache/golangci-lint:/root/.cache/golangci-lint \
+        -v $(GOBASE)/.cache/go-build:/root/.cache/go-build \
+        -v $(GOBASE)/.cache/go-mod:/go/pkg/mod \
+        -w /app --user 0 $(LINT_IMAGE)
 
 .PHONY: tools
 tools:
 
 .output/stamps/lint-image: Containerfile.lint go.mod go.sum
-	@mkdir -p .output/stamps
-	podman build -f Containerfile.lint -t $(LINT_IMAGE)
-	@touch .output/stamps/lint-image
+        @mkdir -p .output/stamps
+        podman build -f Containerfile.lint -t $(LINT_IMAGE)
+        @touch .output/stamps/lint-image
 
 .PHONY: lint
 lint: .output/stamps/lint-image
-	$(LINT_CONTAINER) golangci-lint run -v
-
+        mkdir -p .cache/golangci-lint .cache/go-build .cache/go-mod
+        $(LINT_CONTAINER) golangci-lint run -v
 .PHONY: rpmlint
 rpmlint: check-rpmlint
 	@echo "Running rpmlint on RPM spec file"

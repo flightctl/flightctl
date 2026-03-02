@@ -457,16 +457,12 @@ func isFinishedStatus(status StatusType) bool {
 	return ok
 }
 
-func (m *PodmanMonitor) updateApplicationStatus(app Application, event *client.PodmanEvent, status StatusType, restarts int, exitCode int) {
+func (m *PodmanMonitor) updateApplicationStatus(app Application, event *client.PodmanEvent, status StatusType, restarts int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	container, exists := app.Workload(event.Name)
 	if exists {
-		// if a container was stopped and then exited with 0, it should be considered stopped not completed.
-		if container.Status == StatusStop && status == StatusExited {
-			status = StatusStop
-		}
 		// update existing container
 		container.Status = status
 		// restarts can only increase
@@ -523,12 +519,11 @@ func (m *PodmanMonitor) updateQuadletContainerStatus(ctx context.Context, app Ap
 		m.log.Errorf("Could not parse systemd unit restarts: %v", err)
 	}
 
-	exitCode := lo.FromPtrOr(event.ContainerExitCode, -1)
 	status := StatusType(event.Status)
-	if isFinishedStatus(status) && exitCode == 0 {
-		status = StatusExited
+	if isFinishedStatus(status) && lo.FromPtrOr(event.ContainerExitCode, -1) == 0 {
+		status = StatusStopped
 	}
-	m.updateApplicationStatus(app, event, status, restartCount, exitCode)
+	m.updateApplicationStatus(app, event, status, restartCount)
 }
 
 func (m *PodmanMonitor) updateComposeContainerStatus(ctx context.Context, app Application, event *client.PodmanEvent) {
@@ -561,12 +556,8 @@ func (m *PodmanMonitor) updateComposeContainerStatus(ctx context.Context, app Ap
 		}
 		return
 	}
-	var exitCode int
-	if len(inspectData) > 0 {
-		exitCode = inspectData[0].State.ExitCode
-	}
 
-	m.updateApplicationStatus(app, event, status, restarts, exitCode)
+	m.updateApplicationStatus(app, event, status, restarts)
 }
 
 func (m *PodmanMonitor) getContainerRestarts(inspectData []client.PodmanInspect) (int, error) {
@@ -596,7 +587,7 @@ func (m *PodmanMonitor) resolveStatus(status string, inspectData []client.Podman
 	// podman events don't properly event exited in the case where the container exits 0.
 	if initialStatus == StatusDie || initialStatus == StatusDied {
 		if len(inspectData) > 0 && inspectData[0].State.ExitCode == 0 && inspectData[0].State.FinishedAt != "" {
-			return StatusExited
+			return StatusStopped
 		}
 	}
 	return initialStatus
