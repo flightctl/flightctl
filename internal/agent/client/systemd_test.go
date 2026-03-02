@@ -31,6 +31,22 @@ func TestSystemdUserClient(t *testing.T) {
 				return systemd.Restart(t.Context(), "testunit")
 			},
 		},
+		{
+			expectedArgs: []any{"show", "--no-pager", "testunit", "-p", "LoadState", "--value"},
+			run: func(m executer.Executer) error {
+				systemd := NewSystemd(m, v1beta1.RootUsername)
+				_, err := systemd.Show(t.Context(), "testunit", WithShowLoadState())
+				return err
+			},
+		},
+		{
+			expectedArgs: []any{"show", "--no-pager", "testunit", "-p", "Restart", "--value"},
+			run: func(m executer.Executer) error {
+				systemd := NewSystemd(m, v1beta1.RootUsername)
+				_, err := systemd.Show(t.Context(), "testunit", WithShowRestart())
+				return err
+			},
+		},
 	}
 
 	for _, tt := range testcases {

@@ -426,6 +426,7 @@ clean-quadlets:
 # Use custom golangci-lint container with libvirt support
 LINT_IMAGE := flightctl-lint:latest
 LINT_CONTAINER := podman run --rm --security-opt label=disable \
+	-e GOLANGCI_LINT_CACHE=/root/.cache/golangci-lint \
 	-v $(GOBASE):/app \
 	-v golangci-lint-cache:/root/.cache/golangci-lint \
 	-v go-build-cache:/root/.cache/go-build \
@@ -442,7 +443,7 @@ tools:
 
 .PHONY: lint
 lint: .output/stamps/lint-image
-	$(LINT_CONTAINER) golangci-lint run -v --cache-dir=/root/.cache/golangci-lint
+	$(LINT_CONTAINER) golangci-lint run -v
 
 .PHONY: rpmlint
 rpmlint: check-rpmlint

@@ -310,11 +310,12 @@ func WithShowLoadState() SystemdShowOptions {
 	}
 }
 
-func WithShowProperty(name string) SystemdShowOptions {
+func WithShowRestart() SystemdShowOptions {
 	return func(opts *systemdShowOpts) {
-		opts.args = append(opts.args, "-p", name, "--value")
+		opts.args = append(opts.args, "-p", "Restart", "--value")
 	}
 }
+
 
 func (s *Systemd) Show(ctx context.Context, unit string, opts ...SystemdShowOptions) ([]string, error) {
 	ctx, cancel := context.WithTimeout(ctx, defaultSystemctlTimeout)

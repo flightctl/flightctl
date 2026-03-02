@@ -519,19 +519,24 @@ func (m *PodmanMonitor) updateQuadletContainerStatus(ctx context.Context, app Ap
 		m.log.Errorf("Could not parse systemd unit restarts: %v", err)
 	}
 
-	var currentStatus StatusType
-	if workload, exists := app.Workload(event.Name); exists {
-		currentStatus = workload.Status
-	}
-
 	status := StatusType(event.Status)
 	if isFinishedStatus(status) && lo.FromPtrOr(event.ContainerExitCode, -1) == 0 {
-		if currentStatus != StatusStop {
+		restart, err := systemctl.Show(ctx, systemdUnit, client.WithShowRestart())
+		if err != nil || len(restart) == 0 {
+			m.log.Errorf("Could not show systemd unit: %s restart policy: %v", systemdUnit, err)
 			status = StatusExited
+		} else {
+			switch restart[0] {
+			case "always", "on-success", "on-failure", "on-abnormal":
+				status = StatusDie
+			default:
+				status = StatusExited
+			}
 		}
 	}
 	m.updateApplicationStatus(app, event, status, restartCount)
 }
+
 
 func (m *PodmanMonitor) updateComposeContainerStatus(ctx context.Context, app Application, event *client.PodmanEvent) {
 	client, err := m.clientFactory(app.User())
@@ -553,12 +558,7 @@ func (m *PodmanMonitor) updateComposeContainerStatus(ctx context.Context, app Ap
 		m.log.Errorf("Failed to get container restarts: %v", err)
 	}
 
-	var currentStatus StatusType
-	if workload, exists := app.Workload(event.Name); exists {
-		currentStatus = workload.Status
-	}
-
-	status := m.resolveStatus(event.Status, inspectData, currentStatus)
+	status := m.resolveStatus(event.Status, inspectData)
 	if status == StatusRemove {
 		m.mu.Lock()
 		defer m.mu.Unlock()
@@ -594,17 +594,12 @@ func (m *PodmanMonitor) inspectContainer(ctx context.Context, containerID string
 	return inspectData, nil
 }
 
-func (m *PodmanMonitor) resolveStatus(status string, inspectData []client.PodmanInspect, currentWorkloadStatus StatusType) StatusType {
+func (m *PodmanMonitor) resolveStatus(status string, inspectData []client.PodmanInspect) StatusType {
 	initialStatus := StatusType(status)
 	// podman events don't properly event exited in the case where the container exits 0.
 	if initialStatus == StatusDie || initialStatus == StatusDied {
-		if len(inspectData) > 0 && inspectData[0].State.ExitCode == 0 {
-			if currentWorkloadStatus == StatusStop {
-				return initialStatus
-			}
-			if inspectData[0].State.FinishedAt != "" {
-				return StatusExited
-			}
+		if len(inspectData) > 0 && inspectData[0].State.ExitCode == 0 && inspectData[0].State.FinishedAt != "" {
+			return StatusExited
 		}
 	}
 	return initialStatus
