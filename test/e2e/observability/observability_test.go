@@ -138,7 +138,7 @@ var _ = Describe("Service observability", func() {
 	})
 
 	Context("service level prometheus metrics", func() {
-		It("should expose service level metrics via the prometheus server", func() {
+		It("should expose service level metrics via the prometheus server", Label("88170"), func() {
 			harness := e2e.GetWorkerHarness()
 
 			By("port-forwarding prometheus server for metrics access")
