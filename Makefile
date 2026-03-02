@@ -442,6 +442,7 @@ tools:
 
 .PHONY: lint
 lint: .output/stamps/lint-image
+	@mkdir -p /tmp/jira-ai-issue-solver/cache/go-mod /tmp/jira-ai-issue-solver/cache/go-build /tmp/jira-ai-issue-solver/cache/golangci-lint
 	$(LINT_CONTAINER) golangci-lint run -v
 
 .PHONY: rpmlint

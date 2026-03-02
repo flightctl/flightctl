@@ -26,7 +26,6 @@ const (
 	StatusInit    StatusType = "init"
 	StatusRunning StatusType = "start"
 	StatusStop    StatusType = "stop"
-	StatusStopped StatusType = "stopped"
 	StatusDie     StatusType = "die" // docker only
 	StatusDied    StatusType = "died"
 	StatusRemove  StatusType = "remove"
@@ -140,6 +139,7 @@ type application struct {
 	volume     provider.VolumeManager
 	status     *v1beta1.DeviceApplicationStatus
 	actionSpec lifecycle.ActionSpec
+	provider   provider.Provider
 }
 
 // NewApplication creates a new application from an application provider.
@@ -155,7 +155,8 @@ func NewApplication(p provider.Provider) *application {
 			AppType:  spec.AppType,
 			RunAs:    spec.User,
 		},
-		volume: spec.Volume,
+		volume:   spec.Volume,
+		provider: p,
 	}
 }
 
@@ -273,7 +274,7 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 			healthy++
 		case StatusExited:
 			exited++
-		case StatusStopped:
+		case StatusStop, StatusStopped:
 			stopped++
 		}
 	}
