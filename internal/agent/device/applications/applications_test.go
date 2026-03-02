@@ -197,6 +197,59 @@ func TestApplicationStatus(t *testing.T) {
 			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusError,
 		},
 		{
+			name: "app has all workloads exited successfully",
+			workloads: []Workload{
+				{
+					Name:     "container1",
+					Status:   StatusExited,
+					ExitCode: lo.ToPtr(0),
+				},
+				{
+					Name:     "container2",
+					Status:   StatusExited,
+					ExitCode: lo.ToPtr(0),
+				},
+			},
+			expectedReady:         "0/2",
+			expectedStatus:        v1beta1.ApplicationStatusCompleted,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusHealthy,
+		},
+		{
+			name: "app has all workloads exited with one failure",
+			workloads: []Workload{
+				{
+					Name:     "container1",
+					Status:   StatusExited,
+					ExitCode: lo.ToPtr(0),
+				},
+				{
+					Name:     "container2",
+					Status:   StatusExited,
+					ExitCode: lo.ToPtr(1),
+				},
+			},
+			expectedReady:         "0/2",
+			expectedStatus:        v1beta1.ApplicationStatusError,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusError,
+		},
+		{
+			name: "app has one workload running and one exited with failure",
+			workloads: []Workload{
+				{
+					Name:   "container1",
+					Status: StatusRunning,
+				},
+				{
+					Name:     "container2",
+					Status:   StatusExited,
+					ExitCode: lo.ToPtr(1),
+				},
+			},
+			expectedReady:         "1/2",
+			expectedStatus:        v1beta1.ApplicationStatusRunning,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusDegraded,
+		},
+		{
 			name: "app has one workloads exited",
 			workloads: []Workload{
 				{
@@ -204,8 +257,9 @@ func TestApplicationStatus(t *testing.T) {
 					Status: StatusRunning,
 				},
 				{
-					Name:   "container2",
-					Status: StatusExited,
+					Name:     "container2",
+					Status:   StatusExited,
+					ExitCode: lo.ToPtr(0),
 				},
 			},
 			expectedReady:         "1/2",
@@ -216,13 +270,14 @@ func TestApplicationStatus(t *testing.T) {
 			name: "app with single container has exited",
 			workloads: []Workload{
 				{
-					Name:   "container1",
-					Status: StatusExited,
+					Name:     "container1",
+					Status:   StatusExited,
+					ExitCode: lo.ToPtr(0),
 				},
 			},
 			expectedReady:         "0/1",
-			expectedStatus:        v1beta1.ApplicationStatusError,
-			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusError,
+			expectedStatus:        v1beta1.ApplicationStatusCompleted,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusHealthy,
 		},
 	}
 
