@@ -33,8 +33,8 @@ db:
   image: quay.io/sclorg/postgresql-16-c10s
   tag: "latest"
 kv:
-  # Using CentOS Stream 10 Redis for EL10 flavor
-  image: quay.io/sclorg/redis-7-c10s
+  # Using Valkey (Redis replacement) for EL10 flavor
+  image: quay.io/sclorg/valkey-7-c10s
   tag: "latest"
 alertmanager:
   image: quay.io/prometheus/alertmanager
@@ -47,7 +47,7 @@ imagebuilder-worker:
   tag: latest
 grafana:
   image: docker.io/grafana/grafana
-  tag: latest
+  tag: "11.4.0"
 prometheus:
   image: docker.io/prom/prometheus
   tag: v2.13.1
