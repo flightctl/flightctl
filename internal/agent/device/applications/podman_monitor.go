@@ -483,6 +483,21 @@ func (m *PodmanMonitor) updateApplicationStatus(app Application, event *client.P
 	})
 }
 
+func (m *PodmanMonitor) getFinishedStatus(event *client.PodmanEvent, exitCode int) StatusType {
+	if exitCode == 0 {
+		if event.Signal == 15 { // SIGTERM
+			return StatusStopped
+		}
+		return StatusExited
+	}
+	if exitCode == 137 { // SIGKILL
+		return StatusStopped
+	}
+	// For any other non-zero exit code, it's considered a 'die' event, which leads to Degraded/Error status.
+	// Returning the original status for other finished statuses.
+	return StatusType(event.Status)
+}
+
 func (m *PodmanMonitor) updateQuadletContainerStatus(ctx context.Context, app Application, event *client.PodmanEvent) {
 	systemdUnit, ok := event.Attributes[quadletSystemdLabel]
 	if !ok {
@@ -520,8 +535,8 @@ func (m *PodmanMonitor) updateQuadletContainerStatus(ctx context.Context, app Ap
 	}
 
 	status := StatusType(event.Status)
-	if isFinishedStatus(status) && lo.FromPtrOr(event.ContainerExitCode, -1) == 0 {
-		status = StatusStopped
+	if isFinishedStatus(status) {
+		status = m.getFinishedStatus(event, lo.FromPtrOr(event.ContainerExitCode, -1))
 	}
 	m.updateApplicationStatus(app, event, status, restartCount)
 }
@@ -546,7 +561,7 @@ func (m *PodmanMonitor) updateComposeContainerStatus(ctx context.Context, app Ap
 		m.log.Errorf("Failed to get container restarts: %v", err)
 	}
 
-	status := m.resolveStatus(event.Status, inspectData)
+	status := m.resolveStatus(event, inspectData)
 	if status == StatusRemove {
 		m.mu.Lock()
 		defer m.mu.Unlock()
@@ -582,12 +597,23 @@ func (m *PodmanMonitor) inspectContainer(ctx context.Context, containerID string
 	return inspectData, nil
 }
 
-func (m *PodmanMonitor) resolveStatus(status string, inspectData []client.PodmanInspect) StatusType {
-	initialStatus := StatusType(status)
+func (m *PodmanMonitor) resolveStatus(event *client.PodmanEvent, inspectData []client.PodmanInspect) StatusType {
+	initialStatus := StatusType(event.Status)
 	// podman events don't properly event exited in the case where the container exits 0.
 	if initialStatus == StatusDie || initialStatus == StatusDied {
+		var exitCode = -1
+		if event.ContainerExitCode != nil {
+			exitCode = *event.ContainerExitCode
+		} else if len(inspectData) > 0 {
+			exitCode = inspectData[0].State.ExitCode
+		}
+
+		if exitCode != -1 {
+			return m.getFinishedStatus(event, exitCode)
+		}
+
 		if len(inspectData) > 0 && inspectData[0].State.ExitCode == 0 && inspectData[0].State.FinishedAt != "" {
-			return StatusStopped
+			return StatusExited
 		}
 	}
 	return initialStatus

@@ -86,6 +86,8 @@ type PodmanEvent struct {
 	Type              string            `json:"Type"`
 	TimeNano          int64             `json:"timeNano"`
 	Attributes        map[string]string `json:"Attributes"`
+	Signal            int               `json:"signal,omitempty"`
+	HealthStatus      string            `json:"healthStatus,omitempty"`
 }
 
 type Podman struct {
@@ -471,7 +473,8 @@ func extractArtifactAnnotations(inspect *ArtifactInspect) map[string]string {
 // EventsSinceCmd returns a command to get podman events since the given time. After creating the command, it should be started with exec.Start().
 // When the events are in sync with the current time a sync event is emitted.
 func (p *Podman) EventsSinceCmd(ctx context.Context, events []string, sinceTime string) *exec.Cmd {
-	args := []string{"events", "--format", "json", "--since", sinceTime}
+	format := `{"ID":"{{.ID}}","Image":"{{.Image}}","Name":"{{.Name}}","Status":"{{.Status}}","Type":"{{.Type}}","timeNano":{{.TimeNano}},"Attributes":{{json .Attributes}},"ContainerExitCode":{{with .Actor.Attributes.containerExitCode}}{{.}}{{else}}null{{end}},"signal":{{with .Actor.Attributes.signal}}{{.}}{{else}}0{{end}},"healthStatus":"{{with .Actor.Attributes.healthStatus}}{{.}}{{else}}{{end}}}`
+	args := []string{"events", "--format", format, "--since", sinceTime}
 	for _, event := range events {
 		args = append(args, "--filter", fmt.Sprintf("event=%s", event))
 	}
