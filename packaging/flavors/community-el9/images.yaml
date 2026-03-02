@@ -45,7 +45,7 @@ imagebuilder-worker:
   tag: latest
 grafana:
   image: docker.io/grafana/grafana
-  tag: latest
+  tag: "11.4.0"
 prometheus:
   image: docker.io/prom/prometheus
   tag: v2.13.1

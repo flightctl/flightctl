@@ -125,9 +125,9 @@ db:
     masterUserSecretName: ""
     image:
       # -- PostgreSQL container image
-      image: registry.redhat.io/rhel9/postgresql-16
+      image: quay.io/sclorg/postgresql-16-c9s
       # -- PostgreSQL image tag
-      tag: "9.7-1766414426"
+      tag: "20250214"
       # -- Image pull policy for database container
       pullPolicy: ""
     # -- Maximum number of database connections
@@ -165,9 +165,9 @@ db:
 kv:
   image:
     # -- Redis container image
-    image: registry.redhat.io/rhel9/redis-7
+    image: quay.io/sclorg/redis-7-c9s
     # -- Redis image tag
-    tag: "9.7-1766414358"
+    tag: "20250108"
     # -- Image pull policy for Redis container
     pullPolicy: ""
   # -- Secret containing password for Redis password (leave empty for auto-generation)
@@ -188,9 +188,9 @@ alertmanager:
   enabled: true
   image:
     # -- Alertmanager container image
-    image: registry.redhat.io/rhacm2/prometheus-alertmanager-rhel9
+    image: quay.io/prometheus/alertmanager
     # -- Alertmanager image tag
-    tag: "v2.15.0-1"
+    tag: "v0.28.1"
     # -- Image pull policy for Alertmanager container
     pullPolicy: ""
   # -- Additional labels for Alert Manager routes.
@@ -203,7 +203,7 @@ alertmanager:
 api:
   image:
     # -- API server container image
-    image: registry.redhat.io/rhem/flightctl-api-rhel9
+    image: quay.io/flightctl/flightctl-api
     # -- API server image tag (leave empty to use chart appVersion)
     tag: ""
     # -- Image pull policy for API server container
@@ -240,7 +240,7 @@ cliArtifacts:
   enabled: true
   image:
     # -- CLI artifacts container image
-    image: registry.redhat.io/rhem/flightctl-cli-artifacts-rhel9
+    image: quay.io/flightctl/flightctl-cli-artifacts
     # -- CLI artifacts image tag
     tag: ""
     # -- Image pull policy for CLI artifacts container
@@ -252,7 +252,7 @@ cliArtifacts:
 worker:
   image:
     # -- Worker container image
-    image: registry.redhat.io/rhem/flightctl-worker-rhel9
+    image: quay.io/flightctl/flightctl-worker
     # -- Worker image tag
     tag: ""
     # -- Image pull policy for worker container
@@ -264,7 +264,7 @@ worker:
 periodic:
   image:
     # -- Periodic container image
-    image: registry.redhat.io/rhem/flightctl-periodic-rhel9
+    image: quay.io/flightctl/flightctl-periodic
     # -- Periodic image tag
     tag: ""
     # -- Image pull policy for periodic container
@@ -278,7 +278,7 @@ alertExporter:
   enabled: true
   image:
     # -- Alert exporter container image
-    image: registry.redhat.io/rhem/flightctl-alert-exporter-rhel9
+    image: quay.io/flightctl/flightctl-alert-exporter
     # -- Alert exporter image tag
     tag: ""
     # -- Image pull policy for alert exporter container
@@ -290,7 +290,7 @@ alertmanagerProxy:
   enabled: true
   image:
     # -- Alertmanager proxy container image
-    image: registry.redhat.io/rhem/flightctl-alertmanager-proxy-rhel9
+    image: quay.io/flightctl/flightctl-alertmanager-proxy
     # -- Alertmanager proxy image tag
     tag: ""
     # -- Image pull policy for Alertmanager proxy container
@@ -302,7 +302,7 @@ imageBuilderApi:
   enabled: true
   image:
     # -- ImageBuilder API container image
-    image: registry.redhat.io/rhem/flightctl-imagebuilder-api-rhel9
+    image: quay.io/flightctl/flightctl-imagebuilder-api
     # -- ImageBuilder API image tag
     tag: ""
     # -- Image pull policy for ImageBuilder API container
@@ -316,7 +316,7 @@ imageBuilderWorker:
   replicas: 1
   image:
     # -- ImageBuilder Worker container image
-    image: registry.redhat.io/rhem/flightctl-imagebuilder-worker-rhel9
+    image: quay.io/flightctl/flightctl-imagebuilder-worker
     # -- ImageBuilder Worker image tag
     tag: ""
     # -- Image pull policy for ImageBuilder Worker container
@@ -341,7 +341,7 @@ imageBuilderWorker:
 telemetryGateway:
   image:
     # -- Telemetry gateway container image
-    image: registry.redhat.io/rhem/flightctl-telemetry-gateway-rhel9
+    image: quay.io/flightctl/flightctl-telemetry-gateway
     # -- Telemetry gateway image tag
     tag: ""
     # -- Image pull policy for Telemetry gateway container
@@ -354,9 +354,9 @@ ui:
   enabled: true
   image:
     # -- UI container image
-    image: registry.redhat.io/rhem/flightctl-ui-rhel9
+    image: quay.io/flightctl/flightctl-ui
     # -- UI Plugin container image
-    pluginImage: registry.redhat.io/rhem/flightctl-ui-ocp-rhel9
+    pluginImage: quay.io/flightctl/flightctl-ocp-ui
     # -- UI container image tag
     tag: ""
     # -- Image pull policy for UI container
@@ -373,9 +373,9 @@ ui:
 clusterCli:
   image:
     # -- Cluster CLI container image
-    image: registry.redhat.io/openshift4/ose-cli-rhel9
+    image: quay.io/openshift/origin-cli
     # -- Cluster CLI image tag
-    tag: "v4.20.0"
+    tag: "4.20.0"
     # -- Image pull policy for cluster CLI container
     pullPolicy: ""
 
@@ -383,7 +383,7 @@ clusterCli:
 dbSetup:
   image:
     # -- Database setup container image
-    image: registry.redhat.io/rhem/flightctl-db-setup-rhel9
+    image: quay.io/flightctl/flightctl-db-setup
     # -- Database setup image tag
     tag: ""
     # -- Image pull policy for database setup container
