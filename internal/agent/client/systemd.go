@@ -310,15 +310,9 @@ func WithShowLoadState() SystemdShowOptions {
 	}
 }
 
-func WithShowActiveState() SystemdShowOptions {
+func WithShowProperty(name string) SystemdShowOptions {
 	return func(opts *systemdShowOpts) {
-		opts.args = append(opts.args, "-p", "ActiveState", "--value")
-	}
-}
-
-func WithShowSubState() SystemdShowOptions {
-	return func(opts *systemdShowOpts) {
-		opts.args = append(opts.args, "-p", "SubState", "--value")
+		opts.args = append(opts.args, "-p", name, "--value")
 	}
 }
 

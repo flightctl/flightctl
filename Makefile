@@ -427,9 +427,9 @@ clean-quadlets:
 LINT_IMAGE := flightctl-lint:latest
 LINT_CONTAINER := podman run --rm --security-opt label=disable \
 	-v $(GOBASE):/app \
-	-v $(GOBASE)/.cache/golangci-lint:/root/.cache/golangci-lint \
-	-v $(GOBASE)/.cache/go-build:/root/.cache/go-build \
-	-v $(GOBASE)/.cache/go-mod:/go/pkg/mod \
+	-v /root/.cache/golangci-lint \
+	-v /root/.cache/go-build \
+	-v /go/pkg/mod \
 	-w /app --user 0 $(LINT_IMAGE)
 
 .PHONY: tools
@@ -441,12 +441,8 @@ tools:
 	@touch .output/stamps/lint-image
 
 .PHONY: lint
-lint: .output/stamps/lint-image setup-cache-dirs
+lint: .output/stamps/lint-image
 	$(LINT_CONTAINER) golangci-lint run -v
-
-.PHONY: setup-cache-dirs
-setup-cache-dirs:
-	mkdir -p $(GOBASE)/.cache/golangci-lint $(GOBASE)/.cache/go-build $(GOBASE)/.cache/go-mod
 
 .PHONY: rpmlint
 rpmlint: check-rpmlint

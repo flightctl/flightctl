@@ -1,33 +1,73 @@
 package device
 
 import (
+	"bufio"
 	"context"
+	"crypto/x509"
+	"encoding/base64"
+	"errors"
 	"fmt"
+	"io"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
 	"time"
 
-	"github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
-	agent_config "github.com/flightctl/flightctl/internal/agent/config"
-	"github.com/flightctl/flightctl/internal/agent/device/applications"
 	"github.com/flightctl/flightctl/internal/agent/device/config"
-	"github.com/flightctl/flightctl/internal/agent/device/console"
-	"github.com/flightctl/flightctl/internal/agent/device/dependency"
-	"github.com/flightctl/flightctl/internal/agent/device/errors"
-	"github.com/flightctl/flightctl/internal/agent/device/fileio"
-	"github.com/flightctl/flightctl/internal/agent/device/hook"
-	imagepruning "github.com/flightctl/flightctl/internal/agent/device/image_pruning"
-	"github.com/flightctl/flightctl/internal/agent/device/lifecycle"
-	"github.com/flightctl/flightctl/internal/agent/device/os"
-	"github.com/flightctl/flightctl/internal/agent/device/policy"
-	"github.com/flightctl/flightctl/internal/agent/device/resource"
-	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
-	"github.com/flightctl/flightctl/internal/agent/device/systemd"
+	"github.com/flightctl/flightctl/internal/agent/store"
+	"github.com/flightctl/flightctl/internal/container"
+	"github.com/flightctl/flightctl/internal/crypto"
+	"github.com/flightctl/flightctl/internal/pki"
+	"github.com/flightctl/flightctl/internal/quadlet"
 	"github.com/flightctl/flightctl/internal/util"
+	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
-	"github.com/samber/lo"
+	"github.com/go-chi/chi/v5/middleware"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"sigs.k8s.io/yaml"
 )
+
+// parseSystemdUnitType parses the Type from a systemd unit file's [Service] section.
+// It returns the Type value, or "simple" if not found, as that is the default.
+func parseSystemdUnitType(r io.Reader) (string, error) {
+	scanner := bufio.NewScanner(r)
+	inServiceSection := false
+	serviceType := "simple" // default
+
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") {
+			continue
+		}
+
+		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
+			section := strings.TrimPrefix(strings.TrimSuffix(line, "]"), "[")
+			inServiceSection = (section == "Service")
+			continue
+		}
+
+		if inServiceSection {
+			if key, val, found := strings.Cut(line, "="); found {
+				if strings.TrimSpace(key) == "Type" {
+					serviceType = strings.TrimSpace(val)
+					break // Found it, no need to scan further
+				}
+			}
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return "", err
+	}
+
+	return serviceType, nil
+}
 
 // Agent is responsible for managing the applications, configuration and status of the device.
 type Agent struct {

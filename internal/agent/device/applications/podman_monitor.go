@@ -495,21 +495,17 @@ func (m *PodmanMonitor) updateQuadletContainerStatus(ctx context.Context, app Ap
 		m.log.Errorf("Failed to create systemctl client for %s: %v", systemdUnit, err)
 		return
 	}
-	states, err := systemctl.Show(ctx, systemdUnit, client.WithShowLoadState(), client.WithShowActiveState(), client.WithShowSubState())
-	if err != nil || len(states) < 3 {
+	states, err := systemctl.Show(ctx, systemdUnit, client.WithShowLoadState())
+	if err != nil || len(states) == 0 {
 		m.log.Errorf("Could not show systemd unit: %s state: %v", systemdUnit, err)
 		return
 	}
-	loadState := v1beta1.SystemdLoadStateType(states[0])
-	activeState := v1beta1.SystemdActiveStateType(states[1])
-	subState := states[2]
-
-	if loadState == v1beta1.SystemdLoadStateNotFound {
+	state := states[0]
+	if v1beta1.SystemdLoadStateType(state) == v1beta1.SystemdLoadStateNotFound {
 		// likely from event replay
 		m.log.Debugf("Received event for an unloaded unit file: %s. Skipping processing event.", systemdUnit)
 		return
 	}
-	m.log.Debugf("Systemd unit %s state: %s, %s, %s", systemdUnit, loadState, activeState, subState)
 
 	restarts, err := systemctl.Show(ctx, systemdUnit, client.WithShowRestarts())
 	if err != nil || len(restarts) == 0 {
@@ -525,9 +521,17 @@ func (m *PodmanMonitor) updateQuadletContainerStatus(ctx context.Context, app Ap
 
 	status := StatusType(event.Status)
 	if isFinishedStatus(status) && lo.FromPtrOr(event.ContainerExitCode, -1) == 0 {
-		// an exit code of 0 can mean the container finished successfully or was stopped.
-		// when a systemd unit is stopped, the substate will be "dead" vs "exited"
-		if subState == "exited" {
+		// For non-oneshot services, a successful exit is unexpected and should be treated as a failure.
+		// For oneshot services, a successful exit means completion.
+		types, err := systemctl.Show(ctx, systemdUnit, client.WithShowProperty("Type"))
+		unitType := "simple" // default type
+		if err == nil && len(types) > 0 {
+			unitType = types[0]
+		} else if err != nil {
+			m.log.Errorf("could not determine systemd unit type for %s: %v", systemdUnit, err)
+		}
+
+		if unitType == "oneshot" {
 			status = StatusExited
 		}
 	}
@@ -595,7 +599,9 @@ func (m *PodmanMonitor) resolveStatus(status string, inspectData []client.Podman
 	// podman events don't properly event exited in the case where the container exits 0.
 	if initialStatus == StatusDie || initialStatus == StatusDied {
 		if len(inspectData) > 0 && inspectData[0].State.ExitCode == 0 && inspectData[0].State.FinishedAt != "" {
-			return StatusExited
+			// By returning the original 'die' status, we ensure that a graceful exit (exit code 0)
+			// of a long-running service is not misinterpreted as a successful completion.
+			return initialStatus
 		}
 	}
 	return initialStatus
