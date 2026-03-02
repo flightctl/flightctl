@@ -36,7 +36,7 @@ func isLoginSuccessful(cmdOutput string) bool {
 	return strings.Contains(strings.ToLower(cmdOutput), "login successful")
 }
 
-func resolveFlightctlNamespace(harness *e2e.Harness) (string, error) {
+func ResolveFlightctlNamespace(harness *e2e.Harness) (string, error) {
 	flightCtlNs := os.Getenv("FLIGHTCTL_NS")
 	if flightCtlNs != "" {
 		_, err := harness.SH("kubectl", "get", "namespace", flightCtlNs)
@@ -156,7 +156,7 @@ func loginToEnvK8(harness *e2e.Harness, username, password string) (string, erro
 	if username != "" || password != "" {
 		return "", errors.New("K8/KIND does not support non-admin user/password login")
 	}
-	namespace, err := resolveFlightctlNamespace(harness)
+	namespace, err := ResolveFlightctlNamespace(harness)
 	if err != nil {
 		return "", err
 	}
