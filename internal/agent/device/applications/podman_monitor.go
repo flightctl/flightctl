@@ -519,19 +519,23 @@ func (m *PodmanMonitor) updateQuadletContainerStatus(ctx context.Context, app Ap
 		m.log.Errorf("Could not parse systemd unit restarts: %v", err)
 	}
 
+	podmanClient, err := m.clientFactory(app.User())
+	if err != nil {
+		m.log.Errorf("Failed to create podman client for %s: %v", app.Name(), err)
+		return
+	}
+	inspectData, err := m.inspectContainer(ctx, event.ID, podmanClient)
+	if err != nil {
+		if errors.Is(err, errors.ErrNotFound) {
+			m.log.Debugf("Container %s not found; likely removed during app restart", event.ID)
+		} else {
+			m.log.Errorf("Failed to inspect container: %v", err)
+		}
+	}
+
 	status := StatusType(event.Status)
 	if isFinishedStatus(status) && lo.FromPtrOr(event.ContainerExitCode, -1) == 0 {
-		// For non-oneshot services, a successful exit is unexpected and should be treated as a failure.
-		// For oneshot services, a successful exit means completion.
-		types, err := systemctl.Show(ctx, systemdUnit, client.WithShowProperty("Type"))
-		unitType := "simple" // default type
-		if err == nil && len(types) > 0 {
-			unitType = types[0]
-		} else if err != nil {
-			m.log.Errorf("could not determine systemd unit type for %s: %v", systemdUnit, err)
-		}
-
-		if unitType == "oneshot" {
+		if len(inspectData) > 0 && !inspectData[0].State.OOMKilled {
 			status = StatusExited
 		}
 	}
@@ -598,10 +602,8 @@ func (m *PodmanMonitor) resolveStatus(status string, inspectData []client.Podman
 	initialStatus := StatusType(status)
 	// podman events don't properly event exited in the case where the container exits 0.
 	if initialStatus == StatusDie || initialStatus == StatusDied {
-		if len(inspectData) > 0 && inspectData[0].State.ExitCode == 0 && inspectData[0].State.FinishedAt != "" {
-			// By returning the original 'die' status, we ensure that a graceful exit (exit code 0)
-			// of a long-running service is not misinterpreted as a successful completion.
-			return initialStatus
+		if len(inspectData) > 0 && inspectData[0].State.ExitCode == 0 && !inspectData[0].State.OOMKilled && inspectData[0].State.FinishedAt != "" {
+			return StatusExited
 		}
 	}
 	return initialStatus

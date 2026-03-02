@@ -42,12 +42,13 @@ func TestListenForEvents(t *testing.T) {
 	testCases := []struct {
 		name             string
 		apps             []Application
-		systemdShowResp  []string // For quadlet tests
 		expectedReady    string
 		expectedRestarts int
 		expectedStatus   v1beta1.ApplicationStatusType
 		expectedSummary  v1beta1.ApplicationsSummaryStatusType
 		events           []client.PodmanEvent
+		oomKilled        bool
+		exitCode         int
 	}{
 		{
 			name: "single app start",
@@ -65,6 +66,20 @@ func TestListenForEvents(t *testing.T) {
 			expectedRestarts: 0,
 		},
 		{
+			name: "single app oomkilled exit code 0",
+			apps: []Application{
+				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
+			},
+			events: []client.PodmanEvent{
+				mockPodmanEventError("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "die", 0),
+			},
+			oomKilled:        true,
+			expectedReady:    "0/1",
+			expectedStatus:   v1beta1.ApplicationStatusError,
+			expectedSummary:  v1beta1.ApplicationsSummaryStatusError,
+			expectedRestarts: 0,
+		},
+		{
 			name: "single app multiple containers started then one manual stop exit code 0",
 			apps: []Application{
 				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
@@ -76,7 +91,7 @@ func TestListenForEvents(t *testing.T) {
 				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "init"),
 				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "create"),
 				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "start"),
-				mockPodmanEventError("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "died", 0),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "stop"),
 			},
 			expectedReady:   "1/2",
 			expectedStatus:  v1beta1.ApplicationStatusRunning,
@@ -96,6 +111,7 @@ func TestListenForEvents(t *testing.T) {
 				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "start"),
 				mockPodmanEventError("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "died", 137),
 			},
+			exitCode:        137,
 			expectedReady:   "1/2",
 			expectedStatus:  v1beta1.ApplicationStatusRunning,
 			expectedSummary: v1beta1.ApplicationsSummaryStatusDegraded,
@@ -109,7 +125,7 @@ func TestListenForEvents(t *testing.T) {
 				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "init"),
 				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "create"),
 				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "start"),
-				mockPodmanEventError("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "die", 1),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "die"),
 			},
 			expectedReady:   "0/1",
 			expectedStatus:  v1beta1.ApplicationStatusError,
@@ -127,7 +143,7 @@ func TestListenForEvents(t *testing.T) {
 				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "init"),
 				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "create"),
 				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "start"),
-				mockPodmanEventError("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "die", 1),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "die"),
 			},
 			expectedReady:   "1/2",
 			expectedStatus:  v1beta1.ApplicationStatusRunning,
@@ -203,34 +219,6 @@ func TestListenForEvents(t *testing.T) {
 			expectedStatus:  v1beta1.ApplicationStatusStarting,
 			expectedSummary: v1beta1.ApplicationsSummaryStatusDegraded,
 		},
-		{
-			name: "quadlet app (non-oneshot) graceful exit is degraded",
-			apps: []Application{
-				createTestApplicationWithType(require, "app1", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername, v1beta1.AppTypeQuadlet),
-			},
-			systemdShowResp: []string{"simple"},
-			events: []client.PodmanEvent{
-				createMockQuadletEvent("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "start", 0),
-				createMockQuadletEvent("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "died", 0),
-			},
-			expectedReady:   "0/1",
-			expectedStatus:  v1beta1.ApplicationStatusError,
-			expectedSummary: v1beta1.ApplicationsSummaryStatusError,
-		},
-		{
-			name: "quadlet app (oneshot) graceful exit is healthy",
-			apps: []Application{
-				createTestApplicationWithType(require, "app1", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername, v1beta1.AppTypeQuadlet),
-			},
-			systemdShowResp: []string{"oneshot"},
-			events: []client.PodmanEvent{
-				createMockQuadletEvent("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "start", 0),
-				createMockQuadletEvent("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "died", 0),
-			},
-			expectedReady:   "1/1",
-			expectedStatus:  v1beta1.ApplicationStatusRunning,
-			expectedSummary: v1beta1.ApplicationsSummaryStatusHealthy,
-		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -253,7 +241,7 @@ func TestListenForEvents(t *testing.T) {
 
 			var testInspect []client.PodmanInspect
 			restartsPerContainer := 3
-			testInspect = append(testInspect, mockPodmanInspect(restartsPerContainer))
+			testInspect = append(testInspect, mockPodmanInspect(restartsPerContainer, tc.oomKilled, tc.exitCode))
 			inspectBytes, err := json.Marshal(testInspect)
 			require.NoError(err)
 
@@ -262,20 +250,13 @@ func TestListenForEvents(t *testing.T) {
 			defer reader.Close()
 			defer writer.Close()
 
-			podmanInspectCmds := execMock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any())
-			if len(tc.events) > 0 {
-				podmanInspectCmds.Return(string(inspectBytes), "", 0).Times(len(tc.events))
-			} else {
-				podmanInspectCmds.Return(string(inspectBytes), "", 0).AnyTimes()
-			}
-
+			execMock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return(string(inspectBytes), "", 0).Times(len(tc.events))
 			podmanEventsCommandMock(execMock).Return(streamDataToStdout(t, reader))
 
 			podman := client.NewPodman(log, execMock, rw, util.NewPollConfig())
 			systemdMgr := systemd.NewMockManager(ctrl)
 			systemdMgr.EXPECT().AddExclusions(gomock.Any()).AnyTimes()
 			systemdMgr.EXPECT().RemoveExclusions(gomock.Any()).AnyTimes()
-			systemdMgr.EXPECT().Show(gomock.Any(), gomock.Any(), gomock.Any()).Return(tc.systemdShowResp, nil).AnyTimes()
 
 			var podmanFactory client.PodmanFactory = func(user v1beta1.Username) (*client.Podman, error) {
 				return podman, nil
@@ -350,23 +331,6 @@ func TestListenForEvents(t *testing.T) {
 		})
 	}
 }
-
-func createMockQuadletEvent(name string, username v1beta1.Username, service, status string, exitCode int) client.PodmanEvent {
-	event := client.PodmanEvent{
-		ID:     "8559c630e04ea852101467742e95b9e371fe6dd8c9195910354636d68d388a40",
-		Image:  "docker.io/library/alpine:latest",
-		Name:   fmt.Sprintf("%s-container", service),
-		Status: status,
-		Type:   "container",
-		Attributes: map[string]string{
-			"PODMAN_SYSTEMD_UNIT":         fmt.Sprintf("%s.service", service),
-			client.QuadletProjectLabelKey: lifecycle.GenerateAppID(name, username),
-		},
-	}
-	event.ContainerExitCode = lo.ToPtr(exitCode)
-	return event
-}
-
 
 func TestApplicationAddRemove(t *testing.T) {
 	require := require.New(t)
@@ -535,9 +499,14 @@ func createMockPodmanEvent(name string, username v1beta1.Username, service, stat
 	return event
 }
 
-func mockPodmanInspect(restarts int) client.PodmanInspect {
+func mockPodmanInspect(restarts int, oomKilled bool, exitCode int) client.PodmanInspect {
 	return client.PodmanInspect{
 		Restarts: restarts,
+		State: client.PodmanContainerState{
+			OOMKilled:  oomKilled,
+			ExitCode:   exitCode,
+			FinishedAt: time.Now().String(),
+		},
 	}
 }
 
