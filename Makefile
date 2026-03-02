@@ -424,13 +424,12 @@ clean-quadlets:
 .PHONY: tools flightctl-api-container flightctl-pam-issuer-container flightctl-db-setup-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-userinfo-proxy-container flightctl-telemetry-gateway-container
 
 # Use custom golangci-lint container with libvirt support
-LINT_CACHE_DIR := $(ROOT_DIR)/.cache/lint
 LINT_IMAGE := flightctl-lint:latest
 LINT_CONTAINER := podman run --rm --security-opt label=disable \
 	-v $(GOBASE):/app \
-	-v $(LINT_CACHE_DIR)/golangci-lint:/root/.cache/golangci-lint \
-	-v $(LINT_CACHE_DIR)/go-build:/root/.cache/go-build \
-	-v $(LINT_CACHE_DIR)/go-mod:/go/pkg/mod \
+	-v $(GOBASE)/.cache/golangci-lint:/root/.cache/golangci-lint \
+	-v $(GOBASE)/.cache/go-build:/root/.cache/go-build \
+	-v $(GOBASE)/.cache/go-mod:/go/pkg/mod \
 	-w /app --user 0 $(LINT_IMAGE)
 
 .PHONY: tools
@@ -443,7 +442,7 @@ tools:
 
 .PHONY: lint
 lint: .output/stamps/lint-image
-	mkdir -p $(LINT_CACHE_DIR)/golangci-lint $(LINT_CACHE_DIR)/go-build $(LINT_CACHE_DIR)/go-mod
+	@mkdir -p .cache/golangci-lint .cache/go-build .cache/go-mod
 	$(LINT_CONTAINER) golangci-lint run -v
 
 .PHONY: rpmlint

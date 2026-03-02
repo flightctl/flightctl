@@ -457,7 +457,7 @@ func isFinishedStatus(status StatusType) bool {
 	return ok
 }
 
-func (m *PodmanMonitor) updateApplicationStatus(app Application, event *client.PodmanEvent, status StatusType, restarts int, restartPolicy string) {
+func (m *PodmanMonitor) updateApplicationStatus(app Application, event *client.PodmanEvent, status StatusType, restarts int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -465,7 +465,6 @@ func (m *PodmanMonitor) updateApplicationStatus(app Application, event *client.P
 	if exists {
 		// update existing container
 		container.Status = status
-		container.RestartPolicy = restartPolicy
 		// restarts can only increase
 		if restarts > container.Restarts {
 			container.Restarts = restarts
@@ -477,11 +476,10 @@ func (m *PodmanMonitor) updateApplicationStatus(app Application, event *client.P
 	// add new container
 	m.log.Debugf("Adding container: %s to app %s", event.Name, app.Name())
 	app.AddWorkload(&Workload{
-		ID:            event.ID,
-		Name:          event.Name,
-		Status:        status,
-		Restarts:      restarts,
-		RestartPolicy: restartPolicy,
+		ID:       event.ID,
+		Name:     event.Name,
+		Status:   status,
+		Restarts: restarts,
 	})
 }
 
@@ -523,9 +521,17 @@ func (m *PodmanMonitor) updateQuadletContainerStatus(ctx context.Context, app Ap
 
 	status := StatusType(event.Status)
 	if isFinishedStatus(status) && lo.FromPtrOr(event.ContainerExitCode, -1) == 0 {
-		status = StatusExited
+		enabled, err := systemctl.IsEnabled(ctx, systemdUnit)
+		if err != nil {
+			m.log.Warnf("Could not get enabled state for systemd unit %s: %v", systemdUnit, err)
+			status = StatusExited
+		} else if enabled {
+			status = StatusStop
+		} else {
+			status = StatusExited
+		}
 	}
-	m.updateApplicationStatus(app, event, status, restartCount, "")
+	m.updateApplicationStatus(app, event, status, restartCount)
 }
 
 func (m *PodmanMonitor) updateComposeContainerStatus(ctx context.Context, app Application, event *client.PodmanEvent) {
@@ -548,11 +554,6 @@ func (m *PodmanMonitor) updateComposeContainerStatus(ctx context.Context, app Ap
 		m.log.Errorf("Failed to get container restarts: %v", err)
 	}
 
-	restartPolicy, err := m.getContainerRestartPolicy(inspectData)
-	if err != nil {
-		m.log.Errorf("Failed to get container restart policy: %v", err)
-	}
-
 	status := m.resolveStatus(event.Status, inspectData)
 	if status == StatusRemove {
 		m.mu.Lock()
@@ -564,14 +565,7 @@ func (m *PodmanMonitor) updateComposeContainerStatus(ctx context.Context, app Ap
 		return
 	}
 
-	m.updateApplicationStatus(app, event, status, restarts, restartPolicy)
-}
-
-func (m *PodmanMonitor) getContainerRestartPolicy(inspectData []client.PodmanInspect) (string, error) {
-	if len(inspectData) > 0 {
-		return inspectData[0].HostConfig.RestartPolicy.Name, nil
-	}
-	return "", nil
+	m.updateApplicationStatus(app, event, status, restarts)
 }
 
 func (m *PodmanMonitor) getContainerRestarts(inspectData []client.PodmanInspect) (int, error) {

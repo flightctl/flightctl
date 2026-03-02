@@ -125,12 +125,11 @@ type Application interface {
 
 // Workload represents an application workload tracked by a Monitor.
 type Workload struct {
-	ID            string
-	Image         string
-	Name          string
-	Status        StatusType
-	Restarts      int
-	RestartPolicy string
+	ID       string
+	Image    string
+	Name     string
+	Status   StatusType
+	Restarts int
 }
 
 type application struct {
@@ -263,22 +262,16 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 	initializing := 0
 	restarts := 0
 	exited := 0
-	stoppedServices := 0
 	for _, workload := range a.workloads {
 		restarts += workload.Restarts
-		isService := workload.RestartPolicy != "" && workload.RestartPolicy != "no"
-
 		switch workload.Status {
 		case StatusInit, StatusCreate:
 			initializing++
 		case StatusRunning:
 			healthy++
 		case StatusExited:
-			if isService {
-				stoppedServices++
-			} else {
-				exited++
-			}
+			exited++
+		case StatusStop:
 		}
 	}
 
@@ -299,10 +292,6 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 	case isPreparing(total, healthy, initializing):
 		newStatus = v1beta1.ApplicationStatusPreparing
 		summary.Status = v1beta1.ApplicationsSummaryStatusUnknown
-	case isStoppedService(stoppedServices):
-		newStatus = v1beta1.ApplicationStatusError
-		summary.Status = v1beta1.ApplicationsSummaryStatusError
-		a.status.Info = "One or more services have stopped"
 	case isCompleted(total, exited):
 		newStatus = v1beta1.ApplicationStatusCompleted
 		summary.Status = v1beta1.ApplicationsSummaryStatusHealthy
@@ -342,10 +331,6 @@ func isStarting(total, healthy, initializing int) bool {
 
 func isUnknown(total, healthy, initializing int) bool {
 	return total == 0 && healthy == 0 && initializing == 0
-}
-
-func isStoppedService(stopped int) bool {
-	return stopped > 0
 }
 
 func isCompleted(total, completed int) bool {
