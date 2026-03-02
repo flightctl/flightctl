@@ -507,6 +507,20 @@ func (m *PodmanMonitor) updateQuadletContainerStatus(ctx context.Context, app Ap
 		return
 	}
 
+	client, err := m.clientFactory(app.User())
+	if err != nil {
+		m.log.Errorf("Failed to create podman client for %s: %v", app.Name(), err)
+		return
+	}
+	inspectData, err := m.inspectContainer(ctx, event.ID, client)
+	if err != nil {
+		if errors.Is(err, errors.ErrNotFound) {
+			m.log.Debugf("Container %s not found; likely removed during app restart", event.ID)
+		} else {
+			m.log.Errorf("Failed to inspect container: %v", err)
+		}
+	}
+
 	restarts, err := systemctl.Show(ctx, systemdUnit, client.WithShowRestarts())
 	if err != nil || len(restarts) == 0 {
 		m.log.Errorf("Could not show systemd unit: %s restarts: %v", systemdUnit, err)
@@ -519,9 +533,14 @@ func (m *PodmanMonitor) updateQuadletContainerStatus(ctx context.Context, app Ap
 		m.log.Errorf("Could not parse systemd unit restarts: %v", err)
 	}
 
-	status := StatusType(event.Status)
-	if isFinishedStatus(status) && lo.FromPtrOr(event.ContainerExitCode, -1) == 0 {
-		status = StatusExited
+	status := m.resolveStatus(event.Status, inspectData)
+	if status == StatusRemove {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		if removed := app.RemoveWorkload(event.Name); removed {
+			m.log.Debugf("Removed container: %s", event.Name)
+		}
+		return
 	}
 	m.updateApplicationStatus(app, event, status, restartCount)
 }
@@ -584,6 +603,12 @@ func (m *PodmanMonitor) inspectContainer(ctx context.Context, containerID string
 
 func (m *PodmanMonitor) resolveStatus(status string, inspectData []client.PodmanInspect) StatusType {
 	initialStatus := StatusType(status)
+	if initialStatus == StatusStop {
+		if len(inspectData) > 0 && inspectData[0].State.ExitCode == 0 {
+			return StatusStopped
+		}
+	}
+
 	// podman events don't properly event exited in the case where the container exits 0.
 	if initialStatus == StatusDie || initialStatus == StatusDied {
 		if len(inspectData) > 0 && inspectData[0].State.ExitCode == 0 && inspectData[0].State.FinishedAt != "" {

@@ -224,6 +224,54 @@ func TestApplicationStatus(t *testing.T) {
 			expectedStatus:        v1beta1.ApplicationStatusCompleted,
 			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusHealthy,
 		},
+		{
+			name: "app has one workload stopped",
+			workloads: []Workload{
+				{
+					Name:   "container1",
+					Status: StatusRunning,
+				},
+				{
+					Name:   "container2",
+					Status: StatusStopped,
+				},
+			},
+			expectedReady:         "1/2",
+			expectedStatus:        v1beta1.ApplicationStatusRunning,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusDegraded,
+		},
+		{
+			name: "app has all workloads stopped",
+			workloads: []Workload{
+				{
+					Name:   "container1",
+					Status: StatusStopped,
+				},
+				{
+					Name:   "container2",
+					Status: StatusStopped,
+				},
+			},
+			expectedReady:         "0/2",
+			expectedStatus:        v1beta1.ApplicationStatusError,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusError,
+		},
+		{
+			name: "app has one workload stopped and one exited",
+			workloads: []Workload{
+				{
+					Name:   "container1",
+					Status: StatusStopped,
+				},
+				{
+					Name:   "container2",
+					Status: StatusExited,
+				},
+			},
+			expectedReady:         "0/2",
+			expectedStatus:        v1beta1.ApplicationStatusError,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusError,
+		},
 	}
 
 	for _, tt := range tests {
@@ -287,6 +335,81 @@ func TestApplicationStatus(t *testing.T) {
 			require.Equal(tt.expectedRestarts, status.Restarts)
 			require.Equal(tt.expectedStatus, status.Status)
 			require.Equal(tt.expectedSummaryStatus, summary.Status)
+		})
+	}
+}
+
+func TestPodmanMonitorResolveStatus(t *testing.T) {
+	require := require.New(t)
+	log := log.NewPrefixLogger("test")
+	m := NewPodmanMonitor(log, nil, nil, "", nil)
+
+	tests := []struct {
+		name          string
+		eventStatus   string
+		inspectData   []client.PodmanInspect
+		expectedStatus StatusType
+	}{
+		{
+			name:        "running container",
+			eventStatus: "running",
+			expectedStatus: StatusRunning,
+		},
+		{
+			name:        "stopped container with exit code 0",
+			eventStatus: "stop",
+			inspectData: []client.PodmanInspect{
+				{
+					State: client.PodmanContainerState{
+						ExitCode: 0,
+					},
+				},
+			},
+			expectedStatus: StatusStopped,
+		},
+		{
+			name:        "stopped container with non-zero exit code",
+			eventStatus: "stop",
+			inspectData: []client.PodmanInspect{
+				{
+					State: client.PodmanContainerState{
+						ExitCode: 1,
+					},
+				},
+			},
+			expectedStatus: StatusStop,
+		},
+		{
+			name:        "died container with exit code 0",
+			eventStatus: "died",
+			inspectData: []client.PodmanInspect{
+				{
+					State: client.PodmanContainerState{
+						ExitCode: 0,
+						FinishedAt: "sometime",
+					},
+				},
+			},
+			expectedStatus: StatusExited,
+		},
+		{
+			name:        "died container with non-zero exit code",
+			eventStatus: "died",
+			inspectData: []client.PodmanInspect{
+				{
+					State: client.PodmanContainerState{
+						ExitCode: 1,
+					},
+				},
+			},
+			expectedStatus: StatusDied,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			status := m.resolveStatus(tt.eventStatus, tt.inspectData)
+			require.Equal(tt.expectedStatus, status)
 		})
 	}
 }
