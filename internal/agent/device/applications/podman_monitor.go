@@ -457,17 +457,15 @@ func isFinishedStatus(status StatusType) bool {
 	return ok
 }
 
-func (m *PodmanMonitor) updateApplicationStatus(app Application, event *client.PodmanEvent, status StatusType, restarts int) {
+func (m *PodmanMonitor) updateApplicationStatus(app Application, event *client.PodmanEvent, status StatusType, restarts int, restartPolicy string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	container, exists := app.Workload(event.Name)
 	if exists {
-		if container.Status == StatusStop && status == StatusExited {
-			return
-		}
 		// update existing container
 		container.Status = status
+		container.RestartPolicy = restartPolicy
 		// restarts can only increase
 		if restarts > container.Restarts {
 			container.Restarts = restarts
@@ -479,10 +477,11 @@ func (m *PodmanMonitor) updateApplicationStatus(app Application, event *client.P
 	// add new container
 	m.log.Debugf("Adding container: %s to app %s", event.Name, app.Name())
 	app.AddWorkload(&Workload{
-		ID:       event.ID,
-		Name:     event.Name,
-		Status:   status,
-		Restarts: restarts,
+		ID:            event.ID,
+		Name:          event.Name,
+		Status:        status,
+		Restarts:      restarts,
+		RestartPolicy: restartPolicy,
 	})
 }
 
@@ -526,7 +525,7 @@ func (m *PodmanMonitor) updateQuadletContainerStatus(ctx context.Context, app Ap
 	if isFinishedStatus(status) && lo.FromPtrOr(event.ContainerExitCode, -1) == 0 {
 		status = StatusExited
 	}
-	m.updateApplicationStatus(app, event, status, restartCount)
+	m.updateApplicationStatus(app, event, status, restartCount, "")
 }
 
 func (m *PodmanMonitor) updateComposeContainerStatus(ctx context.Context, app Application, event *client.PodmanEvent) {
@@ -549,6 +548,11 @@ func (m *PodmanMonitor) updateComposeContainerStatus(ctx context.Context, app Ap
 		m.log.Errorf("Failed to get container restarts: %v", err)
 	}
 
+	restartPolicy, err := m.getContainerRestartPolicy(inspectData)
+	if err != nil {
+		m.log.Errorf("Failed to get container restart policy: %v", err)
+	}
+
 	status := m.resolveStatus(event.Status, inspectData)
 	if status == StatusRemove {
 		m.mu.Lock()
@@ -560,7 +564,14 @@ func (m *PodmanMonitor) updateComposeContainerStatus(ctx context.Context, app Ap
 		return
 	}
 
-	m.updateApplicationStatus(app, event, status, restarts)
+	m.updateApplicationStatus(app, event, status, restarts, restartPolicy)
+}
+
+func (m *PodmanMonitor) getContainerRestartPolicy(inspectData []client.PodmanInspect) (string, error) {
+	if len(inspectData) > 0 {
+		return inspectData[0].HostConfig.RestartPolicy.Name, nil
+	}
+	return "", nil
 }
 
 func (m *PodmanMonitor) getContainerRestarts(inspectData []client.PodmanInspect) (int, error) {

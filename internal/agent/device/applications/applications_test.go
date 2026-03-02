@@ -181,39 +181,7 @@ func TestApplicationStatus(t *testing.T) {
 			expectedRestarts:      3,
 		},
 		{
-			name: "app has all workloads exited, restart policy never",
-			workloads: []Workload{
-				{
-					Name:   "container1",
-					Status: StatusExited,
-				},
-				{
-					Name:   "container2",
-					Status: StatusExited,
-				},
-			},
-			expectedReady:         "0/2",
-			expectedStatus:        v1beta1.ApplicationStatusCompleted,
-			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusHealthy,
-		},
-		{
-			name: "app has all workloads exited, restart policy on-failure",
-			workloads: []Workload{
-				{
-					Name:   "container1",
-					Status: StatusExited,
-				},
-				{
-					Name:   "container2",
-					Status: StatusExited,
-				},
-			},
-			expectedReady:         "0/2",
-			expectedStatus:        v1beta1.ApplicationStatusCompleted,
-			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusHealthy,
-		},
-		{
-			name: "app has all workloads exited, restart policy always",
+			name: "app has all workloads exited",
 			workloads: []Workload{
 				{
 					Name:   "container1",
@@ -255,6 +223,53 @@ func TestApplicationStatus(t *testing.T) {
 			expectedReady:         "0/1",
 			expectedStatus:        v1beta1.ApplicationStatusCompleted,
 			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusHealthy,
+		},
+		{
+			name: "app with single service has exited",
+			workloads: []Workload{
+				{
+					Name:          "container1",
+					Status:        StatusExited,
+					RestartPolicy: "always",
+				},
+			},
+			expectedReady:         "0/1",
+			expectedStatus:        v1beta1.ApplicationStatusError,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusError,
+		},
+		{
+			name: "app with one running and one stopped service",
+			workloads: []Workload{
+				{
+					Name:   "container1",
+					Status: StatusRunning,
+				},
+				{
+					Name:          "container2",
+					Status:        StatusExited,
+					RestartPolicy: "always",
+				},
+			},
+			expectedReady:         "1/2",
+			expectedStatus:        v1beta1.ApplicationStatusError,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusError,
+		},
+		{
+			name: "app with one completed job and one stopped service",
+			workloads: []Workload{
+				{
+					Name:   "container1",
+					Status: StatusExited,
+				},
+				{
+					Name:          "container2",
+					Status:        StatusExited,
+					RestartPolicy: "on-failure",
+				},
+			},
+			expectedReady:         "0/2",
+			expectedStatus:        v1beta1.ApplicationStatusError,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusError,
 		},
 	}
 

@@ -30,7 +30,6 @@ const (
 	StatusDied    StatusType = "died"
 	StatusRemove  StatusType = "remove"
 	StatusExited  StatusType = "exited"
-	StatusStopped StatusType = "stopped"
 )
 
 func (c StatusType) String() string {
@@ -126,11 +125,12 @@ type Application interface {
 
 // Workload represents an application workload tracked by a Monitor.
 type Workload struct {
-	ID       string
-	Image    string
-	Name     string
-	Status   StatusType
-	Restarts int
+	ID            string
+	Image         string
+	Name          string
+	Status        StatusType
+	Restarts      int
+	RestartPolicy string
 }
 
 type application struct {
@@ -263,18 +263,22 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 	initializing := 0
 	restarts := 0
 	exited := 0
-	stopped := 0
+	stoppedServices := 0
 	for _, workload := range a.workloads {
 		restarts += workload.Restarts
+		isService := workload.RestartPolicy != "" && workload.RestartPolicy != "no"
+
 		switch workload.Status {
 		case StatusInit, StatusCreate:
 			initializing++
 		case StatusRunning:
 			healthy++
 		case StatusExited:
-			exited++
-		case StatusStopped:
-			stopped++
+			if isService {
+				stoppedServices++
+			} else {
+				exited++
+			}
 		}
 	}
 
@@ -295,10 +299,14 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 	case isPreparing(total, healthy, initializing):
 		newStatus = v1beta1.ApplicationStatusPreparing
 		summary.Status = v1beta1.ApplicationsSummaryStatusUnknown
+	case isStoppedService(stoppedServices):
+		newStatus = v1beta1.ApplicationStatusError
+		summary.Status = v1beta1.ApplicationsSummaryStatusError
+		a.status.Info = "One or more services have stopped"
 	case isCompleted(total, exited):
 		newStatus = v1beta1.ApplicationStatusCompleted
 		summary.Status = v1beta1.ApplicationsSummaryStatusHealthy
-	case isRunningHealthy(total, healthy, initializing, exited, stopped):
+	case isRunningHealthy(total, healthy, initializing, exited):
 		newStatus = v1beta1.ApplicationStatusRunning
 		summary.Status = v1beta1.ApplicationsSummaryStatusHealthy
 	case isRunningDegraded(total, healthy, initializing):
@@ -336,6 +344,10 @@ func isUnknown(total, healthy, initializing int) bool {
 	return total == 0 && healthy == 0 && initializing == 0
 }
 
+func isStoppedService(stopped int) bool {
+	return stopped > 0
+}
+
 func isCompleted(total, completed int) bool {
 	return total > 0 && completed == total
 }
@@ -348,8 +360,8 @@ func isRunningDegraded(total, healthy, initializing int) bool {
 	return total != healthy && healthy > 0 && initializing == 0
 }
 
-func isRunningHealthy(total, healthy, initializing, exited, stopped int) bool {
-	return total > 0 && (healthy == total || healthy+exited+stopped == total) && initializing == 0
+func isRunningHealthy(total, healthy, initializing, exited int) bool {
+	return total > 0 && (healthy == total || healthy+exited == total) && initializing == 0
 }
 
 func isErrored(total, healthy, initializing int) bool {
