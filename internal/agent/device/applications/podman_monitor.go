@@ -457,12 +457,16 @@ func isFinishedStatus(status StatusType) bool {
 	return ok
 }
 
-func (m *PodmanMonitor) updateApplicationStatus(app Application, event *client.PodmanEvent, status StatusType, restarts int) {
+func (m *PodmanMonitor) updateApplicationStatus(app Application, event *client.PodmanEvent, status StatusType, restarts int, exitCode int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	container, exists := app.Workload(event.Name)
 	if exists {
+		// if a container was stopped and then exited with 0, it should be considered stopped not completed.
+		if container.Status == StatusStop && status == StatusExited {
+			status = StatusStop
+		}
 		// update existing container
 		container.Status = status
 		// restarts can only increase
@@ -519,19 +523,12 @@ func (m *PodmanMonitor) updateQuadletContainerStatus(ctx context.Context, app Ap
 		m.log.Errorf("Could not parse systemd unit restarts: %v", err)
 	}
 
+	exitCode := lo.FromPtrOr(event.ContainerExitCode, -1)
 	status := StatusType(event.Status)
-	if isFinishedStatus(status) && lo.FromPtrOr(event.ContainerExitCode, -1) == 0 {
-		enabled, err := systemctl.IsEnabled(ctx, systemdUnit)
-		if err != nil {
-			m.log.Warnf("Could not get enabled state for systemd unit %s: %v", systemdUnit, err)
-			status = StatusExited
-		} else if enabled {
-			status = StatusStop
-		} else {
-			status = StatusExited
-		}
+	if isFinishedStatus(status) && exitCode == 0 {
+		status = StatusExited
 	}
-	m.updateApplicationStatus(app, event, status, restartCount)
+	m.updateApplicationStatus(app, event, status, restartCount, exitCode)
 }
 
 func (m *PodmanMonitor) updateComposeContainerStatus(ctx context.Context, app Application, event *client.PodmanEvent) {
@@ -564,8 +561,12 @@ func (m *PodmanMonitor) updateComposeContainerStatus(ctx context.Context, app Ap
 		}
 		return
 	}
+	var exitCode int
+	if len(inspectData) > 0 {
+		exitCode = inspectData[0].State.ExitCode
+	}
 
-	m.updateApplicationStatus(app, event, status, restarts)
+	m.updateApplicationStatus(app, event, status, restarts, exitCode)
 }
 
 func (m *PodmanMonitor) getContainerRestarts(inspectData []client.PodmanInspect) (int, error) {

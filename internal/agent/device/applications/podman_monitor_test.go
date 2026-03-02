@@ -38,635 +38,282 @@ func podmanEventsCommandMock(execMock *executer.MockExecuter) *gomock.Call {
 }
 
 func TestListenForEvents(t *testing.T) {
-
 	require := require.New(t)
-
 	testCases := []struct {
-
-		name               string
-
-		apps               []Application
-
-		expectedReady      string
-
-		expectedRestarts   int
-
-		expectedStatus     v1beta1.ApplicationStatusType
-
-		expectedSummary    v1beta1.ApplicationsSummaryStatusType
-
-		events             []client.PodmanEvent
-
-		systemdUnitEnabled *bool
-
+		name             string
+		apps             []Application
+		expectedReady    string
+		expectedRestarts int
+		expectedStatus   v1beta1.ApplicationStatusType
+		expectedSummary  v1beta1.ApplicationsSummaryStatusType
+		events           []client.PodmanEvent
 	}{
-
 		{
-
 			name: "single app start",
-
 			apps: []Application{
-
 				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
-
 			},
-
 			events: []client.PodmanEvent{
-
 				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "init"),
-
 				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "create"),
-
 				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "start"),
-
 			},
-
 			expectedReady:    "1/1",
-
 			expectedStatus:   v1beta1.ApplicationStatusRunning,
-
 			expectedSummary:  v1beta1.ApplicationsSummaryStatusHealthy,
-
 			expectedRestarts: 0,
-
 		},
-
 		{
-
-			name: "single app multiple containers started then one manual stop exit code 0",
-
+			name: "single app multiple containers started then one manual stop with exit code 0",
 			apps: []Application{
-
 				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
-
 			},
-
 			events: []client.PodmanEvent{
-
 				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "init"),
-
 				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "create"),
-
 				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "start"),
-
 				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "init"),
-
 				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "create"),
-
 				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "start"),
-
 				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "stop"),
-
-			},
-
-			expectedReady:   "1/2",
-
-			expectedStatus:  v1beta1.ApplicationStatusRunning,
-
-			expectedSummary: v1beta1.ApplicationsSummaryStatusDegraded,
-
-		},
-
-		{
-
-			name: "single app multiple containers started then one manual stop result sigkill",
-
-			apps: []Application{
-
-				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
-
-			},
-
-			events: []client.PodmanEvent{
-
-				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "init"),
-
-				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "create"),
-
-				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "start"),
-
-				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "init"),
-
-				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "create"),
-
-				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "start"),
-
-				mockPodmanEventError("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "died", 137),
-
-			},
-
-			expectedReady:   "1/2",
-
-			expectedStatus:  v1beta1.ApplicationStatusRunning,
-
-			expectedSummary: v1beta1.ApplicationsSummaryStatusDegraded,
-
-		},
-
-		{
-
-			name: "single app start then die",
-
-			apps: []Application{
-
-				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
-
-			},
-
-			events: []client.PodmanEvent{
-
-				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "init"),
-
-				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "create"),
-
-				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "start"),
-
-				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "die"),
-
-			},
-
-			expectedReady:   "0/1",
-
-			expectedStatus:  v1beta1.ApplicationStatusError,
-
-			expectedSummary: v1beta1.ApplicationsSummaryStatusError,
-
-		},
-
-		{
-
-			name: "single app multiple containers one error one running",
-
-			apps: []Application{
-
-				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
-
-			},
-
-			events: []client.PodmanEvent{
-
-				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "init"),
-
-				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "create"),
-
-				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "start"),
-
-				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "init"),
-
-				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "create"),
-
-				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "start"),
-
 				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "die"),
-
 			},
-
 			expectedReady:   "1/2",
-
 			expectedStatus:  v1beta1.ApplicationStatusRunning,
-
 			expectedSummary: v1beta1.ApplicationsSummaryStatusDegraded,
-
 		},
-
 		{
-
-			name: "multiple apps preparing to running",
-
+			name: "single app multiple containers started then one manual stop result sigkill",
 			apps: []Application{
-
 				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
-
-				createTestApplication(require, "app2", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
-
 			},
-
 			events: []client.PodmanEvent{
-
 				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "init"),
-
 				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "create"),
-
 				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "start"),
-
-				mockPodmanEventSuccess("app2", v1beta1.CurrentProcessUsername, "app1-service-1", "init"),
-
-				mockPodmanEventSuccess("app2", v1beta1.CurrentProcessUsername, "app1-service-1", "create"),
-
-				mockPodmanEventSuccess("app2", v1beta1.CurrentProcessUsername, "app1-service-1", "start"),
-
-			},
-
-			expectedReady:   "1/1",
-
-			expectedStatus:  v1beta1.ApplicationStatusRunning,
-
-			expectedSummary: v1beta1.ApplicationsSummaryStatusHealthy,
-
-		},
-
-		{
-
-			name: "app start then removed",
-
-			apps: []Application{
-
-				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
-
-			},
-
-			events: []client.PodmanEvent{
-
-				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "init"),
-
-				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "create"),
-
-				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "start"),
-
-				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "remove"),
-
-			},
-
-			expectedReady:   "0/0",
-
-			expectedStatus:  v1beta1.ApplicationStatusUnknown,
-
-			expectedSummary: v1beta1.ApplicationsSummaryStatusUnknown,
-
-		},
-
-		{
-
-			name: "app upgrade different service/container counts",
-
-			apps: []Application{
-
-				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
-
-			},
-
-			events: []client.PodmanEvent{
-
-				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "init"),
-
-				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "create"),
-
-				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "start"),
-
-				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "remove"),
-
 				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "init"),
-
 				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "create"),
-
 				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "start"),
-
-				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "remove"),
-
-				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "init"),
-
-				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "create"),
-
-				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "start"),
-
+				mockPodmanEventError("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "died", 137),
 			},
-
-			expectedReady:   "1/1",
-
-			expectedStatus:  v1beta1.ApplicationStatusRunning,
-
-			expectedSummary: v1beta1.ApplicationsSummaryStatusHealthy,
-
-		},
-
-		{
-
-			name: "app only creates container no start",
-
-			apps: []Application{
-
-				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
-
-			},
-
-			events: []client.PodmanEvent{
-
-				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "init"),
-
-				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "create"),
-
-				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "start"),
-
-				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "create"), // no start
-
-			},
-
 			expectedReady:   "1/2",
-
-			expectedStatus:  v1beta1.ApplicationStatusStarting,
-
+			expectedStatus:  v1beta1.ApplicationStatusRunning,
 			expectedSummary: v1beta1.ApplicationsSummaryStatusDegraded,
-
 		},
-
 		{
-
-			name: "quadlet app one container stopped and enabled",
-
+			name: "single app start then die",
 			apps: []Application{
-
-				createTestApplicationWithType(require, "app1", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername, v1beta1.AppTypeQuadlet),
-
+				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
 			},
-
 			events: []client.PodmanEvent{
-
 				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "init"),
-
 				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "create"),
-
 				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "start"),
-
-				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "died"),
-
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "die"),
 			},
-
-			expectedReady:      "0/1",
-
-			expectedStatus:     v1beta1.ApplicationStatusError,
-
-			expectedSummary:    v1beta1.ApplicationsSummaryStatusError,
-
-			systemdUnitEnabled: lo.ToPtr(true),
-
+			expectedReady:   "0/1",
+			expectedStatus:  v1beta1.ApplicationStatusError,
+			expectedSummary: v1beta1.ApplicationsSummaryStatusError,
 		},
-
 		{
-
-			name: "quadlet app one container stopped and disabled",
-
+			name: "single app multiple containers one error one running",
 			apps: []Application{
-
-				createTestApplicationWithType(require, "app1", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername, v1beta1.AppTypeQuadlet),
-
+				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
 			},
-
 			events: []client.PodmanEvent{
-
 				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "init"),
-
 				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "create"),
-
 				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "start"),
-
-				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "died"),
-
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "init"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "create"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "start"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "die"),
 			},
-
-			expectedReady:      "0/1",
-
-			expectedStatus:     v1beta1.ApplicationStatusCompleted,
-
-			expectedSummary:    v1beta1.ApplicationsSummaryStatusHealthy,
-
-			systemdUnitEnabled: lo.ToPtr(false),
-
+			expectedReady:   "1/2",
+			expectedStatus:  v1beta1.ApplicationStatusRunning,
+			expectedSummary: v1beta1.ApplicationsSummaryStatusDegraded,
 		},
-
+		{
+			name: "multiple apps preparing to running",
+			apps: []Application{
+				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
+				createTestApplication(require, "app2", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
+			},
+			events: []client.PodmanEvent{
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "init"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "create"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "start"),
+				mockPodmanEventSuccess("app2", v1beta1.CurrentProcessUsername, "app1-service-1", "init"),
+				mockPodmanEventSuccess("app2", v1beta1.CurrentProcessUsername, "app1-service-1", "create"),
+				mockPodmanEventSuccess("app2", v1beta1.CurrentProcessUsername, "app1-service-1", "start"),
+			},
+			expectedReady:   "1/1",
+			expectedStatus:  v1beta1.ApplicationStatusRunning,
+			expectedSummary: v1beta1.ApplicationsSummaryStatusHealthy,
+		},
+		{
+			name: "app start then removed",
+			apps: []Application{
+				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
+			},
+			events: []client.PodmanEvent{
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "init"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "create"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "start"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "remove"),
+			},
+			expectedReady:   "0/0",
+			expectedStatus:  v1beta1.ApplicationStatusUnknown,
+			expectedSummary: v1beta1.ApplicationsSummaryStatusUnknown,
+		},
+		{
+			name: "app upgrade different service/container counts",
+			apps: []Application{
+				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
+			},
+			events: []client.PodmanEvent{
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "init"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "create"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "start"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "remove"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "init"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "create"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "start"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "remove"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "init"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "create"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "start"),
+			},
+			expectedReady:   "1/1",
+			expectedStatus:  v1beta1.ApplicationStatusRunning,
+			expectedSummary: v1beta1.ApplicationsSummaryStatusHealthy,
+		},
+		{
+			name: "app only creates container no start",
+			apps: []Application{
+				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
+			},
+			events: []client.PodmanEvent{
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "init"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "create"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "start"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "create"), // no start
+			},
+			expectedReady:   "1/2",
+			expectedStatus:  v1beta1.ApplicationStatusStarting,
+			expectedSummary: v1beta1.ApplicationsSummaryStatusDegraded,
+		},
 	}
-
 	for _, tc := range testCases {
-
 		t.Run(tc.name, func(t *testing.T) {
-
 			ctrl := gomock.NewController(t)
-
 			defer ctrl.Finish()
 
-
-
 			log := log.NewPrefixLogger("test")
-
 			log.SetLevel(logrus.DebugLevel)
-
 			tmpDir := t.TempDir()
-
 			rw := fileio.NewReadWriter(
-
 				fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
-
 				fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
-
 			)
-
 			execMock := executer.NewMockExecuter(ctrl)
 
-
-
 			mockComposeHandler := lifecycle.NewMockActionHandler(ctrl)
-
 			mockQuadletHandler := lifecycle.NewMockActionHandler(ctrl)
-
 			mockComposeHandler.EXPECT().Execute(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-
 			mockQuadletHandler.EXPECT().Execute(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
-
-
 			var testInspect []client.PodmanInspect
-
 			restartsPerContainer := 3
-
 			testInspect = append(testInspect, mockPodmanInspect(restartsPerContainer))
-
 			inspectBytes, err := json.Marshal(testInspect)
-
 			require.NoError(err)
-
-
 
 			// create a pipe to simulate events being written to the monitor
-
 			reader, writer := io.Pipe()
-
 			defer reader.Close()
-
 			defer writer.Close()
 
-
-
 			execMock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return(string(inspectBytes), "", 0).Times(len(tc.events))
-
 			podmanEventsCommandMock(execMock).Return(streamDataToStdout(t, reader))
 
-
-
 			podman := client.NewPodman(log, execMock, rw, util.NewPollConfig())
-
 			systemdMgr := systemd.NewMockManager(ctrl)
-
 			systemdMgr.EXPECT().AddExclusions(gomock.Any()).AnyTimes()
-
 			systemdMgr.EXPECT().RemoveExclusions(gomock.Any()).AnyTimes()
 
-
-
-			if tc.systemdUnitEnabled != nil {
-
-				systemdMgr.EXPECT().Show(gomock.Any(), gomock.Any(), gomock.Any()).Return([]string{"loaded"}, nil).AnyTimes()
-
-				systemdMgr.EXPECT().Show(gomock.Any(), gomock.Any(), gomock.Any()).Return([]string{"0"}, nil).AnyTimes()
-
-				systemdMgr.EXPECT().IsEnabled(gomock.Any(), gomock.Any()).Return(*tc.systemdUnitEnabled, nil)
-
-			}
-
-
-
 			var podmanFactory client.PodmanFactory = func(user v1beta1.Username) (*client.Podman, error) {
-
 				return podman, nil
-
 			}
-
 			var systemdFactory systemd.ManagerFactory = func(user v1beta1.Username) (systemd.Manager, error) {
-
 				return systemdMgr, nil
-
 			}
-
 			var rwFactory fileio.ReadWriterFactory = func(username v1beta1.Username) (fileio.ReadWriter, error) {
-
 				return rw, nil
-
 			}
-
 			podmanMonitor := NewPodmanMonitor(log, podmanFactory, systemdFactory, "", rwFactory)
 
-
-
 			podmanMonitor.handlers[v1beta1.AppTypeCompose] = mockComposeHandler
-
 			podmanMonitor.handlers[v1beta1.AppTypeQuadlet] = mockQuadletHandler
 
-
-
 			// add test apps to the monitor
-
 			for _, testApp := range tc.apps {
-
 				err := podmanMonitor.Ensure(t.Context(), testApp)
-
 				require.NoError(err)
-
 			}
-
 			err = podmanMonitor.ExecuteActions(t.Context())
-
 			require.NoError(err)
 
-
-
 			// simulate events being written to the pipe
-
 			go func() {
-
 				for i := range tc.events {
-
 					event := tc.events[i]
-
 					if err := writeEvent(writer, &event); err != nil {
-
 						t.Errorf("failed to write event: %v", err)
-
 					}
-
 				}
-
 			}()
 
-
-
 			timeoutDuration := 5 * time.Second
-
 			retryDuration := 100 * time.Millisecond
-
 			for _, testApp := range tc.apps {
-
 				require.Eventually(func() bool {
-
 					podmanMonitor.mu.Lock()
-
 					app, exists := podmanMonitor.apps[testApp.ID()]
-
 					if !exists {
-
 						podmanMonitor.mu.Unlock()
-
 						t.Logf("app not found: %s", testApp.Name())
-
 						return false
-
 					}
-
 					status, summary, err := app.Status()
-
 					podmanMonitor.mu.Unlock()
 
-
-
 					if err != nil {
-
 						t.Logf("error getting status: %v", err)
-
 						return false
-
 					}
-
 					if status == nil {
-
 						t.Logf("app has no status: %s", testApp.Name())
-
 						return false
-
 					}
-
 					if tc.expectedSummary != summary.Status {
-
 						t.Logf("app %s expected summary %s but got %s", testApp.Name(), tc.expectedSummary, summary.Status)
-
 						return false
-
 					}
-
 					if status.Ready != tc.expectedReady {
-
 						t.Logf("app %s expected ready %s but got %s", testApp.Name(), tc.expectedReady, status.Ready)
-
 						return false
-
 					}
-
 					if status.Status != tc.expectedStatus {
-
 						t.Logf("app %s expected status %s but got %s", testApp.Name(), tc.expectedStatus, status.Status)
-
 						return false
-
 					}
-
-
 
 					return true
-
 				}, timeoutDuration, retryDuration, "data was not processed in time")
-
 			}
-
 		})
-
 	}
-
 }
 
 func TestApplicationAddRemove(t *testing.T) {
