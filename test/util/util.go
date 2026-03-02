@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/x509"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -59,6 +60,49 @@ func InitLogsWithDebug() *logrus.Logger {
 	return flightlog.InitLogs()
 }
 
+// EnvFirst returns the first non-empty environment variable value from keys.
+func EnvFirst(keys ...string) string {
+	for _, k := range keys {
+		if v := strings.TrimSpace(os.Getenv(k)); v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// DefaultIfEmpty returns defaultValue when value is empty after trimming.
+func DefaultIfEmpty(value, defaultValue string) string {
+	if strings.TrimSpace(value) != "" {
+		return strings.TrimSpace(value)
+	}
+	return defaultValue
+}
+
+// IsTruthy reports whether value represents a truthy string.
+func IsTruthy(value string) bool {
+	v := strings.ToLower(strings.TrimSpace(value))
+	return v == "1" || v == "true" || v == "yes"
+}
+
+// ContainsAnySubstring reports whether value contains any candidate.
+func ContainsAnySubstring(value string, candidates []string) bool {
+	for _, c := range candidates {
+		if strings.Contains(value, strings.ToLower(c)) {
+			return true
+		}
+	}
+	return false
+}
+
+// MustJSON marshals v or returns "{}" on error.
+func MustJSON(v any) string {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return "{}"
+	}
+	return string(b)
+}
+
 type testProvider struct {
 	queue       chan []byte
 	pubsubQueue chan []byte
@@ -97,6 +141,35 @@ func GetConfigMapDataByJSONPath(namespace, name, jsonPath string) (string, error
 		return "", fmt.Errorf("kubectl get configmap: %w: %s", err, strings.TrimSpace(string(out)))
 	}
 	return string(out), nil
+}
+
+// CreateK8UserToken creates a Kubernetes service account token via kubectl.
+func CreateK8UserToken(namespace, serviceAccount, duration string) (string, error) {
+	if strings.TrimSpace(namespace) == "" {
+		return "", fmt.Errorf("namespace is empty")
+	}
+	if strings.TrimSpace(serviceAccount) == "" {
+		return "", fmt.Errorf("service account is empty")
+	}
+	if strings.TrimSpace(duration) == "" {
+		duration = "1h"
+	}
+
+	// #nosec G204 -- command args are fixed and controlled in test.
+	out, err := exec.Command(
+		"kubectl",
+		"-n", namespace,
+		"create", "token", serviceAccount,
+		"--duration="+duration,
+	).CombinedOutput()
+	trimmed := strings.TrimSpace(string(out))
+	if err != nil {
+		return "", fmt.Errorf("kubectl create token for service account %q in namespace %q failed: %w: %s", serviceAccount, namespace, err, trimmed)
+	}
+	if trimmed == "" {
+		return "", fmt.Errorf("kubectl create token for service account %q in namespace %q returned empty token", serviceAccount, namespace)
+	}
+	return trimmed, nil
 }
 
 func (t *testProvider) NewQueueProducer(_ context.Context, _ string) (queues.QueueProducer, error) {

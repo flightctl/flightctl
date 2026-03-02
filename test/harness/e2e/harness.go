@@ -538,6 +538,38 @@ func (h *Harness) RunInteractiveCLI(args ...string) (io.WriteCloser, io.ReadClos
 	return ptmx, ptmx, nil
 }
 
+// RunInteractiveCLIWithInput executes an interactive flightctl command, writes
+// provided stdin input, and captures combined output until completion or timeout.
+func (h *Harness) RunInteractiveCLIWithInput(timeout time.Duration, stdin string, args ...string) (string, error) {
+	in, out, err := h.RunInteractiveCLI(args...)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = in.Close() }()
+	defer func() { _ = out.Close() }()
+
+	var outputBuilder strings.Builder
+	copyDone := make(chan struct{})
+	go func() {
+		_, _ = io.Copy(&outputBuilder, out)
+		close(copyDone)
+	}()
+
+	if stdin != "" {
+		_, _ = io.WriteString(in, stdin)
+	}
+	_ = in.Close()
+
+	select {
+	case <-copyDone:
+		return outputBuilder.String(), nil
+	case <-time.After(timeout):
+		_ = out.Close()
+		<-copyDone
+		return outputBuilder.String(), fmt.Errorf("interactive CLI timed out after %s", timeout)
+	}
+}
+
 func (h *Harness) CLIWithStdin(stdin string, args ...string) (string, error) {
 	return h.SHWithStdin(stdin, flightctlPath(), args...)
 }
@@ -573,6 +605,29 @@ func (h *Harness) GetFlightctlPath() string {
 
 func (h *Harness) CLI(args ...string) (string, error) {
 	return h.CLIWithStdin("", args...)
+}
+
+// CLIWithStdinExitCode executes flightctl with stdin and returns command output,
+// process exit code, and error (if any).
+func (h *Harness) CLIWithStdinExitCode(stdin string, args ...string) (string, int, error) {
+	out, err := h.CLIWithStdin(stdin, args...)
+	if err == nil {
+		return out, 0, nil
+	}
+	if exitErr, ok := err.(*exec.ExitError); ok {
+		return out, exitErr.ExitCode(), err
+	}
+	return out, -1, err
+}
+
+// CLIWithConfigAndStdinExitCode executes flightctl with optional --config-dir,
+// returns command output, process exit code, and error.
+func (h *Harness) CLIWithConfigAndStdinExitCode(configDir, stdin string, args ...string) (string, int, error) {
+	fullArgs := append([]string{}, args...)
+	if strings.TrimSpace(configDir) != "" {
+		fullArgs = append(fullArgs, "--config-dir", configDir)
+	}
+	return h.CLIWithStdinExitCode(stdin, fullArgs...)
 }
 
 // CLIWithEnvAndShell runs a shell command with custom environment variables (for complex commands with pipes)
