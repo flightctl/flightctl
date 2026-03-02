@@ -30,6 +30,7 @@ const (
 	StatusDied    StatusType = "died"
 	StatusRemove  StatusType = "remove"
 	StatusExited  StatusType = "exited"
+	StatusStopped StatusType = "stopped"
 )
 
 func (c StatusType) String() string {
@@ -139,7 +140,6 @@ type application struct {
 	volume     provider.VolumeManager
 	status     *v1beta1.DeviceApplicationStatus
 	actionSpec lifecycle.ActionSpec
-	provider   provider.Provider
 }
 
 // NewApplication creates a new application from an application provider.
@@ -155,8 +155,7 @@ func NewApplication(p provider.Provider) *application {
 			AppType:  spec.AppType,
 			RunAs:    spec.User,
 		},
-		volume:   spec.Volume,
-		provider: p,
+		volume: spec.Volume,
 	}
 }
 
@@ -274,7 +273,7 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 			healthy++
 		case StatusExited:
 			exited++
-		case StatusStop, StatusStopped:
+		case StatusStopped:
 			stopped++
 		}
 	}
@@ -296,19 +295,16 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 	case isPreparing(total, healthy, initializing):
 		newStatus = v1beta1.ApplicationStatusPreparing
 		summary.Status = v1beta1.ApplicationsSummaryStatusUnknown
-	case isCompleted(total, exited, stopped):
+	case isCompleted(total, exited):
 		newStatus = v1beta1.ApplicationStatusCompleted
 		summary.Status = v1beta1.ApplicationsSummaryStatusHealthy
-	case isStopped(total, healthy, stopped):
-		newStatus = v1beta1.ApplicationStatusError
-		summary.Status = v1beta1.ApplicationsSummaryStatusError
-	case isRunningHealthy(total, healthy, initializing, exited, stopped):
+	case isRunningHealthy(total, healthy, initializing):
 		newStatus = v1beta1.ApplicationStatusRunning
 		summary.Status = v1beta1.ApplicationsSummaryStatusHealthy
-	case isRunningDegraded(total, healthy, initializing):
+	case isRunningDegraded(total, healthy, initializing, stopped):
 		newStatus = v1beta1.ApplicationStatusRunning
 		summary.Status = v1beta1.ApplicationsSummaryStatusDegraded
-	case isErrored(total, healthy, initializing):
+	case isErrored(total, healthy, initializing, stopped):
 		newStatus = v1beta1.ApplicationStatusError
 		summary.Status = v1beta1.ApplicationsSummaryStatusError
 	default:
@@ -340,26 +336,22 @@ func isUnknown(total, healthy, initializing int) bool {
 	return total == 0 && healthy == 0 && initializing == 0
 }
 
-func isCompleted(total, completed, stopped int) bool {
-	return total > 0 && completed == total && stopped == 0
-}
-
-func isStopped(total, healthy, stopped int) bool {
-	return total > 0 && stopped > 0 && healthy == 0
+func isCompleted(total, completed int) bool {
+	return total > 0 && completed == total
 }
 
 func isPreparing(total, healthy, initializing int) bool {
 	return total > 0 && healthy == 0 && initializing > 0
 }
 
-func isRunningDegraded(total, healthy, initializing int) bool {
-	return total != healthy && healthy > 0 && initializing == 0
+func isRunningDegraded(total, healthy, initializing, stopped int) bool {
+	return (total > 0 && healthy > 0 && healthy < total && initializing == 0) || (stopped > 0 && healthy > 0)
 }
 
-func isRunningHealthy(total, healthy, initializing, exited, stopped int) bool {
-	return total > 0 && (healthy+exited == total) && stopped == 0 && initializing == 0
+func isRunningHealthy(total, healthy, initializing int) bool {
+	return total > 0 && healthy == total && initializing == 0
 }
 
-func isErrored(total, healthy, initializing int) bool {
-	return total > 0 && healthy == 0 && initializing == 0
+func isErrored(total, healthy, initializing, stopped int) bool {
+	return (total > 0 && healthy == 0 && initializing == 0 && stopped == 0) || (stopped > 0 && healthy == 0)
 }
