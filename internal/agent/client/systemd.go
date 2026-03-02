@@ -310,6 +310,18 @@ func WithShowLoadState() SystemdShowOptions {
 	}
 }
 
+func WithShowActiveState() SystemdShowOptions {
+	return func(opts *systemdShowOpts) {
+		opts.args = append(opts.args, "-p", "ActiveState", "--value")
+	}
+}
+
+func WithShowSubState() SystemdShowOptions {
+	return func(opts *systemdShowOpts) {
+		opts.args = append(opts.args, "-p", "SubState", "--value")
+	}
+}
+
 func (s *Systemd) Show(ctx context.Context, unit string, opts ...SystemdShowOptions) ([]string, error) {
 	ctx, cancel := context.WithTimeout(ctx, defaultSystemctlTimeout)
 	defer cancel()
