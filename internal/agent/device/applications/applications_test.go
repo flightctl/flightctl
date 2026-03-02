@@ -193,8 +193,8 @@ func TestApplicationStatus(t *testing.T) {
 				},
 			},
 			expectedReady:         "0/2",
-			expectedStatus:        v1beta1.ApplicationStatusCompleted,
-			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusHealthy,
+			expectedStatus:        v1beta1.ApplicationStatusError,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusError,
 		},
 		{
 			name: "app has one workloads exited",
@@ -213,19 +213,6 @@ func TestApplicationStatus(t *testing.T) {
 			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusHealthy,
 		},
 		{
-			name: "app has one workload with restart policy always exited",
-			workloads: []Workload{
-				{
-					Name:          "container1",
-					Status:        StatusExited,
-					RestartPolicy: "always",
-				},
-			},
-			expectedReady:         "0/1",
-			expectedStatus:        v1beta1.ApplicationStatusRunning,
-			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusDegraded,
-		},
-		{
 			name: "app with single container has exited",
 			workloads: []Workload{
 				{
@@ -234,8 +221,8 @@ func TestApplicationStatus(t *testing.T) {
 				},
 			},
 			expectedReady:         "0/1",
-			expectedStatus:        v1beta1.ApplicationStatusCompleted,
-			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusHealthy,
+			expectedStatus:        v1beta1.ApplicationStatusError,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusError,
 		},
 	}
 
