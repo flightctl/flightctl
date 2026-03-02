@@ -30,13 +30,13 @@ db-setup:
   tag: latest
 db:
   image: registry.redhat.io/rhel10/postgresql-16
-  tag: "latest"
+  tag: "1-5"
 kv:
-  image: registry.redhat.io/rhel10/redis-7
-  tag: "latest"
+  image: registry.redhat.io/rhel10/valkey-7
+  tag: "1-5"
 alertmanager:
   image: registry.redhat.io/openshift4/ose-prometheus-alertmanager
-  tag: latest
+  tag: "v4.17"
 imagebuilder-api:
   image: registry.redhat.io/flightctl/flightctl-imagebuilder-api
   tag: latest
@@ -45,10 +45,10 @@ imagebuilder-worker:
   tag: latest
 grafana:
   image: registry.redhat.io/rhel10/grafana
-  tag: latest
+  tag: "10.4.5-1"
 prometheus:
   image: registry.redhat.io/openshift4/ose-prometheus
-  tag: latest
+  tag: "v4.17"
 telemetry-gateway:
   image: registry.redhat.io/flightctl/flightctl-telemetry-gateway
   tag: latest
