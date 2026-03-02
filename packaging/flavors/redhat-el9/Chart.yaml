@@ -1,10 +1,8 @@
 # Helm chart overrides for redhat-el9 flavor
-# This file contains redhat-el9 specific chart metadata and configurations
+# This file is optional - if present, it replaces deploy/helm/flightctl/Chart.yaml
+# If absent, the original Chart.yaml remains authoritative
 
-# Chart metadata
-# annotations:
-#   redhat.edition: "true"
-#   target.platform: "rhel9"
-#   security.compliance: "fips-140-2"
-
-# Red Hat specific configurations would go here
+annotations:
+  redhat.edition: "true"
+  target.platform: "rhel9"
+  security.compliance: "fips-140-2"
