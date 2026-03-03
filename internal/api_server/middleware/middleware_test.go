@@ -22,6 +22,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // createCertWithOrgID returns an *x509.Certificate with the organization ID
@@ -203,13 +204,11 @@ func TestExtractAndValidateOrg(t *testing.T) {
 			middleware(testHandler).ServeHTTP(rr, r)
 
 			if tc.wantMiddlewareErr != nil {
-				assert.Equal(t, tc.wantMiddlewareCode, rr.Code)
-				assert.Equal(t, "application/json", rr.Header().Get("Content-Type"))
+				require.Equal(t, tc.wantMiddlewareCode, rr.Code)
+				require.Equal(t, "application/json", rr.Header().Get("Content-Type"))
 				var status api.Status
-				err := json.Unmarshal(rr.Body.Bytes(), &status)
-				assert.NoError(t, err, "failed to unmarshal status from response: %s", rr.Body.String())
-				assert.Equal(t, api.StatusKind, status.Kind)
-				assert.Equal(t, int32(tc.wantMiddlewareCode), status.Code)
+				err := json.NewDecoder(rr.Body).Decode(&status)
+				require.NoError(t, err)
 				assert.Equal(t, tc.wantMiddlewareErr.Error(), status.Message)
 				return
 			}

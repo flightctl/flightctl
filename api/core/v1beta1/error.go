@@ -69,6 +69,10 @@ func StatusInternalServerError(message string) Status {
 	return NewFailureStatus(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError), message)
 }
 
+func StatusServiceUnavailable(message string) Status {
+	return NewFailureStatus(http.StatusServiceUnavailable, http.StatusText(http.StatusServiceUnavailable), message)
+}
+
 func StatusNotImplemented(message string) Status {
 	return NewFailureStatus(http.StatusNotImplemented, http.StatusText(http.StatusNotImplemented), message)
 }

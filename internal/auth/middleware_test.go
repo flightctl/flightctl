@@ -1,13 +1,16 @@
 package auth
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
@@ -119,14 +122,15 @@ func TestPermissionCheck(t *testing.T) {
 	defer ctrl.Finish()
 
 	testCases := []struct {
-		name    string
-		allowed bool
-		err     error
-		expCode int
+		name          string
+		allowed       bool
+		err           error
+		expCode       int
+		expErrMessage string
 	}{
-		{"allowed", true, nil, http.StatusOK},
-		{"denied", false, nil, http.StatusForbidden},
-		{"error", false, fmt.Errorf("auth error"), http.StatusServiceUnavailable},
+		{"allowed", true, nil, http.StatusOK, ""},
+		{"denied", false, nil, http.StatusForbidden, errForbidden},
+		{"error", false, fmt.Errorf("auth error"), http.StatusServiceUnavailable, errAuthorizationServerUnavailable},
 	}
 
 	for _, r := range requests {
@@ -138,7 +142,15 @@ func TestPermissionCheck(t *testing.T) {
 			req := httptest.NewRequest(r.method, r.url, nil)
 			w := httptest.NewRecorder()
 			authZMiddleware.ServeHTTP(w, req)
+
 			require.Equal(tc.expCode, w.Code)
+			if tc.expErrMessage != "" {
+				require.Equal("application/json", w.Header().Get("Content-Type"))
+				var status api.Status
+				err := json.NewDecoder(w.Body).Decode(&status)
+				require.NoError(err)
+				assert.Equal(t, tc.expErrMessage, status.Message)
+			}
 		}
 	}
 }
@@ -195,6 +207,13 @@ func TestNoPermissionCheck(t *testing.T) {
 			expectedCode = http.StatusBadRequest
 		}
 		require.Equal(expectedCode, w.Code)
+		if r.badRequest {
+			require.Equal("application/json", w.Header().Get("Content-Type"))
+			var status api.Status
+			err := json.NewDecoder(w.Body).Decode(&status)
+			require.NoError(err)
+			assert.Equal(t, errBadRequest, status.Message)
+		}
 	}
 }
 
@@ -215,6 +234,11 @@ func TestUnsupportedMethodCheck(t *testing.T) {
 		authZMiddleware.ServeHTTP(w, req)
 
 		require.Equal(http.StatusBadRequest, w.Code)
+		require.Equal("application/json", w.Header().Get("Content-Type"))
+		var status api.Status
+		err := json.NewDecoder(w.Body).Decode(&status)
+		require.NoError(err)
+		assert.Equal(t, errBadRequest, status.Message)
 	}
 }
 
