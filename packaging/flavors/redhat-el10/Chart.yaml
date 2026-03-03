@@ -1,6 +1,6 @@
 # Helm chart value overrides for redhat-el10 flavor
-# This file is optional - if present, values are merged into generated Chart.yaml
-# If absent, the generated Chart.yaml remains unmodified
+# This file is REQUIRED - Red Hat flavors must have Chart.yaml overrides
+# If missing, the render pipeline will fail with an error
 
 annotations:
   redhat.edition: "true"
