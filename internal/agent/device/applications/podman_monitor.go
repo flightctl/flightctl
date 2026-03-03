@@ -463,6 +463,11 @@ func (m *PodmanMonitor) updateApplicationStatus(app Application, event *client.P
 
 	container, exists := app.Workload(event.Name)
 	if exists {
+		// if a container was stopped, and then exited with a 0 exit code, the status should be stopped.
+		if status == StatusExited && container.Status == StatusStop {
+			status = StatusStopped
+		}
+
 		// update existing container
 		container.Status = status
 		// restarts can only increase
@@ -521,23 +526,7 @@ func (m *PodmanMonitor) updateQuadletContainerStatus(ctx context.Context, app Ap
 
 	status := StatusType(event.Status)
 	if isFinishedStatus(status) && lo.FromPtrOr(event.ContainerExitCode, -1) == 0 {
-		podmanClient, err := m.clientFactory(app.User())
-		if err != nil {
-			m.log.Errorf("Failed to create podman client for %s: %v", app.Name(), err)
-			status = StatusExited // fallback to old behavior
-		} else {
-			inspectData, err := m.inspectContainer(ctx, event.ID, podmanClient)
-			if err != nil {
-				m.log.Errorf("Failed to inspect container %s: %v", event.ID, err)
-				status = StatusExited // fallback
-			} else {
-				if len(inspectData) > 0 && inspectData[0].State.Healthcheck != "" && inspectData[0].State.Healthcheck != "none" {
-					status = StatusStopped
-				} else {
-					status = StatusExited
-				}
-			}
-		}
+		status = StatusExited
 	}
 	m.updateApplicationStatus(app, event, status, restartCount)
 }
@@ -603,9 +592,6 @@ func (m *PodmanMonitor) resolveStatus(status string, inspectData []client.Podman
 	// podman events don't properly event exited in the case where the container exits 0.
 	if initialStatus == StatusDie || initialStatus == StatusDied {
 		if len(inspectData) > 0 && inspectData[0].State.ExitCode == 0 && inspectData[0].State.FinishedAt != "" {
-			if inspectData[0].State.Healthcheck != "" && inspectData[0].State.Healthcheck != "none" {
-				return StatusStopped
-			}
 			return StatusExited
 		}
 	}
