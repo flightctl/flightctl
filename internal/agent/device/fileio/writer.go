@@ -8,12 +8,14 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"iter"
 	"os"
 	"os/user"
 	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
@@ -206,13 +208,38 @@ func (w *writer) CreateFile(path string, flag int, perm fs.FileMode) (*os.File, 
 	return f, nil
 }
 
+// MkdirAll creates the directory at the given path, ensuring that all parent dirs leading up to it
+// have a consistent ownership from the first ancestor directory owned by the user configured on the
+// writer instance.
 func (w *writer) MkdirAll(path string, perm os.FileMode) error {
 	finalPath := filepath.Join(w.rootDir, path)
 	if err := os.MkdirAll(finalPath, perm); err != nil {
 		return err
 	}
-	// Change the owner for only the last dir in the path, not every created dir.
-	return os.Chown(finalPath, w.uid, w.gid)
+	shouldChown := false
+	for curDir := range iterPathElements(finalPath) {
+		// Start changing the dir owner after the first dir in the path that is owned by that owner,
+		// always changing the last directory to the configured owner.
+		if shouldChown || curDir == finalPath {
+			if err := os.Chown(curDir, w.uid, w.gid); err != nil {
+				return err
+			}
+		}
+		if !shouldChown {
+			f, err := os.Stat(curDir)
+			if err != nil {
+				return fmt.Errorf("failed to stat dir %s: %w", curDir, err)
+			}
+			stat, ok := f.Sys().(*syscall.Stat_t)
+			if !ok {
+				return fmt.Errorf("failed to read file ownership for %s", curDir)
+			}
+			if w.uid == int(stat.Uid) {
+				shouldChown = true
+			}
+		}
+	}
+	return nil
 }
 
 func (w *writer) MkdirTemp(prefix string) (string, error) {
@@ -711,4 +738,20 @@ func UnpackTar(writer Writer, tarPath, destDir string) error {
 	}
 
 	return nil
+}
+
+func iterPathElements(path string) iter.Seq[string] {
+	return func(yield func(subpath string) bool) {
+		parts := strings.Split(path, string(os.PathSeparator))
+		subpath := ""
+		for i := range parts {
+			if parts[i] == "" {
+				parts[i] = "/"
+			}
+			subpath = filepath.Join(subpath, parts[i])
+			if !yield(subpath) {
+				return
+			}
+		}
+	}
 }
