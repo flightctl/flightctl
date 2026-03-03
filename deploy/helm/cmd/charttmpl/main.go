@@ -32,32 +32,34 @@ type templateContext struct {
 
 const (
 	chartTmplPath  = "flightctl/Chart.yaml.gotmpl"
-	chartOutPath   = "flightctl/Chart.yaml"
 	valuesTmplPath = "flightctl/values.yaml.gotmpl"
 	valuesOutPath  = "flightctl/values.yaml"
 	optsPath       = "helm-chart-opts.yaml"
 )
 
-func runTemplate(in string, out string, templateData templateContext) {
+var chartOutPath = "flightctl/Chart.yaml"
+
+func runTemplate(in string, out string, templateData templateContext) error {
 	tplBytes, err := os.ReadFile(in)
 	if err != nil {
-		log.Fatalf("reading template %s: %v", in, err)
+		return fmt.Errorf("reading template %s: %v", in, err)
 	}
 
 	tpl, err := template.New(in).Option("missingkey=error").Parse(string(tplBytes))
 	if err != nil {
-		log.Fatalf("parsing template %s: %v", in, err)
+		return fmt.Errorf("parsing template %s: %v", in, err)
 	}
 
 	outFile, err := os.Create(out)
 	if err != nil {
-		log.Fatalf("creating output %s: %v", chartOutPath, err)
+		return fmt.Errorf("creating output %s: %v", out, err)
 	}
 	defer outFile.Close()
 
 	if err := tpl.Execute(outFile, templateData); err != nil {
-		log.Fatalf("executing template %s: %v", chartOutPath, err)
+		return fmt.Errorf("executing template %s: %v", out, err)
 	}
+	return nil
 }
 
 // deepMergeMaps recursively merges src into dst, preserving nested map structures
@@ -165,7 +167,9 @@ func main() {
 	}
 
 	// Render Chart.yaml
-	runTemplate(chartTmplPath, chartOutPath, templateData)
+	if err := runTemplate(chartTmplPath, chartOutPath, templateData); err != nil {
+		log.Fatalf("rendering Chart.yaml: %v", err)
+	}
 
 	// Apply flavor-specific Chart.yaml override if it exists
 	if err := applyFlavorChartOverride(profileKey); err != nil {
@@ -173,5 +177,7 @@ func main() {
 	}
 
 	// Render values.yaml
-	runTemplate(valuesTmplPath, valuesOutPath, templateData)
+	if err := runTemplate(valuesTmplPath, valuesOutPath, templateData); err != nil {
+		log.Fatalf("rendering values.yaml: %v", err)
+	}
 }
