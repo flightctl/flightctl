@@ -44,28 +44,157 @@ Flight Control uses role-based authorization with organization-scoped access:
 
 ## Configuration
 
-### Static Configuration
+### Prerequisites
 
-AAP authentication is configured via configuration files.
+Before configuring AAP authentication, ensure you have:
 
-Configuration values need to be set in `config.yaml`:
+1. AAP Gateway Access: Administrative credentials and API access to our AAP gateway instance.  Flight Control must have network access to your AAP Gateway
+2. AAP Permissions: You must have an admin user with OAuth application creation permissions in AAP Gateway
+
+### TLS Certs
+
+If your AAP Gateway uses a custom CA or self-signed certificates, place the CA certificate at `/etc/flightctl/pki/auth/ca.crt`. This allows Flight Control to verify the TLS connection to your AAP Gateway.
+
+### Option 1: Automated OAuth application creation
+
+The automated approach uses the `flightctl-api-init.service` systemd service to automatically create OAuth applications during Flight Control deployment or service startup.
+
+#### Step 1: Configure AAP credentials in service config
+
+Configure the AAP settings in your service configuration file (`/etc/flightctl/service-config.yaml`):
 
 ```yaml
 auth:
   type: aap
   aap:
     apiUrl: https://aap-gateway.example.com
+    token: your-token-here
+    # clientId will be populated automatically during service initialization
+    # and placed in a file at /etc/flightctl/pki/aap-client-id
     authorizationUrl: https://aap-gateway.example.com/o/authorize/
     tokenUrl: https://aap-gateway.example.com/o/token/
-    clientId: your-client-id
-    clientSecret: your-client-secret  # Optional
-    displayName: "AAP Provider"  # Optional
-    enabled: true  # Optional, defaults to true
+    displayName: "AAP Provider"
+    enabled: true
 ```
+
+**How to obtain an admin token:**
+
+1. Log into your AAP Gateway web interface
+2. Navigate to **Access Management** -> **Users** -> Select your user with OAuth application creation permissions -> **Tokens**
+3. Click **Create Token**, leave the OAuth application field blank and select Write scope.
+4. Copy the token for use in the configuration
+5. Place the copied token in the `auth.aap.token` field in `service-config.yaml`
+
+#### Step 2: Deploy or restart Flight Control services
+
+For new installations, deploy Flight Control:
+
+```bash
+sudo systemctl start flightctl.target
+```
+
+For existing installations, restart the services to trigger the initialization:
+
+```bash
+sudo systemctl restart flightctl.target
+```
+
+#### Step 3: Verify automatic configuration update
+
+The `flightctl-api-init.service` automatically creates the OAuth application and writes the client ID to the filesystem:
+
+```bash
+# Check that the initialization service ran successfully
+sudo systemctl status flightctl-api-init.service
+
+# View initialization service logs
+sudo journalctl -u flightctl-api-init.service
+
+# Verify the client ID was generated
+sudo cat /etc/flightctl/pki/aap-client-id
+```
+
+The service safely handles multiple runs, although you can remove the `token` from the `service-config.yaml` after the OAuth application is created.
+
+### Option 2: Manual OAuth application creation
+
+#### Step 1: Access AAP Gateway Applications
+
+1. Log into your AAP Gateway web interface
+2. Navigate to **Access Management** → **OAuth Applications**
+3. Click **Create OAuth application** to create a new application
+
+#### Step 2: Create new OAuth Application
+
+Configure the OAuth application with these settings:
+
+- **Name:** `Flight Control` (or your preferred application name)
+- **URL:** You can set this to your Flight Control UI URL to provide a link from within AAP to Flight Control.
+- **Organization:** `Default`
+- **Authorization grant type:** `Authorization code`
+- **Client type:** `Public`
+- **Redirect URIs:** Set to:
+
+  ```bash
+  https://your-flightctl-base-domain:443/callback http://127.0.0.1/callback
+  ```
+
+Note: The redirect URIs should be a space delimited list. Two URIs are required:
+
+- A URL to your UI with a /callback path appended. The default base domain and port combo is `https://your-flightctl-base-domain:443/callback`, but if you have different routing configured you will need to update the URL accordingly. Make sure to replace your-flightctl-base-domain with your actual domain.
+- A URL to `http://127.0.0.1/callback` to ensure login sessions using the CLI work
+
+#### Step 4: Obtain client credentials
+
+After creating the application:
+
+1. Copy the **Client ID** from the application details
+
+#### Step 5: Update Flight Control configuration
+
+Update your service configuration file (`/etc/flightctl/service-config.yaml`):
+
+```yaml
+auth:
+  type: aap
+  aap:
+    apiUrl: https://aap-gateway.example.com
+    clientId: your-copied-client-id
+    authorizationUrl: https://aap-gateway.example.com/o/authorize/
+    tokenUrl: https://aap-gateway.example.com/o/token/
+    displayName: "AAP Provider"
+    enabled: true
+```
+
+Then start or restart the Flight Control services:
+
+```bash
+# Start
+sudo systemctl start flightctl.target
+# Restart
+sudo systemctl restart flightctl.target
+```
+
+### Configuration parameters
+
+The following parameters are supported for AAP authentication configuration:
+
+| Parameter | Description | Required | Default |
+|-----------|-------------|----------|---------|
+| `apiUrl` | AAP Gateway API base URL | Yes | None |
+| `authorizationUrl` | OAuth authorization endpoint | Yes | `{apiUrl}/o/authorize/` |
+| `tokenUrl` | OAuth token endpoint | Yes | `{apiUrl}/o/token/` |
+| `clientId` | OAuth client identifier | Yes | None |
+| `clientSecret` | OAuth client secret | No | None |
+| `token` | Admin token for app creation | No | None |
+| `displayName` | Provider display name in UI | No | "AAP Provider" |
+| `enabled` | Enable AAP authentication | No | true |
+
+**Note:** The `clientId` is automatically generated when using the automated approach, or manually configured when using the manual approach.
 
 ### Single Provider
 
-One AAP Gateway per Flight Control deployment. Changes to authentication configuration require service restart.
+Flight Control supports one AAP Gateway per deployment. Changes to authentication configuration require restarting the Flight Control services.
 
 ## When to Use AAP Authentication
 

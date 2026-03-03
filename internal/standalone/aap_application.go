@@ -117,6 +117,10 @@ func createOAuthApplication(ctx context.Context, client OAuthApplicationCreator,
 		return "", err
 	}
 
+	if response == nil {
+		return "", fmt.Errorf("AAP returned empty response")
+	}
+
 	if response.ClientID == "" {
 		return "", fmt.Errorf("AAP returned empty client_id")
 	}
