@@ -1,4 +1,4 @@
-package middleware
+package middleware_test
 
 import (
 	"context"
@@ -9,9 +9,11 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/internal/api_server/middleware"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/crypto/signer"
 	"github.com/flightctl/flightctl/internal/flterrors"
@@ -49,7 +51,7 @@ func contextWithCert(cert *x509.Certificate) context.Context {
 // Tests for SecurityHeaders middleware.
 // -----------------------------------------------------------------------------
 func TestSecurityHeaders(t *testing.T) {
-	handler := SecurityHeaders(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := middleware.SecurityHeaders(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -70,13 +72,13 @@ func TestContentSecurityPolicy(t *testing.T) {
 		name   string
 		policy string
 	}{
-		{"strict CSP", StrictCSP},
-		{"PAM issuer CSP", PAMIssuerCSP},
+		{"strict CSP", middleware.StrictCSP},
+		{"PAM issuer CSP", middleware.PAMIssuerCSP},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			handler := ContentSecurityPolicy(tc.policy)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			handler := middleware.ContentSecurityPolicy(tc.policy)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusOK)
 			}))
 
@@ -85,6 +87,69 @@ func TestContentSecurityPolicy(t *testing.T) {
 
 			assert.Equal(t, http.StatusOK, rr.Code)
 			assert.Equal(t, tc.policy, rr.Header().Get("Content-Security-Policy"))
+		})
+	}
+}
+
+// -----------------------------------------------------------------------------
+// Tests for RequestSizeLimiter middleware.
+// -----------------------------------------------------------------------------
+func TestRequestSizeLimiter(t *testing.T) {
+	const maxURL = 50
+	const maxHeaders = 3
+
+	limiter := middleware.RequestSizeLimiter(maxURL, maxHeaders)
+	handler := limiter(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	cases := []struct {
+		name        string
+		url         string
+		numHeaders  int
+		wantStatus  int
+		wantMessage string
+	}{
+		{
+			name:       "valid request",
+			url:        "/",
+			numHeaders: 1,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:        "url too long",
+			url:         "/" + strings.Repeat("a", maxURL),
+			numHeaders:  1,
+			wantStatus:  http.StatusRequestURITooLong,
+			wantMessage: fmt.Sprintf("URL too long, exceeds %d characters", maxURL),
+		},
+		{
+			name:        "too many headers",
+			url:         "/",
+			numHeaders:  maxHeaders + 1,
+			wantStatus:  http.StatusRequestHeaderFieldsTooLarge,
+			wantMessage: fmt.Sprintf("Request has too many headers, exceeds %d", maxHeaders),
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+			r := httptest.NewRequest(http.MethodGet, tc.url, nil)
+			for i := 0; i < tc.numHeaders; i++ {
+				r.Header.Set(fmt.Sprintf("X-Test-Header-%d", i), "value")
+			}
+			rr := httptest.NewRecorder()
+			handler.ServeHTTP(rr, r)
+
+			require.Equal(tc.wantStatus, rr.Code)
+			if tc.wantStatus != http.StatusOK {
+				require.Equal("application/json", rr.Header().Get("Content-Type"))
+				var status api.Status
+				err := json.Unmarshal(rr.Body.Bytes(), &status)
+				require.NoError(err)
+				require.Equal(tc.wantMessage, status.Message)
+			}
 		})
 	}
 }
@@ -198,18 +263,20 @@ func TestExtractAndValidateOrg(t *testing.T) {
 
 			logger := logrus.New()
 			logger.SetLevel(logrus.DebugLevel)
-			middleware := ExtractAndValidateOrg(QueryOrgIDExtractor, logger)
+			middleware := middleware.ExtractAndValidateOrg(middleware.QueryOrgIDExtractor, logger)
 
 			rr := httptest.NewRecorder()
 			middleware(testHandler).ServeHTTP(rr, r)
 
 			if tc.wantMiddlewareErr != nil {
-				require.Equal(t, tc.wantMiddlewareCode, rr.Code)
-				require.Equal(t, "application/json", rr.Header().Get("Content-Type"))
+				assert.Equal(t, tc.wantMiddlewareCode, rr.Code)
+				assert.Equal(t, "application/json", rr.Header().Get("Content-Type"))
+
 				var status api.Status
-				err := json.NewDecoder(rr.Body).Decode(&status)
-				require.NoError(t, err)
+				err := json.Unmarshal(rr.Body.Bytes(), &status)
+				assert.NoError(t, err)
 				assert.Equal(t, tc.wantMiddlewareErr.Error(), status.Message)
+				assert.Equal(t, http.StatusText(tc.wantMiddlewareCode), status.Reason)
 				return
 			}
 
@@ -260,7 +327,7 @@ func TestExtractOrgIDFromRequestCert(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			r := httptest.NewRequest(http.MethodGet, "/", nil).WithContext(tc.ctx)
-			got, present, err := extractOrgIDFromRequestCert(tc.ctx, r)
+			got, present, err := middleware.extractOrgIDFromRequestCert(tc.ctx, r)
 			if tc.wantErr {
 				assert.Error(t, err)
 				assert.False(t, present)

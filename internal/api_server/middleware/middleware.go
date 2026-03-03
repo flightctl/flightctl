@@ -2,7 +2,6 @@ package middleware
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 
@@ -21,31 +20,16 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// writeJSONError writes a JSON error response with the given status code and message.
-func writeJSONError(w http.ResponseWriter, code int, message string) {
-	status := api.Status{
-		Kind:    "Status",
-		Code:    int32(code),
-		Reason:  message,
-		Message: message,
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(code)
-	_ = json.NewEncoder(w).Encode(status)
-}
-
 // RequestSizeLimiter returns a middleware that limits the URL length and the number of request headers.
 func RequestSizeLimiter(maxURLLength int, maxNumHeaders int) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if len(r.URL.String()) > maxURLLength {
-				msg := fmt.Sprintf("URL too long, exceeds %d characters", maxURLLength)
-				writeJSONError(w, http.StatusRequestURITooLong, msg)
+				WriteJSONError(w, http.StatusRequestURITooLong, fmt.Errorf("URL too long, exceeds %d characters", maxURLLength))
 				return
 			}
 			if len(r.Header) > maxNumHeaders {
-				msg := fmt.Sprintf("Request has too many headers, exceeds %d", maxNumHeaders)
-				writeJSONError(w, http.StatusRequestHeaderFieldsTooLarge, msg)
+				WriteJSONError(w, http.StatusRequestHeaderFieldsTooLarge, fmt.Errorf("Request has too many headers, exceeds %d", maxNumHeaders))
 				return
 			}
 
@@ -120,14 +104,14 @@ func ExtractAndValidateOrg(extractor OrgIDExtractor, logger logrus.FieldLogger) 
 
 			mappedIdentity, ok := contextutil.GetMappedIdentityFromContext(ctx)
 			if !ok {
-				writeJSONError(w, http.StatusInternalServerError, flterrors.ErrNoMappedIdentity.Error())
+				WriteJSONError(w, http.StatusInternalServerError, flterrors.ErrNoMappedIdentity)
 				return
 			}
 
 			orgID, err := resolveOrgID(ctx, r, extractor, mappedIdentity)
 			if err != nil {
 				reqLogger.Debugf("ExtractAndValidateOrg: error resolving org: %v", err)
-				writeJSONError(w, statusForOrgError(err), err.Error())
+				WriteJSONError(w, statusForOrgError(err), err)
 				return
 			}
 
