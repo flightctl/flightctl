@@ -5510,12 +5510,14 @@ components:
       description: Status of all applications on the device.
       enum:
         - "Healthy"
+        - "Stopped"
         - "Degraded"
         - "Error"
         - "Unknown"
         - "NoApplications"
       x-enum-varnames:
         - "ApplicationsSummaryStatusHealthy"
+        - "ApplicationsSummaryStatusStopped"
         - "ApplicationsSummaryStatusDegraded"
         - "ApplicationsSummaryStatusError"
         - "ApplicationsSummaryStatusUnknown"
@@ -5527,16 +5529,18 @@ components:
         - "Preparing"
         - "Starting"
         - "Running"
+        - "Stopped"
+        - "Completed"
         - "Error"
         - "Unknown"
-        - "Completed"
       x-enum-varnames:
         - "ApplicationStatusPreparing"
         - "ApplicationStatusStarting"
         - "ApplicationStatusRunning"
+        - "ApplicationStatusStopped"
+        - "ApplicationStatusCompleted"
         - "ApplicationStatusError"
         - "ApplicationStatusUnknown"
-        - "ApplicationStatusCompleted"
     DeviceOsStatus:
       type: object
       description: Current status of the device OS.

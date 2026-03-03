@@ -25,6 +25,7 @@ const (
 	StatusCreate  StatusType = "create"
 	StatusInit    StatusType = "init"
 	StatusRunning StatusType = "start"
+	StatusStopped StatusType = "stopped"
 	StatusStop    StatusType = "stop"
 	StatusDie     StatusType = "die" // docker only
 	StatusDied    StatusType = "died"
@@ -130,7 +131,6 @@ type Workload struct {
 	Name     string
 	Status   StatusType
 	Restarts int
-	ExitCode *int
 }
 
 type application struct {
@@ -263,8 +263,7 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 	initializing := 0
 	restarts := 0
 	exited := 0
-	exitedSuccess := 0
-
+	stopped := 0
 	for _, workload := range a.workloads {
 		restarts += workload.Restarts
 		switch workload.Status {
@@ -274,9 +273,8 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 			healthy++
 		case StatusExited:
 			exited++
-			if workload.ExitCode != nil && *workload.ExitCode == 0 {
-				exitedSuccess++
-			}
+		case StatusStopped:
+			stopped++
 		}
 	}
 
@@ -297,10 +295,13 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 	case isPreparing(total, healthy, initializing):
 		newStatus = v1beta1.ApplicationStatusPreparing
 		summary.Status = v1beta1.ApplicationsSummaryStatusUnknown
-	case isCompleted(total, exited, exitedSuccess):
+	case isStopped(total, stopped):
+		newStatus = v1beta1.ApplicationStatusStopped
+		summary.Status = v1beta1.ApplicationsSummaryStatusStopped
+	case isCompleted(total, exited):
 		newStatus = v1beta1.ApplicationStatusCompleted
 		summary.Status = v1beta1.ApplicationsSummaryStatusHealthy
-	case isRunningHealthy(total, healthy, initializing, exited, exitedSuccess):
+	case isRunningHealthy(total, healthy, initializing, exited):
 		newStatus = v1beta1.ApplicationStatusRunning
 		summary.Status = v1beta1.ApplicationsSummaryStatusHealthy
 	case isRunningDegraded(total, healthy, initializing):
@@ -338,8 +339,12 @@ func isUnknown(total, healthy, initializing int) bool {
 	return total == 0 && healthy == 0 && initializing == 0
 }
 
-func isCompleted(total, exited, exitedSuccess int) bool {
-	return total > 0 && exited == total && exitedSuccess == total
+func isStopped(total, stopped int) bool {
+	return total > 0 && stopped == total
+}
+
+func isCompleted(total, completed int) bool {
+	return total > 0 && completed == total
 }
 
 func isPreparing(total, healthy, initializing int) bool {
@@ -350,8 +355,8 @@ func isRunningDegraded(total, healthy, initializing int) bool {
 	return total != healthy && healthy > 0 && initializing == 0
 }
 
-func isRunningHealthy(total, healthy, initializing, exited, exitedSuccess int) bool {
-	return total > 0 && (healthy == total || healthy+exitedSuccess == total) && initializing == 0
+func isRunningHealthy(total, healthy, initializing, exited int) bool {
+	return total > 0 && (healthy == total || healthy+exited == total) && initializing == 0
 }
 
 func isErrored(total, healthy, initializing int) bool {

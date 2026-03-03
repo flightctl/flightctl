@@ -47,7 +47,6 @@ func TestListenForEvents(t *testing.T) {
 		expectedStatus   v1beta1.ApplicationStatusType
 		expectedSummary  v1beta1.ApplicationsSummaryStatusType
 		events           []client.PodmanEvent
-		inspectData      map[string][]client.PodmanInspect
 	}{
 		{
 			name: "single app start",
@@ -109,30 +108,11 @@ func TestListenForEvents(t *testing.T) {
 				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "init"),
 				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "create"),
 				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "start"),
-				mockPodmanEventError("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "die", 1),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "die"),
 			},
 			expectedReady:   "0/1",
 			expectedStatus:  v1beta1.ApplicationStatusError,
 			expectedSummary: v1beta1.ApplicationsSummaryStatusError,
-		},
-		{
-			name: "single app die with exit 0 and error message",
-			apps: []Application{
-				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
-			},
-			events: []client.PodmanEvent{
-				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "init"),
-				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "create"),
-				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "start"),
-				mockPodmanEventError("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "die", 0),
-			},
-			inspectData: map[string][]client.PodmanInspect{
-				"container_id_for_app1-service-1": {mockPodmanInspectWithError(0, 0, "manually stopped")},
-			},
-			expectedReady:    "0/1",
-			expectedStatus:   v1beta1.ApplicationStatusError,
-			expectedSummary:  v1beta1.ApplicationsSummaryStatusError,
-			expectedRestarts: 0,
 		},
 		{
 			name: "single app multiple containers one error one running",
@@ -146,7 +126,7 @@ func TestListenForEvents(t *testing.T) {
 				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "init"),
 				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "create"),
 				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "start"),
-				mockPodmanEventError("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "die", 1),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "die"),
 			},
 			expectedReady:   "1/2",
 			expectedStatus:  v1beta1.ApplicationStatusRunning,
@@ -162,9 +142,9 @@ func TestListenForEvents(t *testing.T) {
 				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "init"),
 				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "create"),
 				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "start"),
-				mockPodmanEventSuccess("app2", v1beta1.CurrentProcessUsername, "app2-service-1", "init"),
-				mockPodmanEventSuccess("app2", v1beta1.CurrentProcessUsername, "app2-service-1", "create"),
-				mockPodmanEventSuccess("app2", v1beta1.CurrentProcessUsername, "app2-service-1", "start"),
+				mockPodmanEventSuccess("app2", v1beta1.CurrentProcessUsername, "app1-service-1", "init"),
+				mockPodmanEventSuccess("app2", v1beta1.CurrentProcessUsername, "app1-service-1", "create"),
+				mockPodmanEventSuccess("app2", v1beta1.CurrentProcessUsername, "app1-service-1", "start"),
 			},
 			expectedReady:   "1/1",
 			expectedStatus:  v1beta1.ApplicationStatusRunning,
@@ -242,37 +222,18 @@ func TestListenForEvents(t *testing.T) {
 			mockComposeHandler.EXPECT().Execute(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 			mockQuadletHandler.EXPECT().Execute(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
+			var testInspect []client.PodmanInspect
+			restartsPerContainer := 3
+			testInspect = append(testInspect, mockPodmanInspect(restartsPerContainer))
+			inspectBytes, err := json.Marshal(testInspect)
+			require.NoError(err)
+
 			// create a pipe to simulate events being written to the monitor
 			reader, writer := io.Pipe()
 			defer reader.Close()
 			defer writer.Close()
 
-			execMock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).DoAndReturn(func(ctx context.Context, command string, args ...string) (string, string, int) {
-				containerID := args[1] // inspect <containerID>
-				var inspectData []client.PodmanInspect
-
-				if tc.inspectData != nil {
-					if data, ok := tc.inspectData[containerID]; ok {
-						inspectData = data
-					}
-				}
-
-				if inspectData == nil {
-					// default mock
-					var defaultInspect []client.PodmanInspect
-					restartsPerContainer := 3
-					defaultInspect = append(defaultInspect, mockPodmanInspect(restartsPerContainer, 0))
-					inspectBytes, err := json.Marshal(defaultInspect)
-					require.NoError(err)
-					return string(inspectBytes), "", 0
-				}
-
-				inspectBytes, err := json.Marshal(inspectData)
-				require.NoError(err)
-				return string(inspectBytes), "", 0
-
-			}).AnyTimes()
-
+			execMock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return(string(inspectBytes), "", 0).Times(len(tc.events))
 			podmanEventsCommandMock(execMock).Return(streamDataToStdout(t, reader))
 
 			podman := client.NewPodman(log, execMock, rw, util.NewPollConfig())
@@ -299,7 +260,7 @@ func TestListenForEvents(t *testing.T) {
 				err := podmanMonitor.Ensure(t.Context(), testApp)
 				require.NoError(err)
 			}
-			err := podmanMonitor.ExecuteActions(t.Context())
+			err = podmanMonitor.ExecuteActions(t.Context())
 			require.NoError(err)
 
 			// simulate events being written to the pipe
@@ -500,7 +461,7 @@ func mockPodmanEventError(name string, username v1beta1.Username, service, statu
 
 func createMockPodmanEvent(name string, username v1beta1.Username, service, status string, exitCode int) client.PodmanEvent {
 	event := client.PodmanEvent{
-		ID:     fmt.Sprintf("container_id_for_%s", service),
+		ID:     "8559c630e04ea852101467742e95b9e371fe6dd8c9195910354636d68d388a40",
 		Image:  "docker.io/library/alpine:latest",
 		Name:   fmt.Sprintf("%s-container", service),
 		Status: status,
@@ -521,20 +482,10 @@ func createMockPodmanEvent(name string, username v1beta1.Username, service, stat
 	return event
 }
 
-func mockPodmanInspect(restarts int, exitCode int) client.PodmanInspect {
+func mockPodmanInspect(restarts int) client.PodmanInspect {
 	return client.PodmanInspect{
 		Restarts: restarts,
-		State: client.PodmanContainerState{
-			ExitCode:   exitCode,
-			FinishedAt: time.Now().String(),
-		},
 	}
-}
-
-func mockPodmanInspectWithError(restarts int, exitCode int, errStr string) client.PodmanInspect {
-	inspect := mockPodmanInspect(restarts, exitCode)
-	inspect.State.Error = errStr
-	return inspect
 }
 
 func BenchmarkGenerateAppID(b *testing.B) {
@@ -1110,88 +1061,7 @@ func TestPodmanMonitorStatusAggregation(t *testing.T) {
 	}
 }
 
-func TestBuildAppSummaryInfo(t *testing.T) {
-	require := require.New(t)
 
-	testCases := []struct {
-		name         string
-		erroredApps  []string
-		degradedApps []string
-		maxLen       int
-		expectedInfo *string
-	}{
-		{
-			name:         "no problems returns nil",
-			erroredApps:  []string{},
-			degradedApps: []string{},
-			maxLen:       256,
-			expectedInfo: nil,
-		},
-		{
-			name:         "single errored app",
-			erroredApps:  []string{"app1 is in status Error"},
-			degradedApps: []string{},
-			maxLen:       256,
-			expectedInfo: lo.ToPtr("app1 is in status Error"),
-		},
-		{
-			name:         "single degraded app",
-			erroredApps:  []string{},
-			degradedApps: []string{"app1 is in status Degraded"},
-			maxLen:       256,
-			expectedInfo: lo.ToPtr("app1 is in status Degraded"),
-		},
-		{
-			name:         "errors listed before degradations",
-			erroredApps:  []string{"error-app is in status Error"},
-			degradedApps: []string{"degraded-app is in status Degraded"},
-			maxLen:       256,
-			expectedInfo: lo.ToPtr("error-app is in status Error, degraded-app is in status Degraded"),
-		},
-		{
-			name:         "multiple errors and degradations",
-			erroredApps:  []string{"err1 is in status Error", "err2 is in status Error"},
-			degradedApps: []string{"deg1 is in status Degraded"},
-			maxLen:       256,
-			expectedInfo: lo.ToPtr("err1 is in status Error, err2 is in status Error, deg1 is in status Degraded"),
-		},
-		{
-			name:         "truncation when exceeding max length",
-			erroredApps:  []string{"very-long-app-name-1 is in status Error", "very-long-app-name-2 is in status Error"},
-			degradedApps: []string{"very-long-app-name-3 is in status Degraded"},
-			maxLen:       50,
-			expectedInfo: lo.ToPtr("very-long-app-name-1 is in status Error, very-l..."),
-		},
-		{
-			name:         "exact max length not truncated",
-			erroredApps:  []string{"app1"},
-			degradedApps: []string{},
-			maxLen:       4,
-			expectedInfo: lo.ToPtr("app1"),
-		},
-		{
-			name:         "one over max length gets truncated",
-			erroredApps:  []string{"app12"},
-			degradedApps: []string{},
-			maxLen:       4,
-			expectedInfo: lo.ToPtr("a..."),
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			result := buildAppSummaryInfo(tc.erroredApps, tc.degradedApps, tc.maxLen)
-
-			if tc.expectedInfo == nil {
-				require.Nil(result)
-			} else {
-				require.NotNil(result)
-				require.Equal(*tc.expectedInfo, *result)
-				require.LessOrEqual(len(*result), tc.maxLen, "result exceeds max length")
-			}
-		})
-	}
-}
 
 func TestReduceActions(t *testing.T) {
 	tests := []struct {

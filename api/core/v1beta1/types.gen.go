@@ -32,6 +32,7 @@ const (
 	ApplicationStatusPreparing ApplicationStatusType = "Preparing"
 	ApplicationStatusRunning   ApplicationStatusType = "Running"
 	ApplicationStatusStarting  ApplicationStatusType = "Starting"
+	ApplicationStatusStopped   ApplicationStatusType = "Stopped"
 	ApplicationStatusUnknown   ApplicationStatusType = "Unknown"
 )
 
@@ -46,6 +47,7 @@ const (
 	ApplicationsSummaryStatusError          ApplicationsSummaryStatusType = "Error"
 	ApplicationsSummaryStatusHealthy        ApplicationsSummaryStatusType = "Healthy"
 	ApplicationsSummaryStatusNoApplications ApplicationsSummaryStatusType = "NoApplications"
+	ApplicationsSummaryStatusStopped        ApplicationsSummaryStatusType = "Stopped"
 	ApplicationsSummaryStatusUnknown        ApplicationsSummaryStatusType = "Unknown"
 )
 

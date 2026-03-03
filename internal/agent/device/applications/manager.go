@@ -250,6 +250,7 @@ func aggregateAppStatuses(results []AppStatusResult) ([]v1beta1.DeviceApplicatio
 	var overallStatus v1beta1.ApplicationsSummaryStatusType
 	var erroredApps []string
 	var degradedApps []string
+	stoppedCount := 0
 
 	for _, result := range results {
 		statuses = append(statuses, result.Status)
@@ -260,6 +261,12 @@ func aggregateAppStatuses(results []AppStatusResult) ([]v1beta1.DeviceApplicatio
 			overallStatus = v1beta1.ApplicationsSummaryStatusError
 		case v1beta1.ApplicationsSummaryStatusDegraded:
 			degradedApps = append(degradedApps, fmt.Sprintf("%s is in status %s", result.Status.Name, result.Summary.Status))
+			if overallStatus != v1beta1.ApplicationsSummaryStatusError {
+				overallStatus = v1beta1.ApplicationsSummaryStatusDegraded
+			}
+		case v1beta1.ApplicationStatusStopped:
+			stoppedCount++
+			degradedApps = append(degradedApps, fmt.Sprintf("Stopped: %s", result.Status.Name))
 			if overallStatus != v1beta1.ApplicationsSummaryStatusError {
 				overallStatus = v1beta1.ApplicationsSummaryStatusDegraded
 			}
@@ -274,6 +281,10 @@ func aggregateAppStatuses(results []AppStatusResult) ([]v1beta1.DeviceApplicatio
 				overallStatus = v1beta1.ApplicationsSummaryStatusHealthy
 			}
 		}
+	}
+
+	if stoppedCount > 0 && stoppedCount == len(results) {
+		overallStatus = v1beta1.ApplicationsSummaryStatusStopped
 	}
 
 	summary := v1beta1.DeviceApplicationsSummaryStatus{Status: overallStatus}
