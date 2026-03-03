@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -77,7 +78,7 @@ func deepMergeMaps(dst, src map[string]interface{}) {
 	}
 }
 
-func applyFlavorChartOverride(profileKey string) {
+func applyFlavorChartOverride(profileKey string) error {
 	// Get distro and release version from environment
 	distro := os.Getenv("DISTRO")
 	relver := os.Getenv("RELVER")
@@ -98,32 +99,32 @@ func applyFlavorChartOverride(profileKey string) {
 	if _, err := os.Stat(flavorChartPath); os.IsNotExist(err) {
 		// Red Hat flavors must have Chart.yaml files, community flavors are optional
 		if distro == "redhat" {
-			log.Fatalf("Red Hat flavor Chart.yaml missing: %s - Red Hat flavors require chart overrides", flavorChartPath)
+			return fmt.Errorf("Red Hat flavor Chart.yaml missing: %s - Red Hat flavors require chart overrides", flavorChartPath)
 		}
 		// No flavor override for community, use generated Chart.yaml as-is
-		return
+		return nil
 	}
 
 	// Read the generated Chart.yaml
 	generatedBytes, err := os.ReadFile(chartOutPath)
 	if err != nil {
-		log.Fatalf("reading generated chart %s: %v", chartOutPath, err)
+		return fmt.Errorf("reading generated chart %s: %v", chartOutPath, err)
 	}
 
 	var generatedChart map[string]interface{}
 	if err := yaml.Unmarshal(generatedBytes, &generatedChart); err != nil {
-		log.Fatalf("parsing generated chart: %v", err)
+		return fmt.Errorf("parsing generated chart: %v", err)
 	}
 
 	// Read the flavor override Chart.yaml
 	flavorBytes, err := os.ReadFile(flavorChartPath)
 	if err != nil {
-		log.Fatalf("reading flavor chart %s: %v", flavorChartPath, err)
+		return fmt.Errorf("reading flavor chart %s: %v", flavorChartPath, err)
 	}
 
 	var flavorOverrides map[string]interface{}
 	if err := yaml.Unmarshal(flavorBytes, &flavorOverrides); err != nil {
-		log.Fatalf("parsing flavor chart %s: %v", flavorChartPath, err)
+		return fmt.Errorf("parsing flavor chart %s: %v", flavorChartPath, err)
 	}
 
 	// Deep merge flavor overrides into generated chart (preserves nested maps like annotations)
@@ -132,14 +133,15 @@ func applyFlavorChartOverride(profileKey string) {
 	// Write back the merged chart
 	mergedBytes, err := yaml.Marshal(generatedChart)
 	if err != nil {
-		log.Fatalf("marshaling merged chart: %v", err)
+		return fmt.Errorf("marshaling merged chart: %v", err)
 	}
 
 	if err := os.WriteFile(chartOutPath, mergedBytes, 0644); err != nil {
-		log.Fatalf("writing merged chart: %v", err)
+		return fmt.Errorf("writing merged chart: %v", err)
 	}
 
 	log.Printf("Applied Chart.yaml value overrides from %s", flavorChartPath)
+	return nil
 }
 
 func main() {
@@ -166,7 +168,9 @@ func main() {
 	runTemplate(chartTmplPath, chartOutPath, templateData)
 
 	// Apply flavor-specific Chart.yaml override if it exists
-	applyFlavorChartOverride(profileKey)
+	if err := applyFlavorChartOverride(profileKey); err != nil {
+		log.Fatalf("applying flavor chart override: %v", err)
+	}
 
 	// Render values.yaml
 	runTemplate(valuesTmplPath, valuesOutPath, templateData)
