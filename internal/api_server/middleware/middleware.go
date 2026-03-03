@@ -2,7 +2,6 @@ package middleware
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 
@@ -13,6 +12,7 @@ import (
 	"github.com/flightctl/flightctl/internal/crypto/signer"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/identity"
+	"github.com/flightctl/flightctl/internal/transport"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/reqid"
@@ -21,17 +21,25 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func writeJSONResponse(w http.ResponseWriter, code int, msg string) {
-	status := api.Status{
-		Code:    int32(code),
-		Message: msg,
+// newError creates a new api.Status object.
+func newError(code int, message string) *api.Status {
+	status := "Failure"
+	if code >= 200 && code < 300 {
+		status = "Success"
 	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(code)
-	err := json.NewEncoder(w).Encode(status)
-	if err != nil {
-		log.WithFrom(nil, logrus.New()).Errorf("failed to write response: %v", err)
+	return &api.Status{
+		ApiVersion: "v1beta1",
+		Kind:       "Status",
+		Status:     status,
+		Reason:     http.StatusText(code),
+		Code:       int32(code),
+		Message:    message,
 	}
+}
+
+// writeJsonError writes a JSON error to the response.
+func writeJsonError(w http.ResponseWriter, code int, message string) {
+	transport.WriteJSONResponse(w, nil, newError(code, message), code)
 }
 
 // RequestSizeLimiter returns a middleware that limits the URL length and the number of request headers.
@@ -39,11 +47,11 @@ func RequestSizeLimiter(maxURLLength int, maxNumHeaders int) func(http.Handler) 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if len(r.URL.String()) > maxURLLength {
-				writeJSONResponse(w, http.StatusRequestURITooLong, fmt.Sprintf("URL too long, exceeds %d characters", maxURLLength))
+				writeJsonError(w, http.StatusRequestURITooLong, fmt.Sprintf("URL too long, exceeds %d characters", maxURLLength))
 				return
 			}
 			if len(r.Header) > maxNumHeaders {
-				writeJSONResponse(w, http.StatusRequestHeaderFieldsTooLarge, fmt.Sprintf("Request has too many headers, exceeds %d", maxNumHeaders))
+				writeJsonError(w, http.StatusRequestHeaderFieldsTooLarge, fmt.Sprintf("Request has too many headers, exceeds %d", maxNumHeaders))
 				return
 			}
 
@@ -118,14 +126,14 @@ func ExtractAndValidateOrg(extractor OrgIDExtractor, logger logrus.FieldLogger) 
 
 			mappedIdentity, ok := contextutil.GetMappedIdentityFromContext(ctx)
 			if !ok {
-				writeJSONResponse(w, http.StatusInternalServerError, flterrors.ErrNoMappedIdentity.Error())
+				writeJsonError(w, http.StatusInternalServerError, flterrors.ErrNoMappedIdentity.Error())
 				return
 			}
 
 			orgID, err := resolveOrgID(ctx, r, extractor, mappedIdentity)
 			if err != nil {
 				reqLogger.Debugf("ExtractAndValidateOrg: error resolving org: %v", err)
-				writeJSONResponse(w, statusForOrgError(err), err.Error())
+				writeJsonError(w, statusForOrgError(err), err.Error())
 				return
 			}
 
