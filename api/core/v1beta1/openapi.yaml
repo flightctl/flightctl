@@ -5510,14 +5510,12 @@ components:
       description: Status of all applications on the device.
       enum:
         - "Healthy"
-        - "Stopped"
         - "Degraded"
         - "Error"
         - "Unknown"
         - "NoApplications"
       x-enum-varnames:
         - "ApplicationsSummaryStatusHealthy"
-        - "ApplicationsSummaryStatusStopped"
         - "ApplicationsSummaryStatusDegraded"
         - "ApplicationsSummaryStatusError"
         - "ApplicationsSummaryStatusUnknown"
@@ -5525,22 +5523,16 @@ components:
     ApplicationStatusType:
       type: string
       description: Status of a single application on the device.
+      x-go-enum-name: ApplicationStatusType
+      x-go-enum-value-prefix: "ApplicationStatus"
       enum:
         - "Preparing"
         - "Starting"
         - "Running"
-        - "Stopped"
-        - "Completed"
         - "Error"
         - "Unknown"
-      x-enum-varnames:
-        - "ApplicationStatusPreparing"
-        - "ApplicationStatusStarting"
-        - "ApplicationStatusRunning"
-        - "ApplicationStatusStopped"
-        - "ApplicationStatusCompleted"
-        - "ApplicationStatusError"
-        - "ApplicationStatusUnknown"
+        - "Completed"
+        - "Stopped"
     DeviceOsStatus:
       type: object
       description: Current status of the device OS.

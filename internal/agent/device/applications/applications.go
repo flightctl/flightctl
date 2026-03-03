@@ -25,12 +25,12 @@ const (
 	StatusCreate  StatusType = "create"
 	StatusInit    StatusType = "init"
 	StatusRunning StatusType = "start"
-	StatusStopped StatusType = "stopped"
 	StatusStop    StatusType = "stop"
 	StatusDie     StatusType = "die" // docker only
 	StatusDied    StatusType = "died"
 	StatusRemove  StatusType = "remove"
 	StatusExited  StatusType = "exited"
+	StatusStopped StatusType = "stopped"
 )
 
 func (c StatusType) String() string {
@@ -295,13 +295,15 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 	case isPreparing(total, healthy, initializing):
 		newStatus = v1beta1.ApplicationStatusPreparing
 		summary.Status = v1beta1.ApplicationsSummaryStatusUnknown
-	case isStopped(total, stopped):
-		newStatus = v1beta1.ApplicationStatusStopped
-		summary.Status = v1beta1.ApplicationsSummaryStatusStopped
-	case isCompleted(total, exited):
-		newStatus = v1beta1.ApplicationStatusCompleted
-		summary.Status = v1beta1.ApplicationsSummaryStatusHealthy
-	case isRunningHealthy(total, healthy, initializing, exited):
+	case isFinished(total, exited, stopped):
+		if stopped > 0 {
+			newStatus = v1beta1.ApplicationStatusStopped
+			summary.Status = v1beta1.ApplicationsSummaryStatusError
+		} else {
+			newStatus = v1beta1.ApplicationStatusCompleted
+			summary.Status = v1beta1.ApplicationsSummaryStatusHealthy
+		}
+	case isRunningHealthy(total, healthy, initializing, exited, stopped):
 		newStatus = v1beta1.ApplicationStatusRunning
 		summary.Status = v1beta1.ApplicationsSummaryStatusHealthy
 	case isRunningDegraded(total, healthy, initializing):
@@ -339,12 +341,8 @@ func isUnknown(total, healthy, initializing int) bool {
 	return total == 0 && healthy == 0 && initializing == 0
 }
 
-func isStopped(total, stopped int) bool {
-	return total > 0 && stopped == total
-}
-
-func isCompleted(total, completed int) bool {
-	return total > 0 && completed == total
+func isFinished(total, exited, stopped int) bool {
+	return total > 0 && (exited+stopped) == total
 }
 
 func isPreparing(total, healthy, initializing int) bool {
@@ -355,8 +353,8 @@ func isRunningDegraded(total, healthy, initializing int) bool {
 	return total != healthy && healthy > 0 && initializing == 0
 }
 
-func isRunningHealthy(total, healthy, initializing, exited int) bool {
-	return total > 0 && (healthy == total || healthy+exited == total) && initializing == 0
+func isRunningHealthy(total, healthy, initializing, exited, stopped int) bool {
+	return total > 0 && (healthy+exited == total) && initializing == 0 && stopped == 0
 }
 
 func isErrored(total, healthy, initializing int) bool {

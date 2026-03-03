@@ -13,8 +13,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/samber/lo"
-
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
@@ -23,6 +21,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/systemd"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/samber/lo"
 )
 
 const (
@@ -522,7 +521,23 @@ func (m *PodmanMonitor) updateQuadletContainerStatus(ctx context.Context, app Ap
 
 	status := StatusType(event.Status)
 	if isFinishedStatus(status) && lo.FromPtrOr(event.ContainerExitCode, -1) == 0 {
-		status = StatusExited
+		podmanClient, err := m.clientFactory(app.User())
+		if err != nil {
+			m.log.Errorf("Failed to create podman client for %s: %v", app.Name(), err)
+			status = StatusExited // fallback to old behavior
+		} else {
+			inspectData, err := m.inspectContainer(ctx, event.ID, podmanClient)
+			if err != nil {
+				m.log.Errorf("Failed to inspect container %s: %v", event.ID, err)
+				status = StatusExited // fallback
+			} else {
+				if len(inspectData) > 0 && inspectData[0].State.Healthcheck != "" && inspectData[0].State.Healthcheck != "none" {
+					status = StatusStopped
+				} else {
+					status = StatusExited
+				}
+			}
+		}
 	}
 	m.updateApplicationStatus(app, event, status, restartCount)
 }
@@ -587,14 +602,11 @@ func (m *PodmanMonitor) resolveStatus(status string, inspectData []client.Podman
 	initialStatus := StatusType(status)
 	// podman events don't properly event exited in the case where the container exits 0.
 	if initialStatus == StatusDie || initialStatus == StatusDied {
-		if len(inspectData) > 0 {
-			restartPolicy := inspectData[0].HostConfig.RestartPolicy.Name
-			if restartPolicy != "" && restartPolicy != "no" {
-				return StatusDied // A service container should not exit.
+		if len(inspectData) > 0 && inspectData[0].State.ExitCode == 0 && inspectData[0].State.FinishedAt != "" {
+			if inspectData[0].State.Healthcheck != "" && inspectData[0].State.Healthcheck != "none" {
+				return StatusStopped
 			}
-			if inspectData[0].State.ExitCode == 0 && inspectData[0].State.FinishedAt != "" {
-				return StatusExited
-			}
+			return StatusExited
 		}
 	}
 	return initialStatus

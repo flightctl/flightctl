@@ -27,13 +27,13 @@ const (
 
 // Defines values for ApplicationStatusType.
 const (
-	ApplicationStatusCompleted ApplicationStatusType = "Completed"
-	ApplicationStatusError     ApplicationStatusType = "Error"
-	ApplicationStatusPreparing ApplicationStatusType = "Preparing"
-	ApplicationStatusRunning   ApplicationStatusType = "Running"
-	ApplicationStatusStarting  ApplicationStatusType = "Starting"
-	ApplicationStatusStopped   ApplicationStatusType = "Stopped"
-	ApplicationStatusUnknown   ApplicationStatusType = "Unknown"
+	Completed ApplicationStatusType = "Completed"
+	Error     ApplicationStatusType = "Error"
+	Preparing ApplicationStatusType = "Preparing"
+	Running   ApplicationStatusType = "Running"
+	Starting  ApplicationStatusType = "Starting"
+	Stopped   ApplicationStatusType = "Stopped"
+	Unknown   ApplicationStatusType = "Unknown"
 )
 
 // Defines values for ApplicationVolumeReclaimPolicy.
@@ -47,7 +47,6 @@ const (
 	ApplicationsSummaryStatusError          ApplicationsSummaryStatusType = "Error"
 	ApplicationsSummaryStatusHealthy        ApplicationsSummaryStatusType = "Healthy"
 	ApplicationsSummaryStatusNoApplications ApplicationsSummaryStatusType = "NoApplications"
-	ApplicationsSummaryStatusStopped        ApplicationsSummaryStatusType = "Stopped"
 	ApplicationsSummaryStatusUnknown        ApplicationsSummaryStatusType = "Unknown"
 )
 

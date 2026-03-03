@@ -238,7 +238,23 @@ func TestApplicationStatus(t *testing.T) {
 			},
 			expectedReady:         "0/2",
 			expectedStatus:        v1beta1.ApplicationStatusStopped,
-			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusStopped,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusError,
+		},
+		{
+			name: "app has one workload stopped",
+			workloads: []Workload{
+				{
+					Name:   "container1",
+					Status: StatusRunning,
+				},
+				{
+					Name:   "container2",
+					Status: StatusStopped,
+				},
+			},
+			expectedReady:         "1/2",
+			expectedStatus:        v1beta1.ApplicationStatusRunning,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusDegraded,
 		},
 	}
 
