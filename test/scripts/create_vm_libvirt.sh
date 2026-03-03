@@ -136,14 +136,31 @@ echo "Provisioning the VM..."
 # Executing commands
 echo "Executing commands in the VM..."
 
+ssh -i ${SSH_PRIVATE_KEY_PATH} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ${USER}@${VM_DEFAULT_IP} bash -s <<'REMOTE_EOF'
+set -e
+  # Install packages; retry on failure (e.g. baseos mirror/checksum).
+  install_pkgs() {
+    sudo dnf install -y epel-release libvirt libvirt-client virt-install pam-devel swtpm wget \
+                      make golang git \
+                      podman qemu-kvm sshpass skopeo
+    sudo dnf --enablerepo=crb install -y libvirt-devel
+  }
+  for attempt in 1 2 3 4; do
+    install_pkgs && break
+    if [ "$attempt" -lt 4 ]; then
+      echo "dnf install failed (attempt $attempt/4), clearing cache and retrying in 10s..."
+      sudo dnf clean all
+      sudo rm -rf /var/cache/dnf
+      sudo dnf makecache
+      sleep 10
+    else
+      echo "dnf install failed after 4 attempts"
+      exit 1
+    fi
+  done
+REMOTE_EOF
+
 ssh -i ${SSH_PRIVATE_KEY_PATH} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ${USER}@${VM_DEFAULT_IP} <<EOF
-
-  # Install necessary packages
-  sudo dnf install -y epel-release libvirt libvirt-client virt-install pam-devel swtpm wget \
-                    make golang git \
-                    podman qemu-kvm sshpass skopeo
-  sudo dnf --enablerepo=crb install -y libvirt-devel
-
   # Install OpenShift client
   echo "Installing OpenShift client..."
   curl https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/stable/openshift-client-linux-amd64-rhel9.tar.gz | sudo tar xvz -C /usr/local/bin
