@@ -1,156 +1,318 @@
-package middleware_test
+package middleware
 
 import (
 	"context"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/asn1"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
-	"github.com/flightctl/flightctl/internal/api_server/middleware"
 	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/crypto/signer"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/identity"
+	"github.com/flightctl/flightctl/internal/org"
 	orgmodel "github.com/flightctl/flightctl/internal/org/model"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
+// createCertWithOrgID returns an *x509.Certificate with the organization ID
+// stored in an extension identified by signer.OIDOrgID.
+func createCertWithOrgID(id uuid.UUID) *x509.Certificate {
+	encoded, _ := asn1.Marshal(id.String())
+	return &x509.Certificate{
+		Subject: pkix.Name{CommonName: "unit-test"},
+		ExtraExtensions: []pkix.Extension{{
+			Id:       signer.OIDOrgID,
+			Critical: false,
+			Value:    encoded,
+		}},
+	}
+}
+
+// contextWithCert returns a context containing the supplied certificate under
+// the consts.TLSPeerCertificateCtxKey key.
+func contextWithCert(cert *x509.Certificate) context.Context {
+	return context.WithValue(context.Background(), consts.TLSPeerCertificateCtxKey, cert)
+}
+
+// -----------------------------------------------------------------------------
+// Tests for RequestSizeLimiter middleware.
+// -----------------------------------------------------------------------------
 func TestRequestSizeLimiter(t *testing.T) {
 	require := require.New(t)
-
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	const maxURLLength = 20
+	const maxNumHeaders = 2
+	handler := RequestSizeLimiter(maxURLLength, maxNumHeaders)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-	})
+	}))
 
-	testCases := []struct {
-		Name               string
-		URL                string
-		Headers            map[string]string
-		MaxURLLength       int
-		MaxNumHeaders      int
-		ExpectedStatusCode int
-		ExpectedErrorMsg   string
+	// OK
+	req := httptest.NewRequest(http.MethodGet, "/ok", nil)
+	req.Header.Set("h1", "v1")
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	assert.Equal(t, http.StatusOK, rr.Code)
+
+	// URL too long
+	req = httptest.NewRequest(http.MethodGet, "/"+strings.Repeat("a", maxURLLength), nil)
+	rr = httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	assert.Equal(t, http.StatusRequestURITooLong, rr.Code)
+	assert.Equal(t, "application/json", rr.Header().Get("Content-Type"))
+	var status api.Status
+	err := json.Unmarshal(rr.Body.Bytes(), &status)
+	require.NoError(err)
+	assert.Contains(t, status.Message, "URL too long")
+
+	// Too many headers
+	req = httptest.NewRequest(http.MethodGet, "/ok", nil)
+	for i := 0; i < maxNumHeaders+1; i++ {
+		req.Header.Add(fmt.Sprintf("h%d", i), "v")
+	}
+	rr = httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	assert.Equal(t, http.StatusRequestHeaderFieldsTooLarge, rr.Code)
+	assert.Equal(t, "application/json", rr.Header().Get("Content-Type"))
+	err = json.Unmarshal(rr.Body.Bytes(), &status)
+	require.NoError(err)
+	assert.Contains(t, status.Message, "too many headers")
+}
+
+// -----------------------------------------------------------------------------
+// Tests for SecurityHeaders middleware.
+// -----------------------------------------------------------------------------
+func TestSecurityHeaders(t *testing.T) {
+	handler := SecurityHeaders(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/", nil))
+
+	assert.Equal(t, http.StatusOK, rr.Code)
+	assert.Equal(t, "max-age=31536000; includeSubDomains", rr.Header().Get("Strict-Transport-Security"))
+	assert.Equal(t, "nosniff", rr.Header().Get("X-Content-Type-Options"))
+	assert.Equal(t, "DENY", rr.Header().Get("X-Frame-Options"))
+}
+
+// -----------------------------------------------------------------------------
+// Tests for ContentSecurityPolicy middleware.
+// -----------------------------------------------------------------------------
+func TestContentSecurityPolicy(t *testing.T) {
+	cases := []struct {
+		name   string
+		policy string
 	}{
-		{
-			Name:               "Valid request",
-			URL:                "/api/v1/devices",
-			MaxURLLength:       100,
-			MaxNumHeaders:      10,
-			ExpectedStatusCode: http.StatusOK,
-		},
-		{
-			Name:               "URL too long",
-			URL:                "/api/v1/devices?param1=reallylongparametervalue",
-			MaxURLLength:       20,
-			MaxNumHeaders:      10,
-			ExpectedStatusCode: http.StatusRequestURITooLong,
-			ExpectedErrorMsg:   "URL too long, exceeds 20 characters",
-		},
-		{
-			Name: "Too many headers",
-			Headers: map[string]string{
-				"header1": "value1",
-				"header2": "value2",
-				"header3": "value3",
-			},
-			MaxURLLength:       100,
-			MaxNumHeaders:      2,
-			ExpectedStatusCode: http.StatusRequestHeaderFieldsTooLarge,
-			ExpectedErrorMsg:   "Request has too many headers, exceeds 2",
-		},
+		{"strict CSP", StrictCSP},
+		{"PAM issuer CSP", PAMIssuerCSP},
 	}
 
-	for _, tc := range testCases {
-		t.Run(tc.Name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, tc.URL, nil)
-			for k, v := range tc.Headers {
-				req.Header.Set(k, v)
-			}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			handler := ContentSecurityPolicy(tc.policy)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+			}))
+
 			rr := httptest.NewRecorder()
+			handler.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/", nil))
 
-			limiter := middleware.RequestSizeLimiter(tc.MaxURLLength, tc.MaxNumHeaders)
-			limiter(handler).ServeHTTP(rr, req)
-
-			require.Equal(tc.ExpectedStatusCode, rr.Code)
-			if tc.ExpectedErrorMsg != "" {
-				var status api.Status
-				err := json.Unmarshal(rr.Body.Bytes(), &status)
-				require.NoError(err)
-				require.Equal(tc.ExpectedErrorMsg, status.Message)
-				require.Equal("application/json", rr.Header().Get("Content-Type"))
-			}
+			assert.Equal(t, http.StatusOK, rr.Code)
+			assert.Equal(t, tc.policy, rr.Header().Get("Content-Security-Policy"))
 		})
 	}
 }
 
+// -----------------------------------------------------------------------------
+// Tests for ExtractAndValidateOrg middleware.
+// -----------------------------------------------------------------------------
 func TestExtractAndValidateOrg(t *testing.T) {
-	require := require.New(t)
-	log := logrus.New()
-	org1 := uuid.New()
-	org2 := uuid.New()
+	orgID := uuid.New()
+	orgID2 := uuid.New()
 
-	testCases := []struct {
-		Name               string
-		Extractor          middleware.OrgIDExtractor
-		Identity           *identity.MappedIdentity
-		ExpectedStatusCode int
-		ExpectedErrorMsg   string
+	cases := []struct {
+		name               string
+		rawQuery           string
+		userOrgs           []*orgmodel.Organization
+		hasMappedIdentity  bool
+		wantMiddlewareErr  error
+		wantMiddlewareCode int
+		wantContextID      uuid.UUID
 	}{
 		{
-			Name: "No mapped identity",
-			Extractor: func(ctx context.Context, r *http.Request) (uuid.UUID, bool, error) {
-				return uuid.Nil, false, nil
-			},
-			Identity:           nil,
-			ExpectedStatusCode: http.StatusInternalServerError,
-			ExpectedErrorMsg:   flterrors.ErrNoMappedIdentity.Error(),
+			name:               "no param with zero orgs returns no organizations error",
+			rawQuery:           "",
+			userOrgs:           []*orgmodel.Organization{},
+			hasMappedIdentity:  true,
+			wantMiddlewareErr:  flterrors.ErrNoOrganizations,
+			wantMiddlewareCode: http.StatusForbidden,
 		},
 		{
-			Name: "Not an organization member",
-			Extractor: func(ctx context.Context, r *http.Request) (uuid.UUID, bool, error) {
-				return org2, true, nil
-			},
-			Identity:           identity.NewMappedIdentity("user", "", []*orgmodel.Organization{{ID: org1}}, nil, false, nil),
-			ExpectedStatusCode: http.StatusForbidden,
-			ExpectedErrorMsg:   flterrors.ErrNotOrgMember.Error(),
+			name:              "no param with single org uses that org",
+			rawQuery:          "",
+			userOrgs:          []*orgmodel.Organization{{ID: orgID, ExternalID: "user-org"}},
+			hasMappedIdentity: true,
+			wantContextID:     orgID,
 		},
 		{
-			Name: "Ambiguous organization",
-			Extractor: func(ctx context.Context, r *http.Request) (uuid.UUID, bool, error) {
-				return uuid.Nil, false, nil
+			name:     "no param with multiple orgs returns ambiguous error",
+			rawQuery: "",
+			userOrgs: []*orgmodel.Organization{
+				{ID: orgID, ExternalID: "user-org-1"},
+				{ID: orgID2, ExternalID: "user-org-2"},
 			},
-			Identity:           identity.NewMappedIdentity("user", "", []*orgmodel.Organization{{ID: org1}, {ID: org2}}, nil, false, nil),
-			ExpectedStatusCode: http.StatusBadRequest,
-			ExpectedErrorMsg:   flterrors.ErrAmbiguousOrganization.Error(),
+			hasMappedIdentity:  true,
+			wantMiddlewareErr:  flterrors.ErrAmbiguousOrganization,
+			wantMiddlewareCode: http.StatusBadRequest,
+		},
+		{
+			name:     "explicit org_id with multiple orgs succeeds",
+			rawQuery: fmt.Sprintf("org_id=%s", orgID),
+			userOrgs: []*orgmodel.Organization{
+				{ID: orgID, ExternalID: "user-org-1"},
+				{ID: orgID2, ExternalID: "user-org-2"},
+			},
+			hasMappedIdentity: true,
+			wantContextID:     orgID,
+		},
+		{
+			name:               "no mapped identity returns internal server error",
+			rawQuery:           "org_id=",
+			userOrgs:           nil,
+			hasMappedIdentity:  false,
+			wantMiddlewareErr:  flterrors.ErrNoMappedIdentity,
+			wantMiddlewareCode: http.StatusInternalServerError,
+		},
+		{
+			name:               "explicit org_id with empty user orgs returns forbidden",
+			rawQuery:           fmt.Sprintf("org_id=%s", orgID),
+			userOrgs:           []*orgmodel.Organization{},
+			hasMappedIdentity:  true,
+			wantMiddlewareErr:  flterrors.ErrNotOrgMember,
+			wantMiddlewareCode: http.StatusForbidden,
+		},
+		{
+			name:               "explicit org_id for org not in user orgs returns forbidden",
+			rawQuery:           fmt.Sprintf("org_id=%s", orgID2),
+			userOrgs:           []*orgmodel.Organization{{ID: orgID, ExternalID: "user-org"}},
+			hasMappedIdentity:  true,
+			wantMiddlewareErr:  flterrors.ErrNotOrgMember,
+			wantMiddlewareCode: http.StatusForbidden,
+		},
+		{
+			name:               "invalid uuid",
+			rawQuery:           "org_id=not-a-uuid",
+			userOrgs:           []*orgmodel.Organization{},
+			hasMappedIdentity:  true,
+			wantMiddlewareErr:  flterrors.ErrInvalidOrgID,
+			wantMiddlewareCode: http.StatusBadRequest,
 		},
 	}
 
-	for _, tc := range testCases {
-		t.Run(tc.Name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, "/", nil)
-			if tc.Identity != nil {
-				ctx := context.WithValue(req.Context(), consts.MappedIdentityCtxKey, tc.Identity)
-				req = req.WithContext(ctx)
-			}
-			rr := httptest.NewRecorder()
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := httptest.NewRequest(http.MethodGet, "/?"+tc.rawQuery, nil)
 
-			handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ctx := r.Context()
+			if tc.hasMappedIdentity {
+				mappedIdentity := identity.NewMappedIdentity(
+					"test-user", "test-uid", tc.userOrgs,
+					map[string][]string{}, false,
+					identity.NewIssuer("test", "test-issuer"),
+				)
+				ctx = context.WithValue(ctx, consts.MappedIdentityCtxKey, mappedIdentity)
+				r = r.WithContext(ctx)
+			}
+
+			var capturedOrgID uuid.UUID
+			testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				capturedOrgID, _ = util.GetOrgIdFromContext(r.Context())
 				w.WriteHeader(http.StatusOK)
 			})
 
-			middleware.ExtractAndValidateOrg(tc.Extractor, log)(handler).ServeHTTP(rr, req)
+			logger := logrus.New()
+			logger.SetLevel(logrus.DebugLevel)
+			middleware := ExtractAndValidateOrg(QueryOrgIDExtractor, logger)
 
-			require.Equal(tc.ExpectedStatusCode, rr.Code)
-			if tc.ExpectedErrorMsg != "" {
+			rr := httptest.NewRecorder()
+			middleware(testHandler).ServeHTTP(rr, r)
+
+			if tc.wantMiddlewareErr != nil {
+				assert.Equal(t, tc.wantMiddlewareCode, rr.Code)
+				assert.Equal(t, "application/json", rr.Header().Get("Content-Type"))
 				var status api.Status
 				err := json.Unmarshal(rr.Body.Bytes(), &status)
-				require.NoError(err)
-				require.Equal(tc.ExpectedErrorMsg, status.Message)
-				require.Equal("application/json", rr.Header().Get("Content-Type"))
+				require.NoError(t, err)
+				assert.Equal(t, tc.wantMiddlewareErr.Error(), status.Message)
+				return
 			}
+
+			assert.Equal(t, http.StatusOK, rr.Code)
+			assert.Equal(t, tc.wantContextID, capturedOrgID,
+				"expected context org ID %s but got %s", tc.wantContextID, capturedOrgID)
+		})
+	}
+}
+
+// -----------------------------------------------------------------------------
+// Tests for the certificate extractor.
+// -----------------------------------------------------------------------------
+func TestExtractOrgIDFromRequestCert(t *testing.T) {
+	validID := uuid.New()
+	orgEntity := &orgmodel.Organization{
+		ID:         validID,
+		ExternalID: validID.String(),
+	}
+
+	// Helper to create context with cert and mapped identity
+	contextWithCertAndOrg := func(cert *x509.Certificate, org *orgmodel.Organization) context.Context {
+		ctx := context.WithValue(context.Background(), consts.TLSPeerCertificateCtxKey, cert)
+		if org != nil {
+			mappedIdentity := identity.NewMappedIdentity("test-user", "test-uid", []*orgmodel.Organization{org}, map[string][]string{}, false, identity.NewIssuer("test", "test-issuer"))
+			ctx = context.WithValue(ctx, consts.MappedIdentityCtxKey, mappedIdentity)
+		}
+		return ctx
+	}
+
+	cases := []struct {
+		name        string
+		ctx         context.Context
+		wantID      uuid.UUID
+		wantPresent bool
+		wantErr     bool
+	}{
+		{"no certificate", context.Background(), uuid.Nil, false, true},
+		{"cert without extension", contextWithCert(&x509.Certificate{}), uuid.Nil, false, true},
+		{"cert with valid extension", contextWithCertAndOrg(createCertWithOrgID(validID), orgEntity), validID, true, false},
+		{"cert with default org id", contextWithCertAndOrg(createCertWithOrgID(org.DefaultID), orgEntity), org.DefaultID, true, false},
+		{"cert with invalid uuid", contextWithCert(func() *x509.Certificate {
+			encoded, _ := asn1.Marshal("not-a-uuid")
+			return &x509.Certificate{ExtraExtensions: []pkix.Extension{{Id: signer.OIDOrgID, Value: encoded}}}
+		}()), uuid.Nil, false, true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := httptest.NewRequest(http.MethodGet, "/", nil).WithContext(tc.ctx)
+			got, present, err := extractOrgIDFromRequestCert(tc.ctx, r)
+			if tc.wantErr {
+				assert.Error(t, err)
+				assert.False(t, present)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tc.wantPresent, present)
+			}
+			assert.Equal(t, tc.wantID, got)
 		})
 	}
 }

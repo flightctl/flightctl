@@ -21,25 +21,12 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// newError creates a new api.Status object.
-func newError(code int, message string) *api.Status {
-	status := "Failure"
-	if code >= 200 && code < 300 {
-		status = "Success"
+// writeJSONError writes a JSON error response to the client.
+func writeJSONError(w http.ResponseWriter, msg string, code int) {
+	error := api.Status{
+		Message: msg,
 	}
-	return &api.Status{
-		ApiVersion: "v1beta1",
-		Kind:       "Status",
-		Status:     status,
-		Reason:     http.StatusText(code),
-		Code:       int32(code),
-		Message:    message,
-	}
-}
-
-// writeJsonError writes a JSON error to the response.
-func writeJsonError(w http.ResponseWriter, code int, message string) {
-	transport.WriteJSONResponse(w, nil, newError(code, message), code)
+	transport.WriteJSONResponse(w, nil, error, code)
 }
 
 // RequestSizeLimiter returns a middleware that limits the URL length and the number of request headers.
@@ -47,11 +34,11 @@ func RequestSizeLimiter(maxURLLength int, maxNumHeaders int) func(http.Handler) 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if len(r.URL.String()) > maxURLLength {
-				writeJsonError(w, http.StatusRequestURITooLong, fmt.Sprintf("URL too long, exceeds %d characters", maxURLLength))
+				writeJSONError(w, fmt.Sprintf("URL too long, exceeds %d characters", maxURLLength), http.StatusRequestURITooLong)
 				return
 			}
 			if len(r.Header) > maxNumHeaders {
-				writeJsonError(w, http.StatusRequestHeaderFieldsTooLarge, fmt.Sprintf("Request has too many headers, exceeds %d", maxNumHeaders))
+				writeJSONError(w, fmt.Sprintf("Request has too many headers, exceeds %d", maxNumHeaders), http.StatusRequestHeaderFieldsTooLarge)
 				return
 			}
 
@@ -126,14 +113,14 @@ func ExtractAndValidateOrg(extractor OrgIDExtractor, logger logrus.FieldLogger) 
 
 			mappedIdentity, ok := contextutil.GetMappedIdentityFromContext(ctx)
 			if !ok {
-				writeJsonError(w, http.StatusInternalServerError, flterrors.ErrNoMappedIdentity.Error())
+				writeJSONError(w, flterrors.ErrNoMappedIdentity.Error(), http.StatusInternalServerError)
 				return
 			}
 
 			orgID, err := resolveOrgID(ctx, r, extractor, mappedIdentity)
 			if err != nil {
 				reqLogger.Debugf("ExtractAndValidateOrg: error resolving org: %v", err)
-				writeJsonError(w, statusForOrgError(err), err.Error())
+				writeJSONError(w, err.Error(), statusForOrgError(err))
 				return
 			}
 
