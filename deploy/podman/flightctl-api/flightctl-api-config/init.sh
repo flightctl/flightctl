@@ -24,14 +24,19 @@ if [[ -z "$base_domain" ]]; then
     echo "ERROR: global.baseDomain is not set and HOST_FQDN is not available for defaulting" >&2
     exit 1
   fi
-  # Normalize to lowercase (DNS is case-insensitive per RFC 1123)
-  base_domain="${HOST_FQDN,,}"
+  base_domain="${HOST_FQDN}"
   echo "global.baseDomain not set, defaulting to host FQDN ($base_domain)"
 fi
 
+# Normalize to lowercase (DNS is case-insensitive per RFC 1123)
+base_domain="${base_domain,,}"
+
 # Validate as hostname or FQDN: lowercase alphanumerics and hyphens, final label must start with letter
 if ! [[ "$base_domain" =~ ^([a-z0-9]([-a-z0-9]*[a-z0-9])?\.)*[a-z]([-a-z0-9]*[a-z0-9])?$ ]]; then
-  echo "ERROR: global.baseDomain must be a valid hostname or FQDN (not an IP address)" 1>&2
+  echo "ERROR: global.baseDomain '$base_domain' is not a valid hostname or FQDN." 1>&2
+  echo "  Hostnames must contain only lowercase letters, digits, and hyphens (e.g. 'example.com')." 1>&2
+  echo "  Fix: set a valid baseDomain in /etc/flightctl/service-config.yaml, or rename the host:" 1>&2
+  echo "    hostnamectl set-hostname <valid-hostname>" 1>&2
   exit 1
 fi
 

@@ -33,14 +33,19 @@ host_ips+=("127.0.0.1")
 # Validate the base domain from config, or default to hostname FQDN
 base_domain=$(python3 "$YAML_HELPER" extract .global.baseDomain "$CONFIG_FILE")
 if [[ -z "$base_domain" ]]; then
-    # Normalize to lowercase (DNS is case-insensitive per RFC 1123)
-    base_domain="${hostname_fqdn,,}"
+    base_domain="${hostname_fqdn}"
     echo "global.baseDomain not set, defaulting to system hostname FQDN ($base_domain)"
 fi
 
+# Normalize to lowercase (DNS is case-insensitive per RFC 1123)
+base_domain="${base_domain,,}"
+
 # Validate as hostname or FQDN: lowercase alphanumerics and hyphens, final label must start with letter
 if ! [[ "$base_domain" =~ ^([a-z0-9]([-a-z0-9]*[a-z0-9])?\.)*[a-z]([-a-z0-9]*[a-z0-9])?$ ]]; then
-    echo "ERROR: global.baseDomain must be a valid hostname or FQDN (not an IP address)" 1>&2
+    echo "ERROR: global.baseDomain '$base_domain' is not a valid hostname or FQDN." 1>&2
+    echo "  Hostnames must contain only lowercase letters, digits, and hyphens (e.g. 'example.com')." 1>&2
+    echo "  Fix: set a valid baseDomain in /etc/flightctl/service-config.yaml, or rename the host:" 1>&2
+    echo "    hostnamectl set-hostname <valid-hostname>" 1>&2
     exit 1
 fi
 
