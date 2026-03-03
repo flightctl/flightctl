@@ -519,24 +519,33 @@ func (m *PodmanMonitor) updateQuadletContainerStatus(ctx context.Context, app Ap
 		m.log.Errorf("Could not parse systemd unit restarts: %v", err)
 	}
 
-	status := StatusType(event.Status)
-	if isFinishedStatus(status) && lo.FromPtrOr(event.ContainerExitCode, -1) == 0 {
-		restart, err := systemctl.Show(ctx, systemdUnit, client.WithShowRestart())
-		if err != nil || len(restart) == 0 {
-			m.log.Errorf("Could not show systemd unit: %s restart policy: %v", systemdUnit, err)
-			status = StatusExited
+	client, err := m.clientFactory(app.User())
+	if err != nil {
+		m.log.Errorf("Failed to create podman client for %s: %v", app.Name(), err)
+		return
+	}
+	inspectData, err := m.inspectContainer(ctx, event.ID, client)
+	if err != nil {
+		if errors.Is(err, errors.ErrNotFound) {
+			m.log.Debugf("Container %s not found; likely removed during app restart", event.ID)
 		} else {
-			switch restart[0] {
-			case "always", "on-success", "on-failure", "on-abnormal":
-				status = StatusDie
-			default:
-				status = StatusExited
-			}
+			m.log.Errorf("Failed to inspect container: %v", err)
 		}
 	}
+
+	status := m.resolveStatus(event.Status, inspectData)
+	if status == StatusRemove {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		// remove existing container
+		if removed := app.RemoveWorkload(event.Name); removed {
+			m.log.Debugf("Removed container: %s", event.Name)
+		}
+		return
+	}
+
 	m.updateApplicationStatus(app, event, status, restartCount)
 }
-
 
 func (m *PodmanMonitor) updateComposeContainerStatus(ctx context.Context, app Application, event *client.PodmanEvent) {
 	client, err := m.clientFactory(app.User())
@@ -598,7 +607,7 @@ func (m *PodmanMonitor) resolveStatus(status string, inspectData []client.Podman
 	initialStatus := StatusType(status)
 	// podman events don't properly event exited in the case where the container exits 0.
 	if initialStatus == StatusDie || initialStatus == StatusDied {
-		if len(inspectData) > 0 && inspectData[0].State.ExitCode == 0 && inspectData[0].State.FinishedAt != "" {
+		if len(inspectData) > 0 && inspectData[0].State.ExitCode == 0 && inspectData[0].State.FinishedAt != "" && inspectData[0].State.Error == "" {
 			return StatusExited
 		}
 	}

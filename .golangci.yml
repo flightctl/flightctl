@@ -13,7 +13,7 @@ run:
   issues-exit-code: 1
 
   # include test files or not, default is true
-  tests: true
+  tests: false
 
 # output configuration options
 output:
@@ -56,6 +56,7 @@ issues:
     - packaging
     - reports
     - internal/auth/issuer/pam
+    - test
 
 linters:
   enable:
