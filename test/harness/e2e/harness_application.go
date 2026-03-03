@@ -2,19 +2,86 @@ package e2e
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/sirupsen/logrus"
 )
 
-// RunPodmanPsContainerNames runs podman ps (or podman ps -a) on the VM and returns container names.
+// RunPodmanPsContainerNames runs podman ps (or podman ps -a) on the VM as root and returns container names.
 func (h *Harness) RunPodmanPsContainerNames(allContainers bool) (string, error) {
-	args := []string{"sudo", "podman", "ps", "--format", "{{.Names}}"}
-	if allContainers {
-		args = []string{"sudo", "podman", "ps", "-a", "--format", "{{.Names}}"}
+	return h.RunPodmanPsContainerNamesAsUser("root", allContainers)
+}
+
+// GetUserHomeOnVM returns the home directory of the given user on the VM (e.g. /var/lib/flightctl).
+// Use it when running rootless podman over SSH so HOME points to the user's container store.
+func (h *Harness) GetUserHomeOnVM(user string) (string, error) {
+	return h.getUserHomeOnVM(user)
+}
+
+// QuadletPathForUserOnVM returns the quadlet systemd path for the given user using the user's
+// actual home on the VM (from getent). Use this for verification when the agent writes to
+// the user's home (e.g. /var/home/flightctl/.config/containers/systemd) so it works on distros
+// that use /var/home/<user> instead of /home/<user>.
+func (h *Harness) QuadletPathForUserOnVM(user string) (string, error) {
+	home, err := h.getUserHomeOnVM(user)
+	if err != nil {
+		return "", err
+	}
+	return home + "/.config/containers/systemd", nil
+}
+
+func (h *Harness) getUserHomeOnVM(user string) (string, error) {
+	out, err := h.VM.RunSSH([]string{"sudo", "getent", "passwd", user}, nil)
+	if err != nil {
+		return "", fmt.Errorf("getent passwd %s: %w", user, err)
+	}
+	line := strings.TrimSpace(out.String())
+	fields := strings.Split(line, ":")
+	// passwd format: name:passwd:uid:gid:gecos:home:shell; gecos may contain colons
+	if len(fields) < 2 {
+		return "", fmt.Errorf("getent passwd %s: unexpected output", user)
+	}
+	return fields[len(fields)-2], nil
+}
+
+// RunPodmanPsContainerNamesAsUser runs podman ps (or podman ps -a) on the VM as the given user and returns container names.
+// Use "root" for rootful podman (same as RunPodmanPsContainerNames).
+// For non-root users, runs with cwd /tmp and HOME set to the user's home so rootless podman finds the container store.
+// No manual chown; the VM/agent is expected to set up the user's home with correct ownership.
+func (h *Harness) RunPodmanPsContainerNamesAsUser(user string, allContainers bool) (string, error) {
+	var args []string
+	if user == "root" {
+		args = []string{"sudo", "-u", user, "podman", "ps", "--format", "{{.Names}}"}
+		if allContainers {
+			args = []string{"sudo", "-u", user, "podman", "ps", "-a", "--format", "{{.Names}}"}
+		}
+	} else {
+		home, err := h.getUserHomeOnVM(user)
+		if err != nil {
+			return "", err
+		}
+		cmd := fmt.Sprintf("cd /tmp && env HOME=%q podman ps --format '{{.Names}}'", home)
+		if allContainers {
+			cmd = fmt.Sprintf("cd /tmp && env HOME=%q podman ps -a --format '{{.Names}}'", home)
+		}
+		args = []string{"sudo", "-u", user, "sh", "-c", cmd}
 	}
 	out, err := h.VM.RunSSH(args, nil)
+	if err != nil {
+		return "", err
+	}
+	return out.String(), nil
+}
+
+// RunSystemctlUserStatus runs systemctl --user status for the given user on the VM.
+// unitPattern is the unit name or glob pattern (e.g. "*new-rootful*"); it is passed
+// quoted to systemctl so the shell does not expand it—systemctl does the matching.
+// Uses cd /tmp so the target user does not inherit the SSH session cwd; XDG_RUNTIME_DIR for user systemd.
+func (h *Harness) RunSystemctlUserStatus(user, unitPattern string) (string, error) {
+	cmd := fmt.Sprintf("sudo -u %s sh -c 'cd /tmp && XDG_RUNTIME_DIR=/run/user/$(id -u %s) systemctl --user status %s'", user, user, unitPattern)
+	out, err := h.VM.RunSSH([]string{"sh", "-c", cmd}, nil)
 	if err != nil {
 		return "", err
 	}
@@ -61,26 +128,17 @@ func (h *Harness) SetDeviceApplications(deviceID string, apps *[]v1beta1.Applica
 
 // UpdateDeviceWithQuadletInline updates the device with an inline quadlet application (no env vars).
 func (h *Harness) UpdateDeviceWithQuadletInline(deviceID, appName string, paths, contents []string) error {
+	return h.UpdateDeviceWithQuadletInlineAndRunAs(deviceID, appName, "", paths, contents)
+}
+
+// UpdateDeviceWithQuadletInlineAndRunAs updates the device with an inline quadlet application and optional runAs user.
+// If runAs is empty, the application runs as root (default). Otherwise it runs as the given user (e.g. "flightctl").
+func (h *Harness) UpdateDeviceWithQuadletInlineAndRunAs(deviceID, appName, runAs string, paths, contents []string) error {
 	if len(paths) == 0 && len(contents) == 0 {
 		return h.SetDeviceApplications(deviceID, &[]v1beta1.ApplicationProviderSpec{})
 	}
-	inline := make([]v1beta1.ApplicationContent, len(paths))
-	for i := range paths {
-		c := ""
-		if i < len(contents) {
-			c = contents[i]
-		}
-		inline[i] = v1beta1.ApplicationContent{Path: paths[i], Content: &c}
-	}
-	quadletApp := v1beta1.QuadletApplication{
-		Name:    &appName,
-		AppType: v1beta1.AppTypeQuadlet,
-	}
-	if err := quadletApp.FromInlineApplicationProviderSpec(v1beta1.InlineApplicationProviderSpec{Inline: inline}); err != nil {
-		return err
-	}
-	var spec v1beta1.ApplicationProviderSpec
-	if err := spec.FromQuadletApplication(quadletApp); err != nil {
+	spec, err := NewQuadletInlineSpec(appName, runAs, paths, contents)
+	if err != nil {
 		return err
 	}
 	return h.SetDeviceApplications(deviceID, &[]v1beta1.ApplicationProviderSpec{spec})
@@ -88,24 +146,13 @@ func (h *Harness) UpdateDeviceWithQuadletInline(deviceID, appName string, paths,
 
 // UpdateDeviceWithQuadletInlineAndEnvs updates the device with an inline quadlet application and env vars.
 func (h *Harness) UpdateDeviceWithQuadletInlineAndEnvs(deviceID, appName string, envVars map[string]string, paths, contents []string) error {
-	inline := make([]v1beta1.ApplicationContent, len(paths))
-	for i := range paths {
-		c := ""
-		if i < len(contents) {
-			c = contents[i]
-		}
-		inline[i] = v1beta1.ApplicationContent{Path: paths[i], Content: &c}
-	}
-	quadletApp := v1beta1.QuadletApplication{
-		Name:    &appName,
-		AppType: v1beta1.AppTypeQuadlet,
-		EnvVars: &envVars,
-	}
-	if err := quadletApp.FromInlineApplicationProviderSpec(v1beta1.InlineApplicationProviderSpec{Inline: inline}); err != nil {
-		return err
-	}
-	var spec v1beta1.ApplicationProviderSpec
-	if err := spec.FromQuadletApplication(quadletApp); err != nil {
+	return h.UpdateDeviceWithQuadletInlineAndEnvsAndRunAs(deviceID, appName, "", envVars, paths, contents)
+}
+
+// UpdateDeviceWithQuadletInlineAndEnvsAndRunAs updates the device with an inline quadlet application, env vars, and optional runAs user.
+func (h *Harness) UpdateDeviceWithQuadletInlineAndEnvsAndRunAs(deviceID, appName, runAs string, envVars map[string]string, paths, contents []string) error {
+	spec, err := NewQuadletInlineSpecWithEnvs(appName, runAs, envVars, paths, contents)
+	if err != nil {
 		return err
 	}
 	return h.SetDeviceApplications(deviceID, &[]v1beta1.ApplicationProviderSpec{spec})
