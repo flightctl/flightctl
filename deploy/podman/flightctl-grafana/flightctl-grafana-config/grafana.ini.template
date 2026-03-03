@@ -6,14 +6,14 @@ root_url = {{if .grafana.protocol}}{{.grafana.protocol}}{{else}}https{{end}}://{
 
 # HTTPS Configuration
 protocol = {{if .grafana.protocol}}{{.grafana.protocol}}{{else}}https{{end}}
-cert_file = /etc/grafana/certs/server.crt
-cert_key = /etc/grafana/certs/server.key
+cert_file = /etc/flightctl/flightctl-grafana/certs/server.crt
+cert_key = /etc/flightctl/flightctl-grafana/certs/server.key
 
 [paths]
 data = /var/lib/grafana
 logs = /var/log/grafana
 plugins = /var/lib/grafana/plugins
-provisioning = /etc/grafana/provisioning/
+provisioning = /etc/flightctl/flightctl-grafana/provisioning
 
 [auth.anonymous]
 # set to true if you want to allow anonymous users to view dashboards
