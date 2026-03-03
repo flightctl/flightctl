@@ -12,9 +12,18 @@ import (
 )
 
 const (
-	// Quadlet unit path on device
+	// Quadlet unit path on device (rootful)
 	QuadletUnitPath = "/etc/containers/systemd"
 )
+
+// QuadletPathForUser returns the quadlet systemd path for the given user.
+// Empty or "root" returns the root path; any other user returns the user's config path.
+func QuadletPathForUser(user string) string {
+	if user == "" || user == "root" {
+		return QuadletUnitPath
+	}
+	return fmt.Sprintf("/home/%s/.config/containers/systemd", user)
+}
 
 func (h *Harness) UpdateApplication(withRetries bool, deviceId string, appName string, appProvider any, envVars map[string]string) error {
 	logrus.Infof("UpdateApplication called with deviceId=%s, appName=%s, withRetries=%v", deviceId, appName, withRetries)
@@ -208,22 +217,46 @@ func (h *Harness) VerifyContainerRunning(imageSubstring string) {
 	}, TIMEOUT, POLLING).Should(Succeed())
 }
 
-// VerifyQuadletApplicationFolderExists checks that the application folder exists
+// VerifyQuadletApplicationFolderExists checks that the application folder exists at the root quadlet path.
 func (h *Harness) VerifyQuadletApplicationFolderExists(appName string) {
-	appPath := fmt.Sprintf("%s/%s", QuadletUnitPath, appName)
+	h.VerifyQuadletApplicationFolderExistsAt(appName, QuadletUnitPath)
+}
+
+// VerifyQuadletApplicationFolderExistsAt checks that the application folder exists at the given base path.
+func (h *Harness) VerifyQuadletApplicationFolderExistsAt(appName, basePath string) {
+	appPath := fmt.Sprintf("%s/%s", basePath, appName)
 	Eventually(func() error {
-		_, err := h.VM.RunSSH([]string{"test", "-d", appPath}, nil)
+		_, err := h.VM.RunSSH([]string{"sudo", "test", "-d", appPath}, nil)
 		return err
 	}, TIMEOUT, POLLING).Should(Succeed())
 }
 
-// VerifyQuadletApplicationFolderDeleted checks that the application folder was removed
+// VerifyQuadletApplicationFolderDeleted checks that the application folder was removed from the root quadlet path.
 func (h *Harness) VerifyQuadletApplicationFolderDeleted(appName string) {
-	appPath := fmt.Sprintf("%s/%s", QuadletUnitPath, appName)
+	h.VerifyQuadletApplicationFolderDeletedAt(appName, QuadletUnitPath)
+}
+
+// VerifyQuadletApplicationFolderDeletedAt checks that the application folder does not exist at the given base path.
+func (h *Harness) VerifyQuadletApplicationFolderDeletedAt(appName, basePath string) {
+	appPath := fmt.Sprintf("%s/%s", basePath, appName)
 	Eventually(func() error {
-		_, err := h.VM.RunSSH([]string{"test", "!", "-d", appPath}, nil)
+		_, err := h.VM.RunSSH([]string{"sudo", "test", "!", "-d", appPath}, nil)
 		return err
 	}, TIMEOUT, POLLING).Should(Succeed())
+}
+
+// PathExistsOnDevice checks that the given path exists on the device (file or directory).
+// Callers should assert the returned error (e.g. Expect(err).ToNot(HaveOccurred())).
+func (h *Harness) PathExistsOnDevice(path string) error {
+	_, err := h.VM.RunSSH([]string{"sudo", "test", "-e", path}, nil)
+	return err
+}
+
+// PathDoesNotExistOnDevice checks that the given path does not exist on the device.
+// Callers should assert the returned error (e.g. Expect(err).ToNot(HaveOccurred())).
+func (h *Harness) PathDoesNotExistOnDevice(path string) error {
+	_, err := h.VM.RunSSH([]string{"sudo", "test", "!", "-e", path}, nil)
+	return err
 }
 
 // VerifyQuadletPodmanArgs verifies that a quadlet file contains the expected PodmanArgs entry
@@ -302,13 +335,106 @@ func (h *Harness) UpdateDeviceAndWaitForVersion(deviceID string, updateFunc func
 	return nil
 }
 
-// NewContainerApplicationSpec creates a ContainerApplication spec with the given parameters
+// buildInlineContent builds ApplicationContent slice from paths and contents (contents may be shorter; missing get "").
+func buildInlineContent(paths, contents []string) []v1beta1.ApplicationContent {
+	inline := make([]v1beta1.ApplicationContent, len(paths))
+	for i := range paths {
+		c := ""
+		if i < len(contents) {
+			c = contents[i]
+		}
+		inline[i] = v1beta1.ApplicationContent{Path: paths[i], Content: &c}
+	}
+	return inline
+}
+
+// newQuadletSpecFromInline builds an ApplicationProviderSpec for a quadlet app from inline content.
+// envVars and volumes are optional (nil means not set).
+func newQuadletSpecFromInline(name, runAs string, inline []v1beta1.ApplicationContent, envVars *map[string]string, volumes *[]v1beta1.ApplicationVolume) (v1beta1.ApplicationProviderSpec, error) {
+	app := v1beta1.QuadletApplication{
+		Name:    lo.ToPtr(name),
+		AppType: v1beta1.AppTypeQuadlet,
+		EnvVars: envVars,
+		Volumes: volumes,
+	}
+	if runAs != "" {
+		app.RunAs = v1beta1.Username(runAs)
+	}
+	if err := app.FromInlineApplicationProviderSpec(v1beta1.InlineApplicationProviderSpec{Inline: inline}); err != nil {
+		return v1beta1.ApplicationProviderSpec{}, err
+	}
+	var spec v1beta1.ApplicationProviderSpec
+	if err := spec.FromQuadletApplication(app); err != nil {
+		return v1beta1.ApplicationProviderSpec{}, err
+	}
+	return spec, nil
+}
+
+// NewQuadletInlineSpec builds an ApplicationProviderSpec for a quadlet app from inline paths and contents.
+// If runAs is non-empty, the application runs as that user (rootless); otherwise as root.
+func NewQuadletInlineSpec(name, runAs string, paths, contents []string) (v1beta1.ApplicationProviderSpec, error) {
+	return newQuadletSpecFromInline(name, runAs, buildInlineContent(paths, contents), nil, nil)
+}
+
+// NewQuadletInlineSpecWithEnvs builds an ApplicationProviderSpec for a quadlet app with inline content and env vars.
+func NewQuadletInlineSpecWithEnvs(name, runAs string, envVars map[string]string, paths, contents []string) (v1beta1.ApplicationProviderSpec, error) {
+	return newQuadletSpecFromInline(name, runAs, buildInlineContent(paths, contents), &envVars, nil)
+}
+
+// NewQuadletInlineSpecWithVolumes builds an ApplicationProviderSpec for a quadlet app with inline content and optional volumes.
+func NewQuadletInlineSpecWithVolumes(name, runAs string, volumes *[]v1beta1.ApplicationVolume, paths, contents []string) (v1beta1.ApplicationProviderSpec, error) {
+	return newQuadletSpecFromInline(name, runAs, buildInlineContent(paths, contents), nil, volumes)
+}
+
+// NewImageVolume returns an ApplicationVolume backed by an image (for use in quadlet/compose apps).
+func NewImageVolume(name, imageRef string) (v1beta1.ApplicationVolume, error) {
+	var vol v1beta1.ApplicationVolume
+	vol.Name = name
+	err := vol.FromImageVolumeProviderSpec(v1beta1.ImageVolumeProviderSpec{
+		Image: v1beta1.ImageVolumeSource{Reference: imageRef, PullPolicy: lo.ToPtr(v1beta1.PullIfNotPresent)},
+	})
+	return vol, err
+}
+
+// NewComposeInlineSpec builds an ApplicationProviderSpec for a compose app from a single inline file.
+// runAs is accepted for API compatibility but ComposeApplication has no RunAs field; compose agent runs as root.
+func NewComposeInlineSpec(name, path, content, runAs string) (v1beta1.ApplicationProviderSpec, error) {
+	_ = runAs // reserved for when ComposeApplication supports RunAs
+	inline := []v1beta1.ApplicationContent{{Path: path, Content: &content}}
+	app := v1beta1.ComposeApplication{
+		Name:    lo.ToPtr(name),
+		AppType: v1beta1.AppTypeCompose,
+	}
+	if err := app.FromInlineApplicationProviderSpec(v1beta1.InlineApplicationProviderSpec{Inline: inline}); err != nil {
+		return v1beta1.ApplicationProviderSpec{}, err
+	}
+	var spec v1beta1.ApplicationProviderSpec
+	if err := spec.FromComposeApplication(app); err != nil {
+		return v1beta1.ApplicationProviderSpec{}, err
+	}
+	return spec, nil
+}
+
+// NewContainerApplicationSpec creates a ContainerApplication spec with the given parameters (runs as root).
 func NewContainerApplicationSpec(
 	name string,
 	image string,
 	ports []v1beta1.ApplicationPort,
 	cpu, memory *string,
 	volumes *[]v1beta1.ApplicationVolume,
+) (v1beta1.ApplicationProviderSpec, error) {
+	return NewContainerApplicationSpecWithRunAs(name, image, ports, cpu, memory, volumes, "")
+}
+
+// NewContainerApplicationSpecWithRunAs creates a ContainerApplication spec with the given parameters and optional runAs user.
+// If runAs is empty, the application runs as root (same as NewContainerApplicationSpec).
+func NewContainerApplicationSpecWithRunAs(
+	name string,
+	image string,
+	ports []v1beta1.ApplicationPort,
+	cpu, memory *string,
+	volumes *[]v1beta1.ApplicationVolume,
+	runAs string,
 ) (v1beta1.ApplicationProviderSpec, error) {
 	var resources *v1beta1.ApplicationResources
 	if cpu != nil || memory != nil {
@@ -327,6 +453,9 @@ func NewContainerApplicationSpec(
 		Ports:     &ports,
 		Resources: resources,
 		Volumes:   volumes,
+	}
+	if runAs != "" {
+		containerApp.RunAs = v1beta1.Username(runAs)
 	}
 
 	var appSpec v1beta1.ApplicationProviderSpec
