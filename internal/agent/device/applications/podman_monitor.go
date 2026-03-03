@@ -21,7 +21,6 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/systemd"
 	"github.com/flightctl/flightctl/pkg/log"
-	"github.com/samber/lo"
 )
 
 const (
@@ -463,11 +462,6 @@ func (m *PodmanMonitor) updateApplicationStatus(app Application, event *client.P
 
 	container, exists := app.Workload(event.Name)
 	if exists {
-		// if a container was stopped, and then exited with a 0 exit code, the status should be stopped.
-		if status == StatusExited && container.Status == StatusStop {
-			status = StatusStopped
-		}
-
 		// update existing container
 		container.Status = status
 		// restarts can only increase
@@ -525,9 +519,6 @@ func (m *PodmanMonitor) updateQuadletContainerStatus(ctx context.Context, app Ap
 	}
 
 	status := StatusType(event.Status)
-	if isFinishedStatus(status) && lo.FromPtrOr(event.ContainerExitCode, -1) == 0 {
-		status = StatusExited
-	}
 	m.updateApplicationStatus(app, event, status, restartCount)
 }
 
@@ -588,14 +579,7 @@ func (m *PodmanMonitor) inspectContainer(ctx context.Context, containerID string
 }
 
 func (m *PodmanMonitor) resolveStatus(status string, inspectData []client.PodmanInspect) StatusType {
-	initialStatus := StatusType(status)
-	// podman events don't properly event exited in the case where the container exits 0.
-	if initialStatus == StatusDie || initialStatus == StatusDied {
-		if len(inspectData) > 0 && inspectData[0].State.ExitCode == 0 && inspectData[0].State.FinishedAt != "" {
-			return StatusExited
-		}
-	}
-	return initialStatus
+	return StatusType(status)
 }
 
 type podmanEventWatcher struct {
