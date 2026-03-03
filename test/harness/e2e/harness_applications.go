@@ -387,3 +387,53 @@ func BuildComposeWithImageVolumeSpec(appName, composePath, composeContent, volum
 	}
 	return spec, nil
 }
+
+// GetContainerApplicationImage returns the image reference from a ContainerApplication spec.
+func GetContainerApplicationImage(spec v1beta1.ApplicationProviderSpec) (string, error) {
+	app, err := spec.AsContainerApplication()
+	if err != nil {
+		return "", err
+	}
+	return app.Image, nil
+}
+
+// GetContainerApplicationVolumeImageRef returns the image reference of the named volume in a ContainerApplication spec.
+func GetContainerApplicationVolumeImageRef(spec v1beta1.ApplicationProviderSpec, volumeName string) (string, error) {
+	app, err := spec.AsContainerApplication()
+	if err != nil {
+		return "", err
+	}
+	if app.Volumes == nil {
+		return "", fmt.Errorf("container app has nil volumes")
+	}
+	for _, vol := range *app.Volumes {
+		if vol.Name == volumeName {
+			imageMount, err := vol.AsImageMountVolumeProviderSpec()
+			if err != nil {
+				return "", err
+			}
+			return imageMount.Image.Reference, nil
+		}
+	}
+	return "", fmt.Errorf("volume %q not found in container app", volumeName)
+}
+
+// GetQuadletApplicationInlineContent returns the first inline content string from a QuadletApplication (inline provider).
+func GetQuadletApplicationInlineContent(spec v1beta1.ApplicationProviderSpec) (string, error) {
+	quadletApp, err := spec.AsQuadletApplication()
+	if err != nil {
+		return "", err
+	}
+	inlineProvider, err := quadletApp.AsInlineApplicationProviderSpec()
+	if err != nil {
+		return "", err
+	}
+	if len(inlineProvider.Inline) == 0 {
+		return "", fmt.Errorf("inline provider has no content")
+	}
+	content := inlineProvider.Inline[0].Content
+	if content == nil {
+		return "", fmt.Errorf("inline content is nil")
+	}
+	return *content, nil
+}
