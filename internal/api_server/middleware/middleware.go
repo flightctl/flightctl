@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 
@@ -20,18 +21,29 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+func writeJSONResponse(w http.ResponseWriter, code int, msg string) {
+	status := api.Status{
+		Code:    int32(code),
+		Message: msg,
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	err := json.NewEncoder(w).Encode(status)
+	if err != nil {
+		log.WithFrom(nil, logrus.New()).Errorf("failed to write response: %v", err)
+	}
+}
+
 // RequestSizeLimiter returns a middleware that limits the URL length and the number of request headers.
 func RequestSizeLimiter(maxURLLength int, maxNumHeaders int) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if len(r.URL.String()) > maxURLLength {
-				err := fmt.Errorf("URL too long, exceeds %d characters", maxURLLength)
-				WriteJSONError(w, http.StatusRequestURITooLong, "RequestURITooLong", err)
+				writeJSONResponse(w, http.StatusRequestURITooLong, fmt.Sprintf("URL too long, exceeds %d characters", maxURLLength))
 				return
 			}
 			if len(r.Header) > maxNumHeaders {
-				err := fmt.Errorf("request has too many headers, exceeds %d", maxNumHeaders)
-				WriteJSONError(w, http.StatusRequestHeaderFieldsTooLarge, "RequestHeaderFieldsTooLarge", err)
+				writeJSONResponse(w, http.StatusRequestHeaderFieldsTooLarge, fmt.Sprintf("Request has too many headers, exceeds %d", maxNumHeaders))
 				return
 			}
 
@@ -106,14 +118,14 @@ func ExtractAndValidateOrg(extractor OrgIDExtractor, logger logrus.FieldLogger) 
 
 			mappedIdentity, ok := contextutil.GetMappedIdentityFromContext(ctx)
 			if !ok {
-				WriteJSONError(w, http.StatusInternalServerError, "InternalServerError", flterrors.ErrNoMappedIdentity)
+				writeJSONResponse(w, http.StatusInternalServerError, flterrors.ErrNoMappedIdentity.Error())
 				return
 			}
 
 			orgID, err := resolveOrgID(ctx, r, extractor, mappedIdentity)
 			if err != nil {
 				reqLogger.Debugf("ExtractAndValidateOrg: error resolving org: %v", err)
-				WriteJSONError(w, statusForOrgError(err), reasonForOrgError(err), err)
+				writeJSONResponse(w, statusForOrgError(err), err.Error())
 				return
 			}
 
@@ -163,18 +175,6 @@ func statusForOrgError(err error) int {
 		return http.StatusBadRequest
 	}
 	return http.StatusBadRequest
-}
-
-func reasonForOrgError(err error) string {
-	switch err {
-	case flterrors.ErrNoOrganizations, flterrors.ErrNotOrgMember:
-		return "Forbidden"
-	case flterrors.ErrAmbiguousOrganization:
-		return "AmbiguousOrganization"
-	case flterrors.ErrInvalidOrgID:
-		return "InvalidOrgID"
-	}
-	return "BadRequest"
 }
 
 func extractOrgIDFromRequestQuery(ctx context.Context, r *http.Request) (uuid.UUID, bool, error) {
