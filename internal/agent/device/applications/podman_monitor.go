@@ -13,6 +13,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/samber/lo"
+
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
@@ -21,7 +23,6 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/systemd"
 	"github.com/flightctl/flightctl/pkg/log"
-	"github.com/samber/lo"
 )
 
 const (
@@ -584,13 +585,16 @@ func (m *PodmanMonitor) inspectContainer(ctx context.Context, containerID string
 
 func (m *PodmanMonitor) resolveStatus(status string, inspectData []client.PodmanInspect) StatusType {
 	initialStatus := StatusType(status)
-	if initialStatus == StatusStop {
-		return StatusStopped
-	}
 	// podman events don't properly event exited in the case where the container exits 0.
 	if initialStatus == StatusDie || initialStatus == StatusDied {
-		if len(inspectData) > 0 && inspectData[0].State.ExitCode == 0 && inspectData[0].State.FinishedAt != "" {
-			return StatusExited
+		if len(inspectData) > 0 {
+			restartPolicy := inspectData[0].HostConfig.RestartPolicy.Name
+			if restartPolicy != "" && restartPolicy != "no" {
+				return StatusDied // A service container should not exit.
+			}
+			if inspectData[0].State.ExitCode == 0 && inspectData[0].State.FinishedAt != "" {
+				return StatusExited
+			}
 		}
 	}
 	return initialStatus

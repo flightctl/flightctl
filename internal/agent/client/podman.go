@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
+
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/executer"
@@ -39,15 +40,16 @@ type PodmanInspect struct {
 	HostConfig PodmanHostConfig      `json:"HostConfig"`
 }
 
-// PodmanHostConfig represents the host config part of the podman inspect output
+// PodmanHostConfig represents the host configuration of a container.
 type PodmanHostConfig struct {
 	RestartPolicy PodmanRestartPolicy `json:"RestartPolicy"`
 }
 
-// PodmanRestartPolicy represents the restart policy part of the podman inspect output
+// PodmanRestartPolicy represents the restart policy of a container.
 type PodmanRestartPolicy struct {
 	Name string `json:"Name"`
 }
+
 
 // ContainerState represents the container state part of the podman inspect output
 type PodmanContainerState struct {
@@ -130,7 +132,7 @@ func NewPodmanFactory(log *log.PrefixLogger, backoff poll.Config, rwFactory file
 			exec,
 			readWriter,
 			backoff,
-		),
+		), nil
 	}
 }
 
