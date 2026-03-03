@@ -311,6 +311,8 @@ Datadog
 CRDs
 wildcard
 Istio
+delimited
+URIs
 subdomain
  - docs/user/installing/configuring-imagebuilder.md
  entitlement
