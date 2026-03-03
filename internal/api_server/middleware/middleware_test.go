@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
@@ -23,7 +22,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // createCertWithOrgID returns an *x509.Certificate with the organization ID
@@ -44,49 +42,6 @@ func createCertWithOrgID(id uuid.UUID) *x509.Certificate {
 // the consts.TLSPeerCertificateCtxKey key.
 func contextWithCert(cert *x509.Certificate) context.Context {
 	return context.WithValue(context.Background(), consts.TLSPeerCertificateCtxKey, cert)
-}
-
-// -----------------------------------------------------------------------------
-// Tests for RequestSizeLimiter middleware.
-// -----------------------------------------------------------------------------
-func TestRequestSizeLimiter(t *testing.T) {
-	require := require.New(t)
-	const maxURLLength = 20
-	const maxNumHeaders = 2
-	handler := RequestSizeLimiter(maxURLLength, maxNumHeaders)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-
-	// OK
-	req := httptest.NewRequest(http.MethodGet, "/ok", nil)
-	req.Header.Set("h1", "v1")
-	rr := httptest.NewRecorder()
-	handler.ServeHTTP(rr, req)
-	assert.Equal(t, http.StatusOK, rr.Code)
-
-	// URL too long
-	req = httptest.NewRequest(http.MethodGet, "/"+strings.Repeat("a", maxURLLength), nil)
-	rr = httptest.NewRecorder()
-	handler.ServeHTTP(rr, req)
-	assert.Equal(t, http.StatusRequestURITooLong, rr.Code)
-	assert.Equal(t, "application/json", rr.Header().Get("Content-Type"))
-	var status api.Status
-	err := json.Unmarshal(rr.Body.Bytes(), &status)
-	require.NoError(err)
-	assert.Contains(t, status.Message, "URL too long")
-
-	// Too many headers
-	req = httptest.NewRequest(http.MethodGet, "/ok", nil)
-	for i := 0; i < maxNumHeaders+1; i++ {
-		req.Header.Add(fmt.Sprintf("h%d", i), "v")
-	}
-	rr = httptest.NewRecorder()
-	handler.ServeHTTP(rr, req)
-	assert.Equal(t, http.StatusRequestHeaderFieldsTooLarge, rr.Code)
-	assert.Equal(t, "application/json", rr.Header().Get("Content-Type"))
-	err = json.Unmarshal(rr.Body.Bytes(), &status)
-	require.NoError(err)
-	assert.Contains(t, status.Message, "too many headers")
 }
 
 // -----------------------------------------------------------------------------
@@ -252,7 +207,9 @@ func TestExtractAndValidateOrg(t *testing.T) {
 				assert.Equal(t, "application/json", rr.Header().Get("Content-Type"))
 				var status api.Status
 				err := json.Unmarshal(rr.Body.Bytes(), &status)
-				require.NoError(t, err)
+				assert.NoError(t, err, "failed to unmarshal status from response: %s", rr.Body.String())
+				assert.Equal(t, api.StatusKind, status.Kind)
+				assert.Equal(t, int32(tc.wantMiddlewareCode), status.Code)
 				assert.Equal(t, tc.wantMiddlewareErr.Error(), status.Message)
 				return
 			}

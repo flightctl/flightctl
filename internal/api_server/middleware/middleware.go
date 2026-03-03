@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 
@@ -12,7 +13,6 @@ import (
 	"github.com/flightctl/flightctl/internal/crypto/signer"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/identity"
-	"github.com/flightctl/flightctl/internal/transport"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/reqid"
@@ -21,24 +21,30 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// writeJSONError writes a JSON error response to the client.
-func writeJSONError(w http.ResponseWriter, msg string, code int) {
-	error := api.Status{
-		Message: msg,
+func writeError(w http.ResponseWriter, code int, err error) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	status := api.Status{
+		Kind:    api.StatusKind,
+		Code:    int32(code),
+		Message: err.Error(),
+		Reason:  err.Error(),
+		Status:  "Failure",
 	}
-	transport.WriteJSONResponse(w, nil, error, code)
+	_ = json.NewEncoder(w).Encode(status)
 }
+
 
 // RequestSizeLimiter returns a middleware that limits the URL length and the number of request headers.
 func RequestSizeLimiter(maxURLLength int, maxNumHeaders int) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if len(r.URL.String()) > maxURLLength {
-				writeJSONError(w, fmt.Sprintf("URL too long, exceeds %d characters", maxURLLength), http.StatusRequestURITooLong)
+				writeError(w, http.StatusRequestURITooLong, fmt.Errorf("URL too long, exceeds %d characters", maxURLLength))
 				return
 			}
 			if len(r.Header) > maxNumHeaders {
-				writeJSONError(w, fmt.Sprintf("Request has too many headers, exceeds %d", maxNumHeaders), http.StatusRequestHeaderFieldsTooLarge)
+				writeError(w, http.StatusRequestHeaderFieldsTooLarge, fmt.Errorf("request has too many headers, exceeds %d", maxNumHeaders))
 				return
 			}
 
@@ -113,14 +119,14 @@ func ExtractAndValidateOrg(extractor OrgIDExtractor, logger logrus.FieldLogger) 
 
 			mappedIdentity, ok := contextutil.GetMappedIdentityFromContext(ctx)
 			if !ok {
-				writeJSONError(w, flterrors.ErrNoMappedIdentity.Error(), http.StatusInternalServerError)
+				writeError(w, http.StatusInternalServerError, flterrors.ErrNoMappedIdentity)
 				return
 			}
 
 			orgID, err := resolveOrgID(ctx, r, extractor, mappedIdentity)
 			if err != nil {
 				reqLogger.Debugf("ExtractAndValidateOrg: error resolving org: %v", err)
-				writeJSONError(w, err.Error(), statusForOrgError(err))
+				writeError(w, statusForOrgError(err), err)
 				return
 			}
 
