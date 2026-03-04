@@ -67,6 +67,18 @@ timeout --foreground 60s bash -c '
     done
 '
 
+# Wait for API service
+timeout --foreground 60s bash -c '
+    while true; do
+        if curl -k https://localhost:3443/readyz >/dev/null 2>&1; then
+            echo "API service is ready"
+            break
+        fi
+        echo "Waiting for API service to become ready..."
+        sleep 2
+    done
+'
+
 echo "Waiting for all services to be fully ready..."
 # Get all services from flightctl.target
 ALL_SERVICES=$(systemctl show flightctl.target -p Wants --value | tr ' ' '\n' | grep -E '^flightctl-.*\.service$' | sort)
