@@ -62,6 +62,17 @@ var _ = Describe("RBAC Authorization Tests", Label("rbac", "authorization"), fun
 		k8sApiEndpoint, err = harness.GetK8sApiEndpoint(suiteCtx, defaultK8sContext)
 		Expect(err).ToNot(HaveOccurred(), "Failed to get Kubernetes API endpoint")
 
+		// Ensure default admin context is restored when this spec ends (pass, fail, or panic)
+		defCtx := defaultK8sContext
+		h := harness
+		ctx := suiteCtx
+		DeferCleanup(func() {
+			if defCtx == "" || h == nil {
+				return
+			}
+			_, _ = h.ChangeK8sContext(ctx, defCtx)
+		})
+
 		// Create two test namespaces with unique names
 		testID := harness.GetTestIDFromContext()
 		testNs1 = fmt.Sprintf("rbac-test-ns1-%s", testID)
@@ -88,9 +99,10 @@ var _ = Describe("RBAC Authorization Tests", Label("rbac", "authorization"), fun
 	})
 
 	AfterEach(func() {
-		_, err := harness.ChangeK8sContext(suiteCtx, defaultK8sContext)
-		Expect(err).ToNot(HaveOccurred(), "Failed to change K8s context")
-		login.LoginToAPIWithToken(harness)
+		// Restore default admin context first so cleanup runs as admin (idempotent if DeferCleanup already did it)
+		if defaultK8sContext != "" && harness != nil {
+			_, _ = harness.ChangeK8sContext(suiteCtx, defaultK8sContext)
+		}
 
 		// Cleanup roles in both test namespaces
 		harness.CleanupRoles(suiteCtx, harness.Cluster, roles, roleBindings, testNs1)
