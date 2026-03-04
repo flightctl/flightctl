@@ -24,5 +24,3 @@ ExecStartPre=/bin/sh -c 'chown -R "$(podman image inspect {{ .Prometheus.Image }
 
 [Install]
 WantedBy=multi-user.target
-
-
