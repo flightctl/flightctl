@@ -20,8 +20,7 @@ var (
 )
 
 var _ = BeforeSuite(func() {
-	_, _, err := e2e.SetupWorkerHarness()
-	Expect(err).ToNot(HaveOccurred())
+	e2e.SetupWorkerHarnessOrAbort()
 
 	// Check if ACM is installed before running any tests
 	isAcmInstalled, _, err := util.IsAcmInstalled()

@@ -30,9 +30,7 @@ func init() {
 }
 
 var _ = BeforeSuite(func() {
-	// Setup VM and harness for this worker
-	_, _, err := e2e.SetupWorkerHarness()
-	Expect(err).ToNot(HaveOccurred())
+	e2e.SetupWorkerHarnessOrAbort()
 })
 
 var _ = BeforeEach(func() {
