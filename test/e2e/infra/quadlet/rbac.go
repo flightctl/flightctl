@@ -138,9 +138,13 @@ func (p *PAMRBACProvider) DeleteRole(_ context.Context, namespace, name string) 
 
 // CreateRoleBinding adds the user to the role's group.
 // For namespaced roles (namespace != "*"), also adds the user to the org-<namespace> group.
+// ServiceAccount subjects are not supported (no-op).
 func (p *PAMRBACProvider) CreateRoleBinding(_ context.Context, spec *infra.RoleBindingSpec) error {
 	if spec == nil {
 		return fmt.Errorf("spec cannot be nil")
+	}
+	if spec.SubjectKind == "ServiceAccount" {
+		return nil
 	}
 
 	// For namespaced roles, ensure user is part of the organization group
@@ -204,17 +208,21 @@ func (p *PAMRBACProvider) DeleteClusterRoleBinding(_ context.Context, name strin
 	return nil
 }
 
-// CreateNamespace creates an organization by creating a Linux group named "org-<name>".
-// In PAM-based RBAC, organizations are represented as Linux groups with the "org-" prefix.
-func (p *PAMRBACProvider) CreateNamespace(_ context.Context, name string, _ map[string]string) error {
-	groupName := "org-" + name
+// CreateOrganization creates an organization (org-<name> group).
+func (p *PAMRBACProvider) CreateOrganization(_ context.Context, name string) error {
+	groupName := OrgGroupName(name)
 	logrus.Infof("PAM RBAC: creating organization group %s", groupName)
 	return p.createGroup(groupName)
 }
 
-// DeleteNamespace deletes an organization by deleting the Linux group named "org-<name>".
-func (p *PAMRBACProvider) DeleteNamespace(_ context.Context, name string) error {
-	groupName := "org-" + name
+// AddUserToOrg adds the user to the organization's group (org-<orgName>).
+func (p *PAMRBACProvider) AddUserToOrg(_ context.Context, orgName, userName string) error {
+	return p.addUserToGroup(userName, OrgGroupName(orgName))
+}
+
+// DeleteOrganization deletes an organization (org-<name> group).
+func (p *PAMRBACProvider) DeleteOrganization(_ context.Context, name string) error {
+	groupName := OrgGroupName(name)
 	logrus.Infof("PAM RBAC: deleting organization group %s", groupName)
 	return p.deleteGroup(groupName)
 }

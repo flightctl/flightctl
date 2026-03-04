@@ -18,6 +18,10 @@ GINKGO_NODE=${GINKGO_NODE:-1}
 # Discovery control variables
 DISCOVERY_PATH=${DISCOVERY_PATH:-"discovery.json"}
 DISCOVERY_ONLY=${DISCOVERY_ONLY:-""}
+# If set (true/1), run all suites even when one fails (ginkgo --keep-going). Default: unset (stop after first suite failure).
+GINKGO_KEEP_GOING=${GINKGO_KEEP_GOING:-""}
+# Global timeout for the entire test run (e.g. 120m, 180m). Default: 120m.
+GINKGO_TIMEOUT=${GINKGO_TIMEOUT:-120m}
 FOCUS_FLAG=""
 
 
@@ -193,7 +197,11 @@ if [[ -n "${GINKGO_LABEL_FILTER}" ]]; then
 fi
 
 # Add standard flags
-CMD+=(--timeout 120m --race -vv -nodes="${GINKGO_PROCS}" --show-node-events --trace --force-newlines --output-interceptor-mode "${GINKGO_OUTPUT_INTERCEPTOR_MODE}" --github-output --output-dir "${REPORTS}" --junit-report junit_e2e_test.xml)
+CMD+=(--timeout "${GINKGO_TIMEOUT}" --race -vv -nodes="${GINKGO_PROCS}")
+if [[ "${GINKGO_KEEP_GOING}" == "true" || "${GINKGO_KEEP_GOING}" == "1" ]]; then
+    CMD+=(--keep-going)
+fi
+CMD+=(--show-node-events --trace --force-newlines --output-interceptor-mode "${GINKGO_OUTPUT_INTERCEPTOR_MODE}" --github-output --output-dir "${REPORTS}" --junit-report junit_e2e_test.xml)
 
 # Add progress polling flags for parallel execution
 if [[ "${GINKGO_PROCS}" -gt 1 ]]; then
@@ -203,7 +211,7 @@ fi
 # Add the test directories last
 CMD+=("${GO_E2E_DIRS[@]}")
 
-echo "Running e2e tests with ${GINKGO_PROCS} parallel processes..."
+echo "Running e2e tests with ${GINKGO_PROCS} parallel processes (timeout: ${GINKGO_TIMEOUT})..."
 echo "Output interceptor mode: ${GINKGO_OUTPUT_INTERCEPTOR_MODE} (dup=show all output, swap=clean output)"
 echo "Reports will be saved to: ${REPORTS}"
 

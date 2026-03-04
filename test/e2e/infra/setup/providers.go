@@ -48,7 +48,8 @@ func newK8sProviders(config *infra.EnvironmentConfig) (*infra.Providers, error) 
 		return nil, fmt.Errorf("k8s infra provider: %w", err)
 	}
 	lifecycleP := k8s.NewServiceLifecycleProviderWithConfig(cluster, infraP)
-	rbacP, err := k8s.NewRBACProvider(cluster)
+	releaseName := infraP.GetExternalNamespace()
+	rbacP, err := k8s.NewRBACProvider(cluster, releaseName)
 	if err != nil {
 		return nil, fmt.Errorf("k8s rbac: %w", err)
 	}

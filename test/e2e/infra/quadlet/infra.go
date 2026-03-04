@@ -104,6 +104,11 @@ func (p *InfraProvider) RunCommand(command ...string) (string, error) {
 	return p.runCommand(command...)
 }
 
+// quoteForRemoteShell returns a single-quoted string safe for the remote POSIX shell; inner single quotes are escaped as backslash-quote.
+func quoteForRemoteShell(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
+}
+
 // runCommand executes a command, using SSH if the host is remote.
 func (p *InfraProvider) runCommand(command ...string) (string, error) {
 	var cmd *exec.Cmd
@@ -117,12 +122,15 @@ func (p *InfraProvider) runCommand(command ...string) (string, error) {
 		sshTarget := fmt.Sprintf("%s@%s", p.sshUser, p.host)
 		sshArgs = append(sshArgs, sshTarget)
 
-		// Build remote command with optional sudo
-		remoteCmd := strings.Join(command, " ")
+		// One quoted string so the remote shell reconstructs exact argv (works for any input)
+		remoteParts := make([]string, 0, len(command)+1)
 		if p.useSudo {
-			remoteCmd = "sudo " + remoteCmd
+			remoteParts = append(remoteParts, quoteForRemoteShell("sudo"))
 		}
-		sshArgs = append(sshArgs, remoteCmd)
+		for _, c := range command {
+			remoteParts = append(remoteParts, quoteForRemoteShell(c))
+		}
+		sshArgs = append(sshArgs, strings.Join(remoteParts, " "))
 
 		cmd = exec.Command("ssh", sshArgs...)
 	} else {
@@ -320,7 +328,7 @@ func (p *InfraProvider) ExposeService(service infra.ServiceName, protocol string
 	return url, func() {}, nil
 }
 
-// InvalidateExposeCache closes any cached port-forward for the service and removes it from the cache.
+// InvalidateExposeCache stops any cached port-forward for the service and removes it from the cache.
 // Call after restarting a service so the next ExposeService creates a new forward to the new container IP.
 func (p *InfraProvider) InvalidateExposeCache(service infra.ServiceName) {
 	prefix := string(service) + ":"
@@ -331,7 +339,7 @@ func (p *InfraProvider) InvalidateExposeCache(service infra.ServiceName) {
 	}
 	for key, e := range p.exposeCache {
 		if strings.HasPrefix(key, prefix) {
-			e.cleanup()
+			e.cleanup() // stop the forwarded process / release resources
 			delete(p.exposeCache, key)
 		}
 	}
@@ -445,6 +453,16 @@ func (p *InfraProvider) GetAPILoginToken() (string, error) {
 		return "", fmt.Errorf("Quadlet: no E2E_PAM_TOKEN and could not read %s: %w", tokenPath, err)
 	}
 	return strings.TrimSpace(output), nil
+}
+
+// GetInternalNamespace returns empty for Quadlet (no split namespaces).
+func (p *InfraProvider) GetInternalNamespace() string {
+	return ""
+}
+
+// GetExternalNamespace returns empty for Quadlet (no K8s release namespace).
+func (p *InfraProvider) GetExternalNamespace() string {
+	return ""
 }
 
 // SetServiceConfig writes the config key content to the service's config file on the host.

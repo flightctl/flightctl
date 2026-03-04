@@ -25,6 +25,11 @@ func (p *SecretsProvider) GetSecretData(_ context.Context, _, _, _ string) ([]by
 	return nil, infra.ErrSecretsNotSupported
 }
 
+// CreateSecret is not supported for Quadlet; secrets are file-based.
+func (p *SecretsProvider) CreateSecret(ctx context.Context, namespace, name string, stringData map[string]string) error {
+	return infra.ErrSecretsNotSupported
+}
+
 // podmanSecretInspectOutput matches the JSON from `podman secret inspect --showsecret` (array of one element).
 type podmanSecretInspectOutput []struct {
 	SecretData string `json:"SecretData"`

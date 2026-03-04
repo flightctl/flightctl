@@ -32,8 +32,7 @@ var satellites *satellite.Services
 var _ = BeforeSuite(func() {
 	satellites = satellite.Get(context.Background())
 	Expect(setup.EnsureDefaultProviders(nil)).To(Succeed())
-	_, _, err := e2e.SetupWorkerHarnessOrAbort()
-	Expect(err).ToNot(HaveOccurred())
+	e2e.SetupWorkerHarnessOrAbort()
 })
 
 var _ = BeforeEach(func() {

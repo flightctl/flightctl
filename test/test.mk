@@ -121,8 +121,9 @@ deploy-e2e-extras:
 	@echo "WARNING: deploy-e2e-extras is deprecated. Testcontainers now manage E2E infrastructure."
 	@echo "See test/e2e/infra/ for the new implementation."
 
+deploy-e2e-ocp-test-vm: VM_DISK_SIZE_INC := $(or $(VM_DISK_SIZE_INC),50)
 deploy-e2e-ocp-test-vm:
-	sudo --preserve-env=VM_DISK_SIZE_INC test/scripts/create_vm_libvirt.sh ${KUBECONFIG_PATH}
+	sudo VM_DISK_SIZE_INC=$(VM_DISK_SIZE_INC) --preserve-env=VM_DISK_SIZE_INC test/scripts/create_vm_libvirt.sh $(KUBECONFIG_PATH)
 
 deploy-quadlets-vm:
 	sudo --preserve-env=VM_DISK_SIZE_INC --preserve-env=USER --preserve-env=REDHAT_USER --preserve-env=REDHAT_PASSWORD --preserve-env=GIT_VERSION --preserve-env=BREW_BUILD_URL test/scripts/deploy_quadlets_rhel.sh
@@ -172,6 +173,7 @@ e2e-test: deploy prepare-e2e-qcow-config
 # Set GINKGO_OUTPUT_INTERCEPTOR_MODE to control parallel output (defaults to "dup" for full output)
 # Example: make run-e2e-test GO_E2E_DIRS=test/e2e/agent GINKGO_PROCS=4
 # Example: make run-e2e-test GO_E2E_DIRS=test/e2e/agent GINKGO_OUTPUT_INTERCEPTOR_MODE=swap
+# Set GINKGO_KEEP_GOING=true to run all suites even when one fails (default: stop after first suite failure).
 run-e2e-test:
 	$(ENV_TRACE_FLAGS) $(MAKE) _e2e_test
 
