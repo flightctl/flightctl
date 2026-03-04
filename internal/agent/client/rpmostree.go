@@ -78,6 +78,17 @@ func (c *RPMOSTree) Status(_ context.Context) (*container.BootcHost, error) {
 	}, nil
 }
 
+func (c *RPMOSTree) Rollback(ctx context.Context) error {
+	_, stderr, exitCode := c.exec.ExecuteWithContext(ctx, "rpm-ostree", "rollback")
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if exitCode != 0 {
+		return fmt.Errorf("rpm-ostree rollback: %s", stderr)
+	}
+	return nil
+}
+
 func (c *RPMOSTree) RemoveRollback(_ context.Context) error {
 	return c.client.RemovePendingDeployment()
 }

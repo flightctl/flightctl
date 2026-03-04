@@ -74,6 +74,8 @@ type Manager interface {
 	CheckOsReconciliation(ctx context.Context) (string, bool, error)
 	// IsRollingBack returns true if the device is in a rollback state.
 	IsRollingBack(ctx context.Context) (bool, error)
+	// IsOSRollback returns true if the booted OS image does not match the current spec.
+	IsOSRollback(ctx context.Context) (bool, error)
 	// CreateRollback creates a rollback version of the current rendered spec.
 	CreateRollback(ctx context.Context) error
 	// ClearRollback clears the rollback rendered spec.

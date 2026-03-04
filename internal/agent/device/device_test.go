@@ -128,10 +128,76 @@ func TestSync(t *testing.T) {
 				mockHookManager.EXPECT().OnAfterUpdating(ctx, desired.Spec, current.Spec, false).Return(nil).AnyTimes()
 				mockAppManager.EXPECT().AfterUpdate(ctx).Return(nil).AnyTimes()
 				mockSpecManager.EXPECT().SetUpgradeFailed(desired.Version()).Return(nil).AnyTimes()
-				mockSpecManager.EXPECT().Rollback(ctx).Return(nil).AnyTimes()
+				mockSpecManager.EXPECT().IsOSRollback(gomock.Any()).Return(false, nil).AnyTimes()
+				mockSpecManager.EXPECT().Rollback(gomock.Any()).Return(nil).AnyTimes()
 				mockPrefetchManager.EXPECT().Cleanup().AnyTimes()
 				// Upgrade should NOT be called when sync fails, but allow it for flexibility
 				mockSpecManager.EXPECT().Upgrade(gomock.Any()).Return(nil).AnyTimes()
+			},
+		},
+		{
+			name:    "os rollback on non-retryable error after os upgrade",
+			current: newVersionedDeviceWithOS("5", "quay.io/org/os:v1"),
+			desired: newVersionedDeviceWithOS("6", "quay.io/org/os:v2"),
+			setupMocks: func(
+				current *v1beta1.Device,
+				desired *v1beta1.Device,
+				mockOSClient *os.MockClient,
+				mockManagementClient *client.MockManagement,
+				mockSystemInfoManager *systeminfo.MockManager,
+				mockExec *executer.MockExecuter,
+				mockRouterService *console.MockRouterServiceClient,
+				mockResourceManager *resource.MockManager,
+				mockSystemdManager *systemd.MockManager,
+				mockHookManager *hook.MockManager,
+				mockAppManager *applications.MockManager,
+				mockLifecycleManager *lifecycle.MockManager,
+				mockPolicyManager *policy.MockManager,
+				mockSpecManager *spec.MockManager,
+				mockPrefetchManager *dependency.MockPrefetchManager,
+				mockOSManager *os.MockManager,
+				mockPruningManager *imagepruning.MockManager,
+				mockPullConfigResolver *dependency.MockPullConfigResolver,
+			) {
+				hookErr := errors.New("hook error")
+
+				mockPullConfigResolver.EXPECT().BeforeUpdate(gomock.Any()).AnyTimes()
+				mockPullConfigResolver.EXPECT().Cleanup().AnyTimes()
+				mockResourceManager.EXPECT().IsCriticalAlert(gomock.Any()).Return(false).AnyTimes()
+				mockResourceManager.EXPECT().BeforeUpdate(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+				mockManagementClient.EXPECT().UpdateDeviceStatus(gomock.Any(), deviceName, gomock.Any()).Return(nil).AnyTimes()
+				mockSpecManager.EXPECT().IsUpgrading().Return(true).AnyTimes()
+				mockSpecManager.EXPECT().GetDesired(ctx).Return(desired, false, nil).AnyTimes()
+				mockSpecManager.EXPECT().Read(spec.Current).Return(current, nil).AnyTimes()
+				mockSpecManager.EXPECT().CheckPolicy(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+				mockSpecManager.EXPECT().IsOSUpdate().Return(true).AnyTimes()
+				mockSpecManager.EXPECT().IsOSUpdatePending(gomock.Any()).Return(false, nil).AnyTimes()
+				mockSpecManager.EXPECT().SetUpgradeFailed(desired.Version()).Return(nil).AnyTimes()
+				mockPrefetchManager.EXPECT().RegisterOCICollector(gomock.Any()).AnyTimes()
+				mockPrefetchManager.EXPECT().BeforeUpdate(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+				mockPrefetchManager.EXPECT().Cleanup().AnyTimes()
+				mockPruningManager.EXPECT().RecordReferences(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+				mockAppManager.EXPECT().BeforeUpdate(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+				mockAppManager.EXPECT().AfterUpdate(gomock.Any()).Return(nil).AnyTimes()
+				mockHookManager.EXPECT().OnBeforeUpdating(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+				mockHookManager.EXPECT().Sync(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+				mockLifecycleManager.EXPECT().Sync(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+				mockLifecycleManager.EXPECT().AfterUpdate(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+				mockSystemdManager.EXPECT().EnsurePatterns(gomock.Any()).Return(nil).AnyTimes()
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "is-active", "boot-complete.target").Return("active\n", "", 0).AnyTimes()
+
+				// OS is reconciled (booted into desired imageB after reboot)
+				mockSpecManager.EXPECT().CheckOsReconciliation(gomock.Any()).Return("", true, nil).AnyTimes()
+
+				// forward sync: afterUpdate hook fails with non-retryable error
+				mockHookManager.EXPECT().OnAfterUpdating(ctx, current.Spec, desired.Spec, false).Return(hookErr).AnyTimes()
+				// rollback sync: afterUpdate hook succeeds
+				mockHookManager.EXPECT().OnAfterUpdating(ctx, desired.Spec, current.Spec, false).Return(nil).AnyTimes()
+
+				// OS rollback path
+				mockSpecManager.EXPECT().IsOSRollback(gomock.Any()).Return(true, nil).AnyTimes()
+				mockHookManager.EXPECT().OnBeforeRebooting(gomock.Any()).Return(nil).AnyTimes()
+				mockSpecManager.EXPECT().Rollback(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 			},
 		},
 		{
@@ -166,7 +232,8 @@ func TestSync(t *testing.T) {
 				mockSpecManager.EXPECT().Read(spec.Current).Return(current, nil).AnyTimes()
 				mockResourceManager.EXPECT().BeforeUpdate(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 				mockResourceManager.EXPECT().IsCriticalAlert(gomock.Any()).Return(true).AnyTimes()
-				mockSpecManager.EXPECT().Rollback(ctx).Return(nil).AnyTimes()
+				mockSpecManager.EXPECT().IsOSRollback(gomock.Any()).Return(false, nil).AnyTimes()
+				mockSpecManager.EXPECT().Rollback(gomock.Any()).Return(nil).AnyTimes()
 				mockPrefetchManager.EXPECT().Cleanup().AnyTimes()
 				mockHookManager.EXPECT().Sync(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 				mockLifecycleManager.EXPECT().Sync(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
@@ -211,7 +278,8 @@ func TestSync(t *testing.T) {
 				mockResourceManager.EXPECT().IsCriticalAlert(gomock.Any()).DoAndReturn(func(monitorType resource.MonitorType) bool {
 					return monitorType == resource.MemoryMonitorType
 				}).AnyTimes()
-				mockSpecManager.EXPECT().Rollback(ctx).Return(nil).AnyTimes()
+				mockSpecManager.EXPECT().IsOSRollback(gomock.Any()).Return(false, nil).AnyTimes()
+				mockSpecManager.EXPECT().Rollback(gomock.Any()).Return(nil).AnyTimes()
 				mockPrefetchManager.EXPECT().Cleanup().AnyTimes()
 				mockHookManager.EXPECT().Sync(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 				mockLifecycleManager.EXPECT().Sync(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
@@ -366,7 +434,7 @@ func TestRollbackDevice(t *testing.T) {
 			},
 		},
 		{
-			name:    "rollback multiple versions with sync error",
+			name:    "rollback returns sync error",
 			current: newVersionedDevice("1"),
 			desired: newVersionedDevice("5"),
 			setupMocks: func(
@@ -375,7 +443,6 @@ func TestRollbackDevice(t *testing.T) {
 				mockManagementClient *client.MockManagement,
 			) {
 				gomock.InOrder(
-					// mockSystemInfoManager.EXPECT().BootID().Return("boot-id"),
 					mockManagementClient.EXPECT().UpdateDeviceStatus(gomock.Any(), deviceName, gomock.Any()).Return(nil),
 				)
 			},
@@ -390,6 +457,7 @@ func TestRollbackDevice(t *testing.T) {
 			defer ctrl.Finish()
 			mockOSClient := os.NewMockClient(ctrl)
 			mockManagementClient := client.NewMockManagement(ctrl)
+			mockHookManager := hook.NewMockManager(ctrl)
 			tc.setupMocks(
 				tc.current,
 				tc.desired,
@@ -438,6 +506,7 @@ func TestRollbackDevice(t *testing.T) {
 			agent := Agent{
 				log:           log,
 				statusManager: statusManager,
+				hookManager:   mockHookManager,
 				specManager:   specManager,
 			}
 
@@ -446,14 +515,6 @@ func TestRollbackDevice(t *testing.T) {
 				currentVersion: tc.current.Version(),
 				wantErr:        tc.wantSyncErr,
 			}
-
-			// verify the spec on disk is as expected
-			currentVersionOnDisk, err := specManager.Read(spec.Current)
-			require.NoError(err)
-			require.Equal(tc.current.Version(), currentVersionOnDisk.Version())
-			desiredVersionOnDisk, err := specManager.Read(spec.Desired)
-			require.NoError(err)
-			require.Equal(tc.desired.Version(), desiredVersionOnDisk.Version())
 
 			err = agent.rollbackDevice(ctx, tc.current, tc.desired, mockSync.sync)
 			if tc.wantSyncErr != nil {
@@ -469,16 +530,61 @@ func TestRollbackDevice(t *testing.T) {
 			currentCacheVersion := specManager.RenderedVersion(spec.Current)
 			require.Equal(tc.current.Version(), currentCacheVersion, "cached current version should be unchanged")
 
-			// verify the spec on disk is as expected
-			currentVersionOnDisk, err = specManager.Read(spec.Current)
+			currentVersionOnDisk, err := specManager.Read(spec.Current)
 			require.NoError(err)
-			require.Equal(tc.current.Version(), currentVersionOnDisk.Version(), "current version should be unchanged on disk after rollback")
-			desiredVersionOnDisk, err = specManager.Read(spec.Desired)
+			require.Equal(tc.current.Version(), currentVersionOnDisk.Version(), "current version should be unchanged on disk")
+			desiredVersionOnDisk, err := specManager.Read(spec.Desired)
 			require.NoError(err)
-			require.Equal(tc.current.Version(), desiredVersionOnDisk.Version(), "desired version should be the same as current after rollback")
-
+			require.Equal(tc.current.Version(), desiredVersionOnDisk.Version(), "desired should match current on disk")
 		})
 	}
+}
+
+func TestRollbackDeviceCallOrder(t *testing.T) {
+	deviceName := "test-device"
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockSpecManager := spec.NewMockManager(ctrl)
+	mockManagementClient := client.NewMockManagement(ctrl)
+
+	log := log.NewPrefixLogger("test")
+	log.SetLevel(logrus.DebugLevel)
+	statusManager := status.NewManager(deviceName, log)
+	statusManager.SetClient(mockManagementClient)
+
+	current := newVersionedDevice("5")
+	desired := newVersionedDevice("6")
+
+	var callOrder []string
+	mockManagementClient.EXPECT().UpdateDeviceStatus(gomock.Any(), deviceName, gomock.Any()).Return(nil)
+	mockSpecManager.EXPECT().IsOSRollback(gomock.Any()).Return(false, nil)
+	mockSpecManager.EXPECT().Rollback(gomock.Any()).DoAndReturn(func(_ context.Context, _ ...spec.RollbackOption) error {
+		callOrder = append(callOrder, "rollback")
+		return nil
+	})
+
+	mockHookManager := hook.NewMockManager(ctrl)
+
+	agent := Agent{
+		log:           log,
+		specManager:   mockSpecManager,
+		statusManager: statusManager,
+		hookManager:   mockHookManager,
+	}
+
+	mockSyncFn := func(ctx context.Context, c, d *v1beta1.Device) error {
+		callOrder = append(callOrder, "syncFn")
+		return nil
+	}
+
+	err := agent.rollbackDevice(ctx, current, desired, mockSyncFn)
+	require.NoError(err)
+	require.Equal([]string{"rollback", "syncFn"}, callOrder)
 }
 
 func newVersionedDevice(version string) *v1beta1.Device {
@@ -490,6 +596,12 @@ func newVersionedDevice(version string) *v1beta1.Device {
 		},
 	}
 	device.Spec = &v1beta1.DeviceSpec{}
+	return device
+}
+
+func newVersionedDeviceWithOS(version, osImage string) *v1beta1.Device {
+	device := newVersionedDevice(version)
+	device.Spec.Os = &v1beta1.DeviceOsSpec{Image: osImage}
 	return device
 }
 

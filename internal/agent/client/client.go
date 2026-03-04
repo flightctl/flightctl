@@ -79,6 +79,8 @@ type Bootc interface {
 	UsrOverlay(ctx context.Context) error
 	// Apply restart or reboot into the new target image.
 	Apply(ctx context.Context) error
+	// Rollback swaps the bootloader ordering to boot into the previous deployment.
+	Rollback(ctx context.Context) error
 }
 
 // IsCommandAvailable checks if a command is available in the PATH.

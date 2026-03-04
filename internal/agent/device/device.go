@@ -215,8 +215,10 @@ func (a *Agent) syncDeviceSpec(ctx context.Context) {
 		return
 	}
 
-	defer a.pullConfigResolver.Cleanup()
-	defer a.prefetchManager.Cleanup()
+	defer func() {
+		a.pullConfigResolver.Cleanup()
+		a.prefetchManager.Cleanup()
+	}()
 
 	// skip status update if the device is in a steady state and not upgrading.
 	// also ensures previous failed status is not overwritten.
@@ -268,12 +270,31 @@ func (a *Agent) rollbackDevice(ctx context.Context, current, desired *v1beta1.De
 		a.log.Warnf("Failed setting status: %v", updateErr)
 	}
 
+	osRollback, err := a.specManager.IsOSRollback(ctx)
+	if err != nil {
+		return err
+	}
+
+	if osRollback {
+		// reconcile runtime first, then trigger bootc rollback which reboots
+		// the device. disk state is preserved not flattened so
+		// bootstrap.checkRollback() can finalize after reboot.
+		if err := syncFn(ctx, desired, current); err != nil {
+			return err
+		}
+		if err := a.hookManager.OnBeforeRebooting(ctx); err != nil {
+			a.log.Errorf("Error executing BeforeRebooting hook: %v", err)
+			return err
+		}
+		return a.specManager.Rollback(ctx, spec.WithOS())
+	}
+
+	// non-OS rollback: flatten disk state first so syncFn sees consistent
+	// cache, then reconcile runtime.
 	if err := a.specManager.Rollback(ctx); err != nil {
 		return err
 	}
 
-	// note: we are explicitly reversing the order of the current and desired to
-	// ensure a clean rollback state.
 	return syncFn(ctx, desired, current)
 }
 
@@ -481,21 +502,14 @@ func (a *Agent) afterUpdate(ctx context.Context, current, desired *v1beta1.Devic
 		return err
 	}
 
-	_, isOSReconciled, err := a.specManager.CheckOsReconciliation(ctx)
+	isOSRollback, err := a.specManager.IsOSRollback(ctx)
 	if err != nil {
-		a.log.Errorf("Error checking is os reconciled: %v", err)
 		return err
 	}
-
-	// execute after update for os first so that the activation of the spec is
-	// after the os is updated.This happens because the os update requires a
-	// reboot so the lower blocks are not executed until after reboot.
-	if !isOSReconciled && a.specManager.IsOSUpdate() {
-		if err = a.afterUpdateOS(ctx, desired); err != nil {
-			a.log.Errorf("Error executing OS: %v", err)
+	if !isOSRollback {
+		if err := a.applyOSUpdate(ctx, desired); err != nil {
 			return err
 		}
-		return nil
 	}
 
 	// execute after update hooks. in the new OS image case, these will fire after the reboot
@@ -510,6 +524,19 @@ func (a *Agent) afterUpdate(ctx context.Context, current, desired *v1beta1.Devic
 	if err := a.appManager.AfterUpdate(ctx); err != nil {
 		a.log.Errorf("Error executing actions: %v", err)
 		return err
+	}
+
+	return nil
+}
+
+func (a *Agent) applyOSUpdate(ctx context.Context, desired *v1beta1.DeviceSpec) error {
+	_, isOSReconciled, err := a.specManager.CheckOsReconciliation(ctx)
+	if err != nil {
+		return err
+	}
+
+	if !isOSReconciled && a.specManager.IsOSUpdate() {
+		return a.afterUpdateOS(ctx, desired)
 	}
 
 	return nil

@@ -199,6 +199,21 @@ func (mr *MockManagerMockRecorder) Initialize(ctx any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Initialize", reflect.TypeOf((*MockManager)(nil).Initialize), ctx)
 }
 
+// IsOSRollback mocks base method.
+func (m *MockManager) IsOSRollback(ctx context.Context) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "IsOSRollback", ctx)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// IsOSRollback indicates an expected call of IsOSRollback.
+func (mr *MockManagerMockRecorder) IsOSRollback(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsOSRollback", reflect.TypeOf((*MockManager)(nil).IsOSRollback), ctx)
+}
+
 // IsOSUpdate mocks base method.
 func (m *MockManager) IsOSUpdate() bool {
 	m.ctrl.T.Helper()

@@ -18,6 +18,8 @@ const (
 	ReasonUpgrade Reason = "upgrade"
 	// ReasonRollback represents reverting to a previous working spec
 	ReasonRollback Reason = "rollback"
+	// ReasonOSRollback represents an OS-level rollback where the booted image does not match the current spec
+	ReasonOSRollback Reason = "os_rollback"
 	// ReasonRecovery represents recovery operations (recreating corrupted/deleted files)
 	ReasonRecovery Reason = "recovery"
 	// ReasonInitialization represents internal initialization operations (creating rollback snapshots)

@@ -55,6 +55,10 @@ func (b *bootc) Apply(ctx context.Context) error {
 	return b.client.Apply(ctx)
 }
 
+func (b *bootc) Rollback(ctx context.Context) error {
+	return b.client.Rollback(ctx)
+}
+
 func newRpmOSTreeClient(exec executer.Executer) *rpmOSTree {
 	return &rpmOSTree{
 		client: client.NewRPMOSTree(exec),
@@ -81,6 +85,10 @@ func (r *rpmOSTree) Apply(ctx context.Context) error {
 	return r.client.Apply(ctx)
 }
 
+func (r *rpmOSTree) Rollback(ctx context.Context) error {
+	return r.client.Rollback(ctx)
+}
+
 func newDummyClient(log *log.PrefixLogger) *dummy {
 	return &dummy{
 		log: log,
@@ -103,5 +111,10 @@ func (d *dummy) Switch(ctx context.Context, image string) error {
 
 func (d *dummy) Apply(ctx context.Context) error {
 	d.log.Warnf("Ignoring apply from dummy client for unsupported OS")
+	return nil
+}
+
+func (d *dummy) Rollback(ctx context.Context) error {
+	d.log.Warnf("Ignoring rollback from dummy client for unsupported OS")
 	return nil
 }

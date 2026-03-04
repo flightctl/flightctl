@@ -24,6 +24,8 @@ type Client interface {
 	Switch(ctx context.Context, image string) error
 	// Apply applies the OS changes, potentially triggering a reboot
 	Apply(ctx context.Context) error
+	// Rollback swaps the boot order to the previous deployment
+	Rollback(ctx context.Context) error
 }
 
 type Manager interface {

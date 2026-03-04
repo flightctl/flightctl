@@ -104,6 +104,15 @@ func (b *bootc) Apply(ctx context.Context) error {
 	return nil
 }
 
+func (b *bootc) Rollback(ctx context.Context) error {
+	args := []string{"rollback"}
+	_, stderr, exitCode := b.executer.ExecuteWithContext(ctx, BootcCmd, args...)
+	if exitCode != 0 && exitCode != 137 { // 137 is expected during reboot
+		return fmt.Errorf("bootc rollback: %w", errors.FromStderr(stderr, exitCode))
+	}
+	return nil
+}
+
 // UsrOverlay adds a transient writable overlayfs on `/usr` that will be discarded on reboot.
 func (b *bootc) UsrOverlay(ctx context.Context) error {
 	args := []string{"usr-overlay"}

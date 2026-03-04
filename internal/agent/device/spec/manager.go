@@ -312,6 +312,16 @@ func (s *manager) Rollback(ctx context.Context, opts ...RollbackOption) error {
 		opt(cfg)
 	}
 
+	// handle OS rollback when caller has detected an OS mismatch
+	if cfg.osRollback {
+		current, err := s.Read(Current)
+		if err != nil {
+			return err
+		}
+		s.logAudit(ctx, current, s.cache.getRenderedVersion(Desired), current.Version(), audit.ResultSuccess, audit.ReasonOSRollback, audit.TypeDesired)
+		return s.osClient.Rollback(ctx)
+	}
+
 	failedDesiredVersion := s.cache.getRenderedVersion(Desired)
 
 	if cfg.setFailed {
@@ -484,6 +494,19 @@ func (s *manager) isNewDesiredVersion(desired *v1beta1.Device) bool {
 
 func (s *manager) IsOSUpdate() bool {
 	return s.cache.getOSVersion(Current) != s.cache.getOSVersion(Desired)
+}
+
+func (s *manager) IsOSRollback(ctx context.Context) (bool, error) {
+	currentOS := s.cache.getOSVersion(Current)
+	if currentOS == "" {
+		return false, nil
+	}
+	osStatus, err := s.osClient.Status(ctx)
+	if err != nil {
+		return false, err
+	}
+	bootedOS := osStatus.GetBootedImage()
+	return bootedOS != "" && bootedOS != currentOS, nil
 }
 
 func (s *manager) IsOSUpdatePending(ctx context.Context) (bool, error) {
@@ -714,7 +737,8 @@ func (s *manager) logAudit(ctx context.Context, device *v1beta1.Device, oldVersi
 }
 
 type rollbackConfig struct {
-	setFailed bool
+	setFailed  bool
+	osRollback bool
 }
 
 type RollbackOption func(*rollbackConfig)
@@ -723,5 +747,13 @@ type RollbackOption func(*rollbackConfig)
 func WithSetFailed() RollbackOption {
 	return func(cfg *rollbackConfig) {
 		cfg.setFailed = true
+	}
+}
+
+// WithOS signals that an OS rollback is required. The caller has already
+// verified via IsOSRollback that the booted image does not match the current spec.
+func WithOS() RollbackOption {
+	return func(cfg *rollbackConfig) {
+		cfg.osRollback = true
 	}
 }
