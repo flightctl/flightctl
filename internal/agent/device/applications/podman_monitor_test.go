@@ -11,6 +11,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/samber/lo"
+	"github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
+
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
@@ -20,10 +25,6 @@ import (
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/test/util"
-	"github.com/samber/lo"
-	"github.com/sirupsen/logrus"
-	"github.com/stretchr/testify/require"
-	"go.uber.org/mock/gomock"
 )
 
 func streamDataToStdout(t *testing.T, reader io.Reader) *exec.Cmd {
@@ -97,7 +98,23 @@ func TestListenForEvents(t *testing.T) {
 			},
 			expectedReady:   "1/2",
 			expectedStatus:  v1beta1.ApplicationStatusRunning,
-			expectedSummary: v1beta1.ApplicationsSummaryStatusDegraded,
+			expectedSummary:  v1beta1.ApplicationsSummaryStatusDegraded,
+		},
+		{
+			name: "all containers stop with exit code 0 should result in error",
+			apps: []Application{
+				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
+			},
+			events: []client.PodmanEvent{
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "start"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "start"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "die"),
+				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-2", "die"),
+			},
+			expectedReady:    "0/2",
+			expectedStatus:   v1beta1.ApplicationStatusError,
+			expectedSummary:  v1beta1.ApplicationsSummaryStatusError,
+			expectedRestarts: 0,
 		},
 		{
 			name: "single app start then die",
@@ -222,10 +239,16 @@ func TestListenForEvents(t *testing.T) {
 			mockComposeHandler.EXPECT().Execute(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 			mockQuadletHandler.EXPECT().Execute(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
-			var testInspect []client.PodmanInspect
-			restartsPerContainer := 3
-			testInspect = append(testInspect, mockPodmanInspect(restartsPerContainer))
-			inspectBytes, err := json.Marshal(testInspect)
+			inspectData := []map[string]interface{}{
+				{
+					"RestartCount": 3,
+					"State": map[string]interface{}{
+						"ExitCode":   0,
+						"FinishedAt": "2024-03-04T12:00:00Z",
+					},
+				},
+			}
+			inspectBytes, err := json.Marshal(inspectData)
 			require.NoError(err)
 
 			// create a pipe to simulate events being written to the monitor
@@ -482,11 +505,6 @@ func createMockPodmanEvent(name string, username v1beta1.Username, service, stat
 	return event
 }
 
-func mockPodmanInspect(restarts int) client.PodmanInspect {
-	return client.PodmanInspect{
-		Restarts: restarts,
-	}
-}
 
 func BenchmarkGenerateAppID(b *testing.B) {
 	// bench different string length

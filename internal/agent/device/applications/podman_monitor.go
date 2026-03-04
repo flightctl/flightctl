@@ -587,7 +587,10 @@ func (m *PodmanMonitor) resolveStatus(status string, inspectData []client.Podman
 	// podman events don't properly event exited in the case where the container exits 0.
 	if initialStatus == StatusDie || initialStatus == StatusDied {
 		if len(inspectData) > 0 && inspectData[0].State.ExitCode == 0 && inspectData[0].State.FinishedAt != "" {
-			return StatusExited
+			// By not returning StatusExited, a container that exits with code 0 will remain in a "died" state.
+			// This will cause the application to report an "Error" status, which is more
+			// accurate for a manually stopped service than "Completed".
+			return initialStatus
 		}
 	}
 	return initialStatus
