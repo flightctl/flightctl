@@ -1,4 +1,4 @@
-# etc/flightctl/flightctl-grafana/provisioning/datasources/prometheus.yaml
+# /etc/flightctl/flightctl-grafana/provisioning/datasources/prometheus.yaml
 apiVersion: 1
 
 datasources:
