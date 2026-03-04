@@ -43,14 +43,28 @@ func (p *ServiceLifecycleProvider) runSystemctl(args ...string) (string, error) 
 	return string(output), err
 }
 
+// isKnownInactiveOutput returns true if the trimmed systemctl is-active output
+// is a normal non-active state (inactive, unknown), so the caller can treat it as (false, nil).
+func isKnownInactiveOutput(trimmed string) bool {
+	switch strings.ToLower(trimmed) {
+	case "inactive", "unknown":
+		return true
+	default:
+		return false
+	}
+}
+
 // IsRunning checks if a service is currently running.
 func (p *ServiceLifecycleProvider) IsRunning(service infra.ServiceName) (bool, error) {
 	unit := p.serviceToSystemdUnit(service)
 
 	output, err := p.runSystemctl("is-active", unit)
 	if err != nil {
-		// is-active returns non-zero for inactive services
-		return false, nil
+		trimmed := strings.TrimSpace(output)
+		if isKnownInactiveOutput(trimmed) {
+			return false, nil
+		}
+		return false, fmt.Errorf("systemctl is-active %s: %w", unit, err)
 	}
 
 	status := strings.TrimSpace(output)
@@ -79,6 +93,9 @@ func (p *ServiceLifecycleProvider) Stop(service infra.ServiceName) error {
 		return fmt.Errorf("failed to stop %s: %w", unit, err)
 	}
 
+	if p.infra != nil {
+		p.infra.InvalidateExposeCache(service)
+	}
 	logrus.Infof("Quadlet: stopped service %s", unit)
 	return nil
 }
@@ -112,6 +129,9 @@ func (p *ServiceLifecycleProvider) WaitForReady(service infra.ServiceName, timeo
 			logrus.Infof("Quadlet: service %s is ready", unit)
 			return nil
 		}
+		if err != nil && !isKnownInactiveOutput(strings.TrimSpace(output)) {
+			return fmt.Errorf("checking %s: %w", unit, err)
+		}
 		time.Sleep(polling)
 	}
 
@@ -121,7 +141,15 @@ func (p *ServiceLifecycleProvider) WaitForReady(service infra.ServiceName, timeo
 // AreServicesHealthy checks if all flightctl services are healthy by checking the flightctl.target.
 func (p *ServiceLifecycleProvider) AreServicesHealthy() (bool, error) {
 	output, err := p.runSystemctl("is-active", "flightctl.target")
-	if err != nil || !strings.EqualFold(strings.TrimSpace(output), "active") {
+	if err != nil {
+		trimmed := strings.TrimSpace(output)
+		if isKnownInactiveOutput(trimmed) {
+			logrus.Warnf("Quadlet: flightctl.target is not active")
+			return false, nil
+		}
+		return false, fmt.Errorf("systemctl is-active flightctl.target: %w", err)
+	}
+	if !strings.EqualFold(strings.TrimSpace(output), "active") {
 		logrus.Warnf("Quadlet: flightctl.target is not active")
 		return false, nil
 	}

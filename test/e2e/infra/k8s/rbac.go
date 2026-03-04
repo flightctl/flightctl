@@ -14,6 +14,7 @@ import (
 	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 )
 
@@ -26,37 +27,36 @@ const (
 
 // RBACProvider implements infra.RBACProvider for Kubernetes environments.
 type RBACProvider struct {
-	client kubernetes.Interface
+	client      kubernetes.Interface
+	releaseName string // external namespace / release name for io.flightctl/instance label
 }
 
 // NewRBACProvider creates a new K8s RBACProvider.
+// releaseName is the external namespace (e.g. from InfraProvider.GetExternalNamespace()) used for CreateOrganization labels; may be empty.
 // If client is nil, it will be created from the default kubeconfig.
-func NewRBACProvider(client kubernetes.Interface) (*RBACProvider, error) {
-	if client != nil {
-		return &RBACProvider{client: client}, nil
-	}
-
-	// Create client from kubeconfig
-	kubeconfig := os.Getenv("KUBECONFIG")
-	if kubeconfig == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return nil, fmt.Errorf("failed to get home directory: %w", err)
+func NewRBACProvider(client kubernetes.Interface, releaseName string) (*RBACProvider, error) {
+	if client == nil {
+		var err error
+		kubeconfig := os.Getenv("KUBECONFIG")
+		if kubeconfig == "" {
+			var home string
+			home, err = os.UserHomeDir()
+			if err != nil {
+				return nil, fmt.Errorf("failed to get home directory: %w", err)
+			}
+			kubeconfig = filepath.Join(home, ".kube", "config")
 		}
-		kubeconfig = filepath.Join(home, ".kube", "config")
+		var config *rest.Config
+		config, err = clientcmd.BuildConfigFromFlags("", kubeconfig)
+		if err != nil {
+			return nil, fmt.Errorf("failed to build kubeconfig: %w", err)
+		}
+		client, err = kubernetes.NewForConfig(config)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create kubernetes client: %w", err)
+		}
 	}
-
-	config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
-	if err != nil {
-		return nil, fmt.Errorf("failed to build kubeconfig: %w", err)
-	}
-
-	client, err = kubernetes.NewForConfig(config)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create kubernetes client: %w", err)
-	}
-
-	return &RBACProvider{client: client}, nil
+	return &RBACProvider{client: client, releaseName: releaseName}, nil
 }
 
 // CreateRole creates a Role in the specified namespace.
@@ -260,46 +260,67 @@ func (p *RBACProvider) DeleteClusterRoleBinding(ctx context.Context, name string
 	return nil
 }
 
-// CreateNamespace creates a namespace with the given labels.
-func (p *RBACProvider) CreateNamespace(ctx context.Context, name string, labels map[string]string) error {
+// CreateOrganization creates a namespace with the release label so the API treats it as an organization.
+func (p *RBACProvider) CreateOrganization(ctx context.Context, name string) error {
 	if ctx == nil {
 		return errors.New("context cannot be nil")
 	}
 	if name == "" {
-		return errors.New("namespace name cannot be empty")
+		return errors.New("organization name cannot be empty")
 	}
-
+	labels := map[string]string{}
+	if p.releaseName != "" {
+		labels[infra.OrgLabelKey] = p.releaseName
+	}
 	ns := &corev1.Namespace{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:   name,
 			Labels: labels,
 		},
 	}
-
 	_, err := p.client.CoreV1().Namespaces().Create(ctx, ns, metav1.CreateOptions{})
 	if err != nil {
-		return fmt.Errorf("failed to create namespace %s: %w", name, err)
+		return fmt.Errorf("failed to create organization (namespace) %s: %w", name, err)
 	}
-
-	logrus.Infof("K8s RBAC: created namespace %s", name)
+	logrus.Infof("K8s RBAC: created organization %s", name)
 	return nil
 }
 
-// DeleteNamespace deletes a namespace.
-func (p *RBACProvider) DeleteNamespace(ctx context.Context, name string) error {
+// AddUserToOrg grants the user access to the organization by binding them to the built-in view ClusterRole in that namespace.
+func (p *RBACProvider) AddUserToOrg(ctx context.Context, orgName, userName string) error {
+	rb := &rbacv1.RoleBinding{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "view-role-binding",
+			Namespace: orgName,
+		},
+		RoleRef: rbacv1.RoleRef{
+			APIGroup: rbacAPIGroup,
+			Kind:     "ClusterRole",
+			Name:     "view",
+		},
+		Subjects: []rbacv1.Subject{{Kind: rbacv1.UserKind, APIGroup: rbacAPIGroup, Name: userName}},
+	}
+	_, err := p.client.RbacV1().RoleBindings(orgName).Create(ctx, rb, metav1.CreateOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to create view role binding in namespace %s: %w", orgName, err)
+	}
+	logrus.Infof("K8s RBAC: added user %s to org %s (view role binding)", userName, orgName)
+	return nil
+}
+
+// DeleteOrganization deletes the namespace (organization).
+func (p *RBACProvider) DeleteOrganization(ctx context.Context, name string) error {
 	if ctx == nil {
 		return errors.New("context cannot be nil")
 	}
 	if name == "" {
-		return errors.New("namespace name cannot be empty")
+		return errors.New("organization name cannot be empty")
 	}
-
 	err := p.client.CoreV1().Namespaces().Delete(ctx, name, metav1.DeleteOptions{})
 	if err != nil {
-		return fmt.Errorf("failed to delete namespace %s: %w", name, err)
+		return fmt.Errorf("failed to delete organization (namespace) %s: %w", name, err)
 	}
-
-	logrus.Infof("K8s RBAC: deleted namespace %s", name)
+	logrus.Infof("K8s RBAC: deleted organization %s", name)
 	return nil
 }
 
@@ -330,8 +351,9 @@ func (p *RBACProvider) buildClusterRole(spec *infra.RoleSpec) *rbacv1.ClusterRol
 	}
 }
 
-// buildRoleBinding converts RoleBindingSpec to rbacv1.RoleBinding.
+// buildRoleBinding converts RoleBindingSpec to rbacv1.RoleBinding (namespaced Role only; use AddUserToOrg for view/ClusterRole).
 func (p *RBACProvider) buildRoleBinding(spec *infra.RoleBindingSpec) *rbacv1.RoleBinding {
+	subject := p.buildSubject(spec)
 	return &rbacv1.RoleBinding{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      spec.Name,
@@ -342,17 +364,13 @@ func (p *RBACProvider) buildRoleBinding(spec *infra.RoleBindingSpec) *rbacv1.Rol
 			Kind:     "Role",
 			Name:     spec.RoleName,
 		},
-		Subjects: []rbacv1.Subject{
-			{
-				Kind: "User",
-				Name: spec.Subject,
-			},
-		},
+		Subjects: []rbacv1.Subject{subject},
 	}
 }
 
 // buildClusterRoleBinding converts RoleBindingSpec to rbacv1.ClusterRoleBinding.
 func (p *RBACProvider) buildClusterRoleBinding(spec *infra.RoleBindingSpec) *rbacv1.ClusterRoleBinding {
+	subject := p.buildSubject(spec)
 	return &rbacv1.ClusterRoleBinding{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: spec.Name,
@@ -362,12 +380,25 @@ func (p *RBACProvider) buildClusterRoleBinding(spec *infra.RoleBindingSpec) *rba
 			Kind:     "ClusterRole",
 			Name:     spec.RoleName,
 		},
-		Subjects: []rbacv1.Subject{
-			{
-				Kind: "User",
-				Name: spec.Subject,
-			},
-		},
+		Subjects: []rbacv1.Subject{subject},
+	}
+}
+
+func (p *RBACProvider) buildSubject(spec *infra.RoleBindingSpec) rbacv1.Subject {
+	if spec.SubjectKind == "ServiceAccount" {
+		ns := spec.SubjectNamespace
+		if ns == "" {
+			ns = spec.Namespace
+		}
+		return rbacv1.Subject{
+			Kind:      rbacv1.ServiceAccountKind,
+			Name:      spec.Subject,
+			Namespace: ns,
+		}
+	}
+	return rbacv1.Subject{
+		Kind: rbacv1.UserKind,
+		Name: spec.Subject,
 	}
 }
 
@@ -375,8 +406,17 @@ func (p *RBACProvider) buildClusterRoleBinding(spec *infra.RoleBindingSpec) *rba
 func (p *RBACProvider) buildPolicyRules(permissions []infra.Permission) []rbacv1.PolicyRule {
 	rules := make([]rbacv1.PolicyRule, 0, len(permissions))
 	for _, perm := range permissions {
+		var apiGroup string
+		switch perm.ApiGroup {
+		case infra.CoreAPIGroup:
+			apiGroup = "" // Kubernetes core API (e.g. secrets)
+		case "":
+			apiGroup = flightctlAPIGroup
+		default:
+			apiGroup = perm.ApiGroup
+		}
 		rules = append(rules, rbacv1.PolicyRule{
-			APIGroups: []string{flightctlAPIGroup},
+			APIGroups: []string{apiGroup},
 			Resources: perm.Resources,
 			Verbs:     perm.Verbs,
 		})

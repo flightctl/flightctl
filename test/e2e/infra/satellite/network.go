@@ -18,26 +18,44 @@ func init() {
 
 // ConfigureDockerHost sets up the container runtime environment for testcontainers.
 func ConfigureDockerHost() {
-	if existing := os.Getenv("DOCKER_HOST"); existing != "" {
-		configureProviderSettings(existing)
-		return
+	dockerHost := os.Getenv("DOCKER_HOST")
+	if dockerHost == "" {
+		socketPath := detectContainerSocket()
+		if socketPath == "" {
+			logrus.Warn("[satellite] Could not detect container socket")
+			return
+		}
+		dockerHost = fmt.Sprintf("unix://%s", socketPath)
+		_ = os.Setenv("DOCKER_HOST", dockerHost)
 	}
-	socketPath := detectContainerSocket()
-	if socketPath == "" {
-		logrus.Warn("[satellite] Could not detect container socket")
-		return
-	}
-	dockerHost := fmt.Sprintf("unix://%s", socketPath)
-	_ = os.Setenv("DOCKER_HOST", dockerHost)
 	configureProviderSettings(dockerHost)
+	logContainerRuntime(dockerHost)
+}
+
+// logContainerRuntime logs the detected runtime so CI/local logs show whether we use Docker or Podman.
+func logContainerRuntime(dockerHost string) {
+	runtime := "docker"
+	if strings.Contains(dockerHost, "podman") {
+		runtime = "podman"
+	}
+	ryuk := "enabled"
+	if os.Getenv("TESTCONTAINERS_RYUK_DISABLED") == "true" {
+		ryuk = "disabled"
+	}
+	logrus.Infof("[satellite] Container runtime: %s (DOCKER_HOST=%s), Ryuk %s", runtime, dockerHost, ryuk)
 }
 
 func configureProviderSettings(dockerHost string) {
-	if strings.Contains(dockerHost, "podman") {
+	// Disable Ryuk so reused satellite containers (registry, git, prometheus) are not reaped when
+	// one suite process exits; later suites (different process) can reuse them. We already set
+	// SkipReaper on those containers, but disabling Ryuk avoids any cross-process reaping.
+	if os.Getenv("TESTCONTAINERS_RYUK_DISABLED") == "" {
 		os.Setenv("TESTCONTAINERS_RYUK_DISABLED", "true")
-		if os.Getenv("DOCKER_API_VERSION") == "" {
-			os.Setenv("DOCKER_API_VERSION", "1.43")
-		}
+	}
+	// Podman's API version negotiation can report 1.40; testcontainers and some ops (e.g. platform) need 1.41+.
+	// Force 1.43 so the Docker client uses a compatible API with Podman.
+	if strings.Contains(dockerHost, "podman") && os.Getenv("DOCKER_API_VERSION") == "" {
+		os.Setenv("DOCKER_API_VERSION", "1.43")
 	}
 }
 

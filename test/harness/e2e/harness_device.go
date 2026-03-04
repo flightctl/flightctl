@@ -953,8 +953,8 @@ func (h *Harness) AddConfigToDeviceWithRetries(deviceId string, config v1beta1.C
 		specs = append(specs, config)
 		device.Spec.Config = &specs
 		logrus.WithFields(logrus.Fields{
-			"deviceId": deviceId,
-			"config":   device.Spec.Config,
+			"deviceId":        deviceId,
+			"configProviders": len(specs),
 		}).Info("Updating device with new config")
 	})
 }
@@ -965,8 +965,8 @@ func (h *Harness) UpdateDeviceConfigWithRetries(deviceId string, configs []v1bet
 	err := h.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
 		device.Spec.Config = &configs
 		logrus.WithFields(logrus.Fields{
-			"deviceId": deviceId,
-			"config":   device.Spec.Config,
+			"deviceId":        deviceId,
+			"configProviders": len(configs),
 		}).Info("Updating device with new config")
 	})
 	if err != nil {
