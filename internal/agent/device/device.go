@@ -241,19 +241,19 @@ func (a *Agent) syncDeviceSpec(ctx context.Context) {
 		if err := a.updatedStatus(ctx, desired); err != nil {
 			a.log.Warnf("Failed updating status: %v", err)
 		}
+		a.pruningManager.RequestPrune()
 	} else {
 		a.log.Debug("No upgrade in progress, skipping status update")
-		if !a.pruningManager.PrunePending() {
-			return
-		}
 	}
 
 	// execute pruning after successful spec application and update
 	// All managers have read and applied the spec changes, and the spec files have been updated
 	// Pruning errors are logged but don't block reconciliation
-	if err := a.pruningManager.Prune(ctx); err != nil {
-		a.log.Warnf("Pruning completed with errors: %v", err)
-		// Don't return error - pruning failures must not block reconciliation
+	if a.pruningManager.PrunePending() {
+		if err := a.pruningManager.Prune(ctx); err != nil {
+			a.log.Warnf("Pruning completed with errors: %v", err)
+			// Don't return error - pruning failures must not block reconciliation
+		}
 	}
 }
 
