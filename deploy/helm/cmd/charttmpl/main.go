@@ -43,22 +43,22 @@ const (
 func runTemplate(in string, out string, templateData templateContext) error {
 	tplBytes, err := os.ReadFile(in)
 	if err != nil {
-		return fmt.Errorf("reading template %s: %v", in, err)
+		return fmt.Errorf("reading template %s: %w", in, err)
 	}
 
 	tpl, err := template.New(in).Option("missingkey=error").Parse(string(tplBytes))
 	if err != nil {
-		return fmt.Errorf("parsing template %s: %v", in, err)
+		return fmt.Errorf("parsing template %s: %w", in, err)
 	}
 
 	outFile, err := os.Create(out)
 	if err != nil {
-		return fmt.Errorf("creating output %s: %v", out, err)
+		return fmt.Errorf("creating output %s: %w", out, err)
 	}
 	defer outFile.Close()
 
 	if err := tpl.Execute(outFile, templateData); err != nil {
-		return fmt.Errorf("executing template %s: %v", out, err)
+		return fmt.Errorf("executing template %s: %w", out, err)
 	}
 	return nil
 }
