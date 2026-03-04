@@ -267,7 +267,7 @@ func (h *Harness) Cleanup(printConsole bool) {
 		Expect(err).ToNot(HaveOccurred())
 	}
 
-	// Callers that create git repos must call CleanupGitRepositories(config, sshPrivateKeyPath) before Cleanup.
+	// Callers that create git repos must call CleanupGitRepositories(config, keyPath) before Cleanup.
 
 	diffTime := time.Since(h.startTime)
 	fmt.Printf("Test took %s\n", diffTime)
@@ -1598,7 +1598,7 @@ func (h *Harness) SetLabelsForRepositoryMetadata(metadata *v1beta1.ObjectMeta, l
 }
 
 // CreateFleetConfigInGitRepo creates a fleet configuration and pushes it to a git repository.
-func (h *Harness) CreateFleetConfigInGitRepo(config GitServerConfig, sshPrivateKeyPath, repoName, fleetName string, fleetSpec v1beta1.FleetSpec) error {
+func (h *Harness) CreateFleetConfigInGitRepo(config GitServerConfig, keyPath util.SSHPrivateKeyPath, repoName, fleetName string, fleetSpec v1beta1.FleetSpec) error {
 	fleet := v1beta1.Fleet{
 		ApiVersion: v1beta1.FleetAPIVersion,
 		Kind:       v1beta1.FleetKind,
@@ -1616,11 +1616,11 @@ func (h *Harness) CreateFleetConfigInGitRepo(config GitServerConfig, sshPrivateK
 	filePath := fmt.Sprintf("fleets/%s.yaml", fleetName)
 	commitMessage := fmt.Sprintf("Add fleet configuration: %s", fleetName)
 
-	return h.PushContentToGitServerRepo(config, sshPrivateKeyPath, repoName, filePath, string(fleetYAML), commitMessage)
+	return h.PushContentToGitServerRepo(config, keyPath, repoName, filePath, string(fleetYAML), commitMessage)
 }
 
 // CreateDeviceConfigInGitRepo creates a device configuration and pushes it to a git repository.
-func (h *Harness) CreateDeviceConfigInGitRepo(config GitServerConfig, sshPrivateKeyPath, repoName, deviceName string, deviceSpec v1beta1.DeviceSpec) error {
+func (h *Harness) CreateDeviceConfigInGitRepo(config GitServerConfig, keyPath util.SSHPrivateKeyPath, repoName, deviceName string, deviceSpec v1beta1.DeviceSpec) error {
 	device := v1beta1.Device{
 		ApiVersion: v1beta1.DeviceAPIVersion,
 		Kind:       v1beta1.DeviceKind,
@@ -1638,7 +1638,7 @@ func (h *Harness) CreateDeviceConfigInGitRepo(config GitServerConfig, sshPrivate
 	filePath := fmt.Sprintf("devices/%s.yaml", deviceName)
 	commitMessage := fmt.Sprintf("Add device configuration: %s", deviceName)
 
-	return h.PushContentToGitServerRepo(config, sshPrivateKeyPath, repoName, filePath, string(deviceYAML), commitMessage)
+	return h.PushContentToGitServerRepo(config, keyPath, repoName, filePath, string(deviceYAML), commitMessage)
 }
 
 // WaitForResourceSyncStatus waits for a ResourceSync to reach a specific status
@@ -1686,10 +1686,10 @@ func (h *Harness) GetGitRepoURL(repoName string) (string, error) {
 }
 
 // CleanupGitRepositories removes all git repositories created by the harness.
-// Callers pass the same config and sshPrivateKeyPath used when creating repos.
-func (h *Harness) CleanupGitRepositories(config GitServerConfig, sshPrivateKeyPath string) error {
+// Callers pass the same config and keyPath used when creating repos.
+func (h *Harness) CleanupGitRepositories(config GitServerConfig, keyPath util.SSHPrivateKeyPath) error {
 	for repoName := range h.gitRepos {
-		if err := h.DeleteGitRepositoryOnServer(config, sshPrivateKeyPath, repoName); err != nil {
+		if err := h.DeleteGitRepositoryOnServer(config, keyPath, repoName); err != nil {
 			logrus.Errorf("Failed to remove git repository %s: %v", repoName, err)
 		} else {
 			logrus.Infof("Cleaned up git repository %s", repoName)
@@ -1708,15 +1708,15 @@ func (h *Harness) CleanupGitRepositories(config GitServerConfig, sshPrivateKeyPa
 }
 
 // CreateGitRepositoryWithContent creates a git repository with initial content.
-// Callers pass config and sshPrivateKeyPath from infra/util.
-func (h *Harness) CreateGitRepositoryWithContent(config GitServerConfig, sshPrivateKeyPath, repoName, filePath, content string, repositorySpec v1beta1.RepositorySpec) error {
-	if err := h.CreateGitRepository(config, sshPrivateKeyPath, repoName, repositorySpec); err != nil {
+// Callers pass config and keyPath from infra (e.g. satellite).
+func (h *Harness) CreateGitRepositoryWithContent(config GitServerConfig, keyPath util.SSHPrivateKeyPath, repoName, filePath, content string, repositorySpec v1beta1.RepositorySpec) error {
+	if err := h.CreateGitRepository(config, keyPath, repoName, repositorySpec); err != nil {
 		return fmt.Errorf("failed to create git repository: %w", err)
 	}
 
 	if filePath != "" && content != "" {
-		if err := h.PushContentToGitServerRepo(config, sshPrivateKeyPath, repoName, filePath, content, "Initial commit"); err != nil {
-			if cleanupErr := h.DeleteGitRepositoryOnServer(config, sshPrivateKeyPath, repoName); cleanupErr != nil {
+		if err := h.PushContentToGitServerRepo(config, keyPath, repoName, filePath, content, "Initial commit"); err != nil {
+			if cleanupErr := h.DeleteGitRepositoryOnServer(config, keyPath, repoName); cleanupErr != nil {
 				logrus.Errorf("failed to delete git repository %s: %v", repoName, cleanupErr)
 			}
 			return fmt.Errorf("failed to push initial content: %w", err)

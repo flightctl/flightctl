@@ -172,6 +172,7 @@ e2e-test: deploy prepare-e2e-qcow-config
 # Set GINKGO_OUTPUT_INTERCEPTOR_MODE to control parallel output (defaults to "dup" for full output)
 # Example: make run-e2e-test GO_E2E_DIRS=test/e2e/agent GINKGO_PROCS=4
 # Example: make run-e2e-test GO_E2E_DIRS=test/e2e/agent GINKGO_OUTPUT_INTERCEPTOR_MODE=swap
+# Set GINKGO_KEEP_GOING=true to run all suites even when one fails (default: stop after first suite failure).
 run-e2e-test:
 	$(ENV_TRACE_FLAGS) $(MAKE) _e2e_test
 

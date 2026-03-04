@@ -319,13 +319,9 @@ make in-cluster-e2e-test
 The `BREW_BUILD_URL` should be a valid URL to the Red Hat Brew system task page. Both the agent image and CLI will be built
 using the RPMs downloaded from the specified brew URL.
 
-#### OpenShift namespace (single-namespace deploy)
+#### OpenShift namespace
 
-On OCP, Flight Control is often deployed in a **single namespace** (e.g. `flightctl`), while on kind the chart may use multiple namespaces (e.g. `flightctl-internal`, `flightctl-external`). The e2e infra resolves "external" services (e.g. alertmanager-proxy, telemetry-gateway) to the main namespace when the environment is OCP, so no extra config is needed. To pin the namespace on OCP, set:
-
-```bash
-export E2E_NAMESPACE=flightctl
-```
+The e2e infra in `test/e2e/infra/` discovers namespaces from the cluster by finding pods with labels `flightctl.service=flightctl-api` (external) and `flightctl.service=flightctl-worker` (internal), so you usually do not need to set any namespace. Set **`FLIGHTCTL_NS`** only when you need to override (e.g. the e2e login flow uses it to run `kubectl create token` in the right namespace, or CI pins a namespace). `satellite.Get()` / `satellite.SetEnvVars()` set `REGISTRY_ENDPOINT` only and do not use namespace variables.
 
 (Optional: set `E2E_ENVIRONMENT=ocp` so the environment is not auto-detected.)
 

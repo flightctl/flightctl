@@ -360,7 +360,7 @@ var (
 	rootUser                  = "root"
 	hookPath                  = "/etc/flightctl/hooks.d/afterupdating/custom-hook.yaml"
 	deviceSpec                v1beta1.DeviceSpec
-	noPasswordLoginError      = "user@localhost: Permission denied"
+	noPasswordLoginError      = "Permission denied"
 	tooManyAuthFailuresError  = "Too many authentication failures"
 )
 

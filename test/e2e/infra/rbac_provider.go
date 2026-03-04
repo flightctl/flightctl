@@ -6,12 +6,19 @@ import (
 )
 
 // Permission defines access to resources.
-// K8s uses Resources and Verbs to build PolicyRules.
+// K8s uses Resources, Verbs, and ApiGroup to build PolicyRules (ApiGroup "" is core API).
 // PAM ignores this (permissions are implicit based on role name).
 type Permission struct {
 	Resources []string
 	Verbs     []string
+	ApiGroup  string // K8s: CoreAPIGroup for core (e.g. secrets), "" defaults to flightctl.io; PAM ignores
 }
+
+// CoreAPIGroup is the sentinel for Kubernetes core API group (e.g. secrets). Use in Permission.ApiGroup.
+const CoreAPIGroup = "core"
+
+// OrgLabelKey is the namespace/project label key for the Flight Control release (K8s: io.flightctl/instance=<releaseName>).
+const OrgLabelKey = "io.flightctl/instance"
 
 // RoleSpec defines a role with permissions.
 type RoleSpec struct {
@@ -20,12 +27,16 @@ type RoleSpec struct {
 	Permissions []Permission
 }
 
-// RoleBindingSpec binds a subject (user) to a role.
+// RoleBindingSpec binds a subject (user or service account) to a role.
 type RoleBindingSpec struct {
 	Name      string
 	Namespace string // empty for cluster-scoped
 	RoleName  string
-	Subject   string // username
+	Subject   string // user name or service account name
+	// SubjectKind: "User" (default) or "ServiceAccount"
+	SubjectKind string
+	// SubjectNamespace: required when SubjectKind is ServiceAccount (namespace of the SA)
+	SubjectNamespace string
 }
 
 // RBACProvider abstracts RBAC operations for different environments.
@@ -81,13 +92,12 @@ type RBACProvider interface {
 	// PAM: removes user from group via gpasswd -d
 	DeleteClusterRoleBinding(ctx context.Context, name string) error
 
-	// CreateNamespace creates a namespace.
-	// K8s: creates Namespace resource
-	// PAM: no-op
-	CreateNamespace(ctx context.Context, name string, labels map[string]string) error
+	// CreateOrganization creates an organization (K8s: namespace with release label; PAM: org-<name> group).
+	CreateOrganization(ctx context.Context, name string) error
 
-	// DeleteNamespace deletes a namespace.
-	// K8s: deletes Namespace resource
-	// PAM: no-op
-	DeleteNamespace(ctx context.Context, name string) error
+	// AddUserToOrg grants the user access to the organization (K8s: view RoleBinding in namespace; PAM: add user to org-<name> group).
+	AddUserToOrg(ctx context.Context, orgName, userName string) error
+
+	// DeleteOrganization deletes an organization (K8s: namespace; PAM: org-<name> group).
+	DeleteOrganization(ctx context.Context, name string) error
 }

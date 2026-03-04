@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/flightctl/flightctl/test/util"
 	"github.com/sirupsen/logrus"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -96,12 +97,24 @@ func copyGitServerKeysFromContainer(ctx context.Context, container testcontainer
 	return filepath.Join(sshDir, "id_rsa"), nil
 }
 
-// GetSSHPrivateKeyPath returns the path to the SSH private key for git operations.
-// The key is read from the git server container once at start and kept in a temp file.
-func GetSSHPrivateKeyPath() (string, error) {
-	s := Get(context.Background())
+// GetGitSSHPrivateKeyPath returns the path to the SSH private key for git operations.
+// The key is always the one from the satellite git server container (Podman); no deployment secrets.
+func (s *Services) GetGitSSHPrivateKeyPath() (util.SSHPrivateKeyPath, error) {
 	if s.gitServerPrivateKeyPath == "" {
 		return "", fmt.Errorf("git server SSH key not available (git server may not be started)")
 	}
-	return s.gitServerPrivateKeyPath, nil
+	return util.SSHPrivateKeyPath(s.gitServerPrivateKeyPath), nil
+}
+
+// GetGitSSHPrivateKey returns the SSH private key content for git operations.
+func (s *Services) GetGitSSHPrivateKey() (util.SSHPrivateKeyContent, error) {
+	path, err := s.GetGitSSHPrivateKeyPath()
+	if err != nil {
+		return "", err
+	}
+	data, err := os.ReadFile(string(path))
+	if err != nil {
+		return "", fmt.Errorf("failed to read SSH private key from %s: %w", path, err)
+	}
+	return util.SSHPrivateKeyContent(data), nil
 }

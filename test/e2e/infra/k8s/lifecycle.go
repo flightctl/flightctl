@@ -9,6 +9,7 @@ import (
 	"github.com/flightctl/flightctl/test/e2e/infra"
 	"github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 )
@@ -99,6 +100,7 @@ func (p *ServiceLifecycleProvider) Stop(service infra.ServiceName) error {
 	if _, err := p.client.AppsV1().Deployments(ns).Update(ctx, dep, metav1.UpdateOptions{}); err != nil {
 		return fmt.Errorf("failed to scale down %s: %w", deploymentName, err)
 	}
+	p.infraP.InvalidateExposeCache(service)
 	logrus.Infof("K8s: scaled down deployment %s in namespace %s", deploymentName, ns)
 	return nil
 }
@@ -123,12 +125,12 @@ func (p *ServiceLifecycleProvider) Restart(service infra.ServiceName) error {
 	return nil
 }
 
-// WaitForReady waits for a service to be ready (pod Ready, then Service has endpoints).
+// WaitForReady waits for a service to be ready: pod Running and Ready (K8s readiness).
 func (p *ServiceLifecycleProvider) WaitForReady(service infra.ServiceName, timeout time.Duration) error {
 	if p.client == nil {
 		return fmt.Errorf("no Kubernetes client")
 	}
-	svcName, label, ns, err := p.infraP.GetServiceNamespaceAndMetadata(service)
+	_, label, ns, err := p.infraP.GetServiceNamespaceAndMetadata(service)
 	if err != nil {
 		return err
 	}
@@ -144,10 +146,6 @@ func (p *ServiceLifecycleProvider) WaitForReady(service infra.ServiceName, timeo
 			if pod.Status.Phase == corev1.PodRunning {
 				for _, c := range pod.Status.Conditions {
 					if c.Type == corev1.PodReady && c.Status == corev1.ConditionTrue {
-						// Pod is ready; wait for Service endpoints so port-forward has a backend
-						if err := p.waitForServiceEndpoints(ctx, ns, svcName, deadline); err != nil {
-							return err
-						}
 						logrus.Infof("K8s: service %s is ready in namespace %s", service, ns)
 						return nil
 					}
@@ -157,24 +155,6 @@ func (p *ServiceLifecycleProvider) WaitForReady(service infra.ServiceName, timeo
 		time.Sleep(polling)
 	}
 	return fmt.Errorf("timeout waiting for %s to be ready", service)
-}
-
-// waitForServiceEndpoints waits until the Service has at least one ready endpoint.
-func (p *ServiceLifecycleProvider) waitForServiceEndpoints(ctx context.Context, ns, svcName string, deadline time.Time) error {
-	for time.Now().Before(deadline) {
-		eps, err := p.client.CoreV1().Endpoints(ns).Get(ctx, svcName, metav1.GetOptions{})
-		if err != nil {
-			time.Sleep(250 * time.Millisecond)
-			continue
-		}
-		for _, sub := range eps.Subsets {
-			if len(sub.Addresses) > 0 {
-				return nil
-			}
-		}
-		time.Sleep(250 * time.Millisecond)
-	}
-	return fmt.Errorf("timeout waiting for service %s endpoints", svcName)
 }
 
 // AreServicesHealthy checks if all flightctl services are healthy.
@@ -195,9 +175,12 @@ func (p *ServiceLifecycleProvider) AreServicesHealthy() (bool, error) {
 	// Check API (less critical but good to verify)
 	apiHealthy, err := p.isDeploymentHealthy("flightctl-api", apiNS)
 	if err != nil {
-		// API might not exist - worker being healthy is sufficient
-		logrus.Warnf("K8s: could not check flightctl-api: %v", err)
-		return true, nil
+		if apierrors.IsNotFound(err) {
+			// API might not exist - worker being healthy is sufficient
+			logrus.Warnf("K8s: could not check flightctl-api: %v", err)
+			return true, nil
+		}
+		return false, err
 	}
 	return apiHealthy, nil
 }

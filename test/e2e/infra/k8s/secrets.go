@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 
 	"github.com/flightctl/flightctl/test/e2e/infra"
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
@@ -71,4 +73,34 @@ func (p *SecretsProvider) GetSecretDataForService(ctx context.Context, service i
 		return nil, err
 	}
 	return p.GetSecretData(ctx, namespace, secretName, key)
+}
+
+// CreateSecret creates a Secret with the given namespace, name, and string data.
+// Idempotent: if the secret already exists, it is updated to match stringData.
+func (p *SecretsProvider) CreateSecret(ctx context.Context, namespace, name string, stringData map[string]string) error {
+	if namespace == "" || name == "" {
+		return fmt.Errorf("namespace and name are required")
+	}
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: name},
+		StringData: stringData,
+	}
+	_, err := p.client.CoreV1().Secrets(namespace).Create(ctx, secret, metav1.CreateOptions{})
+	if err == nil {
+		return nil
+	}
+	if !apierrors.IsAlreadyExists(err) {
+		return fmt.Errorf("create secret %s/%s: %w", namespace, name, err)
+	}
+	// Update existing secret so content matches (e.g. after cluster restore).
+	existing, getErr := p.client.CoreV1().Secrets(namespace).Get(ctx, name, metav1.GetOptions{})
+	if getErr != nil {
+		return fmt.Errorf("get existing secret %s/%s: %w", namespace, name, getErr)
+	}
+	existing.StringData = stringData
+	_, err = p.client.CoreV1().Secrets(namespace).Update(ctx, existing, metav1.UpdateOptions{})
+	if err != nil {
+		return fmt.Errorf("update secret %s/%s: %w", namespace, name, err)
+	}
+	return nil
 }

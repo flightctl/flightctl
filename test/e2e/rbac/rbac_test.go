@@ -84,18 +84,18 @@ var _ = Describe("RBAC Authorization Tests", Label("rbac", "authorization"), fun
 		testNs1 = fmt.Sprintf("rbac-test-ns1-%s", testID)
 		testNs2 = fmt.Sprintf("rbac-test-ns2-%s", testID)
 
-		GinkgoWriter.Printf("Creating test namespaces: %s and %s\n", testNs1, testNs2)
+		GinkgoWriter.Printf("Creating test organizations: %s and %s\n", testNs1, testNs2)
 		rbac := getRBAC()
-		for _, nsName := range []string{testNs1, testNs2} {
-			err = rbac.CreateNamespace(suiteCtx, nsName, nil)
-			Expect(err).ToNot(HaveOccurred(), fmt.Sprintf("Failed to create test namespace %s", nsName))
-			GinkgoWriter.Printf("Created test namespace: %s\n", nsName)
+		for _, orgName := range []string{testNs1, testNs2} {
+			err = rbac.CreateOrganization(suiteCtx, orgName)
+			Expect(err).ToNot(HaveOccurred(), fmt.Sprintf("Failed to create organization %s", orgName))
+			GinkgoWriter.Printf("Created organization: %s\n", orgName)
 		}
-
-		// Grant the non-admin user the "view" role in both test namespaces
-		By(fmt.Sprintf("Granting %s view role in test namespaces", nonAdminUser))
-		createViewRoleBinding(suiteCtx, rbac, nonAdminUser, testNs1)
-		createViewRoleBinding(suiteCtx, rbac, nonAdminUser, testNs2)
+		By(fmt.Sprintf("Adding %s to test organizations", nonAdminUser))
+		for _, orgName := range []string{testNs1, testNs2} {
+			err = rbac.AddUserToOrg(suiteCtx, orgName, nonAdminUser)
+			Expect(err).ToNot(HaveOccurred(), fmt.Sprintf("Failed to add %s to organization %s", nonAdminUser, orgName))
+		}
 	})
 
 	AfterEach(func() {
@@ -119,10 +119,10 @@ var _ = Describe("RBAC Authorization Tests", Label("rbac", "authorization"), fun
 			_ = rbac.DeleteClusterRoleBinding(suiteCtx, clusterRoleBinding)
 		}
 
-		// Delete test namespaces
-		By(fmt.Sprintf("Deleting test namespaces: %s and %s", testNs1, testNs2))
-		_ = rbac.DeleteNamespace(suiteCtx, testNs1)
-		_ = rbac.DeleteNamespace(suiteCtx, testNs2)
+		// Delete test organizations
+		By(fmt.Sprintf("Deleting test organizations: %s and %s", testNs1, testNs2))
+		_ = rbac.DeleteOrganization(suiteCtx, testNs1)
+		_ = rbac.DeleteOrganization(suiteCtx, testNs2)
 	})
 
 	Context("FlightCtl user", func() {
@@ -260,20 +260,6 @@ var _ = Describe("RBAC Authorization Tests", Label("rbac", "authorization"), fun
 		})
 	})
 })
-
-// createViewRoleBinding creates a view role binding for the specified user in the given namespace.
-// This binds to the built-in "view" ClusterRole.
-func createViewRoleBinding(ctx context.Context, rbac infra.RBACProvider, userName, namespace string) {
-	spec := &infra.RoleBindingSpec{
-		Name:      "view-role-binding",
-		Namespace: namespace,
-		RoleName:  "view", // Built-in ClusterRole
-		Subject:   userName,
-	}
-	err := rbac.CreateRoleBinding(ctx, spec)
-	Expect(err).ToNot(HaveOccurred(), fmt.Sprintf("Failed to create view role binding in namespace %s", namespace))
-	GinkgoWriter.Printf("Granted %s view role in namespace: %s\n", userName, namespace)
-}
 
 // changeNamespaceAndLoginAsNonAdmin logs in as a non-admin user and sets the current org to the one that corresponds to the namespace.
 func changeNamespaceAndLoginAsNonAdmin(harness *e2e.Harness, namespace, userName, k8sContext, k8sApiEndpoint string) {

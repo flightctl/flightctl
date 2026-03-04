@@ -18,6 +18,11 @@ type SecretsProvider interface {
 	// GetSecretDataForService returns the value of a key in a secret for the given service.
 	// K8s: resolves service to namespace internally. Quadlet: returns ErrSecretsNotSupported.
 	GetSecretDataForService(ctx context.Context, service ServiceName, secretName, key string) ([]byte, error)
+
+	// CreateSecret creates a secret with the given namespace, name, and string data (key -> value).
+	// K8s: creates a Secret with StringData; idempotent (no-op if already exists with same data or update as needed).
+	// Quadlet: returns ErrSecretsNotSupported.
+	CreateSecret(ctx context.Context, namespace, name string, stringData map[string]string) error
 }
 
 // ErrSecretsNotSupported is returned when the environment does not support secret storage (e.g. quadlet).

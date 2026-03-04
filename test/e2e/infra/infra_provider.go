@@ -57,6 +57,10 @@ type InfraProvider interface {
 	// The cleanup function must be called when done (e.g., defer cleanup()).
 	ExposeService(service ServiceName, protocol string) (url string, cleanup func(), err error)
 
+	// InvalidateExposeCache closes any cached port-forward for the service and removes it from the cache.
+	// Call before retrying ExposeService so the next call creates a new port-forward (e.g. after Redis restart).
+	InvalidateExposeCache(service ServiceName)
+
 	// ExecInService executes a command in the context of a service.
 	// For K8s: kubectl exec into the service's pod
 	// For Quadlet: direct command execution or SSH
@@ -73,6 +77,16 @@ type InfraProvider interface {
 	// SetServiceConfig writes back config for a service (e.g. config.yaml in ConfigMap).
 	// For K8s: updates ConfigMap data[configKey]; Quadlet: writes config file.
 	SetServiceConfig(service ServiceName, configKey, content string) error
+
+	// GetInternalNamespace returns the namespace where internal services (worker, db, kv, etc.) run.
+	// For K8s: e.g. flightctl-internal when using split namespaces; empty when all in one namespace.
+	// For Quadlet: empty.
+	GetInternalNamespace() string
+
+	// GetExternalNamespace returns the namespace where external services (API, UI, etc.) run (release namespace).
+	// For K8s: the namespace where flightctl-api is deployed; used e.g. for io.flightctl/instance label.
+	// For Quadlet: empty.
+	GetExternalNamespace() string
 }
 
 // DeploymentServiceNames maps deployment/service names (same in K8s and Quadlet) to ServiceName.

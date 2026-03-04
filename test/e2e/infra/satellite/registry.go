@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/flightctl/flightctl/test/util"
 	"github.com/sirupsen/logrus"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -180,4 +181,32 @@ insecure = true
 	_, _ = stdin.Write([]byte(config))
 	stdin.Close()
 	return cmd.Wait()
+}
+
+// GetRegistrySSHPrivateKeyPath returns the path to the pre-generated SSH private key in bin/.ssh.
+// For registry use only. Created by create_e2e_certs.sh.
+func (s *Services) GetRegistrySSHPrivateKeyPath() (util.SSHPrivateKeyPath, error) {
+	projectRoot, err := getProjectRoot()
+	if err != nil {
+		return "", err
+	}
+	p := filepath.Join(projectRoot, "bin", ".ssh", "id_rsa")
+	if _, err := os.Stat(p); err != nil {
+		return "", fmt.Errorf("registry SSH private key not found at %s: %w (run create_e2e_certs.sh)", p, err)
+	}
+	return util.SSHPrivateKeyPath(p), nil
+}
+
+// GetRegistrySSHPublicKeyPath returns the path to the pre-generated SSH public key in bin/.ssh.
+// For registry use only. Created by create_e2e_certs.sh.
+func (s *Services) GetRegistrySSHPublicKeyPath() (string, error) {
+	projectRoot, err := getProjectRoot()
+	if err != nil {
+		return "", err
+	}
+	p := filepath.Join(projectRoot, "bin", ".ssh", "id_rsa.pub")
+	if _, err := os.Stat(p); err != nil {
+		return "", fmt.Errorf("registry SSH public key not found at %s: %w (run create_e2e_certs.sh)", p, err)
+	}
+	return p, nil
 }

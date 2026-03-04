@@ -33,7 +33,7 @@ make in-cluster-e2e-test GO_E2E_DIRS=test/e2e/quadlets FLIGHTCTL_NS=flightctl-ex
   GINKGO_FOCUS="verifies that a quadlets application can be deployed, updated and removed in an edge manager device"
 ```
 
-**Troubleshooting:** If `make in-cluster-e2e-test` fails during `deploy-e2e-extras` with "image not present locally" and then "permission denied" when pulling (e.g. podman creating `/var/lib/containers/storage/libpod`), ensure podman/docker can pull images (e.g. run with appropriate permissions or pre-pull `quay.io/flightctl/e2eregistry:2`).
+**Troubleshooting:** E2E infrastructure (registry, git-server, Prometheus) is provided by testcontainers in [test/e2e/infra/](../infra/) and starts automatically when you run `make in-cluster-e2e-test` or `make e2e-test`. If tests fail with "image not present locally" or "permission denied" when pulling images, ensure podman/docker can pull images (run with appropriate permissions or pre-pull the test images used by the suite).
 
 Or, if the full e2e stack is already up and you have a quadlet VM enrolled:
 
