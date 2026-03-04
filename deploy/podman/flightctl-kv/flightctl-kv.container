@@ -8,9 +8,9 @@ Image={{ .Kv.Image }}:{{ .Kv.Tag }}
 Pull=missing
 Network=flightctl.network
 AddHost=%H:host-gateway
-Exec=/bin/sh -c 'redis-server /usr/local/etc/redis/redis.conf --requirepass $${KV_PASSWORD}'
+Exec=/bin/sh -c 'redis-server /etc/redis/redis.conf --requirepass $${KV_PASSWORD}'
 Secret=flightctl-kv-password,type=env,target=KV_PASSWORD
-Volume=/usr/share/flightctl/flightctl-kv/redis.conf:/usr/local/etc/redis/redis.conf
+Volume=/usr/share/flightctl/flightctl-kv/redis.conf:/etc/redis/redis.conf:ro,Z
 
 [Service]
 Type=notify
