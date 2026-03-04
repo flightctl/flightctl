@@ -86,7 +86,7 @@ Troubleshooting:
 
    Common issues:
    - **SELinux denials**: Check `ausearch -m avc -ts recent` for denials
-   - **Port conflicts**: Ensure ports 3000, 9090, 8888 are available
+   - **Port conflicts**: Ensure ports 3000, 9090, 8080 are available
    - **Storage permissions**: Verify `/var/lib/prometheus` and `/var/lib/grafana` have correct ownership
 
 2. **Prometheus not scraping metrics** - Verify the configuration and check targets:
@@ -108,18 +108,25 @@ The observability stack supports two authentication modes for Grafana: local aut
 
 ### Local Authentication (Default)
 
-By default, Grafana uses local user accounts. The administrator account is configured in `/etc/flightctl/service-config.yaml`:
+By default, Grafana uses local user accounts. The administrator account and optional server settings are configured in `/etc/flightctl/service-config.yaml`:
 
 ```yaml
 observability:
   grafana:
-    local_admin_user: admin
-    local_admin_password: secure-password
+    localAdminUser: admin
+    localAdminPassword: secure-password
+    # Optional server and plugin settings:
+    protocol: https
+    allowedUnsignedPlugins:     # Comma-separated plugin IDs; leave empty for signed-only
 ```
+
+- **`localAdminUser`** and **`localAdminPassword`**: Administrator account credentials.
+- **`protocol`** (default: `https`): Protocol Grafana uses for its server configuration. The Grafana root URL is generated as `protocol://baseDomain:3000` (using the global `baseDomain`). Set to `http` only in development without TLS. There is no separate `rootUrl` setting; the URL is always built from `protocol` and the global `baseDomain`.
+- **`allowedUnsignedPlugins`**: Comma-separated list of Grafana plugin IDs that may load without a signature. Leave empty to allow only signed plugins (e.g. `grafana-piechart-panel,grafana-clock-panel`).
 
 To change the admin password:
 
-1. Edit `/etc/flightctl/service-config.yaml` and update the `local_admin_password` field
+1. Edit `/etc/flightctl/service-config.yaml` and update the `localAdminPassword` field
 2. Restart the Grafana service:
 
    ```console
@@ -150,25 +157,27 @@ Without this proxy, Grafana cannot understand AAP's user API responses and authe
 2. Edit `/etc/flightctl/service-config.yaml`:
 
    ```yaml
-   observability:
-     grafana:
-       oauth:
-         enabled: true
-         client_id: your-aap-oauth-client-id
-         client_secret: your-aap-oauth-client-secret
-         auth_url: https://your-aap.example.com/o/authorize/
-         token_url: https://your-aap.example.com/o/token/
-         api_url: http://flightctl-userinfo-proxy:8888/userinfo
-         scopes: read
-         tls_skip_verify: false
+   grafana:
+     oauth:
+       enabled: true
+       clientId: your-aap-oauth-client-id
+       authUrl: https://your-aap.example.com/o/authorize/
+       tokenUrl: https://your-aap.example.com/o/token/
+       apiUrl: http://flightctl-userinfo-proxy:8080/userinfo
+       scopes: read
+     insecureSkipTlsVerify: false
 
-       # Local admin account remains available as fallback
-       local_admin_user: admin
-       local_admin_password: fallback-password
+     # Local admin account remains available as fallback
+     localAdminUser: admin
+     localAdminPassword: fallback-password
 
-     userinfo_proxy:
-       upstream_url: https://your-aap.example.com/api/gateway/v1/me/
-       skip_tls_verify: false
+     # Optional server and plugin settings
+     protocol: https
+     allowedUnsignedPlugins:     # Comma-separated plugin IDs; leave empty for signed-only
+
+   userinfoProxy:
+     upstreamUrl: https://your-aap.example.com/api/gateway/v1/me/
+     insecureSkipTlsVerify: false
    ```
 
 3. Restart the observability services:
@@ -179,9 +188,9 @@ Without this proxy, Grafana cannot understand AAP's user API responses and authe
 
 **Configuration Notes**:
 
-- `api_url` must point to the UserInfo Proxy's internal endpoint: `http://flightctl-userinfo-proxy:8888/userinfo`
-- `upstream_url` should point to your AAP instance's user API endpoint
-- Set `skip_tls_verify: true` only for development environments with self-signed certificates
+- `apiUrl` must point to the UserInfo Proxy's internal endpoint: `http://flightctl-userinfo-proxy:8080/userinfo`
+- `upstreamUrl` should point to your AAP instance's user API endpoint
+- Set `insecureSkipTlsVerify: true` only for development environments with self-signed certificates
 - The local admin account remains available as a fallback if OAuth becomes unavailable
 
 #### Role Mapping
@@ -193,6 +202,12 @@ The UserInfo Proxy maps AAP user permissions to Grafana roles:
 | `is_superuser: true` | Admin |
 | `is_platform_auditor: true` | Editor |
 | Neither | Viewer |
+
+After changing any Grafana configuration, restart Grafana:
+
+```console
+sudo systemctl restart flightctl-grafana.service
+```
 
 ## Persistent Data
 
