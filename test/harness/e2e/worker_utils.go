@@ -46,6 +46,20 @@ func SetupWorkerHarness() (*Harness, context.Context, error) {
 	return harness, suiteCtx, nil
 }
 
+// SetupWorkerHarnessOrAbort calls SetupWorkerHarness and exits the process on error.
+// Use in BeforeSuite when a VM is required; the job fails immediately on env problems
+// (e.g. base disk not found) so no specs run. We exit with code 1 and print to stderr
+// so CI reports a hard failure when the e2e step is configured to fail on non-zero exit.
+func SetupWorkerHarnessOrAbort() (*Harness, context.Context) {
+	harness, ctx, err := SetupWorkerHarness()
+	if err != nil {
+		msg := fmt.Sprintf("E2E environment precondition not met: %v\nAborting suite so the job fails immediately (no point running specs).\n", err)
+		fmt.Fprint(os.Stderr, msg)
+		os.Exit(1)
+	}
+	return harness, ctx
+}
+
 // SetupWorkerHarnessWithoutVM sets up a harness for the current worker without VM.
 // This is useful for tests that only need API access and don't require a device/agent VM.
 // This should be called in BeforeSuite.
