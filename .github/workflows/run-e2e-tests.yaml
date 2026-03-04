@@ -149,7 +149,7 @@ jobs:
 
       # ========== RUN E2E TESTS ==========
       - name: Restore Go cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: |
             ~/.cache/go-build

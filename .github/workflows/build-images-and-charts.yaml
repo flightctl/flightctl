@@ -46,7 +46,7 @@ jobs:
 
       - name: Restore Go cache
         id: cache-go-restore
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: |
             ~/.cache/go-build
@@ -146,7 +146,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Save Go cache
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: |
             ~/.cache/go-build
@@ -216,7 +216,7 @@ jobs:
         uses: ./.github/actions/compute-tag
 
       - name: Restore Go cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: |
             ~/.cache/go-build
@@ -243,7 +243,7 @@ jobs:
           retention-days: 1
 
       - name: Save Go cache
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         if: always()
         with:
           path: |
@@ -268,7 +268,7 @@ jobs:
         uses: ./.github/actions/compute-tag
 
       - name: Restore Go cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: |
             ~/.cache/go-build
