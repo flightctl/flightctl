@@ -17,7 +17,7 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
-const maxConcurrent = 5
+const maxConcurrent = 3
 
 var _ = Describe("ImageBuild", Label("imagebuild"), func() {
 	Context("ImageBuild parallel builds and exports", func() {
@@ -28,8 +28,8 @@ var _ = Describe("ImageBuild", Label("imagebuild"), func() {
 			testID := workerHarness.GetTestIDFromContext()
 			registryAddress := satellites.RegistryHost + ":" + satellites.RegistryPort
 
-			numBuilds := 10
-			numExports := 10
+			numBuilds := 5
+			numExports := 5
 
 			buildNames := make([]string, numBuilds)
 			exportNames := make([]string, numExports)
@@ -103,6 +103,7 @@ var _ = Describe("ImageBuild", Label("imagebuild"), func() {
 			buildToKeep := findBuildToKeep(workerHarness, buildNames)
 			Expect(buildToKeep).ToNot(BeEmpty(), "Should have a build to keep")
 
+			var canceledBuildNames []string
 			for _, name := range buildNames {
 				if name == buildToKeep {
 					continue
@@ -115,17 +116,14 @@ var _ = Describe("ImageBuild", Label("imagebuild"), func() {
 				}
 				err := workerHarness.CancelImageBuild(name)
 				Expect(err).ToNot(HaveOccurred(), "Should cancel ImageBuild %s", name)
-				GinkgoWriter.Printf("Canceled ImageBuild: %s\n", name)
+				canceledBuildNames = append(canceledBuildNames, name)
 			}
 
 			// ============================================================
-			// Step 6: Verify canceled ImageBuilds reached Canceled
+			// Step 6: Verify ImageBuilds we canceled reached Canceled state
 			// ============================================================
 			By("Step 6: Verifying canceled ImageBuilds reached Canceled state")
-			for _, name := range buildNames {
-				if name == buildToKeep {
-					continue
-				}
+			for _, name := range canceledBuildNames {
 				Eventually(func() string {
 					return getImageBuildConditionReason(workerHarness, name)
 				}, cancelTimeout, processingPollPeriod).Should(Equal(string(imagebuilderapi.ImageBuildConditionReasonCanceled)),

@@ -62,28 +62,22 @@ kind_load_image() {
 }
 
 function registry_address() {
-    # Check if we're in Quadlet environment first
-    if [[ "${E2E_ENVIRONMENT:-}" == "quadlet" ]] || \
-       { ! kubectl config current-context &>/dev/null && \
-         (systemctl is-active flightctl-api.service &>/dev/null || sudo systemctl is-active flightctl-api.service &>/dev/null); }; then
-        # For Quadlet, use testcontainers registry on host IP
-        # The registry is started by testcontainers at test runtime
-        REPOADDR="$(get_ext_ip):5000"
-        echo "$REPOADDR"
+    # E2E_SATELLITE_HOST overrides for both Quadlet and K8s (e.g. test host IP on OCP NIC)
+    if [[ -n "${E2E_SATELLITE_HOST:-}" ]]; then
+        echo "${E2E_SATELLITE_HOST}:5000"
         return
     fi
 
-    KUBECONTEXT=${KUBECONTEXT:-$(kubectl config current-context)}
-
-    if [[ $KUBECONTEXT == *"kind"* ]]; then
-        REPOADDR=$(get_ext_ip):5000
-    elif [[ -n "${E2E_SATELLITE_HOST:-}" ]]; then
-        # OCP with shared network: use host override (e.g. VM IP on OCP NIC)
-        REPOADDR="${E2E_SATELLITE_HOST}:5000"
-    else
-        REPOADDR="e2eregistry.$(kubectl get ingresses.config/cluster -o jsonpath={.spec.domain})"
+    # Quadlet: registry on test host
+    if [[ "${E2E_ENVIRONMENT:-}" == "quadlet" ]] || \
+       { ! kubectl config current-context &>/dev/null && \
+         (systemctl is-active flightctl-api.service &>/dev/null || sudo systemctl is-active flightctl-api.service &>/dev/null); }; then
+        echo "$(get_ext_ip):5000"
+        return
     fi
-    echo $REPOADDR
+
+    # K8s (kind or other): registry on test host via testcontainers
+    echo "$(get_ext_ip):5000"
 }
 
 

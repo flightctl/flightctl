@@ -548,9 +548,8 @@ func (v *VMInLibvirt) RunAndWaitForSSH() error {
 
 	err = v.WaitForSSHToBeReady()
 	if err != nil {
-		fmt.Println("============ Console output ============")
-		fmt.Println(v.GetConsoleOutput())
-		fmt.Println("========================================")
+		consoleOut := v.GetConsoleOutput()
+		ginkgo.GinkgoWriter.Printf("\n============ VM console output (SSH wait failed: %v) ============\n%s\n========================================\n", err, consoleOut)
 		return fmt.Errorf("waiting for SSH: %w", err)
 	}
 	return nil

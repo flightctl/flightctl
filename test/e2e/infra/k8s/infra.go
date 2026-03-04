@@ -88,11 +88,12 @@ func NewInfraProvider(namespace string) (*InfraProvider, error) {
 // Internal namespace: FLIGHTCTL_INTERNAL_NS or detect from pods with label flightctl.service=flightctl-worker.
 // No fallbacks; returns error if detection fails when override not set.
 func NewInfraProviderWithConfig(namespace string, config *infra.EnvironmentConfig, client kubernetes.Interface) (*InfraProvider, error) {
-	p := &InfraProvider{envType: detectEnvironmentType()}
+	p := &InfraProvider{}
 	if config != nil {
 		p.kubeConfig = config.KubeConfig
 		p.kubeContext = config.KubeContext
 	}
+	p.envType = p.detectEnvironmentType()
 	if client == nil {
 		c, err := NewClient()
 		if err != nil {
@@ -319,7 +320,7 @@ func (p *InfraProvider) ExposeService(service infra.ServiceName, protocol string
 	return url, func() {}, nil
 }
 
-// InvalidateExposeCache closes any cached port-forward for the service and removes it from the cache.
+// InvalidateExposeCache stops any cached port-forward for the service (kills the process) and removes it from the cache.
 // Call after restarting a service so the next ExposeService creates a new port-forward.
 func (p *InfraProvider) InvalidateExposeCache(service infra.ServiceName) {
 	prefix := string(service) + ":"
@@ -330,7 +331,7 @@ func (p *InfraProvider) InvalidateExposeCache(service infra.ServiceName) {
 	}
 	for key, e := range p.exposeCache {
 		if strings.HasPrefix(key, prefix) {
-			e.cleanup()
+			e.cleanup() // stop the port-forward process (Kill + Wait)
 			delete(p.exposeCache, key)
 		}
 	}
@@ -451,6 +452,16 @@ func (p *InfraProvider) namespaceForService(service infra.ServiceName) (string, 
 	return ns, err
 }
 
+// GetInternalNamespace returns the namespace where internal services (worker, db, kv, etc.) run.
+func (p *InfraProvider) GetInternalNamespace() string {
+	return p.internalNamespace
+}
+
+// GetExternalNamespace returns the namespace where external services (API, UI, etc.) run (release namespace).
+func (p *InfraProvider) GetExternalNamespace() string {
+	return p.externalNamespace
+}
+
 // namespaceForResource determines the namespace for a resource based on naming conventions (internal vs external).
 // Internal: kv, redis, worker, db, alertmanager, periodic, imagebuilder-worker.
 func (p *InfraProvider) namespaceForResource(resourceName string) string {
@@ -465,7 +476,7 @@ func (p *InfraProvider) namespaceForResource(resourceName string) string {
 }
 
 // detectEnvironmentType detects whether we're running in KIND or OCP.
-func detectEnvironmentType() string {
+func (p *InfraProvider) detectEnvironmentType() string {
 	// Check environment variable first
 	if envType := os.Getenv("E2E_ENVIRONMENT"); envType != "" {
 		if envType == "kind" || envType == "ocp" {
@@ -474,7 +485,7 @@ func detectEnvironmentType() string {
 	}
 
 	// Try to detect from kubectl context
-	cmd := exec.Command("kubectl", "config", "current-context")
+	cmd := exec.Command("kubectl", p.kubectlArgs("config", "current-context")...) //nolint:gosec // G204: args from internal test config (kubeConfig/kubeContext)
 	output, err := cmd.Output()
 	if err == nil {
 		context := strings.TrimSpace(string(output))
@@ -484,7 +495,7 @@ func detectEnvironmentType() string {
 	}
 
 	// Check if this is OpenShift by looking for the openshift API
-	cmd = exec.Command("kubectl", "api-resources", "--api-group=route.openshift.io")
+	cmd = exec.Command("kubectl", p.kubectlArgs("api-resources", "--api-group=route.openshift.io")...) //nolint:gosec // G204: args from internal test config (kubeConfig/kubeContext)
 	if err := cmd.Run(); err == nil {
 		return infra.EnvironmentOCP
 	}

@@ -40,9 +40,10 @@ func (h *Harness) GetInternalGitRepoURL(internalHost string, internalPort int, r
 	return fmt.Sprintf("user@%s:%d:/home/user/repos/%s.git", internalHost, internalPort, repoName), nil
 }
 
-// CreateRepositoryWithSSHCredentials creates a Repository resource with SSH credentials
-func (h *Harness) CreateRepositoryWithSSHCredentials(repoName, repoURL, sshPrivateKey string) error {
-	sshPrivateKeyBase64 := base64.StdEncoding.EncodeToString([]byte(sshPrivateKey))
+// CreateRepositoryWithSSHCredentials creates a Repository resource with SSH credentials.
+// keyContent must be the raw SSH private key (e.g. from satellite.Get(ctx).GetGitSSHPrivateKey()).
+func (h *Harness) CreateRepositoryWithSSHCredentials(repoName, repoURL string, keyContent util.SSHPrivateKeyContent) error {
+	sshPrivateKeyBase64 := base64.StdEncoding.EncodeToString([]byte(keyContent))
 
 	repoSpec := v1beta1.RepositorySpec{}
 	err := repoSpec.FromGitRepoSpec(v1beta1.GitRepoSpec{
@@ -77,17 +78,14 @@ func (h *Harness) CreateRepositoryWithSSHCredentials(repoName, repoURL, sshPriva
 }
 
 // CreateRepositoryWithValidE2ECredentials creates a Repository resource using the E2E SSH key
-// and the internal cluster URL. Callers pass internalHost and internalPort from infra (e.g. satellite).
-func (h *Harness) CreateRepositoryWithValidE2ECredentials(internalHost string, internalPort int, repoName string) error {
+// and the internal cluster URL. Callers pass internalHost, internalPort from infra (e.g. satellite)
+// and keyContent from infra (e.g. satellite.Get(ctx).GetGitSSHPrivateKey()).
+func (h *Harness) CreateRepositoryWithValidE2ECredentials(internalHost string, internalPort int, repoName string, keyContent util.SSHPrivateKeyContent) error {
 	repoURL, err := h.GetInternalGitRepoURL(internalHost, internalPort, repoName)
 	if err != nil {
 		return fmt.Errorf("failed to get internal git repo URL: %w", err)
 	}
-	sshPrivateKey, err := util.GetSSHPrivateKey()
-	if err != nil {
-		return fmt.Errorf("failed to read SSH private key: %w", err)
-	}
-	return h.CreateRepositoryWithSSHCredentials(repoName, repoURL, sshPrivateKey)
+	return h.CreateRepositoryWithSSHCredentials(repoName, repoURL, keyContent)
 }
 
 // WaitForRepositoryAccessible waits for a repository to have its Accessible condition set to True.

@@ -19,9 +19,8 @@ import (
 )
 
 const (
-	defaultRedisPassword = "adminpass"
-	redisPolling         = 250 * time.Millisecond
-	redisLongPolling     = 2 * time.Second
+	redisPolling     = 250 * time.Millisecond
+	redisLongPolling = 2 * time.Second
 	// K8s: must match Helm default (deploy/helm/.../flightctl-kv-secret.yaml, flightctl-kv-deployment.yaml).
 	kvSecretName = "flightctl-kv-secret" //nolint:gosec // G101: secret name (K8s resource name), not a credential value
 	kvSecretKey  = "password"
@@ -63,8 +62,8 @@ func VerifyRedisRecovery(timeout time.Duration) bool {
 		return false
 	}
 	logrus.Info("VerifyRedisRecovery: Redis is ready, verifying connection...")
-	if !CanConnectToRedis() {
-		logrus.Info("VerifyRedisRecovery: Cannot connect to Redis")
+	if err := TryConnectToRedis(timeout); err != nil {
+		logrus.Infof("VerifyRedisRecovery: Cannot connect to Redis: %v", err)
 		return false
 	}
 	logrus.Info("VerifyRedisRecovery: Redis connection verified, checking queue state...")
@@ -124,16 +123,20 @@ func StartRedis() error {
 }
 
 // GetRedisPassword returns the Redis password from the infra Secrets provider (K8s secret or Podman secret via flightctl-kv container).
-// Falls back to default only when no provider or secret is available (e.g. some integration setups).
-func GetRedisPassword() string {
+// Returns an error if the provider is unavailable or the secret cannot be read (no fallback).
+func GetRedisPassword() (string, error) {
 	p := getProviders()
-	if p != nil && p.Secrets != nil {
-		data, err := p.Secrets.GetSecretDataForService(context.Background(), infra.ServiceRedis, kvSecretName, kvSecretKey)
-		if err == nil && len(data) > 0 {
-			return strings.TrimSpace(string(data))
-		}
+	if p == nil || p.Secrets == nil {
+		return "", fmt.Errorf("no secrets provider available for Redis password")
 	}
-	return defaultRedisPassword
+	data, err := p.Secrets.GetSecretDataForService(context.Background(), infra.ServiceRedis, kvSecretName, kvSecretKey)
+	if err != nil {
+		return "", fmt.Errorf("get Redis secret %s key %q: %w", kvSecretName, kvSecretKey, err)
+	}
+	if len(data) == 0 {
+		return "", fmt.Errorf("Redis secret %s key %q is empty", kvSecretName, kvSecretKey)
+	}
+	return strings.TrimSpace(string(data)), nil
 }
 
 // GetRedisClient returns a Redis client and a cleanup function. Caller must call cleanup when done.
@@ -142,6 +145,10 @@ func GetRedisClient() (*redis.Client, func(), error) {
 	p := getProviders()
 	if p == nil || p.Infra == nil {
 		return nil, func() {}, fmt.Errorf("no infra provider")
+	}
+	password, err := GetRedisPassword()
+	if err != nil {
+		return nil, func() {}, err
 	}
 	urlStr, cleanup, err := p.Infra.ExposeService(infra.ServiceRedis, "redis")
 	if err != nil {
@@ -165,36 +172,50 @@ func GetRedisClient() (*redis.Client, func(), error) {
 
 	client := redis.NewClient(&redis.Options{
 		Addr:     addr,
-		Password: GetRedisPassword(),
+		Password: password,
 		DB:       0,
 	})
-	return client, cleanup, nil
-}
-
-// CanConnectToRedis returns whether we can connect to Redis (with retries).
-func CanConnectToRedis() bool {
-	return CanConnectToRedisWithRetry(3, 2*time.Second)
-}
-
-// CanConnectToRedisWithRetry tries to connect to Redis with retries.
-func CanConnectToRedisWithRetry(maxRetries int, retryDelay time.Duration) bool {
-	client, cleanup, err := GetRedisClient()
-	if err != nil {
-		return false
+	cleanupWithClose := func() {
+		_ = client.Close()
+		cleanup()
 	}
-	defer cleanup()
-	ctx, cancel := context.WithTimeout(context.Background(), redisLongPolling)
-	defer cancel()
-	for attempt := 0; attempt < maxRetries; attempt++ {
-		err = client.Ping(ctx).Err()
-		if err == nil {
-			return true
+	return client, cleanupWithClose, nil
+}
+
+// TryConnectToRedis attempts to connect to Redis with retries until timeout and returns the last error if all fail.
+// Each retry invalidates the expose cache and creates a new port-forward so we connect to the current Redis instance.
+func TryConnectToRedis(timeout time.Duration) error {
+	const retryDelay = 2 * time.Second
+	deadline := time.Now().Add(timeout)
+	var lastErr error
+	for attempt := 0; time.Now().Before(deadline); attempt++ {
+		if attempt > 0 {
+			p := getProviders()
+			if p != nil && p.Infra != nil {
+				p.Infra.InvalidateExposeCache(infra.ServiceRedis)
+			}
 		}
-		if attempt < maxRetries-1 {
+		client, cleanup, err := GetRedisClient()
+		if err != nil {
+			lastErr = err
+			if time.Now().Add(retryDelay).Before(deadline) {
+				time.Sleep(retryDelay)
+			}
+			continue
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), redisLongPolling)
+		err = client.Ping(ctx).Err()
+		cancel()
+		cleanup()
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+		if time.Now().Add(retryDelay).Before(deadline) {
 			time.Sleep(retryDelay)
 		}
 	}
-	return false
+	return lastErr
 }
 
 // CheckQueueState returns the current Redis queue state.
