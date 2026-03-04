@@ -10,10 +10,46 @@ INJECT_CONFIG ?= true
 
 BUILD_TYPE := bootc
 
+define SWTPM_CONFIG
+statedir = /var/lib/flightctl-swtpm-test-ca
+signingkey = /var/lib/flightctl-swtpm-test-ca/signkey.pem
+issuercert = /var/lib/flightctl-swtpm-test-ca/issuercert.pem
+certserial = /var/lib/flightctl-swtpm-test-ca/certserial
+endef
+export SWTPM_CONFIG
+
 ifeq ($(INJECT_CONFIG),true)
 agent-vm: bin/output/qcow2/disk.qcow2 prepare-e2e-qcow-config
 else
 agent-vm: bin/output/qcow2/disk.qcow2
+endif
+ifeq ($(TPM),enabled)
+	@echo "Configuring swtpm to use test CA from bin/swtpm-ca/..."
+	@if [ ! -f bin/swtpm-ca/signkey.pem ]; then \
+		echo "ERROR: Test swtpm CA not found. Run 'TPM=enabled make deploy' first."; \
+		exit 1; \
+	fi
+	@# Copy swtpm test CA to system location accessible by tss user (swtpm needs write access to statedir)
+	@echo "Installing swtpm test CA to /var/lib/flightctl-swtpm-test-ca/..."
+	@sudo mkdir -p /var/lib/flightctl-swtpm-test-ca
+	@sudo cp bin/swtpm-ca/signkey.pem bin/swtpm-ca/issuercert.pem bin/swtpm-ca/certserial bin/swtpm-ca/swtpm-localca-rootca-cert.pem /var/lib/flightctl-swtpm-test-ca/
+	@sudo chown -R tss:tss /var/lib/flightctl-swtpm-test-ca
+	@sudo chmod -R u=rwX,go=rX /var/lib/flightctl-swtpm-test-ca
+	@echo "✓ Test CA installed to /var/lib/flightctl-swtpm-test-ca/ (owned by tss:tss)"
+	@# Create marker file to track that we installed this configuration
+	@sudo touch /var/lib/flightctl-swtpm-installed.marker
+	@# Temporarily install system-wide swtpm-localca config pointing to test CA
+	@echo "Installing temporary system-wide swtpm configuration..."
+	@if [ -f /etc/swtpm-localca.conf ]; then \
+		sudo cp /etc/swtpm-localca.conf /etc/swtpm-localca.conf.backup; \
+		echo "  (Backed up existing /etc/swtpm-localca.conf to /etc/swtpm-localca.conf.backup)"; \
+	fi
+	@echo "$$SWTPM_CONFIG" | sudo tee /etc/swtpm-localca.conf > /dev/null
+	@# Ensure tss user can read the config file (owned by root)
+	@sudo chmod 644 /etc/swtpm-localca.conf
+	@echo "✓ Installed /etc/swtpm-localca.conf (will be restored on clean)"
+	@echo "⚠️  WARNING: System-wide swtpm configuration temporarily points to swtpm test CA"
+	@echo "⚠️  Starting VM with swtpm TEST CA (for testing only!)"
 endif
 	@echo "Booting Agent VM from $(VMDISK) with disk size $(VMDISKSIZE)"
 	sudo cp bin/output/qcow2/disk.qcow2 $(VMDISK)
@@ -55,6 +91,22 @@ agent-vm-console:
 clean-agent-vm:
 	sudo virsh destroy $(VMNAME) || true
 	sudo rm -f $(VMDISK)
+	@# Restore original swtpm-localca configuration only if we installed it
+	@if [ -f /var/lib/flightctl-swtpm-installed.marker ]; then \
+		if [ -f /etc/swtpm-localca.conf.backup ]; then \
+			echo "Restoring original /etc/swtpm-localca.conf..."; \
+			sudo mv /etc/swtpm-localca.conf.backup /etc/swtpm-localca.conf; \
+		elif [ -f /etc/swtpm-localca.conf ]; then \
+			echo "Removing temporary /etc/swtpm-localca.conf..."; \
+			sudo rm /etc/swtpm-localca.conf; \
+		fi; \
+		if [ -d /var/lib/flightctl-swtpm-test-ca ]; then \
+			echo "Removing test CA from /var/lib/flightctl-swtpm-test-ca/..."; \
+			sudo rm -rf /var/lib/flightctl-swtpm-test-ca; \
+		fi; \
+		echo "Removing flightctl swtpm marker..."; \
+		sudo rm -f /var/lib/flightctl-swtpm-installed.marker; \
+	fi
 
 .PHONY: clean-agent-vm
 
