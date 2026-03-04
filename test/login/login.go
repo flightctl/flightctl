@@ -86,7 +86,7 @@ func getActiveNamespaces(harness *e2e.Harness) []string {
 	return namespaces
 }
 
-func resolveFlightctlNamespace(harness *e2e.Harness) (string, error) {
+func ResolveFlightctlNamespace(harness *e2e.Harness) (string, error) {
 	namespaces := getActiveNamespaces(harness)
 	flightCtlNs := os.Getenv("FLIGHTCTL_NS")
 	// if the NS env variable is set we only check that one
@@ -107,7 +107,7 @@ func resolveFlightctlNamespace(harness *e2e.Harness) (string, error) {
 }
 
 func loginWithK8Token(harness *e2e.Harness) (AuthMethod, error) {
-	namespace, err := resolveFlightctlNamespace(harness)
+	namespace, err := ResolveFlightctlNamespace(harness)
 	Expect(err).ToNot(HaveOccurred(), "error resolving flightctl namespace")
 	Expect(namespace).NotTo(BeEmpty(), "Unable to determine the namespace associated with the demo user")
 
