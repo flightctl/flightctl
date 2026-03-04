@@ -1,8 +1,0 @@
-# Helm chart value overrides for redhat-el10 flavor
-# This file is REQUIRED - Red Hat flavors must have Chart.yaml overrides
-# If missing, the render pipeline will fail with an error
-
-annotations:
-  redhat.edition: "true"
-  target.platform: "rhel10"
-  security.compliance: "fips-140-3"
