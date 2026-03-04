@@ -9,11 +9,11 @@ import (
 
 func TestRunTemplate(t *testing.T) {
 	tests := []struct {
-		name         string
-		templateData templateContext
-		inputTemplate string
+		name            string
+		templateData    templateContext
+		inputTemplate   string
 		expectedContent string
-		expectError  bool
+		expectError     bool
 	}{
 		{
 			name: "valid template",
@@ -21,9 +21,9 @@ func TestRunTemplate(t *testing.T) {
 				Name:        "test-chart",
 				Description: "A test chart",
 			},
-			inputTemplate: "name: {{.Name}}\ndescription: {{.Description}}",
+			inputTemplate:   "name: {{.Name}}\ndescription: {{.Description}}",
 			expectedContent: "name: test-chart\ndescription: A test chart",
-			expectError:   false,
+			expectError:     false,
 		},
 		{
 			name: "template with missing key should error",
