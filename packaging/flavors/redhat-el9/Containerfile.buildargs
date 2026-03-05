@@ -8,6 +8,11 @@ MINIMAL_BASE_IMAGE=registry.redhat.io/ubi9/ubi-minimal:9.7
 # Runtime base image (Red Hat enterprise)
 RUNTIME_BASE_IMAGE=registry.redhat.io/flightctl/flightctl-base:9.7
 
+# Device/agent base image (bootc-based, Red Hat enterprise)
+DEVICE_BASE_IMAGE=registry.redhat.io/rhel9/rhel-bootc:latest
+ENABLE_CRB=0
+EPEL_NEXT=0
+
 # Image registry and namespace for Red Hat builds
 IMAGE_REGISTRY=registry.redhat.io/flightctl
 IMAGE_TAG_SUFFIX=rhel9
