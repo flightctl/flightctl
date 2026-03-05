@@ -19,17 +19,14 @@ func TestMultiorg(t *testing.T) {
 }
 
 var _ = BeforeSuite(func() {
-	// Use SetupWorkerHarnessWithoutVM because this suite uses device simulators, not VMs
 	_, _, err := e2e.SetupWorkerHarnessWithoutVM()
 	Expect(err).ToNot(HaveOccurred())
 
-	// Require FLIGHTCTL_NS environment variable
 	flightCtlNs := os.Getenv("FLIGHTCTL_NS")
 	if flightCtlNs == "" {
 		Skip("FLIGHTCTL_NS environment variable should be set")
 	}
 
-	// Verify this is an OCP deployment (multiorg requires real OCP users)
 	clusterCtx, err := e2e.GetContext()
 	Expect(err).ToNot(HaveOccurred())
 	if clusterCtx != testutil.OCP {
@@ -38,8 +35,6 @@ var _ = BeforeSuite(func() {
 
 	harness := e2e.GetWorkerHarness()
 
-	// Restore the default (admin) k8s context to ensure valid credentials.
-	// Previous test runs may have left the kubeconfig with expired user tokens.
 	defaultK8sContext, err := harness.GetDefaultK8sContext()
 	Expect(err).ToNot(HaveOccurred(), "Failed to get default K8s context")
 	err = exec.Command("kubectl", "config", "use-context", defaultK8sContext).Run() // #nosec G204
@@ -47,8 +42,6 @@ var _ = BeforeSuite(func() {
 	err = harness.RefreshCluster()
 	Expect(err).ToNot(HaveOccurred(), "Failed to refresh Kubernetes client")
 
-	// EnsureTestUsers requires cluster-admin privileges (kubeadmin), not a regular OCP user.
-	// Log in as kubeadmin before creating RoleBindings, then refresh the k8s client.
 	kubeadminPass := os.Getenv("KUBEADMIN_PASS")
 	if kubeadminPass == "" {
 		Skip("KUBEADMIN_PASS must be set for multiorg RBAC setup")
@@ -74,27 +67,15 @@ var _ = BeforeSuite(func() {
 	}
 	GinkgoWriter.Printf("Authenticated as: %s\n", string(whoamiOutput))
 
-	// Ensure test users have proper RoleBindings in the flightctl namespace
-	testUsers := []login.TestUser{
-		{Name: "admin", Role: "admin"},
-		{Name: "operator", Role: "operator"},
-		{Name: "viewer", Role: "viewer"},
+	rbacUsers := []login.TestUser{
+		{Name: adminUser, Role: "admin"},
+		{Name: operatorUser, Role: "operator"},
+		{Name: viewerUser, Role: "viewer"},
 	}
-	err = login.EnsureTestUsers(harness, flightCtlNs, testUsers)
+	err = login.EnsureTestUsers(harness, flightCtlNs, rbacUsers)
 	Expect(err).ToNot(HaveOccurred())
 
-	// Log in as each user to ensure they can authenticate and have access
-	// to the shared flightctl organization before tests run.
-	type userCred struct {
-		name     string
-		password string
-	}
-	users := []userCred{
-		{"admin", "admin"},
-		{"operator", "operator"},
-		{"viewer", "viewer"},
-	}
-	for _, u := range users {
+	for _, u := range testUsers {
 		GinkgoWriter.Printf("Verifying login for user %s\n", u.name)
 		loginErr := login.LoginAsNonAdmin(harness, u.name, u.password, defaultK8sContext, k8sApiEndpoint)
 		Expect(loginErr).ToNot(HaveOccurred(), fmt.Sprintf("Failed to login as %s", u.name))
@@ -104,8 +85,7 @@ var _ = BeforeSuite(func() {
 		GinkgoWriter.Printf("User %s has access to organization: %s\n", u.name, orgID)
 	}
 
-	// Switch back to admin context so the suite starts in a known state
-	err = login.LoginAsNonAdmin(harness, "admin", "admin", defaultK8sContext, k8sApiEndpoint)
+	err = login.LoginAsNonAdmin(harness, adminUser, adminPass, defaultK8sContext, k8sApiEndpoint)
 	Expect(err).ToNot(HaveOccurred(), "Failed to restore admin context")
 })
 
@@ -116,11 +96,9 @@ var _ = BeforeEach(func() {
 
 	GinkgoWriter.Printf("[BeforeEach] Worker %d: Setting up multiorg test\n", workerID)
 
-	// Create test-specific context for proper tracing
 	ctx := testutil.StartSpecTracerForGinkgo(suiteCtx)
 	harness.SetTestContext(ctx)
 
-	// Setup device simulator agent config (certs and config file)
 	_, err := harness.SetupDeviceSimulatorAgentConfig(0, 0)
 	Expect(err).ToNot(HaveOccurred())
 
@@ -134,12 +112,11 @@ var _ = AfterEach(func() {
 	harness := e2e.GetWorkerHarness()
 	suiteCtx := e2e.GetWorkerContext()
 
-	// Re-login as admin before cleanup to ensure full permissions
 	defaultK8sContext, err := harness.GetDefaultK8sContext()
 	if err == nil {
 		k8sApiEndpoint, endpointErr := harness.GetK8sApiEndpoint(suiteCtx, defaultK8sContext)
 		if endpointErr == nil {
-			_ = login.LoginAsNonAdmin(harness, "admin", "admin", defaultK8sContext, k8sApiEndpoint)
+			_ = login.LoginAsNonAdmin(harness, adminUser, adminPass, defaultK8sContext, k8sApiEndpoint)
 		}
 	}
 
@@ -155,12 +132,12 @@ var _ = AfterSuite(func() {
 	harness := e2e.GetWorkerHarness()
 	flightCtlNs := os.Getenv("FLIGHTCTL_NS")
 	if flightCtlNs != "" {
-		testUsers := []login.TestUser{
-			{Name: "admin", Role: "admin"},
-			{Name: "operator", Role: "operator"},
-			{Name: "viewer", Role: "viewer"},
+		rbacUsers := []login.TestUser{
+			{Name: adminUser, Role: "admin"},
+			{Name: operatorUser, Role: "operator"},
+			{Name: viewerUser, Role: "viewer"},
 			{Name: "installer", Role: "installer"},
 		}
-		_ = login.CleanupTestUsers(harness, flightCtlNs, testUsers)
+		_ = login.CleanupTestUsers(harness, flightCtlNs, rbacUsers)
 	}
 })

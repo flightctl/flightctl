@@ -271,14 +271,9 @@ func LoginAsNonAdminSA(harness *e2e.Harness, user string) error {
 	return harness.RefreshClient()
 }
 
-// LoginAsUser logs in to OCP as the specified user and refreshes the harness client.
-func LoginAsUser(harness *e2e.Harness, user, password, k8sContext, k8sApiEndpoint string) error {
-	return LoginAsNonAdmin(harness, user, password, k8sContext, k8sApiEndpoint)
-}
-
 // LoginAndGetOrgID logs in as the specified user and returns their organization ID.
 func LoginAndGetOrgID(harness *e2e.Harness, user, password, k8sContext, k8sApiEndpoint string) (string, error) {
-	if err := LoginAsUser(harness, user, password, k8sContext, k8sApiEndpoint); err != nil {
+	if err := LoginAsNonAdmin(harness, user, password, k8sContext, k8sApiEndpoint); err != nil {
 		return "", fmt.Errorf("login failed for %s: %w", user, err)
 	}
 	orgID, err := harness.GetOrganizationID()
