@@ -32,9 +32,6 @@ Requires: openssl
 
 %global flightctl_target flightctl.target
 
-# --- Restart these on upgrade  ---
-%global flightctl_services_restart flightctl-api.service flightctl-ui.service flightctl-worker.service flightctl-alertmanager.service flightctl-alert-exporter.service flightctl-alertmanager-proxy.service flightctl-cli-artifacts.service flightctl-periodic.service flightctl-db-migrate.service flightctl-db-wait.service flightctl-imagebuilder-api.service flightctl-imagebuilder-worker.service flightctl-telemetry-gateway.service
-
 
 %description
 # Main package is empty and not created.
@@ -615,6 +612,13 @@ fi
 # Reload systemd to recognize new container files
 /usr/bin/systemctl daemon-reload >/dev/null 2>&1 || :
 
+# On upgrade: mark the target for restart so all PartOf= services restart.
+# The OLD package's %%postun may not mark the target (older versions marked
+# individual services with an incomplete list). Marking is idempotent.
+if [ "$1" -ge 2 ] && [ -x "/usr/lib/systemd/systemd-update-helper" ]; then
+    /usr/lib/systemd/systemd-update-helper mark-restart-system-units %{flightctl_target} || :
+fi
+
 cfg="%{_sysconfdir}/flightctl/flightctl-services-install.conf"
 
 if [ "$1" -eq 1 ]; then # it's a fresh install
@@ -657,7 +661,7 @@ fi
 
 %postun services
 # On upgrade: mark services for restart after transaction completes
-%systemd_postun_with_restart %{flightctl_services_restart}
+%systemd_postun_with_restart %{flightctl_target}
 %systemd_postun %{flightctl_target}
 
 # If contexts were managed via policy, no cleanup is needed here.
