@@ -138,6 +138,139 @@ func (p *ServiceLifecycleProvider) WaitForReady(service infra.ServiceName, timeo
 	return fmt.Errorf("timeout waiting for %s to be ready", unit)
 }
 
+func (p *ServiceLifecycleProvider) serviceToContainerName(service infra.ServiceName) string {
+	return GetServiceInfo(service).ContainerName + ".container"
+}
+
+func quadletDropInDir(containerFile string) string {
+	return fmt.Sprintf("/etc/containers/systemd/%s.d", containerFile)
+}
+
+func quadletDropInPath(containerFile string) string {
+	return fmt.Sprintf("%s/e2e-env-override.conf", quadletDropInDir(containerFile))
+}
+
+// readDropIn reads the existing Quadlet drop-in file content. Returns empty string if the file doesn't exist.
+func (p *ServiceLifecycleProvider) readDropIn(containerFile string) (string, error) {
+	output, err := p.infra.RunCommand("cat", quadletDropInPath(containerFile))
+	if err != nil {
+		if strings.Contains(output, "No such file") {
+			return "", nil
+		}
+		return "", fmt.Errorf("reading drop-in for %s: %w", containerFile, err)
+	}
+	return output, nil
+}
+
+// writeDropIn creates the Quadlet drop-in directory and writes the drop-in file.
+func (p *ServiceLifecycleProvider) writeDropIn(containerFile, content string) error {
+	if _, err := p.infra.RunCommand("mkdir", "-p", quadletDropInDir(containerFile)); err != nil {
+		return fmt.Errorf("creating drop-in dir for %s: %w", containerFile, err)
+	}
+	if _, err := p.infra.runCommandWithStdin(strings.NewReader(content), "tee", quadletDropInPath(containerFile)); err != nil {
+		return fmt.Errorf("writing drop-in for %s: %w", containerFile, err)
+	}
+	return nil
+}
+
+// removeDropIn removes the Quadlet drop-in file and its directory.
+func (p *ServiceLifecycleProvider) removeDropIn(containerFile string) error {
+	if _, err := p.infra.RunCommand("rm", "-f", quadletDropInPath(containerFile)); err != nil {
+		return fmt.Errorf("removing drop-in for %s: %w", containerFile, err)
+	}
+	_, _ = p.infra.RunCommand("rmdir", quadletDropInDir(containerFile))
+	return nil
+}
+
+// parseEnvLines parses Environment= lines from a drop-in file into a map.
+func parseEnvLines(content string) map[string]string {
+	envs := make(map[string]string)
+	for line := range strings.SplitSeq(content, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "Environment=") {
+			continue
+		}
+		// Format: Environment="KEY=VALUE"
+		val := strings.TrimPrefix(line, "Environment=")
+		val = strings.Trim(val, "\"")
+		if idx := strings.Index(val, "="); idx > 0 {
+			envs[val[:idx]] = val[idx+1:]
+		}
+	}
+	return envs
+}
+
+func buildDropInContent(envs map[string]string) string {
+	var b strings.Builder
+	b.WriteString("[Container]\n")
+	for k, v := range envs {
+		fmt.Fprintf(&b, "Environment=%s=%s\n", k, v)
+	}
+	return b.String()
+}
+
+// daemonReloadAndRestart runs systemctl daemon-reload, restarts the unit, and waits for ready.
+func (p *ServiceLifecycleProvider) daemonReloadAndRestart(service infra.ServiceName, unit string) error {
+	if _, err := p.runSystemctl("daemon-reload"); err != nil {
+		return fmt.Errorf("daemon-reload failed: %w", err)
+	}
+	if _, err := p.runSystemctl("restart", unit); err != nil {
+		return fmt.Errorf("restart %s failed: %w", unit, err)
+	}
+	if p.infra != nil {
+		p.infra.InvalidateExposeCache(service)
+	}
+	return p.WaitForReady(service, 5*time.Minute)
+}
+
+// SetDeploymentEnv sets an environment variable on a Quadlet service using a Quadlet container drop-in.
+func (p *ServiceLifecycleProvider) SetDeploymentEnv(service infra.ServiceName, envName, envValue string) error {
+	unit := p.serviceToSystemdUnit(service)
+	containerFile := p.serviceToContainerName(service)
+
+	existing, err := p.readDropIn(containerFile)
+	if err != nil {
+		return err
+	}
+
+	envs := parseEnvLines(existing)
+	envs[envName] = envValue
+
+	if err := p.writeDropIn(containerFile, buildDropInContent(envs)); err != nil {
+		return err
+	}
+
+	logrus.Infof("Quadlet: set env %s=%s on %s", envName, envValue, containerFile)
+	return p.daemonReloadAndRestart(service, unit)
+}
+
+// RemoveDeploymentEnv removes an environment variable from a Quadlet service's container drop-in.
+func (p *ServiceLifecycleProvider) RemoveDeploymentEnv(service infra.ServiceName, envName string) error {
+	unit := p.serviceToSystemdUnit(service)
+	containerFile := p.serviceToContainerName(service)
+
+	existing, err := p.readDropIn(containerFile)
+	if err != nil {
+		return err
+	}
+
+	envs := parseEnvLines(existing)
+	delete(envs, envName)
+
+	if len(envs) == 0 {
+		if err := p.removeDropIn(containerFile); err != nil {
+			return err
+		}
+	} else {
+		if err := p.writeDropIn(containerFile, buildDropInContent(envs)); err != nil {
+			return err
+		}
+	}
+
+	logrus.Infof("Quadlet: removed env %s from %s", envName, containerFile)
+	return p.daemonReloadAndRestart(service, unit)
+}
+
 // AreServicesHealthy checks if all flightctl services are healthy by checking the flightctl.target.
 func (p *ServiceLifecycleProvider) AreServicesHealthy() (bool, error) {
 	output, err := p.runSystemctl("is-active", "flightctl.target")

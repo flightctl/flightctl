@@ -368,18 +368,31 @@ func (f managementProvisionerFactory) Validate(log certmanager.Logger, cc certma
 }
 
 func (f managementProvisionerFactory) New(log certmanager.Logger, cc certmanager.CertificateConfig) (certmanager.ProvisionerProvider, error) {
-	return &managementProvisioner{
+	backoffCfg := poll.Config{
+		BaseDelay:    backoffInitial,
+		Factor:       backoffFactor,
+		MaxDelay:     backoffMax,
+		JitterFactor: backoffJitterFactor,
+	}
+	if max := maxBackoffConfigFromEnv(); max > 0 {
+		backoffCfg.MaxDelay = max
+		if backoffCfg.MaxDelay < backoffCfg.BaseDelay {
+			log.Warnf("certificate renewal backoff: provided MaxDelay is less than BaseDelay, clamping BaseDelay to MaxDelay")
+			backoffCfg.BaseDelay = backoffCfg.MaxDelay
+		}
+	}
+	if err := backoffCfg.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid management backoff config: %w", err)
+	}
+
+	p := &managementProvisioner{
 		log:              log,
 		deviceName:       f.deviceName,
 		identityProvider: f.identityProvider,
 		managementClient: f.managementClient,
-		backoffCfg: poll.Config{
-			BaseDelay:    backoffInitial,
-			Factor:       backoffFactor,
-			MaxDelay:     backoffMax,
-			JitterFactor: backoffJitterFactor,
-		},
-	}, nil
+		backoffCfg:       backoffCfg,
+	}
+	return p, nil
 }
 
 type managementStorageFactory struct {
@@ -482,4 +495,13 @@ func renewPolicyFromEnv() (*time.Duration, *int32) {
 	}
 
 	return renewBefore, renewBeforePercent
+}
+
+func maxBackoffConfigFromEnv() (maxDelay time.Duration) {
+	if v := os.Getenv("FLIGHTCTL_TEST_MGMT_CERT_BACKOFF_MAX"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			maxDelay = d
+		}
+	}
+	return maxDelay
 }
