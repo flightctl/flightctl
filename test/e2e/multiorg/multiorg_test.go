@@ -25,6 +25,7 @@ const (
 	devicesPerUser       = 10
 	totalDevices         = 3 * devicesPerUser
 	deviceEnrollTimeout  = 120 * time.Second
+	deviceEnrollPolling  = 2 * time.Second
 	simulatorStopTimeout = 10 * time.Second
 
 	adminUser    = "admin"
@@ -58,27 +59,16 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 
 	Context("Shared organization verification", func() {
 		It("all users should belong to the same flightctl organization", Label("85918"), func() {
-			By("Logging in as admin and getting organization")
-			adminOrgID, err := login.LoginAndGetOrgID(harness, adminUser, adminPass, defaultK8sContext, k8sApiEndpoint)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(adminOrgID).ToNot(BeEmpty())
-			GinkgoWriter.Printf("Admin org ID: %s\n", adminOrgID)
-
-			By("Logging in as operator and getting organization")
-			operatorOrgID, err := login.LoginAndGetOrgID(harness, operatorUser, operatorPass, defaultK8sContext, k8sApiEndpoint)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(operatorOrgID).ToNot(BeEmpty())
-			GinkgoWriter.Printf("Operator org ID: %s\n", operatorOrgID)
-
-			By("Logging in as viewer and getting organization")
-			viewerOrgID, err := login.LoginAndGetOrgID(harness, viewerUser, viewerPass, defaultK8sContext, k8sApiEndpoint)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(viewerOrgID).ToNot(BeEmpty())
-			GinkgoWriter.Printf("Viewer org ID: %s\n", viewerOrgID)
+			orgIDs := loginAndCollectOrgIDs(harness, defaultK8sContext, k8sApiEndpoint,
+				[]userCred{
+					{adminUser, adminPass},
+					{operatorUser, operatorPass},
+					{viewerUser, viewerPass},
+				})
 
 			By("Verifying all users share the same organization")
-			Expect(adminOrgID).To(Equal(operatorOrgID), "Admin and operator should share the same organization")
-			Expect(adminOrgID).To(Equal(viewerOrgID), "Admin and viewer should share the same organization")
+			Expect(orgIDs[operatorUser]).To(Equal(orgIDs[adminUser]), "Admin and operator should share the same organization")
+			Expect(orgIDs[viewerUser]).To(Equal(orgIDs[adminUser]), "Admin and viewer should share the same organization")
 		})
 	})
 
@@ -120,7 +110,7 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 			By(fmt.Sprintf("Waiting for all %d devices to enroll as admin", totalDevices))
 			Eventually(func() int {
 				return harness.CountDevicesByLabel(testID)
-			}, deviceEnrollTimeout, 2*time.Second).Should(Equal(totalDevices),
+			}, deviceEnrollTimeout, deviceEnrollPolling).Should(Equal(totalDevices),
 				fmt.Sprintf("Expected %d total devices to enroll", totalDevices))
 			GinkgoWriter.Printf("All %d devices enrolled successfully as admin\n", totalDevices)
 
@@ -298,3 +288,23 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 		})
 	})
 })
+
+type userCred struct {
+	name     string
+	password string
+}
+
+// loginAndCollectOrgIDs logs in as each user, retrieves their organization ID,
+// and returns a map of username -> orgID. Assertions are performed inline.
+func loginAndCollectOrgIDs(harness *e2e.Harness, k8sContext, k8sApiEndpoint string, users []userCred) map[string]string {
+	orgIDs := make(map[string]string, len(users))
+	for _, u := range users {
+		By(fmt.Sprintf("Logging in as %s and getting organization", u.name))
+		orgID, err := login.LoginAndGetOrgID(harness, u.name, u.password, k8sContext, k8sApiEndpoint)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(orgID).ToNot(BeEmpty())
+		GinkgoWriter.Printf("%s org ID: %s\n", u.name, orgID)
+		orgIDs[u.name] = orgID
+	}
+	return orgIDs
+}
