@@ -148,6 +148,92 @@ var _ = Describe("Inline configuration tests", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(stdout.String()).To(ContainSubstring(inlineContent))
 		})
+
+		It("should reject inline configs targeting forbidden device paths", Label("86456", "sanity"), func() {
+			harness := e2e.GetWorkerHarness()
+
+			currentVersion, err := harness.GetCurrentDeviceRenderedVersion(deviceId)
+			Expect(err).ToNot(HaveOccurred())
+
+			By("Rejecting /etc/flightctl/config.yaml (agent config file)")
+			forbiddenAgentConfigYaml, err := getConfigurationFromInlineConfig(
+				newInlineConfigProviderSpec("hijack-agent-config", []v1beta1.FileSpec{
+					newFileSpec("/etc/flightctl/config.yaml", nil, "", "", "malicious: config"),
+				}),
+			)
+			Expect(err).ToNot(HaveOccurred())
+			err = UpdateDeviceConfig(harness, deviceId, forbiddenAgentConfigYaml)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("forbidden device path"))
+			Expect(err.Error()).To(ContainSubstring("writing agent config file is not allowed"))
+
+			By("Rejecting /etc/flightctl/config.yml (agent config file)")
+			forbiddenAgentConfigYml, err := getConfigurationFromInlineConfig(
+				newInlineConfigProviderSpec("hijack-agent-yml", []v1beta1.FileSpec{
+					newFileSpec("/etc/flightctl/config.yml", nil, "", "", "malicious: config"),
+				}),
+			)
+			Expect(err).ToNot(HaveOccurred())
+			err = UpdateDeviceConfig(harness, deviceId, forbiddenAgentConfigYml)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("forbidden device path"))
+			Expect(err.Error()).To(ContainSubstring("writing agent config file is not allowed"))
+
+			By("Rejecting /etc/flightctl/certs/agent.crt (certs directory)")
+			forbiddenCerts, err := getConfigurationFromInlineConfig(
+				newInlineConfigProviderSpec("steal-certs", []v1beta1.FileSpec{
+					newFileSpec("/etc/flightctl/certs/agent.crt", nil, "", "", "malicious cert"),
+				}),
+			)
+			Expect(err).ToNot(HaveOccurred())
+			err = UpdateDeviceConfig(harness, deviceId, forbiddenCerts)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("forbidden device path"))
+			Expect(err.Error()).To(ContainSubstring(`writing under \"/etc/flightctl/certs\" is not allowed`))
+
+			By("Rejecting /var/lib/flightctl/enrollment.json (data directory)")
+			forbiddenVarLib, err := getConfigurationFromInlineConfig(
+				newInlineConfigProviderSpec("modify-data", []v1beta1.FileSpec{
+					newFileSpec("/var/lib/flightctl/enrollment.json", nil, "", "", "{}"),
+				}),
+			)
+			Expect(err).ToNot(HaveOccurred())
+			err = UpdateDeviceConfig(harness, deviceId, forbiddenVarLib)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("forbidden device path"))
+			Expect(err.Error()).To(ContainSubstring(`writing under \"/var/lib/flightctl\" is not allowed`))
+
+			By("Rejecting /usr/lib/flightctl/data (usr lib directory)")
+			forbiddenUsrLib, err := getConfigurationFromInlineConfig(
+				newInlineConfigProviderSpec("modify-usrlib", []v1beta1.FileSpec{
+					newFileSpec("/usr/lib/flightctl/data", nil, "", "", "malicious"),
+				}),
+			)
+			Expect(err).ToNot(HaveOccurred())
+			err = UpdateDeviceConfig(harness, deviceId, forbiddenUsrLib)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("forbidden device path"))
+			Expect(err.Error()).To(ContainSubstring(`writing under \"/usr/lib/flightctl\" is not allowed`))
+
+			By("Verifying the rendered version was not upgraded after all rejected attempts")
+			currentVersion2, err := harness.GetCurrentDeviceRenderedVersion(deviceId)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(currentVersion).To(Equal(currentVersion2))
+
+			By("Verifying allowed path /etc/myapp/config.yaml still works")
+			validConfig, err := getConfigurationFromInlineConfig(
+				newInlineConfigProviderSpec("valid-config", []v1beta1.FileSpec{
+					newFileSpec("/etc/myapp/config.yaml", nil, "", "", "setting: value"),
+				}),
+			)
+			Expect(err).ToNot(HaveOccurred())
+
+			newRenderedVersion, err := harness.PrepareNextDeviceVersion(deviceId)
+			Expect(err).ToNot(HaveOccurred())
+			err = harness.UpdateDeviceConfigWithRetries(deviceId, validConfig, newRenderedVersion)
+			Expect(err).ToNot(HaveOccurred())
+		})
+
 		It("Validations for flighctl inlineconfigs", Label("78364", "sanity"), func() {
 			// Get harness directly - no shared package-level variable
 			harness := e2e.GetWorkerHarness()
