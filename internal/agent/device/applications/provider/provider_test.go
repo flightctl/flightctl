@@ -264,6 +264,7 @@ func TestCollectProviderTargetsDeferredDependencies(t *testing.T) {
 			providers: func(ctrl *gomock.Controller) []appProvider {
 				p1 := NewMockappProvider(ctrl)
 				p1.EXPECT().Name().Return("app1").AnyTimes()
+				p1.EXPECT().ID().Return("app1-123456").AnyTimes()
 				p1.EXPECT().Spec().Return(&ApplicationSpec{User: v1beta1.CurrentProcessUsername}).AnyTimes()
 				p1.EXPECT().EnsureDependencies(gomock.Any()).Return(nil)
 				p1.EXPECT().collectOCITargets(gomock.Any(), gomock.Any()).Return(
@@ -276,6 +277,7 @@ func TestCollectProviderTargetsDeferredDependencies(t *testing.T) {
 
 				p2 := NewMockappProvider(ctrl)
 				p2.EXPECT().Name().Return("app2").AnyTimes()
+				p2.EXPECT().ID().Return("app2-654321").AnyTimes()
 				p2.EXPECT().Spec().Return(&ApplicationSpec{User: v1beta1.CurrentProcessUsername}).AnyTimes()
 				p2.EXPECT().EnsureDependencies(gomock.Any()).Return(nil)
 				p2.EXPECT().collectOCITargets(gomock.Any(), gomock.Any()).Return(
@@ -297,11 +299,13 @@ func TestCollectProviderTargetsDeferredDependencies(t *testing.T) {
 			providers: func(ctrl *gomock.Controller) []appProvider {
 				p1 := NewMockappProvider(ctrl)
 				p1.EXPECT().Name().Return("helm-app").AnyTimes()
+				p1.EXPECT().ID().Return("helm-app-123456").AnyTimes()
 				p1.EXPECT().EnsureDependencies(gomock.Any()).Return(
 					fmt.Errorf("%w: helm binary not found", errors.ErrAppDependency))
 
 				p2 := NewMockappProvider(ctrl)
 				p2.EXPECT().Name().Return("container-app").AnyTimes()
+				p2.EXPECT().ID().Return("container-app-654321").AnyTimes()
 				p2.EXPECT().Spec().Return(&ApplicationSpec{User: v1beta1.CurrentProcessUsername}).AnyTimes()
 				p2.EXPECT().EnsureDependencies(gomock.Any()).Return(nil)
 				p2.EXPECT().collectOCITargets(gomock.Any(), gomock.Any()).Return(
@@ -325,16 +329,19 @@ func TestCollectProviderTargetsDeferredDependencies(t *testing.T) {
 			providers: func(ctrl *gomock.Controller) []appProvider {
 				p1 := NewMockappProvider(ctrl)
 				p1.EXPECT().Name().Return("helm-app").AnyTimes()
+				p1.EXPECT().ID().Return("helm-app-111111").AnyTimes()
 				p1.EXPECT().EnsureDependencies(gomock.Any()).Return(
 					fmt.Errorf("%w: helm binary not found", errors.ErrAppDependency))
 
 				p2 := NewMockappProvider(ctrl)
 				p2.EXPECT().Name().Return("quadlet-app").AnyTimes()
+				p2.EXPECT().ID().Return("quadlet-app-222222").AnyTimes()
 				p2.EXPECT().EnsureDependencies(gomock.Any()).Return(
 					fmt.Errorf("%w: podman binary not found", errors.ErrAppDependency))
 
 				p3 := NewMockappProvider(ctrl)
 				p3.EXPECT().Name().Return("container-app").AnyTimes()
+				p3.EXPECT().ID().Return("container-app-333333").AnyTimes()
 				p3.EXPECT().Spec().Return(&ApplicationSpec{User: v1beta1.CurrentProcessUsername}).AnyTimes()
 				p3.EXPECT().EnsureDependencies(gomock.Any()).Return(nil)
 				p3.EXPECT().collectOCITargets(gomock.Any(), gomock.Any()).Return(
@@ -358,11 +365,13 @@ func TestCollectProviderTargetsDeferredDependencies(t *testing.T) {
 			providers: func(ctrl *gomock.Controller) []appProvider {
 				p1 := NewMockappProvider(ctrl)
 				p1.EXPECT().Name().Return("helm-app").AnyTimes()
+				p1.EXPECT().ID().Return("helm-app-444444").AnyTimes()
 				p1.EXPECT().EnsureDependencies(gomock.Any()).Return(
 					fmt.Errorf("%w: helm binary not found", errors.ErrAppDependency))
 
 				p2 := NewMockappProvider(ctrl)
 				p2.EXPECT().Name().Return("quadlet-app").AnyTimes()
+				p2.EXPECT().ID().Return("quadlet-app-555555").AnyTimes()
 				p2.EXPECT().EnsureDependencies(gomock.Any()).Return(
 					fmt.Errorf("%w: podman binary not found", errors.ErrAppDependency))
 
@@ -379,6 +388,7 @@ func TestCollectProviderTargetsDeferredDependencies(t *testing.T) {
 			providers: func(ctrl *gomock.Controller) []appProvider {
 				p1 := NewMockappProvider(ctrl)
 				p1.EXPECT().Name().Return("app1").AnyTimes()
+				p1.EXPECT().ID().Return("app1-666666").AnyTimes()
 				p1.EXPECT().EnsureDependencies(gomock.Any()).Return(
 					fmt.Errorf("critical error: permission denied"))
 

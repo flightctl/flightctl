@@ -205,7 +205,7 @@ func collectProviderTargets(
 	needsRequeue := false
 
 	for _, p := range providers {
-		activeNames = append(activeNames, p.Name())
+		activeNames = append(activeNames, p.ID())
 
 		if err := p.EnsureDependencies(ctx); err != nil {
 			// gather as many dependencies as possible, allowing the caller to determine if this is a blocker
@@ -256,7 +256,7 @@ func collectNestedForProvider(
 		return nil, true, nil
 	}
 
-	if cachedEntry, found := ociCache.Get(p.Name()); found {
+	if cachedEntry, found := ociCache.Get(p.ID()); found {
 		if cachedEntry.IsValid(ref, digest) {
 			log.Debugf("Using cached nested targets for app %s", p.Name())
 			return cachedEntry.Children, false, nil
@@ -278,9 +278,9 @@ func collectNestedForProvider(
 	}
 
 	if len(appData.Targets) > 0 {
-		appDataCache[p.Name()] = appData
+		appDataCache[p.ID()] = appData
 		ociCache.Set(CacheEntry{
-			Name: p.Name(),
+			Name: p.ID(),
 			Parent: dependency.OCIPullTarget{
 				Reference: ref,
 				Digest:    digest,
