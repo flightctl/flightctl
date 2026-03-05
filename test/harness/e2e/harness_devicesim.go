@@ -354,3 +354,47 @@ func (h *Harness) ValidateFleetYAMLDevicesPerFleet(yamlContent string, expectedD
 
 	return nil
 }
+
+// LoginFunc is a callback that logs in as a specific user and refreshes the harness client.
+// It exists to break the circular dependency between harness/e2e and login packages.
+type LoginFunc func(harness *Harness) error
+
+// EnrollDeviceForDecommissionTest logs in using the provided loginAsAdmin callback,
+// starts a device simulator, waits for enrollment, and returns the name of the first
+// enrolled device along with the simulator command. The caller is responsible for
+// stopping the simulator and asserting on the returned error.
+func (h *Harness) EnrollDeviceForDecommissionTest(loginAsAdmin LoginFunc, deviceCount int, enrollTimeout time.Duration) (string, *exec.Cmd, error) {
+	ctx := context.Background()
+	testID := h.GetTestIDFromContext()
+
+	if err := loginAsAdmin(h); err != nil {
+		return "", nil, fmt.Errorf("logging in as admin: %w", err)
+	}
+
+	if _, err := h.SetupDeviceSimulatorAgentConfig(0, 0); err != nil {
+		return "", nil, fmt.Errorf("setting up simulator agent config: %w", err)
+	}
+
+	cmd, err := h.StartLabeledSimulator(ctx, testID, "admin", 0, deviceCount)
+	if err != nil {
+		return "", nil, fmt.Errorf("starting simulator: %w", err)
+	}
+
+	deadline := time.Now().Add(enrollTimeout)
+	for time.Now().Before(deadline) {
+		if h.CountDevicesByLabel(testID) >= deviceCount {
+			break
+		}
+		time.Sleep(2 * time.Second)
+	}
+	if h.CountDevicesByLabel(testID) < deviceCount {
+		return "", cmd, fmt.Errorf("timed out waiting for %d devices to enroll", deviceCount)
+	}
+
+	deviceName, err := h.GetFirstDeviceByLabel(testID)
+	if err != nil {
+		return "", cmd, fmt.Errorf("getting first device name: %w", err)
+	}
+
+	return deviceName, cmd, nil
+}
