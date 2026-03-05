@@ -8,6 +8,11 @@ MINIMAL_BASE_IMAGE=registry.access.redhat.com/ubi9/ubi-minimal:9.7-1763362218
 # Runtime base image
 RUNTIME_BASE_IMAGE=quay.io/flightctl/flightctl-base:9.7-1762965531
 
+# Device/agent base image (bootc-based)
+DEVICE_BASE_IMAGE=quay.io/centos-bootc/centos-bootc:stream9
+ENABLE_CRB=0
+EPEL_NEXT=1
+
 # Image registry and namespace for community builds
 IMAGE_REGISTRY=quay.io/flightctl
 IMAGE_TAG_SUFFIX=el9
