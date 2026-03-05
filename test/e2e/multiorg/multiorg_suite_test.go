@@ -71,6 +71,7 @@ var _ = BeforeSuite(func() {
 		{Name: adminUser, Role: "admin"},
 		{Name: operatorUser, Role: "operator"},
 		{Name: viewerUser, Role: "viewer"},
+		{Name: installerUser, Role: "installer"},
 	}
 	err = login.EnsureTestUsers(harness, flightCtlNs, rbacUsers)
 	Expect(err).ToNot(HaveOccurred())
@@ -136,8 +137,35 @@ var _ = AfterSuite(func() {
 			{Name: adminUser, Role: "admin"},
 			{Name: operatorUser, Role: "operator"},
 			{Name: viewerUser, Role: "viewer"},
-			{Name: "installer", Role: "installer"},
+			{Name: installerUser, Role: "installer"},
 		}
 		_ = login.CleanupTestUsers(harness, flightCtlNs, rbacUsers)
 	}
+
+	// Re-login as kubeadmin so subsequent test suites start with cluster-admin credentials
+	kubeadminPass := os.Getenv("KUBEADMIN_PASS")
+	if kubeadminPass == "" {
+		GinkgoWriter.Println("Warning: KUBEADMIN_PASS not set, skipping kubeadmin re-login in AfterSuite")
+		return
+	}
+	suiteCtx := e2e.GetWorkerContext()
+	defaultK8sContext, err := harness.GetDefaultK8sContext()
+	if err != nil {
+		GinkgoWriter.Printf("Warning: failed to get default k8s context in AfterSuite: %v\n", err)
+		return
+	}
+	k8sApiEndpoint, err := harness.GetK8sApiEndpoint(suiteCtx, defaultK8sContext)
+	if err != nil {
+		GinkgoWriter.Printf("Warning: failed to get k8s API endpoint in AfterSuite: %v\n", err)
+		return
+	}
+	kubeadminLogin := exec.Command("oc", "login", "-u", "kubeadmin", "-p", kubeadminPass, k8sApiEndpoint) // #nosec G204
+	kubeadminLogin.Stdout = GinkgoWriter
+	kubeadminLogin.Stderr = GinkgoWriter
+	if err := kubeadminLogin.Run(); err != nil {
+		GinkgoWriter.Printf("Warning: failed to re-login as kubeadmin in AfterSuite: %v\n", err)
+		return
+	}
+	_ = harness.RefreshCluster()
+	GinkgoWriter.Println("AfterSuite: restored kubeadmin context for subsequent test suites")
 })

@@ -21,12 +21,14 @@ const (
 	deviceEnrollPolling  = 2 * time.Second
 	simulatorStopTimeout = 10 * time.Second
 
-	adminUser    = "admin"
-	adminPass    = "admin"
-	operatorUser = "operator"
-	operatorPass = "operator"
-	viewerUser   = "viewer"
-	viewerPass   = "viewer"
+	adminUser     = "admin"
+	adminPass     = "admin"
+	operatorUser  = "operator"
+	operatorPass  = "operator"
+	viewerUser    = "viewer"
+	viewerPass    = "viewer"
+	installerUser = "installer"
+	installerPass = "installer"
 
 	forbiddenSubstring = "Forbidden"
 	http403Substring   = "403"
@@ -37,6 +39,7 @@ var testUsers = []userCred{
 	{adminUser, adminPass},
 	{operatorUser, operatorPass},
 	{viewerUser, viewerPass},
+	{installerUser, installerPass},
 }
 
 var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
@@ -69,6 +72,7 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 			By("Verifying all users share the same organization")
 			Expect(orgIDs[operatorUser]).To(Equal(orgIDs[adminUser]), "Admin and operator should share the same organization")
 			Expect(orgIDs[viewerUser]).To(Equal(orgIDs[adminUser]), "Admin and viewer should share the same organization")
+			Expect(orgIDs[installerUser]).To(Equal(orgIDs[adminUser]), "Admin and installer should share the same organization")
 		})
 	})
 
@@ -114,7 +118,7 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 				fmt.Sprintf("Expected %d total devices to enroll", totalDevices))
 			GinkgoWriter.Printf("All %d devices enrolled successfully as admin\n", totalDevices)
 
-			for _, u := range []userCred{{operatorUser, operatorPass}, {viewerUser, viewerPass}} {
+			for _, u := range []userCred{{operatorUser, operatorPass}, {viewerUser, viewerPass}, {installerUser, installerPass}} {
 				By(fmt.Sprintf("Switching to %s and verifying all devices are visible", u.name))
 				err = login.LoginAsNonAdmin(harness, u.name, u.password, defaultK8sContext, k8sApiEndpoint)
 				Expect(err).ToNot(HaveOccurred())
@@ -279,6 +283,47 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 			out, decommErr := harness.DecommissionDevice(deviceName)
 			Expect(decommErr).ToNot(HaveOccurred(), "Admin should be able to decommission a device")
 			Expect(out).To(ContainSubstring("200"), "Expected 200 OK for admin decommission")
+		})
+
+		It("installer can read enrollment requests but cannot create devices or fleets", Label("88366"), func() {
+			By("Logging in as installer")
+			err := login.LoginAsNonAdmin(harness, installerUser, installerPass, defaultK8sContext, k8sApiEndpoint)
+			Expect(err).ToNot(HaveOccurred())
+
+			By("Testing that installer can read enrollment requests")
+			err = e2e.ExecuteReadOnlyResourceOperations(harness, []string{"enrollmentrequests"}, true)
+			Expect(err).ToNot(HaveOccurred())
+
+			installerLabels := &map[string]string{"test": "multiorg-installer"}
+
+			By("Testing that installer cannot create devices")
+			err = e2e.ExecuteResourceOperations(suiteCtx, harness,
+				[]string{util.Device},
+				false, installerLabels, flightCtlNs, []string{e2e.OperationCreate})
+			Expect(err).ToNot(HaveOccurred())
+
+			By("Testing that installer cannot create fleets")
+			err = e2e.ExecuteResourceOperations(suiteCtx, harness,
+				[]string{util.Fleet},
+				false, installerLabels, flightCtlNs, []string{e2e.OperationCreate})
+			Expect(err).ToNot(HaveOccurred())
+		})
+
+		It("installer cannot decommission a device", Label("88367"), func() {
+			By("Creating devices via simulator as admin")
+			loginFn := makeLoginFunc(adminUser, adminPass, defaultK8sContext, k8sApiEndpoint)
+			deviceName, cmd, err := harness.EnrollDeviceForDecommissionTest(loginFn, devicesPerUser, deviceEnrollTimeout)
+			Expect(err).ToNot(HaveOccurred())
+			simulatorCmds = append(simulatorCmds, cmd)
+			GinkgoWriter.Printf("Device to test decommission: %s\n", deviceName)
+
+			By("Logging in as installer and attempting to decommission the device")
+			err = login.LoginAsNonAdmin(harness, installerUser, installerPass, defaultK8sContext, k8sApiEndpoint)
+			Expect(err).ToNot(HaveOccurred())
+
+			out, decommErr := harness.DecommissionDevice(deviceName)
+			Expect(decommErr).To(HaveOccurred(), "Installer should not be able to decommission a device")
+			Expect(out).To(ContainSubstring(forbiddenSubstring), "Expected Forbidden for installer decommission attempt")
 		})
 	})
 })
