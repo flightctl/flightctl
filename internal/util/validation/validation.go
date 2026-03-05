@@ -311,6 +311,9 @@ func ValidateBearerToken(token *string, path string) []error {
 }
 
 func ValidateCSRUsages(u *[]string) []error {
+	if u == nil {
+		return nil
+	}
 	errs := field.ErrorList{}
 	requiredAllOf := map[string]struct{}{
 		"clientAuth": {},

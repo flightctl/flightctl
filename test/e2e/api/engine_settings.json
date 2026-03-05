@@ -1,0 +1,27 @@
+{
+    "host": "__TARGET_HOST__",
+    "target_ip": "__TARGET_HOST__",
+    "target_port": __TARGET_PORT__,
+    "no_ssl": false,
+    "disable_cert_validation": true,
+    "max_request_execution_time": 30,
+    "request_throttle_ms": 100,
+    "reconnect_on_every_request": false,
+    "include_user_agent": true,
+    "user_agent": "restler-flightctl-versioning-test/1.0",
+    "max_combinations": 5,
+    "max_sequence_length": 10,
+    "garbage_collection_interval": 30,
+    "run_gc_after_every_sequence": true,
+    "exclude_requests": [
+        { "endpoint": "/*", "methods": ["PATCH"] }
+    ],
+    "custom_bug_codes": ["500", "502", "503"],
+    "custom_checkers": ["/work/config/version_checker.py"],
+    "custom_value_generators": "/work/config/value_generators.py",
+    "checkers": {
+        "version": {
+            "expected_version": "__EXPECTED_VERSION__"
+        }
+    }
+}

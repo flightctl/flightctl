@@ -1,0 +1,6 @@
+{
+    "paths": {
+        "/api/v1/imagebuilds": { "get": { "1": { "parameters": {} } } },
+        "/api/v1/imageexports": { "get": { "1": { "parameters": {} } } }
+    }
+}

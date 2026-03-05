@@ -1,0 +1,7 @@
+{
+    "paths": {
+        "/catalogitems": { "get": { "1": { "parameters": {} } } },
+        "/catalogs": { "get": { "1": { "parameters": {} } } },
+        "/catalogs/{catalog}/items": { "get": { "1": { "parameters": {} } } }
+    }
+}

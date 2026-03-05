@@ -211,3 +211,25 @@ $(REPORTS)/integration-coverage.out:
 	$(MAKE) integration-test || true
 
 .PHONY: unit-test prepare-integration-test integration-test run-integration-test view-coverage prepare-e2e-test deploy-e2e-ocp-test-vm _wait_for_db _run_template_migration _ensure_db_setup_image prepare-swtpm-certs clean-swtpm-certs
+
+# RESTler API versioning tests
+RESTLER_IMAGE ?= flightctl-restler:latest
+
+.PHONY: restler-image restler-test clean-restler
+
+restler-image:
+	@if ! podman image exists $(RESTLER_IMAGE); then \
+		echo "Building RESTler container image..."; \
+		podman build -f test/e2e/api/Containerfile.restler \
+			-t $(RESTLER_IMAGE) test/e2e/api/; \
+	else \
+		echo "RESTler image already exists"; \
+	fi
+
+restler-test: restler-image
+	bash test/e2e/api/imagebuilder/setup_fixtures.sh
+	RESTLER_IMAGE=$(RESTLER_IMAGE) test/e2e/api/run_restler_tests.sh
+
+clean-restler:
+	-podman rmi $(RESTLER_IMAGE) 2>/dev/null || true
+	-rm -rf $(ROOT_DIR)/reports/restler

@@ -3698,6 +3698,7 @@ paths:
         - name: continue
           in: query
           description: An optional parameter to query more results from the server. The value of the paramter must match the value of the 'continue' field in the previous list response.
+          required: false
           schema:
             type: string
       responses:

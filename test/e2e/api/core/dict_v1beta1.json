@@ -1,0 +1,19 @@
+{
+    "restler_custom_payload_header": {
+        "Flightctl-API-Version": ["v1beta1"]
+    },
+    "restler_custom_payload": {
+        "/spec/csr": ["PLACEHOLDER-PEM-CSR"],
+        "/spec/request": ["PLACEHOLDER-BASE64-CSR"],
+        "/metadata/resourceVersion": ["1"],
+        "signerName": ["flightctl.io/enrollment"],
+        "/metadata/labels": ["{ \"env\": \"test\" }"],
+        "/metadata/annotations": ["{ \"restler\": \"test\" }"],
+        "/labels": ["{ \"env\": \"test\" }"],
+        "/spec/labels": ["{ \"env\": \"test\" }"],
+        "/status/approval/labels": ["{ \"env\": \"test\" }"],
+        "/spec/deviceStatus/systemInfo/customInfo": ["{ \"arch\": \"x86_64\" }"],
+        "/spec/selector/matchLabels": ["{ \"fleet\": \"default\" }"]
+    },
+    "restler_custom_payload_uuid4_suffix": {}
+}

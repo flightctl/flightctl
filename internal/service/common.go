@@ -88,6 +88,7 @@ func validateAgainstSchema(ctx context.Context, obj []byte, objPath string, getS
 		Request:    httpReq,
 		PathParams: pathParams,
 		Route:      route,
+		Options:    &openapi3filter.Options{ExcludeReadOnlyValidations: true},
 	}
 	return openapi3filter.ValidateRequest(ctx, requestValidationInput)
 }

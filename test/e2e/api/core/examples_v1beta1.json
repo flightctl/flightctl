@@ -1,0 +1,13 @@
+{
+    "paths": {
+        "/resourcesyncs": { "get": { "1": { "parameters": {} } } },
+        "/repositories": { "get": { "1": { "parameters": {} } } },
+        "/devices": { "get": { "1": { "parameters": {} } } },
+        "/enrollmentrequests": { "get": { "1": { "parameters": {} } } },
+        "/certificatesigningrequests": { "get": { "1": { "parameters": {} } } },
+        "/fleets": { "get": { "1": { "parameters": {} } } },
+        "/fleets/{fleet}/templateversions": { "get": { "1": { "parameters": {} } } },
+        "/events": { "get": { "1": { "parameters": {} } } },
+        "/authproviders": { "get": { "1": { "parameters": {} } } }
+    }
+}

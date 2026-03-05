@@ -1,0 +1,84 @@
+name: "Run API Tests"
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: "Image tag"
+        required: true
+        type: string
+
+jobs:
+  api-test:
+    runs-on: ubuntu-24.04
+    env:
+      DOCKER_BUILDKIT: 1
+      BUILDKIT_PROGRESS: plain
+      FLIGHTCTL_NS: flightctl-external
+    steps:
+      # ========== PREPARE ENVIRONMENT ==========
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android >/dev/null 2>&1 &
+          echo "Started background removal of /usr/local/lib/android (PID: $!)"
+          df -h
+
+      # ========== SETUP DEPENDENCIES ==========
+      - name: Setup dependencies
+        uses: ./.github/actions/setup-dependencies
+
+      - name: Compute base domain
+        id: base-domain
+        run: |
+          source test/scripts/functions
+          IP=$(get_ext_ip)
+          echo "base_domain=${IP}.nip.io" >> "$GITHUB_OUTPUT"
+          echo "Computed base domain: ${IP}.nip.io"
+
+      # ========== DEPLOY BACKEND WITH HELM ==========
+      - name: Deploy backend with Helm
+        uses: ./.github/actions/deploy-backend-with-helm
+        with:
+          tag: ${{ inputs.tag }}
+          base-domain: ${{ steps.base-domain.outputs.base_domain }}
+          auth-type: k8s
+
+      # ========== PREPARE API TEST ENVIRONMENT ==========
+      - name: Login to FlightCtl
+        run: |
+          source test/scripts/functions
+          try_login
+
+      - name: Prepare agent config
+        run: make prepare-agent-config
+
+      # ========== RUN API TESTS ==========
+      - name: Run API tests
+        run: make restler-test
+
+      - name: Generate test summary
+        if: always()
+        run: cat reports/restler/report.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+
+      # ========== UPLOAD RESULTS ==========
+      - name: Upload RESTler reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: restler-results-${{ inputs.tag }}
+          path: reports/restler/
+          if-no-files-found: warn
+
+      # ========== COLLECT LOGS ==========
+      - name: Collect and Upload Logs
+        if: always()
+        uses: ./.github/actions/collect-logs
+        with:
+          namespace-external: 'flightctl-external'
+          namespace-internal: 'flightctl-internal'
+          log-directory: 'api-test-logs'

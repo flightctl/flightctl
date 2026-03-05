@@ -1,0 +1,16 @@
+{
+    "SwaggerSpecFilePath": ["/work/specs/imagebuilder/v1alpha1/openapi.yaml"],
+    "CustomDictionaryFilePath": "/work/config/imagebuilder/dict_v1alpha1.json",
+    "AnnotationFilePath": "/work/config/imagebuilder/annotations_v1alpha1.json",
+    "IncludeOptionalParameters": true,
+    "UseBodyExamples": true,
+    "UseQueryExamples": true,
+    "ResolveBodyDependencies": true,
+    "ResolveQueryDependencies": true,
+    "DataFuzzing": false,
+    "ReadOnlyFuzz": false,
+    "ExampleConfigFiles": [
+        { "filePath": "/work/config/imagebuilder/examples_v1alpha1.json", "exactCopy": true },
+        { "filePath": "/work/config/imagebuilder/body_examples_v1alpha1.json", "exactCopy": false }
+    ]
+}
