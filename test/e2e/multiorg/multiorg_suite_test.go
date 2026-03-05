@@ -47,8 +47,26 @@ var _ = BeforeSuite(func() {
 	err = harness.RefreshCluster()
 	Expect(err).ToNot(HaveOccurred(), "Failed to refresh Kubernetes client")
 
-	// Validate k8s credentials are valid before attempting RBAC operations
-	whoamiOutput, whoamiErr := exec.Command("oc", "whoami").Output()
+	// EnsureTestUsers requires cluster-admin privileges (kubeadmin), not a regular OCP user.
+	// Log in as kubeadmin before creating RoleBindings, then refresh the k8s client.
+	kubeadminPass := os.Getenv("KUBEADMIN_PASS")
+	if kubeadminPass == "" {
+		Skip("KUBEADMIN_PASS must be set for multiorg RBAC setup")
+	}
+
+	suiteCtx := e2e.GetWorkerContext()
+	k8sApiEndpoint, err := harness.GetK8sApiEndpoint(suiteCtx, defaultK8sContext)
+	Expect(err).ToNot(HaveOccurred(), "Failed to get Kubernetes API endpoint")
+
+	kubeadminLogin := exec.Command("oc", "login", "-u", "kubeadmin", "-p", kubeadminPass, k8sApiEndpoint) // #nosec G204
+	kubeadminLogin.Stdout = GinkgoWriter
+	kubeadminLogin.Stderr = GinkgoWriter
+	err = kubeadminLogin.Run()
+	Expect(err).ToNot(HaveOccurred(), "Failed to login as kubeadmin")
+	err = harness.RefreshCluster()
+	Expect(err).ToNot(HaveOccurred(), "Failed to refresh k8s client after kubeadmin login")
+
+	whoamiOutput, whoamiErr := exec.Command("oc", "whoami").Output() // #nosec G204
 	if whoamiErr != nil {
 		Skip("Kubeconfig credentials are invalid or expired. " +
 			"Please re-authenticate as cluster admin before running multiorg tests: " +
@@ -64,11 +82,6 @@ var _ = BeforeSuite(func() {
 	}
 	err = login.EnsureTestUsers(harness, flightCtlNs, testUsers)
 	Expect(err).ToNot(HaveOccurred())
-
-	// Get the K8s API endpoint for user logins
-	suiteCtx := e2e.GetWorkerContext()
-	k8sApiEndpoint, err := harness.GetK8sApiEndpoint(suiteCtx, defaultK8sContext)
-	Expect(err).ToNot(HaveOccurred(), "Failed to get Kubernetes API endpoint")
 
 	// Log in as each user to ensure they can authenticate and have access
 	// to the shared flightctl organization before tests run.
