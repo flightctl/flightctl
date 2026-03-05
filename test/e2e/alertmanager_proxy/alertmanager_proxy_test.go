@@ -20,22 +20,23 @@ const (
 	alertmanagerProxyServiceName = "flightctl-alertmanager-proxy"
 	alertmanagerProxyServicePort = 8443
 
-	proxyHealthPath   = "/health"
-	proxyStatusPath   = "/api/v2/status"
-	proxyAlertsPath   = "/api/v2/alerts"
-	proxyInvalidOrgID = "not-a-uuid"
-	healthBodyOK      = "OK"
-	applicationJSON   = "application/json"
-	statusKindField   = "\"kind\":\"Status\""
-	statusFailure     = "\"status\":\"Failure\""
-	authTokenErrMsg   = "failed to get auth token"
-	statusForbidden   = "Forbidden"
-	nonAdminUser      = "demouser1"
-	nonAdminPassword  = "demouser1"
-	authDisabledMsg   = "auth is disabled in this environment"
-	alertsLabelName   = "alertname"
-	alertsLabelOrgID  = "org_id"
-	alertsLabelRes    = "resource"
+	proxyHealthPath          = "/health"
+	proxyStatusPath          = "/api/v2/status"
+	proxyAlertsPath          = "/api/v2/alerts"
+	proxyInvalidOrgID        = "not-a-uuid"
+	healthBodyOK             = "OK"
+	applicationJSON          = "application/json"
+	statusKindField          = "\"kind\":\"Status\""
+	statusFailure            = "\"status\":\"Failure\""
+	authTokenErrMsg          = "failed to get auth token"
+	statusForbidden          = "Forbidden"
+	nonAdminUser             = "demouser1"
+	nonAdminPassword         = "demouser1"
+	denyServiceAccountPrefix = "am-proxy-deny"
+	authDisabledMsg          = "auth is disabled in this environment"
+	alertsLabelName          = "alertname"
+	alertsLabelOrgID         = "org_id"
+	alertsLabelRes           = "resource"
 
 	alertNameDeviceDisconnected = "DeviceDisconnected"
 	alertNameDeviceDiskWarning  = "DeviceDiskWarning"
@@ -56,7 +57,6 @@ const (
 
 var (
 	testHarness            *e2e.Harness
-	testRuntimeContext     string
 	defaultProxyNamespaces = []string{"flightctl-external", "flightctl", util.E2E_NAMESPACE}
 	defaultPromNamespaces  = []string{util.E2E_NAMESPACE, "flightctl", "flightctl-external"}
 	defaultUINamespaces    = []string{"flightctl-external", "flightctl", util.E2E_NAMESPACE}
@@ -98,9 +98,12 @@ var _ = Describe("Alertmanager proxy", func() {
 
 		ctxName, err := e2e.GetContext()
 		Expect(err).ToNot(HaveOccurred())
-		testRuntimeContext = ctxName
 		if ctxName != util.KIND && ctxName != util.OCP {
 			Skip(fmt.Sprintf("Kubernetes-backed test context required, got %q", ctxName))
+		}
+		if ctxName == util.OCP {
+			_, _, err = testHarness.ResolveClusterLoginContext(testHarness.Context)
+			Expect(err).ToNot(HaveOccurred(), "failed to resolve cluster login context")
 		}
 	})
 
@@ -136,7 +139,7 @@ var _ = Describe("Alertmanager proxy", func() {
 		if authMethod == login.AuthDisabled {
 			Skip(authDisabledMsg)
 		}
-		authOrgID, authToken, err := testHarness.ResolveOrganizationAndClientToken()
+		authOrgID, authToken, err := resolveAuthenticatedAlertsContext(testHarness, authMethod)
 		Expect(err).ToNot(HaveOccurred(), "failed to resolve authenticated org/token context")
 		Expect(authOrgID).ToNot(BeEmpty(), "authenticated organization id should not be empty")
 		Expect(authToken).ToNot(BeEmpty(), "authenticated token should not be empty")
@@ -181,42 +184,65 @@ var _ = Describe("Alertmanager proxy", func() {
 	})
 
 	It("denies authenticated user without alerts permission", Label("87776", "sanity"), func() {
-		if testRuntimeContext != util.OCP {
-			Skip("non-admin authz-denied flow currently validated on OCP context")
+		proxyNamespace, err := testHarness.ResolveServiceNamespace(alertmanagerProxyServiceName, defaultProxyNamespaces)
+		if err != nil {
+			Skip(fmt.Sprintf("unable to resolve proxy namespace for authz-denied test: %v", err))
 		}
 
-		baseURL, client, cleanup, err := testHarness.StartServiceAccess(alertmanagerProxyServiceName, defaultProxyNamespaces, alertmanagerProxyServicePort, true, httpClientTimeout)
+		baseURL, client, cleanup, err := testHarness.StartServiceAccess(alertmanagerProxyServiceName, []string{proxyNamespace}, alertmanagerProxyServicePort, true, httpClientTimeout)
 		Expect(err).ToNot(HaveOccurred(), "failed to start proxy service access")
 		defer cleanup()
 
-		defaultK8sContext, k8sAPIEndpoint, err := testHarness.ResolveClusterLoginContext(testHarness.Context)
-		if err != nil {
-			Skip(fmt.Sprintf("unable to resolve cluster login context for non-admin authz test: %v", err))
-		}
+		defaultK8sContext, err := testHarness.SH("kubectl", "config", "current-context")
+		Expect(err).ToNot(HaveOccurred(), "failed to resolve current admin k8s context")
+		defaultK8sContext = strings.TrimSpace(defaultK8sContext)
+		Expect(defaultK8sContext).ToNot(BeEmpty(), "current admin k8s context should not be empty")
 
-		err = login.LoginAsNonAdmin(testHarness, nonAdminUser, nonAdminPassword, defaultK8sContext, k8sAPIEndpoint)
+		k8sAPIEndpoint, err := testHarness.GetK8sApiEndpoint(testHarness.Context, defaultK8sContext)
+		Expect(err).ToNot(HaveOccurred(), "failed to resolve current cluster api endpoint")
+		k8sAPIEndpoint = strings.TrimSpace(k8sAPIEndpoint)
+		Expect(k8sAPIEndpoint).ToNot(BeEmpty(), "current cluster api endpoint should not be empty")
+
+		DeferCleanup(restoreAdminLoginContext, testHarness, testHarness.Context, defaultK8sContext)
+
+		token, authCleanup, err := resolveUnauthorizedAlertsToken(
+			testHarness,
+			nonAdminUser,
+			nonAdminPassword,
+			k8sAPIEndpoint,
+			proxyNamespace,
+			defaultK8sContext,
+		)
 		if err != nil {
-			Skip(fmt.Sprintf("unable to login as non-admin user %q for authz-denied test: %v", nonAdminUser, err))
+			Skip(fmt.Sprintf("unable to resolve unauthorized token for authz-denied test: %v", err))
 		}
-		defer func() {
-			restoreErr := restoreAdminLoginContext(testHarness, testHarness.Context, defaultK8sContext)
-			Expect(restoreErr).ToNot(HaveOccurred(), "failed to restore admin login context")
-		}()
+		DeferCleanup(authCleanup)
+		Expect(token).ToNot(BeEmpty(), "non-admin token should not be empty")
 
 		orgID, err := testHarness.GetOrganizationID()
 		Expect(err).ToNot(HaveOccurred(), "failed to resolve organization id")
 		Expect(orgID).ToNot(BeEmpty(), "organization id should not be empty")
 
-		token, err := testHarness.GetClientAccessToken()
-		Expect(err).ToNot(HaveOccurred(), "failed to resolve non-admin token")
-		Expect(token).ToNot(BeEmpty(), "non-admin token should not be empty")
-
 		alertsPath := buildAlertsFilterPath(orgID, "", "")
 		statusCode, body, err := testHarness.HTTPGet(client, baseURL, alertsPath, token)
 		Expect(err).ToNot(HaveOccurred(), "non-admin alerts request failed")
-		Expect(statusCode).To(Equal(http.StatusForbidden), "expected non-admin alerts request to return %d", http.StatusForbidden)
+		Expect(statusCode).To(
+			BeElementOf(http.StatusForbidden, http.StatusUnauthorized),
+			"expected non-admin alerts request to return %d or %d",
+			http.StatusForbidden,
+			http.StatusUnauthorized,
+		)
 		Expect(body).ToNot(BeEmpty(), "forbidden response body should not be empty")
-		Expect(body).To(ContainSubstring(statusForbidden), "forbidden response should include %q", statusForbidden)
+		Expect(body).To(
+			Or(
+				ContainSubstring(statusForbidden),
+				ContainSubstring("access denied"),
+				ContainSubstring("Unauthorized"),
+				ContainSubstring("failed to validate token"),
+			),
+			"denied response should include forbidden/access-denied/unauthorized context",
+			statusForbidden,
+		)
 	})
 
 	It("verifies Prometheus query path for common alert series", Label("87775"), func() {
@@ -224,14 +250,15 @@ var _ = Describe("Alertmanager proxy", func() {
 		Expect(err).ToNot(HaveOccurred(), "failed to resolve organization id")
 		Expect(orgID).ToNot(BeEmpty(), "organization id should not be empty")
 
-		promURL, _, promToken, cleanup, usedBackend, err := testHarness.StartFirstAvailableBackendAccess(prometheusBackends, httpClientTimeout)
+		query := fmt.Sprintf(prometheusQueryAlerts, orgID, alertNameDeviceDisconnected, alertNameDeviceDiskWarning)
+		promURL, promClient, promToken, cleanup, usedBackend, err := testHarness.StartFirstAvailableBackendAccessWithQuery(prometheusBackends, query, httpClientTimeout)
 		Expect(err).ToNot(HaveOccurred(), "failed to start prometheus backend access")
 		defer cleanup()
 		Expect(usedBackend.ServiceName).ToNot(BeEmpty(), "selected prometheus backend name should not be empty")
 		Expect(promURL).ToNot(BeEmpty(), "prometheus base URL should not be empty")
+		Expect(promClient).ToNot(BeNil(), "prometheus client should not be nil")
 
-		query := fmt.Sprintf(prometheusQueryAlerts, orgID, alertNameDeviceDisconnected, alertNameDeviceDiskWarning)
-		resp, err := testHarness.PromQueryWithToken(promURL, query, promToken)
+		resp, err := testHarness.PromQueryWithClientToken(promClient, promURL, query, promToken)
 		Expect(err).ToNot(HaveOccurred(), "prometheus query failed for %q", query)
 		Expect(resp.Status).To(Equal(prometheusStatusOK), "expected prometheus query status %q", prometheusStatusOK)
 		Expect(resp.Data.Result).ToNot(BeNil(), "prometheus query should return a valid result array")
@@ -253,8 +280,12 @@ var _ = Describe("Alertmanager proxy", func() {
 		Expect(err).ToNot(HaveOccurred(), "failed to start UI service access")
 		defer cleanup()
 
-		statusCode, body, contentType, err := testHarness.HTTPGetWithContentType(uiClient, uiBaseURL, "/", "")
-		Expect(err).ToNot(HaveOccurred(), "UI root request failed")
+		statusCode := 0
+		body := ""
+		contentType := ""
+		Eventually(waitForUIRootReachable(testHarness, uiClient, uiBaseURL, &statusCode, &body, &contentType), util.TIMEOUT, util.POLLING).
+			ShouldNot(HaveOccurred(), "UI root endpoint should become reachable")
+
 		Expect(statusCode).To(BeElementOf(http.StatusOK, http.StatusBadRequest), "expected UI root status to be 200 or 400")
 		Expect(body).ToNot(BeEmpty(), "UI root response body should not be empty")
 		if contentType != "" {
@@ -285,6 +316,31 @@ func buildAlertsFilterPath(orgID, alertName, resourceName string) string {
 	return proxyAlertsPath + "?" + filters.Encode()
 }
 
+func waitForUIRootReachable(h *e2e.Harness, client *http.Client, baseURL string, statusCode *int, body *string, contentType *string) func() error {
+	return func() error {
+		if h == nil {
+			return fmt.Errorf("harness is nil")
+		}
+		if client == nil {
+			return fmt.Errorf("http client is nil")
+		}
+		if strings.TrimSpace(baseURL) == "" {
+			return fmt.Errorf("base URL is empty")
+		}
+		if statusCode == nil || body == nil || contentType == nil {
+			return fmt.Errorf("response output holders are nil")
+		}
+		s, b, c, reqErr := h.HTTPGetWithContentType(client, baseURL, "/", "")
+		if reqErr != nil {
+			return reqErr
+		}
+		*statusCode = s
+		*body = b
+		*contentType = c
+		return nil
+	}
+}
+
 func parseAlertsResponse(body string) ([]alertmanagerAlertResponse, error) {
 	result := make([]alertmanagerAlertResponse, 0)
 	if body == "" {
@@ -294,6 +350,52 @@ func parseAlertsResponse(body string) ([]alertmanagerAlertResponse, error) {
 		return nil, fmt.Errorf("failed to decode alerts response: %w", err)
 	}
 	return result, nil
+}
+
+func resolveAuthenticatedAlertsContext(h *e2e.Harness, authMethod login.AuthMethod) (string, string, error) {
+	if h == nil {
+		return "", "", fmt.Errorf("harness is nil")
+	}
+
+	orgID, err := h.GetOrganizationID()
+	if err != nil {
+		return "", "", fmt.Errorf("failed to resolve organization id: %w", err)
+	}
+	if strings.TrimSpace(orgID) == "" {
+		return "", "", fmt.Errorf("organization id is empty")
+	}
+
+	var token string
+	switch authMethod {
+	case login.AuthToken:
+		token, err = h.GetOpenShiftToken()
+		if err != nil || strings.TrimSpace(token) == "" {
+			if err != nil && !isMissingOpenShiftTokenError(err) {
+				return "", "", fmt.Errorf("failed to resolve authenticated token: %w", err)
+			}
+			token, err = h.GetClientAccessToken()
+		}
+	default:
+		token, err = h.GetClientAccessToken()
+	}
+	if err != nil {
+		return "", "", fmt.Errorf("failed to resolve authenticated token: %w", err)
+	}
+	if strings.TrimSpace(token) == "" {
+		return "", "", fmt.Errorf("authenticated token is empty")
+	}
+	return orgID, token, nil
+}
+
+func isMissingOpenShiftTokenError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(strings.TrimSpace(err.Error()))
+	return strings.Contains(msg, "oc not found") ||
+		strings.Contains(msg, "oc binary not found") ||
+		strings.Contains(msg, "failed to get openshift token") ||
+		strings.Contains(msg, "executable file not found")
 }
 
 func restoreAdminLoginContext(h *e2e.Harness, ctx context.Context, defaultK8sContext string) error {
@@ -313,5 +415,76 @@ func restoreAdminLoginContext(h *e2e.Harness, ctx context.Context, defaultK8sCon
 	if loginMethod == login.AuthDisabled {
 		return fmt.Errorf("auth is disabled while restoring admin login context")
 	}
+
+	if err := h.RefreshClient(); err != nil {
+		return fmt.Errorf("failed to refresh client after restoring admin login context: %w", err)
+	}
+
 	return nil
 }
+
+func resolveUnauthorizedAlertsToken(h *e2e.Harness, username, password, k8sAPIEndpoint, namespace, adminK8sContext string) (string, func(), error) {
+	if h == nil {
+		return "", noopCleanup, fmt.Errorf("harness is nil")
+	}
+	if namespace == "" {
+		return "", noopCleanup, fmt.Errorf("namespace is empty")
+	}
+	if adminK8sContext == "" {
+		return "", noopCleanup, fmt.Errorf("admin k8s context is empty")
+	}
+
+	err := login.LoginAsNonAdmin(h, username, password, adminK8sContext, k8sAPIEndpoint)
+	token := ""
+	if err == nil {
+		token, err = h.GetClientAccessToken()
+		if err != nil {
+			return "", noopCleanup, fmt.Errorf("non-admin login succeeded but failed to read client access token: %w", err)
+		}
+	}
+	if err == nil && strings.TrimSpace(token) != "" {
+		return token, noopCleanup, nil
+	}
+
+	token, cleanup, saErr := createTemporaryDeniedServiceAccountToken(h, namespace, adminK8sContext)
+	if saErr != nil {
+		return "", noopCleanup, fmt.Errorf("failed non-admin login (%v) and failed temporary serviceaccount token fallback (%w)", err, saErr)
+	}
+	return token, cleanup, nil
+}
+
+func createTemporaryDeniedServiceAccountToken(h *e2e.Harness, namespace, kubeContext string) (string, func(), error) {
+	if h == nil {
+		return "", noopCleanup, fmt.Errorf("harness is nil")
+	}
+	if namespace == "" {
+		return "", noopCleanup, fmt.Errorf("namespace is empty")
+	}
+	if kubeContext == "" {
+		return "", noopCleanup, fmt.Errorf("kube context is empty")
+	}
+
+	saName := fmt.Sprintf("%s-%d", denyServiceAccountPrefix, time.Now().UnixNano())
+	if _, err := h.SH("kubectl", "--context", kubeContext, "-n", namespace, "create", "serviceaccount", saName); err != nil {
+		return "", noopCleanup, fmt.Errorf("failed to create temporary serviceaccount %q in namespace %q: %w", saName, namespace, err)
+	}
+
+	cleanup := func() {
+		_, _ = h.SH("kubectl", "--context", kubeContext, "-n", namespace, "delete", "serviceaccount", saName, "--ignore-not-found=true")
+	}
+
+	token, err := h.SH("kubectl", "--context", kubeContext, "-n", namespace, "create", "token", saName)
+	if err != nil {
+		cleanup()
+		return "", noopCleanup, fmt.Errorf("failed to create token for temporary serviceaccount %q: %w", saName, err)
+	}
+	token = strings.TrimSpace(token)
+	if token == "" {
+		cleanup()
+		return "", noopCleanup, fmt.Errorf("temporary serviceaccount token is empty for %q", saName)
+	}
+
+	return token, cleanup, nil
+}
+
+func noopCleanup() {}

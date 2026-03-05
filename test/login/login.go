@@ -4,14 +4,12 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"slices"
 	"strings"
 
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	"github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/gomega"
-	"github.com/sirupsen/logrus"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -156,25 +154,45 @@ func LoginAsNonAdmin(harness *e2e.Harness, user string, password string, k8sCont
 	if !util.BinaryExistsOnPath("oc") {
 		return fmt.Errorf("oc not found on PATH")
 	}
-	loginCommand := fmt.Sprintf("oc login -u %s -p %s %s", user, password, k8sApiEndpoint)
-	cmd := exec.Command("bash", "-c", loginCommand)
-	err := cmd.Run()
-	if err != nil {
-		return fmt.Errorf("Failed to login to Kubernetes cluster as non-admin: %v", err)
-	} else {
-		logrus.Infof("✅ Logged in to Kubernetes cluster as non-admin: %s", user)
+	if harness == nil {
+		return fmt.Errorf("harness is nil")
+	}
+	if strings.TrimSpace(user) == "" {
+		return fmt.Errorf("user is empty")
+	}
+	if strings.TrimSpace(password) == "" {
+		return fmt.Errorf("password is empty")
+	}
+	if strings.TrimSpace(k8sApiEndpoint) == "" {
+		return fmt.Errorf("k8s api endpoint is empty")
 	}
 
-	method := LoginToAPIWithToken(harness)
-	Expect(method).ToNot(Equal(AuthDisabled))
-	if method == AuthDisabled {
-		return errors.New("Login is disabled")
+	if strings.TrimSpace(k8sContext) != "" {
+		if _, err := harness.ChangeK8sContext(harness.Context, k8sContext); err != nil {
+			return fmt.Errorf("failed to change k8s context to %q: %w", k8sContext, err)
+		}
+	}
+
+	if _, err := harness.SH("oc", "login", "-u", user, "-p", password, k8sApiEndpoint); err != nil {
+		return fmt.Errorf("failed to login to Kubernetes cluster as non-admin: %w", err)
+	}
+
+	token, err := harness.GetOpenShiftToken()
+	if err != nil {
+		return fmt.Errorf("failed to get openshift token for non-admin user %q: %w", user, err)
+	}
+	loginArgs := append(baseLoginArgs(), "--token", token)
+	out, err := harness.CLI(loginArgs...)
+	if err != nil {
+		return fmt.Errorf("failed to login to flightctl API as non-admin user %q: %w, output: %s", user, err, strings.TrimSpace(out))
+	}
+	if !isLoginSuccessful(out) {
+		return errors.New("failed to sign in with non-admin openshift token")
 	}
 
 	// Refresh the harness client to pick up the updated organization from the config file
 	// The login may have updated the organization context in the config
-	err = harness.RefreshClient()
-	if err != nil {
+	if err := harness.RefreshClient(); err != nil {
 		return fmt.Errorf("failed to refresh client after login: %w", err)
 	}
 

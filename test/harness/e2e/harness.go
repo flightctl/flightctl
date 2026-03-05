@@ -205,6 +205,7 @@ func (h *Harness) ResolveServiceNamespace(serviceName string, namespaces []strin
 	candidates = append(candidates, namespaces...)
 
 	seen := map[string]bool{}
+	resolutionErrors := make([]string, 0, len(candidates))
 	for _, ns := range candidates {
 		if ns == "" || seen[ns] {
 			continue
@@ -212,9 +213,11 @@ func (h *Harness) ResolveServiceNamespace(serviceName string, namespaces []strin
 		seen[ns] = true
 		if err := h.VerifyServiceExists(ns, serviceName); err == nil {
 			return ns, nil
+		} else {
+			resolutionErrors = append(resolutionErrors, fmt.Sprintf("%s: %v", ns, err))
 		}
 	}
-	return "", fmt.Errorf("unable to find service %q in namespaces: %v", serviceName, candidates)
+	return "", fmt.Errorf("unable to find service %q in namespaces: %v; lookup errors: %v", serviceName, candidates, resolutionErrors)
 }
 
 // ReadPrimaryVMAgentLogs reads flightctl-agent journalctl logs from the primary VM
@@ -2092,18 +2095,32 @@ func (h *Harness) GetDefaultK8sAdminContext() (string, error) {
 
 // GetK8sApiEndpoint returns the API endpoint for a given K8s context
 func (h *Harness) GetK8sApiEndpoint(ctx context.Context, k8sContext string) (string, error) {
-	if !util.BinaryExistsOnPath("oc") {
-		return "", fmt.Errorf("oc binary not found on PATH")
-	}
-	if _, err := h.ChangeK8sContext(ctx, k8sContext); err != nil {
-		return "", fmt.Errorf("failed to change K8s context to %s: %w", k8sContext, err)
-	}
-	cmd := exec.Command("bash", "-c", "oc whoami --show-server")
+	cmd := exec.Command("kubectl", "config", "view", "--minify", "--context", k8sContext, "-o", "jsonpath={.clusters[0].cluster.server}")
 	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("failed to get Kubernetes API endpoint: %v", err)
+	if err == nil {
+		endpoint := strings.TrimSpace(string(output))
+		if endpoint != "" {
+			return endpoint, nil
+		}
 	}
-	return strings.TrimSpace(string(output)), nil
+
+	// Fallback: some environments may require explicit context switch before kubeconfig lookup succeeds.
+	if _, switchErr := h.ChangeK8sContext(ctx, k8sContext); switchErr != nil {
+		if err != nil {
+			return "", fmt.Errorf("failed to get Kubernetes API endpoint with kubectl (%v) and failed to change K8s context to %s: %w", err, k8sContext, switchErr)
+		}
+		return "", fmt.Errorf("kubernetes API endpoint is empty for context %q and failed to change K8s context: %w", k8sContext, switchErr)
+	}
+
+	output, err = cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("failed to get Kubernetes API endpoint from kubeconfig after context change: %v", err)
+	}
+	endpoint := strings.TrimSpace(string(output))
+	if endpoint == "" {
+		return "", fmt.Errorf("kubernetes API endpoint is empty for context %q", k8sContext)
+	}
+	return endpoint, nil
 }
 
 // ExecuteResourceOperations tests all CRUD operations for the given resource types
