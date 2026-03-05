@@ -58,7 +58,7 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 	})
 
 	Context("Shared organization verification", func() {
-		It("all users should belong to the same flightctl organization", Label("85918"), func() {
+		It("all users should belong to the same flightctl organization", Label("88358"), func() {
 			orgIDs := loginAndCollectOrgIDs(harness, defaultK8sContext, k8sApiEndpoint,
 				[]userCred{
 					{adminUser, adminPass},
@@ -86,7 +86,7 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 			simulatorCmds = nil
 		})
 
-		It("should enroll 30 devices as admin and all users should see them", Label("85912"), func() {
+		It("should enroll 30 devices as admin and all users should see them", Label("88359"), func() {
 			ctx := context.Background()
 			testID := harness.GetTestIDFromContext()
 
@@ -148,7 +148,7 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 			simulatorCmds = nil
 		})
 
-		It("admin should have full CRUD access to devices, fleets, and repositories", Label("85917"), func() {
+		It("admin should have full CRUD access to devices, fleets, and repositories", Label("88360"), func() {
 			By("Logging in as admin")
 			err := login.LoginAsUser(harness, adminUser, adminPass, defaultK8sContext, k8sApiEndpoint)
 			Expect(err).ToNot(HaveOccurred())
@@ -166,7 +166,7 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 			Expect(err).ToNot(HaveOccurred())
 		})
 
-		It("operator should have full CRUD access to devices and fleets", Label("85917"), func() {
+		It("operator should have full CRUD access to devices and fleets", Label("88361"), func() {
 			By("Logging in as operator")
 			err := login.LoginAsUser(harness, operatorUser, operatorPass, defaultK8sContext, k8sApiEndpoint)
 			Expect(err).ToNot(HaveOccurred())
@@ -186,7 +186,7 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 			Expect(err).ToNot(HaveOccurred())
 		})
 
-		It("viewer should only be able to read devices and fleets, not create or delete", Label("85917"), func() {
+		It("viewer should only be able to read devices and fleets, not create or delete", Label("88362"), func() {
 			By("Logging in as viewer")
 			err := login.LoginAsUser(harness, viewerUser, viewerPass, defaultK8sContext, k8sApiEndpoint)
 			Expect(err).ToNot(HaveOccurred())
@@ -243,7 +243,7 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 			_, _ = harness.CleanUpResource(util.Fleet, fleetName)
 		})
 
-		It("viewer cannot decommission a device", Label("85915"), func() {
+		It("viewer cannot decommission a device", Label("88363"), func() {
 			By("Creating devices via simulator as admin")
 			deviceName, cmd, err := harness.EnrollDeviceForDecommissionTest(adminLoginFunc(defaultK8sContext, k8sApiEndpoint), devicesPerUser, deviceEnrollTimeout)
 			Expect(err).ToNot(HaveOccurred())
@@ -259,7 +259,7 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 			Expect(out).To(ContainSubstring("Forbidden"), "Expected Forbidden for viewer decommission attempt")
 		})
 
-		It("operator cannot decommission a device", Label("85915"), func() {
+		It("operator cannot decommission a device", Label("88364"), func() {
 			By("Creating devices via simulator as admin")
 			deviceName, cmd, err := harness.EnrollDeviceForDecommissionTest(adminLoginFunc(defaultK8sContext, k8sApiEndpoint), devicesPerUser, deviceEnrollTimeout)
 			Expect(err).ToNot(HaveOccurred())
@@ -275,7 +275,7 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 			Expect(out).To(ContainSubstring("Forbidden"), "Expected Forbidden for operator decommission attempt")
 		})
 
-		It("admin can decommission a device", Label("85915"), func() {
+		It("admin can decommission a device", Label("88365"), func() {
 			By("Creating devices via simulator as admin")
 			deviceName, cmd, err := harness.EnrollDeviceForDecommissionTest(adminLoginFunc(defaultK8sContext, k8sApiEndpoint), devicesPerUser, deviceEnrollTimeout)
 			Expect(err).ToNot(HaveOccurred())
