@@ -119,7 +119,7 @@ func GetWorkerContext() context.Context {
 func GetContext() (string, error) {
 	ocPath, err := exec.LookPath("oc")
 	if err == nil && ocPath != "" {
-		if err := exec.Command("oc", "whoami").Run(); err == nil {
+		if err := exec.Command("oc", "whoami").Run(); err == nil { //nolint:gosec // test-only detection
 			return util.OCP, nil
 		}
 	}

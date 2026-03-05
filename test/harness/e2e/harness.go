@@ -238,7 +238,6 @@ func (h *Harness) GetK8sApiEndpoint(_ context.Context, k8sContext string) (strin
 	return endpoint, nil
 }
 
-
 // ExtractAuthURL extracts the authentication URL from an AuthProvider based on its type
 func ExtractAuthURL(provider *v1beta1.AuthProvider) string {
 	if provider == nil {
