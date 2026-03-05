@@ -696,6 +696,11 @@ func (h *Harness) CleanUpResource(resourceType string, resourceName string) (str
 	return h.CLI("delete", resource)
 }
 
+// DecommissionDevice schedules a device for decommissioning via the CLI.
+func (h *Harness) DecommissionDevice(deviceName string) (string, error) {
+	return h.CLI("decommission", "device", deviceName)
+}
+
 // CleanUpTestResources deletes only resources that have the test label for the current test
 func (h *Harness) CleanUpTestResources(resourceTypes ...string) error {
 	testID := h.GetTestIDFromContext()

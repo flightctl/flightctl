@@ -264,7 +264,7 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 			err = login.LoginAsUser(harness, viewerUser, viewerPass, defaultK8sContext, k8sApiEndpoint)
 			Expect(err).ToNot(HaveOccurred())
 
-			out, decommErr := harness.CLI("decommission", "device", deviceName)
+			out, decommErr := harness.DecommissionDevice(deviceName)
 			Expect(decommErr).To(HaveOccurred(), "Viewer should not be able to decommission a device")
 			Expect(out).To(ContainSubstring("Forbidden"), "Expected Forbidden for viewer decommission attempt")
 		})
@@ -280,7 +280,7 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 			err = login.LoginAsUser(harness, operatorUser, operatorPass, defaultK8sContext, k8sApiEndpoint)
 			Expect(err).ToNot(HaveOccurred())
 
-			out, decommErr := harness.CLI("decommission", "device", deviceName)
+			out, decommErr := harness.DecommissionDevice(deviceName)
 			Expect(decommErr).To(HaveOccurred(), "Operator should not be able to decommission a device")
 			Expect(out).To(ContainSubstring("Forbidden"), "Expected Forbidden for operator decommission attempt")
 		})
@@ -293,7 +293,7 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 			GinkgoWriter.Printf("Device to decommission: %s\n", deviceName)
 
 			By("Admin decommissioning the device")
-			_, decommErr := harness.CLI("decommission", "device", deviceName)
+			_, decommErr := harness.DecommissionDevice(deviceName)
 			Expect(decommErr).ToNot(HaveOccurred(), "Admin should be able to decommission a device")
 		})
 	})
