@@ -270,6 +270,65 @@ func (h *Harness) GenerateFleetYAMLsForSimulator(fleetCount, devicesPerFleet int
 	return b.String(), nil
 }
 
+// StartLabeledSimulator starts a device simulator with the given count, initial index,
+// and labels for test-id and user identification. Returns the running command.
+func (h *Harness) StartLabeledSimulator(ctx context.Context, testID, userName string, initialIndex, count int) (*exec.Cmd, error) {
+	args := []string{
+		"--count", fmt.Sprintf("%d", count),
+		"--initial-device-index", fmt.Sprintf("%d", initialIndex),
+		"--label", fmt.Sprintf("test-id=%s", testID),
+		"--label", fmt.Sprintf("org-user=%s", userName),
+		"--log-level", "info",
+	}
+	return h.RunDeviceSimulator(ctx, args...)
+}
+
+// CountDevicesByLabel counts devices visible to the currently logged-in user
+// matching the given test ID label.
+func (h *Harness) CountDevicesByLabel(testID string) int {
+	output, err := h.CLI("get", util.Device, "-l", fmt.Sprintf("test-id=%s", testID), "-o", "name")
+	if err != nil {
+		return 0
+	}
+	count := 0
+	for _, line := range strings.Split(output, "\n") {
+		if strings.TrimSpace(line) != "" {
+			count++
+		}
+	}
+	return count
+}
+
+// GetFirstDeviceByLabel returns the name of the first device matching the given test ID label.
+func (h *Harness) GetFirstDeviceByLabel(testID string) (string, error) {
+	output, err := h.CLI("get", util.Device, "-l", fmt.Sprintf("test-id=%s", testID), "-o", "name")
+	if err != nil {
+		return "", fmt.Errorf("listing devices: %w", err)
+	}
+	for _, line := range strings.Split(output, "\n") {
+		name := strings.TrimSpace(line)
+		if name != "" {
+			name = strings.TrimPrefix(name, "device/")
+			return name, nil
+		}
+	}
+	return "", fmt.Errorf("no devices found with test-id=%s", testID)
+}
+
+// StopAllSimulators gracefully stops all running device simulators from the given slice.
+func (h *Harness) StopAllSimulators(cmds []*exec.Cmd, timeout time.Duration) {
+	ginkgo.GinkgoWriter.Printf("Stopping %d device simulators\n", len(cmds))
+	for i, cmd := range cmds {
+		if cmd != nil {
+			ginkgo.GinkgoWriter.Printf("   Stopping simulator %d/%d\n", i+1, len(cmds))
+			stopErr := h.StopDeviceSimulator(cmd, timeout)
+			if stopErr != nil {
+				ginkgo.GinkgoWriter.Printf("   Warning: error stopping simulator %d: %v\n", i+1, stopErr)
+			}
+		}
+	}
+}
+
 func (h *Harness) ValidateFleetYAMLDevicesPerFleet(yamlContent string, expectedDevicesPerFleet int, expectedFleetCount int) error {
 	if yamlContent == "" {
 		return fmt.Errorf("yaml content is empty")

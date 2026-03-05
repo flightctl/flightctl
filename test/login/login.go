@@ -152,6 +152,30 @@ func loginWithOpenshiftToken(harness *e2e.Harness) error {
 	return errors.New("failed to sign in with OpenShift token")
 }
 
+// LoginAsNonAdminSA logs in as a non-admin user on KIND by creating a token
+// for the corresponding ServiceAccount (e.g. "flightctl-demouser1").
+// The ServiceAccount must already exist in the flightctl namespace.
+func LoginAsNonAdminSA(harness *e2e.Harness, user string) error {
+	namespace, err := resolveFlightctlNamespace(harness)
+	if err != nil {
+		return fmt.Errorf("resolving namespace: %w", err)
+	}
+	saName := "flightctl-" + user // e.g. "flightctl-demouser1"
+	token, err := harness.SH("kubectl", "-n", namespace, "create", "token", saName, "--context", "kind-kind")
+	if err != nil {
+		return fmt.Errorf("creating token for SA %s: %w", saName, err)
+	}
+	loginArgs := append(baseLoginArgs(), "--token", strings.TrimSpace(token))
+	out, err := harness.CLI(loginArgs...)
+	if err != nil {
+		return fmt.Errorf("flightctl login failed: %w", err)
+	}
+	if !isLoginSuccessful(out) {
+		return fmt.Errorf("login not successful for SA %s: %s", saName, out)
+	}
+	return harness.RefreshClient()
+}
+
 func LoginAsNonAdmin(harness *e2e.Harness, user string, password string, k8sContext string, k8sApiEndpoint string) error {
 	if !util.BinaryExistsOnPath("oc") {
 		return fmt.Errorf("oc not found on PATH")

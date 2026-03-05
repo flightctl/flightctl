@@ -225,6 +225,19 @@ func (h *Harness) RefreshClient() error {
 	return nil
 }
 
+// RefreshCluster recreates the Kubernetes client from the kubeconfig file.
+// This is useful when the kubeconfig has been updated (e.g. after oc login) and the
+// harness needs to pick up the new credentials.
+func (h *Harness) RefreshCluster() error {
+	k8sCluster, err := kubernetesClient()
+	if err != nil {
+		return fmt.Errorf("failed to refresh kubernetes client: %w", err)
+	}
+	h.Cluster = k8sCluster
+	logrus.Infof("Refreshed Kubernetes client from kubeconfig")
+	return nil
+}
+
 // ExtractAuthURL extracts the authentication URL from an AuthProvider based on its type
 func ExtractAuthURL(provider *v1beta1.AuthProvider) string {
 	if provider == nil {
