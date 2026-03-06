@@ -114,8 +114,12 @@ _run_template_migration:
     test/scripts/run_migration.sh \
 	'
 
-deploy-e2e-extras: bin/.ssh/id_rsa.pub bin/e2e-certs/ca.pem
-	test/scripts/deploy_e2e_extras_with_helm.sh
+# DEPRECATED: deploy-e2e-extras is no longer used
+# E2E infrastructure (registry, git-server, prometheus) is now managed by testcontainers
+# in test/e2e/infra/ package. The containers start automatically when tests run.
+deploy-e2e-extras:
+	@echo "WARNING: deploy-e2e-extras is deprecated. Testcontainers now manage E2E infrastructure."
+	@echo "See test/e2e/infra/ for the new implementation."
 
 deploy-e2e-ocp-test-vm:
 	sudo --preserve-env=VM_DISK_SIZE_INC test/scripts/create_vm_libvirt.sh ${KUBECONFIG_PATH}
@@ -138,18 +142,16 @@ bin/.e2e-agent-injected: bin/output/qcow2/disk.qcow2 bin/.e2e-agent-certs
 prepare-e2e-qcow-config: bin/.e2e-agent-injected
 
 prepare-e2e-test: RPM_MOCK_ROOT=centos-stream+epel-next-9-x86_64
-prepare-e2e-test: deploy-e2e-extras build-e2e-containers push-e2e-agent-images prepare-e2e-qcow-config
+# Note: deploy-e2e-extras and push-e2e-agent-images removed
+# Testcontainers now handle registry/git-server/prometheus AND image uploading at test runtime
+# SSH keys and certs are still needed for git server authentication
+prepare-e2e-test: bin/.ssh/id_rsa.pub bin/e2e-certs/ca.pem build-e2e-containers prepare-e2e-qcow-config
 	./test/scripts/prepare_cli.sh
 
 # Build E2E containers with Docker caching
-build-e2e-containers: e2e-agent-images git-server-container
+# Note: git-server container is now built at test runtime by testcontainers
+build-e2e-containers: e2e-agent-images
 	@echo "Building E2E containers with Docker caching..."
-
-# Ensure git-server container is built with proper caching
-git-server-container: bin/e2e-certs/ca.pem
-	@echo "Building git-server container with Docker caching..."
-	test/scripts/prepare_git_server.sh
-	@bash -c 'source test/scripts/functions && in_kind && echo "Loading git-server into kind cluster..." && kind_load_image localhost/git-server:latest' || true
 
 # Build E2E agent images with proper caching (offline build – no cert generation)
 # Sentinel file includes AGENT_OS_ID to ensure rebuilds when OS changes
@@ -170,6 +172,7 @@ e2e-test: deploy prepare-e2e-qcow-config
 # Set GINKGO_OUTPUT_INTERCEPTOR_MODE to control parallel output (defaults to "dup" for full output)
 # Example: make run-e2e-test GO_E2E_DIRS=test/e2e/agent GINKGO_PROCS=4
 # Example: make run-e2e-test GO_E2E_DIRS=test/e2e/agent GINKGO_OUTPUT_INTERCEPTOR_MODE=swap
+# Set GINKGO_KEEP_GOING=true to run all suites even when one fails (default: stop after first suite failure).
 run-e2e-test:
 	$(ENV_TRACE_FLAGS) $(MAKE) _e2e_test
 
@@ -198,7 +201,7 @@ clean-swtpm-certs:
 clean-e2e-certs:
 	rm -rf bin/e2e-certs bin/.ssh
 
-.PHONY: test run-test git-server-container e2e-agent-images push-e2e-agent-images clean-e2e-certs
+.PHONY: test run-test e2e-agent-images push-e2e-agent-images clean-e2e-certs
 
 $(REPORTS):
 	-mkdir -p $(REPORTS)

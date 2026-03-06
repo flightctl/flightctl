@@ -56,7 +56,11 @@ var _ = Describe("ImageBuild", Label("imagebuild"), func() {
 			Expect(workerHarness.ImageBuilderClient).ToNot(BeNil(), "ImageBuilderClient must be available")
 
 			testID := workerHarness.GetTestIDFromContext()
-			registryAddress := workerHarness.RegistryEndpoint()
+			registryAddress := satellites.RegistryHost + ":" + satellites.RegistryPort
+
+			sshPublicKey, sshPrivateKeyPath, cleanupSSHKeys, keyErr := testutil.GenerateTempSSHKeyPair()
+			Expect(keyErr).ToNot(HaveOccurred(), "Should generate temporary SSH key pair")
+			defer cleanupSSHKeys()
 
 			sourceRepoName := fmt.Sprintf("source-repo-%s", testID)
 			destRepoName := fmt.Sprintf("dest-repo-%s", testID)
@@ -82,12 +86,6 @@ var _ = Describe("ImageBuild", Label("imagebuild"), func() {
 			// ============================================================
 
 			By("Step 2: Creating ImageBuild with SSH key user configuration")
-
-			sshPubKeyPath, err := e2e.GetSSHPublicKeyPath()
-			Expect(err).ToNot(HaveOccurred(), "Should get SSH public key path")
-			sshPubKeyBytes, err := os.ReadFile(sshPubKeyPath)
-			Expect(err).ToNot(HaveOccurred(), "Should be able to read SSH public key from %s", sshPubKeyPath)
-			sshPublicKey := strings.TrimSpace(string(sshPubKeyBytes))
 
 			spec := e2e.NewImageBuildSpecWithUserConfig(
 				sourceRepoName,
@@ -192,8 +190,6 @@ var _ = Describe("ImageBuild", Label("imagebuild"), func() {
 
 			vmName := fmt.Sprintf("imagebuild-test-%s", testID)
 			sshPort := vmSSHPortBase + GinkgoParallelProcess()
-			sshPrivateKeyPath, err := e2e.GetSSHPrivateKeyPath()
-			Expect(err).ToNot(HaveOccurred(), "Should get SSH private key path")
 
 			testVM := vm.TestVM{
 				TestDir:           tempDir,
@@ -202,6 +198,7 @@ var _ = Describe("ImageBuild", Label("imagebuild"), func() {
 				VMUser:            imageBuildUsername,
 				SSHPrivateKeyPath: sshPrivateKeyPath,
 				SSHPort:           sshPort,
+				SSHWaitTimeout:    vmBootTimeout, // first-boot image may have delayed sshd/cloud-init
 			}
 
 			libvirtVM, err := vm.NewVM(testVM)

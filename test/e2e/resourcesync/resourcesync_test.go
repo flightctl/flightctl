@@ -1,13 +1,16 @@
 package resourcesync_test
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"time"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/test/e2e/infra/satellite"
 	"github.com/flightctl/flightctl/test/harness/e2e"
+	"github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo"
@@ -29,13 +32,33 @@ const (
 
 // testContext holds shared test state across test cases
 type testContext struct {
-	harness          *e2e.Harness
-	testID           string
-	repoName         string
-	repoDir          string
-	resourceSyncName string
-	ownerFilter      string
-	listParams       v1beta1.ListFleetsParams
+	harness              *e2e.Harness
+	testID               string
+	repoName             string
+	repoDir              string
+	resourceSyncName     string
+	ownerFilter          string
+	listParams           v1beta1.ListFleetsParams
+	gitConfig            e2e.GitServerConfig
+	gitInternalHost      string
+	gitInternalPort      int
+	sshPrivateKeyPath    util.SSHPrivateKeyPath
+	sshPrivateKeyContent util.SSHPrivateKeyContent
+}
+
+func getGitEnv(ctx context.Context) (e2e.GitServerConfig, string, int, util.SSHPrivateKeyPath, util.SSHPrivateKeyContent) {
+	svc := satellite.Get(ctx)
+	config := e2e.GitServerConfig{
+		Host: svc.GitServerHost,
+		Port: svc.GitServerPort,
+		User: "user",
+	}
+	keyPath, err := svc.GetGitSSHPrivateKeyPath()
+	if err != nil {
+		return config, svc.GitServerInternalHost, svc.GitServerInternalPort, "", ""
+	}
+	keyContent, _ := svc.GetGitSSHPrivateKey()
+	return config, svc.GitServerInternalHost, svc.GitServerInternalPort, keyPath, keyContent
 }
 
 var _ = Describe("ResourceSync success cases", func() {
@@ -44,20 +67,21 @@ var _ = Describe("ResourceSync success cases", func() {
 	BeforeEach(func() {
 		tc = &testContext{}
 		tc.harness = e2e.GetWorkerHarness()
+		tc.gitConfig, tc.gitInternalHost, tc.gitInternalPort, tc.sshPrivateKeyPath, tc.sshPrivateKeyContent = getGitEnv(tc.harness.Context)
 
 		tc.testID = tc.harness.GetTestIDFromContext()
 		tc.repoName = fmt.Sprintf("e2e-repo-%s", tc.testID)
 		tc.resourceSyncName = fmt.Sprintf("e2e-resourcesync-%s", tc.testID)
 
 		repoDir, err := tc.harness.SetupTemplatedGitRepoFromDir(
-			tc.repoName,
+			tc.gitConfig, tc.sshPrivateKeyPath, tc.repoName,
 			e2e.GetTestDataPath("valid_fleet_files"),
 			templateData{TestID: tc.testID},
 		)
 		Expect(err).ToNot(HaveOccurred())
 		tc.repoDir = repoDir
 
-		err = tc.harness.CreateRepositoryWithValidE2ECredentials(tc.repoName)
+		err = tc.harness.CreateRepositoryWithValidE2ECredentials(tc.gitInternalHost, tc.gitInternalPort, tc.repoName, tc.sshPrivateKeyContent)
 		Expect(err).ToNot(HaveOccurred())
 
 		// Define owner filter for querying fleets created by this ResourceSync
@@ -83,9 +107,11 @@ var _ = Describe("ResourceSync success cases", func() {
 	})
 
 	AfterEach(func() {
-		// Clean up the local working directory
-		if tc != nil && tc.repoDir != "" {
-			os.RemoveAll(tc.repoDir)
+		if tc != nil {
+			if tc.repoDir != "" {
+				os.RemoveAll(tc.repoDir)
+			}
+			_ = tc.harness.CleanupGitRepositories(tc.gitConfig, tc.sshPrivateKeyPath)
 		}
 	})
 
@@ -112,7 +138,7 @@ var _ = Describe("ResourceSync success cases", func() {
 		Expect(getFleetImage(fleet1)).To(Equal(Fedora42Image), fmt.Sprintf("Expected initial image to be %s", Fedora42Image))
 
 		// Modify fleet-1.yaml in the working directory with a new image (uses updated_fleet_files template)
-		err = tc.harness.PushTemplatedFilesToGitRepo(tc.repoName, e2e.GetTestDataPath("updated_fleet_files"), tc.repoDir, templateData{TestID: tc.testID})
+		err = tc.harness.PushTemplatedFilesToGitRepo(tc.repoDir, tc.sshPrivateKeyPath, e2e.GetTestDataPath("updated_fleet_files"), templateData{TestID: tc.testID})
 		Expect(err).ToNot(HaveOccurred())
 
 		Eventually(func() (string, error) {
@@ -133,7 +159,7 @@ var _ = Describe("ResourceSync success cases", func() {
 		err = os.Remove(filepath.Join(tc.repoDir, "fleet-3.yaml"))
 		Expect(err).ToNot(HaveOccurred())
 
-		err = tc.harness.CommitAndPushGitRepo(tc.repoDir, "Remove fleet-3")
+		err = tc.harness.CommitAndPushGitRepo(tc.repoDir, tc.sshPrivateKeyPath, "Remove fleet-3")
 		Expect(err).ToNot(HaveOccurred())
 
 		tc.harness.WaitForFleetCount(&tc.listParams, 2, PollingTimeout, PollingInterval)
@@ -148,24 +174,29 @@ var _ = Describe("ResourceSync Failure Cases", func() {
 	BeforeEach(func() {
 		tc = &testContext{}
 		tc.harness = e2e.GetWorkerHarness()
+		tc.gitConfig, tc.gitInternalHost, tc.gitInternalPort, tc.sshPrivateKeyPath, tc.sshPrivateKeyContent = getGitEnv(tc.harness.Context)
 		tc.testID = tc.harness.GetTestIDFromContext()
 	})
 
 	AfterEach(func() {
-		// Clean up the local working directory
-		if tc != nil && tc.repoDir != "" {
-			os.RemoveAll(tc.repoDir)
+		if tc != nil {
+			if tc.repoDir != "" {
+				os.RemoveAll(tc.repoDir)
+			}
+			_ = tc.harness.CleanupGitRepositories(tc.gitConfig, tc.sshPrivateKeyPath)
 		}
 	})
 
 	It("Handles failure scenarios", Label("87156", "sanity"), func() {
+		gitConfig, gitInternalHost, gitInternalPort, sshKeyPath, sshKeyContent := getGitEnv(tc.harness.Context)
+
 		By("failing to sync when repository credentials are invalid")
 		{
 			repoName := fmt.Sprintf("e2e-repo-invalid-creds-%s", tc.testID)
 			resourceSyncName := fmt.Sprintf("e2e-resourcesync-invalid-creds-%s", tc.testID)
 
 			repoDir, err := tc.harness.SetupTemplatedGitRepoFromDir(
-				repoName,
+				gitConfig, sshKeyPath, repoName,
 				e2e.GetTestDataPath("valid_fleet_files"),
 				templateData{TestID: tc.testID},
 			)
@@ -173,9 +204,9 @@ var _ = Describe("ResourceSync Failure Cases", func() {
 			defer os.RemoveAll(repoDir)
 
 			// Create a Repository resource with INVALID SSH credentials (garbage key)
-			repoURL, err := tc.harness.GetInternalGitRepoURL(repoName)
+			repoURL, err := tc.harness.GetInternalGitRepoURL(gitInternalHost, gitInternalPort, repoName)
 			Expect(err).ToNot(HaveOccurred())
-			invalidSSHKey := "-----BEGIN OPENSSH PRIVATE KEY-----\nINVALID_KEY_DATA\n-----END OPENSSH PRIVATE KEY-----"
+			invalidSSHKey := util.SSHPrivateKeyContent("-----BEGIN OPENSSH PRIVATE KEY-----\nINVALID_KEY_DATA\n-----END OPENSSH PRIVATE KEY-----")
 			err = tc.harness.CreateRepositoryWithSSHCredentials(repoName, repoURL, invalidSSHKey)
 			Expect(err).ToNot(HaveOccurred())
 
@@ -204,14 +235,14 @@ var _ = Describe("ResourceSync Failure Cases", func() {
 			resourceSyncName := fmt.Sprintf("e2e-resourcesync-invalid-yaml-%s", tc.testID)
 
 			repoDir, err := tc.harness.SetupTemplatedGitRepoFromDir(
-				repoName,
+				gitConfig, sshKeyPath, repoName,
 				e2e.GetTestDataPath("valid_fleet_files"),
 				templateData{TestID: scenarioTestID},
 			)
 			Expect(err).ToNot(HaveOccurred())
 			defer os.RemoveAll(repoDir)
 
-			err = tc.harness.CreateRepositoryWithValidE2ECredentials(repoName)
+			err = tc.harness.CreateRepositoryWithValidE2ECredentials(gitInternalHost, gitInternalPort, repoName, sshKeyContent)
 			Expect(err).ToNot(HaveOccurred())
 
 			ownerFilter := fmt.Sprintf("metadata.owner=ResourceSync/%s", resourceSyncName)
@@ -226,9 +257,7 @@ var _ = Describe("ResourceSync Failure Cases", func() {
 
 			// Push an invalid fleet YAML file
 			err = tc.harness.PushTemplatedFilesToGitRepo(
-				repoName,
-				e2e.GetTestDataPath("invalid_fleet_files"),
-				repoDir,
+				repoDir, sshKeyPath, e2e.GetTestDataPath("invalid_fleet_files"),
 				templateData{TestID: scenarioTestID},
 			)
 			Expect(err).ToNot(HaveOccurred())
@@ -250,7 +279,7 @@ var _ = Describe("ResourceSync Failure Cases", func() {
 			resourceSyncName := fmt.Sprintf("e2e-resourcesync-conflict-%s", tc.testID)
 
 			repoDir, err := tc.harness.SetupTemplatedGitRepoFromDir(
-				repoName,
+				gitConfig, sshKeyPath, repoName,
 				e2e.GetTestDataPath("valid_fleet_files"),
 				templateData{TestID: scenarioTestID},
 			)
@@ -258,7 +287,7 @@ var _ = Describe("ResourceSync Failure Cases", func() {
 			defer os.RemoveAll(repoDir)
 
 			// Create a valid repository and ResourceSync
-			err = tc.harness.CreateRepositoryWithValidE2ECredentials(repoName)
+			err = tc.harness.CreateRepositoryWithValidE2ECredentials(gitInternalHost, gitInternalPort, repoName, sshKeyContent)
 			Expect(err).ToNot(HaveOccurred())
 
 			err = tc.harness.CreateResourceSyncForRepo(resourceSyncName, repoName, BranchName)
@@ -275,14 +304,14 @@ var _ = Describe("ResourceSync Failure Cases", func() {
 			repo2Name := fmt.Sprintf("e2e-repo-conflict-2-%s", tc.testID)
 
 			repoDir2, err := tc.harness.SetupTemplatedGitRepoFromDir(
-				repo2Name,
+				gitConfig, sshKeyPath, repo2Name,
 				e2e.GetTestDataPath("conflict_fleet_files"),
 				templateData{TestID: scenarioTestID},
 			)
 			Expect(err).ToNot(HaveOccurred())
 			defer os.RemoveAll(repoDir2)
 
-			err = tc.harness.CreateRepositoryWithValidE2ECredentials(repo2Name)
+			err = tc.harness.CreateRepositoryWithValidE2ECredentials(gitInternalHost, gitInternalPort, repo2Name, sshKeyContent)
 			Expect(err).ToNot(HaveOccurred())
 
 			err = tc.harness.CreateResourceSyncForRepo(rs2Name, repo2Name, BranchName)

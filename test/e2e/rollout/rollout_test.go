@@ -231,10 +231,12 @@ var _ = Describe("Rollout Policies", Label("rollout"), func() {
 			}
 
 			By("Simulating a failure in the first batch")
+			Expect(satellites).ToNot(BeNil(), "satellite registry required for network failure test")
+			regHost, regPort := satellites.RegistryHost, satellites.RegistryPort
 			for _, harness := range tc.harnesses {
 				h := harness // capture per-iteration
-				DeferCleanup(func() { _ = h.FixNetworkFailure() })
-				err = h.SimulateNetworkFailure()
+				DeferCleanup(func() { _ = h.FixNetworkFailure(regHost, regPort) })
+				err = h.SimulateNetworkFailure(regHost, regPort)
 				Expect(err).ToNot(HaveOccurred())
 			}
 
@@ -254,7 +256,7 @@ var _ = Describe("Rollout Policies", Label("rollout"), func() {
 			By("Fixing the failed device and verifying the rollout continues")
 			for _, harness := range tc.harnesses {
 				h := harness // capture per-iteration
-				err = h.FixNetworkFailure()
+				err = h.FixNetworkFailure(regHost, regPort)
 				Expect(err).ToNot(HaveOccurred())
 			}
 
@@ -556,13 +558,14 @@ type TestContext struct {
 	deviceIDs     []string
 	composeApp    api.ComposeApplication
 	sleepAppImage string
+	registryHost  string
+	registryPort  string
 }
 
 func setupTestContext(ctx context.Context) *TestContext {
-	// Get harness directly - no shared package-level variable
 	harness := e2e.GetWorkerHarness()
-
-	sleepAppImage := util.NewSleepAppImageReference(util.SleepAppTags.V1).String()
+	regHost, regPort := satellites.RegistryHost, satellites.RegistryPort
+	sleepAppImage := harness.GetSleepAppImageRefForFleet(regHost, regPort, util.SleepAppTags.V1)
 
 	composeApp := api.ComposeApplication{
 		Name:    lo.ToPtr("sleepapp"),
@@ -579,6 +582,8 @@ func setupTestContext(ctx context.Context) *TestContext {
 		harness:       harness,
 		composeApp:    composeApp,
 		sleepAppImage: sleepAppImage,
+		registryHost:  regHost,
+		registryPort:  regPort,
 	}
 }
 
@@ -664,7 +669,7 @@ func (tc *TestContext) createDeviceSpec() (api.DeviceSpec, error) {
 func (tc *TestContext) updateAppVersion(version string) error {
 	tc.composeApp.Name = lo.ToPtr(fmt.Sprintf("sleepapp-%s", version))
 	return tc.composeApp.FromImageApplicationProviderSpec(api.ImageApplicationProviderSpec{
-		Image: util.NewSleepAppImageReference(version).String(),
+		Image: tc.harness.GetSleepAppImageRefForFleet(tc.registryHost, tc.registryPort, version),
 	})
 }
 

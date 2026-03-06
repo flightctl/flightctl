@@ -3,16 +3,20 @@ package agent_test
 import (
 	"bytes"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/store/model"
+	"github.com/flightctl/flightctl/test/e2e/infra"
+	"github.com/flightctl/flightctl/test/e2e/infra/setup"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	"github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 )
 
 var _ = Describe("VM Agent behavior", func() {
@@ -319,9 +323,68 @@ var _ = Describe("VM Agent behavior", func() {
 		})
 
 		It("K8s secret config source", Label("76687"), func() {
-			// Get harness directly - no shared package-level variable
-			harness := e2e.GetWorkerHarness()
+			p := setup.GetDefaultProviders()
+			Expect(p).ToNot(BeNil())
+			envType := p.Infra.GetEnvironmentType()
+			if envType != infra.EnvironmentKind && envType != infra.EnvironmentOCP {
+				Skip(fmt.Sprintf("K8s secret config only supported on K8s (current: %s)", envType))
+			}
 
+			harness := e2e.GetWorkerHarness()
+			ctx := harness.GetTestContext()
+
+			GinkgoWriter.Printf("[K8s secret config] Ensuring namespace %s and secret test-config\n", util.E2E_NAMESPACE)
+			if p.RBAC != nil {
+				err := p.RBAC.CreateOrganization(ctx, util.E2E_NAMESPACE)
+				if err != nil && !apierrors.IsAlreadyExists(err) {
+					Expect(err).ToNot(HaveOccurred())
+				}
+			}
+			err := p.Secrets.CreateSecret(ctx, util.E2E_NAMESPACE, "test-config", map[string]string{
+				"testfile.txt": "This is used to test k8s secret config.\n",
+			})
+			Expect(err).ToNot(HaveOccurred())
+			GinkgoWriter.Printf("[K8s secret config] Secret test-config created in %s\n", util.E2E_NAMESPACE)
+
+			// Grant flightctl-worker read access to secrets in flightctl-e2e so it can fetch test-config for device render.
+			// Delete and recreate so stale Role/RoleBinding from a previous run (wrong apiGroup or subject namespace) are replaced.
+			if p.RBAC != nil {
+				GinkgoWriter.Printf("[K8s secret config] Deleting existing Role/RoleBinding in %s (if any)\n", util.E2E_NAMESPACE)
+				_ = p.RBAC.DeleteRoleBinding(ctx, util.E2E_NAMESPACE, "flightctl-worker-secret-reader")
+				_ = p.RBAC.DeleteRole(ctx, util.E2E_NAMESPACE, "flightctl-secret-reader")
+
+				workerNs := p.Infra.GetInternalNamespace()
+				if workerNs == "" {
+					workerNs = os.Getenv("FLIGHTCTL_INTERNAL_NS")
+				}
+				if workerNs == "" {
+					workerNs = infra.GetConfig().GetNamespace()
+				}
+				GinkgoWriter.Printf("[K8s secret config] Worker SA namespace: %s (flightctl-worker will be bound in flightctl-e2e)\n", workerNs)
+
+				err = p.RBAC.CreateRole(ctx, &infra.RoleSpec{
+					Name:      "flightctl-secret-reader",
+					Namespace: util.E2E_NAMESPACE,
+					Permissions: []infra.Permission{
+						{Resources: []string{"secrets"}, Verbs: []string{"get"}, ApiGroup: infra.CoreAPIGroup},
+					},
+				})
+				Expect(err).ToNot(HaveOccurred())
+				GinkgoWriter.Printf("[K8s secret config] Role flightctl-secret-reader created (secrets, get, core API)\n")
+
+				err = p.RBAC.CreateRoleBinding(ctx, &infra.RoleBindingSpec{
+					Name:             "flightctl-worker-secret-reader",
+					Namespace:        util.E2E_NAMESPACE,
+					RoleName:         "flightctl-secret-reader",
+					Subject:          "flightctl-worker",
+					SubjectKind:      "ServiceAccount",
+					SubjectNamespace: workerNs,
+				})
+				Expect(err).ToNot(HaveOccurred())
+				GinkgoWriter.Printf("[K8s secret config] RoleBinding flightctl-worker-secret-reader created (SA flightctl-worker/%s)\n", workerNs)
+			}
+
+			GinkgoWriter.Printf("[K8s secret config] Enrolling device and waiting for online\n")
 			deviceId, _ := harness.EnrollAndWaitForOnlineStatus()
 
 			// Get the next expected rendered version
@@ -330,6 +393,7 @@ var _ = Describe("VM Agent behavior", func() {
 
 			By("should report the correct device status after an inline config is added")
 
+			GinkgoWriter.Printf("[K8s secret config] Updating device %s with k8s secret config (flightctl-e2e/test-config)\n", deviceId)
 			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
 
 				// Create ConfigProviderSpec.
@@ -342,11 +406,11 @@ var _ = Describe("VM Agent behavior", func() {
 			})
 			Expect(err).ToNot(HaveOccurred())
 
-			GinkgoWriter.Printf("Waiting for the device to pick the config\n")
+			GinkgoWriter.Printf("[K8s secret config] Waiting for device to reach renderedVersion %d\n", newRenderedVersion)
 			err = harness.WaitForDeviceNewRenderedVersion(deviceId, newRenderedVersion)
 			Expect(err).ToNot(HaveOccurred())
 
-			// The device should have the online config.
+			GinkgoWriter.Printf("[K8s secret config] Verifying /etc/testfile.txt on device\n")
 			stdout, err := harness.VM.RunSSH([]string{"cat", "/etc/testfile.txt"}, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(stdout.String()).To(ContainSubstring("This is used to test k8s secret config."))

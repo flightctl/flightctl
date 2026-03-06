@@ -18,6 +18,10 @@ GINKGO_NODE=${GINKGO_NODE:-1}
 # Discovery control variables
 DISCOVERY_PATH=${DISCOVERY_PATH:-"discovery.json"}
 DISCOVERY_ONLY=${DISCOVERY_ONLY:-""}
+# If set (true/1), run all suites even when one fails (ginkgo --keep-going). Default: unset (stop after first suite failure).
+GINKGO_KEEP_GOING=${GINKGO_KEEP_GOING:-""}
+# Global timeout for the entire test run (e.g. 120m, 180m). Default: 120m.
+GINKGO_TIMEOUT=${GINKGO_TIMEOUT:-120m}
 FOCUS_FLAG=""
 
 
@@ -58,10 +62,60 @@ if [[ -n "${DISCOVERY_ONLY}" ]]; then
     exit 0
 fi
 
-API_ENDPOINT=https://$(get_endpoint_host flightctl-api)
+# Determine environment type and set API_ENDPOINT accordingly
+E2E_ENVIRONMENT=${E2E_ENVIRONMENT:-""}
+
+# Auto-detect environment if not set
+if [[ -z "${E2E_ENVIRONMENT}" ]]; then
+    if kubectl config current-context &>/dev/null; then
+        E2E_ENVIRONMENT="k8s"
+    elif systemctl is-active flightctl-api.service &>/dev/null || sudo systemctl is-active flightctl-api.service &>/dev/null; then
+        E2E_ENVIRONMENT="quadlet"
+    else
+        E2E_ENVIRONMENT="k8s"  # Default to k8s
+    fi
+    echo "Auto-detected E2E_ENVIRONMENT: ${E2E_ENVIRONMENT}"
+fi
+export E2E_ENVIRONMENT
+
+# Set API_ENDPOINT based on environment
+if [[ -z "${API_ENDPOINT:-}" ]]; then
+    case "${E2E_ENVIRONMENT}" in
+        quadlet)
+            # For Quadlet, use FQDN so VMs can reach the API
+            QUADLET_HOST=$(hostname -f 2>/dev/null || hostname 2>/dev/null || echo "localhost")
+            API_ENDPOINT="https://${QUADLET_HOST}:3443"
+            echo "Using Quadlet API endpoint: ${API_ENDPOINT}"
+            ;;
+        *)
+            # For K8s environments, get endpoint from route/ingress
+            API_ENDPOINT=https://$(get_endpoint_host flightctl-api)
+            echo "Using K8s API endpoint: ${API_ENDPOINT}"
+            ;;
+    esac
+fi
 export API_ENDPOINT
-REGISTRY_ENDPOINT=$(registry_address)
-export REGISTRY_ENDPOINT
+
+# Set registry endpoint (K8s-specific, optional for Quadlet)
+if [[ "${E2E_ENVIRONMENT}" != "quadlet" ]]; then
+    REGISTRY_ENDPOINT=$(registry_address)
+    export REGISTRY_ENDPOINT
+else
+    # For Quadlet, registry may not be needed or use a local one
+    REGISTRY_ENDPOINT=${REGISTRY_ENDPOINT:-""}
+    if [[ -n "${REGISTRY_ENDPOINT}" ]]; then
+        export REGISTRY_ENDPOINT
+    fi
+fi
+
+# Set PAM authentication credentials for Quadlet environments
+if [[ "${E2E_ENVIRONMENT}" == "quadlet" ]]; then
+    # Default PAM admin user credentials for E2E tests
+    # These can be overridden by setting E2E_PAM_USER and E2E_PAM_PASSWORD
+    export E2E_PAM_USER="${E2E_PAM_USER:-admin}"
+    export E2E_DEFAULT_PAM_PASSWORD="${E2E_DEFAULT_PAM_PASSWORD:-flightctl-e2e}"
+    echo "PAM credentials configured for user: ${E2E_PAM_USER}"
+fi
 
 # Handle manual test splitting if enabled
 if [[ "${GINKGO_TOTAL_NODES}" -gt 1 ]]; then
@@ -143,7 +197,11 @@ if [[ -n "${GINKGO_LABEL_FILTER}" ]]; then
 fi
 
 # Add standard flags
-CMD+=(--timeout 120m --race -vv -nodes="${GINKGO_PROCS}" --show-node-events --trace --force-newlines --output-interceptor-mode "${GINKGO_OUTPUT_INTERCEPTOR_MODE}" --github-output --output-dir "${REPORTS}" --junit-report junit_e2e_test.xml)
+CMD+=(--timeout "${GINKGO_TIMEOUT}" --race -vv -nodes="${GINKGO_PROCS}")
+if [[ "${GINKGO_KEEP_GOING}" == "true" || "${GINKGO_KEEP_GOING}" == "1" ]]; then
+    CMD+=(--keep-going)
+fi
+CMD+=(--show-node-events --trace --force-newlines --output-interceptor-mode "${GINKGO_OUTPUT_INTERCEPTOR_MODE}" --github-output --output-dir "${REPORTS}" --junit-report junit_e2e_test.xml)
 
 # Add progress polling flags for parallel execution
 if [[ "${GINKGO_PROCS}" -gt 1 ]]; then
@@ -153,7 +211,7 @@ fi
 # Add the test directories last
 CMD+=("${GO_E2E_DIRS[@]}")
 
-echo "Running e2e tests with ${GINKGO_PROCS} parallel processes..."
+echo "Running e2e tests with ${GINKGO_PROCS} parallel processes (timeout: ${GINKGO_TIMEOUT})..."
 echo "Output interceptor mode: ${GINKGO_OUTPUT_INTERCEPTOR_MODE} (dup=show all output, swap=clean output)"
 echo "Reports will be saved to: ${REPORTS}"
 

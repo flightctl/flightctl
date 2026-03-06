@@ -5,14 +5,13 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"slices"
 	"strings"
 
+	"github.com/flightctl/flightctl/test/e2e/infra"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	"github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/gomega"
 	"github.com/sirupsen/logrus"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 type AuthMethod int
@@ -26,6 +25,9 @@ const (
 
 	// AuthUsernamePassword indicates authentication using a username and password.
 	AuthUsernamePassword
+
+	// AuthPAM indicates authentication using PAM (for Quadlet deployments)
+	AuthPAM
 )
 
 const (
@@ -42,6 +44,12 @@ func LoginToAPIWithToken(harness *e2e.Harness) AuthMethod {
 	if !isAuthEnabled(harness) {
 		return AuthDisabled
 	}
+
+	// For Quadlet deployments, use PAM authentication
+	if infra.IsQuadletEnvironment() {
+		return loginWithPAM(harness)
+	}
+
 	ocExists := util.BinaryExistsOnPath(openshift)
 	if ocExists {
 		// If openshift token login fails then fallback to username/password
@@ -58,9 +66,50 @@ func WithK8Token(harness *e2e.Harness) AuthMethod {
 	if !isAuthEnabled(harness) {
 		return AuthDisabled
 	}
+
+	// For Quadlet deployments, use PAM authentication instead of K8s token
+	if infra.IsQuadletEnvironment() {
+		return loginWithPAM(harness)
+	}
+
 	authMethod, err := loginWithK8Token(harness)
 	Expect(err).ToNot(HaveOccurred(), "Authentication was unsuccessful")
 	return authMethod
+}
+
+// loginWithPAM authenticates using PAM credentials for Quadlet deployments
+func loginWithPAM(harness *e2e.Harness) AuthMethod {
+	// Get PAM credentials from environment or use defaults
+	pamUser := os.Getenv("E2E_PAM_USER")
+	if pamUser == "" {
+		pamUser = "admin"
+	}
+	pamPassword := os.Getenv("E2E_PAM_PASSWORD")
+	if pamPassword == "" {
+		pamPassword = os.Getenv("E2E_DEFAULT_PAM_PASSWORD")
+	}
+	if pamPassword == "" {
+		pamPassword = "flightctl-e2e" //nolint:gosec // G101: Test-only default password, not production credentials
+	}
+
+	logrus.Infof("Attempting PAM login with user: %s", pamUser)
+
+	loginArgs := append(baseLoginArgs(), "-u", pamUser, "-p", pamPassword)
+	out, err := harness.CLI(loginArgs...)
+	if err != nil {
+		logrus.Warnf("PAM login failed: %v, output: %s", err, out)
+		// Don't panic - return AuthDisabled and let test handle it
+		Expect(err).ToNot(HaveOccurred(), "PAM authentication was unsuccessful: %s", out)
+		return AuthDisabled
+	}
+
+	if isLoginSuccessful(out) {
+		logrus.Info("PAM login successful")
+		return AuthPAM
+	}
+
+	logrus.Warnf("PAM login did not succeed: %s", out)
+	return AuthDisabled
 }
 
 func isAuthEnabled(harness *e2e.Harness) bool {
@@ -76,34 +125,23 @@ func isLoginSuccessful(cmdOutput string) bool {
 		strings.Contains(out, "login successful")
 }
 
-func getActiveNamespaces(harness *e2e.Harness) []string {
-	res, err := harness.Cluster.CoreV1().Namespaces().List(harness.Context, metav1.ListOptions{FieldSelector: "status.phase=Active"})
-	Expect(err).ToNot(HaveOccurred(), "error listing namespaces")
-	namespaces := make([]string, 0, len(res.Items))
-	for _, item := range res.Items {
-		namespaces = append(namespaces, strings.ToLower(strings.TrimSpace(item.Name)))
-	}
-	return namespaces
-}
-
 func resolveFlightctlNamespace(harness *e2e.Harness) (string, error) {
-	namespaces := getActiveNamespaces(harness)
 	flightCtlNs := os.Getenv("FLIGHTCTL_NS")
-	// if the NS env variable is set we only check that one
 	if flightCtlNs != "" {
-		const fmtString = "unable to resolve flightctl namespace. %s is defined as the namespace but does not exist in the collection %v"
-		if !slices.Contains(namespaces, flightCtlNs) {
-			return "", fmt.Errorf(fmtString, flightCtlNs, namespaces)
+		_, err := harness.SH("kubectl", "get", "namespace", flightCtlNs)
+		if err != nil {
+			return "", fmt.Errorf("FLIGHTCTL_NS=%s but namespace does not exist or is not accessible: %w", flightCtlNs, err)
 		}
 		return flightCtlNs, nil
 	}
 	wellKnownNs := []string{"flightctl", "flightctl-external"}
 	for _, ns := range wellKnownNs {
-		if slices.Contains(namespaces, ns) {
+		_, err := harness.SH("kubectl", "get", "namespace", ns)
+		if err == nil {
 			return ns, nil
 		}
 	}
-	return "", fmt.Errorf("unable to resolve flightctl namespace using well known namespaces %v", wellKnownNs)
+	return "", fmt.Errorf("unable to resolve flightctl namespace: set FLIGHTCTL_NS or ensure one of %v exists", wellKnownNs)
 }
 
 func loginWithK8Token(harness *e2e.Harness) (AuthMethod, error) {
@@ -111,8 +149,8 @@ func loginWithK8Token(harness *e2e.Harness) (AuthMethod, error) {
 	Expect(err).ToNot(HaveOccurred(), "error resolving flightctl namespace")
 	Expect(namespace).NotTo(BeEmpty(), "Unable to determine the namespace associated with the demo user")
 
-	// Get Kubernetes service account token
-	token, err := harness.SH("kubectl", "-n", namespace, "create", "token", "flightctl-admin", "--context", "kind-kind")
+	// Get Kubernetes service account token (long duration so it does not expire mid-e2e)
+	token, err := harness.SH("kubectl", "-n", namespace, "create", "token", "flightctl-admin", "--duration=8h", "--context", "kind-kind")
 	if err != nil {
 		return AuthDisabled, fmt.Errorf("error creating service account token: %w", err)
 	}
@@ -126,19 +164,40 @@ func loginWithK8Token(harness *e2e.Harness) (AuthMethod, error) {
 		return AuthDisabled, fmt.Errorf("error executing login: %w", err)
 	}
 	if isLoginSuccessful(out) {
+		logrus.Info("Logged in to flightctl API with K8 service account token")
 		return AuthToken, nil
 	}
 	return AuthDisabled, errors.New("failed to sign in with token")
 }
 
+func getOpenShiftServer(harness *e2e.Harness) (string, error) {
+	out, err := harness.SH(openshift, "whoami", "--show-server")
+	if err == nil {
+		return strings.TrimSpace(out), nil
+	}
+	out, err = harness.SH("kubectl", "config", "view", "--minify", "-o", "jsonpath={.clusters[0].cluster.server}")
+	if err != nil {
+		return "", fmt.Errorf("could not get OpenShift server from oc whoami or kubeconfig: %w", err)
+	}
+	return strings.TrimSpace(out), nil
+}
+
 func loginWithOpenshiftToken(harness *e2e.Harness) error {
+	if kubeadminPass := os.Getenv("KUBEADMIN_PASS"); kubeadminPass != "" {
+		server, err := getOpenShiftServer(harness)
+		if err != nil {
+			return fmt.Errorf("getting OpenShift server for oc login: %w", err)
+		}
+		_, err = harness.SH(openshift, "login", "-u", "kubeadmin", "-p", kubeadminPass, server, "--insecure-skip-tls-verify")
+		if err != nil {
+			return fmt.Errorf("oc login as kubeadmin: %w", err)
+		}
+		logrus.Info("Logged in to OpenShift cluster as kubeadmin (refreshed session for full token lifetime)")
+	}
 	token, err := harness.SH(openshift, "whoami", "-t")
-	// If whoami fails just try logging in with the user
 	if err != nil {
 		return fmt.Errorf("calling oc whoami: %w", err)
 	}
-	// otherwise try logging in with the openshift token but still fallback
-	// to regular username/password if that fails
 	token = strings.TrimSpace(token)
 	Expect(token).ToNot(BeEmpty(), "Token from 'oc whoami' should not be empty")
 	loginArgsOcp := append(baseLoginArgs(), "--token", token)
@@ -147,9 +206,33 @@ func loginWithOpenshiftToken(harness *e2e.Harness) error {
 		return fmt.Errorf("failed to sign in with OpenShift token: %w", err)
 	}
 	if isLoginSuccessful(out) {
+		logrus.Info("Logged in to flightctl API with OpenShift token")
 		return nil
 	}
 	return errors.New("failed to sign in with OpenShift token")
+}
+
+// loginWithCurrentOpenShiftToken logs in to the flightctl API using the current oc user's token.
+// Used by LoginAsNonAdmin so we do not overwrite the session with kubeadmin.
+func loginWithCurrentOpenShiftToken(harness *e2e.Harness) error {
+	token, err := harness.SH(openshift, "whoami", "-t")
+	if err != nil {
+		return fmt.Errorf("oc whoami -t: %w", err)
+	}
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return errors.New("oc whoami -t returned empty token")
+	}
+	loginArgs := append(baseLoginArgs(), "--token", token)
+	out, err := harness.CLI(loginArgs...)
+	if err != nil {
+		return fmt.Errorf("flightctl login with current OpenShift token: %w", err)
+	}
+	if !isLoginSuccessful(out) {
+		return errors.New("flightctl login did not succeed with current OpenShift token")
+	}
+	logrus.Info("Logged in to flightctl API with OpenShift token")
+	return nil
 }
 
 func LoginAsNonAdmin(harness *e2e.Harness, user string, password string, k8sContext string, k8sApiEndpoint string) error {
@@ -161,22 +244,17 @@ func LoginAsNonAdmin(harness *e2e.Harness, user string, password string, k8sCont
 	err := cmd.Run()
 	if err != nil {
 		return fmt.Errorf("Failed to login to Kubernetes cluster as non-admin: %v", err)
-	} else {
-		logrus.Infof("✅ Logged in to Kubernetes cluster as non-admin: %s", user)
+	}
+	logrus.Infof("✅ Logged in to Kubernetes cluster as non-admin: %s", user)
+
+	// Use current oc user's token directly; do not call isAuthEnabled (it runs login with fake-token and is redundant when auth is always enabled).
+	if err := loginWithCurrentOpenShiftToken(harness); err != nil {
+		return fmt.Errorf("login to flightctl API as non-admin: %w", err)
 	}
 
-	method := LoginToAPIWithToken(harness)
-	Expect(method).ToNot(Equal(AuthDisabled))
-	if method == AuthDisabled {
-		return errors.New("Login is disabled")
-	}
-
-	// Refresh the harness client to pick up the updated organization from the config file
-	// The login may have updated the organization context in the config
 	err = harness.RefreshClient()
 	if err != nil {
 		return fmt.Errorf("failed to refresh client after login: %w", err)
 	}
-
 	return nil
 }

@@ -13,14 +13,43 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func (h *Harness) CreateFleetDeviceSpec(deviceImageTag string, additionalConfigs ...v1beta1.ConfigProviderSpec) (v1beta1.DeviceSpec, error) {
+// GetDeviceImageRefForFleet returns the device OS image reference to use in fleet/device spec.
+// Pass registryHost and registryPort from satellite (e.g. satellite.Get(ctx).RegistryHost, .RegistryPort).
+// if either is empty, returns the quay.io fallback.
+func (h *Harness) GetDeviceImageRefForFleet(registryHost, registryPort, deviceImageTag string) string {
+	return getImageRefForFleet(registryHost, registryPort, util.DeviceImageRegistryPath, deviceImageTag, func(t string) string {
+		return util.NewDeviceImageReference(t).String()
+	})
+}
+
+// GetSleepAppImageRefForFleet returns the sleep-app image reference for use in device specs.
+// Pass registryHost and registryPort from infra; if either is empty, returns the quay.io fallback.
+func (h *Harness) GetSleepAppImageRefForFleet(registryHost, registryPort, tag string) string {
+	return getImageRefForFleet(registryHost, registryPort, util.SleepAppRegistryPath, tag, func(t string) string {
+		return util.NewSleepAppImageReference(t).String()
+	})
+}
+
+func getImageRefForFleet(registryHost, registryPort, registryPath, tag string, fallback func(string) string) string {
+	if registryHost == "" || registryPort == "" {
+		return fallback(tag)
+	}
+	ref := registryHost + ":" + registryPort + "/" + registryPath
+	if tag != "" {
+		ref += ":" + tag
+	}
+	return ref
+}
+
+// CreateFleetDeviceSpec builds a device spec. Pass registryHost and registryPort from infra for Os.Image.
+func (h *Harness) CreateFleetDeviceSpec(registryHost, registryPort, deviceImageTag string, additionalConfigs ...v1beta1.ConfigProviderSpec) (v1beta1.DeviceSpec, error) {
 
 	var deviceSpec v1beta1.DeviceSpec
 
 	// Set Os.Image only if deviceImageTag is provided
 	if deviceImageTag != "" {
 		deviceSpec.Os = &v1beta1.DeviceOsSpec{
-			Image: util.NewDeviceImageReference(deviceImageTag).String(),
+			Image: h.GetDeviceImageRefForFleet(registryHost, registryPort, deviceImageTag),
 		}
 	}
 

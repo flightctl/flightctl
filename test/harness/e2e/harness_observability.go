@@ -1,13 +1,10 @@
 package e2e
 
 import (
-	"context"
-	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
-	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -29,28 +26,6 @@ type ServiceAccessBackend struct {
 	Port        int
 	UseTLS      bool
 	RequireAuth bool
-}
-
-// StartPortForwardWithCleanup starts port-forwarding and returns a cleanup function.
-func (h *Harness) StartPortForwardWithCleanup(namespace, target string, localPort, remotePort int) (func(), error) {
-	ctx, cancel := context.WithCancel(context.Background())
-	cmd, done, err := h.StartPortForward(ctx, namespace, target, localPort, remotePort)
-	if err != nil {
-		cancel()
-		return nil, err
-	}
-
-	cleanup := func() {
-		cancel()
-		if cmd != nil && cmd.Process != nil {
-			_ = cmd.Process.Kill()
-		}
-		select {
-		case <-done:
-		case <-time.After(fiveSecondTimeout):
-		}
-	}
-	return cleanup, nil
 }
 
 // MetricsBody returns a closure to fetch metrics for Eventually.
@@ -332,105 +307,11 @@ func labelsMatch(labels map[string]string, exact map[string]string, required []s
 	return true
 }
 
-// VerifyServiceExists verifies a Kubernetes service exists.
-func (h *Harness) VerifyServiceExists(namespace, name string) error {
-	// #nosec G204 -- command args are fixed and controlled in test.
-	out, err := exec.Command("kubectl", "get", "svc", "-n", namespace, name).CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("kubectl get svc %s/%s: %w: %s", namespace, name, err, strings.TrimSpace(string(out)))
-	}
-	return nil
-}
+// GetConfigValue, GetConfigMapValue, GetServiceConfig, VerifyServiceExists, StartServiceAccess,
+// StartFirstAvailableBackendAccess are removed: callers use setup.GetDefaultProviders().Infra directly.
 
-// StartServiceAccess resolves, port-forwards and returns an HTTP client to a service.
-func (h *Harness) StartServiceAccess(serviceName string, namespaces []string, remotePort int, useTLS bool, timeout time.Duration) (string, *http.Client, func(), error) {
-	if h == nil {
-		return "", nil, nil, fmt.Errorf("harness is nil")
-	}
-	if serviceName == "" {
-		return "", nil, nil, fmt.Errorf("service name is empty")
-	}
-	if remotePort <= 0 {
-		return "", nil, nil, fmt.Errorf("invalid remote port: %d", remotePort)
-	}
-
-	namespace, err := h.ResolveServiceNamespace(serviceName, namespaces)
-	if err != nil {
-		return "", nil, nil, err
-	}
-
-	localPort, err := h.GetFreeLocalPort()
-	if err != nil {
-		return "", nil, nil, fmt.Errorf("failed to allocate local port: %w", err)
-	}
-
-	target := "svc/" + serviceName
-	cleanup, err := h.StartPortForwardWithCleanup(namespace, target, localPort, remotePort)
-	if err != nil {
-		return "", nil, nil, fmt.Errorf("failed to start port-forward for %s in namespace %s: %w", target, namespace, err)
-	}
-
-	scheme := "http"
-	transport := &http.Transport{}
-	if useTLS {
-		scheme = "https"
-		transport.TLSClientConfig = &tls.Config{
-			InsecureSkipVerify: true, // #nosec G402 -- e2e test uses local ephemeral port-forward endpoint
-			MinVersion:         tls.VersionTLS12,
-		}
-	}
-	if timeout <= 0 {
-		timeout = fiveSecondTimeout
-	}
-	baseURL := fmt.Sprintf("%s://127.0.0.1:%d", scheme, localPort)
-	client := &http.Client{
-		Timeout:   timeout,
-		Transport: transport,
-	}
-	return baseURL, client, cleanup, nil
-}
-
-// StartFirstAvailableBackendAccess starts access to the first available backend from a candidate list.
-// If a backend requires auth, an OpenShift token is returned.
-func (h *Harness) StartFirstAvailableBackendAccess(backends []ServiceAccessBackend, timeout time.Duration) (string, *http.Client, string, func(), ServiceAccessBackend, error) {
-	var selected ServiceAccessBackend
-	if h == nil {
-		return "", nil, "", nil, selected, fmt.Errorf("harness is nil")
-	}
-	if len(backends) == 0 {
-		return "", nil, "", nil, selected, fmt.Errorf("no backend candidates provided")
-	}
-
-	var lookupErrors []string
-	for _, backend := range backends {
-		baseURL, client, cleanup, err := h.StartServiceAccess(backend.ServiceName, backend.Namespaces, backend.Port, backend.UseTLS, timeout)
-		if err != nil {
-			lookupErrors = append(lookupErrors, fmt.Sprintf("%s: %v", backend.ServiceName, err))
-			continue
-		}
-
-		token := ""
-		if backend.RequireAuth {
-			token, err = h.GetOpenShiftToken()
-			if err != nil {
-				cleanup()
-				return "", nil, "", nil, selected, fmt.Errorf("failed to resolve OpenShift token for backend %s: %w", backend.ServiceName, err)
-			}
-		}
-
-		if err := h.waitForPrometheusBackendReady(baseURL, token); err != nil {
-			lookupErrors = append(lookupErrors, fmt.Sprintf("%s: %v", backend.ServiceName, err))
-			cleanup()
-			continue
-		}
-
-		return baseURL, client, token, cleanup, backend, nil
-	}
-
-	return "", nil, "", nil, selected, fmt.Errorf("unable to resolve backend from known candidates: %v", lookupErrors)
-}
-
-func (h *Harness) waitForPrometheusBackendReady(baseURL, bearerToken string) error {
+// waitForPrometheusBackendReady is kept for potential future use (e.g. backend health before queries).
+func (h *Harness) waitForPrometheusBackendReady(baseURL, bearerToken string) error { //nolint:unused
 	if h == nil {
 		return fmt.Errorf("harness is nil")
 	}

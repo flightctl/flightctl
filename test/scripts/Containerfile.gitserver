@@ -10,37 +10,30 @@ RUN ssh-keygen -A
 
 RUN useradd -d /home/user -s /usr/bin/git-shell -g 0 user
 
-RUN mkdir -p /home/user/repos \
+RUN mkdir -p /home/user/repos /home/user/.ssh \
     && chown -R user:0 /home/user \
     && chmod -R g=u /home/user
 
-
-# Create authorized_keys directory - the actual public key is mounted at runtime via K8s Secret
-RUN mkdir -p /etc/ssh/authorized_keys \
-    && chown -R root:0 /etc/ssh/authorized_keys \
-    && chmod 755 /etc/ssh/authorized_keys
-
 RUN mkdir -p /home/user/git-shell-commands
-COPY test/scripts/git-server-cmds/* /home/user/git-shell-commands/
+COPY git-server-cmds/* /home/user/git-shell-commands/
 RUN chown -R user:0 /home/user/git-shell-commands
 
-COPY test/scripts/git-server-entrypoint.sh /usr/local/bin/entrypoint.sh
+COPY git-server-entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
-# Openshift runs containers with random UIDs in the root group - allow them to read ssh config + /etc/passwd
-RUN chgrp -R 0 /etc/ssh \
-    && chmod -R g=u /etc/ssh \
-    && chmod g=u /etc/passwd
-
+# So sshd (running as non-root "user") can read host keys and config
+RUN chgrp -R 0 /etc/ssh && chmod -R g=u /etc/ssh
 
 USER user
 RUN git config --global init.defaultBranch main
 
-USER 1001
+# SSH key pair for git access (baked in at build; test copies private key from container to host)
+RUN ssh-keygen -t rsa -b 4096 -f /home/user/.ssh/id_rsa -N "" -C "e2e git server" \
+    && cp /home/user/.ssh/id_rsa.pub /home/user/.ssh/authorized_keys
+
 ENV HOME=/home/user
 WORKDIR /home/user
 
 EXPOSE 2222
 
-# Use entrypoint script that handles UID mapping for OpenShift compatibility
 CMD ["/usr/local/bin/entrypoint.sh"]

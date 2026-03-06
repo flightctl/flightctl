@@ -34,7 +34,8 @@ Defined in **test/test.mk** (included from root Makefile). Coverage reports go t
 
 - **Unit/integration:** Prefer table-driven tests; use `testify/require`; for agent code use gomock with `defer ctrl.Finish()`. See [internal/agent/AGENTS.md](../internal/agent/AGENTS.md) for agent-specific testing standards.
 - **E2E:** Use the existing harness; add new helpers in `test/harness/e2e/` when reusable. Document suite-specific requirements in a `README.md` in the suite dir (e.g. quadlets, TPM).
-- **Env vars:** Integration tests expect DB/KV passwords via env (set in test.mk). E2E may need `FLIGHTCTL_NS`, `KUBEADMIN_PASS`, etc.; export before `make` or set in CI.
+- **Kubectl / K8s client:** Do not use `exec` kubectl or the raw Kubernetes client outside `test/e2e/infra/k8s/`. Any such need must be implemented in infra (k8s, and quadlet with equivalent behaviour when relevant for both deployment types) and exposed via infra interfaces; see package infra.
+- **Env vars:** Integration tests expect DB/KV passwords via env (set in test.mk). E2E may need `FLIGHTCTL_NS`, `KUBEADMIN_PASS`, etc.; export before `make` or set in CI. For OCP with shared network (test VM and cluster on same network), optional `E2E_SATELLITE_HOST` is the VM IP on the cluster network when the VM has multiple NICs (see test/README.md).
 
 ## Prerequisites
 
