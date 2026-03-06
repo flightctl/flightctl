@@ -158,6 +158,20 @@ func (h *TransportHandler) ReplaceCatalogItem(w http.ResponseWriter, r *http.Req
 	h.SetResponse(w, apiResult, status)
 }
 
+// (PATCH /api/v1/catalogs/{name}/items/{item})
+func (h *TransportHandler) PatchCatalogItem(w http.ResponseWriter, r *http.Request, name string, itemName string) {
+	var patch apiv1beta1.PatchRequest
+	if err := json.NewDecoder(r.Body).Decode(&patch); err != nil {
+		h.SetParseFailureResponse(w, err)
+		return
+	}
+
+	domainPatch := h.converter.Common().PatchRequestToDomain(patch)
+	body, status := h.serviceHandler.PatchCatalogItem(r.Context(), transport.OrgIDFromContext(r.Context()), name, itemName, domainPatch)
+	apiResult := h.converter.Catalog().ItemFromDomain(body)
+	h.SetResponse(w, apiResult, status)
+}
+
 // (DELETE /api/v1/catalogs/{name}/items/{item})
 func (h *TransportHandler) DeleteCatalogItem(w http.ResponseWriter, r *http.Request, name string, item string) {
 	status := h.serviceHandler.DeleteCatalogItem(r.Context(), transport.OrgIDFromContext(r.Context()), name, item)

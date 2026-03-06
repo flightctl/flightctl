@@ -383,6 +383,9 @@ type CreateCatalogJSONRequestBody = Catalog
 // CreateCatalogItemJSONRequestBody defines body for CreateCatalogItem for application/json ContentType.
 type CreateCatalogItemJSONRequestBody = CatalogItem
 
+// PatchCatalogItemApplicationJSONPatchPlusJSONRequestBody defines body for PatchCatalogItem for application/json-patch+json ContentType.
+type PatchCatalogItemApplicationJSONPatchPlusJSONRequestBody = externalRef0.PatchRequest
+
 // ReplaceCatalogItemJSONRequestBody defines body for ReplaceCatalogItem for application/json ContentType.
 type ReplaceCatalogItemJSONRequestBody = CatalogItem
 

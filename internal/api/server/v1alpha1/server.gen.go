@@ -39,6 +39,9 @@ type ServerInterface interface {
 	// (GET /catalogs/{catalog}/items/{name})
 	GetCatalogItem(w http.ResponseWriter, r *http.Request, catalog string, name string)
 
+	// (PATCH /catalogs/{catalog}/items/{name})
+	PatchCatalogItem(w http.ResponseWriter, r *http.Request, catalog string, name string)
+
 	// (PUT /catalogs/{catalog}/items/{name})
 	ReplaceCatalogItem(w http.ResponseWriter, r *http.Request, catalog string, name string)
 
@@ -100,6 +103,11 @@ func (_ Unimplemented) DeleteCatalogItem(w http.ResponseWriter, r *http.Request,
 
 // (GET /catalogs/{catalog}/items/{name})
 func (_ Unimplemented) GetCatalogItem(w http.ResponseWriter, r *http.Request, catalog string, name string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (PATCH /catalogs/{catalog}/items/{name})
+func (_ Unimplemented) PatchCatalogItem(w http.ResponseWriter, r *http.Request, catalog string, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -404,6 +412,40 @@ func (siw *ServerInterfaceWrapper) GetCatalogItem(w http.ResponseWriter, r *http
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetCatalogItem(w, r, catalog, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PatchCatalogItem operation middleware
+func (siw *ServerInterfaceWrapper) PatchCatalogItem(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "catalog" -------------
+	var catalog string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "catalog", chi.URLParam(r, "catalog"), &catalog, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "catalog", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", chi.URLParam(r, "name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PatchCatalogItem(w, r, catalog, name)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -755,6 +797,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/catalogs/{catalog}/items/{name}", wrapper.GetCatalogItem)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/catalogs/{catalog}/items/{name}", wrapper.PatchCatalogItem)
 	})
 	r.Group(func(r chi.Router) {
 		r.Put(options.BaseURL+"/catalogs/{catalog}/items/{name}", wrapper.ReplaceCatalogItem)
