@@ -5,10 +5,12 @@ metadata:
   catalog: platform-apps
 spec:
   type: quadlet
-  reference:
-    uri: quay.io/redis/redis
+  artifacts:
+    - type: container
+      uri: quay.io/redis/redis
   versions:
     - version: "7.4.0"
-      tag: v7.4.0
+      references:
+        container: "v7.4.0"
       channels:
         - stable

@@ -20,6 +20,7 @@ func (c Catalog) Validate() []error {
 	allErrs = append(allErrs, validation.ValidateResourceName(c.Metadata.Name)...)
 	allErrs = append(allErrs, validation.ValidateLabels(c.Metadata.Labels)...)
 	allErrs = append(allErrs, validation.ValidateAnnotations(c.Metadata.Annotations)...)
+
 	return allErrs
 }
 
@@ -44,8 +45,6 @@ func (ci CatalogItem) Validate() []error {
 		allErrs = append(allErrs, fmt.Errorf("spec.type must be one of: %s", validCatalogItemTypes()))
 	}
 
-	allErrs = append(allErrs, validateCatalogItemReference(&ci.Spec.Reference)...)
-
 	// Resolve category (defaults to application)
 	category := CatalogItemCategoryApplication
 	if ci.Spec.Category != nil && *ci.Spec.Category != "" {
@@ -62,12 +61,18 @@ func (ci CatalogItem) Validate() []error {
 		}
 	}
 
+	allErrs = append(allErrs, validateArtifacts(ci.Spec.Artifacts, "spec")...)
+
 	if len(ci.Spec.Versions) == 0 {
 		allErrs = append(allErrs, errors.New("spec.versions must have at least one entry"))
 	}
+	artifactTypes := make(map[string]struct{})
+	for _, a := range ci.Spec.Artifacts {
+		artifactTypes[string(a.Type)] = struct{}{}
+	}
 	seenVersions := make(map[string]struct{})
 	for i, version := range ci.Spec.Versions {
-		allErrs = append(allErrs, validateCatalogItemVersion(version, i, seenVersions, category, ci.Spec.Type)...)
+		allErrs = append(allErrs, validateCatalogItemVersion(version, i, seenVersions, category, ci.Spec.Type, artifactTypes)...)
 	}
 
 	allErrs = append(allErrs, validateReplacesGraph(ci.Spec.Versions)...)
@@ -79,12 +84,6 @@ func (ci CatalogItem) Validate() []error {
 
 	if ci.Spec.Deprecation != nil {
 		allErrs = append(allErrs, validateCatalogItemDeprecation(ci.Spec.Deprecation, "spec.deprecation")...)
-	}
-
-	if ci.Spec.Visibility != nil {
-		if *ci.Spec.Visibility != CatalogItemVisibilityDraft && *ci.Spec.Visibility != CatalogItemVisibilityPublished {
-			allErrs = append(allErrs, fmt.Errorf("spec.visibility must be %q or %q", CatalogItemVisibilityDraft, CatalogItemVisibilityPublished))
-		}
 	}
 
 	return allErrs
@@ -102,48 +101,31 @@ func (c *CatalogItem) ValidateUpdate(newObj *CatalogItem) []error {
 	return allErrs
 }
 
-func validateCatalogItemReference(ref *CatalogItemReference) []error {
+func validateArtifacts(artifacts []CatalogItemArtifact, pathPrefix string) []error {
 	allErrs := []error{}
 
-	if ref == nil {
-		allErrs = append(allErrs, errors.New("spec.reference is required"))
+	if len(artifacts) == 0 {
+		allErrs = append(allErrs, fmt.Errorf("%s.artifacts must contain at least one entry", pathPrefix))
 		return allErrs
 	}
 
-	if ref.Uri == "" {
-		allErrs = append(allErrs, errors.New("spec.reference.uri is required"))
-	} else {
-		allErrs = append(allErrs, validateArtifactURI(ref.Uri, "spec.reference.uri")...)
-	}
-
-	if ref.Artifacts != nil {
-		artifactCount := len(*ref.Artifacts)
-		seenTypes := make(map[CatalogItemArtifactType]struct{})
-		for i, artifact := range *ref.Artifacts {
-			// type is required if more than 1 artifact, defaults to "container" if only 1
-			artifactType := CatalogItemArtifactType("")
-			if artifact.Type != nil {
-				artifactType = *artifact.Type
+	seenTypes := make(map[CatalogItemArtifactType]struct{})
+	for i, artifact := range artifacts {
+		artPath := fmt.Sprintf("%s.artifacts[%d]", pathPrefix, i)
+		if artifact.Type == "" {
+			allErrs = append(allErrs, fmt.Errorf("%s.type is required", artPath))
+		} else if !isValidCatalogItemArtifactType(artifact.Type) {
+			allErrs = append(allErrs, fmt.Errorf("%s.type: invalid value %q", artPath, artifact.Type))
+		} else {
+			if _, exists := seenTypes[artifact.Type]; exists {
+				allErrs = append(allErrs, fmt.Errorf("%s.type: duplicate type %q", artPath, artifact.Type))
 			}
-			if artifactType == "" {
-				if artifactCount > 1 {
-					allErrs = append(allErrs, fmt.Errorf("spec.reference.artifacts[%d].type is required when multiple artifacts exist", i))
-				}
-				artifactType = CatalogItemArtifactTypeContainer // default for single artifact
-			} else if !isValidCatalogItemArtifactType(artifactType) {
-				allErrs = append(allErrs, fmt.Errorf("spec.reference.artifacts[%d].type: invalid value %q", i, artifactType))
-			}
-			if artifactType != "" {
-				if _, exists := seenTypes[artifactType]; exists {
-					allErrs = append(allErrs, fmt.Errorf("spec.reference.artifacts[%d].type: duplicate type %q", i, artifactType))
-				}
-				seenTypes[artifactType] = struct{}{}
-			}
-			if artifact.Uri == "" {
-				allErrs = append(allErrs, fmt.Errorf("spec.reference.artifacts[%d].uri is required", i))
-			} else {
-				allErrs = append(allErrs, validateArtifactURI(artifact.Uri, fmt.Sprintf("spec.reference.artifacts[%d].uri", i))...)
-			}
+			seenTypes[artifact.Type] = struct{}{}
+		}
+		if artifact.Uri == "" {
+			allErrs = append(allErrs, fmt.Errorf("%s.uri is required", artPath))
+		} else {
+			allErrs = append(allErrs, validateArtifactURI(artifact.Uri, artPath+".uri")...)
 		}
 	}
 
@@ -186,7 +168,14 @@ func validateArtifactURI(uri string, path string) []error {
 		if len(ociRef) < 3 || !strings.Contains(ociRef, "/") {
 			allErrs = append(allErrs, fmt.Errorf("%s: invalid OCI URI format", path))
 		}
+	} else if strings.Contains(uri, "://") {
+		// Validate that there's content after the scheme.
+		parts := strings.SplitN(uri, "://", 2)
+		if len(parts[0]) == 0 || len(parts[1]) == 0 {
+			allErrs = append(allErrs, fmt.Errorf("%s: URI scheme is empty or missing path", path))
+		}
 	} else {
+		// No scheme
 		if !strings.Contains(uri, "/") && !strings.Contains(uri, ".") {
 			allErrs = append(allErrs, fmt.Errorf("%s: invalid artifact URI format", path))
 		}
@@ -195,7 +184,7 @@ func validateArtifactURI(uri string, path string) []error {
 	return allErrs
 }
 
-func validateCatalogItemVersion(version CatalogItemVersion, index int, seenVersions map[string]struct{}, category CatalogItemCategory, itemType CatalogItemType) []error {
+func validateCatalogItemVersion(version CatalogItemVersion, index int, seenVersions map[string]struct{}, category CatalogItemCategory, itemType CatalogItemType, artifactTypes map[string]struct{}) []error {
 	allErrs := []error{}
 	pathPrefix := fmt.Sprintf("spec.versions[%d]", index)
 
@@ -212,17 +201,18 @@ func validateCatalogItemVersion(version CatalogItemVersion, index int, seenVersi
 		seenVersions[version.Version] = struct{}{}
 	}
 
-	// exactly one of tag or digest must be specified
-	hasTag := version.Tag != nil && *version.Tag != ""
-	hasDigest := version.Digest != nil && *version.Digest != ""
-	if !hasTag && !hasDigest {
-		allErrs = append(allErrs, fmt.Errorf("%s: exactly one of tag or digest must be specified", pathPrefix))
-	} else if hasTag && hasDigest {
-		allErrs = append(allErrs, fmt.Errorf("%s: tag and digest are mutually exclusive", pathPrefix))
-	}
-
-	if hasDigest {
-		allErrs = append(allErrs, validateOCIDigest(*version.Digest, pathPrefix+".digest")...)
+	// references is required and must have at least one entry
+	if len(version.References) == 0 {
+		allErrs = append(allErrs, fmt.Errorf("%s.references: required and must contain at least one entry", pathPrefix))
+	} else {
+		for key, ref := range version.References {
+			if _, ok := artifactTypes[key]; !ok {
+				allErrs = append(allErrs, fmt.Errorf("%s.references[%s]: key does not match any artifact type in spec.artifacts", pathPrefix, key))
+			}
+			if ref == "" {
+				allErrs = append(allErrs, fmt.Errorf("%s.references[%s]: value must not be empty", pathPrefix, key))
+			}
+		}
 	}
 
 	if len(version.Channels) == 0 {
@@ -307,7 +297,7 @@ func validateReplacesGraph(versions []CatalogItemVersion) []error {
 
 // validateSemver checks if a string is a valid semantic version.
 // Version must be strict semver without a "v" prefix (e.g., "1.0.0", not "v1.0.0").
-// The tag field can have any format including "v" prefix.
+// Reference values (tags) can have any format including "v" prefix.
 func validateSemver(v string) error {
 	if strings.HasPrefix(v, "v") {
 		return fmt.Errorf("version must not have 'v' prefix; use semver format (e.g., 1.0.0)")
@@ -366,42 +356,6 @@ func validateSemverRange(r string) error {
 	}
 
 	return nil
-}
-
-func validateOCIDigest(digest string, path string) []error {
-	allErrs := []error{}
-
-	parts := strings.SplitN(digest, ":", 2)
-	if len(parts) != 2 {
-		allErrs = append(allErrs, fmt.Errorf("%s: must be in format 'algorithm:hex' (e.g., sha256:abc123...)", path))
-		return allErrs
-	}
-
-	algorithm := parts[0]
-	hex := parts[1]
-
-	expectedLengths := map[string]int{
-		"sha256": 64,
-		"sha384": 96,
-		"sha512": 128,
-	}
-
-	expectedLen, ok := expectedLengths[algorithm]
-	if !ok {
-		allErrs = append(allErrs, fmt.Errorf("%s: unsupported digest algorithm %q (supported: sha256, sha384, sha512)", path, algorithm))
-		return allErrs
-	}
-
-	if len(hex) != expectedLen {
-		allErrs = append(allErrs, fmt.Errorf("%s: %s digest must be %d hex characters, got %d", path, algorithm, expectedLen, len(hex)))
-	}
-
-	hexPattern := regexp.MustCompile(`^[a-fA-F0-9]+$`)
-	if !hexPattern.MatchString(hex) {
-		allErrs = append(allErrs, fmt.Errorf("%s: digest must contain only hex characters", path))
-	}
-
-	return allErrs
 }
 
 func validateCatalogItemDeprecation(dep *CatalogItemDeprecation, path string) []error {

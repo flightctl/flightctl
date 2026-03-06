@@ -20,21 +20,25 @@ spec:
   type: quadlet
   displayName: Prometheus Node Exporter
   shortDescription: Hardware and OS metrics exporter
-  reference:
-    uri: quay.io/prometheus/node-exporter
+  artifacts:
+    - type: container
+      uri: quay.io/prometheus/node-exporter
   versions:
     - version: "1.7.0"
-      tag: v1.7.0
+      references:
+        container: "v1.7.0"
       channels:
         - stable
     - version: "1.8.0"
-      tag: v1.8.0
+      references:
+        container: "v1.8.0"
       channels:
         - stable
         - candidate
       replaces: "1.7.0"
     - version: "1.9.0"
-      tag: v1.9.0
+      references:
+        container: "v1.9.0"
       channels:
         - candidate
       replaces: "1.8.0"

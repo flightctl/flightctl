@@ -1052,8 +1052,6 @@ components:
         icon:
           type: string
           description: URL or data URI of the catalog icon for display in UI.
-        visibility:
-          $ref: '#/components/schemas/CatalogItemVisibility'
         provider:
           type: string
           description: Provider or publisher of the catalog (company or team name).
@@ -1123,30 +1121,9 @@ components:
         - kind
         - metadata
         - spec
-    CatalogItemReference:
-      type: object
-      description: 'Reference to the primary artifact and optional alternative formats.'
-      properties:
-        uri:
-          type: string
-          description: 'Primary artifact URI without version tag. Supports OCI references, URLs, S3 paths, etc.'
-          example: quay.io/prometheus/prometheus
-        artifacts:
-          type: array
-          items:
-            $ref: '#/components/schemas/CatalogItemArtifact'
-          description: 'Alternative artifact formats (e.g., qcow2, ISO for bootc images).'
-          example:
-            - type: qcow2
-              name: QCOW2 Disk Image
-              uri: quay.io/redhat/rhel-bootc-qcow2
-            - type: iso
-              uri: quay.io/redhat/rhel-bootc-iso
-      required:
-        - uri
     CatalogItemArtifact:
       type: object
-      description: 'An alternative artifact format.'
+      description: 'An artifact reference. The type field is the discriminator and must be unique within the artifacts list.'
       properties:
         type:
           $ref: '#/components/schemas/CatalogItemArtifactType'
@@ -1156,13 +1133,15 @@ components:
           example: QCOW2 Disk Image
         uri:
           type: string
-          description: 'Artifact URI (OCI reference, URL, S3 path, etc.).'
+          minLength: 1
+          description: 'Artifact URI without version qualifier. The version reference (tag or digest) is applied at resolution time.'
           example: quay.io/redhat/rhel-bootc-qcow2
       required:
+        - type
         - uri
     CatalogItemArtifactType:
       type: string
-      description: 'Type of artifact format. Includes bootc-image-builder output formats. Defaults to container if only one artifact.'
+      description: 'Artifact format discriminator. Must be unique within the artifacts list. Includes bootc-image-builder output formats.'
       enum:
         - container
         - qcow2
@@ -1211,8 +1190,15 @@ components:
           $ref: '#/components/schemas/CatalogItemCategory'
         type:
           $ref: '#/components/schemas/CatalogItemType'
-        reference:
-          $ref: '#/components/schemas/CatalogItemReference'
+        artifacts:
+          type: array
+          items:
+            $ref: '#/components/schemas/CatalogItemArtifact'
+          minItems: 1
+          description: 'Artifact definitions for this catalog item. Defined once; version references resolve each artifact independently. Type must be unique within the list.'
+          example:
+            - type: container
+              uri: quay.io/prometheus/prometheus
         versions:
           type: array
           items:
@@ -1220,19 +1206,16 @@ components:
           description: 'Available versions using Cincinnati model. Use replaces for primary edge, skips when stable channel skips intermediate versions.'
           example:
             - version: "2.45.0"
-              tag: v2.45.0
+              references:
+                container: "sha256:a3ed95caeb02ffe68cdd9fd84406680ae93d633cb16422d00e8a7c22955b46d4"
               channels: [stable, fast]
               replaces: "2.44.0"
               skips: ["2.43.0"]
             - version: "2.44.0"
-              tag: v2.44.0
+              references:
+                container: "v2.44.0"
               channels: [fast]
               replaces: "2.43.0"
-              deprecation:
-                message: "Security fix in v2.45.0. Please upgrade."
-            - version: "2.43.0"
-              tag: v2.43.0
-              channels: [stable, fast]
         defaults:
           $ref: '#/components/schemas/CatalogItemConfigurable'
         displayName:
@@ -1244,8 +1227,6 @@ components:
         icon:
           type: string
           description: URL or data URI of the catalog item icon for display in UI.
-        visibility:
-          $ref: '#/components/schemas/CatalogItemVisibility'
         deprecation:
           $ref: '#/components/schemas/CatalogItemDeprecation'
         provider:
@@ -1262,7 +1243,7 @@ components:
           description: Link to external documentation.
       required:
         - type
-        - reference
+        - artifacts
         - versions
     CatalogItemVersion:
       type: object
@@ -1271,7 +1252,7 @@ components:
         are nodes in an upgrade graph and channels are labels on those nodes.
         Upgrade edges are defined by replaces (single), skips (multiple), or
         skipRange (semver range). Includes CatalogItemConfigurable fields that
-        override item-level defaults. Exactly one of tag or digest must be specified.
+        override item-level defaults.
       allOf:
         - $ref: '#/components/schemas/CatalogItemConfigurable'
         - type: object
@@ -1280,14 +1261,16 @@ components:
               type: string
               description: 'Semantic version identifier (e.g., 1.2.3, v2.0.0-rc1). Required for version ordering and upgrade graph.'
               example: "2.45.0"
-            tag:
-              type: string
-              description: 'Image tag to pull. Mutually exclusive with digest.'
-              example: "v2.45.0"
-            digest:
-              type: string
-              description: 'OCI digest for immutable reference. Mutually exclusive with tag. Format: sha256:...'
-              example: "sha256:a3ed95caeb02ffe68cdd9fd84406680ae93d633cb16422d00e8a7c22955b46d4"
+            references:
+              type: object
+              minProperties: 1
+              additionalProperties:
+                type: string
+                minLength: 1
+              description: 'Map of artifact type to image tag or digest. Keys must match a type in spec.artifacts. Only keyed artifacts are available for this version.'
+              example:
+                container: "sha256:a3ed95caeb02ffe68cdd9fd84406680ae93d633cb16422d00e8a7c22955b46d4"
+                qcow2: "v2.45.0"
             channels:
               type: array
               items:
@@ -1311,11 +1294,7 @@ components:
           required:
             - version
             - channels
-          oneOf:
-            - required:
-                - tag
-            - required:
-                - digest
+            - references
     CatalogItemList:
       type: object
       description: CatalogItemList is a list of CatalogItems.
@@ -1347,15 +1326,6 @@ components:
       x-enum-varnames:
         - CatalogItemCategorySystem
         - CatalogItemCategoryApplication
-    CatalogItemVisibility:
-      type: string
-      description: 'Visibility controls who can see and use the catalog item.'
-      enum:
-        - draft
-        - published
-      x-enum-varnames:
-        - CatalogItemVisibilityDraft
-        - CatalogItemVisibilityPublished
     CatalogItemType:
       type: string
       description: 'Type of catalog item within its category.'

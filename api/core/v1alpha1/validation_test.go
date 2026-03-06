@@ -17,15 +17,21 @@ func TestCatalogItemValidate(t *testing.T) {
 	}
 
 	v := func(version string, channels ...string) CatalogItemVersion {
-		// Strip "v" prefix for Version field (strict semver), but keep original for Tag
-		semverVersion := strings.TrimPrefix(version, "v")
-		return CatalogItemVersion{Version: semverVersion, Tag: lo.ToPtr(version), Channels: channels}
+		return CatalogItemVersion{
+			Version:    version,
+			References: map[string]string{"container": "v" + version},
+			Channels:   channels,
+		}
+	}
+
+	defaultArtifacts := []CatalogItemArtifact{
+		{Type: CatalogItemArtifactTypeContainer, Uri: "quay.io/example/app"},
 	}
 
 	tests := []struct {
 		name        string
 		itemType    CatalogItemType
-		reference   CatalogItemReference
+		artifacts   []CatalogItemArtifact
 		versions    []CatalogItemVersion
 		wantErr     bool
 		errContains string
@@ -33,67 +39,270 @@ func TestCatalogItemValidate(t *testing.T) {
 		{
 			name:      "valid catalog item",
 			itemType:  CatalogItemTypeContainer,
-			reference: CatalogItemReference{Uri: "quay.io/example/app"},
-			versions:  makeVersions(v("v1.0.0", "stable")),
+			artifacts: defaultArtifacts,
+			versions:  makeVersions(v("1.0.0", "stable")),
 			wantErr:   false,
 		},
 		{
 			name:      "valid with multiple versions and channels",
 			itemType:  CatalogItemTypeContainer,
-			reference: CatalogItemReference{Uri: "quay.io/example/app"},
+			artifacts: defaultArtifacts,
 			versions: makeVersions(
-				v("v2.0.0", "stable", "fast"),
-				v("v1.9.0", "stable"),
+				v("2.0.0", "stable", "fast"),
+				v("1.9.0", "stable"),
 			),
 			wantErr: false,
 		},
 		{
 			name:        "missing type",
 			itemType:    "",
-			reference:   CatalogItemReference{Uri: "quay.io/example/app"},
-			versions:    makeVersions(v("v1.0.0", "stable")),
+			artifacts:   defaultArtifacts,
+			versions:    makeVersions(v("1.0.0", "stable")),
 			wantErr:     true,
 			errContains: "spec.type is required",
 		},
 		{
-			name:        "missing reference uri",
+			name:        "missing artifact uri",
 			itemType:    CatalogItemTypeContainer,
-			reference:   CatalogItemReference{Uri: ""},
-			versions:    makeVersions(v("v1.0.0", "stable")),
+			artifacts:   []CatalogItemArtifact{{Type: CatalogItemArtifactTypeContainer, Uri: ""}},
+			versions:    makeVersions(v("1.0.0", "stable")),
 			wantErr:     true,
-			errContains: "spec.reference.uri is required",
+			errContains: "spec.artifacts[0].uri is required",
+		},
+		{
+			name:        "empty artifacts",
+			itemType:    CatalogItemTypeContainer,
+			artifacts:   []CatalogItemArtifact{},
+			versions:    makeVersions(v("1.0.0", "stable")),
+			wantErr:     true,
+			errContains: "spec.artifacts must contain at least one entry",
 		},
 		{
 			name:        "empty versions",
 			itemType:    CatalogItemTypeContainer,
-			reference:   CatalogItemReference{Uri: "quay.io/example/app"},
+			artifacts:   defaultArtifacts,
 			versions:    []CatalogItemVersion{},
 			wantErr:     true,
 			errContains: "spec.versions must have at least one entry",
 		},
 		{
-			name:        "missing tag and digest",
+			name:        "missing references",
 			itemType:    CatalogItemTypeContainer,
-			reference:   CatalogItemReference{Uri: "quay.io/example/app"},
+			artifacts:   defaultArtifacts,
 			versions:    makeVersions(CatalogItemVersion{Version: "1.0.0", Channels: []string{"stable"}}),
 			wantErr:     true,
-			errContains: "exactly one of tag or digest must be specified",
+			errContains: "references: required and must contain at least one entry",
 		},
 		{
-			name:        "empty version channels",
-			itemType:    CatalogItemTypeContainer,
-			reference:   CatalogItemReference{Uri: "quay.io/example/app"},
-			versions:    makeVersions(CatalogItemVersion{Version: "1.0.0", Tag: lo.ToPtr("v1.0.0"), Channels: []string{}}),
+			name:      "empty version channels",
+			itemType:  CatalogItemTypeContainer,
+			artifacts: defaultArtifacts,
+			versions: makeVersions(CatalogItemVersion{
+				Version:    "1.0.0",
+				References: map[string]string{"container": "v1.0.0"},
+				Channels:   []string{},
+			}),
 			wantErr:     true,
 			errContains: "must have at least one channel",
 		},
 		{
 			name:        "duplicate version",
 			itemType:    CatalogItemTypeContainer,
-			reference:   CatalogItemReference{Uri: "quay.io/example/app"},
+			artifacts:   defaultArtifacts,
 			versions:    makeVersions(v("1.0.0", "stable"), v("1.0.0", "fast")),
 			wantErr:     true,
 			errContains: "duplicate version",
+		},
+		{
+			name:     "valid references with digest",
+			itemType: CatalogItemTypeContainer,
+			artifacts: []CatalogItemArtifact{
+				{Type: CatalogItemArtifactTypeContainer, Uri: "quay.io/example/app"},
+			},
+			versions: []CatalogItemVersion{{
+				Version:    "1.0.0",
+				References: map[string]string{"container": "sha256:a3ed95caeb02ffe68cdd9fd84406680ae93d633cb16422d00e8a7c22955b46d4"},
+				Channels:   []string{"stable"},
+			}},
+			wantErr: false,
+		},
+		{
+			name:     "valid references with tag",
+			itemType: CatalogItemTypeContainer,
+			artifacts: []CatalogItemArtifact{
+				{Type: CatalogItemArtifactTypeContainer, Uri: "quay.io/example/app"},
+			},
+			versions: []CatalogItemVersion{{
+				Version:    "1.0.0",
+				References: map[string]string{"container": "v1.0.0"},
+				Channels:   []string{"stable"},
+			}},
+			wantErr: false,
+		},
+		{
+			name:     "references key not in spec.artifacts",
+			itemType: CatalogItemTypeContainer,
+			artifacts: []CatalogItemArtifact{
+				{Type: CatalogItemArtifactTypeContainer, Uri: "quay.io/example/app"},
+			},
+			versions: []CatalogItemVersion{{
+				Version:    "1.0.0",
+				References: map[string]string{"qcow2": "sha256:a3ed95caeb02ffe68cdd9fd84406680ae93d633cb16422d00e8a7c22955b46d4"},
+				Channels:   []string{"stable"},
+			}},
+			wantErr:     true,
+			errContains: "does not match any artifact type in spec.artifacts",
+		},
+		{
+			name:     "evolving artifacts: old versions reference subset of artifact types",
+			itemType: CatalogItemTypeContainer,
+			artifacts: []CatalogItemArtifact{
+				{Type: CatalogItemArtifactTypeContainer, Uri: "quay.io/acme/gateway"},
+				{Type: CatalogItemArtifactTypeQcow2, Uri: "quay.io/acme/gateway-appliance"},
+				{Type: CatalogItemArtifactTypeIso, Uri: "quay.io/acme/gateway-iso"},
+			},
+			versions: []CatalogItemVersion{
+				{
+					Version:    "3.0.0",
+					References: map[string]string{"container": "v3.0", "qcow2": "v3.0", "iso": "v3.0"},
+					Channels:   []string{"fast"},
+					Replaces:   lo.ToPtr("2.0.0"),
+				},
+				{
+					Version:    "2.0.0",
+					References: map[string]string{"container": "v2.0", "qcow2": "v2.0"},
+					Channels:   []string{"stable"},
+					Replaces:   lo.ToPtr("1.0.0"),
+				},
+				{
+					Version:    "1.0.0",
+					References: map[string]string{"container": "v1.0"},
+					Channels:   []string{"stable"},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name:     "OCI tag reference",
+			itemType: CatalogItemTypeContainer,
+			artifacts: []CatalogItemArtifact{
+				{Type: CatalogItemArtifactTypeContainer, Uri: "quay.io/acme/app"},
+			},
+			versions: []CatalogItemVersion{{
+				Version:    "2.0.0",
+				References: map[string]string{"container": "v2.0"},
+				Channels:   []string{"stable"},
+			}},
+			wantErr: false,
+		},
+		{
+			name:     "OCI digest reference",
+			itemType: CatalogItemTypeContainer,
+			artifacts: []CatalogItemArtifact{
+				{Type: CatalogItemArtifactTypeContainer, Uri: "quay.io/acme/app"},
+			},
+			versions: []CatalogItemVersion{{
+				Version:    "2.0.0",
+				References: map[string]string{"container": "sha256:a3ed95caeb02ffe68cdd9fd84406680ae93d633cb16422d00e8a7c22955b46d4"},
+				Channels:   []string{"stable"},
+			}},
+			wantErr: false,
+		},
+		{
+			name:     "S3 path reference",
+			itemType: CatalogItemTypeContainer,
+			artifacts: []CatalogItemArtifact{
+				{Type: CatalogItemArtifactTypeContainer, Uri: "quay.io/acme/app"},
+				{Type: CatalogItemArtifactTypeRaw, Uri: "s3://acme-models/gw/"},
+			},
+			versions: []CatalogItemVersion{{
+				Version:    "2.0.0",
+				References: map[string]string{"container": "v2.0", "raw": "v2.0/model.bin"},
+				Channels:   []string{"stable"},
+			}},
+			wantErr: false,
+		},
+		{
+			name:     "HTTPS path reference",
+			itemType: CatalogItemTypeContainer,
+			artifacts: []CatalogItemArtifact{
+				{Type: CatalogItemArtifactTypeContainer, Uri: "quay.io/acme/app"},
+				{Type: CatalogItemArtifactTypeQcow2, Uri: "https://cdn.example.com/images/"},
+			},
+			versions: []CatalogItemVersion{{
+				Version:    "2.0.0",
+				References: map[string]string{"container": "v2.0", "qcow2": "v2.0/disk.qcow2"},
+				Channels:   []string{"stable"},
+			}},
+			wantErr: false,
+		},
+		{
+			name:     "HTTP path reference",
+			itemType: CatalogItemTypeContainer,
+			artifacts: []CatalogItemArtifact{
+				{Type: CatalogItemArtifactTypeContainer, Uri: "quay.io/acme/app"},
+				{Type: CatalogItemArtifactTypeRaw, Uri: "http://internal.corp/builds/"},
+			},
+			versions: []CatalogItemVersion{{
+				Version:    "1.0.0",
+				References: map[string]string{"container": "v1.0", "raw": "v1.0/firmware.bin"},
+				Channels:   []string{"stable"},
+			}},
+			wantErr: false,
+		},
+		{
+			name:     "mixed schemes in single version",
+			itemType: CatalogItemTypeContainer,
+			artifacts: []CatalogItemArtifact{
+				{Type: CatalogItemArtifactTypeContainer, Uri: "quay.io/acme/gateway"},
+				{Type: CatalogItemArtifactTypeQcow2, Uri: "https://cdn.example.com/images/"},
+				{Type: CatalogItemArtifactTypeIso, Uri: "quay.io/acme/gateway-iso"},
+				{Type: CatalogItemArtifactTypeRaw, Uri: "s3://acme-models/gateway/"},
+			},
+			versions: []CatalogItemVersion{{
+				Version: "3.1.0",
+				References: map[string]string{
+					"container": "v3.1",
+					"qcow2":     "v3.1/disk.qcow2",
+					"iso":       "sha256:a3ed95caeb02ffe68cdd9fd84406680ae93d633cb16422d00e8a7c22955b46d4",
+					"raw":       "v3.1/model.bin",
+				},
+				Channels: []string{"fast"},
+			}},
+			wantErr: false,
+		},
+		{
+			name:     "progressive expansion with mixed schemes",
+			itemType: CatalogItemTypeContainer,
+			artifacts: []CatalogItemArtifact{
+				{Type: CatalogItemArtifactTypeContainer, Uri: "quay.io/acme/gateway"},
+				{Type: CatalogItemArtifactTypeQcow2, Uri: "quay.io/acme/gateway-appliance"},
+				{Type: CatalogItemArtifactTypeRaw, Uri: "s3://acme-models/gateway/"},
+			},
+			versions: []CatalogItemVersion{
+				{
+					Version: "3.0.0",
+					References: map[string]string{
+						"container": "sha256:a3ed95caeb02ffe68cdd9fd84406680ae93d633cb16422d00e8a7c22955b46d4",
+						"qcow2":     "v3.0",
+						"raw":       "v3.0/model.bin",
+					},
+					Channels: []string{"fast"},
+					Replaces: lo.ToPtr("2.0.0"),
+				},
+				{
+					Version:    "2.0.0",
+					References: map[string]string{"container": "v2.0", "qcow2": "v2.0"},
+					Channels:   []string{"stable"},
+					Replaces:   lo.ToPtr("1.0.0"),
+				},
+				{
+					Version:    "1.0.0",
+					References: map[string]string{"container": "v1.0"},
+					Channels:   []string{"stable"},
+				},
+			},
+			wantErr: false,
 		},
 	}
 
@@ -107,7 +316,7 @@ func TestCatalogItemValidate(t *testing.T) {
 				},
 				Spec: CatalogItemSpec{
 					Type:      tt.itemType,
-					Reference: tt.reference,
+					Artifacts: tt.artifacts,
 					Versions:  tt.versions,
 				},
 			}
@@ -604,8 +813,8 @@ func TestCatalogItemCategoryValidation(t *testing.T) {
 				Spec: CatalogItemSpec{
 					Category:  tt.category,
 					Type:      tt.itemType,
-					Reference: CatalogItemReference{Uri: "quay.io/example/app"},
-					Versions:  []CatalogItemVersion{{Version: "1.0.0", Tag: lo.ToPtr("v1.0.0"), Channels: []string{"stable"}}},
+					Artifacts: []CatalogItemArtifact{{Type: CatalogItemArtifactTypeContainer, Uri: "quay.io/example/app"}},
+					Versions:  []CatalogItemVersion{{Version: "1.0.0", References: map[string]string{"container": "v1.0.0"}, Channels: []string{"stable"}}},
 				},
 			}
 
@@ -757,8 +966,8 @@ func TestCatalogItemWithConfigSchema(t *testing.T) {
 		Spec: CatalogItemSpec{
 			Category:  lo.ToPtr(CatalogItemCategoryApplication),
 			Type:      CatalogItemTypeContainer,
-			Reference: CatalogItemReference{Uri: "quay.io/prometheus/prometheus"},
-			Versions:  []CatalogItemVersion{{Version: "2.45.0", Tag: lo.ToPtr("v2.45.0"), Channels: []string{"stable"}}},
+			Artifacts: []CatalogItemArtifact{{Type: CatalogItemArtifactTypeContainer, Uri: "quay.io/prometheus/prometheus"}},
+			Versions:  []CatalogItemVersion{{Version: "2.45.0", References: map[string]string{"container": "v2.45.0"}, Channels: []string{"stable"}}},
 			Defaults: &CatalogItemConfigurable{
 				Config: &map[string]interface{}{
 					"envVars": map[string]interface{}{
@@ -857,34 +1066,35 @@ func TestCatalogItemVersionValidation(t *testing.T) {
 	require := require.New(t)
 
 	tests := []struct {
-		name        string
-		version     CatalogItemVersion
-		wantErr     bool
-		errContains string
+		name          string
+		version       CatalogItemVersion
+		artifactTypes map[string]struct{}
+		wantErr       bool
+		errContains   string
 	}{
 		{
-			name: "valid with tag",
+			name: "valid with tag reference",
 			version: CatalogItemVersion{
-				Version:  "1.0.0",
-				Tag:      lo.ToPtr("v1.0.0"),
-				Channels: []string{"stable"},
+				Version:    "1.0.0",
+				References: map[string]string{"container": "v1.0.0"},
+				Channels:   []string{"stable"},
 			},
 			wantErr: false,
 		},
 		{
-			name: "valid with digest",
+			name: "valid with digest reference",
 			version: CatalogItemVersion{
-				Version:  "1.0.0",
-				Digest:   lo.ToPtr("sha256:a3ed95caeb02ffe68cdd9fd84406680ae93d633cb16422d00e8a7c22955b46d4"),
-				Channels: []string{"stable"},
+				Version:    "1.0.0",
+				References: map[string]string{"container": "sha256:a3ed95caeb02ffe68cdd9fd84406680ae93d633cb16422d00e8a7c22955b46d4"},
+				Channels:   []string{"stable"},
 			},
 			wantErr: false,
 		},
 		{
 			name: "missing version",
 			version: CatalogItemVersion{
-				Tag:      lo.ToPtr("v1.0.0"),
-				Channels: []string{"stable"},
+				References: map[string]string{"container": "v1.0.0"},
+				Channels:   []string{"stable"},
 			},
 			wantErr:     true,
 			errContains: "version: required",
@@ -892,40 +1102,39 @@ func TestCatalogItemVersionValidation(t *testing.T) {
 		{
 			name: "invalid semver",
 			version: CatalogItemVersion{
-				Version:  "not-semver",
-				Tag:      lo.ToPtr("v1.0.0"),
-				Channels: []string{"stable"},
+				Version:    "not-semver",
+				References: map[string]string{"container": "v1.0.0"},
+				Channels:   []string{"stable"},
 			},
 			wantErr:     true,
 			errContains: "must be valid semver",
 		},
 		{
-			name: "missing tag and digest",
+			name: "missing references",
 			version: CatalogItemVersion{
 				Version:  "1.0.0",
 				Channels: []string{"stable"},
 			},
 			wantErr:     true,
-			errContains: "exactly one of tag or digest",
+			errContains: "references: required",
 		},
 		{
-			name: "both tag and digest",
+			name: "empty references map",
 			version: CatalogItemVersion{
-				Version:  "1.0.0",
-				Tag:      lo.ToPtr("v1.0.0"),
-				Digest:   lo.ToPtr("sha256:abc123"),
-				Channels: []string{"stable"},
+				Version:    "1.0.0",
+				References: map[string]string{},
+				Channels:   []string{"stable"},
 			},
 			wantErr:     true,
-			errContains: "mutually exclusive",
+			errContains: "references: required",
 		},
 		{
 			name: "invalid replaces semver",
 			version: CatalogItemVersion{
-				Version:  "1.0.0",
-				Tag:      lo.ToPtr("v1.0.0"),
-				Channels: []string{"stable"},
-				Replaces: lo.ToPtr("not-semver"),
+				Version:    "1.0.0",
+				References: map[string]string{"container": "v1.0.0"},
+				Channels:   []string{"stable"},
+				Replaces:   lo.ToPtr("not-semver"),
 			},
 			wantErr:     true,
 			errContains: "replaces",
@@ -933,20 +1142,20 @@ func TestCatalogItemVersionValidation(t *testing.T) {
 		{
 			name: "valid replaces",
 			version: CatalogItemVersion{
-				Version:  "2.0.0",
-				Tag:      lo.ToPtr("v2.0.0"),
-				Channels: []string{"stable"},
-				Replaces: lo.ToPtr("1.0.0"),
+				Version:    "2.0.0",
+				References: map[string]string{"container": "v2.0.0"},
+				Channels:   []string{"stable"},
+				Replaces:   lo.ToPtr("1.0.0"),
 			},
 			wantErr: false,
 		},
 		{
 			name: "invalid skips semver",
 			version: CatalogItemVersion{
-				Version:  "2.0.0",
-				Tag:      lo.ToPtr("v2.0.0"),
-				Channels: []string{"stable"},
-				Skips:    &[]string{"not-semver"},
+				Version:    "2.0.0",
+				References: map[string]string{"container": "v2.0.0"},
+				Channels:   []string{"stable"},
+				Skips:      &[]string{"not-semver"},
 			},
 			wantErr:     true,
 			errContains: "skips",
@@ -954,20 +1163,20 @@ func TestCatalogItemVersionValidation(t *testing.T) {
 		{
 			name: "valid skips",
 			version: CatalogItemVersion{
-				Version:  "2.0.0",
-				Tag:      lo.ToPtr("v2.0.0"),
-				Channels: []string{"stable"},
-				Skips:    &[]string{"1.0.0", "1.5.0"},
+				Version:    "2.0.0",
+				References: map[string]string{"container": "v2.0.0"},
+				Channels:   []string{"stable"},
+				Skips:      &[]string{"1.0.0", "1.5.0"},
 			},
 			wantErr: false,
 		},
 		{
 			name: "invalid skipRange",
 			version: CatalogItemVersion{
-				Version:   "2.0.0",
-				Tag:       lo.ToPtr("v2.0.0"),
-				Channels:  []string{"stable"},
-				SkipRange: lo.ToPtr(">=invalid"),
+				Version:    "2.0.0",
+				References: map[string]string{"container": "v2.0.0"},
+				Channels:   []string{"stable"},
+				SkipRange:  lo.ToPtr(">=invalid"),
 			},
 			wantErr:     true,
 			errContains: "skipRange",
@@ -975,19 +1184,43 @@ func TestCatalogItemVersionValidation(t *testing.T) {
 		{
 			name: "valid skipRange",
 			version: CatalogItemVersion{
-				Version:   "2.0.0",
-				Tag:       lo.ToPtr("v2.0.0"),
-				Channels:  []string{"stable"},
-				SkipRange: lo.ToPtr(">=1.0.0 <2.0.0"),
+				Version:    "2.0.0",
+				References: map[string]string{"container": "v2.0.0"},
+				Channels:   []string{"stable"},
+				SkipRange:  lo.ToPtr(">=1.0.0 <2.0.0"),
 			},
 			wantErr: false,
+		},
+		{
+			name: "references key does not match artifact type",
+			version: CatalogItemVersion{
+				Version:    "1.0.0",
+				References: map[string]string{"qcow2": "sha256:a3ed95caeb02ffe68cdd9fd84406680ae93d633cb16422d00e8a7c22955b46d4"},
+				Channels:   []string{"stable"},
+			},
+			wantErr:     true,
+			errContains: "does not match any artifact type",
+		},
+		{
+			name: "adding new artifact type does not affect old versions",
+			version: CatalogItemVersion{
+				Version:    "3.0.0",
+				References: map[string]string{"container": "v3.0.0"},
+				Channels:   []string{"fast"},
+			},
+			artifactTypes: map[string]struct{}{"container": {}, "qcow2": {}, "iso": {}},
+			wantErr:       false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			seenVersions := make(map[string]struct{})
-			errs := validateCatalogItemVersion(tt.version, 0, seenVersions, CatalogItemCategoryApplication, CatalogItemTypeContainer)
+			artifactTypes := tt.artifactTypes
+			if artifactTypes == nil {
+				artifactTypes = map[string]struct{}{"container": {}}
+			}
+			errs := validateCatalogItemVersion(tt.version, 0, seenVersions, CatalogItemCategoryApplication, CatalogItemTypeContainer, artifactTypes)
 			if tt.wantErr {
 				require.NotEmpty(errs)
 				require.Contains(errs[0].Error(), tt.errContains)
@@ -1003,73 +1236,62 @@ func TestCatalogItemArtifactValidation(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		ref         CatalogItemReference
+		artifacts   []CatalogItemArtifact
 		wantErr     bool
 		errContains string
 	}{
 		{
-			name: "valid single artifact without type",
-			ref: CatalogItemReference{
-				Uri: "quay.io/example/app",
-				Artifacts: &[]CatalogItemArtifact{
-					{Uri: "quay.io/example/app-qcow2"},
-				},
+			name: "valid single artifact",
+			artifacts: []CatalogItemArtifact{
+				{Type: CatalogItemArtifactTypeContainer, Uri: "quay.io/example/app"},
 			},
 			wantErr: false,
 		},
 		{
-			name: "valid single artifact with type",
-			ref: CatalogItemReference{
-				Uri: "quay.io/example/app",
-				Artifacts: &[]CatalogItemArtifact{
-					{Type: lo.ToPtr(CatalogItemArtifactTypeQcow2), Uri: "quay.io/example/app-qcow2"},
-				},
+			name: "valid multiple artifacts",
+			artifacts: []CatalogItemArtifact{
+				{Type: CatalogItemArtifactTypeQcow2, Uri: "quay.io/example/app-qcow2"},
+				{Type: CatalogItemArtifactTypeIso, Uri: "quay.io/example/app-iso"},
+				{Type: CatalogItemArtifactTypeAmi, Uri: "quay.io/example/app-ami"},
 			},
 			wantErr: false,
 		},
 		{
-			name: "multiple artifacts require type",
-			ref: CatalogItemReference{
-				Uri: "quay.io/example/app",
-				Artifacts: &[]CatalogItemArtifact{
-					{Uri: "quay.io/example/app-qcow2"},
-					{Uri: "quay.io/example/app-iso"},
-				},
+			name: "valid mixed URI schemes",
+			artifacts: []CatalogItemArtifact{
+				{Type: CatalogItemArtifactTypeContainer, Uri: "quay.io/acme/gateway"},
+				{Type: CatalogItemArtifactTypeRaw, Uri: "s3://acme-models/gateway/"},
+				{Type: CatalogItemArtifactTypeQcow2, Uri: "https://cdn.example.com/images/"},
+			},
+			wantErr: false,
+		},
+		{
+			name:        "empty artifacts",
+			artifacts:   []CatalogItemArtifact{},
+			wantErr:     true,
+			errContains: "must contain at least one entry",
+		},
+		{
+			name: "missing type",
+			artifacts: []CatalogItemArtifact{
+				{Uri: "quay.io/example/app"},
 			},
 			wantErr:     true,
-			errContains: "type is required when multiple",
-		},
-		{
-			name: "multiple artifacts with types",
-			ref: CatalogItemReference{
-				Uri: "quay.io/example/app",
-				Artifacts: &[]CatalogItemArtifact{
-					{Type: lo.ToPtr(CatalogItemArtifactTypeQcow2), Uri: "quay.io/example/app-qcow2"},
-					{Type: lo.ToPtr(CatalogItemArtifactTypeIso), Uri: "quay.io/example/app-iso"},
-					{Type: lo.ToPtr(CatalogItemArtifactTypeAmi), Uri: "quay.io/example/app-ami"},
-				},
-			},
-			wantErr: false,
+			errContains: "type is required",
 		},
 		{
 			name: "duplicate types",
-			ref: CatalogItemReference{
-				Uri: "quay.io/example/app",
-				Artifacts: &[]CatalogItemArtifact{
-					{Type: lo.ToPtr(CatalogItemArtifactTypeQcow2), Uri: "quay.io/example/app-qcow2"},
-					{Type: lo.ToPtr(CatalogItemArtifactTypeQcow2), Uri: "quay.io/example/app-qcow2-v2"},
-				},
+			artifacts: []CatalogItemArtifact{
+				{Type: CatalogItemArtifactTypeQcow2, Uri: "quay.io/example/app-qcow2"},
+				{Type: CatalogItemArtifactTypeQcow2, Uri: "quay.io/example/app-qcow2-v2"},
 			},
 			wantErr:     true,
 			errContains: "duplicate type",
 		},
 		{
 			name: "artifact missing uri",
-			ref: CatalogItemReference{
-				Uri: "quay.io/example/app",
-				Artifacts: &[]CatalogItemArtifact{
-					{Type: lo.ToPtr(CatalogItemArtifactTypeQcow2)},
-				},
+			artifacts: []CatalogItemArtifact{
+				{Type: CatalogItemArtifactTypeQcow2},
 			},
 			wantErr:     true,
 			errContains: "uri is required",
@@ -1078,12 +1300,54 @@ func TestCatalogItemArtifactValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			errs := validateCatalogItemReference(&tt.ref)
+			errs := validateArtifacts(tt.artifacts, "spec")
 			if tt.wantErr {
 				require.NotEmpty(errs)
 				require.Contains(errs[0].Error(), tt.errContains)
 			} else {
 				require.Empty(errs)
+			}
+		})
+	}
+}
+
+func TestValidateArtifactURI(t *testing.T) {
+	tests := []struct {
+		name        string
+		uri         string
+		wantErr     bool
+		errContains string
+	}{
+		{name: "OCI bare", uri: "quay.io/acme/app", wantErr: false},
+		{name: "OCI docker hub", uri: "docker.io/library/nginx", wantErr: false},
+		{name: "OCI registry with port", uri: "registry.example.com:5000/myapp", wantErr: false},
+		{name: "OCI invalid no slash or dot", uri: "justAName", wantErr: true, errContains: "invalid artifact URI format"},
+		{name: "oci:// scheme", uri: "oci://quay.io/acme/app", wantErr: false},
+		{name: "oci:// invalid missing path", uri: "oci://ab", wantErr: true, errContains: "invalid OCI URI"},
+		{name: "HTTPS CDN", uri: "https://cdn.example.com/artifacts/", wantErr: false},
+		{name: "HTTPS deep path", uri: "https://releases.example.com/images/rhel/", wantErr: false},
+		{name: "HTTPS invalid too short", uri: "https://a", wantErr: true, errContains: "invalid URL format"},
+		{name: "HTTP internal", uri: "http://internal.corp/builds/", wantErr: false},
+		{name: "HTTP invalid too short", uri: "http://x", wantErr: true, errContains: "invalid URL format"},
+		{name: "S3 bucket with prefix", uri: "s3://acme-models/edge-gateway/", wantErr: false},
+		{name: "S3 deep path", uri: "s3://my-bucket/org/project/models/", wantErr: false},
+		{name: "S3 invalid no path separator", uri: "s3://bucket", wantErr: true, errContains: "invalid S3 URI"},
+		{name: "S3 via HTTPS path style", uri: "https://s3.us-east-1.amazonaws.com/acme-models/gateway/", wantErr: false},
+		{name: "S3 via HTTPS virtual hosted", uri: "https://acme-models.s3.amazonaws.com/gateway/", wantErr: false},
+		{name: "IPFS", uri: "ipfs://QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdG", wantErr: false},
+		{name: "custom CDN", uri: "mycdn://acme/artifacts/firmware", wantErr: false},
+		{name: "unknown scheme empty path", uri: "custom://", wantErr: true, errContains: "missing path"},
+		{name: "empty scheme", uri: "://noscheme", wantErr: true, errContains: "empty or missing path"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			errs := validateArtifactURI(tt.uri, "test.uri")
+			if tt.wantErr {
+				require.NotEmpty(t, errs, "expected error for URI %q", tt.uri)
+				require.Contains(t, errs[0].Error(), tt.errContains)
+			} else {
+				require.Empty(t, errs, "unexpected error for URI %q: %v", tt.uri, errs)
 			}
 		})
 	}
@@ -1170,48 +1434,36 @@ func TestValidateArtifactTypeValidation(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		ref         CatalogItemReference
+		artifacts   []CatalogItemArtifact
 		wantErr     bool
 		errContains string
 	}{
 		{
 			name: "valid artifact type container",
-			ref: CatalogItemReference{
-				Uri: "quay.io/example/app",
-				Artifacts: &[]CatalogItemArtifact{
-					{Type: lo.ToPtr(CatalogItemArtifactTypeContainer), Uri: "quay.io/example/app"},
-				},
+			artifacts: []CatalogItemArtifact{
+				{Type: CatalogItemArtifactTypeContainer, Uri: "quay.io/example/app"},
 			},
 			wantErr: false,
 		},
 		{
 			name: "valid artifact type qcow2",
-			ref: CatalogItemReference{
-				Uri: "quay.io/example/app",
-				Artifacts: &[]CatalogItemArtifact{
-					{Type: lo.ToPtr(CatalogItemArtifactTypeQcow2), Uri: "quay.io/example/app-qcow2"},
-				},
+			artifacts: []CatalogItemArtifact{
+				{Type: CatalogItemArtifactTypeQcow2, Uri: "quay.io/example/app-qcow2"},
 			},
 			wantErr: false,
 		},
 		{
 			name: "invalid artifact type",
-			ref: CatalogItemReference{
-				Uri: "quay.io/example/app",
-				Artifacts: &[]CatalogItemArtifact{
-					{Type: lo.ToPtr(CatalogItemArtifactType("invalid-type")), Uri: "quay.io/example/app"},
-				},
+			artifacts: []CatalogItemArtifact{
+				{Type: CatalogItemArtifactType("invalid-type"), Uri: "quay.io/example/app"},
 			},
 			wantErr:     true,
 			errContains: "invalid value",
 		},
 		{
 			name: "unknown artifact type",
-			ref: CatalogItemReference{
-				Uri: "quay.io/example/app",
-				Artifacts: &[]CatalogItemArtifact{
-					{Type: lo.ToPtr(CatalogItemArtifactType("tar.gz")), Uri: "quay.io/example/app"},
-				},
+			artifacts: []CatalogItemArtifact{
+				{Type: CatalogItemArtifactType("tar.gz"), Uri: "quay.io/example/app"},
 			},
 			wantErr:     true,
 			errContains: "invalid value",
@@ -1220,7 +1472,7 @@ func TestValidateArtifactTypeValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			errs := validateCatalogItemReference(&tt.ref)
+			errs := validateArtifacts(tt.artifacts, "spec")
 			if tt.wantErr {
 				require.NotEmpty(errs)
 				require.Contains(errs[0].Error(), tt.errContains)
@@ -1370,9 +1622,9 @@ func TestValidateVersionConfig(t *testing.T) {
 		{
 			name: "valid version with config",
 			version: CatalogItemVersion{
-				Version:  "1.0.0",
-				Tag:      lo.ToPtr("v1.0.0"),
-				Channels: []string{"stable"},
+				Version:    "1.0.0",
+				References: map[string]string{"container": "v1.0.0"},
+				Channels:   []string{"stable"},
 				Config: &map[string]interface{}{
 					"envVars": map[string]interface{}{"LOG_LEVEL": "info"},
 				},
@@ -1384,9 +1636,9 @@ func TestValidateVersionConfig(t *testing.T) {
 		{
 			name: "version with invalid port in config",
 			version: CatalogItemVersion{
-				Version:  "1.0.0",
-				Tag:      lo.ToPtr("v1.0.0"),
-				Channels: []string{"stable"},
+				Version:    "1.0.0",
+				References: map[string]string{"container": "v1.0.0"},
+				Channels:   []string{"stable"},
 				Config: &map[string]interface{}{
 					"ports": []interface{}{"invalid-port"},
 				},
@@ -1399,9 +1651,9 @@ func TestValidateVersionConfig(t *testing.T) {
 		{
 			name: "version with invalid configSchema",
 			version: CatalogItemVersion{
-				Version:  "1.0.0",
-				Tag:      lo.ToPtr("v1.0.0"),
-				Channels: []string{"stable"},
+				Version:    "1.0.0",
+				References: map[string]string{"container": "v1.0.0"},
+				Channels:   []string{"stable"},
 				ConfigSchema: &map[string]interface{}{
 					"$ref": "http://evil.com/schema.json",
 				},
@@ -1414,9 +1666,9 @@ func TestValidateVersionConfig(t *testing.T) {
 		{
 			name: "version with non-object volume",
 			version: CatalogItemVersion{
-				Version:  "1.0.0",
-				Tag:      lo.ToPtr("v1.0.0"),
-				Channels: []string{"stable"},
+				Version:    "1.0.0",
+				References: map[string]string{"container": "v1.0.0"},
+				Channels:   []string{"stable"},
 				Config: &map[string]interface{}{
 					"volumes": []interface{}{"not-an-object"},
 				},
@@ -1431,7 +1683,8 @@ func TestValidateVersionConfig(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			seenVersions := make(map[string]struct{})
-			errs := validateCatalogItemVersion(tt.version, 0, seenVersions, tt.category, tt.itemType)
+			artifactTypes := map[string]struct{}{"container": {}}
+			errs := validateCatalogItemVersion(tt.version, 0, seenVersions, tt.category, tt.itemType, artifactTypes)
 			if tt.wantErr {
 				require.NotEmpty(errs)
 				require.Contains(errs[0].Error(), tt.errContains)
@@ -1451,10 +1704,10 @@ func TestValidateReplacesGraph(t *testing.T) {
 			r = lo.ToPtr(replaces)
 		}
 		return CatalogItemVersion{
-			Version:  version,
-			Tag:      lo.ToPtr("v" + version),
-			Channels: []string{"stable"},
-			Replaces: r,
+			Version:    version,
+			References: map[string]string{"container": "v" + version},
+			Channels:   []string{"stable"},
+			Replaces:   r,
 		}
 	}
 

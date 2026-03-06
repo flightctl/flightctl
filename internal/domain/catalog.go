@@ -16,7 +16,6 @@ type CatalogItemList = v1alpha1.CatalogItemList
 type CatalogItemSpec = v1alpha1.CatalogItemSpec
 type CatalogItemVersion = v1alpha1.CatalogItemVersion
 type CatalogItemConfigurable = v1alpha1.CatalogItemConfigurable
-type CatalogItemReference = v1alpha1.CatalogItemReference
 type CatalogItemArtifact = v1alpha1.CatalogItemArtifact
 type CatalogItemDeprecation = v1alpha1.CatalogItemDeprecation
 

@@ -5,10 +5,12 @@ metadata:
   catalog: platform-apps
 spec:
   type: quadlet
-  reference:
-    uri: quay.io/prometheus/node-exporter
+  artifacts:
+    - type: container
+      uri: quay.io/prometheus/node-exporter
   versions:
     - version: "1.8.2"
-      tag: v1.8.2
+      references:
+        container: "v1.8.2"
       channels:
         - stable

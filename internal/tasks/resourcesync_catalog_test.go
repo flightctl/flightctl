@@ -381,16 +381,17 @@ func TestSyncCatalogs_MultiversionParse(t *testing.T) {
 	fc := itemMap["flightctl"]
 	require.NotNil(t, fc)
 	assert.Equal(t, domain.CatalogItemType("helm"), fc.Spec.Type)
-	assert.Equal(t, "quay.io/flightctl/charts/flightctl", fc.Spec.Reference.Uri)
+	require.Len(t, fc.Spec.Artifacts, 1)
+	assert.Equal(t, "quay.io/flightctl/charts/flightctl", fc.Spec.Artifacts[0].Uri)
 	require.Len(t, fc.Spec.Versions, 2)
 
 	assert.Equal(t, "1.0.0", fc.Spec.Versions[0].Version)
-	assert.Equal(t, "v1.0.0", *fc.Spec.Versions[0].Tag)
+	assert.Equal(t, "v1.0.0", fc.Spec.Versions[0].References["container"])
 	assert.ElementsMatch(t, []string{"stable", "candidate"}, fc.Spec.Versions[0].Channels)
 	assert.Nil(t, fc.Spec.Versions[0].Replaces)
 
 	assert.Equal(t, "1.0.2", fc.Spec.Versions[1].Version)
-	assert.Equal(t, "v1.0.2", *fc.Spec.Versions[1].Tag)
+	assert.Equal(t, "v1.0.2", fc.Spec.Versions[1].References["container"])
 	assert.ElementsMatch(t, []string{"stable", "candidate"}, fc.Spec.Versions[1].Channels)
 	require.NotNil(t, fc.Spec.Versions[1].Replaces)
 	assert.Equal(t, "1.0.0", *fc.Spec.Versions[1].Replaces)
