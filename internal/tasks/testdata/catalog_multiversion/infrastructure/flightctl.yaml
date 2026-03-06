@@ -18,16 +18,19 @@ spec:
   type: helm
   displayName: FlightCtl
   shortDescription: Open source device management for edge computing
-  reference:
-    uri: quay.io/flightctl/charts/flightctl
+  artifacts:
+    - type: container
+      uri: quay.io/flightctl/charts/flightctl
   versions:
     - version: "1.0.0"
-      tag: v1.0.0
+      references:
+        container: "v1.0.0"
       channels:
         - stable
         - candidate
     - version: "1.0.2"
-      tag: v1.0.2
+      references:
+        container: "v1.0.2"
       channels:
         - stable
         - candidate
