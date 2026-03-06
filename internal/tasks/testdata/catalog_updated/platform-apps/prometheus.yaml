@@ -1,0 +1,14 @@
+apiVersion: flightctl.io/v1alpha1
+kind: CatalogItem
+metadata:
+  name: prometheus
+  catalog: platform-apps
+spec:
+  type: quadlet
+  reference:
+    uri: quay.io/prometheus/node-exporter
+  versions:
+    - version: "1.9.0"
+      tag: v1.9.0
+      channels:
+        - stable
