@@ -75,6 +75,8 @@ type Bootc interface {
 	Status(ctx context.Context) (*container.BootcHost, error)
 	// Switch targets a new container image reference to boot.
 	Switch(ctx context.Context, image string) error
+	// Rollback stages the previous deployment for the next boot.
+	Rollback(ctx context.Context) error
 	// UsrOverlay adds a transient writable overlayfs on `/usr` that will be discarded on reboot.
 	UsrOverlay(ctx context.Context) error
 	// Apply restart or reboot into the new target image.

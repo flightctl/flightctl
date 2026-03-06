@@ -185,6 +185,20 @@ func (mr *MockManagerMockRecorder) GetDesired(ctx any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDesired", reflect.TypeOf((*MockManager)(nil).GetDesired), ctx)
 }
 
+// GetRollbackDesiredVersion mocks base method.
+func (m *MockManager) GetRollbackDesiredVersion() string {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetRollbackDesiredVersion")
+	ret0, _ := ret[0].(string)
+	return ret0
+}
+
+// GetRollbackDesiredVersion indicates an expected call of GetRollbackDesiredVersion.
+func (mr *MockManagerMockRecorder) GetRollbackDesiredVersion() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetRollbackDesiredVersion", reflect.TypeOf((*MockManager)(nil).GetRollbackDesiredVersion))
+}
+
 // Initialize mocks base method.
 func (m *MockManager) Initialize(ctx context.Context) error {
 	m.ctrl.T.Helper()

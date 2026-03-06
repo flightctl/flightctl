@@ -78,6 +78,9 @@ type Manager interface {
 	CreateRollback(ctx context.Context) error
 	// ClearRollback clears the rollback rendered spec.
 	ClearRollback() error
+	// GetRollbackDesiredVersion returns the desired version stored in rollback.json.
+	// This is the version we were upgrading to when rollback was created.
+	GetRollbackDesiredVersion() string
 	// Rollback reverts the device to the state of the rollback rendered spec.
 	Rollback(ctx context.Context, opts ...RollbackOption) error
 	// GetDesired returns the desired rendered device from the management API.

@@ -109,6 +109,7 @@ func TestSync(t *testing.T) {
 				// GetDesired, Read, and BeforeUpdate may be called multiple times if syncDeviceSpec is called again
 				mockSpecManager.EXPECT().GetDesired(ctx).Return(desired, false, nil).AnyTimes()
 				mockSpecManager.EXPECT().Read(spec.Current).Return(current, nil).AnyTimes()
+				mockSpecManager.EXPECT().Read(spec.Rollback).Return(&v1beta1.Device{Spec: &v1beta1.DeviceSpec{}}, nil).AnyTimes()
 				mockResourceManager.EXPECT().BeforeUpdate(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 				// Set specific expectations for calls that must happen with specific parameters
@@ -455,7 +456,9 @@ func TestRollbackDevice(t *testing.T) {
 			require.NoError(err)
 			require.Equal(tc.desired.Version(), desiredVersionOnDisk.Version())
 
-			err = agent.rollbackDevice(ctx, tc.current, tc.desired, mockSync.sync)
+			// Pass a non-retryable error to trigger rollback logic
+			syncErr := errors.New("non-retryable sync error")
+			err = agent.rollbackDevice(ctx, tc.current, tc.desired, syncErr, mockSync.sync)
 			if tc.wantSyncErr != nil {
 				require.Error(err)
 				require.Equal(tc.wantSyncErr.Error(), err.Error())
@@ -477,6 +480,106 @@ func TestRollbackDevice(t *testing.T) {
 			require.NoError(err)
 			require.Equal(tc.current.Version(), desiredVersionOnDisk.Version(), "desired version should be the same as current after rollback")
 
+		})
+	}
+}
+
+func TestShouldRollbackOS(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	testCases := []struct {
+		name           string
+		setupMocks     func(mockSpecManager *spec.MockManager)
+		expectedSpec   *v1beta1.DeviceSpec
+		expectedResult bool
+	}{
+		{
+			name: "no rollback spec OS defined",
+			setupMocks: func(mockSpecManager *spec.MockManager) {
+				mockSpecManager.EXPECT().Read(spec.Rollback).Return(&v1beta1.Device{
+					Spec: &v1beta1.DeviceSpec{},
+				}, nil)
+			},
+			expectedSpec:   nil,
+			expectedResult: false,
+		},
+		{
+			name: "rollback spec read error",
+			setupMocks: func(mockSpecManager *spec.MockManager) {
+				mockSpecManager.EXPECT().Read(spec.Rollback).Return(nil, errors.New("read error"))
+			},
+			expectedSpec:   nil,
+			expectedResult: false,
+		},
+		{
+			name: "booted image matches rollback OS",
+			setupMocks: func(mockSpecManager *spec.MockManager) {
+				rollbackSpec := &v1beta1.DeviceSpec{
+					Os: &v1beta1.DeviceOsSpec{Image: "quay.io/os:v1"},
+				}
+				mockSpecManager.EXPECT().Read(spec.Rollback).Return(&v1beta1.Device{
+					Spec: rollbackSpec,
+				}, nil)
+				mockSpecManager.EXPECT().CheckOsReconciliation(gomock.Any()).Return("quay.io/os:v1", true, nil)
+			},
+			expectedSpec:   nil,
+			expectedResult: false,
+		},
+		{
+			name: "booted image differs from rollback OS - should rollback",
+			setupMocks: func(mockSpecManager *spec.MockManager) {
+				rollbackSpec := &v1beta1.DeviceSpec{
+					Os: &v1beta1.DeviceOsSpec{Image: "quay.io/os:v1"},
+				}
+				mockSpecManager.EXPECT().Read(spec.Rollback).Return(&v1beta1.Device{
+					Spec: rollbackSpec,
+				}, nil)
+				mockSpecManager.EXPECT().CheckOsReconciliation(gomock.Any()).Return("quay.io/os:v2", false, nil)
+			},
+			expectedSpec:   &v1beta1.DeviceSpec{Os: &v1beta1.DeviceOsSpec{Image: "quay.io/os:v1"}},
+			expectedResult: true,
+		},
+		{
+			name: "CheckOsReconciliation error",
+			setupMocks: func(mockSpecManager *spec.MockManager) {
+				rollbackSpec := &v1beta1.DeviceSpec{
+					Os: &v1beta1.DeviceOsSpec{Image: "quay.io/os:v1"},
+				}
+				mockSpecManager.EXPECT().Read(spec.Rollback).Return(&v1beta1.Device{
+					Spec: rollbackSpec,
+				}, nil)
+				mockSpecManager.EXPECT().CheckOsReconciliation(gomock.Any()).Return("", false, errors.New("os error"))
+			},
+			expectedSpec:   nil,
+			expectedResult: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			mockSpecManager := spec.NewMockManager(ctrl)
+			tc.setupMocks(mockSpecManager)
+
+			log := log.NewPrefixLogger("test")
+			agent := &Agent{
+				log:         log,
+				specManager: mockSpecManager,
+			}
+
+			resultSpec, shouldRollback := agent.shouldRollbackOS(ctx)
+
+			require.Equal(tc.expectedResult, shouldRollback)
+			if tc.expectedSpec == nil {
+				require.Nil(resultSpec)
+			} else {
+				require.NotNil(resultSpec)
+				require.Equal(tc.expectedSpec.Os.Image, resultSpec.Os.Image)
+			}
 		})
 	}
 }

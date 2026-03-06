@@ -67,6 +67,8 @@ func TestInitialization(t *testing.T) {
 					mockStatusManager.EXPECT().SetClient(gomock.Any()),
 					mockSpecManager.EXPECT().SetClient(gomock.Any()),
 					mockSpecManager.EXPECT().IsOSUpdate().Return(false),
+					mockSpecManager.EXPECT().IsUpgrading().Return(false),
+					mockSpecManager.EXPECT().GetRollbackDesiredVersion().Return(""),
 					mockSystemInfoManager.EXPECT().IsRebooted().Return(false),
 					mockSpecManager.EXPECT().IsUpgrading().Return(false),
 					mockSpecManager.EXPECT().RenderedVersion(spec.Current).Return("1"),
@@ -129,6 +131,8 @@ func TestInitialization(t *testing.T) {
 					mockStatusManager.EXPECT().SetClient(gomock.Any()),
 					mockSpecManager.EXPECT().SetClient(gomock.Any()),
 					mockSpecManager.EXPECT().IsOSUpdate().Return(false),
+					mockSpecManager.EXPECT().IsUpgrading().Return(false),
+					mockSpecManager.EXPECT().GetRollbackDesiredVersion().Return(""),
 					mockSystemInfoManager.EXPECT().IsRebooted().Return(false),
 					mockSpecManager.EXPECT().IsUpgrading().Return(false),
 					mockSpecManager.EXPECT().RenderedVersion(spec.Current).Return("2"),
@@ -313,6 +317,26 @@ func TestEnsureBootedOS(t *testing.T) {
 			name: "happy path - no OS update in progress",
 			setupMocks: func(mockStatusManager *status.MockManager, mockSpecManager *spec.MockManager) {
 				mockSpecManager.EXPECT().IsOSUpdate().Return(false)
+				mockSpecManager.EXPECT().IsUpgrading().Return(false)
+				mockSpecManager.EXPECT().GetRollbackDesiredVersion().Return("")
+			},
+			expectedError: nil,
+		},
+		{
+			name: "no OS update - rollback completed marks version as failed",
+			setupMocks: func(mockStatusManager *status.MockManager, mockSpecManager *spec.MockManager) {
+				mockSpecManager.EXPECT().IsOSUpdate().Return(false)
+				mockSpecManager.EXPECT().IsUpgrading().Return(false)
+				mockSpecManager.EXPECT().GetRollbackDesiredVersion().Return("2")
+				mockSpecManager.EXPECT().SetUpgradeFailed("2").Return(nil)
+			},
+			expectedError: nil,
+		},
+		{
+			name: "no OS update - still upgrading does not mark as failed",
+			setupMocks: func(mockStatusManager *status.MockManager, mockSpecManager *spec.MockManager) {
+				mockSpecManager.EXPECT().IsOSUpdate().Return(false)
+				mockSpecManager.EXPECT().IsUpgrading().Return(true)
 			},
 			expectedError: nil,
 		},

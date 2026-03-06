@@ -21,6 +21,12 @@ import (
 
 var _ Manager = (*manager)(nil)
 
+const (
+	// annotationDesiredVersion stores the version we're upgrading to in rollback.json.
+	// If a rollback occurs, this version is marked as failed.
+	annotationDesiredVersion = "agent/desiredVersion"
+)
+
 // manager is responsible for managing the rendered device spec.
 type manager struct {
 	currentPath  string
@@ -294,6 +300,18 @@ func (s *manager) CreateRollback(ctx context.Context) error {
 		Os: &v1beta1.DeviceOsSpec{Image: currentOSImage},
 	}
 
+	// Store the desired version so we know which version failed if rollback occurs.
+	// This persists across reboots and agent restarts.
+	desiredVersion := s.cache.getRenderedVersion(Desired)
+	if desiredVersion != "" {
+		annotations := rollback.Metadata.Annotations
+		if annotations == nil {
+			annotations = &map[string]string{}
+			rollback.Metadata.Annotations = annotations
+		}
+		(*annotations)[annotationDesiredVersion] = desiredVersion
+	}
+
 	if err := s.write(ctx, Rollback, rollback, audit.ReasonInitialization); err != nil {
 		return err
 	}
@@ -302,6 +320,21 @@ func (s *manager) CreateRollback(ctx context.Context) error {
 
 func (s *manager) ClearRollback() error {
 	return s.write(context.TODO(), Rollback, newVersionedDevice(""), audit.ReasonInitialization)
+}
+
+func (s *manager) getDesiredVersion(rollback *v1beta1.Device) string {
+	if rollback == nil || rollback.Metadata.Annotations == nil {
+		return ""
+	}
+	return (*rollback.Metadata.Annotations)[annotationDesiredVersion]
+}
+
+func (s *manager) GetRollbackDesiredVersion() string {
+	rollback, err := s.Read(Rollback)
+	if err != nil {
+		return ""
+	}
+	return s.getDesiredVersion(rollback)
 }
 
 func (s *manager) Rollback(ctx context.Context, opts ...RollbackOption) error {

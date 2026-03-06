@@ -213,7 +213,17 @@ func (b *Bootstrap) ensureBootstrap(ctx context.Context) error {
 func (b *Bootstrap) ensureBootedOS(ctx context.Context) error {
 	if !b.specManager.IsOSUpdate() {
 		b.log.Info("No OS update in progress")
-		// no change in OS image, so nothing else to do here
+		// If not upgrading but rollback.json has a desired version, a rollback
+		// already completed and the agent restarted. Mark the desired version
+		// as failed to prevent re-applying it.
+		if !b.specManager.IsUpgrading() {
+			if desiredVersion := b.specManager.GetRollbackDesiredVersion(); desiredVersion != "" {
+				b.log.Infof("Marking version %s as failed from previous rollback", desiredVersion)
+				if err := b.specManager.SetUpgradeFailed(desiredVersion); err != nil {
+					b.log.Errorf("Failed to mark version %s as failed: %v", desiredVersion, err)
+				}
+			}
+		}
 		return nil
 	}
 
