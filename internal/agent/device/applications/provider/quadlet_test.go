@@ -2049,7 +2049,7 @@ func TestGenerateQuadlet(t *testing.T) {
 				require.Contains(t, contentStr, "Volume=config.volume:/config")
 				require.Contains(t, contentStr, "[Service]")
 				require.Contains(t, contentStr, "Restart=on-failure")
-				require.Contains(t, contentStr, "RestartSec=60")
+				require.Contains(t, contentStr, "RestartSec=5")
 				require.Contains(t, contentStr, "[Install]")
 				require.Contains(t, contentStr, "WantedBy=default.target")
 			},

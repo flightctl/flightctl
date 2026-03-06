@@ -11,7 +11,6 @@ package rootless_test
 import (
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/test/harness/e2e"
@@ -47,7 +46,8 @@ var _ = Describe("Rootless applications", Label("rootless"), func() {
 
 	BeforeEach(func() {
 		harness = e2e.GetWorkerHarness()
-		login.LoginToAPIWithToken(harness)
+		_, err := login.LoginToAPIWithToken(harness)
+		Expect(err).ToNot(HaveOccurred())
 		deviceID, _ = harness.EnrollAndWaitForOnlineStatus()
 	})
 
@@ -71,9 +71,10 @@ var _ = Describe("Rootless applications", Label("rootless"), func() {
 		harness.VerifyQuadletApplicationFolderExistsAt(rootlessAppContainerRootless, flightctlQuadletPath)
 
 		By("Quadlet rootful: deploy two rootful quadlet apps and verify both at root")
+		nginxContent := rootlessNginxContainerContentWithPort(rootlessNginxImage, "8080")
 		spec1, err := e2e.NewQuadletInlineSpec(rootlessAppRootfulSimple, "", []string{"app.container"}, []string{rootlessAlpineContainerContent(rootlessAlpineImage)})
 		Expect(err).ToNot(HaveOccurred())
-		spec2, err := e2e.NewQuadletInlineSpec(rootlessAppNewRootful, "", []string{"nginx.container"}, []string{rootlessNginxContainerContent(rootlessNginxImage)})
+		spec2, err := e2e.NewQuadletInlineSpec(rootlessAppNewRootful, "", []string{"nginx.container"}, []string{nginxContent})
 		Expect(err).ToNot(HaveOccurred())
 		Expect(harness.SetDeviceApplications(deviceID, &[]v1beta1.ApplicationProviderSpec{spec1, spec2})).ToNot(HaveOccurred())
 		Expect(harness.WaitForApplicationStatus(deviceID, rootlessAppRootfulSimple, v1beta1.ApplicationStatusRunning, testutil.TIMEOUT, testutil.POLLING)).ToNot(HaveOccurred())
@@ -85,9 +86,7 @@ var _ = Describe("Rootless applications", Label("rootless"), func() {
 		harness.VerifyQuadletApplicationFolderExistsAt(rootlessAppNewRootful, e2e.QuadletUnitPath)
 
 		By("Transition rootful to rootless by adding runAs flightctl")
-		nginxContent := rootlessNginxContainerContent(rootlessNginxImage)
 		Expect(harness.UpdateDeviceWithQuadletInlineAndRunAs(deviceID, rootlessAppNewRootful, flightctlUser, []string{"nginx.container"}, []string{nginxContent})).ToNot(HaveOccurred())
-		// Use LONG_TIMEOUT: rootless quadlet can take longer to report Running in CI (user systemd, image pull).
 		Expect(harness.WaitForApplicationStatus(deviceID, rootlessAppNewRootful, v1beta1.ApplicationStatusRunning, testutil.LONG_TIMEOUT, testutil.POLLING)).ToNot(HaveOccurred())
 		// TODO(EDM-3440): uncomment when root-owned ~/.config/containers|systemd is fixed (podman ps as runAs user)
 		// names, err = harness.RunPodmanPsContainerNamesAsUser(flightctlUser, false)
@@ -117,8 +116,12 @@ var _ = Describe("Rootless applications", Label("rootless"), func() {
 		Expect(err).ToNot(HaveOccurred())
 		Expect(names).To(ContainSubstring(rootlessAppContainerMulti))
 
-		// EDM-3451: Delay before rootless→rootful spec update to avoid TCP port TIME_WAIT / bind race.
-		time.Sleep(testutil.SPECK_UPDATE_DELAY)
+		// EDM-3451: Delete this step once the issue is fixed; then use a single update (mixed → rootful) again.
+		By("Remove container-multi-app so only rootless new-rootful-app remains, then transition to rootful")
+		specRootlessOnly, err := e2e.NewQuadletInlineSpec(rootlessAppNewRootful, flightctlUser, []string{"nginx.container"}, []string{nginxContent})
+		Expect(err).ToNot(HaveOccurred())
+		Expect(harness.SetDeviceApplications(deviceID, &[]v1beta1.ApplicationProviderSpec{specRootlessOnly})).ToNot(HaveOccurred())
+		Expect(harness.WaitForApplicationStatus(deviceID, rootlessAppNewRootful, v1beta1.ApplicationStatusRunning, testutil.TIMEOUT, testutil.POLLING)).ToNot(HaveOccurred())
 		By("Transition rootless back to rootful by removing runAs")
 		Expect(harness.UpdateDeviceWithQuadletInlineAndRunAs(deviceID, rootlessAppNewRootful, "", []string{"nginx.container"}, []string{nginxContent})).ToNot(HaveOccurred())
 		By("Verify device spec has runAs removed for new-rootful-app")
@@ -138,11 +141,14 @@ var _ = Describe("Rootless applications", Label("rootless"), func() {
 			}
 		}
 		Expect(found).To(BeTrue(), "device spec should contain quadlet app %s", rootlessAppNewRootful)
-		// EDM-3451: Assertions re-enabled with delay workaround above; root cause (TCP TIME_WAIT / agent behavior) still under investigation. Use longer timeout for rootless→rootful in CI.
-		Expect(harness.WaitForApplicationStatus(deviceID, rootlessAppNewRootful, v1beta1.ApplicationStatusRunning, testutil.TIMEOUT, testutil.POLLING)).ToNot(HaveOccurred())
-		names, err = harness.RunPodmanPsContainerNamesAsUser("root", false)
-		Expect(err).ToNot(HaveOccurred())
-		Expect(names).To(ContainSubstring(rootlessAppNewRootful))
+		// With the two-step flow (remove container-multi-app first), the rootless→rootful transition does not hit EDM-3451 race; verify app status.
+		Expect(harness.WaitForApplicationStatus(deviceID, rootlessAppNewRootful, v1beta1.ApplicationStatusRunning, testutil.LONG_TIMEOUT, testutil.POLLING)).ToNot(HaveOccurred())
+		// Root's podman ps may need a moment to list the container after rootful transition.
+		Eventually(func(g Gomega) {
+			names, err := harness.RunPodmanPsContainerNamesAsUser("root", false)
+			g.Expect(err).ToNot(HaveOccurred())
+			g.Expect(names).To(ContainSubstring(rootlessAppNewRootful))
+		}, testutil.LONG_TIMEOUT, testutil.POLLING).Should(Succeed())
 		harness.VerifyQuadletApplicationFolderExistsAt(rootlessAppNewRootful, e2e.QuadletUnitPath)
 		flightctlQuadletPath, err = harness.QuadletPathForUserOnVM(flightctlUser)
 		Expect(err).ToNot(HaveOccurred())
@@ -151,8 +157,6 @@ var _ = Describe("Rootless applications", Label("rootless"), func() {
 		By("Rootless in-place update: deploy then update image and verify running")
 		Expect(harness.UpdateDeviceWithQuadletInlineAndRunAs(deviceID, rootlessAppUpdateTest, flightctlUser, []string{"app.container"}, []string{rootlessUpdateV1Content(rootlessAlpineImage)})).ToNot(HaveOccurred())
 		Expect(harness.WaitForApplicationStatus(deviceID, rootlessAppUpdateTest, v1beta1.ApplicationStatusRunning, testutil.TIMEOUT, testutil.POLLING)).ToNot(HaveOccurred())
-		// EDM-3451: Delay between spec updates to avoid TCP port TIME_WAIT / bind race (see RootlessSpecUpdateDelay).
-		time.Sleep(testutil.SPECK_UPDATE_DELAY)
 		Expect(harness.UpdateDeviceWithQuadletInlineAndRunAs(deviceID, rootlessAppUpdateTest, flightctlUser, []string{"app.container"}, []string{rootlessUpdateV2Content(rootlessNginxImage)})).ToNot(HaveOccurred())
 		Expect(harness.WaitForApplicationStatus(deviceID, rootlessAppUpdateTest, v1beta1.ApplicationStatusRunning, testutil.TIMEOUT, testutil.POLLING)).ToNot(HaveOccurred())
 		// TODO(EDM-3440): uncomment when root-owned ~/.config/containers|systemd is fixed (podman ps as runAs user)
@@ -286,13 +290,14 @@ WantedBy=default.target
 `, imageRef)
 }
 
-func rootlessNginxContainerContent(imageRef string) string {
+// rootlessNginxContainerContentWithPort returns quadlet content with a specific host port (avoids rebinding same port on rootless→rootful transition; EDM-3451).
+func rootlessNginxContainerContentWithPort(imageRef, hostPort string) string {
 	return fmt.Sprintf(`[Container]
 Image=%s
-PublishPort=8080:80
+PublishPort=%s:80
 [Install]
 WantedBy=default.target
-`, imageRef)
+`, imageRef, hostPort)
 }
 
 func rootlessUpdateV1Content(imageRef string) string {
