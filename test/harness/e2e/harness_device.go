@@ -417,24 +417,13 @@ func (h *Harness) GetCurrentDeviceGeneration(deviceId string) (deviceRenderedVer
 	logrus.Infof("Waiting for the device to be UpToDate")
 	h.WaitForDeviceContents(deviceId, "The device is UpToDate",
 		func(device *v1beta1.Device) bool {
-			if device == nil || device.Status == nil {
+			if device == nil || device.Status == nil || device.Status.Updated.Status != v1beta1.DeviceUpdatedStatusUpToDate {
 				return false
 			}
-			if device.Status.Updated.Status == v1beta1.DeviceUpdatedStatusUpToDate {
-				if device.Metadata.Generation != nil {
-					deviceGeneration = *device.Metadata.Generation
-				}
-				return true
+			if device.Metadata.Generation != nil {
+				deviceGeneration = *device.Metadata.Generation
 			}
-			for _, condition := range device.Status.Conditions {
-				if condition.Type == "Updating" && condition.Reason == "Updated" && condition.Status == "False" &&
-					device.Status.Updated.Status == v1beta1.DeviceUpdatedStatusUpToDate {
-					deviceGeneration = *device.Metadata.Generation
-
-					return true
-				}
-			}
-			return false
+			return true
 		}, TIMEOUT)
 
 	if deviceGeneration <= 0 {
@@ -479,22 +468,11 @@ func (h *Harness) GetCurrentDeviceRenderedVersion(deviceId string) (int, error) 
 	logrus.Infof("Waiting for the device to be UpToDate")
 	h.WaitForDeviceContents(deviceId, "The device is UpToDate",
 		func(device *v1beta1.Device) bool {
-			if device == nil || device.Status == nil {
+			if device == nil || device.Status == nil || device.Status.Updated.Status != v1beta1.DeviceUpdatedStatusUpToDate {
 				return false
 			}
-			if device.Status.Updated.Status == v1beta1.DeviceUpdatedStatusUpToDate {
-				deviceRenderedVersion, renderedVersionError = GetRenderedVersion(device)
-				return !errors.Is(renderedVersionError, InvalidRenderedVersionErr)
-			}
-			for _, condition := range device.Status.Conditions {
-				if condition.Type == "Updating" && condition.Reason == "Updated" && condition.Status == "False" &&
-					device.Status.Updated.Status == v1beta1.DeviceUpdatedStatusUpToDate {
-					deviceRenderedVersion, renderedVersionError = GetRenderedVersion(device)
-					// try until we get a valid rendered version
-					return !errors.Is(renderedVersionError, InvalidRenderedVersionErr)
-				}
-			}
-			return false
+			deviceRenderedVersion, renderedVersionError = GetRenderedVersion(device)
+			return !errors.Is(renderedVersionError, InvalidRenderedVersionErr)
 		}, TIMEOUT)
 	if renderedVersionError != nil {
 		return -1, renderedVersionError
@@ -657,9 +635,11 @@ func (h *Harness) WaitForDeviceNewGeneration(deviceId string, newGeneration int6
 	logrus.Infof("Waiting for the device to pick the config")
 	h.WaitForDeviceContents(deviceId, fmt.Sprintf("Waiting fot the device generation %d", newGeneration),
 		func(device *v1beta1.Device) bool {
+			if device == nil || device.Status == nil || device.Status.Updated.Status != v1beta1.DeviceUpdatedStatusUpToDate {
+				return false
+			}
 			for _, condition := range device.Status.Conditions {
 				if condition.Type == "Updating" && condition.Reason == "Updated" && condition.Status == "False" &&
-					device.Status.Updated.Status == v1beta1.DeviceUpdatedStatusUpToDate &&
 					newGeneration == *device.Metadata.Generation {
 					return true
 				}
@@ -937,7 +917,6 @@ func (h *Harness) GetUpdatedDevices(fleetName string) ([]*v1beta1.Device, error)
 	var result []*v1beta1.Device
 
 	for _, device := range devices {
-		// Check if device has been updated
 		if device.Status != nil && device.Status.Updated.Status == v1beta1.DeviceUpdatedStatusUpToDate {
 			deviceCopy := device
 			result = append(result, &deviceCopy)
