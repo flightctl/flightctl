@@ -1223,6 +1223,21 @@ func (mr *MockServiceMockRecorder) PatchCatalog(ctx, orgId, name, patch any) *go
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PatchCatalog", reflect.TypeOf((*MockService)(nil).PatchCatalog), ctx, orgId, name, patch)
 }
 
+// PatchCatalogItem mocks base method.
+func (m *MockService) PatchCatalogItem(ctx context.Context, orgId uuid.UUID, catalogName, itemName string, patch domain.PatchRequest) (*domain.CatalogItem, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PatchCatalogItem", ctx, orgId, catalogName, itemName, patch)
+	ret0, _ := ret[0].(*domain.CatalogItem)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// PatchCatalogItem indicates an expected call of PatchCatalogItem.
+func (mr *MockServiceMockRecorder) PatchCatalogItem(ctx, orgId, catalogName, itemName, patch any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PatchCatalogItem", reflect.TypeOf((*MockService)(nil).PatchCatalogItem), ctx, orgId, catalogName, itemName, patch)
+}
+
 // PatchCatalogStatus mocks base method.
 func (m *MockService) PatchCatalogStatus(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest) (*domain.Catalog, domain.Status) {
 	m.ctrl.T.Helper()

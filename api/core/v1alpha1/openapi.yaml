@@ -933,6 +933,73 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+    patch:
+      tags:
+        - catalog
+      description: Patch a CatalogItem in a Catalog.
+      operationId: patchCatalogItem
+      parameters:
+        - name: catalog
+          in: path
+          description: The name of the Catalog resource.
+          required: true
+          schema:
+            type: string
+        - name: name
+          in: path
+          description: The name of the CatalogItem resource to patch.
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json-patch+json:
+            schema:
+              $ref: '../v1beta1/openapi.yaml#/components/schemas/PatchRequest'
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatalogItem'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
 components:
   securitySchemes:
     bearerAuth:

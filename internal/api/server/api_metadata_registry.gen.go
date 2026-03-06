@@ -198,6 +198,14 @@ var APIMetadataMap = map[string]*apimetadata.EndpointMetadata{
 			{Version: "v1alpha1", DeprecatedAt: nil},
 		},
 	},
+	"PATCH:/catalogs/{catalog}/items/{name}": {
+		OperationID: "patchCatalogItem",
+		Resource:    "catalogs/items",
+		Action:      "patch",
+		Versions: []apimetadata.EndpointMetadataVersion{
+			{Version: "v1alpha1", DeprecatedAt: nil},
+		},
+	},
 	"PUT:/catalogs/{catalog}/items/{name}": {
 		OperationID: "replaceCatalogItem",
 		Resource:    "catalogs/items",

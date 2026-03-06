@@ -1,6 +1,9 @@
 package domain
 
-import v1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
+import (
+	v1alpha1 "github.com/flightctl/flightctl/api/core/v1alpha1"
+	v1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
+)
 
 // Status represents an API response status.
 type Status = v1beta1.Status
@@ -39,5 +42,8 @@ const (
 	PatchOpTest    = v1beta1.Test
 )
 
-// GetSwagger returns the OpenAPI spec - re-exported for service layer access due to depguard rules
+// GetSwagger returns the v1beta1 OpenAPI spec - re-exported for service layer access due to depguard rules
 var GetSwagger = v1beta1.GetSwagger
+
+// GetV1Alpha1Swagger returns the v1alpha1 OpenAPI spec (for alpha-stage resources like Catalog)
+var GetV1Alpha1Swagger = v1alpha1.GetSwagger
