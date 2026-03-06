@@ -1018,10 +1018,12 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 					Kind:       domain.CatalogItemKind,
 					Metadata:   domain.CatalogItemMeta{Name: lo.ToPtr("caddy"), Catalog: "infrastructure"},
 					Spec: domain.CatalogItemSpec{
-						Type:      domain.CatalogItemTypeContainer,
-						Reference: domain.CatalogItemReference{Uri: "docker.io/library/caddy"},
+						Type: domain.CatalogItemTypeContainer,
+						Artifacts: []domain.CatalogItemArtifact{
+							{Type: domain.CatalogItemArtifactTypeContainer, Uri: "docker.io/library/caddy"},
+						},
 						Versions: []domain.CatalogItemVersion{
-							{Version: "2.7.6", Tag: lo.ToPtr("v2.7.6"), Channels: []string{"stable"}},
+							{Version: "2.7.6", References: map[string]string{"container": "v2.7.6"}, Channels: []string{"stable"}},
 						},
 					},
 				},
@@ -1030,11 +1032,13 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 					Kind:       domain.CatalogItemKind,
 					Metadata:   domain.CatalogItemMeta{Name: lo.ToPtr("prometheus"), Catalog: "infrastructure"},
 					Spec: domain.CatalogItemSpec{
-						Type:      domain.CatalogItemTypeQuadlet,
-						Reference: domain.CatalogItemReference{Uri: "quay.io/prometheus/node-exporter"},
+						Type: domain.CatalogItemTypeQuadlet,
+						Artifacts: []domain.CatalogItemArtifact{
+							{Type: domain.CatalogItemArtifactTypeContainer, Uri: "quay.io/prometheus/node-exporter"},
+						},
 						Versions: []domain.CatalogItemVersion{
-							{Version: "1.7.0", Tag: lo.ToPtr("v1.7.0"), Channels: []string{"stable"}},
-							{Version: "1.8.0", Tag: lo.ToPtr("v1.8.0"), Channels: []string{"stable", "candidate"}, Replaces: lo.ToPtr("1.7.0")},
+							{Version: "1.7.0", References: map[string]string{"container": "v1.7.0"}, Channels: []string{"stable"}},
+							{Version: "1.8.0", References: map[string]string{"container": "v1.8.0"}, Channels: []string{"stable", "candidate"}, Replaces: lo.ToPtr("1.7.0")},
 						},
 					},
 				},
@@ -1138,8 +1142,8 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 					Metadata:   domain.CatalogItemMeta{Name: lo.ToPtr("item-a"), Catalog: "removable-catalog"},
 					Spec: domain.CatalogItemSpec{
 						Type:      domain.CatalogItemTypeContainer,
-						Reference: domain.CatalogItemReference{Uri: "quay.io/test/a"},
-						Versions:  []domain.CatalogItemVersion{{Version: "1.0.0", Tag: lo.ToPtr("v1.0.0"), Channels: []string{"stable"}}},
+						Artifacts: []domain.CatalogItemArtifact{{Type: domain.CatalogItemArtifactTypeContainer, Uri: "quay.io/test/a"}},
+						Versions:  []domain.CatalogItemVersion{{Version: "1.0.0", References: map[string]string{"container": "v1.0.0"}, Channels: []string{"stable"}}},
 					},
 				},
 				{
@@ -1148,8 +1152,8 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 					Metadata:   domain.CatalogItemMeta{Name: lo.ToPtr("item-b"), Catalog: "removable-catalog"},
 					Spec: domain.CatalogItemSpec{
 						Type:      domain.CatalogItemTypeContainer,
-						Reference: domain.CatalogItemReference{Uri: "quay.io/test/b"},
-						Versions:  []domain.CatalogItemVersion{{Version: "1.0.0", Tag: lo.ToPtr("v1.0.0"), Channels: []string{"stable"}}},
+						Artifacts: []domain.CatalogItemArtifact{{Type: domain.CatalogItemArtifactTypeContainer, Uri: "quay.io/test/b"}},
+						Versions:  []domain.CatalogItemVersion{{Version: "1.0.0", References: map[string]string{"container": "v1.0.0"}, Channels: []string{"stable"}}},
 					},
 				},
 			}

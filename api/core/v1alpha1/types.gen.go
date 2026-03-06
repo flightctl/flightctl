@@ -4,12 +4,9 @@
 package v1alpha1
 
 import (
-	"encoding/json"
-	"fmt"
 	"time"
 
 	externalRef0 "github.com/flightctl/flightctl/api/core/v1beta1"
-	"github.com/oapi-codegen/runtime"
 )
 
 // Defines values for CatalogItemArtifactType.
@@ -41,12 +38,6 @@ const (
 	CatalogItemTypeHelm      CatalogItemType = "helm"
 	CatalogItemTypeOS        CatalogItemType = "os"
 	CatalogItemTypeQuadlet   CatalogItemType = "quadlet"
-)
-
-// Defines values for CatalogItemVisibility.
-const (
-	CatalogItemVisibilityDraft     CatalogItemVisibility = "draft"
-	CatalogItemVisibilityPublished CatalogItemVisibility = "published"
 )
 
 // ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
@@ -85,19 +76,19 @@ type CatalogItem struct {
 	Spec CatalogItemSpec `json:"spec"`
 }
 
-// CatalogItemArtifact An alternative artifact format.
+// CatalogItemArtifact An artifact reference. The type field is the discriminator and must be unique within the artifacts list.
 type CatalogItemArtifact struct {
 	// Name Optional human-readable display name for this artifact.
 	Name *string `json:"name,omitempty"`
 
-	// Type Type of artifact format. Includes bootc-image-builder output formats. Defaults to container if only one artifact.
-	Type *CatalogItemArtifactType `json:"type,omitempty"`
+	// Type Artifact format discriminator. Must be unique within the artifacts list. Includes bootc-image-builder output formats.
+	Type CatalogItemArtifactType `json:"type"`
 
-	// Uri Artifact URI (OCI reference, URL, S3 path, etc.).
+	// Uri Artifact URI without version qualifier. The version reference (tag or digest) is applied at resolution time.
 	Uri string `json:"uri"`
 }
 
-// CatalogItemArtifactType Type of artifact format. Includes bootc-image-builder output formats. Defaults to container if only one artifact.
+// CatalogItemArtifactType Artifact format discriminator. Must be unique within the artifacts list. Includes bootc-image-builder output formats.
 type CatalogItemArtifactType string
 
 // CatalogItemCategory Category of a catalog item.
@@ -169,17 +160,11 @@ type CatalogItemMeta struct {
 	ResourceVersion *string `json:"resourceVersion,omitempty"`
 }
 
-// CatalogItemReference Reference to the primary artifact and optional alternative formats.
-type CatalogItemReference struct {
-	// Artifacts Alternative artifact formats (e.g., qcow2, ISO for bootc images).
-	Artifacts *[]CatalogItemArtifact `json:"artifacts,omitempty"`
-
-	// Uri Primary artifact URI without version tag. Supports OCI references, URLs, S3 paths, etc.
-	Uri string `json:"uri"`
-}
-
 // CatalogItemSpec CatalogItemSpec defines the configuration for a catalog item.
 type CatalogItemSpec struct {
+	// Artifacts Artifact definitions for this catalog item. Defined once; version references resolve each artifact independently. Type must be unique within the list.
+	Artifacts []CatalogItemArtifact `json:"artifacts"`
+
 	// Category Category of a catalog item.
 	Category *CatalogItemCategory `json:"category,omitempty"`
 
@@ -204,9 +189,6 @@ type CatalogItemSpec struct {
 	// Provider Provider or publisher of the catalog item (company or team name).
 	Provider *string `json:"provider,omitempty"`
 
-	// Reference Reference to the primary artifact and optional alternative formats.
-	Reference CatalogItemReference `json:"reference"`
-
 	// ShortDescription A brief one-line description of the catalog item.
 	ShortDescription *string `json:"shortDescription,omitempty"`
 
@@ -218,9 +200,6 @@ type CatalogItemSpec struct {
 
 	// Versions Available versions using Cincinnati model. Use replaces for primary edge, skips when stable channel skips intermediate versions.
 	Versions []CatalogItemVersion `json:"versions"`
-
-	// Visibility Visibility controls who can see and use the catalog item.
-	Visibility *CatalogItemVisibility `json:"visibility,omitempty"`
 }
 
 // CatalogItemType Type of catalog item within its category.
@@ -240,11 +219,11 @@ type CatalogItemVersion struct {
 	// Deprecation Deprecation information for a catalog item or version. Presence indicates deprecated status.
 	Deprecation *CatalogItemDeprecation `json:"deprecation,omitempty"`
 
-	// Digest OCI digest for immutable reference. Mutually exclusive with tag. Format: sha256:...
-	Digest *string `json:"digest,omitempty"`
-
 	// Readme Detailed documentation, preferably in markdown format.
 	Readme *string `json:"readme,omitempty"`
+
+	// References Map of artifact type to image tag or digest. Keys must match a type in spec.artifacts. Only keyed artifacts are available for this version.
+	References map[string]string `json:"references"`
 
 	// Replaces The single version this one replaces, defining the primary upgrade edge.
 	Replaces *string `json:"replaces,omitempty"`
@@ -255,22 +234,9 @@ type CatalogItemVersion struct {
 	// Skips Additional versions that can upgrade directly to this one. Use when stable channel skips intermediate fast-only versions.
 	Skips *[]string `json:"skips,omitempty"`
 
-	// Tag Image tag to pull. Mutually exclusive with digest.
-	Tag *string `json:"tag,omitempty"`
-
 	// Version Semantic version identifier (e.g., 1.2.3, v2.0.0-rc1). Required for version ordering and upgrade graph.
 	Version string `json:"version"`
-	union   json.RawMessage
 }
-
-// CatalogItemVersion0 defines model for .
-type CatalogItemVersion0 = interface{}
-
-// CatalogItemVersion1 defines model for .
-type CatalogItemVersion1 = interface{}
-
-// CatalogItemVisibility Visibility controls who can see and use the catalog item.
-type CatalogItemVisibility string
 
 // CatalogList CatalogList is a list of Catalogs.
 type CatalogList struct {
@@ -303,9 +269,6 @@ type CatalogSpec struct {
 
 	// Support Link to support resources or documentation for getting help.
 	Support *string `json:"support,omitempty"`
-
-	// Visibility Visibility controls who can see and use the catalog item.
-	Visibility *CatalogItemVisibility `json:"visibility,omitempty"`
 }
 
 // CatalogStatus CatalogStatus represents the current status of a catalog source.
@@ -400,238 +363,3 @@ type PatchCatalogStatusApplicationJSONPatchPlusJSONRequestBody = externalRef0.Pa
 
 // ReplaceCatalogStatusJSONRequestBody defines body for ReplaceCatalogStatus for application/json ContentType.
 type ReplaceCatalogStatusJSONRequestBody = Catalog
-
-// AsCatalogItemVersion0 returns the union data inside the CatalogItemVersion as a CatalogItemVersion0
-func (t CatalogItemVersion) AsCatalogItemVersion0() (CatalogItemVersion0, error) {
-	var body CatalogItemVersion0
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromCatalogItemVersion0 overwrites any union data inside the CatalogItemVersion as the provided CatalogItemVersion0
-func (t *CatalogItemVersion) FromCatalogItemVersion0(v CatalogItemVersion0) error {
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeCatalogItemVersion0 performs a merge with any union data inside the CatalogItemVersion, using the provided CatalogItemVersion0
-func (t *CatalogItemVersion) MergeCatalogItemVersion0(v CatalogItemVersion0) error {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-// AsCatalogItemVersion1 returns the union data inside the CatalogItemVersion as a CatalogItemVersion1
-func (t CatalogItemVersion) AsCatalogItemVersion1() (CatalogItemVersion1, error) {
-	var body CatalogItemVersion1
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromCatalogItemVersion1 overwrites any union data inside the CatalogItemVersion as the provided CatalogItemVersion1
-func (t *CatalogItemVersion) FromCatalogItemVersion1(v CatalogItemVersion1) error {
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeCatalogItemVersion1 performs a merge with any union data inside the CatalogItemVersion, using the provided CatalogItemVersion1
-func (t *CatalogItemVersion) MergeCatalogItemVersion1(v CatalogItemVersion1) error {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-func (t CatalogItemVersion) MarshalJSON() ([]byte, error) {
-	b, err := t.union.MarshalJSON()
-	if err != nil {
-		return nil, err
-	}
-	object := make(map[string]json.RawMessage)
-	if t.union != nil {
-		err = json.Unmarshal(b, &object)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	if t.Channels != nil {
-		object["channels"], err = json.Marshal(t.Channels)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'channels': %w", err)
-		}
-	}
-
-	if t.Config != nil {
-		object["config"], err = json.Marshal(t.Config)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'config': %w", err)
-		}
-	}
-
-	if t.ConfigSchema != nil {
-		object["configSchema"], err = json.Marshal(t.ConfigSchema)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'configSchema': %w", err)
-		}
-	}
-
-	if t.Deprecation != nil {
-		object["deprecation"], err = json.Marshal(t.Deprecation)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'deprecation': %w", err)
-		}
-	}
-
-	if t.Digest != nil {
-		object["digest"], err = json.Marshal(t.Digest)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'digest': %w", err)
-		}
-	}
-
-	if t.Readme != nil {
-		object["readme"], err = json.Marshal(t.Readme)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'readme': %w", err)
-		}
-	}
-
-	if t.Replaces != nil {
-		object["replaces"], err = json.Marshal(t.Replaces)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'replaces': %w", err)
-		}
-	}
-
-	if t.SkipRange != nil {
-		object["skipRange"], err = json.Marshal(t.SkipRange)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'skipRange': %w", err)
-		}
-	}
-
-	if t.Skips != nil {
-		object["skips"], err = json.Marshal(t.Skips)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'skips': %w", err)
-		}
-	}
-
-	if t.Tag != nil {
-		object["tag"], err = json.Marshal(t.Tag)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'tag': %w", err)
-		}
-	}
-
-	object["version"], err = json.Marshal(t.Version)
-	if err != nil {
-		return nil, fmt.Errorf("error marshaling 'version': %w", err)
-	}
-
-	b, err = json.Marshal(object)
-	return b, err
-}
-
-func (t *CatalogItemVersion) UnmarshalJSON(b []byte) error {
-	err := t.union.UnmarshalJSON(b)
-	if err != nil {
-		return err
-	}
-	object := make(map[string]json.RawMessage)
-	err = json.Unmarshal(b, &object)
-	if err != nil {
-		return err
-	}
-
-	if raw, found := object["channels"]; found {
-		err = json.Unmarshal(raw, &t.Channels)
-		if err != nil {
-			return fmt.Errorf("error reading 'channels': %w", err)
-		}
-	}
-
-	if raw, found := object["config"]; found {
-		err = json.Unmarshal(raw, &t.Config)
-		if err != nil {
-			return fmt.Errorf("error reading 'config': %w", err)
-		}
-	}
-
-	if raw, found := object["configSchema"]; found {
-		err = json.Unmarshal(raw, &t.ConfigSchema)
-		if err != nil {
-			return fmt.Errorf("error reading 'configSchema': %w", err)
-		}
-	}
-
-	if raw, found := object["deprecation"]; found {
-		err = json.Unmarshal(raw, &t.Deprecation)
-		if err != nil {
-			return fmt.Errorf("error reading 'deprecation': %w", err)
-		}
-	}
-
-	if raw, found := object["digest"]; found {
-		err = json.Unmarshal(raw, &t.Digest)
-		if err != nil {
-			return fmt.Errorf("error reading 'digest': %w", err)
-		}
-	}
-
-	if raw, found := object["readme"]; found {
-		err = json.Unmarshal(raw, &t.Readme)
-		if err != nil {
-			return fmt.Errorf("error reading 'readme': %w", err)
-		}
-	}
-
-	if raw, found := object["replaces"]; found {
-		err = json.Unmarshal(raw, &t.Replaces)
-		if err != nil {
-			return fmt.Errorf("error reading 'replaces': %w", err)
-		}
-	}
-
-	if raw, found := object["skipRange"]; found {
-		err = json.Unmarshal(raw, &t.SkipRange)
-		if err != nil {
-			return fmt.Errorf("error reading 'skipRange': %w", err)
-		}
-	}
-
-	if raw, found := object["skips"]; found {
-		err = json.Unmarshal(raw, &t.Skips)
-		if err != nil {
-			return fmt.Errorf("error reading 'skips': %w", err)
-		}
-	}
-
-	if raw, found := object["tag"]; found {
-		err = json.Unmarshal(raw, &t.Tag)
-		if err != nil {
-			return fmt.Errorf("error reading 'tag': %w", err)
-		}
-	}
-
-	if raw, found := object["version"]; found {
-		err = json.Unmarshal(raw, &t.Version)
-		if err != nil {
-			return fmt.Errorf("error reading 'version': %w", err)
-		}
-	}
-
-	return err
-}
