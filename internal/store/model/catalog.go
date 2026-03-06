@@ -154,6 +154,7 @@ type CatalogItem struct {
 	OrgID       uuid.UUID                          `gorm:"type:uuid;primaryKey"`
 	CatalogName string                             `gorm:"primaryKey" selector:"metadata.catalog"`
 	AppName     string                             `gorm:"primaryKey" selector:"metadata.name"`
+	Owner       *string                            `gorm:"index" selector:"metadata.owner"`
 	Spec        *JSONField[domain.CatalogItemSpec] `gorm:"type:jsonb"`
 	Labels      JSONMap[string, string]            `gorm:"type:jsonb" selector:"metadata.labels,hidden,private"`
 	Annotations JSONMap[string, string]            `gorm:"type:jsonb"`
@@ -214,6 +215,7 @@ func (ci *CatalogItem) ToApiResource() *domain.CatalogItem {
 		Metadata: domain.CatalogItemMeta{
 			Name:              lo.ToPtr(ci.AppName),
 			Catalog:           ci.CatalogName,
+			Owner:             ci.Owner,
 			CreationTimestamp: lo.ToPtr(ci.CreatedAt.UTC()),
 			Labels:            lo.ToPtr(util.EnsureMap(ci.Labels)),
 			Annotations:       lo.ToPtr(util.EnsureMap(ci.Annotations)),
@@ -249,6 +251,7 @@ func NewCatalogItemFromApiResource(orgId uuid.UUID, catalogName string, resource
 		OrgID:       orgId,
 		CatalogName: catalogName,
 		AppName:     *resource.Metadata.Name,
+		Owner:       resource.Metadata.Owner,
 		Spec:        MakeJSONField(resource.Spec),
 		Labels:      lo.FromPtrOr(resource.Metadata.Labels, make(map[string]string)),
 		Annotations: lo.FromPtrOr(resource.Metadata.Annotations, make(map[string]string)),

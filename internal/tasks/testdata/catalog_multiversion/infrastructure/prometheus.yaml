@@ -1,0 +1,40 @@
+# Quadlet with three versions across two channels.
+#
+# Cincinnati model -- linear replaces chain with channel gating:
+#   1.7.0 (stable) <- 1.8.0 (stable, candidate) <- 1.9.0 (candidate only)
+#
+# Upgrade paths:
+#   stable:    1.7.0 -> 1.8.0
+#   candidate: 1.7.0 -> 1.8.0 -> 1.9.0
+#
+# Version 1.9.0 is candidate-only (pre-release).  When promoted to stable,
+# a new commit adds "stable" to its channels list and ResourceSync re-syncs.
+apiVersion: flightctl.io/v1alpha1
+kind: CatalogItem
+metadata:
+  name: prometheus
+  catalog: infrastructure
+  labels:
+    category: monitoring
+spec:
+  type: quadlet
+  displayName: Prometheus Node Exporter
+  shortDescription: Hardware and OS metrics exporter
+  reference:
+    uri: quay.io/prometheus/node-exporter
+  versions:
+    - version: "1.7.0"
+      tag: v1.7.0
+      channels:
+        - stable
+    - version: "1.8.0"
+      tag: v1.8.0
+      channels:
+        - stable
+        - candidate
+      replaces: "1.7.0"
+    - version: "1.9.0"
+      tag: v1.9.0
+      channels:
+        - candidate
+      replaces: "1.8.0"

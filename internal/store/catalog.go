@@ -20,12 +20,14 @@ type Catalog interface {
 
 	Create(ctx context.Context, orgId uuid.UUID, catalog *domain.Catalog, callbackEvent EventCallback) (*domain.Catalog, error)
 	Update(ctx context.Context, orgId uuid.UUID, catalog *domain.Catalog, callbackEvent EventCallback) (*domain.Catalog, error)
-	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, catalog *domain.Catalog, callbackEvent EventCallback) (*domain.Catalog, bool, error)
+	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, catalog *domain.Catalog, fromAPI bool, callbackEvent EventCallback) (*domain.Catalog, bool, error)
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.Catalog, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*domain.CatalogList, error)
 	Delete(ctx context.Context, orgId uuid.UUID, name string, callback RemoveOwnerCallback, callbackEvent EventCallback) error
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.Catalog, eventCallback EventCallback) (*domain.Catalog, error)
 	Count(ctx context.Context, orgId uuid.UUID, listParams ListParams) (int64, error)
+	UnsetOwner(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, owner string) error
+	UnsetItemOwner(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, owner string) error
 
 	// CatalogItem operations
 	ListAllItems(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*domain.CatalogItemList, error)
@@ -128,8 +130,8 @@ func (s *CatalogStore) Update(ctx context.Context, orgId uuid.UUID, resource *do
 	return newCatalog, err
 }
 
-func (s *CatalogStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *domain.Catalog, eventCallback EventCallback) (*domain.Catalog, bool, error) {
-	newCatalog, oldCatalog, created, err := s.genericStore.CreateOrUpdate(ctx, orgId, resource, nil, true, nil)
+func (s *CatalogStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *domain.Catalog, fromAPI bool, eventCallback EventCallback) (*domain.Catalog, bool, error) {
+	newCatalog, oldCatalog, created, err := s.genericStore.CreateOrUpdate(ctx, orgId, resource, nil, fromAPI, nil)
 	s.eventCallbackCaller(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), oldCatalog, newCatalog, created, err)
 	return newCatalog, created, err
 }
@@ -428,11 +430,15 @@ func (s *CatalogStore) UpdateItem(ctx context.Context, orgId uuid.UUID, catalogN
 		return nil, err
 	}
 
-	if err := db.Model(&existingItem).Updates(map[string]interface{}{
+	updates := map[string]interface{}{
 		"spec":        modelItem.Spec,
 		"labels":      modelItem.Labels,
 		"annotations": modelItem.Annotations,
-	}).Error; err != nil {
+	}
+	if modelItem.Owner != nil {
+		updates["owner"] = modelItem.Owner
+	}
+	if err := db.Model(&existingItem).Updates(updates).Error; err != nil {
 		return nil, ErrorFromGormError(err)
 	}
 
@@ -488,4 +494,30 @@ func (s *CatalogStore) DeleteItem(ctx context.Context, orgId uuid.UUID, catalogN
 	}
 
 	return nil
+}
+
+func (s *CatalogStore) UnsetOwner(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, owner string) error {
+	db := s.getDB(ctx)
+	if tx != nil {
+		db = tx
+	}
+	catalogCondition := model.Catalog{
+		Resource: model.Resource{OrgID: orgId, Owner: &owner},
+	}
+	result := db.Model(catalogCondition).Where("org_id = ? AND owner = ?", orgId, owner).Updates(map[string]interface{}{
+		"owner":            nil,
+		"resource_version": gorm.Expr("resource_version + 1"),
+	})
+	return ErrorFromGormError(result.Error)
+}
+
+func (s *CatalogStore) UnsetItemOwner(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, owner string) error {
+	db := s.getDB(ctx)
+	if tx != nil {
+		db = tx
+	}
+	result := db.Model(&model.CatalogItem{}).Where("org_id = ? AND owner = ?", orgId, owner).Updates(map[string]interface{}{
+		"owner": nil,
+	})
+	return ErrorFromGormError(result.Error)
 }

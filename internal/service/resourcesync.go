@@ -7,6 +7,7 @@ import (
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/google/uuid"
+	"github.com/samber/lo"
 	"gorm.io/gorm"
 )
 
@@ -60,12 +61,28 @@ func (h *ServiceHandler) ReplaceResourceSync(ctx context.Context, orgId uuid.UUI
 		return nil, domain.StatusBadRequest("resource name specified in metadata does not match name in path")
 	}
 
+	currentObj, err := h.store.ResourceSync().Get(ctx, orgId, name)
+	if err == nil {
+		if rs.Spec.Type == nil {
+			rs.Spec.Type = lo.ToPtr(domain.ResourceSyncTypeFleet)
+		}
+		if errs := currentObj.ValidateUpdate(&rs); len(errs) > 0 {
+			return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
+		}
+	}
+
 	result, created, err := h.store.ResourceSync().CreateOrUpdate(ctx, orgId, &rs, h.callbackResourceSyncUpdated)
 	return result, StoreErrorToApiStatus(err, created, domain.ResourceSyncKind, &name)
 }
 
 func (h *ServiceHandler) DeleteResourceSync(ctx context.Context, orgId uuid.UUID, name string) domain.Status {
 	callback := func(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, owner string) error {
+		if err := h.store.Catalog().UnsetItemOwner(ctx, tx, orgId, owner); err != nil {
+			return err
+		}
+		if err := h.store.Catalog().UnsetOwner(ctx, tx, orgId, owner); err != nil {
+			return err
+		}
 		return h.store.Fleet().UnsetOwner(ctx, tx, orgId, owner)
 	}
 

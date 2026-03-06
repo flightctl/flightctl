@@ -1,0 +1,9 @@
+apiVersion: flightctl.io/v1alpha1
+kind: Catalog
+metadata:
+  name: platform-apps
+  labels:
+    team: platform
+spec:
+  displayName: Platform Apps
+  shortDescription: Core platform applications

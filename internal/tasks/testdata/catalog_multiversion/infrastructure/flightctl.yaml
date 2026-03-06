@@ -1,0 +1,34 @@
+# Helm chart with two released versions.
+#
+# This mirrors the versioning pattern from openshift-helm-charts -- but instead of
+# a directory per version (charts/flightctl/1.0.0/, charts/flightctl/1.0.2/),
+# the CatalogItem declares all versions in a single document.  The actual chart
+# content stays in the OCI registry; this file is metadata only.
+#
+# Cincinnati model:
+#   1.0.0 (stable, candidate) <- 1.0.2 replaces (stable, candidate)
+apiVersion: flightctl.io/v1alpha1
+kind: CatalogItem
+metadata:
+  name: flightctl
+  catalog: infrastructure
+  labels:
+    category: management
+spec:
+  type: helm
+  displayName: FlightCtl
+  shortDescription: Open source device management for edge computing
+  reference:
+    uri: quay.io/flightctl/charts/flightctl
+  versions:
+    - version: "1.0.0"
+      tag: v1.0.0
+      channels:
+        - stable
+        - candidate
+    - version: "1.0.2"
+      tag: v1.0.2
+      channels:
+        - stable
+        - candidate
+      replaces: "1.0.0"

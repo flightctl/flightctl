@@ -734,10 +734,24 @@ func (r ResourceSync) Validate() []error {
 
 // ValidateUpdate ensures immutable fields are unchanged for ResourceSync.
 func (rs *ResourceSync) ValidateUpdate(newObj *ResourceSync) []error {
-	return validateImmutableCoreFields(rs.Metadata.Name, newObj.Metadata.Name,
+	allErrs := validateImmutableCoreFields(rs.Metadata.Name, newObj.Metadata.Name,
 		rs.ApiVersion, newObj.ApiVersion,
 		rs.Kind, newObj.Kind,
 		rs.Status, newObj.Status)
+
+	normalizeType := func(t *ResourceSyncType) ResourceSyncType {
+		if t == nil {
+			return ResourceSyncTypeFleet
+		}
+		return *t
+	}
+	oldType := normalizeType(rs.Spec.Type)
+	newType := normalizeType(newObj.Spec.Type)
+	if oldType != newType {
+		allErrs = append(allErrs, fmt.Errorf("spec.type is immutable once set (was %q, got %q)", oldType, newType))
+	}
+
+	return allErrs
 }
 
 func (tv TemplateVersion) Validate() []error {

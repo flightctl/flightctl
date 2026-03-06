@@ -69,6 +69,9 @@ func (rs *ResourceSync) ToApiResource(opts ...APIResourceOption) (*domain.Resour
 	if rs.Spec != nil {
 		spec = rs.Spec.Data
 	}
+	if spec.Type == nil {
+		spec.Type = lo.ToPtr(domain.ResourceSyncTypeFleet)
+	}
 
 	status := domain.ResourceSyncStatus{Conditions: []domain.Condition{}}
 	if rs.Status != nil {

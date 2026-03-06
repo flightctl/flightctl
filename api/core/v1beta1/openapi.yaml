@@ -5905,6 +5905,8 @@ components:
       type: object
       description: ResourceSyncSpec describes the file(s) to sync from a repository.
       properties:
+        type:
+          $ref: '#/components/schemas/ResourceSyncType'
         repository:
           type: string
           description: The name of the repository resource to use as the sync source.
@@ -5918,6 +5920,16 @@ components:
       - repository
       - targetRevision
       - path
+    ResourceSyncType:
+      type: string
+      description: 'The type of resources this ResourceSync manages. Defaults to fleet if not specified.'
+      default: fleet
+      enum:
+        - fleet
+        - catalog
+      x-enum-varnames:
+        - ResourceSyncTypeFleet
+        - ResourceSyncTypeCatalog
     ResourceSyncStatus:
       type: object
       properties:

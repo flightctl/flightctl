@@ -437,6 +437,12 @@ const (
 	ResourceSyncCompleted ResourceSyncCompletedDetailsDetailType = "ResourceSyncCompleted"
 )
 
+// Defines values for ResourceSyncType.
+const (
+	ResourceSyncTypeCatalog ResourceSyncType = "catalog"
+	ResourceSyncTypeFleet   ResourceSyncType = "fleet"
+)
+
 // Defines values for ResourceUpdatedDetailsDetailType.
 const (
 	ResourceUpdated ResourceUpdatedDetailsDetailType = "ResourceUpdated"
@@ -2686,6 +2692,9 @@ type ResourceSyncSpec struct {
 
 	// TargetRevision The desired revision in the repository.
 	TargetRevision string `json:"targetRevision"`
+
+	// Type The type of resources this ResourceSync manages. Defaults to fleet if not specified.
+	Type *ResourceSyncType `json:"type,omitempty"`
 }
 
 // ResourceSyncStatus ResourceSyncStatus represents information about the status of a ResourceSync.
@@ -2699,6 +2708,9 @@ type ResourceSyncStatus struct {
 	// ObservedGeneration The last generation that was synced.
 	ObservedGeneration *int64 `json:"observedGeneration,omitempty"`
 }
+
+// ResourceSyncType The type of resources this ResourceSync manages. Defaults to fleet if not specified.
+type ResourceSyncType string
 
 // ResourceUpdatedDetails defines model for ResourceUpdatedDetails.
 type ResourceUpdatedDetails struct {
