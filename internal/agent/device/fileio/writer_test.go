@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -616,4 +617,19 @@ func TestWriterForUser(t *testing.T) {
 	err := w.WriteFile(filepath.Join(dir, "test.txt"), []byte("testing"), DefaultFilePermissions)
 	require.Error(t, err)
 	require.ErrorContains(t, err, "chown")
+}
+
+func TestIterPathElements(t *testing.T) {
+	require.Equal(t, []string{
+		"/",
+		"/a",
+		"/a/b",
+		"/a/b/c",
+	}, slices.Collect(iterPathElements("/a/b/c")))
+
+	require.Equal(t, []string{
+		"a",
+		"a/b",
+		"a/b/c",
+	}, slices.Collect(iterPathElements("a/b/c")))
 }
