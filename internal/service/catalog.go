@@ -52,8 +52,11 @@ func (h *ServiceHandler) GetCatalog(ctx context.Context, orgId uuid.UUID, name s
 
 func (h *ServiceHandler) ReplaceCatalog(ctx context.Context, orgId uuid.UUID, name string, catalog domain.Catalog) (*domain.Catalog, domain.Status) {
 	// don't overwrite fields that are managed by the service
-	catalog.Status = nil
-	NilOutManagedObjectMetaProperties(&catalog.Metadata)
+	isInternal := IsInternalRequest(ctx)
+	if !isInternal {
+		catalog.Status = nil
+		NilOutManagedObjectMetaProperties(&catalog.Metadata)
+	}
 	if errs := catalog.Validate(); len(errs) > 0 {
 		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
 	}
@@ -61,7 +64,7 @@ func (h *ServiceHandler) ReplaceCatalog(ctx context.Context, orgId uuid.UUID, na
 		return nil, domain.StatusBadRequest("resource name specified in metadata does not match name in path")
 	}
 
-	result, created, err := h.store.Catalog().CreateOrUpdate(ctx, orgId, &catalog, h.callbackCatalogUpdated)
+	result, created, err := h.store.Catalog().CreateOrUpdate(ctx, orgId, &catalog, !isInternal, h.callbackCatalogUpdated)
 	return result, StoreErrorToApiStatus(err, created, domain.CatalogKind, &name)
 }
 
@@ -207,7 +210,10 @@ func (h *ServiceHandler) CreateCatalogItem(ctx context.Context, orgId uuid.UUID,
 }
 
 func (h *ServiceHandler) ReplaceCatalogItem(ctx context.Context, orgId uuid.UUID, catalogName string, itemName string, item domain.CatalogItem) (*domain.CatalogItem, domain.Status) {
-	NilOutManagedCatalogItemMetaProperties(&item.Metadata)
+	isInternal := IsInternalRequest(ctx)
+	if !isInternal {
+		NilOutManagedCatalogItemMetaProperties(&item.Metadata)
+	}
 
 	if errs := item.Validate(); len(errs) > 0 {
 		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())

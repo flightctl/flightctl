@@ -3,10 +3,12 @@ package tasks_test
 import (
 	"context"
 	"fmt"
+	"net/http"
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
@@ -222,10 +224,10 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 				},
 			}
 
-			// Test the helper method
+			// Non-Fleet kinds are silently skipped -- returns empty slice, no error
 			fleets, err := resourceSync.ParseFleetsFromResources(resources, "test-resourcesync")
-			Expect(err).To(HaveOccurred())
-			Expect(fleets).To(BeNil())
+			Expect(err).ToNot(HaveOccurred())
+			Expect(fleets).To(BeEmpty())
 		})
 
 		It("should sync fleets successfully", func() {
@@ -980,6 +982,196 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 
 			_, hasAnotherUserAnnotation := (*updatedFleet.Metadata.Annotations)["another-user-annotation"]
 			Expect(hasAnotherUserAnnotation).To(BeFalse())
+		})
+	})
+
+	Context("ResourceSync Catalog Sync", func() {
+		It("should sync catalogs and catalog items successfully", func() {
+			createTestRepository("catalog-sync-repo", "https://github.com/test/repo")
+			rs := createTestResourceSync("catalog-sync-rs", "catalog-sync-repo", "/catalog")
+
+			catalogs := []*domain.Catalog{
+				{
+					ApiVersion: "flightctl.io/v1alpha1",
+					Kind:       domain.CatalogKind,
+					Metadata:   api.ObjectMeta{Name: lo.ToPtr("infrastructure")},
+					Spec: domain.CatalogSpec{
+						DisplayName: lo.ToPtr("Infrastructure"),
+					},
+				},
+			}
+
+			catalogsToRemove, err := resourceSync.SyncCatalogs(internalCtx, log, orgId, rs, catalogs, "catalog-sync-rs")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(catalogsToRemove).To(BeEmpty())
+
+			// Verify catalog was created with ownership
+			created, status := serviceHandler.GetCatalog(ctx, orgId, "infrastructure")
+			Expect(status.Code).To(Equal(int32(http.StatusOK)))
+			Expect(created.Metadata.Owner).ToNot(BeNil())
+			Expect(*created.Metadata.Owner).To(Equal("ResourceSync/catalog-sync-rs"))
+
+			// Sync catalog items
+			items := []*domain.CatalogItem{
+				{
+					ApiVersion: "flightctl.io/v1alpha1",
+					Kind:       domain.CatalogItemKind,
+					Metadata:   domain.CatalogItemMeta{Name: lo.ToPtr("caddy"), Catalog: "infrastructure"},
+					Spec: domain.CatalogItemSpec{
+						Type:      domain.CatalogItemTypeContainer,
+						Reference: domain.CatalogItemReference{Uri: "docker.io/library/caddy"},
+						Versions: []domain.CatalogItemVersion{
+							{Version: "2.7.6", Tag: lo.ToPtr("v2.7.6"), Channels: []string{"stable"}},
+						},
+					},
+				},
+				{
+					ApiVersion: "flightctl.io/v1alpha1",
+					Kind:       domain.CatalogItemKind,
+					Metadata:   domain.CatalogItemMeta{Name: lo.ToPtr("prometheus"), Catalog: "infrastructure"},
+					Spec: domain.CatalogItemSpec{
+						Type:      domain.CatalogItemTypeQuadlet,
+						Reference: domain.CatalogItemReference{Uri: "quay.io/prometheus/node-exporter"},
+						Versions: []domain.CatalogItemVersion{
+							{Version: "1.7.0", Tag: lo.ToPtr("v1.7.0"), Channels: []string{"stable"}},
+							{Version: "1.8.0", Tag: lo.ToPtr("v1.8.0"), Channels: []string{"stable", "candidate"}, Replaces: lo.ToPtr("1.7.0")},
+						},
+					},
+				},
+			}
+
+			itemsToRemove, err := resourceSync.SyncCatalogItems(internalCtx, log, orgId, rs, items, "catalog-sync-rs")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(itemsToRemove).To(BeEmpty())
+
+			// Verify items were created
+			caddy, status := serviceHandler.GetCatalogItem(ctx, orgId, "infrastructure", "caddy")
+			Expect(status.Code).To(Equal(int32(http.StatusOK)))
+			Expect(caddy.Metadata.Owner).ToNot(BeNil())
+			Expect(*caddy.Metadata.Owner).To(Equal("ResourceSync/catalog-sync-rs"))
+			Expect(caddy.Spec.Versions).To(HaveLen(1))
+
+			prom, status := serviceHandler.GetCatalogItem(ctx, orgId, "infrastructure", "prometheus")
+			Expect(status.Code).To(Equal(int32(http.StatusOK)))
+			Expect(prom.Spec.Versions).To(HaveLen(2))
+			Expect(*prom.Spec.Versions[1].Replaces).To(Equal("1.7.0"))
+		})
+
+		It("should set owner on catalogs and prevent manual modification", func() {
+			createTestRepository("catalog-owner-repo", "https://github.com/test/repo")
+			rs := createTestResourceSync("catalog-owner-rs", "catalog-owner-repo", "/catalog")
+
+			catalogs := []*domain.Catalog{
+				{
+					ApiVersion: "flightctl.io/v1alpha1",
+					Kind:       domain.CatalogKind,
+					Metadata:   api.ObjectMeta{Name: lo.ToPtr("owned-catalog")},
+					Spec: domain.CatalogSpec{
+						DisplayName: lo.ToPtr("Owned Catalog"),
+					},
+				},
+			}
+
+			_, err := resourceSync.SyncCatalogs(internalCtx, log, orgId, rs, catalogs, "catalog-owner-rs")
+			Expect(err).ToNot(HaveOccurred())
+
+			// Verify the catalog cannot be edited (spec update should fail due to ownership)
+			created, status := serviceHandler.GetCatalog(ctx, orgId, "owned-catalog")
+			Expect(status.Code).To(Equal(int32(http.StatusOK)))
+
+			updated := *created
+			updated.Spec.DisplayName = lo.ToPtr("Modified Name")
+			_, status = serviceHandler.ReplaceCatalog(ctx, orgId, "owned-catalog", updated)
+			Expect(status.Code).To(Equal(int32(http.StatusConflict)))
+			Expect(status.Message).To(ContainSubstring("owner"))
+		})
+
+		It("should detect catalog name conflicts across ResourceSyncs", func() {
+			// RS1 owns the catalog
+			createTestRepository("catalog-conflict-repo1", "https://github.com/test/repo1")
+			rs1 := createTestResourceSync("catalog-conflict-rs1", "catalog-conflict-repo1", "/catalog")
+
+			catalogs := []*domain.Catalog{
+				{
+					ApiVersion: "flightctl.io/v1alpha1",
+					Kind:       domain.CatalogKind,
+					Metadata:   api.ObjectMeta{Name: lo.ToPtr("contested-catalog")},
+					Spec:       domain.CatalogSpec{},
+				},
+			}
+
+			_, err := resourceSync.SyncCatalogs(internalCtx, log, orgId, rs1, catalogs, "catalog-conflict-rs1")
+			Expect(err).ToNot(HaveOccurred())
+
+			// RS2 tries to claim the same catalog name
+			createTestRepository("catalog-conflict-repo2", "https://github.com/test/repo2")
+			rs2 := createTestResourceSync("catalog-conflict-rs2", "catalog-conflict-repo2", "/catalog")
+
+			err = resourceSync.SyncFleets(internalCtx, log, orgId, rs2, nil, "catalog-conflict-rs2")
+			Expect(err).ToNot(HaveOccurred())
+
+			_, err = resourceSync.SyncCatalogs(internalCtx, log, orgId, rs2, catalogs, "catalog-conflict-rs2")
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("catalog name(s)"))
+		})
+
+		It("should detect stale catalog items on re-sync", func() {
+			createTestRepository("catalog-remove-repo", "https://github.com/test/repo")
+			rs := createTestResourceSync("catalog-remove-rs", "catalog-remove-repo", "/catalog")
+
+			// Initial sync with catalog + 2 items
+			catalogs := []*domain.Catalog{
+				{
+					ApiVersion: "flightctl.io/v1alpha1",
+					Kind:       domain.CatalogKind,
+					Metadata:   api.ObjectMeta{Name: lo.ToPtr("removable-catalog")},
+					Spec:       domain.CatalogSpec{},
+				},
+			}
+			_, err := resourceSync.SyncCatalogs(internalCtx, log, orgId, rs, catalogs, "catalog-remove-rs")
+			Expect(err).ToNot(HaveOccurred())
+
+			items := []*domain.CatalogItem{
+				{
+					ApiVersion: "flightctl.io/v1alpha1",
+					Kind:       domain.CatalogItemKind,
+					Metadata:   domain.CatalogItemMeta{Name: lo.ToPtr("item-a"), Catalog: "removable-catalog"},
+					Spec: domain.CatalogItemSpec{
+						Type:      domain.CatalogItemTypeContainer,
+						Reference: domain.CatalogItemReference{Uri: "quay.io/test/a"},
+						Versions:  []domain.CatalogItemVersion{{Version: "1.0.0", Tag: lo.ToPtr("v1.0.0"), Channels: []string{"stable"}}},
+					},
+				},
+				{
+					ApiVersion: "flightctl.io/v1alpha1",
+					Kind:       domain.CatalogItemKind,
+					Metadata:   domain.CatalogItemMeta{Name: lo.ToPtr("item-b"), Catalog: "removable-catalog"},
+					Spec: domain.CatalogItemSpec{
+						Type:      domain.CatalogItemTypeContainer,
+						Reference: domain.CatalogItemReference{Uri: "quay.io/test/b"},
+						Versions:  []domain.CatalogItemVersion{{Version: "1.0.0", Tag: lo.ToPtr("v1.0.0"), Channels: []string{"stable"}}},
+					},
+				},
+			}
+			_, err = resourceSync.SyncCatalogItems(internalCtx, log, orgId, rs, items, "catalog-remove-rs")
+			Expect(err).ToNot(HaveOccurred())
+
+			// Second sync with only item-a -- item-b should be stale
+			itemsToRemove, err := resourceSync.SyncCatalogItems(internalCtx, log, orgId, rs, items[:1], "catalog-remove-rs")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(itemsToRemove).To(Equal([]string{"removable-catalog/item-b"}))
+
+			// Delete stale item through service (mirrors what run() does with the toRemove list)
+			status := serviceHandler.DeleteCatalogItem(internalCtx, orgId, "removable-catalog", "item-b")
+			Expect(status.Code).To(Equal(int32(http.StatusOK)))
+
+			// Verify item-b is gone
+			_, status = serviceHandler.GetCatalogItem(ctx, orgId, "removable-catalog", "item-b")
+			Expect(status.Code).To(Equal(int32(http.StatusNotFound)))
+
+			// item-a still exists
+			_, status = serviceHandler.GetCatalogItem(ctx, orgId, "removable-catalog", "item-a")
+			Expect(status.Code).To(Equal(int32(http.StatusOK)))
 		})
 	})
 })

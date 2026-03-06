@@ -1,0 +1,9 @@
+apiVersion: flightctl.io/v1alpha1
+kind: Catalog
+metadata:
+  name: infrastructure
+  labels:
+    team: platform
+spec:
+  displayName: Infrastructure
+  shortDescription: Core infrastructure applications for edge devices
