@@ -20,6 +20,7 @@ func (c Catalog) Validate() []error {
 	allErrs = append(allErrs, validation.ValidateResourceName(c.Metadata.Name)...)
 	allErrs = append(allErrs, validation.ValidateLabels(c.Metadata.Labels)...)
 	allErrs = append(allErrs, validation.ValidateAnnotations(c.Metadata.Annotations)...)
+
 	return allErrs
 }
 
@@ -44,8 +45,6 @@ func (ci CatalogItem) Validate() []error {
 		allErrs = append(allErrs, fmt.Errorf("spec.type must be one of: %s", validCatalogItemTypes()))
 	}
 
-	allErrs = append(allErrs, validateCatalogItemReference(&ci.Spec.Reference)...)
-
 	// Resolve category (defaults to application)
 	category := CatalogItemCategoryApplication
 	if ci.Spec.Category != nil && *ci.Spec.Category != "" {
@@ -62,12 +61,18 @@ func (ci CatalogItem) Validate() []error {
 		}
 	}
 
+	allErrs = append(allErrs, validateArtifacts(ci.Spec.Artifacts, "spec")...)
+
 	if len(ci.Spec.Versions) == 0 {
 		allErrs = append(allErrs, errors.New("spec.versions must have at least one entry"))
 	}
+	artifactTypes := make(map[string]struct{})
+	for _, a := range ci.Spec.Artifacts {
+		artifactTypes[string(a.Type)] = struct{}{}
+	}
 	seenVersions := make(map[string]struct{})
 	for i, version := range ci.Spec.Versions {
-		allErrs = append(allErrs, validateCatalogItemVersion(version, i, seenVersions, category, ci.Spec.Type)...)
+		allErrs = append(allErrs, validateCatalogItemVersion(version, i, seenVersions, category, ci.Spec.Type, artifactTypes)...)
 	}
 
 	allErrs = append(allErrs, validateReplacesGraph(ci.Spec.Versions)...)
@@ -81,58 +86,45 @@ func (ci CatalogItem) Validate() []error {
 		allErrs = append(allErrs, validateCatalogItemDeprecation(ci.Spec.Deprecation, "spec.deprecation")...)
 	}
 
-	if ci.Spec.Visibility != nil {
-		if *ci.Spec.Visibility != CatalogItemVisibilityDraft && *ci.Spec.Visibility != CatalogItemVisibilityPublished {
-			allErrs = append(allErrs, fmt.Errorf("spec.visibility must be %q or %q", CatalogItemVisibilityDraft, CatalogItemVisibilityPublished))
-		}
-	}
-
 	return allErrs
 }
 
-func validateCatalogItemReference(ref *CatalogItemReference) []error {
+func validateArtifacts(artifacts []CatalogItemArtifact, pathPrefix string) []error {
 	allErrs := []error{}
 
-	if ref == nil {
-		allErrs = append(allErrs, errors.New("spec.reference is required"))
+	if len(artifacts) == 0 {
+		allErrs = append(allErrs, fmt.Errorf("%s.artifacts must contain at least one entry", pathPrefix))
 		return allErrs
 	}
 
-	if ref.Uri == "" {
-		allErrs = append(allErrs, errors.New("spec.reference.uri is required"))
-	} else {
-		allErrs = append(allErrs, validateArtifactURI(ref.Uri, "spec.reference.uri")...)
+	seenTypes := make(map[CatalogItemArtifactType]struct{})
+	primaryCount := 0
+	for i, artifact := range artifacts {
+		artPath := fmt.Sprintf("%s.artifacts[%d]", pathPrefix, i)
+		if artifact.Type == "" {
+			allErrs = append(allErrs, fmt.Errorf("%s.type is required", artPath))
+		} else if !isValidCatalogItemArtifactType(artifact.Type) {
+			allErrs = append(allErrs, fmt.Errorf("%s.type: invalid value %q", artPath, artifact.Type))
+		} else {
+			if _, exists := seenTypes[artifact.Type]; exists {
+				allErrs = append(allErrs, fmt.Errorf("%s.type: duplicate type %q", artPath, artifact.Type))
+			}
+			seenTypes[artifact.Type] = struct{}{}
+		}
+		if artifact.Uri == "" {
+			allErrs = append(allErrs, fmt.Errorf("%s.uri is required", artPath))
+		} else {
+			allErrs = append(allErrs, validateArtifactURI(artifact.Uri, artPath+".uri")...)
+		}
+		if artifact.Primary != nil && *artifact.Primary {
+			primaryCount++
+		}
 	}
 
-	if ref.Artifacts != nil {
-		artifactCount := len(*ref.Artifacts)
-		seenTypes := make(map[CatalogItemArtifactType]struct{})
-		for i, artifact := range *ref.Artifacts {
-			// type is required if more than 1 artifact, defaults to "container" if only 1
-			artifactType := CatalogItemArtifactType("")
-			if artifact.Type != nil {
-				artifactType = *artifact.Type
-			}
-			if artifactType == "" {
-				if artifactCount > 1 {
-					allErrs = append(allErrs, fmt.Errorf("spec.reference.artifacts[%d].type is required when multiple artifacts exist", i))
-				}
-				artifactType = CatalogItemArtifactTypeContainer // default for single artifact
-			} else if !isValidCatalogItemArtifactType(artifactType) {
-				allErrs = append(allErrs, fmt.Errorf("spec.reference.artifacts[%d].type: invalid value %q", i, artifactType))
-			}
-			if artifactType != "" {
-				if _, exists := seenTypes[artifactType]; exists {
-					allErrs = append(allErrs, fmt.Errorf("spec.reference.artifacts[%d].type: duplicate type %q", i, artifactType))
-				}
-				seenTypes[artifactType] = struct{}{}
-			}
-			if artifact.Uri == "" {
-				allErrs = append(allErrs, fmt.Errorf("spec.reference.artifacts[%d].uri is required", i))
-			} else {
-				allErrs = append(allErrs, validateArtifactURI(artifact.Uri, fmt.Sprintf("spec.reference.artifacts[%d].uri", i))...)
-			}
-		}
+	if len(artifacts) == 1 {
+		// Single artifact is implicitly primary
+	} else if primaryCount != 1 {
+		allErrs = append(allErrs, fmt.Errorf("%s.artifacts: exactly one artifact must be marked as primary when multiple artifacts exist (found %d)", pathPrefix, primaryCount))
 	}
 
 	return allErrs
@@ -183,7 +175,7 @@ func validateArtifactURI(uri string, path string) []error {
 	return allErrs
 }
 
-func validateCatalogItemVersion(version CatalogItemVersion, index int, seenVersions map[string]struct{}, category CatalogItemCategory, itemType CatalogItemType) []error {
+func validateCatalogItemVersion(version CatalogItemVersion, index int, seenVersions map[string]struct{}, category CatalogItemCategory, itemType CatalogItemType, artifactTypes map[string]struct{}) []error {
 	allErrs := []error{}
 	pathPrefix := fmt.Sprintf("spec.versions[%d]", index)
 
@@ -200,17 +192,22 @@ func validateCatalogItemVersion(version CatalogItemVersion, index int, seenVersi
 		seenVersions[version.Version] = struct{}{}
 	}
 
-	// exactly one of tag or digest must be specified
+	// exactly one of tag or digests must be specified
 	hasTag := version.Tag != nil && *version.Tag != ""
-	hasDigest := version.Digest != nil && *version.Digest != ""
-	if !hasTag && !hasDigest {
-		allErrs = append(allErrs, fmt.Errorf("%s: exactly one of tag or digest must be specified", pathPrefix))
-	} else if hasTag && hasDigest {
-		allErrs = append(allErrs, fmt.Errorf("%s: tag and digest are mutually exclusive", pathPrefix))
+	hasDigests := version.Digests != nil && len(*version.Digests) > 0
+	if !hasTag && !hasDigests {
+		allErrs = append(allErrs, fmt.Errorf("%s: exactly one of tag or digests must be specified", pathPrefix))
+	} else if hasTag && hasDigests {
+		allErrs = append(allErrs, fmt.Errorf("%s: tag and digests are mutually exclusive", pathPrefix))
 	}
 
-	if hasDigest {
-		allErrs = append(allErrs, validateOCIDigest(*version.Digest, pathPrefix+".digest")...)
+	if hasDigests {
+		for key, digest := range *version.Digests {
+			if _, ok := artifactTypes[key]; !ok {
+				allErrs = append(allErrs, fmt.Errorf("%s.digests[%s]: key does not match any artifact type in spec.artifacts", pathPrefix, key))
+			}
+			allErrs = append(allErrs, validateOCIDigest(digest, fmt.Sprintf("%s.digests[%s]", pathPrefix, key))...)
+		}
 	}
 
 	if len(version.Channels) == 0 {
