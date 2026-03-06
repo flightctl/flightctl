@@ -84,7 +84,7 @@ func (h *ServiceHandler) PatchCatalog(ctx context.Context, orgId uuid.UUID, name
 	}
 
 	newObj := &domain.Catalog{}
-	err = ApplyJSONPatch(ctx, currentObj, newObj, patch, "/catalogs/"+name)
+	err = ApplyJSONPatch(ctx, currentObj, newObj, patch, "/catalogs/"+name, domain.GetV1Alpha1Swagger)
 	if err != nil {
 		return nil, domain.StatusBadRequest(err.Error())
 	}
@@ -125,7 +125,7 @@ func (h *ServiceHandler) PatchCatalogStatus(ctx context.Context, orgId uuid.UUID
 	}
 
 	newObj := &domain.Catalog{}
-	err = ApplyJSONPatch(ctx, currentObj, newObj, patch, "/catalogs/"+name+"/status")
+	err = ApplyJSONPatch(ctx, currentObj, newObj, patch, "/catalogs/"+name+"/status", domain.GetV1Alpha1Swagger)
 	if err != nil {
 		return nil, domain.StatusBadRequest(err.Error())
 	}
@@ -221,6 +221,39 @@ func (h *ServiceHandler) ReplaceCatalogItem(ctx context.Context, orgId uuid.UUID
 		return nil, domain.StatusResourceNotFound(domain.CatalogKind, catalogName)
 	}
 	return result, StoreErrorToApiStatus(err, created, domain.CatalogItemKind, &itemName)
+}
+
+func (h *ServiceHandler) PatchCatalogItem(ctx context.Context, orgId uuid.UUID, catalogName string, itemName string, patch domain.PatchRequest) (*domain.CatalogItem, domain.Status) {
+	currentObj, err := h.store.Catalog().GetItem(ctx, orgId, catalogName, itemName)
+	if err != nil {
+		if errors.Is(err, flterrors.ErrParentResourceNotFound) {
+			return nil, domain.StatusResourceNotFound(domain.CatalogKind, catalogName)
+		}
+		return nil, StoreErrorToApiStatus(err, false, domain.CatalogItemKind, &itemName)
+	}
+
+	newObj := &domain.CatalogItem{}
+	err = ApplyJSONPatch(ctx, currentObj, newObj, patch, "/catalogs/"+catalogName+"/items/"+itemName, domain.GetV1Alpha1Swagger)
+	if err != nil {
+		return nil, domain.StatusBadRequest(err.Error())
+	}
+
+	if errs := newObj.Validate(); len(errs) > 0 {
+		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
+	}
+
+	if errs := currentObj.ValidateUpdate(newObj); len(errs) > 0 {
+		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
+	}
+
+	NilOutManagedCatalogItemMetaProperties(&newObj.Metadata)
+	newObj.Metadata.ResourceVersion = nil
+
+	result, err := h.store.Catalog().UpdateItem(ctx, orgId, catalogName, newObj)
+	if errors.Is(err, flterrors.ErrParentResourceNotFound) {
+		return nil, domain.StatusResourceNotFound(domain.CatalogKind, catalogName)
+	}
+	return result, StoreErrorToApiStatus(err, false, domain.CatalogItemKind, &itemName)
 }
 
 func (h *ServiceHandler) DeleteCatalogItem(ctx context.Context, orgId uuid.UUID, catalogName string, itemName string) domain.Status {

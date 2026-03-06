@@ -90,6 +90,18 @@ func (ci CatalogItem) Validate() []error {
 	return allErrs
 }
 
+// ValidateUpdate ensures immutable fields are unchanged for CatalogItem.
+func (c *CatalogItem) ValidateUpdate(newObj *CatalogItem) []error {
+	allErrs := validateImmutableCoreFields(c.Metadata.Name, newObj.Metadata.Name,
+		c.ApiVersion, newObj.ApiVersion,
+		c.Kind, newObj.Kind,
+		nil, nil)
+	if c.Metadata.Catalog != newObj.Metadata.Catalog {
+		allErrs = append(allErrs, errors.New("metadata.catalog is immutable"))
+	}
+	return allErrs
+}
+
 func validateCatalogItemReference(ref *CatalogItemReference) []error {
 	allErrs := []error{}
 
