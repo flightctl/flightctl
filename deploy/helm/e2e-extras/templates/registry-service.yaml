@@ -14,5 +14,11 @@ spec:
       {{ if .Values.global.nodePorts.registry }}
       nodePort: {{ .Values.global.nodePorts.registry }}
       {{ end }}
+    - name: "registry-auth"
+      port: 5002
+      targetPort: 5002
+      {{ if .Values.global.nodePorts.privateRegistry }}
+      nodePort: {{ .Values.global.nodePorts.privateRegistry }}
+      {{ end }}
   selector:
     flightctl.service: e2e-container-registry

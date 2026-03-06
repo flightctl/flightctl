@@ -1,0 +1,11 @@
+[Unit]
+Description=Primary application container
+
+[Container]
+Image=quay.io/flightctl-tests/alpine:v1
+Pod=app.pod
+Volume=model-data:/mnt/model:ro
+Exec=sh -c "echo 'Primary container started.' && echo 'LOG_MESSAGE:' $LOG_MESSAGE && echo 'Model data:' && cat /mnt/model/model.txt && sleep infinity"
+
+[Install]
+WantedBy=default.target

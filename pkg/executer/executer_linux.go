@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"syscall"
@@ -36,6 +37,8 @@ func (e *commonExecuter) CommandContext(ctx context.Context, command string, arg
 			cmd.Env = append(cmd.Env, "HOME="+e.homeDir)
 		}
 
+		// Set XDG_RUNTIME_DIR so that applications that depend on it will work properly.
+		cmd.Env = append(cmd.Env, fmt.Sprintf("XDG_RUNTIME_DIR=/run/user/%d", e.uid))
 		cmd.SysProcAttr.Credential = &syscall.Credential{
 			Uid: uint32(e.uid), //nolint:gosec
 			Gid: uint32(e.gid), //nolint:gosec

@@ -22,6 +22,7 @@ spec:
         # this triggers Upgrade "flightctl-e2e-extras" failed: failed to create patch: unable to find api field in struct ObjectMeta for the json field "annotation"
     spec:
       containers:
+        # Registry - public access on port 5000
         - name: container-reg
           image: {{ .Values.registry.image }}
           imagePullPolicy: IfNotPresent
@@ -37,8 +38,34 @@ spec:
               value: /certs/registry.crt
             - name: REGISTRY_HTTP_TLS_KEY
               value: /certs/registry.key
+        # Nginx - authenticated access on port 5002, proxies to registry
+        - name: nginx
+          image: {{ .Values.registry.nginx.image }}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 5002
+              protocol: TCP
+          volumeMounts:
+            - name: nginx-config
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+            - name: certs
+              mountPath: /certs
+              readOnly: true
+            - name: auth
+              mountPath: /auth
+              readOnly: true
       volumes:
         - name: certs
           secret:
             secretName: e2e-registry-keys
+        - name: nginx-config
+          configMap:
+            name: e2e-registry-nginx-config
+        - name: auth
+          secret:
+            secretName: e2e-registry-auth
+            items:
+              - key: htpasswd
+                path: htpasswd
       restartPolicy: Always

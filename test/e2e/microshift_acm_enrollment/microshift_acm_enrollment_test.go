@@ -5,7 +5,6 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-	"time"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/test/harness/e2e"
@@ -142,13 +141,12 @@ var _ = Describe("Microshift cluster ACM enrollment tests", func() {
 				Expect(stdout.String()).To(ContainSubstring(readyMsg))
 
 				By("Wait for the kubeconfig to be in place")
-				kubeconfigPath := "/var/lib/microshift/resources/kubeadmin/kubeconfig"
-				stdout, err = harness.WaitForFileInDevice(kubeconfigPath, util.TIMEOUT_5M, util.SHORT_POLLING)
+				stdout, err = harness.WaitForFileInDevice(e2e.MicroshiftKubeconfigPath, util.TIMEOUT_5M, util.SHORT_POLLING)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(stdout.String()).To(ContainSubstring(readyMsg))
 
 				By("Wait for microshift cluster pods to become ready")
-				err = waitForMicroshiftReady(harness, kubeconfigPath)
+				err = harness.WaitForMicroshiftReady(e2e.MicroshiftKubeconfigPath)
 				Expect(err).ToNot(HaveOccurred())
 
 				By("Create the acm-registration fleet")
@@ -200,7 +198,7 @@ var _ = Describe("Microshift cluster ACM enrollment tests", func() {
 					"sudo", "oc", "wait",
 					"--for=condition=Ready", "pods",
 					"--all", "-A", "--timeout=300s",
-					fmt.Sprintf("--kubeconfig=%s", kubeconfigPath),
+					fmt.Sprintf("--kubeconfig=%s", e2e.MicroshiftKubeconfigPath),
 				}
 				_, err = harness.VM.RunSSH(cmd, nil)
 				Expect(err).ToNot(HaveOccurred())
@@ -321,28 +319,4 @@ func getAcmNamespace() (string, error) {
 	GinkgoWriter.Printf("This is the Acm namespace: %s\n", outputClean)
 
 	return outputClean, nil
-}
-
-func waitForMicroshiftReady(harness *e2e.Harness, kubeconfigPath string) error {
-	timeout := util.DURATION_TIMEOUT
-	interval := 10 * time.Second
-	start := time.Now()
-	var err error
-
-	for time.Since(start) < timeout {
-		cmd := []string{
-			"sudo", "oc", "wait",
-			"--for=condition=Ready", "pods",
-			"--all", "-A", "--timeout=300s",
-			fmt.Sprintf("--kubeconfig=%s", kubeconfigPath),
-		}
-
-		_, err = harness.VM.RunSSH(cmd, nil)
-		if err == nil {
-			break // success
-		}
-		time.Sleep(interval)
-	}
-
-	return err
 }

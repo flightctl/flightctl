@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Inject agent files into a qcow2 image using qemu-nbd.
 # It resolves the active OSTree deployment etc so files appear at guest /etc.
-# Optionally installs a registry CA for podman/skopeo.
+# Optionally installs a registry CA for all TLS clients (podman, helm, etc.).
 #
 # Env or flags:
 #   QCOW          - path to qcow2 (default: bin/output/qcow2/disk.qcow2)
@@ -158,18 +158,48 @@ copy_into() {
   sudo ls -l "$base/flightctl/certs" || true
 }
 
-# Inject registry CA into containers trust for podman and skopeo
+# Install the E2E registry CA into the system trust anchors.
+# This location persists across bootc OS updates via 3-way merge.
+#
+# All TLS clients (podman, skopeo, helm, curl, etc.) use the system CA bundle
+# at /etc/pki/tls/certs/ca-bundle.crt. This bundle is regenerated from anchors
+# only when update-ca-trust runs. Since we're injecting into a disk image (not
+# a running system), we install a oneshot service to run update-ca-trust on boot
+# before networking starts. This ensures the CA is trusted for all tools without
+# needing per-tool drop-in configurations.
 inject_registry_ca() {
   local base="$1"
-  local target_dir="$base/containers/certs.d/$REG_TLS_HOSTPORT"
-  if [[ -f "$E2E_CA" ]]; then
-    log "Installing E2E CA to $target_dir/ca.crt"
-    sudo install -d "$target_dir"
-    sudo install -m 0644 "$E2E_CA" "$target_dir/ca.crt"
-    sudo chown -R root:root "$base/containers"
-  else
-    log "E2E CA not found at $E2E_CA - skipping registry CA injection"
+
+  if [[ ! -f "$E2E_CA" ]]; then
+    log "E2E CA not found at $E2E_CA - skipping"
+    return
   fi
+
+  local anchors_dir="$base/pki/ca-trust/source/anchors"
+  log "Installing E2E CA to $anchors_dir/"
+  sudo install -d "$anchors_dir"
+  sudo install -m 0644 "$E2E_CA" "$anchors_dir/flightctl-e2e-registry.crt"
+
+  local systemd_dir="$base/systemd/system"
+  sudo install -d "$systemd_dir" "$systemd_dir/multi-user.target.wants"
+  sudo tee "$systemd_dir/flightctl-update-ca-trust.service" >/dev/null <<'UNIT'
+[Unit]
+Description=Update CA trust for flightctl registry
+ConditionPathExists=/etc/pki/ca-trust/source/anchors/flightctl-e2e-registry.crt
+DefaultDependencies=no
+Before=network-pre.target flightctl-agent.service
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/update-ca-trust
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+  sudo ln -sf "/etc/systemd/system/flightctl-update-ca-trust.service" \
+    "$systemd_dir/multi-user.target.wants/flightctl-update-ca-trust.service"
 }
 
 write_registry_remap() {
@@ -177,12 +207,20 @@ write_registry_remap() {
   local config_dir="$base/containers/registries.conf.d"
   local remap_file="$config_dir/flightctl-remap.conf"
   local dest="${REG_TLS_HOSTPORT}/${SOURCE_REPO_PATH}"
+  # Private registry is on port 5002 (same host, different port)
+  local private_host="${REG_TLS_HOSTPORT%:*}"
+  local private_dest="${private_host}:5002/${SOURCE_REPO_PATH}"
   log "Configuring registry remap $remap_file ($SOURCE_REPO -> $dest)"
+  log "Configuring registry remap $remap_file (${SOURCE_REPO}-private -> $private_dest)"
   sudo install -d "$config_dir"
   sudo tee "$remap_file" >/dev/null <<EOF
 [[registry]]
 prefix = "${SOURCE_REPO}"
 location = "${dest}"
+
+[[registry]]
+prefix = "${SOURCE_REPO}-private"
+location = "${private_dest}"
 EOF
   sudo chown root:root "$remap_file"
 }

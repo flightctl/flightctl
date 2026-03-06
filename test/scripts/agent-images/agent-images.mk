@@ -30,12 +30,14 @@ push-e2e-agent-images: e2e-agent-images
 		echo "Agent bundle not found at $(AGENT_BUNDLE). Run 'make e2e-agent-images' first."; \
 		exit 1; \
 	fi
-	$(ROOT_DIR)/test/scripts/agent-images/scripts/upload-images.sh "$(AGENT_BUNDLE)"
 	@if [ ! -f "$(APP_BUNDLE)" ]; then \
 		echo "App bundle not found at $(APP_BUNDLE). Run 'make e2e-agent-images' first."; \
 		exit 1; \
 	fi
+	$(ROOT_DIR)/test/scripts/agent-images/scripts/upload-images.sh "$(AGENT_BUNDLE)"
 	$(ROOT_DIR)/test/scripts/agent-images/scripts/upload-images.sh "$(APP_BUNDLE)"
+	$(ROOT_DIR)/test/scripts/agent-images/scripts/upload-charts.sh
+	$(ROOT_DIR)/test/scripts/agent-images/scripts/upload-quadlets.sh
 
 bin/.e2e-agent-certs:
 	./test/scripts/agent-images/prepare_agent_config.sh

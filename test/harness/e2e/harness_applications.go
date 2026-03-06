@@ -194,6 +194,27 @@ func (h *Harness) WaitForNoApplications(deviceId string) {
 	h.WaitForApplicationsCount(deviceId, 0)
 }
 
+// WaitForApplicationReadyCount waits until an application reports the expected ready/total pod
+// count and the applications summary reflects the expected status, verified simultaneously.
+func (h *Harness) WaitForApplicationReadyCount(deviceId, appName, expectedReady string, expectedSummary v1beta1.ApplicationsSummaryStatusType) {
+	GinkgoWriter.Printf("Waiting for application %s to report %s ready pods with %s summary\n", appName, expectedReady, expectedSummary)
+	h.WaitForDeviceContents(deviceId, fmt.Sprintf("app %s ready=%s summary=%s", appName, expectedReady, expectedSummary),
+		func(device *v1beta1.Device) bool {
+			if device.Status == nil {
+				return false
+			}
+			if device.Status.ApplicationsSummary.Status != expectedSummary {
+				return false
+			}
+			for _, app := range device.Status.Applications {
+				if app.Name == appName && app.Ready == expectedReady {
+					return true
+				}
+			}
+			return false
+		}, TIMEOUT)
+}
+
 // VerifyContainerRunning checks that podman shows containers running with the given image substring
 func (h *Harness) VerifyContainerRunning(imageSubstring string) {
 	Eventually(func() error {
@@ -302,10 +323,60 @@ func (h *Harness) UpdateDeviceAndWaitForVersion(deviceID string, updateFunc func
 	return nil
 }
 
+// UpdateDeviceAndWaitForFailure updates a device and waits for the update to fail with an error.
+// If expectedMessageSubstrings are provided, it verifies that the error message contains at least one of them.
+func (h *Harness) UpdateDeviceAndWaitForFailure(deviceID string, updateFunc func(device *v1beta1.Device), expectedMessageSubstrings ...string) error {
+	err := h.UpdateDeviceWithRetries(deviceID, updateFunc)
+	if err != nil {
+		return fmt.Errorf("failed to update device: %w", err)
+	}
+
+	description := "update should fail with error"
+	if len(expectedMessageSubstrings) > 0 {
+		description = fmt.Sprintf("update should fail with error containing one of: %v", expectedMessageSubstrings)
+	}
+
+	h.WaitForDeviceContents(deviceID, description,
+		func(device *v1beta1.Device) bool {
+			if device == nil || device.Status == nil {
+				return false
+			}
+			if !ConditionExists(device, v1beta1.ConditionTypeDeviceUpdating,
+				v1beta1.ConditionStatusFalse, string(v1beta1.UpdateStateError)) {
+				return false
+			}
+			if len(expectedMessageSubstrings) == 0 {
+				return true
+			}
+			cond := v1beta1.FindStatusCondition(device.Status.Conditions, v1beta1.ConditionTypeDeviceUpdating)
+			if cond == nil {
+				return false
+			}
+			for _, substring := range expectedMessageSubstrings {
+				if strings.Contains(cond.Message, substring) {
+					return true
+				}
+			}
+			return false
+		}, TIMEOUT)
+
+	h.WaitForDeviceContents(deviceID, "device should be out of date but online after failed update",
+		func(device *v1beta1.Device) bool {
+			if device == nil || device.Status == nil {
+				return false
+			}
+			return device.Status.Updated.Status == v1beta1.DeviceUpdatedStatusOutOfDate &&
+				device.Status.Summary.Status == v1beta1.DeviceSummaryStatusOnline
+		}, TIMEOUT)
+
+	return nil
+}
+
 // NewContainerApplicationSpec creates a ContainerApplication spec with the given parameters
 func NewContainerApplicationSpec(
 	name string,
 	image string,
+	runAs string,
 	ports []v1beta1.ApplicationPort,
 	cpu, memory *string,
 	volumes *[]v1beta1.ApplicationVolume,
@@ -324,6 +395,7 @@ func NewContainerApplicationSpec(
 		Name:      lo.ToPtr(name),
 		AppType:   v1beta1.AppTypeContainer,
 		Image:     image,
+		RunAs:     v1beta1.Username(runAs),
 		Ports:     &ports,
 		Resources: resources,
 		Volumes:   volumes,
@@ -347,6 +419,71 @@ func NewMountVolume(name, mountPath string) (v1beta1.ApplicationVolume, error) {
 
 	err := volume.FromMountVolumeProviderSpec(mountVolumeProvider)
 	return volume, err
+}
+
+// NewHelmApplicationSpec creates a HelmApplication spec with optional values files.
+func NewHelmApplicationSpec(name, image, namespace string, valuesFiles []string) (v1beta1.ApplicationProviderSpec, error) {
+	helmApp := v1beta1.HelmApplication{
+		AppType:   v1beta1.AppTypeHelm,
+		Name:      lo.ToPtr(name),
+		Image:     image,
+		Namespace: lo.ToPtr(namespace),
+	}
+	if len(valuesFiles) > 0 {
+		helmApp.ValuesFiles = &valuesFiles
+	}
+	var appSpec v1beta1.ApplicationProviderSpec
+	err := appSpec.FromHelmApplication(helmApp)
+	return appSpec, err
+}
+
+// NewHelmApplicationSpecWithValues creates a HelmApplication spec with inline values.
+func NewHelmApplicationSpecWithValues(name, image, namespace string, values map[string]interface{}) (v1beta1.ApplicationProviderSpec, error) {
+	helmApp := v1beta1.HelmApplication{
+		AppType:   v1beta1.AppTypeHelm,
+		Name:      lo.ToPtr(name),
+		Image:     image,
+		Namespace: lo.ToPtr(namespace),
+		Values:    &values,
+	}
+	var appSpec v1beta1.ApplicationProviderSpec
+	err := appSpec.FromHelmApplication(helmApp)
+	return appSpec, err
+}
+
+// NewQuadletApplicationSpec creates a QuadletApplication spec with image provider.
+func NewQuadletApplicationSpec(name, image, runAs string, envVars map[string]string, volumes ...v1beta1.ApplicationVolume) (v1beta1.ApplicationProviderSpec, error) {
+	imageSpec := v1beta1.ImageApplicationProviderSpec{
+		Image: image,
+	}
+	quadletApp := v1beta1.QuadletApplication{
+		AppType: v1beta1.AppTypeQuadlet,
+		Name:    lo.ToPtr(name),
+		RunAs:   v1beta1.Username(runAs),
+	}
+	if len(envVars) > 0 {
+		quadletApp.EnvVars = &envVars
+	}
+	if len(volumes) > 0 {
+		quadletApp.Volumes = &volumes
+	}
+	if err := quadletApp.FromImageApplicationProviderSpec(imageSpec); err != nil {
+		return v1beta1.ApplicationProviderSpec{}, err
+	}
+	var appSpec v1beta1.ApplicationProviderSpec
+	err := appSpec.FromQuadletApplication(quadletApp)
+	return appSpec, err
+}
+
+// NewInlineConfigSpec creates an InlineConfigProviderSpec with the given files.
+func NewInlineConfigSpec(name string, files []v1beta1.FileSpec) (v1beta1.ConfigProviderSpec, error) {
+	inlineConfig := v1beta1.InlineConfigProviderSpec{
+		Name:   name,
+		Inline: files,
+	}
+	var configSpec v1beta1.ConfigProviderSpec
+	err := configSpec.FromInlineConfigProviderSpec(inlineConfig)
+	return configSpec, err
 }
 
 // BuildComposeWithImageVolumeSpec builds a compose ApplicationProviderSpec with inline compose content

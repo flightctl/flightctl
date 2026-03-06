@@ -1,0 +1,7 @@
+deployments:
+  - name: main
+    replicaCount: 1
+    message: "failing"
+    failOnStart: true
+    delayBeforeFail: 20
+    resources: {}

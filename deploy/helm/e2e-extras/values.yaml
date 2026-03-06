@@ -1,6 +1,7 @@
 global:
   nodePorts:
     registry: ""
+    privateRegistry: ""
     gitserver: ""
     prometheus: ""
     jaegerUi: ""
@@ -9,6 +10,8 @@ global:
   internalNamespace: ""
 registry:
   image: quay.io/flightctl/e2eregistry:2
+  nginx:
+    image: quay.io/flightctl-tests/nginx:1.28-alpine-slim
   route: true
   hostName: ""
 gitserver:
