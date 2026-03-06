@@ -92,6 +92,21 @@ runs:
         chmod +x bin/flightctl
         echo "CLI binary ready at bin/flightctl"
 
+    - name: Download restore binary
+      uses: actions/download-artifact@v4
+      with:
+        name: flightctl-restore-linux-amd64-${{ steps.compute-tags.outputs.git_tag }}
+        path: artifacts
+
+    - name: Setup restore binary
+      shell: bash
+      run: |
+        set -euo pipefail
+        mkdir -p bin
+        mv artifacts/flightctl-restore-linux-amd64 bin/flightctl-restore
+        chmod +x bin/flightctl-restore
+        echo "Restore binary ready at bin/flightctl-restore"
+
     # ========== INITIALIZE KIND CLUSTER ==========
     - name: Create kind cluster
       shell: bash
