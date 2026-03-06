@@ -2,6 +2,7 @@ package tasks
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/flightctl/flightctl/internal/domain"
@@ -9,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestResourceSync_GetRepositoryAndValidateAccess_NilResourceSync(t *testing.T) {
@@ -488,19 +490,15 @@ func TestParseCatalogItems_Valid(t *testing.T) {
 				"name":    "prometheus",
 				"catalog": "platform-apps",
 			},
-			"spec": map[string]interface{}{
-				"type": "quadlet",
-				"reference": map[string]interface{}{
-					"uri": "quay.io/prometheus/node-exporter",
+			"spec": specToMap(t, domain.CatalogItemSpec{
+				Type: domain.CatalogItemTypeQuadlet,
+				Artifacts: []domain.CatalogItemArtifact{
+					{Type: domain.CatalogItemArtifactTypeContainer, Uri: "quay.io/prometheus/node-exporter"},
 				},
-				"versions": []interface{}{
-					map[string]interface{}{
-						"version":  "1.8.2",
-						"tag":      "v1.8.2",
-						"channels": []interface{}{"stable"},
-					},
+				Versions: []domain.CatalogItemVersion{
+					{Version: "1.8.2", References: map[string]string{"container": "v1.8.2"}, Channels: []string{"stable"}},
 				},
-			},
+			}),
 		},
 	}
 
@@ -524,7 +522,7 @@ func TestParseCatalogItems_MissingCatalog(t *testing.T) {
 				"name": "prometheus",
 				// no catalog field
 			},
-			"spec": catalogItemSpecFixture(),
+			"spec": specToMap(t, catalogItemSpecFixture()),
 		},
 	}
 
@@ -611,20 +609,26 @@ func TestCatalogItemsDelta(t *testing.T) {
 	assert.Equal(t, []string{"apps/remove"}, delta)
 }
 
-func catalogItemSpecFixture() map[string]interface{} {
-	return map[string]interface{}{
-		"type": "quadlet",
-		"reference": map[string]interface{}{
-			"uri": "quay.io/test/app",
+func catalogItemSpecFixture() domain.CatalogItemSpec {
+	return domain.CatalogItemSpec{
+		Type: domain.CatalogItemTypeQuadlet,
+		Artifacts: []domain.CatalogItemArtifact{
+			{Type: domain.CatalogItemArtifactTypeContainer, Uri: "quay.io/test/app"},
 		},
-		"versions": []interface{}{
-			map[string]interface{}{
-				"version":  "1.0.0",
-				"tag":      "v1.0.0",
-				"channels": []interface{}{"stable"},
-			},
+		Versions: []domain.CatalogItemVersion{
+			{Version: "1.0.0", References: map[string]string{"container": "v1.0.0"}, Channels: []string{"stable"}},
 		},
 	}
+}
+
+// specToMap marshals a typed spec into map[string]interface{} for GenericResourceMap fixtures.
+func specToMap(t *testing.T, spec interface{}) map[string]interface{} {
+	t.Helper()
+	buf, err := json.Marshal(spec)
+	require.NoError(t, err)
+	var m map[string]interface{}
+	require.NoError(t, json.Unmarshal(buf, &m))
+	return m
 }
 
 func strPtr(s string) *string {

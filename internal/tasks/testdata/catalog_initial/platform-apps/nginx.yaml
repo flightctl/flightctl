@@ -5,10 +5,12 @@ metadata:
   catalog: platform-apps
 spec:
   type: quadlet
-  reference:
-    uri: quay.io/nginx/nginx
+  artifacts:
+    - type: container
+      uri: quay.io/nginx/nginx
   versions:
     - version: "1.27.0"
-      tag: v1.27.0
+      references:
+        container: "v1.27.0"
       channels:
         - stable

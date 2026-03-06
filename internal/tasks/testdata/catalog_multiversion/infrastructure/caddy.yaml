@@ -13,15 +13,18 @@ spec:
   type: container
   displayName: Caddy Web Server
   shortDescription: Fast, multi-platform web server with automatic HTTPS
-  reference:
-    uri: docker.io/library/caddy
+  artifacts:
+    - type: container
+      uri: docker.io/library/caddy
   versions:
     - version: "2.7.6"
-      tag: v2.7.6
+      references:
+        container: "v2.7.6"
       channels:
         - stable
     - version: "2.8.4"
-      tag: v2.8.4
+      references:
+        container: "v2.8.4"
       channels:
         - stable
         - candidate
