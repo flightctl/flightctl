@@ -6,21 +6,22 @@ import (
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/store"
-	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 )
 
 func TestFleetStore(t *testing.T) {
 	require := require.New(t)
 	ctx := context.Background()
-	log := store.NewTestLogger(t)
-	db, err := store.InitDBForTesting(log)
-	require.NoError(err)
-	fleetStore := store.NewFleet(db, log)
-	deviceStore := store.NewDevice(db, log)
+	log := logrus.New()
+	st, cfg, dbName, _ := store.PrepareDBForUnitTests(ctx, log)
+	defer store.DeleteTestDB(ctx, log, cfg, st, dbName)
+
+	fleetStore := st.Fleet()
+	deviceStore := st.Device()
 	orgId := uuid.New()
 
 	fleet := &domain.Fleet{
@@ -33,14 +34,14 @@ func TestFleetStore(t *testing.T) {
 			},
 		},
 	}
-	_, err = fleetStore.Create(ctx, orgId, fleet, nil)
+	_, err := fleetStore.Create(ctx, orgId, fleet, nil)
 	require.NoError(err)
 
 	device := &domain.Device{
 		Metadata: domain.ObjectMeta{
 			Name:   lo.ToPtr("my-device"),
 			Labels: &map[string]string{"fleet": "my-fleet"},
-			Owner:  lo.ToPtr(util.ResourceOwner(model.FleetKind, "my-fleet")),
+			Owner:  lo.ToPtr(util.ResourceOwner(domain.FleetKind, "my-fleet")),
 		},
 	}
 	_, err = deviceStore.Create(ctx, orgId, device, nil)
