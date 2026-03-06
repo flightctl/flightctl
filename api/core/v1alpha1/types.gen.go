@@ -43,12 +43,6 @@ const (
 	CatalogItemTypeQuadlet   CatalogItemType = "quadlet"
 )
 
-// Defines values for CatalogItemVisibility.
-const (
-	CatalogItemVisibilityDraft     CatalogItemVisibility = "draft"
-	CatalogItemVisibilityPublished CatalogItemVisibility = "published"
-)
-
 // ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
 type ApiVersion = string
 
@@ -85,19 +79,22 @@ type CatalogItem struct {
 	Spec CatalogItemSpec `json:"spec"`
 }
 
-// CatalogItemArtifact An alternative artifact format.
+// CatalogItemArtifact An artifact reference. The type field is the discriminator and must be unique within the artifacts list.
 type CatalogItemArtifact struct {
 	// Name Optional human-readable display name for this artifact.
 	Name *string `json:"name,omitempty"`
 
-	// Type Type of artifact format. Includes bootc-image-builder output formats. Defaults to container if only one artifact.
-	Type *CatalogItemArtifactType `json:"type,omitempty"`
+	// Primary Marks this artifact as the primary reference. Exactly one artifact must be primary when multiple artifacts exist.
+	Primary *bool `json:"primary,omitempty"`
 
-	// Uri Artifact URI (OCI reference, URL, S3 path, etc.).
+	// Type Artifact format discriminator. Must be unique within the artifacts list. Includes bootc-image-builder output formats.
+	Type CatalogItemArtifactType `json:"type"`
+
+	// Uri Artifact URI without version tag. The version tag is appended at resolution time.
 	Uri string `json:"uri"`
 }
 
-// CatalogItemArtifactType Type of artifact format. Includes bootc-image-builder output formats. Defaults to container if only one artifact.
+// CatalogItemArtifactType Artifact format discriminator. Must be unique within the artifacts list. Includes bootc-image-builder output formats.
 type CatalogItemArtifactType string
 
 // CatalogItemCategory Category of a catalog item.
@@ -169,17 +166,11 @@ type CatalogItemMeta struct {
 	ResourceVersion *string `json:"resourceVersion,omitempty"`
 }
 
-// CatalogItemReference Reference to the primary artifact and optional alternative formats.
-type CatalogItemReference struct {
-	// Artifacts Alternative artifact formats (e.g., qcow2, ISO for bootc images).
-	Artifacts *[]CatalogItemArtifact `json:"artifacts,omitempty"`
-
-	// Uri Primary artifact URI without version tag. Supports OCI references, URLs, S3 paths, etc.
-	Uri string `json:"uri"`
-}
-
 // CatalogItemSpec CatalogItemSpec defines the configuration for a catalog item.
 type CatalogItemSpec struct {
+	// Artifacts Artifact definitions for this catalog item. Defined once; version tag/digest is applied at resolution time. Type must be unique within the list.
+	Artifacts []CatalogItemArtifact `json:"artifacts"`
+
 	// Category Category of a catalog item.
 	Category *CatalogItemCategory `json:"category,omitempty"`
 
@@ -204,9 +195,6 @@ type CatalogItemSpec struct {
 	// Provider Provider or publisher of the catalog item (company or team name).
 	Provider *string `json:"provider,omitempty"`
 
-	// Reference Reference to the primary artifact and optional alternative formats.
-	Reference CatalogItemReference `json:"reference"`
-
 	// ShortDescription A brief one-line description of the catalog item.
 	ShortDescription *string `json:"shortDescription,omitempty"`
 
@@ -218,9 +206,6 @@ type CatalogItemSpec struct {
 
 	// Versions Available versions using Cincinnati model. Use replaces for primary edge, skips when stable channel skips intermediate versions.
 	Versions []CatalogItemVersion `json:"versions"`
-
-	// Visibility Visibility controls who can see and use the catalog item.
-	Visibility *CatalogItemVisibility `json:"visibility,omitempty"`
 }
 
 // CatalogItemType Type of catalog item within its category.
@@ -240,8 +225,8 @@ type CatalogItemVersion struct {
 	// Deprecation Deprecation information for a catalog item or version. Presence indicates deprecated status.
 	Deprecation *CatalogItemDeprecation `json:"deprecation,omitempty"`
 
-	// Digest OCI digest for immutable reference. Mutually exclusive with tag. Format: sha256:...
-	Digest *string `json:"digest,omitempty"`
+	// Digests Digest map keyed by artifact type. Only keyed artifacts are available for this version. Keys must match a type in spec.artifacts. Mutually exclusive with tag.
+	Digests *map[string]string `json:"digests,omitempty"`
 
 	// Readme Detailed documentation, preferably in markdown format.
 	Readme *string `json:"readme,omitempty"`
@@ -255,7 +240,7 @@ type CatalogItemVersion struct {
 	// Skips Additional versions that can upgrade directly to this one. Use when stable channel skips intermediate fast-only versions.
 	Skips *[]string `json:"skips,omitempty"`
 
-	// Tag Image tag to pull. Mutually exclusive with digest.
+	// Tag Image tag applied to all artifact URIs. Implies all spec-level artifacts are available for this version. Mutually exclusive with digests.
 	Tag *string `json:"tag,omitempty"`
 
 	// Version Semantic version identifier (e.g., 1.2.3, v2.0.0-rc1). Required for version ordering and upgrade graph.
@@ -268,9 +253,6 @@ type CatalogItemVersion0 = interface{}
 
 // CatalogItemVersion1 defines model for .
 type CatalogItemVersion1 = interface{}
-
-// CatalogItemVisibility Visibility controls who can see and use the catalog item.
-type CatalogItemVisibility string
 
 // CatalogList CatalogList is a list of Catalogs.
 type CatalogList struct {
@@ -303,9 +285,6 @@ type CatalogSpec struct {
 
 	// Support Link to support resources or documentation for getting help.
 	Support *string `json:"support,omitempty"`
-
-	// Visibility Visibility controls who can see and use the catalog item.
-	Visibility *CatalogItemVisibility `json:"visibility,omitempty"`
 }
 
 // CatalogStatus CatalogStatus represents the current status of a catalog source.
@@ -491,10 +470,10 @@ func (t CatalogItemVersion) MarshalJSON() ([]byte, error) {
 		}
 	}
 
-	if t.Digest != nil {
-		object["digest"], err = json.Marshal(t.Digest)
+	if t.Digests != nil {
+		object["digests"], err = json.Marshal(t.Digests)
 		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'digest': %w", err)
+			return nil, fmt.Errorf("error marshaling 'digests': %w", err)
 		}
 	}
 
@@ -581,10 +560,10 @@ func (t *CatalogItemVersion) UnmarshalJSON(b []byte) error {
 		}
 	}
 
-	if raw, found := object["digest"]; found {
-		err = json.Unmarshal(raw, &t.Digest)
+	if raw, found := object["digests"]; found {
+		err = json.Unmarshal(raw, &t.Digests)
 		if err != nil {
-			return fmt.Errorf("error reading 'digest': %w", err)
+			return fmt.Errorf("error reading 'digests': %w", err)
 		}
 	}
 
