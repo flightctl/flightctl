@@ -219,6 +219,55 @@ stateDiagram
     Known --> Unknown
 ```
 
+## Lifecycle Status
+
+The Lifecycle Status represents whether the device is available to be managed and assigned to do work or is moving to an end-of-life state.
+
+The `device.status.lifecycle` field can have the following values:
+
+| Status | Description | Formal Definition<sup>1</sub> |
+| ------ | ----------- | ----------------------------- |
+| `Enrolled` | The device's Enrollment Request was approved and it will be able to connect to management to carry out normal operations using its management certificate. | `enrollmentCompleted(device) && device.spec.decommissioning == nil` |
+| `Decommissioning` | The device has been requested to decommission by a user and is no longer available to carry out normal operations. | `enrollmentCompleted(device) && device.spec.decommissioning != nil && (!∃ device.condition["DeviceDecommissioning"] \|\| (device.condition["DeviceDecommissioning"].reason ∉ {Complete, Error}))` |
+| `Decommissioned` | The device has either completed its decommissioning process or has encountered an unrecoverable error in doing so. | `enrollmentCompleted(device) && device.spec.decommissioning != nil && (∃ device.condition["DeviceDecommissioning"] && device.condition["DeviceDecommissioning"].reason ∈ {Complete, Error})` |
+| `Unenrolled` | The device has not enrolled. No device available through management should be in this state. | `!enrollmentCompleted(device)` |
+
+<sup>1</sup> For the detailed definitions derived from the device specs and statuses, see [Helper Definitions](#helper-definitions).
+For the allowed transitions between these Statuses, see the [state diagram](#state-diagram-for-device-lifecycle) below.
+
+The `device.status.conditions` field may contain a Condition of type `DeviceDecommissioning` whose `Condition.Reason` field contains the current state of a device's progress on a request to decommission that it has received. It can contain the following values:
+
+| Decommissioning State | Description |
+| ------------ | ----------- |
+| `Started` | The agent has received the request to decommission from the service and will take a series of previously defined decommissioning actions. |
+| `Completed` | The agent has completed its decommissioning process, up until the point of wiping its management certificate that is used to communicate with the service. |
+| `Error` | The agent has encountered an unrecoverable error during its decommissioning process and will not be able to take further actions. |
+
+The following state diagram shows the possible transitions between lifecycle statuses and states.
+
+### State diagram for device lifecycle
+
+```mermaid
+stateDiagram
+    direction LR
+
+        state Decommissioning {
+            [*] --> Requested
+            Requested --> Started
+        }
+
+        state Decommissioned {
+            [*] --> Completed
+            [*] --> Error
+        }
+
+        [*] --> Unenrolled
+        Unenrolled --> Enrolled
+        Enrolled --> Decommissioning
+        Decommissioning --> Decommissioning
+        Decommissioning --> Decommissioned
+```
+
 ## Helper Definitions
 
 The formal definition uses the following helper definitions:
@@ -243,4 +292,7 @@ deviceIsUpdatedToDeviceSpec := device.status.config.renderedVersion == device.me
 // A device is updated to it's fleet's spec when it is updated to its device spec and that device spec's
 // template version matches the device's fleet's template version.
 deviceIsUpdatedToFleetSoec := deviceIsUpdatedToDeviceSpec && device.metadata.annotations.templateVersion == fleet[device.metadata.owner].spec.templateVersion
+
+// A device has completed enrollment if there exists an EnrollmentRequest record with the device's ID and that record contains a valid `er.status.certificate`.
+enrollmentCompleted := enrollmentRequests[device.metadata.name].status.certificate != nil
 ```
