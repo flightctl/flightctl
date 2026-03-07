@@ -1,0 +1,14 @@
+apiVersion: flightctl.io/v1alpha1
+kind: CatalogItem
+metadata:
+  name: redis
+  catalog: platform-apps
+spec:
+  type: quadlet
+  reference:
+    uri: quay.io/redis/redis
+  versions:
+    - version: "7.4.0"
+      tag: v7.4.0
+      channels:
+        - stable

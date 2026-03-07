@@ -67,14 +67,14 @@ func TestResourceSync_ParseFleetsFromResources_ValidResources(t *testing.T) {
 	assert.Equal(t, "test-fleet", *fleets[0].Metadata.Name)
 }
 
-func TestResourceSync_ParseFleetsFromResources_InvalidResources(t *testing.T) {
+func TestResourceSync_ParseFleetsFromResources_SkipsNonFleetKinds(t *testing.T) {
 	// Create a minimal ResourceSync instance with nil dependencies
 	var serviceHandler service.Service
 	log := logrus.New()
 
 	resourceSync := NewResourceSync(serviceHandler, log, nil, nil)
 
-	// Create invalid resources
+	// Create resources with non-Fleet kinds -- these should be silently skipped
 	resources := []GenericResourceMap{
 		{
 			"kind": "InvalidKind",
@@ -84,12 +84,11 @@ func TestResourceSync_ParseFleetsFromResources_InvalidResources(t *testing.T) {
 		},
 	}
 
-	// Test parsing
+	// Test parsing -- non-Fleet kinds are skipped, not errored
 	fleets, err := resourceSync.ParseFleetsFromResources(resources, "test-resourcesync")
 
-	assert.Error(t, err)
-	assert.Nil(t, fleets)
-	assert.Contains(t, err.Error(), "resource of unknown/unsupported kind")
+	assert.NoError(t, err)
+	assert.Empty(t, fleets)
 }
 
 func TestRemoveIgnoredFields_NoIgnoredFields(t *testing.T) {
@@ -388,6 +387,248 @@ func TestResourceSync_WithIgnoredFields(t *testing.T) {
 	// The ignored fields should not be present in the resulting fleet
 	// Note: We can't directly test this since ParseFleetsFromResources doesn't return the raw GenericResourceMap
 	// but the field removal happens in extractResourcesFromFile which is called by parseAndValidateResources
+}
+
+func TestFilterByKind(t *testing.T) {
+	resources := []GenericResourceMap{
+		{"kind": domain.FleetKind, "metadata": map[string]interface{}{"name": "f1"}},
+		{"kind": domain.CatalogKind, "metadata": map[string]interface{}{"name": "c1"}},
+		{"kind": domain.CatalogItemKind, "metadata": map[string]interface{}{"name": "i1"}},
+		{"kind": domain.FleetKind, "metadata": map[string]interface{}{"name": "f2"}},
+		{"kind": domain.CatalogItemKind, "metadata": map[string]interface{}{"name": "i2"}},
+	}
+
+	fleets := filterByKind(resources, domain.FleetKind)
+	assert.Len(t, fleets, 2)
+
+	catalogs := filterByKind(resources, domain.CatalogKind)
+	assert.Len(t, catalogs, 1)
+
+	items := filterByKind(resources, domain.CatalogItemKind)
+	assert.Len(t, items, 2)
+
+	empty := filterByKind(resources, "NonExistent")
+	assert.Len(t, empty, 0)
+}
+
+func TestParseCatalogs_Valid(t *testing.T) {
+	var serviceHandler service.Service
+	log := logrus.New()
+	rs := NewResourceSync(serviceHandler, log, nil, nil)
+
+	resources := []GenericResourceMap{
+		{
+			"apiVersion": "v1alpha1",
+			"kind":       domain.CatalogKind,
+			"metadata": map[string]interface{}{
+				"name": "platform-apps",
+			},
+			"spec": map[string]interface{}{},
+		},
+	}
+
+	catalogs, err := rs.parseCatalogs(resources)
+	assert.NoError(t, err)
+	assert.Len(t, catalogs, 1)
+	assert.Equal(t, "platform-apps", *catalogs[0].Metadata.Name)
+}
+
+func TestParseCatalogs_DuplicateNames(t *testing.T) {
+	var serviceHandler service.Service
+	log := logrus.New()
+	rs := NewResourceSync(serviceHandler, log, nil, nil)
+
+	resources := []GenericResourceMap{
+		{
+			"apiVersion": "v1alpha1",
+			"kind":       domain.CatalogKind,
+			"metadata":   map[string]interface{}{"name": "dupe"},
+			"spec":       map[string]interface{}{},
+		},
+		{
+			"apiVersion": "v1alpha1",
+			"kind":       domain.CatalogKind,
+			"metadata":   map[string]interface{}{"name": "dupe"},
+			"spec":       map[string]interface{}{},
+		},
+	}
+
+	_, err := rs.parseCatalogs(resources)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "multiple catalog definitions")
+}
+
+func TestParseCatalogs_SkipsNonCatalogKinds(t *testing.T) {
+	var serviceHandler service.Service
+	log := logrus.New()
+	rs := NewResourceSync(serviceHandler, log, nil, nil)
+
+	resources := []GenericResourceMap{
+		{
+			"kind":     domain.FleetKind,
+			"metadata": map[string]interface{}{"name": "a-fleet"},
+		},
+	}
+
+	catalogs, err := rs.parseCatalogs(resources)
+	assert.NoError(t, err)
+	assert.Empty(t, catalogs)
+}
+
+func TestParseCatalogItems_Valid(t *testing.T) {
+	var serviceHandler service.Service
+	log := logrus.New()
+	rs := NewResourceSync(serviceHandler, log, nil, nil)
+
+	resources := []GenericResourceMap{
+		{
+			"apiVersion": "v1alpha1",
+			"kind":       domain.CatalogItemKind,
+			"metadata": map[string]interface{}{
+				"name":    "prometheus",
+				"catalog": "platform-apps",
+			},
+			"spec": map[string]interface{}{
+				"type": "quadlet",
+				"reference": map[string]interface{}{
+					"uri": "quay.io/prometheus/node-exporter",
+				},
+				"versions": []interface{}{
+					map[string]interface{}{
+						"version":  "1.8.2",
+						"tag":      "v1.8.2",
+						"channels": []interface{}{"stable"},
+					},
+				},
+			},
+		},
+	}
+
+	items, err := rs.parseCatalogItems(resources)
+	assert.NoError(t, err)
+	assert.Len(t, items, 1)
+	assert.Equal(t, "prometheus", *items[0].Metadata.Name)
+	assert.Equal(t, "platform-apps", items[0].Metadata.Catalog)
+}
+
+func TestParseCatalogItems_MissingCatalog(t *testing.T) {
+	var serviceHandler service.Service
+	log := logrus.New()
+	rs := NewResourceSync(serviceHandler, log, nil, nil)
+
+	resources := []GenericResourceMap{
+		{
+			"apiVersion": "v1alpha1",
+			"kind":       domain.CatalogItemKind,
+			"metadata": map[string]interface{}{
+				"name": "prometheus",
+				// no catalog field
+			},
+			"spec": catalogItemSpecFixture(),
+		},
+	}
+
+	_, err := rs.parseCatalogItems(resources)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "missing field .metadata.catalog")
+}
+
+func TestParseCatalogItems_DuplicateKey(t *testing.T) {
+	var serviceHandler service.Service
+	log := logrus.New()
+	rs := NewResourceSync(serviceHandler, log, nil, nil)
+
+	resources := []GenericResourceMap{
+		{
+			"apiVersion": "v1alpha1",
+			"kind":       domain.CatalogItemKind,
+			"metadata":   map[string]interface{}{"name": "prom", "catalog": "apps"},
+			"spec":       catalogItemSpecFixture(),
+		},
+		{
+			"apiVersion": "v1alpha1",
+			"kind":       domain.CatalogItemKind,
+			"metadata":   map[string]interface{}{"name": "prom", "catalog": "apps"},
+			"spec":       catalogItemSpecFixture(),
+		},
+	}
+
+	_, err := rs.parseCatalogItems(resources)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "multiple catalog item definitions")
+}
+
+func TestParseCatalogItems_SameNameDifferentCatalog(t *testing.T) {
+	var serviceHandler service.Service
+	log := logrus.New()
+	rs := NewResourceSync(serviceHandler, log, nil, nil)
+
+	resources := []GenericResourceMap{
+		{
+			"apiVersion": "v1alpha1",
+			"kind":       domain.CatalogItemKind,
+			"metadata":   map[string]interface{}{"name": "nginx", "catalog": "catalog-a"},
+			"spec":       catalogItemSpecFixture(),
+		},
+		{
+			"apiVersion": "v1alpha1",
+			"kind":       domain.CatalogItemKind,
+			"metadata":   map[string]interface{}{"name": "nginx", "catalog": "catalog-b"},
+			"spec":       catalogItemSpecFixture(),
+		},
+	}
+
+	items, err := rs.parseCatalogItems(resources)
+	assert.NoError(t, err)
+	assert.Len(t, items, 2)
+}
+
+func TestCatalogsDelta(t *testing.T) {
+	owned := []domain.Catalog{
+		{Metadata: domain.ObjectMeta{Name: strPtr("keep")}},
+		{Metadata: domain.ObjectMeta{Name: strPtr("remove")}},
+	}
+	newOwned := []*domain.Catalog{
+		{Metadata: domain.ObjectMeta{Name: strPtr("keep")}},
+		{Metadata: domain.ObjectMeta{Name: strPtr("add")}},
+	}
+
+	delta := catalogsDelta(owned, newOwned)
+	assert.Equal(t, []string{"remove"}, delta)
+}
+
+func TestCatalogItemsDelta(t *testing.T) {
+	owned := []domain.CatalogItem{
+		{Metadata: domain.CatalogItemMeta{Name: strPtr("keep"), Catalog: "apps"}},
+		{Metadata: domain.CatalogItemMeta{Name: strPtr("remove"), Catalog: "apps"}},
+	}
+	newOwned := []*domain.CatalogItem{
+		{Metadata: domain.CatalogItemMeta{Name: strPtr("keep"), Catalog: "apps"}},
+		{Metadata: domain.CatalogItemMeta{Name: strPtr("add"), Catalog: "apps"}},
+	}
+
+	delta := catalogItemsDelta(owned, newOwned)
+	assert.Equal(t, []string{"apps/remove"}, delta)
+}
+
+func catalogItemSpecFixture() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "quadlet",
+		"reference": map[string]interface{}{
+			"uri": "quay.io/test/app",
+		},
+		"versions": []interface{}{
+			map[string]interface{}{
+				"version":  "1.0.0",
+				"tag":      "v1.0.0",
+				"channels": []interface{}{"stable"},
+			},
+		},
+	}
+}
+
+func strPtr(s string) *string {
+	return &s
 }
 
 func TestIsValidFile(t *testing.T) {

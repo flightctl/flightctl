@@ -104,10 +104,14 @@ const (
 
 // ========== ResourceSync ==========
 
+type ResourceSyncType = v1beta1.ResourceSyncType
+
 const (
-	ResourceSyncAPIVersion = v1beta1.ResourceSyncAPIVersion
-	ResourceSyncKind       = v1beta1.ResourceSyncKind
-	ResourceSyncListKind   = v1beta1.ResourceSyncListKind
+	ResourceSyncAPIVersion  = v1beta1.ResourceSyncAPIVersion
+	ResourceSyncKind        = v1beta1.ResourceSyncKind
+	ResourceSyncListKind    = v1beta1.ResourceSyncListKind
+	ResourceSyncTypeFleet   = v1beta1.ResourceSyncTypeFleet
+	ResourceSyncTypeCatalog = v1beta1.ResourceSyncTypeCatalog
 )
 
 // ========== Catalog ==========
