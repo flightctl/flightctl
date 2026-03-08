@@ -1,7 +1,6 @@
 package cache
 
 import (
-	"context"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/store/model"
@@ -40,11 +39,10 @@ func (c *OrganizationTTLCache) Set(id uuid.UUID, org *model.Organization) {
 	c.cache.Set(id, org, ttlcache.DefaultTTL)
 }
 
-// Start starts the cache background cleanup and blocks until context is cancelled
-func (c *OrganizationTTLCache) Start(ctx context.Context) {
+// Start starts the cache background cleanup goroutine.
+// Call Stop() to shut it down.
+func (c *OrganizationTTLCache) Start() {
 	go c.cache.Start()
-	<-ctx.Done()
-	c.cache.Stop()
 }
 
 func (c *OrganizationTTLCache) Stop() {

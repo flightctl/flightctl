@@ -143,10 +143,8 @@ func (s *Server) Run(ctx context.Context) error {
 
 	// Create identity mapping middleware (same as api_server)
 	identityMapper := internalservice.NewIdentityMapper(s.mainStore, s.log)
-	go func() {
-		identityMapper.Start(ctx)
-		s.log.Warn("Identity mapper stopped unexpectedly")
-	}()
+	identityMapper.Start()
+	defer identityMapper.Stop()
 	identityMappingMiddleware := fcmiddleware.NewIdentityMappingMiddleware(identityMapper, s.log)
 
 	// Create organization extraction and validation middleware
@@ -263,7 +261,6 @@ func (s *Server) Run(ctx context.Context) error {
 
 		srv.SetKeepAlivesEnabled(false)
 		_ = srv.Shutdown(ctxTimeout)
-		identityMapper.Stop()
 		s.kvStore.Close()
 		s.queuesProvider.Stop()
 		s.queuesProvider.Wait()

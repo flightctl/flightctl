@@ -33,11 +33,10 @@ func NewIdentityMapper(store store.Store, log logrus.FieldLogger) *IdentityMappe
 	}
 }
 
-// Start starts the cache background cleanup and blocks until context is cancelled
-func (m *IdentityMapper) Start(ctx context.Context) {
+// Start starts the cache background cleanup goroutine.
+// Call Stop() to shut it down.
+func (m *IdentityMapper) Start() {
 	go m.cache.Start()
-	<-ctx.Done()
-	m.cache.Stop()
 }
 
 // Stop stops the cache background cleanup

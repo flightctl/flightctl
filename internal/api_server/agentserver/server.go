@@ -35,16 +35,19 @@ import (
 )
 
 type AgentServer struct {
-	log             logrus.FieldLogger
-	cfg             *config.Config
-	store           store.Store
-	ca              *crypto.CAClient
-	listener        net.Listener
-	queuesProvider  queues.Provider
-	tlsConfig       *tls.Config
-	agentGrpcServer *AgentGrpcServer
-	serviceHandler  service.Service
-	kvStore         kvstore.KVStore
+	log                      logrus.FieldLogger
+	cfg                      *config.Config
+	store                    store.Store
+	ca                       *crypto.CAClient
+	listener                 net.Listener
+	queuesProvider           queues.Provider
+	tlsConfig                *tls.Config
+	agentGrpcServer          *AgentGrpcServer
+	serviceHandler           service.Service
+	kvStore                  kvstore.KVStore
+	identityMapper           *service.IdentityMapper
+	agentAuthMiddleware      *fcmiddleware.AgentAuthMiddleware
+	enrollmentAuthMiddleware *fcmiddleware.EnrollmentAuthMiddleware
 }
 
 // New returns a new instance of a flightctl server.
@@ -103,6 +106,15 @@ func (s *AgentServer) init(ctx context.Context) error {
 func (s *AgentServer) Stop() {
 	if s.agentGrpcServer != nil {
 		s.agentGrpcServer.Close()
+	}
+	if s.identityMapper != nil {
+		s.identityMapper.Stop()
+	}
+	if s.agentAuthMiddleware != nil {
+		s.agentAuthMiddleware.Stop()
+	}
+	if s.enrollmentAuthMiddleware != nil {
+		s.enrollmentAuthMiddleware.Stop()
 	}
 	if s.kvStore != nil {
 		s.kvStore.Close()
@@ -206,20 +218,17 @@ func isEnrollmentRequest(r *http.Request) bool {
 
 func (s *AgentServer) prepareHTTPHandler(ctx context.Context, serviceHandler service.Service) (http.Handler, error) {
 	// Create agent authentication middleware for device operations
-	agentAuthMiddleware := fcmiddleware.NewAgentAuthMiddleware(s.ca, s.log)
-	go agentAuthMiddleware.Start()
+	s.agentAuthMiddleware = fcmiddleware.NewAgentAuthMiddleware(s.ca, s.log)
+	go s.agentAuthMiddleware.Start()
 
 	// Create enrollment authentication middleware for enrollment/bootstrap operations
-	enrollmentAuthMiddleware := fcmiddleware.NewEnrollmentAuthMiddleware(s.ca, s.log)
-	go enrollmentAuthMiddleware.Start()
+	s.enrollmentAuthMiddleware = fcmiddleware.NewEnrollmentAuthMiddleware(s.ca, s.log)
+	go s.enrollmentAuthMiddleware.Start()
 
 	// Create identity mapping middleware (handles both user and agent identities)
-	identityMapper := service.NewIdentityMapper(s.store, s.log)
-	go func() {
-		identityMapper.Start(ctx)
-		s.log.Warn("Identity mapper stopped unexpectedly")
-	}()
-	identityMappingMiddleware := fcmiddleware.NewIdentityMappingMiddleware(identityMapper, s.log)
+	s.identityMapper = service.NewIdentityMapper(s.store, s.log)
+	s.identityMapper.Start()
+	identityMappingMiddleware := fcmiddleware.NewIdentityMappingMiddleware(s.identityMapper, s.log)
 
 	// Create organization extraction and validation middleware once
 	orgMiddleware := fcmiddleware.ExtractAndValidateOrg(fcmiddleware.CertOrgIDExtractor, s.log)
@@ -229,8 +238,8 @@ func (s *AgentServer) prepareHTTPHandler(ctx context.Context, serviceHandler ser
 		// --- Create these handlers ONCE ---
 		// These are created when authRoutingMiddleware is called (at server setup),
 		// not when a request comes in.
-		enrollmentAuthHandler := enrollmentAuthMiddleware.AuthenticateEnrollment(next)
-		agentAuthHandler := agentAuthMiddleware.AuthenticateAgent(next)
+		enrollmentAuthHandler := s.enrollmentAuthMiddleware.AuthenticateEnrollment(next)
+		agentAuthHandler := s.agentAuthMiddleware.AuthenticateAgent(next)
 		// ------------------------------------
 
 		// Return the handler that will run on every request
