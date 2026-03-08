@@ -109,6 +109,23 @@ while true; do
     sleep 3
 done
 
+# Create default PAM user for local development
+PAM_USER="${PAM_USER:-admin}"
+PAM_PASSWORD="${PAM_PASSWORD:-flightctl}"
+
+echo "Creating default PAM user '${PAM_USER}'..."
+# Create the flightctl-admin group (ignore if exists)
+podman exec flightctl-pam-issuer groupadd flightctl-admin 2>/dev/null || true
+# Create the user (skip if already exists)
+if podman exec flightctl-pam-issuer id "$PAM_USER" >/dev/null 2>&1; then
+    echo "User '${PAM_USER}' already exists, skipping creation"
+else
+    podman exec flightctl-pam-issuer adduser "$PAM_USER"
+    podman exec flightctl-pam-issuer sh -c "echo '${PAM_USER}:${PAM_PASSWORD}' | chpasswd"
+    podman exec flightctl-pam-issuer usermod -aG flightctl-admin "$PAM_USER"
+    echo "PAM user '${PAM_USER}' created with admin role"
+fi
+
 echo "Deployment completed successfully!"
 echo ""
 echo "Flight Control services are running:"
