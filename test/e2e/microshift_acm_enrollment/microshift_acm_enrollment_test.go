@@ -326,23 +326,39 @@ func getAcmNamespace() (string, error) {
 func waitForMicroshiftReady(harness *e2e.Harness, kubeconfigPath string) error {
 	timeout := util.DURATION_TIMEOUT
 	interval := 10 * time.Second
+	ocWaitTimeout := 60 * time.Second
 	start := time.Now()
-	var err error
+	var lastErr error
 
 	for time.Since(start) < timeout {
 		cmd := []string{
 			"sudo", "oc", "wait",
 			"--for=condition=Ready", "pods",
-			"--all", "-A", "--timeout=300s",
+			"--all", "-A", "--timeout=60s",
 			fmt.Sprintf("--kubeconfig=%s", kubeconfigPath),
 		}
 
-		_, err = harness.VM.RunSSH(cmd, nil)
-		if err == nil {
-			break // success
+		done := make(chan error, 1)
+		go func() {
+			_, err := harness.VM.RunSSH(cmd, nil)
+			done <- err
+		}()
+
+		select {
+		case lastErr = <-done:
+			if lastErr == nil {
+				return nil
+			}
+		case <-time.After(ocWaitTimeout):
+			errMsg := "oc wait call exceeded timeout (SSH or oc may be stuck)"
+			if lastErr != nil {
+				return fmt.Errorf("%s: %w", errMsg, lastErr)
+			}
+			return fmt.Errorf("%s (no previous error)", errMsg)
 		}
+
 		time.Sleep(interval)
 	}
 
-	return err
+	return lastErr
 }
