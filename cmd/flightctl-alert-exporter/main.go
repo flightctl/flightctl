@@ -75,10 +75,7 @@ func main() {
 	workerClient := worker_client.NewWorkerClient(publisher, log)
 
 	orgCache := cache.NewOrganizationTTL(cache.DefaultTTL)
-	go func() {
-		orgCache.Start(ctx)
-		log.Warn("Organization cache stopped unexpectedly")
-	}()
+	orgCache.Start()
 	defer orgCache.Stop()
 
 	serviceHandler := service.WrapWithTracing(service.NewServiceHandler(store, workerClient, kvStore, nil, log, "", "", []string{}))
