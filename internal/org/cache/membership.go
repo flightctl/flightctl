@@ -1,7 +1,6 @@
 package cache
 
 import (
-	"context"
 	"time"
 
 	"github.com/jellydator/ttlcache/v3"
@@ -36,11 +35,10 @@ func (c *MembershipTTL) Set(key string, value bool) {
 	c.cache.Set(key, value, ttlcache.DefaultTTL)
 }
 
-// Start starts the cache background cleanup and blocks until context is cancelled
-func (c *MembershipTTL) Start(ctx context.Context) {
+// Start starts the cache background cleanup goroutine.
+// Call Stop() to shut it down.
+func (c *MembershipTTL) Start() {
 	go c.cache.Start()
-	<-ctx.Done()
-	c.cache.Stop()
 }
 
 func (c *MembershipTTL) Stop() {
