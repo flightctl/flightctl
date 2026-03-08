@@ -319,7 +319,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			By("Verifying greenboot triggered an OS rollback (not just a reboot)")
 			// "FALLBACK BOOT DETECTED" only appears when greenboot's rollback mechanism was triggered.
 			fallbackOutput, err := harness.VM.RunSSH([]string{
-				"sudo", "journalctl", "-u", "greenboot-rpm-ostree-grub2-check-fallback.service", "--no-pager",
+				"sudo", "journalctl", "-b", "-u", "greenboot-rpm-ostree-grub2-check-fallback.service", "--no-pager",
 			}, nil)
 			Expect(err).NotTo(HaveOccurred(), "Failed to read greenboot fallback check logs")
 			Expect(fallbackOutput.String()).To(ContainSubstring("FALLBACK BOOT DETECTED"),
@@ -337,6 +337,61 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			}, TIMEOUT)
 
 			GinkgoWriter.Printf("Device successfully rolled back from v11 to %s via greenboot\n", initialStatusImage)
+
+			By("Verifying device does NOT retry the failed v11 image")
+			postRollbackBootID := ""
+			harness.WaitForDeviceContents(deviceId, "capture boot ID after rollback", func(device *v1beta1.Device) bool {
+				postRollbackBootID = device.Status.SystemInfo.BootID
+				return postRollbackBootID != ""
+			}, TIMEOUT)
+
+			harness.EnsureDeviceContents(deviceId, "device should remain stable and not retry failed image", func(device *v1beta1.Device) bool {
+				return device.Status.Os.Image == initialStatusImage &&
+					device.Status.SystemInfo.BootID == postRollbackBootID &&
+					device.Status.Summary.Status == v1beta1.DeviceSummaryStatusOnline
+			}, "2m")
+			GinkgoWriter.Println("Confirmed: device did not retry the failed v11 image after rollback")
+		})
+		It("Should NOT rollback when third-party health check (MicroShift) fails", Label("greenboot-third-party", "agent"), func() {
+			harness := e2e.GetWorkerHarness()
+
+			By("Getting initial device state")
+			dev, err := harness.GetDevice(deviceId)
+			Expect(err).NotTo(HaveOccurred())
+			initialBootID := dev.Status.SystemInfo.BootID
+
+			By("Updating device to v7 (MicroShift image)")
+			// v7 includes MicroShift which installs 40_microshift_running_check.sh
+			// in /usr/lib/greenboot/check/required.d/. MicroShift will fail its health
+			// check (insufficient VM resources), but flightctl-configure-greenboot.service
+			// should disable it via DISABLED_HEALTHCHECKS before greenboot runs.
+			_, _, err = harness.WaitForBootstrapAndUpdateToVersion(deviceId, util.DeviceTags.V7)
+			Expect(err).ToNot(HaveOccurred())
+
+			By("Waiting for device to reboot into v7 and come online")
+			harness.WaitForDeviceContents(deviceId, "device should come online on v7", func(device *v1beta1.Device) bool {
+				return strings.Contains(device.Status.Os.Image, "v7") &&
+					device.Status.Summary.Status == v1beta1.DeviceSummaryStatusOnline &&
+					device.Status.SystemInfo.BootID != initialBootID
+			}, LONGTIMEOUT)
+
+			By("Verifying NO greenboot rollback was triggered")
+			fallbackOutput, err := harness.VM.RunSSH([]string{
+				"sudo", "journalctl", "-b", "-u", "greenboot-rpm-ostree-grub2-check-fallback.service", "--no-pager",
+			}, nil)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(fallbackOutput.String()).NotTo(ContainSubstring("FALLBACK BOOT DETECTED"),
+				"Third-party health check failure must NOT trigger OS rollback")
+
+			By("Verifying configure-greenboot disabled the MicroShift health check")
+			configureOutput, err := harness.VM.RunSSH([]string{
+				"sudo", "journalctl", "-b", "-u", "flightctl-configure-greenboot.service", "--no-pager",
+			}, nil)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(configureOutput.String()).To(ContainSubstring("Disabling third-party greenboot health checks"),
+				"Expected configure-greenboot to disable third-party health checks")
+
+			GinkgoWriter.Println("Confirmed: third-party MicroShift health check did not trigger rollback")
 		})
 		It("Should respect the spec's update schedule", Label("79220", "sanity", "agent", "slow"), func() {
 			// Get harness directly - no shared package-level variable
