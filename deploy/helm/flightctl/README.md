@@ -331,7 +331,7 @@ For more detailed configuration options, see the [Values](#values) section below
 | imageBuilderApi.image.image | string | `"quay.io/flightctl/flightctl-imagebuilder-api"` | ImageBuilder API container image |
 | imageBuilderApi.image.pullPolicy | string | `""` | Image pull policy for ImageBuilder API container |
 | imageBuilderApi.image.tag | string | `""` | ImageBuilder API image tag |
-| imageBuilderWorker | object | `{"defaultTTL":"168h","enabled":true,"image":{"image":"quay.io/flightctl/flightctl-imagebuilder-worker","pullPolicy":"","tag":""},"logLevel":"info","maxConcurrentBuilds":2,"privileged":true,"replicas":1,"resources":{},"rhsmCaSecretName":"","rhsmSecretName":"","yumReposSecretName":""}` | ImageBuilder Worker Configuration |
+| imageBuilderWorker | object | `{"defaultTTL":"168h","enabled":true,"image":{"image":"quay.io/flightctl/flightctl-imagebuilder-worker","pullPolicy":"","tag":""},"logLevel":"info","maxConcurrentBuilds":2,"privileged":true,"replicas":1,"resources":{},"rhsmCaSecretName":"","rhsmSecretName":"","serviceImages":{"bootcImageBuilder":{"image":"","skipTlsVerify":false},"podman":{"image":"","skipTlsVerify":false}},"yumReposSecretName":""}` | ImageBuilder Worker Configuration |
 | imageBuilderWorker.defaultTTL | string | `"168h"` | Default TTL for image build resources |
 | imageBuilderWorker.enabled | bool | `true` | Enable imagebuilder worker service |
 | imageBuilderWorker.image.image | string | `"quay.io/flightctl/flightctl-imagebuilder-worker"` | ImageBuilder Worker container image |
@@ -344,6 +344,11 @@ For more detailed configuration options, see the [Values](#values) section below
 | imageBuilderWorker.resources | object | `{}` | Resource requests and limits |
 | imageBuilderWorker.rhsmCaSecretName | string | `""` | Secret name containing RHSM CA certificates, mounted at /etc/rhsm/ca |
 | imageBuilderWorker.rhsmSecretName | string | `""` | Secret name containing RHEL subscription manager configuration, mounted at /etc/rhsm |
+| imageBuilderWorker.serviceImages | object | `{"bootcImageBuilder":{"image":"","skipTlsVerify":false},"podman":{"image":"","skipTlsVerify":false}}` | Builder images (podman, bootc-image-builder) and skip-TLS options |
+| imageBuilderWorker.serviceImages.bootcImageBuilder.image | string | `""` | bootc-image-builder image (leave empty to use default). |
+| imageBuilderWorker.serviceImages.bootcImageBuilder.skipTlsVerify | bool | `false` | Set to true to skip TLS verification when pulling the bootc-image-builder image. |
+| imageBuilderWorker.serviceImages.podman.image | string | `""` | Podman builder image (leave empty to use default). |
+| imageBuilderWorker.serviceImages.podman.skipTlsVerify | bool | `false` | Set to true to skip TLS verification when pulling the Podman builder image. |
 | imageBuilderWorker.yumReposSecretName | string | `""` | Secret name containing yum repository configuration files, mounted at /etc/yum.repos.d |
 | kv | object | `{"fsGroup":"","image":{"image":"quay.io/sclorg/redis-7-c9s","pullPolicy":"","tag":"20250108"},"loglevel":"warning","maxmemory":"1gb","maxmemoryPolicy":"allkeys-lru","passwordSecretName":""}` | Key-Value Store Configuration |
 | kv.fsGroup | string | `""` | File system group ID for Redis pod security context |

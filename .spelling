@@ -327,6 +327,7 @@ subdomain
  imagebuilder
  repos
  RHSM
+ volumeMount
  - docs/user/references/api-resources.md
 CertificateSigningRequest
 AuthConfig
