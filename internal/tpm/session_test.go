@@ -8,7 +8,9 @@ import (
 
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/google/go-tpm-tools/simulator"
 	"github.com/google/go-tpm/tpm2"
+	"github.com/google/go-tpm/tpm2/transport"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
@@ -680,6 +682,268 @@ func setupMocks(t *testing.T) (*gomock.Controller, *MockStorage, *mockReadWriteC
 	logger := log.NewPrefixLogger("test")
 
 	return ctrl, mockStorage, conn, rw, logger
+}
+
+func TestDetectEKAlgorithm(t *testing.T) {
+	testCases := []struct {
+		name     string
+		setup    func(t *testing.T, sim io.ReadWriter)
+		expected KeyAlgorithm
+		wantErr  bool
+	}{
+		{
+			name: "only RSA cert returns RSA",
+			setup: func(t *testing.T, sim io.ReadWriter) {
+				require.NoError(t, setupFakeRSAEKCertificate(sim))
+			},
+			expected: RSA,
+		},
+		{
+			name: "only ECC cert returns ECDSA",
+			setup: func(t *testing.T, sim io.ReadWriter) {
+				require.NoError(t, setupFakeECCEKCertificate(sim))
+			},
+			expected: ECDSA,
+		},
+		{
+			name: "both certs defaults to RSA",
+			setup: func(t *testing.T, sim io.ReadWriter) {
+				require.NoError(t, setupFakeRSAEKCertificate(sim))
+				require.NoError(t, setupFakeECCEKCertificate(sim))
+			},
+			expected: RSA,
+		},
+		{
+			name: "ignores persistent handles and NV templates",
+			setup: func(t *testing.T, sim io.ReadWriter) {
+				require.NoError(t, setupFakeRSAEKCertificate(sim))
+				require.NoError(t, setupFakeECCEKCertificate(sim))
+				persistEKAtHandle(t, sim, tpm2.ECCEKTemplate, ekECCPersistentHandle)
+				writeEKTemplateToNV(t, sim, tpm2.ECCEKTemplate, ekECCTemplateNVIndex)
+			},
+			expected: RSA,
+		},
+		{
+			name:    "no certs returns error",
+			setup:   func(t *testing.T, sim io.ReadWriter) {},
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+
+			sim, err := simulator.Get()
+			require.NoError(err)
+			defer sim.Close()
+
+			tc.setup(t, sim)
+
+			session := &tpmSession{
+				conn:    sim,
+				log:     log.NewPrefixLogger("test"),
+				handles: make(map[KeyType]*tpm2.NamedHandle),
+			}
+
+			algo, err := session.detectEKAlgorithm()
+			if tc.wantErr {
+				require.Error(err)
+			} else {
+				require.NoError(err)
+				require.Equal(tc.expected, algo)
+			}
+		})
+	}
+}
+
+func TestLoadEK(t *testing.T) {
+	testCases := []struct {
+		name             string
+		setup            func(t *testing.T, sim io.ReadWriter)
+		expectPersistent bool
+	}{
+		{
+			name: "uses persistent handle when available",
+			setup: func(t *testing.T, sim io.ReadWriter) {
+				require.NoError(t, setupFakeRSAEKCertificate(sim))
+				persistEKAtHandle(t, sim, tpm2.RSAEKTemplate, ekRSAPersistentHandle)
+			},
+			expectPersistent: true,
+		},
+		{
+			name: "falls back to CreatePrimary when no persistent handle",
+			setup: func(t *testing.T, sim io.ReadWriter) {
+				require.NoError(t, setupFakeRSAEKCertificate(sim))
+			},
+			expectPersistent: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+
+			sim, err := simulator.Get()
+			require.NoError(err)
+			defer sim.Close()
+
+			tc.setup(t, sim)
+
+			session := &tpmSession{
+				conn:    sim,
+				log:     log.NewPrefixLogger("test"),
+				handles: make(map[KeyType]*tpm2.NamedHandle),
+			}
+
+			handle, cleanup, err := session.loadEK()
+			require.NoError(err)
+			require.NotNil(handle)
+			defer cleanup()
+
+			if tc.expectPersistent {
+				require.True(handle.Handle >= persistentHandleMin && handle.Handle <= persistentHandleMax,
+					"expected persistent handle, got 0x%08X", handle.Handle)
+			} else {
+				require.True(handle.Handle >= transientHandleMin && handle.Handle <= transientHandleMax,
+					"expected transient handle, got 0x%08X", handle.Handle)
+			}
+		})
+	}
+}
+
+func TestResolveEKTemplate(t *testing.T) {
+	testCases := []struct {
+		name             string
+		algo             KeyAlgorithm
+		setup            func(t *testing.T, sim io.ReadWriter)
+		expectFromNV     bool
+		expectedTemplate tpm2.TPMTPublic
+	}{
+		{
+			name:             "RSA falls back to standard template when no NV template",
+			algo:             RSA,
+			setup:            func(t *testing.T, sim io.ReadWriter) {},
+			expectFromNV:     false,
+			expectedTemplate: tpm2.RSAEKTemplate,
+		},
+		{
+			name:             "ECC falls back to standard template when no NV template",
+			algo:             ECDSA,
+			setup:            func(t *testing.T, sim io.ReadWriter) {},
+			expectFromNV:     false,
+			expectedTemplate: tpm2.ECCEKTemplate,
+		},
+		{
+			name: "RSA uses manufacturer template from NV",
+			algo: RSA,
+			setup: func(t *testing.T, sim io.ReadWriter) {
+				writeEKTemplateToNV(t, sim, tpm2.RSAEKTemplate, ekRSATemplateNVIndex)
+			},
+			expectFromNV:     true,
+			expectedTemplate: tpm2.RSAEKTemplate,
+		},
+		{
+			name: "ECC uses manufacturer template from NV",
+			algo: ECDSA,
+			setup: func(t *testing.T, sim io.ReadWriter) {
+				writeEKTemplateToNV(t, sim, tpm2.ECCEKTemplate, ekECCTemplateNVIndex)
+			},
+			expectFromNV:     true,
+			expectedTemplate: tpm2.ECCEKTemplate,
+		},
+		{
+			name: "falls back to standard when NV contains invalid data",
+			algo: RSA,
+			setup: func(t *testing.T, sim io.ReadWriter) {
+				require.NoError(t, writeEKCertToTPM(sim, tpm2.TPMHandle(ekRSATemplateNVIndex), []byte("not a valid template")))
+			},
+			expectFromNV:     false,
+			expectedTemplate: tpm2.RSAEKTemplate,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+
+			sim, err := simulator.Get()
+			require.NoError(err)
+			defer sim.Close()
+
+			tc.setup(t, sim)
+
+			session := &tpmSession{
+				conn:    sim,
+				log:     log.NewPrefixLogger("test"),
+				handles: make(map[KeyType]*tpm2.NamedHandle),
+			}
+
+			result := session.resolveEKTemplate(tc.algo)
+
+			// CreatePrimary should succeed with the resolved template
+			createCmd := tpm2.CreatePrimary{
+				PrimaryHandle: tpm2.AuthHandle{
+					Handle: tpm2.TPMRHEndorsement,
+					Auth:   tpm2.PasswordAuth(nil),
+				},
+				InPublic: result,
+			}
+			createResp, err := createCmd.Execute(transport.FromReadWriter(sim))
+			require.NoError(err)
+
+			flushCmd := tpm2.FlushContext{FlushHandle: createResp.ObjectHandle}
+			_, _ = flushCmd.Execute(transport.FromReadWriter(sim))
+
+			if tc.expectFromNV {
+				// Verify the returned template matches what we wrote to NV
+				expectedBytes := tpm2.Marshal(tpm2.New2B(tc.expectedTemplate))
+				resultBytes := tpm2.Marshal(result)
+				require.Equal(expectedBytes, resultBytes)
+			}
+		})
+	}
+}
+
+// writeEKTemplateToNV marshals a TPMTPublic and writes it to the specified NV template index.
+// The NV index stores the raw TPMT_PUBLIC structure per TCG EK Credential Profile.
+func writeEKTemplateToNV(t *testing.T, conn io.ReadWriter, template tpm2.TPMTPublic, nvIndex uint32) {
+	t.Helper()
+	data := tpm2.Marshal(template)
+	require.NoError(t, writeEKCertToTPM(conn, tpm2.TPMHandle(nvIndex), data))
+}
+
+// persistEKAtHandle creates an EK with the given template and persists it at the specified handle.
+func persistEKAtHandle(t *testing.T, conn io.ReadWriter, template tpm2.TPMTPublic, persistHandle tpm2.TPMHandle) {
+	t.Helper()
+
+	createCmd := tpm2.CreatePrimary{
+		PrimaryHandle: tpm2.AuthHandle{
+			Handle: tpm2.TPMRHEndorsement,
+			Auth:   tpm2.PasswordAuth(nil),
+		},
+		InPublic: tpm2.New2B(template),
+	}
+
+	createResp, err := createCmd.Execute(transport.FromReadWriter(conn))
+	require.NoError(t, err)
+
+	evictCmd := tpm2.EvictControl{
+		Auth: tpm2.AuthHandle{
+			Handle: tpm2.TPMRHOwner,
+			Auth:   tpm2.PasswordAuth(nil),
+		},
+		ObjectHandle: tpm2.NamedHandle{
+			Handle: createResp.ObjectHandle,
+			Name:   createResp.Name,
+		},
+		PersistentHandle: persistHandle,
+	}
+	_, err = evictCmd.Execute(transport.FromReadWriter(conn))
+	require.NoError(t, err)
+
+	flushCmd := tpm2.FlushContext{FlushHandle: createResp.ObjectHandle}
+	_, _ = flushCmd.Execute(transport.FromReadWriter(conn))
 }
 
 // createValidTPMObjects creates valid TPM objects for testing
