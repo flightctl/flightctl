@@ -36,8 +36,6 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/types"
 	"github.com/sirupsen/logrus"
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 const (
@@ -496,23 +494,6 @@ func CopyFile(src, dst string) error {
 	}
 
 	return nil
-}
-
-// CreateTestNamespace creates a Kubernetes namespace with an org label.
-// If orgLabel is empty, it defaults to DefaultOrgLabel.
-func CreateTestNamespace(name string, orgLabel ...string) *corev1.Namespace {
-	orgLabelValue := DefaultOrgLabel
-	if len(orgLabel) > 0 && orgLabel[0] != "" {
-		orgLabelValue = orgLabel[0]
-	}
-	return &corev1.Namespace{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: name,
-			Labels: map[string]string{
-				OrgLabelKey: orgLabelValue,
-			},
-		},
-	}
 }
 
 // ValidateStructuredError checks that a structured error message contains the expected
