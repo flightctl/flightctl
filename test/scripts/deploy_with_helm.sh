@@ -90,9 +90,16 @@ AUTH_ARGS="--set global.auth.type=k8s"
 
 helm dependency build ./deploy/helm/flightctl
 
+# Format IP for DNS: use sslip.io for IPv6 (replace : with -), nip.io for IPv4
+if [[ "$IP" == *":"* ]]; then
+  BASE_DOMAIN="$(echo $IP | tr ':' '-').sslip.io"
+else
+  BASE_DOMAIN="${IP}.nip.io"
+fi
+
 helm upgrade --install --namespace flightctl-external \
                   --values ./deploy/helm/flightctl/values.dev.yaml \
-                  --set global.baseDomain=${IP}.nip.io \
+                  --set global.baseDomain=${BASE_DOMAIN} \
                   ${ONLY_DB} ${DB_SIZE_PARAMS} ${AUTH_ARGS} ${SQL_ARG} ${GATEWAY_ARGS} ${KV_ARG} flightctl \
               ./deploy/helm/flightctl/ --kube-context kind-kind
 
