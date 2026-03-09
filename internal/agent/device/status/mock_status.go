@@ -153,6 +153,18 @@ func (mr *MockManagerMockRecorder) Get(arg0 any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Get", reflect.TypeOf((*MockManager)(nil).Get), arg0)
 }
 
+// InvalidateLastStatus mocks base method.
+func (m *MockManager) InvalidateLastStatus() {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "InvalidateLastStatus")
+}
+
+// InvalidateLastStatus indicates an expected call of InvalidateLastStatus.
+func (mr *MockManagerMockRecorder) InvalidateLastStatus() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InvalidateLastStatus", reflect.TypeOf((*MockManager)(nil).InvalidateLastStatus))
+}
+
 // RegisterStatusExporter mocks base method.
 func (m *MockManager) RegisterStatusExporter(arg0 Exporter) {
 	m.ctrl.T.Helper()
