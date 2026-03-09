@@ -297,6 +297,56 @@ var _ = Describe("Redis Provider Integration Tests", FlakeAttempts(5), func() {
 				return len(receivedMessages)
 			}, 5*time.Second, 100*time.Millisecond).Should(Equal(len(messages)))
 		})
+
+		It("should recover consumption after stream/consumer group are lost (NOGROUP)", func() {
+			queueName := fmt.Sprintf("test-queue-%s", uuid.New().String())
+
+			consumer, err := provider.NewQueueConsumer(ctx, queueName)
+			Expect(err).ToNot(HaveOccurred())
+			defer consumer.Close()
+
+			producer, err := provider.NewQueueProducer(ctx, queueName)
+			Expect(err).ToNot(HaveOccurred())
+			defer producer.Close()
+
+			err = producer.Enqueue(ctx, []byte("first"), time.Now().UnixMicro())
+			Expect(err).ToNot(HaveOccurred())
+
+			// Simulate Redis restart: delete the stream (removes stream and consumer group)
+			redisClient := redis.NewClient(&redis.Options{
+				Addr:     "localhost:6379",
+				Password: "adminpass",
+				DB:       0,
+			})
+			defer redisClient.Close()
+			delCount, err := redisClient.Del(ctx, queueName).Result()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(delCount).To(BeNumerically(">=", 1), "stream key should have been deleted")
+
+			// Enqueue second message; XADD creates the stream again but consumer group is gone
+			recoveryPayload := []byte("after-nogroup-recovery")
+			err = producer.Enqueue(ctx, recoveryPayload, time.Now().UnixMicro())
+			Expect(err).ToNot(HaveOccurred())
+
+			received := make(chan []byte, 1)
+			err = consumer.Consume(ctx, func(ctx context.Context, payload []byte, entryID string, c queues.QueueConsumer, log logrus.FieldLogger) error {
+				Expect(c.Complete(ctx, entryID, payload, nil)).To(Succeed())
+				received <- payload
+				return nil
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			var got []byte
+			Eventually(func() bool {
+				select {
+				case got = <-received:
+					return true
+				default:
+					return false
+				}
+			}, 10*time.Second, 100*time.Millisecond).Should(BeTrue(), "consumer should receive message after NOGROUP recovery")
+			Expect(got).To(Equal(recoveryPayload))
+		})
 	})
 
 	Describe("In-Flight Message Tracking", func() {
