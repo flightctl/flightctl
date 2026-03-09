@@ -382,6 +382,24 @@ var _ = Describe("cli operation", func() {
 				"no-slash JSON must deep-equal with-slash")
 		})
 
+		It("Should show last-seen with proper flag", Label("85014", "sanity"), func() {
+			harness := e2e.GetWorkerHarness()
+			_, device := harness.EnrollAndWaitForOnlineStatus()
+			deviceName := *device.Metadata.Name
+
+			By("Get device and confirm no last seen")
+			output, err := harness.RunGetDevices(deviceName)
+			Expect(err).NotTo(HaveOccurred(), "flightctl get device/%s failed", deviceName)
+
+			Expect(strings.ToLower(collapse(output))).ToNot(ContainSubstring("last seen"))
+
+			output, err = harness.RunGetDevices(deviceName, "--last-seen")
+			Expect(err).NotTo(HaveOccurred(), "flightctl get device/%s --last-seen failed", deviceName)
+
+			Expect(collapse(output)).To(ContainSubstring("LAST SEEN"))
+			Expect(output).To(MatchRegexp(`<never>|\d\d\d\d-\d\d-\d\dT\d\d:\d\d:\d\dZ`))
+		})
+
 	})
 
 	Context("CLI Multi-Device Delete", func() {
