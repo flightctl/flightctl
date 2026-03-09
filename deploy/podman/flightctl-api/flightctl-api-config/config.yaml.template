@@ -56,7 +56,8 @@ auth:
     authorizationUrl: {{.global.auth.aap.authorizationUrl}}
     tokenUrl: {{.global.auth.aap.tokenUrl}}
     enabled: {{if .global.auth.aap.enabled}}{{.global.auth.aap.enabled}}{{else}}true{{end}}
-    scopes:
+    {{with .global.auth.aap.organizationNamePrefix}}organizationNamePrefix: {{.}}
+    {{end}}scopes:
 {{- if .global.auth.aap.scopes}}
 {{- range .global.auth.aap.scopes}}
       - {{.}}

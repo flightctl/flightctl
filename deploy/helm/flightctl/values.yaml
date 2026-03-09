@@ -49,6 +49,8 @@ global:
       rbacNs: ""
       # -- Create default flightctl-admin ServiceAccount with admin access
       createAdminUser: true
+      # -- Optional prefix for org names from this provider (e.g. "k8s-"). Incoming org name is exposed as prefix + name.
+      organizationNamePrefix: ""
     oidc:
       # -- OIDC Client ID
       clientId: "flightctl-client"
@@ -104,6 +106,8 @@ global:
       scopes:
         - "read"
         - "write"
+      # -- Optional prefix for org names from this provider (e.g. "aap-"). Incoming org names are exposed as prefix + name.
+      organizationNamePrefix: ""
     openshift:
       # -- Create default flightctl-admin ServiceAccount with admin access
       createAdminUser: true
@@ -123,6 +127,8 @@ global:
       issuer: ""
       # -- Project label filter for OpenShift projects (leave empty to use default: io.flightctl/instance=<releaseName>)
       projectLabelFilter: ""
+      # -- Optional prefix for org (project) names from this provider (e.g. "ocp-"). Incoming names are exposed as prefix + name.
+      organizationNamePrefix: ""
   # -- How the Flight Control services should be exposed. Can be either 'auto', 'route', 'gateway' (experimental) or 'none'
   exposeServicesMethod: "auto"
   # -- Configuration for 'gateway' service exposure method

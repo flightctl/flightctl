@@ -70,6 +70,55 @@ func projectListJSON(names ...string) []byte {
 	return data
 }
 
+func newTestOpenShiftAuthWithPrefix(t *testing.T, k8sClient k8sclient.K8SClient, prefix string) *OpenShiftAuth {
+	t.Helper()
+	auth, err := NewOpenShiftAuth(
+		api.ObjectMeta{Name: lo.ToPtr("test-provider")},
+		api.OpenShiftProviderSpec{
+			Enabled:                lo.ToPtr(true),
+			AuthorizationUrl:       lo.ToPtr("https://oauth.example.com/authorize"),
+			TokenUrl:               lo.ToPtr("https://oauth.example.com/token"),
+			ClientId:               lo.ToPtr("flightctl"),
+			ClientSecret:           lo.ToPtr("secret"),
+			ClusterControlPlaneUrl: lo.ToPtr("https://api.example.com:6443"),
+			Issuer:                 lo.ToPtr("https://oauth.example.com"),
+			RoleSuffix:             lo.ToPtr("flightctl"),
+			OrganizationNamePrefix: lo.ToPtr(prefix),
+		},
+		k8sClient,
+		nil,
+		logrus.New(),
+	)
+	require.NoError(t, err)
+	return auth
+}
+
+func TestGetIdentity_OrganizationNamePrefix(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mock := k8sclient.NewMockK8SClient(ctrl)
+	auth := newTestOpenShiftAuthWithPrefix(t, mock, "ocp-")
+
+	mock.EXPECT().
+		PostCRD(gomock.Any(), gomock.Eq("authentication.k8s.io/v1/tokenreviews"), gomock.Any()).
+		Return(tokenReviewJSON("user01", "uid-001", []string{"system:authenticated"}), nil)
+	mock.EXPECT().
+		ListProjects(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(projectListJSON("my-project"), nil)
+	mock.EXPECT().
+		ListRoleBindingsForUser(gomock.Any(), "my-project", "user01", []string{"system:authenticated"}).
+		Return([]string{"flightctl-viewer-flightctl"}, nil)
+
+	identity, err := auth.GetIdentity(context.Background(), "test-token")
+	require.NoError(t, err)
+
+	assert.Equal(t, "user01", identity.GetUsername())
+	orgs := identity.GetOrganizations()
+	require.Len(t, orgs, 1)
+	assert.Equal(t, "ocp-my-project", orgs[0].Name)
+}
+
 func TestGetIdentity_GroupRolesResolved(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()

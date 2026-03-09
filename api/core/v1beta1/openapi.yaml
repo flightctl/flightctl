@@ -7888,6 +7888,9 @@ components:
         roleSuffix:
           type: string
           description: Optional suffix to strip from ClusterRole names when normalizing role names. Used for multi-release deployments where ClusterRoles have namespace-specific names (e.g., flightctl-admin-<namespace>).
+        organizationNamePrefix:
+          type: string
+          description: Optional prefix for organization (project) names. Incoming names are exposed as prefix + name (e.g. 'ocp-' + project).
       required:
         - providerType
     AapProviderSpec:
@@ -7925,6 +7928,9 @@ components:
           items:
             type: string
           description: List of OAuth2 scopes to request.
+        organizationNamePrefix:
+          type: string
+          description: Optional prefix for AAP organization names. Incoming names are exposed as prefix + name.
       required:
         - providerType
         - apiUrl
@@ -7961,6 +7967,9 @@ components:
         roleSuffix:
           type: string
           description: Optional suffix to strip from ClusterRole names when normalizing role names. Used for multi-release deployments where ClusterRoles have namespace-specific names (e.g., flightctl-admin-<namespace>).
+        organizationNamePrefix:
+          type: string
+          description: Optional prefix for the organization name. The default org name is exposed as prefix + 'default' when set.
       required:
         - providerType
         - apiUrl

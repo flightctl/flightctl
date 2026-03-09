@@ -169,8 +169,8 @@ func (o *K8sAuthN) GetIdentity(ctx context.Context, token string) (common.Identi
 		}
 	}
 
-	// Always use the default organization
-	organizations := []string{org.DefaultExternalID}
+	// Always use the default organization (optionally prefixed)
+	organizations := []string{ApplyOrgPrefix(org.DefaultExternalID, o.spec.OrganizationNamePrefix)}
 
 	// Fetch role bindings from the rbac namespace
 	var roles []string

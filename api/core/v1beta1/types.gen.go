@@ -568,6 +568,9 @@ type AapProviderSpec struct {
 	// Enabled Whether this AAP provider is enabled.
 	Enabled *bool `json:"enabled,omitempty"`
 
+	// OrganizationNamePrefix Optional prefix for AAP organization names. Incoming names are exposed as prefix + name.
+	OrganizationNamePrefix *string `json:"organizationNamePrefix,omitempty"`
+
 	// ProviderType The type of authentication provider.
 	ProviderType AapProviderSpecProviderType `json:"providerType"`
 
@@ -2189,6 +2192,9 @@ type K8sProviderSpec struct {
 	// OrganizationAssignment AuthOrganizationAssignment defines how users from this auth provider are assigned to organizations.
 	OrganizationAssignment *AuthOrganizationAssignment `json:"organizationAssignment,omitempty"`
 
+	// OrganizationNamePrefix Optional prefix for the organization name. The default org name is exposed as prefix + 'default' when set.
+	OrganizationNamePrefix *string `json:"organizationNamePrefix,omitempty"`
+
 	// ProviderType The type of authentication provider.
 	ProviderType K8sProviderSpecProviderType `json:"providerType"`
 
@@ -2474,6 +2480,9 @@ type OpenShiftProviderSpec struct {
 
 	// Issuer The OAuth2 issuer identifier (used for issuer identification in tokens).
 	Issuer *string `json:"issuer,omitempty"`
+
+	// OrganizationNamePrefix Optional prefix for organization (project) names. Incoming names are exposed as prefix + name (e.g. 'ocp-' + project).
+	OrganizationNamePrefix *string `json:"organizationNamePrefix,omitempty"`
 
 	// ProjectLabelFilter If specified, only projects with this label will be considered. The label selector should be in the format 'key' or 'key=value'. If only the key is provided, any project with that label (regardless of value) will be included. This enables server-side filtering for better performance.
 	ProjectLabelFilter *string `json:"projectLabelFilter,omitempty"`

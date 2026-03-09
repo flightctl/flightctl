@@ -740,6 +740,9 @@ auth:
         apiUrl: {{ .Values.global.auth.k8s.apiUrl }}
         rbacNs: {{ default .Release.Namespace .Values.global.auth.k8s.rbacNs }}
         roleSuffix: {{ .Release.Namespace }}
+        {{- if .Values.global.auth.k8s.organizationNamePrefix }}
+        organizationNamePrefix: {{ .Values.global.auth.k8s.organizationNamePrefix }}
+        {{- end }}
     {{- else if eq $effectiveAuthType "openshift" }}
     openshift:
         clusterControlPlaneUrl: {{ default "https://kubernetes.default.svc" .Values.global.auth.openshift.clusterControlPlaneUrl }}
@@ -750,6 +753,9 @@ auth:
         clientSecret: {{ include "flightctl.getOpenShiftOAuthClientSecret" . }}
         projectLabelFilter: {{ include "flightctl.getOpenShiftProjectLabelFilter" . | quote }}
         roleSuffix: {{ .Release.Namespace }}
+        {{- if .Values.global.auth.openshift.organizationNamePrefix }}
+        organizationNamePrefix: {{ .Values.global.auth.openshift.organizationNamePrefix }}
+        {{- end }}
     {{- else if eq $effectiveAuthType "aap" }}
     aap:
         apiUrl: {{ .Values.global.auth.aap.apiUrl }}
@@ -769,6 +775,9 @@ auth:
         enabled: {{ .Values.global.auth.aap.enabled }}
         {{- if .Values.global.auth.aap.scopes }}
         scopes: {{ .Values.global.auth.aap.scopes | toYaml | nindent 12 }}
+        {{- end }}
+        {{- if .Values.global.auth.aap.organizationNamePrefix }}
+        organizationNamePrefix: {{ .Values.global.auth.aap.organizationNamePrefix }}
         {{- end }}
     {{- else }}
     oidc:

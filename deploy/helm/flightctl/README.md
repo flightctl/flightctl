@@ -298,6 +298,7 @@ For more detailed configuration options, see the [Values](#values) section below
 | global.auth.aap.clientSecret | string | `""` | OAuth2 client secret (prefer mounting from a secret) |
 | global.auth.aap.enabled | bool | `true` | Whether the AAP provider is enabled |
 | global.auth.aap.externalApiUrl | string | `""` | The URL of the AAP Gateway API endpoint that is reachable by clients |
+| global.auth.aap.organizationNamePrefix | string | `""` | Optional prefix for org names from this provider (e.g. "aap-"). Incoming org names are exposed as prefix + name. |
 | global.auth.aap.scopes | list | `["read","write"]` | List of OAuth2 scopes to request |
 | global.auth.aap.tokenUrl | string | `""` | OAuth2 token endpoint URL |
 | global.auth.caCert | string | `""` | The custom CA cert. |
@@ -305,6 +306,7 @@ For more detailed configuration options, see the [Values](#values) section below
 | global.auth.k8s.apiUrl | string | `"https://kubernetes.default.svc"` | API URL of k8s cluster that will be used as authentication authority |
 | global.auth.k8s.createAdminUser | bool | `true` | Create default flightctl-admin ServiceAccount with admin access |
 | global.auth.k8s.externalApiTokenSecretName | string | `""` | In case flightctl is not running within a cluster, you can provide a name of a secret that holds the API token |
+| global.auth.k8s.organizationNamePrefix | string | `""` | Optional prefix for org names from this provider (e.g. "k8s-"). Incoming org name is exposed as prefix + name. |
 | global.auth.k8s.rbacNs | string | `""` | Namespace that should be used for the RBAC checks |
 | global.auth.oidc.clientId | string | `"flightctl-client"` | OIDC Client ID |
 | global.auth.oidc.clientSecret | string | `""` | OIDC client secret (optional; prefer mounting from a secret) |
@@ -321,6 +323,7 @@ For more detailed configuration options, see the [Values](#values) section below
 | global.auth.openshift.createAdminUser | bool | `true` | Create default flightctl-admin ServiceAccount with admin access |
 | global.auth.openshift.externalApiTokenSecretName | string | `""` | In case flightctl is not running within a cluster, you can provide a name of a secret that holds the API token |
 | global.auth.openshift.issuer | string | `""` | OAuth issuer URL (defaults to authorizationUrl if not specified) |
+| global.auth.openshift.organizationNamePrefix | string | `""` | Optional prefix for org (project) names from this provider (e.g. "ocp-"). Incoming names are exposed as prefix + name. |
 | global.auth.openshift.projectLabelFilter | string | `""` | Project label filter for OpenShift projects (leave empty to use default: io.flightctl/instance=<releaseName>) |
 | global.auth.openshift.tokenUrl | string | `""` | OAuth token URL (leave empty to auto-detect from OpenShift cluster) |
 | global.auth.type | string | `""` | Type of authentication to use. Allowed values: 'k8s', 'oidc', 'aap', 'openshift', 'oauth2', or 'none'. When left empty (default and recommended), authentication type is auto-detected: 'openshift' on OpenShift clusters, 'k8s' otherwise. |

@@ -470,4 +470,103 @@ var _ = Describe("AuthProviderStore", func() {
 			Expect(result).ToNot(BeNil())
 		})
 	})
+
+	Context("AuthProvider with organizationNamePrefix (K8s, AAP, OpenShift)", func() {
+		It("should round-trip K8sProviderSpec with organizationNamePrefix", func() {
+			assignment := api.AuthOrganizationAssignment{}
+			err := assignment.FromAuthStaticOrganizationAssignment(api.AuthStaticOrganizationAssignment{
+				Type:             api.AuthStaticOrganizationAssignmentTypeStatic,
+				OrganizationName: "default",
+			})
+			Expect(err).ToNot(HaveOccurred())
+			roleAssignment := api.AuthRoleAssignment{}
+			err = roleAssignment.FromAuthStaticRoleAssignment(api.AuthStaticRoleAssignment{
+				Type:  api.AuthStaticRoleAssignmentTypeStatic,
+				Roles: []string{api.ExternalRoleViewer},
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			k8sSpec := api.K8sProviderSpec{
+				ProviderType:           api.K8s,
+				ApiUrl:                 "https://api.k8s.example.com",
+				OrganizationAssignment: &assignment,
+				RoleAssignment:         &roleAssignment,
+				OrganizationNamePrefix: lo.ToPtr("k8s-"),
+			}
+			provider := api.AuthProvider{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr("k8s-prefix-provider")},
+			}
+			err = provider.Spec.FromK8sProviderSpec(k8sSpec)
+			Expect(err).ToNot(HaveOccurred())
+
+			result, err := authStore.Create(ctx, orgId, &provider, callback)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(result).ToNot(BeNil())
+
+			got, err := authStore.Get(ctx, orgId, "k8s-prefix-provider")
+			Expect(err).ToNot(HaveOccurred())
+			spec, err := got.Spec.AsK8sProviderSpec()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(spec.OrganizationNamePrefix).ToNot(BeNil())
+			Expect(*spec.OrganizationNamePrefix).To(Equal("k8s-"))
+		})
+
+		It("should round-trip AapProviderSpec with organizationNamePrefix", func() {
+			aapSpec := api.AapProviderSpec{
+				ProviderType:           api.Aap,
+				ApiUrl:                 "https://aap.example.com",
+				AuthorizationUrl:       "https://aap.example.com/o/authorize/",
+				TokenUrl:               "https://aap.example.com/o/token/",
+				ClientId:               "client",
+				ClientSecret:           "secret",
+				Scopes:                 []string{"read"},
+				OrganizationNamePrefix: lo.ToPtr("aap-"),
+			}
+			provider := api.AuthProvider{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr("aap-prefix-provider")},
+			}
+			err := provider.Spec.FromAapProviderSpec(aapSpec)
+			Expect(err).ToNot(HaveOccurred())
+
+			result, err := authStore.Create(ctx, orgId, &provider, callback)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(result).ToNot(BeNil())
+
+			got, err := authStore.Get(ctx, orgId, "aap-prefix-provider")
+			Expect(err).ToNot(HaveOccurred())
+			spec, err := got.Spec.AsAapProviderSpec()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(spec.OrganizationNamePrefix).ToNot(BeNil())
+			Expect(*spec.OrganizationNamePrefix).To(Equal("aap-"))
+		})
+
+		It("should round-trip OpenShiftProviderSpec with organizationNamePrefix", func() {
+			openshiftSpec := api.OpenShiftProviderSpec{
+				ProviderType:           api.Openshift,
+				AuthorizationUrl:       lo.ToPtr("https://oauth.example.com/authorize"),
+				TokenUrl:               lo.ToPtr("https://oauth.example.com/token"),
+				ClientId:               lo.ToPtr("flightctl"),
+				ClientSecret:           lo.ToPtr("secret"),
+				ClusterControlPlaneUrl: lo.ToPtr("https://api.example.com:6443"),
+				Issuer:                 lo.ToPtr("https://oauth.example.com"),
+				OrganizationNamePrefix: lo.ToPtr("ocp-"),
+			}
+			provider := api.AuthProvider{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr("openshift-prefix-provider")},
+			}
+			err := provider.Spec.FromOpenShiftProviderSpec(openshiftSpec)
+			Expect(err).ToNot(HaveOccurred())
+
+			result, err := authStore.Create(ctx, orgId, &provider, callback)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(result).ToNot(BeNil())
+
+			got, err := authStore.Get(ctx, orgId, "openshift-prefix-provider")
+			Expect(err).ToNot(HaveOccurred())
+			spec, err := got.Spec.AsOpenShiftProviderSpec()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(spec.OrganizationNamePrefix).ToNot(BeNil())
+			Expect(*spec.OrganizationNamePrefix).To(Equal("ocp-"))
+		})
+	})
 })
