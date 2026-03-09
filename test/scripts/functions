@@ -3,11 +3,29 @@
 # on the same network
 function _get_ext_ip() {
     if which ip 2>/dev/null 1>/dev/null; then
-        ip route get 1.1.1.1 | grep -oP 'src \K\S+'
+        # Support IPv6-only mode via environment variable
+        local result
+        if [[ "${IPV6_ONLY:-false}" == "true" ]]; then
+            # IPv6-only: use IPv6 route
+            result=$(ip -6 route get 2001:4860:4860::8888 2>/dev/null | grep -oP 'src \K\S+' || true)
+        else
+            # Try IPv4 first, fall back to IPv6
+            result=$(ip route get 1.1.1.1 2>/dev/null | grep -oP 'src \K\S+' || true)
+            if [[ -z "$result" ]]; then
+                result=$(ip -6 route get 2001:4860:4860::8888 2>/dev/null | grep -oP 'src \K\S+' || true)
+            fi
+        fi
+        echo "$result"
     else
         # MacOS does not have ip, so we use route and ifconfig instead
-        INTERFACE=$(route get 1.1.1.1 | grep interface | awk '{print $2}')
-        ifconfig | grep $INTERFACE -A 10 | grep "inet " | grep -Fv 127.0.0.1 | awk '{print $2}' | head -n 1
+        if [[ "${IPV6_ONLY:-false}" == "true" ]]; then
+            # IPv6-only for MacOS
+            INTERFACE=$(route get -inet6 2001:4860:4860::8888 2>/dev/null | grep interface | awk '{print $2}')
+            ifconfig | grep $INTERFACE -A 10 | grep "inet6 " | grep -Fv "::1" | grep -Fv "fe80:" | awk '{print $2}' | head -n 1
+        else
+            INTERFACE=$(route get 1.1.1.1 | grep interface | awk '{print $2}')
+            ifconfig | grep $INTERFACE -A 10 | grep "inet " | grep -Fv 127.0.0.1 | awk '{print $2}' | head -n 1
+        fi
     fi
 }
 
@@ -66,7 +84,12 @@ function registry_address() {
     KUBECONTEXT=${KUBECONTEXT:-$(kubectl config current-context)}
 
     if [[ $KUBECONTEXT == *"kind"* ]]; then
-        REPOADDR=$(get_ext_ip):5000
+        local ip=$(get_ext_ip)
+        if [[ "$ip" == *":"* ]]; then
+            REPOADDR="[${ip}]:5000"
+        else
+            REPOADDR="${ip}:5000"
+        fi
     else
         REPOADDR="e2eregistry.$(kubectl get ingresses.config/cluster -o jsonpath={.spec.domain})"
     fi
@@ -106,15 +129,23 @@ function get_endpoint_host() {
 
     # if we cannot find the route or ingress, we assume this is a kind based deployment, and we use the
     # nodeport services instead pointing to our local IP address
+    # Format IP for sslip.io (replace : with - for IPv6); use nip.io for IPv4
+    local DNS_IP
+    if [[ "$IP" == *":"* ]]; then
+        DNS_IP="$(echo "$IP" | tr ':' '-').sslip.io"
+    else
+        DNS_IP="${IP}.nip.io"
+    fi
+
     case "${name}" in
         flightctl-api)
-            echo "api.${IP}.nip.io:3443"
+            echo "api.${DNS_IP}:3443"
             ;;
         flightctl-api-agent)
-            echo "agent-api.${IP}.nip.io:7443"
+            echo "agent-api.${DNS_IP}:7443"
             ;;
         flightctl-ui)
-            echo "ui.${IP}.nip.io:9001"
+            echo "ui.${DNS_IP}:9001"
             ;;
         *)
             echo "Unable to find endpoint for ${name}" >&2
@@ -261,15 +292,24 @@ function get_ocp_nodes_network() {
     echo "No nodes found" >&2
     return 1
   fi
-   ip=${ip%.*}
-  if [[ -z "$ip" ]]; then
+
+  # Detect IPv4 vs IPv6 and extract appropriate subnet prefix
+  if [[ "$ip" == *":"* ]]; then
+    # IPv6: extract the first hextets before :: or drop last segment
+    prefix=$(echo "$ip" | sed 's/::.*//;s/:[^:]*$//')
+  else
+    # IPv4: strip last octet
+    prefix=${ip%.*}
+  fi
+
+  if [[ -z "$prefix" ]]; then
     echo "Invalid IP format" >&2
     return 1
   fi
 
-  # get the network name from the ip
+  # get the network name from the prefix
   for net in $(sudo virsh net-list --name); do
-    if [[ "$(sudo virsh net-dumpxml $net |grep $ip)" != "" ]];
+    if [[ "$(sudo virsh net-dumpxml $net | grep "$prefix")" != "" ]];
       then echo $net;
       break;
     fi;
