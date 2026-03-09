@@ -114,7 +114,12 @@ func (r *Registry) Start(ctx context.Context, network string, reuse bool) error 
 	r.container = container
 	r.Host = GetHostIP()
 	r.Port = registryHostPort
-	r.URL = fmt.Sprintf("%s:%s", r.Host, r.Port)
+	// Format registry URL with IPv6 bracket notation if needed
+	if strings.Contains(r.Host, ":") {
+		r.URL = fmt.Sprintf("[%s]:%s", r.Host, r.Port)
+	} else {
+		r.URL = fmt.Sprintf("%s:%s", r.Host, r.Port)
+	}
 	if err := configureInsecureRegistry(r.URL); err != nil {
 		logrus.Warnf("Failed to configure insecure registry: %v", err)
 	}
