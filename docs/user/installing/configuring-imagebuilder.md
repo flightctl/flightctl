@@ -197,6 +197,7 @@ sudo systemctl restart flightctl-imagebuilder-worker.service
 | `imageBuilderWorker.maxConcurrentBuilds` | int | `2` | Maximum number of concurrent image builds |
 | `imageBuilderWorker.defaultTTL` | string | `"168h"` | Default time-to-live for build resources |
 | `imageBuilderWorker.privileged` | bool | `true` | Run container in privileged mode (required for image builds) |
+| `imageBuilderWorker.serviceImages` | object | — | Builder images (podman, bootc-image-builder). Each has `image` (override image, leave empty for default) and `skipTlsVerify` (set to true to skip TLS verification when pulling that image). |
 
 ### Podman Quadlet Configuration
 
@@ -210,7 +211,25 @@ imagebuilderWorker:
   rpmRepoUrl: ""      # Custom RPM repository URL (optional)
   rpmRepoAdd: true    # Set to false for downstream/subscription-managed repos
   rpmRepoEnable: ""   # RPM repo name for --enablerepo (optional)
+  serviceImages:
+    podman:
+      image: ""             # Override Podman builder image (optional)
+      skipTlsVerify: false  # Set to true to skip TLS verification
+    bootcImageBuilder:
+      image: ""             # Override bootc-image-builder image (optional)
+      skipTlsVerify: false  # Set to true to skip TLS verification
 ```
+
+### Skip TLS verification
+
+Set `imageBuilderWorker.serviceImages.podman.skipTlsVerify` and/or `imageBuilderWorker.serviceImages.bootcImageBuilder.skipTlsVerify` to `true` (Helm values or Podman `service-config.yaml`) to skip TLS verification when pulling the corresponding builder image.
+
+### Custom CA for builder image registries
+
+To use a custom CA for the registry that serves the Podman or bootc-image-builder image, mount the CA certificate so the worker’s podman can use it. Podman looks for registry CAs under `/etc/containers/certs.d/<registry>/ca.crt`, where `<registry>` is the registry host (and port if non-default), e.g. `my-registry.example.com` or `my-registry.example.com:5000`.
+
+- **Helm:** Add a volume from a Secret or ConfigMap that contains the CA file (e.g. key `ca.crt`), and a volumeMount on the imagebuilder worker Deployment that mounts it at `/etc/containers/certs.d/<registry>/ca.crt`. Use the same registry host value as in your builder image reference.
+- **Podman Quadlets:** Add a `Volume=` line to the imagebuilder worker container unit so the host path (or path where the CA file lives) is mounted at `/etc/containers/certs.d/<registry>/ca.crt` inside the container.
 
 ## Troubleshooting
 

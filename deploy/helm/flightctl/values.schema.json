@@ -547,6 +547,26 @@
         "rhsmSecretName": { "type": "string", "description": "Secret name containing RHEL subscription manager configuration, mounted at /etc/rhsm" },
         "rhsmCaSecretName": { "type": "string", "description": "Secret name containing RHSM CA certificates, mounted at /etc/rhsm/ca" },
         "privileged": { "type": "boolean", "description": "Enable privileged mode for container-in-container builds" },
+        "serviceImages": {
+          "type": "object",
+          "description": "Builder images (podman, bootc-image-builder) and skip-TLS options",
+          "properties": {
+            "podman": {
+              "type": "object",
+              "properties": {
+                "image": { "type": "string", "description": "Podman builder image (leave empty to use default)" },
+                "skipTlsVerify": { "type": "boolean", "description": "Set to true to skip TLS verification when pulling the Podman builder image" }
+              }
+            },
+            "bootcImageBuilder": {
+              "type": "object",
+              "properties": {
+                "image": { "type": "string", "description": "bootc-image-builder image (leave empty to use default)" },
+                "skipTlsVerify": { "type": "boolean", "description": "Set to true to skip TLS verification when pulling the bootc-image-builder image" }
+              }
+            }
+          }
+        },
         "resources": { "type": "object", "description": "Resource requests and limits" }
       }
     },
