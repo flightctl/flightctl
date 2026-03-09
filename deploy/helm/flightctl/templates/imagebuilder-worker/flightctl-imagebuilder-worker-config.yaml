@@ -51,4 +51,15 @@ data:
         {{- if .Values.imageBuilderWorker.rpmRepoEnable }}
         rpmRepoEnable: {{ .Values.imageBuilderWorker.rpmRepoEnable | quote }}
         {{- end }}
+        {{- with .Values.imageBuilderWorker.serviceImages }}
+        {{- $podman := .podman | default (dict "image" "" "skipTlsVerify" false) }}
+        {{- $bootc := .bootcImageBuilder | default (dict "image" "" "skipTlsVerify" false) }}
+        serviceImages:
+          podman:
+            image: {{ $podman.image | default "" | quote }}
+            skipTlsVerify: {{ $podman.skipTlsVerify | default false }}
+          bootcImageBuilder:
+            image: {{ $bootc.image | default "" | quote }}
+            skipTlsVerify: {{ $bootc.skipTlsVerify | default false }}
+        {{- end }}
 {{- end }}

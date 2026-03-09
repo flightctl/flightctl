@@ -335,6 +335,18 @@ imageBuilderWorker:
   rhsmSecretName: ""
   # -- Secret name containing RHSM CA certificates, mounted at /etc/rhsm/ca
   rhsmCaSecretName: ""
+  # -- Builder images (podman, bootc-image-builder) and skip-TLS options
+  serviceImages:
+    podman:
+      # -- Podman builder image (leave empty to use default).
+      image: ""
+      # -- Set to true to skip TLS verification when pulling the Podman builder image.
+      skipTlsVerify: false
+    bootcImageBuilder:
+      # -- bootc-image-builder image (leave empty to use default).
+      image: ""
+      # -- Set to true to skip TLS verification when pulling the bootc-image-builder image.
+      skipTlsVerify: false
   # -- Resource requests and limits
   resources: {}
 

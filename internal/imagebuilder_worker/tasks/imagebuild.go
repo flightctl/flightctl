@@ -619,7 +619,7 @@ func (c *Consumer) startPodmanWorker(
 	if c.cfg == nil || c.cfg.ImageBuilderWorker == nil {
 		return nil, fmt.Errorf("config or ImageBuilderWorker config is nil")
 	}
-	podmanImage := c.cfg.ImageBuilderWorker.PodmanImage
+	podmanImage := c.cfg.ImageBuilderWorker.EffectivePodmanImage()
 
 	// Create temporary directories for the worker
 	tmpDir, err := os.MkdirTemp("", "imagebuild-*")
@@ -699,6 +699,9 @@ ignore_chown_errors = "true"
 		log.Debug("Mounting entitlement certificates (auto-detected)")
 	}
 
+	if c.cfg.ImageBuilderWorker.EffectivePodmanSkipTLSVerify() {
+		startArgs = append(startArgs, "--tls-verify=false")
+	}
 	startArgs = append(startArgs,
 		"--cap-add=SYS_ADMIN",
 		podmanImage,

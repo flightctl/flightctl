@@ -467,10 +467,7 @@ func (c *Consumer) startBootcImageBuilderContainer(
 	if c.cfg == nil || c.cfg.ImageBuilderWorker == nil {
 		return nil, fmt.Errorf("config or ImageBuilderWorker config is nil")
 	}
-	bootcImageBuilderImage := c.cfg.ImageBuilderWorker.BootcImageBuilderImage
-	if bootcImageBuilderImage == "" {
-		return nil, fmt.Errorf("bootcImageBuilderImage is not configured")
-	}
+	bootcImageBuilderImage := c.cfg.ImageBuilderWorker.EffectiveBootcImageBuilderImage()
 
 	// Create temporary directories
 	tmpDir, err := os.MkdirTemp("", "imageexport-*")
@@ -510,9 +507,11 @@ func (c *Consumer) startBootcImageBuilderContainer(
 		"--security-opt", "label=type:unconfined_t",
 		"-v", fmt.Sprintf("%s:%s:Z", tmpOutDir, containerOutDir),
 		"-v", fmt.Sprintf("%s:%s:Z", tmpContainerStorage, containerStorageDir),
-		bootcImageBuilderImage,
-		"infinity",
 	}
+	if c.cfg.ImageBuilderWorker.EffectiveBootcImageBuilderSkipTLSVerify() {
+		startArgs = append(startArgs, "--tls-verify=false")
+	}
+	startArgs = append(startArgs, bootcImageBuilderImage, "infinity")
 
 	cmdParts := []string{"podman"}
 	cmdParts = append(cmdParts, startArgs...)
