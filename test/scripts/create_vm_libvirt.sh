@@ -165,9 +165,13 @@ genisoimage -output "${CIDATA_ISO}" -volid cidata -joliet -rock \
     "${CIDATA_TMPDIR}/user-data" "${CIDATA_TMPDIR}/meta-data"
 rm -rf "${CIDATA_TMPDIR}"
 
-# Restart default network
-sudo virsh net-destroy ${DEFAULT_NETWORK_NAME}
-sudo virsh net-start ${DEFAULT_NETWORK_NAME}
+# Restart default network (skip for IPv6-only mode as it's typically IPv4-only)
+if [[ "${IPV6_ONLY:-false}" != "true" ]]; then
+    sudo virsh net-destroy ${DEFAULT_NETWORK_NAME}
+    sudo virsh net-start ${DEFAULT_NETWORK_NAME}
+else
+    echo "IPv6-only mode: skipping default network restart"
+fi
 
 # Generate the VM domain XML with virt-install --print-xml, then modify it with
 # python3 to inject TPM passthrough, the cloud-init ISO, and optionally swap the
@@ -268,66 +272,72 @@ wait_for_vm_ips() {
     export INTERFACE_DEFAULT=$(sudo virsh domiflist ${VM_NAME} 2>/dev/null | grep default | awk '{print $1}')
     export INTERFACE_BM=$(sudo virsh domiflist ${VM_NAME} 2>/dev/null | grep ${NETWORK_NAME} | awk '{print $1}')
 
-    # Try to get the IPs
-    if [ -n "${INTERFACE_DEFAULT}" ]; then
-      VM_DEFAULT_IP=$(sudo virsh domifaddr ${VM_NAME} --interface ${INTERFACE_DEFAULT} 2>/dev/null | awk '/ipv4/ {print $4}' | cut -d'/' -f1)
-    fi
+  # Try to get the IPs
+  if [ -n "${INTERFACE_DEFAULT}" ]; then
+    VM_DEFAULT_IP=$(sudo virsh domifaddr ${VM_NAME} --interface ${INTERFACE_DEFAULT} 2>/dev/null | awk '/ipv4/ {print $4}' | cut -d'/' -f1)
+  fi
 
-    if [ -n "${INTERFACE_BM}" ]; then
-      VM_IP=$(sudo virsh domifaddr ${VM_NAME} --interface ${INTERFACE_BM} 2>/dev/null | awk '/ipv4/ {print $4}' | cut -d'/' -f1)
-    fi
+  if [ -n "${INTERFACE_BM}" ]; then
+    VM_IP=$(sudo virsh domifaddr ${VM_NAME} --interface ${INTERFACE_BM} 2>/dev/null | awk '/ipv4/ {print $4}' | cut -d'/' -f1)
+  fi
 
-    # Check if both VM's IPs are available
-    if [ -n "${VM_DEFAULT_IP}" ] && [ -n "${VM_IP}" ]; then
-      echo "VM IPs are available!"
-      echo "VM DEFAULT IP: ${VM_DEFAULT_IP}"
-      echo "VM IP: ${VM_IP}"
-      return 0
-    fi
+  # Check if both VM's IPs are available
+  if [ -n "${VM_DEFAULT_IP}" ] && [ -n "${VM_IP}" ]; then
+    echo "VM IPs are available!"
+    echo "VM DEFAULT IP: ${VM_DEFAULT_IP}"
+    echo "VM IP: ${VM_IP}"
+    break
+  fi
 
     echo "Waiting for VM IPs... (${ELAPSED}s/${TIMEOUT_SECONDS}s) - DEFAULT_IP: ${VM_DEFAULT_IP:-not available}, BM_IP: ${VM_IP:-not available}"
     sleep ${CHECK_INTERVAL}
     ELAPSED=$((ELAPSED + CHECK_INTERVAL))
   done
 
+# Check if we got the IPs
+if [ -z "${VM_DEFAULT_IP}" ] || [ -z "${VM_IP}" ]; then
   echo "ERROR: Failed to get VM IPs within ${TIMEOUT_SECONDS} seconds"
   echo "VM DEFAULT IP: ${VM_DEFAULT_IP:-not available}"
   echo "VM IP: ${VM_IP:-not available}"
-  return 1
-}
-
-wait_for_ssh() {
-  local ssh_timeout="${1:-${TIMEOUT_SECONDS}}"
-  echo "Waiting for SSH to be ready on ${VM_DEFAULT_IP} (timeout: ${ssh_timeout}s)..."
-  ELAPSED=0
-  while [ $ELAPSED -lt $ssh_timeout ]; do
-    if ssh -i ${SSH_PRIVATE_KEY_PATH} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-        -o BatchMode=yes -o ConnectTimeout=5 ${USER}@${VM_DEFAULT_IP} "true" 2>/dev/null; then
-      echo "SSH is ready"
-      return 0
-    fi
-    sleep ${CHECK_INTERVAL}
-    ELAPSED=$((ELAPSED + CHECK_INTERVAL))
-  done
-  echo "ERROR: SSH did not become ready within ${ssh_timeout} seconds"
-  echo "VM state: $(virsh domstate ${VM_NAME} 2>/dev/null || echo 'unknown')"
-  virsh domifaddr ${VM_NAME} 2>/dev/null || true
-  # Attempt SSH with verbose output for diagnostics
-  ssh -i ${SSH_PRIVATE_KEY_PATH} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-      -o BatchMode=yes -o ConnectTimeout=5 -v ${USER}@${VM_DEFAULT_IP} "true" 2>&1 || true
-  return 1
-}
-
-wait_for_vm_ips || exit 1
-wait_for_ssh || exit 1
+  exit 1
+fi
 
 # Configure the VM
 echo "Provisioning the VM..."
 
+# Select IP for SSH (no brackets needed for SSH, only for SCP target paths)
+# In IPv6 mode, use VM_IP (BM network); in IPv4 mode, use VM_DEFAULT_IP
+if [[ "${IPV6_ONLY:-false}" == "true" ]]; then
+  # IPv6 mode: use BM network IP
+  SSH_VM_TARGET="${USER}@${VM_IP}"
+else
+  # IPv4 mode: use default network IP
+  SSH_VM_TARGET="${USER}@${VM_DEFAULT_IP}"
+fi
+
+# Wait for SSH to be ready
+echo "Waiting for SSH to be ready on ${SSH_VM_TARGET}..."
+SSH_TIMEOUT=60
+SSH_ELAPSED=0
+while [ ${SSH_ELAPSED} -lt ${SSH_TIMEOUT} ]; do
+  if ssh -i ${SSH_PRIVATE_KEY_PATH} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 ${SSH_VM_TARGET} 'echo SSH ready' >/dev/null 2>&1; then
+    echo "SSH is ready!"
+    break
+  fi
+  echo "Waiting for SSH... (${SSH_ELAPSED}s/${SSH_TIMEOUT}s)"
+  sleep 10
+  SSH_ELAPSED=$((SSH_ELAPSED + 10))
+done
+
+if [ ${SSH_ELAPSED} -ge ${SSH_TIMEOUT} ]; then
+  echo "ERROR: SSH did not become ready within ${SSH_TIMEOUT} seconds"
+  exit 1
+fi
+
 # Executing commands
 echo "Executing commands in the VM..."
 
-ssh -i ${SSH_PRIVATE_KEY_PATH} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ${USER}@${VM_DEFAULT_IP} bash -s <<'REMOTE_EOF'
+ssh -i ${SSH_PRIVATE_KEY_PATH} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ${SSH_VM_TARGET} bash -s <<'REMOTE_EOF'
 set -e
   # Install packages; retry on failure (e.g. baseos mirror/checksum).
   install_pkgs() {
@@ -351,7 +361,7 @@ set -e
   done
 REMOTE_EOF
 
-ssh -i ${SSH_PRIVATE_KEY_PATH} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ${USER}@${VM_DEFAULT_IP} <<EOF
+ssh -i ${SSH_PRIVATE_KEY_PATH} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ${SSH_VM_TARGET} <<EOF
   # Install OpenShift client
   echo "Installing OpenShift client..."
   curl https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/stable/openshift-client-linux-amd64-rhel9.tar.gz | sudo tar xvz -C /usr/local/bin
@@ -395,5 +405,9 @@ if [ "${ENABLE_TPM_PASSTHROUGH}" = "true" ]; then
 fi
 
 # Greetings
-echo "You can access the created VM with ssh ${USER}@${VM_IP}"
+if [[ "${VM_IP}" == *":"* ]]; then
+  echo "You can access the created VM with ssh ${USER}@[${VM_IP}]"
+else
+  echo "You can access the created VM with ssh ${USER}@${VM_IP}"
+fi
 echo "VM creation and provisioning complete!"
