@@ -42,23 +42,31 @@ func (w *watcher) TryPop() (*v1beta1.Device, bool, error) {
 	return w.buffer.TryPop()
 }
 
+// LastStatusInvalidator is called when the server returns ConflictPaused so the next status sync pushes device details.
+// Implemented by status.Manager.
+type LastStatusInvalidator interface {
+	InvalidateLastStatus()
+}
+
 type Publisher interface {
 	Run(ctx context.Context)
 	Watch() Watcher
 	SetClient(client.Management)
+	SetOnConflictPausedInvalidator(LastStatusInvalidator)
 }
 
 type publisher struct {
-	managementClient      client.Management
-	deviceName            string
-	watchers              []*watcher
-	lastKnownVersion      string
-	stopped               atomic.Bool
-	log                   *log.PrefixLogger
-	pollConfig            poll.Config
-	deviceNotFoundHandler func() error
-	minDelay              time.Duration
-	mu                    sync.Mutex
+	managementClient            client.Management
+	deviceName                  string
+	watchers                    []*watcher
+	lastKnownVersion            string
+	stopped                     atomic.Bool
+	log                         *log.PrefixLogger
+	pollConfig                  poll.Config
+	deviceNotFoundHandler       func() error
+	onConflictPausedInvalidator LastStatusInvalidator
+	minDelay                    time.Duration
+	mu                          sync.Mutex
 }
 
 func newPublisher(deviceName string,
@@ -125,6 +133,12 @@ func (n *publisher) SetClient(client client.Management) {
 	n.managementClient = client
 }
 
+func (n *publisher) SetOnConflictPausedInvalidator(invalidator LastStatusInvalidator) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.onConflictPausedInvalidator = invalidator
+}
+
 func (n *publisher) pollAndPublish(ctx context.Context) {
 	if n.stopped.Load() {
 		n.log.Debug("Publisher is stopped, skipping poll")
@@ -172,6 +186,12 @@ func (n *publisher) pollAndPublish(ctx context.Context) {
 
 	n.mu.Lock()
 	defer n.mu.Unlock()
+
+	if newDesired.Metadata.Annotations != nil {
+		if v, ok := (*newDesired.Metadata.Annotations)[v1beta1.DeviceAnnotationConflictPaused]; ok && v == "true" && n.onConflictPausedInvalidator != nil {
+			n.onConflictPausedInvalidator.InvalidateLastStatus()
+		}
+	}
 
 	newVersion := newDesired.Version()
 	n.log.Debugf("Received rendered device with version: '%s'", newVersion)
