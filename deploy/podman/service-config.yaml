@@ -88,6 +88,22 @@ grafana:
 
 prometheus:
 
+# ImageBuilder Worker (optional). Uncomment and set when using custom builder images or skip-TLS.
+# imagebuilderWorker:
+#   logLevel: info
+#   maxConcurrentBuilds: 2
+#   defaultTTL: 168h
+#   rpmRepoUrl: ""
+#   rpmRepoAdd: true
+#   rpmRepoEnable: ""
+#   serviceImages:
+#     podman:
+#       image: ""           # Override Podman builder image (optional)
+#       skipTlsVerify: false  # Set to true to skip TLS verification
+#     bootcImageBuilder:
+#       image: ""           # Override bootc-image-builder image (optional)
+#       skipTlsVerify: false  # Set to true to skip TLS verification
+
 telemetryGateway:
   forward:
     endpoint:

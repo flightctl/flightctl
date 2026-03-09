@@ -39,3 +39,16 @@ imageBuilderWorker:
   {{- if .imagebuilderWorker.rpmRepoEnable}}
   rpmRepoEnable: {{.imagebuilderWorker.rpmRepoEnable}}
   {{- end}}
+  {{- if .imagebuilderWorker.serviceImages}}
+  serviceImages:
+  {{- if .imagebuilderWorker.serviceImages.podman}}
+    podman:
+      image: {{.imagebuilderWorker.serviceImages.podman.image}}
+      skipTlsVerify: {{.imagebuilderWorker.serviceImages.podman.skipTlsVerify}}
+  {{- end}}
+  {{- if .imagebuilderWorker.serviceImages.bootcImageBuilder}}
+    bootcImageBuilder:
+      image: {{.imagebuilderWorker.serviceImages.bootcImageBuilder.image}}
+      skipTlsVerify: {{.imagebuilderWorker.serviceImages.bootcImageBuilder.skipTlsVerify}}
+  {{- end}}
+  {{- end}}
