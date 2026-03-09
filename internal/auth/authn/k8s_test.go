@@ -126,6 +126,39 @@ func TestK8sGetIdentity_UserAndGroupRolesCombined(t *testing.T) {
 	assert.Contains(t, orgs[0].Roles, "flightctl-operator")
 }
 
+func TestK8sGetIdentity_OrganizationNamePrefix(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mock := k8sclient.NewMockK8SClient(ctrl)
+	auth, err := NewK8sAuthN(
+		api.ObjectMeta{Name: lo.ToPtr("test-k8s-prefix")},
+		api.K8sProviderSpec{
+			Enabled:                lo.ToPtr(true),
+			ApiUrl:                 "https://api.k8s.example.com:6443",
+			RbacNs:                 lo.ToPtr("flightctl-ext"),
+			RoleSuffix:             lo.ToPtr("flightctl"),
+			OrganizationNamePrefix: lo.ToPtr("k8s-"),
+		},
+		mock,
+	)
+	require.NoError(t, err)
+
+	mock.EXPECT().
+		PostCRD(gomock.Any(), gomock.Eq("authentication.k8s.io/v1/tokenreviews"), gomock.Any()).
+		Return(tokenReviewJSON("user01", "uid-001", []string{"system:authenticated"}), nil)
+	mock.EXPECT().
+		ListRoleBindingsForUser(gomock.Any(), "flightctl-ext", "user01", []string{"system:authenticated"}).
+		Return([]string{}, nil)
+
+	identity, err := auth.GetIdentity(context.Background(), "test-token")
+	require.NoError(t, err)
+
+	orgs := identity.GetOrganizations()
+	require.Len(t, orgs, 1)
+	assert.Equal(t, "k8s-default", orgs[0].Name)
+}
+
 func TestK8sGetIdentity_NoRbacNs(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()

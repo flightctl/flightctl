@@ -96,6 +96,10 @@
                 "createAdminUser": {
                   "type": "boolean",
                   "description": "Create default flightctl-admin ServiceAccount with admin access"
+                },
+                "organizationNamePrefix": {
+                  "type": "string",
+                  "description": "Optional prefix for organization names from this provider."
                 }
               }
             },
@@ -176,6 +180,7 @@
                 "clientId": { "type": "string", "description": "OAuth2 client ID" },
                 "clientSecret": { "type": "string", "description": "OAuth2 client secret (prefer mounting from a secret)" },
                 "enabled": { "type": "boolean", "description": "Whether the AAP provider is enabled" },
+                "organizationNamePrefix": { "type": "string", "description": "Optional prefix for organization names from this provider." },
                 "scopes": {
                   "type": "array",
                   "description": "List of OAuth2 scopes to request",
@@ -198,7 +203,8 @@
                 "authorizationUrl": { "type": "string", "description": "OAuth authorization URL (leave empty to auto-detect from OpenShift cluster)" },
                 "tokenUrl": { "type": "string", "description": "OAuth token URL (leave empty to auto-detect from OpenShift cluster)" },
                 "issuer": { "type": "string", "description": "OAuth issuer URL (defaults to authorizationUrl if not specified)" },
-                "projectLabelFilter": { "type": "string", "description": "Project label filter for OpenShift projects (leave empty to use default: io.flightctl/instance=<releaseName>)" }
+                "projectLabelFilter": { "type": "string", "description": "Project label filter for OpenShift projects (leave empty to use default: io.flightctl/instance=<releaseName>)" },
+                "organizationNamePrefix": { "type": "string", "description": "Optional prefix for organization names from this provider." }
               }
             }
           }

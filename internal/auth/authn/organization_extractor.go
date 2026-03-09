@@ -116,6 +116,14 @@ func (e *OrganizationExtractor) extractPerUserOrganization(assignment *api.AuthO
 	return organizations
 }
 
+// ApplyOrgPrefix applies an optional prefix to an organization name. Used by AAP, OpenShift, and K8s auth providers.
+func ApplyOrgPrefix(orgName string, prefix *string) string {
+	if prefix != nil && *prefix != "" {
+		return *prefix + orgName
+	}
+	return orgName
+}
+
 // applyPrefixSuffix applies prefix and suffix to an organization name
 func (e *OrganizationExtractor) applyPrefixSuffix(orgName string, prefix *string, suffix *string) string {
 	if prefix != nil && *prefix != "" {

@@ -255,6 +255,7 @@ The following parameters are supported for AAP authentication configuration:
 | `token` | Admin token for app creation | No | None |
 | `appName` | Name for the OAuth application in AAP. Must be a unique value within a given AAP organization. | No | "Flight Control" |
 | `organizationId` | AAP organization ID for the OAuth application | No | 1 |
+| `organizationNamePrefix` | Prefix for AAP organization names. When set, each AAP organization is exposed in Flight Control as prefix + organization name (e.g. `aap-` + `MyOrg` → `aap-MyOrg`). | No | None |
 
 **Note:** The `clientId` is automatically generated when using the automated approach, or manually configured when using the manual approach.
 

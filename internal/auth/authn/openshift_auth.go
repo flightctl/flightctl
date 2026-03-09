@@ -194,10 +194,16 @@ func (o *OpenShiftAuth) GetIdentity(ctx context.Context, token string) (common.I
 	uid := review.Status.User.UID
 
 	// Get projects (organizations) for the user
-	projects, err := o.getProjectsForUser(ctx, token)
+	rawProjects, err := o.getProjectsForUser(ctx, token)
 	if err != nil {
 		o.log.WithError(err).Warn("Failed to get projects for user")
-		projects = []string{}
+		rawProjects = []string{}
+	}
+
+	// Apply prefix for identity; use raw names for API calls
+	projects := make([]string, len(rawProjects))
+	for i := range rawProjects {
+		projects[i] = ApplyOrgPrefix(rawProjects[i], o.spec.OrganizationNamePrefix)
 	}
 
 	o.log.WithFields(logrus.Fields{
@@ -205,16 +211,16 @@ func (o *OpenShiftAuth) GetIdentity(ctx context.Context, token string) (common.I
 		"projects": projects,
 	}).Debug("Extracted projects for user")
 
-	// Get roles per project
+	// Get roles per project (use raw project name for cluster API)
 	orgRoles := make(map[string][]string)
-	for _, project := range projects {
-		roles, err := o.getRolesForUserInProject(ctx, project, username, review.Status.User.Groups)
+	for i, rawProject := range rawProjects {
+		roles, err := o.getRolesForUserInProject(ctx, rawProject, username, review.Status.User.Groups)
 		if err != nil {
-			o.log.WithError(err).WithField("project", project).Warn("Failed to get roles for project")
+			o.log.WithError(err).WithField("project", rawProject).Warn("Failed to get roles for project")
 			continue
 		}
 		if len(roles) > 0 {
-			orgRoles[project] = roles
+			orgRoles[projects[i]] = roles
 		}
 	}
 
