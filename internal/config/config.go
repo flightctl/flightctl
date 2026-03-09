@@ -164,18 +164,34 @@ type ImageBuilderServiceConfig struct {
 	DeleteCancelTimeout   util.Duration    `json:"deleteCancelTimeout,omitempty"`
 }
 
+// serviceImageConfig holds image and skip-TLS settings for a single builder image (podman or bootc-image-builder).
+type serviceImageConfig struct {
+	Image         string `json:"image,omitempty"`
+	SkipTLSVerify bool   `json:"skipTlsVerify,omitempty"`
+}
+
+// serviceImagesConfig holds per-service builder image overrides.
+type serviceImagesConfig struct {
+	Podman            *serviceImageConfig `json:"podman,omitempty"`
+	BootcImageBuilder *serviceImageConfig `json:"bootcImageBuilder,omitempty"`
+}
+
+const (
+	defaultPodmanImage            = "quay.io/podman/stable:v5.7.1"
+	defaultBootcImageBuilderImage = "quay.io/centos-bootc/bootc-image-builder@sha256:773019f6b11766ca48170a4a7bf898be4268f3c2acfd0ec1db612408b3092a90"
+)
+
 type imageBuilderWorkerConfig struct {
-	LogLevel                 string        `json:"logLevel,omitempty"`
-	MaxConcurrentBuilds      int           `json:"maxConcurrentBuilds,omitempty"`
-	DefaultTTL               util.Duration `json:"defaultTTL,omitempty"`
-	PodmanImage              string        `json:"podmanImage,omitempty"`
-	BootcImageBuilderImage   string        `json:"bootcImageBuilderImage,omitempty"`
-	LastSeenUpdateInterval   util.Duration `json:"lastSeenUpdateInterval,omitempty"`
-	ImageBuilderTimeout      util.Duration `json:"imageBuilderTimeout,omitempty"`
-	TimeoutCheckTaskInterval util.Duration `json:"timeoutCheckTaskInterval,omitempty"`
-	RPMRepoURL               string        `json:"rpmRepoUrl,omitempty"`
-	RPMRepoAdd               *bool         `json:"rpmRepoAdd,omitempty"`
-	RPMRepoEnable            string        `json:"rpmRepoEnable,omitempty"`
+	LogLevel                 string               `json:"logLevel,omitempty"`
+	MaxConcurrentBuilds      int                  `json:"maxConcurrentBuilds,omitempty"`
+	DefaultTTL               util.Duration        `json:"defaultTTL,omitempty"`
+	ServiceImages            *serviceImagesConfig `json:"serviceImages,omitempty"`
+	LastSeenUpdateInterval   util.Duration        `json:"lastSeenUpdateInterval,omitempty"`
+	ImageBuilderTimeout      util.Duration        `json:"imageBuilderTimeout,omitempty"`
+	TimeoutCheckTaskInterval util.Duration        `json:"timeoutCheckTaskInterval,omitempty"`
+	RPMRepoURL               string               `json:"rpmRepoUrl,omitempty"`
+	RPMRepoAdd               *bool                `json:"rpmRepoAdd,omitempty"`
+	RPMRepoEnable            string               `json:"rpmRepoEnable,omitempty"`
 }
 
 // NewDefaultImageBuilderWorkerConfig returns a default ImageBuilder worker configuration
@@ -184,13 +200,38 @@ func NewDefaultImageBuilderWorkerConfig() *imageBuilderWorkerConfig {
 		LogLevel:                 "info",
 		MaxConcurrentBuilds:      2,
 		DefaultTTL:               util.Duration(7 * 24 * time.Hour),
-		PodmanImage:              "quay.io/podman/stable:v5.7.1",
-		BootcImageBuilderImage:   "quay.io/centos-bootc/bootc-image-builder@sha256:773019f6b11766ca48170a4a7bf898be4268f3c2acfd0ec1db612408b3092a90",
+		ServiceImages:            &serviceImagesConfig{Podman: &serviceImageConfig{Image: defaultPodmanImage}, BootcImageBuilder: &serviceImageConfig{Image: defaultBootcImageBuilderImage}},
 		LastSeenUpdateInterval:   util.Duration(30 * time.Second),
 		ImageBuilderTimeout:      util.Duration(3 * time.Minute),
 		TimeoutCheckTaskInterval: util.Duration(1 * time.Minute),
 		RPMRepoURL:               "https://rpm.flightctl.io/flightctl-epel.repo",
 	}
+}
+
+// EffectivePodmanImage returns the podman builder image to use (config override or default).
+func (c *imageBuilderWorkerConfig) EffectivePodmanImage() string {
+	if c != nil && c.ServiceImages != nil && c.ServiceImages.Podman != nil && c.ServiceImages.Podman.Image != "" {
+		return c.ServiceImages.Podman.Image
+	}
+	return defaultPodmanImage
+}
+
+// EffectivePodmanSkipTLSVerify returns whether to skip TLS verification when pulling the podman image.
+func (c *imageBuilderWorkerConfig) EffectivePodmanSkipTLSVerify() bool {
+	return c != nil && c.ServiceImages != nil && c.ServiceImages.Podman != nil && c.ServiceImages.Podman.SkipTLSVerify
+}
+
+// EffectiveBootcImageBuilderImage returns the bootc-image-builder image to use (config override or default).
+func (c *imageBuilderWorkerConfig) EffectiveBootcImageBuilderImage() string {
+	if c != nil && c.ServiceImages != nil && c.ServiceImages.BootcImageBuilder != nil && c.ServiceImages.BootcImageBuilder.Image != "" {
+		return c.ServiceImages.BootcImageBuilder.Image
+	}
+	return defaultBootcImageBuilderImage
+}
+
+// EffectiveBootcImageBuilderSkipTLSVerify returns whether to skip TLS verification when pulling the bootc-image-builder image.
+func (c *imageBuilderWorkerConfig) EffectiveBootcImageBuilderSkipTLSVerify() bool {
+	return c != nil && c.ServiceImages != nil && c.ServiceImages.BootcImageBuilder != nil && c.ServiceImages.BootcImageBuilder.SkipTLSVerify
 }
 
 // NewDefaultImageBuilderServiceConfig returns a default ImageBuilder service configuration
