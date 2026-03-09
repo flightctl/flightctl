@@ -740,10 +740,10 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			healthchecker.HealthChecks.Initialize(suite.Ctx, suite.Store, suite.Log)
 
 			var err error
-			testKvStore, err = kvstore.NewKVStore(suite.Ctx, suite.Log, "localhost", 6379, "adminpass")
-			Expect(err).ToNot(HaveOccurred())
-
-			if queuesProvider == nil {
+			// Reuse one KV store for the whole context so rendered.Bus (initialized once) and tests share the same instance; AfterEach clears keys for isolation.
+			if testKvStore == nil {
+				testKvStore, err = kvstore.NewKVStore(suite.Ctx, suite.Log, "localhost", 6379, "adminpass")
+				Expect(err).ToNot(HaveOccurred())
 				processID := fmt.Sprintf("get-rendered-device-test-%s", uuid.New().String())
 				queuesProvider, err = queues.NewRedisProvider(suite.Ctx, suite.Log, processID, "localhost", 6379, api.SecureString("adminpass"), queues.DefaultRetryConfig())
 				Expect(err).ToNot(HaveOccurred())
