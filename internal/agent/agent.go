@@ -451,6 +451,9 @@ func (a *Agent) Run(ctx context.Context) error {
 	reloadManager.Register(certManager.Sync)
 	reloadManager.Register(pruningManager.ReloadConfig)
 
+	// When the server returns ConflictPaused (e.g. post-restore), clear lastStatus so the next status sync pushes device details.
+	specManager.Publisher().SetOnConflictPausedInvalidator(statusManager)
+
 	// agent is serial by default. only a small number of operations run async.
 	// device reconciliation, status updates, and spec application happen serially.
 

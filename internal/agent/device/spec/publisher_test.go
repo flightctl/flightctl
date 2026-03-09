@@ -47,12 +47,13 @@ func setupWithInitialVersion(t *testing.T, initialVersion string) *vars {
 	}
 
 	n := &publisher{
-		managementClient:      mockClient,
-		deviceName:            deviceName,
-		log:                   log.NewPrefixLogger(""),
-		lastKnownVersion:      initialVersion,
-		pollConfig:            poll.NewConfig(time.Second, 1.5),
-		deviceNotFoundHandler: deviceNotFoundHandler,
+		managementClient:            mockClient,
+		deviceName:                  deviceName,
+		log:                         log.NewPrefixLogger(""),
+		lastKnownVersion:            initialVersion,
+		pollConfig:                  poll.NewConfig(time.Second, 1.5),
+		deviceNotFoundHandler:       deviceNotFoundHandler,
+		onConflictPausedInvalidator: nil,
 	}
 
 	return &vars{
@@ -290,11 +291,12 @@ func TestDevicePublisher_DeviceNotFoundHandling(t *testing.T) {
 			}
 
 			publisher := &publisher{
-				managementClient:      v.mockClient,
-				deviceName:            v.deviceName,
-				log:                   log.NewPrefixLogger(""),
-				pollConfig:            poll.NewConfig(time.Second, 1.5),
-				deviceNotFoundHandler: deviceNotFoundHandler,
+				managementClient:            v.mockClient,
+				deviceName:                  v.deviceName,
+				log:                         log.NewPrefixLogger(""),
+				pollConfig:                  poll.NewConfig(time.Second, 1.5),
+				deviceNotFoundHandler:       deviceNotFoundHandler,
+				onConflictPausedInvalidator: nil,
 			}
 
 			// Mock the management client based on test case
@@ -313,6 +315,46 @@ func TestDevicePublisher_DeviceNotFoundHandling(t *testing.T) {
 			}
 		})
 	}
+}
+
+type fakeLastStatusInvalidator struct {
+	invalidated bool
+}
+
+func (f *fakeLastStatusInvalidator) InvalidateLastStatus() { f.invalidated = true }
+
+func TestDevicePublisher_ConflictPausedCallback(t *testing.T) {
+	t.Run("calls InvalidateLastStatus when GetRenderedDevice returns 200 with ConflictPaused annotation", func(tt *testing.T) {
+		v := setup(tt)
+		defer v.finish()
+
+		device := createTestRenderedDevice("requested-image:latest")
+		if device.Metadata.Annotations == nil {
+			device.Metadata.Annotations = &map[string]string{}
+		}
+		(*device.Metadata.Annotations)[v1beta1.DeviceAnnotationConflictPaused] = "true"
+		v.mockClient.EXPECT().GetRenderedDevice(gomock.Any(), v.deviceName, gomock.Any()).Return(device, http.StatusOK, nil)
+
+		invalidator := &fakeLastStatusInvalidator{}
+		v.notifier.SetOnConflictPausedInvalidator(invalidator)
+		v.notifier.pollAndPublish(v.ctx)
+
+		v.assertions.True(invalidator.invalidated, "InvalidateLastStatus should be called when device has ConflictPaused annotation")
+	})
+
+	t.Run("does not call InvalidateLastStatus when device has no ConflictPaused annotation", func(tt *testing.T) {
+		v := setup(tt)
+		defer v.finish()
+
+		device := createTestRenderedDevice("requested-image:latest")
+		v.mockClient.EXPECT().GetRenderedDevice(gomock.Any(), v.deviceName, gomock.Any()).Return(device, http.StatusOK, nil)
+
+		invalidator := &fakeLastStatusInvalidator{}
+		v.notifier.SetOnConflictPausedInvalidator(invalidator)
+		v.notifier.pollAndPublish(v.ctx)
+
+		v.assertions.False(invalidator.invalidated, "InvalidateLastStatus should not be called when device has no ConflictPaused annotation")
+	})
 }
 
 func TestVersionComparison(t *testing.T) {

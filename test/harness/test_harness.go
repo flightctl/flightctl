@@ -22,6 +22,7 @@ import (
 	"github.com/flightctl/flightctl/internal/identity"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/org"
+	"github.com/flightctl/flightctl/internal/rendered"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
@@ -62,6 +63,7 @@ type TestHarness struct {
 	Client         *apiclient.ClientWithResponses
 	Store          *store.Store
 	ServiceHandler service.Service // Service handler for direct service calls (bypasses HTTP/auth)
+	KVStore        kvstore.KVStore // Same Redis as service; use to set awaiting-reconnect / rendered keys for tests
 	TestDirPath    string
 }
 
@@ -162,6 +164,19 @@ func NewTestHarness(ctx context.Context, testDirPath string, goRoutineErrorHandl
 	ctx = context.WithValue(ctx, consts.MappedIdentityCtxKey, createAdminIdentity())
 
 	provider := testutil.NewTestProvider(serverLog)
+
+	// Create KV store and initialize rendered bus before agent server (agent server also creates its own kvStore to same Redis)
+	kvStore, err := kvstore.NewKVStore(ctx, serverLog, serverCfg.KV.Hostname, serverCfg.KV.Port, serverCfg.KV.Password)
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("NewTestHarness: failed to create KV store: %w", err)
+	}
+	if err := rendered.Bus.Initialize(ctx, kvStore, provider, 10*time.Second, serverLog); err != nil {
+		kvStore.Close()
+		cancel()
+		return nil, fmt.Errorf("NewTestHarness: failed to initialize rendered bus: %w", err)
+	}
+
 	// create server
 	apiServer, listener, err := testutil.NewTestApiServer(serverLog, &serverCfg, store, ca, serverCerts, provider)
 	if err != nil {
@@ -244,10 +259,6 @@ func NewTestHarness(ctx context.Context, testDirPath string, goRoutineErrorHandl
 	}
 
 	// Create service handler for direct service calls (bypassing HTTP/auth middleware)
-	kvStore, err := kvstore.NewKVStore(ctx, serverLog, serverCfg.KV.Hostname, serverCfg.KV.Port, serverCfg.KV.Password)
-	if err != nil {
-		return nil, fmt.Errorf("NewTestHarness: failed to create KV store: %w", err)
-	}
 	publisher, err := worker_client.QueuePublisher(ctx, provider)
 	if err != nil {
 		return nil, fmt.Errorf("NewTestHarness: failed to create queue publisher: %w", err)
@@ -265,6 +276,7 @@ func NewTestHarness(ctx context.Context, testDirPath string, goRoutineErrorHandl
 		Client:                client,
 		Store:                 &store,
 		ServiceHandler:        serviceHandler,
+		KVStore:               kvStore,
 		mockK8sClient:         mockK8sClient,
 		ctrl:                  ctrl,
 		TestDirPath:           testDirPath}

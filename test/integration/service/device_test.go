@@ -2,12 +2,19 @@ package service_test
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"strings"
 	"time"
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/domain"
+	"github.com/flightctl/flightctl/internal/healthchecker"
+	"github.com/flightctl/flightctl/internal/kvstore"
+	"github.com/flightctl/flightctl/internal/rendered"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -716,6 +723,151 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 	})
 
 	// PrepareDevicesAfterRestore tests have been moved to test/integration/restore/device_test.go
+
+	Context("GetRenderedDevice when AwaitingReconnect moves to ConflictPaused", func() {
+		var (
+			suite           *ServiceTestSuite
+			testKvStore     kvstore.KVStore
+			queuesProvider  queues.Provider
+			renderedInitErr error
+		)
+
+		BeforeEach(func() {
+			suite = NewServiceTestSuite()
+			suite.Setup()
+
+			// GetRenderedDevice with agent context calls healthchecker.HealthChecks.Instance().Add()
+			healthchecker.HealthChecks.Initialize(suite.Ctx, suite.Store, suite.Log)
+
+			var err error
+			testKvStore, err = kvstore.NewKVStore(suite.Ctx, suite.Log, "localhost", 6379, "adminpass")
+			Expect(err).ToNot(HaveOccurred())
+
+			if queuesProvider == nil {
+				processID := fmt.Sprintf("get-rendered-device-test-%s", uuid.New().String())
+				queuesProvider, err = queues.NewRedisProvider(suite.Ctx, suite.Log, processID, "localhost", 6379, api.SecureString("adminpass"), queues.DefaultRetryConfig())
+				Expect(err).ToNot(HaveOccurred())
+				renderedInitErr = rendered.Bus.Initialize(suite.Ctx, testKvStore, queuesProvider, 10*time.Second, suite.Log)
+				Expect(renderedInitErr).ToNot(HaveOccurred())
+			}
+		})
+
+		AfterEach(func() {
+			if testKvStore != nil {
+				_ = testKvStore.DeleteAllKeys(suite.Ctx)
+			}
+			suite.Teardown()
+		})
+
+		createMinimalRenderedConfig := func(contents string) (string, error) {
+			provider := api.ConfigProviderSpec{}
+			files := []api.FileSpec{{Content: contents}}
+			if err := provider.FromInlineConfigProviderSpec(api.InlineConfigProviderSpec{Inline: files}); err != nil {
+				return "", err
+			}
+			providers := &[]api.ConfigProviderSpec{provider}
+			b, err := json.Marshal(providers)
+			if err != nil {
+				return "", err
+			}
+			return string(b), nil
+		}
+
+		It("returns 200 with full device when moved to ConflictPaused (avoids 204)", func() {
+			deviceName := "awaiting-reconnect-conflict-paused-device"
+			serviceVersion := "1"    // service knows version 1 (from restore)
+			deviceReportedVer := "5" // agent reports version 5 -> device ahead of service -> ConflictPaused
+
+			// Create device
+			device := api.Device{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(deviceName)},
+				Spec:     &api.DeviceSpec{Os: &api.DeviceOsSpec{Image: "quay.io/fedora/fedora-coreos:stable"}},
+			}
+			_, status := suite.Handler.CreateDevice(suite.Ctx, suite.OrgID, device)
+			Expect(status.Code).To(Equal(int32(201)))
+
+			// Give device rendered content (version 1)
+			renderedConfig, err := createMinimalRenderedConfig("test-config")
+			Expect(err).ToNot(HaveOccurred())
+			_, err = suite.Store.Device().UpdateRendered(suite.Ctx, suite.OrgID, deviceName, renderedConfig, "", "hash1")
+			Expect(err).ToNot(HaveOccurred())
+
+			// Set device annotations: AwaitingReconnect and service version 1 (device 5 > service 1 -> ConflictPaused)
+			err = suite.Store.Device().UpdateAnnotations(suite.Ctx, suite.OrgID, deviceName, map[string]string{
+				api.DeviceAnnotationAwaitingReconnect: "true",
+				api.DeviceAnnotationRenderedVersion:   serviceVersion,
+			}, nil)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Set KV: awaiting reconnection key so processAwaitingReconnectIfNeeded runs
+			awaitKey := kvstore.AwaitingReconnectionKey{OrgID: suite.OrgID, DeviceName: deviceName}
+			_, err = testKvStore.SetNX(suite.Ctx, awaitKey.ComposeKey(), []byte("true"))
+			Expect(err).ToNot(HaveOccurred())
+
+			// Set KV: rendered version "5" so WaitForNewVersion(known "5") returns isNew=false (no new spec)
+			renderedKey := fmt.Sprintf("v1/%s/device/%s/rendered", suite.OrgID, deviceName)
+			_, err = testKvStore.GetOrSetNX(suite.Ctx, renderedKey, []byte(deviceReportedVer))
+			Expect(err).ToNot(HaveOccurred())
+
+			// Call GetRenderedDevice as agent with KnownRenderedVersion="5" (unchanged; would normally get 204)
+			agentCtx := context.WithValue(suite.Ctx, consts.AgentCtxKey, deviceName)
+			params := domain.GetRenderedDeviceParams{KnownRenderedVersion: &deviceReportedVer}
+			result, status := suite.Handler.GetRenderedDevice(agentCtx, suite.OrgID, deviceName, params)
+
+			// Should return 200 with full device (not 204), and device should be ConflictPaused
+			Expect(status.Code).To(Equal(int32(200)))
+			Expect(result).ToNot(BeNil())
+			Expect(result.Status).ToNot(BeNil())
+			Expect(result.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusConflictPaused))
+
+			// Next poll: awaiting key was cleared and version unchanged -> must get 204 again
+			result2, status2 := suite.Handler.GetRenderedDevice(agentCtx, suite.OrgID, deviceName, params)
+			Expect(status2.Code).To(Equal(int32(204)))
+			Expect(result2).To(BeNil())
+		})
+
+		It("returns 204 when moved to normal (Online) and version unchanged", func() {
+			deviceName := "awaiting-reconnect-normal-device"
+			knownVersion := "1" // device reports "1", service has "1" -> normal, not ConflictPaused
+
+			// Create device
+			device := api.Device{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(deviceName)},
+				Spec:     &api.DeviceSpec{Os: &api.DeviceOsSpec{Image: "quay.io/fedora/fedora-coreos:stable"}},
+			}
+			_, status := suite.Handler.CreateDevice(suite.Ctx, suite.OrgID, device)
+			Expect(status.Code).To(Equal(int32(201)))
+
+			renderedConfig, err := createMinimalRenderedConfig("test-config-2")
+			Expect(err).ToNot(HaveOccurred())
+			_, err = suite.Store.Device().UpdateRendered(suite.Ctx, suite.OrgID, deviceName, renderedConfig, "", "hash2")
+			Expect(err).ToNot(HaveOccurred())
+
+			err = suite.Store.Device().UpdateAnnotations(suite.Ctx, suite.OrgID, deviceName, map[string]string{
+				api.DeviceAnnotationAwaitingReconnect: "true",
+				api.DeviceAnnotationRenderedVersion:   knownVersion,
+			}, nil)
+			Expect(err).ToNot(HaveOccurred())
+
+			awaitKey := kvstore.AwaitingReconnectionKey{OrgID: suite.OrgID, DeviceName: deviceName}
+			_, err = testKvStore.SetNX(suite.Ctx, awaitKey.ComposeKey(), []byte("true"))
+			Expect(err).ToNot(HaveOccurred())
+
+			renderedKey := fmt.Sprintf("v1/%s/device/%s/rendered", suite.OrgID, deviceName)
+			_, err = testKvStore.GetOrSetNX(suite.Ctx, renderedKey, []byte(knownVersion))
+			Expect(err).ToNot(HaveOccurred())
+
+			agentCtx := context.WithValue(suite.Ctx, consts.AgentCtxKey, deviceName)
+			params := domain.GetRenderedDeviceParams{KnownRenderedVersion: &knownVersion}
+			result, status := suite.Handler.GetRenderedDevice(agentCtx, suite.OrgID, deviceName, params)
+
+			// ProcessAwaitingReconnect runs with deviceReportedVersion from params - we pass knownVersion "1"
+			// So device version 1 <= service version 1 -> moved to normal. movedToConflictPaused=false.
+			// Version unchanged -> should return 204
+			Expect(status.Code).To(Equal(int32(204)))
+			Expect(result).To(BeNil())
+		})
+	})
 
 	Context("Device Resume Operations", func() {
 		Describe("ResumeDevice", func() {

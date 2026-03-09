@@ -325,10 +325,11 @@ func (h *ServiceHandler) PatchDeviceStatus(ctx context.Context, orgId uuid.UUID,
 
 func (h *ServiceHandler) GetRenderedDevice(ctx context.Context, orgId uuid.UUID, name string, params domain.GetRenderedDeviceParams) (*domain.Device, domain.Status) {
 	var (
-		isNew             bool
-		kvRenderedVersion string
-		err               error
-		isAgent           bool
+		isNew                 bool
+		kvRenderedVersion     string
+		err                   error
+		isAgent               bool
+		movedToConflictPaused bool
 	)
 
 	if _, isAgent = ctx.Value(consts.AgentCtxKey).(string); isAgent {
@@ -338,10 +339,10 @@ func (h *ServiceHandler) GetRenderedDevice(ctx context.Context, orgId uuid.UUID,
 		}
 
 		// Process awaiting reconnect annotation if present and KV store contains the awaiting reconnection key
-		h.processAwaitingReconnectIfNeeded(ctx, orgId, name, params.KnownRenderedVersion)
+		movedToConflictPaused = h.processAwaitingReconnectIfNeeded(ctx, orgId, name, params.KnownRenderedVersion)
 	}
 
-	if params.KnownRenderedVersion != nil {
+	if params.KnownRenderedVersion != nil && !movedToConflictPaused {
 		isNew, kvRenderedVersion, err = rendered.Bus.Instance().WaitForNewVersion(ctx, orgId, name, *params.KnownRenderedVersion)
 		if err != nil {
 			h.log.Errorf("GetRenderedDevice %s/%s: failed to wait for new rendered version: %v", orgId, name, err)
@@ -351,6 +352,7 @@ func (h *ServiceHandler) GetRenderedDevice(ctx context.Context, orgId uuid.UUID,
 			return nil, domain.StatusNoContent()
 		}
 	}
+	// When movedToConflictPaused we skip WaitForNewVersion and return the current device (200) so the agent sees ConflictPaused and invalidates lastStatus.
 
 	if isAgent {
 		if h.agentGate.Acquire(ctx, 1) == nil {
@@ -655,9 +657,9 @@ func (h *ServiceHandler) callbackDeviceDeleted(ctx context.Context, resourceKind
 	h.eventHandler.HandleGenericResourceDeletedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
 }
 
-// processAwaitingReconnectIfNeeded processes the awaiting reconnect annotation only if the KV store contains the awaiting reconnection key
-func (h *ServiceHandler) processAwaitingReconnectIfNeeded(ctx context.Context, orgId uuid.UUID, deviceName string, deviceReportedVersion *string) {
-
+// processAwaitingReconnectIfNeeded processes the awaiting reconnect annotation only if the KV store contains the awaiting reconnection key.
+// Returns true if the device was moved to ConflictPaused state, false otherwise.
+func (h *ServiceHandler) processAwaitingReconnectIfNeeded(ctx context.Context, orgId uuid.UUID, deviceName string, deviceReportedVersion *string) bool {
 	// Check if KV store contains the awaiting reconnection key
 	key := kvstore.AwaitingReconnectionKey{
 		OrgID:      orgId,
@@ -668,7 +670,7 @@ func (h *ServiceHandler) processAwaitingReconnectIfNeeded(ctx context.Context, o
 	if err != nil {
 		h.log.WithError(err).Warnf("failed to check awaiting reconnection key for device %s", deviceName)
 		// Don't fail the request, just log the warning
-		return
+		return false
 	}
 
 	if kvValue != nil && string(kvValue) == "true" {
@@ -682,29 +684,30 @@ func (h *ServiceHandler) processAwaitingReconnectIfNeeded(ctx context.Context, o
 		if err != nil {
 			h.log.WithError(err).Warnf("failed to process awaiting reconnect annotation for device %s", deviceName)
 			// Don't fail the request, just log the warning
+			return false
+		}
+		h.log.Infof("Successfully processed awaiting reconnect annotation for device %s, wasConflictPaused: %t", deviceName, wasConflictPaused)
+		// Successfully processed the annotation, now remove the key from KV store
+		if err := h.kvStore.DeleteKeysForTemplateVersion(ctx, keyStr); err != nil {
+			h.log.WithError(err).Warnf("failed to remove awaiting reconnection key for device %s", deviceName)
+			// Don't fail the request, just log the warning
 		} else {
-			h.log.Infof("Successfully processed awaiting reconnect annotation for device %s, wasConflictPaused: %t", deviceName, wasConflictPaused)
-			// Successfully processed the annotation, now remove the key from KV store
-			if err := h.kvStore.DeleteKeysForTemplateVersion(ctx, keyStr); err != nil {
-				h.log.WithError(err).Warnf("failed to remove awaiting reconnection key for device %s", deviceName)
-				// Don't fail the request, just log the warning
-			} else {
-				h.log.Infof("Successfully removed awaiting reconnection key for device %s", deviceName)
-			}
+			h.log.Infof("Successfully removed awaiting reconnection key for device %s", deviceName)
+		}
 
-			// Create event if device was moved to conflict paused state
-			if wasConflictPaused && h.eventHandler != nil {
-				h.log.Infof("Device %s was moved to conflict paused state, creating event", deviceName)
-				event := common.GetDeviceConflictPausedEvent(ctx, deviceName)
-				if event != nil {
-					h.eventHandler.CreateEvent(ctx, orgId, event)
-					h.log.Infof("Successfully created conflict paused event for device %s", deviceName)
-				} else {
-					h.log.Warnf("Failed to create conflict paused event for device %s - event is nil", deviceName)
-				}
+		// Create event if device was moved to conflict paused state
+		if wasConflictPaused && h.eventHandler != nil {
+			h.log.Infof("Device %s was moved to conflict paused state, creating event", deviceName)
+			event := common.GetDeviceConflictPausedEvent(ctx, deviceName)
+			if event != nil {
+				h.eventHandler.CreateEvent(ctx, orgId, event)
+				h.log.Infof("Successfully created conflict paused event for device %s", deviceName)
+			} else {
+				h.log.Warnf("Failed to create conflict paused event for device %s - event is nil", deviceName)
 			}
 		}
-	} else {
-		h.log.Debugf("Skipping awaiting reconnect annotation processing for device %s - KV value is not 'true' (value: %s)", deviceName, string(kvValue))
+		return wasConflictPaused
 	}
+	h.log.Debugf("Skipping awaiting reconnect annotation processing for device %s - KV value is not 'true' (value: %s)", deviceName, string(kvValue))
+	return false
 }
