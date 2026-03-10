@@ -46,6 +46,7 @@ type Publisher interface {
 	Run(ctx context.Context)
 	Watch() Watcher
 	SetClient(client.Management)
+	ResetVersion(version string)
 }
 
 type publisher struct {
@@ -73,6 +74,12 @@ func newPublisher(deviceName string,
 		deviceNotFoundHandler: deviceNotFoundHandler,
 		log:                   log,
 	}
+}
+
+func (n *publisher) ResetVersion(version string) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.lastKnownVersion = version
 }
 
 func (n *publisher) getRenderedFromManagementAPIWithRetry(
