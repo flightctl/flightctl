@@ -1,7 +1,6 @@
 package e2e
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/flightctl/flightctl/internal/client"
@@ -24,43 +23,6 @@ func (h *Harness) GetClientAccessToken() (string, error) {
 		return "", fmt.Errorf("access token is empty")
 	}
 	return cfg.AuthInfo.AccessToken, nil
-}
-
-func (h *Harness) ResolveClusterLoginContext(ctx context.Context) (string, string, error) {
-	if h == nil {
-		return "", "", fmt.Errorf("harness is nil")
-	}
-	if ctx == nil {
-		return "", "", fmt.Errorf("context is nil")
-	}
-
-	defaultK8sContext, err := h.GetDefaultK8sAdminContext()
-	if err != nil {
-		return "", "", fmt.Errorf("failed to get default k8s context: %w", err)
-	}
-	k8sAPIEndpoint, err := h.GetK8sApiEndpoint(ctx, defaultK8sContext)
-	if err != nil {
-		return "", "", fmt.Errorf("failed to get k8s api endpoint for context %q: %w", defaultK8sContext, err)
-	}
-
-	return defaultK8sContext, k8sAPIEndpoint, nil
-}
-
-func (h *Harness) RestoreK8sContext(ctx context.Context, k8sContext string) error {
-	if h == nil {
-		return fmt.Errorf("harness is nil")
-	}
-	if ctx == nil {
-		return fmt.Errorf("context is nil")
-	}
-	if k8sContext == "" {
-		return fmt.Errorf("k8s context is empty")
-	}
-	_, err := h.ChangeK8sContext(ctx, k8sContext)
-	if err != nil {
-		return fmt.Errorf("failed to restore k8s context %q: %w", k8sContext, err)
-	}
-	return nil
 }
 
 func (h *Harness) ResolveOrganizationAndClientToken() (string, string, error) {

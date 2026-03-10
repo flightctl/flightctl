@@ -46,12 +46,6 @@ type fleetTestManager struct {
 
 // _ is a blank identifier used to ignore values or expressions, often applied to satisfy interface or assignment requirements.
 var _ = Describe("cli operation", func() {
-	BeforeEach(func() {
-		// Get harness directly - no shared package-level variable
-		harness := e2e.GetWorkerHarness()
-		login.LoginToAPIWithToken(harness)
-	})
-
 	Context("apply/fleet", func() {
 		It("Resources creation validations work well", Label("77667", "sanity"), func() {
 			// Get harness directly - no shared package-level variable
@@ -735,11 +729,13 @@ var _ = Describe("cli login", func() {
 			By("Login to the service")
 			// We need to ensure that the login mechanism was user/pass otherwise the refresh flow isn't
 			// active.
-			if login.LoginToAPIWithToken(harness) != login.AuthUsernamePassword {
+			method, err := login.LoginToAPIWithToken(harness)
+			Expect(err).ToNot(HaveOccurred())
+			if method != login.AuthUsernamePassword {
 				Skip("This test requires authentication with username/password to be enabled")
 			}
 			By("Ensure actions can be taken")
-			_, err := harness.RunGetDevices()
+			_, err = harness.RunGetDevices()
 			Expect(err).ToNot(HaveOccurred(), "Failed to get device info")
 
 			By("Read the current access token")
@@ -801,7 +797,8 @@ var _ = Describe("cli login", func() {
 			func() {
 
 				harness := e2e.GetWorkerHarness()
-				login.LoginToAPIWithToken(harness)
+				_, err := login.LoginToAPIWithToken(harness)
+				Expect(err).ToNot(HaveOccurred())
 
 				By("CertificateSigningRequest: Resources lifecycle")
 				// Prepare a unique CSR YAML and ensure cleanup
@@ -893,7 +890,8 @@ var _ = Describe("cli login", func() {
 
 	It("Creates a device, edits via headless editor (yaml & json), and validates negatives", Label("83301"), func() {
 		harness := e2e.GetWorkerHarness()
-		login.LoginToAPIWithToken(harness)
+		_, err := login.LoginToAPIWithToken(harness)
+		Expect(err).ToNot(HaveOccurred())
 
 		By("creating a unique Device from template")
 		uniqueDeviceYAML, err := util.CreateUniqueYAMLFile("device.yaml", harness.GetTestIDFromContext())
@@ -984,7 +982,8 @@ var _ = Describe("cli login", func() {
 
 	It("generates completion and can be sourced for each supported shell (harness.CLI only for flightctl calls)", Label("85470"), func() {
 		harness := e2e.GetWorkerHarness()
-		login.LoginToAPIWithToken(harness)
+		_, err := login.LoginToAPIWithToken(harness)
+		Expect(err).ToNot(HaveOccurred())
 
 		type shellCase struct {
 			name      string

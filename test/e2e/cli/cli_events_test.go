@@ -9,7 +9,6 @@ import (
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/test/harness/e2e"
-	"github.com/flightctl/flightctl/test/login"
 	"github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -25,12 +24,6 @@ var (
 )
 
 var _ = Describe("cli events operation", func() {
-	BeforeEach(func() {
-		// Get harness directly - no shared package-level variable
-		harness := e2e.GetWorkerHarness()
-		login.LoginToAPIWithToken(harness)
-	})
-
 	Context("Events API Tests", func() {
 		It("should list events resource is created/updated/deleted", Label("81779", "sanity"), func() {
 			// Get harness directly - no shared package-level variable

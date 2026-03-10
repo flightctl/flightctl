@@ -1,7 +1,6 @@
 package alertmanagerproxy_test
 
 import (
-	"context"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
@@ -35,7 +34,6 @@ const (
 	statusForbidden   = "Forbidden"
 	nonAdminUser      = "demouser1"
 	nonAdminPassword  = "demouser1"
-	authDisabledMsg   = "auth is disabled in this environment"
 	alertsLabelName   = "alertname"
 	alertsLabelOrgID  = "org_id"
 	alertsLabelRes    = "resource"
@@ -194,11 +192,10 @@ var _ = Describe("Alertmanager proxy", func() {
 		Expect(noAuthBody).To(ContainSubstring(authTokenErrMsg), "unauthenticated /alerts response should mention missing auth token")
 
 		By("Authenticating and reading alerts for the same organization")
-		authMethod := login.LoginToAPIWithToken(testHarness)
-		if authMethod == login.AuthDisabled {
-			Skip(authDisabledMsg)
-		}
-		authOrgID, authToken, err := testHarness.ResolveOrganizationAndClientToken()
+		_, err = login.LoginToAPIWithToken(testHarness)
+		Expect(err).ToNot(HaveOccurred())
+		var authOrgID, authToken string
+		authOrgID, authToken, err = testHarness.ResolveOrganizationAndClientToken()
 		Expect(err).ToNot(HaveOccurred(), "failed to resolve authenticated org/token context")
 		Expect(authOrgID).ToNot(BeEmpty(), "authenticated organization id should not be empty")
 		Expect(authToken).ToNot(BeEmpty(), "authenticated token should not be empty")
@@ -251,18 +248,13 @@ var _ = Describe("Alertmanager proxy", func() {
 		Expect(err).ToNot(HaveOccurred(), "failed to start proxy service access")
 		defer cleanup()
 
-		defaultK8sContext, k8sAPIEndpoint, err := testHarness.ResolveClusterLoginContext(testHarness.Context)
-		if err != nil {
-			Skip(fmt.Sprintf("unable to resolve cluster login context for non-admin authz test: %v", err))
-		}
-
-		err = login.LoginAsNonAdmin(testHarness, nonAdminUser, nonAdminPassword, defaultK8sContext, k8sAPIEndpoint)
+		err = login.Login(testHarness, nonAdminUser, nonAdminPassword)
 		if err != nil {
 			Skip(fmt.Sprintf("unable to login as non-admin user %q for authz-denied test: %v", nonAdminUser, err))
 		}
 		defer func() {
-			restoreErr := restoreAdminLoginContext(testHarness, testHarness.Context, defaultK8sContext)
-			Expect(restoreErr).ToNot(HaveOccurred(), "failed to restore admin login context")
+			_, restoreErr := login.LoginToAPIWithToken(testHarness)
+			Expect(restoreErr).ToNot(HaveOccurred())
 		}()
 
 		orgID, err := testHarness.GetOrganizationID()
@@ -282,10 +274,8 @@ var _ = Describe("Alertmanager proxy", func() {
 	})
 
 	It("verifies Prometheus query path for common alert series", Label("87775"), func() {
-		authMethod := login.LoginToAPIWithToken(testHarness)
-		if authMethod == login.AuthDisabled {
-			Skip(authDisabledMsg)
-		}
+		_, err := login.LoginToAPIWithToken(testHarness)
+		Expect(err).ToNot(HaveOccurred())
 
 		orgID, err := testHarness.GetOrganizationID()
 		Expect(err).ToNot(HaveOccurred(), "failed to resolve organization id")
@@ -357,24 +347,4 @@ func parseAlertsResponse(body string) ([]alertmanagerAlertResponse, error) {
 		return nil, fmt.Errorf("failed to decode alerts response: %w", err)
 	}
 	return result, nil
-}
-
-func restoreAdminLoginContext(h *e2e.Harness, ctx context.Context, defaultK8sContext string) error {
-	if h == nil {
-		return fmt.Errorf("harness is nil")
-	}
-	if defaultK8sContext == "" {
-		return fmt.Errorf("default context is empty")
-	}
-
-	err := h.RestoreK8sContext(ctx, defaultK8sContext)
-	if err != nil {
-		return fmt.Errorf("failed to restore k8s context %q: %w", defaultK8sContext, err)
-	}
-
-	loginMethod := login.LoginToAPIWithToken(h)
-	if loginMethod == login.AuthDisabled {
-		return fmt.Errorf("auth is disabled while restoring admin login context")
-	}
-	return nil
 }

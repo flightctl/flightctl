@@ -1731,27 +1731,6 @@ func (h *Harness) CreateGitRepositoryWithContent(config GitServerConfig, keyPath
 	return nil
 }
 
-// ChangeK8sContext changes the kubernetes context
-func (h *Harness) ChangeK8sContext(ctx context.Context, k8sContext string) (string, error) {
-	if !util.BinaryExistsOnPath("oc") {
-		return "", fmt.Errorf("oc binary not found in PATH")
-	}
-	cmd := exec.CommandContext(ctx, "oc", "config", "use-context", k8sContext)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		// Check if the error is due to context timeout
-		if ctx.Err() == context.DeadlineExceeded {
-			GinkgoWriter.Printf("❌ Failed to change K8s context to %s: context timeout\n", k8sContext)
-			return string(output), fmt.Errorf("failed to change K8s context to %s: context timeout", k8sContext)
-		}
-		GinkgoWriter.Printf("❌ Failed to change K8s context to %s: %v\n", k8sContext, err)
-		return string(output), fmt.Errorf("failed to change K8s context to %s: %w", k8sContext, err)
-	} else {
-		GinkgoWriter.Printf("✅ Changed context to %s: %s\n", k8sContext, output)
-		return string(output), nil
-	}
-}
-
 func (h *Harness) CreateResource(resourceType string) (string, string, []byte, error) {
 	uniqueResourceYAML, err := util.CreateUniqueYAMLFile(resourceType+".yaml", h.GetTestIDFromContext())
 	if err != nil {
@@ -1810,46 +1789,6 @@ func (h *Harness) CreateResource(resourceType string) (string, string, []byte, e
 		GinkgoWriter.Printf("Apply output: %s\n", applyOutput)
 		return applyOutput, "", nil, fmt.Errorf("Failed to create a %s", resourceType)
 	}
-}
-
-// GetDefaultK8sAdminContext returns a K8s context whose name contains both "default" and "admin" (e.g. kubeadmin). No fallback.
-func (h *Harness) GetDefaultK8sAdminContext() (string, error) {
-	cmd := exec.Command("kubectl", "config", "get-contexts", "-o", "name")
-	output, err := cmd.Output()
-	if err != nil {
-		return "", fmt.Errorf("failed to get contexts: %v", err)
-	}
-
-	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
-	for _, name := range lines {
-		name = strings.TrimSpace(name)
-		if name == "" {
-			continue
-		}
-		hasDefault := strings.Contains(name, "default")
-		hasAdmin := strings.Contains(strings.ToLower(name), "admin")
-		if hasDefault && hasAdmin {
-			GinkgoWriter.Printf("🔍 [DEBUG] Found default+admin context: %s\n", name)
-			return name, nil
-		}
-	}
-	return "", fmt.Errorf("no context with both 'default' and 'admin' in name found")
-}
-
-// GetK8sApiEndpoint returns the API endpoint for a given K8s context
-func (h *Harness) GetK8sApiEndpoint(ctx context.Context, k8sContext string) (string, error) {
-	if !util.BinaryExistsOnPath("oc") {
-		return "", fmt.Errorf("oc binary not found on PATH")
-	}
-	if _, err := h.ChangeK8sContext(ctx, k8sContext); err != nil {
-		return "", fmt.Errorf("failed to change K8s context to %s: %w", k8sContext, err)
-	}
-	cmd := exec.Command("bash", "-c", "oc whoami --show-server")
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("failed to get Kubernetes API endpoint: %v", err)
-	}
-	return strings.TrimSpace(string(output)), nil
 }
 
 // ExecuteResourceOperations tests all CRUD operations for the given resource types

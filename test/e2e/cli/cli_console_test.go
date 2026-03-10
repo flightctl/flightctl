@@ -7,7 +7,6 @@ import (
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/test/e2e/resources"
 	"github.com/flightctl/flightctl/test/harness/e2e"
-	"github.com/flightctl/flightctl/test/login"
 	"github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -30,8 +29,6 @@ var _ = Describe("CLI - device console", func() {
 	BeforeEach(func() {
 		// Get harness directly - no shared package-level variable
 		harness := e2e.GetWorkerHarness()
-
-		login.LoginToAPIWithToken(harness)
 
 		By("enrolling the device")
 		deviceID, _ = harness.EnrollAndWaitForOnlineStatus()
