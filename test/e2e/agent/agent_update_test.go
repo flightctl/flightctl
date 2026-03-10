@@ -311,9 +311,17 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			// The device will reboot into v11, agent fails to start, greenboot detects failure,
 			// and triggers rollback. With GREENBOOT_MAX_BOOT_ATTEMPTS=1 (set in BASE image),
 			// this should complete in a single boot cycle (~3-5 minutes).
+			// We capture the boot ID atomically here so the no-retry stability check
+			// starts from the exact moment the rollback is first observed.
+			postRollbackBootID := ""
 			harness.WaitForDeviceContents(deviceId, "device should rollback to initial OS image and come online", func(device *v1beta1.Device) bool {
-				return device.Status.Os.Image == initialStatusImage &&
-					device.Status.Summary.Status == v1beta1.DeviceSummaryStatusOnline
+				if device.Status.Os.Image != initialStatusImage ||
+					device.Status.Summary.Status != v1beta1.DeviceSummaryStatusOnline ||
+					device.Status.SystemInfo.BootID == initialBootID {
+					return false
+				}
+				postRollbackBootID = device.Status.SystemInfo.BootID
+				return true
 			}, LONGTIMEOUT)
 
 			By("Verifying greenboot triggered an OS rollback (not just a reboot)")
@@ -331,20 +339,9 @@ var _ = Describe("VM Agent behavior during updates", func() {
 				return device.Status.Updated.Status == v1beta1.DeviceUpdatedStatusOutOfDate
 			}, TIMEOUT)
 
-			By("Verifying boot ID changed (confirming reboot occurred)")
-			harness.WaitForDeviceContents(deviceId, "boot ID should have changed after reboot", func(device *v1beta1.Device) bool {
-				return device.Status.SystemInfo.BootID != initialBootID
-			}, TIMEOUT)
-
 			GinkgoWriter.Printf("Device successfully rolled back from v11 to %s via greenboot\n", initialStatusImage)
 
 			By("Verifying device does NOT retry the failed v11 image")
-			postRollbackBootID := ""
-			harness.WaitForDeviceContents(deviceId, "capture boot ID after rollback", func(device *v1beta1.Device) bool {
-				postRollbackBootID = device.Status.SystemInfo.BootID
-				return postRollbackBootID != ""
-			}, TIMEOUT)
-
 			harness.EnsureDeviceContents(deviceId, "device should remain stable and not retry failed image", func(device *v1beta1.Device) bool {
 				return device.Status.Os.Image == initialStatusImage &&
 					device.Status.SystemInfo.BootID == postRollbackBootID &&
