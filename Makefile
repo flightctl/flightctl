@@ -106,7 +106,11 @@ help:
 	@echo "    clean:           clean up all containers and volumes"
 	@echo "    clean-all:       full cleanup including containers and bin directory"
 	@echo "    clean-e2e-images: clean up e2e test images (app and device) from both regular and root podman"
-	@echo "    clean-e2e-satellite: remove E2E satellite containers (registry, git server, prometheus) for fresh e2e runs"
+	@echo "    clean-satellite: remove E2E satellite containers (registry, git server, prometheus) for fresh e2e runs"
+	@echo "    start-registry:  start E2E registry container (reuse=true)"
+	@echo "    start-git-server: start E2E git server container (reuse=true)"
+	@echo "    start-prometheus: start E2E prometheus container (reuse=true)"
+	@echo "    start-satellite: start all E2E satellite containers (registry, git-server, prometheus)"
 	@echo "    rebuild-containers: force rebuild all containers"
 	@echo "    bundle-containers: bundle all flightctl containers into tar archive"
 	@echo "    cluster:         create a kind cluster and load the flightctl-server image"
@@ -406,7 +410,7 @@ deb: bin/arm64 bin/amd64 bin/riscv64
 	ln -f -s packaging/debian debian
 	debuild -us -uc -b
 
-clean: clean-agent-vm clean-e2e-agent-images clean-quadlets clean-swtpm-certs clean-e2e-certs clean-e2e-satellite
+clean: clean-agent-vm clean-e2e-agent-images clean-quadlets clean-swtpm-certs clean-e2e-certs clean-satellite
 	- kind delete cluster
 	- rm -rf ~/.flightctl
 	- rm -rf $(shell uname -m)
@@ -419,7 +423,7 @@ clean-all: clean clean-containers
 	- rm -rf bin
 
 # Remove E2E satellite testcontainers (registry, git server, prometheus) and their anonymous volumes so next e2e run starts fresh
-clean-e2e-satellite:
+clean-satellite:
 	- podman rm -f -v e2e-registry e2e-gitserver e2e-prometheus 2>/dev/null || true
 
 clean-quadlets:
