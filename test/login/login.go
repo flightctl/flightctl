@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"strings"
 
 	"github.com/flightctl/flightctl/internal/client"
@@ -269,43 +268,4 @@ func LoginAsNonAdminSA(harness *e2e.Harness, user string) error {
 		return fmt.Errorf("login not successful for SA %s: %s", saName, out)
 	}
 	return harness.RefreshClient()
-}
-
-// LoginAndGetOrgID logs in as the specified user and returns their organization ID.
-func LoginAndGetOrgID(harness *e2e.Harness, user, password, k8sContext, k8sApiEndpoint string) (string, error) {
-	if err := LoginAsNonAdmin(harness, user, password, k8sContext, k8sApiEndpoint); err != nil {
-		return "", fmt.Errorf("login failed for %s: %w", user, err)
-	}
-	orgID, err := harness.GetOrganizationID()
-	if err != nil {
-		return "", fmt.Errorf("getting org for %s: %w", user, err)
-	}
-	return orgID, nil
-}
-
-// LoginAsNonAdmin logs in to OCP as a non-admin user and refreshes the harness client.
-func LoginAsNonAdmin(harness *e2e.Harness, user, password, k8sContext, k8sApiEndpoint string) error {
-	if !util.BinaryExistsOnPath("oc") {
-		return fmt.Errorf("oc not found on PATH")
-	}
-	loginCommand := fmt.Sprintf("oc login -u %s -p %s %s", user, password, k8sApiEndpoint)
-	cmd := exec.Command("bash", "-c", loginCommand)
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to login to Kubernetes cluster as non-admin: %w", err)
-	}
-	logrus.Infof("Logged in to Kubernetes cluster as non-admin: %s", user)
-
-	method, err := LoginToAPIWithToken(harness)
-	if err != nil {
-		return fmt.Errorf("login to API with token: %w", err)
-	}
-	if method == AuthMethod(0) && !infra.IsQuadletEnvironment() {
-		return errors.New("unexpected auth method after login")
-	}
-
-	if err := harness.RefreshClient(); err != nil {
-		return fmt.Errorf("failed to refresh client after login: %w", err)
-	}
-
-	return nil
 }
