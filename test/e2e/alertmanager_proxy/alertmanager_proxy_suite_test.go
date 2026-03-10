@@ -7,6 +7,7 @@ import (
 	"github.com/flightctl/flightctl/test/e2e/infra/satellite"
 	"github.com/flightctl/flightctl/test/e2e/infra/setup"
 	"github.com/flightctl/flightctl/test/harness/e2e"
+	"github.com/flightctl/flightctl/test/login"
 	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -28,6 +29,9 @@ var _ = BeforeEach(func() {
 	workerID := GinkgoParallelProcess()
 	harness := e2e.GetWorkerHarness()
 	suiteCtx := e2e.GetWorkerContext()
+
+	_, err := login.LoginToAPIWithToken(harness)
+	Expect(err).ToNot(HaveOccurred())
 
 	GinkgoWriter.Printf("[BeforeEach] Worker %d: Setting up test\n", workerID)
 

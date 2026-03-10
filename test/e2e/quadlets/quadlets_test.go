@@ -14,7 +14,6 @@ import (
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/test/harness/e2e"
-	"github.com/flightctl/flightctl/test/login"
 	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -47,7 +46,6 @@ var _ = Describe("Quadlets application type support", Label("quadlets"), func() 
 
 	BeforeEach(func() {
 		harness = e2e.GetWorkerHarness()
-		login.LoginToAPIWithToken(harness)
 		deviceID, _ = harness.EnrollAndWaitForOnlineStatus()
 	})
 

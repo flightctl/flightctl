@@ -22,12 +22,10 @@ const (
 
 var _ = Describe("RBAC Authorization Tests", Label("rbac", "authorization"), func() {
 	var (
-		harness           *e2e.Harness
-		suiteCtx          context.Context
-		defaultK8sContext string
-		k8sApiEndpoint    string
-		testNs1           string
-		testNs2           string
+		harness  *e2e.Harness
+		suiteCtx context.Context
+		testNs1  string
+		testNs2  string
 	)
 
 	roles := []string{
@@ -73,12 +71,6 @@ var _ = Describe("RBAC Authorization Tests", Label("rbac", "authorization"), fun
 		harness = e2e.GetWorkerHarness()
 		suiteCtx = e2e.GetWorkerContext()
 
-		// Get the default K8s context
-		defaultK8sContext, err = harness.GetDefaultK8sAdminContext()
-		Expect(err).ToNot(HaveOccurred(), "Failed to get default K8s context")
-		k8sApiEndpoint, err = harness.GetK8sApiEndpoint(suiteCtx, defaultK8sContext)
-		Expect(err).ToNot(HaveOccurred(), "Failed to get Kubernetes API endpoint")
-
 		// Create two test namespaces with unique names
 		testID := harness.GetTestIDFromContext()
 		testNs1 = fmt.Sprintf("rbac-test-ns1-%s", testID)
@@ -99,9 +91,8 @@ var _ = Describe("RBAC Authorization Tests", Label("rbac", "authorization"), fun
 	})
 
 	AfterEach(func() {
-		_, err := harness.ChangeK8sContext(suiteCtx, defaultK8sContext)
-		Expect(err).ToNot(HaveOccurred(), "Failed to change K8s context")
-		login.LoginToAPIWithToken(harness)
+		_, err := login.LoginToAPIWithToken(harness)
+		Expect(err).ToNot(HaveOccurred())
 
 		rbac := getRBAC()
 		for _, role := range roles {
@@ -128,7 +119,7 @@ var _ = Describe("RBAC Authorization Tests", Label("rbac", "authorization"), fun
 	Context("FlightCtl user", func() {
 		It("should have access full access with an admin role", Label("83842"), func() {
 			By("Login to the cluster as a user without a role")
-			loginAsNonAdmin(harness, nonAdminUser, defaultK8sContext, k8sApiEndpoint)
+			loginAsNonAdmin(harness, nonAdminUser)
 
 			By("Testing that operations should fail without a role")
 			operations := []string{e2e.OperationCreate, e2e.OperationList}
@@ -141,7 +132,7 @@ var _ = Describe("RBAC Authorization Tests", Label("rbac", "authorization"), fun
 			createRoleAndBinding(suiteCtx, getRBAC(), adminRoleName, adminRoleBindingName, testNs1, nonAdminUser, adminPermissions)
 
 			By("Testing that operations should succeed with admin role")
-			changeNamespaceAndLoginAsNonAdmin(harness, testNs1, nonAdminUser, defaultK8sContext, k8sApiEndpoint)
+			changeNamespaceAndLoginAsNonAdmin(harness, testNs1, nonAdminUser)
 			operations = []string{e2e.OperationAll}
 			err = e2e.ExecuteResourceOperations(suiteCtx, harness, []string{"device", "fleet", "repository"}, true, adminTestLabels, testNs1, operations)
 			Expect(err).ToNot(HaveOccurred())
@@ -153,17 +144,15 @@ var _ = Describe("RBAC Authorization Tests", Label("rbac", "authorization"), fun
 			Expect(err).ToNot(HaveOccurred())
 
 			By("Deleting the admin role and role binding")
-			output, err := harness.ChangeK8sContext(suiteCtx, defaultK8sContext)
-			Expect(output).Should(MatchRegexp(fmt.Sprintf("Switched to context \"%s\"", defaultK8sContext)))
-			GinkgoWriter.Println("Output:", output)
-			Expect(err).ToNot(HaveOccurred(), "Failed to change K8s context")
+			_, err = login.LoginToAPIWithToken(harness)
+			Expect(err).ToNot(HaveOccurred())
 			deleteRoleAndRoleBinding(suiteCtx, getRBAC(), testNs1, adminRoleName, adminRoleBindingName)
 
 			By("Creating an admin role and a role binding in the second test namespace")
 			createRoleAndBinding(suiteCtx, getRBAC(), adminRoleName, adminRoleBindingName, testNs2, nonAdminUser, adminPermissions)
 
 			By("Testing that operations should fail with admin role in the default namespace")
-			loginAsNonAdmin(harness, nonAdminUser, defaultK8sContext, k8sApiEndpoint)
+			loginAsNonAdmin(harness, nonAdminUser)
 			operations = []string{e2e.OperationCreate, e2e.OperationList}
 			err = e2e.ExecuteResourceOperations(suiteCtx, harness, []string{"device", "fleet", "repository"}, false, adminTestLabels, testNs2, operations)
 			Expect(err).NotTo(HaveOccurred())
@@ -175,7 +164,7 @@ var _ = Describe("RBAC Authorization Tests", Label("rbac", "authorization"), fun
 
 			By("Creating an admin cluster role and a cluster role binding")
 			createClusterRoleAndBinding(suiteCtx, getRBAC(), adminRoleName, adminRoleBindingName, nonAdminUser, adminPermissions)
-			loginAsNonAdmin(harness, nonAdminUser, defaultK8sContext, k8sApiEndpoint)
+			loginAsNonAdmin(harness, nonAdminUser)
 
 			By("Testing that operations should succeed with an admin cluster role")
 			operations = []string{e2e.OperationAll}
@@ -190,7 +179,7 @@ var _ = Describe("RBAC Authorization Tests", Label("rbac", "authorization"), fun
 
 		It("should have a limited access with a non-admin role", Label("84169"), func() {
 			By("Login to the cluster as a user without a role")
-			loginAsNonAdmin(harness, nonAdminUser, defaultK8sContext, k8sApiEndpoint)
+			loginAsNonAdmin(harness, nonAdminUser)
 
 			By("Testing that operations should fail without a role")
 			err := e2e.TestResourceOperations(suiteCtx, harness, []string{e2e.OperationCreate, e2e.OperationList}, []e2e.ResourceTestConfig{
@@ -202,7 +191,7 @@ var _ = Describe("RBAC Authorization Tests", Label("rbac", "authorization"), fun
 			createRoleAndBinding(suiteCtx, getRBAC(), userRoleName, userRoleBindingName, testNs1, nonAdminUser, userPermissions)
 
 			By("Testing that device operations should succeed with the user role")
-			changeNamespaceAndLoginAsNonAdmin(harness, testNs1, nonAdminUser, defaultK8sContext, k8sApiEndpoint)
+			changeNamespaceAndLoginAsNonAdmin(harness, testNs1, nonAdminUser)
 			err = e2e.TestResourceOperations(suiteCtx, harness, []string{e2e.OperationCreate, e2e.OperationList}, []e2e.ResourceTestConfig{
 				{Resources: []string{"device"}, ShouldSucceed: true},
 				{Resources: []string{"fleet"}, ShouldSucceed: false},
@@ -210,7 +199,7 @@ var _ = Describe("RBAC Authorization Tests", Label("rbac", "authorization"), fun
 			Expect(err).ToNot(HaveOccurred())
 
 			By("Testing adding a rule to the user role allowing operations on fleet")
-			changeNamespaceAndLoginAsNonAdmin(harness, testNs1, nonAdminUser, defaultK8sContext, k8sApiEndpoint)
+			changeNamespaceAndLoginAsNonAdmin(harness, testNs1, nonAdminUser)
 			updatedRoleSpec := &infra.RoleSpec{
 				Name:        userRoleName,
 				Namespace:   testNs1,
@@ -220,7 +209,7 @@ var _ = Describe("RBAC Authorization Tests", Label("rbac", "authorization"), fun
 			Expect(err).ToNot(HaveOccurred())
 
 			By("Testing that fleet and device operations should succeed with the user role")
-			changeNamespaceAndLoginAsNonAdmin(harness, testNs1, nonAdminUser, defaultK8sContext, k8sApiEndpoint)
+			changeNamespaceAndLoginAsNonAdmin(harness, testNs1, nonAdminUser)
 			err = e2e.TestResourceOperations(suiteCtx, harness, []string{e2e.OperationCreate, e2e.OperationList}, []e2e.ResourceTestConfig{
 				{Resources: []string{"device", "fleet"}, ShouldSucceed: true},
 			}, userTestLabels, testNs1)
@@ -233,7 +222,7 @@ var _ = Describe("RBAC Authorization Tests", Label("rbac", "authorization"), fun
 			createClusterRoleAndBinding(suiteCtx, getRBAC(), userRoleName, userRoleBindingName, nonAdminUser, userPermissions)
 
 			By("Testing that device operations should succeed with the user cluster role and fleet operations should fail")
-			loginAsNonAdmin(harness, nonAdminUser, defaultK8sContext, k8sApiEndpoint)
+			loginAsNonAdmin(harness, nonAdminUser)
 			err = e2e.TestResourceOperations(suiteCtx, harness, []string{e2e.OperationCreate, e2e.OperationList}, []e2e.ResourceTestConfig{
 				{Resources: []string{"device"}, ShouldSucceed: true},
 				{Resources: []string{"fleet"}, ShouldSucceed: false},
@@ -247,7 +236,7 @@ var _ = Describe("RBAC Authorization Tests", Label("rbac", "authorization"), fun
 			}
 			err = getRBAC().UpdateClusterRole(suiteCtx, updatedClusterRoleSpec)
 			Expect(err).ToNot(HaveOccurred())
-			loginAsNonAdmin(harness, nonAdminUser, defaultK8sContext, k8sApiEndpoint)
+			loginAsNonAdmin(harness, nonAdminUser)
 
 			By("Testing that fleet and device operations should succeed with the user cluster role")
 			err = e2e.TestResourceOperations(suiteCtx, harness, []string{e2e.OperationCreate, e2e.OperationList}, []e2e.ResourceTestConfig{
@@ -262,8 +251,8 @@ var _ = Describe("RBAC Authorization Tests", Label("rbac", "authorization"), fun
 })
 
 // changeNamespaceAndLoginAsNonAdmin logs in as a non-admin user and sets the current org to the one that corresponds to the namespace.
-func changeNamespaceAndLoginAsNonAdmin(harness *e2e.Harness, namespace, userName, k8sContext, k8sApiEndpoint string) {
-	err := login.LoginAsNonAdmin(harness, userName, userName, k8sContext, k8sApiEndpoint)
+func changeNamespaceAndLoginAsNonAdmin(harness *e2e.Harness, namespace, userName string) {
+	err := login.Login(harness, userName, userName)
 	Expect(err).ToNot(HaveOccurred())
 	// Use the org that corresponds to this namespace (e.g. OpenShift project -> org with matching externalId)
 	org, err := harness.GetOrganizationIDForNamespace(namespace)
@@ -327,7 +316,7 @@ func deleteClusterRoleAndBinding(ctx context.Context, rbac infra.RBACProvider, c
 }
 
 // loginAsNonAdmin logs in as a non-admin user.
-func loginAsNonAdmin(harness *e2e.Harness, userName, k8sContext, k8sApiEndpoint string) {
-	err := login.LoginAsNonAdmin(harness, userName, userName, k8sContext, k8sApiEndpoint)
+func loginAsNonAdmin(harness *e2e.Harness, userName string) {
+	err := login.Login(harness, userName, userName)
 	Expect(err).ToNot(HaveOccurred())
 }
