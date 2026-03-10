@@ -1120,8 +1120,9 @@ Reasons for running an application under the root podman include:
 
 - Exposing ports < 1024 from the host
 - Accessing volumes where root permissions are needed
+- [Other limitations to be aware of](https://github.com/containers/podman/blob/main/rootless.md#shortcomings-of-rootless-podman)
 
-But most applications should not need access to the root podman instance.
+But many applications should not need access to the root podman instance.
 
 > [!NOTE]
 > If you want to set cpu limits on your rootless quadlet application, you might need to add
