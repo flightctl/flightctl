@@ -110,7 +110,8 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 				fmt.Sprintf("Expected %d total devices to enroll", totalDevices))
 			GinkgoWriter.Printf("All %d devices enrolled successfully as admin\n", totalDevices)
 
-			for _, u := range []userCred{{operatorUser, operatorPass}, {viewerUser, viewerPass}, {installerUser, installerPass}} {
+			// installer role does not have device list permission, so only check operator and viewer
+			for _, u := range []userCred{{operatorUser, operatorPass}, {viewerUser, viewerPass}} {
 				By(fmt.Sprintf("Switching to %s and verifying all devices are visible", u.name))
 				err = login.Login(harness, u.name, u.password)
 				Expect(err).ToNot(HaveOccurred())
