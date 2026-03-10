@@ -352,7 +352,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			}, "2m")
 			GinkgoWriter.Println("Confirmed: device did not retry the failed v11 image after rollback")
 		})
-		It("Should NOT rollback when third-party health check (MicroShift) fails", Label("greenboot-third-party", "agent"), func() {
+		It("Should NOT rollback when third-party health check (MicroShift) fails", Label("greenboot-third-party", "88229", "agent"), func() {
 			harness := e2e.GetWorkerHarness()
 
 			By("Getting initial device state")
