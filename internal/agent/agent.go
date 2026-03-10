@@ -74,15 +74,6 @@ func (a *Agent) Run(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	// Ensure SELinux policies are loaded for bootc environments (like EL10)
-	// This addresses the issue where RPM post-install scripts don't execute
-	// properly in bootc systems, leaving SELinux policies unloaded
-	policyLoader := selinux.NewPolicyLoader(a.log)
-	if err := policyLoader.EnsurePolicyLoaded(ctx); err != nil {
-		// Log error but don't fail agent startup - policy loading is best-effort
-		a.log.Warnf("SELinux policy loading failed: %v", err)
-	}
-
 	var wg sync.WaitGroup
 	startAsync := func(fn func(context.Context)) {
 		wg.Add(1)
@@ -100,6 +91,15 @@ func (a *Agent) Run(ctx context.Context) error {
 	rootReadWriter, err := rwFactory("")
 	if err != nil {
 		return fmt.Errorf("initialize root read/writer: %w", err)
+	}
+
+	// Ensure SELinux policies are loaded for bootc environments (like EL10)
+	// This addresses the issue where RPM post-install scripts don't execute
+	// properly in bootc systems, leaving SELinux policies unloaded
+	policyLoader := selinux.NewPolicyLoader(a.log, rootReadWriter)
+	if err := policyLoader.EnsurePolicyLoaded(ctx); err != nil {
+		// Log error but don't fail agent startup - policy loading is best-effort
+		a.log.Warnf("SELinux policy loading failed: %v", err)
 	}
 
 	tpmClient, err := a.tryLoadTPM(rootReadWriter)

@@ -5,11 +5,23 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/log"
 )
+
+// isContextCancelled returns true if the context is cancelled
+func isContextCancelled(ctx context.Context) bool {
+	select {
+	case <-ctx.Done():
+		return true
+	default:
+		return false
+	}
+}
 
 const (
 	// SELinux policy file location
@@ -25,12 +37,14 @@ const (
 // PolicyLoader handles SELinux policy loading for bootc environments
 type PolicyLoader struct {
 	log *log.PrefixLogger
+	rw  fileio.ReadWriter
 }
 
 // NewPolicyLoader creates a new SELinux policy loader
-func NewPolicyLoader(log *log.PrefixLogger) *PolicyLoader {
+func NewPolicyLoader(log *log.PrefixLogger, rw fileio.ReadWriter) *PolicyLoader {
 	return &PolicyLoader{
 		log: log,
+		rw:  rw,
 	}
 }
 
@@ -39,7 +53,7 @@ func NewPolicyLoader(log *log.PrefixLogger) *PolicyLoader {
 // don't execute properly, leaving policies unloaded despite package installation
 func (p *PolicyLoader) EnsurePolicyLoaded(ctx context.Context) error {
 	// Only attempt policy loading if needed
-	if !p.needsPolicyLoading() {
+	if !p.needsPolicyLoading(ctx) {
 		p.log.Debug("SELinux policy loading not needed")
 		return nil
 	}
@@ -47,7 +61,7 @@ func (p *PolicyLoader) EnsurePolicyLoaded(ctx context.Context) error {
 	p.log.Info("SELinux policy loading required for bootc environment")
 
 	// Check if we have the required capabilities
-	if !p.hasRequiredCapabilities() {
+	if !p.hasRequiredCapabilities(ctx) {
 		return fmt.Errorf("insufficient capabilities to load SELinux policies (requires CAP_MAC_ADMIN)")
 	}
 
@@ -64,14 +78,19 @@ func (p *PolicyLoader) EnsurePolicyLoaded(ctx context.Context) error {
 }
 
 // needsPolicyLoading determines if SELinux policy loading is required
-func (p *PolicyLoader) needsPolicyLoading() bool {
+func (p *PolicyLoader) needsPolicyLoading(ctx context.Context) bool {
+	// Check context cancellation early
+	if isContextCancelled(ctx) {
+		return false
+	}
+
 	// Check if SELinux is enabled
-	if !p.isSELinuxEnabled() {
+	if !p.isSELinuxEnabled(ctx) {
 		return false
 	}
 
 	// Check if FlightCtl module is already loaded
-	if p.isFlightCtlModuleLoaded() {
+	if p.isFlightCtlModuleLoaded(ctx) {
 		return false
 	}
 
@@ -85,11 +104,16 @@ func (p *PolicyLoader) needsPolicyLoading() bool {
 }
 
 // isSELinuxEnabled checks if SELinux is enabled and enforcing
-func (p *PolicyLoader) isSELinuxEnabled() bool {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+func (p *PolicyLoader) isSELinuxEnabled(ctx context.Context) bool {
+	// Check context cancellation
+	if isContextCancelled(ctx) {
+		return false
+	}
+
+	timeoutCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "getenforce")
+	cmd := exec.CommandContext(timeoutCtx, "getenforce")
 	output, err := cmd.Output()
 	if err != nil {
 		return false
@@ -100,11 +124,16 @@ func (p *PolicyLoader) isSELinuxEnabled() bool {
 }
 
 // isFlightCtlModuleLoaded checks if FlightCtl SELinux module is loaded
-func (p *PolicyLoader) isFlightCtlModuleLoaded() bool {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+func (p *PolicyLoader) isFlightCtlModuleLoaded(ctx context.Context) bool {
+	// Check context cancellation
+	if isContextCancelled(ctx) {
+		return false
+	}
+
+	timeoutCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "semodule", "-l")
+	cmd := exec.CommandContext(timeoutCtx, "semodule", "-l")
 	output, err := cmd.Output()
 	if err != nil {
 		return false
@@ -116,20 +145,79 @@ func (p *PolicyLoader) isFlightCtlModuleLoaded() bool {
 
 // policyFileExists checks if the FlightCtl policy file exists
 func (p *PolicyLoader) policyFileExists() bool {
-	_, err := os.Stat(flightctlPolicyPath)
-	return err == nil
+	exists, err := p.rw.PathExists(flightctlPolicyPath)
+	if err != nil {
+		p.log.Debugf("Error checking if policy file exists: %v", err)
+		return false
+	}
+	return exists
 }
 
 // hasRequiredCapabilities checks if we have CAP_MAC_ADMIN capability
-func (p *PolicyLoader) hasRequiredCapabilities() bool {
-	// Simple check: try to run semodule with a dry-run operation
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+func (p *PolicyLoader) hasRequiredCapabilities(ctx context.Context) bool {
+	// Check context cancellation
+	if isContextCancelled(ctx) {
+		return false
+	}
+
+	// CAP_MAC_ADMIN is capability 33 (0x200000000)
+	return p.hasCapability(ctx, 33)
+}
+
+// hasCapability checks if the current process has the specified capability
+func (p *PolicyLoader) hasCapability(ctx context.Context, cap int) bool {
+	// Check context cancellation
+	if isContextCancelled(ctx) {
+		return false
+	}
+
+	// Read /proc/self/status to get capability information
+	timeoutCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 
-	// Test with a harmless semodule operation
-	cmd := exec.CommandContext(ctx, "semodule", "-l")
-	err := cmd.Run()
-	return err == nil
+	done := make(chan bool, 1)
+	var hasCapResult bool
+
+	go func() {
+		defer func() { done <- true }()
+
+		content, err := os.ReadFile("/proc/self/status")
+		if err != nil {
+			p.log.Debugf("Failed to read /proc/self/status: %v", err)
+			hasCapResult = false
+			return
+		}
+
+		lines := strings.Split(string(content), "\n")
+		for _, line := range lines {
+			if strings.HasPrefix(line, "CapEff:") {
+				// Extract effective capabilities
+				parts := strings.Fields(line)
+				if len(parts) >= 2 {
+					capHex := parts[1]
+					// Convert hex to int and check if our capability bit is set
+					if capInt, err := strconv.ParseInt(capHex, 16, 64); err == nil {
+						if cap >= 0 && cap < 64 { // Ensure cap is in valid range for bit shifting
+							hasCapResult = (capInt & (1 << uint(cap))) != 0
+						} else {
+							hasCapResult = false
+						}
+						return
+					}
+				}
+			}
+		}
+		hasCapResult = false
+	}()
+
+	// Wait for either completion or context cancellation
+	select {
+	case <-timeoutCtx.Done():
+		p.log.Debug("Capability check timed out")
+		return false
+	case <-done:
+		return hasCapResult
+	}
 }
 
 // loadPolicy loads the FlightCtl SELinux policy
@@ -150,7 +238,7 @@ func (p *PolicyLoader) loadPolicy(ctx context.Context) error {
 	p.log.Debugf("semodule output: %s", string(output))
 
 	// Verify the module was loaded
-	if !p.isFlightCtlModuleLoaded() {
+	if !p.isFlightCtlModuleLoaded(ctx) {
 		return fmt.Errorf("policy loading appeared to succeed but module not found in loaded modules")
 	}
 
@@ -175,23 +263,30 @@ func (p *PolicyLoader) restoreFileContexts(ctx context.Context) error {
 		"/usr/lib/flightctl/custom-info.d",
 	}
 
+	var firstError error
 	for _, filePath := range filesToRestore {
-		if _, err := os.Stat(filePath); err != nil {
-			// Skip files that don't exist
+		if exists, err := p.rw.PathExists(filePath); err != nil || !exists {
+			// Skip files that don't exist or if there's an error checking
+			if err != nil {
+				p.log.Debugf("Error checking if file exists %s: %v", filePath, err)
+			}
 			continue
 		}
 
-		ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		cmd := exec.CommandContext(ctx, "restorecon", "-R", filePath)
+		timeoutCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		cmd := exec.CommandContext(timeoutCtx, "restorecon", "-R", filePath)
 		output, err := cmd.CombinedOutput()
 		cancel()
 
 		if err != nil {
 			p.log.Debugf("Failed to restore context for %s: %v (output: %s)", filePath, err, string(output))
+			if firstError == nil {
+				firstError = fmt.Errorf("failed to restore context for %s: %w (output: %s)", filePath, err, string(output))
+			}
 		} else {
 			p.log.Debugf("Restored context for %s", filePath)
 		}
 	}
 
-	return nil
+	return firstError
 }
