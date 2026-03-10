@@ -1,15 +1,19 @@
 package backup_restore
 
 import (
+	"context"
 	"os"
 	"testing"
 	"time"
 
+	"github.com/flightctl/flightctl/test/e2e/infra/satellite"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
+
+var satellites *satellite.Services
 
 const (
 	defaultEventuallyTimeout         = 5 * time.Minute
@@ -29,6 +33,7 @@ var _ = BeforeSuite(func() {
 	if os.Getenv("FLIGHTCTL_NS") == "" {
 		Skip("Backup/restore e2e requires FLIGHTCTL_NS (e.g. flightctl-external); run with in-cluster e2e")
 	}
+	satellites = satellite.Get(context.Background())
 	_, _, err := e2e.SetupWorkerHarness()
 	Expect(err).ToNot(HaveOccurred())
 })
@@ -62,6 +67,12 @@ var _ = AfterEach(func() {
 	harness.SetTestContext(suiteCtx)
 
 	GinkgoWriter.Printf("✅ [AfterEach] Worker %d: Backup/restore test cleanup completed\n", workerID)
+})
+
+var _ = AfterSuite(func() {
+	if satellites != nil {
+		satellites.Cleanup(context.Background())
+	}
 })
 
 func init() {

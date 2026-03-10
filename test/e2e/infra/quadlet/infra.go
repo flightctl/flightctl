@@ -38,6 +38,7 @@ var ServiceRegistry = map[infra.ServiceName]ServiceInfo{
 	infra.ServiceAlertmanagerProxy:  {ContainerName: "flightctl-alertmanager-proxy", SystemdUnit: "flightctl-alertmanager-proxy.service", Port: 8443},
 	infra.ServiceImageBuilderAPI:    {ContainerName: "flightctl-imagebuilder-api", SystemdUnit: "flightctl-imagebuilder-api.service", Port: 8445},
 	infra.ServiceImageBuilderWorker: {ContainerName: "flightctl-imagebuilder-worker", SystemdUnit: "flightctl-imagebuilder-worker.service", Port: 8080},
+	infra.ServiceAlertExporter:      {ContainerName: "flightctl-alert-exporter", SystemdUnit: "flightctl-alert-exporter.service", Port: 0},
 }
 
 // InfraProvider implements infra.InfraProvider for Quadlet environments.
@@ -109,12 +110,11 @@ func quoteForRemoteShell(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
 }
 
-// runCommand executes a command, using SSH if the host is remote.
-func (p *InfraProvider) runCommand(command ...string) (string, error) {
+// runCommandWithOptionalStdin runs a command (SSH if remote, else local). If stdin is non-nil it is attached to the process.
+func (p *InfraProvider) runCommandWithOptionalStdin(stdin io.Reader, command ...string) (string, error) {
 	var cmd *exec.Cmd
 
 	if p.isRemote() {
-		// Build SSH command
 		sshArgs := []string{"-o", "StrictHostKeyChecking=no", "-o", "BatchMode=yes"}
 		if p.sshKeyPath != "" {
 			sshArgs = append(sshArgs, "-i", p.sshKeyPath)
@@ -122,7 +122,6 @@ func (p *InfraProvider) runCommand(command ...string) (string, error) {
 		sshTarget := fmt.Sprintf("%s@%s", p.sshUser, p.host)
 		sshArgs = append(sshArgs, sshTarget)
 
-		// One quoted string so the remote shell reconstructs exact argv (works for any input)
 		remoteParts := make([]string, 0, len(command)+1)
 		if p.useSudo {
 			remoteParts = append(remoteParts, quoteForRemoteShell("sudo"))
@@ -134,7 +133,6 @@ func (p *InfraProvider) runCommand(command ...string) (string, error) {
 
 		cmd = exec.Command("ssh", sshArgs...)
 	} else {
-		// Local execution
 		if p.useSudo {
 			cmd = exec.Command("sudo", command...)
 		} else {
@@ -142,11 +140,24 @@ func (p *InfraProvider) runCommand(command ...string) (string, error) {
 		}
 	}
 
+	if stdin != nil {
+		cmd.Stdin = stdin
+	}
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return string(output), fmt.Errorf("command failed: %w: %s", err, strings.TrimSpace(string(output)))
 	}
 	return string(output), nil
+}
+
+// runCommand executes a command, using SSH if the host is remote.
+func (p *InfraProvider) runCommand(command ...string) (string, error) {
+	return p.runCommandWithOptionalStdin(nil, command...)
+}
+
+// runCommandWithStdin runs a command with stdin attached (for remote, SSH forwards stdin to the remote process).
+func (p *InfraProvider) runCommandWithStdin(stdin io.Reader, command ...string) (string, error) {
+	return p.runCommandWithOptionalStdin(stdin, command...)
 }
 
 // GetConfigValue retrieves a configuration value from config files or environment.
@@ -420,6 +431,19 @@ func (p *InfraProvider) ExecInService(service infra.ServiceName, command []strin
 
 	podmanArgs := append([]string{"podman", "exec", info.ContainerName}, command...)
 	output, err := p.runCommand(podmanArgs...)
+	if err != nil {
+		return output, fmt.Errorf("failed to exec in service %s: %w", service, err)
+	}
+	return output, nil
+}
+
+// ExecInServiceWithStdin executes a command in the context of a service container with stdin attached.
+// For Quadlet: podman exec -i (stdin piped through SSH when remote).
+func (p *InfraProvider) ExecInServiceWithStdin(service infra.ServiceName, command []string, stdin io.Reader) (string, error) {
+	info := GetServiceInfo(service)
+
+	podmanArgs := append([]string{"podman", "exec", "-i", info.ContainerName}, command...)
+	output, err := p.runCommandWithStdin(stdin, podmanArgs...)
 	if err != nil {
 		return output, fmt.Errorf("failed to exec in service %s: %w", service, err)
 	}
