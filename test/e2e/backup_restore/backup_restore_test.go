@@ -12,12 +12,13 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/test/e2e/infra"
+	"github.com/flightctl/flightctl/test/e2e/infra/setup"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	"github.com/flightctl/flightctl/test/login"
 	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/samber/lo"
 )
 
 const (
@@ -31,26 +32,12 @@ const (
 	// #nosec G101
 	kvSecretName = "flightctl-kv-secret"
 	kvSecretKey  = "password"
-	dbService    = "svc/flightctl-db"
-	kvService    = "svc/flightctl-kv"
-	dbPort       = 5432
-	kvPort       = 6379
 
 	// 84934: fleet and device labels
 	backupRestoreFleetName = "backup-restore-fleet"
 	devYesLabel            = "dev"
 	devYesValue            = "yes"
-
-	KindInternalNamespace = "flightctl-internal"
-	KindExternalNamespace = "flightctl-external"
-	OcpNamespace          = "flightctl"
-
-	kubectlCommand = "kubectl"
-	ocCommand      = "oc"
 )
-
-// externalNS and internalNS are set in BeforeEach from runtime detection (kind vs OCP).
-var cliCommand, externalNS, internalNS string
 
 var _ = Describe("Service backup and restore", Label("backup-restore"), func() {
 	var harness *e2e.Harness
@@ -58,11 +45,9 @@ var _ = Describe("Service backup and restore", Label("backup-restore"), func() {
 
 	BeforeEach(func() {
 		harness = e2e.GetWorkerHarness()
-		cliCommand = lo.Ternary(getContext() == testutil.KIND, kubectlCommand, ocCommand)
-		externalNS = lo.Ternary(getContext() == testutil.KIND, KindExternalNamespace, OcpNamespace)
-		internalNS = lo.Ternary(getContext() == testutil.KIND, KindInternalNamespace, OcpNamespace)
-		login.LoginToAPIWithToken(harness)
-		br = newBackupRestore(harness)
+		_, err := login.LoginToAPIWithToken(harness)
+		Expect(err).ToNot(HaveOccurred())
+		br = newBackupRestore(harness, setup.GetDefaultProviders())
 	})
 
 	// full backup/restore flow with 3 ERs, fleet, post-backup changes, and resume.
@@ -109,7 +94,8 @@ var _ = Describe("Service backup and restore", Label("backup-restore"), func() {
 
 			// --- Step 1: Fleet v2, device UpToDate; capture RV at backup time (rvAtBackup) ---
 			By("Creating fleet with selector dev=yes and OS image v2")
-			deviceSpecV2, err := harness.CreateFleetDeviceSpec(testutil.DeviceTags.V2)
+			regHost, regPort := satellites.RegistryHost, satellites.RegistryPort
+			deviceSpecV2, err := harness.CreateFleetDeviceSpec(regHost, regPort, testutil.DeviceTags.V2)
 			Expect(err).ToNot(HaveOccurred())
 			selector := v1beta1.LabelSelector{MatchLabels: &map[string]string{devYesLabel: devYesValue}}
 			Expect(harness.CreateOrUpdateTestFleet(backupRestoreFleetName, selector, deviceSpecV2)).To(Succeed())
@@ -131,7 +117,7 @@ var _ = Describe("Service backup and restore", Label("backup-restore"), func() {
 			// --- Step 3: Update fleet to OS v3 + inline config (new RV) ---
 			var rvAfterUpdate int
 			By("Step 3: Updating fleet to OS v3 and adding inline config for /etc/motd")
-			deviceSpecV3, err := harness.CreateFleetDeviceSpec(testutil.DeviceTags.V3, motdInlineConfigProviderSpec())
+			deviceSpecV3, err := harness.CreateFleetDeviceSpec(regHost, regPort, testutil.DeviceTags.V3, motdInlineConfigProviderSpec())
 			Expect(err).ToNot(HaveOccurred())
 			Expect(harness.CreateOrUpdateTestFleet(backupRestoreFleetName, selector, deviceSpecV3)).To(Succeed())
 
@@ -224,7 +210,7 @@ var _ = Describe("Service backup and restore", Label("backup-restore"), func() {
 
 			// --- Push config to ConflictPaused device (OS v4 + inline): spec updated, RV does not increase ---
 			By("Pushing new config (OS v4 + inline) to ConflictPaused device 1")
-			deviceSpecNext, err := harness.CreateFleetDeviceSpec(testutil.DeviceTags.V4, motdInlineConfigProviderSpec())
+			deviceSpecNext, err := harness.CreateFleetDeviceSpec(regHost, regPort, testutil.DeviceTags.V4, motdInlineConfigProviderSpec())
 			Expect(err).ToNot(HaveOccurred())
 			// Device 1 is owned by the fleet; push config by updating the fleet spec, not the device directly.
 			Expect(harness.CreateOrUpdateTestFleet(backupRestoreFleetName, selector, deviceSpecNext)).To(Succeed())
@@ -301,7 +287,8 @@ var _ = Describe("Service backup and restore", Label("backup-restore"), func() {
 
 			selector := v1beta1.LabelSelector{MatchLabels: &map[string]string{devYesLabel: devYesValue}}
 			By("Creating fleet with selector dev=yes and OS image v2")
-			deviceSpecV2, err := harness.CreateFleetDeviceSpec(testutil.DeviceTags.V2)
+			regHost, regPort := satellites.RegistryHost, satellites.RegistryPort
+			deviceSpecV2, err := harness.CreateFleetDeviceSpec(regHost, regPort, testutil.DeviceTags.V2)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(harness.CreateOrUpdateTestFleet(backupRestoreFleetName, selector, deviceSpecV2)).To(Succeed())
 
@@ -311,7 +298,7 @@ var _ = Describe("Service backup and restore", Label("backup-restore"), func() {
 			}, testutil.LONGTIMEOUT)
 
 			By("Triggering OS update (fleet to v3) and taking DB backup while update is in progress")
-			deviceSpecV3, err := harness.CreateFleetDeviceSpec(testutil.DeviceTags.V3, motdInlineConfigProviderSpec())
+			deviceSpecV3, err := harness.CreateFleetDeviceSpec(regHost, regPort, testutil.DeviceTags.V3, motdInlineConfigProviderSpec())
 			Expect(err).ToNot(HaveOccurred())
 			Expect(harness.CreateOrUpdateTestFleet(backupRestoreFleetName, selector, deviceSpecV3)).To(Succeed())
 			// Verify device is still on v2 (update not yet applied) so backup truly occurs while update is in progress.
@@ -379,18 +366,11 @@ func motdInlineConfigProviderSpec() v1beta1.ConfigProviderSpec {
 	return spec
 }
 
-func getContext() string {
-	e2eCtx, err := e2e.GetContext()
-	Expect(err).NotTo(HaveOccurred())
-	return e2eCtx
-}
-
-// newBackupRestore returns a BackupRestore by calling harness.NewBackupRestore with this package's constants and current externalNS/internalNS.
-func newBackupRestore(harness *e2e.Harness) *e2e.BackupRestore {
+// newBackupRestore returns a BackupRestore by calling harness.NewBackupRestore with this package's secret constants and the given providers.
+func newBackupRestore(harness *e2e.Harness, p *infra.Providers) *e2e.BackupRestore {
 	return harness.NewBackupRestore(
-		cliCommand, externalNS, internalNS, dbService, kvService,
+		p,
 		dbSecretName, dbUserKey, dbPasswordKey,
 		adminSecretName, adminSecretKey, kvSecretName, kvSecretKey,
-		dbPort, kvPort,
 	)
 }
