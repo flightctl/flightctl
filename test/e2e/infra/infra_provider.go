@@ -8,6 +8,8 @@
 // the provider (e.g. from setup.GetDefaultProviders() or the harness).
 package infra
 
+import "io"
+
 // ServiceName is a type-safe identifier for flightctl services.
 type ServiceName string
 
@@ -25,6 +27,7 @@ const (
 	ServiceAlertmanagerProxy  ServiceName = "alertmanager-proxy"
 	ServiceImageBuilderAPI    ServiceName = "imagebuilder-api"
 	ServiceImageBuilderWorker ServiceName = "imagebuilder-worker"
+	ServiceAlertExporter      ServiceName = "alert-exporter"
 )
 
 // InfraProvider abstracts infrastructure access for different deployment environments.
@@ -66,6 +69,12 @@ type InfraProvider interface {
 	// For Quadlet: direct command execution or SSH
 	ExecInService(service ServiceName, command []string) (string, error)
 
+	// ExecInServiceWithStdin executes a command in the context of a service with stdin attached.
+	// Used e.g. to pipe a backup file into psql during DB restore.
+	// For K8s: kubectl exec -i into the service's pod
+	// For Quadlet: podman exec -i (and stdin piped through SSH when remote)
+	ExecInServiceWithStdin(service ServiceName, command []string, stdin io.Reader) (string, error)
+
 	// GetEnvironmentType returns the type of environment ("kind", "ocp", "quadlet").
 	GetEnvironmentType() string
 
@@ -103,6 +112,7 @@ var DeploymentServiceNames = map[string]ServiceName{
 	"flightctl-alertmanager-proxy":  ServiceAlertmanagerProxy,
 	"flightctl-imagebuilder-api":    ServiceImageBuilderAPI,
 	"flightctl-imagebuilder-worker": ServiceImageBuilderWorker,
+	"flightctl-alert-exporter":      ServiceAlertExporter,
 }
 
 // ServiceNameFromDeploymentName returns the ServiceName for a deployment/service name string, or false if unknown.

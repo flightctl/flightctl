@@ -2,7 +2,7 @@
 
 ## Philosophy
 
-**Enforced by lint:** (1) `test/harness/e2e/` must not import `test/e2e/infra` or any subpackage (depguard `harness-no-infra`). (2) `k8s.io/client-go` may only be used under `test/e2e/infra/k8s` (depguard `test-no-k8s-client`); all other test code uses infra providers, not the K8s client directly.
+**Enforced by lint:** `k8s.io/client-go` may only be used under `test/e2e/infra/k8s` (depguard `test-no-k8s-client`); all other test code uses infra providers, not the K8s client directly.
 
 - **Harness has no infra.** The harness (`test/harness/e2e/`) does not import `test/e2e/infra` or hold provider/registry/git state. Tests get data from infra and pass it in:
   - **Registry:** `setup.GetDefaultProviders().Infra.GetRegistryEndpoint()` → pass `(host, port)` into `GetDeviceImageRefForFleet`, `GetSleepAppImageRefForFleet`, `CreateFleetDeviceSpec`.

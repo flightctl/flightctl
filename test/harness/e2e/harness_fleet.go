@@ -41,19 +41,16 @@ func getImageRefForFleet(registryHost, registryPort, registryPath, tag string, f
 	return ref
 }
 
-// CreateFleetDeviceSpec builds a device spec. Pass registryHost and registryPort from infra for Os.Image.
+// CreateFleetDeviceSpec builds a device spec. Pass registryHost and registryPort from infra for Os.Image; when deviceImageTag is empty they are unused.
 func (h *Harness) CreateFleetDeviceSpec(registryHost, registryPort, deviceImageTag string, additionalConfigs ...v1beta1.ConfigProviderSpec) (v1beta1.DeviceSpec, error) {
-
 	var deviceSpec v1beta1.DeviceSpec
 
-	// Set Os.Image only if deviceImageTag is provided
 	if deviceImageTag != "" {
 		deviceSpec.Os = &v1beta1.DeviceOsSpec{
 			Image: h.GetDeviceImageRefForFleet(registryHost, registryPort, deviceImageTag),
 		}
 	}
 
-	// Set Config only if config specs are provided
 	if len(additionalConfigs) > 0 {
 		deviceSpec.Config = &additionalConfigs
 	}

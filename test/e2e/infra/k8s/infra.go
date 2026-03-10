@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -56,6 +57,7 @@ var k8sServiceRegistry = map[infra.ServiceName]k8sServiceInfo{
 	infra.ServiceAlertmanagerProxy:  {ServiceName: "flightctl-alertmanager-proxy", ConfigMapName: "flightctl-alertmanager-proxy-config", Label: "flightctl.service=flightctl-alertmanager-proxy", Port: 8443, NSType: nsExternal},
 	infra.ServiceImageBuilderAPI:    {ServiceName: "flightctl-imagebuilder-api", ConfigMapName: "flightctl-imagebuilder-api-config", Label: "flightctl.service=flightctl-imagebuilder-api", Port: 8445, NSType: nsExternal},
 	infra.ServiceImageBuilderWorker: {ServiceName: "flightctl-imagebuilder-worker", ConfigMapName: "flightctl-imagebuilder-worker-config", Label: "flightctl.service=flightctl-imagebuilder-worker", Port: 8080, NSType: nsInternal},
+	infra.ServiceAlertExporter:      {ServiceName: "flightctl-alert-exporter", ConfigMapName: "flightctl-alert-exporter-config", Label: "flightctl.service=flightctl-alert-exporter", Port: 0, NSType: nsInternal},
 }
 
 // exposeCacheEntry holds a cached port-forward URL and its cleanup.
@@ -347,14 +349,13 @@ func getFreePort() (int, error) {
 	return listener.Addr().(*net.TCPAddr).Port, nil
 }
 
-// ExecInService executes a command in the context of a service's pod.
-func (p *InfraProvider) ExecInService(service infra.ServiceName, command []string) (string, error) {
+// execInServiceWithOptionalStdin runs a command in the context of a service's pod. If stdin is non-nil, -i is used and stdin is attached.
+func (p *InfraProvider) execInServiceWithOptionalStdin(stdin io.Reader, service infra.ServiceName, command []string) (string, error) {
 	info, ns, err := p.getServiceInfo(service)
 	if err != nil {
 		return "", err
 	}
 
-	// Get pod name
 	args := p.kubectlArgs("get", "pod", "-n", ns, "-l", info.Label, "-o", "jsonpath={.items[0].metadata.name}")
 	cmd := exec.Command("kubectl", args...)
 	output, err := cmd.Output()
@@ -367,16 +368,31 @@ func (p *InfraProvider) ExecInService(service infra.ServiceName, command []strin
 		return "", fmt.Errorf("no pod found for service %s", service)
 	}
 
-	// Execute command in pod
-	execArgs := p.kubectlArgs("exec", "-n", ns, podName, "--")
+	execArgs := p.kubectlArgs("exec", "-n", ns, podName)
+	if stdin != nil {
+		execArgs = append(execArgs, "-i")
+	}
+	execArgs = append(execArgs, "--")
 	execArgs = append(execArgs, command...)
 	cmd = exec.Command("kubectl", execArgs...)
+	if stdin != nil {
+		cmd.Stdin = stdin
+	}
 	output, err = cmd.CombinedOutput()
 	if err != nil {
 		return string(output), fmt.Errorf("failed to exec in pod %s: %w: %s", podName, err, strings.TrimSpace(string(output)))
 	}
-
 	return string(output), nil
+}
+
+// ExecInService executes a command in the context of a service's pod.
+func (p *InfraProvider) ExecInService(service infra.ServiceName, command []string) (string, error) {
+	return p.execInServiceWithOptionalStdin(nil, service, command)
+}
+
+// ExecInServiceWithStdin executes a command in the context of a service's pod with stdin attached.
+func (p *InfraProvider) ExecInServiceWithStdin(service infra.ServiceName, command []string, stdin io.Reader) (string, error) {
+	return p.execInServiceWithOptionalStdin(stdin, service, command)
 }
 
 // GetEnvironmentType returns "kind" or "ocp".
