@@ -44,28 +44,20 @@ var testUsers = []userCred{
 
 var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 	var (
-		harness           *e2e.Harness
-		suiteCtx          context.Context
-		defaultK8sContext string
-		k8sApiEndpoint    string
-		flightCtlNs       string
+		harness     *e2e.Harness
+		suiteCtx    context.Context
+		flightCtlNs string
 	)
 
 	BeforeEach(func() {
 		harness = e2e.GetWorkerHarness()
 		suiteCtx = e2e.GetWorkerContext()
-
-		var err error
-		defaultK8sContext, err = harness.GetDefaultK8sContext()
-		Expect(err).ToNot(HaveOccurred(), "Failed to get default K8s context")
-		k8sApiEndpoint, err = harness.GetK8sApiEndpoint(suiteCtx, defaultK8sContext)
-		Expect(err).ToNot(HaveOccurred(), "Failed to get Kubernetes API endpoint")
 		flightCtlNs = os.Getenv("FLIGHTCTL_NS")
 	})
 
 	Context("Shared organization verification", func() {
 		It("all users should belong to the same flightctl organization", Label("88358"), func() {
-			orgIDs, err := collectOrgIDs(harness, defaultK8sContext, k8sApiEndpoint, testUsers)
+			orgIDs, err := collectOrgIDs(harness, testUsers)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(orgIDs).To(HaveLen(len(testUsers)))
 
@@ -85,7 +77,7 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 
 		AfterEach(func() {
 			By("Switching back to admin before stopping simulators")
-			_ = login.LoginAsNonAdmin(harness, adminUser, adminPass, defaultK8sContext, k8sApiEndpoint)
+			_ = login.Login(harness, adminUser, adminPass)
 			harness.StopAllSimulators(simulatorCmds, simulatorStopTimeout)
 			simulatorCmds = nil
 		})
@@ -95,7 +87,7 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 			testID := harness.GetTestIDFromContext()
 
 			By("Logging in as admin to setup simulator config and create devices")
-			err := login.LoginAsNonAdmin(harness, adminUser, adminPass, defaultK8sContext, k8sApiEndpoint)
+			err := login.Login(harness, adminUser, adminPass)
 			Expect(err).ToNot(HaveOccurred())
 
 			_, err = harness.SetupDeviceSimulatorAgentConfig(0, 0)
@@ -120,7 +112,7 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 
 			for _, u := range []userCred{{operatorUser, operatorPass}, {viewerUser, viewerPass}, {installerUser, installerPass}} {
 				By(fmt.Sprintf("Switching to %s and verifying all devices are visible", u.name))
-				err = login.LoginAsNonAdmin(harness, u.name, u.password, defaultK8sContext, k8sApiEndpoint)
+				err = login.Login(harness, u.name, u.password)
 				Expect(err).ToNot(HaveOccurred())
 
 				count := harness.CountDevicesByLabel(testID)
@@ -140,14 +132,14 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 
 		AfterEach(func() {
 			By("Switching back to admin before cleanup")
-			_ = login.LoginAsNonAdmin(harness, adminUser, adminPass, defaultK8sContext, k8sApiEndpoint)
+			_ = login.Login(harness, adminUser, adminPass)
 			harness.StopAllSimulators(simulatorCmds, simulatorStopTimeout)
 			simulatorCmds = nil
 		})
 
 		It("admin should have full CRUD access to devices, fleets, and repositories", Label("88360"), func() {
 			By("Logging in as admin")
-			err := login.LoginAsNonAdmin(harness, adminUser, adminPass, defaultK8sContext, k8sApiEndpoint)
+			err := login.Login(harness, adminUser, adminPass)
 			Expect(err).ToNot(HaveOccurred())
 
 			adminLabels := &map[string]string{"test": "multiorg-admin"}
@@ -165,7 +157,7 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 
 		It("operator should have full CRUD access to devices and fleets", Label("88361"), func() {
 			By("Logging in as operator")
-			err := login.LoginAsNonAdmin(harness, operatorUser, operatorPass, defaultK8sContext, k8sApiEndpoint)
+			err := login.Login(harness, operatorUser, operatorPass)
 			Expect(err).ToNot(HaveOccurred())
 
 			operatorLabels := &map[string]string{"test": "multiorg-operator"}
@@ -185,7 +177,7 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 
 		It("viewer should only be able to read devices and fleets, not create or delete", Label("88362"), func() {
 			By("Logging in as viewer")
-			err := login.LoginAsNonAdmin(harness, viewerUser, viewerPass, defaultK8sContext, k8sApiEndpoint)
+			err := login.Login(harness, viewerUser, viewerPass)
 			Expect(err).ToNot(HaveOccurred())
 
 			By("Testing that viewer can list devices and fleets")
@@ -207,7 +199,7 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			By("Creating resources as admin so viewer can attempt to delete them")
-			err = login.LoginAsNonAdmin(harness, adminUser, adminPass, defaultK8sContext, k8sApiEndpoint)
+			err = login.Login(harness, adminUser, adminPass)
 			Expect(err).ToNot(HaveOccurred())
 
 			_, deviceName, _, deviceCreateErr := harness.CreateResource(util.Device)
@@ -217,7 +209,7 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 			Expect(fleetCreateErr).ToNot(HaveOccurred(), "Admin should be able to create a fleet for viewer delete test")
 
 			By("Switching back to viewer and attempting to delete admin-created resources")
-			err = login.LoginAsNonAdmin(harness, viewerUser, viewerPass, defaultK8sContext, k8sApiEndpoint)
+			err = login.Login(harness, viewerUser, viewerPass)
 			Expect(err).ToNot(HaveOccurred())
 
 			By("Testing that viewer cannot delete a device")
@@ -231,7 +223,7 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 			Expect(out).To(ContainSubstring(http403Substring), "Expected 403 Forbidden for viewer fleet delete")
 
 			By("Cleaning up: switching to admin to delete test resources")
-			err = login.LoginAsNonAdmin(harness, adminUser, adminPass, defaultK8sContext, k8sApiEndpoint)
+			err = login.Login(harness, adminUser, adminPass)
 			Expect(err).ToNot(HaveOccurred())
 			_, _ = harness.CleanUpResource(util.Device, deviceName)
 			_, _ = harness.CleanUpResource(util.Fleet, fleetName)
@@ -239,14 +231,14 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 
 		It("viewer cannot decommission a device", Label("88363"), func() {
 			By("Creating devices via simulator as admin")
-			loginFn := makeLoginFunc(adminUser, adminPass, defaultK8sContext, k8sApiEndpoint)
+			loginFn := makeLoginFunc(adminUser, adminPass)
 			deviceName, cmd, err := harness.EnrollDeviceForDecommissionTest(loginFn, devicesPerUser, deviceEnrollTimeout)
 			Expect(err).ToNot(HaveOccurred())
 			simulatorCmds = append(simulatorCmds, cmd)
 			GinkgoWriter.Printf("Device to test decommission: %s\n", deviceName)
 
 			By("Logging in as viewer and attempting to decommission the device")
-			err = login.LoginAsNonAdmin(harness, viewerUser, viewerPass, defaultK8sContext, k8sApiEndpoint)
+			err = login.Login(harness, viewerUser, viewerPass)
 			Expect(err).ToNot(HaveOccurred())
 
 			out, decommErr := harness.DecommissionDevice(deviceName)
@@ -256,14 +248,14 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 
 		It("operator cannot decommission a device", Label("88364"), func() {
 			By("Creating devices via simulator as admin")
-			loginFn := makeLoginFunc(adminUser, adminPass, defaultK8sContext, k8sApiEndpoint)
+			loginFn := makeLoginFunc(adminUser, adminPass)
 			deviceName, cmd, err := harness.EnrollDeviceForDecommissionTest(loginFn, devicesPerUser, deviceEnrollTimeout)
 			Expect(err).ToNot(HaveOccurred())
 			simulatorCmds = append(simulatorCmds, cmd)
 			GinkgoWriter.Printf("Device to test decommission: %s\n", deviceName)
 
 			By("Logging in as operator and attempting to decommission the device")
-			err = login.LoginAsNonAdmin(harness, operatorUser, operatorPass, defaultK8sContext, k8sApiEndpoint)
+			err = login.Login(harness, operatorUser, operatorPass)
 			Expect(err).ToNot(HaveOccurred())
 
 			out, decommErr := harness.DecommissionDevice(deviceName)
@@ -273,7 +265,7 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 
 		It("admin can decommission a device", Label("88365"), func() {
 			By("Creating devices via simulator as admin")
-			loginFn := makeLoginFunc(adminUser, adminPass, defaultK8sContext, k8sApiEndpoint)
+			loginFn := makeLoginFunc(adminUser, adminPass)
 			deviceName, cmd, err := harness.EnrollDeviceForDecommissionTest(loginFn, devicesPerUser, deviceEnrollTimeout)
 			Expect(err).ToNot(HaveOccurred())
 			simulatorCmds = append(simulatorCmds, cmd)
@@ -287,7 +279,7 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 
 		It("installer can read enrollment requests but cannot create devices or fleets", Label("88366"), func() {
 			By("Logging in as installer")
-			err := login.LoginAsNonAdmin(harness, installerUser, installerPass, defaultK8sContext, k8sApiEndpoint)
+			err := login.Login(harness, installerUser, installerPass)
 			Expect(err).ToNot(HaveOccurred())
 
 			By("Testing that installer can read enrollment requests")
@@ -311,14 +303,14 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 
 		It("installer cannot decommission a device", Label("88367"), func() {
 			By("Creating devices via simulator as admin")
-			loginFn := makeLoginFunc(adminUser, adminPass, defaultK8sContext, k8sApiEndpoint)
+			loginFn := makeLoginFunc(adminUser, adminPass)
 			deviceName, cmd, err := harness.EnrollDeviceForDecommissionTest(loginFn, devicesPerUser, deviceEnrollTimeout)
 			Expect(err).ToNot(HaveOccurred())
 			simulatorCmds = append(simulatorCmds, cmd)
 			GinkgoWriter.Printf("Device to test decommission: %s\n", deviceName)
 
 			By("Logging in as installer and attempting to decommission the device")
-			err = login.LoginAsNonAdmin(harness, installerUser, installerPass, defaultK8sContext, k8sApiEndpoint)
+			err = login.Login(harness, installerUser, installerPass)
 			Expect(err).ToNot(HaveOccurred())
 
 			out, decommErr := harness.DecommissionDevice(deviceName)
@@ -339,17 +331,17 @@ type userCred struct {
 // --- Helper functions ---
 
 // makeLoginFunc returns a LoginFunc closure for the given user credentials.
-func makeLoginFunc(user, password, k8sContext, k8sApiEndpoint string) e2e.LoginFunc {
+func makeLoginFunc(user, password string) e2e.LoginFunc {
 	return func(h *e2e.Harness) error {
-		return login.LoginAsNonAdmin(h, user, password, k8sContext, k8sApiEndpoint)
+		return login.Login(h, user, password)
 	}
 }
 
 // collectOrgIDs logs in as each user and returns a map of username -> orgID.
-func collectOrgIDs(harness *e2e.Harness, k8sContext, k8sApiEndpoint string, users []userCred) (map[string]string, error) {
+func collectOrgIDs(harness *e2e.Harness, users []userCred) (map[string]string, error) {
 	orgIDs := make(map[string]string, len(users))
 	for _, u := range users {
-		orgID, err := login.LoginAndGetOrgID(harness, u.name, u.password, k8sContext, k8sApiEndpoint)
+		orgID, err := loginAndGetOrgID(harness, u.name, u.password)
 		if err != nil {
 			return nil, fmt.Errorf("login/org for %s: %w", u.name, err)
 		}
@@ -360,4 +352,16 @@ func collectOrgIDs(harness *e2e.Harness, k8sContext, k8sApiEndpoint string, user
 		orgIDs[u.name] = orgID
 	}
 	return orgIDs, nil
+}
+
+// loginAndGetOrgID logs in as the specified user and returns their organization ID.
+func loginAndGetOrgID(harness *e2e.Harness, user, password string) (string, error) {
+	if err := login.Login(harness, user, password); err != nil {
+		return "", fmt.Errorf("login failed for %s: %w", user, err)
+	}
+	orgID, err := harness.GetOrganizationID()
+	if err != nil {
+		return "", fmt.Errorf("getting org for %s: %w", user, err)
+	}
+	return orgID, nil
 }
