@@ -61,6 +61,9 @@ func (h *Harness) runGitCommands(workDir string, keyPath util.SSHPrivateKeyPath,
 		"GIT_AUTHOR_EMAIL=test@flightctl.dev",
 		"GIT_COMMITTER_NAME=Test Harness",
 		"GIT_COMMITTER_EMAIL=test@flightctl.dev",
+		"GIT_CONFIG_COUNT=1",
+		"GIT_CONFIG_KEY_0=commit.gpgsign",
+		"GIT_CONFIG_VALUE_0=false",
 	)
 
 	for _, gitCmd := range gitCmds {
