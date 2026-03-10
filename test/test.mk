@@ -214,4 +214,17 @@ $(REPORTS)/unit-coverage.out:
 $(REPORTS)/integration-coverage.out:
 	$(MAKE) integration-test || true
 
+start-registry: bin/e2e-certs/ca.pem
+	go run ./cmd/start-satellite-service registry
+
+start-git-server: bin/e2e-certs/ca.pem
+	go run ./cmd/start-satellite-service git-server
+
+start-prometheus:
+	go run ./cmd/start-satellite-service prometheus
+
+start-satellite: bin/e2e-certs/ca.pem
+	go run ./cmd/start-satellite-service all
+
+.PHONY: start-registry start-git-server start-prometheus start-satellite
 .PHONY: unit-test prepare-integration-test integration-test run-integration-test view-coverage prepare-e2e-test deploy-e2e-ocp-test-vm _wait_for_db _run_template_migration _ensure_db_setup_image prepare-swtpm-certs clean-swtpm-certs

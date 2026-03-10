@@ -48,44 +48,64 @@ type Services struct {
 	registryReused bool // true when registry container was already running (reuse=true and container existed)
 }
 
-// Get returns the satellite services, starting them if needed.
+// Service identifies a satellite service that can be started individually.
+type Service string
+
+const (
+	ServiceRegistry   Service = "registry"
+	ServiceGitServer  Service = "git-server"
+	ServicePrometheus Service = "prometheus"
+)
+
+// AllServices is the full list of satellite services.
+var AllServices = []Service{ServiceRegistry, ServiceGitServer, ServicePrometheus}
+
+// Get returns the satellite services, starting all of them if needed (singleton).
 func Get(ctx context.Context) *Services {
 	once.Do(func() {
 		ConfigureDockerHost()
-		svcs = &Services{
-			reuse:   true,
-			network: GetDockerNetwork(),
-		}
-		if err := svcs.start(ctx); err != nil {
+		var err error
+		svcs, err = StartServices(ctx, AllServices)
+		if err != nil {
 			logrus.Fatalf("failed to start satellite services: %v", err)
 		}
 	})
 	return svcs
 }
 
-func (s *Services) start(ctx context.Context) error {
-	logrus.Infof("Starting satellite services (reuse=%v, network=%s)", s.reuse, s.network)
-
-	if err := s.startRegistry(ctx); err != nil {
-		return fmt.Errorf("failed to start registry: %w", err)
+// StartServices starts only the requested satellite services with reuse=true.
+// For registry, image bundles are uploaded when the container is freshly created (not reused).
+func StartServices(ctx context.Context, services []Service) (*Services, error) {
+	s := &Services{
+		reuse:   true,
+		network: GetDockerNetwork(),
 	}
-	if !s.registryReused {
-		if err := s.UploadImages(); err != nil {
-			return fmt.Errorf("failed to upload images: %w", err)
+	for _, svc := range services {
+		switch svc {
+		case ServiceRegistry:
+			if err := s.startRegistry(ctx); err != nil {
+				return nil, fmt.Errorf("failed to start registry: %w", err)
+			}
+			if !s.registryReused {
+				if err := s.UploadImages(); err != nil {
+					return nil, fmt.Errorf("failed to upload images: %w", err)
+				}
+			} else {
+				logrus.Info("Skipping image bundle upload (registry container was reused)")
+			}
+		case ServiceGitServer:
+			if err := s.startGitServer(ctx); err != nil {
+				return nil, fmt.Errorf("failed to start git server: %w", err)
+			}
+		case ServicePrometheus:
+			if err := s.startPrometheus(ctx); err != nil {
+				return nil, fmt.Errorf("failed to start prometheus: %w", err)
+			}
+		default:
+			return nil, fmt.Errorf("unknown service: %q", svc)
 		}
-	} else {
-		logrus.Info("Skipping image bundle upload (registry container was reused)")
 	}
-	if err := s.startGitServer(ctx); err != nil {
-		return fmt.Errorf("failed to start git server: %w", err)
-	}
-	if err := s.startPrometheus(ctx); err != nil {
-		return fmt.Errorf("failed to start prometheus: %w", err)
-	}
-
-	logrus.Infof("Satellite services started: Registry=%s Git=%s Prometheus=%s",
-		s.RegistryURL, s.GitServerURL, s.PrometheusURL)
-	return nil
+	return s, nil
 }
 
 // Cleanup terminates containers when not reusing; with reuse=true containers stay running.
