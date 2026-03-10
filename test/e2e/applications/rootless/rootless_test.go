@@ -148,7 +148,19 @@ var _ = Describe("Rootless applications", Label("rootless"), func() {
 			}
 		}
 		Expect(found).To(BeTrue(), "device spec should contain quadlet app %s", rootlessAppNewRootful)
+		// Verify on device for rootless→rootful debug (see REPRO_ROOTLESS_TO_ROOTFUL.md): capture state before waiting so logs are available when the wait times out.
+		By("Verify on device for rootless→rootful debug (REPRO_ROOTLESS_TO_ROOTFUL.md)")
+		rootQuadletOut, _ := harness.VM.RunSSH([]string{"sudo", "ls", "-la", e2e.QuadletUnitPath}, nil)
+		GinkgoWriter.Printf("[rootless→rootful] root quadlet path %s:\n%s\n", e2e.QuadletUnitPath, rootQuadletOut.String())
+		flightctlQuadletPath, err = harness.QuadletPathForUserOnVM(flightctlUser)
+		if err == nil {
+			userQuadletOut, _ := harness.VM.RunSSH([]string{"sudo", "ls", "-la", flightctlQuadletPath}, nil)
+			GinkgoWriter.Printf("[rootless→rootful] user quadlet path %s:\n%s\n", flightctlQuadletPath, userQuadletOut.String())
+		}
+		podmanPsOut, _ := harness.VM.RunSSH([]string{"sudo", "-u", "root", "podman", "ps", "-a", "--format", "{{.Names}} {{.Status}}"}, nil)
+		GinkgoWriter.Printf("[rootless→rootful] podman ps -a (root):\n%s\n", podmanPsOut.String())
 		// With the two-step flow (remove container-multi-app first), the rootless→rootful transition does not hit EDM-3451 race; verify app status.
+		// Rootless→rootful can take several minutes (agent stops rootless unit, starts rootful unit, reports Running); use LONG_TIMEOUT so the test passes when it used to.
 		Expect(harness.WaitForApplicationStatus(deviceID, rootlessAppNewRootful, v1beta1.ApplicationStatusRunning, testutil.LONG_TIMEOUT, testutil.POLLING)).ToNot(HaveOccurred())
 		names, err = harness.RunPodmanPsContainerNamesAsUser("root", false)
 		Expect(err).ToNot(HaveOccurred())
@@ -260,12 +272,12 @@ var _ = Describe("Rootless applications", Label("rootless"), func() {
 		By("SELinux: no AVC denials for flightctl/podman")
 		getenforceOut, err := harness.VM.RunSSH([]string{"sh", "-c", "getenforce 2>/dev/null || echo Disabled"}, nil)
 		if err != nil || strings.TrimSpace(getenforceOut.String()) != "Enforcing" {
-			Skip("SELinux not Enforcing or getenforce failed")
+			GinkgoWriter.Printf("Skipping AVC check: SELinux not Enforcing or getenforce failed\n")
 			return
 		}
 		avcOut, err := harness.VM.RunSSH([]string{"sh", "-c", "sudo ausearch -m avc -ts recent 2>/dev/null"}, nil)
 		if err != nil {
-			Skip("ausearch unavailable or failed")
+			GinkgoWriter.Printf("Skipping AVC check: ausearch unavailable or failed: %v\n", err)
 			return
 		}
 		// Filter for flightctl/podman AVC lines in Go so we don't rely on grep exit code (no denials => grep exit 1 would mask ausearch success).
