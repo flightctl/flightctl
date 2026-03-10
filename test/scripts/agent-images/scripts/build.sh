@@ -108,10 +108,48 @@ if [ ! -f "${flavor_conf}" ]; then
   exit 1
 fi
 
+# Create temporary build-arg file for podman
+BUILD_ARG_FILE=$(mktemp)
+trap 'rm -f "${BUILD_ARG_FILE}"' EXIT
+
+# Function to create build-arg file from flavor variables
+create_build_arg_file() {
+  local output_file="$1"
+
+  # List of build arguments expected by Containerfile
+  local build_args=(
+    "BUILD_BASE_IMAGE"
+    "MINIMAL_BASE_IMAGE"
+    "RUNTIME_BASE_IMAGE"
+    "DEVICE_BASE_IMAGE"
+    "ENABLE_CRB"
+    "EPEL_NEXT"
+    "IMAGE_REGISTRY"
+    "IMAGE_TAG_SUFFIX"
+    "OS_ID"
+  )
+
+  echo "# Generated build arguments from flavor configuration" > "${output_file}"
+
+  for arg in "${build_args[@]}"; do
+    if [ -n "${!arg:-}" ]; then
+      # Properly quote and escape values for build-arg file
+      printf '%s=%s\n' "${arg}" "${!arg}" >> "${output_file}"
+    fi
+  done
+}
+
+# Source the flavor configuration to populate variables
 # shellcheck source=/dev/null
 source "${flavor_conf}"
 : "${OS_ID:?OS_ID must be set in flavor conf}"
 : "${DEVICE_BASE_IMAGE:?DEVICE_BASE_IMAGE must be set in flavor conf}"
+
+# Generate the build-arg file
+create_build_arg_file "${BUILD_ARG_FILE}"
+
+echo "Generated build arguments:"
+cat "${BUILD_ARG_FILE}"
 
 base_img_canonical="${IMAGE_REPO}:base-${OS_ID}-${TAG}"
 base_img_plain="${IMAGE_REPO}:base"
@@ -144,7 +182,7 @@ echo "  Variants to build: ${variants_list:-none}"
       --log-level "${PODMAN_LOG_LEVEL}" \
       --build-context "project-bin=${ROOT_DIR}/bin" \
       --build-context "variant-context=${BASE_DIR}/base"\
-      --build-arg-file "${flavor_conf}" \
+      --build-arg-file "${BUILD_ARG_FILE}" \
       --build-arg SOURCE_GIT_TAG="${SOURCE_GIT_TAG}" \
       --build-arg SOURCE_GIT_TREE_STATE="${SOURCE_GIT_TREE_STATE}" \
       --build-arg SOURCE_GIT_COMMIT="${SOURCE_GIT_COMMIT}" \
@@ -184,7 +222,7 @@ echo "  Variants to build: ${variants_list:-none}"
 
     EXTRA_FLAGS="${PODMAN_BUILD_EXTRA_FLAGS:-}"
 
-    export IMAGE_REPO TAG OS_ID BASE_DIR ROOT_DIR base_img_canonical PODMAN_BUILD_FLAGS_JOINED EXTRA_FLAGS CACHE_FLAGS_JOINED
+    export IMAGE_REPO TAG OS_ID BASE_DIR ROOT_DIR base_img_canonical PODMAN_BUILD_FLAGS_JOINED EXTRA_FLAGS CACHE_FLAGS_JOINED BUILD_ARG_FILE
     printf '%s\n' ${variants_list} | xargs -n1 -P "${JOBS}" -I {} bash -lc '\
       set -euo pipefail; \
       v_img_canonical="${IMAGE_REPO}:{}-'"${OS_ID}"'-'"${TAG}"'"; \
