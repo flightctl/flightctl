@@ -104,7 +104,9 @@ var _ = Describe("Service backup and restore", Label("backup-restore"), func() {
 			harness.WaitForDeviceContents(device1ID, "device 1 UpToDate", func(device *v1beta1.Device) bool {
 				return device.Status != nil && device.Status.Updated.Status == v1beta1.DeviceUpdatedStatusUpToDate
 			}, testutil.LONGTIMEOUT)
-			rvAtBackup, err := harness.GetCurrentDeviceRenderedVersion(device1ID)
+			devForRV, err := harness.GetDevice(device1ID)
+			Expect(err).ToNot(HaveOccurred())
+			rvAtBackup, err := e2e.GetRenderedVersion(devForRV)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(rvAtBackup).To(BeNumerically(">", 0), "step 1: RV at backup must be positive")
 
@@ -262,7 +264,24 @@ var _ = Describe("Service backup and restore", Label("backup-restore"), func() {
 			Expect(resp.JSON200.ResumedDevices).To(BeNumerically(">=", 1))
 
 			By("Waiting for device 1 to be Online with new RV > rvAfterUpdate and up-to-date")
-			rv, err := harness.GetCurrentDeviceRenderedVersion(device1ID)
+			harness.WaitForDeviceContents(device1ID, "device 1 Online and UpToDate with RV > rvAfterUpdate", func(device *v1beta1.Device) bool {
+				if device == nil || device.Status == nil {
+					return false
+				}
+				if device.Status.Summary.Status != v1beta1.DeviceSummaryStatusOnline {
+					return false
+				}
+				if device.Status.Updated.Status != v1beta1.DeviceUpdatedStatusUpToDate {
+					return false
+				}
+				rv, err := e2e.GetRenderedVersion(device)
+				return err == nil && rv > rvAfterUpdate
+			}, testutil.LONGTIMEOUT)
+			var resumedDev *v1beta1.Device
+			resumedDev, err = harness.GetDevice(device1ID)
+			Expect(err).ToNot(HaveOccurred())
+			var rv int
+			rv, err = e2e.GetRenderedVersion(resumedDev)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(rv).To(BeNumerically(">", rvAfterUpdate), "after resume, device RV must be greater than RV at update (rvAfterUpdate)")
 		})
