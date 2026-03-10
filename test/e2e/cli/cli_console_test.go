@@ -59,9 +59,17 @@ var _ = Describe("CLI - device console", func() {
 		cs1 := harness.NewConsoleSession(deviceID)
 		cs2 := harness.NewConsoleSession(deviceID)
 
-		cs2.MustSend("pwd")
-		cs2.MustExpect("/var/lib/flightctl")
+		By("Having separate console session environments")
+		cs1.MustSend(`export MYVAR=abc123`)
+		cs2.MustSend(`export MYVAR=xyz456`)
 
+		cs1.MustSend(`echo $MYVAR`)
+		cs1.MustExpect(`abc123`)
+
+		cs2.MustSend(`echo $MYVAR`)
+		cs2.MustExpect(`xyz456`)
+
+		By("Sharing the same filesystem and access to files")
 		cs1.MustSend("echo Session1 > /tmp/file.txt")
 		cs1.MustExpect(`.*flightctl-console@.*\$`)
 
@@ -161,6 +169,55 @@ var _ = Describe("CLI - device console", func() {
 		util.EventuallySlow(resources.GetJSONByName[*v1beta1.Device]).
 			WithArguments(harness, resources.Devices, deviceID).
 			Should(WithTransform((*v1beta1.Device).IsUpdatedToDeviceSpec, BeTrue()))
+	})
+
+	It("uses the flightctl-console user and has sudo access", Label("87848"), func() {
+		// Get harness directly - no shared package-level variable
+		harness := e2e.GetWorkerHarness()
+
+		session := harness.NewConsoleSession(deviceID)
+
+		session.MustSend(`whoami`)
+		session.MustExpect(`flightctl-console`)
+
+		session.MustSend(`id -Z`)
+		session.MustExpect(`unconfined_t`)
+
+		session.MustSend(`echo $HOME`)
+		session.MustExpect(`/var/lib/flightctl`)
+
+		session.MustSend(`pwd`)
+		session.MustExpect(`/var/lib/flightctl`)
+
+		session.MustSend(`sudo whoami`)
+		session.MustExpect(`root`)
+
+		session.MustSend(`systemctl start flightctl-agent --no-ask-password > /dev/null; echo $?`)
+		session.MustExpect(`1`)
+
+		session.MustSend(`sudo systemctl start flightctl-agent > /dev/null; echo $?`)
+		session.MustExpect(`0`)
+
+		session.MustSend(`sudo podman ps && echo $?`)
+		session.MustExpect(`0`)
+
+		session.MustSend(`sudo -u flightctl podman ps > /dev/null; echo $?`)
+		session.MustExpect(`0`)
+
+		session.MustSend(`sudo journalctl -e -t sudo --no-pager`)
+		session.MustExpect(`flightctl-console : TTY=pts/\d+ ; PWD=/var/lib/flightctl ; USER=root ; COMMAND=/bin/systemctl start flightctl-agent`)
+
+		{
+			out, err := harness.RunConsoleCommand(deviceID, []string{"--notty"}, `whoami`)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(ContainSubstring(`flightctl-console`))
+		}
+
+		{
+			out, err := harness.RunConsoleCommand(deviceID, []string{"--notty"}, `sudo`, `whoami`)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(ContainSubstring(`root`))
+		}
 	})
 
 	It("recovers from image pull network connection error", Label("83029"), func() {
