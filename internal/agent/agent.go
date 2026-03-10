@@ -22,6 +22,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/os"
 	"github.com/flightctl/flightctl/internal/agent/device/policy"
 	"github.com/flightctl/flightctl/internal/agent/device/resource"
+	"github.com/flightctl/flightctl/internal/agent/device/selinux"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/spec/audit"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
@@ -72,6 +73,15 @@ func (a *Agent) Run(ctx context.Context) error {
 	defer utilruntime.HandleCrash()
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+
+	// Ensure SELinux policies are loaded for bootc environments (like EL10)
+	// This addresses the issue where RPM post-install scripts don't execute
+	// properly in bootc systems, leaving SELinux policies unloaded
+	policyLoader := selinux.NewPolicyLoader(a.log)
+	if err := policyLoader.EnsurePolicyLoaded(ctx); err != nil {
+		// Log error but don't fail agent startup - policy loading is best-effort
+		a.log.Warnf("SELinux policy loading failed: %v", err)
+	}
 
 	var wg sync.WaitGroup
 	startAsync := func(fn func(context.Context)) {
