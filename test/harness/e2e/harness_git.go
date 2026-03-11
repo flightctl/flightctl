@@ -61,14 +61,15 @@ func (h *Harness) runGitCommands(workDir string, keyPath util.SSHPrivateKeyPath,
 		"GIT_AUTHOR_EMAIL=test@flightctl.dev",
 		"GIT_COMMITTER_NAME=Test Harness",
 		"GIT_COMMITTER_EMAIL=test@flightctl.dev",
-		"GIT_CONFIG_COUNT=1",
-		"GIT_CONFIG_KEY_0=commit.gpgsign",
-		"GIT_CONFIG_VALUE_0=false",
 	)
 
 	for _, gitCmd := range gitCmds {
+		args := gitCmd
+		if len(args) >= 2 && args[0] == "git" && args[1] == "commit" {
+			args = append([]string{"git", "-c", "commit.gpgsign=false"}, args[1:]...)
+		}
 		// #nosec G204 -- This is test code with controlled git commands
-		cmd := exec.Command(gitCmd[0], gitCmd[1:]...)
+		cmd := exec.Command(args[0], args[1:]...)
 		cmd.Dir = workDir
 		cmd.Env = gitEnv
 
