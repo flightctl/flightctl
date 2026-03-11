@@ -6,7 +6,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/flightctl/flightctl/test/e2e/infra/satellite"
+	"github.com/flightctl/flightctl/test/e2e/infra/auxiliary"
 	"github.com/sirupsen/logrus"
 )
 
@@ -93,7 +93,7 @@ func GetDefaultQuadletAPIEndpoint() string {
 	}
 
 	// Fallback to IP address if FQDN not available
-	hostIP := satellite.GetHostIP()
+	hostIP := auxiliary.GetHostIP()
 	if hostIP != "" {
 		return "https://" + hostIP + ":" + DefaultAPIPort
 	}

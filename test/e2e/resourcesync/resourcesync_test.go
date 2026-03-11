@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
-	"github.com/flightctl/flightctl/test/e2e/infra/satellite"
+	"github.com/flightctl/flightctl/test/e2e/infra/auxiliary"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	"github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
@@ -47,7 +47,7 @@ type testContext struct {
 }
 
 func getGitEnv(ctx context.Context) (e2e.GitServerConfig, string, int, util.SSHPrivateKeyPath, util.SSHPrivateKeyContent) {
-	svc := satellite.Get(ctx)
+	svc := auxiliary.Get(ctx)
 	config := e2e.GitServerConfig{
 		Host: svc.GitServerHost,
 		Port: svc.GitServerPort,

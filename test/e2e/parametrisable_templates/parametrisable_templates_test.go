@@ -22,7 +22,7 @@ var _ = Describe("Template variables in the device configuration", func() {
 
 	BeforeEach(func() {
 		harness := e2e.GetWorkerHarness()
-		registryHost, registryPort = satellites.RegistryHost, satellites.RegistryPort
+		registryHost, registryPort = auxSvcs.RegistryHost, auxSvcs.RegistryPort
 		deviceId, _ = harness.EnrollAndWaitForOnlineStatus()
 		testID = harness.GetTestIDFromContext()
 	})

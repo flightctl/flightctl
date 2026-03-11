@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/flightctl/flightctl/test/e2e/infra/satellite"
+	"github.com/flightctl/flightctl/test/e2e/infra/auxiliary"
 	"github.com/flightctl/flightctl/test/e2e/infra/setup"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	testutil "github.com/flightctl/flightctl/test/util"
@@ -14,7 +14,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-var satellites *satellite.Services
+var auxSvcs *auxiliary.Services
 
 const (
 	defaultEventuallyTimeout         = 5 * time.Minute
@@ -34,7 +34,7 @@ var _ = BeforeSuite(func() {
 	if os.Getenv("FLIGHTCTL_NS") == "" {
 		Skip("Backup/restore e2e requires FLIGHTCTL_NS (e.g. flightctl-external); run with in-cluster e2e")
 	}
-	satellites = satellite.Get(context.Background())
+	auxSvcs = auxiliary.Get(context.Background())
 	Expect(setup.EnsureDefaultProviders(nil)).To(Succeed())
 	_, _, err := e2e.SetupWorkerHarness()
 	Expect(err).ToNot(HaveOccurred())
@@ -72,8 +72,8 @@ var _ = AfterEach(func() {
 })
 
 var _ = AfterSuite(func() {
-	if satellites != nil {
-		satellites.Cleanup(context.Background())
+	if auxSvcs != nil {
+		auxSvcs.Cleanup(context.Background())
 	}
 })
 

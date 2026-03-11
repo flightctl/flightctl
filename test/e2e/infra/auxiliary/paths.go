@@ -1,4 +1,4 @@
-package satellite
+package auxiliary
 
 import (
 	"fmt"

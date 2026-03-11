@@ -26,7 +26,7 @@ var _ = Describe("ImageBuild", Label("imagebuild"), func() {
 			Expect(workerHarness.ImageBuilderClient).ToNot(BeNil(), "ImageBuilderClient must be available")
 
 			testID := workerHarness.GetTestIDFromContext()
-			registryAddress := satellites.RegistryHost + ":" + satellites.RegistryPort
+			registryAddress := auxSvcs.RegistryHost + ":" + auxSvcs.RegistryPort
 
 			numBuilds := 5
 			numExports := 5

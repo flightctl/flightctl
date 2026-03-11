@@ -134,7 +134,7 @@ var _ = Describe("CLI - device console", func() {
 			WithArguments(harness, resources.Devices, deviceID).
 			Should(WithTransform((*v1beta1.Device).IsUpdating, BeTrue()))
 
-		regHost, regPort := satellites.RegistryHost, satellites.RegistryPort
+		regHost, regPort := auxSvcs.RegistryHost, auxSvcs.RegistryPort
 		GinkgoWriter.Printf("Simulating network failure\n")
 		DeferCleanup(func() { _ = harness.FixNetworkFailure(regHost, regPort) })
 		err = harness.SimulateNetworkFailure(regHost, regPort)
@@ -165,7 +165,7 @@ var _ = Describe("CLI - device console", func() {
 		// Get harness directly - no shared package-level variable
 		harness := e2e.GetWorkerHarness()
 
-		regHost, regPort := satellites.RegistryHost, satellites.RegistryPort
+		regHost, regPort := auxSvcs.RegistryHost, auxSvcs.RegistryPort
 		GinkgoWriter.Printf("Simulating network failure\n")
 		DeferCleanup(func() { _ = harness.FixNetworkFailure(regHost, regPort) })
 		err := harness.SimulateNetworkFailure(regHost, regPort)

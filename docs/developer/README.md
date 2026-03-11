@@ -139,4 +139,4 @@ bin/devicesimulator --count=100
 
 The observability stack (Prometheus) is managed by **testcontainers** in [test/e2e/infra/](../../test/e2e/infra/) and starts automatically when you run E2E tests.
 
-To use the Prometheus UI, run the E2E test suite (e.g. `make e2e-test` or `make in-cluster-e2e-test`). While tests run, the stack is up and the Prometheus web UI is typically accessible at `http://localhost:9090` (see `test/e2e/infra/satellite/` for details).
+To use the Prometheus UI, run the E2E test suite (e.g. `make e2e-test` or `make in-cluster-e2e-test`). While tests run, the stack is up and the Prometheus web UI is typically accessible at `http://localhost:9090` (see `test/e2e/infra/auxiliary/` for details).

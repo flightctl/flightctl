@@ -56,7 +56,7 @@ var _ = Describe("ImageBuild", Label("imagebuild"), func() {
 			Expect(workerHarness.ImageBuilderClient).ToNot(BeNil(), "ImageBuilderClient must be available")
 
 			testID := workerHarness.GetTestIDFromContext()
-			registryAddress := satellites.RegistryHost + ":" + satellites.RegistryPort
+			registryAddress := auxSvcs.RegistryHost + ":" + auxSvcs.RegistryPort
 
 			sshPublicKey, sshPrivateKeyPath, cleanupSSHKeys, keyErr := testutil.GenerateTempSSHKeyPair()
 			Expect(keyErr).ToNot(HaveOccurred(), "Should generate temporary SSH key pair")
