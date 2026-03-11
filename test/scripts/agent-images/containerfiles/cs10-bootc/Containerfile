@@ -1,34 +1,22 @@
 # syntax=docker/dockerfile:1.6
 #
-# Multi-stage base image build for flightctl device images.
+# Multi-stage base image build for flightctl device images - CentOS Stream 10
 # Targets:
 #   - prebase: bootc base with repos, tooling, users, services (no flightctl RPMs)
 #   - base:    final base image starting from prebase and layering flightctl RPMs
 #
 
-ARG DEVICE_BASE_IMAGE=quay.io/centos-bootc/centos-bootc:stream9
-ARG ENABLE_CRB=0
-ARG EPEL_NEXT=1
 # ---------- Stage: prebase ----------
-FROM ${DEVICE_BASE_IMAGE} AS prebase
+FROM quay.io/centos-bootc/centos-bootc:stream10 AS prebase
 
-ARG ENABLE_CRB=0
-ARG EPEL_NEXT=1
+# Enable CRB (CodeReady Builder) for CentOS Stream 10
+RUN dnf -y install dnf-plugins-core && \
+    dnf config-manager --set-enabled crb
 
-# Enable CRB (for CentOS Stream 10) if requested
-RUN if [ "${ENABLE_CRB}" = "1" ]; then \
-      dnf -y install dnf-plugins-core && \
-      dnf config-manager --set-enabled crb ; \
-    fi
-
-# Enable EPEL repos
+# Enable EPEL repos (no EPEL Next for CS10)
 RUN --mount=type=cache,target=/var/cache/dnf \
     --mount=type=cache,target=/var/lib/dnf \
-    sh -exc '\
-      pkgs="epel-release"; \
-      if [ "${EPEL_NEXT}" = "1" ]; then pkgs="$pkgs epel-next-release"; fi; \
-      dnf install -y $pkgs \
-    '
+    dnf install -y epel-release
 
 # Utilities used by tests
 RUN --mount=type=cache,target=/var/cache/dnf \
@@ -36,9 +24,16 @@ RUN --mount=type=cache,target=/var/cache/dnf \
     dnf install -y python-dotenv
 
 # Base services and tooling that don't depend on our RPMs
+# NOTE: Pin to greenboot 0.15.x (shell greenboot) to avoid greenboot-rs (0.16.x) issues.
+# greenboot-rs has known problems:
+#   - Doesn't capture successful script output to journal (only failures)
+#   - Missing redboot-task-runner.service for pre-rollback diagnostics
+#   - Container compatibility issues (fedora-iot/greenboot-rs#132)
+# See: https://github.com/microshift-io/microshift/pull/176
+# See: https://github.com/fedora-iot/greenboot-rs/issues/141
 RUN --mount=type=cache,target=/var/cache/dnf \
     --mount=type=cache,target=/var/lib/dnf \
-    dnf install -y greenboot greenboot-default-health-checks podman-compose && \
+    dnf install -y 'greenboot-0.15.*' 'greenboot-default-health-checks-0.15.*' podman-compose && \
     dnf install -y firewalld && \
     systemctl enable firewalld.service && \
     systemctl enable podman.service

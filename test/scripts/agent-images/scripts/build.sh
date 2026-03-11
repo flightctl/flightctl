@@ -101,55 +101,35 @@ echo "  CACHE_TTL: ${CACHE_TTL}"
 
 cd "$ROOT_DIR"
 
-flavor_conf="${BASE_DIR}/flavors/${AGENT_OS_ID}.conf"
+# Validate AGENT_OS_ID and set containerfile path
+# Check if Red Hat variant is requested
+DISTRO_SUFFIX=""
+if [ "${DISTRO:-}" = "redhat" ] || [ -n "${RHEM:-}" ]; then
+  DISTRO_SUFFIX="-redhat"
+fi
 
-if [ ! -f "${flavor_conf}" ]; then
-  echo "[ERROR] Flavor configuration not found: ${flavor_conf}" >&2
+case "${AGENT_OS_ID}" in
+  cs9-bootc)
+    CONTAINERFILE_DIR="${BASE_DIR}/containerfiles/cs9-bootc${DISTRO_SUFFIX}"
+    OS_ID="cs9-bootc"
+    ;;
+  cs10-bootc)
+    CONTAINERFILE_DIR="${BASE_DIR}/containerfiles/cs10-bootc${DISTRO_SUFFIX}"
+    OS_ID="cs10-bootc"
+    ;;
+  *)
+    echo "[ERROR] Unsupported AGENT_OS_ID: ${AGENT_OS_ID}" >&2
+    echo "Supported values: cs9-bootc, cs10-bootc" >&2
+    exit 1
+    ;;
+esac
+
+if [ ! -f "${CONTAINERFILE_DIR}/Containerfile" ]; then
+  echo "[ERROR] Containerfile not found: ${CONTAINERFILE_DIR}/Containerfile" >&2
   exit 1
 fi
 
-# Create temporary build-arg file for podman
-BUILD_ARG_FILE=$(mktemp)
-trap 'rm -f "${BUILD_ARG_FILE}"' EXIT
-
-# Function to create build-arg file from flavor variables
-create_build_arg_file() {
-  local output_file="$1"
-
-  # List of build arguments expected by Containerfile
-  local build_args=(
-    "BUILD_BASE_IMAGE"
-    "MINIMAL_BASE_IMAGE"
-    "RUNTIME_BASE_IMAGE"
-    "DEVICE_BASE_IMAGE"
-    "ENABLE_CRB"
-    "EPEL_NEXT"
-    "IMAGE_REGISTRY"
-    "IMAGE_TAG_SUFFIX"
-    "OS_ID"
-  )
-
-  echo "# Generated build arguments from flavor configuration" > "${output_file}"
-
-  for arg in "${build_args[@]}"; do
-    if [ -n "${!arg:-}" ]; then
-      # Properly quote and escape values for build-arg file
-      printf '%s=%s\n' "${arg}" "${!arg}" >> "${output_file}"
-    fi
-  done
-}
-
-# Source the flavor configuration to populate variables
-# shellcheck source=/dev/null
-source "${flavor_conf}"
-: "${OS_ID:?OS_ID must be set in flavor conf}"
-: "${DEVICE_BASE_IMAGE:?DEVICE_BASE_IMAGE must be set in flavor conf}"
-
-# Generate the build-arg file
-create_build_arg_file "${BUILD_ARG_FILE}"
-
-echo "Generated build arguments:"
-cat "${BUILD_ARG_FILE}"
+echo "Using containerfile: ${CONTAINERFILE_DIR}/Containerfile"
 
 base_img_canonical="${IMAGE_REPO}:base-${OS_ID}-${TAG}"
 base_img_plain="${IMAGE_REPO}:base"
@@ -182,12 +162,11 @@ echo "  Variants to build: ${variants_list:-none}"
       --log-level "${PODMAN_LOG_LEVEL}" \
       --build-context "project-bin=${ROOT_DIR}/bin" \
       --build-context "variant-context=${BASE_DIR}/base"\
-      --build-arg-file "${BUILD_ARG_FILE}" \
       --build-arg SOURCE_GIT_TAG="${SOURCE_GIT_TAG}" \
       --build-arg SOURCE_GIT_TREE_STATE="${SOURCE_GIT_TREE_STATE}" \
       --build-arg SOURCE_GIT_COMMIT="${SOURCE_GIT_COMMIT}" \
       --label "io.flightctl.e2e.component=device" \
-      -f "${BASE_DIR}/base/Containerfile" \
+      -f "${CONTAINERFILE_DIR}/Containerfile" \
       -t "${base_img_canonical}" \
       -t "${base_img_plain}" \
       -t "${base_img_os}" \
