@@ -41,24 +41,11 @@ var _ = AfterSuite(func() {
 })
 
 var _ = BeforeEach(func() {
-	// Get the harness and context directly - no package-level variables
-	workerID := GinkgoParallelProcess()
 	harness := e2e.GetWorkerHarness()
 	suiteCtx := e2e.GetWorkerContext()
 
-	GinkgoWriter.Printf("🔄 [BeforeEach] Worker %d: Setting up test with VM from pool\n", workerID)
-
-	// Create test-specific context for proper tracing
 	ctx := testutil.StartSpecTracerForGinkgo(suiteCtx)
-
-	// Set the test context in the harness
 	harness.SetTestContext(ctx)
-
-	// Setup VM from pool, revert to pristine snapshot, and start agent
-	err := harness.SetupVMFromPoolAndStartAgent(workerID)
-	Expect(err).ToNot(HaveOccurred())
-
-	GinkgoWriter.Printf("✅ [BeforeEach] Worker %d: Test setup completed\n", workerID)
 })
 
 var _ = AfterEach(func() {
