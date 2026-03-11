@@ -1,7 +1,7 @@
 // Package infra provides E2E test infrastructure in two separate layers:
 //
-//  1. Satellite services (test/e2e/infra/satellite): Shared testcontainers that run the same
-//     for all deployments — registry, git server, prometheus. Use satellite.Get(ctx).
+//  1. Aux services (test/e2e/infra/aux): Shared testcontainers that run the same
+//     for all deployments — registry, git server, prometheus. Use auxiliary.Get(ctx).
 //
 //  2. Deployment providers (this package + k8s/, quadlet/): Where Flight Control runs. Interfaces
 //     (InfraProvider, ServiceLifecycleProvider, RBACProvider, SecretsProvider) and implementations

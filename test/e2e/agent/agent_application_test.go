@@ -28,7 +28,7 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 
 	BeforeEach(func() {
 		harness := e2e.GetWorkerHarness()
-		registryHost, registryPort = satellites.RegistryHost, satellites.RegistryPort
+		registryHost, registryPort = auxSvcs.RegistryHost, auxSvcs.RegistryPort
 		deviceId, device = harness.EnrollAndWaitForOnlineStatus()
 	})
 

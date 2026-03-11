@@ -68,7 +68,7 @@ type InfraProvider struct {
 // NewInfraProvider creates a new Quadlet InfraProvider.
 // For remote hosts, set QUADLET_HOST and QUADLET_SSH_USER env vars.
 // Optionally set QUADLET_SSH_KEY for the SSH private key path.
-// Registry comes from satellite; use satellite.Get(ctx).RegistryHost/RegistryPort and pass explicitly.
+// Registry comes from auxiliary; use auxiliary.Get(ctx).RegistryHost/RegistryPort and pass explicitly.
 func NewInfraProvider(configDir, secretDir string, useSudo bool) *InfraProvider {
 	host := os.Getenv("QUADLET_HOST")
 	if host == "" {

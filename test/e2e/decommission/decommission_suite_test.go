@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/flightctl/flightctl/test/e2e/infra/satellite"
+	"github.com/flightctl/flightctl/test/e2e/infra/auxiliary"
 	"github.com/flightctl/flightctl/test/e2e/infra/setup"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	testutil "github.com/flightctl/flightctl/test/util"
@@ -46,7 +46,7 @@ func TestCLIDecommission(t *testing.T) {
 }
 
 var _ = BeforeSuite(func() {
-	satellite.Get(context.Background())
+	auxiliary.Get(context.Background())
 	Expect(setup.EnsureDefaultProviders(nil)).To(Succeed())
 	// Setup VM and harness for this worker
 	e2e.SetupWorkerHarnessOrAbort()

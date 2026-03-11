@@ -6,12 +6,12 @@ import (
 	"os"
 
 	"github.com/flightctl/flightctl/test/e2e/infra"
-	"github.com/flightctl/flightctl/test/e2e/infra/satellite"
+	"github.com/flightctl/flightctl/test/e2e/infra/auxiliary"
 	"github.com/flightctl/flightctl/test/e2e/infra/setup"
 	"github.com/sirupsen/logrus"
 )
 
-const usage = `Usage: satellite-service <command> <service>...
+const usage = `Usage: aux-service <command> <service>...
   commands: start, stop
   services: all, registry, git-server, prometheus, tracing`
 
@@ -38,20 +38,20 @@ func main() {
 	}
 }
 
-func runStart(services []satellite.Service) {
+func runStart(services []auxiliary.Service) {
 	ctx := context.Background()
 
-	// Tracing uses TracingProvider (starts satellite + configures flightctl).
+	// Tracing uses TracingProvider (starts aux + configures flightctl).
 	if onlyTracing(services) {
 		runStartTracing(ctx)
 		return
 	}
 
-	// If "all", start non-tracing satellites then tracing via provider.
-	if containsService(services, satellite.ServiceTracing) {
-		others := withoutService(services, satellite.ServiceTracing)
+	// If "all", start non-tracing aux then tracing via provider.
+	if containsService(services, auxiliary.ServiceTracing) {
+		others := withoutService(services, auxiliary.ServiceTracing)
 		if len(others) > 0 {
-			svcs, err := satellite.StartServices(ctx, others)
+			svcs, err := auxiliary.StartServices(ctx, others)
 			if err != nil {
 				logrus.Fatalf("Failed to start services: %v", err)
 			}
@@ -61,7 +61,7 @@ func runStart(services []satellite.Service) {
 		return
 	}
 
-	svcs, err := satellite.StartServices(ctx, services)
+	svcs, err := auxiliary.StartServices(ctx, services)
 	if err != nil {
 		logrus.Fatalf("Failed to start services: %v", err)
 	}
@@ -84,26 +84,26 @@ func runStartTracing(ctx context.Context) {
 	}
 }
 
-func runStop(services []satellite.Service) {
-	// Tracing uses TracingProvider (reconfigures flightctl then stops satellite).
+func runStop(services []auxiliary.Service) {
+	// Tracing uses TracingProvider (reconfigures flightctl then stops aux).
 	if onlyTracing(services) {
 		runStopTracing()
 		return
 	}
 
-	if containsService(services, satellite.ServiceTracing) {
+	if containsService(services, auxiliary.ServiceTracing) {
 		runStopTracing()
-		services = withoutService(services, satellite.ServiceTracing)
+		services = withoutService(services, auxiliary.ServiceTracing)
 		if len(services) == 0 {
-			fmt.Println("Stopped satellite services")
+			fmt.Println("Stopped aux services")
 			return
 		}
 	}
 
-	if err := satellite.StopServices(services); err != nil {
+	if err := auxiliary.StopServices(services); err != nil {
 		logrus.Fatalf("Failed to stop services: %v", err)
 	}
-	fmt.Println("Stopped satellite services")
+	fmt.Println("Stopped aux services")
 }
 
 func runStopTracing() {
@@ -117,7 +117,7 @@ func runStopTracing() {
 	}
 }
 
-func printServiceURLs(svcs *satellite.Services) {
+func printServiceURLs(svcs *auxiliary.Services) {
 	if svcs.RegistryURL != "" {
 		fmt.Printf("registry: %s\n", svcs.RegistryURL)
 	}
@@ -129,11 +129,11 @@ func printServiceURLs(svcs *satellite.Services) {
 	}
 }
 
-func onlyTracing(services []satellite.Service) bool {
-	return len(services) == 1 && services[0] == satellite.ServiceTracing
+func onlyTracing(services []auxiliary.Service) bool {
+	return len(services) == 1 && services[0] == auxiliary.ServiceTracing
 }
 
-func containsService(services []satellite.Service, name satellite.Service) bool {
+func containsService(services []auxiliary.Service, name auxiliary.Service) bool {
 	for _, s := range services {
 		if s == name {
 			return true
@@ -142,8 +142,8 @@ func containsService(services []satellite.Service, name satellite.Service) bool 
 	return false
 }
 
-func withoutService(services []satellite.Service, name satellite.Service) []satellite.Service {
-	out := make([]satellite.Service, 0, len(services))
+func withoutService(services []auxiliary.Service, name auxiliary.Service) []auxiliary.Service {
+	out := make([]auxiliary.Service, 0, len(services))
 	for _, s := range services {
 		if s != name {
 			out = append(out, s)
@@ -152,20 +152,20 @@ func withoutService(services []satellite.Service, name satellite.Service) []sate
 	return out
 }
 
-func parseServices(args []string) ([]satellite.Service, error) {
-	var services []satellite.Service
+func parseServices(args []string) ([]auxiliary.Service, error) {
+	var services []auxiliary.Service
 	for _, arg := range args {
 		switch arg {
 		case "all":
-			return satellite.AllServices, nil
+			return auxiliary.AllServices, nil
 		case "registry":
-			services = append(services, satellite.ServiceRegistry)
+			services = append(services, auxiliary.ServiceRegistry)
 		case "git-server":
-			services = append(services, satellite.ServiceGitServer)
+			services = append(services, auxiliary.ServiceGitServer)
 		case "prometheus":
-			services = append(services, satellite.ServicePrometheus)
+			services = append(services, auxiliary.ServicePrometheus)
 		case "tracing":
-			services = append(services, satellite.ServiceTracing)
+			services = append(services, auxiliary.ServiceTracing)
 		default:
 			return nil, fmt.Errorf("unknown service %q; valid values: all, registry, git-server, prometheus, tracing", arg)
 		}

@@ -140,6 +140,8 @@ This type of testing verifies the interaction of our software components with
 external software or services, such as the operating system, registries,
 git repositories, etc.
 
+**For detailed e2e usage (make targets, environment variables, aux services, OpenShift/Quadlets), see [e2e/README.md](e2e/README.md). For concepts and guidelines on writing tests, the harness, and aux services, see [e2e/GUIDELINES.md](e2e/GUIDELINES.md).**
+
 Our stack helps deploy a complete system with `make deploy` and this stack
 should provide everything necessary to perform e2e testing.
 
@@ -321,7 +323,7 @@ using the RPMs downloaded from the specified brew URL.
 
 #### OpenShift namespace
 
-The e2e infra in `test/e2e/infra/` discovers namespaces from the cluster by finding pods with labels `flightctl.service=flightctl-api` (external) and `flightctl.service=flightctl-worker` (internal), so you usually do not need to set any namespace. Set **`FLIGHTCTL_NS`** only when you need to override (e.g. the e2e login flow uses it to run `kubectl create token` in the right namespace, or CI pins a namespace). `satellite.Get()` / `satellite.SetEnvVars()` set `REGISTRY_ENDPOINT` only and do not use namespace variables.
+The e2e infra in `test/e2e/infra/` discovers namespaces from the cluster by finding pods with labels `flightctl.service=flightctl-api` (external) and `flightctl.service=flightctl-worker` (internal), so you usually do not need to set any namespace. Set **`FLIGHTCTL_NS`** only when you need to override (e.g. the e2e login flow uses it to run `kubectl create token` in the right namespace, or CI pins a namespace).
 
 (Optional: set `E2E_ENVIRONMENT=ocp` so the environment is not auto-detected.)
 
@@ -329,13 +331,13 @@ The e2e infra in `test/e2e/infra/` discovers namespaces from the cluster by find
 
 When the test VM and the OpenShift cluster **share a network** (e.g. the same libvirt network such as `ocp3m0w-ic4s20`), the cluster can reach local testcontainers (registry, git server, prometheus) on the VM. No in-cluster registry is required.
 
-- Set `E2E_ENVIRONMENT=ocp` (or rely on context detection). Start satellite as usual; suites that need it call `satellite.Get()` and `SetEnvVars()`, which sets `REGISTRY_ENDPOINT`. The cluster and tests will use that endpoint.
-- If the test VM has **two NICs** (e.g. default for installing dependencies, OCP network for tests), set `E2E_SATELLITE_HOST` to the VM's IP on the OCP network so registry/git/prometheus are advertised on the interface the cluster can reach:
+- Set `E2E_ENVIRONMENT=ocp` (or rely on context detection). Start aux as usual; suites that need it call `auxiliary.Get()` and pass registry/git data from the result into the harness and scripts. The cluster and tests will use that endpoint.
+- If the test VM has **two NICs** (e.g. default for installing dependencies, OCP network for tests), set `E2E_AUX_HOST` to the VM's IP on the OCP network so registry/git/prometheus are advertised on the interface the cluster can reach:
 
 ```bash
 export FLIGHTCTL_NS=flightctl
 export KUBEADMIN_PASS=your-oc-password-for-kubeadmin
-export E2E_SATELLITE_HOST=192.168.122.10   # VM IP on the OCP network (e.g. ocp3m0w-ic4s20)
+export E2E_AUX_HOST=192.168.122.10   # VM IP on the OCP network (e.g. ocp3m0w-ic4s20)
 
 make in-cluster-e2e-test
 ```

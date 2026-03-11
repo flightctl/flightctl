@@ -13,7 +13,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// GitServerConfig holds configuration for the git server. Callers get it from infra (e.g. satellite).
+// GitServerConfig holds configuration for the git server. Callers get it from infra (e.g. auxiliary).
 type GitServerConfig struct {
 	Host string
 	Port int
@@ -21,7 +21,7 @@ type GitServerConfig struct {
 }
 
 // runGitServerSSHCommand executes a command on the git server via SSH using key authentication.
-// keyPath must be the path to the git SSH private key (caller gets it from infra, e.g. satellite.Get(ctx).GetGitSSHPrivateKeyPath()).
+// keyPath must be the path to the git SSH private key (caller gets it from infra, e.g. auxiliary.Get(ctx).GetGitSSHPrivateKeyPath()).
 func (h *Harness) runGitServerSSHCommand(config GitServerConfig, keyPath util.SSHPrivateKeyPath, command string) error {
 	if keyPath == "" {
 		return fmt.Errorf("SSH private key path is required for git server SSH commands")
@@ -77,7 +77,7 @@ func (h *Harness) runGitCommands(workDir string, keyPath util.SSHPrivateKeyPath,
 }
 
 // CreateGitRepositoryOnServer creates a new Git repository on the e2e git server.
-// Callers pass config and keyPath from infra (e.g. satellite).
+// Callers pass config and keyPath from infra (e.g. auxiliary).
 func (h *Harness) CreateGitRepositoryOnServer(config GitServerConfig, keyPath util.SSHPrivateKeyPath, repoName string) error {
 	if repoName == "" {
 		return fmt.Errorf("repository name cannot be empty")
@@ -346,7 +346,7 @@ func GetTestDataPath(relativePath string) string {
 	return filepath.Join("testdata", relativePath)
 }
 
-// Git SSH keys: callers get the key path from infra (e.g. satellite.Get(ctx).GetGitSSHPrivateKeyPath()) and pass it into harness methods that need it.
+// Git SSH keys: callers get the key path from infra (e.g. auxiliary.Get(ctx).GetGitSSHPrivateKeyPath()) and pass it into harness methods that need it.
 
 // writeTemplatedFilesToDir is a helper that
 // 1. reads template files from sourceDir

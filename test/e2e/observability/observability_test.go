@@ -20,15 +20,15 @@ const (
 	fleetImage                  = "quay.io/redhat/rhde:9.2"
 )
 
-// getPrometheusURL returns the Prometheus URL from satellite.Services.
+// getPrometheusURL returns the Prometheus URL from auxiliary.Services.
 func getPrometheusURL() (string, error) {
-	if satellites == nil {
-		return "", fmt.Errorf("satellite services not initialized")
+	if auxSvcs == nil {
+		return "", fmt.Errorf("aux services not initialized")
 	}
-	if satellites.PrometheusURL == "" {
+	if auxSvcs.PrometheusURL == "" {
 		return "", fmt.Errorf("Prometheus not started")
 	}
-	return satellites.PrometheusURL, nil
+	return auxSvcs.PrometheusURL, nil
 }
 
 var _ = Describe("Device observability", func() {
@@ -141,7 +141,7 @@ var _ = Describe("Service observability", func() {
 		It("should expose service level metrics via the prometheus server", Label("88170"), func() {
 			harness := e2e.GetWorkerHarness()
 
-			By("getting Prometheus URL from satellite (testcontainer)")
+			By("getting Prometheus URL from aux (testcontainer)")
 			promURL, err := getPrometheusURL()
 			Expect(err).ToNot(HaveOccurred())
 

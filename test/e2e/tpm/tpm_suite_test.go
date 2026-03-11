@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/flightctl/flightctl/test/e2e/infra/satellite"
+	"github.com/flightctl/flightctl/test/e2e/infra/auxiliary"
 	"github.com/flightctl/flightctl/test/e2e/infra/setup"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	"github.com/flightctl/flightctl/test/login"
@@ -33,7 +33,7 @@ func init() {
 }
 
 var _ = BeforeSuite(func() {
-	satellite.Get(context.Background())
+	auxiliary.Get(context.Background())
 	Expect(setup.EnsureDefaultProviders(nil)).To(Succeed())
 	e2e.SetupWorkerHarnessOrAbort()
 })
