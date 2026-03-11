@@ -15,7 +15,7 @@ const (
 	agentConfigBackupPath = "/tmp/flightctl-config.yaml.bak"
 
 	metricsEndpoint = "http://127.0.0.1:15690/metrics"
-	pprofEndpoint   = "http://127.0.0.1:15691/debug/pprof/"
+	pprofEndpoint   = "http://127.0.0.1:15689/debug/pprof/"
 
 	serviceActiveTimeout = "10s"
 )
@@ -81,11 +81,100 @@ var _ = Describe("Agent observability and diagnostics", func() {
 
 			Expect(harness.CaptureStandardEvidence(artifactDir, deviceID)).To(Succeed())
 		})
+
+		It("86399 should expose pprof endpoints on the loopback endpoint", Label("86399", "agent"), func() {
+			artifactDir, err := harness.SetupScenario(deviceID, "agent-pprof")
+			Expect(err).ToNot(HaveOccurred())
+
+			By("enabling profiling in the agent config")
+			err = appendAgentObservabilityConfig(harness, observabilityConfig{
+				ProfilingEnabled: lo.ToPtr(true),
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			By("restarting the flightctl-agent service")
+			err = restartFlightctlAgentAndWait(harness)
+			Expect(err).ToNot(HaveOccurred())
+
+			By("querying the local pprof index endpoint from inside the VM")
+			indexOut, err := harness.RunVMCommandWithEvidence(
+				artifactDir,
+				"vm_pprof_index.txt",
+				buildCurlCommand(pprofEndpoint),
+			)
+			Expect(err).ToNot(HaveOccurred())
+
+			By("verifying the pprof index is reachable and lists the expected profiles")
+			Expect(indexOut).To(ContainSubstring("/debug/pprof/"))
+			Expect(indexOut).To(ContainSubstring("goroutine"))
+			Expect(indexOut).To(ContainSubstring("heap"))
+			Expect(indexOut).To(ContainSubstring("profile"))
+			Expect(indexOut).To(ContainSubstring("trace"))
+
+			By("verifying the heap profile endpoint")
+			heapOut, err := harness.RunVMCommandWithEvidence(
+				artifactDir,
+				"vm_pprof_heap.txt",
+				buildCurlCommand(pprofEndpoint+"heap"),
+			)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(strings.TrimSpace(heapOut)).ToNot(BeEmpty())
+
+			By("verifying the goroutine dump endpoint with debug=2")
+			goroutineOut, err := harness.RunVMCommandWithEvidence(
+				artifactDir,
+				"vm_pprof_goroutine_debug2.txt",
+				buildCurlCommand(pprofEndpoint+"goroutine?debug=2"),
+			)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(goroutineOut).To(ContainSubstring("goroutine"))
+			Expect(goroutineOut).To(ContainSubstring("flightctl-agent"))
+
+			By("verifying the CPU profile endpoint is reachable with a short duration")
+			profileOut, err := harness.RunVMCommandWithEvidence(
+				artifactDir,
+				"vm_pprof_profile_seconds1.txt",
+				buildCurlCommand(pprofEndpoint+"profile?seconds=1"),
+			)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(strings.TrimSpace(profileOut)).ToNot(BeEmpty())
+
+			By("verifying the trace endpoint is reachable with a short duration")
+			traceOut, err := harness.RunVMCommandWithEvidence(
+				artifactDir,
+				"vm_pprof_trace_seconds1.txt",
+				buildCurlCommand(pprofEndpoint+"trace?seconds=1"),
+			)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(strings.TrimSpace(traceOut)).ToNot(BeEmpty())
+
+			By("verifying the remaining pprof endpoints are reachable")
+			for _, endpoint := range []string{
+				"allocs",
+				"block",
+				"cmdline",
+				"heap",
+				"mutex",
+				"symbol",
+				"threadcreate",
+			} {
+				out, err := harness.RunVMCommandWithEvidence(
+					artifactDir,
+					fmt.Sprintf("vm_pprof_%s.txt", endpoint),
+					buildCurlCommand(pprofEndpoint+endpoint),
+				)
+				Expect(err).ToNot(HaveOccurred(), "endpoint %s should be reachable", endpoint)
+				Expect(strings.TrimSpace(out)).ToNot(BeEmpty(), "endpoint %s should return content", endpoint)
+			}
+
+			Expect(harness.CaptureStandardEvidence(artifactDir, deviceID)).To(Succeed())
+		})
 	})
 })
 
 type observabilityConfig struct {
-	MetricsEnabled *bool `yaml:"metrics-enabled,omitempty"`
+	MetricsEnabled   *bool `yaml:"metrics-enabled,omitempty"`
+	ProfilingEnabled *bool `yaml:"profiling-enabled,omitempty"`
 }
 
 func appendAgentObservabilityConfig(harness *e2e.Harness, cfg observabilityConfig) error {
@@ -176,4 +265,8 @@ func restartFlightctlAgentAndWait(harness *e2e.Harness) error {
 
 func buildCurlCommand(url string) string {
 	return "curl -sS --fail " + url
+}
+
+func buildCurlHeadersCommand(url string) string {
+	return "curl -sS --fail -D - -o /dev/null " + url
 }
