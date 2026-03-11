@@ -1,0 +1,10 @@
+FROM mcr.microsoft.com/restlerfuzzer/restler:latest
+
+USER root
+
+RUN apk add --no-cache jq bash openssl
+
+RUN mkdir -p /work/specs /work/config /work/results /work/RestlerLogs && \
+    chmod -R 777 /work
+
+WORKDIR /work

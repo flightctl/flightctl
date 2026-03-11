@@ -1,0 +1,13 @@
+{
+    "restler_custom_payload": {
+        "/metadata/resourceVersion": ["1"],
+        "/metadata/labels": ["{ \"env\": \"test\" }"],
+        "/metadata/annotations": ["{ \"restler\": \"test\" }"]
+    },
+    "restler_custom_payload_header": {
+        "Flightctl-API-Version": ["v1alpha1"]
+    },
+    "restler_custom_payload_uuid4_suffix": {
+        "name": "fctltest-"
+    }
+}
