@@ -954,21 +954,11 @@ func (h *Harness) UpdateDeviceConfigWithRetries(deviceId string, configs []v1bet
 	return h.WaitForDeviceNewRenderedVersion(deviceId, nextRenderedVersion)
 }
 
-// ResetAgent sends a SIGHUP to the flightctl-agent process.
-// This triggers the agent to reload its configuration without restarting the service.
+// reset agent
 func (h *Harness) ResetAgent() error {
 	_, err := h.VM.RunSSH([]string{"sudo", "pkill", "-HUP", "flightctl-agent"}, nil)
 	if err != nil {
-		return fmt.Errorf("failed to send SIGHUP to flightctl-agent: %w", err)
-	}
-	return nil
-}
-
-// RestartAgent restarts the flightctl-agent systemd service.
-func (h *Harness) RestartAgent() error {
-	_, err := h.VM.RunSSH([]string{"sudo", "systemctl", "restart", "flightctl-agent"}, nil)
-	if err != nil {
-		return fmt.Errorf("failed to restart flightctl-agent service: %w", err)
+		return fmt.Errorf("failed to send SIGHUP to agent: %w", err)
 	}
 	return nil
 }
@@ -996,6 +986,24 @@ func (h *Harness) SetAgentConfig(cfg *agentcfg.Config) error {
 	}
 
 	return nil
+}
+
+// GetAgentConfig reads and parses the agent configuration from the VM.
+func (h *Harness) GetAgentConfig() (*agentcfg.Config, error) {
+	stdout, err := h.VM.RunSSH([]string{"sudo", "cat", "/etc/flightctl/config.yaml"}, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read agent config: %w", err)
+	}
+	if stdout == nil {
+		return nil, fmt.Errorf("agent config output is nil")
+	}
+
+	cfg := &agentcfg.Config{}
+	if err := yaml.Unmarshal(stdout.Bytes(), cfg); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal agent config: %w", err)
+	}
+
+	return cfg, nil
 }
 
 // WaitForTPMInitialization waits for TPM hardware to be ready in the VM.
