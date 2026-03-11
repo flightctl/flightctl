@@ -59,11 +59,13 @@ func newK8sProviders(config *infra.EnvironmentConfig) (*infra.Providers, error) 
 	if err != nil {
 		return nil, fmt.Errorf("k8s secrets: %w", err)
 	}
+	tpmP := k8s.NewTPMProvider(cluster, infraP, lifecycleP)
 	return &infra.Providers{
 		Infra:     infraP,
 		Lifecycle: lifecycleP,
 		RBAC:      rbacP,
 		Secrets:   secretsP,
+		TPM:       tpmP,
 	}, nil
 }
 
@@ -75,11 +77,13 @@ func newQuadletProviders(config *infra.EnvironmentConfig) (*infra.Providers, err
 	lifecycleP := quadlet.NewServiceLifecycleProvider(infraP, useSudo)
 	rbacP := quadlet.NewPAMRBACProvider(useSudo)
 	secretsP := quadlet.NewSecretsProvider(infraP)
+	tpmP := quadlet.NewTPMProvider(infraP, lifecycleP)
 	return &infra.Providers{
 		Infra:     infraP,
 		Lifecycle: lifecycleP,
 		RBAC:      rbacP,
 		Secrets:   secretsP,
+		TPM:       tpmP,
 	}, nil
 }
 
