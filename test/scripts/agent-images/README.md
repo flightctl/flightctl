@@ -29,19 +29,25 @@ and RPM source detection (local, COPR, or Brew registry).
 
 ## OS Flavors and Tagging
 
-The build system supports multiple OS flavors defined in `flavors/` directory:
+The build system supports multiple OS flavors with dedicated Containerfiles:
 
 - **cs9-bootc** - Based on CentOS Stream 9 bootc (default)
 - **cs10-bootc** - Based on CentOS Stream 10 bootc
 
+Each flavor has its own explicit Containerfile eliminating conditional logic.
+
 ### Building Different Flavors
 
 ```bash
-# Build cs9-bootc images (default)
+# Build cs9-bootc images (default, community)
 ./scripts/build.sh --base
 
-# Build cs10-bootc images
+# Build cs10-bootc images (community)
 AGENT_OS_ID=cs10-bootc ./scripts/build.sh --base
+
+# Build Red Hat variants
+DISTRO=redhat AGENT_OS_ID=cs9-bootc ./scripts/build.sh --base
+DISTRO=redhat AGENT_OS_ID=cs10-bootc ./scripts/build.sh --base
 ```
 
 ### Image Tagging
@@ -69,14 +75,20 @@ The build system now uses a modular structure:
 
 ```text
 agent-images/
-├── base/                  # Base image Containerfile
+├── base/                  # Shared files for base images
+├── containerfiles/        # OS flavor-specific Containerfiles
+│   ├── cs9-bootc/         # CentOS Stream 9 bootc
+│   │   └── Containerfile
+│   ├── cs9-bootc-redhat/  # RHEL 9 bootc
+│   │   └── Containerfile
+│   ├── cs10-bootc/        # CentOS Stream 10 bootc
+│   │   └── Containerfile
+│   └── cs10-bootc-redhat/ # RHEL 10 bootc
+│       └── Containerfile
 ├── variants/              # Variant-specific files
 │   ├── v2/, v3/, ..., v10/   # Each contains Containerfile and variant-specific files
 ├── apps/                  # Application images (Containerfile.<app-name>.<version>)
 ├── common/                # Shared files used by variants/apps
-├── flavors/               # OS flavor configurations (.conf files)
-│   ├── cs9-bootc.conf
-│   └── cs10-bootc.conf
 ├── scripts/               # Build automation scripts
 │   ├── build.sh           # Main build script (base, variants, apps)
 │   ├── build_and_qcow2.sh # Orchestrates parallel builds
@@ -86,7 +98,7 @@ agent-images/
 └── create_agent_images.sh # Main wrapper script
 ```
 
-The images are built using the `Containerfile` files in the respective directories. For functionality or service deployment changes, update the appropriate `base/Containerfile`, `variants/vX/Containerfile`, or create new variants as needed.
+The images are built using the `Containerfile` files in the respective directories. For functionality or service deployment changes, update the appropriate `containerfiles/*/Containerfile`, `variants/vX/Containerfile`, or create new variants as needed.
 
 ## Build Scripts
 
