@@ -29,6 +29,7 @@ var (
 	}
 	resourceSyncSpecSelectors = selectorToTypeMap{
 		selector.NewSelectorName("spec.repository"): selector.String,
+		selector.NewSelectorName("spec.type"):       selector.String,
 	}
 	repositorySpecSelectors = selectorToTypeMap{
 		selector.NewSelectorName("spec.type"): selector.String,
