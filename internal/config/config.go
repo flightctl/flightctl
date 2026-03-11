@@ -31,7 +31,7 @@ type Config struct {
 	Auth                *authConfig                `json:"auth,omitempty"`
 	Metrics             *metricsConfig             `json:"metrics,omitempty"`
 	CA                  *ca.Config                 `json:"ca,omitempty"`
-	Tracing             *tracingConfig             `json:"tracing,omitempty"`
+	Tracing             *TracingConfig             `json:"tracing,omitempty"`
 	GitOps              *gitOpsConfig              `json:"gitOps,omitempty"`
 	CryptoPolicy        *CryptoPolicyConfig        `json:"cryptoPolicy,omitempty"`
 	Periodic            *periodicConfig            `json:"periodic,omitempty"`
@@ -363,7 +363,7 @@ type workerCollectorConfig struct {
 	collectorConfig
 }
 
-type tracingConfig struct {
+type TracingConfig struct {
 	Enabled  bool   `json:"enabled,omitempty"`
 	Endpoint string `json:"endpoint,omitempty"`
 	Insecure bool   `json:"insecure,omitempty"`
@@ -434,7 +434,7 @@ type ConfigOption func(*Config)
 
 func WithTracingEnabled() ConfigOption {
 	return func(c *Config) {
-		c.Tracing = &tracingConfig{
+		c.Tracing = &TracingConfig{
 			Enabled: true,
 		}
 	}

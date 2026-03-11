@@ -215,16 +215,34 @@ $(REPORTS)/integration-coverage.out:
 	$(MAKE) integration-test || true
 
 start-registry: bin/e2e-certs/ca.pem
-	go run ./cmd/start-satellite-service registry
+	go run ./cmd/satellite-service start registry
+
+stop-registry:
+	go run ./cmd/satellite-service stop registry
 
 start-git-server: bin/e2e-certs/ca.pem
-	go run ./cmd/start-satellite-service git-server
+	go run ./cmd/satellite-service start git-server
+
+stop-git-server:
+	go run ./cmd/satellite-service stop git-server
 
 start-prometheus:
-	go run ./cmd/start-satellite-service prometheus
+	go run ./cmd/satellite-service start prometheus
+
+stop-prometheus:
+	go run ./cmd/satellite-service stop prometheus
+
+start-tracing:
+	go run ./cmd/satellite-service start tracing
+
+stop-tracing:
+	go run ./cmd/satellite-service stop tracing
 
 start-satellite: bin/e2e-certs/ca.pem
-	go run ./cmd/start-satellite-service all
+	go run ./cmd/satellite-service start all
 
-.PHONY: start-registry start-git-server start-prometheus start-satellite
+stop-satellite:
+	go run ./cmd/satellite-service stop all
+
+.PHONY: start-registry stop-registry start-git-server stop-git-server start-prometheus stop-prometheus start-tracing stop-tracing start-satellite stop-satellite
 .PHONY: unit-test prepare-integration-test integration-test run-integration-test view-coverage prepare-e2e-test deploy-e2e-ocp-test-vm _wait_for_db _run_template_migration _ensure_db_setup_image prepare-swtpm-certs clean-swtpm-certs
