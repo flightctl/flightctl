@@ -42,7 +42,9 @@ func newK8sProviders(config *infra.EnvironmentConfig) (*infra.Providers, error) 
 	if err != nil {
 		return nil, fmt.Errorf("k8s client: %w", err)
 	}
-	namespace := config.GetNamespace()
+	// Use config.Namespace only when explicitly set (e.g. E2E_NAMESPACE); otherwise
+	// NewInfraProviderWithConfig detects external/internal from cluster (flightctl-api / flightctl-worker pods).
+	namespace := config.Namespace
 	infraP, err := k8s.NewInfraProviderWithConfig(namespace, config, cluster)
 	if err != nil {
 		return nil, fmt.Errorf("k8s infra provider: %w", err)
