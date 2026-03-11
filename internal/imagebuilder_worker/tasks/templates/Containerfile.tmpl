@@ -11,9 +11,13 @@ ARG USERNAME
 ARG AGENT_CONFIG_DEST_PATH=/etc/flightctl/config.yaml
 
 # Add Flight Control repository and install agent
-ARG RPM_REPO_URL
-RUN dnf -y config-manager --add-repo ${RPM_REPO_URL} && \
-    dnf install -y flightctl-agent && \
+ARG RPM_REPO_ADD
+ARG RPM_REPO_ADD_URL
+ARG RPM_REPO_ENABLE
+RUN if [ "${RPM_REPO_ADD}" = "true" ]; then \
+        dnf -y config-manager --add-repo ${RPM_REPO_ADD_URL}; \
+    fi && \
+    dnf install -y ${RPM_REPO_ENABLE:+--enablerepo=${RPM_REPO_ENABLE}} flightctl-agent && \
     dnf clean all
 
 # Enable Flight Control agent service

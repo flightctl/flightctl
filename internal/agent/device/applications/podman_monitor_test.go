@@ -478,9 +478,7 @@ func createMockPodmanEvent(name string, username v1beta1.Username, service, stat
 			"io.podman.compose.version":               "1.0.6",
 		},
 	}
-	if exitCode != 0 {
-		event.ContainerExitCode = exitCode
-	}
+	event.ContainerExitCode = lo.ToPtr(exitCode)
 	return event
 }
 
@@ -543,6 +541,10 @@ func (m *mockProvider) Install(ctx context.Context) error {
 }
 
 func (m *mockProvider) Remove(ctx context.Context) error {
+	return nil
+}
+
+func (m *mockProvider) EnsureDependencies(ctx context.Context) error {
 	return nil
 }
 
@@ -789,6 +791,89 @@ func TestPodmanMonitorHandlerSelection(t *testing.T) {
 
 	// Verify quadlet handler was NOT called
 	require.Equal(0, len(quadletActions), "Quadlet handler should not be called")
+}
+
+func TestPodmanMonitorDrainSkipsQuadletActions(t *testing.T) {
+	require := require.New(t)
+
+	ctx := context.Background()
+	log := log.NewPrefixLogger("test")
+	log.SetLevel(logrus.DebugLevel)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockReadWriter := fileio.NewMockReadWriter(ctrl)
+	mockExec := executer.NewMockExecuter(ctrl)
+	mockPodmanClient := client.NewPodman(log, mockExec, mockReadWriter, util.NewPollConfig())
+
+	tempDir := t.TempDir()
+	readWriter := fileio.NewReadWriter(
+		fileio.NewReader(fileio.WithReaderRootDir(tempDir)),
+		fileio.NewWriter(fileio.WithWriterRootDir(tempDir)),
+	)
+
+	mockExec.EXPECT().CommandContext(gomock.Any(), "podman", gomock.Any()).
+		DoAndReturn(func(ctx context.Context, name string, args ...string) *exec.Cmd {
+			now := time.Now().UnixNano()
+			return exec.CommandContext(ctx, "echo", fmt.Sprintf(`{"timeNano": %d}`, now)) //nolint:gosec
+		}).AnyTimes()
+
+	var podmanFactory client.PodmanFactory = func(user v1beta1.Username) (*client.Podman, error) {
+		return mockPodmanClient, nil
+	}
+	var systemdFactory systemd.ManagerFactory = func(user v1beta1.Username) (systemd.Manager, error) {
+		return systemd.NewMockManager(ctrl), nil
+	}
+	var rwFactory fileio.ReadWriterFactory = func(username v1beta1.Username) (fileio.ReadWriter, error) {
+		return readWriter, nil
+	}
+	podmanMonitor := NewPodmanMonitor(log, podmanFactory, systemdFactory, "", rwFactory)
+
+	mockComposeHandler := lifecycle.NewMockActionHandler(ctrl)
+	mockQuadletHandler := lifecycle.NewMockActionHandler(ctrl)
+
+	var composeActions []lifecycle.Action
+	var quadletActions []lifecycle.Action
+
+	mockComposeHandler.EXPECT().Execute(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, action lifecycle.Actions) error {
+			composeActions = append(composeActions, action...)
+			return nil
+		}).AnyTimes()
+	mockQuadletHandler.EXPECT().Execute(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, action lifecycle.Actions) error {
+			quadletActions = append(quadletActions, action...)
+			return nil
+		}).AnyTimes()
+
+	podmanMonitor.handlers[v1beta1.AppTypeCompose] = mockComposeHandler
+	podmanMonitor.handlers[v1beta1.AppTypeQuadlet] = mockQuadletHandler
+
+	composeApp := createTestApplicationWithType(require, "compose-app", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername, v1beta1.AppTypeCompose)
+	quadletApp := createTestApplicationWithType(require, "quadlet-app", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername, v1beta1.AppTypeQuadlet)
+	containerApp := createTestApplicationWithType(require, "container-app", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername, v1beta1.AppTypeContainer)
+
+	err := podmanMonitor.Ensure(t.Context(), composeApp)
+	require.NoError(err)
+	err = podmanMonitor.Ensure(t.Context(), quadletApp)
+	require.NoError(err)
+	err = podmanMonitor.Ensure(t.Context(), containerApp)
+	require.NoError(err)
+
+	err = podmanMonitor.ExecuteActions(ctx)
+	require.NoError(err)
+
+	require.Equal(1, len(composeActions), "Compose handler should be called once for add")
+	require.Equal(2, len(quadletActions), "Quadlet handler should be called twice for add (quadlet + container)")
+
+	composeActions = nil
+	quadletActions = nil
+
+	err = podmanMonitor.Drain(ctx)
+	require.NoError(err)
+
+	require.Equal(1, len(composeActions), "Compose handler should be called once for remove during drain")
+	require.Equal(0, len(quadletActions), "Quadlet handler should NOT be called during drain (system shutdown)")
 }
 
 func TestPodmanMonitorStatusAggregation(t *testing.T) {
@@ -1057,6 +1142,42 @@ func TestBuildAppSummaryInfo(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAggregateAppStatusesDeterministicOrder(t *testing.T) {
+	require := require.New(t)
+
+	makeResult := func(name string, summaryStatus v1beta1.ApplicationsSummaryStatusType) AppStatusResult {
+		return AppStatusResult{
+			Status:  v1beta1.DeviceApplicationStatus{Name: name},
+			Summary: v1beta1.DeviceApplicationsSummaryStatus{Status: summaryStatus},
+		}
+	}
+
+	// Same logical set of apps in two different input orders (simulating non-deterministic map iteration).
+	resultsOrder1 := []AppStatusResult{
+		makeResult("nginx-multi-port-server", v1beta1.ApplicationsSummaryStatusError),
+		makeResult("app-multi-file-artifact-with-image-ref", v1beta1.ApplicationsSummaryStatusDegraded),
+	}
+	resultsOrder2 := []AppStatusResult{
+		makeResult("app-multi-file-artifact-with-image-ref", v1beta1.ApplicationsSummaryStatusDegraded),
+		makeResult("nginx-multi-port-server", v1beta1.ApplicationsSummaryStatusError),
+	}
+
+	statuses1, summary1 := aggregateAppStatuses(resultsOrder1)
+	statuses2, summary2 := aggregateAppStatuses(resultsOrder2)
+
+	require.Len(statuses1, 2)
+	require.Len(statuses2, 2)
+	require.Equal(summary1.Status, summary2.Status)
+	require.NotNil(summary1.Info)
+	require.NotNil(summary2.Info)
+	require.Equal(*summary1.Info, *summary2.Info, "summary Info must be identical regardless of input order")
+
+	// Summary lists errored apps first (sorted by name), then degraded apps (sorted by name).
+	// Here: one error (nginx-multi-port-server), one degraded (app-multi-file-artifact-with-image-ref).
+	expectedInfo := "nginx-multi-port-server is in status Error, app-multi-file-artifact-with-image-ref is in status Degraded"
+	require.Equal(expectedInfo, *summary1.Info, "info must be deterministic: errored then degraded, each sorted by app name")
 }
 
 func TestReduceActions(t *testing.T) {

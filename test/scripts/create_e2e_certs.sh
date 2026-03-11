@@ -22,23 +22,23 @@ REGISTRY_HOST=$(get_registry_hostname)
 
 CERT_DIR="bin/e2e-certs/pki/CA"
 mkdir -p "${CERT_DIR}"
+
+# Generate CA if it doesn't exist
 if [[ -f "${CERT_DIR}/ca.key" ]]; then
-    echo "CA key already exists, skipping generation"
+    echo "CA key already exists, skipping CA generation"
 else
-    # create CA for e2e tests
+    echo "Creating CA for e2e tests..."
     openssl genrsa -out "${CERT_DIR}/ca.key" 2048
     openssl req -new -x509 -days 365 -key "${CERT_DIR}/ca.key" -out "${CERT_DIR}/ca.crt" -subj "/CN=e2e-ca"
     openssl x509 -in "${CERT_DIR}/ca.crt" -out "${CERT_DIR}/ca.pem" -outform PEM
-
-    # generate a key for the registry TLS, and get it signed by the CA via CSR
-    openssl genrsa -out "${CERT_DIR}/registry.key" 2048
-    openssl req -new -key "${CERT_DIR}/registry.key" -out "${CERT_DIR}/registry.csr" -subj "/CN=${IP}"  -config <(cat "/etc/pki/tls/openssl.cnf" <(printf "[SAN]\nsubjectAltName=DNS:${REGISTRY_HOST},IP:${IP}"))
-    openssl x509 -req -days 365 -in "${CERT_DIR}/registry.csr" -CA "${CERT_DIR}/ca.crt" -CAkey "${CERT_DIR}/ca.key" -CAcreateserial -out "${CERT_DIR}/registry.crt" -extfile <(printf "subjectAltName=DNS:${REGISTRY_HOST},IP:${IP}")
 fi
 
-# copy the registry key/cert to the secrets directory for the helm charts
-cp "${CERT_DIR}/registry".* deploy/helm/e2e-extras/secrets/
+# NOTE: Registry cert is now generated at runtime by testcontainers (registry.go)
+# This ensures the cert always has the correct current IP in its SAN.
+# The CA cert above is injected into VMs during prepare-e2e-test.
 
+# Note: helm chart secrets directory removed - testcontainers now manage E2E infrastructure
+# Registry certs remain in bin/e2e-certs/pki/CA/ for local use
 
 # ensure pub/private key for SSH access to agents and git server
 mkdir -p bin/.ssh/
@@ -49,6 +49,4 @@ if [ ! -f bin/.ssh/id_rsa ]; then
   ssh-keygen -t rsa -b 4096 -f bin/.ssh/id_rsa -N "" -C "e2e test key"
 fi
 
-# copy the SSH keys to the secrets directory for the helm charts (for git server)
-cp bin/.ssh/id_rsa deploy/helm/e2e-extras/secrets/git-ssh.key
-cp bin/.ssh/id_rsa.pub deploy/helm/e2e-extras/secrets/git-ssh.pub
+# SSH keys remain in bin/.ssh/ for testcontainers git server

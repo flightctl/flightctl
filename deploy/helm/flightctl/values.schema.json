@@ -539,8 +539,13 @@
         "logLevel": { "type": "string", "description": "Log level for ImageBuilder Worker" },
         "maxConcurrentBuilds": { "type": "integer", "description": "Maximum concurrent builds" },
         "defaultTTL": { "type": "string", "description": "Default TTL for build resources" },
-        "rpmRepoUrl": { "type": "string", "description": "RPM repository URL for flightctl-agent package" },
+        "rpmRepoUrl": { "type": "string", "description": "RPM repository URL to add via dnf config-manager --add-repo for flightctl-agent package" },
+        "rpmRepoAdd": { "type": "boolean", "description": "Whether to add the RPM repository via dnf config-manager --add-repo (defaults to true)" },
+        "rpmRepoEnable": { "type": "string", "description": "RPM repository name to enable via --enablerepo for flightctl-agent package installation" },
         "entitlementCertsSecretName": { "type": "string", "description": "Secret name containing RHEL entitlement certificates. On OpenShift, copy 'etc-pki-entitlement' from 'openshift-config-managed' namespace" },
+        "yumReposSecretName": { "type": "string", "description": "Secret name containing yum repository configuration files, mounted at /etc/yum.repos.d" },
+        "rhsmSecretName": { "type": "string", "description": "Secret name containing RHEL subscription manager configuration, mounted at /etc/rhsm" },
+        "rhsmCaSecretName": { "type": "string", "description": "Secret name containing RHSM CA certificates, mounted at /etc/rhsm/ca" },
         "privileged": { "type": "boolean", "description": "Enable privileged mode for container-in-container builds" },
         "resources": { "type": "object", "description": "Resource requests and limits" }
       }

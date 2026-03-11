@@ -10,6 +10,73 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func TestLoginOptions_Complete(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "hostname without schema",
+			input:    "my.service.com",
+			expected: "https://my.service.com",
+		},
+		{
+			name:     "hostname with port without schema",
+			input:    "my.service.com:8443",
+			expected: "https://my.service.com:8443",
+		},
+		{
+			name:     "URL with https schema",
+			input:    "https://my.service.com",
+			expected: "https://my.service.com",
+		},
+		{
+			name:     "URL with http schema",
+			input:    "http://my.service.com",
+			expected: "http://my.service.com",
+		},
+		{
+			name:     "hostname with leading/trailing whitespace",
+			input:    " my.service.com ",
+			expected: "https://my.service.com",
+		},
+		{
+			name:     "URL with schema and whitespace",
+			input:    " https://my.service.com ",
+			expected: "https://my.service.com",
+		},
+		{
+			name:     "URL with ftp schema",
+			input:    "ftp://my.service.com",
+			expected: "ftp://my.service.com",
+		},
+		{
+			name:     "IPv6 hostname without schema",
+			input:    "[2001:db8::1]",
+			expected: "https://[2001:db8::1]",
+		},
+		{
+			name:     "IPv6 hostname with port without schema",
+			input:    "[2001:db8::1]:8443",
+			expected: "https://[2001:db8::1]:8443",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			o := DefaultLoginOptions()
+			args := []string{tt.input}
+			cmd := NewCmdLogin()
+
+			err := o.Complete(cmd, args)
+
+			assert.NoError(t, err)
+			assert.Equal(t, tt.expected, args[0])
+		})
+	}
+}
+
 func TestLoginOptions_Validate(t *testing.T) {
 	tests := []struct {
 		name    string

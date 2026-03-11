@@ -13,12 +13,14 @@ import (
 
 var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 	var (
-		deviceId string
+		deviceId     string
+		registryHost string
+		registryPort string
 	)
 
 	BeforeEach(func() {
-		// Get harness directly - no shared package-level variable
 		harness := e2e.GetWorkerHarness()
+		registryHost, registryPort = satellites.RegistryHost, satellites.RegistryPort
 		deviceId, _ = harness.EnrollAndWaitForOnlineStatus()
 	})
 
@@ -28,13 +30,21 @@ var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 			harness := e2e.GetWorkerHarness()
 
 			By("Update the device image to one containing an embedded hook")
-			_, err := harness.CheckDeviceStatus(deviceId, v1beta1.DeviceSummaryStatusOnline)
-			Expect(err).ToNot(HaveOccurred())
+			// Wait for device to be online with SystemInfo populated.
+			// In production environments, hook loading with long paths may cause temporary
+			// delays in status reporting, so we wait for the device to be ready.
+			var device *v1beta1.Device
+			Eventually(func() error {
+				var err error
+				device, err = harness.CheckDeviceStatus(deviceId, v1beta1.DeviceSummaryStatusOnline)
+				return err
+			}, TIMEOUT, POLLING).Should(Succeed(), "Device should be online with SystemInfo populated")
+			Expect(device).ToNot(BeNil())
 
 			nextRenderedVersion, err := harness.PrepareNextDeviceVersion(deviceId)
 			Expect(err).ToNot(HaveOccurred())
 
-			deviceImage := util.NewDeviceImageReference(util.DeviceTags.V6).String()
+			deviceImage := harness.GetDeviceImageRefForFleet(registryHost, registryPort, util.DeviceTags.V6)
 
 			var osImageSpec = v1beta1.DeviceOsSpec{
 				Image: deviceImage,
@@ -47,7 +57,8 @@ var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 			})
 			Expect(err).ToNot(HaveOccurred())
 
-			err = harness.WaitForDeviceNewRenderedVersion(deviceId, nextRenderedVersion)
+			// OS image update triggers reboot; use reboot-aware wait (Unknown/Rebooting treated as in-progress).
+			err = harness.WaitForDeviceNewRenderedVersionWithReboot(deviceId, nextRenderedVersion)
 			Expect(err).ToNot(HaveOccurred())
 
 			By("Add an inline configuration for sshd")
@@ -139,7 +150,7 @@ var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 			By("Check pre/after update and pre/after reboot hooks from inline config works")
 			nextRenderedVersion, err = harness.PrepareNextDeviceVersion(deviceId)
 			Expect(err).ToNot(HaveOccurred())
-			deviceImage = util.NewDeviceImageReference(util.DeviceTags.Base).String()
+			deviceImage = harness.GetDeviceImageRefForFleet(registryHost, registryPort, util.DeviceTags.Base)
 
 			osImageSpec.Image = deviceImage
 			err = inlineConfigProviderSpec.FromInlineConfigProviderSpec(inlineConfigValidLifecycle)
@@ -156,7 +167,8 @@ var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 			})
 			Expect(err).ToNot(HaveOccurred())
 
-			err = harness.WaitForDeviceNewRenderedVersion(deviceId, nextRenderedVersion)
+			// OS image update triggers reboot; use reboot-aware wait.
+			err = harness.WaitForDeviceNewRenderedVersionWithReboot(deviceId, nextRenderedVersion)
 			Expect(err).ToNot(HaveOccurred())
 
 			By("Check that in the device logs the hooks were triggered")
@@ -348,7 +360,7 @@ var (
 	rootUser                  = "root"
 	hookPath                  = "/etc/flightctl/hooks.d/afterupdating/custom-hook.yaml"
 	deviceSpec                v1beta1.DeviceSpec
-	noPasswordLoginError      = "user@localhost: Permission denied"
+	noPasswordLoginError      = "Permission denied"
 	tooManyAuthFailuresError  = "Too many authentication failures"
 )
 

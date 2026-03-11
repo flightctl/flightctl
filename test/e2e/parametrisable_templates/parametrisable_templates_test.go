@@ -14,13 +14,15 @@ import (
 
 var _ = Describe("Template variables in the device configuration", func() {
 	var (
-		deviceId string
-		testID   string
+		deviceId     string
+		testID       string
+		registryHost string
+		registryPort string
 	)
 
 	BeforeEach(func() {
-		// Get harness directly - no shared package-level variable
 		harness := e2e.GetWorkerHarness()
+		registryHost, registryPort = satellites.RegistryHost, satellites.RegistryPort
 		deviceId, _ = harness.EnrollAndWaitForOnlineStatus()
 		testID = harness.GetTestIDFromContext()
 	})
@@ -221,7 +223,7 @@ var _ = Describe("Template variables in the device configuration", func() {
 				configProviderSpec := []v1beta1.ConfigProviderSpec{gitConfigProviderSpec, inlineConfigProviderSpec, httpConfigProviderSpec}
 
 				GinkgoWriter.Printf("this is the configProviderSpec %s\n", configProviderSpec)
-				deviceImage := fmt.Sprintf("%s:{{ .metadata.labels.alias }}", testutil.NewDeviceImageReference("").String())
+				deviceImage := fmt.Sprintf("%s:{{ .metadata.labels.alias }}", harness.GetDeviceImageRefForFleet(registryHost, registryPort, ""))
 
 				var osImageSpec = v1beta1.DeviceOsSpec{
 					Image: deviceImage,

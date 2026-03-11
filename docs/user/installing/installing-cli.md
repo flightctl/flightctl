@@ -4,11 +4,18 @@ To install `flightctl` on Linux, macOS and Windows operating systems you have to
 
 ## Download archive
 
+The Command Line Tools page offers two CLI tools:
+
+- **flightctl** — main CLI for managing Flight Control fleets, devices, and resources
+- **flightctl-restore** — utility for preparing devices after [database restoration](performing-database-restore.md)
+
 1. Click the **❔** (question mark) icon in the upper part of the web console page and select "Command Line Tools" to be taken to the CLI downloads page.
 
-2. Choose a downloadable archive using proper architecture and OS. Click the file to download it.
+2. Choose the CLI (flightctl or flightctl-restore), then pick the archive for your OS and architecture. Click the file to download it.
 
 ## Installation
+
+The steps below apply to `flightctl`; for `flightctl-restore`, use the same steps with the `flightctl-restore` binary (or `flightctl-restore.exe` on Windows).
 
 1. Install `flightctl`
 

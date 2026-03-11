@@ -11,6 +11,13 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// E2ESetupAbortExitCode is the exit code used when BeforeSuite setup fails (e.g. VM/base disk missing).
+// CI should treat this as job FAILURE; exit 1 (test failures) is treated as UNSTABLE.
+const E2ESetupAbortExitCode = 2
+
+// E2ESetupAbortStderrMarker is written to stderr on setup abort so CI can detect it from logs.
+const E2ESetupAbortStderrMarker = "FLIGHTCTL_E2E_SETUP_ABORT=1"
+
 var (
 	// Per-worker storage
 	workerHarnesses sync.Map // map[int]*Harness
@@ -44,6 +51,21 @@ func SetupWorkerHarness() (*Harness, context.Context, error) {
 
 	logrus.Infof("✅ [SetupWorkerHarness] Worker %d: VM and harness setup completed", workerID)
 	return harness, suiteCtx, nil
+}
+
+// SetupWorkerHarnessOrAbort calls SetupWorkerHarness and exits the process on error.
+// Use in BeforeSuite when a VM is required; the job fails immediately on env problems
+// (e.g. base disk not found) so no specs run. Exits with E2ESetupAbortExitCode (2) and
+// prints E2ESetupAbortStderrMarker so CI can report FAILURE (not UNSTABLE). Test failures use exit 1.
+func SetupWorkerHarnessOrAbort() (*Harness, context.Context) {
+	harness, ctx, err := SetupWorkerHarness()
+	if err != nil {
+		msg := fmt.Sprintf("E2E environment precondition not met: %v\nAborting suite so the job fails immediately (no point running specs).\n", err)
+		fmt.Fprint(os.Stderr, msg)
+		fmt.Fprint(os.Stderr, E2ESetupAbortStderrMarker+"\n")
+		os.Exit(E2ESetupAbortExitCode)
+	}
+	return harness, ctx
 }
 
 // SetupWorkerHarnessWithoutVM sets up a harness for the current worker without VM.

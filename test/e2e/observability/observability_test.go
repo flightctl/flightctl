@@ -4,6 +4,9 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/flightctl/flightctl/test/e2e/infra"
+	"github.com/flightctl/flightctl/test/e2e/infra/setup"
+	"github.com/flightctl/flightctl/test/e2e/resources"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	"github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
@@ -11,32 +14,40 @@ import (
 )
 
 const (
-	telemetryGatewayNamespace   = "flightctl-external"
-	telemetryGatewayConfigMap   = "flightctl-telemetry-gateway-config"
-	telemetryGatewayServiceName = "svc/flightctl-telemetry-gateway"
 	telemetryGatewayMetricsPort = 9464
-	prometheusServiceName       = "svc/flightctl-prometheus"
-	prometheusService           = "flightctl-prometheus"
-	prometheusPort              = 9090
 	metricsEndpointPath         = "/metrics"
 	telemetryGatewayConfigPath  = "jsonpath={.data.config\\.yaml}"
+	fleetImage                  = "quay.io/redhat/rhde:9.2"
 )
+
+// getPrometheusURL returns the Prometheus URL from satellite.Services.
+func getPrometheusURL() (string, error) {
+	if satellites == nil {
+		return "", fmt.Errorf("satellite services not initialized")
+	}
+	if satellites.PrometheusURL == "" {
+		return "", fmt.Errorf("Prometheus not started")
+	}
+	return satellites.PrometheusURL, nil
+}
 
 var _ = Describe("Device observability", func() {
 	BeforeEach(func() {
-		ctxStr, err := e2e.GetContext()
-		if err != nil || ctxStr != util.KIND {
-			Skip("KIND context required for telemetry gateway metrics")
+		p := setup.GetDefaultProviders()
+		envType := p.Infra.GetEnvironmentType()
+		// Allow KIND and Quadlet environments
+		if envType != infra.EnvironmentKind && envType != infra.EnvironmentQuadlet {
+			Skip("KIND or Quadlet context required for telemetry gateway metrics")
 		}
 	})
 
 	Context("telemetry gateway metrics", func() {
 		It("should export device host metrics via the telemetry gateway", Label("85040"), func() {
-			// Get harness directly - no shared package-level variable
 			harness := e2e.GetWorkerHarness()
+			p := setup.GetDefaultProviders()
 
 			By("verifying telemetry gateway configuration exports Prometheus metrics")
-			cfg, err := harness.GetConfigMapValue(telemetryGatewayNamespace, telemetryGatewayConfigMap, telemetryGatewayConfigPath)
+			cfg, err := p.Infra.GetServiceConfig(infra.ServiceTelemetryGateway)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(cfg).To(ContainSubstring("prometheus"))
 			Expect(cfg).To(ContainSubstring("listen"))
@@ -61,21 +72,19 @@ var _ = Describe("Device observability", func() {
 			Expect(err).ToNot(HaveOccurred())
 			_, _, err = harness.WaitForBootstrapAndUpdateToVersion(deviceId, util.DeviceTags.V10)
 			Expect(err).ToNot(HaveOccurred())
-			err = harness.WaitForDeviceNewRenderedVersion(deviceId, nextRenderedVersion)
+			err = harness.WaitForDeviceNewRenderedVersionWithReboot(deviceId, nextRenderedVersion)
 			Expect(err).ToNot(HaveOccurred())
 
 			By("waiting for otelcol to be running on the device")
 			Eventually(harness.OTelcolActiveStatus(), TIMEOUT, POLLING).Should(Equal("active"))
 
-			By("port-forwarding telemetry gateway metrics")
-			localPort, err := harness.GetFreeLocalPort()
+			By("getting telemetry gateway metrics endpoint")
+			baseURL, pfCleanup, err := p.Infra.ExposeService(infra.ServiceTelemetryGateway, "http")
 			Expect(err).ToNot(HaveOccurred())
-			pfCleanup, err := harness.StartPortForwardWithCleanup(telemetryGatewayNamespace, telemetryGatewayServiceName, localPort, telemetryGatewayMetricsPort)
-			Expect(err).ToNot(HaveOccurred())
+			metricsURL := baseURL + metricsEndpointPath
 			defer pfCleanup()
 
 			By("verifying telemetry gateway metrics include device host metrics")
-			metricsURL := fmt.Sprintf("http://127.0.0.1:%d%s", localPort, metricsEndpointPath)
 			Eventually(harness.MetricsLineCount(metricsURL), TIMEOUT, POLLING).Should(BeNumerically(">", 0))
 
 			states := []string{"idle", "interrupt", "nice"}
@@ -92,16 +101,8 @@ var _ = Describe("Device observability", func() {
 			}
 
 			By("verifying Prometheus queries return device metrics")
-			err = harness.VerifyServiceExists(util.E2E_NAMESPACE, prometheusService)
+			promURL, err := getPrometheusURL()
 			Expect(err).ToNot(HaveOccurred())
-
-			promLocalPort, err := harness.GetFreeLocalPort()
-			Expect(err).ToNot(HaveOccurred())
-			promCleanup, err := harness.StartPortForwardWithCleanup(util.E2E_NAMESPACE, prometheusServiceName, promLocalPort, prometheusPort)
-			Expect(err).ToNot(HaveOccurred())
-			defer promCleanup()
-
-			promURL := fmt.Sprintf("http://127.0.0.1:%d", promLocalPort)
 			queryAll := fmt.Sprintf(`{device_id="%s"}`, deviceId)
 			Eventually(harness.PromQueryResultCount(promURL, queryAll), TIMEOUT, POLLING).Should(BeNumerically(">", 0))
 
@@ -123,6 +124,116 @@ var _ = Describe("Device observability", func() {
 
 			queryCount := fmt.Sprintf(`count({device_id="%s"})`, deviceId)
 			Eventually(harness.PromQueryCountValue(promURL, queryCount), TIMEOUT, POLLING).Should(BeNumerically(">", 0))
+		})
+	})
+})
+
+var _ = Describe("Service observability", func() {
+	BeforeEach(func() {
+		p := setup.GetDefaultProviders()
+		envType := p.Infra.GetEnvironmentType()
+		if envType != infra.EnvironmentKind && envType != infra.EnvironmentQuadlet {
+			Skip("KIND or Quadlet context required for service observability metrics")
+		}
+	})
+
+	Context("service level prometheus metrics", func() {
+		It("should expose service level metrics via the prometheus server", Label("88170"), func() {
+			harness := e2e.GetWorkerHarness()
+
+			By("getting Prometheus URL from satellite (testcontainer)")
+			promURL, err := getPrometheusURL()
+			Expect(err).ToNot(HaveOccurred())
+
+			By("verifying service metrics exist")
+			metrics := []string{
+				"flightctl_cpu_utilization",
+				"flightctl_memory_utilization",
+				"flightctl_disk_utilization",
+				"http_server_request_duration_seconds_bucket",
+				"flightctl_repositories_total",
+			}
+
+			for _, query := range metrics {
+				By(fmt.Sprintf("verifying metric %s", query))
+				Eventually(harness.PromQueryResultCount(promURL, query), TIMEOUT, POLLING).Should(BeNumerically(">", 0))
+			}
+
+			By("creating test domain objects for detailed metrics verification")
+			// Note: Prometheus works on a pull scrape model, so the initial request to get metrics
+			// from created domain objects are dependent on async scrape windows and might take
+			// upwards of 30 seconds to be available.
+			fleetName := fmt.Sprintf("test-fleet-%s", harness.GetTestIDFromContext())
+			_, err = resources.CreateFleet(harness, fleetName, fleetImage, &map[string]string{"fleet": fleetName})
+			Expect(err).ToNot(HaveOccurred())
+
+			deviceName := fmt.Sprintf("test-device-%s", harness.GetTestIDFromContext())
+			_, err = resources.CreateDevice(harness, deviceName, &map[string]string{"fleet": fleetName})
+			Expect(err).ToNot(HaveOccurred())
+
+			By("verifying fleet metrics include our created fleet with correct labels")
+			orgID, err := harness.GetOrganizationID()
+			Expect(err).ToNot(HaveOccurred())
+
+			fleetsLabelQuery := fmt.Sprintf(`flightctl_fleets{organization_id="%s"}`, orgID)
+			fleetExactLabels := map[string]string{
+				"organization_id": orgID,
+			}
+			fleetRequiredLabels := []string{"status", "organization_id"}
+			Eventually(harness.PromQueryHasLabels(promURL, fleetsLabelQuery, fleetExactLabels, fleetRequiredLabels),
+				TIMEOUT, POLLING).Should(BeTrue())
+
+			By("verifying device summary metrics can be filtered by our created fleet")
+			expectedFleetLabel := fmt.Sprintf("Fleet/%s", fleetName)
+			deviceSummaryQuery := fmt.Sprintf(`flightctl_devices_summary{organization_id="%s",fleet="%s"}`, orgID, expectedFleetLabel)
+			deviceLabels := map[string]string{
+				"organization_id": orgID,
+				"fleet":           expectedFleetLabel,
+			}
+			deviceMetricLabels := []string{"status", "organization_id", "fleet"}
+			Eventually(
+				harness.PromQueryHasLabels(
+					promURL,
+					deviceSummaryQuery,
+					deviceLabels,
+					deviceMetricLabels,
+				),
+				TIMEOUT,
+				POLLING,
+			).Should(BeTrue())
+
+			By("verifying device application and update metrics support fleet filtering")
+			deviceAppQuery := fmt.Sprintf(`flightctl_devices_application{organization_id="%s",fleet="%s"}`, orgID, expectedFleetLabel)
+			deviceAppLabels := map[string]string{
+				"organization_id": orgID,
+				"fleet":           expectedFleetLabel,
+			}
+			Eventually(
+				harness.PromQueryHasLabels(
+					promURL,
+					deviceAppQuery,
+					deviceAppLabels,
+					deviceMetricLabels,
+				),
+				TIMEOUT,
+				POLLING,
+			).Should(BeTrue())
+
+			deviceUpdateQuery := fmt.Sprintf(`flightctl_devices_update{organization_id="%s",fleet="%s"}`, orgID, expectedFleetLabel)
+			deviceUpdateLabels := map[string]string{
+				"organization_id": orgID,
+				"fleet":           expectedFleetLabel,
+			}
+			Eventually(
+				harness.PromQueryHasLabels(
+					promURL,
+					deviceUpdateQuery,
+					deviceUpdateLabels,
+					deviceMetricLabels,
+				),
+				TIMEOUT,
+				POLLING,
+			).Should(BeTrue())
 		})
 	})
 })

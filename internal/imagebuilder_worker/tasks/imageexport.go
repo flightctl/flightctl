@@ -3,11 +3,15 @@ package tasks
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	_ "embed"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -389,18 +393,23 @@ func (c *Consumer) executeExport(
 		return "", cleanup, fmt.Errorf("failed to initialize podman storage: %w", err)
 	}
 
+	// Step 2.6: Install CA certificate for source registry if configured
+	if err := installCACertInWorker(ctx, exportSource.OciRepoSpec.CaCrt, worker.ContainerName, registryHostname, log); err != nil {
+		return "", cleanup, fmt.Errorf("failed to install CA cert for source registry: %w", err)
+	}
+
 	// Step 3: Login to registry if credentials are provided
 	if exportSource.OciRepoSpec.OciAuth != nil {
 		dockerAuth, err := exportSource.OciRepoSpec.OciAuth.AsDockerAuth()
 		if err == nil && dockerAuth.Username != "" && dockerAuth.Password != "" {
-			if err := c.loginToRegistryForExport(ctx, worker, registryHostname, dockerAuth.Username, dockerAuth.Password, log); err != nil {
+			if err := c.loginToRegistryForExport(ctx, worker, registryHostname, dockerAuth.Username, dockerAuth.Password, exportSource.OciRepoSpec, log); err != nil {
 				return "", cleanup, fmt.Errorf("failed to login to registry: %w", err)
 			}
 		}
 	}
 
 	// Step 4: Pull the source image
-	if err := c.pullSourceImage(ctx, worker, bootcImageRef, log); err != nil {
+	if err := c.pullSourceImage(ctx, worker, bootcImageRef, exportSource.OciRepoSpec, log); err != nil {
 		return "", cleanup, fmt.Errorf("failed to pull source image: %w", err)
 	}
 
@@ -597,23 +606,27 @@ func (c *Consumer) loginToRegistryForExport(
 	registryHostname string,
 	username string,
 	password string,
+	ociRepoSpec *coredomain.OciRepoSpec,
 	log logrus.FieldLogger,
 ) error {
 	if username == "" || password == "" {
 		return nil
 	}
 
-	// Validate username to prevent command injection
-	if strings.ContainsAny(username, ";|&`(){}[]<>\"'\\\n\r\t") {
-		return fmt.Errorf("invalid username: contains unsafe characters")
+	// Validate username: only block control characters that could break line-based protocols.
+	// Shell metacharacters (|, ;, &, etc.) are safe here because exec.CommandContext
+	// passes arguments directly via execve (no shell involved).
+	if strings.ContainsAny(username, "\x00\n\r") {
+		return fmt.Errorf("invalid username: contains control characters")
 	}
 	if len(username) > 256 {
 		return fmt.Errorf("invalid username: exceeds maximum length of 256 characters")
 	}
 
-	// Validate registryHostname to prevent command injection
-	if strings.ContainsAny(registryHostname, ";|&`(){}[]<>\"'\\\n\r\t") {
-		return fmt.Errorf("invalid registry hostname: contains unsafe characters")
+	// Validate registryHostname: only block control characters that could break line-based protocols.
+	// Shell metacharacters are safe here because exec.CommandContext uses execve (no shell).
+	if strings.ContainsAny(registryHostname, "\x00\n\r") {
+		return fmt.Errorf("invalid registry hostname: contains control characters")
 	}
 	if len(registryHostname) > 256 {
 		return fmt.Errorf("invalid registry hostname: exceeds maximum length of 256 characters")
@@ -621,11 +634,25 @@ func (c *Consumer) loginToRegistryForExport(
 
 	log.WithField("registry", registryHostname).Debug("Logging into registry with podman login")
 
+	// Build podman login command arguments
+	loginArgs := []string{"login", "-u", username, "--password-stdin"}
+
+	if ociRepoSpec != nil && ociRepoSpec.Scheme != nil && *ociRepoSpec.Scheme == coredomain.OciRepoSchemeHttp {
+		loginArgs = append(loginArgs, "--tls-verify=false")
+		log.Debug("Using --tls-verify=false for HTTP registry login")
+	} else if ociRepoSpec != nil && ociRepoSpec.SkipServerVerification != nil && *ociRepoSpec.SkipServerVerification {
+		loginArgs = append(loginArgs, "--tls-verify=false")
+		log.Debug("Using --tls-verify=false due to SkipServerVerification for login")
+	}
+
+	loginArgs = append(loginArgs, registryHostname)
+
 	// Run podman login inside the container with stdin
-	// Format: podman exec -i <container> podman login -u <username> --password-stdin <registry>
+	// Format: podman exec -i <container> podman login -u <username> --password-stdin [--tls-verify=false] <registry>
 	// username and registryHostname are validated above to prevent command injection
-	//nolint:gosec // G204: Inputs are validated above to prevent command injection. exec.CommandContext uses separate arguments (not shell), making this safe.
-	loginCmd := exec.CommandContext(ctx, "podman", "exec", "-i", worker.ContainerName, "podman", "login", "-u", username, "--password-stdin", registryHostname)
+	execArgs := []string{"exec", "-i", worker.ContainerName, "podman"}
+	execArgs = append(execArgs, loginArgs...)
+	loginCmd := exec.CommandContext(ctx, "podman", execArgs...)
 
 	// Write password to stdin
 	loginCmd.Stdin = strings.NewReader(password)
@@ -645,11 +672,25 @@ func (c *Consumer) loginToRegistryForExport(
 }
 
 // pullSourceImage pulls the source image into the worker container
-func (c *Consumer) pullSourceImage(ctx context.Context, worker *privilegedPodmanWorker, bootcImageRef string, log logrus.FieldLogger) error {
+func (c *Consumer) pullSourceImage(ctx context.Context, worker *privilegedPodmanWorker, bootcImageRef string, ociRepoSpec *coredomain.OciRepoSpec, log logrus.FieldLogger) error {
 	log.WithField("image", bootcImageRef).Info("Pulling source image")
 
+	// Build podman pull command
+	pullArgs := []string{"pull"}
+
+	if ociRepoSpec != nil && ociRepoSpec.Scheme != nil && *ociRepoSpec.Scheme == coredomain.OciRepoSchemeHttp {
+		pullArgs = append(pullArgs, "--tls-verify=false")
+		log.Debug("Using --tls-verify=false for HTTP registry pull")
+	} else if ociRepoSpec != nil && ociRepoSpec.SkipServerVerification != nil && *ociRepoSpec.SkipServerVerification {
+		pullArgs = append(pullArgs, "--tls-verify=false")
+		log.Debug("Using --tls-verify=false due to SkipServerVerification for pull")
+	}
+
+	pullArgs = append(pullArgs, bootcImageRef)
+
 	// Run podman pull inside the container
-	execArgs := []string{"exec", worker.ContainerName, "podman", "pull", bootcImageRef}
+	execArgs := []string{"exec", worker.ContainerName, "podman"}
+	execArgs = append(execArgs, pullArgs...)
 	cmd := exec.CommandContext(ctx, "podman", execArgs...)
 
 	var outputBuffer bytes.Buffer
@@ -1007,6 +1048,57 @@ func getReferencedDigest(
 	return destManifestDesc, nil
 }
 
+// newOCIAuthClient builds an auth.Client configured with TLS settings and credentials
+// from an OciRepoSpec. It handles SkipServerVerification, custom CA certificates, and
+// registry authentication in one place.
+func newOCIAuthClient(ociSpec *coredomain.OciRepoSpec, registryHostname string, log logrus.FieldLogger) (*auth.Client, error) {
+	authClient := &auth.Client{}
+
+	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12}
+	customTLS := false
+
+	if ociSpec.SkipServerVerification != nil && *ociSpec.SkipServerVerification {
+		tlsConfig.InsecureSkipVerify = true
+		customTLS = true
+		log.Debug("Using InsecureSkipVerify for TLS")
+	}
+
+	if ociSpec.CaCrt != nil {
+		ca, err := base64.StdEncoding.DecodeString(*ociSpec.CaCrt)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode CA certificate: %w", err)
+		}
+		rootCAs, err := x509.SystemCertPool()
+		if err != nil {
+			rootCAs = x509.NewCertPool()
+		}
+		if !rootCAs.AppendCertsFromPEM(ca) {
+			return nil, fmt.Errorf("failed to append CA certificates from PEM")
+		}
+		tlsConfig.RootCAs = rootCAs
+		customTLS = true
+		log.Debug("Custom CA certificate configured for TLS")
+	}
+
+	if customTLS {
+		transport := http.DefaultTransport.(*http.Transport).Clone()
+		transport.TLSClientConfig = tlsConfig
+		authClient.Client = &http.Client{Transport: transport}
+	}
+
+	if ociSpec.OciAuth != nil {
+		dockerAuth, err := ociSpec.OciAuth.AsDockerAuth()
+		if err == nil && dockerAuth.Username != "" && dockerAuth.Password != "" {
+			authClient.Credential = auth.StaticCredential(registryHostname, auth.Credential{
+				Username: dockerAuth.Username,
+				Password: dockerAuth.Password,
+			})
+		}
+	}
+
+	return authClient, nil
+}
+
 // pushArtifact pushes the exported artifact to the destination registry using oras-go/v2
 // as a referrer artifact that references the original source image
 func (c *Consumer) pushArtifact(
@@ -1081,25 +1173,27 @@ func (c *Consumer) pushArtifact(
 		return fmt.Errorf("failed to create repository reference: %w", err)
 	}
 
+	// Use PlainHTTP for HTTP registries
+	if ociSpec.Scheme != nil && *ociSpec.Scheme == coredomain.OciRepoSchemeHttp {
+		repoRef.PlainHTTP = true
+		log.Debug("Using PlainHTTP for HTTP registry")
+	}
+
 	// Skip referrers GC to avoid authentication issues when pushing multiple artifacts
 	// When multiple artifacts (e.g., QCOW2 and VMDK) point to the same subject image,
 	// ORAS tries to delete old referrer indices which can cause auth failures with some registries
 	repoRef.SkipReferrersGC = true
 
-	// Set up authentication if credentials are provided
-	if ociSpec.OciAuth != nil {
-		dockerAuth, err := ociSpec.OciAuth.AsDockerAuth()
-		if err == nil && dockerAuth.Username != "" && dockerAuth.Password != "" {
-			repoRef.Client = &auth.Client{
-				Credential: auth.StaticCredential(destRegistryHostname, auth.Credential{
-					Username: dockerAuth.Username,
-					Password: dockerAuth.Password,
-				}),
-			}
-			log.Info("Successfully configured authentication for destination registry")
-			statusUpdater.reportOutput([]byte("Authenticated with destination registry\n"))
-		}
+	// Configure auth client with TLS settings (SkipServerVerification, CA cert) and credentials
+	authClient, err := newOCIAuthClient(&ociSpec, destRegistryHostname, log)
+	if err != nil {
+		return fmt.Errorf("failed to configure OCI auth client: %w", err)
 	}
+	if authClient.Credential != nil {
+		log.Info("Successfully configured authentication for destination registry")
+		statusUpdater.reportOutput([]byte("Authenticated with destination registry\n"))
+	}
+	repoRef.Client = authClient
 
 	// Resolve the destination image's manifest to get its digest for the referrer subject
 	destImageTag := imageBuild.Spec.Destination.ImageTag

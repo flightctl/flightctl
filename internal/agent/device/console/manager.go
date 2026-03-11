@@ -20,6 +20,7 @@ import (
 
 const (
 	cleanupDuration = 5 * time.Minute
+	ConsoleUser     = "flightctl-console"
 )
 
 type Manager struct {
@@ -27,11 +28,13 @@ type Manager struct {
 	log        *log.PrefixLogger
 	deviceName string
 	watcher    spec.Watcher
+	user       string
 
 	activeSessions   []*session
 	inactiveSessions []*session
 	executor         executer.Executer
 	mu               sync.Mutex
+	sessionWg        sync.WaitGroup
 }
 
 type TerminalSize struct {
@@ -42,6 +45,7 @@ type TerminalSize struct {
 func NewManager(
 	grpcClient grpc_v1.RouterServiceClient,
 	deviceName string,
+	user string,
 	executor executer.Executer,
 	watcher spec.Watcher,
 	log *log.PrefixLogger,
@@ -49,6 +53,7 @@ func NewManager(
 	return &Manager{
 		grpcClient: grpcClient,
 		deviceName: deviceName,
+		user:       user,
 		executor:   executor,
 		watcher:    watcher,
 		log:        log,
@@ -120,6 +125,7 @@ func (c *Manager) start(ctx context.Context, dc v1beta1.DeviceConsole) {
 		id:       dc.SessionID,
 		executor: c.executor,
 		log:      c.log,
+		user:     c.user,
 	}
 	if !c.add(s) {
 		return
@@ -160,7 +166,11 @@ func (c *Manager) sync(ctx context.Context, desired *v1beta1.DeviceSpec) {
 	desiredConsoles := desired.GetConsoles()
 
 	for _, d := range desiredConsoles {
-		go c.start(ctx, d)
+		c.sessionWg.Add(1)
+		go func() {
+			defer c.sessionWg.Done()
+			c.start(ctx, d)
+		}()
 	}
 }
 
@@ -177,6 +187,7 @@ func (c *Manager) Run(ctx context.Context) {
 		desired, err := c.watcher.Pop()
 		if err != nil {
 			c.log.Warnf("failed to pop from spec watcher: %v", err)
+			c.sessionWg.Wait()
 			return
 		}
 		c.sync(ctx, desired.Spec)

@@ -16,6 +16,8 @@ import (
 	"github.com/samber/lo"
 )
 
+const LingerDir = "/var/lib/systemd/linger"
+
 type Manager interface {
 	// EnsurePatterns sets the match patterns for systemd units.
 	EnsurePatterns([]string) error

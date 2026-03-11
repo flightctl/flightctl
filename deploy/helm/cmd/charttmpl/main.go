@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"text/template"
@@ -9,9 +10,12 @@ import (
 )
 
 type annotations struct {
-	Name       string `yaml:"name"`
-	Provider   string `yaml:"provider"`
-	SupportURL string `yaml:"supportURL"`
+	Name               string `yaml:"name"`
+	Provider           string `yaml:"provider"`
+	SupportURL         string `yaml:"supportURL"`
+	RedhatEdition      string `yaml:"redhatEdition,omitempty"`
+	TargetPlatform     string `yaml:"targetPlatform,omitempty"`
+	SecurityCompliance string `yaml:"securityCompliance,omitempty"`
 }
 
 type image struct {
@@ -36,26 +40,27 @@ const (
 	optsPath       = "helm-chart-opts.yaml"
 )
 
-func runTemplate(in string, out string, templateData templateContext) {
+func runTemplate(in string, out string, templateData templateContext) error {
 	tplBytes, err := os.ReadFile(in)
 	if err != nil {
-		log.Fatalf("reading template %s: %v", in, err)
+		return fmt.Errorf("reading template %s: %w", in, err)
 	}
 
 	tpl, err := template.New(in).Option("missingkey=error").Parse(string(tplBytes))
 	if err != nil {
-		log.Fatalf("parsing template %s: %v", in, err)
+		return fmt.Errorf("parsing template %s: %w", in, err)
 	}
 
 	outFile, err := os.Create(out)
 	if err != nil {
-		log.Fatalf("creating output %s: %v", chartOutPath, err)
+		return fmt.Errorf("creating output %s: %w", out, err)
 	}
 	defer outFile.Close()
 
 	if err := tpl.Execute(outFile, templateData); err != nil {
-		log.Fatalf("executing template %s: %v", chartOutPath, err)
+		return fmt.Errorf("executing template %s: %w", out, err)
 	}
+	return nil
 }
 
 func main() {
@@ -79,8 +84,12 @@ func main() {
 	}
 
 	// Render Chart.yaml
-	runTemplate(chartTmplPath, chartOutPath, templateData)
+	if err := runTemplate(chartTmplPath, chartOutPath, templateData); err != nil {
+		log.Fatalf("rendering Chart.yaml: %v", err)
+	}
 
 	// Render values.yaml
-	runTemplate(valuesTmplPath, valuesOutPath, templateData)
+	if err := runTemplate(valuesTmplPath, valuesOutPath, templateData); err != nil {
+		log.Fatalf("rendering values.yaml: %v", err)
+	}
 }

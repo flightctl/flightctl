@@ -2,6 +2,7 @@ package tasks
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"testing"
 
@@ -402,4 +403,30 @@ func TestGenerateContainerfile_WithoutUserConfiguration(t *testing.T) {
 
 	// Verify Publickey is nil when no user configuration
 	require.Nil(t, result.Publickey)
+}
+
+func TestInstallCACertInWorker_NilCaCrt(t *testing.T) {
+	err := installCACertInWorker(context.Background(), nil, "fake-container", "registry.example.com", log.InitLogs())
+	require.NoError(t, err)
+}
+
+func TestInstallCACertInWorker_EmptyCaCrt(t *testing.T) {
+	empty := ""
+	err := installCACertInWorker(context.Background(), &empty, "fake-container", "registry.example.com", log.InitLogs())
+	require.NoError(t, err)
+}
+
+func TestInstallCACertInWorker_InvalidBase64(t *testing.T) {
+	invalid := "not-valid-base64!!!"
+	err := installCACertInWorker(context.Background(), &invalid, "fake-container", "registry.example.com", log.InitLogs())
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "failed to decode CA certificate")
+}
+
+func TestInstallCACertInWorker_ValidBase64FailsWithoutContainer(t *testing.T) {
+	caPEM := "-----BEGIN CERTIFICATE-----\nTESTCA\n-----END CERTIFICATE-----"
+	encoded := base64.StdEncoding.EncodeToString([]byte(caPEM))
+	err := installCACertInWorker(context.Background(), &encoded, "nonexistent-container", "registry.example.com", log.InitLogs())
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "failed to create cert dir in container")
 }

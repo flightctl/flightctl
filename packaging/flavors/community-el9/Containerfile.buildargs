@@ -1,0 +1,13 @@
+# Build arguments for community-el9 flavor
+# These args are used across all containerfiles for build and runtime base images
+
+# Build-time base images
+BUILD_BASE_IMAGE=registry.access.redhat.com/ubi9/go-toolset:1.24.6-1762373805
+MINIMAL_BASE_IMAGE=registry.access.redhat.com/ubi9/ubi-minimal:9.7-1763362218
+
+# Runtime base image
+RUNTIME_BASE_IMAGE=quay.io/flightctl/flightctl-base:9.7-1762965531
+
+# Image registry and namespace for community builds
+IMAGE_REGISTRY=quay.io/flightctl
+IMAGE_TAG_SUFFIX=el9

@@ -517,6 +517,7 @@ overrides:
       - "**#/paths/~1enrollmentconfig"
       - "**#/paths/~1organizations"
       - "**#/paths/~1imagepipelines"
+      - "**#/paths/~1catalogitems"
     rules:
       collection-verbs-required: off
   # /version endpoint doesn't need 400 response (no query params)

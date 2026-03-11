@@ -32,9 +32,6 @@ Requires: openssl
 
 %global flightctl_target flightctl.target
 
-# --- Restart these on upgrade  ---
-%global flightctl_services_restart flightctl-api.service flightctl-ui.service flightctl-worker.service flightctl-alertmanager.service flightctl-alert-exporter.service flightctl-alertmanager-proxy.service flightctl-cli-artifacts.service flightctl-periodic.service flightctl-db-migrate.service flightctl-db-wait.service flightctl-imagebuilder-api.service flightctl-imagebuilder-worker.service flightctl-telemetry-gateway.service
-
 
 %description
 # Main package is empty and not created.
@@ -56,6 +53,7 @@ Requires: jq
 # https://github.com/fedora-iot/greenboot-rs/issues/141
 Requires: greenboot >= 0.15.0
 Requires: greenboot < 0.16.0
+Requires: sudo
 
 %description agent
 The flightctl-agent package provides the management agent for the Flight Control fleet management service.
@@ -120,6 +118,11 @@ Prometheus for metric storage and Grafana for visualization.
 %{_datadir}/flightctl/flightctl-grafana/grafana-datasources.yaml
 %{_datadir}/flightctl/flightctl-grafana/grafana-dashboards.yaml
 
+# Grafana provisioning files installed directly to /etc
+%config(noreplace) /etc/flightctl/flightctl-grafana/provisioning/datasources/grafana-datasources.yaml
+%config(noreplace) /etc/flightctl/flightctl-grafana/provisioning/dashboards/grafana-dashboards.yaml
+%config(noreplace) /etc/flightctl/flightctl-grafana/provisioning/dashboards/flightctl/*.json
+
 # Prometheus static configuration
 %{_datadir}/flightctl/flightctl-prometheus/prometheus.yml
 
@@ -165,15 +168,6 @@ echo "Note: Observability stack can be installed independently of other Flight C
 %post observability
 # This script runs AFTER the files have been installed onto the system.
 echo "Running post-install actions for Flight Control Observability Stack..."
-
-# Create necessary directories on the host if they don't already exist.
-/usr/bin/mkdir -p /etc/flightctl/flightctl-grafana/provisioning/datasources
-/usr/bin/mkdir -p /etc/flightctl/flightctl-grafana/provisioning/alerting
-/usr/bin/mkdir -p /etc/flightctl/flightctl-grafana/provisioning/dashboards/flightctl
-/usr/bin/mkdir -p /etc/flightctl/flightctl-grafana/certs
-/usr/bin/mkdir -p /etc/flightctl/flightctl-prometheus
-/usr/bin/mkdir -p /var/lib/prometheus
-/usr/bin/mkdir -p /var/lib/grafana
 
 # Set ownership for persistent data directories
 chown 65534:65534 /var/lib/prometheus
@@ -313,6 +307,11 @@ echo "Flight Control Observability Stack uninstalled."
 
     install -Dpm 0644 packaging/flightctl-services-install.conf %{buildroot}%{_sysconfdir}/flightctl/flightctl-services-install.conf
 
+    mkdir -p %{buildroot}%{_sysusersdir}
+    install -Dpm 0644 packaging/rpm/sysusers.d/flightctl.conf %{buildroot}%{_sysusersdir}/flightctl.conf
+
+    install -Dpm 0440 packaging/rpm/sudoers.d/flightctl %{buildroot}/etc/sudoers.d/flightctl
+
     # flightctl-services sub-package steps
     # Use the flightctl-standalone render quadlets command to generate quadlet files with the correct image tags.
     #
@@ -433,6 +432,8 @@ fi
     /usr/libexec/flightctl/configure-greenboot.sh
     /usr/lib/systemd/system/flightctl-configure-greenboot.service
     /usr/share/sosreport/flightctl.py
+    %{_sysusersdir}/flightctl.conf
+    /etc/sudoers.d/*
 
 %post agent
 # Enable the greenboot configuration service (runs before greenboot-healthcheck.service)
@@ -462,13 +463,11 @@ rm -rf /usr/share/sosreport
 
 # We want a regular user to run applications with as there are several issues around system users
 # and running quadlet applications.
-id -u flightctl || useradd --home-dir /home/flightctl --create-home --user-group flightctl
-loginctl enable-linger flightctl || :
-mkdir -p /home/flightctl/{.config,.local}
-chown -R flightctl:flightctl /home/flightctl/{.config,.local}
-
-%postun agent
-loginctl disable-linger flightctl || :
+id -u flightctl 2>/dev/null || useradd --create-home --user-group flightctl
+# This enables lingering for the user with a fallback when building in an env without an active systemd.
+loginctl enable-linger flightctl || (mkdir -p /var/lib/systemd/linger/ && touch /var/lib/systemd/linger/flightctl)
+mkdir -p ~flightctl/{.config,.local}
+chown -R flightctl:flightctl ~flightctl/{.config,.local}
 
 %files selinux
 %{_datadir}/selinux/packages/%{selinuxtype}/flightctl_agent.pp.bz2
@@ -489,11 +488,6 @@ loginctl disable-linger flightctl || :
     %dir %{_sysconfdir}/flightctl/flightctl-api
     %dir %{_sysconfdir}/flightctl/flightctl-cli-artifacts
     %dir %{_sysconfdir}/flightctl/flightctl-pam-issuer
-    %dir %{_sysconfdir}/flightctl/flightctl-pam-issuer/userdb
-    %config(noreplace) %{_sysconfdir}/flightctl/flightctl-pam-issuer/userdb/group
-    %attr(0600,root,root) %config(noreplace) %{_sysconfdir}/flightctl/flightctl-pam-issuer/userdb/gshadow
-    %config(noreplace) %{_sysconfdir}/flightctl/flightctl-pam-issuer/userdb/passwd
-    %attr(0600,root,root) %config(noreplace) %{_sysconfdir}/flightctl/flightctl-pam-issuer/userdb/shadow
     %dir %{_sysconfdir}/flightctl/flightctl-db-migrate
     %dir %{_sysconfdir}/flightctl/flightctl-imagebuilder-api
     %dir %{_sysconfdir}/flightctl/flightctl-imagebuilder-worker
@@ -529,8 +523,6 @@ loginctl disable-linger flightctl || :
     %dir %attr(0755,root,root) %{_var}/tmp/flightctl-exports
     %{_datadir}/flightctl/flightctl-api/config.yaml.template
     %{_datadir}/flightctl/flightctl-api/env.template
-    %attr(0755,root,root) %{_datadir}/flightctl/flightctl-api/init.sh
-    %attr(0755,root,root) %{_datadir}/flightctl/flightctl-api/create_aap_application.sh
     %attr(0755,root,root) %{_datadir}/flightctl/flightctl-db/enable-superuser.sh
     %{_datadir}/flightctl/flightctl-kv/redis.conf
     %{_datadir}/flightctl/flightctl-ui/env.template
@@ -542,7 +534,6 @@ loginctl disable-linger flightctl || :
     %{_datadir}/flightctl/flightctl-alertmanager/alertmanager.yml
     %{_datadir}/flightctl/flightctl-alertmanager-proxy/env.template
     %{_datadir}/flightctl/flightctl-pam-issuer/config.yaml.template
-    %attr(0755,root,root) %{_datadir}/flightctl/flightctl-pam-issuer/migrate-userdb.sh
     %{_datadir}/flightctl/flightctl-alertmanager-proxy/config.yaml.template
     %{_datadir}/flightctl/flightctl-alert-exporter/config.yaml.template
     %{_datadir}/flightctl/flightctl-periodic/config.yaml.template
@@ -553,7 +544,7 @@ loginctl disable-linger flightctl || :
     %{_datadir}/flightctl/flightctl-telemetry-gateway/config.yaml.template
 
     # Quadlet files (excluding observability components which are in separate packages)
-    %{_datadir}/containers/systemd/flightctl-api*.container
+    %{_datadir}/containers/systemd/flightctl-api.container
     %{_datadir}/containers/systemd/flightctl-worker.container
     %{_datadir}/containers/systemd/flightctl-periodic.container
     %{_datadir}/containers/systemd/flightctl-alert*.container
@@ -563,6 +554,7 @@ loginctl disable-linger flightctl || :
     %{_datadir}/containers/systemd/flightctl-kv*.container
     %{_datadir}/containers/systemd/flightctl-kv.volume
     %{_datadir}/containers/systemd/flightctl-pam-issuer.container
+    %{_datadir}/containers/systemd/flightctl-pam-issuer-etc.volume
     %{_datadir}/containers/systemd/flightctl-ui*.container
     %{_datadir}/containers/systemd/flightctl-ui-certs.volume
     %{_datadir}/containers/systemd/flightctl-imagebuilder*.container
@@ -585,6 +577,7 @@ loginctl disable-linger flightctl || :
     # Files mounted to lib dir
     /usr/lib/systemd/system/flightctl.target
     /usr/lib/systemd/system/flightctl-certs-init.service
+    /usr/lib/systemd/system/flightctl-api-init.service
 
     # Files mounted to bin dir
     %attr(0755,root,root) %{_bindir}/flightctl-services-must-gather
@@ -618,6 +611,13 @@ fi
 
 # Reload systemd to recognize new container files
 /usr/bin/systemctl daemon-reload >/dev/null 2>&1 || :
+
+# On upgrade: mark the target for restart so all PartOf= services restart.
+# The OLD package's %%postun may not mark the target (older versions marked
+# individual services with an incomplete list). Marking is idempotent.
+if [ "$1" -ge 2 ] && [ -x "/usr/lib/systemd/systemd-update-helper" ]; then
+    /usr/lib/systemd/systemd-update-helper mark-restart-system-units %{flightctl_target} || :
+fi
 
 cfg="%{_sysconfdir}/flightctl/flightctl-services-install.conf"
 
@@ -661,7 +661,7 @@ fi
 
 %postun services
 # On upgrade: mark services for restart after transaction completes
-%systemd_postun_with_restart %{flightctl_services_restart}
+%systemd_postun_with_restart %{flightctl_target}
 %systemd_postun %{flightctl_target}
 
 # If contexts were managed via policy, no cleanup is needed here.

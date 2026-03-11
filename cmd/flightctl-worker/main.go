@@ -9,7 +9,7 @@ import (
 
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
-	"github.com/flightctl/flightctl/internal/instrumentation/metrics"
+	"github.com/flightctl/flightctl/internal/instrumentation/metrics/system"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics/worker"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/store"
@@ -78,7 +78,7 @@ func main() {
 		}
 
 		if cfg.Metrics.SystemCollector != nil && cfg.Metrics.SystemCollector.Enabled {
-			if systemMetricsCollector := metrics.NewSystemCollector(ctx, cfg); systemMetricsCollector != nil {
+			if systemMetricsCollector := system.NewSystemCollector(ctx, cfg); systemMetricsCollector != nil {
 				collectors = append(collectors, systemMetricsCollector)
 			}
 		}

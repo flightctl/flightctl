@@ -1,12 +1,10 @@
 package e2e
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
-	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -15,28 +13,19 @@ import (
 	"github.com/prometheus/common/expfmt"
 )
 
-const promQueryEndpointPath = "/api/v1/query"
+const (
+	promQueryEndpointPath    = "/api/v1/query"
+	promBackendProbeQuery    = "1"
+	promBackendProbeTimeout  = 10 * time.Second
+	promBackendProbeInterval = 250 * time.Millisecond
+)
 
-// StartPortForwardWithCleanup starts port-forwarding and returns a cleanup function.
-func (h *Harness) StartPortForwardWithCleanup(namespace, target string, localPort, remotePort int) (func(), error) {
-	ctx, cancel := context.WithCancel(context.Background())
-	cmd, done, err := h.StartPortForward(ctx, namespace, target, localPort, remotePort)
-	if err != nil {
-		cancel()
-		return nil, err
-	}
-
-	cleanup := func() {
-		cancel()
-		if cmd != nil && cmd.Process != nil {
-			_ = cmd.Process.Kill()
-		}
-		select {
-		case <-done:
-		case <-time.After(fiveSecondTimeout):
-		}
-	}
-	return cleanup, nil
+type ServiceAccessBackend struct {
+	ServiceName string
+	Namespaces  []string
+	Port        int
+	UseTLS      bool
+	RequireAuth bool
 }
 
 // MetricsBody returns a closure to fetch metrics for Eventually.
@@ -125,7 +114,19 @@ type PromQueryResponse struct {
 
 // PromQuery executes a Prometheus query against a base URL.
 func (h *Harness) PromQuery(baseURL, query string) (PromQueryResponse, error) {
+	return h.PromQueryWithToken(baseURL, query, "")
+}
+
+// PromQueryWithToken executes a Prometheus query against a base URL with optional bearer token.
+func (h *Harness) PromQueryWithToken(baseURL, query, bearerToken string) (PromQueryResponse, error) {
 	var parsed PromQueryResponse
+	if baseURL == "" {
+		return parsed, fmt.Errorf("baseURL cannot be empty")
+	}
+	if query == "" {
+		return parsed, fmt.Errorf("query cannot be empty")
+	}
+
 	client := &http.Client{Timeout: fiveSecondTimeout}
 	req, err := http.NewRequest(http.MethodGet, baseURL+promQueryEndpointPath, nil)
 	if err != nil {
@@ -134,6 +135,9 @@ func (h *Harness) PromQuery(baseURL, query string) (PromQueryResponse, error) {
 	q := req.URL.Query()
 	q.Set("query", query)
 	req.URL.RawQuery = q.Encode()
+	if bearerToken != "" {
+		req.Header.Set("Authorization", "Bearer "+bearerToken)
+	}
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -158,6 +162,86 @@ func (h *Harness) PromQuery(baseURL, query string) (PromQueryResponse, error) {
 	}
 
 	return parsed, nil
+}
+
+// HTTPGetWithContentType performs a GET request against baseURL+path with optional bearer token.
+func (h *Harness) HTTPGetWithContentType(client *http.Client, baseURL, path, bearerToken string) (int, string, string, error) {
+	if client == nil {
+		return 0, "", "", fmt.Errorf("http client is nil")
+	}
+	if baseURL == "" {
+		return 0, "", "", fmt.Errorf("base URL is empty")
+	}
+	if path == "" {
+		return 0, "", "", fmt.Errorf("request path is empty")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, baseURL+path, nil)
+	if err != nil {
+		return 0, "", "", fmt.Errorf("failed to create GET request: %w", err)
+	}
+	if bearerToken != "" {
+		req.Header.Set("Authorization", "Bearer "+bearerToken)
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0, "", "", fmt.Errorf("GET %s failed: %w", path, err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return 0, "", "", fmt.Errorf("failed reading response body from %s: %w", path, err)
+	}
+
+	return resp.StatusCode, string(body), resp.Header.Get("Content-Type"), nil
+}
+
+// HTTPGet performs a GET request against baseURL+path with optional bearer token.
+func (h *Harness) HTTPGet(client *http.Client, baseURL, path, bearerToken string) (int, string, error) {
+	statusCode, body, _, err := h.HTTPGetWithContentType(client, baseURL, path, bearerToken)
+	return statusCode, body, err
+}
+
+// StatusCodePollerWithExpectedBody returns a poller that validates status code and exact body.
+func (h *Harness) StatusCodePollerWithExpectedBody(client *http.Client, baseURL, path, bearerToken, expectedBody string, expectedStatus int) func() int {
+	return func() int {
+		statusCode, body, err := h.HTTPGet(client, baseURL, path, bearerToken)
+		if err != nil {
+			return 0
+		}
+		if expectedBody != "" && body != expectedBody {
+			return 0
+		}
+		if expectedStatus == 0 {
+			return statusCode
+		}
+		if statusCode != expectedStatus {
+			return 0
+		}
+		return statusCode
+	}
+}
+
+// JSONStatusCodePoller returns a poller that validates status code and JSON body/content type.
+func (h *Harness) JSONStatusCodePoller(client *http.Client, baseURL, path, bearerToken, contentTypeMustContain string, expectedStatus int) func() int {
+	return func() int {
+		statusCode, body, contentType, err := h.HTTPGetWithContentType(client, baseURL, path, bearerToken)
+		if err != nil {
+			return 0
+		}
+		if expectedStatus != 0 && statusCode != expectedStatus {
+			return 0
+		}
+		if body == "" || !json.Valid([]byte(body)) {
+			return 0
+		}
+		if contentTypeMustContain != "" && !strings.Contains(contentType, contentTypeMustContain) {
+			return 0
+		}
+		return statusCode
+	}
 }
 
 // PromQueryResultCount returns a closure for polling the count of query results.
@@ -223,27 +307,26 @@ func labelsMatch(labels map[string]string, exact map[string]string, required []s
 	return true
 }
 
-// GetConfigMapValue returns a string value from a ConfigMap using a jsonpath selector.
-func (h *Harness) GetConfigMapValue(namespace, name, jsonPath string) (string, error) {
-	// #nosec G204 -- command args are fixed and controlled in test.
-	out, err := exec.Command("kubectl", "get", "configmap", name,
-		"-n", namespace,
-		"-o", jsonPath,
-	).CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("kubectl get configmap: %w: %s", err, strings.TrimSpace(string(out)))
-	}
-	return string(out), nil
-}
+// GetConfigValue, GetConfigMapValue, GetServiceConfig, VerifyServiceExists, StartServiceAccess,
+// StartFirstAvailableBackendAccess are removed: callers use setup.GetDefaultProviders().Infra directly.
 
-// VerifyServiceExists verifies a Kubernetes service exists.
-func (h *Harness) VerifyServiceExists(namespace, name string) error {
-	// #nosec G204 -- command args are fixed and controlled in test.
-	out, err := exec.Command("kubectl", "get", "svc", "-n", namespace, name).CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("kubectl get svc %s/%s: %w: %s", namespace, name, err, strings.TrimSpace(string(out)))
+// waitForPrometheusBackendReady is kept for potential future use (e.g. backend health before queries).
+func (h *Harness) waitForPrometheusBackendReady(baseURL, bearerToken string) error { //nolint:unused
+	if h == nil {
+		return fmt.Errorf("harness is nil")
 	}
-	return nil
+
+	deadline := time.Now().Add(promBackendProbeTimeout)
+	var lastErr error
+	for time.Now().Before(deadline) {
+		_, lastErr = h.PromQueryWithToken(baseURL, promBackendProbeQuery, bearerToken)
+		if lastErr == nil {
+			return nil
+		}
+		time.Sleep(promBackendProbeInterval)
+	}
+
+	return fmt.Errorf("prometheus backend did not become ready within %s: %w", promBackendProbeTimeout, lastErr)
 }
 
 func parsePrometheusMetrics(body string) (map[string]*dto.MetricFamily, error) {

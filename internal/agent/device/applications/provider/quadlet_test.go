@@ -12,6 +12,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/agent/device/systemd"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	testutil "github.com/flightctl/flightctl/test/util"
@@ -756,7 +757,7 @@ Requires=db.service network.target
 Before=services.pod
 
 [Install]
-WantedBy=multi-user.target default.target
+WantedBy=default.target
 
 [Container]
 Image=base.image
@@ -838,7 +839,7 @@ Image=vol-base.image
 					require.Contains(t, contentStr, "chronyd.service")
 					require.Contains(t, contentStr, "myapp-services.pod")
 					// Install section
-					require.Contains(t, contentStr, "multi-user.target")
+					require.Contains(t, contentStr, "default.target")
 					// Container section - all reference types
 					require.Contains(t, contentStr, "myapp-base.image")
 					require.Contains(t, contentStr, "myapp-app-net.network")
@@ -2050,7 +2051,7 @@ func TestGenerateQuadlet(t *testing.T) {
 				require.Contains(t, contentStr, "Restart=on-failure")
 				require.Contains(t, contentStr, "RestartSec=60")
 				require.Contains(t, contentStr, "[Install]")
-				require.Contains(t, contentStr, "WantedBy=multi-user.target default.target")
+				require.Contains(t, contentStr, "WantedBy=default.target")
 			},
 		},
 	}
@@ -2139,7 +2140,7 @@ func TestQuadletInlineProvider(t *testing.T) {
 					ExecuteWithContext(gomock.Any(), "podman", "--version").
 					Return("podman version 4.9.0", "", 0)
 			},
-			wantVerifyErr: errors.ErrNoRetry,
+			wantVerifyErr: errors.ErrAppDependency,
 		},
 	}
 
@@ -2147,6 +2148,9 @@ func TestQuadletInlineProvider(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			require := require.New(t)
 			log := log.NewPrefixLogger("test")
+
+			procUser, err := user.Current()
+			require.NoError(err)
 
 			ctrl := gomock.NewController(t)
 			defer ctrl.Finish()
@@ -2156,14 +2160,13 @@ func TestQuadletInlineProvider(t *testing.T) {
 				fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
 				fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
 			)
+			err = rw.WriteFile(filepath.Join(systemd.LingerDir, procUser.Username), []byte{}, 0644)
+			require.NoError(err)
 			podman := client.NewPodman(log, mockExec, rw, testutil.NewPollConfig())
 
 			if tt.setupMocks != nil {
 				tt.setupMocks(mockExec)
 			}
-
-			procUser, err := user.Current()
-			require.NoError(err)
 
 			// Build the QuadletApplication with inline content
 			quadletApp := v1beta1.QuadletApplication{
@@ -2197,6 +2200,151 @@ func TestQuadletInlineProvider(t *testing.T) {
 			if tt.wantVerifyErr != nil {
 				require.Error(err)
 				require.ErrorIs(err, tt.wantVerifyErr)
+				return
+			}
+			require.NoError(err)
+		})
+	}
+}
+
+func TestQuadletEnsureDependencies(t *testing.T) {
+	tests := []struct {
+		name           string
+		appName        string
+		volumes        *[]v1beta1.ApplicationVolume
+		commandChecker commandChecker
+		setupMocks     func(*executer.MockExecuter)
+		wantErr        error
+	}{
+		{
+			name:           "missing podman binary returns ErrAppDependency",
+			appName:        "app",
+			volumes:        nil,
+			commandChecker: func(cmd string) bool { return false },
+			wantErr:        errors.ErrAppDependency,
+		},
+		{
+			name:           "podman binary available with valid version",
+			appName:        "app",
+			volumes:        nil,
+			commandChecker: func(cmd string) bool { return cmd == "podman" || cmd == "skopeo" },
+			setupMocks: func(mockExec *executer.MockExecuter) {
+				mockExec.EXPECT().
+					ExecuteWithContext(gomock.Any(), "podman", "--version").
+					Return("podman version 5.4.0", "", 0)
+			},
+			wantErr: nil,
+		},
+		{
+			name:           "podman version below minimum",
+			appName:        "app",
+			volumes:        nil,
+			commandChecker: func(cmd string) bool { return cmd == "podman" || cmd == "skopeo" },
+			setupMocks: func(mockExec *executer.MockExecuter) {
+				mockExec.EXPECT().
+					ExecuteWithContext(gomock.Any(), "podman", "--version").
+					Return("podman version 4.9.0", "", 0)
+			},
+			wantErr: errors.ErrAppDependency,
+		},
+		{
+			name:           "missing skopeo binary returns ErrAppDependency",
+			appName:        "app",
+			volumes:        nil,
+			commandChecker: func(cmd string) bool { return cmd == "podman" },
+			wantErr:        errors.ErrAppDependency,
+		},
+		{
+			name:    "volume dependency with podman version below minimum",
+			appName: "app",
+			volumes: &[]v1beta1.ApplicationVolume{
+				makeImageMountVolume("data", "quay.io/data:latest", "/data"),
+			},
+			commandChecker: func(cmd string) bool { return true },
+			setupMocks: func(mockExec *executer.MockExecuter) {
+				mockExec.EXPECT().
+					ExecuteWithContext(gomock.Any(), "podman", "--version").
+					Return("podman version 5.4.0", "", 0).
+					Times(2)
+			},
+			wantErr: errors.ErrAppDependency,
+		},
+		{
+			name:    "volume dependency with podman version at minimum",
+			appName: "app",
+			volumes: &[]v1beta1.ApplicationVolume{
+				makeImageMountVolume("data", "quay.io/data:latest", "/data"),
+			},
+			commandChecker: func(cmd string) bool { return true },
+			setupMocks: func(mockExec *executer.MockExecuter) {
+				mockExec.EXPECT().
+					ExecuteWithContext(gomock.Any(), "podman", "--version").
+					Return("podman version 5.5.0", "", 0).
+					Times(2)
+			},
+			wantErr: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require := require.New(t)
+			log := log.NewPrefixLogger("test")
+
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+			mockExec := executer.NewMockExecuter(ctrl)
+			tmpDir := t.TempDir()
+			rw := fileio.NewReadWriter(
+				fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+				fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+			)
+			podman := client.NewPodman(log, mockExec, rw, testutil.NewPollConfig())
+
+			if tt.setupMocks != nil {
+				tt.setupMocks(mockExec)
+			}
+
+			quadletApp := v1beta1.QuadletApplication{
+				AppType: v1beta1.AppTypeQuadlet,
+				Name:    lo.ToPtr(tt.appName),
+				Volumes: tt.volumes,
+			}
+			err := quadletApp.FromInlineApplicationProviderSpec(v1beta1.InlineApplicationProviderSpec{
+				Inline: []v1beta1.ApplicationContent{
+					{
+						Content: lo.ToPtr("[Container]\nImage=nginx:latest\n"),
+						Path:    "app.container",
+					},
+				},
+			})
+			require.NoError(err)
+
+			var appSpec v1beta1.ApplicationProviderSpec
+			err = appSpec.FromQuadletApplication(quadletApp)
+			require.NoError(err)
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			var podmanFactory client.PodmanFactory = func(user v1beta1.Username) (*client.Podman, error) {
+				return podman, nil
+			}
+			var rwFactory fileio.ReadWriterFactory = func(user v1beta1.Username) (fileio.ReadWriter, error) {
+				return rw, nil
+			}
+
+			quadletProvider, err := newQuadletProvider(ctx, log, podmanFactory, &appSpec, rwFactory, nil)
+			require.NoError(err)
+
+			if tt.commandChecker != nil {
+				quadletProvider.commandChecker = tt.commandChecker
+			}
+
+			err = quadletProvider.EnsureDependencies(ctx)
+			if tt.wantErr != nil {
+				require.Error(err)
+				require.ErrorIs(err, tt.wantErr)
 				return
 			}
 			require.NoError(err)

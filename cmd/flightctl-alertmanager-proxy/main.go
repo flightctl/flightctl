@@ -229,10 +229,7 @@ func main() {
 	defer cancel()
 
 	orgCache := cache.NewOrganizationTTL(cache.DefaultTTL)
-	go func() {
-		orgCache.Start(ctx)
-		cancel() // Trigger coordinated shutdown if cache exits
-	}()
+	orgCache.Start()
 	defer orgCache.Stop()
 
 	// Create service handler for auth provider access
@@ -266,10 +263,7 @@ func main() {
 
 	// Create identity mapper for mapping identities to database objects
 	identityMapper := service.NewIdentityMapper(dataStore, logger)
-	go func() {
-		identityMapper.Start(ctx)
-		cancel() // Trigger coordinated shutdown if identity mapper exits
-	}()
+	identityMapper.Start()
 	defer identityMapper.Stop()
 	identityMappingMiddleware := middleware.NewIdentityMappingMiddleware(identityMapper, logger)
 
@@ -295,6 +289,7 @@ func main() {
 	router := chi.NewRouter()
 	router.Use(chimiddleware.RequestSize(int64(cfg.Service.HttpMaxRequestSize)))
 	router.Use(middleware.RequestSizeLimiter(cfg.Service.HttpMaxUrlLength, cfg.Service.HttpMaxNumHeaders))
+	router.Use(middleware.SecurityHeaders)
 	router.Use(chimiddleware.RequestID)
 	router.Use(chimiddleware.Recoverer)
 

@@ -13,6 +13,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/pkg/poll"
 	"gopkg.in/yaml.v3"
 )
 
@@ -134,18 +135,20 @@ type Helm struct {
 	timeout    time.Duration
 	readWriter fileio.ReadWriter
 	cache      *helmChartCache
+	backoff    poll.Config
 }
 
 // NewHelm creates a new Helm client with the specified logger, executor, and data directory.
-func NewHelm(log *log.PrefixLogger, exec executer.Executer, readWriter fileio.ReadWriter, dataDir string) *Helm {
+func NewHelm(log *log.PrefixLogger, exec executer.Executer, readWriter fileio.ReadWriter, dataDir string, backoff poll.Config) *Helm {
 	chartsDir := filepath.Join(dataDir, HelmChartsDir)
 	h := &Helm{
 		log:        log,
 		exec:       exec,
 		timeout:    defaultHelmTimeout,
 		readWriter: readWriter,
+		backoff:    backoff,
 	}
-	h.cache = newHelmChartCache(h, chartsDir, readWriter, log)
+	h.cache = newHelmChartCache(h, chartsDir, readWriter, log, backoff)
 	return h
 }
 
@@ -268,10 +271,12 @@ func (h *Helm) Pull(ctx context.Context, chartRef, destDir string, opts ...Clien
 		}
 	}
 
+	h.log.Debugf("Pulling helm chart %s to %s (timeout: %v)", chartRef, destDir, timeout)
 	_, stderr, exitCode := h.exec.ExecuteWithContext(ctx, helmCmd, args...)
 	if exitCode != 0 {
 		return fmt.Errorf("helm pull: %w", errors.FromStderr(stderr, exitCode))
 	}
+	h.log.Debugf("Helm chart %s pulled successfully", chartRef)
 
 	return nil
 }
@@ -317,10 +322,12 @@ func (h *Helm) DependencyUpdate(ctx context.Context, chartPath string, opts ...C
 		}
 	}
 
+	h.log.Debugf("Updating helm chart dependencies at %s (timeout: %v)", chartPath, timeout)
 	_, stderr, exitCode := h.exec.ExecuteWithContext(ctx, helmCmd, args...)
 	if exitCode != 0 {
 		return fmt.Errorf("helm dependency update: %w", errors.FromStderr(stderr, exitCode))
 	}
+	h.log.Debugf("Helm chart dependencies updated at %s", chartPath)
 
 	return nil
 }

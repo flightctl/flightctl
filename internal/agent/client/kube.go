@@ -26,6 +26,7 @@ type KubernetesOption func(*kubernetesOptions)
 type kubernetesOptions struct {
 	binary         string
 	kubeconfigPath string
+	kubeconfigSet  bool
 }
 
 // WithBinary sets a specific kubectl/oc binary path instead of auto-discovering.
@@ -35,10 +36,11 @@ func WithBinary(binary string) KubernetesOption {
 	}
 }
 
-// WithKubeconfigPath sets the kubeconfig path instead of auto-discovering.
+// WithKubeconfigPath pre-configures the kubeconfig path, skipping resolution.
 func WithKubeconfigPath(path string) KubernetesOption {
 	return func(opts *kubernetesOptions) {
 		opts.kubeconfigPath = path
+		opts.kubeconfigSet = true
 	}
 }
 
@@ -72,15 +74,14 @@ type Kube struct {
 	readWriter       fileio.ReadWriter
 	commandAvailable func(string) bool
 
+	// Lazy-loaded and cached after first successful resolution
 	binary             string
 	kubeconfigPath     string
 	kubeconfigResolved bool
 }
 
-// NewKube creates a new Kube client with lazy initialization.
-// The kubernetes binary and kubeconfig are discovered on first use.
-// Use WithBinary option to set a specific binary path instead of auto-discovering.
-// Use WithKubeconfigPath option to set a specific kubeconfig path.
+// NewKube creates a new Kube client.
+// Binary discovery and kubeconfig resolution are deferred until first use.
 func NewKube(
 	log *log.PrefixLogger,
 	exec executer.Executer,
@@ -99,7 +100,7 @@ func NewKube(
 		commandAvailable:   IsCommandAvailable,
 		binary:             options.binary,
 		kubeconfigPath:     options.kubeconfigPath,
-		kubeconfigResolved: options.kubeconfigPath != "",
+		kubeconfigResolved: options.kubeconfigSet,
 	}
 	return k
 }

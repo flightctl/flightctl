@@ -19,6 +19,74 @@ tags:
   - name: catalog
     description: Operations on Catalog resources.
 paths:
+  /catalogitems:
+    x-resource: catalogitems
+    get:
+      tags:
+        - catalog
+      description: List CatalogItems across all Catalogs.
+      operationId: listAllCatalogItems
+      parameters:
+        - name: continue
+          in: query
+          description: An optional parameter to query more results from the server. The value of the parameter must match the value of the 'continue' field in the previous list response.
+          required: false
+          schema:
+            type: string
+        - name: labelSelector
+          in: query
+          description: A selector to restrict the list of returned objects by their labels. Defaults to everything.
+          schema:
+            type: string
+        - name: fieldSelector
+          in: query
+          description: A selector to restrict the list of returned objects by their fields, supporting operators like '=', '==', and '!=' (e.g., "key1=value1,key2!=value2").
+          schema:
+            type: string
+        - name: limit
+          in: query
+          description: The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
+          required: false
+          schema:
+            type: integer
+            format: int32
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatalogItemList'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
   /catalogs:
     x-resource: catalogs
     get:
@@ -62,31 +130,31 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "429":
           description: Too Many Requests
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
     post:
       tags:
         - catalog
@@ -110,37 +178,37 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "409":
           description: Conflict
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "429":
           description: Too Many Requests
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
   /catalogs/{name}:
     x-resource: catalogs
     get:
@@ -167,31 +235,31 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "404":
           description: Not Found
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "429":
           description: Too Many Requests
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
     put:
       tags:
         - catalog
@@ -228,43 +296,43 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "404":
           description: Not Found
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "409":
           description: Conflict
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "429":
           description: Too Many Requests
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
     delete:
       tags:
         - catalog
@@ -283,37 +351,37 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "404":
           description: Not Found
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "429":
           description: Too Many Requests
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
     patch:
       tags:
         - catalog
@@ -344,43 +412,43 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "404":
           description: Not Found
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "409":
           description: Conflict
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "429":
           description: Too Many Requests
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
   /catalogs/{name}/status:
     x-resource: catalogs
     get:
@@ -407,31 +475,31 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "404":
           description: Not Found
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "429":
           description: Too Many Requests
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
     put:
       tags:
         - catalog
@@ -462,37 +530,37 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "404":
           description: Not Found
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "409":
           description: Conflict
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "429":
           description: Too Many Requests
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
     patch:
       tags:
         - catalog
@@ -523,37 +591,37 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "404":
           description: Not Found
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "429":
           description: Too Many Requests
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
   /catalogs/{catalog}/items:
     x-resource: catalogs/items
     get:
@@ -598,37 +666,37 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "404":
           description: Not Found
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "429":
           description: Too Many Requests
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
     post:
       tags:
         - catalog
@@ -660,37 +728,37 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "404":
           description: Not Found
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "409":
           description: Conflict
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
   /catalogs/{catalog}/items/{name}:
     x-resource: catalogs/items
     get:
@@ -723,25 +791,25 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "404":
           description: Not Found
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
     put:
       tags:
         - catalog
@@ -785,37 +853,37 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "404":
           description: Not Found
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "409":
           description: Conflict
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
     delete:
       tags:
         - catalog
@@ -840,31 +908,98 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "404":
           description: Not Found
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
+    patch:
+      tags:
+        - catalog
+      description: Patch a CatalogItem in a Catalog.
+      operationId: patchCatalogItem
+      parameters:
+        - name: catalog
+          in: path
+          description: The name of the Catalog resource.
+          required: true
+          schema:
+            type: string
+        - name: name
+          in: path
+          description: The name of the CatalogItem resource to patch.
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json-patch+json:
+            schema:
+              $ref: '../v1beta1/openapi.yaml#/components/schemas/PatchRequest'
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatalogItem'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
 components:
   securitySchemes:
     bearerAuth:
@@ -877,13 +1012,19 @@ components:
       name: org_id
       description: The UUID of the organization that owns the resource. Maps to an organizations metadata.name.
   schemas:
+    ApiVersion:
+      type: string
+      x-go-type: string
+      description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
+      enum:
+        - v1alpha1
+        - flightctl.io/v1alpha1
     # Catalog-specific schemas (shared types come from v1beta1 via external refs)
     Catalog:
       type: object
       properties:
         apiVersion:
-          type: string
-          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
+          $ref: '#/components/schemas/ApiVersion'
         kind:
           type: string
           description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
@@ -911,8 +1052,6 @@ components:
         icon:
           type: string
           description: URL or data URI of the catalog icon for display in UI.
-        visibility:
-          $ref: '#/components/schemas/CatalogItemVisibility'
         provider:
           type: string
           description: Provider or publisher of the catalog (company or team name).
@@ -935,8 +1074,7 @@ components:
       description: CatalogList is a list of Catalogs.
       properties:
         apiVersion:
-          type: string
-          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
+          $ref: '#/components/schemas/ApiVersion'
         kind:
           type: string
           description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
@@ -970,8 +1108,7 @@ components:
       description: CatalogItem represents an application template from a catalog. It provides default configuration values that can be customized when adding the application to a fleet.
       properties:
         apiVersion:
-          type: string
-          description: 'APIVersion defines the versioned schema of this representation of an object.'
+          $ref: '#/components/schemas/ApiVersion'
         kind:
           type: string
           description: 'Kind is a string value representing the REST resource this object represents.'
@@ -984,30 +1121,9 @@ components:
         - kind
         - metadata
         - spec
-    CatalogItemReference:
-      type: object
-      description: 'Reference to the primary artifact and optional alternative formats.'
-      properties:
-        uri:
-          type: string
-          description: 'Primary artifact URI without version tag. Supports OCI references, URLs, S3 paths, etc.'
-          example: quay.io/prometheus/prometheus
-        artifacts:
-          type: array
-          items:
-            $ref: '#/components/schemas/CatalogItemArtifact'
-          description: 'Alternative artifact formats (e.g., qcow2, ISO for bootc images).'
-          example:
-            - type: qcow2
-              name: QCOW2 Disk Image
-              uri: quay.io/redhat/rhel-bootc-qcow2
-            - type: iso
-              uri: quay.io/redhat/rhel-bootc-iso
-      required:
-        - uri
     CatalogItemArtifact:
       type: object
-      description: 'An alternative artifact format.'
+      description: 'An artifact reference. The type field is the discriminator and must be unique within the artifacts list.'
       properties:
         type:
           $ref: '#/components/schemas/CatalogItemArtifactType'
@@ -1017,13 +1133,15 @@ components:
           example: QCOW2 Disk Image
         uri:
           type: string
-          description: 'Artifact URI (OCI reference, URL, S3 path, etc.).'
+          minLength: 1
+          description: 'Artifact URI without version qualifier. The version reference (tag or digest) is applied at resolution time.'
           example: quay.io/redhat/rhel-bootc-qcow2
       required:
+        - type
         - uri
     CatalogItemArtifactType:
       type: string
-      description: 'Type of artifact format. Includes bootc-image-builder output formats. Defaults to container if only one artifact.'
+      description: 'Artifact format discriminator. Must be unique within the artifacts list. Includes bootc-image-builder output formats.'
       enum:
         - container
         - qcow2
@@ -1072,8 +1190,15 @@ components:
           $ref: '#/components/schemas/CatalogItemCategory'
         type:
           $ref: '#/components/schemas/CatalogItemType'
-        reference:
-          $ref: '#/components/schemas/CatalogItemReference'
+        artifacts:
+          type: array
+          items:
+            $ref: '#/components/schemas/CatalogItemArtifact'
+          minItems: 1
+          description: 'Artifact definitions for this catalog item. Defined once; version references resolve each artifact independently. Type must be unique within the list.'
+          example:
+            - type: container
+              uri: quay.io/prometheus/prometheus
         versions:
           type: array
           items:
@@ -1081,19 +1206,16 @@ components:
           description: 'Available versions using Cincinnati model. Use replaces for primary edge, skips when stable channel skips intermediate versions.'
           example:
             - version: "2.45.0"
-              tag: v2.45.0
+              references:
+                container: "sha256:a3ed95caeb02ffe68cdd9fd84406680ae93d633cb16422d00e8a7c22955b46d4"
               channels: [stable, fast]
               replaces: "2.44.0"
               skips: ["2.43.0"]
             - version: "2.44.0"
-              tag: v2.44.0
+              references:
+                container: "v2.44.0"
               channels: [fast]
               replaces: "2.43.0"
-              deprecation:
-                message: "Security fix in v2.45.0. Please upgrade."
-            - version: "2.43.0"
-              tag: v2.43.0
-              channels: [stable, fast]
         defaults:
           $ref: '#/components/schemas/CatalogItemConfigurable'
         displayName:
@@ -1105,8 +1227,6 @@ components:
         icon:
           type: string
           description: URL or data URI of the catalog item icon for display in UI.
-        visibility:
-          $ref: '#/components/schemas/CatalogItemVisibility'
         deprecation:
           $ref: '#/components/schemas/CatalogItemDeprecation'
         provider:
@@ -1123,7 +1243,7 @@ components:
           description: Link to external documentation.
       required:
         - type
-        - reference
+        - artifacts
         - versions
     CatalogItemVersion:
       type: object
@@ -1132,7 +1252,7 @@ components:
         are nodes in an upgrade graph and channels are labels on those nodes.
         Upgrade edges are defined by replaces (single), skips (multiple), or
         skipRange (semver range). Includes CatalogItemConfigurable fields that
-        override item-level defaults. Exactly one of tag or digest must be specified.
+        override item-level defaults.
       allOf:
         - $ref: '#/components/schemas/CatalogItemConfigurable'
         - type: object
@@ -1141,14 +1261,16 @@ components:
               type: string
               description: 'Semantic version identifier (e.g., 1.2.3, v2.0.0-rc1). Required for version ordering and upgrade graph.'
               example: "2.45.0"
-            tag:
-              type: string
-              description: 'Image tag to pull. Mutually exclusive with digest.'
-              example: "v2.45.0"
-            digest:
-              type: string
-              description: 'OCI digest for immutable reference. Mutually exclusive with tag. Format: sha256:...'
-              example: "sha256:a3ed95caeb02ffe68cdd9fd84406680ae93d633cb16422d00e8a7c22955b46d4"
+            references:
+              type: object
+              minProperties: 1
+              additionalProperties:
+                type: string
+                minLength: 1
+              description: 'Map of artifact type to image tag or digest. Keys must match a type in spec.artifacts. Only keyed artifacts are available for this version.'
+              example:
+                container: "sha256:a3ed95caeb02ffe68cdd9fd84406680ae93d633cb16422d00e8a7c22955b46d4"
+                qcow2: "v2.45.0"
             channels:
               type: array
               items:
@@ -1172,18 +1294,13 @@ components:
           required:
             - version
             - channels
-          oneOf:
-            - required:
-                - tag
-            - required:
-                - digest
+            - references
     CatalogItemList:
       type: object
       description: CatalogItemList is a list of CatalogItems.
       properties:
         apiVersion:
-          type: string
-          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
+          $ref: '#/components/schemas/ApiVersion'
         kind:
           type: string
           description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
@@ -1209,15 +1326,6 @@ components:
       x-enum-varnames:
         - CatalogItemCategorySystem
         - CatalogItemCategoryApplication
-    CatalogItemVisibility:
-      type: string
-      description: 'Visibility controls who can see and use the catalog item.'
-      enum:
-        - draft
-        - published
-      x-enum-varnames:
-        - CatalogItemVisibilityDraft
-        - CatalogItemVisibilityPublished
     CatalogItemType:
       type: string
       description: 'Type of catalog item within its category.'
@@ -1254,4 +1362,33 @@ components:
           description: 'Optional name of the replacement catalog item (item-level only).'
           example: nginx-plus
       required:
+        - message
+    Status:
+      type: object
+      properties:
+        apiVersion:
+          $ref: '#/components/schemas/ApiVersion'
+        kind:
+          type: string
+          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
+        code:
+          type: integer
+          format: int32
+          description: Suggested HTTP return code for this status, 0 if not set.
+        message:
+          type: string
+          description: A human-readable description of the status of this operation.
+        reason:
+          type: string
+          description: A machine-readable description of why this operation is in the "Failure" status. If this value is empty there is no information available. A Reason clarifies an HTTP status code but does not override it.
+        status:
+          type: string
+          description: 'Status of the operation. One of: "Success" or "Failure". More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#spec-and-status.'
+      description: Status is a return value for calls that don't return other objects.
+      required:
+        - apiVersion
+        - kind
+        - status
+        - code
+        - reason
         - message

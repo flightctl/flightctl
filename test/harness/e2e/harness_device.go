@@ -142,121 +142,26 @@ func IsDeviceUpdateObserved(device *v1beta1.Device, expectedVersion int) bool {
 	return slices.Contains(validReasons, v1beta1.UpdateState(cond.Reason))
 }
 
-func (h *Harness) UpdateApplication(withRetries bool, deviceId string, appName string, appProvider any, envVars map[string]string) error {
-	logrus.Infof("UpdateApplication called with deviceId=%s, appName=%s, withRetries=%v", deviceId, appName, withRetries)
-
-	updateFunc := func(device *v1beta1.Device) {
-		logrus.Infof("Starting update for device: %s", *device.Metadata.Name)
-
-		// Build the ComposeApplication with name and envVars
-		composeApp := v1beta1.ComposeApplication{
-			AppType: v1beta1.AppTypeCompose,
-			Name:    &appName,
-		}
-
-		if envVars != nil {
-			logrus.Infof("Setting environment variables for app %s: %v", appName, envVars)
-			composeApp.EnvVars = &envVars
-		}
-
-		// Set the image/inline union on the ComposeApplication
-		var err error
-		switch spec := appProvider.(type) {
-		case v1beta1.InlineApplicationProviderSpec:
-			logrus.Infof("Processing InlineApplicationProviderSpec for %s", appName)
-			err = composeApp.FromInlineApplicationProviderSpec(spec)
-		case v1beta1.ImageApplicationProviderSpec:
-			logrus.Infof("Processing ImageApplicationProviderSpec for %s", appName)
-			err = composeApp.FromImageApplicationProviderSpec(spec)
-		default:
-			logrus.Errorf("Unsupported application provider type: %T for %s", appProvider, appName)
-			return
-		}
-
-		if err != nil {
-			logrus.Errorf("Error converting application provider spec: %v", err)
-			return
-		}
-
-		// Create the ApplicationProviderSpec from the ComposeApplication
-		var appSpec v1beta1.ApplicationProviderSpec
-		if err := appSpec.FromComposeApplication(composeApp); err != nil {
-			logrus.Errorf("Error creating ApplicationProviderSpec: %v", err)
-			return
-		}
-
-		if device.Spec.Applications == nil {
-			logrus.Infof("device.Spec.Applications is nil, initializing with app %s", appName)
-			device.Spec.Applications = &[]v1beta1.ApplicationProviderSpec{appSpec}
-			return
-		}
-
-		for i, a := range *device.Spec.Applications {
-			existingName, _ := a.GetName()
-			if existingName != nil && *existingName == appName {
-				logrus.Infof("Updating existing application %s at index %d", appName, i)
-				(*device.Spec.Applications)[i] = appSpec
-				return
-			}
-		}
-
-		logrus.Infof("Appending new application %s to device %s", appName, *device.Metadata.Name)
-		*device.Spec.Applications = append(*device.Spec.Applications, appSpec)
+// SetDeviceConfig returns a device update callback that replaces the device config with the given specs.
+func SetDeviceConfig(configs ...v1beta1.ConfigProviderSpec) func(*v1beta1.Device) {
+	return func(device *v1beta1.Device) {
+		device.Spec.Config = &configs
 	}
-
-	if withRetries {
-		logrus.Info("Updating device with retries...")
-		return h.UpdateDeviceWithRetries(deviceId, updateFunc)
-	}
-
-	logrus.Info("Updating device without retries...")
-	return h.UpdateDevice(deviceId, updateFunc)
 }
 
-// WaitForApplicationRunningStatus waits for a specific application on a device to reach the "Running" status with all
-// expected workloads running within a timeout.
-func (h *Harness) WaitForApplicationRunningStatus(deviceId string, applicationImage string) {
-	GinkgoWriter.Printf("Waiting for application running status (device=%s image=%s)\n", deviceId, applicationImage)
-	h.WaitForDeviceContents(deviceId, "status: Running",
-		func(device *v1beta1.Device) bool {
-			if device == nil || device.Status == nil || device.Status.Applications == nil {
-				return false
-			}
-			for _, application := range device.Status.Applications {
-				if application.Name == applicationImage && application.Status == v1beta1.ApplicationStatusRunning {
-					// ready indicates the number of workloads that are currently running compared to the number of expected
-					// workloads. Checks to see if "1/1" or "2/3" containers are ready
-					parts := strings.Split(application.Ready, "/")
-					if len(parts) != 2 {
-						return false
-					}
-					return parts[0] == parts[1]
-				}
-			}
-			return false
-		}, TIMEOUT)
+// IsDeviceUpToDate returns true if the device status indicates it is up to date.
+func IsDeviceUpToDate(device *v1beta1.Device) bool {
+	return device != nil && device.Status != nil &&
+		device.Status.Updated.Status == v1beta1.DeviceUpdatedStatusUpToDate
 }
 
-// WaitForApplicationsSummaryNotHealthy waits until applications summary status is set and not Healthy.
-func (h *Harness) WaitForApplicationsSummaryNotHealthy(deviceID string) {
-	GinkgoWriter.Printf("Waiting for applications summary to become non-healthy (device=%s)\n", deviceID)
-	Expect(h).ToNot(BeNil())
-	Expect(strings.TrimSpace(deviceID)).ToNot(BeEmpty())
-
-	Eventually(func() bool {
-		response, err := h.GetDeviceWithStatusSystem(deviceID)
-		if err != nil || response == nil || response.JSON200 == nil {
-			return false
-		}
-		device := response.JSON200
-		if device.Status == nil {
-			return false
-		}
-		if device.Status.ApplicationsSummary.Status == "" {
-			return false
-		}
-		return device.Status.ApplicationsSummary.Status != v1beta1.ApplicationsSummaryStatusHealthy
-	}, TIMEOUT, POLLING).Should(BeTrue())
+// IsUpdatingConditionCleared returns true if the device has no Updating condition in error state (Reason != "Error").
+func IsUpdatingConditionCleared(device *v1beta1.Device) bool {
+	if device == nil || device.Status == nil {
+		return false
+	}
+	cond := v1beta1.FindStatusCondition(device.Status.Conditions, v1beta1.ConditionTypeDeviceUpdating)
+	return cond == nil || cond.Reason != "Error"
 }
 
 func (h *Harness) UpdateDeviceAndWait(deviceID string, updateFunc func(device *v1beta1.Device)) error {
@@ -662,6 +567,83 @@ func (h *Harness) WaitForDeviceNewRenderedVersion(deviceId string, newRenderedVe
 	return nil
 }
 
+// WaitForDeviceNewRenderedVersionWithReboot waits for the device to reach the target rendered version
+// after an update that causes a reboot.
+// Use only when the update triggers a device reboot. Otherwise, use WaitForDeviceNewRenderedVersion.
+func (h *Harness) WaitForDeviceNewRenderedVersionWithReboot(deviceId string, newRenderedVersionInt int) (err error) {
+	Eventually(func() v1beta1.DeviceSummaryStatusType {
+		res, err := h.GetDeviceWithStatusSummary(deviceId)
+		Expect(err).ToNot(HaveOccurred())
+		return res
+	}, LONGTIMEOUT, POLLING).ShouldNot(BeEmpty())
+	logrus.Infof("The device %s was approved", deviceId)
+
+	const specVisibleTimeout = "2m"
+	logrus.Infof("Waiting for the device to acknowledge the new spec (up to %s)", specVisibleTimeout)
+	h.WaitForDeviceContents(deviceId, "device has acknowledged the update (Updating or OutOfDate)",
+		func(device *v1beta1.Device) bool {
+			if device == nil || device.Status == nil {
+				return false
+			}
+			currentRenderedVersion, parseErr := strconv.Atoi(device.Status.Config.RenderedVersion)
+			if parseErr == nil && currentRenderedVersion >= newRenderedVersionInt {
+				return true
+			}
+			if device.Status.Updated.Status == v1beta1.DeviceUpdatedStatusUpdating ||
+				device.Status.Updated.Status == v1beta1.DeviceUpdatedStatusOutOfDate {
+				return true
+			}
+			cond := v1beta1.FindStatusCondition(device.Status.Conditions, v1beta1.ConditionTypeDeviceUpdating)
+			if cond != nil && cond.Status == v1beta1.ConditionStatusTrue {
+				return true
+			}
+			return false
+		}, specVisibleTimeout)
+
+	logrus.Infof("Waiting for the device to reach renderedVersion %d (with reboot)", newRenderedVersionInt)
+	successMsg := fmt.Sprintf("%s %d", util.UpdateRenderedVersionSuccess.String(), newRenderedVersionInt)
+	seenUpdating := false
+	h.WaitForDeviceContents(deviceId, successMsg,
+		func(device *v1beta1.Device) bool {
+			if device == nil || device.Status == nil {
+				return false
+			}
+			// Transitional: rebooting or unknown — keep waiting, never fail.
+			if device.Status.Updated.Status == v1beta1.DeviceUpdatedStatusUnknown {
+				return false
+			}
+			if device.Status.Summary.Status == v1beta1.DeviceSummaryStatusRebooting ||
+				device.Status.Summary.Status == v1beta1.DeviceSummaryStatusUnknown {
+				return false
+			}
+			if device.Status.Updated.Status == v1beta1.DeviceUpdatedStatusUpdating {
+				seenUpdating = true
+			}
+			cond := v1beta1.FindStatusCondition(device.Status.Conditions, v1beta1.ConditionTypeDeviceUpdating)
+			if cond != nil && cond.Status == v1beta1.ConditionStatusTrue {
+				seenUpdating = true
+			}
+			currentRenderedVersion, parseErr := strconv.Atoi(device.Status.Config.RenderedVersion)
+			if parseErr == nil && currentRenderedVersion >= newRenderedVersionInt {
+				return true
+			}
+			// Fail only when device is OutOfDate and has not reached target version (terminal failure).
+			if seenUpdating && device.Status.Updated.Status == v1beta1.DeviceUpdatedStatusOutOfDate {
+				updatedInfo := ""
+				if device.Status.Updated.Info != nil {
+					updatedInfo = *device.Status.Updated.Info
+				}
+				Fail(fmt.Sprintf(
+					"Device %s failed to update to renderedVersion %d (current=%s): %s",
+					deviceId, newRenderedVersionInt, device.Status.Config.RenderedVersion, updatedInfo,
+				))
+			}
+			return false
+		}, LONGTIMEOUT)
+
+	return nil
+}
+
 func (h *Harness) WaitForDeviceNewGeneration(deviceId string, newGeneration int64) (err error) {
 	// Check that the device was already approved
 	Eventually(func() v1beta1.DeviceSummaryStatusType {
@@ -971,8 +953,8 @@ func (h *Harness) AddConfigToDeviceWithRetries(deviceId string, config v1beta1.C
 		specs = append(specs, config)
 		device.Spec.Config = &specs
 		logrus.WithFields(logrus.Fields{
-			"deviceId": deviceId,
-			"config":   device.Spec.Config,
+			"deviceId":        deviceId,
+			"configProviders": len(specs),
 		}).Info("Updating device with new config")
 	})
 }
@@ -983,8 +965,8 @@ func (h *Harness) UpdateDeviceConfigWithRetries(deviceId string, configs []v1bet
 	err := h.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
 		device.Spec.Config = &configs
 		logrus.WithFields(logrus.Fields{
-			"deviceId": deviceId,
-			"config":   device.Spec.Config,
+			"deviceId":        deviceId,
+			"configProviders": len(configs),
 		}).Info("Updating device with new config")
 	})
 	if err != nil {

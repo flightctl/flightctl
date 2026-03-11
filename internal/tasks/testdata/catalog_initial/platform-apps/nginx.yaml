@@ -1,0 +1,16 @@
+apiVersion: flightctl.io/v1alpha1
+kind: CatalogItem
+metadata:
+  name: nginx
+  catalog: platform-apps
+spec:
+  type: quadlet
+  artifacts:
+    - type: container
+      uri: quay.io/nginx/nginx
+  versions:
+    - version: "1.27.0"
+      references:
+        container: "v1.27.0"
+      channels:
+        - stable

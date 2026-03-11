@@ -51,6 +51,130 @@ func TestNewComposeID(t *testing.T) {
 	}
 }
 
+func TestComposeRemoveImageBackedVolumes(t *testing.T) {
+	require := require.New(t)
+	testCases := []struct {
+		name       string
+		action     Action
+		setupMocks func(*executer.MockExecuter)
+		wantErr    bool
+	}{
+		{
+			name: "removes image-backed volumes on app removal",
+			action: Action{
+				Name: "test-app",
+				ID:   "app-img-vol",
+			},
+			setupMocks: func(mockExec *executer.MockExecuter) {
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("ps")).Return("[]", "", 0).AnyTimes()
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("rm")).Return("", "", 0).AnyTimes()
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("network")).Return("[]", "", 0).AnyTimes()
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("pod")).Return("[]", "", 0).AnyTimes()
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("stop")).Return("", "", 0).AnyTimes()
+
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "ls")).
+					Return(`[{"Name":"app-img-vol-html"},{"Name":"app-img-vol-data"}]`, "", 0)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "inspect", "app-img-vol-html", "--format", "{{.Driver}}")).
+					Return("image", "", 0)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "inspect", "app-img-vol-data", "--format", "{{.Driver}}")).
+					Return("local", "", 0)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "rm", "app-img-vol-html")).
+					Return("", "", 0)
+			},
+		},
+		{
+			name: "no image-backed volumes to remove",
+			action: Action{
+				Name: "test-app",
+				ID:   "app-no-vol",
+			},
+			setupMocks: func(mockExec *executer.MockExecuter) {
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("ps")).Return("[]", "", 0).AnyTimes()
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("rm")).Return("", "", 0).AnyTimes()
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("network")).Return("[]", "", 0).AnyTimes()
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("pod")).Return("[]", "", 0).AnyTimes()
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("stop")).Return("", "", 0).AnyTimes()
+
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "ls")).
+					Return("[]", "", 0)
+			},
+		},
+		{
+			name: "skips non-image volumes during cleanup",
+			action: Action{
+				Name: "test-app",
+				ID:   "app-local-vol",
+			},
+			setupMocks: func(mockExec *executer.MockExecuter) {
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("ps")).Return("[]", "", 0).AnyTimes()
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("rm")).Return("", "", 0).AnyTimes()
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("network")).Return("[]", "", 0).AnyTimes()
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("pod")).Return("[]", "", 0).AnyTimes()
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("stop")).Return("", "", 0).AnyTimes()
+
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "ls")).
+					Return(`[{"Name":"app-local-vol-data"}]`, "", 0)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "inspect", "app-local-vol-data", "--format", "{{.Driver}}")).
+					Return("local", "", 0)
+			},
+		},
+		{
+			name: "volume inspect failure is non-fatal",
+			action: Action{
+				Name: "test-app",
+				ID:   "app-inspect-fail",
+			},
+			setupMocks: func(mockExec *executer.MockExecuter) {
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("ps")).Return("[]", "", 0).AnyTimes()
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("rm")).Return("", "", 0).AnyTimes()
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("network")).Return("[]", "", 0).AnyTimes()
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("pod")).Return("[]", "", 0).AnyTimes()
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("stop")).Return("", "", 0).AnyTimes()
+
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "ls")).
+					Return(`[{"Name":"app-inspect-fail-gone"}]`, "", 0)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "inspect", "app-inspect-fail-gone", "--format", "{{.Driver}}")).
+					Return("", "Error: no such volume", 1)
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			mockExec := executer.NewMockExecuter(ctrl)
+			tc.setupMocks(mockExec)
+
+			tmpDir := t.TempDir()
+			readWriter := fileio.NewReadWriter(
+				fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+				fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+			)
+
+			logger := log.NewPrefixLogger("test")
+			podman := client.NewPodman(logger, mockExec, readWriter, testutil.NewPollConfig())
+			podmanFactory := func(user api.Username) (*client.Podman, error) {
+				return podman, nil
+			}
+
+			var rwFactory fileio.ReadWriterFactory = func(username api.Username) (fileio.ReadWriter, error) {
+				return fileio.NewMockReadWriter(ctrl), nil
+			}
+			compose := NewCompose(logger, rwFactory, podmanFactory)
+
+			action := tc.action
+			err := compose.remove(context.Background(), &action)
+			if tc.wantErr {
+				require.Error(err)
+			} else {
+				require.NoError(err)
+			}
+		})
+	}
+}
+
 func TestComposeEnsurePodmanVolumeRetainReseeds(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()

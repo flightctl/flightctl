@@ -11,7 +11,6 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/helm"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
-	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/log"
 )
@@ -38,7 +37,6 @@ const (
 type KubernetesMonitor struct {
 	*monitor
 
-	k8sClient *client.Kube
 	clients   client.CLIClients
 	rwFactory fileio.ReadWriterFactory
 }
@@ -50,8 +48,6 @@ func NewKubernetesMonitor(
 	clients client.CLIClients,
 	rwFactory fileio.ReadWriterFactory,
 ) *KubernetesMonitor {
-	k8sClient := clients.Kube()
-
 	m := newMonitor(log, "kubernetes",
 		handlerRegistration{
 			appType: v1beta1.AppTypeHelm,
@@ -61,49 +57,33 @@ func NewKubernetesMonitor(
 
 	return &KubernetesMonitor{
 		monitor:   m,
-		k8sClient: k8sClient,
 		clients:   clients,
 		rwFactory: rwFactory,
 	}
 }
 
-// IsEnabled returns true if kubernetes-based applications are available.
-// This attempts to resolve binary and kubeconfig if not already done.
-func (m *KubernetesMonitor) IsEnabled() bool {
-	return m.k8sClient.IsAvailable()
-}
-
 // Ensure adds an application to be monitored.
 func (m *KubernetesMonitor) Ensure(app Application) error {
-	if !m.IsEnabled() {
-		return fmt.Errorf("%w: %w", errors.WithElement(app.Name()), errors.ErrKubernetesAppsDisabled)
-	}
 	return m.monitor.Ensure(app)
 }
 
 // Remove removes an application from monitoring.
 func (m *KubernetesMonitor) Remove(app Application) error {
-	if !m.IsEnabled() {
-		return fmt.Errorf("%w: %w", errors.WithElement(app.Name()), errors.ErrKubernetesAppsDisabled)
-	}
 	return m.monitor.Remove(app)
 }
 
 // Update updates an existing application, preserving workloads from the old app.
 func (m *KubernetesMonitor) Update(app Application) error {
-	if !m.IsEnabled() {
-		return fmt.Errorf("%w: %w", errors.WithElement(app.Name()), errors.ErrKubernetesAppsDisabled)
-	}
 	return m.monitor.updateWithWorkloads(app)
 }
 
 // CreateCommand implements streamingMonitor interface.
 func (m *KubernetesMonitor) CreateCommand(ctx context.Context) (*exec.Cmd, error) {
-	kubeconfigPath, err := m.k8sClient.ResolveKubeconfig()
+	kubeconfigPath, err := m.clients.Kube().ResolveKubeconfig()
 	if err != nil {
 		return nil, fmt.Errorf("resolving kubeconfig: %w", err)
 	}
-	return m.k8sClient.WatchPodsCmd(ctx,
+	return m.clients.Kube().WatchPodsCmd(ctx,
 		client.WithKubeKubeconfig(kubeconfigPath),
 		client.WithKubeLabels([]string{helm.AppLabelKey}),
 	)

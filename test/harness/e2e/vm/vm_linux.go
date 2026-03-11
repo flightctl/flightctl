@@ -324,11 +324,17 @@ func (v *VMInLibvirt) parseDomainTemplate() (domainXML string, err error) {
 		CloudInitCDRom  string
 		CloudInitSMBios string
 		DiskSize        string
+		MemoryMiB       int
 	}
 
 	diskSize := v.TestVM.DiskSizeGB
 	if diskSize <= 0 {
 		diskSize = DefaultDiskSizeGB
+	}
+
+	memoryMiB := v.TestVM.MemoryMiB
+	if memoryMiB <= 0 {
+		memoryMiB = 2048
 	}
 
 	templateParams := TemplateParams{
@@ -337,6 +343,7 @@ func (v *VMInLibvirt) parseDomainTemplate() (domainXML string, err error) {
 		PIDFile:       v.pidFile,
 		Name:          v.TestVM.VMName,
 		DiskSize:      strconv.Itoa(diskSize),
+		MemoryMiB:     memoryMiB,
 	}
 
 	err = v.ParseCloudInit()
@@ -541,9 +548,8 @@ func (v *VMInLibvirt) RunAndWaitForSSH() error {
 
 	err = v.WaitForSSHToBeReady()
 	if err != nil {
-		fmt.Println("============ Console output ============")
-		fmt.Println(v.GetConsoleOutput())
-		fmt.Println("========================================")
+		consoleOut := v.GetConsoleOutput()
+		ginkgo.GinkgoWriter.Printf("\n============ VM console output (SSH wait failed: %v) ============\n%s\n========================================\n", err, consoleOut)
 		return fmt.Errorf("waiting for SSH: %w", err)
 	}
 	return nil

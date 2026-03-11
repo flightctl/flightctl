@@ -140,17 +140,45 @@ type PrefetchManager interface {
 	// RegisterOCICollector registers a function that can collect OCI targets from a device spec
 	RegisterOCICollector(collector OCICollector)
 	// BeforeUpdate collects and prefetches OCI targets from all registered collectors
-	BeforeUpdate(ctx context.Context, current, desired *v1beta1.DeviceSpec) error
+	BeforeUpdate(ctx context.Context, current, desired *v1beta1.DeviceSpec, opts ...OCICollectOpt) error
 	// StatusMessage returns a human readable prefetch progress status message
 	StatusMessage(ctx context.Context) string
 	// Cleanup fires all cleanupFn cancels active pulls and drains the queue
 	Cleanup()
 }
 
+// OCICollectOpt configures OCI target collection behavior.
+type OCICollectOpt func(*ociCollectOpts)
+
+type ociCollectOpts struct {
+	osUpdatePending bool
+}
+
+// WithOSUpdatePending indicates an OS update is pending (not yet booted).
+func WithOSUpdatePending(pending bool) OCICollectOpt {
+	return func(o *ociCollectOpts) {
+		o.osUpdatePending = pending
+	}
+}
+
+// ApplyOCICollectOpts applies the given options and returns the configured options struct.
+func ApplyOCICollectOpts(opts ...OCICollectOpt) ociCollectOpts {
+	var o ociCollectOpts
+	for _, opt := range opts {
+		opt(&o)
+	}
+	return o
+}
+
+// OSUpdatePending returns true if an OS update is pending.
+func (o ociCollectOpts) OSUpdatePending() bool {
+	return o.osUpdatePending
+}
+
 // OCICollector interface for components that can collect OCI targets
 type OCICollector interface {
 	// CollectOCITargets collects OCI targets and indicates if requeue is needed
-	CollectOCITargets(ctx context.Context, current, desired *v1beta1.DeviceSpec) (*OCICollection, error)
+	CollectOCITargets(ctx context.Context, current, desired *v1beta1.DeviceSpec, opts ...OCICollectOpt) (*OCICollection, error)
 }
 
 type imageRef struct {
@@ -221,9 +249,14 @@ func (m *prefetchManager) Run(ctx context.Context) {
 	m.log.Debug("Prefetch manager started")
 	defer m.log.Debug("Prefetch manager stopped")
 
-	go m.worker(ctx)
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		m.worker(ctx)
+	}()
 
-	<-ctx.Done()
+	wg.Wait()
 }
 
 func (m *prefetchManager) worker(ctx context.Context) {
@@ -242,6 +275,9 @@ func (m *prefetchManager) worker(ctx context.Context) {
 func (m *prefetchManager) RegisterOCICollector(collector OCICollector) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if slices.Contains(m.collectors, collector) {
+		return
+	}
 	m.collectors = append(m.collectors, collector)
 }
 
@@ -265,7 +301,7 @@ func (m *prefetchManager) isTargetsChanged(seenTargets map[imageRef]struct{}) bo
 	return false
 }
 
-func (m *prefetchManager) BeforeUpdate(ctx context.Context, current, desired *v1beta1.DeviceSpec) error {
+func (m *prefetchManager) BeforeUpdate(ctx context.Context, current, desired *v1beta1.DeviceSpec, opts ...OCICollectOpt) error {
 	m.log.Debug("Collecting OCI targets from all dependency sources")
 
 	allTargets := make(OCIPullTargetsByUser)
@@ -275,7 +311,7 @@ func (m *prefetchManager) BeforeUpdate(ctx context.Context, current, desired *v1
 	m.mu.Unlock()
 
 	for i, collector := range collectors {
-		result, err := collector.CollectOCITargets(ctx, current, desired)
+		result, err := collector.CollectOCITargets(ctx, current, desired, opts...)
 		if err != nil {
 			return fmt.Errorf("%w %d failed: %w", errors.ErrPrefetchCollector, i, err)
 		}
@@ -344,7 +380,7 @@ func (m *prefetchManager) checkReady(ctx context.Context) error {
 			if errors.IsRetryable(task.err) {
 				pending = append(pending, fmt.Sprintf("%s retrying: %v", image, task.err))
 			} else {
-				return task.err
+				return fmt.Errorf("%w: %w", errors.WithElement(image.image), task.err)
 			}
 			continue
 		}
@@ -384,7 +420,7 @@ func (m *prefetchManager) processTarget(ctx context.Context, target imageRef) {
 	retries := 0
 	for {
 		if ctx.Err() != nil {
-			m.setResult(target, fmt.Errorf("pulling oci target %s: %w", target, ctx.Err()))
+			m.setResult(target, fmt.Errorf("pulling oci target %w: %w", errors.WithElement(target.image), ctx.Err()))
 			m.log.Warnf("Context error pulling oci target: %s", target)
 			return
 		}
@@ -392,7 +428,7 @@ func (m *prefetchManager) processTarget(ctx context.Context, target imageRef) {
 			if errors.IsRetryable(err) {
 				retries++
 				m.log.Warnf("Retrying prefetch for %s (attempt %d): %v", target, retries+1, err)
-				m.setError(target, err)
+				m.setError(target, fmt.Errorf("%w: %w", errors.WithElement(target.image), err))
 
 				// cleanup file system from partial layer pulls
 				if err := m.cleanupPartialLayers(ctx, target.owner); err != nil {
@@ -409,7 +445,7 @@ func (m *prefetchManager) processTarget(ctx context.Context, target imageRef) {
 					return
 				}
 			}
-			m.setResult(target, fmt.Errorf("pulling oci target %s: %w", target, err))
+			m.setResult(target, fmt.Errorf("pulling oci target %w: %w", errors.WithElement(target.image), err))
 			return
 		}
 		// success
@@ -501,7 +537,7 @@ func (m *prefetchManager) Schedule(ctx context.Context, targets OCIPullTargetsBy
 	for user, target := range targets.Iter() {
 		ref := imageRef{image: target.Reference, owner: user}
 		if err := m.schedule(ctx, ref, target.Type, target.ClientOptsFn); err != nil {
-			return fmt.Errorf("prefetch schedule: %w", err)
+			return fmt.Errorf("prefetch schedule %w: %w", errors.WithElement(target.Reference), err)
 		}
 	}
 
@@ -523,13 +559,13 @@ func (m *prefetchManager) schedule(ctx context.Context, target imageRef, ociType
 	select {
 	case <-ctx.Done():
 		m.removeTask(target)
-		return fmt.Errorf("failed to enqueue target %s: %w", target, ctx.Err())
+		return fmt.Errorf("failed to enqueue target %w: %w", errors.WithElement(target.image), ctx.Err())
 	case m.queue <- target:
 		return nil
 	case <-timer.C:
 		m.log.Warnf("Prefetch schedule failed for: %s: buffer full", target)
 		m.removeTask(target)
-		return fmt.Errorf("%w: buffer full", errors.ErrPrefetchNotReady)
+		return fmt.Errorf("%w %w: buffer full", errors.ErrPrefetchNotReady, errors.WithElement(target.image))
 	}
 }
 

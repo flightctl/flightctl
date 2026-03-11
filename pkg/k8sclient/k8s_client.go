@@ -3,6 +3,7 @@ package k8sclient
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
@@ -22,7 +23,7 @@ type K8SClient interface {
 	PostCRD(ctx context.Context, crdGVK string, body []byte, opts ...Option) ([]byte, error)
 	ListRoleBindings(ctx context.Context, namespace string) (*rbacv1.RoleBindingList, error)
 	ListProjects(ctx context.Context, token string, opts ...ListProjectsOption) ([]byte, error)
-	ListRoleBindingsForUser(ctx context.Context, namespace, username string) ([]string, error)
+	ListRoleBindingsForUser(ctx context.Context, namespace, username string, groups []string) ([]string, error)
 }
 
 type k8sClient struct {
@@ -113,7 +114,7 @@ func WithLabelSelector(selector string) ListProjectsOption {
 	}
 }
 
-func (k *k8sClient) ListRoleBindingsForUser(ctx context.Context, namespace, username string) ([]string, error) {
+func (k *k8sClient) ListRoleBindingsForUser(ctx context.Context, namespace, username string, groups []string) ([]string, error) {
 	roleBindings, err := k.ListRoleBindings(ctx, namespace)
 	if err != nil {
 		return nil, err
@@ -123,6 +124,10 @@ func (k *k8sClient) ListRoleBindingsForUser(ctx context.Context, namespace, user
 	for _, binding := range roleBindings.Items {
 		for _, subject := range binding.Subjects {
 			if subject.Kind == "User" && subject.Name == username {
+				roleNames = append(roleNames, binding.RoleRef.Name)
+				break
+			}
+			if subject.Kind == "Group" && slices.Contains(groups, subject.Name) {
 				roleNames = append(roleNames, binding.RoleRef.Name)
 				break
 			}

@@ -53,7 +53,7 @@ func (m *mockK8sClient) ListProjects(ctx context.Context, token string, opts ...
 	return nil, nil
 }
 
-func (m *mockK8sClient) ListRoleBindingsForUser(ctx context.Context, namespace, username string) ([]string, error) {
+func (m *mockK8sClient) ListRoleBindingsForUser(ctx context.Context, namespace, username string, groups []string) ([]string, error) {
 	return nil, nil
 }
 
@@ -156,7 +156,7 @@ var _ = Describe("DeviceRender", func() {
 					Reason:         api.EventReasonResourceUpdated,
 					InvolvedObject: api.ObjectReference{Kind: api.DeviceKind, Name: testDeviceName},
 				}
-				logic := tasks.NewDeviceRenderLogic(log, serviceHandler, mockK8s, kvStoreInst, orgId, event)
+				logic := tasks.NewDeviceRenderLogic(log, serviceHandler, mockK8s, kvStoreInst, nil, orgId, event)
 				err = logic.RenderDevice(ctx)
 
 				// Should succeed - safe paths pass validation
@@ -191,7 +191,7 @@ var _ = Describe("DeviceRender", func() {
 					Reason:         api.EventReasonResourceUpdated,
 					InvolvedObject: api.ObjectReference{Kind: api.DeviceKind, Name: testDeviceName},
 				}
-				logic := tasks.NewDeviceRenderLogic(log, serviceHandler, mockK8s, kvStoreInst, orgId, event)
+				logic := tasks.NewDeviceRenderLogic(log, serviceHandler, mockK8s, kvStoreInst, nil, orgId, event)
 				err = logic.RenderDevice(ctx)
 
 				// Should fail - derived paths under forbidden root are rejected

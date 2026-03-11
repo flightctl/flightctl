@@ -343,3 +343,129 @@ func TestOciRepoInvalidRegistry(t *testing.T) {
 	require.Error(err)
 	require.Contains(err.Error(), "failed to connect")
 }
+
+func startTLSOciRegistryServer(t *testing.T, mock *MockOciRegistry) (*httptest.Server, string) {
+	t.Helper()
+	ctx := context.Background()
+	require := require.New(t)
+
+	testDirPath := t.TempDir()
+	cfg := ca.NewDefault(testDirPath)
+	testCA, _, err := crypto.EnsureCA(cfg)
+	require.NoError(err)
+
+	serverCerts, _, err := testCA.EnsureServerCertificate(ctx,
+		filepath.Join(testDirPath, "server.crt"),
+		filepath.Join(testDirPath, "server.key"),
+		[]string{"127.0.0.1"}, 1)
+	require.NoError(err)
+
+	tlsConfig, _, err := crypto.TLSConfigForServer(testCA.GetCABundleX509(), serverCerts)
+	require.NoError(err)
+
+	server := httptest.NewUnstartedServer(mock.Handler())
+	server.TLS = tlsConfig
+	server.StartTLS()
+
+	caCertPEM, err := testCA.GetCABundle()
+	require.NoError(err)
+	caCrtB64 := b64.StdEncoding.EncodeToString(caCertPEM)
+
+	return server, caCrtB64
+}
+
+func TestOciRepoWithCaCert(t *testing.T) {
+	require := require.New(t)
+
+	mock := &MockOciRegistry{RequireAuth: false}
+	server, caCrtB64 := startTLSOciRegistryServer(t, mock)
+	defer server.Close()
+
+	repotester := tasks.OciRepoTester{}
+
+	spec := api.RepositorySpec{}
+	err := spec.FromOciRepoSpec(api.OciRepoSpec{
+		Registry: registryHost(server.URL),
+		Type:     "oci",
+		Scheme:   lo.ToPtr(api.Https),
+		CaCrt:    &caCrtB64,
+	})
+	require.NoError(err)
+
+	err = repotester.TestAccess(&api.Repository{Metadata: api.ObjectMeta{Name: lo.ToPtr("test-oci-tls")}, Spec: spec})
+	require.NoError(err)
+}
+
+func TestOciRepoWithCaCertAndAuth(t *testing.T) {
+	require := require.New(t)
+
+	mock := &MockOciRegistry{
+		RequireAuth:   true,
+		ValidUsername: "testuser",
+		ValidPassword: "testpass",
+		ServiceName:   "test-registry",
+		AuthToken:     "authenticated-token-12345",
+	}
+	server, caCrtB64 := startTLSOciRegistryServer(t, mock)
+	defer server.Close()
+	mock.AuthServerURL = server.URL
+
+	repotester := tasks.OciRepoTester{}
+
+	spec := api.RepositorySpec{}
+	err := spec.FromOciRepoSpec(api.OciRepoSpec{
+		Registry: registryHost(server.URL),
+		Type:     "oci",
+		Scheme:   lo.ToPtr(api.Https),
+		CaCrt:    &caCrtB64,
+		OciAuth:  newOciAuth("testuser", "testpass"),
+	})
+	require.NoError(err)
+
+	err = repotester.TestAccess(&api.Repository{Metadata: api.ObjectMeta{Name: lo.ToPtr("test-oci-tls-auth")}, Spec: spec})
+	require.NoError(err)
+}
+
+func TestOciRepoWithSkipServerVerification(t *testing.T) {
+	require := require.New(t)
+
+	mock := &MockOciRegistry{RequireAuth: false}
+	server := httptest.NewTLSServer(mock.Handler())
+	defer server.Close()
+
+	repotester := tasks.OciRepoTester{}
+
+	spec := api.RepositorySpec{}
+	err := spec.FromOciRepoSpec(api.OciRepoSpec{
+		Registry:               registryHost(server.URL),
+		Type:                   "oci",
+		Scheme:                 lo.ToPtr(api.Https),
+		SkipServerVerification: lo.ToPtr(true),
+	})
+	require.NoError(err)
+
+	err = repotester.TestAccess(&api.Repository{Metadata: api.ObjectMeta{Name: lo.ToPtr("test-oci-insecure")}, Spec: spec})
+	require.NoError(err)
+}
+
+func TestOciRepoTLSFailsWithoutCaCert(t *testing.T) {
+	require := require.New(t)
+
+	mock := &MockOciRegistry{RequireAuth: false}
+	server, _ := startTLSOciRegistryServer(t, mock)
+	defer server.Close()
+
+	repotester := tasks.OciRepoTester{}
+
+	spec := api.RepositorySpec{}
+	err := spec.FromOciRepoSpec(api.OciRepoSpec{
+		Registry: registryHost(server.URL),
+		Type:     "oci",
+		Scheme:   lo.ToPtr(api.Https),
+	})
+	require.NoError(err)
+
+	err = repotester.TestAccess(&api.Repository{Metadata: api.ObjectMeta{Name: lo.ToPtr("test-oci-no-ca")}, Spec: spec})
+	require.Error(err)
+	require.Contains(err.Error(), "failed to connect")
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/flightctl/flightctl/internal/domain"
@@ -260,5 +261,5 @@ func (t *FleetValidateLogic) validateHttpProviderConfig(ctx context.Context, con
 }
 
 func generateTemplateVersionName(fleet *domain.Fleet) string {
-	return fmt.Sprintf("%s-%d", *fleet.Metadata.Name, *fleet.Metadata.Generation)
+	return "v" + strconv.FormatInt(*fleet.Metadata.Generation, 10)
 }

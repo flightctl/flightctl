@@ -8,8 +8,7 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/kvstore"
-	"github.com/flightctl/flightctl/internal/org/cache"
-	"github.com/flightctl/flightctl/internal/service"
+	"github.com/flightctl/flightctl/internal/restore"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/version"
@@ -101,20 +100,9 @@ func runRestore(ctx context.Context) error {
 	}
 	defer kvStore.Close()
 
-	log.Println("Creating store and service handler")
-	storeInst := store.NewStore(db, log)
-
-	orgCache := cache.NewOrganizationTTL(cache.DefaultTTL)
-	go func() {
-		orgCache.Start(ctx)
-		log.Warn("Organization cache stopped unexpectedly")
-	}()
-	defer orgCache.Stop()
-
-	serviceHandler := service.NewServiceHandler(storeInst, nil, kvStore, nil, log, "", "", []string{})
-
 	log.Println("Running post-restoration device preparation")
-	if err := serviceHandler.PrepareDevicesAfterRestore(ctx); err != nil {
+	restoreStore := restore.NewRestoreStore(db)
+	if _, err := restore.PrepareDevices(ctx, restoreStore, kvStore, log); err != nil {
 		log.Fatalf("preparing devices after restore: %v", err)
 	}
 

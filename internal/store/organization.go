@@ -52,20 +52,17 @@ func (s *OrganizationStore) InitialMigration(ctx context.Context) error {
 	}
 
 	return db.Transaction(func(tx *gorm.DB) error {
-		var count int64
-		if err := tx.Model(&model.Organization{}).Count(&count).Error; err != nil {
-			return err
+		defaultOrg := &model.Organization{
+			ID:          org.DefaultID,
+			ExternalID:  org.DefaultExternalID,
+			DisplayName: org.DefaultDisplayName,
 		}
 
-		// If there are no organizations, create a default one
-		if count == 0 {
-			if err := tx.Create(&model.Organization{
-				ID:          org.DefaultID,
-				ExternalID:  org.DefaultExternalID,
-				DisplayName: org.DefaultDisplayName,
-			}).Error; err != nil {
-				return err
-			}
+		if err := tx.Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "id"}},
+			DoNothing: true,
+		}).Create(defaultOrg).Error; err != nil {
+			return err
 		}
 
 		return nil
@@ -129,15 +126,13 @@ func (s *OrganizationStore) UpsertMany(ctx context.Context, orgs []*model.Organi
 			return nil, errors.New("display_name is required")
 		}
 	}
-	// On conflict, do nothing (keep existing record)
-	if err := db.Clauses(clause.Expr{
-		SQL: "ON CONFLICT (external_id) WHERE external_id <> '' DO NOTHING",
+	if err := db.Clauses(clause.OnConflict{
+		Columns:     []clause.Column{{Name: "external_id"}},
+		TargetWhere: clause.Where{Exprs: []clause.Expression{clause.Expr{SQL: "external_id <> ''"}}},
+		DoNothing:   true,
 	}).Create(orgs).Error; err != nil {
 		return nil, err
 	}
-
-	// Now retrieve all the organizations (both newly created and existing ones)
-	// by their external IDs to return the actual database records
 	externalIDs := make([]string, len(orgs))
 	for i, org := range orgs {
 		externalIDs[i] = org.ExternalID

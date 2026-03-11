@@ -195,6 +195,15 @@ func extractOrgIDFromRequestCert(ctx context.Context, r *http.Request) (uuid.UUI
 	return orgID, true, nil
 }
 
+// Content-Security-Policy constants for different server types.
+const (
+	// StrictCSP is the strictest CSP for JSON-only API servers.
+	StrictCSP = "default-src 'none'; frame-ancestors 'none'"
+	// PAMIssuerCSP allows the scripts, styles, and assets needed by the login page.
+	// img-src includes 'data:' to support custom branding logos and favicons supplied as data URIs.
+	PAMIssuerCSP = "default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'self'"
+)
+
 // SecurityHeaders adds security headers to all HTTP responses.
 // This middleware should be applied early in the middleware chain to ensure
 // all responses include these headers.
@@ -204,7 +213,19 @@ func SecurityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
 		// X-Content-Type-Options: Prevent MIME type sniffing
 		w.Header().Set("X-Content-Type-Options", "nosniff")
+		// X-Frame-Options: Prevent clickjacking by disallowing framing
+		w.Header().Set("X-Frame-Options", "DENY")
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+// ContentSecurityPolicy returns a middleware that sets the Content-Security-Policy header.
+func ContentSecurityPolicy(policy string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Security-Policy", policy)
+			next.ServeHTTP(w, r)
+		})
+	}
 }

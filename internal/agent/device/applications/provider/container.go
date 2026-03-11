@@ -8,19 +8,23 @@ import (
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
+	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/quadlet"
 	"github.com/flightctl/flightctl/pkg/log"
-	"github.com/flightctl/flightctl/pkg/userutil"
 	"github.com/samber/lo"
 )
 
+var _ Provider = (*containerProvider)(nil)
+var _ appProvider = (*containerProvider)(nil)
+
 type containerProvider struct {
-	log        *log.PrefixLogger
-	podman     *client.Podman
-	readWriter fileio.ReadWriter
-	spec       *ApplicationSpec
+	log            *log.PrefixLogger
+	podman         *client.Podman
+	readWriter     fileio.ReadWriter
+	commandChecker commandChecker
+	spec           *ApplicationSpec
 }
 
 func newContainerProvider(
@@ -29,7 +33,6 @@ func newContainerProvider(
 	podmanFactory client.PodmanFactory,
 	apiSpec *v1beta1.ApplicationProviderSpec,
 	rwFactory fileio.ReadWriterFactory,
-	cfg *parseConfig,
 ) (*containerProvider, error) {
 	containerApp, err := (*apiSpec).AsContainerApplication()
 	if err != nil {
@@ -65,9 +68,10 @@ func newContainerProvider(
 	}
 
 	return &containerProvider{
-		log:        log,
-		podman:     podman,
-		readWriter: readWriter,
+		log:            log,
+		podman:         podman,
+		readWriter:     readWriter,
+		commandChecker: client.IsCommandAvailable,
 		spec: &ApplicationSpec{
 			Name:         appName,
 			ID:           appID,
@@ -82,35 +86,35 @@ func newContainerProvider(
 	}, nil
 }
 
-func (p *containerProvider) Verify(ctx context.Context) error {
-	if err := validateEnvVars(p.spec.EnvVars); err != nil {
-		return fmt.Errorf("%w: validating env vars: %w", errors.ErrInvalidSpec, err)
-	}
-
-	if err := ensureDependenciesFromVolumes(ctx, p.podman, p.spec.ContainerApp.Volumes); err != nil {
-		return fmt.Errorf("%w: ensuring volume dependencies: %w", errors.ErrNoRetry, err)
-	}
-
-	if err := ensureDependenciesFromAppType([]string{"podman"}); err != nil {
-		return fmt.Errorf("%w: ensuring dependencies: %w", errors.ErrNoRetry, err)
+func (p *containerProvider) EnsureDependencies(ctx context.Context) error {
+	if err := ensureDependenciesFromAppType(quadletBinaryDeps, p.commandChecker); err != nil {
+		return err
 	}
 
 	version, err := p.podman.Version(ctx)
 	if err != nil {
-		return fmt.Errorf("podman version: %w", err)
+		return fmt.Errorf("%w: podman version: %w", errors.ErrAppDependency, err)
 	}
 	if err := ensureMinQuadletPodmanVersion(version); err != nil {
-		return fmt.Errorf("%w: container app type: %w", errors.ErrNoRetry, err)
+		return fmt.Errorf("%w: %w", errors.ErrAppDependency, err)
+	}
+	if err := ensureDependenciesFromVolumes(ctx, p.podman, p.spec.ContainerApp.Volumes); err != nil {
+		return fmt.Errorf("%w: volume dependencies: %w", errors.ErrAppDependency, err)
+	}
+	return nil
+}
+
+func (p *containerProvider) Verify(ctx context.Context) error {
+	if err := p.EnsureDependencies(ctx); err != nil {
+		return err
 	}
 
-	if !p.spec.User.IsRootUser() && !p.spec.User.IsCurrentProcessUser() {
-		_, _, homeDir, err := userutil.LookupUser(p.spec.User)
-		if err != nil {
-			return fmt.Errorf("%w: application user %s does not exist: %w", errors.ErrNoRetry, p.spec.User, err)
-		}
-		if homeDir == "" {
-			return fmt.Errorf("%w: application user %s does not have a home dir set", errors.ErrNoRetry, p.spec.User)
-		}
+	if err := validateEnvVars(p.spec.EnvVars); err != nil {
+		return fmt.Errorf("%w: validating env vars: %w", errors.ErrInvalidSpec, err)
+	}
+
+	if err := validateQuadletUser(p.spec.User, p.readWriter); err != nil {
+		return fmt.Errorf("%w: application user %s is not valid: %w", errors.ErrNoRetry, p.spec.User, err)
 	}
 
 	for _, vol := range lo.FromPtr(p.spec.ContainerApp.Volumes) {
@@ -176,6 +180,31 @@ func (p *containerProvider) Spec() *ApplicationSpec {
 	return p.spec
 }
 
+func (p *containerProvider) collectOCITargets(ctx context.Context, configProvider dependency.PullConfigResolver) (dependency.OCIPullTargetsByUser, error) {
+	var targets dependency.OCIPullTargetsByUser
+	targets = targets.Add(p.spec.User, dependency.OCIPullTarget{
+		Type:         dependency.OCITypePodmanImage,
+		Reference:    p.spec.ContainerApp.Image,
+		PullPolicy:   v1beta1.PullIfNotPresent,
+		ClientOptsFn: containerPullOptions(configProvider, p.spec.User),
+	})
+	volTargets, err := extractVolumeTargets(p.spec.ContainerApp.Volumes, configProvider, p.spec.User)
+	if err != nil {
+		return nil, fmt.Errorf("extracting container volume targets: %w", err)
+	}
+	return targets.Add(p.spec.User, volTargets...), nil
+}
+
+func (p *containerProvider) extractNestedTargets(_ context.Context, _ dependency.PullConfigResolver) (*AppData, error) {
+	// Container apps don't have nested targets to extract
+	return &AppData{}, nil
+}
+
+func (p *containerProvider) parentIsAvailable(_ context.Context) (string, string, bool, error) {
+	// Container apps don't have nested targets, so parent availability doesn't matter
+	return p.spec.ContainerApp.Image, "", true, nil
+}
+
 func createVolumeQuadlet(rw fileio.ReadWriter, dir string, volumeName string, imageRef string) error {
 	unit := quadlet.NewEmptyUnit()
 	unit.Add(quadlet.VolumeGroup, quadlet.ImageKey, imageRef)
@@ -213,7 +242,7 @@ func generateQuadlet(ctx context.Context, podman *client.Podman, rw fileio.ReadW
 
 	unit.Add("Service", "Restart", "on-failure").
 		Add("Service", "RestartSec", "60").
-		Add("Install", "WantedBy", "multi-user.target default.target")
+		Add("Install", "WantedBy", "default.target")
 
 	for _, vol := range lo.FromPtr(spec.Volumes) {
 		volType, err := vol.Type()

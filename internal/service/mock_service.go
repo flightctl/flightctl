@@ -871,6 +871,21 @@ func (mr *MockServiceMockRecorder) ListAllAuthProviders(ctx, params any) *gomock
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListAllAuthProviders", reflect.TypeOf((*MockService)(nil).ListAllAuthProviders), ctx, params)
 }
 
+// ListAllCatalogItems mocks base method.
+func (m *MockService) ListAllCatalogItems(ctx context.Context, orgId uuid.UUID, params domain.ListAllCatalogItemsParams) (*domain.CatalogItemList, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListAllCatalogItems", ctx, orgId, params)
+	ret0, _ := ret[0].(*domain.CatalogItemList)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// ListAllCatalogItems indicates an expected call of ListAllCatalogItems.
+func (mr *MockServiceMockRecorder) ListAllCatalogItems(ctx, orgId, params any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListAllCatalogItems", reflect.TypeOf((*MockService)(nil).ListAllCatalogItems), ctx, orgId, params)
+}
+
 // ListAuthProviders mocks base method.
 func (m *MockService) ListAuthProviders(ctx context.Context, orgId uuid.UUID, params domain.ListAuthProvidersParams) (*domain.AuthProviderList, domain.Status) {
 	m.ctrl.T.Helper()
@@ -931,6 +946,21 @@ func (mr *MockServiceMockRecorder) ListCertificateSigningRequests(ctx, orgId, pa
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListCertificateSigningRequests", reflect.TypeOf((*MockService)(nil).ListCertificateSigningRequests), ctx, orgId, params)
 }
 
+// ListConnectivityChangedDevices mocks base method.
+func (m *MockService) ListConnectivityChangedDevices(ctx context.Context, orgId uuid.UUID, params domain.ListDevicesParams, cutoffTime time.Time) (*domain.DeviceList, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListConnectivityChangedDevices", ctx, orgId, params, cutoffTime)
+	ret0, _ := ret[0].(*domain.DeviceList)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// ListConnectivityChangedDevices indicates an expected call of ListConnectivityChangedDevices.
+func (mr *MockServiceMockRecorder) ListConnectivityChangedDevices(ctx, orgId, params, cutoffTime any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListConnectivityChangedDevices", reflect.TypeOf((*MockService)(nil).ListConnectivityChangedDevices), ctx, orgId, params, cutoffTime)
+}
+
 // ListDevices mocks base method.
 func (m *MockService) ListDevices(ctx context.Context, orgId uuid.UUID, params domain.ListDevicesParams, annotationSelector *selector.AnnotationSelector) (*domain.DeviceList, domain.Status) {
 	m.ctrl.T.Helper()
@@ -959,21 +989,6 @@ func (m *MockService) ListDevicesByServiceCondition(ctx context.Context, orgId u
 func (mr *MockServiceMockRecorder) ListDevicesByServiceCondition(ctx, orgId, conditionType, conditionStatus, listParams any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListDevicesByServiceCondition", reflect.TypeOf((*MockService)(nil).ListDevicesByServiceCondition), ctx, orgId, conditionType, conditionStatus, listParams)
-}
-
-// ListDisconnectedDevices mocks base method.
-func (m *MockService) ListDisconnectedDevices(ctx context.Context, orgId uuid.UUID, params domain.ListDevicesParams, cutoffTime time.Time) (*domain.DeviceList, domain.Status) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListDisconnectedDevices", ctx, orgId, params, cutoffTime)
-	ret0, _ := ret[0].(*domain.DeviceList)
-	ret1, _ := ret[1].(domain.Status)
-	return ret0, ret1
-}
-
-// ListDisconnectedDevices indicates an expected call of ListDisconnectedDevices.
-func (mr *MockServiceMockRecorder) ListDisconnectedDevices(ctx, orgId, params, cutoffTime any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListDisconnectedDevices", reflect.TypeOf((*MockService)(nil).ListDisconnectedDevices), ctx, orgId, params, cutoffTime)
 }
 
 // ListDisruptionBudgetFleets mocks base method.
@@ -1206,6 +1221,21 @@ func (m *MockService) PatchCatalog(ctx context.Context, orgId uuid.UUID, name st
 func (mr *MockServiceMockRecorder) PatchCatalog(ctx, orgId, name, patch any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PatchCatalog", reflect.TypeOf((*MockService)(nil).PatchCatalog), ctx, orgId, name, patch)
+}
+
+// PatchCatalogItem mocks base method.
+func (m *MockService) PatchCatalogItem(ctx context.Context, orgId uuid.UUID, catalogName, itemName string, patch domain.PatchRequest) (*domain.CatalogItem, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PatchCatalogItem", ctx, orgId, catalogName, itemName, patch)
+	ret0, _ := ret[0].(*domain.CatalogItem)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// PatchCatalogItem indicates an expected call of PatchCatalogItem.
+func (mr *MockServiceMockRecorder) PatchCatalogItem(ctx, orgId, catalogName, itemName, patch any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PatchCatalogItem", reflect.TypeOf((*MockService)(nil).PatchCatalogItem), ctx, orgId, catalogName, itemName, patch)
 }
 
 // PatchCatalogStatus mocks base method.

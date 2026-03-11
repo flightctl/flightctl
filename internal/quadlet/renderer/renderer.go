@@ -27,6 +27,12 @@ const (
 	ShadowFileMode     os.FileMode = 0600 // Shadow files (password hashes) - root only
 )
 
+const (
+	DefaultServiceConfigPath = "/etc/flightctl/service-config.yaml"
+	DefaultAAPClientIDPath   = "/etc/flightctl/pki/aap-client-id"
+	DefaultAuthCACertPath    = "/etc/flightctl/pki/auth/ca.crt"
+)
+
 type InstallAction struct {
 	Action      ActionType
 	Source      string
@@ -287,6 +293,8 @@ func (config *RendererConfig) ApplyFlightctlServicesTagOverride(log logrus.Field
 	config.DbSetup.Tag = tag
 	config.ImagebuilderApi.Tag = tag
 	config.ImagebuilderWorker.Tag = tag
+	config.TelemetryGateway.Tag = tag
+	config.UserinfoProxy.Tag = tag
 
 	if config.FlightctlUiTagOverride {
 		// For release builds, UI tag must be overridden

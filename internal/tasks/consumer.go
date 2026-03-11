@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics/worker"
@@ -22,7 +23,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 )
 
-func dispatchTasks(serviceHandler service.Service, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore, workerMetrics *worker.WorkerCollector) queues.ConsumeHandler {
+func dispatchTasks(serviceHandler service.Service, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore, cfg *config.Config, workerMetrics *worker.WorkerCollector) queues.ConsumeHandler {
 	return func(ctx context.Context, payload []byte, entryID string, consumer queues.QueueConsumer, log logrus.FieldLogger) error {
 		startTime := time.Now()
 
@@ -92,7 +93,7 @@ func dispatchTasks(serviceHandler service.Service, k8sClient k8sclient.K8SClient
 		if shouldRenderDevice(ctx, eventWithOrgId.Event, log) {
 			taskName = "deviceRender"
 			err = runTaskWithMetrics(taskName, workerMetrics, func() error {
-				return deviceRender(ctx, eventWithOrgId.OrgId, eventWithOrgId.Event, serviceHandler, k8sClient, kvStore, log)
+				return deviceRender(ctx, eventWithOrgId.OrgId, eventWithOrgId.Event, serviceHandler, k8sClient, kvStore, cfg, log)
 			})
 			errorMessages = appendErrorMessage(errorMessages, taskName, err)
 		}
@@ -308,6 +309,7 @@ func LaunchConsumers(ctx context.Context,
 	serviceHandler service.Service,
 	k8sClient k8sclient.K8SClient,
 	kvStore kvstore.KVStore,
+	cfg *config.Config,
 	numConsumers, threadsPerConsumer int,
 	workerMetrics *worker.WorkerCollector) error {
 	totalConsumers := numConsumers * threadsPerConsumer
@@ -327,7 +329,7 @@ func LaunchConsumers(ctx context.Context,
 			return err
 		}
 		for j := 0; j != threadsPerConsumer; j++ {
-			if err = consumer.Consume(ctx, dispatchTasks(serviceHandler, k8sClient, kvStore, workerMetrics)); err != nil {
+			if err = consumer.Consume(ctx, dispatchTasks(serviceHandler, k8sClient, kvStore, cfg, workerMetrics)); err != nil {
 				return err
 			}
 		}

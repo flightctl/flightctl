@@ -107,12 +107,12 @@ Download a resource artifact.
 ### Synopsis
 
 ```shell
-flightctl download TYPE/NAME OUTPUT_FILE
+flightctl download (TYPE/NAME | TYPE NAME) OUTPUT_FILE
 ```
 
 ### Arguments
 
-* `TYPE/NAME` - Resource type and name. Supported types:
+* `TYPE/NAME` or `TYPE NAME` - Resource type and name. Supported types:
   * `imageexport` - Download the exported disk image from an ImageExport resource
 * `OUTPUT_FILE` - Path to the output file where the artifact will be saved
 
@@ -123,11 +123,11 @@ Downloads the disk image artifact from a completed ImageExport resource. The com
 ### Examples
 
 ```shell
-# Download an exported qcow2 image
+# Download an exported qcow2 image (using TYPE/NAME form)
 flightctl download imageexport/my-export ./my-image.qcow2
 
-# Download an exported ISO image
-flightctl download imageexport/my-iso-export ./install.iso
+# Download an exported ISO image (using TYPE NAME form)
+flightctl download imageexport my-iso-export ./install.iso
 ```
 
 ### Exit Status

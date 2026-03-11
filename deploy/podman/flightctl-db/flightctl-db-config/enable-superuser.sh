@@ -86,6 +86,10 @@ _psql -U "$DB_ADMIN_USER" -d "$DB_NAME" -c "ALTER DEFAULT PRIVILEGES IN SCHEMA p
 _psql -U "$DB_ADMIN_USER" -d "$DB_NAME" -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO \"$DB_APP_USER\";"
 
 # Create function to grant permissions on existing tables (for post-migration)
+# Note: This function is also defined in setup_database_users.sql for Helm deployments.
+# The duplication is intentional to support different deployment paths:
+# - This script: Podman/standalone deployments (runs as admin at DB startup)
+# - setup_database_users.sql: Helm/Kubernetes deployments (runs via migration job)
 cat << EOF | _psql -U "$DB_ADMIN_USER" -d "$DB_NAME"
 CREATE OR REPLACE FUNCTION grant_app_permissions_on_existing_tables()
 RETURNS void AS \$function\$

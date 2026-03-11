@@ -33,9 +33,52 @@ type Config struct {
 	CA                  *ca.Config                 `json:"ca,omitempty"`
 	Tracing             *tracingConfig             `json:"tracing,omitempty"`
 	GitOps              *gitOpsConfig              `json:"gitOps,omitempty"`
+	CryptoPolicy        *CryptoPolicyConfig        `json:"cryptoPolicy,omitempty"`
 	Periodic            *periodicConfig            `json:"periodic,omitempty"`
 	Organizations       *organizationsConfig       `json:"organizations,omitempty"`
 	TelemetryGateway    *telemetryGatewayConfig    `json:"telemetrygateway,omitempty"`
+}
+
+// CryptoPolicyConfig contains cryptographic policy configuration for all protocols.
+type CryptoPolicyConfig struct {
+	// ForceFIPSMode explicitly enables or disables FIPS-compliant algorithms globally.
+	// If nil, FIPS mode is auto-detected at runtime from system configuration.
+	// If true, FIPS-compliant algorithms are used regardless of system FIPS mode.
+	// If false, library defaults are used even if system is in FIPS mode.
+	ForceFIPSMode *bool `json:"forceFipsMode,omitempty"`
+
+	SSH *SSHCryptoConfig `json:"ssh,omitempty"`
+}
+
+// SSHCryptoConfig contains configuration for SSH crypto algorithms used when
+// accessing Git repositories over SSH or other SSH connections.
+type SSHCryptoConfig struct {
+	// KeyExchangeAlgorithms specifies allowed key exchange algorithms for SSH connections.
+	// If empty, defaults are selected based on FIPS mode detection.
+	// Example FIPS-compliant values: ["ecdh-sha2-nistp256", "ecdh-sha2-nistp384", "diffie-hellman-group14-sha256"]
+	KeyExchangeAlgorithms []string `json:"keyExchangeAlgorithms,omitempty"`
+
+	// Ciphers specifies allowed ciphers (encryption algorithms) for SSH connections.
+	// If empty, defaults are selected based on FIPS mode detection.
+	// Note: In SSH, "ciphers" refer to encryption algorithms only, unlike TLS cipher suites
+	// which bundle key exchange, encryption, and MAC together.
+	// Example FIPS-compliant values: ["aes128-gcm@openssh.com", "aes256-gcm@openssh.com"]
+	Ciphers []string `json:"ciphers,omitempty"`
+
+	// MACs specifies allowed MAC (Message Authentication Code) algorithms for SSH connections.
+	// If empty, defaults are selected based on FIPS mode detection.
+	// Example FIPS-compliant values: ["hmac-sha2-256-etm@openssh.com", "hmac-sha2-512-etm@openssh.com"]
+	MACs []string `json:"macs,omitempty"`
+
+	// HostKeyAlgorithms specifies allowed host key algorithms.
+	// If empty, defaults are selected based on FIPS mode detection.
+	// Example FIPS-compliant values: ["ecdsa-sha2-nistp256", "rsa-sha2-256", "rsa-sha2-512"]
+	HostKeyAlgorithms []string `json:"hostKeyAlgorithms,omitempty"`
+
+	// ForceFIPSMode explicitly enables or disables FIPS-compliant algorithms for SSH only.
+	// If nil, inherits from CryptoPolicyConfig.ForceFIPSMode.
+	// This allows SSH-specific override of the global FIPS setting.
+	ForceFIPSMode *bool `json:"forceFipsMode,omitempty"`
 }
 
 type RateLimitConfig struct {
@@ -131,6 +174,8 @@ type imageBuilderWorkerConfig struct {
 	ImageBuilderTimeout      util.Duration `json:"imageBuilderTimeout,omitempty"`
 	TimeoutCheckTaskInterval util.Duration `json:"timeoutCheckTaskInterval,omitempty"`
 	RPMRepoURL               string        `json:"rpmRepoUrl,omitempty"`
+	RPMRepoAdd               *bool         `json:"rpmRepoAdd,omitempty"`
+	RPMRepoEnable            string        `json:"rpmRepoEnable,omitempty"`
 }
 
 // NewDefaultImageBuilderWorkerConfig returns a default ImageBuilder worker configuration
@@ -228,6 +273,45 @@ type PAMOIDCIssuer struct {
 	// AuthenticatedSessionCookieMaxAge is the MaxAge duration for authenticated session cookies
 	// Default: 30 minutes
 	AuthenticatedSessionCookieMaxAge util.Duration `json:"authenticatedSessionCookieMaxAge,omitempty"`
+	// Branding configures the login UI appearance (logo, display name, colors)
+	// If nil, the default Flight Control branding is used
+	Branding *LoginBranding `json:"branding,omitempty"`
+}
+
+// LoginBranding configures the visual branding of the PAM issuer login UI
+type LoginBranding struct {
+	// DisplayName is used in the page title ("<DisplayName> Login") and card heading
+	// Default: "Flight Control"
+	DisplayName string `json:"displayName,omitempty"`
+	// FaviconDataUri is a data URI for a custom favicon (e.g. "data:image/png;base64,...").
+	// If not set, the default embedded Flight Control favicon is used.
+	FaviconDataUri string `json:"faviconDataUri,omitempty"`
+	// DarkTheme overrides PatternFly CSS variables and logo for dark mode
+	DarkTheme *ThemeColors `json:"darkTheme,omitempty"`
+	// LightTheme overrides PatternFly CSS variables and logo for light mode
+	LightTheme *ThemeColors `json:"lightTheme,omitempty"`
+}
+
+// ThemeColors defines PatternFly v6 semantic token overrides for a specific theme (light or dark).
+// Each color field maps to a PF6 semantic CSS custom property.
+// See https://www.patternfly.org/tokens/all-patternfly-tokens for the full token list.
+type ThemeColors struct {
+	// LogoDataUri is a data URI for a custom logo (e.g. "data:image/svg+xml;base64,...").
+	// Use different logos per theme (e.g. dark text on light backgrounds, white text on dark backgrounds).
+	// If not set, the default embedded Flight Control logo is used.
+	LogoDataUri string `json:"logoDataUri,omitempty"`
+	// BrandDefault overrides --pf-t--global--color--brand--default (primary brand color for buttons, links)
+	BrandDefault string `json:"brandDefault,omitempty"`
+	// BrandHover overrides --pf-t--global--color--brand--hover (brand color on hover/focus)
+	BrandHover string `json:"brandHover,omitempty"`
+	// BrandClicked overrides --pf-t--global--color--brand--clicked (brand color on click/active)
+	BrandClicked string `json:"brandClicked,omitempty"`
+	// BackgroundPrimary overrides --pf-t--global--background--color--primary--default (card/surface background)
+	BackgroundPrimary string `json:"backgroundPrimary,omitempty"`
+	// BackgroundSecondary overrides --pf-t--global--background--color--secondary--default (page background)
+	BackgroundSecondary string `json:"backgroundSecondary,omitempty"`
+	// TextColorRegular overrides --pf-t--global--text--color--regular (primary text color)
+	TextColorRegular string `json:"textColorRegular,omitempty"`
 }
 
 type metricsConfig struct {
@@ -637,6 +721,29 @@ func applyEnvVarOverrides(c *Config) {
 	}
 	if dbMigrationPass := os.Getenv("DB_MIGRATION_PASSWORD"); dbMigrationPass != "" {
 		c.Database.MigrationPassword = api.SecureString(dbMigrationPass)
+	}
+	// CRYPTO_FORCE_FIPS environment variable sets the global crypto policy FIPS mode.
+	// This overrides auto-detection and applies to all cryptographic protocols.
+	// Valid values: "true", "1" (enable), "false", "0" (disable)
+	// Invalid values are ignored with a warning, allowing auto-detection to proceed.
+	if cryptoForceFIPS := os.Getenv("CRYPTO_FORCE_FIPS"); cryptoForceFIPS != "" {
+		var forceFIPS *bool
+		switch cryptoForceFIPS {
+		case "true", "1":
+			t := true
+			forceFIPS = &t
+		case "false", "0":
+			f := false
+			forceFIPS = &f
+		default:
+			fmt.Fprintf(os.Stderr, "Warning: Invalid CRYPTO_FORCE_FIPS value %q (expected: true/1/false/0), ignoring and using auto-detection\n", cryptoForceFIPS)
+		}
+		if forceFIPS != nil {
+			if c.CryptoPolicy == nil {
+				c.CryptoPolicy = &CryptoPolicyConfig{}
+			}
+			c.CryptoPolicy.ForceFIPSMode = forceFIPS
+		}
 	}
 }
 

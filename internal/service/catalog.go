@@ -52,8 +52,11 @@ func (h *ServiceHandler) GetCatalog(ctx context.Context, orgId uuid.UUID, name s
 
 func (h *ServiceHandler) ReplaceCatalog(ctx context.Context, orgId uuid.UUID, name string, catalog domain.Catalog) (*domain.Catalog, domain.Status) {
 	// don't overwrite fields that are managed by the service
-	catalog.Status = nil
-	NilOutManagedObjectMetaProperties(&catalog.Metadata)
+	isInternal := IsInternalRequest(ctx)
+	if !isInternal {
+		catalog.Status = nil
+		NilOutManagedObjectMetaProperties(&catalog.Metadata)
+	}
 	if errs := catalog.Validate(); len(errs) > 0 {
 		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
 	}
@@ -61,7 +64,7 @@ func (h *ServiceHandler) ReplaceCatalog(ctx context.Context, orgId uuid.UUID, na
 		return nil, domain.StatusBadRequest("resource name specified in metadata does not match name in path")
 	}
 
-	result, created, err := h.store.Catalog().CreateOrUpdate(ctx, orgId, &catalog, h.callbackCatalogUpdated)
+	result, created, err := h.store.Catalog().CreateOrUpdate(ctx, orgId, &catalog, !isInternal, h.callbackCatalogUpdated)
 	return result, StoreErrorToApiStatus(err, created, domain.CatalogKind, &name)
 }
 
@@ -84,7 +87,7 @@ func (h *ServiceHandler) PatchCatalog(ctx context.Context, orgId uuid.UUID, name
 	}
 
 	newObj := &domain.Catalog{}
-	err = ApplyJSONPatch(ctx, currentObj, newObj, patch, "/catalogs/"+name)
+	err = ApplyJSONPatch(ctx, currentObj, newObj, patch, "/catalogs/"+name, domain.GetV1Alpha1Swagger)
 	if err != nil {
 		return nil, domain.StatusBadRequest(err.Error())
 	}
@@ -125,7 +128,7 @@ func (h *ServiceHandler) PatchCatalogStatus(ctx context.Context, orgId uuid.UUID
 	}
 
 	newObj := &domain.Catalog{}
-	err = ApplyJSONPatch(ctx, currentObj, newObj, patch, "/catalogs/"+name+"/status")
+	err = ApplyJSONPatch(ctx, currentObj, newObj, patch, "/catalogs/"+name+"/status", domain.GetV1Alpha1Swagger)
 	if err != nil {
 		return nil, domain.StatusBadRequest(err.Error())
 	}
@@ -136,6 +139,27 @@ func (h *ServiceHandler) PatchCatalogStatus(ctx context.Context, orgId uuid.UUID
 
 	result, err := h.store.Catalog().UpdateStatus(ctx, orgId, newObj, h.callbackCatalogUpdated)
 	return result, StoreErrorToApiStatus(err, false, domain.CatalogKind, &name)
+}
+
+func (h *ServiceHandler) ListAllCatalogItems(ctx context.Context, orgId uuid.UUID, params domain.ListAllCatalogItemsParams) (*domain.CatalogItemList, domain.Status) {
+	listParams, status := prepareListParams(params.Continue, params.LabelSelector, params.FieldSelector, params.Limit)
+	if status != domain.StatusOK() {
+		return nil, status
+	}
+
+	result, err := h.store.Catalog().ListAllItems(ctx, orgId, *listParams)
+	if err == nil {
+		return result, domain.StatusOK()
+	}
+
+	var se *selector.SelectorError
+
+	switch {
+	case selector.AsSelectorError(err, &se):
+		return nil, domain.StatusBadRequest(se.Error())
+	default:
+		return nil, domain.StatusInternalServerError(err.Error())
+	}
 }
 
 func (h *ServiceHandler) ListCatalogItems(ctx context.Context, orgId uuid.UUID, catalogName string, params domain.ListCatalogItemsParams) (*domain.CatalogItemList, domain.Status) {
@@ -186,7 +210,10 @@ func (h *ServiceHandler) CreateCatalogItem(ctx context.Context, orgId uuid.UUID,
 }
 
 func (h *ServiceHandler) ReplaceCatalogItem(ctx context.Context, orgId uuid.UUID, catalogName string, itemName string, item domain.CatalogItem) (*domain.CatalogItem, domain.Status) {
-	NilOutManagedCatalogItemMetaProperties(&item.Metadata)
+	isInternal := IsInternalRequest(ctx)
+	if !isInternal {
+		NilOutManagedCatalogItemMetaProperties(&item.Metadata)
+	}
 
 	if errs := item.Validate(); len(errs) > 0 {
 		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
@@ -200,6 +227,39 @@ func (h *ServiceHandler) ReplaceCatalogItem(ctx context.Context, orgId uuid.UUID
 		return nil, domain.StatusResourceNotFound(domain.CatalogKind, catalogName)
 	}
 	return result, StoreErrorToApiStatus(err, created, domain.CatalogItemKind, &itemName)
+}
+
+func (h *ServiceHandler) PatchCatalogItem(ctx context.Context, orgId uuid.UUID, catalogName string, itemName string, patch domain.PatchRequest) (*domain.CatalogItem, domain.Status) {
+	currentObj, err := h.store.Catalog().GetItem(ctx, orgId, catalogName, itemName)
+	if err != nil {
+		if errors.Is(err, flterrors.ErrParentResourceNotFound) {
+			return nil, domain.StatusResourceNotFound(domain.CatalogKind, catalogName)
+		}
+		return nil, StoreErrorToApiStatus(err, false, domain.CatalogItemKind, &itemName)
+	}
+
+	newObj := &domain.CatalogItem{}
+	err = ApplyJSONPatch(ctx, currentObj, newObj, patch, "/catalogs/"+catalogName+"/items/"+itemName, domain.GetV1Alpha1Swagger)
+	if err != nil {
+		return nil, domain.StatusBadRequest(err.Error())
+	}
+
+	if errs := newObj.Validate(); len(errs) > 0 {
+		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
+	}
+
+	if errs := currentObj.ValidateUpdate(newObj); len(errs) > 0 {
+		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
+	}
+
+	NilOutManagedCatalogItemMetaProperties(&newObj.Metadata)
+	newObj.Metadata.ResourceVersion = nil
+
+	result, err := h.store.Catalog().UpdateItem(ctx, orgId, catalogName, newObj)
+	if errors.Is(err, flterrors.ErrParentResourceNotFound) {
+		return nil, domain.StatusResourceNotFound(domain.CatalogKind, catalogName)
+	}
+	return result, StoreErrorToApiStatus(err, false, domain.CatalogItemKind, &itemName)
 }
 
 func (h *ServiceHandler) DeleteCatalogItem(ctx context.Context, orgId uuid.UUID, catalogName string, itemName string) domain.Status {

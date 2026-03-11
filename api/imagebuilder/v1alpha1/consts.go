@@ -3,6 +3,8 @@ package imagebuilder
 const (
 	APIGroup = "flightctl.io"
 
+	StatusKind = "Status"
+
 	ImageBuildAPIVersion = "v1alpha1"
 	ImageBuildListKind   = "ImageBuildList"
 

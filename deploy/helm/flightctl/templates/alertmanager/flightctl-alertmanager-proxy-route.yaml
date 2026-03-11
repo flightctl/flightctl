@@ -13,7 +13,7 @@ metadata:
     {{- end }}
     {{- include "flightctl.standardLabels" . | nindent 4 }}
     flightctl.service: flightctl-alertmanager-proxy
-  name: flightctl-alertmanager-proxy-route
+  name: flightctl-alertmanager-proxy
   namespace: {{ .Release.Namespace }}
 spec:
   host: alertmanager-proxy.{{ include "flightctl.getBaseDomain" . }}

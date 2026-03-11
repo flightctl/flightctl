@@ -159,7 +159,7 @@ func (r *GitRepoTester) TestAccess(repository *domain.Repository) error {
 	})
 
 	listOps := &git.ListOptions{}
-	auth, err := GetAuth(repository)
+	auth, err := GetAuth(repository, nil) // nil config for test
 	if err != nil {
 		return err
 	}

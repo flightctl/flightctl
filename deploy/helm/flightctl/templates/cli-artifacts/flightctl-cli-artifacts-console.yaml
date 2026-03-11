@@ -1,5 +1,6 @@
 {{ if and (.Values.cliArtifacts.enabled) (eq (include "flightctl.enableMulticlusterExtensions" .) "true")}}
 {{- $url := (include "flightctl.getCliArtifactsUrl" . )}}
+---
 apiVersion: console.openshift.io/v1
 kind: ConsoleCLIDownload
 metadata:
@@ -8,7 +9,7 @@ metadata:
     {{- include "flightctl.standardLabels" . | nindent 4 }}
     flightctl.service: flightctl-cli-artifacts
 spec:
-  description: Flight Control is a service for declarative management of fleets of edge devices and their workloads.
+  description: flightctl is the command-line interface for managing Flight Control fleets, devices, and workloads.
   displayName: flightctl - Flight Control Command Line Interface (CLI)
   links:
     - href: '{{ $url }}/amd64/linux/flightctl-linux-amd64.tar.gz'
@@ -23,4 +24,28 @@ spec:
       text: Download flightctl for Mac for ARM 64
     - href: '{{ $url }}/arm64/windows/flightctl-windows-arm64.zip'
       text: Download flightctl for Windows for ARM 64
+---
+apiVersion: console.openshift.io/v1
+kind: ConsoleCLIDownload
+metadata:
+  name: flightctl-restore-cli-downloads
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+    flightctl.service: flightctl-cli-artifacts
+spec:
+  description: flightctl-restore prepares devices after database restoration. Use when restoring Flight Control from backup.
+  displayName: flightctl-restore - Database Restore CLI
+  links:
+    - href: '{{ $url }}/amd64/linux/flightctl-restore-linux-amd64.tar.gz'
+      text: Download flightctl-restore for Linux for x86_64
+    - href: '{{ $url }}/amd64/mac/flightctl-restore-darwin-amd64.zip'
+      text: Download flightctl-restore for Mac for x86_64
+    - href: '{{ $url }}/amd64/windows/flightctl-restore-windows-amd64.zip'
+      text: Download flightctl-restore for Windows for x86_64
+    - href: '{{ $url }}/arm64/linux/flightctl-restore-linux-arm64.tar.gz'
+      text: Download flightctl-restore for Linux for ARM 64
+    - href: '{{ $url }}/arm64/mac/flightctl-restore-darwin-arm64.zip'
+      text: Download flightctl-restore for Mac for ARM 64
+    - href: '{{ $url }}/arm64/windows/flightctl-restore-windows-arm64.zip'
+      text: Download flightctl-restore for Windows for ARM 64
 {{ end }}

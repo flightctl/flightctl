@@ -103,7 +103,7 @@ func (s *GenericStore[P, M, A, AL]) createOrUpdate(ctx context.Context, orgId uu
 		modelInst.SetAnnotations(nil)
 	}
 
-	existing, err := s.getExistingResource(ctx, modelInst.GetName(), orgId)
+	existing, err := s.getExistingResource(ctx, orgId, modelInst)
 	if err != nil {
 		return nil, nil, false, false, err
 	}
@@ -155,9 +155,16 @@ func (s *GenericStore[P, M, A, AL]) createOrUpdate(ctx context.Context, orgId uu
 	return apiResource, existingAPIResource, creating, false, err
 }
 
-func (s *GenericStore[P, M, A, AL]) getExistingResource(ctx context.Context, name string, orgId uuid.UUID) (*M, error) {
+func (s *GenericStore[P, M, A, AL]) getExistingResource(ctx context.Context, orgId uuid.UUID, resource P) (*M, error) {
 	var existingResource M
-	if err := s.getDB(ctx).Where("name = ? and org_id = ?", name, orgId).Take(&existingResource).Error; err != nil {
+	query := s.getDB(ctx).Where("org_id = ?", orgId)
+	// TemplateVersion has a composite primary key (org_id, name, fleet_name); use all three for lookup.
+	if tv, ok := any(resource).(*model.TemplateVersion); ok {
+		query = query.Where("name = ? AND fleet_name = ?", tv.Name, tv.FleetName)
+	} else {
+		query = query.Where("name = ?", resource.GetName())
+	}
+	if err := query.Take(&existingResource).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
 		}

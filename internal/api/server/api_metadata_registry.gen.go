@@ -9,6 +9,7 @@ import (
 )
 const (
 	API_RESOURCE_AUTHPROVIDERS = "authproviders"
+	API_RESOURCE_CATALOGITEMS = "catalogitems"
 	API_RESOURCE_CATALOGS = "catalogs"
 	API_RESOURCE_CATALOGS_ITEMS = "catalogs/items"
 	API_RESOURCE_CERTIFICATESIGNINGREQUESTS = "certificatesigningrequests"
@@ -141,6 +142,14 @@ var APIMetadataMap = map[string]*apimetadata.EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
+	"GET:/catalogitems": {
+		OperationID: "listAllCatalogItems",
+		Resource:    "catalogitems",
+		Action:      "list",
+		Versions: []apimetadata.EndpointMetadataVersion{
+			{Version: "v1alpha1", DeprecatedAt: nil},
+		},
+	},
 	"GET:/catalogs": {
 		OperationID: "listCatalogs",
 		Resource:    "catalogs",
@@ -185,6 +194,14 @@ var APIMetadataMap = map[string]*apimetadata.EndpointMetadata{
 		OperationID: "getCatalogItem",
 		Resource:    "catalogs/items",
 		Action:      "get",
+		Versions: []apimetadata.EndpointMetadataVersion{
+			{Version: "v1alpha1", DeprecatedAt: nil},
+		},
+	},
+	"PATCH:/catalogs/{catalog}/items/{name}": {
+		OperationID: "patchCatalogItem",
+		Resource:    "catalogs/items",
+		Action:      "patch",
 		Versions: []apimetadata.EndpointMetadataVersion{
 			{Version: "v1alpha1", DeprecatedAt: nil},
 		},

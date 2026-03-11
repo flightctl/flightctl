@@ -329,6 +329,12 @@ imageBuilderWorker:
   defaultTTL: 168h
   # -- Enable privileged mode for container-in-container builds
   privileged: true
+  # -- Secret name containing yum repository configuration files, mounted at /etc/yum.repos.d
+  yumReposSecretName: ""
+  # -- Secret name containing RHEL subscription manager configuration, mounted at /etc/rhsm
+  rhsmSecretName: ""
+  # -- Secret name containing RHSM CA certificates, mounted at /etc/rhsm/ca
+  rhsmCaSecretName: ""
   # -- Resource requests and limits
   resources: {}
 

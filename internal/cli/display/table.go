@@ -95,7 +95,14 @@ func (f *TableFormatter) formatList(w *tabwriter.Writer, data interface{}, optio
 	case strings.EqualFold(options.Kind, apiv1alpha1.CatalogKind):
 		return f.printCatalogsTable(w, data.(*apiclientv1alpha1.ListCatalogsResponse).JSON200.Items...)
 	case strings.EqualFold(options.Kind, apiv1alpha1.CatalogItemKind):
-		return f.printCatalogItemsTable(w, data.(*apiclientv1alpha1.ListCatalogItemsResponse).JSON200.Items...)
+		switch resp := data.(type) {
+		case *apiclientv1alpha1.ListAllCatalogItemsResponse:
+			return f.printCatalogItemsTable(w, resp.JSON200.Items...)
+		case *apiclientv1alpha1.ListCatalogItemsResponse:
+			return f.printCatalogItemsTable(w, resp.JSON200.Items...)
+		default:
+			return fmt.Errorf("unexpected response type for %s", options.Kind)
+		}
 	default:
 		return fmt.Errorf("unknown resource type %s", options.Kind)
 	}
@@ -708,7 +715,7 @@ func (f *TableFormatter) printImageExportsTable(w *tabwriter.Writer, imageExport
 }
 
 func (f *TableFormatter) printCatalogsTable(w *tabwriter.Writer, catalogs ...apiv1alpha1.Catalog) error {
-	f.printHeaderRowLn(w, "NAME", "DISPLAY NAME", "VISIBILITY", "AGE")
+	f.printHeaderRowLn(w, "NAME", "DISPLAY NAME", "AGE")
 
 	for _, cat := range catalogs {
 		name := NoneString
@@ -721,33 +728,29 @@ func (f *TableFormatter) printCatalogsTable(w *tabwriter.Writer, catalogs ...api
 			displayName = *cat.Spec.DisplayName
 		}
 
-		visibility := NoneString
-		if cat.Spec.Visibility != nil {
-			visibility = string(*cat.Spec.Visibility)
-		}
-
 		age := NoneString
 		if cat.Metadata.CreationTimestamp != nil {
 			age = humanize.Time(*cat.Metadata.CreationTimestamp)
 		}
 
-		f.printTableRowLn(w, name, displayName, visibility, age)
+		f.printTableRowLn(w, name, displayName, age)
 	}
 	return nil
 }
 
 func (f *TableFormatter) printCatalogItemsTable(w *tabwriter.Writer, items ...apiv1alpha1.CatalogItem) error {
-	f.printHeaderRowLn(w, "NAME", "CATEGORY", "TYPE", "DISPLAY NAME", "VISIBILITY")
+	if f.wide {
+		f.printHeaderRowLn(w, "CATALOG", "NAME", "CATEGORY", "TYPE", "DISPLAY NAME")
+	} else {
+		f.printHeaderRowLn(w, "CATALOG", "NAME", "TYPE", "DISPLAY NAME")
+	}
 
 	for _, item := range items {
+		catalog := item.Metadata.Catalog
+
 		name := NoneString
 		if item.Metadata.Name != nil {
 			name = *item.Metadata.Name
-		}
-
-		category := NoneString
-		if item.Spec.Category != nil {
-			category = string(*item.Spec.Category)
 		}
 
 		itemType := NoneString
@@ -760,12 +763,16 @@ func (f *TableFormatter) printCatalogItemsTable(w *tabwriter.Writer, items ...ap
 			displayName = *item.Spec.DisplayName
 		}
 
-		visibility := NoneString
-		if item.Spec.Visibility != nil {
-			visibility = string(*item.Spec.Visibility)
-		}
+		if f.wide {
+			category := NoneString
+			if item.Spec.Category != nil {
+				category = string(*item.Spec.Category)
+			}
 
-		f.printTableRowLn(w, name, category, itemType, displayName, visibility)
+			f.printTableRowLn(w, catalog, name, category, itemType, displayName)
+		} else {
+			f.printTableRowLn(w, catalog, name, itemType, displayName)
+		}
 	}
 	return nil
 }

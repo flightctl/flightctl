@@ -254,12 +254,12 @@ func (s *manager) Upgrade(ctx context.Context) error {
 	return nil
 }
 
-func (s *manager) SetUpgradeFailed(version string) error {
+func (s *manager) SetUpgradeFailed(version string, specHash string) error {
 	versionInt, err := stringToInt64(version)
 	if err != nil {
 		return err
 	}
-	s.queue.SetFailed(versionInt)
+	s.queue.SetFailed(versionInt, specHash)
 
 	return nil
 }
@@ -303,7 +303,6 @@ func (s *manager) CreateRollback(ctx context.Context) error {
 func (s *manager) ClearRollback() error {
 	return s.write(context.TODO(), Rollback, newVersionedDevice(""), audit.ReasonInitialization)
 }
-
 func (s *manager) Rollback(ctx context.Context, opts ...RollbackOption) error {
 	cfg := &rollbackConfig{}
 
@@ -313,6 +312,7 @@ func (s *manager) Rollback(ctx context.Context, opts ...RollbackOption) error {
 	}
 
 	failedDesiredVersion := s.cache.getRenderedVersion(Desired)
+	failedDesiredSpecHash := s.cache.getSpecHash(Desired)
 
 	if cfg.setFailed {
 		version, err := stringToInt64(failedDesiredVersion)
@@ -320,7 +320,7 @@ func (s *manager) Rollback(ctx context.Context, opts ...RollbackOption) error {
 			return err
 		}
 		// set the desired spec as failed
-		s.queue.SetFailed(version)
+		s.queue.SetFailed(version, failedDesiredSpecHash)
 	}
 
 	// rollback on disk state current == desired
@@ -399,11 +399,11 @@ func (s *manager) consumeLatest(ctx context.Context) (bool, error) {
 			return false, fmt.Errorf("getting rendered version: %w", err)
 		}
 		if s.lastConsumedDevice.Version() != version {
-			// Check if this version is permanently failed
+			// Check if this version or spec hash is permanently failed
 			lastVersion, err := stringToInt64(s.lastConsumedDevice.Version())
 			if err != nil {
 				s.log.Warnf("Failed to parse last consumed device version %q: %v", s.lastConsumedDevice.Version(), err)
-			} else if s.queue.IsFailed(lastVersion) {
+			} else if s.queue.IsFailed(lastVersion, s.lastConsumedDevice.SpecHash()) {
 				s.log.Debugf("Last consumed device version %s is permanently failed, skipping requeue", s.lastConsumedDevice.Version())
 				return false, nil
 			}
@@ -430,6 +430,9 @@ func (s *manager) GetDesired(ctx context.Context) (*v1beta1.Device, bool, error)
 		}
 		s.log.Tracef("Requeuing current desired spec from disk version: %s", desired.Version())
 		s.queue.Add(ctx, desired)
+		if s.lastConsumedDevice == nil {
+			s.lastConsumedDevice = desired
+		}
 	}
 
 	return s.getDeviceFromQueue(ctx)
@@ -483,6 +486,19 @@ func (s *manager) IsOSUpdate() bool {
 	return s.cache.getOSVersion(Current) != s.cache.getOSVersion(Desired)
 }
 
+func (s *manager) IsOSUpdatePending(ctx context.Context) (bool, error) {
+	if !s.IsOSUpdate() {
+		return false, nil
+	}
+
+	_, isReconciled, err := s.CheckOsReconciliation(ctx)
+	if err != nil {
+		return false, err
+	}
+
+	return !isReconciled, nil
+}
+
 func (s *manager) CheckOsReconciliation(ctx context.Context) (string, bool, error) {
 	osStatus, err := s.osClient.Status(ctx)
 	if err != nil {
@@ -534,6 +550,18 @@ func (s *manager) write(ctx context.Context, specType Type, device *v1beta1.Devi
 	}
 
 	oldVersion := s.cache.getRenderedVersion(specType)
+	newVersion := device.Version()
+
+	// CRITICAL: Detect if rendered version is going backwards during upgrade.
+	// This should never happen and indicates a serious bug (e.g., unexpected rollback
+	// after spec was committed). The audit log will capture this transition.
+	if specType == Current && reason == audit.ReasonUpgrade {
+		oldV, errOld := stringToInt64(oldVersion)
+		newV, errNew := stringToInt64(newVersion)
+		if errOld == nil && errNew == nil && newV < oldV {
+			s.log.Errorf("CRITICAL: Rendered version going backwards during upgrade! %s -> %s - this should never happen", oldVersion, newVersion)
+		}
+	}
 
 	err = writeDeviceToFile(s.deviceReadWriter, device, filePath)
 	if err != nil {
@@ -583,7 +611,8 @@ func (s *manager) getRenderedVersion() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if s.queue.IsFailed(version) {
+	desiredSpecHash := s.cache.getSpecHash(Desired)
+	if s.queue.IsFailed(version, desiredSpecHash) {
 		return desiredRenderedVersion, nil
 	}
 	return s.cache.getRenderedVersion(Current), nil

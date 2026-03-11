@@ -1,10 +1,14 @@
 package tpm
 
 import (
+	"context"
 	"testing"
 	"time"
 
+	"github.com/flightctl/flightctl/test/e2e/infra/satellite"
+	"github.com/flightctl/flightctl/test/e2e/infra/setup"
 	"github.com/flightctl/flightctl/test/harness/e2e"
+	"github.com/flightctl/flightctl/test/login"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -29,7 +33,13 @@ func init() {
 }
 
 var _ = BeforeSuite(func() {
-	// Setup VM and harness for this worker
-	_, _, err := e2e.SetupWorkerHarness()
+	satellite.Get(context.Background())
+	Expect(setup.EnsureDefaultProviders(nil)).To(Succeed())
+	e2e.SetupWorkerHarnessOrAbort()
+})
+
+var _ = BeforeEach(func() {
+	harness := e2e.GetWorkerHarness()
+	_, err := login.LoginToAPIWithToken(harness)
 	Expect(err).ToNot(HaveOccurred())
 })

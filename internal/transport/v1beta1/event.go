@@ -12,5 +12,5 @@ func (h *TransportHandler) ListEvents(w http.ResponseWriter, r *http.Request, pa
 	domainParams := h.converter.Event().ListParamsToDomain(params)
 	body, status := h.serviceHandler.ListEvents(r.Context(), transport.OrgIDFromContext(r.Context()), domainParams)
 	apiResult := h.converter.Event().ListFromDomain(body)
-	transport.SetResponse(w, apiResult, status)
+	h.SetResponse(w, apiResult, status)
 }

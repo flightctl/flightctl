@@ -94,6 +94,20 @@ func (d *Device) Version() string {
 	return deviceVersion
 }
 
+// SpecHash returns the rendered spec hash from the device annotations.
+// This hash represents the substantive spec content and does not change
+// when only console sessions are added.
+func (d *Device) SpecHash() string {
+	if d == nil || d.Metadata.Annotations == nil {
+		return ""
+	}
+	hash, ok := (*d.Metadata.Annotations)[DeviceAnnotationRenderedSpecHash]
+	if !ok {
+		return ""
+	}
+	return hash
+}
+
 // IsDecomStarted() is true if the Condition is a DeviceDecommissioning Condition Type with 'True' Status and 'Started' Reason.
 func (c *Condition) IsDecomStarted() bool {
 	if c.Type == ConditionTypeDeviceDecommissioning && c.Status == ConditionStatusTrue && c.Reason == string(DecommissionStateStarted) {

@@ -3,11 +3,13 @@ package vm
 import (
 	"bytes"
 	"fmt"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/flightctl/flightctl/test/util"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/crypto/ssh"
 )
@@ -15,23 +17,28 @@ import (
 const sshWaitTimeout time.Duration = 60 * time.Second
 
 type TestVM struct {
-	TestDir        string
-	VMName         string
-	LibvirtUri     string //linux only
-	DiskImagePath  string
-	VMUser         string //user to use when connecting to the VM
-	CloudInitDir   string
-	NoCredentials  bool
-	CloudInitData  bool
-	SSHPassword    string
-	SSHPort        int
-	Cmd            []string
-	RemoveVm       bool
-	pidFile        string
-	hasCloudInit   bool
-	cloudInitArgs  string
-	MemoryFilePath string // Path for external snapshot memory file
-	DiskSizeGB     int
+	TestDir           string
+	VMName            string
+	LibvirtUri        string //linux only
+	DiskImagePath     string
+	VMUser            string //user to use when connecting to the VM
+	CloudInitDir      string
+	NoCredentials     bool
+	CloudInitData     bool
+	SSHPassword       string
+	SSHPrivateKeyPath util.SSHPrivateKeyPath // Path to SSH private key for key-based auth (alternative to SSHPassword)
+	SSHPort           int
+	Cmd               []string
+	RemoveVm          bool
+	pidFile           string
+	hasCloudInit      bool
+	cloudInitArgs     string
+	MemoryFilePath    string // Path for external snapshot memory file
+	MemoryMiB         int    // VM memory in MiB; 0 means use default (2048)
+	DiskSizeGB        int
+	// SSHWaitTimeout is how long to wait for SSH to become ready. Zero uses the default (60s).
+	// Use a longer value for first-boot VMs (e.g. imagebuild workflow) where cloud-init or sshd may start late.
+	SSHWaitTimeout time.Duration
 }
 
 type TestVMInterface interface {
@@ -72,22 +79,33 @@ type JournalOpts struct {
 
 func (v *TestVM) WaitForSSHToBeReady() error {
 	elapsed := 0 * time.Second
+	timeout := v.SSHWaitTimeout
+	if timeout <= 0 {
+		timeout = sshWaitTimeout
+	}
+
+	authMethods, err := v.getSSHAuthMethods()
+	if err != nil {
+		return fmt.Errorf("failed to get SSH auth methods: %w", err)
+	}
 
 	config := &ssh.ClientConfig{
 		User: v.VMUser,
-		Auth: []ssh.AuthMethod{
-			ssh.Password(v.SSHPassword),
-		},
+		Auth: authMethods,
 		//nolint:gosec
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 		Timeout:         1 * time.Second,
 	}
 
-	logrus.Infof("Waiting for VM SSH to be ready on localhost:%d", v.SSHPort)
+	// Use 127.0.0.1 so we hit IPv4; "localhost" can resolve to ::1 and cause connection closed during handshake (kex_exchange_identification).
+	sshAddr := fmt.Sprintf("127.0.0.1:%d", v.SSHPort)
+	logrus.Infof("Waiting for VM SSH to be ready on %s (timeout %s)", sshAddr, timeout)
 
-	for elapsed < sshWaitTimeout {
-		client, err := ssh.Dial("tcp", fmt.Sprintf("%s:%d", "localhost", v.SSHPort), config)
+	var lastErr error
+	for elapsed < timeout {
+		client, err := ssh.Dial("tcp", sshAddr, config)
 		if err != nil {
+			lastErr = err
 			logrus.Debugf("failed to connect to SSH server: %s", err)
 			time.Sleep(1 * time.Second)
 			elapsed += 1 * time.Second
@@ -97,26 +115,55 @@ func (v *TestVM) WaitForSSHToBeReady() error {
 		}
 	}
 
-	return fmt.Errorf("SSH did not become ready in %s seconds", sshWaitTimeout)
+	if lastErr != nil {
+		return fmt.Errorf("SSH did not become ready in %s: %w", timeout, lastErr)
+	}
+	return fmt.Errorf("SSH did not become ready in %s", timeout)
+}
+
+// getSSHAuthMethods returns the appropriate SSH authentication methods based on configuration.
+// If SSHPrivateKeyPath is set, it uses key-based authentication; otherwise, password authentication.
+func (v *TestVM) getSSHAuthMethods() ([]ssh.AuthMethod, error) {
+	if v.SSHPrivateKeyPath != "" {
+		key, err := os.ReadFile(string(v.SSHPrivateKeyPath))
+		if err != nil {
+			return nil, fmt.Errorf("failed to read SSH private key: %w", err)
+		}
+		signer, err := ssh.ParsePrivateKey(key)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse SSH private key: %w", err)
+		}
+		return []ssh.AuthMethod{ssh.PublicKeys(signer)}, nil
+	}
+	return []ssh.AuthMethod{ssh.Password(v.SSHPassword)}, nil
 }
 
 func (v *TestVM) SSHCommandWithUser(inputArgs []string, user string) *exec.Cmd {
-
-	sshDestination := user + "@localhost"
+	// Use 127.0.0.1 to match WaitForSSHToBeReady (localhost can cause connection closed during handshake).
+	sshDestination := user + "@127.0.0.1"
 	port := strconv.Itoa(v.SSHPort)
 
-	args := []string{"-p", v.SSHPassword, "ssh", "-p", port, sshDestination,
+	// Common SSH args
+	sshArgs := []string{"-p", port, sshDestination,
 		"-o", "UserKnownHostsFile=/dev/null",
 		"-o", "StrictHostKeyChecking=no",
-		"-o", "PubkeyAuthentication=no", // avoid any local SSH keys to be used
-		"-o", "LogLevel=ERROR", "-o", "SetEnv=LC_ALL="}
-	if len(inputArgs) > 0 {
-		args = append(args, inputArgs...)
+		"-o", "LogLevel=ERROR",
+		"-o", "SetEnv=LC_ALL="}
+
+	var cmd *exec.Cmd
+	if v.SSHPrivateKeyPath != "" {
+		// Key-based authentication
+		sshArgs = append([]string{"-i", string(v.SSHPrivateKeyPath), "-o", "PasswordAuthentication=no"}, sshArgs...)
+		cmd = exec.Command("ssh", append(sshArgs, inputArgs...)...) // #nosec G204 - test code with controlled inputs
 	} else {
-		logrus.Infof("Connecting to vm %s. To close connection, use `~.` or `exit`", v.VMName)
+		// Password-based authentication with sshpass
+		sshArgs = append([]string{"-o", "PubkeyAuthentication=no"}, sshArgs...)
+		cmd = exec.Command("sshpass", append([]string{"-p", v.SSHPassword, "ssh"}, append(sshArgs, inputArgs...)...)...) // #nosec G204 - test code with controlled inputs
 	}
 
-	cmd := exec.Command("sshpass", args...)
+	if len(inputArgs) == 0 {
+		logrus.Infof("Connecting to vm %s. To close connection, use `~.` or `exit`", v.VMName)
+	}
 
 	logrus.Debugf("Running ssh command: %s", cmd.String())
 	return cmd

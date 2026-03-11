@@ -1,6 +1,7 @@
 /bin/
 /rpmbuild/
 /reports/
+deploy/helm/charttmpl
 test/e2e/cli/*.crt
 test/e2e/cli/*.key
 /packaging/rpm/flightctl-*.tar.gz
@@ -13,6 +14,7 @@ flightctl-*.rpm
 
 # All temporary files should be created here
 /.output/
+/output/
 
 # AI and IDE configurations
 /.claude/
@@ -20,4 +22,3 @@ flightctl-*.rpm
 /.idea/
 /.cursor/
 /.serena/
-CLAUDE.md

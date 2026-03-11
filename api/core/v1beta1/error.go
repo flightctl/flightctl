@@ -3,12 +3,14 @@ package v1beta1
 import (
 	"fmt"
 	"net/http"
+
+	apiversioning "github.com/flightctl/flightctl/api/versioning"
 )
 
 func NewSuccessStatus(code int32, reason string, message string) Status {
 	return Status{
-		ApiVersion: "v1beta1",
-		Kind:       "Status",
+		ApiVersion: apiversioning.QualifiedV1Beta1,
+		Kind:       StatusKind,
 		Status:     "Success",
 		Code:       code,
 		Reason:     reason,
@@ -18,8 +20,8 @@ func NewSuccessStatus(code int32, reason string, message string) Status {
 
 func NewFailureStatus(code int32, reason string, message string) Status {
 	return Status{
-		ApiVersion: "v1beta1",
-		Kind:       "Status",
+		ApiVersion: apiversioning.QualifiedV1Beta1,
+		Kind:       StatusKind,
 		Status:     "Failure",
 		Code:       code,
 		Reason:     reason,

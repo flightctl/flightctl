@@ -115,9 +115,9 @@ func (t *TracedService) ListDevices(ctx context.Context, orgId uuid.UUID, params
 	return resp, st
 }
 
-func (t *TracedService) ListDisconnectedDevices(ctx context.Context, orgId uuid.UUID, params domain.ListDevicesParams, cutoffTime time.Time) (*domain.DeviceList, domain.Status) {
-	ctx, span := startSpan(ctx, "ListDisconnectedDevices")
-	resp, st := t.inner.ListDisconnectedDevices(ctx, orgId, params, cutoffTime)
+func (t *TracedService) ListConnectivityChangedDevices(ctx context.Context, orgId uuid.UUID, params domain.ListDevicesParams, cutoffTime time.Time) (*domain.DeviceList, domain.Status) {
+	ctx, span := startSpan(ctx, "ListConnectivityChangedDevices")
+	resp, st := t.inner.ListConnectivityChangedDevices(ctx, orgId, params, cutoffTime)
 	endSpan(span, st)
 	return resp, st
 }
@@ -589,6 +589,12 @@ func (t *TracedService) PatchCatalogStatus(ctx context.Context, orgId uuid.UUID,
 	endSpan(span, st)
 	return resp, st
 }
+func (t *TracedService) ListAllCatalogItems(ctx context.Context, orgId uuid.UUID, params domain.ListAllCatalogItemsParams) (*domain.CatalogItemList, domain.Status) {
+	ctx, span := startSpan(ctx, "ListAllCatalogItems")
+	resp, st := t.inner.ListAllCatalogItems(ctx, orgId, params)
+	endSpan(span, st)
+	return resp, st
+}
 func (t *TracedService) ListCatalogItems(ctx context.Context, orgId uuid.UUID, catalogName string, params domain.ListCatalogItemsParams) (*domain.CatalogItemList, domain.Status) {
 	ctx, span := startSpan(ctx, "ListCatalogItems")
 	resp, st := t.inner.ListCatalogItems(ctx, orgId, catalogName, params)
@@ -610,6 +616,12 @@ func (t *TracedService) CreateCatalogItem(ctx context.Context, orgId uuid.UUID, 
 func (t *TracedService) ReplaceCatalogItem(ctx context.Context, orgId uuid.UUID, catalogName string, itemName string, item domain.CatalogItem) (*domain.CatalogItem, domain.Status) {
 	ctx, span := startSpan(ctx, "ReplaceCatalogItem")
 	resp, st := t.inner.ReplaceCatalogItem(ctx, orgId, catalogName, itemName, item)
+	endSpan(span, st)
+	return resp, st
+}
+func (t *TracedService) PatchCatalogItem(ctx context.Context, orgId uuid.UUID, catalogName string, itemName string, patch domain.PatchRequest) (*domain.CatalogItem, domain.Status) {
+	ctx, span := startSpan(ctx, "PatchCatalogItem")
+	resp, st := t.inner.PatchCatalogItem(ctx, orgId, catalogName, itemName, patch)
 	endSpan(span, st)
 	return resp, st
 }

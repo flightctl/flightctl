@@ -98,7 +98,10 @@ func (m *manager) Run(ctx context.Context) {
 		signal.Stop(signals)
 		close(signals)
 	}()
+
+	done := make(chan struct{})
 	go func(ctx context.Context) {
+		defer close(done)
 		select {
 		case s := <-signals:
 			m.log.Infof("Agent received shutdown signal: %s", s)
@@ -110,7 +113,7 @@ func (m *manager) Run(ctx context.Context) {
 		}
 	}(ctx)
 
-	<-ctx.Done()
+	<-done
 }
 
 func (m *manager) Shutdown(ctx context.Context) {

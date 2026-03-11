@@ -11,7 +11,7 @@ metadata:
     {{- end }}
     {{- include "flightctl.standardLabels" . | nindent 4 }}
     flightctl.service: flightctl-telemetry-gateway
-  name: flightctl-telemetry-gateway-route
+  name: flightctl-telemetry
   namespace: {{ .Release.Namespace }}
 spec:
   host: telemetry.{{ include "flightctl.getBaseDomain" . }}

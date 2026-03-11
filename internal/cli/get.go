@@ -311,11 +311,7 @@ func (o *GetOptions) validateTemplateVersion(kind ResourceKind) error {
 	return nil
 }
 
-// validateCatalogItem ensures a catalog name is provided when listing catalogitems.
 func (o *GetOptions) validateCatalogItem(kind ResourceKind) error {
-	if kind == CatalogItemKind && len(o.CatalogName) == 0 {
-		return fmt.Errorf("a catalog name must be specified when getting catalogitems (use --catalog)")
-	}
 	return nil
 }
 
@@ -771,6 +767,15 @@ func (o *GetOptions) getResourceList(ctx context.Context, c *client.Client, kind
 		}
 		return c.V1Alpha1().ListCatalogsWithResponse(ctx, &params)
 	case CatalogItemKind:
+		if len(o.CatalogName) == 0 {
+			params := apiv1alpha1.ListAllCatalogItemsParams{
+				LabelSelector: util.ToPtrWithNilDefault(o.LabelSelector),
+				FieldSelector: util.ToPtrWithNilDefault(o.FieldSelector),
+				Limit:         util.ToPtrWithNilDefault(o.Limit),
+				Continue:      util.ToPtrWithNilDefault(o.Continue),
+			}
+			return c.V1Alpha1().ListAllCatalogItemsWithResponse(ctx, &params)
+		}
 		params := apiv1alpha1.ListCatalogItemsParams{
 			LabelSelector: util.ToPtrWithNilDefault(o.LabelSelector),
 			Limit:         util.ToPtrWithNilDefault(o.Limit),

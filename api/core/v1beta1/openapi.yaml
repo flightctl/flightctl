@@ -4162,6 +4162,18 @@ components:
       name: org_id
       description: The UUID of the organization that owns the resource.  Maps to an organizations metadata.name.
   schemas:
+    ApiVersion:
+      type: string
+      x-go-type: string
+      description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
+      enum:
+        - v1beta1
+        - flightctl.io/v1beta1
+        - "" # to provide backward compatibility for older clients that are not setting the apiVersion field
+      x-enum-varnames:
+        - ApiVersionV1beta1
+        - ApiVersionFlightctlIoV1beta1
+        - ApiVersionEmpty
     ResourceKind:
       type: string
       enum: [CertificateSigningRequest, EnrollmentRequest, Device, Fleet, Repository, ResourceSync, TemplateVersion, AuthProvider]
@@ -4243,8 +4255,7 @@ components:
       type: object
       properties:
         apiVersion:
-          type: string
-          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
+          $ref: '#/components/schemas/ApiVersion'
         kind:
           type: string
           description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
@@ -4455,8 +4466,7 @@ components:
       type: object
       properties:
         apiVersion:
-          type: string
-          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
+          $ref: '#/components/schemas/ApiVersion'
         kind:
           type: string
           description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
@@ -4488,8 +4498,7 @@ components:
       type: object
       properties:
         apiVersion:
-          type: string
-          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
+          $ref: '#/components/schemas/ApiVersion'
         kind:
           type: string
           description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
@@ -5200,8 +5209,7 @@ components:
       type: object
       properties:
         apiVersion:
-          type: string
-          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
+          $ref: '#/components/schemas/ApiVersion'
         kind:
           type: string
           description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
@@ -5800,8 +5808,7 @@ components:
       type: object
       properties:
         apiVersion:
-          type: string
-          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
+          $ref: '#/components/schemas/ApiVersion'
         kind:
           type: string
           description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
@@ -5821,8 +5828,7 @@ components:
       type: object
       properties:
         apiVersion:
-          type: string
-          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
+          $ref: '#/components/schemas/ApiVersion'
         kind:
           type: string
           description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
@@ -5880,8 +5886,7 @@ components:
       description: ResourceSync represents a reference to one or more files in a repository to sync to resource definitions.
       properties:
         apiVersion:
-          type: string
-          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
+          $ref: '#/components/schemas/ApiVersion'
         kind:
           type: string
           description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
@@ -5900,6 +5905,8 @@ components:
       type: object
       description: ResourceSyncSpec describes the file(s) to sync from a repository.
       properties:
+        type:
+          $ref: '#/components/schemas/ResourceSyncType'
         repository:
           type: string
           description: The name of the repository resource to use as the sync source.
@@ -5913,6 +5920,16 @@ components:
       - repository
       - targetRevision
       - path
+    ResourceSyncType:
+      type: string
+      description: 'The type of resources this ResourceSync manages. Defaults to fleet if not specified.'
+      default: fleet
+      enum:
+        - fleet
+        - catalog
+      x-enum-varnames:
+        - ResourceSyncTypeFleet
+        - ResourceSyncTypeCatalog
     ResourceSyncStatus:
       type: object
       properties:
@@ -5935,8 +5952,7 @@ components:
       type: object
       properties:
         apiVersion:
-          type: string
-          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
+          $ref: '#/components/schemas/ApiVersion'
         kind:
           type: string
           description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
@@ -5956,8 +5972,7 @@ components:
       type: object
       properties:
         apiVersion:
-          type: string
-          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
+          $ref: '#/components/schemas/ApiVersion'
         kind:
           type: string
           description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
@@ -5977,8 +5992,7 @@ components:
       type: object
       properties:
         apiVersion:
-          type: string
-          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
+          $ref: '#/components/schemas/ApiVersion'
         kind:
           type: string
           description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
@@ -6203,8 +6217,7 @@ components:
       type: object
       properties:
         apiVersion:
-          type: string
-          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
+          $ref: '#/components/schemas/ApiVersion'
         kind:
           type: string
           description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
@@ -6250,8 +6263,7 @@ components:
       type: object
       properties:
         apiVersion:
-          type: string
-          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
+          $ref: '#/components/schemas/ApiVersion'
         kind:
           type: string
           description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
@@ -6272,8 +6284,7 @@ components:
       type: object
       properties:
         apiVersion:
-          type: string
-          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
+          $ref: '#/components/schemas/ApiVersion'
         providers:
           type: array
           description: List of all available authentication providers.
@@ -6480,8 +6491,7 @@ components:
       type: object
       properties:
         apiVersion:
-          type: string
-          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
+          $ref: '#/components/schemas/ApiVersion'
         kind:
           type: string
           description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
@@ -6593,8 +6603,7 @@ components:
       type: object
       properties:
         apiVersion:
-          type: string
-          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
+          $ref: '#/components/schemas/ApiVersion'
         kind:
           type: string
           description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
@@ -6614,8 +6623,7 @@ components:
       type: object
       properties:
         apiVersion:
-          type: string
-          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
+          $ref: '#/components/schemas/ApiVersion'
         kind:
           type: string
           description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
@@ -6705,8 +6713,7 @@ components:
         - actor
       properties:
         apiVersion:
-          type: string
-          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
+          $ref: '#/components/schemas/ApiVersion'
         kind:
           type: string
           description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
@@ -6817,8 +6824,7 @@ components:
       type: object
       properties:
         apiVersion:
-          type: string
-          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
+          $ref: '#/components/schemas/ApiVersion'
         kind:
           type: string
           description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
@@ -7152,8 +7158,7 @@ components:
         - metadata
       properties:
         apiVersion:
-          type: string
-          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
+          $ref: '#/components/schemas/ApiVersion'
         kind:
           type: string
           description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
@@ -7180,8 +7185,7 @@ components:
         - items
       properties:
         apiVersion:
-          type: string
-          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
+          $ref: '#/components/schemas/ApiVersion'
         kind:
           type: string
           description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
@@ -7197,8 +7201,7 @@ components:
       type: object
       properties:
         apiVersion:
-          type: string
-          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
+          $ref: '#/components/schemas/ApiVersion'
         kind:
           type: string
           description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
@@ -7643,8 +7646,7 @@ components:
       type: object
       properties:
         apiVersion:
-          type: string
-          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
+          $ref: '#/components/schemas/ApiVersion'
         kind:
           type: string
           description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'

@@ -2,15 +2,14 @@ package store
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"runtime/debug"
 	"strings"
 
 	"github.com/flightctl/flightctl/internal/domain"
-	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/store/selector"
+	"github.com/flightctl/flightctl/internal/store/storeutil"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -31,20 +30,10 @@ type EventCallbackCaller func(ctx context.Context, callbackEvent EventCallback, 
 
 type EventCallback func(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error)
 
+// ErrorFromGormError translates well-known gorm errors into domain-specific errors.
+// Delegated to storeutil so that packages outside internal/store can reuse the logic.
 func ErrorFromGormError(err error) error {
-	switch {
-	case err == nil:
-		return nil
-	case errors.Is(err, flterrors.ErrDuplicateOIDCProvider), errors.Is(err, flterrors.ErrDuplicateOAuth2Provider):
-		// Our custom dialector has already detected specific authprovider constraint violations
-		return err
-	case errors.Is(err, gorm.ErrRecordNotFound), errors.Is(err, gorm.ErrForeignKeyViolated):
-		return flterrors.ErrResourceNotFound
-	case errors.Is(err, gorm.ErrDuplicatedKey):
-		return flterrors.ErrDuplicateName
-	default:
-		return err
-	}
+	return storeutil.ErrorFromGormError(err)
 }
 
 type StatusCount struct {

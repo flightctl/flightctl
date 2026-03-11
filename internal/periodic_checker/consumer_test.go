@@ -67,7 +67,7 @@ func createTestExecutors() map[PeriodicTaskType]PeriodicTaskExecutor {
 	return map[PeriodicTaskType]PeriodicTaskExecutor{
 		PeriodicTaskTypeRepositoryTester:       &mockPeriodicTaskExecutor{},
 		PeriodicTaskTypeResourceSync:           &mockPeriodicTaskExecutor{},
-		PeriodicTaskTypeDeviceDisconnected:     &mockPeriodicTaskExecutor{},
+		PeriodicTaskTypeDeviceConnection:       &mockPeriodicTaskExecutor{},
 		PeriodicTaskTypeRolloutDeviceSelection: &mockPeriodicTaskExecutor{},
 		PeriodicTaskTypeDisruptionBudget:       &mockPeriodicTaskExecutor{},
 		PeriodicTaskTypeEventCleanup:           &mockPeriodicTaskExecutor{},
@@ -88,7 +88,7 @@ func TestConsumer_processTask_Success(t *testing.T) {
 	}{
 		{"RepositoryTester", PeriodicTaskTypeRepositoryTester},
 		{"ResourceSync", PeriodicTaskTypeResourceSync},
-		{"DeviceDisconnected", PeriodicTaskTypeDeviceDisconnected},
+		{"DeviceConnection", PeriodicTaskTypeDeviceConnection},
 		{"RolloutDeviceSelection", PeriodicTaskTypeRolloutDeviceSelection},
 		{"DisruptionBudget", PeriodicTaskTypeDisruptionBudget},
 		{"EventCleanup", PeriodicTaskTypeEventCleanup},
@@ -182,7 +182,7 @@ func TestConsumer_processTask_MultipleTaskTypes(t *testing.T) {
 	allTaskTypes := []PeriodicTaskType{
 		PeriodicTaskTypeRepositoryTester,
 		PeriodicTaskTypeResourceSync,
-		PeriodicTaskTypeDeviceDisconnected,
+		PeriodicTaskTypeDeviceConnection,
 		PeriodicTaskTypeRolloutDeviceSelection,
 		PeriodicTaskTypeDisruptionBudget,
 		PeriodicTaskTypeEventCleanup,

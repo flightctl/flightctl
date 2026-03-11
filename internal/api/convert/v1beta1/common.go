@@ -2,6 +2,7 @@ package v1beta1
 
 import (
 	apiv1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
+	apiversioning "github.com/flightctl/flightctl/api/versioning"
 	"github.com/flightctl/flightctl/internal/domain"
 )
 
@@ -27,7 +28,14 @@ func (c *commonConverter) PatchRequestToDomain(p apiv1beta1.PatchRequest) domain
 }
 
 func (c *commonConverter) StatusFromDomain(s domain.Status) apiv1beta1.Status {
-	return s
+	return apiv1beta1.Status{
+		ApiVersion: apiversioning.QualifiedV1Beta1,
+		Kind:       apiv1beta1.StatusKind,
+		Code:       s.Code,
+		Message:    s.Message,
+		Reason:     s.Reason,
+		Status:     s.Status,
+	}
 }
 
 func (c *commonConverter) LabelListFromDomain(l *domain.LabelList) *apiv1beta1.LabelList {

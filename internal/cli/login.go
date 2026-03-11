@@ -245,6 +245,15 @@ func (o *LoginOptions) Complete(cmd *cobra.Command, args []string) error {
 	if o.ConfigFilePath != defaultConfigPath {
 		fmt.Printf("Using a non-default configuration file path: %s (Default: %s)\n", o.ConfigFilePath, defaultConfigPath)
 	}
+
+	if len(args) > 0 {
+		trimmedURL := strings.TrimSpace(args[0])
+		if !strings.Contains(trimmedURL, "://") {
+			trimmedURL = "https://" + trimmedURL
+		}
+		args[0] = trimmedURL
+	}
+
 	return nil
 }
 
@@ -531,7 +540,7 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 	if response, err := c.ListOrganizationsWithResponse(ctx, &v1beta1.ListOrganizationsParams{}); err == nil && response.StatusCode() == http.StatusOK && response.JSON200 != nil {
 
 		if len(response.JSON200.Items) == 0 {
-			return fmt.Errorf("no organizations found")
+			return fmt.Errorf("unable to log in to the application\nYou do not have access to any organizations.\nPlease contact your administrator to be granted access to an organization")
 		}
 
 		org := response.JSON200.Items[0]

@@ -409,3 +409,144 @@ func mockPodmanInspect(labels map[string]string) []client.PodmanInspect {
 	}
 	return []client.PodmanInspect{inspect}
 }
+
+func TestComposeEnsureDependencies(t *testing.T) {
+	tests := []struct {
+		name           string
+		appName        string
+		volumes        *[]v1beta1.ApplicationVolume
+		commandChecker commandChecker
+		setupMocks     func(*executer.MockExecuter)
+		wantErr        error
+	}{
+		{
+			name:           "missing all binaries returns ErrAppDependency",
+			appName:        "app",
+			volumes:        nil,
+			commandChecker: func(cmd string) bool { return false },
+			wantErr:        errors.ErrAppDependency,
+		},
+		{
+			name:           "missing podman binary returns ErrAppDependency",
+			appName:        "app",
+			volumes:        nil,
+			commandChecker: func(cmd string) bool { return cmd == "docker-compose" || cmd == "skopeo" },
+			wantErr:        errors.ErrAppDependency,
+		},
+		{
+			name:           "missing compose binary returns ErrAppDependency",
+			appName:        "app",
+			volumes:        nil,
+			commandChecker: func(cmd string) bool { return cmd == "podman" || cmd == "skopeo" },
+			wantErr:        errors.ErrAppDependency,
+		},
+		{
+			name:           "missing skopeo binary returns ErrAppDependency",
+			appName:        "app",
+			volumes:        nil,
+			commandChecker: func(cmd string) bool { return cmd == "podman" || cmd == "docker-compose" },
+			wantErr:        errors.ErrAppDependency,
+		},
+		{
+			name:           "all binaries available",
+			appName:        "app",
+			volumes:        nil,
+			commandChecker: func(cmd string) bool { return cmd == "podman" || cmd == "docker-compose" || cmd == "skopeo" },
+			wantErr:        nil,
+		},
+		{
+			name:    "volume dependency with podman version below minimum",
+			appName: "app",
+			volumes: &[]v1beta1.ApplicationVolume{
+				makeImageMountVolume("data", "quay.io/data:latest", "/data"),
+			},
+			commandChecker: func(cmd string) bool { return true },
+			setupMocks: func(mockExec *executer.MockExecuter) {
+				mockExec.EXPECT().
+					ExecuteWithContext(gomock.Any(), "podman", "--version").
+					Return("podman version 5.4.0", "", 0)
+			},
+			wantErr: errors.ErrAppDependency,
+		},
+		{
+			name:    "volume dependency with podman version at minimum",
+			appName: "app",
+			volumes: &[]v1beta1.ApplicationVolume{
+				makeImageMountVolume("data", "quay.io/data:latest", "/data"),
+			},
+			commandChecker: func(cmd string) bool { return true },
+			setupMocks: func(mockExec *executer.MockExecuter) {
+				mockExec.EXPECT().
+					ExecuteWithContext(gomock.Any(), "podman", "--version").
+					Return("podman version 5.5.0", "", 0)
+			},
+			wantErr: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require := require.New(t)
+			log := log.NewPrefixLogger("test")
+			log.SetLevel(logrus.DebugLevel)
+
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+			mockExec := executer.NewMockExecuter(ctrl)
+			tmpDir := t.TempDir()
+			rw := fileio.NewReadWriter(
+				fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+				fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+			)
+			podman := client.NewPodman(log, mockExec, rw, util.NewPollConfig())
+
+			if tt.setupMocks != nil {
+				tt.setupMocks(mockExec)
+			}
+
+			composeApp := v1beta1.ComposeApplication{
+				AppType: v1beta1.AppTypeCompose,
+				Name:    lo.ToPtr(tt.appName),
+				Volumes: tt.volumes,
+			}
+			err := composeApp.FromInlineApplicationProviderSpec(v1beta1.InlineApplicationProviderSpec{
+				Inline: []v1beta1.ApplicationContent{
+					{
+						Content: lo.ToPtr(util.NewComposeSpec()),
+						Path:    "docker-compose.yml",
+					},
+				},
+			})
+			require.NoError(err)
+
+			var appSpec v1beta1.ApplicationProviderSpec
+			err = appSpec.FromComposeApplication(composeApp)
+			require.NoError(err)
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			var podmanFactory client.PodmanFactory = func(user v1beta1.Username) (*client.Podman, error) {
+				return podman, nil
+			}
+			var rwFactory fileio.ReadWriterFactory = func(user v1beta1.Username) (fileio.ReadWriter, error) {
+				return rw, nil
+			}
+
+			composeProvider, err := newComposeProvider(ctx, log, podmanFactory, &appSpec, rwFactory, nil)
+			require.NoError(err)
+
+			if tt.commandChecker != nil {
+				composeProvider.commandChecker = tt.commandChecker
+			}
+
+			err = composeProvider.EnsureDependencies(ctx)
+			if tt.wantErr != nil {
+				require.Error(err)
+				require.ErrorIs(err, tt.wantErr)
+				return
+			}
+			require.NoError(err)
+		})
+	}
+}

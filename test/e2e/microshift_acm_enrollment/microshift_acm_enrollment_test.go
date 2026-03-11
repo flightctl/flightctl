@@ -98,7 +98,8 @@ var _ = Describe("Microshift cluster ACM enrollment tests", func() {
 				By("Upgrade to the microshift image, and add the pull-secret to the device")
 				nextRenderedVersion, err := harness.PrepareNextDeviceVersion(deviceId)
 				Expect(err).ToNot(HaveOccurred())
-				deviceImage := util.NewDeviceImageReference(util.DeviceTags.V7).String()
+				regHost, regPort := satellites.RegistryHost, satellites.RegistryPort
+				deviceImage := harness.GetDeviceImageRefForFleet(regHost, regPort, util.DeviceTags.V7)
 				var osImageSpec = v1beta1.DeviceOsSpec{
 					Image: deviceImage,
 				}
@@ -305,7 +306,8 @@ func createAcmRegistrationFleetDeviceSpec(harness *e2e.Harness, pullSecretinline
 		return v1beta1.DeviceSpec{}, fmt.Errorf("failed to read inlineConfigProviderSpec: %w", err)
 	}
 
-	return harness.CreateFleetDeviceSpec("v7", pullSecretinlineConfigProviderSpec, inlineConfigProviderSpecSecond, httpConfigProviderSpec, httpConfigProviderSpecSecond)
+	regHost, regPort := satellites.RegistryHost, satellites.RegistryPort
+	return harness.CreateFleetDeviceSpec(regHost, regPort, "v7", pullSecretinlineConfigProviderSpec, inlineConfigProviderSpecSecond, httpConfigProviderSpec, httpConfigProviderSpecSecond)
 }
 
 func getAcmNamespace() (string, error) {

@@ -32,6 +32,8 @@ func NewManager(
 	return &StatusManager{
 		deviceName: deviceName,
 		device: &v1beta1.Device{
+			ApiVersion: v1beta1.DeviceAPIVersion,
+			Kind:       v1beta1.DeviceKind,
 			Metadata: v1beta1.ObjectMeta{
 				Name: &deviceName,
 			},
@@ -77,12 +79,20 @@ type Manager interface {
 	UpdateCondition(context.Context, v1beta1.Condition) error
 	// SetClient sets the management client for the status manager.
 	SetClient(client.Management)
+	// InvalidateLastStatus clears the in-memory last pushed status so the next Sync will push again.
+	InvalidateLastStatus()
 }
 
 func (m *StatusManager) SetClient(managementClient client.Management) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.managementClient = managementClient
+}
+
+func (m *StatusManager) InvalidateLastStatus() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.lastStatus = nil
 }
 
 func (m *StatusManager) Get(ctx context.Context) *v1beta1.DeviceStatus {
@@ -252,6 +262,13 @@ func SetDeviceSummary(summaryStatus v1beta1.DeviceSummaryStatus) UpdateStatusFn 
 func SetConfig(configStatus v1beta1.DeviceConfigStatus) UpdateStatusFn {
 	return func(status *v1beta1.DeviceStatus) error {
 		status.Config.RenderedVersion = configStatus.RenderedVersion
+		return nil
+	}
+}
+
+func SetCondition(condition v1beta1.Condition) UpdateStatusFn {
+	return func(status *v1beta1.DeviceStatus) error {
+		v1beta1.SetStatusCondition(&status.Conditions, condition)
 		return nil
 	}
 }

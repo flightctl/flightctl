@@ -19,6 +19,7 @@ global:
       tokenUrl:
       clientId:
       clientSecret:
+      token:
       scopes:
         - read
         - write
@@ -83,7 +84,7 @@ grafana:
   localAdminPassword:
   rootUrl:
   insecureSkipTlsVerify:
-  protocol:
+  protocol: https
   allowedUnsignedPlugins:
 
 prometheus:

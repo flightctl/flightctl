@@ -9,6 +9,7 @@ import (
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
+	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
@@ -151,13 +152,42 @@ func (c *Catalog) GetStatusAsJson() ([]byte, error) {
 // CatalogItem represents a cached catalog item in the database.
 type CatalogItem struct {
 	OrgID       uuid.UUID                          `gorm:"type:uuid;primaryKey"`
-	CatalogName string                             `gorm:"primaryKey"`
-	AppName     string                             `gorm:"primaryKey"`
+	CatalogName string                             `gorm:"primaryKey" selector:"metadata.catalog"`
+	AppName     string                             `gorm:"primaryKey" selector:"metadata.name"`
+	Owner       *string                            `gorm:"index" selector:"metadata.owner"`
 	Spec        *JSONField[domain.CatalogItemSpec] `gorm:"type:jsonb"`
-	Labels      JSONMap[string, string]            `gorm:"type:jsonb"`
+	Labels      JSONMap[string, string]            `gorm:"type:jsonb" selector:"metadata.labels,hidden,private"`
 	Annotations JSONMap[string, string]            `gorm:"type:jsonb"`
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
+}
+
+// ResolveSelector implements selector.SelectorResolver for spec.category and spec.type.
+func (ci *CatalogItem) ResolveSelector(name selector.SelectorName) (*selector.SelectorField, error) {
+	switch name.String() {
+	case "spec.category":
+		return &selector.SelectorField{
+			Type:      selector.String,
+			FieldName: "spec->>'category'",
+			FieldType: "jsonb",
+		}, nil
+	case "spec.type":
+		return &selector.SelectorField{
+			Type:      selector.String,
+			FieldName: "spec->>'type'",
+			FieldType: "jsonb",
+		}, nil
+	default:
+		return nil, nil
+	}
+}
+
+// ListSelectors implements selector.SelectorResolver.
+func (ci *CatalogItem) ListSelectors() selector.SelectorNameSet {
+	return selector.NewSelectorFieldNameSet().Add(
+		selector.NewSelectorName("spec.category"),
+		selector.NewSelectorName("spec.type"),
+	)
 }
 
 func (ci *CatalogItem) String() string {
@@ -185,6 +215,7 @@ func (ci *CatalogItem) ToApiResource() *domain.CatalogItem {
 		Metadata: domain.CatalogItemMeta{
 			Name:              lo.ToPtr(ci.AppName),
 			Catalog:           ci.CatalogName,
+			Owner:             ci.Owner,
 			CreationTimestamp: lo.ToPtr(ci.CreatedAt.UTC()),
 			Labels:            lo.ToPtr(util.EnsureMap(ci.Labels)),
 			Annotations:       lo.ToPtr(util.EnsureMap(ci.Annotations)),
@@ -220,6 +251,7 @@ func NewCatalogItemFromApiResource(orgId uuid.UUID, catalogName string, resource
 		OrgID:       orgId,
 		CatalogName: catalogName,
 		AppName:     *resource.Metadata.Name,
+		Owner:       resource.Metadata.Owner,
 		Spec:        MakeJSONField(resource.Spec),
 		Labels:      lo.FromPtrOr(resource.Metadata.Labels, make(map[string]string)),
 		Annotations: lo.FromPtrOr(resource.Metadata.Annotations, make(map[string]string)),

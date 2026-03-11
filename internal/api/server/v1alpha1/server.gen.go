@@ -18,6 +18,9 @@ const ServerUrlApiv1 = "/api/v1"
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
 
+	// (GET /catalogitems)
+	ListAllCatalogItems(w http.ResponseWriter, r *http.Request, params ListAllCatalogItemsParams)
+
 	// (GET /catalogs)
 	ListCatalogs(w http.ResponseWriter, r *http.Request, params ListCatalogsParams)
 
@@ -35,6 +38,9 @@ type ServerInterface interface {
 
 	// (GET /catalogs/{catalog}/items/{name})
 	GetCatalogItem(w http.ResponseWriter, r *http.Request, catalog string, name string)
+
+	// (PATCH /catalogs/{catalog}/items/{name})
+	PatchCatalogItem(w http.ResponseWriter, r *http.Request, catalog string, name string)
 
 	// (PUT /catalogs/{catalog}/items/{name})
 	ReplaceCatalogItem(w http.ResponseWriter, r *http.Request, catalog string, name string)
@@ -65,6 +71,11 @@ type ServerInterface interface {
 
 type Unimplemented struct{}
 
+// (GET /catalogitems)
+func (_ Unimplemented) ListAllCatalogItems(w http.ResponseWriter, r *http.Request, params ListAllCatalogItemsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // (GET /catalogs)
 func (_ Unimplemented) ListCatalogs(w http.ResponseWriter, r *http.Request, params ListCatalogsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
@@ -92,6 +103,11 @@ func (_ Unimplemented) DeleteCatalogItem(w http.ResponseWriter, r *http.Request,
 
 // (GET /catalogs/{catalog}/items/{name})
 func (_ Unimplemented) GetCatalogItem(w http.ResponseWriter, r *http.Request, catalog string, name string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (PATCH /catalogs/{catalog}/items/{name})
+func (_ Unimplemented) PatchCatalogItem(w http.ResponseWriter, r *http.Request, catalog string, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -143,6 +159,57 @@ type ServerInterfaceWrapper struct {
 }
 
 type MiddlewareFunc func(http.Handler) http.Handler
+
+// ListAllCatalogItems operation middleware
+func (siw *ServerInterfaceWrapper) ListAllCatalogItems(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListAllCatalogItemsParams
+
+	// ------------- Optional query parameter "continue" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "continue", r.URL.Query(), &params.Continue)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "continue", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "labelSelector" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "labelSelector", r.URL.Query(), &params.LabelSelector)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "labelSelector", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "fieldSelector" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "fieldSelector", r.URL.Query(), &params.FieldSelector)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "fieldSelector", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "limit", r.URL.Query(), &params.Limit)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListAllCatalogItems(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
 
 // ListCatalogs operation middleware
 func (siw *ServerInterfaceWrapper) ListCatalogs(w http.ResponseWriter, r *http.Request) {
@@ -345,6 +412,40 @@ func (siw *ServerInterfaceWrapper) GetCatalogItem(w http.ResponseWriter, r *http
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetCatalogItem(w, r, catalog, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PatchCatalogItem operation middleware
+func (siw *ServerInterfaceWrapper) PatchCatalogItem(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "catalog" -------------
+	var catalog string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "catalog", chi.URLParam(r, "catalog"), &catalog, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "catalog", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", chi.URLParam(r, "name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PatchCatalogItem(w, r, catalog, name)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -677,6 +778,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	}
 
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/catalogitems", wrapper.ListAllCatalogItems)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/catalogs", wrapper.ListCatalogs)
 	})
 	r.Group(func(r chi.Router) {
@@ -693,6 +797,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/catalogs/{catalog}/items/{name}", wrapper.GetCatalogItem)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/catalogs/{catalog}/items/{name}", wrapper.PatchCatalogItem)
 	})
 	r.Group(func(r chi.Router) {
 		r.Put(options.BaseURL+"/catalogs/{catalog}/items/{name}", wrapper.ReplaceCatalogItem)

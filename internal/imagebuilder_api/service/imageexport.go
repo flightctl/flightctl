@@ -554,20 +554,35 @@ func (s *imageExportService) setupRepositoryReference(ctx context.Context, ociSp
 		return nil, "", "", fmt.Errorf("failed to create repository reference: %w", err)
 	}
 
-	// Set up authentication if credentials are provided
+	// Configure auth client with TLS settings and credentials
+	authClient := &auth.Client{}
+
+	tlsConfig, err := createTLSConfig(ociSpec)
+	if err != nil {
+		return nil, "", "", fmt.Errorf("failed to create TLS config for repository: %w", err)
+	}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.TLSClientConfig = tlsConfig
+	authClient.Client = &http.Client{Transport: transport}
+
 	if ociSpec.OciAuth != nil {
 		dockerAuth, err := ociSpec.OciAuth.AsDockerAuth()
 		if err == nil && dockerAuth.Username != "" && dockerAuth.Password != "" {
-			repoRef.Client = &auth.Client{
-				Credential: auth.StaticCredential(registryHostname, auth.Credential{
-					Username: dockerAuth.Username,
-					Password: dockerAuth.Password,
-				}),
-			}
+			authClient.Credential = auth.StaticCredential(registryHostname, auth.Credential{
+				Username: dockerAuth.Username,
+				Password: dockerAuth.Password,
+			})
 			log.WithFields(logrus.Fields{"registryHostname": registryHostname, "username": dockerAuth.Username}).Debug("Configured authentication for repository")
 		}
 	} else {
 		log.Debug("No authentication configured for repository")
+	}
+
+	repoRef.Client = authClient
+
+	if ociSpec.Scheme != nil && *ociSpec.Scheme == coredomain.OciRepoSchemeHttp {
+		repoRef.PlainHTTP = true
+		log.Debug("Using PlainHTTP for HTTP registry")
 	}
 
 	return repoRef, scheme, registryHostname, nil
@@ -623,8 +638,9 @@ func (s *imageExportService) fetchAndParseManifest(ctx context.Context, repoRef 
 	return &manifest, nil
 }
 
-// createHTTPClient creates an HTTP client with TLS configuration
-func (s *imageExportService) createHTTPClient(ociSpec *coredomain.OciRepoSpec) (*http.Client, error) {
+// createTLSConfig builds a TLS configuration from the OCI repository spec,
+// handling SkipServerVerification and custom CA certificates.
+func createTLSConfig(ociSpec *coredomain.OciRepoSpec) (*tls.Config, error) {
 	tlsConfig := &tls.Config{
 		MinVersion: tls.VersionTLS12,
 	}
@@ -634,19 +650,25 @@ func (s *imageExportService) createHTTPClient(ociSpec *coredomain.OciRepoSpec) (
 	if ociSpec.CaCrt != nil {
 		ca, err := base64.StdEncoding.DecodeString(*ociSpec.CaCrt)
 		if err != nil {
-			return nil, fmt.Errorf("createHTTPClient: decode CA: %w", err)
+			return nil, fmt.Errorf("decode CA certificate: %w", err)
 		}
 		rootCAs, err := x509.SystemCertPool()
 		if err != nil {
-			return nil, fmt.Errorf("createHTTPClient: system cert pool: %w", err)
-		}
-		if rootCAs == nil {
 			rootCAs = x509.NewCertPool()
 		}
 		if !rootCAs.AppendCertsFromPEM(ca) {
-			return nil, fmt.Errorf("createHTTPClient: failed to append CA certificates from PEM")
+			return nil, fmt.Errorf("failed to append CA certificates from PEM")
 		}
 		tlsConfig.RootCAs = rootCAs
+	}
+	return tlsConfig, nil
+}
+
+// createHTTPClient creates an HTTP client with TLS configuration
+func (s *imageExportService) createHTTPClient(ociSpec *coredomain.OciRepoSpec) (*http.Client, error) {
+	tlsConfig, err := createTLSConfig(ociSpec)
+	if err != nil {
+		return nil, fmt.Errorf("createHTTPClient: %w", err)
 	}
 
 	return &http.Client{

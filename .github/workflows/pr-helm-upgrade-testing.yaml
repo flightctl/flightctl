@@ -176,7 +176,12 @@ jobs:
         run: |
           make prepare-agent-config
           chmod +x bin-baseline-sim/devicesimulator
-          bin-baseline-sim/devicesimulator --config bin/agent/etc/flightctl/config.yaml --count 10 --stop-after 1m
+          bin-baseline-sim/devicesimulator --config bin/agent/etc/flightctl/config.yaml --count 10 --stop-after 1m 2>&1 | tee simulator-baseline.log
+
+      - name: "[BASELINE] Check simulator logs"
+        uses: ./.github/actions/check-simulator-logs
+        with:
+          log-file: simulator-baseline.log
 
       # ========== UPGRADE TO PR BRANCH ==========
       - name: "[HEAD] Download artifacts"
@@ -274,11 +279,21 @@ jobs:
         run: |
           make prepare-agent-config
           chmod +x bin-pr-sim/devicesimulator
-          bin-pr-sim/devicesimulator --config bin/agent/etc/flightctl/config.yaml --count 10 --stop-after 1m
+          bin-pr-sim/devicesimulator --config bin/agent/etc/flightctl/config.yaml --count 10 --stop-after 1m 2>&1 | tee simulator-pr.log
+
+      - name: "[HEAD] Check simulator logs"
+        uses: ./.github/actions/check-simulator-logs
+        with:
+          log-file: simulator-pr.log
 
       - name: "[HEAD] Run baseline simulator (backward compat)"
         run: |
-          bin-baseline-sim/devicesimulator --config bin/agent/etc/flightctl/config.yaml --count 10 --stop-after 1m
+          bin-baseline-sim/devicesimulator --config bin/agent/etc/flightctl/config.yaml --count 10 --stop-after 1m 2>&1 | tee simulator-compat.log
+
+      - name: "[HEAD] Check backward compat simulator logs"
+        uses: ./.github/actions/check-simulator-logs
+        with:
+          log-file: simulator-compat.log
 
       - name: "[HEAD] Helm upgrade - to the same version"
         run: |

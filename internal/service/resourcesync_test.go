@@ -19,7 +19,7 @@ func verifyRSPatchFailed(require *require.Assertions, status domain.Status) {
 func testResourceSyncPatch(require *require.Assertions, patch domain.PatchRequest) (*domain.ResourceSync, domain.ResourceSync, domain.Status) {
 	ctx := context.Background()
 	resourceSync := domain.ResourceSync{
-		ApiVersion: "v1",
+		ApiVersion: "v1beta1",
 		Kind:       "ResourceSync",
 		Metadata: domain.ObjectMeta{
 			Name:   lo.ToPtr("foo"),
@@ -53,7 +53,7 @@ func TestResourceSyncCreateWithLongNames(t *testing.T) {
 	ctx := context.Background()
 
 	resourceSync := domain.ResourceSync{
-		ApiVersion: "v1",
+		ApiVersion: "v1beta1",
 		Kind:       "ResourceSync",
 		Metadata: domain.ObjectMeta{
 			Name:   lo.ToPtr("01234567890123456789012345678901234567890123456789012345678901234567890123456789"),

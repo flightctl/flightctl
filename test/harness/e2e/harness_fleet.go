@@ -13,18 +13,44 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func (h *Harness) CreateFleetDeviceSpec(deviceImageTag string, additionalConfigs ...v1beta1.ConfigProviderSpec) (v1beta1.DeviceSpec, error) {
+// GetDeviceImageRefForFleet returns the device OS image reference to use in fleet/device spec.
+// Pass registryHost and registryPort from satellite (e.g. satellite.Get(ctx).RegistryHost, .RegistryPort).
+// if either is empty, returns the quay.io fallback.
+func (h *Harness) GetDeviceImageRefForFleet(registryHost, registryPort, deviceImageTag string) string {
+	return getImageRefForFleet(registryHost, registryPort, util.DeviceImageRegistryPath, deviceImageTag, func(t string) string {
+		return util.NewDeviceImageReference(t).String()
+	})
+}
 
+// GetSleepAppImageRefForFleet returns the sleep-app image reference for use in device specs.
+// Pass registryHost and registryPort from infra; if either is empty, returns the quay.io fallback.
+func (h *Harness) GetSleepAppImageRefForFleet(registryHost, registryPort, tag string) string {
+	return getImageRefForFleet(registryHost, registryPort, util.SleepAppRegistryPath, tag, func(t string) string {
+		return util.NewSleepAppImageReference(t).String()
+	})
+}
+
+func getImageRefForFleet(registryHost, registryPort, registryPath, tag string, fallback func(string) string) string {
+	if registryHost == "" || registryPort == "" {
+		return fallback(tag)
+	}
+	ref := registryHost + ":" + registryPort + "/" + registryPath
+	if tag != "" {
+		ref += ":" + tag
+	}
+	return ref
+}
+
+// CreateFleetDeviceSpec builds a device spec. Pass registryHost and registryPort from infra for Os.Image; when deviceImageTag is empty they are unused.
+func (h *Harness) CreateFleetDeviceSpec(registryHost, registryPort, deviceImageTag string, additionalConfigs ...v1beta1.ConfigProviderSpec) (v1beta1.DeviceSpec, error) {
 	var deviceSpec v1beta1.DeviceSpec
 
-	// Set Os.Image only if deviceImageTag is provided
 	if deviceImageTag != "" {
 		deviceSpec.Os = &v1beta1.DeviceOsSpec{
-			Image: util.NewDeviceImageReference(deviceImageTag).String(),
+			Image: h.GetDeviceImageRefForFleet(registryHost, registryPort, deviceImageTag),
 		}
 	}
 
-	// Set Config only if config specs are provided
 	if len(additionalConfigs) > 0 {
 		deviceSpec.Config = &additionalConfigs
 	}
@@ -153,6 +179,10 @@ func (h *Harness) WaitForFleetUpdateToFail(fleetName string) {
 }
 
 func (h *Harness) WaitForBatchStart(fleetName string, batchNumber int) {
+	var lastLoggedBatch int = -3
+	var lastMissingLog time.Time
+	// Poll more frequently (250ms) so we catch batch N before the controller advances to the next batch.
+	// Accept batch N or higher since the reconciler may race through empty batches quickly.
 	Eventually(func() int {
 		response, err := h.Client.GetFleetWithResponse(h.Context, fleetName, nil)
 		if err != nil {
@@ -171,13 +201,15 @@ func (h *Harness) WaitForBatchStart(fleetName string, batchNumber int) {
 
 		annotations := fleet.Metadata.Annotations
 		if annotations == nil {
-			GinkgoWriter.Printf("annotations are nil\n")
 			return -2
 		}
 
 		batchNumberStr, ok := (*annotations)[v1beta1.FleetAnnotationBatchNumber]
 		if !ok {
-			GinkgoWriter.Printf("batch number not found in annotations - available annotations: %v\n", *annotations)
+			if time.Since(lastMissingLog) >= 5*time.Second {
+				GinkgoWriter.Printf("batch number not found in annotations (will keep polling) - available: %v\n", *annotations)
+				lastMissingLog = time.Now()
+			}
 			return -2
 		}
 
@@ -187,10 +219,16 @@ func (h *Harness) WaitForBatchStart(fleetName string, batchNumber int) {
 			return -2
 		}
 
-		GinkgoWriter.Printf("Current batch number: %d, waiting for  %d\n", batchNumberInt, batchNumber)
+		if batchNumberInt < batchNumber && batchNumberInt != lastLoggedBatch {
+			GinkgoWriter.Printf("Current batch number: %d, waiting for at least %d\n", batchNumberInt, batchNumber)
+			lastLoggedBatch = batchNumberInt
+		} else if batchNumberInt > batchNumber && lastLoggedBatch != batchNumberInt {
+			GinkgoWriter.Printf("Batch %d already completed, now at batch %d\n", batchNumber, batchNumberInt)
+			lastLoggedBatch = batchNumberInt
+		}
 
 		return batchNumberInt
-	}, LONGTIMEOUT, POLLINGLONG).Should(Equal(batchNumber))
+	}, LONGTIMEOUT, POLLING).Should(BeNumerically(">=", batchNumber))
 }
 
 func (h *Harness) GetRolloutStatus(fleetName string) (v1beta1.Condition, error) {

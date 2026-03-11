@@ -201,33 +201,30 @@ var _ = Describe("VM Agent behavior during updates", func() {
 				},
 			}
 
-			// Apply each spec in quick succession, just waiting for the device to register that it
-			// has acknowledged it should update
-			currentVersion := initialVersion
+			// Build the device spec progressively and update through harness device-spec helpers,
+			// matching automation behavior.
+			deviceSpecConfig := make([]v1beta1.ConfigProviderSpec, 0, len(configFactories))
 			for i, factory := range configFactories {
 				specVersion := i + 1
-				By(fmt.Sprintf("Applying spec: %d", specVersion))
+				By(fmt.Sprintf("Applying spec update: %d", specVersion))
 				var configProviderSpec v1beta1.ConfigProviderSpec
 				err := factory(&configProviderSpec)
 				Expect(err).ToNot(HaveOccurred())
-				err = harness.AddConfigToDeviceWithRetries(deviceId, configProviderSpec)
+				deviceSpecConfig = append(deviceSpecConfig, configProviderSpec)
+
+				nextRenderedVersion, err := harness.PrepareNextDeviceVersion(deviceId)
+				Expect(err).NotTo(HaveOccurred())
+				err = harness.UpdateDeviceConfigWithRetries(deviceId, deviceSpecConfig, nextRenderedVersion)
 				Expect(err).ToNot(HaveOccurred())
-				expectedVersion := currentVersion + 1
-				desc := fmt.Sprintf("Updating to desired renderedVersion: %d", expectedVersion)
-				By(fmt.Sprintf("Waiting for update %d to be picked up", specVersion))
-				harness.WaitForDeviceContents(deviceId, desc, func(device *v1beta1.Device) bool {
-					return e2e.IsDeviceUpdateObserved(device, expectedVersion)
-				}, TIMEOUT)
-				currentVersion = expectedVersion
 			}
 
 			By(fmt.Sprintf("applying all defined specs, the end version should indicate %d updates were applied", len(configFactories)))
 			expectedVersion := initialVersion + len(configFactories)
-			err = harness.WaitForDeviceNewRenderedVersion(deviceId, expectedVersion)
+			finalVersion, err := harness.GetCurrentDeviceRenderedVersion(deviceId)
 			Expect(err).NotTo(HaveOccurred())
+			Expect(finalVersion).To(Equal(expectedVersion))
 		})
 		It("Should rollback when updating to a broken image", Label("82481", "sanity", "agent"), func() {
-			Skip("Test temporarily disabled, re-enable after EDM-3264 is fixed")
 			// Get harness directly - no shared package-level variable
 			harness := e2e.GetWorkerHarness()
 
@@ -277,15 +274,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			cond := v1beta1.FindStatusCondition(dev.Status.Conditions, v1beta1.ConditionTypeDeviceUpdating)
 			Expect(cond).ToNot(BeNil())
 			Expect(cond.Message).To(And(
-				ContainSubstring("applications"),
-				SatisfyAny(
-					ContainSubstring("fake-image"),
-					ContainSubstring("Invalid value"),
-					ContainSubstring("invalid configuration or input"),
-					ContainSubstring("service unavailable"),
-					ContainSubstring("pulling oci target"),
-					ContainSubstring("internal error occurred"),
-				),
+				ContainSubstring("prefetch failed for fake-image: invalid configuration or input"),
 			)) /*
 				** Add this assertion back when the bug referenced above is fixed **
 				harness.WaitForDeviceContents(deviceId, "device image should be reverted to the old image", func(device *v1beta1.Device) bool {
@@ -322,15 +311,23 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			// The device will reboot into v11, agent fails to start, greenboot detects failure,
 			// and triggers rollback. With GREENBOOT_MAX_BOOT_ATTEMPTS=1 (set in BASE image),
 			// this should complete in a single boot cycle (~3-5 minutes).
+			// We capture the boot ID atomically here so the no-retry stability check
+			// starts from the exact moment the rollback is first observed.
+			postRollbackBootID := ""
 			harness.WaitForDeviceContents(deviceId, "device should rollback to initial OS image and come online", func(device *v1beta1.Device) bool {
-				return device.Status.Os.Image == initialStatusImage &&
-					device.Status.Summary.Status == v1beta1.DeviceSummaryStatusOnline
+				if device.Status.Os.Image != initialStatusImage ||
+					device.Status.Summary.Status != v1beta1.DeviceSummaryStatusOnline ||
+					device.Status.SystemInfo.BootID == initialBootID {
+					return false
+				}
+				postRollbackBootID = device.Status.SystemInfo.BootID
+				return true
 			}, LONGTIMEOUT)
 
 			By("Verifying greenboot triggered an OS rollback (not just a reboot)")
 			// "FALLBACK BOOT DETECTED" only appears when greenboot's rollback mechanism was triggered.
 			fallbackOutput, err := harness.VM.RunSSH([]string{
-				"sudo", "journalctl", "-u", "greenboot-rpm-ostree-grub2-check-fallback.service", "--no-pager",
+				"sudo", "journalctl", "-b", "-u", "greenboot-rpm-ostree-grub2-check-fallback.service", "--no-pager",
 			}, nil)
 			Expect(err).NotTo(HaveOccurred(), "Failed to read greenboot fallback check logs")
 			Expect(fallbackOutput.String()).To(ContainSubstring("FALLBACK BOOT DETECTED"),
@@ -342,12 +339,56 @@ var _ = Describe("VM Agent behavior during updates", func() {
 				return device.Status.Updated.Status == v1beta1.DeviceUpdatedStatusOutOfDate
 			}, TIMEOUT)
 
-			By("Verifying boot ID changed (confirming reboot occurred)")
-			harness.WaitForDeviceContents(deviceId, "boot ID should have changed after reboot", func(device *v1beta1.Device) bool {
-				return device.Status.SystemInfo.BootID != initialBootID
-			}, TIMEOUT)
-
 			GinkgoWriter.Printf("Device successfully rolled back from v11 to %s via greenboot\n", initialStatusImage)
+
+			By("Verifying device does NOT retry the failed v11 image")
+			harness.EnsureDeviceContents(deviceId, "device should remain stable and not retry failed image", func(device *v1beta1.Device) bool {
+				return device.Status.Os.Image == initialStatusImage &&
+					device.Status.SystemInfo.BootID == postRollbackBootID &&
+					device.Status.Summary.Status == v1beta1.DeviceSummaryStatusOnline
+			}, "2m")
+			GinkgoWriter.Println("Confirmed: device did not retry the failed v11 image after rollback")
+		})
+		It("Should NOT rollback when third-party health check (MicroShift) fails", Label("greenboot-third-party", "88229", "agent"), func() {
+			harness := e2e.GetWorkerHarness()
+
+			By("Getting initial device state")
+			dev, err := harness.GetDevice(deviceId)
+			Expect(err).NotTo(HaveOccurred())
+			initialBootID := dev.Status.SystemInfo.BootID
+
+			By("Updating device to v7 (MicroShift image)")
+			// v7 includes MicroShift which installs 40_microshift_running_check.sh
+			// in /usr/lib/greenboot/check/required.d/. MicroShift will fail its health
+			// check (insufficient VM resources), but flightctl-configure-greenboot.service
+			// should disable it via DISABLED_HEALTHCHECKS before greenboot runs.
+			_, _, err = harness.WaitForBootstrapAndUpdateToVersion(deviceId, util.DeviceTags.V7)
+			Expect(err).ToNot(HaveOccurred())
+
+			By("Waiting for device to reboot into v7 and come online")
+			harness.WaitForDeviceContents(deviceId, "device should come online on v7", func(device *v1beta1.Device) bool {
+				return strings.Contains(device.Status.Os.Image, "v7") &&
+					device.Status.Summary.Status == v1beta1.DeviceSummaryStatusOnline &&
+					device.Status.SystemInfo.BootID != initialBootID
+			}, LONGTIMEOUT)
+
+			By("Verifying NO greenboot rollback was triggered")
+			fallbackOutput, err := harness.VM.RunSSH([]string{
+				"sudo", "journalctl", "-b", "-u", "greenboot-rpm-ostree-grub2-check-fallback.service", "--no-pager",
+			}, nil)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(fallbackOutput.String()).NotTo(ContainSubstring("FALLBACK BOOT DETECTED"),
+				"Third-party health check failure must NOT trigger OS rollback")
+
+			By("Verifying configure-greenboot disabled the MicroShift health check")
+			configureOutput, err := harness.VM.RunSSH([]string{
+				"sudo", "journalctl", "-b", "-u", "flightctl-configure-greenboot.service", "--no-pager",
+			}, nil)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(configureOutput.String()).To(ContainSubstring("Disabling third-party greenboot health checks"),
+				"Expected configure-greenboot to disable third-party health checks")
+
+			GinkgoWriter.Println("Confirmed: third-party MicroShift health check did not trigger rollback")
 		})
 		It("Should respect the spec's update schedule", Label("79220", "sanity", "agent", "slow"), func() {
 			// Get harness directly - no shared package-level variable
@@ -383,8 +424,10 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Updating the device with a policy that won't trigger should prevent an update from occurring")
+			inlineCfg, cfgErr := newInlineConfigVersion(expectedVersion)
+			Expect(cfgErr).NotTo(HaveOccurred())
 			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
-				device.Spec.Config = &[]v1beta1.ConfigProviderSpec{newInlineConfigVersion(expectedVersion)}
+				device.Spec.Config = &[]v1beta1.ConfigProviderSpec{inlineCfg}
 				device.Spec.UpdatePolicy = &v1beta1.DeviceUpdatePolicySpec{
 					UpdateSchedule: &v1beta1.UpdateSchedule{
 						At:                 wontUpdatePolicy,
@@ -430,11 +473,13 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			By("applying another spec, the update should be applied quickly")
+			inlineCfg, cfgErr = newInlineConfigVersion(expectedVersion)
+			Expect(cfgErr).NotTo(HaveOccurred())
 			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
 				// change the spec to update every minute so that we don't have to wait as long
 				device.Spec.UpdatePolicy.UpdateSchedule.At = everyMinuteExpression
 				device.Spec.UpdatePolicy.DownloadSchedule.At = everyMinuteExpression
-				device.Spec.Config = &[]v1beta1.ConfigProviderSpec{newInlineConfigVersion(expectedVersion)}
+				device.Spec.Config = &[]v1beta1.ConfigProviderSpec{inlineCfg}
 			})
 			Expect(err).ToNot(HaveOccurred())
 			// eventually the next update should be applied
@@ -444,10 +489,12 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			expectedVersion++
 			inTwoMinutes = inNMinutes(2)
 			By("applying an immediate download policy and an eventual update policy, the process should stall at updating")
+			inlineCfg, cfgErr = newInlineConfigVersion(expectedVersion)
+			Expect(cfgErr).NotTo(HaveOccurred())
 			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
 				device.Spec.UpdatePolicy.UpdateSchedule.At = inTwoMinutes
 				device.Spec.UpdatePolicy.DownloadSchedule.At = everyMinuteExpression
-				device.Spec.Config = &[]v1beta1.ConfigProviderSpec{newInlineConfigVersion(expectedVersion)}
+				device.Spec.Config = &[]v1beta1.ConfigProviderSpec{inlineCfg}
 			})
 			Expect(err).ToNot(HaveOccurred())
 			harness.WaitForDeviceContents(deviceId, "status should indicate that we are blocked by updating", func(device *v1beta1.Device) bool {
@@ -482,9 +529,9 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			// Malformed XML — should cause firewall reload hook to fail
 			// ------------------------------------------------------------------
 			By(fmt.Sprintf("Applying malformed XML to %s", badZoneFile))
-			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
-				device.Spec.Config = &[]v1beta1.ConfigProviderSpec{newInlineConfigForPath("bad-zone", badZoneFile, "<invalid")}
-			})
+			badZoneCfg, cfgErr := util.BuildInlineConfigSpec("bad-zone", badZoneFile, "<invalid", "")
+			Expect(cfgErr).NotTo(HaveOccurred())
+			err = harness.UpdateDeviceWithRetries(deviceId, e2e.SetDeviceConfig(badZoneCfg))
 			Expect(err).NotTo(HaveOccurred())
 			stdout, err = harness.VM.RunSSH([]string{"sudo", "cat", "/var/lib/flightctl/current.json"}, nil)
 			Expect(err).NotTo(HaveOccurred())
@@ -506,9 +553,9 @@ var _ = Describe("VM Agent behavior during updates", func() {
 				GinkgoWriter.Printf("Applying update %d\n", i)
 				path := fmt.Sprintf("%s/rapid-%d.json", firewallZonesDir, i)
 				name := fmt.Sprintf("rapid-%d", i)
-				err := harness.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
-					device.Spec.Config = &[]v1beta1.ConfigProviderSpec{newInlineConfigForPath(name, path, name)}
-				})
+				rapidCfg, cfgErr := util.BuildInlineConfigSpec(name, path, name, "")
+				Expect(cfgErr).NotTo(HaveOccurred())
+				err := harness.UpdateDeviceWithRetries(deviceId, e2e.SetDeviceConfig(rapidCfg))
 				Expect(err).NotTo(HaveOccurred())
 			}
 			By("Verifying the last file remains after rapid updates")
@@ -528,12 +575,13 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			// Conflicting inline configs targeting the same path
 			// ------------------------------------------------------------------
 			By("Applying two inline configs that write to the same file path - through UpdateDevice")
-			cfg1 := newInlineConfigForPath("c1", conflictFile, "cfg1")
-			cfg2 := newInlineConfigForPath("c2", conflictFile, "cfg2")
+			cfg1, cfgErr := util.BuildInlineConfigSpec("c1", conflictFile, "cfg1", "")
+			Expect(cfgErr).NotTo(HaveOccurred())
+			cfg2, cfgErr := util.BuildInlineConfigSpec("c2", conflictFile, "cfg2", "")
+			Expect(cfgErr).NotTo(HaveOccurred())
 
-			Expect(harness.UpdateDevice(deviceId, func(device *v1beta1.Device) {
-				device.Spec.Config = &[]v1beta1.ConfigProviderSpec{cfg1, cfg2}
-			})).To(MatchError(ContainSubstring("must be unique")))
+			err = harness.UpdateDevice(deviceId, e2e.SetDeviceConfig(cfg1, cfg2))
+			Expect(err).To(MatchError(ContainSubstring("must be unique")))
 
 		})
 
@@ -553,32 +601,7 @@ var flightDemosHttpRepoConfig = v1beta1.HttpConfigProviderSpec{
 	Name: "flightctl-demos-cfg",
 }
 
-func newInlineConfigVersion(version int) v1beta1.ConfigProviderSpec {
-	configCopy := inlineConfig
-	configCopy.Content = fmt.Sprintf("%s %d", configCopy.Content, version)
-	cfg := v1beta1.InlineConfigProviderSpec{
-		Inline: []v1beta1.FileSpec{configCopy},
-		Name:   validInlineConfig.Name,
-	}
-	var provider v1beta1.ConfigProviderSpec
-	err := provider.FromInlineConfigProviderSpec(cfg)
-	Expect(err).NotTo(HaveOccurred())
-	return provider
-}
-
-// newInlineConfigForPath creates a ConfigProviderSpec with inline configuration for the specified path
-func newInlineConfigForPath(name string, path string, content string) v1beta1.ConfigProviderSpec {
-	var inlineConfig = v1beta1.FileSpec{
-		Content: content,
-		Mode:    modePointer,
-		Path:    path,
-	}
-	cfg := v1beta1.InlineConfigProviderSpec{
-		Inline: []v1beta1.FileSpec{inlineConfig},
-		Name:   name,
-	}
-	var provider v1beta1.ConfigProviderSpec
-	err := provider.FromInlineConfigProviderSpec(cfg)
-	Expect(err).NotTo(HaveOccurred())
-	return provider
+func newInlineConfigVersion(version int) (v1beta1.ConfigProviderSpec, error) {
+	content := fmt.Sprintf("%s %d", inlineConfig.Content, version)
+	return util.BuildInlineConfigSpec(validInlineConfig.Name, inlineConfig.Path, content, "")
 }

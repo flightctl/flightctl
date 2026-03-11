@@ -29,7 +29,7 @@ type PeriodicTaskType string
 const (
 	PeriodicTaskTypeRepositoryTester       PeriodicTaskType = "repository-tester"
 	PeriodicTaskTypeResourceSync           PeriodicTaskType = "resource-sync"
-	PeriodicTaskTypeDeviceDisconnected     PeriodicTaskType = "device-disconnected"
+	PeriodicTaskTypeDeviceConnection       PeriodicTaskType = "device-connection"
 	PeriodicTaskTypeRolloutDeviceSelection PeriodicTaskType = "rollout-device-selection"
 	PeriodicTaskTypeDisruptionBudget       PeriodicTaskType = "disruption-budget"
 	PeriodicTaskTypeEventCleanup           PeriodicTaskType = "event-cleanup"
@@ -44,7 +44,7 @@ type PeriodicTaskMetadata struct {
 var periodicTasks = map[PeriodicTaskType]PeriodicTaskMetadata{
 	PeriodicTaskTypeRepositoryTester:       {Interval: 2 * time.Minute, SystemWide: false},
 	PeriodicTaskTypeResourceSync:           {Interval: 2 * time.Minute, SystemWide: false},
-	PeriodicTaskTypeDeviceDisconnected:     {Interval: tasks.DeviceDisconnectedPollingInterval, SystemWide: false},
+	PeriodicTaskTypeDeviceConnection:       {Interval: tasks.DeviceConnectionPollingInterval, SystemWide: false},
 	PeriodicTaskTypeRolloutDeviceSelection: {Interval: device_selection.RolloutDeviceSelectionInterval, SystemWide: false},
 	PeriodicTaskTypeDisruptionBudget:       {Interval: disruption_budget.DisruptionBudgetReconcilationInterval, SystemWide: false},
 	PeriodicTaskTypeEventCleanup:           {Interval: tasks.EventCleanupPollingInterval, SystemWide: true},
@@ -104,26 +104,30 @@ func (e *RepositoryTesterExecutor) Execute(ctx context.Context, log logrus.Field
 }
 
 type ResourceSyncExecutor struct {
-	serviceHandler        service.Service
-	log                   logrus.FieldLogger
-	ignoreResourceUpdates []string
+	serviceHandler service.Service
+	log            logrus.FieldLogger
+	cfg            *config.Config
 }
 
 func (e *ResourceSyncExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgId uuid.UUID) {
 	taskCtx := createTaskContext(ctx, PeriodicTaskTypeResourceSync)
-	resourceSync := tasks.NewResourceSync(e.serviceHandler, e.log, e.ignoreResourceUpdates)
+	var ignoreResourceUpdates []string
+	if e.cfg != nil && e.cfg.GitOps != nil {
+		ignoreResourceUpdates = e.cfg.GitOps.IgnoreResourceUpdates
+	}
+	resourceSync := tasks.NewResourceSync(e.serviceHandler, e.log, e.cfg, ignoreResourceUpdates)
 	resourceSync.Poll(taskCtx, orgId)
 }
 
-type DeviceDisconnectedExecutor struct {
+type DeviceConnectionExecutor struct {
 	log            logrus.FieldLogger
 	serviceHandler service.Service
 }
 
-func (e *DeviceDisconnectedExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgId uuid.UUID) {
-	taskCtx := createTaskContext(ctx, PeriodicTaskTypeDeviceDisconnected)
-	deviceDisconnected := tasks.NewDeviceDisconnected(e.log, e.serviceHandler)
-	deviceDisconnected.Poll(taskCtx, orgId)
+func (e *DeviceConnectionExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgId uuid.UUID) {
+	taskCtx := createTaskContext(ctx, PeriodicTaskTypeDeviceConnection)
+	deviceConnection := tasks.NewDeviceConnection(e.log, e.serviceHandler)
+	deviceConnection.Poll(taskCtx, orgId)
 }
 
 type RolloutDeviceSelectionExecutor struct {
@@ -188,12 +192,12 @@ func InitializeTaskExecutors(log logrus.FieldLogger, serviceHandler service.Serv
 			serviceHandler: serviceHandler,
 		},
 		PeriodicTaskTypeResourceSync: &ResourceSyncExecutor{
-			serviceHandler:        serviceHandler,
-			log:                   log.WithField("pkg", "resource-sync"),
-			ignoreResourceUpdates: cfg.GitOps.IgnoreResourceUpdates,
+			serviceHandler: serviceHandler,
+			log:            log.WithField("pkg", "resource-sync"),
+			cfg:            cfg,
 		},
-		PeriodicTaskTypeDeviceDisconnected: &DeviceDisconnectedExecutor{
-			log:            log.WithField("pkg", "device-disconnected"),
+		PeriodicTaskTypeDeviceConnection: &DeviceConnectionExecutor{
+			log:            log.WithField("pkg", "device-connection"),
 			serviceHandler: serviceHandler,
 		},
 		PeriodicTaskTypeRolloutDeviceSelection: &RolloutDeviceSelectionExecutor{

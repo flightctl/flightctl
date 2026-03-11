@@ -196,8 +196,6 @@ audit:
 status-update-interval: 60s
 ```
 
-For detailed information about audit logs, see [Device Observability](../using/device-observability.md#agent-audit-logs).
-
 ## Metrics Configuration
 
 Metrics are **disabled by default**. To enable the Prometheus metrics endpoint (exposed on `127.0.0.1:15690`):
@@ -210,8 +208,6 @@ metrics-enabled: true
 status-update-interval: 60s
 ```
 
-For detailed information about agent metrics, see [Device Observability](../using/device-observability.md#agent-metrics).
-
 ## Profiling Configuration
 
 Profiling is **disabled by default**. To enable the pprof profiling endpoint (exposed on `127.0.0.1:15689`):
@@ -223,8 +219,6 @@ profiling-enabled: true
 
 status-update-interval: 60s
 ```
-
-For detailed information about agent profiling, see [Device Observability](../using/device-observability.md#agent-profiling).
 
 ## TPM Configuration
 

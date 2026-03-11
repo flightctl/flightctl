@@ -87,15 +87,6 @@ func IsCommandAvailable(cmdName string) bool {
 	return err == nil
 }
 
-func IsComposeAvailable() bool {
-	for _, cmdName := range []string{"podman-compose", "docker-compose"} {
-		if IsCommandAvailable(cmdName) {
-			return true
-		}
-	}
-	return false
-}
-
 // ClientOption is a functional option for configuring the client.
 type ClientOption func(*clientOptions)
 

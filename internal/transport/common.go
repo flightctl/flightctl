@@ -18,9 +18,11 @@ const (
 	AuthorizationServerUnavailable = "Authorization server unavailable"
 )
 
-func SetResponse(w http.ResponseWriter, body any, status api.Status) {
-	code := int(status.Code)
-
+// WriteJSONResponse is a version-independent response writer.
+// For 2xx status codes, body is encoded as the response. For non-2xx, errorBody
+// is encoded instead. Responses with no body (204, 304, 1xx) only write the
+// status code.
+func WriteJSONResponse(w http.ResponseWriter, body any, errorBody any, code int) {
 	// Never write a body for 204/304 (and generally 1xx), per RFC 7231
 	if code == http.StatusNoContent || code == http.StatusNotModified || (code >= 100 && code < 200) {
 		w.WriteHeader(code)
@@ -43,25 +45,19 @@ func SetResponse(w http.ResponseWriter, body any, status api.Status) {
 	var buf bytes.Buffer
 	var err error
 
-	if body != nil && status.Code >= 200 && status.Code < 300 {
+	if body != nil && code >= 200 && code < 300 {
 		err = json.NewEncoder(&buf).Encode(body)
 	} else {
-		err = json.NewEncoder(&buf).Encode(status)
+		err = json.NewEncoder(&buf).Encode(errorBody)
 	}
 
 	if err != nil {
-		// If encoding fails, send an internal server error response
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// Now that encoding is successful, write the status and response
 	w.WriteHeader(code)
-	_, _ = w.Write(buf.Bytes()) // Write the encoded JSON from the buffer
-}
-
-func SetParseFailureResponse(w http.ResponseWriter, err error) {
-	SetResponse(w, nil, api.StatusInternalServerError(fmt.Sprintf("can't decode JSON body: %v", err)))
+	_, _ = w.Write(buf.Bytes())
 }
 
 // OrgIDFromContext extracts the organization ID from the context.

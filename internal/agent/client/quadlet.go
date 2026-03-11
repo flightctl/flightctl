@@ -11,7 +11,6 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/api/common"
 	"github.com/flightctl/flightctl/internal/quadlet"
-	"github.com/samber/lo"
 )
 
 const (
@@ -101,7 +100,7 @@ func ParseQuadletReferencesFromSpec(contents []v1beta1.ApplicationContent) (map[
 			continue
 		}
 
-		contentBytes, err := fileio.DecodeContent(lo.FromPtr(c.Content), c.ContentEncoding)
+		contentBytes, err := c.ContentsDecoded()
 		if err != nil {
 			return nil, fmt.Errorf("decoding content %q: %w", filename, err)
 		}

@@ -170,5 +170,167 @@ var _ = Describe("OrganizationStore Integration Tests", func() {
 			Expect(orgIDs).To(HaveKey(u4))
 			Expect(orgIDs).ToNot(HaveKey(u1))
 		})
+
+		It("Should upsert organizations with ON CONFLICT DO NOTHING and return existing rows", func() {
+			// First call: insert new orgs via UpsertMany
+			orgsToUpsert := []*model.Organization{
+				{DisplayName: "Upsert Org 1", ExternalID: "upsert-ext-1"},
+				{DisplayName: "Upsert Org 2", ExternalID: "upsert-ext-2"},
+			}
+			result, err := storeInst.Organization().UpsertMany(ctx, orgsToUpsert)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(result).To(HaveLen(2))
+			byExternalID := make(map[string]*model.Organization)
+			for _, o := range result {
+				byExternalID[o.ExternalID] = o
+			}
+			Expect(byExternalID).To(HaveKey("upsert-ext-1"))
+			Expect(byExternalID).To(HaveKey("upsert-ext-2"))
+			Expect(byExternalID["upsert-ext-1"].ID).ToNot(Equal(uuid.Nil))
+			Expect(byExternalID["upsert-ext-1"].DisplayName).To(Equal("Upsert Org 1"))
+			Expect(byExternalID["upsert-ext-2"].DisplayName).To(Equal("Upsert Org 2"))
+
+			// Second call: same external IDs (conflict). ON CONFLICT DO NOTHING must succeed without SQL error.
+			// Returns existing rows from DB, not the new payload.
+			orgsAgain := []*model.Organization{
+				{DisplayName: "Different Name 1", ExternalID: "upsert-ext-1"},
+				{DisplayName: "Different Name 2", ExternalID: "upsert-ext-2"},
+			}
+			resultAgain, err := storeInst.Organization().UpsertMany(ctx, orgsAgain)
+			Expect(err).ToNot(HaveOccurred(), "UpsertMany on conflict must not error (EDM-3438)")
+			Expect(resultAgain).To(HaveLen(2))
+			byExternalIDAgain := make(map[string]*model.Organization)
+			for _, o := range resultAgain {
+				byExternalIDAgain[o.ExternalID] = o
+			}
+			// Still the original display names (DO NOTHING = no update)
+			Expect(byExternalIDAgain["upsert-ext-1"].DisplayName).To(Equal("Upsert Org 1"))
+			Expect(byExternalIDAgain["upsert-ext-1"].ExternalID).To(Equal("upsert-ext-1"))
+			Expect(byExternalIDAgain["upsert-ext-2"].DisplayName).To(Equal("Upsert Org 2"))
+			Expect(byExternalIDAgain["upsert-ext-2"].ExternalID).To(Equal("upsert-ext-2"))
+			// Same IDs as first result
+			Expect(byExternalIDAgain["upsert-ext-1"].ID).To(Equal(byExternalID["upsert-ext-1"].ID))
+			Expect(byExternalIDAgain["upsert-ext-2"].ID).To(Equal(byExternalID["upsert-ext-2"].ID))
+		})
+
+		It("Should prevent race condition when creating default organization on empty table (EDM-2751)", func() {
+			// Create a fresh database with organizations table but NO default organization
+			freshCtx := testutil.StartSpecTracerForGinkgo(suiteCtx)
+			freshLog := flightlog.InitLogs()
+
+			// Use testutil directly to create a fresh database without migrations
+			freshCfg := config.NewDefault()
+			freshDbName := "test_org_race_" + uuid.New().String()[:8]
+			freshCfg.Database.Name = "flightctl"
+			adminDB, err := store.InitDB(freshCfg, freshLog)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Create the test database
+			err = adminDB.Exec("CREATE DATABASE " + freshDbName).Error
+			Expect(err).ToNot(HaveOccurred())
+			store.CloseDB(adminDB)
+
+			// Connect to the fresh database
+			freshCfg.Database.Name = freshDbName
+			freshGormDb, err := store.InitDB(freshCfg, freshLog)
+			Expect(err).ToNot(HaveOccurred())
+
+			defer func() {
+				store.CloseDB(freshGormDb)
+				freshCfg.Database.Name = "flightctl"
+				adminDB, _ := store.InitDB(freshCfg, freshLog)
+				if adminDB != nil {
+					adminDB.Exec("DROP DATABASE IF EXISTS " + freshDbName)
+					store.CloseDB(adminDB)
+				}
+			}()
+
+			// Manually create the organizations table structure WITHOUT running InitialMigration
+			db := freshGormDb.WithContext(freshCtx)
+			err = db.AutoMigrate(&model.Organization{})
+			Expect(err).ToNot(HaveOccurred())
+
+			// Create the external_id unique index
+			err = db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS org_external_id_idx
+			               ON organizations (external_id) WHERE external_id <> ''`).Error
+			Expect(err).ToNot(HaveOccurred())
+
+			// Verify table is empty
+			var count int64
+			err = db.Model(&model.Organization{}).Count(&count).Error
+			Expect(err).ToNot(HaveOccurred())
+			Expect(count).To(Equal(int64(0)), "Organizations table should start empty")
+
+			// Now run InitialMigration concurrently from multiple goroutines
+			// This is the ACTUAL race condition scenario from EDM-2751
+			const numConcurrentCalls = 10
+			errChan := make(chan error, numConcurrentCalls)
+
+			orgStore := store.NewOrganization(freshGormDb)
+			for i := 0; i < numConcurrentCalls; i++ {
+				go func() {
+					err := orgStore.InitialMigration(freshCtx)
+					errChan <- err
+				}()
+			}
+
+			// Collect all errors
+			errors := make([]error, 0, numConcurrentCalls)
+			for i := 0; i < numConcurrentCalls; i++ {
+				err := <-errChan
+				if err != nil {
+					errors = append(errors, err)
+				}
+			}
+
+			// Verify no errors occurred (WITHOUT the fix, this would fail with duplicate key errors)
+			Expect(errors).To(BeEmpty(), "Race condition should be prevented by ON CONFLICT DO NOTHING")
+
+			// Verify exactly one default organization was created
+			var orgs []*model.Organization
+			err = freshGormDb.Find(&orgs).Error
+			Expect(err).ToNot(HaveOccurred())
+			Expect(orgs).To(HaveLen(1), "Exactly one default organization should exist")
+			Expect(orgs[0].ID).To(Equal(store.NullOrgId))
+			Expect(orgs[0].ExternalID).To(Equal(org.DefaultExternalID))
+			Expect(orgs[0].DisplayName).To(Equal("Default"))
+		})
+
+		// Table-driven test for InitialMigration idempotency on already-initialized database
+		DescribeTable("InitialMigration idempotency on initialized database",
+			func(parallel bool, runs int) {
+				errChan := make(chan error, runs)
+				run := func() {
+					errChan <- storeInst.Organization().InitialMigration(ctx)
+				}
+
+				if parallel {
+					// Execute concurrently
+					for i := 0; i < runs; i++ {
+						go run()
+					}
+				} else {
+					// Execute sequentially
+					for i := 0; i < runs; i++ {
+						run()
+					}
+				}
+
+				// Collect and verify no errors occurred
+				for i := 0; i < runs; i++ {
+					Expect(<-errChan).ToNot(HaveOccurred(), "InitialMigration should be idempotent")
+				}
+
+				// Verify still only one default organization exists
+				orgs, err := storeInst.Organization().List(ctx, store.ListParams{})
+				Expect(err).ToNot(HaveOccurred())
+				Expect(orgs).To(HaveLen(1), "Should still have exactly one default organization")
+				Expect(orgs[0].ID).To(Equal(store.NullOrgId))
+				Expect(orgs[0].ExternalID).To(Equal(org.DefaultExternalID))
+				Expect(orgs[0].DisplayName).To(Equal("Default"))
+			},
+			Entry("concurrent calls", true, 10),
+			Entry("sequential calls", false, 1),
+		)
 	})
 })

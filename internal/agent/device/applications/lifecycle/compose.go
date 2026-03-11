@@ -69,13 +69,8 @@ func (c *Compose) remove(ctx context.Context, action *Action) error {
 		return fmt.Errorf("creating podman client: %w", err)
 	}
 
-	var errs []error
 	if err := c.stopAndRemoveContainers(ctx, action, podman); err != nil {
-		errs = append(errs, err)
-	}
-
-	if len(errs) > 0 {
-		return errors.Join(errs...)
+		return err
 	}
 
 	c.log.Infof("Removed application: %s", appName)
@@ -115,10 +110,12 @@ func (c *Compose) update(ctx context.Context, action *Action) error {
 	return nil
 }
 
-// stopAndRemoveContainers stops and removes all containers, pods, and networks created by the compose application.
+// stopAndRemoveContainers stops and removes all containers, pods, networks,
+// and image-backed volumes created by the compose application.
 func (c *Compose) stopAndRemoveContainers(ctx context.Context, action *Action, podman *client.Podman) error {
 	return cleanPodmanResources(
 		ctx,
+		c.log,
 		podman,
 		[]string{
 			fmt.Sprintf("%s=%s", client.ComposeDockerProjectLabelKey, action.ID),
@@ -127,7 +124,7 @@ func (c *Compose) stopAndRemoveContainers(ctx context.Context, action *Action, p
 	)
 }
 
-func cleanPodmanResources(ctx context.Context, podman *client.Podman, labels []string, filters []string) error {
+func cleanPodmanResources(ctx context.Context, log *log.PrefixLogger, podman *client.Podman, labels []string, filters []string) error {
 	var errs []error
 	networks, err := podman.ListNetworks(ctx, labels, filters)
 	if err != nil {
@@ -149,6 +146,9 @@ func cleanPodmanResources(ctx context.Context, podman *client.Podman, labels []s
 		errs = append(errs, err)
 	}
 	if err := podman.RemoveNetworks(ctx, networks...); err != nil {
+		errs = append(errs, err)
+	}
+	if err := removeImageBackedVolumes(ctx, log, podman, labels, filters); err != nil {
 		errs = append(errs, err)
 	}
 

@@ -29,7 +29,6 @@ import (
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/test/harness/e2e"
-	"github.com/flightctl/flightctl/test/login"
 	"github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -89,9 +88,6 @@ var _ = Describe("TPM Device Authentication", func() {
 		Expect(err).ToNot(HaveOccurred())
 
 		GinkgoWriter.Printf("✅ [BeforeEach] Worker %d: Test setup completed\n", workerID)
-
-		// Login to API
-		login.LoginToAPIWithToken(harness)
 	})
 
 	AfterEach(func() {

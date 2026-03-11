@@ -9,6 +9,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/test/util"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
@@ -295,7 +296,7 @@ func TestHelmHandler_Execute_Add(t *testing.T) {
 				kubeOpts = append(kubeOpts, client.WithKubeconfigPath(tc.kubeconfigPath))
 			}
 			clients := &testCLIClients{
-				helm: client.NewHelm(logger, mockExec, mockReadWriter, "/var/lib/flightctl"),
+				helm: client.NewHelm(logger, mockExec, mockReadWriter, "/var/lib/flightctl", util.NewPollConfig()),
 				kube: client.NewKube(logger, mockExec, mockReadWriter, kubeOpts...),
 			}
 			resolver := testExecutableResolver{path: "/test/flightctl"}
@@ -416,7 +417,7 @@ func TestHelmHandler_Execute_Remove(t *testing.T) {
 				kubeOpts = append(kubeOpts, client.WithKubeconfigPath(tc.kubeconfigPath))
 			}
 			clients := &testCLIClients{
-				helm: client.NewHelm(logger, mockExec, mockReadWriter, "/var/lib/flightctl"),
+				helm: client.NewHelm(logger, mockExec, mockReadWriter, "/var/lib/flightctl", util.NewPollConfig()),
 				kube: client.NewKube(logger, mockExec, mockReadWriter, kubeOpts...),
 			}
 			resolver := testExecutableResolver{path: "/test/flightctl"}
@@ -555,7 +556,7 @@ func TestHelmHandler_Execute_Update(t *testing.T) {
 				kubeOpts = append(kubeOpts, client.WithKubeconfigPath(tc.kubeconfigPath))
 			}
 			clients := &testCLIClients{
-				helm: client.NewHelm(logger, mockExec, mockReadWriter, "/var/lib/flightctl"),
+				helm: client.NewHelm(logger, mockExec, mockReadWriter, "/var/lib/flightctl", util.NewPollConfig()),
 				kube: client.NewKube(logger, mockExec, mockReadWriter, kubeOpts...),
 			}
 			resolver := testExecutableResolver{path: "/test/flightctl"}
@@ -624,7 +625,7 @@ func TestHelmHandler_Execute_MultipleActions(t *testing.T) {
 	)
 
 	clients := &testCLIClients{
-		helm: client.NewHelm(logger, mockExec, mockReadWriter, client.HelmChartsDir),
+		helm: client.NewHelm(logger, mockExec, mockReadWriter, client.HelmChartsDir, util.NewPollConfig()),
 		kube: client.NewKube(logger, mockExec, mockReadWriter, client.WithBinary("kubectl"), client.WithKubeconfigPath("/tmp/kubeconfig")),
 	}
 	resolver := testExecutableResolver{path: "/test/flightctl"}
@@ -668,7 +669,7 @@ func TestHelmHandler_Execute_UnsupportedActionType(t *testing.T) {
 	}).Return("v3.14.0", "", 0)
 
 	clients := &testCLIClients{
-		helm: client.NewHelm(logger, mockExec, mockReadWriter, client.HelmChartsDir),
+		helm: client.NewHelm(logger, mockExec, mockReadWriter, client.HelmChartsDir, util.NewPollConfig()),
 		kube: client.NewKube(logger, mockExec, mockReadWriter, client.WithBinary("kubectl"), client.WithKubeconfigPath("/tmp/kubeconfig")),
 	}
 	resolver := testExecutableResolver{path: "/test/flightctl"}

@@ -56,14 +56,14 @@ func makeDeviceListPage(t *testing.T, numItems int, cont *string, remaining *int
 	for i := 0; i < numItems; i++ {
 		name := fmt.Sprintf("dev-%d", i)
 		items[i] = api.Device{
-			ApiVersion: "v1",
+			ApiVersion: "v1beta1",
 			Kind:       api.DeviceKind,
 			Metadata:   api.ObjectMeta{Name: &name},
 		}
 	}
 
 	body, err := json.Marshal(api.DeviceList{
-		ApiVersion: "v1",
+		ApiVersion: "v1beta1",
 		Kind:       api.DeviceListKind,
 		Items:      items,
 		Metadata: api.ListMeta{
@@ -501,6 +501,24 @@ func TestGetOptionsValidation(t *testing.T) {
 			args:        []string{"events"},
 			expectError: false,
 		},
+
+		// CatalogItem cross-catalog listing tests
+		{
+			name:        "catalogitems_without_catalog_lists_all",
+			args:        []string{"catalogitems"},
+			expectError: false,
+		},
+		{
+			name:        "catalogitems_with_catalog_flag",
+			args:        []string{"catalogitems"},
+			options:     &GetOptions{CatalogName: "my-catalog"},
+			expectError: false,
+		},
+		{
+			name:        "catalogitems_shortname_without_catalog",
+			args:        []string{"ci"},
+			expectError: false,
+		},
 	}
 
 	for _, tc := range tests {
@@ -527,6 +545,9 @@ func TestGetOptionsValidation(t *testing.T) {
 				}
 				if tc.options.LastSeen {
 					opts.LastSeen = tc.options.LastSeen
+				}
+				if tc.options.CatalogName != "" {
+					opts.CatalogName = tc.options.CatalogName
 				}
 			}
 

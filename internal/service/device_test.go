@@ -29,7 +29,7 @@ func verifyDevicePatchFailed(require *require.Assertions, status domain.Status) 
 func testDevicePatch(require *require.Assertions, patch domain.PatchRequest) (*domain.Device, domain.Device, domain.Status) {
 	status := domain.NewDeviceStatus()
 	device := domain.Device{
-		ApiVersion: "v1",
+		ApiVersion: "v1beta1",
 		Kind:       "Device",
 		Metadata: domain.ObjectMeta{
 			Name:   lo.ToPtr("foo"),
@@ -178,7 +178,7 @@ func TestDeviceStatusPatch(t *testing.T) {
 
 			// initialize device
 			device := domain.Device{
-				ApiVersion: "v1",
+				ApiVersion: "v1beta1",
 				Kind:       "Device",
 				Metadata: domain.ObjectMeta{
 					Name:   lo.ToPtr("foo"),

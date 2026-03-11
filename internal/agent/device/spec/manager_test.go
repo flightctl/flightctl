@@ -39,9 +39,9 @@ func TestConsumeLatestSkipsFailedVersion(t *testing.T) {
 	// Mock: no new messages from watcher
 	mockWatcher.EXPECT().TryPop().Return(nil, false, nil)
 	// Mock: getRenderedVersion() checks if desired (4) is failed - return false
-	mockPriorityQueue.EXPECT().IsFailed(int64(4)).Return(false)
+	mockPriorityQueue.EXPECT().IsFailed(int64(4), gomock.Any()).Return(false)
 	// Mock: consumeLatest checks if lastConsumed (5) is failed - return true to skip requeue
-	mockPriorityQueue.EXPECT().IsFailed(int64(5)).Return(true)
+	mockPriorityQueue.EXPECT().IsFailed(int64(5), gomock.Any()).Return(true)
 	// Expect NO call to Add() since version 5 is failed
 
 	consumed, err := s.consumeLatest(ctx)
@@ -77,9 +77,9 @@ func TestConsumeLatestRequeuesNonFailedVersion(t *testing.T) {
 	// Mock: no new messages from watcher
 	mockWatcher.EXPECT().TryPop().Return(nil, false, nil)
 	// Mock: getRenderedVersion() checks if desired (4) is failed - return false
-	mockPriorityQueue.EXPECT().IsFailed(int64(4)).Return(false)
+	mockPriorityQueue.EXPECT().IsFailed(int64(4), gomock.Any()).Return(false)
 	// Mock: consumeLatest checks if lastConsumed (5) is failed - return false to allow requeue
-	mockPriorityQueue.EXPECT().IsFailed(int64(5)).Return(false)
+	mockPriorityQueue.EXPECT().IsFailed(int64(5), gomock.Any()).Return(false)
 	mockPriorityQueue.EXPECT().Add(ctx, lastConsumedDevice)
 
 	consumed, err := s.consumeLatest(ctx)

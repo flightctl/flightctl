@@ -79,7 +79,7 @@ func prepareDevice(orgId uuid.UUID, name string) *domain.Device {
 		OperatingSystem: "4",
 	}
 	return &domain.Device{
-		ApiVersion: "v1",
+		ApiVersion: "v1beta1",
 		Kind:       "Device",
 		Metadata: domain.ObjectMeta{
 			Name:   lo.ToPtr(name),
@@ -94,7 +94,7 @@ func prepareDevice(orgId uuid.UUID, name string) *domain.Device {
 
 func prepareFleet(owner string) domain.Fleet {
 	return domain.Fleet{
-		ApiVersion: "v1",
+		ApiVersion: "v1beta1",
 		Kind:       "Fleet",
 		Metadata: domain.ObjectMeta{
 			Name:   lo.ToPtr(owner),
@@ -606,7 +606,7 @@ func TestEventEnrollmentRequestApproved(t *testing.T) {
 	csr, err := fccrypto.MakeCSR(privateKey.(crypto.Signer), name)
 	require.NoError(err)
 	er := domain.EnrollmentRequest{
-		ApiVersion: "v1",
+		ApiVersion: "v1beta1",
 		Kind:       "EnrollmentRequest",
 		Metadata: domain.ObjectMeta{
 			Name: lo.ToPtr(name),

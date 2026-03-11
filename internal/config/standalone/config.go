@@ -17,5 +17,13 @@ type GlobalConfig struct {
 }
 
 type AuthConfig struct {
-	Type string `json:"type"`
+	Type                  string     `json:"type"`
+	InsecureSkipTlsVerify bool       `json:"insecureSkipTlsVerify,omitempty"`
+	AAP                   *AAPConfig `json:"aap,omitempty"`
+}
+
+type AAPConfig struct {
+	ClientID string `json:"clientId,omitempty"`
+	ApiURL   string `json:"apiUrl,omitempty"`
+	Token    string `json:"token,omitempty"`
 }

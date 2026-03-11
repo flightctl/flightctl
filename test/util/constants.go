@@ -10,6 +10,8 @@ const (
 	Repository                = "repository"
 	ResourceSync              = "resourcesync"
 	CertificateSigningRequest = "certificatesigningrequest"
+	ImageBuild                = "imagebuild"
+	ImageExport               = "imageexport"
 
 	//resource related
 	ApplyAction    = "apply"
@@ -63,6 +65,8 @@ const (
 )
 
 var ResourceTypes = [...]string{
+	ImageExport, // Delete ImageExports before ImageBuilds (ImageExports reference ImageBuilds)
+	ImageBuild,
 	ResourceSync,
 	Fleet,
 	Device,
@@ -89,6 +93,7 @@ const E2E_NAMESPACE = "flightctl-e2e"
 const E2E_REGISTRY_NAME = "registry"
 const KIND = "KIND"
 const OCP = "OCP"
+const QUADLET = "QUADLET"
 const FLIGHTCTL_AGENT_SERVICE = "flightctl-agent"
 
 // Define a type for messages.

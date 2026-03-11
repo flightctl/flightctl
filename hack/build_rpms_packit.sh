@@ -85,6 +85,8 @@ move_artifacts() {
 cleanup_packaging_artifacts() {
   rm -f packaging/rpm/*.tar.gz || true
   rm -rf packaging/rpm/flightctl-*-build/ || true
+  rm -f flightctl-*.src.rpm || true
+  rm -rf "$PACKIT_OUTPUT_DIR" || true
 }
 
 ./hack/preflight_checks.sh "${ROOT}"

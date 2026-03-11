@@ -19,7 +19,10 @@ echo "Granting privileges to migration user..."
 PGPASSWORD="$DB_ADMIN_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_ADMIN_USER" -d "$DB_NAME" -c "
 GRANT CONNECT ON DATABASE \"$DB_NAME\" TO \"$DB_MIGRATION_USER\";
 GRANT USAGE, CREATE ON SCHEMA public TO \"$DB_MIGRATION_USER\";
-GRANT CREATE ON DATABASE \"$DB_NAME\" TO \"$DB_MIGRATION_USER\";"
+GRANT CREATE ON DATABASE \"$DB_NAME\" TO \"$DB_MIGRATION_USER\";
+-- Grant data-plane permissions WITH GRANT OPTION for external DB support
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO \"$DB_MIGRATION_USER\" WITH GRANT OPTION;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO \"$DB_MIGRATION_USER\" WITH GRANT OPTION;"
 
 echo "Migration user setup completed. Running database migration..."
 /usr/local/bin/flightctl-db-migrate

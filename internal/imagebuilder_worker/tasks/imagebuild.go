@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	_ "embed"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"os"
@@ -51,6 +52,50 @@ type ContainerfileResult struct {
 	Publickey []byte
 }
 
+// shouldProcessImageBuild checks if the ImageBuild is in a state that should be processed.
+// Returns (true, nil) if processing should proceed, or (false, err) if it should be skipped.
+func (c *Consumer) shouldProcessImageBuild(ctx context.Context, orgID uuid.UUID, imageBuild *domain.ImageBuild, name string, log logrus.FieldLogger) (bool, error) {
+	if imageBuild.Status.Conditions == nil {
+		return true, nil
+	}
+	readyCondition := domain.FindImageBuildStatusCondition(*imageBuild.Status.Conditions, domain.ImageBuildConditionTypeReady)
+	if readyCondition == nil {
+		return true, nil
+	}
+
+	reason := readyCondition.Reason
+
+	switch reason {
+	case string(domain.ImageBuildConditionReasonCompleted),
+		string(domain.ImageBuildConditionReasonFailed),
+		string(domain.ImageBuildConditionReasonCanceled):
+		log.Infof("ImageBuild %q already in terminal state %q, skipping", name, reason)
+		return false, nil
+
+	case string(domain.ImageBuildConditionReasonBuilding):
+		log.Infof("ImageBuild %q is already being processed (Building), skipping", name)
+		return false, nil
+
+	case string(domain.ImageBuildConditionReasonPushing):
+		log.Infof("ImageBuild %q is already being processed (Pushing), skipping", name)
+		return false, nil
+
+	case string(domain.ImageBuildConditionReasonCanceling):
+		log.Infof("ImageBuild %q was canceled before processing started, completing cancellation", name)
+		if err := c.markImageBuildAsCanceled(ctx, orgID, imageBuild, log); err != nil {
+			return false, fmt.Errorf("failed to mark ImageBuild as canceled: %w", err)
+		}
+		return false, nil
+
+	case string(domain.ImageBuildConditionReasonPending):
+		return true, nil
+
+	default:
+		log.Warnf("ImageBuild %q is in unexpected state %q (expected Pending), skipping", name, reason)
+		return false, nil
+	}
+}
+
 // processImageBuild processes an imageBuild event by loading the ImageBuild resource
 // and routing to the appropriate build handler
 func (c *Consumer) processImageBuild(ctx context.Context, eventWithOrgId worker_client.EventWithOrgId, log logrus.FieldLogger) error {
@@ -74,47 +119,10 @@ func (c *Consumer) processImageBuild(ctx context.Context, eventWithOrgId worker_
 		imageBuild.Status = &domain.ImageBuildStatus{}
 	}
 
-	// Check current state - only process if Pending (or has no Ready condition)
-	// We only lock resources that are in Pending state to avoid stealing work from other processes
-	var readyCondition *domain.ImageBuildCondition
-	if imageBuild.Status.Conditions != nil {
-		readyCondition = domain.FindImageBuildStatusCondition(*imageBuild.Status.Conditions, domain.ImageBuildConditionTypeReady)
+	proceed, err := c.shouldProcessImageBuild(ctx, orgID, imageBuild, imageBuildName, log)
+	if !proceed {
+		return err
 	}
-	if readyCondition != nil {
-		reason := readyCondition.Reason
-		// Skip if already in terminal state (completed, failed, canceled)
-		if reason == string(domain.ImageBuildConditionReasonCompleted) ||
-			reason == string(domain.ImageBuildConditionReasonFailed) ||
-			reason == string(domain.ImageBuildConditionReasonCanceled) {
-			log.Infof("ImageBuild %q already in terminal state %q, skipping", imageBuildName, reason)
-			return nil
-		}
-		// Skip if already Building - another process is handling it
-		if reason == string(domain.ImageBuildConditionReasonBuilding) {
-			log.Infof("ImageBuild %q is already being processed (Building), skipping", imageBuildName)
-			return nil
-		}
-		// Skip if Pushing - another process is handling it
-		if reason == string(domain.ImageBuildConditionReasonPushing) {
-			log.Infof("ImageBuild %q is already being processed (Pushing), skipping", imageBuildName)
-			return nil
-		}
-		// If Canceling and we haven't started processing yet, complete the cancellation
-		// This happens when a Pending build was canceled before the worker picked it up
-		if reason == string(domain.ImageBuildConditionReasonCanceling) {
-			log.Infof("ImageBuild %q was canceled before processing started, completing cancellation", imageBuildName)
-			if err := c.markImageBuildAsCanceled(ctx, orgID, imageBuild, log); err != nil {
-				return fmt.Errorf("failed to mark ImageBuild as canceled: %w", err)
-			}
-			return nil
-		}
-		// Only proceed if Pending - if it's any other state, skip (shouldn't happen, but defensive)
-		if reason != string(domain.ImageBuildConditionReasonPending) {
-			log.Warnf("ImageBuild %q is in unexpected state %q (expected Pending), skipping", imageBuildName, reason)
-			return nil
-		}
-	}
-	// If no Ready condition exists, treat as Pending and proceed
 
 	// Lock the build: atomically transition from Pending to Building state using resource_version
 	// This ensures only one process can start processing
@@ -137,7 +145,7 @@ func (c *Consumer) processImageBuild(ctx context.Context, eventWithOrgId worker_
 	domain.SetImageBuildStatusCondition(imageBuild.Status.Conditions, buildingCondition)
 
 	// Synchronously update status to Building - this will fail if resource_version changed
-	_, err := c.imageBuilderService.ImageBuild().UpdateStatus(ctx, orgID, imageBuild)
+	_, err = c.imageBuilderService.ImageBuild().UpdateStatus(ctx, orgID, imageBuild)
 	if err != nil {
 		if errors.Is(err, flterrors.ErrNoRowsUpdated) {
 			// Another process updated the resource - it's likely already Building
@@ -184,6 +192,27 @@ func (c *Consumer) processImageBuild(ctx context.Context, eventWithOrgId worker_
 		return fmt.Errorf("failed to start podman worker: %w", err)
 	}
 	defer podmanWorker.Cleanup()
+
+	// Step 2b: Install CA certificates for source and destination registries
+	// Done once at startup so all subsequent podman operations (login, build, push)
+	// automatically trust these CAs via /etc/containers/certs.d/
+	for _, repoRef := range []string{imageBuild.Spec.Source.Repository, imageBuild.Spec.Destination.Repository} {
+		ociSpec, err := c.getOciRepoSpec(buildCtx, orgID, repoRef, "ca-setup")
+		if err != nil {
+			err = fmt.Errorf("failed to get OCI spec for %q: %w", repoRef, err)
+			if c.handleBuildError(ctx, orgID, imageBuildName, err, statusUpdater, log) {
+				return nil
+			}
+			return err
+		}
+		if err := installCACertInWorker(buildCtx, ociSpec.CaCrt, podmanWorker.ContainerName, ociSpec.Registry, log); err != nil {
+			err = fmt.Errorf("failed to install CA cert for %q: %w", repoRef, err)
+			if c.handleBuildError(ctx, orgID, imageBuildName, err, statusUpdater, log) {
+				return nil
+			}
+			return err
+		}
+	}
 
 	// Step 3: Build with podman container in container
 	err = c.buildImageWithPodman(buildCtx, orgID, imageBuild, containerfileResult, podmanWorker, log)
@@ -290,15 +319,34 @@ type containerfileBuildArgs struct {
 	AgentConfigDestPath string
 	Username            string
 	HasUserConfig       bool
-	RPMRepoURL          string
+	RPMRepoAdd          bool
+	RPMRepoAddURL       string
+	RPMRepoEnable       string
 }
 
-// getRPMRepoURL returns the RPM repo URL from config, falling back to default if not configured
-func (c *Consumer) getRPMRepoURL() string {
+// getRPMRepoAdd returns whether to add the RPM repo via dnf config-manager --add-repo.
+// Defaults to true (upstream behavior) when not explicitly configured.
+func (c *Consumer) getRPMRepoAdd() bool {
+	if c.cfg != nil && c.cfg.ImageBuilderWorker != nil && c.cfg.ImageBuilderWorker.RPMRepoAdd != nil {
+		return *c.cfg.ImageBuilderWorker.RPMRepoAdd
+	}
+	return true
+}
+
+// getRPMRepoAddURL returns the RPM repo URL to add, falling back to default if not configured
+func (c *Consumer) getRPMRepoAddURL() string {
 	if c.cfg != nil && c.cfg.ImageBuilderWorker != nil && c.cfg.ImageBuilderWorker.RPMRepoURL != "" {
 		return c.cfg.ImageBuilderWorker.RPMRepoURL
 	}
 	return config.NewDefaultImageBuilderWorkerConfig().RPMRepoURL
+}
+
+// getRPMRepoEnable returns the RPM repo name to enable via --enablerepo, or empty string
+func (c *Consumer) getRPMRepoEnable() string {
+	if c.cfg != nil && c.cfg.ImageBuilderWorker != nil {
+		return c.cfg.ImageBuilderWorker.RPMRepoEnable
+	}
+	return ""
 }
 
 // EnrollmentCredentialGenerator is an interface for generating enrollment credentials
@@ -407,7 +455,9 @@ func (c *Consumer) generateContainerfileWithGenerator(
 		EarlyBinding:        isEarlyBinding,
 		AgentConfigDestPath: agentConfigPath,
 		HasUserConfig:       hasUserConfig,
-		RPMRepoURL:          c.getRPMRepoURL(),
+		RPMRepoAdd:          c.getRPMRepoAdd(),
+		RPMRepoAddURL:       c.getRPMRepoAddURL(),
+		RPMRepoEnable:       c.getRPMRepoEnable(),
 	}
 
 	result := &ContainerfileResult{
@@ -691,6 +741,40 @@ ignore_chown_errors = "true"
 	}, nil
 }
 
+// installCACertInWorker installs a base64-encoded CA certificate into the worker
+// container's default podman cert directory at /etc/containers/certs.d/<registry>/ca.crt.
+func installCACertInWorker(ctx context.Context, caCrt *string, containerName string, registryHostname string, log logrus.FieldLogger) error {
+	if caCrt == nil || *caCrt == "" {
+		return nil
+	}
+
+	ca, err := base64.StdEncoding.DecodeString(*caCrt)
+	if err != nil {
+		return fmt.Errorf("failed to decode CA certificate: %w", err)
+	}
+
+	certDir := fmt.Sprintf("/etc/containers/certs.d/%s", registryHostname)
+
+	mkdirCmd := exec.CommandContext(ctx, "podman", "exec", containerName, "mkdir", "-p", certDir)
+	if out, err := mkdirCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to create cert dir in container: %w: %s", err, string(out))
+	}
+
+	certPath := fmt.Sprintf("%s/ca.crt", certDir)
+	teeCmd := exec.CommandContext(ctx, "podman", "exec", "-i", containerName, "tee", certPath)
+	teeCmd.Stdin = bytes.NewReader(ca)
+	if out, err := teeCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to write CA cert in container: %w: %s", err, string(out))
+	}
+
+	log.WithFields(logrus.Fields{
+		"certPath":         certPath,
+		"registryHostname": registryHostname,
+	}).Debug("Installed CA certificate in worker container")
+
+	return nil
+}
+
 // loginToRegistry logs into a registry using podman login with stdin
 // This is used for push operations where authfile doesn't work reliably
 func (c *Consumer) loginToRegistry(
@@ -699,27 +783,27 @@ func (c *Consumer) loginToRegistry(
 	registryHostname string,
 	username string,
 	password string,
+	ociSpec *coredomain.OciRepoSpec,
 	log logrus.FieldLogger,
 ) error {
 	if username == "" || password == "" {
 		return nil
 	}
 
-	// Validate username to prevent command injection
-	// Username should not contain shell metacharacters that could be used for injection
-	// Allow alphanumeric, dots, hyphens, underscores, @, and $ (for email-style and system usernames)
-	// Block dangerous patterns like command substitution, pipes, and other shell operators
-	if strings.ContainsAny(username, ";|&`(){}[]<>\"'\\\n\r\t") {
-		return fmt.Errorf("invalid username: contains unsafe characters")
+	// Validate username: only block control characters that could break line-based protocols.
+	// Shell metacharacters (|, ;, &, etc.) are safe here because exec.CommandContext
+	// passes arguments directly via execve (no shell involved).
+	if strings.ContainsAny(username, "\x00\n\r") {
+		return fmt.Errorf("invalid username: contains control characters")
 	}
 	if len(username) > 256 {
 		return fmt.Errorf("invalid username: exceeds maximum length of 256 characters")
 	}
 
-	// Validate registryHostname to prevent command injection
-	// Registry hostname should not contain shell metacharacters that could be used for injection
-	if strings.ContainsAny(registryHostname, ";|&`(){}[]<>\"'\\\n\r\t") {
-		return fmt.Errorf("invalid registry hostname: contains unsafe characters")
+	// Validate registryHostname: only block control characters that could break line-based protocols.
+	// Shell metacharacters are safe here because exec.CommandContext uses execve (no shell).
+	if strings.ContainsAny(registryHostname, "\x00\n\r") {
+		return fmt.Errorf("invalid registry hostname: contains control characters")
 	}
 	if len(registryHostname) > 256 {
 		return fmt.Errorf("invalid registry hostname: exceeds maximum length of 256 characters")
@@ -727,11 +811,19 @@ func (c *Consumer) loginToRegistry(
 
 	log.WithField("registry", registryHostname).Debug("Logging into registry with podman login")
 
-	// Run podman login inside the container with stdin
-	// Format: podman exec -i <container> podman login -u <username> -p <password> <registry>
-	// username and registryHostname are validated above to prevent command injection
-	//nolint:gosec // G204: Inputs are validated above to prevent command injection. exec.CommandContext uses separate arguments (not shell), making this safe.
-	loginCmd := exec.CommandContext(ctx, "podman", "exec", "-i", podmanWorker.ContainerName, "podman", "login", "-u", username, "--password-stdin", registryHostname)
+	loginArgs := []string{"exec", "-i", podmanWorker.ContainerName, "podman", "login", "-u", username, "--password-stdin"}
+
+	if ociSpec != nil && ociSpec.Scheme != nil && *ociSpec.Scheme == coredomain.OciRepoSchemeHttp {
+		loginArgs = append(loginArgs, "--tls-verify=false")
+		log.Debug("Using --tls-verify=false for HTTP registry login")
+	} else if ociSpec != nil && ociSpec.SkipServerVerification != nil && *ociSpec.SkipServerVerification {
+		loginArgs = append(loginArgs, "--tls-verify=false")
+		log.Debug("Using --tls-verify=false due to SkipServerVerification for login")
+	}
+
+	loginArgs = append(loginArgs, registryHostname)
+	// G204: Inputs are validated above to prevent command injection. exec.CommandContext uses separate arguments (not shell), making this safe.
+	loginCmd := exec.CommandContext(ctx, "podman", loginArgs...)
 
 	// Write password to stdin
 	loginCmd.Stdin = strings.NewReader(password)
@@ -747,6 +839,60 @@ func (c *Consumer) loginToRegistry(
 	}
 
 	log.Debugf("Successfully logged into registry %q", registryHostname)
+	return nil
+}
+
+// getOciRepoSpec retrieves and validates a repository as OCI type, returning its spec.
+func (c *Consumer) getOciRepoSpec(ctx context.Context, orgID uuid.UUID, repoName string, repoRole string) (*coredomain.OciRepoSpec, error) {
+	repo, err := c.mainStore.Repository().Get(ctx, orgID, repoName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get %s repository: %w", repoRole, err)
+	}
+
+	repoType, err := repo.Spec.Discriminator()
+	if err != nil {
+		return nil, fmt.Errorf("failed to determine %s repository type: %w", repoRole, err)
+	}
+	if repoType != string(coredomain.RepoSpecTypeOci) {
+		return nil, fmt.Errorf("%s repository %q must be of type 'oci', got %q", repoRole, repoName, repoType)
+	}
+
+	ociSpec, err := repo.Spec.AsOciRepoSpec()
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse %s OCI repository spec: %w", repoRole, err)
+	}
+
+	return &ociSpec, nil
+}
+
+// writeBuildContextFiles writes the containerfile and associated files to the build directory.
+func writeBuildContextFiles(tmpDir string, containerfileResult *ContainerfileResult) error {
+	// Write Containerfile
+	containerfilePath := filepath.Join(tmpDir, "Containerfile")
+	if err := os.WriteFile(containerfilePath, []byte(containerfileResult.Containerfile), 0600); err != nil {
+		return fmt.Errorf("failed to write Containerfile: %w", err)
+	}
+
+	// Write agent config file (required by COPY instruction, empty if not early binding)
+	agentConfigPath := filepath.Join(tmpDir, "agent-config.yaml")
+	agentConfigContent := containerfileResult.AgentConfig
+	if agentConfigContent == nil {
+		agentConfigContent = []byte{}
+	}
+	if err := os.WriteFile(agentConfigPath, agentConfigContent, 0600); err != nil {
+		return fmt.Errorf("failed to write agent-config.yaml: %w", err)
+	}
+
+	// Write public key file (required by COPY instruction, empty if no user config)
+	publickeyPath := filepath.Join(tmpDir, "user-publickey.txt")
+	publickeyContent := containerfileResult.Publickey
+	if publickeyContent == nil {
+		publickeyContent = []byte{}
+	}
+	if err := os.WriteFile(publickeyPath, publickeyContent, 0600); err != nil {
+		return fmt.Errorf("failed to write user-publickey.txt: %w", err)
+	}
+
 	return nil
 }
 
@@ -767,24 +913,10 @@ func (c *Consumer) buildImageWithPodman(
 
 	spec := imageBuild.Spec
 
-	// Get destination repository to get registry hostname and validate
-	destRepo, err := c.mainStore.Repository().Get(ctx, orgID, spec.Destination.Repository)
+	// Get and validate destination repository
+	destOciSpec, err := c.getOciRepoSpec(ctx, orgID, spec.Destination.Repository, "destination")
 	if err != nil {
-		return fmt.Errorf("failed to get destination repository: %w", err)
-	}
-
-	// Validate that the destination repository is of OCI type
-	destRepoType, err := destRepo.Spec.Discriminator()
-	if err != nil {
-		return fmt.Errorf("failed to determine destination repository type: %w", err)
-	}
-	if destRepoType != string(coredomain.RepoSpecTypeOci) {
-		return fmt.Errorf("destination repository %q must be of type 'oci', got %q", spec.Destination.Repository, destRepoType)
-	}
-
-	destOciSpec, err := destRepo.Spec.AsOciRepoSpec()
-	if err != nil {
-		return fmt.Errorf("failed to parse destination OCI repository spec: %w", err)
+		return err
 	}
 
 	// Validate image reference components (defense-in-depth)
@@ -807,50 +939,15 @@ func (c *Consumer) buildImageWithPodman(
 		"platform": platform,
 	}).Info("Starting podman build")
 
-	// Write Containerfile to temporary directory
-	containerfilePath := filepath.Join(podmanWorker.TmpDir, "Containerfile")
-	if err := os.WriteFile(containerfilePath, []byte(containerfileResult.Containerfile), 0600); err != nil {
-		return fmt.Errorf("failed to write Containerfile: %w", err)
+	// Write build context files (Containerfile, agent-config.yaml, user-publickey.txt)
+	if err := writeBuildContextFiles(podmanWorker.TmpDir, containerfileResult); err != nil {
+		return err
 	}
 
-	// Write agent config file to build context (required by COPY instruction, empty if not early binding)
-	agentConfigPath := filepath.Join(podmanWorker.TmpDir, "agent-config.yaml")
-	agentConfigContent := containerfileResult.AgentConfig
-	if agentConfigContent == nil {
-		agentConfigContent = []byte{} // Empty placeholder
-	}
-	if err := os.WriteFile(agentConfigPath, agentConfigContent, 0600); err != nil {
-		return fmt.Errorf("failed to write agent-config.yaml: %w", err)
-	}
-
-	// Write public key file to build context (required by COPY instruction, empty if no user config)
-	publickeyPath := filepath.Join(podmanWorker.TmpDir, "user-publickey.txt")
-	publickeyContent := containerfileResult.Publickey
-	if publickeyContent == nil {
-		publickeyContent = []byte{} // Empty placeholder
-	}
-	if err := os.WriteFile(publickeyPath, publickeyContent, 0600); err != nil {
-		return fmt.Errorf("failed to write user-publickey.txt: %w", err)
-	}
-
-	// Get source repository credentials for pulling the base image (FROM)
-	repo, err := c.mainStore.Repository().Get(ctx, orgID, spec.Source.Repository)
+	// Get and validate source repository for pulling the base image (FROM)
+	ociSpec, err := c.getOciRepoSpec(ctx, orgID, spec.Source.Repository, "source")
 	if err != nil {
-		return fmt.Errorf("failed to load source repository: %w", err)
-	}
-
-	// Validate that the source repository is of OCI type
-	repoType, err := repo.Spec.Discriminator()
-	if err != nil {
-		return fmt.Errorf("failed to determine source repository type: %w", err)
-	}
-	if repoType != string(coredomain.RepoSpecTypeOci) {
-		return fmt.Errorf("source repository %q must be of type 'oci', got %q", spec.Source.Repository, repoType)
-	}
-
-	ociSpec, err := repo.Spec.AsOciRepoSpec()
-	if err != nil {
-		return fmt.Errorf("failed to parse OCI repository spec: %w", err)
+		return err
 	}
 
 	// Container paths
@@ -864,7 +961,7 @@ func (c *Consumer) buildImageWithPodman(
 	if ociSpec.OciAuth != nil {
 		dockerAuth, err := ociSpec.OciAuth.AsDockerAuth()
 		if err == nil && dockerAuth.Username != "" && dockerAuth.Password != "" {
-			if err := c.loginToRegistry(ctx, podmanWorker, sourceRegistryHostname, dockerAuth.Username, dockerAuth.Password, log); err != nil {
+			if err := c.loginToRegistry(ctx, podmanWorker, sourceRegistryHostname, dockerAuth.Username, dockerAuth.Password, ociSpec, log); err != nil {
 				return fmt.Errorf("failed to login to source registry: %w", err)
 			}
 		}
@@ -894,6 +991,18 @@ func (c *Consumer) buildImageWithPodman(
 		"build",
 		"--platform", platform,
 		"--manifest", imageRef,
+	}
+
+	// Disable TLS verification for HTTP source registries or when explicitly requested
+	if ociSpec.Scheme != nil && *ociSpec.Scheme == coredomain.OciRepoSchemeHttp {
+		podmanBuildArgs = append(podmanBuildArgs, "--tls-verify=false")
+		log.Debug("Using --tls-verify=false for HTTP source registry")
+	} else if ociSpec.SkipServerVerification != nil && *ociSpec.SkipServerVerification {
+		podmanBuildArgs = append(podmanBuildArgs, "--tls-verify=false")
+		log.Debug("Using --tls-verify=false due to source SkipServerVerification")
+	}
+
+	podmanBuildArgs = append(podmanBuildArgs,
 		"--build-arg", fmt.Sprintf("REGISTRY_HOSTNAME=%s", args.RegistryHostname),
 		"--build-arg", fmt.Sprintf("IMAGE_NAME=%s", args.ImageName),
 		"--build-arg", fmt.Sprintf("IMAGE_TAG=%s", args.ImageTag),
@@ -901,8 +1010,10 @@ func (c *Consumer) buildImageWithPodman(
 		"--build-arg", fmt.Sprintf("HAS_USER_CONFIG=%t", args.HasUserConfig),
 		"--build-arg", fmt.Sprintf("USERNAME=%s", args.Username),
 		"--build-arg", fmt.Sprintf("AGENT_CONFIG_DEST_PATH=%s", args.AgentConfigDestPath),
-		"--build-arg", fmt.Sprintf("RPM_REPO_URL=%s", args.RPMRepoURL),
-	}
+		"--build-arg", fmt.Sprintf("RPM_REPO_ADD=%t", args.RPMRepoAdd),
+		"--build-arg", fmt.Sprintf("RPM_REPO_ADD_URL=%s", args.RPMRepoAddURL),
+		"--build-arg", fmt.Sprintf("RPM_REPO_ENABLE=%s", args.RPMRepoEnable),
+	)
 
 	// Mount entitlement certs into the build if available (for RHEL subscription repos)
 	if podmanWorker.HasEntitlementCerts {
@@ -939,24 +1050,10 @@ func (c *Consumer) pushImageWithPodman(
 
 	spec := imageBuild.Spec
 
-	// Get destination repository for authentication and to get registry hostname
-	repo, err := c.mainStore.Repository().Get(ctx, orgID, spec.Destination.Repository)
+	// Get and validate destination repository
+	ociSpec, err := c.getOciRepoSpec(ctx, orgID, spec.Destination.Repository, "destination")
 	if err != nil {
-		return "", fmt.Errorf("failed to load destination repository: %w", err)
-	}
-
-	// Validate that the destination repository is of OCI type
-	repoType, err := repo.Spec.Discriminator()
-	if err != nil {
-		return "", fmt.Errorf("failed to determine destination repository type: %w", err)
-	}
-	if repoType != string(coredomain.RepoSpecTypeOci) {
-		return "", fmt.Errorf("destination repository %q must be of type 'oci', got %q", spec.Destination.Repository, repoType)
-	}
-
-	ociSpec, err := repo.Spec.AsOciRepoSpec()
-	if err != nil {
-		return "", fmt.Errorf("failed to parse OCI repository spec: %w", err)
+		return "", err
 	}
 
 	// Validate image reference components (defense-in-depth)
@@ -973,7 +1070,7 @@ func (c *Consumer) pushImageWithPodman(
 	if ociSpec.OciAuth != nil {
 		dockerAuth, err := ociSpec.OciAuth.AsDockerAuth()
 		if err == nil && dockerAuth.Username != "" && dockerAuth.Password != "" {
-			if err := c.loginToRegistry(ctx, podmanWorker, destRegistryHostname, dockerAuth.Username, dockerAuth.Password, log); err != nil {
+			if err := c.loginToRegistry(ctx, podmanWorker, destRegistryHostname, dockerAuth.Username, dockerAuth.Password, ociSpec, log); err != nil {
 				return "", fmt.Errorf("failed to login to destination registry: %w", err)
 			}
 		}
@@ -987,7 +1084,18 @@ func (c *Consumer) pushImageWithPodman(
 	// Push
 	// Note: We push the MANIFEST (imageRef), which pushes all layers
 	// Authentication is handled via podman login above
-	pushArgs := []string{"push", imageRef}
+	pushArgs := []string{"push"}
+
+	// Disable TLS verification for HTTP registries or when explicitly requested
+	if ociSpec.Scheme != nil && *ociSpec.Scheme == coredomain.OciRepoSchemeHttp {
+		pushArgs = append(pushArgs, "--tls-verify=false")
+		log.Debug("Using --tls-verify=false for HTTP registry")
+	} else if ociSpec.SkipServerVerification != nil && *ociSpec.SkipServerVerification {
+		pushArgs = append(pushArgs, "--tls-verify=false")
+		log.Debug("Using --tls-verify=false due to SkipServerVerification")
+	}
+
+	pushArgs = append(pushArgs, imageRef)
 	if err := podmanWorker.runInWorker(ctx, log, "push", nil, pushArgs...); err != nil {
 		return "", err
 	}

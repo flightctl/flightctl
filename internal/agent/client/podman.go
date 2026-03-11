@@ -78,7 +78,7 @@ type ArtifactLayer struct {
 // It should be noted that the CLI represents events differently from libpod. (notably the time properties)
 // https://github.com/containers/podman/blob/main/cmd/podman/system/events.go#L81-L96
 type PodmanEvent struct {
-	ContainerExitCode int               `json:"ContainerExitCode,omitempty"`
+	ContainerExitCode *int              `json:"ContainerExitCode,omitempty"`
 	ID                string            `json:"ID"`
 	Image             string            `json:"Image"`
 	Name              string            `json:"Name"`

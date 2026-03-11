@@ -1,0 +1,13 @@
+# Build arguments for redhat-el10 flavor
+# These args are used across all containerfiles for build and runtime base images
+
+# Build-time base images (Red Hat enterprise editions for EL10)
+BUILD_BASE_IMAGE=registry.redhat.io/ubi10/go-toolset:1.24.6
+MINIMAL_BASE_IMAGE=registry.redhat.io/ubi10/ubi-minimal:10.0
+
+# Runtime base image (Red Hat enterprise EL10)
+RUNTIME_BASE_IMAGE=registry.redhat.io/flightctl/flightctl-base:10.0
+
+# Image registry and namespace for Red Hat builds
+IMAGE_REGISTRY=registry.redhat.io/flightctl
+IMAGE_TAG_SUFFIX=rhel10

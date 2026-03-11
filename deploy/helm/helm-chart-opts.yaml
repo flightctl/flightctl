@@ -53,6 +53,9 @@ redhat:
     name: Red Hat Edge Manager
     provider: Red Hat
     supportURL: https://access.redhat.com/support
+    redhatEdition: "true"
+    targetPlatform: "rhel9"
+    securityCompliance: "fips-140-2"
   images:
     db:
       image: registry.redhat.io/rhel9/postgresql-16

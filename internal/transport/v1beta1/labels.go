@@ -12,5 +12,5 @@ func (h *TransportHandler) ListLabels(w http.ResponseWriter, r *http.Request, pa
 	domainParams := h.converter.Common().ListLabelsParamsToDomain(params)
 	body, status := h.serviceHandler.ListLabels(r.Context(), transport.OrgIDFromContext(r.Context()), domainParams)
 	apiResult := h.converter.Common().LabelListFromDomain(body)
-	transport.SetResponse(w, apiResult, status)
+	h.SetResponse(w, apiResult, status)
 }

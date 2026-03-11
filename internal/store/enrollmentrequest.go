@@ -23,7 +23,6 @@ type EnrollmentRequest interface {
 	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*domain.EnrollmentRequestList, error)
 	Delete(ctx context.Context, orgId uuid.UUID, name string, callbackEvent EventCallback) error
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, enrollmentrequest *domain.EnrollmentRequest, callbackEvent EventCallback) (*domain.EnrollmentRequest, error)
-	PrepareEnrollmentRequestsAfterRestore(ctx context.Context) (int64, error)
 }
 
 type EnrollmentRequestStore struct {
@@ -138,32 +137,4 @@ func (s *EnrollmentRequestStore) UpdateStatus(ctx context.Context, orgId uuid.UU
 	newEr, err := s.genericStore.UpdateStatus(ctx, orgId, resource)
 	s.eventCallbackCaller(ctx, callbackEvent, orgId, lo.FromPtr(resource.Metadata.Name), resource, newEr, false, err)
 	return newEr, err
-}
-
-// PrepareEnrollmentRequestsAfterRestore sets the awaitingReconnection annotation
-// on all non-approved enrollment requests using efficient SQL
-func (s *EnrollmentRequestStore) PrepareEnrollmentRequestsAfterRestore(ctx context.Context) (int64, error) {
-	db := s.getDB(ctx)
-
-	// Use raw SQL for efficient bulk update that preserves existing annotations
-	// and only updates non-approved enrollment requests
-	// Check for approval using the status.approval.approved field
-	// Handle cases where approval field might be NULL or not exist
-	sql := `
-		UPDATE enrollment_requests 
-		SET 
-			annotations = COALESCE(annotations, '{}'::jsonb) || jsonb_build_object($1::text, 'true'),
-			resource_version = COALESCE(resource_version, 0) + 1
-		WHERE deleted_at IS NULL 
-			AND (status->'approval'->>'approved' IS NULL OR status->'approval'->>'approved' != 'true')
-			AND (annotations->>$1) IS DISTINCT FROM 'true'
-	`
-
-	result := db.Exec(sql, domain.DeviceAnnotationAwaitingReconnect)
-
-	if result.Error != nil {
-		return 0, ErrorFromGormError(result.Error)
-	}
-
-	return result.RowsAffected, nil
 }

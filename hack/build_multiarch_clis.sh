@@ -1,67 +1,80 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# This script generates an archive of CLI binary files in the following format:
+# This script builds flightctl and flightctl-restore for multiple OS/arch combinations
+# and generates archives in the following layout:
 #
 # $ tree bin/clis/
 # bin/clis/
 # ├── archives
 # │   ├── amd64
 # │   │   ├── linux
-# │   │   │   └── flightctl.tar.gz
+# │   │   │   ├── flightctl.tar.gz
+# │   │   │   └── flightctl-restore.tar.gz
 # │   │   ├── mac
-# │   │   │   └── flightctl.zip
+# │   │   │   ├── flightctl.zip
+# │   │   │   └── flightctl-restore.zip
 # │   │   └── windows
-# │   │       └── flightctl.zip
+# │   │       ├── flightctl.zip
+# │   │       └── flightctl-restore.zip
 # │   └── arm64
 # │       ├── linux
-# │       │   └── flightctl.tar.gz
+# │       │   ├── flightctl.tar.gz
+# │       │   └── flightctl-restore.tar.gz
 # │       ├── mac
-# │       │   └── flightctl.zip
+# │       │   ├── flightctl.zip
+# │       │   └── flightctl-restore.zip
 # │       └── windows
-# │           └── flightctl.zip
+# │           ├── flightctl.zip
+# │           └── flightctl-restore.zip
 # ├── binaries
 # │   ├── amd64
 # │   │   ├── linux
-# │   │   │   └── flightctl
+# │   │   │   ├── flightctl
+# │   │   │   └── flightctl-restore
 # │   │   ├── mac
-# │   │   │   └── flightctl
+# │   │   │   ├── flightctl
+# │   │   │   └── flightctl-restore
 # │   │   └── windows
-# │   │       └── flightctl.exe
+# │   │       ├── flightctl.exe
+# │   │       └── flightctl-restore.exe
 # │   └── arm64
 # │       ├── linux
-# │       │   └── flightctl
+# │       │   ├── flightctl
+# │       │   └── flightctl-restore
 # │       ├── mac
-# │       │   └── flightctl
+# │       │   ├── flightctl
+# │       │   └── flightctl-restore
 # │       └── windows
-# │           └── flightctl.exe
+# │           ├── flightctl.exe
+# │           └── flightctl-restore.exe
 # └── gh-archives
 #     ├── amd64
 #     │   ├── linux
-#     │   │   ├── flightctl-linux-amd64.tar.gz
-#     │   │   └── flightctl-linux-amd64.tar.gz.sha256
+#     │   │   ├── flightctl-linux-amd64.tar.gz (+ .sha256)
+#     │   │   └── flightctl-restore-linux-amd64.tar.gz (+ .sha256)
 #     │   ├── mac
-#     │   │   ├── flightctl-darwin-amd64.zip
-#     │   │   └── flightctl-darwin-amd64.zip.sha256
+#     │   │   ├── flightctl-darwin-amd64.zip (+ .sha256)
+#     │   │   └── flightctl-restore-darwin-amd64.zip (+ .sha256)
 #     │   └── windows
-#     │       ├── flightctl-windows-amd64.zip
-#     │       └── flightctl-windows-amd64.zip.sha256
+#     │       ├── flightctl-windows-amd64.zip (+ .sha256)
+#     │       └── flightctl-restore-windows-amd64.zip (+ .sha256)
 #     └── arm64
 #         ├── linux
-#         │   ├── flightctl-linux-arm64.tar.gz
-#         │   └── flightctl-linux-arm64.tar.gz.sha256
+#         │   ├── flightctl-linux-arm64.tar.gz (+ .sha256)
+#         │   └── flightctl-restore-linux-arm64.tar.gz (+ .sha256)
 #         ├── mac
-#         │   ├── flightctl-darwin-arm64.zip
-#         │   └── flightctl-darwin-arm64.zip.sha256
+#         │   ├── flightctl-darwin-arm64.zip (+ .sha256)
+#         │   └── flightctl-restore-darwin-arm64.zip (+ .sha256)
 #         └── windows
-#             ├── flightctl-windows-arm64.zip
-#             └── flightctl-windows-arm64.zip.sha256
+#             ├── flightctl-windows-arm64.zip (+ .sha256)
+#             └── flightctl-restore-windows-arm64.zip (+ .sha256)
 
 build() {
   local GOARCH=$1
   local GOOS=$2
 
-  DISABLE_FIPS=true GOARCH="${GOARCH}" GOOS="${GOOS}" make build-cli
+  DISABLE_FIPS=true GOARCH="${GOARCH}" GOOS="${GOOS}" make build-cli build-restore
 
   local OS="${GOOS}"
   local TGZ=".tar.gz"
@@ -78,21 +91,23 @@ build() {
   local BIN="bin/clis/binaries/${GOARCH}/${OS}"
   local ARCHIVES="bin/clis/archives/${GOARCH}/${OS}"
   local GH_ARCHIVES="bin/clis/gh-archives/${GOARCH}/${OS}"
-  local GH_OUT="${GH_ARCHIVES}/flightctl-${GOOS}-${GOARCH}${TGZ}"
 
   mkdir -p "${BIN}" "${ARCHIVES}" "${GH_ARCHIVES}"
 
-  cp "bin/flightctl${EXE}" "${BIN}/"
-  cp "bin/flightctl${EXE}" "flightctl-${GOOS}-${GOARCH}${EXE}"
+  for CLI in flightctl flightctl-restore; do
+    cp "bin/${CLI}${EXE}" "${BIN}/"
+    cp "bin/${CLI}${EXE}" "${CLI}-${GOOS}-${GOARCH}${EXE}"
 
-  if [ "${GOOS}" == "linux" ]; then
-    tar -zhcf "${ARCHIVES}/flightctl.tar.gz" -C "${BIN}" flightctl
-  else
-    zip -9 -r -q -j "${ARCHIVES}/flightctl.zip" "${BIN}/flightctl${EXE}"
-  fi
+    if [ "${GOOS}" == "linux" ]; then
+      tar -zhcf "${ARCHIVES}/${CLI}.tar.gz" -C "${BIN}" "${CLI}"
+    else
+      zip -9 -r -q -j "${ARCHIVES}/${CLI}.zip" "${BIN}/${CLI}${EXE}"
+    fi
 
-  cp "${ARCHIVES}/flightctl${TGZ}" "${GH_OUT}"
-  sha256sum "${GH_OUT}" | awk '{ print $1 }' > "${GH_OUT}.sha256"
+    local GH_OUT="${GH_ARCHIVES}/${CLI}-${GOOS}-${GOARCH}${TGZ}"
+    cp "${ARCHIVES}/${CLI}${TGZ}" "${GH_OUT}"
+    sha256sum "${GH_OUT}" | awk '{ print $1 }' > "${GH_OUT}.sha256"
+  done
 }
 
 for GOARCH in amd64 arm64; do

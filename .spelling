@@ -18,9 +18,13 @@ bootc
 bootloader
 ca.crt
 CentOS
+cgroup
+cgroups
 checksum
 cleanup
 CLI
+cpu
+CPU
 ClickOps
 CNV
 config
@@ -34,6 +38,7 @@ e.g.
 ECDSA
 EnrollmentRequest
 EnrollmentRequests
+Envoy
 env
 EPEL
 FIDO
@@ -72,6 +77,7 @@ microservices
 MicroShift
 mTLS
 namespace
+non-root
 NAT
 OCI
 OCI-compliant
@@ -104,6 +110,7 @@ RHEL
 rollbacks
 rollout
 redboot
+RunAs
 post-mortem
 150s
 pre-rollback
@@ -116,6 +123,7 @@ Skopeo
 spec
 specs
 SpiceDB
+subdomains
 substring
 systemd
 targetRevision
@@ -272,6 +280,7 @@ config.yaml
 FQDN
 otel
 proxying
+flightctl-api
 flightctl-ui
 DeviceSpec
 rollouts
@@ -292,6 +301,19 @@ containerd
 prefetching
 prefetches
 networkless
+ServiceMonitor
+dashboards
+dashboarding
+scraping
+Prometheus
+Grafana
+Datadog
+CRDs
+wildcard
+Istio
+delimited
+URIs
+subdomain
  - docs/user/installing/configuring-imagebuilder.md
  entitlement
  uncomment
@@ -302,6 +324,9 @@ networkless
  builder-worker.container
  imageBuilderWorker
  bool
+ imagebuilder
+ repos
+ RHSM
  - docs/user/references/api-resources.md
 CertificateSigningRequest
 AuthConfig
@@ -340,6 +365,8 @@ ui.flightctl.MY.DOMAIN
 openShiftApiUrl
 PVs
 k8s
+v1.35
+flightcontrol
  - docs/user/using/managing-devices.md
 AlertRules
 base32-encoded
@@ -416,14 +443,11 @@ alertmanager
 DeviceDisconnected
 DeviceCPUCritical
 programmatically
- - docs/user/using/standalone-observability.md
+ - docs/user/installing/deploying-observability-linux.md
 UserInfo
 Pre-configured
 is_superuser
 is_platform_auditor
-flightctl-api
-flightctl-kv
-IdPs
 - docs/user/installing/preparing-installation-on-linux.md
 Air-Gapped
 Backend
@@ -434,6 +458,7 @@ LoadBalancer
 passthrough
 nodePort
 NodePort
+NodePorts
 OTel
 Redis
 registry.redhat.io
@@ -530,6 +555,27 @@ alice
 bob
 charlie
 MaxAge
+FreeIPA
+pam_sss
+pam_sss.so
+sssd-client
+sssd_pam
+getent
+gidNumber
+pamtester
+NSS
+quadlet
+POSIX
+SO_PEERCRED
+CentOS
+RHEL
+lookups
+pre-configured
+IdP
+proxy_child
+unix_chkpwd
+sssd_pam.log
+x
  - docs/user/installing/configuring-auth/auth-oauth2.md
 GitHub
 github.com
@@ -540,8 +586,6 @@ webserver
  - docs/user/installing/configuring-auth/auth-oidc.md
 CLI
 webserver
- - docs/user/references/components.md
-flightctl-api
 - docs/user/using/managing-repositories.md
 ImageBuild
 ImageExport

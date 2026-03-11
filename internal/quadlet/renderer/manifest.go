@@ -6,7 +6,7 @@ func servicesManifest(config *RendererConfig) []InstallAction {
 	return []InstallAction{
 		// API service
 		{Action: ActionCopyFile, Source: "deploy/podman/flightctl-api/flightctl-api.container", Destination: filepath.Join(config.QuadletFilesOutputDir, "flightctl-api.container"), Template: true, Mode: RegularFileMode},
-		{Action: ActionCopyFile, Source: "deploy/podman/flightctl-api/flightctl-api-init.container", Destination: filepath.Join(config.QuadletFilesOutputDir, "flightctl-api-init.container"), Template: false, Mode: RegularFileMode},
+		{Action: ActionCopyFile, Source: "deploy/podman/flightctl-api/flightctl-api-init.service", Destination: filepath.Join(config.SystemdUnitOutputDir, "flightctl-api-init.service"), Template: false, Mode: RegularFileMode},
 		{Action: ActionCopyDir, Source: "deploy/podman/flightctl-api/flightctl-api-config/", Destination: filepath.Join(config.ReadOnlyConfigOutputDir, "flightctl-api/"), Template: false, Mode: RegularFileMode},
 
 		// Periodic service
@@ -23,8 +23,8 @@ func servicesManifest(config *RendererConfig) []InstallAction {
 
 		// PAM Issuer service
 		{Action: ActionCopyFile, Source: "deploy/podman/flightctl-pam-issuer/flightctl-pam-issuer.container", Destination: filepath.Join(config.QuadletFilesOutputDir, "flightctl-pam-issuer.container"), Template: true, Mode: RegularFileMode},
+		{Action: ActionCopyFile, Source: "deploy/podman/flightctl-pam-issuer/flightctl-pam-issuer-etc.volume", Destination: filepath.Join(config.QuadletFilesOutputDir, "flightctl-pam-issuer-etc.volume"), Template: false, Mode: RegularFileMode},
 		{Action: ActionCopyDir, Source: "deploy/podman/flightctl-pam-issuer/flightctl-pam-issuer-config/", Destination: filepath.Join(config.ReadOnlyConfigOutputDir, "flightctl-pam-issuer/"), Template: false, Mode: RegularFileMode},
-		{Action: ActionCopyFile, Source: "deploy/podman/flightctl-pam-issuer/migrate-userdb.sh", Destination: filepath.Join(config.ReadOnlyConfigOutputDir, "flightctl-pam-issuer/migrate-userdb.sh"), Template: false, Mode: ExecutableFileMode},
 
 		// Database service
 		{Action: ActionCopyFile, Source: "deploy/podman/flightctl-db/flightctl-db.container", Destination: filepath.Join(config.QuadletFilesOutputDir, "flightctl-db.container"), Template: true, Mode: RegularFileMode},
@@ -82,6 +82,10 @@ func servicesManifest(config *RendererConfig) []InstallAction {
 		// Grafana service
 		{Action: ActionCopyFile, Source: "deploy/podman/flightctl-grafana/flightctl-grafana.container", Destination: filepath.Join(config.QuadletFilesOutputDir, "flightctl-grafana.container"), Template: true, Mode: RegularFileMode},
 		{Action: ActionCopyDir, Source: "deploy/podman/flightctl-grafana/flightctl-grafana-config/", Destination: filepath.Join(config.ReadOnlyConfigOutputDir, "flightctl-grafana/"), Template: false, Mode: RegularFileMode},
+		// Install Grafana provisioning files directly to /etc
+		{Action: ActionCopyFile, Source: "deploy/podman/flightctl-grafana/flightctl-grafana-config/grafana-datasources.yaml", Destination: filepath.Join(config.WriteableConfigOutputDir, "flightctl-grafana", "provisioning", "datasources", "grafana-datasources.yaml"), Template: false, Mode: RegularFileMode},
+		{Action: ActionCopyFile, Source: "deploy/podman/flightctl-grafana/flightctl-grafana-config/grafana-dashboards.yaml", Destination: filepath.Join(config.WriteableConfigOutputDir, "flightctl-grafana", "provisioning", "dashboards", "grafana-dashboards.yaml"), Template: false, Mode: RegularFileMode},
+		{Action: ActionCopyDir, Source: "contrib/grafana-dashboards/", Destination: filepath.Join(config.WriteableConfigOutputDir, "flightctl-grafana", "provisioning", "dashboards", "flightctl/"), Template: false, Mode: RegularFileMode},
 
 		// UserInfo Proxy service
 		{Action: ActionCopyFile, Source: "deploy/podman/flightctl-userinfo-proxy/flightctl-userinfo-proxy.container", Destination: filepath.Join(config.QuadletFilesOutputDir, "flightctl-userinfo-proxy.container"), Template: true, Mode: RegularFileMode},
@@ -147,13 +151,5 @@ func servicesManifest(config *RendererConfig) []InstallAction {
 		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "flightctl-grafana", "certs"), Mode: ExecutableFileMode},
 		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.VarLibOutputDir, "grafana"), Mode: ExecutableFileMode},
 		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.VarLibOutputDir, "prometheus"), Mode: ExecutableFileMode},
-
-		// PAM Issuer user database files - persist local users created inside the container
-		// Other /etc files (PAM configs, nsswitch.conf, etc.) come from the container image
-		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "flightctl-pam-issuer", "userdb"), Mode: ExecutableFileMode},
-		{Action: ActionCreateEmptyFile, Destination: filepath.Join(config.WriteableConfigOutputDir, "flightctl-pam-issuer", "userdb", "passwd"), Mode: RegularFileMode},
-		{Action: ActionCreateEmptyFile, Destination: filepath.Join(config.WriteableConfigOutputDir, "flightctl-pam-issuer", "userdb", "shadow"), Mode: ShadowFileMode},
-		{Action: ActionCreateEmptyFile, Destination: filepath.Join(config.WriteableConfigOutputDir, "flightctl-pam-issuer", "userdb", "group"), Mode: RegularFileMode},
-		{Action: ActionCreateEmptyFile, Destination: filepath.Join(config.WriteableConfigOutputDir, "flightctl-pam-issuer", "userdb", "gshadow"), Mode: ShadowFileMode},
 	}
 }

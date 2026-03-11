@@ -45,4 +45,10 @@ data:
         {{- if .Values.imageBuilderWorker.rpmRepoUrl }}
         rpmRepoUrl: {{ .Values.imageBuilderWorker.rpmRepoUrl | quote }}
         {{- end }}
+        {{- if kindIs "bool" .Values.imageBuilderWorker.rpmRepoAdd }}
+        rpmRepoAdd: {{ .Values.imageBuilderWorker.rpmRepoAdd }}
+        {{- end }}
+        {{- if .Values.imageBuilderWorker.rpmRepoEnable }}
+        rpmRepoEnable: {{ .Values.imageBuilderWorker.rpmRepoEnable | quote }}
+        {{- end }}
 {{- end }}

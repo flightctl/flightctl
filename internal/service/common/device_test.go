@@ -8,6 +8,7 @@ import (
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -314,6 +315,83 @@ func TestUpdateServerSideApplicationStatus_PreservesDeviceStatus(t *testing.T) {
 			if tt.expectedInfo != "" {
 				assert.NotNil(t, device.Status.ApplicationsSummary.Info)
 				assert.Equal(t, tt.expectedInfo, *device.Status.ApplicationsSummary.Info, "Info should be preserved from device")
+			}
+		})
+	}
+}
+
+func TestUpdateServerSideDeviceUpdatedStatus_OsImageMismatch(t *testing.T) {
+	ctx := context.Background()
+	orgId := uuid.New()
+	log := logrus.NewEntry(logrus.StandardLogger())
+
+	tests := []struct {
+		name           string
+		specOsImage    string
+		statusOsImage  string
+		expectedStatus domain.DeviceUpdatedStatusType
+		expectMismatch bool
+	}{
+		{
+			name:           "matching OS images remains UpToDate",
+			specOsImage:    "quay.io/flightctl/device:v7",
+			statusOsImage:  "quay.io/flightctl/device:v7",
+			expectedStatus: domain.DeviceUpdatedStatusUpToDate,
+		},
+		{
+			name:           "mismatching OS images overrides to OutOfDate",
+			specOsImage:    "quay.io/flightctl/device:v7",
+			statusOsImage:  "quay.io/flightctl/device:base",
+			expectedStatus: domain.DeviceUpdatedStatusOutOfDate,
+			expectMismatch: true,
+		},
+		{
+			name:           "no spec OS image remains UpToDate",
+			specOsImage:    "",
+			statusOsImage:  "quay.io/flightctl/device:base",
+			expectedStatus: domain.DeviceUpdatedStatusUpToDate,
+		},
+		{
+			name:           "no status OS image remains UpToDate",
+			specOsImage:    "quay.io/flightctl/device:v7",
+			statusOsImage:  "",
+			expectedStatus: domain.DeviceUpdatedStatusUpToDate,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			annotations := map[string]string{
+				domain.DeviceAnnotationRenderedVersion: "4",
+			}
+			device := &domain.Device{
+				Metadata: domain.ObjectMeta{
+					Name:        lo.ToPtr("test-device"),
+					Annotations: &annotations,
+				},
+				Spec: &domain.DeviceSpec{},
+				Status: &domain.DeviceStatus{
+					LastSeen: lo.ToPtr(time.Now()),
+					Updated: domain.DeviceUpdatedStatus{
+						Status: domain.DeviceUpdatedStatusUpToDate,
+					},
+					Config: domain.DeviceConfigStatus{
+						RenderedVersion: "4",
+					},
+					Os: domain.DeviceOsStatus{
+						Image: tt.statusOsImage,
+					},
+				},
+			}
+			if tt.specOsImage != "" {
+				device.Spec.Os = &domain.DeviceOsSpec{Image: tt.specOsImage}
+			}
+
+			updateServerSideDeviceUpdatedStatus(device, ctx, nil, log, orgId)
+
+			assert.Equal(t, tt.expectedStatus, device.Status.Updated.Status)
+			if tt.expectMismatch {
+				assert.Contains(t, *device.Status.Updated.Info, "OS image mismatch")
 			}
 		})
 	}

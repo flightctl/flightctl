@@ -25,7 +25,7 @@ func (h *Harness) NewConsoleSession(deviceID string) *ConsoleSession {
 
 	// Trigger prompt and wait for it.
 	cs.MustSend("")
-	cs.MustExpect(".*root@.*#")
+	cs.MustExpect(`.*flightctl-console@.*\$`)
 
 	return cs
 }

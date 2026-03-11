@@ -22,6 +22,8 @@ const (
 	EmbeddedQuadletAppPath   = "/usr/local/etc/containers/systemd"
 	RootfulQuadletTargetPath = "/etc/systemd/system/"
 	QuadletTargetName        = "flightctl-quadlet-app.target"
+
+	podmanImageVolumeDriver = "image"
 )
 
 var _ ActionHandler = (*Quadlet)(nil)
@@ -154,6 +156,14 @@ func (q *Quadlet) remove(ctx context.Context, action Action, systemctl systemd.M
 		return fmt.Errorf("listing dependencies: %w", err)
 	}
 
+	// If there are no dependencies, the target was never created or has already
+	// been removed. Skip stopping and proceed directly to resource cleanup for
+	// idempotent removal.
+	if len(services) == 0 {
+		q.log.Debugf("Skipping stop for %s: target has no dependencies", appName)
+		return q.cleanResources(ctx, action)
+	}
+
 	q.log.Debugf("Stopping quadlet: %s target: %s", appName, target)
 	// stopping the target will begin stopping the individual services, but it is not a synchronous operation.
 	if err := systemctl.Stop(ctx, target); err != nil {
@@ -205,12 +215,38 @@ func (q *Quadlet) cleanResources(ctx context.Context, action Action) error {
 		return fmt.Errorf("creating podman client: %w", err)
 	}
 
-	var errs []error
-	if err := cleanPodmanResources(ctx, podman, labels, filters); err != nil {
-		errs = append(errs, fmt.Errorf("cleaning podman resources: %w", err))
+	if err := cleanPodmanResources(ctx, q.log, podman, labels, filters); err != nil {
+		return fmt.Errorf("cleaning podman resources: %w", err)
 	}
-	if len(errs) > 0 {
-		return errors.Join(errs...)
+	return nil
+}
+
+// removeImageBackedVolumes removes volumes that use Podman's native image driver.
+// Image-driver volumes are read-only overlays fully derived from their
+// source image — they contain no user data and Podman recreates them automatically on next container start.
+func removeImageBackedVolumes(ctx context.Context, log *log.PrefixLogger, podman *client.Podman, labels, filters []string) error {
+	volumes, err := podman.ListVolumes(ctx, labels, filters)
+	if err != nil {
+		return fmt.Errorf("listing volumes: %w", err)
+	}
+
+	var imageVolumes []string
+	for _, volume := range volumes {
+		driver, err := podman.InspectVolumeDriver(ctx, volume)
+		if err != nil {
+			log.Warnf("Failed to inspect volume %q driver, skipping: %v", volume, err)
+			continue
+		}
+		if driver == podmanImageVolumeDriver {
+			imageVolumes = append(imageVolumes, volume)
+		}
+	}
+
+	if len(imageVolumes) > 0 {
+		log.Debugf("Removing %d image-backed volume(s)", len(imageVolumes))
+		if err := podman.RemoveVolumes(ctx, imageVolumes...); err != nil {
+			return fmt.Errorf("removing volumes: %w", err)
+		}
 	}
 	return nil
 }

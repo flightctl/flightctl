@@ -26,6 +26,12 @@ The harness enforces a strict VM pool pattern to ensure proper test isolation an
 5. AFTER SUITE:
    - VM cleanup is handled by make scripts after all tests complete
 
+REMOVED METHODS (violated VM pool pattern):
+- NewTestHarness() - Created VMs directly (removed)
+- NewTestHarnessWithoutVM() - Manual VM setup (removed)
+- AddVM() / AddMultipleVMs() - Created VMs outside pool (removed)
+- StartMultipleVMAndEnroll() - Created multiple VMs directly (removed)
+
 Example usage:
 ```go
 var _ = BeforeSuite(func() {
@@ -48,6 +54,7 @@ var _ = BeforeEach(func() {
 import (
 	"bytes"
 	"context"
+	cryptorand "crypto/rand"
 	"fmt"
 	"io"
 	"net"
@@ -64,6 +71,7 @@ import (
 	"github.com/creack/pty"
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
+	imagebuilderclient "github.com/flightctl/flightctl/internal/api/imagebuilder/client"
 	"github.com/flightctl/flightctl/internal/client"
 	service "github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/test/harness/e2e/vm"
@@ -73,12 +81,13 @@ import (
 	"github.com/onsi/gomega"
 	. "github.com/onsi/gomega"
 	"github.com/sirupsen/logrus"
-	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/tools/clientcmd"
 	"sigs.k8s.io/yaml"
 )
 
 const fiveSecondTimeout = 5 * time.Second
+
+// setupSnapshotRestoreTimeout is the maximum time allowed for VM snapshot restore in BeforeEach.
+const setupSnapshotRestoreTimeout = 10 * time.Minute
 
 const POLLING = "250ms"
 const POLLINGLONG = "1s"
@@ -96,11 +105,11 @@ const (
 )
 
 type Harness struct {
-	Client    *apiclient.ClientWithResponses
-	Context   context.Context
-	Cluster   kubernetes.Interface
-	ctxCancel context.CancelFunc
-	startTime time.Time
+	Client             *apiclient.ClientWithResponses
+	ImageBuilderClient *imagebuilderclient.ClientWithResponses
+	Context            context.Context
+	ctxCancel          context.CancelFunc
+	startTime          time.Time
 
 	VM vm.TestVMInterface
 
@@ -135,51 +144,6 @@ func findTopLevelDir() string { //nolint:unused
 	Fail("Could not find top-level directory")
 	// this return is not reachable, but we need to satisfy the compiler
 	return ""
-}
-
-// try to resolve the kube config at a few well known locations
-func resolveKubeConfigPath() (string, error) {
-	if kc, ok := os.LookupEnv("KUBECONFIG"); ok && kc != "" {
-		return kc, nil
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("failed to get home directory: %w", err)
-	}
-
-	paths := []string{
-		filepath.Join(home, ".kube", "config"),                                                           // default
-		filepath.Join(string(filepath.Separator), "home", "kni", "clusterconfigs", "kubeconfig"),         // qa path
-		filepath.Join(string(filepath.Separator), "home", "kni", "auth", "clusterconfigs", "kubeconfig"), // qa path
-	}
-	for _, path := range paths {
-		if _, err = os.Stat(path); err == nil {
-			return path, nil
-		}
-	}
-
-	return "", fmt.Errorf("failed to find kubeconfig file in the paths: %v", paths)
-}
-
-// build a k8s interface so that tests can interact with it directly from Go rather than
-// shelling out to `oc` or `kubectl`
-func kubernetesClient() (kubernetes.Interface, error) {
-	kubeconfig, err := resolveKubeConfigPath()
-	if err != nil {
-		return nil, fmt.Errorf("unable to resolve kubeconfig location: %w", err)
-	}
-
-	logrus.Debugf("Using kubeconfig: %s", kubeconfig)
-	config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
-	if err != nil {
-		return nil, fmt.Errorf("error building kubeconfig: %w", err)
-	}
-
-	iface, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		return nil, fmt.Errorf("error creating kubernetes api: %w", err)
-	}
-	return iface, nil
 }
 
 // ReadPrimaryVMAgentLogs reads flightctl-agent journalctl logs from the primary VM
@@ -316,10 +280,7 @@ func (h *Harness) Cleanup(printConsole bool) {
 		Expect(err).ToNot(HaveOccurred())
 	}
 
-	// Clean up git repositories
-	if err := h.CleanupGitRepositories(); err != nil {
-		logrus.Errorf("Failed to clean up git repositories: %v", err)
-	}
+	// Callers that create git repos must call CleanupGitRepositories(config, keyPath) before Cleanup.
 
 	diffTime := time.Since(h.startTime)
 	fmt.Printf("Test took %s\n", diffTime)
@@ -466,12 +427,6 @@ func (h *Harness) ApiEndpoint() string {
 	return ep
 }
 
-func (h *Harness) RegistryEndpoint() string {
-	ep := os.Getenv("REGISTRY_ENDPOINT")
-	Expect(ep).NotTo(BeEmpty(), "REGISTRY_ENDPOINT environment variable must be set")
-	return ep
-}
-
 func (h *Harness) setArgsInCmd(cmd *exec.Cmd, args ...string) {
 	for _, arg := range args {
 		replacedArg := strings.ReplaceAll(arg, "${API_ENDPOINT}", h.ApiEndpoint())
@@ -547,6 +502,11 @@ func flightctlPath() string {
 // GetFlightctlPath returns the path to the flightctl binary
 func (h *Harness) GetFlightctlPath() string {
 	return flightctlPath()
+}
+
+// GetFlightctlRestorePath returns the path to the flightctl-restore binary (same directory as the CLI).
+func (h *Harness) GetFlightctlRestorePath() string {
+	return filepath.Join(util.GetTopLevelDir(), "bin", "flightctl-restore")
 }
 
 func (h *Harness) CLI(args ...string) (string, error) {
@@ -689,6 +649,11 @@ func (h *Harness) TestEnrollmentApproval(labels ...map[string]string) *v1beta1.E
 }
 
 func (h *Harness) CleanUpAllTestResources() error {
+	if h.VM != nil {
+		if err := h.StopFlightCtlAgent(); err != nil {
+			logrus.Warnf("Failed to stop agent before cleanup: %v", err)
+		}
+	}
 	return h.CleanUpTestResources(util.ResourceTypes[:]...)
 }
 
@@ -938,35 +903,13 @@ func buildIPTablesCmd(ip, port string, remove bool) []string {
 	return append([]string{"sudo"}, tcpNetworkTableRule(ip, port, remove)...)
 }
 
-func (h *Harness) SimulateNetworkFailure() error {
-	context, err := GetContext()
-	if err != nil {
-		return fmt.Errorf("failed to get the context: %w", err)
+// SimulateNetworkFailure blocks VM traffic to the given registry host:port via iptables.
+// Caller must pass the registry host and port (e.g. from infra provider or env).
+func (h *Harness) SimulateNetworkFailure(registryHost, registryPort string) error {
+	if registryHost == "" || registryPort == "" {
+		return fmt.Errorf("registry host and port are required for network failure simulation")
 	}
-
-	var blockCommands [][]string
-
-	switch context {
-	case util.KIND:
-		registryIP, registryPort, err := h.getRegistryEndpointInfo()
-
-		if err != nil {
-			return fmt.Errorf("failed to get the registry endpoint info: %w", err)
-		}
-
-		blockCommands = [][]string{
-			buildIPTablesCmd(registryIP, registryPort, false),
-		}
-
-	case util.OCP:
-		args := fmt.Sprintf(`
-		 echo '1.2.3.4 %s' | sudo tee -a /etc/hosts
-	`, h.RegistryEndpoint())
-		blockCommands = [][]string{{"sudo", "bash", "-c", args}}
-
-	default:
-		return fmt.Errorf("unknown context: %s", context)
-	}
+	blockCommands := [][]string{buildIPTablesCmd(registryHost, registryPort, false)}
 
 	for _, cmd := range blockCommands {
 		stdout, err := h.VM.RunSSH(cmd, nil)
@@ -1003,32 +946,13 @@ func (h *Harness) SimulateNetworkFailureForCLI(ip, port string) (func() error, e
 	}, nil
 }
 
-func (h *Harness) FixNetworkFailure() error {
-	context, err := GetContext()
-	if err != nil {
-		return fmt.Errorf("failed to get the context: %w", err)
+// FixNetworkFailure unblocks VM traffic to the given registry host:port and flushes DNS cache.
+// Caller must pass the same registry host and port used in SimulateNetworkFailure.
+func (h *Harness) FixNetworkFailure(registryHost, registryPort string) error {
+	if registryHost == "" || registryPort == "" {
+		return fmt.Errorf("registry host and port are required for network failure fix")
 	}
-
-	var unblockCommands [][]string
-
-	switch context {
-	case util.KIND:
-		registryIP, registryPort, err := h.getRegistryEndpointInfo()
-		if err != nil {
-			return fmt.Errorf("failed to get the registry port: %w", err)
-		}
-		unblockCommands = [][]string{
-			buildIPTablesCmd(registryIP, registryPort, true),
-		}
-
-	case util.OCP:
-		unblockCommands = [][]string{
-			{"bash", "-c", "head -n -1 /etc/hosts > /tmp/hosts_tmp && sudo mv /tmp/hosts_tmp /etc/hosts"},
-		}
-
-	default:
-		return fmt.Errorf("unknown context: %s", context)
-	}
+	unblockCommands := [][]string{buildIPTablesCmd(registryHost, registryPort, true)}
 
 	for _, cmd := range unblockCommands {
 		stdout, err := h.VM.RunSSH(cmd, nil)
@@ -1072,30 +996,6 @@ func (h *Harness) CheckRunningContainers() (string, error) {
 		return "", err
 	}
 	return out.String(), nil
-}
-
-// StartPortForward starts a kubectl port-forward for a service or pod.
-func (h *Harness) StartPortForward(ctx context.Context, namespace, target string, localPort, remotePort int) (*exec.Cmd, <-chan error, error) {
-	// #nosec G204 -- command args are fixed and controlled in test.
-	cmd := exec.CommandContext(ctx, "kubectl", "port-forward",
-		"-n", namespace,
-		target,
-		fmt.Sprintf("%d:%d", localPort, remotePort),
-		"--address", "127.0.0.1",
-	)
-	cmd.Stdout = GinkgoWriter
-	cmd.Stderr = GinkgoWriter
-
-	if err := cmd.Start(); err != nil {
-		return nil, nil, err
-	}
-
-	done := make(chan error, 1)
-	go func() {
-		done <- cmd.Wait()
-	}()
-
-	return cmd, done, nil
 }
 
 // GetFreeLocalPort returns an available local TCP port.
@@ -1375,76 +1275,6 @@ func (h *Harness) WaitForFileInDevice(filePath string, timeout string, polling s
 	return h.VM.RunSSH([]string{"sudo", "bash", "-c", script}, nil)
 }
 
-// GetContext returns the Kubernetes context (KIND or OCP) or an error
-func GetContext() (string, error) {
-	kubeContext, err := exec.Command("kubectl", "config", "current-context").Output()
-	if err != nil {
-		return "", fmt.Errorf("failed to get current kube context: %w", err)
-	}
-	contextStr := strings.TrimSpace(string(kubeContext))
-	if strings.Contains(contextStr, "kind") {
-		logrus.Debugf("The context is: %s", contextStr)
-		return util.KIND, nil
-	}
-	contextStr = util.OCP
-	logrus.Debugf("The context is: %s", contextStr)
-	return contextStr, nil
-}
-
-func (h Harness) getRegistryEndpointInfo() (ip string, port string, err error) {
-	context, err := GetContext()
-	if err != nil {
-		return "", "", fmt.Errorf("failed to get context: %w", err)
-	}
-
-	switch context {
-	case util.KIND:
-		registryIP, registryPort, err := net.SplitHostPort(h.RegistryEndpoint())
-		if err != nil {
-			return "", "", fmt.Errorf("invalid registry endpoint: %w", err)
-		}
-		return registryIP, registryPort, nil
-
-	case util.OCP:
-		// #nosec G204
-		cmd := exec.Command("getent", "hosts", util.E2E_REGISTRY_NAME)
-		var out bytes.Buffer
-		cmd.Stdout = &out
-
-		if err := cmd.Run(); err != nil {
-			return "", "", fmt.Errorf("failed to run 'getent host': %w", err)
-		}
-
-		registryIP := ""
-
-		fields := strings.Fields(out.String())
-		if len(fields) > 0 {
-			registryIP = strings.TrimSpace(fields[0])
-		} else {
-			return "", "", fmt.Errorf("no IP found")
-		}
-
-		// registryIP := strings.TrimSpace(out.String())
-		var output bytes.Buffer
-		// #nosec G204
-		cmd = exec.Command("oc", "get", "route", util.E2E_REGISTRY_NAME, "-n", util.E2E_NAMESPACE, "-o", "jsonpath={.spec.port.targetPort}")
-		cmd.Stdout = &output
-
-		if err := cmd.Run(); err != nil {
-			return "", "", fmt.Errorf("failed to run 'oc get route': %w", err)
-		}
-
-		port := strings.TrimSpace(output.String())
-		if port == "" {
-			return "", "", fmt.Errorf("registry port not found in route spec")
-		}
-
-		return registryIP, port, nil
-	}
-
-	return "", "", fmt.Errorf("unknown context")
-}
-
 // newTestHarnessBase creates the base test harness with common setup.
 // This is used by both NewTestHarnessWithoutVM and NewTestHarnessWithVMPool.
 func newTestHarnessBase(ctx context.Context) (*Harness, error) {
@@ -1460,13 +1290,23 @@ func newTestHarnessBase(ctx context.Context) (*Harness, error) {
 		return nil, fmt.Errorf("failed to create client: %w", err)
 	}
 
-	ctx, cancel := context.WithCancel(ctx)
-
-	k8sCluster, err := kubernetesClient()
+	// Parse config to get imagebuilder server URL
+	config, err := client.ParseConfigFile(baseDir)
 	if err != nil {
-		cancel()
-		return nil, fmt.Errorf("failed to get kubernetes cluster: %w", err)
+		return nil, fmt.Errorf("failed to parse config file: %w", err)
 	}
+
+	// Create imagebuilder client - server must be configured
+	imageBuilderServer := config.GetImageBuilderServer()
+	if imageBuilderServer == "" {
+		return nil, fmt.Errorf("imagebuilder server URL not configured in client config")
+	}
+	ibClientWrapper, err := client.NewImageBuilderClientFromConfig(config, baseDir, imageBuilderServer, config.Organization)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create imagebuilder client: %w", err)
+	}
+	ibClient := ibClientWrapper.ClientWithResponses
+	ctx, cancel := context.WithCancel(ctx)
 
 	// Initialize git repository management
 	gitWorkDir := filepath.Join(GinkgoT().TempDir(), "git-repos")
@@ -1478,17 +1318,19 @@ func newTestHarnessBase(ctx context.Context) (*Harness, error) {
 
 	c.Start(ctx)
 
-	return &Harness{
-		Client:        c.ClientWithResponses,
-		Context:       ctx,
-		Cluster:       k8sCluster,
-		ctxCancel:     cancel,
-		startTime:     startTime,
-		VM:            nil,
-		gitRepos:      make(map[string]string),
-		gitWorkDir:    gitWorkDir,
-		clientWrapper: c,
-	}, nil
+	h := &Harness{
+		Client:             c.ClientWithResponses,
+		ImageBuilderClient: ibClient,
+		Context:            ctx,
+		ctxCancel:          cancel,
+		startTime:          startTime,
+		VM:                 nil,
+		gitRepos:           make(map[string]string),
+		gitWorkDir:         gitWorkDir,
+		clientWrapper:      c,
+	}
+
+	return h, nil
 }
 
 // NewTestHarnessWithoutVM creates a new test harness without VM management.
@@ -1514,6 +1356,28 @@ func NewTestHarnessWithVMPool(ctx context.Context, workerID int) (*Harness, erro
 	return harness, nil
 }
 
+// NewTestHarnessWithFreshVMFromPool creates a harness with a fresh VM from the pool.
+// Fresh VMs use full disk copies instead of overlays and don't use snapshots.
+// The VM is managed by the pool but provides completely clean state for each test.
+func NewTestHarnessWithFreshVMFromPool(ctx context.Context, workerID int) (*Harness, error) {
+	harness, err := newTestHarnessBase(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// Get fresh VM from the pool
+	testVM, err := SetupFreshVMForWorker(workerID, os.TempDir(), 2233)
+	if err != nil {
+		harness.ctxCancel()
+		return nil, fmt.Errorf("failed to get fresh VM from pool for worker %d: %w", workerID, err)
+	}
+
+	// Set the VM in the harness
+	harness.VM = testVM
+
+	return harness, nil
+}
+
 // GetVMFromPool retrieves a VM from the pool for the given worker ID.
 // VMs are created on-demand if they don't already exist in the pool.
 func (h *Harness) GetVMFromPool(workerID int) (vm.TestVMInterface, error) {
@@ -1530,8 +1394,22 @@ func (h *Harness) GetVMFromPool(workerID int) (vm.TestVMInterface, error) {
 }
 
 // SetupVMFromPool sets up a VM from the pool and reverts it to the pristine snapshot.
-// It does not start the agent.
+// It does not start the agent. The operation is bounded by setupSnapshotRestoreTimeout (10 minutes).
 func (h *Harness) SetupVMFromPool(workerID int) error {
+	done := make(chan error, 1)
+	go func() {
+		done <- h.setupVMFromPoolNoTimeout(workerID)
+	}()
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(setupSnapshotRestoreTimeout):
+		return fmt.Errorf("snapshot restore timed out after %v", setupSnapshotRestoreTimeout)
+	}
+}
+
+// setupVMFromPoolNoTimeout performs the actual VM pool setup and snapshot revert (no timeout).
+func (h *Harness) setupVMFromPoolNoTimeout(workerID int) error {
 	// Get VM from pool (created on-demand if needed)
 	testVM, err := h.GetVMFromPool(workerID)
 	if err != nil {
@@ -1546,6 +1424,18 @@ func (h *Harness) SetupVMFromPool(workerID int) error {
 	// Wait for SSH to be ready
 	if err := testVM.WaitForSSHToBeReady(); err != nil {
 		return fmt.Errorf("failed to wait for SSH: %w", err)
+	}
+
+	// Reseed the VM's entropy pool with host-generated random bytes.
+	// After a snapshot revert the kernel CSPRNG state is identical to the
+	// snapshot, which can cause the agent to generate the same private key
+	// (and therefore the same device name) across different test runs.
+	entropy := make([]byte, 512)
+	if _, err := cryptorand.Read(entropy); err != nil {
+		return fmt.Errorf("failed to generate entropy on host: %w", err)
+	}
+	if _, err := testVM.RunSSH([]string{"sudo", "dd", "of=/dev/urandom", "bs=512", "count=1"}, bytes.NewBuffer(entropy)); err != nil {
+		logrus.Warnf("Failed to reseed VM entropy: %v", err)
 	}
 
 	// Clean any stale CSR from previous tests
@@ -1725,24 +1615,8 @@ func (h *Harness) SetLabelsForRepositoryMetadata(metadata *v1beta1.ObjectMeta, l
 	h.SetLabelsForResource(metadata, labels)
 }
 
-func getEnvOrDefault(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return defaultValue
-}
-
-func getEnvOrDefaultInt(key string, defaultValue int) int {
-	if value := os.Getenv(key); value != "" {
-		if intValue, err := strconv.Atoi(value); err == nil {
-			return intValue
-		}
-	}
-	return defaultValue
-}
-
-// CreateFleetConfigInGitRepo creates a fleet configuration and pushes it to a git repository
-func (h *Harness) CreateFleetConfigInGitRepo(repoName, fleetName string, fleetSpec v1beta1.FleetSpec) error {
+// CreateFleetConfigInGitRepo creates a fleet configuration and pushes it to a git repository.
+func (h *Harness) CreateFleetConfigInGitRepo(config GitServerConfig, keyPath util.SSHPrivateKeyPath, repoName, fleetName string, fleetSpec v1beta1.FleetSpec) error {
 	fleet := v1beta1.Fleet{
 		ApiVersion: v1beta1.FleetAPIVersion,
 		Kind:       v1beta1.FleetKind,
@@ -1760,11 +1634,11 @@ func (h *Harness) CreateFleetConfigInGitRepo(repoName, fleetName string, fleetSp
 	filePath := fmt.Sprintf("fleets/%s.yaml", fleetName)
 	commitMessage := fmt.Sprintf("Add fleet configuration: %s", fleetName)
 
-	return h.PushContentToGitServerRepo(repoName, filePath, string(fleetYAML), commitMessage)
+	return h.PushContentToGitServerRepo(config, keyPath, repoName, filePath, string(fleetYAML), commitMessage)
 }
 
-// CreateDeviceConfigInGitRepo creates a device configuration and pushes it to a git repository
-func (h *Harness) CreateDeviceConfigInGitRepo(repoName, deviceName string, deviceSpec v1beta1.DeviceSpec) error {
+// CreateDeviceConfigInGitRepo creates a device configuration and pushes it to a git repository.
+func (h *Harness) CreateDeviceConfigInGitRepo(config GitServerConfig, keyPath util.SSHPrivateKeyPath, repoName, deviceName string, deviceSpec v1beta1.DeviceSpec) error {
 	device := v1beta1.Device{
 		ApiVersion: v1beta1.DeviceAPIVersion,
 		Kind:       v1beta1.DeviceKind,
@@ -1782,7 +1656,7 @@ func (h *Harness) CreateDeviceConfigInGitRepo(repoName, deviceName string, devic
 	filePath := fmt.Sprintf("devices/%s.yaml", deviceName)
 	commitMessage := fmt.Sprintf("Add device configuration: %s", deviceName)
 
-	return h.PushContentToGitServerRepo(repoName, filePath, string(deviceYAML), commitMessage)
+	return h.PushContentToGitServerRepo(config, keyPath, repoName, filePath, string(deviceYAML), commitMessage)
 }
 
 // WaitForResourceSyncStatus waits for a ResourceSync to reach a specific status
@@ -1829,10 +1703,11 @@ func (h *Harness) GetGitRepoURL(repoName string) (string, error) {
 	return url, nil
 }
 
-// CleanupGitRepositories removes all git repositories created by the harness
-func (h *Harness) CleanupGitRepositories() error {
+// CleanupGitRepositories removes all git repositories created by the harness.
+// Callers pass the same config and keyPath used when creating repos.
+func (h *Harness) CleanupGitRepositories(config GitServerConfig, keyPath util.SSHPrivateKeyPath) error {
 	for repoName := range h.gitRepos {
-		if err := h.DeleteGitRepositoryOnServer(repoName); err != nil {
+		if err := h.DeleteGitRepositoryOnServer(config, keyPath, repoName); err != nil {
 			logrus.Errorf("Failed to remove git repository %s: %v", repoName, err)
 		} else {
 			logrus.Infof("Cleaned up git repository %s", repoName)
@@ -1850,18 +1725,16 @@ func (h *Harness) CleanupGitRepositories() error {
 	return nil
 }
 
-// CreateGitRepositoryWithContent creates a git repository with initial content
-func (h *Harness) CreateGitRepositoryWithContent(repoName, filePath, content string, repositorySpec v1beta1.RepositorySpec) error {
-	// Create the git repository and Repository resource
-	if err := h.CreateGitRepository(repoName, repositorySpec); err != nil {
+// CreateGitRepositoryWithContent creates a git repository with initial content.
+// Callers pass config and keyPath from infra (e.g. satellite).
+func (h *Harness) CreateGitRepositoryWithContent(config GitServerConfig, keyPath util.SSHPrivateKeyPath, repoName, filePath, content string, repositorySpec v1beta1.RepositorySpec) error {
+	if err := h.CreateGitRepository(config, keyPath, repoName, repositorySpec); err != nil {
 		return fmt.Errorf("failed to create git repository: %w", err)
 	}
 
-	// Add initial content if provided
 	if filePath != "" && content != "" {
-		if err := h.PushContentToGitServerRepo(repoName, filePath, content, "Initial commit"); err != nil {
-			// Clean up on failure
-			if cleanupErr := h.DeleteGitRepositoryOnServer(repoName); cleanupErr != nil {
+		if err := h.PushContentToGitServerRepo(config, keyPath, repoName, filePath, content, "Initial commit"); err != nil {
+			if cleanupErr := h.DeleteGitRepositoryOnServer(config, keyPath, repoName); cleanupErr != nil {
 				logrus.Errorf("failed to delete git repository %s: %v", repoName, cleanupErr)
 			}
 			return fmt.Errorf("failed to push initial content: %w", err)
@@ -1869,49 +1742,6 @@ func (h *Harness) CreateGitRepositoryWithContent(repoName, filePath, content str
 	}
 
 	return nil
-}
-
-// ChangeK8sNamespace changes the current Kubernetes namespace
-func (h *Harness) ChangeK8sNamespace(namespace string) error {
-	if util.BinaryExistsOnPath("oc") {
-		// Use oc project for OpenShift
-		cmd := exec.Command("oc", "project", namespace)
-		output, err := cmd.CombinedOutput()
-		if err != nil {
-			return fmt.Errorf("failed to change namespace to %s: %v, output: %s", namespace, err, string(output))
-		}
-		GinkgoWriter.Printf("Changed namespace to %s using oc project\n", namespace)
-		return nil
-	}
-	// Use kubectl for regular Kubernetes
-	cmd := exec.Command("kubectl", "config", "set-context", "--current", "--namespace", namespace)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("failed to change namespace to %s: %v, output: %s", namespace, err, string(output))
-	}
-	GinkgoWriter.Printf("Changed namespace to %s using kubectl\n", namespace)
-	return nil
-}
-
-// ChangeK8sContext changes the kubernetes context
-func (h *Harness) ChangeK8sContext(ctx context.Context, k8sContext string) (string, error) {
-	if !util.BinaryExistsOnPath("oc") {
-		return "", fmt.Errorf("oc binary not found in PATH")
-	}
-	cmd := exec.CommandContext(ctx, "oc", "config", "use-context", k8sContext)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		// Check if the error is due to context timeout
-		if ctx.Err() == context.DeadlineExceeded {
-			GinkgoWriter.Printf("❌ Failed to change K8s context to %s: context timeout\n", k8sContext)
-			return string(output), fmt.Errorf("failed to change K8s context to %s: context timeout", k8sContext)
-		}
-		GinkgoWriter.Printf("❌ Failed to change K8s context to %s: %v\n", k8sContext, err)
-		return string(output), fmt.Errorf("failed to change K8s context to %s: %w", k8sContext, err)
-	} else {
-		GinkgoWriter.Printf("✅ Changed context to %s: %s\n", k8sContext, output)
-		return string(output), nil
-	}
 }
 
 func (h *Harness) CreateResource(resourceType string) (string, string, []byte, error) {
@@ -1972,40 +1802,6 @@ func (h *Harness) CreateResource(resourceType string) (string, string, []byte, e
 		GinkgoWriter.Printf("Apply output: %s\n", applyOutput)
 		return applyOutput, "", nil, fmt.Errorf("Failed to create a %s", resourceType)
 	}
-}
-
-// GetDefaultK8sContext returns the a K8s context with default in its name
-func (h *Harness) GetDefaultK8sContext() (string, error) {
-	cmd := exec.Command("kubectl", "config", "get-contexts", "-o", "name")
-	output, err := cmd.Output()
-	if err != nil {
-		return "", fmt.Errorf("failed to get contexts: %v", err)
-	}
-
-	contexts := strings.Split(strings.TrimSpace(string(output)), "\n")
-	for _, context := range contexts {
-		if strings.Contains(context, "default") {
-			GinkgoWriter.Printf("🔍 [DEBUG] Found default context: %s\n", context)
-			return context, nil
-		}
-	}
-	return "", fmt.Errorf("no context with 'default' in name found")
-}
-
-// GetK8sApiEndpoint returns the API endpoint for a given K8s context
-func (h *Harness) GetK8sApiEndpoint(ctx context.Context, k8sContext string) (string, error) {
-	if !util.BinaryExistsOnPath("oc") {
-		return "", fmt.Errorf("oc binary not found on PATH")
-	}
-	if _, err := h.ChangeK8sContext(ctx, k8sContext); err != nil {
-		return "", fmt.Errorf("failed to change K8s context to %s: %w", k8sContext, err)
-	}
-	cmd := exec.Command("bash", "-c", "oc whoami --show-server")
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("failed to get Kubernetes API endpoint: %v", err)
-	}
-	return strings.TrimSpace(string(output)), nil
 }
 
 // ExecuteResourceOperations tests all CRUD operations for the given resource types
