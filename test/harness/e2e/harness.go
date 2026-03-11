@@ -1564,6 +1564,13 @@ func (h *Harness) setupVMFromPoolNoTimeout(workerID int) error {
 		return fmt.Errorf("failed to wait for SSH: %w", err)
 	}
 
+	// Sync the VM clock with the host after snapshot revert. The snapshot
+	// preserves the clock state from creation time, so a stale clock causes
+	// TLS certificate validation failures (e.g. registry certs appear "not yet valid").
+	if err := h.SyncVMClock(); err != nil {
+		logrus.Warnf("Failed to sync VM clock after snapshot revert: %v", err)
+	}
+
 	// Reseed the VM's entropy pool with host-generated random bytes.
 	// After a snapshot revert the kernel CSPRNG state is identical to the
 	// snapshot, which can cause the agent to generate the same private key

@@ -21,6 +21,7 @@ type Providers struct {
 	Lifecycle ServiceLifecycleProvider
 	RBAC      RBACProvider
 	Secrets   SecretsProvider
+	TPM       TPMProvider
 }
 
 // EnvironmentConfig holds configuration for the test environment.

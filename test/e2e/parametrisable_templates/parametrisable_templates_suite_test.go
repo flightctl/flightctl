@@ -65,6 +65,8 @@ var _ = AfterEach(func() {
 	harness := e2e.GetWorkerHarness()
 	suiteCtx := e2e.GetWorkerContext()
 
+	harness.PrintAgentLogsIfFailed()
+
 	// Clean up test resources BEFORE switching back to suite context
 	// This ensures we use the correct test ID for resource cleanup
 	err := harness.CleanUpAllTestResources()

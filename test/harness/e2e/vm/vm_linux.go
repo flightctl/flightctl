@@ -92,6 +92,13 @@ func (v *VMInLibvirt) CreateDomain() error {
 		return fmt.Errorf("unable to define virtual machine domain: %w", err)
 	}
 
+	definedXML, dumpErr := v.domain.GetXMLDesc(0)
+	if dumpErr != nil {
+		logrus.Warnf("Failed to dump defined domain XML: %v", dumpErr)
+	} else {
+		logrus.Infof("Defined domain XML for %s:\n%s", v.TestVM.VMName, definedXML)
+	}
+
 	logrus.Infof("Created VM domain %s", v.TestVM.VMName)
 	return nil
 }
@@ -129,6 +136,13 @@ func (v *VMInLibvirt) Run() error {
 			v.domain, err = conn.DomainDefineXMLFlags(domainXML, libvirt.DOMAIN_DEFINE_VALIDATE)
 			if err != nil {
 				return fmt.Errorf("unable to define virtual machine domain: %w", err)
+			}
+
+			definedXML, dumpErr := v.domain.GetXMLDesc(0)
+			if dumpErr != nil {
+				logrus.Warnf("Failed to dump defined domain XML: %v", dumpErr)
+			} else {
+				logrus.Infof("Defined domain XML for %s:\n%s", v.TestVM.VMName, definedXML)
 			}
 		} else {
 			logrus.Infof("Reusing existing domain %s", v.TestVM.VMName)
@@ -325,6 +339,7 @@ func (v *VMInLibvirt) parseDomainTemplate() (domainXML string, err error) {
 		CloudInitSMBios string
 		DiskSize        string
 		MemoryMiB       int
+		TPMConfig       string
 	}
 
 	diskSize := v.TestVM.DiskSizeGB
@@ -337,6 +352,21 @@ func (v *VMInLibvirt) parseDomainTemplate() (domainXML string, err error) {
 		memoryMiB = 2048
 	}
 
+	tpmConfig := `<tpm model='tpm-tis'>
+      <backend type='emulator' version='2.0'>
+        <active_pcr_banks>
+            <sha256/>
+        </active_pcr_banks>
+      </backend>
+    </tpm>`
+	if v.TestVM.TPMDevice != "" {
+		tpmConfig = fmt.Sprintf(`<tpm model='tpm-tis'>
+      <backend type='passthrough'>
+        <device path='%s'/>
+      </backend>
+    </tpm>`, v.TestVM.TPMDevice)
+	}
+
 	templateParams := TemplateParams{
 		DiskImagePath: v.TestVM.DiskImagePath,
 		Port:          strconv.Itoa(v.TestVM.SSHPort),
@@ -344,6 +374,7 @@ func (v *VMInLibvirt) parseDomainTemplate() (domainXML string, err error) {
 		Name:          v.TestVM.VMName,
 		DiskSize:      strconv.Itoa(diskSize),
 		MemoryMiB:     memoryMiB,
+		TPMConfig:     tpmConfig,
 	}
 
 	err = v.ParseCloudInit()
