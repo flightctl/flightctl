@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/flightctl/flightctl/test/e2e/infra/satellite"
+	"github.com/flightctl/flightctl/test/e2e/infra/auxiliary"
 	"github.com/flightctl/flightctl/test/e2e/infra/setup"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	testutil "github.com/flightctl/flightctl/test/util"
@@ -21,7 +21,7 @@ const LONGTIMEOUT = "15m"
 const DEVICEWAITTIME = "30s"
 const DEFAULTUPDATETIMEOUT = "90s"
 
-var satellites *satellite.Services
+var auxSvcs *auxiliary.Services
 
 func TestRollout(t *testing.T) {
 	RegisterFailHandler(Fail)
@@ -29,7 +29,7 @@ func TestRollout(t *testing.T) {
 }
 
 var _ = BeforeSuite(func() {
-	satellites = satellite.Get(context.Background())
+	auxSvcs = auxiliary.Get(context.Background())
 	Expect(setup.EnsureDefaultProviders(nil)).To(Succeed())
 	_, _, err := e2e.SetupWorkerHarnessWithoutVM()
 	Expect(err).ToNot(HaveOccurred())
@@ -37,8 +37,8 @@ var _ = BeforeSuite(func() {
 
 var _ = AfterSuite(func() {
 	// In CI, cleanup containers; in local dev, leave running for speed
-	if satellites != nil {
-		satellites.Cleanup(context.Background())
+	if auxSvcs != nil {
+		auxSvcs.Cleanup(context.Background())
 	}
 })
 

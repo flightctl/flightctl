@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/flightctl/flightctl/test/e2e/infra/satellite"
+	"github.com/flightctl/flightctl/test/e2e/infra/auxiliary"
 	"github.com/flightctl/flightctl/test/e2e/infra/setup"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	"github.com/flightctl/flightctl/test/login"
@@ -28,10 +28,10 @@ func init() {
 	SetDefaultEventuallyPollingInterval(POLLING)
 }
 
-var satellites *satellite.Services
+var auxSvcs *auxiliary.Services
 
 var _ = BeforeSuite(func() {
-	satellites = satellite.Get(context.Background())
+	auxSvcs = auxiliary.Get(context.Background())
 	Expect(setup.EnsureDefaultProviders(nil)).To(Succeed())
 	e2e.SetupWorkerHarnessOrAbort()
 })

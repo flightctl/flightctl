@@ -1,8 +1,8 @@
-// Package satellite provides shared testcontainer-based services for E2E tests.
+// Package auxiliary provides shared testcontainer-based services for E2E tests.
 // These run the same regardless of deployment (K8s or Quadlet): registry, git server, prometheus, jaeger.
 // For deployment-specific infrastructure (where Flight Control runs), see the parent infra package
 // and infra/k8s, infra/quadlet.
-package satellite
+package auxiliary
 
 import (
 	"context"
@@ -56,7 +56,7 @@ type Services struct {
 	registryReused bool // true when registry container was already running (reuse=true and container existed)
 }
 
-// Service identifies a satellite service that can be started individually.
+// Service identifies an aux service that can be started individually.
 type Service string
 
 const (
@@ -66,24 +66,24 @@ const (
 	ServiceTracing    Service = "tracing"
 )
 
-// AllServices is the default set of shared satellite services (started by Get(ctx)).
+// AllServices is the default set of shared aux services (started by Get(ctx)).
 // Does not include ServiceTracing; use infra.TracingProvider for opt-in tracing.
 var AllServices = []Service{ServiceRegistry, ServiceGitServer, ServicePrometheus}
 
-// Get returns the satellite services, starting all of them if needed (singleton).
+// Get returns the aux services, starting all of them if needed (singleton).
 func Get(ctx context.Context) *Services {
 	once.Do(func() {
 		ConfigureDockerHost()
 		var err error
 		svcs, err = StartServices(ctx, AllServices)
 		if err != nil {
-			logrus.Fatalf("failed to start satellite services: %v", err)
+			logrus.Fatalf("failed to start aux services: %v", err)
 		}
 	})
 	return svcs
 }
 
-// StartServices starts only the requested satellite services with reuse=true.
+// StartServices starts only the requested aux services with reuse=true.
 // For registry, image bundles are uploaded when the container is freshly created (not reused).
 func StartServices(ctx context.Context, services []Service) (*Services, error) {
 	s := &Services{
@@ -125,10 +125,10 @@ func StartServices(ctx context.Context, services []Service) (*Services, error) {
 // Cleanup terminates containers when not reusing; with reuse=true containers stay running.
 func (s *Services) Cleanup(ctx context.Context) {
 	if s.reuse {
-		logrus.Info("Satellite reuse enabled: leaving containers running")
+		logrus.Info("Aux reuse enabled: leaving containers running")
 		return
 	}
-	logrus.Info("Terminating satellite containers")
+	logrus.Info("Terminating aux containers")
 	ShutdownAll(ctx)
 }
 
@@ -140,14 +140,14 @@ var serviceContainerNames = map[Service]string{
 	ServiceTracing:    jaegerContainerName,
 }
 
-// StopServices force-removes the containers for the requested satellite services.
+// StopServices force-removes the containers for the requested aux services.
 func StopServices(services []Service) error {
 	for _, svc := range services {
 		name, ok := serviceContainerNames[svc]
 		if !ok {
 			return fmt.Errorf("unknown service: %q", svc)
 		}
-		logrus.Infof("Stopping satellite container %s", name)
+		logrus.Infof("Stopping aux container %s", name)
 		if err := podmanRemove(name); err != nil {
 			logrus.Warnf("Could not remove %s: %v", name, err)
 		}

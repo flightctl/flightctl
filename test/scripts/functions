@@ -62,9 +62,9 @@ kind_load_image() {
 }
 
 function registry_address() {
-    # E2E_SATELLITE_HOST overrides for both Quadlet and K8s (e.g. test host IP on OCP NIC)
-    if [[ -n "${E2E_SATELLITE_HOST:-}" ]]; then
-        echo "${E2E_SATELLITE_HOST}:5000"
+    # E2E_AUX_HOST overrides for both Quadlet and K8s (e.g. test host IP on OCP NIC)
+    if [[ -n "${E2E_AUX_HOST:-}" ]]; then
+        echo "${E2E_AUX_HOST}:5000"
         return
     fi
 

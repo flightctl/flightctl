@@ -1713,7 +1713,7 @@ func (h *Harness) CleanupGitRepositories(config GitServerConfig, keyPath util.SS
 }
 
 // CreateGitRepositoryWithContent creates a git repository with initial content.
-// Callers pass config and keyPath from infra (e.g. satellite).
+// Callers pass config and keyPath from infra (e.g. auxiliary).
 func (h *Harness) CreateGitRepositoryWithContent(config GitServerConfig, keyPath util.SSHPrivateKeyPath, repoName, filePath, content string, repositorySpec v1beta1.RepositorySpec) error {
 	if err := h.CreateGitRepository(config, keyPath, repoName, repositorySpec); err != nil {
 		return fmt.Errorf("failed to create git repository: %w", err)

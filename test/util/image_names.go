@@ -28,12 +28,12 @@ var ImageNames = imageNames{
 }
 
 // DeviceImageRegistryPath is the path segment used when pushing/pulling the device image
-// to/from a local registry (e.g. satellite). Same as "flightctl/flightctl-device";
+// to/from a local registry (e.g. auxiliary). Same as "flightctl/flightctl-device";
 // full ref is registryHost:port/DeviceImageRegistryPath:tag.
 const DeviceImageRegistryPath = "flightctl/flightctl-device"
 
 // SleepAppRegistryPath is the path segment for the sleep-app image in a local registry
-// (e.g. satellite). Full ref is registryHost:port/SleepAppRegistryPath:tag.
+// (e.g. auxiliary). Full ref is registryHost:port/SleepAppRegistryPath:tag.
 const SleepAppRegistryPath = "flightctl/sleep-app"
 
 type versionTags struct {
