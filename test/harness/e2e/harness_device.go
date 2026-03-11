@@ -954,11 +954,21 @@ func (h *Harness) UpdateDeviceConfigWithRetries(deviceId string, configs []v1bet
 	return h.WaitForDeviceNewRenderedVersion(deviceId, nextRenderedVersion)
 }
 
-// reset agent
+// ResetAgent sends a SIGHUP to the flightctl-agent process.
+// This triggers the agent to reload its configuration without restarting the service.
 func (h *Harness) ResetAgent() error {
 	_, err := h.VM.RunSSH([]string{"sudo", "pkill", "-HUP", "flightctl-agent"}, nil)
 	if err != nil {
-		return fmt.Errorf("failed to send SIGHUP to agent: %w", err)
+		return fmt.Errorf("failed to send SIGHUP to flightctl-agent: %w", err)
+	}
+	return nil
+}
+
+// RestartAgent restarts the flightctl-agent systemd service.
+func (h *Harness) RestartAgent() error {
+	_, err := h.VM.RunSSH([]string{"sudo", "systemctl", "restart", "flightctl-agent"}, nil)
+	if err != nil {
+		return fmt.Errorf("failed to restart flightctl-agent service: %w", err)
 	}
 	return nil
 }
