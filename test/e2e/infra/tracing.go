@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/config"
-	"github.com/flightctl/flightctl/test/e2e/infra/satellite"
+	"github.com/flightctl/flightctl/test/e2e/infra/auxiliary"
 	"github.com/sirupsen/logrus"
 	"sigs.k8s.io/yaml"
 )
@@ -23,7 +23,7 @@ var traceableServiceNames = []ServiceName{
 
 const serviceRestartTimeout = 2 * time.Minute
 
-// TracingProvider starts/stops the tracing satellite and configures flightctl services accordingly.
+// TracingProvider starts/stops the tracing aux container and configures flightctl services accordingly.
 type TracingProvider struct {
 	infra     InfraProvider
 	lifecycle ServiceLifecycleProvider
@@ -34,11 +34,11 @@ func NewTracingProvider(infra InfraProvider, lifecycle ServiceLifecycleProvider)
 	return &TracingProvider{infra: infra, lifecycle: lifecycle}
 }
 
-// StartTracing starts the tracing satellite container and configures flightctl services to report to it.
-func (p *TracingProvider) StartTracing(ctx context.Context) (*satellite.Services, error) {
-	svcs, err := satellite.StartServices(ctx, []satellite.Service{satellite.ServiceTracing})
+// StartTracing starts the tracing aux container and configures flightctl services to report to it.
+func (p *TracingProvider) StartTracing(ctx context.Context) (*auxiliary.Services, error) {
+	svcs, err := auxiliary.StartServices(ctx, []auxiliary.Service{auxiliary.ServiceTracing})
 	if err != nil {
-		return nil, fmt.Errorf("start tracing satellite: %w", err)
+		return nil, fmt.Errorf("start tracing aux: %w", err)
 	}
 	if err := p.enableFlightctlTracing(svcs.JaegerOTLPEndpoint); err != nil {
 		return nil, fmt.Errorf("enable flightctl tracing: %w", err)
@@ -47,14 +47,14 @@ func (p *TracingProvider) StartTracing(ctx context.Context) (*satellite.Services
 	return svcs, nil
 }
 
-// StopTracing reconfigures flightctl services to disable tracing, then stops the tracing satellite container.
+// StopTracing reconfigures flightctl services to disable tracing, then stops the tracing aux container.
 func (p *TracingProvider) StopTracing() error {
 	if err := p.disableFlightctlTracing(); err != nil {
 		return fmt.Errorf("disable flightctl tracing: %w", err)
 	}
 	logrus.Info("Disabled tracing on flightctl services")
-	if err := satellite.StopServices([]satellite.Service{satellite.ServiceTracing}); err != nil {
-		return fmt.Errorf("stop tracing satellite: %w", err)
+	if err := auxiliary.StopServices([]auxiliary.Service{auxiliary.ServiceTracing}); err != nil {
+		return fmt.Errorf("stop tracing aux: %w", err)
 	}
 	return nil
 }

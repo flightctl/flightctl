@@ -1,4 +1,4 @@
-package satellite
+package auxiliary
 
 import (
 	"fmt"
@@ -22,7 +22,7 @@ func ConfigureDockerHost() {
 	if dockerHost == "" {
 		socketPath := detectContainerSocket()
 		if socketPath == "" {
-			logrus.Warn("[satellite] Could not detect container socket")
+			logrus.Warn("[aux] Could not detect container socket")
 			return
 		}
 		dockerHost = fmt.Sprintf("unix://%s", socketPath)
@@ -42,11 +42,11 @@ func logContainerRuntime(dockerHost string) {
 	if os.Getenv("TESTCONTAINERS_RYUK_DISABLED") == "true" {
 		ryuk = "disabled"
 	}
-	logrus.Infof("[satellite] Container runtime: %s (DOCKER_HOST=%s), Ryuk %s", runtime, dockerHost, ryuk)
+	logrus.Infof("[aux] Container runtime: %s (DOCKER_HOST=%s), Ryuk %s", runtime, dockerHost, ryuk)
 }
 
 func configureProviderSettings(dockerHost string) {
-	// Disable Ryuk so reused satellite containers (registry, git, prometheus) are not reaped when
+	// Disable Ryuk so reused aux containers (registry, git, prometheus) are not reaped when
 	// one suite process exits; later suites (different process) can reuse them. We already set
 	// SkipReaper on those containers, but disabling Ryuk avoids any cross-process reaping.
 	if os.Getenv("TESTCONTAINERS_RYUK_DISABLED") == "" {
@@ -114,14 +114,14 @@ func isKindCluster() bool {
 	return err == nil && strings.TrimSpace(string(out)) != ""
 }
 
-// E2ESatelliteHostEnv is the env var to override the host used for registry/git/prometheus
+// E2EAuxHostEnv is the env var to override the host used for registry/git/prometheus
 // (e.g. when the test VM has multiple NICs and the cluster is on a different interface).
-const E2ESatelliteHostEnv = "E2E_SATELLITE_HOST"
+const E2EAuxHostEnv = "E2E_AUX_HOST"
 
 // GetHostIP returns the host's external IP for container access.
-// If E2E_SATELLITE_HOST is set (e.g. for a two-NIC test VM on shared OCP network), that value is returned.
+// If E2E_AUX_HOST is set (e.g. for a two-NIC test VM on shared OCP network), that value is returned.
 func GetHostIP() string {
-	if override := os.Getenv(E2ESatelliteHostEnv); override != "" {
+	if override := os.Getenv(E2EAuxHostEnv); override != "" {
 		return override
 	}
 	conn, err := net.Dial("udp", "1.1.1.1:80")

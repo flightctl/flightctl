@@ -1,4 +1,4 @@
-package satellite
+package auxiliary
 
 import (
 	"context"
@@ -98,7 +98,7 @@ func copyGitServerKeysFromContainer(ctx context.Context, container testcontainer
 }
 
 // GetGitSSHPrivateKeyPath returns the path to the SSH private key for git operations.
-// The key is always the one from the satellite git server container (Podman); no deployment secrets.
+// The key is always the one from the aux git server container (Podman); no deployment secrets.
 func (s *Services) GetGitSSHPrivateKeyPath() (util.SSHPrivateKeyPath, error) {
 	if s.gitServerPrivateKeyPath == "" {
 		return "", fmt.Errorf("git server SSH key not available (git server may not be started)")

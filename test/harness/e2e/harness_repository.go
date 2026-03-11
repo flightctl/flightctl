@@ -32,7 +32,7 @@ func (h *Harness) GetRepository(repositoryName string) (*v1beta1.Repository, err
 }
 
 // GetInternalGitRepoURL returns the internal cluster URL for a git repository on the E2E git server.
-// Callers pass internalHost and internalPort from infra (e.g. satellite.Services).
+// Callers pass internalHost and internalPort from infra (e.g. auxiliary.Services).
 func (h *Harness) GetInternalGitRepoURL(internalHost string, internalPort int, repoName string) (string, error) {
 	if internalHost == "" || internalPort == 0 {
 		return "", fmt.Errorf("git server internal endpoints not configured")
@@ -41,7 +41,7 @@ func (h *Harness) GetInternalGitRepoURL(internalHost string, internalPort int, r
 }
 
 // CreateRepositoryWithSSHCredentials creates a Repository resource with SSH credentials.
-// keyContent must be the raw SSH private key (e.g. from satellite.Get(ctx).GetGitSSHPrivateKey()).
+// keyContent must be the raw SSH private key (e.g. from auxiliary.Get(ctx).GetGitSSHPrivateKey()).
 func (h *Harness) CreateRepositoryWithSSHCredentials(repoName, repoURL string, keyContent util.SSHPrivateKeyContent) error {
 	sshPrivateKeyBase64 := base64.StdEncoding.EncodeToString([]byte(keyContent))
 
@@ -78,8 +78,8 @@ func (h *Harness) CreateRepositoryWithSSHCredentials(repoName, repoURL string, k
 }
 
 // CreateRepositoryWithValidE2ECredentials creates a Repository resource using the E2E SSH key
-// and the internal cluster URL. Callers pass internalHost, internalPort from infra (e.g. satellite)
-// and keyContent from infra (e.g. satellite.Get(ctx).GetGitSSHPrivateKey()).
+// and the internal cluster URL. Callers pass internalHost, internalPort from infra (e.g. aux)
+// and keyContent from infra (e.g. auxiliary.Get(ctx).GetGitSSHPrivateKey()).
 func (h *Harness) CreateRepositoryWithValidE2ECredentials(internalHost string, internalPort int, repoName string, keyContent util.SSHPrivateKeyContent) error {
 	repoURL, err := h.GetInternalGitRepoURL(internalHost, internalPort, repoName)
 	if err != nil {

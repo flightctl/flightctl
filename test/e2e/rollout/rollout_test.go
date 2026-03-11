@@ -231,8 +231,8 @@ var _ = Describe("Rollout Policies", Label("rollout"), func() {
 			}
 
 			By("Simulating a failure in the first batch")
-			Expect(satellites).ToNot(BeNil(), "satellite registry required for network failure test")
-			regHost, regPort := satellites.RegistryHost, satellites.RegistryPort
+			Expect(auxSvcs).ToNot(BeNil(), "aux registry required for network failure test")
+			regHost, regPort := auxSvcs.RegistryHost, auxSvcs.RegistryPort
 			for _, harness := range tc.harnesses {
 				h := harness // capture per-iteration
 				DeferCleanup(func() { _ = h.FixNetworkFailure(regHost, regPort) })
@@ -564,7 +564,7 @@ type TestContext struct {
 
 func setupTestContext(ctx context.Context) *TestContext {
 	harness := e2e.GetWorkerHarness()
-	regHost, regPort := satellites.RegistryHost, satellites.RegistryPort
+	regHost, regPort := auxSvcs.RegistryHost, auxSvcs.RegistryPort
 	sleepAppImage := harness.GetSleepAppImageRefForFleet(regHost, regPort, util.SleepAppTags.V1)
 
 	composeApp := api.ComposeApplication{

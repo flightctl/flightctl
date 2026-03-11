@@ -215,34 +215,34 @@ $(REPORTS)/integration-coverage.out:
 	$(MAKE) integration-test || true
 
 start-registry: bin/e2e-certs/ca.pem
-	go run ./cmd/satellite-service start registry
+	go run ./cmd/aux-service start registry
 
 stop-registry:
-	go run ./cmd/satellite-service stop registry
+	go run ./cmd/aux-service stop registry
 
 start-git-server: bin/e2e-certs/ca.pem
-	go run ./cmd/satellite-service start git-server
+	go run ./cmd/aux-service start git-server
 
 stop-git-server:
-	go run ./cmd/satellite-service stop git-server
+	go run ./cmd/aux-service stop git-server
 
 start-prometheus:
-	go run ./cmd/satellite-service start prometheus
+	go run ./cmd/aux-service start prometheus
 
 stop-prometheus:
-	go run ./cmd/satellite-service stop prometheus
+	go run ./cmd/aux-service stop prometheus
 
 start-tracing:
-	go run ./cmd/satellite-service start tracing
+	go run ./cmd/aux-service start tracing
 
 stop-tracing:
-	go run ./cmd/satellite-service stop tracing
+	go run ./cmd/aux-service stop tracing
 
-start-satellite: bin/e2e-certs/ca.pem
-	go run ./cmd/satellite-service start all
+start-aux: bin/e2e-certs/ca.pem
+	go run ./cmd/aux-service start all
 
-stop-satellite:
-	go run ./cmd/satellite-service stop all
+stop-aux:
+	go run ./cmd/aux-service stop all
 
-.PHONY: start-registry stop-registry start-git-server stop-git-server start-prometheus stop-prometheus start-tracing stop-tracing start-satellite stop-satellite
+.PHONY: start-registry stop-registry start-git-server stop-git-server start-prometheus stop-prometheus start-tracing stop-tracing start-aux stop-aux
 .PHONY: unit-test prepare-integration-test integration-test run-integration-test view-coverage prepare-e2e-test deploy-e2e-ocp-test-vm _wait_for_db _run_template_migration _ensure_db_setup_image prepare-swtpm-certs clean-swtpm-certs

@@ -94,7 +94,7 @@ var _ = Describe("Service backup and restore", Label("backup-restore"), func() {
 
 			// --- Step 1: Fleet v2, device UpToDate; capture RV at backup time (rvAtBackup) ---
 			By("Creating fleet with selector dev=yes and OS image v2")
-			regHost, regPort := satellites.RegistryHost, satellites.RegistryPort
+			regHost, regPort := auxSvcs.RegistryHost, auxSvcs.RegistryPort
 			deviceSpecV2, err := harness.CreateFleetDeviceSpec(regHost, regPort, testutil.DeviceTags.V2)
 			Expect(err).ToNot(HaveOccurred())
 			selector := v1beta1.LabelSelector{MatchLabels: &map[string]string{devYesLabel: devYesValue}}
@@ -306,7 +306,7 @@ var _ = Describe("Service backup and restore", Label("backup-restore"), func() {
 
 			selector := v1beta1.LabelSelector{MatchLabels: &map[string]string{devYesLabel: devYesValue}}
 			By("Creating fleet with selector dev=yes and OS image v2")
-			regHost, regPort := satellites.RegistryHost, satellites.RegistryPort
+			regHost, regPort := auxSvcs.RegistryHost, auxSvcs.RegistryPort
 			deviceSpecV2, err := harness.CreateFleetDeviceSpec(regHost, regPort, testutil.DeviceTags.V2)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(harness.CreateOrUpdateTestFleet(backupRestoreFleetName, selector, deviceSpecV2)).To(Succeed())
