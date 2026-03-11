@@ -422,9 +422,9 @@ clean: clean-agent-vm clean-e2e-agent-images clean-quadlets clean-swtpm-certs cl
 clean-all: clean clean-containers
 	- rm -rf bin
 
-# Remove E2E satellite testcontainers (registry, git server, prometheus) and their anonymous volumes so next e2e run starts fresh
+# Remove E2E satellite testcontainers (registry, git server, prometheus, jaeger) and their anonymous volumes so next e2e run starts fresh
 clean-satellite:
-	- podman rm -f -v e2e-registry e2e-gitserver e2e-prometheus 2>/dev/null || true
+	- podman rm -f -v e2e-registry e2e-gitserver e2e-prometheus e2e-jaeger 2>/dev/null || true
 
 clean-quadlets:
 	sudo deploy/scripts/clean_quadlets.sh

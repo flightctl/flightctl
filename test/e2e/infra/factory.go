@@ -75,8 +75,6 @@ const (
 const (
 	// DefaultQuadletConfigDir is the default config directory for Quadlet deployments
 	DefaultQuadletConfigDir = "/etc/flightctl"
-	// DefaultK8sNamespace is the default namespace for K8s deployments
-	DefaultK8sNamespace = "flightctl"
 	// DefaultAPIPort is the default port for the FlightCtl API
 	DefaultAPIPort = "3443"
 )
@@ -174,12 +172,10 @@ func (c *EnvironmentConfig) GetConfigDir() string {
 	return DefaultQuadletConfigDir
 }
 
-// GetNamespace returns the namespace, using defaults if not set.
+// GetNamespace returns the namespace from config (E2E_NAMESPACE or FLIGHTCTL_NS).
+// Returns empty string when not set; K8s providers then detect from cluster (flightctl-api / flightctl-worker pods).
 func (c *EnvironmentConfig) GetNamespace() string {
-	if c.Namespace != "" {
-		return c.Namespace
-	}
-	return DefaultK8sNamespace
+	return c.Namespace
 }
 
 // IsRemote returns true if this is a remote deployment (has SSHHost or external API endpoint).
