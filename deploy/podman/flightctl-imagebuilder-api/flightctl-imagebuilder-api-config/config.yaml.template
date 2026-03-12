@@ -60,7 +60,7 @@ auth:
 {{- else if eq .global.auth.type "oidc"}}
   oidc:
     enabled: {{if .global.auth.oidc.enabled}}{{.global.auth.oidc.enabled}}{{else}}true{{end}}
-    {{if .global.auth.pamOidcIssuer.enabled}}
+    {{if eq .global.auth.pamOidcIssuer.enabled true}}
     issuer: {{if .global.auth.pamOidcIssuer.issuer}}{{.global.auth.pamOidcIssuer.issuer}}{{else}}https://{{.global.baseDomain}}:8444/api/v1/auth{{end}}
     clientId: {{if .global.auth.pamOidcIssuer.clientId}}{{.global.auth.pamOidcIssuer.clientId}}{{else}}flightctl-client{{end}}
     clientSecret: {{if .global.auth.pamOidcIssuer.clientSecret}}{{.global.auth.pamOidcIssuer.clientSecret}}{{end}}
@@ -76,10 +76,16 @@ auth:
       {{end}}
     roleAssignment:
       type: {{if .global.auth.oidc.roleAssignment.type}}{{.global.auth.oidc.roleAssignment.type}}{{else}}dynamic{{end}}
+      {{with .global.auth.oidc.roleAssignment.roles}}
+      roles:
+        {{range .}}- {{.}}
+        {{end}}
+      {{end}}
       claimPath:
         {{if .global.auth.oidc.roleAssignment.claimPath}}{{range .global.auth.oidc.roleAssignment.claimPath}}- {{.}}
         {{end}}{{else}}- roles
         {{end}}
+      {{with .global.auth.oidc.roleAssignment.separator}}separator: "{{.}}"{{end}}
     scopes:
 {{- if .global.auth.oidc.scopes}}
 {{- range .global.auth.oidc.scopes}}
