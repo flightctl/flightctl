@@ -483,7 +483,8 @@ rm -rf /usr/share/sosreport
 id -u flightctl 2>/dev/null || useradd --create-home --user-group flightctl
 # This enables lingering for the user with a fallback when building in an env without an active systemd.
 loginctl enable-linger flightctl || (mkdir -p /var/lib/systemd/linger/ && touch /var/lib/systemd/linger/flightctl)
-mkdir -p ~flightctl/{.config,.local}
+mkdir -p ~flightctl/.config/{containers/systemd,systemd/user}
+mkdir -p ~flightctl/.local
 chown -R flightctl:flightctl ~flightctl/{.config,.local}
 
 %files selinux
