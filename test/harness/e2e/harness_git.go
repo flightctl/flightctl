@@ -423,6 +423,31 @@ func (h *Harness) SetupTemplatedGitRepoFromDir(config GitServerConfig, keyPath u
 	return workDir, nil
 }
 
+// VerifyDeviceGitConfigPath fetches the device and asserts that the named git config's resolved path matches expectedPath.
+func (h *Harness) VerifyDeviceGitConfigPath(deviceId, configName, expectedPath string) error {
+	device, err := h.GetDevice(deviceId)
+	if err != nil {
+		return fmt.Errorf("failed to get device %s: %w", deviceId, err)
+	}
+	gitConfig, err := h.GetDeviceGitConfig(device, configName)
+	if err != nil {
+		return fmt.Errorf("failed to get git config %s for device %s: %w", configName, deviceId, err)
+	}
+	if gitConfig.GitRef.Path != expectedPath {
+		return fmt.Errorf("expected git config path %q, got %q", expectedPath, gitConfig.GitRef.Path)
+	}
+	return nil
+}
+
+// ReadFileFromDevice reads a file from the device via SSH and returns its content.
+func (h *Harness) ReadFileFromDevice(filePath string) (string, error) {
+	stdout, err := h.VM.RunSSH([]string{"cat", filePath}, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to read %s from device: %w", filePath, err)
+	}
+	return stdout.String(), nil
+}
+
 // PushTemplatedFilesToGitRepo updates an existing git repo with templated files, commits and pushes.
 func (h *Harness) PushTemplatedFilesToGitRepo(workDir string, keyPath util.SSHPrivateKeyPath, sourceDir string, data interface{}) error {
 	err := writeTemplatedFilesToDir(sourceDir, workDir, data)
