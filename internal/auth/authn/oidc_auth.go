@@ -17,6 +17,7 @@ import (
 	identitypkg "github.com/flightctl/flightctl/internal/identity"
 	"github.com/jellydator/ttlcache/v3"
 	"github.com/lestrrat-go/jwx/v2/jwk"
+	"github.com/lestrrat-go/jwx/v2/jws"
 	"github.com/lestrrat-go/jwx/v2/jwt"
 	"github.com/sirupsen/logrus"
 )
@@ -261,7 +262,7 @@ func (o *OIDCAuth) parseAndCreateIdentity(ctx context.Context, token string) (*J
 	// Step 4: Parse and validate token WITH signature verification using JWKS
 	// This is the second parse, but now we know it's a valid JWT structure
 	validateStart := time.Now()
-	parsedToken, err := jwt.Parse([]byte(token), jwt.WithKeySet(jwkSet), jwt.WithValidate(true))
+	parsedToken, err := jwt.Parse([]byte(token), jwt.WithKeySet(jwkSet, jws.WithInferAlgorithmFromKey(true)), jwt.WithValidate(true))
 	validateDuration := time.Since(validateStart)
 
 	if err != nil {
@@ -276,7 +277,7 @@ func (o *OIDCAuth) parseAndCreateIdentity(ctx context.Context, token string) (*J
 				jwkSet, retryErr := o.jwksCache.Get(ctx, o.jwksUri)
 				if retryErr == nil {
 					retryValidateStart := time.Now()
-					parsedToken, retryErr = jwt.Parse([]byte(token), jwt.WithKeySet(jwkSet), jwt.WithValidate(true))
+					parsedToken, retryErr = jwt.Parse([]byte(token), jwt.WithKeySet(jwkSet, jws.WithInferAlgorithmFromKey(true)), jwt.WithValidate(true))
 					if retryErr == nil {
 						o.log.Debugf("OIDC: JWT signature validation succeeded on retry (took %v)", time.Since(retryValidateStart))
 						err = nil // Clear the original error
