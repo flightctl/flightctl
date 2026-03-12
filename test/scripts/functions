@@ -149,11 +149,16 @@ function find_route_name() {
 function get_endpoints() {
   # Check if running in Quadlet/standalone mode
   if [[ "${E2E_ENVIRONMENT:-}" == "quadlet" ]] || \
+     [[ -n "${E2E_SSH_HOST:-}" ]] || \
      { ! kubectl config current-context &>/dev/null && \
        (systemctl is-active flightctl-api.service &>/dev/null || sudo systemctl is-active flightctl-api.service &>/dev/null); }; then
-    # Quadlet/standalone mode - use hostname (VM will have /etc/hosts entry injected)
+    # Quadlet/standalone mode - use E2E_SSH_HOST when set (remote Quadlet), else hostname (VM will have /etc/hosts entry injected)
     local QUADLET_HOST
-    QUADLET_HOST=$(hostname -f 2>/dev/null || hostname 2>/dev/null || echo "localhost")
+    if [[ -n "${E2E_SSH_HOST:-}" ]]; then
+      QUADLET_HOST="${E2E_SSH_HOST}"
+    else
+      QUADLET_HOST=$(hostname -f 2>/dev/null || hostname 2>/dev/null || echo "localhost")
+    fi
     export FLIGHTCTL_API_ENDPOINT=${FLIGHTCTL_API_ENDPOINT:-https://${QUADLET_HOST}:3443}
     export FLIGHTCTL_AGENT_ENDPOINT=${FLIGHTCTL_AGENT_ENDPOINT:-https://${QUADLET_HOST}:7443}
     export FLIGHTCTL_UI_ENDPOINT=${FLIGHTCTL_UI_ENDPOINT:-https://${QUADLET_HOST}:9001}

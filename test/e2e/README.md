@@ -94,6 +94,7 @@ When running e2e against a Quadlet deployment (e.g. after `make deploy-quadlets`
 | `E2E_SSH_HOST` | SSH host of the Quadlet device (e.g. `localhost` when using `make deploy-quadlets` on this host). |
 | `E2E_SSH_USER` | SSH username to run commands on the device. |
 | `E2E_SSH_KEY_PATH` | Path to SSH private key for `E2E_SSH_USER`. Defaults to `~/.ssh/id_rsa` if unset. |
+| `E2E_SSH_PASSWORD` | SSH password (alternative to key). Used when `E2E_SSH_KEY_PATH` is not set; requires `sshpass` on the test host. |
 | `E2E_USE_SUDO` | Use sudo for systemctl/podman on the device. Default: `true` for Quadlet. |
 | `E2E_CONFIG_DIR` | FlightCtl config directory on the device. Default: `/etc/flightctl`. |
 | `E2E_API_ENDPOINT` | FlightCtl API URL (e.g. `https://<host>:3443`). Inferred from host if unset. |
