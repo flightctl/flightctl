@@ -67,6 +67,8 @@ const (
 	EnvE2ESSHHost     = "E2E_SSH_HOST"     // Remote SSH host for Quadlet
 	EnvE2ESSHUser     = "E2E_SSH_USER"     // SSH username
 	EnvE2ESSHKeyPath  = "E2E_SSH_KEY_PATH" // SSH key path
+	// #nosec G101 -- env var name, not a credential value
+	EnvE2ESSHPassword = "E2E_SSH_PASSWORD" // SSH password (alternative to key; requires sshpass)
 	EnvE2EUseSudo     = "E2E_USE_SUDO"     // Use sudo (default: true for quadlet)
 	EnvE2EConfigDir   = "E2E_CONFIG_DIR"   // Config directory for Quadlet
 )

@@ -4,7 +4,6 @@ import (
 	"archive/tar"
 	"bufio"
 	"compress/gzip"
-	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -89,9 +88,8 @@ func (s *Services) uploadBundle(bundlePath string) error {
 		return nil
 	}
 	loadCmd := exec.Command("podman", "load", "-i", bundlePath)
-	if _, err := loadCmd.CombinedOutput(); err != nil {
-		logrus.Warnf("podman load failed (falling back to skopeo): %v", err)
-		return s.uploadBundleViaSkopeo(bundlePath, refs)
+	if output, err := loadCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("podman load -i %s failed: %w, output: %s", bundlePath, err, string(output))
 	}
 	var needsPush []string
 	for _, ref := range refs {
@@ -119,54 +117,6 @@ func (s *Services) uploadBundle(bundlePath string) error {
 		}
 	}
 	return nil
-}
-
-func (s *Services) uploadBundleViaSkopeo(bundlePath string, refs []string) error {
-	var needsPush []string
-	for _, ref := range refs {
-		path := ref
-		if idx := strings.Index(ref, "/"); idx != -1 {
-			path = ref[idx+1:]
-		}
-		registryRef := fmt.Sprintf("%s/%s", s.RegistryURL, path)
-		if !imageConfigMatches(bundlePath, ref, registryRef) {
-			needsPush = append(needsPush, ref)
-		}
-	}
-	if len(needsPush) == 0 {
-		return nil
-	}
-	for _, ref := range needsPush {
-		path := ref
-		if idx := strings.Index(ref, "/"); idx != -1 {
-			path = ref[idx+1:]
-		}
-		src := fmt.Sprintf("docker-archive:%s:%s", bundlePath, ref)
-		dst := fmt.Sprintf("docker://%s/%s", s.RegistryURL, path)
-		cmd := exec.Command("skopeo", "copy", "--dest-tls-verify=false", src, dst)
-		if out, err := cmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("skopeo copy failed for %s: %w, output: %s", ref, err, string(out))
-		}
-	}
-	return nil
-}
-
-func getImageConfigDigest(imageRef string, tlsVerify bool) string {
-	tlsArg := fmt.Sprintf("--tls-verify=%v", tlsVerify)
-	cmd := exec.Command("skopeo", "inspect", "--config", tlsArg, imageRef)
-	output, err := cmd.Output()
-	if err != nil {
-		return ""
-	}
-	hash := sha256.Sum256(output)
-	return fmt.Sprintf("sha256:%x", hash)
-}
-
-func imageConfigMatches(bundlePath, imageRef, registryRef string) bool {
-	archiveRef := fmt.Sprintf("docker-archive:%s:%s", bundlePath, imageRef)
-	a := getImageConfigDigest(archiveRef, false)
-	b := getImageConfigDigest("docker://"+registryRef, false)
-	return a != "" && b != "" && a == b
 }
 
 func extractImageRefs(bundlePath string) ([]string, error) {

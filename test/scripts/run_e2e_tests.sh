@@ -78,22 +78,29 @@ if [[ -z "${E2E_ENVIRONMENT}" ]]; then
 fi
 export E2E_ENVIRONMENT
 
-# Set API_ENDPOINT based on environment
-if [[ -z "${API_ENDPOINT:-}" ]]; then
-    case "${E2E_ENVIRONMENT}" in
-        quadlet)
-            # For Quadlet, use FQDN so VMs can reach the API
+# Set API_ENDPOINT and QUADLET_HOST based on environment
+case "${E2E_ENVIRONMENT}" in
+    quadlet)
+        # For Quadlet always set from E2E_SSH_HOST so remote host is used when set
+        if [[ -n "${E2E_SSH_HOST:-}" ]]; then
+            QUADLET_HOST="${E2E_SSH_HOST}"
+            export E2E_SSH_HOST
+            echo "Using remote Quadlet host: ${QUADLET_HOST} (E2E_SSH_HOST)"
+        else
             QUADLET_HOST=$(hostname -f 2>/dev/null || hostname 2>/dev/null || echo "localhost")
-            API_ENDPOINT="https://${QUADLET_HOST}:3443"
-            echo "Using Quadlet API endpoint: ${API_ENDPOINT}"
-            ;;
-        *)
-            # For K8s environments, get endpoint from route/ingress
+            echo "Using local Quadlet host: ${QUADLET_HOST} (set E2E_SSH_HOST for remote Quadlet)"
+        fi
+        export QUADLET_HOST
+        API_ENDPOINT="https://${QUADLET_HOST}:3443"
+        echo "Using Quadlet API endpoint: ${API_ENDPOINT}"
+        ;;
+    *)
+        if [[ -z "${API_ENDPOINT:-}" ]]; then
             API_ENDPOINT=https://$(get_endpoint_host flightctl-api)
             echo "Using K8s API endpoint: ${API_ENDPOINT}"
-            ;;
-    esac
-fi
+        fi
+        ;;
+esac
 export API_ENDPOINT
 
 # Set registry endpoint (K8s-specific, optional for Quadlet)
