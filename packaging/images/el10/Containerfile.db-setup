@@ -69,4 +69,4 @@ COPY --chmod=0755 ./deploy/scripts/setup_database_users.sh \
                   ./deploy/scripts/
 COPY ./deploy/scripts/setup_database_users.sql ./deploy/scripts/setup_database_users.sql
 
-CMD ["./deploy/scripts/setup_database_users.sh"]
+CMD ["./deploy/scripts/migration-setup.sh"]
