@@ -4,6 +4,9 @@ USER 0
 
 RUN mkdir -p /root/.config
 
+# Configure packit to avoid python-specfile sanitize parameter issues
+RUN mkdir -p /etc && echo "specfile-skip-sanitize: true" > /etc/packit.yaml
+
 RUN dnf install -y \
       golang \
       openssl-devel \
