@@ -9,7 +9,6 @@ import (
 
 	"github.com/flightctl/flightctl/test/util"
 	"github.com/onsi/ginkgo/v2"
-	"github.com/onsi/gomega"
 	"github.com/sirupsen/logrus"
 )
 
@@ -83,6 +82,7 @@ func SetupWorkerHarnessWithoutVM() (*Harness, context.Context, error) {
 	// Create harness without VM (no VM pool setup needed)
 	harness, err := NewTestHarnessWithoutVM(suiteCtx)
 	if err != nil {
+		fmt.Fprint(os.Stderr, E2ESetupAbortStderrMarker+"\n")
 		return nil, nil, fmt.Errorf("failed to create harness for worker %d: %w", workerID, err)
 	}
 
@@ -130,7 +130,6 @@ func GetContext() (string, error) {
 // Use this in your test suite's BeforeSuite if you want a simple setup.
 func GinkgoBeforeSuite() {
 	var _ = ginkgo.BeforeSuite(func() {
-		_, _, err := SetupWorkerHarness()
-		gomega.Expect(err).ToNot(gomega.HaveOccurred())
+		SetupWorkerHarnessOrAbort()
 	})
 }
