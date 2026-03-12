@@ -105,7 +105,7 @@ jobs:
         run: |
           set -euo pipefail
           echo "::group::Listing images in bundle"
-          IMAGES=$(podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/${OS}/flightctl-.*:${TAG}" | sort)
+          IMAGES=$(podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/flightctl-.*:${TAG}" | sort)
           echo "$IMAGES"
           echo "::endgroup::"
           
