@@ -709,15 +709,37 @@ auth:
     aap:
         apiUrl: {{ .Values.global.auth.aap.apiUrl }}
         externalApiUrl: {{ .Values.global.auth.aap.externalApiUrl }}
+        {{- if .Values.global.auth.aap.authorizationUrl }}
+        authorizationUrl: {{ .Values.global.auth.aap.authorizationUrl }}
+        {{- end }}
+        {{- if .Values.global.auth.aap.tokenUrl }}
+        tokenUrl: {{ .Values.global.auth.aap.tokenUrl }}
+        {{- end }}
+        {{- if .Values.global.auth.aap.clientId }}
+        clientId: {{ .Values.global.auth.aap.clientId }}
+        {{- end }}
+        {{- if .Values.global.auth.aap.clientSecret }}
+        clientSecret: {{ .Values.global.auth.aap.clientSecret }}
+        {{- end }}
+        enabled: {{ .Values.global.auth.aap.enabled }}
+        {{- if .Values.global.auth.aap.scopes }}
+        scopes: {{ .Values.global.auth.aap.scopes | toYaml | nindent 12 }}
+        {{- end }}
     {{- else }}
     oidc:
         oidcAuthority: {{ .Values.global.auth.oidc.issuer }}
         clientId: {{ .Values.global.auth.oidc.clientId }}
+        {{- if .Values.global.auth.oidc.clientSecret }}
+        clientSecret: {{ .Values.global.auth.oidc.clientSecret }}
+        {{- end }}
         {{- if .Values.global.auth.oidc.enabled }}
         enabled: {{ .Values.global.auth.oidc.enabled }}
         {{- end }}
         issuer: {{ .Values.global.auth.oidc.issuer }}
         externalOidcAuthority: {{ include "flightctl.getOidcAuthorityUrl" . }}
+        {{- if .Values.global.auth.oidc.scopes }}
+        scopes: {{ .Values.global.auth.oidc.scopes | toYaml | nindent 12 }}
+        {{- end }}
         {{- if .Values.global.auth.oidc.organizationAssignment }}
         organizationAssignment: {{ .Values.global.auth.oidc.organizationAssignment | toYaml | nindent 12 }}
         {{- end }}

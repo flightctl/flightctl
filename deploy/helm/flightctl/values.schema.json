@@ -104,6 +104,15 @@
               "additionalProperties": false,
               "properties": {
                 "clientId": { "type": "string", "description": "OIDC Client ID" },
+                "clientSecret": {
+                  "type": "string",
+                  "description": "OIDC client secret (optional; prefer mounting from a secret)"
+                },
+                "scopes": {
+                  "type": "array",
+                  "description": "List of OIDC scopes to request (e.g. openid, profile, email)",
+                  "items": { "type": "string" }
+                },
                 "issuer": {
                   "type": "string",
                   "description": "OIDC provider base URL reachable by services"
@@ -118,7 +127,14 @@
                   "additionalProperties": false,
                   "properties": {
                     "type": { "type": "string", "enum": ["static", "dynamic"] },
-                    "organizationName": { "type": "string" }
+                    "organizationName": { "type": "string" },
+                    "claimPath": {
+                      "type": "array",
+                      "description": "JSON path to the claim for dynamic assignment",
+                      "items": { "type": "string" }
+                    },
+                    "organizationNamePrefix": { "type": "string", "description": "Prefix for organization name (dynamic)" },
+                    "organizationNameSuffix": { "type": "string", "description": "Suffix for organization name (dynamic)" }
                   }
                 },
                 "usernameClaim": {
@@ -135,6 +151,15 @@
                     "claimPath": {
                       "type": "array",
                       "items": { "type": "string" }
+                    },
+                    "separator": {
+                      "type": "string",
+                      "description": "Separator for org:role format in dynamic assignment (default ':')"
+                    },
+                    "roles": {
+                      "type": "array",
+                      "description": "Static list of role names (for type: static)",
+                      "items": { "type": "string" }
                     }
                   }
                 }
@@ -145,7 +170,17 @@
               "additionalProperties": false,
               "properties": {
                 "apiUrl": { "type": "string", "description": "The URL of the AAP Gateway API endpoint" },
-                "externalApiUrl": { "type": "string", "description": "The URL of the AAP Gateway API endpoint that is reachable by clients" }
+                "externalApiUrl": { "type": "string", "description": "The URL of the AAP Gateway API endpoint that is reachable by clients" },
+                "authorizationUrl": { "type": "string", "description": "OAuth2 authorization endpoint URL" },
+                "tokenUrl": { "type": "string", "description": "OAuth2 token endpoint URL" },
+                "clientId": { "type": "string", "description": "OAuth2 client ID" },
+                "clientSecret": { "type": "string", "description": "OAuth2 client secret (prefer mounting from a secret)" },
+                "enabled": { "type": "boolean", "description": "Whether the AAP provider is enabled" },
+                "scopes": {
+                  "type": "array",
+                  "description": "List of OAuth2 scopes to request",
+                  "items": { "type": "string" }
+                }
               }
             },
             "openshift": {
