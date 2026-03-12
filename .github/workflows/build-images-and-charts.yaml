@@ -86,7 +86,7 @@ jobs:
           else
             echo "bundle-images target not found, falling back to direct save"
             echo "Getting list of loaded flightctl images with tag: $TAG"
-            mapfile -t loaded_images < <(podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/flightctl-.*:${TAG}")
+            mapfile -t loaded_images < <(podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/flightctl-.*:${TAG}" || true)
             echo "Creating bundle with ${#loaded_images[@]} images:"
             printf '  %s\n' "${loaded_images[@]}"
             podman save --format docker-archive -o "${BUNDLE_FILE}" -m "${loaded_images[@]}"
@@ -105,7 +105,7 @@ jobs:
         run: |
           set -euo pipefail
           echo "::group::Listing images in bundle"
-          IMAGES=$(podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/flightctl-.*:${TAG}" | sort)
+          IMAGES=$(podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/flightctl-.*:${TAG}" | sort || true)
           echo "$IMAGES"
           echo "::endgroup::"
           
