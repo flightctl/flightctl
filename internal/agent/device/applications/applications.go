@@ -36,6 +36,10 @@ func (c StatusType) String() string {
 	return string(c)
 }
 
+func isStopped(total, stopped int) bool {
+	return total > 0 && stopped == total
+}
+
 type Monitor interface {
 	Run(ctx context.Context)
 	Status() []v1beta1.DeviceApplicationStatus
@@ -262,6 +266,7 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 	initializing := 0
 	restarts := 0
 	exited := 0
+	stopped := 0
 	for _, workload := range a.workloads {
 		restarts += workload.Restarts
 		switch workload.Status {
@@ -271,6 +276,8 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 			healthy++
 		case StatusExited:
 			exited++
+		case StatusStop, StatusStopped:
+			stopped++
 		}
 	}
 
@@ -291,56 +298,35 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 	case isPreparing(total, healthy, initializing):
 		newStatus = v1beta1.ApplicationStatusPreparing
 		summary.Status = v1beta1.ApplicationsSummaryStatusUnknown
+	case isAllStopped(total, stopped):
+		newStatus = v1beta1.Stopped
+		summary.Status = v1beta1.ApplicationsSummaryStatusDegraded
 	case isCompleted(total, exited):
 		newStatus = v1beta1.ApplicationStatusCompleted
 		summary.Status = v1beta1.ApplicationsSummaryStatusHealthy
 	case isRunningHealthy(total, healthy, initializing, exited):
 		newStatus = v1beta1.ApplicationStatusRunning
 		summary.Status = v1beta1.ApplicationsSummaryStatusHealthy
-	case isRunningDegraded(total, healthy, initializing):
+	case isRunningDegraded(total, healthy, initializing, stopped):
 		newStatus = v1beta1.ApplicationStatusRunning
 		summary.Status = v1beta1.ApplicationsSummaryStatusDegraded
-	case isErrored(total, healthy, initializing):
+	case isErrored(total, healthy, initializing, stopped):
 		newStatus = v1beta1.ApplicationStatusError
 		summary.Status = v1beta1.ApplicationsSummaryStatusError
 	default:
 		summary.Status = v1beta1.ApplicationsSummaryStatusUnknown
-		return nil, summary, fmt.Errorf("unknown application status: %d/%d/%d", total, healthy, initializing)
+		return nil, summary, fmt.Errorf("unknown application status: %d/%d/%d/%d", total, healthy, initializing, stopped)
 	}
 
 	if a.status.Status != newStatus {
 		a.status.Status = newStatus
 	}
-	if a.status.Ready != readyStatus {
-		a.status.Ready = readyStatus
-	}
-	if a.status.Restarts != restarts {
-		a.status.Restarts = restarts
-	}
-
-	// update volume status
-	a.volume.Status(a.status)
-
-	return a.status, summary, nil
+...
+func isAllStopped(total, stopped int) bool {
+	return total > 0 && stopped == total
 }
-
-func isStarting(total, healthy, initializing int) bool {
-	return total > 0 && initializing > 0 && healthy > 0
-}
-
-func isUnknown(total, healthy, initializing int) bool {
-	return total == 0 && healthy == 0 && initializing == 0
-}
-
-func isCompleted(total, completed int) bool {
-	return total > 0 && completed == total
-}
-
-func isPreparing(total, healthy, initializing int) bool {
-	return total > 0 && healthy == 0 && initializing > 0
-}
-
-func isRunningDegraded(total, healthy, initializing int) bool {
+...
+func isRunningDegraded(total, healthy, initializing, stopped int) bool {
 	return total != healthy && healthy > 0 && initializing == 0
 }
 
@@ -348,6 +334,6 @@ func isRunningHealthy(total, healthy, initializing, exited int) bool {
 	return total > 0 && (healthy == total || healthy+exited == total) && initializing == 0
 }
 
-func isErrored(total, healthy, initializing int) bool {
-	return total > 0 && healthy == 0 && initializing == 0
+func isErrored(total, healthy, initializing, stopped int) bool {
+	return total > 0 && healthy == 0 && initializing == 0 && stopped == 0
 }

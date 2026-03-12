@@ -33,6 +33,7 @@ const (
 	ApplicationStatusRunning   ApplicationStatusType = "Running"
 	ApplicationStatusStarting  ApplicationStatusType = "Starting"
 	ApplicationStatusUnknown   ApplicationStatusType = "Unknown"
+	Stopped                    ApplicationStatusType = "Stopped"
 )
 
 // Defines values for ApplicationVolumeReclaimPolicy.

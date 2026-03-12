@@ -5529,7 +5529,8 @@ components:
         - "Running"
         - "Error"
         - "Unknown"
-        - "Completed"
+        - Completed
+        - Stopped
       x-enum-varnames:
         - "ApplicationStatusPreparing"
         - "ApplicationStatusStarting"
