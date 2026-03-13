@@ -61,7 +61,9 @@ LABEL \
 # Configure podman storage to use native overlay (requires Kernel 5.11+)
 RUN mkdir -p /etc/containers && \
     echo "[storage]" > /etc/containers/storage.conf && \
-    echo 'driver = "overlay"' >> /etc/containers/storage.conf
+    echo 'driver = "overlay"' >> /etc/containers/storage.conf && \
+    echo 'mount_program = ""' >> /etc/containers/storage.conf && \
+    echo 'ignore_chown_errors = "true"' >> /etc/containers/storage.conf
 # Copy the worker binary
 COPY --from=build /app/bin/flightctl-imagebuilder-worker .
 
