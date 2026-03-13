@@ -7,7 +7,8 @@ ARG BASE_IMAGE=quay.io/flightctl/flightctl-device:base
 FROM ${BASE_IMAGE}
 
 # Default version (caller can override with --build-arg OTEL_VERSION=...)
-ARG OTEL_VERSION=0.130.1
+# 0.136.0 is the first version that contains our upstream fix for appropriate TPM compatibility
+ARG OTEL_VERSION=0.136.0
 ARG TARGETARCH
 
 # We need go.mod available to try extracting the version
@@ -47,6 +48,9 @@ RUN set -eux; \
 # Create service user/group
 RUN groupadd -r otelcol && \
     useradd  -r -g otelcol -s /sbin/nologin -M -d / otelcol
+
+# Also add sysusers.d for bootc runtime (bootc doesn't merge /etc/passwd properly)
+COPY --from=variant-context otelcol.sysusers /usr/lib/sysusers.d/otelcol.conf
 
 # Config & cert dirs: root:otelcol, group-readable, no world
 RUN install -d -m 0755 /etc/otelcol && \

@@ -1,0 +1,6 @@
+# Create otelcol system user and group for OpenTelemetry Collector
+g otelcol -
+u otelcol - "OpenTelemetry Collector" / /sbin/nologin
+m otelcol otelcol
+# Add otelcol to tss group for TPM access
+m otelcol tss
