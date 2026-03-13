@@ -142,7 +142,7 @@ set -e
   install_pkgs() {
     sudo dnf install -y epel-release libvirt libvirt-client virt-install pam-devel swtpm wget \
                       make golang git \
-                      podman qemu-kvm sshpass skopeo
+                      podman qemu-kvm sshpass skopeo helm
     sudo dnf --enablerepo=crb install -y libvirt-devel
   }
   for attempt in 1 2 3 4; do
