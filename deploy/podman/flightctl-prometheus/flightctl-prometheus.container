@@ -20,6 +20,7 @@ Volume=/var/lib/prometheus:/prometheus:rw,z
 [Service]
 Restart=on-failure
 ExecStartPre=/usr/bin/flightctl-standalone render template --input-file /usr/share/flightctl/flightctl-prometheus/prometheus.yml --output-file /etc/flightctl/flightctl-prometheus/prometheus.yml
+ExecStartPre=/bin/sh -c 'chown -R "$(podman image inspect {{ .Prometheus.Image }}:{{ .Prometheus.Tag }} | jq -r .[0].Config.User)" /var/lib/prometheus || true'
 
 [Install]
 WantedBy=multi-user.target
