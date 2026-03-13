@@ -47,14 +47,25 @@ global:
     oidc:
       # -- OIDC Client ID
       clientId: "flightctl-client"
+      # -- List of OIDC scopes to request (e.g. openid, profile, email)
+      scopes:
+        - "openid"
+        - "profile"
+        - "email"
       # -- The base URL for the OIDC provider that is reachable by flightctl services. Example: https://auth.foo.internal/realms/flightctl
       issuer: ""
       # -- The base URL for the OIDC provider that is reachable by clients. Example: https://auth.foo.net/realms/flightctl
       externalOidcAuthority: ""
+      # -- OIDC client secret (optional; prefer mounting from a secret)
+      clientSecret: ""
       # -- Organization assignment configuration
       organizationAssignment:
         type: "static"
         organizationName: "default"
+        # -- JSON path to the claim for dynamic assignment (when type: dynamic)
+        # claimPath: []
+        # organizationNamePrefix: ""
+        # organizationNameSuffix: ""
       # -- Username claim to extract from OIDC token (default: "preferred_username")
       usernameClaim:
         - "preferred_username"
@@ -63,11 +74,29 @@ global:
         type: "dynamic"
         claimPath:
           - "groups"
+        # -- Separator for org:role format (default ":")
+        # separator: ":"
+        # -- Static list of role names (when type: static)
+        # roles: []
     aap:
       # -- The URL of the AAP Gateway API endpoint
       apiUrl: ""
       # -- The URL of the AAP Gateway API endpoint that is reachable by clients
       externalApiUrl: ""
+      # -- OAuth2 authorization endpoint URL
+      authorizationUrl: ""
+      # -- OAuth2 token endpoint URL
+      tokenUrl: ""
+      # -- OAuth2 client ID
+      clientId: ""
+      # -- OAuth2 client secret (prefer mounting from a secret)
+      clientSecret: ""
+      # -- Whether the AAP provider is enabled
+      enabled: true
+      # -- List of OAuth2 scopes to request
+      scopes:
+        - "read"
+        - "write"
     openshift:
       # -- Create default flightctl-admin ServiceAccount with admin access
       createAdminUser: true

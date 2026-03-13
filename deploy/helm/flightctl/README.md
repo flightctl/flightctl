@@ -287,7 +287,13 @@ For more detailed configuration options, see the [Values](#values) section below
 | global.additionalPVCLabels | string | `nil` | Additional labels for PVCs. |
 | global.additionalRouteLabels | string | `nil` | Additional labels for routes. |
 | global.auth.aap.apiUrl | string | `""` | The URL of the AAP Gateway API endpoint |
+| global.auth.aap.authorizationUrl | string | `""` | OAuth2 authorization endpoint URL |
+| global.auth.aap.clientId | string | `""` | OAuth2 client ID |
+| global.auth.aap.clientSecret | string | `""` | OAuth2 client secret (prefer mounting from a secret) |
+| global.auth.aap.enabled | bool | `true` | Whether the AAP provider is enabled |
 | global.auth.aap.externalApiUrl | string | `""` | The URL of the AAP Gateway API endpoint that is reachable by clients |
+| global.auth.aap.scopes | list | `["read","write"]` | List of OAuth2 scopes to request |
+| global.auth.aap.tokenUrl | string | `""` | OAuth2 token endpoint URL |
 | global.auth.caCert | string | `""` | The custom CA cert. |
 | global.auth.insecureSkipTlsVerify | bool | `false` | True if verification of authority TLS cert should be skipped. |
 | global.auth.k8s.apiUrl | string | `"https://kubernetes.default.svc"` | API URL of k8s cluster that will be used as authentication authority |
@@ -295,10 +301,12 @@ For more detailed configuration options, see the [Values](#values) section below
 | global.auth.k8s.externalApiTokenSecretName | string | `""` | In case flightctl is not running within a cluster, you can provide a name of a secret that holds the API token |
 | global.auth.k8s.rbacNs | string | `""` | Namespace that should be used for the RBAC checks |
 | global.auth.oidc.clientId | string | `"flightctl-client"` | OIDC Client ID |
+| global.auth.oidc.clientSecret | string | `""` | OIDC client secret (optional; prefer mounting from a secret) |
 | global.auth.oidc.externalOidcAuthority | string | `""` | The base URL for the OIDC provider that is reachable by clients. Example: https://auth.foo.net/realms/flightctl |
 | global.auth.oidc.issuer | string | `""` | The base URL for the OIDC provider that is reachable by flightctl services. Example: https://auth.foo.internal/realms/flightctl |
 | global.auth.oidc.organizationAssignment | object | `{"organizationName":"default","type":"static"}` | Organization assignment configuration |
 | global.auth.oidc.roleAssignment | object | `{"claimPath":["groups"],"type":"dynamic"}` | Role assignment configuration |
+| global.auth.oidc.scopes | list | `["openid","profile","email"]` | List of OIDC scopes to request (e.g. openid, profile, email) |
 | global.auth.oidc.usernameClaim | list | `["preferred_username"]` | Username claim to extract from OIDC token (default: "preferred_username") |
 | global.auth.openshift.authorizationUrl | string | `""` | OAuth authorization URL (leave empty to auto-detect from OpenShift cluster) |
 | global.auth.openshift.clientId | string | `""` | OAuth client ID (will be set to flightctl-{releaseName}) |
