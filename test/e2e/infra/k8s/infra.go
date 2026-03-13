@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -231,6 +232,52 @@ func (p *InfraProvider) GetSecretValue(name, key string) (string, error) {
 	return string(decoded), nil
 }
 
+func (p *InfraProvider) getServicePorts(service infra.ServiceName) ([]int, error) {
+	info, ns, err := p.getServiceInfo(service)
+	if err != nil {
+		return nil, fmt.Errorf("getting service info: %w", err)
+	}
+
+	args := p.kubectlArgs("get", "svc", info.ServiceName, "-n", ns, "-o", "jsonpath={.spec.ports[*].port}")
+	cmd := exec.Command("kubectl", args...)
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("service ports: %w", err)
+	}
+
+	var ports []int
+	for _, portStr := range strings.Fields(string(output)) {
+		if port, parseErr := strconv.Atoi(portStr); parseErr == nil {
+			ports = append(ports, port)
+		}
+	}
+	return ports, nil
+}
+
+// selectServicePort returns info.Port if it exists in the K8s service ports, otherwise the first available port.
+func (p *InfraProvider) selectServicePort(service infra.ServiceName) (int, error) {
+	info, _, err := p.getServiceInfo(service)
+	if err != nil {
+		return 0, err
+	}
+
+	ports, err := p.getServicePorts(service)
+	if err != nil {
+		return info.Port, nil
+	}
+
+	for _, port := range ports {
+		if port == info.Port {
+			return info.Port, nil
+		}
+	}
+
+	if len(ports) > 0 {
+		return ports[0], nil
+	}
+	return info.Port, nil
+}
+
 // GetServiceEndpoint returns the host and port for a named service.
 // For K8s, this returns the service DNS name and port within the cluster.
 func (p *InfraProvider) GetServiceEndpoint(service infra.ServiceName) (string, int, error) {
@@ -239,18 +286,10 @@ func (p *InfraProvider) GetServiceEndpoint(service infra.ServiceName) (string, i
 		return "", 0, err
 	}
 
-	// Get the service port from K8s
-	args := p.kubectlArgs("get", "svc", info.ServiceName, "-n", ns, "-o", "jsonpath={.spec.ports[0].port}")
-	cmd := exec.Command("kubectl", args...)
-	output, err := cmd.Output()
+	port, err := p.selectServicePort(service)
 	if err != nil {
 		logrus.Warnf("K8s: could not get service %s port, using default %d: %v", info.ServiceName, info.Port, err)
-		return fmt.Sprintf("%s.%s.svc.cluster.local", info.ServiceName, ns), info.Port, nil
-	}
-
-	port := info.Port
-	if portStr := strings.TrimSpace(string(output)); portStr != "" {
-		_, _ = fmt.Sscanf(portStr, "%d", &port)
+		port = info.Port
 	}
 
 	return fmt.Sprintf("%s.%s.svc.cluster.local", info.ServiceName, ns), port, nil
@@ -278,10 +317,9 @@ func (p *InfraProvider) ExposeService(service infra.ServiceName, protocol string
 		return "", nil, err
 	}
 
-	// Use the service's actual port from the cluster (same as GetServiceEndpoint)
-	targetPort := info.Port
-	if _, port, getErr := p.GetServiceEndpoint(service); getErr == nil {
-		targetPort = port
+	targetPort, err := p.selectServicePort(service)
+	if err != nil {
+		targetPort = info.Port
 	}
 
 	// Find a free local port

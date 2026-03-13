@@ -4,13 +4,16 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/test/e2e/infra"
 	"github.com/flightctl/flightctl/test/e2e/infra/setup"
 	"github.com/flightctl/flightctl/test/e2e/resources"
+	"github.com/flightctl/flightctl/test/e2e/tpm"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	"github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/samber/lo"
 )
 
 const (
@@ -45,6 +48,11 @@ var _ = Describe("Device observability", func() {
 		It("should export device host metrics via the telemetry gateway", Label("85040"), func() {
 			harness := e2e.GetWorkerHarness()
 			p := setup.GetDefaultProviders()
+			workerID := GinkgoParallelProcess()
+
+			By("setting up VM and starting agent")
+			err := harness.SetupVMFromPoolAndStartAgent(workerID)
+			Expect(err).ToNot(HaveOccurred())
 
 			By("verifying telemetry gateway configuration exports Prometheus metrics")
 			cfg, err := p.Infra.GetServiceConfig(infra.ServiceTelemetryGateway)
@@ -124,6 +132,110 @@ var _ = Describe("Device observability", func() {
 
 			queryCount := fmt.Sprintf(`count({device_id="%s"})`, deviceId)
 			Eventually(harness.PromQueryCountValue(promURL, queryCount), TIMEOUT, POLLING).Should(BeNumerically(">", 0))
+		})
+	})
+
+	Context("TPM-based telemetry", func() {
+		var (
+			harness   *e2e.Harness
+			providers *infra.Providers
+			deviceId  string
+		)
+		BeforeEach(func() {
+			harness = e2e.GetWorkerHarness()
+			providers = setup.GetDefaultProviders()
+			workerID := GinkgoParallelProcess()
+
+			By("injecting swtpm CA certificates")
+			err := tpm.InjectTPMCerts(harness.GetTestContext(), false)
+			Expect(err).ToNot(HaveOccurred())
+
+			By("setting up VM with software TPM")
+			err = harness.SetupVMFromPoolWithTPM(workerID, e2e.TPMTypeSwtpm)
+			Expect(err).ToNot(HaveOccurred())
+
+			By("waiting for enrollment request with TPM attestation")
+			var enrollmentID string
+			Eventually(func() error {
+				enrollmentID = harness.GetEnrollmentIDFromServiceLogs("flightctl-agent")
+				if enrollmentID == "" {
+					return fmt.Errorf("enrollment ID not found in agent logs")
+				}
+				return nil
+			}, TIMEOUT, POLLING).Should(Succeed())
+
+			By("verifying TPM verified condition on enrollment request")
+			Eventually(func() bool {
+				resp, err := harness.Client.GetEnrollmentRequestWithResponse(harness.Context, enrollmentID)
+				if err != nil || resp.JSON200 == nil || resp.JSON200.Status == nil {
+					return false
+				}
+				cond := v1beta1.FindStatusCondition(resp.JSON200.Status.Conditions, v1beta1.ConditionTypeEnrollmentRequestTPMVerified)
+				if cond == nil {
+					return false
+				}
+				return cond.Status == v1beta1.ConditionStatusTrue
+			}, LONGTIMEOUT, POLLING).Should(BeTrue(), "EnrollmentRequest should have TPMVerified condition set to True")
+
+			By("approving enrollment and waiting for device online")
+			deviceId, _ = harness.EnrollAndWaitForOnlineStatus()
+		})
+		AfterEach(func() {
+			if cleanupErr := tpm.CleanupTPMCerts(harness.Context); cleanupErr != nil {
+				GinkgoWriter.Printf("Warning: failed to cleanup TPM certs: %v\n", cleanupErr)
+			}
+			harness.PrintAgentLogsIfFailed()
+		})
+		It("should export device metrics using TPM-backed OTEL authentication", Label("85185", "tpm", "tpm-sw", "agent"), func() {
+			nextRenderedVersion, err := harness.PrepareNextDeviceVersion(deviceId)
+			Expect(err).ToNot(HaveOccurred())
+			_, _, err = harness.WaitForBootstrapAndUpdateToVersion(deviceId, util.DeviceTags.V10)
+			Expect(err).ToNot(HaveOccurred())
+			err = harness.WaitForDeviceNewRenderedVersionWithReboot(deviceId, nextRenderedVersion)
+			Expect(err).ToNot(HaveOccurred())
+
+			By("configuring OTEL to use TPM for mTLS authentication")
+			nextRenderedVersion, err = harness.PrepareNextDeviceVersion(deviceId)
+			Expect(err).ToNot(HaveOccurred())
+
+			otelTPMConfig := buildOTELTPMConfig()
+			otelRestartHook := buildOTELRestartHook()
+
+			var otelConfigSpec v1beta1.ConfigProviderSpec
+			err = otelConfigSpec.FromInlineConfigProviderSpec(v1beta1.InlineConfigProviderSpec{
+				Name:   "otel-tpm-config",
+				Inline: []v1beta1.FileSpec{otelTPMConfig, otelRestartHook},
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			err = harness.UpdateDeviceConfigWithRetries(deviceId, []v1beta1.ConfigProviderSpec{otelConfigSpec}, nextRenderedVersion)
+			Expect(err).ToNot(HaveOccurred())
+
+			By("waiting for otelcol to restart with TPM configuration")
+			Eventually(harness.OTelcolActiveStatus(), TIMEOUT, POLLING).Should(Equal("active"))
+
+			By("getting telemetry gateway metrics endpoint")
+			baseURL, pfCleanup, err := providers.Infra.ExposeService(infra.ServiceTelemetryGateway, "http")
+			Expect(err).ToNot(HaveOccurred())
+			metricsURL := baseURL + metricsEndpointPath
+			defer pfCleanup()
+
+			By("verifying telemetry gateway receives metrics from TPM-authenticated device")
+			Eventually(harness.MetricsLineCount(metricsURL), TIMEOUT, POLLING).Should(BeNumerically(">", 0))
+
+			exact := map[string]string{
+				"cpu":       "cpu0",
+				"device_id": deviceId,
+				"state":     "idle",
+			}
+			requiredLabels := []string{"org_id", "otel_scope_version"}
+			Eventually(harness.MetricsMatchLabels(metricsURL, exact, requiredLabels, nil), TIMEOUT, POLLING).Should(BeTrue())
+
+			By("verifying Prometheus queries return metrics from TPM device")
+			promURL, err := getPrometheusURL()
+			Expect(err).ToNot(HaveOccurred())
+			queryCPU := fmt.Sprintf(`system_cpu_time_seconds_total{device_id="%s"}`, deviceId)
+			Eventually(harness.PromQueryResultCount(promURL, queryCPU), TIMEOUT, POLLING).Should(BeNumerically(">", 0))
 		})
 	})
 })
@@ -237,3 +349,59 @@ var _ = Describe("Service observability", func() {
 		})
 	})
 })
+
+// buildOTELTPMConfig creates a FileSpec for OTEL config with TPM TLS settings.
+func buildOTELTPMConfig() v1beta1.FileSpec {
+	// A copy of the config built into the image, but with tpm enabled
+	content := `receivers:
+  hostmetrics:
+    collection_interval: 10s
+    scrapers: { cpu: {}, memory: {} }
+  hostmetrics/disk:
+    collection_interval: 1m
+    scrapers: { disk: {}, filesystem: {} }
+
+processors:
+  batch: {}
+
+exporters:
+  otlp:
+    endpoint: ${OTEL_GATEWAY}
+    tls:
+      ca_file:   /etc/otelcol/certs/gateway-ca.crt
+      cert_file: /etc/otelcol/certs/otel.crt
+      key_file:  /etc/otelcol/certs/otel.key
+      insecure:  false
+      tpm:
+        enabled: true
+        path: /dev/tpmrm0
+
+service:
+  pipelines:
+    metrics:
+      receivers: [hostmetrics, hostmetrics/disk]
+      processors: [batch]
+      exporters: [otlp]
+`
+	return v1beta1.FileSpec{
+		Path:    "/etc/otelcol/config.yaml",
+		Content: content,
+		Mode:    lo.ToPtr(0640),
+		User:    "root",
+		Group:   "otelcol",
+	}
+}
+
+// buildOTELRestartHook creates a FileSpec for an afterupdating hook that restarts otelcol.
+func buildOTELRestartHook() v1beta1.FileSpec {
+	content := `- if:
+  - path: /etc/otelcol/config.yaml
+    op: [created, updated]
+  run: systemctl restart otelcol
+`
+	return v1beta1.FileSpec{
+		Path:    "/etc/flightctl/hooks.d/afterupdating/otelcol-restart.yaml",
+		Content: content,
+		Mode:    lo.ToPtr(0644),
+	}
+}
