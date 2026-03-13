@@ -988,6 +988,24 @@ func (h *Harness) SetAgentConfig(cfg *agentcfg.Config) error {
 	return nil
 }
 
+// GetAgentConfig reads and parses the agent configuration from the VM.
+func (h *Harness) GetAgentConfig() (*agentcfg.Config, error) {
+	stdout, err := h.VM.RunSSH([]string{"sudo", "cat", "/etc/flightctl/config.yaml"}, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read agent config: %w", err)
+	}
+	if stdout == nil {
+		return nil, fmt.Errorf("agent config output is nil")
+	}
+
+	cfg := &agentcfg.Config{}
+	if err := yaml.Unmarshal(stdout.Bytes(), cfg); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal agent config: %w", err)
+	}
+
+	return cfg, nil
+}
+
 // WaitForTPMInitialization waits for TPM hardware to be ready in the VM.
 // This should be called after VM setup but before agent configuration.
 func (h *Harness) WaitForTPMInitialization() error {
