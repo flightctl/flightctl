@@ -1,11 +1,13 @@
 package parametrisabletemplates
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/test/e2e/infra/satellite"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
@@ -351,6 +353,96 @@ var _ = Describe("Template variables in the device configuration", func() {
 				}
 
 			})
+
+		It(`Verifies that changing a device label updates git config file content on the device`,
+			Label("88262"), func() {
+				harness := e2e.GetWorkerHarness()
+				gitConfig, gitInternalHost, gitInternalPort, sshKeyPath, sshKeyContent := getGitEnv(harness.Context)
+
+				repoName := fmt.Sprintf("git-label-repo-%s", testID)
+				fleetTestName := fmt.Sprintf("fleet-git-label-%s", testID)
+
+				By("Create a git repository on the e2e git server")
+				err := harness.CreateGitRepositoryOnServer(gitConfig, sshKeyPath, repoName)
+				Expect(err).ToNot(HaveOccurred())
+
+				By("Push 'small' content to the git repo")
+				err = harness.PushContentToGitServerRepo(
+					gitConfig, sshKeyPath,
+					repoName,
+					fmt.Sprintf("contents/%s%s", sizeLabelSmallValue, motdPath),
+					smallContent,
+					"Add small content",
+				)
+				Expect(err).ToNot(HaveOccurred())
+
+				By("Push 'big' content to the git repo")
+				err = harness.PushContentToGitServerRepo(
+					gitConfig, sshKeyPath,
+					repoName,
+					fmt.Sprintf("contents/%s%s", sizeLabelBigValue, motdPath),
+					bigContent,
+					"Add big content",
+				)
+				Expect(err).ToNot(HaveOccurred())
+
+				By("Create a Repository resource with SSH credentials")
+				err = harness.CreateRepositoryWithValidE2ECredentials(gitInternalHost, gitInternalPort, repoName, sshKeyContent)
+				Expect(err).ToNot(HaveOccurred())
+
+				By("Create a fleet with git config using templated path")
+				motdGitConfig := motdGitConfigSpec
+				motdGitConfig.GitRef.Repository = repoName
+				gitConfigProviderSpec := v1beta1.ConfigProviderSpec{}
+				err = gitConfigProviderSpec.FromGitConfigProviderSpec(motdGitConfig)
+				Expect(err).ToNot(HaveOccurred())
+
+				err = harness.CreateTestFleetWithConfig(fleetTestName, testFleetSelector, gitConfigProviderSpec)
+				Expect(err).ToNot(HaveOccurred())
+
+				By("Verify device is online")
+				_, err = harness.CheckDeviceStatus(deviceId, v1beta1.DeviceSummaryStatusOnline)
+				Expect(err).ToNot(HaveOccurred())
+
+				By("Add fleet selector and size=small labels to device")
+				nextRenderedVersion, err := harness.PrepareNextDeviceVersion(deviceId)
+				Expect(err).ToNot(HaveOccurred())
+
+				err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
+					harness.SetLabelsForDeviceMetadata(&device.Metadata, map[string]string{
+						fleetSelectorKey: fleetSelectorValue,
+						sizeLabelKey:     sizeLabelSmallValue,
+					})
+					GinkgoWriter.Printf("Updating %s with label %s=%s and %s=%s\n", deviceId,
+						fleetSelectorKey, fleetSelectorValue, sizeLabelKey, sizeLabelSmallValue)
+				})
+				Expect(err).ToNot(HaveOccurred())
+
+				By("Wait for the device to get the fleet configuration")
+				err = harness.WaitForDeviceNewRenderedVersion(deviceId, nextRenderedVersion)
+				Expect(err).ToNot(HaveOccurred())
+
+				By("Verify rendered git config path and file content for size=small")
+				verifyGitConfigAndFileContent(harness, deviceId, sizeLabelSmallValue, smallContent)
+
+				By("Change device label to size=big")
+				nextRenderedVersion, err = harness.PrepareNextDeviceVersion(deviceId)
+				Expect(err).ToNot(HaveOccurred())
+
+				err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
+					(*device.Metadata.Labels)[sizeLabelKey] = sizeLabelBigValue
+					GinkgoWriter.Printf("Updating %s with label %s=%s\n", deviceId,
+						sizeLabelKey, sizeLabelBigValue)
+				})
+				Expect(err).ToNot(HaveOccurred())
+
+				By("Wait for the device to pick up the new configuration")
+				err = harness.WaitForDeviceNewRenderedVersion(deviceId, nextRenderedVersion)
+				Expect(err).ToNot(HaveOccurred())
+
+				By("Verify rendered git config path and file content for size=big")
+				verifyGitConfigAndFileContent(harness, deviceId, sizeLabelBigValue, bigContent)
+			})
 	})
 })
 
@@ -381,6 +473,13 @@ var (
 	suffixLabelValue      = ""
 	suffixLabelKey        = "suffix"
 	aliasKey              = "alias"
+	sizeLabelKey          = "size"
+	sizeLabelSmallValue   = "small"
+	sizeLabelBigValue     = "big"
+	motdConfigName        = "motd-config"
+	motdPath              = "/etc/motd"
+	smallContent          = "I'm small\n"
+	bigContent            = "I'm big\n"
 )
 
 var mode = 0644
@@ -463,4 +562,48 @@ var httpConfigvalid = v1beta1.HttpConfigProviderSpec{
 		Suffix:     &suffix,
 	},
 	Name: httpConfigName,
+}
+
+var motdGitConfigSpec = v1beta1.GitConfigProviderSpec{
+	GitRef: struct {
+		Path           string `json:"path"`
+		Repository     string `json:"repository"`
+		TargetRevision string `json:"targetRevision"`
+	}{
+		Path:           fmt.Sprintf("/contents/{{ .metadata.labels.%s }}", sizeLabelKey),
+		Repository:     "", // Will be set dynamically in test
+		TargetRevision: "main",
+	},
+	Name: motdConfigName,
+}
+
+func getGitEnv(ctx context.Context) (e2e.GitServerConfig, string, int, testutil.SSHPrivateKeyPath, testutil.SSHPrivateKeyContent) {
+	svc := satellite.Get(ctx)
+	config := e2e.GitServerConfig{
+		Host: svc.GitServerHost,
+		Port: svc.GitServerPort,
+		User: "user",
+	}
+	keyPath, err := svc.GetGitSSHPrivateKeyPath()
+	Expect(err).ToNot(HaveOccurred(), "failed to get git SSH private key path from satellite")
+	keyContent, err := svc.GetGitSSHPrivateKey()
+	Expect(err).ToNot(HaveOccurred(), "failed to get git SSH private key content from satellite")
+	return config, svc.GitServerInternalHost, svc.GitServerInternalPort, keyPath, keyContent
+}
+
+func verifyGitConfigAndFileContent(harness *e2e.Harness, deviceId, expectedSizeValue, expectedContent string) {
+	device, err := harness.GetDevice(deviceId)
+	Expect(err).ToNot(HaveOccurred())
+	gitConfigResponse, err := harness.GetDeviceGitConfig(device, motdConfigName)
+	Expect(err).ToNot(HaveOccurred())
+	Expect(gitConfigResponse.GitRef.Path).To(Equal("/contents/" + expectedSizeValue))
+
+	Eventually(func() string {
+		stdout, err := harness.VM.RunSSH([]string{"cat", motdPath}, nil)
+		if err != nil {
+			GinkgoWriter.Printf("SSH error reading motd: %v\n", err)
+			return ""
+		}
+		return stdout.String()
+	}, testutil.TIMEOUT, testutil.LONG_POLLING).Should(ContainSubstring(expectedContent))
 }
