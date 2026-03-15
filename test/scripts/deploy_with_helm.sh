@@ -49,6 +49,20 @@ SQL_ARG="--set db.builtin.image.image=${SQL_IMAGE} --set db.builtin.image.tag=${
 KV_ARG="--set kv.image.image=${KV_IMAGE} --set kv.image.tag=${KV_VERSION}"
 DB_SETUP_ARG="--set dbSetup.image.image=localhost/${OS}/flightctl-db-setup --set dbSetup.image.tag=latest"
 
+# Override all service images to use local OS subdirectory paths
+SERVICE_ARGS=""
+if [ -z "$ONLY_DB" ]; then
+  SERVICE_ARGS="--set api.image.image=localhost/${OS}/flightctl-api --set api.image.tag=latest"
+  SERVICE_ARGS="$SERVICE_ARGS --set worker.image.image=localhost/${OS}/flightctl-worker --set worker.image.tag=latest"
+  SERVICE_ARGS="$SERVICE_ARGS --set periodic.image.image=localhost/${OS}/flightctl-periodic --set periodic.image.tag=latest"
+  SERVICE_ARGS="$SERVICE_ARGS --set alertExporter.image.image=localhost/${OS}/flightctl-alert-exporter --set alertExporter.image.tag=latest"
+  SERVICE_ARGS="$SERVICE_ARGS --set alertmanager.image.image=localhost/${OS}/flightctl-alertmanager-proxy --set alertmanager.image.tag=latest"
+  SERVICE_ARGS="$SERVICE_ARGS --set telemetryGateway.image.image=localhost/${OS}/flightctl-telemetry-gateway --set telemetryGateway.image.tag=latest"
+  SERVICE_ARGS="$SERVICE_ARGS --set imagebuilderApi.image.image=localhost/${OS}/flightctl-imagebuilder-api --set imagebuilderApi.image.tag=latest"
+  SERVICE_ARGS="$SERVICE_ARGS --set imagebuilderWorker.image.image=localhost/${OS}/flightctl-imagebuilder-worker --set imagebuilderWorker.image.tag=latest"
+  SERVICE_ARGS="$SERVICE_ARGS --set cliArtifacts.image.image=localhost/${OS}/flightctl-cli-artifacts --set cliArtifacts.image.tag=latest"
+fi
+
 # helm expects the namespaces to exist, and creating namespaces
 # inside the helm charts is not recommended.
 kubectl create namespace flightctl-external --context kind-kind 2>/dev/null || true
@@ -95,7 +109,7 @@ helm dependency build ./deploy/helm/flightctl
 helm upgrade --install --namespace flightctl-external \
                   --values ./deploy/helm/flightctl/values.dev.yaml \
                   --set global.baseDomain=${IP}.nip.io \
-                  ${ONLY_DB} ${DB_SIZE_PARAMS} ${AUTH_ARGS} ${SQL_ARG} ${GATEWAY_ARGS} ${KV_ARG} ${DB_SETUP_ARG} flightctl \
+                  ${ONLY_DB} ${DB_SIZE_PARAMS} ${AUTH_ARGS} ${SQL_ARG} ${GATEWAY_ARGS} ${KV_ARG} ${DB_SETUP_ARG} ${SERVICE_ARGS} flightctl \
               ./deploy/helm/flightctl/ --kube-context kind-kind
 
 "${SCRIPT_DIR}"/wait_for_postgres.sh
