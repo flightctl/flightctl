@@ -138,26 +138,16 @@ func (p *AuthTokenProxy) findProviderForToken(ctx context.Context, providerName 
 			return nil, "", "", domain.StatusInternalServerError("Failed to discover token endpoint")
 		}
 
-		clientSecret := ""
-		if oidcSpec.ClientSecret != nil {
-			clientSecret = *oidcSpec.ClientSecret
-		}
-
 		return &ProviderConfig{
 			Issuer:        oidcSpec.Issuer,
 			TokenEndpoint: tokenEndpoint,
 			ClientId:      oidcSpec.ClientId,
-		}, oidcSpec.ClientId, clientSecret, domain.StatusOK()
+		}, oidcSpec.ClientId, oidcSpec.ClientSecret, domain.StatusOK()
 
 	case interface {
 		GetOAuth2Spec() domain.OAuth2ProviderSpec
 	}:
 		oauth2Spec := provider.GetOAuth2Spec()
-
-		clientSecret := ""
-		if oauth2Spec.ClientSecret != nil {
-			clientSecret = *oauth2Spec.ClientSecret
-		}
 
 		issuer := ""
 		if oauth2Spec.Issuer != nil {
@@ -168,7 +158,7 @@ func (p *AuthTokenProxy) findProviderForToken(ctx context.Context, providerName 
 			Issuer:        issuer,
 			TokenEndpoint: oauth2Spec.TokenUrl,
 			ClientId:      oauth2Spec.ClientId,
-		}, oauth2Spec.ClientId, clientSecret, domain.StatusOK()
+		}, oauth2Spec.ClientId, oauth2Spec.ClientSecret, domain.StatusOK()
 
 	case interface {
 		GetOpenShiftSpec() domain.OpenShiftProviderSpec
@@ -202,10 +192,6 @@ func (p *AuthTokenProxy) findProviderForToken(ctx context.Context, providerName 
 		}, clientId, clientSecret, domain.StatusOK()
 	case interface{ GetAapSpec() domain.AapProviderSpec }:
 		aapSpec := provider.GetAapSpec()
-		clientSecret := ""
-		if aapSpec.ClientSecret != nil {
-			clientSecret = *aapSpec.ClientSecret
-		}
 		// Ensure token URL has trailing slash (AAP requires it)
 		tokenUrl := aapSpec.TokenUrl
 		if !strings.HasSuffix(tokenUrl, "/") {
@@ -215,8 +201,8 @@ func (p *AuthTokenProxy) findProviderForToken(ctx context.Context, providerName 
 			Issuer:        aapSpec.ApiUrl,
 			TokenEndpoint: tokenUrl,
 			ClientId:      aapSpec.ClientId,
-			UseBasicAuth:  aapSpec.ClientSecret != nil && *aapSpec.ClientSecret != "", // AAP requires Basic Auth for client credentials
-		}, aapSpec.ClientId, clientSecret, domain.StatusOK()
+			UseBasicAuth:  aapSpec.ClientSecret != "", // AAP requires Basic Auth for client credentials
+		}, aapSpec.ClientId, aapSpec.ClientSecret, domain.StatusOK()
 
 	default:
 		return nil, "", "", domain.StatusBadRequest("Provider type not supported")

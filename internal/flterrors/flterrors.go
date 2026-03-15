@@ -59,6 +59,9 @@ var (
 	// authprovider
 	ErrDuplicateOIDCProvider   = errors.New("an OIDC auth provider with the same issuer and clientId already exists")
 	ErrDuplicateOAuth2Provider = errors.New("an OAuth2 auth provider with the same userinfoUrl and clientId already exists")
+
+	// database encoding
+	ErrUnsupportedUnicode = errors.New("unsupported Unicode escape sequence")
 )
 
 func IsClientAuthError(err error) bool {

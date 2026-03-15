@@ -47,7 +47,7 @@ func NewTemplateVersionFromApiResource(resource *domain.TemplateVersion) (*Templ
 		return &TemplateVersion{}, nil
 	}
 
-	status := domain.TemplateVersionStatus{}
+	status := domain.TemplateVersionStatus{Conditions: []domain.Condition{}}
 	if resource.Status != nil {
 		status = *resource.Status
 	}
@@ -88,9 +88,12 @@ func (tv *TemplateVersion) ToApiResource(opts ...APIResourceOption) (*domain.Tem
 		spec = tv.Spec.Data
 	}
 
-	status := domain.TemplateVersionStatus{}
+	status := domain.TemplateVersionStatus{Conditions: []domain.Condition{}}
 	if tv.Status != nil {
 		status = tv.Status.Data
+	}
+	if status.Conditions == nil {
+		status.Conditions = []domain.Condition{}
 	}
 
 	return &domain.TemplateVersion{

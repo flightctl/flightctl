@@ -161,7 +161,7 @@ func (d *Device) ToApiResource(opts ...APIResourceOption) (*domain.Device, error
 		if !ok {
 			return nil, flterrors.ErrNoRenderedVersion
 		}
-		var consoles []domain.DeviceConsole
+		consoles := []domain.DeviceConsole{}
 
 		if val, ok := d.Annotations[domain.DeviceAnnotationConsole]; ok && val != "" {
 			if err := json.Unmarshal([]byte(val), &consoles); err != nil {

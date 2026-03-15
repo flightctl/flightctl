@@ -72,8 +72,8 @@ func (m *mockImageBuildServiceForStatusUpdater) List(ctx context.Context, orgId 
 	return nil, v1beta1.StatusOK()
 }
 
-func (m *mockImageBuildServiceForStatusUpdater) Delete(ctx context.Context, orgId uuid.UUID, name string) (*api.ImageBuild, v1beta1.Status) {
-	return nil, v1beta1.StatusOK()
+func (m *mockImageBuildServiceForStatusUpdater) Delete(ctx context.Context, orgId uuid.UUID, name string) v1beta1.Status {
+	return v1beta1.StatusOK()
 }
 
 func (m *mockImageBuildServiceForStatusUpdater) Cancel(ctx context.Context, orgId uuid.UUID, name string) (*api.ImageBuild, error) {

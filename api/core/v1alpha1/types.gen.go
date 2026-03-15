@@ -234,7 +234,7 @@ type CatalogItemVersion struct {
 	// Skips Additional versions that can upgrade directly to this one. Use when stable channel skips intermediate fast-only versions.
 	Skips *[]string `json:"skips,omitempty"`
 
-	// Version Semantic version identifier (e.g., 1.2.3, v2.0.0-rc1). Required for version ordering and upgrade graph.
+	// Version Semantic version identifier (e.g., 1.2.3, 2.0.0-rc1). Required for version ordering and upgrade graph.
 	Version string `json:"version"`
 }
 

@@ -103,7 +103,7 @@ func (m *MockAuthNMiddleware) GetAuthConfig() *api.AuthConfig {
 	oidcSpec := api.OIDCProviderSpec{
 		Issuer:       m.issuer,
 		ClientId:     "test-client",
-		ClientSecret: lo.ToPtr("test-secret"),
+		ClientSecret: "test-secret",
 		ProviderType: api.OIDCProviderSpecProviderType("oidc"),
 		Enabled:      lo.ToPtr(m.enabled),
 	}

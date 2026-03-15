@@ -545,7 +545,7 @@ type AapProviderSpec struct {
 	ClientId string `json:"clientId"`
 
 	// ClientSecret The OAuth2 client secret.
-	ClientSecret *string `json:"clientSecret,omitempty"`
+	ClientSecret string `json:"clientSecret"`
 
 	// DisplayName Human-readable display name for the provider.
 	DisplayName *string `json:"displayName,omitempty"`
@@ -1579,7 +1579,7 @@ type Event struct {
 	ApiVersion ApiVersion `json:"apiVersion"`
 
 	// Details Event-specific details, structured based on event type.
-	Details *EventDetails `json:"details,omitempty"`
+	Details *EventDetails `json:"details"`
 
 	// InvolvedObject A reference to a resource.
 	InvolvedObject ObjectReference `json:"involvedObject"`
@@ -2132,8 +2132,8 @@ type K8sProviderSpec struct {
 	// Enabled Whether this K8s provider is enabled.
 	Enabled *bool `json:"enabled,omitempty"`
 
-	// OrganizationAssignment AuthOrganizationAssignment defines how users from this auth provider are assigned to organizations.
-	OrganizationAssignment AuthOrganizationAssignment `json:"organizationAssignment"`
+	// OrganizationAssignment How users from this auth provider are assigned to organizations.
+	OrganizationAssignment *AuthOrganizationAssignment `json:"organizationAssignment"`
 
 	// ProviderType The type of authentication provider.
 	ProviderType K8sProviderSpecProviderType `json:"providerType"`
@@ -2141,8 +2141,8 @@ type K8sProviderSpec struct {
 	// RbacNs The RBAC namespace for permissions.
 	RbacNs *string `json:"rbacNs,omitempty"`
 
-	// RoleAssignment AuthRoleAssignment defines how roles are assigned to users from this auth provider.
-	RoleAssignment AuthRoleAssignment `json:"roleAssignment"`
+	// RoleAssignment How users from this auth provider are assigned roles.
+	RoleAssignment *AuthRoleAssignment `json:"roleAssignment"`
 
 	// RoleSuffix Optional suffix to strip from ClusterRole names when normalizing role names. Used for multi-release deployments where ClusterRoles have namespace-specific names (e.g., flightctl-admin-<namespace>).
 	RoleSuffix *string `json:"roleSuffix,omitempty"`
@@ -2246,7 +2246,7 @@ type OAuth2ProviderSpec struct {
 	ClientId string `json:"clientId"`
 
 	// ClientSecret The OAuth2 client secret.
-	ClientSecret *string `json:"clientSecret,omitempty"`
+	ClientSecret string `json:"clientSecret"`
 
 	// DisplayName Human-readable display name for the provider.
 	DisplayName *string `json:"displayName,omitempty"`
@@ -2291,7 +2291,7 @@ type OIDCProviderSpec struct {
 	ClientId string `json:"clientId"`
 
 	// ClientSecret The OIDC client secret.
-	ClientSecret *string `json:"clientSecret,omitempty"`
+	ClientSecret string `json:"clientSecret"`
 
 	// DisplayName Human-readable display name for the provider.
 	DisplayName *string `json:"displayName,omitempty"`
