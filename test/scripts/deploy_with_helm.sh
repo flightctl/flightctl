@@ -56,10 +56,10 @@ if [ -z "$ONLY_DB" ]; then
   SERVICE_ARGS="$SERVICE_ARGS --set worker.image.image=localhost/${OS}/flightctl-worker --set worker.image.tag=latest"
   SERVICE_ARGS="$SERVICE_ARGS --set periodic.image.image=localhost/${OS}/flightctl-periodic --set periodic.image.tag=latest"
   SERVICE_ARGS="$SERVICE_ARGS --set alertExporter.image.image=localhost/${OS}/flightctl-alert-exporter --set alertExporter.image.tag=latest"
-  SERVICE_ARGS="$SERVICE_ARGS --set alertmanager.image.image=localhost/${OS}/flightctl-alertmanager-proxy --set alertmanager.image.tag=latest"
+  SERVICE_ARGS="$SERVICE_ARGS --set alertmanagerProxy.image.image=localhost/${OS}/flightctl-alertmanager-proxy --set alertmanagerProxy.image.tag=latest"
   SERVICE_ARGS="$SERVICE_ARGS --set telemetryGateway.image.image=localhost/${OS}/flightctl-telemetry-gateway --set telemetryGateway.image.tag=latest"
-  SERVICE_ARGS="$SERVICE_ARGS --set imagebuilderApi.image.image=localhost/${OS}/flightctl-imagebuilder-api --set imagebuilderApi.image.tag=latest"
-  SERVICE_ARGS="$SERVICE_ARGS --set imagebuilderWorker.image.image=localhost/${OS}/flightctl-imagebuilder-worker --set imagebuilderWorker.image.tag=latest"
+  SERVICE_ARGS="$SERVICE_ARGS --set imageBuilderApi.image.image=localhost/${OS}/flightctl-imagebuilder-api --set imageBuilderApi.image.tag=latest"
+  SERVICE_ARGS="$SERVICE_ARGS --set imageBuilderWorker.image.image=localhost/${OS}/flightctl-imagebuilder-worker --set imageBuilderWorker.image.tag=latest"
   SERVICE_ARGS="$SERVICE_ARGS --set cliArtifacts.image.image=localhost/${OS}/flightctl-cli-artifacts --set cliArtifacts.image.tag=latest"
 fi
 
