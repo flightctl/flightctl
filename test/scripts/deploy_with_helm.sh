@@ -58,7 +58,7 @@ kubectl create namespace flightctl-e2e      --context kind-kind 2>/dev/null || t
 if [ -z "$ONLY_DB" ]; then
 
   for suffix in periodic api worker alert-exporter alertmanager-proxy cli-artifacts db-setup telemetry-gateway imagebuilder-api imagebuilder-worker ; do
-    kind_load_image localhost/flightctl-${suffix}:${OS}-latest
+    kind_load_image localhost/${OS}/flightctl-${suffix}:latest
   done
 
   kind_load_image "${KV_IMAGE}:${KV_VERSION}" keep-tar

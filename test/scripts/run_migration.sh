@@ -8,7 +8,7 @@ set -euo pipefail
 
 # Configuration variables with defaults
 OS=${OS:-"el9"}
-MIGRATION_IMAGE=${MIGRATION_IMAGE:-localhost/flightctl-db-setup:${OS}-latest}
+MIGRATION_IMAGE=${MIGRATION_IMAGE:-localhost/${OS}/flightctl-db-setup:latest}
 CREATE_TEMPLATE=${CREATE_TEMPLATE:-false}
 TEMPLATE_DB_NAME=${TEMPLATE_DB_NAME:-flightctl_tmpl}
 
