@@ -10,6 +10,7 @@ SQL_VERSION=${SQL_VERSION:-"latest"}
 SQL_IMAGE=${SQL_IMAGE:-"quay.io/sclorg/postgresql-16-c9s"}
 KV_VERSION=${KV_VERSION:-"7.4.1"}
 KV_IMAGE=${KV_IMAGE:-"docker.io/redis"}
+OS=${OS:-"el9"}
 
 source "${SCRIPT_DIR}"/functions
 IP=$(get_ext_ip)
@@ -57,7 +58,7 @@ kubectl create namespace flightctl-e2e      --context kind-kind 2>/dev/null || t
 if [ -z "$ONLY_DB" ]; then
 
   for suffix in periodic api worker alert-exporter alertmanager-proxy cli-artifacts db-setup telemetry-gateway imagebuilder-api imagebuilder-worker ; do
-    kind_load_image localhost/flightctl-${suffix}:latest
+    kind_load_image localhost/flightctl-${suffix}:${OS}-latest
   done
 
   kind_load_image "${KV_IMAGE}:${KV_VERSION}" keep-tar

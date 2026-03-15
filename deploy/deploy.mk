@@ -81,18 +81,18 @@ deploy-quadlets:
 ifndef SKIP_BUILD
 	$(MAKE) build-containers
 	@echo "Copying containers from user to root context for systemd services..."
-	podman save flightctl-api:latest | sudo podman load
-	podman save flightctl-db-setup:latest | sudo podman load
-	podman save flightctl-worker:latest | sudo podman load
-	podman save flightctl-periodic:latest | sudo podman load
-	podman save flightctl-alert-exporter:latest | sudo podman load
-	podman save flightctl-cli-artifacts:latest | sudo podman load
-	podman save flightctl-alertmanager-proxy:latest | sudo podman load
-	podman save flightctl-pam-issuer:latest | sudo podman load
-	podman save flightctl-imagebuilder-api:latest | sudo podman load
-	podman save flightctl-imagebuilder-worker:latest | sudo podman load
-	podman save flightctl-userinfo-proxy:latest | sudo podman load
-	podman save flightctl-telemetry-gateway:latest | sudo podman load
+	podman save flightctl-api:$(OS)-latest | sudo podman load
+	podman save flightctl-db-setup:$(OS)-latest | sudo podman load
+	podman save flightctl-worker:$(OS)-latest | sudo podman load
+	podman save flightctl-periodic:$(OS)-latest | sudo podman load
+	podman save flightctl-alert-exporter:$(OS)-latest | sudo podman load
+	podman save flightctl-cli-artifacts:$(OS)-latest | sudo podman load
+	podman save flightctl-alertmanager-proxy:$(OS)-latest | sudo podman load
+	podman save flightctl-pam-issuer:$(OS)-latest | sudo podman load
+	podman save flightctl-imagebuilder-api:$(OS)-latest | sudo podman load
+	podman save flightctl-imagebuilder-worker:$(OS)-latest | sudo podman load
+	podman save flightctl-userinfo-proxy:$(OS)-latest | sudo podman load
+	podman save flightctl-telemetry-gateway:$(OS)-latest | sudo podman load
 endif
 	$(MAKE) build-standalone
 	sudo -E deploy/scripts/deploy_quadlets.sh
