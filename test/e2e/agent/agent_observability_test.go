@@ -1,11 +1,13 @@
 package agent_test
 
 import (
+	"encoding/base64"
 	"fmt"
 	"strings"
 
 	agentcfg "github.com/flightctl/flightctl/internal/agent/config"
 	"github.com/flightctl/flightctl/test/harness/e2e"
+	"github.com/goccy/go-yaml"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -13,8 +15,6 @@ import (
 const (
 	metricsEndpoint = "http://127.0.0.1:15690/metrics"
 	pprofEndpoint   = "http://127.0.0.1:15689/debug/pprof/"
-
-	serviceActiveTimeout = "10s"
 )
 
 var _ = Describe("Agent observability and diagnostics", func() {
@@ -29,7 +29,6 @@ var _ = Describe("Agent observability and diagnostics", func() {
 
 		harness = e2e.GetWorkerHarness()
 		deviceID, _ = harness.EnrollAndWaitForOnlineStatus()
-		Expect(err).ToNot(HaveOccurred())
 		Expect(strings.TrimSpace(deviceID)).ToNot(BeEmpty())
 
 		cfgBak, err = harness.GetAgentConfig()
@@ -141,11 +140,161 @@ var _ = Describe("Agent observability and diagnostics", func() {
 
 			Expect(harness.CaptureStandardEvidence(artifactDir, deviceID)).To(Succeed())
 		})
+
+		It("86340 should write bootstrap and sync audit log entries in JSONL format", Label("86340", "sanity", "agent"), func() {
+			artifactDir, err := harness.SetupScenario(deviceID, "agent-audit-log")
+			Expect(err).ToNot(HaveOccurred())
+
+			By("verifying the audit log file exists with restricted permissions")
+			logStatOut, err := harness.RunVMCommandWithEvidence(
+				artifactDir,
+				"vm_audit_log_stat.txt",
+				"sudo stat -c '%U:%G %a %n' /var/log/flightctl/audit.log",
+			)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(strings.TrimSpace(logStatOut)).To(ContainSubstring("root:root"))
+			Expect(strings.TrimSpace(logStatOut)).To(ContainSubstring("600"))
+			Expect(strings.TrimSpace(logStatOut)).To(ContainSubstring("/var/log/flightctl/audit.log"))
+
+			By("verifying bootstrap audit entries exist for current, desired, and rollback")
+
+			waitForAuditEntryWithEvidence(harness, artifactDir, "vm_audit_bootstrap_current.txt",
+				buildAuditJQMatchCommand(deviceID, `select(.reason=="bootstrap" and .type=="current" and .old_version=="" and .new_version=="0" and .result=="success")`))
+
+			waitForAuditEntryWithEvidence(harness, artifactDir, "vm_audit_bootstrap_desired.txt",
+				buildAuditJQMatchCommand(deviceID, `select(.reason=="bootstrap" and .type=="desired" and .old_version=="" and .new_version=="0" and .result=="success")`))
+
+			waitForAuditEntryWithEvidence(harness, artifactDir, "vm_audit_bootstrap_rollback.txt",
+				buildAuditJQMatchCommand(deviceID, `select(.reason=="bootstrap" and .type=="rollback" and .old_version=="" and .new_version=="0" and .result=="success")`))
+
+			By("generating an embedded agent config with the CLI")
+			cliOut, err := harness.CLI("certificate", "request", "--expiration=365d", "-o", "embedded")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(strings.TrimSpace(cliOut)).ToNot(BeEmpty())
+
+			configYAML, err := extractEmbeddedAgentConfig(cliOut)
+			Expect(err).ToNot(HaveOccurred())
+
+			encodedConfig := base64.StdEncoding.EncodeToString([]byte(configYAML))
+
+			By("writing the generated config to the device")
+			writeCmd := "echo '" + encodedConfig + "' | base64 -d | sudo tee /etc/flightctl/config.yaml >/dev/null"
+
+			_, err = harness.RunVMCommandWithEvidence(
+				artifactDir,
+				"vm_write_embedded_agent_config.txt",
+				writeCmd,
+			)
+			Expect(err).ToNot(HaveOccurred())
+
+			writtenConfig, err := harness.RunVMCommandWithEvidence(
+				artifactDir,
+				"vm_cat_embedded_agent_config.txt",
+				"sudo cat /etc/flightctl/config.yaml",
+			)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(writtenConfig).To(ContainSubstring("enrollment-service:"))
+
+			By("deleting the existing agent state on the device")
+			_, err = harness.RunVMCommandWithEvidence(
+				artifactDir,
+				"vm_cleanup_flightctl_state.txt",
+				"sudo rm -rf /var/lib/flightctl/* /var/lib/flightctl/certs/*",
+			)
+			Expect(err).ToNot(HaveOccurred())
+
+			By("restarting the flightctl-agent service")
+			err = restartFlightctlAgentAndWait(harness)
+			Expect(err).ToNot(HaveOccurred())
+
+			By("waiting for the device to re-enroll and become online")
+			deviceID, _ = harness.EnrollAndWaitForOnlineStatus()
+			Expect(strings.TrimSpace(deviceID)).ToNot(BeEmpty())
+
+			By("verifying sync, upgrade, and initialization audit entries exist after enrollment")
+
+			waitForAuditEntryWithEvidence(harness, artifactDir, "vm_audit_sync_desired.txt",
+				buildAuditJQMatchCommand(deviceID, `select(.reason=="sync" and .type=="desired" and .old_version=="0" and ((.new_version | tonumber? // -1) > 0) and .result=="success")`))
+
+			waitForAuditEntryWithEvidence(harness, artifactDir, "vm_audit_upgrade_current.txt",
+				buildAuditJQMatchCommand(deviceID, `select(.reason=="upgrade" and .type=="current" and .old_version=="0" and ((.new_version | tonumber? // -1) > 0) and .result=="success")`))
+
+			waitForAuditEntryWithEvidence(harness, artifactDir, "vm_audit_initialization_rollback.txt",
+				buildAuditJQMatchCommand(deviceID, `select(.reason=="initialization" and .type=="rollback" and .old_version=="0" and .new_version=="" and .result=="success")`))
+
+			By("validating the audit log JSON structure")
+
+			jsonCheckCmd := `sudo jq -e 'if .ts == null or .device == null or .old_version == null or .new_version == null or .result == null or .reason == null or .type == null or .fleet_template_version == null or .agent_version == null then error("Missing required field") else . end' /var/log/flightctl/audit.log`
+			jsonCheckOut, err := harness.RunVMCommandWithEvidence(
+				artifactDir,
+				"vm_audit_json_structure_validation.txt",
+				jsonCheckCmd,
+			)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(strings.TrimSpace(jsonCheckOut)).ToNot(BeEmpty())
+
+			By("verifying the audit log is JSONL format")
+
+			lineCountOut, err := harness.RunVMCommandWithEvidence(
+				artifactDir,
+				"vm_audit_log_line_count.txt",
+				"sudo cat /var/log/flightctl/audit.log | wc -l",
+			)
+			Expect(err).ToNot(HaveOccurred())
+
+			jsonCountOut, err := harness.RunVMCommandWithEvidence(
+				artifactDir,
+				"vm_audit_log_json_count.txt",
+				"sudo cat /var/log/flightctl/audit.log | jq -s 'length'",
+			)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(strings.TrimSpace(lineCountOut)).To(Equal(strings.TrimSpace(jsonCountOut)))
+
+			Expect(harness.CaptureStandardEvidence(artifactDir, deviceID)).To(Succeed())
+		})
 	})
 })
 
-func restartFlightctlAgentAndWait(harness *e2e.Harness) error {
+func waitForAuditEntryWithEvidence(harness *e2e.Harness, artifactDir, filename, command string) {
+	Eventually(func() string {
+		out, err := harness.RunVMCommandWithEvidence(artifactDir, filename, command)
+		if err != nil {
+			return ""
+		}
+		return strings.TrimSpace(out)
+	}, e2e.TIMEOUT, e2e.POLLING).ShouldNot(BeEmpty())
+}
 
+func buildAuditJQMatchCommand(deviceID string, filter string) string {
+	return fmt.Sprintf(
+		"sudo cat /var/log/flightctl/audit.log | jq -c 'select(.device==\"%s\" and %s)'",
+		deviceID,
+		filter,
+	)
+}
+
+func extractEmbeddedAgentConfig(cliOut string) (string, error) {
+	const yamlStart = "enrollment-service:"
+
+	idx := strings.Index(cliOut, yamlStart)
+	if idx == -1 {
+		return "", fmt.Errorf("failed to find embedded config YAML in CLI output")
+	}
+
+	configYAML := strings.TrimSpace(cliOut[idx:])
+	if configYAML == "" {
+		return "", fmt.Errorf("embedded config YAML is empty")
+	}
+
+	var cfg agentcfg.Config
+	if err := yaml.Unmarshal([]byte(configYAML), &cfg); err != nil {
+		return "", fmt.Errorf("failed to parse embedded config YAML: %w", err)
+	}
+
+	return configYAML + "\n", nil
+}
+
+func restartFlightctlAgentAndWait(harness *e2e.Harness) error {
 	if harness == nil {
 		return fmt.Errorf("harness is nil")
 	}
@@ -162,7 +311,7 @@ func restartFlightctlAgentAndWait(harness *e2e.Harness) error {
 			return ""
 		}
 		return strings.TrimSpace(output.String())
-	}, serviceActiveTimeout, e2e.POLLING).Should(Equal("active"))
+	}, e2e.TIMEOUT, e2e.POLLING).Should(Equal("active"))
 
 	return nil
 }
@@ -175,6 +324,6 @@ func waitForEndpoint(harness *e2e.Harness, url string) error {
 	if harness == nil {
 		return fmt.Errorf("harness is nil")
 	}
-	Eventually(harness.VMCommandOutputFunc(buildCurlCommand(url), false), serviceActiveTimeout, POLLING).ShouldNot(BeEmpty())
+	Eventually(harness.VMCommandOutputFunc(buildCurlCommand(url), false), e2e.TIMEOUT, e2e.POLLING).ShouldNot(BeEmpty())
 	return nil
 }
