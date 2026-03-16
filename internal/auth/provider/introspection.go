@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"errors"
 	"fmt"
 	"net/url"
 	"strings"
@@ -108,4 +109,36 @@ func buildIntrospectionURL(baseURL string) string {
 
 	// Return the reassembled URL with all components preserved
 	return parsedURL.String()
+}
+
+// NormalizeIssuerURL parses an issuer URL and returns a canonical form (no trailing slash on path).
+// Requires scheme and host. Used so discovery, token verification, and cache keys share one form.
+func NormalizeIssuerURL(issuer string) (string, error) {
+	if issuer == "" {
+		return "", errors.New("issuer URL is empty")
+	}
+	parsed, err := url.Parse(issuer)
+	if err != nil {
+		return "", fmt.Errorf("invalid issuer URL: %w", err)
+	}
+	if parsed.Scheme == "" || parsed.Host == "" {
+		return "", errors.New("issuer URL must have scheme and host")
+	}
+	parsed.Path = strings.TrimSuffix(parsed.Path, "/")
+	return parsed.String(), nil
+}
+
+// DiscoveryURL returns the OIDC discovery URL for the given issuer (/.well-known/openid-configuration).
+// The issuer is normalized before building the path.
+func DiscoveryURL(issuer string) (string, error) {
+	normalized, err := NormalizeIssuerURL(issuer)
+	if err != nil {
+		return "", err
+	}
+	u, err := url.Parse(normalized)
+	if err != nil {
+		return "", err
+	}
+	u = u.JoinPath(".well-known", "openid-configuration")
+	return u.String(), nil
 }

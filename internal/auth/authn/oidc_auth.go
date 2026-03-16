@@ -14,6 +14,7 @@ import (
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/auth/common"
+	"github.com/flightctl/flightctl/internal/auth/provider"
 	identitypkg "github.com/flightctl/flightctl/internal/identity"
 	"github.com/jellydator/ttlcache/v3"
 	"github.com/lestrrat-go/jwx/v2/jwk"
@@ -177,7 +178,11 @@ func (o *OIDCAuth) Stop() {
 // This is called automatically before validating tokens
 func (o *OIDCAuth) ensureDiscovery(ctx context.Context) error {
 	o.discoveryOnce.Do(func() {
-		discoveryURL := fmt.Sprintf("%s/.well-known/openid-configuration", o.spec.Issuer)
+		discoveryURL, err := provider.DiscoveryURL(o.spec.Issuer)
+		if err != nil {
+			o.discoveryErr = fmt.Errorf("invalid OIDC issuer URL: %w", err)
+			return
+		}
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, discoveryURL, nil)
 		if err != nil {
 			o.discoveryErr = fmt.Errorf("failed to create OIDC discovery request: %w", err)
