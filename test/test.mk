@@ -19,8 +19,12 @@ ifeq ($(AGENT_OS_ID),cs10-bootc)
 	E2E_RPM_MOCK_ROOT := epel-10-x86_64
 else ifeq ($(AGENT_OS_ID),cs9-bootc)
 	E2E_RPM_MOCK_ROOT := centos-stream+epel-next-9-x86_64
+else ifeq ($(AGENT_OS_ID),rhel10-bootc)
+	E2E_RPM_MOCK_ROOT := epel-10-x86_64
+else ifeq ($(AGENT_OS_ID),rhel9-bootc)
+	E2E_RPM_MOCK_ROOT := centos-stream+epel-next-9-x86_64
 else
-	$(error Unsupported AGENT_OS_ID: $(AGENT_OS_ID). Supported values: cs9-bootc, cs10-bootc)
+	$(error Unsupported AGENT_OS_ID: $(AGENT_OS_ID). Supported values: cs9-bootc, cs10-bootc, rhel9-bootc, rhel10-bootc)
 endif
 
 ifeq ($(VERBOSE), true)
