@@ -546,7 +546,14 @@ func (m *PodmanMonitor) updateComposeContainerStatus(ctx context.Context, app Ap
 		m.log.Errorf("Failed to get container restarts: %v", err)
 	}
 
-	status := m.resolveStatus(event.Status, inspectData)
+	var currentStatus StatusType
+	m.mu.Lock()
+	if workload, exists := app.Workload(event.Name); exists {
+		currentStatus = workload.Status
+	}
+	m.mu.Unlock()
+
+	status := m.resolveStatus(event.Status, inspectData, currentStatus)
 	if status == StatusRemove {
 		m.mu.Lock()
 		defer m.mu.Unlock()
@@ -582,11 +589,14 @@ func (m *PodmanMonitor) inspectContainer(ctx context.Context, containerID string
 	return inspectData, nil
 }
 
-func (m *PodmanMonitor) resolveStatus(status string, inspectData []client.PodmanInspect) StatusType {
+func (m *PodmanMonitor) resolveStatus(status string, inspectData []client.PodmanInspect, currentStatus StatusType) StatusType {
 	initialStatus := StatusType(status)
 	// podman events don't properly event exited in the case where the container exits 0.
 	if initialStatus == StatusDie || initialStatus == StatusDied {
 		if len(inspectData) > 0 && inspectData[0].State.ExitCode == 0 && inspectData[0].State.FinishedAt != "" {
+			if currentStatus == StatusStop {
+				return currentStatus
+			}
 			return StatusExited
 		}
 	}
