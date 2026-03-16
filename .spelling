@@ -312,6 +312,9 @@ CRDs
 wildcard
 Istio
 subdomain
+CatalogItem
+URI
+CatalogItems
  - docs/user/installing/configuring-imagebuilder.md
  entitlement
  uncomment
