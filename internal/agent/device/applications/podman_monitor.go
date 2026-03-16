@@ -463,6 +463,14 @@ func (m *PodmanMonitor) updateApplicationStatus(app Application, event *client.P
 
 	container, exists := app.Workload(event.Name)
 	if exists {
+		// A manual stop typically results in a 'kill' or 'stop' event before the 'die'/'died' event.
+		// If the previous status was 'kill' or 'stop' and the current status is 'exited' (which
+		// happens if ExitCode is 0), we treat it as 'stop' so it results in an Error/Degraded
+		// state rather than a Completed state.
+		if (container.Status == "kill" || container.Status == StatusStop) && status == StatusExited {
+			status = StatusStop
+		}
+
 		// update existing container
 		container.Status = status
 		// restarts can only increase
