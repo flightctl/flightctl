@@ -12,6 +12,8 @@ import (
 	"github.com/samber/lo"
 )
 
+const RemoteRepositoryEmptyMessage = "remote repository is empty"
+
 func (h *Harness) GetRepository(repositoryName string) (*v1beta1.Repository, error) {
 	response, err := h.Client.GetRepositoryWithResponse(h.Context, repositoryName)
 	if err != nil {
@@ -107,6 +109,10 @@ func (h *Harness) WaitForRepositoryAccessible(name string, timeout, polling time
 			if cond.Type == v1beta1.ConditionTypeRepositoryAccessible {
 				if cond.Status == v1beta1.ConditionStatusTrue {
 					GinkgoWriter.Printf("Repository %s is accessible\n", name)
+					return true, nil
+				}
+				if cond.Message == RemoteRepositoryEmptyMessage {
+					GinkgoWriter.Printf("Repository %s is accessible but empty\n", name)
 					return true, nil
 				}
 				GinkgoWriter.Printf("Repository %s Accessible condition: status=%s reason=%s message=%s\n",
