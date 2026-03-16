@@ -51,8 +51,9 @@ type PodmanContainerState struct {
 	ExitCode    int    `json:"ExitCode"`
 	Error       string `json:"Error"`
 	StartedAt   string `json:"StartedAt"`
-	FinishedAt  string `json:"FinishedAt"`
-	Healthcheck string `json:"Healthcheck"`
+	FinishedAt    string `json:"FinishedAt"`
+	Healthcheck   string `json:"Healthcheck"`
+	StoppedByUser bool   `json:"StoppedByUser"`
 }
 
 type PodmanContainerConfig struct {
