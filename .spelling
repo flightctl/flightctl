@@ -314,6 +314,9 @@ Istio
 delimited
 URIs
 subdomain
+CatalogItem
+URI
+CatalogItems
  - docs/user/installing/configuring-imagebuilder.md
  entitlement
  uncomment

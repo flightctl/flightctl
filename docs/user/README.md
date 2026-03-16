@@ -63,6 +63,10 @@ Welcome to the Flight Control user documentation.
   * [Selecting Devices into a Fleet](using/managing-fleets.md#selecting-devices-into-a-fleet)
   * [Defining Device Templates](using/managing-fleets.md#defining-device-templates)
   * [Defining Rollout Policies](using/managing-fleets.md#defining-rollout-policies)
+* **[Software Catalog](using/managing-catalogs.md)** - How to organize and distribute versioned software components using catalogs.
+  * [Catalogs](using/managing-catalogs.md#catalogs)
+  * [Catalog items](using/managing-catalogs.md#catalog-items)
+  * [Importing catalogs using ResourceSync](using/managing-catalogs.md#importing-catalogs-using-resourcesync)
 * **[Managing Image Builds and Exports](using/managing-image-builds.md)** - How to build and export OS images using the Flight Control API.
 * **Solving Specific Use Cases** - How to solve specific use cases in Flight Control.
   * [Auto-Registering Devices with MicroShift into ACM](using/registering-microshift-devices-acm.md)
