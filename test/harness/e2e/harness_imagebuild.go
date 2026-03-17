@@ -178,6 +178,11 @@ func (h *Harness) GetImageBuildLogs(name string) (string, error) {
 	}
 	defer response.Body.Close()
 
+	if response.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(response.Body)
+		return "", newAPIError(response.StatusCode, body, "ImageBuild", name)
+	}
+
 	body, err := io.ReadAll(response.Body)
 	if err != nil {
 		return "", fmt.Errorf("failed to read ImageBuild logs for %s: %w", name, err)
@@ -197,6 +202,11 @@ func (h *Harness) GetImageExportLogs(name string) (string, error) {
 		return "", fmt.Errorf("failed to get ImageExport logs for %s: %w", name, err)
 	}
 	defer response.Body.Close()
+
+	if response.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(response.Body)
+		return "", newAPIError(response.StatusCode, body, "ImageExport", name)
+	}
 
 	body, err := io.ReadAll(response.Body)
 	if err != nil {
@@ -787,6 +797,38 @@ func (h *Harness) getImageExportReadyCondition(imageExport *imagebuilderapi.Imag
 		}
 	}
 	return "", ""
+}
+
+// WaitForImageExportCondition waits for an ImageExport to reach a specific condition reason.
+func (h *Harness) WaitForImageExportCondition(name string, expectedReason imagebuilderapi.ImageExportConditionReason, timeout, polling time.Duration) error {
+	Eventually(func() (string, error) {
+		return h.GetImageExportConditionReason(name)
+	}, timeout, polling).Should(Equal(string(expectedReason)),
+		fmt.Sprintf("Expected ImageExport %s to have condition reason %s", name, expectedReason))
+	return nil
+}
+
+// WaitForImageExportCompletion waits for an ImageExport to reach a terminal condition (Completed, Failed, or Canceled).
+// It returns the export, the condition reason (e.g. "Completed", "Failed", "Canceled"), and an error.
+// Error is non-nil only on API failure (e.g. GetImageExport) or timeout; on terminal state, status is set and err is nil.
+func (h *Harness) WaitForImageExportCompletion(name string, timeout time.Duration) (*imagebuilderapi.ImageExport, string, error) {
+	pollInterval := 5 * time.Second
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		export, err := h.GetImageExport(name)
+		if err != nil {
+			return nil, "", err
+		}
+		reason, _ := h.getImageExportReadyCondition(export)
+		switch reason {
+		case string(imagebuilderapi.ImageExportConditionReasonCompleted),
+			string(imagebuilderapi.ImageExportConditionReasonFailed),
+			string(imagebuilderapi.ImageExportConditionReasonCanceled):
+			return export, reason, nil
+		}
+		time.Sleep(pollInterval)
+	}
+	return nil, "", fmt.Errorf("ImageExport %s did not reach a terminal state within %v", name, timeout)
 }
 
 // WaitForImageExportProcessing waits for an ImageExport to start processing (leave Pending state).

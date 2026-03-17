@@ -71,7 +71,6 @@ import (
 	"github.com/creack/pty"
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
-	imagebuilderclient "github.com/flightctl/flightctl/internal/api/imagebuilder/client"
 	"github.com/flightctl/flightctl/internal/client"
 	service "github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/test/harness/e2e/vm"
@@ -106,7 +105,7 @@ const (
 
 type Harness struct {
 	Client             *apiclient.ClientWithResponses
-	ImageBuilderClient *imagebuilderclient.ClientWithResponses
+	ImageBuilderClient *client.ImageBuilderClient
 	Context            context.Context
 	ctxCancel          context.CancelFunc
 	startTime          time.Time
@@ -175,7 +174,7 @@ func (h *Harness) ReadClientConfig(filePath string) (*client.Config, error) {
 	return client.ParseConfigFile(filePath)
 }
 
-// RefreshClient recreates the FlightCtl API client from the config file.
+// RefreshClient recreates the FlightCtl API client and ImageBuilder client from the config file.
 // This is useful after login when the config file has been updated with new authentication or organization information.
 func (h *Harness) RefreshClient() error {
 	baseDir, err := client.DefaultFlightctlClientConfigPath()
@@ -187,7 +186,35 @@ func (h *Harness) RefreshClient() error {
 	if err != nil {
 		return fmt.Errorf("failed to recreate client: %w", err)
 	}
+	if h.clientWrapper != nil {
+		h.clientWrapper.Stop()
+	}
+	c.Start(h.Context)
+	h.clientWrapper = c
 	h.Client = c.ClientWithResponses
+
+	config, err := client.ParseConfigFile(baseDir)
+	if err != nil {
+		return fmt.Errorf("failed to parse config for imagebuilder client: %w", err)
+	}
+	imageBuilderServer := config.GetImageBuilderServer()
+	if imageBuilderServer != "" {
+		if h.ImageBuilderClient != nil {
+			h.ImageBuilderClient.Stop()
+		}
+		ibClient, err := client.NewImageBuilderClientFromConfig(config, baseDir, imageBuilderServer, config.Organization)
+		if err != nil {
+			return fmt.Errorf("failed to recreate imagebuilder client: %w", err)
+		}
+		ibClient.Start(h.Context)
+		h.ImageBuilderClient = ibClient
+	} else {
+		if h.ImageBuilderClient != nil {
+			h.ImageBuilderClient.Stop()
+		}
+		h.ImageBuilderClient = nil
+	}
+
 	logrus.Infof("Refreshed FlightCtl API client from config file")
 	return nil
 }
@@ -297,6 +324,9 @@ func (h *Harness) Cleanup(printConsole bool) {
 	// Stop the client wrapper if it exists
 	if h.clientWrapper != nil {
 		h.clientWrapper.Stop()
+	}
+	if h.ImageBuilderClient != nil {
+		h.ImageBuilderClient.Stop()
 	}
 
 	// Cancel the context to stop any blocking operations
@@ -1091,7 +1121,13 @@ func (h *Harness) GetOrganizationID() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if resp.JSON200 == nil || len(resp.JSON200.Items) == 0 {
+	if resp.JSON200 == nil {
+		if resp.StatusCode() != 200 {
+			return "", fmt.Errorf("ListOrganizationsWithResponse: HTTP %d: %s", resp.StatusCode(), string(resp.Body))
+		}
+		return "", fmt.Errorf("no organizations response")
+	}
+	if len(resp.JSON200.Items) == 0 {
 		return "", fmt.Errorf("no organizations returned")
 	}
 	name := resp.JSON200.Items[0].Metadata.Name
@@ -1099,6 +1135,31 @@ func (h *Harness) GetOrganizationID() (string, error) {
 		return "", fmt.Errorf("organization name is empty")
 	}
 	return *name, nil
+}
+
+// GetOrganizationIDByDisplayName returns the organization ID (UUID) whose Spec.DisplayName matches the given display name.
+func (h *Harness) GetOrganizationIDByDisplayName(displayName string) (string, error) {
+	if displayName == "" {
+		return "", fmt.Errorf("display name is empty")
+	}
+	resp, err := h.Client.ListOrganizationsWithResponse(h.Context, nil)
+	if err != nil {
+		return "", err
+	}
+	if resp.JSON200 == nil {
+		if resp.StatusCode() != 200 {
+			return "", fmt.Errorf("ListOrganizationsWithResponse: HTTP %d: %s", resp.StatusCode(), string(resp.Body))
+		}
+		return "", fmt.Errorf("no organizations response")
+	}
+	for _, org := range resp.JSON200.Items {
+		if org.Spec != nil && org.Spec.DisplayName != nil && *org.Spec.DisplayName == displayName {
+			if org.Metadata.Name != nil && *org.Metadata.Name != "" {
+				return *org.Metadata.Name, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("no organization found with displayName %q", displayName)
 }
 
 func (h *Harness) CheckApplicationDirectoryExist(applicationName string) error {
@@ -1378,11 +1439,10 @@ func newTestHarnessBase(ctx context.Context) (*Harness, error) {
 	if imageBuilderServer == "" {
 		return nil, fmt.Errorf("imagebuilder server URL not configured in client config")
 	}
-	ibClientWrapper, err := client.NewImageBuilderClientFromConfig(config, baseDir, imageBuilderServer, config.Organization)
+	ibClient, err := client.NewImageBuilderClientFromConfig(config, baseDir, imageBuilderServer, config.Organization)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create imagebuilder client: %w", err)
 	}
-	ibClient := ibClientWrapper.ClientWithResponses
 	ctx, cancel := context.WithCancel(ctx)
 
 	// Initialize git repository management
@@ -1394,6 +1454,7 @@ func newTestHarnessBase(ctx context.Context) (*Harness, error) {
 	}
 
 	c.Start(ctx)
+	ibClient.Start(ctx)
 
 	h := &Harness{
 		Client:             c.ClientWithResponses,
