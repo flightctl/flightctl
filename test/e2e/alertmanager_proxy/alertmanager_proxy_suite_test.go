@@ -48,7 +48,11 @@ var _ = AfterEach(func() {
 	harness := e2e.GetWorkerHarness()
 	suiteCtx := e2e.GetWorkerContext()
 
-	err := harness.CleanUpAllTestResources()
+	// Always restore admin context before cleanup in case a spec switched users.
+	_, err := login.LoginToAPIWithToken(harness)
+	Expect(err).ToNot(HaveOccurred())
+
+	err = harness.CleanUpAllTestResources()
 	Expect(err).ToNot(HaveOccurred())
 
 	harness.SetTestContext(suiteCtx)
