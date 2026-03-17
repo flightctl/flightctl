@@ -447,11 +447,9 @@ func (m *PodmanMonitor) updateContainerStatus(ctx context.Context, app Applicati
 }
 
 func isFinishedStatus(status StatusType) bool {
-	exitedStatuses := map[StatusType]struct {
-	}{
+	exitedStatuses := map[StatusType]struct{}{
 		StatusRemove: {},
 		StatusDie:    {},
-		StatusDied:   {},
 	}
 	_, ok := exitedStatuses[status]
 	return ok
@@ -465,7 +463,7 @@ func (m *PodmanMonitor) updateApplicationStatus(app Application, event *client.P
 	if exists {
 		// If the container was manually stopped, keep its status as StatusStop
 		// instead of transitioning it to a finished status like exited.
-		if container.Status == StatusStop && (status == StatusDie || status == StatusDied || status == StatusExited) {
+		if container.Status == StatusStop && (status == StatusDie || status == StatusExited) {
 			status = StatusStop
 		}
 
@@ -591,7 +589,7 @@ func (m *PodmanMonitor) inspectContainer(ctx context.Context, containerID string
 func (m *PodmanMonitor) resolveStatus(status string, inspectData []client.PodmanInspect) StatusType {
 	initialStatus := StatusType(status)
 	// podman events don't properly event exited in the case where the container exits 0.
-	if initialStatus == StatusDie || initialStatus == StatusDied {
+	if initialStatus == StatusDie {
 		if len(inspectData) > 0 && inspectData[0].State.ExitCode == 0 && inspectData[0].State.FinishedAt != "" {
 			return StatusExited
 		}

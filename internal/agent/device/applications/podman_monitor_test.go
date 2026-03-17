@@ -1319,3 +1319,27 @@ func TestReduceActions_Consistency(t *testing.T) {
 			"ordering should be consistent on iteration %d", i)
 	}
 }
+
+func TestUpdateApplicationStatus_ManualStop(t *testing.T) {
+	require := require.New(t)
+	logger := log.NewPrefixLogger("test")
+
+	m := NewPodmanMonitor(logger, nil, nil, "", nil)
+
+	app := createTestApplicationWithType(require, "test-app", v1beta1.ApplicationStatusRunning, "test-user", v1beta1.AppTypeCompose)
+	containerName := "test-app-container"
+	app.AddWorkload(&Workload{Name: containerName, Status: StatusStop})
+
+	event := &client.PodmanEvent{Name: containerName}
+	m.updateApplicationStatus(app, event, StatusDie, 0)
+
+	workload, exists := app.Workload(containerName)
+	require.True(exists)
+	require.Equal(StatusStop, workload.Status)
+
+	m.updateApplicationStatus(app, event, StatusExited, 0)
+
+	workload, exists = app.Workload(containerName)
+	require.True(exists)
+	require.Equal(StatusStop, workload.Status)
+}
