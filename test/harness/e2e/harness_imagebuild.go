@@ -178,6 +178,11 @@ func (h *Harness) GetImageBuildLogs(name string) (string, error) {
 	}
 	defer response.Body.Close()
 
+	if response.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(response.Body)
+		return "", newAPIError(response.StatusCode, body, "ImageBuild", name)
+	}
+
 	body, err := io.ReadAll(response.Body)
 	if err != nil {
 		return "", fmt.Errorf("failed to read ImageBuild logs for %s: %w", name, err)
@@ -197,6 +202,11 @@ func (h *Harness) GetImageExportLogs(name string) (string, error) {
 		return "", fmt.Errorf("failed to get ImageExport logs for %s: %w", name, err)
 	}
 	defer response.Body.Close()
+
+	if response.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(response.Body)
+		return "", newAPIError(response.StatusCode, body, "ImageExport", name)
+	}
 
 	body, err := io.ReadAll(response.Body)
 	if err != nil {
@@ -799,6 +809,38 @@ func (h *Harness) getImageExportReadyCondition(imageExport *imagebuilderapi.Imag
 	return "", ""
 }
 
+// WaitForImageExportCondition waits for an ImageExport to reach a specific condition reason.
+func (h *Harness) WaitForImageExportCondition(name string, expectedReason imagebuilderapi.ImageExportConditionReason, timeout, polling time.Duration) error {
+	Eventually(func() (string, error) {
+		return h.GetImageExportConditionReason(name)
+	}, timeout, polling).Should(Equal(string(expectedReason)),
+		fmt.Sprintf("Expected ImageExport %s to have condition reason %s", name, expectedReason))
+	return nil
+}
+
+// WaitForImageExportCompletion waits for an ImageExport to reach a terminal condition (Completed, Failed, or Canceled).
+// It returns the export, the condition reason (e.g. "Completed", "Failed", "Canceled"), and an error.
+// Error is non-nil only on API failure (e.g. GetImageExport) or timeout; on terminal state, status is set and err is nil.
+func (h *Harness) WaitForImageExportCompletion(name string, timeout time.Duration) (*imagebuilderapi.ImageExport, string, error) {
+	pollInterval := 5 * time.Second
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		export, err := h.GetImageExport(name)
+		if err != nil {
+			return nil, "", err
+		}
+		reason, _ := h.getImageExportReadyCondition(export)
+		switch reason {
+		case string(imagebuilderapi.ImageExportConditionReasonCompleted),
+			string(imagebuilderapi.ImageExportConditionReasonFailed),
+			string(imagebuilderapi.ImageExportConditionReasonCanceled):
+			return export, reason, nil
+		}
+		time.Sleep(pollInterval)
+	}
+	return nil, "", fmt.Errorf("ImageExport %s did not reach a terminal state within %v", name, timeout)
+}
+
 // WaitForImageExportProcessing waits for an ImageExport to start processing (leave Pending state).
 func (h *Harness) WaitForImageExportProcessing(name string, timeout, polling time.Duration) (*imagebuilderapi.ImageExport, error) {
 	GinkgoWriter.Printf("Waiting for ImageExport %s to start processing (timeout: %v, polling: %v)\n", name, timeout, polling)
@@ -1102,3 +1144,331 @@ write_files:
 }
 
 // Imagebuilder-worker config/lifecycle methods removed: callers use setup.GetDefaultProviders().Infra and .Lifecycle directly (e.g. test/e2e/imagebuild/imagebuild_infra.go).
+
+const (
+	imageBuilderRBACProcessingTimeout = 2 * time.Minute
+	imageBuilderRBACExportTimeout     = 15 * time.Minute
+	imageBuilderRBACPollPeriod        = 5 * time.Second
+	imageBuilderRBACCancelTimeout     = 1 * time.Minute
+	imageBuilderRBACBuildDeleteWait   = 2 * time.Minute
+)
+
+// RbacReadOpts configures optional log endpoints for read-only RBAC helpers (access only; no content checks).
+type RbacReadOpts struct {
+	IncludeBuildLogs  bool
+	IncludeExportLogs bool
+	RoleLabel         string
+}
+
+// RbacDownloadExpectation selects forbidden vs successful ImageExport download in RBAC denial flows.
+type RbacDownloadExpectation int
+
+const (
+	// RbacDownloadForbidden expects HTTP 403 on download.
+	RbacDownloadForbidden RbacDownloadExpectation = iota
+	// RbacDownloadSuccess expects a successful download (e.g. installer role).
+	RbacDownloadSuccess
+)
+
+// ImageBuilderResourceKind selects ImageBuild vs ImageExport for WaitImageBuilderResourcePhase.
+type ImageBuilderResourceKind int
+
+const (
+	ImageBuilderResourceKindBuild ImageBuilderResourceKind = iota
+	ImageBuilderResourceKindExport
+)
+
+// ImageBuilderWaitPhase selects which terminal state to wait for in WaitImageBuilderResourcePhase.
+type ImageBuilderWaitPhase int
+
+const (
+	// ImageBuilderWaitProcessing waits until the resource leaves Pending (harness WaitFor*Processing).
+	ImageBuilderWaitProcessing ImageBuilderWaitPhase = iota
+	// ImageBuilderWaitConditionReason waits until Ready condition reason equals wantReason.
+	ImageBuilderWaitConditionReason
+	// ImageBuilderWaitDeleted waits until Get returns HTTP 404 (resource removed).
+	ImageBuilderWaitDeleted
+)
+
+// NewRBACImageBuildSpec builds an ImageBuildSpec for imagebuild RBAC tests
+func NewRBACImageBuildSpec(sourceRepoName, destRepoName, testID, sourceImageName, sourceImageTag, destImageName string) imagebuilderapi.ImageBuildSpec {
+	return NewImageBuildSpec(
+		sourceRepoName,
+		sourceImageName,
+		sourceImageTag,
+		destRepoName,
+		destImageName,
+		testID,
+		imagebuilderapi.BindingTypeEarly,
+	)
+}
+
+// AdminProvisionRBACImageBuildExport creates one ImageBuild and one ImageExport as admin.
+func (h *Harness) AdminProvisionRBACImageBuildExport(sourceRepoName, destRepoName, namePrefix string, waitExportCompleted bool,
+	sourceImageName, sourceImageTag, destImageName string,
+) (
+	imageBuildName, imageExportName string,
+	imageBuildSpec imagebuilderapi.ImageBuildSpec,
+	exportSpec imagebuilderapi.ImageExportSpec,
+	err error,
+) {
+	testID := h.GetTestIDFromContext()
+	imageBuildName = fmt.Sprintf("test-build-%s-%s", namePrefix, testID)
+	imageExportName = fmt.Sprintf("test-export-%s-%s", namePrefix, testID)
+	imageBuildSpec = NewRBACImageBuildSpec(sourceRepoName, destRepoName, testID, sourceImageName, sourceImageTag, destImageName)
+
+	By("Creating ImageBuild as admin")
+	if _, err = h.CreateImageBuild(imageBuildName, imageBuildSpec); err != nil {
+		return "", "", imageBuildSpec, exportSpec, fmt.Errorf("create image build: %w", err)
+	}
+
+	if err := h.WaitImageBuilderResourcePhase(ImageBuilderResourceKindBuild, imageBuildName, ImageBuilderWaitProcessing, "",
+		imageBuilderRBACProcessingTimeout, imageBuilderRBACPollPeriod, ""); err != nil {
+		return "", "", imageBuildSpec, exportSpec, fmt.Errorf("wait for image build processing: %w", err)
+	}
+
+	exportSpec = NewImageExportSpec(imageBuildName, imagebuilderapi.ExportFormatTypeQCOW2)
+	By("Creating ImageExport as admin")
+	if _, err = h.CreateImageExport(imageExportName, exportSpec); err != nil {
+		return "", "", imageBuildSpec, exportSpec, fmt.Errorf("create image export: %w", err)
+	}
+
+	if waitExportCompleted {
+		By("Waiting for admin ImageExport to complete")
+		var finalExport *imagebuilderapi.ImageExport
+		var exportStatus string
+		finalExport, exportStatus, err = h.WaitForImageExportCompletion(imageExportName, imageBuilderRBACExportTimeout)
+		if err != nil {
+			return imageBuildName, imageExportName, imageBuildSpec, exportSpec, fmt.Errorf("wait for image export completion: %w", err)
+		}
+		if finalExport == nil {
+			return imageBuildName, imageExportName, imageBuildSpec, exportSpec, fmt.Errorf("image export %q: nil resource after completion wait", imageExportName)
+		}
+		if exportStatus != string(imagebuilderapi.ImageExportConditionReasonCompleted) {
+			return imageBuildName, imageExportName, imageBuildSpec, exportSpec, fmt.Errorf(
+				"image export %q: expected Completed, got %s", imageExportName, exportStatus)
+		}
+	}
+
+	return imageBuildName, imageExportName, imageBuildSpec, exportSpec, nil
+}
+
+// ReadImageBuildExportAccess performs get/list/read logs; returns an error if any step fails expectations.
+func (h *Harness) ReadImageBuildExportAccess(imageBuildName, imageExportName string, opts RbacReadOpts) error {
+	suffix := ""
+	if opts.RoleLabel != "" {
+		suffix = fmt.Sprintf(" as %s (should succeed)", opts.RoleLabel)
+	}
+
+	By("Get ImageBuild" + suffix)
+	build, err := h.GetImageBuild(imageBuildName)
+	if err != nil {
+		return fmt.Errorf("get image build: %w", err)
+	}
+	if build == nil {
+		return fmt.Errorf("get image build: nil resource")
+	}
+
+	By("Get ImageExport" + suffix)
+	export, err := h.GetImageExport(imageExportName)
+	if err != nil {
+		return fmt.Errorf("get image export: %w", err)
+	}
+	if export == nil {
+		return fmt.Errorf("get image export: nil resource")
+	}
+
+	By("List ImageBuilds" + suffix)
+	if _, err = h.ListImageBuilds(nil); err != nil {
+		return fmt.Errorf("list image builds: %w", err)
+	}
+
+	By("List ImageExports" + suffix)
+	if _, err = h.ListImageExports(nil); err != nil {
+		return fmt.Errorf("list image exports: %w", err)
+	}
+
+	if opts.IncludeBuildLogs {
+		By("Show ImageBuild logs" + suffix)
+		if _, err := h.GetImageBuildLogs(imageBuildName); err != nil {
+			return fmt.Errorf("get image build logs: %w", err)
+		}
+	}
+
+	if opts.IncludeExportLogs {
+		By("Show ImageExport logs" + suffix)
+		if _, err := h.GetImageExportLogs(imageExportName); err != nil {
+			return fmt.Errorf("get image export logs: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// RbacDeniedImageBuildExportLogs asserts GET imagebuilds/{name}/log and imageexports/{name}/log return HTTP 403.
+func (h *Harness) RbacDeniedImageBuildExportLogs(imageBuildName, imageExportName, roleLabel string) error {
+	By(fmt.Sprintf("Show ImageBuild logs as %s (should fail with 403 Forbidden)", roleLabel))
+	_, logErr := h.GetImageBuildLogs(imageBuildName)
+	if err := ErrUnlessHTTPForbidden(logErr, fmt.Sprintf("Get ImageBuild logs as %s", roleLabel)); err != nil {
+		return err
+	}
+	By(fmt.Sprintf("Show ImageExport logs as %s (should fail with 403 Forbidden)", roleLabel))
+	_, logErr = h.GetImageExportLogs(imageExportName)
+	if err := ErrUnlessHTTPForbidden(logErr, fmt.Sprintf("Get ImageExport logs as %s", roleLabel)); err != nil {
+		return err
+	}
+	return nil
+}
+
+// RbacDeniedCancelCreateDelete exercises forbidden mutations and optional download expectation for a non-admin role.
+func (h *Harness) RbacDeniedCancelCreateDelete(
+	roleLabel, forbiddenNamePrefix, testID string,
+	imageBuildName, imageExportName string,
+	imageBuildSpec imagebuilderapi.ImageBuildSpec,
+	exportSpec imagebuilderapi.ImageExportSpec,
+	download RbacDownloadExpectation,
+) error {
+	By(fmt.Sprintf("Cancel ImageBuild as %s (should fail with 403 Forbidden)", roleLabel))
+	if err := ErrUnlessHTTPForbidden(h.CancelImageBuild(imageBuildName), fmt.Sprintf("Cancel ImageBuild as %s", roleLabel)); err != nil {
+		return err
+	}
+
+	By(fmt.Sprintf("Cancel ImageExport as %s (should fail with 403 Forbidden)", roleLabel))
+	if err := ErrUnlessHTTPForbidden(h.CancelImageExport(imageExportName), fmt.Sprintf("Cancel ImageExport as %s", roleLabel)); err != nil {
+		return err
+	}
+
+	By(fmt.Sprintf("Create ImageBuild as %s (should fail with 403 Forbidden)", roleLabel))
+	_, err := h.CreateImageBuild(fmt.Sprintf("%s-build-%s", forbiddenNamePrefix, testID), imageBuildSpec)
+	if err := ErrUnlessHTTPForbidden(err, fmt.Sprintf("Create ImageBuild as %s", roleLabel)); err != nil {
+		return err
+	}
+
+	By(fmt.Sprintf("Delete ImageBuild as %s (should fail with 403 Forbidden)", roleLabel))
+	if err := ErrUnlessHTTPForbidden(h.DeleteImageBuild(imageBuildName), fmt.Sprintf("Delete ImageBuild as %s", roleLabel)); err != nil {
+		return err
+	}
+
+	By(fmt.Sprintf("Create ImageExport as %s (should fail with 403 Forbidden)", roleLabel))
+	_, err = h.CreateImageExport(fmt.Sprintf("%s-export-%s", forbiddenNamePrefix, testID), exportSpec)
+	if err := ErrUnlessHTTPForbidden(err, fmt.Sprintf("Create ImageExport as %s", roleLabel)); err != nil {
+		return err
+	}
+
+	By(fmt.Sprintf("Delete ImageExport as %s (should fail with 403 Forbidden)", roleLabel))
+	if err := ErrUnlessHTTPForbidden(h.DeleteImageExport(imageExportName), fmt.Sprintf("Delete ImageExport as %s", roleLabel)); err != nil {
+		return err
+	}
+
+	switch download {
+	case RbacDownloadForbidden:
+		By(fmt.Sprintf("Download ImageExport as %s (should fail with 403 Forbidden)", roleLabel))
+		_, _, err = h.DownloadImageExport(imageExportName)
+		return ErrUnlessHTTPForbidden(err, fmt.Sprintf("Download ImageExport as %s", roleLabel))
+	case RbacDownloadSuccess:
+		By(fmt.Sprintf("Download ImageExport as %s (should succeed; installer role grants imageexports/download)", roleLabel))
+		body, contentLength, err := h.DownloadImageExport(imageExportName)
+		if err != nil {
+			return fmt.Errorf("download image export: %w", err)
+		}
+		if body == nil {
+			return fmt.Errorf("download image export: nil body")
+		}
+		defer body.Close()
+		if contentLength <= 0 {
+			return fmt.Errorf("download image export: expected positive Content-Length, got %d", contentLength)
+		}
+		return nil
+	default:
+		return fmt.Errorf("unknown download expectation")
+	}
+}
+
+// WaitImageBuilderResourcePhase polls until the desired processing / condition / deleted state.
+// wantReason is used only when phase == ImageBuilderWaitConditionReason.
+// byStep is optional Ginkgo By text (empty skips By).
+func (h *Harness) WaitImageBuilderResourcePhase(
+	kind ImageBuilderResourceKind,
+	name string,
+	phase ImageBuilderWaitPhase,
+	wantReason string,
+	timeout, poll time.Duration,
+	byStep string,
+) error {
+	if byStep != "" {
+		By(byStep)
+	}
+	switch phase {
+	case ImageBuilderWaitProcessing:
+		if kind == ImageBuilderResourceKindExport {
+			_, err := h.WaitForImageExportProcessing(name, timeout, poll)
+			return err
+		}
+		_, err := h.WaitForImageBuildProcessing(name, timeout, poll)
+		return err
+	case ImageBuilderWaitConditionReason:
+		deadline := time.Now().Add(timeout)
+		var lastReason string
+		for time.Now().Before(deadline) {
+			var reason string
+			var err error
+			if kind == ImageBuilderResourceKindExport {
+				reason, err = h.GetImageExportConditionReason(name)
+			} else {
+				reason, err = h.GetImageBuildConditionReason(name)
+			}
+			if err != nil {
+				return fmt.Errorf("get condition reason for %q: %w", name, err)
+			}
+			lastReason = reason
+			if reason == wantReason {
+				return nil
+			}
+			time.Sleep(poll)
+		}
+		resKind := "ImageBuild"
+		if kind == ImageBuilderResourceKindExport {
+			resKind = "ImageExport"
+		}
+		return fmt.Errorf("%s %q: expected condition reason %q, last %q", resKind, name, wantReason, lastReason)
+	case ImageBuilderWaitDeleted:
+		resKind := "ImageBuild"
+		if kind == ImageBuilderResourceKindExport {
+			resKind = "ImageExport"
+		}
+		deadline := time.Now().Add(timeout)
+		for time.Now().Before(deadline) {
+			var err error
+			if kind == ImageBuilderResourceKindExport {
+				_, err = h.GetImageExport(name)
+			} else {
+				_, err = h.GetImageBuild(name)
+			}
+			if err == nil {
+				time.Sleep(poll)
+				continue
+			}
+			var apiErr *APIError
+			if errors.As(err, &apiErr) && apiErr.IsStatusCode(http.StatusNotFound) {
+				return nil
+			}
+			return fmt.Errorf("%s %q: wait for delete: %w", resKind, name, err)
+		}
+		var err error
+		if kind == ImageBuilderResourceKindExport {
+			_, err = h.GetImageExport(name)
+		} else {
+			_, err = h.GetImageBuild(name)
+		}
+		if err == nil {
+			return fmt.Errorf("%s %q should be deleted", resKind, name)
+		}
+		var apiErr *APIError
+		if errors.As(err, &apiErr) && apiErr.IsStatusCode(http.StatusNotFound) {
+			return nil
+		}
+		return fmt.Errorf("%s %q: wait for delete: %w", resKind, name, err)
+	default:
+		return fmt.Errorf("unknown ImageBuilderWaitPhase %d", phase)
+	}
+}
