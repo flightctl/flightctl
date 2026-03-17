@@ -175,7 +175,7 @@ func (h *Harness) ReadClientConfig(filePath string) (*client.Config, error) {
 	return client.ParseConfigFile(filePath)
 }
 
-// RefreshClient recreates the FlightCtl API client from the config file.
+// RefreshClient recreates the FlightCtl API client and ImageBuilder client from the config file.
 // This is useful after login when the config file has been updated with new authentication or organization information.
 func (h *Harness) RefreshClient() error {
 	baseDir, err := client.DefaultFlightctlClientConfigPath()
@@ -187,7 +187,27 @@ func (h *Harness) RefreshClient() error {
 	if err != nil {
 		return fmt.Errorf("failed to recreate client: %w", err)
 	}
+	if h.clientWrapper != nil {
+		h.clientWrapper.Stop()
+	}
+	c.Start(h.Context)
+	h.clientWrapper = c
 	h.Client = c.ClientWithResponses
+
+	config, err := client.ParseConfigFile(baseDir)
+	if err != nil {
+		return fmt.Errorf("failed to parse config for imagebuilder client: %w", err)
+	}
+	imageBuilderServer := config.GetImageBuilderServer()
+	if imageBuilderServer != "" {
+		ibClientWrapper, err := client.NewImageBuilderClientFromConfig(config, baseDir, imageBuilderServer, config.Organization)
+		if err != nil {
+			return fmt.Errorf("failed to recreate imagebuilder client: %w", err)
+		}
+		ibClientWrapper.Start(h.Context)
+		h.ImageBuilderClient = ibClientWrapper.ClientWithResponses
+	}
+
 	logrus.Infof("Refreshed FlightCtl API client from config file")
 	return nil
 }
@@ -1080,6 +1100,28 @@ func (h *Harness) GetOrganizationID() (string, error) {
 		return "", fmt.Errorf("organization name is empty")
 	}
 	return *name, nil
+}
+
+// GetOrganizationIDByDisplayName returns the organization ID (UUID) whose Spec.DisplayName matches the given display name.
+func (h *Harness) GetOrganizationIDByDisplayName(displayName string) (string, error) {
+	if displayName == "" {
+		return "", fmt.Errorf("display name is empty")
+	}
+	resp, err := h.Client.ListOrganizationsWithResponse(h.Context, nil)
+	if err != nil {
+		return "", err
+	}
+	if resp.JSON200 == nil {
+		return "", fmt.Errorf("no organizations response")
+	}
+	for _, org := range resp.JSON200.Items {
+		if org.Spec != nil && org.Spec.DisplayName != nil && *org.Spec.DisplayName == displayName {
+			if org.Metadata.Name != nil && *org.Metadata.Name != "" {
+				return *org.Metadata.Name, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("no organization found with displayName %q", displayName)
 }
 
 func (h *Harness) CheckApplicationDirectoryExist(applicationName string) error {
