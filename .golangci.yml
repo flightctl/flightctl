@@ -27,10 +27,9 @@ output:
   # print linter name in the end of issue text, default is true
   print-linter-name: true
 
-  # make issues output unique by line, default is true
+issues:
   uniq-by-line: true
 
-issues:
   # List of regexps of issue texts to exclude.
   #
   # But independently of this option we use default exclude patterns,

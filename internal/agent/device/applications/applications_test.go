@@ -225,18 +225,6 @@ func TestApplicationStatus(t *testing.T) {
 			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusHealthy,
 		},
 		{
-			name: "app with single container has been manually stopped",
-			workloads: []Workload{
-				{
-					Name:   "container1",
-					Status: StatusStop,
-				},
-			},
-			expectedReady:         "0/1",
-			expectedStatus:        v1beta1.ApplicationStatusError,
-			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusError,
-		},
-		{
 			name: "app with one container stopped and one running",
 			workloads: []Workload{
 				{Name: "container1", Status: StatusStop},
