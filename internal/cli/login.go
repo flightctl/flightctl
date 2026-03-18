@@ -160,6 +160,7 @@ type LoginOptions struct {
 	Username           string
 	Password           string
 	Web                bool
+	NoBrowser          bool
 	ShowProviders      bool
 	authConfig         *v1beta1.AuthConfig
 	authProvider       login.AuthProvider
@@ -178,6 +179,7 @@ func DefaultLoginOptions() *LoginOptions {
 		Username:           "",
 		Password:           "",
 		Web:                false,
+		NoBrowser:          false,
 		ShowProviders:      false,
 	}
 }
@@ -231,6 +233,7 @@ func (o *LoginOptions) Bind(fs *pflag.FlagSet) {
 	fs.StringVarP(&o.Username, "username", "u", o.Username, "Username for password flow authentication")
 	fs.StringVarP(&o.Password, "password", "p", o.Password, "Password for password flow authentication")
 	fs.BoolVarP(&o.Web, "web", "", o.Web, "Use web-based authorization code flow (default is password flow if username/password provided)")
+	fs.BoolVarP(&o.NoBrowser, "no-browser", "", o.NoBrowser, "Do not open the browser; print the login URL for use in another environment or by automation (e.g. headless tests). Requires --web")
 	fs.BoolVarP(&o.ShowProviders, "show-providers", "", o.ShowProviders, "List available authentication providers")
 }
 
@@ -279,7 +282,8 @@ func (o *LoginOptions) validateShowProvidersExclusion() error {
 		!login.StrIsEmpty(o.Provider):                                  "--provider",
 		!login.StrIsEmpty(o.AuthCAFile):                                "--auth-certificate-authority",
 		!login.StrIsEmpty(o.Username) || !login.StrIsEmpty(o.Password): "--username or --password",
-		o.Web: "--web",
+		o.Web:       "--web",
+		o.NoBrowser: "--no-browser",
 	}
 
 	for condition, flag := range conflicts {
@@ -321,6 +325,11 @@ func (o *LoginOptions) Validate(args []string) error {
 	// Validate --web cannot be used with username/password
 	if o.Web && (!login.StrIsEmpty(o.Username) || !login.StrIsEmpty(o.Password)) {
 		return fmt.Errorf("--web cannot be used with --username or --password")
+	}
+
+	// Validate --no-browser requires --web
+	if o.NoBrowser && !o.Web {
+		return fmt.Errorf("--no-browser requires --web")
 	}
 
 	return nil
@@ -376,7 +385,7 @@ func (o *LoginOptions) getAuthProvider(ctx context.Context) (login.AuthProvider,
 		},
 		OrganizationsEnabled: true,
 	}
-	authProvider, err := client.CreateAuthProviderWithCredentials(authInfo, o.InsecureSkipVerify, o.clientConfig.Service.Server, o.CallbackPort, o.Username, o.Password, o.Web)
+	authProvider, err := client.CreateAuthProviderWithCredentials(authInfo, o.InsecureSkipVerify, o.clientConfig.Service.Server, o.CallbackPort, o.Username, o.Password, o.Web, o.NoBrowser)
 	if err != nil {
 		return nil, client.AuthInfo{}, fmt.Errorf("creating auth provider: %w", err)
 	}

@@ -31,8 +31,8 @@ var _ = Describe("VM Agent Helm Application Tests", Ordered, func() {
 		services = auxiliary.Get(harness.GetTestContext())
 		deviceId, _ = harness.EnrollAndWaitForOnlineStatus()
 
-		registryEndpoint := fmt.Sprintf("%s:%s", services.RegistryHost, services.RegistryPort)
-		privateEndpoint := services.PrivateRegistryURL
+		registryEndpoint := fmt.Sprintf("%s:%s", services.Registry.Host, services.Registry.Port)
+		privateEndpoint := services.Registry.Authenticated.HostPort
 		testAppChartV1 = fmt.Sprintf("%s/flightctl/%s", registryEndpoint, helmChartV1)
 		testAppChartV2 = fmt.Sprintf("%s/flightctl/%s", registryEndpoint, helmChartV2)
 		authChartV1 = fmt.Sprintf("%s/flightctl/%s", privateEndpoint, helmChartV1)
@@ -358,7 +358,7 @@ var _ = Describe("VM Agent Helm Application Tests", Ordered, func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			By("Configure rootless quadlet app with auth only accessible by root")
-			authJSON := buildAuthJSON(services.PrivateRegistryAuthUsername, services.PrivateRegistryAuthPassword, authFlightctlRepo)
+			authJSON := buildAuthJSON(services.Registry.Authenticated.Username, services.Registry.Authenticated.Password, authFlightctlRepo)
 			rootOnlyAuthConfig, err := rootfulContainerCreds(authJSON)
 			Expect(err).ToNot(HaveOccurred())
 			rootlessQuadlet, err := rootlessQuadletApp(authFlightctlRepo)
@@ -412,8 +412,8 @@ var _ = Describe("VM Agent Helm Application Tests", Ordered, func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			By("Disable connectivity from the registry to ensure prefetch relies on old images")
-			DeferCleanup(func() { _ = harness.FixNetworkFailure(services.RegistryHost, services.RegistryPort) })
-			err = harness.SimulateNetworkFailure(services.RegistryHost, services.RegistryPort)
+			DeferCleanup(func() { _ = harness.FixNetworkFailure(services.Registry.Host, services.Registry.Port) })
+			err = harness.SimulateNetworkFailure(services.Registry.Host, services.Registry.Port)
 			Expect(err).ToNot(HaveOccurred())
 
 			By("Swap quadlets back to rootless")
@@ -422,7 +422,7 @@ var _ = Describe("VM Agent Helm Application Tests", Ordered, func() {
 			})
 			Expect(err).ToNot(HaveOccurred())
 
-			err = harness.FixNetworkFailure(services.RegistryHost, services.RegistryPort)
+			err = harness.FixNetworkFailure(services.Registry.Host, services.Registry.Port)
 			Expect(err).ToNot(HaveOccurred())
 
 			By("Ensure all applications are running")
@@ -437,7 +437,7 @@ var _ = Describe("VM Agent Helm Application Tests", Ordered, func() {
 		})
 		It("runAs flightctl application with auth can be deployed to a device", Label("88004", "sanity", "agent", "slow"), func() {
 			By("Deploy a helm app with helm registry credentials")
-			creds := buildAuthJSON(services.PrivateRegistryAuthUsername, services.PrivateRegistryAuthPassword, services.PrivateRegistryURL, authFlightctlRepo)
+			creds := buildAuthJSON(services.Registry.Authenticated.Username, services.Registry.Authenticated.Password, services.Registry.Authenticated.HostPort, authFlightctlRepo)
 
 			helmAppSpec, err := e2e.NewHelmApplicationSpec(helmAppName, authChartV1, helmAppNamespace, nil)
 			Expect(err).ToNot(HaveOccurred())
