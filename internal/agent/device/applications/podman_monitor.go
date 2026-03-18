@@ -463,6 +463,16 @@ func (m *PodmanMonitor) updateApplicationStatus(app Application, event *client.P
 
 	container, exists := app.Workload(event.Name)
 	if exists {
+		// Do not overwrite an explicit 'stop' with terminal exit statuses,
+		// as this could incorrectly classify a manually stopped container
+		// (which often exits 0) as 'Completed' rather than 'Error'.
+		if container.Status == StatusStop && (status == StatusDie || status == StatusDied || status == StatusExited) {
+			if restarts > container.Restarts {
+				container.Restarts = restarts
+			}
+			return
+		}
+
 		// update existing container
 		container.Status = status
 		// restarts can only increase
@@ -472,7 +482,6 @@ func (m *PodmanMonitor) updateApplicationStatus(app Application, event *client.P
 
 		return
 	}
-
 	// add new container
 	m.log.Debugf("Adding container: %s to app %s", event.Name, app.Name())
 	app.AddWorkload(&Workload{

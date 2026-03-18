@@ -450,8 +450,8 @@ tools:
 	@touch .output/stamps/lint-image
 
 .PHONY: lint
-lint: .output/stamps/lint-image
-	$(LINT_CONTAINER) golangci-lint run -v
+lint:
+	golangci-lint run -v
 
 .PHONY: rpmlint
 rpmlint: check-rpmlint
