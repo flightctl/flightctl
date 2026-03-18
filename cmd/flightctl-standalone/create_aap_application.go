@@ -55,7 +55,7 @@ The command is idempotent: it will skip creation if:
 - A clientId is already set in the service configuration
 - The output file already exists`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return opts.Run()
+			return opts.Run(cmd)
 		},
 	}
 
@@ -68,7 +68,7 @@ The command is idempotent: it will skip creation if:
 	return cmd
 }
 
-func (o *CreateAAPApplicationOptions) Run() error {
+func (o *CreateAAPApplicationOptions) Run(cmd *cobra.Command) error {
 	logger := logrus.New()
 
 	if _, err := os.Stat(o.OutputFile); err == nil {
@@ -126,6 +126,13 @@ func (o *CreateAAPApplicationOptions) Run() error {
 
 	if aapConfig.Token == "" {
 		return fmt.Errorf("AAP token is required but not configured")
+	}
+
+	if aapConfig.AppName != "" && !cmd.Flags().Changed("app-name") {
+		o.AppName = aapConfig.AppName
+	}
+	if aapConfig.OrganizationID != 0 && !cmd.Flags().Changed("organization") {
+		o.Organization = aapConfig.OrganizationID
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())

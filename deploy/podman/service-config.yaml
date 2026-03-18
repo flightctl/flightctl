@@ -20,6 +20,8 @@ global:
       clientId:
       clientSecret:
       token:
+      appName:
+      organizationId:
       scopes:
         - read
         - write
