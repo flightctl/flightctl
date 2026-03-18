@@ -59,7 +59,16 @@ If your AAP Gateway uses a custom CA or self-signed certificates, place the CA c
 
 The automated approach uses the `flightctl-api-init.service` systemd service to automatically create OAuth applications during Flight Control deployment or service startup.
 
-#### Step 1: Configure AAP credentials in service config
+#### Step 1: Obtain an OAuth token
+
+Prerequisites are access to AAP Gateway and the ability for your user to provision OAuth tokens and create OAuth applications.
+
+1. Log into your AAP Gateway web interface
+2. Navigate to **Access Management** -> **Users** -> Select your user with OAuth application creation permissions -> **Tokens**
+3. Click **Create Token**, leave the OAuth application field blank and select Write scope.
+4. Copy the token for use in the configuration described below
+
+#### Step 2: Configure AAP credentials in service config
 
 Configure the AAP settings in your service configuration file (`/etc/flightctl/service-config.yaml`):
 
@@ -67,25 +76,25 @@ Configure the AAP settings in your service configuration file (`/etc/flightctl/s
 auth:
   type: aap
   aap:
+    enabled: true
     apiUrl: https://aap-gateway.example.com
-    token: your-token-here
     # clientId will be populated automatically during service initialization
     # and placed in a file at /etc/flightctl/pki/aap-client-id
     authorizationUrl: https://aap-gateway.example.com/o/authorize/
     tokenUrl: https://aap-gateway.example.com/o/token/
     displayName: "AAP Provider"
-    enabled: true
+    # token should be the OAuth token you provisioned above
+    token: <oauth_token>
+    # Optional: name for the OAuth application in AAP
+    # OAuth app names must be unique within a given AAP organization
+    # Defaults to "Flight Control"
+    appName:
+    # Optional: set an AAP organization ID to own the OAuth application in AAP
+    # Defaults to 1, which maps to the system default org in AAP
+    organizationId:
 ```
 
-**How to obtain an admin token:**
-
-1. Log into your AAP Gateway web interface
-2. Navigate to **Access Management** -> **Users** -> Select your user with OAuth application creation permissions -> **Tokens**
-3. Click **Create Token**, leave the OAuth application field blank and select Write scope.
-4. Copy the token for use in the configuration
-5. Place the copied token in the `auth.aap.token` field in `service-config.yaml`
-
-#### Step 2: Deploy or restart Flight Control services
+#### Step 3: Deploy or restart Flight Control services
 
 For new installations, deploy Flight Control:
 
@@ -99,7 +108,7 @@ For existing installations, restart the services to trigger the initialization:
 sudo systemctl restart flightctl.target
 ```
 
-#### Step 3: Verify automatic configuration update
+#### Step 4: Verify automatic configuration update
 
 The `flightctl-api-init.service` automatically creates the OAuth application and writes the client ID to the filesystem:
 
@@ -181,14 +190,16 @@ The following parameters are supported for AAP authentication configuration:
 
 | Parameter | Description | Required | Default |
 |-----------|-------------|----------|---------|
+| `enabled` | Enable AAP authentication | No | true |
 | `apiUrl` | AAP Gateway API base URL | Yes | None |
 | `authorizationUrl` | OAuth authorization endpoint | Yes | `{apiUrl}/o/authorize/` |
 | `tokenUrl` | OAuth token endpoint | Yes | `{apiUrl}/o/token/` |
 | `clientId` | OAuth client identifier | Yes | None |
 | `clientSecret` | OAuth client secret | No | None |
-| `token` | Admin token for app creation | No | None |
 | `displayName` | Provider display name in UI | No | "AAP Provider" |
-| `enabled` | Enable AAP authentication | No | true |
+| `token` | Admin token for app creation | No | None |
+| `appName` | Name for the OAuth application in AAP. Must be a unique value within a given AAP organization. | No | "Flight Control" |
+| `organizationId` | AAP organization ID for the OAuth application | No | 1 |
 
 **Note:** The `clientId` is automatically generated when using the automated approach, or manually configured when using the manual approach.
 
