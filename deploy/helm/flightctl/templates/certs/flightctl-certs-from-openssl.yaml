@@ -8,6 +8,10 @@
 {{- $telemetryGatewayDNSSans := $telemetryGatewayDNSSansResult.sans -}}
 {{- $alertmanagerProxyDNSSansResult := include "flightctl.getAlertmanagerProxyDNSSans" . | fromJson -}}
 {{- $alertmanagerProxyDNSSans := $alertmanagerProxyDNSSansResult.sans -}}
+{{- $uiDNSSansResult := include "flightctl.getUiDNSSans" . | fromJson -}}
+{{- $uiDNSSans := $uiDNSSansResult.sans -}}
+{{- $cliArtifactsDNSSansResult := include "flightctl.getCliArtifactsDNSSans" . | fromJson -}}
+{{- $cliArtifactsDNSSans := $cliArtifactsDNSSansResult.sans -}}
 {{- $imagebuilderApiDNSSansResult := include "flightctl.getImagebuilderApiDNSSans" . | fromJson -}}
 {{- $imagebuilderApiDNSSans := $imagebuilderApiDNSSansResult.sans -}}
 
@@ -76,6 +80,18 @@ spec:
         {{- range $imagebuilderApiDNSSans }}
         - --imagebuilder-api-san
         - {{ . }}
+        {{- end }}
+        {{- if and .Values.ui.enabled (eq (include "flightctl.enableMulticlusterExtensions" .) "false") }}
+        {{- range $uiDNSSans }}
+        - --ui-san
+        - {{ . }}
+        {{- end }}
+        {{- end }}
+        {{- if .Values.cliArtifacts.enabled }}
+        {{- range $cliArtifactsDNSSans }}
+        - --cli-artifacts-san
+        - {{ . }}
+        {{- end }}
         {{- end }}
         - --namespace
         - {{ .Release.Namespace }}

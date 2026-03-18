@@ -1,4 +1,11 @@
 {{ if and (.Values.cliArtifacts.enabled) (eq (include "flightctl.getServiceExposeMethod" .) "route") }}
+{{- $useExtCert := eq (include "flightctl.useRouteExternalCertificate" (dict "root" . "routeName" "flightctl-cli-artifacts-route")) "true" }}
+{{- $tlsSecretName := "" }}
+{{- if .Values.global.baseDomainTlsSecretName }}
+  {{- $tlsSecretName = .Values.global.baseDomainTlsSecretName }}
+{{- else if $useExtCert }}
+  {{- $tlsSecretName = "flightctl-cli-artifacts-server-tls" }}
+{{- end }}
 apiVersion: route.openshift.io/v1
 kind: Route
 metadata:
@@ -17,18 +24,51 @@ spec:
   host: cli-artifacts.{{ include "flightctl.getBaseDomain" . }}
   port:
     targetPort: 8090
-  {{- if eq (include "flightctl.getHttpScheme" .) "https" }}
   tls:
     termination: edge
     insecureEdgeTerminationPolicy: Redirect
-    {{- if .Values.global.baseDomainTlsSecretName }}
+    {{- if $tlsSecretName }}
     externalCertificate:
-      name: {{ .Values.global.baseDomainTlsSecretName }}
+      name: {{ $tlsSecretName }}
     {{- end }}
-  {{- end }}
   to:
     kind: Service
     name: flightctl-cli-artifacts
     weight: 100
   wildcardPolicy: None
+
+{{- if $tlsSecretName }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: flightctl-cli-artifacts-route-cert
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+    flightctl.service: flightctl-cli-artifacts
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["{{ $tlsSecretName }}"]
+    verbs: ["get", "list", "watch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: flightctl-cli-artifacts-route-cert
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+    flightctl.service: flightctl-cli-artifacts
+subjects:
+  - kind: ServiceAccount
+    name: router
+    namespace: openshift-ingress
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: flightctl-cli-artifacts-route-cert
+{{- end }}
 {{ end }}
