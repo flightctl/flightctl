@@ -10,6 +10,7 @@ SQL_VERSION=${SQL_VERSION:-"latest"}
 SQL_IMAGE=${SQL_IMAGE:-"quay.io/sclorg/postgresql-16-c9s"}
 KV_VERSION=${KV_VERSION:-"7.4.1"}
 KV_IMAGE=${KV_IMAGE:-"docker.io/redis"}
+OS=${OS:-"el9"}
 
 source "${SCRIPT_DIR}"/functions
 IP=$(get_ext_ip)
@@ -46,6 +47,21 @@ done
 
 SQL_ARG="--set db.builtin.image.image=${SQL_IMAGE} --set db.builtin.image.tag=${SQL_VERSION}"
 KV_ARG="--set kv.image.image=${KV_IMAGE} --set kv.image.tag=${KV_VERSION}"
+DB_SETUP_ARG="--set dbSetup.image.image=localhost/flightctl-db-setup-${OS} --set dbSetup.image.tag=latest"
+
+# Override all service images to use local OS-discriminated image names
+SERVICE_ARGS=""
+if [ -z "$ONLY_DB" ]; then
+  SERVICE_ARGS="--set api.image.image=localhost/flightctl-api-${OS} --set api.image.tag=latest"
+  SERVICE_ARGS="$SERVICE_ARGS --set worker.image.image=localhost/flightctl-worker-${OS} --set worker.image.tag=latest"
+  SERVICE_ARGS="$SERVICE_ARGS --set periodic.image.image=localhost/flightctl-periodic-${OS} --set periodic.image.tag=latest"
+  SERVICE_ARGS="$SERVICE_ARGS --set alertExporter.image.image=localhost/flightctl-alert-exporter-${OS} --set alertExporter.image.tag=latest"
+  SERVICE_ARGS="$SERVICE_ARGS --set alertmanagerProxy.image.image=localhost/flightctl-alertmanager-proxy-${OS} --set alertmanagerProxy.image.tag=latest"
+  SERVICE_ARGS="$SERVICE_ARGS --set telemetryGateway.image.image=localhost/flightctl-telemetry-gateway-${OS} --set telemetryGateway.image.tag=latest"
+  SERVICE_ARGS="$SERVICE_ARGS --set imageBuilderApi.image.image=localhost/flightctl-imagebuilder-api-${OS} --set imageBuilderApi.image.tag=latest"
+  SERVICE_ARGS="$SERVICE_ARGS --set imageBuilderWorker.image.image=localhost/flightctl-imagebuilder-worker-${OS} --set imageBuilderWorker.image.tag=latest"
+  SERVICE_ARGS="$SERVICE_ARGS --set cliArtifacts.image.image=localhost/flightctl-cli-artifacts-${OS} --set cliArtifacts.image.tag=latest"
+fi
 
 # helm expects the namespaces to exist, and creating namespaces
 # inside the helm charts is not recommended.
@@ -57,7 +73,7 @@ kubectl create namespace flightctl-e2e      --context kind-kind 2>/dev/null || t
 if [ -z "$ONLY_DB" ]; then
 
   for suffix in periodic api worker alert-exporter alertmanager-proxy cli-artifacts db-setup telemetry-gateway imagebuilder-api imagebuilder-worker ; do
-    kind_load_image localhost/flightctl-${suffix}:latest
+    kind_load_image localhost/flightctl-${suffix}-${OS}:latest
   done
 
   kind_load_image "${KV_IMAGE}:${KV_VERSION}" keep-tar
@@ -93,7 +109,7 @@ helm dependency build ./deploy/helm/flightctl
 helm upgrade --install --namespace flightctl-external \
                   --values ./deploy/helm/flightctl/values.dev.yaml \
                   --set global.baseDomain=${IP}.nip.io \
-                  ${ONLY_DB} ${DB_SIZE_PARAMS} ${AUTH_ARGS} ${SQL_ARG} ${GATEWAY_ARGS} ${KV_ARG} flightctl \
+                  ${ONLY_DB} ${DB_SIZE_PARAMS} ${AUTH_ARGS} ${SQL_ARG} ${GATEWAY_ARGS} ${KV_ARG} ${DB_SETUP_ARG} ${SERVICE_ARGS} flightctl \
               ./deploy/helm/flightctl/ --kube-context kind-kind
 
 "${SCRIPT_DIR}"/wait_for_postgres.sh
