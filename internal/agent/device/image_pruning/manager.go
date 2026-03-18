@@ -475,31 +475,31 @@ func (m *manager) determineEligibleImages(ctx context.Context) (*EligibleItems, 
 		currentRequiredRefs = append(currentRequiredRefs, specRefs...)
 	}
 
-	// Build a set of current references keyed by (Image, Type)
+	// Build a set of current references keyed by (Image, Type, Owner)
 	currentRefSet := make(map[string]struct{})
 	for _, ref := range currentRequiredRefs {
-		key := refKey(ref.Image, ref.Type)
+		key := refKey(ref.Image, ref.Type, ref.Owner)
 		currentRefSet[key] = struct{}{}
 	}
 
-	// Build a set of images that still have at least one reference
+	// Build a set of images that still have at least one reference per owner
 	imagesWithRefs := make(map[string]struct{})
 	for _, ref := range currentRequiredRefs {
-		imagesWithRefs[ref.Image] = struct{}{}
+		imagesWithRefs[imageOwnerKey(ref.Image, ref.Owner)] = struct{}{}
 	}
 
 	// Get previous references
 	previousReferences := previousRefs.References
 
 	// Find references that were previously recorded but are no longer in current specs
-	// A reference is eligible if its (Image, Type) tuple is not in current refs
+	// A reference is eligible if its (Image, Type, Owner) tuple is not in current refs
 	var eligibleRefs []ImageRef
 	for _, ref := range previousReferences {
-		key := refKey(ref.Image, ref.Type)
+		key := refKey(ref.Image, ref.Type, ref.Owner)
 		if _, exists := currentRefSet[key]; !exists {
-			// This specific (Image, Type) reference has been dropped
-			// But we only want to delete if ALL references to this image are gone
-			if _, hasOtherRef := imagesWithRefs[ref.Image]; !hasOtherRef {
+			// This specific (Image, Type, Owner) reference has been dropped
+			// But we only want to delete if ALL references to this image for this owner are gone
+			if _, hasOtherRef := imagesWithRefs[imageOwnerKey(ref.Image, ref.Owner)]; !hasOtherRef {
 				eligibleRefs = append(eligibleRefs, ref)
 			}
 		}
@@ -579,9 +579,23 @@ func (m *manager) determineEligibleImages(ctx context.Context) (*EligibleItems, 
 	}, nil
 }
 
-// refKey creates a unique key for an (Image, Type) tuple.
-func refKey(image, refType string) string {
-	return image + "|" + refType
+// refKey creates a unique key for an (Image, Type, Owner) tuple.
+func refKey(image, refType string, owner v1beta1.Username) string {
+	return image + "|" + refType + "|" + string(normalizeOwner(owner))
+}
+
+// imageOwnerKey creates a unique key for an (Image, Owner) tuple.
+func imageOwnerKey(image string, owner v1beta1.Username) string {
+	return image + "|" + string(normalizeOwner(owner))
+}
+
+// normalizeOwner treats "root" and "" (current process user) as equivalent
+// since the agent runs as root and both map to the same podman store.
+func normalizeOwner(owner v1beta1.Username) v1beta1.Username {
+	if owner.IsRootUser() {
+		return v1beta1.CurrentProcessUsername
+	}
+	return owner
 }
 
 // extractReferencesFromSpec extracts all image and artifact reference strings from a device spec.

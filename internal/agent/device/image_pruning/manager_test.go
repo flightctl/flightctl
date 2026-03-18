@@ -633,6 +633,88 @@ func TestManager_determineEligibleImages(t *testing.T) {
 			want: &EligibleItems{Images: []ImageRef{}, Artifacts: []ImageRef{}, CRI: []ImageRef{}, Helm: []ImageRef{}}, // Image still referenced by podman - not eligible even though artifact ref dropped
 		},
 		{
+			name: "same image different owners - prune only from owner that dropped reference",
+			setupMocks: func(mockExec *executer.MockExecuter, mockSpec *spec.MockManager, readWriter fileio.ReadWriter, dataDir string) {
+				previousRefs := ImageArtifactReferences{
+					Timestamp: "2025-01-01T00:00:00Z",
+					References: []ImageRef{
+						{Image: "quay.io/example/nginx:1.25", Owner: "userA", Type: RefTypePodman},
+						{Image: "quay.io/example/nginx:1.25", Owner: "userB", Type: RefTypePodman},
+					},
+				}
+				jsonData, err := json.Marshal(previousRefs)
+				require.NoError(err)
+				require.NoError(readWriter.MkdirAll(dataDir, fileio.DefaultDirectoryPermissions))
+				filePath := filepath.Join(dataDir, ReferencesFileName)
+				require.NoError(readWriter.WriteFile(filePath, jsonData, fileio.DefaultFilePermissions))
+
+				// Current spec only has userB's app - userA's app was removed
+				containerApp := v1beta1.ContainerApplication{
+					Name:    lo.ToPtr("app-b"),
+					AppType: v1beta1.AppTypeContainer,
+					Image:   "quay.io/example/nginx:1.25",
+					RunAs:   "userB",
+				}
+				var appSpec v1beta1.ApplicationProviderSpec
+				require.NoError(appSpec.FromContainerApplication(containerApp))
+				currentDevice := &v1beta1.Device{
+					Spec: &v1beta1.DeviceSpec{
+						Applications: lo.ToPtr([]v1beta1.ApplicationProviderSpec{appSpec}),
+					},
+				}
+
+				mockSpec.EXPECT().Read(spec.Current).Return(currentDevice, nil).Times(1)
+				mockSpec.EXPECT().Read(spec.Desired).Return(nil, errors.New("desired not found")).Times(1)
+
+				// userA's image is eligible - verify it exists during categorization
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", "quay.io/example/nginx:1.25"}).
+					Return("", "", 0)
+			},
+			want: &EligibleItems{
+				Images:    []ImageRef{{Image: "quay.io/example/nginx:1.25", Owner: "userA", Type: RefTypePodman}},
+				Artifacts: []ImageRef{},
+				CRI:       []ImageRef{},
+				Helm:      []ImageRef{},
+			},
+		},
+		{
+			name: "explicit root and empty owner treated as same store",
+			setupMocks: func(mockExec *executer.MockExecuter, mockSpec *spec.MockManager, readWriter fileio.ReadWriter, dataDir string) {
+				// One app recorded with RunAs:"root", another with default (empty owner)
+				// Both share the same podman store, so removing one must NOT prune the image
+				previousRefs := ImageArtifactReferences{
+					Timestamp: "2025-01-01T00:00:00Z",
+					References: []ImageRef{
+						{Image: "quay.io/example/nginx:1.25", Owner: "root", Type: RefTypePodman},
+						{Image: "quay.io/example/nginx:1.25", Owner: "", Type: RefTypePodman},
+					},
+				}
+				jsonData, err := json.Marshal(previousRefs)
+				require.NoError(err)
+				require.NoError(readWriter.MkdirAll(dataDir, fileio.DefaultDirectoryPermissions))
+				filePath := filepath.Join(dataDir, ReferencesFileName)
+				require.NoError(readWriter.WriteFile(filePath, jsonData, fileio.DefaultFilePermissions))
+
+				// Current spec only has the default-owner (empty) app
+				containerApp := v1beta1.ContainerApplication{
+					Name:    lo.ToPtr("app-default"),
+					AppType: v1beta1.AppTypeContainer,
+					Image:   "quay.io/example/nginx:1.25",
+				}
+				var appSpec v1beta1.ApplicationProviderSpec
+				require.NoError(appSpec.FromContainerApplication(containerApp))
+				currentDevice := &v1beta1.Device{
+					Spec: &v1beta1.DeviceSpec{
+						Applications: lo.ToPtr([]v1beta1.ApplicationProviderSpec{appSpec}),
+					},
+				}
+
+				mockSpec.EXPECT().Read(spec.Current).Return(currentDevice, nil).Times(1)
+				mockSpec.EXPECT().Read(spec.Desired).Return(nil, errors.New("desired not found")).Times(1)
+			},
+			want: &EligibleItems{Images: []ImageRef{}, Artifacts: []ImageRef{}, CRI: []ImageRef{}, Helm: []ImageRef{}},
+		},
+		{
 			name: "no previous references file - nothing eligible",
 			setupMocks: func(mockExec *executer.MockExecuter, mockSpec *spec.MockManager, readWriter fileio.ReadWriter, dataDir string) {
 				// Don't create previous references file - simulates first run
