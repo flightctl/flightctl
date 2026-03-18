@@ -52,8 +52,8 @@ The tests only assume that FlightCtl is already running and reachable (cluster o
 |--------|-------------|
 | `make stop-aux` | Stop all aux containers. |
 | `make clean-aux` | Remove aux containers and their volumes for a fresh run. |
-| `make start-registry`, `make start-git-server`, `make start-prometheus`, `make start-tracing` | Start one aux service. |
-| `make stop-registry`, `make stop-git-server`, `make stop-prometheus`, `make stop-tracing` | Stop one aux service. |
+| `make start-registry`, `make start-git-server`, `make start-prometheus`, `make start-tracing`, `make start-keycloak` | Start one aux service. |
+| `make stop-registry`, `make stop-git-server`, `make stop-prometheus`, `make stop-tracing`, `make stop-keycloak` | Stop one aux service. |
 
 ## Environment variables
 
@@ -123,11 +123,13 @@ make run-e2e-test GINKGO_LABEL_FILTER="sanity"
 
 ## Aux (auxiliary) services
 
-Aux services are shared testcontainers used by e2e: **registry** (TLS on port 5000), **git server** (SSH on port 2222), **Prometheus** (port 9090), and optionally **tracing** (Jaeger). They run the same for kind and Quadlet; the e2e framework starts them when suites call `auxiliary.Get(ctx)` (or you can start them manually for debugging).
+Aux services are shared testcontainers used by e2e: **registry** (TLS on port 5000), **git server** (SSH on port 2222), **Prometheus** (port 9090), optionally **tracing** (Jaeger), and **Keycloak** (OIDC on port 8080). They run the same for kind and Quadlet; the e2e framework starts them when suites call `auxiliary.Get(ctx)` or `auxiliary.StartServices(ctx, [...])` (or you can start them manually for debugging).
 
-- **Start all:** `make start-aux` (after `make prepare-e2e-test`).
+- **Start all:** `make start-aux` (after `make prepare-e2e-test`). This does not include Keycloak; use `make start-keycloak` for auth-provider tests.
 - **Stop all:** `make stop-aux`.
 - **Clean for fresh run:** `make clean-aux` (removes containers and volumes).
+
+The **auth-provider** suite (`test/e2e/authprovider`) uses Keycloak to test the OAuth authorization-code flow: it starts Keycloak in BeforeSuite, applies a dynamic OIDC AuthProvider, then runs `flightctl login --web --no-browser` and automates the Keycloak login page with chromedp. You can run that suite with `GO_E2E_DIRS=test/e2e/authprovider`; the suite starts Keycloak on its own, or run `make start-keycloak` first if you prefer.
 
 Registry is at `${IP}:5000` / `localhost:5000` (TLS). The test host is configured to treat it as an insecure registry; agents use the CA from `test/scripts/create_e2e_certs.sh`. See [Agent Images](../scripts/agent-images/README.md) for how agent images are built and pushed.
 

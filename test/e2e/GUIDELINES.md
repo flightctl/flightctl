@@ -17,7 +17,7 @@ Concepts, architecture, and guidelines for writing and extending e2e tests, the 
 
 ### Data flow
 
-1. Tests get **registry** from auxiliary: `auxiliary.Get(ctx).RegistryHost` and `.RegistryPort` → pass `(host, port)` into `GetDeviceImageRefForFleet`, `GetSleepAppImageRefForFleet`, and `CreateFleetDeviceSpec`.
+1. Tests get **registry** from auxiliary: `auxiliary.Get(ctx).Registry.Host` and `.Registry.Port` → pass `(host, port)` into `GetDeviceImageRefForFleet`, `GetSleepAppImageRefForFleet`, and `CreateFleetDeviceSpec`.
 2. Tests get **git/SSH** from auxiliary: `auxiliary.Get(ctx)` for host/port and internal URLs; `GetGitSSHPrivateKeyPath()` or `GetGitSSHPrivateKey()` for keys → pass into harness git methods and `CleanupGitRepositories`.
 3. **RBAC, service config, cluster:** Use `setup.GetDefaultProviders().RBAC`, `.Infra` directly; do not route through the harness.
 
@@ -52,7 +52,7 @@ Do not duplicate infra logic in tests or harness. Do not use the raw Kubernetes 
 ## Using the harness
 
 - The harness **preferably** does not import `test/e2e/infra` or hold provider/registry/git state. Pass in:
-  - **Registry:** `(registryHost, registryPort)` from `auxiliary.Get(ctx).RegistryHost` and `.RegistryPort`.
+  - **Registry:** `(registryHost, registryPort)` from `auxiliary.Get(ctx).Registry.Host` and `.Registry.Port`.
   - **Git:** Git server config and SSH key path or content from `auxiliary.Get(ctx)` (e.g. `GetGitSSHPrivateKeyPath()`, `GetGitSSHPrivateKey()`, and host/port fields).
 - Add new reusable behaviour in `test/harness/e2e/` (e.g. new methods on `Harness`) when multiple suites will use it. Keep methods focused and take explicit parameters rather than reading from global infra.
 
@@ -65,15 +65,16 @@ The **auxiliary** package (`test/e2e/infra/auxiliary/`) provides:
 - **Registry** – TLS registry on port 5000; used for agent and app images. Certificates come from e2e certs (`make prepare-e2e-test`).
 - **Git server** – SSH git server (port 2222); generates SSH keys in the container; keys are copied to the host so tests and Repository CRs use the same key.
 - **Prometheus** – Scrapes metrics; used by observability tests.
+- **Keycloak** – OIDC IdP (port 8080); used by the auth-provider suite. Not in the default set; start with `StartServices(ctx, []Service{ServiceKeycloak})` or `make start-keycloak`.
 - **Tracing (Jaeger)** – Optional; started via `infra.TracingProvider` (e.g. `make start-tracing`) or by suites that use the tracing provider.
 
 Containers are reused by default (`reuse=true`) so multiple suites can share them. Start/stop from the command line with `make start-aux`, `make stop-aux`, `make clean-aux`.
 
 ### How suites use them
 
-- Call `auxiliary.Get(ctx)` in BeforeSuite (often with `context.Background()`). This starts all default aux services (registry, git, Prometheus) if not already running.
-- Use the returned `*auxiliary.Services` for `RegistryHost`, `RegistryPort`, `GitServerHost`, `GitServerPort`, `GitServerInternalHost`, `GitServerInternalPort`, `PrometheusURL`, and for `GetGitSSHPrivateKeyPath()` / `GetGitSSHPrivateKey()`.
-- Use the returned `*auxiliary.Services` (e.g. store in package-level `auxSvcs`) and pass its `RegistryHost`, `RegistryPort`, git fields, etc., into the harness and any scripts that need them.
+- Call `auxiliary.Get(ctx)` in BeforeSuite (often with `context.Background()`). This starts all default aux services (registry, git, Prometheus) if not already running. When the suite needs auth (e.g. auth-provider), start Keycloak via `StartServices(ctx, []Service{ServiceKeycloak})` and store the result in package-level `auxSvcs` alongside or instead of `Get(ctx)` as appropriate.
+- Use the returned `*auxiliary.Services` for `Registry.Host`/`.Port`, `GitServer.Host`/`.Port`/`.InternalHost`/`.InternalPort`, `Prometheus.URL`, and for `GetGitSSHPrivateKeyPath()` / `GetGitSSHPrivateKey()`. When auth configuration is required, use `auxSvcs.Keycloak.URL` and `auxSvcs.Keycloak.IssuerURL()`.
+- Use the returned `*auxiliary.Services` (e.g. store in package-level `auxSvcs`) and pass its `Registry.Host`, `Registry.Port`, git fields, etc., into the harness and any scripts that need them. When auth is required, pass `Keycloak.URL` and `Keycloak.IssuerURL()` into the harness and scripts alongside Registry and GitServer so the auth-provider suite can locate Keycloak.
 - For tracing, use `infra.NewTracingProvider()` and its `StartTracing` / `StopTracing`; do not start Jaeger via the auxiliary package directly in suite code if you use the provider.
 
 ### Adding a new aux service
@@ -88,7 +89,7 @@ Containers are reused by default (`reuse=true`) so multiple suites can share the
 
 - **No K8s client outside infra:** Do not use `k8s.io/client-go` or exec kubectl outside `test/e2e/infra/k8s/`. Implement cluster access in infra and expose it via provider interfaces.
 - **Harness preferably has no infra:** The harness takes env-specific or runtime data as arguments (registry from auxiliary, git config, SSH paths). Tests get that data and pass it in.
-- **Aux in BeforeSuite:** When a suite needs registry, git, or Prometheus, call `auxiliary.Get(ctx)` in BeforeSuite and store the result (e.g. in `auxSvcs`); pass host/port and config from it into the harness and scripts as needed.
+- **Aux in BeforeSuite:** When a suite needs registry, git, or Prometheus, call `auxiliary.Get(ctx)` in BeforeSuite and store the result (e.g. in `auxSvcs`); when it needs auth, start Keycloak and use `auxSvcs.Keycloak.URL` and `auxSvcs.Keycloak.IssuerURL()`. Pass host/port, config, and (when auth is required) Keycloak URLs into the harness and scripts as needed.
 - **Suite-specific READMEs:** Document special requirements (Quadlet VM, TPM, rollout multi-VM, etc.) in a `README.md` in the suite directory.
 - **Ginkgo:** Use descriptive `Describe`/`Context`/`It` strings so `GINKGO_FOCUS` is useful. Use labels (e.g. `sanity`) where CI needs to filter.
 

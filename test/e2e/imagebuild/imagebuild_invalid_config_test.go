@@ -58,7 +58,7 @@ var _ = Describe("ImageBuild", Label("imagebuild"), func() {
 			Expect(workerHarness.ImageBuilderClient).ToNot(BeNil(), "ImageBuilderClient must be available")
 
 			testID := workerHarness.GetTestIDFromContext()
-			registryAddress := auxSvcs.RegistryHost + ":" + auxSvcs.RegistryPort
+			registryAddress := auxSvcs.Registry.Host + ":" + auxSvcs.Registry.Port
 
 			sourceRepoName := fmt.Sprintf("wrong-src-repo-%s", testID)
 			destRepoName := fmt.Sprintf("wrong-dest-repo-%s", testID)
@@ -125,7 +125,7 @@ var _ = Describe("ImageBuild", Label("imagebuild"), func() {
 			Expect(workerHarness.ImageBuilderClient).ToNot(BeNil(), "ImageBuilderClient must be available")
 
 			testID := workerHarness.GetTestIDFromContext()
-			registryAddress := auxSvcs.RegistryHost + ":" + auxSvcs.RegistryPort
+			registryAddress := auxSvcs.Registry.Host + ":" + auxSvcs.Registry.Port
 
 			sourceRepoName := fmt.Sprintf("invalid-ref-src-repo-%s", testID)
 			destRepoName := fmt.Sprintf("invalid-ref-dest-repo-%s", testID)

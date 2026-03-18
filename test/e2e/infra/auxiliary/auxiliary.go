@@ -12,7 +12,6 @@ import (
 	"sync"
 
 	"github.com/sirupsen/logrus"
-	"github.com/testcontainers/testcontainers-go"
 )
 
 var (
@@ -20,46 +19,17 @@ var (
 	svcs *Services
 )
 
-// Services holds the testcontainers for E2E test infrastructure (registry, git, prometheus, jaeger).
-// Same for all deployment types; created once and reused.
+// Services holds the E2E aux services (registry, git, prometheus, jaeger, keycloak).
+// Same for all deployment types; created once and reused. Each service is nil until started.
+// reuse is kept so Cleanup can no-op when reuse=true (containers stay running for the next run).
 type Services struct {
-	RegistryURL  string
-	RegistryHost string
-	RegistryPort string
+	Registry   *Registry
+	GitServer  *GitServer
+	Prometheus *Prometheus
+	Jaeger     *Jaeger
+	Keycloak   *Keycloak
 
-	PrivateRegistryURL          string
-	PrivateRegistryPort         string
-	PrivateRegistryAuthUsername string
-	PrivateRegistryAuthPassword string
-
-	GitServerURL  string
-	GitServerHost string
-	GitServerPort int
-
-	GitServerInternalHost string
-	GitServerInternalPort int
-
-	// gitServerPrivateKeyPath is set once when the git server starts (key copied from container to a temp file).
-	gitServerPrivateKeyPath string
-
-	PrometheusURL  string
-	PrometheusHost string
-	PrometheusPort string
-
-	JaegerURL          string
-	JaegerHost         string
-	JaegerPort         string
-	JaegerOTLPEndpoint string
-
-	registry        testcontainers.Container
-	privateRegistry testcontainers.Container
-	gitServer       testcontainers.Container
-	prometheus      testcontainers.Container
-	jaeger          testcontainers.Container
-
-	network        string
-	reuse          bool
-	registryReused bool // true when registry container was already running (reuse=true and container existed)
+	reuse bool
 }
 
 // Service identifies an aux service that can be started individually.
@@ -70,6 +40,7 @@ const (
 	ServiceGitServer  Service = "git-server"
 	ServicePrometheus Service = "prometheus"
 	ServiceTracing    Service = "tracing"
+	ServiceKeycloak   Service = "keycloak"
 )
 
 // AllServices is the default set of shared aux services (started by Get(ctx)).
@@ -92,17 +63,17 @@ func Get(ctx context.Context) *Services {
 // StartServices starts only the requested aux services with reuse=true.
 // For registry, image bundles are uploaded when the container is freshly created (not reused).
 func StartServices(ctx context.Context, services []Service) (*Services, error) {
-	s := &Services{
-		reuse:   true,
-		network: GetDockerNetwork(),
-	}
+	network := GetDockerNetwork()
+	reuse := true
+	s := &Services{reuse: reuse}
 	for _, svc := range services {
 		switch svc {
 		case ServiceRegistry:
-			if err := s.startRegistry(ctx); err != nil {
+			s.Registry = &Registry{}
+			if err := s.Registry.Start(ctx, network, reuse); err != nil {
 				return nil, fmt.Errorf("failed to start registry: %w", err)
 			}
-			if !s.registryReused {
+			if !s.Registry.Reused {
 				if err := s.UploadImages(); err != nil {
 					return nil, fmt.Errorf("failed to upload images: %w", err)
 				}
@@ -116,16 +87,24 @@ func StartServices(ctx context.Context, services []Service) (*Services, error) {
 				logrus.Info("Skipping artifact upload (registry container was reused)")
 			}
 		case ServiceGitServer:
-			if err := s.startGitServer(ctx); err != nil {
+			s.GitServer = &GitServer{}
+			if err := s.GitServer.Start(ctx, network, reuse); err != nil {
 				return nil, fmt.Errorf("failed to start git server: %w", err)
 			}
 		case ServicePrometheus:
-			if err := s.startPrometheus(ctx); err != nil {
+			s.Prometheus = &Prometheus{}
+			if err := s.Prometheus.Start(ctx, network, reuse); err != nil {
 				return nil, fmt.Errorf("failed to start prometheus: %w", err)
 			}
 		case ServiceTracing:
-			if err := s.startJaeger(ctx); err != nil {
+			s.Jaeger = &Jaeger{}
+			if err := s.Jaeger.Start(ctx, network, reuse); err != nil {
 				return nil, fmt.Errorf("failed to start jaeger: %w", err)
+			}
+		case ServiceKeycloak:
+			s.Keycloak = &Keycloak{}
+			if err := s.Keycloak.Start(ctx, network, reuse); err != nil {
+				return nil, fmt.Errorf("failed to start keycloak: %w", err)
 			}
 		default:
 			return nil, fmt.Errorf("unknown service: %q", svc)
@@ -150,6 +129,7 @@ var serviceContainerNames = map[Service]string{
 	ServiceGitServer:  gitServerContainerName,
 	ServicePrometheus: prometheusContainerName,
 	ServiceTracing:    jaegerContainerName,
+	ServiceKeycloak:   keycloakContainerName,
 }
 
 // StopServices force-removes the containers for the requested aux services.

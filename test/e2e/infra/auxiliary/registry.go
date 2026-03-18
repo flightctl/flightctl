@@ -39,6 +39,26 @@ const (
 	defaultAuthPassword          = "testpassword"
 )
 
+// AuthenticatedEndpoint holds connection details for the credential-required view of this registry (same backend, nginx + basic auth on another port).
+// HostPort is for docker:// / oci:// style refs (host:port), not an OAuth issuer or login URL.
+type AuthenticatedEndpoint struct {
+	HostPort string
+	Port     string
+	Username string
+	Password string
+}
+
+// Registry holds connection info and the container for the aux registry.
+type Registry struct {
+	URL           string
+	Host          string
+	Port          string
+	Reused        bool // true when the container was already running (reuse=true)
+	Authenticated AuthenticatedEndpoint
+
+	container testcontainers.Container
+}
+
 // containerExistsByName returns true if a container with the given name exists (running or stopped).
 func containerExistsByName(name string) bool {
 	//nolint:gosec // G204: name is only ever the constant registryContainerName
@@ -61,9 +81,10 @@ func getContainerLogs(name string) (string, error) {
 	return string(out), nil
 }
 
-func (s *Services) startRegistry(ctx context.Context) error {
-	logrus.Infof("Starting registry container (reuse=%v)", s.reuse)
-	s.registryReused = s.reuse && containerExistsByName(registryContainerName)
+// Start starts the TLS registry container, then the authenticated (nginx + basic auth) endpoint, and sets URL, Host, Port, Reused, Authenticated.
+func (r *Registry) Start(ctx context.Context, network string, reuse bool) error {
+	logrus.Infof("Starting registry container (reuse=%v)", reuse)
+	r.Reused = reuse && containerExistsByName(registryContainerName)
 	certDir, err := ensureRegistryCerts()
 	if err != nil {
 		return fmt.Errorf("failed to ensure registry certs: %w", err)
@@ -83,37 +104,36 @@ func (s *Services) startRegistry(ctx context.Context) error {
 			{HostFilePath: keyPath, ContainerFilePath: "/certs/registry.key", FileMode: 0600},
 		},
 		WaitingFor: wait.ForHTTP("/v2/").WithPort("5000").WithTLS(true).WithAllowInsecure(true),
-		// When reusing, skip Ryuk so the reaper does not mark the container for removal when this process exits (next suite reuses it).
-		SkipReaper: s.reuse,
+		SkipReaper: reuse,
 	}
-	container, err := CreateContainer(ctx, req, s.reuse, WithNetwork(s.network), WithHostAccess())
+	container, err := CreateContainer(ctx, req, reuse, WithNetwork(network), WithHostAccess())
 	if err != nil {
 		return fmt.Errorf("failed to start registry container: %w", err)
 	}
-	s.registry = container
-	s.RegistryHost = GetHostIP()
-	s.RegistryPort = registryHostPort
-	s.RegistryURL = fmt.Sprintf("%s:%s", s.RegistryHost, s.RegistryPort)
-	if err := configureInsecureRegistry(s.RegistryURL); err != nil {
+	r.container = container
+	r.Host = GetHostIP()
+	r.Port = registryHostPort
+	r.URL = fmt.Sprintf("%s:%s", r.Host, r.Port)
+	if err := configureInsecureRegistry(r.URL); err != nil {
 		logrus.Warnf("Failed to configure insecure registry: %v", err)
 	}
-	logrus.Infof("Registry container started: %s (TLS enabled)", s.RegistryURL)
+	logrus.Infof("Registry container started: %s (TLS enabled)", r.URL)
 
-	if err := s.startPrivateRegistry(ctx, certDir); err != nil {
-		return fmt.Errorf("failed to start private registry proxy: %w", err)
+	if err := r.startAuthenticatedEndpoint(ctx, certDir, network, reuse); err != nil {
+		return fmt.Errorf("failed to start authenticated registry endpoint: %w", err)
 	}
 	return nil
 }
 
-func (s *Services) startPrivateRegistry(ctx context.Context, certDir string) error {
-	logrus.Info("Starting private registry (nginx auth proxy)")
-	logrus.Infof("Private registry upstream: %s:%s (network: %s)", s.RegistryHost, s.RegistryPort, s.network)
+func (r *Registry) startAuthenticatedEndpoint(ctx context.Context, certDir, network string, reuse bool) error {
+	logrus.Info("Starting authenticated registry endpoint (nginx + basic auth)")
+	logrus.Infof("Authenticated endpoint upstream: %s:%s (network: %s)", r.Host, r.Port, network)
 
 	certPath := filepath.Join(certDir, "registry.crt")
 	keyPath := filepath.Join(certDir, "registry.key")
 
 	htpasswdContent := generateHtpasswd(defaultAuthUsername, defaultAuthPassword)
-	nginxConf := generateNginxConf(s.RegistryHost, s.RegistryPort)
+	nginxConf := generateNginxConf(r.Host, r.Port)
 	logrus.Debugf("Nginx config:\n%s", nginxConf)
 
 	tmpDir, err := os.MkdirTemp("", "e2e-registry-auth-*")
@@ -140,26 +160,28 @@ func (s *Services) startPrivateRegistry(ctx context.Context, certDir string) err
 			{HostFilePath: nginxConfPath, ContainerFilePath: "/etc/nginx/nginx.conf", FileMode: 0644},
 		},
 		WaitingFor: wait.ForHTTP("/v2/").WithPort(privateRegistryHostPort).WithTLS(true).WithAllowInsecure(true).WithBasicAuth(defaultAuthUsername, defaultAuthPassword),
-		SkipReaper: s.reuse,
+		SkipReaper: reuse,
 	}
 
-	container, err := CreateContainer(ctx, req, s.reuse, WithNetwork(s.network), WithHostAccess())
+	_, err = CreateContainer(ctx, req, reuse, WithNetwork(network), WithHostAccess())
 	if err != nil {
-		logrus.Errorf("Private registry container failed to start. Attempting to fetch logs...")
+		logrus.Errorf("Authenticated registry endpoint container failed to start. Attempting to fetch logs...")
 		if logs, logErr := getContainerLogs(privateRegistryContainerName); logErr == nil {
-			logrus.Errorf("Private registry container logs:\n%s", logs)
+			logrus.Errorf("Authenticated registry endpoint container logs:\n%s", logs)
 		} else {
 			logrus.Errorf("Could not fetch container logs: %v", logErr)
 		}
-		return fmt.Errorf("failed to start private registry container: %w", err)
+		return fmt.Errorf("failed to start authenticated registry endpoint container: %w", err)
 	}
-	s.privateRegistry = container
-	s.PrivateRegistryPort = privateRegistryHostPort
-	s.PrivateRegistryURL = fmt.Sprintf("%s:%s", s.RegistryHost, s.PrivateRegistryPort)
-	s.PrivateRegistryAuthUsername = defaultAuthUsername
-	s.PrivateRegistryAuthPassword = defaultAuthPassword
 
-	logrus.Infof("Private registry (auth proxy) started: %s", s.PrivateRegistryURL)
+	r.Authenticated = AuthenticatedEndpoint{
+		HostPort: fmt.Sprintf("%s:%s", r.Host, privateRegistryHostPort),
+		Port:     privateRegistryHostPort,
+		Username: defaultAuthUsername,
+		Password: defaultAuthPassword,
+	}
+
+	logrus.Infof("Authenticated registry endpoint started: %s", r.Authenticated.HostPort)
 	return nil
 }
 

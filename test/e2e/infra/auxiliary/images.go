@@ -34,7 +34,7 @@ func (s *Services) UploadImages() error {
 	}
 	// Each bundle is a .tar file (agent-images-bundle-*.tar and/or app-images-bundle.tar) containing many images.
 	logrus.Infof("Uploading %d bundle file(s) to registry %s (each bundle can contain many images)",
-		len(bundles), s.RegistryURL)
+		len(bundles), s.Registry.URL)
 	for _, bundle := range bundles {
 		logrus.Infof("Uploading bundle: %s", filepath.Base(bundle))
 		if err := s.uploadBundle(bundle); err != nil {
@@ -97,7 +97,7 @@ func (s *Services) uploadBundle(bundlePath string) error {
 		if idx := strings.Index(ref, "/"); idx != -1 {
 			path = ref[idx+1:]
 		}
-		registryRef := fmt.Sprintf("%s/%s", s.RegistryURL, path)
+		registryRef := fmt.Sprintf("%s/%s", s.Registry.URL, path)
 		if s.imageNeedsPush(ref, registryRef) {
 			needsPush = append(needsPush, ref)
 		}
@@ -110,7 +110,7 @@ func (s *Services) uploadBundle(bundlePath string) error {
 		if idx := strings.Index(ref, "/"); idx != -1 {
 			path = ref[idx+1:]
 		}
-		dst := fmt.Sprintf("%s/%s", s.RegistryURL, path)
+		dst := fmt.Sprintf("%s/%s", s.Registry.URL, path)
 		pushCmd := exec.Command("podman", "push", "--tls-verify=false", ref, dst)
 		if output, err := pushCmd.CombinedOutput(); err != nil {
 			return fmt.Errorf("podman push failed for %s: %w, output: %s", ref, err, string(output))

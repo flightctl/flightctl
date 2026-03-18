@@ -25,10 +25,10 @@ func getPrometheusURL() (string, error) {
 	if auxSvcs == nil {
 		return "", fmt.Errorf("aux services not initialized")
 	}
-	if auxSvcs.PrometheusURL == "" {
+	if auxSvcs.Prometheus == nil || auxSvcs.Prometheus.URL == "" {
 		return "", fmt.Errorf("Prometheus not started")
 	}
-	return auxSvcs.PrometheusURL, nil
+	return auxSvcs.Prometheus.URL, nil
 }
 
 var _ = Describe("Device observability", func() {
