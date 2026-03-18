@@ -113,6 +113,7 @@ func TestServerRateLimitConfiguration(t *testing.T) {
 				err := json.NewDecoder(w.Body).Decode(&status)
 				require.NoError(t, err)
 				assert.Equal(t, "Rate limit exceeded, please try again later", status.Message)
+				assert.Equal(t, "TooManyRequests", status.Reason)
 				// Check that Retry-After header is present
 				assert.NotEmpty(t, w.Header().Get("Retry-After"))
 			}
