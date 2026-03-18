@@ -69,9 +69,13 @@ echo "Resizing image ${DISK_PATH}..."
 qemu-img resize ${DISK_PATH} +${VM_DISK_SIZE_INC}G && \
 qemu-img info --output=json "${DISK_PATH}"
 
-# Restart default network
-sudo virsh net-destroy ${DEFAULT_NETWORK_NAME}
-sudo virsh net-start ${DEFAULT_NETWORK_NAME}
+# Restart default network (skip for IPv6-only mode as it's typically IPv4-only)
+if [[ "${IPV6_ONLY:-false}" != "true" ]]; then
+    sudo virsh net-destroy ${DEFAULT_NETWORK_NAME}
+    sudo virsh net-start ${DEFAULT_NETWORK_NAME}
+else
+    echo "IPv6-only mode: skipping default network restart"
+fi
 
 # Create the VM
 echo "Creating virtual machine ${VM_NAME}..."
@@ -99,14 +103,32 @@ while [ $ELAPSED -lt $TIMEOUT_SECONDS ]; do
   # Get the VM interfaces
   export INTERFACE_DEFAULT=$(sudo virsh domiflist ${VM_NAME} 2>/dev/null | grep default | awk '{print $1}')
   export INTERFACE_BM=$(sudo virsh domiflist ${VM_NAME} 2>/dev/null | grep ${NETWORK_NAME} | awk '{print $1}')
-  
-  # Try to get the IPs
+
+  # Get IPs based on mode
   if [ -n "${INTERFACE_DEFAULT}" ]; then
-    VM_DEFAULT_IP=$(sudo virsh domifaddr ${VM_NAME} --interface ${INTERFACE_DEFAULT} 2>/dev/null | awk '/ipv4/ {print $4}' | cut -d'/' -f1)
+    if [[ "${IPV6_ONLY:-false}" == "true" ]]; then
+      # IPv6-only: get IPv6 address (skip link-local fe80::)
+      VM_DEFAULT_IP=$(sudo virsh domifaddr ${VM_NAME} --interface ${INTERFACE_DEFAULT} 2>/dev/null | awk '/ipv6/ {print $4}' | cut -d'/' -f1 | grep -v '^fe80' | head -1)
+    else
+      # Try IPv4 first, fall back to IPv6
+      VM_DEFAULT_IP=$(sudo virsh domifaddr ${VM_NAME} --interface ${INTERFACE_DEFAULT} 2>/dev/null | awk '/ipv4/ {print $4}' | cut -d'/' -f1)
+      if [ -z "${VM_DEFAULT_IP}" ]; then
+        VM_DEFAULT_IP=$(sudo virsh domifaddr ${VM_NAME} --interface ${INTERFACE_DEFAULT} 2>/dev/null | awk '/ipv6/ {print $4}' | cut -d'/' -f1 | grep -v '^fe80' | head -1)
+      fi
+    fi
   fi
-  
+
   if [ -n "${INTERFACE_BM}" ]; then
-    VM_IP=$(sudo virsh domifaddr ${VM_NAME} --interface ${INTERFACE_BM} 2>/dev/null | awk '/ipv4/ {print $4}' | cut -d'/' -f1)
+    if [[ "${IPV6_ONLY:-false}" == "true" ]]; then
+      # IPv6-only: get IPv6 address (skip link-local fe80::)
+      VM_IP=$(sudo virsh domifaddr ${VM_NAME} --interface ${INTERFACE_BM} 2>/dev/null | awk '/ipv6/ {print $4}' | cut -d'/' -f1 | grep -v '^fe80' | head -1)
+    else
+      # Try IPv4 first, fall back to IPv6
+      VM_IP=$(sudo virsh domifaddr ${VM_NAME} --interface ${INTERFACE_BM} 2>/dev/null | awk '/ipv4/ {print $4}' | cut -d'/' -f1)
+      if [ -z "${VM_IP}" ]; then
+        VM_IP=$(sudo virsh domifaddr ${VM_NAME} --interface ${INTERFACE_BM} 2>/dev/null | awk '/ipv6/ {print $4}' | cut -d'/' -f1 | grep -v '^fe80' | head -1)
+      fi
+    fi
   fi
   
   # Check if both VM's IPs are available
@@ -136,7 +158,14 @@ echo "Provisioning the VM..."
 # Executing commands
 echo "Executing commands in the VM..."
 
-ssh -i ${SSH_PRIVATE_KEY_PATH} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ${USER}@${VM_DEFAULT_IP} bash -s <<'REMOTE_EOF'
+# Wrap IPv6 addresses in brackets for SSH
+if [[ "${VM_DEFAULT_IP}" == *":"* ]]; then
+  SSH_VM_TARGET="${USER}@[${VM_DEFAULT_IP}]"
+else
+  SSH_VM_TARGET="${USER}@${VM_DEFAULT_IP}"
+fi
+
+ssh -i ${SSH_PRIVATE_KEY_PATH} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ${SSH_VM_TARGET} bash -s <<'REMOTE_EOF'
 set -e
   # Install packages; retry on failure (e.g. baseos mirror/checksum).
   install_pkgs() {
@@ -160,7 +189,7 @@ set -e
   done
 REMOTE_EOF
 
-ssh -i ${SSH_PRIVATE_KEY_PATH} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ${USER}@${VM_DEFAULT_IP} <<EOF
+ssh -i ${SSH_PRIVATE_KEY_PATH} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ${SSH_VM_TARGET} <<EOF
   # Install OpenShift client
   echo "Installing OpenShift client..."
   curl https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/stable/openshift-client-linux-amd64-rhel9.tar.gz | sudo tar xvz -C /usr/local/bin
@@ -185,5 +214,9 @@ echo "Cleaning up stuff..."
 rm ${USER_DATA_FILE}
 
 # Greetings
-echo "You can access the created VM with ssh ${USER}@${VM_IP}"
+if [[ "${VM_IP}" == *":"* ]]; then
+  echo "You can access the created VM with ssh ${USER}@[${VM_IP}]"
+else
+  echo "You can access the created VM with ssh ${USER}@${VM_IP}"
+fi
 echo "VM creation and provisioning complete!"
