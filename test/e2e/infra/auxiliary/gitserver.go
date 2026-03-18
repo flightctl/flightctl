@@ -22,8 +22,20 @@ const (
 	gitServerKeyPathPublic  = "/home/user/.ssh/id_rsa.pub"
 )
 
-func (s *Services) startGitServer(ctx context.Context) error {
-	logrus.Infof("Starting git server container (reuse=%v)", s.reuse)
+// GitServer holds connection info, SSH key path, and the container for the aux git server.
+type GitServer struct {
+	URL            string
+	Host           string
+	Port           int
+	InternalHost   string
+	InternalPort   int
+	privateKeyPath string
+	container      testcontainers.Container
+}
+
+// Start starts the git server container and sets URL, Host, Port, etc.
+func (g *GitServer) Start(ctx context.Context, network string, reuse bool) error {
+	logrus.Infof("Starting git server container (reuse=%v)", reuse)
 	projectRoot, err := getProjectRoot()
 	if err != nil {
 		return fmt.Errorf("failed to get project root: %w", err)
@@ -40,30 +52,28 @@ func (s *Services) startGitServer(ctx context.Context) error {
 		Name:         gitServerContainerName,
 		ExposedPorts: []string{gitServerPort},
 		WaitingFor:   wait.ForListeningPort("2222"),
-		SkipReaper:   s.reuse, // avoid Ryuk marking for removal when this process exits so next suite can reuse
+		SkipReaper:   reuse,
 	}
-	// Key pair is generated inside the container (entrypoint); we copy the private key to the host
-	// so the harness and Repository CR always use the key that matches the server. Reuse is safe.
-	container, err := CreateContainer(ctx, req, s.reuse, WithNetwork(s.network), WithHostAccess())
+	container, err := CreateContainer(ctx, req, reuse, WithNetwork(network), WithHostAccess())
 	if err != nil {
 		return fmt.Errorf("failed to start git server container: %w", err)
 	}
-	s.gitServer = container
+	g.container = container
 	keyPath, err := copyGitServerKeysFromContainer(ctx, container)
 	if err != nil {
 		return fmt.Errorf("failed to copy git server SSH key from container: %w", err)
 	}
-	s.gitServerPrivateKeyPath = keyPath
-	s.GitServerHost = GetHostIP()
+	g.privateKeyPath = keyPath
+	g.Host = GetHostIP()
+	g.InternalHost = g.Host
 	port, err := container.MappedPort(ctx, "2222")
 	if err != nil {
 		return fmt.Errorf("failed to get git server port: %w", err)
 	}
-	s.GitServerPort = port.Int()
-	s.GitServerURL = fmt.Sprintf("ssh://user@%s:%d", s.GitServerHost, s.GitServerPort)
-	s.GitServerInternalHost = s.GitServerHost
-	s.GitServerInternalPort = s.GitServerPort
-	logrus.Infof("Git server container started: %s", s.GitServerURL)
+	g.Port = port.Int()
+	g.InternalPort = g.Port
+	g.URL = fmt.Sprintf("ssh://user@%s:%d", g.Host, g.Port)
+	logrus.Infof("Git server container started: %s", g.URL)
 	return nil
 }
 
@@ -100,15 +110,31 @@ func copyGitServerKeysFromContainer(ctx context.Context, container testcontainer
 // GetGitSSHPrivateKeyPath returns the path to the SSH private key for git operations.
 // The key is always the one from the aux git server container (Podman); no deployment secrets.
 func (s *Services) GetGitSSHPrivateKeyPath() (util.SSHPrivateKeyPath, error) {
-	if s.gitServerPrivateKeyPath == "" {
+	if s.GitServer == nil {
 		return "", fmt.Errorf("git server SSH key not available (git server may not be started)")
 	}
-	return util.SSHPrivateKeyPath(s.gitServerPrivateKeyPath), nil
+	return s.GitServer.GetGitSSHPrivateKeyPath()
 }
 
 // GetGitSSHPrivateKey returns the SSH private key content for git operations.
 func (s *Services) GetGitSSHPrivateKey() (util.SSHPrivateKeyContent, error) {
-	path, err := s.GetGitSSHPrivateKeyPath()
+	if s.GitServer == nil {
+		return "", fmt.Errorf("git server may not be started")
+	}
+	return s.GitServer.GetGitSSHPrivateKey()
+}
+
+// GetGitSSHPrivateKeyPath returns the path to the SSH private key for the git server.
+func (g *GitServer) GetGitSSHPrivateKeyPath() (util.SSHPrivateKeyPath, error) {
+	if g.privateKeyPath == "" {
+		return "", fmt.Errorf("git server SSH key not available")
+	}
+	return util.SSHPrivateKeyPath(g.privateKeyPath), nil
+}
+
+// GetGitSSHPrivateKey returns the SSH private key content for the git server.
+func (g *GitServer) GetGitSSHPrivateKey() (util.SSHPrivateKeyContent, error) {
+	path, err := g.GetGitSSHPrivateKeyPath()
 	if err != nil {
 		return "", err
 	}

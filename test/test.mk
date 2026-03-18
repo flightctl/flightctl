@@ -238,11 +238,17 @@ start-tracing:
 stop-tracing:
 	go run ./cmd/aux-service stop tracing
 
+start-keycloak:
+	go run ./cmd/aux-service start keycloak
+
+stop-keycloak:
+	go run ./cmd/aux-service stop keycloak
+
 start-aux: bin/e2e-certs/ca.pem
 	go run ./cmd/aux-service start all
 
 stop-aux:
 	go run ./cmd/aux-service stop all
 
-.PHONY: start-registry stop-registry start-git-server stop-git-server start-prometheus stop-prometheus start-tracing stop-tracing start-aux stop-aux
+.PHONY: start-registry stop-registry start-git-server stop-git-server start-prometheus stop-prometheus start-tracing stop-tracing start-keycloak stop-keycloak start-aux stop-aux
 .PHONY: unit-test prepare-integration-test integration-test run-integration-test view-coverage prepare-e2e-test deploy-e2e-ocp-test-vm _wait_for_db _run_template_migration _ensure_db_setup_image prepare-swtpm-certs clean-swtpm-certs

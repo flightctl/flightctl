@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"reflect"
 	"strconv"
 	"strings"
@@ -69,8 +70,9 @@ func generateState() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(stateBytes), nil
 }
 
-// oauth2AuthCodeFlow performs the auth flow with a local proxy workaround
-func oauth2AuthCodeFlow(getClient GetClientFunc, port int) (AuthInfo, error) {
+// oauth2AuthCodeFlow performs the auth flow with a local proxy workaround.
+// When noBrowser is true, the CLI does not open the system browser; the URL is still printed so the user (or e2e) can open it.
+func oauth2AuthCodeFlow(getClient GetClientFunc, port int, noBrowser bool) (AuthInfo, error) {
 
 	state, err := generateState()
 	if err != nil {
@@ -138,10 +140,16 @@ func oauth2AuthCodeFlow(getClient GetClientFunc, port int) (AuthInfo, error) {
 	}()
 
 	loginUrl := authReq.GetAuthorizeUrlWithParams(state).String()
-	fmt.Printf("Opening login URL in default browser: %s\n", loginUrl)
-	err = browser.OpenURL(loginUrl)
-	if err != nil {
-		return result, fmt.Errorf("failed to open URL in default browser: %w", err)
+	if noBrowser {
+		fmt.Printf("Please open this URL in your browser: %s\n", loginUrl)
+		_ = os.Stdout.Sync()
+	} else {
+		fmt.Printf("Opening login URL in default browser: %s\n", loginUrl)
+		_ = os.Stdout.Sync()
+		err = browser.OpenURL(loginUrl)
+		if err != nil {
+			return result, fmt.Errorf("failed to open URL in default browser: %w", err)
+		}
 	}
 
 	err = <-done

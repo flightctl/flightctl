@@ -18,9 +18,10 @@ type OpenShift struct {
 	Username           string
 	Password           string
 	Web                bool
+	NoBrowser          bool
 }
 
-func NewOpenShiftConfig(metadata api.ObjectMeta, spec api.OpenShiftProviderSpec, caFile string, insecure bool, apiServerURL string, callbackPort int, username, password string, web bool) *OpenShift {
+func NewOpenShiftConfig(metadata api.ObjectMeta, spec api.OpenShiftProviderSpec, caFile string, insecure bool, apiServerURL string, callbackPort int, username, password string, web, noBrowser bool) *OpenShift {
 	return &OpenShift{
 		Metadata:           metadata,
 		Spec:               spec,
@@ -31,6 +32,7 @@ func NewOpenShiftConfig(metadata api.ObjectMeta, spec api.OpenShiftProviderSpec,
 		Username:           username,
 		Password:           password,
 		Web:                web,
+		NoBrowser:          noBrowser,
 	}
 }
 
@@ -83,7 +85,7 @@ func (o *OpenShift) Auth() (AuthInfo, error) {
 		return o.authPasswordFlow()
 	}
 	// Default to auth code flow
-	authInfo, err := oauth2AuthCodeFlow(o.getOAuth2Client, o.CallbackPort)
+	authInfo, err := oauth2AuthCodeFlow(o.getOAuth2Client, o.CallbackPort, o.NoBrowser)
 	if err != nil {
 		return AuthInfo{}, err
 	}
