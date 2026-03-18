@@ -9,9 +9,13 @@ import (
 	"strings"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
+	agentcfg "github.com/flightctl/flightctl/internal/agent/config"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"sigs.k8s.io/yaml"
 )
+
+const agentConfigPath = "/etc/flightctl/config.yaml"
 
 func vmShellCommandArgs(command string) []string {
 	return []string{"bash -lc " + strconv.Quote(command)}
@@ -42,6 +46,33 @@ func (h *Harness) RestartFlightCtlAgent() error {
 		return fmt.Errorf("failed to restart flightctl-agent: %w", err)
 	}
 	return nil
+}
+
+// UpdateAgentConfigWith reads the current agent config from the VM, calls mutate to modify it,
+// writes it back via SetAgentConfig, and restarts the agent.
+func (h *Harness) UpdateAgentConfigWith(mutate func(*agentcfg.Config)) error {
+	if h == nil {
+		return fmt.Errorf("harness is nil")
+	}
+	stdout, err := h.VM.RunSSH([]string{"sudo", "cat", agentConfigPath}, nil)
+	if err != nil {
+		return fmt.Errorf("reading agent config: %w", err)
+	}
+
+	cfg := &agentcfg.Config{}
+	if err := yaml.Unmarshal(stdout.Bytes(), cfg); err != nil {
+		return fmt.Errorf("parsing agent config: %w", err)
+	}
+
+	if mutate != nil {
+		mutate(cfg)
+	}
+
+	if err := h.SetAgentConfig(cfg); err != nil {
+		return err
+	}
+
+	return h.RestartFlightCtlAgent()
 }
 
 // ReloadFlightCtlAgent reloads the flightctl-agent service

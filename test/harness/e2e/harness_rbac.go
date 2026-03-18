@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/flightctl/flightctl/internal/client"
 	. "github.com/onsi/ginkgo/v2"
@@ -23,6 +24,22 @@ func (h *Harness) GetClientAccessToken() (string, error) {
 		return "", fmt.Errorf("access token is empty")
 	}
 	return cfg.AuthInfo.AccessToken, nil
+}
+
+// GetDirectClusterToken returns the current cluster token from the active oc context.
+func (h *Harness) GetDirectClusterToken() (string, error) {
+	if h == nil {
+		return "", fmt.Errorf("harness is nil")
+	}
+	token, err := h.SH("oc", "whoami", "-t")
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve direct cluster token from oc context: %w", err)
+	}
+	trimmed := strings.TrimSpace(token)
+	if trimmed == "" {
+		return "", fmt.Errorf("direct cluster token is empty")
+	}
+	return trimmed, nil
 }
 
 func (h *Harness) ResolveOrganizationAndClientToken() (string, string, error) {

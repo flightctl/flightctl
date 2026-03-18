@@ -64,8 +64,12 @@ func (h *Harness) runGitCommands(workDir string, keyPath util.SSHPrivateKeyPath,
 	)
 
 	for _, gitCmd := range gitCmds {
+		args := gitCmd
+		if len(args) >= 2 && args[0] == "git" && args[1] == "commit" {
+			args = append([]string{"git", "-c", "commit.gpgsign=false"}, args[1:]...)
+		}
 		// #nosec G204 -- This is test code with controlled git commands
-		cmd := exec.Command(gitCmd[0], gitCmd[1:]...)
+		cmd := exec.Command(args[0], args[1:]...)
 		cmd.Dir = workDir
 		cmd.Env = gitEnv
 
@@ -417,6 +421,31 @@ func (h *Harness) SetupTemplatedGitRepoFromDir(config GitServerConfig, keyPath u
 	}
 
 	return workDir, nil
+}
+
+// VerifyDeviceGitConfigPath fetches the device and asserts that the named git config's resolved path matches expectedPath.
+func (h *Harness) VerifyDeviceGitConfigPath(deviceId, configName, expectedPath string) error {
+	device, err := h.GetDevice(deviceId)
+	if err != nil {
+		return fmt.Errorf("failed to get device %s: %w", deviceId, err)
+	}
+	gitConfig, err := h.GetDeviceGitConfig(device, configName)
+	if err != nil {
+		return fmt.Errorf("failed to get git config %s for device %s: %w", configName, deviceId, err)
+	}
+	if gitConfig.GitRef.Path != expectedPath {
+		return fmt.Errorf("expected git config path %q, got %q", expectedPath, gitConfig.GitRef.Path)
+	}
+	return nil
+}
+
+// ReadFileFromDevice reads a file from the device via SSH and returns its content.
+func (h *Harness) ReadFileFromDevice(filePath string) (string, error) {
+	stdout, err := h.VM.RunSSH([]string{"cat", filePath}, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to read %s from device: %w", filePath, err)
+	}
+	return stdout.String(), nil
 }
 
 // PushTemplatedFilesToGitRepo updates an existing git repo with templated files, commits and pushes.
