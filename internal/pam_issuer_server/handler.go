@@ -17,6 +17,7 @@ import (
 	"github.com/flightctl/flightctl/internal/auth/oidc/pam"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"
+	"github.com/flightctl/flightctl/internal/transport"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 )
@@ -439,7 +440,7 @@ func (h *Handler) AuthToken(w http.ResponseWriter, r *http.Request) {
 			req.RedirectUri = &redirectUri
 		}
 	} else {
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err := transport.StrictDecodeJSONBody(r.Body, &req); err != nil {
 			h.log.Errorf("Failed to decode JSON request: %v", err)
 			writeOAuth2Error(w, pamapi.InvalidRequest, "Failed to decode request body")
 			return

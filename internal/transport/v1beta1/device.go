@@ -1,7 +1,6 @@
 package transportv1beta1
 
 import (
-	"encoding/json"
 	"net/http"
 
 	apiv1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
@@ -11,7 +10,7 @@ import (
 // (POST /api/v1/devices)
 func (h *TransportHandler) CreateDevice(w http.ResponseWriter, r *http.Request) {
 	var device apiv1beta1.Device
-	if err := json.NewDecoder(r.Body).Decode(&device); err != nil {
+	if err := transport.StrictDecodeJSONBody(r.Body, &device); err != nil {
 		h.SetParseFailureResponse(w, err)
 		return
 	}
@@ -40,7 +39,7 @@ func (h *TransportHandler) GetDevice(w http.ResponseWriter, r *http.Request, nam
 // (PUT /api/v1/devices/{name})
 func (h *TransportHandler) ReplaceDevice(w http.ResponseWriter, r *http.Request, name string) {
 	var device apiv1beta1.Device
-	if err := json.NewDecoder(r.Body).Decode(&device); err != nil {
+	if err := transport.StrictDecodeJSONBody(r.Body, &device); err != nil {
 		h.SetParseFailureResponse(w, err)
 		return
 	}
@@ -74,7 +73,7 @@ func (h *TransportHandler) GetDeviceLastSeen(w http.ResponseWriter, r *http.Requ
 // (PUT /api/v1/devices/{name}/status)
 func (h *TransportHandler) ReplaceDeviceStatus(w http.ResponseWriter, r *http.Request, name string) {
 	var device apiv1beta1.Device
-	if err := json.NewDecoder(r.Body).Decode(&device); err != nil {
+	if err := transport.StrictDecodeJSONBody(r.Body, &device); err != nil {
 		h.SetParseFailureResponse(w, err)
 		return
 	}
@@ -96,7 +95,7 @@ func (h *TransportHandler) GetRenderedDevice(w http.ResponseWriter, r *http.Requ
 // (PATCH /api/v1/devices/{name})
 func (h *TransportHandler) PatchDevice(w http.ResponseWriter, r *http.Request, name string) {
 	var patch apiv1beta1.PatchRequest
-	if err := json.NewDecoder(r.Body).Decode(&patch); err != nil {
+	if err := transport.StrictDecodeJSONBody(r.Body, &patch); err != nil {
 		h.SetParseFailureResponse(w, err)
 		return
 	}
@@ -110,7 +109,7 @@ func (h *TransportHandler) PatchDevice(w http.ResponseWriter, r *http.Request, n
 // (PATCH /api/v1/devices/{name}/status)
 func (h *TransportHandler) PatchDeviceStatus(w http.ResponseWriter, r *http.Request, name string) {
 	var patch apiv1beta1.PatchRequest
-	if err := json.NewDecoder(r.Body).Decode(&patch); err != nil {
+	if err := transport.StrictDecodeJSONBody(r.Body, &patch); err != nil {
 		h.SetParseFailureResponse(w, err)
 		return
 	}
@@ -124,7 +123,7 @@ func (h *TransportHandler) PatchDeviceStatus(w http.ResponseWriter, r *http.Requ
 // (PUT /api/v1/devices/{name}/decommission)
 func (h *TransportHandler) DecommissionDevice(w http.ResponseWriter, r *http.Request, name string) {
 	var decom apiv1beta1.DeviceDecommission
-	if err := json.NewDecoder(r.Body).Decode(&decom); err != nil {
+	if err := transport.StrictDecodeJSONBody(r.Body, &decom); err != nil {
 		h.SetParseFailureResponse(w, err)
 		return
 	}
@@ -138,7 +137,7 @@ func (h *TransportHandler) DecommissionDevice(w http.ResponseWriter, r *http.Req
 // (POST /api/v1/deviceactions/resume)
 func (h *TransportHandler) ResumeDevices(w http.ResponseWriter, r *http.Request) {
 	var request apiv1beta1.DeviceResumeRequest
-	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+	if err := transport.StrictDecodeJSONBody(r.Body, &request); err != nil {
 		h.SetParseFailureResponse(w, err)
 		return
 	}

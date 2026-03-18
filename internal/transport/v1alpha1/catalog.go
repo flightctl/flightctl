@@ -1,7 +1,6 @@
 package transportv1alpha1
 
 import (
-	"encoding/json"
 	"net/http"
 
 	apiv1alpha1 "github.com/flightctl/flightctl/api/core/v1alpha1"
@@ -12,7 +11,7 @@ import (
 // (POST /api/v1/catalogs)
 func (h *TransportHandler) CreateCatalog(w http.ResponseWriter, r *http.Request) {
 	var catalog apiv1alpha1.Catalog
-	if err := json.NewDecoder(r.Body).Decode(&catalog); err != nil {
+	if err := transport.StrictDecodeJSONBody(r.Body, &catalog); err != nil {
 		h.SetParseFailureResponse(w, err)
 		return
 	}
@@ -41,7 +40,7 @@ func (h *TransportHandler) GetCatalog(w http.ResponseWriter, r *http.Request, na
 // (PUT /api/v1/catalogs/{name})
 func (h *TransportHandler) ReplaceCatalog(w http.ResponseWriter, r *http.Request, name string) {
 	var catalog apiv1alpha1.Catalog
-	if err := json.NewDecoder(r.Body).Decode(&catalog); err != nil {
+	if err := transport.StrictDecodeJSONBody(r.Body, &catalog); err != nil {
 		h.SetParseFailureResponse(w, err)
 		return
 	}
@@ -61,7 +60,7 @@ func (h *TransportHandler) DeleteCatalog(w http.ResponseWriter, r *http.Request,
 // (PATCH /api/v1/catalogs/{name})
 func (h *TransportHandler) PatchCatalog(w http.ResponseWriter, r *http.Request, name string) {
 	var patch apiv1beta1.PatchRequest
-	if err := json.NewDecoder(r.Body).Decode(&patch); err != nil {
+	if err := transport.StrictDecodeJSONBody(r.Body, &patch); err != nil {
 		h.SetParseFailureResponse(w, err)
 		return
 	}
@@ -82,7 +81,7 @@ func (h *TransportHandler) GetCatalogStatus(w http.ResponseWriter, r *http.Reque
 // (PUT /api/v1/catalogs/{name}/status)
 func (h *TransportHandler) ReplaceCatalogStatus(w http.ResponseWriter, r *http.Request, name string) {
 	var catalog apiv1alpha1.Catalog
-	if err := json.NewDecoder(r.Body).Decode(&catalog); err != nil {
+	if err := transport.StrictDecodeJSONBody(r.Body, &catalog); err != nil {
 		h.SetParseFailureResponse(w, err)
 		return
 	}
@@ -96,7 +95,7 @@ func (h *TransportHandler) ReplaceCatalogStatus(w http.ResponseWriter, r *http.R
 // (PATCH /api/v1/catalogs/{name}/status)
 func (h *TransportHandler) PatchCatalogStatus(w http.ResponseWriter, r *http.Request, name string) {
 	var patch apiv1beta1.PatchRequest
-	if err := json.NewDecoder(r.Body).Decode(&patch); err != nil {
+	if err := transport.StrictDecodeJSONBody(r.Body, &patch); err != nil {
 		h.SetParseFailureResponse(w, err)
 		return
 	}
@@ -126,7 +125,7 @@ func (h *TransportHandler) ListCatalogItems(w http.ResponseWriter, r *http.Reque
 // (POST /api/v1/catalogs/{name}/items)
 func (h *TransportHandler) CreateCatalogItem(w http.ResponseWriter, r *http.Request, name string) {
 	var item apiv1alpha1.CatalogItem
-	if err := json.NewDecoder(r.Body).Decode(&item); err != nil {
+	if err := transport.StrictDecodeJSONBody(r.Body, &item); err != nil {
 		h.SetParseFailureResponse(w, err)
 		return
 	}
@@ -147,7 +146,7 @@ func (h *TransportHandler) GetCatalogItem(w http.ResponseWriter, r *http.Request
 // (PUT /api/v1/catalogs/{name}/items/{item})
 func (h *TransportHandler) ReplaceCatalogItem(w http.ResponseWriter, r *http.Request, name string, itemName string) {
 	var item apiv1alpha1.CatalogItem
-	if err := json.NewDecoder(r.Body).Decode(&item); err != nil {
+	if err := transport.StrictDecodeJSONBody(r.Body, &item); err != nil {
 		h.SetParseFailureResponse(w, err)
 		return
 	}
@@ -161,7 +160,7 @@ func (h *TransportHandler) ReplaceCatalogItem(w http.ResponseWriter, r *http.Req
 // (PATCH /api/v1/catalogs/{name}/items/{item})
 func (h *TransportHandler) PatchCatalogItem(w http.ResponseWriter, r *http.Request, name string, itemName string) {
 	var patch apiv1beta1.PatchRequest
-	if err := json.NewDecoder(r.Body).Decode(&patch); err != nil {
+	if err := transport.StrictDecodeJSONBody(r.Body, &patch); err != nil {
 		h.SetParseFailureResponse(w, err)
 		return
 	}

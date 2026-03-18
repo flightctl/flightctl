@@ -2,7 +2,6 @@ package transport
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -60,7 +59,7 @@ func (h *TransportHandler) ListImageBuilds(w http.ResponseWriter, r *http.Reques
 // CreateImageBuild handles POST /api/v1/imagebuilds
 func (h *TransportHandler) CreateImageBuild(w http.ResponseWriter, r *http.Request) {
 	var imageBuild api.ImageBuild
-	if err := json.NewDecoder(r.Body).Decode(&imageBuild); err != nil {
+	if err := transport.StrictDecodeJSONBody(r.Body, &imageBuild); err != nil {
 		h.SetParseFailureResponse(w, err)
 		return
 	}
@@ -87,7 +86,7 @@ func (h *TransportHandler) GetImageBuild(w http.ResponseWriter, r *http.Request,
 // If the resource already exists, Create will return a conflict error.
 func (h *TransportHandler) ReplaceImageBuild(w http.ResponseWriter, r *http.Request, name string) {
 	var imageBuild api.ImageBuild
-	if err := json.NewDecoder(r.Body).Decode(&imageBuild); err != nil {
+	if err := transport.StrictDecodeJSONBody(r.Body, &imageBuild); err != nil {
 		h.SetParseFailureResponse(w, err)
 		return
 	}
@@ -226,7 +225,7 @@ func (h *TransportHandler) ListImageExports(w http.ResponseWriter, r *http.Reque
 // CreateImageExport handles POST /api/v1/imageexports
 func (h *TransportHandler) CreateImageExport(w http.ResponseWriter, r *http.Request) {
 	var imageExport api.ImageExport
-	if err := json.NewDecoder(r.Body).Decode(&imageExport); err != nil {
+	if err := transport.StrictDecodeJSONBody(r.Body, &imageExport); err != nil {
 		h.SetParseFailureResponse(w, err)
 		return
 	}

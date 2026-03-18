@@ -1,7 +1,6 @@
 package transportv1beta1
 
 import (
-	"encoding/json"
 	"net/http"
 
 	apiv1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
@@ -11,7 +10,7 @@ import (
 // (POST /api/v1/repositories)
 func (h *TransportHandler) CreateRepository(w http.ResponseWriter, r *http.Request) {
 	var rs apiv1beta1.Repository
-	if err := json.NewDecoder(r.Body).Decode(&rs); err != nil {
+	if err := transport.StrictDecodeJSONBody(r.Body, &rs); err != nil {
 		h.SetParseFailureResponse(w, err)
 		return
 	}
@@ -40,7 +39,7 @@ func (h *TransportHandler) GetRepository(w http.ResponseWriter, r *http.Request,
 // (PUT /api/v1/repositories/{name})
 func (h *TransportHandler) ReplaceRepository(w http.ResponseWriter, r *http.Request, name string) {
 	var rs apiv1beta1.Repository
-	if err := json.NewDecoder(r.Body).Decode(&rs); err != nil {
+	if err := transport.StrictDecodeJSONBody(r.Body, &rs); err != nil {
 		h.SetParseFailureResponse(w, err)
 		return
 	}
@@ -60,7 +59,7 @@ func (h *TransportHandler) DeleteRepository(w http.ResponseWriter, r *http.Reque
 // (PATCH /api/v1/repositories/{name})
 func (h *TransportHandler) PatchRepository(w http.ResponseWriter, r *http.Request, name string) {
 	var patch apiv1beta1.PatchRequest
-	if err := json.NewDecoder(r.Body).Decode(&patch); err != nil {
+	if err := transport.StrictDecodeJSONBody(r.Body, &patch); err != nil {
 		h.SetParseFailureResponse(w, err)
 		return
 	}

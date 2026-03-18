@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
@@ -58,6 +59,15 @@ func WriteJSONResponse(w http.ResponseWriter, body any, errorBody any, code int)
 
 	w.WriteHeader(code)
 	_, _ = w.Write(buf.Bytes())
+}
+
+// StrictDecodeJSONBody decodes a JSON request body into v, rejecting any
+// fields not defined on the target struct. This prevents unknown or
+// misspelled properties from being silently ignored by the API.
+func StrictDecodeJSONBody(body io.Reader, v any) error {
+	decoder := json.NewDecoder(body)
+	decoder.DisallowUnknownFields()
+	return decoder.Decode(v)
 }
 
 // OrgIDFromContext extracts the organization ID from the context.

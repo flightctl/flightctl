@@ -16,7 +16,8 @@ func (h *TransportHandler) SetResponse(w http.ResponseWriter, body any, status d
 	transport.WriteJSONResponse(w, body, apiStatus, int(status.Code))
 }
 
-// SetParseFailureResponse writes a 500 response for JSON decode failures.
+// SetParseFailureResponse writes a 400 response for JSON decode failures
+// (e.g. malformed JSON or unknown fields).
 func (h *TransportHandler) SetParseFailureResponse(w http.ResponseWriter, err error) {
-	h.SetResponse(w, nil, domain.StatusInternalServerError(fmt.Sprintf("can't decode JSON body: %v", err)))
+	h.SetResponse(w, nil, domain.StatusBadRequest(fmt.Sprintf("can't decode JSON body: %v", err)))
 }

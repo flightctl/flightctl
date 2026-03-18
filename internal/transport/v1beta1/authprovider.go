@@ -1,7 +1,6 @@
 package transportv1beta1
 
 import (
-	"encoding/json"
 	"net/http"
 
 	apiv1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
@@ -11,7 +10,7 @@ import (
 // (POST /api/v1/authproviders)
 func (h *TransportHandler) CreateAuthProvider(w http.ResponseWriter, r *http.Request) {
 	var authProvider apiv1beta1.AuthProvider
-	if err := json.NewDecoder(r.Body).Decode(&authProvider); err != nil {
+	if err := transport.StrictDecodeJSONBody(r.Body, &authProvider); err != nil {
 		h.SetParseFailureResponse(w, err)
 		return
 	}
@@ -40,7 +39,7 @@ func (h *TransportHandler) GetAuthProvider(w http.ResponseWriter, r *http.Reques
 // (PUT /api/v1/authproviders/{name})
 func (h *TransportHandler) ReplaceAuthProvider(w http.ResponseWriter, r *http.Request, name string) {
 	var authProvider apiv1beta1.AuthProvider
-	if err := json.NewDecoder(r.Body).Decode(&authProvider); err != nil {
+	if err := transport.StrictDecodeJSONBody(r.Body, &authProvider); err != nil {
 		h.SetParseFailureResponse(w, err)
 		return
 	}
@@ -54,7 +53,7 @@ func (h *TransportHandler) ReplaceAuthProvider(w http.ResponseWriter, r *http.Re
 // (PATCH /api/v1/authproviders/{name})
 func (h *TransportHandler) PatchAuthProvider(w http.ResponseWriter, r *http.Request, name string) {
 	var patch apiv1beta1.PatchRequest
-	if err := json.NewDecoder(r.Body).Decode(&patch); err != nil {
+	if err := transport.StrictDecodeJSONBody(r.Body, &patch); err != nil {
 		h.SetParseFailureResponse(w, err)
 		return
 	}

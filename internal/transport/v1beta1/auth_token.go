@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	apiv1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/internal/transport"
 )
 
 // AuthToken handles OAuth2 token exchange requests
@@ -52,8 +53,7 @@ func (h *TransportHandler) AuthToken(w http.ResponseWriter, r *http.Request, pro
 			tokenReq.RedirectUri = &redirectUri
 		}
 	} else {
-		// Parse JSON
-		if err := json.NewDecoder(r.Body).Decode(&tokenReq); err != nil {
+		if err := transport.StrictDecodeJSONBody(r.Body, &tokenReq); err != nil {
 			w.WriteHeader(http.StatusBadRequest)
 			_ = json.NewEncoder(w).Encode(createTokenErrorResponse("invalid_request", "Failed to decode request: "+err.Error()))
 			return

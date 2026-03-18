@@ -1,7 +1,6 @@
 package transportv1beta1
 
 import (
-	"encoding/json"
 	"net/http"
 
 	apiv1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
@@ -11,7 +10,7 @@ import (
 // (POST /api/v1/resourcesyncs)
 func (h *TransportHandler) CreateResourceSync(w http.ResponseWriter, r *http.Request) {
 	var rs apiv1beta1.ResourceSync
-	if err := json.NewDecoder(r.Body).Decode(&rs); err != nil {
+	if err := transport.StrictDecodeJSONBody(r.Body, &rs); err != nil {
 		h.SetParseFailureResponse(w, err)
 		return
 	}
@@ -40,7 +39,7 @@ func (h *TransportHandler) GetResourceSync(w http.ResponseWriter, r *http.Reques
 // (PUT /api/v1/resourcesyncs/{name})
 func (h *TransportHandler) ReplaceResourceSync(w http.ResponseWriter, r *http.Request, name string) {
 	var rs apiv1beta1.ResourceSync
-	if err := json.NewDecoder(r.Body).Decode(&rs); err != nil {
+	if err := transport.StrictDecodeJSONBody(r.Body, &rs); err != nil {
 		h.SetParseFailureResponse(w, err)
 		return
 	}
@@ -60,7 +59,7 @@ func (h *TransportHandler) DeleteResourceSync(w http.ResponseWriter, r *http.Req
 // (PATCH /api/v1/resourcesyncs/{name})
 func (h *TransportHandler) PatchResourceSync(w http.ResponseWriter, r *http.Request, name string) {
 	var patch apiv1beta1.PatchRequest
-	if err := json.NewDecoder(r.Body).Decode(&patch); err != nil {
+	if err := transport.StrictDecodeJSONBody(r.Body, &patch); err != nil {
 		h.SetParseFailureResponse(w, err)
 		return
 	}

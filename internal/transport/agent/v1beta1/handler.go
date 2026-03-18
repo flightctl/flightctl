@@ -2,7 +2,6 @@ package agenttransportv1beta1
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 
@@ -97,7 +96,7 @@ func (s *AgentTransportHandler) ReplaceDeviceStatus(w http.ResponseWriter, r *ht
 	}
 
 	var device api.Device
-	if err := json.NewDecoder(r.Body).Decode(&device); err != nil {
+	if err := transport.StrictDecodeJSONBody(r.Body, &device); err != nil {
 		s.SetParseFailureResponse(w, err)
 		return
 	}
@@ -138,7 +137,7 @@ func (s *AgentTransportHandler) PatchDeviceStatus(w http.ResponseWriter, r *http
 	}
 
 	var patch api.PatchRequest
-	if err := json.NewDecoder(r.Body).Decode(&patch); err != nil {
+	if err := transport.StrictDecodeJSONBody(r.Body, &patch); err != nil {
 		s.SetParseFailureResponse(w, err)
 		return
 	}
@@ -171,7 +170,7 @@ func (s *AgentTransportHandler) CreateEnrollmentRequest(w http.ResponseWriter, r
 	}
 
 	var er api.EnrollmentRequest
-	if err := json.NewDecoder(r.Body).Decode(&er); err != nil {
+	if err := transport.StrictDecodeJSONBody(r.Body, &er); err != nil {
 		s.SetParseFailureResponse(w, err)
 		return
 	}
@@ -246,7 +245,7 @@ func (s *AgentTransportHandler) CreateCertificateSigningRequest(w http.ResponseW
 	}
 
 	var request api.CertificateSigningRequest
-	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+	if err := transport.StrictDecodeJSONBody(r.Body, &request); err != nil {
 		s.SetParseFailureResponse(w, err)
 		return
 	}

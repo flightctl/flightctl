@@ -1,7 +1,6 @@
 package transportv1beta1
 
 import (
-	"encoding/json"
 	"net/http"
 
 	apiv1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
@@ -11,7 +10,7 @@ import (
 // (POST /api/v1/fleets)
 func (h *TransportHandler) CreateFleet(w http.ResponseWriter, r *http.Request) {
 	var fleet apiv1beta1.Fleet
-	if err := json.NewDecoder(r.Body).Decode(&fleet); err != nil {
+	if err := transport.StrictDecodeJSONBody(r.Body, &fleet); err != nil {
 		h.SetParseFailureResponse(w, err)
 		return
 	}
@@ -41,7 +40,7 @@ func (h *TransportHandler) GetFleet(w http.ResponseWriter, r *http.Request, name
 // (PUT /api/v1/fleets/{name})
 func (h *TransportHandler) ReplaceFleet(w http.ResponseWriter, r *http.Request, name string) {
 	var fleet apiv1beta1.Fleet
-	if err := json.NewDecoder(r.Body).Decode(&fleet); err != nil {
+	if err := transport.StrictDecodeJSONBody(r.Body, &fleet); err != nil {
 		h.SetParseFailureResponse(w, err)
 		return
 	}
@@ -68,7 +67,7 @@ func (h *TransportHandler) GetFleetStatus(w http.ResponseWriter, r *http.Request
 // (PUT /api/v1/fleets/{name}/status)
 func (h *TransportHandler) ReplaceFleetStatus(w http.ResponseWriter, r *http.Request, name string) {
 	var fleet apiv1beta1.Fleet
-	if err := json.NewDecoder(r.Body).Decode(&fleet); err != nil {
+	if err := transport.StrictDecodeJSONBody(r.Body, &fleet); err != nil {
 		h.SetParseFailureResponse(w, err)
 		return
 	}
@@ -82,7 +81,7 @@ func (h *TransportHandler) ReplaceFleetStatus(w http.ResponseWriter, r *http.Req
 // (PATCH /api/v1/fleets/{name})
 func (h *TransportHandler) PatchFleet(w http.ResponseWriter, r *http.Request, name string) {
 	var patch apiv1beta1.PatchRequest
-	if err := json.NewDecoder(r.Body).Decode(&patch); err != nil {
+	if err := transport.StrictDecodeJSONBody(r.Body, &patch); err != nil {
 		h.SetParseFailureResponse(w, err)
 		return
 	}

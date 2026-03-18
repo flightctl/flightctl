@@ -1,7 +1,6 @@
 package transportv1beta1
 
 import (
-	"encoding/json"
 	"net/http"
 
 	apiv1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
@@ -19,7 +18,7 @@ func (h *TransportHandler) ListCertificateSigningRequests(w http.ResponseWriter,
 // (POST /api/v1/certificatesigningrequests)
 func (h *TransportHandler) CreateCertificateSigningRequest(w http.ResponseWriter, r *http.Request) {
 	var csr apiv1beta1.CertificateSigningRequest
-	if err := json.NewDecoder(r.Body).Decode(&csr); err != nil {
+	if err := transport.StrictDecodeJSONBody(r.Body, &csr); err != nil {
 		h.SetParseFailureResponse(w, err)
 		return
 	}
@@ -46,7 +45,7 @@ func (h *TransportHandler) GetCertificateSigningRequest(w http.ResponseWriter, r
 // (PATCH /api/v1/certificatesigningrequests/{name})
 func (h *TransportHandler) PatchCertificateSigningRequest(w http.ResponseWriter, r *http.Request, name string) {
 	var patch apiv1beta1.PatchRequest
-	if err := json.NewDecoder(r.Body).Decode(&patch); err != nil {
+	if err := transport.StrictDecodeJSONBody(r.Body, &patch); err != nil {
 		h.SetParseFailureResponse(w, err)
 		return
 	}
@@ -60,7 +59,7 @@ func (h *TransportHandler) PatchCertificateSigningRequest(w http.ResponseWriter,
 // (PUT /api/v1/certificatesigningrequests/{name})
 func (h *TransportHandler) ReplaceCertificateSigningRequest(w http.ResponseWriter, r *http.Request, name string) {
 	var csr apiv1beta1.CertificateSigningRequest
-	if err := json.NewDecoder(r.Body).Decode(&csr); err != nil {
+	if err := transport.StrictDecodeJSONBody(r.Body, &csr); err != nil {
 		h.SetParseFailureResponse(w, err)
 		return
 	}
@@ -74,7 +73,7 @@ func (h *TransportHandler) ReplaceCertificateSigningRequest(w http.ResponseWrite
 // (PUT /api/v1/certificatesigningrequests/{name}/approval)
 func (h *TransportHandler) UpdateCertificateSigningRequestApproval(w http.ResponseWriter, r *http.Request, name string) {
 	var csr apiv1beta1.CertificateSigningRequest
-	if err := json.NewDecoder(r.Body).Decode(&csr); err != nil {
+	if err := transport.StrictDecodeJSONBody(r.Body, &csr); err != nil {
 		h.SetParseFailureResponse(w, err)
 		return
 	}
