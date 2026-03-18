@@ -1,0 +1,212 @@
+{
+    "x-restler-global-annotations": [
+        {
+            "producer_endpoint": "/certificatesigningrequests",
+            "producer_method": "POST",
+            "producer_resource_name": "name",
+            "consumer_endpoint": "/enrollmentconfig",
+            "consumer_method": "GET",
+            "consumer_param": "csr"
+        },
+        {
+            "producer_endpoint": "/enrollmentrequests",
+            "producer_method": "POST",
+            "producer_resource_name": "name",
+            "consumer_endpoint": "/enrollmentrequests/{name}/approval",
+            "consumer_method": "PUT",
+            "consumer_param": "name"
+        },
+        {
+            "producer_endpoint": "/fleets",
+            "producer_method": "POST",
+            "producer_resource_name": "name",
+            "consumer_endpoint": "/fleets/{fleet}/templateversions",
+            "consumer_method": "GET",
+            "consumer_param": "fleet"
+        },
+        {
+            "producer_endpoint": "/fleets",
+            "producer_method": "POST",
+            "producer_resource_name": "name",
+            "consumer_endpoint": "/fleets/{fleet}/templateversions/{name}",
+            "consumer_method": "GET",
+            "consumer_param": "fleet"
+        },
+        {
+            "producer_endpoint": "/fleets",
+            "producer_method": "POST",
+            "producer_resource_name": "name",
+            "consumer_endpoint": "/fleets/{fleet}/templateversions/{name}",
+            "consumer_method": "DELETE",
+            "consumer_param": "fleet"
+        },
+        {
+            "producer_endpoint": "/authproviders",
+            "producer_method": "POST",
+            "producer_resource_name": "name",
+            "consumer_endpoint": "/auth/{providername}/token",
+            "consumer_method": "POST",
+            "consumer_param": "providername"
+        },
+        {
+            "producer_endpoint": "/repositories",
+            "producer_method": "POST",
+            "producer_resource_name": "name",
+            "consumer_endpoint": "/repositories/{name}",
+            "consumer_method": "PUT",
+            "consumer_param": "/metadata/name"
+        },
+        {
+            "producer_endpoint": "/repositories/{name}",
+            "producer_method": "GET",
+            "producer_resource_name": "resourceVersion",
+            "consumer_endpoint": "/repositories/{name}",
+            "consumer_method": "PUT",
+            "consumer_param": "/metadata/resourceVersion"
+        },
+        {
+            "producer_endpoint": "/devices",
+            "producer_method": "POST",
+            "producer_resource_name": "name",
+            "consumer_endpoint": "/devices/{name}",
+            "consumer_method": "PUT",
+            "consumer_param": "/metadata/name"
+        },
+        {
+            "producer_endpoint": "/devices/{name}",
+            "producer_method": "GET",
+            "producer_resource_name": "resourceVersion",
+            "consumer_endpoint": "/devices/{name}",
+            "consumer_method": "PUT",
+            "consumer_param": "/metadata/resourceVersion"
+        },
+        {
+            "producer_endpoint": "/devices",
+            "producer_method": "POST",
+            "producer_resource_name": "name",
+            "consumer_endpoint": "/devices/{name}/status",
+            "consumer_method": "PUT",
+            "consumer_param": "/metadata/name"
+        },
+        {
+            "producer_endpoint": "/devices/{name}",
+            "producer_method": "GET",
+            "producer_resource_name": "resourceVersion",
+            "consumer_endpoint": "/devices/{name}/status",
+            "consumer_method": "PUT",
+            "consumer_param": "/metadata/resourceVersion"
+        },
+        {
+            "producer_endpoint": "/fleets",
+            "producer_method": "POST",
+            "producer_resource_name": "name",
+            "consumer_endpoint": "/fleets/{name}",
+            "consumer_method": "PUT",
+            "consumer_param": "/metadata/name"
+        },
+        {
+            "producer_endpoint": "/fleets/{name}",
+            "producer_method": "GET",
+            "producer_resource_name": "resourceVersion",
+            "consumer_endpoint": "/fleets/{name}",
+            "consumer_method": "PUT",
+            "consumer_param": "/metadata/resourceVersion"
+        },
+        {
+            "producer_endpoint": "/fleets",
+            "producer_method": "POST",
+            "producer_resource_name": "name",
+            "consumer_endpoint": "/fleets/{name}/status",
+            "consumer_method": "PUT",
+            "consumer_param": "/metadata/name"
+        },
+        {
+            "producer_endpoint": "/fleets/{name}",
+            "producer_method": "GET",
+            "producer_resource_name": "resourceVersion",
+            "consumer_endpoint": "/fleets/{name}/status",
+            "consumer_method": "PUT",
+            "consumer_param": "/metadata/resourceVersion"
+        },
+        {
+            "producer_endpoint": "/resourcesyncs",
+            "producer_method": "POST",
+            "producer_resource_name": "name",
+            "consumer_endpoint": "/resourcesyncs/{name}",
+            "consumer_method": "PUT",
+            "consumer_param": "/metadata/name"
+        },
+        {
+            "producer_endpoint": "/resourcesyncs/{name}",
+            "producer_method": "GET",
+            "producer_resource_name": "resourceVersion",
+            "consumer_endpoint": "/resourcesyncs/{name}",
+            "consumer_method": "PUT",
+            "consumer_param": "/metadata/resourceVersion"
+        },
+        {
+            "producer_endpoint": "/certificatesigningrequests",
+            "producer_method": "POST",
+            "producer_resource_name": "name",
+            "consumer_endpoint": "/certificatesigningrequests/{name}",
+            "consumer_method": "PUT",
+            "consumer_param": "/metadata/name"
+        },
+        {
+            "producer_endpoint": "/certificatesigningrequests/{name}",
+            "producer_method": "GET",
+            "producer_resource_name": "resourceVersion",
+            "consumer_endpoint": "/certificatesigningrequests/{name}",
+            "consumer_method": "PUT",
+            "consumer_param": "/metadata/resourceVersion"
+        },
+        {
+            "producer_endpoint": "/certificatesigningrequests",
+            "producer_method": "POST",
+            "producer_resource_name": "name",
+            "consumer_endpoint": "/certificatesigningrequests/{name}/approval",
+            "consumer_method": "PUT",
+            "consumer_param": "/metadata/name"
+        },
+        {
+            "producer_endpoint": "/certificatesigningrequests/{name}",
+            "producer_method": "GET",
+            "producer_resource_name": "resourceVersion",
+            "consumer_endpoint": "/certificatesigningrequests/{name}/approval",
+            "consumer_method": "PUT",
+            "consumer_param": "/metadata/resourceVersion"
+        },
+        {
+            "producer_endpoint": "/authproviders",
+            "producer_method": "POST",
+            "producer_resource_name": "name",
+            "consumer_endpoint": "/authproviders/{name}",
+            "consumer_method": "PUT",
+            "consumer_param": "/metadata/name"
+        },
+        {
+            "producer_endpoint": "/authproviders/{name}",
+            "producer_method": "GET",
+            "producer_resource_name": "resourceVersion",
+            "consumer_endpoint": "/authproviders/{name}",
+            "consumer_method": "PUT",
+            "consumer_param": "/metadata/resourceVersion"
+        },
+        {
+            "producer_endpoint": "/enrollmentrequests/{name}",
+            "producer_method": "GET",
+            "producer_resource_name": "resourceVersion",
+            "consumer_endpoint": "/enrollmentrequests/{name}",
+            "consumer_method": "PUT",
+            "consumer_param": "/metadata/resourceVersion"
+        },
+        {
+            "producer_endpoint": "/enrollmentrequests/{name}",
+            "producer_method": "GET",
+            "producer_resource_name": "resourceVersion",
+            "consumer_endpoint": "/enrollmentrequests/{name}/status",
+            "consumer_method": "PUT",
+            "consumer_param": "/metadata/resourceVersion"
+        }
+    ]
+}

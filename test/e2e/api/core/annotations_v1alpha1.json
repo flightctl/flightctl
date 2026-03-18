@@ -1,0 +1,60 @@
+{
+    "x-restler-global-annotations": [
+        {
+            "producer_endpoint": "/catalogs",
+            "producer_method": "POST",
+            "producer_resource_name": "name",
+            "consumer_endpoint": "/catalogs/{name}",
+            "consumer_method": "GET",
+            "consumer_param": "name"
+        },
+        {
+            "producer_endpoint": "/catalogs",
+            "producer_method": "POST",
+            "producer_resource_name": "name",
+            "consumer_endpoint": "/catalogs/{name}/status",
+            "consumer_method": "GET",
+            "consumer_param": "name"
+        },
+        {
+            "producer_endpoint": "/catalogs",
+            "producer_method": "POST",
+            "producer_resource_name": "name",
+            "consumer_endpoint": "/catalogs/{catalog}/items",
+            "consumer_method": "GET",
+            "consumer_param": "catalog"
+        },
+        {
+            "producer_endpoint": "/catalogs",
+            "producer_method": "POST",
+            "producer_resource_name": "name",
+            "consumer_endpoint": "/catalogs/{catalog}/items",
+            "consumer_method": "POST",
+            "consumer_param": "catalog"
+        },
+        {
+            "producer_endpoint": "/catalogs",
+            "producer_method": "POST",
+            "producer_resource_name": "name",
+            "consumer_endpoint": "/catalogs/{catalog}/items/{name}",
+            "consumer_method": "GET",
+            "consumer_param": "catalog"
+        },
+        {
+            "producer_endpoint": "/catalogs",
+            "producer_method": "POST",
+            "producer_resource_name": "name",
+            "consumer_endpoint": "/catalogs/{catalog}/items/{name}",
+            "consumer_method": "PUT",
+            "consumer_param": "catalog"
+        },
+        {
+            "producer_endpoint": "/catalogs",
+            "producer_method": "POST",
+            "producer_resource_name": "name",
+            "consumer_endpoint": "/catalogs/{catalog}/items/{name}",
+            "consumer_method": "DELETE",
+            "consumer_param": "catalog"
+        }
+    ]
+}

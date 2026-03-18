@@ -1,0 +1,50 @@
+{
+    "paths": {
+        "/api/v1/imagebuilds": {
+            "post": {
+                "1": {
+                    "parameters": {
+                        "__body__": {
+                            "apiVersion": "flightctl.io/v1alpha1",
+                            "kind": "ImageBuild",
+                            "metadata": { "name": "my-build" },
+                            "spec": {
+                                "source": {
+                                    "repository": "source-repo",
+                                    "imageName": "my-image",
+                                    "imageTag": "latest"
+                                },
+                                "destination": {
+                                    "repository": "dest-repo",
+                                    "imageName": "my-output",
+                                    "imageTag": "latest"
+                                },
+                                "binding": { "type": "late" }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/imageexports": {
+            "post": {
+                "1": {
+                    "parameters": {
+                        "__body__": {
+                            "apiVersion": "flightctl.io/v1alpha1",
+                            "kind": "ImageExport",
+                            "metadata": { "name": "my-export" },
+                            "spec": {
+                                "source": {
+                                    "type": "imageBuild",
+                                    "imageBuildRef": "my-build"
+                                },
+                                "format": "qcow2"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

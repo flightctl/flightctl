@@ -1,0 +1,84 @@
+{
+    "x-restler-global-annotations": [
+        {
+            "producer_endpoint": "/api/v1/imagebuilds",
+            "producer_method": "POST",
+            "producer_resource_name": "name",
+            "consumer_endpoint": "/api/v1/imagebuilds/{name}",
+            "consumer_method": "GET",
+            "consumer_param": "name"
+        },
+        {
+            "producer_endpoint": "/api/v1/imagebuilds",
+            "producer_method": "POST",
+            "producer_resource_name": "name",
+            "consumer_endpoint": "/api/v1/imagebuilds/{name}",
+            "consumer_method": "DELETE",
+            "consumer_param": "name"
+        },
+        {
+            "producer_endpoint": "/api/v1/imagebuilds",
+            "producer_method": "POST",
+            "producer_resource_name": "name",
+            "consumer_endpoint": "/api/v1/imagebuilds/{name}/log",
+            "consumer_method": "GET",
+            "consumer_param": "name"
+        },
+        {
+            "producer_endpoint": "/api/v1/imagebuilds",
+            "producer_method": "POST",
+            "producer_resource_name": "name",
+            "consumer_endpoint": "/api/v1/imagebuilds/{name}/cancel",
+            "consumer_method": "POST",
+            "consumer_param": "name"
+        },
+        {
+            "producer_endpoint": "/api/v1/imagebuilds",
+            "producer_method": "POST",
+            "producer_resource_name": "name",
+            "consumer_endpoint": "/api/v1/imageexports",
+            "consumer_method": "POST",
+            "consumer_param": "imageBuildRef"
+        },
+        {
+            "producer_endpoint": "/api/v1/imageexports",
+            "producer_method": "POST",
+            "producer_resource_name": "name",
+            "consumer_endpoint": "/api/v1/imageexports/{name}",
+            "consumer_method": "GET",
+            "consumer_param": "name"
+        },
+        {
+            "producer_endpoint": "/api/v1/imageexports",
+            "producer_method": "POST",
+            "producer_resource_name": "name",
+            "consumer_endpoint": "/api/v1/imageexports/{name}",
+            "consumer_method": "DELETE",
+            "consumer_param": "name"
+        },
+        {
+            "producer_endpoint": "/api/v1/imageexports",
+            "producer_method": "POST",
+            "producer_resource_name": "name",
+            "consumer_endpoint": "/api/v1/imageexports/{name}/log",
+            "consumer_method": "GET",
+            "consumer_param": "name"
+        },
+        {
+            "producer_endpoint": "/api/v1/imageexports",
+            "producer_method": "POST",
+            "producer_resource_name": "name",
+            "consumer_endpoint": "/api/v1/imageexports/{name}/cancel",
+            "consumer_method": "POST",
+            "consumer_param": "name"
+        },
+        {
+            "producer_endpoint": "/api/v1/imageexports",
+            "producer_method": "POST",
+            "producer_resource_name": "name",
+            "consumer_endpoint": "/api/v1/imageexports/{name}/download",
+            "consumer_method": "GET",
+            "consumer_param": "name"
+        }
+    ]
+}

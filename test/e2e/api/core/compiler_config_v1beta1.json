@@ -1,0 +1,15 @@
+{
+    "SwaggerSpecFilePath": ["/work/specs/core/v1beta1/openapi.yaml"],
+    "CustomDictionaryFilePath": "/work/config/core/dict_v1beta1.json",
+    "AnnotationFilePath": "/work/config/core/annotations_v1beta1.json",
+    "IncludeOptionalParameters": true,
+    "UseBodyExamples": true,
+    "UseQueryExamples": true,
+    "ResolveBodyDependencies": true,
+    "ResolveQueryDependencies": true,
+    "ReadOnlyFuzz": false,
+    "ExampleConfigFiles": [
+        { "filePath": "/work/config/core/examples_v1beta1.json", "exactCopy": true },
+        { "filePath": "/work/config/core/body_examples_v1beta1.json", "exactCopy": false }
+    ]
+}
