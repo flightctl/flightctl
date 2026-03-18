@@ -12,6 +12,7 @@ import (
 	"github.com/flightctl/flightctl/internal/auth/authn"
 	"github.com/flightctl/flightctl/internal/auth/authz"
 	"github.com/flightctl/flightctl/internal/auth/common"
+	authprovider "github.com/flightctl/flightctl/internal/auth/provider"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
@@ -223,7 +224,12 @@ func InitMultiAuth(cfg *config.Config, log logrus.FieldLogger,
 			}
 
 			// Add OpenShift auth with issuer:clientId key
-			openshiftIssuer := strings.TrimSuffix(*cfg.Auth.OpenShift.AuthorizationUrl, "/")
+			openshiftIssuer := *cfg.Auth.OpenShift.AuthorizationUrl
+			if normalized, err := authprovider.NormalizeIssuerURL(openshiftIssuer); err == nil {
+				openshiftIssuer = normalized
+			} else {
+				openshiftIssuer = strings.TrimSuffix(openshiftIssuer, "/")
+			}
 			openshiftKey := fmt.Sprintf("%s:%s", openshiftIssuer, *cfg.Auth.OpenShift.ClientId)
 			multiAuth.AddStaticProvider(openshiftKey, openshiftAuthN)
 			configuredAuthType = AuthTypeOpenShift
@@ -237,7 +243,12 @@ func InitMultiAuth(cfg *config.Config, log logrus.FieldLogger,
 			}
 
 			// Add OIDC auth with issuer:clientId key (required for OIDC token validation)
-			oidcIssuer := strings.TrimSuffix(cfg.Auth.OIDC.Issuer, "/")
+			oidcIssuer := cfg.Auth.OIDC.Issuer
+			if normalized, err := authprovider.NormalizeIssuerURL(oidcIssuer); err == nil {
+				oidcIssuer = normalized
+			} else {
+				oidcIssuer = strings.TrimSuffix(oidcIssuer, "/")
+			}
 			oidcKey := fmt.Sprintf("%s:%s", oidcIssuer, cfg.Auth.OIDC.ClientId)
 			multiAuth.AddStaticProvider(oidcKey, oidcAuthN)
 			configuredAuthType = AuthTypeOIDC
@@ -249,7 +260,12 @@ func InitMultiAuth(cfg *config.Config, log logrus.FieldLogger,
 			if err != nil {
 				return nil, fmt.Errorf("failed to initialize OAuth2 auth: %w", err)
 			}
-			oauth2Issuer := strings.TrimSuffix(cfg.Auth.OAuth2.AuthorizationUrl, "/")
+			oauth2Issuer := cfg.Auth.OAuth2.AuthorizationUrl
+			if normalized, err := authprovider.NormalizeIssuerURL(oauth2Issuer); err == nil {
+				oauth2Issuer = normalized
+			} else {
+				oauth2Issuer = strings.TrimSuffix(oauth2Issuer, "/")
+			}
 			oauth2Key := fmt.Sprintf("%s:%s", oauth2Issuer, cfg.Auth.OAuth2.ClientId)
 			multiAuth.AddStaticProvider(oauth2Key, oauth2AuthN)
 			configuredAuthType = AuthTypeOauth2

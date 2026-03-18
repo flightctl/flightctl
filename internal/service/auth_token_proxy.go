@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/auth/authn"
+	authprovider "github.com/flightctl/flightctl/internal/auth/provider"
 	"github.com/flightctl/flightctl/internal/domain"
 )
 
@@ -240,11 +241,14 @@ type ProxyResult struct {
 // discoverTokenEndpoint discovers the token endpoint from an OIDC issuer's well-known configuration
 // Results are cached to avoid repeated HTTP calls
 func (p *AuthTokenProxy) discoverTokenEndpoint(issuer string) (string, error) {
-	issuer = strings.TrimSuffix(issuer, "/")
+	normalized, err := authprovider.NormalizeIssuerURL(issuer)
+	if err != nil {
+		return "", fmt.Errorf("invalid issuer URL: %w", err)
+	}
 
 	// Check cache first (read lock)
 	p.tokenEndpointCacheMu.RLock()
-	if cached, ok := p.tokenEndpointCache[issuer]; ok {
+	if cached, ok := p.tokenEndpointCache[normalized]; ok {
 		// Check if entry has expired
 		if time.Now().Before(cached.expiresAt) {
 			p.tokenEndpointCacheMu.RUnlock()
@@ -254,7 +258,10 @@ func (p *AuthTokenProxy) discoverTokenEndpoint(issuer string) (string, error) {
 	p.tokenEndpointCacheMu.RUnlock()
 
 	// Not in cache, perform discovery
-	discoveryURL := issuer + "/.well-known/openid-configuration"
+	discoveryURL, err := authprovider.DiscoveryURL(issuer)
+	if err != nil {
+		return "", fmt.Errorf("invalid issuer URL for discovery: %w", err)
+	}
 
 	resp, err := p.discoveryClient.Get(discoveryURL)
 	if err != nil {
@@ -280,7 +287,7 @@ func (p *AuthTokenProxy) discoverTokenEndpoint(issuer string) (string, error) {
 
 	// Cache the result with TTL (write lock)
 	p.tokenEndpointCacheMu.Lock()
-	p.tokenEndpointCache[issuer] = &cacheEntry{
+	p.tokenEndpointCache[normalized] = &cacheEntry{
 		endpoint:  discovery.TokenEndpoint,
 		expiresAt: time.Now().Add(p.tokenEndpointCacheTTL),
 	}
