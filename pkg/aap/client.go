@@ -177,7 +177,7 @@ func post[T any](a *AAPGatewayClient, ctx context.Context, endpoint *url.URL, to
 		if resp.StatusCode == http.StatusForbidden {
 			return nil, ErrForbidden
 		}
-		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+		return nil, fmt.Errorf("unexpected status code: %d, body: %s", resp.StatusCode, string(respBody))
 	}
 
 	var result T
