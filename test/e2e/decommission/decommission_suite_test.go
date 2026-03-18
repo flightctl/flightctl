@@ -35,7 +35,6 @@ func TestCLIDecommission(t *testing.T) {
 var _ = BeforeSuite(func() {
 	auxiliary.Get(context.Background())
 	Expect(setup.EnsureDefaultProviders(nil)).To(Succeed())
-	// Setup VM and harness for this worker
 	e2e.SetupWorkerHarnessOrAbort()
 })
 

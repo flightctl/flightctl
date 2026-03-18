@@ -127,43 +127,26 @@ var _ = Describe("CLI decommission test", func() {
 				"Expected 404 status for non-existent device")
 		})
 
-		It("Should return 409 when decommissioning a device twice", Label("88272"), func() {
+		It("Should return 409 when decommissioning while ongoing and after completion", Label("88272-88273"), func() {
 			harness := e2e.GetWorkerHarness()
 
 			By("Enrolling a device and waiting for it to come online")
 			deviceId, _ := harness.EnrollAndWaitForOnlineStatus()
 			defer cleanupDeviceAndER(harness, deviceId)
-			GinkgoWriter.Printf("Enrolled device for double-decommission test: %s\n", deviceId)
+			GinkgoWriter.Printf("Enrolled device for conflict test: %s\n", deviceId)
 
-			By("Decommissioning the device for the first time")
+			By("Decommissioning the device")
 			out, err := harness.CLI("decommission", "devices/"+deviceId)
 			Expect(err).NotTo(HaveOccurred(), "First decommission should succeed")
 			Expect(out).To(ContainSubstring(decommissionSuccessMsg), "First decommission should return 200 OK")
 
-			By("Attempting to decommission the same device a second time")
+			By("Attempting to decommission while decommission is still ongoing")
 			out, err = harness.CLI("decommission", "devices/"+deviceId)
-			Expect(err).To(HaveOccurred(), "Second decommission should fail with conflict")
+			Expect(err).To(HaveOccurred(), "Decommission during ongoing should fail with conflict")
 			Expect(out).To(SatisfyAny(
 				ContainSubstring("409"),
 				ContainSubstring("already has decommissioning requested"),
-			), "Expected 409 conflict or 'already has decommissioning requested' message")
-		})
-	})
-
-	Context("Decommission after completion", func() {
-
-		It("Should return 409 when decommissioning a device that already completed decommissioning", Label("88273"), func() {
-			harness := e2e.GetWorkerHarness()
-
-			By("Enrolling a device and waiting for it to come online")
-			deviceId, _ := harness.EnrollAndWaitForOnlineStatus()
-			defer cleanupDeviceAndER(harness, deviceId)
-			GinkgoWriter.Printf("Enrolled device for completed-decommission test: %s\n", deviceId)
-
-			By("Decommissioning the device")
-			out, err := harness.CLI("decommission", "devices/"+deviceId)
-			Expect(err).NotTo(HaveOccurred(), "Decommission should succeed")
-			Expect(out).To(ContainSubstring(decommissionSuccessMsg), "Decommission should return 200 OK")
+			), "Expected 409 conflict while decommission is ongoing")
 
 			By("Waiting for decommission to complete")
 			harness.WaitForDeviceContents(deviceId, decommissionCompleteDesc,
@@ -171,13 +154,13 @@ var _ = Describe("CLI decommission test", func() {
 					return e2e.ConditionExists(device, "DeviceDecommissioning", "True", string(v1beta1.DecommissionStateComplete))
 				}, TIMEOUT)
 
-			By("Attempting to decommission the already-completed device again")
+			By("Attempting to decommission after decommission has completed")
 			out, err = harness.CLI("decommission", "devices/"+deviceId)
-			Expect(err).To(HaveOccurred(), "Decommission of already-completed device should fail")
+			Expect(err).To(HaveOccurred(), "Decommission after completion should fail with conflict")
 			Expect(out).To(SatisfyAny(
 				ContainSubstring("409"),
 				ContainSubstring("already has decommissioning requested"),
-			), "Expected 409 conflict for already-completed decommission")
+			), "Expected 409 conflict after decommission completed")
 		})
 	})
 })
