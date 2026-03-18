@@ -15,6 +15,11 @@ global:
   # - builtin: Generate required certificates using Helm's builtin library functions.
   # - auto: If cert-manager is installed, use it; otherwise, fall back to builtin.
   generateCertificates: "auto"
+  # -- Whether to use generated TLS certificates on edge-terminated routes via externalCertificate.
+  # - auto: use externalCertificate on fresh install and preserve existing behavior on upgrade.
+  # - true: always use externalCertificate.
+  # - false: never use externalCertificate (rely on default router cert).
+  routeExternalCertificate: "auto"
   # -- A separate Namespace to which non-user-facing components should be deployed for increased security isolation.
   internalNamespace: ""
   # -- Base domain to construct the FQDN for the service endpoints.

@@ -317,6 +317,7 @@ subdomain
 CatalogItem
 URI
 CatalogItems
+multicluster
  - docs/user/installing/configuring-imagebuilder.md
  entitlement
  uncomment

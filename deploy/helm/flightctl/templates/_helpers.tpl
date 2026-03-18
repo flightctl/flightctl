@@ -546,6 +546,37 @@ Usage: {{- include "flightctl.dbSslVolumes" . | nindent X }}
 {{- end }}
 
 {{- /*
+Determine whether to use externalCertificate on edge-terminated routes.
+Returns: "true" or "false"
+- "auto" (default): use on fresh install; on upgrade, preserve existing behavior
+  by checking whether the specified route already has externalCertificate set.
+- "true": always use
+- "false": never use
+Usage: {{- $useExtCert := include "flightctl.useRouteExternalCertificate" (dict "root" . "routeName" "flightctl-ui") }}
+*/}}
+{{- define "flightctl.useRouteExternalCertificate" }}
+  {{- $root := .root }}
+  {{- $routeName := .routeName }}
+  {{- $val := $root.Values.global.routeExternalCertificate | default "auto" | toString }}
+  {{- if eq $val "true" }}
+    {{- print "true" }}
+  {{- else if eq $val "false" }}
+    {{- print "false" }}
+  {{- else }}
+    {{- if $root.Release.IsInstall }}
+      {{- print "true" }}
+    {{- else }}
+      {{- $existingRoute := lookup "route.openshift.io/v1" "Route" $root.Release.Namespace $routeName }}
+      {{- if and $existingRoute $existingRoute.spec $existingRoute.spec.tls (hasKey $existingRoute.spec.tls "externalCertificate") }}
+        {{- print "true" }}
+      {{- else }}
+        {{- print "false" }}
+      {{- end }}
+    {{- end }}
+  {{- end }}
+{{- end }}
+
+{{- /*
 Determine the effective certificate generation method.
 Returns: "false", "cert-manager", or "builtin"
 Usage: {{- $certMethod := include "flightctl.getCertificateGenerationMethod" . }}
@@ -603,6 +634,34 @@ Usage: {{- $result := include "flightctl.getAlertmanagerProxyDNSSans" . | fromJs
   {{- $sans = append $sans "flightctl-alertmanager-proxy" }}
   {{- $sans = append $sans (printf "flightctl-alertmanager-proxy.%s" .Release.Namespace) }}
   {{- $sans = append $sans (printf "flightctl-alertmanager-proxy.%s.svc.cluster.local" .Release.Namespace) }}
+  {{- dict "sans" $sans | toJson -}}
+{{- end }}
+
+{{- /*
+Get DNS SANs for UI server certificate
+Usage: {{- $result := include "flightctl.getUiDNSSans" . | fromJson }}{{ $uiDNSSans := $result.sans }}
+*/}}
+{{- define "flightctl.getUiDNSSans" }}
+  {{- $sans := list }}
+  {{- $baseDomain := include "flightctl.getBaseDomain" . }}
+  {{- $sans = append $sans (printf "ui.%s" $baseDomain) }}
+  {{- $sans = append $sans "flightctl-ui" }}
+  {{- $sans = append $sans (printf "flightctl-ui.%s" .Release.Namespace) }}
+  {{- $sans = append $sans (printf "flightctl-ui.%s.svc.cluster.local" .Release.Namespace) }}
+  {{- dict "sans" $sans | toJson -}}
+{{- end }}
+
+{{- /*
+Get DNS SANs for CLI artifacts server certificate
+Usage: {{- $result := include "flightctl.getCliArtifactsDNSSans" . | fromJson }}{{ $cliArtifactsDNSSans := $result.sans }}
+*/}}
+{{- define "flightctl.getCliArtifactsDNSSans" }}
+  {{- $sans := list }}
+  {{- $baseDomain := include "flightctl.getBaseDomain" . }}
+  {{- $sans = append $sans (printf "cli-artifacts.%s" $baseDomain) }}
+  {{- $sans = append $sans "flightctl-cli-artifacts" }}
+  {{- $sans = append $sans (printf "flightctl-cli-artifacts.%s" .Release.Namespace) }}
+  {{- $sans = append $sans (printf "flightctl-cli-artifacts.%s.svc.cluster.local" .Release.Namespace) }}
   {{- dict "sans" $sans | toJson -}}
 {{- end }}
 

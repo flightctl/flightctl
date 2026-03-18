@@ -27,6 +27,23 @@ Before attempting an upgrade:
 
 Detailed upgrade procedures will be documented here once upgrade paths are available.
 
+## Upgrade Notes
+
+### Upgrading from 1.0 to 1.1
+
+#### UI TLS secret rename (multicluster engine plugin only)
+
+When the UI is deployed as a plugin to multicluster engine, the TLS secret was
+renamed from `flightctl-ui-serving-cert` to `flightctl-ui-server-tls` to align
+with the certificate generation mechanism used by other Flight Control services.
+
+After upgrading, the old `flightctl-ui-serving-cert` secret is orphaned. Once
+the UI pod is running successfully, you can safely delete it:
+
+```bash
+kubectl delete secret flightctl-ui-serving-cert -n <namespace>
+```
+
 ## API Version Compatibility
 
 Flight Control maintains API version compatibility according to these principles.

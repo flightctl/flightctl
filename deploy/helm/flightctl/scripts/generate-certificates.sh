@@ -567,6 +567,26 @@ if [[ "$CREATE_K8S_SECRETS" == "true" ]]; then
             --dry-run=client -o yaml | $K8S_CLI apply -f -
     fi
 
+    # Create flightctl-ui-server-tls secret (only if certificate was generated)
+    if [[ ${#UI_SANS[@]} -gt 0 ]]; then
+        echo "Creating secret: flightctl-ui-server-tls"
+        $K8S_CLI create secret tls flightctl-ui-server-tls \
+            --namespace="$NAMESPACE" \
+            --cert="$UI_CERT" \
+            --key="$UI_KEY" \
+            --dry-run=client -o yaml | $K8S_CLI apply -f -
+    fi
+
+    # Create flightctl-cli-artifacts-server-tls secret (only if certificate was generated)
+    if [[ ${#CLI_ARTIFACTS_SANS[@]} -gt 0 ]]; then
+        echo "Creating secret: flightctl-cli-artifacts-server-tls"
+        $K8S_CLI create secret tls flightctl-cli-artifacts-server-tls \
+            --namespace="$NAMESPACE" \
+            --cert="$CLI_ARTIFACTS_CERT" \
+            --key="$CLI_ARTIFACTS_KEY" \
+            --dry-run=client -o yaml | $K8S_CLI apply -f -
+    fi
+
     # Create CA bundle Secret (compatible with trust-manager format)
     echo "Creating Secret: flightctl-ca-bundle"
     $K8S_CLI create secret generic flightctl-ca-bundle \
