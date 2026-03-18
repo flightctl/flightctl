@@ -10,9 +10,12 @@ RUN dnf install -y \
       go-rpm-macros \
       selinux-policy \
       pam-devel \
-      selinux-policy-devel 
+      selinux-policy-devel
 
 RUN dnf clean all
+
+RUN (pip3 install --break-system-packages 'specfile>=0.40.0') || \
+    (dnf install -y python3-pip && pip3 install --break-system-packages 'specfile>=0.40.0')
 
 RUN install -d -m 0755 /root/go/pkg/mod && \
     install -d -m 0755 /root/.cache/go-build && \
