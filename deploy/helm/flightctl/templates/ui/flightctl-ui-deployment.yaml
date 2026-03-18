@@ -106,7 +106,7 @@ spec:
             {{- end }}
             {{- if eq $enableMulticlusterExtensions "true" }}
             - mountPath: /app/serving-cert
-              name: flightctl-ui-serving-cert
+              name: flightctl-ui-server-tls
             {{- end }}
       restartPolicy: Always
       volumes:
@@ -119,9 +119,9 @@ spec:
             secretName: flightctl-ui-certs
         {{- end }}
         {{- if eq $enableMulticlusterExtensions "true" }}
-        - name: flightctl-ui-serving-cert
+        - name: flightctl-ui-server-tls
           secret:
-            secretName: flightctl-ui-serving-cert
+            secretName: flightctl-ui-server-tls
             defaultMode: 420
         {{- end }}
 {{ end }}

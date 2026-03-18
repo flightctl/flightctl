@@ -41,6 +41,11 @@
           "description": "Secret containing TLS ca/cert/key. It should be valid for *.${baseDomain}. This certificate is only used for non-mTLS endpoints, mTLS endpoints like agent-api, etc will use different certificates.",
           "default": "flightctl-api-server-tls"
         },
+        "routeExternalCertificate": {
+          "type": "string",
+          "description": "Whether to use generated TLS certificates on edge-terminated routes via externalCertificate. 'auto' uses on fresh install and preserves existing behavior on upgrade. 'true' always uses. 'false' never uses (rely on default router cert).",
+          "enum": ["auto", "true", "false"]
+        },
         "storageClassName": {
           "type": "string",
           "description": "Storage class name for PVCs. Empty to use default."

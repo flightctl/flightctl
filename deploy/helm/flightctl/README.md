@@ -99,6 +99,10 @@ helm upgrade \
 * Before major upgrades, back up the database and configuration to ensure a clean restore point.
 * **Preview the diff before upgrading** with the [Helm diff plugin](https://github.com/databus23/helm-diff).
 
+**Upgrade Notes (1.0 → 1.1):**
+
+* When the UI is deployed as a plugin to multicluster engine, the TLS secret was renamed from `flightctl-ui-serving-cert` to `flightctl-ui-server-tls`. After upgrading, the old secret is orphaned. Once the UI pod is running successfully, you can safely delete it with `kubectl delete secret flightctl-ui-serving-cert -n <namespace>`.
+
 ### Rollbacks
 
 Use rollbacks to revert to a previously successful revision if an upgrade causes issues. Use `helm history` to identify the target revision, then roll back if needed.
@@ -324,6 +328,7 @@ For more detailed configuration options, see the [Values](#values) section below
 | global.imagePullSecretName | string | `""` | Name of the secret that holds image pull secret for accessing private container registries |
 | global.internalNamespace | string | `""` | A separate Namespace to which non-user-facing components should be deployed for increased security isolation. |
 | global.multiclusterEngineNamespace | string | `"multicluster-engine"` | Namespace where MultiCluster Engine is installed. Used for creating discovery ConfigMap and RBAC bindings. |
+| global.routeExternalCertificate | string | `"auto"` | Whether to use generated TLS certificates on edge-terminated routes via externalCertificate. - auto: use externalCertificate on fresh install and preserve existing behavior on upgrade. - true: always use externalCertificate. - false: never use externalCertificate (rely on default router cert). |
 | global.sshKnownHosts.data | string | `""` | SSH known hosts file content for Git repository host key verification. |
 | global.storageClassName | string | `""` | Storage class name for the PVCs. Keep empty to use the default storage class. |
 | imageBuilderApi | object | `{"enabled":true,"image":{"image":"quay.io/flightctl/flightctl-imagebuilder-api","pullPolicy":"","tag":""}}` | ImageBuilder API Configuration |
