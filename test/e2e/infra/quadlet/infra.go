@@ -68,7 +68,7 @@ type InfraProvider struct {
 // NewInfraProvider creates a new Quadlet InfraProvider.
 // For remote hosts, set QUADLET_HOST and E2E_SSH_USER env vars.
 // Auth: set E2E_SSH_KEY_PATH for key-based auth, or E2E_SSH_PASSWORD for password auth (requires sshpass).
-// Registry comes from auxiliary; use auxiliary.Get(ctx).RegistryHost/RegistryPort and pass explicitly.
+// Registry comes from auxiliary; use auxiliary.Get(ctx).Registry.Host/Registry.Port and Registry.Authenticated for credential-required OCI pulls.
 func NewInfraProvider(configDir, secretDir string, useSudo bool) *InfraProvider {
 	host := os.Getenv("QUADLET_HOST")
 	if host == "" {

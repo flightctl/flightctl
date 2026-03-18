@@ -59,7 +59,7 @@ func (s *Services) UploadCharts() error {
 		}
 	}
 
-	logrus.Infof("Uploaded %d helm chart(s) to registry %s", chartCount, s.RegistryURL)
+	logrus.Infof("Uploaded %d helm chart(s) to registry %s", chartCount, s.Registry.URL)
 	return nil
 }
 
@@ -91,7 +91,7 @@ func (s *Services) uploadTestAppChart(chartDir, version, message string) error {
 	}
 
 	pkgFile := filepath.Join(tmpDir, fmt.Sprintf("test-app-%s.tgz", version))
-	ociRef := fmt.Sprintf("oci://%s/flightctl/charts", s.RegistryURL)
+	ociRef := fmt.Sprintf("oci://%s/flightctl/charts", s.Registry.URL)
 	logrus.Infof("Pushing test-app:%s to %s", version, ociRef)
 	pushCmd := exec.Command("helm", "push", pkgFile, ociRef, "--insecure-skip-tls-verify")
 	if out, err := pushCmd.CombinedOutput(); err != nil {
@@ -134,7 +134,7 @@ func (s *Services) uploadChart(chartDir string) error {
 	}
 
 	pkgFile := filepath.Join(tmpDir, fmt.Sprintf("%s-%s.tgz", chartName, version))
-	ociRef := fmt.Sprintf("oci://%s/flightctl/charts", s.RegistryURL)
+	ociRef := fmt.Sprintf("oci://%s/flightctl/charts", s.Registry.URL)
 	logrus.Infof("Pushing %s:%s to %s", chartName, version, ociRef)
 	pushCmd := exec.Command("helm", "push", pkgFile, ociRef, "--insecure-skip-tls-verify")
 	if out, err := pushCmd.CombinedOutput(); err != nil {

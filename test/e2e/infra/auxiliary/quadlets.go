@@ -64,7 +64,7 @@ func (s *Services) UploadQuadlets() error {
 		}
 	}
 
-	logrus.Infof("Uploaded %d quadlet artifact(s) to registry %s", artifactCount, s.RegistryURL)
+	logrus.Infof("Uploaded %d quadlet artifact(s) to registry %s", artifactCount, s.Registry.URL)
 	return nil
 }
 
@@ -82,7 +82,7 @@ func (s *Services) uploadQuadletApp(appDir, appName string) error {
 		return fmt.Errorf("failed to create tarball: %w", err)
 	}
 
-	artifactRef := fmt.Sprintf("%s/flightctl/quadlets/%s:latest", s.RegistryURL, appName)
+	artifactRef := fmt.Sprintf("%s/flightctl/quadlets/%s:latest", s.Registry.URL, appName)
 	logrus.Infof("Pushing %s to %s", appName, artifactRef)
 
 	return s.pushArtifact(artifactRef, tarball)
@@ -157,7 +157,7 @@ func (s *Services) uploadQuadletVolume(volumeDir, volumeName string) error {
 		return nil
 	}
 
-	artifactRef := fmt.Sprintf("%s/flightctl/quadlets/%s:latest", s.RegistryURL, volumeName)
+	artifactRef := fmt.Sprintf("%s/flightctl/quadlets/%s:latest", s.Registry.URL, volumeName)
 	logrus.Infof("Pushing volume artifact: %s to %s", volumeName, artifactRef)
 
 	return s.pushVolumeArtifact(artifactRef, volumeDir, files)

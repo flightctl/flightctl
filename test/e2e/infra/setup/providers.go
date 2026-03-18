@@ -98,7 +98,7 @@ func GetDefaultProviders() *infra.Providers {
 }
 
 // EnsureDefaultProviders creates and sets default providers if not already set.
-// Registry is not from infra; get it from auxiliary.Get(ctx).RegistryHost/RegistryPort and pass explicitly where needed.
+// Registry is not from infra; get it from auxiliary.Get(ctx).Registry.Host/Registry.Port and pass explicitly where needed.
 // Call once at harness/suite setup; after that use GetDefaultProviders().
 func EnsureDefaultProviders(config *infra.EnvironmentConfig) error {
 	if GetDefaultProviders() != nil {

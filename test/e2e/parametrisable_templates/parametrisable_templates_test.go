@@ -24,7 +24,7 @@ var _ = Describe("Template variables in the device configuration", func() {
 
 	BeforeEach(func() {
 		harness := e2e.GetWorkerHarness()
-		registryHost, registryPort = auxSvcs.RegistryHost, auxSvcs.RegistryPort
+		registryHost, registryPort = auxSvcs.Registry.Host, auxSvcs.Registry.Port
 		deviceId, _ = harness.EnrollAndWaitForOnlineStatus()
 		testID = harness.GetTestIDFromContext()
 	})
@@ -711,15 +711,15 @@ var motdGitConfigSpec = v1beta1.GitConfigProviderSpec{
 func getGitEnv(ctx context.Context) (e2e.GitServerConfig, string, int, testutil.SSHPrivateKeyPath, testutil.SSHPrivateKeyContent) {
 	svc := auxiliary.Get(ctx)
 	config := e2e.GitServerConfig{
-		Host: svc.GitServerHost,
-		Port: svc.GitServerPort,
+		Host: svc.GitServer.Host,
+		Port: svc.GitServer.Port,
 		User: "user",
 	}
 	keyPath, err := svc.GetGitSSHPrivateKeyPath()
 	Expect(err).ToNot(HaveOccurred(), "failed to get git SSH private key path from auxiliary services")
 	keyContent, err := svc.GetGitSSHPrivateKey()
 	Expect(err).ToNot(HaveOccurred(), "failed to get git SSH private key content from auxiliary services")
-	return config, svc.GitServerInternalHost, svc.GitServerInternalPort, keyPath, keyContent
+	return config, svc.GitServer.InternalHost, svc.GitServer.InternalPort, keyPath, keyContent
 }
 
 var appFleetSelector = v1beta1.LabelSelector{
