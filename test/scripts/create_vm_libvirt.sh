@@ -12,7 +12,7 @@ VM_RAM=10240                # RAM in MB necessary to run the flightctl e2e
 VM_CPUS=8                  # Number of CPUs
 VM_DISK_SIZE_INC=${VM_DISK_SIZE_INC:-30} # Disk size increment
 NETWORK_NAME="$(get_ocp_nodes_network)"   # Network name
-NETWORK_NAME=${NETWORK_NAME:-baremetal-0}
+NETWORK_NAME=${NETWORK_NAME:-flightctl-net}
 DEFAULT_NETWORK_NAME="default"
 echo "ocp_network name is: ${NETWORK_NAME}"
 echo "Disk size increment: ${VM_DISK_SIZE_INC}G"
