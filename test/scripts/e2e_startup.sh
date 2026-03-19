@@ -34,12 +34,14 @@ if [[ -n "${API_ENDPOINT:-}" ]]; then
             run_on_quadlet() {
                 if [[ -n "${E2E_SSH_HOST:-}" ]] && [[ "${E2E_SSH_HOST}" != "localhost" ]]; then
                     local ssh_user="${E2E_SSH_USER:-$USER}"
+                    local cmd
+                    cmd="$(printf '%q ' "$@")"
                     if [[ -n "${E2E_SSH_PASSWORD:-}" ]]; then
-                        SSHPASS="${E2E_SSH_PASSWORD}" sshpass -e ssh -o StrictHostKeyChecking=no "${ssh_user}@${E2E_SSH_HOST}" "$@"
+                        SSHPASS="${E2E_SSH_PASSWORD}" sshpass -e ssh -o StrictHostKeyChecking=no "${ssh_user}@${E2E_SSH_HOST}" bash -lc "$cmd"
                     elif [[ -n "${E2E_SSH_KEY_PATH:-}" ]]; then
-                        ssh -o StrictHostKeyChecking=no -i "${E2E_SSH_KEY_PATH}" "${ssh_user}@${E2E_SSH_HOST}" "$@"
+                        ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i "${E2E_SSH_KEY_PATH}" "${ssh_user}@${E2E_SSH_HOST}" bash -lc "$cmd"
                     else
-                        ssh -o StrictHostKeyChecking=no "${ssh_user}@${E2E_SSH_HOST}" "$@"
+                        ssh -o StrictHostKeyChecking=no -o BatchMode=yes "${ssh_user}@${E2E_SSH_HOST}" bash -lc "$cmd"
                     fi
                 else
                     "$@"
