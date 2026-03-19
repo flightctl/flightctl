@@ -117,12 +117,15 @@ func main() {
 	templateData.OS = osVersion
 	templateData.RhelOS = rhelOS
 
-	// Transform image names to include RHEL OS suffix for flightctl images
-	for name, img := range templateData.Images {
-		if strings.Contains(img.Image, "flightctl/flightctl-") {
-			// Transform quay.io/flightctl/flightctl-api to quay.io/flightctl/flightctl-api-rhel9
-			img.Image = img.Image + "-" + rhelOS
-			templateData.Images[name] = img
+	// Transform image names to include RHEL OS suffix for flightctl images (only for community builds)
+	// Red Hat builds already have the correct image names in helm-chart-opts.yaml
+	if flavor == "community" {
+		for name, img := range templateData.Images {
+			if strings.Contains(img.Image, "flightctl/flightctl-") {
+				// Transform quay.io/flightctl/flightctl-api to quay.io/flightctl/flightctl-api-rhel9
+				img.Image = img.Image + "-" + rhelOS
+				templateData.Images[name] = img
+			}
 		}
 	}
 
