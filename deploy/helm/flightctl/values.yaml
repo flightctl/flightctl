@@ -234,7 +234,7 @@ alertmanager:
 api:
   image:
     # -- API server container image
-    image: quay.io/flightctl/flightctl-api-rhel9
+    image: quay.io/flightctl/flightctl-api-rhel10
     # -- API server image tag (leave empty to use chart appVersion)
     tag: ""
     # -- Image pull policy for API server container
@@ -271,7 +271,7 @@ cliArtifacts:
   enabled: true
   image:
     # -- CLI artifacts container image
-    image: quay.io/flightctl/flightctl-cli-artifacts-rhel9
+    image: quay.io/flightctl/flightctl-cli-artifacts-rhel10
     # -- CLI artifacts image tag
     tag: ""
     # -- Image pull policy for CLI artifacts container
@@ -283,7 +283,7 @@ cliArtifacts:
 worker:
   image:
     # -- Worker container image
-    image: quay.io/flightctl/flightctl-worker-rhel9
+    image: quay.io/flightctl/flightctl-worker-rhel10
     # -- Worker image tag
     tag: ""
     # -- Image pull policy for worker container
@@ -295,7 +295,7 @@ worker:
 periodic:
   image:
     # -- Periodic container image
-    image: quay.io/flightctl/flightctl-periodic-rhel9
+    image: quay.io/flightctl/flightctl-periodic-rhel10
     # -- Periodic image tag
     tag: ""
     # -- Image pull policy for periodic container
@@ -309,7 +309,7 @@ alertExporter:
   enabled: true
   image:
     # -- Alert exporter container image
-    image: quay.io/flightctl/flightctl-alert-exporter-rhel9
+    image: quay.io/flightctl/flightctl-alert-exporter-rhel10
     # -- Alert exporter image tag
     tag: ""
     # -- Image pull policy for alert exporter container
@@ -321,7 +321,7 @@ alertmanagerProxy:
   enabled: true
   image:
     # -- Alertmanager proxy container image
-    image: quay.io/flightctl/flightctl-alertmanager-proxy-rhel9
+    image: quay.io/flightctl/flightctl-alertmanager-proxy-rhel10
     # -- Alertmanager proxy image tag
     tag: ""
     # -- Image pull policy for Alertmanager proxy container
@@ -333,7 +333,7 @@ imageBuilderApi:
   enabled: true
   image:
     # -- ImageBuilder API container image
-    image: quay.io/flightctl/flightctl-imagebuilder-api-rhel9
+    image: quay.io/flightctl/flightctl-imagebuilder-api-rhel10
     # -- ImageBuilder API image tag
     tag: ""
     # -- Image pull policy for ImageBuilder API container
@@ -347,7 +347,7 @@ imageBuilderWorker:
   replicas: 1
   image:
     # -- ImageBuilder Worker container image
-    image: quay.io/flightctl/flightctl-imagebuilder-worker-rhel9
+    image: quay.io/flightctl/flightctl-imagebuilder-worker-rhel10
     # -- ImageBuilder Worker image tag
     tag: ""
     # -- Image pull policy for ImageBuilder Worker container
@@ -384,7 +384,7 @@ imageBuilderWorker:
 telemetryGateway:
   image:
     # -- Telemetry gateway container image
-    image: quay.io/flightctl/flightctl-telemetry-gateway-rhel9
+    image: quay.io/flightctl/flightctl-telemetry-gateway-rhel10
     # -- Telemetry gateway image tag
     tag: ""
     # -- Image pull policy for Telemetry gateway container
@@ -397,9 +397,9 @@ ui:
   enabled: true
   image:
     # -- UI container image
-    image: quay.io/flightctl/flightctl-ui-rhel9
+    image: quay.io/flightctl/flightctl-ui-rhel10
     # -- UI Plugin container image
-    pluginImage: quay.io/flightctl/flightctl-ocp-ui-rhel9
+    pluginImage: quay.io/flightctl/flightctl-ocp-ui-rhel10
     # -- UI container image tag
     tag: ""
     # -- Image pull policy for UI container
@@ -426,7 +426,7 @@ clusterCli:
 dbSetup:
   image:
     # -- Database setup container image
-    image: quay.io/flightctl/flightctl-db-setup-rhel9
+    image: quay.io/flightctl/flightctl-db-setup-rhel10
     # -- Database setup image tag
     tag: ""
     # -- Image pull policy for database setup container
