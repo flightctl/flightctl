@@ -47,22 +47,29 @@ done
 
 SQL_ARG="--set db.builtin.image.image=${SQL_IMAGE} --set db.builtin.image.tag=${SQL_VERSION}"
 KV_ARG="--set kv.image.image=${KV_IMAGE} --set kv.image.tag=${KV_VERSION}"
+# Map el9/el10 to rhel9/rhel10 for published image names
+case "${OS}" in
+  el9) RHEL_OS="rhel9" ;;
+  el10) RHEL_OS="rhel10" ;;
+  *) RHEL_OS="${OS}" ;;
+esac
+
 # Override all service images to use OS-specific names
 SERVICE_ARGS=""
 if [ -z "$ONLY_DB" ]; then
-  SERVICE_ARGS="--set api.image.image=quay.io/flightctl/flightctl-api-${OS}"
-  SERVICE_ARGS="$SERVICE_ARGS --set worker.image.image=quay.io/flightctl/flightctl-worker-${OS}"
-  SERVICE_ARGS="$SERVICE_ARGS --set periodic.image.image=quay.io/flightctl/flightctl-periodic-${OS}"
-  SERVICE_ARGS="$SERVICE_ARGS --set alertExporter.image.image=quay.io/flightctl/flightctl-alert-exporter-${OS}"
-  SERVICE_ARGS="$SERVICE_ARGS --set alertmanagerProxy.image.image=quay.io/flightctl/flightctl-alertmanager-proxy-${OS}"
-  SERVICE_ARGS="$SERVICE_ARGS --set telemetryGateway.image.image=quay.io/flightctl/flightctl-telemetry-gateway-${OS}"
-  SERVICE_ARGS="$SERVICE_ARGS --set imageBuilderApi.image.image=quay.io/flightctl/flightctl-imagebuilder-api-${OS}"
-  SERVICE_ARGS="$SERVICE_ARGS --set imageBuilderWorker.image.image=quay.io/flightctl/flightctl-imagebuilder-worker-${OS}"
-  SERVICE_ARGS="$SERVICE_ARGS --set cliArtifacts.image.image=quay.io/flightctl/flightctl-cli-artifacts-${OS}"
+  SERVICE_ARGS="--set api.image.image=quay.io/flightctl/flightctl-api-${RHEL_OS}"
+  SERVICE_ARGS="$SERVICE_ARGS --set worker.image.image=quay.io/flightctl/flightctl-worker-${RHEL_OS}"
+  SERVICE_ARGS="$SERVICE_ARGS --set periodic.image.image=quay.io/flightctl/flightctl-periodic-${RHEL_OS}"
+  SERVICE_ARGS="$SERVICE_ARGS --set alertExporter.image.image=quay.io/flightctl/flightctl-alert-exporter-${RHEL_OS}"
+  SERVICE_ARGS="$SERVICE_ARGS --set alertmanagerProxy.image.image=quay.io/flightctl/flightctl-alertmanager-proxy-${RHEL_OS}"
+  SERVICE_ARGS="$SERVICE_ARGS --set telemetryGateway.image.image=quay.io/flightctl/flightctl-telemetry-gateway-${RHEL_OS}"
+  SERVICE_ARGS="$SERVICE_ARGS --set imageBuilderApi.image.image=quay.io/flightctl/flightctl-imagebuilder-api-${RHEL_OS}"
+  SERVICE_ARGS="$SERVICE_ARGS --set imageBuilderWorker.image.image=quay.io/flightctl/flightctl-imagebuilder-worker-${RHEL_OS}"
+  SERVICE_ARGS="$SERVICE_ARGS --set cliArtifacts.image.image=quay.io/flightctl/flightctl-cli-artifacts-${RHEL_OS}"
 fi
 
 # Always override db-setup image with OS suffix
-DB_SETUP_ARG="--set dbSetup.image.image=quay.io/flightctl/flightctl-db-setup-${OS}"
+DB_SETUP_ARG="--set dbSetup.image.image=quay.io/flightctl/flightctl-db-setup-${RHEL_OS}"
 
 # helm expects the namespaces to exist, and creating namespaces
 # inside the helm charts is not recommended.

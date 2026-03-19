@@ -229,20 +229,28 @@ jobs:
           OS: el9
         run: |
           CHART_FILE="artifacts-pr/flightctl-chart.tgz"
+
+          # Map el9/el10 to rhel9/rhel10 for published image names
+          case "${OS}" in
+            el9) RHEL_OS="rhel9" ;;
+            el10) RHEL_OS="rhel10" ;;
+            *) RHEL_OS="${OS}" ;;
+          esac
+
           # Use values files with image overrides
           helm upgrade flightctl "${CHART_FILE}" \
             --namespace flightctl-external \
             --reuse-values \
-            --set api.image.image=quay.io/flightctl/flightctl-api-${OS} \
-            --set worker.image.image=quay.io/flightctl/flightctl-worker-${OS} \
-            --set periodic.image.image=quay.io/flightctl/flightctl-periodic-${OS} \
-            --set alertExporter.image.image=quay.io/flightctl/flightctl-alert-exporter-${OS} \
-            --set alertmanagerProxy.image.image=quay.io/flightctl/flightctl-alertmanager-proxy-${OS} \
-            --set telemetryGateway.image.image=quay.io/flightctl/flightctl-telemetry-gateway-${OS} \
-            --set imageBuilderApi.image.image=quay.io/flightctl/flightctl-imagebuilder-api-${OS} \
-            --set imageBuilderWorker.image.image=quay.io/flightctl/flightctl-imagebuilder-worker-${OS} \
-            --set cliArtifacts.image.image=quay.io/flightctl/flightctl-cli-artifacts-${OS} \
-            --set dbSetup.image.image=quay.io/flightctl/flightctl-db-setup-${OS} \
+            --set api.image.image=quay.io/flightctl/flightctl-api-${RHEL_OS} \
+            --set worker.image.image=quay.io/flightctl/flightctl-worker-${RHEL_OS} \
+            --set periodic.image.image=quay.io/flightctl/flightctl-periodic-${RHEL_OS} \
+            --set alertExporter.image.image=quay.io/flightctl/flightctl-alert-exporter-${RHEL_OS} \
+            --set alertmanagerProxy.image.image=quay.io/flightctl/flightctl-alertmanager-proxy-${RHEL_OS} \
+            --set telemetryGateway.image.image=quay.io/flightctl/flightctl-telemetry-gateway-${RHEL_OS} \
+            --set imageBuilderApi.image.image=quay.io/flightctl/flightctl-imagebuilder-api-${RHEL_OS} \
+            --set imageBuilderWorker.image.image=quay.io/flightctl/flightctl-imagebuilder-worker-${RHEL_OS} \
+            --set cliArtifacts.image.image=quay.io/flightctl/flightctl-cli-artifacts-${RHEL_OS} \
+            --set dbSetup.image.image=quay.io/flightctl/flightctl-db-setup-${RHEL_OS} \
             --debug --wait # for the deployment complete (including readiness probes passing)
 
       - name: "[HEAD] Wait for API readiness after upgrade"
@@ -314,19 +322,26 @@ jobs:
         run: |
           CHART_FILE="artifacts-pr/flightctl-chart.tgz"
 
+          # Map el9/el10 to rhel9/rhel10 for published image names
+          case "${OS}" in
+            el9) RHEL_OS="rhel9" ;;
+            el10) RHEL_OS="rhel10" ;;
+            *) RHEL_OS="${OS}" ;;
+          esac
+
           helm upgrade flightctl "${CHART_FILE}" \
             --namespace flightctl-external \
             --reuse-values \
-            --set api.image.image=quay.io/flightctl/flightctl-api-${OS} \
-            --set worker.image.image=quay.io/flightctl/flightctl-worker-${OS} \
-            --set periodic.image.image=quay.io/flightctl/flightctl-periodic-${OS} \
-            --set alertExporter.image.image=quay.io/flightctl/flightctl-alert-exporter-${OS} \
-            --set alertmanagerProxy.image.image=quay.io/flightctl/flightctl-alertmanager-proxy-${OS} \
-            --set telemetryGateway.image.image=quay.io/flightctl/flightctl-telemetry-gateway-${OS} \
-            --set imageBuilderApi.image.image=quay.io/flightctl/flightctl-imagebuilder-api-${OS} \
-            --set imageBuilderWorker.image.image=quay.io/flightctl/flightctl-imagebuilder-worker-${OS} \
-            --set cliArtifacts.image.image=quay.io/flightctl/flightctl-cli-artifacts-${OS} \
-            --set dbSetup.image.image=quay.io/flightctl/flightctl-db-setup-${OS} \
+            --set api.image.image=quay.io/flightctl/flightctl-api-${RHEL_OS} \
+            --set worker.image.image=quay.io/flightctl/flightctl-worker-${RHEL_OS} \
+            --set periodic.image.image=quay.io/flightctl/flightctl-periodic-${RHEL_OS} \
+            --set alertExporter.image.image=quay.io/flightctl/flightctl-alert-exporter-${RHEL_OS} \
+            --set alertmanagerProxy.image.image=quay.io/flightctl/flightctl-alertmanager-proxy-${RHEL_OS} \
+            --set telemetryGateway.image.image=quay.io/flightctl/flightctl-telemetry-gateway-${RHEL_OS} \
+            --set imageBuilderApi.image.image=quay.io/flightctl/flightctl-imagebuilder-api-${RHEL_OS} \
+            --set imageBuilderWorker.image.image=quay.io/flightctl/flightctl-imagebuilder-worker-${RHEL_OS} \
+            --set cliArtifacts.image.image=quay.io/flightctl/flightctl-cli-artifacts-${RHEL_OS} \
+            --set dbSetup.image.image=quay.io/flightctl/flightctl-db-setup-${RHEL_OS} \
             --debug --wait
 
       - name: "[HEAD] Wait for API readiness after same-version upgrade"
