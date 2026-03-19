@@ -93,10 +93,7 @@ func renderAllMappedServices(t *testing.T, configDir string) {
 // per-service files). For each service with a mapping, it sets a change, re-renders from
 // service-config.yaml (as on restart), then verifies the change is reflected.
 func TestSetServiceConfigPersistsAfterRerender(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	// Only service-config.yaml; same layout as /etc/flightctl/service-config.yaml.
-	serviceConfigPath := filepath.Join(tmpDir, "service-config.yaml")
+	// Baseline service-config.yaml content; same layout as /etc/flightctl/service-config.yaml.
 	initialServiceConfig := `
 global:
   baseDomain: test.example.com
@@ -112,15 +109,15 @@ telemetryGateway:
   forward:
     endpoint:
 `
-	require.NoError(t, os.WriteFile(serviceConfigPath, []byte(initialServiceConfig), 0600))
-
-	// Generate all per-service configs from service-config (no pre-written configs).
-	renderAllMappedServices(t, tmpDir)
-
-	p := NewInfraProvider(tmpDir, "", false)
 
 	for _, service := range ServicesWithServiceConfigMappings() {
 		t.Run(string(service), func(t *testing.T) {
+			tmpDir := t.TempDir()
+			serviceConfigPath := filepath.Join(tmpDir, "service-config.yaml")
+			require.NoError(t, os.WriteFile(serviceConfigPath, []byte(initialServiceConfig), 0600))
+			renderAllMappedServices(t, tmpDir)
+			p := NewInfraProvider(tmpDir, "", false)
+
 			// 1) Get current config (from generated file)
 			content, err := p.GetServiceConfig(service)
 			require.NoError(t, err)

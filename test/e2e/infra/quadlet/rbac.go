@@ -49,8 +49,8 @@ func NewPAMRBACProvider(useSudo bool) *PAMRBACProvider {
 	return &PAMRBACProvider{
 		pamIssuerContainer: "flightctl-pam-issuer",
 		host:               host,
-		sshUser:            os.Getenv("QUADLET_SSH_USER"),
-		sshKeyPath:         os.Getenv("QUADLET_SSH_KEY"),
+		sshUser:            os.Getenv("E2E_SSH_USER"),
+		sshKeyPath:         os.Getenv("E2E_SSH_KEY_PATH"),
 		useSudo:            useSudo,
 	}
 }
