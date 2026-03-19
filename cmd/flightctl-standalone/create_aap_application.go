@@ -16,6 +16,10 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
+// defaultAAPOAuthAppName is defined here to allow for the default
+// OAuth application name to be overridden at build time
+var defaultAAPOAuthAppName = "Flight Control"
+
 type CreateAAPApplicationOptions struct {
 	Config       string
 	OutputFile   string
@@ -62,7 +66,7 @@ The command is idempotent: it will skip creation if:
 	cmd.Flags().StringVar(&opts.Config, "config", renderer.DefaultServiceConfigPath, "Path to the service configuration file")
 	cmd.Flags().StringVar(&opts.OutputFile, "output-file", renderer.DefaultAAPClientIDPath, "Output file path for the client_id")
 	cmd.Flags().StringVar(&opts.CACertFile, "ca-cert-file", renderer.DefaultAuthCACertPath, "Path to CA certificate file for AAP TLS verification")
-	cmd.Flags().StringVar(&opts.AppName, "app-name", "Flight Control", "Name for the OAuth application")
+	cmd.Flags().StringVar(&opts.AppName, "app-name", defaultAAPOAuthAppName, "Name for the OAuth application")
 	cmd.Flags().IntVar(&opts.Organization, "organization", aap.DefaultOrganizationID, "AAP organization ID")
 
 	return cmd
