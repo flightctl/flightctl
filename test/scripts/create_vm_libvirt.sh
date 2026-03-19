@@ -8,8 +8,8 @@ export KUBECONFIG=${KUBECONFIG_PATH}
 
 # Variables
 VM_NAME="test-vm"
-VM_RAM=10240                # RAM in MB necessary to run the flightctl e2e
-VM_CPUS=8                  # Number of CPUs
+VM_RAM=${VM_RAM:-10240}                # RAM in MB necessary to run the flightctl e2e
+VM_CPUS=${VM_CPUS:-8}                  # Number of CPUs
 VM_DISK_SIZE_INC=${VM_DISK_SIZE_INC:-30} # Disk size increment
 NETWORK_NAME="$(get_ocp_nodes_network)"   # Network name
 NETWORK_NAME=${NETWORK_NAME:-flightctl-net}
@@ -28,6 +28,25 @@ SSH_PRIVATE_KEY_PATH="/home/${USER}/.ssh/id_rsa"
 SSH_PUBLIC_KEY_PATH="/home/${USER}/.ssh/id_rsa.pub"
 USER_DATA_FILE="user-data.yaml"
 REMOTE_URL=$(git remote get-url origin 2>/dev/null || echo "https://github.com/flightctl/flightctl.git")
+DISABLE_TPM_PASSTHROUGH=${DISABLE_TPM_PASSTHROUGH:-}
+
+# TPM passthrough detection
+# Passthrough gives the VM exclusive access to /dev/tpm0; only one VM can hold
+# it at a time. The device is released when the VM is destroyed or undefined.
+TPM_PASSTHROUGH_ARGS=""
+if [[ "${DISABLE_TPM_PASSTHROUGH}" =~ ^(true|1|yes)$ ]]; then
+    echo "TPM passthrough disabled via DISABLE_TPM_PASSTHROUGH"
+elif [ ! -e /dev/tpm0 ]; then
+    echo "No /dev/tpm0 found, skipping TPM passthrough"
+else
+    TPM_VERSION=$(cat /sys/class/tpm/tpm0/tpm_version_major 2>/dev/null || echo "")
+    if [ "${TPM_VERSION}" != "2" ]; then
+        echo "TPM device is not TPM 2.0 (version: ${TPM_VERSION:-unknown}), skipping passthrough"
+    else
+        echo "TPM 2.0 device detected at /dev/tpm0, enabling passthrough"
+        TPM_PASSTHROUGH_ARGS="--tpm /dev/tpm0,model=tpm-tis,backend.type=passthrough"
+    fi
+fi
 
 # Generate user-data file
 echo "Generating user-data file..."
@@ -87,7 +106,8 @@ virt-install \
   --cpu host-model \
   --graphics none \
   --noautoconsole \
-  --cloud-init disable=on,user-data=user-data.yaml
+  --cloud-init disable=on,user-data=user-data.yaml \
+  ${TPM_PASSTHROUGH_ARGS}
 
 # Wait for the VM to start and get IPs
 echo "Waiting for VM IPs to be available (timeout: ${TIMEOUT_SECONDS}s, checking every ${CHECK_INTERVAL}s)..."
