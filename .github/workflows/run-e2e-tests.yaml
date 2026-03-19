@@ -89,6 +89,7 @@ jobs:
           kind-config: test/scripts/kind_cluster.yaml
           display-summary: ${{ matrix.ginkgo_node == 1 }}
           wait: false
+          os: el9
 
       # ========== DOWNLOAD E2E TEST ARTIFACTS ==========
       - name: Download test artifacts

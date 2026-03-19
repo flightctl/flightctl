@@ -47,21 +47,22 @@ done
 
 SQL_ARG="--set db.builtin.image.image=${SQL_IMAGE} --set db.builtin.image.tag=${SQL_VERSION}"
 KV_ARG="--set kv.image.image=${KV_IMAGE} --set kv.image.tag=${KV_VERSION}"
-DB_SETUP_ARG="--set dbSetup.image.image=localhost/flightctl-db-setup-${OS} --set dbSetup.image.tag=latest"
-
-# Override all service images to use local OS-discriminated image names
+# Override all service images to use OS-specific names
 SERVICE_ARGS=""
 if [ -z "$ONLY_DB" ]; then
-  SERVICE_ARGS="--set api.image.image=localhost/flightctl-api-${OS} --set api.image.tag=latest"
-  SERVICE_ARGS="$SERVICE_ARGS --set worker.image.image=localhost/flightctl-worker-${OS} --set worker.image.tag=latest"
-  SERVICE_ARGS="$SERVICE_ARGS --set periodic.image.image=localhost/flightctl-periodic-${OS} --set periodic.image.tag=latest"
-  SERVICE_ARGS="$SERVICE_ARGS --set alertExporter.image.image=localhost/flightctl-alert-exporter-${OS} --set alertExporter.image.tag=latest"
-  SERVICE_ARGS="$SERVICE_ARGS --set alertmanagerProxy.image.image=localhost/flightctl-alertmanager-proxy-${OS} --set alertmanagerProxy.image.tag=latest"
-  SERVICE_ARGS="$SERVICE_ARGS --set telemetryGateway.image.image=localhost/flightctl-telemetry-gateway-${OS} --set telemetryGateway.image.tag=latest"
-  SERVICE_ARGS="$SERVICE_ARGS --set imageBuilderApi.image.image=localhost/flightctl-imagebuilder-api-${OS} --set imageBuilderApi.image.tag=latest"
-  SERVICE_ARGS="$SERVICE_ARGS --set imageBuilderWorker.image.image=localhost/flightctl-imagebuilder-worker-${OS} --set imageBuilderWorker.image.tag=latest"
-  SERVICE_ARGS="$SERVICE_ARGS --set cliArtifacts.image.image=localhost/flightctl-cli-artifacts-${OS} --set cliArtifacts.image.tag=latest"
+  SERVICE_ARGS="--set api.image.image=quay.io/flightctl/flightctl-api-${OS}"
+  SERVICE_ARGS="$SERVICE_ARGS --set worker.image.image=quay.io/flightctl/flightctl-worker-${OS}"
+  SERVICE_ARGS="$SERVICE_ARGS --set periodic.image.image=quay.io/flightctl/flightctl-periodic-${OS}"
+  SERVICE_ARGS="$SERVICE_ARGS --set alertExporter.image.image=quay.io/flightctl/flightctl-alert-exporter-${OS}"
+  SERVICE_ARGS="$SERVICE_ARGS --set alertmanagerProxy.image.image=quay.io/flightctl/flightctl-alertmanager-proxy-${OS}"
+  SERVICE_ARGS="$SERVICE_ARGS --set telemetryGateway.image.image=quay.io/flightctl/flightctl-telemetry-gateway-${OS}"
+  SERVICE_ARGS="$SERVICE_ARGS --set imageBuilderApi.image.image=quay.io/flightctl/flightctl-imagebuilder-api-${OS}"
+  SERVICE_ARGS="$SERVICE_ARGS --set imageBuilderWorker.image.image=quay.io/flightctl/flightctl-imagebuilder-worker-${OS}"
+  SERVICE_ARGS="$SERVICE_ARGS --set cliArtifacts.image.image=quay.io/flightctl/flightctl-cli-artifacts-${OS}"
 fi
+
+# Always override db-setup image with OS suffix
+DB_SETUP_ARG="--set dbSetup.image.image=quay.io/flightctl/flightctl-db-setup-${OS}"
 
 # helm expects the namespaces to exist, and creating namespaces
 # inside the helm charts is not recommended.
@@ -69,15 +70,8 @@ kubectl create namespace flightctl-external --context kind-kind 2>/dev/null || t
 kubectl create namespace flightctl-internal --context kind-kind 2>/dev/null || true
 kubectl create namespace flightctl-e2e      --context kind-kind 2>/dev/null || true
 
-# if we are only deploying the database, we don't need inject the server container
-if [ -z "$ONLY_DB" ]; then
-
-  for suffix in periodic api worker alert-exporter alertmanager-proxy cli-artifacts db-setup telemetry-gateway imagebuilder-api imagebuilder-worker ; do
-    kind_load_image localhost/flightctl-${suffix}-${OS}:latest
-  done
-
-  kind_load_image "${KV_IMAGE}:${KV_VERSION}" keep-tar
-fi
+# Load third-party images into kind cluster
+kind_load_image "${KV_IMAGE}:${KV_VERSION}" keep-tar
 
 if [ ! -z "$IMAGE_PULL_SECRET_PATH" ]; then
   PULL_SECRET_NAME=$(cat "$IMAGE_PULL_SECRET_PATH" | yq .metadata.name)

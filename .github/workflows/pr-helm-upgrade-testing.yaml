@@ -131,6 +131,7 @@ jobs:
         with:
           tag: ${{ needs.build-baseline.outputs.git_tag }}
           base-domain: ${{ steps.get-ip.outputs.base-domain }}
+          os: el9
 
       - name: "[BASELINE] Check deployment"
         run: kubectl get pods --all-namespaces
@@ -224,12 +225,24 @@ jobs:
             --debug
 
       - name: "[HEAD] Helm upgrade"
+        env:
+          OS: el9
         run: |
           CHART_FILE="artifacts-pr/flightctl-chart.tgz"
           # Use values files with image overrides
           helm upgrade flightctl "${CHART_FILE}" \
             --namespace flightctl-external \
             --reuse-values \
+            --set api.image.image=quay.io/flightctl/flightctl-api-${OS} \
+            --set worker.image.image=quay.io/flightctl/flightctl-worker-${OS} \
+            --set periodic.image.image=quay.io/flightctl/flightctl-periodic-${OS} \
+            --set alertExporter.image.image=quay.io/flightctl/flightctl-alert-exporter-${OS} \
+            --set alertmanagerProxy.image.image=quay.io/flightctl/flightctl-alertmanager-proxy-${OS} \
+            --set telemetryGateway.image.image=quay.io/flightctl/flightctl-telemetry-gateway-${OS} \
+            --set imageBuilderApi.image.image=quay.io/flightctl/flightctl-imagebuilder-api-${OS} \
+            --set imageBuilderWorker.image.image=quay.io/flightctl/flightctl-imagebuilder-worker-${OS} \
+            --set cliArtifacts.image.image=quay.io/flightctl/flightctl-cli-artifacts-${OS} \
+            --set dbSetup.image.image=quay.io/flightctl/flightctl-db-setup-${OS} \
             --debug --wait # for the deployment complete (including readiness probes passing)
 
       - name: "[HEAD] Wait for API readiness after upgrade"
@@ -296,12 +309,24 @@ jobs:
           log-file: simulator-compat.log
 
       - name: "[HEAD] Helm upgrade - to the same version"
+        env:
+          OS: el9
         run: |
           CHART_FILE="artifacts-pr/flightctl-chart.tgz"
 
           helm upgrade flightctl "${CHART_FILE}" \
             --namespace flightctl-external \
             --reuse-values \
+            --set api.image.image=quay.io/flightctl/flightctl-api-${OS} \
+            --set worker.image.image=quay.io/flightctl/flightctl-worker-${OS} \
+            --set periodic.image.image=quay.io/flightctl/flightctl-periodic-${OS} \
+            --set alertExporter.image.image=quay.io/flightctl/flightctl-alert-exporter-${OS} \
+            --set alertmanagerProxy.image.image=quay.io/flightctl/flightctl-alertmanager-proxy-${OS} \
+            --set telemetryGateway.image.image=quay.io/flightctl/flightctl-telemetry-gateway-${OS} \
+            --set imageBuilderApi.image.image=quay.io/flightctl/flightctl-imagebuilder-api-${OS} \
+            --set imageBuilderWorker.image.image=quay.io/flightctl/flightctl-imagebuilder-worker-${OS} \
+            --set cliArtifacts.image.image=quay.io/flightctl/flightctl-cli-artifacts-${OS} \
+            --set dbSetup.image.image=quay.io/flightctl/flightctl-db-setup-${OS} \
             --debug --wait
 
       - name: "[HEAD] Wait for API readiness after same-version upgrade"
