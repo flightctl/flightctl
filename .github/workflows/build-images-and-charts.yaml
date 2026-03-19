@@ -183,7 +183,7 @@ jobs:
 
           echo "::group::Building helm charts"
           # Generate values.yaml with OS-specific image names
-          cd deploy/helm && ./charttmpl && cd ../..
+          cd deploy/helm && go build ./cmd/charttmpl && ./charttmpl && cd ../..
           helm dependency build ./deploy/helm/flightctl
           helm package ./deploy/helm/flightctl \
             --version "$TAG" \
