@@ -84,7 +84,8 @@ type InfraProvider interface {
 	GetAPILoginToken() (string, error)
 
 	// SetServiceConfig writes back config for a service (e.g. config.yaml in ConfigMap).
-	// For K8s: updates ConfigMap data[configKey]; Quadlet: writes config file.
+	// For K8s: updates ConfigMap data[configKey]. For Quadlet: single config file per
+	// service; configKey is ignored (callers may pass "" or "config.yaml").
 	SetServiceConfig(service ServiceName, configKey, content string) error
 
 	// GetInternalNamespace returns the namespace where internal services (worker, db, kv, etc.) run.

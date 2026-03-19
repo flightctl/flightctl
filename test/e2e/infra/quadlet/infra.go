@@ -66,8 +66,8 @@ type InfraProvider struct {
 }
 
 // NewInfraProvider creates a new Quadlet InfraProvider.
-// For remote hosts, set QUADLET_HOST and QUADLET_SSH_USER env vars.
-// Auth: set QUADLET_SSH_KEY for key-based auth, or E2E_SSH_PASSWORD for password auth (requires sshpass).
+// For remote hosts, set QUADLET_HOST and E2E_SSH_USER env vars.
+// Auth: set E2E_SSH_KEY_PATH for key-based auth, or E2E_SSH_PASSWORD for password auth (requires sshpass).
 // Registry comes from auxiliary; use auxiliary.Get(ctx).RegistryHost/RegistryPort and pass explicitly.
 func NewInfraProvider(configDir, secretDir string, useSudo bool) *InfraProvider {
 	host := os.Getenv("QUADLET_HOST")
@@ -82,8 +82,8 @@ func NewInfraProvider(configDir, secretDir string, useSudo bool) *InfraProvider 
 	}
 	return &InfraProvider{
 		host:       host,
-		sshUser:    os.Getenv("QUADLET_SSH_USER"),
-		sshKeyPath: os.Getenv("QUADLET_SSH_KEY"),
+		sshUser:    os.Getenv("E2E_SSH_USER"),
+		sshKeyPath: os.Getenv("E2E_SSH_KEY_PATH"),
 		configDir:  configDir,
 		secretDir:  secretDir,
 		useSudo:    useSudo,
@@ -508,13 +508,15 @@ func (p *InfraProvider) GetExternalNamespace() string {
 	return ""
 }
 
-// SetServiceConfig writes the config key content to the service's config file on the host.
-// For services with a section mapping (see service_config_mapping.go), the content is
-// transformed and merged into /etc/flightctl/service-config.yaml so it persists across
-// restarts when the template re-renders. For other services, the content is written
-// to the per-service config file at /etc/flightctl/<container-name>/config.yaml.
+// SetServiceConfig writes the config content to the service's config file on the host.
+// Quadlet has a single config file per service; configKey is ignored (callers may pass
+// "" or "config.yaml" for API compatibility). For services with a section mapping
+// (see service_config_mapping.go), the content is transformed and merged into
+// /etc/flightctl/service-config.yaml so it persists across restarts when the template
+// re-renders. For other services, the content is written to the per-service config
+// file at /etc/flightctl/<container-name>/config.yaml.
 func (p *InfraProvider) SetServiceConfig(service infra.ServiceName, configKey, content string) error {
-	// Quadlet only has one config file per service; configKey is ignored.
+	_ = configKey // Quadlet single-file: ignored
 
 	updates, err := applyServiceConfigMappings(service, content)
 	if err != nil {
