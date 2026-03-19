@@ -18,6 +18,54 @@ const (
 	jaegerOTLPHTTPPort  = "4318/tcp"
 )
 
+// Jaeger holds connection info and the container for the aux Jaeger.
+type Jaeger struct {
+	URL          string
+	Host         string
+	Port         string
+	OTLPEndpoint string
+	container    testcontainers.Container
+}
+
+// Start starts the Jaeger container and sets URL, Host, Port, OTLPEndpoint.
+func (j *Jaeger) Start(ctx context.Context, network string, reuse bool) error {
+	logrus.Infof("Starting Jaeger container (reuse=%v)", reuse)
+	configPath, err := createJaegerConfig()
+	if err != nil {
+		return fmt.Errorf("failed to create jaeger config: %w", err)
+	}
+	req := testcontainers.ContainerRequest{
+		Image:        jaegerImage,
+		Name:         jaegerContainerName,
+		ExposedPorts: []string{jaegerUIPort, jaegerOTLPHTTPPort},
+		Files: []testcontainers.ContainerFile{
+			{HostFilePath: configPath, ContainerFilePath: "/etc/jaeger/config.yaml", FileMode: 0644},
+		},
+		Cmd:        []string{"--config", "/etc/jaeger/config.yaml"},
+		WaitingFor: wait.ForHTTP("/").WithPort("16686"),
+		SkipReaper: reuse,
+	}
+	container, err := CreateContainer(ctx, req, reuse, WithNetwork(network), WithHostAccess())
+	if err != nil {
+		return err
+	}
+	j.container = container
+	j.Host = GetHostIP()
+	uiPort, err := container.MappedPort(ctx, jaegerUIPort)
+	if err != nil {
+		return fmt.Errorf("get mapped port for %s: %w", jaegerUIPort, err)
+	}
+	j.Port = uiPort.Port()
+	j.URL = fmt.Sprintf("http://%s:%s", j.Host, j.Port)
+	otlpPort, err := container.MappedPort(ctx, jaegerOTLPHTTPPort)
+	if err != nil {
+		return fmt.Errorf("get mapped port for %s: %w", jaegerOTLPHTTPPort, err)
+	}
+	j.OTLPEndpoint = fmt.Sprintf("%s:%s", j.Host, otlpPort.Port())
+	logrus.Infof("Jaeger container started: UI=%s OTLP=%s", j.URL, j.OTLPEndpoint)
+	return nil
+}
+
 const jaegerConfigYAML = `extensions:
   jaeger_storage:
     backends:
@@ -50,44 +98,6 @@ service:
     logs:
       level: info
 `
-
-func (s *Services) startJaeger(ctx context.Context) error {
-	logrus.Info("Starting jaeger container (always reused)")
-	configPath, err := createJaegerConfig()
-	if err != nil {
-		return fmt.Errorf("failed to create jaeger config: %w", err)
-	}
-	req := testcontainers.ContainerRequest{
-		Image:        jaegerImage,
-		Name:         jaegerContainerName,
-		ExposedPorts: []string{jaegerUIPort, jaegerOTLPHTTPPort},
-		Files: []testcontainers.ContainerFile{
-			{HostFilePath: configPath, ContainerFilePath: "/etc/jaeger/config.yaml", FileMode: 0644},
-		},
-		Cmd:        []string{"--config", "/etc/jaeger/config.yaml"},
-		WaitingFor: wait.ForHTTP("/").WithPort("16686"),
-		SkipReaper: true,
-	}
-	container, err := CreateContainer(ctx, req, true, WithNetwork(s.network), WithHostAccess())
-	if err != nil {
-		return err
-	}
-	s.jaeger = container
-	s.JaegerHost = GetHostIP()
-	uiPort, err := container.MappedPort(ctx, jaegerUIPort)
-	if err != nil {
-		return fmt.Errorf("get mapped port for %s: %w", jaegerUIPort, err)
-	}
-	s.JaegerPort = uiPort.Port()
-	s.JaegerURL = fmt.Sprintf("http://%s:%s", s.JaegerHost, s.JaegerPort)
-	otlpPort, err := container.MappedPort(ctx, jaegerOTLPHTTPPort)
-	if err != nil {
-		return fmt.Errorf("get mapped port for %s: %w", jaegerOTLPHTTPPort, err)
-	}
-	s.JaegerOTLPEndpoint = fmt.Sprintf("%s:%s", s.JaegerHost, otlpPort.Port())
-	logrus.Infof("Jaeger container started: UI=%s OTLP=%s", s.JaegerURL, s.JaegerOTLPEndpoint)
-	return nil
-}
 
 func createJaegerConfig() (string, error) {
 	tmpPath := filepath.Join(os.TempDir(), "e2e-jaeger-config.yaml")

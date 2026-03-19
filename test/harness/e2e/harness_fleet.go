@@ -14,7 +14,7 @@ import (
 )
 
 // GetDeviceImageRefForFleet returns the device OS image reference to use in fleet/device spec.
-// Pass registryHost and registryPort from auxiliary (e.g. auxiliary.Get(ctx).RegistryHost, .RegistryPort).
+// Pass registryHost and registryPort from auxiliary (e.g. auxiliary.Get(ctx).Registry.Host, .Registry.Port).
 // if either is empty, returns the quay.io fallback.
 func (h *Harness) GetDeviceImageRefForFleet(registryHost, registryPort, deviceImageTag string) string {
 	return getImageRefForFleet(registryHost, registryPort, util.DeviceImageRegistryPath, deviceImageTag, func(t string) string {
@@ -23,7 +23,7 @@ func (h *Harness) GetDeviceImageRefForFleet(registryHost, registryPort, deviceIm
 }
 
 // GetSleepAppImageRefForFleet returns the sleep-app image reference for use in device specs.
-// Pass registryHost and registryPort from auxiliary (e.g. auxiliary.Get(ctx).RegistryHost, .RegistryPort); if either is empty, returns the quay.io fallback.
+// Pass registryHost and registryPort from auxiliary (e.g. auxiliary.Get(ctx).Registry.Host, .Registry.Port); if either is empty, returns the quay.io fallback.
 func (h *Harness) GetSleepAppImageRefForFleet(registryHost, registryPort, tag string) string {
 	return getImageRefForFleet(registryHost, registryPort, util.SleepAppRegistryPath, tag, func(t string) string {
 		return util.NewSleepAppImageReference(t).String()

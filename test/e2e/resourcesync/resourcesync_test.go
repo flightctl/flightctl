@@ -49,16 +49,16 @@ type testContext struct {
 func getGitEnv(ctx context.Context) (e2e.GitServerConfig, string, int, util.SSHPrivateKeyPath, util.SSHPrivateKeyContent) {
 	svc := auxiliary.Get(ctx)
 	config := e2e.GitServerConfig{
-		Host: svc.GitServerHost,
-		Port: svc.GitServerPort,
+		Host: svc.GitServer.Host,
+		Port: svc.GitServer.Port,
 		User: "user",
 	}
 	keyPath, err := svc.GetGitSSHPrivateKeyPath()
 	if err != nil {
-		return config, svc.GitServerInternalHost, svc.GitServerInternalPort, "", ""
+		return config, svc.GitServer.InternalHost, svc.GitServer.InternalPort, "", ""
 	}
 	keyContent, _ := svc.GetGitSSHPrivateKey()
-	return config, svc.GitServerInternalHost, svc.GitServerInternalPort, keyPath, keyContent
+	return config, svc.GitServer.InternalHost, svc.GitServer.InternalPort, keyPath, keyContent
 }
 
 var _ = Describe("ResourceSync success cases", func() {

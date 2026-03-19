@@ -5,7 +5,7 @@
 **Enforced by lint:** `k8s.io/client-go` may only be used under `test/e2e/infra/k8s` (depguard `test-no-k8s-client`); all other test code uses infra providers, not the K8s client directly.
 
 - **Harness has no infra.** The harness (`test/harness/e2e/`) does not import `test/e2e/infra` or hold provider/registry/git state. Tests get data and pass it in:
-  - **Registry:** from auxiliary — `auxiliary.Get(ctx).RegistryHost` and `.RegistryPort` → pass `(host, port)` into `GetDeviceImageRefForFleet`, `GetSleepAppImageRefForFleet`, `CreateFleetDeviceSpec`.
+  - **Registry:** from auxiliary — `auxiliary.Get(ctx).Registry.Host` and `.Registry.Port` → pass `(host, port)` into `GetDeviceImageRefForFleet`, `GetSleepAppImageRefForFleet`, `CreateFleetDeviceSpec`.
   - **Git / SSH:** `auxiliary.Get(ctx)` for git server; `testutil.GetSSHPrivateKeyPath()` (or similar) for SSH keys → pass into harness git methods and `CleanupGitRepositories`.
   - **RBAC, service config, cluster:** Use `setup.GetDefaultProviders().RBAC`, `.Infra` directly; do not route through the harness.
 - **Infra is the single place for env-specific behaviour.** K8s client, kubectl, service config, RBAC, secrets live in `test/e2e/infra/` (and `infra/setup`). Tests and harness call infra; they do not duplicate its logic.

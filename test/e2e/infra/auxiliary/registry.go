@@ -30,6 +30,15 @@ const (
 	registriesConfPath    = "/etc/containers/registries.conf.d/flightctl-e2e.conf"
 )
 
+// Registry holds connection info and the container for the aux registry.
+type Registry struct {
+	URL       string
+	Host      string
+	Port      string
+	Reused    bool // true when the container was already running (reuse=true)
+	container testcontainers.Container
+}
+
 // containerExistsByName returns true if a container with the given name exists (running or stopped).
 func containerExistsByName(name string) bool {
 	//nolint:gosec // G204: name is only ever the constant registryContainerName
@@ -38,9 +47,10 @@ func containerExistsByName(name string) bool {
 	return err == nil && strings.TrimSpace(string(out)) != ""
 }
 
-func (s *Services) startRegistry(ctx context.Context) error {
-	logrus.Infof("Starting registry container (reuse=%v)", s.reuse)
-	s.registryReused = s.reuse && containerExistsByName(registryContainerName)
+// Start starts the registry container and sets URL, Host, Port, Reused.
+func (r *Registry) Start(ctx context.Context, network string, reuse bool) error {
+	logrus.Infof("Starting registry container (reuse=%v)", reuse)
+	r.Reused = reuse && containerExistsByName(registryContainerName)
 	certDir, err := ensureRegistryCerts()
 	if err != nil {
 		return fmt.Errorf("failed to ensure registry certs: %w", err)
@@ -60,21 +70,20 @@ func (s *Services) startRegistry(ctx context.Context) error {
 			{HostFilePath: keyPath, ContainerFilePath: "/certs/registry.key", FileMode: 0600},
 		},
 		WaitingFor: wait.ForHTTP("/v2/").WithPort("5000").WithTLS(true).WithAllowInsecure(true),
-		// When reusing, skip Ryuk so the reaper does not mark the container for removal when this process exits (next suite reuses it).
-		SkipReaper: s.reuse,
+		SkipReaper: reuse,
 	}
-	container, err := CreateContainer(ctx, req, s.reuse, WithNetwork(s.network), WithHostAccess())
+	container, err := CreateContainer(ctx, req, reuse, WithNetwork(network), WithHostAccess())
 	if err != nil {
 		return fmt.Errorf("failed to start registry container: %w", err)
 	}
-	s.registry = container
-	s.RegistryHost = GetHostIP()
-	s.RegistryPort = registryHostPort
-	s.RegistryURL = fmt.Sprintf("%s:%s", s.RegistryHost, s.RegistryPort)
-	if err := configureInsecureRegistry(s.RegistryURL); err != nil {
+	r.container = container
+	r.Host = GetHostIP()
+	r.Port = registryHostPort
+	r.URL = fmt.Sprintf("%s:%s", r.Host, r.Port)
+	if err := configureInsecureRegistry(r.URL); err != nil {
 		logrus.Warnf("Failed to configure insecure registry: %v", err)
 	}
-	logrus.Infof("Registry container started: %s (TLS enabled)", s.RegistryURL)
+	logrus.Infof("Registry container started: %s (TLS enabled)", r.URL)
 	return nil
 }
 

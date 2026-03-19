@@ -26,9 +26,10 @@ type OIDC struct {
 	Username           string
 	Password           string
 	Web                bool
+	NoBrowser          bool
 }
 
-func NewOIDCConfig(metadata api.ObjectMeta, spec api.OIDCProviderSpec, caFile string, insecure bool, apiServerURL string, callbackPort int, username, password string, web bool) *OIDC {
+func NewOIDCConfig(metadata api.ObjectMeta, spec api.OIDCProviderSpec, caFile string, insecure bool, apiServerURL string, callbackPort int, username, password string, web, noBrowser bool) *OIDC {
 	return &OIDC{
 		Metadata:           metadata,
 		Spec:               spec,
@@ -39,6 +40,7 @@ func NewOIDCConfig(metadata api.ObjectMeta, spec api.OIDCProviderSpec, caFile st
 		Username:           username,
 		Password:           password,
 		Web:                web,
+		NoBrowser:          noBrowser,
 	}
 }
 
@@ -101,7 +103,7 @@ func (o *OIDC) Auth() (AuthInfo, error) {
 		return o.authPasswordFlow()
 	}
 	// Default to auth code flow
-	authInfo, err := oauth2AuthCodeFlow(o.getOIDCClient, o.CallbackPort)
+	authInfo, err := oauth2AuthCodeFlow(o.getOIDCClient, o.CallbackPort, o.NoBrowser)
 	if err != nil {
 		return AuthInfo{}, err
 	}

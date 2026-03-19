@@ -13,7 +13,7 @@ import (
 
 const usage = `Usage: aux-service <command> <service>...
   commands: start, stop
-  services: all, registry, git-server, prometheus, tracing`
+  services: all, registry, git-server, prometheus, tracing, keycloak`
 
 func main() {
 	if len(os.Args) < 3 {
@@ -78,9 +78,9 @@ func runStartTracing(ctx context.Context) {
 	if err != nil {
 		logrus.Fatalf("Failed to start tracing: %v", err)
 	}
-	if svcs.JaegerURL != "" {
-		fmt.Printf("jaeger: %s\n", svcs.JaegerURL)
-		fmt.Printf("jaeger-otlp: %s\n", svcs.JaegerOTLPEndpoint)
+	if svcs.Jaeger != nil {
+		fmt.Printf("jaeger: %s\n", svcs.Jaeger.URL)
+		fmt.Printf("jaeger-otlp: %s\n", svcs.Jaeger.OTLPEndpoint)
 	}
 }
 
@@ -118,14 +118,17 @@ func runStopTracing() {
 }
 
 func printServiceURLs(svcs *auxiliary.Services) {
-	if svcs.RegistryURL != "" {
-		fmt.Printf("registry: %s\n", svcs.RegistryURL)
+	if svcs.Registry != nil {
+		fmt.Printf("registry: %s\n", svcs.Registry.URL)
 	}
-	if svcs.GitServerURL != "" {
-		fmt.Printf("git-server: %s\n", svcs.GitServerURL)
+	if svcs.GitServer != nil {
+		fmt.Printf("git-server: %s\n", svcs.GitServer.URL)
 	}
-	if svcs.PrometheusURL != "" {
-		fmt.Printf("prometheus: %s\n", svcs.PrometheusURL)
+	if svcs.Prometheus != nil {
+		fmt.Printf("prometheus: %s\n", svcs.Prometheus.URL)
+	}
+	if svcs.Keycloak != nil {
+		fmt.Printf("keycloak: %s\n", svcs.Keycloak.URL)
 	}
 }
 
@@ -166,8 +169,10 @@ func parseServices(args []string) ([]auxiliary.Service, error) {
 			services = append(services, auxiliary.ServicePrometheus)
 		case "tracing":
 			services = append(services, auxiliary.ServiceTracing)
+		case "keycloak":
+			services = append(services, auxiliary.ServiceKeycloak)
 		default:
-			return nil, fmt.Errorf("unknown service %q; valid values: all, registry, git-server, prometheus, tracing", arg)
+			return nil, fmt.Errorf("unknown service %q; valid values: all, registry, git-server, prometheus, tracing, keycloak", arg)
 		}
 	}
 	return services, nil
