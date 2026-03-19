@@ -271,6 +271,8 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 			healthy++
 		case StatusExited:
 			exited++
+		case StatusStop:
+			// intentional no-op to fall through to isErrored()
 		}
 	}
 

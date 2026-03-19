@@ -413,8 +413,8 @@ func mockExecPodmanEvents(mockExec *executer.MockExecuter, sinceTime time.Time) 
 			"--filter", "event=start",
 			"--filter", "event=stop",
 			"--filter", "event=die",
-			"--filter", "event=sync",
-			"--filter", "event=remove",
+			"--filter", "event=died",
+			"--filter", "event=sync", "--filter", "event=remove",
 			"--filter", "event=exited",
 		},
 	).Return(exec.CommandContext(context.Background(), "echo", `{}`))
