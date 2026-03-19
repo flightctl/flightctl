@@ -171,7 +171,11 @@ func NewTestHarness(ctx context.Context, testDirPath string, goRoutineErrorHandl
 		cancel()
 		return nil, fmt.Errorf("NewTestHarness: failed to create KV store: %w", err)
 	}
-	if err := rendered.Bus.Initialize(ctx, kvStore, provider, 10*time.Second, serverLog); err != nil {
+	// Use a short rendered wait timeout so the ConflictPaused test is stable: when the agent is
+	// already in GetRenderedDevice (blocked in WaitForNewVersion) as the test sets the KV key,
+	// that request returns after this timeout; the agent's next poll (minPollDelay 5s later) then
+	// sees the key and gets 200+ConflictPaused. With 2s we get 2+5+2 ≤ 10s within the test timeout.
+	if err := rendered.Bus.Initialize(ctx, kvStore, provider, 2*time.Second, serverLog); err != nil {
 		kvStore.Close()
 		cancel()
 		return nil, fmt.Errorf("NewTestHarness: failed to initialize rendered bus: %w", err)
