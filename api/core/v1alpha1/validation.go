@@ -217,6 +217,11 @@ func validateCatalogItemVersion(version CatalogItemVersion, index int, seenVersi
 
 	if len(version.Channels) == 0 {
 		allErrs = append(allErrs, fmt.Errorf("%s.channels: must have at least one channel", pathPrefix))
+	} else {
+		for i, channel := range version.Channels {
+			channelPath := fmt.Sprintf("%s.channels[%d]", pathPrefix, i)
+			allErrs = append(allErrs, validation.ValidateResourceNameReference(&channel, channelPath)...)
+		}
 	}
 
 	// validate replaces is semver
