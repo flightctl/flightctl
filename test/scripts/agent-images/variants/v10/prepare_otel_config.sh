@@ -56,6 +56,12 @@ ca_b64="$(yq -e -r '.["enrollment-service"].service."certificate-authority-data"
 install -d -m 0755 "$DIR"
 install -d -o root -g "$OTEL_GROUP" -m 0750 "$DIR/certs"
 
+# Fix config.yaml ownership (GID may differ between build and runtime due to sysusers)
+if [ -f "$DIR/config.yaml" ]; then
+  chown root:"$OTEL_GROUP" "$DIR/config.yaml"
+  chmod 0640 "$DIR/config.yaml"
+fi
+
 # Atomic write of CA file
 tmp_ca="$(mktemp "${DIR}/certs/.gateway-ca.XXXXXX")"
 printf '%s' "$ca_b64" | b64dec > "$tmp_ca" || { rm -f "$tmp_ca"; die "Failed to decode certificate-authority-data (base64)"; }
@@ -65,7 +71,7 @@ mv -f "$tmp_ca" "$DIR/certs/gateway-ca.crt"
 log "Wrote CA to $DIR/certs/gateway-ca.crt"
 
 # Build gateway endpoint (gRPC/4317)
-gateway="telemetry-gateway.${ip}.nip.io:4317"
+gateway="telemetry.${ip}.nip.io:4317"
 log "Derived OTEL_GATEWAY=${gateway}"
 
 # Build OTEL options; allow optional server_name_override via env OTLP_SERVER_NAME

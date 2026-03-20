@@ -325,6 +325,7 @@ func (v *VMInLibvirt) parseDomainTemplate() (domainXML string, err error) {
 		CloudInitSMBios string
 		DiskSize        string
 		MemoryMiB       int
+		TPMConfig       string
 	}
 
 	diskSize := v.TestVM.DiskSizeGB
@@ -337,6 +338,21 @@ func (v *VMInLibvirt) parseDomainTemplate() (domainXML string, err error) {
 		memoryMiB = 2048
 	}
 
+	tpmConfig := `<tpm model='tpm-tis'>
+      <backend type='emulator' version='2.0'>
+        <active_pcr_banks>
+            <sha256/>
+        </active_pcr_banks>
+      </backend>
+    </tpm>`
+	if v.TestVM.TPMDevice != "" {
+		tpmConfig = fmt.Sprintf(`<tpm model='tpm-tis'>
+      <backend type='passthrough'>
+        <device path='%s'/>
+      </backend>
+    </tpm>`, v.TestVM.TPMDevice)
+	}
+
 	templateParams := TemplateParams{
 		DiskImagePath: v.TestVM.DiskImagePath,
 		Port:          strconv.Itoa(v.TestVM.SSHPort),
@@ -344,6 +360,7 @@ func (v *VMInLibvirt) parseDomainTemplate() (domainXML string, err error) {
 		Name:          v.TestVM.VMName,
 		DiskSize:      strconv.Itoa(diskSize),
 		MemoryMiB:     memoryMiB,
+		TPMConfig:     tpmConfig,
 	}
 
 	err = v.ParseCloudInit()

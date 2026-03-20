@@ -52,13 +52,7 @@
       <alias name='rng0'/>
       <address type='pci' domain='0x0000' bus='0x06' slot='0x00' function='0x0'/>
     </rng>
-    <tpm model='tpm-tis'>
-      <backend type='emulator' version='2.0'>
-        <active_pcr_banks>
-            <sha256/>
-        </active_pcr_banks>
-      </backend>
-    </tpm>
+    {{.TPMConfig}}
   </devices>
   <qemu:commandline>
     <qemu:arg value='-netdev'/>
