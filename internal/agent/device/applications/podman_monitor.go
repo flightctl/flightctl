@@ -463,6 +463,13 @@ func (m *PodmanMonitor) updateApplicationStatus(app Application, event *client.P
 
 	container, exists := app.Workload(event.Name)
 	if exists {
+		// If a container was explicitly stopped, avoid overwriting the StatusStop
+		// with exit events that typically follow or race with it. This preserves
+		// the manual stop state instead of confusing it with a natural exit.
+		if container.Status == StatusStop && (status == StatusExited || status == StatusDie || status == StatusDied) {
+			return
+		}
+
 		// update existing container
 		container.Status = status
 		// restarts can only increase
@@ -520,8 +527,22 @@ func (m *PodmanMonitor) updateQuadletContainerStatus(ctx context.Context, app Ap
 	}
 
 	status := StatusType(event.Status)
-	if isFinishedStatus(status) && lo.FromPtrOr(event.ContainerExitCode, -1) == 0 {
-		status = StatusExited
+	if isFinishedStatus(status) {
+		podmanClient, err := m.clientFactory(app.User())
+		if err == nil {
+			inspectData, err := m.inspectContainer(ctx, event.ID, podmanClient)
+			if err == nil && len(inspectData) > 0 {
+				if inspectData[0].State.Status == "stopped" || inspectData[0].State.Status == string(StatusStop) {
+					status = StatusStop
+				} else if lo.FromPtrOr(event.ContainerExitCode, -1) == 0 {
+					status = StatusExited
+				}
+			} else if lo.FromPtrOr(event.ContainerExitCode, -1) == 0 {
+				status = StatusExited
+			}
+		} else if lo.FromPtrOr(event.ContainerExitCode, -1) == 0 {
+			status = StatusExited
+		}
 	}
 	m.updateApplicationStatus(app, event, status, restartCount)
 }
@@ -586,8 +607,13 @@ func (m *PodmanMonitor) resolveStatus(status string, inspectData []client.Podman
 	initialStatus := StatusType(status)
 	// podman events don't properly event exited in the case where the container exits 0.
 	if initialStatus == StatusDie || initialStatus == StatusDied {
-		if len(inspectData) > 0 && inspectData[0].State.ExitCode == 0 && inspectData[0].State.FinishedAt != "" {
-			return StatusExited
+		if len(inspectData) > 0 {
+			if inspectData[0].State.Status == "stopped" || inspectData[0].State.Status == string(StatusStop) {
+				return StatusStop
+			}
+			if inspectData[0].State.ExitCode == 0 && inspectData[0].State.FinishedAt != "" {
+				return StatusExited
+			}
 		}
 	}
 	return initialStatus
@@ -616,7 +642,7 @@ func (e *podmanEventWatcher) Init(log *log.PrefixLogger, username v1beta1.Userna
 
 func (e *podmanEventWatcher) Watch(ctx context.Context, events chan<- client.PodmanEvent) error {
 	// list of podman events to listen for
-	eventsTypes := []string{"create", "init", "start", "stop", "die", "sync", "remove", "exited"}
+	eventsTypes := []string{"create", "init", "start", "stop", "die", "died", "sync", "remove", "exited"}
 	e.log.Debugf("Replaying podman events for user %s since: %s", e.username, e.lastEventTime.Load())
 
 	ctx, e.cancel = context.WithCancel(ctx)

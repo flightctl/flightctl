@@ -34,7 +34,7 @@ func streamDataToStdout(t *testing.T, reader io.Reader) *exec.Cmd {
 }
 
 func podmanEventsCommandMock(execMock *executer.MockExecuter) *gomock.Call {
-	return execMock.EXPECT().CommandContext(gomock.Any(), "podman", "events", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any())
+	return execMock.EXPECT().CommandContext(gomock.Any(), "podman", "events", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any())
 }
 
 func TestListenForEvents(t *testing.T) {
@@ -1318,4 +1318,86 @@ func TestReduceActions_Consistency(t *testing.T) {
 		require.Equal([]string{"z", "m", "a", "f"}, ids,
 			"ordering should be consistent on iteration %d", i)
 	}
+}
+func TestUpdateApplicationStatus(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	log := log.NewPrefixLogger("test")
+	log.SetLevel(logrus.DebugLevel)
+	mockReadWriter := fileio.NewMockReadWriter(ctrl)
+	mockExec := executer.NewMockExecuter(ctrl)
+	mockPodmanClient := client.NewPodman(log, mockExec, mockReadWriter, util.NewPollConfig())
+
+	var podmanFactory client.PodmanFactory = func(user v1beta1.Username) (*client.Podman, error) {
+		return mockPodmanClient, nil
+	}
+	var systemdFactory systemd.ManagerFactory = func(user v1beta1.Username) (systemd.Manager, error) {
+		return systemd.NewMockManager(ctrl), nil
+	}
+	var rwFactory fileio.ReadWriterFactory = func(username v1beta1.Username) (fileio.ReadWriter, error) {
+		return mockReadWriter, nil
+	}
+	podmanMonitor := NewPodmanMonitor(log, podmanFactory, systemdFactory, "", rwFactory)
+
+	app := createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername)
+	podmanMonitor.apps[app.ID()] = app
+
+	containerName := "app1-service-1-container"
+
+	// Add new container explicitly through monitor
+	eventRunning := &client.PodmanEvent{
+		Name: containerName,
+	}
+	podmanMonitor.updateApplicationStatus(app, eventRunning, StatusRunning, 0)
+
+	// verify status is Running
+	wl, exists := app.Workload(containerName)
+	require.True(exists)
+	require.Equal(StatusRunning, wl.Status)
+
+	// Update to Stop
+	eventStop := &client.PodmanEvent{
+		Name: containerName,
+	}
+	podmanMonitor.updateApplicationStatus(app, eventStop, StatusStop, 0)
+
+	// verify status is Stop
+	wl, exists = app.Workload(containerName)
+	require.True(exists)
+	require.Equal(StatusStop, wl.Status)
+
+	// Update to Exited
+	eventExited := &client.PodmanEvent{
+		Name: containerName,
+	}
+	podmanMonitor.updateApplicationStatus(app, eventExited, StatusExited, 0)
+
+	// verify status is still Stop (it shouldn't be overwritten by exited)
+	wl, exists = app.Workload(containerName)
+	require.True(exists)
+	require.Equal(StatusStop, wl.Status)
+
+	// Update to Died
+	eventDied := &client.PodmanEvent{
+		Name: containerName,
+	}
+	podmanMonitor.updateApplicationStatus(app, eventDied, StatusDied, 0)
+
+	// verify status is still Stop (it shouldn't be overwritten by died)
+	wl, exists = app.Workload(containerName)
+	require.True(exists)
+	require.Equal(StatusStop, wl.Status)
+
+	// Update to Die
+	eventDie := &client.PodmanEvent{
+		Name: containerName,
+	}
+	podmanMonitor.updateApplicationStatus(app, eventDie, StatusDie, 0)
+
+	// verify status is still Stop (it shouldn't be overwritten by die)
+	wl, exists = app.Workload(containerName)
+	require.True(exists)
+	require.Equal(StatusStop, wl.Status)
 }
