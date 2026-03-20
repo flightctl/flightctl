@@ -116,7 +116,7 @@ helm upgrade --install --namespace flightctl-external \
 "${SCRIPT_DIR}"/wait_for_postgres.sh
 
 # Wait for Redis deployment to be ready
-kubectl rollout status deployment flightctl-kv -n flightctl-internal -w --timeout=300s --context kind-kind
+kubectl rollout status deployment flightctl-kv -n flightctl-internal -w --timeout=600s --context kind-kind
 
 # Make sure the database is usable from the unit tests
 DB_POD=$(kubectl get pod -n flightctl-internal -l flightctl.service=flightctl-db --no-headers -o custom-columns=":metadata.name" --context kind-kind )
@@ -129,7 +129,7 @@ if [ "$ONLY_DB" ]; then
 fi
 
 
-kubectl rollout status deployment flightctl-api -n flightctl-external -w --timeout=300s
+kubectl rollout status deployment flightctl-api -n flightctl-external -w --timeout=600s
 
 # Set namespace for try_login to use correct service account
 export FLIGHTCTL_NS=flightctl-external
