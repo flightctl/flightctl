@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/config/standalone"
 	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/flightctl/flightctl/pkg/template"
@@ -66,7 +67,8 @@ func (o *RenderTemplateOptions) Run() error {
 	}
 
 	// Render template with the completed config data
-	return template.RenderWithData(data, o.InputFile, o.OutputFile)
+	return template.RenderWithData(data, o.InputFile, o.OutputFile,
+		template.WithFuncMap(v1beta1.GetGoTemplateFuncMap()))
 }
 
 func (o *RenderTemplateOptions) completeConfig(data map[string]interface{}) error {
