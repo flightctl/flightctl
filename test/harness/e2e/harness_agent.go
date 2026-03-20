@@ -1,12 +1,15 @@
 package e2e
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	agentcfg "github.com/flightctl/flightctl/internal/agent/config"
@@ -80,6 +83,41 @@ func (h *Harness) ReloadFlightCtlAgent() error {
 	_, err := h.VM.RunSSH([]string{"sudo", "systemctl", "reload", "flightctl-agent"}, nil)
 	if err != nil {
 		return fmt.Errorf("failed to reload flightctl-agent: %w", err)
+	}
+	return nil
+}
+
+// CreateAgentDropIn creates a systemd drop-in file for the flightctl-agent service.
+func (h *Harness) CreateAgentDropIn(filename, content string) error {
+	if _, err := h.VM.RunSSH([]string{
+		"sudo", "mkdir", "-p", "/etc/systemd/system/flightctl-agent.service.d",
+	}, nil); err != nil {
+		return fmt.Errorf("failed to create drop-in directory: %w", err)
+	}
+
+	path := "/etc/systemd/system/flightctl-agent.service.d/" + filename
+	if _, err := h.VM.RunSSH([]string{
+		"sudo", "tee", path,
+	}, bytes.NewBufferString(content)); err != nil {
+		return fmt.Errorf("failed to write drop-in %s: %w", filename, err)
+	}
+
+	return nil
+}
+
+func (h *Harness) VMDaemonReload() error {
+	_, err := h.VM.RunSSH([]string{"sudo", "systemctl", "daemon-reload"}, nil)
+	if err != nil {
+		return fmt.Errorf("failed to run systemctl daemon-reload: %w", err)
+	}
+	return nil
+}
+
+func (h *Harness) SyncVMClock() error {
+	hostTime := time.Now().UTC().Format("2006-01-02T15:04:05")
+	_, err := h.VM.RunSSH([]string{"sudo", "date", "-u", "-s", hostTime}, nil)
+	if err != nil {
+		return fmt.Errorf("failed to sync VM clock: %w", err)
 	}
 	return nil
 }
@@ -242,6 +280,123 @@ func CreateInlineApplicationSpec(inlineAppComposeYaml, filename string) v1beta1.
 			},
 		},
 	}
+}
+
+// EnableAgentMetrics appends metrics-enabled: true to the agent config so
+// the Prometheus /metrics endpoint is available for test validation.
+func (h *Harness) EnableAgentMetrics() error {
+	metricsConfig := "\nmetrics-enabled: true\n"
+	_, err := h.VM.RunSSH([]string{
+		"sudo", "tee", "-a", "/etc/flightctl/config.yaml",
+	}, bytes.NewBufferString(metricsConfig))
+	return err
+}
+
+// GetAgentMetrics fetches the Prometheus metrics from the agent's metrics
+// endpoint on the VM via SSH.
+func (h *Harness) GetAgentMetrics() (string, error) {
+	output, err := h.VM.RunSSH([]string{
+		"curl", "-s", "http://127.0.0.1:15690/metrics",
+	}, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to fetch agent metrics: %w", err)
+	}
+	return output.String(), nil
+}
+
+// ParseMetricValue extracts the value of a Prometheus metric line from the
+// metrics output. For a metric like `foo{label="val"} 42`, pass the full
+// metric name with labels as the metricName parameter.
+func ParseMetricValue(metricsOutput, metricName string) string {
+	for _, line := range strings.Split(metricsOutput, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "#") {
+			continue
+		}
+		if strings.HasPrefix(line, metricName) {
+			rest := strings.TrimPrefix(line, metricName)
+			if len(rest) == 0 || (rest[0] != ' ' && rest[0] != '\t') {
+				continue
+			}
+			return strings.TrimSpace(rest)
+		}
+	}
+	return ""
+}
+
+// GetAgentMetricValue fetches the agent metrics and parses a single metric
+// value in one step.
+func (h *Harness) GetAgentMetricValue(metricName string) (string, error) {
+	metricsOutput, err := h.GetAgentMetrics()
+	if err != nil {
+		return "", err
+	}
+	return ParseMetricValue(metricsOutput, metricName), nil
+}
+
+// GetAPIEndpointFromVM extracts the API server IP and port from the agent
+// config file on the VM (/etc/flightctl/config.yaml).
+func (h *Harness) GetAPIEndpointFromVM() (ip string, port string, err error) {
+	output, err := h.VM.RunSSH([]string{"sudo", "cat", "/etc/flightctl/config.yaml"}, nil)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to read agent config: %w", err)
+	}
+
+	cfg := &agentcfg.Config{}
+	if err := yaml.Unmarshal(output.Bytes(), cfg); err != nil {
+		return "", "", fmt.Errorf("failed to parse agent config YAML: %w", err)
+	}
+	serverURL := cfg.ManagementService.Service.Server
+	if serverURL == "" {
+		serverURL = cfg.EnrollmentService.Service.Server
+	}
+	if serverURL == "" {
+		return "", "", fmt.Errorf("server URL not found in agent config")
+	}
+
+	parsed, err := url.Parse(serverURL)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to parse server URL %q: %w", serverURL, err)
+	}
+
+	hostname := parsed.Hostname()
+	p := parsed.Port()
+	if p == "" {
+		if parsed.Scheme == "https" {
+			p = "443"
+		} else {
+			p = "80"
+		}
+	}
+
+	return hostname, p, nil
+}
+
+// BlockTrafficOnVM adds an iptables rule on the VM to reject TCP traffic to the
+// specified IP and port.
+func (h *Harness) BlockTrafficOnVM(ip, port string) {
+	_, err := h.VM.RunSSH([]string{
+		"sudo", "iptables", "-A", "OUTPUT", "-d", ip, "-p", "tcp", "--dport", port, "-j", "REJECT",
+	}, nil)
+	Expect(err).ToNot(HaveOccurred(), "failed to add iptables rule on VM")
+}
+
+// UnblockTrafficOnVM removes the iptables rule on the VM that blocks TCP
+// traffic to the specified IP and port. Silently ignores errors.
+func (h *Harness) UnblockTrafficOnVM(ip, port string) {
+	_, _ = h.VM.RunSSH([]string{
+		"sudo", "iptables", "-D", "OUTPUT", "-d", ip, "-p", "tcp", "--dport", port, "-j", "REJECT",
+	}, nil)
+}
+
+func (h *Harness) IsAgentServiceRunning() bool {
+	output, err := h.VM.RunSSH([]string{
+		"sudo", "systemctl", "is-active", "flightctl-agent",
+	}, nil)
+	if err != nil {
+		return false
+	}
+	return strings.TrimSpace(output.String()) == "active"
 }
 
 // UpdateDeviceApplicationFromInline updates or appends an inline application spec on the device.
