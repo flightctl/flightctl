@@ -31,6 +31,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
+	"golang.org/x/sys/unix"
 )
 
 const (
@@ -720,6 +721,33 @@ func (w *podmanWorker) runInWorker(ctx context.Context, log logrus.FieldLogger, 
 	return nil
 }
 
+// nofileUlimitArgs returns the podman "--ulimit nofile=<cur>:<max>" arguments
+// derived from the current process' RLIMIT_NOFILE, so the worker container
+// inherits a limit Kubernetes will actually allow. It returns nil if the
+// current limit cannot be read.
+func nofileUlimitArgs(log logrus.FieldLogger) []string {
+	var rLimit unix.Rlimit
+	if err := unix.Getrlimit(unix.RLIMIT_NOFILE, &rLimit); err != nil {
+		log.WithError(err).Warn("Could not read RLIMIT_NOFILE; worker container will use default ulimits")
+		return nil
+	}
+	arg := formatNofileUlimit(rLimit)
+	log.Debugf("Passing ulimit %s to worker container", arg)
+	return []string{"--ulimit", arg}
+}
+
+// formatNofileUlimit renders rLimit as a podman "--ulimit" value. A hard limit of
+// RLIM_INFINITY is common on bare-metal/quadlet hosts (unlike the typical Kubernetes case
+// where soft and hard are equal); it is capped to the soft limit rather than passed through
+// as a literal 0xffffffffffffffff.
+func formatNofileUlimit(rLimit unix.Rlimit) string {
+	max := rLimit.Max
+	if max == unix.RLIM_INFINITY {
+		max = rLimit.Cur
+	}
+	return fmt.Sprintf("nofile=%d:%d", rLimit.Cur, max)
+}
+
 // startPodmanWorker starts a detached podman worker container for building images.
 // It returns the container name, worker info, and a cleanup function.
 func (c *Consumer) startPodmanWorker(
@@ -819,6 +847,12 @@ ignore_chown_errors = "true"
 	if c.cfg.ImageBuilderWorker.EffectivePodmanSkipTLSVerify() {
 		startArgs = append(startArgs, "--tls-verify=false")
 	}
+
+	// Pass the current RLIMIT_NOFILE to the worker container so nested
+	// podman builds don't attempt to raise the limit beyond what Kubernetes
+	// permits for this pod, which would cause "operation not permitted".
+	startArgs = append(startArgs, nofileUlimitArgs(log)...)
+
 	startArgs = append(startArgs,
 		"--cap-add=SYS_ADMIN",
 		podmanImage,
