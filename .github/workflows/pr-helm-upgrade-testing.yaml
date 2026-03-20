@@ -244,7 +244,7 @@ jobs:
             --set imageBuilderWorker.image.tag="${PR_TAG}" \
             --set cliArtifacts.image.tag="${PR_TAG}" \
             --set dbSetup.image.tag="${PR_TAG}" \
-            --debug --wait # for the deployment complete (including readiness probes passing)
+            --timeout 10m --debug --wait # for the deployment complete (including readiness probes passing)
 
       - name: "[HEAD] Wait for API readiness after upgrade"
         uses: ./.github/actions/wait-for-api-readiness
@@ -329,7 +329,7 @@ jobs:
             --set imageBuilderWorker.image.tag="${PR_TAG}" \
             --set cliArtifacts.image.tag="${PR_TAG}" \
             --set dbSetup.image.tag="${PR_TAG}" \
-            --debug --wait
+            --timeout 10m --debug --wait
 
       - name: "[HEAD] Wait for API readiness after same-version upgrade"
         uses: ./.github/actions/wait-for-api-readiness

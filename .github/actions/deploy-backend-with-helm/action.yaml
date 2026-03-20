@@ -205,7 +205,7 @@ runs:
         HELM_CMD+="${DB_SETUP_ARG}"
 
         if [ "${WAIT}" == "true" ]; then
-          HELM_CMD+=" --wait"
+          HELM_CMD+=" --wait --timeout 10m"
         fi
 
         # Output command for summary (with literal ${BASE_DOMAIN} for local reproduction)
