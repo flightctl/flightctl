@@ -10,9 +10,7 @@ import (
 
 func TLSConfigForServer(caBundlex509 []*x509.Certificate, serverConfig *TLSCertificateConfig) (*tls.Config, *tls.Config, error) {
 
-	certs := append(serverConfig.Certs, caBundlex509...)
-
-	certBytes, err := oscrypto.EncodeCertificates(certs...)
+	certBytes, err := oscrypto.EncodeCertificates(serverConfig.Certs...)
 	if err != nil {
 		return nil, nil, err
 	}
