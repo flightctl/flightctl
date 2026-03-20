@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/config"
@@ -702,6 +703,18 @@ ignore_chown_errors = "true"
 	if c.cfg.ImageBuilderWorker.EffectivePodmanSkipTLSVerify() {
 		startArgs = append(startArgs, "--tls-verify=false")
 	}
+
+	// Pass the current RLIMIT_NOFILE to the worker container so nested
+	// podman builds don't attempt to raise the limit beyond what Kubernetes
+	// permits for this pod, which would cause "operation not permitted".
+	var rLimit syscall.Rlimit
+	if err := syscall.Getrlimit(syscall.RLIMIT_NOFILE, &rLimit); err == nil {
+		startArgs = append(startArgs, "--ulimit", fmt.Sprintf("nofile=%d:%d", rLimit.Cur, rLimit.Max))
+		log.Debugf("Passing ulimit nofile=%d:%d to worker container", rLimit.Cur, rLimit.Max)
+	} else {
+		log.WithError(err).Warn("Could not read RLIMIT_NOFILE; worker container will use default ulimits")
+	}
+
 	startArgs = append(startArgs,
 		"--cap-add=SYS_ADMIN",
 		podmanImage,
