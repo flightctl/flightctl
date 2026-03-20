@@ -45,7 +45,9 @@ var _ = Describe("TPM Device Authentication", func() {
 		harness.PrintAgentLogsIfFailed()
 
 		if CurrentSpecReport().Failed() {
-			runTPMDiagnostic(harness)
+			if err := runTPMDiagnostic(harness); err != nil {
+				logrus.Warnf("Failed to run TPM diagnostics: %v", err)
+			}
 		}
 
 		ctx = util.StartSpecTracerForGinkgo(suiteCtx)
@@ -104,13 +106,13 @@ var _ = Describe("TPM Device Authentication", func() {
 	})
 })
 
-func runTPMDiagnostic(harness *e2e.Harness) {
+func runTPMDiagnostic(harness *e2e.Harness) error {
 	By("running TPM diagnostic commands inside VM")
 
 	// Stop the agent so we have exclusive TPM access
-	stopOutput, stopErr := harness.VM.RunSSH([]string{"sudo", "systemctl", "stop", "flightctl-agent"}, nil)
-	if stopErr != nil {
-		GinkgoWriter.Printf("WARNING: Failed to stop flightctl-agent: %v (output: %s)\n", stopErr, stopOutput)
+	stopOutput, err := harness.VM.RunSSH([]string{"sudo", "systemctl", "stop", "flightctl-agent"}, nil)
+	if err != nil {
+		return fmt.Errorf("stopping flightctl-agent: %w (output: %s)", err, stopOutput)
 	}
 
 	script := `#!/bin/bash
@@ -150,14 +152,18 @@ tpm2_getcap handles-transient 2>/dev/null || echo "No transient handles"
 	scriptStdin := bytes.NewBufferString(script)
 	output, err := harness.VM.RunSSH([]string{"sudo", "bash"}, scriptStdin)
 	if err != nil {
-		GinkgoWriter.Printf("TPM diagnostic script failed: %v\n", err)
+		return fmt.Errorf("TPM diagnostic commands failed: %w (output: %s)", err, output)
 	}
 	if output != nil {
 		GinkgoWriter.Printf("%s\n", output.String())
 	}
 
 	// Restart the agent
-	_, _ = harness.VM.RunSSH([]string{"sudo", "systemctl", "start", "flightctl-agent"}, nil)
+	_, err = harness.VM.RunSSH([]string{"sudo", "systemctl", "start", "flightctl-agent"}, nil)
+	if err != nil {
+		return fmt.Errorf("restarting flightctl-agent: %w (output: %s)", err, output)
+	}
+	return nil
 }
 
 func runTPMEnrollmentTest(harness *e2e.Harness) {
