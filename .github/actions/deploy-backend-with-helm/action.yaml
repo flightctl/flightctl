@@ -165,20 +165,32 @@ runs:
           *) RHEL_OS="${OS}" ;;
         esac
 
-        # Override all service images to use OS-specific names
+        # Override all service images to use OS-specific names and correct tag
+        # The tag should match the git tag used to build the images
+        IMAGE_TAG="${{ steps.compute-tags.outputs.git_tag }}"
         SERVICE_ARGS=""
         SERVICE_ARGS+=" --set api.image.image=quay.io/flightctl/flightctl-api-${RHEL_OS}"
+        SERVICE_ARGS+=" --set api.image.tag=${IMAGE_TAG}"
         SERVICE_ARGS+=" --set worker.image.image=quay.io/flightctl/flightctl-worker-${RHEL_OS}"
+        SERVICE_ARGS+=" --set worker.image.tag=${IMAGE_TAG}"
         SERVICE_ARGS+=" --set periodic.image.image=quay.io/flightctl/flightctl-periodic-${RHEL_OS}"
+        SERVICE_ARGS+=" --set periodic.image.tag=${IMAGE_TAG}"
         SERVICE_ARGS+=" --set alertExporter.image.image=quay.io/flightctl/flightctl-alert-exporter-${RHEL_OS}"
+        SERVICE_ARGS+=" --set alertExporter.image.tag=${IMAGE_TAG}"
         SERVICE_ARGS+=" --set alertmanagerProxy.image.image=quay.io/flightctl/flightctl-alertmanager-proxy-${RHEL_OS}"
+        SERVICE_ARGS+=" --set alertmanagerProxy.image.tag=${IMAGE_TAG}"
         SERVICE_ARGS+=" --set telemetryGateway.image.image=quay.io/flightctl/flightctl-telemetry-gateway-${RHEL_OS}"
+        SERVICE_ARGS+=" --set telemetryGateway.image.tag=${IMAGE_TAG}"
         SERVICE_ARGS+=" --set imageBuilderApi.image.image=quay.io/flightctl/flightctl-imagebuilder-api-${RHEL_OS}"
+        SERVICE_ARGS+=" --set imageBuilderApi.image.tag=${IMAGE_TAG}"
         SERVICE_ARGS+=" --set imageBuilderWorker.image.image=quay.io/flightctl/flightctl-imagebuilder-worker-${RHEL_OS}"
+        SERVICE_ARGS+=" --set imageBuilderWorker.image.tag=${IMAGE_TAG}"
         SERVICE_ARGS+=" --set cliArtifacts.image.image=quay.io/flightctl/flightctl-cli-artifacts-${RHEL_OS}"
+        SERVICE_ARGS+=" --set cliArtifacts.image.tag=${IMAGE_TAG}"
 
-        # Always override db-setup image with OS suffix
+        # Always override db-setup image with OS suffix and correct tag
         DB_SETUP_ARG=" --set dbSetup.image.image=quay.io/flightctl/flightctl-db-setup-${RHEL_OS}"
+        DB_SETUP_ARG+=" --set dbSetup.image.tag=${IMAGE_TAG}"
 
         # Build the helm command
         HELM_CMD="helm install flightctl artifacts/flightctl-chart.tgz"
