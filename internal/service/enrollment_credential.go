@@ -102,7 +102,7 @@ func (h *ServiceHandler) GenerateEnrollmentCredential(ctx context.Context, orgId
 	}
 
 	// Get the CA bundle
-	caBundle, err := h.ca.GetCABundle()
+	caBundle, err := h.ca.GetServerCABundle()
 	if err != nil {
 		return nil, domain.StatusInternalServerError(fmt.Sprintf("getting CA bundle: %v", err))
 	}

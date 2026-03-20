@@ -36,6 +36,7 @@ type Config struct {
 	DeviceCommonNamePrefix            string       `json:"deviceCommonNamePrefix,omitempty"`
 	InternalConfig                    *InternalCfg `json:"internalConfig,omitempty"`
 	ServerCertValidityDays            int          `json:"serverCertValidityDays,omitempty"`
+	ServerCABundleFile                string       `json:"serverCABundleFile,omitempty"`
 	ExtraAllowedPrefixes              []string     `json:"extraAllowedPrefixes,omitempty"`
 }
 

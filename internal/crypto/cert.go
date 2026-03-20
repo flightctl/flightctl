@@ -264,6 +264,17 @@ func (caClient *CAClient) GetCABundleX509() []*x509.Certificate {
 	return caClient.caBackend.GetCABundleX509()
 }
 
+func (caClient *CAClient) GetServerCABundle() ([]byte, error) {
+	if caClient.Cfg.ServerCABundleFile != "" {
+		caBundleBytes, err := os.ReadFile(caClient.Cfg.ServerCABundleFile)
+		if err != nil {
+			return nil, fmt.Errorf("reading server ca-bundle from %s: %w", caClient.Cfg.ServerCABundleFile, err)
+		}
+		return caBundleBytes, nil
+	}
+	return caClient.GetCABundle()
+}
+
 func (caClient *CAClient) GetCABundle() ([]byte, error) {
 	// If CABundleFile is configured, read it directly
 	if caClient.Cfg.InternalConfig.CABundleFile != "" {

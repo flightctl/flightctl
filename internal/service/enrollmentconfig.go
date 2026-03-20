@@ -11,7 +11,7 @@ import (
 )
 
 func (h *ServiceHandler) GetEnrollmentConfig(ctx context.Context, orgId uuid.UUID, params domain.GetEnrollmentConfigParams) (*domain.EnrollmentConfig, domain.Status) {
-	caCert, err := h.ca.GetCABundle()
+	caCert, err := h.ca.GetServerCABundle()
 	if err != nil {
 		return nil, domain.StatusInternalServerError("failed to get CA certificate")
 	}
