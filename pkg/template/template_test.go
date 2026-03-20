@@ -3,7 +3,9 @@ package template
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"text/template"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -123,6 +125,72 @@ func TestRenderTemplate_CreatesParentDirectories(t *testing.T) {
 	actualContent, err := os.ReadFile(outputFile)
 	require.NoError(t, err)
 	assert.Equal(t, "example.com", string(actualContent))
+}
+
+func TestRenderWithData_WithFuncMap(t *testing.T) {
+	testCases := []struct {
+		name            string
+		templateContent string
+		expectedOutput  string
+	}{
+		{
+			name:            "uses replace function from FuncMap",
+			templateContent: `{{ replace "." "-" .global.baseDomain }}`,
+			expectedOutput:  "example-com",
+		},
+		{
+			name:            "uses upper function from FuncMap",
+			templateContent: `{{ upper .global.baseDomain }}`,
+			expectedOutput:  "EXAMPLE.COM",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+			tempDir := t.TempDir()
+
+			inputFile := filepath.Join(tempDir, "input.yaml")
+			require.NoError(os.WriteFile(inputFile, []byte(inputYAML), 0600))
+
+			templateFile := filepath.Join(tempDir, "template.txt")
+			require.NoError(os.WriteFile(templateFile, []byte(tc.templateContent), 0600))
+
+			outputFile := filepath.Join(tempDir, "output.txt")
+
+			funcMap := template.FuncMap{
+				"replace": func(old, new string, input any) string {
+					return strings.ReplaceAll(input.(string), old, new)
+				},
+				"upper": func(s any) string {
+					return strings.ToUpper(s.(string))
+				},
+			}
+
+			err := Render(inputFile, templateFile, outputFile, WithFuncMap(funcMap))
+			require.NoError(err)
+
+			actual, err := os.ReadFile(outputFile)
+			require.NoError(err)
+			assert.Equal(t, tc.expectedOutput, string(actual))
+		})
+	}
+}
+
+func TestRenderWithData_WithoutFuncMap(t *testing.T) {
+	require := require.New(t)
+	tempDir := t.TempDir()
+
+	templateFile := filepath.Join(tempDir, "template.txt")
+	require.NoError(os.WriteFile(templateFile, []byte(`{{ replace "." "-" .global.baseDomain }}`), 0600))
+
+	outputFile := filepath.Join(tempDir, "output.txt")
+
+	err := RenderWithData(map[string]interface{}{
+		"global": map[string]interface{}{"baseDomain": "example.com"},
+	}, templateFile, outputFile)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to parse template file")
 }
 
 func TestRenderTemplate_InvalidOutputPath(t *testing.T) {
