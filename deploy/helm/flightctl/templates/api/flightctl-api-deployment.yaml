@@ -13,7 +13,6 @@ spec:
       flightctl.service: flightctl-api
   strategy:
     type: Recreate
-  progressDeadlineSeconds: 1200
   template:
     metadata:
       labels:

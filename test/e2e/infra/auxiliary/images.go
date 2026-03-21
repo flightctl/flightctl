@@ -4,7 +4,6 @@ import (
 	"archive/tar"
 	"bufio"
 	"compress/gzip"
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,7 +11,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/sirupsen/logrus"
 )
@@ -89,13 +87,7 @@ func (s *Services) uploadBundle(bundlePath string) error {
 	if len(refs) == 0 {
 		return nil
 	}
-
-	// Add timeout and retry logic for podman load
-	// Set a timeout context for the load operation (5 minutes)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-	loadCmd := exec.CommandContext(ctx, "podman", "load", "-i", bundlePath)
-
+	loadCmd := exec.Command("podman", "load", "-i", bundlePath)
 	if output, err := loadCmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("podman load -i %s failed: %w, output: %s", bundlePath, err, string(output))
 	}
@@ -119,14 +111,8 @@ func (s *Services) uploadBundle(bundlePath string) error {
 			path = ref[idx+1:]
 		}
 		dst := fmt.Sprintf("%s/%s", s.RegistryURL, path)
-
-		// Add timeout context for push operation (3 minutes per image)
-		pushCtx, pushCancel := context.WithTimeout(context.Background(), 3*time.Minute)
-		pushCmd := exec.CommandContext(pushCtx, "podman", "push", "--tls-verify=false", ref, dst)
-
-		output, err := pushCmd.CombinedOutput()
-		pushCancel()
-		if err != nil {
+		pushCmd := exec.Command("podman", "push", "--tls-verify=false", ref, dst)
+		if output, err := pushCmd.CombinedOutput(); err != nil {
 			return fmt.Errorf("podman push failed for %s: %w, output: %s", ref, err, string(output))
 		}
 	}

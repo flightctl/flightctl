@@ -68,8 +68,20 @@ if [ -z "$ONLY_DB" ]; then
   SERVICE_ARGS="$SERVICE_ARGS --set cliArtifacts.image.image=quay.io/flightctl/flightctl-cli-artifacts-${RHEL_OS}"
 fi
 
-# Always override db-setup image with OS suffix
-DB_SETUP_ARG="--set dbSetup.image.image=quay.io/flightctl/flightctl-db-setup-${RHEL_OS}"
+# Override all FlightCtl service images to use localhost registry for local deployment
+SERVICE_IMAGE_ARGS=""
+SERVICE_IMAGE_ARGS+=" --set api.image.image=localhost/flightctl-api-${RHEL_OS}"
+SERVICE_IMAGE_ARGS+=" --set worker.image.image=localhost/flightctl-worker-${RHEL_OS}"
+SERVICE_IMAGE_ARGS+=" --set periodic.image.image=localhost/flightctl-periodic-${RHEL_OS}"
+SERVICE_IMAGE_ARGS+=" --set alertExporter.image.image=localhost/flightctl-alert-exporter-${RHEL_OS}"
+SERVICE_IMAGE_ARGS+=" --set alertmanagerProxy.image.image=localhost/flightctl-alertmanager-proxy-${RHEL_OS}"
+SERVICE_IMAGE_ARGS+=" --set telemetryGateway.image.image=localhost/flightctl-telemetry-gateway-${RHEL_OS}"
+SERVICE_IMAGE_ARGS+=" --set imageBuilderApi.image.image=localhost/flightctl-imagebuilder-api-${RHEL_OS}"
+SERVICE_IMAGE_ARGS+=" --set imageBuilderWorker.image.image=localhost/flightctl-imagebuilder-worker-${RHEL_OS}"
+SERVICE_IMAGE_ARGS+=" --set cliArtifacts.image.image=localhost/flightctl-cli-artifacts-${RHEL_OS}"
+
+# Always override db-setup image with localhost registry and OS suffix
+DB_SETUP_ARG="--set dbSetup.image.image=localhost/flightctl-db-setup-${RHEL_OS}"
 
 # helm expects the namespaces to exist, and creating namespaces
 # inside the helm charts is not recommended.
@@ -110,13 +122,13 @@ helm dependency build ./deploy/helm/flightctl
 helm upgrade --install --namespace flightctl-external \
                   --values ./deploy/helm/flightctl/values.dev.yaml \
                   --set global.baseDomain=${IP}.nip.io \
-                  ${ONLY_DB} ${DB_SIZE_PARAMS} ${AUTH_ARGS} ${SQL_ARG} ${GATEWAY_ARGS} ${KV_ARG} ${DB_SETUP_ARG} ${SERVICE_ARGS} flightctl \
+                  ${ONLY_DB} ${DB_SIZE_PARAMS} ${AUTH_ARGS} ${SQL_ARG} ${GATEWAY_ARGS} ${KV_ARG} ${DB_SETUP_ARG} ${SERVICE_IMAGE_ARGS} ${SERVICE_ARGS} flightctl \
               ./deploy/helm/flightctl/ --kube-context kind-kind
 
 "${SCRIPT_DIR}"/wait_for_postgres.sh
 
 # Wait for Redis deployment to be ready
-kubectl rollout status deployment flightctl-kv -n flightctl-internal -w --timeout=600s --context kind-kind
+kubectl rollout status deployment flightctl-kv -n flightctl-internal -w --timeout=300s --context kind-kind
 
 # Make sure the database is usable from the unit tests
 DB_POD=$(kubectl get pod -n flightctl-internal -l flightctl.service=flightctl-db --no-headers -o custom-columns=":metadata.name" --context kind-kind )
@@ -129,7 +141,7 @@ if [ "$ONLY_DB" ]; then
 fi
 
 
-kubectl rollout status deployment flightctl-api -n flightctl-external -w --timeout=600s
+kubectl rollout status deployment flightctl-api -n flightctl-external -w --timeout=300s
 
 # Set namespace for try_login to use correct service account
 export FLIGHTCTL_NS=flightctl-external
