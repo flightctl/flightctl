@@ -1,7 +1,7 @@
 name: 'Deploy Backend with Helm'
 description: |
   Complete deployment of FlightCtl backend to a kind cluster using Helm.
-  
+
   Downloads artifacts (images, chart, CLI), creates kind cluster, loads images,
   and deploys using helm.
 
@@ -40,18 +40,6 @@ inputs:
     description: 'Wait for deployment to complete (adds --wait --debug to helm install)'
     required: false
     default: 'true'
-  os:
-    description: 'OS identifier for image suffix (e.g., "el9", "el10")'
-    required: false
-    default: 'el9'
-  image-registry:
-    description: 'Image registry to use for FlightCtl service images (e.g., "localhost", "quay.io")'
-    required: false
-    default: 'quay.io'
-  use-os-suffix:
-    description: 'Whether to append OS suffix to image names (e.g., -rhel9)'
-    required: false
-    default: 'true'
 
 runs:
   using: "composite"
@@ -67,7 +55,7 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        
+
         if [ -n "${{ inputs.tag }}" ]; then
           echo "Using provided tag: ${{ inputs.tag }}"
           echo "git_tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
@@ -154,7 +142,6 @@ runs:
         NAMESPACE_EXTERNAL: ${{ inputs.namespace-external }}
         NAMESPACE_INTERNAL: ${{ inputs.namespace-internal }}
         WAIT: ${{ inputs.wait }}
-        OS: ${{ inputs.os }}
       run: |
         set -euo pipefail
 
@@ -166,56 +153,6 @@ runs:
         for f in ${ADDITIONAL_VALUES_FILES}; do [ -f "$f" ] && EXTRA_ARGS+=" --values $f"; done
         [ -n "${AUTH_TYPE}" ] && EXTRA_ARGS+=" --set global.auth.type=${AUTH_TYPE}"
 
-        # Map el9/el10 to rhel9/rhel10 for published image names
-        case "${OS}" in
-          el9) RHEL_OS="rhel9" ;;
-          el10) RHEL_OS="rhel10" ;;
-          *) RHEL_OS="${OS}" ;;
-        esac
-
-        # Override all service images to use specified registry with OS-specific names and correct tag
-        # The tag should match the git tag used to build the images
-        IMAGE_TAG="${{ steps.compute-tags.outputs.git_tag }}"
-        IMAGE_REGISTRY="${{ inputs.image-registry }}"
-
-        # Build registry prefix based on registry type
-        if [ "${IMAGE_REGISTRY}" = "localhost" ]; then
-          REGISTRY_PREFIX="localhost"
-        else
-          REGISTRY_PREFIX="${IMAGE_REGISTRY}/flightctl"
-        fi
-
-        # Determine image suffix based on use-os-suffix parameter
-        if [ "${{ inputs.use-os-suffix }}" = "true" ]; then
-          IMAGE_SUFFIX="-${RHEL_OS}"
-        else
-          IMAGE_SUFFIX=""
-        fi
-
-        SERVICE_ARGS=""
-        SERVICE_ARGS+=" --set api.image.image=${REGISTRY_PREFIX}/flightctl-api${IMAGE_SUFFIX}"
-        SERVICE_ARGS+=" --set api.image.tag=${IMAGE_TAG}"
-        SERVICE_ARGS+=" --set worker.image.image=${REGISTRY_PREFIX}/flightctl-worker${IMAGE_SUFFIX}"
-        SERVICE_ARGS+=" --set worker.image.tag=${IMAGE_TAG}"
-        SERVICE_ARGS+=" --set periodic.image.image=${REGISTRY_PREFIX}/flightctl-periodic${IMAGE_SUFFIX}"
-        SERVICE_ARGS+=" --set periodic.image.tag=${IMAGE_TAG}"
-        SERVICE_ARGS+=" --set alertExporter.image.image=${REGISTRY_PREFIX}/flightctl-alert-exporter${IMAGE_SUFFIX}"
-        SERVICE_ARGS+=" --set alertExporter.image.tag=${IMAGE_TAG}"
-        SERVICE_ARGS+=" --set alertmanagerProxy.image.image=${REGISTRY_PREFIX}/flightctl-alertmanager-proxy${IMAGE_SUFFIX}"
-        SERVICE_ARGS+=" --set alertmanagerProxy.image.tag=${IMAGE_TAG}"
-        SERVICE_ARGS+=" --set telemetryGateway.image.image=${REGISTRY_PREFIX}/flightctl-telemetry-gateway${IMAGE_SUFFIX}"
-        SERVICE_ARGS+=" --set telemetryGateway.image.tag=${IMAGE_TAG}"
-        SERVICE_ARGS+=" --set imageBuilderApi.image.image=${REGISTRY_PREFIX}/flightctl-imagebuilder-api${IMAGE_SUFFIX}"
-        SERVICE_ARGS+=" --set imageBuilderApi.image.tag=${IMAGE_TAG}"
-        SERVICE_ARGS+=" --set imageBuilderWorker.image.image=${REGISTRY_PREFIX}/flightctl-imagebuilder-worker${IMAGE_SUFFIX}"
-        SERVICE_ARGS+=" --set imageBuilderWorker.image.tag=${IMAGE_TAG}"
-        SERVICE_ARGS+=" --set cliArtifacts.image.image=${REGISTRY_PREFIX}/flightctl-cli-artifacts${IMAGE_SUFFIX}"
-        SERVICE_ARGS+=" --set cliArtifacts.image.tag=${IMAGE_TAG}"
-
-        # Always override db-setup image with same registry and suffix
-        DB_SETUP_ARG=" --set dbSetup.image.image=${REGISTRY_PREFIX}/flightctl-db-setup${IMAGE_SUFFIX}"
-        DB_SETUP_ARG+=" --set dbSetup.image.tag=${IMAGE_TAG}"
-
         # Build the helm command
         HELM_CMD="helm install flightctl artifacts/flightctl-chart.tgz"
         HELM_CMD+=" --namespace ${NAMESPACE_EXTERNAL}"
@@ -225,8 +162,6 @@ runs:
         HELM_CMD+=" --set global.internalNamespace=${NAMESPACE_INTERNAL}"
         HELM_CMD+=" --set ui.enabled=false"
         HELM_CMD+="${EXTRA_ARGS}"
-        HELM_CMD+="${SERVICE_ARGS}"
-        HELM_CMD+="${DB_SETUP_ARG}"
 
         if [ "${WAIT}" == "true" ]; then
           HELM_CMD+=" --wait"
@@ -263,7 +198,7 @@ runs:
         HELM_CMD: ${{ steps.helm-deploy.outputs.helm_cmd }}
       run: |
         set -euo pipefail
-        
+
         {
           echo "### :rocket: Deployment"
           echo ""
