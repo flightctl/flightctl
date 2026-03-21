@@ -133,6 +133,7 @@ jobs:
           base-domain: ${{ steps.get-ip.outputs.base-domain }}
           os: el9
           image-registry: localhost
+          use-os-suffix: false
 
       - name: "[BASELINE] Check deployment"
         run: kubectl get pods --all-namespaces
