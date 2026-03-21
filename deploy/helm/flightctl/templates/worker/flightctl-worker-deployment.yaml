@@ -13,6 +13,7 @@ spec:
       flightctl.service: flightctl-worker
   strategy:
     type: Recreate
+  progressDeadlineSeconds: 1200
   template:
     metadata:
       labels:
