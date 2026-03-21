@@ -6,13 +6,14 @@ set -euo pipefail
 #   - Environment:
 #       TAG            (image tag)
 #       IMAGE_REPO     (quay.io/flightctl/flightctl-device by default in callers)
-#       OS_ID          (flavor id, e.g., cs9-bootc or cs10-bootc)
+#       OS_ID          (flavor id, e.g., cs9-bootc, cs10-bootc, rhel9-bootc, rhel10-bootc)
 #   - Tools:
 #       ./build.sh, ./bundle.sh, ./qcow2.sh, ./upload-images.sh in the same directory
 #
 # Usage:
 #   OS_ID=cs9-bootc TAG=vX IMAGE_REPO=... ./build_and_qcow2.sh
 #   ./build_and_qcow2.sh --os-id cs10-bootc --push
+#   ./build_and_qcow2.sh --os-id rhel9-bootc --push
 #
 
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"

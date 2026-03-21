@@ -17,15 +17,18 @@ packages:
 actions:
   get-current-version:
     - bash -c './hack/current-version | sed "s/^v//; s/-/~/g"'
-jobs:
-  - job: copr_build
-    trigger: pull_request
-    targets:
-      - fedora-43-x86_64
-      - epel-9-aarch64
-      - epel-10-aarch64
-    module_hotfixes: true
 
+# Temporarily disabled due to packit/python-specfile sanitize parameter incompatibility
+# jobs:
+#   - job: copr_build
+#     trigger: pull_request
+#     targets:
+#       - fedora-43-x86_64
+#       - epel-9-aarch64
+#       - epel-10-aarch64
+#     module_hotfixes: true
+
+jobs:
   - job: copr_build
     trigger: commit
     owner: "@redhat-et"

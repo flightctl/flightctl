@@ -1,4 +1,7 @@
-FROM registry.access.redhat.com/ubi9/go-toolset:1.24.6-1762373805 as build
+ARG BUILD_BASE_IMAGE
+ARG RUNTIME_BASE_IMAGE
+
+FROM ${BUILD_BASE_IMAGE} as build
 WORKDIR /app
 
 # Switch to root for build operations
@@ -38,7 +41,7 @@ RUN --mount=type=cache,target=/opt/app-root/src/.cache/go-build \
     --mount=type=cache,target=/opt/app-root/src/go/pkg/mod \
     make build-api
 
-FROM quay.io/flightctl/flightctl-base:9.7-1762965531
+FROM ${RUNTIME_BASE_IMAGE}
 WORKDIR /app
 LABEL \
   com.redhat.component="flightctl-api-container" \
