@@ -50,6 +50,8 @@ paths:
           schema:
             type: integer
             format: int32
+            minimum: 0
+            maximum: 1000
       responses:
         "200":
           description: OK
@@ -62,31 +64,31 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "403":
           description: Forbidden
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "429":
           description: Too Many Requests
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
           content:
             application/json:
               schema:
-                $ref: '../v1beta1/openapi.yaml#/components/schemas/Status'
+                $ref: '#/components/schemas/Status'
   /catalogs:
     x-resource: catalogs
     get:
@@ -118,6 +120,8 @@ paths:
           schema:
             type: integer
             format: int32
+            minimum: 0
+            maximum: 1000
       responses:
         "200":
           description: OK
@@ -173,6 +177,35 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Catalog'
+          links:
+            GetCatalog:
+              operationId: getCatalog
+              parameters:
+                name: '$response.body#/metadata/name'
+            DeleteCatalog:
+              operationId: deleteCatalog
+              parameters:
+                name: '$response.body#/metadata/name'
+            ListCatalogItems:
+              operationId: listCatalogItems
+              parameters:
+                catalog: '$response.body#/metadata/name'
+            CreateCatalogItem:
+              operationId: createCatalogItem
+              parameters:
+                catalog: '$response.body#/metadata/name'
+            ReplaceCatalog:
+              operationId: replaceCatalog
+              parameters:
+                name: '$response.body#/metadata/name'
+            GetCatalogStatus:
+              operationId: getCatalogStatus
+              parameters:
+                name: '$response.body#/metadata/name'
+            ReplaceCatalogStatus:
+              operationId: replaceCatalogStatus
+              parameters:
+                name: '$response.body#/metadata/name'
         "400":
           description: Bad Request
           content:
@@ -230,6 +263,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Catalog'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
@@ -352,6 +391,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
@@ -366,6 +411,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         "404":
           description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "409":
+          description: Conflict
           content:
             application/json:
               schema:
@@ -470,6 +521,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Catalog'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
@@ -525,6 +582,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Catalog'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
@@ -636,6 +699,7 @@ paths:
           required: true
           schema:
             type: string
+          example: edge-apps
         - name: continue
           in: query
           description: An optional parameter to query more results from the server.
@@ -654,6 +718,8 @@ paths:
           schema:
             type: integer
             format: int32
+            minimum: 0
+            maximum: 1000
       responses:
         "200":
           description: OK
@@ -709,6 +775,7 @@ paths:
           required: true
           schema:
             type: string
+          example: edge-apps
       requestBody:
         description: The CatalogItem resource to create.
         required: true
@@ -723,6 +790,22 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/CatalogItem'
+          links:
+            GetCatalogItem:
+              operationId: getCatalogItem
+              parameters:
+                catalog: '$request.path.catalog'
+                name: '$response.body#/metadata/name'
+            DeleteCatalogItem:
+              operationId: deleteCatalogItem
+              parameters:
+                catalog: '$request.path.catalog'
+                name: '$response.body#/metadata/name'
+            ReplaceCatalogItem:
+              operationId: replaceCatalogItem
+              parameters:
+                catalog: '$request.path.catalog'
+                name: '$response.body#/metadata/name'
         "400":
           description: Bad Request
           content:
@@ -773,6 +856,7 @@ paths:
           required: true
           schema:
             type: string
+          example: edge-apps
         - name: name
           in: path
           description: The name of the CatalogItem resource.
@@ -786,6 +870,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/CatalogItem'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
@@ -822,6 +912,7 @@ paths:
           required: true
           schema:
             type: string
+          example: edge-apps
         - name: name
           in: path
           description: The name of the CatalogItem resource.
@@ -896,6 +987,7 @@ paths:
           required: true
           schema:
             type: string
+          example: edge-apps
         - name: name
           in: path
           description: The name of the CatalogItem resource.
@@ -905,6 +997,12 @@ paths:
       responses:
         "200":
           description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "400":
+          description: Bad Request
           content:
             application/json:
               schema:
@@ -945,6 +1043,7 @@ paths:
           required: true
           schema:
             type: string
+          example: edge-apps
         - name: name
           in: path
           description: The name of the CatalogItem resource to patch.
@@ -1019,6 +1118,9 @@ components:
       enum:
         - v1alpha1
         - flightctl.io/v1alpha1
+      x-enum-varnames:
+        - ApiVersionV1alpha1
+        - ApiVersionFlightctlIoV1alpha1
     # Catalog-specific schemas (shared types come from v1beta1 via external refs)
     Catalog:
       type: object
@@ -1039,6 +1141,15 @@ components:
         - kind
         - metadata
         - spec
+      example:
+        apiVersion: flightctl.io/v1alpha1
+        kind: Catalog
+        metadata:
+          name: edge-apps
+        spec:
+          displayName: Edge Applications
+        status:
+          conditions: []
     CatalogSpec:
       type: object
       description: CatalogSpec describes the configuration of a catalog. Catalogs are containers for locally-managed CatalogItems.
@@ -1142,6 +1253,7 @@ components:
     CatalogItemArtifactType:
       type: string
       description: 'Artifact format discriminator. Must be unique within the artifacts list. Includes bootc-image-builder output formats.'
+      example: container
       enum:
         - container
         - qcow2
@@ -1259,7 +1371,8 @@ components:
           properties:
             version:
               type: string
-              description: 'Semantic version identifier (e.g., 1.2.3, v2.0.0-rc1). Required for version ordering and upgrade graph.'
+              pattern: "^[0-9]+\\.[0-9]+(\\.[0-9]+)?(-[a-zA-Z0-9.]+)?(\\+[a-zA-Z0-9.]+)?$"
+              description: 'Semantic version identifier (e.g., 1.2.3, 2.0.0-rc1). Required for version ordering and upgrade graph.'
               example: "2.45.0"
             references:
               type: object
@@ -1273,6 +1386,7 @@ components:
                 qcow2: "v2.45.0"
             channels:
               type: array
+              minItems: 1
               items:
                 type: string
               description: 'Channels this version belongs to.'

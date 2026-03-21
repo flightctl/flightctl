@@ -253,7 +253,7 @@ var _ = Describe("Auth Config Integration Tests", func() {
 				ProviderType:           api.Oauth2,
 				Issuer:                 lo.ToPtr("https://oauth2.example.com"),
 				ClientId:               "oauth2-client-id",
-				ClientSecret:           lo.ToPtr("oauth2-client-secret"),
+				ClientSecret:           "oauth2-client-secret",
 				AuthorizationUrl:       "https://oauth2.example.com/authorize",
 				TokenUrl:               "https://oauth2.example.com/token",
 				UserinfoUrl:            "https://oauth2.example.com/userinfo",

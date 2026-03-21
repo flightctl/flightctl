@@ -14,7 +14,6 @@ import (
 	"strings"
 
 	. "github.com/flightctl/flightctl/api/core/v1alpha1"
-	externalRef0 "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/oapi-codegen/runtime"
 )
 
@@ -1408,11 +1407,11 @@ type ListAllCatalogItemsResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *CatalogItemList
-	JSON400      *externalRef0.Status
-	JSON401      *externalRef0.Status
-	JSON403      *externalRef0.Status
-	JSON429      *externalRef0.Status
-	JSON503      *externalRef0.Status
+	JSON400      *Status
+	JSON401      *Status
+	JSON403      *Status
+	JSON429      *Status
+	JSON503      *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -1546,6 +1545,7 @@ type DeleteCatalogItemResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *Status
+	JSON400      *Status
 	JSON401      *Status
 	JSON403      *Status
 	JSON404      *Status
@@ -1572,6 +1572,7 @@ type GetCatalogItemResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *CatalogItem
+	JSON400      *Status
 	JSON401      *Status
 	JSON403      *Status
 	JSON404      *Status
@@ -1655,9 +1656,11 @@ type DeleteCatalogResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *Status
+	JSON400      *Status
 	JSON401      *Status
 	JSON403      *Status
 	JSON404      *Status
+	JSON409      *Status
 	JSON429      *Status
 	JSON503      *Status
 }
@@ -1682,6 +1685,7 @@ type GetCatalogResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *Catalog
+	JSON400      *Status
 	JSON401      *Status
 	JSON403      *Status
 	JSON404      *Status
@@ -1768,6 +1772,7 @@ type GetCatalogStatusResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *Catalog
+	JSON400      *Status
 	JSON401      *Status
 	JSON403      *Status
 	JSON404      *Status
@@ -1823,6 +1828,7 @@ type ReplaceCatalogStatusResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *Catalog
+	JSON400      *Status
 	JSON401      *Status
 	JSON403      *Status
 	JSON404      *Status
@@ -2077,35 +2083,35 @@ func ParseListAllCatalogItemsResponse(rsp *http.Response) (*ListAllCatalogItemsR
 		response.JSON200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest externalRef0.Status
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON400 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Status
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON401 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest externalRef0.Status
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON403 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
-		var dest externalRef0.Status
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON429 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest externalRef0.Status
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -2402,6 +2408,13 @@ func ParseDeleteCatalogItemResponse(rsp *http.Response) (*DeleteCatalogItemRespo
 		}
 		response.JSON200 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
 		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -2455,6 +2468,13 @@ func ParseGetCatalogItemResponse(rsp *http.Response) (*GetCatalogItemResponse, e
 			return nil, err
 		}
 		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
 		var dest Status
@@ -2653,6 +2673,13 @@ func ParseDeleteCatalogResponse(rsp *http.Response) (*DeleteCatalogResponse, err
 		}
 		response.JSON200 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
 		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -2673,6 +2700,13 @@ func ParseDeleteCatalogResponse(rsp *http.Response) (*DeleteCatalogResponse, err
 			return nil, err
 		}
 		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
 		var dest Status
@@ -2713,6 +2747,13 @@ func ParseGetCatalogResponse(rsp *http.Response) (*GetCatalogResponse, error) {
 			return nil, err
 		}
 		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
 		var dest Status
@@ -2932,6 +2973,13 @@ func ParseGetCatalogStatusResponse(rsp *http.Response) (*GetCatalogStatusRespons
 		}
 		response.JSON200 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
 		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -3060,6 +3108,13 @@ func ParseReplaceCatalogStatusResponse(rsp *http.Response) (*ReplaceCatalogStatu
 			return nil, err
 		}
 		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
 		var dest Status

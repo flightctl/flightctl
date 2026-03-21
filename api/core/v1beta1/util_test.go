@@ -32,7 +32,7 @@ func TestAuthProviderHideSensitiveData(t *testing.T) {
 					ProviderType:           Oidc,
 					Issuer:                 "https://oidc.example.com",
 					ClientId:               "oidc-client-id",
-					ClientSecret:           lo.ToPtr("oidc-secret"),
+					ClientSecret:           "oidc-secret",
 					Enabled:                lo.ToPtr(true),
 					OrganizationAssignment: assignment,
 				}
@@ -68,7 +68,7 @@ func TestAuthProviderHideSensitiveData(t *testing.T) {
 					ProviderType:           Oauth2,
 					Issuer:                 lo.ToPtr("https://oauth2.example.com"),
 					ClientId:               "oauth2-client-id",
-					ClientSecret:           lo.ToPtr("oauth2-secret"),
+					ClientSecret:           "oauth2-secret",
 					AuthorizationUrl:       "https://oauth2.example.com/authorize",
 					TokenUrl:               "https://oauth2.example.com/token",
 					UserinfoUrl:            "https://oauth2.example.com/userinfo",
@@ -139,13 +139,11 @@ func TestAuthProviderHideSensitiveData(t *testing.T) {
 				case string(Oidc):
 					oidcSpec, err := provider.Spec.AsOIDCProviderSpec()
 					require.NoError(t, err)
-					require.NotNil(t, oidcSpec.ClientSecret)
-					assert.Equal(t, "*****", *oidcSpec.ClientSecret, "OIDC client secret should be hidden")
+					assert.Equal(t, "*****", oidcSpec.ClientSecret, "OIDC client secret should be hidden")
 				case string(Oauth2):
 					oauth2Spec, err := provider.Spec.AsOAuth2ProviderSpec()
 					require.NoError(t, err)
-					require.NotNil(t, oauth2Spec.ClientSecret)
-					assert.Equal(t, "*****", *oauth2Spec.ClientSecret, "OAuth2 client secret should be hidden")
+					assert.Equal(t, "*****", oauth2Spec.ClientSecret, "OAuth2 client secret should be hidden")
 				case string(Openshift):
 					openshiftSpec, err := provider.Spec.AsOpenShiftProviderSpec()
 					require.NoError(t, err)
@@ -171,7 +169,7 @@ func TestAuthProviderListHideSensitiveData(t *testing.T) {
 		ProviderType:           Oidc,
 		Issuer:                 "https://oidc.example.com",
 		ClientId:               "oidc-client-id",
-		ClientSecret:           lo.ToPtr("oidc-secret"),
+		ClientSecret:           "oidc-secret",
 		Enabled:                lo.ToPtr(true),
 		OrganizationAssignment: assignment,
 	}
@@ -188,7 +186,7 @@ func TestAuthProviderListHideSensitiveData(t *testing.T) {
 		ProviderType:           Oauth2,
 		Issuer:                 lo.ToPtr("https://oauth2.example.com"),
 		ClientId:               "oauth2-client-id",
-		ClientSecret:           lo.ToPtr("oauth2-secret"),
+		ClientSecret:           "oauth2-secret",
 		AuthorizationUrl:       "https://oauth2.example.com/authorize",
 		TokenUrl:               "https://oauth2.example.com/token",
 		UserinfoUrl:            "https://oauth2.example.com/userinfo",
@@ -238,8 +236,7 @@ func TestAuthProviderListHideSensitiveData(t *testing.T) {
 
 	oidcSpec, err = list.Items[0].Spec.AsOIDCProviderSpec()
 	require.NoError(t, err)
-	require.NotNil(t, oidcSpec.ClientSecret)
-	assert.Equal(t, "*****", *oidcSpec.ClientSecret, "OIDC client secret should be hidden")
+	assert.Equal(t, "*****", oidcSpec.ClientSecret, "OIDC client secret should be hidden")
 
 	// Verify OAuth2 provider
 	oauth2Discriminator, err := list.Items[1].Spec.Discriminator()
@@ -248,8 +245,7 @@ func TestAuthProviderListHideSensitiveData(t *testing.T) {
 
 	oauth2Spec, err = list.Items[1].Spec.AsOAuth2ProviderSpec()
 	require.NoError(t, err)
-	require.NotNil(t, oauth2Spec.ClientSecret)
-	assert.Equal(t, "*****", *oauth2Spec.ClientSecret, "OAuth2 client secret should be hidden")
+	assert.Equal(t, "*****", oauth2Spec.ClientSecret, "OAuth2 client secret should be hidden")
 
 	// Verify OpenShift provider
 	openshiftDiscriminator, err := list.Items[2].Spec.Discriminator()
@@ -276,7 +272,7 @@ func TestAuthConfigHideSensitiveData(t *testing.T) {
 		ProviderType:           Oidc,
 		Issuer:                 "https://oidc.example.com",
 		ClientId:               "oidc-client-id",
-		ClientSecret:           lo.ToPtr("oidc-secret"),
+		ClientSecret:           "oidc-secret",
 		Enabled:                lo.ToPtr(true),
 		OrganizationAssignment: assignment,
 	}
@@ -293,7 +289,7 @@ func TestAuthConfigHideSensitiveData(t *testing.T) {
 		ProviderType:           Oauth2,
 		Issuer:                 lo.ToPtr("https://oauth2.example.com"),
 		ClientId:               "oauth2-client-id",
-		ClientSecret:           lo.ToPtr("oauth2-secret"),
+		ClientSecret:           "oauth2-secret",
 		AuthorizationUrl:       "https://oauth2.example.com/authorize",
 		TokenUrl:               "https://oauth2.example.com/token",
 		UserinfoUrl:            "https://oauth2.example.com/userinfo",
@@ -345,8 +341,7 @@ func TestAuthConfigHideSensitiveData(t *testing.T) {
 
 	oidcSpec, err = (*config.Providers)[0].Spec.AsOIDCProviderSpec()
 	require.NoError(t, err)
-	require.NotNil(t, oidcSpec.ClientSecret)
-	assert.Equal(t, "*****", *oidcSpec.ClientSecret, "OIDC client secret should be hidden")
+	assert.Equal(t, "*****", oidcSpec.ClientSecret, "OIDC client secret should be hidden")
 
 	// Verify OAuth2 provider
 	oauth2Discriminator, err := (*config.Providers)[1].Spec.Discriminator()
@@ -355,8 +350,7 @@ func TestAuthConfigHideSensitiveData(t *testing.T) {
 
 	oauth2Spec, err = (*config.Providers)[1].Spec.AsOAuth2ProviderSpec()
 	require.NoError(t, err)
-	require.NotNil(t, oauth2Spec.ClientSecret)
-	assert.Equal(t, "*****", *oauth2Spec.ClientSecret, "OAuth2 client secret should be hidden")
+	assert.Equal(t, "*****", oauth2Spec.ClientSecret, "OAuth2 client secret should be hidden")
 
 	// Verify OpenShift provider
 	openshiftDiscriminator, err := (*config.Providers)[2].Spec.Discriminator()
@@ -891,7 +885,7 @@ func TestAuthProviderPreserveSensitiveData(t *testing.T) {
 					ProviderType:           Oidc,
 					Issuer:                 "https://oidc.example.com",
 					ClientId:               "client-id",
-					ClientSecret:           lo.ToPtr("originalsecret"),
+					ClientSecret:           "originalsecret",
 					Enabled:                lo.ToPtr(true),
 					OrganizationAssignment: assignment,
 				}
@@ -911,7 +905,7 @@ func TestAuthProviderPreserveSensitiveData(t *testing.T) {
 					ProviderType:           Oidc,
 					Issuer:                 "https://oidc.example.com",
 					ClientId:               "client-id",
-					ClientSecret:           lo.ToPtr("*****"), // masked placeholder
+					ClientSecret:           "*****", // masked placeholder
 					Enabled:                lo.ToPtr(true),
 					OrganizationAssignment: assignment,
 				}
@@ -924,7 +918,7 @@ func TestAuthProviderPreserveSensitiveData(t *testing.T) {
 			checkPreserved: func(t *testing.T, ap *AuthProvider) {
 				oidcSpec, err := ap.Spec.AsOIDCProviderSpec()
 				require.NoError(t, err)
-				assert.Equal(t, "originalsecret", *oidcSpec.ClientSecret, "Client secret should be preserved from existing")
+				assert.Equal(t, "originalsecret", oidcSpec.ClientSecret, "Client secret should be preserved from existing")
 			},
 		},
 		{
@@ -941,7 +935,7 @@ func TestAuthProviderPreserveSensitiveData(t *testing.T) {
 					TokenUrl:               "https://oauth2.example.com/token",
 					UserinfoUrl:            "https://oauth2.example.com/userinfo",
 					ClientId:               "client-id",
-					ClientSecret:           lo.ToPtr("oauth2secret"),
+					ClientSecret:           "oauth2secret",
 					Enabled:                lo.ToPtr(true),
 					OrganizationAssignment: assignment,
 				}
@@ -963,7 +957,7 @@ func TestAuthProviderPreserveSensitiveData(t *testing.T) {
 					TokenUrl:               "https://oauth2.example.com/token",
 					UserinfoUrl:            "https://oauth2.example.com/userinfo",
 					ClientId:               "client-id",
-					ClientSecret:           lo.ToPtr("*****"), // masked placeholder
+					ClientSecret:           "*****", // masked placeholder
 					Enabled:                lo.ToPtr(true),
 					OrganizationAssignment: assignment,
 				}
@@ -976,7 +970,7 @@ func TestAuthProviderPreserveSensitiveData(t *testing.T) {
 			checkPreserved: func(t *testing.T, ap *AuthProvider) {
 				oauth2Spec, err := ap.Spec.AsOAuth2ProviderSpec()
 				require.NoError(t, err)
-				assert.Equal(t, "oauth2secret", *oauth2Spec.ClientSecret, "Client secret should be preserved from existing")
+				assert.Equal(t, "oauth2secret", oauth2Spec.ClientSecret, "Client secret should be preserved from existing")
 			},
 		},
 		{
@@ -991,7 +985,7 @@ func TestAuthProviderPreserveSensitiveData(t *testing.T) {
 					ProviderType:           Oidc,
 					Issuer:                 "https://oidc.example.com",
 					ClientId:               "client-id",
-					ClientSecret:           lo.ToPtr("oldsecret"),
+					ClientSecret:           "oldsecret",
 					Enabled:                lo.ToPtr(true),
 					OrganizationAssignment: assignment,
 				}
@@ -1011,7 +1005,7 @@ func TestAuthProviderPreserveSensitiveData(t *testing.T) {
 					ProviderType:           Oidc,
 					Issuer:                 "https://oidc.example.com",
 					ClientId:               "client-id",
-					ClientSecret:           lo.ToPtr("newsecret"), // actual new secret
+					ClientSecret:           "newsecret", // actual new secret
 					Enabled:                lo.ToPtr(true),
 					OrganizationAssignment: assignment,
 				}
@@ -1024,7 +1018,7 @@ func TestAuthProviderPreserveSensitiveData(t *testing.T) {
 			checkPreserved: func(t *testing.T, ap *AuthProvider) {
 				oidcSpec, err := ap.Spec.AsOIDCProviderSpec()
 				require.NoError(t, err)
-				assert.Equal(t, "newsecret", *oidcSpec.ClientSecret, "New client secret should be used")
+				assert.Equal(t, "newsecret", oidcSpec.ClientSecret, "New client secret should be used")
 			},
 		},
 	}

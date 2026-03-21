@@ -128,8 +128,8 @@ func (m *mockImageBuildService) UpdateLogs(ctx context.Context, orgId uuid.UUID,
 	return nil
 }
 
-func (m *mockImageBuildService) Delete(ctx context.Context, orgId uuid.UUID, name string) (*apiimagebuilder.ImageBuild, v1beta1.Status) {
-	return nil, v1beta1.StatusOK()
+func (m *mockImageBuildService) Delete(ctx context.Context, orgId uuid.UUID, name string) v1beta1.Status {
+	return v1beta1.StatusOK()
 }
 
 func (m *mockImageBuildService) Cancel(ctx context.Context, orgId uuid.UUID, name string) (*apiimagebuilder.ImageBuild, error) {
@@ -232,8 +232,8 @@ func (m *mockImageExportService) UpdateLastSeen(ctx context.Context, orgId uuid.
 	return nil
 }
 
-func (m *mockImageExportService) Delete(ctx context.Context, orgId uuid.UUID, name string) (*apiimagebuilder.ImageExport, v1beta1.Status) {
-	return nil, v1beta1.StatusOK()
+func (m *mockImageExportService) Delete(ctx context.Context, orgId uuid.UUID, name string) v1beta1.Status {
+	return v1beta1.StatusOK()
 }
 
 func (m *mockImageExportService) Download(ctx context.Context, orgId uuid.UUID, name string) (*imagebuilderapi.ImageExportDownload, error) {

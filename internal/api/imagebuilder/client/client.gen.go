@@ -1121,7 +1121,8 @@ func (r CreateImageBuildResponse) StatusCode() int {
 type DeleteImageBuildResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *ImageBuild
+	JSON200      *Status
+	JSON400      *Status
 	JSON401      *Status
 	JSON403      *Status
 	JSON404      *Status
@@ -1149,6 +1150,7 @@ type GetImageBuildResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *ImageBuild
+	JSON400      *Status
 	JSON401      *Status
 	JSON403      *Status
 	JSON404      *Status
@@ -1204,6 +1206,7 @@ func (r CancelImageBuildResponse) StatusCode() int {
 type GetImageBuildLogResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
+	JSON400      *Status
 	JSON401      *Status
 	JSON403      *Status
 	JSON404      *Status
@@ -1285,7 +1288,8 @@ func (r CreateImageExportResponse) StatusCode() int {
 type DeleteImageExportResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *ImageExport
+	JSON200      *Status
+	JSON400      *Status
 	JSON401      *Status
 	JSON403      *Status
 	JSON404      *Status
@@ -1313,6 +1317,7 @@ type GetImageExportResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *ImageExport
+	JSON400      *Status
 	JSON401      *Status
 	JSON403      *Status
 	JSON404      *Status
@@ -1396,6 +1401,7 @@ func (r DownloadImageExportResponse) StatusCode() int {
 type GetImageExportLogResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
+	JSON400      *Status
 	JSON401      *Status
 	JSON403      *Status
 	JSON404      *Status
@@ -1696,11 +1702,18 @@ func ParseDeleteImageBuildResponse(rsp *http.Response) (*DeleteImageBuildRespons
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest ImageBuild
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
 		var dest Status
@@ -1762,6 +1775,13 @@ func ParseGetImageBuildResponse(rsp *http.Response) (*GetImageBuildResponse, err
 			return nil, err
 		}
 		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
 		var dest Status
@@ -1892,6 +1912,13 @@ func ParseGetImageBuildLogResponse(rsp *http.Response) (*GetImageBuildLogRespons
 	}
 
 	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
 		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -2076,11 +2103,18 @@ func ParseDeleteImageExportResponse(rsp *http.Response) (*DeleteImageExportRespo
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest ImageExport
+		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
 		var dest Status
@@ -2142,6 +2176,13 @@ func ParseGetImageExportResponse(rsp *http.Response) (*GetImageExportResponse, e
 			return nil, err
 		}
 		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
 		var dest Status
@@ -2340,6 +2381,13 @@ func ParseGetImageExportLogResponse(rsp *http.Response) (*GetImageExportLogRespo
 	}
 
 	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
 		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {

@@ -1,0 +1,8 @@
+FROM ghcr.io/schemathesis/schemathesis:stable
+USER root
+RUN apk add --no-cache openssl util-linux-misc && \
+    pip install --no-cache-dir pyte
+# Disable env-var hook auto-loading; hooks load via TOML hooks key instead.
+ENV SCHEMATHESIS_HOOKS=""
+WORKDIR /app
+ENTRYPOINT ["sh", "-c"]

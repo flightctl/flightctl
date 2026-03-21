@@ -246,3 +246,20 @@ stop-aux:
 
 .PHONY: start-registry stop-registry start-git-server stop-git-server start-prometheus stop-prometheus start-tracing stop-tracing start-aux stop-aux
 .PHONY: unit-test prepare-integration-test integration-test run-integration-test view-coverage prepare-e2e-test deploy-e2e-ocp-test-vm _wait_for_db _run_template_migration _ensure_db_setup_image prepare-swtpm-certs clean-swtpm-certs
+
+# Schemathesis API testing
+SCHEMATHESIS_IMAGE ?= flightctl-schemathesis:latest
+
+.PHONY: schemathesis-image test-api clean-schemathesis
+
+schemathesis-image:
+	echo "Building Schemathesis container image..."; \
+	podman build -f test/api/Containerfile \
+		-t $(SCHEMATHESIS_IMAGE) test/api/; \
+
+test-api: schemathesis-image
+	SCHEMATHESIS_IMAGE=$(SCHEMATHESIS_IMAGE) test/api/run_tests.sh
+
+clean-schemathesis:
+	-podman rmi $(SCHEMATHESIS_IMAGE) 2>/dev/null || true
+	-rm -rf $(ROOT_DIR)/reports/schemathesis

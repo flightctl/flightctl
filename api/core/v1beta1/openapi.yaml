@@ -292,6 +292,8 @@ paths:
           schema:
             type: integer
             format: int32
+            minimum: 0
+            maximum: 1000
       responses:
         "200":
           description: OK
@@ -347,6 +349,19 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ResourceSync'
+          links:
+            GetResourceSync:
+              operationId: getResourceSync
+              parameters:
+                name: '$response.body#/metadata/name'
+            DeleteResourceSync:
+              operationId: deleteResourceSync
+              parameters:
+                name: '$response.body#/metadata/name'
+            ReplaceResourceSync:
+              operationId: replaceResourceSync
+              parameters:
+                name: '$response.body#/metadata/name'
         "400":
           description: Bad Request
           content:
@@ -404,6 +419,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ResourceSync'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
@@ -593,6 +614,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
@@ -654,6 +681,8 @@ paths:
           schema:
             type: integer
             format: int32
+            minimum: 0
+            maximum: 1000
       responses:
         "200":
           description: OK
@@ -709,6 +738,24 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Repository'
+          links:
+            GetRepository:
+              operationId: getRepository
+              parameters:
+                name: '$response.body#/metadata/name'
+            DeleteRepository:
+              operationId: deleteRepository
+              parameters:
+                name: '$response.body#/metadata/name'
+            ReplaceRepository:
+              operationId: replaceRepository
+              parameters:
+                name: '$response.body#/metadata/name'
+            CreateResourceSync:
+              operationId: createResourceSync
+              requestBody:
+                spec:
+                  repository: '$response.body#/metadata/name'
         "400":
           description: Bad Request
           content:
@@ -766,6 +813,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Repository'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
@@ -884,6 +937,12 @@ paths:
       responses:
         "200":
           description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "400":
+          description: Bad Request
           content:
             application/json:
               schema:
@@ -1016,6 +1075,8 @@ paths:
           schema:
             type: integer
             format: int32
+            minimum: 0
+            maximum: 1000
         - name: summaryOnly
           in: query
           description: A boolean flag to include only a summary of the devices. When set to true, the response will contain only the summary information. Only the 'owner' and 'labelSelector' parameters are supported when 'summaryOnly' is true.
@@ -1077,6 +1138,39 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Device'
+          links:
+            GetDevice:
+              operationId: getDevice
+              parameters:
+                name: '$response.body#/metadata/name'
+            DeleteDevice:
+              operationId: deleteDevice
+              parameters:
+                name: '$response.body#/metadata/name'
+            ReplaceDevice:
+              operationId: replaceDevice
+              parameters:
+                name: '$response.body#/metadata/name'
+            GetDeviceStatus:
+              operationId: getDeviceStatus
+              parameters:
+                name: '$response.body#/metadata/name'
+            ReplaceDeviceStatus:
+              operationId: replaceDeviceStatus
+              parameters:
+                name: '$response.body#/metadata/name'
+            GetRenderedDevice:
+              operationId: getRenderedDevice
+              parameters:
+                name: '$response.body#/metadata/name'
+            GetDeviceLastSeen:
+              operationId: getDeviceLastSeen
+              parameters:
+                name: '$response.body#/metadata/name'
+            DecommissionDevice:
+              operationId: decommissionDevice
+              parameters:
+                name: '$response.body#/metadata/name'
         "400":
           description: Bad Request
           content:
@@ -1134,6 +1228,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Device'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
@@ -1256,6 +1356,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
@@ -1374,6 +1480,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Device'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
@@ -1583,6 +1695,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "429":
           description: Too Many Requests
           content:
@@ -1625,6 +1743,12 @@ paths:
         "204":
           description: No Content
           content: {}
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
@@ -1685,6 +1809,12 @@ paths:
         "204":
           description: No Content
           content: {}
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
@@ -1856,6 +1986,8 @@ paths:
           schema:
             type: integer
             format: int32
+            minimum: 0
+            maximum: 1000
       responses:
         "200":
           description: OK
@@ -1911,6 +2043,31 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/EnrollmentRequest'
+          links:
+            GetEnrollmentRequest:
+              operationId: getEnrollmentRequest
+              parameters:
+                name: '$response.body#/metadata/name'
+            DeleteEnrollmentRequest:
+              operationId: deleteEnrollmentRequest
+              parameters:
+                name: '$response.body#/metadata/name'
+            GetEnrollmentRequestStatus:
+              operationId: getEnrollmentRequestStatus
+              parameters:
+                name: '$response.body#/metadata/name'
+            ApproveEnrollmentRequest:
+              operationId: approveEnrollmentRequest
+              parameters:
+                name: '$response.body#/metadata/name'
+            ReplaceEnrollmentRequest:
+              operationId: replaceEnrollmentRequest
+              parameters:
+                name: '$response.body#/metadata/name'
+            ReplaceEnrollmentRequestStatus:
+              operationId: replaceEnrollmentRequestStatus
+              parameters:
+                name: '$response.body#/metadata/name'
         "400":
           description: Bad Request
           content:
@@ -1968,6 +2125,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/EnrollmentRequest'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
@@ -2157,6 +2320,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
@@ -2214,6 +2383,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/EnrollmentRequest'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
@@ -2269,6 +2444,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/EnrollmentRequest'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
@@ -2460,6 +2641,8 @@ paths:
           schema:
             type: integer
             format: int32
+            minimum: 0
+            maximum: 1000
       responses:
         "200":
           description: OK
@@ -2515,6 +2698,23 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/CertificateSigningRequest'
+          links:
+            GetCertificateSigningRequest:
+              operationId: getCertificateSigningRequest
+              parameters:
+                name: '$response.body#/metadata/name'
+            DeleteCertificateSigningRequest:
+              operationId: deleteCertificateSigningRequest
+              parameters:
+                name: '$response.body#/metadata/name'
+            UpdateCertificateSigningRequestApproval:
+              operationId: updateCertificateSigningRequestApproval
+              parameters:
+                name: '$response.body#/metadata/name'
+            ReplaceCertificateSigningRequest:
+              operationId: replaceCertificateSigningRequest
+              parameters:
+                name: '$response.body#/metadata/name'
         "400":
           description: Bad Request
           content:
@@ -2640,6 +2840,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/CertificateSigningRequest'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
@@ -2758,6 +2964,12 @@ paths:
       responses:
         "200":
           description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "400":
+          description: Bad Request
           content:
             application/json:
               schema:
@@ -2892,6 +3104,8 @@ paths:
           schema:
             type: integer
             format: int32
+            minimum: 0
+            maximum: 1000
         - name: addDevicesSummary
           in: query
           description: Include a summary of the devices in the fleet.
@@ -2953,6 +3167,31 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Fleet'
+          links:
+            GetFleet:
+              operationId: getFleet
+              parameters:
+                name: '$response.body#/metadata/name'
+            DeleteFleet:
+              operationId: deleteFleet
+              parameters:
+                name: '$response.body#/metadata/name'
+            ListTemplateVersions:
+              operationId: listTemplateVersions
+              parameters:
+                fleet: '$response.body#/metadata/name'
+            ReplaceFleet:
+              operationId: replaceFleet
+              parameters:
+                name: '$response.body#/metadata/name'
+            GetFleetStatus:
+              operationId: getFleetStatus
+              parameters:
+                name: '$response.body#/metadata/name'
+            ReplaceFleetStatus:
+              operationId: replaceFleetStatus
+              parameters:
+                name: '$response.body#/metadata/name'
         "400":
           description: Bad Request
           content:
@@ -3016,6 +3255,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Fleet'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
@@ -3205,6 +3450,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
@@ -3256,6 +3507,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Fleet'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
@@ -3372,6 +3629,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Fleet'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
@@ -3439,6 +3702,8 @@ paths:
           schema:
             type: integer
             format: int32
+            minimum: 0
+            maximum: 1000
       responses:
         "200":
           description: OK
@@ -3503,6 +3768,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/TemplateVersion'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
@@ -3554,6 +3825,12 @@ paths:
       responses:
         "200":
           description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "400":
+          description: Bad Request
           content:
             application/json:
               schema:
@@ -3622,6 +3899,8 @@ paths:
           schema:
             type: integer
             format: int32
+            minimum: 0
+            maximum: 1000
       responses:
         "200":
           description: OK
@@ -3695,9 +3974,12 @@ paths:
           schema:
             type: integer
             format: int32
+            minimum: 0
+            maximum: 1000
         - name: continue
           in: query
           description: An optional parameter to query more results from the server. The value of the paramter must match the value of the 'continue' field in the previous list response.
+          required: false
           schema:
             type: string
       responses:
@@ -3819,6 +4101,8 @@ paths:
           schema:
             type: integer
             format: int32
+            minimum: 0
+            maximum: 1000
       responses:
         "200":
           description: OK
@@ -3874,6 +4158,19 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AuthProvider'
+          links:
+            GetAuthProvider:
+              operationId: getAuthProvider
+              parameters:
+                name: '$response.body#/metadata/name'
+            DeleteAuthProvider:
+              operationId: deleteAuthProvider
+              parameters:
+                name: '$response.body#/metadata/name'
+            ReplaceAuthProvider:
+              operationId: replaceAuthProvider
+              parameters:
+                name: '$response.body#/metadata/name'
         "400":
           description: Bad Request
           content:
@@ -3931,6 +4228,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AuthProvider'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
@@ -4120,6 +4423,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "401":
           description: Unauthorized
           content:
@@ -4271,6 +4580,17 @@ components:
         - metadata
         - spec
       description: Repository represents a Git repository or an HTTP endpoint.
+      example:
+        apiVersion: flightctl.io/v1beta1
+        kind: Repository
+        metadata:
+          name: example-repo
+        spec:
+          type: oci
+          registry: quay.io
+          accessMode: ReadWrite
+        status:
+          conditions: []
     HttpConfig:
       type: object
       description: Configuration for HTTP transport.
@@ -4308,6 +4628,8 @@ components:
       properties:
         url:
           type: string
+          minLength: 1
+          example: "https://example.com/config"
           description: 'The HTTP URL to call.'
         type:
           type: string
@@ -4347,6 +4669,8 @@ components:
       properties:
         url:
           type: string
+          minLength: 1
+          example: "https://github.com/example/repo.git"
           description: 'The Git repository URL to clone from.'
         type:
           type: string
@@ -4513,6 +4837,13 @@ components:
         - kind
         - metadata
       description: Device represents a physical device.
+      example:
+        apiVersion: flightctl.io/v1beta1
+        kind: Device
+        metadata:
+          name: f62dfb4f5d2cdbb9339362b5f18f2ce268d75649bdc80003f0e04292a7ef8c3
+          labels:
+            fleet: default
     DeviceConsole:
       type: object
       description: DeviceConsole represents the console connection information.
@@ -5824,6 +6155,21 @@ components:
         - metadata
         - spec
       description: EnrollmentRequest represents a request for approval to enroll a device.
+      example:
+        apiVersion: flightctl.io/v1beta1
+        kind: EnrollmentRequest
+        metadata:
+          name: 13d632d86373caaeda64da4052f957faa742fc7050026748bc79065c8819d1b0
+        spec:
+          csr: |
+            -----BEGIN CERTIFICATE REQUEST-----
+            MIIBBjCBrQIBADBLMUkwRwYDVQQDE0AxM2Q2MzJkODYzNzNjYWFlZGE2NGRhNDA1
+            MmY5NTdmYWE3NDJmYzcwNTAwMjY3NDhiYzc5MDY1Yzg4MTlkMWIwMFkwEwYHKoZI
+            zj0CAQYIKoZIzj0DAQcDQgAEHBMC30NRJTJ3NWOlei9YWkBM/MzoNDGyMRKuzE0/
+            cKkyXVJexHq0xIn22YCNN3ZDNxxwW6LlQg3ijGnvStQOb6AAMAoGCCqGSM49BAMC
+            A0gAMEUCIQDSrxi6krdCKcLChdMB3w7IqmDlZhREGbHMCESVn6ssPAIgZL+QrJtw
+            8R+r4piaYvZktrsk3yCIuz3hI7loYmXP3d8=
+            -----END CERTIFICATE REQUEST-----
     EnrollmentRequestList:
       type: object
       properties:
@@ -5901,6 +6247,17 @@ components:
         - kind
         - metadata
         - spec
+      example:
+        apiVersion: flightctl.io/v1beta1
+        kind: ResourceSync
+        metadata:
+          name: example-sync
+        spec:
+          repository: example-repo
+          targetRevision: main
+          path: /resources
+        status:
+          conditions: []
     ResourceSyncSpec:
       type: object
       description: ResourceSyncSpec describes the file(s) to sync from a repository.
@@ -5909,12 +6266,19 @@ components:
           $ref: '#/components/schemas/ResourceSyncType'
         repository:
           type: string
+          minLength: 1
           description: The name of the repository resource to use as the sync source.
         targetRevision:
           type: string
+          minLength: 1
+          maxLength: 244
+          example: "main"
           description: The desired revision in the repository.
         path:
           type: string
+          minLength: 1
+          maxLength: 2048
+          example: "/resources"
           description: The path of a file or directory in the repository. If a directory, the directory should contain only resource definitions with no subdirectories. Each file should contain the definition of one or more resources.
       required:
       - repository
@@ -6312,6 +6676,7 @@ components:
             form: grant_type
         client_id:
           type: string
+          minLength: 1
           description: OAuth2 client identifier.
           x-oapi-codegen-extra-tags:
             form: client_id
@@ -6417,12 +6782,14 @@ components:
           format: date-time
         name:
           type: string
+          maxLength: 253
           description: The name of the object.
         labels:
           type: object
           description: Map of string keys and values that can be used to organize and categorize (scope and select) objects.
           additionalProperties:
             type: string
+            maxLength: 63
         generation:
           type: integer
           description: A sequence number representing a specific generation of the desired state. Populated by the system. Read-only.
@@ -6441,6 +6808,7 @@ components:
       description: ObjectMeta is metadata that all persisted resources must have, which includes all objects users must create.
 
     MatchExpression:
+      type: object
       properties:
         key:
           type: string
@@ -6661,6 +7029,7 @@ components:
         signerName:
           description: Indicates the requested signer, and is a qualified name.
           type: string
+          minLength: 1
         uid:
           description: UID of the user that created the CSR, populated by the API server on creation and immutable.
           type: string
@@ -6692,6 +7061,7 @@ components:
         - conditions
       type: object
     Version:
+      type: object
       properties:
         version:
           description: Git version of the service.
@@ -6786,7 +7156,10 @@ components:
           type: string
           description: A human-readable description of the status of this operation.
         details:
-          $ref: '#/components/schemas/EventDetails'
+          description: Event-specific details, structured based on event type.
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/EventDetails'
         type:
           type: string
           description: The type of the event. One of Normal, Warning.
@@ -7252,7 +7625,6 @@ components:
         clientSecret:
           type: string
           description: The OIDC client secret.
-          writeOnly: true
         enabled:
           type: boolean
           description: Whether this OIDC provider is enabled.
@@ -7308,7 +7680,6 @@ components:
         clientSecret:
           type: string
           description: The OAuth2 client secret.
-          writeOnly: true
         enabled:
           type: boolean
           description: Whether this OAuth2 provider is enabled.
@@ -7428,7 +7799,6 @@ components:
         clientSecret:
           type: string
           description: The OAuth2 client secret.
-          writeOnly: true
         enabled:
           type: boolean
           description: Whether this OpenShift provider is enabled.
@@ -7475,7 +7845,6 @@ components:
         clientSecret:
           type: string
           description: The OAuth2 client secret.
-          writeOnly: true
         enabled:
           type: boolean
           description: Whether this AAP provider is enabled.
@@ -7515,9 +7884,15 @@ components:
           description: Whether this K8s provider is enabled.
           default: true
         organizationAssignment:
-          $ref: '#/components/schemas/AuthOrganizationAssignment'
+          description: How users from this auth provider are assigned to organizations.
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/AuthOrganizationAssignment'
         roleAssignment:
-          $ref: '#/components/schemas/AuthRoleAssignment'
+          description: How users from this auth provider are assigned roles.
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/AuthRoleAssignment'
         roleSuffix:
           type: string
           description: Optional suffix to strip from ClusterRole names when normalizing role names. Used for multi-release deployments where ClusterRoles have namespace-specific names (e.g., flightctl-admin-<namespace>).
