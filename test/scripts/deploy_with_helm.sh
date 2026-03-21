@@ -10,7 +10,6 @@ SQL_VERSION=${SQL_VERSION:-"latest"}
 SQL_IMAGE=${SQL_IMAGE:-"quay.io/sclorg/postgresql-16-c9s"}
 KV_VERSION=${KV_VERSION:-"7.4.1"}
 KV_IMAGE=${KV_IMAGE:-"docker.io/redis"}
-OS=${OS:-"el9"}
 
 source "${SCRIPT_DIR}"/functions
 IP=$(get_ext_ip)
@@ -47,41 +46,6 @@ done
 
 SQL_ARG="--set db.builtin.image.image=${SQL_IMAGE} --set db.builtin.image.tag=${SQL_VERSION}"
 KV_ARG="--set kv.image.image=${KV_IMAGE} --set kv.image.tag=${KV_VERSION}"
-# Map el9/el10 to rhel9/rhel10 for published image names
-case "${OS}" in
-  el9) RHEL_OS="rhel9" ;;
-  el10) RHEL_OS="rhel10" ;;
-  *) RHEL_OS="${OS}" ;;
-esac
-
-# Override all service images to use OS-specific names
-SERVICE_ARGS=""
-if [ -z "$ONLY_DB" ]; then
-  SERVICE_ARGS="--set api.image.image=quay.io/flightctl/flightctl-api-${RHEL_OS}"
-  SERVICE_ARGS="$SERVICE_ARGS --set worker.image.image=quay.io/flightctl/flightctl-worker-${RHEL_OS}"
-  SERVICE_ARGS="$SERVICE_ARGS --set periodic.image.image=quay.io/flightctl/flightctl-periodic-${RHEL_OS}"
-  SERVICE_ARGS="$SERVICE_ARGS --set alertExporter.image.image=quay.io/flightctl/flightctl-alert-exporter-${RHEL_OS}"
-  SERVICE_ARGS="$SERVICE_ARGS --set alertmanagerProxy.image.image=quay.io/flightctl/flightctl-alertmanager-proxy-${RHEL_OS}"
-  SERVICE_ARGS="$SERVICE_ARGS --set telemetryGateway.image.image=quay.io/flightctl/flightctl-telemetry-gateway-${RHEL_OS}"
-  SERVICE_ARGS="$SERVICE_ARGS --set imageBuilderApi.image.image=quay.io/flightctl/flightctl-imagebuilder-api-${RHEL_OS}"
-  SERVICE_ARGS="$SERVICE_ARGS --set imageBuilderWorker.image.image=quay.io/flightctl/flightctl-imagebuilder-worker-${RHEL_OS}"
-  SERVICE_ARGS="$SERVICE_ARGS --set cliArtifacts.image.image=quay.io/flightctl/flightctl-cli-artifacts-${RHEL_OS}"
-fi
-
-# Override all FlightCtl service images to use localhost registry for local deployment
-SERVICE_IMAGE_ARGS=""
-SERVICE_IMAGE_ARGS+=" --set api.image.image=localhost/flightctl-api-${RHEL_OS}"
-SERVICE_IMAGE_ARGS+=" --set worker.image.image=localhost/flightctl-worker-${RHEL_OS}"
-SERVICE_IMAGE_ARGS+=" --set periodic.image.image=localhost/flightctl-periodic-${RHEL_OS}"
-SERVICE_IMAGE_ARGS+=" --set alertExporter.image.image=localhost/flightctl-alert-exporter-${RHEL_OS}"
-SERVICE_IMAGE_ARGS+=" --set alertmanagerProxy.image.image=localhost/flightctl-alertmanager-proxy-${RHEL_OS}"
-SERVICE_IMAGE_ARGS+=" --set telemetryGateway.image.image=localhost/flightctl-telemetry-gateway-${RHEL_OS}"
-SERVICE_IMAGE_ARGS+=" --set imageBuilderApi.image.image=localhost/flightctl-imagebuilder-api-${RHEL_OS}"
-SERVICE_IMAGE_ARGS+=" --set imageBuilderWorker.image.image=localhost/flightctl-imagebuilder-worker-${RHEL_OS}"
-SERVICE_IMAGE_ARGS+=" --set cliArtifacts.image.image=localhost/flightctl-cli-artifacts-${RHEL_OS}"
-
-# Always override db-setup image with localhost registry and OS suffix
-DB_SETUP_ARG="--set dbSetup.image.image=localhost/flightctl-db-setup-${RHEL_OS}"
 
 # helm expects the namespaces to exist, and creating namespaces
 # inside the helm charts is not recommended.
@@ -89,8 +53,15 @@ kubectl create namespace flightctl-external --context kind-kind 2>/dev/null || t
 kubectl create namespace flightctl-internal --context kind-kind 2>/dev/null || true
 kubectl create namespace flightctl-e2e      --context kind-kind 2>/dev/null || true
 
-# Load third-party images into kind cluster
-kind_load_image "${KV_IMAGE}:${KV_VERSION}" keep-tar
+# if we are only deploying the database, we don't need inject the server container
+if [ -z "$ONLY_DB" ]; then
+
+  for suffix in periodic api worker alert-exporter alertmanager-proxy cli-artifacts db-setup telemetry-gateway imagebuilder-api imagebuilder-worker ; do
+    kind_load_image localhost/flightctl-${suffix}:latest
+  done
+
+  kind_load_image "${KV_IMAGE}:${KV_VERSION}" keep-tar
+fi
 
 if [ ! -z "$IMAGE_PULL_SECRET_PATH" ]; then
   PULL_SECRET_NAME=$(cat "$IMAGE_PULL_SECRET_PATH" | yq .metadata.name)
@@ -122,7 +93,7 @@ helm dependency build ./deploy/helm/flightctl
 helm upgrade --install --namespace flightctl-external \
                   --values ./deploy/helm/flightctl/values.dev.yaml \
                   --set global.baseDomain=${IP}.nip.io \
-                  ${ONLY_DB} ${DB_SIZE_PARAMS} ${AUTH_ARGS} ${SQL_ARG} ${GATEWAY_ARGS} ${KV_ARG} ${DB_SETUP_ARG} ${SERVICE_IMAGE_ARGS} flightctl \
+                  ${ONLY_DB} ${DB_SIZE_PARAMS} ${AUTH_ARGS} ${SQL_ARG} ${GATEWAY_ARGS} ${KV_ARG} flightctl \
               ./deploy/helm/flightctl/ --kube-context kind-kind
 
 "${SCRIPT_DIR}"/wait_for_postgres.sh
