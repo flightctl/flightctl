@@ -5,9 +5,4 @@
 BUILD_BASE_IMAGE=registry.access.redhat.com/ubi10/go-toolset:10.1-1770279878
 MINIMAL_BASE_IMAGE=registry.access.redhat.com/ubi10/ubi-minimal:10.1-1769677092
 
-# Runtime base image
 RUNTIME_BASE_IMAGE=quay.io/flightctl/flightctl-base:el10-10.1-1769518576
-
-# Image registry and namespace for community builds
-IMAGE_REGISTRY=quay.io/flightctl
-IMAGE_TAG_SUFFIX=el10
