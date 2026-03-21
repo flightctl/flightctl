@@ -13,6 +13,16 @@ GO_INTEGRATIONTEST_FLAGS = $(GO_TESTING_FLAGS) $(if $(TEST_DIR),$(TEST_DIR),$(GO
 # Common environment flags for test tracing enforcement
 ENV_TRACE_FLAGS = TRACE_TESTS=false GORM_TRACE_ENFORCE_FATAL=true GORM_TRACE_INCLUDE_QUERY_VARIABLES=true
 
+# Map AGENT_OS_ID to RPM mock root for e2e tests
+AGENT_OS_ID ?= cs9-bootc
+ifeq ($(AGENT_OS_ID),cs10-bootc)
+	E2E_RPM_MOCK_ROOT := epel-10-x86_64
+else ifeq ($(AGENT_OS_ID),cs9-bootc)
+	E2E_RPM_MOCK_ROOT := centos-stream+epel-next-9-x86_64
+else
+	$(error Unsupported AGENT_OS_ID: $(AGENT_OS_ID). Supported values: cs9-bootc, cs10-bootc)
+endif
+
 ifeq ($(VERBOSE), true)
 	GO_TEST_FORMAT=standard-verbose
 	GO_UNITTEST_FLAGS += -v
@@ -102,7 +112,7 @@ _run_template_migration:
 	    echo "No MIGRATION_IMAGE provided; building a fresh one ..."; \
 	    echo "##################################################"; \
 	    $(MAKE) --no-print-directory -B flightctl-db-setup-container; \
-	    img="flightctl-db-setup:latest"; \
+	    img="localhost/flightctl-db-setup-$(OS):latest"; \
 	    if ! sudo podman image exists "$$img"; then \
 	      echo "Error: build did not produce $$img" >&2; exit 1; \
 	    fi; \
@@ -142,7 +152,7 @@ bin/.e2e-agent-injected: bin/output/qcow2/disk.qcow2 bin/.e2e-agent-certs
 
 prepare-e2e-qcow-config: bin/.e2e-agent-injected
 
-prepare-e2e-test: RPM_MOCK_ROOT=centos-stream+epel-next-9-x86_64
+prepare-e2e-test: RPM_MOCK_ROOT=$(E2E_RPM_MOCK_ROOT)
 # Note: deploy-e2e-extras and push-e2e-agent-images removed
 # Testcontainers now handle registry/git-server/prometheus AND image uploading at test runtime
 # SSH keys and certs are still needed for git server authentication
@@ -164,8 +174,8 @@ e2e-agent-images: $(E2E_AGENT_IMAGES_SENTINEL)
 in-cluster-e2e-test: prepare-e2e-test
 	$(MAKE) _e2e_test
 
-e2e-test: RPM_MOCK_ROOT=centos-stream+epel-next-9-x86_64
-e2e-test: deploy prepare-e2e-qcow-config
+e2e-test: RPM_MOCK_ROOT=$(E2E_RPM_MOCK_ROOT)
+e2e-test: deploy prepare-e2e-test
 	$(MAKE) _e2e_test
 
 # Run e2e tests with optional parallel execution

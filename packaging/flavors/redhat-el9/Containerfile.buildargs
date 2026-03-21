@@ -5,9 +5,4 @@
 BUILD_BASE_IMAGE=registry.redhat.io/ubi9/go-toolset:1.24.6
 MINIMAL_BASE_IMAGE=registry.redhat.io/ubi9/ubi-minimal:9.7
 
-# Runtime base image (Red Hat enterprise)
 RUNTIME_BASE_IMAGE=registry.redhat.io/flightctl/flightctl-base:9.7
-
-# Image registry and namespace for Red Hat builds
-IMAGE_REGISTRY=registry.redhat.io/flightctl
-IMAGE_TAG_SUFFIX=rhel9

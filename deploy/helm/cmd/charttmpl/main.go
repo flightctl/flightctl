@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"text/template"
 
 	"gopkg.in/yaml.v3"
@@ -30,6 +31,9 @@ type templateContext struct {
 	Icon        string           `yaml:"icon"`
 	Annotations annotations      `yaml:"annotations"`
 	Images      map[string]image `yaml:"images"`
+	// OS information for dynamic image naming
+	OS     string `yaml:"-"` // el9, el10
+	RhelOS string `yaml:"-"` // rhel9, rhel10
 }
 
 const (
@@ -64,10 +68,31 @@ func runTemplate(in string, out string, templateData templateContext) error {
 }
 
 func main() {
-	profileKey := "community"
+	// Determine flavor (community vs redhat)
+	flavor := "community"
 	if os.Getenv("RHEM") != "" {
-		profileKey = "redhat"
+		flavor = "redhat"
 	}
+
+	// Determine OS version (el9 vs el10), default to el9
+	osVersion := os.Getenv("OS")
+	if osVersion == "" {
+		osVersion = "el9"
+	}
+
+	// Map OS to RHEL naming for consistency with Makefile
+	var rhelOS string
+	switch osVersion {
+	case "el9":
+		rhelOS = "rhel9"
+	case "el10":
+		rhelOS = "rhel10"
+	default:
+		rhelOS = osVersion
+	}
+
+	// Build profile key: flavor-osversion
+	profileKey := flavor + "-" + osVersion
 
 	// Multi-profile opts file
 	optsBytes, err := os.ReadFile(optsPath)
@@ -78,9 +103,30 @@ func main() {
 	if err := yaml.Unmarshal(optsBytes, &profiles); err != nil {
 		log.Fatalf("parsing opts %s: %v", optsPath, err)
 	}
+	// Try OS-specific profile first, fallback to base profile
 	templateData, ok := profiles[profileKey]
 	if !ok {
-		log.Fatalf("profile key %q not found in %s", profileKey, optsPath)
+		// Fallback to base profile (without OS suffix)
+		templateData, ok = profiles[flavor]
+		if !ok {
+			log.Fatalf("neither profile key %q nor base %q found in %s", profileKey, flavor, optsPath)
+		}
+	}
+
+	// Populate OS information
+	templateData.OS = osVersion
+	templateData.RhelOS = rhelOS
+
+	// Transform image names to include RHEL OS suffix for flightctl images (only for community builds)
+	// Red Hat builds already have the correct image names in helm-chart-opts.yaml
+	if flavor == "community" {
+		for name, img := range templateData.Images {
+			if strings.Contains(img.Image, "flightctl/flightctl-") {
+				// Transform quay.io/flightctl/flightctl-api to quay.io/flightctl/flightctl-api-rhel9
+				img.Image = img.Image + "-" + rhelOS
+				templateData.Images[name] = img
+			}
+		}
 	}
 
 	// Render Chart.yaml

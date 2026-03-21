@@ -7,7 +7,8 @@ set -euo pipefail
 # Optionally creates a template database for tests
 
 # Configuration variables with defaults
-MIGRATION_IMAGE=${MIGRATION_IMAGE:-localhost/flightctl-db-setup:latest}
+OS=${OS:-"el9"}
+MIGRATION_IMAGE=${MIGRATION_IMAGE:-localhost/flightctl-db-setup-${OS}:latest}
 CREATE_TEMPLATE=${CREATE_TEMPLATE:-false}
 TEMPLATE_DB_NAME=${TEMPLATE_DB_NAME:-flightctl_tmpl}
 

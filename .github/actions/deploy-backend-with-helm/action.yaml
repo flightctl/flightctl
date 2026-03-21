@@ -1,7 +1,7 @@
 name: 'Deploy Backend with Helm'
 description: |
   Complete deployment of FlightCtl backend to a kind cluster using Helm.
-  
+
   Downloads artifacts (images, chart, CLI), creates kind cluster, loads images,
   and deploys using helm.
 
@@ -55,7 +55,7 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        
+
         if [ -n "${{ inputs.tag }}" ]; then
           echo "Using provided tag: ${{ inputs.tag }}"
           echo "git_tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
@@ -198,7 +198,7 @@ runs:
         HELM_CMD: ${{ steps.helm-deploy.outputs.helm_cmd }}
       run: |
         set -euo pipefail
-        
+
         {
           echo "### :rocket: Deployment"
           echo ""
