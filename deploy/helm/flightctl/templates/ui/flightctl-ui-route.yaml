@@ -22,16 +22,9 @@ spec:
     weight: 100
   port:
     targetPort: 8080-tcp
-  {{- if eq (include "flightctl.getHttpScheme" .) "https" }}
   tls:
-    termination: edge
-    insecureEdgeTerminationPolicy: Redirect
-    {{- if .Values.global.baseDomainTlsSecretName }}
-    externalCertificate:
-      name: {{ .Values.global.baseDomainTlsSecretName }}
-    {{- end }}
-  {{- end }}
+    termination: passthrough
+    insecureEdgeTerminationPolicy: None
   wildcardPolicy: None
 {{ end }}
 {{ end }}
-    

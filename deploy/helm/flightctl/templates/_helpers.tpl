@@ -148,16 +148,8 @@ Uses a cached value in .Values to ensure consistency across all template evaluat
   {{- end }}
 {{- end }}
 
-{{- define "flightctl.getHttpScheme" }}
-  {{- if or (eq (include "flightctl.getServiceExposeMethod" . ) "route") .Values.global.baseDomainTlsSecretName }}
-    {{- printf "https" }}
-  {{- else }}
-    {{- printf "http" }}
-  {{- end }}
-{{- end }}
-
 {{- define "flightctl.getUIUrl" }}
-  {{- $scheme := (include "flightctl.getHttpScheme" .) }}
+  {{- $scheme := "https" }}
   {{- $baseDomain := (include "flightctl.getBaseDomain" . )}}
   {{- $enableMulticlusterExtensions := (include "flightctl.enableMulticlusterExtensions" . )}}
   {{- if eq $enableMulticlusterExtensions "true" }}
@@ -239,12 +231,12 @@ Usage: {{- $authType := include "flightctl.getEffectiveAuthType" . }}
 
 
 {{- define "flightctl.getInternalCliArtifactsUrl" }}
-  {{- print "http://flightctl-cli-artifacts:8090"}}
+  {{- print "https://flightctl-cli-artifacts:8090"}}
 {{- end }}
 
 {{- define "flightctl.getCliArtifactsUrl" }}
   {{- $baseDomain := (include "flightctl.getBaseDomain" . )}}
-  {{- $scheme := (include "flightctl.getHttpScheme" . )}}
+  {{- $scheme := "https" }}
   {{- $exposeMethod := (include "flightctl.getServiceExposeMethod" . )}}
   {{- if eq $exposeMethod "nodePort" }}
     {{- printf "%s://%s:%v" $scheme $baseDomain .Values.dev.nodePorts.cliArtifacts }}
@@ -263,7 +255,7 @@ Usage: {{- $authType := include "flightctl.getEffectiveAuthType" . }}
 
 {{- define "flightctl.getAlertManagerProxyUrl" }}
   {{- $baseDomain := (include "flightctl.getBaseDomain" . )}}
-  {{- $scheme := (include "flightctl.getHttpScheme" . )}}
+  {{- $scheme := "https" }}
   {{- $exposeMethod := (include "flightctl.getServiceExposeMethod" . )}}
   {{- if eq $exposeMethod "nodePort" }}
     {{- printf "https://flightctl-alertmanager-proxy:8443" }}
@@ -603,6 +595,34 @@ Usage: {{- $result := include "flightctl.getAlertmanagerProxyDNSSans" . | fromJs
   {{- $sans = append $sans "flightctl-alertmanager-proxy" }}
   {{- $sans = append $sans (printf "flightctl-alertmanager-proxy.%s" .Release.Namespace) }}
   {{- $sans = append $sans (printf "flightctl-alertmanager-proxy.%s.svc.cluster.local" .Release.Namespace) }}
+  {{- dict "sans" $sans | toJson -}}
+{{- end }}
+
+{{- /*
+Get DNS SANs for UI server certificate
+Usage: {{- $result := include "flightctl.getUiDNSSans" . | fromJson }}{{ $uiDNSSans := $result.sans }}
+*/}}
+{{- define "flightctl.getUiDNSSans" }}
+  {{- $sans := list }}
+  {{- $baseDomain := include "flightctl.getBaseDomain" . }}
+  {{- $sans = append $sans (printf "ui.%s" $baseDomain) }}
+  {{- $sans = append $sans "flightctl-ui" }}
+  {{- $sans = append $sans (printf "flightctl-ui.%s" .Release.Namespace) }}
+  {{- $sans = append $sans (printf "flightctl-ui.%s.svc.cluster.local" .Release.Namespace) }}
+  {{- dict "sans" $sans | toJson -}}
+{{- end }}
+
+{{- /*
+Get DNS SANs for CLI artifacts server certificate
+Usage: {{- $result := include "flightctl.getCliArtifactsDNSSans" . | fromJson }}{{ $cliArtifactsDNSSans := $result.sans }}
+*/}}
+{{- define "flightctl.getCliArtifactsDNSSans" }}
+  {{- $sans := list }}
+  {{- $baseDomain := include "flightctl.getBaseDomain" . }}
+  {{- $sans = append $sans (printf "cli-artifacts.%s" $baseDomain) }}
+  {{- $sans = append $sans "flightctl-cli-artifacts" }}
+  {{- $sans = append $sans (printf "flightctl-cli-artifacts.%s" .Release.Namespace) }}
+  {{- $sans = append $sans (printf "flightctl-cli-artifacts.%s.svc.cluster.local" .Release.Namespace) }}
   {{- dict "sans" $sans | toJson -}}
 {{- end }}
 

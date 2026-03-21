@@ -9,7 +9,7 @@ metadata:
     {{- include "flightctl.standardLabels" . | nindent 4 }}
   {{- if eq (include "flightctl.enableMulticlusterExtensions" .) "true" }}
   annotations:
-    service.alpha.openshift.io/serving-cert-secret-name: flightctl-ui-serving-cert
+    service.alpha.openshift.io/serving-cert-secret-name: flightctl-ui-server-tls
   {{- end }}
 spec:
   {{- if eq (include "flightctl.getServiceExposeMethod" .) "nodePort" }}

@@ -1,6 +1,10 @@
 {{ if .Values.ui.enabled }}
 {{ $enableMulticlusterExtensions := (include "flightctl.enableMulticlusterExtensions" .)}}
 {{ $caCrt := default (include "flightctl.getAuthCaCrt" .) .Values.ui.auth.caCert }}
+{{- $tlsSecretName := default "flightctl-ui-server-tls" .Values.global.baseDomainTlsSecretName }}
+{{- if eq $enableMulticlusterExtensions "true" }}
+  {{- $tlsSecretName = "flightctl-ui-server-tls" }}
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -62,11 +66,11 @@ spec:
                 name: flightctl-ui
                 key: FLIGHTCTL_IMAGEBUILDER_SERVER
           {{- end }}
-          {{- if eq $enableMulticlusterExtensions "true" }}
           - name: TLS_KEY
             value: /app/serving-cert/tls.key
           - name: TLS_CERT
             value: /app/serving-cert/tls.crt
+          {{- if eq $enableMulticlusterExtensions "true" }}
           - name: IS_OCP_PLUGIN
             value: "true"
           {{- end }}
@@ -104,10 +108,8 @@ spec:
               name: flightctl-ui-certs
               subPath: ca_auth.crt
             {{- end }}
-            {{- if eq $enableMulticlusterExtensions "true" }}
             - mountPath: /app/serving-cert
-              name: flightctl-ui-serving-cert
-            {{- end }}
+              name: flightctl-ui-server-tls
       restartPolicy: Always
       volumes:
         - name: ca-bundle
@@ -118,10 +120,8 @@ spec:
           secret:
             secretName: flightctl-ui-certs
         {{- end }}
-        {{- if eq $enableMulticlusterExtensions "true" }}
-        - name: flightctl-ui-serving-cert
+        - name: flightctl-ui-server-tls
           secret:
-            secretName: flightctl-ui-serving-cert
+            secretName: {{ $tlsSecretName }}
             defaultMode: 420
-        {{- end }}
 {{ end }}

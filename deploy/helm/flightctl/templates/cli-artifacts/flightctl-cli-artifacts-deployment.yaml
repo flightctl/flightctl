@@ -35,5 +35,17 @@ spec:
           env:
             - name: CLI_ARTIFACTS_BASE_URL
               value: {{ include "flightctl.getCliArtifactsUrl" . }}
+            - name: TLS_KEY
+              value: /app/serving-cert/tls.key
+            - name: TLS_CERT
+              value: /app/serving-cert/tls.crt
+          volumeMounts:
+            - mountPath: /app/serving-cert
+              name: flightctl-cli-artifacts-server-tls
       restartPolicy: Always
+      volumes:
+        - name: flightctl-cli-artifacts-server-tls
+          secret:
+            secretName: {{ default "flightctl-cli-artifacts-server-tls" .Values.global.baseDomainTlsSecretName }}
+            defaultMode: 420
 {{- end }}

@@ -17,15 +17,9 @@ spec:
   host: cli-artifacts.{{ include "flightctl.getBaseDomain" . }}
   port:
     targetPort: 8090
-  {{- if eq (include "flightctl.getHttpScheme" .) "https" }}
   tls:
-    termination: edge
-    insecureEdgeTerminationPolicy: Redirect
-    {{- if .Values.global.baseDomainTlsSecretName }}
-    externalCertificate:
-      name: {{ .Values.global.baseDomainTlsSecretName }}
-    {{- end }}
-  {{- end }}
+    termination: passthrough
+    insecureEdgeTerminationPolicy: None
   to:
     kind: Service
     name: flightctl-cli-artifacts
