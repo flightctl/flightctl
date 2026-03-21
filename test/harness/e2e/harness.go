@@ -74,6 +74,7 @@ import (
 	imagebuilderclient "github.com/flightctl/flightctl/internal/api/imagebuilder/client"
 	"github.com/flightctl/flightctl/internal/client"
 	service "github.com/flightctl/flightctl/internal/service/common"
+	k8sinfra "github.com/flightctl/flightctl/test/e2e/infra/k8s"
 	"github.com/flightctl/flightctl/test/harness/e2e/vm"
 	"github.com/flightctl/flightctl/test/util"
 	"github.com/google/go-cmp/cmp"
@@ -81,6 +82,7 @@ import (
 	"github.com/onsi/gomega"
 	. "github.com/onsi/gomega"
 	"github.com/sirupsen/logrus"
+	"k8s.io/client-go/kubernetes" //nolint:depguard // harness is test infrastructure that wraps the k8s client
 	"sigs.k8s.io/yaml"
 )
 
@@ -107,6 +109,7 @@ const (
 type Harness struct {
 	Client             *apiclient.ClientWithResponses
 	ImageBuilderClient *imagebuilderclient.ClientWithResponses
+	Cluster            kubernetes.Interface
 	Context            context.Context
 	ctxCancel          context.CancelFunc
 	startTime          time.Time
@@ -190,6 +193,49 @@ func (h *Harness) RefreshClient() error {
 	h.Client = c.ClientWithResponses
 	logrus.Infof("Refreshed FlightCtl API client from config file")
 	return nil
+}
+
+// RefreshCluster recreates the Kubernetes client from the kubeconfig file.
+// This is useful when the kubeconfig has been updated (e.g. after oc login) and the
+// harness needs to pick up the new credentials.
+func (h *Harness) RefreshCluster() error {
+	k8sCluster, err := k8sinfra.NewClient()
+	if err != nil {
+		return fmt.Errorf("failed to refresh kubernetes client: %w", err)
+	}
+	h.Cluster = k8sCluster
+	logrus.Infof("Refreshed Kubernetes client from kubeconfig")
+	return nil
+}
+
+// GetDefaultK8sContext returns the current kubectl context name.
+func (h *Harness) GetDefaultK8sContext() (string, error) {
+	out, err := h.SH("kubectl", "config", "current-context")
+	if err != nil {
+		return "", fmt.Errorf("getting current kubectl context: %w", err)
+	}
+	return strings.TrimSpace(out), nil
+}
+
+// GetK8sApiEndpoint returns the API server URL for the given kubectl context.
+func (h *Harness) GetK8sApiEndpoint(_ context.Context, k8sContext string) (string, error) {
+	jsonpath := fmt.Sprintf("jsonpath={.clusters[?(@.name==\"%s\")].cluster.server}", k8sContext)
+	out, err := h.SH("kubectl", "config", "view", "-o", jsonpath)
+	if err != nil {
+		return "", fmt.Errorf("getting API endpoint for context %s: %w", k8sContext, err)
+	}
+	endpoint := strings.TrimSpace(out)
+	if endpoint == "" {
+		out, err = h.SH("kubectl", "config", "view", "--minify", "--context", k8sContext, "-o", "jsonpath={.clusters[0].cluster.server}")
+		if err != nil {
+			return "", fmt.Errorf("getting API endpoint for context %s (fallback): %w", k8sContext, err)
+		}
+		endpoint = strings.TrimSpace(out)
+	}
+	if endpoint == "" {
+		return "", fmt.Errorf("no API endpoint found for context %s", k8sContext)
+	}
+	return endpoint, nil
 }
 
 // ExtractAuthURL extracts the authentication URL from an AuthProvider based on its type
@@ -719,6 +765,11 @@ func (h *Harness) CleanUpResource(resourceType string, resourceName string) (str
 	logrus.Infof("Deleting resource %s of resource type %s", resourceName, resourceType)
 	resource := resourceType + "/" + resourceName
 	return h.CLI("delete", resource)
+}
+
+// DecommissionDevice schedules a device for decommissioning via the CLI.
+func (h *Harness) DecommissionDevice(deviceName string) (string, error) {
+	return h.CLI("decommission", "device", deviceName)
 }
 
 // CleanUpTestResources deletes only resources that have the test label for the current test

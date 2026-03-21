@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"sync"
 
+	"github.com/flightctl/flightctl/test/util"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/sirupsen/logrus"
 )
@@ -111,6 +113,17 @@ func GetWorkerContext() context.Context {
 		ginkgo.Fail(fmt.Sprintf("No context found for worker %d. Make sure SetupWorkerHarness or SetupWorkerHarnessWithoutVM was called in BeforeSuite", workerID))
 	}
 	return ctx.(context.Context)
+}
+
+// GetContext detects the cluster type and returns util.OCP or util.KIND.
+func GetContext() (string, error) {
+	ocPath, err := exec.LookPath("oc")
+	if err == nil && ocPath != "" {
+		if err := exec.Command("oc", "whoami").Run(); err == nil {
+			return util.OCP, nil
+		}
+	}
+	return util.KIND, nil
 }
 
 // GinkgoBeforeSuite is a convenience function that sets up worker harness in BeforeSuite.
