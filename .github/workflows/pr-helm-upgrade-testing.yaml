@@ -132,6 +132,7 @@ jobs:
           tag: ${{ needs.build-baseline.outputs.git_tag }}
           base-domain: ${{ steps.get-ip.outputs.base-domain }}
           os: el9
+          image-registry: localhost
 
       - name: "[BASELINE] Check deployment"
         run: kubectl get pods --all-namespaces

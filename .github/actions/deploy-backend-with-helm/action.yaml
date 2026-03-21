@@ -44,6 +44,10 @@ inputs:
     description: 'OS identifier for image suffix (e.g., "el9", "el10")'
     required: false
     default: 'el9'
+  image-registry:
+    description: 'Image registry to use for FlightCtl service images (e.g., "localhost", "quay.io")'
+    required: false
+    default: 'quay.io'
 
 runs:
   using: "composite"
@@ -165,31 +169,40 @@ runs:
           *) RHEL_OS="${OS}" ;;
         esac
 
-        # Override all service images to use OS-specific names and correct tag
+        # Override all service images to use specified registry with OS-specific names and correct tag
         # The tag should match the git tag used to build the images
         IMAGE_TAG="${{ steps.compute-tags.outputs.git_tag }}"
+        IMAGE_REGISTRY="${{ inputs.image-registry }}"
+
+        # Build registry prefix based on registry type
+        if [ "${IMAGE_REGISTRY}" = "localhost" ]; then
+          REGISTRY_PREFIX="localhost"
+        else
+          REGISTRY_PREFIX="${IMAGE_REGISTRY}/flightctl"
+        fi
+
         SERVICE_ARGS=""
-        SERVICE_ARGS+=" --set api.image.image=quay.io/flightctl/flightctl-api-${RHEL_OS}"
+        SERVICE_ARGS+=" --set api.image.image=${REGISTRY_PREFIX}/flightctl-api-${RHEL_OS}"
         SERVICE_ARGS+=" --set api.image.tag=${IMAGE_TAG}"
-        SERVICE_ARGS+=" --set worker.image.image=quay.io/flightctl/flightctl-worker-${RHEL_OS}"
+        SERVICE_ARGS+=" --set worker.image.image=${REGISTRY_PREFIX}/flightctl-worker-${RHEL_OS}"
         SERVICE_ARGS+=" --set worker.image.tag=${IMAGE_TAG}"
-        SERVICE_ARGS+=" --set periodic.image.image=quay.io/flightctl/flightctl-periodic-${RHEL_OS}"
+        SERVICE_ARGS+=" --set periodic.image.image=${REGISTRY_PREFIX}/flightctl-periodic-${RHEL_OS}"
         SERVICE_ARGS+=" --set periodic.image.tag=${IMAGE_TAG}"
-        SERVICE_ARGS+=" --set alertExporter.image.image=quay.io/flightctl/flightctl-alert-exporter-${RHEL_OS}"
+        SERVICE_ARGS+=" --set alertExporter.image.image=${REGISTRY_PREFIX}/flightctl-alert-exporter-${RHEL_OS}"
         SERVICE_ARGS+=" --set alertExporter.image.tag=${IMAGE_TAG}"
-        SERVICE_ARGS+=" --set alertmanagerProxy.image.image=quay.io/flightctl/flightctl-alertmanager-proxy-${RHEL_OS}"
+        SERVICE_ARGS+=" --set alertmanagerProxy.image.image=${REGISTRY_PREFIX}/flightctl-alertmanager-proxy-${RHEL_OS}"
         SERVICE_ARGS+=" --set alertmanagerProxy.image.tag=${IMAGE_TAG}"
-        SERVICE_ARGS+=" --set telemetryGateway.image.image=quay.io/flightctl/flightctl-telemetry-gateway-${RHEL_OS}"
+        SERVICE_ARGS+=" --set telemetryGateway.image.image=${REGISTRY_PREFIX}/flightctl-telemetry-gateway-${RHEL_OS}"
         SERVICE_ARGS+=" --set telemetryGateway.image.tag=${IMAGE_TAG}"
-        SERVICE_ARGS+=" --set imageBuilderApi.image.image=quay.io/flightctl/flightctl-imagebuilder-api-${RHEL_OS}"
+        SERVICE_ARGS+=" --set imageBuilderApi.image.image=${REGISTRY_PREFIX}/flightctl-imagebuilder-api-${RHEL_OS}"
         SERVICE_ARGS+=" --set imageBuilderApi.image.tag=${IMAGE_TAG}"
-        SERVICE_ARGS+=" --set imageBuilderWorker.image.image=quay.io/flightctl/flightctl-imagebuilder-worker-${RHEL_OS}"
+        SERVICE_ARGS+=" --set imageBuilderWorker.image.image=${REGISTRY_PREFIX}/flightctl-imagebuilder-worker-${RHEL_OS}"
         SERVICE_ARGS+=" --set imageBuilderWorker.image.tag=${IMAGE_TAG}"
-        SERVICE_ARGS+=" --set cliArtifacts.image.image=quay.io/flightctl/flightctl-cli-artifacts-${RHEL_OS}"
+        SERVICE_ARGS+=" --set cliArtifacts.image.image=${REGISTRY_PREFIX}/flightctl-cli-artifacts-${RHEL_OS}"
         SERVICE_ARGS+=" --set cliArtifacts.image.tag=${IMAGE_TAG}"
 
-        # Always override db-setup image with OS suffix and correct tag
-        DB_SETUP_ARG=" --set dbSetup.image.image=quay.io/flightctl/flightctl-db-setup-${RHEL_OS}"
+        # Always override db-setup image with same registry and OS suffix
+        DB_SETUP_ARG=" --set dbSetup.image.image=${REGISTRY_PREFIX}/flightctl-db-setup-${RHEL_OS}"
         DB_SETUP_ARG+=" --set dbSetup.image.tag=${IMAGE_TAG}"
 
         # Build the helm command
