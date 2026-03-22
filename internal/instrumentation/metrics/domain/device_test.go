@@ -86,7 +86,7 @@ type MockDevice struct {
 	results []store.CountByOrgAndStatusResult
 }
 
-func (m *MockDevice) GetWithoutServiceConditions(ctx context.Context, orgId uuid.UUID, name string) (*domain.Device, error) {
+func (m *MockDevice) GetWithTimestamp(ctx context.Context, orgId uuid.UUID, name string) (*domain.Device, error) {
 	return nil, nil
 }
 

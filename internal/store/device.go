@@ -69,7 +69,7 @@ type Device interface {
 	RemoveConflictPausedAnnotation(ctx context.Context, orgId uuid.UUID, listParams ListParams) (int64, []string, error)
 	SetOutOfDate(ctx context.Context, orgId uuid.UUID, owner string) error
 	ListConnectivityChanged(ctx context.Context, orgId uuid.UUID, listParams ListParams, cutoffTime time.Time) (*domain.DeviceList, error)
-	GetWithoutServiceConditions(ctx context.Context, orgId uuid.UUID, name string) (*domain.Device, error)
+	GetWithTimestamp(ctx context.Context, orgId uuid.UUID, name string) (*domain.Device, error)
 
 	// Used only by rollout
 	Count(ctx context.Context, orgId uuid.UUID, listParams ListParams) (int64, error)
@@ -396,8 +396,8 @@ func (s *DeviceStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*d
 	return s.genericStore.Get(ctx, orgId, name)
 }
 
-func (s *DeviceStore) GetWithoutServiceConditions(ctx context.Context, orgId uuid.UUID, name string) (*domain.Device, error) {
-	return s.getWithTimestamp(ctx, orgId, name, model.WithoutServiceConditions())
+func (s *DeviceStore) GetWithTimestamp(ctx context.Context, orgId uuid.UUID, name string) (*domain.Device, error) {
+	return s.getWithTimestamp(ctx, orgId, name)
 }
 
 func (s *DeviceStore) List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*domain.DeviceList, error) {
