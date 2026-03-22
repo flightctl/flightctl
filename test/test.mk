@@ -258,8 +258,8 @@ schemathesis-image:
 		-t $(SCHEMATHESIS_IMAGE) test/api/; \
 
 test-api: schemathesis-image
-	SCHEMATHESIS_IMAGE=$(SCHEMATHESIS_IMAGE) test/api/run_tests.sh
+	SCHEMATHESIS_IMAGE=$(SCHEMATHESIS_IMAGE) SCHEMATHESIS_SUITES=$(SCHEMATHESIS_SUITES) test/api/run_tests.sh
 
 clean-schemathesis:
 	-podman rmi $(SCHEMATHESIS_IMAGE) 2>/dev/null || true
-	-rm -rf $(ROOT_DIR)/reports/schemathesis
+	-rm -rf $(REPORTS)/schemathesis

@@ -60,7 +60,7 @@ func (e *Event) ToApiResource(opts ...APIResourceOption) (*domain.Event, error) 
 	}
 
 	var details *domain.EventDetails
-	if e.Details != nil {
+	if e.Details != nil && e.Details.Data.HasData() {
 		details = &e.Details.Data
 	}
 

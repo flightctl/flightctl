@@ -6276,7 +6276,7 @@ components:
           description: The desired revision in the repository.
         path:
           type: string
-          minLength: 1
+          minLength: 0
           maxLength: 2048
           example: "/resources"
           description: The path of a file or directory in the repository. If a directory, the directory should contain only resource definitions with no subdirectories. Each file should contain the definition of one or more resources.
@@ -7156,10 +7156,7 @@ components:
           type: string
           description: A human-readable description of the status of this operation.
         details:
-          description: Event-specific details, structured based on event type.
-          nullable: true
-          allOf:
-            - $ref: '#/components/schemas/EventDetails'
+          $ref: '#/components/schemas/EventDetails'
         type:
           type: string
           description: The type of the event. One of Normal, Warning.

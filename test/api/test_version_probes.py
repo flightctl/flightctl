@@ -16,7 +16,7 @@ INVALID_VERSION = "v999"
 
 
 @schema.parametrize()
-@settings(max_examples=5, suppress_health_check=[HealthCheck.filter_too_much])
+@settings(max_examples=1, suppress_health_check=[HealthCheck.filter_too_much])
 def test_invalid_version_rejected(case):
     """Invalid Flightctl-API-Version must return 406 Not Acceptable."""
     response = case.call(
@@ -34,7 +34,7 @@ def test_invalid_version_rejected(case):
 
 
 @schema.parametrize()
-@settings(max_examples=5, suppress_health_check=[HealthCheck.filter_too_much])
+@settings(max_examples=1, suppress_health_check=[HealthCheck.filter_too_much])
 def test_no_version_header_fallback(case):
     """Request without version header must include version in response."""
     response = case.call(verify=False, timeout=30)

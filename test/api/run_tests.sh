@@ -11,10 +11,13 @@ RESULTS_DIR="${ROOT_DIR}/reports/schemathesis"
 CLIENT_CONFIG="${HOME}/.config/flightctl/client.yaml"
 SCHEMATHESIS_IMAGE="${SCHEMATHESIS_IMAGE:-flightctl-schemathesis:latest}"
 
-# Services and versions to test
-SERVICES=("core/v1alpha1" "core/v1beta1" "imagebuilder/v1alpha1")
+# Services and versions to test (override with SCHEMATHESIS_SUITES, comma-separated)
+ALL_SERVICES="core/v1alpha1,core/v1beta1,imagebuilder/v1alpha1"
+IFS=',' read -ra SERVICES <<< "${SCHEMATHESIS_SUITES:-$ALL_SERVICES}"
+SERVICES=("${SERVICES[@]// /}")
 
 log_info()  { echo "=== [schemathesis] $* ==="; }
+log_info "Suites to test: ${SERVICES[*]}"
 log_error() { echo "!!! [schemathesis] ERROR: $* !!!" >&2; }
 
 extract_server_url() {

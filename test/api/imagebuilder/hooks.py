@@ -27,11 +27,16 @@ def _create_resource(url, headers, body, name):
             url, headers=headers, json=body, verify=False, timeout=30,
         )
         if resp.status_code in (201, 409):
-            return True
-        print(f"Warning: fixture '{name}' returned {resp.status_code}")
+            return
+        raise RuntimeError(
+            f"Fixture '{name}' creation failed: HTTP {resp.status_code}"
+        )
+    except RuntimeError:
+        raise
     except Exception as exc:
-        print(f"Warning: failed to create fixture '{name}': {exc}")
-    return False
+        raise RuntimeError(
+            f"Failed to create fixture '{name}': {exc}"
+        ) from exc
 
 
 def _setup_fixtures():
@@ -117,9 +122,11 @@ def _fix_imageexport_refs(body, **_):
     if not isinstance(spec, dict):
         return
     source = spec.get("source")
-    if isinstance(source, dict) and _FIXTURES.get("image_build"):
+    if isinstance(source, dict):
         source["type"] = "imageBuild"
-        source["imageBuildRef"] = _FIXTURES["image_build"]
+        ref = source.get("imageBuildRef", "")
+        if not ref.startswith("st-") and _FIXTURES.get("image_build"):
+            source["imageBuildRef"] = _FIXTURES["image_build"]
     fmt = spec.get("format")
     if fmt not in _VALID_EXPORT_FORMATS:
         spec["format"] = "qcow2"

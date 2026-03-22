@@ -7,7 +7,7 @@ When new endpoints are added to the specs, they are automatically included on th
 
 When a test fails, Schemathesis prints a `curl` command with the exact request that triggered the failure. Hypothesis automatically reduces the input to the simplest case that still reproduces the issue:
 
-```
+```text
 Reproduce with: curl -X POST -H 'Content-Type: application/json' \
   -d '{"name": ""}' \
   https://localhost:3443/api/v1/fleets
@@ -19,9 +19,11 @@ Run the curl command to reproduce the failure and read the response body for det
 
 - Deploy the backend: `make deploy`
 - To increase API rate limits for testing, apply the override values to the running deployment:
+
   ```bash
   helm upgrade flightctl ./deploy/helm/flightctl/ -n flightctl-external --reuse-values --values test/api/values.api-tests.yaml
   ```
+
 - `make test-api` builds the schemathesis container image and runs `test/api/run_tests.sh`.
 - The runner discovers test suites from the directory structure (`core/v1alpha1`, `core/v1beta1`, `imagebuilder/v1alpha1`).
 - For each suite, `run_suite.sh` runs inside the container:
@@ -31,7 +33,7 @@ Run the curl command to reproduce the failure and read the response body for det
 
 ## Directory structure
 
-```
+```text
 test/api/
   common/
     hooks.py          -- Shared hooks: TraceCov, int64 patching, protocol fields,
@@ -109,6 +111,13 @@ Defined in `common/checks.py`, these run on every response:
 make test-api
 ```
 
+To run specific suites only, set `SCHEMATHESIS_SUITES` (comma-separated):
+
+```bash
+make test-api SCHEMATHESIS_SUITES=imagebuilder/v1alpha1
+make test-api SCHEMATHESIS_SUITES=core/v1beta1,imagebuilder/v1alpha1
+```
+
 ## Configuration
 
 Each suite has a `schemathesis.toml` controlling phases, checks, and generation limits. Key settings:
@@ -123,6 +132,7 @@ Each suite has a `schemathesis.toml` controlling phases, checks, and generation 
 Use `[[operations]]` blocks to customize behavior for specific endpoints:
 
 Disable a specific check for an endpoint:
+
 ```toml
 [[operations]]
 include-path = "/enrollmentrequests/{name}/approval"
@@ -131,6 +141,7 @@ enabled = false
 ```
 
 Disable an endpoint entirely:
+
 ```toml
 [[operations]]
 include-path = "/auth/{providername}/token"
@@ -138,6 +149,7 @@ enabled = false
 ```
 
 Pin path parameters to specific values:
+
 ```toml
 [[operations]]
 include-path = "/fleets/{name}"

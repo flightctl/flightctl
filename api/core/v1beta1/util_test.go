@@ -8,6 +8,30 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestEventDetailsHasData(t *testing.T) {
+	tests := []struct {
+		name     string
+		details  EventDetails
+		expected bool
+	}{
+		{"zero value (nil union)", EventDetails{}, false},
+		{"null JSON literal", EventDetails{union: []byte("null")}, false},
+		{"valid data", func() EventDetails {
+			d := EventDetails{}
+			_ = d.FromResourceUpdatedDetails(ResourceUpdatedDetails{
+				DetailType:    ResourceUpdated,
+				UpdatedFields: []ResourceUpdatedDetailsUpdatedFields{Labels},
+			})
+			return d
+		}(), true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, tt.details.HasData())
+		})
+	}
+}
+
 func TestAuthProviderHideSensitiveData(t *testing.T) {
 	tests := []struct {
 		name              string

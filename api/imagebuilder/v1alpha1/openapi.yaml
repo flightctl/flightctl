@@ -134,10 +134,15 @@ paths:
             CreateImageExport:
               operationId: createImageExport
               requestBody:
+                apiVersion: flightctl.io/v1alpha1
+                kind: ImageExport
+                metadata:
+                  name: '$response.body#/metadata/name'
                 spec:
                   source:
                     type: imageBuild
                     imageBuildRef: '$response.body#/metadata/name'
+                  format: qcow2
         "400":
           description: Bad Request
           content:

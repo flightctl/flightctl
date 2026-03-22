@@ -2,7 +2,6 @@ package middleware
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
@@ -70,7 +69,7 @@ func (m *IdentityMappingMiddleware) MapIdentityToDB(next http.Handler) http.Hand
 		organizations, err := m.identityMapper.MapIdentityToDB(ctx, identity)
 		if err != nil {
 			m.log.Errorf("Failed to map identity to database objects: %v", err)
-			transport.WriteJSONError(w, r, fmt.Sprintf("Failed to map identity: %v", err), http.StatusInternalServerError)
+			transport.WriteJSONError(w, r, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 			return
 		}
 		m.log.Debugf("Identity mapping middleware: successfully mapped identity %s to %d organizations", identity.GetUsername(), len(organizations))

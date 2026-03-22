@@ -1579,7 +1579,7 @@ type Event struct {
 	ApiVersion ApiVersion `json:"apiVersion"`
 
 	// Details Event-specific details, structured based on event type.
-	Details *EventDetails `json:"details"`
+	Details *EventDetails `json:"details,omitempty"`
 
 	// InvolvedObject A reference to a resource.
 	InvolvedObject ObjectReference `json:"involvedObject"`

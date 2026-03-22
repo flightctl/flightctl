@@ -1148,8 +1148,6 @@ components:
           name: edge-apps
         spec:
           displayName: Edge Applications
-        status:
-          conditions: []
     CatalogSpec:
       type: object
       description: CatalogSpec describes the configuration of a catalog. Catalogs are containers for locally-managed CatalogItems.
@@ -1392,15 +1390,18 @@ components:
               description: 'Channels this version belongs to.'
             replaces:
               type: string
+              pattern: "^[0-9]+\\.[0-9]+(\\.[0-9]+)?(-[a-zA-Z0-9.]+)?(\\+[a-zA-Z0-9.]+)?$"
               description: 'The single version this one replaces, defining the primary upgrade edge.'
             skips:
               type: array
               items:
                 type: string
+                pattern: "^[0-9]+\\.[0-9]+(\\.[0-9]+)?(-[a-zA-Z0-9.]+)?(\\+[a-zA-Z0-9.]+)?$"
               description: 'Additional versions that can upgrade directly to this one. Use when stable channel skips intermediate fast-only versions.'
               example: ["1.0.0", "1.1.0"]
             skipRange:
               type: string
+              pattern: "^[>=<~^]*[0-9]+\\.[0-9]+(\\.[0-9]+)?(-[a-zA-Z0-9.]+)?(\\+[a-zA-Z0-9.]+)?( [>=<~^]*[0-9]+\\.[0-9]+(\\.[0-9]+)?(-[a-zA-Z0-9.]+)?(\\+[a-zA-Z0-9.]+)?)*$"
               description: 'Semver range of versions that can upgrade directly to this one. Use for z-stream updates or hotfixes.'
               example: ">=1.0.0 <1.3.0"
             deprecation:

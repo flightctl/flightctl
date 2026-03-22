@@ -80,7 +80,8 @@ def check_vary_header(ctx, response, case):
     if response.status_code >= 400:
         return
 
-    vary = _get_header(response, "Vary") or ""
+    values = response.headers.get("vary") or []
+    vary = ", ".join(values)
     if VERSION_HEADER.lower() not in vary.lower():
         raise AssertionError(
             f"Vary header missing '{VERSION_HEADER}', got '{vary}'"

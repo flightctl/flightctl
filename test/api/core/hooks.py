@@ -182,6 +182,14 @@ _TYPE_TO_CATEGORY = {
     "quadlet": "application", "compose": "application", "data": "application",
 }
 
+_TYPE_TO_CONFIG_KEYS = {
+    "container": {"envVars", "ports", "resources", "volumes"},
+    "helm": {"namespace", "values", "valuesFiles"},
+    "quadlet": {"envVars", "volumes"},
+    "compose": {"envVars", "volumes"},
+    # os, firmware, driver, data: no restriction (absent = accept all)
+}
+
 _REPO_KNOWN_PROPS = {
     "git": {"type", "url", "httpConfig", "sshConfig"},
     "http": {"type", "url", "httpConfig", "validationSuffix"},
@@ -214,7 +222,7 @@ def filter_action_bodies_with_status(ctx, body):
 # Signature: fn(body, *, path, method, **_)
 # ===========================================================================
 
-@register_body_mutator(path=r'/enrollmentrequests')
+@register_body_mutator(path=r'/enrollmentrequests(/\{[^}]+\}(/status)?)?$')
 def _fix_enrollment_csr(body, **_):
     if not isinstance(body.get("spec"), dict):
         body["spec"] = {}
@@ -229,6 +237,7 @@ def _fix_csr_values(body, **_):
             spec["request"] = _csr_base64()
         if "signerName" in spec and spec["signerName"] not in _VALID_CSR_SIGNERS:
             spec["signerName"] = _VALID_CSR_SIGNERS[0]
+        spec["usages"] = ["clientAuth", "CA:false"]
 
 
 @register_body_mutator(path=r'/authproviders')
@@ -314,6 +323,15 @@ def _fix_catalog_item(body, **_):
             if isinstance(art, dict) and not _is_valid_uri(art.get("uri")):
                 art["uri"] = "quay.io/schemathesis/test"
 
+    # Deduplicate artifact types (server rejects duplicates)
+    seen_types = set()
+    deduped = []
+    for art in spec["artifacts"]:
+        if isinstance(art, dict) and art.get("type") and art["type"] not in seen_types:
+            seen_types.add(art["type"])
+            deduped.append(art)
+    spec["artifacts"] = deduped or [{"type": "container", "uri": "quay.io/schemathesis/test"}]
+
     art_types = [a["type"] for a in spec["artifacts"] if isinstance(a, dict) and a.get("type")]
     ref_type = art_types[0] if art_types else "container"
 
@@ -321,11 +339,53 @@ def _fix_catalog_item(body, **_):
     if not isinstance(versions, list) or not versions:
         versions = [{"version": "1.0.0"}]
         spec["versions"] = versions
+    seen_versions = set()
     for i, v in enumerate(versions):
         if isinstance(v, dict):
             v["references"] = {ref_type: f"v1.{i}.0"}
             v.pop("tag", None)
             v.pop("digest", None)
+
+            # channels: required by allOf 2nd branch, schemathesis drops it
+            if not isinstance(v.get("channels"), list) or not v["channels"]:
+                v["channels"] = ["stable"]
+
+            # version dedup (server rejects duplicates)
+            ver = v.get("version", f"1.{i}.0")
+            while ver in seen_versions:
+                ver = f"1.{i}.{len(seen_versions)}"
+            v["version"] = ver
+            seen_versions.add(ver)
+
+            # deprecation.message: required by schema, allOf drops it
+            dep = v.get("deprecation")
+            if isinstance(dep, dict) and not dep.get("message"):
+                dep["message"] = "Deprecated by schemathesis test"
+
+            # config keys: filter by type (same pattern as _fix_repository_spec)
+            config = v.get("config")
+            if isinstance(config, dict):
+                known = _TYPE_TO_CONFIG_KEYS.get(item_type)
+                if known is not None:
+                    for key in list(config.keys()):
+                        if key not in known:
+                            del config[key]
+
+    # spec-level deprecation
+    dep = spec.get("deprecation")
+    if isinstance(dep, dict) and not dep.get("message"):
+        dep["message"] = "Deprecated by schemathesis test"
+
+    # defaults.config keys: same filtering as version-level config
+    defaults = spec.get("defaults")
+    if isinstance(defaults, dict):
+        defaults_config = defaults.get("config")
+        if isinstance(defaults_config, dict):
+            known = _TYPE_TO_CONFIG_KEYS.get(item_type)
+            if known is not None:
+                for key in list(defaults_config.keys()):
+                    if key not in known:
+                        del defaults_config[key]
 
     spec.pop("reference", None)
 

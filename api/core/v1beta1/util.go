@@ -53,6 +53,12 @@ const (
 	ImageMountApplicationVolumeProviderType ApplicationVolumeProviderType = "image_mount"
 )
 
+// HasData reports whether the EventDetails union contains actual data
+// (i.e. it is not nil and not the JSON literal "null").
+func (t EventDetails) HasData() bool {
+	return len(t.union) > 0 && !bytes.Equal(t.union, []byte("null"))
+}
+
 // Type returns the type of the action.
 func (t HookAction) Type() (HookActionType, error) {
 	var data map[HookActionType]interface{}
