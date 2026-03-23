@@ -1166,7 +1166,9 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 			Expect(itemsToRemove).To(Equal([]string{"removable-catalog/item-b"}))
 
 			// Delete stale item through service (mirrors what run() does with the toRemove list)
-			status := serviceHandler.DeleteCatalogItem(internalCtx, orgId, "removable-catalog", "item-b")
+			// ResourceSync sets ResourceSyncRequestCtxKey when deleting owned items
+			deleteCtx := context.WithValue(internalCtx, consts.ResourceSyncRequestCtxKey, true)
+			status := serviceHandler.DeleteCatalogItem(deleteCtx, orgId, "removable-catalog", "item-b")
 			Expect(status.Code).To(Equal(int32(http.StatusOK)))
 
 			// Verify item-b is gone
