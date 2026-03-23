@@ -38,6 +38,7 @@ export API_VERSION=$(basename $(dirname "$CONFIG"))
 timeout 600 pytest /app/config/test_version_probes.py \
     -p no:cacheprovider \
     -W ignore::hypothesis.errors.HypothesisSideeffectWarning \
+    -W ignore::urllib3.exceptions.InsecureRequestWarning \
     --tb=short \
     --junit-xml="$RESULTS/junit-probes.xml" \
     -v >"$RESULTS/pytest_output.log" 2>&1

@@ -3,10 +3,19 @@ import os
 
 import hypothesis.errors
 import pytest
+import requests
 import schemathesis
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 schema = schemathesis.openapi.from_path(os.environ["SPEC_PATH"])
 schema.config.base_url = os.environ["BASE_URL"]
+
+# Session with retry for transient connection errors (DNS flakes, TCP resets).
+_retry = Retry(total=5, connect=5, backoff_factor=1)
+resilient_session = requests.Session()
+resilient_session.mount("https://", HTTPAdapter(max_retries=_retry))
+resilient_session.mount("http://", HTTPAdapter(max_retries=_retry))
 
 
 @pytest.hookimpl(hookwrapper=True)

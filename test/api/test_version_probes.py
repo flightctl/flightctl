@@ -8,7 +8,7 @@ middleware behaves correctly:
 import pytest
 from hypothesis import HealthCheck, settings
 
-from conftest import schema
+from conftest import resilient_session, schema
 
 VERSION_HEADER = "Flightctl-API-Version"
 SUPPORTED_HEADER = "Flightctl-API-Versions-Supported"
@@ -20,6 +20,7 @@ INVALID_VERSION = "v999"
 def test_invalid_version_rejected(case):
     """Invalid Flightctl-API-Version must return 406 Not Acceptable."""
     response = case.call(
+        session=resilient_session,
         headers={VERSION_HEADER: INVALID_VERSION},
         verify=False,
     )
@@ -37,7 +38,7 @@ def test_invalid_version_rejected(case):
 @settings(max_examples=1, suppress_health_check=[HealthCheck.filter_too_much])
 def test_no_version_header_fallback(case):
     """Request without version header must include version in response."""
-    response = case.call(verify=False, timeout=30)
+    response = case.call(session=resilient_session, verify=False, timeout=30)
 
     if response.status_code in (404, 405):
         pytest.skip(f"Endpoint returned {response.status_code}")
