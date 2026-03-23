@@ -7881,23 +7881,15 @@ components:
           description: Whether this K8s provider is enabled.
           default: true
         organizationAssignment:
-          description: How users from this auth provider are assigned to organizations.
-          nullable: true
-          allOf:
-            - $ref: '#/components/schemas/AuthOrganizationAssignment'
+          $ref: '#/components/schemas/AuthOrganizationAssignment'
         roleAssignment:
-          description: How users from this auth provider are assigned roles.
-          nullable: true
-          allOf:
-            - $ref: '#/components/schemas/AuthRoleAssignment'
+          $ref: '#/components/schemas/AuthRoleAssignment'
         roleSuffix:
           type: string
           description: Optional suffix to strip from ClusterRole names when normalizing role names. Used for multi-release deployments where ClusterRoles have namespace-specific names (e.g., flightctl-admin-<namespace>).
       required:
         - providerType
         - apiUrl
-        - organizationAssignment
-        - roleAssignment
     AuthOrganizationAssignment:
       type: object
       description: AuthOrganizationAssignment defines how users from this auth provider are assigned to organizations.

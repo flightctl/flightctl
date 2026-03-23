@@ -27,7 +27,7 @@ enabled = true
 
 [phases.stateful]
 enabled = true
-max-steps = 10
+max-steps = 5
 
 [phases.stateful.inference]
 algorithms = ["location-headers", "dependency-analysis"]

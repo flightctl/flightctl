@@ -2132,8 +2132,8 @@ type K8sProviderSpec struct {
 	// Enabled Whether this K8s provider is enabled.
 	Enabled *bool `json:"enabled,omitempty"`
 
-	// OrganizationAssignment How users from this auth provider are assigned to organizations.
-	OrganizationAssignment *AuthOrganizationAssignment `json:"organizationAssignment"`
+	// OrganizationAssignment AuthOrganizationAssignment defines how users from this auth provider are assigned to organizations.
+	OrganizationAssignment *AuthOrganizationAssignment `json:"organizationAssignment,omitempty"`
 
 	// ProviderType The type of authentication provider.
 	ProviderType K8sProviderSpecProviderType `json:"providerType"`
@@ -2141,8 +2141,8 @@ type K8sProviderSpec struct {
 	// RbacNs The RBAC namespace for permissions.
 	RbacNs *string `json:"rbacNs,omitempty"`
 
-	// RoleAssignment How users from this auth provider are assigned roles.
-	RoleAssignment *AuthRoleAssignment `json:"roleAssignment"`
+	// RoleAssignment AuthRoleAssignment defines how roles are assigned to users from this auth provider.
+	RoleAssignment *AuthRoleAssignment `json:"roleAssignment,omitempty"`
 
 	// RoleSuffix Optional suffix to strip from ClusterRole names when normalizing role names. Used for multi-release deployments where ClusterRoles have namespace-specific names (e.g., flightctl-admin-<namespace>).
 	RoleSuffix *string `json:"roleSuffix,omitempty"`
