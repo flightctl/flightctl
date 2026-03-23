@@ -147,14 +147,14 @@ var _ = Describe("Status Updater Integration Tests", func() {
 				updater.ReportOutput([]byte(logLine))
 			}
 
-			// Give time for Redis writes
-			time.Sleep(100 * time.Millisecond)
-
-			// Verify logs are in Redis
 			expectedKey := fmt.Sprintf("imagebuild:logs:%s:%s", orgID.String(), imageBuildName)
-			entries, err := kvStoreInst.StreamRange(ctx, expectedKey, "-", "+")
-			Expect(err).ToNot(HaveOccurred())
-			Expect(len(entries)).To(BeNumerically(">=", 3))
+			var entries []kvstore.StreamEntry
+			Eventually(func(g Gomega) {
+				var err error
+				entries, err = kvStoreInst.StreamRange(ctx, expectedKey, "-", "+")
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(len(entries)).To(BeNumerically(">=", 3))
+			}).WithTimeout(5 * time.Second).WithPolling(50 * time.Millisecond).Should(Succeed())
 
 			// Verify log content
 			allLogs := ""
@@ -197,10 +197,6 @@ var _ = Describe("Status Updater Integration Tests", func() {
 				updater.ReportOutput([]byte(fmt.Sprintf("Log line %d\n", i)))
 			}
 
-			// Wait for logs to be processed
-			time.Sleep(200 * time.Millisecond)
-
-			// Mark build as completed
 			completedCondition := api.ImageBuildCondition{
 				Type:               api.ImageBuildConditionTypeReady,
 				Status:             v1beta1.ConditionStatusTrue,
@@ -210,14 +206,14 @@ var _ = Describe("Status Updater Integration Tests", func() {
 			}
 			updater.UpdateCondition(completedCondition)
 
-			// Wait for status update and log persistence
-			time.Sleep(300 * time.Millisecond)
-
-			// Verify logs are persisted to DB
-			_, logsStr, status := imageBuilderService.ImageBuild().GetLogs(ctx, orgID, imageBuildName, false)
-			Expect(service.IsStatusOK(status)).To(BeTrue())
-			Expect(logsStr).ToNot(BeEmpty())
-			Expect(logsStr).To(ContainSubstring("Log line"))
+			var logsStr string
+			Eventually(func(g Gomega) {
+				var status domain.Status
+				_, logsStr, status = imageBuilderService.ImageBuild().GetLogs(ctx, orgID, imageBuildName, false)
+				g.Expect(service.IsStatusOK(status)).To(BeTrue())
+				g.Expect(logsStr).NotTo(BeEmpty())
+				g.Expect(logsStr).To(ContainSubstring("Log line"))
+			}).WithTimeout(10 * time.Second).WithPolling(50 * time.Millisecond).Should(Succeed())
 		})
 
 		It("should persist logs periodically during build", func() {
@@ -253,14 +249,11 @@ var _ = Describe("Status Updater Integration Tests", func() {
 			// Send log output
 			updater.ReportOutput([]byte("Periodic test log\n"))
 
-			// Wait for periodic update
-			time.Sleep(400 * time.Millisecond)
-
-			// Verify logs are persisted to DB periodically
-			_, logsStr, status := imageBuilderService.ImageBuild().GetLogs(ctx, orgID, imageBuildName, false)
-			Expect(service.IsStatusOK(status)).To(BeTrue())
-			// Logs should be persisted even though build is still active
-			Expect(logsStr).To(ContainSubstring("Periodic test log"))
+			Eventually(func(g Gomega) {
+				_, logsStr, status := imageBuilderService.ImageBuild().GetLogs(ctx, orgID, imageBuildName, false)
+				g.Expect(service.IsStatusOK(status)).To(BeTrue())
+				g.Expect(logsStr).To(ContainSubstring("Periodic test log"))
+			}).WithTimeout(5 * time.Second).WithPolling(50 * time.Millisecond).Should(Succeed())
 		})
 
 		It("should keep only last 500 lines in buffer", func() {
@@ -294,10 +287,6 @@ var _ = Describe("Status Updater Integration Tests", func() {
 				updater.ReportOutput([]byte(fmt.Sprintf("Line %d\n", i)))
 			}
 
-			// Wait for processing
-			time.Sleep(200 * time.Millisecond)
-
-			// Mark as completed to trigger log persistence
 			completedCondition := api.ImageBuildCondition{
 				Type:               api.ImageBuildConditionTypeReady,
 				Status:             v1beta1.ConditionStatusTrue,
@@ -307,19 +296,15 @@ var _ = Describe("Status Updater Integration Tests", func() {
 			}
 			updater.UpdateCondition(completedCondition)
 
-			// Wait for persistence
-			time.Sleep(300 * time.Millisecond)
-
-			// Verify only last 500 lines are persisted
-			_, logsStr, status := imageBuilderService.ImageBuild().GetLogs(ctx, orgID, imageBuildName, false)
-			Expect(service.IsStatusOK(status)).To(BeTrue())
-
-			// Should contain line 100 (first line of last 500)
-			Expect(logsStr).To(ContainSubstring("Line 100"))
-			// Should contain line 599 (last line)
-			Expect(logsStr).To(ContainSubstring("Line 599"))
-			// Should NOT contain line 99 (before the 500 line window)
-			Expect(logsStr).ToNot(ContainSubstring("Line 99"))
+			var logsStr string
+			Eventually(func(g Gomega) {
+				var status domain.Status
+				_, logsStr, status = imageBuilderService.ImageBuild().GetLogs(ctx, orgID, imageBuildName, false)
+				g.Expect(service.IsStatusOK(status)).To(BeTrue())
+				g.Expect(logsStr).To(ContainSubstring("Line 100"))
+				g.Expect(logsStr).To(ContainSubstring("Line 599"))
+				g.Expect(logsStr).NotTo(ContainSubstring("Line 99"))
+			}).WithTimeout(15 * time.Second).WithPolling(100 * time.Millisecond).Should(Succeed())
 		})
 	})
 })
