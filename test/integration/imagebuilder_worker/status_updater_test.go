@@ -197,6 +197,15 @@ var _ = Describe("Status Updater Integration Tests", func() {
 				updater.ReportOutput([]byte(fmt.Sprintf("Log line %d\n", i)))
 			}
 
+			// Completed triggers persistLogsToDB in the same run-loop turn as the update;
+			// wait until all chunks are flushed to Redis so the in-memory buffer is full first.
+			logStreamKey := fmt.Sprintf("imagebuild:logs:%s:%s", orgID.String(), imageBuildName)
+			Eventually(func(g Gomega) {
+				entries, err := kvStoreInst.StreamRange(ctx, logStreamKey, "-", "+")
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(entries).To(HaveLen(10))
+			}).WithTimeout(30 * time.Second).WithPolling(50 * time.Millisecond).Should(Succeed())
+
 			completedCondition := api.ImageBuildCondition{
 				Type:               api.ImageBuildConditionTypeReady,
 				Status:             v1beta1.ConditionStatusTrue,
