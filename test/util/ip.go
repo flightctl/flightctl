@@ -55,7 +55,7 @@ func BinaryExistsOnPath(binaryName string) bool {
 
 // resolveIPAddressForHostname resolves the ip address associated with the hostname. Prefers ip4 addresses
 // but will return ip6 address if there are no ip4 addresses.
-// If the PREFER_IPV6 environment variable is set to "true", IPv6 addresses are preferred instead.
+// If the IPV6_ONLY environment variable is set to "true", IPv6 addresses are preferred instead.
 func resolveIPAddressForHostname(hostname string) (string, error) {
 	if ip := net.ParseIP(hostname); ip != nil {
 		return ip.String(), nil
@@ -70,7 +70,7 @@ func resolveIPAddressForHostname(hostname string) (string, error) {
 	}
 
 	// In pure IPv6 mode, prefer IPv6 addresses
-	if os.Getenv("PREFER_IPV6") == "true" {
+	if os.Getenv("IPV6_ONLY") == "true" {
 		for _, ip := range ips {
 			if ip.To4() == nil && ip.To16() != nil {
 				return ip.String(), nil

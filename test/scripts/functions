@@ -82,7 +82,12 @@ kind_load_image() {
 function registry_address() {
     # E2E_AUX_HOST overrides for both Quadlet and K8s (e.g. test host IP on OCP NIC)
     if [[ -n "${E2E_AUX_HOST:-}" ]]; then
-        echo "${E2E_AUX_HOST}:5000"
+        local ip="${E2E_AUX_HOST}"
+        if [[ "$ip" == *":"* ]]; then
+            echo "[${ip}]:5000"
+        else
+            echo "${ip}:5000"
+        fi
         return
     fi
 

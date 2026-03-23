@@ -161,3 +161,4 @@ func GetContainerHostname() string {
 	}
 	return GetHostIP()
 }
+
