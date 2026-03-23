@@ -118,6 +118,13 @@ func (u *statusUpdater) run(cfg *config.Config) {
 	// Track the last LastSeen value we set in the database
 	var lastSetLastSeen *time.Time
 
+	handleOutput := func(output []byte) {
+		now := time.Now().UTC()
+		lastOutputTime = &now
+		u.log.Debugf("Task output: %s", string(output))
+		u.writeLogToRedis(u.ctx, output)
+	}
+
 	for {
 		select {
 		case <-u.ctx.Done():
@@ -139,14 +146,17 @@ func (u *statusUpdater) run(cfg *config.Config) {
 				}
 			}
 		case output := <-u.outputChan:
-			// Task output received - update local variable with current time
-			now := time.Now().UTC()
-			lastOutputTime = &now
-			// Log output for debugging (can be removed or made conditional)
-			u.log.Debugf("Task output: %s", string(output))
-			// Write to Redis and update in-memory buffer
-			u.writeLogToRedis(u.ctx, output)
+			handleOutput(output)
 		case req := <-u.updateChan:
+			// Apply queued task output before status updates so terminal persist sees the full buffer.
+			for drained := false; !drained; {
+				select {
+				case output := <-u.outputChan:
+					handleOutput(output)
+				default:
+					drained = true
+				}
+			}
 			// Status update requested
 			if req.Condition != nil {
 				pendingCondition = req.Condition
