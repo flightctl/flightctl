@@ -33,10 +33,12 @@ func (h *Harness) GetRepository(repositoryName string) (*v1beta1.Repository, err
 
 // GetInternalGitRepoURL returns the internal cluster URL for a git repository on the E2E git server.
 // Callers pass internalHost and internalPort from infra (e.g. auxiliary.Services).
+// This format is SCP-style, not ssh:// URL, so brackets are NOT used even for IPv6.
 func (h *Harness) GetInternalGitRepoURL(internalHost string, internalPort int, repoName string) (string, error) {
 	if internalHost == "" || internalPort == 0 {
 		return "", fmt.Errorf("git server internal endpoints not configured")
 	}
+	// SCP-style syntax: user@host:port:path (no brackets needed, port is separated by second colon)
 	return fmt.Sprintf("user@%s:%d:/home/user/repos/%s.git", internalHost, internalPort, repoName), nil
 }
 

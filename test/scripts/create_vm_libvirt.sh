@@ -8,7 +8,7 @@ export KUBECONFIG=${KUBECONFIG_PATH}
 
 # Variables
 VM_NAME="test-vm"
-VM_RAM=16384                # RAM in MB necessary to run the flightctl e2e
+VM_RAM=24576                # RAM in MB necessary to run the flightctl e2e (increased for parallel nested VMs)
 VM_CPUS=8                  # Number of CPUs
 VM_DISK_SIZE_INC=${VM_DISK_SIZE_INC:-30} # Disk size increment
 NETWORK_NAME="$(get_ocp_nodes_network)"   # Network name

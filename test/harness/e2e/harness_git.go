@@ -2,9 +2,11 @@ package e2e
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"text/template"
 
 	"github.com/flightctl/flightctl/internal/domain"
@@ -94,8 +96,8 @@ func (h *Harness) CreateGitRepositoryOnServer(config GitServerConfig, keyPath ut
 	}
 
 	// Store the repository name for cleanup
-	h.gitRepos[repoName] = fmt.Sprintf("ssh://%s@%s:%d/home/user/repos/%s.git",
-		config.User, config.Host, config.Port, repoName)
+	h.gitRepos[repoName] = fmt.Sprintf("ssh://%s@%s/home/user/repos/%s.git",
+		config.User, net.JoinHostPort(config.Host, strconv.Itoa(config.Port)), repoName)
 
 	logrus.Infof("Created git repository: %s on git server", repoName)
 	return nil
@@ -133,8 +135,8 @@ func (h *Harness) CloneGitRepositoryFromServer(config GitServerConfig, keyPath u
 		return fmt.Errorf("SSH private key path is required to clone from git server")
 	}
 
-	repoURL := fmt.Sprintf("ssh://%s@%s:%d/home/user/repos/%s.git",
-		config.User, config.Host, config.Port, repoName)
+	repoURL := fmt.Sprintf("ssh://%s@%s/home/user/repos/%s.git",
+		config.User, net.JoinHostPort(config.Host, strconv.Itoa(config.Port)), repoName)
 
 	// Create parent directory if it doesn't exist
 	if err := os.MkdirAll(filepath.Dir(localPath), 0755); err != nil {

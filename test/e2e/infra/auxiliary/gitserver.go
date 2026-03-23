@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 
 	"github.com/flightctl/flightctl/test/util"
 	"github.com/sirupsen/logrus"
@@ -72,7 +74,7 @@ func (g *GitServer) Start(ctx context.Context, network string, reuse bool) error
 	}
 	g.Port = port.Int()
 	g.InternalPort = g.Port
-	g.URL = fmt.Sprintf("ssh://user@%s:%d", g.Host, g.Port)
+	g.URL = fmt.Sprintf("ssh://user@%s", net.JoinHostPort(g.Host, strconv.Itoa(g.Port)))
 	logrus.Infof("Git server container started: %s", g.URL)
 	return nil
 }
