@@ -1201,6 +1201,15 @@ func (h *Harness) VerifyEnrollmentTPMAttestationData(systemInfo v1beta1.DeviceSy
 	return nil
 }
 
+// DecommissionDevice runs the CLI decommission command for the given device name.
+// Returns the CLI output and any error.
+func (h *Harness) DecommissionDevice(deviceName string) (string, error) {
+	if deviceName == "" {
+		return "", fmt.Errorf("device name is empty")
+	}
+	return h.CLI("decommission", "devices/"+deviceName)
+}
+
 // VerifyDeviceTPMAttestationData checks for TPM attestation data in device SystemInfo
 // Virtual TPM provides "tpmVendorInfo", real TPM provides "attestation"
 // Returns error if attestation data is missing or empty

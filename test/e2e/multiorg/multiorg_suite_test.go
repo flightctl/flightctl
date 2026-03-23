@@ -3,7 +3,6 @@ package multiorg_test
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"testing"
 
 	"github.com/flightctl/flightctl/test/e2e/infra"
@@ -36,7 +35,7 @@ var _ = BeforeSuite(func() {
 
 	defaultK8sContext, err := harness.GetDefaultK8sContext()
 	Expect(err).ToNot(HaveOccurred(), "Failed to get default K8s context")
-	err = exec.Command("kubectl", "config", "use-context", defaultK8sContext).Run() // #nosec G204
+	_, err = harness.SH("kubectl", "config", "use-context", defaultK8sContext)
 	Expect(err).ToNot(HaveOccurred(), "Failed to switch to default K8s context")
 	err = harness.RefreshCluster()
 	Expect(err).ToNot(HaveOccurred(), "Failed to refresh Kubernetes client")
