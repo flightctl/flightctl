@@ -192,6 +192,25 @@ func (h *Harness) RefreshClient() error {
 	return nil
 }
 
+// GetDefaultK8sContext returns the current kubectl context name.
+func (h *Harness) GetDefaultK8sContext() (string, error) {
+	out, err := h.SH("kubectl", "config", "current-context")
+	if err != nil {
+		return "", fmt.Errorf("failed to get current kubectl context: %w", err)
+	}
+	ctx := strings.TrimSpace(out)
+	if ctx == "" {
+		return "", fmt.Errorf("kubectl context is empty")
+	}
+	return ctx, nil
+}
+
+// RefreshCluster refreshes the Kubernetes client by re-reading the kubeconfig.
+// This is useful after switching kubectl contexts or logging in as a different user.
+func (h *Harness) RefreshCluster() error {
+	return h.RefreshClient()
+}
+
 // ExtractAuthURL extracts the authentication URL from an AuthProvider based on its type
 func ExtractAuthURL(provider *v1beta1.AuthProvider) string {
 	if provider == nil {

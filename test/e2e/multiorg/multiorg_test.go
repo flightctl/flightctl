@@ -1,7 +1,6 @@
 package multiorg_test
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -80,7 +79,6 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 		})
 
 		It("should enroll 30 devices as admin and all users should see them", Label("88359"), func() {
-			ctx := context.Background()
 			testID := harness.GetTestIDFromContext()
 
 			By("Logging in as admin to setup simulator config and create devices")
@@ -93,7 +91,7 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 			By(fmt.Sprintf("Starting 3 device simulators (%d devices each) as admin", devicesPerUser))
 			for i := 0; i < 3; i++ {
 				initialIndex := i * devicesPerUser
-				cmd, simErr := harness.StartLabeledSimulator(ctx, testID, adminUser, initialIndex, devicesPerUser)
+				cmd, simErr := harness.StartLabeledSimulator(harness.Context, testID, adminUser, initialIndex, devicesPerUser)
 				Expect(simErr).ToNot(HaveOccurred(), fmt.Sprintf("Failed to start simulator batch %d", i))
 				simulatorCmds = append(simulatorCmds, cmd)
 				GinkgoWriter.Printf("Simulator batch %d started (devices %d-%d)\n",
@@ -207,9 +205,17 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 
 			_, deviceName, _, deviceCreateErr := harness.CreateResource(util.Device)
 			Expect(deviceCreateErr).ToNot(HaveOccurred(), "Admin should be able to create a device for viewer delete test")
+			DeferCleanup(func() {
+				_ = login.Login(harness, adminUser, adminPass)
+				_, _ = harness.CleanUpResource(util.Device, deviceName)
+			})
 
 			_, fleetName, _, fleetCreateErr := harness.CreateResource(util.Fleet)
 			Expect(fleetCreateErr).ToNot(HaveOccurred(), "Admin should be able to create a fleet for viewer delete test")
+			DeferCleanup(func() {
+				_ = login.Login(harness, adminUser, adminPass)
+				_, _ = harness.CleanUpResource(util.Fleet, fleetName)
+			})
 
 			By("Switching back to viewer and attempting to delete admin-created resources")
 			err = login.Login(harness, viewerUser, viewerPass)
@@ -224,61 +230,35 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 			out, deleteErr = harness.CleanUpResource(util.Fleet, fleetName)
 			Expect(deleteErr).To(HaveOccurred(), "Viewer should not be able to delete a fleet")
 			Expect(out).To(ContainSubstring(http403Substring), "Expected 403 Forbidden for viewer fleet delete")
-
-			By("Cleaning up: switching to admin to delete test resources")
-			err = login.Login(harness, adminUser, adminPass)
-			Expect(err).ToNot(HaveOccurred())
-			_, _ = harness.CleanUpResource(util.Device, deviceName)
-			_, _ = harness.CleanUpResource(util.Fleet, fleetName)
 		})
 
-		It("viewer cannot decommission a device", Label("88363"), func() {
-			By("Creating devices via simulator as admin")
-			loginFn := makeLoginFunc(adminUser, adminPass)
-			deviceName, cmd, err := harness.EnrollDeviceForDecommissionTest(loginFn, devicesPerUser, deviceEnrollTimeout)
-			Expect(err).ToNot(HaveOccurred())
-			simulatorCmds = append(simulatorCmds, cmd)
-			GinkgoWriter.Printf("Device to test decommission: %s\n", deviceName)
+		DescribeTable("decommission access control",
+			func(user, password string, shouldSucceed bool) {
+				By("Creating devices via simulator as admin")
+				loginFn := makeLoginFunc(adminUser, adminPass)
+				deviceName, cmd, err := harness.EnrollDeviceForDecommissionTest(loginFn, devicesPerUser, deviceEnrollTimeout)
+				Expect(err).ToNot(HaveOccurred())
+				simulatorCmds = append(simulatorCmds, cmd)
+				GinkgoWriter.Printf("Device for decommission test: %s\n", deviceName)
 
-			By("Logging in as viewer and attempting to decommission the device")
-			err = login.Login(harness, viewerUser, viewerPass)
-			Expect(err).ToNot(HaveOccurred())
+				By(fmt.Sprintf("Logging in as %s and attempting to decommission", user))
+				err = login.Login(harness, user, password)
+				Expect(err).ToNot(HaveOccurred())
 
-			out, decommErr := harness.DecommissionDevice(deviceName)
-			Expect(decommErr).To(HaveOccurred(), "Viewer should not be able to decommission a device")
-			Expect(out).To(ContainSubstring(forbiddenSubstring), "Expected Forbidden for viewer decommission attempt")
-		})
-
-		It("operator cannot decommission a device", Label("88364"), func() {
-			By("Creating devices via simulator as admin")
-			loginFn := makeLoginFunc(adminUser, adminPass)
-			deviceName, cmd, err := harness.EnrollDeviceForDecommissionTest(loginFn, devicesPerUser, deviceEnrollTimeout)
-			Expect(err).ToNot(HaveOccurred())
-			simulatorCmds = append(simulatorCmds, cmd)
-			GinkgoWriter.Printf("Device to test decommission: %s\n", deviceName)
-
-			By("Logging in as operator and attempting to decommission the device")
-			err = login.Login(harness, operatorUser, operatorPass)
-			Expect(err).ToNot(HaveOccurred())
-
-			out, decommErr := harness.DecommissionDevice(deviceName)
-			Expect(decommErr).To(HaveOccurred(), "Operator should not be able to decommission a device")
-			Expect(out).To(ContainSubstring(forbiddenSubstring), "Expected Forbidden for operator decommission attempt")
-		})
-
-		It("admin can decommission a device", Label("88365"), func() {
-			By("Creating devices via simulator as admin")
-			loginFn := makeLoginFunc(adminUser, adminPass)
-			deviceName, cmd, err := harness.EnrollDeviceForDecommissionTest(loginFn, devicesPerUser, deviceEnrollTimeout)
-			Expect(err).ToNot(HaveOccurred())
-			simulatorCmds = append(simulatorCmds, cmd)
-			GinkgoWriter.Printf("Device to decommission: %s\n", deviceName)
-
-			By("Admin decommissioning the device")
-			out, decommErr := harness.DecommissionDevice(deviceName)
-			Expect(decommErr).ToNot(HaveOccurred(), "Admin should be able to decommission a device")
-			Expect(out).To(ContainSubstring("200"), "Expected 200 OK for admin decommission")
-		})
+				out, decommErr := harness.DecommissionDevice(deviceName)
+				if shouldSucceed {
+					Expect(decommErr).ToNot(HaveOccurred(), fmt.Sprintf("%s should be able to decommission a device", user))
+					Expect(out).To(ContainSubstring("200"), "Expected 200 OK for decommission")
+				} else {
+					Expect(decommErr).To(HaveOccurred(), fmt.Sprintf("%s should not be able to decommission a device", user))
+					Expect(out).To(ContainSubstring(forbiddenSubstring), "Expected Forbidden for decommission attempt")
+				}
+			},
+			Entry("admin can decommission a device", Label("88365"), adminUser, adminPass, true),
+			Entry("operator cannot decommission a device", Label("88364"), operatorUser, operatorPass, false),
+			Entry("viewer cannot decommission a device", Label("88363"), viewerUser, viewerPass, false),
+			Entry("installer cannot decommission a device", Label("88367"), installerUser, installerPass, false),
+		)
 
 		It("installer can read enrollment requests but cannot create devices or fleets", Label("88366"), func() {
 			suiteCtx := e2e.GetWorkerContext()
@@ -304,23 +284,6 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 				[]string{util.Fleet},
 				false, installerLabels, flightCtlNs, []string{e2e.OperationCreate})
 			Expect(err).ToNot(HaveOccurred())
-		})
-
-		It("installer cannot decommission a device", Label("88367"), func() {
-			By("Creating devices via simulator as admin")
-			loginFn := makeLoginFunc(adminUser, adminPass)
-			deviceName, cmd, err := harness.EnrollDeviceForDecommissionTest(loginFn, devicesPerUser, deviceEnrollTimeout)
-			Expect(err).ToNot(HaveOccurred())
-			simulatorCmds = append(simulatorCmds, cmd)
-			GinkgoWriter.Printf("Device to test decommission: %s\n", deviceName)
-
-			By("Logging in as installer and attempting to decommission the device")
-			err = login.Login(harness, installerUser, installerPass)
-			Expect(err).ToNot(HaveOccurred())
-
-			out, decommErr := harness.DecommissionDevice(deviceName)
-			Expect(decommErr).To(HaveOccurred(), "Installer should not be able to decommission a device")
-			Expect(out).To(ContainSubstring(forbiddenSubstring), "Expected Forbidden for installer decommission attempt")
 		})
 	})
 })
