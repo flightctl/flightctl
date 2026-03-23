@@ -287,6 +287,16 @@ var _ = Describe("Status Updater Integration Tests", func() {
 				updater.ReportOutput([]byte(fmt.Sprintf("Line %d\n", i)))
 			}
 
+			// Terminal status persists logs immediately; the run loop may still be draining
+			// outputChan. Wait until every chunk is written to Redis (one stream entry each)
+			// before Completed, or persistLogsToDB can run on a partial buffer.
+			logStreamKey := fmt.Sprintf("imagebuild:logs:%s:%s", orgID.String(), imageBuildName)
+			Eventually(func(g Gomega) {
+				entries, err := kvStoreInst.StreamRange(ctx, logStreamKey, "-", "+")
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(entries).To(HaveLen(600))
+			}).WithTimeout(30 * time.Second).WithPolling(50 * time.Millisecond).Should(Succeed())
+
 			completedCondition := api.ImageBuildCondition{
 				Type:               api.ImageBuildConditionTypeReady,
 				Status:             v1beta1.ConditionStatusTrue,
@@ -304,7 +314,7 @@ var _ = Describe("Status Updater Integration Tests", func() {
 				g.Expect(logsStr).To(ContainSubstring("Line 100"))
 				g.Expect(logsStr).To(ContainSubstring("Line 599"))
 				g.Expect(logsStr).NotTo(ContainSubstring("Line 99"))
-			}).WithTimeout(15 * time.Second).WithPolling(100 * time.Millisecond).Should(Succeed())
+			}).WithTimeout(10 * time.Second).WithPolling(50 * time.Millisecond).Should(Succeed())
 		})
 	})
 })
