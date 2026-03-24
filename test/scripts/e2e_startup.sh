@@ -30,26 +30,42 @@ if [[ -n "${API_ENDPOINT:-}" ]]; then
             echo "🔄 [Startup] Setting up PAM admin user for Quadlet environment..."
             PAM_USER="${E2E_PAM_USER:-admin}"
             PAM_PASS="${E2E_PAM_PASSWORD:-${E2E_DEFAULT_PAM_PASSWORD:-flightctl-e2e}}"
+            # Dup stderr so logs survive per-call 2>/dev/null on run_on_quadlet (redirection applies to the whole function).
+            exec 3>&2
             
             run_on_quadlet() {
+                # Quote argv for one remote shell word, then pass as the sole argument to bash -lc.
+                # Otherwise ssh runs sh -c 'bash -lc sudo podman ...' and splits after -c so only "sudo" runs.
+                local inner remote_lc_cmd
+                inner="$(printf '%q ' "$@")"
+                inner="${inner% }"
+                remote_lc_cmd="$(printf 'bash -lc %q' "${inner}")"
                 if [[ -n "${E2E_SSH_HOST:-}" ]] && [[ "${E2E_SSH_HOST}" != "localhost" ]]; then
                     local ssh_user="${E2E_SSH_USER:-$USER}"
-                    local cmd
-                    cmd="$(printf '%q ' "$@")"
                     if [[ -n "${E2E_SSH_PASSWORD:-}" ]]; then
-                        SSHPASS="${E2E_SSH_PASSWORD}" sshpass -e ssh -o StrictHostKeyChecking=no "${ssh_user}@${E2E_SSH_HOST}" bash -lc "$cmd"
+                        printf '%s\n' "🔄 [Startup] run_on_quadlet: SSHPASS=<redacted> sshpass -e ssh -o StrictHostKeyChecking=no ${ssh_user}@${E2E_SSH_HOST} ${remote_lc_cmd}" >&3
+                        SSHPASS="${E2E_SSH_PASSWORD}" sshpass -e ssh -o StrictHostKeyChecking=no "${ssh_user}@${E2E_SSH_HOST}" "${remote_lc_cmd}"
                     elif [[ -n "${E2E_SSH_KEY_PATH:-}" ]]; then
-                        ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i "${E2E_SSH_KEY_PATH}" "${ssh_user}@${E2E_SSH_HOST}" bash -lc "$cmd"
+                        printf '%s\n' "🔄 [Startup] run_on_quadlet: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i $(printf '%q' "${E2E_SSH_KEY_PATH}") ${ssh_user}@${E2E_SSH_HOST} ${remote_lc_cmd}" >&3
+                        ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i "${E2E_SSH_KEY_PATH}" "${ssh_user}@${E2E_SSH_HOST}" "${remote_lc_cmd}"
                     else
-                        ssh -o StrictHostKeyChecking=no -o BatchMode=yes "${ssh_user}@${E2E_SSH_HOST}" bash -lc "$cmd"
+                        printf '%s\n' "🔄 [Startup] run_on_quadlet: ssh -o StrictHostKeyChecking=no -o BatchMode=yes ${ssh_user}@${E2E_SSH_HOST} ${remote_lc_cmd}" >&3
+                        ssh -o StrictHostKeyChecking=no -o BatchMode=yes "${ssh_user}@${E2E_SSH_HOST}" "${remote_lc_cmd}"
                     fi
                 else
+                    printf '%s\n' "🔄 [Startup] run_on_quadlet: ${inner}" >&3
                     "$@"
                 fi
             }
             
             # Check if PAM issuer container is running (on Quadlet host)
-            if run_on_quadlet sudo podman ps --format '{{.Names}}' 2>/dev/null | grep -q '^flightctl-pam-issuer$'; then
+            pam_names=""
+            if pam_names=$(run_on_quadlet sudo podman ps --format '{{.Names}}' 2>/dev/null); then
+                :
+            else
+                pam_names=""
+            fi
+            if echo "${pam_names}" | grep -q '^flightctl-pam-issuer$'; then
                 # Create flightctl-admin group if needed
                 run_on_quadlet sudo podman exec -i flightctl-pam-issuer groupadd flightctl-admin 2>/dev/null || true
                 
@@ -70,8 +86,10 @@ if [[ -n "${API_ENDPOINT:-}" ]]; then
             fi
             
             # Login with PAM credentials (capture output so we can print the exact error on failure)
+            set +e
             LOGIN_OUTPUT=$("${FLIGHTCTL_BIN}" login "${API_ENDPOINT}" --insecure-skip-tls-verify -u "${PAM_USER}" -p "${PAM_PASS}" 2>&1)
             LOGIN_EXIT=$?
+            set -e
             if [[ "${LOGIN_EXIT}" -ne 0 ]]; then
                 echo "⚠️  [Startup] Warning: Could not login to API at ${API_ENDPOINT} with PAM user '${PAM_USER}'"
                 echo "    Login error output:"
