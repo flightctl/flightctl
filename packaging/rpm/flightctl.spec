@@ -49,7 +49,6 @@ Summary: Flight Control management agent
 
 Requires: flightctl-selinux = %{version}
 Requires: jq
-Requires: greenboot >= 0.15.0
 Requires: sudo
 
 %description agent
