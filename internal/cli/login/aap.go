@@ -19,6 +19,7 @@ type AAPOAuth struct {
 	Username           string
 	Password           string
 	Web                bool
+	NoBrowser          bool
 }
 
 type AAPRoundTripper struct {
@@ -38,7 +39,7 @@ func (c *AAPRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	return resp, nil
 }
 
-func NewAAPOAuth2Config(metadata api.ObjectMeta, spec api.AapProviderSpec, caFile string, insecure bool, apiServerURL string, callbackPort int, username, password string, web bool) *AAPOAuth {
+func NewAAPOAuth2Config(metadata api.ObjectMeta, spec api.AapProviderSpec, caFile string, insecure bool, apiServerURL string, callbackPort int, username, password string, web, noBrowser bool) *AAPOAuth {
 	return &AAPOAuth{
 		Metadata:           metadata,
 		Spec:               spec,
@@ -49,6 +50,7 @@ func NewAAPOAuth2Config(metadata api.ObjectMeta, spec api.AapProviderSpec, caFil
 		Username:           username,
 		Password:           password,
 		Web:                web,
+		NoBrowser:          noBrowser,
 	}
 }
 
@@ -102,7 +104,7 @@ func (o *AAPOAuth) getOAuth2Client(callback string) (*osincli.Client, error) {
 }
 
 func (o *AAPOAuth) Auth() (AuthInfo, error) {
-	authInfo, err := oauth2AuthCodeFlow(o.getOAuth2Client, o.CallbackPort)
+	authInfo, err := oauth2AuthCodeFlow(o.getOAuth2Client, o.CallbackPort, o.NoBrowser)
 	if err != nil {
 		return AuthInfo{}, err
 	}

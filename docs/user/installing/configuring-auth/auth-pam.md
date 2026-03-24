@@ -52,7 +52,7 @@ This architecture provides a complete, self-contained authentication solution wh
 
 ### Authentication Flow
 
-1. User initiates login: `flightctl login --web`
+1. User initiates login with `flightctl login https://flightctl.example.com --web` (replace the URL with your Flight Control API server). See [Logging in with the CLI](../../using/cli/logging-in.md) and [`flightctl login`](../../references/cli-commands.md#flightctl-login) in the CLI reference.
 2. Flight Control API redirects to **PAM Issuer's OIDC authorization endpoint**
 3. PAM Issuer presents login form to user
 4. User submits credentials (username/password)

@@ -40,10 +40,10 @@ func (p *TracingProvider) StartTracing(ctx context.Context) (*auxiliary.Services
 	if err != nil {
 		return nil, fmt.Errorf("start tracing aux: %w", err)
 	}
-	if err := p.enableFlightctlTracing(svcs.JaegerOTLPEndpoint); err != nil {
+	if err := p.enableFlightctlTracing(svcs.Jaeger.OTLPEndpoint); err != nil {
 		return nil, fmt.Errorf("enable flightctl tracing: %w", err)
 	}
-	logrus.Info("Configured flightctl services to report traces to ", svcs.JaegerOTLPEndpoint)
+	logrus.Info("Configured flightctl services to report traces to ", svcs.Jaeger.OTLPEndpoint)
 	return svcs, nil
 }
 

@@ -4,8 +4,10 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha1" //nolint:gosec // G505: required for Apache-style htpasswd {SHA} format
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/base64"
 	"encoding/pem"
 	"fmt"
 	"math/big"
@@ -28,7 +30,34 @@ const (
 	registryPort          = "5000/tcp"
 	registryHostPort      = "5000"
 	registriesConfPath    = "/etc/containers/registries.conf.d/flightctl-e2e.conf"
+
+	privateRegistryNginxImage    = "quay.io/flightctl-tests/nginx:1.28-alpine-slim"
+	privateRegistryContainerName = "e2e-registry-auth"
+	privateRegistryPort          = "5002/tcp"
+	privateRegistryHostPort      = "5002"
+	defaultAuthUsername          = "testuser"
+	defaultAuthPassword          = "testpassword"
 )
+
+// AuthenticatedEndpoint holds connection details for the credential-required view of this registry (same backend, nginx + basic auth on another port).
+// HostPort is for docker:// / oci:// style refs (host:port), not an OAuth issuer or login URL.
+type AuthenticatedEndpoint struct {
+	HostPort string
+	Port     string
+	Username string
+	Password string
+}
+
+// Registry holds connection info and the container for the aux registry.
+type Registry struct {
+	URL           string
+	Host          string
+	Port          string
+	Reused        bool // true when the container was already running (reuse=true)
+	Authenticated AuthenticatedEndpoint
+
+	container testcontainers.Container
+}
 
 // containerExistsByName returns true if a container with the given name exists (running or stopped).
 func containerExistsByName(name string) bool {
@@ -38,9 +67,24 @@ func containerExistsByName(name string) bool {
 	return err == nil && strings.TrimSpace(string(out)) != ""
 }
 
-func (s *Services) startRegistry(ctx context.Context) error {
-	logrus.Infof("Starting registry container (reuse=%v)", s.reuse)
-	s.registryReused = s.reuse && containerExistsByName(registryContainerName)
+func getContainerLogs(name string) (string, error) {
+	cmd := exec.Command("podman", "logs", name)
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		return string(out), nil
+	}
+	cmd = exec.Command("docker", "logs", name)
+	out, err = cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("container logs failed: %w", err)
+	}
+	return string(out), nil
+}
+
+// Start starts the TLS registry container, then the authenticated (nginx + basic auth) endpoint, and sets URL, Host, Port, Reused, Authenticated.
+func (r *Registry) Start(ctx context.Context, network string, reuse bool) error {
+	logrus.Infof("Starting registry container (reuse=%v)", reuse)
+	r.Reused = reuse && containerExistsByName(registryContainerName)
 	certDir, err := ensureRegistryCerts()
 	if err != nil {
 		return fmt.Errorf("failed to ensure registry certs: %w", err)
@@ -60,22 +104,128 @@ func (s *Services) startRegistry(ctx context.Context) error {
 			{HostFilePath: keyPath, ContainerFilePath: "/certs/registry.key", FileMode: 0600},
 		},
 		WaitingFor: wait.ForHTTP("/v2/").WithPort("5000").WithTLS(true).WithAllowInsecure(true),
-		// When reusing, skip Ryuk so the reaper does not mark the container for removal when this process exits (next suite reuses it).
-		SkipReaper: s.reuse,
+		SkipReaper: reuse,
 	}
-	container, err := CreateContainer(ctx, req, s.reuse, WithNetwork(s.network), WithHostAccess())
+	container, err := CreateContainer(ctx, req, reuse, WithNetwork(network), WithHostAccess())
 	if err != nil {
 		return fmt.Errorf("failed to start registry container: %w", err)
 	}
-	s.registry = container
-	s.RegistryHost = GetHostIP()
-	s.RegistryPort = registryHostPort
-	s.RegistryURL = fmt.Sprintf("%s:%s", s.RegistryHost, s.RegistryPort)
-	if err := configureInsecureRegistry(s.RegistryURL); err != nil {
+	r.container = container
+	r.Host = GetHostIP()
+	r.Port = registryHostPort
+	r.URL = fmt.Sprintf("%s:%s", r.Host, r.Port)
+	if err := configureInsecureRegistry(r.URL); err != nil {
 		logrus.Warnf("Failed to configure insecure registry: %v", err)
 	}
-	logrus.Infof("Registry container started: %s (TLS enabled)", s.RegistryURL)
+	logrus.Infof("Registry container started: %s (TLS enabled)", r.URL)
+
+	if err := r.startAuthenticatedEndpoint(ctx, certDir, network, reuse); err != nil {
+		return fmt.Errorf("failed to start authenticated registry endpoint: %w", err)
+	}
 	return nil
+}
+
+func (r *Registry) startAuthenticatedEndpoint(ctx context.Context, certDir, network string, reuse bool) error {
+	logrus.Info("Starting authenticated registry endpoint (nginx + basic auth)")
+	logrus.Infof("Authenticated endpoint upstream: %s:%s (network: %s)", r.Host, r.Port, network)
+
+	certPath := filepath.Join(certDir, "registry.crt")
+	keyPath := filepath.Join(certDir, "registry.key")
+
+	htpasswdContent := generateHtpasswd(defaultAuthUsername, defaultAuthPassword)
+	nginxConf := generateNginxConf(r.Host, r.Port)
+	logrus.Debugf("Nginx config:\n%s", nginxConf)
+
+	tmpDir, err := os.MkdirTemp("", "e2e-registry-auth-*")
+	if err != nil {
+		return fmt.Errorf("failed to create temp dir for auth files: %w", err)
+	}
+	htpasswdPath := filepath.Join(tmpDir, "htpasswd")
+	if err := os.WriteFile(htpasswdPath, []byte(htpasswdContent), 0600); err != nil {
+		return fmt.Errorf("failed to write htpasswd: %w", err)
+	}
+	nginxConfPath := filepath.Join(tmpDir, "nginx.conf")
+	if err := os.WriteFile(nginxConfPath, []byte(nginxConf), 0600); err != nil {
+		return fmt.Errorf("failed to write nginx.conf: %w", err)
+	}
+
+	req := testcontainers.ContainerRequest{
+		Image:        privateRegistryNginxImage,
+		Name:         privateRegistryContainerName,
+		ExposedPorts: []string{privateRegistryHostPort + ":" + privateRegistryPort},
+		Files: []testcontainers.ContainerFile{
+			{HostFilePath: certPath, ContainerFilePath: "/certs/registry.crt", FileMode: 0644},
+			{HostFilePath: keyPath, ContainerFilePath: "/certs/registry.key", FileMode: 0600},
+			{HostFilePath: htpasswdPath, ContainerFilePath: "/auth/htpasswd", FileMode: 0644},
+			{HostFilePath: nginxConfPath, ContainerFilePath: "/etc/nginx/nginx.conf", FileMode: 0644},
+		},
+		WaitingFor: wait.ForHTTP("/v2/").WithPort(privateRegistryHostPort).WithTLS(true).WithAllowInsecure(true).WithBasicAuth(defaultAuthUsername, defaultAuthPassword),
+		SkipReaper: reuse,
+	}
+
+	_, err = CreateContainer(ctx, req, reuse, WithNetwork(network), WithHostAccess())
+	if err != nil {
+		logrus.Errorf("Authenticated registry endpoint container failed to start. Attempting to fetch logs...")
+		if logs, logErr := getContainerLogs(privateRegistryContainerName); logErr == nil {
+			logrus.Errorf("Authenticated registry endpoint container logs:\n%s", logs)
+		} else {
+			logrus.Errorf("Could not fetch container logs: %v", logErr)
+		}
+		return fmt.Errorf("failed to start authenticated registry endpoint container: %w", err)
+	}
+
+	r.Authenticated = AuthenticatedEndpoint{
+		HostPort: fmt.Sprintf("%s:%s", r.Host, privateRegistryHostPort),
+		Port:     privateRegistryHostPort,
+		Username: defaultAuthUsername,
+		Password: defaultAuthPassword,
+	}
+
+	logrus.Infof("Authenticated registry endpoint started: %s", r.Authenticated.HostPort)
+	return nil
+}
+
+func generateNginxConf(registryHost, registryPort string) string {
+	return fmt.Sprintf(`error_log /dev/stderr warn;
+
+events {
+  worker_connections 1024;
+}
+
+http {
+  upstream registry {
+    server %s:%s;
+  }
+
+  server {
+    listen 5002 ssl;
+    listen [::]:5002 ssl;
+    ssl_certificate /certs/registry.crt;
+    ssl_certificate_key /certs/registry.key;
+
+    client_max_body_size 0;
+    chunked_transfer_encoding on;
+
+    location / {
+      auth_basic "Private Registry";
+      auth_basic_user_file /auth/htpasswd;
+      proxy_pass https://registry;
+      proxy_ssl_verify off;
+      proxy_set_header Host $host;
+      proxy_set_header X-Real-IP $remote_addr;
+      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+      proxy_set_header X-Forwarded-Proto $scheme;
+    }
+  }
+}
+`, registryHost, registryPort)
+}
+
+// generateHtpasswd creates an Apache-style htpasswd entry using SHA1.
+func generateHtpasswd(username, password string) string {
+	hash := sha1.Sum([]byte(password)) //nolint:gosec
+	encoded := base64.StdEncoding.EncodeToString(hash[:])
+	return fmt.Sprintf("%s:{SHA}%s\n", username, encoded)
 }
 
 func ensureRegistryCerts() (string, error) {

@@ -7,8 +7,19 @@ GO_UNITTEST_DIRS 		= ./internal/... ./api/... ./pkg/...
 GO_INTEGRATIONTEST_DIRS ?= ./test/integration/...
 GO_E2E_DIRS 			= ./test/e2e/...
 
+# Integration-only: run the integration gotestsum invocation this many times (each with go test -count=1).
+# Stops on first failure. Ginkgo suites reject go test -count>1, so repeats are implemented as a shell loop.
+INTEGRATION_TEST_COUNT ?= 1
+# Optional Ginkgo focus regex for suites under test/integration that use Ginkgo (e.g. imagebuilder_worker, agent).
+INTEGRATION_GINKGO_FOCUS ?=
+
 GO_UNITTEST_FLAGS 		 = $(GO_TESTING_FLAGS) $(GO_UNITTEST_DIRS)        -coverprofile=$(REPORTS)/unit-coverage.out
-GO_INTEGRATIONTEST_FLAGS = $(GO_TESTING_FLAGS) $(if $(TEST_DIR),$(TEST_DIR),$(GO_INTEGRATIONTEST_DIRS)) $(if $(TESTS),-run $(TESTS)) -coverprofile=$(REPORTS)/integration-coverage.out
+# Always -count=1 so Ginkgo-based integration packages are valid; use INTEGRATION_TEST_COUNT to repeat the whole run.
+GO_INTEGRATIONTEST_FLAGS = -race $(GO_BUILD_FLAGS) -count=1 \
+	$(if $(TEST_DIR),$(TEST_DIR),$(GO_INTEGRATIONTEST_DIRS)) \
+	$(if $(TESTS),-run $(TESTS)) \
+	$(if $(strip $(INTEGRATION_GINKGO_FOCUS)),-ginkgo.focus="$(INTEGRATION_GINKGO_FOCUS)") \
+	-coverprofile=$(REPORTS)/integration-coverage.out
 
 # Common environment flags for test tracing enforcement
 ENV_TRACE_FLAGS = TRACE_TESTS=false GORM_TRACE_ENFORCE_FATAL=true GORM_TRACE_INCLUDE_QUERY_VARIABLES=true
@@ -26,7 +37,21 @@ KUBECONFIG_PATH = '/home/kni/clusterconfigs/auth/kubeconfig'
 TEMP_SWTPM_CERT_DIR := bin/tmp/swtpm-certs
 
 _integration_test: $(REPORTS)
-	go run -modfile=tools/go.mod gotest.tools/gotestsum $(GO_TEST_INTEGRATION_FLAGS) -- $(GO_INTEGRATIONTEST_FLAGS) -timeout $(TIMEOUT) || ($(MAKE) _collect_junit && /bin/false)
+	@bash -euo pipefail -c '\
+	  run_integration() { \
+	    go run -modfile=tools/go.mod gotest.tools/gotestsum $(GO_TEST_INTEGRATION_FLAGS) -- $(GO_INTEGRATIONTEST_FLAGS) -timeout $(TIMEOUT); \
+	  }; \
+	  count="$(INTEGRATION_TEST_COUNT)"; \
+	  if [ "$${count:-1}" -gt 1 ] 2>/dev/null; then \
+	    i=1; \
+	    while [ "$$i" -le "$$count" ]; do \
+	      echo "========== integration run $$i / $$count =========="; \
+	      run_integration || { $(MAKE) _collect_junit; exit 1; }; \
+	      i=$$((i+1)); \
+	    done; \
+	  else \
+	    run_integration || { $(MAKE) _collect_junit; exit 1; }; \
+	  fi'
 	$(MAKE) _collect_junit
 
 _e2e_test: $(REPORTS)
@@ -238,13 +263,19 @@ start-tracing:
 stop-tracing:
 	go run ./cmd/aux-service stop tracing
 
+start-keycloak:
+	go run ./cmd/aux-service start keycloak
+
+stop-keycloak:
+	go run ./cmd/aux-service stop keycloak
+
 start-aux: bin/e2e-certs/ca.pem
 	go run ./cmd/aux-service start all
 
 stop-aux:
 	go run ./cmd/aux-service stop all
 
-.PHONY: start-registry stop-registry start-git-server stop-git-server start-prometheus stop-prometheus start-tracing stop-tracing start-aux stop-aux
+.PHONY: start-registry stop-registry start-git-server stop-git-server start-prometheus stop-prometheus start-tracing stop-tracing start-keycloak stop-keycloak start-aux stop-aux
 .PHONY: unit-test prepare-integration-test integration-test run-integration-test view-coverage prepare-e2e-test deploy-e2e-ocp-test-vm _wait_for_db _run_template_migration _ensure_db_setup_image prepare-swtpm-certs clean-swtpm-certs
 
 # Schemathesis API testing

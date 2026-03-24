@@ -424,7 +424,7 @@ clean-all: clean clean-containers
 
 # Remove E2E aux testcontainers (registry, git server, prometheus, jaeger) and their anonymous volumes so next e2e run starts fresh
 clean-aux:
-	- podman rm -f -v e2e-registry e2e-gitserver e2e-prometheus e2e-jaeger 2>/dev/null || true
+	- podman rm -f -v e2e-registry e2e-registry-auth e2e-gitserver e2e-prometheus e2e-jaeger 2>/dev/null || true
 
 clean-quadlets:
 	sudo deploy/scripts/clean_quadlets.sh

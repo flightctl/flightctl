@@ -20,6 +20,8 @@ global:
       clientId:
       clientSecret:
       token:
+      appName:
+      organizationId:
       scopes:
         - read
         - write
@@ -29,6 +31,12 @@ global:
       enabled: true
       issuer:
       externalOidcAuthority:
+      # scopes:
+      #   - openid
+      #   - profile
+      #   - email
+      #   - roles
+      #   - offline_access
       organizationAssignment:
         type: dynamic
         claimPath:

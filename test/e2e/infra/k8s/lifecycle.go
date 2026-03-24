@@ -185,6 +185,89 @@ func (p *ServiceLifecycleProvider) AreServicesHealthy() (bool, error) {
 	return apiHealthy, nil
 }
 
+// SetDeploymentEnv sets an environment variable on a service's deployment and waits for rollout.
+func (p *ServiceLifecycleProvider) SetDeploymentEnv(service infra.ServiceName, envName, envValue string) error {
+	if p.client == nil {
+		return fmt.Errorf("no Kubernetes client")
+	}
+	deploymentName, _, ns, err := p.infraP.GetServiceNamespaceAndMetadata(service)
+	if err != nil {
+		return err
+	}
+	ctx := context.Background()
+
+	dep, err := p.client.AppsV1().Deployments(ns).Get(ctx, deploymentName, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to get deployment %s: %w", deploymentName, err)
+	}
+
+	// Add or update the env var in the first container
+	if len(dep.Spec.Template.Spec.Containers) == 0 {
+		return fmt.Errorf("deployment %s has no containers", deploymentName)
+	}
+	envs := dep.Spec.Template.Spec.Containers[0].Env
+	found := false
+	for i, e := range envs {
+		if e.Name == envName {
+			envs[i].Value = envValue
+			envs[i].ValueFrom = nil
+			found = true
+			break
+		}
+	}
+	if !found {
+		envs = append(envs, corev1.EnvVar{Name: envName, Value: envValue})
+	}
+	dep.Spec.Template.Spec.Containers[0].Env = envs
+
+	if _, err := p.client.AppsV1().Deployments(ns).Update(ctx, dep, metav1.UpdateOptions{}); err != nil {
+		return fmt.Errorf("failed to update deployment %s: %w", deploymentName, err)
+	}
+
+	p.infraP.InvalidateExposeCache(service)
+	logrus.Infof("K8s: set env %s=%s on deployment %s in namespace %s", envName, envValue, deploymentName, ns)
+
+	return p.WaitForReady(service, 5*time.Minute)
+}
+
+// RemoveDeploymentEnv removes an environment variable from a service's deployment and waits for rollout.
+func (p *ServiceLifecycleProvider) RemoveDeploymentEnv(service infra.ServiceName, envName string) error {
+	if p.client == nil {
+		return fmt.Errorf("no Kubernetes client")
+	}
+	deploymentName, _, ns, err := p.infraP.GetServiceNamespaceAndMetadata(service)
+	if err != nil {
+		return err
+	}
+	ctx := context.Background()
+
+	dep, err := p.client.AppsV1().Deployments(ns).Get(ctx, deploymentName, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to get deployment %s: %w", deploymentName, err)
+	}
+
+	if len(dep.Spec.Template.Spec.Containers) == 0 {
+		return fmt.Errorf("deployment %s has no containers", deploymentName)
+	}
+	envs := dep.Spec.Template.Spec.Containers[0].Env
+	filtered := make([]corev1.EnvVar, 0, len(envs))
+	for _, e := range envs {
+		if e.Name != envName {
+			filtered = append(filtered, e)
+		}
+	}
+	dep.Spec.Template.Spec.Containers[0].Env = filtered
+
+	if _, err := p.client.AppsV1().Deployments(ns).Update(ctx, dep, metav1.UpdateOptions{}); err != nil {
+		return fmt.Errorf("failed to update deployment %s: %w", deploymentName, err)
+	}
+
+	p.infraP.InvalidateExposeCache(service)
+	logrus.Infof("K8s: removed env %s from deployment %s in namespace %s", envName, deploymentName, ns)
+
+	return p.WaitForReady(service, 5*time.Minute)
+}
+
 func (p *ServiceLifecycleProvider) isDeploymentHealthy(deploymentName, namespace string) (bool, error) {
 	if p.client == nil {
 		return false, fmt.Errorf("no Kubernetes client")

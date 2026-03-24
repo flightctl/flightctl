@@ -245,3 +245,36 @@ func Login(harness *e2e.Harness, user, password string) error {
 	logrus.Infof("Logged in as %s", user)
 	return nil
 }
+
+// TestUser represents a pre-created user whose existence is verified before tests.
+type TestUser struct {
+	Name string
+	Role string
+}
+
+// EnsureTestUsers verifies that the given pre-created users can log in successfully.
+// Users and their role bindings are expected to already exist in the environment.
+func EnsureTestUsers(harness *e2e.Harness, namespace string, users []TestUser) error {
+	if harness == nil {
+		return fmt.Errorf("harness is nil")
+	}
+	if namespace == "" {
+		return fmt.Errorf("namespace is empty")
+	}
+	for _, u := range users {
+		if u.Name == "" || u.Role == "" {
+			return fmt.Errorf("user name and role must not be empty")
+		}
+		if err := Login(harness, u.Name, u.Name); err != nil {
+			return fmt.Errorf("pre-created user %s (role %s) cannot log in: %w", u.Name, u.Role, err)
+		}
+		logrus.Infof("Verified pre-created user %s (role %s) can log in", u.Name, u.Role)
+	}
+	return nil
+}
+
+// CleanupTestUsers is a no-op for pre-created users. It exists so suites can
+// call it unconditionally in AfterSuite without branching.
+func CleanupTestUsers(_ *e2e.Harness, _ string, _ []TestUser) error {
+	return nil
+}

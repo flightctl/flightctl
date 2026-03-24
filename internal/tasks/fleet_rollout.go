@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 	"text/template"
+	"time"
 
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/domain"
@@ -19,6 +20,29 @@ import (
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 )
+
+// fleetRolloutIterationTimeout is the time budget for each pagination iteration (one
+// ListDevices plus processing all devices on that page). It applies to a context derived
+// from the parent without inheriting the parent's deadline (see fleetRolloutIterationContext).
+const fleetRolloutIterationTimeout = time.Minute
+
+// fleetRolloutIterationContext returns a context whose deadline comes only from timeout.
+// The parent's deadline does not shorten the iteration; explicit parent cancellation
+// (not deadline) still ends the iteration by canceling the child.
+func fleetRolloutIterationContext(parent context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	base := context.WithoutCancel(parent)
+	iterCtx, cancelIter := context.WithTimeout(base, timeout)
+	go func() {
+		select {
+		case <-parent.Done():
+			if errors.Is(parent.Err(), context.Canceled) {
+				cancelIter()
+			}
+		case <-iterCtx.Done():
+		}
+	}()
+	return iterCtx, cancelIter
+}
 
 // The fleet rollout task updates all devices in a fleet to match the latest template
 // version.
@@ -96,7 +120,6 @@ func (f FleetRolloutsLogic) RolloutFleet(ctx context.Context) error {
 		return fmt.Errorf("failed to get templateVersion: %s", status.Message)
 	}
 
-	failureCount := 0
 	owner := util.SetResourceOwner(domain.FleetKind, f.event.InvolvedObject.Name)
 	f.owner = *owner
 
@@ -120,26 +143,17 @@ func (f FleetRolloutsLogic) RolloutFleet(ctx context.Context) error {
 	annotationSelector := selector.NewAnnotationSelectorOrDie(strings.Join(annotationFilter, ","))
 	delayDeviceRender := fleet.Spec.RolloutPolicy != nil && fleet.Spec.RolloutPolicy.DisruptionBudget != nil
 
+	failureCount := 0
 	for {
-		devices, status := f.serviceHandler.ListDevices(ctx, f.orgId, listParams, annotationSelector)
-		if status.Code != http.StatusOK {
-			// TODO: Retry when we have a mechanism that allows it
-			return fmt.Errorf("failed fetching devices: %s", status.Message)
+		pageFailures, nextContinue, err := f.rolloutFleetPage(ctx, templateVersion, listParams, annotationSelector, delayDeviceRender)
+		if err != nil {
+			return err
 		}
-
-		for devIndex := range devices.Items {
-			device := &devices.Items[devIndex]
-			err := f.updateDeviceToFleetTemplate(ctx, device, templateVersion, delayDeviceRender)
-			if err != nil {
-				f.log.Errorf("failed to update target generation for device %s (fleet %s): %v", *device.Metadata.Name, f.event.InvolvedObject.Name, err)
-				failureCount++
-			}
-		}
-
-		if devices.Metadata.Continue == nil {
+		failureCount += pageFailures
+		if nextContinue == nil {
 			break
 		}
-		listParams.Continue = devices.Metadata.Continue
+		listParams.Continue = nextContinue
 	}
 
 	if failureCount != 0 {
@@ -148,6 +162,36 @@ func (f FleetRolloutsLogic) RolloutFleet(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// rolloutFleetPage performs one ListDevices call and updates every device in that page.
+// nextContinue is nil when there are no further pages; otherwise it is the token for the next list.
+func (f FleetRolloutsLogic) rolloutFleetPage(
+	ctx context.Context,
+	templateVersion *domain.TemplateVersion,
+	listParams domain.ListDevicesParams,
+	annotationSelector *selector.AnnotationSelector,
+	delayDeviceRender bool,
+) (pageFailures int, nextContinue *string, err error) {
+	iterCtx, cancel := fleetRolloutIterationContext(ctx, fleetRolloutIterationTimeout)
+	defer cancel()
+
+	devices, status := f.serviceHandler.ListDevices(iterCtx, f.orgId, listParams, annotationSelector)
+	if status.Code != http.StatusOK {
+		// TODO: Retry when we have a mechanism that allows it
+		return 0, nil, fmt.Errorf("failed fetching devices: %s", status.Message)
+	}
+
+	for devIndex := range devices.Items {
+		device := &devices.Items[devIndex]
+		updateErr := f.updateDeviceToFleetTemplate(iterCtx, device, templateVersion, delayDeviceRender)
+		if updateErr != nil {
+			f.log.Errorf("failed to update target generation for device %s (fleet %s): %v", *device.Metadata.Name, f.event.InvolvedObject.Name, updateErr)
+			pageFailures++
+		}
+	}
+
+	return pageFailures, devices.Metadata.Continue, nil
 }
 
 // The device's owner was changed, roll out if necessary

@@ -18,6 +18,45 @@ const (
 	prometheusPort          = "9090/tcp"
 )
 
+// Prometheus holds connection info and the container for the aux Prometheus.
+type Prometheus struct {
+	URL       string
+	Host      string
+	Port      string
+	container testcontainers.Container
+}
+
+// Start starts the Prometheus container and sets URL, Host, Port.
+func (p *Prometheus) Start(ctx context.Context, network string, reuse bool) error {
+	logrus.Info("Starting prometheus container (always reused)")
+	configPath, err := createPrometheusConfig()
+	if err != nil {
+		return fmt.Errorf("failed to create prometheus config: %w", err)
+	}
+	req := testcontainers.ContainerRequest{
+		Image:        prometheusImage,
+		Name:         prometheusContainerName,
+		ExposedPorts: []string{prometheusPort},
+		Cmd:          []string{"--config.file=/etc/prometheus/prometheus.yml", "--web.enable-lifecycle", "--storage.tsdb.retention.time=1h"},
+		Files: []testcontainers.ContainerFile{
+			{HostFilePath: configPath, ContainerFilePath: "/etc/prometheus/prometheus.yml", FileMode: 0644},
+		},
+		WaitingFor: wait.ForHTTP("/-/ready").WithPort("9090"),
+		SkipReaper: true,
+	}
+	container, err := CreateContainer(ctx, req, true, WithNetwork(network), WithHostAccess())
+	if err != nil {
+		return err
+	}
+	p.container = container
+	p.Host = GetHostIP()
+	port, _ := container.MappedPort(ctx, "9090")
+	p.Port = port.Port()
+	p.URL = fmt.Sprintf("http://%s:%s", p.Host, p.Port)
+	logrus.Infof("Prometheus container started: %s", p.URL)
+	return nil
+}
+
 const prometheusConfigTemplate = `
 global:
   scrape_interval: 15s
@@ -36,36 +75,6 @@ scrape_configs:
         target_label: instance
         replacement: '$1'
 `
-
-func (s *Services) startPrometheus(ctx context.Context) error {
-	logrus.Info("Starting prometheus container (always reused)")
-	configPath, err := createPrometheusConfig()
-	if err != nil {
-		return fmt.Errorf("failed to create prometheus config: %w", err)
-	}
-	req := testcontainers.ContainerRequest{
-		Image:        prometheusImage,
-		Name:         prometheusContainerName,
-		ExposedPorts: []string{prometheusPort},
-		Cmd:          []string{"--config.file=/etc/prometheus/prometheus.yml", "--web.enable-lifecycle", "--storage.tsdb.retention.time=1h"},
-		Files: []testcontainers.ContainerFile{
-			{HostFilePath: configPath, ContainerFilePath: "/etc/prometheus/prometheus.yml", FileMode: 0644},
-		},
-		WaitingFor: wait.ForHTTP("/-/ready").WithPort("9090"),
-		SkipReaper: true, // reused across suites; avoid Ryuk marking for removal when this process exits
-	}
-	container, err := CreateContainer(ctx, req, true, WithNetwork(s.network), WithHostAccess())
-	if err != nil {
-		return err
-	}
-	s.prometheus = container
-	s.PrometheusHost = GetHostIP()
-	port, _ := container.MappedPort(ctx, "9090")
-	s.PrometheusPort = port.Port()
-	s.PrometheusURL = fmt.Sprintf("http://%s:%s", s.PrometheusHost, s.PrometheusPort)
-	logrus.Infof("Prometheus container started: %s", s.PrometheusURL)
-	return nil
-}
 
 func createPrometheusConfig() (string, error) {
 	config := fmt.Sprintf(prometheusConfigTemplate, GetContainerHostname())

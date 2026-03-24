@@ -42,8 +42,8 @@ const (
 
 	// Harness uses 2s for StatusUpdateInterval and SpecFetchInterval (test_harness.go).
 	// After ConflictPaused the agent invalidates lastStatus; the next status sync runs within one interval.
-	// Allow several cycles so the test is stable under load.
-	CONFLICT_PAUSED_STATUS_WAIT_TIMEOUT  = "10s"
+	// Allow several cycles so the test is stable under load (GitHub runners often need >10s).
+	CONFLICT_PAUSED_STATUS_WAIT_TIMEOUT  = "45s"
 	CONFLICT_PAUSED_STATUS_POLL_INTERVAL = "500ms"
 )
 

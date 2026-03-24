@@ -23,7 +23,9 @@ type AuthConfig struct {
 }
 
 type AAPConfig struct {
-	ClientID string `json:"clientId,omitempty"`
-	ApiURL   string `json:"apiUrl,omitempty"`
-	Token    string `json:"token,omitempty"`
+	ClientID       string `json:"clientId,omitempty"`
+	ApiURL         string `json:"apiUrl,omitempty"`
+	Token          string `json:"token,omitempty"`
+	AppName        string `json:"appName,omitempty"`
+	OrganizationID int    `json:"organizationId,omitempty"`
 }

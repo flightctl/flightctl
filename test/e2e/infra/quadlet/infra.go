@@ -66,9 +66,9 @@ type InfraProvider struct {
 }
 
 // NewInfraProvider creates a new Quadlet InfraProvider.
-// For remote hosts, set QUADLET_HOST and QUADLET_SSH_USER env vars.
-// Optionally set QUADLET_SSH_KEY for the SSH private key path.
-// Registry comes from auxiliary; use auxiliary.Get(ctx).RegistryHost/RegistryPort and pass explicitly.
+// For remote hosts, set QUADLET_HOST and E2E_SSH_USER env vars.
+// Auth: set E2E_SSH_KEY_PATH for key-based auth, or E2E_SSH_PASSWORD for password auth (requires sshpass).
+// Registry comes from auxiliary; use auxiliary.Get(ctx).Registry.Host/Registry.Port and Registry.Authenticated for credential-required OCI pulls.
 func NewInfraProvider(configDir, secretDir string, useSudo bool) *InfraProvider {
 	host := os.Getenv("QUADLET_HOST")
 	if host == "" {
@@ -82,8 +82,8 @@ func NewInfraProvider(configDir, secretDir string, useSudo bool) *InfraProvider 
 	}
 	return &InfraProvider{
 		host:       host,
-		sshUser:    os.Getenv("QUADLET_SSH_USER"),
-		sshKeyPath: os.Getenv("QUADLET_SSH_KEY"),
+		sshUser:    os.Getenv("E2E_SSH_USER"),
+		sshKeyPath: os.Getenv("E2E_SSH_KEY_PATH"),
 		configDir:  configDir,
 		secretDir:  secretDir,
 		useSudo:    useSudo,
@@ -110,14 +110,22 @@ func quoteForRemoteShell(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
 }
 
+// getSSHPassword returns the SSH password from E2E_SSH_PASSWORD (used when no key is set).
+func getSSHPassword() string {
+	return os.Getenv("E2E_SSH_PASSWORD")
+}
+
 // runCommandWithOptionalStdin runs a command (SSH if remote, else local). If stdin is non-nil it is attached to the process.
 func (p *InfraProvider) runCommandWithOptionalStdin(stdin io.Reader, command ...string) (string, error) {
 	var cmd *exec.Cmd
 
 	if p.isRemote() {
-		sshArgs := []string{"-o", "StrictHostKeyChecking=no", "-o", "BatchMode=yes"}
+		sshArgs := []string{"-o", "StrictHostKeyChecking=no"}
+		usePassword := p.sshKeyPath == "" && getSSHPassword() != ""
 		if p.sshKeyPath != "" {
-			sshArgs = append(sshArgs, "-i", p.sshKeyPath)
+			sshArgs = append(sshArgs, "-o", "BatchMode=yes", "-i", p.sshKeyPath)
+		} else if !usePassword {
+			sshArgs = append(sshArgs, "-o", "BatchMode=yes")
 		}
 		sshTarget := fmt.Sprintf("%s@%s", p.sshUser, p.host)
 		sshArgs = append(sshArgs, sshTarget)
@@ -131,7 +139,12 @@ func (p *InfraProvider) runCommandWithOptionalStdin(stdin io.Reader, command ...
 		}
 		sshArgs = append(sshArgs, strings.Join(remoteParts, " "))
 
-		cmd = exec.Command("ssh", sshArgs...)
+		if usePassword {
+			cmd = exec.Command("sshpass", append([]string{"-e", "ssh"}, sshArgs...)...) //nolint:gosec // G204: sshArgs from internal config (host, user, key path)
+			cmd.Env = append(os.Environ(), "SSHPASS="+getSSHPassword())
+		} else {
+			cmd = exec.Command("ssh", sshArgs...)
+		}
 	} else {
 		if p.useSudo {
 			cmd = exec.Command("sudo", command...)
@@ -211,6 +224,12 @@ func (p *InfraProvider) GetServiceConfig(service infra.ServiceName) (string, err
 func (p *InfraProvider) serviceToHostConfigPath(service infra.ServiceName) string {
 	info := GetServiceInfo(service)
 	return filepath.Join(p.configDir, info.ContainerName, "config.yaml")
+}
+
+// serviceConfigPath returns the host path for the main service-config.yaml that
+// the template engine uses to generate per-service configs.
+func (p *InfraProvider) serviceConfigPath() string {
+	return filepath.Join(p.configDir, "service-config.yaml")
 }
 
 // GetSecretValue retrieves a secret value from secret files or environment.
@@ -489,18 +508,59 @@ func (p *InfraProvider) GetExternalNamespace() string {
 	return ""
 }
 
-// SetServiceConfig writes the config key content to the service's config file on the host.
+// SetServiceConfig writes the config content to the service's config file on the host.
+// Quadlet has a single config file per service; configKey is ignored (callers may pass
+// "" or "config.yaml" for API compatibility). For services with a section mapping
+// (see service_config_mapping.go), the content is transformed and merged into
+// /etc/flightctl/service-config.yaml so it persists across restarts when the template
+// re-renders. For other services, the content is written to the per-service config
+// file at /etc/flightctl/<container-name>/config.yaml.
 func (p *InfraProvider) SetServiceConfig(service infra.ServiceName, configKey, content string) error {
-	if configKey != "config.yaml" {
-		return fmt.Errorf("Quadlet SetServiceConfig only supports config.yaml key, got %q", configKey)
+	_ = configKey // Quadlet single-file: ignored
+
+	updates, err := applyServiceConfigMappings(service, content)
+	if err != nil {
+		return fmt.Errorf("apply service-config mapping: %w", err)
 	}
+	if updates != nil {
+		return p.mergeAndWriteServiceConfig(updates)
+	}
+
 	hostPath := p.serviceToHostConfigPath(service)
 	b64 := base64.StdEncoding.EncodeToString([]byte(content))
 	escaped := strings.ReplaceAll(b64, "'", "'\"'\"'")
 	script := fmt.Sprintf("printf '%%s' '%s' | base64 -d > %s", escaped, hostPath)
-	_, err := p.runCommand("sh", "-c", script)
+	_, err = p.runCommand("sh", "-c", script)
 	if err != nil {
 		return fmt.Errorf("write config to %s: %w", hostPath, err)
+	}
+	return nil
+}
+
+// mergeAndWriteServiceConfig reads service-config.yaml from the host, merges the
+// given updates (service-config key -> value), and writes it back.
+func (p *InfraProvider) mergeAndWriteServiceConfig(updates map[string]interface{}) error {
+	path := p.serviceConfigPath()
+	existing, err := p.runCommand("cat", path)
+	if err != nil {
+		return fmt.Errorf("read %s: %w", path, err)
+	}
+	var serviceConfig map[string]interface{}
+	if err := yaml.Unmarshal([]byte(existing), &serviceConfig); err != nil {
+		return fmt.Errorf("parse %s: %w", path, err)
+	}
+	for k, v := range updates {
+		serviceConfig[k] = v
+	}
+	out, err := yaml.Marshal(serviceConfig)
+	if err != nil {
+		return fmt.Errorf("marshal service-config: %w", err)
+	}
+	b64 := base64.StdEncoding.EncodeToString(out)
+	escaped := strings.ReplaceAll(b64, "'", "'\"'\"'")
+	script := fmt.Sprintf("printf '%%s' '%s' | base64 -d > %s", escaped, path)
+	if _, err := p.runCommand("sh", "-c", script); err != nil {
+		return fmt.Errorf("write %s: %w", path, err)
 	}
 	return nil
 }

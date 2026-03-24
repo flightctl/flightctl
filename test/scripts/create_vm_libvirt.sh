@@ -12,7 +12,7 @@ VM_RAM=10240                # RAM in MB necessary to run the flightctl e2e
 VM_CPUS=8                  # Number of CPUs
 VM_DISK_SIZE_INC=${VM_DISK_SIZE_INC:-30} # Disk size increment
 NETWORK_NAME="$(get_ocp_nodes_network)"   # Network name
-NETWORK_NAME=${NETWORK_NAME:-baremetal-0}
+NETWORK_NAME=${NETWORK_NAME:-flightctl-net}
 DEFAULT_NETWORK_NAME="default"
 echo "ocp_network name is: ${NETWORK_NAME}"
 echo "Disk size increment: ${VM_DISK_SIZE_INC}G"
@@ -167,6 +167,10 @@ ssh -i ${SSH_PRIVATE_KEY_PATH} -o StrictHostKeyChecking=no -o UserKnownHostsFile
 
   echo "Cloning $REMOTE_URL to $USER_HOME/..."
   git clone $REMOTE_URL $USER_HOME/flightctl
+
+  # Install Helm
+  echo "Installing Helm..."
+  $USER_HOME/flightctl/test/scripts/install_helm.sh
 
   # Enable libvirtd service
   sudo systemctl enable --now libvirtd

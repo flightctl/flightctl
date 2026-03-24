@@ -49,8 +49,8 @@ func NewPAMRBACProvider(useSudo bool) *PAMRBACProvider {
 	return &PAMRBACProvider{
 		pamIssuerContainer: "flightctl-pam-issuer",
 		host:               host,
-		sshUser:            os.Getenv("QUADLET_SSH_USER"),
-		sshKeyPath:         os.Getenv("QUADLET_SSH_KEY"),
+		sshUser:            os.Getenv("E2E_SSH_USER"),
+		sshKeyPath:         os.Getenv("E2E_SSH_KEY_PATH"),
 		useSudo:            useSudo,
 	}
 }
@@ -65,10 +65,14 @@ func (p *PAMRBACProvider) runCommand(command ...string) (string, error) {
 	var cmd *exec.Cmd
 
 	if p.isRemote() {
-		// Build SSH command
-		sshArgs := []string{"-o", "StrictHostKeyChecking=no", "-o", "BatchMode=yes"}
+		sshPassword := os.Getenv("E2E_SSH_PASSWORD")
+		usePassword := p.sshKeyPath == "" && sshPassword != ""
+
+		sshArgs := []string{"-o", "StrictHostKeyChecking=no"}
 		if p.sshKeyPath != "" {
-			sshArgs = append(sshArgs, "-i", p.sshKeyPath)
+			sshArgs = append(sshArgs, "-o", "BatchMode=yes", "-i", p.sshKeyPath)
+		} else if !usePassword {
+			sshArgs = append(sshArgs, "-o", "BatchMode=yes")
 		}
 		sshTarget := fmt.Sprintf("%s@%s", p.sshUser, p.host)
 		sshArgs = append(sshArgs, sshTarget)
@@ -80,7 +84,12 @@ func (p *PAMRBACProvider) runCommand(command ...string) (string, error) {
 		}
 		sshArgs = append(sshArgs, remoteCmd)
 
-		cmd = exec.Command("ssh", sshArgs...)
+		if usePassword {
+			cmd = exec.Command("sshpass", append([]string{"-e", "ssh"}, sshArgs...)...) //nolint:gosec // G204: sshArgs from internal config (host, user, key path)
+			cmd.Env = append(os.Environ(), "SSHPASS="+sshPassword)
+		} else {
+			cmd = exec.Command("ssh", sshArgs...)
+		}
 	} else {
 		// Local execution
 		if p.useSudo {

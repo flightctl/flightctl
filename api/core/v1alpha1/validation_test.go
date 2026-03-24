@@ -114,6 +114,20 @@ func TestCatalogItemValidate(t *testing.T) {
 			errContains: "duplicate version",
 		},
 		{
+			name:     "invalid channel name is rejected",
+			itemType: CatalogItemTypeContainer,
+			artifacts: []CatalogItemArtifact{
+				{Type: CatalogItemArtifactTypeContainer, Uri: "quay.io/example/app"},
+			},
+			versions: []CatalogItemVersion{{
+				Version:    "1.0.0",
+				References: map[string]string{"container": "v1.0.0"},
+				Channels:   []string{"INVALID_CHANNEL"},
+			}},
+			wantErr:     true,
+			errContains: "channels[0]",
+		},
+		{
 			name:     "valid references with digest",
 			itemType: CatalogItemTypeContainer,
 			artifacts: []CatalogItemArtifact{
@@ -1211,6 +1225,55 @@ func TestCatalogItemVersionValidation(t *testing.T) {
 			},
 			artifactTypes: map[string]struct{}{"container": {}, "qcow2": {}, "iso": {}},
 			wantErr:       false,
+		},
+		{
+			name: "valid channel names",
+			version: CatalogItemVersion{
+				Version:    "1.0.0",
+				References: map[string]string{"container": "v1.0.0"},
+				Channels:   []string{"stable", "fast", "my-channel.v1"},
+			},
+			wantErr: false,
+		},
+		{
+			name: "invalid channel name with uppercase",
+			version: CatalogItemVersion{
+				Version:    "1.0.0",
+				References: map[string]string{"container": "v1.0.0"},
+				Channels:   []string{"Stable"},
+			},
+			wantErr:     true,
+			errContains: "channels[0]",
+		},
+		{
+			name: "invalid channel name with spaces",
+			version: CatalogItemVersion{
+				Version:    "1.0.0",
+				References: map[string]string{"container": "v1.0.0"},
+				Channels:   []string{"my channel"},
+			},
+			wantErr:     true,
+			errContains: "channels[0]",
+		},
+		{
+			name: "invalid channel name with underscore",
+			version: CatalogItemVersion{
+				Version:    "1.0.0",
+				References: map[string]string{"container": "v1.0.0"},
+				Channels:   []string{"my_channel"},
+			},
+			wantErr:     true,
+			errContains: "channels[0]",
+		},
+		{
+			name: "second channel invalid",
+			version: CatalogItemVersion{
+				Version:    "1.0.0",
+				References: map[string]string{"container": "v1.0.0"},
+				Channels:   []string{"stable", "INVALID"},
+			},
+			wantErr:     true,
+			errContains: "channels[1]",
 		},
 	}
 

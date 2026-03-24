@@ -119,6 +119,9 @@ type Harness struct {
 
 	// clientWrapper stores the Client wrapper for token refresh management
 	clientWrapper *client.Client
+
+	// panicCheckRegistered guards against duplicate DeferCleanup registration per test spec
+	panicCheckRegistered bool
 }
 
 // ResourceTestConfig represents a test configuration for resource operations
@@ -187,6 +190,25 @@ func (h *Harness) RefreshClient() error {
 	h.Client = c.ClientWithResponses
 	logrus.Infof("Refreshed FlightCtl API client from config file")
 	return nil
+}
+
+// GetDefaultK8sContext returns the current kubectl context name.
+func (h *Harness) GetDefaultK8sContext() (string, error) {
+	out, err := h.SH("kubectl", "config", "current-context")
+	if err != nil {
+		return "", fmt.Errorf("failed to get current kubectl context: %w", err)
+	}
+	ctx := strings.TrimSpace(out)
+	if ctx == "" {
+		return "", fmt.Errorf("kubectl context is empty")
+	}
+	return ctx, nil
+}
+
+// RefreshCluster refreshes the Kubernetes client by re-reading the kubeconfig.
+// This is useful after switching kubectl contexts or logging in as a different user.
+func (h *Harness) RefreshCluster() error {
+	return h.RefreshClient()
 }
 
 // ExtractAuthURL extracts the authentication URL from an AuthProvider based on its type
@@ -309,6 +331,74 @@ func (h *Harness) PrintAgentLogsIfFailed() {
 	} else {
 		logrus.Infof("%s", logs)
 	}
+}
+
+// checkLogsForPanicAVC checks both agent VM logs and service pod logs for
+// Go panics and SELinux AVC denials, failing the current test if any are found.
+// Registered via DeferCleanup in SetTestContext so it runs for every test.
+func (h *Harness) checkLogsForPanicAVC(sinceTime time.Time) {
+	var findings []string
+	sinceArg := sinceTime.UTC().Format(time.RFC3339)
+
+	if h.VM != nil {
+		if running, err := h.VM.IsRunning(); err == nil && running {
+			logs, err := h.ReadPrimaryVMAgentLogs(sinceArg, util.FLIGHTCTL_AGENT_SERVICE)
+			if err != nil {
+				logrus.Warnf("checkLogsForPanicAVC: failed to read agent logs: %v", err)
+			} else {
+				findings = append(findings, scanForPanicAVC(logs, "flightctl-agent")...)
+			}
+		}
+	}
+	if isK8sEnvironment() {
+		for _, svc := range []string{"flightctl-api", "flightctl-worker", "flightctl-periodic"} {
+			nsOut, err := exec.Command("kubectl", "get", "pods", "--all-namespaces", //nolint:gosec // svc iterates a hardcoded list
+				"-l", "flightctl.service="+svc, "-o", "jsonpath={.items[0].metadata.namespace}").Output()
+			if err != nil || len(nsOut) == 0 {
+				continue
+			}
+			ns := string(nsOut)
+			out, err := exec.Command("kubectl", "logs", "-n", ns, "-l", "flightctl.service="+svc,
+				"--since-time="+sinceArg).Output()
+			if err != nil {
+				logrus.Warnf("checkLogsForPanicAVC: failed to read logs for %s: %v", svc, err)
+				continue
+			}
+			findings = append(findings, scanForPanicAVC(string(out), svc)...)
+		}
+	}
+
+	if len(findings) > 0 {
+		report := CurrentSpecReport()
+		msg := fmt.Sprintf("Detected panic/AVC during test [%s] labels=[%s]:\n%s",
+			report.FullText(), strings.Join(report.Labels(), ", "), strings.Join(findings, "\n"))
+		GinkgoWriter.Println(msg)
+		Fail(msg)
+	} else {
+		GinkgoWriter.Println("checkLogsForPanicAVC: no panic/AVC found in service/agent logs")
+	}
+}
+
+// scanForPanicAVC scans log text for lines containing "panic:" or "avc:" (case-insensitive)
+// and returns formatted findings tagged with the given source name.
+func scanForPanicAVC(logs, source string) []string {
+	var findings []string
+	for i, line := range strings.Split(logs, "\n") {
+		lower := strings.ToLower(line)
+		if strings.Contains(lower, "panic:") || strings.Contains(lower, "avc:") {
+			findings = append(findings, fmt.Sprintf("  [%s] line %d: %s", source, i+1, line))
+		}
+	}
+	return findings
+}
+
+// isK8sEnvironment returns true if running in a Kubernetes-based environment (KIND or OCP).
+// Checks E2E_ENVIRONMENT first; falls back to kubectl context availability.
+func isK8sEnvironment() bool {
+	if env := os.Getenv("E2E_ENVIRONMENT"); env != "" {
+		return env == "kind" || env == "ocp" || env == "k8s"
+	}
+	return exec.Command("kubectl", "config", "current-context").Run() == nil
 }
 
 // GetServiceLogs returns the logs from the specified service using journalctl.
@@ -1461,6 +1551,15 @@ func (h *Harness) SetupVMFromPoolAndStartAgent(workerID int) error {
 func (h *Harness) SetTestContext(ctx context.Context) {
 	if testID, ok := ctx.Value(util.TestIDKey).(string); ok && testID != "" {
 		GinkgoWriter.Printf("SetTestContext called with test ID: %s\n", testID)
+
+		if !h.panicCheckRegistered {
+			h.panicCheckRegistered = true
+			testStart := time.Now()
+			DeferCleanup(func() {
+				defer func() { h.panicCheckRegistered = false }()
+				h.checkLogsForPanicAVC(testStart)
+			})
+		}
 	} else {
 		GinkgoWriter.Printf("SetTestContext called with context that has NO test ID\n")
 	}

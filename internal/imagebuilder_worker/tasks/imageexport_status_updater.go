@@ -118,6 +118,13 @@ func (u *imageExportStatusUpdater) run(cfg *config.Config) {
 	var lastOutputTime *time.Time
 	var lastSetLastSeen *time.Time
 
+	handleOutput := func(output []byte) {
+		now := time.Now().UTC()
+		lastOutputTime = &now
+		u.log.Debugf("Task output: %s", string(output))
+		u.writeLogToRedis(output)
+	}
+
 	for {
 		select {
 		case <-u.ctx.Done():
@@ -135,12 +142,16 @@ func (u *imageExportStatusUpdater) run(cfg *config.Config) {
 				}
 			}
 		case output := <-u.outputChan:
-			now := time.Now().UTC()
-			lastOutputTime = &now
-			u.log.Debugf("Task output: %s", string(output))
-			// Write to Redis and update in-memory buffer
-			u.writeLogToRedis(output)
+			handleOutput(output)
 		case req := <-u.updateChan:
+			for drained := false; !drained; {
+				select {
+				case output := <-u.outputChan:
+					handleOutput(output)
+				default:
+					drained = true
+				}
+			}
 			if req.Condition != nil {
 				pendingCondition = req.Condition
 			}

@@ -16,6 +16,10 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
+// defaultAAPOAuthAppName is defined here to allow for the default
+// OAuth application name to be overridden at build time
+var defaultAAPOAuthAppName = "Flight Control"
+
 type CreateAAPApplicationOptions struct {
 	Config       string
 	OutputFile   string
@@ -55,20 +59,20 @@ The command is idempotent: it will skip creation if:
 - A clientId is already set in the service configuration
 - The output file already exists`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return opts.Run()
+			return opts.Run(cmd)
 		},
 	}
 
 	cmd.Flags().StringVar(&opts.Config, "config", renderer.DefaultServiceConfigPath, "Path to the service configuration file")
 	cmd.Flags().StringVar(&opts.OutputFile, "output-file", renderer.DefaultAAPClientIDPath, "Output file path for the client_id")
 	cmd.Flags().StringVar(&opts.CACertFile, "ca-cert-file", renderer.DefaultAuthCACertPath, "Path to CA certificate file for AAP TLS verification")
-	cmd.Flags().StringVar(&opts.AppName, "app-name", "Flight Control", "Name for the OAuth application")
+	cmd.Flags().StringVar(&opts.AppName, "app-name", defaultAAPOAuthAppName, "Name for the OAuth application")
 	cmd.Flags().IntVar(&opts.Organization, "organization", aap.DefaultOrganizationID, "AAP organization ID")
 
 	return cmd
 }
 
-func (o *CreateAAPApplicationOptions) Run() error {
+func (o *CreateAAPApplicationOptions) Run(cmd *cobra.Command) error {
 	logger := logrus.New()
 
 	if _, err := os.Stat(o.OutputFile); err == nil {
@@ -126,6 +130,13 @@ func (o *CreateAAPApplicationOptions) Run() error {
 
 	if aapConfig.Token == "" {
 		return fmt.Errorf("AAP token is required but not configured")
+	}
+
+	if aapConfig.AppName != "" && !cmd.Flags().Changed("app-name") {
+		o.AppName = aapConfig.AppName
+	}
+	if aapConfig.OrganizationID != 0 && !cmd.Flags().Changed("organization") {
+		o.Organization = aapConfig.OrganizationID
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())

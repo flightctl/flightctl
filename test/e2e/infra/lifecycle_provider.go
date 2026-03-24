@@ -35,4 +35,16 @@ type ServiceLifecycleProvider interface {
 	// For K8s: checks all deployments have ready replicas
 	// For Quadlet: checks all systemd services are active
 	AreServicesHealthy() (bool, error)
+
+	// SetDeploymentEnv sets an environment variable on a service's deployment
+	// and waits for the rollout to complete.
+	// For K8s: patches the deployment container spec and waits for rollout
+	// For Quadlet: creates a Quadlet container drop-in override and restarts the service
+	SetDeploymentEnv(service ServiceName, envName, envValue string) error
+
+	// RemoveDeploymentEnv removes an environment variable from a service's
+	// deployment and waits for the rollout to complete.
+	// For K8s: removes the env var from the deployment container spec and waits for rollout
+	// For Quadlet: removes the env var from the container drop-in override and restarts the service
+	RemoveDeploymentEnv(service ServiceName, envName string) error
 }
