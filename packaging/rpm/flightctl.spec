@@ -206,13 +206,6 @@ if [ "$1" -ge 2 ] && [ -x "/usr/lib/systemd/systemd-update-helper" ]; then
     /usr/lib/systemd/systemd-update-helper mark-restart-system-units flightctl-observability.target || :
 fi
 
-if [ "$1" -eq 1 ]; then
-    echo "Flight Control Observability Stack services installed. Services are configured but not started."
-    echo "Configuration templates are rendered at service start time."
-    echo "To start services: sudo systemctl start flightctl-observability.target"
-    echo "For automatic startup: sudo systemctl enable flightctl-observability.target"
-fi
-
 
 
 
@@ -227,7 +220,6 @@ echo "Running pre-uninstall actions for Flight Control Observability Stack..."
 %systemd_postun_with_restart flightctl-observability.target
 
 if [ $1 -eq 0 ]; then
-    echo "Running post-uninstall actions for Flight Control Observability Stack..."
     # Clean up Podman containers associated with the services
     /usr/bin/podman rm -f flightctl-grafana >/dev/null 2>&1 || :
     /usr/bin/podman rm -f flightctl-userinfo-proxy >/dev/null 2>&1 || :
@@ -249,7 +241,6 @@ if [ $1 -eq 0 ]; then
     /usr/sbin/restorecon -RvF /var/lib/prometheus >/dev/null 2>&1 || :
 
     /usr/bin/systemctl daemon-reload >/dev/null 2>&1 || :
-    echo "Flight Control Observability Stack uninstalled."
 fi
 
 %posttrans observability
