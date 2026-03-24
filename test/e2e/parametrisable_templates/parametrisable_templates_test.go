@@ -473,7 +473,7 @@ var _ = Describe("Template variables in the device configuration", func() {
 				Expect(err).ToNot(HaveOccurred())
 
 				By("Create a fleet with parametrisable application templates")
-				err = harness.CreateOrUpdateTestFleet(fleetTestName, appFleetSelector, templatedDeviceSpec)
+				err = harness.CreateOrUpdateTestFleet(fleetTestName, appFleetSelector, negTestDeviceSpec)
 				Expect(err).ToNot(HaveOccurred())
 
 				By("Add labels to the device to associate it with the fleet and provide template values")
@@ -483,12 +483,13 @@ var _ = Describe("Template variables in the device configuration", func() {
 				err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
 					harness.SetLabelsForDeviceMetadata(&device.Metadata, map[string]string{
 						appFleetSelectorKey: appFleetSelectorValue,
-						nginxLabelKey:       nginxTag,
+						containerLabelKey:   containerLabelValue,
+						quadletLabelKey:     quadletLabelValue,
+						artifactLabelKey:    artifactLabelValue,
 						inlineLabelKey:      inlineTag,
-						volrefLabelKey:      volrefTag,
 					})
-					GinkgoWriter.Printf("Updating %s with labels app=%s nginx=%s inline=%s volref=%s\n",
-						deviceId, appFleetSelectorValue, nginxTag, inlineTag, volrefTag)
+					GinkgoWriter.Printf("Updating %s with labels app=%s container=%s quadlet=%s artifact=%s inline=%s\n",
+						deviceId, appFleetSelectorValue, containerLabelValue, quadletLabelValue, artifactLabelValue, inlineTag)
 				})
 				Expect(err).ToNot(HaveOccurred())
 
@@ -499,17 +500,20 @@ var _ = Describe("Template variables in the device configuration", func() {
 				By("Verify that template variables are rendered in the device applications")
 				refs, err := getDeviceRenderedAppRefs(harness, deviceId)
 				Expect(err).ToNot(HaveOccurred())
-				Expect(refs.ContainerImage).To(Equal(fmt.Sprintf("%s:%s", nginxImage, nginxTag)))
-				Expect(refs.ContainerVolRef).To(Equal(fmt.Sprintf("%s:%s", sqliteImage, volrefTag)))
+				Expect(refs.ContainerImage).To(Equal(fmt.Sprintf("%s:%s", nginxImage, containerLabelValue)))
+				Expect(refs.QuadletImage).To(Equal(fmt.Sprintf("%s:%s", quadletArtifactImage, quadletLabelValue)))
+				Expect(refs.QuadletVolRef).To(Equal(fmt.Sprintf("%s:%s", modelArtifactImage, artifactLabelValue)))
 				Expect(refs.InlineContent).To(ContainSubstring(fmt.Sprintf("%s:%s", alpineImage, inlineTag)))
 				Expect(refs.ContainerImage).ToNot(ContainSubstring("{{"))
-				Expect(refs.ContainerVolRef).ToNot(ContainSubstring("{{"))
+				Expect(refs.QuadletImage).ToNot(ContainSubstring("{{"))
+				Expect(refs.QuadletVolRef).ToNot(ContainSubstring("{{"))
 				Expect(refs.InlineContent).ToNot(ContainSubstring("{{"))
 
 				By("Ensure that all applications start properly")
 				harness.WaitForApplicationRunningStatus(deviceId, containerAppName)
+				harness.WaitForApplicationRunningStatus(deviceId, quadletImageAppName)
 				harness.WaitForApplicationRunningStatus(deviceId, inlineAppName)
-				harness.WaitForRunningApplicationsCount(deviceId, 2)
+				harness.WaitForRunningApplicationsCount(deviceId, 3)
 				harness.WaitForApplicationsSummaryStatus(deviceId, v1beta1.ApplicationsSummaryStatusHealthy)
 
 				By("Update the fleet template removing templated image references")
@@ -517,7 +521,7 @@ var _ = Describe("Template variables in the device configuration", func() {
 				Expect(err).ToNot(HaveOccurred())
 
 				harness.UpdateFleetWithRetries(fleetTestName, func(fleet *v1beta1.Fleet) {
-					fleet.Spec.Template.Spec = nonTemplatedDeviceSpec
+					fleet.Spec.Template.Spec = nonTemplatedFullDeviceSpec
 				})
 
 				By("Wait for the device to pick up the updated fleet configuration")
@@ -527,17 +531,20 @@ var _ = Describe("Template variables in the device configuration", func() {
 				By("Ensure the device is updated without any templating occurring")
 				refs, err = getDeviceRenderedAppRefs(harness, deviceId)
 				Expect(err).ToNot(HaveOccurred())
-				Expect(refs.ContainerImage).To(Equal(fmt.Sprintf("%s:%s", nginxImage, nginxTagFixed)))
-				Expect(refs.ContainerVolRef).To(Equal(fmt.Sprintf("%s:%s", sqliteImage, volrefTagFixed)))
-				Expect(refs.InlineContent).To(ContainSubstring(fmt.Sprintf("%s:%s", alpineImageFixed, inlineTagFixed)))
+				Expect(refs.ContainerImage).To(Equal(fmt.Sprintf("%s:%s", nginxImage, fixedContainerTag)))
+				Expect(refs.QuadletImage).To(Equal(fmt.Sprintf("%s:%s", quadletArtifactImage, fixedQuadletTag)))
+				Expect(refs.QuadletVolRef).To(Equal(fmt.Sprintf("%s:%s", modelArtifactImage, fixedArtifactTag)))
+				Expect(refs.InlineContent).To(ContainSubstring(fmt.Sprintf("%s:%s", alpineImage, fixedInlineTag)))
 				Expect(refs.ContainerImage).ToNot(ContainSubstring("{{"))
-				Expect(refs.ContainerVolRef).ToNot(ContainSubstring("{{"))
+				Expect(refs.QuadletImage).ToNot(ContainSubstring("{{"))
+				Expect(refs.QuadletVolRef).ToNot(ContainSubstring("{{"))
 				Expect(refs.InlineContent).ToNot(ContainSubstring("{{"))
 
 				By("Ensure that all applications are running after the update")
 				harness.WaitForApplicationRunningStatus(deviceId, containerAppName)
+				harness.WaitForApplicationRunningStatus(deviceId, quadletImageAppName)
 				harness.WaitForApplicationRunningStatus(deviceId, inlineAppName)
-				harness.WaitForRunningApplicationsCount(deviceId, 2)
+				harness.WaitForRunningApplicationsCount(deviceId, 3)
 				harness.WaitForApplicationsSummaryStatus(deviceId, v1beta1.ApplicationsSummaryStatusHealthy)
 			})
 
@@ -679,33 +686,18 @@ var (
 	appFleetSelectorValue             = "my-templated-app"
 	containerAppName                  = "my-app"
 	inlineAppName                     = "inline-app"
-	nginxLabelKey                     = "nginx"
-	nginxTag                          = "alpine"
-	nginxTagFixed                     = "latest"
 	inlineLabelKey                    = "inline"
 	inlineTag                         = "v1"
-	volrefLabelKey                    = "volref"
-	volrefTag                         = "3.50.2"
-	inlineTagFixed                    = "3.19"
-	volrefTagFixed                    = "3.46.0"
 	nginxImage                        = "docker.io/library/nginx"
 	alpineImage                       = "quay.io/flightctl-tests/alpine"
-	alpineImageFixed                  = "docker.io/library/alpine"
-	sqliteImage                       = "ghcr.io/homebrew/core/sqlite"
-	volumeName                        = "data"
-	volumeMountPath                   = "/mnt/data"
 	containerCPU                      = "0.5"
 	containerMemory                   = "256m"
 	inlineAppEnvVars                  = map[string]string{"LOG_MESSAGE": "Hello from FlightControl (Inline Ref)"}
 	pullPolicy                        = v1beta1.PullIfNotPresent
-	templatedNginxImage               = nginxImage + ":{{ .metadata.labels." + nginxLabelKey + " }}"
-	templatedSqliteRef                = sqliteImage + ":{{ .metadata.labels." + volrefLabelKey + " }}"
-	templatedAlpineImage              = alpineImage + ":{{ .metadata.labels." + inlineLabelKey + " }}"
-	fixedNginxImage                   = nginxImage + ":" + nginxTagFixed
-	fixedSqliteRef                    = sqliteImage + ":" + volrefTagFixed
-	fixedAlpineImage                  = alpineImageFixed + ":" + inlineTagFixed
-	templatedInlineContent            = "[Container]\nImage=" + templatedAlpineImage + "\nExec=sleep infinity\n\n[Install]\nWantedBy=default.target\n"
-	nonTemplatedInlineContent         = "[Container]\nImage=" + fixedAlpineImage + "\nExec=sleep infinity\n\n[Install]\nWantedBy=default.target\n"
+	fixedContainerTag                 = "alpine"
+	fixedQuadletTag                   = "inline-app"
+	fixedArtifactTag                  = "latest"
+	fixedInlineTag                    = "v1"
 	deviceCouldNotBeUpdatedToFleetMsg = "The device could not be updated to the fleet"
 	containerLabelKey                 = "container"
 	containerLabelValue               = "alpine"
@@ -721,6 +713,10 @@ var (
 	negTemplatedNginxImage            = nginxImage + ":{{ .metadata.labels." + containerLabelKey + " }}"
 	negInlineContent                  = "[Unit]\nDescription=Primary application container\n\n[Container]\n" +
 		"Image=" + alpineImage + ":{{ .metadata.labels." + inlineLabelKey + " }}\n" +
+		"Exec=sh -c \"echo 'Primary container started.' && echo 'LOG_MESSAGE:' $LOG_MESSAGE && sleep infinity\"\n\n" +
+		"[Install]\nWantedBy=default.target\n"
+	nonTemplatedNegInlineContent = "[Unit]\nDescription=Primary application container\n\n[Container]\n" +
+		"Image=" + alpineImage + ":" + fixedInlineTag + "\n" +
 		"Exec=sh -c \"echo 'Primary container started.' && echo 'LOG_MESSAGE:' $LOG_MESSAGE && sleep infinity\"\n\n" +
 		"[Install]\nWantedBy=default.target\n"
 )
@@ -839,92 +835,6 @@ var appFleetSelector = v1beta1.LabelSelector{
 	MatchLabels: &map[string]string{appFleetSelectorKey: appFleetSelectorValue},
 }
 
-// Templated volume
-var templatedVol v1beta1.ApplicationVolume
-var _ = func() v1beta1.ApplicationVolume {
-	templatedVol = v1beta1.ApplicationVolume{Name: volumeName}
-	_ = templatedVol.FromImageMountVolumeProviderSpec(v1beta1.ImageMountVolumeProviderSpec{
-		Image: v1beta1.ImageVolumeSource{Reference: templatedSqliteRef, PullPolicy: &pullPolicy},
-		Mount: v1beta1.VolumeMount{Path: volumeMountPath},
-	})
-	return templatedVol
-}()
-
-// Non-templated volume
-var nonTemplatedVol v1beta1.ApplicationVolume
-var _ = func() v1beta1.ApplicationVolume {
-	nonTemplatedVol = v1beta1.ApplicationVolume{Name: volumeName}
-	_ = nonTemplatedVol.FromImageMountVolumeProviderSpec(v1beta1.ImageMountVolumeProviderSpec{
-		Image: v1beta1.ImageVolumeSource{Reference: fixedSqliteRef, PullPolicy: &pullPolicy},
-		Mount: v1beta1.VolumeMount{Path: volumeMountPath},
-	})
-	return nonTemplatedVol
-}()
-
-// Templated container app
-var templatedContainerApp v1beta1.ApplicationProviderSpec
-var _ = func() v1beta1.ApplicationProviderSpec {
-	vols := []v1beta1.ApplicationVolume{templatedVol}
-	templatedContainerApp, _ = e2e.NewContainerApplicationSpec(
-		containerAppName, templatedNginxImage,
-		[]v1beta1.ApplicationPort{"8080:80"},
-		&containerCPU, &containerMemory,
-		&vols,
-	)
-	return templatedContainerApp
-}()
-
-// Non-templated container app
-var nonTemplatedContainerApp v1beta1.ApplicationProviderSpec
-var _ = func() v1beta1.ApplicationProviderSpec {
-	vols := []v1beta1.ApplicationVolume{nonTemplatedVol}
-	nonTemplatedContainerApp, _ = e2e.NewContainerApplicationSpec(
-		containerAppName, fixedNginxImage,
-		[]v1beta1.ApplicationPort{"8080:80"},
-		&containerCPU, &containerMemory,
-		&vols,
-	)
-	return nonTemplatedContainerApp
-}()
-
-// Templated inline quadlet app
-var templatedInlineQuadletApp v1beta1.QuadletApplication
-var _ = templatedInlineQuadletApp.FromInlineApplicationProviderSpec(v1beta1.InlineApplicationProviderSpec{
-	Inline: []v1beta1.ApplicationContent{{Path: "app.container", Content: &templatedInlineContent}},
-})
-
-var templatedInlineApp v1beta1.ApplicationProviderSpec
-var _ = func() v1beta1.ApplicationProviderSpec {
-	templatedInlineQuadletApp.Name = &inlineAppName
-	templatedInlineQuadletApp.AppType = v1beta1.AppTypeQuadlet
-	templatedInlineQuadletApp.EnvVars = &inlineAppEnvVars
-	_ = templatedInlineApp.FromQuadletApplication(templatedInlineQuadletApp)
-	return templatedInlineApp
-}()
-
-// Non-templated inline quadlet app
-var nonTemplatedInlineQuadletApp v1beta1.QuadletApplication
-var _ = nonTemplatedInlineQuadletApp.FromInlineApplicationProviderSpec(v1beta1.InlineApplicationProviderSpec{
-	Inline: []v1beta1.ApplicationContent{{Path: "app.container", Content: &nonTemplatedInlineContent}},
-})
-
-var nonTemplatedInlineApp v1beta1.ApplicationProviderSpec
-var _ = func() v1beta1.ApplicationProviderSpec {
-	nonTemplatedInlineQuadletApp.Name = &inlineAppName
-	nonTemplatedInlineQuadletApp.AppType = v1beta1.AppTypeQuadlet
-	nonTemplatedInlineQuadletApp.EnvVars = &inlineAppEnvVars
-	_ = nonTemplatedInlineApp.FromQuadletApplication(nonTemplatedInlineQuadletApp)
-	return nonTemplatedInlineApp
-}()
-
-var templatedDeviceSpec = v1beta1.DeviceSpec{
-	Applications: &[]v1beta1.ApplicationProviderSpec{templatedContainerApp, templatedInlineApp},
-}
-
-var nonTemplatedDeviceSpec = v1beta1.DeviceSpec{
-	Applications: &[]v1beta1.ApplicationProviderSpec{nonTemplatedContainerApp, nonTemplatedInlineApp},
-}
-
 var negNginxConfigVol v1beta1.ApplicationVolume
 var _ = func() v1beta1.ApplicationVolume {
 	negNginxConfigVol = v1beta1.ApplicationVolume{Name: "nginx-config"}
@@ -1006,6 +916,60 @@ var _ = func() v1beta1.ApplicationProviderSpec {
 
 var negTestDeviceSpec = v1beta1.DeviceSpec{
 	Applications: &[]v1beta1.ApplicationProviderSpec{negContainerApp, negQuadletImageApp, negInlineApp},
+}
+
+var nonTemplatedModelDataVol v1beta1.ApplicationVolume
+var _ = func() v1beta1.ApplicationVolume {
+	nonTemplatedModelDataVol = v1beta1.ApplicationVolume{Name: "model-data"}
+	_ = nonTemplatedModelDataVol.FromImageVolumeProviderSpec(v1beta1.ImageVolumeProviderSpec{
+		Image: v1beta1.ImageVolumeSource{
+			Reference:  modelArtifactImage + ":" + fixedArtifactTag,
+			PullPolicy: &pullPolicy,
+		},
+	})
+	return nonTemplatedModelDataVol
+}()
+
+var nonTemplatedFullContainerApp v1beta1.ApplicationProviderSpec
+var _ = func() v1beta1.ApplicationProviderSpec {
+	vols := []v1beta1.ApplicationVolume{negNginxConfigVol, negNginxHtmlVol, negNginxLogsVol}
+	nonTemplatedFullContainerApp, _ = e2e.NewContainerApplicationSpec(
+		containerAppName, nginxImage+":"+fixedContainerTag,
+		[]v1beta1.ApplicationPort{"8081:80", "8080:8080"},
+		&containerCPU, &containerMemory,
+		&vols,
+	)
+	return nonTemplatedFullContainerApp
+}()
+
+var nonTemplatedFullQuadletApp v1beta1.ApplicationProviderSpec
+var _ = func() v1beta1.ApplicationProviderSpec {
+	nonTemplatedFullQuadletApp, _ = e2e.NewQuadletApplicationSpec(
+		quadletImageAppName,
+		quadletArtifactImage+":"+fixedQuadletTag,
+		"",
+		map[string]string{"LOG_MESSAGE": "Multi-file artifact (with .image ref)"},
+		nonTemplatedModelDataVol,
+	)
+	return nonTemplatedFullQuadletApp
+}()
+
+var nonTemplatedFullInlineQuadletApp v1beta1.QuadletApplication
+var _ = nonTemplatedFullInlineQuadletApp.FromInlineApplicationProviderSpec(v1beta1.InlineApplicationProviderSpec{
+	Inline: []v1beta1.ApplicationContent{{Path: "app.container", Content: &nonTemplatedNegInlineContent}},
+})
+
+var nonTemplatedFullInlineApp v1beta1.ApplicationProviderSpec
+var _ = func() v1beta1.ApplicationProviderSpec {
+	nonTemplatedFullInlineQuadletApp.Name = &inlineAppName
+	nonTemplatedFullInlineQuadletApp.AppType = v1beta1.AppTypeQuadlet
+	nonTemplatedFullInlineQuadletApp.EnvVars = &inlineAppEnvVars
+	_ = nonTemplatedFullInlineApp.FromQuadletApplication(nonTemplatedFullInlineQuadletApp)
+	return nonTemplatedFullInlineApp
+}()
+
+var nonTemplatedFullDeviceSpec = v1beta1.DeviceSpec{
+	Applications: &[]v1beta1.ApplicationProviderSpec{nonTemplatedFullContainerApp, nonTemplatedFullQuadletApp, nonTemplatedFullInlineApp},
 }
 
 // isDeviceUpdatedStatusOutOfDate returns true when the device status indicates it could not be updated to the fleet.
