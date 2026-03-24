@@ -160,13 +160,22 @@ Prometheus for metric storage and Grafana for visualization.
 
 
 %pre observability
-# This script runs BEFORE the files are installed onto the system.
 echo "Preparing to install Flight Control Observability Stack..."
 echo "Note: Observability stack can be installed independently of other Flight Control services."
+# Workaround: save observability state before upgrade so %%posttrans can restore it.
+# Needed because older versions' %%preun unconditionally stops services on upgrade.
+# Can be removed once all deployments have upgraded past this version.
+if [ "$1" -eq 2 ]; then
+    if /usr/bin/systemctl is-active --quiet flightctl-observability.target 2>/dev/null; then
+        touch /run/flightctl-observability-was-active
+    fi
+fi
 
 
 %post observability
-# This script runs AFTER the files have been installed onto the system.
+# On initial install: apply preset policy to enable/disable services based on system defaults
+%systemd_post flightctl-observability.target
+
 echo "Running post-install actions for Flight Control Observability Stack..."
 
 # Set ownership for persistent data directories
@@ -192,51 +201,65 @@ chown 472:472 /var/lib/grafana
 echo "Reloading systemd daemon..."
 /usr/bin/systemctl daemon-reload
 
-echo "Flight Control Observability Stack services installed. Services are configured but not started."
-echo "Configuration templates are rendered at service start time."
-echo "To start services: sudo systemctl start flightctl-observability.target"
-echo "For automatic startup: sudo systemctl enable flightctl-observability.target"
+# On upgrade: mark the observability target for restart so PartOf= services restart
+if [ "$1" -ge 2 ] && [ -x "/usr/lib/systemd/systemd-update-helper" ]; then
+    /usr/lib/systemd/systemd-update-helper mark-restart-system-units flightctl-observability.target || :
+fi
+
+if [ "$1" -eq 1 ]; then
+    echo "Flight Control Observability Stack services installed. Services are configured but not started."
+    echo "Configuration templates are rendered at service start time."
+    echo "To start services: sudo systemctl start flightctl-observability.target"
+    echo "For automatic startup: sudo systemctl enable flightctl-observability.target"
+fi
 
 
 
 
 %preun observability
 echo "Running pre-uninstall actions for Flight Control Observability Stack..."
-# Stop and disable the target and all services
-/usr/bin/systemctl stop flightctl-observability.target >/dev/null 2>&1 || :
-/usr/bin/systemctl disable flightctl-observability.target >/dev/null 2>&1 || :
-/usr/bin/systemctl stop flightctl-grafana.service >/dev/null 2>&1 || :
-/usr/bin/systemctl disable flightctl-grafana.service >/dev/null 2>&1 || :
-/usr/bin/systemctl stop flightctl-userinfo-proxy.service >/dev/null 2>&1 || :
-/usr/bin/systemctl disable flightctl-userinfo-proxy.service >/dev/null 2>&1 || :
-/usr/bin/systemctl stop flightctl-prometheus.service >/dev/null 2>&1 || :
-/usr/bin/systemctl disable flightctl-prometheus.service >/dev/null 2>&1 || :
+# On package removal: stop and disable all services (PartOf= propagates to all services)
+%systemd_preun flightctl-observability.target
 
 
 %postun observability
-echo "Running post-uninstall actions for Flight Control Observability Stack..."
-# Clean up Podman containers associated with the services
-/usr/bin/podman rm -f flightctl-grafana >/dev/null 2>&1 || :
-/usr/bin/podman rm -f flightctl-userinfo-proxy >/dev/null 2>&1 || :
-/usr/bin/podman rm -f flightctl-prometheus >/dev/null 2>&1 || :
+# On upgrade: mark services for restart after transaction
+%systemd_postun_with_restart flightctl-observability.target
 
-# Note: Podman secrets are managed by the telemetry-gateway package
-# and will be cleaned up when that package is uninstalled
+if [ $1 -eq 0 ]; then
+    echo "Running post-uninstall actions for Flight Control Observability Stack..."
+    # Clean up Podman containers associated with the services
+    /usr/bin/podman rm -f flightctl-grafana >/dev/null 2>&1 || :
+    /usr/bin/podman rm -f flightctl-userinfo-proxy >/dev/null 2>&1 || :
+    /usr/bin/podman rm -f flightctl-prometheus >/dev/null 2>&1 || :
 
-# Remove SELinux fcontext rules added by this package
-/usr/sbin/semanage fcontext -d -t container_file_t "/etc/flightctl/flightctl-grafana(/.*)?" >/dev/null 2>&1 || :
-/usr/sbin/semanage fcontext -d -t container_file_t "/var/lib/grafana(/.*)?" >/dev/null 2>&1 || :
-/usr/sbin/semanage fcontext -d -t container_file_t "/etc/flightctl/flightctl-prometheus(/.*)?" >/dev/null 2>&1 || :
-/usr/sbin/semanage fcontext -d -t container_file_t "/var/lib/prometheus(/.*)?" >/dev/null 2>&1 || :
+    # Note: Podman secrets are managed by the telemetry-gateway package
+    # and will be cleaned up when that package is uninstalled
 
-# Restore default SELinux contexts for affected directories
-/usr/sbin/restorecon -RvF /etc/flightctl/flightctl-grafana >/dev/null 2>&1 || :
-/usr/sbin/restorecon -RvF /var/lib/grafana >/dev/null 2>&1 || :
-/usr/sbin/restorecon -RvF /etc/flightctl/flightctl-prometheus >/dev/null 2>&1 || :
-/usr/sbin/restorecon -RvF /var/lib/prometheus >/dev/null 2>&1 || :
+    # Remove SELinux fcontext rules added by this package
+    /usr/sbin/semanage fcontext -d -t container_file_t "/etc/flightctl/flightctl-grafana(/.*)?" >/dev/null 2>&1 || :
+    /usr/sbin/semanage fcontext -d -t container_file_t "/var/lib/grafana(/.*)?" >/dev/null 2>&1 || :
+    /usr/sbin/semanage fcontext -d -t container_file_t "/etc/flightctl/flightctl-prometheus(/.*)?" >/dev/null 2>&1 || :
+    /usr/sbin/semanage fcontext -d -t container_file_t "/var/lib/prometheus(/.*)?" >/dev/null 2>&1 || :
 
-/usr/bin/systemctl daemon-reload
-echo "Flight Control Observability Stack uninstalled."
+    # Restore default SELinux contexts for affected directories
+    /usr/sbin/restorecon -RvF /etc/flightctl/flightctl-grafana >/dev/null 2>&1 || :
+    /usr/sbin/restorecon -RvF /var/lib/grafana >/dev/null 2>&1 || :
+    /usr/sbin/restorecon -RvF /etc/flightctl/flightctl-prometheus >/dev/null 2>&1 || :
+    /usr/sbin/restorecon -RvF /var/lib/prometheus >/dev/null 2>&1 || :
+
+    /usr/bin/systemctl daemon-reload >/dev/null 2>&1 || :
+    echo "Flight Control Observability Stack uninstalled."
+fi
+
+%posttrans observability
+# Workaround: restore observability services if they were running before upgrade.
+# Needed because older versions' %%preun unconditionally stops services on upgrade.
+# Can be removed once all deployments have upgraded past this version.
+if [ -f /run/flightctl-observability-was-active ]; then
+    rm -f /run/flightctl-observability-was-active
+    /usr/bin/systemctl start flightctl-observability.target >/dev/null 2>&1 || :
+fi
 
 %prep
 %goprep -A
@@ -663,7 +686,6 @@ fi
 %postun services
 # On upgrade: mark services for restart after transaction completes
 %systemd_postun_with_restart %{flightctl_target}
-%systemd_postun %{flightctl_target}
 
 # If contexts were managed via policy, no cleanup is needed here.
 
