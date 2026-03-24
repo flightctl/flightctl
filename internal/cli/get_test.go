@@ -519,6 +519,17 @@ func TestGetOptionsValidation(t *testing.T) {
 			args:        []string{"ci"},
 			expectError: false,
 		},
+		{
+			name:        "catalogitem_by_name_without_catalog_flag",
+			args:        []string{"catalogitem", "my-item"},
+			expectError: false,
+		},
+		{
+			name:        "catalogitem_by_name_with_catalog_flag",
+			args:        []string{"catalogitem", "my-item"},
+			options:     &GetOptions{CatalogName: "my-catalog"},
+			expectError: false,
+		},
 	}
 
 	for _, tc := range tests {
