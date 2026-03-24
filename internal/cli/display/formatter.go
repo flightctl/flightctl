@@ -23,6 +23,7 @@ type FormatOptions struct {
 	SummaryOnly bool
 	Wide        bool
 	WithExports bool
+	CatalogName string
 	Writer      io.Writer
 }
 
