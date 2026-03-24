@@ -1,0 +1,33 @@
+name: Bot Adoption Metrics
+
+on:
+  schedule:
+    - cron: '0 9 * * 1'  # Every Monday at 9:00 UTC
+  workflow_dispatch:
+    inputs:
+      cutoff_date:
+        description: 'YYYY-MM-DD boundary between legacy and redesigned bot'
+        required: false
+        default: '2026-03-23'
+      excluded_tickets:
+        description: 'Comma-separated ticket keys to exclude'
+        required: false
+        default: 'EDM-2747'
+
+jobs:
+  metrics:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/scripts
+
+      - name: Collect bot metrics
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EXCLUDED_TICKETS: ${{ inputs.excluded_tickets || 'EDM-2747' }}
+          CUTOFF_DATE: ${{ inputs.cutoff_date || '2026-03-23' }}
+        run: python3 .github/scripts/bot-metrics.py
