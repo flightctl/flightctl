@@ -5,7 +5,7 @@
         "builtIn": 1,
         "datasource": {
           "type": "prometheus",
-          "uid": "prometheus"
+          "uid": "${DS_PROMETHEUS}"
         },
         "enable": true,
         "hide": true,
@@ -55,7 +55,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "${DS_PROMETHEUS}"
       },
       "fieldConfig": {
         "defaults": {
@@ -158,7 +158,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
           "expr": "histogram_quantile(0.99, sum(rate(http_server_request_duration_seconds_bucket{http_response_status_code=~\"2..\"}[$__rate_interval])) by (le)) * 1000",
@@ -171,7 +171,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
           "expr": "histogram_quantile(0.99, sum(rate(http_server_request_duration_seconds_bucket{http_response_status_code=~\"4..|5..\"}[$__rate_interval])) by (le)) * 1000",
@@ -188,7 +188,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "${DS_PROMETHEUS}"
       },
       "fieldConfig": {
         "defaults": {
@@ -290,7 +290,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
           "expr": "sum(rate(http_server_request_duration_seconds_count[$__rate_interval]))",
@@ -305,7 +305,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "${DS_PROMETHEUS}"
       },
       "fieldConfig": {
         "defaults": {
@@ -423,7 +423,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
           "expr": "round(sum(increase(http_server_request_duration_seconds_count{http_response_status_code=~\"4..\"}[$__rate_interval])))",
@@ -436,7 +436,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
           "expr": "round(sum(increase(http_server_request_duration_seconds_count{http_response_status_code=~\"5..\"}[$__rate_interval])))",
@@ -454,7 +454,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "${DS_PROMETHEUS}"
       },
       "fieldConfig": {
         "defaults": {
@@ -588,7 +588,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
           "exemplar": false,
@@ -602,7 +602,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
           "expr": "flightctl_memory_utilization",
@@ -615,7 +615,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
           "expr": "flightctl_disk_utilization",
@@ -635,7 +635,20 @@
   "schemaVersion": 42,
   "tags": [],
   "templating": {
-    "list": []
+    "list": [
+      {
+        "name": "DS_PROMETHEUS",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": {},
+        "hide": 0,
+        "includeAll": false,
+        "multi": false,
+        "options": [],
+        "refresh": 1,
+        "regex": ""
+      }
+    ]
   },
   "time": {
     "from": "now-1h",
