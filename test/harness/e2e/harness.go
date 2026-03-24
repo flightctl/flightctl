@@ -1535,7 +1535,17 @@ func (h *Harness) SetupVMFromPoolAndStartAgent(workerID int) error {
 	}
 	testVM := h.VM
 
-	// Start the agent after snapshot revert
+	// After a memory-state snapshot revert, greenboot-rs 0.16.x's
+	// greenboot-set-rollback-trigger.service (Before=sysinit.target,
+	// DefaultDependencies=no) can leave systemd in a transitional state with a
+	// pending stop job on sysinit.target, which would eventually cause a reboot.
+	// A daemon-reload resets systemd's job queue and dependency graph, preventing
+	// the unintended reboot without blocking.
+	GinkgoWriter.Printf("🔄 Reloading systemd after snapshot revert\n")
+	if _, err := testVM.RunSSH([]string{"sudo", "systemctl", "daemon-reload"}, nil); err != nil {
+		return fmt.Errorf("failed to reload systemd after snapshot revert: %w", err)
+	}
+
 	GinkgoWriter.Printf("🔄 Starting flightctl-agent after snapshot revert\n")
 	if _, err := testVM.RunSSH([]string{"sudo", "systemctl", "start", "flightctl-agent"}, nil); err != nil {
 		return fmt.Errorf("failed to start flightctl-agent: %w", err)
