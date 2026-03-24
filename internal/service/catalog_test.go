@@ -239,69 +239,6 @@ func TestDeleteCatalogItem(t *testing.T) {
 	}
 }
 
-func TestReplaceCatalogItemOwnerCheck(t *testing.T) {
-	owner := "ResourceSync/my-resourcesync"
-
-	tests := []struct {
-		name                  string
-		itemOwner             *string
-		isResourceSyncRequest bool
-		expectedStatusCode    int32
-		expectedError         error
-	}{
-		{
-			name:               "replace item without owner succeeds",
-			itemOwner:          nil,
-			expectedStatusCode: statusSuccessCode,
-		},
-		{
-			name:               "replace item with owner fails with conflict",
-			itemOwner:          &owner,
-			expectedStatusCode: int32(http.StatusConflict),
-			expectedError:      flterrors.ErrUpdatingResourceWithOwnerNotAllowed,
-		},
-		{
-			name:                  "resourceSync can replace items it owns",
-			itemOwner:             &owner,
-			isResourceSyncRequest: true,
-			expectedStatusCode:    statusSuccessCode,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			require := require.New(t)
-			serviceHandler := createCatalogTestServiceHandler()
-			ctx := context.Background()
-			testOrgId := uuid.New()
-
-			catalogName := "test-catalog"
-			itemName := "test-item"
-
-			catalog := createTestCatalog(catalogName, nil)
-			_, err := serviceHandler.store.Catalog().Create(ctx, testOrgId, &catalog, nil)
-			require.NoError(err)
-
-			item := createTestCatalogItem(catalogName, itemName, tt.itemOwner)
-			_, err = serviceHandler.store.Catalog().CreateItem(ctx, testOrgId, catalogName, &item)
-			require.NoError(err)
-
-			replaceCtx := ctx
-			if tt.isResourceSyncRequest {
-				replaceCtx = context.WithValue(ctx, consts.ResourceSyncRequestCtxKey, true)
-			}
-
-			updatedItem := createTestCatalogItem(catalogName, itemName, nil)
-			_, status := serviceHandler.ReplaceCatalogItem(replaceCtx, testOrgId, catalogName, itemName, updatedItem)
-			require.Equal(tt.expectedStatusCode, status.Code)
-
-			if tt.expectedError != nil {
-				require.Equal(tt.expectedError.Error(), status.Message)
-			}
-		})
-	}
-}
-
 func TestReplaceCatalogItemCreatePath(t *testing.T) {
 	// Creating a new item via Replace should always succeed (no existing owner to check)
 	require := require.New(t)

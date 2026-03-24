@@ -234,13 +234,6 @@ func (h *ServiceHandler) ReplaceCatalogItem(ctx context.Context, orgId uuid.UUID
 		return nil, domain.StatusBadRequest("resource name specified in metadata does not match name in path")
 	}
 
-	if !IsResourceSyncRequest(ctx) {
-		existing, err := h.store.Catalog().GetItem(ctx, orgId, catalogName, itemName)
-		if err == nil && existing.Metadata.Owner != nil {
-			return nil, domain.StatusConflict(flterrors.ErrUpdatingResourceWithOwnerNotAllowed.Error())
-		}
-	}
-
 	result, created, err := h.store.Catalog().CreateOrUpdateItem(ctx, orgId, catalogName, &item)
 	if errors.Is(err, flterrors.ErrParentResourceNotFound) {
 		return nil, domain.StatusResourceNotFound(domain.CatalogKind, catalogName)
@@ -255,10 +248,6 @@ func (h *ServiceHandler) PatchCatalogItem(ctx context.Context, orgId uuid.UUID, 
 			return nil, domain.StatusResourceNotFound(domain.CatalogKind, catalogName)
 		}
 		return nil, StoreErrorToApiStatus(err, false, domain.CatalogItemKind, &itemName)
-	}
-
-	if currentObj.Metadata.Owner != nil && !IsResourceSyncRequest(ctx) {
-		return nil, domain.StatusConflict(flterrors.ErrUpdatingResourceWithOwnerNotAllowed.Error())
 	}
 
 	newObj := &domain.CatalogItem{}
