@@ -6,10 +6,16 @@ ONLY_DB=
 DB_SIZE_PARAMS=
 # If using images from a private registry, specify a path to a Kubernetes Secret yaml for your pull secret (in the flightctl-internal namespace)
 # IMAGE_PULL_SECRET_PATH=
-SQL_VERSION=${SQL_VERSION:-"latest"}
-SQL_IMAGE=${SQL_IMAGE:-"quay.io/sclorg/postgresql-16-c9s"}
-KV_VERSION=${KV_VERSION:-"7.4.1"}
-KV_IMAGE=${KV_IMAGE:-"docker.io/redis"}
+OS=${OS:-"el9"}
+
+# Extract SQL and KV image values from helm-chart-opts.yaml
+HELM_OPTS_FILE="${SCRIPT_DIR}/../../deploy/helm/helm-chart-opts.yaml"
+PROFILE_KEY="community-${OS}"
+
+SQL_IMAGE=${SQL_IMAGE:-$(yq eval ".\"${PROFILE_KEY}\".images.db.image" "$HELM_OPTS_FILE")}
+SQL_VERSION=${SQL_VERSION:-$(yq eval ".\"${PROFILE_KEY}\".images.db.tag" "$HELM_OPTS_FILE")}
+KV_IMAGE=${KV_IMAGE:-$(yq eval ".\"${PROFILE_KEY}\".images.kv.image" "$HELM_OPTS_FILE")}
+KV_VERSION=${KV_VERSION:-$(yq eval ".\"${PROFILE_KEY}\".images.kv.tag" "$HELM_OPTS_FILE")}
 
 source "${SCRIPT_DIR}"/functions
 IP=$(get_ext_ip)
@@ -57,7 +63,7 @@ kubectl create namespace flightctl-e2e      --context kind-kind 2>/dev/null || t
 if [ -z "$ONLY_DB" ]; then
 
   for suffix in periodic api worker alert-exporter alertmanager-proxy cli-artifacts db-setup telemetry-gateway imagebuilder-api imagebuilder-worker ; do
-    kind_load_image localhost/flightctl-${suffix}:latest
+    kind_load_image flightctl-${suffix}-${OS}:latest
   done
 
   kind_load_image "${KV_IMAGE}:${KV_VERSION}" keep-tar
