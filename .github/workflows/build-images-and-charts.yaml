@@ -74,6 +74,8 @@ jobs:
         id: bundle-images
         env:
           TAG: ${{ steps.compute-tag.outputs.git_tag }}
+          REGISTRY: quay.io
+          REGISTRY_OWNER: flightctl
         run: |
           set -euo pipefail
           echo "::group::Creating images bundle"
