@@ -63,6 +63,7 @@ jobs:
           GITHUB_ACTIONS: true
           REGISTRY: quay.io
           REGISTRY_OWNER: flightctl
+          OS: el9
         run: |
           set -euo pipefail
           
@@ -76,6 +77,7 @@ jobs:
           TAG: ${{ steps.compute-tag.outputs.git_tag }}
           REGISTRY: quay.io
           REGISTRY_OWNER: flightctl
+          OS: el9
         run: |
           set -euo pipefail
           echo "::group::Creating images bundle"
