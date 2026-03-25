@@ -454,7 +454,7 @@ log-level: debug
 			err = harness.WaitForApplicationSummary(deviceId, util.TIMEOUT, util.POLLING, v1beta1.ApplicationsSummaryStatusHealthy)
 			Expect(err).ToNot(HaveOccurred())
 		})
-		PIt("runAs flightctl application with auth can be deployed to a device", Label("88004", "sanity", "agent", "slow"), func() {
+		It("runAs flightctl application with auth can be deployed to a device", Label("88004", "sanity", "agent", "slow"), func() {
 			By("Deploy a helm app with helm registry credentials")
 			creds := buildAuthJSON(services.Registry.Authenticated.Username, services.Registry.Authenticated.Password, services.Registry.Authenticated.HostPort, authFlightctlRepo)
 
