@@ -1,4 +1,4 @@
-FROM registry.access.redhat.com/ubi9/go-toolset:1.24.6 as build
+FROM registry.access.redhat.com/ubi10/go-toolset:1.24.6-1763548447 as build
 WORKDIR /app
 
 # Switch to root for build operations
@@ -36,16 +36,17 @@ ENV SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT}
 # Use BuildKit cache mounts for Go caching
 RUN --mount=type=cache,target=/opt/app-root/src/.cache/go-build \
     --mount=type=cache,target=/opt/app-root/src/go/pkg/mod \
-    make build-alert-exporter
+    make build-worker
 
-FROM quay.io/flightctl/flightctl-base:9.7-1762965531
+FROM quay.io/flightctl/flightctl-base:10.1-1769518576
 WORKDIR /app
 LABEL \
-  com.redhat.component="flightctl-alert-exporter-container" \
-  description="Flight Control Edge management service, alert exporter" \
-  io.k8s.description="Flight Control Edge management service, alert exporter" \
-  io.k8s.display-name="Flight Control Alert Exporter" \
-  name="flightctl-alert-exporter" \
-  summary="Flight Control Edge management service, alert exporter"
-COPY --from=build /app/bin/flightctl-alert-exporter .
-CMD ["./flightctl-alert-exporter"]
+  com.redhat.component="flightctl-worker-container" \
+  description="Flight Control Edge management service task worker" \
+  io.k8s.description="Flight Control Edge management service task worker" \
+  io.k8s.display-name="Flight Control Worker" \
+  name="flightctl-worker" \
+  summary="Flight Control Edge management service task worker"
+COPY --from=build /app/bin/flightctl-worker .
+
+CMD ["./flightctl-worker"]

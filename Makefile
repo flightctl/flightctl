@@ -1,4 +1,4 @@
-# Enable BuildKit for all container buildsmakefi
+# Enable BuildKit for all container builds
 export DOCKER_BUILDKIT=1
 export BUILDKIT_PROGRESS=plain
 
