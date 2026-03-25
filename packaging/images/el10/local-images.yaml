@@ -1,0 +1,56 @@
+api:
+  image: flightctl-api-el10
+  tag: latest
+periodic:
+  image: flightctl-periodic-el10
+  tag: latest
+worker:
+  image: flightctl-worker-el10
+  tag: latest
+alert-exporter:
+  image: flightctl-alert-exporter-el10
+  tag: latest
+cli-artifacts:
+  image: flightctl-cli-artifacts-el10
+  tag: latest
+alertmanager-proxy:
+  image: flightctl-alertmanager-proxy-el10
+  tag: latest
+pam-issuer:
+  image: flightctl-pam-issuer-el10
+  tag: latest
+db-setup:
+  image: flightctl-db-setup-el10
+  tag: latest
+ui:
+  image: flightctl-ui-el10
+  tag: latest
+db:
+  # Using CentOS Stream 10 PostgreSQL for EL10 flavor
+  image: quay.io/sclorg/postgresql-16-c10s
+  tag: "latest"
+kv:
+  # Using Valkey (Redis replacement) for EL10 flavor
+  image: quay.io/sclorg/valkey-7-c10s
+  tag: "latest"
+alertmanager:
+  image: quay.io/prometheus/alertmanager
+  tag: v0.28.1
+imagebuilder-api:
+  image: flightctl-imagebuilder-api-el10
+  tag: latest
+imagebuilder-worker:
+  image: flightctl-imagebuilder-worker-el10
+  tag: latest
+grafana:
+  image: docker.io/grafana/grafana
+  tag: "11.4.0"
+prometheus:
+  image: docker.io/prom/prometheus
+  tag: v2.13.1
+telemetry-gateway:
+  image: flightctl-telemetry-gateway-el10
+  tag: latest
+userinfo-proxy:
+  image: flightctl-userinfo-proxy-el10
+  tag: latest
