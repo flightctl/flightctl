@@ -6,6 +6,7 @@ source "${SCRIPT_DIR}"/functions
 
 IMAGE=${1}
 OC=${OC:=oc}
+OS=${OS:-"el9"}
 
 case $IMAGE in
     api)
@@ -38,8 +39,8 @@ case $IMAGE in
        exit 1
 esac
 
-podman tag flightctl-${IMAGE}:latest localhost/flightctl-${IMAGE}:latest
-kind_load_image localhost/flightctl-${IMAGE}:latest
+podman tag localhost/${OS}/flightctl-${IMAGE}:latest localhost/${OS}/flightctl-${IMAGE}:latest
+kind_load_image localhost/${OS}/flightctl-${IMAGE}:latest
 
 # switch for api worker and periodic handling, we need to kill the pods to reload
 ${OC} delete pod -n ${NAMESPACE} -l flightctl.service=flightctl-${IMAGE}

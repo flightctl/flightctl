@@ -110,16 +110,36 @@ fi
 
 case "${AGENT_OS_ID}" in
   cs9-bootc)
-    CONTAINERFILE_DIR="${BASE_DIR}/containerfiles/cs9-bootc${DISTRO_SUFFIX}"
-    OS_ID="cs9-bootc"
+    if [ "${DISTRO_SUFFIX}" = "-redhat" ]; then
+      # Backward compatibility: map cs9-bootc + DISTRO=redhat to rhel9-bootc
+      CONTAINERFILE_DIR="${BASE_DIR}/containerfiles/rhel9-bootc"
+      OS_ID="rhel9-bootc"
+    else
+      CONTAINERFILE_DIR="${BASE_DIR}/containerfiles/cs9-bootc"
+      OS_ID="cs9-bootc"
+    fi
     ;;
   cs10-bootc)
-    CONTAINERFILE_DIR="${BASE_DIR}/containerfiles/cs10-bootc${DISTRO_SUFFIX}"
-    OS_ID="cs10-bootc"
+    if [ "${DISTRO_SUFFIX}" = "-redhat" ]; then
+      # Backward compatibility: map cs10-bootc + DISTRO=redhat to rhel10-bootc
+      CONTAINERFILE_DIR="${BASE_DIR}/containerfiles/rhel10-bootc"
+      OS_ID="rhel10-bootc"
+    else
+      CONTAINERFILE_DIR="${BASE_DIR}/containerfiles/cs10-bootc"
+      OS_ID="cs10-bootc"
+    fi
+    ;;
+  rhel9-bootc)
+    CONTAINERFILE_DIR="${BASE_DIR}/containerfiles/rhel9-bootc"
+    OS_ID="rhel9-bootc"
+    ;;
+  rhel10-bootc)
+    CONTAINERFILE_DIR="${BASE_DIR}/containerfiles/rhel10-bootc"
+    OS_ID="rhel10-bootc"
     ;;
   *)
     echo "[ERROR] Unsupported AGENT_OS_ID: ${AGENT_OS_ID}" >&2
-    echo "Supported values: cs9-bootc, cs10-bootc" >&2
+    echo "Supported values: cs9-bootc, cs10-bootc, rhel9-bootc, rhel10-bootc" >&2
     exit 1
     ;;
 esac

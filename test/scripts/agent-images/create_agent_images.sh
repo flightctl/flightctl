@@ -34,25 +34,30 @@ export JOBS="${PARALLEL_JOBS}"
 # Handle v7 variant based on OS and RHOCP access
 # Only auto-detect if user hasn't explicitly set EXCLUDE_VARIANTS
 if [ -z "${EXCLUDE_VARIANTS+x}" ]; then
-    if [ "${AGENT_OS_ID:-cs9-bootc}" = "cs10-bootc" ]; then
-        export EXCLUDE_VARIANTS="v7"
-        echo "cs10: v7 excluded (no MicroShift for cs10)"
-    elif has_rhocp_access; then
-        export EXCLUDE_VARIANTS=""
-        echo "RHOCP access available, enabling v7"
-    else
-        export EXCLUDE_VARIANTS="v7"
-        echo "No RHOCP access, excluding v7"
-    fi
+    case "${AGENT_OS_ID:-cs9-bootc}" in
+        cs10-bootc|rhel10-bootc)
+            export EXCLUDE_VARIANTS="v7"
+            echo "${AGENT_OS_ID}: v7 excluded (no MicroShift for EL10)"
+            ;;
+        *)
+            if has_rhocp_access; then
+                export EXCLUDE_VARIANTS=""
+                echo "RHOCP access available, enabling v7"
+            else
+                export EXCLUDE_VARIANTS="v7"
+                echo "No RHOCP access, excluding v7"
+            fi
+            ;;
+    esac
 fi
 
 # Determine OS suffix based on flavor
 get_os_suffix() {
     local flavor="${1:-cs9-bootc}"
     case "${flavor}" in
-        cs9*)  echo ".el9" ;;
-        cs10*) echo ".el10" ;;
-        *)     echo "" ;;
+        cs9*|rhel9*)   echo ".el9" ;;
+        cs10*|rhel10*) echo ".el10" ;;
+        *)             echo "" ;;
     esac
 }
 
@@ -134,14 +139,32 @@ export REGISTRY_ENDPOINT
 # Determine OS_ID strictly from AGENT_OS_ID (single source of truth)
 AGENT_OS_ID="${AGENT_OS_ID:-cs9-bootc}"
 case "${AGENT_OS_ID}" in
-    cs9*)  OS_ID="cs9-bootc" ;;
-    cs10*) OS_ID="cs10-bootc" ;;
-    *)     OS_ID="${AGENT_OS_ID}" ;;
+    cs9*)    OS_ID="cs9-bootc" ;;
+    cs10*)   OS_ID="cs10-bootc" ;;
+    rhel9*)  OS_ID="rhel9-bootc" ;;
+    rhel10*) OS_ID="rhel10-bootc" ;;
+    *)       OS_ID="${AGENT_OS_ID}" ;;
 esac
+
+# Map AGENT_OS_ID to FLAVOR and OS variables for Makefile system
+map_agent_os_to_flavor() {
+    case "${AGENT_OS_ID}" in
+        cs9-bootc)    export FLAVOR="community" OS="el9" ;;
+        cs10-bootc)   export FLAVOR="community" OS="el10" ;;
+        rhel9-bootc)  export FLAVOR="redhat" OS="el9" ;;
+        rhel10-bootc) export FLAVOR="redhat" OS="el10" ;;
+        *)            export FLAVOR="community" OS="el9" ;;  # fallback
+    esac
+}
+
+# Set FLAVOR and OS variables based on AGENT_OS_ID
+map_agent_os_to_flavor
 
 # Export so downstream scripts see the selected flavor
 export AGENT_OS_ID
 export OS_ID
+export FLAVOR
+export OS
 
 build_base() {
     echo "Building base image with PODMAN_BUILD_EXTRA_FLAGS: ${PODMAN_BUILD_EXTRA_FLAGS}"

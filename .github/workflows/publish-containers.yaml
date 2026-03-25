@@ -112,6 +112,7 @@ jobs:
   publish-flightctl-containers:
     strategy:
       matrix:
+        os: [el9, el10]
         image: ['api', 'pam-issuer', 'periodic', 'worker', 'cli-artifacts', 'alert-exporter', 'alertmanager-proxy', 'userinfo-proxy', 'db-setup', 'telemetry-gateway', 'imagebuilder-api', 'imagebuilder-worker']
     needs: [generate-tags]
     runs-on: "ubuntu-24.04"
@@ -168,29 +169,29 @@ jobs:
           path: |
             /var/cache/dnf
             /var/lib/dnf
-          key: ${{ runner.os }}-dnf-${{ matrix.image }}
+          key: ${{ runner.os }}-dnf-${{ matrix.os }}-${{ matrix.image }}
           restore-keys: |
-            ${{ runner.os }}-dnf-
+            ${{ runner.os }}-dnf-${{ matrix.os }}-
 
       - name: Build
         id: build
         uses: redhat-actions/buildah-build@v2
         with:
-          image: flightctl-${{ matrix.image }}
+          image: ${{ matrix.os }}/flightctl-${{ matrix.image }}
           tags: ${{ needs.generate-tags.outputs.image_tags }}
           labels: |
-            io.flightctl.flightctl-${{ matrix.image }}.github.repository=${{ github.repository }}
-            io.flightctl.flightctl-${{ matrix.image }}.github.actor=${{ github.actor }}
-            io.flightctl.flightctl-${{ matrix.image }}.github.run_id=${{ github.run_id }}
-            io.flightctl.flightctl-${{ matrix.image }}.github.sha=${{ github.sha }}
-            io.flightctl.flightctl-${{ matrix.image }}.github.ref_name=${{ github.ref_name }}
+            io.flightctl.${{ matrix.os }}-flightctl-${{ matrix.image }}.github.repository=${{ github.repository }}
+            io.flightctl.${{ matrix.os }}-flightctl-${{ matrix.image }}.github.actor=${{ github.actor }}
+            io.flightctl.${{ matrix.os }}-flightctl-${{ matrix.image }}.github.run_id=${{ github.run_id }}
+            io.flightctl.${{ matrix.os }}-flightctl-${{ matrix.image }}.github.sha=${{ github.sha }}
+            io.flightctl.${{ matrix.os }}-flightctl-${{ matrix.image }}.github.ref_name=${{ github.ref_name }}
           build-args: |
             SOURCE_GIT_TAG=${{ steps.version-vars.outputs.git_tag }}
             SOURCE_GIT_TREE_STATE=${{ steps.version-vars.outputs.git_tree_state }}
             SOURCE_GIT_COMMIT=${{ steps.version-vars.outputs.git_commit }}
           extra-args: |
             --ulimit nofile=10000:10000
-          containerfiles: packaging/images/el9/Containerfile.${{ matrix.image }}
+          containerfiles: packaging/images/${{ matrix.os }}/Containerfile.${{ matrix.image }}
           context: .
 
       - name: Validate FIPS
