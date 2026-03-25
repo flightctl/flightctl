@@ -51,8 +51,32 @@ var _ = AfterEach(func() {
 	harness := e2e.GetWorkerHarness()
 	suiteCtx := e2e.GetWorkerContext()
 
-	// Print agent logs if test failed (logs from all boots via journalctl)
-	harness.PrintAgentLogsIfFailed()
+	// Always print agent logs for debugging flaky tests
+	harness.PrintAgentLogs()
+
+	// Dump greenboot/boot-complete state for debugging
+	if harness.VM != nil {
+		if running, err := harness.VM.IsRunning(); err == nil && running {
+			stdout, _ := harness.VM.RunSSH([]string{"sudo", "systemctl", "status", "boot-complete.target", "--no-pager"}, nil)
+			GinkgoWriter.Printf("boot-complete.target status:\n%s\n", stdout.String())
+			stdout, _ = harness.VM.RunSSH([]string{"sudo", "systemctl", "list-dependencies", "boot-complete.target", "--no-pager"}, nil)
+			GinkgoWriter.Printf("boot-complete.target dependencies:\n%s\n", stdout.String())
+			stdout, _ = harness.VM.RunSSH([]string{"sudo", "systemctl", "status", "greenboot-healthcheck.service", "--no-pager"}, nil)
+			GinkgoWriter.Printf("greenboot-healthcheck.service status:\n%s\n", stdout.String())
+			stdout, _ = harness.VM.RunSSH([]string{"sudo", "journalctl", "-u", "greenboot-healthcheck.service", "--no-pager"}, nil)
+			GinkgoWriter.Printf("greenboot-healthcheck.service journal:\n%s\n", stdout.String())
+			stdout, _ = harness.VM.RunSSH([]string{"sudo", "journalctl", "-u", "greenboot*", "--no-pager"}, nil)
+			GinkgoWriter.Printf("all greenboot journals:\n%s\n", stdout.String())
+			stdout, _ = harness.VM.RunSSH([]string{"sudo", "ls", "-la", "/usr/lib/greenboot/check/required.d/"}, nil)
+			GinkgoWriter.Printf("greenboot required checks (/usr/lib):\n%s\n", stdout.String())
+			stdout, _ = harness.VM.RunSSH([]string{"sudo", "ls", "-la", "/etc/greenboot/check/required.d/"}, nil)
+			GinkgoWriter.Printf("greenboot required checks (/etc):\n%s\n", stdout.String())
+			stdout, _ = harness.VM.RunSSH([]string{"sudo", "cat", "/etc/greenboot/greenboot.conf"}, nil)
+			GinkgoWriter.Printf("greenboot.conf:\n%s\n", stdout.String())
+			stdout, _ = harness.VM.RunSSH([]string{"sudo", "systemctl", "status", "greenboot-grub2-set-success.service", "--no-pager"}, nil)
+			GinkgoWriter.Printf("greenboot-grub2-set-success.service status:\n%s\n", stdout.String())
+		}
+	}
 
 	// Clean up test resources BEFORE switching back to suite context
 	// This ensures we use the correct test ID for resource cleanup

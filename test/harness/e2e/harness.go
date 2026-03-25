@@ -309,7 +309,11 @@ func (h *Harness) PrintAgentLogsIfFailed() {
 	if !CurrentSpecReport().Failed() {
 		return
 	}
+	h.PrintAgentLogs()
+}
 
+// PrintAgentLogs prints flightctl-agent journalctl logs from all boots unconditionally.
+func (h *Harness) PrintAgentLogs() {
 	if h.VM == nil {
 		return
 	}
@@ -319,7 +323,8 @@ func (h *Harness) PrintAgentLogsIfFailed() {
 		return
 	}
 
-	logrus.Infof("Test failed: %s", CurrentSpecReport().FullText())
+	report := CurrentSpecReport()
+	logrus.Infof("Agent logs for: %s (state: %s)", report.FullText(), report.State)
 
 	stdout, _ := h.VM.RunSSH([]string{"sudo", "systemctl", "status", "flightctl-agent"}, nil)
 	logrus.Infof("systemctl status flightctl-agent:\n%s", stdout.String())

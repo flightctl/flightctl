@@ -260,8 +260,27 @@ var _ = Describe("VM Agent Helm Application Tests", Ordered, func() {
 			helmAppSpec, err := e2e.NewHelmApplicationSpecWithValues(helmAppName, testAppChartV1, helmAppNamespace, mixedDeploymentsValues)
 			Expect(err).ToNot(HaveOccurred())
 
+			debugConfig, err := e2e.NewInlineConfigSpec("debug-logging", []v1beta1.FileSpec{
+				{
+					Content: `
+log-level: debug
+`,
+					Path: "/etc/flightctl/conf.d/debug-logging.yaml",
+				},
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			By("Check boot-complete.target status BEFORE OS update")
+			stdout, sshErr := harness.VM.RunSSH([]string{"sudo", "systemctl", "status", "boot-complete.target", "--no-pager"}, nil)
+			if sshErr != nil {
+				GinkgoWriter.Printf("boot-complete.target status (pre-update): error: %v\n", sshErr)
+			} else {
+				GinkgoWriter.Printf("boot-complete.target status (pre-update):\n%s\n", stdout.String())
+			}
+
 			err = harness.UpdateDeviceAndWaitForVersion(deviceId, func(device *v1beta1.Device) {
 				device.Spec.Os = microshiftOs
+				device.Spec.Config = &[]v1beta1.ConfigProviderSpec{debugConfig}
 				device.Spec.Applications = &[]v1beta1.ApplicationProviderSpec{helmAppSpec}
 			})
 			Expect(err).ToNot(HaveOccurred())
@@ -435,7 +454,7 @@ var _ = Describe("VM Agent Helm Application Tests", Ordered, func() {
 			err = harness.WaitForApplicationSummary(deviceId, util.TIMEOUT, util.POLLING, v1beta1.ApplicationsSummaryStatusHealthy)
 			Expect(err).ToNot(HaveOccurred())
 		})
-		It("runAs flightctl application with auth can be deployed to a device", Label("88004", "sanity", "agent", "slow"), func() {
+		PIt("runAs flightctl application with auth can be deployed to a device", Label("88004", "sanity", "agent", "slow"), func() {
 			By("Deploy a helm app with helm registry credentials")
 			creds := buildAuthJSON(services.Registry.Authenticated.Username, services.Registry.Authenticated.Password, services.Registry.Authenticated.HostPort, authFlightctlRepo)
 

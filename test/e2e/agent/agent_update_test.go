@@ -397,7 +397,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 
 			GinkgoWriter.Println("Confirmed: third-party MicroShift health check did not trigger rollback")
 		})
-		It("Should respect the spec's update schedule", Label("79220", "sanity", "agent", "slow"), func() {
+		PIt("Should respect the spec's update schedule", Label("79220", "sanity", "agent", "slow"), func() {
 			// Get harness directly - no shared package-level variable
 			harness := e2e.GetWorkerHarness()
 

@@ -7,9 +7,11 @@ PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
 echo "🔄 [Cleanup] Starting global E2E test cleanup..."
 
+VIRSH="virsh --connect qemu:///session"
+
 # Find all flightctl e2e VMs using virsh
 echo "🔄 [Cleanup] Finding flightctl e2e VMs..."
-if ! vm_output=$(virsh list --all --name 2>/dev/null); then
+if ! vm_output=$($VIRSH list --all --name 2>/dev/null); then
     echo "⚠️  [Cleanup] Failed to list VMs: virsh may not be available or accessible"
     exit 0
 fi
@@ -30,23 +32,23 @@ for vm_name in "${flightctl_vms[@]}"; do
 
     # 1. Delete pristine snapshot (ignore errors)
     echo "🔄 [Cleanup] Deleting pristine snapshot for $vm_name"
-    if ! virsh snapshot-delete "$vm_name" "pristine" --metadata 2>/dev/null; then
+    if ! $VIRSH snapshot-delete "$vm_name" "pristine" --metadata 2>/dev/null; then
         echo "⚠️  [Cleanup] Failed to delete pristine snapshot for $vm_name (may not exist)"
     fi
 
     # 2. Destroy the VM if it's running (ignore errors)
     echo "🔄 [Cleanup] Destroying VM: $vm_name"
-    if ! virsh destroy "$vm_name" 2>/dev/null; then
+    if ! $VIRSH destroy "$vm_name" 2>/dev/null; then
         echo "⚠️  [Cleanup] Failed to destroy $vm_name (may not be running)"
     fi
 
     # 3. Undefine the domain (try multiple approaches)
     echo "🔄 [Cleanup] Undefining domain: $vm_name"
-    if virsh undefine "$vm_name" 2>/dev/null; then
+    if $VIRSH undefine "$vm_name" 2>/dev/null; then
         echo "✅ [Cleanup] Successfully cleaned up VM: $vm_name"
-    elif virsh undefine "$vm_name" --nvram 2>/dev/null; then
+    elif $VIRSH undefine "$vm_name" --nvram 2>/dev/null; then
         echo "✅ [Cleanup] Successfully cleaned up VM: $vm_name (with NVRAM)"
-    elif virsh undefine "$vm_name" --remove-all-storage --nvram 2>/dev/null; then
+    elif $VIRSH undefine "$vm_name" --remove-all-storage --nvram 2>/dev/null; then
         echo "✅ [Cleanup] Successfully cleaned up VM: $vm_name (with storage and NVRAM)"
     else
         echo "❌ [Cleanup] Failed to undefine $vm_name with all approaches"
