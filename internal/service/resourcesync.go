@@ -7,7 +7,6 @@ import (
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/google/uuid"
-	"github.com/samber/lo"
 	"gorm.io/gorm"
 )
 
@@ -52,23 +51,15 @@ func (h *ServiceHandler) GetResourceSync(ctx context.Context, orgId uuid.UUID, n
 
 func (h *ServiceHandler) ReplaceResourceSync(ctx context.Context, orgId uuid.UUID, name string, rs domain.ResourceSync) (*domain.ResourceSync, domain.Status) {
 	// don't overwrite fields that are managed by the service
-	rs.Status = nil
-	NilOutManagedObjectMetaProperties(&rs.Metadata)
+	if !IsInternalRequest(ctx) {
+		rs.Status = nil
+		NilOutManagedObjectMetaProperties(&rs.Metadata)
+	}
 	if errs := rs.Validate(); len(errs) > 0 {
 		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
 	}
 	if name != *rs.Metadata.Name {
 		return nil, domain.StatusBadRequest("resource name specified in metadata does not match name in path")
-	}
-
-	currentObj, err := h.store.ResourceSync().Get(ctx, orgId, name)
-	if err == nil {
-		if rs.Spec.Type == nil {
-			rs.Spec.Type = lo.ToPtr(domain.ResourceSyncTypeFleet)
-		}
-		if errs := currentObj.ValidateUpdate(&rs); len(errs) > 0 {
-			return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
-		}
 	}
 
 	result, created, err := h.store.ResourceSync().CreateOrUpdate(ctx, orgId, &rs, h.callbackResourceSyncUpdated)
