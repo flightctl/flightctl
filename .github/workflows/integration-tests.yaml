@@ -51,7 +51,7 @@ jobs:
           sudo make flightctl-db-setup-container
 
           # Tag the image with the commit SHA
-          sudo podman tag flightctl-db-setup:latest "flightctl-db-setup:${COMMIT_SHA}"
+          sudo podman tag flightctl-db-setup-el9:latest "flightctl-db-setup:${COMMIT_SHA}"
 
           echo "MIGRATION_IMAGE=flightctl-db-setup:${COMMIT_SHA}" >> "$GITHUB_ENV"
         env:
