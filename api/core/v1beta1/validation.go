@@ -696,6 +696,7 @@ func (r *Repository) Validate() []error {
 			return allErrs
 		}
 		allErrs = append(allErrs, validation.ValidateString(&gitRepoSpec.Url, "spec.url", 1, 2048, nil, "")...)
+		allErrs = append(allErrs, validateGitRepoURL(gitRepoSpec.Url)...)
 		// Validate that only one of httpConfig or sshConfig is specified
 		if gitRepoSpec.HttpConfig != nil && gitRepoSpec.SshConfig != nil {
 			allErrs = append(allErrs, fmt.Errorf("only one of httpConfig or sshConfig can be specified for a Git repository"))
@@ -719,6 +720,20 @@ func (r *Repository) ValidateUpdate(newObj *Repository) []error {
 		r.ApiVersion, newObj.ApiVersion,
 		r.Kind, newObj.Kind,
 		r.Status, newObj.Status)
+}
+
+func validateGitRepoURL(url string) []error {
+	lower := strings.ToLower(url)
+	switch {
+	case strings.HasPrefix(lower, "https://"),
+		strings.HasPrefix(lower, "http://"),
+		strings.HasPrefix(lower, "ssh://"):
+		return nil
+	case strings.Contains(url, "@") && strings.Contains(url, ":"):
+		return nil
+	default:
+		return []error{fmt.Errorf("spec.url: %q is not a valid remote Git URL; use an http(s) or SSH URL", url)}
+	}
 }
 
 func (r ResourceSync) Validate() []error {
