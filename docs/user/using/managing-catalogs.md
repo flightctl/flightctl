@@ -280,7 +280,7 @@ flightctl apply -f catalog-item.yaml
 To list all items in a specific catalog:
 
 ```console
-flightctl get catalogitems -c <catalog_name>
+flightctl get catalogitems --catalog <catalog_name>
 ```
 
 ## Importing catalogs using ResourceSync
