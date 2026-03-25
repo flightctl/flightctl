@@ -1,6 +1,7 @@
 # Enable BuildKit for all container builds
 export DOCKER_BUILDKIT=1
 export BUILDKIT_PROGRESS=plain
+# Trigger CI - EDM-3308 testing
 
 # --- Container Registry Configuration ---
 # Use environment variables if they exist, otherwise use these defaults.
