@@ -174,15 +174,11 @@ jobs:
 
       - name: Build helm charts
         id: build-charts
-        env:
-          OS: el9
         run: |
           set -euo pipefail
           TAG="${{ steps.compute-tag.outputs.helm_tag }}"
 
           echo "::group::Building helm charts"
-          echo "Generating helm charts with OS=${OS}..."
-          go generate ./deploy/helm
           helm dependency build ./deploy/helm/flightctl
           helm package ./deploy/helm/flightctl \
             --version "$TAG" \
