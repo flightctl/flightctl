@@ -1,10 +1,10 @@
 package main
 
 import (
+	"cmp"
 	"fmt"
 	"log"
 	"os"
-	"strings"
 	"text/template"
 
 	"gopkg.in/yaml.v3"
@@ -66,13 +66,19 @@ func runTemplate(in string, out string, templateData templateContext) error {
 
 func main() {
 	// Determine OS version (el9 vs el10), default to el9
-	osVersion := os.Getenv("OS")
-	if osVersion == "" {
-		osVersion = "el9"
+	osVersion := cmp.Or(
+		os.Getenv("OS"),
+		"el9",
+	)
+
+	// Determine build type (community vs redhat)
+	buildType := "community"
+	if os.Getenv("RHEM") != "" {
+		buildType = "redhat"
 	}
 
-	// Build profile key for community builds only
-	profileKey := "community-" + osVersion
+	// Build profile key combining build type and OS version
+	profileKey := buildType + "-" + osVersion
 
 	// Multi-profile opts file
 	optsBytes, err := os.ReadFile(optsPath)
@@ -83,24 +89,9 @@ func main() {
 	if err := yaml.Unmarshal(optsBytes, &profiles); err != nil {
 		log.Fatalf("parsing opts %s: %v", optsPath, err)
 	}
-	// Try OS-specific profile first, fallback to community-el9 profile
 	templateData, ok := profiles[profileKey]
 	if !ok {
-		// Fallback to community-el9 profile
-		templateData, ok = profiles["community-el9"]
-		if !ok {
-			log.Fatalf("neither profile key %q nor fallback %q found in %s", profileKey, "community-el9", optsPath)
-		}
-	}
-
-	// Transform image names to include OS suffix for flightctl images (only if not already qualified)
-	// All builds now have OS-qualified image names in helm-chart-opts.yaml
-	for name, img := range templateData.Images {
-		if strings.Contains(img.Image, "flightctl/flightctl-") && !strings.HasSuffix(img.Image, "-"+osVersion) {
-			// Transform quay.io/flightctl/flightctl-api to quay.io/flightctl/flightctl-api-el9 or el10
-			img.Image = img.Image + "-" + osVersion
-			templateData.Images[name] = img
-		}
+		log.Fatalf("profile key %q not found in %s", profileKey, optsPath)
 	}
 
 	// Render Chart.yaml
