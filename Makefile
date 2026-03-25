@@ -37,6 +37,7 @@ GO_FILES = $(shell find $(ROOT_DIR)/ -name "*.go" -not -path "$(ROOT_DIR)/bin" -
 TIMEOUT ?= 30m
 GOOS = $(shell go env GOOS)
 GOARCH = $(shell go env GOARCH)
+OS ?= el9
 RPM_MOCK_ROOT_DEFAULT = centos-stream+epel-next-9-x86_64
 
 VERBOSE ?= false
