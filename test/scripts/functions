@@ -193,6 +193,47 @@ function get_token() {
   fi
 }
 
+# Run a command on the Quadlet host: locally, or via SSH when E2E_SSH_HOST points at a remote VM.
+# Quote argv for one remote shell word, then pass as the sole argument to bash -lc (otherwise ssh
+# runs sh -c 'bash -lc sudo podman ...' and splits after -c so only "sudo" runs).
+#
+# If the caller runs `exec 3>&2` first, optional trace lines are written to fd 3 so they still appear
+# when a wrapper uses 2>/dev/null on the whole run_on_quadlet invocation (stderr is redirected; fd 3
+# remains the original stderr). Trace is skipped when fd 3 is not open (e.g. prepare_agent_config).
+function run_on_quadlet() {
+  local ssh_user="${E2E_SSH_USER:-$USER}"
+  local inner remote_lc_cmd
+  inner="$(printf '%q ' "$@")"
+  inner="${inner% }"
+  remote_lc_cmd="$(printf 'bash -lc %q' "${inner}")"
+
+  if { : >&3; } 2>/dev/null; then
+    if [[ -n "${E2E_SSH_HOST:-}" ]] && [[ "${E2E_SSH_HOST}" != "localhost" ]]; then
+      if [[ -n "${E2E_SSH_PASSWORD:-}" ]]; then
+        printf '%s\n' "🔄 [Startup] run_on_quadlet: SSHPASS=<redacted> sshpass -e ssh -o StrictHostKeyChecking=no ${ssh_user}@${E2E_SSH_HOST} ${remote_lc_cmd}" >&3
+      elif [[ -n "${E2E_SSH_KEY_PATH:-}" ]]; then
+        printf '%s\n' "🔄 [Startup] run_on_quadlet: ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i $(printf '%q' "${E2E_SSH_KEY_PATH}") ${ssh_user}@${E2E_SSH_HOST} ${remote_lc_cmd}" >&3
+      else
+        printf '%s\n' "🔄 [Startup] run_on_quadlet: ssh -o StrictHostKeyChecking=no -o BatchMode=yes ${ssh_user}@${E2E_SSH_HOST} ${remote_lc_cmd}" >&3
+      fi
+    else
+      printf '%s\n' "🔄 [Startup] run_on_quadlet: ${inner}" >&3
+    fi
+  fi
+
+  if [[ -n "${E2E_SSH_HOST:-}" ]] && [[ "${E2E_SSH_HOST}" != "localhost" ]]; then
+    if [[ -n "${E2E_SSH_PASSWORD:-}" ]]; then
+      SSHPASS="${E2E_SSH_PASSWORD}" sshpass -e ssh -o StrictHostKeyChecking=no "${ssh_user}@${E2E_SSH_HOST}" "${remote_lc_cmd}"
+    elif [[ -n "${E2E_SSH_KEY_PATH:-}" ]]; then
+      ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i "${E2E_SSH_KEY_PATH}" "${ssh_user}@${E2E_SSH_HOST}" "${remote_lc_cmd}"
+    else
+      ssh -o StrictHostKeyChecking=no -o BatchMode=yes "${ssh_user}@${E2E_SSH_HOST}" "${remote_lc_cmd}"
+    fi
+    return
+  fi
+  "$@"
+}
+
 # Sets up the PAM admin user for Quadlet/standalone deployments
 # This creates the flightctl-admin group and admin user if they don't exist
 # Following the documentation at docs/user/installing/configuring-auth/auth-pam.md
@@ -202,44 +243,49 @@ function setup_pam_admin_user() {
 
   echo "Setting up PAM admin user '${pam_user}' for Quadlet E2E tests..."
 
-  # Check if PAM issuer container is running
-  if ! sudo podman ps --format '{{.Names}}' | grep -q '^flightctl-pam-issuer$'; then
-    echo "Warning: flightctl-pam-issuer container is not running" >&2
+  local pam_names=""
+  if ! pam_names=$(run_on_quadlet sudo podman ps --format '{{.Names}}' 2>/dev/null); then
+    pam_names=""
+  fi
+  if ! echo "${pam_names}" | grep -q '^flightctl-pam-issuer$'; then
+    echo "Warning: flightctl-pam-issuer container is not running (on Quadlet host)" >&2
     return 1
   fi
 
   # Create the flightctl-admin group if it doesn't exist
   echo "Creating flightctl-admin group..."
-  sudo podman exec -i flightctl-pam-issuer groupadd flightctl-admin 2>/dev/null || true
+  run_on_quadlet sudo podman exec -i flightctl-pam-issuer groupadd flightctl-admin 2>/dev/null || true
 
   # Check if user already exists
-  if sudo podman exec flightctl-pam-issuer id "${pam_user}" &>/dev/null; then
+  if run_on_quadlet sudo podman exec flightctl-pam-issuer id "${pam_user}" &>/dev/null; then
     echo "User '${pam_user}' already exists in PAM issuer"
   else
     # Create the user
     echo "Creating user '${pam_user}'..."
-    sudo podman exec flightctl-pam-issuer adduser "${pam_user}" 2>/dev/null || true
+    run_on_quadlet sudo podman exec flightctl-pam-issuer adduser "${pam_user}" 2>/dev/null || true
   fi
 
   # Set the password (always update to ensure it matches expected value)
   echo "Setting password for '${pam_user}'..."
-  sudo podman exec -i flightctl-pam-issuer sh -c "echo '${pam_user}:${pam_pass}' | chpasswd"
+  if ! run_on_quadlet sudo podman exec -i flightctl-pam-issuer sh -c "echo '${pam_user}:${pam_pass}' | chpasswd"; then
+    echo "Warning: failed to set password for '${pam_user}' in PAM issuer" >&2
+    return 1
+  fi
 
   # Add user to flightctl-admin group
   echo "Adding '${pam_user}' to flightctl-admin group..."
-  sudo podman exec -i flightctl-pam-issuer usermod -aG flightctl-admin "${pam_user}" 2>/dev/null || true
+  run_on_quadlet sudo podman exec -i flightctl-pam-issuer usermod -aG flightctl-admin "${pam_user}" 2>/dev/null || true
 
   # Verify the setup
   echo "Verifying user setup..."
   local groups
-  groups=$(sudo podman exec flightctl-pam-issuer groups "${pam_user}" 2>/dev/null || echo "")
+  groups=$(run_on_quadlet sudo podman exec flightctl-pam-issuer groups "${pam_user}" 2>/dev/null || echo "")
   if echo "$groups" | grep -q "flightctl-admin"; then
     echo "PAM admin user '${pam_user}' is ready (groups: ${groups})"
     return 0
-  else
-    echo "Warning: User '${pam_user}' may not have flightctl-admin role" >&2
-    return 1
   fi
+  echo "Warning: User '${pam_user}' may not have flightctl-admin role" >&2
+  return 1
 }
 
 function try_login() {
