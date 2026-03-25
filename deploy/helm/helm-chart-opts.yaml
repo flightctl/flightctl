@@ -154,16 +154,16 @@ redhat-el10:
   images:
     db:
       image: registry.redhat.io/rhel10/postgresql-16
-      tag: latest
+      tag: "latest"
     kv:
       image: registry.redhat.io/rhel10/valkey-7
-      tag: latest
+      tag: "latest"
     alertmanager:
       image: registry.redhat.io/rhacm2/prometheus-alertmanager-rhel10
-      tag: latest
+      tag: "latest"
     clusterCli:
       image: registry.redhat.io/openshift4/ose-cli-rhel10
-      tag: latest
+      tag: "latest"
     api:
       image: registry.redhat.io/rhem/flightctl-api-rhel10
     cliArtifacts:
