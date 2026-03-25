@@ -197,9 +197,9 @@ function get_token() {
 # Quote argv for one remote shell word, then pass as the sole argument to bash -lc (otherwise ssh
 # runs sh -c 'bash -lc sudo podman ...' and splits after -c so only "sudo" runs).
 #
-# If the caller runs `exec 3>&2` first, optional trace lines are written to fd 3 so they still appear
-# when a wrapper uses 2>/dev/null on the whole run_on_quadlet invocation (stderr is redirected; fd 3
-# remains the original stderr). Trace is skipped when fd 3 is not open (e.g. prepare_agent_config).
+# Scripts that use run_on_quadlet should run `exec 3>&2` after sourcing this file (see e2e_startup.sh,
+# prepare_agent_config.sh, deploy_with_helm.sh). Trace lines go to fd 3 so they still appear when a
+# wrapper uses 2>/dev/null on the whole run_on_quadlet invocation. If fd 3 is not open, trace is skipped.
 function run_on_quadlet() {
   local ssh_user="${E2E_SSH_USER:-$USER}"
   local inner remote_lc_cmd
