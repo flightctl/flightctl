@@ -3,7 +3,6 @@ package vm
 import (
 	"bytes"
 	"fmt"
-	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -11,7 +10,6 @@ import (
 
 	"github.com/flightctl/flightctl/test/util"
 	"github.com/sirupsen/logrus"
-	"golang.org/x/crypto/ssh"
 )
 
 const sshWaitTimeout time.Duration = 60 * time.Second
@@ -78,64 +76,28 @@ type JournalOpts struct {
 }
 
 func (v *TestVM) WaitForSSHToBeReady() error {
-	elapsed := 0 * time.Second
 	timeout := v.SSHWaitTimeout
 	if timeout <= 0 {
 		timeout = sshWaitTimeout
 	}
-
-	authMethods, err := v.getSSHAuthMethods()
-	if err != nil {
-		return fmt.Errorf("failed to get SSH auth methods: %w", err)
-	}
-
-	config := &ssh.ClientConfig{
-		User: v.VMUser,
-		Auth: authMethods,
-		//nolint:gosec
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-		Timeout:         1 * time.Second,
-	}
-
-	// Use 127.0.0.1 so we hit IPv4; "localhost" can resolve to ::1 and cause connection closed during handshake (kex_exchange_identification).
+	deadline := time.Now().Add(timeout)
 	sshAddr := fmt.Sprintf("127.0.0.1:%d", v.SSHPort)
-	logrus.Infof("Waiting for VM SSH to be ready on %s (timeout %s)", sshAddr, timeout)
-
+	logrus.Infof("Waiting for VM SSH to be ready via RunSSH on %s (timeout %s)", sshAddr, timeout)
 	var lastErr error
-	for elapsed < timeout {
-		client, err := ssh.Dial("tcp", sshAddr, config)
+	for time.Now().Before(deadline) {
+		_, err := v.RunSSH([]string{"true"}, nil)
 		if err != nil {
 			lastErr = err
-			logrus.Debugf("failed to connect to SSH server: %s", err)
-			time.Sleep(1 * time.Second)
-			elapsed += 1 * time.Second
-		} else {
-			client.Close()
-			return nil
+			logrus.Debugf("RunSSH probe failed: %v", err)
+			time.Sleep(time.Second)
+			continue
 		}
+		return nil
 	}
-
 	if lastErr != nil {
 		return fmt.Errorf("SSH did not become ready in %s: %w", timeout, lastErr)
 	}
 	return fmt.Errorf("SSH did not become ready in %s", timeout)
-}
-
-// getSSHAuthMethods returns the appropriate SSH authentication methods based on configuration.
-// If SSHPrivateKeyPath is set, it uses key-based authentication; otherwise, password authentication.
-func (v *TestVM) getSSHAuthMethods() ([]ssh.AuthMethod, error) {
-	if v.SSHPrivateKeyPath != "" {
-		key, err := os.ReadFile(string(v.SSHPrivateKeyPath))
-		if err != nil {
-			return nil, fmt.Errorf("failed to read SSH private key: %w", err)
-		}
-		signer, err := ssh.ParsePrivateKey(key)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse SSH private key: %w", err)
-		}
-		return []ssh.AuthMethod{ssh.PublicKeys(signer)}, nil
-	}
-	return []ssh.AuthMethod{ssh.Password(v.SSHPassword)}, nil
 }
 
 func (v *TestVM) SSHCommandWithUser(inputArgs []string, user string) *exec.Cmd {
