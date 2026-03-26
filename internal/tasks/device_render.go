@@ -109,33 +109,29 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 				return nil
 			}
 		}
+
+		// Don't render if the device spec hash hasn't changed since the last render
+		if val, ok := annotations[domain.DeviceAnnotationRenderedSpecHash]; ok {
+			if val == specHash {
+				t.log.Infof("Device %s spec hash hasn't changed since the last render", t.event.InvolvedObject.Name)
+				return nil
+			}
+		}
 	}
 
-	annotations := lo.FromPtr(device.Metadata.Annotations)
-	if device.Metadata.Owner != nil && *device.Metadata.Owner != "" {
+	if device.Metadata.Owner != nil {
 		_, owner, err := util.GetResourceOwner(device.Metadata.Owner)
 		if err != nil {
 			return fmt.Errorf("failed getting device owner %s/%s: %w", t.orgId, t.event.InvolvedObject.Name, err)
 		}
 		t.ownerFleet = &owner
 
+		annotations := lo.FromPtr(device.Metadata.Annotations)
 		tvString, exists := util.GetFromMap(annotations, domain.DeviceAnnotationTemplateVersion)
 		if !exists {
 			return fmt.Errorf("device has no templateversion annotation")
 		}
 		t.templateVersion = &tvString
-
-		renderedTemplateVersion, exists := util.GetFromMap(annotations, domain.DeviceAnnotationRenderedTemplateVersion)
-		if exists && renderedTemplateVersion == tvString {
-			t.log.Infof("Device %s has rendered template version annotation identical to the template version", t.event.InvolvedObject.Name)
-			return nil
-		}
-	} else {
-		// Don't render if the device spec hash hasn't changed since the last render
-		if val, ok := util.GetFromMap(annotations, domain.DeviceAnnotationRenderedSpecHash); ok && val == specHash {
-			t.log.Infof("Device %s spec hash hasn't changed since the last render", t.event.InvolvedObject.Name)
-			return nil
-		}
 	}
 
 	// TODO: remove ignition
