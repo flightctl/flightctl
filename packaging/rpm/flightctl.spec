@@ -446,10 +446,13 @@ fi
     /etc/sudoers.d/*
 
 %post agent
-# Enable greenboot-healthcheck if present (not enabled by default in greenboot-rs 0.16.x)
+# Enable greenboot-healthcheck if present (not enabled by default in greenboot-rs 0.16.x).
+# Must be unconditional: greenboot's own %systemd_post preset removes greenboot-success.target
+# (renamed from greenboot-set-success.target) due to a CentOS preset mismatch. Re-running
+# `systemctl enable` recreates it via the Also= directive.
 # See: https://github.com/fedora-iot/greenboot-rs/issues/171
 # See: https://github.com/openshift/microshift/pull/5530
-systemctl is-enabled --quiet greenboot-healthcheck || systemctl enable --quiet greenboot-healthcheck 2>/dev/null || :
+systemctl enable --quiet greenboot-healthcheck 2>/dev/null || :
 # Enable the greenboot configuration service (runs before greenboot-healthcheck.service)
 # This ensures only flightctl health checks can trigger OS rollback
 systemctl enable flightctl-configure-greenboot.service >/dev/null 2>&1 || :
