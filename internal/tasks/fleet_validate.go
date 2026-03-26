@@ -59,6 +59,9 @@ func NewFleetValidateLogic(log logrus.FieldLogger, serviceHandler service.Servic
 }
 
 func (t *FleetValidateLogic) CreateNewTemplateVersionIfFleetValid(ctx context.Context) error {
+	ctx, cancel := WithTimeoutIgnoringParentDeadline(ctx, FleetValidateTaskTimeout)
+	defer cancel()
+
 	fleet, status := t.serviceHandler.GetFleet(ctx, t.orgId, t.event.InvolvedObject.Name, domain.GetFleetParams{})
 	if status.Code != http.StatusOK {
 		return fmt.Errorf("failed getting fleet %s/%s: %s", t.orgId, t.event.InvolvedObject.Name, status.Message)

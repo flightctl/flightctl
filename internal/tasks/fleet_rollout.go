@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"strings"
 	"text/template"
-	"time"
 
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/domain"
@@ -20,29 +19,6 @@ import (
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 )
-
-// fleetRolloutIterationTimeout is the time budget for each pagination iteration (one
-// ListDevices plus processing all devices on that page). It applies to a context derived
-// from the parent without inheriting the parent's deadline (see fleetRolloutIterationContext).
-const fleetRolloutIterationTimeout = time.Minute
-
-// fleetRolloutIterationContext returns a context whose deadline comes only from timeout.
-// The parent's deadline does not shorten the iteration; explicit parent cancellation
-// (not deadline) still ends the iteration by canceling the child.
-func fleetRolloutIterationContext(parent context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
-	base := context.WithoutCancel(parent)
-	iterCtx, cancelIter := context.WithTimeout(base, timeout)
-	go func() {
-		select {
-		case <-parent.Done():
-			if errors.Is(parent.Err(), context.Canceled) {
-				cancelIter()
-			}
-		case <-iterCtx.Done():
-		}
-	}()
-	return iterCtx, cancelIter
-}
 
 // The fleet rollout task updates all devices in a fleet to match the latest template
 // version.
@@ -173,7 +149,7 @@ func (f FleetRolloutsLogic) rolloutFleetPage(
 	annotationSelector *selector.AnnotationSelector,
 	delayDeviceRender bool,
 ) (pageFailures int, nextContinue *string, err error) {
-	iterCtx, cancel := fleetRolloutIterationContext(ctx, fleetRolloutIterationTimeout)
+	iterCtx, cancel := WithTimeoutIgnoringParentDeadline(ctx, TaskStepDefaultTimeout)
 	defer cancel()
 
 	devices, status := f.serviceHandler.ListDevices(iterCtx, f.orgId, listParams, annotationSelector)

@@ -2,10 +2,8 @@ package tasks
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"testing"
-	"time"
 
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/domain"
@@ -971,33 +969,4 @@ func TestFleetRolloutsLogic_ReplaceComposeInlineApplicationParameters(t *testing
 			}
 		})
 	}
-}
-
-func TestFleetRolloutIterationContext(t *testing.T) {
-	t.Run("child not expired when parent deadline passed", func(t *testing.T) {
-		parent, cancel := context.WithTimeout(context.Background(), 0)
-		defer cancel()
-		time.Sleep(time.Millisecond)
-		require.Error(t, parent.Err())
-		require.True(t, errors.Is(parent.Err(), context.DeadlineExceeded))
-
-		iterCtx, cancelIter := fleetRolloutIterationContext(parent, time.Hour)
-		defer cancelIter()
-		assert.NoError(t, iterCtx.Err())
-	})
-
-	t.Run("child canceled when parent explicitly canceled", func(t *testing.T) {
-		parent, cancelParent := context.WithCancel(context.Background())
-		cancelParent()
-
-		iterCtx, cancelIter := fleetRolloutIterationContext(parent, time.Hour)
-		defer cancelIter()
-
-		select {
-		case <-iterCtx.Done():
-		case <-time.After(2 * time.Second):
-			t.Fatal("expected iteration context canceled after parent cancel")
-		}
-		assert.True(t, errors.Is(iterCtx.Err(), context.Canceled))
-	})
 }
