@@ -449,6 +449,11 @@ fi
 # Enable the greenboot configuration service (runs before greenboot-healthcheck.service)
 # This ensures only flightctl health checks can trigger OS rollback
 systemctl enable flightctl-configure-greenboot.service >/dev/null 2>&1 || :
+# greenboot-rs (0.16.x) ships greenboot-success.target, but CentOS Stream 9/10
+# presets only enable the old name (greenboot-set-success.target). Without this,
+# boot-complete.target never activates and greenboot rolls back every boot.
+# See: https://github.com/fedora-iot/greenboot-rs/issues/171
+systemctl enable greenboot-success.target >/dev/null 2>&1 || :
 
 # Ensure /var/lib/flightctl exists immediately for environments where systemd-tmpfiles succeeds or via fallback
 # Try systemd-tmpfiles first, fall back to manual creation if it fails
