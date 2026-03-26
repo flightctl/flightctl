@@ -2,6 +2,8 @@ package vm
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"fmt"
 	"os/exec"
 	"strconv"
@@ -13,6 +15,10 @@ import (
 )
 
 const sshWaitTimeout time.Duration = 60 * time.Second
+
+// sshProbeAttemptTimeout caps a single RunSSH readiness probe so one hung ssh(1)
+// cannot exceed the overall WaitForSSHToBeReady deadline by blocking forever.
+const sshProbeAttemptTimeout = 10 * time.Second
 
 type TestVM struct {
 	TestDir           string
@@ -85,7 +91,17 @@ func (v *TestVM) WaitForSSHToBeReady() error {
 	logrus.Infof("Waiting for VM SSH to be ready via RunSSH on %s (timeout %s)", sshAddr, timeout)
 	var lastErr error
 	for time.Now().Before(deadline) {
-		_, err := v.RunSSH([]string{"true"}, nil)
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			break
+		}
+		probeTimeout := sshProbeAttemptTimeout
+		if remaining < probeTimeout {
+			probeTimeout = remaining
+		}
+		probeCtx, cancel := context.WithTimeout(context.Background(), probeTimeout)
+		_, err := v.runSSHWithUserContext(probeCtx, []string{"true"}, nil, v.VMUser)
+		cancel()
 		if err != nil {
 			lastErr = err
 			logrus.Debugf("RunSSH probe failed: %v", err)
@@ -101,6 +117,10 @@ func (v *TestVM) WaitForSSHToBeReady() error {
 }
 
 func (v *TestVM) SSHCommandWithUser(inputArgs []string, user string) *exec.Cmd {
+	return v.sshCommandWithUserContext(context.Background(), inputArgs, user)
+}
+
+func (v *TestVM) sshCommandWithUserContext(ctx context.Context, inputArgs []string, user string) *exec.Cmd {
 	// Use 127.0.0.1 to match WaitForSSHToBeReady (localhost can cause connection closed during handshake).
 	sshDestination := user + "@127.0.0.1"
 	port := strconv.Itoa(v.SSHPort)
@@ -116,11 +136,11 @@ func (v *TestVM) SSHCommandWithUser(inputArgs []string, user string) *exec.Cmd {
 	if v.SSHPrivateKeyPath != "" {
 		// Key-based authentication
 		sshArgs = append([]string{"-i", string(v.SSHPrivateKeyPath), "-o", "PasswordAuthentication=no"}, sshArgs...)
-		cmd = exec.Command("ssh", append(sshArgs, inputArgs...)...) // #nosec G204 - test code with controlled inputs
+		cmd = exec.CommandContext(ctx, "ssh", append(sshArgs, inputArgs...)...) // #nosec G204 - test code with controlled inputs
 	} else {
 		// Password-based authentication with sshpass
 		sshArgs = append([]string{"-o", "PubkeyAuthentication=no"}, sshArgs...)
-		cmd = exec.Command("sshpass", append([]string{"-p", v.SSHPassword, "ssh"}, append(sshArgs, inputArgs...)...)...) // #nosec G204 - test code with controlled inputs
+		cmd = exec.CommandContext(ctx, "sshpass", append([]string{"-p", v.SSHPassword, "ssh"}, append(sshArgs, inputArgs...)...)...) // #nosec G204 - test code with controlled inputs
 	}
 
 	if len(inputArgs) == 0 {
@@ -138,7 +158,11 @@ func (v *TestVM) SSHCommand(inputArgs []string) *exec.Cmd {
 }
 
 func (v *TestVM) RunSSHWithUser(inputArgs []string, stdin *bytes.Buffer, user string) (*bytes.Buffer, error) {
-	cmd := v.SSHCommandWithUser(inputArgs, user)
+	return v.runSSHWithUserContext(context.Background(), inputArgs, stdin, user)
+}
+
+func (v *TestVM) runSSHWithUserContext(ctx context.Context, inputArgs []string, stdin *bytes.Buffer, user string) (*bytes.Buffer, error) {
+	cmd := v.sshCommandWithUserContext(ctx, inputArgs, user)
 	var stderr bytes.Buffer
 	var stdout bytes.Buffer
 	cmd.Stderr = &stderr
@@ -149,6 +173,9 @@ func (v *TestVM) RunSSHWithUser(inputArgs []string, stdin *bytes.Buffer, user st
 	cmd.Stdout = &stdout
 	err := cmd.Run()
 	if err != nil {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			err = errors.Join(context.DeadlineExceeded, err)
+		}
 		return nil, fmt.Errorf("failed to run ssh command: %w, stderr: %s, stdout: %s", err, stderr.String(), stdout.String())
 	}
 
