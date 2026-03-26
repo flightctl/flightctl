@@ -327,7 +327,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			By("Verifying greenboot triggered an OS rollback (not just a reboot)")
 			// "FALLBACK BOOT DETECTED" only appears when greenboot's rollback mechanism was triggered.
 			fallbackOutput, err := harness.VM.RunSSH([]string{
-				"sudo", "journalctl", "-b", "-u", "greenboot-healthcheck.service", "--no-pager",
+				"sudo", "journalctl", "-b", "-u", "greenboot-rpm-ostree-grub2-check-fallback.service", "--no-pager",
 			}, nil)
 			Expect(err).NotTo(HaveOccurred(), "Failed to read greenboot fallback check logs")
 			Expect(fallbackOutput.String()).To(ContainSubstring("FALLBACK BOOT DETECTED"),
@@ -342,13 +342,6 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			GinkgoWriter.Printf("Device successfully rolled back from v11 to %s via greenboot\n", initialStatusImage)
 
 			By("Verifying device does NOT retry the failed v11 image")
-			// Wait for the device to stabilize as Online after rollback. With greenboot-rs
-			// (0.16.x), the device may do an extra boot cycle before rolling back, causing
-			// a longer disconnect that temporarily shows as Unknown.
-			harness.WaitForDeviceContents(deviceId, "device should be online after rollback", func(device *v1beta1.Device) bool {
-				return device.Status.Summary.Status == v1beta1.DeviceSummaryStatusOnline &&
-					device.Status.SystemInfo.BootID == postRollbackBootID
-			}, TIMEOUT)
 			harness.EnsureDeviceContents(deviceId, "device should remain stable and not retry failed image", func(device *v1beta1.Device) bool {
 				return device.Status.Os.Image == initialStatusImage &&
 					device.Status.SystemInfo.BootID == postRollbackBootID &&
@@ -381,7 +374,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 
 			By("Verifying NO greenboot rollback was triggered")
 			fallbackOutput, err := harness.VM.RunSSH([]string{
-				"sudo", "journalctl", "-b", "-u", "greenboot-healthcheck.service", "--no-pager",
+				"sudo", "journalctl", "-b", "-u", "greenboot-rpm-ostree-grub2-check-fallback.service", "--no-pager",
 			}, nil)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(fallbackOutput.String()).NotTo(ContainSubstring("FALLBACK BOOT DETECTED"),
