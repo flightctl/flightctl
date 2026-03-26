@@ -127,8 +127,10 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 
 		renderedTemplateVersion, exists := util.GetFromMap(annotations, domain.DeviceAnnotationRenderedTemplateVersion)
 		if exists && renderedTemplateVersion == tvString {
-			t.log.Infof("Device %s has rendered template version annotation identical to the template version", t.event.InvolvedObject.Name)
-			return nil
+			if val, ok := util.GetFromMap(annotations, domain.DeviceAnnotationRenderedSpecHash); ok && val == specHash {
+				t.log.Infof("Device %s has rendered template version and spec hash unchanged", t.event.InvolvedObject.Name)
+				return nil
+			}
 		}
 	} else {
 		// Don't render if the device spec hash hasn't changed since the last render

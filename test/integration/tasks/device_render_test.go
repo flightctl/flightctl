@@ -535,5 +535,126 @@ var _ = Describe("DeviceRender", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(inlineConfigSpec.Name).To(Equal("motd"), "Device spec should remain unchanged when labels don't change")
 		})
+
+		It("should render when template version is unchanged but spec hash differs due to label change", func() {
+			repoSpec := api.RepositorySpec{}
+			err := repoSpec.FromGitRepoSpec(api.GitRepoSpec{
+				Url:  "https://github.com/flightctl/flightctl-demos",
+				Type: api.GitRepoSpecTypeGit,
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			repo := &api.Repository{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr(repoName),
+				},
+				Spec: repoSpec,
+			}
+			_, err = repoStore.Create(ctx, orgId, repo, nil)
+			Expect(err).ToNot(HaveOccurred())
+
+			inlineConfig := &api.InlineConfigProviderSpec{
+				Name: "motd",
+				Inline: []api.FileSpec{
+					{
+						Path:    "/etc/motd",
+						Content: "I'm {{.metadata.labels.size}}",
+						Mode:    lo.ToPtr(420),
+					},
+				},
+			}
+			configProvider := api.ConfigProviderSpec{}
+			err = configProvider.FromInlineConfigProviderSpec(*inlineConfig)
+			Expect(err).ToNot(HaveOccurred())
+
+			fleet := &api.Fleet{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr(fleetName),
+				},
+				Spec: api.FleetSpec{
+					Selector: &api.LabelSelector{
+						MatchLabels: &map[string]string{
+							"device": "camera",
+						},
+					},
+					Template: struct {
+						Metadata *api.ObjectMeta `json:"metadata,omitempty"`
+						Spec     api.DeviceSpec  `json:"spec"`
+					}{
+						Metadata: &api.ObjectMeta{
+							Labels: &map[string]string{
+								"fleet": fleetName,
+							},
+						},
+						Spec: api.DeviceSpec{
+							Config: &[]api.ConfigProviderSpec{configProvider},
+						},
+					},
+				},
+			}
+			_, err = fleetStore.Create(ctx, orgId, fleet, nil)
+			Expect(err).ToNot(HaveOccurred())
+
+			tvStatus := api.TemplateVersionStatus{
+				Config: &[]api.ConfigProviderSpec{configProvider},
+			}
+			err = testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, fleetName, "1.0.0", &tvStatus)
+			Expect(err).ToNot(HaveOccurred())
+
+			device := &api.Device{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr(deviceName),
+					Labels: &map[string]string{
+						"device": "camera",
+						"size":   "small",
+					},
+					Owner: lo.ToPtr("Fleet/" + fleetName),
+				},
+				Spec: &api.DeviceSpec{},
+			}
+			_, err = deviceStore.Create(ctx, orgId, device, nil)
+			Expect(err).ToNot(HaveOccurred())
+
+			event := api.Event{
+				Reason:         api.EventReasonResourceUpdated,
+				InvolvedObject: api.ObjectReference{Kind: api.DeviceKind, Name: deviceName},
+			}
+
+			rolloutLogic := tasks.NewFleetRolloutsLogic(log, serviceHandler, orgId, event)
+			err = rolloutLogic.RolloutDevice(ctx)
+			Expect(err).ToNot(HaveOccurred())
+
+			renderLogic := tasks.NewDeviceRenderLogic(log, serviceHandler, &mockK8sClient{}, kvStoreInst, nil, orgId, event)
+			err = renderLogic.RenderDevice(ctx)
+			Expect(err).ToNot(HaveOccurred())
+
+			device, err = deviceStore.Get(ctx, orgId, deviceName)
+			Expect(err).ToNot(HaveOccurred())
+			annotations := lo.FromPtr(device.Metadata.Annotations)
+			firstRenderedVersion, ok := annotations[api.DeviceAnnotationRenderedVersion]
+			Expect(ok).To(BeTrue())
+			Expect(annotations[api.DeviceAnnotationRenderedTemplateVersion]).To(Equal("1.0.0"))
+
+			device.Metadata.Labels = &map[string]string{
+				"device": "camera",
+				"size":   "big",
+			}
+			_, err = deviceStore.Update(ctx, orgId, device, nil, false, nil, nil)
+			Expect(err).ToNot(HaveOccurred())
+
+			err = rolloutLogic.RolloutDevice(ctx)
+			Expect(err).ToNot(HaveOccurred())
+
+			err = renderLogic.RenderDevice(ctx)
+			Expect(err).ToNot(HaveOccurred())
+
+			device, err = deviceStore.Get(ctx, orgId, deviceName)
+			Expect(err).ToNot(HaveOccurred())
+			annotations = lo.FromPtr(device.Metadata.Annotations)
+			secondRenderedVersion, ok := annotations[api.DeviceAnnotationRenderedVersion]
+			Expect(ok).To(BeTrue())
+			Expect(secondRenderedVersion).ToNot(Equal(firstRenderedVersion),
+				"renderedVersion should increment when spec hash changes due to label change")
+		})
 	})
 })
