@@ -10,14 +10,10 @@
 FROM quay.io/centos-bootc/centos-bootc:stream9 AS prebase
 
 # Enable EPEL repos (including EPEL Next for CS9)
-RUN --mount=type=cache,target=/var/cache/dnf \
-    --mount=type=cache,target=/var/lib/dnf \
-    dnf install -y epel-release epel-next-release
+RUN dnf install -y epel-release epel-next-release
 
 # Utilities used by tests
-RUN --mount=type=cache,target=/var/cache/dnf \
-    --mount=type=cache,target=/var/lib/dnf \
-    dnf install -y python-dotenv
+RUN dnf install -y python-dotenv
 
 # Base services and tooling that don't depend on our RPMs
 # NOTE: Pin to greenboot 0.15.x (shell greenboot) to avoid greenboot-rs (0.16.x) issues.
@@ -27,9 +23,7 @@ RUN --mount=type=cache,target=/var/cache/dnf \
 #   - Container compatibility issues (fedora-iot/greenboot-rs#132)
 # See: https://github.com/microshift-io/microshift/pull/176
 # See: https://github.com/fedora-iot/greenboot-rs/issues/141
-RUN --mount=type=cache,target=/var/cache/dnf \
-    --mount=type=cache,target=/var/lib/dnf \
-    dnf install -y 'greenboot-0.15.*' 'greenboot-default-health-checks-0.15.*' podman-compose && \
+RUN dnf install -y 'greenboot-0.15.*' 'greenboot-default-health-checks-0.15.*' podman-compose && \
     dnf install -y firewalld && \
     systemctl enable firewalld.service && \
     systemctl enable podman.service
@@ -105,8 +99,6 @@ RUN --mount=type=bind,from=project-bin,source=.,target=/build-context \
 
 # Install flightctl RPMs (from COPR or local files)
 RUN --mount=type=bind,from=project-bin,source=.,target=/build-context \
-    --mount=type=cache,target=/var/cache/dnf \
-    --mount=type=cache,target=/var/lib/dnf \
     sh -exc '\
       mkdir -p /tmp/rpms; \
       if [ -n "${RPM_COPR_REPO}" ]; then \

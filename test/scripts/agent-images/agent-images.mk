@@ -54,8 +54,6 @@ clean-e2e-agent-images:
 	rm -f bin/.e2e-agent-images-*
 	rm -f bin/.e2e-agent-certs
 	rm -f bin/.e2e-agent-injected
-	rm -rf bin/dnf-cache
-	rm -rf bin/osbuild-cache
 	rm -rf bin/rpm
 	rm -rf bin/.rpm
 	rm -rf bin/brew-rpm

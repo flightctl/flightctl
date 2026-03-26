@@ -11,10 +11,8 @@ ARG MICROSHIFT_TAG=4.21.0_g29f429c21_4.21.0_okd_scos.ec.15
 # Upstream microshift contains scripts for installing microshift on a machine that is currently running. The following
 # are extracted from the install scripts (defering to the scripts when possible).
 
-# Download microshift RPMs and install using upstream scripts (unique id to avoid race conditions in parallel builds)
-RUN --mount=type=cache,target=/var/cache/dnf,id=v12-dnf-cache \
-    --mount=type=cache,target=/var/lib/dnf,id=v12-dnf-lib \
-    set -ex && \
+# Download microshift RPMs and install using upstream scripts
+RUN set -ex && \
     # Download RPMs
     mkdir -p /tmp/microshift-rpms && \
     curl -L -s --retry 5 \

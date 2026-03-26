@@ -25,19 +25,6 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
-      - name: Restore bootc-image-builder cache
-        id: cache-bootc-restore
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            bin/dnf-cache
-            bin/osbuild-cache
-            dnf-cache
-            osbuild-cache
-          key: ${{ runner.os }}-bootc-cache-e2e-unified-${{ hashFiles('test/scripts/agent-images/base/Containerfile') }}
-          restore-keys: |
-            ${{ runner.os }}-bootc-cache-e2e-
-            
       - name: Download RPM artifacts
         uses: actions/download-artifact@v4
         with:
@@ -171,11 +158,3 @@ jobs:
             echo ""
             echo "</details>"
           } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Save caches
-        uses: actions/cache/save@v4
-        with:
-          path: |
-            bin/dnf-cache
-            bin/osbuild-cache
-          key: ${{ runner.os }}-bootc-cache-e2e-unified-${{ hashFiles('test/scripts/agent-images/base/Containerfile') }}
