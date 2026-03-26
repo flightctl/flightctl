@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 
-	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
@@ -86,13 +85,7 @@ func (h *ServiceHandler) DeleteFleet(ctx context.Context, orgId uuid.UUID, name 
 		return StoreErrorToApiStatus(err, false, domain.FleetKind, &name)
 	}
 
-	// Check if this is a ResourceSync request - ResourceSync can delete fleets it owns
-	isResourceSyncRequest := false
-	if rs, ok := ctx.Value(consts.ResourceSyncRequestCtxKey).(bool); ok && rs {
-		isResourceSyncRequest = true
-	}
-
-	if f.Metadata.Owner != nil && !isResourceSyncRequest {
+	if f.Metadata.Owner != nil && !IsResourceSyncRequest(ctx) {
 		return domain.StatusConflict(flterrors.ErrDeletingResourceWithOwnerNotAllowed.Error())
 	}
 
