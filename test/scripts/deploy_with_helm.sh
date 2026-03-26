@@ -60,17 +60,45 @@ done
 SQL_ARG="--set db.builtin.image.image=${SQL_IMAGE} --set-string db.builtin.image.tag=${SQL_VERSION}"
 KV_ARG="--set kv.image.image=${KV_IMAGE} --set-string kv.image.tag=${KV_VERSION}"
 
-# Override FlightCtl service images to use localhost registry
-SERVICE_IMAGE_ARGS="--set api.image.image=localhost/flightctl-api-${OS} --set api.image.tag=latest"
-SERVICE_IMAGE_ARGS="$SERVICE_IMAGE_ARGS --set worker.image.image=localhost/flightctl-worker-${OS} --set worker.image.tag=latest"
-SERVICE_IMAGE_ARGS="$SERVICE_IMAGE_ARGS --set periodic.image.image=localhost/flightctl-periodic-${OS} --set periodic.image.tag=latest"
-SERVICE_IMAGE_ARGS="$SERVICE_IMAGE_ARGS --set alertExporter.image.image=localhost/flightctl-alert-exporter-${OS} --set alertExporter.image.tag=latest"
-SERVICE_IMAGE_ARGS="$SERVICE_IMAGE_ARGS --set alertmanagerProxy.image.image=localhost/flightctl-alertmanager-proxy-${OS} --set alertmanagerProxy.image.tag=latest"
-SERVICE_IMAGE_ARGS="$SERVICE_IMAGE_ARGS --set cliArtifacts.image.image=localhost/flightctl-cli-artifacts-${OS} --set cliArtifacts.image.tag=latest"
-SERVICE_IMAGE_ARGS="$SERVICE_IMAGE_ARGS --set dbSetup.image.image=localhost/flightctl-db-setup-${OS} --set dbSetup.image.tag=latest"
-SERVICE_IMAGE_ARGS="$SERVICE_IMAGE_ARGS --set telemetryGateway.image.image=localhost/flightctl-telemetry-gateway-${OS} --set telemetryGateway.image.tag=latest"
-SERVICE_IMAGE_ARGS="$SERVICE_IMAGE_ARGS --set imageBuilderApi.image.image=localhost/flightctl-imagebuilder-api-${OS} --set imageBuilderApi.image.tag=latest"
-SERVICE_IMAGE_ARGS="$SERVICE_IMAGE_ARGS --set imageBuilderWorker.image.image=localhost/flightctl-imagebuilder-worker-${OS} --set imageBuilderWorker.image.tag=latest"
+# Function to check if an image exists and return the appropriate image name
+choose_image() {
+    local os_image="$1"
+    local fallback_image="$2"
+
+    # Try OS-specific image first
+    if podman image exists "${os_image}:latest" 2>/dev/null || docker image inspect "${os_image}:latest" >/dev/null 2>&1; then
+        echo "$os_image"
+    elif podman image exists "${fallback_image}:latest" 2>/dev/null || docker image inspect "${fallback_image}:latest" >/dev/null 2>&1; then
+        echo "$fallback_image"
+        echo "Warning: Using fallback image ${fallback_image} (OS-specific ${os_image} not found)" >&2
+    else
+        # Default to OS-specific image (will be built by the deployment process)
+        echo "$os_image"
+    fi
+}
+
+# Override FlightCtl service images to use localhost registry with OS suffix and fallback support
+API_IMAGE=$(choose_image "localhost/flightctl-api-${OS}" "localhost/flightctl-api")
+WORKER_IMAGE=$(choose_image "localhost/flightctl-worker-${OS}" "localhost/flightctl-worker")
+PERIODIC_IMAGE=$(choose_image "localhost/flightctl-periodic-${OS}" "localhost/flightctl-periodic")
+ALERT_EXPORTER_IMAGE=$(choose_image "localhost/flightctl-alert-exporter-${OS}" "localhost/flightctl-alert-exporter")
+ALERTMANAGER_PROXY_IMAGE=$(choose_image "localhost/flightctl-alertmanager-proxy-${OS}" "localhost/flightctl-alertmanager-proxy")
+CLI_ARTIFACTS_IMAGE=$(choose_image "localhost/flightctl-cli-artifacts-${OS}" "localhost/flightctl-cli-artifacts")
+DB_SETUP_IMAGE=$(choose_image "localhost/flightctl-db-setup-${OS}" "localhost/flightctl-db-setup")
+TELEMETRY_GATEWAY_IMAGE=$(choose_image "localhost/flightctl-telemetry-gateway-${OS}" "localhost/flightctl-telemetry-gateway")
+IMAGEBUILDER_API_IMAGE=$(choose_image "localhost/flightctl-imagebuilder-api-${OS}" "localhost/flightctl-imagebuilder-api")
+IMAGEBUILDER_WORKER_IMAGE=$(choose_image "localhost/flightctl-imagebuilder-worker-${OS}" "localhost/flightctl-imagebuilder-worker")
+
+SERVICE_IMAGE_ARGS="--set api.image.image=${API_IMAGE} --set api.image.tag=latest"
+SERVICE_IMAGE_ARGS="$SERVICE_IMAGE_ARGS --set worker.image.image=${WORKER_IMAGE} --set worker.image.tag=latest"
+SERVICE_IMAGE_ARGS="$SERVICE_IMAGE_ARGS --set periodic.image.image=${PERIODIC_IMAGE} --set periodic.image.tag=latest"
+SERVICE_IMAGE_ARGS="$SERVICE_IMAGE_ARGS --set alertExporter.image.image=${ALERT_EXPORTER_IMAGE} --set alertExporter.image.tag=latest"
+SERVICE_IMAGE_ARGS="$SERVICE_IMAGE_ARGS --set alertmanagerProxy.image.image=${ALERTMANAGER_PROXY_IMAGE} --set alertmanagerProxy.image.tag=latest"
+SERVICE_IMAGE_ARGS="$SERVICE_IMAGE_ARGS --set cliArtifacts.image.image=${CLI_ARTIFACTS_IMAGE} --set cliArtifacts.image.tag=latest"
+SERVICE_IMAGE_ARGS="$SERVICE_IMAGE_ARGS --set dbSetup.image.image=${DB_SETUP_IMAGE} --set dbSetup.image.tag=latest"
+SERVICE_IMAGE_ARGS="$SERVICE_IMAGE_ARGS --set telemetryGateway.image.image=${TELEMETRY_GATEWAY_IMAGE} --set telemetryGateway.image.tag=latest"
+SERVICE_IMAGE_ARGS="$SERVICE_IMAGE_ARGS --set imageBuilderApi.image.image=${IMAGEBUILDER_API_IMAGE} --set imageBuilderApi.image.tag=latest"
+SERVICE_IMAGE_ARGS="$SERVICE_IMAGE_ARGS --set imageBuilderWorker.image.image=${IMAGEBUILDER_WORKER_IMAGE} --set imageBuilderWorker.image.tag=latest"
 
 # helm expects the namespaces to exist, and creating namespaces
 # inside the helm charts is not recommended.
