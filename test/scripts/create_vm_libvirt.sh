@@ -8,7 +8,7 @@ export KUBECONFIG=${KUBECONFIG_PATH}
 
 # Variables
 VM_NAME="test-vm"
-VM_RAM=10240                # RAM in MB necessary to run the flightctl e2e
+VM_RAM=16384                # RAM in MB necessary to run the flightctl e2e
 VM_CPUS=8                  # Number of CPUs
 VM_DISK_SIZE_INC=${VM_DISK_SIZE_INC:-30} # Disk size increment
 NETWORK_NAME="$(get_ocp_nodes_network)"   # Network name
@@ -99,16 +99,16 @@ while [ $ELAPSED -lt $TIMEOUT_SECONDS ]; do
   # Get the VM interfaces
   export INTERFACE_DEFAULT=$(sudo virsh domiflist ${VM_NAME} 2>/dev/null | grep default | awk '{print $1}')
   export INTERFACE_BM=$(sudo virsh domiflist ${VM_NAME} 2>/dev/null | grep ${NETWORK_NAME} | awk '{print $1}')
-  
+
   # Try to get the IPs
   if [ -n "${INTERFACE_DEFAULT}" ]; then
     VM_DEFAULT_IP=$(sudo virsh domifaddr ${VM_NAME} --interface ${INTERFACE_DEFAULT} 2>/dev/null | awk '/ipv4/ {print $4}' | cut -d'/' -f1)
   fi
-  
+
   if [ -n "${INTERFACE_BM}" ]; then
     VM_IP=$(sudo virsh domifaddr ${VM_NAME} --interface ${INTERFACE_BM} 2>/dev/null | awk '/ipv4/ {print $4}' | cut -d'/' -f1)
   fi
-  
+
   # Check if both VM's IPs are available
   if [ -n "${VM_DEFAULT_IP}" ] && [ -n "${VM_IP}" ]; then
     echo "VM IPs are available!"
@@ -116,7 +116,7 @@ while [ $ELAPSED -lt $TIMEOUT_SECONDS ]; do
     echo "VM IP: ${VM_IP}"
     break
   fi
-  
+
   echo "Waiting for VM IPs... (${ELAPSED}s/${TIMEOUT_SECONDS}s) - DEFAULT_IP: ${VM_DEFAULT_IP:-not available}, BM_IP: ${VM_IP:-not available}"
   sleep ${CHECK_INTERVAL}
   ELAPSED=$((ELAPSED + CHECK_INTERVAL))
