@@ -49,6 +49,10 @@ Summary: Flight Control management agent
 
 Requires: flightctl-selinux = %{version}
 Requires: jq
+# Pin the greenboot package to 0.15.z until the following issue is resolved:
+# https://github.com/fedora-iot/greenboot-rs/issues/141
+Requires: greenboot >= 0.15.0
+Requires: greenboot < 0.16.0
 Requires: sudo
 
 %description agent
