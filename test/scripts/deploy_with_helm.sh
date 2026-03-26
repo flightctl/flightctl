@@ -52,8 +52,8 @@ while true; do
   esac
 done
 
-SQL_ARG="--set db.builtin.image.image=${SQL_IMAGE} --set db.builtin.image.tag='${SQL_VERSION}'"
-KV_ARG="--set kv.image.image=${KV_IMAGE} --set kv.image.tag='${KV_VERSION}'"
+SQL_ARG="--set db.builtin.image.image=${SQL_IMAGE} --set-string db.builtin.image.tag=${SQL_VERSION}"
+KV_ARG="--set kv.image.image=${KV_IMAGE} --set-string kv.image.tag=${KV_VERSION}"
 
 # Override FlightCtl service images to use localhost registry
 SERVICE_IMAGE_ARGS="--set api.image.image=localhost/flightctl-api-${OS} --set api.image.tag=latest"
