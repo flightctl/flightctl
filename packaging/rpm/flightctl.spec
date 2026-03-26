@@ -447,7 +447,7 @@ fi
 
 %post agent
 # Enable greenboot-healthcheck if present (not enabled by default in greenboot-rs 0.16.x).
-# Must be unconditional: greenboot's own %systemd_post preset removes greenboot-success.target
+# Must be unconditional: greenboot's own %%systemd_post preset removes greenboot-success.target
 # (renamed from greenboot-set-success.target) due to a CentOS preset mismatch. Re-running
 # `systemctl enable` recreates it via the Also= directive.
 # See: https://github.com/fedora-iot/greenboot-rs/issues/171
