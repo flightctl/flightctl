@@ -319,7 +319,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			By("Verifying greenboot triggered an OS rollback (not just a reboot)")
 			// "FALLBACK BOOT DETECTED" only appears when greenboot's rollback mechanism was triggered.
 			fallbackOutput, err := harness.VM.RunSSH([]string{
-				"sudo", "journalctl", "-u", "greenboot-rpm-ostree-grub2-check-fallback.service", "--no-pager",
+				"sudo", "journalctl", "-b", "-u", "greenboot-healthcheck.service", "--no-pager",
 			}, nil)
 			Expect(err).NotTo(HaveOccurred(), "Failed to read greenboot fallback check logs")
 			Expect(fallbackOutput.String()).To(ContainSubstring("FALLBACK BOOT DETECTED"),
