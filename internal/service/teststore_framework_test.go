@@ -158,7 +158,7 @@ func (s *DummyDevice) Get(ctx context.Context, orgId uuid.UUID, name string) (*d
 	return nil, flterrors.ErrResourceNotFound
 }
 
-func (s *DummyDevice) GetWithoutServiceConditions(ctx context.Context, orgId uuid.UUID, name string) (*domain.Device, error) {
+func (s *DummyDevice) GetWithTimestamp(ctx context.Context, orgId uuid.UUID, name string) (*domain.Device, error) {
 	return s.Get(ctx, orgId, name)
 }
 

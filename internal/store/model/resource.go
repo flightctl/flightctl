@@ -52,10 +52,9 @@ func (r *Resource) BeforeCreate(tx *gorm.DB) error {
 type APIResourceOption func(*apiResourceOptions)
 
 type apiResourceOptions struct {
-	devicesSummary           *domain.DevicesSummary // Used by Fleet
-	isRendered               bool                   // Used by Device
-	withoutServiceConditions bool
-	knownRenderedVersion     *string
+	devicesSummary       *domain.DevicesSummary // Used by Fleet
+	isRendered           bool                   // Used by Device
+	knownRenderedVersion *string
 }
 
 func WithRendered(knownRenderedVersion *string) APIResourceOption {
@@ -68,14 +67,6 @@ func WithRendered(knownRenderedVersion *string) APIResourceOption {
 func WithDevicesSummary(devicesSummary *domain.DevicesSummary) APIResourceOption {
 	return func(o *apiResourceOptions) {
 		o.devicesSummary = devicesSummary
-	}
-}
-
-// WithoutServiceConditions returns an option that omits service-level conditions
-// from the API representation (see Device.ToApiResource).
-func WithoutServiceConditions() APIResourceOption {
-	return func(o *apiResourceOptions) {
-		o.withoutServiceConditions = true
 	}
 }
 

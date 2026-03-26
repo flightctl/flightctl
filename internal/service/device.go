@@ -266,7 +266,7 @@ func (h *ServiceHandler) ReplaceDeviceStatus(ctx context.Context, orgId uuid.UUI
 
 	// UpdateServiceSideStatus() needs to know the latest .metadata.annotations[device-controller/renderedVersion]
 	// that the agent does not provide or only have an outdated knowledge of
-	originalDevice, err := h.store.Device().GetWithoutServiceConditions(ctx, orgId, name)
+	originalDevice, err := h.store.Device().GetWithTimestamp(ctx, orgId, name)
 	if err != nil {
 		return nil, StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 	}
@@ -422,7 +422,7 @@ func (h *ServiceHandler) SetOutOfDate(ctx context.Context, orgId uuid.UUID, owne
 }
 
 func (h *ServiceHandler) UpdateServerSideDeviceStatus(ctx context.Context, orgId uuid.UUID, name string) error {
-	device, err := h.store.Device().GetWithoutServiceConditions(ctx, orgId, name)
+	device, err := h.store.Device().GetWithTimestamp(ctx, orgId, name)
 	if err != nil {
 		return err
 	}

@@ -105,6 +105,14 @@ func NewDeviceFromApiResource(resource *domain.Device) (*Device, error) {
 	if status.Conditions == nil {
 		status.Conditions = []domain.Condition{}
 	}
+	var serviceConditions ServiceConditions
+	serviceConditions.Conditions = lo.ToPtr(lo.Filter(status.Conditions, func(c domain.Condition, _ int) bool {
+		return c.Type.IsServiceConditionType()
+	}))
+
+	status.Conditions = lo.Filter(status.Conditions, func(c domain.Condition, _ int) bool {
+		return !c.Type.IsServiceConditionType()
+	})
 
 	var resourceVersion *int64
 	if resource.Metadata.ResourceVersion != nil {
@@ -130,9 +138,10 @@ func NewDeviceFromApiResource(resource *domain.Device) (*Device, error) {
 			Owner:           resource.Metadata.Owner,
 			ResourceVersion: resourceVersion,
 		},
-		Alias:  alias,
-		Spec:   MakeJSONField(spec),
-		Status: MakeJSONField(status),
+		Alias:             alias,
+		Spec:              MakeJSONField(spec),
+		Status:            MakeJSONField(status),
+		ServiceConditions: MakeJSONField(serviceConditions),
 	}, nil
 }
 
@@ -199,13 +208,11 @@ func (d *Device) ToApiResource(opts ...APIResourceOption) (*domain.Device, error
 		status = d.Status.Data
 	}
 
-	if !apiOpts.withoutServiceConditions {
-		if d.ServiceConditions != nil && d.ServiceConditions.Data.Conditions != nil {
-			if status.Conditions == nil {
-				status.Conditions = []domain.Condition{}
-			}
-			status.Conditions = append(status.Conditions, *d.ServiceConditions.Data.Conditions...)
+	if d.ServiceConditions != nil && d.ServiceConditions.Data.Conditions != nil {
+		if status.Conditions == nil {
+			status.Conditions = []domain.Condition{}
 		}
+		status.Conditions = append(status.Conditions, *d.ServiceConditions.Data.Conditions...)
 	}
 
 	var resourceVersion *string
