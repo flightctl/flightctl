@@ -197,12 +197,8 @@ func (p *VMPool) createVMForWorker(workerID int) (vm.TestVMInterface, error) {
 	}
 	fmt.Printf("✅ [VMPool] Worker %d: VM struct created\n", workerID)
 
-	// Between e2e packages the libvirt domain may still exist with a dirty guest (e.g. bootc
-	// switch). Revert pristine here (no SSH) before the first SSH wait; BeforeEach revert runs too late.
-	fmt.Printf("🔄 [VMPool] Worker %d: Pristine revert if reusing existing domain (before SSH)\n", workerID)
-	if err := newVM.RevertPristineForPoolBootstrap(); err != nil {
-		return nil, fmt.Errorf("pool bootstrap pristine revert: %w", err)
-	}
+	// Note: Pristine revert moved to after SSH establishment to avoid connectivity issues
+	// The BeforeEach revert in tests will handle snapshot management
 
 	// Start the VM and wait for SSH to be ready
 	fmt.Printf("🔄 [VMPool] Worker %d: Starting VM and waiting for SSH\n", workerID)
