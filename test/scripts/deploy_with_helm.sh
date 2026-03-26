@@ -55,6 +55,18 @@ done
 SQL_ARG="--set db.builtin.image.image=${SQL_IMAGE} --set db.builtin.image.tag=\"${SQL_VERSION}\""
 KV_ARG="--set kv.image.image=${KV_IMAGE} --set kv.image.tag=\"${KV_VERSION}\""
 
+# Override FlightCtl service images to use localhost registry
+SERVICE_IMAGE_ARGS="--set api.image.image=localhost/flightctl-api-${OS} --set api.image.tag=latest"
+SERVICE_IMAGE_ARGS="$SERVICE_IMAGE_ARGS --set worker.image.image=localhost/flightctl-worker-${OS} --set worker.image.tag=latest"
+SERVICE_IMAGE_ARGS="$SERVICE_IMAGE_ARGS --set periodic.image.image=localhost/flightctl-periodic-${OS} --set periodic.image.tag=latest"
+SERVICE_IMAGE_ARGS="$SERVICE_IMAGE_ARGS --set alertExporter.image.image=localhost/flightctl-alert-exporter-${OS} --set alertExporter.image.tag=latest"
+SERVICE_IMAGE_ARGS="$SERVICE_IMAGE_ARGS --set alertmanagerProxy.image.image=localhost/flightctl-alertmanager-proxy-${OS} --set alertmanagerProxy.image.tag=latest"
+SERVICE_IMAGE_ARGS="$SERVICE_IMAGE_ARGS --set cliArtifacts.image.image=localhost/flightctl-cli-artifacts-${OS} --set cliArtifacts.image.tag=latest"
+SERVICE_IMAGE_ARGS="$SERVICE_IMAGE_ARGS --set dbSetup.image.image=localhost/flightctl-db-setup-${OS} --set dbSetup.image.tag=latest"
+SERVICE_IMAGE_ARGS="$SERVICE_IMAGE_ARGS --set telemetryGateway.image.image=localhost/flightctl-telemetry-gateway-${OS} --set telemetryGateway.image.tag=latest"
+SERVICE_IMAGE_ARGS="$SERVICE_IMAGE_ARGS --set imageBuilderApi.image.image=localhost/flightctl-imagebuilder-api-${OS} --set imageBuilderApi.image.tag=latest"
+SERVICE_IMAGE_ARGS="$SERVICE_IMAGE_ARGS --set imageBuilderWorker.image.image=localhost/flightctl-imagebuilder-worker-${OS} --set imageBuilderWorker.image.tag=latest"
+
 # helm expects the namespaces to exist, and creating namespaces
 # inside the helm charts is not recommended.
 kubectl create namespace flightctl-external --context kind-kind 2>/dev/null || true
@@ -69,6 +81,9 @@ if [ -z "$ONLY_DB" ]; then
   done
 
   kind_load_image "${KV_IMAGE}:${KV_VERSION}" keep-tar
+else
+  # Clear service image args when only deploying database
+  SERVICE_IMAGE_ARGS=""
 fi
 
 if [ ! -z "$IMAGE_PULL_SECRET_PATH" ]; then
@@ -101,7 +116,7 @@ helm dependency build ./deploy/helm/flightctl
 helm upgrade --install --namespace flightctl-external \
                   --values ./deploy/helm/flightctl/values.dev.yaml \
                   --set global.baseDomain=${IP}.nip.io \
-                  ${ONLY_DB} ${DB_SIZE_PARAMS} ${AUTH_ARGS} ${SQL_ARG} ${GATEWAY_ARGS} ${KV_ARG} flightctl \
+                  ${ONLY_DB} ${DB_SIZE_PARAMS} ${AUTH_ARGS} ${SQL_ARG} ${GATEWAY_ARGS} ${KV_ARG} ${SERVICE_IMAGE_ARGS} flightctl \
               ./deploy/helm/flightctl/ --kube-context kind-kind
 
 "${SCRIPT_DIR}"/wait_for_postgres.sh
