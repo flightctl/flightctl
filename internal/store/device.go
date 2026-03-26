@@ -982,6 +982,13 @@ func (s *DeviceStore) updateRendered(ctx context.Context, orgId uuid.UUID, name,
 	if lo.HasKey(existingAnnotations, domain.DeviceAnnotationTemplateVersion) {
 		existingAnnotations[domain.DeviceAnnotationRenderedTemplateVersion] = existingAnnotations[domain.DeviceAnnotationTemplateVersion]
 	}
+	// Check if the rendered content has changed by comparing hashes
+	if lo.HasKey(existingAnnotations, domain.DeviceAnnotationRenderedSpecHash) {
+		// if the hash is the same, we shouldn't update the rendered version
+		if existingAnnotations[domain.DeviceAnnotationRenderedSpecHash] == hash {
+			return false, "", nil
+		}
+	}
 	existingAnnotations[domain.DeviceAnnotationRenderedSpecHash] = hash
 
 	renderedApplicationsJSON := renderedApplications
