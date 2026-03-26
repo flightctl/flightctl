@@ -6,12 +6,21 @@ ONLY_DB=
 DB_SIZE_PARAMS=
 # If using images from a private registry, specify a path to a Kubernetes Secret yaml for your pull secret (in the flightctl-internal namespace)
 # IMAGE_PULL_SECRET_PATH=
+OS=${OS:-"el9"}
 
-# Use hardcoded el9 values for helm deployment
-SQL_IMAGE=${SQL_IMAGE:-quay.io/sclorg/postgresql-16-c9s}
-SQL_VERSION=${SQL_VERSION:-"20250214"}
-KV_IMAGE=${KV_IMAGE:-quay.io/sclorg/redis-7-c9s}
-KV_VERSION=${KV_VERSION:-"20250108"}
+# Use hardcoded values for helm deployment (avoid yq complexity)
+if [ "$OS" = "el10" ]; then
+    SQL_IMAGE=${SQL_IMAGE:-quay.io/sclorg/postgresql-16-c10s}
+    SQL_VERSION=${SQL_VERSION:-"latest"}
+    KV_IMAGE=${KV_IMAGE:-quay.io/sclorg/valkey-7-c10s}
+    KV_VERSION=${KV_VERSION:-"latest"}
+else
+    # Default to el9
+    SQL_IMAGE=${SQL_IMAGE:-quay.io/sclorg/postgresql-16-c9s}
+    SQL_VERSION=${SQL_VERSION:-"20250214"}
+    KV_IMAGE=${KV_IMAGE:-quay.io/sclorg/redis-7-c9s}
+    KV_VERSION=${KV_VERSION:-"20250108"}
+fi
 
 source "${SCRIPT_DIR}"/functions
 # Dup stderr to fd 3 for run_on_quadlet command traces (test/scripts/functions); same as e2e_startup.sh.
@@ -51,17 +60,17 @@ done
 SQL_ARG="--set db.builtin.image.image=${SQL_IMAGE} --set-string db.builtin.image.tag=${SQL_VERSION}"
 KV_ARG="--set kv.image.image=${KV_IMAGE} --set-string kv.image.tag=${KV_VERSION}"
 
-# Override FlightCtl service images to use localhost registry (hardcoded for el9)
-SERVICE_IMAGE_ARGS="--set api.image.image=localhost/flightctl-api-el9 --set api.image.tag=latest"
-SERVICE_IMAGE_ARGS="$SERVICE_IMAGE_ARGS --set worker.image.image=localhost/flightctl-worker-el9 --set worker.image.tag=latest"
-SERVICE_IMAGE_ARGS="$SERVICE_IMAGE_ARGS --set periodic.image.image=localhost/flightctl-periodic-el9 --set periodic.image.tag=latest"
-SERVICE_IMAGE_ARGS="$SERVICE_IMAGE_ARGS --set alertExporter.image.image=localhost/flightctl-alert-exporter-el9 --set alertExporter.image.tag=latest"
-SERVICE_IMAGE_ARGS="$SERVICE_IMAGE_ARGS --set alertmanagerProxy.image.image=localhost/flightctl-alertmanager-proxy-el9 --set alertmanagerProxy.image.tag=latest"
-SERVICE_IMAGE_ARGS="$SERVICE_IMAGE_ARGS --set cliArtifacts.image.image=localhost/flightctl-cli-artifacts-el9 --set cliArtifacts.image.tag=latest"
-SERVICE_IMAGE_ARGS="$SERVICE_IMAGE_ARGS --set dbSetup.image.image=localhost/flightctl-db-setup-el9 --set dbSetup.image.tag=latest"
-SERVICE_IMAGE_ARGS="$SERVICE_IMAGE_ARGS --set telemetryGateway.image.image=localhost/flightctl-telemetry-gateway-el9 --set telemetryGateway.image.tag=latest"
-SERVICE_IMAGE_ARGS="$SERVICE_IMAGE_ARGS --set imageBuilderApi.image.image=localhost/flightctl-imagebuilder-api-el9 --set imageBuilderApi.image.tag=latest"
-SERVICE_IMAGE_ARGS="$SERVICE_IMAGE_ARGS --set imageBuilderWorker.image.image=localhost/flightctl-imagebuilder-worker-el9 --set imageBuilderWorker.image.tag=latest"
+# Override FlightCtl service images to use localhost registry
+SERVICE_IMAGE_ARGS="--set api.image.image=localhost/flightctl-api-${OS} --set api.image.tag=latest"
+SERVICE_IMAGE_ARGS="$SERVICE_IMAGE_ARGS --set worker.image.image=localhost/flightctl-worker-${OS} --set worker.image.tag=latest"
+SERVICE_IMAGE_ARGS="$SERVICE_IMAGE_ARGS --set periodic.image.image=localhost/flightctl-periodic-${OS} --set periodic.image.tag=latest"
+SERVICE_IMAGE_ARGS="$SERVICE_IMAGE_ARGS --set alertExporter.image.image=localhost/flightctl-alert-exporter-${OS} --set alertExporter.image.tag=latest"
+SERVICE_IMAGE_ARGS="$SERVICE_IMAGE_ARGS --set alertmanagerProxy.image.image=localhost/flightctl-alertmanager-proxy-${OS} --set alertmanagerProxy.image.tag=latest"
+SERVICE_IMAGE_ARGS="$SERVICE_IMAGE_ARGS --set cliArtifacts.image.image=localhost/flightctl-cli-artifacts-${OS} --set cliArtifacts.image.tag=latest"
+SERVICE_IMAGE_ARGS="$SERVICE_IMAGE_ARGS --set dbSetup.image.image=localhost/flightctl-db-setup-${OS} --set dbSetup.image.tag=latest"
+SERVICE_IMAGE_ARGS="$SERVICE_IMAGE_ARGS --set telemetryGateway.image.image=localhost/flightctl-telemetry-gateway-${OS} --set telemetryGateway.image.tag=latest"
+SERVICE_IMAGE_ARGS="$SERVICE_IMAGE_ARGS --set imageBuilderApi.image.image=localhost/flightctl-imagebuilder-api-${OS} --set imageBuilderApi.image.tag=latest"
+SERVICE_IMAGE_ARGS="$SERVICE_IMAGE_ARGS --set imageBuilderWorker.image.image=localhost/flightctl-imagebuilder-worker-${OS} --set imageBuilderWorker.image.tag=latest"
 
 # helm expects the namespaces to exist, and creating namespaces
 # inside the helm charts is not recommended.
@@ -73,7 +82,7 @@ kubectl create namespace flightctl-e2e      --context kind-kind 2>/dev/null || t
 if [ -z "$ONLY_DB" ]; then
 
   for suffix in periodic api worker alert-exporter alertmanager-proxy cli-artifacts db-setup telemetry-gateway imagebuilder-api imagebuilder-worker ; do
-    kind_load_image localhost/flightctl-${suffix}-el9:latest
+    kind_load_image localhost/flightctl-${suffix}-${OS}:latest
   done
 
   kind_load_image "${KV_IMAGE}:${KV_VERSION}" keep-tar
