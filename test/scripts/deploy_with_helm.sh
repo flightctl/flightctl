@@ -6,12 +6,7 @@ ONLY_DB=
 DB_SIZE_PARAMS=
 # If using images from a private registry, specify a path to a Kubernetes Secret yaml for your pull secret (in the flightctl-internal namespace)
 # IMAGE_PULL_SECRET_PATH=
-# Map AGENT_OS_ID to OS for E2E tests
-if [[ "${AGENT_OS_ID:-}" == "cs10-bootc" ]]; then
-  OS="el10"
-else
-  OS=${OS:-"el9"}
-fi
+OS=${OS:-"el9"}
 
 # Extract SQL and KV image values from helm-chart-opts.yaml
 HELM_OPTS_FILE="${SCRIPT_DIR}/../../deploy/helm/helm-chart-opts.yaml"
