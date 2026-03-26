@@ -31,6 +31,7 @@ var _ = Describe("Redis Restart Tests", func() {
 	})
 
 	It("should recover and continue processing tasks after Redis restart", Label("84786", "sanity"), func() {
+		Skip("Disabled: test modifies cluster state (restarts Redis)")
 		By("verifying initial system state")
 		Eventually(func() bool { return redis.IsRedisRunning() }, TIMEOUT, LONG_POLLING).Should(BeTrue(), "Redis should be running")
 

@@ -53,6 +53,7 @@ var _ = Describe("Service backup and restore", Label("backup-restore"), func() {
 	// full backup/restore flow with 3 ERs, fleet, post-backup changes, and resume.
 	Context("All flightctl resources can be resumed after a backup and restore", func() {
 		It("3 ERs, fleet rollout, backup, restore, then verify states and resume", Label("84934", "sanity"), func() {
+			Skip("Disabled: test modifies cluster state (scales services, dumps/restores DB)")
 			// --- Setup: 3 ERs (2 approved, 1 unapproved) ---
 			By("Setting up 3 VMs and enrollment requests (2 approved with different labels, 1 unapproved)")
 			ctx := harness.GetTestContext()
@@ -288,6 +289,7 @@ var _ = Describe("Service backup and restore", Label("backup-restore"), func() {
 
 		// 84938: Backup taken while device update is in progress; after restore, device version <= server → AwaitingReconnect then Online (no ConflictPaused).
 		It("backup during update in progress, restore then devices reach Online", Label("84938", "sanity"), func() {
+			Skip("Disabled: test modifies cluster state (scales services, dumps/restores DB)")
 			ctx := harness.GetTestContext()
 
 			workerID2 := GinkgoParallelProcess()*100 + 1
