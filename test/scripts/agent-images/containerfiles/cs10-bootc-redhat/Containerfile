@@ -29,8 +29,7 @@ RUN --mount=type=cache,target=/var/cache/dnf \
     dnf install -y greenboot greenboot-default-health-checks podman-compose && \
     dnf install -y firewalld && \
     systemctl enable firewalld.service && \
-    systemctl enable podman.service && \
-    (systemctl is-enabled --quiet greenboot-healthcheck || systemctl enable --quiet greenboot-healthcheck 2>/dev/null || :)
+    systemctl enable podman.service
 
 # Speed up greenboot rollback for E2E testing:
 # Reduce boot attempts from 3 to 1 (saves ~6 minutes per rollback test)
