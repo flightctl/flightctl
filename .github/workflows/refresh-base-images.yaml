@@ -1,0 +1,305 @@
+name: Refresh Base Images
+
+on:
+  schedule:
+    # Run daily at 03:00 UTC (staggered from RPM builder at 02:00)
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: refresh-base-images
+  cancel-in-progress: false
+
+env:
+  IMAGE_REGISTRY: quay.io/flightctl
+  UBI_REGISTRY: registry.access.redhat.com
+
+jobs:
+  detect-updates:
+    runs-on: ubuntu-24.04
+    outputs:
+      build_matrix: ${{ steps.check.outputs.build_matrix }}
+      manifest_matrix: ${{ steps.check.outputs.manifest_matrix }}
+      updates_json: ${{ steps.check.outputs.updates_json }}
+      any_updated: ${{ steps.check.outputs.any_updated }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y skopeo jq
+
+      - name: Check for image updates
+        id: check
+        env:
+          UBI_REGISTRY: ${{ env.UBI_REGISTRY }}
+        run: |
+          set -e
+
+          # Extract Go minor version from go.mod (e.g. "1.24")
+          GO_MINOR=$(sed -n 's/^go \([0-9]*\.[0-9]*\).*/\1/p' go.mod)
+          GO_PATTERN="^${GO_MINOR//./\\.}\.[0-9]+-[0-9]+$"
+          echo "Go minor version: ${GO_MINOR} (pattern: ${GO_PATTERN})"
+
+          # Helper: find latest tag matching a regex pattern, sorted by timestamp suffix
+          find_latest_tag() {
+            local image="$1" pattern="$2"
+            if ! tags=$(skopeo list-tags "docker://${image}" 2>/dev/null); then
+              echo "ERROR: Could not fetch tags from ${image}" >&2
+              exit 1
+            fi
+            echo "$tags" | jq -r '.Tags[]' | grep -E "$pattern" | sort -t- -k2 -n | tail -1
+          }
+
+          # Helper: extract current tag (after last ':') from a buildargs key
+          get_current_tag() {
+            local file="$1" key="$2"
+            grep "^${key}=" "$file" | sed 's/.*://'
+          }
+
+          # Accumulate results
+          UPDATES='{}'
+          BUILD_MATRIX='[]'
+          MANIFEST_MATRIX='[]'
+          ANY_UPDATED=false
+
+          # Check each release version
+          for VER in 9 10; do
+            BUILDARGS_FILE="packaging/flavors/community-el${VER}/Containerfile.buildargs"
+            TAG_PREFIX="^${VER}\.[0-9]+-[0-9]+$"
+            VER_UPDATES='{"any":false}'
+
+            # Check ubi-micro
+            CURRENT=$(get_current_tag "$BUILDARGS_FILE" RUNTIME_BASE_IMAGE)
+            LATEST=$(find_latest_tag "${UBI_REGISTRY}/ubi${VER}/ubi-micro" "$TAG_PREFIX")
+            MICRO_UPDATED=false
+            if [ -n "$LATEST" ] && [ "$CURRENT" != "$LATEST" ]; then
+              MICRO_UPDATED=true
+              VER_UPDATES=$(echo "$VER_UPDATES" | jq '.any = true')
+              ANY_UPDATED=true
+
+              # Add build matrix entries (both architectures)
+              BUILD_MATRIX=$(echo "$BUILD_MATRIX" | jq \
+                --arg v "$VER" --arg t "$LATEST" \
+                '. + [
+                  {"relver": $v, "micro_tag": $t, "arch": "amd64", "runner": "ubuntu-24.04"},
+                  {"relver": $v, "micro_tag": $t, "arch": "arm64", "runner": "ubuntu-24.04-arm"}
+                ]')
+              MANIFEST_MATRIX=$(echo "$MANIFEST_MATRIX" | jq \
+                --arg v "$VER" --arg t "$LATEST" \
+                '. + [{"relver": $v, "micro_tag": $t}]')
+            fi
+            VER_UPDATES=$(echo "$VER_UPDATES" | jq \
+              --argjson u "$MICRO_UPDATED" --arg t "${LATEST:-$CURRENT}" \
+              '.micro = {"updated": $u, "tag": $t}')
+            echo "el${VER} ubi-micro: current=${CURRENT} latest=${LATEST:-$CURRENT} updated=${MICRO_UPDATED}"
+
+            # Check ubi-minimal
+            CURRENT=$(get_current_tag "$BUILDARGS_FILE" MINIMAL_BASE_IMAGE)
+            LATEST=$(find_latest_tag "${UBI_REGISTRY}/ubi${VER}/ubi-minimal" "$TAG_PREFIX")
+            MINIMAL_UPDATED=false
+            if [ -n "$LATEST" ] && [ "$CURRENT" != "$LATEST" ]; then
+              MINIMAL_UPDATED=true
+              VER_UPDATES=$(echo "$VER_UPDATES" | jq '.any = true')
+              ANY_UPDATED=true
+            fi
+            VER_UPDATES=$(echo "$VER_UPDATES" | jq \
+              --argjson u "$MINIMAL_UPDATED" --arg t "${LATEST:-$CURRENT}" \
+              '.minimal = {"updated": $u, "tag": $t}')
+            echo "el${VER} ubi-minimal: current=${CURRENT} latest=${LATEST:-$CURRENT} updated=${MINIMAL_UPDATED}"
+
+            # Check go-toolset (stay within Go minor version)
+            CURRENT=$(get_current_tag "$BUILDARGS_FILE" BUILD_BASE_IMAGE)
+            LATEST=$(find_latest_tag "${UBI_REGISTRY}/ubi${VER}/go-toolset" "$GO_PATTERN")
+            GOTOOLSET_UPDATED=false
+            if [ -n "$LATEST" ] && [ "$CURRENT" != "$LATEST" ]; then
+              GOTOOLSET_UPDATED=true
+              VER_UPDATES=$(echo "$VER_UPDATES" | jq '.any = true')
+              ANY_UPDATED=true
+            fi
+            VER_UPDATES=$(echo "$VER_UPDATES" | jq \
+              --argjson u "$GOTOOLSET_UPDATED" --arg t "${LATEST:-$CURRENT}" \
+              '.gotoolset = {"updated": $u, "tag": $t}')
+            echo "el${VER} go-toolset: current=${CURRENT} latest=${LATEST:-$CURRENT} updated=${GOTOOLSET_UPDATED}"
+
+            UPDATES=$(echo "$UPDATES" | jq --arg v "$VER" --argjson u "$VER_UPDATES" '.[$v] = $u')
+          done
+
+          echo "build_matrix=$(echo "$BUILD_MATRIX" | jq -c '.')" >> "$GITHUB_OUTPUT"
+          echo "manifest_matrix=$(echo "$MANIFEST_MATRIX" | jq -c '.')" >> "$GITHUB_OUTPUT"
+          echo "updates_json=$(echo "$UPDATES" | jq -c '.')" >> "$GITHUB_OUTPUT"
+          echo "any_updated=${ANY_UPDATED}" >> "$GITHUB_OUTPUT"
+
+      - name: Summary
+        env:
+          UPDATES_JSON: ${{ steps.check.outputs.updates_json }}
+        run: |
+          echo "## Detection Results" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Image | EL9 | EL10 |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|-------|-----|------|" >> "$GITHUB_STEP_SUMMARY"
+          for img in micro minimal gotoolset; do
+            EL9_TAG=$(echo "$UPDATES_JSON" | jq -r ".\"9\".${img}.tag")
+            EL9_UPD=$(echo "$UPDATES_JSON" | jq -r ".\"9\".${img}.updated")
+            EL10_TAG=$(echo "$UPDATES_JSON" | jq -r ".\"10\".${img}.tag")
+            EL10_UPD=$(echo "$UPDATES_JSON" | jq -r ".\"10\".${img}.updated")
+            echo "| ${img} | ${EL9_TAG} (updated: ${EL9_UPD}) | ${EL10_TAG} (updated: ${EL10_UPD}) |" >> "$GITHUB_STEP_SUMMARY"
+          done
+
+  build-base:
+    needs: detect-updates
+    if: needs.detect-updates.outputs.build_matrix != '[]'
+    strategy:
+      matrix:
+        include: ${{ fromJSON(needs.detect-updates.outputs.build_matrix) }}
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build flightctl-base-el${{ matrix.relver }}
+        env:
+          RELEASE_VERSION: ${{ matrix.relver }}
+          IMAGE_TAG: ${{ matrix.micro_tag }}
+          IMAGE_REPO: ${{ env.IMAGE_REGISTRY }}/flightctl-base-el${{ matrix.relver }}
+        run: |
+          sudo ./hack/build_flightctl-base.sh
+
+      - name: Push arch-specific image
+        env:
+          IMAGE_TAG: ${{ matrix.micro_tag }}
+          IMAGE_REPO: ${{ env.IMAGE_REGISTRY }}/flightctl-base-el${{ matrix.relver }}
+        run: |
+          sudo buildah login -u "${{ secrets.QUAY_FLIGHTCTL_INFRA_ROBOT_USERNAME }}" \
+            -p "${{ secrets.QUAY_FLIGHTCTL_INFRA_ROBOT_PASSWORD }}" quay.io
+          sudo buildah push "${IMAGE_REPO}:${{ matrix.arch }}-${IMAGE_TAG}"
+
+  manifest:
+    needs: [detect-updates, build-base]
+    if: needs.detect-updates.outputs.manifest_matrix != '[]'
+    strategy:
+      matrix:
+        include: ${{ fromJSON(needs.detect-updates.outputs.manifest_matrix) }}
+    runs-on: ubuntu-24.04
+    env:
+      IMAGE_TAG: ${{ matrix.micro_tag }}
+      IMAGE_REPO: quay.io/flightctl/flightctl-base-el${{ matrix.relver }}
+    steps:
+      - name: Create and push manifest list
+        run: |
+          podman login -u "${{ secrets.QUAY_FLIGHTCTL_INFRA_ROBOT_USERNAME }}" \
+            -p "${{ secrets.QUAY_FLIGHTCTL_INFRA_ROBOT_PASSWORD }}" quay.io
+
+          podman manifest create "${IMAGE_REPO}:${IMAGE_TAG}"
+          podman manifest add "${IMAGE_REPO}:${IMAGE_TAG}" "docker://${IMAGE_REPO}:amd64-${IMAGE_TAG}"
+          podman manifest add "${IMAGE_REPO}:${IMAGE_TAG}" "docker://${IMAGE_REPO}:arm64-${IMAGE_TAG}"
+          podman manifest push --all "${IMAGE_REPO}:${IMAGE_TAG}" "docker://${IMAGE_REPO}:${IMAGE_TAG}"
+
+  open-pr:
+    needs: [detect-updates, manifest]
+    if: |
+      always() &&
+      !contains(needs.*.result, 'failure') &&
+      needs.detect-updates.outputs.any_updated == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Update buildargs files
+        env:
+          UPDATES_JSON: ${{ needs.detect-updates.outputs.updates_json }}
+          UBI_REGISTRY: ${{ env.UBI_REGISTRY }}
+          IMAGE_REGISTRY: ${{ env.IMAGE_REGISTRY }}
+        run: |
+          set -e
+
+          for VER in $(echo "$UPDATES_JSON" | jq -r 'keys[]'); do
+            ENTRY=$(echo "$UPDATES_JSON" | jq ".\"$VER\"")
+            ANY=$(echo "$ENTRY" | jq -r '.any')
+            [ "$ANY" != "true" ] && continue
+
+            BUILDARGS_FILE="packaging/flavors/community-el${VER}/Containerfile.buildargs"
+            echo "Updating ${BUILDARGS_FILE}..."
+
+            if [ "$(echo "$ENTRY" | jq -r '.micro.updated')" = "true" ]; then
+              TAG=$(echo "$ENTRY" | jq -r '.micro.tag')
+              sed -i "s|^RUNTIME_BASE_IMAGE=.*|RUNTIME_BASE_IMAGE=${IMAGE_REGISTRY}/flightctl-base-el${VER}:${TAG}|" "$BUILDARGS_FILE"
+              echo "  RUNTIME_BASE_IMAGE -> ${TAG}"
+            fi
+
+            if [ "$(echo "$ENTRY" | jq -r '.minimal.updated')" = "true" ]; then
+              TAG=$(echo "$ENTRY" | jq -r '.minimal.tag')
+              sed -i "s|^MINIMAL_BASE_IMAGE=.*|MINIMAL_BASE_IMAGE=${UBI_REGISTRY}/ubi${VER}/ubi-minimal:${TAG}|" "$BUILDARGS_FILE"
+              echo "  MINIMAL_BASE_IMAGE -> ${TAG}"
+            fi
+
+            if [ "$(echo "$ENTRY" | jq -r '.gotoolset.updated')" = "true" ]; then
+              TAG=$(echo "$ENTRY" | jq -r '.gotoolset.tag')
+              sed -i "s|^BUILD_BASE_IMAGE=.*|BUILD_BASE_IMAGE=${UBI_REGISTRY}/ubi${VER}/go-toolset:${TAG}|" "$BUILDARGS_FILE"
+              echo "  BUILD_BASE_IMAGE -> ${TAG}"
+            fi
+          done
+
+      - name: Create or update Pull Request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          UPDATES_JSON: ${{ needs.detect-updates.outputs.updates_json }}
+        run: |
+          set -e
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          BRANCH_NAME="auto/refresh-base-images"
+          git checkout -B "${BRANCH_NAME}"
+
+          git add packaging/flavors/community-*/Containerfile.buildargs
+
+          git diff --staged --quiet && { echo "No changes to commit"; exit 0; }
+
+          # Build PR body from updates JSON
+          BODY=""
+          for VER in $(echo "$UPDATES_JSON" | jq -r 'keys[]'); do
+            ENTRY=$(echo "$UPDATES_JSON" | jq ".\"$VER\"")
+            [ "$(echo "$ENTRY" | jq -r '.any')" != "true" ] && continue
+
+            BODY="${BODY}### EL${VER}"$'\n'
+            for img in micro minimal gotoolset; do
+              if [ "$(echo "$ENTRY" | jq -r ".${img}.updated")" = "true" ]; then
+                TAG=$(echo "$ENTRY" | jq -r ".${img}.tag")
+                BODY="${BODY}- ${img}: ${TAG}"$'\n'
+              fi
+            done
+            BODY="${BODY}"$'\n'
+          done
+
+          git commit -m "NO-ISSUE: Refresh base image references"
+          git push --force origin "${BRANCH_NAME}"
+
+          PR_BODY="$(cat <<EOF
+          ## Updated base image references
+
+          ${BODY}
+          Generated by the [refresh-base-images workflow](https://github.com/${GITHUB_REPOSITORY}/actions/workflows/refresh-base-images.yaml).
+          EOF
+          )"
+
+          EXISTING_PR=$(gh pr list --head "${BRANCH_NAME}" --state open --json number --jq '.[0].number')
+
+          if [ -n "$EXISTING_PR" ]; then
+            gh pr edit "$EXISTING_PR" --body "$PR_BODY"
+            echo "Updated existing PR #${EXISTING_PR}"
+          else
+            gh pr create \
+              --title "NO-ISSUE: Refresh base image references" \
+              --body "$PR_BODY" \
+              --label "dependencies"
+            echo "Pull request created successfully"
+          fi
