@@ -495,8 +495,9 @@ func (p *InfraProvider) namespaceForResource(resourceName string) string {
 func (p *InfraProvider) detectEnvironmentType() string {
 	// Check environment variable first
 	if envType := os.Getenv("E2E_ENVIRONMENT"); envType != "" {
-		if envType == "kind" || envType == "ocp" {
-			return envType
+		normalized := infra.NormalizeEnvironmentType(envType)
+		if normalized == infra.EnvironmentKind || normalized == infra.EnvironmentOCP {
+			return normalized
 		}
 	}
 
