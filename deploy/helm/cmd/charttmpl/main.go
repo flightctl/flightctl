@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"fmt"
 	"log"
 	"os"
@@ -64,10 +65,20 @@ func runTemplate(in string, out string, templateData templateContext) error {
 }
 
 func main() {
-	profileKey := "community"
+	// Determine OS version (el9 vs el10), default to el9
+	osVersion := cmp.Or(
+		os.Getenv("OS"),
+		"el9",
+	)
+
+	// Determine build type (community vs redhat)
+	buildType := "community"
 	if os.Getenv("RHEM") != "" {
-		profileKey = "redhat"
+		buildType = "redhat"
 	}
+
+	// Build profile key combining build type and OS version
+	profileKey := buildType + "-" + osVersion
 
 	// Multi-profile opts file
 	optsBytes, err := os.ReadFile(optsPath)
