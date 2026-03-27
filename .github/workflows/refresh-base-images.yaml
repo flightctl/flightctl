@@ -28,11 +28,6 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y skopeo jq
-
       - name: Check for image updates
         id: check
         env:
@@ -42,6 +37,10 @@ jobs:
 
           # Extract Go minor version from go.mod (e.g. "1.24")
           GO_MINOR=$(sed -n 's/^go \([0-9]*\.[0-9]*\).*/\1/p' go.mod)
+          if [ -z "$GO_MINOR" ]; then
+            echo "ERROR: Could not extract Go version from go.mod" >&2
+            exit 1
+          fi
           GO_PATTERN="^${GO_MINOR//./\\.}\.[0-9]+-[0-9]+$"
           echo "Go minor version: ${GO_MINOR} (pattern: ${GO_PATTERN})"
 
@@ -57,8 +56,9 @@ jobs:
 
           # Helper: extract current tag (after last ':') from a buildargs key
           get_current_tag() {
-            local file="$1" key="$2"
-            grep "^${key}=" "$file" | sed 's/.*://'
+            local file="$1" key="$2" line
+            line=$(grep "^${key}=" "$file") || { echo "ERROR: Key '${key}' not found in ${file}" >&2; exit 1; }
+            echo "$line" | sed 's/.*://'
           }
 
           # Accumulate results
