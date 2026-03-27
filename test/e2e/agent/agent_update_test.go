@@ -13,6 +13,21 @@ import (
 	. "github.com/onsi/gomega"
 )
 
+// deviceInOSTUpdateProgress is true while the OS image update is being pulled or applied (Preparing / ReadyToUpdate / ApplyingUpdate).
+// Slow image pulls can keep the device in Preparing for a long time; ApplyingUpdate alone is too narrow and flakes in CI.
+func deviceInOSTUpdateProgress(device *v1beta1.Device) bool {
+	for _, reason := range []string{
+		string(v1beta1.UpdateStatePreparing),
+		string(v1beta1.UpdateStateReadyToUpdate),
+		string(v1beta1.UpdateStateApplyingUpdate),
+	} {
+		if e2e.ConditionExists(device, v1beta1.ConditionTypeDeviceUpdating, v1beta1.ConditionStatusTrue, reason) {
+			return true
+		}
+	}
+	return false
+}
+
 var _ = Describe("VM Agent behavior during updates", func() {
 	var (
 		deviceId string
@@ -42,7 +57,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 
 			harness.WaitForDeviceContents(deviceId, "The device is preparing an update to renderedVersion: 2",
 				func(device *v1beta1.Device) bool {
-					return e2e.ConditionExists(device, v1beta1.ConditionTypeDeviceUpdating, v1beta1.ConditionStatusTrue, string(v1beta1.UpdateStateApplyingUpdate))
+					return deviceInOSTUpdateProgress(device)
 				}, LONGTIMEOUT)
 
 			Eventually(harness.GetDeviceWithStatusSummary, LONGTIMEOUT, POLLING).WithArguments(
@@ -84,7 +99,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 
 			harness.WaitForDeviceContents(deviceId, "The device is preparing an update to renderedVersion: 2",
 				func(device *v1beta1.Device) bool {
-					return e2e.ConditionExists(device, v1beta1.ConditionTypeDeviceUpdating, v1beta1.ConditionStatusTrue, string(v1beta1.UpdateStateApplyingUpdate))
+					return deviceInOSTUpdateProgress(device)
 				}, LONGTIMEOUT)
 
 			Expect(device.Status.Summary.Status).To(Equal(v1beta1.DeviceSummaryStatusOnline))
@@ -128,7 +143,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 
 			harness.WaitForDeviceContents(deviceId, "The device is preparing an update to renderedVersion: 3",
 				func(device *v1beta1.Device) bool {
-					return e2e.ConditionExists(device, v1beta1.ConditionTypeDeviceUpdating, v1beta1.ConditionStatusTrue, string(v1beta1.UpdateStateApplyingUpdate))
+					return deviceInOSTUpdateProgress(device)
 				}, TIMEOUT)
 
 			Expect(device.Status.Summary.Status).To(Equal(v1beta1.DeviceSummaryStatusType("Online")))
@@ -282,64 +297,9 @@ var _ = Describe("VM Agent behavior during updates", func() {
 				}, TIMEOUT)
 			*/
 		})
-		It("Should trigger greenboot rollback when agent fails to start", Label("greenboot-rollback", "87279", "sanity", "agent"), func() {
-			// Get harness directly - no shared package-level variable
+		It("Should trigger greenboot rollback when agent fails to start", Label("greenboot-rollback", "87279", "greenboot-rollback-recovery", "sanity", "agent"), func() {
 			harness := e2e.GetWorkerHarness()
-
-			By("Getting initial device state")
-			dev, err := harness.GetDevice(deviceId)
-			Expect(err).NotTo(HaveOccurred())
-			initialStatusImage := dev.Status.Os.Image
-			initialBootID := dev.Status.SystemInfo.BootID
-			GinkgoWriter.Printf("Initial image: %s\n", initialStatusImage)
-
-			By("Updating device to v11 image (contains systemd drop-in that breaks flightctl-agent)")
-			// The v11 image contains a systemd drop-in that causes flightctl-agent to fail
-			// This should trigger greenboot rollback after the health check fails
-			_, _, err = harness.WaitForBootstrapAndUpdateToVersion(deviceId, util.DeviceTags.V11)
-			Expect(err).ToNot(HaveOccurred())
-
-			harness.WaitForDeviceContents(deviceId, "device spec should be updated to v11", func(device *v1beta1.Device) bool {
-				return device.Spec.Os != nil && strings.Contains(device.Spec.Os.Image, "v11")
-			}, TIMEOUT)
-
-			By("Waiting for device to start rebooting into v11")
-			Eventually(harness.GetDeviceWithStatusSummary, LONGTIMEOUT, POLLING).WithArguments(
-				deviceId).Should(Equal(v1beta1.DeviceSummaryStatusRebooting))
-
-			By("Waiting for greenboot to detect agent failure and trigger OS rollback")
-			// The device will reboot into v11, agent fails to start, greenboot detects failure,
-			// and triggers rollback. With GREENBOOT_MAX_BOOT_ATTEMPTS=1 (set in BASE image),
-			// this should complete in a single boot cycle (~3-5 minutes).
-			// We capture the boot ID atomically here so the no-retry stability check
-			// starts from the exact moment the rollback is first observed.
-			postRollbackBootID := ""
-			harness.WaitForDeviceContents(deviceId, "device should rollback to initial OS image and come online", func(device *v1beta1.Device) bool {
-				if device.Status.Os.Image != initialStatusImage ||
-					device.Status.Summary.Status != v1beta1.DeviceSummaryStatusOnline ||
-					device.Status.SystemInfo.BootID == initialBootID {
-					return false
-				}
-				postRollbackBootID = device.Status.SystemInfo.BootID
-				return true
-			}, LONGTIMEOUT)
-
-			By("Verifying greenboot triggered an OS rollback (not just a reboot)")
-			// "FALLBACK BOOT DETECTED" only appears when greenboot's rollback mechanism was triggered.
-			fallbackOutput, err := harness.VM.RunSSH([]string{
-				"sudo", "journalctl", "-b", "-u", "greenboot-healthcheck.service", "--no-pager",
-			}, nil)
-			Expect(err).NotTo(HaveOccurred(), "Failed to read greenboot fallback check logs")
-			Expect(fallbackOutput.String()).To(ContainSubstring("FALLBACK BOOT DETECTED"),
-				"Expected greenboot to detect fallback boot - this confirms OS rollback occurred, not just a reboot")
-			GinkgoWriter.Println("Confirmed: greenboot detected 'FALLBACK BOOT DETECTED' - OS rollback verified")
-
-			By("Verifying device reports as OutOfDate after rollback")
-			harness.WaitForDeviceContents(deviceId, "device should be out of date after rollback", func(device *v1beta1.Device) bool {
-				return device.Status.Updated.Status == v1beta1.DeviceUpdatedStatusOutOfDate
-			}, TIMEOUT)
-
-			GinkgoWriter.Printf("Device successfully rolled back from v11 to %s via greenboot\n", initialStatusImage)
+			initialStatusImage, postRollbackBootID := waitForGreenbootOSRollbackFromV11BrokenAgent(harness, deviceId)
 
 			By("Verifying device does NOT retry the failed v11 image")
 			// Wait for the device to stabilize as Online after rollback. With greenboot-rs
@@ -355,6 +315,54 @@ var _ = Describe("VM Agent behavior during updates", func() {
 					device.Status.Summary.Status == v1beta1.DeviceSummaryStatusOnline
 			}, "2m")
 			GinkgoWriter.Println("Confirmed: device did not retry the failed v11 image after rollback")
+
+			By("Recovering with a new good OS image after rollback (operator pushes a fix)")
+			nextRendered, err := harness.PrepareNextDeviceVersionFromCurrentStatus(deviceId)
+			Expect(err).NotTo(HaveOccurred())
+			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
+				cur, perr := util.NewImageReferenceFromString(device.Status.Os.Image)
+				Expect(perr).NotTo(HaveOccurred())
+				device.Spec.Os = &v1beta1.DeviceOsSpec{Image: cur.WithTag(util.DeviceTags.V2).String()}
+			})
+			Expect(err).NotTo(HaveOccurred())
+			err = harness.WaitForDeviceNewRenderedVersionWithReboot(deviceId, nextRendered)
+			Expect(err).NotTo(HaveOccurred())
+
+			harness.WaitForDeviceContents(deviceId, "device should be up to date on good image after recovery update", func(device *v1beta1.Device) bool {
+				return device.Status.Updated.Status == v1beta1.DeviceUpdatedStatusUpToDate &&
+					device.Status.Summary.Status == v1beta1.DeviceSummaryStatusOnline &&
+					strings.Contains(device.Status.Os.Image, util.DeviceTags.V2) &&
+					device.Status.Os.Image != initialStatusImage
+			}, LONGTIMEOUT)
+			GinkgoWriter.Println("Confirmed: device accepted new image and recovered after greenboot rollback")
+		})
+
+		It("Should retain pre-rollback script output in journal when Storage=persistent", Label("88425", "sanity", "agent"), func() {
+			harness := e2e.GetWorkerHarness()
+			configureJournaldForGreenbootE2E(harness, true)
+			waitForGreenbootOSRollbackFromV11BrokenAgent(harness, deviceId)
+
+			By("Verifying pre-rollback diagnostics are still visible after rollback reboot (persistent journal)")
+			Eventually(func() bool {
+				diagOut, err := journalGrepPreRollbackMarkerFromVM(harness)
+				Expect(err).NotTo(HaveOccurred())
+				return hasPreRollbackJournalEvidence(diagOut)
+			}, "45s", "3s").Should(BeTrue(),
+				"Expected 40_flightctl_agent_pre_rollback.sh output in persistent journal after rollback reboot")
+			GinkgoWriter.Println("Confirmed: pre-rollback script output persisted across rollback reboot")
+		})
+
+		It("Should not retain pre-rollback script output across rollback when journal is volatile", Label("88426", "agent"), func() {
+			harness := e2e.GetWorkerHarness()
+			configureJournaldForGreenbootE2E(harness, false)
+			waitForGreenbootOSRollbackFromV11BrokenAgent(harness, deviceId)
+
+			By("Verifying pre-rollback diagnostics from the failed boot are not in retained journal")
+			diagOut, err := journalGrepPreRollbackMarkerFromVM(harness)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(hasPreRollbackJournalEvidence(diagOut)).To(BeFalse(),
+				"Pre-rollback collection runs before rollback reboot; with volatile journal those logs should not survive")
+			GinkgoWriter.Println("Confirmed: pre-rollback script output not present after reboot with volatile journal")
 		})
 		It("Should NOT rollback when third-party health check (MicroShift) fails", Label("greenboot-third-party", "88229", "agent"), func() {
 			harness := e2e.GetWorkerHarness()
@@ -594,6 +602,144 @@ var _ = Describe("VM Agent behavior during updates", func() {
 
 	})
 })
+
+// preRollbackJournalMarker is emitted by packaging/greenboot/flightctl-agent-pre-rollback.sh (log_info).
+const preRollbackJournalMarker = "flightctl-agent pre-rollback script started"
+
+// hasPreRollbackJournalEvidence returns true if s looks like output from 40_flightctl_agent_pre_rollback.sh
+// (journal MESSAGE formatting varies by systemd/journald version).
+func hasPreRollbackJournalEvidence(s string) bool {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return false
+	}
+	for _, sub := range []string{
+		preRollbackJournalMarker,
+		"40_flightctl_agent_pre_rollback",
+		"rollback imminent - collecting debug info",
+		"[pre-rollback]",
+	} {
+		if strings.Contains(s, sub) {
+			return true
+		}
+	}
+	return false
+}
+
+// journalPreRollbackGrepScript searches persistent journal for pre-rollback hook output. Tries several
+// boots (-1..-3), full merge, and redboot-task-runner; uses grep -E with alternates because exact MESSAGE
+// text can differ between OS versions.
+const journalPreRollbackGrepScript = `
+pick_pat='flightctl-agent pre-rollback script started|40_flightctl_agent_pre_rollback|rollback imminent - collecting debug info|\[pre-rollback\]'
+pick() { grep -E "$pick_pat" 2>/dev/null | head -1 || true; }
+out=""
+for b in -1 -2 -3; do
+  out=$(sudo journalctl -b "$b" --no-pager 2>/dev/null | pick)
+  [ -n "$out" ] && break
+done
+if [ -z "$out" ]; then
+  out=$(sudo journalctl --no-pager 2>/dev/null | pick)
+fi
+if [ -z "$out" ]; then
+  for b in -1 -2; do
+    out=$(sudo journalctl -b "$b" -o cat -u redboot-task-runner.service --no-pager 2>/dev/null | pick)
+    [ -n "$out" ] && break
+  done
+fi
+if [ -z "$out" ]; then
+  out=$(sudo journalctl -o cat -u redboot-task-runner.service --no-pager 2>/dev/null | pick)
+fi
+printf '%s' "$out"
+`
+
+// journalGrepPreRollbackMarkerFromVM returns the first journal line matching pre-rollback diagnostics, or "".
+func journalGrepPreRollbackMarkerFromVM(harness *e2e.Harness) (string, error) {
+	stdout, err := harness.VM.RunSSH([]string{"bash", "-lc", journalPreRollbackGrepScript}, nil)
+	if err != nil {
+		return "", err
+	}
+	return stdout.String(), nil
+}
+
+// waitForGreenbootOSRollbackFromV11BrokenAgent updates the device to the v11 image (broken flightctl-agent),
+// waits for greenboot to roll the OS back to the initial image, and verifies fallback + OutOfDate.
+// It returns the initial status OS image reference and the boot ID after rollback completes.
+func waitForGreenbootOSRollbackFromV11BrokenAgent(harness *e2e.Harness, deviceId string) (initialStatusImage, postRollbackBootID string) {
+	By("Getting initial device state")
+	dev, err := harness.GetDevice(deviceId)
+	Expect(err).NotTo(HaveOccurred())
+	initialStatusImage = dev.Status.Os.Image
+	initialBootID := dev.Status.SystemInfo.BootID
+	GinkgoWriter.Printf("Initial image: %s\n", initialStatusImage)
+
+	By("Updating device to v11 image (contains systemd drop-in that breaks flightctl-agent)")
+	// The v11 image contains a systemd drop-in that causes flightctl-agent to fail.
+	// Greenboot health checks fail and the OS rolls back to the previous deployment.
+	_, _, err = harness.WaitForBootstrapAndUpdateToVersion(deviceId, util.DeviceTags.V11)
+	Expect(err).ToNot(HaveOccurred())
+
+	harness.WaitForDeviceContents(deviceId, "device spec should be updated to v11", func(device *v1beta1.Device) bool {
+		return device.Spec.Os != nil && strings.Contains(device.Spec.Os.Image, "v11")
+	}, TIMEOUT)
+
+	By("Waiting for device to start rebooting into v11")
+	Eventually(harness.GetDeviceWithStatusSummary, LONGTIMEOUT, POLLING).WithArguments(
+		deviceId).Should(Equal(v1beta1.DeviceSummaryStatusRebooting))
+
+	By("Waiting for greenboot to detect agent failure and trigger OS rollback")
+	postRollbackBootID = ""
+	harness.WaitForDeviceContents(deviceId, "device should rollback to initial OS image and come online", func(device *v1beta1.Device) bool {
+		if device.Status.Os.Image != initialStatusImage ||
+			device.Status.Summary.Status != v1beta1.DeviceSummaryStatusOnline ||
+			device.Status.SystemInfo.BootID == initialBootID {
+			return false
+		}
+		postRollbackBootID = device.Status.SystemInfo.BootID
+		return true
+	}, LONGTIMEOUT)
+
+	By("Verifying greenboot triggered an OS rollback (not just a reboot)")
+	fallbackOutput, err := harness.VM.RunSSH([]string{
+		"sudo", "journalctl", "-b", "-u", "greenboot-healthcheck.service", "--no-pager",
+	}, nil)
+	Expect(err).NotTo(HaveOccurred(), "Failed to read greenboot fallback check logs")
+	Expect(fallbackOutput.String()).To(ContainSubstring("FALLBACK BOOT DETECTED"),
+		"Expected greenboot to detect fallback boot - this confirms OS rollback occurred, not just a reboot")
+	GinkgoWriter.Println("Confirmed: greenboot detected 'FALLBACK BOOT DETECTED' - OS rollback verified")
+
+	By("Verifying device reports as OutOfDate after rollback")
+	harness.WaitForDeviceContents(deviceId, "device should be out of date after rollback", func(device *v1beta1.Device) bool {
+		return device.Status.Updated.Status == v1beta1.DeviceUpdatedStatusOutOfDate
+	}, TIMEOUT)
+
+	GinkgoWriter.Printf("Device successfully rolled back from v11 to %s via greenboot\n", initialStatusImage)
+	return initialStatusImage, postRollbackBootID
+}
+
+func configureJournaldForGreenbootE2E(harness *e2e.Harness, persistent bool) {
+	storage := "volatile"
+	if persistent {
+		storage = "persistent"
+	}
+	By(fmt.Sprintf("Configuring journald Storage=%s for pre-rollback visibility test", storage))
+	script := fmt.Sprintf(`set -euo pipefail
+sudo mkdir -p /etc/systemd/journald.conf.d
+echo '[Journal]
+Storage=%s' | sudo tee /etc/systemd/journald.conf.d/99-e2e-greenboot-journal.conf >/dev/null
+`, storage)
+	if persistent {
+		script += `sudo mkdir -p /var/log/journal
+sudo systemd-tmpfiles --create --prefix /var/log/journal 2>/dev/null || true
+`
+	} else {
+		script += `sudo rm -rf /var/log/journal
+`
+	}
+	script += `sudo systemctl restart systemd-journald
+`
+	_, err := harness.VM.RunSSH([]string{"bash", "-lc", script}, nil)
+	Expect(err).NotTo(HaveOccurred())
+}
 
 var flightDemosHttpRepoConfig = v1beta1.HttpConfigProviderSpec{
 	HttpRef: struct {
