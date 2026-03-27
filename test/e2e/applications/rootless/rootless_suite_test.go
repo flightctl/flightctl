@@ -1,9 +1,11 @@
 package rootless_test
 
 import (
+	"context"
 	"strings"
 	"testing"
 
+	"github.com/flightctl/flightctl/test/e2e/infra/auxiliary"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
@@ -19,6 +21,8 @@ func TestRootless(t *testing.T) {
 }
 
 var _ = BeforeSuite(func() {
+	// Registry (authenticated OCI) for quadlet image-volume pulls with pull secrets; same pattern as helm e2e.
+	auxiliary.Get(context.Background())
 	e2e.SetupWorkerHarnessOrAbort()
 })
 

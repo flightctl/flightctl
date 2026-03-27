@@ -9,15 +9,18 @@
 package rootless_test
 
 import (
+	"encoding/base64"
 	"fmt"
 	"strings"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/test/e2e/infra/auxiliary"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	"github.com/flightctl/flightctl/test/login"
 	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/samber/lo"
 )
 
 const (
@@ -34,6 +37,12 @@ const (
 	rootlessAppComposeRunAs      = "compose-test"
 	rootlessAppCustomUser        = "customuser-app"
 	rootlessAppNonrootInternal   = "nonroot-internal"
+
+	// Quadlet image app + model-data image volume (private OCI); paths align with test/e2e/applications/helm/helm_application_test.go.
+	authFlightctlRepoPrivate           = "quay.io/flightctl-private"
+	quadletPrivateAppImage             = "quadlets/quadlet-app:latest"
+	quadletPrivateModelDataImage       = "quadlets/model-data:latest"
+	rootlessAppPullSecretTransition    = "quadlet-pullsecret-transition"
 
 	rootlessAppOCP87846PrivPort   = "nginx-priv-port"
 	rootlessAppOCP87846EmptyRunAs = "empty-runas-app"
@@ -280,6 +289,43 @@ var _ = Describe("Rootless applications", Label("rootless"), func() {
 		// Expect(err).ToNot(HaveOccurred())
 		// Expect(execOut.String()).To(And(ContainSubstring("uid=1000"), Not(ContainSubstring("uid=0(root)"))))
 
+		By("Quadlet + device pull secret: rootful (auth at /root/.config/containers/auth.json) then rootless — prefetch must use runAs path, not root's auth.json (regression vs permission denied on /root/.../auth.json)")
+		services := auxiliary.Get(harness.GetTestContext())
+		creds := buildAuthJSONForE2EPullSecret(
+			services.Registry.Authenticated.Username,
+			services.Registry.Authenticated.Password,
+			services.Registry.Authenticated.HostPort,
+			authFlightctlRepoPrivate,
+		)
+		rootfulAuth, err := rootfulContainersAuthConfig(creds)
+		Expect(err).ToNot(HaveOccurred())
+		rootfulQuadletPS, err := quadletAppPrivateRegistryWithModelVolume("", rootlessAppPullSecretTransition)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(harness.UpdateDeviceAndWaitForVersion(deviceID, func(d *v1beta1.Device) {
+			d.Spec.Config = &[]v1beta1.ConfigProviderSpec{rootfulAuth}
+			d.Spec.Applications = &[]v1beta1.ApplicationProviderSpec{rootfulQuadletPS}
+		})).ToNot(HaveOccurred())
+		Expect(harness.WaitForApplicationStatus(deviceID, rootlessAppPullSecretTransition, v1beta1.ApplicationStatusRunning, testutil.LONG_TIMEOUT, testutil.POLLING)).ToNot(HaveOccurred())
+
+		rootlessAuth, err := rootlessContainersAuthConfig(creds)
+		Expect(err).ToNot(HaveOccurred())
+		rootlessQuadletPS, err := quadletAppPrivateRegistryWithModelVolume(flightctlUser, rootlessAppPullSecretTransition)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(harness.UpdateDeviceAndWaitForVersion(deviceID, func(d *v1beta1.Device) {
+			d.Spec.Config = &[]v1beta1.ConfigProviderSpec{rootlessAuth}
+			d.Spec.Applications = &[]v1beta1.ApplicationProviderSpec{rootlessQuadletPS}
+		})).ToNot(HaveOccurred())
+		Expect(harness.WaitForApplicationStatus(deviceID, rootlessAppPullSecretTransition, v1beta1.ApplicationStatusRunning, testutil.LONG_TIMEOUT, testutil.POLLING)).ToNot(HaveOccurred())
+
+		By("Clear applications and device config after pull-secret checkpoint (restore clean spec for SELinux)")
+		Expect(harness.UpdateDeviceAndWaitForVersion(deviceID, func(d *v1beta1.Device) {
+			d.Spec.Applications = &[]v1beta1.ApplicationProviderSpec{}
+			d.Spec.Config = nil
+		})).ToNot(HaveOccurred())
+		harness.WaitForDeviceContents(deviceID, "device UpToDate after clearing pull-secret app", func(device *v1beta1.Device) bool {
+			return device.Status.Updated.Status == v1beta1.DeviceUpdatedStatusUpToDate
+		}, testutil.LONGTIMEOUT)
+
 		By("SELinux: no AVC denials for flightctl/podman")
 		getenforceOut, err := harness.VM.RunSSH([]string{"sh", "-c", "getenforce 2>/dev/null || echo Disabled"}, nil)
 		if err != nil || strings.TrimSpace(getenforceOut.String()) != "Enforcing" {
@@ -514,4 +560,53 @@ Exec=sleep infinity
 [Install]
 WantedBy=default.target
 `, imageRef, volumeRef)
+}
+
+func buildAuthJSONForE2EPullSecret(username, password string, registries ...string) string {
+	auth := base64.StdEncoding.EncodeToString([]byte(username + ":" + password))
+	auths := make([]string, 0, len(registries))
+	for _, registry := range registries {
+		auths = append(auths, fmt.Sprintf(`"%s":{"auth":"%s"}`, registry, auth))
+	}
+	return fmt.Sprintf(`{"auths":{%s}}`, strings.Join(auths, ","))
+}
+
+func rootfulContainersAuthConfig(creds string) (v1beta1.ConfigProviderSpec, error) {
+	return e2e.NewInlineConfigSpec("pull-secret-rootful", []v1beta1.FileSpec{
+		{
+			Content: creds,
+			Mode:    lo.ToPtr(0600),
+			Path:    "/root/.config/containers/auth.json",
+		},
+	})
+}
+
+func rootlessContainersAuthConfig(creds string) (v1beta1.ConfigProviderSpec, error) {
+	return e2e.NewInlineConfigSpec("pull-secret-rootless", []v1beta1.FileSpec{
+		{
+			Content: creds,
+			Mode:    lo.ToPtr(0600),
+			Path:    "/var/home/flightctl/.config/containers/auth.json",
+			User:    flightctlUser,
+			Group:   flightctlUser,
+		},
+	})
+}
+
+func quadletAppPrivateRegistryWithModelVolume(runAs, appName string) (v1beta1.ApplicationProviderSpec, error) {
+	modelDataVolume := v1beta1.ApplicationVolume{
+		Name:          "model-data",
+		ReclaimPolicy: lo.ToPtr(v1beta1.Retain),
+	}
+	err := modelDataVolume.FromImageVolumeProviderSpec(v1beta1.ImageVolumeProviderSpec{
+		Image: v1beta1.ImageVolumeSource{
+			Reference:  fmt.Sprintf("%s/%s", authFlightctlRepoPrivate, quadletPrivateModelDataImage),
+			PullPolicy: lo.ToPtr(v1beta1.PullIfNotPresent),
+		}})
+	if err != nil {
+		return v1beta1.ApplicationProviderSpec{}, err
+	}
+	return e2e.NewQuadletApplicationSpec(appName, fmt.Sprintf("%s/%s", authFlightctlRepoPrivate, quadletPrivateAppImage), runAs, map[string]string{
+		"LOG_MESSAGE": "rootful to rootless pull-secret transition",
+	}, modelDataVolume)
 }
