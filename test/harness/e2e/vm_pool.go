@@ -260,26 +260,37 @@ func (p *VMPool) createVMForWorker(workerID int) (vm.TestVMInterface, error) {
 
 // waitForGreenbootHealthcheck polls greenboot-healthcheck.service until it
 // reaches a terminal state. It returns nil when the service completed
-// successfully (inactive) or is not installed, and an error if the service
-// failed, timed out, or could not be queried.
+// successfully or is not installed, and an error if the service failed,
+// timed out, or could not be queried.
 func waitForGreenbootHealthcheck(testVM vm.TestVMInterface) error {
 	deadline := time.Now().Add(greenbootTimeout)
 	for time.Now().Before(deadline) {
 		stdout, err := testVM.RunSSH([]string{"systemctl", "show", "-p", "ActiveState", "--value", "greenboot-healthcheck.service"}, nil)
 		if err != nil {
-			return fmt.Errorf("failed to query greenboot-healthcheck state: %w", err)
+			return fmt.Errorf("failed to query greenboot-healthcheck ActiveState: %w", err)
 		}
 		state := strings.TrimSpace(stdout.String())
-		switch state {
-		case "inactive":
-			return nil
-		case "activating", "reloading":
+		if state == "activating" || state == "reloading" {
 			time.Sleep(greenbootPollInterval)
-		default:
-			return fmt.Errorf("greenboot-healthcheck reached unhealthy state: %s", state)
+			continue
 		}
+
+		if state == "failed" {
+			return fmt.Errorf("greenboot-healthcheck entered failed state")
+		}
+
+		resultOut, err := testVM.RunSSH([]string{"systemctl", "show", "-p", "Result", "--value", "greenboot-healthcheck.service"}, nil)
+		if err != nil {
+			return fmt.Errorf("failed to query greenboot-healthcheck Result: %w", err)
+		}
+		result := strings.TrimSpace(resultOut.String())
+		if result == "success" || result == "" {
+			return nil
+		}
+
+		return fmt.Errorf("greenboot-healthcheck completed with state=%q result=%q", state, result)
 	}
-	return fmt.Errorf("greenboot-healthcheck did not complete within %s", greenbootTimeout)
+	return fmt.Errorf("timed out after %s waiting for greenboot-healthcheck", greenbootTimeout)
 }
 
 // createFreshVMForWorker creates a fresh VM without snapshot support.
