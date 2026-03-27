@@ -12,6 +12,11 @@ import (
 	"github.com/flightctl/flightctl/test/harness/e2e/vm"
 )
 
+const (
+	greenbootTimeout      = 2 * time.Minute
+	greenbootPollInterval = 1 * time.Second
+)
+
 // VMPool manages VMs across all test suites
 type VMPool struct {
 	vms             map[int]vm.TestVMInterface // Regular VMs with snapshots
@@ -218,6 +223,13 @@ func (p *VMPool) createVMForWorker(workerID int) (vm.TestVMInterface, error) {
 
 	fmt.Printf("🔄 [VMPool] Worker %d: Creating pristine snapshot\n", workerID)
 
+	// Wait for greenboot-healthcheck to finish while the agent is still running.
+	// If the agent is stopped before the healthcheck completes, the snapshot may
+	// capture a pending reboot.
+	if err := waitForGreenbootHealthcheck(newVM); err != nil {
+		return nil, fmt.Errorf("greenboot-healthcheck failed before snapshot: %w", err)
+	}
+
 	// Stop the agent before cleaning files to ensure it's not writing to /var/lib/flightctl
 	fmt.Printf("🔄 [VMPool] Worker %d: Stopping flightctl-agent before cleanup\n", workerID)
 	if _, err := newVM.RunSSH([]string{"sudo", "systemctl", "stop", "flightctl-agent"}, nil); err != nil {
@@ -251,6 +263,41 @@ func (p *VMPool) createVMForWorker(workerID int) (vm.TestVMInterface, error) {
 	// will revert to the pristine snapshot and start the agent itself.
 	fmt.Printf("✅ [VMPool] Worker %d: VM setup completed, VM is running\n", workerID)
 	return newVM, nil
+}
+
+// waitForGreenbootHealthcheck polls greenboot-healthcheck.service until it
+// reaches a terminal state. It returns nil when the service completed
+// successfully or is not installed, and an error if the service failed,
+// timed out, or could not be queried.
+func waitForGreenbootHealthcheck(testVM vm.TestVMInterface) error {
+	deadline := time.Now().Add(greenbootTimeout)
+	for time.Now().Before(deadline) {
+		stdout, err := testVM.RunSSH([]string{"systemctl", "show", "-p", "ActiveState", "--value", "greenboot-healthcheck.service"}, nil)
+		if err != nil {
+			return fmt.Errorf("failed to query greenboot-healthcheck ActiveState: %w", err)
+		}
+		state := strings.TrimSpace(stdout.String())
+		if state == "activating" || state == "reloading" {
+			time.Sleep(greenbootPollInterval)
+			continue
+		}
+
+		if state == "failed" {
+			return fmt.Errorf("greenboot-healthcheck entered failed state")
+		}
+
+		resultOut, err := testVM.RunSSH([]string{"systemctl", "show", "-p", "Result", "--value", "greenboot-healthcheck.service"}, nil)
+		if err != nil {
+			return fmt.Errorf("failed to query greenboot-healthcheck Result: %w", err)
+		}
+		result := strings.TrimSpace(resultOut.String())
+		if result == "success" || result == "" {
+			return nil
+		}
+
+		return fmt.Errorf("greenboot-healthcheck completed with state=%q result=%q", state, result)
+	}
+	return fmt.Errorf("timed out after %s waiting for greenboot-healthcheck", greenbootTimeout)
 }
 
 // createFreshVMForWorker creates a fresh VM without snapshot support.

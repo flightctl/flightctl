@@ -49,10 +49,6 @@ Summary: Flight Control management agent
 
 Requires: flightctl-selinux = %{version}
 Requires: jq
-# Pin the greenboot package to 0.15.z until the following issue is resolved:
-# https://github.com/fedora-iot/greenboot-rs/issues/141
-Requires: greenboot >= 0.15.0
-Requires: greenboot < 0.16.0
 Requires: sudo
 
 %description agent
@@ -450,6 +446,13 @@ fi
     /etc/sudoers.d/*
 
 %post agent
+# Enable greenboot-healthcheck if present (not enabled by default in greenboot-rs 0.16.x).
+# Must be unconditional: greenboot's own %%systemd_post preset removes greenboot-success.target
+# (renamed from greenboot-set-success.target) due to a CentOS preset mismatch. Re-running
+# `systemctl enable` recreates it via the Also= directive.
+# See: https://github.com/fedora-iot/greenboot-rs/issues/171
+# See: https://github.com/openshift/microshift/pull/5530
+systemctl enable --quiet greenboot-healthcheck 2>/dev/null || :
 # Enable the greenboot configuration service (runs before greenboot-healthcheck.service)
 # This ensures only flightctl health checks can trigger OS rollback
 systemctl enable flightctl-configure-greenboot.service >/dev/null 2>&1 || :
