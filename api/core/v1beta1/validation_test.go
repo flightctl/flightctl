@@ -2298,6 +2298,85 @@ func TestRepository_Validate_BackwardCompatibility(t *testing.T) {
 		require.NotEmpty(t, errs, "GitRepoSpec with both configs should fail validation")
 	})
 
+	t.Run("GitRepoSpec accepts ssh:// URLs", func(t *testing.T) {
+		repoSpec := RepositorySpec{}
+		err := repoSpec.FromGitRepoSpec(GitRepoSpec{
+			Url:  "ssh://git@github.com/example/repo.git",
+			Type: GitRepoSpecTypeGit,
+		})
+		require.NoError(t, err)
+
+		repo := Repository{
+			ApiVersion: "v1beta1",
+			Kind:       "Repository",
+			Metadata: ObjectMeta{
+				Name: lo.ToPtr("test-git-ssh-scheme-repo"),
+			},
+			Spec: repoSpec,
+		}
+
+		errs := repo.Validate()
+		require.Empty(t, errs, "GitRepoSpec with ssh:// URL should validate successfully")
+	})
+
+	t.Run("GitRepoSpec rejects file:// URLs", func(t *testing.T) {
+		for _, url := range []string{
+			"file:///tmp/git-repos/my-repo.git",
+			"FILE:///tmp/git-repos/my-repo.git",
+			"File:///tmp/git-repos/my-repo.git",
+		} {
+			t.Run(url, func(t *testing.T) {
+				repoSpec := RepositorySpec{}
+				err := repoSpec.FromGitRepoSpec(GitRepoSpec{
+					Url:  url,
+					Type: GitRepoSpecTypeGit,
+				})
+				require.NoError(t, err)
+
+				repo := Repository{
+					ApiVersion: "v1beta1",
+					Kind:       "Repository",
+					Metadata: ObjectMeta{
+						Name: lo.ToPtr("test-git-file-repo"),
+					},
+					Spec: repoSpec,
+				}
+
+				errs := repo.Validate()
+				require.NotEmpty(t, errs, "GitRepoSpec with %s should fail validation", url)
+			})
+		}
+	})
+
+	t.Run("GitRepoSpec rejects unsupported schemes", func(t *testing.T) {
+		for _, url := range []string{
+			"ftp://example.com/repo.git",
+			"gopher://example.com/repo",
+			"/tmp/git-repos/my-repo.git",
+		} {
+			t.Run(url, func(t *testing.T) {
+				repoSpec := RepositorySpec{}
+				err := repoSpec.FromGitRepoSpec(GitRepoSpec{
+					Url:  url,
+					Type: GitRepoSpecTypeGit,
+				})
+				require.NoError(t, err)
+
+				repo := Repository{
+					ApiVersion: "v1beta1",
+					Kind:       "Repository",
+					Metadata: ObjectMeta{
+						Name: lo.ToPtr("test-git-bad-scheme"),
+					},
+					Spec: repoSpec,
+				}
+
+				errs := repo.Validate()
+				require.NotEmpty(t, errs, "GitRepoSpec with %s should fail validation", url)
+			})
+		}
+	})
+
 	t.Run("HttpRepoSpec still works", func(t *testing.T) {
 		repoSpec := RepositorySpec{}
 		err := repoSpec.FromHttpRepoSpec(HttpRepoSpec{
