@@ -30,7 +30,7 @@ spec:
       {{- include "flightctl.migrationWaitInitContainer" (dict "context" . "timeout" 600) | nindent 6 }}
       containers:
         - name: flightctl-imagebuilder-worker
-          image: {{ .Values.imageBuilderWorker.image.image }}:{{ default .Chart.AppVersion .Values.imageBuilderWorker.image.tag }}
+          image: {{ include "flightctl.ensureOsQualifiedImage" .Values.imageBuilderWorker.image.image }}:{{ default .Chart.AppVersion .Values.imageBuilderWorker.image.tag }}
           imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.imageBuilderWorker.image.pullPolicy }}
           env:
             - name: HOME
