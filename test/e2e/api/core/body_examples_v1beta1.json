@@ -1,0 +1,314 @@
+{
+    "paths": {
+        "/repositories": {
+            "post": {
+                "1": {
+                    "parameters": {
+                        "__body__": {
+                            "apiVersion": "flightctl.io/v1beta1",
+                            "kind": "Repository",
+                            "metadata": { "name": "default" },
+                            "spec": {
+                                "type": "git",
+                                "url": "https://github.com/flightctl/flightctl.git"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/repositories/{name}": {
+            "put": {
+                "1": {
+                    "parameters": {
+                        "__body__": {
+                            "apiVersion": "flightctl.io/v1beta1",
+                            "kind": "Repository",
+                            "metadata": { "name": "placeholder", "resourceVersion": "1" },
+                            "spec": {
+                                "type": "git",
+                                "url": "https://github.com/flightctl/flightctl.git"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/devices": {
+            "post": {
+                "1": {
+                    "parameters": {
+                        "__body__": {
+                            "apiVersion": "flightctl.io/v1beta1",
+                            "kind": "Device",
+                            "metadata": { "name": "f62dfb4f5d2cdbb9339362b5f18f2ce268d75649bdc80003f0e04292a7ef8c3" },
+                            "spec": {}
+                        }
+                    }
+                }
+            }
+        },
+        "/devices/{name}": {
+            "put": {
+                "1": {
+                    "parameters": {
+                        "__body__": {
+                            "apiVersion": "flightctl.io/v1beta1",
+                            "kind": "Device",
+                            "metadata": { "name": "placeholder", "resourceVersion": "1" },
+                            "spec": {}
+                        }
+                    }
+                }
+            }
+        },
+        "/devices/{name}/status": {
+            "put": {
+                "1": {
+                    "parameters": {
+                        "__body__": {
+                            "apiVersion": "flightctl.io/v1beta1",
+                            "kind": "Device",
+                            "metadata": { "name": "placeholder", "resourceVersion": "1" },
+                            "spec": {},
+                            "status": {
+                                "conditions": [],
+                                "systemInfo": {
+                                    "architecture": "",
+                                    "bootID": "",
+                                    "operatingSystem": "",
+                                    "agentVersion": ""
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/fleets": {
+            "post": {
+                "1": {
+                    "parameters": {
+                        "__body__": {
+                            "apiVersion": "flightctl.io/v1beta1",
+                            "kind": "Fleet",
+                            "metadata": { "name": "default" },
+                            "spec": {
+                                "selector": { "matchLabels": { "fleet": "default" } },
+                                "template": { "spec": {} }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/fleets/{name}": {
+            "put": {
+                "1": {
+                    "parameters": {
+                        "__body__": {
+                            "apiVersion": "flightctl.io/v1beta1",
+                            "kind": "Fleet",
+                            "metadata": { "name": "placeholder", "resourceVersion": "1" },
+                            "spec": {
+                                "selector": { "matchLabels": { "fleet": "default" } },
+                                "template": { "spec": {} }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/fleets/{name}/status": {
+            "put": {
+                "1": {
+                    "parameters": {
+                        "__body__": {
+                            "apiVersion": "flightctl.io/v1beta1",
+                            "kind": "Fleet",
+                            "metadata": { "name": "placeholder", "resourceVersion": "1" },
+                            "spec": {
+                                "selector": { "matchLabels": { "fleet": "default" } },
+                                "template": { "spec": {} }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/resourcesyncs": {
+            "post": {
+                "1": {
+                    "parameters": {
+                        "__body__": {
+                            "apiVersion": "flightctl.io/v1beta1",
+                            "kind": "ResourceSync",
+                            "metadata": { "name": "default-sync" },
+                            "spec": {
+                                "repository": "flightctl",
+                                "path": "/examples/fleet.yaml",
+                                "targetRevision": "main"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/enrollmentrequests": {
+            "post": {
+                "1": {
+                    "parameters": {
+                        "__body__": {
+                            "apiVersion": "flightctl.io/v1beta1",
+                            "kind": "EnrollmentRequest",
+                            "metadata": { "name": "fuzz-test-string" },
+                            "spec": {
+                                "csr": "PLACEHOLDER-PEM-CSR"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/resourcesyncs/{name}": {
+            "put": {
+                "1": {
+                    "parameters": {
+                        "__body__": {
+                            "apiVersion": "flightctl.io/v1beta1",
+                            "kind": "ResourceSync",
+                            "metadata": { "name": "placeholder", "resourceVersion": "1" },
+                            "spec": {
+                                "repository": "flightctl",
+                                "path": "/examples/fleet.yaml",
+                                "targetRevision": "main"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/certificatesigningrequests": {
+            "post": {
+                "1": {
+                    "parameters": {
+                        "__body__": {
+                            "apiVersion": "flightctl.io/v1beta1",
+                            "kind": "CertificateSigningRequest",
+                            "metadata": { "name": "fuzz-test-string" },
+                            "spec": {
+                                "request": "PLACEHOLDER-BASE64-CSR",
+                                "signerName": "flightctl.io/enrollment",
+                                "usages": ["clientAuth", "CA:false"],
+                                "expirationSeconds": 604800
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/certificatesigningrequests/{name}": {
+            "put": {
+                "1": {
+                    "parameters": {
+                        "__body__": {
+                            "apiVersion": "flightctl.io/v1beta1",
+                            "kind": "CertificateSigningRequest",
+                            "metadata": { "name": "placeholder", "resourceVersion": "1" },
+                            "spec": {
+                                "request": "PLACEHOLDER-BASE64-CSR",
+                                "signerName": "flightctl.io/enrollment",
+                                "usages": ["clientAuth", "CA:false"],
+                                "expirationSeconds": 604800
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/certificatesigningrequests/{name}/approval": {
+            "put": {
+                "1": {
+                    "parameters": {
+                        "__body__": {
+                            "apiVersion": "flightctl.io/v1beta1",
+                            "kind": "CertificateSigningRequest",
+                            "metadata": { "name": "placeholder", "resourceVersion": "1" },
+                            "spec": {
+                                "request": "PLACEHOLDER-BASE64-CSR",
+                                "signerName": "flightctl.io/enrollment",
+                                "usages": ["clientAuth", "CA:false"],
+                                "expirationSeconds": 604800
+                            },
+                            "status": {
+                                "conditions": [
+                                    {
+                                        "type": "Approved",
+                                        "status": "True",
+                                        "reason": "ApprovedByTest",
+                                        "message": "approved",
+                                        "lastTransitionTime": "2025-01-01T00:00:00Z"
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/authproviders": {
+            "post": {
+                "1": {
+                    "parameters": {
+                        "__body__": {
+                            "apiVersion": "flightctl.io/v1beta1",
+                            "kind": "AuthProvider",
+                            "metadata": { "name": "oidc-provider" },
+                            "spec": {
+                                "providerType": "oidc",
+                                "issuer": "https://accounts.example.com",
+                                "clientId": "client-id",
+                                "clientSecret": "secret",
+                                "organizationAssignment": {
+                                    "type": "static",
+                                    "organizationName": "default"
+                                },
+                                "roleAssignment": {
+                                    "type": "static",
+                                    "roles": ["flightctl-admin"]
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/authproviders/{name}": {
+            "put": {
+                "1": {
+                    "parameters": {
+                        "__body__": {
+                            "apiVersion": "flightctl.io/v1beta1",
+                            "kind": "AuthProvider",
+                            "metadata": { "name": "placeholder", "resourceVersion": "1" },
+                            "spec": {
+                                "providerType": "oidc",
+                                "issuer": "https://accounts.example.com",
+                                "clientId": "client-id",
+                                "clientSecret": "secret",
+                                "organizationAssignment": {
+                                    "type": "static",
+                                    "organizationName": "default"
+                                },
+                                "roleAssignment": {
+                                    "type": "static",
+                                    "roles": ["flightctl-admin"]
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
