@@ -121,8 +121,8 @@ jobs:
     strategy:
       matrix:
         include:
-          - label_filter: 'sanity && !agent'
-          - label_filter: 'sanity && agent && !slow'
+          - label_filter: 'sanity && NOT agent'
+          - label_filter: 'sanity && agent && NOT slow'
           - label_filter: 'sanity && agent && slow'
     steps:
       - name: Checkout
