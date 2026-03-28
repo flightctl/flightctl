@@ -190,7 +190,7 @@ Uses a cached value in .Values to ensure consistency across all template evaluat
       {{- else if .Capabilities.APIVersions.Has "gateway.networking.k8s.io/v1" -}}
         {{- $exposeMethod = "gateway" }}
       {{- else }}
-        {{- fail "Could not detect OpenShift, nor Gateway resources. Please set global.exposeServicesMethod" }}
+        {{- $exposeMethod = "none" }}
       {{- end }}
     {{- end }}
   {{- end }}
