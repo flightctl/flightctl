@@ -2,6 +2,7 @@
 package infra
 
 import (
+	"net"
 	"os"
 	"os/exec"
 	"strings"
@@ -97,7 +98,7 @@ func GetDefaultQuadletAPIEndpoint() string {
 	// Fallback to IP address if FQDN not available
 	hostIP := auxiliary.GetHostIP()
 	if hostIP != "" {
-		return "https://" + hostIP + ":" + DefaultAPIPort
+		return "https://" + net.JoinHostPort(hostIP, DefaultAPIPort)
 	}
 
 	// Last resort fallback
