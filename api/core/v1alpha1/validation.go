@@ -314,6 +314,9 @@ func validateSemver(v string) error {
 	// Basic semver pattern: MAJOR.MINOR.PATCH with optional pre-release
 	// Examples: 1.0.0, 1.2.3-alpha, 1.2.3-rc.1
 	parts := strings.SplitN(v, "-", 2)
+	if len(parts) == 2 && parts[1] == "" {
+		return fmt.Errorf("pre-release identifier must not be empty (trailing hyphen)")
+	}
 	coreParts := strings.Split(parts[0], ".")
 
 	if len(coreParts) < 2 || len(coreParts) > 3 {

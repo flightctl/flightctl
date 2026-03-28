@@ -11,6 +11,8 @@ flightctl-*.rpm
 *.tar
 /packaging/rpm/flightctl-*/
 **/*.test
+__pycache__/
+.venv/
 
 # All temporary files should be created here
 /.output/

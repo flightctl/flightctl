@@ -29,7 +29,7 @@ type ImageBuildService interface {
 	Create(ctx context.Context, orgId uuid.UUID, imageBuild domain.ImageBuild) (*domain.ImageBuild, domain.Status)
 	Get(ctx context.Context, orgId uuid.UUID, name string, withExports bool) (*domain.ImageBuild, domain.Status)
 	List(ctx context.Context, orgId uuid.UUID, params domain.ListImageBuildsParams) (*domain.ImageBuildList, domain.Status)
-	Delete(ctx context.Context, orgId uuid.UUID, name string) (*domain.ImageBuild, domain.Status)
+	Delete(ctx context.Context, orgId uuid.UUID, name string) domain.Status
 	// Cancel cancels an ImageBuild. Returns ErrNotCancelable if not in cancelable state.
 	Cancel(ctx context.Context, orgId uuid.UUID, name string) (*domain.ImageBuild, error)
 	// CancelWithReason cancels an ImageBuild with a custom reason message (e.g., for timeout).
@@ -140,15 +140,15 @@ func (s *imageBuildService) List(ctx context.Context, orgId uuid.UUID, params do
 	}
 }
 
-func (s *imageBuildService) Delete(ctx context.Context, orgId uuid.UUID, name string) (*domain.ImageBuild, domain.Status) {
+func (s *imageBuildService) Delete(ctx context.Context, orgId uuid.UUID, name string) domain.Status {
 	// First, get the ImageBuild to check its status
 	imageBuild, err := s.store.Get(ctx, orgId, name)
 	if err != nil {
 		if errors.Is(err, flterrors.ErrResourceNotFound) {
 			// Idempotent delete - resource doesn't exist
-			return nil, StatusOK()
+			return StatusOK()
 		}
-		return nil, StoreErrorToApiStatus(err, false, string(domain.ResourceKindImageBuild), &name)
+		return StoreErrorToApiStatus(err, false, string(domain.ResourceKindImageBuild), &name)
 	}
 
 	// Delete all related ImageExports first (using service which does cancel-wait-delete)
@@ -181,8 +181,8 @@ func (s *imageBuildService) Delete(ctx context.Context, orgId uuid.UUID, name st
 	}
 
 	// Now delete the ImageBuild
-	result, err := s.store.Delete(ctx, orgId, name)
-	return result, StoreErrorToApiStatus(err, false, string(domain.ResourceKindImageBuild), &name)
+	_, err = s.store.Delete(ctx, orgId, name)
+	return StoreErrorToApiStatus(err, false, string(domain.ResourceKindImageBuild), &name)
 }
 
 // deleteRelatedImageExports deletes all ImageExports that reference the given ImageBuild
@@ -201,7 +201,7 @@ func (s *imageBuildService) deleteRelatedImageExports(ctx context.Context, orgId
 	for _, export := range exports.Items {
 		exportName := lo.FromPtr(export.Metadata.Name)
 		s.log.WithField("imageBuild", imageBuildName).WithField("imageExport", exportName).Info("Deleting related ImageExport")
-		if _, delStatus := s.imageExportService.Delete(ctx, orgId, exportName); !IsStatusOK(delStatus) {
+		if delStatus := s.imageExportService.Delete(ctx, orgId, exportName); !IsStatusOK(delStatus) {
 			s.log.WithField("imageExport", exportName).WithField("status", delStatus.Message).Warn("Failed to delete related ImageExport")
 			// Continue deleting other exports
 		}

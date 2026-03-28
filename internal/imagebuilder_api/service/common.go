@@ -117,6 +117,7 @@ var badRequestErrors = map[error]bool{
 	flterrors.ErrLabelSelectorParseFailed:      true,
 	flterrors.ErrAnnotationSelectorSyntax:      true,
 	flterrors.ErrAnnotationSelectorParseFailed: true,
+	flterrors.ErrUnsupportedUnicode:            true,
 }
 
 var conflictErrors = map[error]bool{

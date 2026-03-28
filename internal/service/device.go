@@ -256,6 +256,9 @@ func (h *ServiceHandler) ReplaceDeviceStatus(ctx context.Context, orgId uuid.UUI
 	if name != *incomingDevice.Metadata.Name {
 		return nil, domain.StatusBadRequest("resource name specified in metadata does not match name in path")
 	}
+	if incomingDevice.Status == nil {
+		return nil, domain.StatusBadRequest("device status is required")
+	}
 	isNotInternal := !IsInternalRequest(ctx)
 	if isNotInternal {
 		if h.agentGate.Acquire(ctx, 1) == nil {
