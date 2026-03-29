@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/helm"
@@ -133,11 +134,14 @@ func (h *HelmHandler) add(ctx context.Context, action *Action, versionConfig *he
 		opts = append(opts, client.WithValuesFiles(valuesFiles))
 	}
 
+	h.log.Infof("DEBUG helm add: starting upgrade --install release=%s chart=%s namespace=%s", releaseName, chartPath, namespace)
+	installStart := time.Now()
 	if err := h.clients.Helm().Upgrade(ctx, releaseName, chartPath, opts...); err != nil {
+		h.log.Errorf("DEBUG helm add: upgrade --install FAILED after %s: %v", time.Since(installStart), err)
 		return fmt.Errorf("helm upgrade --install %s: %w", releaseName, err)
 	}
 
-	h.log.Infof("Installed helm release: %s", releaseName)
+	h.log.Infof("Installed helm release: %s (took %s)", releaseName, time.Since(installStart))
 	return nil
 }
 

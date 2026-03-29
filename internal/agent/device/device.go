@@ -507,10 +507,13 @@ func (a *Agent) afterUpdate(ctx context.Context, current, desired *v1beta1.Devic
 	}
 
 	// execute after update for applications
+	a.log.Info("DEBUG afterUpdate: starting application actions")
+	appStart := time.Now()
 	if err := a.appManager.AfterUpdate(ctx); err != nil {
-		a.log.Errorf("Error executing actions: %v", err)
+		a.log.Errorf("Error executing actions (after %s): %v", time.Since(appStart), err)
 		return err
 	}
+	a.log.Infof("DEBUG afterUpdate: application actions completed in %s", time.Since(appStart))
 
 	return nil
 }

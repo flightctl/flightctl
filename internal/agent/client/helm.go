@@ -468,6 +468,14 @@ func (h *Helm) Upgrade(ctx context.Context, releaseName, chartPath string, opts 
 		}
 	}
 
+	// Debug: log the full helm command and K8s API reachability before exec
+	h.log.Infof("DEBUG helm upgrade: running: helm %s", strings.Join(args, " "))
+	if options.kubeconfigPath != "" {
+		nodeOut, nodeErr, nodeRC := h.exec.ExecuteWithContext(ctx, "kubectl", "--kubeconfig", options.kubeconfigPath, "get", "nodes", "-o", "wide", "--no-headers")
+		h.log.Infof("DEBUG helm upgrade: K8s nodes (rc=%d): %s %s", nodeRC, strings.TrimSpace(nodeOut), strings.TrimSpace(nodeErr))
+	}
+	helmStart := time.Now()
+
 	var stdout, stderr string
 	var exitCode int
 	if env := helmEnv(options); env != nil {
@@ -475,8 +483,11 @@ func (h *Helm) Upgrade(ctx context.Context, releaseName, chartPath string, opts 
 	} else {
 		stdout, stderr, exitCode = h.exec.ExecuteWithContext(ctx, helmCmd, args...)
 	}
+	helmDuration := time.Since(helmStart)
 	_ = stdout
+	h.log.Infof("DEBUG helm upgrade: completed in %s, exitCode=%d", helmDuration, exitCode)
 	if exitCode != 0 {
+		h.log.Errorf("DEBUG helm upgrade: stderr (first 500 chars): %.500s", stderr)
 		return fmt.Errorf("helm upgrade: %w", errors.FromStderr(stderr, exitCode))
 	}
 
