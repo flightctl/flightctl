@@ -54,8 +54,9 @@ fi
 export OS_ID="${OS_ID_ENV}"
 export AGENT_OS_ID="${OS_ID}"
 
-# Set QCOW2 output directory now that OS_ID is available
+# Set QCOW2 and agent image manifest output locations now that OS_ID is available
 QCOW2_OUTPUT_DIR="${QCOW2_OUTPUT_DIR:-${ROOT_DIR}/bin/output/agent-qcow2-${OS_ID}}"
+MANIFEST_PATH="${ARTIFACTS_OUTPUT_DIR}/agent-images-manifest-${OS_ID}.txt"
 
 LOG_DIR="${ARTIFACTS_OUTPUT_DIR}/logs-${OS_ID}"
 mkdir -p "${LOG_DIR}"
@@ -71,14 +72,14 @@ sudo rm -f "${variants_log}" "${qcow2_log}"
 (
   set -euo pipefail
   echo "Building variants and creating bundle for ${OS_ID}"
-  sudo -E "${SCRIPT_DIR}/build.sh" --variants 2>&1 | tee "${variants_log}"
+  sudo -E "${SCRIPT_DIR}/build.sh" --variants --manifest "${MANIFEST_PATH}" 2>&1 | tee "${variants_log}"
 
   printf '%s\n' "----------" "Bundle variants" "----------"
 
   sudo -E "${SCRIPT_DIR}/bundle.sh" \
-    --filter "label=io.flightctl.e2e.component" \
-    --filter "reference=${IMAGE_REPO}:*-${OS_ID}-*" \
+    --manifest "${MANIFEST_PATH}" \
     --output-path "${ARTIFACTS_OUTPUT_DIR}/agent-images-bundle-${OS_ID}.tar" 2>&1 | tee -a "${variants_log}"
+
   sudo chown -R "$(id -un)":"$(id -gn)" "${ARTIFACTS_OUTPUT_DIR}" || true
 
   # Push images if requested

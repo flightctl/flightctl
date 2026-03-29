@@ -27,6 +27,7 @@ JOBS="${JOBS:-$(command -v nproc >/dev/null && nproc || echo 1)}"
 BUILD_BASE=false
 BUILD_VARIANTS=false
 BUILD_APPS=false
+MANIFEST_PATH=""
 
 # If no options specified, default to building base only
 if [ $# -eq 0 ]; then
@@ -51,6 +52,10 @@ while [[ $# -gt 0 ]]; do
       JOBS="$2"
       shift 2
       ;;
+    --manifest)
+      MANIFEST_PATH="$2"
+      shift 2
+      ;;
     --cache)
       CACHE_MODE="$2"
       case "${CACHE_MODE}" in
@@ -64,7 +69,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     *)
       echo "Unknown option: $1" >&2
-      echo "Usage: $0 [--base] [--variants] [--apps] [--jobs N] [--cache use|disable|populate]" >&2
+      echo "Usage: $0 [--base] [--variants] [--apps] [--jobs N] [--cache use|disable|populate] [--manifest PATH]" >&2
       exit 1
       ;;
   esac
@@ -154,75 +159,97 @@ if [ -n "${EXCLUDE_VARIANTS:-}" ]; then
 fi
 echo "  Variants to build: ${variants_list:-none}"
 
-  if [ "${BUILD_BASE}" = "true" ]; then
-    echo -e "\033[32m[${OS_ID}] Building base ${base_img_canonical}\033[m"
+# Initialize manifest file if requested
+if [ -n "${MANIFEST_PATH}" ]; then
+  mkdir -p "$(dirname "${MANIFEST_PATH}")"
+  > "${MANIFEST_PATH}"
+fi
 
-    podman build "${PODMAN_BUILD_FLAGS[@]}" ${PODMAN_BUILD_EXTRA_FLAGS} \
-      "${CACHE_FLAGS[@]}" \
-      --log-level "${PODMAN_LOG_LEVEL}" \
-      --build-context "project-bin=${ROOT_DIR}/bin" \
-      --build-context "variant-context=${BASE_DIR}/base"\
-      --build-arg SOURCE_GIT_TAG="${SOURCE_GIT_TAG}" \
-      --build-arg SOURCE_GIT_TREE_STATE="${SOURCE_GIT_TREE_STATE}" \
-      --build-arg SOURCE_GIT_COMMIT="${SOURCE_GIT_COMMIT}" \
-      --label "io.flightctl.e2e.component=device" \
-      -f "${CONTAINERFILE_DIR}/Containerfile" \
-      -t "${base_img_canonical}" \
-      -t "${base_img_plain}" \
-      -t "${base_img_os}" \
-      -t "${base_img_ver}" \
-      "${BASE_DIR}"
+if [ "${BUILD_BASE}" = "true" ]; then
+  echo -e "\033[32m[${OS_ID}] Building base ${base_img_canonical}\033[m"
+
+  podman build "${PODMAN_BUILD_FLAGS[@]}" ${PODMAN_BUILD_EXTRA_FLAGS} \
+    "${CACHE_FLAGS[@]}" \
+    --log-level "${PODMAN_LOG_LEVEL}" \
+    --build-context "project-bin=${ROOT_DIR}/bin" \
+    --build-context "variant-context=${BASE_DIR}/base"\
+    --build-arg SOURCE_GIT_TAG="${SOURCE_GIT_TAG}" \
+    --build-arg SOURCE_GIT_TREE_STATE="${SOURCE_GIT_TREE_STATE}" \
+    --build-arg SOURCE_GIT_COMMIT="${SOURCE_GIT_COMMIT}" \
+    --label "io.flightctl.e2e.component=device" \
+    -f "${CONTAINERFILE_DIR}/Containerfile" \
+    -t "${base_img_canonical}" \
+    -t "${base_img_plain}" \
+    -t "${base_img_os}" \
+    -t "${base_img_ver}" \
+    "${BASE_DIR}"
+
+  if [ -n "${MANIFEST_PATH}" ]; then
+    echo "${base_img_canonical}" >> "${MANIFEST_PATH}"
+    echo "${base_img_plain}" >> "${MANIFEST_PATH}"
+    echo "${base_img_os}" >> "${MANIFEST_PATH}"
+    echo "${base_img_ver}" >> "${MANIFEST_PATH}"
+  fi
+fi
+
+if [ "${BUILD_VARIANTS}" = "true" ]; then
+  # Ensure the base image exists locally to avoid registry pulls
+  if ! podman image exists "${base_img_canonical}"; then
+    echo "[ERROR] Base image not found locally: ${base_img_canonical}" >&2
+    echo "        Cannot build variants without base image." >&2
+    echo "        Run with --base first or ensure base image exists." >&2
+    exit 1
+  fi
+  echo -e "\033[32m[${OS_ID}] Building variants: ${variants_list}\033[m"
+
+  # Join build flags into strings for safe interpolation in xargs
+  PODMAN_BUILD_FLAGS_JOINED=""
+  if [ "${#PODMAN_BUILD_FLAGS[@]}" -gt 0 ]; then
+    for f in "${PODMAN_BUILD_FLAGS[@]}"; do
+      PODMAN_BUILD_FLAGS_JOINED+=" ${f}"
+    done
   fi
 
-  if [ "${BUILD_VARIANTS}" = "true" ]; then
-    # Ensure the base image exists locally to avoid registry pulls
-    if ! podman image exists "${base_img_canonical}"; then
-      echo "[ERROR] Base image not found locally: ${base_img_canonical}" >&2
-      echo "        Cannot build variants without base image." >&2
-      echo "        Run with --base first or ensure base image exists." >&2
-      exit 1
-    fi
-    echo -e "\033[32m[${OS_ID}] Building variants: ${variants_list}\033[m"
-
-    # Join build flags into strings for safe interpolation in xargs
-    PODMAN_BUILD_FLAGS_JOINED=""
-    if [ "${#PODMAN_BUILD_FLAGS[@]}" -gt 0 ]; then
-      for f in "${PODMAN_BUILD_FLAGS[@]}"; do
-        PODMAN_BUILD_FLAGS_JOINED+=" ${f}"
-      done
-    fi
-
-    CACHE_FLAGS_JOINED=""
-    if [ "${#CACHE_FLAGS[@]}" -gt 0 ]; then
-      for f in "${CACHE_FLAGS[@]}"; do
-        CACHE_FLAGS_JOINED+=" ${f}"
-      done
-    fi
-
-    EXTRA_FLAGS="${PODMAN_BUILD_EXTRA_FLAGS:-}"
-
-    export IMAGE_REPO TAG OS_ID BASE_DIR ROOT_DIR base_img_canonical PODMAN_BUILD_FLAGS_JOINED EXTRA_FLAGS CACHE_FLAGS_JOINED BUILD_ARG_FILE
-    printf '%s\n' ${variants_list} | xargs -n1 -P "${JOBS}" -I {} bash -lc '\
-      set -euo pipefail; \
-      v_img_canonical="${IMAGE_REPO}:{}-'"${OS_ID}"'-'"${TAG}"'"; \
-      v_img_plain="${IMAGE_REPO}:{}"; \
-      v_img_os="${IMAGE_REPO}:{}-'"${OS_ID}"'"; \
-      v_img_ver="${IMAGE_REPO}:{}-'"${TAG}"'"; \
-      prefix() { while IFS= read -r line; do printf "[%s]\t%s\n" "$v_img_canonical" "$line"; done; }; \
-      printf "\033[32m['"${OS_ID}"'] Building variant %s\033[m\n" "$v_img_canonical" | prefix; \
-      podman build '"${PODMAN_BUILD_FLAGS_JOINED}"' --pull=never '"${EXTRA_FLAGS}"' '"${CACHE_FLAGS_JOINED}"' \
-        --build-context "project-root='"${ROOT_DIR}"'" \
-        --build-context "variant-context='"${BASE_DIR}"'/variants/{}" \
-        --build-context "common='"${BASE_DIR}"'/common" \
-        --build-arg BASE_IMAGE="'"${base_img_canonical}"'" \
-        --label "io.flightctl.e2e.component=app" \
-        -f "'"${BASE_DIR}"'/variants/{}/Containerfile" \
-        -t "$v_img_canonical" \
-        -t "$v_img_plain" \
-        -t "$v_img_os" \
-        -t "$v_img_ver" \
-        "'"${BASE_DIR}"'" 2>&1 | prefix'
+  CACHE_FLAGS_JOINED=""
+  if [ "${#CACHE_FLAGS[@]}" -gt 0 ]; then
+    for f in "${CACHE_FLAGS[@]}"; do
+      CACHE_FLAGS_JOINED+=" ${f}"
+    done
   fi
+
+  EXTRA_FLAGS="${PODMAN_BUILD_EXTRA_FLAGS:-}"
+
+  export IMAGE_REPO TAG OS_ID BASE_DIR ROOT_DIR base_img_canonical PODMAN_BUILD_FLAGS_JOINED EXTRA_FLAGS CACHE_FLAGS_JOINED BUILD_ARG_FILE
+  printf '%s\n' ${variants_list} | xargs -n1 -P "${JOBS}" -I {} bash -lc '\
+    set -euo pipefail; \
+    v_img_canonical="${IMAGE_REPO}:{}-'"${OS_ID}"'-'"${TAG}"'"; \
+    v_img_plain="${IMAGE_REPO}:{}"; \
+    v_img_os="${IMAGE_REPO}:{}-'"${OS_ID}"'"; \
+    v_img_ver="${IMAGE_REPO}:{}-'"${TAG}"'"; \
+    prefix() { while IFS= read -r line; do printf "[%s]\t%s\n" "$v_img_canonical" "$line"; done; }; \
+    printf "\033[32m['"${OS_ID}"'] Building variant %s\033[m\n" "$v_img_canonical" | prefix; \
+    podman build '"${PODMAN_BUILD_FLAGS_JOINED}"' --pull=never '"${EXTRA_FLAGS}"' '"${CACHE_FLAGS_JOINED}"' \
+      --build-context "project-root='"${ROOT_DIR}"'" \
+      --build-context "variant-context='"${BASE_DIR}"'/variants/{}" \
+      --build-context "common='"${BASE_DIR}"'/common" \
+      --build-arg BASE_IMAGE="'"${base_img_canonical}"'" \
+      --label "io.flightctl.e2e.component=app" \
+      -f "'"${BASE_DIR}"'/variants/{}/Containerfile" \
+      -t "$v_img_canonical" \
+      -t "$v_img_plain" \
+      -t "$v_img_os" \
+      -t "$v_img_ver" \
+      "'"${BASE_DIR}"'" 2>&1 | prefix'
+
+  if [ -n "${MANIFEST_PATH}" ]; then
+    for v in ${variants_list}; do
+      echo "${IMAGE_REPO}:${v}-${OS_ID}-${TAG}" >> "${MANIFEST_PATH}"
+      echo "${IMAGE_REPO}:${v}" >> "${MANIFEST_PATH}"
+      echo "${IMAGE_REPO}:${v}-${OS_ID}" >> "${MANIFEST_PATH}"
+      echo "${IMAGE_REPO}:${v}-${TAG}" >> "${MANIFEST_PATH}"
+    done
+  fi
+fi
 
 # Build apps if requested
 if [ "${BUILD_APPS}" = "true" ]; then
@@ -267,6 +294,11 @@ if [ "${BUILD_APPS}" = "true" ]; then
       "${BASE_DIR}"
 
     echo -e "\033[32mSuccessfully built ${app_img_canonical}\033[m"
+
+    if [ -n "${MANIFEST_PATH}" ]; then
+      echo "${app_img_canonical}" >> "${MANIFEST_PATH}"
+      echo "${app_img_plain}" >> "${MANIFEST_PATH}"
+    fi
   done
 fi
 
