@@ -98,12 +98,12 @@ var _ = Describe("Telemetry Gateway", func() {
 		Expect(os.WriteFile(serverCrt, certPEM, 0o600)).To(Succeed())
 		Expect(os.WriteFile(serverKey, keyPEM, 0o600)).To(Succeed())
 
-		// ports
-		otlpAddr = localAddr()
+		// Listen addresses are assigned in JustBeforeEach immediately before Run (not here) so
+		// we never reserve a port with localAddr() and then bind it later.
+		otlpAddr = ""
 		promAddr = ""
 
-		// base config + reset mutators
-		baseCfg = createConfig(serverCrt, serverKey, caPath, otlpAddr)
+		baseCfg = createConfig(serverCrt, serverKey, caPath, "127.0.0.1:1")
 		cfgMutators = nil
 		runOpts = []telemetrygateway.Option{
 			telemetrygateway.WithSkipSettingGRPCLogger(true), // kill grpclog race in tests
@@ -112,8 +112,11 @@ var _ = Describe("Telemetry Gateway", func() {
 
 	// Start the gateway after all mutators from nested BeforeEach have run
 	JustBeforeEach(func() {
-		// apply per-test tweaks
-		cfg := *baseCfg // shallow copy of struct
+		otlpAddr = localAddr()
+		promAddr = localAddr()
+		baseCfg.TelemetryGateway.Listen.Device = otlpAddr
+
+		cfg := *baseCfg
 		for _, m := range cfgMutators {
 			m(&cfg)
 		}
@@ -159,12 +162,8 @@ var _ = Describe("Telemetry Gateway", func() {
 
 	Context("with a custom Prometheus listen address", func() {
 		BeforeEach(func() {
-			// change prom listen addr in this context only
-			newProm := localAddr()
-			promAddr = newProm
 			cfgMutators = append(cfgMutators, func(c *config.Config) {
-				// assuming your config struct has TelemetryGateway.Export.Prometheus (string)
-				snippet := fmt.Appendf(nil, "telemetrygateway:\n  export:\n    prometheus: %q\n", newProm)
+				snippet := fmt.Appendf(nil, "telemetrygateway:\n  export:\n    prometheus: %q\n", promAddr)
 				_ = yaml.Unmarshal(snippet, c)
 			})
 		})
@@ -344,10 +343,7 @@ var _ = Describe("Telemetry Gateway", func() {
 			Expect(os.WriteFile(forwardCrt, certPEM, 0o600)).To(Succeed())
 			Expect(os.WriteFile(forwardKey, keyPEM, 0o600)).To(Succeed())
 
-			// Choose Prometheus endpoint for this test
-			promAddr = localAddr()
-			// Ensure exporter exists in base config (so build map doesn’t error);
-			// overlay will *also* set exporters and add otlp.
+			// Exporter must exist for buildOTelConfigMap; overlay adds otlp and merges pipelines.
 			cfgMutators = append(cfgMutators, func(c *config.Config) {
 				snippet := fmt.Appendf(nil, "telemetrygateway:\n  export:\n    prometheus: %q\n", promAddr)
 				_ = yaml.Unmarshal(snippet, c)
