@@ -63,6 +63,7 @@ jobs:
           GITHUB_ACTIONS: true
           REGISTRY: quay.io
           REGISTRY_OWNER: flightctl
+          OS: el9
         run: |
           set -euo pipefail
           
@@ -74,6 +75,9 @@ jobs:
         id: bundle-images
         env:
           TAG: ${{ steps.compute-tag.outputs.git_tag }}
+          REGISTRY: quay.io
+          REGISTRY_OWNER: flightctl
+          OS: el9
         run: |
           set -euo pipefail
           echo "::group::Creating images bundle"
@@ -173,20 +177,20 @@ jobs:
         run: |
           set -euo pipefail
           TAG="${{ steps.compute-tag.outputs.helm_tag }}"
-          
+
           echo "::group::Building helm charts"
           helm dependency build ./deploy/helm/flightctl
           helm package ./deploy/helm/flightctl \
             --version "$TAG" \
             --app-version "v$TAG"
-          
+
           # Rename to consistent name for easier consumption
           GENERATED_FILE="flightctl-${TAG}.tgz"
           CHART_FILE="flightctl-chart.tgz"
           mv "$GENERATED_FILE" "$CHART_FILE"
           echo "Chart file: $CHART_FILE"
           echo "::endgroup::"
-          
+
           echo "chart_file=$CHART_FILE" >> "$GITHUB_OUTPUT"
 
       - name: Upload helm chart artifact
