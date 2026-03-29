@@ -59,6 +59,12 @@ include-path = "/api/v1/imageexports/{name}/log"
 [operations.checks.response_schema_conformance]
 enabled = false
 
+# Download is only available after async export processing completes, not immediately after creation
+[[operations]]
+include-path = "/api/v1/imageexports/{name}/download"
+[operations.checks.ensure_resource_availability]
+enabled = false
+
 [reports.vcr]
 enabled = true
 
