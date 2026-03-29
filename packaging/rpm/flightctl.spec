@@ -456,6 +456,10 @@ systemctl enable --quiet greenboot-healthcheck 2>/dev/null || :
 # Enable the greenboot configuration service (runs before greenboot-healthcheck.service)
 # This ensures only flightctl health checks can trigger OS rollback
 systemctl enable flightctl-configure-greenboot.service >/dev/null 2>&1 || :
+# greenboot-rs (0.16.x) ships greenboot-success.target which pulls in boot-complete.target,
+# but the RPM scriptlet may not enable it during container builds. Ensure it's enabled so
+# boot-complete.target activates after healthcheck passes.
+systemctl enable greenboot-success.target >/dev/null 2>&1 || :
 
 # Ensure /var/lib/flightctl exists immediately for environments where systemd-tmpfiles succeeds or via fallback
 # Try systemd-tmpfiles first, fall back to manual creation if it fails

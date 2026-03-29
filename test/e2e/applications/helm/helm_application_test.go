@@ -260,8 +260,27 @@ var _ = Describe("VM Agent Helm Application Tests", Ordered, func() {
 			helmAppSpec, err := e2e.NewHelmApplicationSpecWithValues(helmAppName, testAppChartV1, helmAppNamespace, mixedDeploymentsValues)
 			Expect(err).ToNot(HaveOccurred())
 
+			debugConfig, err := e2e.NewInlineConfigSpec("debug-logging", []v1beta1.FileSpec{
+				{
+					Content: `
+log-level: debug
+`,
+					Path: "/etc/flightctl/conf.d/debug-logging.yaml",
+				},
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			By("Check boot-complete.target status BEFORE OS update")
+			stdout, sshErr := harness.VM.RunSSH([]string{"sudo", "systemctl", "status", "boot-complete.target", "--no-pager"}, nil)
+			if sshErr != nil {
+				GinkgoWriter.Printf("boot-complete.target status (pre-update): error: %v\n", sshErr)
+			} else {
+				GinkgoWriter.Printf("boot-complete.target status (pre-update):\n%s\n", stdout.String())
+			}
+
 			err = harness.UpdateDeviceAndWaitForVersion(deviceId, func(device *v1beta1.Device) {
 				device.Spec.Os = microshiftOs
+				device.Spec.Config = &[]v1beta1.ConfigProviderSpec{debugConfig}
 				device.Spec.Applications = &[]v1beta1.ApplicationProviderSpec{helmAppSpec}
 			})
 			Expect(err).ToNot(HaveOccurred())
