@@ -300,13 +300,11 @@ func waitForGreenbootHealthcheck(testVM vm.TestVMInterface) error {
 	return fmt.Errorf("timed out after %s waiting for greenboot-healthcheck", greenbootTimeout)
 }
 
-// createFreshVMForWorker creates a fresh VM without snapshot support.
-// Unlike regular VMs, fresh VMs:
-// - Use the original base disk as backing file (not the shared intermediate copy)
-// - Do NOT create a "pristine" snapshot
-// - Start with the agent running (ready for immediate enrollment)
-// Both regular and fresh VMs use qcow2 overlays for efficient disk usage.
-func (p *VMPool) createFreshVMForWorker(workerID int) (vm.TestVMInterface, error) {
+// createFreshVMBase creates a fresh VM with an overlay disk, starts it, waits for SSH,
+// stops the agent, and cleans agent state. The returned VM has the agent stopped and
+// a clean /var/lib/flightctl directory.
+// If tpmDevice is non-empty, it is passed through to the VM instead of using the swtpm emulator.
+func (p *VMPool) createFreshVMBase(workerID int, tpmDevice string) (vm.TestVMInterface, error) {
 	vmName := fmt.Sprintf("flightctl-e2e-fresh-%d", workerID)
 
 	fmt.Printf("🔄 [VMPool] Worker %d: Creating fresh VM %s (no snapshots)\n", workerID, vmName)
@@ -357,6 +355,7 @@ func (p *VMPool) createFreshVMForWorker(workerID int) (vm.TestVMInterface, error
 		SSHPassword:   "user",
 		SSHPort:       p.config.SSHPortBase + workerID,
 		MemoryMiB:     memoryMiB,
+		TPMDevice:     tpmDevice,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create VM: %w", err)
@@ -409,7 +408,21 @@ func (p *VMPool) createFreshVMForWorker(workerID int) (vm.TestVMInterface, error
 		fmt.Printf("⚠️  [VMPool] Worker %d: Warning - failed to rotate logs: %v\n", workerID, err)
 	}
 
-	// Start the agent fresh
+	return newVM, nil
+}
+
+// createFreshVMForWorker creates a fresh VM without snapshot support.
+// Unlike regular VMs, fresh VMs:
+// - Use the original base disk as backing file (not the shared intermediate copy)
+// - Do NOT create a "pristine" snapshot
+// - Start with the agent running (ready for immediate enrollment)
+// Both regular and fresh VMs use qcow2 overlays for efficient disk usage.
+func (p *VMPool) createFreshVMForWorker(workerID int) (vm.TestVMInterface, error) {
+	newVM, err := p.createFreshVMBase(workerID, "")
+	if err != nil {
+		return nil, err
+	}
+
 	fmt.Printf("🔄 [VMPool] Worker %d: Starting flightctl-agent\n", workerID)
 	if _, err := newVM.RunSSH([]string{"sudo", "systemctl", "start", "flightctl-agent"}, nil); err != nil {
 		_ = newVM.ForceDelete()
@@ -418,6 +431,25 @@ func (p *VMPool) createFreshVMForWorker(workerID int) (vm.TestVMInterface, error
 
 	fmt.Printf("✅ [VMPool] Worker %d: Fresh VM ready with agent running (no snapshots)\n", workerID)
 	return newVM, nil
+}
+
+// CreateFreshVMWithTPM creates a fresh VM with TPM device passthrough.
+// The VM is returned with the agent stopped so TPM configuration can be applied before starting.
+// Unlike regular fresh VMs, TPM passthrough VMs are not cached in the pool since they depend
+// on external hardware state.
+func CreateFreshVMWithTPM(workerID int, tempDir string, sshPortBase int, tpmDevice string) (vm.TestVMInterface, error) {
+	baseDiskPath, err := GetBaseDiskPath()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get base disk path: %w", err)
+	}
+
+	vmPool := GetOrCreateVMPool(VMPoolConfig{
+		BaseDiskPath: baseDiskPath,
+		TempDir:      tempDir,
+		SSHPortBase:  sshPortBase,
+	})
+
+	return vmPool.createFreshVMBase(workerID, tpmDevice)
 }
 
 // cleanupWorkerDirectory removes the entire worker directory and all its contents

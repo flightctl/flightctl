@@ -40,6 +40,7 @@ type TestVM struct {
 	MemoryFilePath    string // Path for external snapshot memory file
 	MemoryMiB         int    // VM memory in MiB; 0 means use default (2048)
 	DiskSizeGB        int
+	TPMDevice         string // Host TPM device path for passthrough (e.g., /dev/tpmrm0); empty uses swtpm emulator
 	// SSHWaitTimeout is how long to wait for SSH to become ready. Zero uses the default (60s).
 	// Use a longer value for first-boot VMs (e.g. imagebuild workflow) where cloud-init or sshd may start late.
 	SSHWaitTimeout time.Duration
