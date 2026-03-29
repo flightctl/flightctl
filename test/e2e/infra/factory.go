@@ -132,7 +132,7 @@ func GetEnvironmentConfig() *EnvironmentConfig {
 
 	// Normalize environment type
 	if config.Type != "" {
-		config.Type = normalizeEnvironmentType(config.Type)
+		config.Type = NormalizeEnvironmentType(config.Type)
 	}
 
 	return config
@@ -232,8 +232,8 @@ func (f *ProviderFactory) DetectEnvironment() string {
 	return f.envType
 }
 
-// normalizeEnvironmentType normalizes environment type strings.
-func normalizeEnvironmentType(envType string) string {
+// NormalizeEnvironmentType normalizes environment type strings.
+func NormalizeEnvironmentType(envType string) string {
 	envType = strings.ToLower(strings.TrimSpace(envType))
 	switch envType {
 	case "k8s", "kubernetes", "kind":
