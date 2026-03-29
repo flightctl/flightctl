@@ -114,7 +114,6 @@ help:
 	@echo "    start-aux: start all E2E aux containers (registry, git-server, prometheus)"
 	@echo "    rebuild-containers: force rebuild all containers"
 	@echo "    bundle-containers: bundle all flightctl containers into tar archive"
-	@echo "    bundle-images:     alias for bundle-containers (CI compatibility)"
 	@echo "    cluster:         create a kind cluster and load the flightctl-server image"
 	@echo "    clean-cluster:   kill the kind cluster only"
 	@echo "    clean-quadlets:  clean up all systemd services and quadlet files"
@@ -351,9 +350,7 @@ bundle-containers:
 		--image-pattern '$(REGISTRY)/$(REGISTRY_OWNER)/.*-$(OS):$(SOURCE_GIT_TAG)' \
 		--output-path 'flightctl-images-bundle.tar'
 
-bundle-images: bundle-containers
-
-.PHONY: build-containers bundle-containers bundle-images build-cli build-multiarch-clis
+.PHONY: build-containers bundle-containers build-cli build-multiarch-clis
 
 
 bin:
