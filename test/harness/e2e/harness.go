@@ -1535,14 +1535,32 @@ func (h *Harness) SetupVMFromPoolAndStartAgent(workerID int) error {
 	}
 	testVM := h.VM
 
-	// Start the agent after snapshot revert
-	GinkgoWriter.Printf("🔄 Starting flightctl-agent after snapshot revert\n")
-	if _, err := testVM.RunSSH([]string{"sudo", "systemctl", "start", "flightctl-agent"}, nil); err != nil {
-		return fmt.Errorf("failed to start flightctl-agent: %w", err)
-	}
-	GinkgoWriter.Printf("✅ flightctl-agent started successfully after snapshot revert\n")
+	const flightctlAgentStartAttempts = 5
+	const flightctlAgentStartRetryDelay = 2 * time.Second
 
-	return nil
+	// Start the agent after snapshot revert (retry: systemd may report "Job ... canceled" right after QEMU resume).
+	GinkgoWriter.Printf("🔄 Starting flightctl-agent after snapshot revert\n")
+	if _, err := testVM.RunSSH([]string{"sudo", "systemctl", "daemon-reload"}, nil); err != nil {
+		logrus.Warnf("daemon-reload before starting flightctl-agent: %v", err)
+	}
+	time.Sleep(time.Second)
+
+	var lastErr error
+	for attempt := 1; attempt <= flightctlAgentStartAttempts; attempt++ {
+		_, _ = testVM.RunSSH([]string{"sudo", "systemctl", "reset-failed", "flightctl-agent"}, nil)
+		_, err := testVM.RunSSH([]string{"sudo", "systemctl", "start", "flightctl-agent"}, nil)
+		if err == nil {
+			GinkgoWriter.Printf("✅ flightctl-agent started successfully after snapshot revert\n")
+			return nil
+		}
+		lastErr = err
+		logrus.Warnf("systemctl start flightctl-agent attempt %d/%d failed: %v", attempt, flightctlAgentStartAttempts, err)
+		if attempt == flightctlAgentStartAttempts {
+			break
+		}
+		time.Sleep(flightctlAgentStartRetryDelay)
+	}
+	return fmt.Errorf("failed to start flightctl-agent after %d attempts: %w", flightctlAgentStartAttempts, lastErr)
 }
 
 // SetTestContext sets the context for the current test.

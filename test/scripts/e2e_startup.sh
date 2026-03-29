@@ -4,6 +4,8 @@ set -euo pipefail
 # Get the project root directory (where the bin/ directory is located)
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+# shellcheck source=test/scripts/functions
+source "${SCRIPT_DIR}/functions"
 FLIGHTCTL_BIN="${PROJECT_ROOT}/bin/flightctl"
 
 # Check if flightctl binary exists
@@ -26,52 +28,18 @@ if [[ -n "${API_ENDPOINT:-}" ]]; then
         
         # Check if we're in Quadlet/PAM mode
         if [[ "${E2E_ENVIRONMENT:-}" == "quadlet" ]]; then
-            # Set up PAM admin user if needed (on the Quadlet host: local or remote via SSH)
             echo "🔄 [Startup] Setting up PAM admin user for Quadlet environment..."
             PAM_USER="${E2E_PAM_USER:-admin}"
             PAM_PASS="${E2E_PAM_PASSWORD:-${E2E_DEFAULT_PAM_PASSWORD:-flightctl-e2e}}"
-            
-            run_on_quadlet() {
-                if [[ -n "${E2E_SSH_HOST:-}" ]] && [[ "${E2E_SSH_HOST}" != "localhost" ]]; then
-                    local ssh_user="${E2E_SSH_USER:-$USER}"
-                    local cmd
-                    cmd="$(printf '%q ' "$@")"
-                    if [[ -n "${E2E_SSH_PASSWORD:-}" ]]; then
-                        SSHPASS="${E2E_SSH_PASSWORD}" sshpass -e ssh -o StrictHostKeyChecking=no "${ssh_user}@${E2E_SSH_HOST}" bash -lc "$cmd"
-                    elif [[ -n "${E2E_SSH_KEY_PATH:-}" ]]; then
-                        ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i "${E2E_SSH_KEY_PATH}" "${ssh_user}@${E2E_SSH_HOST}" bash -lc "$cmd"
-                    else
-                        ssh -o StrictHostKeyChecking=no -o BatchMode=yes "${ssh_user}@${E2E_SSH_HOST}" bash -lc "$cmd"
-                    fi
-                else
-                    "$@"
-                fi
-            }
-            
-            # Check if PAM issuer container is running (on Quadlet host)
-            if run_on_quadlet sudo podman ps --format '{{.Names}}' 2>/dev/null | grep -q '^flightctl-pam-issuer$'; then
-                # Create flightctl-admin group if needed
-                run_on_quadlet sudo podman exec -i flightctl-pam-issuer groupadd flightctl-admin 2>/dev/null || true
-                
-                # Create user if needed
-                if ! run_on_quadlet sudo podman exec flightctl-pam-issuer id "${PAM_USER}" &>/dev/null; then
-                    run_on_quadlet sudo podman exec flightctl-pam-issuer adduser "${PAM_USER}" 2>/dev/null || true
-                fi
-                
-                # Set password
-                run_on_quadlet sudo podman exec -i flightctl-pam-issuer sh -c "echo '${PAM_USER}:${PAM_PASS}' | chpasswd" 2>/dev/null || true
-                
-                # Add to flightctl-admin group
-                run_on_quadlet sudo podman exec -i flightctl-pam-issuer usermod -aG flightctl-admin "${PAM_USER}" 2>/dev/null || true
-                
-                echo "✅ [Startup] PAM admin user '${PAM_USER}' configured"
-            else
-                echo "⚠️  [Startup] Warning: flightctl-pam-issuer container not running"
-            fi
-            
+            # Dup stderr to fd 3 so run_on_quadlet trace (in test/scripts/functions) survives per-call 2>/dev/null.
+            exec 3>&2
+            setup_pam_admin_user || echo "⚠️  [Startup] Warning: PAM admin user setup did not complete (see messages above)"
+
             # Login with PAM credentials (capture output so we can print the exact error on failure)
+            set +e
             LOGIN_OUTPUT=$("${FLIGHTCTL_BIN}" login "${API_ENDPOINT}" --insecure-skip-tls-verify -u "${PAM_USER}" -p "${PAM_PASS}" 2>&1)
             LOGIN_EXIT=$?
+            set -e
             if [[ "${LOGIN_EXIT}" -ne 0 ]]; then
                 echo "⚠️  [Startup] Warning: Could not login to API at ${API_ENDPOINT} with PAM user '${PAM_USER}'"
                 echo "    Login error output:"

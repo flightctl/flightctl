@@ -12,6 +12,8 @@ KV_VERSION=${KV_VERSION:-"7.4.1"}
 KV_IMAGE=${KV_IMAGE:-"docker.io/redis"}
 
 source "${SCRIPT_DIR}"/functions
+# Dup stderr to fd 3 for run_on_quadlet command traces (test/scripts/functions); same as e2e_startup.sh.
+exec 3>&2
 IP=$(get_ext_ip)
 
 # Use external getopt for long options

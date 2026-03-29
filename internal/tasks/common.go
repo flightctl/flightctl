@@ -16,31 +16,7 @@ const (
 	ItemsPerPage           = 1000
 	EventProcessingTimeout = 10 * time.Second
 	AckTimeout             = 5 * time.Second
-	// TaskStepDefaultTimeout is the default time budget for a single long-running step
-	// (e.g. one paginated list page or bulk update) when using WithTimeoutIgnoringParentDeadline.
-	TaskStepDefaultTimeout = time.Minute
-	// FleetValidateTaskTimeout is the time budget for the entire fleet_validate task
-	// (CreateNewTemplateVersionIfFleetValid), including all config validation and store calls.
-	FleetValidateTaskTimeout = 2 * time.Minute
 )
-
-// WithTimeoutIgnoringParentDeadline returns a context whose deadline comes only from timeout.
-// The parent's deadline does not shorten the operation; explicit parent cancellation
-// (not deadline) still ends the operation by canceling the child.
-func WithTimeoutIgnoringParentDeadline(parent context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
-	base := context.WithoutCancel(parent)
-	iterCtx, cancelIter := context.WithTimeout(base, timeout)
-	go func() {
-		select {
-		case <-parent.Done():
-			if errors.Is(parent.Err(), context.Canceled) {
-				cancelIter()
-			}
-		case <-iterCtx.Done():
-		}
-	}()
-	return iterCtx, cancelIter
-}
 
 var (
 	ErrUnknownConfigName      = errors.New("failed to find configuration item name")
