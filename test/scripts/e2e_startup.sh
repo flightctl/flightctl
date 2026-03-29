@@ -3,6 +3,7 @@ set -euo pipefail
 
 # Get the project root directory (where the bin/ directory is located)
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
+source "${SCRIPT_DIR}"/functions
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 # shellcheck source=test/scripts/functions
 source "${SCRIPT_DIR}/functions"
@@ -57,7 +58,11 @@ if [[ -n "${API_ENDPOINT:-}" ]]; then
                 FLIGHTCTL_NS_FOR_TOKEN="${FLIGHTCTL_NS:-flightctl-external}"
                 TOKEN=""
                 if kubectl get ns "${FLIGHTCTL_NS_FOR_TOKEN}" &>/dev/null; then
-                    TOKEN=$(kubectl -n "${FLIGHTCTL_NS_FOR_TOKEN}" create token flightctl-admin --duration=8h 2>/dev/null || true)
+                    if command -v oc &>/dev/null; then
+                        TOKEN=$(get_token 2>/dev/null || true)
+                    else
+                        TOKEN=$(kubectl -n "${FLIGHTCTL_NS_FOR_TOKEN}" create token flightctl-admin --duration=8h 2>/dev/null || true)
+                    fi
                 fi
                 if [[ -n "${TOKEN}" ]] && "${FLIGHTCTL_BIN}" login "${API_ENDPOINT}" --insecure-skip-tls-verify --token "${TOKEN}" &>/dev/null; then
                     echo "✅ [Startup] CLI login successful (token)"
