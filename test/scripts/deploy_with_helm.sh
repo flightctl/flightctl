@@ -6,10 +6,10 @@ ONLY_DB=
 DB_SIZE_PARAMS=
 # If using images from a private registry, specify a path to a Kubernetes Secret yaml for your pull secret (in the flightctl-internal namespace)
 # IMAGE_PULL_SECRET_PATH=
-SQL_VERSION=${SQL_VERSION:-"latest"}
-SQL_IMAGE=${SQL_IMAGE:-"quay.io/sclorg/postgresql-16-c9s"}
-KV_VERSION=${KV_VERSION:-"7.4.1"}
-KV_IMAGE=${KV_IMAGE:-"docker.io/redis"}
+SQL_IMAGE="quay.io/sclorg/postgresql-16-c9s"
+SQL_VERSION="20250214"
+KV_IMAGE="quay.io/sclorg/redis-7-c9s"
+KV_VERSION="20250108"
 
 source "${SCRIPT_DIR}"/functions
 # Dup stderr to fd 3 for run_on_quadlet command traces (test/scripts/functions); same as e2e_startup.sh.
@@ -46,8 +46,48 @@ while true; do
   esac
 done
 
-SQL_ARG="--set db.builtin.image.image=${SQL_IMAGE} --set db.builtin.image.tag=${SQL_VERSION}"
-KV_ARG="--set kv.image.image=${KV_IMAGE} --set kv.image.tag=${KV_VERSION}"
+SQL_ARG="--set db.builtin.image.image=${SQL_IMAGE} --set-string db.builtin.image.tag=${SQL_VERSION}"
+KV_ARG="--set kv.image.image=${KV_IMAGE} --set-string kv.image.tag=${KV_VERSION}"
+
+# Function to check if an image exists and return the appropriate image name (hardcoded to EL9)
+choose_image() {
+    local os_image="$1"
+    local fallback_image="$2"
+
+    # Try EL9-specific image first
+    if podman image exists "${os_image}:latest" 2>/dev/null || docker image inspect "${os_image}:latest" >/dev/null 2>&1; then
+        echo "$os_image"
+    elif podman image exists "${fallback_image}:latest" 2>/dev/null || docker image inspect "${fallback_image}:latest" >/dev/null 2>&1; then
+        echo "$fallback_image"
+        echo "Warning: Using fallback image ${fallback_image} (EL9-specific ${os_image} not found)" >&2
+    else
+        # Default to EL9-specific image (will be built by the deployment process)
+        echo "$os_image"
+    fi
+}
+
+# Override FlightCtl service images to use localhost registry with EL9 suffix and fallback support
+API_IMAGE=$(choose_image "localhost/flightctl-api-el9" "localhost/flightctl-api")
+WORKER_IMAGE=$(choose_image "localhost/flightctl-worker-el9" "localhost/flightctl-worker")
+PERIODIC_IMAGE=$(choose_image "localhost/flightctl-periodic-el9" "localhost/flightctl-periodic")
+ALERT_EXPORTER_IMAGE=$(choose_image "localhost/flightctl-alert-exporter-el9" "localhost/flightctl-alert-exporter")
+ALERTMANAGER_PROXY_IMAGE=$(choose_image "localhost/flightctl-alertmanager-proxy-el9" "localhost/flightctl-alertmanager-proxy")
+CLI_ARTIFACTS_IMAGE=$(choose_image "localhost/flightctl-cli-artifacts-el9" "localhost/flightctl-cli-artifacts")
+DB_SETUP_IMAGE=$(choose_image "localhost/flightctl-db-setup-el9" "localhost/flightctl-db-setup")
+TELEMETRY_GATEWAY_IMAGE=$(choose_image "localhost/flightctl-telemetry-gateway-el9" "localhost/flightctl-telemetry-gateway")
+IMAGEBUILDER_API_IMAGE=$(choose_image "localhost/flightctl-imagebuilder-api-el9" "localhost/flightctl-imagebuilder-api")
+IMAGEBUILDER_WORKER_IMAGE=$(choose_image "localhost/flightctl-imagebuilder-worker-el9" "localhost/flightctl-imagebuilder-worker")
+
+SERVICE_IMAGE_ARGS="--set api.image.image=${API_IMAGE} --set api.image.tag=latest"
+SERVICE_IMAGE_ARGS="$SERVICE_IMAGE_ARGS --set worker.image.image=${WORKER_IMAGE} --set worker.image.tag=latest"
+SERVICE_IMAGE_ARGS="$SERVICE_IMAGE_ARGS --set periodic.image.image=${PERIODIC_IMAGE} --set periodic.image.tag=latest"
+SERVICE_IMAGE_ARGS="$SERVICE_IMAGE_ARGS --set alertExporter.image.image=${ALERT_EXPORTER_IMAGE} --set alertExporter.image.tag=latest"
+SERVICE_IMAGE_ARGS="$SERVICE_IMAGE_ARGS --set alertmanagerProxy.image.image=${ALERTMANAGER_PROXY_IMAGE} --set alertmanagerProxy.image.tag=latest"
+SERVICE_IMAGE_ARGS="$SERVICE_IMAGE_ARGS --set cliArtifacts.image.image=${CLI_ARTIFACTS_IMAGE} --set cliArtifacts.image.tag=latest"
+SERVICE_IMAGE_ARGS="$SERVICE_IMAGE_ARGS --set dbSetup.image.image=${DB_SETUP_IMAGE} --set dbSetup.image.tag=latest"
+SERVICE_IMAGE_ARGS="$SERVICE_IMAGE_ARGS --set telemetryGateway.image.image=${TELEMETRY_GATEWAY_IMAGE} --set telemetryGateway.image.tag=latest"
+SERVICE_IMAGE_ARGS="$SERVICE_IMAGE_ARGS --set imageBuilderApi.image.image=${IMAGEBUILDER_API_IMAGE} --set imageBuilderApi.image.tag=latest"
+SERVICE_IMAGE_ARGS="$SERVICE_IMAGE_ARGS --set imageBuilderWorker.image.image=${IMAGEBUILDER_WORKER_IMAGE} --set imageBuilderWorker.image.tag=latest"
 
 # helm expects the namespaces to exist, and creating namespaces
 # inside the helm charts is not recommended.
@@ -59,10 +99,13 @@ kubectl create namespace flightctl-e2e      --context kind-kind 2>/dev/null || t
 if [ -z "$ONLY_DB" ]; then
 
   for suffix in periodic api worker alert-exporter alertmanager-proxy cli-artifacts db-setup telemetry-gateway imagebuilder-api imagebuilder-worker ; do
-    kind_load_image localhost/flightctl-${suffix}:latest
+    kind_load_image localhost/flightctl-${suffix}-el9:latest
   done
 
   kind_load_image "${KV_IMAGE}:${KV_VERSION}" keep-tar
+else
+  # Clear service image args when only deploying database
+  SERVICE_IMAGE_ARGS=""
 fi
 
 if [ ! -z "$IMAGE_PULL_SECRET_PATH" ]; then
@@ -95,7 +138,7 @@ helm dependency build ./deploy/helm/flightctl
 helm upgrade --install --namespace flightctl-external \
                   --values ./deploy/helm/flightctl/values.dev.yaml \
                   --set global.baseDomain=${IP}.nip.io \
-                  ${ONLY_DB} ${DB_SIZE_PARAMS} ${AUTH_ARGS} ${SQL_ARG} ${GATEWAY_ARGS} ${KV_ARG} flightctl \
+                  ${ONLY_DB} ${DB_SIZE_PARAMS} ${AUTH_ARGS} ${SQL_ARG} ${GATEWAY_ARGS} ${KV_ARG} ${SERVICE_IMAGE_ARGS} flightctl \
               ./deploy/helm/flightctl/ --kube-context kind-kind
 
 "${SCRIPT_DIR}"/wait_for_postgres.sh

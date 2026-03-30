@@ -335,7 +335,7 @@ Parameters:
 {{- $sleep := .sleep | default $context.Values.dbSetup.wait.sleep | default 2 | int }}
 {{- $connectionTimeout := .connectionTimeout | default $context.Values.dbSetup.wait.connectionTimeout | default 3 | int }}
 - name: wait-for-database-{{ $userType }}
-  image: "{{ $context.Values.dbSetup.image.image }}:{{ default $context.Chart.AppVersion $context.Values.dbSetup.image.tag }}"
+  image: "{{ include "flightctl.ensureOsQualifiedImage" $context.Values.dbSetup.image.image }}:{{ default $context.Chart.AppVersion $context.Values.dbSetup.image.tag }}"
   imagePullPolicy: {{ default $context.Values.global.imagePullPolicy $context.Values.dbSetup.image.pullPolicy }}
   command:
   - /app/deploy/scripts/wait-for-database.sh
@@ -772,3 +772,22 @@ auth:
   {{- end }}
   {{- $caCrt }}
 {{- end }}
+
+{{- /*
+Ensure image names are OS-qualified for backward compatibility during helm upgrades.
+This helper migrates non-OS-qualified image names (from main branch) to OS-qualified names (PR branch).
+For example: quay.io/flightctl/flightctl-api -> quay.io/flightctl/flightctl-api-el9
+
+Usage: {{ include "flightctl.ensureOsQualifiedImage" .Values.api.image.image }}
+*/}}
+{{- define "flightctl.ensureOsQualifiedImage" -}}
+  {{- $imageName := . -}}
+  {{- /* Check if image already has OS suffix (-el9, -el10, -cs9, -cs10) */ -}}
+  {{- if or (hasSuffix "-el9" $imageName) (hasSuffix "-el10" $imageName) (hasSuffix "-cs9" $imageName) (hasSuffix "-cs10" $imageName) -}}
+    {{- /* Image already has OS suffix, use as-is */ -}}
+    {{- $imageName -}}
+  {{- else -}}
+    {{- /* Image lacks OS suffix, add default -el9 for backward compatibility */ -}}
+    {{- printf "%s-el9" $imageName -}}
+  {{- end -}}
+{{- end -}}
