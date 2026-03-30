@@ -105,10 +105,10 @@ community-el10:
   images:
     db:
       image: quay.io/sclorg/postgresql-16-c10s
-      tag: "latest"
+      tag: "20250214"
     kv:
-      image: quay.io/sclorg/valkey-7-c10s
-      tag: "latest"
+      image: quay.io/sclorg/valkey-8-c10s
+      tag: "20250108"
     alertmanager:
       image: quay.io/prometheus/alertmanager
       tag: "v0.28.1"
@@ -154,16 +154,16 @@ redhat-el10:
   images:
     db:
       image: registry.redhat.io/rhel10/postgresql-16
-      tag: "latest"
+      tag: 10.7-1766414426
     kv:
-      image: registry.redhat.io/rhel10/valkey-7
-      tag: "latest"
+      image: registry.redhat.io/rhel10/valkey-8
+      tag: 10.7-1766414358
     alertmanager:
-      image: registry.redhat.io/rhacm2/prometheus-alertmanager-rhel10
-      tag: "latest"
+      image: registry.redhat.io/rhacm2/prometheus-alertmanager-rhel9
+      tag: v2.15.0-1
     clusterCli:
-      image: registry.redhat.io/openshift4/ose-cli-rhel10
-      tag: "latest"
+      image: registry.redhat.io/openshift4/ose-cli-rhel9
+      tag: v4.20.0
     api:
       image: registry.redhat.io/rhem/flightctl-api-rhel10
     cliArtifacts:

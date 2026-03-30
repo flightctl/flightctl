@@ -1,6 +1,24 @@
 # Key-Value Store Architecture
 
-Flight Control uses Redis as a key-value store for two primary purposes: **caching external configuration data** and **managing an event-driven task queue**. This document describes both use cases and the resilience mechanisms that ensure system reliability.
+Flight Control uses a Redis-compatible key-value store for two primary purposes: **caching external configuration data** and **managing an event-driven task queue**. This document describes both use cases and the resilience mechanisms that ensure system reliability.
+
+## Platform Compatibility
+
+Flight Control uses different KV store implementations based on the platform:
+
+### RHEL9/CentOS Stream 9
+- **Implementation**: Redis 7
+- **CLI Tools**: `redis-cli`
+- **Binary**: `redis-server`
+- **Configuration Path**: `/etc/redis/redis.conf`
+
+### RHEL10/CentOS Stream 10
+- **Implementation**: Valkey 8 (Redis-compatible)
+- **CLI Tools**: `valkey-cli`
+- **Binary**: `valkey-server`
+- **Configuration Path**: `/etc/valkey/valkey.conf`
+
+All implementations maintain full API and protocol compatibility.
 
 ## Overview
 
@@ -167,8 +185,12 @@ export REDIS_LOGLEVEL="warning"
 ### Memory Monitoring and Tuning
 
 #### Key Metrics to Monitor
-1. **Redis memory usage**: `redis-cli INFO memory`
-2. **Evicted keys count**: `redis-cli INFO stats | grep evicted`
+1. **KV store memory usage**:
+   - RHEL9: `redis-cli INFO memory`
+   - RHEL10: `valkey-cli INFO memory`
+2. **Evicted keys count**:
+   - RHEL9: `redis-cli INFO stats | grep evicted`
+   - RHEL10: `valkey-cli INFO stats | grep evicted`
 3. **Cache hit ratio**: Monitor cache effectiveness
 4. **Queue depth**: Monitor task processing backlog
 
@@ -232,7 +254,10 @@ Error: OOM command not allowed when used memory > 'maxmemory'
 **Problem**: High eviction rates
 ```
 # Check eviction stats
+# RHEL9:
 redis-cli INFO stats | grep evicted
+# RHEL10:
+valkey-cli INFO stats | grep evicted
 ```
 **Solution**: Increase memory allocation or optimize cache usage
 
