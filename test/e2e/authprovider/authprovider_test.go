@@ -32,7 +32,7 @@ const (
 var loginURLRe = regexp.MustCompile(`Opening login URL in default browser:\s*(.+)`)
 
 var _ = Describe("Auth provider (Keycloak OIDC)", Label("authprovider"), func() {
-	It("logs in via OAuth --web --no-browser with Keycloak and headless browser", Label("authprovider"), func() {
+	It("logs in via OAuth --web --no-browser with Keycloak and headless browser", Label("88168", "authprovider"), func() {
 		harness := e2e.GetWorkerHarness()
 		ctx, cancel := context.WithTimeout(harness.GetTestContext(), loginFlowTimeout)
 		defer cancel()
@@ -53,7 +53,7 @@ var _ = Describe("Auth provider (Keycloak OIDC)", Label("authprovider"), func() 
 		}
 	})
 
-	It("can call API after Keycloak login", Label("authprovider"), func() {
+	It("can call API after Keycloak login", Label("88539", "authprovider"), func() {
 		harness := e2e.GetWorkerHarness()
 		_, err := harness.RunGetDevices()
 		Expect(err).ToNot(HaveOccurred(), "get devices after Keycloak login should succeed")
