@@ -10,9 +10,19 @@ bin/output/qcow2/disk.qcow2: $(E2E_AGENT_IMAGES_SENTINEL)
 # Build + bundle artifacts (no push)
 $(E2E_AGENT_IMAGES_SENTINEL): | bin
 	@if [ ! -f "$(AGENT_BUNDLE)" ]; then \
-		$(MAKE) bin/.rpm; \
-		BUILD_TYPE=$(BUILD_TYPE) BREW_BUILD_URL=$(BREW_BUILD_URL) SOURCE_GIT_TAG=$(SOURCE_GIT_TAG) SOURCE_GIT_TREE_STATE=$(SOURCE_GIT_TREE_STATE) SOURCE_GIT_COMMIT=$(SOURCE_GIT_COMMIT) \
-			AGENT_OS_ID=$(AGENT_OS_ID) PUSH_IMAGES=false ARTIFACTS_OUTPUT_DIR=$(AGENT_BUNDLE_DIR) $(ROOT_DIR)/test/scripts/agent-images/create_agent_images.sh; \
+		# For EL10, use COPR packages instead of local RPMs \
+		case "$(AGENT_OS_ID)" in \
+			cs10*) \
+				echo "Using COPR packages for EL10 build"; \
+				BUILD_TYPE=$(BUILD_TYPE) BREW_BUILD_URL=$(BREW_BUILD_URL) SOURCE_GIT_TAG=$(SOURCE_GIT_TAG) SOURCE_GIT_TREE_STATE=$(SOURCE_GIT_TREE_STATE) SOURCE_GIT_COMMIT=$(SOURCE_GIT_COMMIT) \
+					FLIGHTCTL_RPM=stable AGENT_OS_ID=$(AGENT_OS_ID) PUSH_IMAGES=false ARTIFACTS_OUTPUT_DIR=$(AGENT_BUNDLE_DIR) $(ROOT_DIR)/test/scripts/agent-images/create_agent_images.sh; \
+				;; \
+			*) \
+				$(MAKE) bin/.rpm; \
+				BUILD_TYPE=$(BUILD_TYPE) BREW_BUILD_URL=$(BREW_BUILD_URL) SOURCE_GIT_TAG=$(SOURCE_GIT_TAG) SOURCE_GIT_TREE_STATE=$(SOURCE_GIT_TREE_STATE) SOURCE_GIT_COMMIT=$(SOURCE_GIT_COMMIT) \
+					AGENT_OS_ID=$(AGENT_OS_ID) PUSH_IMAGES=false ARTIFACTS_OUTPUT_DIR=$(AGENT_BUNDLE_DIR) $(ROOT_DIR)/test/scripts/agent-images/create_agent_images.sh; \
+				;; \
+		esac; \
 	else \
 		echo "Device bundle already exists at $(AGENT_BUNDLE)"; \
 	fi
