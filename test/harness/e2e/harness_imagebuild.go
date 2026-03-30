@@ -336,32 +336,42 @@ func (h *Harness) WaitForImageBuildFailure(name string, timeout time.Duration) (
 }
 
 // WaitForImageBuildProcessing waits for an ImageBuild to start processing (leave Pending state).
-// Returns the ImageBuild once it's in Building, Pushing, Completed, Failed, or other non-Pending state.
+// Returns the ImageBuild once it's in Building, Pushing, Completed, or another non-Pending state
+// that is not a terminal failure.
+// If the Ready condition becomes Failed, returns immediately with an error (does not wait for timeout).
 func (h *Harness) WaitForImageBuildProcessing(name string, timeout, polling time.Duration) (*imagebuilderapi.ImageBuild, error) {
 	GinkgoWriter.Printf("Waiting for ImageBuild %s to start processing (timeout: %v, polling: %v)\n", name, timeout, polling)
 
+	deadline := time.Now().Add(timeout)
 	var lastReason string
-	Eventually(func() (bool, error) {
+
+	for time.Now().Before(deadline) {
 		imageBuild, err := h.GetImageBuild(name)
 		if err != nil {
-			return false, err
+			GinkgoWriter.Printf("Error getting ImageBuild %s (will retry): %v\n", name, err)
+			time.Sleep(polling)
+			continue
 		}
 
-		reason, _ := h.getImageBuildReadyCondition(imageBuild)
+		reason, msg := h.getImageBuildReadyCondition(imageBuild)
 		lastReason = reason
+
+		if reason == string(imagebuilderapi.ImageBuildConditionReasonFailed) {
+			GinkgoWriter.Printf("ImageBuild %s Ready condition is Failed (not waiting for timeout): %s\n", name, msg)
+			return imageBuild, fmt.Errorf("ImageBuild %s: Ready condition is Failed: %s", name, msg)
+		}
 
 		// Build has started processing if it's no longer Pending
 		if reason != "" && reason != string(imagebuilderapi.ImageBuildConditionReasonPending) {
 			GinkgoWriter.Printf("ImageBuild %s started processing: reason=%s\n", name, reason)
-			return true, nil
+			return imageBuild, nil
 		}
 
 		GinkgoWriter.Printf("ImageBuild %s still pending...\n", name)
-		return false, nil
-	}, timeout, polling).Should(BeTrue(),
-		fmt.Sprintf("Expected ImageBuild %s to start processing, but still in state: %s", name, lastReason))
+		time.Sleep(polling)
+	}
 
-	return h.GetImageBuild(name)
+	return nil, fmt.Errorf("Expected ImageBuild %s to start processing, but still in state: %s", name, lastReason)
 }
 
 // handleSSELogStream processes Server-Sent Events log stream (matching CLI behavior).
@@ -797,7 +807,8 @@ func (h *Harness) WaitForImageExportProcessing(name string, timeout, polling tim
 	Eventually(func() (bool, error) {
 		imageExport, err := h.GetImageExport(name)
 		if err != nil {
-			return false, err
+			GinkgoWriter.Printf("Error getting ImageExport %s (will retry): %v\n", name, err)
+			return false, nil
 		}
 
 		reason, _ := h.getImageExportReadyCondition(imageExport)
