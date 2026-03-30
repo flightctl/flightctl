@@ -116,6 +116,9 @@ type OpenIDConfiguration struct {
 	// CodeChallengeMethodsSupported Supported PKCE code challenge methods.
 	CodeChallengeMethodsSupported *[]OpenIDConfigurationCodeChallengeMethodsSupported `json:"code_challenge_methods_supported,omitempty"`
 
+	// EndSessionEndpoint OIDC RP-Initiated Logout endpoint (end session at the issuer).
+	EndSessionEndpoint *string `json:"end_session_endpoint,omitempty"`
+
 	// GrantTypesSupported Supported grant types.
 	GrantTypesSupported *[]string `json:"grant_types_supported,omitempty"`
 
@@ -295,6 +298,21 @@ type AuthLoginPostFormdataBody struct {
 
 	// Username Username for authentication
 	Username string `form:"username" json:"username"`
+}
+
+// AuthLogoutParams defines parameters for AuthLogout.
+type AuthLogoutParams struct {
+	// PostLogoutRedirectUri Where to redirect the user after logout (must align with registered redirect URIs).
+	PostLogoutRedirectUri *string `form:"post_logout_redirect_uri,omitempty" json:"post_logout_redirect_uri,omitempty"`
+
+	// IdTokenHint Optional ID token hint (accepted for interoperability; not required for logout).
+	IdTokenHint *string `form:"id_token_hint,omitempty" json:"id_token_hint,omitempty"`
+
+	// ClientId OAuth2 client ID; if set, must match the configured client.
+	ClientId *string `form:"client_id,omitempty" json:"client_id,omitempty"`
+
+	// State Optional opaque state (passed through to post_logout_redirect_uri as query param when redirecting).
+	State *string `form:"state,omitempty" json:"state,omitempty"`
 }
 
 // AuthLoginPostFormdataRequestBody defines body for AuthLoginPost for application/x-www-form-urlencoded ContentType.

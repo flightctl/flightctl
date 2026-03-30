@@ -414,6 +414,13 @@ ui:
     insecureSkipTlsVerify: false
     # -- A custom CA cert for Auth TLS.
     caCert: ""
+  # -- When true, the UI proxy uses X-Forwarded-Proto and X-Forwarded-Host for OAuth redirect
+  # validation (required when TLS terminates at an ingress). Disable if the UI is reached directly
+  # without a trusted reverse proxy. Optional trustedProxyCidrs restricts this to listed CIDRs.
+  trustXForwardedHeaders: true
+  # -- Comma-separated CIDRs for immediate clients that may set forwarded headers (e.g. ingress pod
+  # network). Empty means any client when trustXForwardedHeaders is true.
+  trustedProxyCidrs: ""
   # -- Additional labels for UI routes.
   additionalRouteLabels: null
 
