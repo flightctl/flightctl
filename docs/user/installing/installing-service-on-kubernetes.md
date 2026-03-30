@@ -194,6 +194,9 @@ Procedure:
       --set global.baseDomainTlsSecretName=flightctl-tls
     ```
 
+    > [!IMPORTANT]
+    > **Enterprise Linux 10 Support**: EL10 container images are not currently supported with Helm deployments. The Helm chart is configured to use EL9 (CentOS Stream 9 / RHEL 9) container images only. EL10 support for Helm deployments will be available once OpenShift provides full Enterprise Linux 10 support.
+
 6. Wait for the pods to be in `Running` or `Completed` state:
 
     ```console
@@ -270,6 +273,9 @@ Procedure:
     helm upgrade --install flightctl oci://quay.io/flightctl/charts/flightctl:${FC_VERSION} \
       --namespace ${FC_NAMESPACE} --create-namespace
     ```
+
+    > [!IMPORTANT]
+    > **Enterprise Linux 10 Support**: EL10 container images are not currently supported with Helm deployments. The Helm chart is configured to use EL9 (CentOS Stream 9 / RHEL 9) container images only. EL10 support for Helm deployments will be available once OpenShift provides full Enterprise Linux 10 support.
 
 4. Wait for the pods to be in `Running` or `Completed` state:
 

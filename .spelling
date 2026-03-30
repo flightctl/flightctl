@@ -36,6 +36,8 @@ DeviceTemplate
 df
 e.g.
 ECDSA
+EL9
+EL10
 EnrollmentRequest
 EnrollmentRequests
 Envoy
@@ -123,6 +125,8 @@ Skopeo
 spec
 specs
 SpiceDB
+stream9
+stream10
 subdomains
 substring
 systemd

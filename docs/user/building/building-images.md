@@ -87,10 +87,38 @@ enrollment-service:
 
 ### Building the OS Image (bootc)
 
+Flight Control supports building OS images based on Enterprise Linux 9 and Enterprise Linux 10. Choose the base image that matches your target deployment requirements:
+
+- **CentOS Stream 9**: `quay.io/centos-bootc/centos-bootc:stream9` (EL9)
+- **CentOS Stream 10**: `quay.io/centos-bootc/centos-bootc:stream10` (EL10)
+
+#### Example: CentOS Stream 9 (EL9)
+
 Create a file named `Containerfile` with the following content to build an OS image based on CentOS Stream 9 that includes the Flight Control agent and configuration:
 
 ```console
 FROM quay.io/centos-bootc/centos-bootc:stream9
+
+RUN dnf -y config-manager --add-repo https://rpm.flightctl.io/flightctl-epel.repo && \
+    dnf -y install flightctl-agent && \
+    dnf -y clean all && \
+    systemctl enable flightctl-agent.service
+
+# Optional: To enable podman-compose application support, uncomment below
+# RUN dnf -y install epel-release && \
+#     dnf -y install podman-compose && \
+#     dnf -y clean all && \
+#     systemctl enable podman.service
+
+ADD config.yaml /etc/flightctl/
+```
+
+#### Example: CentOS Stream 10 (EL10)
+
+For CentOS Stream 10, create a `Containerfile` with the following content:
+
+```console
+FROM quay.io/centos-bootc/centos-bootc:stream10
 
 RUN dnf -y config-manager --add-repo https://rpm.flightctl.io/flightctl-epel.repo && \
     dnf -y install flightctl-agent && \
@@ -120,6 +148,14 @@ OCI_IMAGE_REPO=${OCI_REGISTRY}/your_org/centos-bootc
 OCI_IMAGE_TAG=v1
 ```
 
+> [!TIP]
+> **OS-specific Image Naming**: Consider including the OS version in your image repository name to maintain separate images for different Enterprise Linux versions. For example:
+>
+> - EL9 images: `${OCI_REGISTRY}/your_org/centos-bootc-el9:${OCI_IMAGE_TAG}`
+> - EL10 images: `${OCI_REGISTRY}/your_org/centos-bootc-el10:${OCI_IMAGE_TAG}`
+>
+> This approach helps avoid confusion when managing devices across different Enterprise Linux versions and aligns with Flight Control's internal OS-qualified container naming scheme.
+
 Build the OS image for your target platform:
 
 ```console
@@ -128,7 +164,9 @@ sudo podman build -t ${OCI_IMAGE_REPO}:${OCI_IMAGE_TAG} .
 
 #### Using RHEL base images
 
-When using Flight Control with a RHEL 9 base image, you need to make a few changes to the `Containerfile`, specifically you need to disable RHEL's default automatic updates and use a different command to enable the EPEL repository in case you need `podman-compose`:
+Flight Control supports both RHEL 9 and RHEL 10 base images. When using RHEL base images, you need to disable RHEL's default automatic updates and use a different command to enable the EPEL repository.
+
+**RHEL 9 Example:**
 
 ```console
 FROM registry.redhat.io/rhel9/rhel-bootc:9.5
@@ -141,6 +179,27 @@ RUN dnf -y config-manager --add-repo https://rpm.flightctl.io/flightctl-epel.rep
 
 # Optional: To enable podman-compose application support, uncomment below
 # RUN dnf -y install https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm && \
+#     dnf -y install podman-compose && \
+#     dnf -y clean all && \
+#     rm -rf /var/{cache,log} /var/lib/{dnf,rhsm} && \
+#     systemctl enable podman.service
+
+ADD config.yaml /etc/flightctl/
+```
+
+**RHEL 10 Example:**
+
+```console
+FROM registry.redhat.io/rhel10/rhel-bootc:10.0
+
+RUN dnf -y config-manager --add-repo https://rpm.flightctl.io/flightctl-epel.repo && \
+    dnf -y install flightctl-agent && \
+    dnf -y clean all && \
+    systemctl enable flightctl-agent.service && \
+    systemctl mask bootc-fetch-apply-updates.timer
+
+# Optional: To enable podman-compose application support, uncomment below
+# RUN dnf -y install https://dl.fedoraproject.org/pub/epel/epel-release-latest-10.noarch.rpm && \
 #     dnf -y install podman-compose && \
 #     dnf -y clean all && \
 #     rm -rf /var/{cache,log} /var/lib/{dnf,rhsm} && \
@@ -384,7 +443,7 @@ When building an OS image and disk image for OpenShift Virtualization, follow th
 3. Build a disk image of type "qcow2" instead of type "iso".
 4. Optional: Upload the disk image to an OCI registry as a container disk.
 
-Create a file named `Containerfile` with the following content to build an OS image based on CentOS Stream 9 that includes the Flight Control agent and VM guest tools, but no agent configuration:
+Create a file named `Containerfile` with the following content to build an OS image that includes the Flight Control agent and VM guest tools, but no agent configuration. This example uses CentOS Stream 9, but you can substitute `stream10` for EL10 support:
 
 ```console
 FROM quay.io/centos-bootc/centos-bootc:stream9
@@ -459,7 +518,7 @@ When building OS images and disk images for VMware vSphere, follow the [generic 
 2. Add the `open-vm-tools` guest tools to the image.
 3. Build a disk image of type "vmdk" instead of type "iso".
 
-Create a file named `Containerfile` with the following content to build an OS image based on CentOS Stream 9 that includes the Flight Control agent and VM guest tools, but no agent configuration:
+Create a file named `Containerfile` with the following content to build an OS image that includes the Flight Control agent and VM guest tools, but no agent configuration. This example uses CentOS Stream 9, but you can substitute `stream10` for EL10 support:
 
 ```console
 FROM quay.io/centos-bootc/centos-bootc:stream9
