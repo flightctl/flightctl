@@ -58,13 +58,14 @@ fi
 REGISTRY_PORT="${REGISTRY_ADDRESS##*:}"
 [[ "$REGISTRY_PORT" == "$REGISTRY_ADDRESS" ]] && REGISTRY_PORT="5000"
 
-# In IPv6 mode, VMs use hostname; in IPv4 mode, VMs use IP directly
+# TLS certificate path must match the registry address used by VMs.
+# In IPv6 mode, use hostname to avoid container tool parsing issues.
 if [[ "${IPV6_ONLY:-false}" == "true" ]]; then
-  REG_VM_HOSTPORT="${REGISTRY_HOSTNAME}:${REGISTRY_PORT}"
-  log "IPv6 mode: VMs will use registry hostname: $REG_VM_HOSTPORT"
+  REG_TLS_HOSTPORT="${REGISTRY_HOSTNAME}:${REGISTRY_PORT}"
+  log "IPv6 mode: VMs will use registry hostname: $REG_TLS_HOSTPORT"
 else
-  REG_VM_HOSTPORT="$REGISTRY_ADDRESS"
-  log "IPv4 mode: VMs will use registry IP: $REG_VM_HOSTPORT"
+  REG_TLS_HOSTPORT="$REGISTRY_ADDRESS"
+  log "IPv4 mode: VMs will use registry IP: $REG_TLS_HOSTPORT"
 fi
 
 SOURCE_REPO="${SOURCE_REPO%/}"
@@ -78,7 +79,7 @@ log "AGENT_DIR=$AGENT_DIR"
 log "MOUNT_DIR=$MOUNT_DIR"
 log "REGISTRY_ADDRESS=$REGISTRY_ADDRESS"
 log "REGISTRY_HOSTNAME=$REGISTRY_HOSTNAME"
-log "REG_VM_HOSTPORT=$REG_VM_HOSTPORT"
+log "REG_TLS_HOSTPORT=$REG_TLS_HOSTPORT"
 log "IPV6_ONLY=${IPV6_ONLY:-false}"
 log "E2E_CA=$E2E_CA"
 log "SOURCE_REPO=$SOURCE_REPO"
@@ -182,13 +183,13 @@ copy_into() {
 # needing per-tool drop-in configurations.
 inject_registry_ca() {
   local base="$1"
-  local target_dir="$base/containers/certs.d/$REG_VM_HOSTPORT"
 
   if [[ ! -f "$E2E_CA" ]]; then
     log "E2E CA not found at $E2E_CA - skipping"
     return
   fi
 
+  local target_dir="$base/containers/certs.d/$REG_TLS_HOSTPORT"
   log "Installing E2E CA to $target_dir/ca.crt"
   sudo install -d "$target_dir"
   sudo install -m 0644 "$E2E_CA" "$target_dir/ca.crt"
@@ -225,9 +226,9 @@ write_registry_remap() {
   local base="$1"
   local config_dir="$base/containers/registries.conf.d"
   local remap_file="$config_dir/flightctl-remap.conf"
-  local dest="${REG_VM_HOSTPORT}/${SOURCE_REPO_PATH}"
+  local dest="${REG_TLS_HOSTPORT}/${SOURCE_REPO_PATH}"
   # Private registry is on port 5002 (same host, different port)
-  local private_host="${REG_VM_HOSTPORT%:*}"
+  local private_host="${REG_TLS_HOSTPORT%:*}"
   local private_dest="${private_host}:5002/${SOURCE_REPO_PATH}"
   log "Configuring registry remap $remap_file ($SOURCE_REPO -> $dest)"
   log "Configuring registry remap $remap_file (${SOURCE_REPO}-private -> $private_dest)"
@@ -262,27 +263,17 @@ inject_hosts_entry() {
     return
   fi
 
-  # Add host FQDN entries only if hostname is not localhost
-  local skip_host_fqdn=false
-  if [[ -z "$host_fqdn" ]] || [[ "$host_fqdn" == "localhost" ]] || [[ "$host_fqdn" == "localhost.localdomain" ]]; then
-    log "Host FQDN is localhost or empty - skipping host FQDN entry"
-    skip_host_fqdn=true
-  fi
-
-  if [[ "$skip_host_fqdn" == "false" ]]; then
+  # Add host FQDN entry only if hostname is valid (not localhost or empty)
+  if [[ -n "$host_fqdn" ]] && [[ "$host_fqdn" != "localhost" ]] && [[ "$host_fqdn" != "localhost.localdomain" ]]; then
     log "Adding hosts entry: $host_ip -> $host_fqdn $host_short"
 
-    # Append to existing hosts file or create new one
     if [[ -f "$hosts_file" ]]; then
-      # Check if entry already exists
       if ! sudo grep -q "$host_fqdn" "$hosts_file" 2>/dev/null; then
-        # Append entry
         echo "$host_ip $host_fqdn $host_short" | sudo tee -a "$hosts_file" >/dev/null
       else
         log "Hosts entry for $host_fqdn already exists"
       fi
     else
-      # Create hosts file with standard entries plus our host
       sudo tee "$hosts_file" >/dev/null <<EOF
 127.0.0.1   localhost localhost.localdomain
 ::1         localhost localhost.localdomain
@@ -290,7 +281,8 @@ $host_ip $host_fqdn $host_short
 EOF
     fi
   else
-    # Create minimal hosts file if it doesn't exist
+    log "Host FQDN is localhost or empty - skipping host FQDN entry"
+    # Ensure minimal hosts file exists for registry entry below
     if [[ ! -f "$hosts_file" ]]; then
       sudo tee "$hosts_file" >/dev/null <<EOF
 127.0.0.1   localhost localhost.localdomain
@@ -299,7 +291,7 @@ EOF
     fi
   fi
 
-  # Add registry hostname entry for IPv6 mode (always, even if host FQDN is localhost)
+  # Add registry hostname entry for IPv6 mode
   if [[ "${IPV6_ONLY:-false}" == "true" ]]; then
     if ! sudo grep -q "$REGISTRY_HOSTNAME" "$hosts_file" 2>/dev/null; then
       log "IPv6 mode: Adding hosts entry $host_ip -> $REGISTRY_HOSTNAME"
@@ -310,7 +302,7 @@ EOF
   fi
 
   sudo chown root:root "$hosts_file"
-  log "Hosts entry processing completed"
+  log "Hosts entry added successfully"
 }
 
 # Write to deployment etc so it appears at guest /etc

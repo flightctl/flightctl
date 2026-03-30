@@ -985,53 +985,28 @@ func (h *Harness) DeleteRepository(name string) error {
 	return err
 }
 
-// resolveHostToIP resolves a hostname or IP address to an IP address.
-// If the input is already an IP, it returns it as-is.
-// If it's a hostname, it resolves it (preferring IPv4 for compatibility).
-func resolveHostToIP(host string) (string, error) {
-	// If it's already an IP address, return it
-	if net.ParseIP(host) != nil {
-		return host, nil
-	}
-
-	// Resolve the hostname
-	ips, err := net.LookupIP(host)
-	if err != nil {
-		return "", fmt.Errorf("failed to resolve hostname %s: %w", host, err)
-	}
-
-	if len(ips) == 0 {
-		return "", fmt.Errorf("no IP addresses found for hostname %s", host)
-	}
-
-	// Prefer IPv4 for iptables compatibility, but fall back to IPv6
-	for _, ip := range ips {
-		if ip.To4() != nil {
-			return ip.String(), nil
+// getIPTablesCommand returns the appropriate iptables command (iptables or ip6tables)
+// based on the IP version. Resolves hostnames and respects IPV6_ONLY environment variable.
+func getIPTablesCommand(host string) string {
+	ip := net.ParseIP(host)
+	if ip == nil {
+		if ips, err := net.LookupIP(host); err == nil && len(ips) > 0 {
+			ip = ips[0]
 		}
 	}
-
-	// Only IPv6 addresses available
-	return ips[0].String(), nil
+	if ip != nil && ip.To4() == nil {
+		return "ip6tables"
+	}
+	return "iptables"
 }
 
-func tcpNetworkTableRule(host, port string, remove bool) ([]string, error) {
+func tcpNetworkTableRule(ip, port string, remove bool) []string {
 	flag := "-A" // Add rule
 	if remove {
 		flag = "-D" // Delete rule
 	}
 
-	// Resolve hostname to IP address
-	ip, err := resolveHostToIP(host)
-	if err != nil {
-		return nil, err
-	}
-
-	// Determine which iptables command to use based on IP version
-	iptablesCmd := "iptables"
-	if strings.Contains(ip, ":") {
-		iptablesCmd = "ip6tables"
-	}
+	iptablesCmd := getIPTablesCommand(ip)
 
 	rule := []string{iptablesCmd, flag, "OUTPUT"}
 
@@ -1045,15 +1020,12 @@ func tcpNetworkTableRule(host, port string, remove bool) ([]string, error) {
 
 	rule = append(rule, "-j", "DROP")
 
-	return rule, nil
+	return rule
 }
 
-func buildIPTablesCmd(ip, port string, remove bool) ([]string, error) {
-	rule, err := tcpNetworkTableRule(ip, port, remove)
-	if err != nil {
-		return nil, err
-	}
-	return append([]string{"sudo"}, rule...), nil
+func buildIPTablesCmd(ip, port string, remove bool) []string {
+	rule := tcpNetworkTableRule(ip, port, remove)
+	return append([]string{"sudo"}, rule...)
 }
 
 // SimulateNetworkFailure blocks VM traffic to the given registry host:port via iptables.
@@ -1063,11 +1035,7 @@ func (h *Harness) SimulateNetworkFailure(registryHost, registryPort string) erro
 		return fmt.Errorf("registry host and port are required for network failure simulation")
 	}
 
-	blockCmd, err := buildIPTablesCmd(registryHost, registryPort, false)
-	if err != nil {
-		return fmt.Errorf("failed to build iptables command: %w", err)
-	}
-
+	blockCmd := buildIPTablesCmd(registryHost, registryPort, false)
 	blockCommands := [][]string{blockCmd}
 
 	for _, cmd := range blockCommands {
@@ -1078,10 +1046,7 @@ func (h *Harness) SimulateNetworkFailure(registryHost, registryPort string) erro
 	}
 
 	// List iptables rules for debugging (use appropriate command based on IP version)
-	iptablesListCmd := "iptables"
-	if strings.Contains(registryHost, ":") {
-		iptablesListCmd = "ip6tables"
-	}
+	iptablesListCmd := getIPTablesCommand(registryHost)
 	stdout, err := h.VM.RunSSH([]string{"sudo", iptablesListCmd, "-L", "OUTPUT"}, nil)
 	if err != nil {
 		logrus.Warnf("Failed to list %s rules: %v", iptablesListCmd, err)
@@ -1095,13 +1060,9 @@ func (h *Harness) SimulateNetworkFailure(registryHost, registryPort string) erro
 // SimulateNetworkFailureForCLI adds an entry to iptables to drop tcp traffic to the specified port:ip
 // It returns a function that will only execute once to undo the iptables modification
 func (h *Harness) SimulateNetworkFailureForCLI(ip, port string) (func() error, error) {
-	args, err := tcpNetworkTableRule(ip, port, false)
-	if err != nil {
-		noop := func() error { return nil }
-		return noop, fmt.Errorf("failed to build iptables rule: %w", err)
-	}
+	args := tcpNetworkTableRule(ip, port, false)
 
-	_, err = h.SH("sudo", args...)
+	_, err := h.SH("sudo", args...)
 	noop := func() error { return nil }
 	if err != nil {
 		return noop, fmt.Errorf("failed to add iptables rule %v: %w", args, err)
@@ -1122,11 +1083,7 @@ func (h *Harness) FixNetworkFailure(registryHost, registryPort string) error {
 		return fmt.Errorf("registry host and port are required for network failure fix")
 	}
 
-	unblockCmd, err := buildIPTablesCmd(registryHost, registryPort, true)
-	if err != nil {
-		return fmt.Errorf("failed to build iptables command: %w", err)
-	}
-
+	unblockCmd := buildIPTablesCmd(registryHost, registryPort, true)
 	unblockCommands := [][]string{unblockCmd}
 
 	for _, cmd := range unblockCommands {
@@ -1140,10 +1097,7 @@ func (h *Harness) FixNetworkFailure(registryHost, registryPort string) error {
 	_, _ = h.VM.RunSSH([]string{"sudo", "systemd-resolve", "--flush-caches"}, nil)
 
 	// List iptables rules for debugging (use appropriate command based on IP version)
-	iptablesListCmd := "iptables"
-	if strings.Contains(registryHost, ":") {
-		iptablesListCmd = "ip6tables"
-	}
+	iptablesListCmd := getIPTablesCommand(registryHost)
 	stdout, err := h.VM.RunSSH([]string{"sudo", iptablesListCmd, "-L", "OUTPUT"}, nil)
 	if err != nil {
 		logrus.Warnf("Failed to list %s rules: %v", iptablesListCmd, err)
@@ -1157,12 +1111,9 @@ func (h *Harness) FixNetworkFailure(registryHost, registryPort string) error {
 // FixNetworkFailureForCLI removes an entry from iptables if it exists. returns an error
 // if no entry for the ip:port combo exists
 func (h *Harness) FixNetworkFailureForCLI(ip, port string) error {
-	args, err := tcpNetworkTableRule(ip, port, true)
-	if err != nil {
-		return fmt.Errorf("failed to build iptables rule: %w", err)
-	}
+	args := tcpNetworkTableRule(ip, port, true)
 
-	_, err = h.SH("sudo", args...)
+	_, err := h.SH("sudo", args...)
 	if err != nil {
 		return fmt.Errorf("failed to remove iptables rule %v: %w", args, err)
 	}

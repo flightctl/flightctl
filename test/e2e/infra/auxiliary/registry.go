@@ -197,7 +197,6 @@ func (r *Registry) startAuthenticatedEndpoint(ctx context.Context, certDir, netw
 }
 
 func generateNginxConf(registryHost, registryPort string) string {
-	// Use net.JoinHostPort for proper IPv6 bracket notation
 	upstreamAddr := net.JoinHostPort(registryHost, registryPort)
 	return fmt.Sprintf(`error_log /dev/stderr warn;
 

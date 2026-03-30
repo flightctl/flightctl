@@ -165,13 +165,9 @@ genisoimage -output "${CIDATA_ISO}" -volid cidata -joliet -rock \
     "${CIDATA_TMPDIR}/user-data" "${CIDATA_TMPDIR}/meta-data"
 rm -rf "${CIDATA_TMPDIR}"
 
-# Restart default network (skip for IPv6-only mode as it's typically IPv4-only)
-if [[ "${IPV6_ONLY:-false}" != "true" ]]; then
-    sudo virsh net-destroy ${DEFAULT_NETWORK_NAME}
-    sudo virsh net-start ${DEFAULT_NETWORK_NAME}
-else
-    echo "IPv6-only mode: skipping default network restart"
-fi
+# Restart default network
+sudo virsh net-destroy ${DEFAULT_NETWORK_NAME}
+sudo virsh net-start ${DEFAULT_NETWORK_NAME}
 
 # Generate the VM domain XML with virt-install --print-xml, then modify it with
 # python3 to inject TPM passthrough, the cloud-init ISO, and optionally swap the
@@ -272,67 +268,70 @@ wait_for_vm_ips() {
     export INTERFACE_DEFAULT=$(sudo virsh domiflist ${VM_NAME} 2>/dev/null | grep default | awk '{print $1}')
     export INTERFACE_BM=$(sudo virsh domiflist ${VM_NAME} 2>/dev/null | grep ${NETWORK_NAME} | awk '{print $1}')
 
-  # Try to get the IPs
-  if [ -n "${INTERFACE_DEFAULT}" ]; then
-    VM_DEFAULT_IP=$(sudo virsh domifaddr ${VM_NAME} --interface ${INTERFACE_DEFAULT} 2>/dev/null | awk '/ipv4/ {print $4}' | cut -d'/' -f1)
-  fi
+    if [ -n "${INTERFACE_DEFAULT}" ]; then
+      VM_DEFAULT_IP=$(sudo virsh domifaddr ${VM_NAME} --interface ${INTERFACE_DEFAULT} 2>/dev/null | awk '/ipv4/ {print $4}' | cut -d'/' -f1)
+    fi
 
-  if [ -n "${INTERFACE_BM}" ]; then
-    VM_IP=$(sudo virsh domifaddr ${VM_NAME} --interface ${INTERFACE_BM} 2>/dev/null | awk '/ipv4/ {print $4}' | cut -d'/' -f1)
-  fi
+    if [ -n "${INTERFACE_BM}" ]; then
+      if [[ "${IPV6_ONLY:-false}" == "true" ]]; then
+        VM_IP=$(sudo virsh domifaddr "${VM_NAME}" --interface "${INTERFACE_BM}" 2>/dev/null | awk '/ipv6/ {print $4}' | cut -d'/' -f1 | grep -v '^fe80' | head -1)
+      else
+        VM_IP=$(sudo virsh domifaddr ${VM_NAME} --interface ${INTERFACE_BM} 2>/dev/null | awk '/ipv4/ {print $4}' | cut -d'/' -f1)
+      fi
+    fi
 
-  # Check if both VM's IPs are available
-  if [ -n "${VM_DEFAULT_IP}" ] && [ -n "${VM_IP}" ]; then
-    echo "VM IPs are available!"
-    echo "VM DEFAULT IP: ${VM_DEFAULT_IP}"
-    echo "VM IP: ${VM_IP}"
-    break
-  fi
+    # Check if both VM's IPs are available
+    if [ -n "${VM_DEFAULT_IP}" ] && [ -n "${VM_IP}" ]; then
+      echo "VM IPs are available!"
+      echo "VM DEFAULT IP: ${VM_DEFAULT_IP}"
+      echo "VM IP: ${VM_IP}"
+      return 0
+    fi
 
     echo "Waiting for VM IPs... (${ELAPSED}s/${TIMEOUT_SECONDS}s) - DEFAULT_IP: ${VM_DEFAULT_IP:-not available}, BM_IP: ${VM_IP:-not available}"
     sleep ${CHECK_INTERVAL}
     ELAPSED=$((ELAPSED + CHECK_INTERVAL))
   done
 
-# Check if we got the IPs
-if [ -z "${VM_DEFAULT_IP}" ] || [ -z "${VM_IP}" ]; then
   echo "ERROR: Failed to get VM IPs within ${TIMEOUT_SECONDS} seconds"
   echo "VM DEFAULT IP: ${VM_DEFAULT_IP:-not available}"
   echo "VM IP: ${VM_IP:-not available}"
-  exit 1
-fi
+  return 1
+}
+
+wait_for_ssh() {
+  local ssh_timeout="${1:-${TIMEOUT_SECONDS}}"
+  echo "Waiting for SSH to be ready on ${SSH_VM_TARGET} (timeout: ${ssh_timeout}s)..."
+  ELAPSED=0
+  while [ $ELAPSED -lt $ssh_timeout ]; do
+    if ssh -i ${SSH_PRIVATE_KEY_PATH} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+        -o BatchMode=yes -o ConnectTimeout=5 ${SSH_VM_TARGET} "true" 2>/dev/null; then
+      echo "SSH is ready"
+      return 0
+    fi
+    sleep ${CHECK_INTERVAL}
+    ELAPSED=$((ELAPSED + CHECK_INTERVAL))
+  done
+  echo "ERROR: SSH did not become ready within ${ssh_timeout} seconds"
+  echo "VM state: $(virsh domstate ${VM_NAME} 2>/dev/null || echo 'unknown')"
+  virsh domifaddr ${VM_NAME} 2>/dev/null || true
+  ssh -i ${SSH_PRIVATE_KEY_PATH} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+      -o BatchMode=yes -o ConnectTimeout=5 -v ${SSH_VM_TARGET} "true" 2>&1 || true
+  return 1
+}
+
+wait_for_vm_ips || exit 1
 
 # Configure the VM
 echo "Provisioning the VM..."
 
-# Select IP for SSH (no brackets needed for SSH, only for SCP target paths)
-# In IPv6 mode, use VM_IP (BM network); in IPv4 mode, use VM_DEFAULT_IP
 if [[ "${IPV6_ONLY:-false}" == "true" ]]; then
-  # IPv6 mode: use BM network IP
   SSH_VM_TARGET="${USER}@${VM_IP}"
 else
-  # IPv4 mode: use default network IP
   SSH_VM_TARGET="${USER}@${VM_DEFAULT_IP}"
 fi
 
-# Wait for SSH to be ready
-echo "Waiting for SSH to be ready on ${SSH_VM_TARGET}..."
-SSH_TIMEOUT=60
-SSH_ELAPSED=0
-while [ ${SSH_ELAPSED} -lt ${SSH_TIMEOUT} ]; do
-  if ssh -i ${SSH_PRIVATE_KEY_PATH} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 ${SSH_VM_TARGET} 'echo SSH ready' >/dev/null 2>&1; then
-    echo "SSH is ready!"
-    break
-  fi
-  echo "Waiting for SSH... (${SSH_ELAPSED}s/${SSH_TIMEOUT}s)"
-  sleep 10
-  SSH_ELAPSED=$((SSH_ELAPSED + 10))
-done
-
-if [ ${SSH_ELAPSED} -ge ${SSH_TIMEOUT} ]; then
-  echo "ERROR: SSH did not become ready within ${SSH_TIMEOUT} seconds"
-  exit 1
-fi
+wait_for_ssh || exit 1
 
 # Executing commands
 echo "Executing commands in the VM..."
@@ -405,9 +404,5 @@ if [ "${ENABLE_TPM_PASSTHROUGH}" = "true" ]; then
 fi
 
 # Greetings
-if [[ "${VM_IP}" == *":"* ]]; then
-  echo "You can access the created VM with ssh ${USER}@[${VM_IP}]"
-else
-  echo "You can access the created VM with ssh ${USER}@${VM_IP}"
-fi
+echo "You can access the created VM with ssh ${SSH_VM_TARGET}"
 echo "VM creation and provisioning complete!"

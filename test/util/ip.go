@@ -69,7 +69,7 @@ func resolveIPAddressForHostname(hostname string) (string, error) {
 		return "", fmt.Errorf("hostname '%s' resolved to no IP addresses", hostname)
 	}
 
-	// In pure IPv6 mode, prefer IPv6 addresses
+	// In IPv6 mode, prefer IPv6 addresses
 	if os.Getenv("IPV6_ONLY") == "true" {
 		for _, ip := range ips {
 			if ip.To4() == nil && ip.To16() != nil {
