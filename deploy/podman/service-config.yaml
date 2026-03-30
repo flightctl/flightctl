@@ -61,6 +61,13 @@ global:
         - roles
         - offline_access
       pamService: flightctl
+  ui:
+    # Whether flightctl-ui trusts X-Forwarded-* headers from trusted proxies.
+    # Set to true when the UI sits behind a trusted reverse proxy or ingress (TLS termination).
+    trustXForwardedHeaders: false
+    # Optional comma-separated CIDRs of trusted proxy sources for forwarded headers.
+    # Leave empty to keep default behavior.
+    trustedProxyCidrs:
 
 db:
   name: flightctl

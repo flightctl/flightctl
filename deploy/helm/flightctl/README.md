@@ -381,7 +381,7 @@ For more detailed configuration options, see the [Values](#values) section below
 | telemetryGateway.image.image | string | `"quay.io/flightctl/flightctl-telemetry-gateway-el9"` | Telemetry gateway container image |
 | telemetryGateway.image.pullPolicy | string | `""` | Image pull policy for Telemetry gateway container |
 | telemetryGateway.image.tag | string | `""` | Telemetry gateway image tag |
-| ui | object | `{"additionalRouteLabels":null,"auth":{"caCert":"","insecureSkipTlsVerify":false},"enabled":true,"image":{"image":"quay.io/flightctl/flightctl-ui-el9","pluginImage":"quay.io/flightctl/flightctl-ocp-ui-el9","pullPolicy":"","tag":""}}` | UI Configuration |
+| ui | object | `{"additionalRouteLabels":null,"auth":{"caCert":"","insecureSkipTlsVerify":false},"enabled":true,"image":{"image":"quay.io/flightctl/flightctl-ui-el9","pluginImage":"quay.io/flightctl/flightctl-ocp-ui-el9","pullPolicy":"","tag":""},"trustXForwardedHeaders":true,"trustedProxyCidrs":""}` | UI Configuration |
 | ui.additionalRouteLabels | string | `nil` | Additional labels for UI routes. |
 | ui.auth.caCert | string | `""` | A custom CA cert for Auth TLS. |
 | ui.auth.insecureSkipTlsVerify | bool | `false` | Set to true if auth TLS certificate validation should be skipped. |
@@ -390,6 +390,8 @@ For more detailed configuration options, see the [Values](#values) section below
 | ui.image.pluginImage | string | `"quay.io/flightctl/flightctl-ocp-ui-el9"` | UI Plugin container image |
 | ui.image.pullPolicy | string | `""` | Image pull policy for UI container |
 | ui.image.tag | string | `""` | UI container image tag |
+| ui.trustXForwardedHeaders | bool | `true` | When true, the UI proxy uses X-Forwarded-Proto and X-Forwarded-Host for OAuth redirect validation (required when TLS terminates at an ingress). Disable if the UI is reached directly without a trusted reverse proxy. Optional trustedProxyCidrs restricts this to listed CIDRs. |
+| ui.trustedProxyCidrs | string | `""` | Comma-separated CIDRs for immediate clients that may set forwarded headers (e.g. ingress pod network). Empty means any client when trustXForwardedHeaders is true. |
 | upgradeHooks | object | `{"databaseMigrationDryRun":true,"scaleDown":{"condition":"chart","deployments":["flightctl-periodic","flightctl-worker"],"timeoutSeconds":120}}` | Upgrade hooks |
 | upgradeHooks.databaseMigrationDryRun | bool | `true` | Enable pre-upgrade DB migration dry-run as a hook |
 | upgradeHooks.scaleDown.condition | string | `"chart"` | When to run pre-upgrade scale down job: "always", "never", or "chart" (default). "chart" runs only if helm.sh/chart changed. |
