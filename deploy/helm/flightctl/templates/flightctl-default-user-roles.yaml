@@ -32,6 +32,8 @@ rules:
       - organizations
       - imagebuilds
       - imageexports
+      - catalogs
+      - catalogitems
   # Viewer can view logs but NOT download
   - verbs:
       - get
@@ -66,6 +68,8 @@ rules:
       - repositories
       - imagebuilds
       - imageexports
+      - catalogs
+      - catalogitems
   - verbs:
       - get
     apiGroups:
