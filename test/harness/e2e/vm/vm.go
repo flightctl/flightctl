@@ -69,8 +69,6 @@ type TestVMInterface interface {
 	Pause() error
 	Resume() error
 	HasSnapshot(name string) (bool, error)
-	// Pool bootstrap methods for VM reuse between suites
-	RevertPristineForPoolBootstrap() error
 	// Domain creation without starting
 	CreateDomain() error
 }

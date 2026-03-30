@@ -116,24 +116,24 @@ func (h *ServiceHandler) verifyTPMCSRRequest(ctx context.Context, orgId uuid.UUI
 
 	notTPMBasedMessage := fmt.Sprintf("The CSR's owner %s is not TPM based.", lo.FromPtr(csr.Metadata.Owner))
 	if er.Status == nil || !domain.IsStatusConditionTrue(er.Status.Conditions, domain.ConditionTypeEnrollmentRequestTPMVerified) {
-		setTPMVerifiedFalse("%s", notTPMBasedMessage)
+		setTPMVerifiedFalse(notTPMBasedMessage)
 		return nil
 	}
 
 	erBytes, isTPM := tpm.ParseTCGCSRBytes(er.Spec.Csr)
 	if !isTPM {
-		setTPMVerifiedFalse("%s", notTPMBasedMessage)
+		setTPMVerifiedFalse(notTPMBasedMessage)
 		return nil
 	}
 
 	parsed, err := tpm.ParseTCGCSR(erBytes)
 	if err != nil {
-		setTPMVerifiedFalse("%s", notTPMBasedMessage)
+		setTPMVerifiedFalse(notTPMBasedMessage)
 		return nil
 	}
 
 	if err = tpm.VerifyTCGCSRSigningChain(csrBytes, parsed.CSRContents.Payload.AttestPub); err != nil {
-		setTPMVerifiedFalse("%s", err.Error())
+		setTPMVerifiedFalse(err.Error())
 		return nil
 	}
 	domain.SetStatusCondition(&csr.Status.Conditions, domain.Condition{

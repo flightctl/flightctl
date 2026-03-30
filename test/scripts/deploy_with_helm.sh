@@ -6,11 +6,10 @@ ONLY_DB=
 DB_SIZE_PARAMS=
 # If using images from a private registry, specify a path to a Kubernetes Secret yaml for your pull secret (in the flightctl-internal namespace)
 # IMAGE_PULL_SECRET_PATH=
-# Use hardcoded values for helm deployment (avoid yq complexity)
-SQL_IMAGE=${SQL_IMAGE:-quay.io/sclorg/postgresql-16-c9s}
-SQL_VERSION=${SQL_VERSION:-"20250214"}
-KV_IMAGE=${KV_IMAGE:-quay.io/sclorg/redis-7-c9s}
-KV_VERSION=${KV_VERSION:-"20250108"}
+SQL_IMAGE="quay.io/sclorg/postgresql-16-c9s"
+SQL_VERSION="20250214"
+KV_IMAGE="quay.io/sclorg/redis-7-c9s"
+KV_VERSION="20250108"
 
 source "${SCRIPT_DIR}"/functions
 # Dup stderr to fd 3 for run_on_quadlet command traces (test/scripts/functions); same as e2e_startup.sh.
