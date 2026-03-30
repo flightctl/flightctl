@@ -102,6 +102,17 @@ func (o *RenderTemplateOptions) completeConfig(data map[string]interface{}) erro
 		return nil
 	}
 
+	aap, ok := auth["aap"].(map[string]interface{})
+	if ok {
+		if existingClientID, ok := aap["clientId"].(string); ok && strings.TrimSpace(existingClientID) != "" {
+			fmt.Fprintf(os.Stderr, "Using manually configured AAP OAuth clientId\n")
+			return nil
+		}
+	} else {
+		aap = make(map[string]interface{})
+		auth["aap"] = aap
+	}
+
 	clientIDFile := renderer.DefaultAAPClientIDPath
 	clientIDData, err := os.ReadFile(clientIDFile)
 	if err != nil {
@@ -116,11 +127,6 @@ func (o *RenderTemplateOptions) completeConfig(data map[string]interface{}) erro
 		return fmt.Errorf("AAP client ID file %s is empty", clientIDFile)
 	}
 
-	aap, ok := auth["aap"].(map[string]interface{})
-	if !ok {
-		aap = make(map[string]interface{})
-		auth["aap"] = aap
-	}
 	aap["clientId"] = clientID
 	fmt.Fprintf(os.Stderr, "Loaded AAP OAuth client_id from %s\n", clientIDFile)
 
