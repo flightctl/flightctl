@@ -1,4 +1,4 @@
-FROM registry.access.redhat.com/ubi10/go-toolset:1.24.6-1763548447 as builder
+FROM registry.access.redhat.com/ubi10/go-toolset:1.25.8-1774618351 as builder
 WORKDIR /app
 
 # Switch to root for build operations
