@@ -88,6 +88,19 @@ func (o *RenderTemplateOptions) completeConfig(data map[string]interface{}) erro
 		fmt.Fprintf(os.Stderr, "global.baseDomain not set, defaulting to system hostname FQDN (%s)\n", hostname)
 	}
 
+	// Default UI forwarded-header settings.
+	ui, ok := global["ui"].(map[string]interface{})
+	if !ok {
+		ui = make(map[string]interface{})
+		global["ui"] = ui
+	}
+	if _, exists := ui["trustXForwardedHeaders"]; !exists {
+		ui["trustXForwardedHeaders"] = false
+	}
+	if _, exists := ui["trustedProxyCidrs"]; !exists {
+		ui["trustedProxyCidrs"] = ""
+	}
+
 	// Inject AAP OAuth client_id if file exists
 	auth, ok := global["auth"].(map[string]interface{})
 	if !ok {
