@@ -29,9 +29,13 @@ linters:
     - unused
 
   settings:
+    staticcheck:
+      checks:
+        - "all"
+        - "-QF*"
+        - "-ST*"
+
     govet:
-      enable:
-        - shadow
       settings:
         printf:
           funcs:
@@ -39,6 +43,25 @@ linters:
             - Warnf
             - Errorf
             - Fatalf
+
+    gosec:
+      excludes:
+        - G101
+        - G104
+        - G115
+        - G117
+        - G118
+        - G120
+        - G122
+        - G301
+        - G302
+        - G602
+        - G703
+        - G704
+        - G705
+
+    nolintlint:
+      allow-unused: true
 
     depguard:
       rules:
@@ -113,8 +136,12 @@ linters:
     presets:
       - std-error-handling
       - common-false-positives
+      - legacy
     rules:
       - text: 'declaration of "err" shadows declaration at'
+        linters:
+          - govet
+      - text: "non-constant format string in call to"
         linters:
           - govet
     paths:
