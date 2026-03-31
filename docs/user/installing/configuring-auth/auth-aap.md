@@ -22,6 +22,61 @@ Flight Control uses the following standard roles for authorization:
 - **`flightctl-viewer`** - Read-only access to all resources; imagebuilds and imageexports (including logs, but no download)
 - **`flightctl-installer`** - Access to get and approve enrollmentrequests, manage certificate signing requests; view imagebuilds and imageexports; download imageexports
 
+To create these roles in AAP and assign them to users, see [Creating roles in AAP](#creating-roles-in-aap) and [Assigning roles to users](#assigning-roles-to-users).
+
+### Creating roles in AAP
+
+Flight Control recognizes roles by name only. You must create custom role definitions in AAP with names that exactly match the Flight Control role names listed above.
+
+To create a Flight Control role in AAP:
+
+1. Log into the AAP Gateway web interface.
+2. Navigate to **Access Management** → **Roles**.
+3. Click **Create Role**.
+4. Configure the role:
+   - **Name**: Enter the exact Flight Control role name, for example `flightctl-viewer`. The name is case-sensitive and must match exactly.
+   - **Description**: Optional. Use this for your own reference, for example "Flight Control read-only access".
+   - **Content Type**: Select **Organization**. AAP requires a content type for role definitions, but Flight Control does not use this value. Any valid selection works.
+   - **Permissions**: Select **View Organization**. AAP requires at least one permission, but Flight Control does not use this value. Any valid selection works.
+5. Click **Create Role** to save.
+6. Repeat for each Flight Control role you need.
+
+**Note:** The content type and permissions fields are AAP requirements for creating role definitions. Flight Control authorization is based solely on the role name and ignores these fields entirely.
+
+**Important:**
+
+- Do not create a role named `flightctl-admin`. This role is automatically assigned to AAP super admins and cannot be used as a custom role.
+- The `flightctl-viewer` role is automatically assigned to AAP platform auditors across all organizations, in addition to being available as a custom role for other users.
+
+### Assigning roles to users
+
+After creating the role definitions, assign them to users for specific organizations. Role assignment must be done from within an organization in the AAP UI. Using Teams is the recommended approach because it simplifies management as your user base grows.
+
+#### Using Teams (recommended)
+
+Assign roles through Teams for group-based access:
+
+1. Navigate to **Access Management** → **Organizations** and select the target organization.
+2. Go to the **Teams** tab.
+3. Select the team you want to assign the role to, or create a new team and add users to it.
+4. Click **Add Roles**.
+5. Select the Team and Flight Control role combination (for example `flightctl-viewer`).
+6. Click **Save**.
+
+All users in the team inherit the assigned role for that organization.
+
+#### Direct user assignment
+
+You can also assign roles directly to individual users within an organization:
+
+1. Navigate to **Access Management** → **Organizations** and select the target organization.
+2. Go to the **Users** tab and select the user.
+3. Click **Manage Roles**.
+4. Select the Flight Control role (for example `flightctl-viewer`).
+5. Click **Save**.
+
+**Note:** Role and organization changes require users to log in again or wait approximately 5 minutes to receive updated assignments.
+
 ## Organization Mapping
 
 Flight Control automatically maps AAP organizations to Flight Control organizations:
