@@ -207,7 +207,7 @@ func (a *Agent) syncDeviceSpec(ctx context.Context) {
 			a.log.Warnf("Attempting to rollback to previous renderedVersion: %s", current.Version())
 		}
 
-		if err := a.rollbackDevice(ctx, current, desired, a.sync); err != nil {
+		if err := a.rollbackDevice(ctx, current, desired, syncErr, a.sync); err != nil {
 			a.log.Errorf("Rollback did not complete cleanly: %v", err)
 		}
 
@@ -257,7 +257,7 @@ func (a *Agent) syncDeviceSpec(ctx context.Context) {
 	}
 }
 
-func (a *Agent) rollbackDevice(ctx context.Context, current, desired *v1beta1.Device, syncFn func(context.Context, *v1beta1.Device, *v1beta1.Device) error) error {
+func (a *Agent) rollbackDevice(ctx context.Context, current, desired *v1beta1.Device, syncErr error, syncFn func(context.Context, *v1beta1.Device, *v1beta1.Device) error) error {
 	updateErr := a.statusManager.UpdateCondition(ctx, v1beta1.Condition{
 		Type:    v1beta1.ConditionTypeDeviceUpdating,
 		Status:  v1beta1.ConditionStatusTrue,
@@ -268,13 +268,62 @@ func (a *Agent) rollbackDevice(ctx context.Context, current, desired *v1beta1.De
 		a.log.Warnf("Failed setting status: %v", updateErr)
 	}
 
+	needsOSRollback := false
+	if !errors.IsRetryable(syncErr) && a.specManager.IsOSUpdate() {
+		_, isReconciled, err := a.specManager.CheckOsReconciliation(ctx)
+		if err != nil {
+			a.log.Errorf("Failed to check OS reconciliation: %v", err)
+		} else {
+			needsOSRollback = isReconciled
+		}
+	}
+
+	if needsOSRollback {
+		if err := syncFn(ctx, desired, current); err != nil {
+			a.log.Warnf("Rollback sync completed with errors, proceeding with OS rollback: %v", err)
+		}
+		a.handleSyncError(ctx, desired, syncErr)
+
+		rollbackDevice, err := a.specManager.Read(spec.Rollback)
+		if err != nil {
+			return fmt.Errorf("reading rollback spec for OS rollback: %w", err)
+		}
+		return a.rebootIntoRollbackOS(ctx, rollbackDevice.Spec)
+	}
+
 	if err := a.specManager.Rollback(ctx); err != nil {
 		return err
 	}
 
-	// note: we are explicitly reversing the order of the current and desired to
-	// ensure a clean rollback state.
 	return syncFn(ctx, desired, current)
+}
+
+func (a *Agent) rebootIntoRollbackOS(ctx context.Context, rollbackSpec *v1beta1.DeviceSpec) error {
+	if err := a.hookManager.OnBeforeRebooting(ctx); err != nil {
+		a.log.Errorf("Error executing BeforeRebooting hook: %v", err)
+		return err
+	}
+
+	infoMsg := fmt.Sprintf("Device is rebooting into rollback OS: %s", rollbackSpec.Os.Image)
+	_, updateErr := a.statusManager.Update(ctx, status.SetDeviceSummary(v1beta1.DeviceSummaryStatus{
+		Status: v1beta1.DeviceSummaryStatusRebooting,
+		Info:   lo.ToPtr(infoMsg),
+	}))
+	if updateErr != nil {
+		a.log.Warnf("Failed setting status: %v", updateErr)
+	}
+
+	updateErr = a.statusManager.UpdateCondition(ctx, v1beta1.Condition{
+		Type:    v1beta1.ConditionTypeDeviceUpdating,
+		Status:  v1beta1.ConditionStatusTrue,
+		Reason:  string(v1beta1.UpdateStateRebooting),
+		Message: infoMsg,
+	})
+	if updateErr != nil {
+		a.log.Warnf("Failed setting status: %v", updateErr)
+	}
+
+	return a.osManager.Rollback(ctx, rollbackSpec)
 }
 
 func (a *Agent) updatedStatus(ctx context.Context, desired *v1beta1.Device) error {
@@ -521,25 +570,24 @@ func (a *Agent) afterUpdateOS(ctx context.Context, desired *v1beta1.DeviceSpec) 
 		return nil
 	}
 
-	// switch to the new os image
+	osImage := desired.Os.Image
+
 	if err := a.osManager.AfterUpdate(ctx, desired); err != nil {
-		a.log.Errorf("Error executing OS: %v", err)
+		a.log.Errorf("Error staging OS: %v", err)
 		return err
 	}
 
-	// execute before rebooting hooks
 	if err := a.hookManager.OnBeforeRebooting(ctx); err != nil {
 		a.log.Errorf("Error executing BeforeRebooting hook: %v", err)
 		return err
 	}
 
-	// update the rollback spec to reflect upgrade in progress
 	if err := a.specManager.CreateRollback(ctx); err != nil {
 		return err
 	}
 
-	image := desired.Os.Image
-	infoMsg := fmt.Sprintf("Device is rebooting into os image: %s", image)
+	infoMsg := fmt.Sprintf("Device is rebooting into OS image: %s", osImage)
+
 	_, updateErr := a.statusManager.Update(ctx, status.SetDeviceSummary(v1beta1.DeviceSummaryStatus{
 		Status: v1beta1.DeviceSummaryStatusRebooting,
 		Info:   lo.ToPtr(infoMsg),

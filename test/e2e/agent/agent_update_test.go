@@ -225,7 +225,6 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			Expect(finalVersion).To(Equal(expectedVersion))
 		})
 		It("Should rollback when updating to a broken image", Label("82481", "sanity", "agent"), func() {
-			// Get harness directly - no shared package-level variable
 			harness := e2e.GetWorkerHarness()
 
 			expectedVersion, err := harness.GetCurrentDeviceRenderedVersion(deviceId)
@@ -233,23 +232,26 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			dev, err := harness.GetDevice(deviceId)
 			Expect(err).NotTo(HaveOccurred())
 			initialImage := dev.Status.Os.Image
-			// The v8 image should contain a bad compose file
+			GinkgoWriter.Printf("Initial OS image: %s\n", initialImage)
+
+			By("Updating device to v8 image (contains bad compose file)")
 			_, _, err = harness.WaitForBootstrapAndUpdateToVersion(deviceId, util.DeviceTags.V8)
 			Expect(err).ToNot(HaveOccurred())
 
-			harness.WaitForDeviceContents(deviceId, "device image should be updated to the new image", func(device *v1beta1.Device) bool {
-				return device.Spec.Os.Image != initialImage
+			harness.WaitForDeviceContents(deviceId, "device spec should be updated to the new image", func(device *v1beta1.Device) bool {
+				return device.Spec.Os != nil && device.Spec.Os.Image != initialImage
 			}, TIMEOUT)
 
-			// There is currently a bug https://issues.redhat.com/browse/EDM-1365
-			// that prevents the device from rolling back to the initial image
-			// When that bug is fixed, the following assertions will need to change.
+			By("Waiting for device to start rebooting (rollback triggered after prefetch failure)")
+			Eventually(harness.GetDeviceWithStatusSummary, LONGTIMEOUT, POLLING).WithArguments(
+				deviceId).Should(Equal(v1beta1.DeviceSummaryStatusRebooting))
 
-			harness.WaitForDeviceContents(deviceId, "device status should indicate updating failure", func(device *v1beta1.Device) bool {
-				return e2e.ConditionExists(device, v1beta1.ConditionTypeDeviceUpdating, v1beta1.ConditionStatusFalse, string(v1beta1.UpdateStateError))
+			By("Waiting for device to come back online after rollback reboot")
+			harness.WaitForDeviceContents(deviceId, "device should be online after rollback reboot", func(device *v1beta1.Device) bool {
+				return device.Status.Summary.Status == v1beta1.DeviceSummaryStatusOnline
 			}, LONGTIMEOUT)
 
-			// Verify that the flightctl-agent logs indicate that a rollback was attempted
+			By("Verifying agent logs show rollback attempt")
 			dur, err := time.ParseDuration(TIMEOUT)
 			Expect(err).ToNot(HaveOccurred())
 			Eventually(func() string {
@@ -263,24 +265,15 @@ var _ = Describe("VM Agent behavior during updates", func() {
 				WithPolling(time.Second * 10).
 				Should(ContainSubstring(fmt.Sprintf("Attempting to rollback to previous renderedVersion: %d", expectedVersion)))
 
-			harness.WaitForDeviceContents(deviceId, "device should become out of date but be online", func(device *v1beta1.Device) bool {
-				return device.Status.Updated.Status == v1beta1.DeviceUpdatedStatusOutOfDate &&
-					device.Status.Summary.Status == v1beta1.DeviceSummaryStatusOnline
+			By("Verifying device booted OS image reverted to initial image")
+			harness.WaitForDeviceContents(deviceId, "device status OS image should be reverted to initial", func(device *v1beta1.Device) bool {
+				return device.Status.Os.Image == initialImage
 			}, TIMEOUT)
 
-			// validate that the error message contains an indication of why the update failed
-			dev, err = harness.GetDevice(deviceId)
-			Expect(err).NotTo(HaveOccurred())
-			cond := v1beta1.FindStatusCondition(dev.Status.Conditions, v1beta1.ConditionTypeDeviceUpdating)
-			Expect(cond).ToNot(BeNil())
-			Expect(cond.Message).To(And(
-				ContainSubstring("prefetch failed for fake-image: invalid configuration or input"),
-			)) /*
-				** Add this assertion back when the bug referenced above is fixed **
-				harness.WaitForDeviceContents(deviceId, "device image should be reverted to the old image", func(device *v1beta1.Device) bool {
-					return device.Spec.Os.Image == initialImage
-				}, TIMEOUT)
-			*/
+			By("Verifying device is OutOfDate (spec still wants v8, but running initial)")
+			harness.WaitForDeviceContents(deviceId, "device should be out of date", func(device *v1beta1.Device) bool {
+				return device.Status.Updated.Status == v1beta1.DeviceUpdatedStatusOutOfDate
+			}, TIMEOUT)
 		})
 		It("Should trigger greenboot rollback when agent fails to start", Label("greenboot-rollback", "87279", "sanity", "agent"), func() {
 			// Get harness directly - no shared package-level variable
