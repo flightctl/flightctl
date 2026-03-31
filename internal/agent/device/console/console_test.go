@@ -165,6 +165,7 @@ func mockCloseSend(v *vars) {
 }
 
 func sendInput(v *vars, id byte, b []byte) {
+	defer func() { _ = recover() }()
 	v.recvChan <- lo.Tuple2[*grpc_v1.StreamResponse, error]{
 		A: &grpc_v1.StreamResponse{
 			Payload: append([]byte{id}, b...),
