@@ -16,12 +16,14 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
+// RenderTemplateOptions holds the configuration for the render template command.
 type RenderTemplateOptions struct {
 	Config     string
 	InputFile  string
 	OutputFile string
 }
 
+// NewRenderTemplateCommand creates and returns a new cobra command for rendering templates.
 func NewRenderTemplateCommand() *cobra.Command {
 	opts := &RenderTemplateOptions{}
 
@@ -44,6 +46,7 @@ func NewRenderTemplateCommand() *cobra.Command {
 	return cmd
 }
 
+// Run executes the render template command, parsing the config, applying defaults, and rendering the template.
 func (o *RenderTemplateOptions) Run() error {
 	// Read the config file
 	configData, err := os.ReadFile(o.Config)
@@ -136,6 +139,7 @@ func (o *RenderTemplateOptions) completeConfig(data map[string]interface{}) erro
 	return nil
 }
 
+// validateConfig marshals the provided data back to YAML and unmarshals it into a Config struct for validation.
 func (o *RenderTemplateOptions) validateConfig(data map[string]interface{}) error {
 	// Marshal the map back to YAML and unmarshal to standalone.Config for validation
 	configData, err := yaml.Marshal(data)
