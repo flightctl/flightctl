@@ -36,6 +36,14 @@ var defaultSpecPollConfig = func() poll.Config {
 	}
 }()
 
+// RollbackInfo contains the desired version and spec hash from the rollback
+// spec. These identify the spec we were upgrading to when the rollback was
+// created.
+type RollbackInfo struct {
+	Version  string
+	SpecHash string
+}
+
 // Watcher provides a way to watch for device spec updates.
 type Watcher interface {
 	// Pop blocks until a device is available or returns error if closed
@@ -80,6 +88,10 @@ type Manager interface {
 	CreateRollback(ctx context.Context) error
 	// ClearRollback clears the rollback rendered spec.
 	ClearRollback() error
+	// GetRollbackInfo returns the desired version and spec hash stored in
+	// rollback.json. These identify the spec we were upgrading to when the
+	// rollback was created.
+	GetRollbackInfo() (RollbackInfo, error)
 	// Rollback reverts the device to the state of the rollback rendered spec.
 	Rollback(ctx context.Context, opts ...RollbackOption) error
 	// GetDesired returns the desired rendered device from the management API.

@@ -455,7 +455,9 @@ func TestRollbackDevice(t *testing.T) {
 			require.NoError(err)
 			require.Equal(tc.desired.Version(), desiredVersionOnDisk.Version())
 
-			err = agent.rollbackDevice(ctx, tc.current, tc.desired, mockSync.sync)
+			// Pass a non-retryable error to trigger rollback logic
+			syncErr := errors.New("non-retryable sync error")
+			err = agent.rollbackDevice(ctx, tc.current, tc.desired, syncErr, mockSync.sync)
 			if tc.wantSyncErr != nil {
 				require.Error(err)
 				require.Equal(tc.wantSyncErr.Error(), err.Error())
@@ -481,6 +483,155 @@ func TestRollbackDevice(t *testing.T) {
 	}
 }
 
+func TestOSRollback(t *testing.T) {
+	deviceName := "test-device"
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	testCases := []struct {
+		name       string
+		current    *v1beta1.Device
+		desired    *v1beta1.Device
+		syncFnErr  error
+		setupMocks func(
+			mockSpecManager *spec.MockManager,
+			mockManagementClient *client.MockManagement,
+			mockHookManager *hook.MockManager,
+			mockOSManager *os.MockManager,
+		)
+		wantReboot bool
+		wantErr    error
+	}{
+		{
+			name:    "When OS rollback is needed and syncFn succeeds it should reboot",
+			current: newVersionedDeviceWithOS("5", "quay.io/org/os:v1"),
+			desired: newVersionedDeviceWithOS("6", "quay.io/org/os:v2"),
+			setupMocks: func(
+				mockSpecManager *spec.MockManager,
+				mockManagementClient *client.MockManagement,
+				mockHookManager *hook.MockManager,
+				mockOSManager *os.MockManager,
+			) {
+				mockManagementClient.EXPECT().UpdateDeviceStatus(gomock.Any(), deviceName, gomock.Any()).Return(nil).AnyTimes()
+				mockSpecManager.EXPECT().IsOSUpdate().Return(true)
+				mockSpecManager.EXPECT().CheckOsReconciliation(gomock.Any()).Return("quay.io/org/os:v2", true, nil)
+				mockSpecManager.EXPECT().Read(spec.Rollback).Return(&v1beta1.Device{
+					Spec: &v1beta1.DeviceSpec{Os: &v1beta1.DeviceOsSpec{Image: "quay.io/org/os:v1"}},
+				}, nil)
+				mockHookManager.EXPECT().OnBeforeRebooting(gomock.Any()).Return(nil)
+				mockOSManager.EXPECT().Rollback(gomock.Any(), gomock.Any()).Return(nil)
+			},
+			wantReboot: true,
+		},
+		{
+			name:      "When OS rollback is needed and syncFn fails it should still reboot",
+			current:   newVersionedDeviceWithOS("5", "quay.io/org/os:v1"),
+			desired:   newVersionedDeviceWithOS("6", "quay.io/org/os:v2"),
+			syncFnErr: errors.New("helm deps missing"),
+			setupMocks: func(
+				mockSpecManager *spec.MockManager,
+				mockManagementClient *client.MockManagement,
+				mockHookManager *hook.MockManager,
+				mockOSManager *os.MockManager,
+			) {
+				mockManagementClient.EXPECT().UpdateDeviceStatus(gomock.Any(), deviceName, gomock.Any()).Return(nil).AnyTimes()
+				mockSpecManager.EXPECT().IsOSUpdate().Return(true)
+				mockSpecManager.EXPECT().CheckOsReconciliation(gomock.Any()).Return("quay.io/org/os:v2", true, nil)
+				mockSpecManager.EXPECT().Read(spec.Rollback).Return(&v1beta1.Device{
+					Spec: &v1beta1.DeviceSpec{Os: &v1beta1.DeviceOsSpec{Image: "quay.io/org/os:v1"}},
+				}, nil)
+				mockHookManager.EXPECT().OnBeforeRebooting(gomock.Any()).Return(nil)
+				mockOSManager.EXPECT().Rollback(gomock.Any(), gomock.Any()).Return(nil)
+			},
+			wantReboot: true,
+		},
+		{
+			name:    "When OS is not reconciled it should not trigger OS rollback",
+			current: newVersionedDeviceWithOS("5", "quay.io/org/os:v1"),
+			desired: newVersionedDeviceWithOS("6", "quay.io/org/os:v2"),
+			setupMocks: func(
+				mockSpecManager *spec.MockManager,
+				mockManagementClient *client.MockManagement,
+				mockHookManager *hook.MockManager,
+				mockOSManager *os.MockManager,
+			) {
+				mockManagementClient.EXPECT().UpdateDeviceStatus(gomock.Any(), deviceName, gomock.Any()).Return(nil).AnyTimes()
+				mockSpecManager.EXPECT().IsOSUpdate().Return(true)
+				mockSpecManager.EXPECT().CheckOsReconciliation(gomock.Any()).Return("quay.io/org/os:v1", false, nil)
+				mockSpecManager.EXPECT().Rollback(gomock.Any()).Return(nil)
+			},
+			wantReboot: false,
+		},
+		{
+			name:    "When there is no OS update it should not trigger OS rollback",
+			current: newVersionedDeviceWithOS("5", "quay.io/org/os:v1"),
+			desired: newVersionedDeviceWithOS("6", "quay.io/org/os:v1"),
+			setupMocks: func(
+				mockSpecManager *spec.MockManager,
+				mockManagementClient *client.MockManagement,
+				mockHookManager *hook.MockManager,
+				mockOSManager *os.MockManager,
+			) {
+				mockManagementClient.EXPECT().UpdateDeviceStatus(gomock.Any(), deviceName, gomock.Any()).Return(nil).AnyTimes()
+				mockSpecManager.EXPECT().IsOSUpdate().Return(false)
+				mockSpecManager.EXPECT().Rollback(gomock.Any()).Return(nil)
+			},
+			wantReboot: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			mockSpecManager := spec.NewMockManager(ctrl)
+			mockManagementClient := client.NewMockManagement(ctrl)
+			mockHookManager := hook.NewMockManager(ctrl)
+			mockOSManager := os.NewMockManager(ctrl)
+			mockPrefetchManager := dependency.NewMockPrefetchManager(ctrl)
+			mockPullConfigResolver := dependency.NewMockPullConfigResolver(ctrl)
+
+			mockPrefetchManager.EXPECT().Cleanup().AnyTimes()
+			mockPullConfigResolver.EXPECT().Cleanup().AnyTimes()
+
+			tc.setupMocks(mockSpecManager, mockManagementClient, mockHookManager, mockOSManager)
+
+			log := log.NewPrefixLogger("test")
+			log.SetLevel(logrus.DebugLevel)
+			statusManager := status.NewManager(deviceName, log)
+			statusManager.SetClient(mockManagementClient)
+
+			agent := Agent{
+				log:                log,
+				specManager:        mockSpecManager,
+				statusManager:      statusManager,
+				hookManager:        mockHookManager,
+				osManager:          mockOSManager,
+				prefetchManager:    mockPrefetchManager,
+				pullConfigResolver: mockPullConfigResolver,
+			}
+
+			syncFnCalled := false
+			mockSyncFn := func(ctx context.Context, c, d *v1beta1.Device) error {
+				syncFnCalled = true
+				return tc.syncFnErr
+			}
+
+			syncErr := errors.New("non-retryable sync error")
+			err := agent.rollbackDevice(ctx, tc.current, tc.desired, syncErr, mockSyncFn)
+
+			if tc.wantReboot {
+				require.NoError(err)
+				require.True(syncFnCalled, "syncFn should be called before OS rollback")
+			} else {
+				require.True(syncFnCalled, "syncFn should be called for non-OS rollback")
+			}
+		})
+	}
+}
+
 func newVersionedDevice(version string) *v1beta1.Device {
 	device := &v1beta1.Device{
 		Metadata: v1beta1.ObjectMeta{
@@ -490,6 +641,12 @@ func newVersionedDevice(version string) *v1beta1.Device {
 		},
 	}
 	device.Spec = &v1beta1.DeviceSpec{}
+	return device
+}
+
+func newVersionedDeviceWithOS(version, osImage string) *v1beta1.Device {
+	device := newVersionedDevice(version)
+	device.Spec.Os = &v1beta1.DeviceOsSpec{Image: osImage}
 	return device
 }
 
