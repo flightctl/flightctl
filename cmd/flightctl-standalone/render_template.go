@@ -72,6 +72,9 @@ func (o *RenderTemplateOptions) Run() error {
 		template.WithFuncMap(v1beta1.GetGoTemplateFuncMap()))
 }
 
+// completeConfig inspects the configuration map and conditionally injects defaults.
+// In particular, it checks for an AAP auth configuration; if 'global.auth.aap.clientId'
+// is omitted, it reads the default client ID from disk and injects it.
 func (o *RenderTemplateOptions) completeConfig(data map[string]interface{}) error {
 	// Navigate to global config
 	global, ok := data["global"].(map[string]interface{})

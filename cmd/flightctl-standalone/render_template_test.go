@@ -6,6 +6,8 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+// TestCompleteConfig verifies that completeConfig properly handles various auth configurations,
+// ensuring that explicitly provided client IDs are preserved and non-AAP setups remain unchanged.
 func TestCompleteConfig(t *testing.T) {
 	opts := &RenderTemplateOptions{}
 
