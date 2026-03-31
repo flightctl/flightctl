@@ -25,23 +25,27 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
+// lockBuffer is a thread-safe buffer for capturing streams in tests.
 type lockBuffer struct {
 	mu     sync.Mutex
 	buffer bytes.Buffer
 }
 
+// Write appends the contents of p to the buffer, protecting against concurrent access.
 func (l *lockBuffer) Write(p []byte) (int, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return l.buffer.Write(p)
 }
 
+// String returns the contents of the unread portion of the buffer as a string.
 func (l *lockBuffer) String() string {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return l.buffer.String()
 }
 
+// vars holds common dependencies and mocks required across console tests.
 type vars struct {
 	ctx              context.Context
 	controller       *Manager
@@ -58,6 +62,7 @@ type vars struct {
 	once             sync.Once
 }
 
+// setupVars initializes and returns a vars struct with mock implementations for tests.
 func setupVars(t *testing.T) *vars {
 	ctrl := gomock.NewController(t)
 	executor := executer.NewCommonExecuter()
@@ -89,6 +94,7 @@ func setupVars(t *testing.T) *vars {
 	return v
 }
 
+// sessionMetadata constructs a JSON-encoded DeviceConsoleSessionMetadata string.
 func sessionMetadata(t *testing.T, term string, initialDimensions *v1beta1.TerminalSize, command *v1beta1.DeviceCommand, tty bool) string {
 	metadata := v1beta1.DeviceConsoleSessionMetadata{
 		Term:              lo.Ternary(term != "", &term, nil),
@@ -104,6 +110,7 @@ func sessionMetadata(t *testing.T, term string, initialDimensions *v1beta1.Termi
 	return string(b)
 }
 
+// deviceConsole returns a DeviceConsole instance configured with the specified ID and metadata.
 func deviceConsole(id string, sessionMetadata string) v1beta1.DeviceConsole {
 	return v1beta1.DeviceConsole{
 		SessionID:       id,
@@ -111,16 +118,19 @@ func deviceConsole(id string, sessionMetadata string) v1beta1.DeviceConsole {
 	}
 }
 
+// desiredSpec returns a DeviceSpec containing the provided DeviceConsole instances.
 func desiredSpec(consoles ...v1beta1.DeviceConsole) *v1beta1.DeviceSpec {
 	return &v1beta1.DeviceSpec{
 		Consoles: &consoles,
 	}
 }
 
+// mockStream configures the mock GrpcClient to expect a Stream call and return a mockStreamClient.
 func mockStream(v *vars) {
 	v.mockGrpcClient.EXPECT().Stream(gomock.Any()).Return(v.mockStreamClient, nil)
 }
 
+// mockSend sets up the mockStreamClient to capture output written to its Send method into memory buffers.
 func mockSend(v *vars, times int) {
 	m := v.mockStreamClient.EXPECT().Send(gomock.Any()).DoAndReturn(
 		func(req *grpc_v1.StreamRequest) error {
@@ -146,6 +156,7 @@ func mockSend(v *vars, times int) {
 	}
 }
 
+// mockRecv configures the mockStreamClient to serve data received from the recvChan.
 func mockRecv(v *vars) {
 	v.mockStreamClient.EXPECT().Recv().DoAndReturn(func() (*grpc_v1.StreamResponse, error) {
 		val, ok := <-v.recvChan
@@ -156,6 +167,7 @@ func mockRecv(v *vars) {
 	}).AnyTimes()
 }
 
+// mockCloseSend intercepts the CloseSend method on the stream to safely close the underlying receive channel.
 func mockCloseSend(v *vars) {
 	v.mockStreamClient.EXPECT().CloseSend().DoAndReturn(func() error {
 		v.once.Do(func() {
@@ -165,6 +177,7 @@ func mockCloseSend(v *vars) {
 	}).AnyTimes()
 }
 
+// sendInput writes the provided payload onto the mock stream receive channel.
 func sendInput(v *vars, id byte, b []byte) {
 	defer func() { _ = recover() }()
 	v.recvChan <- lo.Tuple2[*grpc_v1.StreamResponse, error]{
@@ -174,6 +187,7 @@ func sendInput(v *vars, id byte, b []byte) {
 	}
 }
 
+// TestConsole executes an array of tests simulating the console manager's behavior in various TTY states.
 func TestConsole(t *testing.T) {
 	t.Run("no process created", func(t *testing.T) {
 		v := setupVars(t)
