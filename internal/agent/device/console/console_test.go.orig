@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"os/exec"
 	"os/user"
 	"strings"
 	"sync"
@@ -181,11 +180,6 @@ func TestConsole(t *testing.T) {
 	})
 
 	t.Run("create process and close without tty", func(t *testing.T) {
-		cmd := exec.Command("sudo", "-n", "-u", lo.Must(user.Current()).Username, "true") //nolint:gosec
-		if err := cmd.Run(); err != nil {
-			t.Skip("sudo requires password or PAM is not configured, skipping test")
-		}
-
 		v := setupVars(t)
 		sessionID := uuid.New().String()
 		consoleDef := deviceConsole(sessionID, sessionMetadata(t, "xterm", nil,
@@ -212,11 +206,6 @@ func TestConsole(t *testing.T) {
 	})
 
 	t.Run("support exit code without tty", func(t *testing.T) {
-		cmd := exec.Command("sudo", "-n", "-u", lo.Must(user.Current()).Username, "true") //nolint:gosec
-		if err := cmd.Run(); err != nil {
-			t.Skip("sudo requires password or PAM is not configured, skipping test")
-		}
-
 		v := setupVars(t)
 		sessionID := uuid.New().String()
 		consoleDef := deviceConsole(sessionID, sessionMetadata(t, "xterm", nil,
@@ -241,11 +230,6 @@ func TestConsole(t *testing.T) {
 	})
 
 	t.Run("pipe from stdin with sed replace without tty", func(t *testing.T) {
-		cmd := exec.Command("sudo", "-n", "-u", lo.Must(user.Current()).Username, "true") //nolint:gosec
-		if err := cmd.Run(); err != nil {
-			t.Skip("sudo requires password or PAM is not configured, skipping test")
-		}
-
 		v := setupVars(t)
 		sessionID := uuid.New().String()
 		consoleDef := deviceConsole(sessionID, sessionMetadata(t, "xterm", nil,
@@ -275,11 +259,6 @@ func TestConsole(t *testing.T) {
 	})
 
 	t.Run("separate stdout and stderr without tty", func(t *testing.T) {
-		cmd := exec.Command("sudo", "-n", "-u", lo.Must(user.Current()).Username, "true") //nolint:gosec
-		if err := cmd.Run(); err != nil {
-			t.Skip("sudo requires password or PAM is not configured, skipping test")
-		}
-
 		v := setupVars(t)
 		sessionID := uuid.New().String()
 		consoleDef := deviceConsole(sessionID, sessionMetadata(t, "xterm", nil, &v1beta1.DeviceCommand{
@@ -309,11 +288,6 @@ func TestConsole(t *testing.T) {
 	})
 
 	t.Run("echo stdin with tty", func(t *testing.T) {
-		cmd := exec.Command("sudo", "-n", "-u", lo.Must(user.Current()).Username, "true") //nolint:gosec
-		if err := cmd.Run(); err != nil {
-			t.Skip("sudo requires password or PAM is not configured, skipping test")
-		}
-
 		v := setupVars(t)
 		sessionID := uuid.New().String()
 		consoleDef := deviceConsole(sessionID, sessionMetadata(t, "xterm", &v1beta1.TerminalSize{
