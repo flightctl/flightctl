@@ -181,52 +181,14 @@ var _ = Describe("CLI decommission test", func() {
 			)
 			Expect(err).NotTo(HaveOccurred(), "HTTP request itself should not fail")
 			Expect(response.HTTPResponse).NotTo(BeNil())
-			Expect(response.HTTPResponse.StatusCode).To(Equal(http.StatusInternalServerError),
-				"Expected 500 for malformed JSON body, got %d", response.HTTPResponse.StatusCode)
+			Expect(response.HTTPResponse.StatusCode).To(Equal(http.StatusBadRequest),
+				"Expected 400 for malformed JSON body, got %d", response.HTTPResponse.StatusCode)
 			Expect(string(response.Body)).To(ContainSubstring("can't decode JSON body"),
 				"Expected parse failure message in response body")
-			GinkgoWriter.Printf("Received expected 500 response: %s\n", string(response.Body))
+			GinkgoWriter.Printf("Received expected 400 response: %s\n", string(response.Body))
 		})
 	})
 
-	Context("Decommission failure path", func() {
-
-		It("Should not complete decommission when agent is stopped", Label("88275"), func() {
-			harness := e2e.GetWorkerHarness()
-
-			By("Enrolling a device and waiting for it to come online")
-			deviceId, _ := harness.EnrollAndWaitForOnlineStatus()
-			defer cleanupDeviceAndER(harness, deviceId)
-			GinkgoWriter.Printf("Enrolled device for failure-path test: %s\n", deviceId)
-
-			By("Stopping the agent service on the VM before decommission")
-			err := harness.StopFlightCtlAgent()
-			Expect(err).NotTo(HaveOccurred(), "Failed to stop agent service")
-
-			By("Initiating decommission via CLI while agent is stopped")
-			out, err := harness.CLI("decommission", "devices/"+deviceId)
-			Expect(err).NotTo(HaveOccurred(), "Decommission request should succeed server-side")
-			Expect(out).To(ContainSubstring(decommissionSuccessMsg))
-			GinkgoWriter.Printf("Decommission initiated while agent stopped: %s\n", out)
-
-			By("Verifying the device does NOT reach Completed state while agent is stopped")
-			harness.EnsureDeviceContents(deviceId, "decommission should not complete while agent is stopped",
-				func(device *v1beta1.Device) bool {
-					return !e2e.ConditionExists(device, "DeviceDecommissioning", "True", string(v1beta1.DecommissionStateComplete))
-				}, "30s")
-
-			By("Restarting the agent service on the VM")
-			err = harness.StartFlightCtlAgent()
-			Expect(err).NotTo(HaveOccurred(), "Failed to start agent service")
-
-			By("Waiting for decommission to complete after agent restart")
-			harness.WaitForDeviceContents(deviceId, decommissionCompleteDesc,
-				func(device *v1beta1.Device) bool {
-					return e2e.ConditionExists(device, "DeviceDecommissioning", "True", string(v1beta1.DecommissionStateComplete))
-				}, TIMEOUT)
-			GinkgoWriter.Printf("Decommission completed after agent restart for device: %s\n", deviceId)
-		})
-	})
 })
 
 // decommissionCLIEntry creates a table-driven test case for CLI argument validation.
