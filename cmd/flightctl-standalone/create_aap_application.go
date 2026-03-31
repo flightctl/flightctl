@@ -20,6 +20,7 @@ import (
 // OAuth application name to be overridden at build time
 var defaultAAPOAuthAppName = "Flight Control"
 
+// CreateAAPApplicationOptions holds the configuration for creating an AAP OAuth application.
 type CreateAAPApplicationOptions struct {
 	Config       string
 	OutputFile   string
@@ -28,6 +29,7 @@ type CreateAAPApplicationOptions struct {
 	Organization int
 }
 
+// NewAAPCommand creates the root 'aap' subcommand for standalone utilities.
 func NewAAPCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "aap [command]",
@@ -43,6 +45,7 @@ func NewAAPCommand() *cobra.Command {
 	return cmd
 }
 
+// NewCreateAAPApplicationCommand creates the 'create-oauth-application' command.
 func NewCreateAAPApplicationCommand() *cobra.Command {
 	opts := &CreateAAPApplicationOptions{}
 
@@ -72,6 +75,7 @@ The command is idempotent: it will skip creation if:
 	return cmd
 }
 
+// Run executes the command to create an AAP OAuth application.
 func (o *CreateAAPApplicationOptions) Run(cmd *cobra.Command) error {
 	logger := logrus.New()
 

@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// main is the entry point for the flightctl-standalone application.
 func main() {
 	command := NewStandaloneCommand()
 	if err := command.Execute(); err != nil {
@@ -15,6 +16,7 @@ func main() {
 	}
 }
 
+// NewStandaloneCommand creates the root command for flightctl-standalone.
 func NewStandaloneCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "flightctl-standalone [command]",
@@ -32,6 +34,7 @@ func NewStandaloneCommand() *cobra.Command {
 	return cmd
 }
 
+// NewRenderCommand creates the 'render' subcommand for standalone utilities.
 func NewRenderCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "render [command]",

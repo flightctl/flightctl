@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/viper"
 )
 
+// NewRenderQuadletsCommand creates the cobra command for rendering quadlet files.
 func NewRenderQuadletsCommand() *cobra.Command {
 	var cfgFile string
 	config := renderer.NewRendererConfig()
@@ -44,6 +45,7 @@ func NewRenderQuadletsCommand() *cobra.Command {
 	return cmd
 }
 
+// initConfig initializes the quadlet renderer configuration.
 func initConfig(cfgFile string, config *renderer.RendererConfig) error {
 	if cfgFile == "" {
 		return fmt.Errorf("config file is required (use --config flag)")
