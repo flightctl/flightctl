@@ -75,6 +75,16 @@ spec:
               configMapKeyRef:
                 name: flightctl-ui
                 key: BASE_UI_URL
+          - name: TRUST_X_FORWARDED_HEADERS
+            valueFrom:
+              configMapKeyRef:
+                name: flightctl-ui
+                key: TRUST_X_FORWARDED_HEADERS
+          - name: TRUSTED_PROXY_CIDRS
+            valueFrom:
+              configMapKeyRef:
+                name: flightctl-ui
+                key: TRUSTED_PROXY_CIDRS
           - name: AUTH_INSECURE_SKIP_VERIFY
             valueFrom:
               configMapKeyRef:

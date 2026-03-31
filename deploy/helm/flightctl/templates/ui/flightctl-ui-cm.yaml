@@ -22,4 +22,7 @@ data:
   IS_RHEM: {{ (eq .Chart.Name "redhat-rhem") | quote }}
   AUTH_INSECURE_SKIP_VERIFY: {{ default ((.Values.global).auth).insecureSkipTlsVerify .Values.ui.auth.insecureSkipTlsVerify | quote }}
   BASE_UI_URL: {{ include "flightctl.getUIUrl" . }}
+  {{- /* When unset, default true; do not use Sprig default (it treats false as empty). */}}
+  TRUST_X_FORWARDED_HEADERS: {{ if and .Values.ui (hasKey .Values.ui "trustXForwardedHeaders") }}{{ .Values.ui.trustXForwardedHeaders | quote }}{{ else }}{{ true | quote }}{{ end }}
+  TRUSTED_PROXY_CIDRS: {{ .Values.ui.trustedProxyCidrs | default "" | quote }}
 {{ end }}

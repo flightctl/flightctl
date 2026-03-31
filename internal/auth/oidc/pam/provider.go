@@ -1193,6 +1193,7 @@ func (s *PAMOIDCProvider) GetOpenIDConfiguration() (*pamapi.OpenIDConfiguration,
 	tokenEndpoint := issuer + "/token"
 	userinfoEndpoint := issuer + "/userinfo"
 	jwksURI := issuer + "/jwks"
+	endSessionEndpoint := strings.TrimSuffix(issuer, "/") + "/logout"
 	claimsSupported := []string{"sub", "preferred_username", "name", "email", "email_verified", "roles", "organizations"}
 	subjectTypesSupported := []pamapi.OpenIDConfigurationSubjectTypesSupported{pamapi.Public}
 	// Determine supported client authentication methods based on configuration
@@ -1215,6 +1216,7 @@ func (s *PAMOIDCProvider) GetOpenIDConfiguration() (*pamapi.OpenIDConfiguration,
 		AuthorizationEndpoint:             &authzEndpoint,
 		TokenEndpoint:                     &tokenEndpoint,
 		UserinfoEndpoint:                  &userinfoEndpoint,
+		EndSessionEndpoint:                &endSessionEndpoint,
 		JwksUri:                           &jwksURI,
 		ResponseTypesSupported:            &responseTypes,
 		GrantTypesSupported:               &grantTypes,
@@ -1225,6 +1227,32 @@ func (s *PAMOIDCProvider) GetOpenIDConfiguration() (*pamapi.OpenIDConfiguration,
 		SubjectTypesSupported:             &subjectTypesSupported,
 		CodeChallengeMethodsSupported:     &codeChallengeMethodsSupported,
 	}, nil
+}
+
+// PostLogoutRedirectAllowed reports whether postLogoutURI is allowed for RP-initiated logout.
+// It must match a registered redirect URI or its UI base (redirect URI with a trailing /callback removed).
+func (s *PAMOIDCProvider) PostLogoutRedirectAllowed(postLogoutURI string) bool {
+	if s.config == nil || strings.TrimSpace(postLogoutURI) == "" {
+		return false
+	}
+	post := normalizePostLogoutURL(postLogoutURI)
+	for _, reg := range s.config.RedirectURIs {
+		regNorm := normalizePostLogoutURL(reg)
+		if post == regNorm {
+			return true
+		}
+		if strings.HasSuffix(regNorm, "/callback") {
+			base := strings.TrimSuffix(regNorm, "/callback")
+			if post == normalizePostLogoutURL(base) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func normalizePostLogoutURL(u string) string {
+	return strings.TrimSuffix(strings.TrimSpace(u), "/")
 }
 
 // GetJWKS returns the JSON Web Key Set

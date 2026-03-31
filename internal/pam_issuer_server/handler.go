@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -198,6 +199,7 @@ func (h *Handler) AuthOpenIDConfiguration(w http.ResponseWriter, r *http.Request
 		AuthorizationEndpoint:             v1Config.AuthorizationEndpoint,
 		TokenEndpoint:                     v1Config.TokenEndpoint,
 		UserinfoEndpoint:                  v1Config.UserinfoEndpoint,
+		EndSessionEndpoint:                v1Config.EndSessionEndpoint,
 		JwksUri:                           v1Config.JwksUri,
 		ResponseTypesSupported:            v1Config.ResponseTypesSupported,
 		GrantTypesSupported:               v1Config.GrantTypesSupported,
@@ -208,6 +210,63 @@ func (h *Handler) AuthOpenIDConfiguration(w http.ResponseWriter, r *http.Request
 		CodeChallengeMethodsSupported:     v1Config.CodeChallengeMethodsSupported,
 	}
 	writeJSON(w, http.StatusOK, &config)
+}
+
+// AuthLogout handles OIDC RP-Initiated Logout (GET /api/v1/auth/logout).
+func (h *Handler) AuthLogout(w http.ResponseWriter, r *http.Request, params pamapi.AuthLogoutParams) {
+	if params.ClientId != nil && *params.ClientId != "" {
+		if h.pamProvider == nil || h.cfg.Auth.PAMOIDCIssuer.ClientID != *params.ClientId {
+			writeOAuth2Error(w, pamapi.InvalidClient, "Invalid client_id")
+			return
+		}
+	}
+
+	h.clearAuthCookie(w)
+
+	postLogout := ""
+	if params.PostLogoutRedirectUri != nil {
+		postLogout = *params.PostLogoutRedirectUri
+	}
+	if postLogout == "" {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("Logged out"))
+		return
+	}
+
+	if !h.pamProvider.PostLogoutRedirectAllowed(postLogout) {
+		writeOAuth2Error(w, pamapi.InvalidRequest, "Invalid post_logout_redirect_uri")
+		return
+	}
+
+	redir := postLogout
+	if params.State != nil && *params.State != "" {
+		u, err := url.Parse(postLogout)
+		if err != nil {
+			writeOAuth2Error(w, pamapi.InvalidRequest, "Invalid post_logout_redirect_uri")
+			return
+		}
+		q := u.Query()
+		q.Set("state", *params.State)
+		u.RawQuery = q.Encode()
+		redir = u.String()
+	}
+
+	w.Header().Set("Location", redir)
+	w.WriteHeader(http.StatusFound)
+}
+
+func (h *Handler) clearAuthCookie(w http.ResponseWriter) {
+	cookie := &http.Cookie{
+		Name:     pam.CookieNameAuth,
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
+	}
+	http.SetCookie(w, cookie)
 }
 
 // AuthAuthorize handles OAuth2 authorization endpoint
