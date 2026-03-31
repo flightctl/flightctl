@@ -27,7 +27,7 @@ const (
 	ShadowFileMode     os.FileMode = 0600 // Shadow files (password hashes) - root only
 )
 
-const (
+var (
 	DefaultServiceConfigPath = "/etc/flightctl/service-config.yaml"
 	DefaultAAPClientIDPath   = "/etc/flightctl/pki/aap-client-id"
 	DefaultAuthCACertPath    = "/etc/flightctl/pki/auth/ca.crt"
