@@ -37,6 +37,14 @@ The service can be deployed locally in kind with the following command:
 make deploy
 ```
 
+Note: An update to firewalld may need to be made if the agent is unable to connect to the api instance:
+
+```bash
+VIRBR0_SUBNET=`ip a | grep 'virbr0:' -A 2 | tail -1 | awk '{print $2}'`
+sudo firewall-cmd --zone=libvirt --add-rich-rule="rule family=\"ipv4\" source address=\"$VIRBR0_SUBNET\" accept" --permanent
+sudo firewall-cmd --reload
+```
+
 ### Deployment using Quadlets
 
 The service can also be deployed using systemd Quadlets (Podman containers managed by systemd):
@@ -59,13 +67,6 @@ bin/flightctl get fleet fleet1 fleet2  # Get multiple specific resources
 Use an agent VM to test a device interaction, an image is automatically created from
 hack/Containerfile.local and a qcow2 image is derived in output/qcow2/disk.qcow2, currently
 this only works on a Linux host.
-
-Note: An update to firewalld may need to be made if the agent is unable to connect to the api instance:
-
-```bash
-sudo firewall-cmd --zone=libvirt --add-rich-rule='rule family="ipv4" source address="<virbr0s subnet here>" accept' --permanent
-sudo firewall-cmd --reload
-```
 
 You can deploy a DB container of different sizes using a DB_VERSION variable for make command:
 * e2e (default) - minimal footprint for e2e testing
