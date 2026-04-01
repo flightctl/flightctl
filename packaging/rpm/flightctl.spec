@@ -339,8 +339,13 @@ fi
     else
         APPLY_UI_OVERRIDE=""
     fi
+    %if 0%{?rhel} == 10
+    IMAGES_CONFIG=packaging/images/el10/images.yaml
+    %else
+    IMAGES_CONFIG=packaging/images/el9/images.yaml
+    %endif
     bin/flightctl-standalone render quadlets \
-        --config deploy/podman/images.yaml \
+        --config "${IMAGES_CONFIG}" \
         --flightctl-services-tag-override "${IMAGE_TAG}" \
         ${APPLY_UI_OVERRIDE} \
         --readonly-config-dir "%{buildroot}%{_datadir}/flightctl" \

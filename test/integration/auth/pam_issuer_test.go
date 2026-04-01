@@ -72,6 +72,8 @@ var _ = Describe("PAM Issuer Integration Tests", func() {
 				pamapi.OpenIDConfigurationCodeChallengeMethodsSupportedS256,
 			))
 			Expect(*config.CodeChallengeMethodsSupported).To(HaveLen(1))
+			Expect(config.EndSessionEndpoint).ToNot(BeNil())
+			Expect(*config.EndSessionEndpoint).To(Equal("https://test.example.com/logout"))
 		})
 
 		It("should provide JWKS endpoint", func() {

@@ -95,6 +95,19 @@ func (o *RenderTemplateOptions) completeConfig(data map[string]interface{}) erro
 }
 
 func (o *RenderTemplateOptions) completeAAPConfig(global map[string]interface{}) error {
+	// Default UI forwarded-header settings.
+	ui, ok := global["ui"].(map[string]interface{})
+	if !ok {
+		ui = make(map[string]interface{})
+		global["ui"] = ui
+	}
+	if _, exists := ui["trustXForwardedHeaders"]; !exists {
+		ui["trustXForwardedHeaders"] = false
+	}
+	if _, exists := ui["trustedProxyCidrs"]; !exists {
+		ui["trustedProxyCidrs"] = ""
+	}
+
 	// Inject AAP OAuth client_id if file exists
 	auth, ok := global["auth"].(map[string]interface{})
 	if !ok {
