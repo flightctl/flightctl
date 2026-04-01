@@ -6,10 +6,12 @@ set -eo pipefail
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 source "${SCRIPT_DIR}"/shared.sh
 
+OS="${OS:-el9}"
+
 echo "Starting Deployment"
 
 # Render quadlet files
-bin/flightctl-standalone render quadlets --config deploy/podman/local-images.yaml
+bin/flightctl-standalone render quadlets --config "packaging/images/${OS}/local-images.yaml"
 
 echo "Ensuring secrets are available..."
 # Always ensure secrets exist before starting services
