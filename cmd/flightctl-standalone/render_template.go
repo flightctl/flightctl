@@ -91,6 +91,10 @@ func (o *RenderTemplateOptions) completeConfig(data map[string]interface{}) erro
 		fmt.Fprintf(os.Stderr, "global.baseDomain not set, defaulting to system hostname FQDN (%s)\n", hostname)
 	}
 
+	return o.completeAAPConfig(global)
+}
+
+func (o *RenderTemplateOptions) completeAAPConfig(global map[string]interface{}) error {
 	// Inject AAP OAuth client_id if file exists
 	auth, ok := global["auth"].(map[string]interface{})
 	if !ok {
