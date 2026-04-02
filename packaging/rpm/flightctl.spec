@@ -587,7 +587,8 @@ chown -R flightctl:flightctl ~flightctl/{.config,.local}
     %{_datadir}/containers/systemd/flightctl.network
 
     # Handle permissions for scripts setting host config
-    %attr(0755,root,root) %{_datadir}/flightctl/init_host.sh
+    %attr(0755,root,root) %{_datadir}/flightctl/init_db.sh
+    %attr(0755,root,root) %{_datadir}/flightctl/init_kv.sh
     %attr(0755,root,root) %{_datadir}/flightctl/init_certs.sh
     %attr(0755,root,root) %{_datadir}/flightctl/secrets.sh
     %attr(0755,root,root) %{_datadir}/flightctl/yaml_helpers.py

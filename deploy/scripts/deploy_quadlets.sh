@@ -15,7 +15,7 @@ bin/flightctl-standalone render quadlets --config "packaging/images/${OS}/local-
 
 echo "Ensuring secrets are available..."
 # Always ensure secrets exist before starting services
-if ! "${CONFIG_READONLY_DIR}/init_host.sh"; then
+if ! "${CONFIG_READONLY_DIR}/init_db.sh"; then
     echo "Error: Failed to initialize secrets"
     exit 1
 fi
