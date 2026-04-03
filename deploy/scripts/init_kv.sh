@@ -7,11 +7,11 @@ SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 source "${SCRIPT_DIR}"/secrets.sh
 
 main() {
-    echo "Configuring Flight Control"
+    echo "Configuring KV secrets"
 
-    ensure_secrets
+    ensure_kv_secrets
 
-    echo "Configuration complete"
+    echo "KV configuration complete"
 }
 
 main

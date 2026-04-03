@@ -103,7 +103,8 @@ func servicesManifest(config *RendererConfig) []InstallAction {
 
 		// Helper scripts
 		{Action: ActionCopyFile, Source: "deploy/scripts/init_utils.sh", Destination: filepath.Join(config.ReadOnlyConfigOutputDir, "init_utils.sh"), Template: false, Mode: RegularFileMode},
-		{Action: ActionCopyFile, Source: "deploy/scripts/init_host.sh", Destination: filepath.Join(config.ReadOnlyConfigOutputDir, "init_host.sh"), Template: false, Mode: ExecutableFileMode},
+		{Action: ActionCopyFile, Source: "deploy/scripts/init_db.sh", Destination: filepath.Join(config.ReadOnlyConfigOutputDir, "init_db.sh"), Template: false, Mode: ExecutableFileMode},
+		{Action: ActionCopyFile, Source: "deploy/scripts/init_kv.sh", Destination: filepath.Join(config.ReadOnlyConfigOutputDir, "init_kv.sh"), Template: false, Mode: ExecutableFileMode},
 		{Action: ActionCopyFile, Source: "deploy/scripts/secrets.sh", Destination: filepath.Join(config.ReadOnlyConfigOutputDir, "secrets.sh"), Template: false, Mode: ExecutableFileMode},
 		{Action: ActionCopyFile, Source: "deploy/scripts/yaml_helpers.py", Destination: filepath.Join(config.ReadOnlyConfigOutputDir, "yaml_helpers.py"), Template: false, Mode: RegularFileMode},
 		{Action: ActionCopyFile, Source: "deploy/scripts/init_certs.sh", Destination: filepath.Join(config.ReadOnlyConfigOutputDir, "init_certs.sh"), Template: false, Mode: ExecutableFileMode},

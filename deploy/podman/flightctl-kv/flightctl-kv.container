@@ -13,6 +13,7 @@ Secret=flightctl-kv-password,type=env,target=KV_PASSWORD
 Volume=/usr/share/flightctl/flightctl-kv/redis.conf:/usr/local/etc/redis/redis.conf
 
 [Service]
+ExecStartPre=/usr/share/flightctl/init_kv.sh
 Type=notify
 Restart=always
 RestartSec=30
