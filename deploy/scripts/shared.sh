@@ -119,23 +119,6 @@ render_service() {
     done
 }
 
-move_shared_files() {
-    local source_dir="$1"
-    # Copy the network and target files
-    cp "${source_dir}/podman/flightctl.network" "${QUADLET_FILES_OUTPUT_DIR}"
-
-    mkdir -p "${SYSTEMD_UNIT_OUTPUT_DIR}"
-    cp "${source_dir}/podman/flightctl.target" "${SYSTEMD_UNIT_OUTPUT_DIR}"
-
-    # Copy writeable files
-    cp "${source_dir}/podman/service-config.yaml" "${CONFIG_WRITEABLE_DIR}/service-config.yaml"
-
-    # Copy read only files
-    cp "${source_dir}/scripts/init_utils.sh" "${CONFIG_READONLY_DIR}/init_utils.sh"
-    cp "${source_dir}/scripts/init_db.sh" "${CONFIG_READONLY_DIR}/init_db.sh"
-    cp "${source_dir}/scripts/secrets.sh" "${CONFIG_READONLY_DIR}/secrets.sh"
-    cp "${source_dir}/scripts/yaml_helpers.py" "${CONFIG_READONLY_DIR}/yaml_helpers.py"
-}
 
 # Start a systemd service
 # Args:
