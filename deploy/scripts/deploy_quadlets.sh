@@ -13,13 +13,6 @@ echo "Starting Deployment"
 # Render quadlet files
 bin/flightctl-standalone render quadlets --config "packaging/images/${OS}/local-images.yaml"
 
-echo "Ensuring secrets are available..."
-# Always ensure secrets exist before starting services
-if ! "${CONFIG_READONLY_DIR}/init_db.sh"; then
-    echo "Error: Failed to initialize secrets"
-    exit 1
-fi
-
 echo "Starting all Flight Control services via target..."
 start_service "flightctl.target"
 
