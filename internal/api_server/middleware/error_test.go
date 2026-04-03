@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"net/http"
 	"net/http/httptest"
 	"testing"
 
@@ -31,7 +30,7 @@ func TestWriteJSONError(t *testing.T) {
 
 	require.Equal("Status", status.Kind)
 	require.Equal("Failure", status.Status)
-	require.Equal(http.StatusBadRequest, status.Code)
+	require.Equal(int32(http.StatusBadRequest), status.Code)
 	require.Equal("a regular error", status.Message)
 	require.Equal(http.StatusText(http.StatusBadRequest), status.Reason)
 
@@ -45,7 +44,7 @@ func TestWriteJSONError(t *testing.T) {
 
 	err = json.Unmarshal(w.Body.Bytes(), &status)
 	require.NoError(err)
-	require.Equal(http.StatusForbidden, status.Code)
+	require.Equal(int32(http.StatusForbidden), status.Code)
 	require.Equal(flterrors.ErrNotOrgMember.Error(), status.Message)
 	require.Equal(http.StatusText(http.StatusForbidden), status.Reason)
 }

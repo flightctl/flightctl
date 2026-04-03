@@ -327,7 +327,7 @@ func TestExtractOrgIDFromRequestCert(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			r := httptest.NewRequest(http.MethodGet, "/", nil).WithContext(tc.ctx)
-			got, present, err := middleware.extractOrgIDFromRequestCert(tc.ctx, r)
+			got, present, err := middleware.CertOrgIDExtractor(tc.ctx, r)
 			if tc.wantErr {
 				assert.Error(t, err)
 				assert.False(t, present)
