@@ -9,7 +9,6 @@ import (
 	"github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/test/e2e/infra"
 	"github.com/flightctl/flightctl/test/harness/e2e"
-	"github.com/flightctl/flightctl/test/util"
 	"github.com/sirupsen/logrus"
 )
 
@@ -77,7 +76,7 @@ func LoginToEnv(harness *e2e.Harness, username, password, serverURL string) (str
 		}
 		return token, AuthPAM, nil
 	}
-	if util.BinaryExistsOnPath(openshift) {
+	if infra.DetectEnvironment() == infra.EnvironmentOCP {
 		token, err := loginToEnvOpenShift(harness, username, password, serverURL)
 		if err != nil {
 			return "", 0, err
@@ -183,7 +182,7 @@ func LoginToEnvAsAdmin(harness *e2e.Harness) (string, AuthMethod, error) {
 		}
 		return LoginToEnv(harness, user, pass, "")
 	}
-	if util.BinaryExistsOnPath(openshift) {
+	if infra.DetectEnvironment() == infra.EnvironmentOCP {
 		server, err := getOpenShiftServer(harness)
 		if err != nil {
 			return "", 0, err
