@@ -45,8 +45,7 @@ const (
 )
 
 var (
-	outputTypes    = []string{jsonFormat, yamlFormat}
-	configFilePath *string
+	outputTypes = []string{jsonFormat, yamlFormat}
 )
 
 func defaultConfigFilePath() string {
@@ -67,7 +66,7 @@ func printUsage() {
 }
 
 func main() {
-	configFilePath = pflag.String("config", defaultConfigFilePath(), "path of the agent configuration template")
+	configFile := pflag.String("config", defaultConfigFilePath(), "path of the agent configuration template")
 	dataDir := pflag.String("data-dir", defaultDataDir(), "directory for storing simulator data")
 	labels := pflag.StringArray("label", []string{}, "label applied to simulated devices, in the format key=value")
 	numDevices := pflag.Int("count", 1, "number of devices to simulate")
@@ -135,7 +134,7 @@ func main() {
 
 	formattedLables := formatLabels(labels)
 
-	agentConfigTemplate := createAgentConfigTemplate(*dataDir, *configFilePath, *logLevel)
+	agentConfigTemplate := createAgentConfigTemplate(*dataDir, *configFile, *logLevel)
 
 	log.Infoln("starting device simulator")
 	defer log.Infoln("device simulator stopped")
@@ -143,28 +142,32 @@ func main() {
 	log.Infoln("setting up metrics endpoint")
 	setupMetricsEndpoint(*metricsAddr)
 
-	// Get the ClientConfig from the flightctl's config file
-	clientConfig, err := config.Read(*configFilePath)
+	baseDir, err := client.DefaultFlightctlClientConfigPath()
 	if err != nil {
-		log.Fatalf("failed to read flightctl config file: %v", err)
+		log.Fatalf("could not get user config directory: %v", err)
+	}
+	cfg, err := client.ParseConfigFile(baseDir)
+	if err != nil {
+		log.Fatalf("could not parse config file: %v", err)
+	}
+	// allow many idle conns to prevent tearing down connections we may need again
+	cfg.AddHTTPOptions(client.WithMaxIdleConnsPerHost(*maxConcurrency))
+	serviceClient, err := client.NewFromConfig(cfg, baseDir)
+	if err != nil {
+		log.Fatalf("Error creating service client: %v", err)
 	}
 
-	// Get the http client from the config
-	fctlClient, err := client.NewFromClientConfig(clientConfig)
-	if err != nil {
-		log.Fatalf("failed to create flightctl client: %v", err)
-	}
-	orgId, err := client.GetCurrentOrganization(clientConfig)
-	if err != nil {
-		log.Fatalf("failed to get current organization: %v", err)
-	}
+	orgId := cfg.Organization
 
 	log.Infoln("creating agents")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	serviceClient.Start(ctx)
+	defer serviceClient.Stop()
+
 	// Create simulator fleet configuration
-	if err := createSimulatorFleet(ctx, fctlClient.ClientWithResponses, log, orgId); err != nil {
+	if err := createSimulatorFleet(ctx, serviceClient.ClientWithResponses, log, orgId); err != nil {
 		log.Warnf("Failed to create simulator fleet: %v", err)
 	}
 
@@ -200,7 +203,7 @@ func main() {
 		agents:          agents,
 		agentFolders:    agentsFolders,
 		log:             log,
-		serviceClient:   fctlClient.ClientWithResponses,
+		serviceClient:   serviceClient.ClientWithResponses,
 		formattedLabels: formattedLables,
 		sem:             sem,
 		jitterDuration:  jitterDuration,
