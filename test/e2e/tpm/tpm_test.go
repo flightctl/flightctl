@@ -91,6 +91,18 @@ var _ = Describe("TPM Device Authentication", func() {
 			harness.SetTestContext(ctx)
 
 			err := harness.SetupVMWithTPMPassthrough(workerID, realTPMDevice)
+
+			// TPM passthrough acquires a lock on the TPM that we must ensure is given back.
+			// Registered before Expect so cleanup runs even if setup fails.
+			DeferCleanup(func() {
+				if harness.VM != nil {
+					if deleteErr := harness.VM.ForceDelete(); deleteErr != nil {
+						logrus.Warnf("Failed to force delete TPM passthrough VM: %v", deleteErr)
+					}
+					harness.VM = nil
+				}
+			})
+
 			Expect(err).ToNot(HaveOccurred())
 
 			By("verifying VM is using real TPM hardware (not swtpm)")

@@ -53,15 +53,49 @@ for vm_name in "${flightctl_vms[@]}"; do
     fi
 done
 
+# Clean up session-mode VMs (e.g. TPM passthrough VMs created via qemu:///session)
+echo "🔄 [Cleanup] Finding session-mode flightctl e2e VMs..."
+if session_output=$(virsh -c qemu:///session list --all --name 2>/dev/null); then
+    session_vms=()
+    while IFS= read -r vm_name; do
+        if [[ -n "$vm_name" && ( "$vm_name" == flightctl-e2e-* || "$vm_name" == imagebuild-test-* ) ]]; then
+            session_vms+=("$vm_name")
+        fi
+    done <<< "$session_output"
+
+    echo "🔍 [Cleanup] Found ${#session_vms[@]} session-mode flightctl e2e VMs: ${session_vms[*]}"
+
+    for vm_name in "${session_vms[@]}"; do
+        echo "🔄 [Cleanup] Cleaning up session VM: $vm_name"
+
+        if ! virsh -c qemu:///session snapshot-delete "$vm_name" "pristine" --metadata 2>/dev/null; then
+            echo "⚠️  [Cleanup] Failed to delete pristine snapshot for session VM $vm_name (may not exist)"
+        fi
+
+        virsh -c qemu:///session destroy "$vm_name" 2>/dev/null || true
+
+        if virsh -c qemu:///session undefine "$vm_name" --snapshots-metadata 2>/dev/null; then
+            echo "✅ [Cleanup] Successfully cleaned up session VM: $vm_name"
+        elif virsh -c qemu:///session undefine "$vm_name" --snapshots-metadata --nvram 2>/dev/null; then
+            echo "✅ [Cleanup] Successfully cleaned up session VM: $vm_name (with NVRAM)"
+        elif virsh -c qemu:///session undefine "$vm_name" --snapshots-metadata --remove-all-storage --nvram 2>/dev/null; then
+            echo "✅ [Cleanup] Successfully cleaned up session VM: $vm_name (with storage and NVRAM)"
+        else
+            echo "❌ [Cleanup] Failed to undefine session VM $vm_name with all approaches"
+        fi
+    done
+else
+    echo "⚠️  [Cleanup] Failed to list session-mode VMs (qemu:///session may not be available)"
+fi
+
 # Clean up temporary directories in /tmp
 echo "🔄 [Cleanup] Cleaning up temporary directories..."
-if tmp_dirs=$(find /tmp -maxdepth 1 -name "flightctl-e2e-worker-*" -type d 2>/dev/null); then
+if tmp_dirs=$(find /tmp -maxdepth 1 -name "flightctl-e2e-*" -type d 2>/dev/null); then
     if [[ -n "$tmp_dirs" ]]; then
         echo "🔍 [Cleanup] Found temporary directories:"
         echo "$tmp_dirs"
         echo "🔄 [Cleanup] Removing temporary directories..."
-        # Use find with -delete for safer removal
-        if find /tmp -maxdepth 1 -name "flightctl-e2e-worker-*" -type d -exec rm -rf {} + 2>/dev/null; then
+        if find /tmp -maxdepth 1 -name "flightctl-e2e-*" -type d -exec rm -rf {} + 2>/dev/null; then
             echo "✅ [Cleanup] Successfully removed temporary directories"
         else
             echo "⚠️  [Cleanup] Failed to remove some temporary directories"

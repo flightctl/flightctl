@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	agentcfg "github.com/flightctl/flightctl/internal/agent/config"
@@ -54,13 +55,46 @@ func (h *Harness) DetectTPMType() (TPMType, error) {
 func (h *Harness) dumpTPMVMFailureDiagnostics(vmName string) {
 	logrus.Info("[TPM-fail-diag] Collecting failure diagnostics...")
 
-	// Try to get agent journal from L2 VM (may fail if VM crashed)
 	if h.VM != nil {
-		journalOut, journalErr := h.VM.RunSSH([]string{"sudo", "journalctl", "-u", "flightctl-agent", "--no-pager", "-n", "200"}, nil)
-		if journalErr != nil {
-			logrus.Warnf("[TPM-fail-diag] L2 VM unreachable (likely crashed): %v", journalErr)
-		} else {
-			logrus.Errorf("[TPM-fail-diag] flightctl-agent journal:\n%s", journalOut)
+		// The VM is likely mid-reboot. Wait for SSH to go down and come back.
+		logrus.Info("[TPM-fail-diag] Waiting 30s for VM reboot to complete...")
+		time.Sleep(30 * time.Second)
+
+		// Retry journal commands directly — SSH connectivity alone is not sufficient
+		// since SSH can accept connections briefly during shutdown.
+		var sysJournalCollected, agentJournalCollected bool
+		for attempt := 1; attempt <= 6; attempt++ {
+			if !sysJournalCollected {
+				sysJournalOut, sysJournalErr := h.VM.RunSSH([]string{"sudo", "journalctl", "--no-pager", "-b", "-1", "-n", "200"}, nil)
+				if sysJournalErr != nil {
+					logrus.Infof("[TPM-fail-diag] Previous boot journal attempt %d/6 failed: %v", attempt, sysJournalErr)
+				} else {
+					logrus.Infof("[TPM-fail-diag] Previous boot system journal (last 200 lines):\n%s", sysJournalOut)
+					sysJournalCollected = true
+				}
+			}
+
+			if !agentJournalCollected {
+				journalOut, journalErr := h.VM.RunSSH([]string{"sudo", "journalctl", "-u", "flightctl-agent", "--no-pager", "-n", "200"}, nil)
+				if journalErr != nil {
+					logrus.Infof("[TPM-fail-diag] Agent journal attempt %d/6 failed: %v", attempt, journalErr)
+				} else {
+					logrus.Infof("[TPM-fail-diag] flightctl-agent journal:\n%s", journalOut)
+					agentJournalCollected = true
+				}
+			}
+
+			if sysJournalCollected && agentJournalCollected {
+				break
+			}
+			time.Sleep(10 * time.Second)
+		}
+
+		if !sysJournalCollected {
+			logrus.Warn("[TPM-fail-diag] Failed to collect previous boot journal after all retries")
+		}
+		if !agentJournalCollected {
+			logrus.Warn("[TPM-fail-diag] Failed to collect agent journal after all retries")
 		}
 	}
 

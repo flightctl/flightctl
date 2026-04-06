@@ -393,6 +393,14 @@ func (p *VMPool) createFreshVMBase(workerID int, tpmDevice string) (vm.TestVMInt
 		return nil, fmt.Errorf("failed to start VM after %d attempts: %w", maxRetries, lastErr)
 	}
 
+	// Wait for greenboot-healthcheck to finish while the agent is still running.
+	// If the agent is stopped before the healthcheck completes, greenboot may
+	// detect an unhealthy state and trigger a reboot.
+	if err := waitForGreenbootHealthcheck(newVM); err != nil {
+		_ = newVM.ForceDelete()
+		return nil, fmt.Errorf("greenboot-healthcheck failed before agent cleanup: %w", err)
+	}
+
 	// Clean up any existing agent state from the base disk
 	fmt.Printf("🔄 [VMPool] Worker %d: Cleaning agent state\n", workerID)
 	if _, err := newVM.RunSSH([]string{"sudo", "systemctl", "stop", "flightctl-agent"}, nil); err != nil {
