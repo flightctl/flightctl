@@ -15,13 +15,13 @@ import (
 
 const (
 	// certExpirySeconds controls the lifetime of management certificates
-	// issued by the API server. 90s gives ~35s buffer after renewal window +
+	// issued by the API server. 180s gives ~90s buffer after renewal window +
 	// failure detection in the network disruption test (OCP-87911).
-	certExpirySeconds = "90"
+	certExpirySeconds = "180"
 
 	// certRenewBeforeSeconds is the time before certificate expiration that
-	// the agent will begin renewal. Renewal window opens at T+45s.
-	certRenewBeforeSeconds = "45"
+	// the agent will begin renewal. Renewal window opens at T+90s.
+	certRenewBeforeSeconds = "90"
 
 	// certManagerSyncInterval controls how often the agent checks if
 	// a certificate renewal is needed.
@@ -202,7 +202,7 @@ var _ = Describe("Certificate Rotation", Label("certificate-rotation"), func() {
 	})
 
 	Context("negative tests", func() {
-		It("should handle renewal with intermittent network disruption", Label("OCP-87911"), func() {
+		It("should handle renewal with intermittent network disruption", Label("87911"), func() {
 			By("Waiting for initial certificate info to be reported")
 			var initialSerial string
 			Eventually(func() bool {
@@ -271,7 +271,7 @@ var _ = Describe("Certificate Rotation", Label("certificate-rotation"), func() {
 			}, e2e.TIMEOUT, e2e.POLLINGLONG).Should(BeTrue(), "renewal success metric should be non-zero")
 		})
 
-		It("should handle certificate expiration", Label("OCP-87909"), func() {
+		It("should handle certificate expiration", Label("87909"), func() {
 			By("Waiting for initial certificate info to be reported")
 			var initialSerial, initialNotAfter string
 			Eventually(func() bool {
@@ -327,7 +327,7 @@ var _ = Describe("Certificate Rotation", Label("certificate-rotation"), func() {
 			}, "30s", e2e.POLLINGLONG).Should(Equal(initialSerial), "cert serial should not change — expired cert cannot authenticate for renewal")
 		})
 
-		It("should handle invalid or corrupted certificate on disk", Label("OCP-87910"), func() {
+		It("should handle invalid or corrupted certificate on disk", Label("87910"), func() {
 			By("Waiting for initial certificate info to be reported")
 			Eventually(func() bool {
 				_, _, fetchErr := getDeviceCertInfo(harness, deviceId)
@@ -372,7 +372,7 @@ var _ = Describe("Certificate Rotation", Label("certificate-rotation"), func() {
 			}, e2e.LONGTIMEOUT, e2e.POLLINGLONG).Should(Equal(v1beta1.DeviceSummaryStatusOnline))
 		})
 
-		It("should reflect failure outcomes in metrics", Label("OCP-87912"), func() {
+		It("should reflect failure outcomes in metrics", Label("87912"), func() {
 			By("Waiting for initial certificate info to be reported")
 			Eventually(func() bool {
 				_, _, fetchErr := getDeviceCertInfo(harness, deviceId)
