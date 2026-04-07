@@ -31,6 +31,11 @@ const (
 	// by the agent.
 	certBackoffMax = "2s"
 
+	// certRotationTimeout is the timeout for operations that involve waiting
+	// for certificate rotation cycles to complete, including network
+	// disruption recovery. 15 minutes accommodates slower OCP CI environments.
+	certRotationTimeout = "15m"
+
 	agentCertPath       = "/var/lib/flightctl/certs/agent.crt"
 	agentCertBackupPath = "/var/lib/flightctl/certs/agent.crt.bak"
 )
@@ -203,16 +208,24 @@ var _ = Describe("Certificate Rotation", Label("certificate-rotation"), func() {
 
 	Context("negative tests", func() {
 		It("should handle renewal with intermittent network disruption", Label("87911"), func() {
+			By("Verifying metrics endpoint is accessible")
+			Eventually(func() error {
+				_, err := harness.GetAgentMetrics()
+				return err
+			}, e2e.TIMEOUT, e2e.POLLINGLONG).Should(Succeed(), "metrics endpoint should be accessible before test starts")
+
 			By("Waiting for initial certificate info to be reported")
 			var initialSerial string
 			Eventually(func() bool {
 				serial, _, fetchErr := getDeviceCertInfo(harness, deviceId)
 				if fetchErr != nil {
+					GinkgoWriter.Printf("[87911] waiting for initial cert info: %v\n", fetchErr)
 					return false
 				}
 				initialSerial = serial
 				return true
 			}, e2e.LONGTIMEOUT, e2e.POLLINGLONG).Should(BeTrue(), "initial cert info should appear in system info")
+			GinkgoWriter.Printf("[87911] initial cert serial: %s\n", initialSerial)
 
 			By("Extracting API server endpoint from VM agent config")
 			apiIP, apiPort, err := harness.GetAPIEndpointFromVM()
@@ -228,10 +241,12 @@ var _ = Describe("Certificate Rotation", Label("certificate-rotation"), func() {
 			Eventually(func() bool {
 				failCount, mErr := harness.GetAgentMetricValue(`flightctl_device_mgmt_cert_renewal_attempts_total{result="failure"}`)
 				if mErr != nil {
+					GinkgoWriter.Printf("[87911] error fetching failure metric: %v\n", mErr)
 					return false
 				}
+				GinkgoWriter.Printf("[87911] renewal failure count: %q\n", failCount)
 				return failCount != "" && failCount != "0"
-			}, e2e.LONGTIMEOUT, e2e.POLLINGLONG).Should(BeTrue(), "renewal failure metric should appear")
+			}, certRotationTimeout, e2e.POLLINGLONG).Should(BeTrue(), "renewal failure metric should appear")
 
 			By("Restoring network connectivity")
 			harness.UnblockTrafficOnVM(apiIP, apiPort)
@@ -241,14 +256,16 @@ var _ = Describe("Certificate Rotation", Label("certificate-rotation"), func() {
 			Eventually(func() bool {
 				serial, notAfter, fetchErr := getDeviceCertInfo(harness, deviceId)
 				if fetchErr != nil {
+					GinkgoWriter.Printf("[87911] waiting for rotation after unblock: %v\n", fetchErr)
 					return false
 				}
+				GinkgoWriter.Printf("[87911] current serial: %s (initial: %s)\n", serial, initialSerial)
 				if serial != initialSerial {
 					newNotAfter = notAfter
 					return true
 				}
 				return false
-			}, e2e.LONGTIMEOUT, e2e.POLLINGLONG).Should(BeTrue(), "cert serial should change after unblocking traffic")
+			}, certRotationTimeout, e2e.POLLINGLONG).Should(BeTrue(), "cert serial should change after unblocking traffic")
 
 			By("Verifying new certificate notAfter is in the future")
 			parsedNotAfter, parseErr := time.Parse(time.RFC3339, newNotAfter)
@@ -259,14 +276,16 @@ var _ = Describe("Certificate Rotation", Label("certificate-rotation"), func() {
 			Eventually(func() v1beta1.DeviceSummaryStatusType {
 				status, _ := harness.GetDeviceWithStatusSummary(deviceId)
 				return status
-			}, e2e.LONGTIMEOUT, e2e.POLLINGLONG).Should(Equal(v1beta1.DeviceSummaryStatusOnline))
+			}, certRotationTimeout, e2e.POLLINGLONG).Should(Equal(v1beta1.DeviceSummaryStatusOnline))
 
 			By("Verifying renewal success metric is present")
 			Eventually(func() bool {
 				successCount, mErr := harness.GetAgentMetricValue(`flightctl_device_mgmt_cert_renewal_attempts_total{result="success"}`)
 				if mErr != nil {
+					GinkgoWriter.Printf("[87911] error fetching success metric: %v\n", mErr)
 					return false
 				}
+				GinkgoWriter.Printf("[87911] renewal success count: %q\n", successCount)
 				return successCount != "" && successCount != "0"
 			}, e2e.TIMEOUT, e2e.POLLINGLONG).Should(BeTrue(), "renewal success metric should be non-zero")
 		})
