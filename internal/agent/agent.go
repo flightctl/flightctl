@@ -46,19 +46,39 @@ const (
 	gracefulShutdownTimeout = 2 * time.Minute
 )
 
+// AgentOption is a function that configures an Agent
+type AgentOption func(*Agent)
+
+// WithExecuter sets a custom executer for the agent (e.g., for testing).
+// This allows tests to inject a safe executer that prevents dangerous commands from executing.
+func WithExecuter(exec executer.Executer) AgentOption {
+	return func(a *Agent) {
+		a.executer = exec
+	}
+}
+
 // New creates a new agent.
-func New(log *log.PrefixLogger, config *agent_config.Config, configFile string) *Agent {
-	return &Agent{
+func New(log *log.PrefixLogger, config *agent_config.Config, configFile string, opts ...AgentOption) *Agent {
+	a := &Agent{
 		config:     config,
 		configFile: configFile,
 		log:        log,
+		executer:   executer.NewCommonExecuter(), // default executer
 	}
+
+	// Apply all options
+	for _, opt := range opts {
+		opt(a)
+	}
+
+	return a
 }
 
 type Agent struct {
 	config     *agent_config.Config
 	configFile string
 	log        *log.PrefixLogger
+	executer   executer.Executer
 }
 
 func (a *Agent) GetLogPrefix() string {
@@ -137,7 +157,8 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.log.Infof("Using persisted CSR for enrollment")
 	}
 
-	rootExecuter := executer.NewCommonExecuter()
+	// Use the executer configured during agent construction
+	exec := a.executer
 
 	// create enrollment client
 	enrollmentClient, err := newEnrollmentClient(a.config, a.log)
@@ -162,7 +183,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 
 	// create os client
-	osClient := os.NewClient(a.log, rootExecuter)
+	osClient := os.NewClient(a.log, exec)
 
 	// create podman client
 	podmanClientFactory := client.NewPodmanFactory(a.log, pollBackoff, rwFactory)
@@ -175,13 +196,13 @@ func (a *Agent) Run(ctx context.Context) error {
 	skopeoClientFactory := client.NewSkopeoFactory(a.log, rwFactory)
 
 	// create kube client
-	kubeClient := client.NewKube(a.log, rootExecuter, rootReadWriter)
+	kubeClient := client.NewKube(a.log, exec, rootReadWriter)
 
 	// create helm client
-	helmClient := client.NewHelm(a.log, rootExecuter, rootReadWriter, a.config.DataDir, pollBackoff)
+	helmClient := client.NewHelm(a.log, exec, rootReadWriter, a.config.DataDir, pollBackoff)
 
 	// create CRI client
-	criClient := client.NewCRI(a.log, rootExecuter, rootReadWriter, pollBackoff)
+	criClient := client.NewCRI(a.log, exec, rootReadWriter, pollBackoff)
 
 	// create CLI clients
 	cliClients := client.NewCLIClients(
@@ -191,12 +212,12 @@ func (a *Agent) Run(ctx context.Context) error {
 	)
 
 	// create systemd client
-	rootSystemdClient := client.NewSystemd(rootExecuter, v1beta1.RootUsername)
+	rootSystemdClient := client.NewSystemd(exec, v1beta1.RootUsername)
 
 	// create systemInfo manager
 	systemInfoManager := systeminfo.NewManager(
 		a.log,
-		rootExecuter,
+		exec,
 		rootReadWriter,
 		a.config.DataDir,
 		a.config.SystemInfo,
@@ -224,7 +245,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	policyManager := policy.NewManager(a.log)
 
 	deviceNotFoundHandler := func() error {
-		return wipeCertificateAndRestart(ctx, identityProvider, rootExecuter, a.log)
+		return wipeCertificateAndRestart(ctx, identityProvider, exec, a.log)
 	}
 
 	// create audit logger
@@ -263,7 +284,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	)
 
 	// create hook manager
-	hookManager := hook.NewManager(rootReadWriter, rootExecuter, a.log)
+	hookManager := hook.NewManager(rootReadWriter, exec, a.log)
 
 	// create systemd manager
 	systemdManagerFactory := systemd.NewManagerFactory(a.log)
@@ -344,7 +365,7 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	bootstrap := device.NewBootstrap(
 		deviceName,
-		rootExecuter,
+		exec,
 		rootReadWriter,
 		specManager,
 		statusManager,
@@ -390,7 +411,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		grpcClient,
 		deviceName,
 		console.ConsoleUser,
-		rootExecuter,
+		exec,
 		specManager.Watch(),
 		a.log,
 	)
