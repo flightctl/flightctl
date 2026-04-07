@@ -14,7 +14,9 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-const sshWaitTimeout time.Duration = 60 * time.Second
+// SSH timeout increased from 60s to 180s for nested VM environments (OCP)
+// where boot time + SSH startup can exceed 60s under resource contention
+const sshWaitTimeout time.Duration = 180 * time.Second
 
 // sshProbeAttemptTimeout caps a single RunSSH readiness probe so one hung ssh(1)
 // cannot exceed the overall WaitForSSHToBeReady deadline by blocking forever.
@@ -40,7 +42,7 @@ type TestVM struct {
 	MemoryFilePath    string // Path for external snapshot memory file
 	MemoryMiB         int    // VM memory in MiB; 0 means use default (2048)
 	DiskSizeGB        int
-	// SSHWaitTimeout is how long to wait for SSH to become ready. Zero uses the default (60s).
+	// SSHWaitTimeout is how long to wait for SSH to become ready. Zero uses the default (180s).
 	// Use a longer value for first-boot VMs (e.g. imagebuild workflow) where cloud-init or sshd may start late.
 	SSHWaitTimeout time.Duration
 }

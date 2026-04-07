@@ -8,8 +8,8 @@ export KUBECONFIG=${KUBECONFIG_PATH}
 
 # Variables
 VM_NAME="test-vm"
-VM_RAM=16384                # RAM in MB necessary to run the flightctl e2e
-VM_CPUS=8                  # Number of CPUs
+VM_RAM=24576                # RAM in MB necessary to run the flightctl e2e (24GB for nested VM tests)
+VM_CPUS=12                  # Number of CPUs (increased for parallel nested VM creation)
 VM_DISK_SIZE_INC=${VM_DISK_SIZE_INC:-30} # Disk size increment
 NETWORK_NAME="$(get_ocp_nodes_network)"   # Network name
 NETWORK_NAME=${NETWORK_NAME:-flightctl-net}
@@ -171,6 +171,16 @@ ssh -i ${SSH_PRIVATE_KEY_PATH} -o StrictHostKeyChecking=no -o UserKnownHostsFile
   # Install Helm
   echo "Installing Helm..."
   $USER_HOME/flightctl/test/scripts/install_helm.sh
+
+  # Verify helm installation and ensure it's in PATH
+  if ! command -v helm &>/dev/null; then
+    echo "ERROR: helm installation failed or not in PATH"
+    echo "Checking common locations..."
+    ls -la /usr/local/bin/helm || echo "Not in /usr/local/bin"
+    ls -la /usr/bin/helm || echo "Not in /usr/bin"
+    exit 1
+  fi
+  echo "Helm installed successfully: \$(helm version --short)"
 
   # Enable libvirtd service
   sudo systemctl enable --now libvirtd

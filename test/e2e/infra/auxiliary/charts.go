@@ -18,6 +18,35 @@ var testAppVersions = map[string]string{
 
 // UploadCharts uploads helm charts to the registry.
 func (s *Services) UploadCharts() error {
+	// Check if helm is available on the test runner (not in the agent VM)
+	if _, err := exec.LookPath("helm"); err != nil {
+		logrus.Warn("helm not found in PATH, attempting to install...")
+		projectRoot, err := getProjectRoot()
+		if err != nil {
+			logrus.Warnf("failed to get project root for helm installation: %v, skipping chart upload", err)
+			return nil
+		}
+		installScript := filepath.Join(projectRoot, "test", "scripts", "install_helm.sh")
+		if !fileExists(installScript) {
+			logrus.Warnf("install_helm.sh not found at %s, skipping chart upload", installScript)
+			return nil
+		}
+
+		logrus.Infof("Running %s to install helm...", installScript)
+		installCmd := exec.Command("bash", installScript)
+		if out, err := installCmd.CombinedOutput(); err != nil {
+			logrus.Warnf("failed to install helm: %v, output: %s, skipping chart upload", err, string(out))
+			return nil
+		}
+
+		// Verify helm is now available
+		if _, err := exec.LookPath("helm"); err != nil {
+			logrus.Warn("helm still not found after installation attempt, skipping chart upload")
+			return nil
+		}
+		logrus.Info("helm installed successfully")
+	}
+
 	projectRoot, err := getProjectRoot()
 	if err != nil {
 		return fmt.Errorf("failed to get project root: %w", err)
@@ -110,8 +139,8 @@ func (s *Services) uploadChart(chartDir string) error {
 
 	var version string
 	for _, line := range strings.Split(string(content), "\n") {
-		if strings.HasPrefix(line, "version:") {
-			version = strings.TrimSpace(strings.TrimPrefix(line, "version:"))
+		if val, found := strings.CutPrefix(line, "version:"); found {
+			version = strings.TrimSpace(val)
 			break
 		}
 	}
