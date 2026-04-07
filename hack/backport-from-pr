@@ -1,0 +1,121 @@
+#!/usr/bin/env python3
+
+# See docs/developer/backporting.md for more information.
+
+# This script assumes you have the Github CLI client (specifically the `gh` binary) setup and
+# authenticated for your personal Github user.
+
+import argparse
+import atexit
+import json
+import subprocess
+import sys
+import tempfile
+from typing import cast
+
+parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+parser.add_argument("pr_number", type=int)
+parser.add_argument("--release", "-r", required=True)
+parser.add_argument("--repo", default="flightctl/flightctl", help="owner/repo on which to operate")
+parser.add_argument("--remote", default="origin", help="git remote to pull from (should correspond to repo option)")
+args = parser.parse_args()
+
+release = cast(str, args.release)
+release_branch = f"release-{release}"
+pr_number = cast(int, args.pr_number)
+repo = cast(str, args.repo)
+remote_name = cast(str, args.remote)
+
+def run_cmd(*args: str):
+    print(f"Running: {' '.join(args)}")
+    return subprocess.run(args, capture_output=True)
+
+def run_cmd_with_check(*args: str):
+    out = run_cmd(*args)
+    if out.returncode != 0:
+        fail(f"Failed to run command '{' '.join(args)}':\n{out.stdout.decode('utf-8')}\n{out.stderr.decode('utf-8')}")
+    return out
+
+def fail(err: str):
+    sys.stderr.write(err + "\n")
+    sys.exit(1)
+
+def gh(*args: str):
+    return run_cmd_with_check("gh", "-R", repo, *args)
+
+def gh_api(*args: str):
+    cmd = run_cmd_with_check("gh", "api", *args)
+    return json.loads(cmd.stdout)
+
+pr = gh_api(f"repos/{repo}/pulls/{pr_number}")
+
+if pr["merged"] != True:
+    fail("Cannot backport a PR that is not merged")
+
+base_branch = pr["base"]["ref"]
+if base_branch != "main":
+    fail(f"Cannot backport PR that was not targeting the main branch")
+
+# This gets removed by the 'git worktree remove' command at exit below
+worktree_dir = tempfile.mkdtemp()
+
+backport_branch = f"backport-pr-{pr_number}-to-{release}"
+
+# Setup a worktree checked out to a backport PR starting with the latest target release branch.
+_ = run_cmd_with_check("git", "fetch", remote_name)
+_ = run_cmd_with_check("git", "worktree", "add", worktree_dir, 
+                       "-B", backport_branch, f"{remote_name}/{release_branch}")
+_ = atexit.register(run_cmd, "git", "worktree", "remove", worktree_dir)
+
+def git(*args: str):
+    return run_cmd_with_check("git", "-C", worktree_dir, *args)
+
+release_label = f"release-{release}"
+
+pr_labels = [l["name"] for l in pr["labels"]]
+if release_label not in pr_labels:
+    fail(f"Expected PR to have {release_label} label to confirm it is meant to be backported for release {release}.")
+
+merge_commit_sha = cast(str, pr["merge_commit_sha"])
+if not merge_commit_sha:
+    fail("merge commit SHA of PR was not available")
+
+def is_commit_a_merge(sha: str) -> bool:
+    out = git("show", "--summary", sha)
+    return "Merge:" in out.stdout.decode("utf-8")
+
+if is_commit_a_merge(merge_commit_sha):
+    print("PR commits were introduced to main with a merge commit.")
+    out = git("cherry-pick", "-x", "-m", "1", merge_commit_sha)
+else:
+    print("PR commits were introduced to main via a rebase. Determining which commits to backport.")
+    sha = git("rev-parse", f"{merge_commit_sha}~").stdout.decode("utf-8").strip()
+    commit_shas: list[str] = [merge_commit_sha]
+    # Walk backwards starting with the parent of the merge commit sha, checking with the GitHub API
+    # whether these commits are from the given PR, stopping once a commit that is not part of the PR
+    # is reached. This handles rebases with multiple commits as well as squashes where there is only
+    # one commit.
+    while True:
+        commit_prs = gh_api(f"repos/{repo}/commits/{sha}/pulls")
+        if pr_number in [pr["number"] for pr in commit_prs]:
+            commit_shas.append(sha)
+        else:
+            break
+        sha = git("rev-parse", f"{sha}~").stdout.decode("utf-8").strip()
+    out = git("cherry-pick", "-x", *reversed(commit_shas))
+
+_ = git("push", remote_name, backport_branch)
+
+backport_pr_label = f"backport-for-{release}"
+
+_ = gh("label", "create", "-f", backport_pr_label)
+out = gh("pr", "create", 
+    "--head", backport_branch,
+    "--base", release_branch,
+    "--assignee", "@me",
+    "--label", backport_pr_label,
+    "--title", f"[Backport to {release}] {pr['title']}",
+    "--body", f"Backporting PR *[{pr['title']}]({pr['html_url']})* for **{release}** release.")
+print(f"\nBackport PR created: {out.stdout.decode('utf-8')}")
+
+print("Done.")
