@@ -215,17 +215,21 @@ var _ = Describe("Certificate Rotation", Label("certificate-rotation"), func() {
 			}, e2e.TIMEOUT, e2e.POLLINGLONG).Should(Succeed(), "metrics endpoint should be accessible before test starts")
 
 			By("Waiting for initial certificate info to be reported")
-			var initialSerial string
+			var initialSerial, initialNotAfter string
 			Eventually(func() bool {
-				serial, _, fetchErr := getDeviceCertInfo(harness, deviceId)
+				serial, notAfter, fetchErr := getDeviceCertInfo(harness, deviceId)
 				if fetchErr != nil {
 					GinkgoWriter.Printf("[87911] waiting for initial cert info: %v\n", fetchErr)
 					return false
 				}
 				initialSerial = serial
+				initialNotAfter = notAfter
 				return true
 			}, e2e.LONGTIMEOUT, e2e.POLLINGLONG).Should(BeTrue(), "initial cert info should appear in system info")
-			GinkgoWriter.Printf("[87911] initial cert serial: %s\n", initialSerial)
+			GinkgoWriter.Printf("[87911] initial cert serial: %s, notAfter: %s\n", initialSerial, initialNotAfter)
+
+			notAfterTime, err := time.Parse(time.RFC3339, initialNotAfter)
+			Expect(err).ToNot(HaveOccurred(), "initialNotAfter should be a valid RFC3339 timestamp")
 
 			By("Extracting API server endpoint from VM agent config")
 			apiIP, apiPort, err := harness.GetAPIEndpointFromVM()
@@ -237,7 +241,25 @@ var _ = Describe("Certificate Rotation", Label("certificate-rotation"), func() {
 				harness.UnblockTrafficOnVM(apiIP, apiPort)
 			})
 
-			By("Waiting for renewal failure indicators in metrics")
+			// Block traffic until 60s before cert expiry. This ensures:
+			// 1. The renewal window is open (opens at certExpiry - certRenewBefore = 90s after issuance)
+			// 2. At least one renewal attempt has failed (within 2s of the window opening)
+			// 3. The agent still has a valid cert (60s remaining) to authenticate the renewal after unblock
+			//
+			// Without this safeguard, the cert can expire while blocked, permanently
+			// locking the agent out of mTLS and making renewal impossible.
+			safeBlockEnd := notAfterTime.Add(-60 * time.Second)
+			blockDuration := time.Until(safeBlockEnd)
+			if blockDuration > 0 {
+				GinkgoWriter.Printf("[87911] blocking traffic for %v (until 60s before cert expiry at %s)\n", blockDuration, initialNotAfter)
+				time.Sleep(blockDuration)
+			}
+
+			By("Restoring network connectivity")
+			harness.UnblockTrafficOnVM(apiIP, apiPort)
+			GinkgoWriter.Printf("[87911] traffic unblocked, %v remaining before cert expiry\n", time.Until(notAfterTime))
+
+			By("Verifying renewal failure indicators in metrics (from blocked period)")
 			Eventually(func() bool {
 				failCount, mErr := harness.GetAgentMetricValue(`flightctl_device_mgmt_cert_renewal_attempts_total{result="failure"}`)
 				if mErr != nil {
@@ -246,10 +268,7 @@ var _ = Describe("Certificate Rotation", Label("certificate-rotation"), func() {
 				}
 				GinkgoWriter.Printf("[87911] renewal failure count: %q\n", failCount)
 				return failCount != "" && failCount != "0"
-			}, certRotationTimeout, e2e.POLLINGLONG).Should(BeTrue(), "renewal failure metric should appear")
-
-			By("Restoring network connectivity")
-			harness.UnblockTrafficOnVM(apiIP, apiPort)
+			}, e2e.TIMEOUT, e2e.POLLINGLONG).Should(BeTrue(), "renewal failure metric should appear")
 
 			By("Waiting for certificate rotation after unblock")
 			var newNotAfter string
