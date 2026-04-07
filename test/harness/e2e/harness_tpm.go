@@ -3,10 +3,8 @@ package e2e
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	agentcfg "github.com/flightctl/flightctl/internal/agent/config"
@@ -47,101 +45,6 @@ func (h *Harness) DetectTPMType() (TPMType, error) {
 
 	logrus.Info("Detected real TPM hardware")
 	return TPMTypeReal, nil
-}
-
-// dumpTPMVMFailureDiagnostics collects diagnostic information when the TPM passthrough
-// VM fails to start. It checks both the L2 VM (via SSH, if still alive) and the L1 host
-// (via local commands for libvirt/QEMU logs) since the VM may have crashed entirely.
-func (h *Harness) dumpTPMVMFailureDiagnostics(vmName string) {
-	logrus.Info("[TPM-fail-diag] Collecting failure diagnostics...")
-
-	if h.VM != nil {
-		// The VM is likely mid-reboot. Wait for SSH to go down and come back.
-		logrus.Info("[TPM-fail-diag] Waiting 30s for VM reboot to complete...")
-		time.Sleep(30 * time.Second)
-
-		// Retry journal commands directly — SSH connectivity alone is not sufficient
-		// since SSH can accept connections briefly during shutdown.
-		var sysJournalCollected, agentJournalCollected bool
-		for attempt := 1; attempt <= 6; attempt++ {
-			if !sysJournalCollected {
-				sysJournalOut, sysJournalErr := h.VM.RunSSH([]string{"sudo", "journalctl", "--no-pager", "-b", "-1", "-n", "200"}, nil)
-				if sysJournalErr != nil {
-					logrus.Infof("[TPM-fail-diag] Previous boot journal attempt %d/6 failed: %v", attempt, sysJournalErr)
-				} else {
-					logrus.Infof("[TPM-fail-diag] Previous boot system journal (last 200 lines):\n%s", sysJournalOut)
-					sysJournalCollected = true
-				}
-			}
-
-			if !agentJournalCollected {
-				journalOut, journalErr := h.VM.RunSSH([]string{"sudo", "journalctl", "-u", "flightctl-agent", "--no-pager", "-n", "200"}, nil)
-				if journalErr != nil {
-					logrus.Infof("[TPM-fail-diag] Agent journal attempt %d/6 failed: %v", attempt, journalErr)
-				} else {
-					logrus.Infof("[TPM-fail-diag] flightctl-agent journal:\n%s", journalOut)
-					agentJournalCollected = true
-				}
-			}
-
-			if sysJournalCollected && agentJournalCollected {
-				break
-			}
-			time.Sleep(10 * time.Second)
-		}
-
-		if !sysJournalCollected {
-			logrus.Warn("[TPM-fail-diag] Failed to collect previous boot journal after all retries")
-		}
-		if !agentJournalCollected {
-			logrus.Warn("[TPM-fail-diag] Failed to collect agent journal after all retries")
-		}
-	}
-
-	// Check L1 host: domain state (runs locally since we're inside L1)
-	if out, err := exec.Command("virsh", "-c", "qemu:///session", "domstate", vmName, "--reason").CombinedOutput(); err != nil {
-		logrus.Warnf("[TPM-fail-diag] Failed to get domain state: %v", err)
-	} else {
-		logrus.Infof("[TPM-fail-diag] Domain state for %s: %s", vmName, strings.TrimSpace(string(out)))
-	}
-
-	// Check QEMU log for the crashed VM
-	homeDir, _ := os.UserHomeDir()
-	qemuLogPath := filepath.Join(homeDir, ".cache", "libvirt", "qemu", "log", vmName+".log")
-	if out, err := exec.Command("tail", "-n", "100", qemuLogPath).CombinedOutput(); err != nil {
-		logrus.Warnf("[TPM-fail-diag] Failed to read QEMU log at %s: %v", qemuLogPath, err)
-	} else {
-		logrus.Infof("[TPM-fail-diag] QEMU log (%s):\n%s", qemuLogPath, string(out))
-	}
-
-	// Check dmesg for TPM-related kernel errors
-	if out, err := exec.Command("sudo", "dmesg", "--ctime").CombinedOutput(); err != nil {
-		logrus.Warnf("[TPM-fail-diag] Failed to read dmesg: %v", err)
-	} else {
-		lines := strings.Split(string(out), "\n")
-		var tpmLines []string
-		for _, line := range lines {
-			lower := strings.ToLower(line)
-			if strings.Contains(lower, "tpm") || strings.Contains(lower, "qemu") {
-				tpmLines = append(tpmLines, line)
-			}
-		}
-		if len(tpmLines) > 0 {
-			logrus.Infof("[TPM-fail-diag] TPM/QEMU dmesg entries:\n%s", strings.Join(tpmLines, "\n"))
-		} else {
-			logrus.Info("[TPM-fail-diag] No TPM/QEMU entries in dmesg")
-		}
-	}
-
-	// Check SELinux denials
-	if out, err := exec.Command("sudo", "ausearch", "-m", "avc", "-ts", "recent").CombinedOutput(); err != nil {
-		logrus.Infof("[TPM-fail-diag] No recent SELinux denials (or ausearch unavailable)")
-	} else {
-		outStr := string(out)
-		if strings.Contains(outStr, "tpm") || strings.Contains(outStr, "qemu") {
-			logrus.Warnf("[TPM-fail-diag] SELinux denials (TPM/QEMU related):\n%s", outStr)
-		}
-	}
 }
 
 // SetupVMFromPoolWithTPM sets up a VM from the pool, configures TPM, and starts the agent.
@@ -189,8 +92,6 @@ func (h *Harness) SetupVMWithTPMPassthrough(workerID int, device string) error {
 	}
 
 	if err := h.StartFlightCtlAgent(); err != nil {
-		vmName := fmt.Sprintf("flightctl-e2e-fresh-%d", tpmWorkerID)
-		h.dumpTPMVMFailureDiagnostics(vmName)
 		return fmt.Errorf("failed to start agent: %w", err)
 	}
 
@@ -212,8 +113,6 @@ func (h *Harness) configureTPMAgent(detected TPMType) error {
 	} else {
 		agentConfig = &agentcfg.Config{}
 	}
-
-	agentConfig.LogLevel = "debug"
 
 	// avoid setting auth on a real TPM.
 	agentConfig.TPM = agentcfg.TPM{

@@ -41,16 +41,7 @@ var _ = BeforeSuite(func() {
 	suiteCtx := e2e.GetWorkerContext()
 
 	hasRealTPM = e2e.HostHasTPMDevice(realTPMDevice)
-	GinkgoWriter.Printf("Host has real TPM (%s): %t\n", realTPMDevice, hasRealTPM)
 
-	GinkgoWriter.Printf("Injecting TPM CA certs (includeManufacturer=%t)...\n", hasRealTPM)
 	err := InjectTPMCerts(suiteCtx, hasRealTPM)
 	Expect(err).ToNot(HaveOccurred())
-})
-
-var _ = AfterSuite(func() {
-	suiteCtx := e2e.GetWorkerContext()
-	if err := CleanupTPMCerts(suiteCtx); err != nil {
-		GinkgoWriter.Printf("Warning: failed to cleanup TPM certs: %v\n", err)
-	}
 })

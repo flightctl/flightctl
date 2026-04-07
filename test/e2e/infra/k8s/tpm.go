@@ -3,7 +3,10 @@ package k8s
 import (
 	"context"
 	"fmt"
+	"maps"
 	"path/filepath"
+	"slices"
+	"sort"
 	"time"
 
 	"github.com/flightctl/flightctl/test/e2e/infra"
@@ -39,10 +42,12 @@ func NewTPMProvider(client kubernetes.Interface, infraP *InfraProvider, lifecycl
 }
 
 // InjectCerts configures TPM CA certificates for the API server.
+// It skips the deployment restart if all certs, config, and volume/mount are already in place.
 func (p *TPMProvider) InjectCerts(ctx context.Context, certs map[string][]byte) error {
 	namespace := p.infraP.GetExternalNamespace()
 
-	if err := p.ensureTPMCertsConfigMap(ctx, namespace, certs); err != nil {
+	cmChanged, err := p.ensureTPMCertsConfigMap(ctx, namespace, certs)
+	if err != nil {
 		return fmt.Errorf("failed to create/update TPM certs ConfigMap: %w", err)
 	}
 
@@ -50,9 +55,21 @@ func (p *TPMProvider) InjectCerts(ctx context.Context, certs map[string][]byte) 
 	for name := range certs {
 		certPaths = append(certPaths, filepath.Join(tpmCACertsMountPath, name))
 	}
+	sort.Strings(certPaths)
 
-	if err := p.updateAPIConfigTPMPaths(ctx, namespace, certPaths); err != nil {
+	configChanged, err := p.updateAPIConfigTPMPaths(ctx, namespace, certPaths)
+	if err != nil {
 		return fmt.Errorf("failed to update API config with TPM CA paths: %w", err)
+	}
+
+	volumeExists, err := p.apiDeploymentHasTPMVolume(ctx, namespace)
+	if err != nil {
+		return fmt.Errorf("failed to check API deployment for TPM volume: %w", err)
+	}
+
+	if !cmChanged && !configChanged && volumeExists {
+		logrus.Info("TPM certs already configured, skipping deployment restart")
+		return nil
 	}
 
 	if err := p.patchAndRestartAPIDeployment(ctx, namespace); err != nil {
@@ -62,7 +79,7 @@ func (p *TPMProvider) InjectCerts(ctx context.Context, certs map[string][]byte) 
 	return nil
 }
 
-func (p *TPMProvider) ensureTPMCertsConfigMap(ctx context.Context, namespace string, certs map[string][]byte) error {
+func (p *TPMProvider) ensureTPMCertsConfigMap(ctx context.Context, namespace string, certs map[string][]byte) (bool, error) {
 	cmClient := p.client.CoreV1().ConfigMaps(namespace)
 
 	data := make(map[string]string, len(certs))
@@ -73,7 +90,7 @@ func (p *TPMProvider) ensureTPMCertsConfigMap(ctx context.Context, namespace str
 	existing, err := cmClient.Get(ctx, tpmCACertsConfigMapName, metav1.GetOptions{})
 	if err != nil {
 		if !k8serrors.IsNotFound(err) {
-			return fmt.Errorf("failed to get ConfigMap %s: %w", tpmCACertsConfigMapName, err)
+			return false, fmt.Errorf("failed to get ConfigMap %s: %w", tpmCACertsConfigMapName, err)
 		}
 		cm := &corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{
@@ -84,64 +101,107 @@ func (p *TPMProvider) ensureTPMCertsConfigMap(ctx context.Context, namespace str
 		}
 		_, err = cmClient.Create(ctx, cm, metav1.CreateOptions{})
 		if err != nil {
-			return fmt.Errorf("failed to create ConfigMap %s: %w", tpmCACertsConfigMapName, err)
+			return false, fmt.Errorf("failed to create ConfigMap %s: %w", tpmCACertsConfigMapName, err)
 		}
 		logrus.Infof("Created TPM CA certs ConfigMap %s/%s with %d certs", namespace, tpmCACertsConfigMapName, len(certs))
-		return nil
+		return true, nil
 	}
 
-	if existing.Data == nil {
-		existing.Data = make(map[string]string)
+	if maps.Equal(existing.Data, data) {
+		logrus.Infof("TPM CA certs ConfigMap %s/%s already up to date", namespace, tpmCACertsConfigMapName)
+		return false, nil
 	}
-	for k, v := range data {
-		existing.Data[k] = v
-	}
+
+	existing.Data = data
 	_, err = cmClient.Update(ctx, existing, metav1.UpdateOptions{})
 	if err != nil {
-		return fmt.Errorf("failed to update ConfigMap %s: %w", tpmCACertsConfigMapName, err)
+		return false, fmt.Errorf("failed to update ConfigMap %s: %w", tpmCACertsConfigMapName, err)
 	}
 	logrus.Infof("Updated TPM CA certs ConfigMap %s/%s with %d certs", namespace, tpmCACertsConfigMapName, len(certs))
-	return nil
+	return true, nil
 }
 
-func (p *TPMProvider) updateAPIConfigTPMPaths(ctx context.Context, namespace string, certPaths []string) error {
+func (p *TPMProvider) updateAPIConfigTPMPaths(ctx context.Context, namespace string, certPaths []string) (bool, error) {
 	cmClient := p.client.CoreV1().ConfigMaps(namespace)
 
 	apiConfigName := k8sServiceRegistry[infra.ServiceAPI].ConfigMapName
 	cm, err := cmClient.Get(ctx, apiConfigName, metav1.GetOptions{})
 	if err != nil {
-		return fmt.Errorf("failed to get ConfigMap %s: %w", apiConfigName, err)
+		return false, fmt.Errorf("failed to get ConfigMap %s: %w", apiConfigName, err)
 	}
 
 	configYAML, ok := cm.Data["config.yaml"]
 	if !ok {
-		return fmt.Errorf("config.yaml not found in ConfigMap %s", apiConfigName)
+		return false, fmt.Errorf("config.yaml not found in ConfigMap %s", apiConfigName)
 	}
 
 	var configMap map[string]interface{}
 	if err := yaml.Unmarshal([]byte(configYAML), &configMap); err != nil {
-		return fmt.Errorf("failed to parse API config: %w", err)
+		return false, fmt.Errorf("failed to parse API config: %w", err)
 	}
 
 	service, ok := configMap["service"].(map[string]interface{})
 	if !ok {
-		return fmt.Errorf("service section not found in API config")
+		return false, fmt.Errorf("service section not found in API config")
 	}
+
+	if existingPaths, ok := service["tpmCAPaths"].([]interface{}); ok {
+		existing := make([]string, 0, len(existingPaths))
+		for _, p := range existingPaths {
+			if s, ok := p.(string); ok {
+				existing = append(existing, s)
+			}
+		}
+		sort.Strings(existing)
+		if slices.Equal(existing, certPaths) {
+			logrus.Info("TPM CA paths in API config already up to date")
+			return false, nil
+		}
+	}
+
 	service["tpmCAPaths"] = certPaths
 	configMap["service"] = service
 
 	updatedYAML, err := yaml.Marshal(configMap)
 	if err != nil {
-		return fmt.Errorf("failed to marshal updated API config: %w", err)
+		return false, fmt.Errorf("failed to marshal updated API config: %w", err)
 	}
 
 	cm.Data["config.yaml"] = string(updatedYAML)
 	_, err = cmClient.Update(ctx, cm, metav1.UpdateOptions{})
 	if err != nil {
-		return fmt.Errorf("failed to update ConfigMap %s: %w", apiConfigName, err)
+		return false, fmt.Errorf("failed to update ConfigMap %s: %w", apiConfigName, err)
 	}
 	logrus.Infof("Updated API config with %d TPM CA paths", len(certPaths))
-	return nil
+	return true, nil
+}
+
+func (p *TPMProvider) apiDeploymentHasTPMVolume(ctx context.Context, namespace string) (bool, error) {
+	deplClient := p.client.AppsV1().Deployments(namespace)
+	apiDeploymentName := k8sServiceRegistry[infra.ServiceAPI].ServiceName
+
+	depl, err := deplClient.Get(ctx, apiDeploymentName, metav1.GetOptions{})
+	if err != nil {
+		return false, fmt.Errorf("failed to get deployment %s: %w", apiDeploymentName, err)
+	}
+
+	hasVolume := false
+	for _, v := range depl.Spec.Template.Spec.Volumes {
+		if v.Name == tpmCAVolumeName {
+			hasVolume = true
+			break
+		}
+	}
+	if !hasVolume || len(depl.Spec.Template.Spec.Containers) == 0 {
+		return false, nil
+	}
+
+	for _, m := range depl.Spec.Template.Spec.Containers[0].VolumeMounts {
+		if m.Name == tpmCAVolumeName {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (p *TPMProvider) patchAndRestartAPIDeployment(ctx context.Context, namespace string) error {

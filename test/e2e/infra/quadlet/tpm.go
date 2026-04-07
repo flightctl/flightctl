@@ -1,10 +1,14 @@
 package quadlet
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
 	"path/filepath"
+	"slices"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/flightctl/flightctl/test/e2e/infra"
@@ -33,6 +37,7 @@ func NewTPMProvider(infraP *InfraProvider, lifecycle *ServiceLifecycleProvider) 
 
 // InjectCerts configures TPM CA certificates for the API server.
 // For Quadlet: writes certs to /etc/flightctl/tpm-cas/, updates API config, restarts service.
+// It skips the service restart if all certs and config are already in place.
 func (p *TPMProvider) InjectCerts(ctx context.Context, certs map[string][]byte) error {
 	certsDir := filepath.Join(p.infraP.configDir, tpmCACertsDir)
 
@@ -40,18 +45,30 @@ func (p *TPMProvider) InjectCerts(ctx context.Context, certs map[string][]byte) 
 		return fmt.Errorf("failed to create TPM certs directory: %w", err)
 	}
 
+	certsChanged := false
 	certPaths := make([]string, 0, len(certs))
 	for name, certData := range certs {
 		certPath := filepath.Join(certsDir, name)
-		if err := p.writeCertFile(certPath, certData); err != nil {
+		changed, err := p.writeCertFileIfChanged(certPath, certData)
+		if err != nil {
 			return fmt.Errorf("failed to write cert %s: %w", name, err)
+		}
+		if changed {
+			certsChanged = true
 		}
 		certPaths = append(certPaths, certPath)
 	}
-	logrus.Infof("Wrote %d TPM CA certs to %s", len(certs), certsDir)
+	sort.Strings(certPaths)
+	logrus.Infof("Wrote %d TPM CA certs to %s (changed=%t)", len(certs), certsDir, certsChanged)
 
-	if err := p.updateAPIConfigTPMPaths(certPaths); err != nil {
+	configChanged, err := p.updateAPIConfigTPMPaths(certPaths)
+	if err != nil {
 		return fmt.Errorf("failed to update API config with TPM CA paths: %w", err)
+	}
+
+	if !certsChanged && !configChanged {
+		logrus.Info("TPM certs already configured, skipping service restart")
+		return nil
 	}
 
 	if err := p.lifecycle.Restart(infra.ServiceAPI); err != nil {
@@ -71,43 +88,66 @@ func (p *TPMProvider) ensureCertsDirectory(dir string) error {
 	return err
 }
 
-func (p *TPMProvider) writeCertFile(path string, data []byte) error {
-	_, err := p.infraP.runCommandWithStdin(
+func (p *TPMProvider) writeCertFileIfChanged(path string, data []byte) (bool, error) {
+	existing, err := p.infraP.runCommand("cat", path)
+	if err == nil && bytes.Equal([]byte(strings.TrimSpace(existing)), bytes.TrimSpace(data)) {
+		return false, nil
+	}
+
+	_, err = p.infraP.runCommandWithStdin(
 		&byteReader{data: data},
 		"sh", "-c", `cat > "$1"`, "_", path,
 	)
-	return err
+	if err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
-func (p *TPMProvider) updateAPIConfigTPMPaths(certPaths []string) error {
+func (p *TPMProvider) updateAPIConfigTPMPaths(certPaths []string) (bool, error) {
 	configContent, err := p.infraP.GetServiceConfig(infra.ServiceAPI)
 	if err != nil {
-		return fmt.Errorf("failed to get API config: %w", err)
+		return false, fmt.Errorf("failed to get API config: %w", err)
 	}
 
-	var configMap map[string]interface{}
+	var configMap map[string]any
 	if err := yaml.Unmarshal([]byte(configContent), &configMap); err != nil {
-		return fmt.Errorf("failed to parse API config: %w", err)
+		return false, fmt.Errorf("failed to parse API config: %w", err)
 	}
 
-	service, ok := configMap["service"].(map[string]interface{})
+	service, ok := configMap["service"].(map[string]any)
 	if !ok {
-		service = make(map[string]interface{})
+		service = make(map[string]any)
 		configMap["service"] = service
 	}
+
+	if existingPaths, ok := service["tpmCAPaths"].([]any); ok {
+		existing := make([]string, 0, len(existingPaths))
+		for _, p := range existingPaths {
+			if s, ok := p.(string); ok {
+				existing = append(existing, s)
+			}
+		}
+		sort.Strings(existing)
+		if slices.Equal(existing, certPaths) {
+			logrus.Info("TPM CA paths in API config already up to date")
+			return false, nil
+		}
+	}
+
 	service["tpmCAPaths"] = certPaths
 
 	updatedYAML, err := yaml.Marshal(configMap)
 	if err != nil {
-		return fmt.Errorf("failed to marshal updated API config: %w", err)
+		return false, fmt.Errorf("failed to marshal updated API config: %w", err)
 	}
 
 	if err := p.infraP.SetServiceConfig(infra.ServiceAPI, "config.yaml", string(updatedYAML)); err != nil {
-		return fmt.Errorf("failed to write API config: %w", err)
+		return false, fmt.Errorf("failed to write API config: %w", err)
 	}
 
 	logrus.Infof("Updated API config with %d TPM CA paths", len(certPaths))
-	return nil
+	return true, nil
 }
 
 // CleanupCerts removes TPM CA certificates from the API server configuration.

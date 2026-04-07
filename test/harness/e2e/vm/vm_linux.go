@@ -92,13 +92,6 @@ func (v *VMInLibvirt) CreateDomain() error {
 		return fmt.Errorf("unable to define virtual machine domain: %w", err)
 	}
 
-	definedXML, dumpErr := v.domain.GetXMLDesc(0)
-	if dumpErr != nil {
-		logrus.Warnf("Failed to dump defined domain XML: %v", dumpErr)
-	} else {
-		logrus.Infof("Defined domain XML for %s:\n%s", v.TestVM.VMName, definedXML)
-	}
-
 	logrus.Infof("Created VM domain %s", v.TestVM.VMName)
 	return nil
 }
@@ -136,13 +129,6 @@ func (v *VMInLibvirt) Run() error {
 			v.domain, err = conn.DomainDefineXMLFlags(domainXML, libvirt.DOMAIN_DEFINE_VALIDATE)
 			if err != nil {
 				return fmt.Errorf("unable to define virtual machine domain: %w", err)
-			}
-
-			definedXML, dumpErr := v.domain.GetXMLDesc(0)
-			if dumpErr != nil {
-				logrus.Warnf("Failed to dump defined domain XML: %v", dumpErr)
-			} else {
-				logrus.Infof("Defined domain XML for %s:\n%s", v.TestVM.VMName, definedXML)
 			}
 		} else {
 			logrus.Infof("Reusing existing domain %s", v.TestVM.VMName)

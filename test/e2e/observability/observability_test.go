@@ -181,9 +181,6 @@ var _ = Describe("Device observability", func() {
 			deviceId, _ = harness.EnrollAndWaitForOnlineStatus()
 		})
 		AfterEach(func() {
-			if cleanupErr := tpm.CleanupTPMCerts(harness.Context); cleanupErr != nil {
-				GinkgoWriter.Printf("Warning: failed to cleanup TPM certs: %v\n", cleanupErr)
-			}
 			harness.PrintAgentLogsIfFailed()
 		})
 		It("should export device metrics using TPM-backed OTEL authentication", Label("85185", "tpm", "tpm-sw", "agent"), func() {

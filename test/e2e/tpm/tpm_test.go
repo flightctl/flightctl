@@ -31,17 +31,6 @@ var _ = Describe("TPM Device Authentication", func() {
 		harness = e2e.GetWorkerHarness()
 		suiteCtx := e2e.GetWorkerContext()
 
-		// Always dump the tpm-blob contents as a backup in case a test ever does something
-		// detrimental like take ownership of the storage hierarchy on a real TPM.
-		if harness.VM != nil {
-			blobOutput, blobErr := harness.VM.RunSSH([]string{"sudo", "cat", "/var/lib/flightctl/tpm-blob.yaml"}, nil)
-			if blobErr != nil {
-				logrus.Warnf("Failed to read tpm-blob.yaml: %v", blobErr)
-			} else {
-				logrus.Infof("tpm-blob.yaml contents:\n%s", blobOutput.String())
-			}
-		}
-
 		harness.PrintAgentLogsIfFailed()
 
 		if CurrentSpecReport().Failed() {
@@ -69,7 +58,6 @@ var _ = Describe("TPM Device Authentication", func() {
 			err := harness.SetupVMFromPoolWithTPM(workerID, e2e.TPMTypeSwtpm)
 			Expect(err).ToNot(HaveOccurred())
 
-			GinkgoWriter.Printf("✅ [BeforeEach] Worker %d: Test setup completed\n", workerID)
 		})
 
 		It("should enroll device with swtpm and verify attestation", Label("83974", "tpm", "sanity", "tpm-sw"), func() {
@@ -109,7 +97,6 @@ var _ = Describe("TPM Device Authentication", func() {
 			detectedType, err := harness.DetectTPMType()
 			Expect(err).ToNot(HaveOccurred())
 			Expect(detectedType).To(Equal(e2e.TPMTypeReal), "Expected real TPM but detected swtpm - passthrough may have failed")
-			GinkgoWriter.Printf("Confirmed real TPM hardware in VM\n")
 		})
 
 		It("should enroll device with real TPM passthrough and verify attestation", Label("83974", "tpm", "tpm-real"), func() {
@@ -120,6 +107,15 @@ var _ = Describe("TPM Device Authentication", func() {
 
 func runTPMDiagnostic(harness *e2e.Harness) error {
 	By("running TPM diagnostic commands inside VM")
+
+	if harness.VM != nil {
+		blobOutput, blobErr := harness.VM.RunSSH([]string{"sudo", "cat", "/var/lib/flightctl/tpm-blob.yaml"}, nil)
+		if blobErr != nil {
+			logrus.Warnf("Failed to read tpm-blob.yaml: %v", blobErr)
+		} else {
+			logrus.Infof("tpm-blob.yaml contents:\n%s", blobOutput.String())
+		}
+	}
 
 	// Stop the agent so we have exclusive TPM access
 	stopOutput, err := harness.VM.RunSSH([]string{"sudo", "systemctl", "stop", "flightctl-agent"}, nil)

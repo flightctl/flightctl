@@ -22,6 +22,7 @@ const (
 // It always injects swtpm certs. If includeManufacturer is true, it also injects
 // all manufacturer certs from tpm-manufacturer-certs/ in the repo.
 func InjectTPMCerts(ctx context.Context, includeManufacturer bool) error {
+	logrus.Infof("Injecting TPM CA certs (includeManufacturer=%t)", includeManufacturer)
 	certs, err := collectSwtpmCerts()
 	if err != nil {
 		return fmt.Errorf("failed to collect swtpm CA certs: %w", err)

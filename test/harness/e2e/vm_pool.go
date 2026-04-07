@@ -204,7 +204,6 @@ func (p *VMPool) createVMForWorker(workerID int) (vm.TestVMInterface, error) {
 		return nil, fmt.Errorf("pool bootstrap pristine revert: %w", err)
 	}
 
-	// Start the VM and wait for SSH to be ready
 	fmt.Printf("🔄 [VMPool] Worker %d: Starting VM and waiting for SSH\n", workerID)
 	if err := newVM.RunAndWaitForSSH(); err != nil {
 		return nil, fmt.Errorf("failed to start VM: %w", err)
