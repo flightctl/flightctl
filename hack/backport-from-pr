@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+go run -modfile $SCRIPT_DIR/../tools/backport-from-pr/go.mod $SCRIPT_DIR/../tools/backport-from-pr/main.go $@
