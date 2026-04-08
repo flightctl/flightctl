@@ -409,11 +409,50 @@ func (p *VMPool) createFreshVMForWorker(workerID int) (vm.TestVMInterface, error
 		fmt.Printf("⚠️  [VMPool] Worker %d: Warning - failed to rotate logs: %v\n", workerID, err)
 	}
 
-	// Start the agent fresh
+	// Start the agent fresh with retry logic for systemd transaction conflicts and cancellations
+	// During VM boot, swap.target may conflict with service start, or systemd may cancel
+	// the operation due to resource contention - retry to resolve
 	fmt.Printf("🔄 [VMPool] Worker %d: Starting flightctl-agent\n", workerID)
-	if _, err := newVM.RunSSH([]string{"sudo", "systemctl", "start", "flightctl-agent"}, nil); err != nil {
+	maxStartRetries := 5
+	startTimeout := 30 * time.Second
+	var startErr error
+	for attempt := 1; attempt <= maxStartRetries; attempt++ {
+		// Run systemctl start with a timeout to prevent indefinite hangs
+		done := make(chan error, 1)
+		go func() {
+			_, err := newVM.RunSSH([]string{"sudo", "systemctl", "start", "flightctl-agent"}, nil)
+			done <- err
+		}()
+
+		select {
+		case startErr = <-done:
+			// Command completed
+		case <-time.After(startTimeout):
+			startErr = fmt.Errorf("timeout after %v waiting for agent to start", startTimeout)
+		}
+
+		if startErr == nil {
+			break
+		}
+
+		// Retry on transaction conflicts, cancellations, or timeouts
+		errStr := startErr.Error()
+		isRetryableError := strings.Contains(errStr, "Transaction") ||
+			strings.Contains(errStr, "canceled") ||
+			strings.Contains(errStr, "timeout")
+
+		if isRetryableError && attempt < maxStartRetries {
+			fmt.Printf("⚠️  [VMPool] Worker %d: Agent start failed (%s), retrying %d/%d in 5s...\n",
+				workerID, errStr, attempt, maxStartRetries)
+			time.Sleep(5 * time.Second)
+			continue
+		}
+		// Other errors or final retry - fail immediately
+		break
+	}
+	if startErr != nil {
 		_ = newVM.ForceDelete()
-		return nil, fmt.Errorf("failed to start agent: %w", err)
+		return nil, fmt.Errorf("failed to start agent after %d attempts: %w", maxStartRetries, startErr)
 	}
 
 	fmt.Printf("✅ [VMPool] Worker %d: Fresh VM ready with agent running (no snapshots)\n", workerID)

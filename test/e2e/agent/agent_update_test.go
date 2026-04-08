@@ -28,7 +28,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 	})
 
 	Context("updates", func() {
-		It("should update to the requested image", Label("75523"), func() {
+		It("should update to the requested image", Label("75523", "agent"), func() {
 			// Get harness directly - no shared package-level variable
 			harness := e2e.GetWorkerHarness()
 
@@ -171,7 +171,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			Expect(stdout.String()).To(ContainSubstring("flightctl_agent_exec_t"))
 		})
 
-		It("Should resolve to the latest version when multiple updates are applied", Label("77672"), func() {
+		It("Should resolve to the latest version when multiple updates are applied", Label("77672", "agent"), func() {
 			// Get harness directly - no shared package-level variable
 			harness := e2e.GetWorkerHarness()
 

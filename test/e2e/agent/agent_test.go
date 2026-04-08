@@ -21,7 +21,7 @@ import (
 
 var _ = Describe("VM Agent behavior", func() {
 	Context("vm", func() {
-		It("Verify VM agent", Label("80455", "rpm-sanity"), func() {
+		It("Verify VM agent", Label("80455", "rpm-sanity", "agent"), func() {
 			// Get harness directly - no shared package-level variable
 			harness := e2e.GetWorkerHarness()
 
@@ -42,7 +42,7 @@ var _ = Describe("VM Agent behavior", func() {
 			Expect(stdout.String()).To(ContainSubstring("flightctl_agent_exec_t"))
 		})
 
-		It("Verifying generation of enrollment request link", Label("75518"), func() {
+		It("Verifying generation of enrollment request link", Label("75518", "agent"), func() {
 			// Get harness directly - no shared package-level variable
 			harness := e2e.GetWorkerHarness()
 
@@ -68,7 +68,7 @@ var _ = Describe("VM Agent behavior", func() {
 				return resp
 			}, TIMEOUT, POLLING).ShouldNot(BeNil())
 		})
-		It("Should report a message when a device is assigned to multiple fleets", Label("75992"), func() {
+		It("Should report a message when a device is assigned to multiple fleets", Label("75992", "agent"), func() {
 			// Get harness directly - no shared package-level variable
 			harness := e2e.GetWorkerHarness()
 
@@ -322,7 +322,7 @@ var _ = Describe("VM Agent behavior", func() {
 
 		})
 
-		It("K8s secret config source", Label("76687"), func() {
+		It("K8s secret config source", Label("76687", "agent"), func() {
 			p := setup.GetDefaultProviders()
 			Expect(p).ToNot(BeNil())
 			envType := p.Infra.GetEnvironmentType()
@@ -416,7 +416,7 @@ var _ = Describe("VM Agent behavior", func() {
 			Expect(stdout.String()).To(ContainSubstring("This is used to test k8s secret config."))
 		})
 
-		It("System Info Timeout Tests", Label("81864"), func() {
+		It("System Info Timeout Tests", Label("81864", "agent"), func() {
 			// Get harness directly - no shared package-level variable
 			harness := e2e.GetWorkerHarness()
 
@@ -449,7 +449,7 @@ var _ = Describe("VM Agent behavior", func() {
 		})
 	})
 	Context("Resources", func() {
-		It("Alert Validation Rules", Label("78853"), func() {
+		It("Alert Validation Rules", Label("78853", "agent"), func() {
 			// Get harness directly - no shared package-level variable
 			harness := e2e.GetWorkerHarness()
 

@@ -149,7 +149,7 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			Expect(err).ToNot(HaveOccurred())
 		})
 
-		It("Should handle application volumes from images correctly", Label("83000"), func() {
+		It("Should handle application volumes from images correctly", Label("83000", "agent"), func() {
 			// Get harness directly - no shared package-level variable
 			harness := e2e.GetWorkerHarness()
 
@@ -236,7 +236,7 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			Expect(err).ToNot(HaveOccurred())
 		})
 
-		It("should install an inline compose application and manage its lifecycle with env vars", Label("80990"), func() {
+		It("should install an inline compose application and manage its lifecycle with env vars", Label("80990", "agent"), func() {
 			// Get harness directly - no shared package-level variable
 			harness := e2e.GetWorkerHarness()
 
@@ -359,7 +359,7 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			}, TIMEOUT).Should(Equal(envVarValue))
 		})
 
-		It("Agent pre-update validations should fail the version, and trigger the rollback for various invalid configurations", Label("80998"), func() {
+		It("Agent pre-update validations should fail the version, and trigger the rollback for various invalid configurations", Label("80998", "agent"), func() {
 			// Get harness directly - no shared package-level variable
 			harness := e2e.GetWorkerHarness()
 

@@ -23,13 +23,12 @@ import (
 const (
 	keycloakTestUser = "testuser"
 	keycloakTestPass = "testpass"
-	loginURLPrefix   = "Opening login URL in default browser: "
 	loginURLTimeout  = 30 * time.Second
 	chromedpTimeout  = 60 * time.Second
 	loginFlowTimeout = 2 * time.Minute // covers URL wait + chromedp + CLI callback
 )
 
-var loginURLRe = regexp.MustCompile(`Opening login URL in default browser:\s*(.+)`)
+var loginURLRe = regexp.MustCompile(`(?:Opening login URL in default browser|Please open this URL in your browser):\s*(.+)`)
 
 var _ = Describe("Auth provider (Keycloak OIDC)", Label("authprovider"), func() {
 	It("logs in via OAuth --web --no-browser with Keycloak and headless browser", Label("88168", "authprovider"), func() {

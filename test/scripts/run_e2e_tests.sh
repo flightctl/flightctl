@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 set -x -euo pipefail
+
+# Ensure /usr/local/bin is in PATH (for helm, kind, etc.)
+export PATH="/usr/local/bin:${PATH}"
+
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 source "${SCRIPT_DIR}"/functions
 
