@@ -3,6 +3,7 @@ package certificate_rotation_test
 import (
 	"bytes"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -16,7 +17,7 @@ import (
 const (
 	// certExpirySeconds controls the lifetime of management certificates
 	// issued by the API server. 180s gives ~90s buffer after renewal window +
-	// failure detection in the network disruption test (OCP-87911).
+	// pending/failure metric detection in the network disruption test (OCP-87911).
 	certExpirySeconds = "180"
 
 	// certRenewBeforeSeconds is the time before certificate expiration that
@@ -215,7 +216,7 @@ var _ = Describe("Certificate Rotation", Label("certificate-rotation"), func() {
 			}, e2e.TIMEOUT, e2e.POLLINGLONG).Should(Succeed(), "metrics endpoint should be accessible before test starts")
 
 			By("Waiting for initial certificate info to be reported")
-			var initialSerial, initialNotAfter string
+			var initialSerial, initialNotAfter, initialNotAfterMetric string
 			Eventually(func() bool {
 				serial, notAfter, fetchErr := getDeviceCertInfo(harness, deviceId)
 				if fetchErr != nil {
@@ -224,8 +225,13 @@ var _ = Describe("Certificate Rotation", Label("certificate-rotation"), func() {
 				}
 				initialSerial = serial
 				initialNotAfter = notAfter
-				return true
-			}, e2e.LONGTIMEOUT, e2e.POLLINGLONG).Should(BeTrue(), "initial cert info should appear in system info")
+				mOut, mErr := harness.GetAgentMetrics()
+				if mErr != nil {
+					return false
+				}
+				initialNotAfterMetric = e2e.ParseMetricValue(mOut, "flightctl_device_mgmt_cert_not_after_timestamp_seconds")
+				return initialNotAfterMetric != "" && initialNotAfterMetric != "0"
+			}, e2e.LONGTIMEOUT, e2e.POLLINGLONG).Should(BeTrue(), "initial cert info and mgmt cert not_after metric should be available")
 			GinkgoWriter.Printf("[87911] initial cert serial: %s, notAfter: %s\n", initialSerial, initialNotAfter)
 
 			notAfterTime, err := time.Parse(time.RFC3339, initialNotAfter)
@@ -255,39 +261,89 @@ var _ = Describe("Certificate Rotation", Label("certificate-rotation"), func() {
 					strings.TrimSpace(verifyOutput.String()))
 			}
 
-			// Block traffic until 60s before cert expiry. This ensures:
-			// 1. The renewal window is open (opens at certExpiry - certRenewBefore = 90s after issuance)
-			// 2. At least one renewal attempt has failed (within 2s of the window opening)
-			// 3. The agent still has a valid cert (60s remaining) to authenticate the renewal after unblock
+			// Transient API errors (including blocked traffic) map to result="pending" in metrics,
+			// not "failure"; see management.WithCertMetricsProvisioner / ErrProvisionNotReady.
+			// IMPORTANT: wait for metrics *before* sleeping toward cert expiry. A long Eventually after
+			// sleeping to T-60s can exceed the remaining 60s and let the cert expire (no mTLS renewal).
 			//
-			// Without this safeguard, the cert can expire while blocked, permanently
-			// locking the agent out of mTLS and making renewal impossible.
+			// metricsWait must exceed the time until the agent may first attempt renewal. If
+			// FLIGHTCTL_TEST_MGMT_CERT_RENEW_BEFORE_SECONDS is not applied, the agent defaults to
+			// RenewBeforeExpiryPercentage=75 (renew when 25% of lifetime remains ≈ 45s left on a 180s cert).
+			// Then time-to-first-attempt ≈ remaining-45s; using metricsWait=remaining-45s races the deadline.
+			By("Waiting for renewal failure or pending indicators in metrics")
+			remaining := time.Until(notAfterTime)
+			Expect(remaining).To(BeNumerically(">", 2*time.Minute),
+				"[87911] need sufficient cert lifetime after block for metrics wait + final block buffer")
+			lifetimeSecs, err := strconv.Atoi(certExpirySeconds)
+			Expect(err).ToNot(HaveOccurred(), "certExpirySeconds must be a base-10 integer")
+			Expect(lifetimeSecs).To(BeNumerically(">", 0), "certExpirySeconds must be positive")
+			// 25% of lifetime remains when percentage-based renew is 75.
+			worstRenewLead := time.Duration(lifetimeSecs/4) * time.Second
+			// Leave at least postReserve validity if Eventually runs the full interval (avoid cert expiry mid-test).
+			postReserve := 15 * time.Second
+			maxMetricsWait := remaining - postReserve
+			minForFirstRenewalAttempt := time.Until(notAfterTime.Add(-worstRenewLead)) + 30*time.Second
+			metricsWait := maxMetricsWait
+			if minForFirstRenewalAttempt > metricsWait {
+				metricsWait = minForFirstRenewalAttempt
+			}
+			Expect(metricsWait).To(BeNumerically("<=", maxMetricsWait),
+				"[87911] cert lifetime too short for worst-case renewal lead; increase certExpirySeconds or block earlier")
+			GinkgoWriter.Printf("[87911] metrics Eventually timeout=%v (remaining=%v, worstRenewLead=%v)\n",
+				metricsWait, remaining, worstRenewLead)
+			Eventually(func() bool {
+				metricsOutput, mErr := harness.GetAgentMetrics()
+				if mErr != nil {
+					return false
+				}
+				failCount := e2e.ParseMetricValue(metricsOutput, `flightctl_device_mgmt_cert_renewal_attempts_total{result="failure"}`)
+				pendingCount := e2e.ParseMetricValue(metricsOutput, `flightctl_device_mgmt_cert_renewal_attempts_total{result="pending"}`)
+				return (failCount != "" && failCount != "0") || (pendingCount != "" && pendingCount != "0")
+			}, metricsWait, e2e.POLLINGLONG).Should(BeTrue(), "failure or pending renewal metrics should appear")
+
+			// Continue blocking until 60s before cert expiry so the agent still holds a valid cert for mTLS
+			// when we unblock (renewal window is already open; failures were observed above).
 			safeBlockEnd := notAfterTime.Add(-60 * time.Second)
-			blockDuration := time.Until(safeBlockEnd)
-			if blockDuration > 0 {
-				GinkgoWriter.Printf("[87911] blocking traffic for %v (until 60s before cert expiry at %s)\n", blockDuration, initialNotAfter)
+			if blockDuration := time.Until(safeBlockEnd); blockDuration > 0 {
+				GinkgoWriter.Printf("[87911] continuing block for %v (until 60s before cert expiry at %s)\n", blockDuration, initialNotAfter)
 				time.Sleep(blockDuration)
 			}
+
+			Expect(time.Until(notAfterTime)).To(BeNumerically(">", 0),
+				"[87911] cert expired before unblock; check metrics wait vs cert TTL")
 
 			By("Restoring network connectivity")
 			harness.UnblockTrafficOnVM(apiIP, apiPort)
 			GinkgoWriter.Printf("[87911] traffic unblocked, %v remaining before cert expiry\n", time.Until(notAfterTime))
 
-			By("Waiting for certificate rotation")
+			By("Waiting for device online after restoring connectivity")
+			Eventually(func() v1beta1.DeviceSummaryStatusType {
+				status, _ := harness.GetDeviceWithStatusSummary(deviceId)
+				return status
+			}, certRotationTimeout, e2e.POLLINGLONG).Should(Equal(v1beta1.DeviceSummaryStatusOnline))
+
+			By("Waiting for certificate rotation after unblock (serial, or agent not_after metric ahead of API system info)")
 			var newNotAfter string
 			Eventually(func() bool {
 				serial, notAfter, fetchErr := getDeviceCertInfo(harness, deviceId)
 				if fetchErr != nil {
 					GinkgoWriter.Printf("[87911] waiting for rotation: %v\n", fetchErr)
-					return false
 				}
-				GinkgoWriter.Printf("[87911] current serial: %s (initial: %s)\n", serial, initialSerial)
-				if serial != initialSerial {
+				if fetchErr == nil && serial != initialSerial {
 					newNotAfter = notAfter
 					return true
 				}
-				return false
-			}, certRotationTimeout, e2e.POLLINGLONG).Should(BeTrue(), "cert serial should change after unblocking traffic")
+				ts, mErr := agentMgmtCertNotAfterMetric(harness)
+				if mErr != nil || ts == "" || ts == "0" || ts == initialNotAfterMetric {
+					return false
+				}
+				sec, perr := strconv.ParseFloat(ts, 64)
+				if perr != nil {
+					return false
+				}
+				newNotAfter = time.Unix(int64(sec), 0).UTC().Format(time.RFC3339)
+				return true
+			}, certRotationTimeout, e2e.POLLINGLONG).Should(BeTrue(), "cert rotation should be observable (serial or mgmt not_after metric) after unblocking traffic")
 
 			By("Verifying new certificate notAfter is in the future")
 			parsedNotAfter, parseErr := time.Parse(time.RFC3339, newNotAfter)
@@ -336,14 +392,16 @@ var _ = Describe("Certificate Rotation", Label("certificate-rotation"), func() {
 				harness.UnblockTrafficOnVM(apiIP, apiPort)
 			})
 
-			By("Waiting for renewal failure indicators in metrics")
+			By("Waiting for renewal failure or pending indicators in metrics")
 			Eventually(func() bool {
-				failCount, mErr := harness.GetAgentMetricValue(`flightctl_device_mgmt_cert_renewal_attempts_total{result="failure"}`)
+				metricsOutput, mErr := harness.GetAgentMetrics()
 				if mErr != nil {
 					return false
 				}
-				return failCount != "" && failCount != "0"
-			}, e2e.TIMEOUT, e2e.POLLINGLONG).Should(BeTrue(), "renewal failure metric should appear")
+				failCount := e2e.ParseMetricValue(metricsOutput, `flightctl_device_mgmt_cert_renewal_attempts_total{result="failure"}`)
+				pendingCount := e2e.ParseMetricValue(metricsOutput, `flightctl_device_mgmt_cert_renewal_attempts_total{result="pending"}`)
+				return (failCount != "" && failCount != "0") || (pendingCount != "" && pendingCount != "0")
+			}, e2e.TIMEOUT, e2e.POLLINGLONG).Should(BeTrue(), "failure or pending renewal metrics should appear")
 
 			By("Waiting for certificate to expire")
 			notAfterTime, err := time.Parse(time.RFC3339, initialNotAfter)
@@ -482,6 +540,15 @@ var _ = Describe("Certificate Rotation", Label("certificate-rotation"), func() {
 		})
 	})
 })
+
+// agentMgmtCertNotAfterMetric returns the agent's gauge for management cert expiry (Unix seconds as string).
+func agentMgmtCertNotAfterMetric(harness *e2e.Harness) (string, error) {
+	out, err := harness.GetAgentMetrics()
+	if err != nil {
+		return "", err
+	}
+	return e2e.ParseMetricValue(out, "flightctl_device_mgmt_cert_not_after_timestamp_seconds"), nil
+}
 
 // getDeviceCertInfo extracts the management certificate serial and notAfter
 // from the device's system info.
