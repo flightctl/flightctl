@@ -63,38 +63,6 @@ spec:
           value: "{{ include "flightctl.dbPort" $ctx }}"
         - name: DB_NAME
           value: "{{ $ctx.Values.db.name }}"
-        {{- if eq $ctx.Values.db.type "builtin" }}
-        - name: DB_ADMIN_USER
-          valueFrom:
-            secretKeyRef:
-              name: {{ default "flightctl-db-admin-secret" $ctx.Values.db.builtin.masterUserSecretName }}
-              key: masterUser
-        - name: DB_ADMIN_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: {{ default "flightctl-db-admin-secret" $ctx.Values.db.builtin.masterUserSecretName }}
-              key: masterPassword
-        {{- end }}
-        - name: DB_MIGRATION_USER
-          valueFrom:
-            secretKeyRef:
-              name: {{ include "flightctl.dbMigrationUserSecret" $ctx }}
-              key: migrationUser
-        - name: DB_MIGRATION_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: {{ include "flightctl.dbMigrationUserSecret" $ctx }}
-              key: migrationPassword
-        - name: DB_APP_USER
-          valueFrom:
-            secretKeyRef:
-              name: {{ include "flightctl.dbAppUserSecret" $ctx }}
-              key: user
-        - name: DB_APP_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: {{ include "flightctl.dbAppUserSecret" $ctx }}
-              key: userPassword
         command:
         - /bin/bash
         - -c
@@ -103,21 +71,13 @@ spec:
 
           echo "Database is ready. Setting up users..."
 
-          # Create temporary SQL file with environment variable substitution
-          export DB_HOST DB_PORT DB_NAME DB_ADMIN_USER DB_ADMIN_PASSWORD
-          export DB_MIGRATION_USER DB_MIGRATION_PASSWORD DB_APP_USER DB_APP_PASSWORD
-
-          SQL_FILE="/tmp/setup_database_users.sql"
-          envsubst < ./deploy/scripts/setup_database_users.sql > "$SQL_FILE"
-
-          # Execute the SQL file
-          echo "Running database user setup SQL..."
-          PGPASSWORD="$DB_ADMIN_PASSWORD" psql -v ON_ERROR_STOP=1 -h "$DB_HOST" -p "$DB_PORT" -U "$DB_ADMIN_USER" -d "$DB_NAME" -f "$SQL_FILE"
-
-          # Clean up temporary file
-          rm -f "$SQL_FILE"
+          ./deploy/scripts/setup_database_users.sh --direct
 
           echo "Database users setup completed successfully!"
+        volumeMounts:
+        {{- include "flightctl.dbAdminSecretVolumeMount" $ctx | nindent 8 }}
+        {{- include "flightctl.dbMigrationSecretVolumeMount" $ctx | nindent 8 }}
+        {{- include "flightctl.dbAppSecretVolumeMount" $ctx | nindent 8 }}
       {{- end }}
       {{- end }}
       containers:
@@ -127,48 +87,6 @@ spec:
         env:
         - name: HOME
           value: "/root"
-        - name: DB_USER
-          valueFrom:
-            secretKeyRef:
-              name: {{ include "flightctl.dbMigrationUserSecret" $ctx }}
-              key: migrationUser
-        - name: DB_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: {{ include "flightctl.dbMigrationUserSecret" $ctx }}
-              key: migrationPassword
-        - name: DB_MIGRATION_USER
-          valueFrom:
-            secretKeyRef:
-              name: {{ include "flightctl.dbMigrationUserSecret" $ctx }}
-              key: migrationUser
-        - name: DB_MIGRATION_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: {{ include "flightctl.dbMigrationUserSecret" $ctx }}
-              key: migrationPassword
-        - name: DB_APP_USER
-          valueFrom:
-            secretKeyRef:
-              name: {{ include "flightctl.dbAppUserSecret" $ctx }}
-              key: user
-        - name: DB_APP_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: {{ include "flightctl.dbAppUserSecret" $ctx }}
-              key: userPassword
-        {{- if eq $ctx.Values.db.type "builtin" }}
-        - name: DB_ADMIN_USER
-          valueFrom:
-            secretKeyRef:
-              name: {{ default "flightctl-db-admin-secret" $ctx.Values.db.builtin.masterUserSecretName }}
-              key: masterUser
-        - name: DB_ADMIN_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: {{ default "flightctl-db-admin-secret" $ctx.Values.db.builtin.masterUserSecretName }}
-              key: masterPassword
-        {{- end }}
         {{- if eq $ctx.Values.db.type "external" }}
         {{- if $ctx.Values.db.external.sslmode }}
         - name: PGSSLMODE
@@ -190,42 +108,53 @@ spec:
         - -c
         - |
           set -eo pipefail
+
           echo "Running database migrations..."
 
           # Copy config file to a writable location
           mkdir -p /tmp/.flightctl
           cp /root/.flightctl/config.yaml /tmp/.flightctl/config.yaml
-          export HOME=/tmp
-
-          /usr/local/bin/flightctl-db-migrate{{ if $isDryRun }} --dry-run{{ end }}
+          HOME=/tmp \
+            /usr/local/bin/flightctl-db-migrate{{ if $isDryRun }} --dry-run{{ end }}
           echo "Migrations completed successfully!"
 
           {{- if not $isDryRun }}
-          # Grant permissions on all existing tables to the application user
           echo "Granting permissions on existing tables to application user..."
           {{- if eq $ctx.Values.db.type "external" }}
-            export PGPASSWORD="$DB_MIGRATION_PASSWORD"
-            psql -v ON_ERROR_STOP=1 -h {{ $ctx.Values.db.external.hostname }} -p {{ include "flightctl.dbPort" $ctx | int }} -U "$DB_MIGRATION_USER" -d "{{ (default "flightctl" $ctx.Values.db.name) }}" -c "GRANT USAGE ON SCHEMA public TO \"${DB_APP_USER}\";"
-            psql -v ON_ERROR_STOP=1 -h {{ $ctx.Values.db.external.hostname }} -p {{ include "flightctl.dbPort" $ctx | int }} -U "$DB_MIGRATION_USER" -d "{{ (default "flightctl" $ctx.Values.db.name) }}" -c "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO \"${DB_APP_USER}\";"
-            psql -v ON_ERROR_STOP=1 -h {{ $ctx.Values.db.external.hostname }} -p {{ include "flightctl.dbPort" $ctx | int }} -U "$DB_MIGRATION_USER" -d "{{ (default "flightctl" $ctx.Values.db.name) }}" -c "GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO \"${DB_APP_USER}\";"
-            # Optional but recommended: ensure future objects carry privileges
-            psql -v ON_ERROR_STOP=1 -h {{ $ctx.Values.db.external.hostname }} -p {{ include "flightctl.dbPort" $ctx | int }} -U "$DB_MIGRATION_USER" -d "{{ (default "flightctl" $ctx.Values.db.name) }}" -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO \"${DB_APP_USER}\";"
-            psql -v ON_ERROR_STOP=1 -h {{ $ctx.Values.db.external.hostname }} -p {{ include "flightctl.dbPort" $ctx | int }} -U "$DB_MIGRATION_USER" -d "{{ (default "flightctl" $ctx.Values.db.name) }}" -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO \"${DB_APP_USER}\";"
+            APP_USER="$(cat /run/secrets/db/user)"
+            PGPASSWORD="$(cat /run/secrets/db-migration/migrationPassword)" \
+              psql -v ON_ERROR_STOP=1 -v app_user="$APP_USER" \
+              -h {{ $ctx.Values.db.external.hostname }} -p {{ include "flightctl.dbPort" $ctx | int }} \
+              -U "$(cat /run/secrets/db-migration/migrationUser)" -d "{{ (default "flightctl" $ctx.Values.db.name) }}" \
+              -c 'GRANT USAGE ON SCHEMA public TO :"app_user";' \
+              -c 'GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO :"app_user";' \
+              -c 'GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO :"app_user";' \
+              -c 'ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO :"app_user";' \
+              -c 'ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO :"app_user";'
           {{- else -}}
-            # Need to get admin credentials from init container environment
-            DB_HOST="{{ include "flightctl.dbHostname" $ctx }}"
-            # Get admin credentials from the same secrets used by init container
-            export PGPASSWORD="$DB_ADMIN_PASSWORD"
-            psql -h "$DB_HOST" -p {{ include "flightctl.dbPort" $ctx | int }} -U "$DB_ADMIN_USER" -d "{{ $ctx.Values.db.name }}" -c "SELECT grant_app_permissions_on_existing_tables();"
+            PGPASSWORD="$(cat /run/secrets/db-admin/masterPassword)" \
+              psql -h "{{ include "flightctl.dbHostname" $ctx }}" -p {{ include "flightctl.dbPort" $ctx | int }} \
+              -U "$(cat /run/secrets/db-admin/masterUser)" -d "{{ $ctx.Values.db.name }}" \
+              -c "SELECT grant_app_permissions_on_existing_tables();"
           {{- end }}
           echo "Permission granting completed successfully!"
           {{- end }}
         volumeMounts:
+        {{- include "flightctl.dbMigrationSecretVolumeMount" $ctx | nindent 8 }}
+        {{- include "flightctl.dbAppSecretVolumeMount" $ctx | nindent 8 }}
+        {{- if eq $ctx.Values.db.type "builtin" }}
+        {{- include "flightctl.dbAdminSecretVolumeMount" $ctx | nindent 8 }}
+        {{- end }}
         - mountPath: /root/.flightctl/
           name: flightctl-db-migration-config
           readOnly: true
         {{- include "flightctl.dbSslVolumeMounts" $ctx | nindent 8 }}
       volumes:
+      {{- include "flightctl.dbMigrationSecretVolume" $ctx | nindent 6 }}
+      {{- include "flightctl.dbAppSecretVolume" $ctx | nindent 6 }}
+      {{- if eq $ctx.Values.db.type "builtin" }}
+      {{- include "flightctl.dbAdminSecretVolume" $ctx | nindent 6 }}
+      {{- end }}
       - name: flightctl-db-migration-config
         configMap:
           name: flightctl-db-migration-config

@@ -5,8 +5,8 @@ Description=Flight Control Key Value service
 ContainerName=flightctl-kv
 Image=docker.io/redis:7.4.1
 Pull=missing
-Exec=/bin/sh -c 'exec redis-server /usr/local/etc/redis/redis.conf --requirepass $${KV_PASSWORD}'
-Secret=flightctl-kv-password,type=env,target=KV_PASSWORD
+Exec=/bin/sh -c 'exec redis-server /usr/local/etc/redis/redis.conf --requirepass "$$(cat /run/secrets/kv/password)"'
+Secret=flightctl-kv-password,type=mount,target=/run/secrets/kv/password
 Volume=/usr/share/flightctl/flightctl-kv/redis.conf:/usr/local/etc/redis/redis.conf
 
 PublishPort=6379:6379

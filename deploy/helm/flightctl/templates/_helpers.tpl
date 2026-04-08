@@ -358,38 +358,20 @@ Parameters:
   - name: DB_NAME
     value: "{{ $context.Values.db.name }}"
   {{- if eq $userType "app" }}
-  - name: DB_USER
-    valueFrom:
-      secretKeyRef:
-        name: {{ include "flightctl.dbAppUserSecret" $context }}
-        key: user
-  - name: DB_PASSWORD
-    valueFrom:
-      secretKeyRef:
-        name: {{ include "flightctl.dbAppUserSecret" $context }}
-        key: userPassword
+  - name: DB_USER_FILE
+    value: /run/secrets/db/user
+  - name: DB_PASSWORD_FILE
+    value: /run/secrets/db/userPassword
   {{- else if eq $userType "migration" }}
-  - name: DB_USER
-    valueFrom:
-      secretKeyRef:
-        name: {{ include "flightctl.dbMigrationUserSecret" $context }}
-        key: migrationUser
-  - name: DB_PASSWORD
-    valueFrom:
-      secretKeyRef:
-        name: {{ include "flightctl.dbMigrationUserSecret" $context }}
-        key: migrationPassword
+  - name: DB_USER_FILE
+    value: /run/secrets/db-migration/migrationUser
+  - name: DB_PASSWORD_FILE
+    value: /run/secrets/db-migration/migrationPassword
   {{- else if eq $userType "admin" }}
-  - name: DB_USER
-    valueFrom:
-      secretKeyRef:
-        name: {{ default "flightctl-db-admin-secret" $context.Values.db.builtin.masterUserSecretName }}
-        key: masterUser
-  - name: DB_PASSWORD
-    valueFrom:
-      secretKeyRef:
-        name: {{ default "flightctl-db-admin-secret" $context.Values.db.builtin.masterUserSecretName }}
-        key: masterPassword
+  - name: DB_USER_FILE
+    value: /run/secrets/db-admin/masterUser
+  - name: DB_PASSWORD_FILE
+    value: /run/secrets/db-admin/masterPassword
   {{- else }}
   {{- fail (printf "Invalid userType '%s'. Must be one of: app, migration, admin" $userType) }}
   {{- end }}
@@ -410,6 +392,13 @@ Parameters:
   {{- end }}
   {{- end }}
   volumeMounts:
+  {{- if eq $userType "app" }}
+  {{- include "flightctl.dbAppSecretVolumeMount" $context | nindent 2 }}
+  {{- else if eq $userType "migration" }}
+  {{- include "flightctl.dbMigrationSecretVolumeMount" $context | nindent 2 }}
+  {{- else if eq $userType "admin" }}
+  {{- include "flightctl.dbAdminSecretVolumeMount" $context | nindent 2 }}
+  {{- end }}
   {{- include "flightctl.dbSslVolumeMounts" $context | nindent 2 }}
 {{- end }}
 
@@ -527,6 +516,63 @@ Usage: {{- include "flightctl.dbSslVolumes" . | nindent X }}
           mode: 0400
     {{- end }}
 {{- end }}
+{{- end }}
+
+{{- /*
+Secret volume helpers – mount credentials as files instead of env vars.
+Mount paths:
+  KV password:      /run/secrets/kv/password
+  DB app user:      /run/secrets/db/user, /run/secrets/db/userPassword
+  DB admin:         /run/secrets/db-admin/masterUser, /run/secrets/db-admin/masterPassword
+  DB migration:     /run/secrets/db-migration/migrationUser, /run/secrets/db-migration/migrationPassword
+*/}}
+
+{{- define "flightctl.kvSecretVolume" -}}
+- name: kv-secret
+  secret:
+    secretName: {{ default "flightctl-kv-secret" .Values.kv.passwordSecretName }}
+{{- end }}
+
+{{- define "flightctl.kvSecretVolumeMount" -}}
+- name: kv-secret
+  mountPath: /run/secrets/kv
+  readOnly: true
+{{- end }}
+
+{{- define "flightctl.dbAppSecretVolume" -}}
+- name: db-app-secret
+  secret:
+    secretName: {{ include "flightctl.dbAppUserSecret" . }}
+{{- end }}
+
+{{- define "flightctl.dbAppSecretVolumeMount" -}}
+- name: db-app-secret
+  mountPath: /run/secrets/db
+  readOnly: true
+{{- end }}
+
+{{- define "flightctl.dbAdminSecretVolume" -}}
+- name: db-admin-secret
+  secret:
+    secretName: {{ default "flightctl-db-admin-secret" .Values.db.builtin.masterUserSecretName }}
+{{- end }}
+
+{{- define "flightctl.dbAdminSecretVolumeMount" -}}
+- name: db-admin-secret
+  mountPath: /run/secrets/db-admin
+  readOnly: true
+{{- end }}
+
+{{- define "flightctl.dbMigrationSecretVolume" -}}
+- name: db-migration-secret
+  secret:
+    secretName: {{ include "flightctl.dbMigrationUserSecret" . }}
+{{- end }}
+
+{{- define "flightctl.dbMigrationSecretVolumeMount" -}}
+- name: db-migration-secret
+  mountPath: /run/secrets/db-migration
+  readOnly: true
 {{- end }}
 
 {{- define "flightctl.dbAppUserSecret" -}}

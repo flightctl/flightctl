@@ -24,21 +24,6 @@ spec:
       - env:
         - name: HOME
           value: "/root"
-        - name: KV_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: {{ default "flightctl-kv-secret" .Values.kv.passwordSecretName }}
-              key: password
-        - name: DB_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: {{ include "flightctl.dbAppUserSecret" . }}
-              key: userPassword
-        - name: DB_USER
-          valueFrom:
-            secretKeyRef:
-              name: {{ include "flightctl.dbAppUserSecret" . }}
-              key: user
         image: "{{ include "flightctl.ensureOsQualifiedImage" .Values.telemetryGateway.image.image }}:{{ default .Chart.AppVersion .Values.telemetryGateway.image.tag }}"
         imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.telemetryGateway.image.pullPolicy }}
         name: telemetry-gateway
@@ -57,6 +42,8 @@ spec:
             cpu: "500m"
             memory: "512Mi"
         volumeMounts:
+        {{- include "flightctl.kvSecretVolumeMount" . | nindent 8 }}
+        {{- include "flightctl.dbAppSecretVolumeMount" . | nindent 8 }}
         - mountPath: /root/.flightctl/config.yaml
           name: flightctl-telemetry-gateway-config
           readOnly: true
@@ -76,6 +63,8 @@ spec:
       dnsPolicy: ClusterFirst
       restartPolicy: Always
       volumes:
+      {{- include "flightctl.kvSecretVolume" . | nindent 6 }}
+      {{- include "flightctl.dbAppSecretVolume" . | nindent 6 }}
       - configMap:
           name: flightctl-telemetry-gateway-config
         name: flightctl-telemetry-gateway-config

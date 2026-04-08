@@ -26,6 +26,15 @@ DB_MIGRATION_PASSWORD=${FLIGHTCTL_POSTGRESQL_MIGRATOR_PASSWORD:-adminpass}
 echo "Running database migration with image: $MIGRATION_IMAGE"
 echo "Target database: $DB_NAME"
 
+# flightctl-db-migrate (via migration-setup.sh) loads credentials from mounted secret files only
+# (see internal/config applyRuntimeOverrides). Provide the same paths as production quadlets/Helm.
+INTEGRATION_SECRET_DIR="$(mktemp -d)"
+trap 'rm -rf "$INTEGRATION_SECRET_DIR"' EXIT
+printf '%s' "$DB_MIGRATION_PASSWORD" >"$INTEGRATION_SECRET_DIR/migrationPassword"
+chmod 600 "$INTEGRATION_SECRET_DIR/migrationPassword"
+printf '%s' "$DB_MIGRATION_USER" >"$INTEGRATION_SECRET_DIR/migrationUser"
+chmod 600 "$INTEGRATION_SECRET_DIR/migrationUser"
+
 podman run --rm --network host \
     --pull=missing \
     -e DB_HOST="$DB_HOST" \
@@ -35,6 +44,8 @@ podman run --rm --network host \
     -e DB_ADMIN_PASSWORD="$DB_ADMIN_PASSWORD" \
     -e DB_MIGRATION_USER="$DB_MIGRATION_USER" \
     -e DB_MIGRATION_PASSWORD="$DB_MIGRATION_PASSWORD" \
+    -v "$INTEGRATION_SECRET_DIR/migrationPassword:/run/secrets/db-migration/migrationPassword:ro,Z" \
+    -v "$INTEGRATION_SECRET_DIR/migrationUser:/run/secrets/db-migration/migrationUser:ro,Z" \
     "$MIGRATION_IMAGE" \
     /app/deploy/scripts/migration-setup.sh
 

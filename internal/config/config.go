@@ -739,7 +739,7 @@ func Load(cfgFile string) (*Config, error) {
 		return nil, fmt.Errorf("decoding config: %v", err)
 	}
 
-	applyEnvVarOverrides(c)
+	applyRuntimeOverrides(c)
 	if err := applyAuthDefaults(c); err != nil {
 		return nil, fmt.Errorf("applying auth defaults: %w", err)
 	}
@@ -747,21 +747,35 @@ func Load(cfgFile string) (*Config, error) {
 	return c, nil
 }
 
-func applyEnvVarOverrides(c *Config) {
-	if kvPass := os.Getenv("KV_PASSWORD"); kvPass != "" {
-		c.KV.Password = api.SecureString(kvPass)
+// readSecretFile reads a secret value from a file, trimming any trailing newline.
+// Returns the file contents and true if the file exists and is readable, or empty string and false otherwise.
+func readSecretFile(path string) (string, bool) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", false
 	}
-	if dbUser := os.Getenv("DB_USER"); dbUser != "" {
-		c.Database.User = dbUser
+	return strings.TrimRight(string(data), "\n\r"), true
+}
+
+func applyRuntimeOverrides(c *Config) {
+	if c.KV != nil {
+		if kvPass, ok := readSecretFile("/run/secrets/kv/password"); ok {
+			c.KV.Password = api.SecureString(kvPass)
+		}
 	}
-	if dbPass := os.Getenv("DB_PASSWORD"); dbPass != "" {
-		c.Database.Password = api.SecureString(dbPass)
-	}
-	if dbMigrationUser := os.Getenv("DB_MIGRATION_USER"); dbMigrationUser != "" {
-		c.Database.MigrationUser = dbMigrationUser
-	}
-	if dbMigrationPass := os.Getenv("DB_MIGRATION_PASSWORD"); dbMigrationPass != "" {
-		c.Database.MigrationPassword = api.SecureString(dbMigrationPass)
+	if c.Database != nil {
+		if dbUser, ok := readSecretFile("/run/secrets/db/user"); ok {
+			c.Database.User = dbUser
+		}
+		if dbPass, ok := readSecretFile("/run/secrets/db/userPassword"); ok {
+			c.Database.Password = api.SecureString(dbPass)
+		}
+		if dbMigrationUser, ok := readSecretFile("/run/secrets/db-migration/migrationUser"); ok {
+			c.Database.MigrationUser = dbMigrationUser
+		}
+		if dbMigrationPass, ok := readSecretFile("/run/secrets/db-migration/migrationPassword"); ok {
+			c.Database.MigrationPassword = api.SecureString(dbMigrationPass)
+		}
 	}
 	// CRYPTO_FORCE_FIPS environment variable sets the global crypto policy FIPS mode.
 	// This overrides auto-detection and applies to all cryptographic protocols.

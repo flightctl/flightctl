@@ -3,33 +3,63 @@
 set -eo pipefail
 
 # Flight Control Database User Setup Script
-# This script creates the database users with appropriate permissions for production deployments
+# This script creates the database users with appropriate permissions for production deployments.
+#
+# Modes:
+#   Default (podman): wraps psql calls inside a podman container (for host execution)
+#   --direct:         calls psql directly (for execution inside a container that has psql)
+#
+# Credentials can be supplied via environment variables (DB_ADMIN_USER, DB_ADMIN_PASSWORD, etc.)
+# or via secret-mounted files at well-known default paths under /run/secrets/.
+# The environment variable takes precedence; if unset, the default file path is tried.
+# The script exits with an error if a value is not provided by either mechanism.
+# Passwords are never passed on the psql command line; they are fed via stdin (\set).
+
+DIRECT_PSQL=false
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --direct)
+            DIRECT_PSQL=true
+            shift
+            ;;
+        *)
+            echo "Unknown argument: $1"
+            exit 1
+            ;;
+    esac
+done
 
 # Configuration variables
 DB_HOST=${DB_HOST:-localhost}
 DB_PORT=${DB_PORT:-5432}
 DB_NAME=${DB_NAME:-flightctl}
-DB_ADMIN_USER=${DB_ADMIN_USER:-admin}
-DB_ADMIN_PASSWORD=${DB_ADMIN_PASSWORD:-adminpass}
-DB_MIGRATION_USER=${DB_MIGRATION_USER:-flightctl_migrator}
-DB_MIGRATION_PASSWORD=${DB_MIGRATION_PASSWORD:-migrator_password}
-DB_APP_USER=${DB_APP_USER:-flightctl_app}
-DB_APP_PASSWORD=${DB_APP_PASSWORD:-app_password}
 
-# PostgreSQL image to use for database connections
+# Resolve value: prefer env var, fall back to default secret file path, error if neither.
+resolve_value() {
+    local name="$1" default_file="$2" env_val="${3:-}"
+    if [[ -n "${env_val}" ]]; then
+        echo "$env_val"
+    elif [[ -f "${default_file}" && -r "${default_file}" ]]; then
+        cat "$default_file"
+    else
+        echo "Error: ${name} must be set via environment variable or available at ${default_file}" >&2
+        exit 1
+    fi
+}
+
+DB_ADMIN_USER="$(resolve_value DB_ADMIN_USER /run/secrets/db-admin/masterUser "${DB_ADMIN_USER:-}")"
+DB_MIGRATION_USER="$(resolve_value DB_MIGRATION_USER /run/secrets/db-migration/migrationUser "${DB_MIGRATION_USER:-}")"
+DB_APP_USER="$(resolve_value DB_APP_USER /run/secrets/db/user "${DB_APP_USER:-}")"
+
+DB_ADMIN_PASSWORD="$(resolve_value DB_ADMIN_PASSWORD /run/secrets/db-admin/masterPassword "${DB_ADMIN_PASSWORD:-}")"
+DB_MIGRATION_PASSWORD="$(resolve_value DB_MIGRATION_PASSWORD /run/secrets/db-migration/migrationPassword "${DB_MIGRATION_PASSWORD:-}")"
+DB_APP_PASSWORD="$(resolve_value DB_APP_PASSWORD /run/secrets/db/userPassword "${DB_APP_PASSWORD:-}")"
+
+# PostgreSQL image to use for database connections (podman mode only)
 POSTGRES_IMAGE=${POSTGRES_IMAGE:-quay.io/sclorg/postgresql-16-c9s:latest}
 
-# Function to execute SQL command using podman
-execute_sql_command() {
-    local sql_command="$1"
-    local use_network=${2:-true}
-
-    local network_arg=""
-    if [ "$use_network" = "true" ]; then
-        network_arg="--network flightctl"
-    fi
-
-    # Build SSL environment arguments
+# Build SSL environment arguments for podman mode
+build_ssl_env_args() {
     local ssl_args=""
     if [[ -n "${PGSSLMODE:-}" ]]; then
         ssl_args="$ssl_args -e PGSSLMODE=$PGSSLMODE"
@@ -43,6 +73,27 @@ execute_sql_command() {
     if [[ -n "${PGSSLROOTCERT:-}" ]]; then
         ssl_args="$ssl_args -e PGSSLROOTCERT=$PGSSLROOTCERT"
     fi
+    echo "$ssl_args"
+}
+
+# Function to execute a single SQL command
+execute_sql_command() {
+    local sql_command="$1"
+    local use_network=${2:-true}
+
+    if [[ "$DIRECT_PSQL" == "true" ]]; then
+        PGPASSWORD="$DB_ADMIN_PASSWORD" \
+        psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_ADMIN_USER" -d "$DB_NAME" -c "$sql_command"
+        return
+    fi
+
+    local network_arg=""
+    if [ "$use_network" = "true" ]; then
+        network_arg="--network flightctl"
+    fi
+
+    local ssl_args
+    ssl_args="$(build_ssl_env_args)"
 
     sudo podman run --rm $network_arg \
         -e PGPASSWORD="$DB_ADMIN_PASSWORD" \
@@ -51,7 +102,8 @@ execute_sql_command() {
         psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_ADMIN_USER" -d "$DB_NAME" -c "$sql_command"
 }
 
-# Function to execute SQL file with environment variable substitution
+# Function to execute SQL file with passwords piped via stdin (never on the command line).
+# Non-sensitive identifiers (db_name, user names) are passed via -v.
 execute_sql_file() {
     local sql_file="$1"
     local use_network=${2:-true}
@@ -63,41 +115,39 @@ execute_sql_file() {
 
     echo "Executing SQL file: $sql_file"
 
-    # Create a temporary file with environment variable substitution
-    local temp_sql_file
-    temp_sql_file=$(mktemp)
-    envsubst < "$sql_file" > "$temp_sql_file"
+    if [[ "$DIRECT_PSQL" == "true" ]]; then
+        {
+            printf "\\set migration_password '%s'\n" "${DB_MIGRATION_PASSWORD//\'/\'\'}"
+            printf "\\set app_password '%s'\n" "${DB_APP_PASSWORD//\'/\'\'}"
+            cat "$sql_file"
+        } | PGPASSWORD="$DB_ADMIN_PASSWORD" \
+            psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_ADMIN_USER" -d "$DB_NAME" \
+                -v db_name="$DB_NAME" \
+                -v migration_user="$DB_MIGRATION_USER" \
+                -v app_user="$DB_APP_USER"
+        return
+    fi
 
     local network_arg=""
     if [ "$use_network" = "true" ]; then
         network_arg="--network flightctl"
     fi
 
-    # Build SSL environment arguments
-    local ssl_args=""
-    if [[ -n "${PGSSLMODE:-}" ]]; then
-        ssl_args="$ssl_args -e PGSSLMODE=$PGSSLMODE"
-    fi
-    if [[ -n "${PGSSLCERT:-}" ]]; then
-        ssl_args="$ssl_args -e PGSSLCERT=$PGSSLCERT"
-    fi
-    if [[ -n "${PGSSLKEY:-}" ]]; then
-        ssl_args="$ssl_args -e PGSSLKEY=$PGSSLKEY"
-    fi
-    if [[ -n "${PGSSLROOTCERT:-}" ]]; then
-        ssl_args="$ssl_args -e PGSSLROOTCERT=$PGSSLROOTCERT"
-    fi
+    local ssl_args
+    ssl_args="$(build_ssl_env_args)"
 
-    # Execute the SQL file using podman with stdin
-    sudo podman run --rm $network_arg \
+    {
+        printf "\\set migration_password '%s'\n" "${DB_MIGRATION_PASSWORD//\'/\'\'}"
+        printf "\\set app_password '%s'\n" "${DB_APP_PASSWORD//\'/\'\'}"
+        cat "$sql_file"
+    } | sudo podman run --rm -i $network_arg \
         -e PGPASSWORD="$DB_ADMIN_PASSWORD" \
         $ssl_args \
-        -i \
         "$POSTGRES_IMAGE" \
-        psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_ADMIN_USER" -d "$DB_NAME" < "$temp_sql_file"
-
-    # Clean up temporary file
-    rm -f "$temp_sql_file"
+        psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_ADMIN_USER" -d "$DB_NAME" \
+            -v db_name="$DB_NAME" \
+            -v migration_user="$DB_MIGRATION_USER" \
+            -v app_user="$DB_APP_USER"
 }
 
 # Check if database is accessible
@@ -112,9 +162,6 @@ echo "Setting up Flight Control database users..."
 # Find the SQL file relative to this script
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 SQL_FILE="$SCRIPT_DIR/setup_database_users.sql"
-
-# Export environment variables for substitution
-export DB_NAME DB_MIGRATION_USER DB_MIGRATION_PASSWORD DB_APP_USER DB_APP_PASSWORD
 
 # Execute the canonical SQL file
 execute_sql_file "$SQL_FILE"

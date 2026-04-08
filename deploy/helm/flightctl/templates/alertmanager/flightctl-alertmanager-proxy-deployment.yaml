@@ -56,17 +56,8 @@ spec:
               value: "/root"
             - name: ALERTMANAGER_URL
               value: "http://flightctl-alertmanager.{{ default .Release.Namespace .Values.global.internalNamespace }}.svc.cluster.local:9093"
-            - name: DB_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "flightctl.dbAppUserSecret" . }}
-                  key: userPassword
-            - name: DB_USER
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "flightctl.dbAppUserSecret" . }}
-                  key: user
           volumeMounts:
+            {{- include "flightctl.dbAppSecretVolumeMount" . | nindent 12 }}
             - mountPath: /app/certs
               name: flightctl-alertmanager-proxy-certs
             - mountPath: /root/.flightctl/config.yaml
@@ -122,6 +113,7 @@ spec:
 
       restartPolicy: Always
       volumes:
+        {{- include "flightctl.dbAppSecretVolume" . | nindent 8 }}
         - name: flightctl-alertmanager-proxy-certs
           secret:
             secretName: flightctl-alertmanager-proxy-certs
