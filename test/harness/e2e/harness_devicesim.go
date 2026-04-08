@@ -311,8 +311,9 @@ func (h *Harness) StartLabeledSimulator(ctx context.Context, testID, userPrefix 
 	}
 	args := []string{
 		"--count", fmt.Sprintf("%d", deviceCount),
-		"--initial-index", fmt.Sprintf("%d", initialIndex),
-		"--labels", fmt.Sprintf("test-id=%s,user=%s", testID, userPrefix),
+		"--initial-device-index", fmt.Sprintf("%d", initialIndex),
+		"--label", fmt.Sprintf("test-id=%s", testID),
+		"--label", fmt.Sprintf("user=%s", userPrefix),
 	}
 	return h.RunDeviceSimulator(ctx, args...)
 }
