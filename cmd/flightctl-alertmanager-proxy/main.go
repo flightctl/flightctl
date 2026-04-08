@@ -19,20 +19,17 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
-	"os/signal"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/api_server/middleware"
 	"github.com/flightctl/flightctl/internal/auth"
 	"github.com/flightctl/flightctl/internal/auth/common"
+	"github.com/flightctl/flightctl/internal/cmdsetup"
 	"github.com/flightctl/flightctl/internal/config"
-	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/org/cache"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
-	fclog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
@@ -174,19 +171,10 @@ func createConditionalAuthMiddleware(
 }
 
 func main() {
-	ctx := context.Background()
+	ctx, cfg, logger, shutdown := cmdsetup.InitService(context.Background(), "alertmanager-proxy")
+	defer shutdown()
 
-	// Load configuration
-	cfg, err := config.LoadOrGenerate(config.ConfigFile())
-	if err != nil {
-		logger := fclog.InitLogs()
-		logger.Fatalf("Failed to load configuration: %v", err)
-	}
-
-	// Initialize logging with level from config
-	logger := fclog.InitLogs(cfg.Service.LogLevel)
-	logger.Println("Starting Alertmanager Proxy service")
-	defer logger.Println("Alertmanager Proxy service stopped")
+	ctx, cancel := context.WithCancel(ctx)
 
 	serverCerts, err := config.LoadServerCertificates(cfg, logger)
 	if err != nil {
@@ -208,13 +196,6 @@ func main() {
 		MinVersion:   tls.VersionTLS13,
 	}
 
-	tracerShutdown := tracing.InitTracer(logger, cfg, "flightctl-alertmanager-proxy")
-	defer func() {
-		if err := tracerShutdown(ctx); err != nil {
-			logger.Fatalf("Failed to shut down tracer: %v", err)
-		}
-	}()
-
 	// Initialize data store
 	db, err := store.InitDB(cfg, logger)
 	if err != nil {
@@ -223,10 +204,6 @@ func main() {
 
 	dataStore := store.NewStore(db, logger.WithField("pkg", "store"))
 	defer dataStore.Close()
-
-	// Handle graceful shutdown
-	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM, syscall.SIGQUIT)
-	defer cancel()
 
 	orgCache := cache.NewOrganizationTTL(cache.DefaultTTL)
 	orgCache.Start()
@@ -246,8 +223,8 @@ func main() {
 	go func() {
 		if err := authN.Start(ctx); err != nil {
 			logger.Errorf("Failed to start auth provider loader: %v", err)
+			cancel() // Trigger coordinated shutdown if auth loader fails
 		}
-		cancel() // Trigger coordinated shutdown if auth loader exits
 	}()
 
 	authZ, err := auth.InitMultiAuthZ(cfg, logger)

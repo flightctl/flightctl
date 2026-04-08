@@ -5,15 +5,12 @@ package main
 import (
 	"context"
 	"os"
-	"os/signal"
-	"syscall"
 
 	"github.com/flightctl/flightctl/internal/api_server/middleware"
+	"github.com/flightctl/flightctl/internal/cmdsetup"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"
-	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/pam_issuer_server"
-	"github.com/flightctl/flightctl/pkg/log"
 )
 
 const (
@@ -22,17 +19,10 @@ const (
 )
 
 func main() {
-	ctx := context.Background()
+	ctx, cfg, log, shutdown := cmdsetup.InitService(context.Background(), "pam-issuer")
+	defer shutdown()
 
-	cfg, err := config.LoadOrGenerate(config.ConfigFile())
-	if err != nil {
-		log.InitLogs().Fatalf("reading configuration: %v", err)
-	}
-
-	log := log.InitLogs(cfg.Service.LogLevel)
-	log.Println("Starting PAM issuer service")
-	defer log.Println("PAM issuer service stopped")
-	log.Printf("Using config: %s", cfg)
+	ctx, cancel := context.WithCancel(ctx)
 
 	// Check if PAM OIDC issuer is configured
 	if cfg.Auth == nil || cfg.Auth.PAMOIDCIssuer == nil {
@@ -60,16 +50,6 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed creating TLS config: %v", err)
 	}
-
-	tracerShutdown := tracing.InitTracer(log, cfg, "flightctl-pam-issuer")
-	defer func() {
-		if err := tracerShutdown(ctx); err != nil {
-			log.Fatalf("failed to shut down tracer: %v", err)
-		}
-	}()
-
-	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGQUIT)
-	defer cancel()
 
 	userdbDir := os.Getenv("USERDB_DIR")
 	if userdbDir == "" {

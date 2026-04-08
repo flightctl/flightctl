@@ -5,12 +5,10 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/flightctl/flightctl/internal/config"
-	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
+	"github.com/flightctl/flightctl/internal/cmdsetup"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/restore"
 	"github.com/flightctl/flightctl/internal/store"
-	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/version"
 	"github.com/spf13/cobra"
 )
@@ -60,25 +58,14 @@ func NewCmdVersion() *cobra.Command {
 }
 
 func runRestore(ctx context.Context) error {
-	// Bypass span check for restore operations
-	ctx = store.WithBypassSpanCheck(ctx)
+	ctx, cfg, log, shutdown := cmdsetup.InitService(ctx, "restore")
+	defer shutdown()
 
-	cfg, err := config.LoadOrGenerate(config.ConfigFile())
-	if err != nil {
-		log.InitLogs().Fatalf("reading configuration: %v", err)
-	}
-
-	log := log.InitLogs(cfg.Service.LogLevel)
 	log.Println("Starting Flight Control restore preparation")
 	defer log.Println("Flight Control restore preparation completed")
-	log.Printf("Using config: %s", cfg)
 
-	tracerShutdown := tracing.InitTracer(log, cfg, "flightctl-restore")
-	defer func() {
-		if err := tracerShutdown(ctx); err != nil {
-			log.Fatalf("failed to shut down tracer: %v", err)
-		}
-	}()
+	// Bypass span check for restore operations
+	ctx = store.WithBypassSpanCheck(ctx)
 
 	log.Println("Initializing database connection for restore operations")
 	db, err := store.InitDB(cfg, log)
