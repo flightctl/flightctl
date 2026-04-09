@@ -16,12 +16,14 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
 
       - name: Checkout base branch for comparison
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
         run: |
           # TODO: checkout previously released version after 0.10 release
-          git fetch origin ${{ github.event.pull_request.base.ref }}
+          git fetch origin "${BASE_REF}"
           mkdir -p base-api/core/v1beta1 base-api/agent/v1beta1
-          git show origin/${{ github.event.pull_request.base.ref }}:api/core/v1beta1/openapi.yaml > base-api/core/v1beta1/openapi.yaml || true
-          git show origin/${{ github.event.pull_request.base.ref }}:api/agent/v1beta1/openapi.yaml > base-api/agent/v1beta1/openapi.yaml || true
+          git show "origin/${BASE_REF}:api/core/v1beta1/openapi.yaml" > base-api/core/v1beta1/openapi.yaml || true
+          git show "origin/${BASE_REF}:api/agent/v1beta1/openapi.yaml" > base-api/agent/v1beta1/openapi.yaml || true
 
       - name: Check if override label exists
         id: check_override
