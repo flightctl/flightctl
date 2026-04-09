@@ -29,7 +29,7 @@ require (
 	github.com/lestrrat-go/jwx/v2 v2.1.0
 	github.com/mackerelio/go-osstat v0.2.5
 	github.com/mohae/deepcopy v0.0.0-20170929034955-c48cc78d4826
-	github.com/oapi-codegen/nethttp-middleware v1.0.1
+	github.com/oapi-codegen/nethttp-middleware v1.1.2
 	github.com/oapi-codegen/runtime v1.1.2
 	github.com/onsi/ginkgo/v2 v2.21.0
 	github.com/onsi/gomega v1.35.1
