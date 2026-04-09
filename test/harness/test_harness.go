@@ -321,7 +321,10 @@ func (h *TestHarness) StopAgent() {
 
 func (h *TestHarness) StartAgent() {
 	agentLog := log.NewPrefixLogger("")
-	agentInstance := agent.New(agentLog, h.agentConfig, "")
+
+	// Use SafeExecuter in tests to prevent dangerous commands like systemctl reboot
+	safeExec := testutil.NewDefaultSafeExecuter()
+	agentInstance := agent.New(agentLog, h.agentConfig, "", agent.WithExecuter(safeExec))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	h.agentFinished = make(chan struct{})
