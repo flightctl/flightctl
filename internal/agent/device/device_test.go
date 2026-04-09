@@ -190,8 +190,8 @@ func TestSync(t *testing.T) {
 				// greenboot-healthcheck.service is not enabled (exit 1) — greenboot not installed
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "is-enabled", "greenboot-healthcheck.service").Return("not-found\n", "", 1).AnyTimes()
 
-				// Upgrade() should be called — greenboot is not installed, so boot is considered successful
-				mockSpecManager.EXPECT().Upgrade(gomock.Any()).Return(nil).AnyTimes()
+				// Upgrade() must be called — greenboot is not installed, so boot is considered successful
+				mockSpecManager.EXPECT().Upgrade(gomock.Any()).Return(nil).MinTimes(1)
 			},
 		},
 		{
