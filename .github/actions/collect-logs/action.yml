@@ -21,46 +21,50 @@ runs:
       shell: bash
       continue-on-error: true
       if: always()
+      env:
+        LOG_DIRECTORY: ${{ inputs.log-directory }}
+        NAMESPACE_EXTERNAL: ${{ inputs.namespace-external }}
+        NAMESPACE_INTERNAL: ${{ inputs.namespace-internal }}
       run: |
-        mkdir -p ${{ inputs.log-directory }}
+        mkdir -p "${LOG_DIRECTORY}"
         # Cleanup logs older than 7 days
-        find ${{ inputs.log-directory }} -type f -name "*.log" -mtime +7 -delete
+        find "${LOG_DIRECTORY}" -type f -name "*.log" -mtime +7 -delete
 
         timestamp=$(date +%Y%m%d_%H%M%S)
 
         log_files_collected=false
 
         echo "::group::Cluster resources"
-        kubectl get all,configmaps,secrets --all-namespaces 
+        kubectl get all,configmaps,secrets --all-namespaces
         echo "::endgroup::"
-        
+
         for deployment in flightctl-api flightctl-db flightctl-periodic flightctl-worker flightctl-alert-exporter flightctl-imagebuilder-api flightctl-kv; do
           echo "Collecting logs for $deployment..."
           namespace=""
           if [[ "$deployment" == "flightctl-api" || "$deployment" == "flightctl-imagebuilder-api" ]]; then
-            namespace="${{ inputs.namespace-external }}"
+            namespace="${NAMESPACE_EXTERNAL}"
           else
-            namespace="${{ inputs.namespace-internal }}"
+            namespace="${NAMESPACE_INTERNAL}"
           fi
-          if kubectl logs -n $namespace deployment/$deployment --all-containers=true \
-             > ${{ inputs.log-directory }}/${deployment}_${timestamp}.log; then
+          if kubectl logs -n "$namespace" "deployment/$deployment" --all-containers=true \
+             > "${LOG_DIRECTORY}/${deployment}_${timestamp}.log"; then
             log_files_collected=true
           else
             echo "Error collecting logs for $deployment"
           fi
         done
 
-        for job in $(kubectl get jobs -n ${{ inputs.namespace-internal }} -l app=flightctl-db-migration -o jsonpath='{.items[*].metadata.name}'); do
+        for job in $(kubectl get jobs -n "${NAMESPACE_INTERNAL}" -l app=flightctl-db-migration -o jsonpath='{.items[*].metadata.name}'); do
           echo "Collecting logs for job/$job..."
-          if kubectl logs "job/$job" -n ${{ inputs.namespace-internal }} --all-containers=true \
-              > ${{ inputs.log-directory }}/${job}_${timestamp}.log; then
+          if kubectl logs "job/$job" -n "${NAMESPACE_INTERNAL}" --all-containers=true \
+              > "${LOG_DIRECTORY}/${job}_${timestamp}.log"; then
             log_files_collected=true
           else
             echo "Error collecting logs for $job"
           fi
-        done 
-        
-        kubectl get all,configmaps,secrets --all-namespaces -o=yaml > ${{  inputs.log-directory }}/cluster_resources_${timestamp}.yaml
+        done
+
+        kubectl get all,configmaps,secrets --all-namespaces -o=yaml > "${LOG_DIRECTORY}/cluster_resources_${timestamp}.yaml"
 
         if [[ "$log_files_collected" == false ]]; then
           echo "No log files were collected."

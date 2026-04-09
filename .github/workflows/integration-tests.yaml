@@ -44,7 +44,7 @@ jobs:
         run: |
           set -euo pipefail
           # Get the current commit SHA for tagging
-          COMMIT_SHA="${{ github.sha }}"
+          COMMIT_SHA="${GITHUB_SHA}"
           echo "Building db-migrator image tagged with commit: ${COMMIT_SHA}"
 
           # Build the db-setup container with commit tag
@@ -70,6 +70,9 @@ jobs:
         id: detect_baseline
         env:
           GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          MERGE_GROUP_BASE_SHA: ${{ github.event.merge_group.base_sha }}
         run: |
           set -euo pipefail
           echo "Detecting baseline commit for compatibility testing..."
@@ -86,10 +89,10 @@ jobs:
             echo "Using latest release as baseline: ${BASELINE_REF}"
           else
             # Use the appropriate base depending on event type
-            if [ "${{ github.event_name }}" = "pull_request" ]; then
-              BASELINE_REF="${{ github.event.pull_request.base.sha }}"
+            if [ "${EVENT_NAME}" = "pull_request" ]; then
+              BASELINE_REF="${PR_BASE_SHA}"
             else
-              BASELINE_REF="${{ github.event.merge_group.base_sha }}"
+              BASELINE_REF="${MERGE_GROUP_BASE_SHA}"
             fi
             echo "Failed to detect latest release, falling back to base: ${BASELINE_REF}"
           fi
