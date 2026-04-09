@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -38,10 +39,9 @@ func podmanEventsCommandMock(execMock *executer.MockExecuter) *gomock.Call {
 }
 
 func TestListenForEvents(t *testing.T) {
-	require := require.New(t)
 	testCases := []struct {
 		name             string
-		apps             []Application
+		appNames         []string
 		expectedReady    string
 		expectedRestarts int
 		expectedStatus   v1beta1.ApplicationStatusType
@@ -49,10 +49,8 @@ func TestListenForEvents(t *testing.T) {
 		events           []client.PodmanEvent
 	}{
 		{
-			name: "single app start",
-			apps: []Application{
-				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
-			},
+			name:     "single app start",
+			appNames: []string{"app1"},
 			events: []client.PodmanEvent{
 				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "init"),
 				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "create"),
@@ -64,10 +62,8 @@ func TestListenForEvents(t *testing.T) {
 			expectedRestarts: 0,
 		},
 		{
-			name: "single app multiple containers started then one manual stop exit code 0",
-			apps: []Application{
-				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
-			},
+			name:     "single app multiple containers started then one manual stop exit code 0",
+			appNames: []string{"app1"},
 			events: []client.PodmanEvent{
 				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "init"),
 				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "create"),
@@ -82,10 +78,8 @@ func TestListenForEvents(t *testing.T) {
 			expectedSummary: v1beta1.ApplicationsSummaryStatusDegraded,
 		},
 		{
-			name: "single app multiple containers started then one manual stop result sigkill",
-			apps: []Application{
-				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
-			},
+			name:     "single app multiple containers started then one manual stop result sigkill",
+			appNames: []string{"app1"},
 			events: []client.PodmanEvent{
 				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "init"),
 				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "create"),
@@ -100,10 +94,8 @@ func TestListenForEvents(t *testing.T) {
 			expectedSummary: v1beta1.ApplicationsSummaryStatusDegraded,
 		},
 		{
-			name: "single app start then die",
-			apps: []Application{
-				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
-			},
+			name:     "single app start then die",
+			appNames: []string{"app1"},
 			events: []client.PodmanEvent{
 				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "init"),
 				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "create"),
@@ -115,10 +107,8 @@ func TestListenForEvents(t *testing.T) {
 			expectedSummary: v1beta1.ApplicationsSummaryStatusError,
 		},
 		{
-			name: "single app multiple containers one error one running",
-			apps: []Application{
-				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
-			},
+			name:     "single app multiple containers one error one running",
+			appNames: []string{"app1"},
 			events: []client.PodmanEvent{
 				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "init"),
 				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "create"),
@@ -133,11 +123,8 @@ func TestListenForEvents(t *testing.T) {
 			expectedSummary: v1beta1.ApplicationsSummaryStatusDegraded,
 		},
 		{
-			name: "multiple apps preparing to running",
-			apps: []Application{
-				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
-				createTestApplication(require, "app2", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
-			},
+			name:     "multiple apps preparing to running",
+			appNames: []string{"app1", "app2"},
 			events: []client.PodmanEvent{
 				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "init"),
 				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "create"),
@@ -151,10 +138,8 @@ func TestListenForEvents(t *testing.T) {
 			expectedSummary: v1beta1.ApplicationsSummaryStatusHealthy,
 		},
 		{
-			name: "app start then removed",
-			apps: []Application{
-				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
-			},
+			name:     "app start then removed",
+			appNames: []string{"app1"},
 			events: []client.PodmanEvent{
 				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "init"),
 				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "create"),
@@ -166,10 +151,8 @@ func TestListenForEvents(t *testing.T) {
 			expectedSummary: v1beta1.ApplicationsSummaryStatusUnknown,
 		},
 		{
-			name: "app upgrade different service/container counts",
-			apps: []Application{
-				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
-			},
+			name:     "app upgrade different service/container counts",
+			appNames: []string{"app1"},
 			events: []client.PodmanEvent{
 				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "init"),
 				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "create"),
@@ -188,10 +171,8 @@ func TestListenForEvents(t *testing.T) {
 			expectedSummary: v1beta1.ApplicationsSummaryStatusHealthy,
 		},
 		{
-			name: "app only creates container no start",
-			apps: []Application{
-				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername),
-			},
+			name:     "app only creates container no start",
+			appNames: []string{"app1"},
 			events: []client.PodmanEvent{
 				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "init"),
 				mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "create"),
@@ -205,6 +186,7 @@ func TestListenForEvents(t *testing.T) {
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
 			ctrl := gomock.NewController(t)
 			defer ctrl.Finish()
 
@@ -233,7 +215,17 @@ func TestListenForEvents(t *testing.T) {
 			defer reader.Close()
 			defer writer.Close()
 
-			execMock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return(string(inspectBytes), "", 0).Times(len(tc.events))
+			// testify v1.11 changed Eventually to check the condition immediately
+			// rather than waiting for the first tick. This causes false positives
+			// when initial state matches expected final state (e.g. "app start
+			// then removed" where 0 workloads = Unknown before and after events).
+			// Track inspect calls to ensure all events are processed first.
+			var inspectCount atomic.Int32
+			execMock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).
+				DoAndReturn(func(_ context.Context, _ string, _ ...string) (string, string, int) {
+					inspectCount.Add(1)
+					return string(inspectBytes), "", 0
+				}).Times(len(tc.events))
 			podmanEventsCommandMock(execMock).Return(streamDataToStdout(t, reader))
 
 			podman := client.NewPodman(log, execMock, rw, util.NewPollConfig())
@@ -255,15 +247,18 @@ func TestListenForEvents(t *testing.T) {
 			podmanMonitor.handlers[v1beta1.AppTypeCompose] = mockComposeHandler
 			podmanMonitor.handlers[v1beta1.AppTypeQuadlet] = mockQuadletHandler
 
-			// add test apps to the monitor
-			for _, testApp := range tc.apps {
+			apps := make([]Application, 0, len(tc.appNames))
+			for _, name := range tc.appNames {
+				apps = append(apps, createTestApplication(require, name, v1beta1.ApplicationStatusPreparing, v1beta1.CurrentProcessUsername))
+			}
+
+			for _, testApp := range apps {
 				err := podmanMonitor.Ensure(t.Context(), testApp)
 				require.NoError(err)
 			}
 			err = podmanMonitor.ExecuteActions(t.Context())
 			require.NoError(err)
 
-			// simulate events being written to the pipe
 			go func() {
 				for i := range tc.events {
 					event := tc.events[i]
@@ -275,8 +270,11 @@ func TestListenForEvents(t *testing.T) {
 
 			timeoutDuration := 5 * time.Second
 			retryDuration := 100 * time.Millisecond
-			for _, testApp := range tc.apps {
+			for _, testApp := range apps {
 				require.Eventually(func() bool {
+					if inspectCount.Load() < int32(len(tc.events)) {
+						return false
+					}
 					podmanMonitor.mu.Lock()
 					app, exists := podmanMonitor.apps[testApp.ID()]
 					if !exists {
