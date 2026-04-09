@@ -48,6 +48,7 @@ flightctl is the CLI for controlling the Flight Control service.
 Summary: Flight Control management agent
 
 Requires: flightctl-selinux = %{version}
+Requires: greenboot
 Requires: jq
 Requires: sudo
 
