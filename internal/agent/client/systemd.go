@@ -136,6 +136,22 @@ func (s *Systemd) IsActive(ctx context.Context, name string) (bool, error) {
 	return false, fmt.Errorf("is-active systemd unit %s: %w", name, errors.FromStderr(stderr, exitCode))
 }
 
+// IsEnabled checks if a systemd unit is enabled (will start on boot).
+// Returns true for enabled, enabled-runtime, static, indirect, and generated states.
+// Returns false for disabled, masked, and not-found states.
+func (s *Systemd) IsEnabled(ctx context.Context, name string) (bool, error) {
+	command, args := s.createArgs("is-enabled", name)
+	_, stderr, exitCode := s.exec.ExecuteWithContext(ctx, command, args...)
+	if exitCode == 0 {
+		return true, nil
+	}
+	// Exit code 1 means disabled, masked, or not-found — not an error
+	if exitCode == 1 {
+		return false, nil
+	}
+	return false, fmt.Errorf("is-enabled systemd unit %s: %w", name, errors.FromStderr(stderr, exitCode))
+}
+
 func (s *Systemd) DaemonReload(ctx context.Context) error {
 	command, args := s.createArgs("daemon-reload")
 	_, stderr, exitCode := s.exec.ExecuteWithContext(ctx, command, args...)
