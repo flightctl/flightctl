@@ -10,9 +10,8 @@ Image={{ .DbSetup.Image }}:{{ .DbSetup.Tag }}
 Network=flightctl.network
 AddHost=%H:host-gateway
 AutoUpdate=none
-Environment=DB_MIGRATION_USER=flightctl_migrator
-Secret=flightctl-postgresql-migrator-password,type=env,target=DB_PASSWORD
-Secret=flightctl-postgresql-migrator-password,type=env,target=DB_MIGRATION_PASSWORD
+Secret=flightctl-postgresql-migrator-password,type=mount,target=/run/secrets/db/userPassword
+Secret=flightctl-postgresql-migrator-password,type=mount,target=/run/secrets/db-migration/migrationPassword
 Volume=/etc/flightctl/flightctl-db-migrate/config.yaml:/root/.flightctl/config.yaml:ro,z
 Volume=/etc/flightctl/pki/db:/root/.flightctl/certs/db:ro,z
 Exec=/usr/local/bin/flightctl-db-migrate

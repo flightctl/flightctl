@@ -11,9 +11,8 @@ Pull=missing
 Network=flightctl.network
 AddHost=%H:host-gateway
 Environment=HOME=/root
-Secret=flightctl-postgresql-user-password,type=env,target=DB_PASSWORD
-Secret=flightctl-kv-password,type=env,target=KV_PASSWORD
-Environment=DB_USER=flightctl_app
+Secret=flightctl-postgresql-user-password,type=mount,target=/run/secrets/db/userPassword
+Secret=flightctl-kv-password,type=mount,target=/run/secrets/kv/password
 PublishPort=8445:8445
 Volume=/etc/flightctl/flightctl-imagebuilder-api/config.yaml:/root/.flightctl/config.yaml:ro,z
 Volume=/etc/flightctl/pki/flightctl-imagebuilder-api/server.crt:/root/.flightctl/certs/server.crt:ro,z

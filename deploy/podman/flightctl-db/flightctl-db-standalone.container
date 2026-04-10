@@ -8,12 +8,15 @@ Image=quay.io/sclorg/postgresql-16-c9s:20250214
 Pull=missing
 PublishPort=5432:5432
 Volume=flightctl-db:/var/lib/pgsql/data:Z
-Secret=flightctl-postgresql-password,type=env,target=PGPASSWORD
-Secret=flightctl-postgresql-master-password,type=env,target=POSTGRESQL_MASTER_PASSWORD
-Secret=flightctl-postgresql-user-password,type=env,target=POSTGRESQL_PASSWORD
-# Note: Migrator password removed to prevent credential leakage - migrator user creation
-# is now handled by the migration service which has its own credentials
+Secret=flightctl-postgresql-password,type=mount,target=/run/secrets/db-admin/pgpassword
+Secret=flightctl-postgresql-master-password,type=mount,target=/run/secrets/db-admin/masterPassword
+Secret=flightctl-postgresql-user-password,type=mount,target=/run/secrets/db/userPassword
 Volume=/usr/share/flightctl/flightctl-db/enable-superuser.sh:/usr/share/container-scripts/postgresql/start/enable-superuser.sh
+Exec=/bin/sh -ec '\
+  PGPASSWORD="$$(cat /run/secrets/db-admin/pgpassword)" \
+  POSTGRESQL_MASTER_PASSWORD="$$(cat /run/secrets/db-admin/masterPassword)" \
+  POSTGRESQL_PASSWORD="$$(cat /run/secrets/db/userPassword)" \
+  exec run-postgresql'
 
 [Service]
 Restart=always

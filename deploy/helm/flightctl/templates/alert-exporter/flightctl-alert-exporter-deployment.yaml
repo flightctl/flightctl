@@ -40,21 +40,6 @@ spec:
           env:
             - name: HOME
               value: "/root"
-            - name: KV_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ default "flightctl-kv-secret" .Values.kv.passwordSecretName }}
-                  key: password
-            - name: DB_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "flightctl.dbAppUserSecret" . }}
-                  key: userPassword
-            - name: DB_USER
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "flightctl.dbAppUserSecret" . }}
-                  key: user
             {{- if eq .Values.db.type "external" }}
             {{- if .Values.db.external.sslmode }}
             - name: DB_SSL_MODE
@@ -78,6 +63,8 @@ spec:
             {{- end }}
             {{- end }}
           volumeMounts:
+            {{- include "flightctl.kvSecretVolumeMount" . | nindent 12 }}
+            {{- include "flightctl.dbAppSecretVolumeMount" . | nindent 12 }}
             - mountPath: /root/.flightctl
               name: flightctl-alert-exporter-config
               readOnly: true
@@ -100,6 +87,8 @@ spec:
 
       restartPolicy: Always
       volumes:
+        {{- include "flightctl.kvSecretVolume" . | nindent 8 }}
+        {{- include "flightctl.dbAppSecretVolume" . | nindent 8 }}
         - name: flightctl-alert-exporter-config
           configMap:
             name: flightctl-alert-exporter-config

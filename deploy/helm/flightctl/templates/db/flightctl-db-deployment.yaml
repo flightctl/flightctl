@@ -32,35 +32,27 @@ spec:
         - env:
             - name: POSTGRESQL_DATABASE
               value: {{ required "Values.db.name is required" $.Values.db.name }}
-            - name: POSTGRESQL_MASTER_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ default "flightctl-db-admin-secret" .Values.db.builtin.masterUserSecretName }}
-                  key: masterPassword
-            - name: POSTGRESQL_MASTER_USER
-              valueFrom:
-                secretKeyRef:
-                  name: {{ default "flightctl-db-admin-secret" .Values.db.builtin.masterUserSecretName }}
-                  key: masterUser
-            - name: POSTGRESQL_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "flightctl.dbAppUserSecret" . }}
-                  key: userPassword
-            - name: POSTGRESQL_USER
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "flightctl.dbAppUserSecret" . }}
-                  key: user
             - name: POSTGRESQL_MAX_CONNECTIONS
               value: {{ .Values.db.builtin.maxConnections | quote }}
           image: {{ .Values.db.builtin.image.image }}:{{ .Values.db.builtin.image.tag }}
           imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.db.builtin.image.pullPolicy }}
           name: flightctl-db
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              POSTGRESQL_MASTER_USER="$(cat /run/secrets/db-admin/masterUser)" \
+              POSTGRESQL_MASTER_PASSWORD="$(cat /run/secrets/db-admin/masterPassword)" \
+              POSTGRESQL_USER="$(cat /run/secrets/db/user)" \
+              POSTGRESQL_PASSWORD="$(cat /run/secrets/db/userPassword)" \
+              exec run-postgresql
           ports:
             - containerPort: 5432
               protocol: TCP
           volumeMounts:
+            {{- include "flightctl.dbAdminSecretVolumeMount" . | nindent 12 }}
+            {{- include "flightctl.dbAppSecretVolumeMount" . | nindent 12 }}
             - mountPath: /var/lib/pgsql/data
               name: flightctl-db
             - mountPath: /usr/share/container-scripts/postgresql/start/enable-superuser.sh
@@ -72,6 +64,8 @@ spec:
               memory: {{ .Values.db.builtin.resources.requests.memory}}
       restartPolicy: Always
       volumes:
+        {{- include "flightctl.dbAdminSecretVolume" . | nindent 8 }}
+        {{- include "flightctl.dbAppSecretVolume" . | nindent 8 }}
         - name: flightctl-db
           persistentVolumeClaim:
             claimName: flightctl-db

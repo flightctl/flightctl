@@ -61,21 +61,20 @@ spec:
           ports:
             - name: kv
               containerPort: 6379
-          env:
-            - name: REDIS_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ default "flightctl-kv-secret" .Values.kv.passwordSecretName }}
-                  key: password
           command:
-            - "redis-server"
-            - "/etc/redis/redis.conf"
-            - "--requirepass"
-            - "$(REDIS_PASSWORD)"
+            - /bin/sh
+            - -c
+            - |
+              printf 'requirepass ' > /run/redis/auth.conf
+              cat /run/secrets/kv/password >> /run/redis/auth.conf
+              exec redis-server /etc/redis/redis.conf --include /run/redis/auth.conf
           volumeMounts:
+            {{- include "flightctl.kvSecretVolumeMount" . | nindent 12 }}
             - name: flightctl-kv-config
               mountPath: /etc/redis/redis.conf
               subPath: redis.conf
+            - name: kv-runtime
+              mountPath: /run/redis
           resources:
             requests:
               cpu: "1000m"
@@ -87,7 +86,12 @@ spec:
             tcpSocket: { port: 6379 }
             periodSeconds: 10
       volumes:
+        {{- include "flightctl.kvSecretVolume" . | nindent 8 }}
         - name: flightctl-kv-config
           configMap:
             name: flightctl-kv-config
             defaultMode: 0644
+        - name: kv-runtime
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Mi

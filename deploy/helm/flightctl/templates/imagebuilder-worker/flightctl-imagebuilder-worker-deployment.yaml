@@ -35,22 +35,9 @@ spec:
           env:
             - name: HOME
               value: "/root"
-            - name: KV_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ default "flightctl-kv-secret" .Values.kv.passwordSecretName }}
-                  key: password
-            - name: DB_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "flightctl.dbAppUserSecret" . }}
-                  key: userPassword
-            - name: DB_USER
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "flightctl.dbAppUserSecret" . }}
-                  key: user
           volumeMounts:
+            {{- include "flightctl.kvSecretVolumeMount" . | nindent 12 }}
+            {{- include "flightctl.dbAppSecretVolumeMount" . | nindent 12 }}
             - mountPath: /root/.flightctl/config.yaml
               name: flightctl-imagebuilder-worker-config
               subPath: config.yaml
@@ -128,6 +115,8 @@ spec:
 
       restartPolicy: Always
       volumes:
+        {{- include "flightctl.kvSecretVolume" . | nindent 8 }}
+        {{- include "flightctl.dbAppSecretVolume" . | nindent 8 }}
         - name: flightctl-imagebuilder-worker-config
           configMap:
             name: flightctl-imagebuilder-worker-config

@@ -1,91 +1,100 @@
 -- Flight Control Database User Setup Script
 -- This script creates the database users with appropriate permissions for production deployments
--- Environment variables that must be set before running:
---   ${DB_NAME} - Database name (default: flightctl)
---   ${DB_MIGRATION_USER} - Migration user name (default: flightctl_migrator)
---   ${DB_MIGRATION_PASSWORD} - Migration user password
---   ${DB_APP_USER} - Application user name (default: flightctl_app)
---   ${DB_APP_PASSWORD} - Application user password
+--
+-- Required psql variables:
+--   db_name            - Database name (e.g. flightctl)                  [pass via -v]
+--   migration_user     - Migration user name (e.g. flightctl_migrator)   [pass via -v]
+--   migration_password - Migration user password                         [set via \set in stdin]
+--   app_user           - Application user name (e.g. flightctl_app)      [pass via -v]
+--   app_password       - Application user password                       [set via \set in stdin]
+--
+-- Passwords are piped through stdin as \set commands by the calling script
+-- (setup_database_users.sh) so they never appear in process arguments.
 
 -- Create users using simple SQL (will ignore errors if they already exist)
 \set ON_ERROR_STOP off
 
 -- Create the migration user with full privileges for schema changes
-CREATE USER "${DB_MIGRATION_USER}" WITH PASSWORD $$${DB_MIGRATION_PASSWORD}$$;
+CREATE USER :"migration_user" WITH PASSWORD :'migration_password';
 
 -- Create the application user with limited privileges
-CREATE USER "${DB_APP_USER}" WITH PASSWORD $$${DB_APP_PASSWORD}$$;
+CREATE USER :"app_user" WITH PASSWORD :'app_password';
 
 -- Ensure existing users get their passwords updated for true idempotency
-ALTER USER "${DB_MIGRATION_USER}" WITH PASSWORD $$${DB_MIGRATION_PASSWORD}$$;
-ALTER USER "${DB_APP_USER}" WITH PASSWORD $$${DB_APP_PASSWORD}$$;
+ALTER USER :"migration_user" WITH PASSWORD :'migration_password';
+ALTER USER :"app_user" WITH PASSWORD :'app_password';
 
 \set ON_ERROR_STOP on
 
 -- Grant database connection privileges
-GRANT CONNECT ON DATABASE "${DB_NAME}" TO "${DB_MIGRATION_USER}";
-GRANT CONNECT ON DATABASE "${DB_NAME}" TO "${DB_APP_USER}";
+GRANT CONNECT ON DATABASE :"db_name" TO :"migration_user";
+GRANT CONNECT ON DATABASE :"db_name" TO :"app_user";
 
 -- Grant schema usage privileges
-GRANT USAGE ON SCHEMA public TO "${DB_MIGRATION_USER}";
-GRANT USAGE ON SCHEMA public TO "${DB_APP_USER}";
+GRANT USAGE ON SCHEMA public TO :"migration_user";
+GRANT USAGE ON SCHEMA public TO :"app_user";
 
 -- Grant migration user privileges for schema migrations
 -- Following the principle of least privilege, these are the specific privileges needed:
 -- 1. CREATE on schema - for creating tables, indexes, sequences, functions, and triggers
 -- 2. CREATE on database - for creating additional schemas if needed
-GRANT CREATE ON SCHEMA public TO "${DB_MIGRATION_USER}";
-GRANT CREATE ON DATABASE "${DB_NAME}" TO "${DB_MIGRATION_USER}";
+GRANT CREATE ON SCHEMA public TO :"migration_user";
+GRANT CREATE ON DATABASE :"db_name" TO :"migration_user";
 
 -- Grant additional privileges needed for schema and post-migration operations
-GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO "${DB_MIGRATION_USER}";
-GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO "${DB_MIGRATION_USER}";
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO :"migration_user";
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO :"migration_user";
 
 -- Grant migration user data-plane permissions WITH GRANT OPTION
 -- This allows the migrator to grant these permissions to the application user
 -- after running migrations, enabling support for external databases without admin access
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public
-    TO "${DB_MIGRATION_USER}" WITH GRANT OPTION;
+    TO :"migration_user" WITH GRANT OPTION;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public
-    TO "${DB_MIGRATION_USER}" WITH GRANT OPTION;
+    TO :"migration_user" WITH GRANT OPTION;
 
 -- Ensure future tables also get WITH GRANT OPTION for migrator
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
-    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO "${DB_MIGRATION_USER}" WITH GRANT OPTION;
+    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO :"migration_user" WITH GRANT OPTION;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
-    GRANT USAGE, SELECT ON SEQUENCES TO "${DB_MIGRATION_USER}" WITH GRANT OPTION;
+    GRANT USAGE, SELECT ON SEQUENCES TO :"migration_user" WITH GRANT OPTION;
 
 -- Grant application user limited privileges for data operations
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO "${DB_APP_USER}";
-GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO "${DB_APP_USER}";
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO :"app_user";
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO :"app_user";
 
 -- Ensure future tables inherit the same permissions
-ALTER DEFAULT PRIVILEGES FOR ROLE "${DB_APP_USER}" IN SCHEMA public
-  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO "${DB_APP_USER}";
-ALTER DEFAULT PRIVILEGES FOR ROLE "${DB_APP_USER}" IN SCHEMA public
-  GRANT USAGE, SELECT ON SEQUENCES TO "${DB_APP_USER}";
+ALTER DEFAULT PRIVILEGES FOR ROLE :"app_user" IN SCHEMA public
+  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO :"app_user";
+ALTER DEFAULT PRIVILEGES FOR ROLE :"app_user" IN SCHEMA public
+  GRANT USAGE, SELECT ON SEQUENCES TO :"app_user";
 
+-- Persist app user name as a database-level GUC so that the event trigger
+-- function can resolve it in future sessions without envsubst.
+ALTER DATABASE :"db_name" SET flightctl.app_user = :'app_user';
+SET flightctl.app_user = :'app_user';
 
 -- Create function to grant permissions on existing tables (for post-migration)
 CREATE OR REPLACE FUNCTION grant_app_permissions_on_existing_tables()
-RETURNS void AS '
+RETURNS void AS $$
+DECLARE
+    v_app_user text := current_setting('flightctl.app_user');
 BEGIN
-    -- Grant table permissions
-    EXECUTE format(''GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO %I'', ''${DB_APP_USER}'');
-    -- Grant sequence permissions
-    EXECUTE format(''GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO %I'', ''${DB_APP_USER}'');
+    EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO %I', v_app_user);
+    EXECUTE format('GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO %I', v_app_user);
 END;
-' LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql;
 
 -- Create event trigger function for automatic permission granting
 CREATE OR REPLACE FUNCTION grant_app_permissions()
-RETURNS event_trigger AS '
+RETURNS event_trigger AS $$
+DECLARE
+    v_app_user text := current_setting('flightctl.app_user');
 BEGIN
-    -- Grant permissions on newly created tables/sequences
-    EXECUTE format(''GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO %I'', ''${DB_APP_USER}'');
-    EXECUTE format(''GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO %I'', ''${DB_APP_USER}'');
+    EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO %I', v_app_user);
+    EXECUTE format('GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO %I', v_app_user);
 END;
-' LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql;
 
 -- Drop existing trigger if it exists, then create new one
 DROP EVENT TRIGGER IF EXISTS grant_app_permissions_trigger;
@@ -97,5 +106,5 @@ CREATE EVENT TRIGGER grant_app_permissions_trigger
 -- Display created users
 SELECT rolname, rolsuper, rolcreaterole, rolcreatedb, rolcanlogin
 FROM pg_roles
-WHERE rolname IN ('${DB_MIGRATION_USER}', '${DB_APP_USER}')
+WHERE rolname IN (:'migration_user', :'app_user')
 ORDER BY rolname;

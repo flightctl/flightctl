@@ -11,10 +11,15 @@ Pull=missing
 Network=flightctl.network
 AddHost=%H:host-gateway
 Volume=flightctl-db:/var/lib/pgsql/data:Z
-Secret=flightctl-postgresql-password,type=env,target=PGPASSWORD
-Secret=flightctl-postgresql-master-password,type=env,target=POSTGRESQL_MASTER_PASSWORD
-Secret=flightctl-postgresql-user-password,type=env,target=POSTGRESQL_PASSWORD
+Secret=flightctl-postgresql-password,type=mount,target=/run/secrets/db-admin/pgpassword
+Secret=flightctl-postgresql-master-password,type=mount,target=/run/secrets/db-admin/masterPassword
+Secret=flightctl-postgresql-user-password,type=mount,target=/run/secrets/db/userPassword
 Volume=/usr/share/flightctl/flightctl-db/enable-superuser.sh:/usr/share/container-scripts/postgresql/start/enable-superuser.sh
+Exec=/bin/sh -ec '\
+  PGPASSWORD="$$(cat /run/secrets/db-admin/pgpassword)" \
+  POSTGRESQL_MASTER_PASSWORD="$$(cat /run/secrets/db-admin/masterPassword)" \
+  POSTGRESQL_PASSWORD="$$(cat /run/secrets/db/userPassword)" \
+  exec run-postgresql'
 
 [Service]
 ExecStartPre=/usr/share/flightctl/init_db.sh

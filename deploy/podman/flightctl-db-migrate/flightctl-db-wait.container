@@ -11,7 +11,7 @@ Network=flightctl.network
 AutoUpdate=none
 Environment=DB_USER=flightctl_app
 Environment=SERVICE_CONFIG_PATH=/etc/flightctl/config.yaml
-Secret=flightctl-postgresql-user-password,type=env,target=DB_PASSWORD
+Secret=flightctl-postgresql-user-password,type=mount,target=/run/secrets/db/userPassword
 Volume=/etc/flightctl/flightctl-db-migrate/config.yaml:/etc/flightctl/config.yaml:ro,z
 Volume=/etc/flightctl/pki/db:/root/.flightctl/certs/db:ro,z
 Exec=/app/deploy/scripts/wait-for-database.sh --timeout=60 --sleep=1

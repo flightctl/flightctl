@@ -2,16 +2,27 @@
 set -euo pipefail
 
 # Waits until a PostgreSQL database is ready for connections.
-# Uses DB_* env vars (mapped to PG* internally) and optional flags: --timeout, --sleep, --connection-timeout.
+# Reads credentials from mounted secret files at /run/secrets/db/ and optional flags: --timeout, --sleep, --connection-timeout.
 # Optionally reads database configuration from a YAML file specified by SERVICE_CONFIG_PATH.
-# Environment variables override values from the YAML file.
 
-# Set default values for DB_* variables
+# read_secret_file reads a secret from a file, returning the trimmed contents.
+# Usage: value=$(read_secret_file /path/to/file)
+read_secret_file() {
+    local file="$1"
+    if [ -f "$file" ]; then
+        tr -d '\n\r' < "$file"
+    fi
+}
+
+# Set default values for DB_* variables, preferring mounted secret files.
+# DB_USER_FILE / DB_PASSWORD_FILE point to the correct secret path for the user type.
+: "${DB_USER_FILE:=/run/secrets/db/user}"
+: "${DB_PASSWORD_FILE:=/run/secrets/db/userPassword}"
 : "${DB_HOST:=}"
 : "${DB_PORT:=}"
 : "${DB_NAME:=}"
-: "${DB_USER:=}"
-: "${DB_PASSWORD:=}"
+: "${DB_USER:=$(read_secret_file "$DB_USER_FILE")}"
+: "${DB_PASSWORD:=$(read_secret_file "$DB_PASSWORD_FILE")}"
 : "${DB_SSL_MODE:=}"
 : "${DB_SSL_CERT:=}"
 : "${DB_SSL_KEY:=}"
@@ -40,15 +51,16 @@ while [[ $# -gt 0 ]]; do
             echo "  --sleep=SECONDS         Sleep interval between attempts (default: 2)"
             echo "  --connection-timeout=SECONDS  Connection timeout per attempt (default: 3)"
             echo ""
-            echo "Environment variables:"
-            echo "  DB_USER, DB_PASSWORD - Database connection details (required)"
+            echo "Credentials (read from mounted secret files):"
+            echo "  DB_USER_FILE - Path to file containing DB username (default: /run/secrets/db/user)"
+            echo "  DB_PASSWORD_FILE - Path to file containing DB password (default: /run/secrets/db/userPassword)"
+            echo ""
+            echo "Configuration:"
             echo "  DB_HOST - Database hostname (optional, default: flightctl-db)"
             echo "  DB_PORT - Database port (optional, default: 5432)"
             echo "  DB_NAME - Database name (optional, default: flightctl)"
             echo "  DB_SSL_MODE, DB_SSL_CERT, DB_SSL_KEY, DB_SSL_ROOT_CERT - SSL configuration (optional)"
             echo "  SERVICE_CONFIG_PATH - Path to service config YAML file (optional)"
-            echo ""
-            echo "Note: Environment variables override values from the service config file."
             exit 0 ;;
         --*) echo "Unknown option $1" >&2; echo "Use --help for usage information" >&2; exit 1 ;;
         *) echo "Unknown argument: $1" >&2; echo "Use --help for usage information" >&2; exit 1 ;;
@@ -109,9 +121,9 @@ if [ -n "${SERVICE_CONFIG_PATH:-}" ]; then
 fi
 
 
-# Validate required DB_* environment variables
-: "${DB_USER:?DB_USER environment variable must be set}"
-: "${DB_PASSWORD:?DB_PASSWORD environment variable must be set}"
+# Validate required credentials
+: "${DB_USER:?DB_USER must be set (check DB_USER_FILE=${DB_USER_FILE} is mounted or set via SERVICE_CONFIG_PATH)}"
+: "${DB_PASSWORD:?DB_PASSWORD must be set (check DB_PASSWORD_FILE=${DB_PASSWORD_FILE} is mounted)}"
 
 # Log connection details
 echo "Waiting for PostgreSQL database to be ready..."
