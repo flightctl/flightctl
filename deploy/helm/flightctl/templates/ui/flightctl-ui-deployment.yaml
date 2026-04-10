@@ -27,6 +27,8 @@ spec:
       imagePullSecrets:
         - name: {{ .Values.global.imagePullSecretName }}
       {{- end }}
+      initContainers:
+      {{- include "flightctl.apiWaitInitContainer" (dict "context" .) | nindent 6 }}
       containers:
         - env:
           - name: API_PORT
