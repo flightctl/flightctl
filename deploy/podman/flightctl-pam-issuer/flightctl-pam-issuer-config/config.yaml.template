@@ -39,6 +39,7 @@ auth:
 {{- end}}
 {{- else}}
       - https://{{.global.baseDomain}}:443/callback
+      - https://{{.global.baseDomain}}/callback
       - http://localhost:8080/callback
 {{- end}}
     pamService: {{if .global.auth.pamOidcIssuer.pamService}}{{.global.auth.pamOidcIssuer.pamService}}{{else}}flightctl{{end}}
