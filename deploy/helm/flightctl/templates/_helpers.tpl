@@ -486,6 +486,51 @@ Parameters:
     done
 {{- end }}
 
+{{/*
+API wait init container template.
+Waits for the flightctl-api service to respond on its readiness endpoint before starting the main container.
+Usage: {{- include "flightctl.apiWaitInitContainer" (dict "context" .) | nindent 6 }}
+Parameters:
+- context: The root template context (.)
+- timeout: Optional timeout in seconds (default: 300)
+*/}}
+{{- define "flightctl.apiWaitInitContainer" }}
+{{- $ctx := .context }}
+{{- $timeout := .timeout | default 300 | int }}
+- name: wait-for-api
+  image: "{{ $ctx.Values.clusterCli.image.image }}:{{ $ctx.Values.clusterCli.image.tag }}"
+  imagePullPolicy: {{ default $ctx.Values.global.imagePullPolicy $ctx.Values.clusterCli.image.pullPolicy }}
+  command:
+  - /bin/bash
+  - -c
+  - |
+    set -euo pipefail
+
+    API_URL="https://flightctl-api.{{ $ctx.Release.Namespace }}.svc:3443/readyz"
+    TIMEOUT={{ $timeout }}
+
+    echo "Waiting for API at $API_URL (timeout ${TIMEOUT}s)"
+    start=$(date +%s)
+
+    while true; do
+      elapsed=$(( $(date +%s) - start ))
+
+      if [ $elapsed -ge $TIMEOUT ]; then
+        echo "Timeout waiting for API after ${TIMEOUT}s"
+        exit 1
+      fi
+
+      HTTP_CODE=$(curl -sk --max-time 5 -o /dev/null -w "%{http_code}" "$API_URL" || true)
+      if [ "$HTTP_CODE" = "200" ]; then
+        echo "API is ready"
+        exit 0
+      fi
+
+      echo "API not ready yet (HTTP $HTTP_CODE, ${elapsed}s elapsed), retrying in 5s..."
+      sleep 5
+    done
+{{- end }}
+
 {{- /*
 SSL certificate volume mounts for database connections.
 Usage: {{- include "flightctl.dbSslVolumeMounts" . | nindent X }}
