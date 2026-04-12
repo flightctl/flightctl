@@ -271,3 +271,104 @@ image-pruning:
 	require.NotNil(cfg.ImagePruning.Enabled, "Enabled should not be nil when dropin enables pruning")
 	require.True(*cfg.ImagePruning.Enabled, "pruning dropin should override config setting")
 }
+
+func TestLoadWithOverrides_InvalidDropinIsSkipped(t *testing.T) {
+	require := require.New(t)
+	tmpDir := t.TempDir()
+	configDir := filepath.Join(tmpDir, "etc", "flightctl")
+	dataDir := filepath.Join(tmpDir, "var", "lib", "flightctl")
+
+	require.NoError(os.MkdirAll(configDir, 0o755))
+	require.NoError(os.MkdirAll(dataDir, 0o755))
+
+	cfg := NewDefault()
+	cfg.ConfigDir = configDir
+	cfg.DataDir = dataDir
+	cfg.readWriter = fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter())
+
+	configFile := filepath.Join(configDir, "config.yaml")
+	require.NoError(os.WriteFile(configFile, []byte(yamlConfig), 0o600))
+
+	dropinDir := filepath.Join(configDir, "conf.d")
+	require.NoError(os.MkdirAll(dropinDir, 0o755))
+
+	// Invalid YAML dropin (tab character breaks YAML parsing)
+	require.NoError(os.WriteFile(
+		filepath.Join(dropinDir, "01-bad.yaml"),
+		[]byte("image-pruning:\n\t enabled: true\n"),
+		0o600,
+	))
+
+	// Valid dropin applied after the invalid one
+	require.NoError(os.WriteFile(
+		filepath.Join(dropinDir, "02-good.yaml"),
+		[]byte("log-level: debug\n"),
+		0o600,
+	))
+
+	err := cfg.LoadWithOverrides(configFile)
+	require.NoError(err, "invalid dropin should be skipped, not cause an error")
+
+	// Valid dropin should still be applied
+	require.Equal("debug", cfg.LogLevel, "valid dropin after invalid one should still be applied")
+}
+
+func TestLoadWithOverrides_InvalidBaseConfigStillFails(t *testing.T) {
+	require := require.New(t)
+	tmpDir := t.TempDir()
+	configDir := filepath.Join(tmpDir, "etc", "flightctl")
+	dataDir := filepath.Join(tmpDir, "var", "lib", "flightctl")
+
+	require.NoError(os.MkdirAll(configDir, 0o755))
+	require.NoError(os.MkdirAll(dataDir, 0o755))
+
+	cfg := NewDefault()
+	cfg.ConfigDir = configDir
+	cfg.DataDir = dataDir
+	cfg.readWriter = fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter())
+
+	configFile := filepath.Join(configDir, "config.yaml")
+	require.NoError(os.WriteFile(configFile, []byte("invalid: yaml: [\n"), 0o600))
+
+	err := cfg.LoadWithOverrides(configFile)
+	require.Error(err, "invalid base config should still return an error")
+}
+
+func TestLoadWithOverrides_OnlyInvalidDropinsStillSucceeds(t *testing.T) {
+	require := require.New(t)
+	tmpDir := t.TempDir()
+	configDir := filepath.Join(tmpDir, "etc", "flightctl")
+	dataDir := filepath.Join(tmpDir, "var", "lib", "flightctl")
+
+	require.NoError(os.MkdirAll(configDir, 0o755))
+	require.NoError(os.MkdirAll(dataDir, 0o755))
+
+	cfg := NewDefault()
+	cfg.ConfigDir = configDir
+	cfg.DataDir = dataDir
+	cfg.readWriter = fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter())
+
+	configFile := filepath.Join(configDir, "config.yaml")
+	require.NoError(os.WriteFile(configFile, []byte(yamlConfig), 0o600))
+
+	dropinDir := filepath.Join(configDir, "conf.d")
+	require.NoError(os.MkdirAll(dropinDir, 0o755))
+
+	// All dropins are invalid
+	require.NoError(os.WriteFile(
+		filepath.Join(dropinDir, "01-bad.yaml"),
+		[]byte("image-pruning:\n\t enabled: true\n"),
+		0o600,
+	))
+	require.NoError(os.WriteFile(
+		filepath.Join(dropinDir, "02-also-bad.yaml"),
+		[]byte("{{{not yaml at all\n"),
+		0o600,
+	))
+
+	err := cfg.LoadWithOverrides(configFile)
+	require.NoError(err, "all invalid dropins should be skipped, agent should still start")
+
+	// Base config values should be intact
+	require.Equal("https://enrollment.endpoint", cfg.EnrollmentService.Service.Server)
+}
