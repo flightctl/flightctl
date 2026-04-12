@@ -51,7 +51,7 @@ const (
 
 var _ = Describe("ImageBuild", Label("imagebuild"), func() {
 	Context("ImageBuild end-to-end workflow", func() {
-		It("should verify basic image build process - build, export, download, use in an agent", Label("87335", "imagebuild", "slow"), func() {
+		It("should verify basic image build process - build, export, download, use in an agent", Label("87335", "88406", "imagebuild", "slow"), func() {
 			Expect(workerHarness).ToNot(BeNil())
 			Expect(workerHarness.ImageBuilderClient).ToNot(BeNil(), "ImageBuilderClient must be available")
 
@@ -158,6 +158,9 @@ var _ = Describe("ImageBuild", Label("imagebuild"), func() {
 			exportReason, _ := workerHarness.GetImageExportConditionReason(imageExportName)
 			Expect(exportReason).To(Equal(string(imagebuilderapi.ImageExportConditionReasonCompleted)),
 				"Expected ImageExport to complete successfully")
+
+			By("88406: Verifying cancel is rejected for completed ImageExport")
+			expectCancelImageExportConflict(workerHarness, imageExportName)
 
 			// ============================================================
 			// Step 4: Create a device using the disk image
