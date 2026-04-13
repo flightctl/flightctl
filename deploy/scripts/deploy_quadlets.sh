@@ -52,10 +52,19 @@ timeout --foreground 120s bash -c '
 # Wait for key-value service
 timeout --foreground 60s bash -c '
     while true; do
-        if podman ps --quiet --filter "name=flightctl-kv" | grep -q . && \
-           podman exec flightctl-kv redis-cli ping >/dev/null 2>&1; then
-            echo "Key-value service is ready"
-            break
+        if podman ps --quiet --filter "name=flightctl-kv" | grep -q .; then
+            # Determine which CLI to use based on the OS
+            if [[ "${OS}" == "el10" ]]; then
+                if podman exec flightctl-kv valkey-cli ping >/dev/null 2>&1; then
+                    echo "Key-value service (Valkey) is ready"
+                    break
+                fi
+            else
+                if podman exec flightctl-kv redis-cli ping >/dev/null 2>&1; then
+                    echo "Key-value service (Redis) is ready"
+                    break
+                fi
+            fi
         fi
         echo "Waiting for key-value service..."
         sleep 2

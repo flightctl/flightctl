@@ -28,11 +28,11 @@ db-setup:
 db:
   # Using CentOS Stream 10 PostgreSQL for EL10 flavor
   image: quay.io/sclorg/postgresql-16-c10s
-  tag: "latest"
+  tag: "20250214"
 kv:
   # Using Valkey (Redis replacement) for EL10 flavor
-  image: quay.io/sclorg/valkey-7-c10s
-  tag: "latest"
+  image: quay.io/sclorg/valkey-8-c10s
+  tag: "20250108"
 alertmanager:
   image: quay.io/prometheus/alertmanager
   tag: v0.28.1
@@ -43,11 +43,13 @@ imagebuilder-worker:
   image: quay.io/flightctl/flightctl-imagebuilder-worker-el10
   tag: latest
 grafana:
-  image: docker.io/grafana/grafana
-  tag: "11.4.0"
+  # Using public registry - same version without auth requirements
+  image: quay.io/ceph/grafana
+  tag: "9.4.10"
 prometheus:
-  image: docker.io/prom/prometheus
-  tag: v2.13.1
+  # Using official Prometheus registry - same version without auth requirements
+  image: quay.io/prometheus/prometheus
+  tag: "v2.43.1"
 telemetry-gateway:
   image: quay.io/flightctl/flightctl-telemetry-gateway-el10
   tag: latest

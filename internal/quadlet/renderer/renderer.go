@@ -8,6 +8,7 @@ import (
 	"strings"
 	"text/template"
 
+	v1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/sirupsen/logrus"
 )
 
@@ -32,6 +33,24 @@ var (
 	DefaultAAPClientIDPath   = "/etc/flightctl/pki/aap-client-id"
 	DefaultAuthCACertPath    = "/etc/flightctl/pki/auth/ca.crt"
 )
+
+// getQuadletTemplateFuncMap returns the template function map for quadlet rendering.
+// This includes the public fleet template functions plus internal-only functions.
+func getQuadletTemplateFuncMap() template.FuncMap {
+	// Start with the public fleet template functions
+	funcMap := v1beta1.GetGoTemplateFuncMap()
+
+	// Add internal-only functions for quadlet rendering
+	funcMap["contains"] = func(substr string, input any) bool {
+		str, ok := input.(string)
+		if ok {
+			return strings.Contains(str, substr)
+		}
+		return false
+	}
+
+	return funcMap
+}
 
 type InstallAction struct {
 	Action      ActionType
@@ -162,7 +181,7 @@ func processFile(sourcePath, destPath string, isTemplate bool, mode os.FileMode,
 
 	var finalContent []byte
 	if isTemplate {
-		tmpl, err := template.New(filepath.Base(sourcePath)).Parse(string(content))
+		tmpl, err := template.New(filepath.Base(sourcePath)).Funcs(getQuadletTemplateFuncMap()).Parse(string(content))
 		if err != nil {
 			return fmt.Errorf("failed to parse template: %w", err)
 		}

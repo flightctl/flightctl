@@ -547,7 +547,11 @@ chown -R flightctl:flightctl ~flightctl/{.config,.local}
     %{_datadir}/flightctl/flightctl-api/config.yaml.template
     %{_datadir}/flightctl/flightctl-api/env.template
     %attr(0755,root,root) %{_datadir}/flightctl/flightctl-db/enable-superuser.sh
+    %if 0%{?rhel} == 10
+    %{_datadir}/flightctl/flightctl-kv/valkey.conf
+    %else
     %{_datadir}/flightctl/flightctl-kv/redis.conf
+    %endif
     %{_datadir}/flightctl/flightctl-ui/env.template
     %attr(0755,root,root) %{_datadir}/flightctl/flightctl-ui/init.sh
     %attr(0755,root,root) %{_datadir}/flightctl/init_utils.sh
