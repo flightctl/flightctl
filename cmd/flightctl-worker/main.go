@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -20,6 +21,7 @@ import (
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
+	"k8s.io/client-go/rest"
 )
 
 func main() {
@@ -64,8 +66,11 @@ func main() {
 
 	k8sClient, err := k8sclient.NewK8SClient()
 	if err != nil {
-		log.WithError(err).Warning("initializing k8s client, assuming k8s is not supported")
-		k8sClient = nil
+		if errors.Is(err, rest.ErrNotInCluster) {
+			log.Info("Kubernetes environment not detected, kubernetes features are disabled")
+		} else {
+			log.WithError(err).Error("initializing k8s client, kubernetes features are disabled")
+		}
 	}
 
 	// Initialize metrics collectors
