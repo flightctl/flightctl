@@ -203,11 +203,15 @@ NVRAM
 RSA
 KV
 Redis
+valkey
+RHEL9
+RHEL10
 AwaitingReconnect
 ConflictPaused
 pg_restore
 psql
 redis-cli
+valkey-cli
 pg_isready
 renderedVersion
 quadlets

@@ -4,10 +4,7 @@ WORKDIR /app
 # Switch to root for build operations
 USER 0
 
-RUN dnf install -y --installroot=/runtime-root --setopt=install_weak_deps=False --nodocs podman fuse-overlayfs
-
 # Copy dependencies first (most stable)
-COPY go.* ./
 COPY go.mod go.sum ./
 
 # Download dependencies (cached layer)
@@ -39,29 +36,16 @@ ENV SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT}
 # Use BuildKit cache mounts for Go caching
 RUN --mount=type=cache,target=/opt/app-root/src/.cache/go-build \
     --mount=type=cache,target=/opt/app-root/src/go/pkg/mod \
-    make build-imagebuilder-worker
+    make build-telemetry-gateway
 
 FROM quay.io/flightctl/flightctl-base:9.7-1762965531
-
-USER 0
-COPY --from=build /runtime-root/ /
-
 WORKDIR /app
-
 LABEL \
-  com.redhat.component="flightctl-imagebuilder-worker-container" \
-  description="Flight Control ImageBuilder Worker for processing image build jobs" \
-  io.k8s.description="Flight Control ImageBuilder Worker for processing image build jobs" \
-  io.k8s.display-name="Flight Control ImageBuilder Worker" \
-  name="flightctl-imagebuilder-worker" \
-  summary="Flight Control ImageBuilder Worker for processing image build jobs"
-
-# Configure podman storage to use native overlay (requires Kernel 5.11+)
-RUN mkdir -p /etc/containers && \
-    echo "[storage]" > /etc/containers/storage.conf && \
-    echo 'driver = "overlay"' >> /etc/containers/storage.conf
-# Copy the worker binary
-COPY --from=build /app/bin/flightctl-imagebuilder-worker .
-
-
-CMD ["./flightctl-imagebuilder-worker"]
+  com.redhat.component="flightctl-telemetry-gateway-container" \
+  description="Flight Control Edge management service, telemetry gateway" \
+  io.k8s.description="Flight Control Edge management service, telemetry gateway" \
+  io.k8s.display-name="Flight Control telemetry gateway" \
+  name="flightctl-telemetry-gateway" \
+  summary="Flight Control Edge management service, telemetry gateway"
+COPY --from=build /app/bin/flightctl-telemetry-gateway .
+CMD ["./flightctl-telemetry-gateway"]

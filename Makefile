@@ -1,4 +1,4 @@
-# Enable BuildKit for all container buildsmakefi
+# Enable BuildKit for all container builds
 export DOCKER_BUILDKIT=1
 export BUILDKIT_PROGRESS=plain
 
@@ -37,6 +37,7 @@ GO_FILES = $(shell find $(ROOT_DIR)/ -name "*.go" -not -path "$(ROOT_DIR)/bin" -
 TIMEOUT ?= 30m
 GOOS = $(shell go env GOOS)
 GOARCH = $(shell go env GOARCH)
+OS ?= el9
 RPM_MOCK_ROOT_DEFAULT = centos-stream+epel-next-9-x86_64
 
 VERBOSE ?= false
@@ -106,6 +107,11 @@ help:
 	@echo "    clean:           clean up all containers and volumes"
 	@echo "    clean-all:       full cleanup including containers and bin directory"
 	@echo "    clean-e2e-images: clean up e2e test images (app and device) from both regular and root podman"
+	@echo "    clean-aux: remove E2E aux containers (registry, git server, prometheus) for fresh e2e runs"
+	@echo "    start-registry:  start E2E registry container (reuse=true)"
+	@echo "    start-git-server: start E2E git server container (reuse=true)"
+	@echo "    start-prometheus: start E2E prometheus container (reuse=true)"
+	@echo "    start-aux: start all E2E aux containers (registry, git-server, prometheus)"
 	@echo "    rebuild-containers: force rebuild all containers"
 	@echo "    bundle-containers: bundle all flightctl containers into tar archive"
 	@echo "    cluster:         create a kind cluster and load the flightctl-server image"
@@ -212,90 +218,90 @@ build-standalone: bin
 	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-standalone
 
 # Container builds - Environment-aware caching
-flightctl-api-container: Containerfile.api go.mod go.sum $(GO_FILES)
+flightctl-api-container: packaging/images/$(OS)/Containerfile.api go.mod go.sum $(GO_FILES)
 	podman build $(call CACHE_FLAGS_FOR_IMAGE,flightctl-api) \
 		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
 		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \
 		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
-		-f Containerfile.api -t flightctl-api:latest -t quay.io/flightctl/flightctl-api:$(SOURCE_GIT_TAG)
+		-f packaging/images/$(OS)/Containerfile.api -t flightctl-api-$(OS):latest -t quay.io/flightctl/flightctl-api-$(OS):$(SOURCE_GIT_TAG) .
 
-flightctl-pam-issuer-container: Containerfile.pam-issuer go.mod go.sum $(GO_FILES)
+flightctl-pam-issuer-container: packaging/images/$(OS)/Containerfile.pam-issuer go.mod go.sum $(GO_FILES)
 	podman build $(call CACHE_FLAGS_FOR_IMAGE,flightctl-pam-issuer) \
 		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
 		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \
 		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
-		-f Containerfile.pam-issuer -t flightctl-pam-issuer:latest -t quay.io/flightctl/flightctl-pam-issuer:$(SOURCE_GIT_TAG)
+		-f packaging/images/$(OS)/Containerfile.pam-issuer -t flightctl-pam-issuer-$(OS):latest -t quay.io/flightctl/flightctl-pam-issuer-$(OS):$(SOURCE_GIT_TAG) .
 
-flightctl-db-setup-container: Containerfile.db-setup deploy/scripts/setup_database_users.sh deploy/scripts/setup_database_users.sql
+flightctl-db-setup-container: packaging/images/$(OS)/Containerfile.db-setup deploy/scripts/setup_database_users.sh deploy/scripts/setup_database_users.sql
 	podman build $(call CACHE_FLAGS_FOR_IMAGE,flightctl-db-setup) \
 		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
 		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \
 		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
-		-f Containerfile.db-setup \
-		-t flightctl-db-setup:latest -t quay.io/flightctl/flightctl-db-setup:$(SOURCE_GIT_TAG) .
+		-f packaging/images/$(OS)/Containerfile.db-setup \
+		-t flightctl-db-setup-$(OS):latest -t quay.io/flightctl/flightctl-db-setup-$(OS):$(SOURCE_GIT_TAG) .
 
-flightctl-worker-container: Containerfile.worker go.mod go.sum $(GO_FILES)
+flightctl-worker-container: packaging/images/$(OS)/Containerfile.worker go.mod go.sum $(GO_FILES)
 	podman build $(call CACHE_FLAGS_FOR_IMAGE,flightctl-worker) \
 		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
 		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \
 		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
-		-f Containerfile.worker -t flightctl-worker:latest -t quay.io/flightctl/flightctl-worker:$(SOURCE_GIT_TAG)
+		-f packaging/images/$(OS)/Containerfile.worker -t flightctl-worker-$(OS):latest -t quay.io/flightctl/flightctl-worker-$(OS):$(SOURCE_GIT_TAG) .
 
-flightctl-periodic-container: Containerfile.periodic go.mod go.sum $(GO_FILES)
+flightctl-periodic-container: packaging/images/$(OS)/Containerfile.periodic go.mod go.sum $(GO_FILES)
 	podman build $(call CACHE_FLAGS_FOR_IMAGE,flightctl-periodic) \
 		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
 		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \
 		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
-		-f Containerfile.periodic -t flightctl-periodic:latest -t quay.io/flightctl/flightctl-periodic:$(SOURCE_GIT_TAG)
+		-f packaging/images/$(OS)/Containerfile.periodic -t flightctl-periodic-$(OS):latest -t quay.io/flightctl/flightctl-periodic-$(OS):$(SOURCE_GIT_TAG) .
 
-flightctl-alert-exporter-container: Containerfile.alert-exporter go.mod go.sum $(GO_FILES)
+flightctl-alert-exporter-container: packaging/images/$(OS)/Containerfile.alert-exporter go.mod go.sum $(GO_FILES)
 	podman build $(call CACHE_FLAGS_FOR_IMAGE,flightctl-alert-exporter) \
 		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
 		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \
 		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
-		-f Containerfile.alert-exporter -t flightctl-alert-exporter:latest -t quay.io/flightctl/flightctl-alert-exporter:$(SOURCE_GIT_TAG)
+		-f packaging/images/$(OS)/Containerfile.alert-exporter -t flightctl-alert-exporter-$(OS):latest -t quay.io/flightctl/flightctl-alert-exporter-$(OS):$(SOURCE_GIT_TAG) .
 
-flightctl-alertmanager-proxy-container: Containerfile.alertmanager-proxy go.mod go.sum $(GO_FILES)
+flightctl-alertmanager-proxy-container: packaging/images/$(OS)/Containerfile.alertmanager-proxy go.mod go.sum $(GO_FILES)
 	podman build $(call CACHE_FLAGS_FOR_IMAGE,flightctl-alertmanager-proxy) \
 		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
 		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \
 		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
-		-f Containerfile.alertmanager-proxy -t flightctl-alertmanager-proxy:latest -t quay.io/flightctl/flightctl-alertmanager-proxy:$(SOURCE_GIT_TAG)
+		-f packaging/images/$(OS)/Containerfile.alertmanager-proxy -t flightctl-alertmanager-proxy-$(OS):latest -t quay.io/flightctl/flightctl-alertmanager-proxy-$(OS):$(SOURCE_GIT_TAG) .
 
-flightctl-multiarch-cli-container: Containerfile.cli-artifacts go.mod go.sum $(GO_FILES)
+flightctl-multiarch-cli-container: packaging/images/$(OS)/Containerfile.cli-artifacts go.mod go.sum $(GO_FILES)
 	podman build $(call CACHE_FLAGS_FOR_IMAGE,flightctl-cli-artifacts) \
 		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
 		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \
 		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
-		-f Containerfile.cli-artifacts -t flightctl-cli-artifacts:latest -t quay.io/flightctl/flightctl-cli-artifacts:$(SOURCE_GIT_TAG)
+		-f packaging/images/$(OS)/Containerfile.cli-artifacts -t flightctl-cli-artifacts-$(OS):latest -t quay.io/flightctl/flightctl-cli-artifacts-$(OS):$(SOURCE_GIT_TAG) .
 
-flightctl-userinfo-proxy-container: Containerfile.userinfo-proxy go.mod go.sum $(GO_FILES)
+flightctl-userinfo-proxy-container: packaging/images/$(OS)/Containerfile.userinfo-proxy go.mod go.sum $(GO_FILES)
 	podman build $(call CACHE_FLAGS_FOR_IMAGE,flightctl-userinfo-proxy) \
 		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
 		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \
 		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
-		-f Containerfile.userinfo-proxy -t flightctl-userinfo-proxy:latest -t quay.io/flightctl/flightctl-userinfo-proxy:$(SOURCE_GIT_TAG)
+		-f packaging/images/$(OS)/Containerfile.userinfo-proxy -t flightctl-userinfo-proxy-$(OS):latest -t quay.io/flightctl/flightctl-userinfo-proxy-$(OS):$(SOURCE_GIT_TAG) .
 
-flightctl-telemetry-gateway-container: Containerfile.telemetry-gateway go.mod go.sum $(GO_FILES)
+flightctl-telemetry-gateway-container: packaging/images/$(OS)/Containerfile.telemetry-gateway go.mod go.sum $(GO_FILES)
 	podman build $(call CACHE_FLAGS_FOR_IMAGE,flightctl-telemetry-gateway) \
 		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
 		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \
 		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
-		-f Containerfile.telemetry-gateway -t flightctl-telemetry-gateway:latest -t quay.io/flightctl/flightctl-telemetry-gateway:$(SOURCE_GIT_TAG)
+		-f packaging/images/$(OS)/Containerfile.telemetry-gateway -t flightctl-telemetry-gateway-$(OS):latest -t quay.io/flightctl/flightctl-telemetry-gateway-$(OS):$(SOURCE_GIT_TAG) .
 
-flightctl-imagebuilder-api-container: Containerfile.imagebuilder-api go.mod go.sum $(GO_FILES)
+flightctl-imagebuilder-api-container: packaging/images/$(OS)/Containerfile.imagebuilder-api go.mod go.sum $(GO_FILES)
 	podman build $(call CACHE_FLAGS_FOR_IMAGE,flightctl-imagebuilder-api) \
 		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
 		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \
 		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
-		-f Containerfile.imagebuilder-api -t flightctl-imagebuilder-api:latest -t quay.io/flightctl/flightctl-imagebuilder-api:$(SOURCE_GIT_TAG)
+		-f packaging/images/$(OS)/Containerfile.imagebuilder-api -t flightctl-imagebuilder-api-$(OS):latest -t quay.io/flightctl/flightctl-imagebuilder-api-$(OS):$(SOURCE_GIT_TAG) .
 
-flightctl-imagebuilder-worker-container: Containerfile.imagebuilder-worker go.mod go.sum $(GO_FILES)
+flightctl-imagebuilder-worker-container: packaging/images/$(OS)/Containerfile.imagebuilder-worker go.mod go.sum $(GO_FILES)
 	podman build $(call CACHE_FLAGS_FOR_IMAGE,flightctl-imagebuilder-worker) \
 		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
 		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \
 		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
-		-f Containerfile.imagebuilder-worker -t flightctl-imagebuilder-worker:latest -t quay.io/flightctl/flightctl-imagebuilder-worker:$(SOURCE_GIT_TAG)
+		-f packaging/images/$(OS)/Containerfile.imagebuilder-worker -t flightctl-imagebuilder-worker-$(OS):latest -t quay.io/flightctl/flightctl-imagebuilder-worker-$(OS):$(SOURCE_GIT_TAG) .
 
 .PHONY: flightctl-api-container flightctl-pam-issuer-container flightctl-db-setup-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-alertmanager-proxy-container flightctl-multiarch-cli-container flightctl-userinfo-proxy-container flightctl-telemetry-gateway-container flightctl-imagebuilder-api-container flightctl-imagebuilder-worker-container
 
@@ -335,25 +341,14 @@ rebuild-containers: clean-containers build-containers
 
 # Clean only containers (preserve cluster and other artifacts)
 clean-containers:
-	- podman rmi flightctl-api:latest || true
-	- podman rmi flightctl-pam-issuer:latest || true
-	- podman rmi flightctl-db-setup:latest || true
-	- podman rmi flightctl-worker:latest || true
-	- podman rmi flightctl-periodic:latest || true
-	- podman rmi flightctl-alert-exporter:latest || true
-	- podman rmi flightctl-alertmanager-proxy:latest || true
-	- podman rmi flightctl-cli-artifacts:latest || true
-	- podman rmi flightctl-userinfo-proxy:latest || true
-	- podman rmi flightctl-telemetry-gateway:latest || true
-	- podman rmi flightctl-imagebuilder-api:latest || true
-	- podman rmi flightctl-imagebuilder-worker:latest || true
+	- podman images --filter "reference=flightctl-*-$(OS):latest" --format "{{.Repository}}:{{.Tag}}" | xargs -r podman rmi || true
 
 build-containers: flightctl-api-container flightctl-pam-issuer-container flightctl-db-setup-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-alertmanager-proxy-container flightctl-multiarch-cli-container flightctl-userinfo-proxy-container flightctl-telemetry-gateway-container flightctl-imagebuilder-api-container flightctl-imagebuilder-worker-container
 
 bundle-containers:
 	test/scripts/agent-images/scripts/bundle.sh \
-		--image-pattern 'quay.io/flightctl/.*:$(SOURCE_GIT_TAG)' \
-		--output-path 'bin/flightctl-images-bundle.tar'
+		--image-pattern 'quay.io/flightctl/.*-$(OS):$(SOURCE_GIT_TAG)' \
+		--output-path 'flightctl-images-bundle.tar'
 
 .PHONY: build-containers bundle-containers build-cli build-multiarch-clis
 
@@ -405,7 +400,7 @@ deb: bin/arm64 bin/amd64 bin/riscv64
 	ln -f -s packaging/debian debian
 	debuild -us -uc -b
 
-clean: clean-agent-vm clean-e2e-agent-images clean-quadlets clean-swtpm-certs clean-e2e-certs
+clean: clean-agent-vm clean-e2e-agent-images clean-quadlets clean-swtpm-certs clean-e2e-certs clean-aux
 	- kind delete cluster
 	- rm -rf ~/.flightctl
 	- rm -rf $(shell uname -m)
@@ -416,6 +411,10 @@ clean: clean-agent-vm clean-e2e-agent-images clean-quadlets clean-swtpm-certs cl
 # Full cleanup including bin directory and all artifacts
 clean-all: clean clean-containers
 	- rm -rf bin
+
+# Remove E2E aux testcontainers (registry, git server, prometheus, jaeger) and their anonymous volumes so next e2e run starts fresh
+clean-aux:
+	- podman rm -f -v e2e-registry e2e-registry-auth e2e-gitserver e2e-prometheus e2e-jaeger 2>/dev/null || true
 
 clean-quadlets:
 	sudo deploy/scripts/clean_quadlets.sh
@@ -435,9 +434,9 @@ LINT_CONTAINER := podman run --rm --security-opt label=disable \
 .PHONY: tools
 tools:
 
-.output/stamps/lint-image: Containerfile.lint go.mod go.sum
+.output/stamps/lint-image: packaging/images/Containerfile.lint go.mod go.sum
 	@mkdir -p .output/stamps
-	podman build -f Containerfile.lint -t $(LINT_IMAGE)
+	podman build -f packaging/images/Containerfile.lint -t $(LINT_IMAGE) .
 	@touch .output/stamps/lint-image
 
 .PHONY: lint

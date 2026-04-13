@@ -101,17 +101,35 @@ echo "  CACHE_TTL: ${CACHE_TTL}"
 
 cd "$ROOT_DIR"
 
-flavor_conf="${BASE_DIR}/flavors/${AGENT_OS_ID}.conf"
+# Validate AGENT_OS_ID and set containerfile path
+# Check if Red Hat variant is requested
+DISTRO_SUFFIX=""
+if [ "${DISTRO:-}" = "redhat" ] || [ -n "${RHEM:-}" ]; then
+  DISTRO_SUFFIX="-redhat"
+fi
 
-if [ ! -f "${flavor_conf}" ]; then
-  echo "[ERROR] Flavor configuration not found: ${flavor_conf}" >&2
+case "${AGENT_OS_ID}" in
+  cs9-bootc)
+    CONTAINERFILE_DIR="${BASE_DIR}/containerfiles/cs9-bootc${DISTRO_SUFFIX}"
+    OS_ID="cs9-bootc"
+    ;;
+  cs10-bootc)
+    CONTAINERFILE_DIR="${BASE_DIR}/containerfiles/cs10-bootc${DISTRO_SUFFIX}"
+    OS_ID="cs10-bootc"
+    ;;
+  *)
+    echo "[ERROR] Unsupported AGENT_OS_ID: ${AGENT_OS_ID}" >&2
+    echo "Supported values: cs9-bootc, cs10-bootc" >&2
+    exit 1
+    ;;
+esac
+
+if [ ! -f "${CONTAINERFILE_DIR}/Containerfile" ]; then
+  echo "[ERROR] Containerfile not found: ${CONTAINERFILE_DIR}/Containerfile" >&2
   exit 1
 fi
 
-# shellcheck source=/dev/null
-source "${flavor_conf}"
-: "${OS_ID:?OS_ID must be set in flavor conf}"
-: "${DEVICE_BASE_IMAGE:?DEVICE_BASE_IMAGE must be set in flavor conf}"
+echo "Using containerfile: ${CONTAINERFILE_DIR}/Containerfile"
 
 base_img_canonical="${IMAGE_REPO}:base-${OS_ID}-${TAG}"
 base_img_plain="${IMAGE_REPO}:base"
@@ -144,12 +162,11 @@ echo "  Variants to build: ${variants_list:-none}"
       --log-level "${PODMAN_LOG_LEVEL}" \
       --build-context "project-bin=${ROOT_DIR}/bin" \
       --build-context "variant-context=${BASE_DIR}/base"\
-      --build-arg-file "${flavor_conf}" \
       --build-arg SOURCE_GIT_TAG="${SOURCE_GIT_TAG}" \
       --build-arg SOURCE_GIT_TREE_STATE="${SOURCE_GIT_TREE_STATE}" \
       --build-arg SOURCE_GIT_COMMIT="${SOURCE_GIT_COMMIT}" \
       --label "io.flightctl.e2e.component=device" \
-      -f "${BASE_DIR}/base/Containerfile" \
+      -f "${CONTAINERFILE_DIR}/Containerfile" \
       -t "${base_img_canonical}" \
       -t "${base_img_plain}" \
       -t "${base_img_os}" \
@@ -184,7 +201,7 @@ echo "  Variants to build: ${variants_list:-none}"
 
     EXTRA_FLAGS="${PODMAN_BUILD_EXTRA_FLAGS:-}"
 
-    export IMAGE_REPO TAG OS_ID BASE_DIR ROOT_DIR base_img_canonical PODMAN_BUILD_FLAGS_JOINED EXTRA_FLAGS CACHE_FLAGS_JOINED
+    export IMAGE_REPO TAG OS_ID BASE_DIR ROOT_DIR base_img_canonical PODMAN_BUILD_FLAGS_JOINED EXTRA_FLAGS CACHE_FLAGS_JOINED BUILD_ARG_FILE
     printf '%s\n' ${variants_list} | xargs -n1 -P "${JOBS}" -I {} bash -lc '\
       set -euo pipefail; \
       v_img_canonical="${IMAGE_REPO}:{}-'"${OS_ID}"'-'"${TAG}"'"; \

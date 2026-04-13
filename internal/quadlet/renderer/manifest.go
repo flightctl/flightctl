@@ -1,9 +1,12 @@
 package renderer
 
-import "path/filepath"
+import (
+	"path/filepath"
+	"strings"
+)
 
 func servicesManifest(config *RendererConfig) []InstallAction {
-	return []InstallAction{
+	actions := []InstallAction{
 		// API service
 		{Action: ActionCopyFile, Source: "deploy/podman/flightctl-api/flightctl-api.container", Destination: filepath.Join(config.QuadletFilesOutputDir, "flightctl-api.container"), Template: true, Mode: RegularFileMode},
 		{Action: ActionCopyFile, Source: "deploy/podman/flightctl-api/flightctl-api-init.container", Destination: filepath.Join(config.QuadletFilesOutputDir, "flightctl-api-init.container"), Template: false, Mode: RegularFileMode},
@@ -40,7 +43,6 @@ func servicesManifest(config *RendererConfig) []InstallAction {
 		// KV service
 		{Action: ActionCopyFile, Source: "deploy/podman/flightctl-kv/flightctl-kv.container", Destination: filepath.Join(config.QuadletFilesOutputDir, "flightctl-kv.container"), Template: true, Mode: RegularFileMode},
 		{Action: ActionCopyFile, Source: "deploy/podman/flightctl-kv/flightctl-kv.volume", Destination: filepath.Join(config.QuadletFilesOutputDir, "flightctl-kv.volume"), Template: false, Mode: RegularFileMode},
-		{Action: ActionCopyDir, Source: "deploy/podman/flightctl-kv/flightctl-kv-config/", Destination: filepath.Join(config.ReadOnlyConfigOutputDir, "flightctl-kv/"), Template: false, Mode: RegularFileMode},
 
 		// Alertmanager service
 		{Action: ActionCopyFile, Source: "deploy/podman/flightctl-alertmanager/flightctl-alertmanager.container", Destination: filepath.Join(config.QuadletFilesOutputDir, "flightctl-alertmanager.container"), Template: true, Mode: RegularFileMode},
@@ -152,4 +154,25 @@ func servicesManifest(config *RendererConfig) []InstallAction {
 		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.VarLibOutputDir, "grafana"), Mode: ExecutableFileMode},
 		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.VarLibOutputDir, "prometheus"), Mode: ExecutableFileMode},
 	}
+
+	// Add KV config file based on image type (Valkey for EL10, Redis for EL9)
+	if strings.Contains(config.Kv.Image, "valkey") {
+		actions = append(actions, InstallAction{
+			Action:      ActionCopyFile,
+			Source:      "deploy/podman/flightctl-kv/flightctl-kv-config/valkey.conf",
+			Destination: filepath.Join(config.ReadOnlyConfigOutputDir, "flightctl-kv", "valkey.conf"),
+			Template:    false,
+			Mode:        RegularFileMode,
+		})
+	} else {
+		actions = append(actions, InstallAction{
+			Action:      ActionCopyFile,
+			Source:      "deploy/podman/flightctl-kv/flightctl-kv-config/redis.conf",
+			Destination: filepath.Join(config.ReadOnlyConfigOutputDir, "flightctl-kv", "redis.conf"),
+			Template:    false,
+			Mode:        RegularFileMode,
+		})
+	}
+
+	return actions
 }

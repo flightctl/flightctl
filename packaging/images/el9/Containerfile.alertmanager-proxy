@@ -5,7 +5,6 @@ WORKDIR /app
 USER 0
 
 # Copy dependencies first (most stable)
-COPY go.* ./
 COPY go.mod go.sum ./
 
 # Download dependencies (cached layer)
@@ -37,16 +36,17 @@ ENV SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT}
 # Use BuildKit cache mounts for Go caching
 RUN --mount=type=cache,target=/opt/app-root/src/.cache/go-build \
     --mount=type=cache,target=/opt/app-root/src/go/pkg/mod \
-    make build-telemetry-gateway
+    make build-alertmanager-proxy
 
 FROM quay.io/flightctl/flightctl-base:9.7-1762965531
 WORKDIR /app
 LABEL \
-  com.redhat.component="flightctl-telemetry-gateway-container" \
-  description="Flight Control Edge management service, telemetry gateway" \
-  io.k8s.description="Flight Control Edge management service, telemetry gateway" \
-  io.k8s.display-name="Flight Control telemetry gateway" \
-  name="flightctl-telemetry-gateway" \
-  summary="Flight Control Edge management service, telemetry gateway"
-COPY --from=build /app/bin/flightctl-telemetry-gateway .
-CMD ["./flightctl-telemetry-gateway"]
+  com.redhat.component="flightctl-alertmanager-proxy-container" \
+  description="Flight Control Edge management service, alertmanager proxy" \
+  io.k8s.description="Flight Control Edge management service, alertmanager proxy" \
+  io.k8s.display-name="Flight Control Alertmanager Proxy" \
+  name="flightctl-alertmanager-proxy" \
+  summary="Flight Control Edge management service, alertmanager proxy"
+COPY --from=build /app/bin/flightctl-alertmanager-proxy .
+EXPOSE 8443
+CMD ["./flightctl-alertmanager-proxy"]

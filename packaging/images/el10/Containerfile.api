@@ -1,11 +1,10 @@
-FROM registry.access.redhat.com/ubi9/go-toolset:1.24.6-1762373805 as build
+FROM registry.access.redhat.com/ubi10/go-toolset:1.24.6-1763548447 as build
 WORKDIR /app
 
 # Switch to root for build operations
 USER 0
 
 # Copy dependencies first (most stable)
-COPY go.* ./
 COPY go.mod go.sum ./
 
 # Download dependencies (cached layer)
@@ -37,17 +36,17 @@ ENV SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT}
 # Use BuildKit cache mounts for Go caching
 RUN --mount=type=cache,target=/opt/app-root/src/.cache/go-build \
     --mount=type=cache,target=/opt/app-root/src/go/pkg/mod \
-    make build-alertmanager-proxy
+    make build-api
 
-FROM quay.io/flightctl/flightctl-base:9.7-1762965531
+FROM quay.io/flightctl/flightctl-base:10.1-1769518576
 WORKDIR /app
 LABEL \
-  com.redhat.component="flightctl-alertmanager-proxy-container" \
-  description="Flight Control Edge management service, alertmanager proxy" \
-  io.k8s.description="Flight Control Edge management service, alertmanager proxy" \
-  io.k8s.display-name="Flight Control Alertmanager Proxy" \
-  name="flightctl-alertmanager-proxy" \
-  summary="Flight Control Edge management service, alertmanager proxy"
-COPY --from=build /app/bin/flightctl-alertmanager-proxy .
-EXPOSE 8443
-CMD ["./flightctl-alertmanager-proxy"]
+  com.redhat.component="flightctl-api-container" \
+  description="Flight Control Edge management API server" \
+  io.k8s.description="Flight Control Edge management API server" \
+  io.k8s.display-name="Flight Control API Server" \
+  name="flightctl-api" \
+  summary="Flight Control Edge management API server"
+COPY --from=build /app/bin/flightctl-api .
+
+CMD ["./flightctl-api"]

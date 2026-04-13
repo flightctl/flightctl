@@ -54,6 +54,14 @@ fi
 export OS_ID="${OS_ID_ENV}"
 export AGENT_OS_ID="${OS_ID}"
 
+# Handle v7/v12 variant exclusion for CS10 (no MicroShift support)
+if [ -z "${EXCLUDE_VARIANTS+x}" ]; then
+    if [ "${AGENT_OS_ID}" = "cs10-bootc" ]; then
+        export EXCLUDE_VARIANTS="v7,v12"
+        echo "cs10: v7,v12 excluded (no MicroShift for cs10)"
+    fi
+fi
+
 # Set QCOW2 output directory now that OS_ID is available
 QCOW2_OUTPUT_DIR="${QCOW2_OUTPUT_DIR:-${ROOT_DIR}/bin/output/agent-qcow2-${OS_ID}}"
 

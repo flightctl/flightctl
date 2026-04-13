@@ -339,8 +339,13 @@ fi
     else
         APPLY_UI_OVERRIDE=""
     fi
+    %if 0%{?rhel} == 10
+    IMAGES_CONFIG=packaging/images/el10/images.yaml
+    %else
+    IMAGES_CONFIG=packaging/images/el9/images.yaml
+    %endif
     bin/flightctl-standalone render quadlets \
-        --config deploy/podman/images.yaml \
+        --config "${IMAGES_CONFIG}" \
         --flightctl-services-tag-override "${IMAGE_TAG}" \
         ${APPLY_UI_OVERRIDE} \
         --readonly-config-dir "%{buildroot}%{_datadir}/flightctl" \
@@ -544,7 +549,11 @@ chown -R flightctl:flightctl ~flightctl/{.config,.local}
     %attr(0755,root,root) %{_datadir}/flightctl/flightctl-api/init.sh
     %attr(0755,root,root) %{_datadir}/flightctl/flightctl-api/create_aap_application.sh
     %attr(0755,root,root) %{_datadir}/flightctl/flightctl-db/enable-superuser.sh
+    %if 0%{?rhel} == 10
+    %{_datadir}/flightctl/flightctl-kv/valkey.conf
+    %else
     %{_datadir}/flightctl/flightctl-kv/redis.conf
+    %endif
     %{_datadir}/flightctl/flightctl-ui/env.template
     %attr(0755,root,root) %{_datadir}/flightctl/flightctl-ui/init.sh
     %attr(0755,root,root) %{_datadir}/flightctl/init_utils.sh
