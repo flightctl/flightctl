@@ -342,7 +342,7 @@ func (r ResourceAlertRule) Validate(specSampleInterval string) []error {
 
 func (c GitConfigProviderSpec) Validate(fleetTemplate bool) []error {
 	allErrs := []error{}
-	allErrs = append(allErrs, validation.ValidateGenericName(&c.Name, "spec.config[].name")...)
+	allErrs = append(allErrs, validation.ValidateConfigName(&c.Name, "spec.config[].name")...)
 	allErrs = append(allErrs, validation.ValidateResourceNameReference(&c.GitRef.Repository, "spec.config[].gitRef.repository")...)
 
 	containsParams, paramErrs := validateParametersInString(&c.GitRef.TargetRevision, "spec.config[].gitRef.targetRevision", fleetTemplate)
@@ -361,7 +361,7 @@ func (c GitConfigProviderSpec) Validate(fleetTemplate bool) []error {
 
 func (c KubernetesSecretProviderSpec) Validate(fleetTemplate bool) []error {
 	allErrs := []error{}
-	allErrs = append(allErrs, validation.ValidateGenericName(&c.Name, "spec.config[].name")...)
+	allErrs = append(allErrs, validation.ValidateConfigName(&c.Name, "spec.config[].name")...)
 
 	containsParams, paramErrs := validateParametersInString(&c.SecretRef.Name, "spec.config[].secretRef.name", fleetTemplate)
 	allErrs = append(allErrs, paramErrs...)
@@ -389,7 +389,7 @@ func (c KubernetesSecretProviderSpec) Validate(fleetTemplate bool) []error {
 
 func (c InlineConfigProviderSpec) Validate(fleetTemplate bool) []error {
 	allErrs := []error{}
-	allErrs = append(allErrs, validation.ValidateGenericName(&c.Name, "spec.config[].name")...)
+	allErrs = append(allErrs, validation.ValidateConfigName(&c.Name, "spec.config[].name")...)
 	for i := range c.Inline {
 		containsParams, paramErrs := validateParametersInString(&c.Inline[i].Path, fmt.Sprintf("spec.config[].inline[%d].path", i), fleetTemplate)
 		allErrs = append(allErrs, paramErrs...)
@@ -425,7 +425,7 @@ func (c InlineConfigProviderSpec) Validate(fleetTemplate bool) []error {
 
 func (h HttpConfigProviderSpec) Validate(fleetTemplate bool) []error {
 	allErrs := []error{}
-	allErrs = append(allErrs, validation.ValidateGenericName(&h.Name, "spec.config[].name")...)
+	allErrs = append(allErrs, validation.ValidateConfigName(&h.Name, "spec.config[].name")...)
 	allErrs = append(allErrs, validation.ValidateResourceNameReference(&h.HttpRef.Repository, "spec.config[].httpRef.repository")...)
 
 	containsParams, paramErrs := validateParametersInString(&h.HttpRef.FilePath, "spec.config[].httpRef.filePath", fleetTemplate)
