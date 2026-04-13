@@ -486,6 +486,21 @@ func (h *Harness) PrepareNextDeviceVersion(deviceId string) (int, error) {
 	return currentVersion + 1, nil
 }
 
+// PrepareNextDeviceVersionFromCurrentStatus returns Status.Config.RenderedVersion+1 from a single API read
+// without requiring the device to be UpToDate. Use after greenboot rollback (OutOfDate) when the status
+// still reports the last rendered config version.
+func (h *Harness) PrepareNextDeviceVersionFromCurrentStatus(deviceID string) (int, error) {
+	d, err := h.GetDevice(deviceID)
+	if err != nil {
+		return -1, fmt.Errorf("get device: %w", err)
+	}
+	cur, err := GetRenderedVersion(d)
+	if err != nil {
+		return -1, err
+	}
+	return cur + 1, nil
+}
+
 func (h *Harness) WaitForDeviceNewRenderedVersion(deviceId string, newRenderedVersionInt int) (err error) {
 	// Check that the device was already approved
 	Eventually(func() v1beta1.DeviceSummaryStatusType {
