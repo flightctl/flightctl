@@ -33,6 +33,51 @@ func TestValidateGenericName(t *testing.T) {
 	}
 }
 
+func TestValidateConfigName(t *testing.T) {
+	assert := assert.New(t)
+
+	goodValues := []string{
+		"a",
+		"a-good-name",
+		"example.json",
+		"example.env",
+		"config.yaml",
+		"my.config.v2",
+		"a.b",
+		"my-app.config",
+		strings.Repeat("a", 253),
+	}
+	for _, val := range goodValues {
+		assert.Empty(ValidateConfigName(&val, "good.config.name"), fmt.Sprintf("value: %q", val))
+	}
+
+	badValues := []string{
+		"",
+		".starts-with-dot",
+		"ends-with-dot.",
+		"-starts-with-dash",
+		"ends-with-dash-",
+		"WITH-CAPITAL-LETTERS",
+		"has spaces",
+		"has_underscores",
+		strings.Repeat("a", 254),
+	}
+
+	// These are technically allowed by the current regex but could be
+	// considered ugly. Documenting them as accepted to track the decision.
+	acceptedEdgeCases := []string{
+		"example.-json",
+		"example-.json",
+		"example..json",
+	}
+	for _, val := range acceptedEdgeCases {
+		assert.Empty(ValidateConfigName(&val, "edge.config.name"), fmt.Sprintf("value: %q", val))
+	}
+	for _, val := range badValues {
+		assert.NotEmpty(ValidateConfigName(&val, "bad.config.name"), fmt.Sprintf("value: %q", val))
+	}
+}
+
 func TestValidateOciImageReference(t *testing.T) {
 	assert := assert.New(t)
 
