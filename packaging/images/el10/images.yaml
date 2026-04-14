@@ -32,7 +32,7 @@ db:
 kv:
   # Using Valkey (Redis replacement) for EL10 flavor
   image: quay.io/sclorg/valkey-8-c10s
-  tag: "20250108"
+  tag: "20260121"
 alertmanager:
   image: quay.io/prometheus/alertmanager
   tag: v0.28.1
