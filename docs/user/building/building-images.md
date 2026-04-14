@@ -113,27 +113,6 @@ RUN dnf -y config-manager --add-repo https://rpm.flightctl.io/flightctl-epel.rep
 ADD config.yaml /etc/flightctl/
 ```
 
-#### Example: CentOS Stream 10 (EL10)
-
-For CentOS Stream 10, create a `Containerfile` with the following content:
-
-```console
-FROM quay.io/centos-bootc/centos-bootc:stream10
-
-RUN dnf -y config-manager --add-repo https://rpm.flightctl.io/flightctl-epel.repo && \
-    dnf -y install flightctl-agent && \
-    dnf -y clean all && \
-    systemctl enable flightctl-agent.service
-
-# Optional: To enable podman-compose application support, uncomment below
-# RUN dnf -y install epel-release && \
-#     dnf -y install podman-compose && \
-#     dnf -y clean all && \
-#     systemctl enable podman.service
-
-ADD config.yaml /etc/flightctl/
-```
-
 > [!NOTE]
 > If you have used Podman or Docker before to build application containers, you will notice this is a regular `Containerfile`, with the only difference that the base image referenced in `FROM` is bootable container (bootc) image. That means it already contains a Linux kernel. This allows you to reuse existing standard container build tools and workflows.
 
@@ -148,14 +127,6 @@ OCI_IMAGE_REPO=${OCI_REGISTRY}/your_org/centos-bootc
 OCI_IMAGE_TAG=v1
 ```
 
-> [!TIP]
-> **OS-specific Image Naming**: Consider including the OS version in your image repository name to maintain separate images for different Enterprise Linux versions. For example:
->
-> - EL9 images: `${OCI_REGISTRY}/your_org/centos-bootc-el9:${OCI_IMAGE_TAG}`
-> - EL10 images: `${OCI_REGISTRY}/your_org/centos-bootc-el10:${OCI_IMAGE_TAG}`
->
-> This approach helps avoid confusion when managing devices across different Enterprise Linux versions and aligns with Flight Control's internal OS-qualified container naming scheme.
-
 Build the OS image for your target platform:
 
 ```console
@@ -164,7 +135,7 @@ sudo podman build -t ${OCI_IMAGE_REPO}:${OCI_IMAGE_TAG} .
 
 #### Using RHEL base images
 
-Flight Control supports both RHEL 9 and RHEL 10 base images. When using RHEL base images, you need to disable RHEL's default automatic updates and use a different command to enable the EPEL repository.
+Flight Control supports both RHEL 9 and RHEL 10 base images. When using RHEL base images, you need to disable RHEL's default automatic updates and use a different command to enable the EPEL repository in case you need `podman-compose`:
 
 **RHEL 9 Example:**
 
@@ -187,30 +158,8 @@ RUN dnf -y config-manager --add-repo https://rpm.flightctl.io/flightctl-epel.rep
 ADD config.yaml /etc/flightctl/
 ```
 
-**RHEL 10 Example:**
-
-```console
-FROM registry.redhat.io/rhel10/rhel-bootc:10.0
-
-RUN dnf -y config-manager --add-repo https://rpm.flightctl.io/flightctl-epel.repo && \
-    dnf -y install flightctl-agent && \
-    dnf -y clean all && \
-    systemctl enable flightctl-agent.service && \
-    systemctl mask bootc-fetch-apply-updates.timer
-
-# Optional: To enable podman-compose application support, uncomment below
-# RUN dnf -y install https://dl.fedoraproject.org/pub/epel/epel-release-latest-10.noarch.rpm && \
-#     dnf -y install podman-compose && \
-#     dnf -y clean all && \
-#     rm -rf /var/{cache,log} /var/lib/{dnf,rhsm} && \
-#     systemctl enable podman.service
-
-ADD config.yaml /etc/flightctl/
-```
-
 > [!IMPORTANT]
-> To build RHEL-based bootc images, the build host itself must be a registered RHEL or Fedora system
-> that has access to Red Hat content through subscription-manager.
+> RHEL-based bootc images require a registered RHEL/Fedora build host with Red Hat subscription access.
 >
 > You also need to log in to the Red Hat registry before building your image:
 >
