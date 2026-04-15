@@ -36,7 +36,7 @@ var _ = Describe("Non-blocking OCI dependency prefetch manager", func() {
 		deviceID, _ = harness.EnrollAndWaitForOnlineStatus()
 	})
 
-	It("Status is reported during an OCI image pre-fetch", Label("83871", "sanity", "agent"), func() {
+	It("Status is reported during an OCI image pre-fetch", Label("83871", "sanity", "sanity-github", "agent"), func() {
 		err := harness.UpdateAgentConfigWith(func(cfg *agentcfg.Config) {
 			cfg.LogLevel = "trace"
 			cfg.StatusUpdateInterval = agentcfg.MinSyncInterval

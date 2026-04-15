@@ -21,7 +21,7 @@ import (
 
 var _ = Describe("VM Agent behavior", func() {
 	Context("vm", func() {
-		It("Verify VM agent", Label("80455", "rpm-sanity", "agent"), func() {
+		It("Verify VM agent", Label("80455", "rpm-sanity", "sanity-github", "agent"), func() {
 			// Get harness directly - no shared package-level variable
 			harness := e2e.GetWorkerHarness()
 
@@ -180,7 +180,7 @@ var _ = Describe("VM Agent behavior", func() {
 	})
 
 	Context("status", func() {
-		It("Device status tests", Label("75991", "sanity", "agent"), func() {
+		It("Device status tests", Label("75991", "sanity", "sanity-github", "agent"), func() {
 			// Get harness directly - no shared package-level variable
 			harness := e2e.GetWorkerHarness()
 

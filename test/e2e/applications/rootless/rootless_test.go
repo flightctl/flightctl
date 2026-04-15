@@ -58,7 +58,7 @@ var _ = Describe("Rootless applications", Label("rootless"), func() {
 		deviceID, _ = harness.EnrollAndWaitForOnlineStatus()
 	})
 
-	It("covers all rootless checkpoints across quadlet, container, and compose app types", Label("sanity", "87844"), func() {
+	It("covers all rootless checkpoints across quadlet, container, and compose app types", Label("sanity", "87844", "sanity-github"), func() {
 		var names string
 		var err error
 

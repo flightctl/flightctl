@@ -61,7 +61,7 @@ func getGitEnv(ctx context.Context) (e2e.GitServerConfig, string, int, util.SSHP
 	return config, svc.GitServer.InternalHost, svc.GitServer.InternalPort, keyPath, keyContent
 }
 
-var _ = Describe("ResourceSync success cases", func() {
+var _ = Describe("ResourceSync success cases", Label("sanity-github"), func() {
 	var tc *testContext
 
 	BeforeEach(func() {
@@ -168,7 +168,7 @@ var _ = Describe("ResourceSync success cases", func() {
 	})
 })
 
-var _ = Describe("ResourceSync Failure Cases", func() {
+var _ = Describe("ResourceSync Failure Cases", Label("sanity-github"), func() {
 	var tc *testContext
 
 	BeforeEach(func() {

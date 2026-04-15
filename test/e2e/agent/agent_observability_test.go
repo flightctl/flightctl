@@ -41,7 +41,7 @@ var _ = Describe("Agent observability and diagnostics", func() {
 	})
 
 	Context("when local observability endpoints are enabled", func() {
-		It("86397 should expose agent metrics on the loopback endpoint", Label("86397", "sanity", "agent"), func() {
+		It("86397 should expose agent metrics on the loopback endpoint", Label("86397", "sanity", "sanity-github", "agent"), func() {
 			artifactDir, err := harness.SetupScenario(deviceID, "agent-metrics")
 			Expect(err).ToNot(HaveOccurred())
 

@@ -23,7 +23,7 @@ var (
 	jsonFlag      = "-ojson"
 )
 
-var _ = Describe("cli events operation", func() {
+var _ = Describe("cli events operation", Label("sanity-github"), func() {
 	Context("Events API Tests", func() {
 		It("should list events resource is created/updated/deleted", Label("81779", "sanity", "client"), func() {
 			// Get harness directly - no shared package-level variable

@@ -9,7 +9,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-var _ = Describe("Inline configuration tests", func() {
+var _ = Describe("Inline configuration tests", Label("sanity-github"), func() {
 	var (
 		deviceId string
 	)
