@@ -29,7 +29,6 @@ const (
 	sysClassNetDir   = "/sys/class/net"
 	dmiClassPath     = "/sys/class/dmi/id"
 	pciDevicesPath   = "/sys/bus/pci/devices"
-	osReleasePath    = "/etc/os-release"
 	resolveConfPath  = "/etc/resolv.conf"
 	cpuInfoPath      = "/proc/cpuinfo"
 	memInfoPath      = "/proc/meminfo"
@@ -858,10 +857,6 @@ func collectSystemInfo(reader fileio.Reader) (*SystemInfo, error) {
 func collectDistributionInfo(ctx context.Context, reader fileio.Reader) (map[string]interface{}, error) {
 	distro := make(map[string]interface{})
 
-	if _, err := os.Stat(reader.PathFor(osReleasePath)); err != nil {
-		return distro, nil
-	}
-
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
@@ -870,7 +865,7 @@ func collectDistributionInfo(ctx context.Context, reader fileio.Reader) (map[str
 
 	osInfo, err := deviceos.ParseOSRelease(reader)
 	if err != nil {
-		return nil, err
+		return distro, nil
 	}
 
 	// Map the ParseOSRelease keys to the lowercase keys expected by callers.
