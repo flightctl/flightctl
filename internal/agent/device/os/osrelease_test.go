@@ -99,6 +99,21 @@ PRETTY_NAME="Red Hat Enterprise Linux"
 			expected: map[string]string{},
 		},
 		{
+			name: "When os-release has single-quoted values it should strip them",
+			setupMocks: func(mockReader *fileio.MockReader) {
+				mockReader.EXPECT().ReadFile(osReleasePath).Return([]byte(
+					`NAME='TestOS'
+VERSION_ID='2.0'
+ID='testos'
+`), nil)
+			},
+			expected: map[string]string{
+				"NAME":       "TestOS",
+				"VERSION_ID": "2.0",
+				"ID":         "testos",
+			},
+		},
+		{
 			name: "When os-release has comments and blank lines it should skip them",
 			setupMocks: func(mockReader *fileio.MockReader) {
 				mockReader.EXPECT().ReadFile(osReleasePath).Return([]byte(

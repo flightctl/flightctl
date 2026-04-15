@@ -32,7 +32,7 @@ func ParseOSRelease(reader fileio.Reader) (map[string]string, error) {
 		}
 
 		key := parts[0]
-		value := strings.Trim(parts[1], "\"")
+		value := strings.Trim(parts[1], "\"'")
 		result[key] = value
 	}
 

@@ -34,7 +34,7 @@ func TestPackageModeClientMode(t *testing.T) {
 	mockReader := fileio.NewMockReader(ctrl)
 	client := newPackageModeClient(log.NewPrefixLogger("test"), mockReader)
 
-	require.Equal("package-mode", client.Mode())
+	require.Equal(ModePackage, client.Mode())
 }
 
 func TestPackageModeClientStatus(t *testing.T) {
@@ -54,7 +54,7 @@ func TestPackageModeClientStatus(t *testing.T) {
 			setupMocks: func(mockReader *fileio.MockReader) {
 				mockReader.EXPECT().ReadFile(osReleasePath).Return([]byte(rhelOSRelease), nil)
 			},
-			expectedMode:   "package-mode",
+			expectedMode:   ModePackage,
 			expectedName:   "Red Hat Enterprise Linux",
 			expectedVer:    "9.4",
 			expectZeroHost: true,
@@ -64,7 +64,7 @@ func TestPackageModeClientStatus(t *testing.T) {
 			setupMocks: func(mockReader *fileio.MockReader) {
 				mockReader.EXPECT().ReadFile(osReleasePath).Return([]byte(ubuntuOSRelease), nil)
 			},
-			expectedMode:   "package-mode",
+			expectedMode:   ModePackage,
 			expectedName:   "Ubuntu",
 			expectedVer:    "24.04",
 			expectZeroHost: true,
@@ -148,7 +148,7 @@ func TestBootcClientMode(t *testing.T) {
 	mockReader := fileio.NewMockReader(ctrl)
 	client := newBootcClient(log.NewPrefixLogger("test"), nil, mockReader)
 
-	require.Equal("bootc", client.Mode())
+	require.Equal(ModeBootc, client.Mode())
 }
 
 func TestRpmOSTreeClientMode(t *testing.T) {
@@ -159,7 +159,7 @@ func TestRpmOSTreeClientMode(t *testing.T) {
 	mockReader := fileio.NewMockReader(ctrl)
 	client := newRpmOSTreeClient(nil, mockReader)
 
-	require.Equal("rpm-ostree", client.Mode())
+	require.Equal(ModeRPMOSTree, client.Mode())
 }
 
 func TestReadOSInfoGracefulDegradation(t *testing.T) {

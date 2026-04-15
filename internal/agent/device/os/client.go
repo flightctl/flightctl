@@ -11,6 +11,15 @@ import (
 	"github.com/flightctl/flightctl/pkg/log"
 )
 
+const (
+	// ModeBootc is the management mode for bootc-managed systems.
+	ModeBootc = "bootc"
+	// ModeRPMOSTree is the management mode for rpm-ostree-managed systems.
+	ModeRPMOSTree = "rpm-ostree"
+	// ModePackage is the management mode for package-managed systems.
+	ModePackage = "package-mode"
+)
+
 // ErrOSUpdateNotSupported is returned when an OS image operation is
 // attempted on a package-mode device that does not support OS updates.
 var ErrOSUpdateNotSupported = errors.New("OS updates are not supported on package-mode devices")
@@ -47,7 +56,7 @@ type bootc struct {
 }
 
 func (b *bootc) Mode() string {
-	return "bootc"
+	return ModeBootc
 }
 
 func (b *bootc) Status(ctx context.Context) (*Status, error) {
@@ -90,7 +99,7 @@ type rpmOSTree struct {
 }
 
 func (r *rpmOSTree) Mode() string {
-	return "rpm-ostree"
+	return ModeRPMOSTree
 }
 
 func (r *rpmOSTree) Status(ctx context.Context) (*Status, error) {
@@ -134,7 +143,7 @@ type packageMode struct {
 }
 
 func (p *packageMode) Mode() string {
-	return "package-mode"
+	return ModePackage
 }
 
 func (p *packageMode) Status(ctx context.Context) (*Status, error) {
