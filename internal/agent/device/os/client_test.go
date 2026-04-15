@@ -161,3 +161,45 @@ func TestRpmOSTreeClientMode(t *testing.T) {
 
 	require.Equal("rpm-ostree", client.Mode())
 }
+
+func TestReadOSInfoGracefulDegradation(t *testing.T) {
+	require := require.New(t)
+
+	testCases := []struct {
+		name        string
+		setupMocks  func(*fileio.MockReader)
+		expectedOS  string
+		expectedVer string
+	}{
+		{
+			name: "When os-release is available it should return OS name and version",
+			setupMocks: func(mockReader *fileio.MockReader) {
+				mockReader.EXPECT().ReadFile(osReleasePath).Return([]byte(rhelOSRelease), nil)
+			},
+			expectedOS:  "Red Hat Enterprise Linux",
+			expectedVer: "9.4",
+		},
+		{
+			name: "When os-release read fails it should return empty strings",
+			setupMocks: func(mockReader *fileio.MockReader) {
+				mockReader.EXPECT().ReadFile(osReleasePath).Return(nil, fmt.Errorf("file not found"))
+			},
+			expectedOS:  "",
+			expectedVer: "",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			mockReader := fileio.NewMockReader(ctrl)
+			tc.setupMocks(mockReader)
+
+			name, version := readOSInfo(mockReader)
+			require.Equal(tc.expectedOS, name)
+			require.Equal(tc.expectedVer, version)
+		})
+	}
+}
