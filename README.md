@@ -1,5 +1,5 @@
 # Flight Control
-
+ 
 Flight Control is a service for declarative management of fleets of edge devices and their workloads.
 
 For more information, please refer to:
