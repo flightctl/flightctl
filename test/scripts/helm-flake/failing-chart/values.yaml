@@ -1,0 +1,6 @@
+image: quay.io/flightctl-tests/alpine:v1
+deployments:
+  - name: healthy
+    delay: 0
+  - name: failing
+    delay: 20

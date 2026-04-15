@@ -1,0 +1,5 @@
+apiVersion: v2
+name: repro-flake
+description: Reproducer for helm 4 kstatus watcher race condition
+type: application
+version: 0.1.0

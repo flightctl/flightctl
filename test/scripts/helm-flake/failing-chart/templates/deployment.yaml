@@ -1,0 +1,25 @@
+{{- range $i, $d := .Values.deployments }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $.Release.Name }}-{{ $d.name }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ $.Release.Name }}-{{ $d.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ $.Release.Name }}-{{ $d.name }}
+    spec:
+      containers:
+        - name: app
+          image: {{ $.Values.image }}
+          {{- if gt (int $d.delay) 0 }}
+          command: ["sh", "-c", "echo started && sleep {{ $d.delay }} && exit 1"]
+          {{- else }}
+          command: ["sh", "-c", "echo started && sleep infinity"]
+          {{- end }}
+{{- end }}

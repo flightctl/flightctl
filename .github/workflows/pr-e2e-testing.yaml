@@ -174,11 +174,59 @@ jobs:
           path: discovery.json
           retention-days: 1
 
-  e2e-tests:
+  # e2e-tests:
+  #   needs:
+  #     - compute-tag
+  #     - build-images-and-charts
+  #     - build-flightctl-cli
+  #     - build-agent-images-unified
+  #     - discover-e2e-tests
+  #   if: |
+  #     needs.compute-tag.outputs.any_changed == 'true' &&
+  #     (github.event_name != 'pull_request' || startsWith(github.base_ref, 'release-') || contains(github.event.pull_request.labels.*.name, 'run-e2e') || vars.E2E_RUN_ON_MAIN_PRS == 'true')
+  #   strategy:
+  #     fail-fast: false
+  #     matrix:
+  #       include:
+  #         # Non-Agent metrics
+  #         ## CS9
+  #         - os_id: cs9-bootc
+  #           backend_type: helm
+  #           label_filter: 'sanity && !agent'
+  #           ginkgo_total_nodes: 2
+  #         # Agent metrics
+  #         ## CS9 Agent metrics
+  #         - os_id: cs9-bootc
+  #           backend_type: helm
+  #           label_filter: 'sanity && agent && !slow'
+  #           ginkgo_total_nodes: 2
+  #         - os_id: cs9-bootc
+  #           backend_type: helm
+  #           label_filter: 'sanity && agent && slow'
+  #           ginkgo_total_nodes: 2
+  #         ## CS10 Agent metrics
+  #         - os_id: cs10-bootc
+  #           backend_type: helm
+  #           label_filter: 'sanity && agent && !slow'
+  #           ginkgo_total_nodes: 2
+  #         - os_id: cs10-bootc
+  #           backend_type: helm
+  #           label_filter: 'sanity && agent && slow'
+  #           ginkgo_total_nodes: 2
+  #   uses: ./.github/workflows/run-e2e-tests.yaml
+  #   with:
+  #     os_id: ${{ matrix.os_id }}
+  #     backend_type: ${{ matrix.backend_type }}
+  #     ginkgo_total_nodes: ${{ matrix.ginkgo_total_nodes }}
+  #     ginkgo_label_filter: ${{ matrix.label_filter }}
+  #     tag: ${{ needs.compute-tag.outputs.tag }}
+
+  # Temporary job: run test 87531 (helm kstatus panic) 20x20 times to reproduce the flake.
+  # Remove after the issue is resolved.
+  helm-flake-repro:
     needs:
       - compute-tag
       - build-images-and-charts
-      - build-flightctl-cli
       - build-agent-images-unified
       - discover-e2e-tests
     if: |
@@ -187,43 +235,230 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          # Non-Agent metrics
-          ## CS9
-          - os_id: cs9-bootc
-            backend_type: helm
-            label_filter: 'sanity && !agent'
-            ginkgo_total_nodes: 2
-          # Agent metrics
-          ## CS9 Agent metrics
-          - os_id: cs9-bootc
-            backend_type: helm
-            label_filter: 'sanity && agent && !slow'
-            ginkgo_total_nodes: 2
-          - os_id: cs9-bootc
-            backend_type: helm
-            label_filter: 'sanity && agent && slow'
-            ginkgo_total_nodes: 2
-          ## CS10 Agent metrics
-          - os_id: cs10-bootc
-            backend_type: helm
-            label_filter: 'sanity && agent && !slow'
-            ginkgo_total_nodes: 2
-          - os_id: cs10-bootc
-            backend_type: helm
-            label_filter: 'sanity && agent && slow'
-            ginkgo_total_nodes: 2
-    uses: ./.github/workflows/run-e2e-tests.yaml
-    with:
-      os_id: ${{ matrix.os_id }}
-      backend_type: ${{ matrix.backend_type }}
-      ginkgo_total_nodes: ${{ matrix.ginkgo_total_nodes }}
-      ginkgo_label_filter: ${{ matrix.label_filter }}
-      tag: ${{ needs.compute-tag.outputs.tag }}
+        attempt: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+    runs-on: ubuntu-24.04
+    env:
+      FLIGHTCTL_NS: flightctl-external
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android >/dev/null 2>&1 &
+          df -h
+
+      - name: Setup dependencies (KVM, libvirt, etc)
+        uses: ./.github/actions/setup-dependencies
+        with:
+          setup_kvm: yes
+
+      - name: Compute base domain
+        id: base-domain
+        run: |
+          IP=$(ip route get 1.1.1.1 | grep -oP 'src \K\S+')
+          echo "ip=${IP}" >> "$GITHUB_OUTPUT"
+          echo "base_domain=${IP}.nip.io" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy backend with Helm
+        uses: ./.github/actions/deploy-backend-with-helm
+        with:
+          tag: ${{ needs.compute-tag.outputs.tag }}
+          base-domain: ${{ steps.base-domain.outputs.base_domain }}
+          additional-values-files: deploy/helm/flightctl/values.e2e.yaml
+          auth-type: k8s
+          kind-config: test/scripts/kind_cluster.yaml
+          display-summary: true
+          wait: false
+
+      - name: Download test artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: agent-*-cs10-bootc-${{ needs.compute-tag.outputs.tag }}
+          path: test-artifacts
+          merge-multiple: true
+
+      - name: Stage test artifacts
+        run: |
+          set -euo pipefail
+          mkdir -p bin/agent-artifacts bin/output/qcow2
+          mv test-artifacts/agent-images-bundle-cs10-bootc.tar bin/agent-artifacts/
+          mv test-artifacts/disk.qcow2 bin/output/qcow2/
+          rm -rf test-artifacts
+          df -h
+
+      - name: Wait for API readiness
+        uses: ./.github/actions/wait-for-api-readiness
+        with:
+          base-domain: ${{ steps.base-domain.outputs.base_domain }}
+
+      - name: Prepare E2E environment
+        env:
+          AGENT_OS_ID: cs10-bootc
+        run: make prepare-e2e-test
+
+      - name: Restore Go cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: "Run test 87531 (attempt 1/20)"
+        env:
+          GINKGO_LABEL_FILTER: "87531"
+          AGENT_OS_ID: cs10-bootc
+        run: make -e run-e2e-test
+
+      - name: "Run test 87531 (attempt 2/20)"
+        if: always()
+        env:
+          GINKGO_LABEL_FILTER: "87531"
+          AGENT_OS_ID: cs10-bootc
+        run: make -e run-e2e-test
+
+      - name: "Run test 87531 (attempt 3/20)"
+        if: always()
+        env:
+          GINKGO_LABEL_FILTER: "87531"
+          AGENT_OS_ID: cs10-bootc
+        run: make -e run-e2e-test
+
+      - name: "Run test 87531 (attempt 4/20)"
+        if: always()
+        env:
+          GINKGO_LABEL_FILTER: "87531"
+          AGENT_OS_ID: cs10-bootc
+        run: make -e run-e2e-test
+
+      - name: "Run test 87531 (attempt 5/20)"
+        if: always()
+        env:
+          GINKGO_LABEL_FILTER: "87531"
+          AGENT_OS_ID: cs10-bootc
+        run: make -e run-e2e-test
+
+      - name: "Run test 87531 (attempt 6/20)"
+        if: always()
+        env:
+          GINKGO_LABEL_FILTER: "87531"
+          AGENT_OS_ID: cs10-bootc
+        run: make -e run-e2e-test
+
+      - name: "Run test 87531 (attempt 7/20)"
+        if: always()
+        env:
+          GINKGO_LABEL_FILTER: "87531"
+          AGENT_OS_ID: cs10-bootc
+        run: make -e run-e2e-test
+
+      - name: "Run test 87531 (attempt 8/20)"
+        if: always()
+        env:
+          GINKGO_LABEL_FILTER: "87531"
+          AGENT_OS_ID: cs10-bootc
+        run: make -e run-e2e-test
+
+      - name: "Run test 87531 (attempt 9/20)"
+        if: always()
+        env:
+          GINKGO_LABEL_FILTER: "87531"
+          AGENT_OS_ID: cs10-bootc
+        run: make -e run-e2e-test
+
+      - name: "Run test 87531 (attempt 10/20)"
+        if: always()
+        env:
+          GINKGO_LABEL_FILTER: "87531"
+          AGENT_OS_ID: cs10-bootc
+        run: make -e run-e2e-test
+
+      - name: "Run test 87531 (attempt 11/20)"
+        if: always()
+        env:
+          GINKGO_LABEL_FILTER: "87531"
+          AGENT_OS_ID: cs10-bootc
+        run: make -e run-e2e-test
+
+      - name: "Run test 87531 (attempt 12/20)"
+        if: always()
+        env:
+          GINKGO_LABEL_FILTER: "87531"
+          AGENT_OS_ID: cs10-bootc
+        run: make -e run-e2e-test
+
+      - name: "Run test 87531 (attempt 13/20)"
+        if: always()
+        env:
+          GINKGO_LABEL_FILTER: "87531"
+          AGENT_OS_ID: cs10-bootc
+        run: make -e run-e2e-test
+
+      - name: "Run test 87531 (attempt 14/20)"
+        if: always()
+        env:
+          GINKGO_LABEL_FILTER: "87531"
+          AGENT_OS_ID: cs10-bootc
+        run: make -e run-e2e-test
+
+      - name: "Run test 87531 (attempt 15/20)"
+        if: always()
+        env:
+          GINKGO_LABEL_FILTER: "87531"
+          AGENT_OS_ID: cs10-bootc
+        run: make -e run-e2e-test
+
+      - name: "Run test 87531 (attempt 16/20)"
+        if: always()
+        env:
+          GINKGO_LABEL_FILTER: "87531"
+          AGENT_OS_ID: cs10-bootc
+        run: make -e run-e2e-test
+
+      - name: "Run test 87531 (attempt 17/20)"
+        if: always()
+        env:
+          GINKGO_LABEL_FILTER: "87531"
+          AGENT_OS_ID: cs10-bootc
+        run: make -e run-e2e-test
+
+      - name: "Run test 87531 (attempt 18/20)"
+        if: always()
+        env:
+          GINKGO_LABEL_FILTER: "87531"
+          AGENT_OS_ID: cs10-bootc
+        run: make -e run-e2e-test
+
+      - name: "Run test 87531 (attempt 19/20)"
+        if: always()
+        env:
+          GINKGO_LABEL_FILTER: "87531"
+          AGENT_OS_ID: cs10-bootc
+        run: make -e run-e2e-test
+
+      - name: "Run test 87531 (attempt 20/20)"
+        if: always()
+        env:
+          GINKGO_LABEL_FILTER: "87531"
+          AGENT_OS_ID: cs10-bootc
+        run: make -e run-e2e-test
+
+      - name: Collect and Upload Logs
+        if: always()
+        uses: ./.github/actions/collect-logs
+        with:
+          namespace-external: 'flightctl-external'
+          namespace-internal: 'flightctl-internal'
+          log-directory: 'helm-flake-logs-${{ matrix.attempt }}'
 
   e2e:
     runs-on: ubuntu-latest
-    needs: [ compute-tag, e2e-tests ]
+    needs: [ compute-tag, helm-flake-repro ]
     if: always()
     steps:
       - name: Check E2E Test Results
@@ -241,10 +476,10 @@ jobs:
             echo "To run e2e tests on this PR, add the 'run-e2e' label"
             exit 0
           fi
-          if [[ "${{ needs.e2e-tests.result }}" == "success" ]]; then
+          if [[ "${{ needs.helm-flake-repro.result }}" == "success" ]]; then
             echo "All E2E tests passed!"
             exit 0
-          elif [[ "${{ needs.e2e-tests.result }}" == "skipped" ]]; then
+          elif [[ "${{ needs.helm-flake-repro.result }}" == "skipped" ]]; then
             echo "E2E tests were skipped"
             exit 0
           else
