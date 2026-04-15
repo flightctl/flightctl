@@ -147,15 +147,11 @@ func (p *packageMode) Mode() string {
 }
 
 func (p *packageMode) Status(ctx context.Context) (*Status, error) {
-	osInfo, err := ParseOSRelease(p.reader)
-	if err != nil {
-		return nil, err
-	}
-
+	osName, osVersion := readOSInfo(p.reader)
 	return &Status{
 		ManagementMode: p.Mode(),
-		OSName:         osInfo["NAME"],
-		OSVersion:      osInfo["VERSION_ID"],
+		OSName:         osName,
+		OSVersion:      osVersion,
 	}, nil
 }
 

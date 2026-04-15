@@ -70,11 +70,14 @@ func TestPackageModeClientStatus(t *testing.T) {
 			expectZeroHost: true,
 		},
 		{
-			name: "When os-release read fails it should return error",
+			name: "When os-release read fails it should return status with empty OS fields",
 			setupMocks: func(mockReader *fileio.MockReader) {
 				mockReader.EXPECT().ReadFile(osReleasePath).Return(nil, fmt.Errorf("file not found"))
 			},
-			expectError: true,
+			expectedMode:   ModePackage,
+			expectedName:   "",
+			expectedVer:    "",
+			expectZeroHost: true,
 		},
 	}
 
