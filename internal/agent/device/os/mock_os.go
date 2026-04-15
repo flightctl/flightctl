@@ -56,6 +56,20 @@ func (mr *MockClientMockRecorder) Apply(ctx any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Apply", reflect.TypeOf((*MockClient)(nil).Apply), ctx)
 }
 
+// Mode mocks base method.
+func (m *MockClient) Mode() string {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Mode")
+	ret0, _ := ret[0].(string)
+	return ret0
+}
+
+// Mode indicates an expected call of Mode.
+func (mr *MockClientMockRecorder) Mode() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Mode", reflect.TypeOf((*MockClient)(nil).Mode))
+}
+
 // Rollback mocks base method.
 func (m *MockClient) Rollback(ctx context.Context) error {
 	m.ctrl.T.Helper()
