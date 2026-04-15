@@ -133,7 +133,7 @@ func CreateAuthZMiddleware(authZ AuthZMiddleware, log logrus.FieldLogger) func(h
 
 			if resource == resourceNil || action == actionNil {
 				log.Errorf("Unable to extract resource and action from %s and %s", r.URL.Path, r.Method)
-				http.Error(w, errBadRequest, http.StatusBadRequest)
+				writeResponse(w, api.StatusBadRequest(errBadRequest), log)
 				return
 			}
 
@@ -144,7 +144,7 @@ func CreateAuthZMiddleware(authZ AuthZMiddleware, log logrus.FieldLogger) func(h
 				r.URL.Path, r.Method, resource, action)
 
 			if !isAllowed(ctx, authZ, log, resource, action, w) {
-				// http.Error was called in isAllowed
+				// writeResponse was called in isAllowed
 				log.Debugf("AuthZMiddleware: authorization denied for path=%s, method=%s, resource=%s, action=%s",
 					r.URL.Path, r.Method, resource, action)
 				return
@@ -168,9 +168,9 @@ func isAllowed(ctx context.Context, authZ AuthZMiddleware, log logrus.FieldLogge
 
 		// Check if this is a client-side error (e.g., invalid token claims)
 		if flterrors.IsClientAuthError(err) {
-			http.Error(w, errBadRequest, http.StatusBadRequest)
+			writeResponse(w, api.StatusBadRequest(errBadRequest), log)
 		} else {
-			http.Error(w, errAuthorizationServerUnavailable, http.StatusServiceUnavailable)
+			writeResponse(w, api.StatusServiceUnavailable(errAuthorizationServerUnavailable), log)
 		}
 		return false
 	}
@@ -178,7 +178,7 @@ func isAllowed(ctx context.Context, authZ AuthZMiddleware, log logrus.FieldLogge
 		return true
 	}
 
-	http.Error(w, errForbidden, http.StatusForbidden)
+	writeResponse(w, api.StatusForbidden(errForbidden), log)
 	return false
 }
 
