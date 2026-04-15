@@ -23,6 +23,37 @@ To generate API code and mocks, use `make generate`  This requires installing mo
 
 `go install go.uber.org/mock/mockgen@v0.4.0`
 
+### Container image building
+
+Flight Control supports building containers for multiple Enterprise Linux versions using OS-qualified image naming. The build system uses an `OS` variable to specify the target Enterprise Linux version:
+
+```bash
+# Build containers for Enterprise Linux 9 (default)
+make build-containers OS=el9
+
+# Build containers for Enterprise Linux 10
+make build-containers OS=el10
+```
+
+**OS-Qualified Image Names:**
+
+All Flight Control service containers use OS-qualified naming with the format `flightctl-{service}-{OS}:latest`:
+
+- **EL9**: `flightctl-api-el9:latest`, `flightctl-worker-el9:latest`, etc.
+- **EL10**: `flightctl-api-el10:latest`, `flightctl-worker-el10:latest`, etc.
+
+This naming scheme prevents conflicts when building and deploying containers across different Enterprise Linux versions.
+
+**Available Make Targets:**
+
+- `make build-containers` - Build all service containers (defaults to `OS=el9`)
+- `make clean-containers` - Remove containers for the current OS
+- `make bundle-containers` - Bundle containers for distribution
+
+**Registry Image Naming:**
+
+Registry images follow the same pattern: `quay.io/flightctl/flightctl-{service}-{OS}:{version}`
+
 ## Running
 
 Note: If you are developing with podman on an arm64 system (i.e. M1/M2 Mac) change the postgresql
