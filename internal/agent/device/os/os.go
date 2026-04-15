@@ -18,6 +18,8 @@ const (
 )
 
 type Client interface {
+	// Mode returns the OS management mode: "bootc", "rpm-ostree", or "package-mode".
+	Mode() string
 	// Status retrieves the current OS status
 	Status(ctx context.Context) (*Status, error)
 	// Switch prepares the system to switch to the specified OS image
@@ -174,4 +176,10 @@ func (m *manager) Reboot(ctx context.Context, desired *v1beta1.DeviceSpec) error
 
 type Status struct {
 	container.BootcHost
+	// ManagementMode is the OS management mode: "bootc", "rpm-ostree", or "package-mode".
+	ManagementMode string
+	// OSName is the OS distribution name (e.g., "Red Hat Enterprise Linux", "Ubuntu").
+	OSName string
+	// OSVersion is the OS version string (e.g., "9.4", "24.04").
+	OSVersion string
 }
