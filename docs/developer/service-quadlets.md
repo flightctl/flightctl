@@ -26,6 +26,15 @@ More info about systemd units using Podman Quadlet including definitions of fiel
 > **Note**
 > Flight Control Quadlets are configured to run rootful containers and rootless is not supported
 
+### OS-qualified container images
+
+Flight Control uses OS-qualified container image naming to support multiple Enterprise Linux versions. All service containers include the Enterprise Linux version in their name:
+
+- **EL9**: `quay.io/flightctl/flightctl-{service}-el9:latest`
+- **EL10**: `quay.io/flightctl/flightctl-{service}-el10:latest`
+
+Examples in this document use EL9 images (`-el9` suffix). For EL10 deployments, substitute `-el10` in the image names.
+
 ## Flight Control Service Architecture
 
 The Flight Control Quadlets are organized in the `deploy/podman/` directory with the following general structure:
@@ -165,7 +174,7 @@ Both internal and external database modes use identical authentication mechanism
 ```ini
 [Container]
 ContainerName=flightctl-api
-Image=quay.io/flightctl/flightctl-api:latest
+Image=quay.io/flightctl/flightctl-api-el9:latest
 Network=flightctl.network
 EnvironmentFile=/etc/flightctl/flightctl-api/env
 Secret=flightctl-postgresql-user-password,type=env,target=DB_PASSWORD
@@ -402,7 +411,7 @@ Requires=
 
 [Container]
 ContainerName=flightctl-myservice
-Image=quay.io/flightctl/flightctl-myservice:latest
+Image=quay.io/flightctl/flightctl-myservice-el9:latest
 Network=flightctl.network
 # !Important!
 # Because the containers are run using rootful podman host port definitions
