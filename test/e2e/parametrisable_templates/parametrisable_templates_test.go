@@ -14,7 +14,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-const fleetControllerErrorAnnotation = "fleet-controller/lastRolloutError"
+const fleetControllerErrorAnnotation = v1beta1.DeviceAnnotationLastRolloutError
 
 var (
 	fleetSelectorKey                  = "fleet"
@@ -63,7 +63,7 @@ var (
 	inlineAppEnvVars                  = map[string]string{"LOG_MESSAGE": "Hello from FlightControl (Inline Ref)"}
 	pullPolicy                        = v1beta1.PullIfNotPresent
 	fixedContainerTag                 = "alpine"
-	fixedQuadletTag                   = "with-image-ref"
+	fixedQuadletTag                   = "latest"
 	fixedArtifactTag                  = "latest"
 	fixedInlineTag                    = "v1"
 	deviceCouldNotBeUpdatedToFleetMsg = "The device could not be updated to the fleet"
