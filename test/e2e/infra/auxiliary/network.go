@@ -32,6 +32,25 @@ func ConfigureDockerHost() {
 	logContainerRuntime(dockerHost)
 }
 
+// containerRuntimeCLIName returns the CLI binary that matches DOCKER_HOST. Testcontainers use the
+// Docker API against that socket; a mismatched CLI (e.g. podman ps while containers run under
+// unix:///var/run/docker.sock) would query a different graph and miss containers.
+func containerRuntimeCLIName() string {
+	dh := os.Getenv("DOCKER_HOST")
+	if strings.Contains(dh, "podman") {
+		return "podman"
+	}
+	return "docker"
+}
+
+// containerNamePSFilter returns a docker|podman ps --filter value for an exact container name.
+func containerNamePSFilter(runtimeCLI, name string) string {
+	if runtimeCLI == "podman" {
+		return "name=^" + name + "$"
+	}
+	return "name=" + name
+}
+
 // logContainerRuntime logs the detected runtime so CI/local logs show whether we use Docker or Podman.
 func logContainerRuntime(dockerHost string) {
 	runtime := "docker"

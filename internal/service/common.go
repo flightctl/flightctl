@@ -31,6 +31,13 @@ func IsInternalRequest(ctx context.Context) bool {
 	return false
 }
 
+func IsResourceSyncRequest(ctx context.Context) bool {
+	if rs, ok := ctx.Value(consts.ResourceSyncRequestCtxKey).(bool); ok && rs {
+		return true
+	}
+	return false
+}
+
 func NilOutManagedObjectMetaProperties(om *domain.ObjectMeta) {
 	if om == nil {
 		return

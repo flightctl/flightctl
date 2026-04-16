@@ -12,6 +12,7 @@ import (
 	"github.com/flightctl/flightctl/internal/rendered"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/tasks"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
@@ -24,6 +25,7 @@ import (
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"go.uber.org/mock/gomock"
+	"gorm.io/gorm"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 )
@@ -70,6 +72,7 @@ var _ = Describe("DeviceRender", func() {
 		serviceHandler    service.Service
 		cfg               *config.Config
 		dbName            string
+		db                *gorm.DB
 		fleetName         string
 		deviceName        string
 		repoName          string
@@ -88,7 +91,7 @@ var _ = Describe("DeviceRender", func() {
 		fleetName = "myfleet"
 		deviceName = "mydevice"
 		repoName = "contents"
-		storeInst, cfg, dbName, _ = store.PrepareDBForUnitTests(ctx, log)
+		storeInst, cfg, dbName, db = store.PrepareDBForUnitTests(ctx, log)
 		deviceStore = storeInst.Device()
 		fleetStore = storeInst.Fleet()
 		tvStore = storeInst.TemplateVersion()
@@ -197,6 +200,73 @@ var _ = Describe("DeviceRender", func() {
 				// Should fail - derived paths under forbidden root are rejected
 				Expect(err).To(HaveOccurred())
 				Expect(err.Error()).To(ContainSubstring("forbidden device path"))
+			})
+
+			It("when device cannot be rendered, sets DeviceSpecValid false, updates device status, and IsUpdatedToDeviceSpec returns false", func() {
+				k8sConfig := &api.KubernetesSecretProviderSpec{Name: "k8s-unrenderable"}
+				k8sConfig.SecretRef.Name = "test-secret"
+				k8sConfig.SecretRef.Namespace = "default"
+				k8sConfig.SecretRef.MountPath = "/var/lib/flightctl" // Forbidden base path -> render fails
+
+				mockK8s := &mockK8sClient{}
+
+				configProvider := api.ConfigProviderSpec{}
+				err := configProvider.FromKubernetesSecretProviderSpec(*k8sConfig)
+				Expect(err).ToNot(HaveOccurred())
+
+				testDeviceName := deviceName + "-unrenderable-" + uuid.New().String()[:8]
+				device := &api.Device{
+					Metadata: api.ObjectMeta{Name: lo.ToPtr(testDeviceName)},
+					Spec:     &api.DeviceSpec{Config: &[]api.ConfigProviderSpec{configProvider}},
+				}
+				_, err = deviceStore.Create(ctx, orgId, device, nil)
+				Expect(err).ToNot(HaveOccurred())
+
+				defer func() {
+					_, _ = deviceStore.Delete(ctx, orgId, testDeviceName, nil)
+				}()
+
+				// Set a recent last_seen in device_timestamps so the device is not considered disconnected when
+				// UpdateServerSideDeviceStatus runs (otherwise status.updated.status can be set to Unknown).
+				setDeviceLastSeen := func(deviceName string, lastSeen time.Time) error {
+					result := db.WithContext(ctx).Model(&model.DeviceTimestamp{}).Where("org_id = ? AND name = ?", orgId, deviceName).Updates(map[string]interface{}{
+						"last_seen": lastSeen,
+					})
+					return result.Error
+				}
+				err = setDeviceLastSeen(testDeviceName, time.Now().Add(-1*time.Minute))
+				Expect(err).ToNot(HaveOccurred())
+
+				event := api.Event{
+					Reason:         api.EventReasonResourceUpdated,
+					InvolvedObject: api.ObjectReference{Kind: api.DeviceKind, Name: testDeviceName},
+				}
+				logic := tasks.NewDeviceRenderLogic(log, serviceHandler, mockK8s, kvStoreInst, nil, orgId, event)
+				err = logic.RenderDevice(ctx)
+
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("forbidden device path"))
+
+				// Fetch device from the database and verify render-failure handling: condition set, not "updated to spec"
+				device, err = deviceStore.Get(ctx, orgId, testDeviceName)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(device.Status).ToNot(BeNil())
+				Expect(device.Status.Conditions).ToNot(BeNil())
+
+				specValid := api.FindStatusCondition(device.Status.Conditions, api.ConditionTypeDeviceSpecValid)
+				Expect(specValid).ToNot(BeNil(), "DeviceSpecValid condition should be set when render fails")
+				Expect(specValid.Status).To(Equal(api.ConditionStatusFalse))
+				Expect(specValid.Reason).To(Equal("Invalid"))
+				Expect(specValid.Message).ToNot(BeEmpty())
+				Expect(specValid.Message).To(ContainSubstring("forbidden device path"))
+
+				// When DeviceSpecValid condition exists and is False (spec invalid), the device must not be considered up to date.
+				Expect(device.IsUpdatedToDeviceSpec()).To(BeFalse(),
+					"device with DeviceSpecValid condition False (spec invalid) must not be considered updated to device spec")
+
+				// status.updated.status in the database must reflect that the device is out of date when it cannot be rendered.
+				Expect(device.Status.Updated.Status).To(Equal(api.DeviceUpdatedStatusOutOfDate),
+					"status.updated.status must be OutOfDate when device cannot be rendered")
 			})
 		})
 	})

@@ -180,6 +180,8 @@ func (t *DeviceRenderLogic) setStatus(ctx context.Context, renderErr error) erro
 	status := t.serviceHandler.SetDeviceServiceConditions(ctx, t.orgId, t.event.InvolvedObject.Name, []domain.Condition{condition})
 	if status.Code != http.StatusOK {
 		t.log.Errorf("Failed setting condition for device %s/%s: %s", t.orgId, t.event.InvolvedObject.Name, status.Message)
+	} else if err := t.serviceHandler.UpdateServerSideDeviceStatus(ctx, t.orgId, t.event.InvolvedObject.Name); err != nil {
+		t.log.Errorf("Failed updating device status for device %s/%s: %v", t.orgId, t.event.InvolvedObject.Name, err)
 	}
 	return renderErr
 }

@@ -1,9 +1,17 @@
 {{- if eq (include "flightctl.enableMulticlusterExtensions" .) "true" }}
+{{- $cmName := "flightctl-discovery" }}
+{{- $existing := lookup "v1" "ConfigMap" .Values.global.multiclusterEngineNamespace $cmName }}
+{{- if $existing }}
+  {{- $existingInstance := dig "metadata" "labels" "app.kubernetes.io/instance" "" $existing }}
+  {{- if ne $existingInstance .Release.Name }}
+    {{- fail (printf "Only one instance with multicluster extensions is allowed per cluster. A '%s' ConfigMap already exists in namespace '%s' (managed by Helm release '%s'). Please either disable multicluster extensions for this installation (set global.enableMulticlusterExtensions=false) or uninstall the existing release first." $cmName .Values.global.multiclusterEngineNamespace (default "unknown" $existingInstance)) }}
+  {{- end }}
+{{- end }}
 {{- $apiEndpoint := "https://flightctl-api.{{ .Release.Namespace }}.svc:3443" }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: flightctl-discovery
+  name: {{ $cmName }}
   namespace: {{ .Values.global.multiclusterEngineNamespace }}
   labels:
     {{- include "flightctl.standardLabels" . | nindent 4 }}

@@ -69,12 +69,24 @@ func (h *ServiceHandler) ReplaceCatalog(ctx context.Context, orgId uuid.UUID, na
 }
 
 func (h *ServiceHandler) DeleteCatalog(ctx context.Context, orgId uuid.UUID, name string) domain.Status {
+	c, err := h.store.Catalog().Get(ctx, orgId, name)
+	if err != nil {
+		if errors.Is(err, flterrors.ErrResourceNotFound) {
+			return domain.StatusOK() // idempotent delete
+		}
+		return StoreErrorToApiStatus(err, false, domain.CatalogKind, &name)
+	}
+
+	if c.Metadata.Owner != nil && !IsResourceSyncRequest(ctx) {
+		return domain.StatusConflict(flterrors.ErrDeletingResourceWithOwnerNotAllowed.Error())
+	}
+
 	callback := func(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, owner string) error {
 		// No owned resources for Catalog currently
 		return nil
 	}
 
-	err := h.store.Catalog().Delete(ctx, orgId, name, callback, h.callbackCatalogDeleted)
+	err = h.store.Catalog().Delete(ctx, orgId, name, callback, h.callbackCatalogDeleted)
 	status := StoreErrorToApiStatus(err, false, domain.CatalogKind, &name)
 	return status
 }
@@ -263,7 +275,19 @@ func (h *ServiceHandler) PatchCatalogItem(ctx context.Context, orgId uuid.UUID, 
 }
 
 func (h *ServiceHandler) DeleteCatalogItem(ctx context.Context, orgId uuid.UUID, catalogName string, itemName string) domain.Status {
-	err := h.store.Catalog().DeleteItem(ctx, orgId, catalogName, itemName)
+	existing, err := h.store.Catalog().GetItem(ctx, orgId, catalogName, itemName)
+	if err != nil {
+		if errors.Is(err, flterrors.ErrResourceNotFound) || errors.Is(err, flterrors.ErrParentResourceNotFound) {
+			return domain.StatusOK() // idempotent delete
+		}
+		return StoreErrorToApiStatus(err, false, domain.CatalogItemKind, &itemName)
+	}
+
+	if existing.Metadata.Owner != nil && !IsResourceSyncRequest(ctx) {
+		return domain.StatusConflict(flterrors.ErrDeletingResourceWithOwnerNotAllowed.Error())
+	}
+
+	err = h.store.Catalog().DeleteItem(ctx, orgId, catalogName, itemName)
 	if errors.Is(err, flterrors.ErrParentResourceNotFound) {
 		return domain.StatusResourceNotFound(domain.CatalogKind, catalogName)
 	}

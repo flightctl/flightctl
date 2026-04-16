@@ -25,6 +25,7 @@ type TestStore struct {
 	devices            *DummyDevice
 	events             *DummyEvent
 	fleets             *DummyFleet
+	catalogs           *DummyCatalog
 	repositories       *DummyRepository
 	resourceSyncVals   *DummyResourceSync
 	enrollmentRequests *DummyEnrollmentRequest
@@ -61,6 +62,12 @@ type DummyEnrollmentRequest struct {
 	enrollmentRequests *[]domain.EnrollmentRequest
 }
 
+type DummyCatalog struct {
+	store.Catalog
+	catalogs *[]domain.Catalog
+	items    *[]domain.CatalogItem
+}
+
 type DummyOrganization struct {
 	store.Organization
 	organizations *[]*model.Organization
@@ -76,6 +83,9 @@ func (s *TestStore) init() {
 	}
 	if s.fleets == nil {
 		s.fleets = &DummyFleet{fleets: &[]domain.Fleet{}}
+	}
+	if s.catalogs == nil {
+		s.catalogs = &DummyCatalog{catalogs: &[]domain.Catalog{}, items: &[]domain.CatalogItem{}}
 	}
 	if s.repositories == nil {
 		s.repositories = &DummyRepository{repositories: &[]domain.Repository{}}
@@ -94,6 +104,11 @@ func (s *TestStore) init() {
 func (s *TestStore) Fleet() store.Fleet {
 	s.init()
 	return s.fleets
+}
+
+func (s *TestStore) Catalog() store.Catalog {
+	s.init()
+	return s.catalogs
 }
 
 func (s *TestStore) Device() store.Device {
@@ -158,7 +173,7 @@ func (s *DummyDevice) Get(ctx context.Context, orgId uuid.UUID, name string) (*d
 	return nil, flterrors.ErrResourceNotFound
 }
 
-func (s *DummyDevice) GetWithoutServiceConditions(ctx context.Context, orgId uuid.UUID, name string) (*domain.Device, error) {
+func (s *DummyDevice) GetWithTimestamp(ctx context.Context, orgId uuid.UUID, name string) (*domain.Device, error) {
 	return s.Get(ctx, orgId, name)
 }
 
@@ -289,6 +304,107 @@ func (s *DummyFleet) Delete(ctx context.Context, orgId uuid.UUID, name string, c
 			if callbackEvent != nil {
 				callbackEvent(ctx, domain.FleetKind, orgId, name, &oldFleet, nil, false, nil)
 			}
+			return nil
+		}
+	}
+	return flterrors.ErrResourceNotFound
+}
+
+// --------------------------------------> Catalog
+
+func (s *DummyCatalog) Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.Catalog, error) {
+	for _, catalog := range *s.catalogs {
+		if name == *catalog.Metadata.Name {
+			var c domain.Catalog
+			deepCopy(catalog, &c)
+			return &c, nil
+		}
+	}
+	return nil, flterrors.ErrResourceNotFound
+}
+
+func (s *DummyCatalog) Create(ctx context.Context, orgId uuid.UUID, catalog *domain.Catalog, callbackEvent store.EventCallback) (*domain.Catalog, error) {
+	var c domain.Catalog
+	deepCopy(catalog, &c)
+	*s.catalogs = append(*s.catalogs, c)
+	if callbackEvent != nil {
+		callbackEvent(ctx, domain.CatalogKind, orgId, lo.FromPtr(catalog.Metadata.Name), nil, catalog, true, nil)
+	}
+	return catalog, nil
+}
+
+func (s *DummyCatalog) Delete(ctx context.Context, orgId uuid.UUID, name string, callback store.RemoveOwnerCallback, callbackEvent store.EventCallback) error {
+	for i, catalog := range *s.catalogs {
+		if name == *catalog.Metadata.Name {
+			var oldCatalog domain.Catalog
+			deepCopy(catalog, &oldCatalog)
+			*s.catalogs = append((*s.catalogs)[:i], (*s.catalogs)[i+1:]...)
+			if callbackEvent != nil {
+				callbackEvent(ctx, domain.CatalogKind, orgId, name, &oldCatalog, nil, false, nil)
+			}
+			return nil
+		}
+	}
+	return flterrors.ErrResourceNotFound
+}
+
+func (s *DummyCatalog) GetItem(ctx context.Context, orgId uuid.UUID, catalogName string, itemName string) (*domain.CatalogItem, error) {
+	for _, item := range *s.items {
+		if item.Metadata.Catalog == catalogName && *item.Metadata.Name == itemName {
+			var i domain.CatalogItem
+			deepCopy(item, &i)
+			return &i, nil
+		}
+	}
+	return nil, flterrors.ErrResourceNotFound
+}
+
+func (s *DummyCatalog) CreateItem(ctx context.Context, orgId uuid.UUID, catalogName string, item *domain.CatalogItem) (*domain.CatalogItem, error) {
+	var i domain.CatalogItem
+	deepCopy(item, &i)
+	i.Metadata.Catalog = catalogName
+	*s.items = append(*s.items, i)
+	return &i, nil
+}
+
+func (s *DummyCatalog) CreateOrUpdateItem(ctx context.Context, orgId uuid.UUID, catalogName string, item *domain.CatalogItem) (*domain.CatalogItem, bool, error) {
+	for idx, existing := range *s.items {
+		if existing.Metadata.Catalog == catalogName && *existing.Metadata.Name == *item.Metadata.Name {
+			// Update existing item
+			var i domain.CatalogItem
+			deepCopy(item, &i)
+			i.Metadata.Catalog = catalogName
+			if i.Metadata.Owner == nil {
+				i.Metadata.Owner = existing.Metadata.Owner
+			}
+			(*s.items)[idx] = i
+			return &i, false, nil
+		}
+	}
+	result, err := s.CreateItem(ctx, orgId, catalogName, item)
+	return result, true, err
+}
+
+func (s *DummyCatalog) UpdateItem(ctx context.Context, orgId uuid.UUID, catalogName string, item *domain.CatalogItem) (*domain.CatalogItem, error) {
+	for idx, existing := range *s.items {
+		if existing.Metadata.Catalog == catalogName && *existing.Metadata.Name == *item.Metadata.Name {
+			var i domain.CatalogItem
+			deepCopy(item, &i)
+			i.Metadata.Catalog = catalogName
+			if i.Metadata.Owner == nil {
+				i.Metadata.Owner = existing.Metadata.Owner
+			}
+			(*s.items)[idx] = i
+			return &i, nil
+		}
+	}
+	return nil, flterrors.ErrResourceNotFound
+}
+
+func (s *DummyCatalog) DeleteItem(ctx context.Context, orgId uuid.UUID, catalogName string, itemName string) error {
+	for i, item := range *s.items {
+		if item.Metadata.Catalog == catalogName && *item.Metadata.Name == itemName {
+			*s.items = append((*s.items)[:i], (*s.items)[i+1:]...)
 			return nil
 		}
 	}

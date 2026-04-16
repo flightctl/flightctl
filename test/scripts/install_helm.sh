@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
 set -x -euo pipefail
 
-if which helm 2>/dev/null 1>/dev/null; then
-    echo "Helm already installed"
+# Check if helm is properly installed and executable
+if command -v helm &>/dev/null && helm version --short &>/dev/null; then
+    echo "Helm already installed: $(helm version --short)"
     exit 0
 fi
+
+# Remove any broken helm installations
+sudo rm -f /usr/local/bin/helm 2>/dev/null || true
 
 # Get the remote shell script and make sure it's the one we expect, inside the script there is also
 # verification of the downloaded binaries

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -366,6 +367,24 @@ func (h *Harness) GetAPIEndpointFromVM() (ip string, port string, err error) {
 			p = "443"
 		} else {
 			p = "80"
+		}
+	}
+
+	// If hostname is not an IP, resolve it on the VM so iptables rules
+	// use the actual destination IP rather than relying on iptables DNS
+	// resolution which may differ from the Go HTTP client's resolution.
+	if net.ParseIP(hostname) == nil {
+		resolved, resolveErr := h.VM.RunSSH([]string{
+			"getent", "ahosts", hostname,
+		}, nil)
+		if resolveErr == nil {
+			lines := strings.Split(strings.TrimSpace(resolved.String()), "\n")
+			if len(lines) > 0 {
+				fields := strings.Fields(lines[0])
+				if len(fields) > 0 && net.ParseIP(fields[0]) != nil {
+					hostname = fields[0]
+				}
+			}
 		}
 	}
 

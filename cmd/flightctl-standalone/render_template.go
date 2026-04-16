@@ -91,6 +91,23 @@ func (o *RenderTemplateOptions) completeConfig(data map[string]interface{}) erro
 		fmt.Fprintf(os.Stderr, "global.baseDomain not set, defaulting to system hostname FQDN (%s)\n", hostname)
 	}
 
+	// Default UI forwarded-header settings.
+	ui, ok := global["ui"].(map[string]interface{})
+	if !ok {
+		ui = make(map[string]interface{})
+		global["ui"] = ui
+	}
+	if _, exists := ui["trustXForwardedHeaders"]; !exists {
+		ui["trustXForwardedHeaders"] = false
+	}
+	if _, exists := ui["trustedProxyCidrs"]; !exists {
+		ui["trustedProxyCidrs"] = ""
+	}
+
+	return o.completeAAPConfig(global)
+}
+
+func (o *RenderTemplateOptions) completeAAPConfig(global map[string]interface{}) error {
 	// Inject AAP OAuth client_id if file exists
 	auth, ok := global["auth"].(map[string]interface{})
 	if !ok {
@@ -99,6 +116,17 @@ func (o *RenderTemplateOptions) completeConfig(data map[string]interface{}) erro
 
 	authType, _ := auth["type"].(string)
 	if authType != "aap" {
+		return nil
+	}
+
+	aap, ok := auth["aap"].(map[string]interface{})
+	if !ok {
+		aap = make(map[string]interface{})
+		auth["aap"] = aap
+	}
+
+	// Manually configured client ID takes precedence over the automatically generated one.
+	if existingClientID, _ := aap["clientId"].(string); existingClientID != "" {
 		return nil
 	}
 
@@ -116,11 +144,6 @@ func (o *RenderTemplateOptions) completeConfig(data map[string]interface{}) erro
 		return fmt.Errorf("AAP client ID file %s is empty", clientIDFile)
 	}
 
-	aap, ok := auth["aap"].(map[string]interface{})
-	if !ok {
-		aap = make(map[string]interface{})
-		auth["aap"] = aap
-	}
 	aap["clientId"] = clientID
 	fmt.Fprintf(os.Stderr, "Loaded AAP OAuth client_id from %s\n", clientIDFile)
 

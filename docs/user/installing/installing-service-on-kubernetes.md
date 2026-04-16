@@ -194,6 +194,9 @@ Procedure:
       --set global.baseDomainTlsSecretName=flightctl-tls
     ```
 
+    > [!IMPORTANT]
+    > EL10 container images are not supported with Helm deployments. Use EL9 images only.
+
 6. Wait for the pods to be in `Running` or `Completed` state:
 
     ```console
@@ -270,6 +273,9 @@ Procedure:
     helm upgrade --install flightctl oci://quay.io/flightctl/charts/flightctl:${FC_VERSION} \
       --namespace ${FC_NAMESPACE} --create-namespace
     ```
+
+    > [!IMPORTANT]
+    > EL10 container images are not supported with Helm deployments. Use EL9 images only.
 
 4. Wait for the pods to be in `Running` or `Completed` state:
 

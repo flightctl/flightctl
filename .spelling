@@ -36,6 +36,8 @@ DeviceTemplate
 df
 e.g.
 ECDSA
+EL9
+EL10
 EnrollmentRequest
 EnrollmentRequests
 Envoy
@@ -123,6 +125,8 @@ Skopeo
 spec
 specs
 SpiceDB
+stream9
+stream10
 subdomains
 substring
 systemd
@@ -203,11 +207,15 @@ NVRAM
 RSA
 KV
 Redis
+valkey
+RHEL9
+RHEL10
 AwaitingReconnect
 ConflictPaused
 pg_restore
 psql
 redis-cli
+valkey-cli
 pg_isready
 renderedVersion
 quadlets
@@ -317,6 +325,7 @@ subdomain
 CatalogItem
 URI
 CatalogItems
+multicluster
  - docs/user/installing/configuring-imagebuilder.md
  entitlement
  uncomment

@@ -325,6 +325,7 @@ func (v *VMInLibvirt) parseDomainTemplate() (domainXML string, err error) {
 		CloudInitSMBios string
 		DiskSize        string
 		MemoryMiB       int
+		TPMConfig       string
 	}
 
 	diskSize := v.TestVM.DiskSizeGB
@@ -337,6 +338,21 @@ func (v *VMInLibvirt) parseDomainTemplate() (domainXML string, err error) {
 		memoryMiB = 2048
 	}
 
+	tpmConfig := `<tpm model='tpm-tis'>
+      <backend type='emulator' version='2.0'>
+        <active_pcr_banks>
+            <sha256/>
+        </active_pcr_banks>
+      </backend>
+    </tpm>`
+	if v.TestVM.TPMDevice != "" {
+		tpmConfig = fmt.Sprintf(`<tpm model='tpm-tis'>
+      <backend type='passthrough'>
+        <device path='%s'/>
+      </backend>
+    </tpm>`, v.TestVM.TPMDevice)
+	}
+
 	templateParams := TemplateParams{
 		DiskImagePath: v.TestVM.DiskImagePath,
 		Port:          strconv.Itoa(v.TestVM.SSHPort),
@@ -344,6 +360,7 @@ func (v *VMInLibvirt) parseDomainTemplate() (domainXML string, err error) {
 		Name:          v.TestVM.VMName,
 		DiskSize:      strconv.Itoa(diskSize),
 		MemoryMiB:     memoryMiB,
+		TPMConfig:     tpmConfig,
 	}
 
 	err = v.ParseCloudInit()
@@ -620,6 +637,28 @@ func (v *VMInLibvirt) RevertToSnapshot(name string) error {
 	return fmt.Errorf("failed to revert to snapshot %s after 5 attempts: %w", name, lastErr)
 }
 
+// performRevertCore pauses the domain and reverts to snapshot name (libvirt only).
+func (v *VMInLibvirt) performRevertCore(name string) error {
+	err := v.Pause()
+	if err != nil {
+		return fmt.Errorf("failed to pause VM before revert: %w", err)
+	}
+
+	snapshot, err := v.domain.SnapshotLookupByName(name, 0)
+	if err != nil {
+		return fmt.Errorf("failed to find snapshot %s: %w", name, err)
+	}
+
+	flags := libvirt.DOMAIN_SNAPSHOT_REVERT_RUNNING | libvirt.DOMAIN_SNAPSHOT_REVERT_FORCE
+	err = snapshot.RevertToSnapshot(flags)
+	if err != nil {
+		return fmt.Errorf("failed to revert to snapshot %s: %w", name, err)
+	}
+
+	time.Sleep(2 * time.Second)
+	return nil
+}
+
 // performRevertOperation performs a single revert operation attempt
 func (v *VMInLibvirt) performRevertOperation(name string) error {
 	err := v.createRevertVerificationData()
@@ -627,27 +666,10 @@ func (v *VMInLibvirt) performRevertOperation(name string) error {
 		return fmt.Errorf("failed to create revert verification data: %w", err)
 	}
 
-	// First, pause the VM
-	err = v.Pause()
+	err = v.performRevertCore(name)
 	if err != nil {
-		return fmt.Errorf("failed to pause VM before revert: %w", err)
+		return err
 	}
-
-	// Get the snapshot
-	snapshot, err := v.domain.SnapshotLookupByName(name, 0)
-	if err != nil {
-		return fmt.Errorf("failed to find snapshot %s: %w", name, err)
-	}
-
-	flags := libvirt.DOMAIN_SNAPSHOT_REVERT_RUNNING | libvirt.DOMAIN_SNAPSHOT_REVERT_FORCE
-	// Revert to the snapshot
-	err = snapshot.RevertToSnapshot(flags)
-	if err != nil {
-		return fmt.Errorf("failed to revert to snapshot %s: %w", name, err)
-	}
-
-	// Wait a moment for the VM to stabilize after revert
-	time.Sleep(2 * time.Second)
 
 	// Ensure console stream is properly established after revert
 	if err := v.EnsureConsoleStream(); err != nil {
@@ -661,6 +683,67 @@ func (v *VMInLibvirt) performRevertOperation(name string) error {
 	}
 
 	return nil
+}
+
+// RevertPristineForPoolBootstrap reverts to the pristine snapshot when reusing an existing
+// domain (e.g. new e2e process / next suite) without SSH-based verification. The normal
+// RevertToSnapshot path requires SSH first; pool BeforeSuite must reset guest state before
+// WaitForSSH when a prior suite left a different bootc deployment or an unhealthy guest.
+func (v *VMInLibvirt) RevertPristineForPoolBootstrap() error {
+	conn, err := libvirt.NewConnect(v.libvirtUri)
+	if err != nil {
+		return fmt.Errorf("libvirt connect: %w", err)
+	}
+
+	domain, err := conn.LookupDomainByName(v.TestVM.VMName)
+	if err != nil {
+		_, _ = conn.Close()
+		logrus.Infof("[VMPool-bootstrap] vm=%s: no existing libvirt domain, skipping pristine revert before SSH", v.TestVM.VMName)
+		return nil
+	}
+
+	v.libvirtConn = conn
+	v.domain = domain
+
+	state, _, err := v.domain.GetState()
+	if err != nil {
+		return fmt.Errorf("get domain state: %w", err)
+	}
+
+	if state != libvirt.DOMAIN_RUNNING && state != libvirt.DOMAIN_PAUSED {
+		logrus.Infof("[VMPool-bootstrap] vm=%s: domain state=%d (not running/paused), skipping pristine revert before SSH", v.TestVM.VMName, state)
+		return nil
+	}
+
+	has, err := v.HasSnapshot("pristine")
+	if err != nil {
+		return err
+	}
+	if !has {
+		logrus.Infof("[VMPool-bootstrap] vm=%s: no pristine snapshot yet, skipping revert before SSH", v.TestVM.VMName)
+		return nil
+	}
+
+	logrus.Infof("[VMPool-bootstrap] vm=%s: reverting to pristine snapshot before SSH (reused domain / between-suite reset)", v.TestVM.VMName)
+
+	var lastErr error
+	for attempt := 1; attempt <= 5; attempt++ {
+		err = v.performRevertCore("pristine")
+		if err == nil {
+			logrus.Infof("[VMPool-bootstrap] vm=%s: pristine revert succeeded (attempt %d/5)", v.TestVM.VMName, attempt)
+			return nil
+		}
+		lastErr = err
+		logrus.Warnf("[VMPool-bootstrap] vm=%s: pristine revert attempt %d/5 failed: %v", v.TestVM.VMName, attempt, err)
+		if attempt < 5 {
+			wait := time.Duration(attempt) * time.Second
+			logrus.Infof("[VMPool-bootstrap] vm=%s: waiting %v before next revert attempt", v.TestVM.VMName, wait)
+			time.Sleep(wait)
+		}
+	}
+
+	logrus.Errorf("[VMPool-bootstrap] vm=%s: pristine revert failed after 5 attempts: %v", v.TestVM.VMName, lastErr)
+	return fmt.Errorf("pool bootstrap revert to pristine: %w", lastErr)
 }
 
 func (v *VMInLibvirt) verifyRevert() error {

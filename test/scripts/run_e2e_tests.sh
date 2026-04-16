@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 set -x -euo pipefail
+
+# Ensure /usr/local/bin is in PATH (for helm, kind, etc.)
+export PATH="/usr/local/bin:${PATH}"
+
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 source "${SCRIPT_DIR}"/functions
 
@@ -68,7 +72,14 @@ E2E_ENVIRONMENT=${E2E_ENVIRONMENT:-""}
 # Auto-detect environment if not set
 if [[ -z "${E2E_ENVIRONMENT}" ]]; then
     if kubectl config current-context &>/dev/null; then
-        E2E_ENVIRONMENT="k8s"
+        context=$(kubectl config current-context 2>/dev/null || true)
+        if [[ "$context" == *kind* ]]; then
+            E2E_ENVIRONMENT="kind"
+        elif kubectl api-resources --api-group=route.openshift.io &>/dev/null; then
+            E2E_ENVIRONMENT="ocp"
+        else
+            E2E_ENVIRONMENT="k8s"
+        fi
     elif systemctl is-active flightctl-api.service &>/dev/null || sudo systemctl is-active flightctl-api.service &>/dev/null; then
         E2E_ENVIRONMENT="quadlet"
     else

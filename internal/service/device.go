@@ -269,7 +269,7 @@ func (h *ServiceHandler) ReplaceDeviceStatus(ctx context.Context, orgId uuid.UUI
 
 	// UpdateServiceSideStatus() needs to know the latest .metadata.annotations[device-controller/renderedVersion]
 	// that the agent does not provide or only have an outdated knowledge of
-	originalDevice, err := h.store.Device().GetWithoutServiceConditions(ctx, orgId, name)
+	originalDevice, err := h.store.Device().GetWithTimestamp(ctx, orgId, name)
 	if err != nil {
 		return nil, StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 	}
@@ -425,7 +425,7 @@ func (h *ServiceHandler) SetOutOfDate(ctx context.Context, orgId uuid.UUID, owne
 }
 
 func (h *ServiceHandler) UpdateServerSideDeviceStatus(ctx context.Context, orgId uuid.UUID, name string) error {
-	device, err := h.store.Device().GetWithoutServiceConditions(ctx, orgId, name)
+	device, err := h.store.Device().GetWithTimestamp(ctx, orgId, name)
 	if err != nil {
 		return err
 	}
@@ -440,23 +440,7 @@ func (h *ServiceHandler) UpdateServerSideDeviceStatus(ctx context.Context, orgId
 }
 
 func (h *ServiceHandler) DecommissionDevice(ctx context.Context, orgId uuid.UUID, name string, decom domain.DeviceDecommission) (*domain.Device, domain.Status) {
-	deviceObj, err := h.store.Device().Get(ctx, orgId, name)
-	if err != nil {
-		return nil, StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
-	}
-	if deviceObj.Spec != nil && deviceObj.Spec.Decommissioning != nil {
-		return nil, domain.StatusConflict("device already has decommissioning requested")
-	}
-
-	deviceObj.Status.Lifecycle.Status = domain.DeviceLifecycleStatusDecommissioning
-	deviceObj.Spec.Decommissioning = &decom
-
-	// these fields must be un-set so that device is no longer associated with any fleet
-	deviceObj.Metadata.Owner = nil
-	deviceObj.Metadata.Labels = nil
-
-	// set the fromAPI bool to 'false', otherwise updating the spec.decommissionRequested of a device is blocked
-	result, err := h.store.Device().Update(ctx, orgId, deviceObj, []string{"status", "owner"}, false, DeviceVerificationCallback, h.callbackDeviceDecommission)
+	result, err := h.store.Device().DecommissionDevice(ctx, orgId, name, decom, h.callbackDeviceDecommission)
 	return result, StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 }
 

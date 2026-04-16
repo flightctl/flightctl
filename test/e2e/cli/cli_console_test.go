@@ -39,7 +39,7 @@ var _ = Describe("CLI - device console", func() {
 		harness.PrintAgentLogsIfFailed()
 	})
 
-	It("connects to a device and executes a simple command", Label("80483", "sanity", "agent"), func() {
+	It("connects to a device and executes a simple command", Label("80483", "sanity", "agent", "client"), func() {
 		// Get harness directly - no shared package-level variable
 		harness := e2e.GetWorkerHarness()
 
@@ -49,7 +49,7 @@ var _ = Describe("CLI - device console", func() {
 		cs.Close()
 	})
 
-	It("supports multiple simultaneous console sessions", Label("81737", "agent"), func() {
+	It("supports multiple simultaneous console sessions", Label("81737", "agent", "client"), func() {
 		// Get harness directly - no shared package-level variable
 		harness := e2e.GetWorkerHarness()
 
@@ -83,7 +83,7 @@ var _ = Describe("CLI - device console", func() {
 		cs2.Close()
 	})
 
-	It("keeps console sessions open during a device update", Label("81786"), func() {
+	It("keeps console sessions open during a device update", Label("81786", "client"), func() {
 		// Get harness directly - no shared package-level variable
 		harness := e2e.GetWorkerHarness()
 
@@ -130,7 +130,7 @@ var _ = Describe("CLI - device console", func() {
 		Expect(out).To(ContainSubstring("not found"))
 	})
 
-	It("recovers from image pull network disruption", Label("82541"), func() {
+	It("recovers from image pull network disruption", Label("82541", "client"), func() {
 		// Get harness directly - no shared package-level variable
 		harness := e2e.GetWorkerHarness()
 
@@ -169,7 +169,7 @@ var _ = Describe("CLI - device console", func() {
 			Should(WithTransform((*v1beta1.Device).IsUpdatedToDeviceSpec, BeTrue()))
 	})
 
-	It("uses the flightctl-console user and has sudo access", Label("87848"), func() {
+	It("uses the flightctl-console user and has sudo access", Label("87848", "client"), func() {
 		// Get harness directly - no shared package-level variable
 		harness := e2e.GetWorkerHarness()
 
@@ -218,7 +218,7 @@ var _ = Describe("CLI - device console", func() {
 		}
 	})
 
-	It("recovers from image pull network connection error", Label("83029"), func() {
+	It("recovers from image pull network connection error", Label("83029", "client"), func() {
 		// Get harness directly - no shared package-level variable
 		harness := e2e.GetWorkerHarness()
 
@@ -262,7 +262,7 @@ var _ = Describe("CLI - device console", func() {
 			Should(WithTransform((*v1beta1.Device).IsUpdatedToDeviceSpec, BeTrue()))
 	})
 
-	It("provides console --help and auxiliary features", Label("81866", "sanity", "agent"), func() {
+	It("provides console --help and auxiliary features", Label("81866", "sanity", "agent", "client"), func() {
 		// Get harness directly - no shared package-level variable
 		harness := e2e.GetWorkerHarness()
 

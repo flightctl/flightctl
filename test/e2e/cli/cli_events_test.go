@@ -25,7 +25,7 @@ var (
 
 var _ = Describe("cli events operation", func() {
 	Context("Events API Tests", func() {
-		It("should list events resource is created/updated/deleted", Label("81779", "sanity"), func() {
+		It("should list events resource is created/updated/deleted", Label("81779", "sanity", "client"), func() {
 			// Get harness directly - no shared package-level variable
 			harness := e2e.GetWorkerHarness()
 
@@ -262,7 +262,7 @@ var _ = Describe("cli events operation", func() {
 
 		})
 
-		It("should show events for device configuration validation", Label("sanity", "83585"), func() {
+		It("should show events for device configuration validation", Label("sanity", "83585", "client"), func() {
 			// Get harness directly - no shared package-level variable
 			harness := e2e.GetWorkerHarness()
 
@@ -360,7 +360,7 @@ var _ = Describe("cli events operation", func() {
 			}, "30s", "2s").Should(ContainSubstring("Device specification is valid"))
 		})
 
-		It("should show events for application workload validation", Label("83588", "sanity"), func() {
+		It("should show events for application workload validation", Label("83588", "sanity", "client"), func() {
 			// Get harness directly - no shared package-level variable
 			harness := e2e.GetWorkerHarness()
 

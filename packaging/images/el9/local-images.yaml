@@ -1,29 +1,30 @@
 api:
-  image: flightctl-api
+  image: flightctl-api-el9
   tag: latest
 periodic:
-  image: flightctl-periodic
+  image: flightctl-periodic-el9
   tag: latest
 worker:
-  image: flightctl-worker
+  image: flightctl-worker-el9
   tag: latest
 alert-exporter:
-  image: flightctl-alert-exporter
+  image: flightctl-alert-exporter-el9
   tag: latest
 cli-artifacts:
-  image: flightctl-cli-artifacts
+  image: flightctl-cli-artifacts-el9
   tag: latest
 alertmanager-proxy:
-  image: flightctl-alertmanager-proxy
+  image: flightctl-alertmanager-proxy-el9
   tag: latest
 pam-issuer:
-  image: flightctl-pam-issuer
+  image: flightctl-pam-issuer-el9
   tag: latest
 db-setup:
-  image: flightctl-db-setup
+  image: flightctl-db-setup-el9
   tag: latest
 ui:
-  image: quay.io/flightctl/flightctl-ui
+  # UI images are built from flightctl-ui repo
+  image: quay.io/flightctl/flightctl-ui-el9
   tag: latest
 db:
   image: quay.io/sclorg/postgresql-16-c9s
@@ -35,10 +36,10 @@ alertmanager:
   image: quay.io/prometheus/alertmanager
   tag: v0.28.1
 imagebuilder-api:
-  image: flightctl-imagebuilder-api
+  image: flightctl-imagebuilder-api-el9
   tag: latest
 imagebuilder-worker:
-  image: flightctl-imagebuilder-worker
+  image: flightctl-imagebuilder-worker-el9
   tag: latest
 grafana:
   image: docker.io/grafana/grafana
@@ -47,8 +48,8 @@ prometheus:
   image: docker.io/prom/prometheus
   tag: v2.13.1
 telemetry-gateway:
-  image: flightctl-telemetry-gateway
+  image: flightctl-telemetry-gateway-el9
   tag: latest
 userinfo-proxy:
-  image: flightctl-userinfo-proxy
+  image: flightctl-userinfo-proxy-el9
   tag: latest

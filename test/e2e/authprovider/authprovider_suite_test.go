@@ -16,6 +16,7 @@ import (
 	"github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -81,6 +82,30 @@ var _ = BeforeEach(func() {
 	suiteCtx := e2e.GetWorkerContext()
 	ctx := util.StartSpecTracerForGinkgo(suiteCtx)
 	harness.SetTestContext(ctx)
+})
+
+var _ = AfterSuite(func() {
+	harness := e2e.GetWorkerHarness()
+
+	// Restore admin authentication before cleanup
+	_, err := login.LoginToAPIWithToken(harness)
+	if err != nil {
+		logrus.Warnf("Failed to restore admin login: %v", err)
+	}
+
+	// Clean up the Keycloak AuthProvider CR to prevent interfering with subsequent test suites
+	_, err = harness.CLI("delete", "authprovider", keycloakAuthProviderName)
+	if err != nil {
+		logrus.Warnf("Failed to delete authprovider %s: %v", keycloakAuthProviderName, err)
+	} else {
+		logrus.Infof("Deleted authprovider %s", keycloakAuthProviderName)
+	}
+
+	// Clean up Keycloak container
+	if auxSvcs != nil {
+		ctx := context.Background()
+		auxSvcs.Cleanup(ctx)
+	}
 })
 
 func buildKeycloakAuthProviderYAML(issuerURL, clientSecret string) string {

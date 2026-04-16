@@ -6,17 +6,12 @@ set -eo pipefail
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 source "${SCRIPT_DIR}"/shared.sh
 
+OS="${OS:-el9}"
+
 echo "Starting Deployment"
 
 # Render quadlet files
-bin/flightctl-standalone render quadlets --config deploy/podman/local-images.yaml
-
-echo "Ensuring secrets are available..."
-# Always ensure secrets exist before starting services
-if ! "${CONFIG_READONLY_DIR}/init_host.sh"; then
-    echo "Error: Failed to initialize secrets"
-    exit 1
-fi
+bin/flightctl-standalone render quadlets --config "packaging/images/${OS}/local-images.yaml"
 
 echo "Starting all Flight Control services via target..."
 start_service "flightctl.target"
@@ -57,10 +52,19 @@ timeout --foreground 120s bash -c '
 # Wait for key-value service
 timeout --foreground 60s bash -c '
     while true; do
-        if podman ps --quiet --filter "name=flightctl-kv" | grep -q . && \
-           podman exec flightctl-kv redis-cli ping >/dev/null 2>&1; then
-            echo "Key-value service is ready"
-            break
+        if podman ps --quiet --filter "name=flightctl-kv" | grep -q .; then
+            # Determine which CLI to use based on the OS
+            if [[ "${OS}" == "el10" ]]; then
+                if podman exec flightctl-kv valkey-cli ping >/dev/null 2>&1; then
+                    echo "Key-value service (Valkey) is ready"
+                    break
+                fi
+            else
+                if podman exec flightctl-kv redis-cli ping >/dev/null 2>&1; then
+                    echo "Key-value service (Redis) is ready"
+                    break
+                fi
+            fi
         fi
         echo "Waiting for key-value service..."
         sleep 2

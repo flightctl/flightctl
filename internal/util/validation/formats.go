@@ -16,6 +16,12 @@ const (
 	DNS1123MaxLength      int    = 253
 	envVarNameFmt         string = `[A-Za-z_][A-Za-z0-9_]*`
 
+	// ConfigNameFmt extends the DNS 1123 label format to also allow dots,
+	// supporting config names like "example.json" or "config.yaml".
+	// Must start and end with an alphanumeric character.
+	ConfigNameFmt       string = `[a-z0-9]([-a-z0-9.]*[a-z0-9])?`
+	configNameMaxLength int    = 253
+
 	// HostnameOrFQDNFmt validates a hostname or FQDN (Fully Qualified Domain Name).
 	// A hostname is a single DNS label, an FQDN is one or more labels separated by dots.
 	// Each label follows DNS rules: lowercase alphanumerics and hyphens, start and end with alphanumeric.
@@ -44,6 +50,7 @@ const (
 
 var (
 	GenericNameRegexp                    = regexp.MustCompile("^" + Dns1123LabelFmt + "$")
+	ConfigNameRegexp                     = regexp.MustCompile("^" + ConfigNameFmt + "$")
 	EnvVarNameRegexp                     = regexp.MustCompile("^" + envVarNameFmt + "$")
 	HostnameOrFQDNRegexp                 = regexp.MustCompile("^" + HostnameOrFQDNFmt + "$")
 	HostnameOrFQDNWithOptionalPortRegexp = regexp.MustCompile("^" + HostnameOrFQDNWithOptionalPortFmt + "$")
@@ -52,6 +59,13 @@ var (
 
 func ValidateGenericName(name *string, path string) []error {
 	return ValidateString(name, path, 1, dns1123LabelMaxLength, GenericNameRegexp, Dns1123LabelFmt)
+}
+
+// ValidateConfigName validates a configuration provider name.
+// It allows dots in addition to the characters permitted by ValidateGenericName,
+// supporting names like "example.json" or "config.yaml".
+func ValidateConfigName(name *string, path string) []error {
+	return ValidateString(name, path, 1, configNameMaxLength, ConfigNameRegexp, ConfigNameFmt, "example.json", "my-config")
 }
 
 func ValidateHostnameOrFQDN(name *string, path string) []error {

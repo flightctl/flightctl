@@ -15,7 +15,7 @@ INTEGRATION_GINKGO_FOCUS ?=
 
 GO_UNITTEST_FLAGS 		 = $(GO_TESTING_FLAGS) $(GO_UNITTEST_DIRS)        -coverprofile=$(REPORTS)/unit-coverage.out
 # Always -count=1 so Ginkgo-based integration packages are valid; use INTEGRATION_TEST_COUNT to repeat the whole run.
-GO_INTEGRATIONTEST_FLAGS = -race $(GO_BUILD_FLAGS) -count=1 \
+GO_INTEGRATIONTEST_FLAGS = -race $(GO_BUILD_FLAGS) -count=1 -p 1 \
 	$(if $(TEST_DIR),$(TEST_DIR),$(GO_INTEGRATIONTEST_DIRS)) \
 	$(if $(TESTS),-run $(TESTS)) \
 	$(if $(strip $(INTEGRATION_GINKGO_FOCUS)),-ginkgo.focus="$(INTEGRATION_GINKGO_FOCUS)") \

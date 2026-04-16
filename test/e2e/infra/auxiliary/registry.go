@@ -61,9 +61,10 @@ type Registry struct {
 
 // containerExistsByName returns true if a container with the given name exists (running or stopped).
 func containerExistsByName(name string) bool {
-	//nolint:gosec // G204: name is only ever the constant registryContainerName
-	cmd := exec.Command("podman", "ps", "-a", "--filter", "name=^"+name+"$", "-q")
-	out, err := cmd.Output()
+	cli := containerRuntimeCLIName()
+	filter := containerNamePSFilter(cli, name)
+	cmd := exec.Command(cli, "ps", "-a", "--filter", filter, "-q")
+	out, err := cmd.CombinedOutput()
 	return err == nil && strings.TrimSpace(string(out)) != ""
 }
 

@@ -154,7 +154,8 @@ func StopServices(services []Service) error {
 }
 
 func podmanRemove(containerName string) error {
-	cmd := exec.Command("podman", "rm", "-f", "-v", containerName)
+	//nolint:gosec // G204: containerName is only from serviceContainerNames or package constants (fixed e2e aux names).
+	cmd := exec.Command(containerRuntimeCLIName(), "rm", "-f", "-v", containerName)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()

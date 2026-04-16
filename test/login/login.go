@@ -9,7 +9,6 @@ import (
 	"github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/test/e2e/infra"
 	"github.com/flightctl/flightctl/test/harness/e2e"
-	"github.com/flightctl/flightctl/test/util"
 	"github.com/sirupsen/logrus"
 )
 
@@ -77,7 +76,7 @@ func LoginToEnv(harness *e2e.Harness, username, password, serverURL string) (str
 		}
 		return token, AuthPAM, nil
 	}
-	if util.BinaryExistsOnPath(openshift) {
+	if infra.DetectEnvironment() == infra.EnvironmentOCP {
 		token, err := loginToEnvOpenShift(harness, username, password, serverURL)
 		if err != nil {
 			return "", 0, err
@@ -183,7 +182,7 @@ func LoginToEnvAsAdmin(harness *e2e.Harness) (string, AuthMethod, error) {
 		}
 		return LoginToEnv(harness, user, pass, "")
 	}
-	if util.BinaryExistsOnPath(openshift) {
+	if infra.DetectEnvironment() == infra.EnvironmentOCP {
 		server, err := getOpenShiftServer(harness)
 		if err != nil {
 			return "", 0, err
@@ -243,6 +242,31 @@ func Login(harness *e2e.Harness, user, password string) error {
 		return fmt.Errorf("login to flightctl: %w", err)
 	}
 	logrus.Infof("Logged in as %s", user)
+	return nil
+}
+
+// SwitchToUser logs in as username/password and sets the current organization to the org whose
+// Spec.DisplayName matches organizationDisplayName (e.g. "flightctl").
+func SwitchToUser(harness *e2e.Harness, username, password, organizationDisplayName string) error {
+	if harness == nil {
+		return fmt.Errorf("harness is nil")
+	}
+	if organizationDisplayName == "" {
+		return fmt.Errorf("organization display name is empty")
+	}
+	if username == "" || password == "" {
+		return fmt.Errorf("username and password are required")
+	}
+	if err := Login(harness, username, password); err != nil {
+		return fmt.Errorf("login as %q: %w", username, err)
+	}
+	orgID, err := harness.GetOrganizationIDByDisplayName(organizationDisplayName)
+	if err != nil {
+		return fmt.Errorf("get organization %q: %w", organizationDisplayName, err)
+	}
+	if err := harness.SetCurrentOrganization(orgID); err != nil {
+		return fmt.Errorf("set organization: %w", err)
+	}
 	return nil
 }
 

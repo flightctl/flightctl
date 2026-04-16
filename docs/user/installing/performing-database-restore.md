@@ -16,7 +16,7 @@ The `flightctl-restore` command is used to prepare devices and data after restor
 - `kubectl` configured with appropriate permissions
 - Flight Control CLI tools available
 - Database backup files available for restoration
-- redis-cli - optional, for verification only
+- `redis-cli` (RHEL9) or `valkey-cli` (RHEL10) - optional, for verification only
 - pg_isready - optional, for verification only
 
 ### For Quadlets Deployment
@@ -25,7 +25,7 @@ The `flightctl-restore` command is used to prepare devices and data after restor
 - `systemctl` and `podman` available
 - Flight Control CLI tools available
 - Database backup files available for restoration
-- redis-cli - optional, for verification only
+- `redis-cli` (RHEL9) or `valkey-cli` (RHEL10) - optional, for verification only
 - pg_isready - optional, for verification only
 
 ## Step-by-Step Restore Process
@@ -142,7 +142,10 @@ kubectl port-forward svc/flightctl-kv 6379:6379 -n flightctl-internal &
 KV_PORT_FORWARD_PID=$!
 
 # Verify KV store connectivity (if available)
+# For RHEL9:
 REDISCLI_AUTH="$KV_PASSWORD" redis-cli -h localhost -p 6379 ping
+# For RHEL10:
+VALKEYCLI_AUTH="$KV_PASSWORD" valkey-cli -h localhost -p 6379 ping
 ```
 
 ### Step 6: Run the Restore Command
@@ -293,10 +296,16 @@ sudo podman exec -it flightctl-db psql -U flightctl_app -d flightctl
 
 ```bash
 # Verify KV store connectivity
+# For RHEL9:
 sudo podman exec flightctl-kv redis-cli ping
+# For RHEL10:
+sudo podman exec flightctl-kv valkey-cli ping
 
 # Connect to KV store (if needed for verification)
+# For RHEL9:
 sudo podman exec -it flightctl-kv redis-cli
+# For RHEL10:
+sudo podman exec -it flightctl-kv valkey-cli
 ```
 
 ### Step 6: Set Up Port Forwarding
@@ -345,7 +354,10 @@ netstat -tlnp | grep :6379
 pg_isready -h localhost -p 5432
 
 # Test KV store connectivity
+# For RHEL9:
 redis-cli -h localhost -p 6379 ping
+# For RHEL10:
+valkey-cli -h localhost -p 6379 ping
 ```
 
 ### Step 7: Run the Restore Command
@@ -502,4 +514,3 @@ For devices in `ConflictPaused` status, you have several options:
    # Combine label and field selectors
    flightctl resume device --selector="environment=production" --field-selector="text"
    ```
-  

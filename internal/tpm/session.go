@@ -105,7 +105,7 @@ func (s *tpmSession) initialize() error {
 		return fmt.Errorf("setting up storage auth: %w", err)
 	}
 
-	// create/load SRK
+	s.log.Debug("Creating/loading Storage Root Key (SRK)")
 	srkHandle, err := s.ensureSRK()
 	if err != nil {
 		return fmt.Errorf("ensuring SRK: %w", err)
@@ -120,10 +120,12 @@ func (s *tpmSession) initialize() error {
 		}
 	}()
 
+	s.log.Debug("Loading existing TPM keys (LDevID, LAK)")
 	if err := s.loadExistingKeys(); err != nil {
 		return fmt.Errorf("loading existing keys: %w", err)
 	}
 
+	s.log.Debug("TPM session initialized successfully")
 	return nil
 }
 

@@ -30,7 +30,7 @@ spec:
       {{- include "flightctl.migrationWaitInitContainer" (dict "context" . "timeout" 600) | nindent 6 }}
       containers:
         - name: flightctl-imagebuilder-api
-          image: {{ .Values.imageBuilderApi.image.image }}:{{ default .Chart.AppVersion .Values.imageBuilderApi.image.tag }}
+          image: {{ include "flightctl.ensureOsQualifiedImage" .Values.imageBuilderApi.image.image }}:{{ default .Chart.AppVersion .Values.imageBuilderApi.image.tag }}
           imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.imageBuilderApi.image.pullPolicy }}
           ports:
             - containerPort: 8445

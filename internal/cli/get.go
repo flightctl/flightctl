@@ -243,7 +243,7 @@ func (o *GetOptions) Validate(args []string) error {
 		func() error { return o.validateSummary(kind, names) },
 		func() error { return o.validateSummaryOnly(kind, names) },
 		func() error { return o.validateTemplateVersion(kind) },
-		func() error { return o.validateCatalogItem(kind) },
+		func() error { return o.validateCatalogItem(kind, names) },
 		func() error { return o.validateOutputFormat() },
 		func() error { return o.validateRendered(kind, names) },
 		func() error { return o.validateSingleResourceRestrictions(kind, names) },
@@ -311,7 +311,7 @@ func (o *GetOptions) validateTemplateVersion(kind ResourceKind) error {
 	return nil
 }
 
-func (o *GetOptions) validateCatalogItem(kind ResourceKind) error {
+func (o *GetOptions) validateCatalogItem(kind ResourceKind, names []string) error {
 	return nil
 }
 
@@ -403,6 +403,11 @@ func (o *GetOptions) Run(ctx context.Context, args []string) error {
 			return fmt.Errorf("listing %s: %w", kind.ToPlural(), err)
 		}
 		return nil
+	}
+
+	// Catalog items without --catalog use the list path to search across all catalogs
+	if kind == CatalogItemKind && len(o.CatalogName) == 0 {
+		return o.handleMultiple(ctx, formatter, kind, names, listFetcher)
 	}
 
 	// Handle single or multiple names case
@@ -577,7 +582,7 @@ func (o *GetOptions) getSingleResource(ctx context.Context, c *client.Client, ki
 	case CatalogKind:
 		return c.V1Alpha1().GetCatalogWithResponse(ctx, name)
 	case CatalogItemKind:
-		return nil, fmt.Errorf("catalogitems cannot be retrieved individually; use 'get catalogitems --catalog <name>' to list items")
+		return c.V1Alpha1().GetCatalogItemWithResponse(ctx, o.CatalogName, name)
 	default:
 		return GetSingleResource(ctx, c, kind, name)
 	}
@@ -767,21 +772,22 @@ func (o *GetOptions) getResourceList(ctx context.Context, c *client.Client, kind
 		}
 		return c.V1Alpha1().ListCatalogsWithResponse(ctx, &params)
 	case CatalogItemKind:
-		if len(o.CatalogName) == 0 {
-			params := apiv1alpha1.ListAllCatalogItemsParams{
-				LabelSelector: util.ToPtrWithNilDefault(o.LabelSelector),
-				FieldSelector: util.ToPtrWithNilDefault(o.FieldSelector),
-				Limit:         util.ToPtrWithNilDefault(o.Limit),
-				Continue:      util.ToPtrWithNilDefault(o.Continue),
+		fieldSelector := o.FieldSelector
+		if len(o.CatalogName) > 0 {
+			catalogFilter := fmt.Sprintf("metadata.catalog=%s", o.CatalogName)
+			if fieldSelector != "" {
+				fieldSelector = catalogFilter + "," + fieldSelector
+			} else {
+				fieldSelector = catalogFilter
 			}
-			return c.V1Alpha1().ListAllCatalogItemsWithResponse(ctx, &params)
 		}
-		params := apiv1alpha1.ListCatalogItemsParams{
+		params := apiv1alpha1.ListAllCatalogItemsParams{
 			LabelSelector: util.ToPtrWithNilDefault(o.LabelSelector),
+			FieldSelector: util.ToPtrWithNilDefault(fieldSelector),
 			Limit:         util.ToPtrWithNilDefault(o.Limit),
 			Continue:      util.ToPtrWithNilDefault(o.Continue),
 		}
-		return c.V1Alpha1().ListCatalogItemsWithResponse(ctx, o.CatalogName, &params)
+		return c.V1Alpha1().ListAllCatalogItemsWithResponse(ctx, &params)
 	default:
 		return nil, fmt.Errorf("unsupported resource kind: %s", kind)
 	}
@@ -795,6 +801,7 @@ func (o *GetOptions) displayResponse(formatter display.OutputFormatter, response
 		SummaryOnly: o.SummaryOnly,
 		Wide:        o.Output == string(display.WideFormat),
 		WithExports: o.WithExports,
+		CatalogName: o.CatalogName,
 		Writer:      os.Stdout,
 	}
 

@@ -1,14 +1,31 @@
 package e2e
 
 import (
+	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 
 	"github.com/flightctl/flightctl/internal/client"
 	. "github.com/onsi/ginkgo/v2"
 )
 
-// GetClientAccessToken returns the access token from the current client config.
+// ErrUnlessHTTPForbidden returns nil if err is a non-nil *APIError with HTTP 403 Forbidden.
+// It's used in tests that expect an action to be denied. Otherwise returns a descriptive error.
+func ErrUnlessHTTPForbidden(err error, desc string) error {
+	if err == nil {
+		return fmt.Errorf("%s: expected error (HTTP 403 Forbidden), got nil", desc)
+	}
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		return fmt.Errorf("%s: expected *APIError, got %T: %v", desc, err, err)
+	}
+	if !apiErr.IsStatusCode(http.StatusForbidden) {
+		return fmt.Errorf("%s: expected HTTP 403 Forbidden, got %d", desc, apiErr.StatusCode)
+	}
+	return nil
+}
+
 func (h *Harness) GetClientAccessToken() (string, error) {
 	if h == nil {
 		return "", fmt.Errorf("harness is nil")
@@ -83,6 +100,24 @@ func (h *Harness) SetCurrentOrganization(organization string) error {
 	}
 	GinkgoWriter.Printf("Set current organization to: %s\n", organization)
 	return h.RefreshClient()
+}
+
+// GetCurrentUserPreferredUsername returns the preferred_username from the auth userinfo endpoint for the currently logged-in user.
+func (h *Harness) GetCurrentUserPreferredUsername() (string, error) {
+	if h == nil || h.Client == nil {
+		return "", fmt.Errorf("harness or client is nil")
+	}
+	resp, err := h.Client.AuthUserInfoWithResponse(h.Context)
+	if err != nil {
+		return "", fmt.Errorf("auth userinfo request: %w", err)
+	}
+	if resp.JSON200 == nil {
+		return "", fmt.Errorf("auth userinfo: no response body (status %d)", resp.StatusCode())
+	}
+	if resp.JSON200.PreferredUsername == nil || *resp.JSON200.PreferredUsername == "" {
+		return "", fmt.Errorf("auth userinfo: preferred_username is empty")
+	}
+	return *resp.JSON200.PreferredUsername, nil
 }
 
 // GetOrganizationIDForNamespace returns the organization ID whose Spec.ExternalId matches the given namespace (e.g. OpenShift project).

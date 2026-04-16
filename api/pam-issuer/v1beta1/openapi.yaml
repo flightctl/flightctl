@@ -318,6 +318,68 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/OAuth2Error'
+  /api/v1/auth/logout:
+    get:
+      tags:
+        - authentication
+      description: |
+        OIDC RP-Initiated Logout (OpenID Connect Session Management). Clears the issuer session
+        cookie and optionally redirects to post_logout_redirect_uri when it matches a registered
+        client redirect URI (same rules as authorization redirect_uri base).
+      operationId: authLogout
+      parameters:
+        - name: post_logout_redirect_uri
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uri
+          description: Where to redirect the user after logout (must align with registered redirect URIs).
+        - name: id_token_hint
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Optional ID token hint (accepted for interoperability; not required for logout).
+        - name: client_id
+          in: query
+          required: false
+          schema:
+            type: string
+          description: OAuth2 client ID; if set, must match the configured client.
+        - name: state
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Optional opaque state (passed through to post_logout_redirect_uri as query param when redirecting).
+      responses:
+        "302":
+          description: Redirect to post_logout_redirect_uri after clearing session
+        "200":
+          description: Session cleared; no redirect (no or empty post_logout_redirect_uri)
+          content:
+            text/plain:
+              schema:
+                type: string
+        "400":
+          description: Bad request (invalid post_logout_redirect_uri)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuth2Error'
+        "401":
+          description: Unauthorized (invalid_client) - client_id does not match the configured client
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuth2Error'
+        "429":
+          description: Too many requests - rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuth2Error'
 components:
   securitySchemes:
     bearerAuth:
@@ -516,6 +578,9 @@ components:
         userinfo_endpoint:
           type: string
           description: UserInfo endpoint.
+        end_session_endpoint:
+          type: string
+          description: OIDC RP-Initiated Logout endpoint (end session at the issuer).
         jwks_uri:
           type: string
           description: JWKS endpoint.

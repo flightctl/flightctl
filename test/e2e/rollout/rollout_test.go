@@ -598,15 +598,23 @@ func (tc *TestContext) setupFleetAndDevices(context context.Context, numDevices 
 	tc.harnesses = make([]*e2e.Harness, numDevices)
 
 	// Use goroutines to set up devices concurrently
-	GinkgoWriter.Printf("Creating %d device VMs in parallel...\n", numDevices)
+	// Limit concurrent VM creation to avoid resource exhaustion in nested VM environments
+	maxConcurrentVMs := 2
+	GinkgoWriter.Printf("Creating %d device VMs (max %d concurrent)...\n", numDevices, maxConcurrentVMs)
 	var wg sync.WaitGroup
 	errChan := make(chan error, numDevices)
+	semaphore := make(chan struct{}, maxConcurrentVMs)
 
 	for i := 0; i < numDevices; i++ {
 		wg.Add(1)
 		go func(index int) {
 			defer GinkgoRecover()
 			defer wg.Done()
+
+			// Acquire semaphore slot before creating VM
+			semaphore <- struct{}{}
+			defer func() { <-semaphore }() // Release slot when done
+
 			testID := tc.harness.GetTestIDFromContext()
 			GinkgoWriter.Printf("📦 [VM %d] Starting creation (Test ID: %s)\n", index+1, testID)
 

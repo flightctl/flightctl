@@ -20,6 +20,8 @@ permissions:
   contents: read
   pull-requests: read
 
+# Optional repo variable E2E_RUN_ON_MAIN_PRS=true: PRs to main run E2E without run-e2e; label still forces E2E when false.
+
 env:
   DOCKER_BUILDKIT: 1
   BUILDKIT_PROGRESS: plain
@@ -63,14 +65,14 @@ jobs:
     needs: compute-tag
     if: |
       needs.compute-tag.outputs.any_changed == 'true' &&
-      (github.event_name != 'pull_request' || startsWith(github.base_ref, 'release-') || contains(github.event.pull_request.labels.*.name, 'run-e2e'))
+      (github.event_name != 'pull_request' || startsWith(github.base_ref, 'release-') || contains(github.event.pull_request.labels.*.name, 'run-e2e') || vars.E2E_RUN_ON_MAIN_PRS == 'true')
     uses: ./.github/workflows/build-images-and-charts.yaml
 
   build-flightctl-cli:
     needs: [build-images-and-charts, compute-tag]
     if: |
       needs.compute-tag.outputs.any_changed == 'true' &&
-      (github.event_name != 'pull_request' || startsWith(github.base_ref, 'release-') || contains(github.event.pull_request.labels.*.name, 'run-e2e'))
+      (github.event_name != 'pull_request' || startsWith(github.base_ref, 'release-') || contains(github.event.pull_request.labels.*.name, 'run-e2e') || vars.E2E_RUN_ON_MAIN_PRS == 'true')
     runs-on: ubuntu-24.04
     outputs:
       tag: ${{ needs.compute-tag.outputs.tag }}
@@ -82,7 +84,7 @@ jobs:
     needs: compute-tag
     if: |
       needs.compute-tag.outputs.any_changed == 'true' &&
-      (github.event_name != 'pull_request' || startsWith(github.base_ref, 'release-') || contains(github.event.pull_request.labels.*.name, 'run-e2e'))
+      (github.event_name != 'pull_request' || startsWith(github.base_ref, 'release-') || contains(github.event.pull_request.labels.*.name, 'run-e2e') || vars.E2E_RUN_ON_MAIN_PRS == 'true')
     strategy:
       matrix:
         include:
@@ -96,7 +98,7 @@ jobs:
     needs: [compute-tag, build-rpms]
     if: |
       needs.compute-tag.outputs.any_changed == 'true' &&
-      (github.event_name != 'pull_request' || startsWith(github.base_ref, 'release-') || contains(github.event.pull_request.labels.*.name, 'run-e2e'))
+      (github.event_name != 'pull_request' || startsWith(github.base_ref, 'release-') || contains(github.event.pull_request.labels.*.name, 'run-e2e') || vars.E2E_RUN_ON_MAIN_PRS == 'true')
     strategy:
       matrix:
         include:
@@ -114,7 +116,7 @@ jobs:
     needs: compute-tag
     if: |
       needs.compute-tag.outputs.any_changed == 'true' &&
-      (github.event_name != 'pull_request' || startsWith(github.base_ref, 'release-') || contains(github.event.pull_request.labels.*.name, 'run-e2e'))
+      (github.event_name != 'pull_request' || startsWith(github.base_ref, 'release-') || contains(github.event.pull_request.labels.*.name, 'run-e2e') || vars.E2E_RUN_ON_MAIN_PRS == 'true')
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -181,7 +183,7 @@ jobs:
       - discover-e2e-tests
     if: |
       needs.compute-tag.outputs.any_changed == 'true' &&
-      (github.event_name != 'pull_request' || startsWith(github.base_ref, 'release-') || contains(github.event.pull_request.labels.*.name, 'run-e2e'))
+      (github.event_name != 'pull_request' || startsWith(github.base_ref, 'release-') || contains(github.event.pull_request.labels.*.name, 'run-e2e') || vars.E2E_RUN_ON_MAIN_PRS == 'true')
     strategy:
       fail-fast: false
       matrix:
@@ -191,7 +193,7 @@ jobs:
           - os_id: cs9-bootc
             backend_type: helm
             label_filter: 'sanity && !agent'
-            ginkgo_total_nodes: 1
+            ginkgo_total_nodes: 2
           # Agent metrics
           ## CS9 Agent metrics
           - os_id: cs9-bootc
@@ -238,13 +240,14 @@ jobs:
       - name: Check E2E Test Results
         env:
           HAS_RUN_E2E_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'run-e2e') }}
+          E2E_RUN_ON_MAIN_PRS: ${{ vars.E2E_RUN_ON_MAIN_PRS }}
         run: |
           if [[ "${{ needs.compute-tag.outputs.any_changed }}" != "true" ]]; then
             echo "E2E tests were skipped (docs-only or ignored paths)"
             exit 0
           fi
-          # PRs targeting main skip e2e unless 'run-e2e' label is present
-          if [[ "${{ github.event_name }}" == "pull_request" && ! "${{ github.base_ref }}" =~ ^release- && "${HAS_RUN_E2E_LABEL}" != "true" ]]; then
+          # PRs targeting main skip e2e unless run-e2e label or E2E_RUN_ON_MAIN_PRS is set
+          if [[ "${{ github.event_name }}" == "pull_request" && ! "${{ github.base_ref }}" =~ ^release- && "${HAS_RUN_E2E_LABEL}" != "true" && "${E2E_RUN_ON_MAIN_PRS}" != "true" ]]; then
             echo "E2E tests skipped for PRs targeting main (will run in merge queue)"
             echo "To run e2e tests on this PR, add the 'run-e2e' label"
             exit 0
