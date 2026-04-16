@@ -2,6 +2,8 @@ package decommission_test
 
 import (
 	"fmt"
+	"net/http"
+	"strings"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/test/harness/e2e"
@@ -102,6 +104,7 @@ var _ = Describe("CLI decommission test", func() {
 				decommissionCLIEntry("wrong resource kind", []string{"fleet/my-fleet"}, "kind must be Device"),
 				decommissionCLIEntry("invalid resource kind", []string{"foobar/something"}, "invalid resource kind"),
 				decommissionCLIEntry("too many arguments", []string{"device", "name1", "name2"}, "exactly one resource name"),
+				decommissionCLIEntry("mixed TYPE/NAME with extra args", []string{"device/foo", "extraArg"}, "cannot mix TYPE/NAME syntax with additional arguments"),
 				decommissionCLIEntry("invalid --target flag", []string{"device/foo", "--target", "xyz"}, "decommission target must be one of"),
 			)
 
@@ -162,7 +165,30 @@ var _ = Describe("CLI decommission test", func() {
 				ContainSubstring("already has decommissioning requested"),
 			), "Expected 409 conflict after decommission completed")
 		})
+
+		It("Should return 500 when sending a malformed JSON body to the decommission endpoint", Label("88274"), func() {
+			harness := e2e.GetWorkerHarness()
+
+			By("Enrolling a device and waiting for it to come online")
+			deviceId, _ := harness.EnrollAndWaitForOnlineStatus()
+			defer cleanupDeviceAndER(harness, deviceId)
+			GinkgoWriter.Printf("Enrolled device for malformed body test: %s\n", deviceId)
+
+			By("Sending a malformed JSON body directly to the decommission API")
+			malformedBody := strings.NewReader("not-valid-json")
+			response, err := harness.Client.DecommissionDeviceWithBodyWithResponse(
+				harness.Context, deviceId, "application/json", malformedBody,
+			)
+			Expect(err).NotTo(HaveOccurred(), "HTTP request itself should not fail")
+			Expect(response.HTTPResponse).NotTo(BeNil())
+			Expect(response.HTTPResponse.StatusCode).To(Equal(http.StatusBadRequest),
+				"Expected 400 for malformed JSON body, got %d", response.HTTPResponse.StatusCode)
+			Expect(string(response.Body)).To(ContainSubstring("can't decode JSON body"),
+				"Expected parse failure message in response body")
+			GinkgoWriter.Printf("Received expected 400 response: %s\n", string(response.Body))
+		})
 	})
+
 })
 
 // decommissionCLIEntry creates a table-driven test case for CLI argument validation.
