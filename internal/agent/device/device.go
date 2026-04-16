@@ -680,9 +680,20 @@ func (a *Agent) ReloadConfig(ctx context.Context, config *agent_config.Config) e
 // by greenboot after all required health checks in required.d/ pass.
 // Returns true if boot-complete.target is active, or if greenboot is not installed.
 func (a *Agent) isBootSuccessful(ctx context.Context) bool {
+	// Check if greenboot is actually managing boot validation.
+	// On systems where boot-complete.target exists but greenboot is not installed,
+	// the target stays inactive forever — we must not block on it.
+	enabled, err := a.systemdClient.IsEnabled(ctx, "greenboot-healthcheck.service")
+	if err != nil {
+		a.log.Warnf("Failed to check greenboot-healthcheck.service: %v", err)
+		return true
+	}
+	if !enabled {
+		return true
+	}
+
 	active, err := a.systemdClient.IsActive(ctx, "boot-complete.target")
 	if err != nil {
-		// Unit not found or other error — unexpected on systemd-based systems
 		a.log.Warnf("Failed to check boot-complete.target: %v", err)
 		return true
 	}
