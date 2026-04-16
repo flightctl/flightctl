@@ -1,0 +1,26 @@
+FROM quay.io/centos-bootc/centos-bootc:stream9
+
+# 1. Install Flightctl and system updates
+RUN dnf config-manager --add-repo https://rpm.flightctl.io/flightctl-epel.repo && \
+    dnf -y install flightctl-services && \
+    dnf -y clean all && \
+    systemctl enable flightctl.target && \
+    systemctl mask bootc-fetch-apply-updates.timer
+
+# 2. Install EPEL and Podman utilities
+RUN dnf -y install https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm && \
+    dnf -y install podman-compose && \
+    dnf -y clean all && \
+    systemctl enable podman.service
+    
+ # 3. Install the GUI environment (GNOME)
+# This installs the full desktop environment and windowing system
+RUN dnf -y groupinstall "Server with GUI" && \
+    dnf clean all
+
+# 4. Set the boot target to graphical and enable the display manager
+RUN systemctl set-default graphical.target && \
+    systemctl enable gdm
+
+# Set root password - DEMO PURPOSES ONLY
+RUN echo root:redhat123 | chpasswd
