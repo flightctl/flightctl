@@ -1,0 +1,6 @@
+api:
+  rateLimit:
+    requests: 10000
+    window: "1m"
+    authRequests: 10000
+    authWindow: "1m"

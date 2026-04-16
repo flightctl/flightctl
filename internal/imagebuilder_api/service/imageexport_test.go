@@ -387,10 +387,8 @@ func TestDeleteImageExport_Pending_CancelSuccess(t *testing.T) {
 	kvStore.SimulateCanceledSignal(canceledStreamKey)
 
 	// Delete it - should cancel first and wait for signal
-	deleted, status := svc.Delete(ctx, orgId, "delete-pending-success")
+	status = svc.Delete(ctx, orgId, "delete-pending-success")
 	require.Equal(int32(http.StatusOK), statusCode(status))
-	require.NotNil(deleted)
-	require.Equal("delete-pending-success", lo.FromPtr(deleted.Metadata.Name))
 
 	// Verify it's gone
 	_, status = svc.Get(ctx, orgId, "delete-pending-success")
@@ -414,9 +412,8 @@ func TestDeleteImageExport_Converting_CancelSuccess(t *testing.T) {
 	kvStore.SimulateCanceledSignal(canceledStreamKey)
 
 	// Delete it - should cancel first and wait for signal
-	deleted, status := svc.Delete(ctx, orgId, "delete-converting-success")
+	status := svc.Delete(ctx, orgId, "delete-converting-success")
 	require.Equal(int32(http.StatusOK), statusCode(status))
-	require.NotNil(deleted)
 
 	// Verify it's gone
 	_, status = svc.Get(ctx, orgId, "delete-converting-success")
@@ -440,9 +437,8 @@ func TestDeleteImageExport_Pushing_CancelSuccess(t *testing.T) {
 	kvStore.SimulateCanceledSignal(canceledStreamKey)
 
 	// Delete it - should cancel first and wait for signal
-	deleted, status := svc.Delete(ctx, orgId, "delete-pushing-success")
+	status := svc.Delete(ctx, orgId, "delete-pushing-success")
 	require.Equal(int32(http.StatusOK), statusCode(status))
-	require.NotNil(deleted)
 
 	// Verify it's gone
 	_, status = svc.Get(ctx, orgId, "delete-pushing-success")
@@ -466,12 +462,10 @@ func TestDeleteImageExport_CancelTimeout(t *testing.T) {
 
 	// Delete it - should cancel, timeout waiting, then delete anyway
 	start := time.Now()
-	deleted, status := svc.Delete(ctx, orgId, "delete-timeout")
+	status = svc.Delete(ctx, orgId, "delete-timeout")
 	elapsed := time.Since(start)
 
 	require.Equal(int32(http.StatusOK), statusCode(status))
-	require.NotNil(deleted)
-	require.Equal("delete-timeout", lo.FromPtr(deleted.Metadata.Name))
 
 	// Verify timeout happened (should take at least 100ms but not too long)
 	require.GreaterOrEqual(elapsed.Milliseconds(), int64(100), "Should have waited for timeout")
@@ -513,11 +507,10 @@ func TestDeleteImageExport_Completed_NoCancelAttempt(t *testing.T) {
 
 	// Delete it - should NOT try to cancel (not cancelable)
 	start := time.Now()
-	deleted, status := svc.Delete(ctx, orgId, "delete-completed")
+	status := svc.Delete(ctx, orgId, "delete-completed")
 	elapsed := time.Since(start)
 
 	require.Equal(int32(http.StatusOK), statusCode(status))
-	require.NotNil(deleted)
 
 	// Should be fast (no cancel wait)
 	require.Less(elapsed.Milliseconds(), int64(50), "Should not wait for cancel on completed export")
@@ -542,11 +535,10 @@ func TestDeleteImageExport_Failed_NoCancelAttempt(t *testing.T) {
 
 	// Delete it - should NOT try to cancel (not cancelable)
 	start := time.Now()
-	deleted, status := svc.Delete(ctx, orgId, "delete-failed")
+	status := svc.Delete(ctx, orgId, "delete-failed")
 	elapsed := time.Since(start)
 
 	require.Equal(int32(http.StatusOK), statusCode(status))
-	require.NotNil(deleted)
 
 	// Should be fast (no cancel wait)
 	require.Less(elapsed.Milliseconds(), int64(50), "Should not wait for cancel on failed export")
@@ -570,11 +562,10 @@ func TestDeleteImageExport_Canceled_NoCancelAttempt(t *testing.T) {
 
 	// Delete it - should NOT try to cancel (already canceled)
 	start := time.Now()
-	deleted, status := svc.Delete(ctx, orgId, "delete-canceled")
+	status := svc.Delete(ctx, orgId, "delete-canceled")
 	elapsed := time.Since(start)
 
 	require.Equal(int32(http.StatusOK), statusCode(status))
-	require.NotNil(deleted)
 
 	// Should be fast (no cancel wait)
 	require.Less(elapsed.Milliseconds(), int64(50), "Should not wait for cancel on already canceled export")
@@ -598,11 +589,10 @@ func TestDeleteImageExport_Canceling_NoCancelAttempt(t *testing.T) {
 
 	// Delete it - should NOT try to cancel (already canceling)
 	start := time.Now()
-	deleted, status := svc.Delete(ctx, orgId, "delete-canceling")
+	status := svc.Delete(ctx, orgId, "delete-canceling")
 	elapsed := time.Since(start)
 
 	require.Equal(int32(http.StatusOK), statusCode(status))
-	require.NotNil(deleted)
 
 	// Should be fast (no cancel wait)
 	require.Less(elapsed.Milliseconds(), int64(50), "Should not wait for cancel on already canceling export")
@@ -621,9 +611,8 @@ func TestDeleteImageExportNotFound(t *testing.T) {
 	svc, _, _ := setupDeleteTestService(ctx, orgId, kvStore)
 
 	// Delete is idempotent - deleting non-existent resource returns success
-	deleted, status := svc.Delete(ctx, orgId, "nonexistent")
+	status := svc.Delete(ctx, orgId, "nonexistent")
 	require.Equal(int32(http.StatusOK), statusCode(status))
-	require.Nil(deleted)
 }
 
 func TestUpdateImageExportStatus(t *testing.T) {

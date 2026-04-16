@@ -1032,6 +1032,7 @@ func TestSemverValidation(t *testing.T) {
 		{"invalid no dots", "100", true},
 		{"invalid letters in version", "1.a.0", true},
 		{"invalid too many parts", "1.0.0.0.0", true},
+		{"invalid trailing hyphen", "1.2.3-", true},
 	}
 
 	for _, tt := range tests {

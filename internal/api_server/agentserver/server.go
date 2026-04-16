@@ -306,7 +306,12 @@ func (s *AgentServer) prepareHTTPHandler(ctx context.Context, serviceHandler ser
 			}),
 		},
 		RegisterRoutes: func(r chi.Router) {
-			agentserver.HandlerFromMux(handlerV1Beta1, r)
+			agentserver.HandlerWithOptions(handlerV1Beta1, agentserver.ChiServerOptions{
+				BaseRouter: r,
+				ErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
+					apiserver.OapiErrorHandler(w, err.Error(), http.StatusBadRequest)
+				},
+			})
 		},
 	})
 

@@ -53,6 +53,12 @@ const (
 	ImageMountApplicationVolumeProviderType ApplicationVolumeProviderType = "image_mount"
 )
 
+// HasData reports whether the EventDetails union contains actual data
+// (i.e. it is not nil and not the JSON literal "null").
+func (t EventDetails) HasData() bool {
+	return len(t.union) > 0 && !bytes.Equal(t.union, []byte("null"))
+}
+
 // Type returns the type of the action.
 func (t HookAction) Type() (HookActionType, error) {
 	var data map[HookActionType]interface{}
@@ -576,7 +582,7 @@ func (a *AuthProvider) HideSensitiveData() error {
 		if err != nil {
 			return err
 		}
-		hideValue(oidcSpec.ClientSecret)
+		hideValue(&oidcSpec.ClientSecret)
 		if err := a.Spec.FromOIDCProviderSpec(oidcSpec); err != nil {
 			return err
 		}
@@ -586,7 +592,7 @@ func (a *AuthProvider) HideSensitiveData() error {
 		if err != nil {
 			return err
 		}
-		hideValue(oauth2Spec.ClientSecret)
+		hideValue(&oauth2Spec.ClientSecret)
 		if err := a.Spec.FromOAuth2ProviderSpec(oauth2Spec); err != nil {
 			return err
 		}
@@ -604,7 +610,7 @@ func (a *AuthProvider) HideSensitiveData() error {
 		if err != nil {
 			return err
 		}
-		hideValue(aapSpec.ClientSecret)
+		hideValue(&aapSpec.ClientSecret)
 		if err := a.Spec.FromAapProviderSpec(aapSpec); err != nil {
 			return err
 		}
@@ -676,7 +682,7 @@ func (a *AuthProvider) PreserveSensitiveData(existing SensitiveDataPreserver) er
 		if err != nil {
 			return err
 		}
-		preserveValue(oidcSpec.ClientSecret, existingOidcSpec.ClientSecret)
+		preserveValue(&oidcSpec.ClientSecret, &existingOidcSpec.ClientSecret)
 		if err := a.Spec.FromOIDCProviderSpec(oidcSpec); err != nil {
 			return err
 		}
@@ -690,7 +696,7 @@ func (a *AuthProvider) PreserveSensitiveData(existing SensitiveDataPreserver) er
 		if err != nil {
 			return err
 		}
-		preserveValue(oauth2Spec.ClientSecret, existingOauth2Spec.ClientSecret)
+		preserveValue(&oauth2Spec.ClientSecret, &existingOauth2Spec.ClientSecret)
 		if err := a.Spec.FromOAuth2ProviderSpec(oauth2Spec); err != nil {
 			return err
 		}
@@ -718,7 +724,7 @@ func (a *AuthProvider) PreserveSensitiveData(existing SensitiveDataPreserver) er
 		if err != nil {
 			return err
 		}
-		preserveValue(aapSpec.ClientSecret, existingAapSpec.ClientSecret)
+		preserveValue(&aapSpec.ClientSecret, &existingAapSpec.ClientSecret)
 		if err := a.Spec.FromAapProviderSpec(aapSpec); err != nil {
 			return err
 		}

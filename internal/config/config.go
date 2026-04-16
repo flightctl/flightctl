@@ -1089,21 +1089,18 @@ func (cfg *Config) sanitizeForLogging() *Config {
 
 	// Redact client secrets in all auth providers
 	if sanitized.Auth != nil {
-		if sanitized.Auth.OIDC != nil && sanitized.Auth.OIDC.ClientSecret != nil {
-			redacted := "[REDACTED]"
-			sanitized.Auth.OIDC.ClientSecret = &redacted
+		if sanitized.Auth.OIDC != nil && sanitized.Auth.OIDC.ClientSecret != "" {
+			sanitized.Auth.OIDC.ClientSecret = "[REDACTED]"
 		}
-		if sanitized.Auth.OAuth2 != nil && sanitized.Auth.OAuth2.ClientSecret != nil {
-			redacted := "[REDACTED]"
-			sanitized.Auth.OAuth2.ClientSecret = &redacted
+		if sanitized.Auth.OAuth2 != nil && sanitized.Auth.OAuth2.ClientSecret != "" {
+			sanitized.Auth.OAuth2.ClientSecret = "[REDACTED]"
 		}
 		if sanitized.Auth.OpenShift != nil && sanitized.Auth.OpenShift.ClientSecret != nil {
 			redacted := "[REDACTED]"
 			sanitized.Auth.OpenShift.ClientSecret = &redacted
 		}
-		if sanitized.Auth.AAP != nil && sanitized.Auth.AAP.ClientSecret != nil {
-			redacted := "[REDACTED]"
-			sanitized.Auth.AAP.ClientSecret = &redacted
+		if sanitized.Auth.AAP != nil && sanitized.Auth.AAP.ClientSecret != "" {
+			sanitized.Auth.AAP.ClientSecret = "[REDACTED]"
 		}
 		if sanitized.Auth.PAMOIDCIssuer != nil && sanitized.Auth.PAMOIDCIssuer.ClientSecret != "" {
 			sanitized.Auth.PAMOIDCIssuer.ClientSecret = "[REDACTED]"
