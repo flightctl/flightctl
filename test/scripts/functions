@@ -439,8 +439,12 @@ function get_ocp_nodes_network() {
 
   # Detect IPv4 vs IPv6 and extract appropriate subnet prefix
   if [[ "$ip" == *":"* ]]; then
-    # IPv6: extract the first hextets before :: or drop last segment
-    prefix=$(echo "$ip" | sed 's/::.*//;s/:[^:]*$//')
+    # IPv6: if the address is already compressed, don't drop an extra hextet
+    if [[ "$ip" == *"::"* ]]; then
+      prefix="${ip%%::*}"
+    else
+      prefix="${ip%:*}"
+    fi
   else
     prefix=${ip%.*}
   fi

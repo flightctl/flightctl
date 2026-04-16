@@ -45,15 +45,20 @@ server_url="$(yq -e -r '.["enrollment-service"].service.server // ""' "$CFG" 2>/
 dns_suffix=""
 ip=""
 
-# Try sslip.io pattern (IPv6: fd2e-6f44-fddb--6a.sslip.io)
+# Try sslip.io pattern (IPv6: fd2e-6f44-fddb--6a.sslip.io or api.fd2e-6f44-fddb--6a.sslip.io)
 if [[ "$server_url" == *".sslip.io"* ]]; then
-  ip="$(printf '%s\n' "$server_url" | sed -n 's#.*://\([^.]*\)\.sslip\.io.*#\1#p')"
-  dns_suffix="sslip.io"
+  # Extract segment immediately before .sslip.io (handles optional service prefixes)
+  host="$(printf '%s\n' "$server_url" | sed -n 's#.*://\(.*\)\.sslip\.io.*#\1#p')"
+  if [[ -n "$host" ]]; then
+    ip="${host##*.}"
+    dns_suffix="sslip.io"
+  fi
 fi
 
-# Try nip.io pattern (IPv4: 192.168.122.75.nip.io)
+# Try nip.io pattern (IPv4: 192.168.122.75.nip.io or api.192.168.122.75.nip.io)
 if [ -z "$ip" ] && [[ "$server_url" == *".nip.io"* ]]; then
-  ip="$(printf '%s\n' "$server_url" | sed -n 's#.*://\([0-9.]\+\)\.nip\.io.*#\1#p')"
+  # Match full IPv4 address (4 octets) before .nip.io to avoid matching service prefixes
+  ip="$(printf '%s\n' "$server_url" | sed -n 's#.*\([0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}\)\.nip\.io.*#\1#p')"
   dns_suffix="nip.io"
 fi
 

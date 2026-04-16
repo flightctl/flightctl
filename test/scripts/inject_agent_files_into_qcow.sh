@@ -54,9 +54,17 @@ if [[ -z "$REGISTRY_ADDRESS" ]]; then
   [[ -n "$REGISTRY_ADDRESS" ]] || fail "Could not determine REGISTRY_ADDRESS using registry_address function"
 fi
 
-# Extract port from REGISTRY_ADDRESS
-REGISTRY_PORT="${REGISTRY_ADDRESS##*:}"
-[[ "$REGISTRY_PORT" == "$REGISTRY_ADDRESS" ]] && REGISTRY_PORT="5000"
+# Extract port from REGISTRY_ADDRESS with proper IPv6 handling
+if [[ "$REGISTRY_ADDRESS" =~ ^\[.*\]:([0-9]+)$ ]]; then
+    # Bracketed IPv6 with port: [fd00::1]:5000
+    REGISTRY_PORT="${BASH_REMATCH[1]}"
+elif [[ "$REGISTRY_ADDRESS" =~ :([0-9]+)$ ]]; then
+    # IPv4/hostname with port: 192.168.1.1:5000 or hostname:5000
+    REGISTRY_PORT="${BASH_REMATCH[1]}"
+else
+    # No port specified, use default
+    REGISTRY_PORT="5000"
+fi
 
 # TLS certificate path must match the registry address used by VMs.
 # In IPv6 mode, use hostname to avoid container tool parsing issues.
@@ -268,7 +276,7 @@ inject_hosts_entry() {
     log "Adding hosts entry: $host_ip -> $host_fqdn $host_short"
 
     if [[ -f "$hosts_file" ]]; then
-      if ! sudo grep -q "$host_fqdn" "$hosts_file" 2>/dev/null; then
+      if ! sudo grep -qF -- "$host_fqdn" "$hosts_file" 2>/dev/null; then
         echo "$host_ip $host_fqdn $host_short" | sudo tee -a "$hosts_file" >/dev/null
       else
         log "Hosts entry for $host_fqdn already exists"
@@ -293,7 +301,7 @@ EOF
 
   # Add registry hostname entry for IPv6 mode
   if [[ "${IPV6_ONLY:-false}" == "true" ]]; then
-    if ! sudo grep -q "$REGISTRY_HOSTNAME" "$hosts_file" 2>/dev/null; then
+    if ! sudo grep -qF -- "$REGISTRY_HOSTNAME" "$hosts_file" 2>/dev/null; then
       log "IPv6 mode: Adding hosts entry $host_ip -> $REGISTRY_HOSTNAME"
       echo "$host_ip $REGISTRY_HOSTNAME" | sudo tee -a "$hosts_file" >/dev/null
     else
