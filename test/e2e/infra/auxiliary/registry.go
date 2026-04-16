@@ -112,9 +112,19 @@ func (r *Registry) Start(ctx context.Context, network string, reuse bool) error 
 		return fmt.Errorf("failed to start registry container: %w", err)
 	}
 	r.container = container
-	r.Host = GetHostIP()
+	hostIP := GetHostIP()
 	r.Port = registryHostPort
-	r.URL = fmt.Sprintf("%s:%s", r.Host, r.Port)
+	// For IPv6: use localhost for host-side podman and container name for container-to-container DNS.
+	// IPv6 addresses in image names are parsed as transport prefixes (e.g., "fd2e:" looks like "docker:")
+	if strings.Contains(hostIP, ":") {
+		r.URL = fmt.Sprintf("localhost:%s", r.Port)
+		r.Host = registryContainerName
+		logrus.Infof("IPv6 detected (%s) - using localhost:%s for host, %s for containers",
+			hostIP, r.Port, r.Host)
+	} else {
+		r.Host = hostIP
+		r.URL = fmt.Sprintf("%s:%s", r.Host, r.Port)
+	}
 	if err := configureInsecureRegistry(r.URL); err != nil {
 		logrus.Warnf("Failed to configure insecure registry: %v", err)
 	}
@@ -176,7 +186,7 @@ func (r *Registry) startAuthenticatedEndpoint(ctx context.Context, certDir, netw
 	}
 
 	r.Authenticated = AuthenticatedEndpoint{
-		HostPort: fmt.Sprintf("%s:%s", r.Host, privateRegistryHostPort),
+		HostPort: net.JoinHostPort(r.Host, privateRegistryHostPort),
 		Port:     privateRegistryHostPort,
 		Username: defaultAuthUsername,
 		Password: defaultAuthPassword,
@@ -187,6 +197,7 @@ func (r *Registry) startAuthenticatedEndpoint(ctx context.Context, certDir, netw
 }
 
 func generateNginxConf(registryHost, registryPort string) string {
+	upstreamAddr := net.JoinHostPort(registryHost, registryPort)
 	return fmt.Sprintf(`error_log /dev/stderr warn;
 
 events {
@@ -195,7 +206,7 @@ events {
 
 http {
   upstream registry {
-    server %s:%s;
+    server %s;
   }
 
   server {
@@ -219,7 +230,7 @@ http {
     }
   }
 }
-`, registryHost, registryPort)
+`, upstreamAddr)
 }
 
 // generateHtpasswd creates an Apache-style htpasswd entry using SHA1.

@@ -126,6 +126,12 @@ else
     fi
 fi
 
+# Export E2E_AUX_HOST for Go tests to use correct host IP (IPv6-aware)
+# This overrides GetHostIP() which otherwise dials 1.1.1.1 (IPv4-only)
+E2E_AUX_HOST="${E2E_AUX_HOST:-$(get_ext_ip)}"
+export E2E_AUX_HOST
+echo "E2E_AUX_HOST: ${E2E_AUX_HOST}"
+
 # Set PAM authentication credentials for Quadlet environments
 if [[ "${E2E_ENVIRONMENT}" == "quadlet" ]]; then
     # Default PAM admin user credentials for E2E tests

@@ -24,6 +24,7 @@ QCOW="${QCOW:-bin/output/qcow2/disk.qcow2}"
 AGENT_DIR="${AGENT_DIR:-bin/agent/etc/flightctl}"
 MOUNT_DIR="${MOUNT_DIR:-/mnt/qcow}"
 REGISTRY_ADDRESS="${REGISTRY_ADDRESS:-}"
+REGISTRY_HOSTNAME="${REGISTRY_HOSTNAME:-e2e-registry}"
 E2E_CA="${E2E_CA:-bin/e2e-certs/pki/CA/ca.crt}"
 SOURCE_REPO="quay.io/flightctl"
 
@@ -53,8 +54,27 @@ if [[ -z "$REGISTRY_ADDRESS" ]]; then
   [[ -n "$REGISTRY_ADDRESS" ]] || fail "Could not determine REGISTRY_ADDRESS using registry_address function"
 fi
 
-# CA install directory must match the host:port of the registry
-REG_TLS_HOSTPORT="$REGISTRY_ADDRESS"
+# Extract port from REGISTRY_ADDRESS with proper IPv6 handling
+if [[ "$REGISTRY_ADDRESS" =~ ^\[.*\]:([0-9]+)$ ]]; then
+    # Bracketed IPv6 with port: [fd00::1]:5000
+    REGISTRY_PORT="${BASH_REMATCH[1]}"
+elif [[ "$REGISTRY_ADDRESS" =~ :([0-9]+)$ ]]; then
+    # IPv4/hostname with port: 192.168.1.1:5000 or hostname:5000
+    REGISTRY_PORT="${BASH_REMATCH[1]}"
+else
+    # No port specified, use default
+    REGISTRY_PORT="5000"
+fi
+
+# TLS certificate path must match the registry address used by VMs.
+# In IPv6 mode, use hostname to avoid container tool parsing issues.
+if [[ "${IPV6_ONLY:-false}" == "true" ]]; then
+  REG_TLS_HOSTPORT="${REGISTRY_HOSTNAME}:${REGISTRY_PORT}"
+  log "IPv6 mode: VMs will use registry hostname: $REG_TLS_HOSTPORT"
+else
+  REG_TLS_HOSTPORT="$REGISTRY_ADDRESS"
+  log "IPv4 mode: VMs will use registry IP: $REG_TLS_HOSTPORT"
+fi
 
 SOURCE_REPO="${SOURCE_REPO%/}"
 if [[ "$SOURCE_REPO" != */* ]]; then
@@ -66,8 +86,10 @@ log "QCOW=$QCOW"
 log "AGENT_DIR=$AGENT_DIR"
 log "MOUNT_DIR=$MOUNT_DIR"
 log "REGISTRY_ADDRESS=$REGISTRY_ADDRESS"
-log "E2E_CA=$E2E_CA"
+log "REGISTRY_HOSTNAME=$REGISTRY_HOSTNAME"
 log "REG_TLS_HOSTPORT=$REG_TLS_HOSTPORT"
+log "IPV6_ONLY=${IPV6_ONLY:-false}"
+log "E2E_CA=$E2E_CA"
 log "SOURCE_REPO=$SOURCE_REPO"
 
 sudo modprobe nbd max_part=16 || true
@@ -175,6 +197,12 @@ inject_registry_ca() {
     return
   fi
 
+  local target_dir="$base/containers/certs.d/$REG_TLS_HOSTPORT"
+  log "Installing E2E CA to $target_dir/ca.crt"
+  sudo install -d "$target_dir"
+  sudo install -m 0644 "$E2E_CA" "$target_dir/ca.crt"
+  sudo chown -R root:root "$base/containers"
+
   local anchors_dir="$base/pki/ca-trust/source/anchors"
   log "Installing E2E CA to $anchors_dir/"
   sudo install -d "$anchors_dir"
@@ -229,7 +257,7 @@ EOF
 inject_hosts_entry() {
   local base="$1"
   local hosts_file="$base/hosts"
-  
+
   # Get host IP and hostname
   local host_ip
   host_ip=$(get_ext_ip)
@@ -237,37 +265,50 @@ inject_hosts_entry() {
   host_fqdn=$(hostname -f 2>/dev/null || hostname 2>/dev/null || echo "")
   local host_short
   host_short=$(hostname -s 2>/dev/null || hostname 2>/dev/null || echo "")
-  
-  if [[ -z "$host_ip" ]] || [[ -z "$host_fqdn" ]]; then
-    log "Could not determine host IP or hostname - skipping /etc/hosts injection"
+
+  if [[ -z "$host_ip" ]]; then
+    log "Could not determine host IP - skipping /etc/hosts injection"
     return
   fi
-  
-  # Skip if localhost
-  if [[ "$host_fqdn" == "localhost" ]] || [[ "$host_fqdn" == "localhost.localdomain" ]]; then
-    log "Host FQDN is localhost - skipping /etc/hosts injection"
-    return
-  fi
-  
-  log "Adding hosts entry: $host_ip -> $host_fqdn $host_short"
-  
-  # Append to existing hosts file or create new one
-  if [[ -f "$hosts_file" ]]; then
-    # Check if entry already exists
-    if sudo grep -q "$host_fqdn" "$hosts_file" 2>/dev/null; then
-      log "Hosts entry for $host_fqdn already exists"
-      return
-    fi
-    # Append entry
-    echo "$host_ip $host_fqdn $host_short" | sudo tee -a "$hosts_file" >/dev/null
-  else
-    # Create hosts file with standard entries plus our host
-    sudo tee "$hosts_file" >/dev/null <<EOF
+
+  # Add host FQDN entry only if hostname is valid (not localhost or empty)
+  if [[ -n "$host_fqdn" ]] && [[ "$host_fqdn" != "localhost" ]] && [[ "$host_fqdn" != "localhost.localdomain" ]]; then
+    log "Adding hosts entry: $host_ip -> $host_fqdn $host_short"
+
+    if [[ -f "$hosts_file" ]]; then
+      if ! sudo grep -qF -- "$host_fqdn" "$hosts_file" 2>/dev/null; then
+        echo "$host_ip $host_fqdn $host_short" | sudo tee -a "$hosts_file" >/dev/null
+      else
+        log "Hosts entry for $host_fqdn already exists"
+      fi
+    else
+      sudo tee "$hosts_file" >/dev/null <<EOF
 127.0.0.1   localhost localhost.localdomain
 ::1         localhost localhost.localdomain
 $host_ip $host_fqdn $host_short
 EOF
+    fi
+  else
+    log "Host FQDN is localhost or empty - skipping host FQDN entry"
+    # Ensure minimal hosts file exists for registry entry below
+    if [[ ! -f "$hosts_file" ]]; then
+      sudo tee "$hosts_file" >/dev/null <<EOF
+127.0.0.1   localhost localhost.localdomain
+::1         localhost localhost.localdomain
+EOF
+    fi
   fi
+
+  # Add registry hostname entry for IPv6 mode
+  if [[ "${IPV6_ONLY:-false}" == "true" ]]; then
+    if ! sudo grep -qF -- "$REGISTRY_HOSTNAME" "$hosts_file" 2>/dev/null; then
+      log "IPv6 mode: Adding hosts entry $host_ip -> $REGISTRY_HOSTNAME"
+      echo "$host_ip $REGISTRY_HOSTNAME" | sudo tee -a "$hosts_file" >/dev/null
+    else
+      log "IPv6 mode: Registry hostname entry already exists"
+    fi
+  fi
+
   sudo chown root:root "$hosts_file"
   log "Hosts entry added successfully"
 }

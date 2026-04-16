@@ -391,20 +391,24 @@ func (h *Harness) GetAPIEndpointFromVM() (ip string, port string, err error) {
 	return hostname, p, nil
 }
 
-// BlockTrafficOnVM adds an iptables rule on the VM to reject TCP traffic to the
-// specified IP and port.
+// BlockTrafficOnVM adds an iptables/ip6tables rule on the VM to reject TCP traffic to the
+// specified IP and port. Automatically detects IPv4 vs IPv6 and uses the appropriate command.
 func (h *Harness) BlockTrafficOnVM(ip, port string) {
+	iptablesCmd := getIPTablesCommand(ip)
+
 	_, err := h.VM.RunSSH([]string{
-		"sudo", "iptables", "-A", "OUTPUT", "-d", ip, "-p", "tcp", "--dport", port, "-j", "REJECT",
+		"sudo", iptablesCmd, "-A", "OUTPUT", "-d", ip, "-p", "tcp", "--dport", port, "-j", "REJECT",
 	}, nil)
-	Expect(err).ToNot(HaveOccurred(), "failed to add iptables rule on VM")
+	Expect(err).ToNot(HaveOccurred(), "failed to add %s rule on VM", iptablesCmd)
 }
 
-// UnblockTrafficOnVM removes the iptables rule on the VM that blocks TCP
+// UnblockTrafficOnVM removes the iptables/ip6tables rule on the VM that blocks TCP
 // traffic to the specified IP and port. Silently ignores errors.
 func (h *Harness) UnblockTrafficOnVM(ip, port string) {
+	iptablesCmd := getIPTablesCommand(ip)
+
 	_, _ = h.VM.RunSSH([]string{
-		"sudo", "iptables", "-D", "OUTPUT", "-d", ip, "-p", "tcp", "--dport", port, "-j", "REJECT",
+		"sudo", iptablesCmd, "-D", "OUTPUT", "-d", ip, "-p", "tcp", "--dport", port, "-j", "REJECT",
 	}, nil)
 }
 

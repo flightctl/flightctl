@@ -41,11 +41,33 @@ b64dec() {
 server_url="$(yq -e -r '.["enrollment-service"].service.server // ""' "$CFG" 2>/dev/null || true)"
 [ -n "${server_url:-}" ] || die "Missing enrollment-service.service.server in $CFG"
 
-# Extract IPv4 ahead of '.nip.io' specifically; fallback to loose grep if pattern differs
-ip="$(printf '%s\n' "$server_url" | sed -n 's#.*://\([0-9.]\+\)\.nip\.io.*#\1#p')"
+# Extract IP and determine DNS suffix (nip.io for IPv4, sslip.io for IPv6)
+dns_suffix=""
+ip=""
+
+# Try sslip.io pattern (IPv6: fd2e-6f44-fddb--6a.sslip.io or api.fd2e-6f44-fddb--6a.sslip.io)
+if [[ "$server_url" == *".sslip.io"* ]]; then
+  # Extract segment immediately before .sslip.io (handles optional service prefixes)
+  host="$(printf '%s\n' "$server_url" | sed -n 's#.*://\(.*\)\.sslip\.io.*#\1#p')"
+  if [[ -n "$host" ]]; then
+    ip="${host##*.}"
+    dns_suffix="sslip.io"
+  fi
+fi
+
+# Try nip.io pattern (IPv4: 192.168.122.75.nip.io or api.192.168.122.75.nip.io)
+if [ -z "$ip" ] && [[ "$server_url" == *".nip.io"* ]]; then
+  # Match full IPv4 address (4 octets) before .nip.io to avoid matching service prefixes
+  ip="$(printf '%s\n' "$server_url" | sed -n 's#.*\([0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}\)\.nip\.io.*#\1#p')"
+  dns_suffix="nip.io"
+fi
+
+# Fallback: try to extract IPv4 from URL
 if [ -z "$ip" ]; then
   ip="$(printf '%s\n' "$server_url" | grep -Eo '([0-9]{1,3}\.){3}[0-9]{1,3}' || true)"
+  dns_suffix="nip.io"
 fi
+
 [ -n "$ip" ] || die "Could not extract IP from server URL: $server_url"
 
 # Read CA (base64)
@@ -64,8 +86,8 @@ chmod 0640 "$tmp_ca"
 mv -f "$tmp_ca" "$DIR/certs/gateway-ca.crt"
 log "Wrote CA to $DIR/certs/gateway-ca.crt"
 
-# Build gateway endpoint (gRPC/4317)
-gateway="telemetry-gateway.${ip}.nip.io:4317"
+# Build gateway endpoint (gRPC/4317) using the same DNS suffix as server URL
+gateway="telemetry-gateway.${ip}.${dns_suffix}:4317"
 log "Derived OTEL_GATEWAY=${gateway}"
 
 # Build OTEL options; allow optional server_name_override via env OTLP_SERVER_NAME
