@@ -56,7 +56,7 @@ type ImageExportService interface {
 	Create(ctx context.Context, orgId uuid.UUID, imageExport domain.ImageExport) (*domain.ImageExport, domain.Status)
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.ImageExport, domain.Status)
 	List(ctx context.Context, orgId uuid.UUID, params domain.ListImageExportsParams) (*domain.ImageExportList, domain.Status)
-	Delete(ctx context.Context, orgId uuid.UUID, name string) (*domain.ImageExport, domain.Status)
+	Delete(ctx context.Context, orgId uuid.UUID, name string) domain.Status
 	// Cancel cancels an ImageExport. Returns ErrNotCancelable if not in cancelable state.
 	Cancel(ctx context.Context, orgId uuid.UUID, name string) (*domain.ImageExport, error)
 	// CancelWithReason cancels an ImageExport with a custom reason message (e.g., for timeout).
@@ -185,15 +185,15 @@ func (s *imageExportService) List(ctx context.Context, orgId uuid.UUID, params d
 	}
 }
 
-func (s *imageExportService) Delete(ctx context.Context, orgId uuid.UUID, name string) (*domain.ImageExport, domain.Status) {
+func (s *imageExportService) Delete(ctx context.Context, orgId uuid.UUID, name string) domain.Status {
 	// First, check if the export exists and is in a cancelable state
 	imageExport, err := s.imageExportStore.Get(ctx, orgId, name)
 	if err != nil {
 		// If not found, return success (idempotent delete)
 		if errors.Is(err, flterrors.ErrResourceNotFound) {
-			return nil, StatusOK()
+			return StatusOK()
 		}
-		return nil, StoreErrorToApiStatus(err, false, string(domain.ResourceKindImageExport), &name)
+		return StoreErrorToApiStatus(err, false, string(domain.ResourceKindImageExport), &name)
 	}
 
 	// Check if the export is in a cancelable state
@@ -216,8 +216,8 @@ func (s *imageExportService) Delete(ctx context.Context, orgId uuid.UUID, name s
 	}
 
 	// Proceed with delete
-	result, err := s.imageExportStore.Delete(ctx, orgId, name)
-	return result, StoreErrorToApiStatus(err, false, string(domain.ResourceKindImageExport), &name)
+	_, err = s.imageExportStore.Delete(ctx, orgId, name)
+	return StoreErrorToApiStatus(err, false, string(domain.ResourceKindImageExport), &name)
 }
 
 func (s *imageExportService) Cancel(ctx context.Context, orgId uuid.UUID, name string) (*domain.ImageExport, error) {

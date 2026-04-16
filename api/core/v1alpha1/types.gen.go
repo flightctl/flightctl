@@ -226,16 +226,16 @@ type CatalogItemVersion struct {
 	References map[string]string `json:"references"`
 
 	// Replaces The single version this one replaces, defining the primary upgrade edge.
-	Replaces *string `json:"replaces,omitempty"`
+	Replaces *SemVer `json:"replaces,omitempty"`
 
 	// SkipRange Semver range of versions that can upgrade directly to this one. Use for z-stream updates or hotfixes.
-	SkipRange *string `json:"skipRange,omitempty"`
+	SkipRange *SemVerRange `json:"skipRange,omitempty"`
 
 	// Skips Additional versions that can upgrade directly to this one. Use when stable channel skips intermediate fast-only versions.
-	Skips *[]string `json:"skips,omitempty"`
+	Skips *[]SemVer `json:"skips,omitempty"`
 
-	// Version Semantic version identifier (e.g., 1.2.3, v2.0.0-rc1). Required for version ordering and upgrade graph.
-	Version string `json:"version"`
+	// Version Semantic version identifier (e.g., 1.2.3, 2.0.0-rc1). Required for version ordering and upgrade graph.
+	Version SemVer `json:"version"`
 }
 
 // CatalogList CatalogList is a list of Catalogs.
@@ -276,6 +276,12 @@ type CatalogStatus struct {
 	// Conditions Current state of the catalog source.
 	Conditions []externalRef0.Condition `json:"conditions"`
 }
+
+// SemVer Semantic version identifier (e.g., 1.2.3, 2.0.0-rc1)
+type SemVer = string
+
+// SemVerRange Semver range constraint (e.g., >=1.0.0 <2.0.0). Space-separated terms, each with optional operator (>=, <=, >, <, =, ~, ^) followed by a version.
+type SemVerRange = string
 
 // Status Status is a return value for calls that don't return other objects.
 type Status struct {

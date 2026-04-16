@@ -545,7 +545,7 @@ type AapProviderSpec struct {
 	ClientId string `json:"clientId"`
 
 	// ClientSecret The OAuth2 client secret.
-	ClientSecret *string `json:"clientSecret,omitempty"`
+	ClientSecret string `json:"clientSecret"`
 
 	// DisplayName Human-readable display name for the provider.
 	DisplayName *string `json:"displayName,omitempty"`
@@ -2133,7 +2133,7 @@ type K8sProviderSpec struct {
 	Enabled *bool `json:"enabled,omitempty"`
 
 	// OrganizationAssignment AuthOrganizationAssignment defines how users from this auth provider are assigned to organizations.
-	OrganizationAssignment AuthOrganizationAssignment `json:"organizationAssignment"`
+	OrganizationAssignment *AuthOrganizationAssignment `json:"organizationAssignment,omitempty"`
 
 	// ProviderType The type of authentication provider.
 	ProviderType K8sProviderSpecProviderType `json:"providerType"`
@@ -2142,7 +2142,7 @@ type K8sProviderSpec struct {
 	RbacNs *string `json:"rbacNs,omitempty"`
 
 	// RoleAssignment AuthRoleAssignment defines how roles are assigned to users from this auth provider.
-	RoleAssignment AuthRoleAssignment `json:"roleAssignment"`
+	RoleAssignment *AuthRoleAssignment `json:"roleAssignment,omitempty"`
 
 	// RoleSuffix Optional suffix to strip from ClusterRole names when normalizing role names. Used for multi-release deployments where ClusterRoles have namespace-specific names (e.g., flightctl-admin-<namespace>).
 	RoleSuffix *string `json:"roleSuffix,omitempty"`
@@ -2246,7 +2246,7 @@ type OAuth2ProviderSpec struct {
 	ClientId string `json:"clientId"`
 
 	// ClientSecret The OAuth2 client secret.
-	ClientSecret *string `json:"clientSecret,omitempty"`
+	ClientSecret string `json:"clientSecret"`
 
 	// DisplayName Human-readable display name for the provider.
 	DisplayName *string `json:"displayName,omitempty"`
@@ -2291,7 +2291,7 @@ type OIDCProviderSpec struct {
 	ClientId string `json:"clientId"`
 
 	// ClientSecret The OIDC client secret.
-	ClientSecret *string `json:"clientSecret,omitempty"`
+	ClientSecret string `json:"clientSecret"`
 
 	// DisplayName Human-readable display name for the provider.
 	DisplayName *string `json:"displayName,omitempty"`

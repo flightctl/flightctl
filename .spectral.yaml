@@ -297,7 +297,7 @@ rules:
         function: truthy
 
   responses-resource-get-allowed:
-    description: GET on a resource must not have responses other than 200, 401, 403, 404, 429, 503.
+    description: GET on a resource must not have responses other than 200, 400, 401, 403, 404, 429, 503.
     message: "Response {{property}} not allowed."
     severity: error
     given: "#PathToResource.get.responses.*~"
@@ -305,7 +305,7 @@ rules:
       field: "@key"
       function: enumeration
       functionOptions:
-        values: ["200", "401", "403", "404", "429", "503"]
+        values: ["200", "400", "401", "403", "404", "429", "503"]
 
   responses-resource-put-required:
     description: PUT on a resource must have responses 200, 201, 400, 401, 403, 404, 409, 429, 503.
@@ -395,7 +395,7 @@ rules:
         function: truthy
 
   responses-resource-delete-allowed:
-    description: DELETE on a resource must not have responses other than 200, 401, 403, 404, 409, 429, 503.
+    description: DELETE on a resource must not have responses other than 200, 400, 401, 403, 404, 409, 429, 503.
     message: "Response {{property}} not allowed."
     severity: error
     given: "#PathToResource.delete.responses.*~"
@@ -403,7 +403,7 @@ rules:
       field: "@key"
       function: enumeration
       functionOptions:
-        values: ["200", "401", "403", "404", "409", "429", "503"]
+        values: ["200", "400", "401", "403", "404", "409", "429", "503"]
 
   ## Allowed and required media types
   request-media-type-patch:
@@ -572,3 +572,16 @@ overrides:
       - "**#/paths/~1api~1v1~1imageexports~1%7Bname%7D~1log"
     rules:
       response-media-type-2xx: off
+  # Schema examples reference conditions whose ConditionType enum has intentional
+  # duplicates (same string for different resource kinds, see duplicated-entry-in-enum: off).
+  # oas3-valid-schema-example fails because JSON Schema rejects duplicate enum items.
+  # request-media-type-delete false-positives on example YAML keys.
+  - files:
+      - "**#/components/schemas/Repository"
+      - "**#/components/schemas/Device"
+      - "**#/components/schemas/EnrollmentRequest"
+      - "**#/components/schemas/ResourceSync"
+      - "**#/components/schemas/Catalog"
+    rules:
+      oas3-valid-schema-example: off
+      request-media-type-delete: off

@@ -1,0 +1,66 @@
+hooks = "core.v1alpha1.hooks"
+base-url = "${BASE_URL}"
+rate-limit = "400/m"
+suppress-health-check = ["filter_too_much"]
+continue-on-failure = true
+tls-verify = false
+request-timeout = 10.0
+headers = { Authorization = "Bearer ${SCHEMATHESIS_TOKEN}", "Flightctl-API-Version" = "v1alpha1" }
+
+[generation]
+mode = "positive"
+max-examples = 50
+deterministic = true
+allow-extra-parameters = false
+allow-x00 = false
+codec = "ascii"
+
+[phases.examples]
+enabled = true
+fill-missing = true
+
+[phases.coverage]
+enabled = false
+
+[phases.fuzzing]
+enabled = true
+
+[phases.stateful]
+enabled = true
+max-steps = 10
+
+[phases.stateful.inference]
+algorithms = ["location-headers", "dependency-analysis"]
+
+[checks.not_a_server_error]
+enabled = true
+
+[checks.use_after_free]
+enabled = false
+
+[checks.positive_data_acceptance]
+enabled = false
+
+[checks.ensure_resource_availability]
+enabled = true
+
+[[operations]]
+include-method = "PATCH"
+enabled = false
+
+[[operations]]
+include-path = "/enrollmentrequests/{name}/approval"
+[operations.checks.response_schema_conformance]
+enabled = false
+
+[reports.vcr]
+enabled = true
+
+[reports.har]
+enabled = true
+
+[reports.ndjson]
+enabled = true
+
+[output.sanitization]
+enabled = false

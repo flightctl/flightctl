@@ -235,7 +235,7 @@ func (s *Server) Run(ctx context.Context) error {
 		return fmt.Errorf("failed loading v1beta1 swagger spec: %w", err)
 	}
 	v1beta1OapiMiddleware := oapimiddleware.OapiRequestValidatorWithOptions(v1beta1Swagger, &oapimiddleware.Options{
-		ErrorHandler:          OapiErrorHandler,
+		ErrorHandler:          OapiErrorHandlerForVersion(versioning.V1Beta1),
 		MultiErrorHandler:     oapiMultiErrorHandler,
 		SilenceServersWarning: true, // Suppress Host header mismatch warnings
 	})
@@ -243,7 +243,12 @@ func (s *Server) Run(ctx context.Context) error {
 	routerV1Beta1 := versioning.NewRouter(versioning.RouterConfig{
 		Middlewares: []versioning.Middleware{v1beta1OapiMiddleware},
 		RegisterRoutes: func(r chi.Router) {
-			server.HandlerFromMux(&customTransportHandler{handlerV1Beta1}, r)
+			server.HandlerWithOptions(&customTransportHandler{handlerV1Beta1}, server.ChiServerOptions{
+				BaseRouter: r,
+				ErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
+					OapiErrorHandlerForVersion(versioning.V1Beta1)(w, err.Error(), http.StatusBadRequest)
+				},
+			})
 		},
 	})
 
@@ -253,7 +258,7 @@ func (s *Server) Run(ctx context.Context) error {
 		return fmt.Errorf("failed loading v1alpha1 swagger spec: %w", err)
 	}
 	v1alpha1OapiMiddleware := oapimiddleware.OapiRequestValidatorWithOptions(v1alpha1Swagger, &oapimiddleware.Options{
-		ErrorHandler:          OapiErrorHandler,
+		ErrorHandler:          OapiErrorHandlerForVersion(versioning.V1Alpha1),
 		MultiErrorHandler:     oapiMultiErrorHandler,
 		SilenceServersWarning: true,
 	})
@@ -266,7 +271,12 @@ func (s *Server) Run(ctx context.Context) error {
 	routerV1Alpha1 := versioning.NewRouter(versioning.RouterConfig{
 		Middlewares: []versioning.Middleware{v1alpha1OapiMiddleware},
 		RegisterRoutes: func(r chi.Router) {
-			serverv1alpha1.HandlerFromMux(handlerV1Alpha1, r)
+			serverv1alpha1.HandlerWithOptions(handlerV1Alpha1, serverv1alpha1.ChiServerOptions{
+				BaseRouter: r,
+				ErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
+					OapiErrorHandlerForVersion(versioning.V1Alpha1)(w, err.Error(), http.StatusBadRequest)
+				},
+			})
 		},
 	})
 
@@ -300,7 +310,7 @@ func (s *Server) Run(ctx context.Context) error {
 		// Auth validate with stricter rate limiting (separate group)
 		// This ensures it gets all the necessary middleware with stricter rate limiting
 		r.Group(func(r chi.Router) {
-			// Add conditional middleware
+			r.Use(negotiator.NegotiateMiddleware)
 			r.Use(v1beta1OapiMiddleware)
 			r.Use(identityMappingMiddleware.MapIdentityToDB) // Map identity to DB objects AFTER authentication
 			ConfigureRateLimiterFromConfig(
@@ -313,7 +323,7 @@ func (s *Server) Run(ctx context.Context) error {
 				Handler:            handlerV1Beta1,
 				HandlerMiddlewares: nil,
 				ErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
-					OapiErrorHandler(w, err.Error(), http.StatusBadRequest)
+					OapiErrorHandlerForVersion(versioning.V1Beta1)(w, err.Error(), http.StatusBadRequest)
 				},
 			}
 			r.Get("/auth/validate", wrapper.AuthValidate)

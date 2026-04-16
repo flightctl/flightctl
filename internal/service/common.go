@@ -95,6 +95,7 @@ func validateAgainstSchema(ctx context.Context, obj []byte, objPath string, getS
 		Request:    httpReq,
 		PathParams: pathParams,
 		Route:      route,
+		Options:    &openapi3filter.Options{ExcludeReadOnlyValidations: true},
 	}
 	return openapi3filter.ValidateRequest(ctx, requestValidationInput)
 }
@@ -143,6 +144,7 @@ var badRequestErrors = map[error]bool{
 	flterrors.ErrLabelSelectorParseFailed:      true,
 	flterrors.ErrAnnotationSelectorSyntax:      true,
 	flterrors.ErrAnnotationSelectorParseFailed: true,
+	flterrors.ErrUnsupportedUnicode:            true,
 }
 
 var conflictErrors = map[error]bool{

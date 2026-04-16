@@ -264,7 +264,12 @@ func TestPeriodicTaskConsumer_ContextCanceled(t *testing.T) {
 
 	consumerCtx, consumerCancel := context.WithCancel(context.Background())
 	defer consumerCancel()
-	go consumer.Run(consumerCtx)
+
+	consumerDone := make(chan struct{})
+	go func() {
+		defer close(consumerDone)
+		consumer.Run(consumerCtx)
+	}()
 
 	taskRef := createTaskReference(PeriodicTaskTypeRepositoryTester)
 	err = channelManager.PublishTask(ctx, taskRef)
@@ -275,14 +280,20 @@ func TestPeriodicTaskConsumer_ContextCanceled(t *testing.T) {
 		return mockExecutor.GetExecuteCallCount() == 1
 	}, 1*time.Second, 10*time.Millisecond)
 
+	// Wait for all consumer goroutines to exit before publishing more work,
+	// otherwise a goroutine may select the task channel over ctx.Done().
 	consumerCancel()
+	select {
+	case <-consumerDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("consumer did not stop in time")
+	}
 
+	// All goroutines have exited — no one is alive to dequeue this.
 	taskRef2 := createTaskReference(PeriodicTaskTypeRepositoryTester)
 	err = channelManager.PublishTask(ctx, taskRef2)
-	require.NoError(t, err) // Publishing should succeed
+	require.NoError(t, err)
 
-	// Wait a bit and verify no additional tasks were processed
-	time.Sleep(100 * time.Millisecond)
 	finalCount := mockExecutor.GetExecuteCallCount()
 	require.Equal(t, 1, finalCount, "no additional tasks should be processed after stopping consumer")
 }
