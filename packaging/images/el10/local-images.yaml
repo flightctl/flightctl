@@ -23,7 +23,8 @@ db-setup:
   image: flightctl-db-setup-el10
   tag: latest
 ui:
-  image: flightctl-ui-el10
+  # UI images are built from flightctl-ui repo
+  image: quay.io/flightctl/flightctl-ui-el10
   tag: latest
 db:
   # Using CentOS Stream 10 PostgreSQL for EL10 flavor

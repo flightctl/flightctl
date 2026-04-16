@@ -23,7 +23,8 @@ db-setup:
   image: flightctl-db-setup-el9
   tag: latest
 ui:
-  image: flightctl-ui-el9
+  # UI images are built from flightctl-ui repo
+  image: quay.io/flightctl/flightctl-ui-el9
   tag: latest
 db:
   image: quay.io/sclorg/postgresql-16-c9s
