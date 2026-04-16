@@ -154,6 +154,9 @@ func (a *Agent) Run(ctx context.Context) error {
 		}
 		a.log.Infof("CSR generated and persisted successfully")
 	} else {
+		if err := identity.ValidateCSRIdentity(csr, deviceName); err != nil {
+			return fmt.Errorf("persisted CSR identity mismatch: %w", err)
+		}
 		a.log.Infof("Using persisted CSR for enrollment")
 	}
 

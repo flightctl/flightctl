@@ -150,6 +150,27 @@ func StoreCSR(rw fileio.ReadWriter, csrPath string, csr []byte) error {
 	return rw.WriteFile(csrPath, csr, 0600)
 }
 
+// ValidateCSRIdentity checks that the Subject CN in the persisted CSR matches
+// the current device name. A mismatch indicates inconsistent identity state
+// (e.g., keys were regenerated but a stale CSR was left on disk).
+func ValidateCSRIdentity(csrBytes []byte, deviceName string) error {
+	standardCSR, _, err := tpm.NormalizeEnrollmentCSR(string(csrBytes))
+	if err != nil {
+		return fmt.Errorf("extracting standard CSR: %w", err)
+	}
+
+	parsed, err := fccrypto.ParseCSR(standardCSR)
+	if err != nil {
+		return fmt.Errorf("parsing CSR: %w", err)
+	}
+
+	if parsed.Subject.CommonName != deviceName {
+		return fmt.Errorf("persisted CSR CN %q does not match device name %q", parsed.Subject.CommonName, deviceName)
+	}
+
+	return nil
+}
+
 func LoadCSR(rw fileio.ReadWriter, csrPath string) ([]byte, bool, error) {
 	exists, err := rw.PathExists(csrPath)
 	if err != nil {
