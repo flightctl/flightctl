@@ -183,7 +183,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 
 	// create os client
-	osClient := os.NewClient(a.log, exec)
+	osClient := os.NewClient(a.log, exec, rootReadWriter)
 
 	// create podman client
 	podmanClientFactory := client.NewPodmanFactory(a.log, pollBackoff, rwFactory)

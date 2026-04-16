@@ -16,6 +16,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/config"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	deviceos "github.com/flightctl/flightctl/internal/agent/device/os"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/agent/device/systeminfo/common"
 	"github.com/flightctl/flightctl/pkg/executer"
@@ -28,7 +29,6 @@ const (
 	sysClassNetDir   = "/sys/class/net"
 	dmiClassPath     = "/sys/class/dmi/id"
 	pciDevicesPath   = "/sys/bus/pci/devices"
-	osReleasePath    = "/etc/os-release"
 	resolveConfPath  = "/etc/resolv.conf"
 	cpuInfoPath      = "/proc/cpuinfo"
 	memInfoPath      = "/proc/meminfo"
@@ -857,44 +857,29 @@ func collectSystemInfo(reader fileio.Reader) (*SystemInfo, error) {
 func collectDistributionInfo(ctx context.Context, reader fileio.Reader) (map[string]interface{}, error) {
 	distro := make(map[string]interface{})
 
-	if _, err := os.Stat(reader.PathFor(osReleasePath)); err == nil {
-		data, err := reader.ReadFile(osReleasePath)
-		if err != nil {
-			return nil, err
-		}
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
 
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		default:
-			lines := strings.Split(string(data), "\n")
-			for _, line := range lines {
-				line = strings.TrimSpace(line)
-				if line == "" {
-					continue
-				}
+	osInfo, err := deviceos.ParseOSRelease(reader)
+	if err != nil {
+		return distro, nil
+	}
 
-				parts := strings.SplitN(line, "=", 2)
-				if len(parts) != 2 {
-					continue
-				}
+	// Map the ParseOSRelease keys to the lowercase keys expected by callers.
+	keyMap := map[string]string{
+		"NAME":        "name",
+		"VERSION":     "version",
+		"ID":          "id",
+		"VERSION_ID":  "version_id",
+		"PRETTY_NAME": "pretty_name",
+	}
 
-				key := parts[0]
-				value := strings.Trim(parts[1], "\"")
-
-				switch key {
-				case "NAME":
-					distro["name"] = value
-				case "VERSION":
-					distro["version"] = value
-				case "ID":
-					distro["id"] = value
-				case "VERSION_ID":
-					distro["version_id"] = value
-				case "PRETTY_NAME":
-					distro["pretty_name"] = value
-				}
-			}
+	for osKey, distroKey := range keyMap {
+		if value, ok := osInfo[osKey]; ok {
+			distro[distroKey] = value
 		}
 	}
 
