@@ -1,0 +1,50 @@
+name: "PR backport labels"
+
+on:
+  pull_request:
+    branches:
+      - main
+    types: [opened, reopened, synchronize, labeled, unlabeled, edited]
+  merge_group:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  backport-labels:
+    name: Backport labels
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require backport intent labels
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const noneLabel = 'backport: none';
+            const releaseRe = /^backport: release-/;
+            const labels = context.payload.pull_request.labels.map((l) => l.name);
+            const hasNone = labels.includes(noneLabel);
+            const releaseLabels = labels.filter((n) => releaseRe.test(n));
+            if (hasNone && releaseLabels.length > 0) {
+              core.setFailed(
+                `Cannot combine "${noneLabel}" with release backport labels (found: ${releaseLabels.join(', ')}).`,
+              );
+              return;
+            }
+            if (hasNone) {
+              console.log(`Label "${noneLabel}" present — no release backport.`);
+              return;
+            }
+            if (releaseLabels.length > 0) {
+              console.log(`Backport intent: ${releaseLabels.join(', ')}`);
+              return;
+            }
+            core.setFailed(
+              'Add either the "backport: none" label or at least one "backport: release-*" label before merge.',
+            );
+
+      - name: Merge queue (label check skipped here)
+        if: github.event_name == 'merge_group'
+        run: |
+          echo "Merge queue: backport labels were validated on the pull request before entering the queue."
