@@ -421,16 +421,20 @@ func (cfg *Config) LoadWithOverrides(configFile string) error {
 	}
 	sort.Strings(yamlFiles)
 
-	// Apply drop-ins in order (later files override earlier ones)
+	// Apply drop-ins in order (later files override earlier ones).
+	// Invalid drop-ins are skipped with a warning so the agent can still
+	// start and perform spec rollback if needed.
 	for _, filename := range yamlFiles {
 		overrideCfg := &Config{}
 		overridePath := filepath.Join(confSubdir, filename)
 		contents, err := cfg.readWriter.ReadFile(overridePath)
 		if err != nil {
-			return fmt.Errorf("reading override config %s: %w", overridePath, err)
+			logrus.Warnf("Skipping unreadable override config %s: %v", overridePath, err)
+			continue
 		}
 		if err := yaml.Unmarshal(contents, overrideCfg); err != nil {
-			return fmt.Errorf("unmarshalling override config %s: %w", overridePath, err)
+			logrus.Warnf("Skipping invalid override config %s: %v", overridePath, err)
+			continue
 		}
 		mergeConfigs(cfg, overrideCfg)
 	}
