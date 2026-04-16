@@ -87,6 +87,13 @@ enrollment-service:
 
 ### Building the OS Image (bootc)
 
+Flight Control supports building OS images based on Enterprise Linux 9 and Enterprise Linux 10. Choose the base image that matches your target deployment requirements:
+
+- **CentOS Stream 9**: `quay.io/centos-bootc/centos-bootc:stream9` (EL9)
+- **CentOS Stream 10**: `quay.io/centos-bootc/centos-bootc:stream10` (EL10)
+
+#### Example: CentOS Stream 9 (EL9)
+
 Create a file named `Containerfile` with the following content to build an OS image based on CentOS Stream 9 that includes the Flight Control agent and configuration:
 
 ```console
@@ -128,7 +135,9 @@ sudo podman build -t ${OCI_IMAGE_REPO}:${OCI_IMAGE_TAG} .
 
 #### Using RHEL base images
 
-When using Flight Control with a RHEL 9 base image, you need to make a few changes to the `Containerfile`, specifically you need to disable RHEL's default automatic updates and use a different command to enable the EPEL repository in case you need `podman-compose`:
+Flight Control supports both RHEL 9 and RHEL 10 base images. When using RHEL base images, you need to disable RHEL's default automatic updates and use a different command to enable the EPEL repository in case you need `podman-compose`:
+
+**RHEL 9 Example:**
 
 ```console
 FROM registry.redhat.io/rhel9/rhel-bootc:9.5
@@ -150,8 +159,7 @@ ADD config.yaml /etc/flightctl/
 ```
 
 > [!IMPORTANT]
-> To build RHEL-based bootc images, the build host itself must be a registered RHEL or Fedora system
-> that has access to Red Hat content through subscription-manager.
+> RHEL-based bootc images require a registered RHEL/Fedora build host with Red Hat subscription access.
 >
 > You also need to log in to the Red Hat registry before building your image:
 >
@@ -384,7 +392,7 @@ When building an OS image and disk image for OpenShift Virtualization, follow th
 3. Build a disk image of type "qcow2" instead of type "iso".
 4. Optional: Upload the disk image to an OCI registry as a container disk.
 
-Create a file named `Containerfile` with the following content to build an OS image based on CentOS Stream 9 that includes the Flight Control agent and VM guest tools, but no agent configuration:
+Create a file named `Containerfile` with the following content to build an OS image that includes the Flight Control agent and VM guest tools, but no agent configuration. This example uses CentOS Stream 9, but you can substitute `stream10` for EL10 support:
 
 ```console
 FROM quay.io/centos-bootc/centos-bootc:stream9
@@ -459,7 +467,7 @@ When building OS images and disk images for VMware vSphere, follow the [generic 
 2. Add the `open-vm-tools` guest tools to the image.
 3. Build a disk image of type "vmdk" instead of type "iso".
 
-Create a file named `Containerfile` with the following content to build an OS image based on CentOS Stream 9 that includes the Flight Control agent and VM guest tools, but no agent configuration:
+Create a file named `Containerfile` with the following content to build an OS image that includes the Flight Control agent and VM guest tools, but no agent configuration. This example uses CentOS Stream 9, but you can substitute `stream10` for EL10 support:
 
 ```console
 FROM quay.io/centos-bootc/centos-bootc:stream9
