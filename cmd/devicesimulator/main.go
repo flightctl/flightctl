@@ -105,12 +105,8 @@ func main() {
 		}
 	}
 
-	log := flightlog.InitLogs(*logLevel)
-	if log == nil {
-		fmt.Fprintf(os.Stderr, "Invalid log level: %s\n\n", *logLevel)
-		printUsage()
-		os.Exit(1)
-	}
+	log := flightlog.InitLogs()
+	log.SetLevel(config.LogLevel(*logLevel).ToLevelWithDefault(logrus.DebugLevel))
 
 	// Disable console banner for all simulated agents
 	if err := os.Setenv("FLIGHTCTL_DISABLE_CONSOLE_BANNER", "true"); err != nil {

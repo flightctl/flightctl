@@ -4,14 +4,12 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"os"
-	"os/signal"
-	"syscall"
 	"time"
 
 	apiserver "github.com/flightctl/flightctl/internal/api_server"
 	"github.com/flightctl/flightctl/internal/api_server/agentserver"
 	"github.com/flightctl/flightctl/internal/api_server/middleware"
+	"github.com/flightctl/flightctl/internal/cmdsetup"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics"
@@ -22,7 +20,6 @@ import (
 	"github.com/flightctl/flightctl/internal/rendered"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/util"
-	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
@@ -30,17 +27,11 @@ import (
 
 //nolint:gocyclo
 func main() {
-	ctx := context.Background()
+	ctx, cfg, log, shutdown := cmdsetup.InitService(context.Background(), "api")
+	defer shutdown()
 
-	cfg, err := config.LoadOrGenerate(config.ConfigFile())
-	if err != nil {
-		log.InitLogs().Fatalf("reading configuration: %v", err)
-	}
-
-	log := log.InitLogs(cfg.Service.LogLevel)
-	log.Println("Starting API service")
-	defer log.Println("API service stopped")
-	log.Printf("Using config: %s", cfg)
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 
 	ca, err := crypto.LoadInternalCA(cfg.CA)
 	if err != nil {
@@ -52,13 +43,6 @@ func main() {
 	if err != nil {
 		log.Fatalf("loading server certificates: %v", err)
 	}
-
-	tracerShutdown := tracing.InitTracer(log, cfg, "flightctl-api")
-	defer func() {
-		if err := tracerShutdown(ctx); err != nil {
-			log.Fatalf("failed to shut down tracer: %v", err)
-		}
-	}()
 
 	log.Println("Initializing data store")
 	db, err := store.InitDB(cfg, log)
@@ -73,8 +57,6 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed creating TLS config: %v", err)
 	}
-
-	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGQUIT)
 
 	processID := fmt.Sprintf("api-%s-%s", util.GetHostname(), uuid.New().String())
 	provider, err := queues.NewRedisProvider(ctx, log, processID, cfg.KV.Hostname, cfg.KV.Port, cfg.KV.Password, queues.DefaultRetryConfig())
@@ -162,8 +144,8 @@ func main() {
 		go func() {
 			if err := tracing.RunMetricsServer(ctx, log, cfg.Metrics.Address, collectors...); err != nil {
 				log.Errorf("Error running metrics server: %s", err)
+				cancel()
 			}
-			cancel()
 		}()
 	}
 

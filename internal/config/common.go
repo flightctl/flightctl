@@ -92,3 +92,14 @@ func LoadServerCertificates(cfg *Config, log *logrus.Logger) (*crypto.TLSCertifi
 
 	return serverCerts, nil
 }
+
+// String equivalent of logrus' log levels for use in config.
+type LogLevel string
+
+// ToLevelWithDefault returns the level parsed, or the default if it fails to parse.
+func (l LogLevel) ToLevelWithDefault(def logrus.Level) (out logrus.Level) {
+	if err := out.UnmarshalText([]byte(l)); err != nil {
+		return def
+	}
+	return out
+}

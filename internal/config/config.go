@@ -121,7 +121,7 @@ type svcConfig struct {
 	ServerCertName         string           `json:"serverCertName,omitempty"`
 	ServerCertValidityDays int              `json:"serverCertValidityDays,omitempty"`
 	AltNames               []string         `json:"altNames,omitempty"`
-	LogLevel               string           `json:"logLevel,omitempty"`
+	LogLevel               LogLevel         `json:"logLevel,omitempty"`
 	HttpReadTimeout        util.Duration    `json:"httpReadTimeout,omitempty"`
 	HttpReadHeaderTimeout  util.Duration    `json:"httpReadHeaderTimeout,omitempty"`
 	HttpWriteTimeout       util.Duration    `json:"httpWriteTimeout,omitempty"`
@@ -148,7 +148,7 @@ type HealthChecks struct {
 
 type ImageBuilderServiceConfig struct {
 	Address               string           `json:"address,omitempty"`
-	LogLevel              string           `json:"logLevel,omitempty"`
+	LogLevel              LogLevel         `json:"logLevel,omitempty"`
 	TLSCertFile           string           `json:"tlsCertFile,omitempty"`
 	TLSKeyFile            string           `json:"tlsKeyFile,omitempty"`
 	InsecureSkipTlsVerify bool             `json:"insecureSkipTlsVerify,omitempty"`
@@ -182,7 +182,7 @@ const (
 )
 
 type imageBuilderWorkerConfig struct {
-	LogLevel                 string               `json:"logLevel,omitempty"`
+	LogLevel                 LogLevel             `json:"logLevel,omitempty"`
 	MaxConcurrentBuilds      int                  `json:"maxConcurrentBuilds,omitempty"`
 	DefaultTTL               util.Duration        `json:"defaultTTL,omitempty"`
 	ServiceImages            *serviceImagesConfig `json:"serviceImages,omitempty"`
@@ -438,7 +438,7 @@ type organizationsConfig struct {
 }
 
 type telemetryGatewayConfig struct {
-	LogLevel string                    `json:"logLevel,omitempty"`
+	LogLevel LogLevel                  `json:"logLevel,omitempty"`
 	TLS      telemetryGatewayTLSConfig `json:"tls,omitempty"`
 	Listen   telemetryGatewayListen    `json:"listen,omitempty"`
 	Export   *telemetryGatewayExport   `json:"export,omitempty"`

@@ -5,41 +5,22 @@ import (
 	"fmt"
 
 	"github.com/flightctl/flightctl/internal/alert_exporter"
-	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/cmdsetup"
 	"github.com/flightctl/flightctl/internal/consts"
-	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/org/cache"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/internal/worker_client"
-	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/google/uuid"
 )
 
 func main() {
-	ctx := context.Background()
+	ctx, cfg, log, shutdown := cmdsetup.InitService(context.Background(), "alert-exporter")
+	defer shutdown()
 
-	cfg, err := config.LoadOrGenerate(config.ConfigFile())
-	if err != nil {
-		log.InitLogs().Fatalf("reading configuration: %v", err)
-	}
-
-	log := log.InitLogs(cfg.Service.LogLevel)
-	log.Println("Starting alert exporter")
-	log.Printf("Using config: %s", cfg)
-
-	tracerShutdown := tracing.InitTracer(log, cfg, "flightctl-alert-exporter")
-	defer func() {
-		if err := tracerShutdown(ctx); err != nil {
-			log.Fatalf("failed to shut down tracer: %v", err)
-		}
-	}()
-
-	ctx = context.WithValue(ctx, consts.EventSourceComponentCtxKey, "flightctl-alert-exporter")
-	ctx = context.WithValue(ctx, consts.EventActorCtxKey, "service:flightctl-alert-exporter")
 	ctx = context.WithValue(ctx, consts.InternalRequestCtxKey, true)
 
 	log.Println("Initializing data store")

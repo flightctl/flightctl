@@ -5,11 +5,9 @@ import (
 	"errors"
 	"flag"
 
-	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/cmdsetup"
 	imagebuilderstore "github.com/flightctl/flightctl/internal/imagebuilder_api/store"
-	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/store"
-	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
@@ -24,17 +22,12 @@ func runImageBuildMigrations(ctx context.Context, db *gorm.DB, log logrus.FieldL
 var errDryRunComplete = errors.New("dry-run complete")
 
 func main() {
-	cfg, err := config.LoadOrGenerate(config.ConfigFile())
-	if err != nil {
-		log.InitLogs().WithError(err).Fatal("reading configuration")
-	}
-
-	log := log.InitLogs(cfg.Service.LogLevel)
+	ctx, cfg, log, shutdown := cmdsetup.InitService(context.Background(), "db-migrate")
+	defer shutdown()
 
 	dryRun := flag.Bool("dry-run", false, "Validate migrations without committing any changes")
 	flag.Parse()
 
-	ctx := context.Background()
 	// Bypass span check for migration operations
 	ctx = store.WithBypassSpanCheck(ctx)
 
@@ -44,15 +37,6 @@ func main() {
 	}
 	log.Info(startMsg)
 	defer log.Info("Flight Control database migration completed")
-
-	log.Infof("Using config: %s", cfg)
-
-	tracerShutdown := tracing.InitTracer(log, cfg, "flightctl-db-migrate")
-	defer func() {
-		if err = tracerShutdown(ctx); err != nil {
-			log.WithError(err).Fatal("failed to shut down tracer")
-		}
-	}()
 
 	log.Info("Initializing migration database connection")
 	migrationDB, err := store.InitMigrationDB(cfg, log)
