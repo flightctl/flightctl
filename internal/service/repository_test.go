@@ -28,7 +28,7 @@ func newOciAuth(username, password string) *domain.OciAuth {
 func testRepositoryPatch(require *require.Assertions, patch domain.PatchRequest) (*domain.Repository, domain.Repository, domain.Status) {
 	spec := domain.RepositorySpec{}
 	err := spec.FromGitRepoSpec(domain.GitRepoSpec{
-		Url:  "foo",
+		Url:  "https://github.com/example/repo.git",
 		Type: domain.GitRepoSpecTypeGit,
 	})
 	require.NoError(err)
