@@ -21,7 +21,7 @@ const (
 // Console test-suite
 // -----------------------------------------------------------------------------
 
-var _ = Describe("CLI - device console", func() {
+var _ = Describe("CLI - device console", Label("sanity-github"), func() {
 	var (
 		deviceID string
 	)

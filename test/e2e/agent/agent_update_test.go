@@ -68,7 +68,7 @@ var _ = Describe("VM Agent behavior during updates", Label("agent-update"), func
 			GinkgoWriter.Printf("Device updated to new image 🎉\n")
 		})
 
-		It("Should update to v4 with embedded application", Label("77671", "sanity", "agent"), func() {
+		It("Should update to v4 with embedded application", Label("77671", "sanity", "sanity-github", "agent"), func() {
 			// Get harness directly - no shared package-level variable
 			harness := e2e.GetWorkerHarness()
 
@@ -219,7 +219,7 @@ var _ = Describe("VM Agent behavior during updates", Label("agent-update"), func
 			Expect(err).NotTo(HaveOccurred())
 			Expect(finalVersion).To(Equal(expectedVersion))
 		})
-		It("Should rollback when updating to a broken image", Label("82481", "sanity", "agent"), func() {
+		It("Should rollback when updating to a broken image", Label("82481", "sanity", "sanity-github", "agent"), func() {
 			harness := e2e.GetWorkerHarness()
 
 			expectedVersion, err := harness.GetCurrentDeviceRenderedVersion(deviceId)
@@ -270,7 +270,7 @@ var _ = Describe("VM Agent behavior during updates", Label("agent-update"), func
 				return device.Status.Updated.Status == v1beta1.DeviceUpdatedStatusOutOfDate
 			}, TIMEOUT)
 		})
-		It("Should trigger greenboot rollback when agent fails to start", Label("greenboot-rollback", "87279", "greenboot-rollback-recovery", "sanity", "agent"), func() {
+		It("Should trigger greenboot rollback when agent fails to start", Label("greenboot-rollback", "87279", "greenboot-rollback-recovery", "sanity", "sanity-github", "agent"), func() {
 			harness := e2e.GetWorkerHarness()
 			initialStatusImage, postRollbackBootID := waitForGreenbootOSRollbackFromV11BrokenAgent(harness, deviceId, false)
 

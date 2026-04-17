@@ -41,7 +41,7 @@ func EntryCase(desc string, args []string, shouldMatch bool, expected string) te
 	}
 }
 
-var _ = Describe("Field Selectors in Flight Control", func() {
+var _ = Describe("Field Selectors in Flight Control", Label("sanity-github"), func() {
 	var (
 		deviceInfo    v1beta1.Device
 		deviceBInfo   v1beta1.Device

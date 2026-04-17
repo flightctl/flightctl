@@ -134,7 +134,7 @@ var _ = Describe("Quadlets application type support", Label("quadlets"), func() 
 
 	Context("Image provider and OCI artifacts", func() {
 		// Test plan 4.2: Image provider can extract and deploy Quadlet files from OCI artifacts
-		It("verifies that we can create single or multiple files artifacts (also compressed) packaged in an image and install them in an EM device", Label("86280", "sanity"), func() {
+		It("verifies that we can create single or multiple files artifacts (also compressed) packaged in an image and install them in an EM device", Label("86280", "sanity", "sanity-github"), func() {
 			By("Adding quadlet app with image ref (multi-file artifact)")
 			appSpec, err := harness.QuadletImageAppSpec(quadletAppNameOCI,
 				"quay.io/flightctl-tests/quadlet-test/quadlet-app-artifact:with-image-ref",

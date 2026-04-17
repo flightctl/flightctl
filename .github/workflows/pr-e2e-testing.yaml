@@ -6,7 +6,7 @@ on:
       label_filter:
         description: 'Ginkgo label filter expression to filter e2e tests'
         required: false
-        default: 'sanity'
+        default: 'sanity-github'
         type: string
   push:
     branches:
@@ -121,9 +121,9 @@ jobs:
     strategy:
       matrix:
         include:
-          - label_filter: 'sanity && !agent'
-          - label_filter: 'sanity && agent && !slow'
-          - label_filter: 'sanity && agent && slow'
+          - label_filter: 'sanity-github && !agent'
+          - label_filter: 'sanity-github && agent && !slow'
+          - label_filter: 'sanity-github && agent && slow'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -192,26 +192,26 @@ jobs:
           ## CS9
           - os_id: cs9-bootc
             backend_type: helm
-            label_filter: 'sanity && !agent'
+            label_filter: 'sanity-github && !agent'
             ginkgo_total_nodes: 2
           # Agent metrics
           ## CS9 Agent metrics
           - os_id: cs9-bootc
             backend_type: helm
-            label_filter: 'sanity && agent && !slow'
+            label_filter: 'sanity-github && agent && !slow'
             ginkgo_total_nodes: 2
           - os_id: cs9-bootc
             backend_type: helm
-            label_filter: 'sanity && agent && slow'
+            label_filter: 'sanity-github && agent && slow'
             ginkgo_total_nodes: 2
           ## CS10 Agent metrics
           - os_id: cs10-bootc
             backend_type: helm
-            label_filter: 'sanity && agent && !slow'
+            label_filter: 'sanity-github && agent && !slow'
             ginkgo_total_nodes: 2
           - os_id: cs10-bootc
             backend_type: helm
-            label_filter: 'sanity && agent && slow'
+            label_filter: 'sanity-github && agent && slow'
             ginkgo_total_nodes: 2
     uses: ./.github/workflows/run-e2e-tests.yaml
     with:

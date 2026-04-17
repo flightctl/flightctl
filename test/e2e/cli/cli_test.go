@@ -45,7 +45,7 @@ type fleetTestManager struct {
 }
 
 // _ is a blank identifier used to ignore values or expressions, often applied to satisfy interface or assignment requirements.
-var _ = Describe("cli operation", func() {
+var _ = Describe("cli operation", Label("sanity-github"), func() {
 	Context("apply/fleet", func() {
 		It("Resources creation validations work well", Label("77667", "sanity", "client"), func() {
 			// Get harness directly - no shared package-level variable
@@ -692,7 +692,7 @@ var _ = Describe("cli operation", func() {
 
 })
 
-var _ = Describe("cli login", func() {
+var _ = Describe("cli login", Label("sanity-github"), func() {
 
 	Context("login validation", func() {
 
